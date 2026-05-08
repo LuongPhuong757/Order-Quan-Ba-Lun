@@ -1,0 +1,54 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Build output
+dist/
+build/
+out/
+.next/
+.nuxt/
+.turbo/
+
+# Env / secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Test artifacts
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+
+# VGFlow runtime (do not commit; tracks ephemeral run state)
+.vg/runs/
+.vg/active-runs/
+.vg/.project-draft.json
+.vg/.foundation-for-config.json
+.vg/.project-scan.json
+.vg/PIPELINE-STATE.json
+**/.tmp/
+**/.step-markers/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+Thumbs.db

@@ -1,0 +1,498 @@
+---
+name: vg:deploy
+description: Standalone deploy skill — multi-env (sandbox/staging/prod), writes deployed.{env} block to DEPLOY-STATE.json. Optional step between /vg:build and /vg:review/test/roam. Suggestion-only consumers downstream — this skill produces the data; runtime gates use it to recommend env via enrich-env-question.py.
+argument-hint: "<phase> [--envs=sandbox,staging,prod] [--all-envs] [--dry-run] [--non-interactive] [--prod-confirm-token=DEPLOY-PROD-{phase}] [--allow-build-incomplete] [--pre-test]"
+allowed-tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+  - AskUserQuestion
+  - TodoWrite
+runtime_contract:
+  must_write:
+    - "${PHASE_DIR}/DEPLOY-STATE.json"
+  must_touch_markers:
+    - "0_parse_and_validate"
+    - "0a_env_select_and_confirm"
+    - "1_deploy_per_env"
+    - "2_persist_summary"
+    - "complete"
+  must_emit_telemetry:
+    - event_type: "phase.deploy_started"
+      phase: "${PHASE_NUMBER}"
+    - event_type: "phase.deploy_completed"
+      phase: "${PHASE_NUMBER}"
+    # Task 44b — tasklist projection enforcement (Bug L)
+    - event_type: "deploy.tasklist_shown"
+      phase: "${PHASE_NUMBER}"
+    - event_type: "deploy.native_tasklist_projected"
+      phase: "${PHASE_NUMBER}"
+    - event_type: "deploy.tasklist_projection_skipped"
+      phase: "${PHASE_NUMBER}"
+      severity: "warn"
+    - event_type: "deploy.tasklist_evidence_run_mismatch"
+      phase: "${PHASE_NUMBER}"
+      severity: "warn"
+    - event_type: "deploy.tasklist_depth_invalid"
+      phase: "${PHASE_NUMBER}"
+      severity: "warn"
+    - event_type: "deploy.tasklist_block_handled_unresolved"
+      phase: "${PHASE_NUMBER}"
+      severity: "warn"
+  forbidden_without_override:
+    - "--allow-build-incomplete"
+---
+
+<HARD-GATE>
+You MUST follow STEP 0 through `complete` in exact order. Each step is gated
+by hooks. Skipping ANY step will be blocked by PreToolUse + Stop hooks.
+
+You MUST call TodoWrite IMMEDIATELY after STEP 0 (`0_parse_and_validate`)
+runs `emit-tasklist.py` — DO NOT continue without it. The PreToolUse Bash
+hook will block all subsequent step-active calls until signed evidence
+exists at `.vg/runs/<run_id>/.tasklist-projected.evidence.json`. The
+PostToolUse TodoWrite hook auto-writes that signed evidence.
+
+TodoWrite MUST include sub-items (`↳` prefix) for each group header;
+flat projection (group-headers only) is rejected by the PostToolUse
+depth check (Task 44b Rule V2 — `depth_valid=false` evidence triggers
+the PreToolUse depth gate).
+</HARD-GATE>
+
+<rules>
+1. **Build must be complete** — PIPELINE-STATE.steps.build.status ∈ {accepted, tested, reviewed, built-with-debt, built-complete}. Otherwise BLOCK (override: `--allow-build-incomplete` logs override-debt).
+2. **Multi-env supported, sequential execution** — each env runs after the previous completes. Parallel would risk infrastructure contention (shared SSH connection, same DB seed, etc).
+3. **Prod requires explicit confirmation** — separate AskUserQuestion 3-option danger gate (PROCEED / NON-PROD-ONLY / ABORT). For non-interactive runs, `--prod-confirm-token=DEPLOY-PROD-{phase}` must match exactly.
+4. **Per-env failure handling** — DOES NOT auto-abort remaining envs. Ask user continue/skip-failed/abort-all. Failed env writes `health: "failed"` + error log.
+5. **DEPLOY-STATE.json merges** — preserves `preferred_env_for` (set by /vg:scope step 1b), `preferred_env_for_skipped` flag, and any unrelated future keys. Only `deployed.{env}` block is rewritten per run.
+6. **Rollback hint** — capture `previous_sha` from existing `deployed.{env}.sha` BEFORE overwriting. Future `/vg:rollback` consumer reads this.
+7. **--dry-run** prints commands but doesn't execute. Useful for verifying config + flags before real deploy.
+</rules>
+
+<objective>
+Standalone optional skill bridging /vg:build → /vg:review/test/roam. User
+runs `/vg:deploy <phase>` after build, picks one or more envs, this skill
+runs the canonical deploy sequence per env (build → restart → health) on
+that target, captures SHA + timestamp + health into
+`${PHASE_DIR}/DEPLOY-STATE.json` `deployed.{env}` block.
+
+Downstream env gates (review/test/roam step 0a) read this state via
+`enrich-env-question.py` (B1) and surface "deployed Nmin ago, sha XXXX"
+evidence in the AskUserQuestion options. The pipeline becomes:
+
+```
+specs → scope → blueprint → build → [DEPLOY] → review → test → [roam] → accept
+                                       ↑                  ↑      ↑       ↑
+                                   writes              all read DEPLOY-STATE
+                                   DEPLOY-STATE        for env recommendation
+```
+
+This skill never auto-picks env at runtime gates — those still fire
+AskUserQuestion. /vg:deploy just feeds the suggestion data layer.
+</objective>
+
+<process>
+
+<step name="0_parse_and_validate">
+## Step 0 — Parse args, validate prerequisites
+
+```bash
+PHASE_NUMBER=$(echo "${ARGUMENTS}" | awk '{print $1}')
+[ -z "$PHASE_NUMBER" ] && { echo "⛔ Usage: /vg:deploy <phase> [flags]"; exit 1; }
+
+# Resolve phase dir (zero-padding tolerant)
+source "${REPO_ROOT:-.}/.claude/commands/vg/_shared/lib/phase-resolver.sh" 2>/dev/null || true
+if type -t resolve_phase_dir >/dev/null 2>&1; then
+  PHASE_DIR=$(resolve_phase_dir "$PHASE_NUMBER" 2>/dev/null)
+else
+  PHASE_DIR=$(ls -d .vg/phases/${PHASE_NUMBER}* 2>/dev/null | head -1)
+fi
+
+if [ -z "$PHASE_DIR" ] || [ ! -d "$PHASE_DIR" ]; then
+  echo "⛔ Phase ${PHASE_NUMBER} not found in .vg/phases/"
+  exit 1
+fi
+
+# Build-complete check (override: --allow-build-incomplete)
+BUILD_STATUS=$(${PYTHON_BIN:-python3} -c "
+import json
+try:
+  d = json.load(open('${PHASE_DIR}/PIPELINE-STATE.json'))
+  print(d.get('steps', {}).get('build', {}).get('status', 'unknown'))
+except Exception:
+  print('missing')" 2>/dev/null)
+
+case "$BUILD_STATUS" in
+  accepted|tested|reviewed|built-with-debt|built-complete|complete)
+    echo "✓ Build status OK: ${BUILD_STATUS}"
+    ;;
+  *)
+    if [[ "$ARGUMENTS" =~ --allow-build-incomplete ]]; then
+      echo "⚠ Build status '${BUILD_STATUS}' but --allow-build-incomplete set — proceeding (override-debt logged)"
+      source "${REPO_ROOT}/.claude/commands/vg/_shared/lib/override-debt.sh" 2>/dev/null || true
+      type -t log_override_debt >/dev/null 2>&1 && \
+        log_override_debt "--allow-build-incomplete" "${PHASE_NUMBER}" "deploy.0-prereq" \
+          "deploy with build_status=${BUILD_STATUS}" "deploy-build-required"
+    else
+      echo "⛔ Build not complete (status: ${BUILD_STATUS}). Run /vg:build ${PHASE_NUMBER} first."
+      echo "   Override (NOT recommended): --allow-build-incomplete"
+      exit 1
+    fi
+    ;;
+esac
+
+# session lifecycle + run-start. Do not swallow failures: a started run
+# without a tasklist contract is worse than a hard stop.
+RUN_START_OUT="$(${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator run-start vg:deploy "${PHASE_NUMBER}" "${ARGUMENTS}" 2>&1)"
+RUN_START_RC=$?
+printf '%s\n' "$RUN_START_OUT"
+if [ "$RUN_START_RC" -ne 0 ]; then
+  echo "⛔ vg-orchestrator run-start failed for vg:deploy ${PHASE_NUMBER}" >&2
+  exit "$RUN_START_RC"
+fi
+RUN_ID="$(printf '%s\n' "$RUN_START_OUT" | tail -1)"
+export RUN_ID
+
+${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator emit-event \
+  "phase.deploy_started" --actor "orchestrator" --outcome "INFO" \
+  --payload "{\"phase\":\"${PHASE_NUMBER}\",\"args\":\"${ARGUMENTS}\"}"
+
+# Task 44b — tasklist projection enforcement: emit the deploy taskboard so
+# user sees planned steps and tasklist-contract.json is written for the
+# PreToolUse hook gate. AI MUST then call TodoWrite (with ↳ sub-items per
+# group) before any subsequent step-active.
+${PYTHON_BIN:-python3} .claude/scripts/emit-tasklist.py \
+  --command "vg:deploy" \
+  --profile "${PROFILE:-web-fullstack}" \
+  --phase "${PHASE_NUMBER:-unknown}"
+
+# See `_shared/lib/tasklist-projection-instruction.md` for the full
+# projection contract. After native tasklist projection, AI MUST call:
+#   ${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator tasklist-projected --adapter auto
+# (`auto` resolves to `claude` or `codex`). Until evidence exists, every
+# subsequent `step-active` / `mark-step` is BLOCKED by the PreToolUse Bash hook.
+# Do not mark 0_parse_and_validate in this Bash call. First project TodoWrite,
+# then run:
+#   ${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator mark-step deploy 0_parse_and_validate
+```
+
+### Step 0b — Native tasklist projection (mandatory, immediate)
+
+Before `0a_env_select_and_confirm`, replace any stale native tasklist with the
+contract for this run:
+
+1. Read `.vg/runs/${RUN_ID}/tasklist-contract.json`.
+2. Claude Code: call `TodoWrite` once with every `projection_items[]` entry,
+   preserving group headers and `↳` sub-items, replacing the whole old list.
+3. Codex CLI: update the compact plan window from `codex_plan_window`:
+   active group/step first, next 2-3 pending, completed groups collapsed,
+   plus `+N pending` if needed.
+4. Run:
+   ```bash
+   ${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator tasklist-projected --adapter auto
+   ${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator mark-step deploy 0_parse_and_validate
+   ```
+
+If `tasklist-projected` fails, stop and fix projection. Do not ask deploy env
+or run deploy commands until this returns 0.
+</step>
+
+<step name="0a_env_select_and_confirm">
+## Step 0a — Select envs (multi-select) + prod danger gate
+
+**MANDATORY FIRST ACTION** (before any deploy work) — invoke
+`AskUserQuestion` to pick which env(s) to deploy to, UNLESS one of:
+
+- `${ARGUMENTS}` contains `--envs=<csv>` (parse + validate)
+- `${ARGUMENTS}` contains `--all-envs` (deploy to ALL configured envs except local)
+- `${ARGUMENTS}` contains `--non-interactive` (require `--envs=` to be set)
+
+### Resolve selection from CLI flags first
+
+```bash
+SELECTED_ENVS=""
+if [[ "$ARGUMENTS" =~ --envs=([a-z,]+) ]]; then
+  SELECTED_ENVS="${BASH_REMATCH[1]}"
+elif [[ "$ARGUMENTS" =~ --all-envs ]]; then
+  SELECTED_ENVS=$(${PYTHON_BIN:-python3} -c "
+import re
+text = open('.claude/vg.config.md', encoding='utf-8').read()
+m = re.search(r'^environments:\s*\$', text, re.M)
+if not m: print(''); exit()
+section = text[m.end():m.end()+10000]
+envs = []
+for em in re.finditer(r'^\s+(local|sandbox|staging|prod):\s*\$', section, re.M):
+  if em.group(1) != 'local':
+    envs.append(em.group(1))
+print(','.join(envs))")
+fi
+```
+
+### AskUserQuestion (multi-select) — fires when no CLI flag
+
+```
+question: "Deploy phase ${PHASE_NUMBER} tới env nào? (chọn nhiều — sequential deploy)"
+header: "Deploy targets"
+multiSelect: true
+options:
+  - label: "sandbox — VPS Hetzner (printway.work)"
+    description: "Production-like, ssh deploy. Mặc định cho phase ship-ready."
+  - label: "staging — staging server"
+    description: "CHỈ chọn nếu config có. Project hiện chưa cấu hình → sẽ fail."
+  - label: "prod — production (CẢNH BÁO)"
+    description: "Live traffic. Sẽ ask separate confirmation. CHỈ chọn khi review/test/UAT đều PASS."
+```
+
+### Apply selection + validate
+
+```bash
+# Convert AskUserQuestion answer to comma-separated list (or use CLI flag value)
+[ -z "$SELECTED_ENVS" ] && SELECTED_ENVS="${SELECTED_ENVS_FROM_PROMPT:-}"
+
+if [ -z "$SELECTED_ENVS" ]; then
+  echo "⛔ No envs selected — abort"
+  exit 1
+fi
+
+# Validate each env exists in config
+for env in $(echo "$SELECTED_ENVS" | tr ',' ' '); do
+  if ! grep -qE "^[[:space:]]+${env}:[[:space:]]*\$" .claude/vg.config.md; then
+    echo "⛔ Env '${env}' not found in vg.config.md environments — abort"
+    exit 1
+  fi
+done
+
+# Persist selection
+mkdir -p "${PHASE_DIR}/.tmp"
+echo "$SELECTED_ENVS" > "${PHASE_DIR}/.tmp/deploy-targets.txt"
+echo "▸ Selected envs: ${SELECTED_ENVS}"
+```
+
+### Prod danger gate (separate AskUserQuestion)
+
+If `prod` is in `$SELECTED_ENVS`:
+
+```bash
+if [[ ",${SELECTED_ENVS}," =~ ,prod, ]]; then
+  PROD_OK="false"
+
+  # Token-based non-interactive bypass
+  EXPECTED_TOKEN="DEPLOY-PROD-${PHASE_NUMBER}"
+  if [[ "$ARGUMENTS" =~ --prod-confirm-token=([A-Za-z0-9.\-]+) ]]; then
+    if [ "${BASH_REMATCH[1]}" = "$EXPECTED_TOKEN" ]; then
+      PROD_OK="true"
+      echo "✓ Prod confirmation via --prod-confirm-token (token matched: ${EXPECTED_TOKEN})"
+    else
+      echo "⛔ --prod-confirm-token mismatch. Expected: ${EXPECTED_TOKEN}"
+      exit 1
+    fi
+  elif [[ "$ARGUMENTS" =~ --non-interactive ]]; then
+    echo "⛔ Prod selected in --non-interactive mode but no --prod-confirm-token=${EXPECTED_TOKEN}"
+    echo "   Refusing to deploy prod without explicit token."
+    exit 1
+  else
+    # Interactive — AI fires AskUserQuestion 3-option danger gate
+    echo "▸ Prod in selection — AI: AskUserQuestion 3-option danger gate"
+  fi
+fi
+```
+
+**AskUserQuestion (interactive prod gate):**
+Ask once with header `PROD CONFIRM`, no multi-select, options `ABORT`, `NON-PROD-ONLY`, `PROCEED`. Prompt must name prod + `${PHASE_NUMBER}` and require prior `/vg:review`, `/vg:test`, applicable `/vg:roam`, `/vg:accept`.
+
+### Apply prod gate answer
+
+```bash
+case "$PROD_GATE_CHOICE" in
+  *PROCEED*)
+    PROD_OK="true"
+    echo "✓ User confirmed PROD deploy"
+    ;;
+  *NON-PROD-ONLY*)
+    SELECTED_ENVS=$(echo "$SELECTED_ENVS" | tr ',' '\n' | grep -v '^prod$' | tr '\n' ',' | sed 's/,$//')
+    echo "▸ Prod removed; deploying: ${SELECTED_ENVS}"
+    if [ -z "$SELECTED_ENVS" ]; then
+      echo "⛔ Only prod was selected and user removed it — nothing to deploy"
+      exit 0
+    fi
+    ;;
+  *ABORT*|*)
+    echo "⛔ User aborted prod deploy gate"
+    exit 1
+    ;;
+esac
+
+# Re-persist updated selection
+echo "$SELECTED_ENVS" > "${PHASE_DIR}/.tmp/deploy-targets.txt"
+```
+
+```bash
+(type -t mark_step >/dev/null 2>&1 && mark_step "${PHASE_NUMBER}" "0a_env_select_and_confirm" "${PHASE_DIR}") || touch "${PHASE_DIR}/.step-markers/0a_env_select_and_confirm.done"
+"${PYTHON_BIN:-python3}" .claude/scripts/vg-orchestrator mark-step deploy 0a_env_select_and_confirm 2>/dev/null || true
+```
+</step>
+
+<step name="1_deploy_per_env">
+## Step 1 — Deploy loop (sequential per env)
+
+Per-env work delegated to `vg-deploy-executor`. Orchestrator only resolves
+env config, narrates spawn, collects result JSON, asks user on failure.
+Refs: `_shared/deploy/per-env-executor-contract.md` (spawn schema + post-spawn
+validation), `_shared/deploy/overview.md` (flow). Initialize accumulator
+(Step 2 reads this exact path):
+
+```bash
+DRY_RUN="false"
+[[ "$ARGUMENTS" =~ --dry-run ]] && DRY_RUN="true"
+
+LOCAL_SHA=$(git rev-parse --short HEAD)
+DEPLOY_RESULTS_JSON="${PHASE_DIR}/.tmp/deploy-results.json"
+mkdir -p "${PHASE_DIR}/.tmp"
+echo '{"results":[]}' > "$DEPLOY_RESULTS_JSON"
+```
+
+For each env in `$SELECTED_ENVS`:
+
+```bash
+for env in $(echo "$SELECTED_ENVS" | tr ',' ' '); do
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "  Deploying to: ${env}"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  # ── Resolve env config from vg.config.md ──
+  PREVIOUS_SHA=$(${PYTHON_BIN:-python3} -c "
+import json
+try:
+  d = json.load(open('${PHASE_DIR}/DEPLOY-STATE.json'))
+  print(d.get('deployed', {}).get('${env}', {}).get('sha', ''))
+except Exception:
+  print('')" 2>/dev/null)
+
+  read_cmd() { ${PYTHON_BIN:-python3} -c "
+import re
+text = open('.claude/vg.config.md', encoding='utf-8').read()
+em = re.search(r'^[[:space:]]+${env}:[[:space:]]*\$', text, re.M)
+if not em: print(''); exit()
+section = text[em.end():em.end()+5000]
+m = re.search(r'^[[:space:]]+$1:[[:space:]]*\"([^\"]*)\"', section, re.M)
+print(m.group(1) if m else '')" 2>/dev/null; }
+
+  PRE_CMD=$(read_cmd "pre")
+  BUILD_CMD=$(read_cmd "build")
+  RESTART_CMD=$(read_cmd "restart")
+  HEALTH_CMD=$(read_cmd "health")
+  SEED_CMD=$(read_cmd "seed_command")
+  RUN_PREFIX=$(read_cmd "run_prefix")
+
+  if [ -z "$BUILD_CMD" ] && [ -z "$RESTART_CMD" ]; then
+    echo "  env=${env} has no deploy.build / deploy.restart in config — skip"
+    ${PYTHON_BIN:-python3} -c "
+import json
+d = json.load(open('${DEPLOY_RESULTS_JSON}'))
+d['results'].append({'env': '${env}', 'health': 'failed', 'reason': 'no deploy commands in config', 'sha': '${LOCAL_SHA}', 'previous_sha': '${PREVIOUS_SHA}'})
+open('${DEPLOY_RESULTS_JSON}', 'w').write(json.dumps(d))"
+    continue
+  fi
+
+  # ── Spawn vg-deploy-executor (input schema: per-env-executor-contract.md §"Spawn site") ──
+  bash scripts/vg-narrate-spawn.sh vg-deploy-executor spawning "phase=${PHASE_NUMBER} env=${env}"
+  # AI: invoke Agent(subagent_type="vg-deploy-executor", prompt={phase, phase_dir,
+  #     env, run_prefix, build_cmd, restart_cmd, health_cmd, seed_cmd, pre_cmd,
+  #     local_sha, previous_sha, dry_run: ${DRY_RUN}, policy_ref}). Capture last
+  #     stdout line into RESULT_JSON.
+
+  # Parse result + narrate (post-spawn validation: contract §"Orchestrator post-spawn handling"):
+  HEALTH=$(echo "$RESULT_JSON" | ${PYTHON_BIN:-python3} -c "import json,sys; print(json.load(sys.stdin)['health'])" 2>/dev/null || echo "unknown")
+  ERROR=$(echo "$RESULT_JSON" | ${PYTHON_BIN:-python3} -c "import json,sys; print(json.load(sys.stdin).get('error') or 'none')" 2>/dev/null || echo "parse-failed")
+
+  if [ "$HEALTH" = "failed" ]; then
+    bash scripts/vg-narrate-spawn.sh vg-deploy-executor failed "env=${env} cause=${ERROR}"
+  else
+    bash scripts/vg-narrate-spawn.sh vg-deploy-executor returned "env=${env} health=${HEALTH}"
+  fi
+
+  # Append result to accumulator (Step 2 merges into DEPLOY-STATE.json)
+  ${PYTHON_BIN:-python3} -c "
+import json
+acc = json.load(open('${DEPLOY_RESULTS_JSON}'))
+acc['results'].append(json.loads('''${RESULT_JSON}'''))
+open('${DEPLOY_RESULTS_JSON}', 'w').write(json.dumps(acc))"
+
+  # Per-env failure handling (rule 4)
+  if [ "$HEALTH" = "failed" ] && [[ ! "$ARGUMENTS" =~ --non-interactive ]]; then
+    echo ""
+    echo "  env=${env} deploy failed. AI: AskUserQuestion 3-option:"
+    echo "    - continue    — chuyển sang env tiếp theo (skip failed env)"
+    echo "    - abort-all   — dừng toàn bộ deploy loop, không deploy thêm env"
+    echo "    - retry-once  — thử deploy lại env này 1 lần (clear log + re-run)"
+  fi
+done
+
+(type -t mark_step >/dev/null 2>&1 && mark_step "${PHASE_NUMBER}" "1_deploy_per_env" "${PHASE_DIR}") || touch "${PHASE_DIR}/.step-markers/1_deploy_per_env.done"
+"${PYTHON_BIN:-python3}" .claude/scripts/vg-orchestrator mark-step deploy 1_deploy_per_env 2>/dev/null || true
+```
+</step>
+
+<step name="2_persist_summary">
+## Step 2 — Merge results into DEPLOY-STATE.json + summary
+
+Merge per-env results into `${PHASE_DIR}/DEPLOY-STATE.json` `deployed.{env}`
+block. Preserves `preferred_env_for` / `preferred_env_for_skipped` and any
+unrelated future keys. Print summary table + emit telemetry. Merge logic
+lives in `scripts/vg-deploy-merge-summary.py` (extracted from this slim
+entry per shared-build pattern).
+
+```bash
+MERGE_OUT=$(${PYTHON_BIN:-python3} .claude/scripts/vg-deploy-merge-summary.py \
+  --phase "${PHASE_NUMBER}" --phase-dir "${PHASE_DIR}" \
+  --results-json "${DEPLOY_RESULTS_JSON}")
+echo "$MERGE_OUT" | grep -v '^RESULT_PAYLOAD='
+RESULT_PAYLOAD=$(echo "$MERGE_OUT" | grep '^RESULT_PAYLOAD=' | head -1 | sed 's/^RESULT_PAYLOAD=//')
+
+if echo "$RESULT_PAYLOAD" | grep -q '"failed_envs": \[\]'; then
+  EVENT_TYPE="phase.deploy_completed"; OUTCOME="PASS"
+else
+  EVENT_TYPE="phase.deploy_failed"; OUTCOME="WARN"
+fi
+
+${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator emit-event \
+  "$EVENT_TYPE" --actor "orchestrator" --outcome "$OUTCOME" \
+  --payload "$RESULT_PAYLOAD" 2>/dev/null || true
+[ "$EVENT_TYPE" != "phase.deploy_completed" ] && ${PYTHON_BIN:-python3} .claude/scripts/vg-orchestrator emit-event \
+  "phase.deploy_completed" --actor "orchestrator" --outcome "INFO" \
+  --payload "$RESULT_PAYLOAD" 2>/dev/null || true
+
+(type -t mark_step >/dev/null 2>&1 && mark_step "${PHASE_NUMBER}" "2_persist_summary" "${PHASE_DIR}") || touch "${PHASE_DIR}/.step-markers/2_persist_summary.done"
+"${PYTHON_BIN:-python3}" .claude/scripts/vg-orchestrator mark-step deploy 2_persist_summary 2>/dev/null || true
+```
+</step>
+
+<step name="complete">
+## Final — mark + run-complete
+
+Before `run-complete`, close the native tasklist:
+- Claude Code: mark every deploy checklist item completed via `TodoWrite`,
+  then clear the list if supported; otherwise replace it with one completed
+  sentinel: `vg:deploy phase ${PHASE_NUMBER} complete`.
+- Codex CLI: update the compact plan to completed/sentinel so no previous
+  workflow list remains visible.
+
+```bash
+(type -t mark_step >/dev/null 2>&1 && mark_step "${PHASE_NUMBER}" "complete" "${PHASE_DIR}") || touch "${PHASE_DIR}/.step-markers/complete.done"
+"${PYTHON_BIN:-python3}" .claude/scripts/vg-orchestrator mark-step deploy complete 2>/dev/null || true
+"${PYTHON_BIN:-python3}" .claude/scripts/vg-orchestrator run-complete 2>&1 | tail -1 || true
+```
+</step>
+
+</process>
+
+<success_criteria>
+- Build prereq ok (or debt), selected envs exist, prod confirmed by AskUserQuestion or token.
+- Env commands run sequentially; health retries 30s; failed env does not auto-abort siblings.
+- DEPLOY-STATE.json merges `deployed.{env}`, preserves `preferred_env_for`, captures `previous_sha`.
+- `phase.deploy_completed` telemetry emits; `${PHASE_DIR}/.deploy-log.{env}.txt` exists per env.
+</success_criteria>
