@@ -1,0 +1,110 @@
+{
+  "schema": "interface-standards.v1",
+  "phase": "1",
+  "profile": "web-fullstack",
+  "generated_at": "2026-05-08T07:07:56Z",
+  "surfaces": {
+    "api": true,
+    "frontend": true,
+    "cli": true,
+    "mobile": true
+  },
+  "api": {
+    "enabled": true,
+    "request": {
+      "content_type": "application/json",
+      "correlation_id_header": "X-Request-Id",
+      "auth_header": "Authorization: Bearer <token> when required",
+      "validation": "Reject invalid body/query/path before side effects."
+    },
+    "success_envelope": {
+      "required_shape": {
+        "ok": true,
+        "data": "object|array|null",
+        "message": "optional user-facing success message",
+        "meta": "optional paging/summary metadata",
+        "request_id": "optional correlation id"
+      },
+      "http_policy": "2xx status must match the completed operation; do not hide domain failures in 200 responses."
+    },
+    "error_envelope": {
+      "required_shape": {
+        "ok": false,
+        "error": {
+          "code": "stable machine-readable string",
+          "message": "safe default user-facing message",
+          "user_message": "optional localized/user-facing override",
+          "details": "optional object for diagnostics",
+          "field_errors": "optional map field -> message[]",
+          "request_id": "optional correlation id"
+        }
+      },
+      "required_fields": [
+        "error.code",
+        "error.message",
+        "error.user_message",
+        "error.field_errors",
+        "error.request_id"
+      ],
+      "legacy_compact_error_shape": "{ error: { code: string, message: string } } is accepted only when endpoint docs explicitly declare it; FE message priority still applies.",
+      "message_priority": [
+        "error.user_message",
+        "error.message",
+        "message",
+        "network_fallback"
+      ],
+      "http_status_policy": "HTTP status is transport/classification only; UI must not display statusText or generic HTTP messages when API error message exists."
+    }
+  },
+  "frontend": {
+    "enabled": true,
+    "api_error_message_priority": [
+      "error.user_message",
+      "error.message",
+      "message",
+      "network_fallback"
+    ],
+    "http_status_text_banned": true,
+    "toast_rule": "Show error.user_message || error.message || message; never show AxiosError.message, Response.statusText, or 'Request failed with status ...' when the API body has a message.",
+    "field_error_rule": "Bind error.field_errors to form fields; non-field errors go to toast/banner/alert.",
+    "network_fallback": "Network error - check connection",
+    "loading_rule": "Mutations set loading before request, disable submit while pending, and clear loading in finally."
+  },
+  "cli": {
+    "enabled": false,
+    "success": "Exit 0. Human stdout is concise; --json emits a stable object with ok:true,data,meta.",
+    "error": "Exit non-zero. stderr includes CODE: message; --json emits ok:false,error:{code,message,details?}.",
+    "machine_mode": "--json output for all admin scripts (seed, cron audit-retention, cron jti-cleanup) — JSON one-line summary on stdout, errors on stderr.",
+    "commands": [
+      {
+        "name": "seed:owner",
+        "purpose": "Seed initial owner account khi init DB",
+        "args": "[--username] [--password]",
+        "output": "{ status: 'created'|'exists', user_id }"
+      },
+      {
+        "name": "cron:audit-retention",
+        "purpose": "Daily 03:00 ICT — xoá audit_log row > 90d",
+        "args": "[--dry-run] [--cutoff-days=90]",
+        "output": "{ deleted_rows, cutoff_ts_ms }"
+      },
+      {
+        "name": "cron:jti-cleanup",
+        "purpose": "Daily — xoá revoked_jwt_jti row đã expired",
+        "args": "[--dry-run]",
+        "output": "{ deleted_rows }"
+      }
+    ],
+    "exit_codes": {
+      "0": "success",
+      "1": "config error",
+      "2": "DB error"
+    }
+  },
+  "harness": {
+    "blueprint": "API-CONTRACTS.md must cite this artifact and use the API error envelope/message priority.",
+    "build": "Executors must receive this artifact before coding API clients, handlers, forms, or CLI commands.",
+    "review": "Runtime lenses must compare API error body messages with visible toast/form errors.",
+    "test": "Generated tests must assert API error-message semantics for negative/mutation paths."
+  }
+}
