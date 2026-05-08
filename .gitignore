@@ -52,3 +52,11 @@ __pycache__/
 
 # OS
 Thumbs.db
+
+# VG runtime DB + state (added during scope run)
+.vg/events.db
+.vg/events.jsonl
+.vg/.repo-lock.json
+.vg/current-run.json
+.vg/phases/*/.recon-state.json
+.vg/phases/*/.recon-report.md
