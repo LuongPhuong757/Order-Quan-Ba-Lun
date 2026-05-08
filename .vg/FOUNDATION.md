@@ -17,7 +17,7 @@
 | 5 | Data layer | MySQL 8 (InnoDB) | F-05 | confirmed (Round 4) |
 | 6 | Auth model | own login, capture actor for audit; **no RBAC** | F-06 | confirmed |
 | 7 | Hosting | VPS (Hetzner / DO / Linode) | F-07 | confirmed (Round 4) |
-| 8 | Distribution | URL (web, responsive) — PWA optional later | F-08 | derived |
+| 8 | Distribution | mobile-first PWA primary, desktop secondary | F-16 supersedes F-08 | confirmed (drift fix 2026-05-08) |
 
 ## 2. Tech Stack (concrete choices)
 
@@ -98,6 +98,27 @@
 ### F-15: Timezone = Asia/Ho_Chi_Minh
 **Reasoning:** Implied từ VN restaurant. Cần explicit để auto-pay 10h calculation đúng và báo cáo daily đúng cutoff.
 
+### F-16 supersedes F-08: Distribution = mobile-first PWA primary, desktop secondary
+**Reasoning:** User clarified ở /vg:specs 01 (post-approval): "mô hình này sử dụng trên điện thoại là chủ yếu". Áp dụng cho TẤT CẢ phase sau (FE convention).
+**Reverse cost:** MEDIUM — FE component library + viewport / breakpoint convention re-thiết kế nếu sau cần desktop-primary. Schema dữ liệu không bị ảnh hưởng.
+**Confirmed:** 2026-05-08 (drift fix at /vg:phase 01 entry).
+**Implications:**
+- §9.6 bundle FE route ≤ 150KB gzip (siết từ 300KB).
+- §9.6 thêm Time-to-Interactive ≤ 3s trên Slow-4G.
+- Mobile-first UX baseline: viewport meta, touch target 44×44px, native input types, bottom navigation, no hover-only interactions.
+- Test harness phải có Playwright mobile device profile (iPhone SE + Galaxy A5x mặc định).
+
+### F-17 supersedes §9.5 auth (LOCK update): JWT 7-day in cookie HttpOnly
+**Reasoning:** User clarified ở /vg:specs 01 Q-clarification: dùng JWT thay vì cookie session. JWT 7 ngày phù hợp mobile UX (nhân viên không phải login lại mỗi ca).
+**Reverse cost:** MEDIUM — đổi sang opaque cookie session sẽ phải bỏ JTI blacklist + thêm session table. Không phá DB schema chính.
+**Confirmed:** 2026-05-08 (drift fix at /vg:phase 01 entry).
+**Locked specifics (replaces §9.5 session block):**
+- Mechanism: JWT signed (HS256 với strong secret từ `.env`, có thể chuyển RS256 sau).
+- Payload: `{sub: user_id, name, iat, exp, jti}` — KHÔNG nhúng PII / role.
+- Storage: cookie `HttpOnly + Secure + SameSite=Strict` (BANNED localStorage).
+- Lifetime: 7 ngày (refresh-rotate defer sang phase sau).
+- Revocation: `revoked_jwt_jti(jti, revoked_at_ms, expires_at_ms)` table; middleware kiểm tra blacklist mỗi request; cron daily xoá row đã expired.
+
 ## 5. Open Questions
 
 - **Q-01 — VAT e-invoice timing & retry semantics**
@@ -113,8 +134,10 @@
 ## 7. Drift Check
 
 **Last check:** 2026-05-08
-**Status:** ✅ no drift (foundation locked).
-**Drift entries:** none.
+**Status:** ⚠ 2 drift resolved (2026-05-08 at /vg:phase 01 entry).
+**Drift entries:**
+- F-08 superseded by **F-16** (mobile-first PWA primary, desktop secondary). Source: /vg:specs 01 user clarification "mô hình này dùng trên điện thoại là chủ yếu". Closure mechanism: F-16 row above + companion §9.6 budget update.
+- §9.5 auth-mechanism updated by **F-17** (JWT 7d in cookie HttpOnly, JTI blacklist on logout). Source: /vg:specs 01 Q-clarification round. Closure mechanism: F-17 entry above + §9.5 session block update + §9.1 auth update.
 
 ---
 
@@ -142,9 +165,10 @@ db:
   primary:   MySQL 8 (InnoDB, utf8mb4)
   cache:     in-memory (no Redis at phase 1)
 auth:
-  session:   cookie HttpOnly + Secure + SameSite=Strict
+  session:   JWT (HS256) in cookie HttpOnly + Secure + SameSite=Strict   # F-17
   password:  bcrypt cost 10, length ≥ 8
-  lifetime:  12h (re-login each shift)
+  lifetime:  7 days (mobile UX — F-17 supersedes 12h)
+  jti_blacklist: revoked_jwt_jti table (cron daily prunes expired)
 deploy:
   api:       rsync + pm2 reload
   web:       static build → nginx
@@ -187,12 +211,15 @@ packages/ui-kit/                   # shared React components
 - **Async:** async/await consistently. Long jobs (auto-pay scan, daily report) → BullMQ deferred to phase có cron worker.
 - **i18n:** `vi` only (Phase 1). Strings centralized cho key extraction sau.
 
-### 9.5 Security baseline (LOCK ONCE)
+### 9.5 Security baseline (LOCK ONCE — updated by F-17 on 2026-05-08)
 
 ```yaml
-session:
-  cookie_flags: [Secure, HttpOnly, "SameSite=Strict"]
-  lifetime_h:   12
+session:                                            # F-17 (was: cookie session 12h)
+  mechanism:    JWT (HS256, signed with .env secret)
+  storage:      cookie (HttpOnly + Secure + SameSite=Strict)   # KHÔNG localStorage
+  lifetime_d:   7                                              # mobile UX
+  jti_blacklist_table: revoked_jwt_jti                          # logout/change-password revoke
+  jwt_payload:  ["sub", "name", "iat", "exp", "jti"]            # KHÔNG nhúng PII / role
 cors:
   origins:      [explicit FE origin only]    # no wildcard with credentials
 password:
@@ -223,7 +250,7 @@ backup:
 compliance: [none]                # F-10: VAT deferred to Milestone 2
 ```
 
-### 9.6 Performance baseline
+### 9.6 Performance baseline (updated by F-16 on 2026-05-08 — mobile-first)
 
 ```yaml
 api:
@@ -233,7 +260,13 @@ api:
 cache:
   strategy:       "in-memory LRU TTL 5m for menu (read-heavy)"
 bundle:
-  fe_route_kb:    300
+  fe_route_kb:    150              # F-16: siết từ 300KB cho mobile 4G (gzip)
+mobile:                            # F-16 NEW
+  tti_slow_4g_s:  3                # Time-to-Interactive on Slow-4G (DevTools throttle)
+  viewport_meta:  "width=device-width, initial-scale=1, maximum-scale=1"
+  touch_target_px: 44              # min button/link tap area (Apple HIG)
+  test_devices:   ["iPhone-SE-320x568", "Galaxy-A5x-412x915"]
+  no_hover_only:  true             # mobile has no hover state
 n_plus_one_max:   3                # warning when exceeded
 cdn:              none             # phase 1 single VPS
 ```
