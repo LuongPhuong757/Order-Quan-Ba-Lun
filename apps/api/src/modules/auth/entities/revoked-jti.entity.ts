@@ -4,7 +4,7 @@ import { bigIntTransformer } from './user.entity.js';
 @Entity('revoked_jwt_jti')
 @Index('idx_revoked_jti_expires', ['expires_at_ms'])
 export class RevokedJti {
-  @PrimaryColumn({ length: 64 })
+  @PrimaryColumn({ type: 'varchar', length: 64 })
   jti!: string;
 
   @Column({ type: 'bigint', transformer: bigIntTransformer })

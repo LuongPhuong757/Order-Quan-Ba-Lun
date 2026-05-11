@@ -6,7 +6,7 @@ import {
   Index,
   PrimaryGeneratedColumn,
 } from 'typeorm';
-import { bigIntTransformer } from '../../auth/entities/user.entity.js';
+import { bigIntTransformer, dateToMsTransformer } from '../../auth/entities/user.entity.js';
 
 @Entity('audit_log')
 @Index('idx_audit_actor_ts', ['actor_id', 'ts_ms'])
@@ -16,25 +16,25 @@ export class AuditLog {
   @PrimaryGeneratedColumn('increment', { type: 'bigint' })
   id!: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   actor_id!: string | null;
 
-  @Column({ length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   actor_name!: string | null;
 
-  @Column({ length: 45 }) // IPv6 max length
+  @Column({ type: 'varchar', length: 45 }) // IPv6 max length
   ip!: string;
 
   @Column({ type: 'bigint', transformer: bigIntTransformer })
   ts_ms!: number;
 
-  @Column({ length: 64 })
+  @Column({ type: 'varchar', length: 64 })
   action_kind!: string;
 
-  @Column({ length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   target_kind!: string | null;
 
-  @Column({ length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   target_id!: string | null;
 
   @Column({ type: 'json', nullable: true })
@@ -43,9 +43,9 @@ export class AuditLog {
   @Column({ type: 'json', nullable: true })
   after_json!: unknown | null;
 
-  @Column({ length: 64, nullable: true })
+  @Column({ type: 'varchar', length: 64, nullable: true })
   request_id!: string | null;
 
-  @CreateDateColumn({ type: 'bigint', transformer: bigIntTransformer })
+  @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 }

@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "tsx watch src/main.ts",
+    "dev": "node --import @swc-node/register/esm-register --watch src/main.ts",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
@@ -14,9 +14,10 @@
     "migration:run": "typeorm-ts-node-esm migration:run -d src/data-source.ts",
     "migration:revert": "typeorm-ts-node-esm migration:revert -d src/data-source.ts",
     "migration:generate": "typeorm-ts-node-esm migration:generate -d src/data-source.ts",
-    "seed:owner": "tsx src/cli/seed-owner.ts",
-    "cron:audit-retention": "tsx src/cli/cron-audit-retention.ts",
-    "cron:jti-cleanup": "tsx src/cli/cron-jti-cleanup.ts"
+    "seed:owner": "node --import @swc-node/register/esm-register src/cli/seed-owner.ts",
+    "seed:demo": "node --import @swc-node/register/esm-register src/cli/seed-menu-tables.ts",
+    "cron:audit-retention": "node --import @swc-node/register/esm-register src/cli/cron-audit-retention.ts",
+    "cron:jti-cleanup": "node --import @swc-node/register/esm-register src/cli/cron-jti-cleanup.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",
@@ -32,6 +33,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.2",
     "jsonwebtoken": "^9.0.2",
     "mysql2": "^3.11.0",
     "nestjs-pino": "^4.2.0",
@@ -44,6 +46,8 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@swc-node/register": "^1.11.1",
+    "@swc/core": "^1.15.33",
     "@types/bcrypt": "^5.0.2",
     "@types/cookie-parser": "^1.4.8",
     "@types/express": "^5.0.0",

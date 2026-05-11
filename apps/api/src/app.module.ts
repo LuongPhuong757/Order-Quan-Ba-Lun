@@ -9,6 +9,9 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { SetupModule } from './modules/setup/setup.module.js';
+import { MenuModule } from './modules/menu/menu.module.js';
+import { TablesModule } from './modules/tables/tables.module.js';
+import { OrdersModule } from './modules/orders/orders.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -29,6 +32,9 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     AuditModule,
     AdminModule,
     SetupModule,
+    MenuModule,
+    TablesModule,
+    OrdersModule,
   ],
   controllers: [HealthController],
   providers: [
