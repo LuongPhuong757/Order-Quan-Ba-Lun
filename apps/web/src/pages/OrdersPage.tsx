@@ -1,5 +1,5 @@
 // Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
@@ -47,26 +47,46 @@ export function OrdersPage() {
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
+  const errorCountRef = useRef(0);
+  const pollEnabledRef = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showError = true) => {
     try {
       const [t, o] = await Promise.all([
         api.get<{ data: { items: Table[] } }>('/tables'),
         api.get<{ data: { items: OrderSummary[] } }>('/orders'),
       ]);
-      setTables(t.data.data.items);
-      setOpenOrders(o.data.data.items);
+      // Defensive: nếu body trống (vd 304 leak), skip update không throw
+      if (t.data?.data?.items) setTables(t.data.data.items);
+      if (o.data?.data?.items) setOpenOrders(o.data.data.items);
+      errorCountRef.current = 0;  // reset on success
     } catch (err) {
-      toast.push('error', extractError(err).message);
+      errorCountRef.current++;
+      if (showError && errorCountRef.current <= 2) {
+        toast.push('error', extractError(err).message);
+      }
+      // Sau 3 lỗi liên tiếp, dừng polling để tránh spam
+      if (errorCountRef.current >= 3 && pollEnabledRef.current) {
+        pollEnabledRef.current = false;
+        toast.push('error', 'Tạm dừng cập nhật tự động — bấm "↻ Làm mới" để thử lại.');
+      }
     } finally {
       setLoading(false);
     }
   }, [toast]);
 
+  const manualRefresh = useCallback(() => {
+    errorCountRef.current = 0;
+    pollEnabledRef.current = true;
+    refresh(true);
+  }, [refresh]);
+
   useEffect(() => {
     refresh();
-    // Poll every 10s for live updates from bếp/staff khác
-    const t = setInterval(refresh, 10_000);
+    // Poll every 10s — chỉ chạy khi pollEnabled
+    const t = setInterval(() => {
+      if (pollEnabledRef.current) refresh(false);  // silent retry
+    }, 10_000);
     return () => clearInterval(t);
   }, [refresh]);
 
@@ -152,7 +172,7 @@ export function OrdersPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16, alignItems: 'center' }}>
         <h1 style={{ margin: 0 }}>Sơ đồ bàn</h1>
-        <button className="secondary" onClick={refresh} style={{ padding: '6px 12px' }}>
+        <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px' }}>
           ↻ Làm mới
         </button>
       </div>
@@ -247,7 +267,7 @@ export function OrdersPage() {
         ))}
       </div>
 
-      {active && <OrderDrawer table={active} onClose={() => setActive(null)} onTransferred={refresh} />}
+      {active && <OrderDrawer table={active} onClose={() => setActive(null)} onTransferred={manualRefresh} />}
     </div>
   );
 }

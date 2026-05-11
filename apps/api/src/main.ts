@@ -21,6 +21,11 @@ async function bootstrap() {
   // P01.D-10 — trust proxy (req.ip via X-Forwarded-For)
   app.set('trust proxy', 1);
 
+  // Disable ETag → tránh 304 Not Modified phá polling-based UI.
+  // Polling GET /orders /tables /menu phải nhận body mới mỗi request;
+  // 304 empty-body khiến axios.res.data undefined → FE parse fail.
+  app.set('etag', false);
+
   // cookie-parser (needed for JWT cookie extraction)
   app.use(cookieParser());
 

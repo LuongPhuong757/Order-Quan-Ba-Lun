@@ -1,5 +1,5 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { MenuPickerModal } from './MenuPickerModal.tsx';
@@ -92,22 +92,34 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [loading, setLoading] = useState(true);
   const [showPicker, setShowPicker] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const errorCountRef = useRef(0);
+  const pollEnabledRef = useRef(true);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (showError = true) => {
     try {
       const res = await api.get<{ data: Order }>(`/orders/by-table/${table.id}`);
-      setOrder(res.data.data);
+      if (res.data?.data) setOrder(res.data.data);
+      errorCountRef.current = 0;
     } catch (err) {
-      toast.push('error', extractError(err).message);
+      errorCountRef.current++;
+      if (showError && errorCountRef.current <= 2) {
+        toast.push('error', extractError(err).message);
+      }
+      if (errorCountRef.current >= 3 && pollEnabledRef.current) {
+        pollEnabledRef.current = false;
+        toast.push('error', 'Tạm dừng cập nhật tự động — đóng drawer mở lại để retry.');
+      }
     } finally {
       setLoading(false);
     }
   }, [table.id, toast]);
 
   useEffect(() => {
-    refresh();
-    // Poll every 5s while drawer open — so bếp + nhân viên thấy state thay đổi
-    const t = setInterval(refresh, 5000);
+    refresh(true);
+    // Poll every 5s while drawer open — bếp + nhân viên thấy state thay đổi
+    const t = setInterval(() => {
+      if (pollEnabledRef.current) refresh(false);
+    }, 5000);
     return () => clearInterval(t);
   }, [refresh]);
 

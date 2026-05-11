@@ -6,6 +6,12 @@ export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   withCredentials: true, // cookies needed for JWT (F-17)
   validateStatus: (s) => s < 500, // let interceptor handle 4xx
+  // Disable browser HTTP cache cho GET — polling endpoints cần fresh data.
+  // Without this, browser sends If-None-Match → server có thể trả 304 empty body.
+  headers: {
+    'Cache-Control': 'no-cache',
+    'Pragma': 'no-cache',
+  },
 });
 
 type ReLoginModalHandler = (retry: () => Promise<unknown>) => Promise<void>;

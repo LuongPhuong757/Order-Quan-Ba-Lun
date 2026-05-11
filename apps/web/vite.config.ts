@@ -6,10 +6,13 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      '/auth': 'http://localhost:3001',
-      '/admin': 'http://localhost:3001',
-      '/setup': 'http://localhost:3001',
+      '/auth':   'http://localhost:3001',
+      '/admin':  'http://localhost:3001',
+      '/setup':  'http://localhost:3001',
       '/health': 'http://localhost:3001',
+      '/menu':   'http://localhost:3001',
+      '/tables': 'http://localhost:3001',
+      '/orders': 'http://localhost:3001',
     },
   },
 });
