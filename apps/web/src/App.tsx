@@ -11,6 +11,7 @@ import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
 import { AccountPage } from './pages/AccountPage.tsx';
 import { OrdersPage } from './pages/OrdersPage.tsx';
 import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
+import { KitchenPage } from './pages/KitchenPage.tsx';
 
 export function App() {
   return (
@@ -28,6 +29,7 @@ export function App() {
             <Route path="/account" element={<AccountPage />} />
             <Route path="/orders" element={<OrdersPage />} />
             <Route path="/menu" element={<MenuManagementPage />} />
+            <Route path="/kitchen" element={<KitchenPage />} />
             <Route element={<OwnerOnly />}>
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
@@ -68,15 +70,16 @@ function ProtectedShell() {
       {user.is_owner && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders">🍽 Order</NavLink>
+          <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
           <NavLink to="/menu">📋 Menu</NavLink>
-          <NavLink to="/admin/users">👥 Nhân viên</NavLink>
+          <NavLink to="/admin/users">👥 NV</NavLink>
           <NavLink to="/admin/audit">📊 Audit</NavLink>
-          <NavLink to="/account">⚙ Tôi</NavLink>
         </nav>
       )}
       {!user.is_owner && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders">🍽 Order</NavLink>
+          <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
           <NavLink to="/menu">📋 Menu</NavLink>
           <NavLink to="/account">⚙ Tài khoản</NavLink>
         </nav>
