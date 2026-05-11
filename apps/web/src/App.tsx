@@ -9,6 +9,8 @@ import { DashboardPage } from './pages/DashboardPage.tsx';
 import { AdminUsersPage } from './pages/AdminUsersPage.tsx';
 import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
 import { AccountPage } from './pages/AccountPage.tsx';
+import { OrdersPage } from './pages/OrdersPage.tsx';
+import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
 
 export function App() {
   return (
@@ -21,9 +23,11 @@ export function App() {
           <Route path="/recover" element={<RecoverPage />} />
 
           <Route element={<ProtectedShell />}>
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/" element={<Navigate to="/orders" replace />} />
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/account" element={<AccountPage />} />
+            <Route path="/orders" element={<OrdersPage />} />
+            <Route path="/menu" element={<MenuManagementPage />} />
             <Route element={<OwnerOnly />}>
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
@@ -63,15 +67,17 @@ function ProtectedShell() {
       <Outlet />
       {user.is_owner && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/dashboard">🏠 Trang chính</NavLink>
+          <NavLink to="/orders">🍽 Order</NavLink>
+          <NavLink to="/menu">📋 Menu</NavLink>
           <NavLink to="/admin/users">👥 Nhân viên</NavLink>
-          <NavLink to="/admin/audit">📋 Audit</NavLink>
-          <NavLink to="/account">⚙ Tài khoản</NavLink>
+          <NavLink to="/admin/audit">📊 Audit</NavLink>
+          <NavLink to="/account">⚙ Tôi</NavLink>
         </nav>
       )}
       {!user.is_owner && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/dashboard">🏠 Trang chính</NavLink>
+          <NavLink to="/orders">🍽 Order</NavLink>
+          <NavLink to="/menu">📋 Menu</NavLink>
           <NavLink to="/account">⚙ Tài khoản</NavLink>
         </nav>
       )}
