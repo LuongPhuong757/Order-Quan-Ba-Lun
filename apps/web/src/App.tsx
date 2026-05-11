@@ -2,6 +2,7 @@ import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-rou
 import { AuthProvider, useAuth } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { ReLoginModal } from './components/ReLoginModal.tsx';
+import { ReadyListener } from './components/ReadyListener.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { SetupPage } from './pages/SetupPage.tsx';
 import { RecoverPage } from './pages/RecoverPage.tsx';
@@ -17,6 +18,7 @@ export function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+        <ReadyListener />
         <ReLoginModal />
         <Routes>
           <Route path="/setup" element={<SetupPage />} />

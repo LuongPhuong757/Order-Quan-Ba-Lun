@@ -1,9 +1,10 @@
 import { useEffect, useState, createContext, useContext, ReactNode } from 'react';
 
-type Toast = { id: number; kind: 'success' | 'error' | 'info'; message: string };
+type ToastKind = 'success' | 'error' | 'info' | 'ready';
+type Toast = { id: number; kind: ToastKind; message: string; durationMs: number };
 
 const ToastCtx = createContext<{
-  push: (kind: Toast['kind'], message: string) => void;
+  push: (kind: ToastKind, message: string, durationMs?: number) => void;
 } | null>(null);
 
 let nextId = 1;
@@ -11,25 +12,45 @@ let nextId = 1;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
 
-  const push = (kind: Toast['kind'], message: string) => {
+  const push = (kind: ToastKind, message: string, durationMs?: number) => {
     const id = nextId++;
-    setToasts((t) => [...t, { id, kind, message }]);
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3000);
+    const dur = durationMs ?? (kind === 'ready' ? 6000 : 3000);
+    setToasts((t) => [...t, { id, kind, message, durationMs: dur }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), dur);
   };
 
   return (
     <ToastCtx.Provider value={{ push }}>
       {children}
-      {toasts.map((t) => (
-        <ToastEl key={t.id} {...t} />
-      ))}
+      <div style={{ position: 'fixed', bottom: 16, left: 16, right: 16, zIndex: 9999, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {toasts.map((t) => (
+          <ToastEl key={t.id} {...t} />
+        ))}
+      </div>
     </ToastCtx.Provider>
   );
 }
 
 function ToastEl({ kind, message }: Toast) {
+  // 'ready' = món bếp xong cần lên lấy — đặc biệt nổi bật
+  const styles =
+    kind === 'ready'
+      ? {
+          background: 'linear-gradient(135deg, #059669, #10b981)',
+          fontSize: 17,
+          fontWeight: 600,
+          padding: '16px 20px',
+          border: '2px solid #fbbf24',
+          boxShadow: '0 8px 24px rgba(16, 185, 129, 0.4)',
+        }
+      : {};
+
   return (
-    <div className={`toast ${kind}`} role={kind === 'error' ? 'alert' : 'status'}>
+    <div
+      className={`toast ${kind}`}
+      role={kind === 'error' ? 'alert' : 'status'}
+      style={{ position: 'static', ...styles }}
+    >
       {message}
     </div>
   );

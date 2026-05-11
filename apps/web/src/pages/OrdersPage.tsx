@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
+import { readyNotifier } from '../lib/ready-notifier.ts';
 
 type Table = {
   id: string;
@@ -18,7 +19,12 @@ type OrderSummary = {
   table_id: string;
   table_code: string;
   opened_at: number;
-  items?: Array<{ state: string }>;
+  items?: Array<{
+    id: string;
+    menu_item_name: string;
+    qty: number;
+    state: string;
+  }>;
 };
 
 const KIND_LABEL: Record<string, string> = {
@@ -58,7 +64,11 @@ export function OrdersPage() {
       ]);
       // Defensive: nếu body trống (vd 304 leak), skip update không throw
       if (t.data?.data?.items) setTables(t.data.data.items);
-      if (o.data?.data?.items) setOpenOrders(o.data.data.items);
+      if (o.data?.data?.items) {
+        setOpenOrders(o.data.data.items);
+        // Diff vs previous poll → emit notification cho items chuyển sang READY
+        readyNotifier.ingest(o.data.data.items);
+      }
       errorCountRef.current = 0;  // reset on success
     } catch (err) {
       errorCountRef.current++;

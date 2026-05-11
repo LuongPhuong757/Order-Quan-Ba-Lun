@@ -1,10 +1,11 @@
-// Kitchen Display System (KDS) — bếp xem món đang cần làm + chuyển lifecycle.
-// Chỉ hiển thị items state ∈ {KITCHEN, COOKING, READY} từ mọi open order.
-// SERVED/CANCELLED filter out (bếp không cần lo).
-// PENDING (chưa báo bếp) cũng filter out (bếp chưa nhận lệnh).
+// Kitchen Display System (KDS) — 3-column kanban iPad-first.
+// Mỗi cột 1 state: KITCHEN (đã order) → COOKING (đang nấu) → READY (đã xong).
+// Card có mũi tên → ở mỗi card để bếp tap chuyển sang cột kế tiếp.
+// Khi card vào cột READY → readyNotifier.ingest tự emit notification toàn bộ thành viên.
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { readyNotifier } from '../lib/ready-notifier.ts';
 
 type OrderItem = {
   id: string;
@@ -30,42 +31,54 @@ type MenuItem = {
   is_out_of_stock: boolean;
 };
 
-// Augmented for KDS display
-type KitchenItem = OrderItem & {
-  table_code: string;
-  order_id: string;
-};
+type KitchenItem = OrderItem & { table_code: string };
 
-const STATE_LABEL: Record<string, string> = {
-  KITCHEN: 'Đã báo bếp',
-  COOKING: 'Đang làm',
-  READY: 'Xong, chờ giao',
-};
+const COLUMN_DEFS: Array<{
+  state: string;
+  label: string;
+  icon: string;
+  color: string;
+  bg: string;
+  nextLabel: string;
+  nextIcon: string;
+  toState: string;
+}> = [
+  {
+    state: 'KITCHEN',
+    label: 'Đã order',
+    icon: '📢',
+    color: '#f59e0b',
+    bg: '#fffbeb',
+    nextLabel: 'Bắt đầu nấu',
+    nextIcon: '🔥',
+    toState: 'COOKING',
+  },
+  {
+    state: 'COOKING',
+    label: 'Đang nấu',
+    icon: '🔥',
+    color: '#3b82f6',
+    bg: '#eff6ff',
+    nextLabel: 'Xong, sẵn sàng',
+    nextIcon: '✓',
+    toState: 'READY',
+  },
+  {
+    state: 'READY',
+    label: 'Đã xong',
+    icon: '🍽',
+    color: '#10b981',
+    bg: '#ecfdf5',
+    nextLabel: 'Đã giao',
+    nextIcon: '🚀',
+    toState: 'SERVED',
+  },
+];
 
-const STATE_COLOR: Record<string, string> = {
-  KITCHEN: '#f59e0b',
-  COOKING: '#3b82f6',
-  READY: '#10b981',
-};
-
-const NEXT_STATE: Record<string, { to: string; label: string; icon: string }> = {
-  KITCHEN: { to: 'COOKING', label: 'Bắt đầu nấu', icon: '🔥' },
-  COOKING: { to: 'READY', label: 'Xong', icon: '✓' },
-  READY: { to: 'SERVED', label: 'Đã giao', icon: '🍽' },
-};
-
-// Thời gian chờ: warning + critical
-const AGE_WARN_MS = 10 * 60_000; // 10 phút
-const AGE_CRITICAL_MS = 20 * 60_000; // 20 phút
-
-function ageMinutes(ts: number): number {
-  return Math.floor((Date.now() - ts) / 60_000);
-}
+const AGE_WARN_MS = 10 * 60_000;
+const AGE_CRITICAL_MS = 20 * 60_000;
 
 function ageColor(ts: number, state: string): string | undefined {
-  // Aged measured from when item ENTERED current state (updated_at).
-  // For KITCHEN → time since báo bếp. For COOKING → time since bắt đầu nấu. Etc.
-  // Bỏ qua READY vì đã xong (chờ nhân viên giao là việc của phục vụ).
   if (state === 'READY') return undefined;
   const age = Date.now() - ts;
   if (age > AGE_CRITICAL_MS) return '#dc2626';
@@ -78,7 +91,6 @@ export function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'ALL' | 'KITCHEN' | 'COOKING' | 'READY'>('ALL');
   const [now, setNow] = useState(Date.now());
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
@@ -89,7 +101,11 @@ export function KitchenPage() {
         api.get<{ data: { items: Order[] } }>('/orders'),
         api.get<{ data: { items: MenuItem[] } }>('/menu'),
       ]);
-      if (ordersRes.data?.data?.items) setOrders(ordersRes.data.data.items);
+      if (ordersRes.data?.data?.items) {
+        setOrders(ordersRes.data.data.items);
+        // Notify khi item chuyển sang READY (toàn app, cả bồi bàn nghe được)
+        readyNotifier.ingest(ordersRes.data.data.items);
+      }
       if (menuRes.data?.data?.items) {
         const m = new Map<string, MenuItem>();
         for (const it of menuRes.data.data.items) m.set(it.id, it);
@@ -118,11 +134,9 @@ export function KitchenPage() {
 
   useEffect(() => {
     refresh(true);
-    // Poll every 5s — bếp UI cần realtime cao
     const tPoll = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);
     }, 5_000);
-    // Tick `now` mỗi 30s để age display update (không trigger refetch)
     const tNow = setInterval(() => setNow(Date.now()), 30_000);
     return () => {
       clearInterval(tPoll);
@@ -130,46 +144,27 @@ export function KitchenPage() {
     };
   }, [refresh]);
 
-  // Flatten all items thuộc 3 state cần bếp xử lý
-  const kitchenItems = useMemo<KitchenItem[]>(() => {
-    const out: KitchenItem[] = [];
+  // Flatten items vào 3 buckets theo state
+  const buckets = useMemo<Record<string, KitchenItem[]>>(() => {
+    const out: Record<string, KitchenItem[]> = { KITCHEN: [], COOKING: [], READY: [] };
     for (const o of orders) {
-      if (!o.items) continue;
-      for (const it of o.items) {
-        if (['KITCHEN', 'COOKING', 'READY'].includes(it.state)) {
-          out.push({
-            ...it,
-            table_code: o.table_code,
-            order_id: o.id,
-          });
+      for (const it of o.items || []) {
+        if (out[it.state]) {
+          out[it.state].push({ ...it, table_code: o.table_code });
         }
       }
     }
-    // Sort: oldest first within each state. KITCHEN trước → COOKING → READY.
-    const order = { KITCHEN: 0, COOKING: 1, READY: 2 };
-    out.sort((a, b) => {
-      const oa = order[a.state as keyof typeof order];
-      const ob = order[b.state as keyof typeof order];
-      if (oa !== ob) return oa - ob;
-      return a.updated_at - b.updated_at;
-    });
+    // Sort: oldest first (FIFO — món chờ lâu nhất nấu trước)
+    for (const k of Object.keys(out)) {
+      out[k].sort((a, b) => a.updated_at - b.updated_at);
+    }
     return out;
   }, [orders, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const filtered = filter === 'ALL' ? kitchenItems : kitchenItems.filter((it) => it.state === filter);
-
-  const counts = useMemo(() => {
-    const c = { KITCHEN: 0, COOKING: 0, READY: 0 };
-    for (const it of kitchenItems) c[it.state as keyof typeof c]++;
-    return c;
-  }, [kitchenItems]);
-
-  const changeState = async (item: KitchenItem) => {
-    const next = NEXT_STATE[item.state];
-    if (!next) return;
+  const changeState = async (item: KitchenItem, to: string) => {
     try {
-      await api.patch(`/orders/items/${item.id}/state`, { to: next.to });
-      toast.push('success', `${item.menu_item_name} → ${STATE_LABEL[next.to] || next.to}`);
+      await api.patch(`/orders/items/${item.id}/state`, { to });
+      // Optimistic: refresh ngay (không cần đợi 5s poll)
       refresh(false);
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -181,7 +176,7 @@ export function KitchenPage() {
     const isOut = menu?.is_out_of_stock ?? false;
     if (!confirm(isOut
       ? `Đánh dấu "${item.menu_item_name}" CÓ LẠI?`
-      : `Đánh dấu "${item.menu_item_name}" HẾT NGUYÊN LIỆU?\n\nMón này sẽ bị highlight đỏ trong menu — nhân viên không gọi mới được.\nCác order ĐANG chờ (item này) vẫn ở nguyên — bạn cần huỷ tay từ phía nhân viên.`)) {
+      : `Đánh dấu "${item.menu_item_name}" HẾT NGUYÊN LIỆU?\n\nMón sẽ bị đỏ trong menu — nhân viên không gọi mới được.\nCác order ĐANG chờ (món này) vẫn còn — bạn cần huỷ tay từ nhân viên.`)) {
       return;
     }
     try {
@@ -194,237 +189,287 @@ export function KitchenPage() {
   };
 
   return (
-    <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 12, alignItems: 'center' }}>
-        <h1 style={{ margin: 0 }}>👨‍🍳 Bếp</h1>
-        <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px' }}>
+    <div className="kds-container">
+      <style>{`
+        .kds-container {
+          padding: 12px 16px 80px;
+          max-width: 1600px;
+          margin: 0 auto;
+        }
+        .kds-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 12px;
+        }
+        .kds-header h1 { margin: 0; font-size: 24px; }
+        .kds-board {
+          display: grid;
+          gap: 12px;
+          grid-template-columns: 1fr;
+        }
+        @media (min-width: 768px) {
+          .kds-board { grid-template-columns: repeat(3, 1fr); }
+        }
+        .kds-column {
+          background: white;
+          border-radius: 12px;
+          padding: 12px;
+          display: flex;
+          flex-direction: column;
+          min-height: 200px;
+          border: 1px solid #e5e7eb;
+        }
+        .kds-column-header {
+          padding: 6px 10px;
+          margin: -4px -4px 8px;
+          border-radius: 8px;
+          color: white;
+          font-weight: 700;
+          font-size: 16px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .kds-column-body {
+          flex: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          overflow-y: auto;
+        }
+        .kds-card {
+          background: white;
+          border-radius: 10px;
+          padding: 12px;
+          border: 1px solid #e5e7eb;
+          display: flex;
+          gap: 10px;
+          align-items: stretch;
+          transition: box-shadow 0.15s ease, transform 0.15s ease;
+        }
+        .kds-card-info { flex: 1; min-width: 0; }
+        .kds-card-table {
+          font-weight: 700;
+          color: #0f766e;
+          font-size: 18px;
+        }
+        .kds-card-name {
+          font-size: 18px;
+          font-weight: 700;
+          line-height: 1.25;
+          margin: 2px 0;
+        }
+        .kds-card-meta {
+          font-size: 12px;
+          color: #6b7280;
+        }
+        .kds-card-note {
+          font-size: 13px;
+          color: #dc2626;
+          margin-top: 4px;
+          font-weight: 500;
+        }
+        .kds-arrow {
+          background: var(--col, #0f766e);
+          color: white;
+          border: none;
+          border-radius: 8px;
+          min-width: 64px;
+          font-size: 28px;
+          font-weight: 700;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 0;
+          transition: transform 0.1s ease, opacity 0.15s;
+        }
+        .kds-arrow:hover { transform: translateX(3px); }
+        .kds-arrow:active { transform: translateX(6px); opacity: 0.9; }
+        .kds-arrow .label {
+          font-size: 11px;
+          font-weight: 600;
+          text-align: center;
+          padding: 4px;
+          line-height: 1.2;
+        }
+        .kds-arrow-content {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 2px;
+        }
+        .kds-small-btn {
+          background: white;
+          color: #6b7280;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          padding: 4px 8px;
+          font-size: 12px;
+          cursor: pointer;
+          margin-top: 6px;
+        }
+        .kds-small-btn:hover { background: #f9fafb; }
+        .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
+        .kds-empty {
+          color: #9ca3af;
+          text-align: center;
+          padding: 24px;
+          font-size: 14px;
+        }
+        @keyframes kds-pulse {
+          0%, 100% { box-shadow: 0 0 0 2px #dc2626; }
+          50% { box-shadow: 0 0 0 5px #dc262666; }
+        }
+      `}</style>
+
+      <div className="kds-header">
+        <h1>👨‍🍳 Bếp — màn nấu</h1>
+        <button className="secondary" onClick={manualRefresh} style={{ padding: '8px 14px' }}>
           ↻ Làm mới
         </button>
       </div>
 
-      {/* Filter tabs */}
-      <div
-        className="card"
-        style={{ padding: 8, marginBottom: 12, display: 'flex', gap: 6, flexWrap: 'wrap' }}
-      >
-        {(['ALL', 'KITCHEN', 'COOKING', 'READY'] as const).map((f) => {
-          const count =
-            f === 'ALL' ? kitchenItems.length : counts[f as keyof typeof counts] || 0;
-          return (
-            <button
-              key={f}
-              onClick={() => setFilter(f)}
-              className={filter === f ? '' : 'secondary'}
-              style={{
-                padding: '8px 14px',
-                fontSize: 14,
-                minHeight: 40,
-                flex: '1 1 auto',
-                minWidth: 100,
-              }}
-            >
-              {f === 'ALL' ? 'Tất cả' : STATE_LABEL[f]} <strong>({count})</strong>
-            </button>
-          );
-        })}
-      </div>
-
       {loading && <p style={{ color: '#6b7280', textAlign: 'center' }}>Đang tải...</p>}
 
-      {!loading && filtered.length === 0 && (
-        <div className="empty-state card" style={{ padding: 40 }}>
-          <div style={{ fontSize: 48 }}>🎉</div>
-          <p style={{ marginTop: 8 }}>
-            {filter === 'ALL'
-              ? 'Hết món chờ làm! Nghỉ ngơi tí nhé.'
-              : `Không còn món nào ở trạng thái "${STATE_LABEL[filter] || filter}".`}
-          </p>
-        </div>
-      )}
-
-      {filtered.length > 0 && (
-        <div
-          style={{
-            display: 'grid',
-            gap: 10,
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-          }}
-        >
-          {filtered.map((it) => (
-            <KitchenCard
-              key={it.id}
-              item={it}
-              menuItem={menuMap.get(it.menu_item_id)}
-              onAdvance={() => changeState(it)}
-              onToggleStock={() => toggleStock(it)}
+      {!loading && (
+        <div className="kds-board">
+          {COLUMN_DEFS.map((col) => (
+            <Column
+              key={col.state}
+              def={col}
+              items={buckets[col.state] || []}
+              menuMap={menuMap}
+              onAdvance={(it) => changeState(it, col.toState)}
+              onToggleStock={toggleStock}
             />
           ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {/* Legend + age guide */}
-      <div
-        className="card"
-        style={{
-          fontSize: 12,
-          padding: 12,
-          marginTop: 16,
-          color: '#6b7280',
-          display: 'flex',
-          gap: 14,
-          flexWrap: 'wrap',
-        }}
-      >
-        <span><strong>Màu khung:</strong></span>
+function Column({
+  def,
+  items,
+  menuMap,
+  onAdvance,
+  onToggleStock,
+}: {
+  def: (typeof COLUMN_DEFS)[number];
+  items: KitchenItem[];
+  menuMap: Map<string, MenuItem>;
+  onAdvance: (it: KitchenItem) => void;
+  onToggleStock: (it: KitchenItem) => void;
+}) {
+  return (
+    <div className="kds-column" style={{ background: def.bg }}>
+      <div className="kds-column-header" style={{ background: def.color }}>
         <span>
-          <span style={{ display: 'inline-block', width: 16, height: 4, background: '#e5e7eb', verticalAlign: 'middle', marginRight: 4 }} />
-          &lt; 10ph
+          {def.icon} {def.label}
         </span>
-        <span>
-          <span style={{ display: 'inline-block', width: 16, height: 4, background: '#f59e0b', verticalAlign: 'middle', marginRight: 4 }} />
-          10-20ph (warning)
+        <span style={{ background: 'rgba(255,255,255,0.25)', padding: '2px 10px', borderRadius: 999, fontSize: 14 }}>
+          {items.length}
         </span>
-        <span>
-          <span style={{ display: 'inline-block', width: 16, height: 4, background: '#dc2626', verticalAlign: 'middle', marginRight: 4 }} />
-          &gt; 20ph (critical)
-        </span>
+      </div>
+      <div className="kds-column-body">
+        {items.length === 0 && (
+          <div className="kds-empty">
+            {def.state === 'KITCHEN' && 'Chưa có món nào chờ làm'}
+            {def.state === 'COOKING' && 'Chưa có món nào đang nấu'}
+            {def.state === 'READY' && 'Chưa có món nào xong'}
+          </div>
+        )}
+        {items.map((it) => (
+          <Card
+            key={it.id}
+            item={it}
+            colDef={def}
+            menuItem={menuMap.get(it.menu_item_id)}
+            onAdvance={() => onAdvance(it)}
+            onToggleStock={() => onToggleStock(it)}
+          />
+        ))}
       </div>
     </div>
   );
 }
 
-function KitchenCard({
+function Card({
   item,
+  colDef,
   menuItem,
   onAdvance,
   onToggleStock,
 }: {
   item: KitchenItem;
+  colDef: (typeof COLUMN_DEFS)[number];
   menuItem: MenuItem | undefined;
   onAdvance: () => void;
   onToggleStock: () => void;
 }) {
-  const next = NEXT_STATE[item.state];
   const ageMs = Date.now() - item.updated_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageSec = Math.floor((ageMs % 60_000) / 1000);
-  const stateColor = STATE_COLOR[item.state] || '#6b7280';
   const ageBorderColor = ageColor(item.updated_at, item.state);
   const isCritical = ageBorderColor === '#dc2626';
   const isOutOfStock = menuItem?.is_out_of_stock ?? false;
 
   return (
     <div
+      className="kds-card"
       style={{
-        background: 'white',
-        borderRadius: 12,
-        padding: 14,
-        border: `1px solid #e5e7eb`,
-        borderLeft: `6px solid ${stateColor}`,
+        borderLeft: `5px solid ${colDef.color}`,
         boxShadow: ageBorderColor ? `0 0 0 2px ${ageBorderColor}` : '0 1px 2px rgba(0,0,0,0.04)',
-        animation: isCritical ? 'pulse 1.5s ease-in-out infinite' : undefined,
+        animation: isCritical ? 'kds-pulse 1.5s ease-in-out infinite' : undefined,
       }}
     >
-      <style>{`
-        @keyframes pulse {
-          0%, 100% { box-shadow: 0 0 0 2px #dc2626; }
-          50% { box-shadow: 0 0 0 4px #dc2626aa; }
-        }
-      `}</style>
-
-      {/* Header: state + table */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-        <span
-          style={{
-            background: stateColor,
-            color: 'white',
-            padding: '3px 10px',
-            borderRadius: 6,
-            fontSize: 11,
-            fontWeight: 700,
-            textTransform: 'uppercase',
-            letterSpacing: 0.4,
-          }}
-        >
-          {STATE_LABEL[item.state]}
-        </span>
-        <strong style={{ fontSize: 18, color: '#0f766e' }}>{item.table_code}</strong>
-      </div>
-
-      {/* Item info */}
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 20, fontWeight: 700, lineHeight: 1.25 }}>
-          {item.qty} × {item.menu_item_name}
+      <div className="kds-card-info">
+        <div className="kds-card-table">{item.table_code}</div>
+        <div className="kds-card-name">
+          {item.qty}× {item.menu_item_name}
         </div>
-        {item.note && (
-          <div style={{ fontSize: 13, color: '#dc2626', marginTop: 4, fontWeight: 500 }}>
-            📝 {item.note}
-          </div>
-        )}
+        {item.note && <div className="kds-card-note">📝 {item.note}</div>}
         <div
+          className="kds-card-meta"
           style={{
-            fontSize: 12,
             color: ageBorderColor || '#6b7280',
-            marginTop: 4,
             fontWeight: ageBorderColor ? 700 : 400,
           }}
         >
           {ageBorderColor === '#dc2626' && '⚠ '}
-          Đã chờ: {ageMin}′{ageSec.toString().padStart(2, '0')}
+          ⏱ {ageMin}′{ageSec.toString().padStart(2, '0')}
         </div>
-      </div>
-
-      {/* Stock-out warning */}
-      {isOutOfStock && (
-        <div
-          style={{
-            background: '#fef2f2',
-            color: '#dc2626',
-            padding: '6px 10px',
-            borderRadius: 6,
-            fontSize: 12,
-            fontWeight: 600,
-            marginBottom: 8,
-          }}
-        >
-          🚫 Menu hiện đánh dấu HẾT
-        </div>
-      )}
-
-      {/* Actions */}
-      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {next && (
-          <button
-            onClick={onAdvance}
-            style={{
-              flex: 2,
-              minWidth: 140,
-              padding: '10px 14px',
-              background: STATE_COLOR[next.to] || '#0f766e',
-              fontWeight: 700,
-              fontSize: 14,
-              minHeight: 48,
-            }}
-          >
-            {next.icon} {next.label}
-          </button>
+        {isOutOfStock && (
+          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>
+            🚫 Menu đánh dấu HẾT
+          </div>
         )}
         <button
+          className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
           onClick={onToggleStock}
-          className="secondary"
-          style={{
-            flex: 1,
-            minWidth: 100,
-            padding: '10px',
-            fontSize: 13,
-            minHeight: 48,
-            background: isOutOfStock ? '#fef3c7' : 'white',
-          }}
           title={isOutOfStock ? 'Đánh dấu có lại' : 'Đánh dấu món hết nguyên liệu'}
         >
-          {isOutOfStock ? '✓ Có lại' : '🚫 Hết'}
+          {isOutOfStock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
         </button>
       </div>
+
+      <button
+        className="kds-arrow"
+        onClick={onAdvance}
+        style={{ ['--col' as string]: colDef.color, background: colDef.color }}
+        title={colDef.nextLabel}
+        aria-label={colDef.nextLabel}
+      >
+        <div className="kds-arrow-content">
+          <span style={{ fontSize: 20 }}>{colDef.nextIcon}</span>
+          <span style={{ fontSize: 24, lineHeight: 1 }}>→</span>
+          <span className="label">{colDef.nextLabel}</span>
+        </div>
+      </button>
     </div>
   );
 }
