@@ -1,7 +1,7 @@
 ---
 phase: "01"
 created_at: 2026-05-08
-goal_count: 28
+goal_count: 47
 profile: web-fullstack
 source: derived from CONTEXT TS-01..TS-52 + INTERFACE-STANDARDS + SPECS success_criteria
 ---
@@ -432,3 +432,246 @@ Downstream `/vg:build` will use this to resolve `<goals-covered>` in PLAN.md:
 | manual smoke | 0 (deferred per D-20 — real-device manual checklist in RUNBOOK) | accept-phase responsibility |
 
 Coverage gate (FOUNDATION §9.7): 70% lines threshold.
+
+---
+
+## G-29 — filter-row-applies-server-query (audit list view)
+
+**Endpoints:** E-12 GET /admin/audit
+**Verification:** automated integration
+**Success criteria:**
+- Apply filter `?actor=X&action_kind=Y&from=...&to=...` — server actually queries DB with WHERE clauses matching filter
+- Result rows ALL match filter criteria (no client-side filtering needed)
+- Filter applies at server-query level, not just client-side
+- Filter combinations (multiple filter keys) AND together (not OR)
+
+**Traces:** TS-16, TS-52, P01.D-07
+
+---
+
+## G-30 — pagination-next-prev-deep-link (audit list view)
+
+**Endpoints:** E-12 GET /admin/audit
+**Verification:** automated E2E
+**Success criteria:**
+- URL `?page=2&page_size=20` → server returns offset 20..39 + total + page metadata
+- Click Next button → page=3 URL change, deep-link preserved (refresh keeps page=3)
+- Click Prev button → page=1 URL change
+- Deep-link to /admin/audit?page=5 directly → server returns page 5
+
+**Traces:** P01.D-15 (pagination)
+
+---
+
+## G-31 — pagination-page-size-persists (audit + users list)
+
+**Endpoints:** E-09 GET /admin/users, E-12 GET /admin/audit
+**Verification:** automated E2E
+**Success criteria:**
+- User changes page_size via dropdown (20 → 50)
+- Page size persists across navigation (e.g., page 1 → page 2 keeps 50)
+- URL reflects ?page_size=50
+- Refresh keeps page_size=50
+
+**Traces:** P01.D-15
+
+---
+
+## G-32 — column-count-and-order-locked (audit + users list)
+
+**Endpoints:** E-09, E-12 (FE rendering)
+**Verification:** automated E2E
+**Success criteria:**
+- Users list table columns: [username, is_active, is_owner, created_at, actions] — count=5, order locked
+- Audit list table columns: [ts_ms, actor_name, ip, action_kind, target, view_btn] — count=6, order locked
+- Column order does NOT change between renders
+- All columns visible on desktop (no horizontal scroll)
+- Mobile (<640px): table collapses to card stack (per F-16, BR-5)
+
+**Traces:** TS-41
+
+---
+
+## G-33 — default-sort-deterministic (audit list view)
+
+**Endpoints:** E-12 GET /admin/audit
+**Verification:** automated integration
+**Success criteria:**
+- Default sort = `ts_ms DESC` (newest first) — explicit ORDER BY in query
+- Same query 2× returns SAME row order (deterministic, not implementation-dependent)
+- Secondary sort by id DESC for tie-break (audit_log.id is auto-increment BIGINT)
+
+**Traces:** P01.D-07, P01.D-15
+
+---
+
+## G-34 — empty-state-when-no-data (lists + dashboards)
+
+**Endpoints:** E-09, E-12 (FE rendering)
+**Verification:** automated E2E
+**Success criteria:**
+- Fresh DB, no users → /admin/users renders EmptyState component with "Chưa có nhân viên nào. Tạo nhân viên đầu tiên ngay." + primary action button
+- Fresh audit_log, no rows → /admin/audit renders EmptyState with "Chưa có hoạt động nào được ghi." + no action button
+- EmptyState does NOT show error or loading spinner
+
+**Traces:** P01.D-09 (envelope), shared ui-kit EmptyState
+
+---
+
+## G-35 — loading-state-while-fetching (lists + dashboards)
+
+**Endpoints:** E-09, E-12 (FE rendering)
+**Verification:** automated E2E
+**Success criteria:**
+- Initial page load → skeleton screen (rows shimmer) for 500ms-2s during fetch
+- After data loaded → skeleton replaced by real rows
+- Loading state during pagination → table fades + spinner overlay
+- Error during fetch → toast + Retry button (per P01.D-17 axios interceptor)
+
+**Traces:** P01.D-16, P01.D-17
+
+---
+
+## G-36 — submit-success-toast-text-match (forms)
+
+**Endpoints:** E-08 POST /admin/users, E-04 POST /auth/change-password, E-07 POST /setup
+**Verification:** automated E2E
+**Success criteria:**
+- Submit successful form → toast appears with friendly VN text matching template (e.g. "Tạo nhân viên thành công ✓")
+- Toast text matches centralized i18n key (apps/web/src/i18n/success.vi.ts)
+- Toast auto-dismiss after 3s (per D-19 / packages/ui-kit Toast)
+
+**Traces:** P01.D-18
+
+---
+
+## G-37 — submit-success-api-2xx-shape
+
+**Endpoints:** all POST mutations
+**Verification:** automated integration
+**Success criteria:**
+- 2xx response body shape matches `{data: ...}` envelope (per D-09)
+- Status: 200 (data return), 201 (resource created), 204 (idempotent no-body)
+- Response Content-Type: application/json (except 204 no body)
+- Response includes X-Request-Id header (D-10)
+
+---
+
+## G-38 — submit-success-console-no-error
+
+**Endpoints:** any FE form submission
+**Verification:** automated E2E (Playwright console listener)
+**Success criteria:**
+- Submit any form successfully → browser console has zero errors logged
+- No React warning, no unhandled promise rejection, no network 4xx/5xx in DevTools
+- Playwright assertion: `expect(consoleErrors).toHaveLength(0)`
+
+---
+
+## G-39 — submit-success-RELOAD-state-persist
+
+**Endpoints:** /admin/users, /admin/audit, /account, /login
+**Verification:** automated E2E
+**Success criteria:**
+- After submit-success: full page reload → state-equivalent UI re-renders
+- Created user shows in /admin/users list after reload
+- Password changed: re-login with new password works after reload
+- URL state (page, page_size, filters) restore from URL params
+
+---
+
+## G-40 — submit-validation-error-toast-text
+
+**Endpoints:** any POST with DTO validation
+**Verification:** automated E2E
+**Success criteria:**
+- Submit invalid form → 422 response with `error.code=VALIDATION_FAILED` + field detail
+- Toast appears with friendly VN text (e.g. "Dữ liệu thiếu, bạn kiểm tra lại nhé.")
+- Per-field error message inline below input (per D-16 on-blur)
+
+**Traces:** P01.D-14, P01.D-16
+
+---
+
+## G-41 — submit-validation-error-cell-revert
+
+**Endpoints:** /admin/users inline-edit (future) — Phase 01 N/A
+**Verification:** N/A this phase — placeholder for goal binding
+**Success criteria:**
+- Inline-edit cell submit fails validation → cell reverts to original value
+- Error tooltip near cell with friendly VN text
+- Phase 01 has NO inline-edit table; goal applies in Milestone 2 phases with editable tables
+
+---
+
+## G-42 — submit-state-guard-disabled-affordance
+
+**Endpoints:** all form submit buttons
+**Verification:** automated E2E
+**Success criteria:**
+- Form submit button disabled while request in-flight (prevent double-submit)
+- Disabled affordance: opacity 0.5 + cursor not-allowed + aria-disabled=true
+- Spinner inside button during submit
+- Re-enables after success/error response
+
+---
+
+## G-43 — sidebar-active-aria-current (navigation)
+
+**Endpoints:** N/A (FE nav)
+**Verification:** automated E2E
+**Success criteria:**
+- Navigation item for current route has `aria-current="page"` attribute
+- Visual highlight (bg color + bold) for active nav item
+- On mobile: bottom-nav active tab highlighted (per F-16 / D-19 mobile bottom-nav)
+
+---
+
+## G-44 — back-button-restores-state (navigation)
+
+**Endpoints:** N/A (FE history)
+**Verification:** automated E2E
+**Success criteria:**
+- Browser back button after /admin/audit?page=3 → returns to /admin/audit?page=3 (not page=1)
+- State preserved: filters, scroll position, page_size all restore
+- Forward button: forward state also restored
+- React Router or browser native history API both work
+
+---
+
+## G-45 — redirect-to-login-when-unauth (auth_protected_route)
+
+**Endpoints:** any JWT-protected endpoint (all /admin/* + /account + /auth/me + /dashboard FE routes)
+**Verification:** automated E2E
+**Success criteria:**
+- Unauthenticated user navigates to /admin/users → redirect to /login
+- Unauthenticated API call → 401 + FE axios interceptor redirects to /login
+- /login page renders WITHOUT requiring auth
+- No infinite redirect loop
+
+**Traces:** P01.D-17
+
+---
+
+## G-46 — preserves-returnUrl-after-login (auth_protected_route)
+
+**Endpoints:** /login + auth flow
+**Verification:** automated E2E
+**Success criteria:**
+- User unauthenticated navigates to /admin/audit?page=2 → redirect to /login?returnUrl=/admin/audit?page=2
+- After successful login → redirect to original URL (page=2 preserved)
+- returnUrl URL-encoded properly in query string
+- Open-redirect guard: returnUrl must be same-origin (D-12 CSRF + same-domain D-13)
+
+---
+
+## G-47 — logout-clears-session-and-redirects (auth_protected_route)
+
+**Endpoints:** E-02 POST /auth/logout
+**Verification:** automated E2E
+**Success criteria:**
+- Click logout button → POST /auth/logout fires
+- After 204 response → cookie `ssp_token` cleared in browser (verify via Playwright `page.context().cookies()`)
+- Redirect to /login (or /landing if exists)
+- Auth state in React (useAuth hook) cleared
+- Any in-memory cache (e.g., user profile) flushed

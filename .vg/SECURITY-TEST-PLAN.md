@@ -8,7 +8,7 @@ Last updated: 2026-05-08T03:54:55Z
 
 ## 1. Risk Classification
 
-**Risk profile:** `MODERATE`
+**Risk profile:** `moderate`
 
 **Justification:**
 POS có money handling (auto-pay 10h pending-review, payment ghi DB), audit log mandatory cho mọi mutation, no RBAC compensated by audit. Single-tenant 1 quán, không lưu thẻ tín dụng (payment ghi nhận nội bộ; VAT integration deferred sang Milestone 2). Risk thực sự là gian lận nội bộ + lộ lệ hoá đơn — moderate phù hợp.
@@ -65,7 +65,9 @@ Beyond VG's built-in validators (verify-goal-security / verify-security-baseline
 
 ## 6. Compliance Framework Mapping
 
-**Framework:** `none (no GDPR — F-10; VAT integration treated as separate compliance event when activated)`
+**Framework:** `none`
+
+> Rationale: F-10 (no GDPR — no EU customers). VAT integration deferred to Milestone 2 and treated as separate compliance event when activated.
 
 **Control list:**
 Mapping for Phase 1 (none formal). Compensating practices: audit log retention 90d (FOUNDATION §9.5) + bcrypt password hash + cookie SameSite=Strict + ZAP DAST scan in /vg:test. Will re-evaluate when VAT integration phase begins (taxes / invoice retention have legal record-keeping rules in VN).
@@ -77,10 +79,10 @@ Mapping for Phase 1 (none formal). Compensating practices: audit log retention 9
 
 ## 7. Incident Response
 
-**IR team contact:** Owner/dev (solo) — log issue trong audit log + manual investigation
-**Escalation path:** {L1 → L2 → CTO within Xhrs}
-**Public disclosure policy:** {immediate|7-day|30-day after fix}
-**Post-mortem SLA:** {days to write post-mortem after incident closure}
+**IR team contact:** Owner/dev (solo) — support@printik.io. Phone reachable cùng số POS. Log issue vào audit_log + manual investigation.
+**Escalation path:** Solo dev — không có L1/L2 tier. Bất kỳ incident nào → Owner xử lý trực tiếp trong vòng 24 giờ. Critical (data loss, payment exposure) → ngay lập tức (drop other work).
+**Public disclosure policy:** 30-day after fix (quán nhỏ private deployment, không user-facing API public). Khi multi-tenant ở Milestone 2+ → re-evaluate.
+**Post-mortem SLA:** 7 ngày sau khi đóng incident. Document vào RUNBOOK.md trong repo.
 
 ---
 

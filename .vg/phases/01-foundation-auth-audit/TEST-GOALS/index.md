@@ -1,6 +1,6 @@
 # TEST-GOALS index
 
-Total: 28 goals
+Total: 47 goals
 
 - [G-01](G-01.md) — Login happy path
 - [G-02](G-02.md) — Login fail + rate limit
@@ -30,3 +30,22 @@ Total: 28 goals
 - [G-26](G-26.md) — Slow-4G TTI < 3s
 - [G-27](G-27.md) — Friendly VN error tone + re-login modal
 - [G-28](G-28.md) — Test data privacy + pre-commit hook
+- [G-29](G-29.md) — filter-row-applies-server-query (audit list view)
+- [G-30](G-30.md) — pagination-next-prev-deep-link (audit list view)
+- [G-31](G-31.md) — pagination-page-size-persists (audit + users list)
+- [G-32](G-32.md) — column-count-and-order-locked (audit + users list)
+- [G-33](G-33.md) — default-sort-deterministic (audit list view)
+- [G-34](G-34.md) — empty-state-when-no-data (lists + dashboards)
+- [G-35](G-35.md) — loading-state-while-fetching (lists + dashboards)
+- [G-36](G-36.md) — submit-success-toast-text-match (forms)
+- [G-37](G-37.md) — submit-success-api-2xx-shape
+- [G-38](G-38.md) — submit-success-console-no-error
+- [G-39](G-39.md) — submit-success-RELOAD-state-persist
+- [G-40](G-40.md) — submit-validation-error-toast-text
+- [G-41](G-41.md) — submit-validation-error-cell-revert
+- [G-42](G-42.md) — submit-state-guard-disabled-affordance
+- [G-43](G-43.md) — sidebar-active-aria-current (navigation)
+- [G-44](G-44.md) — back-button-restores-state (navigation)
+- [G-45](G-45.md) — redirect-to-login-when-unauth (auth_protected_route)
+- [G-46](G-46.md) — preserves-returnUrl-after-login (auth_protected_route)
+- [G-47](G-47.md) — logout-clears-session-and-redirects (auth_protected_route)
