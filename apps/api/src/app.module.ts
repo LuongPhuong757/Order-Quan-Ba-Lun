@@ -20,13 +20,11 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(dataSourceOptions),
     EventEmitterModule.forRoot(),
-    // P01.D-26 — in-memory rate limit (5 fails / 5min on /auth/login + /auth/recover)
+    // P01.D-26 — in-memory rate limit
+    // Global generous: 600 req/min/IP (~10/sec) tránh chặn polling UI
+    // Auth strict: override inline ở /auth/login + /auth/recover (5/5min/IP)
     ThrottlerModule.forRoot([
-      {
-        name: 'auth',
-        ttl: 300_000, // 5min
-        limit: 5,
-      },
+      { name: 'default', ttl: 60_000, limit: 600 },
     ]),
     AuthModule,
     AuditModule,

@@ -25,7 +25,7 @@ export class AuthController {
   /** E-01 POST /auth/login */
   @Post('login')
   @HttpCode(200)
-  @Throttle({ auth: { limit: 5, ttl: 300_000 } })
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, token } = await this.svc.loginByCredentials(dto.username, dto.password);
     res.cookie(this.jwtSvc.cookieName, token, this.jwtSvc.cookieOptions);
@@ -88,7 +88,7 @@ export class AuthController {
   /** E-05 POST /auth/recover */
   @Post('recover')
   @HttpCode(200)
-  @Throttle({ auth: { limit: 5, ttl: 300_000 } })
+  @Throttle({ default: { limit: 5, ttl: 300_000 } })
   async recover(@Body() dto: RecoverDto) {
     await this.svc.recover(dto.code, dto.new_password);
     return { data: { message: 'Password reset via recovery code. Please login.' } };
