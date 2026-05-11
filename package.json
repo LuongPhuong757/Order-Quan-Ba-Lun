@@ -1,0 +1,30 @@
+{
+  "name": "order-quan-ba-lun",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "turbo build",
+    "dev": "turbo dev",
+    "typecheck": "turbo typecheck",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "format": "prettier --write \"**/*.{ts,tsx,md,json}\"",
+    "db:up": "docker compose up -d mysql",
+    "db:down": "docker compose down",
+    "migration:run": "pnpm --filter @order/api migration:run",
+    "migration:revert": "pnpm --filter @order/api migration:revert",
+    "seed:owner": "pnpm --filter @order/api seed:owner",
+    "cron:audit-retention": "pnpm --filter @order/api cron:audit-retention",
+    "cron:jti-cleanup": "pnpm --filter @order/api cron:jti-cleanup"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "prettier": "^3.4.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0"
+  }
+}

@@ -58,5 +58,13 @@ Thumbs.db
 .vg/events.jsonl
 .vg/.repo-lock.json
 .vg/current-run.json
+.vg/.evidence-key
+.vg/.session-context.json
+.vg/validator-quarantine.json
+.vg/blocks/
 .vg/phases/*/.recon-state.json
 .vg/phases/*/.recon-report.md
+.vg/phases/*/.tmp/
+.codex/
+.vg/events.db-shm
+.vg/events.db-wal

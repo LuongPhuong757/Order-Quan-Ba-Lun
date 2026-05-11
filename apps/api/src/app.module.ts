@@ -1,0 +1,39 @@
+import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { dataSourceOptions } from './data-source.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { AuditModule } from './modules/audit/audit.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
+import { SetupModule } from './modules/setup/setup.module.js';
+import { HealthController } from './modules/health/health.controller.js';
+import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
+
+@Module({
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
+    TypeOrmModule.forRoot(dataSourceOptions),
+    EventEmitterModule.forRoot(),
+    // P01.D-26 — in-memory rate limit (5 fails / 5min on /auth/login + /auth/recover)
+    ThrottlerModule.forRoot([
+      {
+        name: 'auth',
+        ttl: 300_000, // 5min
+        limit: 5,
+      },
+    ]),
+    AuthModule,
+    AuditModule,
+    AdminModule,
+    SetupModule,
+  ],
+  controllers: [HealthController],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
+  ],
+})
+export class AppModule {}

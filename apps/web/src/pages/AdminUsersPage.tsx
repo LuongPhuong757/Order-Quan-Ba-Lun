@@ -1,0 +1,190 @@
+import { useEffect, useState, FormEvent } from 'react';
+import { api, extractError } from '../lib/api.ts';
+import { useToast } from '../components/Toast.tsx';
+import { PasswordInput } from '../components/PasswordInput.tsx';
+
+type UserRow = {
+  id: string;
+  username: string;
+  is_active: boolean;
+  is_owner: boolean;
+  created_at: number;
+};
+
+export function AdminUsersPage() {
+  const toast = useToast();
+  const [items, setItems] = useState<UserRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [showTemp, setShowTemp] = useState<{ user: string; temp: string } | null>(null);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get<{ data: { items: UserRow[] } }>('/admin/users?page=1&page_size=100');
+      setItems(res.data.data.items);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, []);
+
+  const resetPwd = async (u: UserRow) => {
+    if (!confirm(`Reset password cho ${u.username}?`)) return;
+    try {
+      const res = await api.post<{ data: { temp_password: string } }>(`/admin/users/${u.id}/reset-password`);
+      setShowTemp({ user: u.username, temp: res.data.data.temp_password });
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  const disable = async (u: UserRow) => {
+    if (!confirm(`Vô hiệu hoá tài khoản ${u.username}? Họ sẽ KHÔNG đăng nhập lại được.`)) return;
+    try {
+      await api.post(`/admin/users/${u.id}/disable`);
+      toast.push('success', `Đã vô hiệu hoá ${u.username}.`);
+      refresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  return (
+    <div className="container wide with-bottom-nav">
+      <div className="flex between" style={{ marginBottom: 16 }}>
+        <h1 style={{ margin: 0 }}>Nhân viên</h1>
+        <button onClick={() => setShowCreate(true)}>+ Thêm</button>
+      </div>
+
+      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
+      {!loading && items.length === 0 && (
+        <div className="empty-state card">
+          <p>Chưa có nhân viên nào. Tạo nhân viên đầu tiên ngay.</p>
+          <button onClick={() => setShowCreate(true)}>+ Thêm nhân viên</button>
+        </div>
+      )}
+      {items.length > 0 && (
+        <table className="responsive card" style={{ padding: 0 }}>
+          <thead>
+            <tr>
+              <th>Tên đăng nhập</th>
+              <th>Vai trò</th>
+              <th>Trạng thái</th>
+              <th>Tạo lúc</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((u) => (
+              <tr key={u.id}>
+                <td data-label="Tên đăng nhập"><strong>{u.username}</strong></td>
+                <td data-label="Vai trò">{u.is_owner ? '👑 Chủ quán' : 'Nhân viên'}</td>
+                <td data-label="Trạng thái">
+                  {u.is_active ? (
+                    <span style={{ color: '#059669' }}>● Hoạt động</span>
+                  ) : (
+                    <span style={{ color: '#dc2626' }}>● Vô hiệu</span>
+                  )}
+                </td>
+                <td data-label="Tạo lúc">{new Date(u.created_at).toLocaleString('vi-VN')}</td>
+                <td data-label="Hành động">
+                  <div className="flex" style={{ flexWrap: 'wrap' }}>
+                    <button className="secondary" onClick={() => resetPwd(u)} style={{ padding: '6px 10px' }}>
+                      Reset password
+                    </button>
+                    {u.is_active && !u.is_owner && (
+                      <button className="danger" onClick={() => disable(u)} style={{ padding: '6px 10px' }}>
+                        Vô hiệu
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); refresh(); }} />}
+      {showTemp && (
+        <div className="modal-overlay" role="dialog" aria-modal="true">
+          <div className="modal">
+            <h1>Password tạm cho {showTemp.user}</h1>
+            <pre style={{ background: '#fef3c7', padding: 16, borderRadius: 8, fontSize: 18, textAlign: 'center' }}>
+              {showTemp.temp}
+            </pre>
+            <p style={{ color: '#dc2626' }}>
+              Đưa cho nhân viên + yêu cầu họ đổi password ngay sau khi đăng nhập lần đầu.
+            </p>
+            <button onClick={() => setShowTemp(null)} style={{ width: '100%' }}>Đã chép, đóng</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const toast = useToast();
+  const [username, setUsername] = useState('');
+  const [pwd, setPwd] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!username.trim() || pwd.length < 8) {
+      setErr('Nhập tên đăng nhập + password ≥ 8 ký tự');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post('/admin/users', { username, password: pwd });
+      toast.push('success', `Tạo nhân viên ${username} thành công ✓`);
+      onCreated();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true">
+      <form className="modal" onSubmit={submit}>
+        <h1>Tạo nhân viên mới</h1>
+        <div className="row">
+          <label htmlFor="cu-uname">Tên đăng nhập</label>
+          <input id="cu-uname" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+        </div>
+        <PasswordInput
+          id="cu-pwd"
+          label="Password ban đầu (≥ 8 ký tự)"
+          value={pwd}
+          onChange={(v) => {
+            setPwd(v);
+            setErr(null);
+          }}
+          error={err || undefined}
+          showStrength
+          autoComplete="new-password"
+        />
+        <div className="flex" style={{ marginTop: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Hủy
+          </button>
+          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
+            {submitting && <span className="spinner" />}
+            Tạo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
