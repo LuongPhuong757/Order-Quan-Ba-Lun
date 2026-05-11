@@ -4,6 +4,7 @@ import { AuditLog } from './modules/audit/entities/audit-log.entity.js';
 import { RevokedJti } from './modules/auth/entities/revoked-jti.entity.js';
 import { RecoveryCode } from './modules/auth/entities/recovery-code.entity.js';
 import { MenuItem } from './modules/menu/entities/menu-item.entity.js';
+import { MenuGroup } from './modules/menu/entities/menu-group.entity.js';
 import { RestaurantTable } from './modules/tables/entities/restaurant-table.entity.js';
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
@@ -16,7 +17,7 @@ export const dataSourceOptions: DataSourceOptions = {
   password: process.env.MYSQL_PASSWORD || 'order_app_pass',
   database: process.env.MYSQL_DATABASE || 'order_quan_balun',
   charset: 'utf8mb4',
-  entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, RestaurantTable, Order, OrderItem],
+  entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem],
   migrations: ['src/migrations/*.ts'],
   // Use synchronize:true ONLY for first-run dev — production migrations only.
   synchronize: process.env.NODE_ENV !== 'production',

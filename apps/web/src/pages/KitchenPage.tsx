@@ -28,10 +28,28 @@ type Order = {
 
 type MenuItem = {
   id: string;
+  group: string;
   is_out_of_stock: boolean;
 };
 
-type KitchenItem = OrderItem & { table_code: string };
+type KitchenItem = OrderItem & { table_code: string; group: string };
+
+// Phân loại 'bếp nấu' (cần xử lý nóng) vs 'có sẵn' (lấy ngay từ tủ/quầy)
+type KitchenType = 'all' | 'cook' | 'ready-made';
+const KITCHEN_TYPE_LABEL: Record<KitchenType, string> = {
+  all: 'Tất cả',
+  cook: '🔥 Bếp nấu',
+  'ready-made': '🥤 Bếp có sẵn',
+};
+const COOK_GROUPS = new Set(['food', 'side']);       // cần nấu / chế biến
+const READY_GROUPS = new Set(['drink', 'other']);    // lấy ngay (nước, khăn lạnh, ...)
+
+function matchesKitchenType(group: string, type: KitchenType): boolean {
+  if (type === 'all') return true;
+  if (type === 'cook') return COOK_GROUPS.has(group);
+  if (type === 'ready-made') return READY_GROUPS.has(group);
+  return true;
+}
 
 const COLUMN_DEFS: Array<{
   state: string;
@@ -75,14 +93,17 @@ const COLUMN_DEFS: Array<{
   },
 ];
 
-const AGE_WARN_MS = 10 * 60_000;
-const AGE_CRITICAL_MS = 20 * 60_000;
+// 3-tier age threshold (user-spec)
+const AGE_INFO_MS = 10 * 60_000;     // 10ph → xanh dương (chú ý nhẹ)
+const AGE_WARN_MS = 20 * 60_000;     // 20ph → vàng (cảnh báo)
+const AGE_CRITICAL_MS = 30 * 60_000; // 30ph → đỏ (khẩn cấp)
 
 function ageColor(ts: number, state: string): string | undefined {
   if (state === 'READY') return undefined;
   const age = Date.now() - ts;
-  if (age > AGE_CRITICAL_MS) return '#dc2626';
-  if (age > AGE_WARN_MS) return '#f59e0b';
+  if (age > AGE_CRITICAL_MS) return '#dc2626'; // đỏ — quá 30ph
+  if (age > AGE_WARN_MS)     return '#f59e0b'; // vàng — quá 20ph
+  if (age > AGE_INFO_MS)     return '#3b82f6'; // xanh — quá 10ph
   return undefined;
 }
 
@@ -92,6 +113,7 @@ export function KitchenPage() {
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [kitchenType, setKitchenType] = useState<KitchenType>('all');
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -144,22 +166,23 @@ export function KitchenPage() {
     };
   }, [refresh]);
 
-  // Flatten items vào 3 buckets theo state
+  // Flatten items vào 3 buckets theo state + filter theo kitchen type
   const buckets = useMemo<Record<string, KitchenItem[]>>(() => {
     const out: Record<string, KitchenItem[]> = { KITCHEN: [], COOKING: [], READY: [] };
     for (const o of orders) {
       for (const it of o.items || []) {
         if (out[it.state]) {
-          out[it.state].push({ ...it, table_code: o.table_code });
+          const group = menuMap.get(it.menu_item_id)?.group || 'other';
+          if (!matchesKitchenType(group, kitchenType)) continue;
+          out[it.state].push({ ...it, table_code: o.table_code, group });
         }
       }
     }
-    // Sort: oldest first (FIFO — món chờ lâu nhất nấu trước)
     for (const k of Object.keys(out)) {
       out[k].sort((a, b) => a.updated_at - b.updated_at);
     }
     return out;
-  }, [orders, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orders, menuMap, kitchenType, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changeState = async (item: KitchenItem, to: string) => {
     try {
@@ -330,6 +353,40 @@ export function KitchenPage() {
         <button className="secondary" onClick={manualRefresh} style={{ padding: '8px 14px' }}>
           ↻ Làm mới
         </button>
+      </div>
+
+      {/* Filter loại bếp */}
+      <div style={{
+        display: 'flex',
+        gap: 8,
+        marginBottom: 12,
+        overflowX: 'auto',
+        paddingBottom: 4,
+      }}>
+        {(['all', 'cook', 'ready-made'] as KitchenType[]).map((kt) => {
+          const count = (buckets.KITCHEN.length + buckets.COOKING.length + buckets.READY.length);
+          // Đếm riêng cho từng kitchen type — cần filter prev orders + menuMap
+          // Để đơn giản, chỉ hiển thị count cho lựa chọn hiện tại; ngược lại 'kt' khác show label
+          return (
+            <button
+              key={kt}
+              onClick={() => setKitchenType(kt)}
+              className={kitchenType === kt ? '' : 'secondary'}
+              style={{
+                padding: '10px 16px',
+                fontSize: 14,
+                whiteSpace: 'nowrap',
+                minHeight: 44,
+                flex: '1 1 auto',
+                minWidth: 120,
+                fontWeight: kitchenType === kt ? 700 : 400,
+              }}
+            >
+              {KITCHEN_TYPE_LABEL[kt]}
+              {kitchenType === kt && <strong style={{ marginLeft: 6 }}>({count})</strong>}
+            </button>
+          );
+        })}
       </div>
 
       {loading && <p style={{ color: '#6b7280', textAlign: 'center' }}>Đang tải...</p>}
