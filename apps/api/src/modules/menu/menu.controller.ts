@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   ConflictException,
   Controller,
@@ -10,30 +11,43 @@ import {
   Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname } from 'node:path';
+import { mkdirSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUrl, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 
+const UPLOAD_DIR = 'uploads/menu';
+const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+
+mkdirSync(UPLOAD_DIR, { recursive: true });
+
 class CreateMenuItemDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
-  @IsIn(['food', 'drink', 'side', 'other']) group!: string;
+  @IsString() @MinLength(1) @MaxLength(16) group!: string;
   @IsInt() @Min(0) @Max(100_000_000) price!: number;
   @IsString() @MinLength(1) @MaxLength(32) unit!: string;
-  @IsOptional() @IsUrl() image_url?: string | null;
+  @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
 }
 
 class UpdateMenuItemDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string;
-  @IsOptional() @IsIn(['food', 'drink', 'side', 'other']) group?: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(16) group?: string;
   @IsOptional() @IsInt() @Min(0) @Max(100_000_000) price?: number;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(32) unit?: string;
-  @IsOptional() @IsUrl() image_url?: string | null;
+  @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
   @IsOptional() @IsBoolean() is_out_of_stock?: boolean;
   @IsOptional() @IsBoolean() is_active?: boolean;
 }
@@ -53,6 +67,38 @@ export class MenuController {
     if (group) qb.andWhere('m.group = :g', { g: group });
     const items = await qb.getMany();
     return { data: { items, total: items.length } };
+  }
+
+  /**
+   * POST /menu/upload-image — owner only. Upload ảnh món (multipart/form-data, field name "file").
+   * Trả về { data: { url: "/uploads/menu/<filename>" } } để FE set vào image_url.
+   */
+  @Post('upload-image')
+  @UseGuards(OwnerGuard)
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: diskStorage({
+        destination: UPLOAD_DIR,
+        filename: (_req, file, cb) => {
+          const ext = extname(file.originalname).toLowerCase() || '.jpg';
+          const safe = ext.replace(/[^a-z0-9.]/g, '');
+          const name = `${Date.now()}-${randomBytes(6).toString('hex')}${safe}`;
+          cb(null, name);
+        },
+      }),
+      limits: { fileSize: MAX_FILE_BYTES },
+      fileFilter: (_req, file, cb) => {
+        if (!ALLOWED_MIMES.has(file.mimetype)) {
+          cb(new BadRequestException({ code: 'BAD_REQUEST', message: 'Chỉ chấp nhận ảnh JPG/PNG/WEBP/GIF' }), false);
+          return;
+        }
+        cb(null, true);
+      },
+    }),
+  )
+  async uploadImage(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Thiếu file ảnh' });
+    return { data: { url: `/uploads/menu/${file.filename}` } };
   }
 
   /** POST /menu — owner only */

@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
@@ -142,13 +142,30 @@ export function MenuManagementPage() {
                 opacity: it.is_active ? 1 : 0.6,
               }}
             >
-              <div className="flex between" style={{ alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
-                  <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>
-                  <div style={{ color: '#6b7280', fontSize: 13 }}>{labelOf(it.group)} · {it.unit}</div>
+              <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
+                {it.image_url && (
+                  <img
+                    src={it.image_url}
+                    alt={it.name}
+                    style={{
+                      width: 72,
+                      height: 72,
+                      objectFit: 'cover',
+                      borderRadius: 8,
+                      flexShrink: 0,
+                      background: '#f3f4f6',
+                    }}
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                  />
+                )}
+                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ minWidth: 0 }}>
+                    <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
+                    <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>
+                    <div style={{ color: '#6b7280', fontSize: 13 }}>{labelOf(it.group)} · {it.unit}</div>
+                  </div>
+                  <strong style={{ color: '#0f766e', whiteSpace: 'nowrap' }}>{formatVND(it.price)}</strong>
                 </div>
-                <strong style={{ color: '#0f766e' }}>{formatVND(it.price)}</strong>
               </div>
 
               {it.is_out_of_stock && (
@@ -383,8 +400,44 @@ function MenuFormModal({
   const [price, setPrice] = useState(existing?.price || 0);
   const [unit, setUnit] = useState(existing?.unit || 'phần');
   const [imageUrl, setImageUrl] = useState(existing?.image_url || '');
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  const pickFile = () => fileInputRef.current?.click();
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      setErr('Ảnh vượt quá 5MB, vui lòng chọn ảnh nhỏ hơn');
+      e.target.value = '';
+      return;
+    }
+    setErr(null);
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post<{ data: { url: string } }>('/menu/upload-image', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setImageUrl(res.data.data.url);
+      toast.push('success', 'Tải ảnh lên thành công ✓');
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const clearImage = () => {
+    setImageUrl('');
+    setShowUrlInput(false);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -500,14 +553,86 @@ function MenuFormModal({
           </div>
         </div>
         <div className="row">
-          <label htmlFor="m-img">Ảnh URL (không bắt buộc)</label>
-          <input
-            id="m-img"
-            type="url"
-            placeholder="https://..."
-            value={imageUrl}
-            onChange={(e) => setImageUrl(e.target.value)}
-          />
+          <label>Ảnh món (không bắt buộc)</label>
+          {imageUrl ? (
+            <div style={{ position: 'relative', display: 'inline-block' }}>
+              <img
+                src={imageUrl}
+                alt="preview"
+                style={{
+                  width: '100%',
+                  maxWidth: 240,
+                  height: 160,
+                  objectFit: 'cover',
+                  borderRadius: 8,
+                  border: '1px solid #e5e7eb',
+                  display: 'block',
+                }}
+              />
+              <button
+                type="button"
+                onClick={clearImage}
+                title="Xoá ảnh"
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 28,
+                  height: 28,
+                  padding: 0,
+                  borderRadius: '50%',
+                  background: 'rgba(0,0,0,0.6)',
+                  color: 'white',
+                  border: 'none',
+                  fontSize: 14,
+                  lineHeight: 1,
+                  cursor: 'pointer',
+                }}
+              >
+                ✕
+              </button>
+            </div>
+          ) : (
+            <>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFile}
+                style={{ display: 'none' }}
+              />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={pickFile}
+                  disabled={uploading}
+                  style={{ flex: 1, minWidth: 140, padding: '12px 14px' }}
+                >
+                  {uploading ? <span className="spinner" /> : '📷 Tải ảnh lên'}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setShowUrlInput((v) => !v)}
+                  style={{ padding: '12px 14px' }}
+                >
+                  {showUrlInput ? 'Đóng URL' : 'Hoặc dán URL'}
+                </button>
+              </div>
+              {showUrlInput && (
+                <input
+                  type="url"
+                  placeholder="https://..."
+                  value={imageUrl}
+                  onChange={(e) => setImageUrl(e.target.value)}
+                  style={{ marginTop: 8 }}
+                />
+              )}
+              <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
+                JPG/PNG/WEBP/GIF, tối đa 5MB. Trên điện thoại có thể chụp trực tiếp từ camera.
+              </p>
+            </>
+          )}
         </div>
         {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
         <div className="flex">

@@ -35,6 +35,9 @@ coverage/
 playwright-report/
 test-results/
 
+# Uploaded user content (runtime, not source)
+apps/api/uploads/
+
 # VGFlow runtime (do not commit; tracks ephemeral run state)
 .vg/runs/
 .vg/active-runs/

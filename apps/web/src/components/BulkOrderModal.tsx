@@ -14,6 +14,7 @@ type MenuItem = {
   group: string;
   price: number;
   unit: string;
+  image_url: string | null;
   is_out_of_stock: boolean;
 };
 
@@ -373,6 +374,16 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
         .bulk-menu-card .name { font-size: 14px; font-weight: 600; margin: 2px 0; line-height: 1.25; }
         .bulk-menu-card .meta { font-size: 11px; color: #6b7280; }
         .bulk-menu-card .price { font-size: 14px; font-weight: 700; color: #0f766e; margin-top: 4px; }
+        .bulk-menu-card .thumb {
+          width: 100%;
+          aspect-ratio: 4 / 3;
+          object-fit: cover;
+          border-radius: 6px;
+          margin-bottom: 6px;
+          background: #f3f4f6;
+          display: block;
+        }
+        .bulk-menu-card.out .thumb { opacity: 0.5; }
         .bulk-menu-card .cart-badge {
           position: absolute;
           top: 6px;
@@ -563,6 +574,14 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                   >
                     {inCart && <span className="cart-badge">{inCart.qty}</span>}
                     <div>
+                      {it.image_url && (
+                        <img
+                          src={it.image_url}
+                          alt={it.name}
+                          className="thumb"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      )}
                       <div className="code">{it.code}</div>
                       <div className="name">{it.name}</div>
                       <div className="meta">{GROUP_LABEL[it.group] || it.group} · {it.unit}</div>

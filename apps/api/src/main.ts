@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import 'dotenv/config';
+import { join } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -25,6 +26,10 @@ async function bootstrap() {
   // Polling GET /orders /tables /menu phải nhận body mới mỗi request;
   // 304 empty-body khiến axios.res.data undefined → FE parse fail.
   app.set('etag', false);
+
+  // Serve uploaded images: /uploads/menu/<filename> → apps/api/uploads/menu/<filename>
+  // (CWD khi chạy dev/prod = apps/api, multer cũng dùng relative 'uploads/menu')
+  app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
   // cookie-parser (needed for JWT cookie extraction)
   app.use(cookieParser());
