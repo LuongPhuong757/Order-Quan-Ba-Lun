@@ -214,13 +214,14 @@ export class OrdersService {
     return { affected: result.affected || 0 };
   }
 
-  /** Checkout: validate tất cả items terminal → đóng order + tính tổng tiền.
+  /** Checkout: thanh toán + đóng order.
    *
-   * Rules:
-   * - KHÔNG cho thanh toán nếu còn item ở state PENDING/KITCHEN/COOKING/READY
-   *   (món chưa giao xong, khách chưa nhận đủ).
-   * - Tổng tiền = sum(qty × menu_item_price) của items SERVED only.
-   *   CANCELLED items không tính (khách không ăn, không trả).
+   * Behaviour:
+   * - Cho phép thanh toán BẤT KỲ TRẠNG THÁI nào của items (kể cả còn PENDING/KITCHEN/COOKING/READY).
+   * - Items chưa SERVED sẽ TỰ ĐỘNG BỊ HUỶ với reason "Khách thanh toán khi món chưa giao xong"
+   *   (nhân viên đã confirm ở FE dialog).
+   * - Tổng tiền = sum(qty × menu_item_price) của items SERVED ONLY (món đã giao mới tính tiền).
+   * - CANCELLED items (manual + auto) không tính.
    * - Set closed_at = now, is_paid = true.
    * - Order + items vẫn giữ trong DB cho báo cáo (REQ-H).
    */
@@ -228,40 +229,48 @@ export class OrdersService {
     order: Order;
     served_items: number;
     cancelled_items: number;
+    auto_cancelled_items: number;
     total: number;
   }> {
-    const order = await this.orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
-    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
-    if (order.closed_at) {
-      throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã thanh toán rồi' });
-    }
-    const items = order.items || [];
-    if (items.length === 0) {
-      throw new BadRequestException({ code: 'CONFLICT', message: 'Order trống, không có gì để thanh toán' });
-    }
-    // Validate tất cả items đã terminal
-    const active = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
-    if (active.length > 0) {
-      const list = active.map((i) => `${i.qty}× ${i.menu_item_name} (${i.state})`).join(', ');
-      throw new BadRequestException({
-        code: 'CONFLICT',
-        message: `Còn ${active.length} món chưa giao xong: ${list}. Cần giao hoặc huỷ trước khi thanh toán.`,
-      });
-    }
-    const served = items.filter((i) => i.state === 'SERVED');
-    const cancelled = items.filter((i) => i.state === 'CANCELLED');
-    const total = served.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+    return await this.ds.transaction(async (mgr) => {
+      const orderRepo = mgr.getRepository(Order);
+      const itemRepo = mgr.getRepository(OrderItem);
 
-    order.closed_at = Date.now();
-    order.is_paid = true;
-    await this.orderRepo.save(order);
+      const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (order.closed_at) {
+        throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã thanh toán rồi' });
+      }
+      const items = order.items || [];
+      if (items.length === 0) {
+        throw new BadRequestException({ code: 'CONFLICT', message: 'Order trống, không có gì để thanh toán' });
+      }
 
-    return {
-      order,
-      served_items: served.length,
-      cancelled_items: cancelled.length,
-      total,
-    };
+      // Auto-cancel các items chưa SERVED (PENDING / KITCHEN / COOKING / READY)
+      const activeItems = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
+      const reason = 'Khách thanh toán khi món chưa giao xong';
+      for (const it of activeItems) {
+        it.state = 'CANCELLED';
+        it.cancelled_reason = reason;
+        await itemRepo.save(it);
+      }
+
+      const served = items.filter((i) => i.state === 'SERVED');
+      const cancelled = items.filter((i) => i.state === 'CANCELLED' && i.cancelled_reason !== reason);
+      const total = served.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+
+      order.closed_at = Date.now();
+      order.is_paid = true;
+      await orderRepo.save(order);
+
+      return {
+        order,
+        served_items: served.length,
+        cancelled_items: cancelled.length,
+        auto_cancelled_items: activeItems.length,
+        total,
+      };
+    });
   }
 
   /** Transfer all items from source table to destination table.

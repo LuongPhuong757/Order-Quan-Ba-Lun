@@ -162,29 +162,61 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
 
   const hasItems = (order?.items?.length || 0) > 0;
-  const canCheckout = hasItems && activeItems.length === 0;
   const isCheckedOut = !!order?.closed_at;
+  // Cho phép thanh toán nếu có ít nhất 1 món (kể cả khi còn món chưa giao — sẽ auto-cancel)
+  const canCheckout = hasItems;
+  // Trạng thái "tốt" sẵn sàng thanh toán (UI highlight): tất cả món đã terminal
+  const checkoutReady = hasItems && activeItems.length === 0 && servedItems.length > 0;
 
   const checkout = async () => {
     if (!order) return;
-    if (!canCheckout) {
-      toast.push('error', `Còn ${activeItems.length} món chưa giao xong. Cần giao hoặc huỷ trước.`);
+    if (!hasItems) {
+      toast.push('error', 'Bàn chưa có món nào để thanh toán');
       return;
     }
-    const breakdown = servedItems
+    const servedBreakdown = servedItems
       .map((i) => `  • ${i.qty}× ${i.menu_item_name} = ${(i.menu_item_price * i.qty).toLocaleString('vi-VN')}đ`)
       .join('\n');
     const cancelledCount = itemsByState('CANCELLED').length;
-    const confirmMsg = `THANH TOÁN ${table.name}\n\nMón đã giao:\n${breakdown}\n\nTổng: ${total.toLocaleString('vi-VN')}đ${
-      cancelledCount > 0 ? `\n\n(${cancelledCount} món bị huỷ — không tính tiền)` : ''
-    }\n\nXác nhận đã thu đủ tiền và đóng bàn?`;
+
+    let warningSection = '';
+    if (activeItems.length > 0) {
+      const activeList = activeItems
+        .map((i) => {
+          const stateLabel: Record<string, string> = {
+            PENDING: 'đang gọi',
+            KITCHEN: 'đã báo bếp',
+            COOKING: 'đang nấu',
+            READY: 'xong, chờ giao',
+          };
+          return `  • ${i.qty}× ${i.menu_item_name} (${stateLabel[i.state] || i.state})`;
+        })
+        .join('\n');
+      warningSection = `\n\n⚠ ${activeItems.length} món chưa giao xong sẽ BỊ HUỶ:\n${activeList}\n(Không tính tiền các món này)`;
+    }
+
+    const servedSection = servedItems.length > 0
+      ? `Món đã giao (TÍNH TIỀN):\n${servedBreakdown}\n\nTổng cần thu: ${total.toLocaleString('vi-VN')}đ`
+      : 'Chưa có món nào đã giao — sẽ thanh toán với tổng = 0đ.';
+
+    const cancelledSection = cancelledCount > 0
+      ? `\n\n(${cancelledCount} món đã bị huỷ từ trước — không tính)`
+      : '';
+
+    const confirmMsg = `THANH TOÁN ${table.name}\n\n${servedSection}${cancelledSection}${warningSection}\n\nXác nhận thanh toán và đóng bàn?`;
     if (!confirm(confirmMsg)) return;
+
     try {
-      await api.post<{ data: { total: number; served_items: number; cancelled_items: number } }>(
-        `/orders/${order.id}/checkout`,
-      );
-      toast.push('success', `✓ Đã thanh toán ${table.name} · ${total.toLocaleString('vi-VN')}đ`);
-      onTransferred?.(); // trigger parent refresh — bàn sẽ về trạng thái trống
+      const res = await api.post<{
+        data: { total: number; served_items: number; auto_cancelled_items: number };
+      }>(`/orders/${order.id}/checkout`);
+      const { total: totalPaid, auto_cancelled_items } = res.data.data;
+      let msg = `✓ Đã thanh toán ${table.name} · ${totalPaid.toLocaleString('vi-VN')}đ`;
+      if (auto_cancelled_items > 0) {
+        msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
+      }
+      toast.push('success', msg);
+      onTransferred?.();
       onClose();
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -219,38 +251,48 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
         {!loading && order && (
           <>
-            {/* Action bar */}
-            <div className="flex" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-              {!canCheckout && (
-                <>
-                  <button
-                    onClick={() => setShowBulkOrder(true)}
-                    style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
-                  >
-                    🛒 Gọi món
-                  </button>
-                  <button
-                    className="secondary"
-                    onClick={() => setShowTransfer(true)}
-                    style={{ flex: 1, minWidth: 110 }}
-                  >
-                    ↪ Chuyển bàn
-                  </button>
-                </>
-              )}
-              {canCheckout && (
+            {/* Action bar — luôn hiển thị cả 3 button (Gọi món + Chuyển bàn + Thanh toán) */}
+            <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
+              {/* Row 1: hành động chính */}
+              <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <button
+                  onClick={() => setShowBulkOrder(true)}
+                  style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
+                >
+                  🛒 Gọi món
+                </button>
+                <button
+                  className="secondary"
+                  onClick={() => setShowTransfer(true)}
+                  style={{ flex: 1, minWidth: 110 }}
+                  disabled={!hasItems}
+                >
+                  ↪ Chuyển bàn
+                </button>
+              </div>
+              {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món */}
+              {hasItems && (
                 <button
                   onClick={checkout}
                   style={{
-                    flex: 1,
-                    minWidth: '100%',
-                    background: '#059669',
+                    width: '100%',
+                    background: checkoutReady ? '#059669' : '#f59e0b',
                     fontSize: 16,
                     fontWeight: 700,
                     minHeight: 52,
                   }}
+                  title={
+                    checkoutReady
+                      ? 'Sẵn sàng thanh toán'
+                      : `Còn ${activeItems.length} món chưa giao — sẽ tự huỷ khi thanh toán`
+                  }
                 >
-                  💰 Thanh toán {total.toLocaleString('vi-VN')}đ
+                  💰 Thanh toán {total > 0 ? total.toLocaleString('vi-VN') + 'đ' : ''}
+                  {activeItems.length > 0 && (
+                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
+                      ({activeItems.length} món sẽ bị huỷ)
+                    </span>
+                  )}
                 </button>
               )}
             </div>
@@ -321,13 +363,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 style={{
                   marginTop: 20,
                   padding: 14,
-                  background: canCheckout ? '#ecfdf5' : '#f0fdfa',
+                  background: checkoutReady ? '#ecfdf5' : '#f0fdfa',
                   borderRadius: 10,
-                  border: canCheckout ? '2px solid #10b981' : '1px solid #ccfbf1',
+                  border: checkoutReady ? '2px solid #10b981' : '1px solid #ccfbf1',
                   textAlign: 'center',
                 }}
               >
-                {canCheckout && (
+                {checkoutReady && (
                   <div style={{ color: '#059669', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
                     ✓ SẴN SÀNG THANH TOÁN
                   </div>
@@ -338,9 +380,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>
                   {fmt(total)}
                 </div>
-                {!canCheckout && activeItems.length > 0 && (
+                {activeItems.length > 0 && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
-                    Còn {activeItems.length} món đang xử lý — chưa thanh toán được
+                    Còn {activeItems.length} món đang xử lý — thanh toán sẽ huỷ các món này
                   </div>
                 )}
               </div>
