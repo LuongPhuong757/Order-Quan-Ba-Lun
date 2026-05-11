@@ -92,6 +92,77 @@ export class OrdersService {
     return order;
   }
 
+  /** Bulk add nhiều items vào order trong 1 transaction.
+   * Mặc định state='PENDING', nếu send_to_kitchen=true thì 'KITCHEN' luôn.
+   * Validate tất cả menu items có tồn tại + còn nguyên liệu — fail-fast nếu có 1 món sai.
+   */
+  async addItemsBulk(
+    order_id: string,
+    items: Array<{ menu_item_id: string; qty: number; note?: string | null }>,
+    send_to_kitchen = false,
+  ): Promise<{ items: OrderItem[]; count: number; state: string }> {
+    if (items.length === 0) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Giỏ hàng trống' });
+    }
+    return await this.ds.transaction(async (mgr) => {
+      const orderRepo = mgr.getRepository(Order);
+      const itemRepo = mgr.getRepository(OrderItem);
+      const menuRepo = mgr.getRepository(MenuItem);
+
+      const order = await orderRepo.findOne({ where: { id: order_id } });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (order.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng' });
+
+      // Fetch all menu items in 1 query
+      const ids = Array.from(new Set(items.map((i) => i.menu_item_id)));
+      const menus = await menuRepo.findByIds(ids);
+      const menuMap = new Map(menus.map((m) => [m.id, m]));
+
+      // Validate
+      const outOfStock: string[] = [];
+      const notFound: string[] = [];
+      for (const it of items) {
+        const m = menuMap.get(it.menu_item_id);
+        if (!m || !m.is_active) {
+          notFound.push(it.menu_item_id);
+        } else if (m.is_out_of_stock) {
+          outOfStock.push(m.name);
+        }
+      }
+      if (notFound.length > 0) {
+        throw new NotFoundException({
+          code: 'NOT_FOUND',
+          message: `${notFound.length} món không tồn tại hoặc đã bị ẩn`,
+        });
+      }
+      if (outOfStock.length > 0) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: `Hết nguyên liệu: ${outOfStock.join(', ')}. Bỏ khỏi giỏ rồi thử lại.`,
+        });
+      }
+
+      const state = send_to_kitchen ? 'KITCHEN' : 'PENDING';
+      const created: OrderItem[] = [];
+      for (const it of items) {
+        const m = menuMap.get(it.menu_item_id)!;
+        const entity = itemRepo.create({
+          order_id,
+          menu_item_id: m.id,
+          menu_item_name: m.name,
+          menu_item_price: m.price,
+          qty: it.qty,
+          state,
+          note: it.note ?? null,
+          cancelled_reason: null,
+        });
+        const saved = await itemRepo.save(entity);
+        created.push(saved);
+      }
+      return { items: created, count: created.length, state };
+    });
+  }
+
   async addItem(order_id: string, menu_item_id: string, qty: number, note?: string | null) {
     const order = await this.orderRepo.findOne({ where: { id: order_id } });
     if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });

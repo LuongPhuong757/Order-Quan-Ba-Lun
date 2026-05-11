@@ -8,7 +8,12 @@ import {
   Post,
   UseGuards,
 } from '@nestjs/common';
+import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsOptional,
@@ -17,6 +22,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { OrdersService } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -25,6 +31,17 @@ class AddItemDto {
   @IsUUID() menu_item_id!: string;
   @IsInt() @Min(1) @Max(99) qty!: number;
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+}
+
+class BulkAddItemsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => AddItemDto)
+  items!: AddItemDto[];
+
+  @IsOptional() @IsBoolean() send_to_kitchen?: boolean;
 }
 
 class ChangeStateDto {
@@ -62,6 +79,18 @@ export class OrdersController {
   async addItem(@Param('id') id: string, @Body() dto: AddItemDto) {
     const item = await this.svc.addItem(id, dto.menu_item_id, dto.qty, dto.note ?? null);
     return { data: item };
+  }
+
+  /** POST /orders/:id/items-bulk — add nhiều items 1 lần, option auto-báo-bếp */
+  @Post(':id/items-bulk')
+  @HttpCode(201)
+  async addItemsBulk(@Param('id') id: string, @Body() dto: BulkAddItemsDto) {
+    const result = await this.svc.addItemsBulk(
+      id,
+      dto.items.map((i) => ({ menu_item_id: i.menu_item_id, qty: i.qty, note: i.note })),
+      dto.send_to_kitchen ?? false,
+    );
+    return { data: result };
   }
 
   /** POST /orders/:id/send-to-kitchen — bulk transition PENDING → KITCHEN */

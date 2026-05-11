@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
-import { MenuPickerModal } from './MenuPickerModal.tsx';
+import { BulkOrderModal } from './BulkOrderModal.tsx';
 
 type OrderItem = {
   id: string;
@@ -90,7 +90,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const toast = useToast();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
-  const [showPicker, setShowPicker] = useState(false);
+  const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
@@ -123,22 +123,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     return () => clearInterval(t);
   }, [refresh]);
 
-  const addItem = async (menu_item_id: string, qty: number, note: string) => {
-    if (!order) return;
-    try {
-      await api.post(`/orders/${order.id}/items`, {
-        menu_item_id,
-        qty,
-        note: note || null,
-      });
-      toast.push('success', 'Đã thêm món');
-      setShowPicker(false);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
-    }
-  };
-
   const changeState = async (it: OrderItem, to: string) => {
     if (to === 'CANCELLED' && CANCEL_CONFIRM[it.state]) {
       const reason = prompt(
@@ -167,17 +151,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     }
   };
 
-  const sendAllToKitchen = async () => {
-    if (!order) return;
-    try {
-      const res = await api.post<{ data: { affected: number } }>(`/orders/${order.id}/send-to-kitchen`);
-      toast.push('success', `Đã báo bếp ${res.data.data.affected} món`);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
-    }
-  };
-
   // Group items by state for cleaner display
   const itemsByState = (state: string) => order?.items?.filter((i) => i.state === state) || [];
 
@@ -188,7 +161,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const total = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
 
-  const pendingCount = itemsByState('PENDING').length;
   const hasItems = (order?.items?.length || 0) > 0;
   const canCheckout = hasItems && activeItems.length === 0;
   const isCheckedOut = !!order?.closed_at;
@@ -250,19 +222,21 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             {/* Action bar */}
             <div className="flex" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
               {!canCheckout && (
-                <button onClick={() => setShowPicker(true)} style={{ flex: 2, minWidth: 140 }}>
-                  + Thêm món
-                </button>
-              )}
-              {pendingCount > 0 && (
-                <button onClick={sendAllToKitchen} style={{ flex: 1, minWidth: 120, background: '#f59e0b' }}>
-                  📢 Báo bếp ({pendingCount})
-                </button>
-              )}
-              {!canCheckout && (
-                <button className="secondary" onClick={() => setShowTransfer(true)} style={{ flex: 1, minWidth: 110 }}>
-                  ↪ Chuyển bàn
-                </button>
+                <>
+                  <button
+                    onClick={() => setShowBulkOrder(true)}
+                    style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
+                  >
+                    🛒 Gọi món
+                  </button>
+                  <button
+                    className="secondary"
+                    onClick={() => setShowTransfer(true)}
+                    style={{ flex: 1, minWidth: 110 }}
+                  >
+                    ↪ Chuyển bàn
+                  </button>
+                </>
               )}
               {canCheckout && (
                 <button
@@ -388,8 +362,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           </>
         )}
 
-        {showPicker && order && (
-          <MenuPickerModal onClose={() => setShowPicker(false)} onPick={async (m, q, n) => addItem(m.id, q, n)} />
+        {showBulkOrder && order && (
+          <BulkOrderModal
+            orderId={order.id}
+            tableLabel={`${table.code} · ${table.name}`}
+            onClose={() => setShowBulkOrder(false)}
+            onSubmitted={() => {
+              setShowBulkOrder(false);
+              refresh();
+            }}
+          />
         )}
 
         {showTransfer && order && (
