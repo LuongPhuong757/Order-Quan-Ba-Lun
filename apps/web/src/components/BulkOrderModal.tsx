@@ -50,6 +50,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
   const [cart, setCart] = useState<Map<string, CartLine>>(new Map());
   const [submitting, setSubmitting] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
 
   useEffect(() => {
     api.get<{ data: { items: MenuItem[] } }>('/menu')
@@ -139,6 +140,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
         },
       );
       toast.push('success', `📢 Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`);
+      setMobileCartOpen(false);
       onSubmitted();
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -182,10 +184,132 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           display: flex;
           flex-direction: column;
           overflow: hidden;
-          border-bottom: 1px solid #e5e7eb;
         }
         @media (min-width: 768px) {
-          .bulk-menu-panel { border-bottom: none; border-right: 1px solid #e5e7eb; }
+          .bulk-menu-panel { border-right: 1px solid #e5e7eb; }
+        }
+        /* Mobile <768px: ẨN cart panel side-by-side, dùng sticky bar + sheet thay */
+        @media (max-width: 767px) {
+          .bulk-cart-panel { display: none; }
+          .bulk-menu-grid { padding-bottom: 96px; /* chừa space cho sticky bar */ }
+        }
+        @media (min-width: 768px) {
+          .bulk-mobile-bar { display: none; }
+        }
+        /* Mobile sticky bar — luôn ở dưới khi modal mở */
+        .bulk-mobile-bar {
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          right: 0;
+          background: white;
+          border-top: 1px solid #e5e7eb;
+          padding: 10px 12px;
+          display: flex;
+          gap: 8px;
+          align-items: stretch;
+          z-index: 5;
+          box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+        }
+        .bulk-mobile-bar .info {
+          flex: 1;
+          background: #f9fafb;
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          padding: 8px 14px;
+          display: flex;
+          flex-direction: column;
+          justify-content: center;
+          cursor: pointer;
+          min-height: 52px;
+          text-align: left;
+        }
+        .bulk-mobile-bar .info:active { background: #f3f4f6; }
+        .bulk-mobile-bar .info .top {
+          font-size: 12px;
+          color: #6b7280;
+        }
+        .bulk-mobile-bar .info .bottom {
+          font-size: 17px;
+          font-weight: 700;
+          color: #0f766e;
+        }
+        .bulk-mobile-bar .info.empty .bottom { color: #9ca3af; font-size: 14px; }
+        .bulk-mobile-bar .submit {
+          flex: 1.2;
+          background: #f59e0b;
+          color: white;
+          font-weight: 700;
+          padding: 10px 14px;
+          font-size: 14px;
+          min-height: 52px;
+          border-radius: 10px;
+          border: none;
+          cursor: pointer;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          line-height: 1.1;
+        }
+        .bulk-mobile-bar .submit:disabled {
+          background: #d1d5db;
+          color: #9ca3af;
+          cursor: not-allowed;
+        }
+        .bulk-mobile-bar .submit .icon { font-size: 16px; }
+        /* Mobile cart sheet — slide từ dưới lên */
+        .bulk-mobile-sheet-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0,0,0,0.5);
+          z-index: 10000;
+          display: flex;
+          align-items: flex-end;
+          animation: bulk-fadein 0.15s ease-out;
+        }
+        @keyframes bulk-fadein {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        .bulk-mobile-sheet {
+          background: white;
+          width: 100%;
+          max-height: 85vh;
+          border-radius: 16px 16px 0 0;
+          display: flex;
+          flex-direction: column;
+          animation: bulk-slideup 0.2s ease-out;
+        }
+        @keyframes bulk-slideup {
+          from { transform: translateY(100%); }
+          to { transform: translateY(0); }
+        }
+        .bulk-mobile-sheet-header {
+          padding: 14px 16px;
+          border-bottom: 1px solid #e5e7eb;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+        .bulk-mobile-sheet-header h2 { margin: 0; font-size: 17px; }
+        .bulk-mobile-sheet-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 12px;
+          background: #f9fafb;
+        }
+        .bulk-mobile-sheet-footer {
+          padding: 12px 14px;
+          background: white;
+          border-top: 1px solid #e5e7eb;
+        }
+        .bulk-sheet-handle {
+          width: 40px;
+          height: 4px;
+          background: #d1d5db;
+          border-radius: 2px;
+          margin: 6px auto 0;
         }
         .bulk-menu-toolbar {
           padding: 10px 12px;
@@ -452,7 +576,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
             </div>
           </div>
 
-          {/* PANEL PHẢI — GIỎ HÀNG */}
+          {/* PANEL PHẢI — GIỎ HÀNG (desktop only, mobile dùng sticky bar + sheet) */}
           <div className="bulk-cart-panel">
             <div className="bulk-cart-header">
               <span>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</span>
@@ -463,61 +587,15 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
               )}
             </div>
             <div className="bulk-cart-body">
-              {cartLines.length === 0 && (
-                <div className="bulk-cart-empty">
-                  Tap món bên trái để thêm vào giỏ.
-                  <br />
-                  Tap lại để tăng số lượng.
-                </div>
-              )}
-              {cartLines.map((line) => (
-                <div key={line.menu_item.id} className="bulk-cart-line">
-                  <div className="top">
-                    <div className="name">{line.menu_item.name}</div>
-                    <div className="price">{fmt(line.menu_item.price * line.qty)}</div>
-                  </div>
-                  <div className="row" style={{ justifyContent: 'space-between' }}>
-                    <div className="qty-stepper">
-                      <button onClick={() => updateQty(line.menu_item.id, -1)}>−</button>
-                      <span className="qty">{line.qty}</span>
-                      <button onClick={() => updateQty(line.menu_item.id, +1)}>+</button>
-                    </div>
-                    <button
-                      className="bulk-clear"
-                      onClick={() => removeFromCart(line.menu_item.id)}
-                      title="Xoá khỏi giỏ"
-                    >
-                      🗑 Xoá
-                    </button>
-                  </div>
-                  <div className="bulk-cart-note">
-                    {editingNote === line.menu_item.id ? (
-                      <input
-                        value={line.note}
-                        onChange={(e) => setNote(line.menu_item.id, e.target.value)}
-                        onBlur={() => setEditingNote(null)}
-                        autoFocus
-                        placeholder="vd: ít cay, không hành..."
-                      />
-                    ) : line.note ? (
-                      <span
-                        className="bulk-cart-note-existing"
-                        onClick={() => setEditingNote(line.menu_item.id)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        📝 {line.note}
-                      </span>
-                    ) : (
-                      <button
-                        className="bulk-cart-note-btn"
-                        onClick={() => setEditingNote(line.menu_item.id)}
-                      >
-                        + Ghi chú
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+              <CartLineList
+                lines={cartLines}
+                editingNote={editingNote}
+                onUpdateQty={updateQty}
+                onRemove={removeFromCart}
+                onSetNote={setNote}
+                onStartEditNote={(id) => setEditingNote(id)}
+                onStopEditNote={() => setEditingNote(null)}
+              />
             </div>
             <div className="bulk-cart-footer">
               <div className="bulk-total-row">
@@ -535,7 +613,180 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
             </div>
           </div>
         </div>
+
+        {/* MOBILE — sticky bar dưới menu */}
+        <div className="bulk-mobile-bar">
+          <button
+            className={`info ${cartLines.length === 0 ? 'empty' : ''}`}
+            onClick={() => cartLines.length > 0 && setMobileCartOpen(true)}
+            disabled={cartLines.length === 0}
+            style={{ cursor: cartLines.length > 0 ? 'pointer' : 'default' }}
+          >
+            {cartLines.length === 0 ? (
+              <>
+                <div className="top">🛒 Giỏ hàng</div>
+                <div className="bottom">Trống — tap món trên menu</div>
+              </>
+            ) : (
+              <>
+                <div className="top">🛒 {totalQty} phần · {cartLines.length} món · tap để xem</div>
+                <div className="bottom">{fmt(total)}</div>
+              </>
+            )}
+          </button>
+          <button
+            className="submit"
+            onClick={submit}
+            disabled={submitting || cartLines.length === 0}
+          >
+            {submitting ? (
+              <><span className="spinner" />Đang gửi</>
+            ) : (
+              <>
+                <span className="icon">📢</span>
+                <span>Báo bếp</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* MOBILE — full cart sheet (slide-up modal-trong-modal) */}
+      {mobileCartOpen && (
+        <div
+          className="bulk-mobile-sheet-overlay"
+          onClick={(e) => e.target === e.currentTarget && setMobileCartOpen(false)}
+        >
+          <div className="bulk-mobile-sheet">
+            <div className="bulk-sheet-handle" />
+            <div className="bulk-mobile-sheet-header">
+              <h2>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</h2>
+              <div className="flex" style={{ gap: 8 }}>
+                {cartLines.length > 0 && (
+                  <button className="bulk-clear" onClick={() => setCart(new Map())}>
+                    Xoá hết
+                  </button>
+                )}
+                <button
+                  className="secondary"
+                  onClick={() => setMobileCartOpen(false)}
+                  style={{ padding: '6px 10px' }}
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+            <div className="bulk-mobile-sheet-body">
+              <CartLineList
+                lines={cartLines}
+                editingNote={editingNote}
+                onUpdateQty={updateQty}
+                onRemove={removeFromCart}
+                onSetNote={setNote}
+                onStartEditNote={(id) => setEditingNote(id)}
+                onStopEditNote={() => setEditingNote(null)}
+              />
+            </div>
+            <div className="bulk-mobile-sheet-footer">
+              <div className="bulk-total-row">
+                <span className="bulk-total-label">Tổng tạm tính:</span>
+                <span className="bulk-total-value">{fmt(total)}</span>
+              </div>
+              <button
+                className="bulk-submit"
+                onClick={async () => {
+                  await submit();
+                }}
+                disabled={submitting || cartLines.length === 0}
+              >
+                {submitting && <span className="spinner" />}
+                📢 Báo bếp {totalQty} phần · {fmt(total)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+// Tái dùng cho desktop cart panel + mobile sheet body
+function CartLineList({
+  lines,
+  editingNote,
+  onUpdateQty,
+  onRemove,
+  onSetNote,
+  onStartEditNote,
+  onStopEditNote,
+}: {
+  lines: CartLine[];
+  editingNote: string | null;
+  onUpdateQty: (id: string, delta: number) => void;
+  onRemove: (id: string) => void;
+  onSetNote: (id: string, note: string) => void;
+  onStartEditNote: (id: string) => void;
+  onStopEditNote: () => void;
+}) {
+  if (lines.length === 0) {
+    return (
+      <div className="bulk-cart-empty">
+        Tap món bên trái để thêm vào giỏ.
+        <br />
+        Tap lại để tăng số lượng.
+      </div>
+    );
+  }
+  return (
+    <>
+      {lines.map((line) => (
+        <div key={line.menu_item.id} className="bulk-cart-line">
+          <div className="top">
+            <div className="name">{line.menu_item.name}</div>
+            <div className="price">{fmt(line.menu_item.price * line.qty)}</div>
+          </div>
+          <div className="row" style={{ justifyContent: 'space-between' }}>
+            <div className="qty-stepper">
+              <button onClick={() => onUpdateQty(line.menu_item.id, -1)}>−</button>
+              <span className="qty">{line.qty}</span>
+              <button onClick={() => onUpdateQty(line.menu_item.id, +1)}>+</button>
+            </div>
+            <button
+              className="bulk-clear"
+              onClick={() => onRemove(line.menu_item.id)}
+              title="Xoá khỏi giỏ"
+            >
+              🗑 Xoá
+            </button>
+          </div>
+          <div className="bulk-cart-note">
+            {editingNote === line.menu_item.id ? (
+              <input
+                value={line.note}
+                onChange={(e) => onSetNote(line.menu_item.id, e.target.value)}
+                onBlur={onStopEditNote}
+                autoFocus
+                placeholder="vd: ít cay, không hành..."
+              />
+            ) : line.note ? (
+              <span
+                className="bulk-cart-note-existing"
+                onClick={() => onStartEditNote(line.menu_item.id)}
+                style={{ cursor: 'pointer' }}
+              >
+                📝 {line.note}
+              </span>
+            ) : (
+              <button
+                className="bulk-cart-note-btn"
+                onClick={() => onStartEditNote(line.menu_item.id)}
+              >
+                + Ghi chú
+              </button>
+            )}
+          </div>
+        </div>
+      ))}
+    </>
   );
 }
