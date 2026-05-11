@@ -78,6 +78,13 @@ export class OrdersController {
     return { data: item };
   }
 
+  /** POST /orders/:id/checkout — thanh toán + đóng order */
+  @Post(':id/checkout')
+  async checkout(@Param('id') id: string) {
+    const result = await this.svc.checkout(id);
+    return { data: result };
+  }
+
   /** POST /orders/:id/transfer — chuyển bàn (REQ-B) */
   @Post(':id/transfer')
   async transfer(@Param('id') id: string, @Body() dto: TransferTableDto) {

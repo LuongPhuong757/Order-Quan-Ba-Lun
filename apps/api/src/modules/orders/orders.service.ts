@@ -30,21 +30,51 @@ export class OrdersService {
     @InjectDataSource() private readonly ds: DataSource,
   ) {}
 
-  /** Get or create the open order for a table */
+  /** Get or create the open order for a table.
+   * Pessimistic-lock pattern để tránh race condition khi nhiều client poll cùng lúc tạo
+   * duplicate open orders cho cùng bàn (bug từ session trước). */
   async getOrCreateOpenOrder(table_id: string): Promise<Order> {
-    const table = await this.tableRepo.findOne({ where: { id: table_id, is_active: true } });
-    if (!table) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
-    let order = await this.orderRepo.findOne({ where: { table_id, closed_at: IsNull() } });
-    if (!order) {
-      order = this.orderRepo.create({
+    return await this.ds.transaction(async (mgr) => {
+      const tableRepo = mgr.getRepository(RestaurantTable);
+      const orderRepo = mgr.getRepository(Order);
+
+      const table = await tableRepo.findOne({ where: { id: table_id, is_active: true } });
+      if (!table) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
+
+      // Lock open orders cho bàn này (FOR UPDATE) — ngăn concurrent insert
+      const existing = await orderRepo
+        .createQueryBuilder('o')
+        .where('o.table_id = :tid AND o.closed_at IS NULL', { tid: table_id })
+        .orderBy('o.opened_at', 'ASC')
+        .setLock('pessimistic_write')
+        .getMany();
+
+      if (existing.length > 0) {
+        // Nếu lỡ có nhiều open orders (legacy data) → chọn cái có items hoặc cái cũ nhất
+        const withItems: Order[] = [];
+        for (const o of existing) {
+          const cnt = await mgr.getRepository(OrderItem).count({ where: { order_id: o.id } });
+          if (cnt > 0) withItems.push(o);
+        }
+        if (withItems.length > 0) return withItems[0];
+        // Tất cả empty — keep oldest, delete rest
+        const keep = existing[0];
+        const toDelete = existing.slice(1).map((o) => o.id);
+        if (toDelete.length > 0) {
+          await orderRepo.delete(toDelete);
+        }
+        return keep;
+      }
+
+      const order = orderRepo.create({
         table_id,
         table_code: table.code,
         closed_at: null,
         is_paid: false,
       });
-      await this.orderRepo.save(order);
-    }
-    return order;
+      await orderRepo.save(order);
+      return order;
+    });
   }
 
   async listOpenOrders() {
@@ -111,6 +141,56 @@ export class OrdersService {
       .where('order_id = :oid AND state = :s', { oid: order_id, s: 'PENDING' })
       .execute();
     return { affected: result.affected || 0 };
+  }
+
+  /** Checkout: validate tất cả items terminal → đóng order + tính tổng tiền.
+   *
+   * Rules:
+   * - KHÔNG cho thanh toán nếu còn item ở state PENDING/KITCHEN/COOKING/READY
+   *   (món chưa giao xong, khách chưa nhận đủ).
+   * - Tổng tiền = sum(qty × menu_item_price) của items SERVED only.
+   *   CANCELLED items không tính (khách không ăn, không trả).
+   * - Set closed_at = now, is_paid = true.
+   * - Order + items vẫn giữ trong DB cho báo cáo (REQ-H).
+   */
+  async checkout(order_id: string): Promise<{
+    order: Order;
+    served_items: number;
+    cancelled_items: number;
+    total: number;
+  }> {
+    const order = await this.orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
+    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    if (order.closed_at) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã thanh toán rồi' });
+    }
+    const items = order.items || [];
+    if (items.length === 0) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Order trống, không có gì để thanh toán' });
+    }
+    // Validate tất cả items đã terminal
+    const active = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
+    if (active.length > 0) {
+      const list = active.map((i) => `${i.qty}× ${i.menu_item_name} (${i.state})`).join(', ');
+      throw new BadRequestException({
+        code: 'CONFLICT',
+        message: `Còn ${active.length} món chưa giao xong: ${list}. Cần giao hoặc huỷ trước khi thanh toán.`,
+      });
+    }
+    const served = items.filter((i) => i.state === 'SERVED');
+    const cancelled = items.filter((i) => i.state === 'CANCELLED');
+    const total = served.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+
+    order.closed_at = Date.now();
+    order.is_paid = true;
+    await this.orderRepo.save(order);
+
+    return {
+      order,
+      served_items: served.length,
+      cancelled_items: cancelled.length,
+      total,
+    };
   }
 
   /** Transfer all items from source table to destination table.

@@ -101,10 +101,26 @@ export function OrdersPage() {
     const order = orderByTable(t.id);
     const items = order?.items || [];
     const counts: Record<string, number> = { PENDING: 0, KITCHEN: 0, COOKING: 0, READY: 0 };
+    let servedCount = 0;
     items.forEach((it) => {
       if (counts[it.state] != null) counts[it.state]++;
+      if (it.state === 'SERVED') servedCount++;
     });
     const hasActive = Object.values(counts).some((c) => c > 0);
+    // Bàn có order open + KHÔNG có món active + có ít nhất 1 món SERVED → sẵn sàng thanh toán
+    const readyToCheckout = !!order && !hasActive && servedCount > 0;
+
+    const isAnimating = readyToCheckout;
+    const bg = readyToCheckout
+      ? '#ecfdf5'
+      : hasActive
+      ? KIND_BG[t.kind] || '#f3f4f6'
+      : 'white';
+    const border = readyToCheckout
+      ? '2px solid #059669'
+      : hasActive
+      ? '2px solid #0f766e'
+      : '1px solid #e5e7eb';
 
     return (
       <button
@@ -112,9 +128,9 @@ export function OrdersPage() {
         onClick={() => setActive(t)}
         style={{
           padding: 14,
-          background: hasActive ? KIND_BG[t.kind] || '#f3f4f6' : 'white',
+          background: bg,
           color: '#1f2937',
-          border: hasActive ? '2px solid #0f766e' : '1px solid #e5e7eb',
+          border,
           borderRadius: 12,
           textAlign: 'left',
           minHeight: 100,
@@ -125,21 +141,42 @@ export function OrdersPage() {
           cursor: 'pointer',
           width: '100%',
           fontWeight: 400,
+          animation: isAnimating ? 'checkoutReady 2s ease-in-out infinite' : undefined,
         }}
       >
+        <style>{`
+          @keyframes checkoutReady {
+            0%, 100% { box-shadow: 0 0 0 0 #05966966; }
+            50% { box-shadow: 0 0 0 6px #05966900; }
+          }
+        `}</style>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>{t.code}</div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>{t.name}</div>
           </div>
-          {hasActive && order && (
+          {(hasActive || readyToCheckout) && order && (
             <div style={{ fontSize: 11, color: '#6b7280' }}>
               {Math.floor((Date.now() - order.opened_at) / 60_000)}′
             </div>
           )}
         </div>
 
-        {hasActive ? (
+        {readyToCheckout ? (
+          <div
+            style={{
+              background: '#059669',
+              color: 'white',
+              padding: '6px 10px',
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 700,
+              textAlign: 'center',
+            }}
+          >
+            💰 Sẵn sàng thanh toán ({servedCount} món)
+          </div>
+        ) : hasActive ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {Object.entries(counts).map(([st, n]) => {
               if (n === 0) return null;

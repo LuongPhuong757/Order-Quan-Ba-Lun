@@ -184,11 +184,40 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const activeStates: string[] = ['PENDING', 'KITCHEN', 'COOKING', 'READY'];
   const terminalStates: string[] = ['SERVED', 'CANCELLED'];
 
-  const total = order?.items
-    ?.filter((i) => i.state === 'SERVED')
-    .reduce((s, i) => s + i.menu_item_price * i.qty, 0) || 0;
+  const servedItems = order?.items?.filter((i) => i.state === 'SERVED') || [];
+  const total = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+  const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
 
   const pendingCount = itemsByState('PENDING').length;
+  const hasItems = (order?.items?.length || 0) > 0;
+  const canCheckout = hasItems && activeItems.length === 0;
+  const isCheckedOut = !!order?.closed_at;
+
+  const checkout = async () => {
+    if (!order) return;
+    if (!canCheckout) {
+      toast.push('error', `Còn ${activeItems.length} món chưa giao xong. Cần giao hoặc huỷ trước.`);
+      return;
+    }
+    const breakdown = servedItems
+      .map((i) => `  • ${i.qty}× ${i.menu_item_name} = ${(i.menu_item_price * i.qty).toLocaleString('vi-VN')}đ`)
+      .join('\n');
+    const cancelledCount = itemsByState('CANCELLED').length;
+    const confirmMsg = `THANH TOÁN ${table.name}\n\nMón đã giao:\n${breakdown}\n\nTổng: ${total.toLocaleString('vi-VN')}đ${
+      cancelledCount > 0 ? `\n\n(${cancelledCount} món bị huỷ — không tính tiền)` : ''
+    }\n\nXác nhận đã thu đủ tiền và đóng bàn?`;
+    if (!confirm(confirmMsg)) return;
+    try {
+      await api.post<{ data: { total: number; served_items: number; cancelled_items: number } }>(
+        `/orders/${order.id}/checkout`,
+      );
+      toast.push('success', `✓ Đã thanh toán ${table.name} · ${total.toLocaleString('vi-VN')}đ`);
+      onTransferred?.(); // trigger parent refresh — bàn sẽ về trạng thái trống
+      onClose();
+    } catch (e) {
+      toast.push('error', extractError(e).message);
+    }
+  };
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -220,17 +249,36 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           <>
             {/* Action bar */}
             <div className="flex" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}>
-              <button onClick={() => setShowPicker(true)} style={{ flex: 2, minWidth: 140 }}>
-                + Thêm món
-              </button>
+              {!canCheckout && (
+                <button onClick={() => setShowPicker(true)} style={{ flex: 2, minWidth: 140 }}>
+                  + Thêm món
+                </button>
+              )}
               {pendingCount > 0 && (
                 <button onClick={sendAllToKitchen} style={{ flex: 1, minWidth: 120, background: '#f59e0b' }}>
                   📢 Báo bếp ({pendingCount})
                 </button>
               )}
-              <button className="secondary" onClick={() => setShowTransfer(true)} style={{ flex: 1, minWidth: 110 }}>
-                ↪ Chuyển bàn
-              </button>
+              {!canCheckout && (
+                <button className="secondary" onClick={() => setShowTransfer(true)} style={{ flex: 1, minWidth: 110 }}>
+                  ↪ Chuyển bàn
+                </button>
+              )}
+              {canCheckout && (
+                <button
+                  onClick={checkout}
+                  style={{
+                    flex: 1,
+                    minWidth: '100%',
+                    background: '#059669',
+                    fontSize: 16,
+                    fontWeight: 700,
+                    minHeight: 52,
+                  }}
+                >
+                  💰 Thanh toán {total.toLocaleString('vi-VN')}đ
+                </button>
+              )}
             </div>
 
             {/* Items grouped by state */}
@@ -293,20 +341,48 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               </details>
             )}
 
-            {/* Total (SERVED items count toward bill per REQ-H) */}
-            {total > 0 && (
+            {/* Total + checkout-ready hint (SERVED items count toward bill per REQ-H) */}
+            {(total > 0 || servedItems.length > 0) && (
               <div
                 style={{
                   marginTop: 20,
                   padding: 14,
-                  background: '#f0fdfa',
+                  background: canCheckout ? '#ecfdf5' : '#f0fdfa',
                   borderRadius: 10,
-                  fontSize: 16,
-                  fontWeight: 600,
+                  border: canCheckout ? '2px solid #10b981' : '1px solid #ccfbf1',
                   textAlign: 'center',
                 }}
               >
-                Tạm tính (đã giao): <span style={{ color: '#0f766e' }}>{fmt(total)}</span>
+                {canCheckout && (
+                  <div style={{ color: '#059669', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
+                    ✓ SẴN SÀNG THANH TOÁN
+                  </div>
+                )}
+                <div style={{ fontSize: 14, color: '#6b7280' }}>
+                  Tổng tiền (đã giao): {servedItems.length} món
+                </div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>
+                  {fmt(total)}
+                </div>
+                {!canCheckout && activeItems.length > 0 && (
+                  <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
+                    Còn {activeItems.length} món đang xử lý — chưa thanh toán được
+                  </div>
+                )}
+              </div>
+            )}
+            {isCheckedOut && (
+              <div
+                style={{
+                  marginTop: 20,
+                  padding: 14,
+                  background: '#f9fafb',
+                  borderRadius: 10,
+                  textAlign: 'center',
+                  color: '#6b7280',
+                }}
+              >
+                ✓ Đã thanh toán lúc {new Date(order!.closed_at!).toLocaleTimeString('vi-VN')}
               </div>
             )}
           </>
