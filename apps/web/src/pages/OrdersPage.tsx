@@ -42,7 +42,8 @@ const FILTER_LABEL: Record<FilterKey, string> = {
 
 const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'has-pending', 'empty', 'dine-in', 'takeaway', 'delivery'];
 
-const ACTIVE_STATES = new Set(['PENDING', 'KITCHEN', 'COOKING', 'READY']);
+// Món "đã giao xong" = SERVED. CANCELLED không tính (bỏ). Còn lại đều là "chưa giao".
+const TERMINAL_STATES = new Set(['SERVED', 'CANCELLED']);
 
 const KIND_BG: Record<string, string> = {
   'dine-in': '#fef3c7',
@@ -117,6 +118,25 @@ export function OrdersPage() {
     [openOrders],
   );
 
+  // Predicate rõ ràng — đúng theo định nghĩa user:
+  // - "Đang dùng"        = bàn có open order (bất kể có món hay chưa).
+  // - "Còn món chưa giao" = bàn có ít nhất 1 món NOT SERVED và NOT CANCELLED
+  //                          (tức state ∈ {PENDING, KITCHEN, COOKING, READY}).
+  const isInUse = useCallback(
+    (t: Table): boolean => !!orderByTable(t.id),
+    [orderByTable],
+  );
+
+  const hasUnservedItems = useCallback(
+    (t: Table): boolean => {
+      const o = orderByTable(t.id);
+      if (!o) return false;
+      const items = o.items || [];
+      return items.some((it) => !TERMINAL_STATES.has(it.state));
+    },
+    [orderByTable],
+  );
+
   // Đếm count cho từng filter (luôn tính từ full tables, không phụ thuộc filter hiện tại)
   const filterCounts = useMemo<Record<FilterKey, number>>(() => {
     const counts: Record<FilterKey, number> = {
@@ -129,25 +149,21 @@ export function OrdersPage() {
       'delivery': 0,
     };
     for (const t of tables) {
-      const o = orderByTable(t.id);
-      if (o) counts['in-use']++;
+      if (isInUse(t)) counts['in-use']++;
       else counts['empty']++;
-      if (o && (o.items || []).some((it) => ACTIVE_STATES.has(it.state))) counts['has-pending']++;
+      if (hasUnservedItems(t)) counts['has-pending']++;
       if (t.kind === 'dine-in') counts['dine-in']++;
       else if (t.kind === 'takeaway') counts['takeaway']++;
       else if (t.kind === 'delivery') counts['delivery']++;
     }
     return counts;
-  }, [tables, orderByTable]);
+  }, [tables, isInUse, hasUnservedItems]);
 
   const matchesFilter = (t: Table): boolean => {
     if (filter === 'all') return true;
-    const o = orderByTable(t.id);
-    if (filter === 'in-use') return !!o;
-    if (filter === 'empty') return !o;
-    if (filter === 'has-pending') {
-      return !!o && (o.items || []).some((it) => ACTIVE_STATES.has(it.state));
-    }
+    if (filter === 'in-use') return isInUse(t);
+    if (filter === 'empty') return !isInUse(t);
+    if (filter === 'has-pending') return hasUnservedItems(t);
     return t.kind === filter;
   };
 
