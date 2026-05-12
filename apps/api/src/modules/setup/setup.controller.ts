@@ -79,6 +79,7 @@ export class SetupController {
         full_name: dto.full_name.trim(),
         password_hash: hash,
         is_owner: true,
+        role: 'admin',
         is_active: true,
         token_version: 0,
       });

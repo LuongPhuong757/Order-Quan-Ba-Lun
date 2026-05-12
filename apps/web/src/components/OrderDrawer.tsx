@@ -4,6 +4,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
+import { notificationStore } from '../lib/notification-store.ts';
 
 type OrderItem = {
   id: string;
@@ -151,10 +152,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
   useEffect(() => {
     refresh(true);
-    // Poll every 5s while drawer open — bếp + nhân viên thấy state thay đổi
+    // Poll every 2s while drawer open — bếp + nhân viên thấy state thay đổi nhanh
     const t = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);
-    }, 5000);
+    }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);
 
@@ -181,6 +182,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       try {
         await api.patch(`/orders/items/${it.id}/state`, { to, reason });
         toast.push('success', `Đã huỷ ${it.menu_item_name}`);
+        notificationStore.push('order_cancel', `${table.code} — huỷ ${it.qty}× ${it.menu_item_name}: ${reason}`);
         refresh();
       } catch (e) {
         toast.push('error', extractError(e).message);
@@ -300,6 +302,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
       }
       toast.push('success', msg);
+      notificationStore.push('order_checkout', `${table.code} · ${table.name} thanh toán ${totalPaid.toLocaleString('vi-VN')}đ`);
       onTransferred?.();
       onClose();
     } catch (e) {

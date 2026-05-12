@@ -10,7 +10,8 @@ declare global {
         sub: string;
         name: string;        // = username (login name) — giữ tương thích
         full_name: string;   // họ tên hiển thị, fallback về username nếu null
-        is_owner: boolean;
+        is_owner: boolean;   // backward compat
+        role: string | null; // 'admin' | 'order' | 'kitchen' | null (chưa gán)
         jti: string;
       };
     }

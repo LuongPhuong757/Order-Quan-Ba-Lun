@@ -17,14 +17,50 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // Action-kind resolver — derives audit action from HTTP method + path
 // Override in controller via @AuditAction decorator if needed (future).
 function deriveActionKind(method: string, path: string): string {
+  // Auth
   if (path === '/auth/login' && method === 'POST') return 'auth.login_success';
   if (path === '/auth/logout' && method === 'POST') return 'auth.logout';
   if (path === '/auth/change-password' && method === 'POST') return 'auth.password_changed';
   if (path === '/auth/recover' && method === 'POST') return 'auth.recovered';
   if (path === '/setup' && method === 'POST') return 'setup.completed';
+
+  // Admin / users
   if (path === '/admin/users' && method === 'POST') return 'admin.user_created';
   if (path.match(/^\/admin\/users\/[^/]+\/reset-password$/)) return 'admin.password_reset';
   if (path.match(/^\/admin\/users\/[^/]+\/disable$/)) return 'admin.user_disabled';
+  if (path.match(/^\/admin\/users\/[^/]+$/) && method === 'PATCH') return 'admin.user_updated';
+  if (path.match(/^\/admin\/users\/[^/]+$/) && method === 'DELETE') return 'admin.user_deleted';
+
+  // Orders — quan trọng cho truy cứu trách nhiệm
+  if (path === '/orders' && method === 'POST') return 'order.created';
+  if (path.match(/^\/orders\/[^/]+\/checkout$/) && method === 'POST') return 'order.checkout';
+  if (path.match(/^\/orders\/[^/]+\/transfer$/) && method === 'POST') return 'order.table_transfer';
+  if (path.match(/^\/orders\/[^/]+\/items-bulk$/) && method === 'POST') return 'order.items_added_bulk';
+  if (path.match(/^\/orders\/[^/]+\/items$/) && method === 'POST') return 'order.item_added';
+  if (path.match(/^\/orders\/[^/]+\/send-to-kitchen$/) && method === 'POST') return 'order.sent_to_kitchen';
+  if (path.match(/^\/orders\/[^/]+\/customer-info$/) && method === 'PATCH') return 'order.customer_info_updated';
+  if (path.match(/^\/orders\/items\/[^/]+\/state$/) && method === 'PATCH') return 'order.item_state_change';
+  if (path.match(/^\/orders\/by-table\/[^/]+$/) && method === 'GET') return 'order.opened_drawer';
+
+  // Menu
+  if (path === '/menu' && method === 'POST') return 'menu.item_created';
+  if (path === '/menu/bulk-import' && method === 'POST') return 'menu.bulk_imported';
+  if (path === '/menu/upload-image' && method === 'POST') return 'menu.image_uploaded';
+  if (path.match(/^\/menu\/[^/]+\/toggle-stock$/) && method === 'POST') return 'menu.toggle_stock';
+  if (path.match(/^\/menu\/[^/]+$/) && method === 'PATCH') return 'menu.item_updated';
+  if (path.match(/^\/menu\/[^/]+$/) && method === 'DELETE') return 'menu.item_deleted';
+
+  // Menu groups
+  if (path === '/menu-groups' && method === 'POST') return 'menu_group.created';
+  if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'PATCH') return 'menu_group.updated';
+  if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'DELETE') return 'menu_group.deleted';
+
+  // Tables
+  if (path === '/tables' && method === 'POST') return 'table.created';
+  if (path === '/tables/bulk' && method === 'POST') return 'table.bulk_created';
+  if (path.match(/^\/tables\/[^/]+$/) && method === 'PATCH') return 'table.updated';
+  if (path.match(/^\/tables\/[^/]+$/) && method === 'DELETE') return 'table.deleted';
+
   return `${method.toLowerCase()}.${path.replace(/[^a-z0-9]/gi, '_')}`;
 }
 

@@ -1,12 +1,22 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { api } from './api.ts';
 
+export type Role = 'admin' | 'order' | 'kitchen';
+
 export type AuthUser = {
   sub: string;
   name: string;            // username (login name)
   full_name: string;       // họ và tên hiển thị, fallback về username
   is_owner: boolean;
+  role: Role | null;       // 'admin' | 'order' | 'kitchen' | null (chưa gán)
 };
+
+/** Default landing page sau khi login theo role. */
+export function defaultLandingPath(role: Role | null): string {
+  if (role === 'kitchen') return '/kitchen';
+  if (role === 'order') return '/orders';
+  return '/orders';  // admin
+}
 
 type AuthState = {
   user: AuthUser | null;

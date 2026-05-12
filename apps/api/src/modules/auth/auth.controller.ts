@@ -62,6 +62,7 @@ export class AuthController {
         name: req.user!.name,
         full_name: req.user!.full_name,
         is_owner: req.user!.is_owner,
+        role: req.user!.role,
       },
     };
   }

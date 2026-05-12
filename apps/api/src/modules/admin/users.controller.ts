@@ -20,8 +20,11 @@ import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 import { AuthService } from '../auth/auth.service.js';
-import { IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { randomBytes } from 'crypto';
+
+const ROLE_VALUES = ['admin', 'order', 'kitchen'] as const;
+type Role = (typeof ROLE_VALUES)[number];
 
 class CreateUserDto {
   @IsString()
@@ -38,10 +41,14 @@ class CreateUserDto {
   @MinLength(8)
   @MaxLength(128)
   password!: string;
+
+  @IsIn(ROLE_VALUES)
+  role!: Role;
 }
 
 class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) full_name?: string;
+  @IsOptional() @IsIn(ROLE_VALUES) role?: Role;
 }
 
 @Controller('admin/users')
@@ -65,6 +72,7 @@ export class AdminUsersController {
       full_name: dto.full_name.trim(),
       password_hash: hash,
       is_owner: false,
+      role: dto.role,
       is_active: true,
       token_version: 0,
     });
@@ -74,6 +82,7 @@ export class AdminUsersController {
         id: user.id,
         username: user.username,
         full_name: user.full_name,
+        role: user.role,
         is_active: user.is_active,
         created_at: Number(user.created_at),
       },
@@ -96,6 +105,7 @@ export class AdminUsersController {
           id: u.id,
           username: u.username,
           full_name: u.full_name,
+          role: u.role,
           is_active: u.is_active,
           is_owner: u.is_owner,
           created_at: Number(u.created_at),
@@ -134,18 +144,29 @@ export class AdminUsersController {
     };
   }
 
-  /** PATCH /admin/users/:id — sửa thông tin nhân viên (hiện chỉ full_name) */
+  /** PATCH /admin/users/:id — sửa full_name + role.
+   * Chặn đổi role của owner (giữ ổn định ai là chủ quán). */
   @Patch(':id')
   async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
     if (dto.full_name !== undefined) user.full_name = dto.full_name.trim();
+    if (dto.role !== undefined) {
+      if (user.is_owner && dto.role !== 'admin') {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Không thể đổi role của owner sang khác admin',
+        });
+      }
+      user.role = dto.role;
+    }
     await this.userRepo.save(user);
     return {
       data: {
         id: user.id,
         username: user.username,
         full_name: user.full_name,
+        role: user.role,
         is_active: user.is_active,
         is_owner: user.is_owner,
         created_at: Number(user.created_at),

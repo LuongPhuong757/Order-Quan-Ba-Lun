@@ -4,14 +4,24 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 
+type Role = 'admin' | 'order' | 'kitchen';
+
 type UserRow = {
   id: string;
   username: string;
   full_name: string | null;
+  role: Role | null;
   is_active: boolean;
   is_owner: boolean;
   created_at: number;
 };
+
+const ROLE_LABEL: Record<Role, string> = {
+  admin: '👑 Admin',
+  order: '🍽 NV Order',
+  kitchen: '👨‍🍳 NV Bếp',
+};
+const ROLE_OPTIONS: Role[] = ['order', 'kitchen', 'admin'];
 
 export function AdminUsersPage() {
   const toast = useToast();
@@ -97,7 +107,7 @@ export function AdminUsersPage() {
             <tr>
               <th>Họ và tên</th>
               <th>Tên đăng nhập</th>
-              <th>Vai trò</th>
+              <th>Quyền</th>
               <th>Trạng thái</th>
               <th>Tạo lúc</th>
               <th></th>
@@ -110,7 +120,11 @@ export function AdminUsersPage() {
                   <strong>{u.full_name || <span style={{ color: '#9ca3af', fontWeight: 400 }}>—</span>}</strong>
                 </td>
                 <td data-label="Tên đăng nhập"><code>{u.username}</code></td>
-                <td data-label="Vai trò">{u.is_owner ? '👑 Chủ quán' : 'Nhân viên'}</td>
+                <td data-label="Quyền">
+                  {u.role ? ROLE_LABEL[u.role] : (
+                    <span style={{ color: '#dc2626', fontSize: 12 }}>⚠ Chưa gán (chặn login)</span>
+                  )}
+                </td>
                 <td data-label="Trạng thái">
                   {u.is_active ? (
                     <span style={{ color: '#059669' }}>● Hoạt động</span>
@@ -171,6 +185,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [pwd, setPwd] = useState('');
+  const [role, setRole] = useState<Role>('order');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -194,8 +209,9 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         full_name: fullName.trim(),
         username: username.trim(),
         password: pwd,
+        role,
       });
-      toast.push('success', `Tạo nhân viên ${fullName} thành công ✓`);
+      toast.push('success', `Tạo nhân viên ${fullName} (${ROLE_LABEL[role]}) thành công ✓`);
       onCreated();
     } catch (e) {
       setErr(extractError(e).message);
@@ -244,6 +260,37 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           showStrength
           autoComplete="new-password"
         />
+
+        <div className="row">
+          <label>Quyền</label>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr' }}>
+            {ROLE_OPTIONS.map((r) => (
+              <button
+                key={r}
+                type="button"
+                onClick={() => setRole(r)}
+                style={{
+                  padding: '12px 8px',
+                  background: role === r ? '#fef3c7' : 'white',
+                  border: role === r ? '2px solid #0f766e' : '1px solid #d1d5db',
+                  color: '#1f2937',
+                  fontWeight: role === r ? 700 : 400,
+                  fontSize: 12,
+                  borderRadius: 8,
+                  minHeight: 56,
+                  cursor: 'pointer',
+                  lineHeight: 1.2,
+                }}
+              >
+                {ROLE_LABEL[r]}
+              </button>
+            ))}
+          </div>
+          <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
+            👑 Admin: toàn quyền · 🍽 NV Order: chỉ màn Order (điện thoại) ·
+            👨‍🍳 NV Bếp: chỉ màn Bếp (iPad)
+          </p>
+        </div>
         <div className="flex" style={{ marginTop: 8 }}>
           <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
             Hủy
@@ -269,6 +316,7 @@ function EditUserModal({
 }) {
   const toast = useToast();
   const [fullName, setFullName] = useState(user.full_name || '');
+  const [role, setRole] = useState<Role>(user.role || 'order');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -281,7 +329,9 @@ function EditUserModal({
     setSubmitting(true);
     setErr(null);
     try {
-      await api.patch(`/admin/users/${user.id}`, { full_name: fullName.trim() });
+      const body: Record<string, unknown> = { full_name: fullName.trim() };
+      if (!user.is_owner) body.role = role;  // không đổi role owner
+      await api.patch(`/admin/users/${user.id}`, body);
       toast.push('success', `Cập nhật ${fullName} thành công ✓`);
       onSaved();
     } catch (e) {
@@ -309,6 +359,37 @@ function EditUserModal({
             maxLength={128}
           />
         </div>
+        {!user.is_owner && (
+          <div className="row">
+            <label>Quyền</label>
+            <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr' }}>
+              {ROLE_OPTIONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setRole(r)}
+                  style={{
+                    padding: '10px 8px',
+                    background: role === r ? '#fef3c7' : 'white',
+                    border: role === r ? '2px solid #0f766e' : '1px solid #d1d5db',
+                    fontWeight: role === r ? 700 : 400,
+                    fontSize: 12,
+                    borderRadius: 8,
+                    minHeight: 48,
+                    cursor: 'pointer',
+                  }}
+                >
+                  {ROLE_LABEL[r]}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {user.is_owner && (
+          <p style={{ background: '#fef3c7', padding: 8, borderRadius: 6, fontSize: 12, color: '#92400e' }}>
+            Owner luôn có role <strong>👑 Admin</strong>. Không thể đổi.
+          </p>
+        )}
         {err && <div className="field-error">{err}</div>}
         <div className="flex" style={{ marginTop: 8 }}>
           <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>

@@ -1,7 +1,7 @@
 import { useState, FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
-import { useAuth } from '../lib/auth-context.tsx';
+import { useAuth, defaultLandingPath, type Role } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 
@@ -28,10 +28,12 @@ export function LoginPage() {
     setSubmitting(true);
     try {
       await api.post('/auth/login', { username, password });
+      const me = await api.get<{ data: { role: Role | null; is_owner: boolean } }>('/auth/me');
       await refresh();
       toast.push('success', `Đăng nhập thành công, chào bạn!`);
-      // Vào thẳng sơ đồ bàn — trang chính của hệ thống order. /dashboard là legacy info page.
-      navigate('/orders');
+      // Redirect theo role: admin/order → /orders, kitchen → /kitchen
+      const role = (me.data?.data?.role ?? (me.data?.data?.is_owner ? 'admin' : null)) as Role | null;
+      navigate(defaultLandingPath(role));
     } catch (err) {
       const e = extractError(err);
       toast.push('error', e.message);

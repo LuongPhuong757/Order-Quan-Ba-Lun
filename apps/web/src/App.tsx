@@ -1,9 +1,10 @@
 import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-router-dom';
-import { AuthProvider, useAuth } from './lib/auth-context.tsx';
+import { AuthProvider, useAuth, defaultLandingPath, type Role } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
 import { ConfirmProvider } from './components/ConfirmDialog.tsx';
 import { ReLoginModal } from './components/ReLoginModal.tsx';
 import { ReadyListener } from './components/ReadyListener.tsx';
+import { NotificationBell } from './components/NotificationBell.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
 import { SetupPage } from './pages/SetupPage.tsx';
 import { RecoverPage } from './pages/RecoverPage.tsx';
@@ -30,17 +31,25 @@ export function App() {
           <Route path="/recover" element={<RecoverPage />} />
 
           <Route element={<ProtectedShell />}>
-            <Route path="/" element={<Navigate to="/orders" replace />} />
-            <Route path="/dashboard" element={<DashboardPage />} />
+            <Route path="/" element={<HomeRedirect />} />
             <Route path="/account" element={<AccountPage />} />
-            <Route path="/orders" element={<OrdersPage />} />
-            <Route path="/menu" element={<MenuManagementPage />} />
-            <Route path="/kitchen" element={<KitchenPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route element={<OwnerOnly />}>
-              <Route path="/tables" element={<TablesManagementPage />} />
+
+            {/* Order: admin + order role */}
+            <Route element={<RoleGate allow={['admin', 'order']} />}>
+              <Route path="/orders" element={<OrdersPage />} />
             </Route>
-            <Route element={<OwnerOnly />}>
+
+            {/* Bếp: admin + kitchen role */}
+            <Route element={<RoleGate allow={['admin', 'kitchen']} />}>
+              <Route path="/kitchen" element={<KitchenPage />} />
+            </Route>
+
+            {/* Admin-only: menu, tables, history, users, audit, dashboard */}
+            <Route element={<RoleGate allow={['admin']} />}>
+              <Route path="/dashboard" element={<DashboardPage />} />
+              <Route path="/menu" element={<MenuManagementPage />} />
+              <Route path="/tables" element={<TablesManagementPage />} />
+              <Route path="/history" element={<HistoryPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
             </Route>
@@ -69,16 +78,21 @@ function ProtectedShell() {
   if (!user) {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
+  const role = (user.role ?? (user.is_owner ? 'admin' : null)) as Role | null;
+
   return (
     <>
       <header className="header">
         <span className="brand">Order Quán Bà Lùn</span>
-        <button className="secondary" onClick={logout} style={{ padding: '6px 12px' }}>
-          Đăng xuất
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          <NotificationBell />
+          <button className="secondary" onClick={logout} style={{ padding: '6px 12px' }}>
+            Đăng xuất
+          </button>
+        </div>
       </header>
       <Outlet />
-      {user.is_owner && (
+      {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders">🍽 Order</NavLink>
           <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
@@ -88,12 +102,15 @@ function ProtectedShell() {
           <NavLink to="/admin/users">👥 NV</NavLink>
         </nav>
       )}
-      {!user.is_owner && (
+      {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders">🍽 Order</NavLink>
+          <NavLink to="/account">⚙ TK</NavLink>
+        </nav>
+      )}
+      {role === 'kitchen' && (
+        <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
-          <NavLink to="/menu">📋 Menu</NavLink>
-          <NavLink to="/history">📜 LS</NavLink>
           <NavLink to="/account">⚙ TK</NavLink>
         </nav>
       )}
@@ -101,9 +118,19 @@ function ProtectedShell() {
   );
 }
 
-function OwnerOnly() {
+/** Redirect '/' về landing page tương ứng role hiện tại. */
+function HomeRedirect() {
   const { user } = useAuth();
-  if (!user?.is_owner) return <Navigate to="/dashboard" replace />;
+  const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
+  return <Navigate to={defaultLandingPath(role)} replace />;
+}
+
+/** Gate cho phép vài role truy cập route. Role khác → redirect về landing của họ. */
+function RoleGate({ allow }: { allow: Role[] }) {
+  const { user } = useAuth();
+  const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
+  if (!role) return <Navigate to="/account" replace />;
+  if (!allow.includes(role)) return <Navigate to={defaultLandingPath(role)} replace />;
   return <Outlet />;
 }
 

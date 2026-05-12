@@ -46,6 +46,13 @@ export class User {
   @Column({ type: 'boolean', default: false })
   is_owner!: boolean;
 
+  /** Role mới (admin/order/kitchen). Migrate cũ:
+   * - is_owner=true → role='admin' (tự động trong AuthModule onInit)
+   * - is_owner=false → role=NULL (admin gán thủ công, login bị chặn cho đến khi gán).
+   * Tách khỏi is_owner để giữ tương thích cũ + cho phép có nhiều role staff. */
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  role!: string | null;
+
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 

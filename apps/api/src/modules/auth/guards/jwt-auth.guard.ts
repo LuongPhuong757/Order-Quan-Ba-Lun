@@ -56,12 +56,20 @@ export class JwtAuthGuard implements CanActivate {
     if (Number(user.token_version) !== payload.tv) {
       throw new UnauthorizedException({ code: 'AUTH_TOKEN_REVOKED', message: 'token_version mismatch' });
     }
+    // Chặn user chưa được gán role (admin chưa duyệt)
+    if (!user.role && !user.is_owner) {
+      throw new UnauthorizedException({
+        code: 'AUTH_ROLE_NOT_ASSIGNED',
+        message: 'Tài khoản chưa được gán quyền, liên hệ admin để duyệt.',
+      });
+    }
 
     req.user = {
       sub: payload.sub,
       name: payload.name,
       full_name: user.full_name || user.username,
       is_owner: user.is_owner,
+      role: user.role || (user.is_owner ? 'admin' : null),
       jti: payload.jti,
     };
     return true;

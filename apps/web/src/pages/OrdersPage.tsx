@@ -106,10 +106,10 @@ export function OrdersPage() {
 
   useEffect(() => {
     refresh();
-    // Poll every 10s — chỉ chạy khi pollEnabled
+    // Poll every 2s — sync nhanh giữa Order ↔ Bếp. 10-20 staff, payload nhỏ → server tải nhẹ.
     const t = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);  // silent retry
-    }, 10_000);
+    }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);
 

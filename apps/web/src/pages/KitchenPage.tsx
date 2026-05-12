@@ -189,9 +189,10 @@ export function KitchenPage() {
 
   useEffect(() => {
     refresh(true);
+    // Poll 2s — sync nhanh Order → Bếp (nhân viên gọi món, bếp nhận ngay)
     const tPoll = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);
-    }, 5_000);
+    }, 2_000);
     const tNow = setInterval(() => setNow(Date.now()), 30_000);
     return () => {
       clearInterval(tPoll);

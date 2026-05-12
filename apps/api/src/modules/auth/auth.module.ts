@@ -1,5 +1,6 @@
-import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { Module, OnModuleInit, Logger } from '@nestjs/common';
+import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
+import { IsNull, Repository } from 'typeorm';
 import { User } from './entities/user.entity.js';
 import { RevokedJti } from './entities/revoked-jti.entity.js';
 import { RecoveryCode } from './entities/recovery-code.entity.js';
@@ -15,4 +16,20 @@ import { OwnerGuard } from './guards/owner.guard.js';
   providers: [AuthService, JwtService, JwtAuthGuard, OwnerGuard],
   exports: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, TypeOrmModule],
 })
-export class AuthModule {}
+export class AuthModule implements OnModuleInit {
+  private readonly logger = new Logger(AuthModule.name);
+
+  constructor(@InjectRepository(User) private readonly userRepo: Repository<User>) {}
+
+  /** Migrate role 1 lần khi khởi động: owners cũ chưa có role → role='admin'.
+   * Idempotent — chỉ update khi role IS NULL AND is_owner=true. */
+  async onModuleInit() {
+    const owners = await this.userRepo.find({ where: { is_owner: true, role: IsNull() } });
+    if (owners.length === 0) return;
+    for (const u of owners) {
+      u.role = 'admin';
+      await this.userRepo.save(u);
+    }
+    this.logger.log(`Migrated ${owners.length} owner(s) to role='admin'`);
+  }
+}
