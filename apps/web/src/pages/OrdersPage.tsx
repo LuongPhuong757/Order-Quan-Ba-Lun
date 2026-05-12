@@ -256,21 +256,7 @@ export function OrdersPage() {
           )}
         </div>
 
-        {allServed ? (
-          <span
-            style={{
-              alignSelf: 'flex-start',
-              background: '#10b981',
-              color: 'white',
-              padding: '2px 8px',
-              borderRadius: 999,
-              fontSize: 11,
-              fontWeight: 600,
-            }}
-          >
-            🍽 {servedCount} đã giao
-          </span>
-        ) : hasActive ? (
+        {hasActive || servedCount > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {Object.entries(counts).map(([st, n]) => {
               if (n === 0) return null;
@@ -291,6 +277,23 @@ export function OrdersPage() {
                 </span>
               );
             })}
+            {/* Luôn hiện số món đã giao khi servedCount > 0, kể cả khi vẫn còn món active.
+                Giúp staff biết "đã giao mấy món rồi" mà không cần mở drawer. */}
+            {servedCount > 0 && (
+              <span
+                style={{
+                  background: '#10b981',
+                  color: 'white',
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+                title="Đã giao tới khách"
+              >
+                🍽 {servedCount} đã giao
+              </span>
+            )}
           </div>
         ) : (
           <div style={{ color: '#9ca3af', fontSize: 12 }}>Trống — bấm để gọi món</div>
