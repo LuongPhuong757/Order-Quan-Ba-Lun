@@ -17,6 +17,14 @@ export const dataSourceOptions: DataSourceOptions = {
   password: process.env.MYSQL_PASSWORD || 'order_app_pass',
   database: process.env.MYSQL_DATABASE || 'order_quan_balun',
   charset: 'utf8mb4',
+  // Force UTC end-to-end để tránh lệch giờ khi tính 'phút từ khi gọi món'.
+  // mysql2 với timezone:'Z' tự động:
+  //   1. Gửi `SET time_zone='+00:00'` cho mỗi connection mới → MySQL session UTC
+  //   2. Format Date → 'YYYY-MM-DD HH:MM:SS' UTC khi ghi
+  //   3. Parse DATETIME từ DB như UTC khi đọc
+  // → ghi/đọc nhất quán UTC bất kể TZ của host. Khắc phục bug fresh item hiện
+  //   ~420 phút thay vì 0 (do mismatch Node local TZ vs MySQL container UTC).
+  timezone: 'Z',
   entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem],
   migrations: ['src/migrations/*.ts'],
   // Use synchronize:true ONLY for first-run dev — production migrations only.

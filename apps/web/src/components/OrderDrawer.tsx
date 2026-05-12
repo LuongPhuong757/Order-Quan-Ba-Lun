@@ -191,7 +191,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const servedBreakdown = servedItems
       .map((i) => `  • ${i.qty}× ${i.menu_item_name} = ${(i.menu_item_price * i.qty).toLocaleString('vi-VN')}đ`)
       .join('\n');
-    const cancelledCount = itemsByState('CANCELLED').length;
+    const cancelledItemsList = itemsByState('CANCELLED');
 
     let warningSection = '';
     if (activeItems.length > 0) {
@@ -213,8 +213,12 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       ? `Món đã giao (TÍNH TIỀN):\n${servedBreakdown}\n\nTổng cần thu: ${total.toLocaleString('vi-VN')}đ`
       : 'Chưa có món nào đã giao — sẽ thanh toán với tổng = 0đ.';
 
-    const cancelledSection = cancelledCount > 0
-      ? `\n\n(${cancelledCount} món đã bị huỷ từ trước — không tính)`
+    // Hiện danh sách món đã huỷ TỪ TRƯỚC (manual cancel), không tính tiền — staff
+    // vẫn cần thấy để confirm với khách "món này đã huỷ, không tính".
+    const cancelledSection = cancelledItemsList.length > 0
+      ? `\n\nMón đã huỷ (KHÔNG TÍNH TIỀN):\n${cancelledItemsList
+          .map((i) => `  • ${i.qty}× ${i.menu_item_name}${i.cancelled_reason ? ` — ${i.cancelled_reason}` : ''}`)
+          .join('\n')}`
       : '';
 
     const confirmMsg = `THANH TOÁN ${table.name}\n\n${servedSection}${cancelledSection}${warningSection}\n\nXác nhận thanh toán và đóng bàn?`;
