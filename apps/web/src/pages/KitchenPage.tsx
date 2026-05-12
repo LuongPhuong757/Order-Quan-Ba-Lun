@@ -33,24 +33,19 @@ type MenuItem = {
   is_out_of_stock: boolean;
 };
 
+type MenuGroup = {
+  id: string;
+  code: string;
+  name: string;
+  icon: string | null;
+  kitchen_type: string;
+  sort_order: number;
+};
+
 type KitchenItem = OrderItem & { table_code: string; group: string };
 
-// Phân loại 'bếp nấu' (cần xử lý nóng) vs 'có sẵn' (lấy ngay từ tủ/quầy)
-type KitchenType = 'all' | 'cook' | 'ready-made';
-const KITCHEN_TYPE_LABEL: Record<KitchenType, string> = {
-  all: 'Tất cả',
-  cook: '🔥 Bếp nấu',
-  'ready-made': '🥤 Bếp có sẵn',
-};
-const COOK_GROUPS = new Set(['food', 'side']);       // cần nấu / chế biến
-const READY_GROUPS = new Set(['drink', 'other']);    // lấy ngay (nước, khăn lạnh, ...)
-
-function matchesKitchenType(group: string, type: KitchenType): boolean {
-  if (type === 'all') return true;
-  if (type === 'cook') return COOK_GROUPS.has(group);
-  if (type === 'ready-made') return READY_GROUPS.has(group);
-  return true;
-}
+// Filter Bếp: '' = tất cả nhóm, hoặc group.code. Dynamic theo /menu-groups.
+const ALL_GROUPS = '';
 
 const COLUMN_DEFS: Array<{
   state: string;
@@ -112,17 +107,19 @@ export function KitchenPage() {
   const toast = useToast();
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
+  const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
-  const [kitchenType, setKitchenType] = useState<KitchenType>('all');
+  const [groupFilter, setGroupFilter] = useState<string>(ALL_GROUPS);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
   const refresh = useCallback(async (showError = true) => {
     try {
-      const [ordersRes, menuRes] = await Promise.all([
+      const [ordersRes, menuRes, groupsRes] = await Promise.all([
         api.get<{ data: { items: Order[] } }>('/orders'),
         api.get<{ data: { items: MenuItem[] } }>('/menu'),
+        api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
       ]);
       if (ordersRes.data?.data?.items) {
         setOrders(ordersRes.data.data.items);
@@ -133,6 +130,9 @@ export function KitchenPage() {
         const m = new Map<string, MenuItem>();
         for (const it of menuRes.data.data.items) m.set(it.id, it);
         setMenuMap(m);
+      }
+      if (groupsRes.data?.data?.items) {
+        setGroups(groupsRes.data.data.items);
       }
       errorCountRef.current = 0;
     } catch (err) {
@@ -167,14 +167,14 @@ export function KitchenPage() {
     };
   }, [refresh]);
 
-  // Flatten items vào 3 buckets theo state + filter theo kitchen type
+  // Flatten items vào 3 buckets theo state + filter theo group
   const buckets = useMemo<Record<string, KitchenItem[]>>(() => {
     const out: Record<string, KitchenItem[]> = { KITCHEN: [], COOKING: [], READY: [] };
     for (const o of orders) {
       for (const it of o.items || []) {
         if (out[it.state]) {
           const group = menuMap.get(it.menu_item_id)?.group || 'other';
-          if (!matchesKitchenType(group, kitchenType)) continue;
+          if (groupFilter !== ALL_GROUPS && group !== groupFilter) continue;
           out[it.state].push({ ...it, table_code: o.table_code, group });
         }
       }
@@ -183,7 +183,24 @@ export function KitchenPage() {
       out[k].sort((a, b) => a.updated_at - b.updated_at);
     }
     return out;
-  }, [orders, menuMap, kitchenType, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orders, menuMap, groupFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Đếm số item active (KITCHEN+COOKING+READY) theo từng group — luôn tính từ full data,
+  // không phụ thuộc filter hiện tại (để badge count chính xác mọi lúc).
+  const countByGroup = useMemo<Record<string, number>>(() => {
+    const c: Record<string, number> = {};
+    const KITCHEN_STATES = new Set(['KITCHEN', 'COOKING', 'READY']);
+    for (const o of orders) {
+      for (const it of o.items || []) {
+        if (!KITCHEN_STATES.has(it.state)) continue;
+        const g = menuMap.get(it.menu_item_id)?.group || 'other';
+        c[g] = (c[g] || 0) + 1;
+      }
+    }
+    return c;
+  }, [orders, menuMap]);
+
+  const totalActiveCount = Object.values(countByGroup).reduce((s, n) => s + n, 0);
 
   const changeState = async (item: KitchenItem, to: string) => {
     try {
@@ -356,35 +373,51 @@ export function KitchenPage() {
         </button>
       </div>
 
-      {/* Filter loại bếp */}
-      <div style={{
-        display: 'flex',
-        gap: 8,
-        marginBottom: 12,
-        overflowX: 'auto',
-        paddingBottom: 4,
-      }}>
-        {(['all', 'cook', 'ready-made'] as KitchenType[]).map((kt) => {
-          const count = (buckets.KITCHEN.length + buckets.COOKING.length + buckets.READY.length);
-          // Đếm riêng cho từng kitchen type — cần filter prev orders + menuMap
-          // Để đơn giản, chỉ hiển thị count cho lựa chọn hiện tại; ngược lại 'kt' khác show label
+      {/* Filter theo nhóm món — dynamic từ /menu-groups, tab 'Tất cả' đầu */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 8,
+          marginBottom: 12,
+          overflowX: 'auto',
+          paddingBottom: 4,
+        }}
+      >
+        <button
+          onClick={() => setGroupFilter(ALL_GROUPS)}
+          className={groupFilter === ALL_GROUPS ? '' : 'secondary'}
+          style={{
+            padding: '10px 16px',
+            fontSize: 14,
+            whiteSpace: 'nowrap',
+            minHeight: 44,
+            flex: '0 0 auto',
+            fontWeight: groupFilter === ALL_GROUPS ? 700 : 400,
+          }}
+        >
+          Tất cả ({totalActiveCount})
+        </button>
+        {groups.map((g) => {
+          const n = countByGroup[g.code] || 0;
+          const active = groupFilter === g.code;
           return (
             <button
-              key={kt}
-              onClick={() => setKitchenType(kt)}
-              className={kitchenType === kt ? '' : 'secondary'}
+              key={g.code}
+              onClick={() => setGroupFilter(g.code)}
+              className={active ? '' : 'secondary'}
               style={{
                 padding: '10px 16px',
                 fontSize: 14,
                 whiteSpace: 'nowrap',
                 minHeight: 44,
-                flex: '1 1 auto',
-                minWidth: 120,
-                fontWeight: kitchenType === kt ? 700 : 400,
+                flex: '0 0 auto',
+                fontWeight: active ? 700 : 400,
+                opacity: n === 0 ? 0.55 : 1,
               }}
+              title={`${g.name} · ${g.kitchen_type === 'cook' ? 'Bếp nấu' : 'Có sẵn'}`}
             >
-              {KITCHEN_TYPE_LABEL[kt]}
-              {kitchenType === kt && <strong style={{ marginLeft: 6 }}>({count})</strong>}
+              {g.icon && <span style={{ marginRight: 4 }}>{g.icon}</span>}
+              {g.name} ({n})
             </button>
           );
         })}
