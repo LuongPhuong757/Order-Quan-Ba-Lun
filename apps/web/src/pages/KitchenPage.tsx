@@ -135,6 +135,9 @@ export function KitchenPage() {
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
+  // 'now' tick mỗi 5 phút — chỉ để force re-render khi không có data thay đổi (món
+  // đứng yên ở 1 state). Polling /orders mỗi 2s đã trigger re-render khi có data đổi,
+  // nên 5p là dư đủ để cập nhật minute counter + ageColor (10/20/30p thresholds).
   const [now, setNow] = useState(Date.now());
   const [groupFilters, setGroupFilters] = useState<Set<string>>(() => loadStoredFilters());
   const [showFilterModal, setShowFilterModal] = useState(false);
@@ -193,7 +196,7 @@ export function KitchenPage() {
     const tPoll = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);
     }, 2_000);
-    const tNow = setInterval(() => setNow(Date.now()), 30_000);
+    const tNow = setInterval(() => setNow(Date.now()), 5 * 60_000);  // 5 phút
     return () => {
       clearInterval(tPoll);
       clearInterval(tNow);
@@ -588,7 +591,6 @@ function Card({
   // bị reset về 0 — không phản ánh đúng thời gian khách đã chờ.
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
-  const ageSec = Math.floor((ageMs % 60_000) / 1000);
   const ageBorderColor = ageColor(item.created_at, item.state);
   const isCritical = ageBorderColor === '#dc2626';
   const isOutOfStock = menuItem?.is_out_of_stock ?? false;
@@ -629,7 +631,7 @@ function Card({
           }}
         >
           {ageBorderColor === '#dc2626' && '⚠ '}
-          ⏱ {ageMin}′{ageSec.toString().padStart(2, '0')}
+          ⏱ {ageMin}p
         </div>
         {isOutOfStock && (
           <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>
