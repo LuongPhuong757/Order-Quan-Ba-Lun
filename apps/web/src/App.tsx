@@ -34,8 +34,8 @@ export function App() {
             <Route path="/" element={<HomeRedirect />} />
             <Route path="/account" element={<AccountPage />} />
 
-            {/* Order: admin + order role */}
-            <Route element={<RoleGate allow={['admin', 'order']} />}>
+            {/* Order: admin + order + kitchen (bếp cần xem để biết món nào của bàn nào) */}
+            <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/orders" element={<OrdersPage />} />
             </Route>
 
@@ -91,12 +91,12 @@ function ProtectedShell() {
     <>
       <header className="header">
         <span className="brand">
-          Order Quán Bà Lùn
+          <span className="brand-short">🍴</span>
+          <span className="brand-text">Order Quán Bà Lùn</span>
           {badge && (
             <span
               title={`Đăng nhập với quyền: ${badge.label}`}
               style={{
-                marginLeft: 8,
                 padding: '2px 8px',
                 borderRadius: 999,
                 fontSize: 11,
@@ -109,35 +109,44 @@ function ProtectedShell() {
               {badge.label}
             </span>
           )}
+          <span className="user-chip" title={`Đăng nhập: ${user.full_name} (${user.name})`}>
+            👤 {user.full_name || user.name}
+          </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <NotificationBell />
-          <button className="secondary" onClick={logout} style={{ padding: '6px 12px' }}>
-            Đăng xuất
+          <button
+            className="secondary btn-icon-only"
+            onClick={logout}
+            title="Đăng xuất"
+            aria-label="Đăng xuất"
+          >
+            🚪<span className="btn-label">Đăng xuất</span>
           </button>
         </div>
       </header>
       <Outlet />
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders">🍽 Order</NavLink>
-          <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
-          <NavLink to="/menu">📋 Menu</NavLink>
-          <NavLink to="/tables">🪑 Bàn</NavLink>
-          <NavLink to="/history">📜 LS</NavLink>
-          <NavLink to="/admin/users">👥 NV</NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
+          <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
+          <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
+          <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
+          <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon">👥</span><span className="nav-label">N/viên</span></NavLink>
         </nav>
       )}
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders">🍽 Order</NavLink>
-          <NavLink to="/account">⚙ TK</NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">⚙</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
-          <NavLink to="/account">⚙ TK</NavLink>
+          <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">⚙</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
     </>
