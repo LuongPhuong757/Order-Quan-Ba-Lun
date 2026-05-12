@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
+import { ConfirmProvider } from './components/ConfirmDialog.tsx';
 import { ReLoginModal } from './components/ReLoginModal.tsx';
 import { ReadyListener } from './components/ReadyListener.tsx';
 import { LoginPage } from './pages/LoginPage.tsx';
@@ -19,6 +20,7 @@ export function App() {
   return (
     <AuthProvider>
       <ToastProvider>
+       <ConfirmProvider>
         <ReadyListener />
         <ReLoginModal />
         <Routes>
@@ -44,6 +46,7 @@ export function App() {
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+       </ConfirmProvider>
       </ToastProvider>
     </AuthProvider>
   );

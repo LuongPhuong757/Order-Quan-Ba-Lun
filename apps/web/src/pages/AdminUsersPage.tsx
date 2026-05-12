@@ -1,6 +1,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 
 type UserRow = {
@@ -14,6 +15,7 @@ type UserRow = {
 
 export function AdminUsersPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [items, setItems] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -37,7 +39,13 @@ export function AdminUsersPage() {
   }, []);
 
   const resetPwd = async (u: UserRow) => {
-    if (!confirm(`Reset password cho ${u.username}?`)) return;
+    const ok = await confirm({
+      title: 'Reset mật khẩu?',
+      message: `Hệ thống sẽ sinh mật khẩu tạm cho ${u.full_name || u.username}.\nNhân viên dùng mật khẩu mới để đăng nhập.`,
+      variant: 'warning',
+      confirmLabel: 'Reset',
+    });
+    if (!ok) return;
     try {
       const res = await api.post<{ data: { temp_password: string } }>(`/admin/users/${u.id}/reset-password`);
       setShowTemp({ user: u.username, temp: res.data.data.temp_password });
@@ -47,13 +55,19 @@ export function AdminUsersPage() {
   };
 
   const hardDelete = async (u: UserRow) => {
-    if (!confirm(
-      `XOÁ VĨNH VIỄN tài khoản "${u.full_name || u.username}"?\n\n` +
-      `Sau khi xoá:\n` +
-      `• Không khôi phục lại được\n` +
-      `• Họ không đăng nhập lại được\n` +
-      `• Tên người gọi món trên order cũ vẫn được giữ (snapshot)`,
-    )) return;
+    const ok = await confirm({
+      title: `Xoá vĩnh viễn ${u.full_name || u.username}?`,
+      message: (
+        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+          <li>Không khôi phục lại được</li>
+          <li>Họ không đăng nhập lại được</li>
+          <li>Tên người gọi món trên order cũ vẫn được giữ (snapshot)</li>
+        </ul>
+      ),
+      variant: 'danger',
+      confirmLabel: 'Xoá vĩnh viễn',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/admin/users/${u.id}`);
       toast.push('success', `Đã xoá ${u.full_name || u.username}.`);

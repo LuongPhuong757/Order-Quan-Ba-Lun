@@ -5,6 +5,7 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 
 type OrderItem = {
@@ -105,6 +106,7 @@ function ageColor(ts: number, state: string): string | undefined {
 
 export function KitchenPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [groups, setGroups] = useState<MenuGroup[]>([]);
@@ -216,11 +218,27 @@ export function KitchenPage() {
   const toggleStock = async (item: KitchenItem) => {
     const menu = menuMap.get(item.menu_item_id);
     const isOut = menu?.is_out_of_stock ?? false;
-    if (!confirm(isOut
-      ? `Đánh dấu "${item.menu_item_name}" CÓ LẠI?`
-      : `Đánh dấu "${item.menu_item_name}" HẾT NGUYÊN LIỆU?\n\nMón sẽ bị đỏ trong menu — nhân viên không gọi mới được.\nCác order ĐANG chờ (món này) vẫn còn — bạn cần huỷ tay từ nhân viên.`)) {
-      return;
-    }
+    const ok = await confirm(
+      isOut
+        ? {
+            title: `Đánh dấu "${item.menu_item_name}" có lại?`,
+            message: 'Nhân viên có thể gọi lại món này.',
+            variant: 'success',
+            confirmLabel: 'Có lại',
+          }
+        : {
+            title: `Đánh dấu "${item.menu_item_name}" HẾT?`,
+            message: (
+              <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+                <li>Món sẽ bị đỏ trong menu — nhân viên không gọi mới được</li>
+                <li>Order đang chờ (món này) vẫn còn — cần huỷ tay từ nhân viên</li>
+              </ul>
+            ),
+            variant: 'warning',
+            confirmLabel: 'Đánh dấu HẾT',
+          },
+    );
+    if (!ok) return;
     try {
       await api.post(`/menu/${item.menu_item_id}/toggle-stock`);
       toast.push('success', isOut ? `${item.menu_item_name}: có lại` : `${item.menu_item_name}: đánh dấu HẾT`);

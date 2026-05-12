@@ -3,6 +3,7 @@
 import { useEffect, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 
 type RestaurantTable = {
@@ -29,6 +30,7 @@ const KIND_COLOR: Record<string, string> = {
 
 export function TablesManagementPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [items, setItems] = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,7 +55,13 @@ export function TablesManagementPage() {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const softDelete = async (t: RestaurantTable) => {
-    if (!confirm(`Xoá bàn "${t.code} - ${t.name}"? Sẽ ẩn khỏi sơ đồ.`)) return;
+    const ok = await confirm({
+      title: 'Xoá bàn?',
+      message: `Bàn "${t.code} — ${t.name}" sẽ bị ẩn khỏi sơ đồ.\nDữ liệu order cũ vẫn được giữ.`,
+      variant: 'danger',
+      confirmLabel: 'Xoá bàn',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/tables/${t.id}`);
       toast.push('success', `Đã xoá ${t.code}`);

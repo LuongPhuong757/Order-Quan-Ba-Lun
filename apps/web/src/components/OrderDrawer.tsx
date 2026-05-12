@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
+import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 
 type OrderItem = {
@@ -84,6 +85,28 @@ function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
+// Helper components dùng trong checkout confirm dialog
+function Section({ title, color, subtitle, children }: { title: string; color: string; subtitle?: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <div style={{ fontSize: 12, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
+        {title} {subtitle && <span style={{ fontWeight: 400, textTransform: 'none' }}>{subtitle}</span>}
+      </div>
+      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>{children}</div>
+    </div>
+  );
+}
+
+function Row({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <div className="dlg-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 14 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>{left}</div>
+      <div style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{right}</div>
+      <style>{`.dlg-row + .dlg-row { border-top: 1px solid #f3f4f6; }`}</style>
+    </div>
+  );
+}
+
 type Props = {
   table: Table;
   onClose: () => void;
@@ -92,6 +115,8 @@ type Props = {
 
 export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const toast = useToast();
+  const confirm = useConfirm();
+  const prompt = usePrompt();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
@@ -139,11 +164,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
   const changeState = async (it: OrderItem, to: string) => {
     if (to === 'CANCELLED' && CANCEL_CONFIRM[it.state]) {
-      const reason = prompt(
-        `⚠ Món "${it.menu_item_name}" đã ${LABEL[it.state]}.\n\nNhân viên đã thử thuyết phục khách giữ món chưa?\n\nNếu vẫn cần huỷ, nhập lý do:`,
-        '',
-      );
-      if (reason === null || !reason.trim()) {
+      const reason = await prompt({
+        title: `Huỷ "${it.menu_item_name}"?`,
+        message: `Món này đã ${LABEL[it.state]}. Nhập lý do huỷ để bếp/khách biết.`,
+        label: 'Lý do huỷ',
+        placeholder: 'vd: Khách đổi ý, hết nguyên liệu...',
+        multiline: true,
+        validate: (v) => v.trim() ? null : 'Vui lòng nhập lý do',
+        confirmLabel: 'Huỷ món',
+      });
+      if (reason === null) {
         toast.push('info', 'Đã huỷ thao tác');
         return;
       }
@@ -188,41 +218,76 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       toast.push('error', 'Bàn chưa có món nào để thanh toán');
       return;
     }
-    const servedBreakdown = servedItems
-      .map((i) => `  • ${i.qty}× ${i.menu_item_name} = ${(i.menu_item_price * i.qty).toLocaleString('vi-VN')}đ`)
-      .join('\n');
     const cancelledItemsList = itemsByState('CANCELLED');
+    const stateLabel: Record<string, string> = {
+      PENDING: 'đang gọi',
+      KITCHEN: 'đã báo bếp',
+      COOKING: 'đang nấu',
+      READY: 'xong, chờ giao',
+    };
 
-    let warningSection = '';
-    if (activeItems.length > 0) {
-      const activeList = activeItems
-        .map((i) => {
-          const stateLabel: Record<string, string> = {
-            PENDING: 'đang gọi',
-            KITCHEN: 'đã báo bếp',
-            COOKING: 'đang nấu',
-            READY: 'xong, chờ giao',
-          };
-          return `  • ${i.qty}× ${i.menu_item_name} (${stateLabel[i.state] || i.state})`;
-        })
-        .join('\n');
-      warningSection = `\n\n⚠ ${activeItems.length} món chưa giao xong sẽ BỊ HUỶ:\n${activeList}\n(Không tính tiền các món này)`;
-    }
+    const fmt = (v: number) => v.toLocaleString('vi-VN') + 'đ';
 
-    const servedSection = servedItems.length > 0
-      ? `Món đã giao (TÍNH TIỀN):\n${servedBreakdown}\n\nTổng cần thu: ${total.toLocaleString('vi-VN')}đ`
-      : 'Chưa có món nào đã giao — sẽ thanh toán với tổng = 0đ.';
+    const okCheckout = await confirm({
+      title: `Thanh toán ${table.name}?`,
+      variant: activeItems.length > 0 ? 'warning' : 'success',
+      confirmLabel: `💰 Thu ${fmt(total)}`,
+      message: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {/* Tổng tiền */}
+          <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{servedItems.length} món đã giao</div>
+          </div>
 
-    // Hiện danh sách món đã huỷ TỪ TRƯỚC (manual cancel), không tính tiền — staff
-    // vẫn cần thấy để confirm với khách "món này đã huỷ, không tính".
-    const cancelledSection = cancelledItemsList.length > 0
-      ? `\n\nMón đã huỷ (KHÔNG TÍNH TIỀN):\n${cancelledItemsList
-          .map((i) => `  • ${i.qty}× ${i.menu_item_name}${i.cancelled_reason ? ` — ${i.cancelled_reason}` : ''}`)
-          .join('\n')}`
-      : '';
+          {/* Món đã giao */}
+          {servedItems.length > 0 && (
+            <Section title="✓ Đã giao (tính tiền)" color="#059669">
+              {servedItems.map((i) => (
+                <Row key={i.id}
+                  left={<><strong>{i.qty}×</strong> {i.menu_item_name}</>}
+                  right={fmt(i.menu_item_price * i.qty)} />
+              ))}
+            </Section>
+          )}
 
-    const confirmMsg = `THANH TOÁN ${table.name}\n\n${servedSection}${cancelledSection}${warningSection}\n\nXác nhận thanh toán và đóng bàn?`;
-    if (!confirm(confirmMsg)) return;
+          {/* Món sẽ bị huỷ (active items) */}
+          {activeItems.length > 0 && (
+            <Section title={`⚠ ${activeItems.length} món chưa giao xong — SẼ HUỶ`} color="#f59e0b" subtitle="(không tính tiền)">
+              {activeItems.map((i) => (
+                <Row key={i.id}
+                  left={<><strong>{i.qty}×</strong> {i.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[i.state] || i.state})</span></>}
+                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(i.menu_item_price * i.qty)}</span>} />
+              ))}
+            </Section>
+          )}
+
+          {/* Món đã huỷ từ trước */}
+          {cancelledItemsList.length > 0 && (
+            <Section title={`Đã huỷ (${cancelledItemsList.length})`} color="#6b7280" subtitle="(không tính tiền)">
+              {cancelledItemsList.map((i) => (
+                <Row key={i.id}
+                  left={
+                    <span style={{ color: '#6b7280' }}>
+                      <strong>{i.qty}×</strong> {i.menu_item_name}
+                      {i.cancelled_reason && <div style={{ fontSize: 12, fontStyle: 'italic' }}>↳ {i.cancelled_reason}</div>}
+                    </span>
+                  }
+                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(i.menu_item_price * i.qty)}</span>} />
+              ))}
+            </Section>
+          )}
+
+          {servedItems.length === 0 && (
+            <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
+              Chưa có món nào đã giao — thanh toán với tổng = 0đ.
+            </div>
+          )}
+        </div>
+      ),
+    });
+    if (!okCheckout) return;
 
     try {
       const res = await api.post<{
@@ -742,6 +807,7 @@ function TransferTableModal({
   onTransferred: () => void;
 }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [tables, setTables] = useState<Table[]>([]);
   const [submitting, setSubmitting] = useState(false);
 
@@ -752,7 +818,13 @@ function TransferTableModal({
   }, [currentTable.id, toast]);
 
   const transfer = async (destId: string, destCode: string) => {
-    if (!confirm(`Chuyển order từ ${currentTable.code} sang ${destCode}?`)) return;
+    const ok = await confirm({
+      title: 'Chuyển bàn?',
+      message: `Toàn bộ order của ${currentTable.code} (${currentTable.name}) sẽ chuyển sang ${destCode}.`,
+      variant: 'warning',
+      confirmLabel: `Chuyển sang ${destCode}`,
+    });
+    if (!ok) return;
     setSubmitting(true);
     try {
       await api.post(`/orders/${order.id}/transfer`, { dest_table_id: destId });

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 
 type MenuGroup = {
@@ -34,6 +35,7 @@ function formatVND(v: number): string {
 
 export function MenuManagementPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const { user } = useAuth();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [groups, setGroups] = useState<MenuGroup[]>([]);
@@ -84,7 +86,13 @@ export function MenuManagementPage() {
   };
 
   const softDelete = async (it: MenuItem) => {
-    if (!confirm(`Xoá món "${it.name}"? Sẽ ẩn khỏi danh sách gọi món.`)) return;
+    const ok = await confirm({
+      title: 'Xoá món?',
+      message: `Món "${it.name}" sẽ bị ẩn khỏi danh sách gọi món.\nDữ liệu order cũ vẫn được giữ.`,
+      variant: 'danger',
+      confirmLabel: 'Xoá món',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/menu/${it.id}`);
       toast.push('success', `Đã xoá ${it.name}`);
@@ -259,10 +267,17 @@ function GroupsManagerModal({
   onChanged: () => void;
 }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [showCreate, setShowCreate] = useState(false);
 
   const remove = async (g: MenuGroup) => {
-    if (!confirm(`Xoá nhóm "${g.name}"?\n\nMón thuộc nhóm này sẽ vẫn còn nhưng nhóm bị ẩn khỏi filter.`)) return;
+    const ok = await confirm({
+      title: `Xoá nhóm "${g.name}"?`,
+      message: 'Món thuộc nhóm này vẫn còn nhưng nhóm bị ẩn khỏi filter.',
+      variant: 'danger',
+      confirmLabel: 'Xoá nhóm',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/menu-groups/${g.id}`);
       toast.push('success', `Đã xoá nhóm ${g.name}`);
