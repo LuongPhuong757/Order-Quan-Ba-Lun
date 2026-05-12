@@ -364,10 +364,41 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           color: #dc2626;
           cursor: not-allowed;
         }
-        .bulk-menu-card .code { font-size: 10px; color: #6b7280; }
-        .bulk-menu-card .name { font-size: 14px; font-weight: 600; margin: 2px 0; line-height: 1.25; }
-        .bulk-menu-card .meta { font-size: 11px; color: #6b7280; }
-        .bulk-menu-card .price { font-size: 14px; font-weight: 700; color: #0f766e; margin-top: 4px; }
+        .bulk-menu-card .code {
+          font-size: 10px;
+          color: #6b7280;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bulk-menu-card .name {
+          font-size: 14px;
+          font-weight: 600;
+          margin: 2px 0;
+          line-height: 1.25;
+          /* Clamp tối đa 2 dòng — tránh tên dài đẩy giá ra khỏi card */
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+          word-break: break-word;
+        }
+        .bulk-menu-card .meta {
+          font-size: 11px;
+          color: #6b7280;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .bulk-menu-card .price {
+          font-size: 14px;
+          font-weight: 700;
+          color: #0f766e;
+          margin-top: 4px;
+          /* Price luôn fix size, không bị compress khi name dài */
+          flex-shrink: 0;
+        }
         .bulk-menu-card .thumb {
           width: 100%;
           aspect-ratio: 4 / 3;
