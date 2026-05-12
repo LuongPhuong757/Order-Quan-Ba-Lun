@@ -1,5 +1,5 @@
 // Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
@@ -19,6 +19,7 @@ type OrderSummary = {
   table_id: string;
   table_code: string;
   opened_at: number;
+  first_kitchen_at: number | null;
   items?: Array<{
     id: string;
     menu_item_name: string;
@@ -27,11 +28,21 @@ type OrderSummary = {
   }>;
 };
 
-const KIND_LABEL: Record<string, string> = {
+type FilterKey = 'all' | 'in-use' | 'has-pending' | 'empty' | 'dine-in' | 'takeaway' | 'delivery';
+
+const FILTER_LABEL: Record<FilterKey, string> = {
+  'all': 'Tất cả',
+  'in-use': '🔥 Đang dùng',
+  'has-pending': '🍽 Còn món chưa giao',
+  'empty': '⚪ Trống',
   'dine-in': '🪑 Tại quán',
   'takeaway': '🥡 Mang về',
   'delivery': '🛵 Giao hàng',
 };
+
+const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'has-pending', 'empty', 'dine-in', 'takeaway', 'delivery'];
+
+const ACTIVE_STATES = new Set(['PENDING', 'KITCHEN', 'COOKING', 'READY']);
 
 const KIND_BG: Record<string, string> = {
   'dine-in': '#fef3c7',
@@ -53,6 +64,7 @@ export function OrdersPage() {
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
+  const [filter, setFilter] = useState<FilterKey>('all');
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -100,12 +112,56 @@ export function OrdersPage() {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Group tables by kind for cleaner display
-  const dineIn = tables.filter((t) => t.kind === 'dine-in').sort((a, b) => a.y - b.y || a.x - b.x);
-  const takeaway = tables.filter((t) => t.kind === 'takeaway');
-  const delivery = tables.filter((t) => t.kind === 'delivery');
+  const orderByTable = useCallback(
+    (table_id: string) => openOrders.find((o) => o.table_id === table_id),
+    [openOrders],
+  );
 
-  const orderByTable = (table_id: string) => openOrders.find((o) => o.table_id === table_id);
+  // Đếm count cho từng filter (luôn tính từ full tables, không phụ thuộc filter hiện tại)
+  const filterCounts = useMemo<Record<FilterKey, number>>(() => {
+    const counts: Record<FilterKey, number> = {
+      'all': tables.length,
+      'in-use': 0,
+      'has-pending': 0,
+      'empty': 0,
+      'dine-in': 0,
+      'takeaway': 0,
+      'delivery': 0,
+    };
+    for (const t of tables) {
+      const o = orderByTable(t.id);
+      if (o) counts['in-use']++;
+      else counts['empty']++;
+      if (o && (o.items || []).some((it) => ACTIVE_STATES.has(it.state))) counts['has-pending']++;
+      if (t.kind === 'dine-in') counts['dine-in']++;
+      else if (t.kind === 'takeaway') counts['takeaway']++;
+      else if (t.kind === 'delivery') counts['delivery']++;
+    }
+    return counts;
+  }, [tables, orderByTable]);
+
+  const matchesFilter = (t: Table): boolean => {
+    if (filter === 'all') return true;
+    const o = orderByTable(t.id);
+    if (filter === 'in-use') return !!o;
+    if (filter === 'empty') return !o;
+    if (filter === 'has-pending') {
+      return !!o && (o.items || []).some((it) => ACTIVE_STATES.has(it.state));
+    }
+    return t.kind === filter;
+  };
+
+  const filteredTables = tables
+    .filter(matchesFilter)
+    .sort((a, b) => {
+      // Sort: dine-in trước, rồi y,x; các loại khác giữ thứ tự gốc
+      if (a.kind === 'dine-in' && b.kind === 'dine-in') {
+        return (a.y - b.y) || (a.x - b.x);
+      }
+      if (a.kind === 'dine-in') return -1;
+      if (b.kind === 'dine-in') return 1;
+      return a.code.localeCompare(b.code);
+    });
 
   const renderTableCard = (t: Table) => {
     const order = orderByTable(t.id);
@@ -165,9 +221,11 @@ export function OrdersPage() {
             <div style={{ fontSize: 20, fontWeight: 700 }}>{t.code}</div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>{t.name}</div>
           </div>
-          {(hasActive || readyToCheckout) && order && (
+          {/* Thời gian "vào bàn" = từ lần đầu báo bếp.
+              Null nếu chưa từng báo bếp (vẫn còn PENDING hết) — không hiển thị. */}
+          {order && order.first_kitchen_at != null && (
             <div style={{ fontSize: 11, color: '#6b7280' }}>
-              {Math.floor((Date.now() - order.opened_at) / 60_000)}′
+              {Math.max(0, Math.floor((Date.now() - order.first_kitchen_at) / 60_000))}′
             </div>
           )}
         </div>
@@ -232,55 +290,52 @@ export function OrdersPage() {
         </div>
       )}
 
-      {!loading && dineIn.length > 0 && (
-        <section style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, color: '#6b7280', margin: '0 0 8px' }}>
-            {KIND_LABEL['dine-in']} ({dineIn.length})
-          </h2>
+      {!loading && tables.length > 0 && (
+        <>
+          {/* Filter tiles — tương tự màn Bàn */}
           <div
+            className="card"
             style={{
-              display: 'grid',
-              gap: 10,
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+              marginBottom: 16,
+              padding: 8,
+              display: 'flex',
+              gap: 6,
+              flexWrap: 'wrap',
             }}
           >
-            {dineIn.map(renderTableCard)}
+            {FILTER_ORDER.map((k) => (
+              <button
+                key={k}
+                onClick={() => setFilter(k)}
+                className={filter === k ? '' : 'secondary'}
+                style={{
+                  padding: '8px 12px',
+                  fontSize: 13,
+                  flex: '1 1 auto',
+                  minWidth: 130,
+                }}
+              >
+                {FILTER_LABEL[k]} ({filterCounts[k]})
+              </button>
+            ))}
           </div>
-        </section>
-      )}
 
-      {!loading && takeaway.length > 0 && (
-        <section style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, color: '#6b7280', margin: '0 0 8px' }}>
-            {KIND_LABEL['takeaway']} ({takeaway.length})
-          </h2>
-          <div
-            style={{
-              display: 'grid',
-              gap: 10,
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-            }}
-          >
-            {takeaway.map(renderTableCard)}
-          </div>
-        </section>
-      )}
-
-      {!loading && delivery.length > 0 && (
-        <section style={{ marginBottom: 24 }}>
-          <h2 style={{ fontSize: 16, color: '#6b7280', margin: '0 0 8px' }}>
-            {KIND_LABEL['delivery']} ({delivery.length})
-          </h2>
-          <div
-            style={{
-              display: 'grid',
-              gap: 10,
-              gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
-            }}
-          >
-            {delivery.map(renderTableCard)}
-          </div>
-        </section>
+          {filteredTables.length === 0 ? (
+            <div className="empty-state card">
+              Không có bàn khớp filter "{FILTER_LABEL[filter]}".
+            </div>
+          ) : (
+            <div
+              style={{
+                display: 'grid',
+                gap: 10,
+                gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))',
+              }}
+            >
+              {filteredTables.map(renderTableCard)}
+            </div>
+          )}
+        </>
       )}
 
       {/* Legend */}

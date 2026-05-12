@@ -69,12 +69,26 @@ export class OrdersService {
       const order = orderRepo.create({
         table_id,
         table_code: table.code,
+        first_kitchen_at: null,
         closed_at: null,
         is_paid: false,
       });
       await orderRepo.save(order);
       return order;
     });
+  }
+
+  /** Set order.first_kitchen_at = now nếu chưa có. Idempotent. */
+  private async markFirstKitchenIfNull(
+    mgr: { getRepository: (e: typeof Order) => Repository<Order> },
+    order_id: string,
+  ): Promise<void> {
+    const repo = mgr.getRepository(Order);
+    const o = await repo.findOne({ where: { id: order_id } });
+    if (!o) return;
+    if (o.first_kitchen_at != null) return;
+    o.first_kitchen_at = Date.now();
+    await repo.save(o);
   }
 
   async listOpenOrders() {
@@ -159,6 +173,9 @@ export class OrdersService {
         const saved = await itemRepo.save(entity);
         created.push(saved);
       }
+      if (send_to_kitchen) {
+        await this.markFirstKitchenIfNull(mgr, order_id);
+      }
       return { items: created, count: created.length, state };
     });
   }
@@ -188,30 +205,44 @@ export class OrdersService {
 
   /** State transition with validation */
   async changeItemState(item_id: string, to: string, reason?: string) {
-    const item = await this.itemRepo.findOne({ where: { id: item_id } });
-    if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item không tồn tại' });
-    const allowed = ALLOWED_TRANSITIONS[item.state] || [];
-    if (!allowed.includes(to)) {
-      throw new BadRequestException({
-        code: 'CONFLICT',
-        message: `Không thể chuyển từ ${item.state} sang ${to}`,
-      });
-    }
-    item.state = to;
-    if (to === 'CANCELLED' && reason) item.cancelled_reason = reason;
-    await this.itemRepo.save(item);
-    return item;
+    return await this.ds.transaction(async (mgr) => {
+      const itemRepo = mgr.getRepository(OrderItem);
+      const item = await itemRepo.findOne({ where: { id: item_id } });
+      if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item không tồn tại' });
+      const allowed = ALLOWED_TRANSITIONS[item.state] || [];
+      if (!allowed.includes(to)) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: `Không thể chuyển từ ${item.state} sang ${to}`,
+        });
+      }
+      item.state = to;
+      if (to === 'CANCELLED' && reason) item.cancelled_reason = reason;
+      await itemRepo.save(item);
+      // Nếu là PENDING → KITCHEN cho item đầu tiên: set first_kitchen_at trên order
+      if (to === 'KITCHEN') {
+        await this.markFirstKitchenIfNull(mgr, item.order_id);
+      }
+      return item;
+    });
   }
 
   /** Bulk send PENDING items to kitchen (one click) */
   async sendPendingToKitchen(order_id: string) {
-    const result = await this.itemRepo
-      .createQueryBuilder()
-      .update(OrderItem)
-      .set({ state: 'KITCHEN' })
-      .where('order_id = :oid AND state = :s', { oid: order_id, s: 'PENDING' })
-      .execute();
-    return { affected: result.affected || 0 };
+    return await this.ds.transaction(async (mgr) => {
+      const itemRepo = mgr.getRepository(OrderItem);
+      const result = await itemRepo
+        .createQueryBuilder()
+        .update(OrderItem)
+        .set({ state: 'KITCHEN' })
+        .where('order_id = :oid AND state = :s', { oid: order_id, s: 'PENDING' })
+        .execute();
+      const affected = result.affected || 0;
+      if (affected > 0) {
+        await this.markFirstKitchenIfNull(mgr, order_id);
+      }
+      return { affected };
+    });
   }
 
   /** Checkout: thanh toán + đóng order.

@@ -26,6 +26,13 @@ export class Order {
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   opened_at!: number;
 
+  /** Thời điểm lần đầu báo bếp (PENDING → KITCHEN cho 1 item bất kỳ).
+   * Null nếu order chưa từng báo bếp (vẫn còn PENDING hết).
+   * Dùng để hiển thị thời gian "vào bàn" trên sơ đồ.
+   */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  first_kitchen_at!: number | null;
+
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
   closed_at!: number | null;
 
