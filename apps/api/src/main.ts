@@ -15,7 +15,8 @@ async function bootstrap() {
     AppModule,
     {
       rawBody: true,
-      bufferLogs: true,
+      // bufferLogs=false (default): log ra terminal ngay khi happens.
+      // Trước bị set true mà không có useLogger() flush → validation log không hiện.
     },
   );
 

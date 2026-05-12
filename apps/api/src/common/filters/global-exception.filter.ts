@@ -59,14 +59,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         code = body.code || mapStatusToCode(status);
         message = body.message || (FRIENDLY_VN[code] ?? 'Lỗi không xác định');
         fieldErrors = body.field_errors;
-        // class-validator dumps message as string[] — convert to field_errors
-        if (Array.isArray((body as Record<string, unknown>).message) && status === 422) {
+        // class-validator dumps message as string[] — convert to field_errors.
+        // Áp dụng cho cả 400 (ValidationPipe default) + 422.
+        if (Array.isArray((body as Record<string, unknown>).message) && (status === 400 || status === 422)) {
           fieldErrors = ((body as Record<string, unknown>).message as string[]).map((m) => ({
-            field: 'unknown',
+            field: extractFieldFromMessage(m),
             message: m,
           }));
           message = FRIENDLY_VN.VALIDATION_FAILED;
           code = 'VALIDATION_FAILED';
+          // Log full validation errors → terminal thấy được field nào sai
+          this.logger.warn(
+            `Validation failed at ${req.method} ${req.url} — ${fieldErrors.length} errors: ${fieldErrors
+              .map((e) => `[${e.field}] ${e.message}`)
+              .join(' | ')}`,
+          );
         }
       }
     } else if (exception instanceof Error) {
@@ -87,6 +94,14 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       },
     });
   }
+}
+
+/** Class-validator messages thường có format "items.5.price must be an integer" hoặc
+ * "price must be ...". Extract phần đầu tiên (path) làm field name. */
+function extractFieldFromMessage(msg: string): string {
+  // Match "field must be" or "field should not be" patterns
+  const m = msg.match(/^([\w.\[\]]+)\s+(?:must|should|has)\s/);
+  return m ? m[1] : 'unknown';
 }
 
 function mapStatusToCode(status: number): string {

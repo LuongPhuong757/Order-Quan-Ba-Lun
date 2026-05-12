@@ -868,7 +868,11 @@ function ImportMenuModal({
       toast.push('success', msg);
       onImported();
     } catch (e) {
-      toast.push('error', extractError(e).message);
+      const err = extractError(e);
+      // Hiện kèm 2-3 field errors đầu tiên để user biết dòng nào sai
+      const firstErrors = (err.field_errors || []).slice(0, 3).map((f) => `[${f.field}] ${f.message}`).join(' · ');
+      const fullMsg = firstErrors ? `${err.message} — ${firstErrors}` : err.message;
+      toast.push('error', fullMsg, 8000);
     } finally {
       setSubmitting(false);
     }
