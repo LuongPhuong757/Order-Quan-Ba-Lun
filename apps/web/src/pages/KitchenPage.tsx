@@ -14,6 +14,7 @@ type OrderItem = {
   qty: number;
   state: string;
   note: string | null;
+  created_by_full_name: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -489,6 +490,19 @@ function Card({
         <div className="kds-card-name">
           {item.qty}× {item.menu_item_name}
         </div>
+        {item.created_by_full_name && (
+          <div
+            style={{
+              fontSize: 12,
+              color: '#0f766e',
+              marginTop: 2,
+              fontWeight: 500,
+            }}
+            title="Nhân viên gọi món — hỏi người này nếu có vấn đề"
+          >
+            👤 {item.created_by_full_name}
+          </div>
+        )}
         {item.note && <div className="kds-card-note">📝 {item.note}</div>}
         <div
           className="kds-card-meta"

@@ -10,6 +10,8 @@ import { OrderItem } from './entities/order-item.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 
+export type OrderCreator = { id: string; full_name: string };
+
 // State machine — must match packages/schemas/orders.ts
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   PENDING:   ['KITCHEN', 'CANCELLED'],
@@ -32,8 +34,11 @@ export class OrdersService {
 
   /** Get or create the open order for a table.
    * Pessimistic-lock pattern để tránh race condition khi nhiều client poll cùng lúc tạo
-   * duplicate open orders cho cùng bàn (bug từ session trước). */
-  async getOrCreateOpenOrder(table_id: string): Promise<Order> {
+   * duplicate open orders cho cùng bàn (bug từ session trước).
+   *
+   * @param creator — nhân viên đang mở. Lưu snapshot vào order.created_by_*
+   *                  CHỈ khi tạo order mới (không update khi reuse). */
+  async getOrCreateOpenOrder(table_id: string, creator?: OrderCreator): Promise<Order> {
     return await this.ds.transaction(async (mgr) => {
       const tableRepo = mgr.getRepository(RestaurantTable);
       const orderRepo = mgr.getRepository(Order);
@@ -72,6 +77,8 @@ export class OrdersService {
         first_kitchen_at: null,
         closed_at: null,
         is_paid: false,
+        created_by_user_id: creator?.id ?? null,
+        created_by_full_name: creator?.full_name ?? null,
       });
       await orderRepo.save(order);
       return order;
@@ -117,6 +124,7 @@ export class OrdersService {
     order_id: string,
     items: Array<{ menu_item_id: string; qty: number; note?: string | null }>,
     send_to_kitchen = false,
+    creator?: OrderCreator,
   ): Promise<{ items: OrderItem[]; count: number; state: string }> {
     if (items.length === 0) {
       throw new BadRequestException({ code: 'CONFLICT', message: 'Giỏ hàng trống' });
@@ -172,6 +180,8 @@ export class OrdersService {
           state,
           note: it.note ?? null,
           cancelled_reason: null,
+          created_by_user_id: creator?.id ?? null,
+          created_by_full_name: creator?.full_name ?? null,
         });
         const saved = await itemRepo.save(entity);
         created.push(saved);
@@ -183,7 +193,13 @@ export class OrdersService {
     });
   }
 
-  async addItem(order_id: string, menu_item_id: string, qty: number, note?: string | null) {
+  async addItem(
+    order_id: string,
+    menu_item_id: string,
+    qty: number,
+    note?: string | null,
+    creator?: OrderCreator,
+  ) {
     const order = await this.orderRepo.findOne({ where: { id: order_id } });
     if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
     if (order.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng' });
@@ -201,6 +217,8 @@ export class OrdersService {
       state: 'PENDING',
       note: note ?? null,
       cancelled_reason: null,
+      created_by_user_id: creator?.id ?? null,
+      created_by_full_name: creator?.full_name ?? null,
     });
     await this.itemRepo.save(item);
     return item;

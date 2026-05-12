@@ -60,6 +60,7 @@ export class AuthController {
       data: {
         sub: req.user!.sub,
         name: req.user!.name,
+        full_name: req.user!.full_name,
         is_owner: req.user!.is_owner,
       },
     };

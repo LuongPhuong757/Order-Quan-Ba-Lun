@@ -60,6 +60,7 @@ export class JwtAuthGuard implements CanActivate {
     req.user = {
       sub: payload.sub,
       name: payload.name,
+      full_name: user.full_name || user.username,
       is_owner: user.is_owner,
       jti: payload.jti,
     };

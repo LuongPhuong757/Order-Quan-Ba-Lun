@@ -47,6 +47,14 @@ export class OrderItem {
   @Column({ type: 'varchar', length: 255, nullable: true })
   cancelled_reason!: string | null;
 
+  /** Snapshot ai gọi món này — không FK để tránh cascade khi user bị xoá.
+   * Hiển thị trên màn Bếp + drawer chi tiết để biết tìm ai khi có vấn đề. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  created_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  created_by_full_name!: string | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 

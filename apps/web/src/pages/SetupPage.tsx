@@ -9,6 +9,7 @@ export function SetupPage() {
   const navigate = useNavigate();
   const [checking, setChecking] = useState(true);
   const [ready, setReady] = useState(false);
+  const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
   const [errP, setErrP] = useState<string | null>(null);
@@ -34,6 +35,10 @@ export function SetupPage() {
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
+    if (!fullName.trim()) {
+      setErrP('Vui lòng nhập họ và tên');
+      return;
+    }
     if (password.length < 12) {
       setErrP('Mật khẩu owner nên ≥ 12 ký tự cho an toàn');
       return;
@@ -41,6 +46,7 @@ export function SetupPage() {
     setSubmitting(true);
     try {
       const res = await api.post<{ data: { user_id: string; recovery_code: string } }>('/setup', {
+        full_name: fullName.trim(),
         username,
         password,
       });
@@ -96,12 +102,26 @@ export function SetupPage() {
 
         <form onSubmit={submit} noValidate>
           <div className="row">
+            <label htmlFor="setup-fname">Họ và tên owner</label>
+            <input
+              id="setup-fname"
+              value={fullName}
+              onChange={(e) => setFullName(e.target.value)}
+              placeholder="vd: Nguyễn Văn A"
+              autoComplete="name"
+              maxLength={128}
+              autoFocus
+            />
+          </div>
+
+          <div className="row">
             <label htmlFor="setup-username">Tên đăng nhập owner</label>
             <input
               id="setup-username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               autoComplete="username"
+              style={{ fontFamily: 'monospace' }}
             />
           </div>
 

@@ -6,8 +6,10 @@ import {
   Param,
   Patch,
   Post,
+  Req,
   UseGuards,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -75,8 +77,11 @@ export class OrdersController {
 
   /** GET /orders/by-table/:tableId — get or create the open order for a table */
   @Get('by-table/:tableId')
-  async byTable(@Param('tableId') tableId: string) {
-    const order = await this.svc.getOrCreateOpenOrder(tableId);
+  async byTable(@Param('tableId') tableId: string, @Req() req: Request) {
+    const order = await this.svc.getOrCreateOpenOrder(tableId, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
     const full = await this.svc.getOrderWithItems(order.id);
     return { data: full };
   }
@@ -84,19 +89,23 @@ export class OrdersController {
   /** POST /orders/:id/items — add menu item to order */
   @Post(':id/items')
   @HttpCode(201)
-  async addItem(@Param('id') id: string, @Body() dto: AddItemDto) {
-    const item = await this.svc.addItem(id, dto.menu_item_id, dto.qty, dto.note ?? null);
+  async addItem(@Param('id') id: string, @Body() dto: AddItemDto, @Req() req: Request) {
+    const item = await this.svc.addItem(id, dto.menu_item_id, dto.qty, dto.note ?? null, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
     return { data: item };
   }
 
   /** POST /orders/:id/items-bulk — add nhiều items 1 lần, option auto-báo-bếp */
   @Post(':id/items-bulk')
   @HttpCode(201)
-  async addItemsBulk(@Param('id') id: string, @Body() dto: BulkAddItemsDto) {
+  async addItemsBulk(@Param('id') id: string, @Body() dto: BulkAddItemsDto, @Req() req: Request) {
     const result = await this.svc.addItemsBulk(
       id,
       dto.items.map((i) => ({ menu_item_id: i.menu_item_id, qty: i.qty, note: i.note })),
       dto.send_to_kitchen ?? false,
+      { id: req.user!.sub, full_name: req.user!.full_name },
     );
     return { data: result };
   }

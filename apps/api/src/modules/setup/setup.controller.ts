@@ -76,6 +76,7 @@ export class SetupController {
       const hash = await AuthService.hashPassword(dto.password);
       const user = userRepo.create({
         username: dto.username,
+        full_name: dto.full_name.trim(),
         password_hash: hash,
         is_owner: true,
         is_active: true,

@@ -6,6 +6,7 @@ import { PasswordInput } from '../components/PasswordInput.tsx';
 type UserRow = {
   id: string;
   username: string;
+  full_name: string | null;
   is_active: boolean;
   is_owner: boolean;
   created_at: number;
@@ -73,6 +74,7 @@ export function AdminUsersPage() {
         <table className="responsive card" style={{ padding: 0 }}>
           <thead>
             <tr>
+              <th>Họ và tên</th>
               <th>Tên đăng nhập</th>
               <th>Vai trò</th>
               <th>Trạng thái</th>
@@ -83,7 +85,10 @@ export function AdminUsersPage() {
           <tbody>
             {items.map((u) => (
               <tr key={u.id}>
-                <td data-label="Tên đăng nhập"><strong>{u.username}</strong></td>
+                <td data-label="Họ và tên">
+                  <strong>{u.full_name || <span style={{ color: '#9ca3af', fontWeight: 400 }}>—</span>}</strong>
+                </td>
+                <td data-label="Tên đăng nhập"><code>{u.username}</code></td>
                 <td data-label="Vai trò">{u.is_owner ? '👑 Chủ quán' : 'Nhân viên'}</td>
                 <td data-label="Trạng thái">
                   {u.is_active ? (
@@ -132,6 +137,7 @@ export function AdminUsersPage() {
 
 function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
+  const [fullName, setFullName] = useState('');
   const [username, setUsername] = useState('');
   const [pwd, setPwd] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -139,14 +145,26 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!username.trim() || pwd.length < 8) {
-      setErr('Nhập tên đăng nhập + password ≥ 8 ký tự');
+    if (!fullName.trim()) {
+      setErr('Vui lòng nhập họ và tên');
+      return;
+    }
+    if (!username.trim()) {
+      setErr('Vui lòng nhập tên đăng nhập');
+      return;
+    }
+    if (pwd.length < 8) {
+      setErr('Mật khẩu phải ≥ 8 ký tự');
       return;
     }
     setSubmitting(true);
     try {
-      await api.post('/admin/users', { username, password: pwd });
-      toast.push('success', `Tạo nhân viên ${username} thành công ✓`);
+      await api.post('/admin/users', {
+        full_name: fullName.trim(),
+        username: username.trim(),
+        password: pwd,
+      });
+      toast.push('success', `Tạo nhân viên ${fullName} thành công ✓`);
       onCreated();
     } catch (e) {
       setErr(extractError(e).message);
@@ -160,12 +178,32 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
       <form className="modal" onSubmit={submit}>
         <h1>Tạo nhân viên mới</h1>
         <div className="row">
+          <label htmlFor="cu-fname">Họ và tên</label>
+          <input
+            id="cu-fname"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="vd: Nguyễn Văn A"
+            autoComplete="name"
+            autoFocus
+            maxLength={128}
+          />
+        </div>
+        <div className="row">
           <label htmlFor="cu-uname">Tên đăng nhập</label>
-          <input id="cu-uname" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus />
+          <input
+            id="cu-uname"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="vd: nva"
+            autoComplete="username"
+            maxLength={64}
+            style={{ fontFamily: 'monospace' }}
+          />
         </div>
         <PasswordInput
           id="cu-pwd"
-          label="Password ban đầu (≥ 8 ký tự)"
+          label="Mật khẩu ban đầu (≥ 8 ký tự)"
           value={pwd}
           onChange={(v) => {
             setPwd(v);

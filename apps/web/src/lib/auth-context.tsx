@@ -3,7 +3,8 @@ import { api } from './api.ts';
 
 export type AuthUser = {
   sub: string;
-  name: string;
+  name: string;            // username (login name)
+  full_name: string;       // họ và tên hiển thị, fallback về username
   is_owner: boolean;
 };
 

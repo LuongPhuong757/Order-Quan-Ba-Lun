@@ -37,6 +37,11 @@ export function AccountPage() {
     <div className="container with-bottom-nav">
       <h1>Tài khoản</h1>
       <div className="card">
+        {user?.full_name && user.full_name !== user.name && (
+          <p style={{ marginBottom: 4 }}>
+            Họ và tên: <strong>{user.full_name}</strong>
+          </p>
+        )}
         <p>
           Tên đăng nhập: <strong>{user?.name}</strong>
           {user?.is_owner && <span style={{ marginLeft: 8, color: '#0f766e' }}>(Chủ quán)</span>}

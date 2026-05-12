@@ -8,7 +8,8 @@ declare global {
       request_id?: string;
       user?: {
         sub: string;
-        name: string;
+        name: string;        // = username (login name) — giữ tương thích
+        full_name: string;   // họ tên hiển thị, fallback về username nếu null
         is_owner: boolean;
         jti: string;
       };

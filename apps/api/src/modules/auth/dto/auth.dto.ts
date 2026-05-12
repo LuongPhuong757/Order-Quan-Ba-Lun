@@ -39,6 +39,11 @@ export class RecoverDto {
 export class SetupDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(128)
+  full_name!: string;
+
+  @IsString()
+  @MinLength(1)
   @MaxLength(64)
   username!: string;
 

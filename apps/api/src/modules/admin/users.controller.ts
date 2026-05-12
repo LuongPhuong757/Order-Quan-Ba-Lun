@@ -25,6 +25,11 @@ import { randomBytes } from 'crypto';
 class CreateUserDto {
   @IsString()
   @MinLength(1)
+  @MaxLength(128)
+  full_name!: string;
+
+  @IsString()
+  @MinLength(1)
   @MaxLength(64)
   username!: string;
 
@@ -52,6 +57,7 @@ export class AdminUsersController {
     const hash = await AuthService.hashPassword(dto.password);
     const user = this.userRepo.create({
       username: dto.username,
+      full_name: dto.full_name.trim(),
       password_hash: hash,
       is_owner: false,
       is_active: true,
@@ -62,6 +68,7 @@ export class AdminUsersController {
       data: {
         id: user.id,
         username: user.username,
+        full_name: user.full_name,
         is_active: user.is_active,
         created_at: Number(user.created_at),
       },
@@ -83,6 +90,7 @@ export class AdminUsersController {
         items: items.map((u) => ({
           id: u.id,
           username: u.username,
+          full_name: u.full_name,
           is_active: u.is_active,
           is_owner: u.is_owner,
           created_at: Number(u.created_at),

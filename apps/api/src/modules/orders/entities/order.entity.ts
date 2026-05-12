@@ -50,6 +50,14 @@ export class Order {
   @Column({ type: 'varchar', length: 16, nullable: true })
   customer_phone!: string | null;
 
+  /** Snapshot tên nhân viên đầu tiên mở order — dùng cho drawer header.
+   * Lưu khi getOrCreateOpenOrder lần đầu, không update về sau. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  created_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  created_by_full_name!: string | null;
+
   @UpdateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   updated_at!: number;
 

@@ -13,6 +13,7 @@ type OrderItem = {
   state: string;
   note: string | null;
   cancelled_reason: string | null;
+  created_by_full_name: string | null;
 };
 
 type Order = {
@@ -671,6 +672,11 @@ function ItemRow({
           <div style={{ fontWeight: 600 }}>
             {item.qty} × {item.menu_item_name}
           </div>
+          {item.created_by_full_name && (
+            <div style={{ fontSize: 11, color: '#0f766e', marginTop: 2 }}>
+              👤 NV gọi: {item.created_by_full_name}
+            </div>
+          )}
           {item.note && (
             <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>
               📝 {item.note}

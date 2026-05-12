@@ -35,6 +35,11 @@ export class User {
   @Column({ type: 'varchar', length: 64, unique: true })
   username!: string;
 
+  /** Họ và tên hiển thị (vd: "Nguyễn Văn A"). Nullable cho users cũ tạo trước
+   * khi field này có; UI fallback về username. */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  full_name!: string | null;
+
   @Column({ type: 'varchar', length: 255 })
   password_hash!: string;
 
