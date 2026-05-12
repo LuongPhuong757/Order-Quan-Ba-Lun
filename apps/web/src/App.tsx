@@ -63,6 +63,12 @@ export function App() {
   );
 }
 
+const ROLE_BADGE: Record<Role, { label: string; bg: string; color: string }> = {
+  admin:   { label: '👑 Admin',   bg: '#fef3c7', color: '#92400e' },
+  order:   { label: '🍽 Order',   bg: '#dbeafe', color: '#1e40af' },
+  kitchen: { label: '👨‍🍳 Bếp',    bg: '#d1fae5', color: '#065f46' },
+};
+
 function ProtectedShell() {
   const { user, loading, logout } = useAuth();
   const loc = useLocation();
@@ -79,11 +85,31 @@ function ProtectedShell() {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
   const role = (user.role ?? (user.is_owner ? 'admin' : null)) as Role | null;
+  const badge = role ? ROLE_BADGE[role] : null;
 
   return (
     <>
       <header className="header">
-        <span className="brand">Order Quán Bà Lùn</span>
+        <span className="brand">
+          Order Quán Bà Lùn
+          {badge && (
+            <span
+              title={`Đăng nhập với quyền: ${badge.label}`}
+              style={{
+                marginLeft: 8,
+                padding: '2px 8px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 700,
+                background: badge.bg,
+                color: badge.color,
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {badge.label}
+            </span>
+          )}
+        </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           <NotificationBell />
           <button className="secondary" onClick={logout} style={{ padding: '6px 12px' }}>
@@ -128,9 +154,20 @@ function HomeRedirect() {
 /** Gate cho phép vài role truy cập route. Role khác → redirect về landing của họ. */
 function RoleGate({ allow }: { allow: Role[] }) {
   const { user } = useAuth();
+  const loc = useLocation();
   const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
-  if (!role) return <Navigate to="/account" replace />;
-  if (!allow.includes(role)) return <Navigate to={defaultLandingPath(role)} replace />;
+  if (!role) {
+    // eslint-disable-next-line no-console
+    console.warn('[RoleGate] No role — redirect /account', { path: loc.pathname, user });
+    return <Navigate to="/account" replace />;
+  }
+  if (!allow.includes(role)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[RoleGate] Access DENIED: role='${role}' not in [${allow.join(',')}] for path=${loc.pathname}. Redirect → ${defaultLandingPath(role)}`,
+    );
+    return <Navigate to={defaultLandingPath(role)} replace />;
+  }
   return <Outlet />;
 }
 
