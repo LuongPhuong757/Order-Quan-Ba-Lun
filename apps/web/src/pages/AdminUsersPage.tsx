@@ -203,7 +203,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         </div>
         <PasswordInput
           id="cu-pwd"
-          label="Mật khẩu ban đầu (≥ 8 ký tự)"
+          label="Mật khẩu (≥ 8 ký tự)"
           value={pwd}
           onChange={(v) => {
             setPwd(v);
