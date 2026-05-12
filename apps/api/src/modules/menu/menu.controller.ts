@@ -57,7 +57,11 @@ class UpdateMenuItemDto {
 class BulkImportRowDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
+  /** Group CODE (≤16 ký tự, slug). FE tự slugify từ tên dài trong file user. */
   @IsString() @MinLength(1) @MaxLength(16) group!: string;
+  /** Tên hiển thị của group — dùng khi BE auto-create MenuGroup mới.
+   * Nếu thiếu → BE dùng group code đã capitalize. */
+  @IsOptional() @IsString() @MaxLength(64) group_name?: string;
   @IsInt() @Min(0) @Max(100_000_000) price!: number;
   @IsString() @MinLength(1) @MaxLength(32) unit!: string;
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
@@ -130,7 +134,14 @@ export class MenuController {
   @HttpCode(201)
   @UseGuards(OwnerGuard)
   async bulkImport(@Body() dto: BulkImportMenuDto) {
-    // 1) Auto-create missing groups
+    // 1) Auto-create missing groups — preserve group_name (display name) nếu FE truyền lên
+    const groupNameByCode = new Map<string, string>();
+    for (const row of dto.items) {
+      const code = row.group.toLowerCase().trim();
+      if (row.group_name && !groupNameByCode.has(code)) {
+        groupNameByCode.set(code, row.group_name.trim());
+      }
+    }
     const groupCodes = Array.from(new Set(dto.items.map((i) => i.group.toLowerCase().trim())));
     const existingGroups = await this.groupRepo.find({ where: { code: In(groupCodes) } });
     const existingGroupCodes = new Set(existingGroups.map((g) => g.code));
@@ -140,8 +151,8 @@ export class MenuController {
       const fresh = newGroupCodes.map((code, idx) =>
         this.groupRepo.create({
           code,
-          // Capitalize đơn giản: dessert → Dessert
-          name: code.charAt(0).toUpperCase() + code.slice(1),
+          // Ưu tiên group_name từ FE; fallback capitalize code (dessert → Dessert)
+          name: groupNameByCode.get(code) || code.charAt(0).toUpperCase() + code.slice(1),
           icon: null,
           kitchen_type: 'cook',
           sort_order: 999 + idx,

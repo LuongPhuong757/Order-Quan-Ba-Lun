@@ -682,7 +682,10 @@ function MenuFormModal({
 type ImportRow = {
   code: string;
   name: string;
+  /** Group CODE đã slugify (≤16 ký tự) — gửi tới BE. */
   group: string;
+  /** Group NAME đầy đủ từ file user — dùng để display + BE auto-create với name này. */
+  group_name: string;
   price: number;
   unit: string;
   image_url?: string | null;
@@ -691,6 +694,41 @@ type ImportRow = {
   /** Cảnh báo non-blocking — không skip row, chỉ thông báo. */
   warning?: string;
 };
+
+/** Slug từ tên có dấu tiếng Việt → ASCII ≤16 ký tự cho group code.
+ * "mỳ/ mì tôm- cơm rang" → "my-mi-tom-com-co" (16 chars). */
+function slugify(s: string, maxLen = 16): string {
+  const normalized = s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')   // strip diacritics
+    .replace(/đ/g, 'd').replace(/Đ/g, 'd')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')        // non-alphanum → dash
+    .replace(/^-+|-+$/g, '');            // trim leading/trailing dashes
+  const sliced = normalized.slice(0, maxLen).replace(/-+$/, '');
+  return sliced || 'group';
+}
+
+/** Build map originalName → unique slug code, handling collisions với numeric suffix. */
+function buildGroupSlugMap(originalNames: Iterable<string>): Map<string, string> {
+  const used = new Set<string>();
+  const map = new Map<string, string>();
+  for (const original of new Set(originalNames)) {
+    const trimmed = original.trim();
+    if (!trimmed) continue;
+    const base = slugify(trimmed);
+    let slug = base;
+    let n = 2;
+    while (used.has(slug)) {
+      const suffix = `-${n}`;
+      slug = base.slice(0, 16 - suffix.length) + suffix;
+      n++;
+    }
+    used.add(slug);
+    map.set(trimmed, slug);
+  }
+  return map;
+}
 
 function ImportMenuModal({
   groups,
@@ -722,31 +760,62 @@ function ImportMenuModal({
         return;
       }
 
-      // Normalize column names (lowercase, trim)
-      const parsed: ImportRow[] = raw.map((r) => {
+      // Pass 1: extract raw fields + collect all distinct group names
+      type RawRow = {
+        code: string; name: string; groupRaw: string;
+        price: number; unit: string; image_url: string;
+      };
+      const rawParsed: RawRow[] = raw.map((r) => {
         const norm: Record<string, string> = {};
         for (const k of Object.keys(r)) {
           norm[k.toLowerCase().trim()] = String(r[k] ?? '').trim();
         }
         const code = norm['code'] || norm['mã'] || norm['ma'] || '';
         const name = norm['name'] || norm['tên'] || norm['ten'] || '';
-        const group = (norm['group'] || norm['nhóm'] || norm['nhom'] || '').toLowerCase();
+        const groupRaw = norm['group'] || norm['nhóm'] || norm['nhom'] || '';
         const priceStr = (norm['price'] || norm['giá'] || norm['gia'] || '0').replace(/[^\d.-]/g, '');
-        const price = Number(priceStr) || 0;
+        const price = Math.round(Number(priceStr) || 0);  // ép integer (BE @IsInt)
         const unit = norm['unit'] || norm['đvt'] || norm['dvt'] || 'phần';
         const image_url = norm['image_url'] || norm['image'] || norm['ảnh'] || norm['anh'] || '';
+        return { code, name, groupRaw, price, unit, image_url };
+      });
+
+      // Pass 2: build group name → slug map (handles collisions)
+      const allGroupNames = rawParsed.map((r) => r.groupRaw).filter(Boolean);
+      const slugMap = buildGroupSlugMap(allGroupNames);
+
+      // Build set of existing group codes (FE-side check) — vẫn match slug nếu trùng
+      // hoặc match nguyên text (cho case file đã chứa code chuẩn như 'food').
+
+      // Pass 3: assemble final rows with validation
+      const parsed: ImportRow[] = rawParsed.map((r) => {
+        const groupName = r.groupRaw.trim();
+        const groupCode = groupName ? (slugMap.get(groupName) || slugify(groupName)) : '';
 
         let error: string | undefined;
         let warning: string | undefined;
-        if (!code) error = 'Thiếu mã';
-        else if (!name) error = 'Thiếu tên';
-        else if (!group) error = 'Thiếu nhóm';
-        else if (price < 0 || price > 100_000_000) error = 'Giá không hợp lệ (0 - 100tr)';
-        else if (!validGroupCodes.has(group)) {
-          // Non-blocking: BE sẽ tự tạo nhóm mới với defaults
-          warning = `Nhóm "${group}" sẽ được tạo mới`;
+        if (!r.code) error = 'Thiếu mã';
+        else if (r.code.length > 32) error = 'Mã > 32 ký tự';
+        else if (!r.name) error = 'Thiếu tên';
+        else if (r.name.length > 128) error = 'Tên > 128 ký tự';
+        else if (!groupName) error = 'Thiếu nhóm';
+        else if (r.unit.length > 32) error = 'ĐVT > 32 ký tự';
+        else if (r.price < 0 || r.price > 100_000_000) error = 'Giá không hợp lệ (0 - 100tr)';
+        else if (!validGroupCodes.has(groupCode)) {
+          // Non-blocking: BE sẽ tự tạo nhóm mới (BE nhận group_name để hiển thị)
+          warning = `Nhóm mới sẽ được tạo: "${groupName}"`;
         }
-        return { code: code.toUpperCase(), name, group, price, unit, image_url: image_url || null, error, warning };
+        return {
+          code: r.code.toUpperCase(),
+          name: r.name,
+          group: groupCode,
+          group_name: groupName,
+          price: r.price,
+          unit: r.unit,
+          image_url: r.image_url || null,
+          error,
+          warning,
+        };
       });
       setRows(parsed);
     } catch (e) {
@@ -780,8 +849,13 @@ function ImportMenuModal({
       }>(
         '/menu/bulk-import',
         { items: valid.map((r) => ({
-            code: r.code, name: r.name, group: r.group,
-            price: r.price, unit: r.unit, image_url: r.image_url,
+            code: r.code,
+            name: r.name,
+            group: r.group,
+            group_name: r.group_name || undefined,
+            price: r.price,
+            unit: r.unit,
+            image_url: r.image_url,
           })) },
       );
       const { created, updated, created_groups } = res.data.data;
@@ -800,8 +874,15 @@ function ImportMenuModal({
 
   const errorCount = rows?.filter((r) => r.error).length || 0;
   const validCount = rows?.filter((r) => !r.error).length || 0;
+  // Nhóm sẽ tự tạo — hiện tên đầy đủ (group_name) thay vì slug code
   const newGroups = rows
-    ? Array.from(new Set(rows.filter((r) => !r.error && r.warning).map((r) => r.group)))
+    ? Array.from(
+        new Map(
+          rows
+            .filter((r) => !r.error && r.warning)
+            .map((r) => [r.group, { code: r.group, name: r.group_name }]),
+        ).values(),
+      )
     : [];
 
   return (
@@ -886,12 +967,20 @@ function ImportMenuModal({
                   marginBottom: 12,
                 }}
               >
-                <strong style={{ color: '#0284c7' }}>ℹ️ Tự tạo {newGroups.length} nhóm mới:</strong>{' '}
-                {newGroups.map((g) => (
-                  <code key={g} style={{ marginRight: 6, padding: '1px 6px', background: '#dbeafe', borderRadius: 4 }}>{g}</code>
-                ))}
-                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
-                  Có thể sửa tên/icon/loại bếp sau ở phần "Nhóm".
+                <strong style={{ color: '#0284c7' }}>ℹ️ Tự tạo {newGroups.length} nhóm mới:</strong>
+                <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {newGroups.map((g) => (
+                    <span
+                      key={g.code}
+                      style={{ padding: '2px 8px', background: '#dbeafe', borderRadius: 6, fontSize: 12 }}
+                      title={`Code: ${g.code}`}
+                    >
+                      {g.name} <code style={{ opacity: 0.6, fontSize: 11 }}>({g.code})</code>
+                    </span>
+                  ))}
+                </div>
+                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 6 }}>
+                  Tên đầy đủ sẽ được giữ. Có thể sửa icon/loại bếp sau ở phần "Nhóm".
                 </div>
               </div>
             )}
@@ -919,7 +1008,12 @@ function ImportMenuModal({
                     >
                       <td style={td}><code>{r.code}</code></td>
                       <td style={td}>{r.name}</td>
-                      <td style={td}>{r.group}</td>
+                      <td style={td}>
+                        <div>{r.group_name}</div>
+                        {r.group_name !== r.group && (
+                          <code style={{ fontSize: 10, opacity: 0.5 }}>{r.group}</code>
+                        )}
+                      </td>
                       <td style={{ ...td, textAlign: 'right' }}>{r.price.toLocaleString('vi-VN')}đ</td>
                       <td style={td}>{r.unit}</td>
                       <td
