@@ -360,7 +360,20 @@ a:hover {
 
 .nav-bottom a[aria-current="page"] {
   color: #0f766e;
-  font-weight: 600;
+  font-weight: 700;
+  background: #ccfbf1;
+  border-radius: 10px;
+  position: relative;
+}
+.nav-bottom a[aria-current="page"]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 25%;
+  right: 25%;
+  height: 3px;
+  background: #0f766e;
+  border-radius: 0 0 3px 3px;
 }
 
 .header {
@@ -388,8 +401,9 @@ a:hover {
 
 @media (max-width: 480px) {
   .header { padding: 8px 10px; }
+  /* Mobile: ẩn cả logo emoji + brand text — chừa diện tích cho name + noti + logout */
   .header .brand .brand-text { display: none; }
-  .header .brand .brand-short { display: inline; }
+  .header .brand .brand-short { display: none; }
 }
 @media (min-width: 481px) {
   .header .brand .brand-short { display: none; }

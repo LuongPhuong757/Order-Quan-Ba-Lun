@@ -116,8 +116,15 @@ function ProtectedShell() {
             onClick={logout}
             title="Đăng xuất"
             aria-label="Đăng xuất"
+            style={{ color: '#dc2626' }}
           >
-            🚪<span className="btn-label">Đăng xuất</span>
+            {/* Lucide log-out: arrow pointing out of door — clear semantic, không phụ thuộc OS emoji */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
+            <span className="btn-label">Đăng xuất</span>
           </button>
         </div>
       </header>
@@ -135,14 +142,14 @@ function ProtectedShell() {
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
-          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">⚙</span><span className="nav-label">T/khoản</span></NavLink>
+          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
-          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">⚙</span><span className="nav-label">T/khoản</span></NavLink>
+          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
     </>
