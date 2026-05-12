@@ -448,35 +448,30 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               );
             })}
 
-            {/* Terminal states collapsed */}
-            {terminalStates.some((s) => itemsByState(s).length > 0) && (
-              <details style={{ marginTop: 16 }}>
-                <summary
-                  style={{
-                    cursor: 'pointer',
-                    color: '#6b7280',
-                    fontSize: 13,
-                    padding: '6px 0',
-                  }}
-                >
-                  Đã giao + đã huỷ ({terminalStates.reduce((s, st) => s + itemsByState(st).length, 0)})
-                </summary>
-                {terminalStates.map((st) => {
-                  const list = itemsByState(st);
-                  if (list.length === 0) return null;
-                  return (
-                    <div key={st} style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 12, color: COLOR[st], fontWeight: 600, marginBottom: 4 }}>
-                        {LABEL[st]} ({list.length})
-                      </div>
-                      {list.map((it) => (
-                        <ItemRow key={it.id} item={it} onChangeState={() => undefined} readonly />
-                      ))}
-                    </div>
-                  );
-                })}
-              </details>
-            )}
+            {/* Terminal states — hiện cùng style như active states để staff vẫn xem được
+                món đã giao + món đã huỷ (lý do huỷ + ai gọi) ngay trên drawer. */}
+            {terminalStates.map((st) => {
+              const list = itemsByState(st);
+              if (list.length === 0) return null;
+              return (
+                <div key={st} style={{ marginBottom: 14, opacity: st === 'CANCELLED' ? 0.85 : 1 }}>
+                  <h2
+                    style={{
+                      margin: '0 0 8px',
+                      fontSize: 14,
+                      color: COLOR[st],
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.5,
+                    }}
+                  >
+                    {LABEL[st]} ({list.length})
+                  </h2>
+                  {list.map((it) => (
+                    <ItemRow key={it.id} item={it} onChangeState={() => undefined} readonly />
+                  ))}
+                </div>
+              );
+            })}
 
             {/* Total + checkout-ready hint (SERVED items count toward bill per REQ-H) */}
             {(total > 0 || servedItems.length > 0) && (
