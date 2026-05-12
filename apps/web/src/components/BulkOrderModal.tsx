@@ -189,15 +189,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
         @media (min-width: 768px) {
           .bulk-menu-panel { border-right: 1px solid #e5e7eb; }
         }
-        /* Mobile <768px: ẨN cart panel side-by-side, dùng sticky bar + sheet thay */
-        @media (max-width: 767px) {
-          .bulk-cart-panel { display: none; }
-          .bulk-menu-grid { padding-bottom: 96px; /* chừa space cho sticky bar */ }
-        }
-        @media (min-width: 768px) {
-          .bulk-mobile-bar { display: none; }
-        }
-        /* Mobile sticky bar — luôn ở dưới khi modal mở */
+        /* Mobile sticky bar — base mobile-first: visible mặc định. Desktop override bên dưới. */
         .bulk-mobile-bar {
           position: absolute;
           bottom: 0;
@@ -336,7 +328,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
         .bulk-menu-grid {
           flex: 1;
           overflow-y: auto;
-          padding: 10px 12px;
+          padding: 10px 12px 96px;  /* mobile-first: chừa space cho sticky bar; desktop reset */
           display: grid;
           gap: 8px;
           grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
@@ -398,7 +390,9 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           text-align: center;
         }
         .bulk-cart-panel {
-          display: flex;
+          /* Mobile-first: ẨN cart panel — chỉ hiện trên desktop (≥768px override bên dưới).
+             Lý do: mobile dùng sticky bar dưới + slide-up sheet (tap để xem giỏ đầy đủ). */
+          display: none;
           flex-direction: column;
           background: #f9fafb;
           overflow: hidden;
@@ -521,6 +515,14 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           border: none;
           cursor: pointer;
           min-height: 28px;
+        }
+
+        /* Desktop overrides (≥768px) — đặt CUỐI để đảm bảo source-order win.
+           Đây là điểm bị bug trước: media @media trước base rule sẽ bị base ghi đè. */
+        @media (min-width: 768px) {
+          .bulk-cart-panel { display: flex; }
+          .bulk-mobile-bar { display: none; }
+          .bulk-menu-grid  { padding-bottom: 10px; }
         }
       `}</style>
 
