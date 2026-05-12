@@ -10,6 +10,7 @@ import {
 import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { toTitleCase } from '../../common/text.js';
 
 class CreateGroupDto {
   @IsString() @MinLength(1) @MaxLength(16) code!: string;
@@ -54,7 +55,7 @@ export class MenuGroupsController {
 
     const g = this.repo.create({
       code: codeLower,
-      name: dto.name,
+      name: toTitleCase(dto.name),
       icon: dto.icon ?? null,
       kitchen_type: dto.kitchen_type ?? 'cook',
       sort_order: dto.sort_order ?? 999,
@@ -69,7 +70,8 @@ export class MenuGroupsController {
   async update(@Param('id') id: string, @Body() dto: UpdateGroupDto) {
     const g = await this.repo.findOne({ where: { id } });
     if (!g) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhóm không tồn tại' });
-    Object.assign(g, dto);
+    const patched = dto.name !== undefined ? { ...dto, name: toTitleCase(dto.name) } : dto;
+    Object.assign(g, patched);
     await this.repo.save(g);
     return { data: g };
   }

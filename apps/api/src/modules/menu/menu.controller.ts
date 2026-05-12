@@ -28,6 +28,7 @@ import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { toTitleCase } from '../../common/text.js';
 
 const UPLOAD_DIR = 'uploads/menu';
 const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
@@ -171,7 +172,7 @@ export class MenuController {
     for (const row of dto.items) {
       const code = row.group.toLowerCase().trim();
       if (row.group_name && !groupNameByCode.has(code)) {
-        groupNameByCode.set(code, row.group_name.trim());
+        groupNameByCode.set(code, toTitleCase(row.group_name));
       }
     }
     const groupCodes = Array.from(new Set(dto.items.map((i) => i.group.toLowerCase().trim())));
@@ -183,8 +184,8 @@ export class MenuController {
       const fresh = newGroupCodes.map((code, idx) =>
         this.groupRepo.create({
           code,
-          // Ưu tiên group_name từ FE; fallback capitalize code (dessert → Dessert)
-          name: groupNameByCode.get(code) || code.charAt(0).toUpperCase() + code.slice(1),
+          // Ưu tiên group_name (đã title-cased) từ FE; fallback capitalize code
+          name: groupNameByCode.get(code) || toTitleCase(code),
           icon: null,
           kitchen_type: 'cook',
           sort_order: 999 + idx,
@@ -203,9 +204,10 @@ export class MenuController {
     let updated = 0;
     for (const row of dto.items) {
       const groupNorm = row.group.toLowerCase().trim();
+      const titledName = toTitleCase(row.name);
       const old = existingMap.get(row.code);
       if (old) {
-        old.name = row.name;
+        old.name = titledName;
         old.group = groupNorm;
         old.price = row.price;
         old.unit = row.unit;
@@ -216,7 +218,7 @@ export class MenuController {
       } else {
         const fresh = this.repo.create({
           code: row.code,
-          name: row.name,
+          name: titledName,
           group: groupNorm,
           price: row.price,
           unit: row.unit,
@@ -247,7 +249,7 @@ export class MenuController {
     if (exists) throw new ConflictException({ code: 'CONFLICT', message: 'Mã món đã tồn tại' });
     const item = this.repo.create({
       code: dto.code,
-      name: dto.name,
+      name: toTitleCase(dto.name),
       group: dto.group,
       price: dto.price,
       unit: dto.unit,
@@ -265,7 +267,9 @@ export class MenuController {
   async update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto) {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
-    Object.assign(item, dto);
+    // Title case cho name (nếu update)
+    const patched = dto.name !== undefined ? { ...dto, name: toTitleCase(dto.name) } : dto;
+    Object.assign(item, patched);
     await this.repo.save(item);
     return { data: item };
   }
