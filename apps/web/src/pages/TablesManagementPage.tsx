@@ -132,8 +132,8 @@ export function TablesManagementPage() {
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{t.code}</div>
-                  <div style={{ fontSize: 14, color: '#1f2937' }}>{t.name}</div>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{t.name}</div>
+                  <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>{t.code}</div>
                 </div>
                 <span style={{
                   fontSize: 11,

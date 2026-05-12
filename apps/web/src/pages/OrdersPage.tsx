@@ -239,8 +239,8 @@ export function OrdersPage() {
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <div style={{ fontSize: 20, fontWeight: 700 }}>{t.code}</div>
-            <div style={{ fontSize: 12, color: '#6b7280' }}>{t.name}</div>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>{t.name}</div>
+            <div style={{ fontSize: 11, color: '#6b7280', fontFamily: 'monospace' }}>{t.code}</div>
           </div>
           {/* Thời gian "vào bàn" = từ lần đầu báo bếp.
               Null nếu chưa từng báo bếp (vẫn còn PENDING hết) — không hiển thị. */}
