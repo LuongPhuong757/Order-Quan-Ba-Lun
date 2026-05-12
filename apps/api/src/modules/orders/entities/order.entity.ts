@@ -39,6 +39,17 @@ export class Order {
   @Column({ type: 'boolean', default: false })
   is_paid!: boolean;
 
+  /** Thông tin khách hàng — chỉ dùng cho bàn 'delivery' (ship).
+   * NULL với dine-in / takeaway. Bắt buộc nhập khi staff mở order của bàn ship. */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  customer_name!: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  customer_address!: string | null;
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  customer_phone!: string | null;
+
   @UpdateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   updated_at!: number;
 

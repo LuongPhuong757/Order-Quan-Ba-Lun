@@ -1,5 +1,5 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
@@ -21,6 +21,9 @@ type Order = {
   table_code: string;
   opened_at: number;
   closed_at: number | null;
+  customer_name: string | null;
+  customer_address: string | null;
+  customer_phone: string | null;
   items: OrderItem[];
 };
 
@@ -92,8 +95,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [showCustomerInfo, setShowCustomerInfo] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
+
+  const isDelivery = table.kind === 'delivery';
+  // Bàn ship mà chưa có thông tin khách → bắt buộc nhập trước khi làm gì khác
+  const needsCustomerInfo = isDelivery && order != null && !order.customer_name;
 
   const refresh = useCallback(async (showError = true) => {
     try {
@@ -122,6 +130,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     }, 5000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  // Auto-mở modal nhập thông tin khách lần đầu cho bàn ship chưa điền
+  useEffect(() => {
+    if (needsCustomerInfo) setShowCustomerInfo(true);
+  }, [needsCustomerInfo]);
 
   const changeState = async (it: OrderItem, to: string) => {
     if (to === 'CANCELLED' && CANCEL_CONFIRM[it.state]) {
@@ -251,8 +264,46 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
         {!loading && order && (
           <>
+            {/* Block thông tin khách — chỉ hiện cho bàn ship */}
+            {isDelivery && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: 12,
+                  borderRadius: 10,
+                  background: order.customer_name ? '#d1fae5' : '#fef3c7',
+                  border: `1px solid ${order.customer_name ? '#10b981' : '#f59e0b'}`,
+                }}
+              >
+                <div className="flex between" style={{ alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>
+                      🛵 KHÁCH GIAO HÀNG
+                    </div>
+                    {order.customer_name ? (
+                      <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                        <div><strong>{order.customer_name}</strong> · <a href={`tel:${order.customer_phone}`} style={{ color: '#0f766e' }}>{order.customer_phone}</a></div>
+                        <div style={{ color: '#374151', wordBreak: 'break-word' }}>📍 {order.customer_address}</div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, color: '#92400e' }}>
+                        Chưa có thông tin khách. Bấm "Nhập thông tin" để bắt đầu nhận order.
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="secondary"
+                    onClick={() => setShowCustomerInfo(true)}
+                    style={{ padding: '6px 10px', fontSize: 13, whiteSpace: 'nowrap' }}
+                  >
+                    {order.customer_name ? 'Sửa' : 'Nhập thông tin'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Action bar — luôn hiển thị cả 3 button (Gọi món + Chuyển bàn + Thanh toán) */}
-            <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
+            <div style={{ marginBottom: 16, display: 'grid', gap: 8, opacity: needsCustomerInfo ? 0.4 : 1, pointerEvents: needsCustomerInfo ? 'none' : 'auto' }}>
               {/* Row 1: hành động chính */}
               <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <button
@@ -429,7 +480,164 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             }}
           />
         )}
+
+        {showCustomerInfo && order && (
+          <DeliveryInfoModal
+            order={order}
+            // Lần đầu nhập (chưa có name) thì không cho dismiss nửa chừng — phải submit hoặc đóng drawer
+            forceFill={!order.customer_name}
+            onClose={() => {
+              setShowCustomerInfo(false);
+              // Nếu lần đầu mà user huỷ → đóng drawer (không cho làm gì khác)
+              if (!order.customer_name) onClose();
+            }}
+            onSaved={() => {
+              setShowCustomerInfo(false);
+              refresh();
+            }}
+          />
+        )}
       </div>
+    </div>
+  );
+}
+
+function DeliveryInfoModal({
+  order,
+  forceFill,
+  onClose,
+  onSaved,
+}: {
+  order: Order;
+  forceFill: boolean;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [name, setName] = useState(order.customer_name || '');
+  const [address, setAddress] = useState(order.customer_address || '');
+  const [phone, setPhone] = useState(order.customer_phone || '');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim() || !address.trim() || !phone.trim()) {
+      setErr('Vui lòng nhập đủ tên, địa chỉ, số điện thoại');
+      return;
+    }
+    if (!/^0\d{9}$/.test(phone.trim())) {
+      setErr('Số điện thoại phải có 10 số, bắt đầu bằng 0 (vd: 0901234567)');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await api.patch(`/orders/${order.id}/customer-info`, {
+        name: name.trim(),
+        address: address.trim(),
+        phone: phone.trim(),
+      });
+      toast.push('success', 'Đã lưu thông tin khách ✓');
+      onSaved();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (!forceFill && e.target === e.currentTarget) onClose();
+      }}
+    >
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
+        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0 }}>🛵 Thông tin khách giao hàng</h1>
+            {forceFill && (
+              <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
+                Bắt buộc nhập trước khi gọi món
+              </div>
+            )}
+          </div>
+          {!forceFill && (
+            <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+              ✕
+            </button>
+          )}
+        </div>
+
+        <div className="row">
+          <label htmlFor="ci-name">Tên người nhận</label>
+          <input
+            id="ci-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="vd: Anh Nam"
+            autoFocus
+            autoComplete="name"
+            maxLength={128}
+          />
+        </div>
+
+        <div className="row">
+          <label htmlFor="ci-phone">Số điện thoại</label>
+          <input
+            id="ci-phone"
+            type="tel"
+            inputMode="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value.replace(/[^\d]/g, ''))}
+            placeholder="0901234567"
+            autoComplete="tel"
+            maxLength={10}
+            style={{ fontFamily: 'monospace' }}
+          />
+        </div>
+
+        <div className="row">
+          <label htmlFor="ci-address">Địa chỉ giao hàng</label>
+          <textarea
+            id="ci-address"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="vd: 123 Nguyễn Trãi, Thanh Xuân, Hà Nội"
+            autoComplete="street-address"
+            maxLength={255}
+            rows={3}
+            style={{
+              width: '100%',
+              padding: '12px 14px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              fontSize: 16,
+              fontFamily: 'inherit',
+              resize: 'vertical',
+              minHeight: 80,
+            }}
+          />
+        </div>
+
+        {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
+
+        <div className="flex" style={{ marginTop: 8 }}>
+          {!forceFill && (
+            <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+              Huỷ
+            </button>
+          )}
+          <button type="submit" disabled={submitting} style={{ flex: forceFill ? 2 : 1 }}>
+            {submitting && <span className="spinner" />}
+            {forceFill ? 'Lưu & tiếp tục gọi món' : 'Lưu thay đổi'}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

@@ -19,9 +19,11 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
+  MinLength,
   ValidateNested,
 } from 'class-validator';
 import { OrdersService } from './orders.service.js';
@@ -51,6 +53,12 @@ class ChangeStateDto {
 
 class TransferTableDto {
   @IsUUID() dest_table_id!: string;
+}
+
+class UpdateCustomerInfoDto {
+  @IsString() @MinLength(1) @MaxLength(128) name!: string;
+  @IsString() @MinLength(5) @MaxLength(255) address!: string;
+  @IsString() @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải có 10 số, bắt đầu bằng 0' }) phone!: string;
 }
 
 @Controller('orders')
@@ -119,5 +127,12 @@ export class OrdersController {
   async transfer(@Param('id') id: string, @Body() dto: TransferTableDto) {
     const dest = await this.svc.transferTable(id, dto.dest_table_id);
     return { data: dest };
+  }
+
+  /** PATCH /orders/:id/customer-info — cập nhật tên/địa chỉ/SĐT khách (chỉ dùng bàn ship) */
+  @Patch(':id/customer-info')
+  async updateCustomerInfo(@Param('id') id: string, @Body() dto: UpdateCustomerInfoDto) {
+    const order = await this.svc.updateCustomerInfo(id, dto);
+    return { data: order };
   }
 }

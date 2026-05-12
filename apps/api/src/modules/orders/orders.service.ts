@@ -230,6 +230,21 @@ export class OrdersService {
     });
   }
 
+  /** Update thông tin khách giao hàng — chỉ dùng cho bàn 'delivery'. */
+  async updateCustomerInfo(
+    order_id: string,
+    info: { name: string; address: string; phone: string },
+  ): Promise<Order> {
+    const o = await this.orderRepo.findOne({ where: { id: order_id } });
+    if (!o) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    if (o.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng, không sửa được' });
+    o.customer_name = info.name.trim();
+    o.customer_address = info.address.trim();
+    o.customer_phone = info.phone.trim();
+    await this.orderRepo.save(o);
+    return o;
+  }
+
   /** Bulk send PENDING items to kitchen (one click) */
   async sendPendingToKitchen(order_id: string) {
     return await this.ds.transaction(async (mgr) => {
