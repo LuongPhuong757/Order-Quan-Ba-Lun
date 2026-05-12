@@ -195,27 +195,44 @@ export function TablesManagementPage() {
   );
 }
 
+// Mapping kind → format code/name preview ở FE (sync với BE KIND_FORMAT)
+const KIND_FORMAT_FE: Record<string, { codePrefix: string; namePrefix: string; label: string }> = {
+  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn',     label: '🪑 Tại quán' },
+  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về', label: '🥡 Mang về' },
+  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship',    label: '🛵 Giao hàng' },
+};
+
 function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [startCode, setStartCode] = useState('B01');
-  const [endCode, setEndCode] = useState('B10');
-  const [kind, setKind] = useState('dine-in');
-  const [namePrefix, setNamePrefix] = useState('Bàn');
+  const [kind, setKind] = useState<string>('dine-in');
+  const [fromNum, setFromNum] = useState(1);
+  const [toNum, setToNum] = useState(10);
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Preview parse — show user what will be created
+  const fmt = KIND_FORMAT_FE[kind];
+
+  // Preview — show count + first 3 sample codes
   const preview = (() => {
-    const m1 = startCode.match(/^(.*?)(\d+)$/);
-    const m2 = endCode.match(/^(.*?)(\d+)$/);
-    if (!m1 || !m2) return { ok: false, count: 0, msg: 'Mã phải có dạng "chữ + số" (vd B01, T05)' };
-    if (m1[1] !== m2[1]) return { ok: false, count: 0, msg: `Prefix khác nhau: "${m1[1]}" vs "${m2[1]}"` };
-    const a = parseInt(m1[2], 10);
-    const b = parseInt(m2[2], 10);
-    if (b < a) return { ok: false, count: 0, msg: 'Mã kết thúc phải ≥ mã bắt đầu' };
-    const n = b - a + 1;
-    if (n > 100) return { ok: false, count: 0, msg: `Tối đa 100 bàn/lần (yêu cầu ${n})` };
-    return { ok: true, count: n, msg: `Sẽ tạo ${n} bàn: ${startCode} → ${endCode}` };
+    if (!Number.isInteger(fromNum) || !Number.isInteger(toNum)) {
+      return { ok: false, count: 0, msg: 'Số bắt đầu và kết thúc phải là số nguyên', samples: [] };
+    }
+    if (fromNum < 1) return { ok: false, count: 0, msg: 'Số bắt đầu phải ≥ 1', samples: [] };
+    if (toNum < fromNum) return { ok: false, count: 0, msg: 'Số kết thúc phải ≥ số bắt đầu', samples: [] };
+    const n = toNum - fromNum + 1;
+    if (n > 100) return { ok: false, count: 0, msg: `Tối đa 100 bàn/lần (yêu cầu ${n})`, samples: [] };
+    const width = Math.max(2, String(toNum).length);
+    const samples: string[] = [];
+    for (let i = fromNum; i <= Math.min(toNum, fromNum + 2); i++) {
+      const numStr = String(i).padStart(width, '0');
+      samples.push(`${fmt.codePrefix}-${numStr} (${fmt.namePrefix} ${numStr})`);
+    }
+    if (n > 3) {
+      const lastNumStr = String(toNum).padStart(width, '0');
+      samples.push('...');
+      samples.push(`${fmt.codePrefix}-${lastNumStr} (${fmt.namePrefix} ${lastNumStr})`);
+    }
+    return { ok: true, count: n, msg: `Sẽ tạo ${n} bàn`, samples };
   })();
 
   const submit = async (e: FormEvent) => {
@@ -225,7 +242,7 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
     try {
       const res = await api.post<{ data: { created: number; skipped: number; skipped_codes: string[] } }>(
         '/tables/bulk',
-        { start_code: startCode.trim(), end_code: endCode.trim(), kind, name_prefix: namePrefix.trim() || undefined },
+        { kind, from_num: fromNum, to_num: toNum },
       );
       const { created, skipped, skipped_codes } = res.data.data;
       let msg = `Đã tạo ${created} bàn`;
@@ -244,32 +261,8 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
       <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
         <h1>Thêm bàn hàng loạt</h1>
         <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
-          Tạo nhiều bàn cùng lúc theo dải mã. Bàn đã tồn tại sẽ được bỏ qua.
+          Chọn loại bàn + dải số. Code + tên tự generate theo loại.
         </p>
-
-        <div className="flex">
-          <div className="row" style={{ flex: 1 }}>
-            <label htmlFor="bt-start">Mã bắt đầu</label>
-            <input
-              id="bt-start"
-              value={startCode}
-              onChange={(e) => { setStartCode(e.target.value.toUpperCase()); setErr(null); }}
-              placeholder="B01"
-              style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
-              autoFocus
-            />
-          </div>
-          <div className="row" style={{ flex: 1 }}>
-            <label htmlFor="bt-end">Mã kết thúc</label>
-            <input
-              id="bt-end"
-              value={endCode}
-              onChange={(e) => { setEndCode(e.target.value.toUpperCase()); setErr(null); }}
-              placeholder="B10"
-              style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
-            />
-          </div>
-        </div>
 
         <div className="row">
           <label>Loại bàn</label>
@@ -292,27 +285,43 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
                   lineHeight: 1.2,
                 }}
               >
-                {k === 'dine-in' ? '🪑 Tại quán' : k === 'takeaway' ? '🥡 Mang về' : '🛵 Giao hàng'}
+                {KIND_FORMAT_FE[k].label}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="row">
-          <label htmlFor="bt-prefix">Tên bàn — prefix</label>
-          <input
-            id="bt-prefix"
-            value={namePrefix}
-            onChange={(e) => setNamePrefix(e.target.value)}
-            placeholder="Bàn"
-            maxLength={32}
-          />
-          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-            Tên sẽ là "{namePrefix || 'Bàn'} 01", "{namePrefix || 'Bàn'} 02"... — có thể sửa từng bàn sau.
-          </p>
+        <div className="flex">
+          <div className="row" style={{ flex: 1 }}>
+            <label htmlFor="bt-from">Từ số</label>
+            <input
+              id="bt-from"
+              type="number"
+              inputMode="numeric"
+              value={fromNum}
+              onChange={(e) => { setFromNum(Number(e.target.value) || 1); setErr(null); }}
+              min={1}
+              max={999}
+              autoFocus
+              style={{ fontFamily: 'monospace' }}
+            />
+          </div>
+          <div className="row" style={{ flex: 1 }}>
+            <label htmlFor="bt-to">Đến số</label>
+            <input
+              id="bt-to"
+              type="number"
+              inputMode="numeric"
+              value={toNum}
+              onChange={(e) => { setToNum(Number(e.target.value) || 1); setErr(null); }}
+              min={fromNum}
+              max={fromNum + 99}
+              style={{ fontFamily: 'monospace' }}
+            />
+          </div>
         </div>
 
-        {/* Preview */}
+        {/* Preview chi tiết */}
         <div
           style={{
             background: preview.ok ? '#ecfdf5' : '#fef2f2',
@@ -320,11 +329,15 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
             padding: 10,
             borderRadius: 8,
             fontSize: 13,
-            fontWeight: 600,
             marginBottom: 12,
           }}
         >
-          {preview.ok ? '✓ ' : '⚠ '}{preview.msg}
+          <div style={{ fontWeight: 600 }}>{preview.ok ? '✓ ' : '⚠ '}{preview.msg}</div>
+          {preview.ok && preview.samples.length > 0 && (
+            <div style={{ marginTop: 6, fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>
+              {preview.samples.map((s, i) => <div key={i}>{s}</div>)}
+            </div>
+          )}
         </div>
 
         {err && <div className="field-error">{err}</div>}
