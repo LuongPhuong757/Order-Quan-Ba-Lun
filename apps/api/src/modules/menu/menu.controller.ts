@@ -68,7 +68,9 @@ class BulkImportRowDto {
 }
 
 class BulkImportMenuDto {
-  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
+  // 5000 đủ cho hầu hết quán Việt (200-2000 món thường gặp). Body parser
+  // đã được nâng lên 10MB trong main.ts để chứa được payload lớn.
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(5000)
   @ValidateNested({ each: true })
   @Type(() => BulkImportRowDto)
   items!: BulkImportRowDto[];

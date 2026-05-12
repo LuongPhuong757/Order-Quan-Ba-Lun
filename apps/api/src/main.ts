@@ -32,6 +32,11 @@ async function bootstrap() {
   // (CWD khi chạy dev/prod = apps/api, multer cũng dùng relative 'uploads/menu')
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
 
+  // Bump body parser limit lên 10MB để chứa được payload bulk-import lớn
+  // (vd 5000 món × ~250 bytes ≈ 1.2MB). Default Nest ~100KB không đủ.
+  app.useBodyParser('json', { limit: '10mb' });
+  app.useBodyParser('urlencoded', { limit: '10mb', extended: true });
+
   // cookie-parser (needed for JWT cookie extraction)
   app.use(cookieParser());
 
