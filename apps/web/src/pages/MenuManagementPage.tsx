@@ -773,7 +773,9 @@ function ImportMenuModal({
         const code = norm['code'] || norm['mã'] || norm['ma'] || '';
         const name = norm['name'] || norm['tên'] || norm['ten'] || '';
         const groupRaw = norm['group'] || norm['nhóm'] || norm['nhom'] || '';
-        const priceStr = (norm['price'] || norm['giá'] || norm['gia'] || '0').replace(/[^\d.-]/g, '');
+        // Strip MỌI ký tự không phải số (dấu chấm, phẩy, đ, khoảng trắng) — VND luôn
+        // integer không thập phân. "15.000" → 15000, "15,000" → 15000, "15000đ" → 15000.
+        const priceStr = (norm['price'] || norm['giá'] || norm['gia'] || '0').replace(/[^\d]/g, '');
         const price = Math.round(Number(priceStr) || 0);  // ép integer (BE @IsInt)
         const unit = norm['unit'] || norm['đvt'] || norm['dvt'] || 'phần';
         const image_url = norm['image_url'] || norm['image'] || norm['ảnh'] || norm['anh'] || '';
