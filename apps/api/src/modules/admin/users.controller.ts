@@ -8,6 +8,7 @@ import {
   HttpCode,
   NotFoundException,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -19,7 +20,7 @@ import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 import { AuthService } from '../auth/auth.service.js';
-import { IsString, MinLength, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { randomBytes } from 'crypto';
 
 class CreateUserDto {
@@ -37,6 +38,10 @@ class CreateUserDto {
   @MinLength(8)
   @MaxLength(128)
   password!: string;
+}
+
+class UpdateUserDto {
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(128) full_name?: string;
 }
 
 @Controller('admin/users')
@@ -129,7 +134,26 @@ export class AdminUsersController {
     };
   }
 
-  /** E-11 POST /admin/users/:id/disable */
+  /** PATCH /admin/users/:id — sửa thông tin nhân viên (hiện chỉ full_name) */
+  @Patch(':id')
+  async update(@Param('id') id: string, @Body() dto: UpdateUserDto) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    if (dto.full_name !== undefined) user.full_name = dto.full_name.trim();
+    await this.userRepo.save(user);
+    return {
+      data: {
+        id: user.id,
+        username: user.username,
+        full_name: user.full_name,
+        is_active: user.is_active,
+        is_owner: user.is_owner,
+        created_at: Number(user.created_at),
+      },
+    };
+  }
+
+  /** E-11 POST /admin/users/:id/disable — soft disable (giữ row, đặt is_active=false) */
   @Post(':id/disable')
   @HttpCode(204)
   async disable(@Param('id') id: string, @Req() req: Request) {
@@ -146,11 +170,24 @@ export class AdminUsersController {
     }
   }
 
-  /** E-11b DELETE /admin/users/:id — soft delete (alias for disable) */
+  /** DELETE /admin/users/:id — HARD DELETE: xoá hẳn row khỏi DB.
+   * Snapshot full_name trên Order/OrderItem vẫn giữ (varchar, không FK) → audit trail
+   * vẫn nguyên vẹn ở phía order. Chặn self-delete + chặn owner xoá owner khác. */
   @Delete(':id')
   @HttpCode(204)
-  async softDelete(@Param('id') id: string, @Req() req: Request) {
-    return this.disable(id, req);
+  async hardDelete(@Param('id') id: string, @Req() req: Request) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    if (user.id === req.user!.sub) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Không thể xoá chính mình' });
+    }
+    if (user.is_owner) {
+      throw new BadRequestException({
+        code: 'CONFLICT',
+        message: 'Không thể xoá tài khoản chủ quán',
+      });
+    }
+    await this.userRepo.delete({ id });
   }
 }
 

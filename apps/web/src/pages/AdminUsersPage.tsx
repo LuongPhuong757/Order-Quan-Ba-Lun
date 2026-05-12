@@ -17,6 +17,7 @@ export function AdminUsersPage() {
   const [items, setItems] = useState<UserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [editing, setEditing] = useState<UserRow | null>(null);
   const [showTemp, setShowTemp] = useState<{ user: string; temp: string } | null>(null);
 
   const refresh = async () => {
@@ -45,11 +46,17 @@ export function AdminUsersPage() {
     }
   };
 
-  const disable = async (u: UserRow) => {
-    if (!confirm(`Vô hiệu hoá tài khoản ${u.username}? Họ sẽ KHÔNG đăng nhập lại được.`)) return;
+  const hardDelete = async (u: UserRow) => {
+    if (!confirm(
+      `XOÁ VĨNH VIỄN tài khoản "${u.full_name || u.username}"?\n\n` +
+      `Sau khi xoá:\n` +
+      `• Không khôi phục lại được\n` +
+      `• Họ không đăng nhập lại được\n` +
+      `• Tên người gọi món trên order cũ vẫn được giữ (snapshot)`,
+    )) return;
     try {
-      await api.post(`/admin/users/${u.id}/disable`);
-      toast.push('success', `Đã vô hiệu hoá ${u.username}.`);
+      await api.delete(`/admin/users/${u.id}`);
+      toast.push('success', `Đã xoá ${u.full_name || u.username}.`);
       refresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -99,13 +106,16 @@ export function AdminUsersPage() {
                 </td>
                 <td data-label="Tạo lúc">{new Date(u.created_at).toLocaleString('vi-VN')}</td>
                 <td data-label="Hành động">
-                  <div className="flex" style={{ flexWrap: 'wrap' }}>
-                    <button className="secondary" onClick={() => resetPwd(u)} style={{ padding: '6px 10px' }}>
-                      Reset password
+                  <div className="flex" style={{ flexWrap: 'wrap', gap: 6 }}>
+                    <button className="secondary" onClick={() => setEditing(u)} style={{ padding: '6px 10px' }}>
+                      Sửa
                     </button>
-                    {u.is_active && !u.is_owner && (
-                      <button className="danger" onClick={() => disable(u)} style={{ padding: '6px 10px' }}>
-                        Vô hiệu
+                    <button className="secondary" onClick={() => resetPwd(u)} style={{ padding: '6px 10px' }}>
+                      Reset MK
+                    </button>
+                    {!u.is_owner && (
+                      <button className="danger" onClick={() => hardDelete(u)} style={{ padding: '6px 10px' }}>
+                        Xoá
                       </button>
                     )}
                   </div>
@@ -117,6 +127,13 @@ export function AdminUsersPage() {
       )}
 
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); refresh(); }} />}
+      {editing && (
+        <EditUserModal
+          user={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); refresh(); }}
+        />
+      )}
       {showTemp && (
         <div className="modal-overlay" role="dialog" aria-modal="true">
           <div className="modal">
@@ -220,6 +237,72 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
           <button type="submit" disabled={submitting} style={{ flex: 1 }}>
             {submitting && <span className="spinner" />}
             Tạo
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function EditUserModal({
+  user,
+  onClose,
+  onSaved,
+}: {
+  user: UserRow;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const toast = useToast();
+  const [fullName, setFullName] = useState(user.full_name || '');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!fullName.trim()) {
+      setErr('Vui lòng nhập họ và tên');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await api.patch(`/admin/users/${user.id}`, { full_name: fullName.trim() });
+      toast.push('success', `Cập nhật ${fullName} thành công ✓`);
+      onSaved();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal" onSubmit={submit}>
+        <h1>Sửa thông tin nhân viên</h1>
+        <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
+          Tên đăng nhập <code>{user.username}</code> không đổi được. Đổi mật khẩu qua "Reset MK".
+        </p>
+        <div className="row">
+          <label htmlFor="eu-fname">Họ và tên</label>
+          <input
+            id="eu-fname"
+            value={fullName}
+            onChange={(e) => setFullName(e.target.value)}
+            placeholder="vd: Nguyễn Văn A"
+            autoFocus
+            maxLength={128}
+          />
+        </div>
+        {err && <div className="field-error">{err}</div>}
+        <div className="flex" style={{ marginTop: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Huỷ
+          </button>
+          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
+            {submitting && <span className="spinner" />}
+            Lưu
           </button>
         </div>
       </form>

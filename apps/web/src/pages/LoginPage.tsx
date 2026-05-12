@@ -30,7 +30,8 @@ export function LoginPage() {
       await api.post('/auth/login', { username, password });
       await refresh();
       toast.push('success', `Đăng nhập thành công, chào bạn!`);
-      navigate('/dashboard');
+      // Vào thẳng sơ đồ bàn — trang chính của hệ thống order. /dashboard là legacy info page.
+      navigate('/orders');
     } catch (err) {
       const e = extractError(err);
       toast.push('error', e.message);
