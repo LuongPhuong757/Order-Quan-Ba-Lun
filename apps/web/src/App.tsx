@@ -63,10 +63,11 @@ export function App() {
   );
 }
 
-const ROLE_BADGE: Record<Role, { label: string; bg: string; color: string }> = {
-  admin:   { label: '👑 Admin',   bg: '#fef3c7', color: '#92400e' },
-  order:   { label: '🍽 Order',   bg: '#dbeafe', color: '#1e40af' },
-  kitchen: { label: '👨‍🍳 Bếp',    bg: '#d1fae5', color: '#065f46' },
+// Khung màu quanh tên user thay vì text chip — gọn + dễ phân biệt khi liếc.
+const ROLE_STYLE: Record<Role, { label: string; bg: string; border: string; text: string; icon: string }> = {
+  admin:   { label: 'Admin', icon: '👑',    bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
+  order:   { label: 'Order', icon: '🍽',    bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
+  kitchen: { label: 'Bếp',   icon: '👨‍🍳', bg: '#d1fae5', border: '#10b981', text: '#065f46' },
 };
 
 function ProtectedShell() {
@@ -85,7 +86,7 @@ function ProtectedShell() {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
   const role = (user.role ?? (user.is_owner ? 'admin' : null)) as Role | null;
-  const badge = role ? ROLE_BADGE[role] : null;
+  const roleStyle = role ? ROLE_STYLE[role] : null;
 
   return (
     <>
@@ -93,24 +94,19 @@ function ProtectedShell() {
         <span className="brand">
           <span className="brand-short">🍴</span>
           <span className="brand-text">Order Quán Bà Lùn</span>
-          {badge && (
-            <span
-              title={`Đăng nhập với quyền: ${badge.label}`}
-              style={{
-                padding: '2px 8px',
-                borderRadius: 999,
-                fontSize: 11,
-                fontWeight: 700,
-                background: badge.bg,
-                color: badge.color,
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {badge.label}
-            </span>
-          )}
-          <span className="user-chip" title={`Đăng nhập: ${user.full_name} (${user.name})`}>
-            👤 {user.full_name || user.name}
+          {/* Khung màu quanh tên user — màu nền + viền theo role:
+              vàng = Admin, xanh dương = Order, xanh lá = Bếp */}
+          <span
+            className="user-chip"
+            title={roleStyle ? `${roleStyle.icon} ${roleStyle.label} · ${user.full_name} (${user.name})` : user.full_name}
+            style={roleStyle ? {
+              background: roleStyle.bg,
+              border: `2px solid ${roleStyle.border}`,
+              color: roleStyle.text,
+              fontWeight: 600,
+            } : undefined}
+          >
+            {roleStyle?.icon ?? '👤'} {user.full_name || user.name}
           </span>
         </span>
         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
