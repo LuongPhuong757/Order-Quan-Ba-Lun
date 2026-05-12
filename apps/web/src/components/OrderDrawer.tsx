@@ -4,7 +4,6 @@ import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
-import { notificationStore } from '../lib/notification-store.ts';
 
 type OrderItem = {
   id: string;
@@ -187,7 +186,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       try {
         await api.patch(`/orders/items/${it.id}/state`, { to, reason });
         toast.push('success', `Đã huỷ ${it.menu_item_name}`);
-        notificationStore.push('order_cancel', `${table.code} — huỷ ${it.qty}× ${it.menu_item_name}: ${reason}`);
+        // KHÔNG push notif — readyNotifier polling sẽ emit ItemCancelByStaff cho bếp
         refresh();
       } catch (e) {
         toast.push('error', extractError(e).message);
@@ -307,7 +306,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
       }
       toast.push('success', msg);
-      notificationStore.push('order_checkout', `${table.code} · ${table.name} thanh toán ${totalPaid.toLocaleString('vi-VN')}đ`);
+      // KHÔNG push notif — Admin checkout poller (ReadyListener) sẽ emit cross-device
       onTransferred?.();
       onClose();
     } catch (e) {

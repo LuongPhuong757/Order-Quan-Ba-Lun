@@ -120,8 +120,11 @@ export class OrdersController {
 
   /** PATCH /orders/items/:itemId/state — single item state transition */
   @Patch('items/:itemId/state')
-  async changeItemState(@Param('itemId') itemId: string, @Body() dto: ChangeStateDto) {
-    const item = await this.svc.changeItemState(itemId, dto.to, dto.reason);
+  async changeItemState(@Param('itemId') itemId: string, @Body() dto: ChangeStateDto, @Req() req: Request) {
+    const item = await this.svc.changeItemState(itemId, dto.to, dto.reason, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
     return { data: item };
   }
 

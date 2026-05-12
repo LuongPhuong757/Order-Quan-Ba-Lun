@@ -1,5 +1,5 @@
-// Track items chuyển sang READY giữa các lần polling.
-// Phát hiện diff → trigger toast + beep cho nhân viên biết món xong.
+// Track item state transitions giữa các lần polling /orders.
+// Phát hiện diff → emit events cho ReadyListener (toast + bell + beep).
 //
 // Singleton vì:
 // - Nhiều page có thể cùng poll (Orders + Kitchen) — không muốn trigger 2× notification
@@ -11,188 +11,146 @@ type Item = {
   menu_item_name: string;
   qty: number;
   cancelled_reason?: string | null;
+  served_by_full_name?: string | null;
+  cancelled_by_full_name?: string | null;
 };
 
 type Order = {
   id: string;
   table_code: string;
+  table_name?: string;
   items?: Item[];
 };
 
-type ReadyEvent = {
+// Base info common to mọi event
+type EventBase = {
   item_id: string;
   table_code: string;
+  table_name: string;  // resolved từ BE (fallback table_code)
   menu_item_name: string;
   qty: number;
 };
 
-type KitchenCancelEvent = {
-  item_id: string;
-  table_code: string;
-  menu_item_name: string;
-  qty: number;
-  reason: string;
-};
+export type ReadyEvent = EventBase;
+export type NewOrderEvent = EventBase;
+export type KitchenCancelEvent = EventBase & { reason: string };
+export type ItemServedEvent = EventBase & { served_by: string };
+export type ItemCancelByStaffEvent = EventBase & { cancelled_by: string; reason: string };
 
-type NewOrderEvent = {
-  item_id: string;
-  table_code: string;
-  menu_item_name: string;
-  qty: number;
-};
-
-type Listener = (event: ReadyEvent) => void;
-type CancelListener = (event: KitchenCancelEvent) => void;
-type NewOrderListener = (event: NewOrderEvent) => void;
+type ReadyListener = (e: ReadyEvent) => void;
+type NewOrderListener = (e: NewOrderEvent) => void;
+type KitchenCancelListener = (e: KitchenCancelEvent) => void;
+type ItemServedListener = (e: ItemServedEvent) => void;
+type ItemCancelByStaffListener = (e: ItemCancelByStaffEvent) => void;
 
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
 
 class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
-  private listeners = new Set<Listener>();
-  private cancelListeners = new Set<CancelListener>();
+  private readyListeners = new Set<ReadyListener>();
   private newOrderListeners = new Set<NewOrderListener>();
+  private kitchenCancelListeners = new Set<KitchenCancelListener>();
+  private itemServedListeners = new Set<ItemServedListener>();
+  private itemCancelByStaffListeners = new Set<ItemCancelByStaffListener>();
   private audioCtx: AudioContext | null = null;
   private initialized = false;
 
-  /** First call: ghi state hiện tại làm baseline, KHÔNG emit notification.
-   *  Tránh false-positive khi user mới load page (mọi item đều "mới" với singleton). */
   ingest(orders: Order[]): void {
     const seen = new Set<string>();
     for (const o of orders) {
+      const table_name = o.table_name || o.table_code;
       for (const it of o.items || []) {
         seen.add(it.id);
         const prev = this.prevStates.get(it.id);
-        // Chỉ emit khi đã init (tránh false-positive lần đầu load)
         if (this.initialized) {
-          // 1) Item MỚI (chưa từng thấy) vào state KITCHEN → bồi vừa báo bếp
-          //    → thông báo bếp có món mới cần làm
-          if (prev === undefined && it.state === 'KITCHEN') {
-            this.emitNewOrder({
-              item_id: it.id,
-              table_code: o.table_code,
-              menu_item_name: it.menu_item_name,
-              qty: it.qty,
-            });
+          const base = {
+            item_id: it.id,
+            table_code: o.table_code,
+            table_name,
+            menu_item_name: it.menu_item_name,
+            qty: it.qty,
+          };
+
+          // 1) NewOrder: item mới (prev=undefined) hoặc PENDING→KITCHEN
+          if ((prev === undefined || prev === 'PENDING') && it.state === 'KITCHEN') {
+            this.emitNewOrder(base);
           }
-          // 2) Transition PENDING → KITCHEN (báo bếp sau khi draft) → tương tự
-          else if (prev === 'PENDING' && it.state === 'KITCHEN') {
-            this.emitNewOrder({
-              item_id: it.id,
-              table_code: o.table_code,
-              menu_item_name: it.menu_item_name,
-              qty: it.qty,
-            });
-          }
+
           if (prev !== undefined && prev !== it.state) {
-            // 3) Transition → READY: món bếp xong, bồi bàn lên lấy
-            if (prev !== 'READY' && it.state === 'READY') {
-              this.emit({
-                item_id: it.id,
-                table_code: o.table_code,
-                menu_item_name: it.menu_item_name,
-                qty: it.qty,
-              });
+            // 2) ItemReady: any → READY
+            if (it.state === 'READY') this.emitReady(base);
+
+            // 3) ItemServed: any → SERVED (kèm tên người giao)
+            if (it.state === 'SERVED') {
+              this.emitItemServed({ ...base, served_by: it.served_by_full_name || 'không xác định' });
             }
-            // 4) Transition → CANCELLED với reason 'Bếp báo hết': bồi bàn cần thông
-            //    báo khách bàn này đổi món
-            if (prev !== 'CANCELLED' && it.state === 'CANCELLED'
-                && it.cancelled_reason?.startsWith(KITCHEN_CANCEL_PREFIX)) {
-              this.emitCancel({
-                item_id: it.id,
-                table_code: o.table_code,
-                menu_item_name: it.menu_item_name,
-                qty: it.qty,
-                reason: it.cancelled_reason,
-              });
+
+            // 4) CANCELLED: phân biệt 'bếp báo hết' vs 'staff manual cancel'
+            if (it.state === 'CANCELLED' && prev !== 'CANCELLED') {
+              const reason = it.cancelled_reason || '';
+              if (reason.startsWith(KITCHEN_CANCEL_PREFIX)) {
+                this.emitKitchenCancel({ ...base, reason });
+              } else {
+                this.emitItemCancelByStaff({
+                  ...base,
+                  reason,
+                  cancelled_by: it.cancelled_by_full_name || 'không xác định',
+                });
+              }
             }
           }
         }
         this.prevStates.set(it.id, it.state);
       }
     }
-    // Cleanup: remove tracked items không còn trong orders (đã checkout)
+    // Cleanup tracked items không còn (đã checkout)
     for (const id of this.prevStates.keys()) {
       if (!seen.has(id)) this.prevStates.delete(id);
     }
     this.initialized = true;
   }
 
-  on(listener: Listener): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
+  // Subscribe APIs
+  on(l: ReadyListener) { this.readyListeners.add(l); return () => this.readyListeners.delete(l); }
+  onNewOrder(l: NewOrderListener) { this.newOrderListeners.add(l); return () => this.newOrderListeners.delete(l); }
+  onKitchenCancel(l: KitchenCancelListener) { this.kitchenCancelListeners.add(l); return () => this.kitchenCancelListeners.delete(l); }
+  onItemServed(l: ItemServedListener) { this.itemServedListeners.add(l); return () => this.itemServedListeners.delete(l); }
+  onItemCancelByStaff(l: ItemCancelByStaffListener) { this.itemCancelByStaffListeners.add(l); return () => this.itemCancelByStaffListeners.delete(l); }
 
-  onKitchenCancel(listener: CancelListener): () => void {
-    this.cancelListeners.add(listener);
-    return () => this.cancelListeners.delete(listener);
-  }
+  // Emitters — KHÔNG tự beep, để listener gọi beep có role-gating
+  private emitReady(e: ReadyEvent) { this.fanout(this.readyListeners, e); }
+  private emitNewOrder(e: NewOrderEvent) { this.fanout(this.newOrderListeners, e); }
+  private emitKitchenCancel(e: KitchenCancelEvent) { this.fanout(this.kitchenCancelListeners, e); }
+  private emitItemServed(e: ItemServedEvent) { this.fanout(this.itemServedListeners, e); }
+  private emitItemCancelByStaff(e: ItemCancelByStaffEvent) { this.fanout(this.itemCancelByStaffListeners, e); }
 
-  onNewOrder(listener: NewOrderListener): () => void {
-    this.newOrderListeners.add(listener);
-    return () => this.newOrderListeners.delete(listener);
-  }
-
-  private emit(event: ReadyEvent): void {
-    for (const l of this.listeners) {
-      try {
-        l(event);
-      } catch (err) {
+  private fanout<E>(listeners: Set<(e: E) => void>, e: E): void {
+    for (const l of listeners) {
+      try { l(e); } catch (err) {
         // eslint-disable-next-line no-console
         console.error('ready-notifier listener error', err);
       }
     }
-    this.playBeep();
   }
 
-  private emitCancel(event: KitchenCancelEvent): void {
-    for (const l of this.cancelListeners) {
-      try {
-        l(event);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('cancel-notifier listener error', err);
-      }
-    }
-    this.playBeep();
+  /** Beep "ding" cho món xong (READY) — tone cao 660+880 dễ thấy. */
+  playReadyBeep(): void {
+    this.beepTones([660, 880]);
   }
 
-  private emitNewOrder(event: NewOrderEvent): void {
-    for (const l of this.newOrderListeners) {
-      try {
-        l(event);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error('new-order-notifier listener error', err);
-      }
-    }
-    // KHÔNG tự beep — để listener gọi playNewOrderBeep() có role-gating
-    // (chỉ bếp cần beep, order staff vừa gọi món rồi không cần)
-  }
-
-  /** Tone "ding-dong" cho new order — thấp hơn ReadyEvent (660→880) để phân biệt. */
+  /** Beep "ding-dong" thấp cho new order — phân biệt với READY. */
   playNewOrderBeep(): void {
-    try {
-      if (!this.audioCtx) {
-        const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-        if (!Ctx) return;
-        this.audioCtx = new Ctx();
-      }
-      const ctx = this.audioCtx;
-      if (ctx.state === 'suspended') ctx.resume();
-      const now = ctx.currentTime;
-      this.tone(ctx, 520, now, 0.15);          // mi
-      this.tone(ctx, 392, now + 0.18, 0.2);    // sol thấp
-    } catch {
-      // Silently fail
-    }
+    this.beepTones([520, 392]);
   }
 
-  /** Web Audio API — không cần file MP3. 2 beep ngắn 440Hz + 660Hz. */
-  private playBeep(): void {
+  /** Beep cảnh báo cho cancel/báo hết — 2 tone trùng cao gấp. */
+  playAlertBeep(): void {
+    this.beepTones([880, 880]);
+  }
+
+  private beepTones(freqs: [number, number]): void {
     try {
-      // Lazy init (cần user gesture trên iOS để start AudioContext)
       if (!this.audioCtx) {
         const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
         if (!Ctx) return;
@@ -200,11 +158,9 @@ class ReadyNotifier {
       }
       const ctx = this.audioCtx;
       if (ctx.state === 'suspended') ctx.resume();
-
       const now = ctx.currentTime;
-      // 2 tones: 660Hz then 880Hz (ascending "ding")
-      this.tone(ctx, 660, now, 0.15);
-      this.tone(ctx, 880, now + 0.18, 0.2);
+      this.tone(ctx, freqs[0], now, 0.15);
+      this.tone(ctx, freqs[1], now + 0.18, 0.2);
     } catch {
       // Silently fail — notifications still work via toast
     }
@@ -217,7 +173,6 @@ class ReadyNotifier {
     osc.type = 'sine';
     osc.connect(gain);
     gain.connect(ctx.destination);
-    // ADSR envelope nhỏ tránh "click" pop ở đầu/cuối
     gain.gain.setValueAtTime(0, startAt);
     gain.gain.linearRampToValueAtTime(0.25, startAt + 0.02);
     gain.gain.linearRampToValueAtTime(0.25, startAt + duration - 0.02);
@@ -236,9 +191,7 @@ class ReadyNotifier {
         // ignore
       }
     }
-    if (this.audioCtx?.state === 'suspended') {
-      this.audioCtx.resume();
-    }
+    if (this.audioCtx?.state === 'suspended') this.audioCtx.resume();
   }
 
   reset(): void {
@@ -248,4 +201,3 @@ class ReadyNotifier {
 }
 
 export const readyNotifier = new ReadyNotifier();
-export type { ReadyEvent, KitchenCancelEvent, NewOrderEvent };

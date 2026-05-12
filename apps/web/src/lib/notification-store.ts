@@ -14,12 +14,19 @@ export type NotificationEntry = {
   read: boolean;
 };
 
-const STORAGE_KEY = 'notifications-v1';
-const MAX_ENTRIES = 50;
+const STORAGE_KEY = 'notifications-v2';
+const MAX_ENTRIES = 200;
+const TTL_MS = 24 * 60 * 60 * 1000;  // 1 ngày — đủ cho ca làm việc
 
 type Listener = (entries: NotificationEntry[]) => void;
 const listeners = new Set<Listener>();
 let nextId = 1;
+
+/** Drop entries cũ hơn TTL_MS (24h) — chừa danh sách gọn cho user. */
+function pruneOld(entries: NotificationEntry[]): NotificationEntry[] {
+  const cutoff = Date.now() - TTL_MS;
+  return entries.filter((e) => e.ts_ms >= cutoff);
+}
 
 function load(): NotificationEntry[] {
   if (typeof window === 'undefined') return [];
@@ -32,7 +39,7 @@ function load(): NotificationEntry[] {
     for (const e of arr) {
       if (typeof e.id === 'number' && e.id >= nextId) nextId = e.id + 1;
     }
-    return arr;
+    return pruneOld(arr);
   } catch {
     return [];
   }
@@ -68,7 +75,8 @@ export const notificationStore = {
       ts_ms: Date.now(),
       read: false,
     };
-    cache = [entry, ...cache].slice(0, MAX_ENTRIES);
+    // Prune cũ + cap MAX để tránh localStorage bloat
+    cache = pruneOld([entry, ...cache]).slice(0, MAX_ENTRIES);
     save(cache);
     emit();
   },

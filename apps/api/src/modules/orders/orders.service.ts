@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -179,14 +179,30 @@ export class OrdersService {
         'i.note',
         'i.cancelled_reason',
         'i.created_by_full_name',
+        'i.served_by_full_name',
+        'i.cancelled_by_full_name',
         'i.created_at',
         'i.updated_at',
       ])
       .where('o.closed_at IS NULL')
       .orderBy('o.opened_at', 'DESC')
       .getMany();
+
+    // Resolve table.name cho FE → notification dùng tên thân thiện ('Bàn 01')
+    // thay vì code slug ('ban-01'). 1 query duy nhất batch lookup tất cả table_id.
+    const tableIds = Array.from(new Set(rows.map((o) => o.table_id)));
+    const tables = tableIds.length === 0
+      ? []
+      : await this.tableRepo.find({ where: { id: In(tableIds) }, select: ['id', 'name'] });
+    const tableNameById = new Map(tables.map((t) => [t.id, t.name]));
+
+    const ordersWithName = rows.map((o) => ({
+      ...o,
+      table_name: tableNameById.get(o.table_id) || o.table_code,
+    }));
+
     // Phantom: order có 0 item HOẶC tất cả CANCELLED không phải nghiệp vụ
-    return rows.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
+    return ordersWithName.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
   }
 
   async getOrderWithItems(id: string): Promise<Order> {
@@ -303,8 +319,8 @@ export class OrdersService {
     return item;
   }
 
-  /** State transition with validation */
-  async changeItemState(item_id: string, to: string, reason?: string) {
+  /** State transition with validation + snapshot actor (cho notification) */
+  async changeItemState(item_id: string, to: string, reason?: string, actor?: OrderCreator) {
     return await this.ds.transaction(async (mgr) => {
       const itemRepo = mgr.getRepository(OrderItem);
       const item = await itemRepo.findOne({ where: { id: item_id } });
@@ -317,9 +333,18 @@ export class OrdersService {
         });
       }
       item.state = to;
-      if (to === 'CANCELLED' && reason) item.cancelled_reason = reason;
+      if (to === 'CANCELLED') {
+        if (reason) item.cancelled_reason = reason;
+        // Snapshot ai huỷ — phân biệt với 'Bếp báo hết' (auto từ toggleStock)
+        item.cancelled_by_user_id = actor?.id ?? null;
+        item.cancelled_by_full_name = actor?.full_name ?? null;
+      }
+      if (to === 'SERVED') {
+        // Snapshot ai đánh dấu giao — bếp hoặc bồi bàn (qua OrderDrawer)
+        item.served_by_user_id = actor?.id ?? null;
+        item.served_by_full_name = actor?.full_name ?? null;
+      }
       await itemRepo.save(item);
-      // Nếu là PENDING → KITCHEN cho item đầu tiên: set first_kitchen_at trên order
       if (to === 'KITCHEN') {
         await this.markFirstKitchenIfNull(mgr, item.order_id);
       }

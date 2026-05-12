@@ -7,7 +7,6 @@ import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
-import { notificationStore } from '../lib/notification-store.ts';
 
 type OrderItem = {
   id: string;
@@ -319,10 +318,8 @@ export function KitchenPage() {
             .map(([t, q]) => `${t} (${q}×)`)
             .join(', ');
           toast.push('error', `${baseMsg} · auto-huỷ ${cancelled} order: ${tableList}`, 10000);
-          notificationStore.push(
-            'order_cancel',
-            `Bếp báo hết "${item.menu_item_name}" → huỷ ${cancelled} order tại: ${tableList}. Bồi bàn ra các bàn này báo khách đổi món.`,
-          );
+          // KHÔNG push notif — readyNotifier (polling) sẽ emit KitchenCancel cho cả
+          // bếp (self-confirm) + order role (báo khách đổi món) ở mọi thiết bị.
         } else {
           toast.push('success', baseMsg, 3000);
         }

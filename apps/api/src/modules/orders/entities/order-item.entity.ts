@@ -55,6 +55,22 @@ export class OrderItem {
   @Column({ type: 'varchar', length: 128, nullable: true })
   created_by_full_name!: string | null;
 
+  /** Snapshot ai đánh dấu SERVED (bếp hoặc bồi bàn). Set tại changeItemState
+   * khi state chuyển sang SERVED. Dùng cho notification 'ai giao món'. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  served_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  served_by_full_name!: string | null;
+
+  /** Snapshot ai huỷ món (CANCELLED). Set khi changeItemState → CANCELLED hoặc
+   * auto-cancel từ toggleStock. Phân biệt manual cancel vs bếp báo hết qua reason. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  cancelled_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  cancelled_by_full_name!: string | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 

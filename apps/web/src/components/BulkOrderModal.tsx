@@ -6,7 +6,6 @@
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
-import { notificationStore } from '../lib/notification-store.ts';
 
 type MenuItem = {
   id: string;
@@ -142,7 +141,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
         },
       );
       toast.push('success', `📢 Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`);
-      notificationStore.push('order_open', `${tableLabel} — báo bếp ${cartLines.length} món · ${totalQty} phần · ${fmt(total)}`);
+      // KHÔNG push notificationStore — readyNotifier (polling) sẽ tự emit NewOrder cho bếp.
+      // Order staff vừa gọi món rồi không cần notification cho chính mình.
       setMobileCartOpen(false);
       onSubmitted();
     } catch (e) {

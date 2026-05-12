@@ -11,10 +11,12 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'node:path';
@@ -286,7 +288,7 @@ export class MenuController {
    */
   @Post(':id/toggle-stock')
   @UseGuards(JwtAuthGuard)
-  async toggleStock(@Param('id') id: string) {
+  async toggleStock(@Param('id') id: string, @Req() req: Request) {
     return await this.ds.transaction(async (mgr) => {
       const menuRepo = mgr.getRepository(MenuItem);
       const item = await menuRepo.findOne({ where: { id } });
@@ -311,11 +313,16 @@ export class MenuController {
           })
           .getRawMany();
 
-        // 2) Update CANCELLED
+        // 2) Update CANCELLED + snapshot ai báo hết (= bếp user toggle)
         const result = await mgr
           .createQueryBuilder()
           .update('order_items')
-          .set({ state: 'CANCELLED', cancelled_reason: reason })
+          .set({
+            state: 'CANCELLED',
+            cancelled_reason: reason,
+            cancelled_by_user_id: req.user!.sub,
+            cancelled_by_full_name: req.user!.full_name,
+          })
           .where('menu_item_id = :mid AND state IN (:...states)', {
             mid: id, states: ['PENDING', 'KITCHEN'],
           })
