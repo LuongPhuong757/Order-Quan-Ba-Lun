@@ -180,7 +180,8 @@ export function KitchenPage() {
       }
     }
     for (const k of Object.keys(out)) {
-      out[k].sort((a, b) => a.updated_at - b.updated_at);
+      // Sort theo created_at (thời gian khách gọi món thực sự) — món gọi sớm nhất lên đầu
+      out[k].sort((a, b) => a.created_at - b.created_at);
     }
     return out;
   }, [orders, menuMap, groupFilter, now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -502,10 +503,13 @@ function Card({
   onAdvance: () => void;
   onToggleStock: () => void;
 }) {
-  const ageMs = Date.now() - item.updated_at;
+  // BUG FIX: dùng created_at (thời điểm khách gọi món) thay vì updated_at.
+  // updated_at reset mỗi lần đổi state (KITCHEN → COOKING → READY) khiến đồng hồ
+  // bị reset về 0 — không phản ánh đúng thời gian khách đã chờ.
+  const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageSec = Math.floor((ageMs % 60_000) / 1000);
-  const ageBorderColor = ageColor(item.updated_at, item.state);
+  const ageBorderColor = ageColor(item.created_at, item.state);
   const isCritical = ageBorderColor === '#dc2626';
   const isOutOfStock = menuItem?.is_out_of_stock ?? false;
 
