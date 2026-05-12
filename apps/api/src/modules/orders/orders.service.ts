@@ -453,7 +453,9 @@ export class OrdersService {
         const itemRepo = mgr.getRepository(OrderItem);
         const tableRepo = mgr.getRepository(RestaurantTable);
 
-        const src = await orderRepo.findOne({ where: { id: source_order_id }, relations: ['items'] });
+        // KHÔNG load relations 'items' — tránh TypeORM cascade-save items lại vào src
+        // khi save src.closed_at sau (bug: items có thể bị revert order_id về src).
+        const src = await orderRepo.findOne({ where: { id: source_order_id } });
         if (!src) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order nguồn không tồn tại' });
         if (src.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng' });
 
@@ -462,6 +464,9 @@ export class OrdersService {
         if (src.table_id === dest_table_id) {
           throw new BadRequestException({ code: 'CONFLICT', message: 'Bàn đích trùng bàn nguồn' });
         }
+
+        // Đếm src items TRƯỚC khi move (sanity check sau cùng)
+        const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
 
         let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
         const destWasNew = !dest;
@@ -472,39 +477,43 @@ export class OrdersService {
             table_code: destTable.code,
             closed_at: null,
             is_paid: false,
-            // Copy timer + creator nếu src có
             first_kitchen_at: src.first_kitchen_at,
             created_by_user_id: src.created_by_user_id,
             created_by_full_name: src.created_by_full_name,
-            // Copy customer info nếu đích là delivery (bếp ship vẫn cần thông tin)
             customer_name: destTable.kind === 'delivery' ? src.customer_name : null,
             customer_address: destTable.kind === 'delivery' ? src.customer_address : null,
             customer_phone: destTable.kind === 'delivery' ? src.customer_phone : null,
           });
           await orderRepo.save(dest);
         } else if (!dest.first_kitchen_at && src.first_kitchen_at) {
-          // Dest existed but chưa báo bếp — copy first_kitchen_at từ src
-          dest.first_kitchen_at = src.first_kitchen_at;
-          await orderRepo.save(dest);
+          await orderRepo.update(dest.id, { first_kitchen_at: src.first_kitchen_at });
         }
 
-        // Move items — set FK + giữ original created_at để KDS không reset timer
+        // Move items qua UPDATE thuần — bypass relations management
         const moveResult = await itemRepo
           .createQueryBuilder()
           .update(OrderItem)
           .set({ order_id: dest.id })
           .where('order_id = :sid', { sid: src.id })
           .execute();
-
         const moved = moveResult.affected || 0;
-        this.logger.log(
-          `transferTable: src=${source_order_id} → dest=${dest.id} (table ${destTable.code}), ` +
-          `moved ${moved} items, dest_new=${destWasNew}`,
-        );
 
-        // Close source order
-        src.closed_at = Date.now();
-        await orderRepo.save(src);
+        // Close source order qua UPDATE thuần — KHÔNG dùng save() để tránh
+        // cascade vô tình ghi lại items.order_id về src.
+        await orderRepo.update(src.id, { closed_at: Date.now() });
+
+        // Sanity check: dest phải có ≥ srcItemCount items
+        const destItemCount = await itemRepo.count({ where: { order_id: dest.id } });
+        this.logger.log(
+          `transferTable: src=${source_order_id} (${srcItemCount} items) → dest=${dest.id} ` +
+          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}, dest_new=${destWasNew}`,
+        );
+        if (destItemCount < moved) {
+          // Lỗi data — throw để rollback transaction
+          throw new Error(
+            `Transfer integrity error: moved=${moved} but dest only has ${destItemCount} items`,
+          );
+        }
 
         const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
         return refreshed!;
