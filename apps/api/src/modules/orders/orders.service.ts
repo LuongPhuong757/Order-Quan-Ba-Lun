@@ -97,7 +97,10 @@ export class OrdersService {
       relations: ['items'],
       order: { opened_at: 'DESC' },
     });
-    return orders;
+    // Lọc bỏ "phantom orders" — order được tạo khi staff click bàn → mở drawer
+    // nhưng không gọi món rồi đóng drawer. Những order rỗng (0 món) hoặc toàn
+    // CANCELLED không phải "bàn đang dùng" theo nghĩa nghiệp vụ.
+    return orders.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
   }
 
   async getOrderWithItems(id: string): Promise<Order> {
