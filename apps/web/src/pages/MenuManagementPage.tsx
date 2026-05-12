@@ -741,7 +741,9 @@ function ImportMenuModal({
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [rawPrices, setRawPrices] = useState<number[]>([]);  // giữ giá gốc để toggle ×1000
   const [fileName, setFileName] = useState<string>('');
+  const [multiplyByThousand, setMultiplyByThousand] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -831,11 +833,34 @@ function ImportMenuModal({
           warning,
         };
       });
-      setRows(parsed);
+      // Lưu giá gốc + auto-detect: nếu ≥80% giá < 1000 → file lưu dạng nghìn VND,
+      // tự động tick checkbox ×1000 (200 = 200K = 200,000đ).
+      const prices = parsed.filter((r) => !r.error).map((r) => r.price);
+      const lowPrices = prices.filter((p) => p > 0 && p < 1000).length;
+      const autoMultiply = prices.length > 0 && lowPrices / prices.length >= 0.8;
+
+      setRawPrices(parsed.map((r) => r.price));
+      setMultiplyByThousand(autoMultiply);
+      // Áp luôn multiplier vào rows để preview hiển thị đúng
+      const finalRows = parsed.map((r) => ({
+        ...r,
+        price: autoMultiply ? r.price * 1000 : r.price,
+      }));
+      setRows(finalRows);
     } catch (e) {
       console.error(e);
       toast.push('error', 'Không đọc được file. Đảm bảo định dạng CSV hoặc XLSX hợp lệ.');
     }
+  };
+
+  // Khi user toggle ×1000 → recompute prices từ rawPrices
+  const toggleMultiplier = (newValue: boolean) => {
+    setMultiplyByThousand(newValue);
+    if (!rows) return;
+    setRows(rows.map((r, i) => ({
+      ...r,
+      price: newValue ? rawPrices[i] * 1000 : rawPrices[i],
+    })));
   };
 
   const downloadTemplate = () => {
@@ -969,10 +994,44 @@ function ImportMenuModal({
                 {' '}<span style={{ color: '#059669' }}>{validCount} OK</span>
                 {errorCount > 0 && <> · <span style={{ color: '#dc2626' }}>{errorCount} lỗi (sẽ bỏ qua)</span></>}
               </div>
-              <button type="button" className="secondary" onClick={() => { setRows(null); setFileName(''); }} style={{ padding: '4px 10px', fontSize: 12 }}>
+              <button type="button" className="secondary" onClick={() => { setRows(null); setFileName(''); setRawPrices([]); setMultiplyByThousand(false); }} style={{ padding: '4px 10px', fontSize: 12 }}>
                 Chọn file khác
               </button>
             </div>
+
+            {/* Checkbox ×1000: tự động tick nếu phần lớn giá < 1000 (file lưu dạng nghìn VND) */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 10,
+                padding: 10,
+                background: multiplyByThousand ? '#fef3c7' : '#f9fafb',
+                border: `1px solid ${multiplyByThousand ? '#f59e0b' : '#e5e7eb'}`,
+                borderRadius: 8,
+                marginBottom: 12,
+                cursor: 'pointer',
+                fontSize: 13,
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={multiplyByThousand}
+                onChange={(e) => toggleMultiplier(e.target.checked)}
+                style={{ width: 18, height: 18, marginTop: 2, cursor: 'pointer' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600 }}>
+                  💴 Giá trong file là <strong>nghìn VND</strong> (×1000)
+                </div>
+                <div style={{ color: '#6b7280', marginTop: 2, fontSize: 12 }}>
+                  Tích nếu file lưu giá dạng <code>200</code> = 200,000đ, <code>15</code> = 15,000đ.
+                  {' '}Hệ thống tự nhận biết: {multiplyByThousand
+                    ? <strong style={{ color: '#92400e' }}>đã tự tick vì ≥80% giá &lt; 1000.</strong>
+                    : <span>nếu giá &gt; 1000 thì không cần tick (mỗi cell đã là đồng).</span>}
+                </div>
+              </div>
+            </label>
 
             {newGroups.length > 0 && (
               <div
