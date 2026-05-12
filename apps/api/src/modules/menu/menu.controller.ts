@@ -25,6 +25,7 @@ import { In, Repository } from 'typeorm';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
+import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 
@@ -71,7 +72,10 @@ class BulkImportMenuDto {
 
 @Controller('menu')
 export class MenuController {
-  constructor(@InjectRepository(MenuItem) private readonly repo: Repository<MenuItem>) {}
+  constructor(
+    @InjectRepository(MenuItem) private readonly repo: Repository<MenuItem>,
+    @InjectRepository(MenuGroup) private readonly groupRepo: Repository<MenuGroup>,
+  ) {}
 
   /** GET /menu — accessible by any logged-in user (staff dùng để gọi món) */
   @Get()
@@ -119,21 +123,47 @@ export class MenuController {
   }
 
   /** POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).
-   * Mã trùng → ghi đè (name/group/price/unit/image_url). Mã mới → insert. */
+   * Mã trùng → ghi đè (name/group/price/unit/image_url). Mã mới → insert.
+   * Nhóm chưa tồn tại → tự tạo MenuGroup mới với defaults (kitchen_type='cook',
+   * sort_order=999, icon=null, name = group code title-cased). */
   @Post('bulk-import')
   @HttpCode(201)
   @UseGuards(OwnerGuard)
   async bulkImport(@Body() dto: BulkImportMenuDto) {
+    // 1) Auto-create missing groups
+    const groupCodes = Array.from(new Set(dto.items.map((i) => i.group.toLowerCase().trim())));
+    const existingGroups = await this.groupRepo.find({ where: { code: In(groupCodes) } });
+    const existingGroupCodes = new Set(existingGroups.map((g) => g.code));
+    const newGroupCodes = groupCodes.filter((c) => !existingGroupCodes.has(c));
+    const createdGroups: string[] = [];
+    if (newGroupCodes.length > 0) {
+      const fresh = newGroupCodes.map((code, idx) =>
+        this.groupRepo.create({
+          code,
+          // Capitalize đơn giản: dessert → Dessert
+          name: code.charAt(0).toUpperCase() + code.slice(1),
+          icon: null,
+          kitchen_type: 'cook',
+          sort_order: 999 + idx,
+          is_active: true,
+        }),
+      );
+      await this.groupRepo.save(fresh);
+      createdGroups.push(...newGroupCodes);
+    }
+
+    // 2) Upsert menu items
     const codes = dto.items.map((i) => i.code);
     const existing = await this.repo.find({ where: { code: In(codes) } });
     const existingMap = new Map(existing.map((e) => [e.code, e]));
     let created = 0;
     let updated = 0;
     for (const row of dto.items) {
+      const groupNorm = row.group.toLowerCase().trim();
       const old = existingMap.get(row.code);
       if (old) {
         old.name = row.name;
-        old.group = row.group;
+        old.group = groupNorm;
         old.price = row.price;
         old.unit = row.unit;
         if (row.image_url !== undefined) old.image_url = row.image_url ?? null;
@@ -144,7 +174,7 @@ export class MenuController {
         const fresh = this.repo.create({
           code: row.code,
           name: row.name,
-          group: row.group,
+          group: groupNorm,
           price: row.price,
           unit: row.unit,
           image_url: row.image_url ?? null,
@@ -155,7 +185,14 @@ export class MenuController {
         created++;
       }
     }
-    return { data: { total: dto.items.length, created, updated } };
+    return {
+      data: {
+        total: dto.items.length,
+        created,
+        updated,
+        created_groups: createdGroups,
+      },
+    };
   }
 
   /** POST /menu — owner only */

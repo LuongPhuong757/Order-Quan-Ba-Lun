@@ -688,6 +688,8 @@ type ImportRow = {
   image_url?: string | null;
   /** Lỗi parse — nếu có thì row này sẽ bị skip khi submit. */
   error?: string;
+  /** Cảnh báo non-blocking — không skip row, chỉ thông báo. */
+  warning?: string;
 };
 
 function ImportMenuModal({
@@ -735,12 +737,16 @@ function ImportMenuModal({
         const image_url = norm['image_url'] || norm['image'] || norm['ảnh'] || norm['anh'] || '';
 
         let error: string | undefined;
+        let warning: string | undefined;
         if (!code) error = 'Thiếu mã';
         else if (!name) error = 'Thiếu tên';
         else if (!group) error = 'Thiếu nhóm';
-        else if (!validGroupCodes.has(group)) error = `Nhóm "${group}" không tồn tại`;
         else if (price < 0 || price > 100_000_000) error = 'Giá không hợp lệ (0 - 100tr)';
-        return { code: code.toUpperCase(), name, group, price, unit, image_url: image_url || null, error };
+        else if (!validGroupCodes.has(group)) {
+          // Non-blocking: BE sẽ tự tạo nhóm mới với defaults
+          warning = `Nhóm "${group}" sẽ được tạo mới`;
+        }
+        return { code: code.toUpperCase(), name, group, price, unit, image_url: image_url || null, error, warning };
       });
       setRows(parsed);
     } catch (e) {
@@ -769,15 +775,21 @@ function ImportMenuModal({
     }
     setSubmitting(true);
     try {
-      const res = await api.post<{ data: { total: number; created: number; updated: number } }>(
+      const res = await api.post<{
+        data: { total: number; created: number; updated: number; created_groups: string[] };
+      }>(
         '/menu/bulk-import',
         { items: valid.map((r) => ({
             code: r.code, name: r.name, group: r.group,
             price: r.price, unit: r.unit, image_url: r.image_url,
           })) },
       );
-      const { created, updated } = res.data.data;
-      toast.push('success', `Import OK · ${created} thêm mới, ${updated} cập nhật`);
+      const { created, updated, created_groups } = res.data.data;
+      let msg = `Import OK · ${created} thêm mới, ${updated} cập nhật`;
+      if (created_groups && created_groups.length > 0) {
+        msg += ` · tạo ${created_groups.length} nhóm: ${created_groups.join(', ')}`;
+      }
+      toast.push('success', msg);
       onImported();
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -788,6 +800,9 @@ function ImportMenuModal({
 
   const errorCount = rows?.filter((r) => r.error).length || 0;
   const validCount = rows?.filter((r) => !r.error).length || 0;
+  const newGroups = rows
+    ? Array.from(new Set(rows.filter((r) => !r.error && r.warning).map((r) => r.group)))
+    : [];
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -860,6 +875,27 @@ function ImportMenuModal({
               </button>
             </div>
 
+            {newGroups.length > 0 && (
+              <div
+                style={{
+                  background: '#f0f9ff',
+                  border: '1px solid #bae6fd',
+                  borderRadius: 8,
+                  padding: 10,
+                  fontSize: 13,
+                  marginBottom: 12,
+                }}
+              >
+                <strong style={{ color: '#0284c7' }}>ℹ️ Tự tạo {newGroups.length} nhóm mới:</strong>{' '}
+                {newGroups.map((g) => (
+                  <code key={g} style={{ marginRight: 6, padding: '1px 6px', background: '#dbeafe', borderRadius: 4 }}>{g}</code>
+                ))}
+                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>
+                  Có thể sửa tên/icon/loại bếp sau ở phần "Nhóm".
+                </div>
+              </div>
+            )}
+
             <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead style={{ position: 'sticky', top: 0, background: '#f9fafb' }}>
@@ -869,18 +905,32 @@ function ImportMenuModal({
                     <th style={th}>Nhóm</th>
                     <th style={{ ...th, textAlign: 'right' }}>Giá</th>
                     <th style={th}>ĐVT</th>
-                    <th style={th}>Lỗi</th>
+                    <th style={th}>Ghi chú</th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r, i) => (
-                    <tr key={i} style={{ background: r.error ? '#fef2f2' : 'white', borderTop: '1px solid #f3f4f6' }}>
+                    <tr
+                      key={i}
+                      style={{
+                        background: r.error ? '#fef2f2' : r.warning ? '#f0f9ff' : 'white',
+                        borderTop: '1px solid #f3f4f6',
+                      }}
+                    >
                       <td style={td}><code>{r.code}</code></td>
                       <td style={td}>{r.name}</td>
                       <td style={td}>{r.group}</td>
                       <td style={{ ...td, textAlign: 'right' }}>{r.price.toLocaleString('vi-VN')}đ</td>
                       <td style={td}>{r.unit}</td>
-                      <td style={{ ...td, color: '#dc2626', fontSize: 12 }}>{r.error || '—'}</td>
+                      <td
+                        style={{
+                          ...td,
+                          color: r.error ? '#dc2626' : r.warning ? '#0284c7' : '#9ca3af',
+                          fontSize: 12,
+                        }}
+                      >
+                        {r.error || r.warning || '—'}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
