@@ -205,17 +205,20 @@ const KIND_FORMAT_FE: Record<string, { codePrefix: string; namePrefix: string; l
 function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
   const [kind, setKind] = useState<string>('dine-in');
-  const [fromNum, setFromNum] = useState(1);
-  const [toNum, setToNum] = useState(10);
+  // String state để input có thể trống — tránh bug "Number('') || 1 = 1" khi user xoá hết.
+  const [fromStr, setFromStr] = useState('1');
+  const [toStr, setToStr] = useState('10');
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const fmt = KIND_FORMAT_FE[kind];
+  const fromNum = parseInt(fromStr, 10);
+  const toNum = parseInt(toStr, 10);
 
   // Preview — show count + first 3 sample codes
   const preview = (() => {
-    if (!Number.isInteger(fromNum) || !Number.isInteger(toNum)) {
-      return { ok: false, count: 0, msg: 'Số bắt đầu và kết thúc phải là số nguyên', samples: [] };
+    if (!Number.isFinite(fromNum) || !Number.isFinite(toNum)) {
+      return { ok: false, count: 0, msg: 'Nhập đủ số bắt đầu và kết thúc', samples: [] };
     }
     if (fromNum < 1) return { ok: false, count: 0, msg: 'Số bắt đầu phải ≥ 1', samples: [] };
     if (toNum < fromNum) return { ok: false, count: 0, msg: 'Số kết thúc phải ≥ số bắt đầu', samples: [] };
@@ -298,8 +301,8 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
               id="bt-from"
               type="number"
               inputMode="numeric"
-              value={fromNum}
-              onChange={(e) => { setFromNum(Number(e.target.value) || 1); setErr(null); }}
+              value={fromStr}
+              onChange={(e) => { setFromStr(e.target.value.replace(/[^\d]/g, '')); setErr(null); }}
               min={1}
               max={999}
               autoFocus
@@ -312,10 +315,10 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
               id="bt-to"
               type="number"
               inputMode="numeric"
-              value={toNum}
-              onChange={(e) => { setToNum(Number(e.target.value) || 1); setErr(null); }}
-              min={fromNum}
-              max={fromNum + 99}
+              value={toStr}
+              onChange={(e) => { setToStr(e.target.value.replace(/[^\d]/g, '')); setErr(null); }}
+              min={1}
+              max={999}
               style={{ fontFamily: 'monospace' }}
             />
           </div>
