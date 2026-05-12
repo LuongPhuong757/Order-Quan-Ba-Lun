@@ -126,16 +126,45 @@ export class OrdersService {
     await repo.save(o);
   }
 
+  /** Slim list cho OrdersPage (sơ đồ bàn) + KitchenPage (KDS).
+   *
+   * Tối ưu payload — KHÔNG return full Order/OrderItem entity:
+   * - Items: chỉ id, menu_item_id, menu_item_name, qty, state, note,
+   *   created_by_full_name, created_at. Bỏ price, cancelled_reason, updated_at,
+   *   created_by_user_id, order_id (không dùng ở 2 page này).
+   * - SQL filter items.state != 'CANCELLED' → bỏ row dư khỏi response.
+   * - OrderDrawer dùng /orders/by-table/:id riêng nếu cần data đầy đủ
+   *   (kể cả CANCELLED items + cancelled_reason).
+   *
+   * Giảm ~40-50% payload so với .find({ relations: ['items'] }).
+   */
   async listOpenOrders() {
-    const orders = await this.orderRepo.find({
-      where: { closed_at: IsNull() },
-      relations: ['items'],
-      order: { opened_at: 'DESC' },
-    });
-    // Lọc bỏ "phantom orders" — order được tạo khi staff click bàn → mở drawer
-    // nhưng không gọi món rồi đóng drawer. Những order rỗng (0 món) hoặc toàn
-    // CANCELLED không phải "bàn đang dùng" theo nghĩa nghiệp vụ.
-    return orders.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
+    const rows = await this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoin('o.items', 'i', 'i.state != :cancelled', { cancelled: 'CANCELLED' })
+      .select([
+        'o.id',
+        'o.table_id',
+        'o.table_code',
+        'o.opened_at',
+        'o.first_kitchen_at',
+        'o.created_by_full_name',
+        'o.customer_name',
+        'o.customer_phone',
+        'i.id',
+        'i.menu_item_id',
+        'i.menu_item_name',
+        'i.qty',
+        'i.state',
+        'i.note',
+        'i.created_by_full_name',
+        'i.created_at',
+      ])
+      .where('o.closed_at IS NULL')
+      .orderBy('o.opened_at', 'DESC')
+      .getMany();
+    // Lọc phantom orders (sau khi đã loại CANCELLED, order rỗng là phantom)
+    return rows.filter((o) => (o.items || []).length > 0);
   }
 
   async getOrderWithItems(id: string): Promise<Order> {
