@@ -10,6 +10,7 @@ type Item = {
   state: string;
   menu_item_name: string;
   qty: number;
+  cancelled_reason?: string | null;
 };
 
 type Order = {
@@ -25,11 +26,24 @@ type ReadyEvent = {
   qty: number;
 };
 
+type KitchenCancelEvent = {
+  item_id: string;
+  table_code: string;
+  menu_item_name: string;
+  qty: number;
+  reason: string;
+};
+
 type Listener = (event: ReadyEvent) => void;
+type CancelListener = (event: KitchenCancelEvent) => void;
+
+// Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
+const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
 
 class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
   private listeners = new Set<Listener>();
+  private cancelListeners = new Set<CancelListener>();
   private audioCtx: AudioContext | null = null;
   private initialized = false;
 
@@ -41,14 +55,29 @@ class ReadyNotifier {
       for (const it of o.items || []) {
         seen.add(it.id);
         const prev = this.prevStates.get(it.id);
-        // Only emit if đã init + state vừa chuyển sang READY
-        if (this.initialized && prev !== undefined && prev !== 'READY' && it.state === 'READY') {
-          this.emit({
-            item_id: it.id,
-            table_code: o.table_code,
-            menu_item_name: it.menu_item_name,
-            qty: it.qty,
-          });
+        // Chỉ emit khi đã init (tránh false-positive lần đầu load)
+        if (this.initialized && prev !== undefined && prev !== it.state) {
+          // 1) Transition → READY: món bếp xong, bồi bàn lên lấy
+          if (prev !== 'READY' && it.state === 'READY') {
+            this.emit({
+              item_id: it.id,
+              table_code: o.table_code,
+              menu_item_name: it.menu_item_name,
+              qty: it.qty,
+            });
+          }
+          // 2) Transition → CANCELLED với reason 'Bếp báo hết': bồi bàn cần thông
+          //    báo khách bàn này đổi món
+          if (prev !== 'CANCELLED' && it.state === 'CANCELLED'
+              && it.cancelled_reason?.startsWith(KITCHEN_CANCEL_PREFIX)) {
+            this.emitCancel({
+              item_id: it.id,
+              table_code: o.table_code,
+              menu_item_name: it.menu_item_name,
+              qty: it.qty,
+              reason: it.cancelled_reason,
+            });
+          }
         }
         this.prevStates.set(it.id, it.state);
       }
@@ -65,6 +94,11 @@ class ReadyNotifier {
     return () => this.listeners.delete(listener);
   }
 
+  onKitchenCancel(listener: CancelListener): () => void {
+    this.cancelListeners.add(listener);
+    return () => this.cancelListeners.delete(listener);
+  }
+
   private emit(event: ReadyEvent): void {
     for (const l of this.listeners) {
       try {
@@ -72,6 +106,18 @@ class ReadyNotifier {
       } catch (err) {
         // eslint-disable-next-line no-console
         console.error('ready-notifier listener error', err);
+      }
+    }
+    this.playBeep();
+  }
+
+  private emitCancel(event: KitchenCancelEvent): void {
+    for (const l of this.cancelListeners) {
+      try {
+        l(event);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('cancel-notifier listener error', err);
       }
     }
     this.playBeep();
@@ -136,4 +182,4 @@ class ReadyNotifier {
 }
 
 export const readyNotifier = new ReadyNotifier();
-export type { ReadyEvent };
+export type { ReadyEvent, KitchenCancelEvent };

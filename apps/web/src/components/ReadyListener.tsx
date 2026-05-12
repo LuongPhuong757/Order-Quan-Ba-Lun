@@ -9,12 +9,23 @@ export function ReadyListener() {
   const toast = useToast();
 
   useEffect(() => {
-    const off = readyNotifier.on((ev) => {
+    const offReady = readyNotifier.on((ev) => {
       const msg = `🔔 ${ev.table_code} — ${ev.qty}× ${ev.menu_item_name} đã xong, lên lấy mang ra!`;
       toast.push('ready', msg, 6000);
       // Persist vào notification list để xem lại nếu lỡ miss toast
       notificationStore.push('ready', `${ev.table_code} — ${ev.qty}× ${ev.menu_item_name} đã xong`);
     });
+
+    const offCancel = readyNotifier.onKitchenCancel((ev) => {
+      const msg = `⚠️ ${ev.table_code}: bếp báo HẾT ${ev.qty}× ${ev.menu_item_name} — ra báo khách đổi món!`;
+      toast.push('error', msg, 8000);
+      notificationStore.push(
+        'order_cancel',
+        `${ev.table_code} — bếp báo hết ${ev.qty}× ${ev.menu_item_name}. Ra bàn báo khách đổi món.`,
+      );
+    });
+
+    const off = () => { offReady(); offCancel(); };
 
     // Unlock audio sau first user gesture (iOS Safari yêu cầu)
     const unlock = () => {

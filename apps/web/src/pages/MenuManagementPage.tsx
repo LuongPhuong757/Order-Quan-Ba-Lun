@@ -34,14 +34,22 @@ function formatVND(v: number): string {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
+type SortMode = 'newest' | 'name' | 'group';
+const PAGE_SIZE = 30;
+
 export function MenuManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
   const [items, setItems] = useState<MenuItem[]>([]);
+  const [total, setTotal] = useState(0);
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [groupFilter, setGroupFilter] = useState<string>('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState<SortMode>('newest');
+  const [page, setPage] = useState(1);
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showGroupsManager, setShowGroupsManager] = useState(false);
@@ -53,17 +61,33 @@ export function MenuManagementPage() {
     return g ? groupLabel(g) : code;
   };
 
+  // Debounce search input 300ms → tránh fetch mỗi keystroke
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  // Reset về page 1 khi filter/search/sort đổi
+  useEffect(() => {
+    setPage(1);
+  }, [groupFilter, debouncedSearch, sort]);
+
   const refresh = async () => {
     setLoading(true);
     try {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
+      if (debouncedSearch) q.set('q', debouncedSearch);
+      q.set('sort', sort);
+      q.set('page', String(page));
+      q.set('page_size', String(PAGE_SIZE));
       q.set('include_inactive', 'true');
       const [itemsRes, groupsRes] = await Promise.all([
-        api.get<{ data: { items: MenuItem[] } }>(`/menu?${q.toString()}`),
+        api.get<{ data: { items: MenuItem[]; total: number } }>(`/menu?${q.toString()}`),
         api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
       ]);
       setItems(itemsRes.data.data.items);
+      setTotal(itemsRes.data.data.total);
       setGroups(groupsRes.data.data.items);
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -75,7 +99,9 @@ export function MenuManagementPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupFilter]);
+  }, [groupFilter, debouncedSearch, sort, page]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   const toggleStock = async (it: MenuItem) => {
     try {
@@ -125,7 +151,55 @@ export function MenuManagementPage() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16, padding: 12 }}>
+      <div className="card" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {/* Row 1: search + sort */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="🔍 Tìm theo tên hoặc mã món..."
+            style={{
+              flex: '1 1 220px',
+              minWidth: 180,
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              fontSize: 14,
+              minHeight: 40,
+            }}
+          />
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortMode)}
+            style={{
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              fontSize: 14,
+              minHeight: 40,
+              background: 'white',
+              cursor: 'pointer',
+            }}
+            title="Sắp xếp"
+          >
+            <option value="newest">↓ Mới nhất</option>
+            <option value="name">A → Z (tên)</option>
+            <option value="group">Theo nhóm</option>
+          </select>
+          {(search || groupFilter) && (
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => { setSearch(''); setGroupFilter(''); }}
+              style={{ padding: '6px 10px', fontSize: 12 }}
+            >
+              ✕ Xoá lọc
+            </button>
+          )}
+        </div>
+
+        {/* Row 2: group tabs */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', overflowX: 'auto' }}>
           {groupCodes.map((g) => (
             <button
@@ -140,9 +214,21 @@ export function MenuManagementPage() {
         </div>
       </div>
 
+      {/* Result count */}
+      {!loading && (
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#6b7280' }}>
+          {total === 0 ? 'Không tìm thấy món nào.' : (
+            <>Hiển thị {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} của <strong>{total}</strong> món
+              {totalPages > 1 && ` (trang ${page}/${totalPages})`}</>
+          )}
+        </div>
+      )}
+
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
       {!loading && items.length === 0 && (
-        <div className="empty-state card">Chưa có món nào trong nhóm này.</div>
+        <div className="empty-state card">
+          {search || groupFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
+        </div>
       )}
 
       {!loading && items.length > 0 && (
@@ -235,6 +321,29 @@ export function MenuManagementPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Pagination */}
+      {!loading && totalPages > 1 && (
+        <div className="flex" style={{ marginTop: 16, justifyContent: 'center', gap: 8 }}>
+          <button
+            className="secondary"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+          >
+            ← Trước
+          </button>
+          <span style={{ alignSelf: 'center', color: '#6b7280', fontSize: 14, padding: '0 8px' }}>
+            Trang {page} / {totalPages}
+          </span>
+          <button
+            className="secondary"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+          >
+            Sau →
+          </button>
         </div>
       )}
 

@@ -283,20 +283,34 @@ export function KitchenPage() {
     if (!ok) return;
     try {
       const res = await api.post<{
-        data: { auto_cancelled_count: number; cancelled_reason?: string };
+        data: {
+          auto_cancelled_count: number;
+          cancelled_reason?: string;
+          cancelled_items?: Array<{ table_code: string; qty: number; menu_item_name: string }>;
+        };
       }>(`/menu/${item.menu_item_id}/toggle-stock`);
       const cancelled = res.data?.data?.auto_cancelled_count ?? 0;
+      const cancelledItems = res.data?.data?.cancelled_items ?? [];
       if (isOut) {
         toast.push('success', `${item.menu_item_name}: có lại`);
       } else {
         const baseMsg = `${item.menu_item_name}: đánh dấu HẾT`;
-        const fullMsg = cancelled > 0 ? `${baseMsg} · auto-huỷ ${cancelled} order chưa nấu` : baseMsg;
-        toast.push('success', fullMsg, cancelled > 0 ? 6000 : 3000);
         if (cancelled > 0) {
+          // Gom theo bàn: 'B05 (2×), B12 (1×), TA1 (1×)'
+          const byTable = cancelledItems.reduce<Record<string, number>>((acc, c) => {
+            acc[c.table_code] = (acc[c.table_code] || 0) + c.qty;
+            return acc;
+          }, {});
+          const tableList = Object.entries(byTable)
+            .map(([t, q]) => `${t} (${q}×)`)
+            .join(', ');
+          toast.push('error', `${baseMsg} · auto-huỷ ${cancelled} order: ${tableList}`, 10000);
           notificationStore.push(
             'order_cancel',
-            `Bếp báo hết "${item.menu_item_name}" → auto-huỷ ${cancelled} order. Bồi bàn cần thông báo khách đổi món.`,
+            `Bếp báo hết "${item.menu_item_name}" → huỷ ${cancelled} order tại: ${tableList}. Bồi bàn ra các bàn này báo khách đổi món.`,
           );
+        } else {
+          toast.push('success', baseMsg, 3000);
         }
       }
       refresh(false);

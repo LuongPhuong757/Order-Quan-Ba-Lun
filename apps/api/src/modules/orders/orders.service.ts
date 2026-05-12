@@ -151,20 +151,17 @@ export class OrdersService {
 
   /** Slim list cho OrdersPage (sơ đồ bàn) + KitchenPage (KDS).
    *
-   * Tối ưu payload — KHÔNG return full Order/OrderItem entity:
-   * - Items: chỉ id, menu_item_id, menu_item_name, qty, state, note,
-   *   created_by_full_name, created_at. Bỏ price, cancelled_reason, updated_at,
-   *   created_by_user_id, order_id (không dùng ở 2 page này).
-   * - SQL filter items.state != 'CANCELLED' → bỏ row dư khỏi response.
-   * - OrderDrawer dùng /orders/by-table/:id riêng nếu cần data đầy đủ
-   *   (kể cả CANCELLED items + cancelled_reason).
+   * Include CẢ CANCELLED items kèm cancelled_reason + updated_at để FE diff
+   * detection phát hiện kitchen-cancel events (bếp báo hết món) — push
+   * notification cho bồi bàn biết bàn nào.
    *
-   * Giảm ~40-50% payload so với .find({ relations: ['items'] }).
+   * Bỏ fields KHÔNG dùng: menu_item_price, order_id, created_by_user_id.
+   * Phantom orders (0 items) bị filter ở server.
    */
   async listOpenOrders() {
     const rows = await this.orderRepo
       .createQueryBuilder('o')
-      .leftJoin('o.items', 'i', 'i.state != :cancelled', { cancelled: 'CANCELLED' })
+      .leftJoinAndSelect('o.items', 'i')
       .select([
         'o.id',
         'o.table_id',
@@ -180,14 +177,16 @@ export class OrdersService {
         'i.qty',
         'i.state',
         'i.note',
+        'i.cancelled_reason',
         'i.created_by_full_name',
         'i.created_at',
+        'i.updated_at',
       ])
       .where('o.closed_at IS NULL')
       .orderBy('o.opened_at', 'DESC')
       .getMany();
-    // Lọc phantom orders (sau khi đã loại CANCELLED, order rỗng là phantom)
-    return rows.filter((o) => (o.items || []).length > 0);
+    // Phantom: order có 0 item HOẶC tất cả CANCELLED không phải nghiệp vụ
+    return rows.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
   }
 
   async getOrderWithItems(id: string): Promise<Order> {

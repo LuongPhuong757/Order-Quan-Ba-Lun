@@ -84,17 +84,46 @@ export class MenuController {
     @InjectDataSource() private readonly ds: DataSource,
   ) {}
 
-  /** GET /menu — accessible by any logged-in user (staff dùng để gọi món) */
+  /** GET /menu — list menu items.
+   *
+   * Query params:
+   * - group=<code>: filter theo nhóm
+   * - include_inactive=true: include món đã xoá soft (default: false)
+   * - q=<text>: search theo name HOẶC code (LIKE %...%)
+   * - sort=newest|name|group (default 'group' cho order picker, 'newest' cho admin)
+   * - page=1, page_size=20 (default page_size=200 cho order picker — chứa hết menu)
+   *
+   * Response: { items, total, page, page_size }
+   */
   @Get()
   @UseGuards(JwtAuthGuard)
   async list(@Query() q: Record<string, string>) {
     const group = q.group;
     const include_inactive = q.include_inactive === 'true';
-    const qb = this.repo.createQueryBuilder('m').orderBy('m.group', 'ASC').addOrderBy('m.name', 'ASC');
+    const search = (q.q || '').trim();
+    const sort = q.sort || 'group';
+    const page = Math.max(1, Number(q.page) || 1);
+    const page_size = Math.min(500, Math.max(1, Number(q.page_size) || 200));
+
+    const qb = this.repo.createQueryBuilder('m');
     if (!include_inactive) qb.andWhere('m.is_active = :a', { a: true });
     if (group) qb.andWhere('m.group = :g', { g: group });
-    const items = await qb.getMany();
-    return { data: { items, total: items.length } };
+    if (search) {
+      qb.andWhere('(m.name LIKE :s OR m.code LIKE :s)', { s: `%${search}%` });
+    }
+
+    if (sort === 'newest') {
+      qb.orderBy('m.created_at', 'DESC');
+    } else if (sort === 'name') {
+      qb.orderBy('m.name', 'ASC');
+    } else {
+      qb.orderBy('m.group', 'ASC').addOrderBy('m.name', 'ASC');
+    }
+
+    qb.skip((page - 1) * page_size).take(page_size);
+
+    const [items, total] = await qb.getManyAndCount();
+    return { data: { items, total, page, page_size } };
   }
 
   /**
@@ -266,20 +295,46 @@ export class MenuController {
       // Chỉ auto-cancel khi mới chuyển sang HẾT (false → true)
       if (!wasOutOfStock && item.is_out_of_stock) {
         const reason = `Bếp báo hết "${item.name}" — không thể làm`;
+        // 1) Lấy list items sẽ bị cancel kèm table info (cho FE notification)
+        const willCancel = await mgr
+          .createQueryBuilder()
+          .select(['oi.id AS item_id', 'oi.qty AS qty', 'oi.order_id AS order_id',
+                   'o.table_id AS table_id', 'o.table_code AS table_code'])
+          .from('order_items', 'oi')
+          .innerJoin('orders', 'o', 'o.id = oi.order_id')
+          .where('oi.menu_item_id = :mid AND oi.state IN (:...states)', {
+            mid: id, states: ['PENDING', 'KITCHEN'],
+          })
+          .getRawMany();
+
+        // 2) Update CANCELLED
         const result = await mgr
           .createQueryBuilder()
           .update('order_items')
           .set({ state: 'CANCELLED', cancelled_reason: reason })
           .where('menu_item_id = :mid AND state IN (:...states)', {
-            mid: id,
-            states: ['PENDING', 'KITCHEN'],
+            mid: id, states: ['PENDING', 'KITCHEN'],
           })
           .execute();
         const cancelled = result.affected || 0;
-        return { data: { ...item, auto_cancelled_count: cancelled, cancelled_reason: reason } };
+        return {
+          data: {
+            ...item,
+            auto_cancelled_count: cancelled,
+            cancelled_reason: reason,
+            cancelled_items: willCancel.map((r) => ({
+              item_id: r.item_id,
+              order_id: r.order_id,
+              table_id: r.table_id,
+              table_code: r.table_code,
+              qty: Number(r.qty),
+              menu_item_name: item.name,
+            })),
+          },
+        };
       }
 
-      return { data: { ...item, auto_cancelled_count: 0 } };
+      return { data: { ...item, auto_cancelled_count: 0, cancelled_items: [] } };
     });
   }
 
