@@ -25,6 +25,14 @@ export const dataSourceOptions: DataSourceOptions = {
   // → ghi/đọc nhất quán UTC bất kể TZ của host. Khắc phục bug fresh item hiện
   //   ~420 phút thay vì 0 (do mismatch Node local TZ vs MySQL container UTC).
   timezone: 'Z',
+  // Bump pool size — default mysql2 ~10 connection. Polling 2s × ~10 client × nhiều
+  // endpoint song song → pool exhausted thỉnh thoảng → request queue → 500 timeout.
+  // 50 conn cover được 20-30 client poll cùng lúc.
+  extra: {
+    connectionLimit: 50,
+    waitForConnections: true,
+    queueLimit: 0,
+  },
   entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem],
   migrations: ['src/migrations/*.ts'],
   // Use synchronize:true ONLY for first-run dev — production migrations only.
