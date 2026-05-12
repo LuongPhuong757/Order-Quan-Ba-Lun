@@ -1,0 +1,94 @@
+# Production stack: caddy (HTTPS) → api → mysql.
+# Triển khai: cp .env.production.example .env.production → sửa secrets →
+# docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
+#
+# Khác với docker-compose.yml (dev, chỉ mysql): file này build + chạy đủ stack.
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ordbl_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=100
+      - --performance-schema=OFF
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # KHÔNG expose port — chỉ api truy cập qua internal network.
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ordbl_api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_LIFETIME_DAYS: ${JWT_LIFETIME_DAYS:-7}
+      COOKIE_NAME: ${COOKIE_NAME:-ssp_token}
+      COOKIE_SECURE: 'true'
+      SETUP_ALLOWED_IP: ${SETUP_ALLOWED_IP:-127.0.0.1}
+    volumes:
+      # Persist menu images (mất container không mất file)
+      - ./uploads:/app/apps/api/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - backend
+      - frontend
+    # KHÔNG expose port — chỉ Caddy proxy.
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: ordbl_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 QUIC
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data        # Let's Encrypt certs (persistent)
+      - caddy_config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    depends_on:
+      - api
+    networks:
+      - frontend
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:
+
+networks:
+  backend:
+    driver: bridge
+  frontend:
+    driver: bridge

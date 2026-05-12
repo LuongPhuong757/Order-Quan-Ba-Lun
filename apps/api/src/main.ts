@@ -1,6 +1,8 @@
 import 'reflect-metadata';
 import 'dotenv/config';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Request, Response, NextFunction } from 'express';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
@@ -31,6 +33,21 @@ async function bootstrap() {
   // Serve uploaded images: /uploads/menu/<filename> → apps/api/uploads/menu/<filename>
   // (CWD khi chạy dev/prod = apps/api, multer cũng dùng relative 'uploads/menu')
   app.useStaticAssets(join(process.cwd(), 'uploads'), { prefix: '/uploads/' });
+
+  // Production: serve web SPA build cùng API container — Caddy chỉ làm HTTPS termination.
+  // Dev không serve (Vite dev server riêng port 5173 với HMR).
+  const webDist = join(process.cwd(), 'web-dist');
+  if (process.env.NODE_ENV === 'production' && existsSync(webDist)) {
+    app.useStaticAssets(webDist);
+    // SPA fallback: GET non-API routes → index.html (cho client-side routing)
+    const apiPrefixes = ['/auth', '/admin', '/setup', '/health', '/menu', '/menu-groups', '/tables', '/orders', '/uploads'];
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (req.method !== 'GET') return next();
+      if (apiPrefixes.some((p) => req.path === p || req.path.startsWith(p + '/'))) return next();
+      if (req.path.includes('.')) return next();  // file requests like /assets/x.js
+      res.sendFile(join(webDist, 'index.html'));
+    });
+  }
 
   // Bump body parser limit lên 10MB để chứa được payload bulk-import lớn
   // (vd 5000 món × ~250 bytes ≈ 1.2MB). Default Nest ~100KB không đủ.

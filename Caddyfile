@@ -1,0 +1,38 @@
+# Caddy auto HTTPS + reverse proxy to API.
+# DOMAIN env (vd: quanbalun.com) — set qua .env.production.
+
+{$DOMAIN} {
+    # Logging (rotate tự động khi >10MB)
+    log {
+        output stdout
+        format console
+    }
+
+    # Reverse proxy mọi request tới API container (API serve cả web SPA + endpoints)
+    reverse_proxy api:3001 {
+        # Forward client IP cho trust proxy (BE đọc req.ip cho rate limit + audit)
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        # HSTS — force HTTPS trong 1 năm
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        # Anti-clickjacking
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Permissions (tắt API không dùng)
+        Permissions-Policy "geolocation=(), camera=(self), microphone=()"
+    }
+
+    # Compression (gzip + zstd) — giảm 60-80% payload JSON
+    encode zstd gzip
+
+    # HTTP/3 (đã enabled qua port 443/udp ở docker-compose)
+}
+
+# Redirect http → https (Caddy tự động làm khi domain match)
+# Nếu cần www → apex: thêm "www.{$DOMAIN}" trên cùng block ABOVE
