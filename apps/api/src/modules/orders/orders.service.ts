@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -26,6 +27,8 @@ const ALLOWED_TRANSITIONS: Record<string, string[]> = {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(
     @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
     @InjectRepository(OrderItem) private readonly itemRepo: Repository<OrderItem>,
@@ -35,56 +38,79 @@ export class OrdersService {
   ) {}
 
   /** Get or create the open order for a table.
-   * Pessimistic-lock pattern để tránh race condition khi nhiều client poll cùng lúc tạo
-   * duplicate open orders cho cùng bàn (bug từ session trước).
+   *
+   * 2 đường:
+   * - FAST PATH (no-lock): nếu đã có đúng 1 open order → return ngay. Polling
+   *   /by-table/:id mỗi 2s sẽ rơi vào case này 99% thời gian. Tránh hold lock
+   *   quá nhiều → giảm 500 do innodb_lock_wait_timeout khi nhiều client poll.
+   * - SLOW PATH (transaction + pessimistic_write): chỉ dùng khi cần CREATE
+   *   (chưa có order) hoặc DEDUPE (>1 phantom orders). Lock ngăn race tạo trùng.
    *
    * @param creator — nhân viên đang mở. Lưu snapshot vào order.created_by_*
    *                  CHỈ khi tạo order mới (không update khi reuse). */
   async getOrCreateOpenOrder(table_id: string, creator?: OrderCreator): Promise<Order> {
-    return await this.ds.transaction(async (mgr) => {
-      const tableRepo = mgr.getRepository(RestaurantTable);
-      const orderRepo = mgr.getRepository(Order);
-
-      const table = await tableRepo.findOne({ where: { id: table_id, is_active: true } });
+    try {
+      // 1) Validate table (no lock)
+      const table = await this.tableRepo.findOne({ where: { id: table_id, is_active: true } });
       if (!table) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
 
-      // Lock open orders cho bàn này (FOR UPDATE) — ngăn concurrent insert
-      const existing = await orderRepo
-        .createQueryBuilder('o')
-        .where('o.table_id = :tid AND o.closed_at IS NULL', { tid: table_id })
-        .orderBy('o.opened_at', 'ASC')
-        .setLock('pessimistic_write')
-        .getMany();
-
-      if (existing.length > 0) {
-        // Nếu lỡ có nhiều open orders (legacy data) → chọn cái có items hoặc cái cũ nhất
-        const withItems: Order[] = [];
-        for (const o of existing) {
-          const cnt = await mgr.getRepository(OrderItem).count({ where: { order_id: o.id } });
-          if (cnt > 0) withItems.push(o);
-        }
-        if (withItems.length > 0) return withItems[0];
-        // Tất cả empty — keep oldest, delete rest
-        const keep = existing[0];
-        const toDelete = existing.slice(1).map((o) => o.id);
-        if (toDelete.length > 0) {
-          await orderRepo.delete(toDelete);
-        }
-        return keep;
+      // 2) FAST PATH — read without lock. 1 SELECT.
+      const existing = await this.orderRepo.find({
+        where: { table_id, closed_at: IsNull() },
+        order: { opened_at: 'ASC' },
+      });
+      if (existing.length === 1) {
+        return existing[0];  // happy path: đã có order, không cần lock
       }
 
-      const order = orderRepo.create({
-        table_id,
-        table_code: table.code,
-        first_kitchen_at: null,
-        closed_at: null,
-        is_paid: false,
-        created_by_user_id: creator?.id ?? null,
-        created_by_full_name: creator?.full_name ?? null,
+      // 3) SLOW PATH — cần lock cho create hoặc dedupe
+      return await this.ds.transaction(async (mgr) => {
+        const orderRepo = mgr.getRepository(Order);
+
+        // Re-read với lock (có thể đã đổi giữa fast path và slow path)
+        const lockedExisting = await orderRepo
+          .createQueryBuilder('o')
+          .where('o.table_id = :tid AND o.closed_at IS NULL', { tid: table_id })
+          .orderBy('o.opened_at', 'ASC')
+          .setLock('pessimistic_write')
+          .getMany();
+
+        if (lockedExisting.length > 0) {
+          // Dedupe: chọn order có items, hoặc cái cũ nhất nếu tất cả đều rỗng
+          const withItems: Order[] = [];
+          for (const o of lockedExisting) {
+            const cnt = await mgr.getRepository(OrderItem).count({ where: { order_id: o.id } });
+            if (cnt > 0) withItems.push(o);
+          }
+          if (withItems.length > 0) return withItems[0];
+          const keep = lockedExisting[0];
+          const toDelete = lockedExisting.slice(1).map((o) => o.id);
+          if (toDelete.length > 0) await orderRepo.delete(toDelete);
+          return keep;
+        }
+
+        // Tạo mới
+        const order = orderRepo.create({
+          table_id,
+          table_code: table.code,
+          first_kitchen_at: null,
+          closed_at: null,
+          is_paid: false,
+          created_by_user_id: creator?.id ?? null,
+          created_by_full_name: creator?.full_name ?? null,
+        });
+        await orderRepo.save(order);
+        return order;
       });
-      await orderRepo.save(order);
-      return order;
-    });
+    } catch (err) {
+      // Re-throw HttpException, log + wrap others
+      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      this.logger.error(
+        `getOrCreateOpenOrder failed for table=${table_id}: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      throw err;
+    }
   }
 
   /** Set order.first_kitchen_at = now nếu chưa có. Idempotent. */
