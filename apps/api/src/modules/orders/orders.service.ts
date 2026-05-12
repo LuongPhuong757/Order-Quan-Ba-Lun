@@ -292,7 +292,7 @@ export class OrdersService {
    * - Set closed_at = now, is_paid = true.
    * - Order + items vẫn giữ trong DB cho báo cáo (REQ-H).
    */
-  async checkout(order_id: string): Promise<{
+  async checkout(order_id: string, cashier?: OrderCreator): Promise<{
     order: Order;
     served_items: number;
     cancelled_items: number;
@@ -328,6 +328,8 @@ export class OrdersService {
 
       order.closed_at = Date.now();
       order.is_paid = true;
+      order.checked_out_by_user_id = cashier?.id ?? null;
+      order.checked_out_by_full_name = cashier?.full_name ?? null;
       await orderRepo.save(order);
 
       return {
@@ -338,6 +340,29 @@ export class OrdersService {
         total,
       };
     });
+  }
+
+  /** Lịch sử order — chỉ closed orders. Filter table_id (optional) + date range (ms).
+   * Trả về kèm items để FE expand chi tiết khi cần. */
+  async listHistory(opts: {
+    table_id?: string;
+    start_ms?: number;
+    end_ms?: number;
+    page?: number;
+    page_size?: number;
+  }): Promise<{ items: Order[]; total: number; page: number; page_size: number }> {
+    const page = Math.max(1, opts.page || 1);
+    const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
+    const qb = this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoinAndSelect('o.items', 'i')
+      .where('o.closed_at IS NOT NULL');
+    if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
+    if (opts.start_ms) qb.andWhere('o.closed_at >= :s', { s: new Date(opts.start_ms) });
+    if (opts.end_ms) qb.andWhere('o.closed_at <= :e', { e: new Date(opts.end_ms) });
+    qb.orderBy('o.closed_at', 'DESC').skip((page - 1) * page_size).take(page_size);
+    const [items, total] = await qb.getManyAndCount();
+    return { items, total, page, page_size };
   }
 
   /** Transfer all items from source table to destination table.

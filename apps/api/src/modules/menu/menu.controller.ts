@@ -21,8 +21,9 @@ import { extname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { In, Repository } from 'typeorm';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
@@ -50,6 +51,22 @@ class UpdateMenuItemDto {
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
   @IsOptional() @IsBoolean() is_out_of_stock?: boolean;
   @IsOptional() @IsBoolean() is_active?: boolean;
+}
+
+class BulkImportRowDto {
+  @IsString() @MinLength(1) @MaxLength(32) code!: string;
+  @IsString() @MinLength(1) @MaxLength(128) name!: string;
+  @IsString() @MinLength(1) @MaxLength(16) group!: string;
+  @IsInt() @Min(0) @Max(100_000_000) price!: number;
+  @IsString() @MinLength(1) @MaxLength(32) unit!: string;
+  @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
+}
+
+class BulkImportMenuDto {
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BulkImportRowDto)
+  items!: BulkImportRowDto[];
 }
 
 @Controller('menu')
@@ -99,6 +116,46 @@ export class MenuController {
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Thiếu file ảnh' });
     return { data: { url: `/uploads/menu/${file.filename}` } };
+  }
+
+  /** POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).
+   * Mã trùng → ghi đè (name/group/price/unit/image_url). Mã mới → insert. */
+  @Post('bulk-import')
+  @HttpCode(201)
+  @UseGuards(OwnerGuard)
+  async bulkImport(@Body() dto: BulkImportMenuDto) {
+    const codes = dto.items.map((i) => i.code);
+    const existing = await this.repo.find({ where: { code: In(codes) } });
+    const existingMap = new Map(existing.map((e) => [e.code, e]));
+    let created = 0;
+    let updated = 0;
+    for (const row of dto.items) {
+      const old = existingMap.get(row.code);
+      if (old) {
+        old.name = row.name;
+        old.group = row.group;
+        old.price = row.price;
+        old.unit = row.unit;
+        if (row.image_url !== undefined) old.image_url = row.image_url ?? null;
+        old.is_active = true;
+        await this.repo.save(old);
+        updated++;
+      } else {
+        const fresh = this.repo.create({
+          code: row.code,
+          name: row.name,
+          group: row.group,
+          price: row.price,
+          unit: row.unit,
+          image_url: row.image_url ?? null,
+          is_out_of_stock: false,
+          is_active: true,
+        });
+        await this.repo.save(fresh);
+        created++;
+      }
+    }
+    return { data: { total: dto.items.length, created, updated } };
   }
 
   /** POST /menu — owner only */

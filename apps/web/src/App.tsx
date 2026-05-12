@@ -15,6 +15,7 @@ import { OrdersPage } from './pages/OrdersPage.tsx';
 import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
 import { KitchenPage } from './pages/KitchenPage.tsx';
 import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
+import { HistoryPage } from './pages/HistoryPage.tsx';
 
 export function App() {
   return (
@@ -35,6 +36,7 @@ export function App() {
             <Route path="/orders" element={<OrdersPage />} />
             <Route path="/menu" element={<MenuManagementPage />} />
             <Route path="/kitchen" element={<KitchenPage />} />
+            <Route path="/history" element={<HistoryPage />} />
             <Route element={<OwnerOnly />}>
               <Route path="/tables" element={<TablesManagementPage />} />
             </Route>
@@ -82,6 +84,7 @@ function ProtectedShell() {
           <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
           <NavLink to="/menu">📋 Menu</NavLink>
           <NavLink to="/tables">🪑 Bàn</NavLink>
+          <NavLink to="/history">📜 LS</NavLink>
           <NavLink to="/admin/users">👥 NV</NavLink>
         </nav>
       )}
@@ -90,7 +93,8 @@ function ProtectedShell() {
           <NavLink to="/orders">🍽 Order</NavLink>
           <NavLink to="/kitchen">👨‍🍳 Bếp</NavLink>
           <NavLink to="/menu">📋 Menu</NavLink>
-          <NavLink to="/account">⚙ Tài khoản</NavLink>
+          <NavLink to="/history">📜 LS</NavLink>
+          <NavLink to="/account">⚙ TK</NavLink>
         </nav>
       )}
     </>

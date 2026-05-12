@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
+import * as XLSX from 'xlsx';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -44,6 +45,7 @@ export function MenuManagementPage() {
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showGroupsManager, setShowGroupsManager] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -108,13 +110,18 @@ export function MenuManagementPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Menu</h1>
-        <div className="flex" style={{ gap: 8 }}>
+        <div className="flex" style={{ gap: 6, flexWrap: 'wrap' }}>
           {user?.is_owner && (
-            <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 14px' }}>
+            <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 12px' }}>
               Nhóm
             </button>
           )}
-          {user?.is_owner && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px' }}>+ Món</button>}
+          {user?.is_owner && (
+            <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
+              📥 Import
+            </button>
+          )}
+          {user?.is_owner && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
         </div>
       </div>
 
@@ -251,6 +258,13 @@ export function MenuManagementPage() {
           groups={groups}
           onClose={() => setShowGroupsManager(false)}
           onChanged={() => refresh()}
+        />
+      )}
+      {showImport && (
+        <ImportMenuModal
+          groups={groups}
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); refresh(); }}
         />
       )}
     </div>
@@ -663,3 +677,231 @@ function MenuFormModal({
     </div>
   );
 }
+
+// ─── ImportMenuModal: upload CSV/XLSX → preview → bulk upsert ────────────────
+type ImportRow = {
+  code: string;
+  name: string;
+  group: string;
+  price: number;
+  unit: string;
+  image_url?: string | null;
+  /** Lỗi parse — nếu có thì row này sẽ bị skip khi submit. */
+  error?: string;
+};
+
+function ImportMenuModal({
+  groups,
+  onClose,
+  onImported,
+}: {
+  groups: MenuGroup[];
+  onClose: () => void;
+  onImported: () => void;
+}) {
+  const toast = useToast();
+  const [rows, setRows] = useState<ImportRow[] | null>(null);
+  const [fileName, setFileName] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validGroupCodes = new Set(groups.map((g) => g.code));
+
+  const parseFile = async (file: File) => {
+    setFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+
+      if (raw.length === 0) {
+        toast.push('error', 'File rỗng — không tìm thấy dòng dữ liệu nào');
+        return;
+      }
+
+      // Normalize column names (lowercase, trim)
+      const parsed: ImportRow[] = raw.map((r) => {
+        const norm: Record<string, string> = {};
+        for (const k of Object.keys(r)) {
+          norm[k.toLowerCase().trim()] = String(r[k] ?? '').trim();
+        }
+        const code = norm['code'] || norm['mã'] || norm['ma'] || '';
+        const name = norm['name'] || norm['tên'] || norm['ten'] || '';
+        const group = (norm['group'] || norm['nhóm'] || norm['nhom'] || '').toLowerCase();
+        const priceStr = (norm['price'] || norm['giá'] || norm['gia'] || '0').replace(/[^\d.-]/g, '');
+        const price = Number(priceStr) || 0;
+        const unit = norm['unit'] || norm['đvt'] || norm['dvt'] || 'phần';
+        const image_url = norm['image_url'] || norm['image'] || norm['ảnh'] || norm['anh'] || '';
+
+        let error: string | undefined;
+        if (!code) error = 'Thiếu mã';
+        else if (!name) error = 'Thiếu tên';
+        else if (!group) error = 'Thiếu nhóm';
+        else if (!validGroupCodes.has(group)) error = `Nhóm "${group}" không tồn tại`;
+        else if (price < 0 || price > 100_000_000) error = 'Giá không hợp lệ (0 - 100tr)';
+        return { code: code.toUpperCase(), name, group, price, unit, image_url: image_url || null, error };
+      });
+      setRows(parsed);
+    } catch (e) {
+      console.error(e);
+      toast.push('error', 'Không đọc được file. Đảm bảo định dạng CSV hoặc XLSX hợp lệ.');
+    }
+  };
+
+  const downloadTemplate = () => {
+    const sample = [
+      { code: 'F001', name: 'Phở bò', group: 'food', price: 50000, unit: 'tô' },
+      { code: 'D001', name: 'Trà đá', group: 'drink', price: 5000, unit: 'cốc' },
+    ];
+    const ws = XLSX.utils.json_to_sheet(sample);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'menu');
+    XLSX.writeFile(wb, 'menu-template.xlsx');
+  };
+
+  const submit = async () => {
+    if (!rows) return;
+    const valid = rows.filter((r) => !r.error);
+    if (valid.length === 0) {
+      toast.push('error', 'Không có dòng hợp lệ để import');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await api.post<{ data: { total: number; created: number; updated: number } }>(
+        '/menu/bulk-import',
+        { items: valid.map((r) => ({
+            code: r.code, name: r.name, group: r.group,
+            price: r.price, unit: r.unit, image_url: r.image_url,
+          })) },
+      );
+      const { created, updated } = res.data.data;
+      toast.push('success', `Import OK · ${created} thêm mới, ${updated} cập nhật`);
+      onImported();
+    } catch (e) {
+      toast.push('error', extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const errorCount = rows?.filter((r) => r.error).length || 0;
+  const validCount = rows?.filter((r) => !r.error).length || 0;
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 700, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0 }}>📥 Import menu từ file</h1>
+            <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
+              Chấp nhận .xlsx hoặc .csv. Cột: <code>code, name, group, price, unit, image_url</code>.
+              Mã trùng sẽ <strong>ghi đè</strong> (giá/tên/ảnh/đvt).
+            </p>
+          </div>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>✕</button>
+        </div>
+
+        {!rows ? (
+          <>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) parseFile(f); }}
+              style={{ display: 'none' }}
+            />
+            <div
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                border: '2px dashed #d1d5db',
+                borderRadius: 12,
+                padding: '40px 20px',
+                textAlign: 'center',
+                cursor: 'pointer',
+                background: '#f9fafb',
+                marginBottom: 12,
+              }}
+            >
+              <div style={{ fontSize: 48 }}>📄</div>
+              <div style={{ fontWeight: 600, marginTop: 8 }}>Bấm để chọn file</div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+                .xlsx, .xls, hoặc .csv (tối đa 500 dòng)
+              </div>
+            </div>
+            <button type="button" className="secondary" onClick={downloadTemplate} style={{ width: '100%' }}>
+              ⬇ Tải template Excel mẫu
+            </button>
+          </>
+        ) : (
+          <>
+            <div
+              style={{
+                background: errorCount > 0 ? '#fef3c7' : '#ecfdf5',
+                padding: 10,
+                borderRadius: 8,
+                fontSize: 13,
+                marginBottom: 12,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 8,
+                flexWrap: 'wrap',
+              }}
+            >
+              <div>
+                <strong>📄 {fileName}</strong> · {rows.length} dòng ·
+                {' '}<span style={{ color: '#059669' }}>{validCount} OK</span>
+                {errorCount > 0 && <> · <span style={{ color: '#dc2626' }}>{errorCount} lỗi (sẽ bỏ qua)</span></>}
+              </div>
+              <button type="button" className="secondary" onClick={() => { setRows(null); setFileName(''); }} style={{ padding: '4px 10px', fontSize: 12 }}>
+                Chọn file khác
+              </button>
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead style={{ position: 'sticky', top: 0, background: '#f9fafb' }}>
+                  <tr>
+                    <th style={th}>Mã</th>
+                    <th style={th}>Tên</th>
+                    <th style={th}>Nhóm</th>
+                    <th style={{ ...th, textAlign: 'right' }}>Giá</th>
+                    <th style={th}>ĐVT</th>
+                    <th style={th}>Lỗi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i} style={{ background: r.error ? '#fef2f2' : 'white', borderTop: '1px solid #f3f4f6' }}>
+                      <td style={td}><code>{r.code}</code></td>
+                      <td style={td}>{r.name}</td>
+                      <td style={td}>{r.group}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>{r.price.toLocaleString('vi-VN')}đ</td>
+                      <td style={td}>{r.unit}</td>
+                      <td style={{ ...td, color: '#dc2626', fontSize: 12 }}>{r.error || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex" style={{ marginTop: 12 }}>
+              <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+                Huỷ
+              </button>
+              <button type="button" onClick={submit} disabled={submitting || validCount === 0} style={{ flex: 2 }}>
+                {submitting && <span className="spinner" />}
+                Import {validCount} món
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
+const td: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'top' };

@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -126,8 +127,24 @@ export class OrdersController {
 
   /** POST /orders/:id/checkout — thanh toán + đóng order */
   @Post(':id/checkout')
-  async checkout(@Param('id') id: string) {
-    const result = await this.svc.checkout(id);
+  async checkout(@Param('id') id: string, @Req() req: Request) {
+    const result = await this.svc.checkout(id, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: result };
+  }
+
+  /** GET /orders/history — lịch sử closed orders, filter table_id/date range */
+  @Get('history')
+  async history(@Query() q: Record<string, string>) {
+    const result = await this.svc.listHistory({
+      table_id: q.table_id || undefined,
+      start_ms: q.start_ms ? Number(q.start_ms) : undefined,
+      end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      page: q.page ? Number(q.page) : 1,
+      page_size: q.page_size ? Number(q.page_size) : 20,
+    });
     return { data: result };
   }
 

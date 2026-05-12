@@ -35,6 +35,7 @@ export function TablesManagementPage() {
   const [items, setItems] = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [showBulk, setShowBulk] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
   const [kindFilter, setKindFilter] = useState<string>('');
 
@@ -85,9 +86,14 @@ export function TablesManagementPage() {
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Bàn ăn</h1>
         {user?.is_owner && (
-          <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px' }}>
-            + Thêm bàn
-          </button>
+          <div className="flex" style={{ gap: 6 }}>
+            <button className="secondary" onClick={() => setShowBulk(true)} style={{ padding: '8px 12px' }}>
+              + Hàng loạt
+            </button>
+            <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px' }}>
+              + Thêm
+            </button>
+          </div>
         )}
       </div>
 
@@ -179,6 +185,160 @@ export function TablesManagementPage() {
           onSaved={() => { setEditing(null); refresh(); }}
         />
       )}
+      {showBulk && (
+        <BulkTablesModal
+          onClose={() => setShowBulk(false)}
+          onCreated={() => { setShowBulk(false); refresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const toast = useToast();
+  const [startCode, setStartCode] = useState('B01');
+  const [endCode, setEndCode] = useState('B10');
+  const [kind, setKind] = useState('dine-in');
+  const [namePrefix, setNamePrefix] = useState('Bàn');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Preview parse — show user what will be created
+  const preview = (() => {
+    const m1 = startCode.match(/^(.*?)(\d+)$/);
+    const m2 = endCode.match(/^(.*?)(\d+)$/);
+    if (!m1 || !m2) return { ok: false, count: 0, msg: 'Mã phải có dạng "chữ + số" (vd B01, T05)' };
+    if (m1[1] !== m2[1]) return { ok: false, count: 0, msg: `Prefix khác nhau: "${m1[1]}" vs "${m2[1]}"` };
+    const a = parseInt(m1[2], 10);
+    const b = parseInt(m2[2], 10);
+    if (b < a) return { ok: false, count: 0, msg: 'Mã kết thúc phải ≥ mã bắt đầu' };
+    const n = b - a + 1;
+    if (n > 100) return { ok: false, count: 0, msg: `Tối đa 100 bàn/lần (yêu cầu ${n})` };
+    return { ok: true, count: n, msg: `Sẽ tạo ${n} bàn: ${startCode} → ${endCode}` };
+  })();
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!preview.ok) { setErr(preview.msg); return; }
+    setSubmitting(true); setErr(null);
+    try {
+      const res = await api.post<{ data: { created: number; skipped: number; skipped_codes: string[] } }>(
+        '/tables/bulk',
+        { start_code: startCode.trim(), end_code: endCode.trim(), kind, name_prefix: namePrefix.trim() || undefined },
+      );
+      const { created, skipped, skipped_codes } = res.data.data;
+      let msg = `Đã tạo ${created} bàn`;
+      if (skipped > 0) msg += ` · bỏ qua ${skipped} (đã tồn tại: ${skipped_codes.slice(0, 5).join(', ')}${skipped_codes.length > 5 ? '...' : ''})`;
+      toast.push('success', msg);
+      onCreated();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
+        <h1>Thêm bàn hàng loạt</h1>
+        <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
+          Tạo nhiều bàn cùng lúc theo dải mã. Bàn đã tồn tại sẽ được bỏ qua.
+        </p>
+
+        <div className="flex">
+          <div className="row" style={{ flex: 1 }}>
+            <label htmlFor="bt-start">Mã bắt đầu</label>
+            <input
+              id="bt-start"
+              value={startCode}
+              onChange={(e) => { setStartCode(e.target.value.toUpperCase()); setErr(null); }}
+              placeholder="B01"
+              style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
+              autoFocus
+            />
+          </div>
+          <div className="row" style={{ flex: 1 }}>
+            <label htmlFor="bt-end">Mã kết thúc</label>
+            <input
+              id="bt-end"
+              value={endCode}
+              onChange={(e) => { setEndCode(e.target.value.toUpperCase()); setErr(null); }}
+              placeholder="B10"
+              style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
+            />
+          </div>
+        </div>
+
+        <div className="row">
+          <label>Loại bàn</label>
+          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr' }}>
+            {(['dine-in', 'takeaway', 'delivery'] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                onClick={() => setKind(k)}
+                style={{
+                  padding: '10px 8px',
+                  background: kind === k ? '#fef3c7' : 'white',
+                  border: kind === k ? '2px solid #0f766e' : '1px solid #d1d5db',
+                  color: '#1f2937',
+                  fontWeight: kind === k ? 700 : 400,
+                  fontSize: 12,
+                  borderRadius: 8,
+                  minHeight: 50,
+                  cursor: 'pointer',
+                  lineHeight: 1.2,
+                }}
+              >
+                {k === 'dine-in' ? '🪑 Tại quán' : k === 'takeaway' ? '🥡 Mang về' : '🛵 Giao hàng'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="row">
+          <label htmlFor="bt-prefix">Tên bàn — prefix</label>
+          <input
+            id="bt-prefix"
+            value={namePrefix}
+            onChange={(e) => setNamePrefix(e.target.value)}
+            placeholder="Bàn"
+            maxLength={32}
+          />
+          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            Tên sẽ là "{namePrefix || 'Bàn'} 01", "{namePrefix || 'Bàn'} 02"... — có thể sửa từng bàn sau.
+          </p>
+        </div>
+
+        {/* Preview */}
+        <div
+          style={{
+            background: preview.ok ? '#ecfdf5' : '#fef2f2',
+            color: preview.ok ? '#059669' : '#dc2626',
+            padding: 10,
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            marginBottom: 12,
+          }}
+        >
+          {preview.ok ? '✓ ' : '⚠ '}{preview.msg}
+        </div>
+
+        {err && <div className="field-error">{err}</div>}
+
+        <div className="flex" style={{ marginTop: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Huỷ
+          </button>
+          <button type="submit" disabled={submitting || !preview.ok} style={{ flex: 1 }}>
+            {submitting && <span className="spinner" />}
+            Tạo {preview.ok ? preview.count : ''} bàn
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
