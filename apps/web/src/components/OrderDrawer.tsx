@@ -717,7 +717,11 @@ function ItemRow({
   onChangeState: (to: string) => void;
   readonly?: boolean;
 }) {
-  const next = ALLOWED[item.state].filter((s) => s !== 'CANCELLED');
+  // Ẩn các transition thuộc luồng bếp khỏi giao diện order — staff order chỉ
+  // cần các action: Báo bếp (gọi tới bếp), Đã giao (giao tới khách), Huỷ.
+  // 'COOKING' (Bắt đầu nấu) + 'READY' (Xong) là hành động của bếp ở KDS.
+  const KITCHEN_ONLY = new Set(['COOKING', 'READY']);
+  const next = ALLOWED[item.state].filter((s) => s !== 'CANCELLED' && !KITCHEN_ONLY.has(s));
   const cancelAllowed = ALLOWED[item.state].includes('CANCELLED');
 
   return (
