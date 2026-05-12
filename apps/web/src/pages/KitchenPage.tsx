@@ -47,6 +47,30 @@ type KitchenItem = OrderItem & { table_code: string; group: string };
 
 // Filter Bếp: Set<string> các group.code đang chọn. Empty Set = chọn tất cả.
 // Cho phép multi-select: tap nhiều nhóm để xem kết hợp.
+// Selection được lưu vào localStorage → giữ qua reload/login lại.
+const STORAGE_KEY = 'kitchen-group-filters-v1';
+
+function loadStoredFilters(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (Array.isArray(arr)) return new Set(arr.filter((x) => typeof x === 'string'));
+  } catch {
+    // ignore parse errors
+  }
+  return new Set();
+}
+
+function saveFilters(s: Set<string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify([...s]));
+  } catch {
+    // ignore quota errors
+  }
+}
 
 const COLUMN_DEFS: Array<{
   state: string;
@@ -112,7 +136,13 @@ export function KitchenPage() {
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
-  const [groupFilters, setGroupFilters] = useState<Set<string>>(new Set());
+  const [groupFilters, setGroupFilters] = useState<Set<string>>(() => loadStoredFilters());
+  const [showFilterModal, setShowFilterModal] = useState(false);
+
+  // Persist filter ra localStorage mỗi khi thay đổi
+  useEffect(() => {
+    saveFilters(groupFilters);
+  }, [groupFilters]);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -190,14 +220,6 @@ export function KitchenPage() {
     return out;
   }, [orders, menuMap, groupFilters, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggleGroup = (code: string) => {
-    setGroupFilters((prev) => {
-      const next = new Set(prev);
-      if (next.has(code)) next.delete(code);
-      else next.add(code);
-      return next;
-    });
-  };
   const clearGroups = () => setGroupFilters(new Set());
 
   // Đếm số item active (KITCHEN+COOKING+READY) theo từng group — luôn tính từ full data,
@@ -404,70 +426,82 @@ export function KitchenPage() {
         </button>
       </div>
 
-      {/* Filter theo nhóm món — multi-select. Tap nhiều nhóm để kết hợp.
-          'Tất cả' = clear hết. Active state: viền + bold + checkmark. */}
+      {/* Filter bar — 1 nút mở modal chọn nhóm. Chip 'X nhóm' khi đã chọn,
+          nút 'Xoá lọc' để reset về tất cả. Selection lưu localStorage. */}
       <div
         style={{
           display: 'flex',
           gap: 8,
           marginBottom: 12,
-          overflowX: 'auto',
-          paddingBottom: 4,
+          alignItems: 'center',
+          flexWrap: 'wrap',
         }}
       >
         <button
-          onClick={clearGroups}
-          className={groupFilters.size === 0 ? '' : 'secondary'}
+          onClick={() => setShowFilterModal(true)}
+          className={groupFilters.size > 0 ? '' : 'secondary'}
           style={{
             padding: '10px 16px',
             fontSize: 14,
             whiteSpace: 'nowrap',
             minHeight: 44,
-            flex: '0 0 auto',
-            fontWeight: groupFilters.size === 0 ? 700 : 400,
+            fontWeight: groupFilters.size > 0 ? 700 : 400,
           }}
         >
-          Tất cả ({totalActiveCount})
+          🔍 Lọc nhóm
+          {groupFilters.size === 0
+            ? ` · Tất cả (${totalActiveCount})`
+            : ` · ${groupFilters.size} nhóm`}
         </button>
-        {groups.map((g) => {
-          const n = countByGroup[g.code] || 0;
-          const active = groupFilters.has(g.code);
-          return (
-            <button
-              key={g.code}
-              onClick={() => toggleGroup(g.code)}
-              className={active ? '' : 'secondary'}
-              style={{
-                padding: '10px 16px',
-                fontSize: 14,
-                whiteSpace: 'nowrap',
-                minHeight: 44,
-                flex: '0 0 auto',
-                fontWeight: active ? 700 : 400,
-                opacity: n === 0 ? 0.55 : 1,
-              }}
-              title={`${g.name} · ${g.kitchen_type === 'cook' ? 'Bếp nấu' : 'Có sẵn'}`}
-            >
-              {active && <span style={{ marginRight: 4 }}>✓</span>}
-              {g.icon && <span style={{ marginRight: 4 }}>{g.icon}</span>}
-              {g.name} ({n})
-            </button>
-          );
-        })}
         {groupFilters.size > 0 && (
-          <span
-            style={{
-              alignSelf: 'center',
-              fontSize: 12,
-              color: '#6b7280',
-              whiteSpace: 'nowrap',
-              padding: '0 4px',
-            }}
-          >
-            {groupFilters.size} nhóm
-          </span>
+          <>
+            {/* Hiện list nhóm đã chọn như chip nhỏ */}
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
+              {[...groupFilters].map((code) => {
+                const g = groups.find((x) => x.code === code);
+                if (!g) return null;
+                return (
+                  <span
+                    key={code}
+                    style={{
+                      padding: '4px 8px',
+                      background: '#f0fdfa',
+                      border: '1px solid #ccfbf1',
+                      borderRadius: 999,
+                      fontSize: 12,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {g.icon && <span style={{ marginRight: 2 }}>{g.icon}</span>}
+                    {g.name} ({countByGroup[g.code] || 0})
+                  </span>
+                );
+              })}
+            </div>
+            <button
+              onClick={clearGroups}
+              className="secondary"
+              style={{ padding: '6px 12px', fontSize: 12, minHeight: 32 }}
+            >
+              ✕ Xoá lọc
+            </button>
+          </>
         )}
       </div>
+
+      {showFilterModal && (
+        <GroupFilterModal
+          groups={groups}
+          countByGroup={countByGroup}
+          totalActiveCount={totalActiveCount}
+          initialSelection={groupFilters}
+          onClose={() => setShowFilterModal(false)}
+          onApply={(s) => {
+            setGroupFilters(s);
+            setShowFilterModal(false);
+          }}
+        />
+      )}
 
       {loading && <p style={{ color: '#6b7280', textAlign: 'center' }}>Đang tải...</p>}
 
@@ -626,3 +660,252 @@ function Card({
     </div>
   );
 }
+
+// ─── GroupFilterModal: chọn nhóm để lọc món hiển thị trên KDS ──────────────
+function GroupFilterModal({
+  groups,
+  countByGroup,
+  totalActiveCount,
+  initialSelection,
+  onClose,
+  onApply,
+}: {
+  groups: MenuGroup[];
+  countByGroup: Record<string, number>;
+  totalActiveCount: number;
+  initialSelection: Set<string>;
+  onClose: () => void;
+  onApply: (selected: Set<string>) => void;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(initialSelection));
+  const [search, setSearch] = useState('');
+
+  const toggle = (code: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(code)) next.delete(code);
+      else next.add(code);
+      return next;
+    });
+  };
+  const selectAll = () => setSelected(new Set(groups.map((g) => g.code)));
+  const selectNone = () => setSelected(new Set());
+
+  const filtered = search.trim()
+    ? groups.filter((g) =>
+        g.name.toLowerCase().includes(search.toLowerCase()) ||
+        g.code.toLowerCase().includes(search.toLowerCase()),
+      )
+    : groups;
+
+  // Group by kitchen_type (cook vs ready-made) cho dễ nhìn
+  const cookGroups = filtered.filter((g) => g.kitchen_type === 'cook');
+  const readyGroups = filtered.filter((g) => g.kitchen_type !== 'cook');
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(15,23,42,0.5)',
+        backdropFilter: 'blur(2px)',
+        zIndex: 10000,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+      }}
+    >
+      <div
+        style={{
+          background: 'white',
+          borderRadius: 14,
+          maxWidth: 560,
+          width: '100%',
+          maxHeight: '90vh',
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden',
+          boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
+        }}
+      >
+        {/* Header */}
+        <div
+          style={{
+            padding: '14px 18px',
+            borderBottom: '1px solid #e5e7eb',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <div>
+            <h2 style={{ margin: 0, fontSize: 17 }}>🔍 Lọc nhóm món</h2>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+              Tích chọn để chỉ hiện món thuộc nhóm đó.
+            </div>
+          </div>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
+        </div>
+
+        {/* Search + bulk actions */}
+        <div style={{ padding: '10px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="🔍 Tìm tên nhóm..."
+            style={{
+              flex: 1,
+              minWidth: 180,
+              padding: '8px 12px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              fontSize: 14,
+              minHeight: 40,
+            }}
+          />
+          <button type="button" className="secondary" onClick={selectAll} style={{ padding: '6px 10px', fontSize: 12 }}>
+            ✓ Tất cả
+          </button>
+          <button type="button" className="secondary" onClick={selectNone} style={{ padding: '6px 10px', fontSize: 12 }}>
+            ✕ Bỏ chọn
+          </button>
+        </div>
+
+        {/* Body: list with checkboxes */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '8px 0' }}>
+          {groups.length === 0 && (
+            <div style={{ padding: 20, color: '#6b7280', textAlign: 'center' }}>
+              Chưa có nhóm nào.
+            </div>
+          )}
+
+          {cookGroups.length > 0 && (
+            <>
+              <div style={sectionHeader}>🔥 Bếp nấu</div>
+              {cookGroups.map((g) => (
+                <FilterRow key={g.code} group={g} count={countByGroup[g.code] || 0} checked={selected.has(g.code)} onToggle={() => toggle(g.code)} />
+              ))}
+            </>
+          )}
+
+          {readyGroups.length > 0 && (
+            <>
+              <div style={sectionHeader}>🥤 Bếp có sẵn</div>
+              {readyGroups.map((g) => (
+                <FilterRow key={g.code} group={g} count={countByGroup[g.code] || 0} checked={selected.has(g.code)} onToggle={() => toggle(g.code)} />
+              ))}
+            </>
+          )}
+
+          {search.trim() && filtered.length === 0 && (
+            <div style={{ padding: 20, color: '#9ca3af', textAlign: 'center', fontSize: 13 }}>
+              Không tìm thấy nhóm khớp "{search}"
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div
+          style={{
+            padding: '12px 18px',
+            borderTop: '1px solid #e5e7eb',
+            background: '#f9fafb',
+            display: 'flex',
+            gap: 8,
+            alignItems: 'center',
+          }}
+        >
+          <div style={{ flex: 1, fontSize: 13, color: '#6b7280' }}>
+            {selected.size === 0
+              ? `Hiện tất cả (${totalActiveCount} món)`
+              : `Đã chọn ${selected.size}/${groups.length} nhóm`}
+          </div>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '8px 14px', minHeight: 40 }}>
+            Huỷ
+          </button>
+          <button
+            type="button"
+            onClick={() => onApply(selected)}
+            style={{
+              padding: '8px 16px',
+              minHeight: 40,
+              background: '#0f766e',
+              color: 'white',
+              fontWeight: 600,
+            }}
+          >
+            Áp dụng
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FilterRow({
+  group,
+  count,
+  checked,
+  onToggle,
+}: {
+  group: MenuGroup;
+  count: number;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <label
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 10,
+        padding: '10px 18px',
+        cursor: 'pointer',
+        background: checked ? '#f0fdfa' : 'white',
+        borderTop: '1px solid #f3f4f6',
+        opacity: count === 0 ? 0.55 : 1,
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        style={{ width: 18, height: 18, cursor: 'pointer' }}
+      />
+      <div style={{ flex: 1, fontSize: 14 }}>
+        {group.icon && <span style={{ marginRight: 6 }}>{group.icon}</span>}
+        {group.name}
+      </div>
+      <code style={{ fontSize: 11, color: '#9ca3af' }}>{group.code}</code>
+      <span
+        style={{
+          fontSize: 12,
+          fontWeight: 600,
+          color: count > 0 ? '#0f766e' : '#9ca3af',
+          minWidth: 24,
+          textAlign: 'right',
+        }}
+      >
+        {count}
+      </span>
+    </label>
+  );
+}
+
+const sectionHeader: React.CSSProperties = {
+  padding: '8px 18px 4px',
+  fontSize: 11,
+  color: '#6b7280',
+  textTransform: 'uppercase',
+  letterSpacing: 0.5,
+  fontWeight: 700,
+  background: '#fafafa',
+};
