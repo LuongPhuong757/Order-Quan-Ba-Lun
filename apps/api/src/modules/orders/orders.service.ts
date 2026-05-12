@@ -447,46 +447,75 @@ export class OrdersService {
   /** Transfer all items from source table to destination table.
    * Closes source order (if no items remain) and moves items to dest order. */
   async transferTable(source_order_id: string, dest_table_id: string) {
-    return await this.ds.transaction(async (mgr) => {
-      const orderRepo = mgr.getRepository(Order);
-      const itemRepo = mgr.getRepository(OrderItem);
-      const tableRepo = mgr.getRepository(RestaurantTable);
+    try {
+      return await this.ds.transaction(async (mgr) => {
+        const orderRepo = mgr.getRepository(Order);
+        const itemRepo = mgr.getRepository(OrderItem);
+        const tableRepo = mgr.getRepository(RestaurantTable);
 
-      const src = await orderRepo.findOne({ where: { id: source_order_id }, relations: ['items'] });
-      if (!src) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order nguồn không tồn tại' });
-      if (src.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng' });
+        const src = await orderRepo.findOne({ where: { id: source_order_id }, relations: ['items'] });
+        if (!src) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order nguồn không tồn tại' });
+        if (src.closed_at) throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã đóng' });
 
-      const destTable = await tableRepo.findOne({ where: { id: dest_table_id, is_active: true } });
-      if (!destTable) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn đích không tồn tại' });
-      if (src.table_id === dest_table_id) {
-        throw new BadRequestException({ code: 'CONFLICT', message: 'Bàn đích trùng bàn nguồn' });
-      }
+        const destTable = await tableRepo.findOne({ where: { id: dest_table_id, is_active: true } });
+        if (!destTable) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn đích không tồn tại' });
+        if (src.table_id === dest_table_id) {
+          throw new BadRequestException({ code: 'CONFLICT', message: 'Bàn đích trùng bàn nguồn' });
+        }
 
-      let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
-      if (!dest) {
-        dest = orderRepo.create({
-          table_id: dest_table_id,
-          table_code: destTable.code,
-          closed_at: null,
-          is_paid: false,
-        });
-        await orderRepo.save(dest);
-      }
+        let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
+        const destWasNew = !dest;
+        if (!dest) {
+          // Tạo mới — copy snapshot từ src để giữ context (first_kitchen_at, customer info)
+          dest = orderRepo.create({
+            table_id: dest_table_id,
+            table_code: destTable.code,
+            closed_at: null,
+            is_paid: false,
+            // Copy timer + creator nếu src có
+            first_kitchen_at: src.first_kitchen_at,
+            created_by_user_id: src.created_by_user_id,
+            created_by_full_name: src.created_by_full_name,
+            // Copy customer info nếu đích là delivery (bếp ship vẫn cần thông tin)
+            customer_name: destTable.kind === 'delivery' ? src.customer_name : null,
+            customer_address: destTable.kind === 'delivery' ? src.customer_address : null,
+            customer_phone: destTable.kind === 'delivery' ? src.customer_phone : null,
+          });
+          await orderRepo.save(dest);
+        } else if (!dest.first_kitchen_at && src.first_kitchen_at) {
+          // Dest existed but chưa báo bếp — copy first_kitchen_at từ src
+          dest.first_kitchen_at = src.first_kitchen_at;
+          await orderRepo.save(dest);
+        }
 
-      // Move items
-      await itemRepo
-        .createQueryBuilder()
-        .update(OrderItem)
-        .set({ order_id: dest.id })
-        .where('order_id = :sid', { sid: src.id })
-        .execute();
+        // Move items — set FK + giữ original created_at để KDS không reset timer
+        const moveResult = await itemRepo
+          .createQueryBuilder()
+          .update(OrderItem)
+          .set({ order_id: dest.id })
+          .where('order_id = :sid', { sid: src.id })
+          .execute();
 
-      // Close source order
-      src.closed_at = Date.now();
-      await orderRepo.save(src);
+        const moved = moveResult.affected || 0;
+        this.logger.log(
+          `transferTable: src=${source_order_id} → dest=${dest.id} (table ${destTable.code}), ` +
+          `moved ${moved} items, dest_new=${destWasNew}`,
+        );
 
-      const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
-      return refreshed!;
-    });
+        // Close source order
+        src.closed_at = Date.now();
+        await orderRepo.save(src);
+
+        const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
+        return refreshed!;
+      });
+    } catch (err) {
+      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      this.logger.error(
+        `transferTable failed: src=${source_order_id} dest_table=${dest_table_id}: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+      throw err;
+    }
   }
 }

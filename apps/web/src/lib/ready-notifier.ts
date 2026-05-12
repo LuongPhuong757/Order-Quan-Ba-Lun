@@ -34,8 +34,16 @@ type KitchenCancelEvent = {
   reason: string;
 };
 
+type NewOrderEvent = {
+  item_id: string;
+  table_code: string;
+  menu_item_name: string;
+  qty: number;
+};
+
 type Listener = (event: ReadyEvent) => void;
 type CancelListener = (event: KitchenCancelEvent) => void;
+type NewOrderListener = (event: NewOrderEvent) => void;
 
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
@@ -44,6 +52,7 @@ class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
   private listeners = new Set<Listener>();
   private cancelListeners = new Set<CancelListener>();
+  private newOrderListeners = new Set<NewOrderListener>();
   private audioCtx: AudioContext | null = null;
   private initialized = false;
 
@@ -56,27 +65,48 @@ class ReadyNotifier {
         seen.add(it.id);
         const prev = this.prevStates.get(it.id);
         // Chỉ emit khi đã init (tránh false-positive lần đầu load)
-        if (this.initialized && prev !== undefined && prev !== it.state) {
-          // 1) Transition → READY: món bếp xong, bồi bàn lên lấy
-          if (prev !== 'READY' && it.state === 'READY') {
-            this.emit({
+        if (this.initialized) {
+          // 1) Item MỚI (chưa từng thấy) vào state KITCHEN → bồi vừa báo bếp
+          //    → thông báo bếp có món mới cần làm
+          if (prev === undefined && it.state === 'KITCHEN') {
+            this.emitNewOrder({
               item_id: it.id,
               table_code: o.table_code,
               menu_item_name: it.menu_item_name,
               qty: it.qty,
             });
           }
-          // 2) Transition → CANCELLED với reason 'Bếp báo hết': bồi bàn cần thông
-          //    báo khách bàn này đổi món
-          if (prev !== 'CANCELLED' && it.state === 'CANCELLED'
-              && it.cancelled_reason?.startsWith(KITCHEN_CANCEL_PREFIX)) {
-            this.emitCancel({
+          // 2) Transition PENDING → KITCHEN (báo bếp sau khi draft) → tương tự
+          else if (prev === 'PENDING' && it.state === 'KITCHEN') {
+            this.emitNewOrder({
               item_id: it.id,
               table_code: o.table_code,
               menu_item_name: it.menu_item_name,
               qty: it.qty,
-              reason: it.cancelled_reason,
             });
+          }
+          if (prev !== undefined && prev !== it.state) {
+            // 3) Transition → READY: món bếp xong, bồi bàn lên lấy
+            if (prev !== 'READY' && it.state === 'READY') {
+              this.emit({
+                item_id: it.id,
+                table_code: o.table_code,
+                menu_item_name: it.menu_item_name,
+                qty: it.qty,
+              });
+            }
+            // 4) Transition → CANCELLED với reason 'Bếp báo hết': bồi bàn cần thông
+            //    báo khách bàn này đổi món
+            if (prev !== 'CANCELLED' && it.state === 'CANCELLED'
+                && it.cancelled_reason?.startsWith(KITCHEN_CANCEL_PREFIX)) {
+              this.emitCancel({
+                item_id: it.id,
+                table_code: o.table_code,
+                menu_item_name: it.menu_item_name,
+                qty: it.qty,
+                reason: it.cancelled_reason,
+              });
+            }
           }
         }
         this.prevStates.set(it.id, it.state);
@@ -97,6 +127,11 @@ class ReadyNotifier {
   onKitchenCancel(listener: CancelListener): () => void {
     this.cancelListeners.add(listener);
     return () => this.cancelListeners.delete(listener);
+  }
+
+  onNewOrder(listener: NewOrderListener): () => void {
+    this.newOrderListeners.add(listener);
+    return () => this.newOrderListeners.delete(listener);
   }
 
   private emit(event: ReadyEvent): void {
@@ -121,6 +156,37 @@ class ReadyNotifier {
       }
     }
     this.playBeep();
+  }
+
+  private emitNewOrder(event: NewOrderEvent): void {
+    for (const l of this.newOrderListeners) {
+      try {
+        l(event);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error('new-order-notifier listener error', err);
+      }
+    }
+    // KHÔNG tự beep — để listener gọi playNewOrderBeep() có role-gating
+    // (chỉ bếp cần beep, order staff vừa gọi món rồi không cần)
+  }
+
+  /** Tone "ding-dong" cho new order — thấp hơn ReadyEvent (660→880) để phân biệt. */
+  playNewOrderBeep(): void {
+    try {
+      if (!this.audioCtx) {
+        const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+        if (!Ctx) return;
+        this.audioCtx = new Ctx();
+      }
+      const ctx = this.audioCtx;
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      this.tone(ctx, 520, now, 0.15);          // mi
+      this.tone(ctx, 392, now + 0.18, 0.2);    // sol thấp
+    } catch {
+      // Silently fail
+    }
   }
 
   /** Web Audio API — không cần file MP3. 2 beep ngắn 440Hz + 660Hz. */
@@ -182,4 +248,4 @@ class ReadyNotifier {
 }
 
 export const readyNotifier = new ReadyNotifier();
-export type { ReadyEvent, KitchenCancelEvent };
+export type { ReadyEvent, KitchenCancelEvent, NewOrderEvent };

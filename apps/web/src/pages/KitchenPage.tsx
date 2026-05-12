@@ -29,6 +29,12 @@ type Order = {
   items: OrderItem[];
 };
 
+type Table = {
+  id: string;
+  code: string;
+  name: string;
+};
+
 type MenuItem = {
   id: string;
   group: string;
@@ -44,7 +50,7 @@ type MenuGroup = {
   sort_order: number;
 };
 
-type KitchenItem = OrderItem & { table_code: string; group: string };
+type KitchenItem = OrderItem & { table_code: string; table_name: string; group: string };
 
 // Filter Bếp: Set<string> các group.code đang chọn. Empty Set = chọn tất cả.
 // Cho phép multi-select: tap nhiều nhóm để xem kết hợp.
@@ -134,6 +140,7 @@ export function KitchenPage() {
   const confirm = useConfirm();
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
+  const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   // 'now' tick mỗi 5 phút — chỉ để force re-render khi không có data thay đổi (món
@@ -152,14 +159,15 @@ export function KitchenPage() {
 
   const refresh = useCallback(async (showError = true) => {
     try {
-      const [ordersRes, menuRes, groupsRes] = await Promise.all([
+      const [ordersRes, menuRes, groupsRes, tablesRes] = await Promise.all([
         api.get<{ data: { items: Order[] } }>('/orders'),
         api.get<{ data: { items: MenuItem[] } }>('/menu'),
         api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
+        api.get<{ data: { items: Table[] } }>('/tables'),
       ]);
       if (ordersRes.data?.data?.items) {
         setOrders(ordersRes.data.data.items);
-        // Notify khi item chuyển sang READY (toàn app, cả bồi bàn nghe được)
+        // Notify khi item chuyển sang READY / mới vào KITCHEN / bếp báo hết
         readyNotifier.ingest(ordersRes.data.data.items);
       }
       if (menuRes.data?.data?.items) {
@@ -169,6 +177,11 @@ export function KitchenPage() {
       }
       if (groupsRes.data?.data?.items) {
         setGroups(groupsRes.data.data.items);
+      }
+      if (tablesRes.data?.data?.items) {
+        const map = new Map<string, string>();
+        for (const t of tablesRes.data.data.items) map.set(t.id, t.name);
+        setTableNameById(map);
       }
       errorCountRef.current = 0;
     } catch (err) {
@@ -216,7 +229,8 @@ export function KitchenPage() {
         if (out[it.state]) {
           const group = menuMap.get(it.menu_item_id)?.group || 'other';
           if (useFilter && !groupFilters.has(group)) continue;
-          out[it.state].push({ ...it, table_code: o.table_code, group });
+          const table_name = tableNameById.get(o.table_id) || o.table_code;
+          out[it.state].push({ ...it, table_code: o.table_code, table_name, group });
         }
       }
     }
@@ -225,7 +239,7 @@ export function KitchenPage() {
       out[k].sort((a, b) => a.created_at - b.created_at);
     }
     return out;
-  }, [orders, menuMap, groupFilters, now]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [orders, menuMap, tableNameById, groupFilters, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearGroups = () => setGroupFilters(new Set());
 
@@ -638,7 +652,7 @@ function Card({
       }}
     >
       <div className="kds-card-info">
-        <div className="kds-card-table">{item.table_code}</div>
+        <div className="kds-card-table" title={item.table_code}>{item.table_name}</div>
         <div className="kds-card-name">
           {item.qty}× {item.menu_item_name}
         </div>
@@ -671,13 +685,17 @@ function Card({
             🚫 Menu đánh dấu HẾT
           </div>
         )}
-        <button
-          className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
-          onClick={onToggleStock}
-          title={isOutOfStock ? 'Đánh dấu có lại' : 'Đánh dấu món hết nguyên liệu'}
-        >
-          {isOutOfStock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
-        </button>
+        {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
+            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép. */}
+        {colDef.state !== 'READY' && (
+          <button
+            className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
+            onClick={onToggleStock}
+            title={isOutOfStock ? 'Đánh dấu có lại' : 'Đánh dấu món hết nguyên liệu'}
+          >
+            {isOutOfStock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
+          </button>
+        )}
       </div>
 
       <button
