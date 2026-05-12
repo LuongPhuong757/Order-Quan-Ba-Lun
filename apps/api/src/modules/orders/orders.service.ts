@@ -12,11 +12,13 @@ import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 
 export type OrderCreator = { id: string; full_name: string };
 
-// State machine — must match packages/schemas/orders.ts
+// State machine — must match packages/schemas/orders.ts.
+// 'SERVED' là shortcut: cho phép skip các bước bếp khi món có sẵn (drink, snack
+// lấy ngay từ quầy giao luôn). Không cần đi qua KITCHEN→COOKING→READY.
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
-  PENDING:   ['KITCHEN', 'CANCELLED'],
-  KITCHEN:   ['COOKING', 'CANCELLED'],
-  COOKING:   ['READY',   'CANCELLED'],
+  PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
+  KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
+  COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
   SERVED:    [],
   CANCELLED: [],

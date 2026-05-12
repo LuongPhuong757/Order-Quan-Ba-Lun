@@ -36,11 +36,12 @@ type Table = {
   kind: string;
 };
 
-// Must match packages/schemas/orders.ts
+// Must match packages/schemas/orders.ts.
+// SERVED là shortcut từ mọi state non-terminal — món có sẵn giao luôn không cần bếp.
 const ALLOWED: Record<string, string[]> = {
-  PENDING: ['KITCHEN', 'CANCELLED'],
-  KITCHEN: ['COOKING', 'CANCELLED'],
-  COOKING: ['READY', 'CANCELLED'],
+  PENDING: ['KITCHEN', 'SERVED', 'CANCELLED'],
+  KITCHEN: ['COOKING', 'SERVED', 'CANCELLED'],
+  COOKING: ['READY', 'SERVED', 'CANCELLED'],
   READY: ['SERVED', 'CANCELLED'],
   SERVED: [],
   CANCELLED: [],

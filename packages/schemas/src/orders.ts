@@ -50,11 +50,13 @@ export const ChangeStateDto = z.object({
 });
 export type ChangeStateDto = z.infer<typeof ChangeStateDto>;
 
-// State transition matrix — for FE button display + BE validation
+// State transition matrix — for FE button display + BE validation.
+// SERVED là shortcut: cho phép bỏ qua các bước trung gian khi món có sẵn
+// (drink, snack đã có trên quầy → giao luôn không cần bếp xử lý).
 export const ALLOWED_TRANSITIONS: Record<OrderItemState, OrderItemState[]> = {
-  PENDING:   ['KITCHEN', 'CANCELLED'],
-  KITCHEN:   ['COOKING', 'CANCELLED'],
-  COOKING:   ['READY',   'CANCELLED'],
+  PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
+  KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
+  COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
   SERVED:    [],
   CANCELLED: [],
