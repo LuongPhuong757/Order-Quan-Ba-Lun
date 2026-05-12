@@ -60,3 +60,17 @@ export function extractError(err: unknown): { code: string; message: string; fie
   }
   return { code: 'INTERNAL_ERROR', message: 'Có lỗi không xác định.' };
 }
+
+/** Lỗi tạm thời do tải hoặc race — KHÔNG ảnh hưởng nghiệp vụ.
+ * 5xx (server error có retry-able), 0 (network glitch), AbortError.
+ * Dùng để skip toast trong polling — tránh user thấy thông báo lỗi nhấp nháy. */
+export function isTransientError(err: unknown): boolean {
+  if (axios.isAxiosError(err)) {
+    const status = err.response?.status;
+    if (!status) return true;          // network error / no response
+    if (status >= 500 && status < 600) return true;  // 500/502/503/504
+    if (status === 408 || status === 429) return true;  // timeout / rate limit
+    return false;
+  }
+  return false;
+}

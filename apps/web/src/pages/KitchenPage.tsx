@@ -3,10 +3,11 @@
 // Card có mũi tên → ở mỗi card để bếp tap chuyển sang cột kế tiếp.
 // Khi card vào cột READY → readyNotifier.ingest tự emit notification toàn bộ thành viên.
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { api, extractError } from '../lib/api.ts';
+import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
+import { notificationStore } from '../lib/notification-store.ts';
 
 type OrderItem = {
   id: string;
@@ -171,11 +172,13 @@ export function KitchenPage() {
       }
       errorCountRef.current = 0;
     } catch (err) {
+      const transient = isTransientError(err);
       errorCountRef.current++;
-      if (showError && errorCountRef.current <= 2) {
+      if (showError && !transient && errorCountRef.current <= 2) {
         toast.push('error', extractError(err).message);
       }
-      if (errorCountRef.current >= 3 && pollEnabledRef.current) {
+      const threshold = transient ? 10 : 3;
+      if (errorCountRef.current >= threshold && pollEnabledRef.current) {
         pollEnabledRef.current = false;
         toast.push('error', 'Tạm dừng cập nhật tự động — bấm "↻ Làm mới".');
       }
@@ -268,8 +271,9 @@ export function KitchenPage() {
             title: `Đánh dấu "${item.menu_item_name}" HẾT?`,
             message: (
               <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
-                <li>Món sẽ bị đỏ trong menu — nhân viên không gọi mới được</li>
-                <li>Order đang chờ (món này) vẫn còn — cần huỷ tay từ nhân viên</li>
+                <li>Món bị đỏ trong menu — nhân viên không gọi mới được</li>
+                <li><strong>Order chưa nấu (state PENDING/KITCHEN) sẽ TỰ ĐỘNG HUỶ</strong> với lý do "Bếp báo hết"</li>
+                <li>Order đang nấu (COOKING/READY) GIỮ NGUYÊN — bếp tự huỷ thủ công nếu cần</li>
               </ul>
             ),
             variant: 'warning',
@@ -278,8 +282,23 @@ export function KitchenPage() {
     );
     if (!ok) return;
     try {
-      await api.post(`/menu/${item.menu_item_id}/toggle-stock`);
-      toast.push('success', isOut ? `${item.menu_item_name}: có lại` : `${item.menu_item_name}: đánh dấu HẾT`);
+      const res = await api.post<{
+        data: { auto_cancelled_count: number; cancelled_reason?: string };
+      }>(`/menu/${item.menu_item_id}/toggle-stock`);
+      const cancelled = res.data?.data?.auto_cancelled_count ?? 0;
+      if (isOut) {
+        toast.push('success', `${item.menu_item_name}: có lại`);
+      } else {
+        const baseMsg = `${item.menu_item_name}: đánh dấu HẾT`;
+        const fullMsg = cancelled > 0 ? `${baseMsg} · auto-huỷ ${cancelled} order chưa nấu` : baseMsg;
+        toast.push('success', fullMsg, cancelled > 0 ? 6000 : 3000);
+        if (cancelled > 0) {
+          notificationStore.push(
+            'order_cancel',
+            `Bếp báo hết "${item.menu_item_name}" → auto-huỷ ${cancelled} order. Bồi bàn cần thông báo khách đổi món.`,
+          );
+        }
+      }
       refresh(false);
     } catch (e) {
       toast.push('error', extractError(e).message);

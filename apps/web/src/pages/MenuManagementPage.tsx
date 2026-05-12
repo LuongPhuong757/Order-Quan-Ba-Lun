@@ -765,20 +765,32 @@ function ImportMenuModal({
         code: string; name: string; groupRaw: string;
         price: number; unit: string; image_url: string;
       };
+
+      /** Tìm cell value của 1 trong các tên cột (lowercase match), KHÔNG coerce
+       * sang string — preserve number type cho price.
+       * XLSX trả cell numeric như JS number → cần dùng trực tiếp tránh truncate. */
+      const pickRaw = (r: Record<string, unknown>, keys: string[]): unknown => {
+        const lowerR: Record<string, unknown> = {};
+        for (const k of Object.keys(r)) lowerR[k.toLowerCase().trim()] = r[k];
+        for (const k of keys) if (lowerR[k] != null && lowerR[k] !== '') return lowerR[k];
+        return undefined;
+      };
+
+      const parsePrice = (raw: unknown): number => {
+        // Number cell từ XLSX (vd =15000 hoặc 15000 raw) — dùng trực tiếp
+        if (typeof raw === 'number' && !isNaN(raw)) return Math.round(raw);
+        // String cell — strip non-digit (vd "15.000", "15,000", "15000đ")
+        const cleaned = String(raw ?? '0').replace(/[^\d]/g, '');
+        return Math.round(Number(cleaned) || 0);
+      };
+
       const rawParsed: RawRow[] = raw.map((r) => {
-        const norm: Record<string, string> = {};
-        for (const k of Object.keys(r)) {
-          norm[k.toLowerCase().trim()] = String(r[k] ?? '').trim();
-        }
-        const code = norm['code'] || norm['mã'] || norm['ma'] || '';
-        const name = norm['name'] || norm['tên'] || norm['ten'] || '';
-        const groupRaw = norm['group'] || norm['nhóm'] || norm['nhom'] || '';
-        // Strip MỌI ký tự không phải số (dấu chấm, phẩy, đ, khoảng trắng) — VND luôn
-        // integer không thập phân. "15.000" → 15000, "15,000" → 15000, "15000đ" → 15000.
-        const priceStr = (norm['price'] || norm['giá'] || norm['gia'] || '0').replace(/[^\d]/g, '');
-        const price = Math.round(Number(priceStr) || 0);  // ép integer (BE @IsInt)
-        const unit = norm['unit'] || norm['đvt'] || norm['dvt'] || 'phần';
-        const image_url = norm['image_url'] || norm['image'] || norm['ảnh'] || norm['anh'] || '';
+        const code = String(pickRaw(r, ['code', 'mã', 'ma']) ?? '').trim();
+        const name = String(pickRaw(r, ['name', 'tên', 'ten']) ?? '').trim();
+        const groupRaw = String(pickRaw(r, ['group', 'nhóm', 'nhom']) ?? '').trim();
+        const price = parsePrice(pickRaw(r, ['price', 'giá', 'gia']));
+        const unit = String(pickRaw(r, ['unit', 'đvt', 'dvt']) ?? 'phần').trim() || 'phần';
+        const image_url = String(pickRaw(r, ['image_url', 'image', 'ảnh', 'anh']) ?? '').trim();
         return { code, name, groupRaw, price, unit, image_url };
       });
 

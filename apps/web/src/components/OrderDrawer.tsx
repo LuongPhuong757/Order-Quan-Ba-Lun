@@ -1,6 +1,6 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
 import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
-import { api, extractError } from '../lib/api.ts';
+import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
@@ -137,11 +137,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       if (res.data?.data) setOrder(res.data.data);
       errorCountRef.current = 0;
     } catch (err) {
+      // Lỗi transient (5xx/network/timeout) — KHÔNG show toast, request kế tiếp
+      // (2s sau) sẽ retry. Tránh user thấy thông báo lỗi nhấp nháy gây hiểu nhầm.
+      const transient = isTransientError(err);
       errorCountRef.current++;
-      if (showError && errorCountRef.current <= 2) {
+      if (showError && !transient && errorCountRef.current <= 2) {
         toast.push('error', extractError(err).message);
       }
-      if (errorCountRef.current >= 3 && pollEnabledRef.current) {
+      // Threshold cao hơn cho transient: 10 vs 3 cho non-transient → ít cảnh báo dư
+      const threshold = transient ? 10 : 3;
+      if (errorCountRef.current >= threshold && pollEnabledRef.current) {
         pollEnabledRef.current = false;
         toast.push('error', 'Tạm dừng cập nhật tự động — đóng drawer mở lại để retry.');
       }

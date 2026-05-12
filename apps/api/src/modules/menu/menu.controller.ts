@@ -20,8 +20,8 @@ import { diskStorage } from 'multer';
 import { extname } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
-import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
@@ -81,6 +81,7 @@ export class MenuController {
   constructor(
     @InjectRepository(MenuItem) private readonly repo: Repository<MenuItem>,
     @InjectRepository(MenuGroup) private readonly groupRepo: Repository<MenuGroup>,
+    @InjectDataSource() private readonly ds: DataSource,
   ) {}
 
   /** GET /menu — accessible by any logged-in user (staff dùng để gọi món) */
@@ -240,15 +241,46 @@ export class MenuController {
     return { data: item };
   }
 
-  /** POST /menu/:id/toggle-stock — staff có quyền (bếp dùng) */
+  /** POST /menu/:id/toggle-stock — staff có quyền (bếp dùng).
+   *
+   * Khi chuyển từ CÒN → HẾT, auto-cancel các order items chưa bắt đầu nấu
+   * (state ∈ {PENDING, KITCHEN}) của món này — bồi bàn sẽ thông báo khách
+   * đổi món. Items state ∈ {COOKING, READY, SERVED} GIỮ NGUYÊN (đã đầu tư
+   * công nấu, không nên huỷ).
+   *
+   * Items state COOKING/READY: kitchen tự quyết định huỷ thủ công nếu cần
+   * (vd nguyên liệu hỏng giữa chừng) — tránh auto-cancel gây mất công.
+   */
   @Post(':id/toggle-stock')
   @UseGuards(JwtAuthGuard)
   async toggleStock(@Param('id') id: string) {
-    const item = await this.repo.findOne({ where: { id } });
-    if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
-    item.is_out_of_stock = !item.is_out_of_stock;
-    await this.repo.save(item);
-    return { data: item };
+    return await this.ds.transaction(async (mgr) => {
+      const menuRepo = mgr.getRepository(MenuItem);
+      const item = await menuRepo.findOne({ where: { id } });
+      if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
+
+      const wasOutOfStock = item.is_out_of_stock;
+      item.is_out_of_stock = !item.is_out_of_stock;
+      await menuRepo.save(item);
+
+      // Chỉ auto-cancel khi mới chuyển sang HẾT (false → true)
+      if (!wasOutOfStock && item.is_out_of_stock) {
+        const reason = `Bếp báo hết "${item.name}" — không thể làm`;
+        const result = await mgr
+          .createQueryBuilder()
+          .update('order_items')
+          .set({ state: 'CANCELLED', cancelled_reason: reason })
+          .where('menu_item_id = :mid AND state IN (:...states)', {
+            mid: id,
+            states: ['PENDING', 'KITCHEN'],
+          })
+          .execute();
+        const cancelled = result.affected || 0;
+        return { data: { ...item, auto_cancelled_count: cancelled, cancelled_reason: reason } };
+      }
+
+      return { data: { ...item, auto_cancelled_count: 0 } };
+    });
   }
 
   /** DELETE /menu/:id — soft delete (set is_active=false) — owner only */

@@ -1,6 +1,6 @@
 // Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import { api, extractError } from '../lib/api.ts';
+import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
@@ -84,12 +84,13 @@ export function OrdersPage() {
       }
       errorCountRef.current = 0;  // reset on success
     } catch (err) {
+      const transient = isTransientError(err);
       errorCountRef.current++;
-      if (showError && errorCountRef.current <= 2) {
+      if (showError && !transient && errorCountRef.current <= 2) {
         toast.push('error', extractError(err).message);
       }
-      // Sau 3 lỗi liên tiếp, dừng polling để tránh spam
-      if (errorCountRef.current >= 3 && pollEnabledRef.current) {
+      const threshold = transient ? 10 : 3;
+      if (errorCountRef.current >= threshold && pollEnabledRef.current) {
         pollEnabledRef.current = false;
         toast.push('error', 'Tạm dừng cập nhật tự động — bấm "↻ Làm mới" để thử lại.');
       }
