@@ -189,16 +189,27 @@ export function OrdersPage() {
       if (it.state === 'SERVED') servedCount++;
     });
     const hasActive = Object.values(counts).some((c) => c > 0);
-    // Bàn có order open + KHÔNG có món active + có ít nhất 1 món SERVED → sẵn sàng thanh toán
-    const readyToCheckout = !!order && !hasActive && servedCount > 0;
+    // Tất cả món đã giao (= sẵn sàng thanh toán, nhưng không hiện text):
+    const allServed = !!order && !hasActive && servedCount > 0;
 
-    const isAnimating = readyToCheckout;
-    const bg = readyToCheckout
+    // Cảnh báo bếp chậm: đã báo bếp ≥15 phút nhưng chưa có món nào tới khách
+    const minutesSinceKitchen =
+      order?.first_kitchen_at != null
+        ? Math.max(0, Math.floor((Date.now() - order.first_kitchen_at) / 60_000))
+        : null;
+    const slowKitchen =
+      minutesSinceKitchen != null && minutesSinceKitchen >= 15 && servedCount === 0;
+
+    const bg = slowKitchen
+      ? '#fee2e2'
+      : allServed
       ? '#ecfdf5'
       : hasActive
       ? KIND_BG[t.kind] || '#f3f4f6'
       : 'white';
-    const border = readyToCheckout
+    const border = slowKitchen
+      ? '2px solid #dc2626'
+      : allServed
       ? '2px solid #059669'
       : hasActive
       ? '2px solid #0f766e'
@@ -223,15 +234,8 @@ export function OrdersPage() {
           cursor: 'pointer',
           width: '100%',
           fontWeight: 400,
-          animation: isAnimating ? 'checkoutReady 2s ease-in-out infinite' : undefined,
         }}
       >
-        <style>{`
-          @keyframes checkoutReady {
-            0%, 100% { box-shadow: 0 0 0 0 #05966966; }
-            50% { box-shadow: 0 0 0 6px #05966900; }
-          }
-        `}</style>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700 }}>{t.code}</div>
@@ -239,27 +243,33 @@ export function OrdersPage() {
           </div>
           {/* Thời gian "vào bàn" = từ lần đầu báo bếp.
               Null nếu chưa từng báo bếp (vẫn còn PENDING hết) — không hiển thị. */}
-          {order && order.first_kitchen_at != null && (
-            <div style={{ fontSize: 11, color: '#6b7280' }}>
-              {Math.max(0, Math.floor((Date.now() - order.first_kitchen_at) / 60_000))}′
+          {minutesSinceKitchen != null && (
+            <div
+              style={{
+                fontSize: 11,
+                color: slowKitchen ? '#dc2626' : '#6b7280',
+                fontWeight: slowKitchen ? 700 : 400,
+              }}
+            >
+              {minutesSinceKitchen}′
             </div>
           )}
         </div>
 
-        {readyToCheckout ? (
-          <div
+        {allServed ? (
+          <span
             style={{
-              background: '#059669',
+              alignSelf: 'flex-start',
+              background: '#10b981',
               color: 'white',
-              padding: '6px 10px',
+              padding: '2px 8px',
               borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 700,
-              textAlign: 'center',
+              fontSize: 11,
+              fontWeight: 600,
             }}
           >
-            💰 Sẵn sàng thanh toán ({servedCount} món)
-          </div>
+            🍽 {servedCount} đã giao
+          </span>
         ) : hasActive ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {Object.entries(counts).map(([st, n]) => {
