@@ -466,20 +466,32 @@ export class OrdersService {
       .createQueryBuilder('o')
       .leftJoinAndSelect('o.items', 'i');
 
-    if (status === 'paid') qb.where('o.closed_at IS NOT NULL');
-    else if (status === 'unpaid') qb.where('o.closed_at IS NULL');
-    else qb.where('1 = 1'); // 'all' — không filter theo trạng thái
-
-    if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
-    if (opts.cashier_user_id) qb.andWhere('o.checked_out_by_user_id = :cid', { cid: opts.cashier_user_id });
-    // Date filter: dùng COALESCE để áp lên closed_at (paid) hoặc opened_at (unpaid).
+    // WHERE conditions — gom dồn để tránh quirk where('1=1')
+    const wheres: string[] = [];
+    const params: Record<string, unknown> = {};
+    if (status === 'paid') wheres.push('o.closed_at IS NOT NULL');
+    else if (status === 'unpaid') wheres.push('o.closed_at IS NULL');
+    if (opts.table_id) { wheres.push('o.table_id = :tid'); params.tid = opts.table_id; }
+    if (opts.cashier_user_id) {
+      wheres.push('o.checked_out_by_user_id = :cid');
+      params.cid = opts.cashier_user_id;
+    }
+    // Date filter ưu tiên closed_at, fallback opened_at — dùng MySQL COALESCE.
     if (opts.start_ms) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
+      wheres.push('COALESCE(o.closed_at, o.opened_at) >= :s');
+      params.s = new Date(opts.start_ms);
     }
     if (opts.end_ms) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(opts.end_ms) });
+      wheres.push('COALESCE(o.closed_at, o.opened_at) <= :e');
+      params.e = new Date(opts.end_ms);
     }
-    qb.orderBy('COALESCE(o.closed_at, o.opened_at)', 'DESC')
+    if (wheres.length > 0) qb.where(wheres.join(' AND '), params);
+
+    // Sort: paid order trước (NULL sort cuối ở DESC), trong nhóm sort theo opened_at DESC.
+    // Cách này tránh COALESCE trong orderBy vốn lỗi với leftJoinAndSelect + take/skip
+    // (TypeORM split query, cột virtual không tồn tại trong subquery distinct-id).
+    qb.orderBy('o.closed_at', 'DESC')
+      .addOrderBy('o.opened_at', 'DESC')
       .skip((page - 1) * page_size)
       .take(page_size);
     const [orders, total] = await qb.getManyAndCount();
