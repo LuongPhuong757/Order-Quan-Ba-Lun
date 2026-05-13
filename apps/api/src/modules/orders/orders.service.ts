@@ -578,22 +578,24 @@ export class OrdersService {
           .execute();
         const moved = moveResult.affected || 0;
 
-        // Close source order qua UPDATE thuần — KHÔNG dùng save() để tránh
-        // cascade vô tình ghi lại items.order_id về src.
-        await orderRepo.update(src.id, { closed_at: Date.now() });
-
-        // Sanity check: dest phải có ≥ srcItemCount items
+        // Sanity check: dest phải có ≥ srcItemCount items TRƯỚC khi xoá src
         const destItemCount = await itemRepo.count({ where: { order_id: dest.id } });
-        this.logger.log(
-          `transferTable: src=${source_order_id} (${srcItemCount} items) → dest=${dest.id} ` +
-          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}, dest_new=${destWasNew}`,
-        );
         if (destItemCount < moved) {
-          // Lỗi data — throw để rollback transaction
+          // Lỗi data — throw để rollback transaction (src vẫn còn nguyên)
           throw new Error(
             `Transfer integrity error: moved=${moved} but dest only has ${destItemCount} items`,
           );
         }
+
+        // XOÁ source order — KHÔNG set closed_at (sẽ bị history page hiểu nhầm
+        // là đơn cũ đã thanh toán). Source đã rỗng, không còn giá trị giữ lại.
+        // Items đã được move (giữ created_at gốc + người gọi gốc) nên audit trail còn đủ.
+        await orderRepo.delete(src.id);
+
+        this.logger.log(
+          `transferTable: src=${source_order_id} (${srcItemCount} items, deleted) → dest=${dest.id} ` +
+          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}, dest_new=${destWasNew}`,
+        );
 
         const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
         return refreshed!;
