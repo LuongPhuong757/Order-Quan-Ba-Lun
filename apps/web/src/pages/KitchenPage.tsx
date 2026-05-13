@@ -120,18 +120,16 @@ const COLUMN_DEFS: Array<{
   },
 ];
 
-// 3-tier age threshold (user-spec)
-const AGE_INFO_MS = 10 * 60_000;     // 10ph → xanh dương (chú ý nhẹ)
-const AGE_WARN_MS = 20 * 60_000;     // 20ph → vàng (cảnh báo)
-const AGE_CRITICAL_MS = 30 * 60_000; // 30ph → đỏ (khẩn cấp)
+// 3-tier age threshold (user-spec): đen → vàng → đỏ
+const AGE_WARN_MS = 10 * 60_000;     // 10ph → vàng (cảnh báo)
+const AGE_CRITICAL_MS = 20 * 60_000; // 20ph → đỏ (khẩn cấp)
 
 function ageColor(ts: number, state: string): string | undefined {
-  if (state === 'READY') return undefined;
+  if (state === 'READY') return undefined;       // món đã xong — không cần highlight tuổi
   const age = Date.now() - ts;
-  if (age > AGE_CRITICAL_MS) return '#dc2626'; // đỏ — quá 30ph
-  if (age > AGE_WARN_MS)     return '#f59e0b'; // vàng — quá 20ph
-  if (age > AGE_INFO_MS)     return '#3b82f6'; // xanh — quá 10ph
-  return undefined;
+  if (age > AGE_CRITICAL_MS) return '#dc2626'; // đỏ — quá 20ph
+  if (age > AGE_WARN_MS)     return '#f59e0b'; // vàng — quá 10ph
+  return '#111827';                            // đen — món mới (< 10ph)
 }
 
 export function KitchenPage() {
