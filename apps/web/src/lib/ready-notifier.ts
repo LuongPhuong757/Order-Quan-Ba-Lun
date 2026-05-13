@@ -55,10 +55,17 @@ type TableTransferListener = (e: TableTransferEvent) => void;
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
 
+// Dedup window cho transfer noti — same (from→to) pair trong khoảng này = 1 noti.
+// Lý do: StrictMode dev double-render, multi-tab cùng user, hoặc ingest race
+// có thể gây duplicate. 8s đủ rộng để gom hết các path detection cho 1 transfer logic.
+const TRANSFER_DEDUP_MS = 8000;
+
 class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
   // Track item's parent table — phát hiện chuyển bàn (item_id thay đổi table_code)
   private prevTables = new Map<string, { table_code: string; table_name: string }>();
+  // Dedup: key "from→to" → last emit ms
+  private lastTransferEmitMs = new Map<string, number>();
   private readyListeners = new Set<ReadyListener>();
   private newOrderListeners = new Set<NewOrderListener>();
   private kitchenCancelListeners = new Set<KitchenCancelListener>();
@@ -173,7 +180,20 @@ class ReadyNotifier {
   private emitKitchenCancel(e: KitchenCancelEvent) { this.fanout(this.kitchenCancelListeners, e); }
   private emitItemServed(e: ItemServedEvent) { this.fanout(this.itemServedListeners, e); }
   private emitItemCancelByStaff(e: ItemCancelByStaffEvent) { this.fanout(this.itemCancelByStaffListeners, e); }
-  private emitTableTransfer(e: TableTransferEvent) { this.fanout(this.tableTransferListeners, e); }
+  private emitTableTransfer(e: TableTransferEvent) {
+    const key = `${e.from_table_code}→${e.to_table_code}`;
+    const now = Date.now();
+    const lastMs = this.lastTransferEmitMs.get(key);
+    if (lastMs && now - lastMs < TRANSFER_DEDUP_MS) {
+      return; // duplicate trong cửa sổ dedup → bỏ qua
+    }
+    this.lastTransferEmitMs.set(key, now);
+    // Cleanup entries cũ (> 60s) để map không phình
+    for (const [k, ts] of this.lastTransferEmitMs) {
+      if (now - ts > 60_000) this.lastTransferEmitMs.delete(k);
+    }
+    this.fanout(this.tableTransferListeners, e);
+  }
 
   private fanout<E>(listeners: Set<(e: E) => void>, e: E): void {
     for (const l of listeners) {
@@ -247,6 +267,7 @@ class ReadyNotifier {
   reset(): void {
     this.prevStates.clear();
     this.prevTables.clear();
+    this.lastTransferEmitMs.clear();
     this.initialized = false;
   }
 }
