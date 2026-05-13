@@ -459,10 +459,6 @@ export function KitchenPage() {
           padding: 24px;
           font-size: 14px;
         }
-        @keyframes kds-pulse {
-          0%, 100% { box-shadow: 0 0 0 2px #dc2626; }
-          50% { box-shadow: 0 0 0 5px #dc262666; }
-        }
       `}</style>
 
       <div className="kds-header">
@@ -633,8 +629,7 @@ function Card({
   // bị reset về 0 — không phản ánh đúng thời gian khách đã chờ.
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
-  const ageBorderColor = ageColor(item.created_at, item.state);
-  const isCritical = ageBorderColor === '#dc2626';
+  const ageTextColor = ageColor(item.created_at, item.state);
   const isOutOfStock = menuItem?.is_out_of_stock ?? false;
 
   return (
@@ -642,8 +637,7 @@ function Card({
       className="kds-card"
       style={{
         borderLeft: `5px solid ${colDef.color}`,
-        boxShadow: ageBorderColor ? `0 0 0 2px ${ageBorderColor}` : '0 1px 2px rgba(0,0,0,0.04)',
-        animation: isCritical ? 'kds-pulse 1.5s ease-in-out infinite' : undefined,
+        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
       }}
     >
       <div className="kds-card-info">
@@ -668,11 +662,11 @@ function Card({
         <div
           className="kds-card-meta"
           style={{
-            color: ageBorderColor || '#6b7280',
-            fontWeight: ageBorderColor ? 700 : 400,
+            color: ageTextColor || '#6b7280',
+            fontWeight: ageTextColor ? 700 : 400,
           }}
         >
-          {ageBorderColor === '#dc2626' && '⚠ '}
+          {ageTextColor === '#dc2626' && '⚠ '}
           ⏱ {ageMin}p
         </div>
         {isOutOfStock && (
