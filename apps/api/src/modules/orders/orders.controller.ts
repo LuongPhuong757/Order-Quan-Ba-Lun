@@ -138,17 +138,27 @@ export class OrdersController {
     return { data: result };
   }
 
-  /** GET /orders/history — lịch sử closed orders, filter table_id/date range */
+  /** GET /orders/history — lịch sử order (paid + unpaid), filter table/date/cashier/status */
   @Get('history')
   async history(@Query() q: Record<string, string>) {
+    const status = q.status === 'paid' || q.status === 'unpaid' ? q.status : 'all';
     const result = await this.svc.listHistory({
       table_id: q.table_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      cashier_user_id: q.cashier_user_id || undefined,
+      status,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
     });
     return { data: result };
+  }
+
+  /** GET /orders/cashiers — DISTINCT cashier list cho filter dropdown */
+  @Get('cashiers')
+  async cashiers() {
+    const items = await this.svc.listCashiers();
+    return { data: { items } };
   }
 
   /** POST /orders/:id/transfer — chuyển bàn (REQ-B) */

@@ -446,25 +446,42 @@ export class OrdersService {
     });
   }
 
-  /** Lịch sử order — chỉ closed orders. Filter table_id (optional) + date range (ms).
+  /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
+   * Filter: table_id, date range, cashier_user_id, status.
+   * Sort theo COALESCE(closed_at, opened_at) DESC — hoạt động gần nhất lên trên.
    * Trả về kèm items để FE expand chi tiết khi cần. */
   async listHistory(opts: {
     table_id?: string;
     start_ms?: number;
     end_ms?: number;
+    cashier_user_id?: string;
+    status?: 'all' | 'paid' | 'unpaid';
     page?: number;
     page_size?: number;
   }): Promise<{ items: Array<Order & { table_name: string }>; total: number; page: number; page_size: number }> {
     const page = Math.max(1, opts.page || 1);
     const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
+    const status = opts.status || 'all';
     const qb = this.orderRepo
       .createQueryBuilder('o')
-      .leftJoinAndSelect('o.items', 'i')
-      .where('o.closed_at IS NOT NULL');
+      .leftJoinAndSelect('o.items', 'i');
+
+    if (status === 'paid') qb.where('o.closed_at IS NOT NULL');
+    else if (status === 'unpaid') qb.where('o.closed_at IS NULL');
+    else qb.where('1 = 1'); // 'all' — không filter theo trạng thái
+
     if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
-    if (opts.start_ms) qb.andWhere('o.closed_at >= :s', { s: new Date(opts.start_ms) });
-    if (opts.end_ms) qb.andWhere('o.closed_at <= :e', { e: new Date(opts.end_ms) });
-    qb.orderBy('o.closed_at', 'DESC').skip((page - 1) * page_size).take(page_size);
+    if (opts.cashier_user_id) qb.andWhere('o.checked_out_by_user_id = :cid', { cid: opts.cashier_user_id });
+    // Date filter: dùng COALESCE để áp lên closed_at (paid) hoặc opened_at (unpaid).
+    if (opts.start_ms) {
+      qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
+    }
+    if (opts.end_ms) {
+      qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(opts.end_ms) });
+    }
+    qb.orderBy('COALESCE(o.closed_at, o.opened_at)', 'DESC')
+      .skip((page - 1) * page_size)
+      .take(page_size);
     const [orders, total] = await qb.getManyAndCount();
 
     // Resolve table.name cho FE — checkout notification dùng tên thân thiện
@@ -478,6 +495,21 @@ export class OrdersService {
       table_name: tableNameById.get(o.table_id) || o.table_code,
     }));
     return { items, total, page, page_size };
+  }
+
+  /** DISTINCT cashiers từ orders — dropdown filter ở HistoryPage.
+   * Chỉ lấy user đã từng thanh toán ít nhất 1 order (checked_out_by_user_id NOT NULL). */
+  async listCashiers(): Promise<Array<{ id: string; full_name: string }>> {
+    const rows = await this.orderRepo
+      .createQueryBuilder('o')
+      .select('o.checked_out_by_user_id', 'id')
+      .addSelect('o.checked_out_by_full_name', 'full_name')
+      .where('o.checked_out_by_user_id IS NOT NULL')
+      .groupBy('o.checked_out_by_user_id')
+      .addGroupBy('o.checked_out_by_full_name')
+      .orderBy('o.checked_out_by_full_name', 'ASC')
+      .getRawMany<{ id: string; full_name: string }>();
+    return rows;
   }
 
   /** Transfer all items from source table to destination table.
