@@ -18,11 +18,12 @@ type MenuItem = {
   is_out_of_stock: boolean;
 };
 
-const GROUP_LABEL: Record<string, string> = {
-  food: '🍜 Chính',
-  drink: '🥤 Uống',
-  side: '🥗 Phụ',
-  other: '📦 Khác',
+type MenuGroup = {
+  id: string;
+  code: string;
+  name: string;
+  icon: string | null;
+  sort_order: number;
 };
 
 function fmt(v: number) {
@@ -45,6 +46,7 @@ type Props = {
 export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Props) {
   const toast = useToast();
   const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [groupList, setGroupList] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [group, setGroup] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -54,11 +56,25 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
 
   useEffect(() => {
-    api.get<{ data: { items: MenuItem[] } }>('/menu')
-      .then((res) => setMenu(res.data.data.items))
+    Promise.all([
+      api.get<{ data: { items: MenuItem[] } }>('/menu'),
+      api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
+    ])
+      .then(([menuRes, groupRes]) => {
+        setMenu(menuRes.data.data.items);
+        setGroupList(groupRes.data.data.items);
+      })
       .catch((err) => toast.push('error', extractError(err).message))
       .finally(() => setLoading(false));
   }, [toast]);
+
+  // Lookup helpers — dynamic groups (sau khi import file user có tới 30+ nhóm tự tạo)
+  const groupMap = new Map(groupList.map((g) => [g.code, g]));
+  const labelOf = (code: string): string => {
+    const g = groupMap.get(code);
+    if (!g) return code;
+    return g.icon ? `${g.icon} ${g.name}` : g.name;
+  };
 
   const filtered = menu.filter((it) => {
     if (group && it.group !== group) return false;
@@ -69,7 +85,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
     return true;
   });
 
-  const groups = ['', 'food', 'drink', 'side', 'other'];
+  // 'Tất cả' + tất cả nhóm động (sort_order ASC, đã sort ở BE)
+  const groupCodes = ['', ...groupList.map((g) => g.code)];
 
   const addToCart = (item: MenuItem) => {
     if (item.is_out_of_stock) return;
@@ -465,8 +482,21 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           align-items: flex-start;
           margin-bottom: 6px;
         }
-        .bulk-cart-line .name { font-size: 14px; font-weight: 600; flex: 1; line-height: 1.3; }
-        .bulk-cart-line .price { font-size: 13px; color: #0f766e; white-space: nowrap; }
+        .bulk-cart-line .name {
+          font-size: 14px;
+          font-weight: 600;
+          flex: 1;
+          min-width: 0;            /* cho phép flex item co lại + word-break ngắt */
+          line-height: 1.3;
+          word-break: break-word;
+          overflow-wrap: anywhere;
+        }
+        .bulk-cart-line .price {
+          font-size: 13px;
+          color: #0f766e;
+          white-space: nowrap;
+          flex-shrink: 0;          /* price không co khi name dài */
+        }
         .bulk-cart-line .row { display: flex; gap: 6px; align-items: center; }
         .qty-stepper { display: flex; align-items: center; gap: 4px; }
         .qty-stepper button {
@@ -580,13 +610,13 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                 style={{ minHeight: 40 }}
               />
               <div className="bulk-menu-tabs">
-                {groups.map((g) => (
+                {groupCodes.map((g) => (
                   <button
                     key={g || 'all'}
                     onClick={() => setGroup(g)}
                     className={group === g ? '' : 'secondary'}
                   >
-                    {g === '' ? 'Tất cả' : GROUP_LABEL[g]}
+                    {g === '' ? `Tất cả (${menu.length})` : labelOf(g)}
                   </button>
                 ))}
               </div>
@@ -619,7 +649,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                       )}
                       <div className="code">{it.code}</div>
                       <div className="name">{it.name}</div>
-                      <div className="meta">{GROUP_LABEL[it.group] || it.group} · {it.unit}</div>
+                      <div className="meta">{labelOf(it.group)} · {it.unit}</div>
                     </div>
                     <div className="price">
                       {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
