@@ -36,33 +36,50 @@ export type NewOrderEvent = EventBase;
 export type KitchenCancelEvent = EventBase & { reason: string };
 export type ItemServedEvent = EventBase & { served_by: string };
 export type ItemCancelByStaffEvent = EventBase & { cancelled_by: string; reason: string };
+// Aggregate event — N items chuyển từ A → B trong cùng 1 transfer = 1 noti
+export type TableTransferEvent = {
+  from_table_code: string;
+  from_table_name: string;
+  to_table_code: string;
+  to_table_name: string;
+  item_count: number;
+};
 
 type ReadyListener = (e: ReadyEvent) => void;
 type NewOrderListener = (e: NewOrderEvent) => void;
 type KitchenCancelListener = (e: KitchenCancelEvent) => void;
 type ItemServedListener = (e: ItemServedEvent) => void;
 type ItemCancelByStaffListener = (e: ItemCancelByStaffEvent) => void;
+type TableTransferListener = (e: TableTransferEvent) => void;
 
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
 
 class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
+  // Track item's parent table — phát hiện chuyển bàn (item_id thay đổi table_code)
+  private prevTables = new Map<string, { table_code: string; table_name: string }>();
   private readyListeners = new Set<ReadyListener>();
   private newOrderListeners = new Set<NewOrderListener>();
   private kitchenCancelListeners = new Set<KitchenCancelListener>();
   private itemServedListeners = new Set<ItemServedListener>();
   private itemCancelByStaffListeners = new Set<ItemCancelByStaffListener>();
+  private tableTransferListeners = new Set<TableTransferListener>();
   private audioCtx: AudioContext | null = null;
   private initialized = false;
 
   ingest(orders: Order[]): void {
     const seen = new Set<string>();
+    // Aggregate transfer events: gom theo (from→to) để 1 transfer N items = 1 noti
+    const transferAgg = new Map<string, TableTransferEvent>();
+
     for (const o of orders) {
       const table_name = o.table_name || o.table_code;
       for (const it of o.items || []) {
         seen.add(it.id);
         const prev = this.prevStates.get(it.id);
+        const prevTable = this.prevTables.get(it.id);
+
         if (this.initialized) {
           const base = {
             item_id: it.id,
@@ -72,8 +89,31 @@ class ReadyNotifier {
             qty: it.qty,
           };
 
+          // 0) Table transfer: item đổi table_code so với poll trước
+          if (prevTable && prevTable.table_code !== o.table_code) {
+            const key = `${prevTable.table_code}→${o.table_code}`;
+            const existing = transferAgg.get(key);
+            if (existing) {
+              existing.item_count += 1;
+            } else {
+              transferAgg.set(key, {
+                from_table_code: prevTable.table_code,
+                from_table_name: prevTable.table_name,
+                to_table_code: o.table_code,
+                to_table_name: table_name,
+                item_count: 1,
+              });
+            }
+          }
+
           // 1) NewOrder: item mới (prev=undefined) hoặc PENDING→KITCHEN
-          if ((prev === undefined || prev === 'PENDING') && it.state === 'KITCHEN') {
+          //    BỎ QUA nếu là transfer — item không thực sự "mới" mà là chuyển từ bàn khác
+          const isTransferred = prevTable && prevTable.table_code !== o.table_code;
+          if (
+            !isTransferred &&
+            (prev === undefined || prev === 'PENDING') &&
+            it.state === 'KITCHEN'
+          ) {
             this.emitNewOrder(base);
           }
 
@@ -102,11 +142,19 @@ class ReadyNotifier {
           }
         }
         this.prevStates.set(it.id, it.state);
+        this.prevTables.set(it.id, { table_code: o.table_code, table_name });
       }
+    }
+    // Emit aggregated transfer events sau khi đã gom đủ số lượng
+    for (const ev of transferAgg.values()) {
+      this.emitTableTransfer(ev);
     }
     // Cleanup tracked items không còn (đã checkout)
     for (const id of this.prevStates.keys()) {
-      if (!seen.has(id)) this.prevStates.delete(id);
+      if (!seen.has(id)) {
+        this.prevStates.delete(id);
+        this.prevTables.delete(id);
+      }
     }
     this.initialized = true;
   }
@@ -117,6 +165,7 @@ class ReadyNotifier {
   onKitchenCancel(l: KitchenCancelListener) { this.kitchenCancelListeners.add(l); return () => this.kitchenCancelListeners.delete(l); }
   onItemServed(l: ItemServedListener) { this.itemServedListeners.add(l); return () => this.itemServedListeners.delete(l); }
   onItemCancelByStaff(l: ItemCancelByStaffListener) { this.itemCancelByStaffListeners.add(l); return () => this.itemCancelByStaffListeners.delete(l); }
+  onTableTransfer(l: TableTransferListener) { this.tableTransferListeners.add(l); return () => this.tableTransferListeners.delete(l); }
 
   // Emitters — KHÔNG tự beep, để listener gọi beep có role-gating
   private emitReady(e: ReadyEvent) { this.fanout(this.readyListeners, e); }
@@ -124,6 +173,7 @@ class ReadyNotifier {
   private emitKitchenCancel(e: KitchenCancelEvent) { this.fanout(this.kitchenCancelListeners, e); }
   private emitItemServed(e: ItemServedEvent) { this.fanout(this.itemServedListeners, e); }
   private emitItemCancelByStaff(e: ItemCancelByStaffEvent) { this.fanout(this.itemCancelByStaffListeners, e); }
+  private emitTableTransfer(e: TableTransferEvent) { this.fanout(this.tableTransferListeners, e); }
 
   private fanout<E>(listeners: Set<(e: E) => void>, e: E): void {
     for (const l of listeners) {
@@ -196,6 +246,7 @@ class ReadyNotifier {
 
   reset(): void {
     this.prevStates.clear();
+    this.prevTables.clear();
     this.initialized = false;
   }
 }

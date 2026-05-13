@@ -8,6 +8,7 @@
 // 4. Đánh dấu hết (KitchenOutOfStock) → CẢ Bếp + Order
 // 5. Thanh toán xong (Checkout)       → CHỈ Admin
 // 6. Món đã giao tới khách (Served)   → CHỈ Bếp (kèm tên người giao)
+// 7. Chuyển bàn (TableTransfer)       → CẢ Bếp + Order (gom theo from→to)
 import { useEffect, useRef } from 'react';
 import { api, isTransientError } from '../lib/api.ts';
 import { readyNotifier } from '../lib/ready-notifier.ts';
@@ -105,6 +106,18 @@ export function ReadyListener() {
       readyNotifier.playReadyBeep();
     });
 
+    // ─── Rule 7: TableTransfer (chuyển bàn) → CẢ Bếp + Order ──────
+    const offTransfer = readyNotifier.onTableTransfer((ev) => {
+      if (!isOrder && !isKitchen) return;
+      const msg = `🔄 Chuyển bàn: ${ev.from_table_name} → ${ev.to_table_name} (${ev.item_count} món)`;
+      toast.push('info', msg, 6000);
+      notificationStore.push(
+        'info',
+        `Chuyển bàn ${ev.from_table_name} → ${ev.to_table_name}: ${ev.item_count} món.`,
+      );
+      readyNotifier.playAlertBeep();
+    });
+
     // Audio unlock (iOS Safari)
     const unlock = () => {
       readyNotifier.unlockAudio();
@@ -122,6 +135,7 @@ export function ReadyListener() {
       offKitchenCancel();
       offStaffCancel();
       offItemServed();
+      offTransfer();
       window.removeEventListener('click', unlock);
       window.removeEventListener('touchstart', unlock);
       window.removeEventListener('keydown', unlock);
