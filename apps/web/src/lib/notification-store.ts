@@ -14,7 +14,9 @@ export type NotificationEntry = {
   read: boolean;
 };
 
-const STORAGE_KEY = 'notifications-v2';
+// v3 (2026-05-13): bump để clear entries persisted với table_code cũ
+// (BE giờ trả table_name cho /orders/history).
+const STORAGE_KEY = 'notifications-v3';
 const MAX_ENTRIES = 200;
 const TTL_MS = 24 * 60 * 60 * 1000;  // 1 ngày — đủ cho ca làm việc
 
