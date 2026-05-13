@@ -362,11 +362,19 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           min-height: 100px;
           display: flex;
           flex-direction: column;
-          justify-content: space-between;
           transition: transform 0.08s, border-color 0.15s;
           color: #1f2937;
           font-weight: 400;
           position: relative;
+          overflow: hidden;  /* safety — không cho con vượt khung card */
+        }
+        .bulk-menu-card > .body {
+          flex: 1 1 auto;
+          min-width: 0;
+          min-height: 0;
+          overflow: hidden;   /* clamp con bên trong */
+          display: flex;
+          flex-direction: column;
         }
         .bulk-menu-card:hover:not(:disabled) {
           border-color: #0f766e;
@@ -400,6 +408,9 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           -webkit-box-orient: vertical;
           overflow: hidden;
           word-break: break-word;
+          overflow-wrap: anywhere;
+          /* Fallback nếu browser không hỗ trợ line-clamp: 2 × line-height */
+          max-height: 2.5em;
         }
         .bulk-menu-card .meta {
           font-size: 11px;
@@ -412,9 +423,11 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           font-size: 14px;
           font-weight: 700;
           color: #0f766e;
-          margin-top: 4px;
-          /* Price luôn fix size, không bị compress khi name dài */
-          flex-shrink: 0;
+          margin-top: 6px;
+          /* Price luôn ở đáy card, không bị name dài đẩy ra ngoài khung */
+          flex: 0 0 auto;
+          align-self: stretch;
+          white-space: nowrap;
         }
         .bulk-menu-card .thumb {
           width: 100%;
@@ -638,7 +651,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                     disabled={it.is_out_of_stock}
                   >
                     {inCart && <span className="cart-badge">{inCart.qty}</span>}
-                    <div>
+                    <div className="body">
                       {it.image_url && (
                         <img
                           src={it.image_url}
