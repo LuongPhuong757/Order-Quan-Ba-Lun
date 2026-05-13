@@ -1,7 +1,7 @@
 // Lịch sử order — page xem mọi order (đã + chưa thanh toán), filter theo bàn/ngày/cashier/trạng thái.
 // Color-code: xanh lá = đã thanh toán, vàng = chưa thanh toán.
 // Expandable row: bấm vào row để mở chi tiết món + ai gọi.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 
@@ -177,34 +177,34 @@ export function HistoryPage() {
           </StatusPill>
         </div>
 
-        <div className="row" style={{ margin: 0 }}>
-          <label htmlFor="hist-table">Bàn</label>
-          <select
-            id="hist-table"
+        {/* 2 filter chính: Bàn + Thu ngân — side-by-side trên desktop, stack trên mobile */}
+        <div
+          style={{
+            display: 'grid',
+            gap: 10,
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          }}
+        >
+          <SearchableSelect
+            label="🍽 Bàn"
+            placeholder="Tất cả bàn"
             value={tableFilter}
-            onChange={(e) => { setTableFilter(e.target.value); setPage(1); }}
-            style={{ minHeight: 44, padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15 }}
-          >
-            <option value="">Tất cả bàn</option>
-            {tables.map((t) => (
-              <option key={t.id} value={t.id}>{t.name} ({t.code})</option>
-            ))}
-          </select>
-        </div>
+            options={tables.map((t) => ({
+              value: t.id,
+              label: t.name,
+              hint: t.code,
+              group: TABLE_KIND_LABEL[t.kind] || t.kind,
+            }))}
+            onChange={(v) => { setTableFilter(v); setPage(1); }}
+          />
 
-        <div className="row" style={{ margin: 0 }}>
-          <label htmlFor="hist-cashier">Người thanh toán</label>
-          <select
-            id="hist-cashier"
+          <SearchableSelect
+            label="💵 Người thanh toán"
+            placeholder="Tất cả thu ngân"
             value={cashierFilter}
-            onChange={(e) => { setCashierFilter(e.target.value); setPage(1); }}
-            style={{ minHeight: 44, padding: '10px 14px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15 }}
-          >
-            <option value="">Tất cả thu ngân</option>
-            {cashiers.map((c) => (
-              <option key={c.id} value={c.id}>{c.full_name}</option>
-            ))}
-          </select>
+            options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
+            onChange={(v) => { setCashierFilter(v); setPage(1); }}
+          />
         </div>
 
         <div className="flex" style={{ gap: 8 }}>
@@ -531,3 +531,302 @@ const detailRow: React.CSSProperties = {
   fontSize: 13,
   borderBottom: '1px solid #f3f4f6',
 };
+
+const TABLE_KIND_LABEL: Record<string, string> = {
+  'dine-in': '🪑 Bàn ngồi',
+  'takeaway': '🥡 Mang về',
+  'delivery': '🛵 Ship',
+};
+
+// ─── SearchableSelect: trigger button + dropdown có search ──────────────
+type SelectOption = {
+  value: string;
+  label: string;
+  hint?: string;     // text phụ (ví dụ: mã bàn)
+  group?: string;    // tên nhóm để gom (ví dụ: kind bàn)
+};
+
+function SearchableSelect({
+  label,
+  placeholder,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  value: string;
+  options: SelectOption[];
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const selected = options.find((o) => o.value === value);
+
+  // Filter + group options
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) =>
+      o.label.toLowerCase().includes(q) ||
+      (o.hint && o.hint.toLowerCase().includes(q)),
+    );
+  }, [options, search]);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, SelectOption[]>();
+    for (const o of filtered) {
+      const g = o.group || '';
+      if (!map.has(g)) map.set(g, []);
+      map.get(g)!.push(o);
+    }
+    return Array.from(map.entries());
+  }, [filtered]);
+
+  // Click outside → close
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    // Auto-focus search khi mở
+    setTimeout(() => inputRef.current?.focus(), 50);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  const pick = (v: string) => {
+    onChange(v);
+    setOpen(false);
+    setSearch('');
+  };
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative' }}>
+      {/* Trigger button */}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: '100%',
+          minHeight: 48,
+          padding: '8px 12px',
+          background: 'white',
+          border: `1.5px solid ${selected ? '#0f766e' : '#d1d5db'}`,
+          borderRadius: 10,
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 8,
+          textAlign: 'left',
+          color: '#1f2937',
+          fontWeight: 500,
+          fontSize: 14,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
+          <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>{label}</div>
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: selected ? 700 : 400,
+              color: selected ? '#0f766e' : '#9ca3af',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {selected ? selected.label : placeholder}
+            {selected?.hint && (
+              <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
+                {selected.hint}
+              </span>
+            )}
+          </div>
+        </div>
+        {selected ? (
+          <span
+            role="button"
+            aria-label="Xoá lọc"
+            onClick={(e) => { e.stopPropagation(); pick(''); }}
+            style={{
+              width: 26,
+              height: 26,
+              borderRadius: '50%',
+              background: '#f3f4f6',
+              color: '#6b7280',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: 14,
+              cursor: 'pointer',
+              flexShrink: 0,
+            }}
+          >
+            ✕
+          </span>
+        ) : (
+          <span style={{ color: '#9ca3af', fontSize: 14, flexShrink: 0 }}>▾</span>
+        )}
+      </button>
+
+      {/* Dropdown panel */}
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            right: 0,
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: 10,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            maxHeight: 360,
+          }}
+        >
+          {/* Search */}
+          <div style={{ padding: 8, borderBottom: '1px solid #f3f4f6' }}>
+            <input
+              ref={inputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="🔍 Gõ để tìm..."
+              style={{
+                width: '100%',
+                minHeight: 38,
+                padding: '6px 10px',
+                fontSize: 14,
+                border: '1px solid #e5e7eb',
+                borderRadius: 6,
+                outline: 'none',
+              }}
+            />
+          </div>
+
+          {/* List */}
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* Tất cả option */}
+            <button
+              type="button"
+              onClick={() => pick('')}
+              style={{
+                width: '100%',
+                background: !value ? '#f0fdfa' : 'white',
+                border: 'none',
+                borderBottom: '1px solid #f3f4f6',
+                padding: '10px 14px',
+                textAlign: 'left',
+                cursor: 'pointer',
+                fontSize: 14,
+                color: !value ? '#0f766e' : '#374151',
+                fontWeight: !value ? 700 : 500,
+              }}
+            >
+              {!value && '✓ '}{placeholder}
+            </button>
+
+            {filtered.length === 0 && (
+              <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>
+                Không có kết quả khớp
+              </div>
+            )}
+
+            {grouped.map(([groupName, opts]) => (
+              <div key={groupName}>
+                {groupName && (
+                  <div
+                    style={{
+                      padding: '6px 14px 4px',
+                      fontSize: 11,
+                      color: '#6b7280',
+                      textTransform: 'uppercase',
+                      letterSpacing: 0.4,
+                      fontWeight: 700,
+                      background: '#fafafa',
+                    }}
+                  >
+                    {groupName}
+                  </div>
+                )}
+                {opts.map((o) => {
+                  const active = o.value === value;
+                  return (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => pick(o.value)}
+                      style={{
+                        width: '100%',
+                        background: active ? '#f0fdfa' : 'white',
+                        border: 'none',
+                        borderBottom: '1px solid #f3f4f6',
+                        padding: '10px 14px',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                      }}
+                    >
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div
+                          style={{
+                            fontSize: 14,
+                            color: active ? '#0f766e' : '#1f2937',
+                            fontWeight: active ? 700 : 500,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {active && '✓ '}{o.label}
+                        </div>
+                        {o.hint && (
+                          <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 1 }}>
+                            {o.hint}
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
+
+          {/* Footer count */}
+          <div
+            style={{
+              padding: '6px 12px',
+              borderTop: '1px solid #f3f4f6',
+              fontSize: 11,
+              color: '#9ca3af',
+              background: '#fafafa',
+              textAlign: 'right',
+            }}
+          >
+            {filtered.length} / {options.length} mục
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
