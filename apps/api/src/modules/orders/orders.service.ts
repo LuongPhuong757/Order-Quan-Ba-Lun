@@ -454,7 +454,7 @@ export class OrdersService {
     end_ms?: number;
     page?: number;
     page_size?: number;
-  }): Promise<{ items: Order[]; total: number; page: number; page_size: number }> {
+  }): Promise<{ items: Array<Order & { table_name: string }>; total: number; page: number; page_size: number }> {
     const page = Math.max(1, opts.page || 1);
     const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
     const qb = this.orderRepo
@@ -465,7 +465,18 @@ export class OrdersService {
     if (opts.start_ms) qb.andWhere('o.closed_at >= :s', { s: new Date(opts.start_ms) });
     if (opts.end_ms) qb.andWhere('o.closed_at <= :e', { e: new Date(opts.end_ms) });
     qb.orderBy('o.closed_at', 'DESC').skip((page - 1) * page_size).take(page_size);
-    const [items, total] = await qb.getManyAndCount();
+    const [orders, total] = await qb.getManyAndCount();
+
+    // Resolve table.name cho FE — checkout notification dùng tên thân thiện
+    const tableIds = Array.from(new Set(orders.map((o) => o.table_id)));
+    const tables = tableIds.length === 0
+      ? []
+      : await this.tableRepo.find({ where: { id: In(tableIds) }, select: ['id', 'name'] });
+    const tableNameById = new Map(tables.map((t) => [t.id, t.name]));
+    const items = orders.map((o) => ({
+      ...o,
+      table_name: tableNameById.get(o.table_id) || o.table_code,
+    }));
     return { items, total, page, page_size };
   }
 

@@ -7,6 +7,7 @@
 // 3. Món huỷ (StaffCancel)            → CHỈ Bếp
 // 4. Đánh dấu hết (KitchenOutOfStock) → CẢ Bếp + Order
 // 5. Thanh toán xong (Checkout)       → CHỈ Admin
+// 6. Món đã giao tới khách (Served)   → CHỈ Bếp (kèm tên người giao)
 import { useEffect, useRef } from 'react';
 import { api, isTransientError } from '../lib/api.ts';
 import { readyNotifier } from '../lib/ready-notifier.ts';
@@ -18,6 +19,7 @@ type ClosedOrder = {
   id: string;
   table_id: string;
   table_code: string;
+  table_name?: string;  // BE resolved từ /orders/history; fallback table_code
   closed_at: number;
   checked_out_by_full_name: string | null;
   items?: Array<{ state: string; menu_item_price: number; qty: number }>;
@@ -89,8 +91,19 @@ export function ReadyListener() {
       readyNotifier.playAlertBeep();
     });
 
-    // ItemServed event existed trong readyNotifier nhưng KHÔNG có rule nào
-    // listen → silent. Per user spec, không có notification 'ai giao món'.
+    // ─── Rule 6: ItemServed (món tới tay khách) → CHỈ Bếp ─────────
+    const offItemServed = readyNotifier.onItemServed((ev) => {
+      if (!isKitchen) return;
+      // Self-action skip: bếp tự đánh dấu giao thì không cần notify lại
+      if (ev.served_by === userFullName) return;
+      const msg = `🚀 ${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} đã giao bởi ${ev.served_by}`;
+      toast.push('info', msg, 5000);
+      notificationStore.push(
+        'ready',
+        `${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} giao bởi ${ev.served_by}`,
+      );
+      readyNotifier.playReadyBeep();
+    });
 
     // Audio unlock (iOS Safari)
     const unlock = () => {
@@ -108,6 +121,7 @@ export function ReadyListener() {
       offNewOrder();
       offKitchenCancel();
       offStaffCancel();
+      offItemServed();
       window.removeEventListener('click', unlock);
       window.removeEventListener('touchstart', unlock);
       window.removeEventListener('keydown', unlock);
@@ -131,11 +145,12 @@ export function ReadyListener() {
             .filter((i) => i.state === 'SERVED')
             .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
           const cashier = o.checked_out_by_full_name || 'không xác định';
-          const msg = `💰 ${o.table_code} thanh toán ${total.toLocaleString('vi-VN')}đ — ${cashier}`;
+          const tableName = o.table_name || o.table_code;
+          const msg = `💰 ${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ — ${cashier}`;
           toast.push('success', msg, 6000);
           notificationStore.push(
             'order_checkout',
-            `${o.table_code} thanh toán ${total.toLocaleString('vi-VN')}đ bởi ${cashier}.`,
+            `${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ bởi ${cashier}.`,
           );
         }
         if (newCheckouts.length > 0) {
