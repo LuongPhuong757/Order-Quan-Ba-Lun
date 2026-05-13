@@ -1,11 +1,12 @@
-// Tổng đài notification: subscribe events từ readyNotifier + role-gated
-// dispatch sang Toast + NotificationBell + sound.
+// Tổng đài notification: subscribe events từ readyNotifier + STRICT role-gated.
 // Mounted ONCE ở App.tsx — đảm bảo mọi page đều nhận thông báo.
 //
-// Role distribution (per user spec):
-// - Order:    READY (bếp xong) + KitchenOutOfStock (bếp báo hết)
-// - Kitchen:  NewOrder + ItemServed + KitchenOutOfStock (self-confirm) + StaffCancel
-// - Admin:    Checkout (poll /orders/history)
+// Quy tắc role (per user spec — STRICT, admin KHÔNG nhận event nghiệp vụ):
+// 1. Có món được order (NewOrder)     → CHỈ Bếp
+// 2. Món đã xong (READY)              → CHỈ Order
+// 3. Món huỷ (StaffCancel)            → CHỈ Bếp
+// 4. Đánh dấu hết (KitchenOutOfStock) → CẢ Bếp + Order
+// 5. Thanh toán xong (Checkout)       → CHỈ Admin
 import { useEffect, useRef } from 'react';
 import { api, isTransientError } from '../lib/api.ts';
 import { readyNotifier } from '../lib/ready-notifier.ts';
@@ -28,16 +29,16 @@ export function ReadyListener() {
   const toast = useToast();
   const { user } = useAuth();
   const role = user?.role ?? (user?.is_owner ? 'admin' : null);
-  const isOrder = role === 'order' || role === 'admin';
-  const isKitchen = role === 'kitchen' || role === 'admin';
+  // STRICT — không bao gồm admin nữa
+  const isOrder = role === 'order';
+  const isKitchen = role === 'kitchen';
   const isAdmin = role === 'admin';
   const userFullName = user?.full_name || '';
 
-  // Track last seen checkout ID để diff trên Admin polling
   const lastSeenCheckoutMs = useRef<number>(Date.now());
 
   useEffect(() => {
-    // ─── READY: món xong → notify Order role + Admin ────────────────
+    // ─── Rule 2: READY → CHỈ Order ─────────────────────────────────
     const offReady = readyNotifier.on((ev) => {
       if (!isOrder) return;
       const msg = `🔔 ${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} đã xong, lên lấy mang ra!`;
@@ -46,21 +47,7 @@ export function ReadyListener() {
       readyNotifier.playReadyBeep();
     });
 
-    // ─── KitchenOutOfStock: bếp báo hết → Order + Kitchen (self-confirm) ────
-    const offKitchenCancel = readyNotifier.onKitchenCancel((ev) => {
-      if (!isOrder && !isKitchen) return;
-      const msg = `⚠️ ${ev.table_name}: bếp báo HẾT ${ev.qty}× ${ev.menu_item_name}`;
-      toast.push('error', msg + (isOrder ? ' — ra báo khách đổi món!' : ''), 8000);
-      notificationStore.push(
-        'order_cancel',
-        isOrder
-          ? `${ev.table_name} — bếp báo hết ${ev.qty}× ${ev.menu_item_name}. Ra báo khách đổi món.`
-          : `${ev.table_name} — đã báo hết ${ev.qty}× ${ev.menu_item_name}.`,
-      );
-      readyNotifier.playAlertBeep();
-    });
-
-    // ─── NewOrder: bồi vừa báo bếp → Kitchen ───────────────────────
+    // ─── Rule 1: NewOrder → CHỈ Bếp ─────────────────────────────────
     const offNewOrder = readyNotifier.onNewOrder((ev) => {
       if (!isKitchen) return;
       const msg = `📢 ${ev.table_name} — món mới: ${ev.qty}× ${ev.menu_item_name}`;
@@ -72,24 +59,26 @@ export function ReadyListener() {
       readyNotifier.playNewOrderBeep();
     });
 
-    // ─── ItemServed: món tới tay khách → Kitchen (biết ai giao) ────
-    const offItemServed = readyNotifier.onItemServed((ev) => {
-      if (!isKitchen) return;
-      // Self-action (bếp tự giao): không cần beep + toast lặp lại
-      if (ev.served_by === userFullName) return;
-      const msg = `🚀 ${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} đã giao bởi ${ev.served_by}`;
-      toast.push('info', msg, 5000);
+    // ─── Rule 4: KitchenOutOfStock → CẢ Bếp + Order ────────────────
+    const offKitchenCancel = readyNotifier.onKitchenCancel((ev) => {
+      if (!isOrder && !isKitchen) return;
+      const msg = isOrder
+        ? `⚠️ ${ev.table_name}: bếp báo HẾT ${ev.qty}× ${ev.menu_item_name} — ra báo khách đổi món!`
+        : `⚠️ Đã báo hết ${ev.qty}× ${ev.menu_item_name} cho bàn ${ev.table_name}`;
+      toast.push('error', msg, 8000);
       notificationStore.push(
-        'ready',
-        `${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} giao bởi ${ev.served_by}`,
+        'order_cancel',
+        isOrder
+          ? `${ev.table_name} — bếp báo hết ${ev.qty}× ${ev.menu_item_name}. Ra báo khách đổi món.`
+          : `${ev.table_name} — đã báo hết ${ev.qty}× ${ev.menu_item_name}.`,
       );
-      readyNotifier.playReadyBeep();
+      readyNotifier.playAlertBeep();
     });
 
-    // ─── StaffCancel: nhân viên order huỷ món → Kitchen biết để dừng làm
+    // ─── Rule 3: StaffCancel (order staff huỷ món) → CHỈ Bếp ──────
     const offStaffCancel = readyNotifier.onItemCancelByStaff((ev) => {
       if (!isKitchen) return;
-      // Self-action: không lặp
+      // Self-action skip: nếu bếp tự huỷ thì không cần báo lại chính mình
       if (ev.cancelled_by === userFullName) return;
       const msg = `✕ ${ev.table_name} HUỶ ${ev.qty}× ${ev.menu_item_name} (bởi ${ev.cancelled_by})`;
       toast.push('error', msg + (ev.reason ? ` — ${ev.reason}` : ''), 7000);
@@ -99,6 +88,9 @@ export function ReadyListener() {
       );
       readyNotifier.playAlertBeep();
     });
+
+    // ItemServed event existed trong readyNotifier nhưng KHÔNG có rule nào
+    // listen → silent. Per user spec, không có notification 'ai giao món'.
 
     // Audio unlock (iOS Safari)
     const unlock = () => {
@@ -113,9 +105,8 @@ export function ReadyListener() {
 
     return () => {
       offReady();
-      offKitchenCancel();
       offNewOrder();
-      offItemServed();
+      offKitchenCancel();
       offStaffCancel();
       window.removeEventListener('click', unlock);
       window.removeEventListener('touchstart', unlock);
@@ -123,11 +114,10 @@ export function ReadyListener() {
     };
   }, [toast, isOrder, isKitchen, userFullName]);
 
-  // ─── Admin: poll /orders/history mỗi 10s → detect new checkouts ──
+  // ─── Rule 5: Checkout → CHỈ Admin (poll /orders/history mỗi 10s) ─
   useEffect(() => {
     if (!isAdmin) return;
-    const startedAt = Date.now();
-    lastSeenCheckoutMs.current = startedAt;
+    lastSeenCheckoutMs.current = Date.now();
 
     const poll = async () => {
       try {
