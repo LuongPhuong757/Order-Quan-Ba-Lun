@@ -39,12 +39,23 @@ async function bootstrap() {
   const webDist = join(process.cwd(), 'web-dist');
   if (process.env.NODE_ENV === 'production' && existsSync(webDist)) {
     app.useStaticAssets(webDist);
-    // SPA fallback: GET non-API routes → index.html (cho client-side routing)
+    // SPA fallback: GET non-API routes → index.html (cho client-side routing).
+    // BUG FIX: route trùng tên BE (vd /orders) khi user reload trình duyệt cũ trả JSON.
+    // Check Accept: text/html → render index.html dù path khớp API prefix.
+    // fetch/axios mặc định gửi Accept: application/json → vẫn vào API bình thường.
     const apiPrefixes = ['/auth', '/admin', '/setup', '/health', '/menu', '/menu-groups', '/tables', '/orders', '/uploads'];
     app.use((req: Request, res: Response, next: NextFunction) => {
       if (req.method !== 'GET') return next();
-      if (apiPrefixes.some((p) => req.path === p || req.path.startsWith(p + '/'))) return next();
       if (req.path.includes('.')) return next();  // file requests like /assets/x.js
+      const wantsHtml = (req.headers.accept || '').includes('text/html');
+      if (wantsHtml) {
+        // Browser navigation (reload, paste URL) — luôn trả SPA shell, kể cả nếu path
+        // trùng tên endpoint BE. React Router sẽ tự match route đúng phía client.
+        return res.sendFile(join(webDist, 'index.html'));
+      }
+      // Non-HTML (axios/fetch) — match API prefix → forward sang controller
+      if (apiPrefixes.some((p) => req.path === p || req.path.startsWith(p + '/'))) return next();
+      // Còn lại (vd /something-unknown) — vẫn trả SPA cho safety
       res.sendFile(join(webDist, 'index.html'));
     });
   }
