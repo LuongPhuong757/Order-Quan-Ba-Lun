@@ -181,6 +181,7 @@ export class OrdersService {
         'i.created_by_full_name',
         'i.served_by_full_name',
         'i.cancelled_by_full_name',
+        'i.is_priority',
         'i.created_at',
         'i.updated_at',
       ])
