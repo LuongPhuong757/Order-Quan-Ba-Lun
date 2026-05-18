@@ -520,9 +520,38 @@ export function KitchenPage() {
           Bấm "🚫 Đánh dấu hết" trên card → menu món đó chuyển đỏ (nhân viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận noti báo khách đổi món.
         </p>
 
-        <h3 style={{ marginBottom: 6 }}>Lọc theo nhóm món</h3>
-        <p style={{ margin: '4px 0 0' }}>
-          Bấm "🔍 Lọc nhóm" trên đầu trang để chỉ hiển thị món thuộc nhóm bạn phụ trách (vd: chỉ nhóm Cháo). Lựa chọn được lưu lại sau reload.
+        <h3 style={{ marginBottom: 6 }}>🔍 Lọc theo nhóm món</h3>
+        <p style={{ marginTop: 0, color: '#6b7280' }}>
+          Khi bếp có nhiều người (vd: 1 người chuyên cháo, 1 người chuyên đồ uống), filter giúp mỗi người chỉ thấy món của mình.
+        </p>
+        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Mở filter:</p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+          <li>Bấm nút <strong>"🔍 Lọc nhóm"</strong> trên đầu trang → mở popup chọn nhóm.</li>
+          <li>Mặc định ban đầu là <strong>"Tất cả"</strong> — hiện toàn bộ món của mọi nhóm.</li>
+        </ul>
+        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Trong popup lọc:</p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+          <li>
+            Nhóm chia 2 mục:
+            <ul style={{ paddingLeft: 18, margin: '2px 0' }}>
+              <li><strong>🔥 Bếp nấu</strong> — món cần chế biến (cháo, mỳ, nộm...).</li>
+              <li><strong>🥤 Bếp có sẵn</strong> — món có sẵn không cần nấu (nước đóng chai, hoa quả...).</li>
+            </ul>
+          </li>
+          <li>Tick nhiều nhóm cùng lúc — vd: chọn "Cháo" + "Súp" để xem cả 2.</li>
+          <li>Bên phải mỗi nhóm có <strong>số đếm</strong> — biết nhóm đó đang có bao nhiêu món chờ.</li>
+          <li>Nút <strong>"✓ Tất cả"</strong> tick hết / <strong>"✕ Bỏ chọn"</strong> bỏ hết — nhanh hơn tick từng cái.</li>
+          <li>Ô <strong>🔍 Tìm tên nhóm</strong> — gõ để lọc nhanh khi có nhiều nhóm.</li>
+          <li>Bấm <strong>"Áp dụng"</strong> để lưu lựa chọn.</li>
+        </ul>
+        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Sau khi áp dụng:</p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+          <li>Nút "Lọc nhóm" đổi sang nền màu + hiển thị <strong>số nhóm đang chọn</strong>.</li>
+          <li>Bên cạnh hiện <strong>chip nhỏ liệt kê tên các nhóm</strong> đang chọn + số món của nhóm.</li>
+          <li>Bấm <strong>"✕ Xoá lọc"</strong> để reset về "Tất cả".</li>
+        </ul>
+        <p style={{ margin: '6px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
+          💾 Lựa chọn được lưu vào trình duyệt — đăng xuất / reload vẫn giữ nguyên. Mỗi thiết bị giữ filter riêng.
         </p>
       </HelpModal>
 
