@@ -77,9 +77,8 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      # HTTPS — bật khi có domain:
-      # - "443:443"
-      # - "443:443/udp"  # HTTP/3 QUIC
+      - "443:443"
+      - "443:443/udp"  # HTTP/3 QUIC
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data        # Let's Encrypt certs (persistent — sẵn sàng khi switch HTTPS)
