@@ -35,8 +35,10 @@ export const dataSourceOptions: DataSourceOptions = {
   },
   entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem],
   migrations: ['src/migrations/*.ts'],
-  // Use synchronize:true ONLY for first-run dev — production migrations only.
-  synchronize: process.env.NODE_ENV !== 'production',
+  // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
+  // Trade-off: schema change phải cẩn thận (drop cột = mất data). Đơn giản hơn cho
+  // quán ăn nhỏ — không cần ops phức tạp.
+  synchronize: true,
   logging: process.env.NODE_ENV !== 'production' ? ['error', 'warn'] : false,
 };
 

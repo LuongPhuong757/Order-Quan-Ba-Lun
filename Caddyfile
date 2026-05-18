@@ -1,7 +1,9 @@
-# Caddy auto HTTPS + reverse proxy to API.
-# DOMAIN env (vd: quanbalun.com) — set qua .env.production.
+# Caddy reverse proxy → API container.
+#
+# HTTP-only mode (chưa có domain): listen :80, không HTTPS.
+# Khi có domain: đổi `:80` thành `{$DOMAIN}` + bỏ comment block HTTPS bên dưới.
 
-{$DOMAIN} {
+:80 {
     # Logging (rotate tự động khi >10MB)
     log {
         output stdout
@@ -16,23 +18,34 @@
         header_up X-Forwarded-Proto {scheme}
     }
 
-    # Security headers
+    # Security headers (HTTP — không HSTS vì chưa HTTPS)
     header {
-        # HSTS — force HTTPS trong 1 năm
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        # Anti-clickjacking
         X-Frame-Options "DENY"
         X-Content-Type-Options "nosniff"
         Referrer-Policy "strict-origin-when-cross-origin"
-        # Permissions (tắt API không dùng)
         Permissions-Policy "geolocation=(), camera=(self), microphone=()"
     }
 
     # Compression (gzip + zstd) — giảm 60-80% payload JSON
     encode zstd gzip
-
-    # HTTP/3 (đã enabled qua port 443/udp ở docker-compose)
 }
 
-# Redirect http → https (Caddy tự động làm khi domain match)
-# Nếu cần www → apex: thêm "www.{$DOMAIN}" trên cùng block ABOVE
+# ─── Khi có domain, switch sang HTTPS auto Let's Encrypt ───
+# Thay block :80 trên bằng:
+#
+# {$DOMAIN} {
+#     log { output stdout format console }
+#     reverse_proxy api:3001 {
+#         header_up X-Real-IP {remote_host}
+#         header_up X-Forwarded-For {remote_host}
+#         header_up X-Forwarded-Proto {scheme}
+#     }
+#     header {
+#         Strict-Transport-Security "max-age=31536000; includeSubDomains"
+#         X-Frame-Options "DENY"
+#         X-Content-Type-Options "nosniff"
+#         Referrer-Policy "strict-origin-when-cross-origin"
+#         Permissions-Policy "geolocation=(), camera=(self), microphone=()"
+#     }
+#     encode zstd gzip
+# }

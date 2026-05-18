@@ -1,8 +1,12 @@
-# Production stack: caddy (HTTPS) → api → mysql.
+# Production stack: caddy (HTTP only) → api → mysql.
 # Triển khai: cp .env.production.example .env.production → sửa secrets →
 # docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 #
-# Khác với docker-compose.yml (dev, chỉ mysql): file này build + chạy đủ stack.
+# HTTP-only mode (chưa có domain). Khi có domain:
+# - Mở comment ports 443 + 443/udp ở caddy
+# - Set DOMAIN trong .env.production
+# - Đổi Caddyfile từ `:80` sang `{$DOMAIN}`
+# - Set COOKIE_SECURE=true cho api
 
 services:
   mysql:
@@ -20,7 +24,6 @@ services:
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+00:00
       # 4GB RAM VPS → cấp 1GB cho innodb buffer pool (cache toàn bộ menu + orders trong RAM)
-      # Nếu VPS chỉ 2GB RAM → đổi về 256M
       - --innodb-buffer-pool-size=1G
       - --max-connections=100
       - --performance-schema=OFF
@@ -52,8 +55,11 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_LIFETIME_DAYS: ${JWT_LIFETIME_DAYS:-7}
       COOKIE_NAME: ${COOKIE_NAME:-ssp_token}
-      COOKIE_SECURE: 'true'
+      # HTTP mode → cookie secure=false. Khi có HTTPS đổi 'true'.
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
       SETUP_ALLOWED_IP: ${SETUP_ALLOWED_IP:-127.0.0.1}
+      # CSRF origin check — set theo public URL của site
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN}
     volumes:
       # Persist menu images (mất container không mất file)
       - ./uploads:/app/apps/api/uploads
@@ -71,14 +77,15 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
-      - "443:443/udp"  # HTTP/3 QUIC
+      # HTTPS — bật khi có domain:
+      # - "443:443"
+      # - "443:443/udp"  # HTTP/3 QUIC
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy_data:/data        # Let's Encrypt certs (persistent)
+      - caddy_data:/data        # Let's Encrypt certs (persistent — sẵn sàng khi switch HTTPS)
       - caddy_config:/config
     environment:
-      DOMAIN: ${DOMAIN}
+      DOMAIN: ${DOMAIN:-}
     depends_on:
       - api
     networks:
