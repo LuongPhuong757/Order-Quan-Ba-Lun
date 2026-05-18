@@ -120,15 +120,16 @@ const COLUMN_DEFS: Array<{
   },
 ];
 
-// 3-tier age threshold (user-spec): đen → vàng → đỏ
-const AGE_WARN_MS = 10 * 60_000;     // 10ph → vàng (cảnh báo)
-const AGE_CRITICAL_MS = 20 * 60_000; // 20ph → đỏ (khẩn cấp)
+// 3-tier age threshold (user-spec): đen → vàng đậm → đỏ đậm
+// Áp lên TÊN MÓN + TÊN BÀN (kds-card-name + kds-card-table) ở MỌI cột (kể cả READY)
+// — món xong nhưng để lâu chưa giao cũng cần biết để xử lý.
+const AGE_WARN_MS = 10 * 60_000;     // 10ph → vàng đậm (cảnh báo)
+const AGE_CRITICAL_MS = 20 * 60_000; // 20ph → đỏ đậm (khẩn cấp)
 
-function ageColor(ts: number, state: string): string | undefined {
-  if (state === 'READY') return undefined;       // món đã xong — không cần highlight tuổi
+function ageColor(ts: number): string {
   const age = Date.now() - ts;
-  if (age > AGE_CRITICAL_MS) return '#dc2626'; // đỏ — quá 20ph
-  if (age > AGE_WARN_MS)     return '#f59e0b'; // vàng — quá 10ph
+  if (age > AGE_CRITICAL_MS) return '#b91c1c'; // đỏ-700 đậm — quá 20ph (gấp)
+  if (age > AGE_WARN_MS)     return '#ca8a04'; // vàng-600 đậm — quá 10ph (cảnh báo)
   return '#111827';                            // đen — món mới (< 10ph)
 }
 
@@ -386,7 +387,6 @@ export function KitchenPage() {
           display: flex;
           gap: 10px;
           align-items: stretch;
-          transition: box-shadow 0.15s ease, transform 0.15s ease;
         }
         .kds-card-info { flex: 1; min-width: 0; }
         .kds-card-table {
@@ -629,7 +629,7 @@ function Card({
   // bị reset về 0 — không phản ánh đúng thời gian khách đã chờ.
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
-  const ageTextColor = ageColor(item.created_at, item.state);
+  const ageTextColor = ageColor(item.created_at);
   const isOutOfStock = menuItem?.is_out_of_stock ?? false;
 
   return (
@@ -641,8 +641,17 @@ function Card({
       }}
     >
       <div className="kds-card-info">
-        <div className="kds-card-table" title={item.table_code}>{item.table_name}</div>
-        <div className="kds-card-name">
+        <div
+          className="kds-card-table"
+          title={item.table_code}
+          style={{ color: ageTextColor }}
+        >
+          {item.table_name}
+        </div>
+        <div
+          className="kds-card-name"
+          style={{ color: ageTextColor }}
+        >
           {item.qty}× {item.menu_item_name}
         </div>
         {item.created_by_full_name && (
@@ -659,14 +668,8 @@ function Card({
           </div>
         )}
         {item.note && <div className="kds-card-note">📝 {item.note}</div>}
-        <div
-          className="kds-card-meta"
-          style={{
-            color: ageTextColor || '#6b7280',
-            fontWeight: ageTextColor ? 700 : 400,
-          }}
-        >
-          {ageTextColor === '#dc2626' && '⚠ '}
+        <div className="kds-card-meta">
+          {ageTextColor === '#b91c1c' && '⚠ '}
           ⏱ {ageMin}p
         </div>
         {isOutOfStock && (
