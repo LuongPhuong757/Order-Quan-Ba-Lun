@@ -1,9 +1,11 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
 import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
+import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
 import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
+import { HelpButton, HelpModal } from './HelpModal.tsx';
 
 type OrderItem = {
   id: string;
@@ -15,6 +17,7 @@ type OrderItem = {
   note: string | null;
   cancelled_reason: string | null;
   created_by_full_name: string | null;
+  is_priority?: boolean;
 };
 
 type Order = {
@@ -123,6 +126,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showCustomerInfo, setShowCustomerInfo] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const { user } = useAuth();
+  const role = user?.role ?? (user?.is_owner ? 'admin' : null);
+  const canSetPriority = role === 'order' || role === 'admin';
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -196,6 +203,19 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     try {
       await api.patch(`/orders/items/${it.id}/state`, { to });
       toast.push('success', `${it.menu_item_name} → ${LABEL[to]}`);
+      refresh();
+    } catch (e) {
+      toast.push('error', extractError(e).message);
+    }
+  };
+
+  const togglePriority = async (it: OrderItem) => {
+    const next = !it.is_priority;
+    try {
+      await api.patch(`/orders/items/${it.id}/priority`, { priority: next });
+      toast.push('success', next
+        ? `⭐ Đã đánh dấu ưu tiên "${it.menu_item_name}"`
+        : `Đã bỏ ưu tiên "${it.menu_item_name}"`);
       refresh();
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -325,7 +345,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           width: '100%',
         }}
       >
-        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start', gap: 8 }}>
           <div>
             <h1 style={{ margin: 0 }}>{table.name}</h1>
             <div style={{ color: '#6b7280', fontSize: 13 }}>
@@ -333,10 +353,47 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               {order && <> · mở từ {new Date(order.opened_at).toLocaleTimeString('vi-VN')}</>}
             </div>
           </div>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
-          </button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <HelpButton onClick={() => setHelpOpen(true)} />
+            <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', minHeight: 40 }}>
+              ✕
+            </button>
+          </div>
         </div>
+
+        <HelpModal title="Hướng dẫn — Drawer chi tiết bàn" open={helpOpen} onClose={() => setHelpOpen(false)}>
+          <h3 style={{ marginTop: 0, marginBottom: 6 }}>Vòng đời một món</h3>
+          <p style={{ marginTop: 0, color: '#6b7280' }}>
+            Mỗi món đi qua các trạng thái: Đã gọi → Đã báo bếp → Đang nấu → Đã xong → <strong>Đã giao</strong>.
+          </p>
+
+          <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao tới khách</h3>
+          <p style={{ margin: '4px 0' }}>
+            Khi bạn cầm món ra bàn cho khách, bấm nút <strong>🚀 Đã giao</strong> bên phải món. Việc này có thể làm <strong>ở bất kỳ trạng thái nào</strong> — kể cả khi món vẫn còn ở "Đã gọi" hay "Đang nấu":
+          </p>
+          <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+            <li>Với món <strong>"Đã xong"</strong> — cách thường gặp: bếp đã làm xong, bạn ra lấy + tap "🚀 Đã giao".</li>
+            <li>Với món <strong>không cần nấu</strong> (vd: nước đóng chai có sẵn) — tap "🚀 Đã giao" luôn ở trạng thái "Đã gọi".</li>
+          </ul>
+          <p style={{ margin: '4px 0' }}>
+            Sau khi đã giao, bếp nhận noti biết món đã ra. Khi <strong>tất cả</strong> món SERVED, thẻ bàn ở sơ đồ chuyển xanh → bấm "💰 Thanh toán".
+          </p>
+
+          <h3 style={{ marginBottom: 6 }}>⭐ Ưu tiên món</h3>
+          <p style={{ margin: '4px 0' }}>
+            Khi khách sắp về (vd: yêu cầu nhanh), bấm nút <strong>⭐ Ưu tiên</strong> trên món ở trạng thái "Đã báo bếp". Tại màn Bếp, món sẽ:
+          </p>
+          <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+            <li>Đứng đầu cột "Đã order"</li>
+            <li>Có nhãn ⭐ ƯU TIÊN CẦN NẤU TRƯỚC</li>
+            <li>Tự bỏ ưu tiên khi bếp bấm "Bắt đầu nấu"</li>
+          </ul>
+
+          <h3 style={{ marginBottom: 6 }}>Huỷ món</h3>
+          <p style={{ margin: '4px 0 0' }}>
+            Bấm "✕ Huỷ" trên món. Nếu món đã báo bếp, bạn cần nhập lý do — bếp nhận noti tự động.
+          </p>
+        </HelpModal>
 
         {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
 
@@ -450,7 +507,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                     {LABEL[st]} ({list.length})
                   </h2>
                   {list.map((it) => (
-                    <ItemRow key={it.id} item={it} onChangeState={(to) => changeState(it, to)} />
+                    <ItemRow
+                      key={it.id}
+                      item={it}
+                      onChangeState={(to) => changeState(it, to)}
+                      onTogglePriority={() => togglePriority(it)}
+                      canSetPriority={canSetPriority}
+                    />
                   ))}
                 </div>
               );
@@ -718,10 +781,14 @@ function DeliveryInfoModal({
 function ItemRow({
   item,
   onChangeState,
+  onTogglePriority,
+  canSetPriority,
   readonly,
 }: {
   item: OrderItem;
   onChangeState: (to: string) => void;
+  onTogglePriority?: () => void;
+  canSetPriority?: boolean;
   readonly?: boolean;
 }) {
   // Ẩn các transition thuộc luồng bếp khỏi giao diện order — staff order chỉ
@@ -745,6 +812,23 @@ function ItemRow({
     >
       <div className="flex between" style={{ alignItems: 'flex-start' }}>
         <div style={{ flex: 1 }}>
+          {item.is_priority && (
+            <div
+              style={{
+                display: 'inline-block',
+                background: '#fef3c7',
+                color: '#b45309',
+                border: '1px solid #f59e0b',
+                padding: '2px 6px',
+                borderRadius: 6,
+                fontSize: 10,
+                fontWeight: 700,
+                marginBottom: 4,
+              }}
+            >
+              ⭐ ƯU TIÊN
+            </div>
+          )}
           <div style={{ fontWeight: 600 }}>
             {item.qty} × {item.menu_item_name}
           </div>
@@ -786,6 +870,24 @@ function ItemRow({
               {NEXT_LABEL[to]}
             </button>
           ))}
+          {/* Priority toggle — chỉ hiện cho Order/Admin khi item đang ở KITCHEN.
+              State khác (PENDING/COOKING/...) → BE từ chối nên ẩn hẳn cho gọn. */}
+          {!readonly && canSetPriority && onTogglePriority && item.state === 'KITCHEN' && (
+            <button
+              onClick={onTogglePriority}
+              style={{
+                padding: '6px 12px',
+                fontSize: 13,
+                background: item.is_priority ? '#b45309' : '#f59e0b',
+                color: 'white',
+                minHeight: 36,
+                minWidth: 90,
+              }}
+              title={item.is_priority ? 'Bỏ đánh dấu ưu tiên' : 'Đánh dấu ưu tiên — bếp nấu trước'}
+            >
+              {item.is_priority ? '★ Bỏ ưu tiên' : '⭐ Ưu tiên'}
+            </button>
+          )}
           {cancelAllowed && (
             <button
               onClick={() => onChangeState('CANCELLED')}

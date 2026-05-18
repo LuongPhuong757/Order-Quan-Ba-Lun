@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -52,6 +53,10 @@ class BulkAddItemsDto {
 class ChangeStateDto {
   @IsIn(['PENDING', 'KITCHEN', 'COOKING', 'READY', 'SERVED', 'CANCELLED']) to!: string;
   @IsOptional() @IsString() @MaxLength(255) reason?: string;
+}
+
+class SetPriorityDto {
+  @IsBoolean() priority!: boolean;
 }
 
 class TransferTableDto {
@@ -125,6 +130,21 @@ export class OrdersController {
       id: req.user!.sub,
       full_name: req.user!.full_name,
     });
+    return { data: item };
+  }
+
+  /** PATCH /orders/items/:itemId/priority — Order + Admin set/unset cờ ưu tiên.
+   * Bếp chỉ xem, không sửa được. Kitchen tự auto-clear khi state → COOKING. */
+  @Patch('items/:itemId/priority')
+  async setItemPriority(@Param('itemId') itemId: string, @Body() dto: SetPriorityDto, @Req() req: Request) {
+    const role = req.user!.role ?? (req.user!.is_owner ? 'admin' : null);
+    if (role !== 'order' && role !== 'admin') {
+      throw new ForbiddenException({
+        code: 'PRIORITY_ROLE_DENIED',
+        message: 'Chỉ Order/Admin được đánh dấu ưu tiên.',
+      });
+    }
+    const item = await this.svc.setItemPriority(itemId, dto.priority);
     return { data: item };
   }
 

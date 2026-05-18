@@ -6,6 +6,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 
 type OrderItem = {
@@ -18,6 +19,7 @@ type OrderItem = {
   created_by_full_name: string | null;
   created_at: number;
   updated_at: number;
+  is_priority?: boolean;
 };
 
 type Order = {
@@ -147,6 +149,7 @@ export function KitchenPage() {
   const [now, setNow] = useState(Date.now());
   const [groupFilters, setGroupFilters] = useState<Set<string>>(() => loadStoredFilters());
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
 
   // Persist filter ra localStorage mỗi khi thay đổi
   useEffect(() => {
@@ -233,8 +236,15 @@ export function KitchenPage() {
       }
     }
     for (const k of Object.keys(out)) {
-      // Sort theo created_at (thời gian khách gọi món thực sự) — món gọi sớm nhất lên đầu
-      out[k].sort((a, b) => a.created_at - b.created_at);
+      // Sort:
+      // 1) Priority items lên đầu (chỉ ảnh hưởng cột KITCHEN — auto-clear khi sang COOKING)
+      // 2) Trong cùng nhóm priority/non-priority: sort theo created_at (khách gọi trước nấu trước)
+      out[k].sort((a, b) => {
+        const pa = a.is_priority ? 1 : 0;
+        const pb = b.is_priority ? 1 : 0;
+        if (pa !== pb) return pb - pa;
+        return a.created_at - b.created_at;
+      });
     }
     return out;
   }, [orders, menuMap, tableNameById, groupFilters, now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -463,10 +473,58 @@ export function KitchenPage() {
 
       <div className="kds-header">
         <h1>👨‍🍳 Bếp — màn nấu</h1>
-        <button className="secondary" onClick={manualRefresh} style={{ padding: '8px 14px' }}>
-          ↻ Làm mới
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <HelpButton onClick={() => setHelpOpen(true)} />
+          <button className="secondary" onClick={manualRefresh} style={{ padding: '8px 14px', minHeight: 40 }}>
+            ↻ Làm mới
+          </button>
+        </div>
       </div>
+
+      <HelpModal title="Hướng dẫn — Màn Bếp" open={helpOpen} onClose={() => setHelpOpen(false)}>
+        <h3 style={{ marginTop: 0, marginBottom: 6 }}>3 cột (tab) — vòng đời 1 món</h3>
+        <p style={{ marginTop: 0, color: '#6b7280' }}>
+          Mỗi món đi qua 3 cột từ trái sang phải. Bấm mũi tên → bên phải card để chuyển sang cột kế tiếp.
+        </p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
+          <li>
+            <strong style={{ color: '#f59e0b' }}>📢 Đã order</strong> — món vừa được nhân viên gọi, đang chờ bếp xếp việc. Bấm "🔥 Bắt đầu nấu" để vào "Đang nấu".
+          </li>
+          <li>
+            <strong style={{ color: '#3b82f6' }}>🔥 Đang nấu</strong> — bếp đang nấu. Khi xong, bấm "✓ Xong, sẵn sàng" để vào "Đã xong".
+          </li>
+          <li>
+            <strong style={{ color: '#10b981' }}>🍽 Đã xong</strong> — món xong, nhân viên order nhận noti + tiếng beep để ra lấy mang cho khách. Bếp bấm "🚀 Đã giao" sau khi nhân viên đã lấy.
+          </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>Màu đồng hồ ⏱ trên card — cảnh báo thời gian chờ</h3>
+        <p style={{ marginTop: 0, color: '#6b7280' }}>
+          Tính từ lúc khách gọi món (created_at), không phải lúc bắt đầu nấu.
+        </p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
+          <li><span style={{ color: '#111827', fontWeight: 700 }}>⏱ Đen</span> — món mới (&lt; 10 phút), bình thường.</li>
+          <li><span style={{ color: '#f59e0b', fontWeight: 700 }}>⏱ Vàng</span> — đã quá 10 phút, cần để ý.</li>
+          <li><span style={{ color: '#dc2626', fontWeight: 700 }}>⚠ ⏱ Đỏ</span> — đã quá 20 phút, ưu tiên làm ngay.</li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>⭐ Món được ưu tiên</h3>
+        <p style={{ margin: '4px 0' }}>
+          Nhân viên Order có thể đánh dấu món ưu tiên (khi khách sắp về). Card sẽ có nhãn{' '}
+          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>⭐ ƯU TIÊN CẦN NẤU TRƯỚC</span>{' '}
+          và đứng đầu cột "Đã order". Khi bếp bấm "Bắt đầu nấu", cờ ưu tiên tự mất.
+        </p>
+
+        <h3 style={{ marginBottom: 6 }}>Đánh dấu món hết nguyên liệu</h3>
+        <p style={{ margin: '4px 0' }}>
+          Bấm "🚫 Đánh dấu hết" trên card → menu món đó chuyển đỏ (nhân viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận noti báo khách đổi món.
+        </p>
+
+        <h3 style={{ marginBottom: 6 }}>Lọc theo nhóm món</h3>
+        <p style={{ margin: '4px 0 0' }}>
+          Bấm "🔍 Lọc nhóm" trên đầu trang để chỉ hiển thị món thuộc nhóm bạn phụ trách (vd: chỉ nhóm Cháo). Lựa chọn được lưu lại sau reload.
+        </p>
+      </HelpModal>
 
       {/* Filter bar — 1 nút mở modal chọn nhóm. Chip 'X nhóm' khi đã chọn,
           nút 'Xoá lọc' để reset về tất cả. Selection lưu localStorage. */}
@@ -641,6 +699,24 @@ function Card({
       }}
     >
       <div className="kds-card-info">
+        {item.is_priority && (
+          <div
+            style={{
+              display: 'inline-block',
+              background: '#fef3c7',
+              color: '#b45309',
+              border: '1px solid #f59e0b',
+              padding: '3px 8px',
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              marginBottom: 6,
+            }}
+            title="Nhân viên Order đánh dấu — khách sắp về, ưu tiên nấu trước"
+          >
+            ⭐ ƯU TIÊN CẦN NẤU TRƯỚC
+          </div>
+        )}
         <div
           className="kds-card-table"
           title={item.table_code}

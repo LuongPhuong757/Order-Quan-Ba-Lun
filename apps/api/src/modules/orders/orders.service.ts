@@ -344,12 +344,34 @@ export class OrdersService {
         item.served_by_user_id = actor?.id ?? null;
         item.served_by_full_name = actor?.full_name ?? null;
       }
+      // Auto-clear priority khi bếp bắt đầu nấu — cờ đã hoàn thành nhiệm vụ
+      if (to === 'COOKING' && item.is_priority) {
+        item.is_priority = false;
+      }
       await itemRepo.save(item);
       if (to === 'KITCHEN') {
         await this.markFirstKitchenIfNull(mgr, item.order_id);
       }
       return item;
     });
+  }
+
+  /** Set/unset cờ ưu tiên — chỉ cho phép khi item còn ở KITCHEN.
+   * Item ở các state khác (PENDING/COOKING/READY/SERVED/CANCELLED) → từ chối. */
+  async setItemPriority(item_id: string, priority: boolean): Promise<OrderItem> {
+    const itemRepo = this.ds.getRepository(OrderItem);
+    const item = await itemRepo.findOne({ where: { id: item_id } });
+    if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
+    if (item.state !== 'KITCHEN') {
+      throw new BadRequestException({
+        code: 'PRIORITY_INVALID_STATE',
+        message: `Chỉ đánh dấu ưu tiên cho món còn ở "Đã order". Món này đang ở "${item.state}".`,
+      });
+    }
+    if (item.is_priority === priority) return item;
+    item.is_priority = priority;
+    await itemRepo.save(item);
+    return item;
   }
 
   /** Update thông tin khách giao hàng — chỉ dùng cho bàn 'delivery'. */

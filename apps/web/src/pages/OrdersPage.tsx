@@ -1,8 +1,10 @@
 // Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
+import type { CSSProperties } from 'react';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
+import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 
 type Table = {
@@ -59,6 +61,16 @@ const STATE_BADGE: Record<string, { label: string; color: string; icon: string }
   READY: { label: 'xong', color: '#10b981', icon: '✓' },
 };
 
+const chipStyle = (bg: string): CSSProperties => ({
+  background: bg,
+  color: 'white',
+  padding: '2px 8px',
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 600,
+  display: 'inline-block',
+});
+
 export function OrdersPage() {
   const toast = useToast();
   const [tables, setTables] = useState<Table[]>([]);
@@ -66,6 +78,7 @@ export function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [helpOpen, setHelpOpen] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -305,12 +318,68 @@ export function OrdersPage() {
 
   return (
     <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16, alignItems: 'center' }}>
+      <div className="flex between" style={{ marginBottom: 16, alignItems: 'center', gap: 8 }}>
         <h1 style={{ margin: 0 }}>Sơ đồ bàn</h1>
-        <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px' }}>
-          ↻ Làm mới
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <HelpButton onClick={() => setHelpOpen(true)} />
+          <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px', minHeight: 40 }}>
+            ↻ Làm mới
+          </button>
+        </div>
       </div>
+
+      <HelpModal title="Hướng dẫn — Sơ đồ bàn" open={helpOpen} onClose={() => setHelpOpen(false)}>
+        <p style={{ marginTop: 0 }}>
+          Mỗi ô là một bàn. Tap để mở chi tiết, gọi món, đánh dấu đã giao, hoặc thanh toán.
+        </p>
+
+        <h3 style={{ marginBottom: 6 }}>Vòng đời món trên thẻ bàn</h3>
+        <p style={{ marginTop: 0, color: '#6b7280' }}>
+          Khi bàn có món, thẻ hiển thị các chip màu — mỗi chip là 1 trạng thái + số lượng món:
+        </p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
+          <li>
+            <span style={chipStyle('#6b7280')}>✎ N</span> &nbsp;
+            <strong>Đã gọi</strong> — nhân viên thêm vào giỏ, chưa báo bếp. Trong drawer bấm "📢 Báo bếp" để chuyển.
+          </li>
+          <li>
+            <span style={chipStyle('#f59e0b')}>📢 N</span> &nbsp;
+            <strong>Đã báo bếp</strong> — bếp đã nhận, đang xếp hàng nấu.
+          </li>
+          <li>
+            <span style={chipStyle('#3b82f6')}>🔥 N</span> &nbsp;
+            <strong>Đang nấu</strong> — bếp đang làm.
+          </li>
+          <li>
+            <span style={chipStyle('#10b981')}>✓ N</span> &nbsp;
+            <strong>Đã xong</strong> — bếp xong, chờ nhân viên ra lấy mang cho khách.
+          </li>
+          <li>
+            <span style={chipStyle('#10b981')}>🍽 N đã giao</span> &nbsp;
+            <strong>Đã giao</strong> — món tới tay khách, sẵn sàng tính tiền.
+          </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>Màu nền thẻ bàn</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
+          <li><span style={{ background: 'white', border: '1px solid #e5e7eb', padding: '2px 8px', borderRadius: 6 }}>Trắng</span> — bàn trống, chưa có order.</li>
+          <li><span style={{ background: '#fef3c7', padding: '2px 8px', borderRadius: 6 }}>Vàng nhạt</span> — bàn đang có món chưa giao xong.</li>
+          <li><span style={{ background: '#ecfdf5', border: '2px solid #059669', padding: '2px 8px', borderRadius: 6 }}>Xanh viền đậm</span> — tất cả món đã giao, sẵn sàng thanh toán.</li>
+          <li><span style={{ background: '#fee2e2', border: '2px solid #dc2626', padding: '2px 8px', borderRadius: 6 }}>Đỏ</span> — bàn đã báo bếp ≥ 15 phút nhưng chưa món nào tới khách — cần kiểm tra.</li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>Đồng hồ ở góc phải thẻ</h3>
+        <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>
+          Số phút "N′" là thời gian từ lần đầu báo bếp. Đỏ khi ≥ 15 phút mà chưa giao món nào → cảnh báo bàn chậm.
+        </p>
+
+        <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao (SERVED)</h3>
+        <p style={{ margin: '4px 0' }}>Tap vào thẻ bàn → drawer mở ra. Với mỗi món đang ở trạng thái "Đã xong":</p>
+        <ol style={{ paddingLeft: 22, margin: '4px 0' }}>
+          <li>Bấm nút <strong>🚀 Đã giao</strong> bên phải món → trạng thái chuyển sang "Đã giao", bếp nhận noti.</li>
+          <li>Khi tất cả món đã giao, thẻ bàn chuyển xanh → bấm <strong>💰 Thanh toán</strong> trong drawer.</li>
+        </ol>
+      </HelpModal>
 
       {loading && <p style={{ color: '#6b7280' }}>Đang tải bàn...</p>}
 

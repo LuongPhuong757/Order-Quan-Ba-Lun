@@ -234,6 +234,8 @@ th {
 }
 
 @media (max-width: 639px) {
+  /* Helper class — text ẩn trên mobile, hiện trên desktop. Dùng cho icon-only buttons. */
+  .hide-on-mobile { display: none !important; }
   table.responsive thead {
     display: none;
   }

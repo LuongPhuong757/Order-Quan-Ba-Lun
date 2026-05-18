@@ -41,6 +41,12 @@ export class OrderItem {
   @Column({ type: 'varchar', length: 16, default: 'PENDING' })
   state!: string;
 
+  /** Cờ ưu tiên nấu trước — set bởi Order/Admin khi khách sắp về.
+   * Auto-clear khi state → COOKING (bếp đã bắt đầu nấu = priority đã hoàn thành).
+   * KitchenPage sort: priority items lên đầu, trong nhóm priority sort theo created_at. */
+  @Column({ type: 'boolean', default: false })
+  is_priority!: boolean;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   note!: string | null;
 
