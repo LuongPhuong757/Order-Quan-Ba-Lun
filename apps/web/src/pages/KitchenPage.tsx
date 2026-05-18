@@ -162,7 +162,8 @@ export function KitchenPage() {
     try {
       const [ordersRes, menuRes, groupsRes, tablesRes] = await Promise.all([
         api.get<{ data: { items: Order[] } }>('/orders'),
-        api.get<{ data: { items: MenuItem[] } }>('/menu'),
+        // page_size=2000 → đủ menu lớn (default 200 không cover 597 món)
+        api.get<{ data: { items: MenuItem[] } }>('/menu?page_size=2000'),
         api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
         api.get<{ data: { items: Table[] } }>('/tables'),
       ]);

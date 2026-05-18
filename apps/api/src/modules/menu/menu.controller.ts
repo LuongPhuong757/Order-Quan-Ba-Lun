@@ -94,7 +94,7 @@ export class MenuController {
    * - include_inactive=true: include món đã xoá soft (default: false)
    * - q=<text>: search theo name HOẶC code (LIKE %...%)
    * - sort=newest|name|group (default 'group' cho order picker, 'newest' cho admin)
-   * - page=1, page_size=20 (default page_size=200 cho order picker — chứa hết menu)
+   * - page=1, page_size=20 (default 2000 cho order picker — chứa hết menu)
    *
    * Response: { items, total, page, page_size }
    */
@@ -106,7 +106,9 @@ export class MenuController {
     const search = (q.q || '').trim();
     const sort = q.sort || 'group';
     const page = Math.max(1, Number(q.page) || 1);
-    const page_size = Math.min(500, Math.max(1, Number(q.page_size) || 200));
+    // Bump cap 2000 → đủ cho quán có nhiều món (vd 597 hiện tại). Order picker
+    // FE truyền page_size=2000 lấy 1 phát hết menu, không cần lazy load.
+    const page_size = Math.min(2000, Math.max(1, Number(q.page_size) || 200));
 
     const qb = this.repo.createQueryBuilder('m');
     if (!include_inactive) qb.andWhere('m.is_active = :a', { a: true });

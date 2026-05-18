@@ -57,7 +57,9 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
 
   useEffect(() => {
     Promise.all([
-      api.get<{ data: { items: MenuItem[] } }>('/menu'),
+      // page_size=2000 → lấy hết menu 1 lần (default BE chỉ 200, không đủ với quán
+      // có nhiều món). Order picker không phân trang trong UI.
+      api.get<{ data: { items: MenuItem[] } }>('/menu?page_size=2000'),
       api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
     ])
       .then(([menuRes, groupRes]) => {
@@ -76,11 +78,22 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
     return g.icon ? `${g.icon} ${g.name}` : g.name;
   };
 
+  // Normalize: lowercase + bỏ dấu tiếng Việt → "Cánh Chiên" và "canh chien" cùng dạng.
+  // Cho phép gõ không dấu vẫn search ra. Regex U+0300-U+036F = combining diacritics.
+  const normalize = (s: string): string =>
+    s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+
   const filtered = menu.filter((it) => {
     if (group && it.group !== group) return false;
     if (search) {
-      const s = search.toLowerCase();
-      if (!it.name.toLowerCase().includes(s) && !it.code.toLowerCase().includes(s)) return false;
+      // Tokenize search theo whitespace — mọi token phải xuất hiện trong name HOẶC code.
+      // Vd: 'cánh chiên' (2 token: cánh + chiên) → match 'cánh giữa chiên giòn'
+      // vì cả 2 token đều có trong name. Không cần liền nhau.
+      const tokens = normalize(search).split(/\s+/).filter(Boolean);
+      if (tokens.length > 0) {
+        const haystack = normalize(it.name) + ' ' + normalize(it.code);
+        if (!tokens.every((t) => haystack.includes(t))) return false;
+      }
     }
     return true;
   });

@@ -42,7 +42,8 @@ export function MenuPickerModal({ onClose, onPick }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    api.get<{ data: { items: MenuItem[] } }>('/menu')
+    // page_size=2000 → đủ chứa toàn bộ menu (default BE chỉ 200)
+    api.get<{ data: { items: MenuItem[] } }>('/menu?page_size=2000')
       .then((res) => setItems(res.data.data.items))
       .catch((err) => toast.push('error', extractError(err).message))
       .finally(() => setLoading(false));
