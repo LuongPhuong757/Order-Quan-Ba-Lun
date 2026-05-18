@@ -5,7 +5,8 @@ import type { ErrorEnvelope } from '@order/schemas';
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   withCredentials: true, // cookies needed for JWT (F-17)
-  validateStatus: (s) => s < 500, // let interceptor handle 4xx
+  // Mặc định axios: 2xx resolves, 4xx/5xx throw → caller dùng try/catch + extractError.
+  // BUG FIX: trước đây `s < 500` làm 401 login fail vẫn resolve, code coi là success.
   // Disable browser HTTP cache cho GET — polling endpoints cần fresh data.
   // Without this, browser sends If-None-Match → server có thể trả 304 empty body.
   headers: {

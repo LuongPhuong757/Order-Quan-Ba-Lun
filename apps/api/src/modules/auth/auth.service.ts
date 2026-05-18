@@ -25,14 +25,16 @@ export class AuthService {
   async loginByCredentials(username: string, password: string) {
     const user = await this.userRepo.findOne({ where: { username } });
     if (!user) {
-      throw new UnauthorizedException({ code: 'AUTH_INVALID_CRED', message: 'Invalid credentials' });
+      // Per user spec: phân biệt rõ "không tồn tại" vs "sai password" cho UX rõ ràng.
+      // Trade-off: cho phép user enumeration — chấp nhận vì là internal POS quán ăn.
+      throw new UnauthorizedException({ code: 'AUTH_USER_NOT_FOUND', message: 'User not found' });
     }
     if (!user.is_active) {
       throw new UnauthorizedException({ code: 'AUTH_INACTIVE_USER', message: 'User disabled' });
     }
     const ok = await bcrypt.compare(password, user.password_hash);
     if (!ok) {
-      throw new UnauthorizedException({ code: 'AUTH_INVALID_CRED', message: 'Invalid credentials' });
+      throw new UnauthorizedException({ code: 'AUTH_WRONG_PASSWORD', message: 'Wrong password' });
     }
     const { token, jti, exp } = this.jwtSvc.sign({
       id: user.id,

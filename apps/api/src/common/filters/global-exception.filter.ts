@@ -17,7 +17,9 @@ type ErrorBody = {
 };
 
 const FRIENDLY_VN: Record<string, string> = {
-  AUTH_INVALID_CRED: 'Ôi, sai mật khẩu rồi. Thử lại nhé!',
+  AUTH_INVALID_CRED: 'Tên đăng nhập hoặc mật khẩu không đúng. Thử lại nhé!',
+  AUTH_USER_NOT_FOUND: 'Tên đăng nhập không tồn tại. Kiểm tra lại nhé.',
+  AUTH_WRONG_PASSWORD: 'Sai mật khẩu rồi. Thử lại nhé!',
   AUTH_RATE_LIMITED: 'Bạn thử đăng nhập sai nhiều quá. Đợi 15 phút rồi thử lại nhé.',
   AUTH_TOKEN_REVOKED: 'Phiên đăng nhập đã hết hiệu lực, vui lòng đăng nhập lại.',
   AUTH_TOKEN_EXPIRED: 'Phiên đăng nhập đã hết hạn, vui lòng đăng nhập lại.',
