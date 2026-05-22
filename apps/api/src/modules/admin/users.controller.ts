@@ -18,7 +18,7 @@ import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { AuthService } from '../auth/auth.service.js';
 import { IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { randomBytes } from 'crypto';
@@ -52,7 +52,7 @@ class UpdateUserDto {
 }
 
 @Controller('admin/users')
-@UseGuards(OwnerGuard)
+@UseGuards(AdminGuard)
 export class AdminUsersController {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
