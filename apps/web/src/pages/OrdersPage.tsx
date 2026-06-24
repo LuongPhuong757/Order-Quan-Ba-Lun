@@ -3,6 +3,7 @@ import type { CSSProperties } from 'react';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
@@ -14,6 +15,7 @@ type Table = {
   kind: string;
   x: number;
   y: number;
+  kiotviet_locked?: boolean;
 };
 
 type OrderSummary = {
@@ -30,19 +32,20 @@ type OrderSummary = {
   }>;
 };
 
-type FilterKey = 'all' | 'in-use' | 'has-pending' | 'empty' | 'dine-in' | 'takeaway' | 'delivery';
+type FilterKey = 'all' | 'in-use' | 'has-pending' | 'empty' | 'kiotviet' | 'dine-in' | 'takeaway' | 'delivery';
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   'all': 'Tất cả',
   'in-use': '🔥 Đang dùng',
   'has-pending': '🍽 Còn món chưa giao',
   'empty': '⚪ Trống',
+  'kiotviet': '🔒 KiotViet',
   'dine-in': '🪑 Tại quán',
   'takeaway': '🥡 Mang về',
   'delivery': '🛵 Giao hàng',
 };
 
-const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'has-pending', 'empty', 'dine-in', 'takeaway', 'delivery'];
+const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'has-pending', 'empty', 'kiotviet', 'dine-in', 'takeaway', 'delivery'];
 
 // Món "đã giao xong" = SERVED. CANCELLED không tính (bỏ). Còn lại đều là "chưa giao".
 const TERMINAL_STATES = new Set(['SERVED', 'CANCELLED']);
@@ -73,6 +76,7 @@ const chipStyle = (bg: string): CSSProperties => ({
 
 export function OrdersPage() {
   const toast = useToast();
+  const confirm = useConfirm();
   const [tables, setTables] = useState<Table[]>([]);
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +122,81 @@ export function OrdersPage() {
     refresh(true);
   }, [refresh]);
 
+  // ─── KiotViet lock ────────────────────────────────────────────────────────
+  // Khoá 1 bàn (đánh dấu đang dùng KiotViet). BE chặn nếu còn đơn mở.
+  const lockTable = useCallback(async (t: Table) => {
+    try {
+      await api.patch(`/tables/${t.id}/lock`, { locked: true });
+      toast.push('success', `Đã khoá ${t.name} cho KiotViet`);
+      refresh(false);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  }, [toast, refresh]);
+
+  // Mở khoá 1 bàn. openAfter=true → mở luôn drawer để gọi món ngay.
+  const unlockTable = useCallback(async (t: Table, openAfter = false) => {
+    try {
+      await api.patch(`/tables/${t.id}/lock`, { locked: false });
+      toast.push('success', `Đã mở khoá ${t.name}`);
+      refresh(false);
+      if (openAfter) setActive({ ...t, kiotviet_locked: false });
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  }, [toast, refresh]);
+
+  // Click vào bàn đang khoá → hỏi có chuyển về hệ thống không.
+  const onLockedTableClick = useCallback(async (t: Table) => {
+    const ok = await confirm({
+      title: 'Bàn đang dùng KiotViet',
+      message: `${t.name} đang được order bằng KiotViet.\nMuốn chuyển về hệ thống này để gọi món không?`,
+      variant: 'warning',
+      confirmLabel: '↩ Chuyển về hệ thống',
+      cancelLabel: 'Đóng',
+    });
+    if (ok) unlockTable(t, true);
+  }, [confirm, unlockTable]);
+
+  const lockAll = useCallback(async () => {
+    const ok = await confirm({
+      title: 'Khoá tất cả bàn cho KiotViet?',
+      message: 'Tất cả bàn trống sẽ chuyển sang chế độ KiotViet (chặn gọi món ở đây).\nBàn còn đơn chưa thanh toán sẽ được bỏ qua.',
+      variant: 'warning',
+      confirmLabel: '🔒 Khoá tất cả',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.post<{ data: { locked: number; skipped: number; skipped_tables: Array<{ name: string }> } }>('/tables/lock-all', {});
+      const d = res.data.data;
+      let msg = `Đã khoá ${d.locked} bàn`;
+      if (d.skipped > 0) {
+        msg += ` — bỏ qua ${d.skipped} bàn còn đơn: ${d.skipped_tables.map((x) => x.name).join(', ')}`;
+      }
+      toast.push(d.skipped > 0 ? 'info' : 'success', msg);
+      refresh(false);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  }, [confirm, toast, refresh]);
+
+  const unlockAll = useCallback(async () => {
+    const ok = await confirm({
+      title: 'Mở khoá tất cả bàn?',
+      message: 'Tất cả bàn KiotViet sẽ trở lại bình thường, có thể gọi món ở hệ thống này.',
+      variant: 'success',
+      confirmLabel: '🔓 Mở tất cả',
+    });
+    if (!ok) return;
+    try {
+      const res = await api.post<{ data: { unlocked: number } }>('/tables/unlock-all', {});
+      toast.push('success', `Đã mở khoá ${res.data.data.unlocked} bàn`);
+      refresh(false);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  }, [confirm, toast, refresh]);
+
   useEffect(() => {
     refresh();
     // Poll every 2s — sync nhanh giữa Order ↔ Bếp. 10-20 staff, payload nhỏ → server tải nhẹ.
@@ -158,11 +237,13 @@ export function OrdersPage() {
       'in-use': 0,
       'has-pending': 0,
       'empty': 0,
+      'kiotviet': 0,
       'dine-in': 0,
       'takeaway': 0,
       'delivery': 0,
     };
     for (const t of tables) {
+      if (t.kiotviet_locked) counts['kiotviet']++;
       if (isInUse(t)) counts['in-use']++;
       else counts['empty']++;
       if (hasUnservedItems(t)) counts['has-pending']++;
@@ -175,6 +256,7 @@ export function OrdersPage() {
 
   const matchesFilter = (t: Table): boolean => {
     if (filter === 'all') return true;
+    if (filter === 'kiotviet') return !!t.kiotviet_locked;
     if (filter === 'in-use') return isInUse(t);
     if (filter === 'empty') return !isInUse(t);
     if (filter === 'has-pending') return hasUnservedItems(t);
@@ -194,6 +276,51 @@ export function OrdersPage() {
     });
 
   const renderTableCard = (t: Table) => {
+    // Bàn đang khoá KiotViet — card tím riêng biệt, click để chuyển về hệ thống.
+    if (t.kiotviet_locked) {
+      return (
+        <div key={t.id} style={{ position: 'relative' }}>
+          <button
+            onClick={() => onLockedTableClick(t)}
+            style={{
+              padding: 14,
+              background: '#f5f3ff',
+              color: '#5b21b6',
+              border: '2px solid #7c3aed',
+              borderRadius: 12,
+              textAlign: 'left',
+              minHeight: 100,
+              display: 'flex',
+              flexDirection: 'column',
+              justifyContent: 'space-between',
+              gap: 6,
+              cursor: 'pointer',
+              width: '100%',
+              fontWeight: 400,
+            }}
+          >
+            <div>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>{t.name}</div>
+              <div style={{ fontSize: 11, color: '#7c6fae', fontFamily: 'monospace' }}>{t.code}</div>
+            </div>
+            <span
+              style={{
+                background: '#7c3aed',
+                color: 'white',
+                padding: '2px 8px',
+                borderRadius: 999,
+                fontSize: 11,
+                fontWeight: 600,
+                alignSelf: 'flex-start',
+              }}
+            >
+              🔒 KiotViet
+            </span>
+          </button>
+        </div>
+      );
+    }
+
     const order = orderByTable(t.id);
     const items = order?.items || [];
     const counts: Record<string, number> = { PENDING: 0, KITCHEN: 0, COOKING: 0, READY: 0 };
@@ -229,9 +356,12 @@ export function OrdersPage() {
       ? '2px solid #0f766e'
       : '1px solid #e5e7eb';
 
+    // Chỉ cho khoá nhanh bàn trống (bàn còn đơn thì BE chặn — đỡ gây nhầm).
+    const canQuickLock = !order;
+
     return (
+      <div key={t.id} style={{ position: 'relative' }}>
       <button
-        key={t.id}
         onClick={() => setActive(t)}
         style={{
           padding: 14,
@@ -313,6 +443,32 @@ export function OrdersPage() {
           <div style={{ color: '#9ca3af', fontSize: 12 }}>Trống — bấm để gọi món</div>
         )}
       </button>
+      {canQuickLock && (
+        <button
+          title="Đánh dấu bàn dùng KiotViet"
+          onClick={(e) => { e.stopPropagation(); lockTable(t); }}
+          style={{
+            position: 'absolute',
+            top: 6,
+            right: 6,
+            width: 28,
+            height: 28,
+            padding: 0,
+            lineHeight: '28px',
+            textAlign: 'center',
+            borderRadius: 8,
+            border: '1px solid #ddd6fe',
+            background: 'white',
+            color: '#7c3aed',
+            fontSize: 14,
+            cursor: 'pointer',
+            opacity: 0.85,
+          }}
+        >
+          🔒
+        </button>
+      )}
+      </div>
     );
   };
 
@@ -320,8 +476,22 @@ export function OrdersPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16, alignItems: 'center', gap: 8 }}>
         <h1 style={{ margin: 0 }}>Sơ đồ bàn</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <HelpButton onClick={() => setHelpOpen(true)} />
+          <button
+            className="secondary"
+            onClick={lockAll}
+            style={{ padding: '6px 12px', minHeight: 40, color: '#7c3aed', borderColor: '#ddd6fe' }}
+          >
+            🔒 Khoá tất cả
+          </button>
+          <button
+            className="secondary"
+            onClick={unlockAll}
+            style={{ padding: '6px 12px', minHeight: 40, color: '#7c3aed', borderColor: '#ddd6fe' }}
+          >
+            🔓 Mở tất cả
+          </button>
           <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px', minHeight: 40 }}>
             ↻ Làm mới
           </button>
@@ -366,7 +536,17 @@ export function OrdersPage() {
           <li><span style={{ background: '#fef3c7', padding: '2px 8px', borderRadius: 6 }}>Vàng nhạt</span> — bàn đang có món chưa giao xong.</li>
           <li><span style={{ background: '#ecfdf5', border: '2px solid #059669', padding: '2px 8px', borderRadius: 6 }}>Xanh viền đậm</span> — tất cả món đã giao, sẵn sàng thanh toán.</li>
           <li><span style={{ background: '#fee2e2', border: '2px solid #dc2626', padding: '2px 8px', borderRadius: 6 }}>Đỏ</span> — bàn đã báo bếp ≥ 15 phút nhưng chưa món nào tới khách — cần kiểm tra.</li>
+          <li><span style={{ background: '#f5f3ff', border: '2px solid #7c3aed', padding: '2px 8px', borderRadius: 6 }}>Tím</span> — bàn đang order bằng KiotViet, hệ thống này chặn gọi món.</li>
         </ul>
+
+        <h3 style={{ marginBottom: 6 }}>Bàn dùng KiotViet 🔒</h3>
+        <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>
+          Trước 12h đêm quán dùng KiotViet, sau đó mới dùng hệ thống này. Để tránh 1 bàn gọi món
+          trên cả 2 nơi: bấm 🔒 ở góc thẻ bàn (hoặc <strong>🔒 Khoá tất cả</strong>) để đánh dấu bàn
+          đang dùng KiotViet — bàn chuyển tím và không gọi món ở đây được. Khi muốn dùng lại, bấm
+          vào bàn tím rồi chọn <strong>↩ Chuyển về hệ thống</strong>, hoặc <strong>🔓 Mở tất cả</strong>.
+          Lưu ý: bàn còn đơn chưa thanh toán thì phải xử lý xong mới khoá được.
+        </p>
 
         <h3 style={{ marginBottom: 6 }}>Đồng hồ ở góc phải thẻ</h3>
         <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>

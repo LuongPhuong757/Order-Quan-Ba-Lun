@@ -31,6 +31,11 @@ export class RestaurantTable {
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 
+  // Đánh dấu bàn đang được order qua KiotViet (POS ngoài). Khi true → hệ thống
+  // này CHẶN tạo/mở đơn trên bàn để tránh 1 bàn dùng 2 hệ thống cùng lúc.
+  @Column({ type: 'boolean', default: false })
+  kiotviet_locked!: boolean;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 }

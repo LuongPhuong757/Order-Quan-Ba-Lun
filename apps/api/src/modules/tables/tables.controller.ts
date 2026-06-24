@@ -13,9 +13,10 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { RestaurantTable } from './entities/restaurant-table.entity.js';
+import { Order } from '../orders/entities/order.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 
@@ -33,6 +34,10 @@ class UpdateTableDto {
   @IsOptional() @IsInt() x?: number;
   @IsOptional() @IsInt() y?: number;
   @IsOptional() @IsBoolean() is_active?: boolean;
+}
+
+class LockTableDto {
+  @IsBoolean() locked!: boolean;
 }
 
 class BulkCreateTablesDto {
@@ -56,7 +61,15 @@ const KIND_FORMAT: Record<string, { codePrefix: string; namePrefix: string }> = 
 
 @Controller('tables')
 export class TablesController {
-  constructor(@InjectRepository(RestaurantTable) private readonly repo: Repository<RestaurantTable>) {}
+  constructor(
+    @InjectRepository(RestaurantTable) private readonly repo: Repository<RestaurantTable>,
+    @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
+  ) {}
+
+  /** Đếm số đơn đang mở (chưa thanh toán) của 1 bàn. */
+  private async openOrderCount(table_id: string): Promise<number> {
+    return this.orderRepo.count({ where: { table_id, closed_at: IsNull() } });
+  }
 
   @Get()
   @UseGuards(JwtAuthGuard)
@@ -178,5 +191,66 @@ export class TablesController {
     if (!t) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
     t.is_active = false;
     await this.repo.save(t);
+  }
+
+  /** PATCH /tables/:id/lock — khoá/mở 1 bàn cho KiotViet (mọi nhân viên).
+   *
+   * Khi khoá: nếu bàn còn đơn chưa thanh toán → 409, buộc xử lý đơn trước.
+   * Mở khoá thì không kiểm tra gì. */
+  @Patch(':id/lock')
+  @UseGuards(JwtAuthGuard)
+  async setLock(@Param('id') id: string, @Body() dto: LockTableDto) {
+    const t = await this.repo.findOne({ where: { id } });
+    if (!t) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
+    if (dto.locked && !t.kiotviet_locked) {
+      const open = await this.openOrderCount(id);
+      if (open > 0) {
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: 'Bàn còn đơn chưa thanh toán — xử lý đơn xong rồi mới khoá KiotViet được',
+        });
+      }
+    }
+    t.kiotviet_locked = dto.locked;
+    await this.repo.save(t);
+    return { data: t };
+  }
+
+  /** POST /tables/lock-all — khoá toàn bộ bàn cho KiotViet (mọi nhân viên).
+   * Bàn còn đơn mở thì bỏ qua, trả về danh sách skip để FE báo lại. */
+  @Post('lock-all')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async lockAll() {
+    const tables = await this.repo.find({ where: { is_active: true } });
+    const openOrders = await this.orderRepo.find({
+      where: { closed_at: IsNull() },
+      select: ['table_id'],
+    });
+    const busy = new Set(openOrders.map((o) => o.table_id));
+
+    const toLock = tables.filter((t) => !t.kiotviet_locked && !busy.has(t.id));
+    const skipped = tables.filter((t) => !t.kiotviet_locked && busy.has(t.id));
+    for (const t of toLock) t.kiotviet_locked = true;
+    if (toLock.length > 0) await this.repo.save(toLock);
+
+    return {
+      data: {
+        locked: toLock.length,
+        skipped: skipped.length,
+        skipped_tables: skipped.map((t) => ({ id: t.id, name: t.name })),
+      },
+    };
+  }
+
+  /** POST /tables/unlock-all — mở khoá toàn bộ bàn (mọi nhân viên). */
+  @Post('unlock-all')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
+  async unlockAll() {
+    const tables = await this.repo.find({ where: { is_active: true, kiotviet_locked: true } });
+    for (const t of tables) t.kiotviet_locked = false;
+    if (tables.length > 0) await this.repo.save(tables);
+    return { data: { unlocked: tables.length } };
   }
 }

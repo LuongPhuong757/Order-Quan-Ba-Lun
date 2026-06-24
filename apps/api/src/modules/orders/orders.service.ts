@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   Logger,
   NotFoundException,
@@ -77,6 +78,14 @@ export class OrdersService {
       const table = await this.tableRepo.findOne({ where: { id: table_id, is_active: true } });
       if (!table) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
 
+      // Bàn đang khoá KiotViet → chặn tạo/mở đơn để tránh 2 hệ thống cùng dùng.
+      if (table.kiotviet_locked) {
+        throw new ConflictException({
+          code: 'TABLE_KIOTVIET_LOCKED',
+          message: 'Bàn đang order bằng KiotViet — mở khoá trước khi gọi món ở đây',
+        });
+      }
+
       // 2) FAST PATH — read without lock. 1 SELECT.
       const existing = await this.orderRepo.find({
         where: { table_id, closed_at: IsNull() },
@@ -127,7 +136,7 @@ export class OrdersService {
       });
     } catch (err) {
       // Re-throw HttpException, log + wrap others
-      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) throw err;
       this.logger.error(
         `getOrCreateOpenOrder failed for table=${table_id}: ${(err as Error).message}`,
         (err as Error).stack,
@@ -624,7 +633,7 @@ export class OrdersService {
         return refreshed!;
       });
     } catch (err) {
-      if (err instanceof NotFoundException || err instanceof BadRequestException) throw err;
+      if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) throw err;
       this.logger.error(
         `transferTable failed: src=${source_order_id} dest_table=${dest_table_id}: ${(err as Error).message}`,
         (err as Error).stack,

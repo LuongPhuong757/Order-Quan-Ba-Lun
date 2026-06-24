@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { RestaurantTable } from './entities/restaurant-table.entity.js';
+import { Order } from '../orders/entities/order.entity.js';
 import { TablesController } from './tables.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([RestaurantTable]), AuthModule],
+  imports: [TypeOrmModule.forFeature([RestaurantTable, Order]), AuthModule],
   controllers: [TablesController],
   exports: [TypeOrmModule],
 })

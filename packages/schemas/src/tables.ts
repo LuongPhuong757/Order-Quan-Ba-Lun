@@ -12,5 +12,7 @@ export const RestaurantTable = z.object({
   x: z.number().int(),
   y: z.number().int(),
   is_active: z.boolean(),
+  // Bàn đang order qua KiotViet (POS ngoài) → chặn order trong hệ thống này.
+  kiotviet_locked: z.boolean().default(false),
 });
 export type RestaurantTable = z.infer<typeof RestaurantTable>;
