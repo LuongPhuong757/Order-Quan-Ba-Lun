@@ -3,6 +3,7 @@
 import 'reflect-metadata';
 import { AppDataSource } from '../data-source.js';
 import { AuditLog } from '../modules/audit/entities/audit-log.entity.js';
+import { OrderActivityLog } from '../modules/orders/entities/order-activity-log.entity.js';
 
 function parseArgs(): { cutoffDays: number; dryRun: boolean } {
   const args = process.argv.slice(2);
@@ -19,14 +20,23 @@ async function main() {
   const { cutoffDays, dryRun } = parseArgs();
   await AppDataSource.initialize();
   const repo = AppDataSource.getRepository(AuditLog);
+  const activityRepo = AppDataSource.getRepository(OrderActivityLog);
   const cutoff_ts_ms = Date.now() - cutoffDays * 86_400_000;
+  const cutoff_date = new Date(cutoff_ts_ms);
 
   if (dryRun) {
     const count = await repo
       .createQueryBuilder('a')
       .where('a.ts_ms < :c', { c: cutoff_ts_ms })
       .getCount();
-    console.log(JSON.stringify({ deleted_rows: count, cutoff_ts_ms, dry_run: true }, null, 2));
+    const activityCount = await activityRepo
+      .createQueryBuilder('o')
+      .where('o.created_at < :c', { c: cutoff_date })
+      .getCount();
+    console.log(JSON.stringify(
+      { deleted_rows: count, deleted_activity_rows: activityCount, cutoff_ts_ms, dry_run: true },
+      null, 2,
+    ));
   } else {
     const result = await repo
       .createQueryBuilder()
@@ -34,7 +44,16 @@ async function main() {
       .from(AuditLog)
       .where('ts_ms < :c', { c: cutoff_ts_ms })
       .execute();
-    console.log(JSON.stringify({ deleted_rows: result.affected || 0, cutoff_ts_ms }, null, 2));
+    const activityResult = await activityRepo
+      .createQueryBuilder()
+      .delete()
+      .from(OrderActivityLog)
+      .where('created_at < :c', { c: cutoff_date })
+      .execute();
+    console.log(JSON.stringify(
+      { deleted_rows: result.affected || 0, deleted_activity_rows: activityResult.affected || 0, cutoff_ts_ms },
+      null, 2,
+    ));
   }
   await AppDataSource.destroy();
 }

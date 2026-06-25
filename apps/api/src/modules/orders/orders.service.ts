@@ -9,6 +9,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
+import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 
@@ -35,8 +36,55 @@ export class OrdersService {
     @InjectRepository(OrderItem) private readonly itemRepo: Repository<OrderItem>,
     @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
     @InjectRepository(RestaurantTable) private readonly tableRepo: Repository<RestaurantTable>,
+    @InjectRepository(OrderActivityLog) private readonly activityRepo: Repository<OrderActivityLog>,
     @InjectDataSource() private readonly ds: DataSource,
   ) {}
+
+  // ─── Activity log ───────────────────────────────────────────────────────
+  /** Ghi 1 dòng log hoạt động cho đơn. Append-only, KHÔNG để lỗi log làm hỏng
+   * thao tác chính (nuốt lỗi, chỉ warn). Snapshot bàn + giờ mở đơn để unique. */
+  private async writeActivity(params: {
+    order: { id: string; table_id: string; table_code: string; opened_at: number };
+    event_kind: string;
+    message: string;
+    actor?: OrderCreator;
+    item_id?: string | null;
+  }): Promise<void> {
+    try {
+      await this.activityRepo.insert({
+        order_id: params.order.id,
+        item_id: params.item_id ?? null,
+        table_id: params.order.table_id,
+        table_code: params.order.table_code,
+        order_opened_at: params.order.opened_at,
+        event_kind: params.event_kind,
+        message: params.message,
+        actor_id: params.actor?.id ?? null,
+        actor_name: params.actor?.full_name ?? null,
+      });
+    } catch (err) {
+      this.logger.warn(`writeActivity failed (${params.event_kind}): ${(err as Error).message}`);
+    }
+  }
+
+  /** Đọc snapshot bàn/giờ mở của 1 đơn để gắn vào log. */
+  private async orderSnapshot(
+    order_id: string,
+  ): Promise<{ id: string; table_id: string; table_code: string; opened_at: number } | null> {
+    return this.orderRepo.findOne({
+      where: { id: order_id },
+      select: ['id', 'table_id', 'table_code', 'opened_at'],
+    });
+  }
+
+  /** Đọc lịch sử hoạt động của 1 đơn (cũ → mới). */
+  async listOrderActivity(order_id: string): Promise<OrderActivityLog[]> {
+    return this.activityRepo.find({ where: { order_id }, order: { created_at: 'ASC' } });
+  }
+
+  private static fmtVnd(v: number): string {
+    return v.toLocaleString('vi-VN') + 'đ';
+  }
 
   /** Get or create the open order for a table.
    *
@@ -96,7 +144,7 @@ export class OrdersService {
       }
 
       // 3) SLOW PATH — cần lock cho create hoặc dedupe
-      return await this.ds.transaction(async (mgr) => {
+      const { order: resultOrder, created } = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
 
         // Re-read với lock (có thể đã đổi giữa fast path và slow path)
@@ -114,11 +162,11 @@ export class OrdersService {
             const cnt = await mgr.getRepository(OrderItem).count({ where: { order_id: o.id } });
             if (cnt > 0) withItems.push(o);
           }
-          if (withItems.length > 0) return withItems[0];
+          if (withItems.length > 0) return { order: withItems[0], created: false };
           const keep = lockedExisting[0];
           const toDelete = lockedExisting.slice(1).map((o) => o.id);
           if (toDelete.length > 0) await orderRepo.delete(toDelete);
-          return keep;
+          return { order: keep, created: false };
         }
 
         // Tạo mới
@@ -132,8 +180,19 @@ export class OrdersService {
           created_by_full_name: creator?.full_name ?? null,
         });
         await orderRepo.save(order);
-        return order;
+        return { order, created: true };
       });
+
+      // Log "mở đơn" chỉ khi thực sự tạo mới (post-commit, không chặn flow).
+      if (created) {
+        await this.writeActivity({
+          order: resultOrder,
+          event_kind: 'order_created',
+          message: 'Mở đơn mới',
+          actor: creator,
+        });
+      }
+      return resultOrder;
     } catch (err) {
       // Re-throw HttpException, log + wrap others
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) throw err;
@@ -234,7 +293,7 @@ export class OrdersService {
     if (items.length === 0) {
       throw new BadRequestException({ code: 'CONFLICT', message: 'Giỏ hàng trống' });
     }
-    return await this.ds.transaction(async (mgr) => {
+    const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
       const menuRepo = mgr.getRepository(MenuItem);
@@ -296,6 +355,19 @@ export class OrdersService {
       }
       return { items: created, count: created.length, state };
     });
+
+    // Log "gọi món" (post-commit, không chặn flow).
+    const snap = await this.orderSnapshot(order_id);
+    if (snap) {
+      const summary = result.items.map((i) => `${i.qty}× ${i.menu_item_name}`).join(', ');
+      await this.writeActivity({
+        order: snap,
+        event_kind: 'items_added',
+        message: `Gọi món: ${summary}${send_to_kitchen ? ' (báo bếp luôn)' : ''}`,
+        actor: creator,
+      });
+    }
+    return result;
   }
 
   async addItem(
@@ -326,12 +398,19 @@ export class OrdersService {
       created_by_full_name: creator?.full_name ?? null,
     });
     await this.itemRepo.save(item);
+    await this.writeActivity({
+      order,
+      event_kind: 'items_added',
+      message: `Gọi món: ${qty}× ${menu.name}`,
+      actor: creator,
+      item_id: item.id,
+    });
     return item;
   }
 
   /** State transition with validation + snapshot actor (cho notification) */
   async changeItemState(item_id: string, to: string, reason?: string, actor?: OrderCreator) {
-    return await this.ds.transaction(async (mgr) => {
+    const item = await this.ds.transaction(async (mgr) => {
       const itemRepo = mgr.getRepository(OrderItem);
       const item = await itemRepo.findOne({ where: { id: item_id } });
       if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item không tồn tại' });
@@ -364,6 +443,21 @@ export class OrdersService {
       }
       return item;
     });
+
+    // Log "huỷ món" (post-commit). Các state khác không log để tránh nhiễu.
+    if (to === 'CANCELLED') {
+      const snap = await this.orderSnapshot(item.order_id);
+      if (snap) {
+        await this.writeActivity({
+          order: snap,
+          event_kind: 'item_cancelled',
+          message: `Huỷ món: ${item.qty}× ${item.menu_item_name}${reason ? ` — lý do: ${reason}` : ''}`,
+          actor,
+          item_id: item.id,
+        });
+      }
+    }
+    return item;
   }
 
   /** Set/unset cờ ưu tiên — chỉ cho phép khi item còn ở KITCHEN.
@@ -435,7 +529,7 @@ export class OrdersService {
     auto_cancelled_items: number;
     total: number;
   }> {
-    return await this.ds.transaction(async (mgr) => {
+    const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
 
@@ -476,6 +570,18 @@ export class OrdersService {
         total,
       };
     });
+
+    // Log "thanh toán" (post-commit).
+    await this.writeActivity({
+      order: result.order,
+      event_kind: 'checkout',
+      message:
+        `Thanh toán: ${OrdersService.fmtVnd(result.total)} ` +
+        `(${result.served_items} món đã giao` +
+        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})`,
+      actor: cashier,
+    });
+    return result;
   }
 
   /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
@@ -558,9 +664,11 @@ export class OrdersService {
 
   /** Transfer all items from source table to destination table.
    * Closes source order (if no items remain) and moves items to dest order. */
-  async transferTable(source_order_id: string, dest_table_id: string) {
+  async transferTable(source_order_id: string, dest_table_id: string, actor?: OrderCreator) {
     try {
-      return await this.ds.transaction(async (mgr) => {
+      let srcTableName = '';
+      let movedCount = 0;
+      const dest = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
         const itemRepo = mgr.getRepository(OrderItem);
         const tableRepo = mgr.getRepository(RestaurantTable);
@@ -576,6 +684,9 @@ export class OrdersService {
         if (src.table_id === dest_table_id) {
           throw new BadRequestException({ code: 'CONFLICT', message: 'Bàn đích trùng bàn nguồn' });
         }
+        // Tên bàn nguồn cho log (fallback mã bàn nếu bàn đã bị xoá).
+        const srcTable = await tableRepo.findOne({ where: { id: src.table_id } });
+        srcTableName = srcTable?.name || src.table_code;
 
         // Đếm src items TRƯỚC khi move (sanity check sau cùng)
         const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
@@ -609,6 +720,7 @@ export class OrdersService {
           .where('order_id = :sid', { sid: src.id })
           .execute();
         const moved = moveResult.affected || 0;
+        movedCount = moved;
 
         // Sanity check: dest phải có ≥ srcItemCount items TRƯỚC khi xoá src
         const destItemCount = await itemRepo.count({ where: { order_id: dest.id } });
@@ -632,6 +744,15 @@ export class OrdersService {
         const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
         return refreshed!;
       });
+
+      // Log "chuyển món" trên đơn ĐÍCH (post-commit). Đơn nguồn đã bị xoá.
+      await this.writeActivity({
+        order: dest,
+        event_kind: 'transfer',
+        message: `Nhận ${movedCount} món chuyển từ ${srcTableName}`,
+        actor,
+      });
+      return dest;
     } catch (err) {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) throw err;
       this.logger.error(

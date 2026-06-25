@@ -32,6 +32,7 @@ import {
 } from 'class-validator';
 import { OrdersService } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 
 class AddItemDto {
   @IsUUID() menu_item_id!: string;
@@ -181,10 +182,21 @@ export class OrdersController {
     return { data: { items } };
   }
 
+  /** GET /orders/:id/activity — nhật ký hoạt động của 1 đơn (chỉ Admin/Owner) */
+  @Get(':id/activity')
+  @UseGuards(AdminGuard)
+  async activity(@Param('id') id: string) {
+    const items = await this.svc.listOrderActivity(id);
+    return { data: { items } };
+  }
+
   /** POST /orders/:id/transfer — chuyển bàn (REQ-B) */
   @Post(':id/transfer')
-  async transfer(@Param('id') id: string, @Body() dto: TransferTableDto) {
-    const dest = await this.svc.transferTable(id, dto.dest_table_id);
+  async transfer(@Param('id') id: string, @Body() dto: TransferTableDto, @Req() req: Request) {
+    const dest = await this.svc.transferTable(id, dto.dest_table_id, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
     return { data: dest };
   }
 

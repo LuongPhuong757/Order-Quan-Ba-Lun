@@ -8,6 +8,7 @@ import { MenuGroup } from './modules/menu/entities/menu-group.entity.js';
 import { RestaurantTable } from './modules/tables/entities/restaurant-table.entity.js';
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
+import { OrderActivityLog } from './modules/orders/entities/order-activity-log.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -33,7 +34,7 @@ export const dataSourceOptions: DataSourceOptions = {
     waitForConnections: true,
     queueLimit: 0,
   },
-  entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem],
+  entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem, OrderActivityLog],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
   // Trade-off: schema change phải cẩn thận (drop cột = mất data). Đơn giản hơn cho

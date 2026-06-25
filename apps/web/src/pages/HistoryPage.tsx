@@ -47,6 +47,23 @@ type Cashier = {
 
 type Status = 'all' | 'paid' | 'unpaid';
 
+type Activity = {
+  id: string;
+  event_kind: string;
+  message: string;
+  actor_name: string | null;
+  created_at: number;
+};
+
+const EVENT_ICON: Record<string, string> = {
+  order_created: '🟢',
+  items_added: '➕',
+  item_cancelled: '✕',
+  transfer: '↔️',
+  checkout: '💰',
+  order_cancelled: '🗑️',
+};
+
 function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
@@ -63,6 +80,15 @@ function fmtDate(ms: number) {
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function fmtTime(ms: number) {
+  return new Date(ms).toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 export function HistoryPage() {
@@ -447,6 +473,18 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
     INPROGRESS: items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state)),
   };
 
+  // Nhật ký hoạt động — fetch khi mở rộng đơn (component chỉ mount khi expand).
+  const [activity, setActivity] = useState<Activity[] | null>(null);
+  const [actErr, setActErr] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ data: { items: Activity[] } }>(`/orders/${order.id}/activity`)
+      .then((res) => { if (alive) setActivity(res.data.data.items); })
+      .catch((err) => { if (alive) setActErr(extractError(err).message); });
+    return () => { alive = false; };
+  }, [order.id]);
+
   return (
     <div style={{ padding: '12px 14px 16px', background: '#f9fafb', borderTop: '1px solid #e5e7eb' }}>
       {/* Customer info (delivery) */}
@@ -520,6 +558,37 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           ))}
         </div>
       )}
+
+      {/* Nhật ký hoạt động đơn */}
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #d1d5db' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#4b5563', marginBottom: 8, textTransform: 'uppercase' }}>
+          🧾 Nhật ký đơn
+          <span style={{ fontWeight: 400, textTransform: 'none', color: '#9ca3af' }}>
+            {' '}· {order.table_name} · mở {fmtDate(order.opened_at)}
+          </span>
+        </div>
+        {actErr && <div style={{ fontSize: 12, color: '#dc2626' }}>{actErr}</div>}
+        {!actErr && activity === null && <div style={{ fontSize: 12, color: '#9ca3af' }}>Đang tải nhật ký...</div>}
+        {activity !== null && activity.length === 0 && (
+          <div style={{ fontSize: 12, color: '#9ca3af' }}>Chưa có hoạt động nào được ghi (đơn cũ trước khi bật tính năng).</div>
+        )}
+        {activity !== null && activity.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {activity.map((a) => (
+              <div key={a.id} style={{ display: 'flex', gap: 8, fontSize: 13, alignItems: 'baseline' }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>{EVENT_ICON[a.event_kind] || '•'}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <span>{a.message}</span>
+                  {a.actor_name && <span style={{ color: '#0f766e' }}> · 👤 {a.actor_name}</span>}
+                </div>
+                <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {fmtTime(a.created_at)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
