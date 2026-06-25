@@ -17,6 +17,7 @@ import { In, IsNull, Repository } from 'typeorm';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 import { RestaurantTable } from './entities/restaurant-table.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
+import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { OwnerGuard } from '../auth/guards/owner.guard.js';
 
@@ -64,11 +65,21 @@ export class TablesController {
   constructor(
     @InjectRepository(RestaurantTable) private readonly repo: Repository<RestaurantTable>,
     @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
+    @InjectRepository(OrderItem) private readonly itemRepo: Repository<OrderItem>,
   ) {}
 
-  /** Đếm số đơn đang mở (chưa thanh toán) của 1 bàn. */
-  private async openOrderCount(table_id: string): Promise<number> {
-    return this.orderRepo.count({ where: { table_id, closed_at: IsNull() } });
+  /** Phân loại đơn đang mở của 1 bàn: có món thật (withItems) vs đơn rỗng (emptyIds).
+   * Đơn rỗng = bàn mới được tap mở drawer nhưng chưa gọi món gì — coi như bỏ được. */
+  private async classifyOpenOrders(table_id: string): Promise<{ withItems: number; emptyIds: string[] }> {
+    const orders = await this.orderRepo.find({ where: { table_id, closed_at: IsNull() }, select: ['id'] });
+    let withItems = 0;
+    const emptyIds: string[] = [];
+    for (const o of orders) {
+      const cnt = await this.itemRepo.count({ where: { order_id: o.id } });
+      if (cnt > 0) withItems++;
+      else emptyIds.push(o.id);
+    }
+    return { withItems, emptyIds };
   }
 
   @Get()
@@ -203,13 +214,15 @@ export class TablesController {
     const t = await this.repo.findOne({ where: { id } });
     if (!t) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
     if (dto.locked && !t.kiotviet_locked) {
-      const open = await this.openOrderCount(id);
-      if (open > 0) {
+      const { withItems, emptyIds } = await this.classifyOpenOrders(id);
+      if (withItems > 0) {
         throw new ConflictException({
           code: 'TABLE_HAS_OPEN_ORDER',
           message: 'Bàn còn đơn chưa thanh toán — xử lý đơn xong rồi mới khoá KiotViet được',
         });
       }
+      // Dọn đơn rỗng (bàn mới tap mở nhưng chưa gọi món) rồi khoá.
+      if (emptyIds.length > 0) await this.orderRepo.delete(emptyIds);
     }
     t.kiotviet_locked = dto.locked;
     await this.repo.save(t);
@@ -223,14 +236,34 @@ export class TablesController {
   @UseGuards(JwtAuthGuard)
   async lockAll() {
     const tables = await this.repo.find({ where: { is_active: true } });
-    const openOrders = await this.orderRepo.find({
-      where: { closed_at: IsNull() },
-      select: ['table_id'],
-    });
-    const busy = new Set(openOrders.map((o) => o.table_id));
 
-    const toLock = tables.filter((t) => !t.kiotviet_locked && !busy.has(t.id));
-    const skipped = tables.filter((t) => !t.kiotviet_locked && busy.has(t.id));
+    // Lấy mọi đơn đang mở + số món của từng đơn (1 query gộp).
+    const rows: Array<{ id: string; table_id: string; cnt: string }> = await this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoin(OrderItem, 'i', 'i.order_id = o.id')
+      .select('o.id', 'id')
+      .addSelect('o.table_id', 'table_id')
+      .addSelect('COUNT(i.id)', 'cnt')
+      .where('o.closed_at IS NULL')
+      .groupBy('o.id')
+      .getRawMany();
+
+    const withItems = new Set<string>();           // bàn có món thật → không khoá
+    const emptyByTable = new Map<string, string[]>(); // bàn chỉ có đơn rỗng → dọn rồi khoá
+    for (const r of rows) {
+      if (Number(r.cnt) > 0) { withItems.add(r.table_id); continue; }
+      const arr = emptyByTable.get(r.table_id) ?? [];
+      arr.push(r.id);
+      emptyByTable.set(r.table_id, arr);
+    }
+
+    const toLock = tables.filter((t) => !t.kiotviet_locked && !withItems.has(t.id));
+    const skipped = tables.filter((t) => !t.kiotviet_locked && withItems.has(t.id));
+
+    // Dọn đơn rỗng của các bàn sắp khoá.
+    const emptyToDelete = toLock.flatMap((t) => emptyByTable.get(t.id) ?? []);
+    if (emptyToDelete.length > 0) await this.orderRepo.delete(emptyToDelete);
+
     for (const t of toLock) t.kiotviet_locked = true;
     if (toLock.length > 0) await this.repo.save(toLock);
 

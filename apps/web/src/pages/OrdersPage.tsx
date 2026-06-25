@@ -356,8 +356,9 @@ export function OrdersPage() {
       ? '2px solid #0f766e'
       : '1px solid #e5e7eb';
 
-    // Chỉ cho khoá nhanh bàn trống (bàn còn đơn thì BE chặn — đỡ gây nhầm).
-    const canQuickLock = !order;
+    // Cho khoá nhanh bàn trống HOẶC bàn chỉ có đơn rỗng (chưa gọi món) — BE sẽ
+    // tự dọn đơn rỗng rồi khoá. Bàn có món thật thì ẩn nút (BE chặn).
+    const canQuickLock = !order || items.length === 0;
 
     return (
       <div key={t.id} style={{ position: 'relative' }}>
