@@ -206,7 +206,7 @@ export class TablesController {
       const open = await this.openOrderCount(id);
       if (open > 0) {
         throw new ConflictException({
-          code: 'CONFLICT',
+          code: 'TABLE_HAS_OPEN_ORDER',
           message: 'Bàn còn đơn chưa thanh toán — xử lý đơn xong rồi mới khoá KiotViet được',
         });
       }
