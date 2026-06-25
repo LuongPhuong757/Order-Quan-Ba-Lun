@@ -158,28 +158,6 @@ export function OrdersPage() {
     if (ok) unlockTable(t, true);
   }, [confirm, unlockTable]);
 
-  const lockAll = useCallback(async () => {
-    const ok = await confirm({
-      title: 'Khoá tất cả bàn cho KiotViet?',
-      message: 'Tất cả bàn trống sẽ chuyển sang chế độ KiotViet (chặn gọi món ở đây).\nBàn còn đơn chưa thanh toán sẽ được bỏ qua.',
-      variant: 'warning',
-      confirmLabel: '🔒 Khoá tất cả',
-    });
-    if (!ok) return;
-    try {
-      const res = await api.post<{ data: { locked: number; skipped: number; skipped_tables: Array<{ name: string }> } }>('/tables/lock-all', {});
-      const d = res.data.data;
-      let msg = `Đã khoá ${d.locked} bàn`;
-      if (d.skipped > 0) {
-        msg += ` — bỏ qua ${d.skipped} bàn còn đơn: ${d.skipped_tables.map((x) => x.name).join(', ')}`;
-      }
-      toast.push(d.skipped > 0 ? 'info' : 'success', msg);
-      refresh(false);
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    }
-  }, [confirm, toast, refresh]);
-
   const unlockAll = useCallback(async () => {
     const ok = await confirm({
       title: 'Mở khoá tất cả bàn?',
@@ -481,13 +459,6 @@ export function OrdersPage() {
           <HelpButton onClick={() => setHelpOpen(true)} />
           <button
             className="secondary"
-            onClick={lockAll}
-            style={{ padding: '6px 12px', minHeight: 40, color: '#7c3aed', borderColor: '#ddd6fe' }}
-          >
-            🔒 Khoá tất cả
-          </button>
-          <button
-            className="secondary"
             onClick={unlockAll}
             style={{ padding: '6px 12px', minHeight: 40, color: '#7c3aed', borderColor: '#ddd6fe' }}
           >
@@ -543,9 +514,9 @@ export function OrdersPage() {
         <h3 style={{ marginBottom: 6 }}>Bàn dùng KiotViet 🔒</h3>
         <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>
           Trước 12h đêm quán dùng KiotViet, sau đó mới dùng hệ thống này. Để tránh 1 bàn gọi món
-          trên cả 2 nơi: bấm 🔒 ở góc thẻ bàn (hoặc <strong>🔒 Khoá tất cả</strong>) để đánh dấu bàn
-          đang dùng KiotViet — bàn chuyển tím và không gọi món ở đây được. Khi muốn dùng lại, bấm
-          vào bàn tím rồi chọn <strong>↩ Chuyển về hệ thống</strong>, hoặc <strong>🔓 Mở tất cả</strong>.
+          trên cả 2 nơi: bấm 🔒 ở góc thẻ bàn để đánh dấu bàn đang dùng KiotViet — bàn chuyển tím
+          và không gọi món ở đây được. Khi muốn dùng lại, bấm vào bàn tím rồi chọn
+          <strong>↩ Chuyển về hệ thống</strong>, hoặc <strong>🔓 Mở tất cả</strong> để mở hết một lượt.
           Lưu ý: bàn còn đơn chưa thanh toán thì phải xử lý xong mới khoá được.
         </p>
 

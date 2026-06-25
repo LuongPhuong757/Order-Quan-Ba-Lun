@@ -229,53 +229,6 @@ export class TablesController {
     return { data: t };
   }
 
-  /** POST /tables/lock-all — khoá toàn bộ bàn cho KiotViet (mọi nhân viên).
-   * Bàn còn đơn mở thì bỏ qua, trả về danh sách skip để FE báo lại. */
-  @Post('lock-all')
-  @HttpCode(200)
-  @UseGuards(JwtAuthGuard)
-  async lockAll() {
-    const tables = await this.repo.find({ where: { is_active: true } });
-
-    // Lấy mọi đơn đang mở + số món của từng đơn (1 query gộp).
-    const rows: Array<{ id: string; table_id: string; cnt: string }> = await this.orderRepo
-      .createQueryBuilder('o')
-      .leftJoin(OrderItem, 'i', 'i.order_id = o.id')
-      .select('o.id', 'id')
-      .addSelect('o.table_id', 'table_id')
-      .addSelect('COUNT(i.id)', 'cnt')
-      .where('o.closed_at IS NULL')
-      .groupBy('o.id')
-      .getRawMany();
-
-    const withItems = new Set<string>();           // bàn có món thật → không khoá
-    const emptyByTable = new Map<string, string[]>(); // bàn chỉ có đơn rỗng → dọn rồi khoá
-    for (const r of rows) {
-      if (Number(r.cnt) > 0) { withItems.add(r.table_id); continue; }
-      const arr = emptyByTable.get(r.table_id) ?? [];
-      arr.push(r.id);
-      emptyByTable.set(r.table_id, arr);
-    }
-
-    const toLock = tables.filter((t) => !t.kiotviet_locked && !withItems.has(t.id));
-    const skipped = tables.filter((t) => !t.kiotviet_locked && withItems.has(t.id));
-
-    // Dọn đơn rỗng của các bàn sắp khoá.
-    const emptyToDelete = toLock.flatMap((t) => emptyByTable.get(t.id) ?? []);
-    if (emptyToDelete.length > 0) await this.orderRepo.delete(emptyToDelete);
-
-    for (const t of toLock) t.kiotviet_locked = true;
-    if (toLock.length > 0) await this.repo.save(toLock);
-
-    return {
-      data: {
-        locked: toLock.length,
-        skipped: skipped.length,
-        skipped_tables: skipped.map((t) => ({ id: t.id, name: t.name })),
-      },
-    };
-  }
-
   /** POST /tables/unlock-all — mở khoá toàn bộ bàn (mọi nhân viên). */
   @Post('unlock-all')
   @HttpCode(200)
