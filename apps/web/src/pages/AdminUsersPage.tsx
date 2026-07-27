@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent, ReactNode } from 'react';
+import { useEffect, useRef, useState, FormEvent, ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -227,37 +227,24 @@ export function AdminUsersPage() {
                 </td>
                 <td data-label="Tạo lúc">{new Date(u.created_at).toLocaleString('vi-VN')}</td>
                 <td data-label="Hành động">
-                  <div className="flex" style={{ flexWrap: 'wrap', gap: 6 }}>
-                    <button className="secondary" onClick={() => setEditing(u)} style={{ padding: '6px 10px' }}>
-                      Sửa
-                    </button>
-                    <button className="secondary" onClick={() => resetPwd(u)} style={{ padding: '6px 10px' }}>
-                      Reset MK
-                    </button>
-                    {!u.is_owner && (
-                      u.is_active ? (
-                        <button
-                          className="secondary"
-                          onClick={() => suspend(u)}
-                          style={{ padding: '6px 10px', color: '#b45309', borderColor: '#fde68a' }}
-                        >
-                          ⏸ Tạm nghỉ
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => reactivate(u)}
-                          style={{ padding: '6px 10px', background: '#059669' }}
-                        >
-                          ▶ Cho làm lại
-                        </button>
-                      )
+                  <ActionsMenu>
+                    {(close) => (
+                      <>
+                        <MenuItem onClick={() => { close(); setEditing(u); }}>✏️ Sửa</MenuItem>
+                        <MenuItem onClick={() => { close(); resetPwd(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
+                        {!u.is_owner && (
+                          u.is_active ? (
+                            <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}>⏸ Tạm nghỉ</MenuItem>
+                          ) : (
+                            <MenuItem color="#059669" onClick={() => { close(); reactivate(u); }}>▶ Cho làm lại</MenuItem>
+                          )
+                        )}
+                        {!u.is_owner && (
+                          <MenuItem color="#dc2626" onClick={() => { close(); hardDelete(u); }}>🗑 Xoá vĩnh viễn</MenuItem>
+                        )}
+                      </>
                     )}
-                    {!u.is_owner && (
-                      <button className="danger" onClick={() => hardDelete(u)} style={{ padding: '6px 10px' }}>
-                        Xoá
-                      </button>
-                    )}
-                  </div>
+                  </ActionsMenu>
                 </td>
               </tr>
             ))}
@@ -288,6 +275,93 @@ export function AdminUsersPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/** Menu hành động "⋯" — bấm mới hiện danh sách, gọn khi có nhiều action. */
+function ActionsMenu({ children }: { children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
+      <button
+        className="secondary"
+        onClick={() => setOpen((v) => !v)}
+        aria-label="Hành động"
+        aria-expanded={open}
+        style={{ padding: '6px 12px', fontWeight: 700, lineHeight: 1 }}
+      >
+        ⋯
+      </button>
+      {open && (
+        <div
+          role="menu"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            right: 0,
+            background: 'white',
+            border: '1px solid #e5e7eb',
+            borderRadius: 10,
+            boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+            zIndex: 1000,
+            minWidth: 180,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          {children(() => setOpen(false))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  onClick,
+  color = '#1f2937',
+  children,
+}: {
+  onClick: () => void;
+  color?: string;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      style={{
+        width: '100%',
+        background: 'white',
+        border: 'none',
+        borderBottom: '1px solid #f3f4f6',
+        padding: '10px 14px',
+        textAlign: 'left',
+        cursor: 'pointer',
+        fontSize: 14,
+        color,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
