@@ -20,6 +20,9 @@ type OrderItem = {
   is_priority?: boolean;
 };
 
+// Nhóm hiển thị: gộp các đơn vị qty=1 cùng món+ghi chú+trạng thái lại "N×".
+type ItemGroup = { key: string; rep: OrderItem; count: number; ids: string[] };
+
 type Order = {
   id: string;
   table_id: string;
@@ -175,11 +178,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     if (needsCustomerInfo) setShowCustomerInfo(true);
   }, [needsCustomerInfo]);
 
-  const changeState = async (it: OrderItem, to: string) => {
-    if (to === 'CANCELLED' && CANCEL_CONFIRM[it.state]) {
+  // Thao tác theo NHÓM: món đã tách thành nhiều dòng qty=1 (bếp nấu từng phần),
+  // nhưng ở drawer bồi bàn gộp lại "N×" — nút bấm áp cho TẤT CẢ đơn vị trong nhóm.
+  const changeStateGroup = async (g: ItemGroup, to: string) => {
+    if (to === 'CANCELLED' && CANCEL_CONFIRM[g.rep.state]) {
       const reason = await prompt({
-        title: `Huỷ "${it.menu_item_name}"?`,
-        message: `Món này đã ${LABEL[it.state]}. Nhập lý do huỷ để bếp/khách biết.`,
+        title: `Huỷ "${g.rep.menu_item_name}" (${g.count}×)?`,
+        message: `Món này đã ${LABEL[g.rep.state]}. Nhập lý do huỷ để bếp/khách biết.`,
         label: 'Lý do huỷ',
         placeholder: 'vd: Khách đổi ý, hết nguyên liệu...',
         multiline: true,
@@ -191,9 +196,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         return;
       }
       try {
-        await api.patch(`/orders/items/${it.id}/state`, { to, reason });
-        toast.push('success', `Đã huỷ ${it.menu_item_name}`);
-        // KHÔNG push notif — readyNotifier polling sẽ emit ItemCancelByStaff cho bếp
+        for (const id of g.ids) await api.patch(`/orders/items/${id}/state`, { to, reason });
+        toast.push('success', `Đã huỷ ${g.count}× ${g.rep.menu_item_name}`);
         refresh();
       } catch (e) {
         toast.push('error', extractError(e).message);
@@ -201,29 +205,39 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       return;
     }
     try {
-      await api.patch(`/orders/items/${it.id}/state`, { to });
-      toast.push('success', `${it.menu_item_name} → ${LABEL[to]}`);
+      for (const id of g.ids) await api.patch(`/orders/items/${id}/state`, { to });
+      toast.push('success', `${g.count}× ${g.rep.menu_item_name} → ${LABEL[to]}`);
       refresh();
     } catch (e) {
       toast.push('error', extractError(e).message);
     }
   };
 
-  const togglePriority = async (it: OrderItem) => {
-    const next = !it.is_priority;
+  const togglePriorityGroup = async (g: ItemGroup) => {
+    const next = !g.rep.is_priority;
     try {
-      await api.patch(`/orders/items/${it.id}/priority`, { priority: next });
+      for (const id of g.ids) await api.patch(`/orders/items/${id}/priority`, { priority: next });
       toast.push('success', next
-        ? `⭐ Đã đánh dấu ưu tiên "${it.menu_item_name}"`
-        : `Đã bỏ ưu tiên "${it.menu_item_name}"`);
+        ? `⭐ Đã đánh dấu ưu tiên "${g.rep.menu_item_name}"`
+        : `Đã bỏ ưu tiên "${g.rep.menu_item_name}"`);
       refresh();
     } catch (e) {
       toast.push('error', extractError(e).message);
     }
   };
 
-  // Group items by state for cleaner display
-  const itemsByState = (state: string) => order?.items?.filter((i) => i.state === state) || [];
+  // Gộp các đơn vị qty=1 theo (món + ghi chú) trong 1 cột trạng thái → hiển thị "N×".
+  const groupItemsByState = (state: string): ItemGroup[] => {
+    const list = order?.items?.filter((i) => i.state === state) || [];
+    const map = new Map<string, ItemGroup>();
+    for (const it of list) {
+      const key = `${it.menu_item_id}¦${it.note ?? ''}`;
+      const e = map.get(key);
+      if (e) { e.count += it.qty; e.ids.push(it.id); }
+      else map.set(key, { key, rep: it, count: it.qty, ids: [it.id] });
+    }
+    return Array.from(map.values());
+  };
 
   const activeStates: string[] = ['PENDING', 'KITCHEN', 'COOKING', 'READY'];
   const terminalStates: string[] = ['SERVED', 'CANCELLED'];
@@ -245,7 +259,17 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       toast.push('error', 'Bàn chưa có món nào để thanh toán');
       return;
     }
-    const cancelledItemsList = itemsByState('CANCELLED');
+    const cancelledItemsList = order?.items?.filter((i) => i.state === 'CANCELLED') || [];
+    // Gộp đơn vị qty=1 (đã tách) lại "N×" cho gọn khi hiển thị xác nhận thanh toán.
+    const groupUnits = (list: OrderItem[]): Array<{ rep: OrderItem; count: number }> => {
+      const m = new Map<string, { rep: OrderItem; count: number }>();
+      for (const it of list) {
+        const k = `${it.menu_item_id}¦${it.note ?? ''}¦${it.state}`;
+        const e = m.get(k);
+        if (e) e.count += it.qty; else m.set(k, { rep: it, count: it.qty });
+      }
+      return Array.from(m.values());
+    };
     const stateLabel: Record<string, string> = {
       PENDING: 'đang gọi',
       KITCHEN: 'đã báo bếp',
@@ -271,10 +295,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           {/* Món đã giao */}
           {servedItems.length > 0 && (
             <Section title="✓ Đã giao (tính tiền)" color="#059669">
-              {servedItems.map((i) => (
-                <Row key={i.id}
-                  left={<><strong>{i.qty}×</strong> {i.menu_item_name}</>}
-                  right={fmt(i.menu_item_price * i.qty)} />
+              {groupUnits(servedItems).map((g) => (
+                <Row key={g.rep.id}
+                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
+                  right={fmt(g.rep.menu_item_price * g.count)} />
               ))}
             </Section>
           )}
@@ -282,10 +306,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           {/* Món sẽ bị huỷ (active items) */}
           {activeItems.length > 0 && (
             <Section title={`⚠ ${activeItems.length} món chưa giao xong — SẼ HUỶ`} color="#f59e0b" subtitle="(không tính tiền)">
-              {activeItems.map((i) => (
-                <Row key={i.id}
-                  left={<><strong>{i.qty}×</strong> {i.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[i.state] || i.state})</span></>}
-                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(i.menu_item_price * i.qty)}</span>} />
+              {groupUnits(activeItems).map((g) => (
+                <Row key={g.rep.id}
+                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[g.rep.state] || g.rep.state})</span></>}
+                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>} />
               ))}
             </Section>
           )}
@@ -293,15 +317,15 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           {/* Món đã huỷ từ trước */}
           {cancelledItemsList.length > 0 && (
             <Section title={`Đã huỷ (${cancelledItemsList.length})`} color="#6b7280" subtitle="(không tính tiền)">
-              {cancelledItemsList.map((i) => (
-                <Row key={i.id}
+              {groupUnits(cancelledItemsList).map((g) => (
+                <Row key={g.rep.id}
                   left={
                     <span style={{ color: '#6b7280' }}>
-                      <strong>{i.qty}×</strong> {i.menu_item_name}
-                      {i.cancelled_reason && <div style={{ fontSize: 12, fontStyle: 'italic' }}>↳ {i.cancelled_reason}</div>}
+                      <strong>{g.count}×</strong> {g.rep.menu_item_name}
+                      {g.rep.cancelled_reason && <div style={{ fontSize: 12, fontStyle: 'italic' }}>↳ {g.rep.cancelled_reason}</div>}
                     </span>
                   }
-                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(i.menu_item_price * i.qty)}</span>} />
+                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>} />
               ))}
             </Section>
           )}
@@ -491,8 +515,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             )}
 
             {activeStates.map((st) => {
-              const list = itemsByState(st);
-              if (list.length === 0) return null;
+              const groups = groupItemsByState(st);
+              if (groups.length === 0) return null;
+              const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
                 <div key={st} style={{ marginBottom: 14 }}>
                   <h2
@@ -504,14 +529,15 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       letterSpacing: 0.5,
                     }}
                   >
-                    {LABEL[st]} ({list.length})
+                    {LABEL[st]} ({unitCount})
                   </h2>
-                  {list.map((it) => (
+                  {groups.map((g) => (
                     <ItemRow
-                      key={it.id}
-                      item={it}
-                      onChangeState={(to) => changeState(it, to)}
-                      onTogglePriority={() => togglePriority(it)}
+                      key={g.key}
+                      item={g.rep}
+                      count={g.count}
+                      onChangeState={(to) => changeStateGroup(g, to)}
+                      onTogglePriority={() => togglePriorityGroup(g)}
                       canSetPriority={canSetPriority}
                     />
                   ))}
@@ -522,8 +548,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             {/* Terminal states — hiện cùng style như active states để staff vẫn xem được
                 món đã giao + món đã huỷ (lý do huỷ + ai gọi) ngay trên drawer. */}
             {terminalStates.map((st) => {
-              const list = itemsByState(st);
-              if (list.length === 0) return null;
+              const groups = groupItemsByState(st);
+              if (groups.length === 0) return null;
+              const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
                 <div key={st} style={{ marginBottom: 14, opacity: st === 'CANCELLED' ? 0.85 : 1 }}>
                   <h2
@@ -535,10 +562,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       letterSpacing: 0.5,
                     }}
                   >
-                    {LABEL[st]} ({list.length})
+                    {LABEL[st]} ({unitCount})
                   </h2>
-                  {list.map((it) => (
-                    <ItemRow key={it.id} item={it} onChangeState={() => undefined} readonly />
+                  {groups.map((g) => (
+                    <ItemRow key={g.key} item={g.rep} count={g.count} onChangeState={() => undefined} readonly />
                   ))}
                 </div>
               );
@@ -780,17 +807,20 @@ function DeliveryInfoModal({
 
 function ItemRow({
   item,
+  count,
   onChangeState,
   onTogglePriority,
   canSetPriority,
   readonly,
 }: {
   item: OrderItem;
+  count?: number;
   onChangeState: (to: string) => void;
   onTogglePriority?: () => void;
   canSetPriority?: boolean;
   readonly?: boolean;
 }) {
+  const n = count ?? item.qty;
   // Ẩn các transition thuộc luồng bếp khỏi giao diện order — staff order chỉ
   // cần các action: Báo bếp (gọi tới bếp), Đã giao (giao tới khách), Huỷ.
   // 'COOKING' (Bắt đầu nấu) + 'READY' (Xong) là hành động của bếp ở KDS.
@@ -830,7 +860,7 @@ function ItemRow({
             </div>
           )}
           <div style={{ fontWeight: 600 }}>
-            {item.qty} × {item.menu_item_name}
+            {n} × {item.menu_item_name}
           </div>
           {item.created_by_full_name && (
             <div style={{ fontSize: 11, color: '#0f766e', marginTop: 2 }}>
@@ -849,7 +879,7 @@ function ItemRow({
           )}
         </div>
         <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280' }}>
-          {fmt(item.menu_item_price * item.qty)}
+          {fmt(item.menu_item_price * n)}
         </div>
       </div>
       {!readonly && (next.length > 0 || cancelAllowed) && (

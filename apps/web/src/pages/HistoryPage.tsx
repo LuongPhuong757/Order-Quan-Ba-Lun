@@ -134,6 +134,23 @@ function fmtTime(ms: number) {
   });
 }
 
+// Gộp các dòng qty=1 (đã tách để bếp nấu từng phần) lại theo món để HIỂN THỊ "N×".
+// Gộp theo: tên + ghi chú + trạng thái + NV gọi + người giao + lý do huỷ (giống hệt mới gộp).
+type ItemGroup = { key: string; rep: OrderItem; count: number };
+function aggregateItems(items: OrderItem[]): ItemGroup[] {
+  const map = new Map<string, ItemGroup>();
+  for (const i of items) {
+    const key = [
+      i.menu_item_name, i.note ?? '', i.state,
+      i.created_by_full_name ?? '', i.served_by_full_name ?? '', i.cancelled_reason ?? '',
+    ].join('¦');
+    const e = map.get(key);
+    if (e) e.count += i.qty;
+    else map.set(key, { key, rep: i, count: i.qty });
+  }
+  return Array.from(map.values());
+}
+
 export function HistoryPage() {
   const toast = useToast();
   const [tables, setTables] = useState<Table[]>([]);
@@ -626,16 +643,16 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#b45309', marginBottom: 6, textTransform: 'uppercase' }}>
             ⏳ Đang xử lý ({grouped.INPROGRESS.length})
           </div>
-          {grouped.INPROGRESS.map((i) => (
-            <div key={i.id} style={detailRow}>
+          {aggregateItems(grouped.INPROGRESS).map((g) => (
+            <div key={g.key} style={detailRow}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div><strong>{i.qty}×</strong> {i.menu_item_name} <span style={{ fontSize: 11, color: '#9ca3af' }}>({stateLabel(i.state)})</span></div>
-                {i.created_by_full_name && (
-                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV: {i.created_by_full_name}</div>
+                <div><strong>{g.count}×</strong> {g.rep.menu_item_name} <span style={{ fontSize: 11, color: '#9ca3af' }}>({stateLabel(g.rep.state)})</span></div>
+                {g.rep.created_by_full_name && (
+                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV: {g.rep.created_by_full_name}</div>
                 )}
-                {i.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {i.note}</div>}
+                {g.rep.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {g.rep.note}</div>}
               </div>
-              <div style={{ fontWeight: 600, color: '#9ca3af' }}>{fmt(i.menu_item_price * i.qty)}</div>
+              <div style={{ fontWeight: 600, color: '#9ca3af' }}>{fmt(g.rep.menu_item_price * g.count)}</div>
             </div>
           ))}
         </div>
@@ -647,19 +664,19 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#059669', marginBottom: 6, textTransform: 'uppercase' }}>
             ✓ Đã giao ({grouped.SERVED.length})
           </div>
-          {grouped.SERVED.map((i) => (
-            <div key={i.id} style={detailRow}>
+          {aggregateItems(grouped.SERVED).map((g) => (
+            <div key={g.key} style={detailRow}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div><strong>{i.qty}×</strong> {i.menu_item_name}</div>
-                {i.created_by_full_name && (
-                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV gọi: {i.created_by_full_name}</div>
+                <div><strong>{g.count}×</strong> {g.rep.menu_item_name}</div>
+                {g.rep.created_by_full_name && (
+                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV gọi: {g.rep.created_by_full_name}</div>
                 )}
-                {i.served_by_full_name && (
-                  <div style={{ fontSize: 11, color: '#059669' }}>🍽 Người giao: {i.served_by_full_name}</div>
+                {g.rep.served_by_full_name && (
+                  <div style={{ fontSize: 11, color: '#059669' }}>🍽 Người giao: {g.rep.served_by_full_name}</div>
                 )}
-                {i.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {i.note}</div>}
+                {g.rep.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {g.rep.note}</div>}
               </div>
-              <div style={{ fontWeight: 600 }}>{fmt(i.menu_item_price * i.qty)}</div>
+              <div style={{ fontWeight: 600 }}>{fmt(g.rep.menu_item_price * g.count)}</div>
             </div>
           ))}
         </div>
@@ -671,16 +688,16 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 6, textTransform: 'uppercase' }}>
             ✕ Đã huỷ ({grouped.CANCELLED.length})
           </div>
-          {grouped.CANCELLED.map((i) => (
-            <div key={i.id} style={{ ...detailRow, opacity: 0.7 }}>
+          {aggregateItems(grouped.CANCELLED).map((g) => (
+            <div key={g.key} style={{ ...detailRow, opacity: 0.7 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ textDecoration: 'line-through' }}><strong>{i.qty}×</strong> {i.menu_item_name}</div>
-                {i.cancelled_reason && <div style={{ fontSize: 11, color: '#dc2626' }}>↳ {i.cancelled_reason}</div>}
-                {i.created_by_full_name && (
-                  <div style={{ fontSize: 11, color: '#6b7280' }}>👤 NV: {i.created_by_full_name}</div>
+                <div style={{ textDecoration: 'line-through' }}><strong>{g.count}×</strong> {g.rep.menu_item_name}</div>
+                {g.rep.cancelled_reason && <div style={{ fontSize: 11, color: '#dc2626' }}>↳ {g.rep.cancelled_reason}</div>}
+                {g.rep.created_by_full_name && (
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>👤 NV: {g.rep.created_by_full_name}</div>
                 )}
               </div>
-              <div style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(i.menu_item_price * i.qty)}</div>
+              <div style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</div>
             </div>
           ))}
         </div>

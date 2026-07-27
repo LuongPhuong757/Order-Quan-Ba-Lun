@@ -333,22 +333,26 @@ export class OrdersService {
 
       const state = send_to_kitchen ? 'KITCHEN' : 'PENDING';
       const created: OrderItem[] = [];
+      // TÁCH TỪNG PHẦN: mỗi đơn vị số lượng = 1 dòng riêng để bếp nấu/đánh dấu
+      // độc lập từng cái. Hiển thị ở drawer/lịch sử vẫn gộp lại "N× món".
       for (const it of items) {
         const m = menuMap.get(it.menu_item_id)!;
-        const entity = itemRepo.create({
-          order_id,
-          menu_item_id: m.id,
-          menu_item_name: m.name,
-          menu_item_price: m.price,
-          qty: it.qty,
-          state,
-          note: it.note ?? null,
-          cancelled_reason: null,
-          created_by_user_id: creator?.id ?? null,
-          created_by_full_name: creator?.full_name ?? null,
-        });
-        const saved = await itemRepo.save(entity);
-        created.push(saved);
+        for (let u = 0; u < it.qty; u++) {
+          const entity = itemRepo.create({
+            order_id,
+            menu_item_id: m.id,
+            menu_item_name: m.name,
+            menu_item_price: m.price,
+            qty: 1,
+            state,
+            note: it.note ?? null,
+            cancelled_reason: null,
+            created_by_user_id: creator?.id ?? null,
+            created_by_full_name: creator?.full_name ?? null,
+          });
+          const saved = await itemRepo.save(entity);
+          created.push(saved);
+        }
       }
       if (send_to_kitchen) {
         await this.markFirstKitchenIfNull(mgr, order_id);
@@ -359,7 +363,10 @@ export class OrdersService {
     // Log "gọi món" (post-commit, không chặn flow).
     const snap = await this.orderSnapshot(order_id);
     if (snap) {
-      const summary = result.items.map((i) => `${i.qty}× ${i.menu_item_name}`).join(', ');
+      // Gộp lại theo tên món (items đã tách thành nhiều dòng qty=1)
+      const counts = new Map<string, number>();
+      for (const i of result.items) counts.set(i.menu_item_name, (counts.get(i.menu_item_name) || 0) + i.qty);
+      const summary = Array.from(counts.entries()).map(([n, q]) => `${q}× ${n}`).join(', ');
       await this.writeActivity({
         order: snap,
         event_kind: 'items_added',
@@ -385,27 +392,32 @@ export class OrdersService {
     if (menu.is_out_of_stock) {
       throw new BadRequestException({ code: 'CONFLICT', message: `Món "${menu.name}" đang hết, không thể gọi mới` });
     }
-    const item = this.itemRepo.create({
-      order_id,
-      menu_item_id,
-      menu_item_name: menu.name,
-      menu_item_price: menu.price,
-      qty,
-      state: 'PENDING',
-      note: note ?? null,
-      cancelled_reason: null,
-      created_by_user_id: creator?.id ?? null,
-      created_by_full_name: creator?.full_name ?? null,
-    });
-    await this.itemRepo.save(item);
+    // TÁCH TỪNG PHẦN: mỗi đơn vị = 1 dòng qty=1 (bếp nấu từng cái)
+    let first: OrderItem | null = null;
+    for (let u = 0; u < qty; u++) {
+      const item = this.itemRepo.create({
+        order_id,
+        menu_item_id,
+        menu_item_name: menu.name,
+        menu_item_price: menu.price,
+        qty: 1,
+        state: 'PENDING',
+        note: note ?? null,
+        cancelled_reason: null,
+        created_by_user_id: creator?.id ?? null,
+        created_by_full_name: creator?.full_name ?? null,
+      });
+      const saved = await this.itemRepo.save(item);
+      if (!first) first = saved;
+    }
     await this.writeActivity({
       order,
       event_kind: 'items_added',
       message: `Gọi món: ${qty}× ${menu.name}`,
       actor: creator,
-      item_id: item.id,
+      item_id: first?.id,
     });
-    return item;
+    return first!;
   }
 
   /** State transition with validation + snapshot actor (cho notification) */
@@ -877,9 +889,19 @@ export class OrdersService {
           );
         }
 
+        // Chuyển NHẬT KÝ đơn nguồn sang đơn đích — nếu không, xoá src sẽ làm mồ côi
+        // toàn bộ log (gọi món/báo bếp/huỷ/giao...) → nhật ký bàn mới bị mất lịch sử.
+        await mgr
+          .getRepository(OrderActivityLog)
+          .createQueryBuilder()
+          .update()
+          .set({ order_id: dest.id })
+          .where('order_id = :sid', { sid: src.id })
+          .execute();
+
         // XOÁ source order — KHÔNG set closed_at (sẽ bị history page hiểu nhầm
         // là đơn cũ đã thanh toán). Source đã rỗng, không còn giá trị giữ lại.
-        // Items đã được move (giữ created_at gốc + người gọi gốc) nên audit trail còn đủ.
+        // Items + nhật ký đã được move (giữ created_at gốc) nên audit trail còn đủ.
         await orderRepo.delete(src.id);
 
         this.logger.log(

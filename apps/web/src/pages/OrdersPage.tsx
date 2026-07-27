@@ -454,7 +454,7 @@ export function OrdersPage() {
   return (
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16, alignItems: 'center', gap: 8 }}>
-        <h1 style={{ margin: 0 }}>Sơ đồ bàn</h1>
+        <h1 className="hide-on-mobile" style={{ margin: 0 }}>Sơ đồ bàn</h1>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <HelpButton onClick={() => setHelpOpen(true)} />
           <button
