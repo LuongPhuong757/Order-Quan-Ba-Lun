@@ -9,7 +9,7 @@
 // 5. Thanh toán xong (Checkout)       → CHỈ Admin
 // 6. Món đã giao tới khách (Served)   → CHỈ Bếp (kèm tên người giao)
 // 7. Chuyển bàn (TableTransfer)       → CẢ Bếp + Order (gom theo from→to)
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { api, isTransientError } from '../lib/api.ts';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { notificationStore } from '../lib/notification-store.ts';
@@ -27,6 +27,7 @@ type ClosedOrder = {
 };
 
 const CHECKOUT_POLL_MS = 10_000;  // Admin poll history mỗi 10s
+const CHECKOUT_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;  // backfill tối đa 7 ngày
 
 export function ReadyListener() {
   const toast = useToast();
@@ -37,8 +38,6 @@ export function ReadyListener() {
   const isKitchen = role === 'kitchen';
   const isAdmin = role === 'admin';
   const userFullName = user?.full_name || '';
-
-  const lastSeenCheckoutMs = useRef<number>(Date.now());
 
   useEffect(() => {
     // ─── Rule 2: READY → CHỈ Order ─────────────────────────────────
@@ -142,45 +141,87 @@ export function ReadyListener() {
     };
   }, [toast, isOrder, isKitchen, userFullName]);
 
-  // ─── Rule 5: Checkout → CHỈ Admin (poll /orders/history mỗi 10s) ─
+  // ─── Rule 5: Checkout → CHỈ Admin ───────────────────────────────
+  // Poll /orders/history mỗi 10s. KHÁC bản cũ (đã gây bug nghiêm trọng):
+  // mốc "đã xem" lưu BỀN trong localStorage theo từng admin, KHÔNG reset về
+  // now mỗi lần mount. Khi admin đăng nhập lại → BACKFILL toàn bộ thanh toán
+  // bị bỏ lỡ lúc offline (lùi tối đa 7 ngày) vào chuông 🔔 để đối chiếu.
+  // Dữ liệu nguồn (orders đã đóng) vốn được server giữ lâu dài.
   useEffect(() => {
-    if (!isAdmin) return;
-    lastSeenCheckoutMs.current = Date.now();
+    if (!isAdmin || !user) return;
+    const lsKey = `admin-checkout-seen-ms:${user.sub}`;
+    const floor = Date.now() - CHECKOUT_LOOKBACK_MS;
+    const stored = Number(localStorage.getItem(lsKey) || 0);
+    let since = Math.max(stored, floor); // không backfill xa quá 7 ngày
+    let firstRun = true;
+    let inFlight = false;
+
+    const persist = (ms: number) => {
+      since = ms;
+      try { localStorage.setItem(lsKey, String(ms)); } catch { /* quota */ }
+    };
+
+    // Lấy HẾT checkout kể từ fromMs (phân trang) — không giới hạn 20 như cũ,
+    // nếu không sẽ mất checkout khi offline lâu (nhiều bàn thanh toán).
+    const fetchAllSince = async (fromMs: number): Promise<ClosedOrder[]> => {
+      const all: ClosedOrder[] = [];
+      for (let page = 1; page <= 30; page++) { // trần 30×100 = 3000
+        const res = await api.get<{ data: { items: ClosedOrder[] } }>(
+          `/orders/history?status=paid&start_ms=${fromMs}&page=${page}&page_size=100`,
+        );
+        const items = (res.data?.data?.items || []).filter(
+          (o) => typeof o.closed_at === 'number' && o.closed_at > fromMs,
+        );
+        all.push(...items);
+        if (items.length < 100) break;
+      }
+      return all;
+    };
+
+    const record = (o: ClosedOrder, live: boolean) => {
+      const total = (o.items || [])
+        .filter((i) => i.state === 'SERVED')
+        .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+      const cashier = o.checked_out_by_full_name || 'không xác định';
+      const tableName = o.table_name || o.table_code;
+      const line = `${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ bởi ${cashier}.`;
+      // Giữ đúng giờ thanh toán gốc + dedupe theo order id (backfill an toàn)
+      notificationStore.pushAt('order_checkout', line, o.closed_at, `checkout:${o.id}`);
+      if (live) {
+        toast.push('success', `💰 ${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ — ${cashier}`, 6000);
+      }
+    };
 
     const poll = async () => {
+      if (inFlight) return;
+      inFlight = true;
       try {
-        const since = lastSeenCheckoutMs.current;
-        const res = await api.get<{ data: { items: ClosedOrder[] } }>(
-          `/orders/history?start_ms=${since}&page=1&page_size=20`,
-        );
-        const newCheckouts = (res.data?.data?.items || []).filter((o) => o.closed_at > since);
-        for (const o of newCheckouts) {
-          const total = (o.items || [])
-            .filter((i) => i.state === 'SERVED')
-            .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
-          const cashier = o.checked_out_by_full_name || 'không xác định';
-          const tableName = o.table_name || o.table_code;
-          const msg = `💰 ${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ — ${cashier}`;
-          toast.push('success', msg, 6000);
-          notificationStore.push(
-            'order_checkout',
-            `${tableName} thanh toán ${total.toLocaleString('vi-VN')}đ bởi ${cashier}.`,
-          );
+        const list = (await fetchAllSince(since)).sort((a, b) => a.closed_at - b.closed_at);
+        if (list.length > 0) {
+          if (firstRun) {
+            // Backfill offline: nạp hết vào 🔔 (unread), CHỈ 1 toast tổng hợp.
+            for (const o of list) record(o, false);
+            toast.push('info', `💰 ${list.length} bàn đã thanh toán khi bạn vắng mặt — xem 🔔`, 8000);
+          } else {
+            for (const o of list) record(o, true);
+          }
+          persist(Math.max(...list.map((o) => o.closed_at)));
         }
-        if (newCheckouts.length > 0) {
-          const maxTs = Math.max(...newCheckouts.map((o) => o.closed_at));
-          lastSeenCheckoutMs.current = maxTs + 1;
-        }
+        firstRun = false;
       } catch (err) {
         if (!isTransientError(err)) {
           // eslint-disable-next-line no-console
           console.warn('Checkout poller error', err);
         }
+      } finally {
+        inFlight = false;
       }
     };
+
+    poll(); // chạy ngay khi mount → backfill thanh toán bị bỏ lỡ
     const t = setInterval(poll, CHECKOUT_POLL_MS);
     return () => clearInterval(t);
-  }, [isAdmin, toast]);
+  }, [isAdmin, toast, user]);
 
   return null;
 }

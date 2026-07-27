@@ -12,13 +12,15 @@ export type NotificationEntry = {
   message: string;
   ts_ms: number;
   read: boolean;
+  /** Khoá chống trùng — vd "checkout:<orderId>". Có key trùng thì bỏ qua entry mới. */
+  dedupeKey?: string;
 };
 
-// v3 (2026-05-13): bump để clear entries persisted với table_code cũ
-// (BE giờ trả table_name cho /orders/history).
-const STORAGE_KEY = 'notifications-v3';
-const MAX_ENTRIES = 200;
-const TTL_MS = 24 * 60 * 60 * 1000;  // 1 ngày — đủ cho ca làm việc
+// v4 (2026-07-27): TTL 24h → 7 ngày cho mục đối chiếu thanh toán; thêm dedupeKey.
+// Bump version để reset entries cũ (schema entry đổi).
+const STORAGE_KEY = 'notifications-v4';
+const MAX_ENTRIES = 1000;              // 7 ngày × nhiều checkout/ngày
+const TTL_MS = 7 * 24 * 60 * 60 * 1000;  // 7 ngày — đủ để admin đối chiếu doanh thu
 
 type Listener = (entries: NotificationEntry[]) => void;
 const listeners = new Set<Listener>();
@@ -69,16 +71,36 @@ export const notificationStore = {
   unreadCount(): number {
     return cache.filter((e) => !e.read).length;
   },
-  push(kind: NotificationKind, message: string) {
+  push(kind: NotificationKind, message: string, dedupeKey?: string) {
+    // Chống trùng: nếu đã có entry cùng dedupeKey thì bỏ qua (backfill an toàn).
+    if (dedupeKey && cache.some((e) => e.dedupeKey === dedupeKey)) return;
     const entry: NotificationEntry = {
       id: nextId++,
       kind,
       message,
       ts_ms: Date.now(),
       read: false,
+      dedupeKey,
     };
     // Prune cũ + cap MAX để tránh localStorage bloat
     cache = pruneOld([entry, ...cache]).slice(0, MAX_ENTRIES);
+    save(cache);
+    emit();
+  },
+  /** Ghi entry với timestamp chỉ định (dùng cho backfill lịch sử — giữ đúng giờ gốc). */
+  pushAt(kind: NotificationKind, message: string, tsMs: number, dedupeKey?: string) {
+    if (dedupeKey && cache.some((e) => e.dedupeKey === dedupeKey)) return;
+    const entry: NotificationEntry = {
+      id: nextId++,
+      kind,
+      message,
+      ts_ms: tsMs,
+      read: false,
+      dedupeKey,
+    };
+    cache = pruneOld([entry, ...cache])
+      .sort((a, b) => b.ts_ms - a.ts_ms) // mới nhất lên đầu
+      .slice(0, MAX_ENTRIES);
     save(cache);
     emit();
   },
