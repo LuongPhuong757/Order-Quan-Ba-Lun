@@ -29,7 +29,7 @@ import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { toTitleCase } from '../../common/text.js';
 
 const UPLOAD_DIR = 'uploads/menu';
@@ -141,7 +141,7 @@ export class MenuController {
    * Trả về { data: { url: "/uploads/menu/<filename>" } } để FE set vào image_url.
    */
   @Post('upload-image')
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       storage: diskStorage({
@@ -174,7 +174,7 @@ export class MenuController {
    * sort_order=999, icon=null, name = group code title-cased). */
   @Post('bulk-import')
   @HttpCode(201)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async bulkImport(@Body() dto: BulkImportMenuDto) {
     // 1) Auto-create missing groups — preserve group_name (display name) nếu FE truyền lên
     const groupNameByCode = new Map<string, string>();
@@ -252,7 +252,7 @@ export class MenuController {
   /** POST /menu — owner only */
   @Post()
   @HttpCode(201)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async create(@Body() dto: CreateMenuItemDto) {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException({ code: 'CONFLICT', message: 'Mã món đã tồn tại' });
@@ -272,7 +272,7 @@ export class MenuController {
 
   /** PATCH /menu/:id — owner only */
   @Patch(':id')
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() dto: UpdateMenuItemDto) {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
@@ -359,7 +359,7 @@ export class MenuController {
   /** DELETE /menu/:id — soft delete (set is_active=false) — owner only */
   @Delete(':id')
   @HttpCode(204)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async softDelete(@Param('id') id: string) {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });

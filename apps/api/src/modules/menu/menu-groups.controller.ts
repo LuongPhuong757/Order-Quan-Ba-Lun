@@ -9,7 +9,7 @@ import {
 } from 'class-validator';
 import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { toTitleCase } from '../../common/text.js';
 
 class CreateGroupDto {
@@ -44,7 +44,7 @@ export class MenuGroupsController {
 
   @Post()
   @HttpCode(201)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async create(@Body() dto: CreateGroupDto) {
     const codeLower = dto.code.toLowerCase().replace(/[^a-z0-9-]/g, '');
     if (!codeLower) {
@@ -66,7 +66,7 @@ export class MenuGroupsController {
   }
 
   @Patch(':id')
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() dto: UpdateGroupDto) {
     const g = await this.repo.findOne({ where: { id } });
     if (!g) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhóm không tồn tại' });
@@ -78,7 +78,7 @@ export class MenuGroupsController {
 
   @Delete(':id')
   @HttpCode(204)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async softDelete(@Param('id') id: string) {
     const g = await this.repo.findOne({ where: { id } });
     if (!g) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhóm không tồn tại' });

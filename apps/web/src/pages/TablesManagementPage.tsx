@@ -32,6 +32,8 @@ export function TablesManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
+  // Admin & chủ quán đều được quản lý bàn (thêm/sửa/xoá).
+  const canManage = !!user?.is_owner || user?.role === 'admin';
   const [items, setItems] = useState<RestaurantTable[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
@@ -85,7 +87,7 @@ export function TablesManagementPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Bàn ăn</h1>
-        {user?.is_owner && (
+        {canManage && (
           <div className="flex" style={{ gap: 6 }}>
             <button className="secondary" onClick={() => setShowBulk(true)} style={{ padding: '8px 12px' }}>
               + Hàng loạt
@@ -149,7 +151,7 @@ export function TablesManagementPage() {
               <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 10 }}>
                 Vị trí: ({t.x}, {t.y})
               </div>
-              {user?.is_owner && (
+              {canManage && (
                 <div className="flex" style={{ gap: 6 }}>
                   <button
                     className="secondary"

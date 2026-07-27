@@ -16,9 +16,12 @@ export type NotificationEntry = {
   dedupeKey?: string;
 };
 
-// v4 (2026-07-27): TTL 24h → 7 ngày cho mục đối chiếu thanh toán; thêm dedupeKey.
-// Bump version để reset entries cũ (schema entry đổi).
-const STORAGE_KEY = 'notifications-v4';
+// v5 (2026-07-27): reset sạch thông báo mọi máy để test lại từ đầu (xoá dữ liệu order).
+// v4: TTL 24h → 7 ngày cho đối chiếu thanh toán; thêm dedupeKey.
+const STORAGE_KEY = 'notifications-v5';
+// Chủ sở hữu hiện tại của danh sách thông báo (user.sub). Dùng để xoá noti của
+// user trước khi đổi tài khoản trên cùng trình duyệt (vd bếp → admin).
+const OWNER_KEY = 'notif-owner';
 const MAX_ENTRIES = 1000;              // 7 ngày × nhiều checkout/ngày
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;  // 7 ngày — đủ để admin đối chiếu doanh thu
 
@@ -113,6 +116,19 @@ export const notificationStore = {
   clear() {
     cache = [];
     save(cache);
+    emit();
+  },
+  /** Gọi mỗi khi biết user đăng nhập hiện tại. Nếu KHÁC user lần trước
+   * (đổi tài khoản trên cùng trình duyệt) → xoá sạch thông báo của user cũ.
+   * Cùng user → giữ nguyên (không mất lịch sử 7 ngày của admin). */
+  ensureOwner(sub: string) {
+    if (typeof window === 'undefined' || !sub) return;
+    let prev: string | null = null;
+    try { prev = localStorage.getItem(OWNER_KEY); } catch { /* ignore */ }
+    if (prev === sub) return;
+    cache = [];
+    save(cache);
+    try { localStorage.setItem(OWNER_KEY, sub); } catch { /* ignore */ }
     emit();
   },
   subscribe(l: Listener): () => void {

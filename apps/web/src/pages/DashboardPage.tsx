@@ -3,6 +3,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 
 export function DashboardPage() {
   const { user } = useAuth();
+  const isAdmin = !!user?.is_owner || user?.role === 'admin';
   return (
     <div className="container wide with-bottom-nav">
       <h1>Chào {user?.name}!</h1>
@@ -13,15 +14,15 @@ export function DashboardPage() {
 
       <h2>Truy cập nhanh</h2>
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        {user?.is_owner && (
+        {isAdmin && (
           <>
             <Link to="/admin/users" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong>👥 Nhân viên</strong>
-              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tạo / reset password / vô hiệu hoá</p>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tạo / đổi mật khẩu / tạm nghỉ</p>
             </Link>
             <Link to="/admin/audit" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>📋 Audit log</strong>
-              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + export CSV</p>
+              <strong>📋 Nhật ký hệ thống</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>
             </Link>
           </>
         )}

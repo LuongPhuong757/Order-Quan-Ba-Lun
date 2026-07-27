@@ -55,6 +55,7 @@ type OrderItem = {
   note: string | null;
   cancelled_reason: string | null;
   created_by_full_name: string | null;
+  served_by_full_name: string | null;
 };
 
 type HistoryOrder = {
@@ -100,6 +101,7 @@ const EVENT_ICON: Record<string, string> = {
   order_created: '🟢',
   items_added: '➕',
   item_cancelled: '✕',
+  item_served: '🍽',
   transfer: '↔️',
   checkout: '💰',
   order_cancelled: '🗑️',
@@ -224,7 +226,7 @@ export function HistoryPage() {
   const dayGroups = useMemo(() => {
     const groups: Array<{ key: string; orders: HistoryOrder[] }> = [];
     for (const o of orders) {
-      const key = vnDayKey(o.closed_at ?? o.opened_at);
+      const key = vnDayKey(o.opened_at); // gom theo ngày VÀO ĂN
       const last = groups[groups.length - 1];
       if (last && last.key === key) last.orders.push(o);
       else groups.push({ key, orders: [o] });
@@ -413,10 +415,10 @@ export function HistoryPage() {
           <table className="responsive card" style={{ padding: 0 }}>
             <thead>
               <tr>
-                <th>Giờ</th>
+                <th>Giờ vào</th>
                 <th>Bàn</th>
-                <th>NV gọi</th>
                 <th>Thu ngân</th>
+                <th>Giờ TT</th>
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
                 <th>Trạng thái</th>
@@ -439,18 +441,19 @@ export function HistoryPage() {
                       const servedCount = (o.items || []).filter((i) => i.state === 'SERVED').length;
                       const cancelledCount = (o.items || []).filter((i) => i.state === 'CANCELLED').length;
                       const isPaid = o.is_paid;
-                      const when = isPaid && o.closed_at ? o.closed_at : o.opened_at;
                       return (
                         <Fragment key={o.id}>
                           <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
-                            <td data-label="Giờ">{fmtHm(when)}</td>
+                            <td data-label="Giờ vào">{fmtHm(o.opened_at)}</td>
                             <td data-label="Bàn">
                               <strong style={{ color: '#0f766e' }} title={o.table_code}>{o.table_name}</strong>
                               {o.customer_name && <span style={{ color: '#6b7280' }}> · 🛵 {o.customer_name}</span>}
                             </td>
-                            <td data-label="NV gọi">{o.created_by_full_name || '—'}</td>
                             <td data-label="Thu ngân">
                               {isPaid && o.checked_out_by_full_name ? o.checked_out_by_full_name : '—'}
+                            </td>
+                            <td data-label="Giờ TT">
+                              {isPaid && o.closed_at ? fmtHm(o.closed_at) : '—'}
                             </td>
                             <td data-label="Món">
                               ✓ {servedCount}
@@ -649,7 +652,10 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div><strong>{i.qty}×</strong> {i.menu_item_name}</div>
                 {i.created_by_full_name && (
-                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV: {i.created_by_full_name}</div>
+                  <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV gọi: {i.created_by_full_name}</div>
+                )}
+                {i.served_by_full_name && (
+                  <div style={{ fontSize: 11, color: '#059669' }}>🍽 Người giao: {i.served_by_full_name}</div>
                 )}
                 {i.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {i.note}</div>}
               </div>

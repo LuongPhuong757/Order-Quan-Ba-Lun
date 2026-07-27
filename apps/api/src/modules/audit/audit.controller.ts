@@ -1,10 +1,10 @@
 import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuditService } from './audit.service.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 
 @Controller('admin/audit')
-@UseGuards(OwnerGuard)
+@UseGuards(AdminGuard)
 export class AuditController {
   constructor(private readonly svc: AuditService) {}
 

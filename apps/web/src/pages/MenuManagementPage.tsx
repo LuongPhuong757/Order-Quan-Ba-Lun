@@ -42,6 +42,8 @@ export function MenuManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
+  // Admin & chủ quán đều được quản lý menu (thêm/sửa/xoá/nhóm/import). Bếp chỉ toggle hết/còn.
+  const canManage = !!user?.is_owner || user?.role === 'admin';
   const [items, setItems] = useState<MenuItem[]>([]);
   const [total, setTotal] = useState(0);
   const [groups, setGroups] = useState<MenuGroup[]>([]);
@@ -140,17 +142,17 @@ export function MenuManagementPage() {
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Menu</h1>
         <div className="flex" style={{ gap: 6, flexWrap: 'wrap' }}>
-          {user?.is_owner && (
+          {canManage && (
             <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 12px' }}>
               Nhóm
             </button>
           )}
-          {user?.is_owner && (
+          {canManage && (
             <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
               📥 Import
             </button>
           )}
-          {user?.is_owner && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
+          {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
         </div>
       </div>
 
@@ -319,7 +321,7 @@ export function MenuManagementPage() {
                 >
                   {it.is_out_of_stock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
                 </button>
-                {user?.is_owner && (
+                {canManage && (
                   <>
                     <button
                       className="secondary"

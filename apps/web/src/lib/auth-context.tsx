@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
 import { api } from './api.ts';
+import { notificationStore } from './notification-store.ts';
 
 export type Role = 'admin' | 'order' | 'kitchen';
 
@@ -35,6 +36,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const res = await api.get<{ data: AuthUser }>('/auth/me');
       if (res.status === 200 && res.data?.data) {
+        // Xoá noti của user cũ nếu đổi tài khoản (chạy TRƯỚC setUser → trước khi
+        // ReadyListener kịp backfill cho user mới).
+        notificationStore.ensureOwner(res.data.data.sub);
         setUser(res.data.data);
       } else {
         setUser(null);

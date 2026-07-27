@@ -444,7 +444,7 @@ export class OrdersService {
       return item;
     });
 
-    // Log "huỷ món" (post-commit). Các state khác không log để tránh nhiễu.
+    // Log "huỷ món" + "giao món" (post-commit). Các state trung gian không log để tránh nhiễu.
     if (to === 'CANCELLED') {
       const snap = await this.orderSnapshot(item.order_id);
       if (snap) {
@@ -452,6 +452,18 @@ export class OrdersService {
           order: snap,
           event_kind: 'item_cancelled',
           message: `Huỷ món: ${item.qty}× ${item.menu_item_name}${reason ? ` — lý do: ${reason}` : ''}`,
+          actor,
+          item_id: item.id,
+        });
+      }
+    }
+    if (to === 'SERVED') {
+      const snap = await this.orderSnapshot(item.order_id);
+      if (snap) {
+        await this.writeActivity({
+          order: snap,
+          event_kind: 'item_served',
+          message: `Giao món: ${item.qty}× ${item.menu_item_name}`,
           actor,
           item_id: item.id,
         });
@@ -600,11 +612,8 @@ export class OrdersService {
     const page = Math.max(1, opts.page || 1);
     const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
     const status = opts.status || 'all';
-    const qb = this.orderRepo
-      .createQueryBuilder('o')
-      .leftJoinAndSelect('o.items', 'i');
 
-    // WHERE conditions — gom dồn để tránh quirk where('1=1')
+    // WHERE dùng chung cho query đếm / lấy ID / tải chi tiết
     const wheres: string[] = [];
     const params: Record<string, unknown> = {};
     if (status === 'paid') wheres.push('o.closed_at IS NOT NULL');
@@ -623,16 +632,35 @@ export class OrdersService {
       wheres.push('COALESCE(o.closed_at, o.opened_at) <= :e');
       params.e = new Date(opts.end_ms);
     }
-    if (wheres.length > 0) qb.where(wheres.join(' AND '), params);
+    const whereSql = wheres.length > 0 ? wheres.join(' AND ') : '1=1';
 
-    // Sort: paid order trước (NULL sort cuối ở DESC), trong nhóm sort theo opened_at DESC.
-    // Cách này tránh COALESCE trong orderBy vốn lỗi với leftJoinAndSelect + take/skip
-    // (TypeORM split query, cột virtual không tồn tại trong subquery distinct-id).
-    qb.orderBy('o.closed_at', 'DESC')
-      .addOrderBy('o.opened_at', 'DESC')
-      .skip((page - 1) * page_size)
-      .take(page_size);
-    const [orders, total] = await qb.getManyAndCount();
+    // Bước 1: phân trang theo ID, sort theo THỜI GIAN VÀO ĂN = opened_at DESC (mới nhất trước).
+    // KHÔNG join items ở bước này → tránh bug TypeORM (join to-many + skip/take + orderBy).
+    // opened_at không bao giờ NULL nên đơn CHƯA thanh toán vẫn hiện đúng ở tab "Tất cả"
+    // (trước đây sort closed_at DESC khiến đơn chưa TT — closed_at NULL — rơi xuống cuối).
+    const idRows = await this.orderRepo
+      .createQueryBuilder('o')
+      .select('o.id', 'id')
+      .where(whereSql, params)
+      .orderBy('o.opened_at', 'DESC')
+      .addOrderBy('o.id', 'DESC')
+      .offset((page - 1) * page_size)
+      .limit(page_size)
+      .getRawMany<{ id: string }>();
+    const ids = idRows.map((r) => r.id);
+    const total = await this.orderRepo
+      .createQueryBuilder('o')
+      .where(whereSql, params)
+      .getCount();
+
+    if (ids.length === 0) {
+      return { items: [], total, page, page_size };
+    }
+
+    // Bước 2: tải đầy đủ đơn + items, giữ đúng thứ tự bước 1.
+    const loaded = await this.orderRepo.find({ where: { id: In(ids) }, relations: ['items'] });
+    const byId = new Map(loaded.map((o) => [o.id, o]));
+    const orders = ids.map((id) => byId.get(id)).filter((o): o is Order => !!o);
 
     // Resolve table.name cho FE — checkout notification dùng tên thân thiện
     const tableIds = Array.from(new Set(orders.map((o) => o.table_id)));

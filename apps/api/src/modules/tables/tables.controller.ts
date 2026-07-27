@@ -19,7 +19,7 @@ import { RestaurantTable } from './entities/restaurant-table.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 
 class CreateTableDto {
   @IsString() @MinLength(1) @MaxLength(16) code!: string;
@@ -103,7 +103,7 @@ export class TablesController {
    */
   @Post('bulk')
   @HttpCode(201)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async bulkCreate(@Body() dto: BulkCreateTablesDto) {
     const fmt = KIND_FORMAT[dto.kind];
     if (!fmt) {
@@ -168,7 +168,7 @@ export class TablesController {
 
   @Post()
   @HttpCode(201)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async create(@Body() dto: CreateTableDto) {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException({ code: 'CONFLICT', message: 'Mã bàn đã tồn tại' });
@@ -185,7 +185,7 @@ export class TablesController {
   }
 
   @Patch(':id')
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() dto: UpdateTableDto) {
     const t = await this.repo.findOne({ where: { id } });
     if (!t) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
@@ -196,7 +196,7 @@ export class TablesController {
 
   @Delete(':id')
   @HttpCode(204)
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async softDelete(@Param('id') id: string) {
     const t = await this.repo.findOne({ where: { id } });
     if (!t) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
