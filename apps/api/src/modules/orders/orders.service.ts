@@ -647,6 +647,124 @@ export class OrdersService {
     return { items, total, page, page_size };
   }
 
+  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ ở màn Giao dịch.
+   *
+   * Áp filter bàn/thu ngân/khoảng ngày (KHÔNG áp status — biểu đồ luôn phản ánh
+   * đủ bức tranh trong phạm vi ngày/bàn/thu ngân). Doanh thu = tổng món state
+   * SERVED của các đơn ĐÃ thanh toán (closed_at NOT NULL) — khớp cách tính ở FE.
+   *
+   * Bucket theo NGÀY/GIỜ giờ Việt Nam (UTC+7, cố định, không DST): cộng offset
+   * 7h vào epoch ms rồi lấy phần ngày/giờ — tránh lệ thuộc timezone table MySQL.
+   */
+  async stats(opts: {
+    table_id?: string;
+    cashier_user_id?: string;
+    start_ms?: number;
+    end_ms?: number;
+  }): Promise<{
+    revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
+    top_items: Array<{ name: string; qty: number; revenue: number }>;
+    revenue_by_cashier: Array<{ name: string; revenue: number; orders: number }>;
+    by_hour: Array<{ hour: number; orders: number; revenue: number }>;
+    paid_count: number;
+    unpaid_count: number;
+    paid_revenue: number;
+  }> {
+    const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+    // Áp các filter dùng chung (bàn/thu ngân/khoảng ngày) vào 1 QueryBuilder.
+    const applyFilters = (qb: import('typeorm').SelectQueryBuilder<Order>) => {
+      if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
+      if (opts.cashier_user_id) {
+        qb.andWhere('o.checked_out_by_user_id = :cid', { cid: opts.cashier_user_id });
+      }
+      if (opts.start_ms) {
+        qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
+      }
+      if (opts.end_ms) {
+        qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(opts.end_ms) });
+      }
+      return qb;
+    };
+
+    // 1) Doanh thu từng đơn ĐÃ thanh toán (kèm epoch ms + thu ngân) → gom theo
+    //    ngày/giờ/thu ngân bằng JS (tránh hàm timezone trong SQL).
+    const perOrder = await applyFilters(
+      this.orderRepo
+        .createQueryBuilder('o')
+        .leftJoin('o.items', 'i')
+        .select('UNIX_TIMESTAMP(o.closed_at) * 1000', 'closed_ms')
+        .addSelect('o.checked_out_by_full_name', 'cashier')
+        .addSelect(
+          "SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)",
+          'revenue',
+        )
+        .where('o.closed_at IS NOT NULL')
+        .groupBy('o.id')
+        .addGroupBy('o.closed_at')
+        .addGroupBy('o.checked_out_by_full_name'),
+    ).getRawMany<{ closed_ms: string | number; cashier: string | null; revenue: string | number }>();
+
+    const dayMap = new Map<string, { revenue: number; orders: number }>();
+    const cashierMap = new Map<string, { revenue: number; orders: number }>();
+    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, revenue: 0 }));
+    let paidRevenue = 0;
+    for (const r of perOrder) {
+      const rev = Number(r.revenue) || 0;
+      paidRevenue += rev;
+      // closed_ms = UNIX_TIMESTAMP(closed_at)*1000 (epoch UTC ms) → +7h ra giờ VN
+      const vn = new Date((Number(r.closed_ms) || 0) + VN_OFFSET_MS);
+      const day = vn.toISOString().slice(0, 10);
+      const hour = vn.getUTCHours();
+      const d = dayMap.get(day) || { revenue: 0, orders: 0 };
+      d.revenue += rev; d.orders += 1; dayMap.set(day, d);
+      hours[hour].orders += 1; hours[hour].revenue += rev;
+      const cname = r.cashier || '(không xác định)';
+      const c = cashierMap.get(cname) || { revenue: 0, orders: 0 };
+      c.revenue += rev; c.orders += 1; cashierMap.set(cname, c);
+    }
+
+    // 2) Top món bán chạy (theo doanh thu) — món SERVED của đơn đã thanh toán.
+    const topRaw = await applyFilters(
+      this.orderRepo
+        .createQueryBuilder('o')
+        .innerJoin('o.items', 'i')
+        .select('i.menu_item_name', 'name')
+        .addSelect('SUM(i.qty)', 'qty')
+        .addSelect('SUM(i.menu_item_price * i.qty)', 'revenue')
+        .where('o.closed_at IS NOT NULL')
+        .andWhere("i.state = 'SERVED'")
+        .groupBy('i.menu_item_name')
+        .orderBy('revenue', 'DESC')
+        .limit(10),
+    ).getRawMany<{ name: string; qty: string | number; revenue: string | number }>();
+
+    // 3) Đếm đơn đã/chưa thanh toán (cùng phạm vi filter).
+    const paid_count = await applyFilters(
+      this.orderRepo.createQueryBuilder('o').where('o.closed_at IS NOT NULL'),
+    ).getCount();
+    const unpaid_count = await applyFilters(
+      this.orderRepo.createQueryBuilder('o').where('o.closed_at IS NULL'),
+    ).getCount();
+
+    return {
+      revenue_by_day: Array.from(dayMap.entries())
+        .map(([day, v]) => ({ day, revenue: v.revenue, orders: v.orders }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+      top_items: topRaw.map((t) => ({
+        name: t.name,
+        qty: Number(t.qty) || 0,
+        revenue: Number(t.revenue) || 0,
+      })),
+      revenue_by_cashier: Array.from(cashierMap.entries())
+        .map(([name, v]) => ({ name, revenue: v.revenue, orders: v.orders }))
+        .sort((a, b) => b.revenue - a.revenue),
+      by_hour: hours,
+      paid_count,
+      unpaid_count,
+      paid_revenue: paidRevenue,
+    };
+  }
+
   /** DISTINCT cashiers từ orders — dropdown filter ở HistoryPage.
    * Chỉ lấy user đã từng thanh toán ít nhất 1 order (checked_out_by_user_id NOT NULL). */
   async listCashiers(): Promise<Array<{ id: string; full_name: string }>> {

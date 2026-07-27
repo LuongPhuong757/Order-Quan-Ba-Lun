@@ -1,9 +1,50 @@
 // Lịch sử order — page xem mọi order (đã + chưa thanh toán), filter theo bàn/ngày/cashier/trạng thái.
 // Color-code: xanh lá = đã thanh toán, vàng = chưa thanh toán.
 // Expandable row: bấm vào row để mở chi tiết món + ai gọi.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
+
+// Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
+const ITEM_STATE_LABEL: Record<string, string> = {
+  PENDING: 'chờ gọi',
+  KITCHEN: 'đã báo bếp',
+  COOKING: 'đang làm',
+  READY: 'đã xong',
+  SERVED: 'đã giao',
+  CANCELLED: 'đã huỷ',
+};
+const stateLabel = (s: string) => ITEM_STATE_LABEL[s] || s;
+
+// Rút gọn số tiền cho biểu đồ: 1.200.000 → 1,2tr · 250.000 → 250k
+function fmtShort(v: number): string {
+  if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace('.0', '') + 'tr';
+  if (v >= 1_000) return Math.round(v / 1_000) + 'k';
+  return String(v);
+}
+
+type Stats = {
+  revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
+  top_items: Array<{ name: string; qty: number; revenue: number }>;
+  revenue_by_cashier: Array<{ name: string; revenue: number; orders: number }>;
+  by_hour: Array<{ hour: number; orders: number; revenue: number }>;
+  paid_count: number;
+  unpaid_count: number;
+  paid_revenue: number;
+};
+
+// 'YYYY-MM-DD' (giờ VN) từ epoch ms — gom đơn theo ngày ở bảng.
+function vnDayKey(ms: number): string {
+  return new Date(ms + 7 * 3600 * 1000).toISOString().slice(0, 10);
+}
+function vnDayLabel(key: string): string {
+  const [y, m, d] = key.split('-');
+  return `${d}/${m}/${y}`;
+}
+function fmtHm(ms: number): string {
+  return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
 
 type OrderItem = {
   id: string;
@@ -105,6 +146,8 @@ export function HistoryPage() {
   const [endDate, setEndDate] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [showCharts, setShowCharts] = useState(true);
   const PAGE_SIZE = 20;
 
   const refresh = async () => {
@@ -147,6 +190,19 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableFilter, cashierFilter, statusFilter, startDate, endDate, page]);
 
+  // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày (KHÔNG theo status/trang).
+  useEffect(() => {
+    const q = new URLSearchParams();
+    if (tableFilter) q.set('table_id', tableFilter);
+    if (cashierFilter) q.set('cashier_user_id', cashierFilter);
+    if (startDate) q.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
+    if (endDate) q.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
+    api
+      .get<{ data: Stats }>(`/orders/stats?${q.toString()}`)
+      .then((res) => setStats(res.data.data))
+      .catch(() => setStats(null));
+  }, [tableFilter, cashierFilter, startDate, endDate]);
+
   const onResetFilters = () => {
     setTableFilter('');
     setCashierFilter('');
@@ -162,21 +218,32 @@ export function HistoryPage() {
       .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   };
 
-  const grandTotal = useMemo(
-    () => orders.filter((o) => o.is_paid).reduce((s, o) => s + orderTotal(o), 0),
-    [orders],
-  );
-  const paidCount = useMemo(() => orders.filter((o) => o.is_paid).length, [orders]);
-  const unpaidCount = useMemo(() => orders.filter((o) => !o.is_paid).length, [orders]);
-
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  // Gom đơn của trang hiện tại theo ngày (giờ VN), giữ thứ tự BE trả về.
+  const dayGroups = useMemo(() => {
+    const groups: Array<{ key: string; orders: HistoryOrder[] }> = [];
+    for (const o of orders) {
+      const key = vnDayKey(o.closed_at ?? o.opened_at);
+      const last = groups[groups.length - 1];
+      if (last && last.key === key) last.orders.push(o);
+      else groups.push({ key, orders: [o] });
+    }
+    return groups;
+  }, [orders]);
+  // Doanh thu THỰC mỗi ngày (từ stats — toàn bộ filter) để hiện ở header ngày.
+  const dayRevenue = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of stats?.revenue_by_day || []) m.set(d.day, d.revenue);
+    return m;
+  }, [stats]);
 
   const hasActiveFilter =
     tableFilter || cashierFilter || statusFilter !== 'all' || startDate || endDate;
 
   return (
     <div className="container wide with-bottom-nav">
-      <h1>📜 Lịch sử order</h1>
+      <h1>📊 Quản lý giao dịch</h1>
 
       {/* Filters */}
       <div className="card" style={{ marginBottom: 16, padding: 14, display: 'grid', gap: 10 }}>
@@ -265,35 +332,74 @@ export function HistoryPage() {
         )}
       </div>
 
-      {/* Summary */}
+      {/* Tổng quan — số liệu THỰC toàn bộ bộ lọc (không chỉ trang hiện tại) */}
       <div
-        className="card"
         style={{
+          display: 'grid',
+          gap: 10,
+          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
           marginBottom: 16,
-          padding: 14,
-          background: '#f0fdfa',
-          border: '1px solid #ccfbf1',
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'baseline',
-          flexWrap: 'wrap',
-          gap: 8,
         }}
       >
-        <div>
-          <div style={{ fontSize: 12, color: '#6b7280' }}>
-            Doanh thu trang hiện tại ({paidCount} đơn đã thanh toán)
+        <StatTile
+          label="Doanh thu đã thanh toán"
+          value={fmt(stats?.paid_revenue ?? 0)}
+          color="#0f766e"
+          bg="#f0fdfa"
+          border="#ccfbf1"
+        />
+        <StatTile label="Đơn đã thanh toán" value={String(stats?.paid_count ?? 0)} color="#059669" bg="#ecfdf5" border="#d1fae5" />
+        <StatTile label="Đơn chưa thanh toán" value={String(stats?.unpaid_count ?? 0)} color="#b45309" bg="#fffbeb" border="#fde68a" />
+        <StatTile label="Tổng đơn khớp lọc" value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0))} color="#334155" bg="#f8fafc" border="#e2e8f0" />
+      </div>
+
+      {/* Biểu đồ thống kê */}
+      <div style={{ marginBottom: 16 }}>
+        <button
+          className="secondary"
+          onClick={() => setShowCharts((v) => !v)}
+          style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13 }}
+        >
+          {showCharts ? '▲ Ẩn biểu đồ' : '▼ Hiện biểu đồ thống kê'}
+        </button>
+        {showCharts && stats && (
+          <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
+            <ChartCard title="💰 Doanh thu theo ngày" hint="Chỉ tính đơn đã thanh toán">
+              <BarChart
+                data={stats.revenue_by_day.map((d) => ({ label: vnDayLabel(d.day).slice(0, 5), value: d.revenue }))}
+                formatValue={fmtShort}
+              />
+            </ChartCard>
+            <ChartCard title="🔥 Top món bán chạy" hint="Theo doanh thu · món đã giao">
+              <RankBars
+                data={stats.top_items.map((t) => ({ label: t.name, value: t.revenue, sub: `${t.qty} phần` }))}
+                formatValue={fmtShort}
+                color="#d97706"
+              />
+            </ChartCard>
+            <ChartCard title="💵 Doanh thu theo thu ngân">
+              <RankBars
+                data={stats.revenue_by_cashier.map((c) => ({ label: c.name, value: c.revenue, sub: `${c.orders} đơn` }))}
+                formatValue={fmtShort}
+              />
+            </ChartCard>
+            <ChartCard title="🕐 Giờ cao điểm" hint="Số đơn theo khung giờ trong ngày">
+              <BarChart
+                data={stats.by_hour.map((h) => ({ label: `${h.hour}h`, value: h.orders }))}
+                color="#3b82f6"
+              />
+            </ChartCard>
+            <ChartCard title="📈 Tỉ lệ thanh toán">
+              <Donut
+                segments={[
+                  { label: 'Đã thanh toán', value: stats.paid_count, color: '#10b981' },
+                  { label: 'Chưa thanh toán', value: stats.unpaid_count, color: '#f59e0b' },
+                ]}
+              />
+            </ChartCard>
           </div>
-          <div style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{fmt(grandTotal)}</div>
-        </div>
-        <div style={{ fontSize: 13, color: '#6b7280', textAlign: 'right' }}>
-          Tổng <strong>{total}</strong> order khớp filter
-          {unpaidCount > 0 && (
-            <div style={{ color: '#b45309', fontWeight: 600 }}>
-              {unpaidCount} chưa thanh toán
-            </div>
-          )}
-        </div>
+        )}
+        {showCharts && !stats && <div style={{ color: '#9ca3af', fontSize: 13 }}>Đang tải số liệu...</div>}
       </div>
 
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
@@ -304,85 +410,79 @@ export function HistoryPage() {
 
       {!loading && orders.length > 0 && (
         <>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {orders.map((o) => {
-              const isOpen = expanded === o.id;
-              const total = orderTotal(o);
-              const servedCount = (o.items || []).filter((i) => i.state === 'SERVED').length;
-              const cancelledCount = (o.items || []).filter((i) => i.state === 'CANCELLED').length;
-              // Color theo trạng thái thanh toán
-              const isPaid = o.is_paid;
-              const cardBg = isPaid ? 'white' : '#fffbeb';
-              const cardBorder = isPaid ? '#e5e7eb' : '#fde68a';
-              const stripeColor = isPaid ? '#10b981' : '#f59e0b';
-              return (
-                <div
-                  key={o.id}
-                  className="card"
-                  style={{
-                    padding: 0,
-                    overflow: 'hidden',
-                    background: cardBg,
-                    borderColor: cardBorder,
-                    borderLeft: `4px solid ${stripeColor}`,
-                  }}
-                >
-                  <button
-                    onClick={() => setExpanded(isOpen ? null : o.id)}
-                    style={{
-                      width: '100%',
-                      background: 'transparent',
-                      border: 'none',
-                      padding: 14,
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                      display: 'grid',
-                      gap: 8,
-                      gridTemplateColumns: '1fr auto',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <div>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                        <strong style={{ fontSize: 16, color: '#0f766e' }} title={o.table_code}>
-                          {o.table_name}
-                        </strong>
-                        {isPaid ? (
-                          <span style={paidBadge}>✓ Đã thanh toán</span>
-                        ) : (
-                          <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
-                        🕐 Mở: <strong>{fmtDate(o.opened_at)}</strong>
-                        {isPaid && o.closed_at && (
-                          <> · 💰 Thanh toán: <strong>{fmtDate(o.closed_at)}</strong></>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                        {o.created_by_full_name && <>👤 NV gọi: <strong>{o.created_by_full_name}</strong></>}
-                        {isPaid && o.checked_out_by_full_name && (
-                          <> · 💵 Thu ngân: <strong style={{ color: '#0f766e' }}>{o.checked_out_by_full_name}</strong></>
-                        )}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                        ✓ {servedCount} món
-                        {cancelledCount > 0 && <> · huỷ {cancelledCount}</>}
-                        {o.customer_name && <> · 🛵 {o.customer_name}</>}
-                      </div>
-                    </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: isPaid ? '#0f766e' : '#b45309' }}>
-                        {fmt(total)}
-                      </div>
-                      <span style={{ fontSize: 11, color: '#6b7280' }}>{isOpen ? '▲ Thu gọn' : '▼ Chi tiết'}</span>
-                    </div>
-                  </button>
-                  {isOpen && <HistoryOrderDetail order={o} />}
-                </div>
-              );
-            })}
-          </div>
+          <table className="responsive card" style={{ padding: 0 }}>
+            <thead>
+              <tr>
+                <th>Giờ</th>
+                <th>Bàn</th>
+                <th>NV gọi</th>
+                <th>Thu ngân</th>
+                <th>Món</th>
+                <th style={{ textAlign: 'right' }}>Tổng</th>
+                <th>Trạng thái</th>
+              </tr>
+            </thead>
+            <tbody>
+              {dayGroups.map((g) => {
+                const dayRev = dayRevenue.get(g.key);
+                return (
+                  <Fragment key={g.key}>
+                    <tr>
+                      <td className="txn-day" colSpan={7}>
+                        📅 {vnDayLabel(g.key)} · {g.orders.length} đơn
+                        {dayRev != null && <> · doanh thu ngày: <strong>{fmt(dayRev)}</strong></>}
+                      </td>
+                    </tr>
+                    {g.orders.map((o) => {
+                      const isOpen = expanded === o.id;
+                      const total = orderTotal(o);
+                      const servedCount = (o.items || []).filter((i) => i.state === 'SERVED').length;
+                      const cancelledCount = (o.items || []).filter((i) => i.state === 'CANCELLED').length;
+                      const isPaid = o.is_paid;
+                      const when = isPaid && o.closed_at ? o.closed_at : o.opened_at;
+                      return (
+                        <Fragment key={o.id}>
+                          <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
+                            <td data-label="Giờ">{fmtHm(when)}</td>
+                            <td data-label="Bàn">
+                              <strong style={{ color: '#0f766e' }} title={o.table_code}>{o.table_name}</strong>
+                              {o.customer_name && <span style={{ color: '#6b7280' }}> · 🛵 {o.customer_name}</span>}
+                            </td>
+                            <td data-label="NV gọi">{o.created_by_full_name || '—'}</td>
+                            <td data-label="Thu ngân">
+                              {isPaid && o.checked_out_by_full_name ? o.checked_out_by_full_name : '—'}
+                            </td>
+                            <td data-label="Món">
+                              ✓ {servedCount}
+                              {cancelledCount > 0 && <span style={{ color: '#dc2626' }}> · huỷ {cancelledCount}</span>}
+                            </td>
+                            <td data-label="Tổng" style={{ textAlign: 'right' }}>
+                              <strong style={{ color: isPaid ? '#0f766e' : '#b45309' }}>{fmt(total)}</strong>
+                            </td>
+                            <td data-label="Trạng thái">
+                              {isPaid ? (
+                                <span style={paidBadge}>✓ Đã thanh toán</span>
+                              ) : (
+                                <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
+                              )}
+                              <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
+                            </td>
+                          </tr>
+                          {isOpen && (
+                            <tr>
+                              <td className="txn-full" colSpan={7}>
+                                <HistoryOrderDetail order={o} />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
 
           {/* Pagination */}
           {totalPages > 1 && (
@@ -408,6 +508,27 @@ export function HistoryPage() {
           )}
         </>
       )}
+    </div>
+  );
+}
+
+function StatTile({
+  label,
+  value,
+  color,
+  bg,
+  border,
+}: {
+  label: string;
+  value: string;
+  color: string;
+  bg: string;
+  border: string;
+}) {
+  return (
+    <div className="card" style={{ padding: '12px 14px', background: bg, border: `1px solid ${border}` }}>
+      <div style={{ fontSize: 12, color: '#6b7280' }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{value}</div>
     </div>
   );
 }
@@ -505,7 +626,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           {grouped.INPROGRESS.map((i) => (
             <div key={i.id} style={detailRow}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div><strong>{i.qty}×</strong> {i.menu_item_name} <span style={{ fontSize: 11, color: '#9ca3af' }}>({i.state})</span></div>
+                <div><strong>{i.qty}×</strong> {i.menu_item_name} <span style={{ fontSize: 11, color: '#9ca3af' }}>({stateLabel(i.state)})</span></div>
                 {i.created_by_full_name && (
                   <div style={{ fontSize: 11, color: '#0f766e' }}>👤 NV: {i.created_by_full_name}</div>
                 )}

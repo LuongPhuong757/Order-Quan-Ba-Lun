@@ -316,6 +316,26 @@ th {
     display: inline-block;
     min-width: 100px;
   }
+  /* Dòng full-width (header ngày / chi tiết đơn) — không hiện nhãn ::before */
+  table.responsive td.txn-full::before,
+  table.responsive td.txn-day::before {
+    content: '';
+    min-width: 0;
+    display: none;
+  }
+  table.responsive td.txn-full { padding: 0; }
+}
+
+/* Bảng giao dịch: dòng đơn bấm được, header ngày, hover trên desktop */
+tr.txn-row { cursor: pointer; }
+@media (min-width: 640px) {
+  tr.txn-row:hover td { background: #f0fdfa; }
+}
+td.txn-day {
+  background: #f1f5f9;
+  font-weight: 700;
+  color: #334155;
+  font-size: 13px;
 }
 
 .empty-state {

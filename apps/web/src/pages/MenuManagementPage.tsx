@@ -513,7 +513,7 @@ function NewGroupForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
           <input id="g-code" value={code} onChange={(e) => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="dessert" />
         </div>
         <div className="row" style={{ width: 80 }}>
-          <label htmlFor="g-icon">Icon</label>
+          <label htmlFor="g-icon">Biểu tượng</label>
           <input id="g-icon" value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🍰" maxLength={2} style={{ textAlign: 'center' }} />
         </div>
       </div>

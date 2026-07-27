@@ -376,7 +376,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             <li>Với món <strong>không cần nấu</strong> (vd: nước đóng chai có sẵn) — tap "🚀 Đã giao" luôn ở trạng thái "Đã gọi".</li>
           </ul>
           <p style={{ margin: '4px 0' }}>
-            Sau khi đã giao, bếp nhận noti biết món đã ra. Khi <strong>tất cả</strong> món SERVED, thẻ bàn ở sơ đồ chuyển xanh → bấm "💰 Thanh toán".
+            Sau khi đã giao, bếp nhận noti biết món đã ra. Khi <strong>tất cả</strong> món đã giao, thẻ bàn ở sơ đồ chuyển xanh → bấm "💰 Thanh toán".
           </p>
 
           <h3 style={{ marginBottom: 6 }}>⭐ Ưu tiên món</h3>

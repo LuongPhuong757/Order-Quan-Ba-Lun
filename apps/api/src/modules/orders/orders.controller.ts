@@ -175,6 +175,20 @@ export class OrdersController {
     return { data: result };
   }
 
+  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin). Cùng filter với
+   * history (trừ status — biểu đồ luôn phản ánh đủ trong phạm vi ngày/bàn/thu ngân). */
+  @Get('stats')
+  @UseGuards(AdminGuard)
+  async stats(@Query() q: Record<string, string>) {
+    const data = await this.svc.stats({
+      table_id: q.table_id || undefined,
+      cashier_user_id: q.cashier_user_id || undefined,
+      start_ms: q.start_ms ? Number(q.start_ms) : undefined,
+      end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+    });
+    return { data };
+  }
+
   /** GET /orders/cashiers — DISTINCT cashier list cho filter dropdown */
   @Get('cashiers')
   async cashiers() {

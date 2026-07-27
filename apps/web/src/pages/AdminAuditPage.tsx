@@ -66,13 +66,13 @@ export function AdminAuditPage() {
   return (
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Audit log</h1>
+        <h1 style={{ margin: 0 }}>Nhật ký hệ thống</h1>
         <button onClick={exportCsv} disabled={!total}>📥 CSV</button>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>
         <div className="row">
-          <label htmlFor="ak">Filter action</label>
+          <label htmlFor="ak">Lọc theo hành động</label>
           <input
             id="ak"
             placeholder="vd: auth.login_success / admin.user_created"
@@ -81,7 +81,7 @@ export function AdminAuditPage() {
           />
         </div>
         <div className="row">
-          <label htmlFor="ac">Filter actor (user_id)</label>
+          <label htmlFor="ac">Lọc theo người thực hiện (mã user)</label>
           <input id="ac" value={actor} onChange={(e) => updateParam('actor', e.target.value)} />
         </div>
       </div>

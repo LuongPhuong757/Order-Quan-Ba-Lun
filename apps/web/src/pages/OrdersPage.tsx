@@ -525,7 +525,7 @@ export function OrdersPage() {
           Số phút "N′" là thời gian từ lần đầu báo bếp. Đỏ khi ≥ 15 phút mà chưa giao món nào → cảnh báo bàn chậm.
         </p>
 
-        <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao (SERVED)</h3>
+        <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao</h3>
         <p style={{ margin: '4px 0' }}>Tap vào thẻ bàn → drawer mở ra. Với mỗi món đang ở trạng thái "Đã xong":</p>
         <ol style={{ paddingLeft: 22, margin: '4px 0' }}>
           <li>Bấm nút <strong>🚀 Đã giao</strong> bên phải món → trạng thái chuyển sang "Đã giao", bếp nhận noti.</li>
