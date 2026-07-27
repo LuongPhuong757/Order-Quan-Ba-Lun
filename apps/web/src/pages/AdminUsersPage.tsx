@@ -1,4 +1,4 @@
-import { useEffect, useState, FormEvent } from 'react';
+import { useEffect, useState, FormEvent, ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -31,6 +31,8 @@ export function AdminUsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [showTemp, setShowTemp] = useState<{ user: string; temp: string } | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
 
   const refresh = async () => {
     setLoading(true);
@@ -64,6 +66,40 @@ export function AdminUsersPage() {
     }
   };
 
+  const suspend = async (u: UserRow) => {
+    const ok = await confirm({
+      title: `Cho ${u.full_name || u.username} tạm nghỉ?`,
+      message: (
+        <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.7 }}>
+          <li>Nhân viên sẽ <strong>không đăng nhập được</strong> cho đến khi bật lại</li>
+          <li>Phiên đang đăng nhập bị đăng xuất ngay</li>
+          <li>Dữ liệu + tên trên order cũ vẫn giữ nguyên</li>
+          <li>Có thể "Cho làm lại" bất cứ lúc nào</li>
+        </ul>
+      ),
+      variant: 'warning',
+      confirmLabel: 'Cho tạm nghỉ',
+    });
+    if (!ok) return;
+    try {
+      await api.post(`/admin/users/${u.id}/disable`);
+      toast.push('success', `${u.full_name || u.username} đã chuyển sang tạm nghỉ.`);
+      refresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  const reactivate = async (u: UserRow) => {
+    try {
+      await api.post(`/admin/users/${u.id}/enable`);
+      toast.push('success', `${u.full_name || u.username} đã đi làm lại.`);
+      refresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
   const hardDelete = async (u: UserRow) => {
     const ok = await confirm({
       title: `Xoá vĩnh viễn ${u.full_name || u.username}?`,
@@ -87,12 +123,66 @@ export function AdminUsersPage() {
     }
   };
 
+  const activeCount = items.filter((u) => u.is_active).length;
+  const suspendedCount = items.length - activeCount;
+  const roleCount = (r: Role) => items.filter((u) => u.role === r).length;
+  const filtered = items
+    .filter((u) => {
+      if (statusFilter === 'active' && !u.is_active) return false;
+      if (statusFilter === 'suspended' && u.is_active) return false;
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      return true;
+    })
+    // Đang làm lên trước, rồi theo tên — dễ quản lý
+    .sort(
+      (a, b) =>
+        Number(b.is_active) - Number(a.is_active) ||
+        (a.full_name || a.username).localeCompare(b.full_name || b.username),
+    );
+
   return (
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Nhân viên</h1>
+        <h1 style={{ margin: 0 }}>👥 Quản lý nhân sự</h1>
         <button onClick={() => setShowCreate(true)}>+ Thêm</button>
       </div>
+
+      {/* Tổng quan */}
+      {!loading && items.length > 0 && (
+        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginBottom: 14 }}>
+          <UserStat label="Tổng nhân sự" value={items.length} color="#334155" bg="#f8fafc" border="#e2e8f0" />
+          <UserStat label="Đang làm" value={activeCount} color="#059669" bg="#ecfdf5" border="#d1fae5" />
+          <UserStat label="Tạm nghỉ" value={suspendedCount} color="#b45309" bg="#fffbeb" border="#fde68a" />
+          <UserStat
+            label="Theo quyền"
+            valueNode={
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                👑 {roleCount('admin')} · 🍽 {roleCount('order')} · 👨‍🍳 {roleCount('kitchen')}
+              </span>
+            }
+            color="#334155"
+            bg="#f8fafc"
+            border="#e2e8f0"
+          />
+        </div>
+      )}
+
+      {/* Bộ lọc */}
+      {!loading && items.length > 0 && (
+        <div className="card" style={{ padding: 12, marginBottom: 14, display: 'grid', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <FilterPill active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>Tất cả trạng thái</FilterPill>
+            <FilterPill active={statusFilter === 'active'} color="#059669" onClick={() => setStatusFilter('active')}>● Đang làm</FilterPill>
+            <FilterPill active={statusFilter === 'suspended'} color="#b45309" onClick={() => setStatusFilter('suspended')}>⏸ Tạm nghỉ</FilterPill>
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <FilterPill active={roleFilter === 'all'} onClick={() => setRoleFilter('all')}>Tất cả quyền</FilterPill>
+            {ROLE_OPTIONS.map((r) => (
+              <FilterPill key={r} active={roleFilter === r} onClick={() => setRoleFilter(r)}>{ROLE_LABEL[r]}</FilterPill>
+            ))}
+          </div>
+        </div>
+      )}
 
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
       {!loading && items.length === 0 && (
@@ -101,7 +191,10 @@ export function AdminUsersPage() {
           <button onClick={() => setShowCreate(true)}>+ Thêm nhân viên</button>
         </div>
       )}
-      {items.length > 0 && (
+      {!loading && items.length > 0 && filtered.length === 0 && (
+        <div className="empty-state card">Không có nhân sự khớp bộ lọc.</div>
+      )}
+      {filtered.length > 0 && (
         <table className="responsive card" style={{ padding: 0 }}>
           <thead>
             <tr>
@@ -114,8 +207,8 @@ export function AdminUsersPage() {
             </tr>
           </thead>
           <tbody>
-            {items.map((u) => (
-              <tr key={u.id}>
+            {filtered.map((u) => (
+              <tr key={u.id} style={{ opacity: u.is_active ? 1 : 0.72 }}>
                 <td data-label="Họ và tên">
                   <strong>{u.full_name || <span style={{ color: '#9ca3af', fontWeight: 400 }}>—</span>}</strong>
                 </td>
@@ -127,9 +220,9 @@ export function AdminUsersPage() {
                 </td>
                 <td data-label="Trạng thái">
                   {u.is_active ? (
-                    <span style={{ color: '#059669' }}>● Hoạt động</span>
+                    <span style={{ color: '#059669', fontWeight: 600 }}>● Đang làm</span>
                   ) : (
-                    <span style={{ color: '#dc2626' }}>● Vô hiệu</span>
+                    <span style={{ color: '#b45309', fontWeight: 600 }}>⏸ Tạm nghỉ</span>
                   )}
                 </td>
                 <td data-label="Tạo lúc">{new Date(u.created_at).toLocaleString('vi-VN')}</td>
@@ -141,6 +234,24 @@ export function AdminUsersPage() {
                     <button className="secondary" onClick={() => resetPwd(u)} style={{ padding: '6px 10px' }}>
                       Reset MK
                     </button>
+                    {!u.is_owner && (
+                      u.is_active ? (
+                        <button
+                          className="secondary"
+                          onClick={() => suspend(u)}
+                          style={{ padding: '6px 10px', color: '#b45309', borderColor: '#fde68a' }}
+                        >
+                          ⏸ Tạm nghỉ
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => reactivate(u)}
+                          style={{ padding: '6px 10px', background: '#059669' }}
+                        >
+                          ▶ Cho làm lại
+                        </button>
+                      )
+                    )}
                     {!u.is_owner && (
                       <button className="danger" onClick={() => hardDelete(u)} style={{ padding: '6px 10px' }}>
                         Xoá
@@ -177,6 +288,62 @@ export function AdminUsersPage() {
         </div>
       )}
     </div>
+  );
+}
+
+function UserStat({
+  label,
+  value,
+  valueNode,
+  color,
+  bg,
+  border,
+}: {
+  label: string;
+  value?: number;
+  valueNode?: ReactNode;
+  color: string;
+  bg: string;
+  border: string;
+}) {
+  return (
+    <div className="card" style={{ padding: '10px 12px', background: bg, border: `1px solid ${border}` }}>
+      <div style={{ fontSize: 12, color: '#6b7280' }}>{label}</div>
+      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{valueNode ?? value}</div>
+    </div>
+  );
+}
+
+function FilterPill({
+  active,
+  color = '#0f766e',
+  onClick,
+  children,
+}: {
+  active: boolean;
+  color?: string;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        padding: '6px 12px',
+        minHeight: 36,
+        fontSize: 13,
+        fontWeight: active ? 700 : 500,
+        background: active ? color : '#f8fafc',
+        color: active ? 'white' : color,
+        border: `1px solid ${color}`,
+        borderRadius: 999,
+        cursor: 'pointer',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 

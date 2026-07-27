@@ -191,6 +191,18 @@ export class AdminUsersController {
     }
   }
 
+  /** POST /admin/users/:id/enable — cho nhân sự "tạm nghỉ" đi làm lại (is_active=true).
+   * Cặp với /disable. KHÔNG bump token_version (họ đăng nhập mới bình thường). */
+  @Post(':id/enable')
+  @HttpCode(204)
+  async enable(@Param('id') id: string) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
+    if (!user.is_active) {
+      await this.userRepo.update({ id }, { is_active: true });
+    }
+  }
+
   /** DELETE /admin/users/:id — HARD DELETE: xoá hẳn row khỏi DB.
    * Snapshot full_name trên Order/OrderItem vẫn giữ (varchar, không FK) → audit trail
    * vẫn nguyên vẹn ở phía order. Chặn self-delete + chặn owner xoá owner khác. */
