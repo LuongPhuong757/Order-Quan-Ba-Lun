@@ -42,12 +42,13 @@ export function App() {
             {/* Bếp: admin + kitchen role */}
             <Route element={<RoleGate allow={['admin', 'kitchen']} />}>
               <Route path="/kitchen" element={<KitchenPage />} />
+              {/* Menu: bếp quản lý tình trạng hết/còn (nút sửa/xoá/tạo gate theo is_owner) */}
+              <Route path="/menu" element={<MenuManagementPage />} />
             </Route>
 
-            {/* Admin-only: menu, tables, history, users, audit, dashboard */}
+            {/* Admin-only: tables, history, users, audit, dashboard */}
             <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/menu" element={<MenuManagementPage />} />
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/history" element={<HistoryPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
@@ -149,6 +150,7 @@ function ProtectedShell() {
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}

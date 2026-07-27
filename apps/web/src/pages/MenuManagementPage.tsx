@@ -35,6 +35,7 @@ function formatVND(v: number): string {
 }
 
 type SortMode = 'newest' | 'name' | 'group';
+type StockFilter = '' | 'out' | 'in';
 const PAGE_SIZE = 30;
 
 export function MenuManagementPage() {
@@ -46,6 +47,7 @@ export function MenuManagementPage() {
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [groupFilter, setGroupFilter] = useState<string>('');
+  const [stockFilter, setStockFilter] = useState<StockFilter>('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState<SortMode>('newest');
@@ -70,13 +72,14 @@ export function MenuManagementPage() {
   // Reset về page 1 khi filter/search/sort đổi
   useEffect(() => {
     setPage(1);
-  }, [groupFilter, debouncedSearch, sort]);
+  }, [groupFilter, stockFilter, debouncedSearch, sort]);
 
   const refresh = async () => {
     setLoading(true);
     try {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
+      if (stockFilter) q.set('stock', stockFilter);
       if (debouncedSearch) q.set('q', debouncedSearch);
       q.set('sort', sort);
       q.set('page', String(page));
@@ -99,7 +102,7 @@ export function MenuManagementPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupFilter, debouncedSearch, sort, page]);
+  }, [groupFilter, stockFilter, debouncedSearch, sort, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -187,16 +190,34 @@ export function MenuManagementPage() {
             <option value="name">A → Z (tên)</option>
             <option value="group">Theo nhóm</option>
           </select>
-          {(search || groupFilter) && (
+          {(search || groupFilter || stockFilter) && (
             <button
               type="button"
               className="secondary"
-              onClick={() => { setSearch(''); setGroupFilter(''); }}
+              onClick={() => { setSearch(''); setGroupFilter(''); setStockFilter(''); }}
               style={{ padding: '6px 10px', fontSize: 12 }}
             >
               ✕ Xoá lọc
             </button>
           )}
+        </div>
+
+        {/* Row 1b: stock status filter — bếp lọc nhanh món hết / còn để xử lý */}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {([
+            { v: '', label: 'Tất cả tình trạng' },
+            { v: 'in', label: '✅ Còn hàng' },
+            { v: 'out', label: '🚫 Hết hàng' },
+          ] as { v: StockFilter; label: string }[]).map((s) => (
+            <button
+              key={s.v || 'all'}
+              onClick={() => setStockFilter(s.v)}
+              className={stockFilter === s.v ? '' : 'secondary'}
+              style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
 
         {/* Row 2: group tabs */}
@@ -227,7 +248,7 @@ export function MenuManagementPage() {
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
       {!loading && items.length === 0 && (
         <div className="empty-state card">
-          {search || groupFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
+          {search || groupFilter || stockFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
         </div>
       )}
 

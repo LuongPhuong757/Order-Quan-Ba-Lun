@@ -92,6 +92,7 @@ export class MenuController {
    * Query params:
    * - group=<code>: filter theo nhóm
    * - include_inactive=true: include món đã xoá soft (default: false)
+   * - stock=out|in: lọc theo tình trạng hàng (out=đang hết, in=còn). Bỏ trống=tất cả
    * - q=<text>: search theo name HOẶC code (LIKE %...%)
    * - sort=newest|name|group (default 'group' cho order picker, 'newest' cho admin)
    * - page=1, page_size=20 (default 2000 cho order picker — chứa hết menu)
@@ -103,6 +104,8 @@ export class MenuController {
   async list(@Query() q: Record<string, string>) {
     const group = q.group;
     const include_inactive = q.include_inactive === 'true';
+    // stock=out → chỉ món đang hết; stock=in → chỉ món còn; khác → tất cả
+    const stock = q.stock;
     const search = (q.q || '').trim();
     const sort = q.sort || 'group';
     const page = Math.max(1, Number(q.page) || 1);
@@ -113,6 +116,8 @@ export class MenuController {
     const qb = this.repo.createQueryBuilder('m');
     if (!include_inactive) qb.andWhere('m.is_active = :a', { a: true });
     if (group) qb.andWhere('m.group = :g', { g: group });
+    if (stock === 'out') qb.andWhere('m.is_out_of_stock = :oos', { oos: true });
+    else if (stock === 'in') qb.andWhere('m.is_out_of_stock = :oos', { oos: false });
     if (search) {
       qb.andWhere('(m.name LIKE :s OR m.code LIKE :s)', { s: `%${search}%` });
     }
