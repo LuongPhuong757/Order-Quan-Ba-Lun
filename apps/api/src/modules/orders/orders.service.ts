@@ -1,12 +1,13 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
@@ -44,6 +45,53 @@ const REMOVE_DEFAULT_REASON: Record<string, string> = {
   READY: 'Nhân viên huỷ món',
   SERVED: RETURN_DEFAULT_REASON,
 };
+
+/** Lý do mặc định khi huỷ cả bàn mà nhân viên không nhập gì. */
+const CANCEL_TABLE_DEFAULT_REASON = 'Huỷ cả bàn — khách không dùng nữa';
+
+/** SQL: đơn còn ít nhất 1 món CHƯA bị huỷ → bàn đang thực sự được dùng.
+ * Dùng cho "bàn đang mở" và đếm "chưa thanh toán". */
+const HAS_ALIVE_ITEMS_SQL =
+  "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.state <> 'CANCELLED')";
+
+/** SQL: đơn từng gọi ít nhất 1 món (kể cả đã huỷ hết).
+ *
+ * Đây là ranh giới của LỊCH SỬ, khác hẳn HAS_ALIVE_ITEMS_SQL:
+ * - 0 món = bàn chỉ được tap mở drawer, chưa gọi gì → KHÔNG phải giao dịch, ẩn.
+ * - Đã gọi rồi huỷ hết → PHẢI hiện với trạng thái "Đã huỷ". Đây là cơ chế chống
+ *   gian lận: nhân viên huỷ cả bàn / huỷ từng món thay vì thu tiền sẽ để lại vết
+ *   trong lịch sử, không được biến mất. */
+const HAS_ANY_ITEM_SQL = 'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id)';
+
+/** 3 trạng thái kết đơn. `closed_at` = đã kết đơn, `is_paid` = kết bằng cách nào.
+ *
+ * - Đã thanh toán: closed_at có + is_paid = 1  → tính doanh thu
+ * - Đã HUỶ:        closed_at có + is_paid = 0  → KHÔNG tính doanh thu, vẫn hiện
+ *                                                trong lịch sử để soi gian lận
+ * - Đang dùng:     closed_at NULL
+ *
+ * Trước đây cả hệ thống dùng `closed_at IS NOT NULL` làm định nghĩa "đã thanh
+ * toán" và `is_paid` chưa từng được query. Không cần migration: chỉ checkout mới
+ * set closed_at và nó luôn set is_paid = true cùng lúc, nên không có dòng cũ nào
+ * bị phân loại sai. */
+const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
+const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
+
+/** Niêm 1 đơn thành "Đã huỷ": kết đơn nhưng không phải thanh toán.
+ *
+ * Ghi luôn `checked_out_by_*` = người huỷ để lịch sử hiện được "ai kết đơn này" —
+ * chủ quán soi cột đó là biết nhân viên nào hay huỷ bàn. */
+async function sealAsCancelled(
+  orderRepo: Repository<Order>,
+  order: Order,
+  actor?: OrderCreator,
+): Promise<void> {
+  order.closed_at = Date.now();
+  order.is_paid = false;
+  order.checked_out_by_user_id = actor?.id ?? null;
+  order.checked_out_by_full_name = actor?.full_name ?? null;
+  await orderRepo.save(order);
+}
 
 @Injectable()
 export class OrdersService {
@@ -95,8 +143,25 @@ export class OrdersService {
     });
   }
 
-  /** Đọc lịch sử hoạt động của 1 đơn (cũ → mới). */
-  async listOrderActivity(order_id: string): Promise<OrderActivityLog[]> {
+  /** Đọc lịch sử hoạt động của 1 đơn (cũ → mới).
+   *
+   * @param max_age_ms — nếu truyền, CHẶN đọc đơn mở quá lâu (nhân viên order chỉ
+   *   được soi 48h gần nhất). Chặn ở service chứ không chỉ ẩn ở UI: ẩn nút mà API
+   *   vẫn mở thì gọi thẳng URL là xem được hết. */
+  async listOrderActivity(order_id: string, max_age_ms?: number): Promise<OrderActivityLog[]> {
+    if (max_age_ms != null) {
+      const order = await this.orderRepo.findOne({
+        where: { id: order_id },
+        select: ['id', 'opened_at'],
+      });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (Date.now() - order.opened_at > max_age_ms) {
+        throw new ForbiddenException({
+          code: 'ACTIVITY_TOO_OLD',
+          message: `Chỉ xem được nhật ký của bàn trong ${Math.round(max_age_ms / 3_600_000)} giờ gần nhất. Nhờ admin nếu cần xem cũ hơn.`,
+        });
+      }
+    }
     return this.activityRepo.find({ where: { order_id }, order: { created_at: 'ASC' } });
   }
 
@@ -268,6 +333,7 @@ export class OrdersService {
         'i.served_by_full_name',
         'i.cancelled_by_full_name',
         'i.is_priority',
+        'i.is_note',
         'i.created_at',
         'i.updated_at',
       ])
@@ -590,7 +656,15 @@ export class OrdersService {
         it.cancelled_by_full_name = actor?.full_name ?? null;
         await itemRepo.save(it);
       }
-      return { items, refunded, order_id: order.id, allServed, reasonUsed: given };
+
+      // Huỷ tới món cuối cùng = bàn tàn, đối xử y như "huỷ cả bàn". Nếu không niêm
+      // ở đây thì nhân viên chỉ cần huỷ từng món một là lách được — đơn ở lại mở,
+      // khách sau dùng lại chính đơn đó và vết huỷ bị trộn lẫn, mất dấu.
+      const aliveLeft = await itemRepo.count({ where: { order_id: order.id, state: Not('CANCELLED') } });
+      const emptied = aliveLeft === 0;
+      if (emptied) await sealAsCancelled(mgr.getRepository(Order), order, actor);
+
+      return { items, refunded, order_id: order.id, allServed, emptied };
     });
 
     // 1 dòng nhật ký duy nhất, gộp theo tên món.
@@ -616,8 +690,150 @@ export class OrdersService {
         actor,
         item_id: result.items[0]?.id ?? null,
       });
+      // Món cuối cùng bị huỷ → đơn đã bị niêm ở trên, ghi thêm dòng kết đơn để
+      // nhật ký nói rõ bàn kết thúc bằng HUỶ chứ không phải thanh toán.
+      if (result.emptied) {
+        await this.writeActivity({
+          order: snap,
+          event_kind: 'order_cancelled',
+          message: 'Bàn kết thúc bằng HUỶ — đã huỷ hết món, không thu tiền',
+          actor,
+        });
+      }
     }
     return { removed: result.items.length, refunded: result.refunded, order_id: result.order_id };
+  }
+
+  /** HUỶ CẢ BÀN — khách vào, gọi đồ rồi không dùng nữa, bỏ sạch bàn.
+   *
+   * Huỷ toàn bộ món chưa bị huỷ (mọi trạng thái, kể cả đã giao) trong 1 transaction.
+   *
+   * KHÔNG set `closed_at`: cả hệ thống đang dùng `closed_at IS NOT NULL` làm định
+   * nghĩa "đã thanh toán" (lịch sử, doanh thu, paid_count) — đóng đơn ở đây sẽ biến
+   * bàn bị huỷ thành "đơn đã thanh toán 0đ" trong báo cáo. Để đơn mở + sạch món là
+   * đủ: `HAS_REAL_ITEMS_SQL` khiến nó biến khỏi sơ đồ bàn, lịch sử và thống kê,
+   * còn bản ghi vẫn ở lại cho nhật ký truy vết. */
+  async cancelWholeOrder(
+    order_id: string,
+    reason?: string,
+    actor?: OrderCreator,
+  ): Promise<{ cancelled: number; voided_amount: number }> {
+    const finalReason = reason?.trim() || CANCEL_TABLE_DEFAULT_REASON;
+    const result = await this.ds.transaction(async (mgr) => {
+      const orderRepo = mgr.getRepository(Order);
+      const itemRepo = mgr.getRepository(OrderItem);
+
+      const order = await orderRepo.findOne({ where: { id: order_id } });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (order.closed_at) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Đơn đã thanh toán — không huỷ được nữa',
+        });
+      }
+
+      const items = await itemRepo.find({ where: { order_id } });
+      const alive = items.filter((i) => i.state !== 'CANCELLED');
+      if (alive.length === 0) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Bàn này không có món nào để huỷ',
+        });
+      }
+
+      // Chỉ món đã giao mới đang được tính tiền → chỉ nó là số tiền bị xoá khỏi bill.
+      let voided = 0;
+      for (const it of alive) {
+        if (it.state === 'SERVED') voided += it.menu_item_price * it.qty;
+        it.state = 'CANCELLED';
+        it.cancelled_reason = finalReason;
+        it.cancelled_by_user_id = actor?.id ?? null;
+        it.cancelled_by_full_name = actor?.full_name ?? null;
+        await itemRepo.save(it);
+      }
+      // NIÊM ĐƠN: closed_at = đã kết đơn, is_paid = false → trạng thái "Đã huỷ".
+      // Bắt buộc phải niêm, không được để đơn mở:
+      // (1) Đơn mở sẽ được khách tiếp theo dùng lại, món đã huỷ trộn lẫn với nhóm
+      //     mới → mất vết gian lận.
+      // (2) Niêm rồi thì khách mới tự có đơn sạch (getOrCreateOpenOrder tạo mới).
+      // Doanh thu KHÔNG bị ảnh hưởng vì mọi query doanh thu đã đổi sang PAID_SQL.
+      await sealAsCancelled(orderRepo, order, actor);
+      return { alive, voided };
+    });
+
+    // 1 dòng nhật ký cho cả bàn, gộp theo tên món.
+    const snap = await this.orderSnapshot(order_id);
+    if (snap) {
+      const counts = new Map<string, number>();
+      for (const i of result.alive) {
+        counts.set(i.menu_item_name, (counts.get(i.menu_item_name) || 0) + i.qty);
+      }
+      const summary = Array.from(counts.entries())
+        .map(([n, q]) => `${q}× ${n}`)
+        .join(', ');
+      await this.writeActivity({
+        order: snap,
+        event_kind: 'order_cancelled',
+        message:
+          `HUỶ CẢ BÀN: ${summary} — ${finalReason}` +
+          (result.voided > 0 ? ` (xoá ${OrdersService.fmtVnd(result.voided)} khỏi bill)` : ''),
+        actor,
+      });
+    }
+    return { cancelled: result.alive.length, voided_amount: result.voided };
+  }
+
+  /** THÊM GHI CHÚ CHO BẾP — "lấy bát cho khách", "đũa thìa", "nước mắm"...
+   *
+   * Tạo 1 dòng item y như gọi món, chỉ khác: giá 0, không gắn menu_item_id,
+   * `is_note = true`. Nhờ vậy nó chạy đúng vòng đời sẵn có — bồi bàn báo bếp, bếp
+   * tick chuyển cột trên KDS, đánh dấu đã giao — không cần bảng hay endpoint state
+   * riêng, và không đội tiền bàn lên.
+   *
+   * KHÔNG kiểm tra hết nguyên liệu (ghi chú không phải hàng trong menu). */
+  async addServiceNote(
+    order_id: string,
+    text: string,
+    send_to_kitchen = true,
+    creator?: OrderCreator,
+  ): Promise<OrderItem> {
+    const content = text.trim();
+    if (!content) {
+      throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Ghi chú không được để trống' });
+    }
+    const order = await this.orderRepo.findOne({ where: { id: order_id } });
+    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    if (order.closed_at) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn đã kết thúc — không thêm được' });
+    }
+
+    const saved = await this.itemRepo.save(
+      this.itemRepo.create({
+        order_id,
+        menu_item_id: null,
+        menu_item_name: content,
+        menu_item_price: 0,
+        qty: 1,
+        state: send_to_kitchen ? 'KITCHEN' : 'PENDING',
+        is_note: true,
+        note: null,
+        cancelled_reason: null,
+        created_by_user_id: creator?.id ?? null,
+        created_by_full_name: creator?.full_name ?? null,
+      }),
+    );
+    if (send_to_kitchen) {
+      await this.markFirstKitchenIfNull(this.ds.manager, order_id);
+    }
+
+    await this.writeActivity({
+      order,
+      event_kind: 'note_added',
+      message: `Ghi chú cho bếp: ${content}${send_to_kitchen ? ' (báo bếp luôn)' : ''}`,
+      actor: creator,
+      item_id: saved.id,
+    });
+    return saved;
   }
 
   /** Set/unset cờ ưu tiên — chỉ cho phép khi item còn ở KITCHEN.
@@ -753,9 +969,12 @@ export class OrdersService {
     start_ms?: number;
     end_ms?: number;
     cashier_user_id?: string;
-    status?: 'all' | 'paid' | 'unpaid';
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
     page?: number;
     page_size?: number;
+    /** Giới hạn tuổi đơn được xem (nhân viên order: 48h). Chặn ở server, không
+     * chỉ ẩn ở UI — sửa query string trên URL cũng không lùi xa hơn được. */
+    max_age_ms?: number;
   }): Promise<{ items: Array<Order & { table_name: string }>; total: number; page: number; page_size: number }> {
     const page = Math.max(1, opts.page || 1);
     const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
@@ -764,8 +983,20 @@ export class OrdersService {
     // WHERE dùng chung cho query đếm / lấy ID / tải chi tiết
     const wheres: string[] = [];
     const params: Record<string, unknown> = {};
-    if (status === 'paid') wheres.push('o.closed_at IS NOT NULL');
-    else if (status === 'unpaid') wheres.push('o.closed_at IS NULL');
+    if (opts.max_age_ms != null) {
+      wheres.push('o.opened_at >= :floor');
+      params.floor = new Date(Date.now() - opts.max_age_ms);
+    }
+    // 3 trạng thái kết đơn (xem ORDER_STATE_SQL): đã thanh toán / đã huỷ / đang dùng.
+    if (status === 'paid') wheres.push(PAID_SQL);
+    else if (status === 'cancelled') wheres.push(CANCELLED_SQL);
+    else if (status === 'unpaid') wheres.push(`o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`);
+    // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
+    // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
+    // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
+    // LƯU Ý: đơn đã gọi rồi huỷ hết VẪN HIỆN — dùng HAS_ANY_ITEM chứ không phải
+    // HAS_ALIVE_ITEM. Đó là vết để phát hiện nhân viên huỷ bàn thay vì thu tiền.
+    wheres.push(`(o.closed_at IS NOT NULL OR ${HAS_ANY_ITEM_SQL})`);
     if (opts.table_id) { wheres.push('o.table_id = :tid'); params.tid = opts.table_id; }
     if (opts.cashier_user_id) {
       wheres.push('o.checked_out_by_user_id = :cid');
@@ -844,6 +1075,7 @@ export class OrdersService {
     by_hour: Array<{ hour: number; orders: number; revenue: number }>;
     paid_count: number;
     unpaid_count: number;
+    cancelled_count: number;
     paid_revenue: number;
   }> {
     const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
@@ -874,7 +1106,7 @@ export class OrdersService {
           "SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)",
           'revenue',
         )
-        .where('o.closed_at IS NOT NULL')
+        .where(PAID_SQL)
         .groupBy('o.id')
         .addGroupBy('o.closed_at')
         .addGroupBy('o.checked_out_by_full_name'),
@@ -907,19 +1139,32 @@ export class OrdersService {
         .select('i.menu_item_name', 'name')
         .addSelect('SUM(i.qty)', 'qty')
         .addSelect('SUM(i.menu_item_price * i.qty)', 'revenue')
-        .where('o.closed_at IS NOT NULL')
+        .where(PAID_SQL)
         .andWhere("i.state = 'SERVED'")
+        // Ghi chú ("lấy bát", "nước mắm") không phải hàng bán → không được lọt
+        // vào top món bán chạy, nếu không nó đứng đầu bảng với doanh thu 0đ.
+        .andWhere('i.is_note = 0')
         .groupBy('i.menu_item_name')
         .orderBy('revenue', 'DESC')
         .limit(10),
     ).getRawMany<{ name: string; qty: string | number; revenue: string | number }>();
 
-    // 3) Đếm đơn đã/chưa thanh toán (cùng phạm vi filter).
+    // 3) Đếm đơn theo 3 trạng thái (cùng phạm vi filter).
     const paid_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where('o.closed_at IS NOT NULL'),
+      this.orderRepo.createQueryBuilder('o').where(PAID_SQL),
     ).getCount();
+    // Đơn bị HUỶ — đếm riêng để chủ quán soi được: bàn có gọi món nhưng kết thúc
+    // bằng huỷ chứ không phải thu tiền.
+    const cancelled_count = await applyFilters(
+      this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL),
+    ).getCount();
+    // Đơn rỗng (tap mở bàn chưa gọi gì / đã huỷ hết) KHÔNG tính là "chưa thanh
+    // toán" — nếu tính thì con số này phình theo số lần bấm vào bàn.
     const unpaid_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where('o.closed_at IS NULL'),
+      this.orderRepo
+        .createQueryBuilder('o')
+        .where('o.closed_at IS NULL')
+        .andWhere(HAS_ALIVE_ITEMS_SQL),
     ).getCount();
 
     return {
@@ -937,6 +1182,7 @@ export class OrdersService {
       by_hour: hours,
       paid_count,
       unpaid_count,
+      cancelled_count,
       paid_revenue: paidRevenue,
     };
   }

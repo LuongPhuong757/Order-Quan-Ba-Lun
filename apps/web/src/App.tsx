@@ -46,11 +46,16 @@ export function App() {
               <Route path="/menu" element={<MenuManagementPage />} />
             </Route>
 
-            {/* Admin-only: tables, history, users, audit, dashboard */}
+            {/* Nhật ký bàn: admin (đầy đủ) + order (48h gần nhất, không doanh thu).
+                Giới hạn thực thi ở BE — xem staffHistoryWindowMs ở orders.controller. */}
+            <Route element={<RoleGate allow={['admin', 'order']} />}>
+              <Route path="/history" element={<HistoryPage />} />
+            </Route>
+
+            {/* Admin-only: tables, users, audit, dashboard */}
             <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/tables" element={<TablesManagementPage />} />
-              <Route path="/history" element={<HistoryPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
             </Route>
@@ -143,6 +148,8 @@ function ProtectedShell() {
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
+          <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}

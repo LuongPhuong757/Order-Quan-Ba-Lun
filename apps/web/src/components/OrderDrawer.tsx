@@ -6,6 +6,7 @@ import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpButton, HelpModal } from './HelpModal.tsx';
+import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
 
 type OrderItem = {
   id: string;
@@ -18,10 +19,16 @@ type OrderItem = {
   cancelled_reason: string | null;
   created_by_full_name: string | null;
   is_priority?: boolean;
+  /** true = dòng ghi chú cho bếp ("lấy bát cho khách"), không phải món bán. */
+  is_note?: boolean;
+  /** Lúc khách gọi món (epoch ms) — gốc để tính "đã chờ bao lâu". */
+  created_at: number;
 };
 
 // Nhóm hiển thị: gộp các đơn vị qty=1 cùng món+ghi chú+trạng thái lại "N×".
-type ItemGroup = { key: string; rep: OrderItem; count: number; ids: string[] };
+// `oldest` = created_at nhỏ nhất trong nhóm → đồng hồ chờ lấy trường hợp xấu nhất,
+// không để phần mới gọi che mất phần đã chờ lâu.
+type ItemGroup = { key: string; rep: OrderItem; count: number; ids: string[]; oldest: number };
 
 type Order = {
   id: string;
@@ -128,6 +135,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [showNote, setShowNote] = useState(false);
   // Nhóm món đang sửa số lượng (mở EditQtyModal). `target` = số lượng đặt sẵn
   // trong ô nhập: mở từ "Sửa SL" thì giữ nguyên, mở từ "Huỷ/Trả món" thì 0.
   const [editQty, setEditQty] = useState<{ group: ItemGroup; target: number } | null>(null);
@@ -181,6 +189,15 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     if (needsCustomerInfo) setShowCustomerInfo(true);
   }, [needsCustomerInfo]);
 
+  // Nhịp 30s chỉ để đồng hồ chờ tự nhích lên. Poll 2s đã re-render sẵn, nhưng poll
+  // tự tắt sau nhiều lần lỗi mạng — không có nhịp này thì đồng hồ đứng ở con số cũ
+  // và bồi bàn tưởng món mới gọi trong khi thực tế đã chờ rất lâu.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => setClockTick((v) => v + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
   // Thao tác theo NHÓM: món đã tách thành nhiều dòng qty=1 (bếp nấu từng phần),
   // nhưng ở drawer bồi bàn gộp lại "N×" — nút bấm áp cho TẤT CẢ đơn vị trong nhóm.
   const changeStateGroup = async (g: ItemGroup, to: string) => {
@@ -211,6 +228,63 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     }
   };
 
+  /** Huỷ cả bàn — khách vào gọi đồ rồi không dùng nữa. Huỷ sạch mọi món (kể cả đã
+   * giao), bàn về trống. Bắt xác nhận vì đây là thao tác xoá tiền của cả bàn. */
+  const cancelWholeTable = async () => {
+    if (!order) return;
+    const alive = order.items?.filter((i) => i.state !== 'CANCELLED') || [];
+    if (alive.length === 0) {
+      toast.push('info', 'Bàn này không có món nào để huỷ');
+      return;
+    }
+    const servedAmount = alive
+      .filter((i) => i.state === 'SERVED')
+      .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+
+    const ok = await confirm({
+      title: `Huỷ cả ${table.name}?`,
+      variant: 'danger',
+      confirmLabel: `🗑 Huỷ cả bàn (${alive.length} món)`,
+      message: (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div>
+            Toàn bộ <strong>{alive.length} món</strong> của bàn sẽ bị huỷ, bàn về trạng thái
+            trống. Dùng khi khách đã gọi nhưng không dùng nữa.
+          </div>
+          {servedAmount > 0 && (
+            <div
+              style={{
+                background: '#fef2f2',
+                border: '1px solid #fecaca',
+                borderRadius: 8,
+                padding: 10,
+                textAlign: 'center',
+              }}
+            >
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Số tiền bị xoá khỏi bill</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: '#dc2626' }}>
+                −{fmt(servedAmount)}
+              </div>
+            </div>
+          )}
+          <div style={{ fontSize: 13, color: '#6b7280' }}>
+            Nhật ký bàn vẫn ghi lại đầy đủ (ai huỷ, món gì, bao nhiêu tiền).
+          </div>
+        </div>
+      ),
+    });
+    if (!ok) return;
+
+    try {
+      await api.post(`/orders/${order.id}/cancel-all`);
+      toast.push('success', `🗑 Đã huỷ cả ${table.name} (${alive.length} món)`);
+      onTransferred?.(); // refresh sơ đồ bàn ở trang cha
+      onClose();
+    } catch (e) {
+      toast.push('error', extractError(e).message);
+    }
+  };
+
   const togglePriorityGroup = async (g: ItemGroup) => {
     const next = !g.rep.is_priority;
     try {
@@ -231,8 +305,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     for (const it of list) {
       const key = `${it.menu_item_id}¦${it.note ?? ''}`;
       const e = map.get(key);
-      if (e) { e.count += it.qty; e.ids.push(it.id); }
-      else map.set(key, { key, rep: it, count: it.qty, ids: [it.id] });
+      if (e) {
+        e.count += it.qty;
+        e.ids.push(it.id);
+        if (it.created_at < e.oldest) e.oldest = it.created_at;
+      } else {
+        map.set(key, { key, rep: it, count: it.qty, ids: [it.id], oldest: it.created_at });
+      }
     }
     return Array.from(map.values());
   };
@@ -245,6 +324,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
 
   const hasItems = (order?.items?.length || 0) > 0;
+  // Còn món chưa huỷ → mới có gì để "huỷ cả bàn". Bàn đã huỷ sạch thì ẩn nút.
+  const hasAliveItems = (order?.items || []).some((i) => i.state !== 'CANCELLED');
   const isCheckedOut = !!order?.closed_at;
   // Cho phép thanh toán nếu có ít nhất 1 món (kể cả khi còn món chưa giao — sẽ auto-cancel)
   const canCheckout = hasItems;
@@ -478,6 +559,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   ↪ Chuyển bàn
                 </button>
               </div>
+              {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
+                  item nên bếp thấy trên KDS và tick được như món thường. */}
+              <button
+                className="secondary"
+                onClick={() => setShowNote(true)}
+                style={{ width: '100%', minHeight: 42, fontSize: 14 }}
+                title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
+              >
+                📝 Ghi chú cho bếp
+              </button>
               {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món */}
               {hasItems && (
                 <button
@@ -501,6 +592,24 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       ({activeItems.length} món sẽ bị huỷ)
                     </span>
                   )}
+                </button>
+              )}
+              {/* Row 3: Huỷ cả bàn — khách gọi rồi không dùng nữa. Chỉ hiện khi còn
+                  món chưa huỷ, nhạt hơn Thanh toán để không bấm nhầm. */}
+              {hasAliveItems && (
+                <button
+                  onClick={cancelWholeTable}
+                  className="secondary"
+                  style={{
+                    width: '100%',
+                    color: '#dc2626',
+                    borderColor: '#fecaca',
+                    fontSize: 14,
+                    minHeight: 42,
+                  }}
+                  title="Khách đã gọi nhưng không dùng nữa — huỷ sạch bàn, về trống"
+                >
+                  🗑 Huỷ cả bàn
                 </button>
               )}
             </div>
@@ -534,6 +643,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       key={g.key}
                       item={g.rep}
                       count={g.count}
+                      oldest={g.oldest}
                       onChangeState={(to) => changeStateGroup(g, to)}
                       onEditQty={() => setEditQty({ group: g, target: g.count })}
                       onTogglePriority={() => togglePriorityGroup(g)}
@@ -570,6 +680,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       key={g.key}
                       item={g.rep}
                       count={g.count}
+                      oldest={g.oldest}
                       onChangeState={(to) => changeStateGroup(g, to)}
                       onEditQty={
                         st === 'CANCELLED' ? undefined : () => setEditQty({ group: g, target: g.count })
@@ -635,6 +746,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             onClose={() => setShowBulkOrder(false)}
             onSubmitted={() => {
               setShowBulkOrder(false);
+              refresh();
+            }}
+          />
+        )}
+
+        {showNote && order && (
+          <ServiceNoteModal
+            orderId={order.id}
+            tableLabel={`${table.code} · ${table.name}`}
+            onClose={() => setShowNote(false)}
+            onDone={() => {
+              setShowNote(false);
               refresh();
             }}
           />
@@ -828,6 +951,121 @@ function DeliveryInfoModal({
   );
 }
 
+/** Gợi ý bấm nhanh — những yêu cầu lặp lại nhiều nhất, đỡ phải gõ tay giữa giờ đông. */
+const NOTE_PRESETS = ['Lấy bát cho khách', 'Đũa thìa cho khách', 'Nước mắm', 'Thêm đá', 'Giấy ăn'];
+
+/** GHI CHÚ CHO BẾP — lưu như 1 dòng item (giá 0) nên bếp thấy ngay trên KDS và
+ * tick chuyển trạng thái được y như món thường. */
+function ServiceNoteModal({
+  orderId,
+  tableLabel,
+  onClose,
+  onDone,
+}: {
+  orderId: string;
+  tableLabel: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [toKitchen, setToKitchen] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const content = text.trim();
+    if (!content) {
+      setErr('Nhập nội dung ghi chú');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await api.post(`/orders/${orderId}/notes`, { text: content, send_to_kitchen: toKitchen });
+      toast.push('success', `📝 Đã gửi ghi chú: ${content}`);
+      onDone();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 460 }}>
+        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: 20 }}>📝 Ghi chú cho bếp</h1>
+            <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{tableLabel}</div>
+          </div>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div className="row">
+          <label htmlFor="note-text">Cần bếp chuẩn bị gì?</label>
+          <input
+            id="note-text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={128}
+            autoFocus
+            placeholder="vd: Lấy 2 bát cho khách"
+          />
+        </div>
+
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+          {NOTE_PRESETS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              className="secondary"
+              onClick={() => setText(p)}
+              style={{ padding: '6px 10px', fontSize: 13, minHeight: 36 }}
+            >
+              {p}
+            </button>
+          ))}
+        </div>
+
+        <label
+          style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, marginBottom: 14 }}
+        >
+          <input
+            type="checkbox"
+            checked={toKitchen}
+            onChange={(e) => setToKitchen(e.target.checked)}
+            style={{ width: 18, height: 18 }}
+          />
+          Báo bếp luôn (bỏ tick nếu muốn gửi cùng lần báo bếp sau)
+        </label>
+
+        {err && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+        <div className="flex" style={{ gap: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1, minHeight: 46 }}>
+            Thôi
+          </button>
+          <button type="submit" disabled={submitting} style={{ flex: 2, minHeight: 46, fontWeight: 700 }}>
+            {submitting ? 'Đang gửi...' : '📝 Gửi ghi chú'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 /** SỬA SỐ LƯỢNG MÓN — dùng cho MỌI trạng thái trước khi thanh toán.
  *
  * Nhập số lượng MỚI muốn có (không phải số muốn bớt):
@@ -838,6 +1076,10 @@ function DeliveryInfoModal({
  * Lý do LUÔN optional ở mọi trạng thái — bớt 5/6 phần mà bắt gõ lý do là phiền vô
  * ích. Nhật ký bàn vẫn ghi đủ ai + món + số lượng. */
 const MAX_QTY = 99; // khớp @Max(99) của AddItemDto ở BE
+
+/** State mà khách đang thực sự CHỜ → hiện đồng hồ "đã chờ N phút" cho bồi bàn.
+ * Gồm cả READY: món xong mà để lâu chưa mang ra thì khách vẫn đang chờ và đồ nguội. */
+const WAITING_STATES = new Set(['KITCHEN', 'COOKING', 'READY']);
 
 function EditQtyModal({
   group,
@@ -1070,6 +1312,7 @@ function EditQtyModal({
 function ItemRow({
   item,
   count,
+  oldest,
   onChangeState,
   onEditQty,
   onTogglePriority,
@@ -1078,6 +1321,8 @@ function ItemRow({
 }: {
   item: OrderItem;
   count?: number;
+  /** created_at cũ nhất trong nhóm — mốc tính "đã chờ bao lâu". */
+  oldest?: number;
   onChangeState: (to: string) => void;
   onEditQty?: () => void;
   onTogglePriority?: () => void;
@@ -1093,6 +1338,12 @@ function ItemRow({
   const cancelAllowed = ALLOWED[item.state].includes('CANCELLED');
   // Món đã mang ra bàn: nút huỷ đổi nghĩa thành "trả món" (bớt khỏi bill).
   const isServed = item.state === 'SERVED';
+  // Đồng hồ chờ: chỉ hiện khi món đang nằm trong tay bếp (đã báo bếp / đang làm).
+  // Món chưa báo bếp thì chưa ai chờ; món đã giao/huỷ thì hết ý nghĩa.
+  const showAge = WAITING_STATES.has(item.state);
+  const ageAt = oldest ?? item.created_at;
+  const waitedMin = ageMinutes(ageAt);
+  const tooLong = isAgeCritical(ageAt);
 
   return (
     <div
@@ -1125,9 +1376,37 @@ function ItemRow({
               ⭐ ƯU TIÊN
             </div>
           )}
+          {/* Ghi chú: không hiện "N ×" và không hiện giá — nó là yêu cầu phục vụ,
+              không phải hàng bán. Icon 📝 để phân biệt ngay khi liếc. */}
           <div style={{ fontWeight: 600 }}>
-            {n} × {item.menu_item_name}
+            {item.is_note ? `📝 ${item.menu_item_name}` : `${n} × ${item.menu_item_name}`}
           </div>
+          {/* Đồng hồ chờ — bồi bàn liếc là biết món nào đã lâu để ưu tiên hoặc báo
+              khách. Cùng ngưỡng màu với màn Bếp: đen <10p, vàng >10p, đỏ >20p. */}
+          {showAge && (
+            <div
+              style={{
+                marginTop: 3,
+                fontSize: 13,
+                fontWeight: 700,
+                color: ageColor(ageAt),
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                flexWrap: 'wrap',
+              }}
+              title={`Khách gọi lúc ${new Date(ageAt).toLocaleTimeString('vi-VN')} — đã chờ ${waitedMin} phút`}
+            >
+              <span>
+                {tooLong ? '⚠' : '⏱'} Đã chờ {waitedMin} phút
+              </span>
+              {tooLong && (
+                <span style={{ fontWeight: 600, fontSize: 11 }}>
+                  — quá lâu, nên ưu tiên hoặc báo khách
+                </span>
+              )}
+            </div>
+          )}
           {item.created_by_full_name && (
             <div style={{ fontSize: 11, color: '#0f766e', marginTop: 2 }}>
               👤 NV gọi: {item.created_by_full_name}
@@ -1145,7 +1424,7 @@ function ItemRow({
           )}
         </div>
         <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280' }}>
-          {fmt(item.menu_item_price * n)}
+          {item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}
         </div>
       </div>
       {!readonly && (next.length > 0 || cancelAllowed) && (

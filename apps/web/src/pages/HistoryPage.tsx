@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 
 // Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
@@ -31,6 +32,7 @@ type Stats = {
   by_hour: Array<{ hour: number; orders: number; revenue: number }>;
   paid_count: number;
   unpaid_count: number;
+  cancelled_count: number;
   paid_revenue: number;
 };
 
@@ -87,7 +89,7 @@ type Cashier = {
   full_name: string;
 };
 
-type Status = 'all' | 'paid' | 'unpaid';
+type Status = 'all' | 'paid' | 'unpaid' | 'cancelled';
 
 type Activity = {
   id: string;
@@ -103,6 +105,7 @@ const EVENT_ICON: Record<string, string> = {
   item_cancelled: '✕',
   item_served: '🍽',
   item_returned: '↩️', // đã mang ra bàn nhưng khách không dùng → bớt khỏi bill
+  note_added: '📝', // yêu cầu phục vụ gửi xuống bếp (bát, đũa thìa, nước mắm...)
   transfer: '↔️',
   checkout: '💰',
   order_cancelled: '🗑️',
@@ -154,6 +157,11 @@ function aggregateItems(items: OrderItem[]): ItemGroup[] {
 
 export function HistoryPage() {
   const toast = useToast();
+  const { user } = useAuth();
+  // Chỉ admin thấy doanh thu. Nhân viên order xem được nhật ký bàn (48h) để tự đối
+  // chiếu ca làm, nhưng KHÔNG thấy con số doanh thu. Đây chỉ là phần ẩn UI —
+  // /orders/stats vẫn có AdminGuard nên gọi thẳng API cũng không lấy được.
+  const isAdmin = (user?.role ?? (user?.is_owner ? 'admin' : null)) === 'admin';
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -211,7 +219,13 @@ export function HistoryPage() {
   }, [tableFilter, cashierFilter, statusFilter, startDate, endDate, page]);
 
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày (KHÔNG theo status/trang).
+  // Bỏ hẳn request với nhân viên order: endpoint có AdminGuard nên gọi chỉ để nhận
+  // 403, vừa vô ích vừa làm rác log server.
   useEffect(() => {
+    if (!isAdmin) {
+      setStats(null);
+      return;
+    }
     const q = new URLSearchParams();
     if (tableFilter) q.set('table_id', tableFilter);
     if (cashierFilter) q.set('cashier_user_id', cashierFilter);
@@ -221,7 +235,7 @@ export function HistoryPage() {
       .get<{ data: Stats }>(`/orders/stats?${q.toString()}`)
       .then((res) => setStats(res.data.data))
       .catch(() => setStats(null));
-  }, [tableFilter, cashierFilter, startDate, endDate]);
+  }, [isAdmin, tableFilter, cashierFilter, startDate, endDate]);
 
   const onResetFilters = () => {
     setTableFilter('');
@@ -288,6 +302,16 @@ export function HistoryPage() {
           >
             ⏳ Chưa thanh toán
           </StatusPill>
+          {/* Bàn kết thúc bằng huỷ (huỷ cả bàn hoặc huỷ hết từng món) — tab riêng
+              để chủ quán soi gian lận: gọi đồ rồi huỷ thay vì thu tiền. */}
+          <StatusPill
+            active={statusFilter === 'cancelled'}
+            color="#b91c1c"
+            bg="#fee2e2"
+            onClick={() => { setStatusFilter('cancelled'); setPage(1); }}
+          >
+            🗑 Đã huỷ
+          </StatusPill>
         </div>
 
         {/* 2 filter chính: Bàn + Thu ngân — side-by-side trên desktop, stack trên mobile */}
@@ -352,7 +376,27 @@ export function HistoryPage() {
         )}
       </div>
 
-      {/* Tổng quan — số liệu THỰC toàn bộ bộ lọc (không chỉ trang hiện tại) */}
+      {/* Nhân viên order: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
+      {!isAdmin && (
+        <div
+          style={{
+            background: '#eff6ff',
+            border: '1px solid #bfdbfe',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 16,
+            fontSize: 13,
+            color: '#1e40af',
+          }}
+        >
+          📜 Bạn xem được nhật ký các bàn trong <strong>48 giờ gần nhất</strong>. Số liệu doanh
+          thu chỉ dành cho admin.
+        </div>
+      )}
+
+      {/* Tổng quan — số liệu THỰC toàn bộ bộ lọc (không chỉ trang hiện tại).
+          Ẩn hoàn toàn với nhân viên order: cả doanh thu lẫn số đơn tổng. */}
+      {isAdmin && (
       <div
         style={{
           display: 'grid',
@@ -370,10 +414,13 @@ export function HistoryPage() {
         />
         <StatTile label="Đơn đã thanh toán" value={String(stats?.paid_count ?? 0)} color="#059669" bg="#ecfdf5" border="#d1fae5" />
         <StatTile label="Đơn chưa thanh toán" value={String(stats?.unpaid_count ?? 0)} color="#b45309" bg="#fffbeb" border="#fde68a" />
-        <StatTile label="Tổng đơn khớp lọc" value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0))} color="#334155" bg="#f8fafc" border="#e2e8f0" />
+        <StatTile label="Đơn bị huỷ" value={String(stats?.cancelled_count ?? 0)} color="#b91c1c" bg="#fef2f2" border="#fecaca" />
+        <StatTile label="Tổng đơn khớp lọc" value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0) + (stats?.cancelled_count ?? 0))} color="#334155" bg="#f8fafc" border="#e2e8f0" />
       </div>
+      )}
 
-      {/* Biểu đồ thống kê */}
+      {/* Biểu đồ thống kê — doanh thu theo ngày/giờ/thu ngân, chỉ admin. */}
+      {isAdmin && (
       <div style={{ marginBottom: 16 }}>
         <button
           className="secondary"
@@ -414,6 +461,7 @@ export function HistoryPage() {
                 segments={[
                   { label: 'Đã thanh toán', value: stats.paid_count, color: '#10b981' },
                   { label: 'Chưa thanh toán', value: stats.unpaid_count, color: '#f59e0b' },
+                  { label: 'Đã huỷ', value: stats.cancelled_count, color: '#dc2626' },
                 ]}
               />
             </ChartCard>
@@ -421,6 +469,7 @@ export function HistoryPage() {
         )}
         {showCharts && !stats && <div style={{ color: '#9ca3af', fontSize: 13 }}>Đang tải số liệu...</div>}
       </div>
+      )}
 
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
 
@@ -458,7 +507,11 @@ export function HistoryPage() {
                       const total = orderTotal(o);
                       const servedCount = (o.items || []).filter((i) => i.state === 'SERVED').length;
                       const cancelledCount = (o.items || []).filter((i) => i.state === 'CANCELLED').length;
-                      const isPaid = o.is_paid;
+                      // 3 trạng thái: đã thanh toán / ĐÃ HUỶ / chưa thanh toán.
+                      // closed_at = đã kết đơn, is_paid = kết bằng thu tiền hay huỷ.
+                      // Đơn huỷ PHẢI hiện rõ để soi được nhân viên huỷ bàn thay vì thu tiền.
+                      const isPaid = !!o.closed_at && o.is_paid;
+                      const isCancelled = !!o.closed_at && !o.is_paid;
                       return (
                         <Fragment key={o.id}>
                           <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
@@ -468,21 +521,32 @@ export function HistoryPage() {
                               {o.customer_name && <span style={{ color: '#6b7280' }}> · 🛵 {o.customer_name}</span>}
                             </td>
                             <td data-label="Thu ngân">
-                              {isPaid && o.checked_out_by_full_name ? o.checked_out_by_full_name : '—'}
+                              {o.closed_at && o.checked_out_by_full_name ? (
+                                <span style={isCancelled ? { color: '#dc2626' } : undefined}>
+                                  {o.checked_out_by_full_name}
+                                  {isCancelled && ' (huỷ)'}
+                                </span>
+                              ) : (
+                                '—'
+                              )}
                             </td>
                             <td data-label="Giờ TT">
-                              {isPaid && o.closed_at ? fmtHm(o.closed_at) : '—'}
+                              {o.closed_at ? fmtHm(o.closed_at) : '—'}
                             </td>
                             <td data-label="Món">
                               ✓ {servedCount}
                               {cancelledCount > 0 && <span style={{ color: '#dc2626' }}> · huỷ {cancelledCount}</span>}
                             </td>
                             <td data-label="Tổng" style={{ textAlign: 'right' }}>
-                              <strong style={{ color: isPaid ? '#0f766e' : '#b45309' }}>{fmt(total)}</strong>
+                              <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
+                                {fmt(total)}
+                              </strong>
                             </td>
                             <td data-label="Trạng thái">
                               {isPaid ? (
                                 <span style={paidBadge}>✓ Đã thanh toán</span>
+                              ) : isCancelled ? (
+                                <span style={cancelledBadge}>🗑 Đã huỷ</span>
                               ) : (
                                 <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
                               )}
@@ -603,6 +667,16 @@ const unpaidBadge: React.CSSProperties = {
   fontWeight: 700,
   color: '#b45309',
   background: '#fef3c7',
+  padding: '2px 8px',
+  borderRadius: 999,
+};
+
+/** Bàn kết thúc bằng HUỶ, không thu tiền — đỏ đậm để chủ quán nhìn là thấy ngay. */
+const cancelledBadge: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#b91c1c',
+  background: '#fee2e2',
   padding: '2px 8px',
   borderRadius: 999,
 };

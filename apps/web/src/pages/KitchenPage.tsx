@@ -8,10 +8,12 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
+import { ageColor } from '../lib/item-age.ts';
 
 type OrderItem = {
   id: string;
-  menu_item_id: string;
+  /** NULL với dòng ghi chú — ghi chú không trỏ tới món nào trong menu. */
+  menu_item_id: string | null;
   menu_item_name: string;
   qty: number;
   state: string;
@@ -20,6 +22,8 @@ type OrderItem = {
   created_at: number;
   updated_at: number;
   is_priority?: boolean;
+  /** true = yêu cầu phục vụ bồi bàn gửi xuống ("lấy bát cho khách"), không phải món. */
+  is_note?: boolean;
 };
 
 type Order = {
@@ -125,15 +129,8 @@ const COLUMN_DEFS: Array<{
 // 3-tier age threshold (user-spec): đen → vàng đậm → đỏ đậm
 // Áp lên TÊN MÓN + TÊN BÀN (kds-card-name + kds-card-table) ở MỌI cột (kể cả READY)
 // — món xong nhưng để lâu chưa giao cũng cần biết để xử lý.
-const AGE_WARN_MS = 10 * 60_000;     // 10ph → vàng đậm (cảnh báo)
-const AGE_CRITICAL_MS = 20 * 60_000; // 20ph → đỏ đậm (khẩn cấp)
-
-function ageColor(ts: number): string {
-  const age = Date.now() - ts;
-  if (age > AGE_CRITICAL_MS) return '#b91c1c'; // đỏ-700 đậm — quá 20ph (gấp)
-  if (age > AGE_WARN_MS)     return '#ca8a04'; // vàng-600 đậm — quá 10ph (cảnh báo)
-  return '#111827';                            // đen — món mới (< 10ph)
-}
+// Ngưỡng + màu nằm ở lib/item-age.ts để màn Order dùng CHUNG — hai màn phải khớp
+// nhau, nếu không bồi bàn thấy đỏ mà bếp thấy bình thường.
 
 export function KitchenPage() {
   const toast = useToast();
@@ -229,8 +226,11 @@ export function KitchenPage() {
     for (const o of orders) {
       for (const it of o.items || []) {
         if (out[it.state]) {
-          const group = menuMap.get(it.menu_item_id)?.group || 'other';
-          if (useFilter && !groupFilters.has(group)) continue;
+          // Ghi chú KHÔNG BAO GIỜ bị filter nhóm loại bỏ: nó không thuộc nhóm món
+          // nào, mà "lấy bát cho khách" biến mất chỉ vì bếp đang lọc "đồ nướng" thì
+          // khách ngồi chờ bát vô thời hạn.
+          const group = it.is_note ? 'note' : menuMap.get(it.menu_item_id ?? '')?.group || 'other';
+          if (useFilter && !it.is_note && !groupFilters.has(group)) continue;
           const table_name = tableNameById.get(o.table_id) || o.table_code;
           out[it.state].push({ ...it, table_code: o.table_code, table_name, group });
         }
@@ -260,7 +260,9 @@ export function KitchenPage() {
     for (const o of orders) {
       for (const it of o.items || []) {
         if (!KITCHEN_STATES.has(it.state)) continue;
-        const g = menuMap.get(it.menu_item_id)?.group || 'other';
+        // Ghi chú không thuộc nhóm món nào → không đội số đếm của chip filter lên.
+        if (it.is_note) continue;
+        const g = menuMap.get(it.menu_item_id ?? '')?.group || 'other';
         c[g] = (c[g] || 0) + 1;
       }
     }
@@ -280,7 +282,7 @@ export function KitchenPage() {
   };
 
   const toggleStock = async (item: KitchenItem) => {
-    const menu = menuMap.get(item.menu_item_id);
+    const menu = menuMap.get(item.menu_item_id ?? '');
     const isOut = menu?.is_out_of_stock ?? false;
     const ok = await confirm(
       isOut
@@ -689,7 +691,7 @@ function Column({
             key={it.id}
             item={it}
             colDef={def}
-            menuItem={menuMap.get(it.menu_item_id)}
+            menuItem={menuMap.get(it.menu_item_id ?? '')}
             onAdvance={() => onAdvance(it)}
             onToggleStock={() => onToggleStock(it)}
           />
@@ -718,17 +720,39 @@ function Card({
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageTextColor = ageColor(item.created_at);
-  const isOutOfStock = menuItem?.is_out_of_stock ?? false;
+  // Ghi chú không phải món trong menu → không có tình trạng hết/còn nguyên liệu.
+  const isNote = !!item.is_note;
+  const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
 
   return (
     <div
       className="kds-card"
       style={{
-        borderLeft: `5px solid ${colDef.color}`,
+        // Ghi chú: viền tím + nền tím nhạt để bếp phân biệt ngay với món phải nấu.
+        borderLeft: `5px solid ${isNote ? '#7c3aed' : colDef.color}`,
+        background: isNote ? '#faf5ff' : undefined,
         boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
       }}
     >
       <div className="kds-card-info">
+        {isNote && (
+          <div
+            style={{
+              display: 'inline-block',
+              background: '#ede9fe',
+              color: '#6d28d9',
+              border: '1px solid #a78bfa',
+              padding: '3px 8px',
+              borderRadius: 6,
+              fontSize: 11,
+              fontWeight: 700,
+              marginBottom: 6,
+            }}
+            title="Yêu cầu phục vụ từ bồi bàn — không phải món nấu"
+          >
+            📝 YÊU CẦU PHỤC VỤ
+          </div>
+        )}
         {item.is_priority && (
           <div
             style={{
@@ -758,7 +782,7 @@ function Card({
           className="kds-card-name"
           style={{ color: ageTextColor }}
         >
-          {item.qty}× {item.menu_item_name}
+          {isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
         </div>
         {item.created_by_full_name && (
           <div
@@ -784,8 +808,10 @@ function Card({
           </div>
         )}
         {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
-            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép. */}
-        {colDef.state !== 'READY' && (
+            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
+            Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
+            (BE sẽ 404 vì menu_item_id là NULL). */}
+        {colDef.state !== 'READY' && !isNote && (
           <button
             className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
             onClick={onToggleStock}

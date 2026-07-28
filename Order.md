@@ -1,0 +1,1 @@
+Tôi muốn thỏa luận về 1 ý t

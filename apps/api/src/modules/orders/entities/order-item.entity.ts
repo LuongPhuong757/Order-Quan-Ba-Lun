@@ -26,14 +26,22 @@ export class OrderItem {
   @JoinColumn({ name: 'order_id' })
   order?: Relation<Order>;
 
-  @Column({ type: 'varchar', length: 36 })
-  menu_item_id!: string;
+  /** NULL với dòng ghi chú (is_note=true) — ghi chú không trỏ tới món nào trong menu. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  menu_item_id!: string | null;
 
   @Column({ type: 'varchar', length: 128 })
-  menu_item_name!: string;  // snapshot
+  menu_item_name!: string;  // snapshot; với ghi chú thì đây là nội dung ghi chú
 
   @Column({ type: 'int', unsigned: true })
-  menu_item_price!: number;  // snapshot, VND
+  menu_item_price!: number;  // snapshot, VND; ghi chú luôn 0
+
+  /** GHI CHÚ CHO BẾP ("lấy bát cho khách", "nước mắm"...) — là 1 dòng item bình
+   * thường để dùng lại nguyên vòng đời: bồi bàn báo bếp, bếp chuyển trạng thái,
+   * đánh dấu đã giao. Khác món thật ở chỗ: giá 0, không có menu_item_id, và bị
+   * loại khỏi báo cáo "top món bán chạy" (nó không phải hàng bán). */
+  @Column({ type: 'boolean', default: false })
+  is_note!: boolean;
 
   @Column({ type: 'int', unsigned: true })
   qty!: number;
