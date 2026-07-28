@@ -53,12 +53,17 @@ export type ChangeStateDto = z.infer<typeof ChangeStateDto>;
 // State transition matrix — for FE button display + BE validation.
 // SERVED là shortcut: cho phép bỏ qua các bước trung gian khi món có sẵn
 // (drink, snack đã có trên quầy → giao luôn không cần bếp xử lý).
+//
+// SERVED → CANCELLED = "TRẢ MÓN": đã mang ra bàn nhưng khách không dùng (hoặc
+// không dùng hết). Không phải terminal tuyệt đối nữa — nhân viên phải xoá được
+// khỏi bill khi khách không ăn. Bắt buộc có lý do + ghi nhật ký bàn (event
+// `item_returned`, xem OrdersService.changeItemState).
 export const ALLOWED_TRANSITIONS: Record<OrderItemState, OrderItemState[]> = {
   PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
   KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
   COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
-  SERVED:    [],
+  SERVED:    ['CANCELLED'],
   CANCELLED: [],
 };
 
@@ -68,7 +73,7 @@ export const CANCEL_NEEDS_CONFIRM: Record<OrderItemState, boolean> = {
   KITCHEN: true,
   COOKING: true,
   READY: true,
-  SERVED: false, // can't cancel
+  SERVED: true, // đã mang ra cho khách — trả lại phải xác nhận + nhập lý do
   CANCELLED: false,
 };
 

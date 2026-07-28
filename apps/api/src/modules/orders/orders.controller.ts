@@ -60,6 +60,19 @@ class SetPriorityDto {
   @IsBoolean() priority!: boolean;
 }
 
+/** Bớt số lượng món — nhiều phần 1 lần. `reason` optional cho món PENDING/SERVED
+ * (BE tự ghi lý do mặc định) để không phải gõ lặp lại từng phần; BẮT BUỘC với món
+ * đã vào bếp (KITCHEN/COOKING/READY). */
+class RemoveItemUnitsDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true })
+  item_ids!: string[];
+
+  @IsOptional() @IsString() @MaxLength(255) reason?: string;
+}
+
 class TransferTableDto {
   @IsUUID() dest_table_id!: string;
 }
@@ -132,6 +145,19 @@ export class OrdersController {
       full_name: req.user!.full_name,
     });
     return { data: item };
+  }
+
+  /** POST /orders/items/remove — bớt N phần của 1 món khỏi đơn. Dùng cho MỌI
+   * trạng thái trước khi thanh toán (kể cả món đã giao — khách không dùng hết).
+   * Nhận nhiều item_ids → 1 dòng nhật ký duy nhất.
+   * Mọi nhân viên đều được dùng; truy vết qua nhật ký bàn (ai + lý do). */
+  @Post('items/remove')
+  async removeItemUnits(@Body() dto: RemoveItemUnitsDto, @Req() req: Request) {
+    const result = await this.svc.removeItemUnits(dto.item_ids, dto.reason, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: result };
   }
 
   /** PATCH /orders/items/:itemId/priority — Order + Admin set/unset cờ ưu tiên.

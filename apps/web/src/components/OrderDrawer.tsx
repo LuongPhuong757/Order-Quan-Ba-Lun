@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
-import { useConfirm, usePrompt } from './ConfirmDialog.tsx';
+import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpButton, HelpModal } from './HelpModal.tsx';
 
@@ -44,12 +44,13 @@ type Table = {
 
 // Must match packages/schemas/orders.ts.
 // SERVED là shortcut từ mọi state non-terminal — món có sẵn giao luôn không cần bếp.
+// SERVED → CANCELLED = trả món (đã mang ra nhưng khách không dùng hết).
 const ALLOWED: Record<string, string[]> = {
   PENDING: ['KITCHEN', 'SERVED', 'CANCELLED'],
   KITCHEN: ['COOKING', 'SERVED', 'CANCELLED'],
   COOKING: ['READY', 'SERVED', 'CANCELLED'],
   READY: ['SERVED', 'CANCELLED'],
-  SERVED: [],
+  SERVED: ['CANCELLED'],
   CANCELLED: [],
 };
 
@@ -58,7 +59,7 @@ const CANCEL_CONFIRM: Record<string, boolean> = {
   KITCHEN: true,
   COOKING: true,
   READY: true,
-  SERVED: false,
+  SERVED: true, // đi qua modal trả món (chọn số lượng), không phải prompt lý do
   CANCELLED: false,
 };
 
@@ -123,11 +124,13 @@ type Props = {
 export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const toast = useToast();
   const confirm = useConfirm();
-  const prompt = usePrompt();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  // Nhóm món đang sửa số lượng (mở EditQtyModal). `target` = số lượng đặt sẵn
+  // trong ô nhập: mở từ "Sửa SL" thì giữ nguyên, mở từ "Huỷ/Trả món" thì 0.
+  const [editQty, setEditQty] = useState<{ group: ItemGroup; target: number } | null>(null);
   const [showCustomerInfo, setShowCustomerInfo] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const { user } = useAuth();
@@ -181,27 +184,22 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   // Thao tác theo NHÓM: món đã tách thành nhiều dòng qty=1 (bếp nấu từng phần),
   // nhưng ở drawer bồi bàn gộp lại "N×" — nút bấm áp cho TẤT CẢ đơn vị trong nhóm.
   const changeStateGroup = async (g: ItemGroup, to: string) => {
-    if (to === 'CANCELLED' && CANCEL_CONFIRM[g.rep.state]) {
-      const reason = await prompt({
-        title: `Huỷ "${g.rep.menu_item_name}" (${g.count}×)?`,
-        message: `Món này đã ${LABEL[g.rep.state]}. Nhập lý do huỷ để bếp/khách biết.`,
-        label: 'Lý do huỷ',
-        placeholder: 'vd: Khách đổi ý, hết nguyên liệu...',
-        multiline: true,
-        validate: (v) => v.trim() ? null : 'Vui lòng nhập lý do',
-        confirmLabel: 'Huỷ món',
-      });
-      if (reason === null) {
-        toast.push('info', 'Đã huỷ thao tác');
+    // Huỷ/trả món → mở modal sửa số lượng với ô nhập đặt sẵn 0 (bỏ hết), nhân viên
+    // có thể kéo lên nếu chỉ muốn bớt vài phần. Áp cho mọi trạng thái trước khi
+    // thanh toán, kể cả SERVED.
+    // Ngoại lệ: PENDING đúng 1 phần vẫn huỷ 1-click (BR-D — chưa báo bếp, huỷ free).
+    if (to === 'CANCELLED') {
+      if (g.rep.state === 'PENDING' && g.count === 1) {
+        try {
+          await api.post('/orders/items/remove', { item_ids: g.ids });
+          toast.push('success', `Đã huỷ ${g.rep.menu_item_name}`);
+          refresh();
+        } catch (e) {
+          toast.push('error', extractError(e).message);
+        }
         return;
       }
-      try {
-        for (const id of g.ids) await api.patch(`/orders/items/${id}/state`, { to, reason });
-        toast.push('success', `Đã huỷ ${g.count}× ${g.rep.menu_item_name}`);
-        refresh();
-      } catch (e) {
-        toast.push('error', extractError(e).message);
-      }
+      setEditQty({ group: g, target: 0 });
       return;
     }
     try {
@@ -537,6 +535,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       item={g.rep}
                       count={g.count}
                       onChangeState={(to) => changeStateGroup(g, to)}
+                      onEditQty={() => setEditQty({ group: g, target: g.count })}
                       onTogglePriority={() => togglePriorityGroup(g)}
                       canSetPriority={canSetPriority}
                     />
@@ -546,7 +545,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             })}
 
             {/* Terminal states — hiện cùng style như active states để staff vẫn xem được
-                món đã giao + món đã huỷ (lý do huỷ + ai gọi) ngay trên drawer. */}
+                món đã giao + món đã huỷ (lý do huỷ + ai gọi) ngay trên drawer.
+                CANCELLED readonly hẳn; SERVED vẫn cho "Trả món" vì khách có thể
+                không dùng hết những gì đã mang ra. */}
             {terminalStates.map((st) => {
               const groups = groupItemsByState(st);
               if (groups.length === 0) return null;
@@ -565,7 +566,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                     {LABEL[st]} ({unitCount})
                   </h2>
                   {groups.map((g) => (
-                    <ItemRow key={g.key} item={g.rep} count={g.count} onChangeState={() => undefined} readonly />
+                    <ItemRow
+                      key={g.key}
+                      item={g.rep}
+                      count={g.count}
+                      onChangeState={(to) => changeStateGroup(g, to)}
+                      onEditQty={
+                        st === 'CANCELLED' ? undefined : () => setEditQty({ group: g, target: g.count })
+                      }
+                      readonly={st === 'CANCELLED'}
+                    />
                   ))}
                 </div>
               );
@@ -625,6 +635,19 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             onClose={() => setShowBulkOrder(false)}
             onSubmitted={() => {
               setShowBulkOrder(false);
+              refresh();
+            }}
+          />
+        )}
+
+        {editQty && order && (
+          <EditQtyModal
+            group={editQty.group}
+            orderId={order.id}
+            initialTarget={editQty.target}
+            onClose={() => setEditQty(null)}
+            onDone={() => {
+              setEditQty(null);
               refresh();
             }}
           />
@@ -805,10 +828,250 @@ function DeliveryInfoModal({
   );
 }
 
+/** SỬA SỐ LƯỢNG MÓN — dùng cho MỌI trạng thái trước khi thanh toán.
+ *
+ * Nhập số lượng MỚI muốn có (không phải số muốn bớt):
+ * - Nhỏ hơn hiện tại → huỷ bớt phần dư (1 request cho cả N phần → nhật ký 1 dòng)
+ * - Lớn hơn → gọi thêm, tự báo bếp nếu nhóm đã qua bếp
+ * - 0 → bỏ hẳn món khỏi đơn
+ *
+ * Lý do LUÔN optional ở mọi trạng thái — bớt 5/6 phần mà bắt gõ lý do là phiền vô
+ * ích. Nhật ký bàn vẫn ghi đủ ai + món + số lượng. */
+const MAX_QTY = 99; // khớp @Max(99) của AddItemDto ở BE
+
+function EditQtyModal({
+  group,
+  orderId,
+  initialTarget,
+  onClose,
+  onDone,
+}: {
+  group: ItemGroup;
+  orderId: string;
+  /** Số lượng đặt sẵn trong ô nhập: mở từ "Sửa SL" = giữ nguyên, từ "Huỷ" = 0. */
+  initialTarget: number;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [target, setTarget] = useState(initialTarget);
+  const [reason, setReason] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const isServed = group.rep.state === 'SERVED';
+  const price = group.rep.menu_item_price;
+  const delta = target - group.count;
+  // Chỉ món ĐÃ GIAO mới đang nằm trong tiền bàn → chỉ bớt nó mới làm bill giảm.
+  // Món gọi thêm cũng chưa vào bill cho tới khi giao.
+  const billDelta = delta < 0 && isServed ? price * delta : 0;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (target < 0 || target > MAX_QTY) {
+      setErr(`Số lượng phải từ 0 đến ${MAX_QTY}`);
+      return;
+    }
+    if (delta === 0) {
+      setErr('Số lượng không thay đổi');
+      return;
+    }
+    setSubmitting(true);
+    setErr(null);
+    try {
+      if (delta < 0) {
+        // Bớt: huỷ |delta| phần đầu tiên của nhóm. Lý do luôn optional — BE tự ghi
+        // mặc định theo trạng thái ("Khách không dùng đến" cho món đã giao).
+        await api.post('/orders/items/remove', {
+          item_ids: group.ids.slice(0, -delta),
+          ...(reason.trim() ? { reason: reason.trim() } : {}),
+        });
+        toast.push(
+          'success',
+          `${isServed ? '↩' : '✕'} Đã bớt ${-delta}× ${group.rep.menu_item_name}` +
+            (billDelta < 0 ? ` — bớt ${fmt(-billDelta)}` : ''),
+        );
+      } else {
+        // Tăng: gọi thêm delta phần. Nếu nhóm đã qua bếp thì báo bếp luôn cho khớp
+        // — để PENDING sẽ khiến bồi bàn phải bấm "báo bếp" lần nữa.
+        await api.post(`/orders/${orderId}/items-bulk`, {
+          items: [{ menu_item_id: group.rep.menu_item_id, qty: delta, note: group.rep.note }],
+          send_to_kitchen: group.rep.state !== 'PENDING',
+        });
+        toast.push('success', `➕ Đã gọi thêm ${delta}× ${group.rep.menu_item_name}`);
+      }
+      onDone();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const clamp = (v: number) => Math.min(MAX_QTY, Math.max(0, Math.trunc(v)));
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <form className="modal" onSubmit={submit} style={{ maxWidth: 440 }}>
+        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
+          <h1 style={{ margin: 0, fontSize: 20 }}>✎ Sửa số lượng</h1>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div
+          style={{
+            background: '#f0fdfa',
+            border: '1px solid #ccfbf1',
+            borderRadius: 8,
+            padding: 12,
+            marginBottom: 14,
+          }}
+        >
+          <div style={{ fontWeight: 600 }}>{group.rep.menu_item_name}</div>
+          <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
+            {LABEL[group.rep.state]} · đang có {group.count} phần · {fmt(price)}/phần
+          </div>
+          {group.rep.note && (
+            <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic', marginTop: 2 }}>
+              📝 {group.rep.note}
+            </div>
+          )}
+        </div>
+
+        <div className="row">
+          <label htmlFor="eq-qty">Sửa thành bao nhiêu phần?</label>
+          <div className="flex" style={{ gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setTarget((q) => clamp(q - 1))}
+              disabled={target <= 0}
+              style={{ minWidth: 44, minHeight: 44, fontSize: 20, fontWeight: 700 }}
+              aria-label="Giảm số lượng"
+            >
+              −
+            </button>
+            <input
+              id="eq-qty"
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={MAX_QTY}
+              value={target}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                if (Number.isFinite(v)) setTarget(clamp(v));
+              }}
+              style={{ textAlign: 'center', fontSize: 20, fontWeight: 700, flex: 1, minWidth: 60 }}
+            />
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setTarget((q) => clamp(q + 1))}
+              disabled={target >= MAX_QTY}
+              style={{ minWidth: 44, minHeight: 44, fontSize: 20, fontWeight: 700 }}
+              aria-label="Tăng số lượng"
+            >
+              +
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setTarget(0)}
+              style={{ minHeight: 44, whiteSpace: 'nowrap' }}
+              title="Bỏ hẳn món này khỏi đơn"
+            >
+              Bỏ hết
+            </button>
+          </div>
+        </div>
+
+        {/* Tóm tắt thay đổi — nói thẳng sẽ bớt/thêm mấy phần và tiền bàn đổi ra sao. */}
+        <div
+          style={{
+            background: delta === 0 ? '#f9fafb' : delta < 0 ? '#fef2f2' : '#f0fdf4',
+            border: `1px solid ${delta === 0 ? '#e5e7eb' : delta < 0 ? '#fecaca' : '#bbf7d0'}`,
+            borderRadius: 8,
+            padding: 12,
+            textAlign: 'center',
+            margin: '4px 0 14px',
+          }}
+        >
+          {delta === 0 ? (
+            <div style={{ fontSize: 13, color: '#6b7280' }}>Chưa thay đổi gì</div>
+          ) : delta < 0 ? (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#dc2626' }}>
+                {target === 0 ? 'Bỏ hẳn món này' : `Bớt ${-delta} phần, còn ${target}`}
+              </div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+                {billDelta < 0
+                  ? `Tiền bàn giảm ${fmt(-billDelta)}`
+                  : 'Món chưa giao nên không ảnh hưởng tiền bàn'}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#15803d' }}>
+                Gọi thêm {delta} phần, thành {target}
+              </div>
+              <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
+                +{fmt(price * delta)} khi giao
+                {group.rep.state !== 'PENDING' && ' · báo bếp luôn'}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Lý do luôn KHÔNG bắt buộc — bớt 5/6 phần mà phải gõ lý do là phiền vô ích.
+            BE tự ghi mặc định theo trạng thái, nhật ký bàn vẫn có ai + món + số lượng. */}
+        {delta < 0 && (
+          <div className="row">
+            <label htmlFor="eq-reason">Lý do (không bắt buộc)</label>
+            <input
+              id="eq-reason"
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              maxLength={255}
+              placeholder={isServed ? 'Để trống = “Khách không dùng đến”' : 'vd: Khách đổi ý...'}
+            />
+          </div>
+        )}
+
+        {err && <div style={{ color: '#dc2626', fontSize: 13, marginBottom: 10 }}>{err}</div>}
+
+        <div className="flex" style={{ gap: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1, minHeight: 46 }}>
+            Thôi
+          </button>
+          <button
+            type="submit"
+            className={delta < 0 ? 'danger' : ''}
+            disabled={submitting || delta === 0}
+            style={{ flex: 2, minHeight: 46, fontWeight: 700 }}
+          >
+            {submitting ? 'Đang lưu...' : delta === 0 ? 'Lưu' : `Lưu: ${group.count} → ${target} phần`}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function ItemRow({
   item,
   count,
   onChangeState,
+  onEditQty,
   onTogglePriority,
   canSetPriority,
   readonly,
@@ -816,6 +1079,7 @@ function ItemRow({
   item: OrderItem;
   count?: number;
   onChangeState: (to: string) => void;
+  onEditQty?: () => void;
   onTogglePriority?: () => void;
   canSetPriority?: boolean;
   readonly?: boolean;
@@ -827,6 +1091,8 @@ function ItemRow({
   const KITCHEN_ONLY = new Set(['COOKING', 'READY']);
   const next = ALLOWED[item.state].filter((s) => s !== 'CANCELLED' && !KITCHEN_ONLY.has(s));
   const cancelAllowed = ALLOWED[item.state].includes('CANCELLED');
+  // Món đã mang ra bàn: nút huỷ đổi nghĩa thành "trả món" (bớt khỏi bill).
+  const isServed = item.state === 'SERVED';
 
   return (
     <div
@@ -918,14 +1184,32 @@ function ItemRow({
               {item.is_priority ? '★ Bỏ ưu tiên' : '⭐ Ưu tiên'}
             </button>
           )}
+          {/* Sửa số lượng — hiện ở MỌI trạng thái trước khi thanh toán. Trước đây
+              chức năng này bị giấu sau nút "Huỷ" nên không ai tìm thấy. */}
+          {onEditQty && (
+            <button
+              onClick={onEditQty}
+              className="secondary"
+              style={{ padding: '6px 12px', fontSize: 13, minHeight: 36, minWidth: 96 }}
+              title={`Đang có ${n} phần — sửa tăng/giảm hoặc bỏ hẳn`}
+            >
+              ✎ Sửa SL
+            </button>
+          )}
           {cancelAllowed && (
             <button
               onClick={() => onChangeState('CANCELLED')}
               className="danger"
               style={{ padding: '6px 12px', fontSize: 13, minHeight: 36, minWidth: 70 }}
-              title={CANCEL_CONFIRM[item.state] ? 'Huỷ (cần xác nhận)' : 'Huỷ'}
+              title={
+                isServed
+                  ? 'Khách không dùng (hết) — trả lại, bớt khỏi tiền bàn'
+                  : CANCEL_CONFIRM[item.state]
+                    ? 'Huỷ (cần xác nhận)'
+                    : 'Huỷ'
+              }
             >
-              {CANCEL_CONFIRM[item.state] ? '⚠ Huỷ' : '✕ Huỷ'}
+              {isServed ? '↩ Trả món' : CANCEL_CONFIRM[item.state] ? '⚠ Huỷ' : '✕ Huỷ'}
             </button>
           )}
         </div>

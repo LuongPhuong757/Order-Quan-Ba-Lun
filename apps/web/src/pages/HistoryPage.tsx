@@ -102,6 +102,7 @@ const EVENT_ICON: Record<string, string> = {
   items_added: '➕',
   item_cancelled: '✕',
   item_served: '🍽',
+  item_returned: '↩️', // đã mang ra bàn nhưng khách không dùng → bớt khỏi bill
   transfer: '↔️',
   checkout: '💰',
   order_cancelled: '🗑️',

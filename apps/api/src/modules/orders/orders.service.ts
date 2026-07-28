@@ -18,13 +18,31 @@ export type OrderCreator = { id: string; full_name: string };
 // State machine — must match packages/schemas/orders.ts.
 // 'SERVED' là shortcut: cho phép skip các bước bếp khi món có sẵn (drink, snack
 // lấy ngay từ quầy giao luôn). Không cần đi qua KITCHEN→COOKING→READY.
+//
+// SERVED → CANCELLED = "TRẢ MÓN": mang ra bàn rồi nhưng khách không dùng / không
+// dùng hết. Cần thiết vì tiền bill = tổng món SERVED (xem checkout) — không mở
+// transition này thì không có cách nào bớt món khỏi bill. Bắt buộc kèm lý do,
+// ghi nhật ký bàn với event riêng `item_returned` để phân biệt với huỷ thường.
 const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
   KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
   COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
-  SERVED:    [],
+  SERVED:    ['CANCELLED'],
   CANCELLED: [],
+};
+
+/** Lý do mặc định khi nhân viên bớt món mà không nhập gì (theo state trước khi huỷ).
+ *
+ * Lý do KHÔNG bắt buộc ở bất kỳ trạng thái nào: bớt 5/6 phần mà phải gõ lý do là
+ * phiền vô ích. Nhật ký bàn vẫn ghi đủ ai thao tác + món + số lượng để truy vết. */
+const RETURN_DEFAULT_REASON = 'Khách không dùng đến';
+const REMOVE_DEFAULT_REASON: Record<string, string> = {
+  PENDING: 'Nhân viên bỏ món (chưa báo bếp)',
+  KITCHEN: 'Nhân viên huỷ món',
+  COOKING: 'Nhân viên huỷ món',
+  READY: 'Nhân viên huỷ món',
+  SERVED: RETURN_DEFAULT_REASON,
 };
 
 @Injectable()
@@ -422,10 +440,24 @@ export class OrdersService {
 
   /** State transition with validation + snapshot actor (cho notification) */
   async changeItemState(item_id: string, to: string, reason?: string, actor?: OrderCreator) {
+    // State trước khi đổi — cần cho nhánh log post-commit (trả món vs huỷ thường).
+    let fromState = '';
     const item = await this.ds.transaction(async (mgr) => {
       const itemRepo = mgr.getRepository(OrderItem);
       const item = await itemRepo.findOne({ where: { id: item_id } });
       if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Item không tồn tại' });
+      // Đã thanh toán = chốt sổ, khoá hẳn. Bắt buộc từ khi mở SERVED→CANCELLED:
+      // không có chốt này thì món của đơn đã thu tiền vẫn huỷ được → sai doanh thu
+      // lịch sử. Đơn còn mở thì sửa được hết.
+      const parent = await mgr
+        .getRepository(Order)
+        .findOne({ where: { id: item.order_id }, select: ['id', 'closed_at'] });
+      if (parent?.closed_at) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Đơn đã thanh toán — không sửa được nữa',
+        });
+      }
       const allowed = ALLOWED_TRANSITIONS[item.state] || [];
       if (!allowed.includes(to)) {
         throw new BadRequestException({
@@ -433,9 +465,17 @@ export class OrdersService {
           message: `Không thể chuyển từ ${item.state} sang ${to}`,
         });
       }
+      fromState = item.state;
       item.state = to;
       if (to === 'CANCELLED') {
-        if (reason) item.cancelled_reason = reason;
+        // Trả món đã giao: KHÔNG bắt nhập lý do. Trả 5/6 phần thì phải gõ lý do 5
+        // lần là vô lý — mặc định ghi "Khách không dùng đến", ai cần chi tiết thì
+        // vẫn truyền reason được.
+        if (fromState === 'SERVED') {
+          item.cancelled_reason = reason?.trim() || RETURN_DEFAULT_REASON;
+        } else if (reason) {
+          item.cancelled_reason = reason;
+        }
         // Snapshot ai huỷ — phân biệt với 'Bếp báo hết' (auto từ toggleStock)
         item.cancelled_by_user_id = actor?.id ?? null;
         item.cancelled_by_full_name = actor?.full_name ?? null;
@@ -460,10 +500,16 @@ export class OrdersService {
     if (to === 'CANCELLED') {
       const snap = await this.orderSnapshot(item.order_id);
       if (snap) {
+        // Trả món (đã mang ra bàn) tách riêng khỏi huỷ thường: chủ quán cần thấy
+        // ngay trong nhật ký bàn là món này đã tốn nguyên liệu + đã bớt khỏi bill.
+        const isReturn = fromState === 'SERVED';
         await this.writeActivity({
           order: snap,
-          event_kind: 'item_cancelled',
-          message: `Huỷ món: ${item.qty}× ${item.menu_item_name}${reason ? ` — lý do: ${reason}` : ''}`,
+          event_kind: isReturn ? 'item_returned' : 'item_cancelled',
+          message: isReturn
+            ? `Trả món đã giao: ${item.qty}× ${item.menu_item_name} — ${item.cancelled_reason}` +
+              ` (bớt ${OrdersService.fmtVnd(item.menu_item_price * item.qty)} khỏi bill)`
+            : `Huỷ món: ${item.qty}× ${item.menu_item_name}${reason ? ` — lý do: ${reason}` : ''}`,
           actor,
           item_id: item.id,
         });
@@ -482,6 +528,96 @@ export class OrdersService {
       }
     }
     return item;
+  }
+
+  /** BỚT SỐ LƯỢNG MÓN (bulk) — huỷ N phần của 1 món khỏi đơn.
+   *
+   * Dùng cho MỌI trạng thái trước khi thanh toán (PENDING / KITCHEN / COOKING /
+   * READY / SERVED). Ranh giới duy nhất là `order.closed_at`: đã thanh toán thì
+   * khoá, trước đó sửa được hết.
+   *
+   * Vì mỗi phần là 1 dòng qty=1, bớt 5/6 phần = 5 dòng. Gọi endpoint này 1 lần
+   * thay vì PATCH 5 lần để: (a) atomic, (b) nhật ký bàn chỉ 1 dòng "5× món" thay
+   * vì 5 dòng rời rạc, (c) không phải nhập lý do lặp lại cho từng phần.
+   *
+   * Lý do OPTIONAL ở mọi trạng thái — BE tự ghi mặc định theo state cũ. */
+  async removeItemUnits(
+    item_ids: string[],
+    reason?: string,
+    actor?: OrderCreator,
+  ): Promise<{ removed: number; refunded: number; order_id: string }> {
+    const given = reason?.trim() || '';
+    const result = await this.ds.transaction(async (mgr) => {
+      const itemRepo = mgr.getRepository(OrderItem);
+      const items = await itemRepo.find({ where: { id: In(item_ids) } });
+      if (items.length === 0) {
+        throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy món cần bớt' });
+      }
+      // Món đã huỷ rồi thì bỏ qua yêu cầu (client đang xem data cũ).
+      const alreadyCancelled = items.filter((i) => i.state === 'CANCELLED');
+      if (alreadyCancelled.length > 0) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: `${alreadyCancelled.length} món đã huỷ trước đó. Tải lại và thử lại.`,
+        });
+      }
+      // Chặn bớt xuyên đơn — 1 lần gọi chỉ tác động 1 đơn (nhật ký gắn vào 1 đơn).
+      const orderIds = Array.from(new Set(items.map((i) => i.order_id)));
+      if (orderIds.length > 1) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Không thể bớt món của nhiều đơn trong 1 lần',
+        });
+      }
+      const order = await mgr.getRepository(Order).findOne({ where: { id: orderIds[0] } });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (order.closed_at) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Đơn đã thanh toán — không sửa được nữa',
+        });
+      }
+
+      // Chỉ món đã SERVED mới đang được tính tiền → chỉ nó làm bill giảm.
+      const allServed = items.every((i) => i.state === 'SERVED');
+      let refunded = 0;
+      for (const it of items) {
+        const prevState = it.state; // phải đọc TRƯỚC khi ghi đè, lý do mặc định phụ thuộc state cũ
+        if (prevState === 'SERVED') refunded += it.menu_item_price * it.qty;
+        it.state = 'CANCELLED';
+        it.cancelled_reason = given || REMOVE_DEFAULT_REASON[prevState] || 'Nhân viên bỏ món';
+        it.cancelled_by_user_id = actor?.id ?? null;
+        it.cancelled_by_full_name = actor?.full_name ?? null;
+        await itemRepo.save(it);
+      }
+      return { items, refunded, order_id: order.id, allServed, reasonUsed: given };
+    });
+
+    // 1 dòng nhật ký duy nhất, gộp theo tên món.
+    const snap = await this.orderSnapshot(result.order_id);
+    if (snap) {
+      const counts = new Map<string, number>();
+      for (const i of result.items) {
+        counts.set(i.menu_item_name, (counts.get(i.menu_item_name) || 0) + i.qty);
+      }
+      const summary = Array.from(counts.entries())
+        .map(([n, q]) => `${q}× ${n}`)
+        .join(', ');
+      // Món đã mang ra bàn tách riêng event: chủ quán cần thấy ngay là đã tốn
+      // nguyên liệu + đã bớt tiền khỏi bill, khác hẳn huỷ khi chưa nấu.
+      const reasonText = result.items[0]?.cancelled_reason ?? '';
+      await this.writeActivity({
+        order: snap,
+        event_kind: result.allServed ? 'item_returned' : 'item_cancelled',
+        message: result.allServed
+          ? `Trả món đã giao: ${summary} — ${reasonText}` +
+            ` (bớt ${OrdersService.fmtVnd(result.refunded)} khỏi bill)`
+          : `Huỷ món: ${summary} — ${reasonText}`,
+        actor,
+        item_id: result.items[0]?.id ?? null,
+      });
+    }
+    return { removed: result.items.length, refunded: result.refunded, order_id: result.order_id };
   }
 
   /** Set/unset cờ ưu tiên — chỉ cho phép khi item còn ở KITCHEN.
