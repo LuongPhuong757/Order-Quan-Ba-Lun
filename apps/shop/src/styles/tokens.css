@@ -9,50 +9,80 @@
  * Lý do: apps/web đang hardcode rải rác (#0f766e, #dc2626, #1f2937...) nên
  * không đổi được màu thương hiệu ở một chỗ. apps/shop không lặp lại lỗi đó.
  *
- * ── CHỜ CHỐT ────────────────────────────────────────────────────────────────
- * Màu thương hiệu Quán Bà Lùn CHƯA CHỐT (M2.D-71). Giá trị dưới đây là màu đỏ
- * coral của Lotteria dùng TẠM. Khi có logo quán: chỉ sửa 3 dòng --brand-500/
- * 600/700 trong khối "THƯƠNG HIỆU", mọi thứ khác tự theo.
- * Nhớ chạy lại kiểm tra tương phản (xem ghi chú AA ở từng dòng).
+ * ── MÀU THƯƠNG HIỆU: ĐÃ CHỐT 2026-07-30 ────────────────────────────────────
+ * Chủ quán cung cấp 4 ảnh món ăn thật của quán (lẩu hải sản, lẩu bò, nội tạng,
+ * lẩu gà) và chốt: lấy màu chủ đạo từ đó. Thay hẳn bảng màu Lotteria.
+ *
+ * Tông chung của cả 4 ảnh: BÀN GỖ ẤM + ĐÈN LỒNG HỔ PHÁCH + ỚT ĐỎ + RAU XANH,
+ * trên mâm tre / lá chuối. Không có chi tiết nào màu hồng-trắng như Lotteria.
+ *
+ * Cách chuyển 3 màu đó thành token, và VÌ SAO không làm thẳng:
+ *   1. ĐỎ ỚT → màu thương hiệu chính. Đây là thứ xuất hiện ở CẢ 4 ảnh.
+ *   2. HỔ PHÁCH (#e8a33d — đèn lồng, ly bia, mâm tre) → CHỈ dùng làm nền và
+ *      trang trí. Đo được 2.02:1 trên nền trang → KHÔNG BAO GIỜ dùng cho chữ
+ *      hay nút. Muốn chữ màu ấm thì dùng --wood-700 (5.71:1).
+ *   3. XANH RAU → màu phụ cho trạng thái tích cực / nhãn "món tươi".
+ *   4. Nền trang từ hồng nhạt #fff9f8 → KEM ẤM #fdf7ee cho khớp tông gỗ.
+ *
+ * Mọi tỉ lệ ghi trong file này được tính bằng công thức WCAG 2.1 trên nền
+ * --bg-page #fdf7ee, không phải ước lượng. Đổi --bg-page thì phải tính lại hết.
  * ========================================================================= */
 
 :root {
-  /* ── THƯƠNG HIỆU ─────────────────────────────────────────────────────────
-   * Thang 3 bậc thay vì 1 màu duy nhất. §8-bis ghi "đỏ coral ~#E4453A" nhưng
-   * màu đó KHÔNG ĐỦ TƯƠNG PHẢN cho chữ nhỏ và cho nút:
-   *   - chữ trắng trên #E4453A = 4.03:1  → thiếu (WCAG AA cần 4.5:1)
-   *   - #E4453A trên nền trang  = 3.87:1  → thiếu cho chữ < 24px
-   * Nên tách: 500 dùng cho khối lớn, 600 dùng cho nút + chữ nhỏ. */
+  /* ── THƯƠNG HIỆU: ĐỎ ỚT ──────────────────────────────────────────────────
+   * Thang 3 bậc thay vì 1 màu duy nhất.
+   * So với #e4453a (Lotteria) cũ: bậc 500 mới đạt AA cho CẢ chữ nhỏ
+   * (4.75:1 vs 3.87:1) nên bớt được một lớp ngoại lệ. */
 
-  --brand-500: #e4453a; /* Đỏ coral gốc. Viền, giá ≥24px đậm (3.87:1 — đạt vì chữ lớn) */
-  --brand-600: #cc3529; /* Nút, link đỏ nhỏ, tab active. Trắng/nền: 5.11:1 · trên nền: 4.91:1 ✓AA */
-  --brand-700: #a82419; /* :hover / :active của nút. Trắng trên nền: 7.16:1 ✓AAA */
-  --brand-100: #ffe9e7; /* Nền badge nhạt, nền banner thông báo (§8-bis mục 3) */
-  --brand-050: #fff4f3; /* Nền vùng nhấn rất nhạt */
+  --brand-500: #cf3323; /* Đỏ ớt. Giá, viền, tab active. Trên nền: 4.75:1 ✓AA · trắng trên nó: 5.06:1 ✓AA */
+  --brand-600: #b82a1e; /* Nút chính, link đỏ nhỏ. Trên nền: 5.82:1 · trắng trên nó: 6.20:1 ✓AA */
+  --brand-700: #8f1d14; /* :hover / :active. Trên nền: 8.38:1 · trắng trên nó: 8.92:1 ✓AAA */
+  --brand-100: #fbe4de; /* Nền badge nhạt, nền banner. Chữ --text-strong trên nó: 13.43:1 */
+  --brand-050: #fef6f3; /* Nền vùng nhấn rất nhạt */
 
-  /* ── NỀN & MẶT PHẲNG ───────────────────────────────────────────────────── */
-  --bg-page: #fff9f8; /* §8-bis: trắng / hồng rất nhạt */
-  --bg-surface: #ffffff; /* Card món, card tổng tiền */
-  --bg-sunken: #f7f2f1; /* Ô input, vùng lõm, ảnh đang tải */
-  --bg-overlay: rgb(28 25 23 / 55%); /* Nền mờ sau modal chi tiết món */
+  /* ── PHỤ: GỖ & HỔ PHÁCH ──────────────────────────────────────────────────
+   * Cái tạo ra cảm giác "quán ăn ấm" trong ảnh. CHÚ Ý mức dùng được:
+   *   --wood-400/500 = TRANG TRÍ THÔI (nền, đường kẻ, icon lớn). Đo trên nền
+   *   trang chỉ 2.02–2.43:1 → dùng cho chữ là vi phạm AA.
+   *   --wood-700 mới là bậc dùng được cho chữ. */
+  --wood-400: #e8a33d; /* Hổ phách đèn lồng/ly bia. Nền, dải trang trí. 2.02:1 — KHÔNG dùng cho chữ */
+  --wood-500: #d9922b; /* Nền badge "Bán chạy". 2.43:1 — KHÔNG dùng cho chữ */
+  --wood-700: #8c5610; /* Chữ/icon màu ấm. Trên nền: 5.71:1 · trắng trên nó: 6.08:1 ✓AA */
+  --wood-100: #f6ecd9; /* Nền kem tre — vùng nhấn ấm, nền dải danh mục */
+
+  /* ── PHỤ: XANH RAU ───────────────────────────────────────────────────────
+   * Húng quế / hành lá — có ở cả 4 ảnh. Dùng cho nhãn tươi, tick xác nhận. */
+  --herb-600: #4d7a2f; /* Trên nền: 4.76:1 · trắng trên nó: 5.07:1 ✓AA */
+  --herb-700: #3a6320; /* Bậc đậm cho hover. Trên nền: 6.60:1 */
+  --herb-100: #e6efd8; /* Nền nhạt. Chữ --text-strong trên nó: 13.78:1 */
+
+  /* ── NỀN & MẶT PHẲNG ─────────────────────────────────────────────────────
+   * Kem ấm thay hồng nhạt — khớp tông bàn gỗ trong ảnh quán. */
+  --bg-page: #fdf7ee; /* Kem ấm. MỌI tỉ lệ trong file này tính trên nền này */
+  --bg-surface: #fffdfa; /* Card món, card tổng tiền — trắng ngà, không trắng gắt */
+  --bg-sunken: #f7efe2; /* Ô input, vùng lõm, ảnh đang tải */
+  --bg-wood: #6b4423; /* Nền khối đậm (footer, header trang theo dõi đơn). Trắng trên nó: 8.48:1 ✓AAA */
+  --bg-overlay: rgb(42 29 20 / 55%); /* Nền mờ sau modal — nâu trầm, không xám xanh */
 
   /* ── CHỮ ─────────────────────────────────────────────────────────────────
    * §8-bis ghi #222 / #888. Giữ tinh thần nhưng SỬA 2 điểm:
    *   1. #888 trên nền trang = 3.40:1 → KHÔNG ĐẠT AA. Nâng lên #726865 (5.19:1).
    *   2. Xám thuần bị coi là dấu hiệu UI máy sinh → thêm chút sắc ấm cho hợp
    *      tông nền hồng nhạt. */
-  --text-strong: #1c1917; /* Tên món, tổng tiền. 16.79:1 */
-  --text-body: #33302e; /* Đoạn văn dài. 12.58:1 */
-  --text-muted: #726865; /* Mô tả món, ghi chú phụ. 5.19:1 ✓AA (thay #888) */
-  --text-faint: #8f8481; /* CHỈ cho chữ ≥18.66px đậm hoặc icon. 3.48:1 — KHÔNG dùng cho body */
+  --text-strong: #2a1d14; /* Tên món, tổng tiền. 15.35:1 — nâu gỗ trầm, không đen thuần */
+  --text-body: #3a2b1f; /* Đoạn văn dài. 12.76:1 */
+  --text-muted: #6e5c4c; /* Mô tả món, ghi chú phụ. 5.98:1 ✓AA */
+  --text-faint: #8a7666; /* CHỈ cho chữ ≥18.66px đậm hoặc icon. 4.05:1 — KHÔNG dùng cho body */
   --text-on-brand: #ffffff; /* Chữ trên nút đỏ */
-  --text-price: var(--brand-500); /* Giá — luôn đi kèm cỡ ≥24px đậm */
+  --text-on-wood: #fdf7ee; /* Chữ trên --bg-wood */
+  --text-price: var(--brand-500); /* Giá — đạt AA cả khi < 24px, nhưng §8-bis vẫn để 24px đậm */
   --text-price-sm: var(--brand-600); /* Giá nhỏ trong dòng giỏ hàng (<24px) */
 
-  /* ── VIỀN ───────────────────────────────────────────────────────────────── */
-  --border-subtle: #eeeae9; /* §8-bis: xám rất nhạt #EEE, ấm lên chút */
-  --border-default: #ded8d6;
-  --border-strong: #b8afac; /* Viền input khi focus-visible chưa bật */
+  /* ── VIỀN ─────────────────────────────────────────────────────────────────
+   * Ngả nâu nhạt thay xám — xám thuần trên nền kem trông bẩn. */
+  --border-subtle: #efe6d8; /* Viền card món (§8-bis: card dùng viền, không dùng bóng) */
+  --border-default: #ddd0bd;
+  --border-strong: #b5a48d; /* Viền input khi focus-visible chưa bật */
   --border-brand: var(--brand-500); /* Nhóm danh mục đang chọn, card món đang chọn */
 
   /* ── TRẠNG THÁI ──────────────────────────────────────────────────────────
@@ -60,26 +90,31 @@
    * mốc trạng thái đơn ở /o/:token.
    * Cả 4 màu đều đạt AA ở CẢ HAI hướng: chữ trên nền trang, và chữ trắng
    * trên chính màu đó (để dùng làm nền badge/nút được luôn). */
-  --ok-600: #157f5f; /* Đã xác nhận, đang giao. Trên nền: 4.76:1 · trắng trên nó: 4.96:1 */
+  --ok-600: #157f5f; /* Đã xác nhận, đang giao. Trên nền: 4.66:1 · trắng trên nó: 4.96:1 ✓AA */
   --ok-100: #e3f7ef;
-  --warn-600: #96590a; /* Chờ duyệt, ngoài giờ mở cửa. 5.40:1 · 5.63:1 */
+  --warn-600: #96590a; /* Chờ duyệt, ngoài giờ mở cửa. 5.29:1 · 5.63:1 ✓AA */
   --warn-100: #fdf1dc;
-  --danger-600: #b4231d; /* Từ chối đơn, hết hàng, lỗi form. 6.30:1 · 6.56:1 */
+  --danger-600: #b4231d; /* Từ chối đơn, hết hàng, lỗi form. 6.16:1 · 6.56:1 ✓AA */
   --danger-100: #fde9e7;
-  --info-600: #1f5f9e; /* Banner "quán vừa cập nhật đơn". 6.32:1 · 6.59:1 */
+  --info-600: #1f5f9e; /* Banner "quán vừa cập nhật đơn". 6.18:1 · 6.59:1 ✓AA */
   --info-100: #e6f0fa;
+
+  /* LƯU Ý: --danger-600 và --brand-600 gần nhau (đều đỏ). Lỗi form / món hết hàng
+   * KHÔNG được phân biệt chỉ bằng màu — phải kèm icon hoặc chữ (rule: color-only-meaning). */
 
   /* ── PASTEL NHÓM DANH MỤC ────────────────────────────────────────────────
    * §8-bis: nền ảnh danh mục pastel KHÁC NHAU từng nhóm để dải cuộn ngang
    * sinh động. Gán theo index nhóm menu_groups, lặp lại sau 7 nhóm.
-   * Cả 7 màu đều ≥14.8:1 với --text-strong nên tên nhóm luôn đọc được. */
-  --cat-1: #f3e8ff; /* tím */
-  --cat-2: #e0f2fe; /* xanh */
-  --cat-3: #fce7f3; /* hồng */
-  --cat-4: #d1fae5; /* mint */
-  --cat-5: #fef3c7; /* vàng */
-  --cat-6: #ffedd5; /* cam */
-  --cat-7: #faf5eb; /* kem */
+   * Bộ pastel LẠNH cũ (tím/xanh/mint) bị bỏ — lệch hẳn tông ấm của ảnh quán.
+   * Bộ mới rút từ chính 4 ảnh: ớt, cà rốt, nghệ, rau, tre, gỗ, mâm hồng.
+   * Cả 7 màu đều ≥13:1 với --text-strong nên tên nhóm luôn đọc được. */
+  --cat-1: #fbe4de; /* đỏ ớt nhạt — 13.43:1 */
+  --cat-2: #fdecd4; /* cam cà rốt nhạt — 14.11:1 */
+  --cat-3: #faf0cd; /* vàng nghệ nhạt — 14.34:1 */
+  --cat-4: #e6efd8; /* xanh rau nhạt — 13.78:1 */
+  --cat-5: #f6ecd9; /* kem tre — 13.95:1 */
+  --cat-6: #f0e4d6; /* nâu gỗ nhạt — 13.06:1 */
+  --cat-7: #fae6e2; /* hồng mâm tre — 13.61:1 */
 
   /* ── CHỮ: BỘ FONT ────────────────────────────────────────────────────────
    * KHÔNG dùng system-ui / Inter / Arial: cả ba đều là font mặc định của UI do
@@ -166,9 +201,9 @@
    * Tuyệt đối không đi kèm viền mảnh + bóng rộng cùng lúc
    * (rule: gpt-thin-border-wide-shadow). Bóng chỉ dành cho thứ THẬT SỰ nổi:
    * header dính, giỏ hàng nổi, bottom sheet. */
-  --shadow-sticky: 0 1px 3px rgb(28 25 23 / 8%); /* Header dính khi cuộn */
-  --shadow-float: 0 4px 16px rgb(28 25 23 / 14%); /* Giỏ hàng nổi (G-3) */
-  --shadow-sheet: 0 -6px 24px rgb(28 25 23 / 16%); /* Bottom sheet, nút dính đáy */
+  --shadow-sticky: 0 1px 3px rgb(42 29 20 / 8%); /* Header dính khi cuộn */
+  --shadow-float: 0 4px 16px rgb(42 29 20 / 14%); /* Giỏ hàng nổi (G-3) */
+  --shadow-sheet: 0 -6px 24px rgb(42 29 20 / 16%); /* Bottom sheet, nút dính đáy */
 
   /* ── LỚP XẾP ─────────────────────────────────────────────────────────────
    * Khai báo tập trung để không có z-index: 9999 rải rác. */
@@ -199,7 +234,7 @@
 
   /* ── VIỀN FOCUS ──────────────────────────────────────────────────────────
    * Không bao giờ outline: none mà không thay bằng dấu hiệu khác. */
-  --focus-ring: 0 0 0 3px rgb(204 53 41 / 35%);
+  --focus-ring: 0 0 0 3px rgb(184 42 30 / 35%); /* = --brand-600 ở 35% */
   --focus-outline: 2px solid var(--brand-600);
   --focus-offset: 2px;
 

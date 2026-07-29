@@ -78,7 +78,8 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - **Tên miền chưa nhất quán:** `.env.production.example` dùng `quanbalun.com`, spec M2 + `.planning/` dùng `quanbalun.site`. Chốt một cái trước khi deploy.
 - **Máy dev không có Docker lẫn `caddy` CLI** → `docker build` và `caddy validate` chưa từng chạy. Đã đưa vào `07-UAT.md` test 6 và 7.
 
-- **Phase 8 có gate**: chốt logo + màu thương hiệu quán (thay `#E4453A` của Lotteria). Ảnh mobile đã có 2026-07-29.
+- **Phase 8 gate — MÀU: ĐÃ CHỐT 2026-07-30.** Bảng màu rút từ 4 ảnh món ăn thật của quán, chủ quán duyệt. `tokens.css` + `DESIGN.md` đã đổi, ghi ở `OVERRIDE-DEBT.md` OD-04. Xem trực quan: `pnpm --filter @order/shop dev` → http://localhost:5174/
+- **Phase 8 gate — LOGO: CÒN MỞ.** `apps/web/public/logo.jpg` và `favicon.jpg` ở admin đều là **cùng một ảnh chân dung cá nhân** (selfie qua filter, nền hoa), không phải logo quán. Chưa dùng cho trang khách — chờ chủ dự án quyết. `BrandPreview.tsx` đang để ô chữ "BL" tạm.
 - **CONFLICT-DESIGN-01**: lưới món mobile — ref thật của Lotteria là **1 cột**, spec §8-bis LOCKED ghi **2 cột**. Quyết ở `/gsd:ui-phase 8`; nếu lệch spec phải ghi `OVERRIDE-DEBT.md`.
 - **C-TEST-01**: repo có đúng 1 file test. 4 criteria đã LOCKED bắt buộc test tự động → harness là **việc phải làm**, không phải giả định.
 - **C-INFRA-01**: SSE là transport mới trên codebase chỉ biết poll; pool MySQL 50 connection đang được size cho 2s poller. Thiết kế SSE đừng giữ connection mỗi subscriber.

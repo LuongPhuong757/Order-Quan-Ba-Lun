@@ -10,28 +10,42 @@ description: Trang đặt hàng online, mobile-first. Đỏ coral trên nền h�
 # lên từ file đang quét và dừng ở thư mục đầu tiên có DESIGN.md, nên phạm vi
 # design system này chỉ áp cho apps/shop. apps/web và apps/api không bị ảnh hưởng.
 colors:
-  # Thương hiệu — CHỜ CHỐT (M2.D-71). Đang dùng tạm đỏ coral của Lotteria.
-  brand-500: "#e4453a"       # viền, giá ≥24px đậm
-  brand-600: "#cc3529"       # nút, link đỏ nhỏ, tab active (đạt AA)
-  brand-700: "#a82419"       # hover / active
-  brand-100: "#ffe9e7"       # nền badge, nền banner thông báo
-  brand-050: "#fff4f3"
+  # Thương hiệu — ĐÃ CHỐT 2026-07-30 từ 4 ảnh món ăn thật của quán.
+  # Đỏ ớt (có ở cả 4 ảnh). Thay hẳn đỏ coral Lotteria.
+  brand-500: "#cf3323"       # giá, viền, tab active — 4.75:1 (đạt AA cả chữ nhỏ)
+  brand-600: "#b82a1e"       # nút, link đỏ nhỏ — 5.82:1 / trắng trên nó 6.20:1
+  brand-700: "#8f1d14"       # hover / active — 8.38:1
+  brand-100: "#fbe4de"       # nền badge, nền banner thông báo
+  brand-050: "#fef6f3"
 
-  # Nền & mặt phẳng
-  bg-page: "#fff9f8"
-  bg-surface: "#ffffff"
-  bg-sunken: "#f7f2f1"
+  # Phụ — gỗ & hổ phách (bàn gỗ, đèn lồng, ly bia, mâm tre)
+  # CẢNH BÁO: wood-400/500 CHỈ dùng làm nền. Đo 2.02:1 và 2.43:1 → không dùng cho chữ.
+  wood-400: "#e8a33d"        # nền/trang trí — KHÔNG dùng cho chữ
+  wood-500: "#d9922b"        # nền badge "Bán chạy" — KHÔNG dùng cho chữ
+  wood-700: "#8c5610"        # chữ/icon màu ấm — 5.71:1
+  wood-100: "#f6ecd9"        # nền kem tre
 
-  # Chữ
-  text-strong: "#1c1917"
-  text-body: "#33302e"
-  text-muted: "#726865"      # thay #888 của §8-bis vì #888 không đạt AA
-  text-faint: "#8f8481"      # chỉ cho chữ lớn đậm / icon
+  # Phụ — xanh rau (húng quế, hành lá)
+  herb-600: "#4d7a2f"        # nhãn tươi, tick xác nhận — 4.76:1
+  herb-700: "#3a6320"        # hover — 6.60:1
+  herb-100: "#e6efd8"
 
-  # Viền
-  border-subtle: "#eeeae9"
-  border-default: "#ded8d6"
-  border-strong: "#b8afac"
+  # Nền & mặt phẳng — kem ấm thay hồng nhạt, khớp tông bàn gỗ
+  bg-page: "#fdf7ee"
+  bg-surface: "#fffdfa"
+  bg-sunken: "#f7efe2"
+  bg-wood: "#6b4423"         # khối đậm (footer) — trắng trên nó 8.48:1
+
+  # Chữ — nâu gỗ trầm thay đen/xám thuần
+  text-strong: "#2a1d14"     # 15.35:1
+  text-body: "#3a2b1f"       # 12.76:1
+  text-muted: "#6e5c4c"      # 5.98:1 (thay #888 của §8-bis vì #888 chỉ 3.40:1)
+  text-faint: "#8a7666"      # 4.05:1 — chỉ cho chữ ≥18.66px đậm / icon
+
+  # Viền — ngả nâu nhạt, xám thuần trên nền kem trông bẩn
+  border-subtle: "#efe6d8"
+  border-default: "#ddd0bd"
+  border-strong: "#b5a48d"
 
   # Trạng thái
   ok-600: "#157f5f"
@@ -184,30 +198,55 @@ Suy ra:
 
 ## 2. Màu
 
-Đỏ coral là màu duy nhất được phép "kêu". Nó dành cho **giá, nút, tab đang
-xem, badge số món** — hết. Nếu mọi thứ đều đỏ thì không còn gì dẫn mắt.
+Bảng màu **rút từ 4 ảnh món ăn thật của quán** (chủ quán cung cấp 2026-07-30):
+lẩu hải sản, lẩu bò, đĩa nội tạng, lẩu gà. Tông chung của cả 4: **bàn gỗ ấm +
+đèn lồng hổ phách + ớt đỏ + rau xanh**, trên mâm tre / lá chuối.
 
-Nền hồng rất nhạt `bg-page` giữ cho trang ấm mà không tranh với ảnh món.
-Card món dùng **nền trắng + viền xám rất nhạt**, không đổ bóng — theo §8-bis.
+Bảng màu Lotteria (đỏ coral trên nền hồng-trắng) đã **bỏ hẳn** — nó lạnh và
+"chuỗi fast-food", không phải quán ăn.
+
+Ba màu, ba vai khác nhau — đây là phần quan trọng nhất:
+
+| Màu | Vai | Giới hạn |
+|---|---|---|
+| **Đỏ ớt** `brand-500/600/700` | Màu duy nhất được "kêu": giá, nút, tab đang xem, badge số món | Nếu mọi thứ đều đỏ thì không còn gì dẫn mắt |
+| **Hổ phách** `wood-400/500` | Nền, dải trang trí, badge "Bán chạy" | **CHỈ LÀM NỀN.** Đo 2.02:1 — dùng cho chữ là vi phạm AA |
+| **Xanh rau** `herb-600` | Nhãn tươi, tick xác nhận, mốc trạng thái đã xong | Không dùng làm màu nút chính, tránh tranh với đỏ |
+
+Nền kem ấm `bg-page` `#fdf7ee` giữ cho trang ấm mà không tranh với ảnh món.
+Card món dùng **nền trắng ngà + viền nâu rất nhạt**, không đổ bóng — theo §8-bis.
 
 Thang đỏ có 3 bậc vì một bậc không đủ:
 
 | Bậc | Dùng ở đâu | Vì sao |
 |---|---|---|
-| `brand-500` `#e4453a` | viền, giá ≥24px đậm | Màu chữ ký. Tương phản 3.87:1 — chỉ đạt với chữ lớn |
-| `brand-600` `#cc3529` | nút, link đỏ nhỏ, tab active | Trắng trên nó 5.11:1, nó trên nền 4.91:1 — **đạt AA cả hai chiều** |
-| `brand-700` `#a82419` | hover, đang bấm | Đủ tối để thấy rõ khác biệt |
+| `brand-500` `#cf3323` | giá, viền, tab active | Màu chữ ký. 4.75:1 — **đạt AA cả chữ nhỏ**, hơn hẳn coral cũ |
+| `brand-600` `#b82a1e` | nút, link đỏ nhỏ | Trắng trên nó 6.20:1, nó trên nền 5.82:1 |
+| `brand-700` `#8f1d14` | hover, đang bấm | 8.38:1 — đủ tối để thấy rõ khác biệt |
+
+### Cái bẫy của bảng màu này
+
+Màu **ấm nhất trong ảnh lại là màu không dùng được cho chữ**. Đèn lồng hổ phách
+`#e8a33d` chỉ đạt **2.02:1** trên nền kem — đẹp trong ảnh, nhưng chữ màu đó thì
+khách không đọc nổi. Muốn chữ mang hơi ấm thì dùng `wood-700` `#8c5610` (5.71:1).
+
+Ai sau này thấy trang "chưa đủ ấm" và định nâng `wood-400` lên làm màu chữ hoặc
+màu nút thì đây là lý do không được làm.
 
 ### Ba chỗ §8-bis phải sửa vì không đạt WCAG AA
 
-Bản đặc tả gốc lấy màu trực tiếp từ ảnh Lotteria nên vướng 3 lỗi tương phản:
+Bản đặc tả gốc lấy màu trực tiếp từ ảnh Lotteria nên vướng 3 lỗi tương phản.
+Cả 3 đều đã hết khi đổi sang bảng màu quán, nhưng ghi lại để không tái diễn:
 
-1. `#888` cho mô tả món = **3.40:1** — cần 4.5:1. Đã nâng lên `#726865` (5.19:1).
-2. `#E4453A` cho chữ đỏ nhỏ = **3.87:1** — cần 4.5:1. Chữ nhỏ chuyển sang `brand-600`.
-3. Chữ trắng trên nút `#E4453A` = **4.03:1** — cần 4.5:1. Nút chuyển sang `brand-600`.
+1. `#888` cho mô tả món = **3.40:1** — cần 4.5:1. Nay là `#6e5c4c` (5.98:1).
+2. `#E4453A` cho chữ đỏ nhỏ = **3.87:1**. Nay `brand-500` `#cf3323` đạt 4.75:1.
+3. Chữ trắng trên nút `#E4453A` = **4.03:1**. Nay trắng trên `brand-600` = 6.20:1.
 
 Đây không phải chuyện làm cho đẹp: khách lớn tuổi đọc menu ngoài trời sẽ không
 thấy nổi chữ xám nhạt trên nền hồng.
+
+Mọi tỉ lệ trên đây tính bằng công thức WCAG 2.1 trên nền `#fdf7ee`, không phải
+ước lượng. Đổi `bg-page` thì phải tính lại toàn bộ.
 
 ### Pastel danh mục
 
