@@ -24,7 +24,13 @@
 - **D-02:** So khớp host phải **strip port** trước (`order.localhost:3001` → `order.localhost`) và lowercase, để test local bằng `curl -H "Host: order.localhost"` đi đúng nhánh.
 - **D-03:** SPA fallback phải trả `index.html` của **đúng dist tương ứng host** — không được trả `web-dist/index.html` cho khách.
 - **D-04:** Giữ nguyên điều kiện `NODE_ENV === 'production' && existsSync(dist)` như hiện tại. Dev vẫn dùng Vite dev server riêng (web 5173, shop 5174).
-- **D-05:** `apiPrefixes` (`main.ts:46`) **không cần** thêm `/api` — route controller đã được Nest mount trước middleware fallback này, nên `/api/public/*` luôn tới controller. Ghi comment giải thích để người sau không "sửa" nhầm.
+- **D-05 (ĐÃ SỬA 2026-07-29 — bản đầu SAI):** `apiPrefixes` (`main.ts`) **BẮT BUỘC** phải thêm `/api`.
+  Giả định ban đầu ("Nest mount router trước middleware nên không cần") là **sai** — đã dựng lại được bằng curl:
+  Nest đăng ký router trong `app.init()`, chạy bên trong `listen()`, tức **sau** mọi `app.use()` ở `bootstrap()`.
+  Nên SPA fallback đứng **trước** router. Bằng chứng: `GET /health` (có trong list) trả JSON, còn
+  `GET /api/public/health` (không có trong list) trả `index.html` **kể cả với `Accept: application/json`**.
+  Đây là **bug production có sẵn từ Milestone 1**, không phải do M2 tạo ra; nó sẽ làm chết toàn bộ
+  `/api/public/*` của phase 8–9 nếu không sửa. Đã sửa trong plan 07-01.
 
 ### Origin allow-list (M2.D-67 + C-SEC-01)
 - **D-06:** `ALLOWED_ORIGIN` thành danh sách phân tách **dấu phẩy**. Parse: trim từng phần tử, bỏ phần tử rỗng, bỏ dấu `/` cuối.

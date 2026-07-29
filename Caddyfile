@@ -26,3 +26,35 @@
     # Compression — giảm 60-80% payload JSON
     encode zstd gzip
 }
+
+# M2.D-69 — site block RIÊNG cho trang khách (order.<domain>).
+# Tách khỏi block apex ở trên, KHÔNG gộp hostname vào đó: geolocation phải BẬT cho khách
+# (nút "Chia sẻ vị trí" khi chọn giao hàng) nhưng phải TẮT ở trang quản lý.
+# Cùng trỏ về một container api:3001 — main.ts chọn shop-dist theo Host header (M2.D-66).
+order.{$DOMAIN} {
+    log {
+        output stdout
+        format console
+    }
+
+    reverse_proxy api:3001 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        # C-INFRA-03 — order_token là bearer credential nằm ngay trong URL /o/<token>.
+        # no-referrer để token không rò sang site ngoài qua header Referer.
+        # KHÁC block apex (strict-origin-when-cross-origin) là có chủ ý.
+        Referrer-Policy "no-referrer"
+        # M2.D-69 — bật geolocation cho chính origin này. Block apex giữ geolocation=().
+        Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+    }
+
+    # Compression — giảm 60-80% payload JSON
+    encode zstd gzip
+}

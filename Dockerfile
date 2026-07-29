@@ -13,7 +13,11 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY apps/shop/package.json ./apps/shop/
 COPY packages/schemas/package.json ./packages/schemas/
+# @order/utils là workspace dep của @order/api — thiếu manifest này thì
+# pnpm install --frozen-lockfile vỡ (lockfile có, cây file thì không).
+COPY packages/utils/package.json ./packages/utils/
 
 # Install all deps (frozen lockfile → reproducible)
 RUN pnpm install --frozen-lockfile
@@ -30,16 +34,20 @@ RUN corepack enable && corepack prepare pnpm@latest --activate
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/apps/api/node_modules ./apps/api/node_modules
 COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
+COPY --from=deps /app/apps/shop/node_modules ./apps/shop/node_modules
 COPY --from=deps /app/packages/schemas/node_modules ./packages/schemas/node_modules
+COPY --from=deps /app/packages/utils/node_modules ./packages/utils/node_modules
 
 # Copy source
 COPY . .
 
-# Build schemas first (dependency for both api + web)
-RUN pnpm --filter @order/schemas build
+# Build packages nền trước (api + web + shop đều import)
+RUN pnpm --filter @order/schemas build && pnpm --filter @order/utils build
 
-# Build API + web in parallel
-RUN pnpm --filter @order/api build && pnpm --filter @order/web build
+# Build API + 2 frontend. M2.D-66 — shop build ra bundle riêng cho order.<domain>.
+RUN pnpm --filter @order/api build \
+ && pnpm --filter @order/web build \
+ && pnpm --filter @order/shop build
 
 # ─────────────────────────────────────────────────────────────
 # Stage 3: runtime — minimal image with prod deps + built artifacts
@@ -55,18 +63,23 @@ ENV NODE_ENV=production
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/api/package.json ./apps/api/
 COPY packages/schemas/package.json ./packages/schemas/
+COPY packages/utils/package.json ./packages/utils/
 
-# Install ONLY production deps cho api (skip web - chỉ serve static)
+# Install ONLY production deps cho api (skip web/shop - chỉ serve static).
+# `@order/api...` kéo theo workspace dep của nó (schemas + utils).
 RUN pnpm install --frozen-lockfile --prod --filter @order/api...
 
-# Copy built schemas (api imports nó)
+# Copy built packages nền (api imports cả 2)
 COPY --from=builder /app/packages/schemas/dist ./packages/schemas/dist
+COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 
 # Copy built api
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Copy built web (api serves nó qua useStaticAssets ở production)
+# Copy 2 frontend build. main.ts chọn thư mục theo Host header (M2.D-66):
+#   order.<domain> → shop-dist   |   apex → web-dist
 COPY --from=builder /app/apps/web/dist ./apps/api/web-dist
+COPY --from=builder /app/apps/shop/dist ./apps/api/shop-dist
 
 # Working dir = apps/api để CWD nhất quán với dev (multer + main.ts dùng relative path)
 WORKDIR /app/apps/api
