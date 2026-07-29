@@ -71,10 +71,11 @@ export function BrandPreview(): JSX.Element {
           ))}
         </div>
 
-        <h2 style={h2}>Lưới món — 2 cột mobile</h2>
+        <h2 style={h2}>Lưới món — 1 cột mobile</h2>
         <p style={hint}>
-          Chốt 2 cột theo spec §8-bis (không theo ref Lotteria 1 cột). Card hẹp nên mô tả thành
-          phần ẩn dưới 768px, giá và nút <code>+</code> xếp 2 dòng. Thu hẹp cửa sổ để thấy.
+          Chốt <strong>1 cột trên mobile</strong> theo ảnh ref Lotteria: ảnh món lớn, đúng G-3
+          "giữ khách ở lại lâu để chọn món". Tự lên 2 cột từ ~768px và 4 cột từ ~1200px. Thu hẹp
+          cửa sổ để thấy nó đổi bậc.
         </p>
         <div style={dishGrid}>
           <article style={card}>
@@ -84,6 +85,7 @@ export function BrandPreview(): JSX.Element {
             </div>
             <div style={cardBody}>
               <h3 style={dishName}>Lẩu hải sản Bà Lùn</h3>
+              <p style={dishDesc}>Mực, tôm, bạch tuộc, nấm kim châm, rau tươi — nồi 2–3 người</p>
               <div style={priceStack}>
                 <span style={price}>185.000 đ</span>
                 <button type="button" style={plusButton} aria-label="Thêm Lẩu hải sản Bà Lùn">
@@ -99,6 +101,7 @@ export function BrandPreview(): JSX.Element {
             </div>
             <div style={cardBody}>
               <h3 style={dishName}>Lẩu bò nhúng giấm mẻ</h3>
+              <p style={dishDesc}>Bắp bò tươi, giấm mẻ, chuối xanh, rau sống các loại</p>
               <div style={priceStack}>
                 <span style={price}>215.000 đ</span>
                 <button type="button" style={plusButton} aria-label="Thêm Lẩu bò nhúng giấm mẻ">
@@ -114,6 +117,7 @@ export function BrandPreview(): JSX.Element {
             </div>
             <div style={cardBody}>
               <h3 style={dishName}>Đĩa nội tạng luộc</h3>
+              <p style={dishDesc}>Gan, tim, dạ dày, lòng non — chấm mắm tôm chanh ớt</p>
               <div style={priceStack}>
                 <span style={price}>145.000 đ</span>
                 <button type="button" style={plusButton} aria-label="Thêm Đĩa nội tạng luộc">
@@ -129,6 +133,7 @@ export function BrandPreview(): JSX.Element {
             </div>
             <div style={cardBody}>
               <h3 style={dishName}>Lẩu gà lá é</h3>
+              <p style={dishDesc}>Gà ta, lá é, nấm, măng chua — nồi 3–4 người</p>
               <div style={priceStack}>
                 <span style={price}>165.000 đ</span>
                 <span style={outOfStock}>Hết hàng</span>
@@ -348,21 +353,39 @@ const dishName: CSSProperties = {
   overflow: 'hidden',
 };
 
-/* 2 cột trên mobile (§8-bis), nới lên 4 cột từ desktop.
- * minmax(0,1fr) chứ không phải 1fr — thiếu min 0 thì tên món dài làm cột phình. */
+/* 1 CỘT trên mobile (chốt 2026-07-30, theo ảnh ref Lotteria — lệch spec §8-bis,
+ * ghi ở OVERRIDE-DEBT.md OD-05), tự lên 2 rồi 4 cột khi màn rộng ra.
+ *
+ * Dùng auto-fill + minmax thay vì media query vì style inline KHÔNG chứa được
+ * @media. Bậc thực tế với gap 12px:
+ *   360px (trừ lề 32) = 328px → 1 cột
+ *   768px (trừ lề 32) = 736px → 2 cột
+ *   1200px            = 1156px vừa 4 cột (5 cột cần 1448px)
+ * Đổi 280px là đổi luôn các bậc — tính lại trước khi sửa. */
 const dishGrid: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
   gap: 'var(--sp-3)',
 };
 
-/* Card hẹp ~160px: giá ≥24px đậm + nút 44px không đủ chỗ trên một dòng → xếp dọc. */
+/* 1 cột → card rộng, giá ≥24px đậm và nút 44px đủ chỗ trên CÙNG một dòng. */
 const priceStack: CSSProperties = {
   display: 'flex',
-  flexWrap: 'wrap',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 'var(--sp-2)',
+  gap: 'var(--sp-3)',
+};
+
+/* Mô tả thành phần — 1 cột nên card rộng, đủ chỗ hiện. Vẫn cắt 2 dòng để các
+ * card trong cùng hàng không lệch cao nhau ở bậc 2/4 cột. */
+const dishDesc: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+  margin: '0 0 var(--sp-3)',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
 };
 
 const outOfStock: CSSProperties = {

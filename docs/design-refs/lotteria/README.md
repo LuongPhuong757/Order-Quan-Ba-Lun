@@ -62,21 +62,21 @@ Nguồn tham chiếu UI cho `apps/shop` (trang khách). Chủ quán chọn https
 - Dải danh mục cuộn ngang chỉ hiện **~3.5 tile**, kèm **dot pagination** (8 dot, dot đầu active đỏ) bên dưới.
 - Banner khuyến mãi wrap 2–3 dòng.
 - **Card món xếp 1 CỘT** — ảnh full chiều rộng, tên, 2 dòng mô tả xám, giá đỏ lớn, nút `+` phải.
-  → **KHÔNG áp dụng cho quán ta.** Đã chốt 2 cột theo spec, xem CONFLICT-DESIGN-01 bên dưới.
+  → **ÁP DỤNG cho quán ta.** Đã chốt theo ref, xem CONFLICT-DESIGN-01 bên dưới.
 
-> **CONFLICT-DESIGN-01 — ĐÃ CHỐT 2026-07-30: dùng 2 CỘT trên mobile.**
+> **CONFLICT-DESIGN-01 — ĐÃ CHỐT 2026-07-30: dùng 1 CỘT trên mobile (theo ref, lệch spec).**
 >
 > Spec §8-bis (dòng 189–193) ghi *"lưới 4 cột desktop / **2 cột mobile**"*, còn ảnh ref mobile thật
-> của Lotteria là **1 cột**. Chủ dự án chốt **theo spec: 2 cột**.
+> của Lotteria là **1 cột**. Chủ dự án chốt **theo ref: 1 cột** — ảnh món to hết chiều rộng, đúng
+> hướng G-3 *"giữ khách ở lại lâu để chọn món"*.
 >
-> Nghĩa là **không lệch spec → không cần ghi `OVERRIDE-DEBT.md`**. Ảnh ref 1 cột từ đây chỉ dùng để
-> tham chiếu *thành phần* (header gập, dải danh mục có dot, CTA dính đáy), **không** dùng cho số cột.
+> **Lệch spec → đã ghi `OVERRIDE-DEBT.md` OD-05.** Phần *"4 cột desktop"* của §8-bis vẫn giữ đúng.
 >
-> Hệ quả khi code: card món ở 2 cột thì hẹp (~160–170px trên máy 360px), nên
-> — tên món giới hạn 2 dòng rồi `text-overflow: ellipsis`,
-> — mô tả thành phần **ẩn** trên mobile (chỉ hiện từ ≥768px), không nhồi vào card hẹp,
-> — giá vẫn phải ≥24px đậm theo §8-bis, nút `+` vẫn phải giữ 44px vùng bấm → giá và nút xếp
->   **2 dòng** trong card mobile chứ không cùng một dòng như desktop.
+> Thi công bằng `repeat(auto-fill, minmax(280px, 1fr))`, **không media query** — bậc tự nhảy:
+> ~360px → 1 cột · ~768px → 2 cột · ~1200px → 4 cột.
+>
+> Đánh đổi: mỗi màn thấy ít món hơn, khách cuộn nhiều hơn. Bù lại card rộng nên **giữ được**
+> mô tả thành phần và cho giá + nút `+` nằm cùng một dòng.
 
 ## Lệch có chủ ý so với Lotteria (đã chốt)
 

@@ -53,6 +53,18 @@ Mỗi entry phải trả lời: lệch cái gì · ai quyết · vì sao · hệ
 - **Quay lại thì sao:** đổi 3 dòng `--brand-500/600/700` + `--bg-page` trong `tokens.css` là về được, vì không nơi nào hardcode hex. Nhưng quay về `#E4453A` sẽ **làm hỏng AA cho chữ đỏ nhỏ và nút** — phải khôi phục lại cả lớp ngoại lệ cũ.
 - **Còn nợ:** §8-bis vẫn ghi bảng màu Lotteria trong file spec. Chưa sửa file spec (spec là văn bản đã chốt vòng 5). Ai đọc §8-bis phải biết `tokens.css` mới là nguồn sự thật — điều này đã có trong C-UI-01.
 
+## OD-05 — Lưới món mobile: 1 cột thay vì 2 cột như §8-bis
+
+- **Ngày:** 2026-07-30 · **Người quyết:** chủ dự án
+- **Quyết định gốc:** §8-bis (spec dòng 189–193) ghi *"lưới 4 cột desktop / **2 cột mobile**"*.
+- **Lệch:** mobile dùng **1 cột**.
+- **Vì sao:** ảnh ref mobile thật của lotteria.vn (chủ dự án cung cấp 2026-07-29) xếp **1 cột** — ảnh món to hết chiều rộng. Đúng hướng G-3 *"giao diện giữ khách ở lại lâu để chọn món"*: ảnh món là thứ bán được hàng, card 2 cột trên máy 360px chỉ còn ~160px thì ảnh nhỏ và mô tả thành phần phải ẩn.
+- **Đánh đổi đã biết:** mỗi màn thấy ít món hơn → khách phải cuộn nhiều hơn để xem hết menu. Chấp nhận.
+- **Đường đi từng bước của quyết định này** (ghi lại để không ai tưởng là làm bừa): 2026-07-30 chủ dự án chốt 2 cột theo spec → xem bản dựng thật trên `BrandPreview` → đổi sang 1 cột. Bản 2 cột đã commit ở `302d87e`, bản 1 cột ở commit sau.
+- **Cách thi công:** `grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))` — **không dùng media query**. Bậc tự nhảy theo bề rộng: ~360px → 1 cột · ~768px → 2 cột · ~1200px → 4 cột. Nên phần *"4 cột desktop"* của §8-bis **vẫn giữ đúng**, chỉ khác ở mobile.
+- **Ghi ở:** `docs/design-refs/lotteria/README.md` § CONFLICT-DESIGN-01 · `apps/shop/src/BrandPreview.tsx` (`dishGrid`)
+- **Quay lại thì sao:** đổi `280px` thành `160px` là về 2 cột mobile. Nhưng phải đồng thời ẩn mô tả thành phần dưới 768px và cho giá + nút `+` xếp 2 dòng — card 160px không chứa nổi cả ba.
+
 ---
 
 ## Chưa được ghi ở đây (nợ tồn từ trước)
