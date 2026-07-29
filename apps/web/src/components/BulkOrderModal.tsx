@@ -5,6 +5,7 @@
 // Submit 1 lần → BE create N items + auto báo bếp.
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from './Toast.tsx';
 
 type MenuItem = {
@@ -78,25 +79,12 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
     return g.icon ? `${g.icon} ${g.name}` : g.name;
   };
 
-  // Normalize: lowercase + bỏ dấu tiếng Việt → "Cánh Chiên" và "canh chien" cùng dạng.
-  // Cho phép gõ không dấu vẫn search ra. Regex U+0300-U+036F = combining diacritics.
-  const normalize = (s: string): string =>
-    s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
-
-  const filtered = menu.filter((it) => {
-    if (group && it.group !== group) return false;
-    if (search) {
-      // Tokenize search theo whitespace — mọi token phải xuất hiện trong name HOẶC code.
-      // Vd: 'cánh chiên' (2 token: cánh + chiên) → match 'cánh giữa chiên giòn'
-      // vì cả 2 token đều có trong name. Không cần liền nhau.
-      const tokens = normalize(search).split(/\s+/).filter(Boolean);
-      if (tokens.length > 0) {
-        const haystack = normalize(it.name) + ' ' + normalize(it.code);
-        if (!tokens.every((t) => haystack.includes(t))) return false;
-      }
-    }
-    return true;
-  });
+  // Tìm kiếm: không dấu + viết tắt ('ktl' → 'Khoai tây lắc'), xếp theo độ khớp.
+  // Logic ở lib/menu-search.ts để MenuPickerModal dùng chung.
+  const filtered = filterMenuBySearch(
+    menu.filter((it) => !group || it.group === group),
+    search,
+  );
 
   // 'Tất cả' + tất cả nhóm động (sort_order ASC, đã sort ở BE)
   const groupCodes = ['', ...groupList.map((g) => g.code)];
@@ -630,7 +618,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           <div className="bulk-menu-panel">
             <div className="bulk-menu-toolbar">
               <input
-                placeholder="🔍 Tìm theo tên hoặc mã món..."
+                placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 style={{ minHeight: 40 }}

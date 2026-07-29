@@ -1,6 +1,7 @@
 // Modal chọn món để thêm vào order
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from './Toast.tsx';
 
 type MenuItem = {
@@ -49,14 +50,11 @@ export function MenuPickerModal({ onClose, onPick }: Props) {
       .finally(() => setLoading(false));
   }, [toast]);
 
-  const filtered = items.filter((it) => {
-    if (groupFilter && it.group !== groupFilter) return false;
-    if (search) {
-      const s = search.toLowerCase();
-      if (!it.name.toLowerCase().includes(s) && !it.code.toLowerCase().includes(s)) return false;
-    }
-    return true;
-  });
+  // Không dấu + viết tắt ('ktl' → 'Khoai tây lắc') — dùng chung với BulkOrderModal.
+  const filtered = filterMenuBySearch(
+    items.filter((it) => !groupFilter || it.group === groupFilter),
+    search,
+  );
 
   const groups = ['', 'food', 'drink', 'side', 'other'];
 
@@ -155,7 +153,7 @@ export function MenuPickerModal({ onClose, onPick }: Props) {
 
         <div className="row" style={{ marginBottom: 8 }}>
           <input
-            placeholder="Tìm theo tên hoặc mã..."
+            placeholder="Tên, mã hoặc viết tắt (vd: ktl)..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             autoFocus
