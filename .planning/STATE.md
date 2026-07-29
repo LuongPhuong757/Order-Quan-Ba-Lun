@@ -23,9 +23,9 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 ## Current Position
 
 Phase: 7 of 10 (Hạ tầng trang khách) — phase 1 of 4 trong Milestone 2
-Plan: chưa có plan nào — chờ `/gsd:plan-phase 7`
-Status: Ready to plan
-Last activity: 2026-07-29 — `/gsd:ingest-docs` chạy xong; 6 warning đã được chủ dự án quyết; PROJECT/REQUIREMENTS/ROADMAP/STATE sinh xong
+Plan: 0 of 4 (2 wave — wave 1: 07-01 + 07-02 song song; wave 2: 07-03 + 07-04 song song)
+Status: Ready to execute
+Last activity: 2026-07-29 — `/gsd-plan-phase 7` xong: `07-CONTEXT.md` + 4 PLAN.md. Coverage REQ-Q 4/4 plan, M2.D-64..69 phủ hết (65 và 68 → deferred UAT)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -91,5 +91,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 ## Session Continuity
 
 Last session: 2026-07-29
-Stopped at: `/gsd:ingest-docs` hoàn tất — 4 file planning đã sinh, 6 warning đã đóng, design ref mobile đã ghi nhận
-Resume file: None — bước tiếp là `/gsd:plan-phase 7`
+Stopped at: `/gsd-plan-phase 7` hoàn tất — `07-CONTEXT.md` + 4 PLAN.md trong `.planning/phases/07-shop-infra/`
+Resume file: None — bước tiếp là `/gsd-execute-phase 7`
+
+**Lưu ý về tên command:** GSD bản này cài command dạng phẳng nên là `/gsd-plan-phase` (gạch ngang), **không** phải `/gsd:plan-phase`. Thư mục phase đặt tay là `07-shop-infra` vì slug tự sinh từ tên tiếng Việt bị băm thành `07-h-t-ng-trang-kh-ch`; GSD nhận theo tiền tố `07-` nên không sao.

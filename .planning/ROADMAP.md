@@ -62,7 +62,15 @@ quy trình ngày 2026-07-29. Bằng chứng đã giao là chính codebase — xe
   3. Submit từ origin `order.` không bị CSRF chặn, origin lạ bị chặn — **kể cả** `https://quanbalun.site.evil.com` (M2.D-67 + C-SEC-01, có unit test)
   4. `Dockerfile` (stage `shop`), `Caddyfile` (block `order.` với `geolocation=(self)` + `Referrer-Policy: no-referrer`) và `.env.example` (`ALLOWED_ORIGIN` 2 origin) đã sửa đúng và review được bằng diff — **không apply lên production** (C-LOCAL-01, C-INFRA-03)
   5. `pnpm test` ở `apps/api` chạy được với ít nhất 1 test thật — harness zero-config dựng xong, mở đường cho phase 9 (C-TEST-01)
-**Plans**: TBD
+**Plans**: 4 plans / 2 wave
+
+Plans:
+- [ ] 07-01: **Wave 1 (tracer)** — Host-aware static routing + SPA fallback theo dist + stage `shop` trong Dockerfile → verify bằng `curl -H "Host: order.localhost"`
+- [ ] 07-02: **Wave 1** — Harness test đầu tiên của `apps/api` (zero-config vitest) + module thuần `origin-allowlist` viết theo TDD, test đỏ trước
+- [ ] 07-03: **Wave 2** (dep 07-02) — Nối allow-list vào `CsrfOriginGuard`, bỏ `startsWith`, `ALLOWED_ORIGIN` dạng list ở cả 2 file env mẫu
+- [ ] 07-04: **Wave 2** (dep 07-01) — Guard bundle khách + site block Caddy `order.` (`geolocation=(self)` + `no-referrer`) + ghi 5 deferred UAT
+
+**Cross-cutting constraints**: C-LOCAL-01 (không plan nào được deploy / chạm VPS / sửa DNS) · C-CONV-01 (pure ESM `.js` extension, comment + `describe` tiếng Việt) · C-SEC-01 (so khớp host chính xác, không `startsWith`)
 **Deferred UAT**: DNS A record, TLS cert Caddy, `Permissions-Policy` serve thật, cookie host-only qua 2 hostname thật, static routing đầu-cuối qua Caddy — xem `REQUIREMENTS.md § Deferred UAT`
 
 ### Phase 8: Menu công khai, Checkout & Công tắc nhận đơn
@@ -118,7 +126,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 4. Order Lifecycle | M1 | — | Complete | 2026 (VGFlow) |
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
-| 7. Hạ tầng trang khách | M2 | 0/TBD | In progress (~1/3) | - |
+| 7. Hạ tầng trang khách | M2 | 0/4 | Planned | - |
 | 8. Menu, Checkout & Công tắc | M2 | 0/TBD | Not started | - |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
