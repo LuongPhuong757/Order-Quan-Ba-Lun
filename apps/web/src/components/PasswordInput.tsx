@@ -79,9 +79,10 @@ export function PasswordInput({
       {showStrength && value && (
         <>
           <div className="strength-meter" aria-hidden="true">
+            {/* scaleX thay vì width: animate transform không gây reflow (detector: layout-transition). */}
             <div
               className="bar"
-              style={{ width: `${((strength + 1) / 5) * 100}%`, background: strengthColor }}
+              style={{ transform: `scaleX(${(strength + 1) / 5})`, background: strengthColor }}
             />
           </div>
           <div className="strength-text">Độ mạnh: {strengthText}</div>

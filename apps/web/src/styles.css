@@ -354,7 +354,10 @@ td.txn-day {
 
 .strength-meter .bar {
   height: 100%;
-  transition: width 0.2s, background 0.2s;
+  width: 100%;
+  transform-origin: left center;
+  transform: scaleX(0);
+  transition: transform 0.2s, background-color 0.2s;
 }
 
 .strength-text {

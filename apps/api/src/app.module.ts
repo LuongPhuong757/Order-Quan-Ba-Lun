@@ -12,6 +12,7 @@ import { SetupModule } from './modules/setup/setup.module.js';
 import { MenuModule } from './modules/menu/menu.module.js';
 import { TablesModule } from './modules/tables/tables.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
+import { PublicModule } from './modules/public/public.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -33,6 +34,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     MenuModule,
     TablesModule,
     OrdersModule,
+    // Phase 07 — endpoint công khai không auth. HealthController giữ nguyên ở
+    // `controllers` bên dưới: `/health` phải giữ đúng shape cũ cho uptime check
+    // và POS đang dùng (G-07 không hồi quy).
+    PublicModule,
   ],
   controllers: [HealthController],
   providers: [

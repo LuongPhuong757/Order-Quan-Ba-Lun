@@ -48,7 +48,8 @@ export function BarChart({
                   height: Math.max(2, h),
                   background: color,
                   borderRadius: '4px 4px 0 0',
-                  transition: 'height .2s',
+                  // Không transition height: animate height gây reflow cả hàng cột (detector:
+                  // layout-transition). scaleY thay thế sẽ méo bo góc 4px ở cột thấp → bỏ hiệu ứng.
                 }}
               />
               <div style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>{d.label}</div>

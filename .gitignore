@@ -47,13 +47,7 @@ uploads/
 .env.local
 .env.*.local
 
-# VGFlow runtime (do not commit; tracks ephemeral run state)
-.vg/runs/
-.vg/active-runs/
-.vg/.project-draft.json
-.vg/.foundation-for-config.json
-.vg/.project-scan.json
-.vg/PIPELINE-STATE.json
+# Temp / step markers
 **/.tmp/
 **/.step-markers/
 
@@ -65,35 +59,32 @@ __pycache__/
 # OS
 Thumbs.db
 
-# VG runtime DB + state (added during scope run)
-.vg/events.db
-.vg/events.jsonl
-.vg/.repo-lock.json
-.vg/current-run.json
-.vg/.evidence-key
-.vg/.session-context.json
-.vg/validator-quarantine.json
-.vg/blocks/
-.vg/phases/*/.recon-state.json
-.vg/phases/*/.recon-report.md
-.vg/phases/*/.tmp/
-.codex/
-.vg/events.db-shm
-.vg/events.db-wal
-
 # === Claude Code — state per-máy, KHÔNG share ===
 # Permission allowlist + hook wiring riêng từng máy. settings.json (shared) vẫn track.
 .claude/settings.local.json
 .claude/node_modules/
 
-# GSD framework — cài per-máy qua installer, không phải source của project này.
+# GSD framework — cài per-máy qua installer (npx get-shit-done-cc --claude --local),
+# không phải source của project này.
 .claude/.gsd-profile
-.claude/gsd-core/
 .claude/gsd-install-state.json
 .claude/gsd-file-manifest.json
 .claude/gsd-migration-journal/
-.claude/agents/gsd-*.md
-.claude/commands/gsd-*.md
-.claude/scripts/gsd-*
-# hooks/ hiện toàn bộ là GSD-managed, chỉ wire từ settings.local.json.
+.claude/get-shit-done/
+.claude/package.json
+.claude/agents/
+.claude/commands/gsd/
+# hooks/ toàn bộ là GSD-managed, chỉ wire từ settings.local.json.
 .claude/hooks/
+
+# GSD planning artifacts — bật lại dòng dưới nếu muốn KHÔNG commit plan/phase docs.
+# .planning/
+
+# Impeccable (bộ dò anti-pattern giao diện)
+# config.json ĐƯỢC commit — nó chứa danh sách miễn trừ kèm lý do, là policy của
+# dự án. Chỉ file override riêng của từng máy dev mới bị loại.
+.impeccable/config.local.json
+
+# apps/shop build output (phase 07)
+apps/shop/dist/
+packages/utils/dist/

@@ -25,7 +25,8 @@ apps/
   web/          Vite+React FE (port 5173)
 packages/
   schemas/      Zod schemas + TypeScript types — IMPORTED BY CẢ FE + BE
-.vg/            VGFlow planning artifacts (markdown docs)
+docs/           Tài liệu spec (milestone, thiết kế)
+.planning/      GSD planning artifacts (do /gsd:* sinh ra)
 ```
 
 Mỗi lần thay đổi API contract → sửa file ở `packages/schemas/` → BOTH FE và BE auto-update (1 source of truth).
@@ -164,20 +165,32 @@ packages/schemas/src/                   Shared types FE↔BE
 └── admin.ts                            DTOs admin user/audit
 ```
 
-## VGFlow planning artifacts (.vg/)
+## Tài liệu thiết kế
 
-Toàn bộ thiết kế Phase 01 document chi tiết — đọc nếu muốn hiểu lý do mỗi decision:
+- `docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md` — spec đặt hàng online (M2.D-01..71),
+  nguồn sự thật cho `apps/shop`
+- `apps/shop/DESIGN.md` — đặc tả giao diện trang khách
 
-- `.vg/PROJECT.md` — tổng quan + Milestone 1 scope
-- `.vg/FOUNDATION.md` — 17 F-XX decisions (platform / stack / security baseline / mobile-first)
-- `.vg/ROADMAP.md` — 6 phases
-- `.vg/REQUIREMENTS.md` — 8 REQ-A..H với acceptance criteria
-- `.vg/phases/01-foundation-auth-audit/`:
-  - `SPECS.md` — goal + scope + success criteria
-  - `CONTEXT.md` + `CONTEXT/D-NN.md` — 28 P01.D-XX decisions
-  - `API-CONTRACTS.md` + `API-CONTRACTS/E-NN.md` — 13 endpoints
-  - `TEST-GOALS.md` + `TEST-GOALS/G-NN.md` — 47 test goals
-  - `PLAN.md` + `PLAN/T-NN.md` — 34 implementation tasks
+Artifact quy hoạch của Milestone 1 (`.vg/PROJECT.md`, `FOUNDATION.md`, `ROADMAP.md`,
+`REQUIREMENTS.md`, `phases/01-foundation-auth-audit/…`) đã gỡ khỏi cây làm việc
+cùng harness VGFlow (2026-07-29). Tra lại khi cần:
+
+```bash
+git log --oneline -- .vg          # tìm commit gần nhất còn .vg/
+git show <commit>:.vg/ROADMAP.md
+```
+
+## Quy trình phát triển — GSD
+
+Repo dùng [GSD](https://github.com/gsd-build/get-shit-done) làm harness quy hoạch.
+Cài trên máy mới (per-máy, không commit vào repo):
+
+```bash
+npx get-shit-done-cc@latest --claude --local
+```
+
+Lệnh hay dùng: `/gsd:progress` (xem đang ở đâu), `/gsd:discuss-phase` →
+`/gsd:plan-phase` → `/gsd:execute-phase` → `/gsd:verify-work`.
 
 ## Phase tiếp theo
 
