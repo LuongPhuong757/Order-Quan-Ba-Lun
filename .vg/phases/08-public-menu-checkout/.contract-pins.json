@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "pinned_at": "2026-07-29T08:51:02Z",
+  "harness_version": "2.51.0",
+  "git_sha": "e5f426b7e986",
+  "commands": {
+    "vg:scope": {
+      "must_touch_markers": [
+        "0_parse_and_validate",
+        "1_deep_discussion",
+        "1b_env_preference",
+        "2_artifact_generation",
+        "3_completeness_validation",
+        "5_commit_and_next",
+        "4_crossai_review",
+        "4_5_bootstrap_reflection",
+        "4_6_test_strategy"
+      ],
+      "must_emit_telemetry": [
+        "scope.tasklist_shown",
+        "scope.native_tasklist_projected",
+        "scope.started",
+        "scope.completed",
+        "scope.forward_deps_dispositioned"
+      ],
+      "skill_sha256": "8fbade807d93cef383f43314fbea00f55f9a23c8120bdb91bcd67c7877dba92d",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    },
+    "vg:blueprint": {
+      "must_touch_markers": [
+        "0_design_discovery",
+        "0_amendment_preflight",
+        "1_parse_args",
+        "create_task_tracker",
+        "2_verify_prerequisites",
+        "2a_plan",
+        "2a5_cross_system_check",
+        "2b_contracts",
+        "2b5_test_goals",
+        "2b5e_a_lens_walk",
+        "2b5e_edge_cases",
+        "2b5d_expand_from_crud_surfaces",
+        "2c_verify",
+        "2c_verify_plan_paths",
+        "2c_utility_reuse",
+        "2c_compile_check",
+        "2d_validation_gate",
+        "2d_test_type_coverage",
+        "2d_goal_grounding",
+        "2e_bootstrap_reflection",
+        "3_complete",
+        "2_fidelity_profile_lock",
+        "2b6c_view_decomposition",
+        "2b6_ui_spec",
+        "2b6b_ui_map",
+        "2b7_flow_detect",
+        "2b6d_fe_contracts",
+        "2b8_rcrurdr_invariants",
+        "2b9_workflows",
+        "2b5a_codex_test_goal_lane",
+        "2d_crossai_review"
+      ],
+      "must_emit_telemetry": [
+        "blueprint.tasklist_shown",
+        "blueprint.native_tasklist_projected",
+        "blueprint.plan_written",
+        "blueprint.contracts_generated",
+        "blueprint.edge_cases_generated",
+        "blueprint.edge_cases_skipped",
+        "blueprint.lens_walk_generated",
+        "blueprint.lens_walk_skipped",
+        "crossai.verdict",
+        "blueprint.completed",
+        "blueprint.rcrurdr_invariant_emitted",
+        "blueprint.fe_contracts_pass_completed",
+        "blueprint.fe_contract_block5_blocked",
+        "blueprint.workflows_pass_completed",
+        "blueprint.workflows_pass_skipped",
+        "blueprint.slice_size_blocked"
+      ],
+      "skill_sha256": "aeb06160cafbc36bdd328e10530556ce789b43fa15b10c462f289ee6b4c23b10",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    },
+    "vg:build": {
+      "must_touch_markers": [
+        "0_gate_integrity_precheck",
+        "1_parse_args",
+        "1a_build_queue_preflight",
+        "1b_recon_gate",
+        "3_validate_blueprint",
+        "4_load_contracts_and_context",
+        "5_handle_branching",
+        "7_discover_plans",
+        "8_execute_waves",
+        "9_post_execution",
+        "10_postmortem_sanity",
+        "11_crossai_build_verify_loop",
+        "12_run_complete",
+        "0_session_lifecycle",
+        "create_task_tracker",
+        "2_initialize",
+        "6_validate_phase",
+        "8_5_bootstrap_reflection_per_wave",
+        "8_5_in_scope_fix_loop",
+        "12_5_pre_test_gate"
+      ],
+      "must_emit_telemetry": [
+        "build.tasklist_shown",
+        "build.native_tasklist_projected",
+        "build.started",
+        "wave.started",
+        "build.completed",
+        "build.l4a_violations_detected",
+        "build.l4a_gates_passed",
+        "build.pre_test_complete",
+        "build.pre_test_skipped",
+        "build.envelope_slice_resolved",
+        "build.cross_wave_workflow_cited",
+        "build.workflow_state_drift_detected"
+      ],
+      "skill_sha256": "832bf65acab85999182d3d869fd6bc006a7d182b75f98437f0520b0555fcb48d",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    },
+    "vg:review": {
+      "must_touch_markers": [
+        "00_gate_integrity_precheck",
+        "0_parse_and_validate",
+        "0b_goal_coverage_gate",
+        "complete"
+      ],
+      "must_emit_telemetry": [],
+      "skill_sha256": "a5f2f4a93fe8c4a776324540cfac5741074abf213d4cadfb48d8216529bce928",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    },
+    "vg:test": {
+      "must_touch_markers": [
+        "00_gate_integrity_precheck",
+        "00_session_lifecycle",
+        "0_parse_and_validate",
+        "0c_telemetry_suggestions",
+        "create_task_tracker",
+        "0_state_update",
+        "5c_goal_verification",
+        "5c_fix",
+        "5c_auto_escalate",
+        "5e_regression",
+        "5f_security_audit",
+        "write_report",
+        "complete",
+        "5a_deploy",
+        "5a_mobile_deploy",
+        "5b_runtime_contract_verify",
+        "5c_smoke",
+        "5c_flow",
+        "5c_mobile_flow",
+        "5d_codegen",
+        "5d_deep_probe",
+        "5d_mobile_codegen",
+        "5f_mobile_security_audit",
+        "5g_performance_check",
+        "5h_security_dynamic",
+        "bootstrap_reflection"
+      ],
+      "must_emit_telemetry": [
+        "test.tasklist_shown",
+        "test.native_tasklist_projected",
+        "test.started",
+        "test.completed"
+      ],
+      "skill_sha256": "f77c793a8a537f9fc37fb497d975bd102ef6fe09790cb9e5c8dc7a0ca1fc3e6c",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    },
+    "vg:accept": {
+      "must_touch_markers": [
+        "0_gate_integrity_precheck",
+        "0_load_config",
+        "create_task_tracker",
+        "0c_telemetry_suggestions",
+        "1_artifact_precheck",
+        "2_marker_precheck",
+        "3_sandbox_verdict_gate",
+        "3b_unreachable_triage_gate",
+        "3c_override_resolution_gate",
+        "4_build_uat_checklist",
+        "4b_uat_narrative_autofire",
+        "5_interactive_uat",
+        "5_uat_quorum_gate",
+        "6b_security_baseline",
+        "6c_learn_auto_surface",
+        "6_write_uat_md",
+        "7_post_accept_actions"
+      ],
+      "must_emit_telemetry": [
+        "accept.tasklist_shown",
+        "accept.native_tasklist_projected",
+        "accept.started",
+        "accept.completed"
+      ],
+      "skill_sha256": "e6afaf9e87f1f9675d6f6b0845d9323b01324a04c1bd6ec5f5cfee50c7d217c6",
+      "pinned_at": "2026-07-29T08:51:02Z"
+    }
+  }
+}
