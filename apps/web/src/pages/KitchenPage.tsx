@@ -357,8 +357,11 @@ export function KitchenPage() {
           justify-content: space-between;
           align-items: center;
           margin-bottom: 8px;
+          /* Zoom to → tiêu đề + nhóm nút không đủ 1 hàng, cho phép nút xuống dòng */
+          flex-wrap: wrap;
+          gap: 8px;
         }
-        .kds-header h1 { margin: 0; font-size: 18px; }
+        .kds-header h1 { margin: 0; font-size: 18px; min-width: 0; }
         .kds-board {
           display: grid;
           gap: 8px;
@@ -386,7 +389,17 @@ export function KitchenPage() {
           display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 6px;
         }
+        /* Tên cột ("📢 Đã order") cắt ellipsis để con số đếm bên phải luôn thấy được
+           — số món đang chờ là thông tin bếp cần nhất, không được bị đẩy ra ngoài. */
+        .kds-column-header > :first-child {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-column-header > :last-child { flex-shrink: 0; }
         .kds-column-body {
           flex: 1;
           display: flex;
@@ -407,8 +420,35 @@ export function KitchenPage() {
              chuyển trạng thái (2 hành động rất khác nhau, khó undo). */
           gap: 14px;
           align-items: center;
+          /* Cho phép khối nút tụt xuống dòng 2 khi card quá hẹp — xảy ra khi user
+             phóng to trang (zoom thu nhỏ viewport theo CSS px) hoặc màn hẹp. Trước
+             đây không wrap nên nút bị bóp méo / tràn ra ngoài viền card. */
+          flex-wrap: wrap;
+          row-gap: 8px;
         }
-        .kds-card-info { flex: 1; min-width: 0; }
+        /* Khối text của card, xếp dọc 2 dòng: tên món / meta (⏱ phút · 👤 người gọi).
+           - flex-basis 170px (KHÔNG phải 0): đây là điều kiện để khối nút wrap xuống
+             dòng — với basis 0 thì text co vô hạn nên wrap không bao giờ xảy ra.
+             Dưới ngưỡng này thì min-width:0 + ellipsis lo phần cắt chữ.
+           - gap 5px: trước đây là block thuần, 2 dòng dán sát nhau nên liếc nhanh
+             dễ đọc lẫn tên món với meta. */
+        .kds-card-info {
+          flex: 1 1 170px;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+        }
+        /* Gom 2 nút vào 1 khối → luôn xuống dòng CÙNG NHAU (trước đây là 2 con trực
+           tiếp của .kds-card nên 🚫 có thể tụt xuống mà mũi tên vẫn ở trên).
+           margin-left:auto đẩy khối sang phải ở cả 2 trường hợp: cùng dòng và wrap. */
+        .kds-card-actions {
+          display: flex;
+          gap: 14px;
+          align-items: center;
+          flex-shrink: 0;
+          margin-left: auto;
+        }
         /* Dòng 1: [badge] tên món · SL · bàn — tất cả trên 1 hàng, tên món cắt
            bằng ellipsis (title= giữ full text khi hover). */
         .kds-card-line1 {
@@ -416,6 +456,10 @@ export function KitchenPage() {
           align-items: baseline;
           gap: 6px;
           min-width: 0;
+          /* Badge (⭐ ƯU TIÊN) + SL + tên bàn đều nowrap; nếu không cho wrap thì khi
+             zoom to chúng tràn ra khỏi card vì tên món đã co hết cỡ. */
+          flex-wrap: wrap;
+          row-gap: 2px;
         }
         .kds-card-name {
           font-size: 14px;
@@ -438,6 +482,11 @@ export function KitchenPage() {
           color: #0f766e;
           font-size: 13px;
           white-space: nowrap;
+          /* Tên bàn dài ("Takeaway 1", bàn đặt tên theo khách) không được đẩy tên
+             món ra khỏi card — cắt bằng ellipsis, hover/title vẫn xem được full. */
+          max-width: 40%;
+          overflow: hidden;
+          text-overflow: ellipsis;
         }
         /* Dòng 2: meta xám nhỏ — người gọi · đồng hồ · ghi chú · trạng thái hết */
         .kds-card-meta {
@@ -445,10 +494,25 @@ export function KitchenPage() {
           color: #6b7280;
           display: flex;
           align-items: center;
-          gap: 6px;
+          /* row-gap 4px / column-gap 14px: ở font 11px thì 6px làm "⏱ 12p" dán vào
+             "👤 Tên NV" khó đọc khi liếc nhanh. Nới riêng chiều ngang, giữ chiều dọc
+             hẹp để card không cao thêm khi meta xuống dòng. */
+          gap: 4px 14px;
           flex-wrap: wrap;
           line-height: 1.4;
+          min-width: 0;
         }
+        /* Tên nhân viên gọi món có thể rất dài → cắt bằng ellipsis thay vì tràn card.
+           Áp cho mọi mục meta: mục nào tự nó dài hơn 1 dòng thì bị cắt, các mục khác
+           không ảnh hưởng (flex-wrap xử lý việc xuống dòng trước khi cần cắt). */
+        .kds-card-meta > * {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        /* Đồng hồ ⏱ (mục đầu) là thông tin cảnh báo — không bao giờ được cắt. */
+        .kds-card-meta > :first-child { flex-shrink: 0; }
         .kds-card-note {
           font-size: 11px;
           color: #dc2626;
@@ -819,31 +883,35 @@ function Card({
         </div>
       </div>
 
-      {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
-          để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
-          Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
-          (BE sẽ 404 vì menu_item_id là NULL). */}
-      {colDef.state !== 'READY' && !isNote && (
-        <button
-          className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
-          onClick={onToggleStock}
-          title={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
-          aria-label={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
-        >
-          {isOutOfStock ? '✓' : '🚫'}
-        </button>
-      )}
+      {/* Khối nút — bọc chung 1 div để khi card hẹp (zoom to) cả 2 nút cùng tụt
+          xuống dòng dưới, không bị tách rời mỗi nút một dòng. */}
+      <div className="kds-card-actions">
+        {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
+            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
+            Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
+            (BE sẽ 404 vì menu_item_id là NULL). */}
+        {colDef.state !== 'READY' && !isNote && (
+          <button
+            className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
+            onClick={onToggleStock}
+            title={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+            aria-label={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+          >
+            {isOutOfStock ? '✓' : '🚫'}
+          </button>
+        )}
 
-      <button
-        className="kds-arrow"
-        onClick={onAdvance}
-        style={{ ['--col' as string]: colDef.color, background: colDef.color }}
-        title={colDef.nextLabel}
-        aria-label={colDef.nextLabel}
-      >
-        <span style={{ fontSize: 15 }}>{colDef.nextIcon}</span>
-        <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
-      </button>
+        <button
+          className="kds-arrow"
+          onClick={onAdvance}
+          style={{ ['--col' as string]: colDef.color, background: colDef.color }}
+          title={colDef.nextLabel}
+          aria-label={colDef.nextLabel}
+        >
+          <span style={{ fontSize: 15 }}>{colDef.nextIcon}</span>
+          <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
+        </button>
+      </div>
     </div>
   );
 }
