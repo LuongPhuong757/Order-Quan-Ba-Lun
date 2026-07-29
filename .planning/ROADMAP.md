@@ -65,10 +65,10 @@ quy trình ngày 2026-07-29. Bằng chứng đã giao là chính codebase — xe
 **Plans**: 4 plans / 2 wave
 
 Plans:
-- [ ] 07-01: **Wave 1 (tracer)** — Host-aware static routing + SPA fallback theo dist + stage `shop` trong Dockerfile → verify bằng `curl -H "Host: order.localhost"`
-- [ ] 07-02: **Wave 1** — Harness test đầu tiên của `apps/api` (zero-config vitest) + module thuần `origin-allowlist` viết theo TDD, test đỏ trước
-- [ ] 07-03: **Wave 2** (dep 07-02) — Nối allow-list vào `CsrfOriginGuard`, bỏ `startsWith`, `ALLOWED_ORIGIN` dạng list ở cả 2 file env mẫu
-- [ ] 07-04: **Wave 2** (dep 07-01) — Guard bundle khách + site block Caddy `order.` (`geolocation=(self)` + `no-referrer`) + ghi 5 deferred UAT
+- [x] 07-01: **Wave 1 (tracer)** — Host-aware static routing + SPA fallback theo dist + stage `shop` trong Dockerfile → verify bằng `curl -H "Host: order.localhost"`
+- [x] 07-02: **Wave 1** — Harness test đầu tiên của `apps/api` (zero-config vitest) + module thuần `origin-allowlist` viết theo TDD, test đỏ trước
+- [x] 07-03: **Wave 2** (dep 07-02) — Nối allow-list vào `CsrfOriginGuard`, bỏ `startsWith`, `ALLOWED_ORIGIN` dạng list ở cả 2 file env mẫu
+- [x] 07-04: **Wave 2** (dep 07-01) — Guard bundle khách + site block Caddy `order.` (`geolocation=(self)` + `no-referrer`) + ghi 7 deferred UAT
 
 **Cross-cutting constraints**: C-LOCAL-01 (không plan nào được deploy / chạm VPS / sửa DNS) · C-CONV-01 (pure ESM `.js` extension, comment + `describe` tiếng Việt) · C-SEC-01 (so khớp host chính xác, không `startsWith`)
 **Deferred UAT**: DNS A record, TLS cert Caddy, `Permissions-Policy` serve thật, cookie host-only qua 2 hostname thật, static routing đầu-cuối qua Caddy — xem `REQUIREMENTS.md § Deferred UAT`
@@ -85,7 +85,7 @@ Plans:
   5. `GET /api/public/menu` chỉ trả `id, code, name, price, unit, images[], is_out_of_stock` — không leak field nội bộ nào (M2.D-43)
 **Plans**: TBD
 **UI hint**: yes
-**Gate trước khi chạy**: chốt logo + màu thương hiệu quán (thay `#E4453A` của Lotteria), và giải quyết CONFLICT-DESIGN-01 (lưới món mobile 1 cột theo ref vs 2 cột theo spec §8-bis) tại `/gsd:ui-phase 8` — xem `docs/design-refs/lotteria/README.md`
+**Gate trước khi chạy**: chốt logo + màu thương hiệu quán (thay `#E4453A` của Lotteria), và giải quyết CONFLICT-DESIGN-01 (lưới món mobile 1 cột theo ref vs 2 cột theo spec §8-bis) tại `/gsd-ui-phase 8` — xem `docs/design-refs/lotteria/README.md`
 
 ### Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn
 **Goal**: Đơn của khách được duyệt nhanh, không bao giờ bị bỏ quên, và khách tự theo dõi được tiến độ mà không thấy trạng thái từng món
