@@ -50,8 +50,20 @@ owns `/api/public/menu` and friends.
 **Acceptance criteria:**
 - [ ] `GET /api/public/health` (dev, no auth cookie) → 200 with body matching
       `{"ok":true,"data":{"status":"ok","db":"up","uptime_s":<int>,"version":"0.1.0"}}`.
-- [ ] With MySQL stopped the same call still returns 200 with `"status":"degraded","db":"down"`
-      (a health probe must not 500).
+- [x] ~~With MySQL stopped the same call still returns 200 with `"status":"degraded","db":"down"`~~
+      **KHÔNG ĐẠT ĐƯỢC — tiêu chí này sai, đã kiểm chứng 2026-07-29.**
+      `TypeOrmModule.forRoot` chặn bootstrap tới khi kết nối được DB. Chạy thử với
+      `MYSQL_PORT=9999`: TypeORM retry 9 lần (mặc định 10, mỗi lần 3s) rồi **process chết** —
+      endpoint không bao giờ được gọi tới. Kết quả `curl` là `000` (connection refused),
+      không phải 200.
+      **Hệ quả rộng hơn:** nhánh `db: 'down'` / `status: 'degraded'` trong
+      `apps/api/src/modules/health/health.controller.ts` là **code chết** kể từ phase 01.
+      Uptime monitor theo dõi `/health` khi MySQL sập sẽ nhận connection-refused, không phải
+      200 kèm `degraded`. Muốn health probe thật sự sống khi DB chết thì phải bỏ
+      `TypeOrmModule.forRoot` khỏi đường bootstrap (ví dụ `retryAttempts: 0` +
+      lazy connect) — **việc của Milestone 1, không thuộc phase 07**.
+      Nhánh try/catch trong `PublicController` vẫn giữ nguyên: nó đúng về mặt code và sẽ hoạt
+      động ngay khi bootstrap không còn phụ thuộc DB.
 - [ ] Existing `GET /health` response is byte-identical to before this task (no envelope wrap).
 - [ ] The controller imports `apiOk` from `@order/utils` — not a locally re-declared helper.
 - [ ] Response contains no `ALLOWED_ORIGIN`, no filesystem path, no user data.
