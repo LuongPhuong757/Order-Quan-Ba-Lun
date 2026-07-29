@@ -126,7 +126,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 4. Order Lifecycle | M1 | — | Complete | 2026 (VGFlow) |
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
-| 7. Hạ tầng trang khách | M2 | 0/4 | Planned | - |
+| 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
 | 8. Menu, Checkout & Công tắc | M2 | 0/TBD | Not started | - |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |

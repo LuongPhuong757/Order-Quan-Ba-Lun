@@ -23,9 +23,11 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 ## Current Position
 
 Phase: 7 of 10 (Hạ tầng trang khách) — phase 1 of 4 trong Milestone 2
-Plan: 0 of 4 (2 wave — wave 1: 07-01 + 07-02 song song; wave 2: 07-03 + 07-04 song song)
-Status: Ready to execute
-Last activity: 2026-07-29 — `/gsd-plan-phase 7` xong: `07-CONTEXT.md` + 4 PLAN.md. Coverage REQ-Q 4/4 plan, M2.D-64..69 phủ hết (65 và 68 → deferred UAT)
+Plan: 4 of 4 — tất cả complete (commit `886d797`)
+Status: Executed — chờ `/gsd-verify-work 7`
+Last activity: 2026-07-29 — execute phase 7 xong. 5 project typecheck sạch, 18/18 test xanh, bundle guard OK. 7 hạng mục deferred UAT ghi ở `07-UAT.md`
+
+Progress: [██░░░░░░░░] 25% (1/4 phase Milestone 2)
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -69,6 +71,12 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - Sửa spec §7 dòng 469 (`300s` → `1800s`) hoặc để nguyên và tin vào cảnh báo C-FLOW-01
 
 ### Blockers/Concerns
+
+- **VIỆC ĐẦU PHASE 8 — `apps/shop` chưa có router.** `main.tsx` render một `<main>` tĩnh, còn nguyên `TODO(task-10)`. 4 trang `CartPage`/`CheckoutPage`/`HistoryPage`/`OrderTrackPage` tồn tại nhưng **không được import ở đâu** → dead code, bị tree-shake, không vào bundle. Intel ingest ghi "DONE" là do chỉ verify file tồn tại, không verify file được dùng. Kéo theo: criterion M2.D-64 hiện pass gần như vô nghĩa (bundle shop chưa có route nào), guard chỉ có giá trị thật từ phase 8.
+- **Bug production đã sửa ở phase 7, cần biết khi review:** `apiPrefixes` thiếu `/api` làm mọi `GET /api/*` trả `index.html` ở production (Nest mount router trong `app.init()`, sau `app.use()`). Có từ Milestone 1, chưa ai gặp vì `/api/public/health` là endpoint `/api/*` đầu tiên.
+- **`.env.production` thật trên VPS phải có `ALLOWED_ORIGIN`** — `docker-compose.prod.yml:62` đã truyền biến này nhưng file mẫu trước đây không khai báo; để trống → admin bị 403 toàn bộ mutation.
+- **Tên miền chưa nhất quán:** `.env.production.example` dùng `quanbalun.com`, spec M2 + `.planning/` dùng `quanbalun.site`. Chốt một cái trước khi deploy.
+- **Máy dev không có Docker lẫn `caddy` CLI** → `docker build` và `caddy validate` chưa từng chạy. Đã đưa vào `07-UAT.md` test 6 và 7.
 
 - **Phase 8 có gate**: chốt logo + màu thương hiệu quán (thay `#E4453A` của Lotteria). Ảnh mobile đã có 2026-07-29.
 - **CONFLICT-DESIGN-01**: lưới món mobile — ref thật của Lotteria là **1 cột**, spec §8-bis LOCKED ghi **2 cột**. Quyết ở `/gsd:ui-phase 8`; nếu lệch spec phải ghi `OVERRIDE-DEBT.md`.
