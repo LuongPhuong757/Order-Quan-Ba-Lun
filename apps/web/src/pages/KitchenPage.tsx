@@ -345,21 +345,23 @@ export function KitchenPage() {
   return (
     <div className="kds-container">
       <style>{`
+        /* Layout compact 1-dòng/món: card cao ~46px thay vì ~140px → 1 màn iPad
+           thấy được gấp 3 số món, bếp không phải scroll để nắm tình hình. */
         .kds-container {
-          padding: 12px 16px 80px;
-          max-width: 1600px;
+          padding: 8px 12px 60px;
+          max-width: 100%;
           margin: 0 auto;
         }
         .kds-header {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          margin-bottom: 12px;
+          margin-bottom: 8px;
         }
-        .kds-header h1 { margin: 0; font-size: 24px; }
+        .kds-header h1 { margin: 0; font-size: 18px; }
         .kds-board {
           display: grid;
-          gap: 12px;
+          gap: 8px;
           grid-template-columns: 1fr;
         }
         @media (min-width: 768px) {
@@ -367,20 +369,20 @@ export function KitchenPage() {
         }
         .kds-column {
           background: white;
-          border-radius: 12px;
-          padding: 12px;
+          border-radius: 10px;
+          padding: 8px;
           display: flex;
           flex-direction: column;
-          min-height: 200px;
+          min-height: 160px;
           border: 1px solid #e5e7eb;
         }
         .kds-column-header {
-          padding: 6px 10px;
-          margin: -4px -4px 8px;
-          border-radius: 8px;
+          padding: 5px 9px;
+          margin: -3px -3px 6px;
+          border-radius: 7px;
           color: white;
           font-weight: 700;
-          font-size: 16px;
+          font-size: 14px;
           display: flex;
           justify-content: space-between;
           align-items: center;
@@ -389,88 +391,119 @@ export function KitchenPage() {
           flex: 1;
           display: flex;
           flex-direction: column;
-          gap: 10px;
+          /* 14px giữa 2 card: nút mũi tên cao 36px, khoảng trống này đủ để ngón
+             tay lệch vẫn không bấm sang món kế bên (bếp tay ướt/đeo găng). */
+          gap: 14px;
           overflow-y: auto;
+          padding-bottom: 2px;
         }
         .kds-card {
           background: white;
-          border-radius: 10px;
-          padding: 12px;
+          border-radius: 8px;
+          padding: 8px 10px;
           border: 1px solid #e5e7eb;
           display: flex;
-          gap: 10px;
-          align-items: stretch;
+          /* 14px giữa nút 🚫 và mũi tên → tránh bấm nhầm "báo hết" khi muốn
+             chuyển trạng thái (2 hành động rất khác nhau, khó undo). */
+          gap: 14px;
+          align-items: center;
         }
         .kds-card-info { flex: 1; min-width: 0; }
+        /* Dòng 1: [badge] tên món · SL · bàn — tất cả trên 1 hàng, tên món cắt
+           bằng ellipsis (title= giữ full text khi hover). */
+        .kds-card-line1 {
+          display: flex;
+          align-items: baseline;
+          gap: 6px;
+          min-width: 0;
+        }
+        .kds-card-name {
+          font-size: 14px;
+          font-weight: 700;
+          line-height: 1.3;
+          flex: 1;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-card-qty {
+          font-size: 13px;
+          font-weight: 700;
+          color: #374151;
+          white-space: nowrap;
+        }
         .kds-card-table {
           font-weight: 700;
           color: #0f766e;
-          font-size: 18px;
+          font-size: 13px;
+          white-space: nowrap;
         }
-        .kds-card-name {
-          font-size: 18px;
-          font-weight: 700;
-          line-height: 1.25;
-          margin: 2px 0;
-        }
+        /* Dòng 2: meta xám nhỏ — người gọi · đồng hồ · ghi chú · trạng thái hết */
         .kds-card-meta {
-          font-size: 12px;
+          font-size: 11px;
           color: #6b7280;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex-wrap: wrap;
+          line-height: 1.4;
         }
         .kds-card-note {
-          font-size: 13px;
+          font-size: 11px;
           color: #dc2626;
-          margin-top: 4px;
-          font-weight: 500;
+          font-weight: 600;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-badge {
+          display: inline-block;
+          padding: 1px 5px;
+          border-radius: 4px;
+          font-size: 10px;
+          font-weight: 700;
+          white-space: nowrap;
         }
         .kds-arrow {
           background: var(--col, #0f766e);
           color: white;
           border: none;
-          border-radius: 8px;
-          min-width: 64px;
-          font-size: 28px;
+          border-radius: 7px;
+          min-width: 52px;
+          height: 40px;
+          font-size: 20px;
           font-weight: 700;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          padding: 0;
+          gap: 3px;
+          padding: 0 6px;
           transition: transform 0.1s ease, opacity 0.15s;
         }
-        .kds-arrow:hover { transform: translateX(3px); }
-        .kds-arrow:active { transform: translateX(6px); opacity: 0.9; }
-        .kds-arrow .label {
-          font-size: 11px;
-          font-weight: 600;
-          text-align: center;
-          padding: 4px;
-          line-height: 1.2;
-        }
-        .kds-arrow-content {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          gap: 2px;
-        }
+        .kds-arrow:hover { transform: translateX(2px); }
+        .kds-arrow:active { transform: translateX(4px); opacity: 0.9; }
         .kds-small-btn {
           background: white;
           color: #6b7280;
           border: 1px solid #d1d5db;
           border-radius: 6px;
-          padding: 4px 8px;
-          font-size: 12px;
+          padding: 0 10px;
+          height: 40px;
+          font-size: 15px;
+          line-height: 1;
           cursor: pointer;
-          margin-top: 6px;
+          flex-shrink: 0;
         }
         .kds-small-btn:hover { background: #f9fafb; }
         .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
         .kds-empty {
           color: #9ca3af;
           text-align: center;
-          padding: 24px;
-          font-size: 14px;
+          padding: 16px;
+          font-size: 13px;
         }
       `}</style>
 
@@ -478,7 +511,7 @@ export function KitchenPage() {
         <h1>👨‍🍳 Bếp — màn nấu</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <HelpButton onClick={() => setHelpOpen(true)} />
-          <button className="secondary" onClick={manualRefresh} style={{ padding: '8px 14px', minHeight: 40 }}>
+          <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px', minHeight: 34, fontSize: 13 }}>
             ↻ Làm mới
           </button>
         </div>
@@ -491,13 +524,13 @@ export function KitchenPage() {
         </p>
         <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
           <li>
-            <strong style={{ color: '#f59e0b' }}>📢 Đã order</strong> — món vừa được nhân viên gọi, đang chờ bếp xếp việc. Bấm "🔥 Bắt đầu nấu" để vào "Đang nấu".
+            <strong style={{ color: '#f59e0b' }}>📢 Đã order</strong> — món vừa được nhân viên gọi, đang chờ bếp xếp việc. Bấm nút <strong>🔥 →</strong> để vào "Đang nấu".
           </li>
           <li>
-            <strong style={{ color: '#3b82f6' }}>🔥 Đang nấu</strong> — bếp đang nấu. Khi xong, bấm "✓ Xong, sẵn sàng" để vào "Đã xong".
+            <strong style={{ color: '#3b82f6' }}>🔥 Đang nấu</strong> — bếp đang nấu. Khi xong, bấm nút <strong>✓ →</strong> để vào "Đã xong".
           </li>
           <li>
-            <strong style={{ color: '#10b981' }}>🍽 Đã xong</strong> — món xong, nhân viên order nhận noti + tiếng beep để ra lấy mang cho khách. Bếp bấm "🚀 Đã giao" sau khi nhân viên đã lấy.
+            <strong style={{ color: '#10b981' }}>🍽 Đã xong</strong> — món xong, nhân viên order nhận noti + tiếng beep để ra lấy mang cho khách. Bếp bấm <strong>🚀 →</strong> sau khi nhân viên đã lấy.
           </li>
         </ul>
 
@@ -514,13 +547,13 @@ export function KitchenPage() {
         <h3 style={{ marginBottom: 6 }}>⭐ Món được ưu tiên</h3>
         <p style={{ margin: '4px 0' }}>
           Nhân viên Order có thể đánh dấu món ưu tiên (khi khách sắp về). Card sẽ có nhãn{' '}
-          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>⭐ ƯU TIÊN CẦN NẤU TRƯỚC</span>{' '}
+          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>⭐ ƯU TIÊN</span>{' '}
           và đứng đầu cột "Đã order". Khi bếp bấm "Bắt đầu nấu", cờ ưu tiên tự mất.
         </p>
 
         <h3 style={{ marginBottom: 6 }}>Đánh dấu món hết nguyên liệu</h3>
         <p style={{ margin: '4px 0' }}>
-          Bấm "🚫 Đánh dấu hết" trên card → menu món đó chuyển đỏ (nhân viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận noti báo khách đổi món.
+          Bấm nút <strong>🚫</strong> trên card (bên trái mũi tên) → menu món đó chuyển đỏ (nhân viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận noti báo khách đổi món.
         </p>
 
         <h3 style={{ marginBottom: 6 }}>🔍 Lọc theo nhóm món</h3>
@@ -563,8 +596,8 @@ export function KitchenPage() {
       <div
         style={{
           display: 'flex',
-          gap: 8,
-          marginBottom: 12,
+          gap: 6,
+          marginBottom: 8,
           alignItems: 'center',
           flexWrap: 'wrap',
         }}
@@ -573,10 +606,10 @@ export function KitchenPage() {
           onClick={() => setShowFilterModal(true)}
           className={groupFilters.size > 0 ? '' : 'secondary'}
           style={{
-            padding: '10px 16px',
-            fontSize: 14,
+            padding: '7px 12px',
+            fontSize: 13,
             whiteSpace: 'nowrap',
-            minHeight: 44,
+            minHeight: 36,
             fontWeight: groupFilters.size > 0 ? 700 : 400,
           }}
         >
@@ -596,11 +629,11 @@ export function KitchenPage() {
                   <span
                     key={code}
                     style={{
-                      padding: '4px 8px',
+                      padding: '3px 7px',
                       background: '#f0fdfa',
                       border: '1px solid #ccfbf1',
                       borderRadius: 999,
-                      fontSize: 12,
+                      fontSize: 11,
                       whiteSpace: 'nowrap',
                     }}
                   >
@@ -735,92 +768,71 @@ function Card({
       }}
     >
       <div className="kds-card-info">
-        {isNote && (
+        <div className="kds-card-line1">
+          {isNote && (
+            <span
+              className="kds-badge"
+              style={{ background: '#ede9fe', color: '#6d28d9', border: '1px solid #a78bfa' }}
+              title="Yêu cầu phục vụ từ bồi bàn — không phải món nấu"
+            >
+              📝 YC PHỤC VỤ
+            </span>
+          )}
+          {item.is_priority && (
+            <span
+              className="kds-badge"
+              style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #f59e0b' }}
+              title="Nhân viên Order đánh dấu — khách sắp về, ưu tiên nấu trước"
+            >
+              ⭐ ƯU TIÊN
+            </span>
+          )}
           <div
-            style={{
-              display: 'inline-block',
-              background: '#ede9fe',
-              color: '#6d28d9',
-              border: '1px solid #a78bfa',
-              padding: '3px 8px',
-              borderRadius: 6,
-              fontSize: 11,
-              fontWeight: 700,
-              marginBottom: 6,
-            }}
-            title="Yêu cầu phục vụ từ bồi bàn — không phải món nấu"
+            className="kds-card-name"
+            style={{ color: ageTextColor }}
+            title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
           >
-            📝 YÊU CẦU PHỤC VỤ
+            {item.menu_item_name}
           </div>
-        )}
-        {item.is_priority && (
-          <div
-            style={{
-              display: 'inline-block',
-              background: '#fef3c7',
-              color: '#b45309',
-              border: '1px solid #f59e0b',
-              padding: '3px 8px',
-              borderRadius: 6,
-              fontSize: 11,
-              fontWeight: 700,
-              marginBottom: 6,
-            }}
-            title="Nhân viên Order đánh dấu — khách sắp về, ưu tiên nấu trước"
-          >
-            ⭐ ƯU TIÊN CẦN NẤU TRƯỚC
-          </div>
-        )}
-        <div
-          className="kds-card-table"
-          title={item.table_code}
-          style={{ color: ageTextColor }}
-        >
-          {item.table_name}
+          {!isNote && <span className="kds-card-qty">×{item.qty}</span>}
+          <span className="kds-card-table" title={item.table_code} style={{ color: ageTextColor }}>
+            {item.table_name}
+          </span>
         </div>
-        <div
-          className="kds-card-name"
-          style={{ color: ageTextColor }}
-        >
-          {isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
-        </div>
-        {item.created_by_full_name && (
-          <div
-            style={{
-              fontSize: 12,
-              color: '#0f766e',
-              marginTop: 2,
-              fontWeight: 500,
-            }}
-            title="Nhân viên gọi món — hỏi người này nếu có vấn đề"
-          >
-            👤 {item.created_by_full_name}
-          </div>
-        )}
-        {item.note && <div className="kds-card-note">📝 {item.note}</div>}
         <div className="kds-card-meta">
-          {ageTextColor === '#b91c1c' && '⚠ '}
-          ⏱ {ageMin}p
+          <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
+            {ageTextColor === '#b91c1c' && '⚠ '}⏱ {ageMin}p
+          </span>
+          {item.created_by_full_name && (
+            <span style={{ color: '#0f766e' }} title="Nhân viên gọi món — hỏi người này nếu có vấn đề">
+              👤 {item.created_by_full_name}
+            </span>
+          )}
+          {item.note && (
+            <span className="kds-card-note" title={item.note}>
+              📝 {item.note}
+            </span>
+          )}
+          {isOutOfStock && (
+            <span style={{ color: '#dc2626', fontWeight: 600 }}>🚫 Menu HẾT</span>
+          )}
         </div>
-        {isOutOfStock && (
-          <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>
-            🚫 Menu đánh dấu HẾT
-          </div>
-        )}
-        {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
-            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
-            Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
-            (BE sẽ 404 vì menu_item_id là NULL). */}
-        {colDef.state !== 'READY' && !isNote && (
-          <button
-            className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
-            onClick={onToggleStock}
-            title={isOutOfStock ? 'Đánh dấu có lại' : 'Đánh dấu món hết nguyên liệu'}
-          >
-            {isOutOfStock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
-          </button>
-        )}
       </div>
+
+      {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
+          để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
+          Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
+          (BE sẽ 404 vì menu_item_id là NULL). */}
+      {colDef.state !== 'READY' && !isNote && (
+        <button
+          className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
+          onClick={onToggleStock}
+          title={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+          aria-label={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+        >
+          {isOutOfStock ? '✓' : '🚫'}
+        </button>
+      )}
 
       <button
         className="kds-arrow"
@@ -829,11 +841,8 @@ function Card({
         title={colDef.nextLabel}
         aria-label={colDef.nextLabel}
       >
-        <div className="kds-arrow-content">
-          <span style={{ fontSize: 20 }}>{colDef.nextIcon}</span>
-          <span style={{ fontSize: 24, lineHeight: 1 }}>→</span>
-          <span className="label">{colDef.nextLabel}</span>
-        </div>
+        <span style={{ fontSize: 15 }}>{colDef.nextIcon}</span>
+        <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
       </button>
     </div>
   );

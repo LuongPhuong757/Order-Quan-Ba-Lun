@@ -33,6 +33,7 @@ import {
 import { OrdersService } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { RequireRoles } from '../auth/guards/roles.guard.js';
 
 class AddItemDto {
   @IsUUID() menu_item_id!: string;
@@ -99,7 +100,7 @@ class UpdateCustomerInfoDto {
 const STAFF_HISTORY_WINDOW_MS = 48 * 60 * 60 * 1000;
 
 /** Trả về giới hạn tuổi đơn cho user hiện tại: `undefined` = không giới hạn (admin),
- * số ms = chỉ xem được trong khoảng đó (order/bếp).
+ * số ms = chỉ xem được trong khoảng đó (order + bếp).
  *
  * Đặt ở controller vì đây là quyết định QUYỀN, không phải nghiệp vụ đơn hàng —
  * service chỉ nhận số và thực thi. */
@@ -236,8 +237,13 @@ export class OrdersController {
   }
 
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
-   * Nhân viên order chỉ thấy đơn trong 48h gần nhất (xem staffHistoryWindowMs). */
+   *
+   * Admin: đầy đủ, không giới hạn thời gian.
+   * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), thấy giá món / tổng bill /
+   *   thông tin thanh toán như nhau. Thứ DUY NHẤT chỉ admin có là số tổng doanh thu
+   *   nhiều bàn cộng lại — nằm ở /orders/stats, đã có AdminGuard riêng. */
   @Get('history')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
@@ -268,8 +274,10 @@ export class OrdersController {
     return { data };
   }
 
-  /** GET /orders/cashiers — DISTINCT cashier list cho filter dropdown */
+  /** GET /orders/cashiers — DISTINCT cashier list cho filter dropdown.
+   * Chỉ màn Lịch sử/Nhật ký dùng → cùng quyền với /orders/history. */
   @Get('cashiers')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
   async cashiers() {
     const items = await this.svc.listCashiers();
     return { data: { items } };
@@ -280,8 +288,9 @@ export class OrdersController {
    * Admin: xem mọi đơn, không giới hạn thời gian.
    * Order: xem được nhật ký bàn nhưng CHỈ trong 48h gần nhất — đủ để tự đối chiếu
    *   ca làm của mình, không thành công cụ soi lại toàn bộ quá khứ.
-   * Bếp: không được (không liên quan nghiệp vụ bàn/tiền). */
+   * Bếp: giống nhân viên order — cũng 48h, cũng thấy đủ (kể cả câu log có số tiền). */
   @Get(':id/activity')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
   async activity(@Param('id') id: string, @Req() req: Request) {
     const items = await this.svc.listOrderActivity(id, staffHistoryWindowMs(req));
     return { data: { items } };
