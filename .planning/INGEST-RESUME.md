@@ -1,3 +1,18 @@
+> ## ✅ ĐÃ GIẢI QUYẾT — 2026-07-29, commit `3ac6ab5`
+>
+> Cả 6 điểm bên dưới đã được chủ dự án quyết, `/gsd:ingest-docs` chạy xong, `PROJECT.md` /
+> `REQUIREMENTS.md` / `ROADMAP.md` / `STATE.md` / `config.json` đã sinh.
+> **File này giữ lại làm lịch sử — đừng hỏi lại 6 câu này.** Trạng thái hiện tại đọc ở `STATE.md`.
+>
+> Quyết định cuối: (1) dùng bản dựng lại — `.vg/ROADMAP.md` **chưa bao giờ** có Phase 07 nên không có bản gốc ·
+> (2) ảnh mobile đã cung cấp 2026-07-29 → `docs/design-refs/lotteria/README.md`, gate còn lại chỉ là logo/màu ·
+> (3) 5 criteria production → deferred UAT · (4) tách hàm thuần + harness integration MySQL ·
+> (5) mở rộng M2.D-67 sang so khớp host chính xác (C-SEC-01) · (6) `@nestjs/schedule` in-process.
+>
+> Bước tiếp: `/gsd:plan-phase 7`.
+
+---
+
 # Điểm dừng — GSD ingest Milestone 2
 
 **Dừng lúc:** 2026-07-29, giữa `/gsd:ingest-docs` (bước `conflict_gate`)
