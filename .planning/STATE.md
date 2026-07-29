@@ -100,8 +100,53 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-29
-Stopped at: `/gsd-plan-phase 7` hoàn tất — `07-CONTEXT.md` + 4 PLAN.md trong `.planning/phases/07-shop-infra/`
-Resume file: None — bước tiếp là `/gsd-execute-phase 7`
+Last session: 2026-07-30
+Stopped at: phase 7 execute xong + mở hết 4 gate của phase 8 (màu, logo, font, số cột). Chưa bắt đầu phase 8.
+Resume file: None — bước tiếp là `/gsd-ui-phase 8` rồi `/gsd-plan-phase 8`
 
-**Lưu ý về tên command:** GSD bản này cài command dạng phẳng nên là `/gsd-plan-phase` (gạch ngang), **không** phải `/gsd:plan-phase`. Thư mục phase đặt tay là `07-shop-infra` vì slug tự sinh từ tên tiếng Việt bị băm thành `07-h-t-ng-trang-kh-ch`; GSD nhận theo tiền tố `07-` nên không sao.
+## Bàn giao sang máy khác (viết 2026-07-30)
+
+**Nhánh:** `feat/online-ordering`. Đã push tới commit `88bc067`.
+
+### Dựng lại môi trường trên máy mới
+
+1. `git clone` + `git checkout feat/online-ordering`
+2. **Cài lại GSD** — harness KHÔNG nằm trong repo:
+   ```
+   npx -y @opengsd/gsd-core@latest --claude --local
+   ```
+   `.claude/gsd-core/` và `.claude/agents/` bị gitignore có chủ ý. Quan trọng hơn: các file
+   `.claude/commands/gsd-*.md` chứa **đường dẫn tuyệt đối của máy cũ**
+   (`@C:/Users/Admin/Desktop/QuanBaLun/...`) nên copy sang máy khác là hỏng — bắt buộc chạy
+   installer để nó sinh lại theo đường dẫn máy mới.
+3. `pnpm install` — **rồi `pnpm --filter @order/utils build`**. Thiếu bước build này thì
+   `apps/api` không typecheck được (`Cannot find module '@order/utils'`).
+4. `cp .env.example .env` rồi điền MySQL. Cần MySQL chạy sẵn (máy cũ dùng native cổng 3306;
+   `docker-compose.yml` có mysql cổng 3307 nếu dùng Docker).
+5. Kiểm tra nhanh: `pnpm -r typecheck` (5 project phải sạch) · `cd apps/api && pnpm test`
+   (18/18 xanh) · `sh scripts/check-shop-bundle.sh` (in `OK`).
+6. Xem trang khách: `pnpm --filter @order/shop dev` → http://localhost:5174/
+
+### Tên command
+
+GSD bản này cài command dạng phẳng: `/gsd-ui-phase`, `/gsd-plan-phase` (**gạch ngang**), không
+phải `/gsd:...`. Nếu báo `Unknown command` thì reload cửa sổ VSCode.
+
+### Hai thứ phase 8 phải làm TRƯỚC khi có trang menu thật
+
+1. **`apps/shop` chưa có router.** `main.tsx` đang render `BrandPreview` (trang xem màu tạm).
+   4 trang trong `src/pages/` là dead code, chưa import ở đâu. Phải dựng `BrowserRouter` +
+   AppShell rồi xoá `BrandPreview.tsx`.
+2. **`/api/public/menu` chưa tồn tại.** Chỉ có `/api/public/health`. Không có endpoint này thì
+   trang menu không có gì để hiển thị.
+
+### Nợ kỹ thuật đã biết, đừng phát hiện lại
+
+- `docker build` và `caddy validate` **chưa từng chạy** — máy cũ không có Docker lẫn `caddy` CLI.
+  Xem `07-UAT.md` test 6 và 7.
+- `.claude/commands/` hiện untracked trên máy cũ (đã gỡ khỏi gitignore để loại nghi vấn slash
+  command không được quét). Đừng commit nó — xem lý do đường dẫn tuyệt đối ở trên.
+- Thư mục phase đặt tay là `07-shop-infra` vì slug tự sinh từ tên tiếng Việt bị băm thành
+  `07-h-t-ng-trang-kh-ch`. GSD nhận theo tiền tố `07-` nên không sao. Phase 8 làm tương tự:
+  tự tạo `.planning/phases/08-<tên-ascii>/`.
+- Đọc `OVERRIDE-DEBT.md` trước khi sửa gì thuộc §8-bis hoặc CSRF — có 5 override đã ghi.
