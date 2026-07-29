@@ -7,6 +7,14 @@ created_at: 2026-07-29
 source: ai-draft
 ---
 
+> **Amendment 2026-07-29** — thêm **4 bản sửa hạ tầng** phát hiện khi thảo luận scope phase 08:
+> F2 SPA fallback bỏ qua `/api/*` · F4 `Referrer-Policy: no-referrer` + proxy `/uploads/` ·
+> F5 Dockerfile thêm `packages/utils` vào cả 3 stage · F6 CSRF so khớp chính xác + phủ
+> `/api/admin/`. Mỗi mục được đánh dấu *(bổ sung 2026-07-29)* trong Scope và Success criteria.
+> Nguồn: `.vg/phases/08-public-menu-checkout/DISCUSSION-LOG.md#round-2` và `#round-3`.
+> Lý do đưa về phase 07: cả 4 đều là hạ tầng, và F2 phá chính tiêu chí
+> `GET /api/public/health` của phase 07.
+
 ## Goal
 
 Dựng frontend riêng `apps/shop` cho khách trên subdomain `order.<domain>`, dùng chung
@@ -35,14 +43,35 @@ Nguồn quyết định: `.vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md` § Vòng 5 (
 - `apps/api/src/main.ts`: chọn thư mục static theo `Host` header — host bắt đầu `order.`
   → `shop-dist`, còn lại → `web-dist` (M2.D-66). Giữ nguyên SPA fallback hiện có cho
   cả hai.
+- **`apps/api/src/main.ts` — cho `/api/*` đi qua TRƯỚC nhánh `wantsHtml`** *(bổ sung
+  2026-07-29, phát hiện ở scope 08)*. Thêm `if (req.path === '/api' ||
+  req.path.startsWith('/api/')) return next();` làm **câu lệnh đầu tiên** của middleware.
+  Hiện `apiPrefixes` (main.ts:46) không có `/api` và nhánh `wantsHtml` chạy trước, nên mọi
+  `GET /api/public/*` trả về `index.html` — **chỉ trên production** (`NODE_ENV=production` +
+  có `web-dist`), local dev pass hết. Phá luôn `GET /api/public/health` của chính phase này.
 - `csrf-origin.middleware.ts`: `ALLOWED_ORIGIN` nhận **danh sách** phân tách dấu phẩy,
-  trim khoảng trắng, so khớp chính xác từng origin (M2.D-67).
+  trim khoảng trắng, **so khớp CHÍNH XÁC** từng origin — không dùng `startsWith` (M2.D-67).
+- **`csrf-origin.middleware.ts` — `pathRequiresCheck` phủ thêm `/api/admin/`, loại trừ
+  tường minh `/api/public/`** *(bổ sung 2026-07-29)*. Hiện chỉ phủ `/admin/` và `/auth/` nên
+  `PUT /api/admin/settings` không được kiểm origin. Phải loại trừ `/api/public/` vì `curl`
+  không có header `Origin`, nếu chặn thì phá tiêu chí "test bằng curl" của phase 08.
+  Lỗ hổng đang có: `'https://quanbalun.site.evil.com'.startsWith('https://quanbalun.site')`
+  trả `true`.
 
 #### Hạ tầng deploy
 - `Caddyfile`: thêm site block `order.{$DOMAIN}` → `reverse_proxy api:3001`, với
   `Permissions-Policy: geolocation=(self)` (M2.D-69). Site block admin **giữ**
   `geolocation=()`.
+- **`Caddyfile` — site block `order.` thêm `Referrer-Policy: no-referrer`** *(bổ sung
+  2026-07-29)*: URL `/o/<order_token>` không rò qua header `Referer` sang asset bên ngoài.
+  Và **phải proxy được `/uploads/`** vì ảnh món lưu đường dẫn tương đối
+  `/uploads/menu/<file>`.
 - `Dockerfile`: build thêm `apps/shop` → copy ra `shop-dist` cạnh `web-dist`.
+- **`Dockerfile` — thêm `packages/utils` vào CẢ 3 stage** *(bổ sung 2026-07-29)*: sao y đúng
+  cách `packages/schemas` đang làm (COPY manifest ở `deps` dòng 14-16 và `runtime` dòng
+  55-57, COPY `dist` dòng 63). Dockerfile liệt kê manifest **bằng tay** nên thiếu là
+  `ERR_PNPM_OUTDATED_LOCKFILE`, build image fail trước khi app chạy. `packages/utils` do
+  phase 08 tạo nhưng **hạ tầng build phải có sẵn từ phase 07**.
 - `.env.production`: `ALLOWED_ORIGIN` thành 2 origin (apex + order).
 - DNS A record `order.quanbalun.site` → IP VPS; verify cert HTTPS Caddy tự cấp.
 
@@ -96,6 +125,16 @@ Nguồn quyết định: `.vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md` § Vòng 5 (
       chạy đúng như trước khi sửa `main.ts`.
 - [ ] `pnpm build` ở root build được cả 2 app; turbo cache không xung đột giữa
       `web-dist` và `shop-dist`.
+- [ ] **`GET /api/public/health` với `Accept: text/html` vẫn trả JSON**, không trả vỏ HTML của
+      POS — kiểm ở chế độ production, không phải dev *(bổ sung 2026-07-29)*.
+- [ ] **CSRF: origin giả mạo `https://order.<domain>.evil.com` → 403**; mọi origin thật trong
+      danh sách → 200; `POST` vào `/api/public/*` từ curl **không** header Origin → không bị
+      chặn *(bổ sung 2026-07-29)*.
+- [ ] **`curl -I https://order.<domain>` có header `Referrer-Policy: no-referrer`**; và
+      `https://order.<domain>/uploads/menu/<file>` trả đúng ảnh *(bổ sung 2026-07-29)*.
+- [ ] **Docker image build được với `packages/utils` rỗng trong workspace** — không
+      `ERR_PNPM_OUTDATED_LOCKFILE`, `node dist/main.js` không `ERR_MODULE_NOT_FOUND`
+      *(bổ sung 2026-07-29)*.
 
 ## Dependencies
 
