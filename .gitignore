@@ -74,6 +74,11 @@ Thumbs.db
 .claude/package.json
 .claude/agents/
 .claude/commands/gsd/
+# Installer bản hiện tại đặt command dạng phẳng .claude/commands/gsd-*.md (không phải gsd/),
+# và giải nén runtime vào .claude/gsd-core/ — cả hai đều là harness, không phải source.
+.claude/commands/gsd-*.md
+.claude/gsd-core/
+.claude/scripts/
 # hooks/ toàn bộ là GSD-managed, chỉ wire từ settings.local.json.
 .claude/hooks/
 
