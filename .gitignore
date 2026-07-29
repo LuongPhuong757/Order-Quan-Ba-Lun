@@ -97,3 +97,12 @@ Thumbs.db
 .claude/scripts/gsd-*
 # hooks/ hiện toàn bộ là GSD-managed, chỉ wire từ settings.local.json.
 .claude/hooks/
+
+# Impeccable (bộ dò anti-pattern giao diện)
+# config.json ĐƯỢC commit — nó chứa danh sách miễn trừ kèm lý do, là policy của
+# dự án. Chỉ file override riêng của từng máy dev mới bị loại.
+.impeccable/config.local.json
+
+# apps/shop build output (phase 07)
+apps/shop/dist/
+packages/utils/dist/

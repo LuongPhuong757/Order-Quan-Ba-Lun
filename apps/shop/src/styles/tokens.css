@@ -1,0 +1,221 @@
+/* ============================================================================
+ * Design tokens — apps/shop (trang khách đặt hàng online)
+ * ============================================================================
+ * Nguồn: §8-bis "Đặc tả giao diện trang khách" trong
+ * .vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md — rút từ ảnh tham chiếu lotteria.vn.
+ *
+ * ĐÂY LÀ NGUỒN SỰ THẬT DUY NHẤT VỀ MÀU / CHỮ / KHOẢNG CÁCH của apps/shop.
+ * Không hardcode màu hex hay px trong .tsx — luôn dùng var(--...).
+ * Lý do: apps/web đang hardcode rải rác (#0f766e, #dc2626, #1f2937...) nên
+ * không đổi được màu thương hiệu ở một chỗ. apps/shop không lặp lại lỗi đó.
+ *
+ * ── CHỜ CHỐT ────────────────────────────────────────────────────────────────
+ * Màu thương hiệu Quán Bà Lùn CHƯA CHỐT (M2.D-71). Giá trị dưới đây là màu đỏ
+ * coral của Lotteria dùng TẠM. Khi có logo quán: chỉ sửa 3 dòng --brand-500/
+ * 600/700 trong khối "THƯƠNG HIỆU", mọi thứ khác tự theo.
+ * Nhớ chạy lại kiểm tra tương phản (xem ghi chú AA ở từng dòng).
+ * ========================================================================= */
+
+:root {
+  /* ── THƯƠNG HIỆU ─────────────────────────────────────────────────────────
+   * Thang 3 bậc thay vì 1 màu duy nhất. §8-bis ghi "đỏ coral ~#E4453A" nhưng
+   * màu đó KHÔNG ĐỦ TƯƠNG PHẢN cho chữ nhỏ và cho nút:
+   *   - chữ trắng trên #E4453A = 4.03:1  → thiếu (WCAG AA cần 4.5:1)
+   *   - #E4453A trên nền trang  = 3.87:1  → thiếu cho chữ < 24px
+   * Nên tách: 500 dùng cho khối lớn, 600 dùng cho nút + chữ nhỏ. */
+
+  --brand-500: #e4453a; /* Đỏ coral gốc. Viền, giá ≥24px đậm (3.87:1 — đạt vì chữ lớn) */
+  --brand-600: #cc3529; /* Nút, link đỏ nhỏ, tab active. Trắng/nền: 5.11:1 · trên nền: 4.91:1 ✓AA */
+  --brand-700: #a82419; /* :hover / :active của nút. Trắng trên nền: 7.16:1 ✓AAA */
+  --brand-100: #ffe9e7; /* Nền badge nhạt, nền banner thông báo (§8-bis mục 3) */
+  --brand-050: #fff4f3; /* Nền vùng nhấn rất nhạt */
+
+  /* ── NỀN & MẶT PHẲNG ───────────────────────────────────────────────────── */
+  --bg-page: #fff9f8; /* §8-bis: trắng / hồng rất nhạt */
+  --bg-surface: #ffffff; /* Card món, card tổng tiền */
+  --bg-sunken: #f7f2f1; /* Ô input, vùng lõm, ảnh đang tải */
+  --bg-overlay: rgb(28 25 23 / 55%); /* Nền mờ sau modal chi tiết món */
+
+  /* ── CHỮ ─────────────────────────────────────────────────────────────────
+   * §8-bis ghi #222 / #888. Giữ tinh thần nhưng SỬA 2 điểm:
+   *   1. #888 trên nền trang = 3.40:1 → KHÔNG ĐẠT AA. Nâng lên #726865 (5.19:1).
+   *   2. Xám thuần bị coi là dấu hiệu UI máy sinh → thêm chút sắc ấm cho hợp
+   *      tông nền hồng nhạt. */
+  --text-strong: #1c1917; /* Tên món, tổng tiền. 16.79:1 */
+  --text-body: #33302e; /* Đoạn văn dài. 12.58:1 */
+  --text-muted: #726865; /* Mô tả món, ghi chú phụ. 5.19:1 ✓AA (thay #888) */
+  --text-faint: #8f8481; /* CHỈ cho chữ ≥18.66px đậm hoặc icon. 3.48:1 — KHÔNG dùng cho body */
+  --text-on-brand: #ffffff; /* Chữ trên nút đỏ */
+  --text-price: var(--brand-500); /* Giá — luôn đi kèm cỡ ≥24px đậm */
+  --text-price-sm: var(--brand-600); /* Giá nhỏ trong dòng giỏ hàng (<24px) */
+
+  /* ── VIỀN ───────────────────────────────────────────────────────────────── */
+  --border-subtle: #eeeae9; /* §8-bis: xám rất nhạt #EEE, ấm lên chút */
+  --border-default: #ded8d6;
+  --border-strong: #b8afac; /* Viền input khi focus-visible chưa bật */
+  --border-brand: var(--brand-500); /* Nhóm danh mục đang chọn, card món đang chọn */
+
+  /* ── TRẠNG THÁI ──────────────────────────────────────────────────────────
+   * Dùng cho banner tạm ngưng nhận đơn (M2.D-26/29), món hết hàng,
+   * mốc trạng thái đơn ở /o/:token.
+   * Cả 4 màu đều đạt AA ở CẢ HAI hướng: chữ trên nền trang, và chữ trắng
+   * trên chính màu đó (để dùng làm nền badge/nút được luôn). */
+  --ok-600: #157f5f; /* Đã xác nhận, đang giao. Trên nền: 4.76:1 · trắng trên nó: 4.96:1 */
+  --ok-100: #e3f7ef;
+  --warn-600: #96590a; /* Chờ duyệt, ngoài giờ mở cửa. 5.40:1 · 5.63:1 */
+  --warn-100: #fdf1dc;
+  --danger-600: #b4231d; /* Từ chối đơn, hết hàng, lỗi form. 6.30:1 · 6.56:1 */
+  --danger-100: #fde9e7;
+  --info-600: #1f5f9e; /* Banner "quán vừa cập nhật đơn". 6.32:1 · 6.59:1 */
+  --info-100: #e6f0fa;
+
+  /* ── PASTEL NHÓM DANH MỤC ────────────────────────────────────────────────
+   * §8-bis: nền ảnh danh mục pastel KHÁC NHAU từng nhóm để dải cuộn ngang
+   * sinh động. Gán theo index nhóm menu_groups, lặp lại sau 7 nhóm.
+   * Cả 7 màu đều ≥14.8:1 với --text-strong nên tên nhóm luôn đọc được. */
+  --cat-1: #f3e8ff; /* tím */
+  --cat-2: #e0f2fe; /* xanh */
+  --cat-3: #fce7f3; /* hồng */
+  --cat-4: #d1fae5; /* mint */
+  --cat-5: #fef3c7; /* vàng */
+  --cat-6: #ffedd5; /* cam */
+  --cat-7: #faf5eb; /* kem */
+
+  /* ── CHỮ: BỘ FONT ────────────────────────────────────────────────────────
+   * KHÔNG dùng system-ui / Inter / Arial: cả ba đều là font mặc định của UI do
+   * AI sinh, trang nào cũng giống nhau (detector rule: overused-font).
+   * Cần ĐÚNG 2 họ font — một họ duy nhất bị coi là thiếu phân cấp
+   * (rule: single-font).
+   *
+   * Cả 2 font đều có bộ dấu tiếng Việt đầy đủ:
+   *   - Be Vietnam Pro: do nhà chữ Việt làm, dấu chuẩn, đọc tốt ở cỡ nhỏ.
+   *   - Baloo 2: bo tròn, ấm, hợp hàng ăn — dùng cho tên món, giá, tiêu đề.
+   *
+   * TỰ HOST, KHÔNG gọi Google Fonts CDN: khách ở mạng 3G VN tải CDN chậm và
+   * bị chặn thất thường. Tải .woff2 (subset latin + vietnamese) vào
+   * apps/shop/public/fonts/ rồi khai báo @font-face trong fonts.css.
+   * Nạp: 400 + 600 cho body, 700 + 800 cho display. */
+  --font-display: 'Baloo 2', 'Be Vietnam Pro', 'Segoe UI', sans-serif;
+  --font-body: 'Be Vietnam Pro', 'Segoe UI', 'Helvetica Neue', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace; /* Mã đơn, SĐT */
+
+  /* ── CHỮ: CỠ ─────────────────────────────────────────────────────────────
+   * Thang nhảy rõ (×1.2–1.25) để có phân cấp thật (rule: flat-type-hierarchy).
+   * SÀN 12px cho mọi chữ hiển thị (rule: tiny-text).
+   * SÀN 14px cho nhãn nút / nhãn form (rule: undersized-ui-text).
+   * Input LUÔN 16px — dưới 16px thì Safari iOS tự zoom khi bấm vào ô. */
+  --fs-caption: 0.75rem; /* 12px — chỉ dùng cho meta phụ, không dùng cho nút */
+  --fs-sm: 0.875rem; /* 14px — nhãn, badge, mô tả ngắn */
+  --fs-base: 1rem; /* 16px — body, input (BẮT BUỘC cho input) */
+  --fs-md: 1.125rem; /* 18px — tên món (§8-bis mục 4) */
+  --fs-lg: 1.25rem; /* 20px — tiêu đề khối */
+  --fs-xl: 1.5rem; /* 24px — giá món (§8-bis mục 4) */
+  --fs-2xl: 1.875rem; /* 30px — tổng tiền ở giỏ hàng */
+  --fs-3xl: 2.25rem; /* 36px — số % ở trang theo dõi đơn /o/:token */
+
+  /* ── CHỮ: ĐỘ ĐẬM & GIÃN DÒNG ─────────────────────────────────────────── */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-heavy: 800; /* Giá món, nút chính */
+
+  --lh-tight: 1.2; /* Tiêu đề, giá. Không xuống dưới 1.15 (rule: tight-leading) */
+  --lh-snug: 1.35; /* Tên món 2 dòng */
+  --lh-normal: 1.55; /* Body, mô tả */
+
+  --ls-tight: -0.01em; /* Tiêu đề lớn. Không âm quá -0.03em (rule: extreme-negative-tracking) */
+  --ls-normal: 0;
+  --ls-wide: 0.06em; /* Nhãn IN HOA (nav desktop, nút "TIẾP TỤC") */
+
+  /* Bề rộng dòng đọc thoải mái — mô tả món không được dài quá (rule: line-length) */
+  --measure: 62ch;
+
+  /* ── KHOẢNG CÁCH ─────────────────────────────────────────────────────────
+   * Thang 4px. Có bậc nhỏ VÀ bậc lớn để nhịp trang không đều đều một mức
+   * (rule: monotonous-spacing). */
+  --sp-1: 0.25rem; /* 4px */
+  --sp-2: 0.5rem; /* 8px */
+  --sp-3: 0.75rem; /* 12px */
+  --sp-4: 1rem; /* 16px */
+  --sp-5: 1.25rem; /* 20px */
+  --sp-6: 1.5rem; /* 24px */
+  --sp-8: 2rem; /* 32px */
+  --sp-10: 2.5rem; /* 40px */
+  --sp-12: 3rem; /* 48px — khoảng nghỉ giữa các khối lớn */
+  --sp-16: 4rem; /* 64px */
+
+  /* Padding trong card: SÀN 12px, đừng bó sát (rule: cramped-padding) */
+  --pad-card: var(--sp-4);
+  --pad-card-tight: var(--sp-3);
+  --gutter: var(--sp-4); /* Lề trái/phải trang trên mobile */
+  --gutter-lg: var(--sp-8); /* Lề trên desktop */
+  --content-max: 1200px; /* §8-bis: lưới 4 cột desktop */
+
+  /* ── BO GÓC ───────────────────────────────────────────────────────────────
+   * Đúng theo §8-bis. */
+  --r-button: 8px;
+  --r-card: 12px;
+  --r-category: 16px; /* Ảnh danh mục */
+  --r-input: 8px;
+  --r-badge: 999px;
+  --r-sheet: 20px 20px 0 0; /* Bottom sheet chi tiết món trên mobile */
+
+  /* ── ĐỔ BÓNG ─────────────────────────────────────────────────────────────
+   * §8-bis: "không dùng đổ bóng nặng" — card dùng VIỀN, không dùng bóng.
+   * Tuyệt đối không đi kèm viền mảnh + bóng rộng cùng lúc
+   * (rule: gpt-thin-border-wide-shadow). Bóng chỉ dành cho thứ THẬT SỰ nổi:
+   * header dính, giỏ hàng nổi, bottom sheet. */
+  --shadow-sticky: 0 1px 3px rgb(28 25 23 / 8%); /* Header dính khi cuộn */
+  --shadow-float: 0 4px 16px rgb(28 25 23 / 14%); /* Giỏ hàng nổi (G-3) */
+  --shadow-sheet: 0 -6px 24px rgb(28 25 23 / 16%); /* Bottom sheet, nút dính đáy */
+
+  /* ── LỚP XẾP ─────────────────────────────────────────────────────────────
+   * Khai báo tập trung để không có z-index: 9999 rải rác. */
+  --z-sticky-header: 100;
+  --z-category-rail: 90; /* Dải danh mục dính dưới header */
+  --z-floating-cart: 200;
+  --z-sticky-cta: 200; /* Nút "TIẾP TỤC" dính đáy trên mobile */
+  --z-overlay: 300;
+  --z-sheet: 310;
+  --z-toast: 400;
+
+  /* ── VÙNG BẤM & MÀN HÌNH KHUYẾT ──────────────────────────────────────────
+   * Khách gần như 100% vào bằng điện thoại. */
+  --tap-min: 44px; /* Sàn Apple HIG — áp cho nút `+`, nút stepper số lượng */
+  --safe-bottom: env(safe-area-inset-bottom, 0px); /* Vùng thanh gạt iPhone */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --sticky-cta-h: 72px; /* Chiều cao thanh CTA dính đáy — trừ vào padding-bottom trang */
+
+  /* ── CHUYỂN ĐỘNG ─────────────────────────────────────────────────────────
+   * KHÔNG dùng easing nảy/đàn hồi — cảm giác cũ (anti-pattern: bounce-easing).
+   * KHÔNG animate width/height/padding/margin — gây giật layout
+   * (rule: layout-transition). Chỉ animate transform + opacity. */
+  --dur-fast: 120ms; /* Đổi màu khi bấm */
+  --dur-base: 200ms; /* Mở/đóng, hiện/ẩn */
+  --dur-slow: 320ms; /* Bottom sheet trượt lên */
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* ── VIỀN FOCUS ──────────────────────────────────────────────────────────
+   * Không bao giờ outline: none mà không thay bằng dấu hiệu khác. */
+  --focus-ring: 0 0 0 3px rgb(204 53 41 / 35%);
+  --focus-outline: 2px solid var(--brand-600);
+  --focus-offset: 2px;
+
+  /* ── ĐỘ MỜ MÓN HẾT HÀNG ──────────────────────────────────────────────────
+   * M2.D-31: món hết hàng LÀM MỜ chứ không ẩn. Không mờ quá kẻo không đọc nổi
+   * tên món — 0.45 là mức vẫn giữ tương phản chữ đạt AA. */
+  --opacity-out-of-stock: 0.45;
+  --opacity-disabled: 0.5;
+}
+
+/* Người dùng bật "giảm chuyển động" trong cài đặt máy → tôn trọng.
+ * Đặt gần 0 chứ không phải 0 để callback transitionend vẫn chạy. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}

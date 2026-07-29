@@ -50,6 +50,9 @@ importers:
       '@order/schemas':
         specifier: workspace:*
         version: link:../../packages/schemas
+      '@order/utils':
+        specifier: workspace:*
+        version: link:../../packages/utils
       '@types/multer':
         specifier: ^2.1.0
         version: 2.1.0
@@ -68,6 +71,9 @@ importers:
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      express:
+        specifier: ^4.21.0
+        version: 4.22.1
       jsonwebtoken:
         specifier: ^9.0.2
         version: 9.0.3
@@ -136,6 +142,37 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@22.19.18)
 
+  apps/shop:
+    dependencies:
+      '@order/schemas':
+        specifier: workspace:*
+        version: link:../../packages/schemas
+      react:
+        specifier: ^19.0.0
+        version: 19.2.6
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.6(react@19.2.6)
+      react-router-dom:
+        specifier: ^7.0.0
+        version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.14
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.14)
+      '@vitejs/plugin-react':
+        specifier: ^4.3.0
+        version: 4.7.0(vite@6.4.2(@types/node@22.19.18)(tsx@4.21.0))
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+      vite:
+        specifier: ^6.0.0
+        version: 6.4.2(@types/node@22.19.18)(tsx@4.21.0)
+
   apps/web:
     dependencies:
       '@order/schemas':
@@ -190,6 +227,12 @@ importers:
       zod:
         specifier: ^3.23.0
         version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.7.0
+        version: 5.9.3
+
+  packages/utils:
     devDependencies:
       typescript:
         specifier: ^5.7.0
