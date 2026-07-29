@@ -1,0 +1,8 @@
+{
+  "name": "Claude",
+  "cwd": "/var/folders/kc/0y7w14cd21x_vrqrcv1k_tt80000gp/T/vg-crossai-run-iik28t6m",
+  "command": "cat /private/tmp/claude-502/-Users-m1macbook-Desktop-OrderQuanBaLun/76be33a4-26aa-4347-882d-88f6fc324c84/scratchpad/vg-crossai-07-blueprint-review.md | claude --model sonnet -p \"Ban la AI thu hai review doc lap PLAN cua phase ha tang. Doc SPECS.md va PLAN.md trong context. Ap Verdict Rules o dau context. Tra ve DUNG XML root crossai_review theo mau sau, khong loi dan, khong boc trong dau backtick: <crossai_review><reviewer>Claude</reviewer><verdict>flag</verdict><score>7</score><findings><finding severity=\"major\">Tieu de ngan -- CHI TIET: giai thich co che cu the -- DE XUAT: sua gi</finding></findings></crossai_review>. Gia tri verdict chon mot trong ba: pass, flag, block. Gia tri severity chon mot trong ba: minor, major, critical. Toi da 6 finding, nang nhat truoc. Tap trung 4 cau hoi: (1) thu tu wave co dung phu thuoc khong; (2) task nao co the lam hong POS dang chay production; (3) buoc verify nao khong chung minh duoc dieu no tuyen bo; (4) goal nao SPECS doi ma PLAN khong phu.\"",
+  "timeout_s": 540,
+  "shell": "/bin/bash",
+  "isolated": true
+}

@@ -72,7 +72,11 @@ Nguồn quyết định: `.vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md` § Vòng 5 (
   55-57, COPY `dist` dòng 63). Dockerfile liệt kê manifest **bằng tay** nên thiếu là
   `ERR_PNPM_OUTDATED_LOCKFILE`, build image fail trước khi app chạy. `packages/utils` do
   phase 08 tạo nhưng **hạ tầng build phải có sẵn từ phase 07**.
-- `.env.production`: `ALLOWED_ORIGIN` thành 2 origin (apex + order).
+- `.env.production`: `ALLOWED_ORIGIN` thành **3 origin**: `https://<domain>`,
+  `https://www.<domain>`, `https://order.<domain>` *(sửa 2026-07-29 sau CrossAI
+  blueprint-review — bản đầu ghi "2 origin" nhưng site block hiện tại là
+  `{$DOMAIN}, www.{$DOMAIN}` nên `www.` là origin thật, bỏ sót sẽ chặn oan khách vào
+  bằng `www.`)*.
 - DNS A record `order.quanbalun.site` → IP VPS; verify cert HTTPS Caddy tự cấp.
 
 ## Out of Scope
@@ -127,8 +131,8 @@ Nguồn quyết định: `.vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md` § Vòng 5 (
       `web-dist` và `shop-dist`.
 - [ ] **`GET /api/public/health` với `Accept: text/html` vẫn trả JSON**, không trả vỏ HTML của
       POS — kiểm ở chế độ production, không phải dev *(bổ sung 2026-07-29)*.
-- [ ] **CSRF: origin giả mạo `https://order.<domain>.evil.com` → 403**; mọi origin thật trong
-      danh sách → 200; `POST` vào `/api/public/*` từ curl **không** header Origin → không bị
+- [ ] **CSRF: origin giả mạo `https://order.<domain>.evil.com` → 403**; **cả 3 origin thật**
+      (`https://<domain>`, `https://www.<domain>`, `https://order.<domain>`) → 200; `POST` vào `/api/public/*` từ curl **không** header Origin → không bị
       chặn *(bổ sung 2026-07-29)*.
 - [ ] **`curl -I https://order.<domain>` có header `Referrer-Policy: no-referrer`**; và
       `https://order.<domain>/uploads/menu/<file>` trả đúng ảnh *(bổ sung 2026-07-29)*.
