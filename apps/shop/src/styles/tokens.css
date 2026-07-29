@@ -2,7 +2,7 @@
  * Design tokens — apps/shop (trang khách đặt hàng online)
  * ============================================================================
  * Nguồn: §8-bis "Đặc tả giao diện trang khách" trong
- * .vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md — rút từ ảnh tham chiếu lotteria.vn.
+ * docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md — rút từ ảnh tham chiếu lotteria.vn.
  *
  * ĐÂY LÀ NGUỒN SỰ THẬT DUY NHẤT VỀ MÀU / CHỮ / KHOẢNG CÁCH của apps/shop.
  * Không hardcode màu hex hay px trong .tsx — luôn dùng var(--...).

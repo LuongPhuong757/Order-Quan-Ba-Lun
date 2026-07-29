@@ -1,9 +1,0 @@
-{
-  "phase": "08",
-  "preferred_env_for": {
-    "review": "local",
-    "test": "local",
-    "roam": "local",
-    "accept": "local"
-  }
-}

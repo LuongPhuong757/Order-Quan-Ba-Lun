@@ -163,7 +163,7 @@ components:
 
 # Design system — trang khách Quán Bà Lùn
 
-Nguồn: **§8-bis** trong `.vg/MILESTONE-02-ONLINE-ORDERING-SPEC.md`, rút từ ảnh
+Nguồn: **§8-bis** trong `docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md`, rút từ ảnh
 tham chiếu `lotteria.vn`. File token thật: `src/styles/tokens.css`.
 
 ## 1. Bối cảnh dùng
@@ -267,5 +267,4 @@ npx --yes impeccable detect http://localhost:5174   # quét lúc chạy thật
 Bản quét lúc chạy thật bắt được thứ mã nguồn không thấy: chữ tràn khung khi
 tên món dài, tương phản sau khi màu chồng nhau, chữ bị ảnh đè.
 
-Trong luồng VGFlow, việc này chạy tự động ở `/vg:review` qua validator
-`design-antipatterns` — xem `.claude/scripts/validators/verify-design-antipatterns.py`.
+Chạy tay trước khi nghiệm thu phase (`/gsd:ui-review` cũng soi phần này).
