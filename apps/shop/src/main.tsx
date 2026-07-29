@@ -1,5 +1,6 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
 import './styles/tokens.css';
 import { BrandPreview } from './BrandPreview.tsx';
 

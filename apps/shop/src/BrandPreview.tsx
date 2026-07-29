@@ -71,33 +71,75 @@ export function BrandPreview(): JSX.Element {
           ))}
         </div>
 
-        <h2 style={h2}>Card món</h2>
-        <article style={card}>
-          <div style={cardImage}>
-            <span style={cardImageHint}>ảnh món</span>
-            <span style={badgeHot}>Bán chạy</span>
-          </div>
-          <div style={cardBody}>
-            <h3 style={dishName}>Lẩu hải sản Bà Lùn</h3>
-            <p style={dishDesc}>Mực, tôm, bạch tuộc, nấm kim châm, rau tươi — nồi 2–3 người</p>
-            <div style={priceRow}>
-              <span style={price}>185.000 đ</span>
-              <button type="button" style={plusButton} aria-label="Thêm món">
-                +
-              </button>
+        <h2 style={h2}>Lưới món — 2 cột mobile</h2>
+        <p style={hint}>
+          Chốt 2 cột theo spec §8-bis (không theo ref Lotteria 1 cột). Card hẹp nên mô tả thành
+          phần ẩn dưới 768px, giá và nút <code>+</code> xếp 2 dòng. Thu hẹp cửa sổ để thấy.
+        </p>
+        <div style={dishGrid}>
+          <article style={card}>
+            <div style={cardImage}>
+              <span style={cardImageHint}>ảnh món</span>
+              <span style={badgeHot}>Bán chạy</span>
             </div>
-          </div>
-        </article>
+            <div style={cardBody}>
+              <h3 style={dishName}>Lẩu hải sản Bà Lùn</h3>
+              <div style={priceStack}>
+                <span style={price}>185.000 đ</span>
+                <button type="button" style={plusButton} aria-label="Thêm Lẩu hải sản Bà Lùn">
+                  +
+                </button>
+              </div>
+            </div>
+          </article>
 
-        <article style={{ ...card, opacity: 'var(--opacity-out-of-stock)' as unknown as number }}>
-          <div style={cardBody}>
-            <h3 style={dishName}>Lẩu gà lá é</h3>
-            <p style={dishDesc}>Hết hàng hôm nay — làm mờ chứ không ẩn (M2.D-31)</p>
-            <div style={priceRow}>
-              <span style={price}>165.000 đ</span>
+          <article style={card}>
+            <div style={cardImage}>
+              <span style={cardImageHint}>ảnh món</span>
             </div>
-          </div>
-        </article>
+            <div style={cardBody}>
+              <h3 style={dishName}>Lẩu bò nhúng giấm mẻ</h3>
+              <div style={priceStack}>
+                <span style={price}>215.000 đ</span>
+                <button type="button" style={plusButton} aria-label="Thêm Lẩu bò nhúng giấm mẻ">
+                  +
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <article style={card}>
+            <div style={cardImage}>
+              <span style={cardImageHint}>ảnh món</span>
+            </div>
+            <div style={cardBody}>
+              <h3 style={dishName}>Đĩa nội tạng luộc</h3>
+              <div style={priceStack}>
+                <span style={price}>145.000 đ</span>
+                <button type="button" style={plusButton} aria-label="Thêm Đĩa nội tạng luộc">
+                  +
+                </button>
+              </div>
+            </div>
+          </article>
+
+          <article style={{ ...card, opacity: 'var(--opacity-out-of-stock)' as unknown as number }}>
+            <div style={cardImage}>
+              <span style={cardImageHint}>ảnh món</span>
+            </div>
+            <div style={cardBody}>
+              <h3 style={dishName}>Lẩu gà lá é</h3>
+              <div style={priceStack}>
+                <span style={price}>165.000 đ</span>
+                <span style={outOfStock}>Hết hàng</span>
+              </div>
+            </div>
+          </article>
+        </div>
+        <p style={hint}>
+          Món hết hàng <strong>làm mờ chứ không ẩn</strong> (M2.D-31), và kèm chữ "Hết hàng" —
+          không phân biệt chỉ bằng độ mờ.
+        </p>
 
         <h2 style={h2}>Nút &amp; trạng thái</h2>
         <div style={btnRow}>
@@ -261,13 +303,13 @@ const card: CSSProperties = {
   border: '1px solid var(--border-subtle)',
   borderRadius: 'var(--r-card)',
   overflow: 'hidden',
-  marginBottom: 'var(--sp-4)',
-  maxWidth: 420,
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const cardImage: CSSProperties = {
   position: 'relative',
-  height: 160,
+  aspectRatio: '4 / 3',
   display: 'grid',
   placeItems: 'center',
   background: 'var(--bg-sunken)',
@@ -292,26 +334,41 @@ const badgeHot: CSSProperties = {
 
 const cardBody: CSSProperties = { padding: 'var(--pad-card)' };
 
+/* Card hẹp → tên món giới hạn ĐÚNG 2 dòng rồi cắt, không đẩy card cao lệch nhau. */
 const dishName: CSSProperties = {
   fontFamily: 'var(--font-display)',
   fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
   color: 'var(--text-strong)',
   lineHeight: 'var(--lh-snug)',
-  margin: '0 0 var(--sp-1)',
+  margin: '0 0 var(--sp-2)',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+  overflow: 'hidden',
 };
 
-const dishDesc: CSSProperties = {
-  fontSize: 'var(--fs-sm)',
-  color: 'var(--text-muted)',
-  margin: '0 0 var(--sp-3)',
+/* 2 cột trên mobile (§8-bis), nới lên 4 cột từ desktop.
+ * minmax(0,1fr) chứ không phải 1fr — thiếu min 0 thì tên món dài làm cột phình. */
+const dishGrid: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+  gap: 'var(--sp-3)',
 };
 
-const priceRow: CSSProperties = {
+/* Card hẹp ~160px: giá ≥24px đậm + nút 44px không đủ chỗ trên một dòng → xếp dọc. */
+const priceStack: CSSProperties = {
   display: 'flex',
+  flexWrap: 'wrap',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 'var(--sp-3)',
+  gap: 'var(--sp-2)',
+};
+
+const outOfStock: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--danger-600)',
 };
 
 const price: CSSProperties = {

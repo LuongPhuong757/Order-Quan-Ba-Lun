@@ -62,13 +62,21 @@ Nguồn tham chiếu UI cho `apps/shop` (trang khách). Chủ quán chọn https
 - Dải danh mục cuộn ngang chỉ hiện **~3.5 tile**, kèm **dot pagination** (8 dot, dot đầu active đỏ) bên dưới.
 - Banner khuyến mãi wrap 2–3 dòng.
 - **Card món xếp 1 CỘT** — ảnh full chiều rộng, tên, 2 dòng mô tả xám, giá đỏ lớn, nút `+` phải.
+  → **KHÔNG áp dụng cho quán ta.** Đã chốt 2 cột theo spec, xem CONFLICT-DESIGN-01 bên dưới.
 
-> **CONFLICT-DESIGN-01** — spec §8-bis (dòng 189–193) chốt *"lưới 4 cột desktop / **2 cột mobile**"*,
-> nhưng ảnh ref mobile thật của Lotteria là **1 cột**. Spec là văn bản đã LOCKED (M2.D-70/71 nhóm customer-UI),
-> ảnh ref là bằng chứng mới do chủ dự án cung cấp sau khi spec chốt.
-> **Cần quyết ở `/gsd:ui-phase 8`:** giữ 2 cột theo spec (thấy nhiều món hơn mỗi màn, ảnh nhỏ hơn) hay
-> theo ref 1 cột (ảnh lớn hơn, đúng G-3 "giữ khách ở lại lâu để chọn món", nhưng phải cuộn nhiều).
-> Ghi vào `OVERRIDE-DEBT.md` nếu chọn lệch spec.
+> **CONFLICT-DESIGN-01 — ĐÃ CHỐT 2026-07-30: dùng 2 CỘT trên mobile.**
+>
+> Spec §8-bis (dòng 189–193) ghi *"lưới 4 cột desktop / **2 cột mobile**"*, còn ảnh ref mobile thật
+> của Lotteria là **1 cột**. Chủ dự án chốt **theo spec: 2 cột**.
+>
+> Nghĩa là **không lệch spec → không cần ghi `OVERRIDE-DEBT.md`**. Ảnh ref 1 cột từ đây chỉ dùng để
+> tham chiếu *thành phần* (header gập, dải danh mục có dot, CTA dính đáy), **không** dùng cho số cột.
+>
+> Hệ quả khi code: card món ở 2 cột thì hẹp (~160–170px trên máy 360px), nên
+> — tên món giới hạn 2 dòng rồi `text-overflow: ellipsis`,
+> — mô tả thành phần **ẩn** trên mobile (chỉ hiện từ ≥768px), không nhồi vào card hẹp,
+> — giá vẫn phải ≥24px đậm theo §8-bis, nút `+` vẫn phải giữ 44px vùng bấm → giá và nút xếp
+>   **2 dòng** trong card mobile chứ không cùng một dòng như desktop.
 
 ## Lệch có chủ ý so với Lotteria (đã chốt)
 
