@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Quán Bà Lùn">
+  <!-- Favicon trang khách. Màu lấy từ apps/shop/src/styles/tokens.css:
+       nền --bg-wood #6b4423 (bàn gỗ), viền --wood-500 #d9922b (đèn lồng),
+       chữ --brand-500 #cf3323 sẽ không đọc được ở 16px nên chữ dùng kem #fdf7ee.
+       Giữ đồng bộ thủ công: SVG không đọc được biến CSS. -->
+  <rect width="64" height="64" rx="14" fill="#6b4423"/>
+  <rect x="3.5" y="3.5" width="57" height="57" rx="11" fill="none" stroke="#d9922b" stroke-width="2"/>
+  <text x="32" y="43"
+        font-family="'Baloo 2','Segoe UI',system-ui,sans-serif"
+        font-size="30" font-weight="800" letter-spacing="-1"
+        text-anchor="middle" fill="#fdf7ee">BL</text>
+</svg>

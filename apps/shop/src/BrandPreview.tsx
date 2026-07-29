@@ -1,4 +1,5 @@
 import type { CSSProperties, JSX } from 'react';
+import { Wordmark } from './components/Wordmark.tsx';
 
 /**
  * Trang TẠM để chủ quán duyệt bảng màu Quán Bà Lùn (chốt 2026-07-30 từ 4 ảnh
@@ -33,13 +34,8 @@ export function BrandPreview(): JSX.Element {
   return (
     <div style={page}>
       <header style={header}>
-        <div style={logoSlot} aria-hidden="true">
-          BL
-        </div>
-        <div>
-          <div style={brandName}>Quán Bà Lùn</div>
-          <div style={brandTag}>Đặt món online</div>
-        </div>
+        <Wordmark variant="plaque" size="var(--fs-md)" />
+        <div style={brandTag}>Đặt món online</div>
         <button type="button" style={headerLink}>
           Đơn của tôi
         </button>
@@ -50,6 +46,20 @@ export function BrandPreview(): JSX.Element {
           Bảng màu rút từ 4 ảnh món ăn của quán: <strong>bàn gỗ ấm + đèn lồng hổ phách + ớt đỏ +
           rau xanh</strong>. Trang này là bản xem màu tạm — trang menu thật là phase 08.
         </p>
+
+        <h2 style={h2}>Logo chữ</h2>
+        <p style={hint}>
+          Dựng theo biển phấn trong ảnh lẩu hải sản. Không dùng ảnh ở admin — đó là ảnh chân dung
+          cá nhân, không phải logo quán.
+        </p>
+        <div style={btnRow}>
+          <span style={wordmarkBoxDark}>
+            <Wordmark variant="plaque" size="var(--fs-lg)" />
+          </span>
+          <span style={wordmarkBoxLight}>
+            <Wordmark variant="bare" size="var(--fs-lg)" />
+          </span>
+        </div>
 
         <h2 style={h2}>Dải nhóm món</h2>
         <div style={catRail}>
@@ -163,27 +173,6 @@ const header: CSSProperties = {
   zIndex: 100,
 };
 
-const logoSlot: CSSProperties = {
-  display: 'grid',
-  placeItems: 'center',
-  width: 44,
-  height: 44,
-  flex: '0 0 auto',
-  borderRadius: 'var(--r-card)',
-  background: 'var(--brand-600)',
-  color: 'var(--text-on-brand)',
-  fontFamily: 'var(--font-display)',
-  fontWeight: 'var(--fw-heavy)' as unknown as number,
-};
-
-const brandName: CSSProperties = {
-  fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-md)',
-  fontWeight: 'var(--fw-bold)' as unknown as number,
-  color: 'var(--text-strong)',
-  lineHeight: 'var(--lh-tight)',
-};
-
 const brandTag: CSSProperties = {
   fontSize: 'var(--fs-caption)',
   color: 'var(--text-muted)',
@@ -222,6 +211,24 @@ const h2: CSSProperties = {
   letterSpacing: 'var(--ls-tight)',
   margin: 'var(--sp-8) 0 var(--sp-3)',
 };
+
+const hint: CSSProperties = {
+  maxWidth: 'var(--measure)',
+  margin: '0 0 var(--sp-3)',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+};
+
+const wordmarkBox: CSSProperties = {
+  display: 'grid',
+  placeItems: 'center',
+  padding: 'var(--sp-5)',
+  borderRadius: 'var(--r-card)',
+  border: '1px solid var(--border-subtle)',
+};
+
+const wordmarkBoxDark: CSSProperties = { ...wordmarkBox, background: 'var(--wood-100)' };
+const wordmarkBoxLight: CSSProperties = { ...wordmarkBox, background: 'var(--bg-surface)' };
 
 const catRail: CSSProperties = {
   display: 'flex',
