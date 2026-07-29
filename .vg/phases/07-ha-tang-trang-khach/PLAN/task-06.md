@@ -10,6 +10,10 @@
 
 Covers goal: G-12, G-01, G-08
 
+> **HOÃN 2026-07-29 (chủ quán chốt).** Chưa sửa Dockerfile và chưa `docker build`.
+> Lý do: chủ quán muốn kiểm mọi thứ ở local trước, và task này chỉ chứng minh được giá trị
+> khi thực sự build image. **Phải làm trước Task 08** — Task 08 cần `shop-dist` tồn tại trong
+> image mới kiểm được static-theo-Host ở chế độ production.
 **Description:** The Dockerfile enumerates workspace manifests **by hand**, so a new workspace
 package that is not added to every stage fails the image build with `ERR_PNPM_OUTDATED_LOCKFILE`
 (deps stage) or `ERR_MODULE_NOT_FOUND` (runtime stage) — before the app even starts. Mirror the
