@@ -18,10 +18,11 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'node:path';
+import { memoryStorage } from 'multer';
+import { join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
+import sharp from 'sharp';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
@@ -138,21 +139,27 @@ export class MenuController {
 
   /**
    * POST /menu/upload-image — owner only. Upload ảnh món (multipart/form-data, field name "file").
-   * Trả về { data: { url: "/uploads/menu/<filename>" } } để FE set vào image_url.
+   *
+   * D-12: ảnh chụp bằng điện thoại (3-5 MB) được resize xuống ~800px + nén webp trước khi
+   * ghi ra đĩa — khách xem menu công khai qua 3G không phải tải ảnh gốc nặng.
+   *
+   * Dùng `memoryStorage()` (không ghi file gốc chưa kiểm ra đĩa — ASVS V12): multer giữ
+   * buffer trong RAM, `sharp` decode + `.rotate()` (áp EXIF orientation, ảnh chụp dọc bằng
+   * điện thoại không bị xoay ngang) + `.resize({width:800, withoutEnlargement:true})` +
+   * `.webp({quality:82})` rồi mới `.toFile()`. `.webp()` không copy EXIF/GPS mặc định nên
+   * toạ độ chụp ảnh cũng bị loại bỏ luôn (không cố ý nhưng là lợi ích phụ).
+   *
+   * Tên file vẫn sinh 100% ở server bằng `randomBytes(6)` (không đổi — lớp chặn path
+   * traversal), chỉ cố định đuôi `.webp` vì `sharp` luôn xuất webp bất kể mime gốc.
+   *
+   * Trả về { data: { url: "/uploads/menu/<filename>.webp" } } để FE set vào image_url —
+   * hợp đồng không đổi so với trước.
    */
   @Post('upload-image')
   @UseGuards(AdminGuard)
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: UPLOAD_DIR,
-        filename: (_req, file, cb) => {
-          const ext = extname(file.originalname).toLowerCase() || '.jpg';
-          const safe = ext.replace(/[^a-z0-9.]/g, '');
-          const name = `${Date.now()}-${randomBytes(6).toString('hex')}${safe}`;
-          cb(null, name);
-        },
-      }),
+      storage: memoryStorage(),
       limits: { fileSize: MAX_FILE_BYTES },
       fileFilter: (_req, file, cb) => {
         if (!ALLOWED_MIMES.has(file.mimetype)) {
@@ -165,7 +172,19 @@ export class MenuController {
   )
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Thiếu file ảnh' });
-    return { data: { url: `/uploads/menu/${file.filename}` } };
+
+    const name = `${Date.now()}-${randomBytes(6).toString('hex')}.webp`;
+    try {
+      await sharp(file.buffer)
+        .rotate()
+        .resize({ width: 800, withoutEnlargement: true })
+        .webp({ quality: 82 })
+        .toFile(join(UPLOAD_DIR, name));
+    } catch {
+      throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Ảnh không đọc được, vui lòng chọn ảnh khác' });
+    }
+
+    return { data: { url: `/uploads/menu/${name}` } };
   }
 
   /** POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).
