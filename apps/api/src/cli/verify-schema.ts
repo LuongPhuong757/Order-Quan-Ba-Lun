@@ -7,6 +7,7 @@
 // Usage: pnpm --filter @order/api schema:verify
 // Exit code: 0 nếu mọi bảng/cột đủ, 1 nếu thiếu bất kỳ thứ gì (KHÔNG được nới điều kiện này).
 import 'reflect-metadata';
+import 'dotenv/config';
 import { AppDataSource } from '../data-source.js';
 
 type TableCheck = { table: string; requiredColumns: string[] };
