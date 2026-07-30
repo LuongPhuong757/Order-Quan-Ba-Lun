@@ -16,6 +16,9 @@ import type { OnlineOrderItemInput } from '@order/schemas';
  */
 
 export const CART_STORAGE_KEY = 'qbl.cart.v1';
+/** Ghi chú đơn hàng bước 1 `/cart` (plan 08-11) — tách khoá riêng khỏi `CART_STORAGE_KEY`
+ * để bước 2 `/checkout` (plan 08-12) đọc lại độc lập với danh sách dòng giỏ. */
+export const CART_NOTE_KEY = 'qbl.cart_note';
 
 const MS_PER_DAY = 24 * 3600_000;
 const MAX_QTY = 99;
@@ -156,6 +159,24 @@ export function toSubmitItems(lines: CartLine[]): OnlineOrderItemInput[] {
       qty: l.qty,
       note: l.note ?? undefined,
     }));
+}
+
+/** Đọc ghi chú đơn hàng đã lưu — bọc try/catch (Safari private mode ném lỗi khi đọc). */
+export function readCartNote(): string {
+  try {
+    return window.localStorage.getItem(CART_NOTE_KEY) ?? '';
+  } catch {
+    return '';
+  }
+}
+
+/** Lưu ghi chú mỗi khi khách gõ, để reload không mất (map vào `customer_note` lúc submit). */
+export function saveCartNote(note: string): void {
+  try {
+    window.localStorage.setItem(CART_NOTE_KEY, note);
+  } catch {
+    // Ghi thất bại — ghi chú vẫn dùng được trong phiên hiện tại, chỉ không bền qua reload.
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────

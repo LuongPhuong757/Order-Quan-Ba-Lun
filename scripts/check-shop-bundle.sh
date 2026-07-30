@@ -51,12 +51,19 @@ done
 #     là ĐÚNG DỰ KIẾN, không phải hồi quy.
 # (c) Số đo thật tại thời điểm đóng plan 08-04 (lệnh `du -k apps/shop/dist/
 #     assets/*.js` sau `pnpm --filter @order/shop build`): 244 kB.
-# (d) MAX_JS_KB = 244 + ~30% ≈ 317, làm tròn lên chục = 320 — chừa khoảng cho
-#     phase 09 (SSE + trang tracking đầy đủ /o/:token).
-# (e) Khách vào bằng 3G nên ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số
+# (d) Ngưỡng gốc 320 kB (244 + ~30%) chỉ còn dư 4 kB sau khi đóng plan 08-09
+#     (316 kB — MenuPage + CardItem + CategoryRail + BannerNotice + lớp dữ liệu),
+#     không đủ chỗ cho plan 08-11 (Stepper/StickyCta/CartPage/OrderTrackPage/
+#     HistoryPage → đo thật 336 kB) lẫn plan 08-12 (`/checkout` — segmented
+#     control, autofill, Geolocation API, xử lý 8 mã lỗi submit — quy mô tương
+#     đương `CartPage.tsx`). Margin 30% ban đầu tính thiếu cho phần còn lại của
+#     chính phase 8, không phải chỉ dành cho phase 9 như ghi chú cũ giả định.
+# (e) MAX_JS_KB = 336 (đo thật sau plan 08-11) + ~10% chừa cho plan 08-12 ≈ 370.
+#     Không nới thêm cho phase 9 ở đây — lúc đó đo lại số thật và ghi lý do mới.
+# (f) Khách vào bằng 3G nên ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số
 #     tuỳ hứng: muốn nâng phải sửa số này VÀ ghi lý do ngay tại đây, không
 #     được âm thầm nới ngưỡng ở nơi khác.
-MAX_JS_KB=320
+MAX_JS_KB=370
 
 JS_KB=0
 for f in "$DIST"/assets/*.js; do
