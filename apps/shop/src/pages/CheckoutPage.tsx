@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { PublicStoreStatus } from '@order/schemas';
-import { useApi } from '../lib/use-api.ts';
-import { formatVnd, readCartNote, useCart } from '../lib/cart-store.ts';
+import { z } from 'zod';
+import { OnlineOrderSubmit, PublicStoreStatus } from '@order/schemas';
+import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
+import { formatVnd, readCartNote, toSubmitItems, useCart } from '../lib/cart-store.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import * as MapsLink from '../lib/maps-link.ts';
 import { useGeolocation } from '../lib/use-geolocation.ts';
@@ -16,7 +17,7 @@ import { BannerNotice } from '../components/BannerNotice.tsx';
  *
  * Rủi ro UX nghiêm trọng nhất phải tránh: coi Geolocation là bắt buộc. Khách Việt hay
  * bấm link từ Zalo, WebView đó có thể chặn Geolocation hoàn toàn — nếu code chặn nút
- * ĐẶT HÀNG khi chưa có toạ độ thì nhóm khách đó không đặt được hàng. Vì vậy toạ độ
+ * nút submit khi chưa có toạ độ thì nhóm khách đó không đặt được hàng. Vì vậy toạ độ
  * KHÔNG nằm trong điều kiện validate ở đây (xem `computeFieldErrors`).
  *
  * `distance_km` không có ở bước này lẫn trong response submit (phase 8 không có
@@ -37,6 +38,7 @@ type FieldErrors = {
 const PICKUP_LABEL = 'Đến lấy tại quán';
 const DELIVERY_LABEL = 'Giao tận nơi';
 const CTA_LABEL = 'ĐẶT HÀNG';
+const SUBMITTING_LABEL = 'Đang gửi đơn...';
 const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn này.';
 const STORE_OFF_HINT = 'Quán hiện chưa nhận đơn — xem banner phía trên để biết lý do';
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
@@ -54,7 +56,7 @@ function shipFeeUnknownCopy(freeShipKm: number): string {
   return `Trong ${freeShipKm} km miễn phí, xa hơn có phụ phí — phí cuối do quán xác nhận khi gọi lại`;
 }
 
-/** Validate cục bộ trước khi bật nút ĐẶT HÀNG. Geolocation KHÔNG nằm trong điều kiện này. */
+/** Validate cục bộ trước khi bật nút submit chính. Geolocation KHÔNG nằm trong điều kiện này. */
 function computeFieldErrors(name: string, phone: string, address: string, fulfillment: Fulfillment): FieldErrors {
   const errors: FieldErrors = {};
   if (!name.trim()) errors.name = NAME_REQUIRED_MSG;
@@ -65,6 +67,45 @@ function computeFieldErrors(name: string, phone: string, address: string, fulfil
 
 function etaFor(store: PublicStoreStatus, fulfillment: Fulfillment): { min: number; max: number } {
   return fulfillment === 'PICKUP' ? store.eta.pickup : store.eta.delivery;
+}
+
+type ErrorAction = { label: string; onClick?: () => void; href?: string } | undefined;
+
+/**
+ * Nút hành động theo mã lỗi (bảng Copywriting UI-SPEC + 08-CONTEXT.md D-20/D-21). FE
+ * KHÔNG tự dựng lại câu chữ — `error.message` từ BE đã đủ, hàm này CHỈ quyết định có
+ * thêm nút gì bên cạnh banner. Giữ tông trung tính cho mã lỗi số điện thoại này lúc này
+ * (D-21): không thêm bất kỳ chữ nào gợi ý số bị từ chối vĩnh viễn vào phần FE tự viết.
+ */
+function errorAction(
+  error: ApiError,
+  storePhone: string | null,
+  onRetry: () => void,
+  onViewPendingOrder: (token: string) => void,
+  onBackToCart: () => void,
+): ErrorAction {
+  if (error.code === 'ORDER_ALREADY_OPEN_FOR_PHONE') {
+    const token = CustomerToken.readLastOrderToken();
+    return token ? { label: 'Xem đơn đang chờ', onClick: () => onViewPendingOrder(token) } : undefined;
+  }
+  if (error.code === 'MENU_ITEM_UNAVAILABLE') {
+    return { label: 'Về giỏ hàng', onClick: onBackToCart };
+  }
+  if (
+    error.code === 'ONLINE_ORDERING_DISABLED' ||
+    error.code === 'STORE_CLOSED' ||
+    error.code === 'PHONE_BLACKLISTED' ||
+    error.code === 'NO_TABLE_AVAILABLE'
+  ) {
+    return storePhone ? { label: 'Gọi quán', href: storePhone } : undefined;
+  }
+  if (error.code === 'TOO_MANY_REQUESTS' || error.code === 'VALIDATION_FAILED') {
+    return undefined;
+  }
+  if (error.kind === 'network') {
+    return { label: 'Thử lại', onClick: onRetry };
+  }
+  return storePhone ? { label: 'Gọi quán', href: storePhone } : undefined;
 }
 
 export function CheckoutPage(): JSX.Element {
@@ -82,8 +123,12 @@ export function CheckoutPage(): JSX.Element {
   const [address, setAddress] = useState(lastCustomer?.customer_address ?? '');
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [mapLinkRaw, setMapLinkRaw] = useState('');
+  const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
   const [showMapLinkInput, setShowMapLinkInput] = useState(false);
   const [mapLinkMessage, setMapLinkMessage] = useState<string | null>(null);
+  const [extraFieldErrors, setExtraFieldErrors] = useState<FieldErrors>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<ApiError | null>(null);
 
   // Giỏ rỗng — không cho đứng ở bước 2, quay lại /cart.
   useEffect(() => {
@@ -105,9 +150,13 @@ export function CheckoutPage(): JSX.Element {
     }
   }, [store.data, defaultApplied, lastCustomer]);
 
-  // Geolocation thành công → dùng làm nguồn toạ độ hiện hành, bỏ link Maps cũ (nếu có).
+  // Geolocation thành công → dùng làm nguồn toạ độ hiện hành, bỏ link Maps cũ (nếu có) —
+  // khách bấm nút sau khi đã dán link thì kết quả GPS thật mới nhất phải thắng.
   useEffect(() => {
-    if (geo.coords) setLocation({ lat: geo.coords.lat, lng: geo.coords.lng });
+    if (geo.coords) {
+      setLocation({ lat: geo.coords.lat, lng: geo.coords.lng });
+      setMapLinkValue(null);
+    }
   }, [geo.coords]);
 
   const handleMapLinkConfirm = (): void => {
@@ -117,13 +166,15 @@ export function CheckoutPage(): JSX.Element {
       return;
     }
     setLocation(result);
+    setMapLinkValue(mapLinkRaw);
     setMapLinkMessage(null);
   };
 
   const fieldErrors = computeFieldErrors(name, phone, address, fulfillment);
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
+  const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
   const storeOff = store.data ? store.data.ordering_enabled === false : false;
-  const ctaDisabled = storeOff || hasFieldErrors;
+  const ctaDisabled = storeOff || hasFieldErrors || submitting;
 
   let ctaHint: string = DISCLOSURE_COPY;
   if (storeOff) {
@@ -132,10 +183,76 @@ export function CheckoutPage(): JSX.Element {
     ctaHint = FIELD_ERRORS_HINT;
   }
 
-  // Task 3 (08-12-PLAN.md) thay ruột hàm này bằng POST /api/public/orders thật + xử lý
-  // 8 mã lỗi. Task 2 chỉ dựng xong form nên hàm này còn là placeholder có chủ đích.
-  const handleSubmit = (): void => {
-    // TODO(task-3): submit đơn.
+  /**
+   * Submit đơn. Body KHÔNG mang giá (BE tự lookup, chống đặt giá 0đ — T-08-66), validate
+   * cục bộ bằng zod trước khi gửi để bắt lỗi sớm, chặn double-submit bằng cờ `submitting`
+   * (không tự retry ngầm khi lỗi mạng — đơn có thể đã vào DB, retry ngầm là đường tạo đơn
+   * trùng, T-08-70).
+   */
+  const handleSubmit = async (): Promise<void> => {
+    if (ctaDisabled) return;
+
+    const body: Record<string, unknown> = {
+      customer_token: CustomerToken.getOrCreateCustomerToken(),
+      customer_name: name,
+      customer_phone: phone,
+      fulfillment_type: fulfillment,
+      items: toSubmitItems(cart.lines),
+    };
+    if (cartNote) body.customer_note = cartNote;
+    if (fulfillment === 'DELIVERY') body.customer_address = address;
+    if (location) {
+      body.customer_lat = location.lat;
+      body.customer_lng = location.lng;
+    }
+    if (mapLinkValue) body.customer_map_link = mapLinkValue;
+
+    const parsedBody = OnlineOrderSubmit.safeParse(body);
+    if (!parsedBody.success) {
+      const zodErrors: FieldErrors = {};
+      for (const issue of parsedBody.error.issues) {
+        const key = issue.path[0];
+        if (key === 'customer_name') zodErrors.name = issue.message;
+        else if (key === 'customer_phone') zodErrors.phone = issue.message;
+        else if (key === 'customer_address') zodErrors.address = issue.message;
+      }
+      setExtraFieldErrors(zodErrors);
+      return;
+    }
+
+    setExtraFieldErrors({});
+    setSubmitting(true);
+    setSubmitError(null);
+
+    const result = await postJson(
+      '/api/public/orders',
+      parsedBody.data,
+      z.object({ order_token: z.string() }),
+    );
+
+    if ('error' in result) {
+      setSubmitting(false);
+      if (result.error.code === 'VALIDATION_FAILED' && result.error.field_errors) {
+        const beFieldErrors: FieldErrors = {};
+        for (const fe of result.error.field_errors) {
+          if (fe.field.includes('customer_name')) beFieldErrors.name = fe.message;
+          else if (fe.field.includes('customer_phone')) beFieldErrors.phone = fe.message;
+          else if (fe.field.includes('customer_address')) beFieldErrors.address = fe.message;
+        }
+        setExtraFieldErrors(beFieldErrors);
+      }
+      setSubmitError(result.error);
+      return;
+    }
+
+    CustomerToken.saveLastCustomer({
+      customer_name: name,
+      customer_phone: phone,
+      customer_address: fulfillment === 'DELIVERY' ? address : '',
+    });
+    CustomerToken.saveLastOrderToken(result.data.order_token);
+    cart.clear();
+    navigate(`/o/${result.data.order_token}`, { replace: true });
   };
 
   return (
@@ -200,9 +317,9 @@ export function CheckoutPage(): JSX.Element {
             value={name}
             maxLength={128}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-            style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(fieldErrors.name ? inputErrorBorder : {}) }}
+            style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(displayFieldErrors.name ? inputErrorBorder : {}) }}
           />
-          {fieldErrors.name && <p style={errorText}>{fieldErrors.name}</p>}
+          {displayFieldErrors.name && <p style={errorText}>{displayFieldErrors.name}</p>}
         </div>
 
         <div style={fieldGroup}>
@@ -216,9 +333,9 @@ export function CheckoutPage(): JSX.Element {
             value={phone}
             maxLength={16}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
-            style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(fieldErrors.phone ? inputErrorBorder : {}) }}
+            style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(displayFieldErrors.phone ? inputErrorBorder : {}) }}
           />
-          {fieldErrors.phone && <p style={errorText}>{fieldErrors.phone}</p>}
+          {displayFieldErrors.phone && <p style={errorText}>{displayFieldErrors.phone}</p>}
         </div>
 
         {fulfillment === 'DELIVERY' && (
@@ -233,9 +350,9 @@ export function CheckoutPage(): JSX.Element {
                 value={address}
                 maxLength={255}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
-                style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(fieldErrors.address ? inputErrorBorder : {}) }}
+                style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(displayFieldErrors.address ? inputErrorBorder : {}) }}
               />
-              {fieldErrors.address && <p style={errorText}>{fieldErrors.address}</p>}
+              {displayFieldErrors.address && <p style={errorText}>{displayFieldErrors.address}</p>}
             </div>
 
             <div style={locationBlock}>
@@ -311,7 +428,30 @@ export function CheckoutPage(): JSX.Element {
         </div>
       </section>
 
-      <StickyCta label={CTA_LABEL} onClick={handleSubmit} disabled={ctaDisabled} hint={ctaHint} />
+      {submitError && (
+        <BannerNotice
+          tone="danger"
+          title={
+            submitError.kind === 'schema'
+              ? 'Dữ liệu trả về không đúng định dạng mong đợi. Đây là lỗi kỹ thuật, không phải lỗi của bạn.'
+              : submitError.message
+          }
+          action={errorAction(
+            submitError,
+            store.data?.store_phone ?? null,
+            () => void handleSubmit(),
+            (token) => navigate(`/o/${token}`),
+            () => navigate('/cart'),
+          )}
+        />
+      )}
+
+      <StickyCta
+        label={submitting ? SUBMITTING_LABEL : CTA_LABEL}
+        onClick={() => void handleSubmit()}
+        disabled={ctaDisabled}
+        hint={ctaHint}
+      />
     </div>
   );
 }
