@@ -24,13 +24,22 @@ PNPM="corepack pnpm"
 fail=0
 step() { printf '\n──── %s ────\n' "$1"; }
 
-step "1/5 install (frozen lockfile)"
+step "1/6 install (frozen lockfile)"
 $PNPM install --frozen-lockfile
 
-step "2/5 typecheck (mọi project)"
+step "2/6 build internal packages"
+# BẮT BUỘC chạy trước typecheck. apps/* resolve @order/schemas và @order/utils
+# qua `dist/index.d.ts` (xem field `exports` trong package.json của chúng), KHÔNG
+# qua source. Nếu dist cũ hơn source thì typecheck của apps/shop báo
+# "Module '@order/schemas' has no exported member ..." dù source hoàn toàn đúng.
+# Đã xảy ra thật sau wave 2 phase 08. Cùng họ với commit 478559d
+# (fix(build): build @order/utils trong Docker image).
+$PNPM --filter @order/utils --filter @order/schemas build
+
+step "3/6 typecheck (mọi project)"
 $PNPM -r typecheck
 
-step "3/5 test api + shop"
+step "4/6 test api + shop"
 $PNPM --filter @order/api test
 # apps/shop có test từ plan 08-06 trở đi; trước đó chưa có script test.
 if $PNPM --filter @order/shop run 2>/dev/null | grep -q '^  test'; then
@@ -39,11 +48,11 @@ else
   echo "SKIP: @order/shop chưa có script test"
 fi
 
-step "4/5 build shop + bundle guard"
+step "5/6 build shop + bundle guard"
 $PNPM --filter @order/shop build
 sh scripts/check-shop-bundle.sh
 
-step "5/5 schema verify (bảng phase 8 tồn tại thật trong MySQL)"
+step "6/6 schema verify (bảng phase 8 tồn tại thật trong MySQL)"
 if [ -n "$SKIP_SCHEMA" ]; then
   echo "SKIP: SKIP_SCHEMA được đặt — KHÔNG coi đây là gate đã đạt"
   fail=1
@@ -53,7 +62,7 @@ fi
 
 printf '\n'
 if [ "$fail" = "0" ]; then
-  echo "GATE OK — cả 5 bước đạt"
+  echo "GATE OK — cả 6 bước đạt"
 else
   echo "GATE PARTIAL — có bước bị skip, đọc log ở trên trước khi coi là xong"
   exit 2

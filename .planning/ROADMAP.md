@@ -88,10 +88,10 @@ Plans:
 Plans:
 - [x] 08-01-PLAN.md — **Wave 1** Hợp đồng zod `/api/public/*` + 4 module thuần (store-status, order-guard, haversine, ip-hash) + test Wave 0
 - [x] 08-02-PLAN.md — **Wave 1** 3 entity mới (§4 spec) + đăng ký `data-source` + `IP_HASH_SALT` + **[BLOCKING]** xác nhận schema bằng truy vấn MySQL thật
-- [ ] 08-03-PLAN.md — **Wave 2** (dep 02) `sharp` resize ảnh webp 800px lúc upload (D-12) + lockfile cross-platform cho alpine
+- [x] 08-03-PLAN.md — **Wave 2** (dep 02) `sharp` resize ảnh webp 800px lúc upload (D-12) + lockfile cross-platform cho alpine
 - [x] 08-04-PLAN.md — **Wave 1** Router + AppShell + Header 2 biến thể cho `apps/shop` (4 trang đang là dead code) + `zod` direct dep + guard bundle 2 gate
-- [ ] 08-05-PLAN.md — **Wave 2** (dep 01,02) `store_settings` service + `/admin/settings` + `/admin/phone-blacklist` + 3 nhánh audit + `normalizePhone`
-- [ ] 08-06-PLAN.md — **Wave 2** (dep 01,04) Lớp dữ liệu `apps/shop`: `useApi` fetch+zod, `customer_token`, giỏ localStorage 24h có đồng bộ D-07
+- [x] 08-05-PLAN.md — **Wave 2** (dep 01,02) `store_settings` service + `/admin/settings` + `/admin/phone-blacklist` + 3 nhánh audit + `normalizePhone`
+- [x] 08-06-PLAN.md — **Wave 2** (dep 01,04) Lớp dữ liệu `apps/shop`: `useApi` fetch+zod, `customer_token`, giỏ localStorage 24h có đồng bộ D-07
 - [ ] 08-07-PLAN.md — **Wave 3** (dep 02,05) **[SECURITY]** `CsrfOriginGuard` phủ `/api/public/*` + `GET /api/public/store` + `GET /api/public/menu` (đúng 7 field)
 - [ ] 08-08-PLAN.md — **Wave 3** (dep 05) `apps/web`: widget công tắc 1 chạm ở Dashboard + trang `/admin/settings` 2 tab
 - [ ] 08-09-PLAN.md — **Wave 4** (dep 06,07) Trang menu công khai: card món, dải danh mục, tìm kiếm không dấu, banner OFF/lỗi/giá đổi
@@ -144,7 +144,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
-| 8. Menu, Checkout & Công tắc | M2 | 3/13 | In Progress|  |
+| 8. Menu, Checkout & Công tắc | M2 | 6/13 | In Progress|  |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
