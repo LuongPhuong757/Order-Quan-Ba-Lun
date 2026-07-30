@@ -417,37 +417,39 @@ export class OrdersService {
 
       const state = send_to_kitchen ? 'KITCHEN' : 'PENDING';
       const created: OrderItem[] = [];
-      // TÁCH TỪNG PHẦN: mỗi đơn vị số lượng = 1 dòng riêng để bếp nấu/đánh dấu
-      // độc lập từng cái. Hiển thị ở drawer/lịch sử vẫn gộp lại "N× món".
+      // GIỮ NGUYÊN LẦN GỌI: gọi 3 phần trong 1 lần = 1 dòng qty=3, KHÔNG tách thành
+      // 3 dòng qty=1. Bếp làm cả 3 phần cùng lúc nên tách ra chỉ khiến KDS và nhật
+      // ký dài gấp N lần với nội dung y hệt. Vẫn bớt lẻ được (bớt 1/3): xem
+      // removeItemUnits — nó tách phần bị bớt ra 1 dòng CANCELLED riêng.
       for (const it of items) {
         const m = menuMap.get(it.menu_item_id)!;
-        for (let u = 0; u < it.qty; u++) {
-          const entity = itemRepo.create({
-            order_id,
-            menu_item_id: m.id,
-            menu_item_name: m.name,
-            menu_item_price: m.price,
-            qty: 1,
-            state,
-            note: it.note ?? null,
-            cancelled_reason: null,
-            created_by_user_id: creator?.id ?? null,
-            created_by_full_name: creator?.full_name ?? null,
-          });
-          const saved = await itemRepo.save(entity);
-          created.push(saved);
-        }
+        const entity = itemRepo.create({
+          order_id,
+          menu_item_id: m.id,
+          menu_item_name: m.name,
+          menu_item_price: m.price,
+          qty: it.qty,
+          state,
+          note: it.note ?? null,
+          cancelled_reason: null,
+          created_by_user_id: creator?.id ?? null,
+          created_by_full_name: creator?.full_name ?? null,
+        });
+        const saved = await itemRepo.save(entity);
+        created.push(saved);
       }
       if (send_to_kitchen) {
         await this.markFirstKitchenIfNull(mgr, order_id);
       }
-      return { items: created, count: created.length, state };
+      // count = SỐ PHẦN (không phải số dòng) — 1 dòng giờ có thể mang nhiều phần.
+      const count = created.reduce((s, i) => s + i.qty, 0);
+      return { items: created, count, state };
     });
 
     // Log "gọi món" (post-commit, không chặn flow).
     const snap = await this.orderSnapshot(order_id);
     if (snap) {
-      // Gộp lại theo tên món (items đã tách thành nhiều dòng qty=1)
+      // Gộp theo tên món — nhiều dòng cùng món (khác ghi chú) vẫn ra 1 cụm "N× món".
       const counts = new Map<string, number>();
       for (const i of result.items) counts.set(i.menu_item_name, (counts.get(i.menu_item_name) || 0) + i.qty);
       const summary = Array.from(counts.entries()).map(([n, q]) => `${q}× ${n}`).join(', ');
@@ -476,32 +478,29 @@ export class OrdersService {
     if (menu.is_out_of_stock) {
       throw new BadRequestException({ code: 'CONFLICT', message: `Món "${menu.name}" đang hết, không thể gọi mới` });
     }
-    // TÁCH TỪNG PHẦN: mỗi đơn vị = 1 dòng qty=1 (bếp nấu từng cái)
-    let first: OrderItem | null = null;
-    for (let u = 0; u < qty; u++) {
-      const item = this.itemRepo.create({
+    // GIỮ NGUYÊN LẦN GỌI: cả qty phần nằm trong 1 dòng (xem addItemsBulk).
+    const saved = await this.itemRepo.save(
+      this.itemRepo.create({
         order_id,
         menu_item_id,
         menu_item_name: menu.name,
         menu_item_price: menu.price,
-        qty: 1,
+        qty,
         state: 'PENDING',
         note: note ?? null,
         cancelled_reason: null,
         created_by_user_id: creator?.id ?? null,
         created_by_full_name: creator?.full_name ?? null,
-      });
-      const saved = await this.itemRepo.save(item);
-      if (!first) first = saved;
-    }
+      }),
+    );
     await this.writeActivity({
       order,
       event_kind: 'items_added',
       message: `Gọi món: ${qty}× ${menu.name}`,
       actor: creator,
-      item_id: first?.id,
+      item_id: saved.id,
     });
-    return first!;
+    return saved;
   }
 
   /** State transition with validation + snapshot actor (cho notification) */
@@ -602,15 +601,20 @@ export class OrdersService {
    * READY / SERVED). Ranh giới duy nhất là `order.closed_at`: đã thanh toán thì
    * khoá, trước đó sửa được hết.
    *
-   * Vì mỗi phần là 1 dòng qty=1, bớt 5/6 phần = 5 dòng. Gọi endpoint này 1 lần
-   * thay vì PATCH 5 lần để: (a) atomic, (b) nhật ký bàn chỉ 1 dòng "5× món" thay
-   * vì 5 dòng rời rạc, (c) không phải nhập lý do lặp lại cho từng phần.
+   * `units` = số PHẦN cần bớt trong nhóm `item_ids` (bỏ trống = huỷ trọn các dòng
+   * được chọn). Vì 1 dòng giờ mang nhiều phần (qty=N), bớt lẻ 2/5 sẽ TÁCH dòng:
+   * dòng gốc còn qty=3, phần bị bớt sang 1 dòng CANCELLED qty=2 mới. Nhờ vậy bill
+   * và nhật ký vẫn đúng từng phần mà bếp không phải nhìn dòng lẻ khi không cần.
+   *
+   * Gọi endpoint này 1 lần thay vì PATCH nhiều lần để: (a) atomic, (b) nhật ký bàn
+   * chỉ 1 dòng "5× món", (c) không phải nhập lý do lặp lại cho từng phần.
    *
    * Lý do OPTIONAL ở mọi trạng thái — BE tự ghi mặc định theo state cũ. */
   async removeItemUnits(
     item_ids: string[],
     reason?: string,
     actor?: OrderCreator,
+    units?: number,
   ): Promise<{ removed: number; refunded: number; order_id: string }> {
     const given = reason?.trim() || '';
     const result = await this.ds.transaction(async (mgr) => {
@@ -644,18 +648,65 @@ export class OrdersService {
         });
       }
 
-      // Chỉ món đã SERVED mới đang được tính tiền → chỉ nó làm bill giảm.
-      const allServed = items.every((i) => i.state === 'SERVED');
-      let refunded = 0;
-      for (const it of items) {
-        const prevState = it.state; // phải đọc TRƯỚC khi ghi đè, lý do mặc định phụ thuộc state cũ
-        if (prevState === 'SERVED') refunded += it.menu_item_price * it.qty;
-        it.state = 'CANCELLED';
-        it.cancelled_reason = given || REMOVE_DEFAULT_REASON[prevState] || 'Nhân viên bỏ món';
-        it.cancelled_by_user_id = actor?.id ?? null;
-        it.cancelled_by_full_name = actor?.full_name ?? null;
-        await itemRepo.save(it);
+      // Số phần thực sự bị bớt. Bỏ trống units = huỷ trọn mọi dòng được chọn.
+      const totalUnits = items.reduce((s, i) => s + i.qty, 0);
+      const wanted = units == null ? totalUnits : Math.min(units, totalUnits);
+      if (wanted <= 0) {
+        throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Số phần cần bớt phải lớn hơn 0' });
       }
+
+      // Bớt từ dòng gọi SỚM NHẤT trước — khách gọi trước thì phần đó ra trước, bớt
+      // phần cũ giữ lại phần mới cho khớp thứ tự bếp làm.
+      const ordered = [...items].sort((a, b) => a.created_at - b.created_at);
+      // Chỉ món đã SERVED mới đang được tính tiền → chỉ nó làm bill giảm.
+      const prevStates: string[] = [];
+      const cancelledRows: OrderItem[] = [];
+      let refunded = 0;
+      let left = wanted;
+      for (const it of ordered) {
+        if (left <= 0) break;
+        const prevState = it.state; // phải đọc TRƯỚC khi ghi đè, lý do mặc định phụ thuộc state cũ
+        const take = Math.min(left, it.qty);
+        left -= take;
+        prevStates.push(prevState);
+        const cancelReason = given || REMOVE_DEFAULT_REASON[prevState] || 'Nhân viên bỏ món';
+        if (prevState === 'SERVED') refunded += it.menu_item_price * take;
+        if (take === it.qty) {
+          it.state = 'CANCELLED';
+          it.cancelled_reason = cancelReason;
+          it.cancelled_by_user_id = actor?.id ?? null;
+          it.cancelled_by_full_name = actor?.full_name ?? null;
+          cancelledRows.push(await itemRepo.save(it));
+        } else {
+          // BỚT LẺ: tách phần bị bớt sang 1 dòng CANCELLED riêng, giữ nguyên snapshot
+          // giá/người gọi/thời điểm gọi của dòng gốc để nhật ký và bill không lệch.
+          const split = await itemRepo.save(
+            itemRepo.create({
+              order_id: it.order_id,
+              menu_item_id: it.menu_item_id,
+              menu_item_name: it.menu_item_name,
+              menu_item_price: it.menu_item_price,
+              is_note: it.is_note,
+              qty: take,
+              state: 'CANCELLED',
+              is_priority: false,
+              note: it.note,
+              cancelled_reason: cancelReason,
+              created_by_user_id: it.created_by_user_id,
+              created_by_full_name: it.created_by_full_name,
+              served_by_user_id: it.served_by_user_id,
+              served_by_full_name: it.served_by_full_name,
+              cancelled_by_user_id: actor?.id ?? null,
+              cancelled_by_full_name: actor?.full_name ?? null,
+              created_at: it.created_at,
+            }),
+          );
+          cancelledRows.push(split);
+          it.qty -= take;
+          await itemRepo.save(it);
+        }
+      }
+      const allServed = prevStates.every((s) => s === 'SERVED');
 
       // Huỷ tới món cuối cùng = bàn tàn, đối xử y như "huỷ cả bàn". Nếu không niêm
       // ở đây thì nhân viên chỉ cần huỷ từng món một là lách được — đơn ở lại mở,
@@ -664,7 +715,7 @@ export class OrdersService {
       const emptied = aliveLeft === 0;
       if (emptied) await sealAsCancelled(mgr.getRepository(Order), order, actor);
 
-      return { items, refunded, order_id: order.id, allServed, emptied };
+      return { items: cancelledRows, removed: wanted, refunded, order_id: order.id, allServed, emptied };
     });
 
     // 1 dòng nhật ký duy nhất, gộp theo tên món.
@@ -701,7 +752,8 @@ export class OrdersService {
         });
       }
     }
-    return { removed: result.items.length, refunded: result.refunded, order_id: result.order_id };
+    // removed = SỐ PHẦN đã bớt (không phải số dòng bị sửa).
+    return { removed: result.removed, refunded: result.refunded, order_id: result.order_id };
   }
 
   /** HUỶ CẢ BÀN — khách vào, gọi đồ rồi không dùng nữa, bỏ sạch bàn.
@@ -780,7 +832,9 @@ export class OrdersService {
         actor,
       });
     }
-    return { cancelled: result.alive.length, voided_amount: result.voided };
+    // cancelled = SỐ PHẦN bị huỷ (sum qty), không phải số dòng.
+    const cancelledUnits = result.alive.reduce((s, i) => s + i.qty, 0);
+    return { cancelled: cancelledUnits, voided_amount: result.voided };
   }
 
   /** THÊM GHI CHÚ CHO BẾP — "lấy bát cho khách", "đũa thìa", "nước mắm"...
@@ -938,11 +992,13 @@ export class OrdersService {
       order.checked_out_by_full_name = cashier?.full_name ?? null;
       await orderRepo.save(order);
 
+      // Đếm theo SỐ PHẦN (sum qty), không theo số dòng — 1 dòng có thể mang N phần.
+      const units = (list: OrderItem[]) => list.reduce((s, i) => s + i.qty, 0);
       return {
         order,
-        served_items: served.length,
-        cancelled_items: cancelled.length,
-        auto_cancelled_items: activeItems.length,
+        served_items: units(served),
+        cancelled_items: units(cancelled),
+        auto_cancelled_items: units(activeItems),
         total,
       };
     });

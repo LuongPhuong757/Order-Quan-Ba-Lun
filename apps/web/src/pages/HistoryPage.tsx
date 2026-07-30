@@ -138,7 +138,8 @@ function fmtTime(ms: number) {
   });
 }
 
-// Gộp các dòng qty=1 (đã tách để bếp nấu từng phần) lại theo món để HIỂN THỊ "N×".
+// Gộp các dòng cùng món lại để HIỂN THỊ "N×" (count = tổng qty; 1 lần gọi = 1 dòng
+// mang cả số lượng, nhưng gọi nhiều lần vẫn ra nhiều dòng cần gộp).
 // Gộp theo: tên + ghi chú + trạng thái + NV gọi + người giao + lý do huỷ (giống hệt mới gộp).
 type ItemGroup = { key: string; rep: OrderItem; count: number };
 function aggregateItems(items: OrderItem[]): ItemGroup[] {

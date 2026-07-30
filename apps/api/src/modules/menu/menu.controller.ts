@@ -321,7 +321,7 @@ export class MenuController {
           .getRawMany();
 
         // 2) Update CANCELLED + snapshot ai báo hết (= bếp user toggle)
-        const result = await mgr
+        await mgr
           .createQueryBuilder()
           .update('order_items')
           .set({
@@ -334,7 +334,9 @@ export class MenuController {
             mid: id, states: ['PENDING', 'KITCHEN'],
           })
           .execute();
-        const cancelled = result.affected || 0;
+        // Đếm theo SỐ PHẦN (sum qty) — 1 dòng order_item mang cả số lượng của lần
+        // gọi đó, nên đếm số dòng bị update sẽ báo thiếu.
+        const cancelled = willCancel.reduce((s, r) => s + Number(r.qty), 0);
         return {
           data: {
             ...item,

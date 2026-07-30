@@ -78,6 +78,10 @@ class RemoveItemUnitsDto {
   @IsUUID('all', { each: true })
   item_ids!: string[];
 
+  /** Số PHẦN cần bớt trong nhóm. Bỏ trống = huỷ trọn các dòng được chọn. Có giá trị
+   * khi bớt lẻ (bớt 2 trong dòng qty=5) — BE tách dòng CANCELLED cho phần bị bớt. */
+  @IsOptional() @IsInt() @Min(1) @Max(9999) units?: number;
+
   @IsOptional() @IsString() @MaxLength(255) reason?: string;
 }
 
@@ -192,10 +196,12 @@ export class OrdersController {
    * Mọi nhân viên đều được dùng; truy vết qua nhật ký bàn (ai + lý do). */
   @Post('items/remove')
   async removeItemUnits(@Body() dto: RemoveItemUnitsDto, @Req() req: Request) {
-    const result = await this.svc.removeItemUnits(dto.item_ids, dto.reason, {
-      id: req.user!.sub,
-      full_name: req.user!.full_name,
-    });
+    const result = await this.svc.removeItemUnits(
+      dto.item_ids,
+      dto.reason,
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      dto.units,
+    );
     return { data: result };
   }
 
