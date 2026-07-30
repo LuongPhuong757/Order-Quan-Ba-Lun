@@ -21,6 +21,19 @@ export const ErrorCode = z.enum([
   'NOT_FOUND',
   'CONFLICT',
   'INTERNAL_ERROR',
+  // Public ordering (M2 phase 08)
+  // ⚠ 9 code này KHÔNG được thêm vào dict FRIENDLY_VN của global-exception.filter.ts
+  // (Pitfall #6, 08-RESEARCH.md) — message cần nội suy off_reason/store_phone động,
+  // phải build tại chỗ throw, không lookup tĩnh.
+  'ONLINE_ORDERING_DISABLED',
+  'STORE_CLOSED',
+  'PHONE_BLACKLISTED',
+  'TOO_MANY_REQUESTS',
+  'ORDER_ALREADY_OPEN_FOR_PHONE',
+  'ORDER_ALREADY_CONFIRMED',
+  'ORDER_TOKEN_NOT_FOUND',
+  'MENU_ITEM_UNAVAILABLE',
+  'NO_TABLE_AVAILABLE',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
