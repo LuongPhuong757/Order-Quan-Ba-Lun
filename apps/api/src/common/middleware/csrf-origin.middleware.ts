@@ -9,6 +9,7 @@
 import { Injectable, NestMiddleware, ForbiddenException } from '@nestjs/common';
 import type { Request, Response, NextFunction } from 'express';
 import { isOriginAllowed, parseAllowedOrigins } from '../origin-allowlist.js';
+import { pathRequiresCheck } from '../csrf-paths.js';
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -18,17 +19,8 @@ const ALLOWED_ORIGINS = parseAllowedOrigins(
   process.env.ALLOWED_ORIGIN || 'http://localhost:5173,http://localhost:5174',
 );
 
-function pathRequiresCheck(path: string): boolean {
-  // Mutations on /admin/* and /auth/* (except login + setup which need to work pre-auth)
-  if (path.startsWith('/admin/')) return true;
-  if (path.startsWith('/auth/')) {
-    // /auth/login + /auth/recover are public + rate-limited; CSRF not applicable
-    // (no cookie yet at login; recover uses code in body not cookie)
-    if (path === '/auth/login' || path === '/auth/recover') return false;
-    return true;
-  }
-  return false;
-}
+// T-08-32 — `pathRequiresCheck()` chuyển sang `../csrf-paths.js` (module thuần, có test)
+// và giờ phủ thêm `/api/public/*`. Xem comment đầu file đó cho bối cảnh đầy đủ.
 
 @Injectable()
 export class CsrfOriginGuard implements NestMiddleware {
