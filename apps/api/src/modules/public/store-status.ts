@@ -87,6 +87,24 @@ export function expandToWeek(input: OpenHoursInput): OpenHourRule[] {
   });
 }
 
+// M2.D-28 — "OFF đến hết hôm nay": mốc lưu vào `online_ordering_off_until_ms` là 23:59:59.999
+// giờ ICT của NGÀY ICT chứa `nowMs` (không phải ngày UTC). Tính ở BE để FE không cần biết múi
+// giờ. `nowMs` LUÔN là tham số — cấm tự đọc giờ hệ thống bên trong (lý do ở đầu file).
+export function endOfTodayIctMs(nowMs: number): number {
+  const vnMs = nowMs + VN_OFFSET_MS;
+  const vnDate = new Date(vnMs);
+  const endOfDayVnMs = Date.UTC(
+    vnDate.getUTCFullYear(),
+    vnDate.getUTCMonth(),
+    vnDate.getUTCDate(),
+    23,
+    59,
+    59,
+    999,
+  );
+  return endOfDayVnMs - VN_OFFSET_MS;
+}
+
 // Chiều ngược lại (đọc để hiển thị form): dòng nào KHÔNG khớp giá trị phổ biến nhất → thành exception.
 export function collapseToDefaultExceptions(rules: OpenHourRule[]): OpenHoursInput {
   const counts = new Map<string, number>();
