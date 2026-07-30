@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   collapseToDefaultExceptions,
+  endOfTodayIctMs,
   evaluateOrderingStatus,
   expandToWeek,
   type StoreOrderingSettings,
@@ -146,5 +147,46 @@ describe('collapseToDefaultExceptions — nghịch đảo của expandToWeek', (
     };
     const rules = expandToWeek(input);
     expect(collapseToDefaultExceptions(rules)).toEqual(input);
+  });
+});
+
+describe('endOfTodayIctMs — mốc 23:59:59.999 ICT của NGÀY ICT chứa nowMs (M2.D-28)', () => {
+  it('nowMs = 10:00 ICT (03:00 UTC) → trả 23:59:59.999 ICT CÙNG ngày', () => {
+    const nowMs = Date.parse('2026-07-29T03:00:00.000Z'); // 10:00 ICT 29/7
+    const expected = Date.parse('2026-07-29T16:59:59.999Z'); // 23:59:59.999 ICT 29/7
+    expect(endOfTodayIctMs(nowMs)).toBe(expected);
+  });
+
+  it('nowMs = 17:30 UTC (00:30 ICT hôm sau theo UTC) → mốc là cuối ngày ICT hôm sau theo UTC, KHÔNG phải cuối ngày UTC hiện tại', () => {
+    // 2026-07-29T17:30:00Z = 2026-07-30T00:30:00 ICT → ngày ICT là 30/7.
+    const nowMs = Date.parse('2026-07-29T17:30:00.000Z');
+    const expected = Date.parse('2026-07-30T16:59:59.999Z'); // 23:59:59.999 ICT 30/7
+    expect(endOfTodayIctMs(nowMs)).toBe(expected);
+  });
+
+  it('dùng làm off_until_ms: nowMs = t → evaluateOrderingStatus vẫn MANUAL_OFF', () => {
+    const t = Date.parse('2026-07-29T03:00:00.000Z');
+    const offUntilMs = endOfTodayIctMs(t);
+    const settings = baseSettings({
+      online_ordering_enabled: false,
+      online_ordering_off_mode: 'UNTIL_TOMORROW',
+      online_ordering_off_until_ms: offUntilMs,
+    });
+    const result = evaluateOrderingStatus(settings, t);
+    expect(result.enabled).toBe(false);
+    expect(result.blocking_reason).toBe('MANUAL_OFF');
+  });
+
+  it('cùng dữ liệu, nowMs = off_until_ms + 1 → enabled=true (đã qua nửa đêm ICT)', () => {
+    const t = Date.parse('2026-07-29T03:00:00.000Z');
+    const offUntilMs = endOfTodayIctMs(t);
+    const settings = baseSettings({
+      online_ordering_enabled: false,
+      online_ordering_off_mode: 'UNTIL_TOMORROW',
+      online_ordering_off_until_ms: offUntilMs,
+      open_hours: [], // cô lập việc test auto-revert, không lẫn giờ mở cửa
+    });
+    const result = evaluateOrderingStatus(settings, offUntilMs + 1);
+    expect(result.enabled).toBe(true);
   });
 });
