@@ -1,48 +1,79 @@
-import type { JSX } from 'react';
+import type { CSSProperties, JSX } from 'react';
 import { Link } from 'react-router-dom';
+import { readLastOrderToken } from '../lib/customer-token.ts';
 
 /**
- * Placeholder — lịch sử đơn theo thiết bị là phase 08.
+ * `/history` — empty state TĨNH, KHÔNG gọi BE (plan 08-11).
  *
- * Phase 08: đọc theo header `X-Customer-Token` (P08.D-34 — token rời khỏi query
- * string vì Caddy ghi nguyên URI vào log), che SĐT 4 số cuối + chỉ tên đường
- * (P08.D-15c), mỗi dòng bấm được để mở `/o/:token` (P08.D-46), và nút
- * "Không phải tôi / xoá thông tin trên máy này" gọi API ẩn danh hoá đơn đã
- * kết thúc (P08.D-70).
+ * Endpoint danh sách đơn theo `customer_token` KHÔNG thuộc phạm vi phase 8 (dời phase
+ * 9/10 — danh sách đơn thật là REQ-O). Đây là quyết định phạm vi có chủ đích, KHÔNG
+ * phải trang chưa làm xong: trang chỉ đọc `readLastOrderToken()` đã có sẵn trong
+ * localStorage (lưu lúc submit thành công, plan 08-06/08-12) để cho khách 1 lối ra
+ * hữu ích ngay từ phase 8, không cần gọi API nào.
  */
 export function HistoryPage(): JSX.Element {
+  const lastToken = readLastOrderToken();
+
   return (
-    <main style={page}>
+    <div style={page}>
       <h1 style={heading}>Đơn của tôi</h1>
-      <p style={body}>Chức năng này sẽ có ở phase 08.</p>
+      <p style={body}>Lịch sử đơn sẽ hiện ở đây.</p>
+
+      {lastToken ? (
+        <Link to={`/o/${lastToken}`} style={ctaButton}>
+          Xem đơn gần nhất
+        </Link>
+      ) : (
+        <Link to="/" style={ctaButton}>
+          Xem menu
+        </Link>
+      )}
+
       <Link to="/" data-testid="history-back-link" style={backLink}>
         ← Về trang menu
       </Link>
-    </main>
+    </div>
   );
 }
 
-const page = {
-  minHeight: '100vh',
-  padding: 'var(--sp-4)',
-  background: 'var(--bg-page)',
-  color: 'var(--text-strong)',
-  fontFamily: 'var(--font-body)',
-} as const;
+const page: CSSProperties = {
+  maxWidth: 'var(--content-max)',
+  margin: '0 auto',
+  padding: `var(--sp-6) var(--gutter)`,
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  textAlign: 'center',
+  gap: 'var(--sp-3)',
+};
 
-const heading = {
+const heading: CSSProperties = {
+  margin: 0,
   fontFamily: 'var(--font-display)',
   fontSize: 'var(--fs-lg)',
-  margin: '0 0 var(--sp-2)',
-} as const;
+  color: 'var(--text-strong)',
+};
 
-const body = {
+const body: CSSProperties = {
+  margin: '0 0 var(--sp-2)',
   fontSize: 'var(--fs-base)',
   color: 'var(--text-muted)',
-  margin: '0 0 var(--sp-4)',
-} as const;
+};
 
-const backLink = {
+const ctaButton: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-6)',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  textDecoration: 'none',
+};
+
+const backLink: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
   minHeight: 'var(--tap-min)',
@@ -52,4 +83,5 @@ const backLink = {
   fontSize: 'var(--fs-base)',
   color: 'var(--brand-600)',
   textDecoration: 'none',
-} as const;
+  marginTop: 'var(--sp-2)',
+};

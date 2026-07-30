@@ -223,7 +223,12 @@
   --z-sticky-header: 100;
   --z-category-rail: 90; /* Dải danh mục dính dưới header */
   --z-floating-cart: 200;
-  --z-sticky-cta: 200; /* Nút "TIẾP TỤC" dính đáy trên mobile */
+  /* Cao hơn --z-floating-cart (plan 08-11): /cart và /checkout đều có thể hiện
+   * đồng thời FloatingCart (giỏ vẫn còn món) VÀ StickyCta (nút TIẾP TỤC/ĐẶT HÀNG)
+   * dính đáy cùng lúc. Nếu bằng nhau, thứ tự DOM (FloatingCart render sau trong
+   * AppShell) sẽ đè lên nút hành động chính, chặn thao tác chạm — bug tìm thấy
+   * lúc thi công StickyCta.tsx, không phải thiết kế có chủ đích. */
+  --z-sticky-cta: 210; /* Nút "TIẾP TỤC"/"ĐẶT HÀNG" dính đáy trên mobile */
   --z-overlay: 300;
   --z-sheet: 310;
   --z-toast: 400;
