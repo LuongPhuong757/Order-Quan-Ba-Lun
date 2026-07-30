@@ -39,12 +39,12 @@
 
 ### Store Switch
 
-- [ ] **REQ-K**: Công tắc ON/OFF nhận đơn online + giờ mở cửa + lý do tạm ngưng; chặn **2 lớp** FE và BE
+- [x] **REQ-K**: Công tắc ON/OFF nhận đơn online + giờ mở cửa + lý do tạm ngưng; chặn **2 lớp** FE và BE
   - M2.D-25..31
 
 ### Anti-abuse
 
-- [ ] **REQ-L**: Rate limit IP + SĐT, 1 đơn mở/SĐT, blacklist SĐT thêm/xoá tay (không tự hết hạn)
+- [x] **REQ-L**: Rate limit IP + SĐT, 1 đơn mở/SĐT, blacklist SĐT thêm/xoá tay (không tự hết hạn)
   - M2.D-40, M2.D-56, M2.D-59 (ghi đè M2.D-41)
 
 ### Approval
@@ -107,8 +107,8 @@ Ghi nhận nhưng chưa vào roadmap.
 | REQ-Q | Phase 7 | In Progress (~1/3) |
 | REQ-I | Phase 8 | Complete |
 | REQ-J | Phase 8 | Complete |
-| REQ-K | Phase 8 | Pending |
-| REQ-L | Phase 8 | Pending |
+| REQ-K | Phase 8 | Complete |
+| REQ-L | Phase 8 | Complete |
 | REQ-M | Phase 9 | Pending |
 | REQ-N | Phase 9 | Pending |
 | REQ-O | Phase 9 | Pending |

@@ -23,6 +23,9 @@ export type ApiError = {
   code: string;
   message: string;
   kind: 'http' | 'network' | 'schema';
+  /** Chỉ có khi BE trả `VALIDATION_FAILED` (ErrorEnvelope.error.field_errors) — plan 08-12
+   * dùng để hiện lỗi cạnh đúng input thay vì chỉ 1 banner chung chung. */
+  field_errors?: { field: string; message: string }[];
 };
 
 const SCHEMA_ERROR_MESSAGE =
@@ -41,7 +44,12 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
     return { code: 'INTERNAL_ERROR', message: SCHEMA_ERROR_MESSAGE, kind: 'schema' };
   }
   // BE đã nội suy sẵn message tiếng Việt — không tự dựng lại ở FE (08-PATTERNS.md).
-  return { code: parsed.data.error.code, message: parsed.data.error.message, kind: 'http' };
+  return {
+    code: parsed.data.error.code,
+    message: parsed.data.error.message,
+    kind: 'http',
+    field_errors: parsed.data.error.field_errors,
+  };
 }
 
 export type UseApiResult<T> = {
