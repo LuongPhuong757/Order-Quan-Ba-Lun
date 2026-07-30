@@ -141,6 +141,13 @@ None - không cần cấu hình dịch vụ ngoài nào.
 - Xác nhận HTTP thật (409/403 + audit log qua `/admin/audit`) còn nợ lại cho plan 08-13 Task 3 — đã ghi rõ trong `08-VALIDATION.md`, không phải thiếu sót của plan này
 - `OVERRIDE-DEBT.md` cần 1 entry mới cho lệch prefix `/admin/settings` + `/admin/phone-blacklist` (không `/api`) so với spec §5.2 — đã ghi comment dẫn hướng trong `settings.controller.ts`, thực thi entry ở plan 08-13 theo đúng phân công trong PLAN.md
 
+## Self-Check: PASSED
+
+- 8 file được tạo/sửa đều tồn tại trên đĩa và đã `git add` (kiểm bằng `git ls-files`)
+- 5 commit đều tìm thấy trong `git log --oneline --all`: `8951204`, `d6b1d6f`, `2577908`, `64eb709`, `c16a498`
+- `pnpm --filter @order/api typecheck` exit 0
+- `pnpm --filter @order/api test` — 65/65 test xanh (50 cũ + 4 store-status mới + 11 phone mới)
+
 ---
 *Phase: 08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n*
 *Completed: 2026-07-30*
