@@ -85,6 +85,11 @@ const card: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-3)',
+  // `height: 100%` + `body { flex: 1 }` + `priceRow { marginTop: auto }`:
+  // card cao bằng nhau trong cùng hàng lưới VÀ dòng giá/nút `+` luôn thẳng
+  // hàng ngang, kể cả khi tên món dài 1 dòng ở card này và 2 dòng ở card kia.
+  height: '100%',
+  boxSizing: 'border-box',
   background: 'var(--bg-surface)',
   border: '1px solid var(--border-subtle)',
   borderRadius: 'var(--r-card)',
@@ -107,7 +112,7 @@ const dimmed: CSSProperties = {
 
 const img: CSSProperties = {
   width: '100%',
-  aspectRatio: '4 / 3',
+  aspectRatio: 'var(--ratio-card-media)',
   objectFit: 'cover',
   borderRadius: 'var(--r-card)',
   display: 'block',
@@ -132,6 +137,8 @@ const body: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-2)',
+  flex: 1,
+  minHeight: 0,
 };
 
 const name: CSSProperties = {
@@ -140,11 +147,15 @@ const name: CSSProperties = {
   fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
   lineHeight: 'var(--lh-snug)',
+  // Chừa sẵn đúng 2 dòng: tên 1 dòng không làm card co lại so với card cạnh
+  // nó, nên khối tên + giá không bị nhảy bậc giữa các card trong hàng.
+  minHeight: 'calc(var(--fs-md) * var(--lh-snug) * 2)',
   color: 'var(--text-strong)',
   display: '-webkit-box',
   WebkitLineClamp: 2,
   WebkitBoxOrient: 'vertical',
   overflow: 'hidden',
+  overflowWrap: 'anywhere',
 };
 
 const priceRow: CSSProperties = {
@@ -152,6 +163,7 @@ const priceRow: CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
   gap: 'var(--sp-2)',
+  marginTop: 'auto',
 };
 
 const price: CSSProperties = {

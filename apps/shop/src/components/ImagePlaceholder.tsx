@@ -4,9 +4,14 @@ import type { CSSProperties, JSX } from 'react';
  * Placeholder ảnh cho món chưa có ảnh (D-10).
  *
  * KHÔNG dùng 1 ảnh mặc định chung cho mọi món — nhiều món cùng 1 ảnh trông
- * như lỗi dữ liệu. Thay vào đó: khối nền gỗ ấm + icon bát tự vẽ + tên món,
- * để "trông có chủ ý" thay vì giống khung trống/ảnh lỗi. Vùng ảnh KHÔNG bị ẩn
- * (nếu ẩn thì lưới món so le giữa các card có/không ảnh).
+ * như lỗi dữ liệu. Thay vào đó: khối nền gỗ ấm + icon bát tự vẽ, để "trông có
+ * chủ ý" thay vì giống khung trống/ảnh lỗi. Vùng ảnh KHÔNG bị ẩn (nếu ẩn thì
+ * lưới món so le giữa các card có/không ảnh).
+ *
+ * KHÔNG in tên món vào đây: `CardItem` đã có `<h3>` tên món ngay dưới vùng
+ * ảnh, nên in thêm lần nữa làm card trông như lỗi dựng (chốt 2026-07-30, lệch
+ * với chữ của D-10 — xem OVERRIDE-DEBT). Tên vẫn tới được trình đọc màn hình
+ * qua `aria-label` bên dưới.
  */
 type Props = {
   name: string;
@@ -16,7 +21,6 @@ export function ImagePlaceholder({ name }: Props): JSX.Element {
   return (
     <div style={frame} role="img" aria-label={`${name} — chưa có ảnh`}>
       <BowlGlyph />
-      <span style={label}>{name}</span>
     </div>
   );
 }
@@ -24,8 +28,8 @@ export function ImagePlaceholder({ name }: Props): JSX.Element {
 function BowlGlyph(): JSX.Element {
   return (
     <svg
-      width={32}
-      height={32}
+      width={44}
+      height={44}
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -45,30 +49,17 @@ function BowlGlyph(): JSX.Element {
 
 const frame: CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
   alignItems: 'center',
   justifyContent: 'center',
-  gap: 'var(--sp-2)',
   width: '100%',
-  aspectRatio: '4 / 3',
+  aspectRatio: 'var(--ratio-card-media)',
   background: 'var(--wood-100)',
   borderRadius: 'var(--r-card)',
-  padding: 'var(--sp-3)',
-  textAlign: 'center',
 };
 
 const glyph: CSSProperties = {
-  color: 'var(--wood-700)',
+  // Nhạt hơn `--wood-700`: icon là vật trang trí lấp chỗ trống, không được
+  // hút mắt hơn tên món và giá ngay bên dưới.
+  color: 'var(--wood-500)',
   flexShrink: 0,
-};
-
-const label: CSSProperties = {
-  fontSize: 'var(--fs-sm)',
-  color: 'var(--wood-700)',
-  fontFamily: 'var(--font-body)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  display: '-webkit-box',
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: 'vertical',
-  overflow: 'hidden',
 };

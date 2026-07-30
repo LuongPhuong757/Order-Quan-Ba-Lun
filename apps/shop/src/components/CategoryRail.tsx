@@ -162,7 +162,10 @@ const tile: CSSProperties = {
   gap: 'var(--sp-1)',
   flexShrink: 0,
   minHeight: 'var(--tap-min)',
-  minWidth: 'var(--tap-min)',
+  // Rộng theo token dùng chung với `tileLabel`, KHÔNG bó theo bề rộng ô ảnh:
+  // trước đây nhãn bị giới hạn bằng đúng ô ảnh (~62px) nên tên nhóm cắt sau
+  // ~6 ký tự ("Đồ Chi…", "Món N…") — chốt 2026-07-30.
+  width: 'var(--w-category-tile)',
   padding: 'var(--sp-1)',
   border: '2px solid transparent',
   borderRadius: 'var(--r-category)',
@@ -204,10 +207,19 @@ const tileImg: CSSProperties = {
 const tileLabel: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
-  whiteSpace: 'nowrap',
+  lineHeight: 'var(--lh-snug)',
+  textAlign: 'center',
+  // Cho xuống 2 dòng rồi mới cắt — tên nhóm quán đa số 2 từ ("Đồ Chiên-
+  // Nướng", "Rau Xào") nên 2 dòng đọc gần đủ, còn nowrap 1 dòng thì cắt gần hết.
+  // `minHeight` chừa sẵn 2 dòng để chiều cao dải không nhảy giữa nhóm tên
+  // ngắn và nhóm tên dài (dải này sticky, nhảy chiều cao là thấy rõ).
+  minHeight: 'calc(var(--fs-sm) * var(--lh-snug) * 2)',
+  width: '100%',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
   overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  maxWidth: swatchSize,
+  overflowWrap: 'anywhere',
 };
 
 const dotsRow: CSSProperties = {

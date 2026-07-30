@@ -187,6 +187,19 @@
   --gutter-lg: var(--sp-8); /* Lề trên desktop */
   --content-max: 1200px; /* §8-bis: lưới 4 cột desktop */
 
+  /* Tỉ lệ vùng ảnh card món — MỘT nguồn duy nhất cho cả ảnh thật (CardItem)
+   * và placeholder (ImagePlaceholder). Nếu 2 chỗ khai báo riêng thì card
+   * có ảnh và card không ảnh cao khác nhau → lưới so le.
+   * 3/2 thay vì 4/3: 4/3 làm vùng ảnh cao 210px trên cột 280px, card thành
+   * ~465px nên desktop chỉ nhìn được 1 hàng món. */
+  --ratio-card-media: 3 / 2;
+  /* Bề rộng ô danh mục trong dải cuộn ngang. Rộng hơn ô ảnh (1.4×tap-min)
+   * để nhãn nhóm đọc được 2 dòng thay vì bị cắt sau ~6 ký tự. */
+  --w-category-tile: calc(var(--tap-min) * 2.1);
+  /* Ô logo quán cạnh wordmark trong header. Nhỏ hơn sàn vùng bấm 44px vì logo
+   * nằm TRONG link "Về trang chủ" — chính cái link đó mới phải đạt 44px. */
+  --size-brand-logo: calc(var(--tap-min) * 0.9);
+
   /* ── BO GÓC ───────────────────────────────────────────────────────────────
    * Đúng theo §8-bis. */
   --r-button: 8px;
