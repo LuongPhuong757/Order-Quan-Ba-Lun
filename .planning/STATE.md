@@ -4,14 +4,14 @@ milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
 status: executing
 stopped_at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
-last_updated: "2026-07-30T05:03:40.745Z"
+last_updated: "2026-07-30T09:01:51.949Z"
 last_activity: 2026-07-30 -- Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 17
-  completed_plans: 4
-  percent: 24
+  completed_plans: 14
+  percent: 25
 ---
 
 # Project State
@@ -21,13 +21,13 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29)
 
 **Core value:** Khách đặt được món từ xa mà quán không bao giờ bỏ lọt đơn, và đơn chưa duyệt không bao giờ lẫn vào bếp / sơ đồ bàn / doanh thu.
-**Current focus:** Phase 08 — Menu công khai, Checkout & Công tắc nhận đơn
+**Current focus:** Phase 08 — menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n
 
 *Progress đếm theo Milestone 2 (4 phase). Milestone 1 (phases 1–6) đã ship dưới VGFlow.*
 
 ## Current Position
 
-Phase: 08 (Menu công khai, Checkout & Công tắc nhận đơn) — EXECUTING
+Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — EXECUTING
 Plan: 1 of 13
 Status: Executing Phase 08
 Last activity: 2026-07-30 -- Phase 08 execution started
