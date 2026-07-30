@@ -1,0 +1,38 @@
+import { z } from 'zod';
+
+// M2.D-17/D-27/D-30 — hợp đồng GET /api/public/store.
+// store_lat/store_lng KHÔNG trả cho khách (toạ độ quán không cần lộ,
+// khoảng cách luôn tính ở BE — xem Architectural Responsibility Map trong 08-RESEARCH.md).
+
+export const OpenHourRule = z.object({
+  dow: z.union([
+    z.literal(0),
+    z.literal(1),
+    z.literal(2),
+    z.literal(3),
+    z.literal(4),
+    z.literal(5),
+    z.literal(6),
+  ]),
+  from: z.string(), // "HH:mm"
+  to: z.string(), // "HH:mm"
+});
+export type OpenHourRule = z.infer<typeof OpenHourRule>;
+
+export const PublicStoreStatus = z.object({
+  ordering_enabled: z.boolean(),
+  off_reason: z.string(),
+  store_phone: z.string(),
+  open_hours: z.array(OpenHourRule),
+  is_open_now: z.boolean(),
+  blocking_reason: z.enum(['MANUAL_OFF', 'OUTSIDE_HOURS']).nullable(),
+  pickup_enabled: z.boolean(),
+  delivery_enabled: z.boolean(),
+  free_ship_km: z.number().int(),
+  distance_factor: z.number(),
+  eta: z.object({
+    pickup: z.object({ min: z.number().int(), max: z.number().int() }),
+    delivery: z.object({ min: z.number().int(), max: z.number().int() }),
+  }),
+});
+export type PublicStoreStatus = z.infer<typeof PublicStoreStatus>;
