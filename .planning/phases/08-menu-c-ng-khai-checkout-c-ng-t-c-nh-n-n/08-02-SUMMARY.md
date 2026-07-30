@@ -185,3 +185,15 @@ None trong phạm vi phase 8 — nhưng lưu ý cho người tiếp tục làm v
 ---
 *Phase: 08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n*
 *Completed: 2026-07-30*
+
+## Self-Check: PASSED
+
+- FOUND: apps/api/src/modules/settings/entities/store-settings.entity.ts
+- FOUND: apps/api/src/modules/settings/entities/phone-blacklist.entity.ts
+- FOUND: apps/api/src/modules/public/entities/online-order-request.entity.ts
+- FOUND: apps/api/src/cli/verify-schema.ts
+- FOUND: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-02-SUMMARY.md
+- FOUND commit: ea3a312 (Task 1)
+- FOUND commit: 2c63a5b (Task 2)
+- FOUND commit: 8cd90dd (Task 3 + dotenv fix)
+- FOUND commit: 4e6342e (SUMMARY)
