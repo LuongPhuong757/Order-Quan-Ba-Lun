@@ -34,7 +34,7 @@ export function OrderTrackPage(): JSX.Element {
   const isTokenNotFound = error?.code === 'ORDER_TOKEN_NOT_FOUND';
 
   return (
-    <main style={page}>
+    <div style={page}>
       {loading && <SkeletonBlock />}
 
       {!loading && error && (
@@ -90,7 +90,7 @@ export function OrderTrackPage(): JSX.Element {
       <Link to="/" data-testid="order-track-back-link" style={backLink}>
         ← Về trang menu
       </Link>
-    </main>
+    </div>
   );
 }
 

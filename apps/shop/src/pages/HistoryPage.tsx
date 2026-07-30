@@ -15,7 +15,7 @@ export function HistoryPage(): JSX.Element {
   const lastToken = readLastOrderToken();
 
   return (
-    <main style={page}>
+    <div style={page}>
       <h1 style={heading}>Đơn của tôi</h1>
       <p style={body}>Lịch sử đơn sẽ hiện ở đây.</p>
 
@@ -32,7 +32,7 @@ export function HistoryPage(): JSX.Element {
       <Link to="/" data-testid="history-back-link" style={backLink}>
         ← Về trang menu
       </Link>
-    </main>
+    </div>
   );
 }
 

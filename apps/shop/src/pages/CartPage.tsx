@@ -32,7 +32,7 @@ export function CartPage(): JSX.Element {
   };
 
   return (
-    <main style={isEmpty ? { ...page, ...pageEmpty } : page}>
+    <div style={isEmpty ? { ...page, ...pageEmpty } : page}>
       <Stepper current={1} />
 
       <div style={headerRow}>
@@ -93,7 +93,7 @@ export function CartPage(): JSX.Element {
           />
         </>
       )}
-    </main>
+    </div>
   );
 }
 
