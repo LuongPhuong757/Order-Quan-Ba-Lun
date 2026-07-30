@@ -108,6 +108,16 @@ Việc này thuộc plan `08-13` (deferred UAT) theo `<verification>` mục 5 c�
 - Không có blocker mới cho các plan khác trong wave 2
 - Nhắc lại cho plan 08-13: kiểm `docker build` là gate bắt buộc trước deploy, chưa làm ở plan này
 
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-03-SUMMARY.md`
+- FOUND commit: `a30a721` (Task 1)
+- FOUND commit: `2ee488b` (Task 2)
+- FOUND commit: `c899e99` (docs: SUMMARY)
+- `grep '"sharp"' apps/api/package.json` → `^0.35.3`
+- `grep -c "supportedArchitectures" package.json` = 1
+- `grep -c "sharp-linuxmusl-x64" pnpm-lock.yaml` = 3
+
 ---
 *Phase: 08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n*
 *Completed: 2026-07-30*
