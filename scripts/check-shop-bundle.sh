@@ -43,11 +43,40 @@ for needle in $FORBIDDEN; do
   fi
 done
 
+# ── Gate 2: ngưỡng kích thước JS ─────────────────────────────────────────
+# (a) Ở phase 07, apps/shop chưa có route nào (main.tsx render <BrandPreview/>
+#     tĩnh) nên guard cũ chỉ có gate chuỗi cấm ở trên — không có gì để đo.
+# (b) Phase 08 (plan 08-04) thêm BrowserRouter thật + zod (D-02: parse runtime
+#     mọi response /api/public/*) + 5 trang vào bundle, nên kích thước JS tăng
+#     là ĐÚNG DỰ KIẾN, không phải hồi quy.
+# (c) Số đo thật tại thời điểm đóng plan 08-04 (lệnh `du -k apps/shop/dist/
+#     assets/*.js` sau `pnpm --filter @order/shop build`): 244 kB.
+# (d) MAX_JS_KB = 244 + ~30% ≈ 317, làm tròn lên chục = 320 — chừa khoảng cho
+#     phase 09 (SSE + trang tracking đầy đủ /o/:token).
+# (e) Khách vào bằng 3G nên ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số
+#     tuỳ hứng: muốn nâng phải sửa số này VÀ ghi lý do ngay tại đây, không
+#     được âm thầm nới ngưỡng ở nơi khác.
+MAX_JS_KB=320
+
+JS_KB=0
+for f in "$DIST"/assets/*.js; do
+  [ -f "$f" ] || continue
+  SIZE=$(du -k "$f" | cut -f1)
+  JS_KB=$((JS_KB + SIZE))
+done
+
+if [ "$JS_KB" -gt "$MAX_JS_KB" ]; then
+  echo "FAIL: bundle JS ${JS_KB} kB > ngưỡng ${MAX_JS_KB} kB"
+  FAIL=1
+else
+  echo "OK: bundle JS ${JS_KB} kB (ngưỡng ${MAX_JS_KB} kB)"
+fi
+
 if [ "$FAIL" = 0 ]; then
-  echo "OK: bundle khách sạch (đã kiểm $COUNT chuỗi trong $DIST)"
+  echo "OK: bundle khách sạch — đã kiểm 2 gate (đã kiểm $COUNT chuỗi cấm + kích thước JS trong $DIST)"
 else
   echo ""
-  echo "M2.D-64 bị vi phạm: trang khách đang tải được code quản lý."
+  echo "M2.D-64 bị vi phạm: trang khách đang tải được code quản lý, hoặc bundle vượt ngưỡng 3G."
 fi
 
 exit $FAIL
