@@ -13,6 +13,7 @@ import { MenuModule } from './modules/menu/menu.module.js';
 import { TablesModule } from './modules/tables/tables.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PublicModule } from './modules/public/public.module.js';
+import { SettingsModule } from './modules/settings/settings.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -38,6 +39,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     // `controllers` bên dưới: `/health` phải giữ đúng shape cũ cho uptime check
     // và POS đang dùng (G-07 không hồi quy).
     PublicModule,
+    // Phase 08 (plan 08-05) — nguồn sự thật của công tắc nhận đơn + blacklist SĐT.
+    // PublicModule và luồng submit đơn đều đọc trạng thái qua SettingsService, không
+    // đọc thẳng cột DB ở nơi khác (M2.D-27).
+    SettingsModule,
   ],
   controllers: [HealthController],
   providers: [

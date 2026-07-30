@@ -61,6 +61,11 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/tables\/[^/]+$/) && method === 'PATCH') return 'table.updated';
   if (path.match(/^\/tables\/[^/]+$/) && method === 'DELETE') return 'table.deleted';
 
+  // Settings + phone blacklist (plan 08-05, M2.D-25)
+  if (path === '/admin/settings' && method === 'PUT') return 'settings.updated';
+  if (path === '/admin/phone-blacklist' && method === 'POST') return 'phone_blacklist.added';
+  if (path.match(/^\/admin\/phone-blacklist\/[^/]+$/) && method === 'DELETE') return 'phone_blacklist.removed';
+
   return `${method.toLowerCase()}.${path.replace(/[^a-z0-9]/gi, '_')}`;
 }
 
@@ -127,6 +132,8 @@ function extractTargetKind(path: string): string | null {
   if (path.startsWith('/admin/users')) return 'user';
   if (path.startsWith('/admin/audit')) return 'audit';
   if (path.startsWith('/setup')) return 'setup';
+  if (path.startsWith('/admin/settings')) return 'settings';
+  if (path.startsWith('/admin/phone-blacklist')) return 'phone_blacklist';
   return null;
 }
 
