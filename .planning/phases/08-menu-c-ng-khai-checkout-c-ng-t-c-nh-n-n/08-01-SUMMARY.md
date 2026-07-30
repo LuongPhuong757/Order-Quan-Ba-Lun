@@ -151,3 +151,8 @@ None - không cần cấu hình dịch vụ ngoài. `IP_HASH_SALT` có default d
 ---
 *Phase: 08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n*
 *Completed: 2026-07-30*
+
+## Self-Check: PASSED
+
+- All 11 code files + SUMMARY.md verified to exist on disk
+- All 4 commits (`fb85375`, `02d9002`, `d3685b7`, `98a624b`) verified in `git log --oneline --all`
