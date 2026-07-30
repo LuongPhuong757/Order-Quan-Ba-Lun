@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
-status: verifying
+status: executing
 stopped_at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
-last_updated: "2026-07-30T04:59:55.560Z"
-last_activity: 2026-07-29 — execute phase 7 xong. 5 project typecheck sạch, 18/18 test xanh, bundle guard OK. 7 hạng mục deferred UAT ghi ở `07-UAT.md`
+last_updated: "2026-07-30T05:03:40.745Z"
+last_activity: 2026-07-30 -- Phase 08 execution started
 progress:
   total_phases: 4
   completed_phases: 1
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29)
 
 **Core value:** Khách đặt được món từ xa mà quán không bao giờ bỏ lọt đơn, và đơn chưa duyệt không bao giờ lẫn vào bếp / sơ đồ bàn / doanh thu.
-**Current focus:** Phase 7 — Hạ tầng trang khách (`apps/shop` + subdomain `order.`)
+**Current focus:** Phase 08 — Menu công khai, Checkout & Công tắc nhận đơn
 
 *Progress đếm theo Milestone 2 (4 phase). Milestone 1 (phases 1–6) đã ship dưới VGFlow.*
 
 ## Current Position
 
-Phase: 7 of 10 (Hạ tầng trang khách) — phase 1 of 4 trong Milestone 2
-Plan: 4 of 4 — tất cả complete (commit `886d797`)
-Status: Executed — chờ `/gsd-verify-work 7`
-Last activity: 2026-07-29 — execute phase 7 xong. 5 project typecheck sạch, 18/18 test xanh, bundle guard OK. 7 hạng mục deferred UAT ghi ở `07-UAT.md`
+Phase: 08 (Menu công khai, Checkout & Công tắc nhận đơn) — EXECUTING
+Plan: 1 of 13
+Status: Executing Phase 08
+Last activity: 2026-07-30 -- Phase 08 execution started
 
 Progress: [██░░░░░░░░] 25% (1/4 phase Milestone 2)
 
