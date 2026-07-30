@@ -7,6 +7,7 @@ import { useEffect, useState, FormEvent, ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -526,13 +527,196 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   );
 }
 
-// ─── Tab "Số điện thoại bị chặn" (task 2 sẽ điền ruột) ───────────────────────
+// ─── Tab "Số điện thoại bị chặn" ──────────────────────────────────────────────
+// D-14: tab trong /admin/settings, không phải route riêng. M2.D-59: thêm/xoá TAY,
+// bản ghi KHÔNG tự hết hạn — không hiện cột "Hết hạn".
+type BlacklistRow = {
+  phone: string;
+  reason: string;
+  created_at: number;
+  expires_at: number | null;
+  created_by_full_name: string | null;
+};
+
+const BLACKLIST_PAGE_SIZE = 50;
+
 type BlacklistTabProps = { q: string; page: number; onUpdateParam: (k: string, v: string) => void };
 
-function BlacklistTab({ q: _q, page: _page, onUpdateParam: _onUpdateParam }: BlacklistTabProps) {
+function BlacklistTab({ q, page, onUpdateParam }: BlacklistTabProps) {
+  const toast = useToast();
+  const confirm = useConfirm();
+  const [items, setItems] = useState<BlacklistRow[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [phoneInput, setPhoneInput] = useState('');
+  const [reasonInput, setReasonInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const refresh = async () => {
+    setLoading(true);
+    try {
+      const qs = new URLSearchParams();
+      qs.set('page', String(page));
+      qs.set('page_size', String(BLACKLIST_PAGE_SIZE));
+      if (q) qs.set('q', q);
+      const res = await api.get<{ data: { items: BlacklistRow[]; total: number } }>(
+        `/admin/phone-blacklist?${qs.toString()}`,
+      );
+      setItems(res.data.data.items);
+      setTotal(res.data.data.total);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, q]);
+
+  const addPhone = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!phoneInput.trim()) {
+      toast.push('error', 'Vui lòng nhập số điện thoại');
+      return;
+    }
+    if (!reasonInput.trim()) {
+      toast.push('error', 'Vui lòng nhập lý do');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await api.post('/admin/phone-blacklist', { phone: phoneInput.trim(), reason: reasonInput.trim() });
+      toast.push('success', `Đã thêm ${phoneInput.trim()} vào danh sách ✓`);
+      setPhoneInput('');
+      setReasonInput('');
+      refresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const removePhone = async (row: BlacklistRow) => {
+    const ok = await confirm({
+      title: `Bỏ chặn ${row.phone}?`,
+      message: `Số ${row.phone} sẽ đặt hàng lại được ngay sau khi xoá. Thao tác này không hoàn tác được.`,
+      variant: 'danger',
+      confirmLabel: 'Xoá',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/admin/phone-blacklist/${encodeURIComponent(row.phone)}`);
+      toast.push('success', `Đã xoá ${row.phone} khỏi danh sách ✓`);
+      refresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  const maxPage = Math.max(1, Math.ceil(total / BLACKLIST_PAGE_SIZE));
+
   return (
-    <div className="card">
-      <p style={{ color: '#6b7280' }}>Đang phát triển...</p>
+    <div>
+      <form className="card" onSubmit={addPhone} style={{ marginBottom: 16 }}>
+        <h2 style={{ marginTop: 0 }}>Thêm số vào danh sách chặn</h2>
+        <div className="row">
+          <label htmlFor="bl-phone">Số điện thoại</label>
+          <input
+            id="bl-phone"
+            type="tel"
+            value={phoneInput}
+            onChange={(e) => setPhoneInput(e.target.value)}
+            placeholder="0912 345 678 hoặc +84912345678"
+          />
+          <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
+            Nhập kiểu nào cũng được — hệ thống tự chuẩn hoá
+          </p>
+        </div>
+        <div className="row">
+          <label htmlFor="bl-reason">Lý do</label>
+          <input
+            id="bl-reason"
+            value={reasonInput}
+            onChange={(e) => setReasonInput(e.target.value)}
+            maxLength={255}
+            placeholder="vd: Bom đơn 3 lần liên tiếp"
+          />
+        </div>
+        <button type="submit" disabled={submitting}>
+          {submitting ? 'Đang thêm...' : '+ Thêm vào danh sách'}
+        </button>
+      </form>
+
+      <div className="card" style={{ marginBottom: 16 }}>
+        <div className="row" style={{ marginBottom: 0 }}>
+          <label htmlFor="bl-q">Tìm theo số điện thoại</label>
+          <input id="bl-q" value={q} onChange={(e) => onUpdateParam('q', e.target.value)} placeholder="vd: 0912" />
+        </div>
+      </div>
+
+      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
+      {!loading && items.length === 0 && (
+        <div className="empty-state card">
+          <p>Chưa có số nào bị chặn.</p>
+          <p style={{ fontSize: 13, color: '#6b7280' }}>
+            Dùng khi khách bom đơn liên tục hoặc dùng số ảo phá quán.
+          </p>
+        </div>
+      )}
+      {items.length > 0 && (
+        <>
+          <table className="responsive card" style={{ padding: 0 }}>
+            <thead>
+              <tr>
+                <th>SĐT</th>
+                <th>Lý do</th>
+                <th>Người thêm</th>
+                <th>Ngày thêm</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r) => (
+                <tr key={r.phone}>
+                  <td data-label="SĐT">
+                    <code>{r.phone}</code>
+                  </td>
+                  <td data-label="Lý do">{r.reason}</td>
+                  <td data-label="Người thêm">{r.created_by_full_name || '—'}</td>
+                  <td data-label="Ngày thêm">{new Date(r.created_at).toLocaleString('vi-VN')}</td>
+                  <td data-label="Hành động">
+                    <button className="secondary" style={{ color: '#dc2626' }} onClick={() => removePhone(r)}>
+                      Xoá
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ fontSize: 12, color: '#6b7280', marginTop: 8 }}>
+            Bản ghi không tự hết hạn. Muốn bỏ chặn thì xoá tay.
+          </p>
+          <div className="flex between" style={{ marginTop: 16 }}>
+            <button className="secondary" disabled={page <= 1} onClick={() => onUpdateParam('page', String(page - 1))}>
+              ← Trước
+            </button>
+            <span>
+              {page}/{maxPage}
+            </span>
+            <button
+              className="secondary"
+              disabled={page >= maxPage}
+              onClick={() => onUpdateParam('page', String(page + 1))}
+            >
+              Sau →
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }
