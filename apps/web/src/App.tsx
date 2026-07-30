@@ -11,6 +11,7 @@ import { RecoverPage } from './pages/RecoverPage.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
 import { AdminUsersPage } from './pages/AdminUsersPage.tsx';
 import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
+import { AdminSettingsPage } from './pages/AdminSettingsPage.tsx';
 import { AccountPage } from './pages/AccountPage.tsx';
 import { OrdersPage } from './pages/OrdersPage.tsx';
 import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
@@ -60,6 +61,7 @@ export function App() {
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
+              <Route path="/admin/settings" element={<AdminSettingsPage />} />
             </Route>
           </Route>
 
