@@ -29,12 +29,12 @@
 
 ### Public Menu
 
-- [ ] **REQ-I**: Trang menu công khai không cần login, mobile-first, ảnh lớn, tab nhóm hàng dính, tìm kiếm, món hết hàng **làm mờ không ẩn**, giỏ hàng nổi hiện tổng tiền
+- [x] **REQ-I**: Trang menu công khai không cần login, mobile-first, ảnh lớn, tab nhóm hàng dính, tìm kiếm, món hết hàng **làm mờ không ẩn**, giỏ hàng nổi hiện tổng tiền
   - M2.D-08, M2.D-16, M2.D-26, M2.D-31, M2.D-43, M2.D-70, M2.D-71
 
 ### Checkout
 
-- [ ] **REQ-J**: Checkout 1 trang — họ tên, SĐT, PICKUP/DELIVERY, địa chỉ + chia sẻ vị trí (chỉ DELIVERY), ghi chú; autofill từ `customer_token`; **snapshot giá**
+- [x] **REQ-J**: Checkout 1 trang — họ tên, SĐT, PICKUP/DELIVERY, địa chỉ + chia sẻ vị trí (chỉ DELIVERY), ghi chú; autofill từ `customer_token`; **snapshot giá**
   - M2.D-09, M2.D-12..15, M2.D-42, M2.D-49..53, M2.D-58
 
 ### Store Switch
@@ -105,8 +105,8 @@ Ghi nhận nhưng chưa vào roadmap.
 |-------------|-------|--------|
 | REQ-A..H | Phases 1–6 (Milestone 1) | Complete |
 | REQ-Q | Phase 7 | In Progress (~1/3) |
-| REQ-I | Phase 8 | Pending |
-| REQ-J | Phase 8 | Pending |
+| REQ-I | Phase 8 | Complete |
+| REQ-J | Phase 8 | Complete |
 | REQ-K | Phase 8 | Pending |
 | REQ-L | Phase 8 | Pending |
 | REQ-M | Phase 9 | Pending |
