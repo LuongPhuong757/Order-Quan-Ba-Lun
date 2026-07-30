@@ -17,7 +17,8 @@
     "seed:owner": "node --import @swc-node/register/esm-register src/cli/seed-owner.ts",
     "seed:demo": "node --import @swc-node/register/esm-register src/cli/seed-menu-tables.ts",
     "cron:audit-retention": "node --import @swc-node/register/esm-register src/cli/cron-audit-retention.ts",
-    "cron:jti-cleanup": "node --import @swc-node/register/esm-register src/cli/cron-jti-cleanup.ts"
+    "cron:jti-cleanup": "node --import @swc-node/register/esm-register src/cli/cron-jti-cleanup.ts",
+    "schema:verify": "node --import @swc-node/register/esm-register src/cli/verify-schema.ts"
   },
   "dependencies": {
     "@nestjs/common": "^10.4.0",

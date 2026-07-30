@@ -9,6 +9,9 @@ import { RestaurantTable } from './modules/tables/entities/restaurant-table.enti
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
 import { OrderActivityLog } from './modules/orders/entities/order-activity-log.entity.js';
+import { StoreSetting } from './modules/settings/entities/store-settings.entity.js';
+import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.entity.js';
+import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -34,7 +37,17 @@ export const dataSourceOptions: DataSourceOptions = {
     waitForConnections: true,
     queueLimit: 0,
   },
-  entities: [User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order, OrderItem, OrderActivityLog],
+  // Mảng entities TƯỜNG MINH, KHÔNG autoload — entity thiếu ở đây thì `synchronize` bỏ qua
+  // hoàn toàn bảng của nó mà `tsc` vẫn xanh (type đến từ file entity, không từ DB). Mỗi entity
+  // mới phải thêm ở 2 chỗ: file entity + mảng dưới đây. Xem Task 3 (schema:verify) — chứng
+  // minh bằng truy vấn MySQL thật, không phải typecheck.
+  entities: [
+    User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order,
+    OrderItem, OrderActivityLog,
+    StoreSetting,
+    PhoneBlacklist,
+    OnlineOrderRequest,
+  ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
   // Trade-off: schema change phải cẩn thận (drop cột = mất data). Đơn giản hơn cho
