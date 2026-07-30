@@ -94,8 +94,8 @@ Plans:
 - [x] 08-06-PLAN.md — **Wave 2** (dep 01,04) Lớp dữ liệu `apps/shop`: `useApi` fetch+zod, `customer_token`, giỏ localStorage 24h có đồng bộ D-07
 - [x] 08-07-PLAN.md — **Wave 3** (dep 02,05) **[SECURITY]** `CsrfOriginGuard` phủ `/api/public/*` + `GET /api/public/store` + `GET /api/public/menu` (đúng 7 field)
 - [x] 08-08-PLAN.md — **Wave 3** (dep 05) `apps/web`: widget công tắc 1 chạm ở Dashboard + trang `/admin/settings` 2 tab
-- [ ] 08-09-PLAN.md — **Wave 4** (dep 06,07) Trang menu công khai: card món, dải danh mục, tìm kiếm không dấu, banner OFF/lỗi/giá đổi
-- [ ] 08-10-PLAN.md — **Wave 4** (dep 02,07) `POST /api/public/orders` (6 lớp kiểm tra + gap lock + snapshot giá + HMAC IP) + `GET /orders/:token`
+- [x] 08-09-PLAN.md — **Wave 4** (dep 06,07) Trang menu công khai: card món, dải danh mục, tìm kiếm không dấu, banner OFF/lỗi/giá đổi
+- [x] 08-10-PLAN.md — **Wave 4** (dep 02,07) `POST /api/public/orders` (6 lớp kiểm tra + gap lock + snapshot giá + HMAC IP) + `GET /orders/:token`
 - [ ] 08-11-PLAN.md — **Wave 5** (dep 09) `/cart` bước 1 (chặn TIẾP TỤC khi có món hết) + `/o/:token` xác nhận tối giản + `/history` empty state
 - [ ] 08-12-PLAN.md — **Wave 6** (dep 10,11) `/checkout` bước 2: PICKUP/DELIVERY, Geolocation không chặn luồng, parse link Maps, submit 8 mã lỗi
 - [ ] 08-13-PLAN.md — **Wave 7** (dep tất cả) `OVERRIDE-DEBT.md` OD-06/07/08 + `08-UAT.md` (gate `sharp`/Docker trước deploy) + checkpoint 15 bước
@@ -144,7 +144,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
-| 8. Menu, Checkout & Công tắc | M2 | 8/13 | In Progress|  |
+| 8. Menu, Checkout & Công tắc | M2 | 10/13 | In Progress|  |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
