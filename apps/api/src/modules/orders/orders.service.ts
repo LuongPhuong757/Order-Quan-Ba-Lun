@@ -306,7 +306,12 @@ export class OrdersService {
    * detection phát hiện kitchen-cancel events (bếp báo hết món) — push
    * notification cho bồi bàn biết bàn nào.
    *
-   * Bỏ fields KHÔNG dùng: menu_item_price, order_id, created_by_user_id.
+   * menu_item_price: snapshot giá lúc gọi món. KDS dùng làm nhãn ĐỊNH LƯỢNG
+   * (bát 100k khác cỡ bát 130k), không phải để tính tiền — xem .kds-card-portion
+   * ở KitchenPage. Phải lấy từ order_item (KHÔNG join menu lấy giá hiện tại):
+   * admin sửa giá sau khi khách gọi thì bếp vẫn phải thấy đúng cỡ đã gọi.
+   *
+   * Bỏ fields KHÔNG dùng: order_id, created_by_user_id.
    * Phantom orders (0 items) bị filter ở server.
    */
   async listOpenOrders() {
@@ -325,6 +330,7 @@ export class OrdersService {
         'i.id',
         'i.menu_item_id',
         'i.menu_item_name',
+        'i.menu_item_price',
         'i.qty',
         'i.state',
         'i.note',

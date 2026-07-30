@@ -53,7 +53,9 @@ export function ReadyListener() {
     const offNewOrder = readyNotifier.onNewOrder((ev) => {
       if (!isKitchen) return;
       const msg = `📢 ${ev.table_name} — món mới: ${ev.qty}× ${ev.menu_item_name}`;
-      toast.push('info', msg, 5000);
+      // 8s (trước 5s): bếp đang quay lưng thái/xào, 5s là quay lại đã tắt banner.
+      // kind 'neworder' → nền cam khớp cột "Đã order" + cỡ chữ lớn ở màn bếp.
+      toast.push('neworder', msg, 8000);
       notificationStore.push(
         'order_open',
         `${ev.table_name} — gọi mới ${ev.qty}× ${ev.menu_item_name}.`,
@@ -83,12 +85,13 @@ export function ReadyListener() {
       // Self-action skip: nếu bếp tự huỷ thì không cần báo lại chính mình
       if (ev.cancelled_by === userFullName) return;
       const msg = `✕ ${ev.table_name} HUỶ ${ev.qty}× ${ev.menu_item_name} (bởi ${ev.cancelled_by})`;
-      toast.push('error', msg + (ev.reason ? ` — ${ev.reason}` : ''), 7000);
+      toast.push('error', msg + (ev.reason ? ` — ${ev.reason}` : ''), 8000);
       notificationStore.push(
         'order_cancel',
         `${ev.table_name} — ${ev.cancelled_by} huỷ ${ev.qty}× ${ev.menu_item_name}${ev.reason ? `: ${ev.reason}` : ''}.`,
       );
-      readyNotifier.playAlertBeep();
+      // Beep bếp (to + dài): món có thể đang trên chảo, bỏ lỡ là nấu thừa.
+      readyNotifier.playKitchenAlertBeep();
     });
 
     // ─── Rule 6: ItemServed (món tới tay khách) → CHỈ Bếp ─────────

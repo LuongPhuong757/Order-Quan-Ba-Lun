@@ -55,6 +55,18 @@ type TableTransferListener = (e: TableTransferEvent) => void;
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
 
+/** Tinh chỉnh 1 chuỗi beep. Bỏ trống = mức mặc định dùng chung cho mọi role. */
+type BeepOpts = {
+  /** Biên độ đỉnh 0..1 (mặc định 0.25). Bếp dùng 0.85 vì khu bếp ồn. */
+  gain?: number;
+  /** Độ dài MỖI tone, giây (mặc định 0.17). */
+  toneSec?: number;
+  /** Số nhịp lặp (mặc định 1). */
+  repeat?: number;
+  /** Nghỉ giữa 2 nhịp, giây (mặc định 0.15). */
+  gapSec?: number;
+};
+
 // Dedup window cho transfer noti — same (from→to) pair trong khoảng này = 1 noti.
 // Lý do: StrictMode dev double-render, multi-tab cùng user, hoặc ingest race
 // có thể gây duplicate. 8s đủ rộng để gom hết các path detection cho 1 transfer logic.
@@ -73,6 +85,13 @@ class ReadyNotifier {
   private itemCancelByStaffListeners = new Set<ItemCancelByStaffListener>();
   private tableTransferListeners = new Set<TableTransferListener>();
   private audioCtx: AudioContext | null = null;
+  // Mốc (ctx.currentTime) mà chuỗi beep đang phát sẽ kết thúc. Beep mới trong
+  // khoảng này bị BỎ, không phát chồng.
+  // Lý do: bồi bàn gửi bulk 8 món 1 lượt → 8 event NewOrder cùng poll → 8 chuỗi
+  // beep chồng nhau. Ở mức 0.85 của bếp thì tổng biên độ vượt 1.0 → vỡ tiếng,
+  // nghe như tạp âm chứ không phải tiếng báo. Toast + chuông 🔔 vẫn hiện đủ 8 món
+  // nên không mất thông tin.
+  private beepBusyUntil = 0;
   private initialized = false;
 
   ingest(orders: Order[]): void {
@@ -209,9 +228,18 @@ class ReadyNotifier {
     this.beepTones([660, 880]);
   }
 
-  /** Beep "ding-dong" thấp cho new order — phân biệt với READY. */
+  /** Món mới về BẾP — to + dài + lặp 4 nhịp (~2.3s).
+   *
+   *  Khu bếp ồn (hút mùi, chảo, nước chảy) và người nấu đứng cách iPad cả mét,
+   *  quay lưng lại màn hình → 1 nhịp 0.35s ở mức 0.25 như các role khác là không
+   *  nghe thấy, món nằm chờ ở cột "Đã order".
+   *
+   *  Chỉ beep này được tăng, KHÔNG tăng chung mọi beep: NewOrder là event
+   *  role-gated CHỈ cho bếp (ReadyListener rule 1), nên điện thoại nhân viên
+   *  order vẫn kêu ở mức cũ, không bị hét vào tai giữa phòng khách.
+   */
   playNewOrderBeep(): void {
-    this.beepTones([520, 392]);
+    this.beepTones([520, 392], { gain: 0.85, toneSec: 0.3, repeat: 4, gapSec: 0.16 });
   }
 
   /** Beep cảnh báo cho cancel/báo hết — 2 tone trùng cao gấp. */
@@ -219,7 +247,19 @@ class ReadyNotifier {
     this.beepTones([880, 880]);
   }
 
-  private beepTones(freqs: [number, number]): void {
+  /** Cảnh báo dành riêng cho BẾP — to + dài như playNewOrderBeep.
+   *  Dùng cho event role-gated chỉ-bếp: bồi bàn huỷ món (ReadyListener rule 3).
+   *  Món có thể đang trên chảo → bỏ lỡ là nấu thừa, đổ đi. */
+  playKitchenAlertBeep(): void {
+    this.beepTones([880, 880], { gain: 0.85, toneSec: 0.28, repeat: 4, gapSec: 0.14 });
+  }
+
+  private beepTones(freqs: [number, number], opts: BeepOpts = {}): void {
+    // Mặc định = mức cũ dùng chung cho mọi role; chỉ beep của bếp truyền opts.
+    const gain = Math.min(1, Math.max(0, opts.gain ?? 0.25));
+    const toneSec = opts.toneSec ?? 0.17;
+    const repeat = Math.max(1, opts.repeat ?? 1);
+    const gapSec = opts.gapSec ?? 0.15;
     try {
       if (!this.audioCtx) {
         const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
@@ -229,23 +269,32 @@ class ReadyNotifier {
       const ctx = this.audioCtx;
       if (ctx.state === 'suspended') ctx.resume();
       const now = ctx.currentTime;
-      this.tone(ctx, freqs[0], now, 0.15);
-      this.tone(ctx, freqs[1], now + 0.18, 0.2);
+      if (now < this.beepBusyUntil) return; // đang có chuỗi khác phát → bỏ
+      // 1 nhịp = 2 tone liền nhau, rồi nghỉ gapSec trước nhịp kế.
+      const cycleSec = toneSec * 2 + gapSec;
+      for (let r = 0; r < repeat; r++) {
+        const base = now + r * cycleSec;
+        this.tone(ctx, freqs[0], base, toneSec, gain);
+        this.tone(ctx, freqs[1], base + toneSec, toneSec, gain);
+      }
+      this.beepBusyUntil = now + repeat * cycleSec;
     } catch {
       // Silently fail — notifications still work via toast
     }
   }
 
-  private tone(ctx: AudioContext, freq: number, startAt: number, duration: number): void {
+  private tone(ctx: AudioContext, freq: number, startAt: number, duration: number, peak: number): void {
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.frequency.value = freq;
     osc.type = 'sine';
     osc.connect(gain);
     gain.connect(ctx.destination);
+    // Ramp vào/ra 0.02s để không bị "cụp" (click) ở đầu và cuối tone — ở mức to
+    // thì cạnh sóng vuông nghe rất khó chịu.
     gain.gain.setValueAtTime(0, startAt);
-    gain.gain.linearRampToValueAtTime(0.25, startAt + 0.02);
-    gain.gain.linearRampToValueAtTime(0.25, startAt + duration - 0.02);
+    gain.gain.linearRampToValueAtTime(peak, startAt + 0.02);
+    gain.gain.linearRampToValueAtTime(peak, startAt + duration - 0.02);
     gain.gain.linearRampToValueAtTime(0, startAt + duration);
     osc.start(startAt);
     osc.stop(startAt + duration);
@@ -268,6 +317,7 @@ class ReadyNotifier {
     this.prevStates.clear();
     this.prevTables.clear();
     this.lastTransferEmitMs.clear();
+    this.beepBusyUntil = 0;
     this.initialized = false;
   }
 }

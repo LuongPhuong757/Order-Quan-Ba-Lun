@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, createContext, useContext, ReactNode } from 'react';
 
-type ToastKind = 'success' | 'error' | 'info' | 'ready';
+// 'neworder' = món mới về bếp. Tách riêng khỏi 'info' vì đây là việc bếp PHẢI
+// làm ngay, không phải thông tin tham khảo — cần màu + cỡ chữ khác.
+type ToastKind = 'success' | 'error' | 'info' | 'ready' | 'neworder';
 type ToastData = { id: number; kind: ToastKind; message: string };
 
 const ToastCtx = createContext<{
@@ -17,7 +19,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const push = (kind: ToastKind, message: string, durationMs?: number) => {
     const id = nextId++;
-    const dur = durationMs ?? (kind === 'ready' ? 6000 : 3000);
+    const dur = durationMs ?? (kind === 'ready' || kind === 'neworder' ? 6000 : 3000);
     if (timerRef.current) clearTimeout(timerRef.current); // huỷ timer của cái trước
     setToast({ id, kind, message }); // ghi đè
     timerRef.current = setTimeout(
@@ -42,7 +44,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={toast.id}
             className={`toast-banner ${toast.kind}`}
-            role={toast.kind === 'error' ? 'alert' : 'status'}
+            role={toast.kind === 'error' || toast.kind === 'neworder' ? 'alert' : 'status'}
           >
             <span className="toast-banner-msg">{toast.message}</span>
             <button
