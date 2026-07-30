@@ -156,6 +156,9 @@ importers:
       react-router-dom:
         specifier: ^7.0.0
         version: 7.15.0(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+      zod:
+        specifier: ^3.23.0
+        version: 3.25.76
     devDependencies:
       '@types/react':
         specifier: ^19.0.0
