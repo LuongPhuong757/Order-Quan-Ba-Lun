@@ -83,9 +83,26 @@ Plans:
   3. Tắt công tắc: FE khoá nút **và** gọi API tay vẫn nhận `409 ONLINE_ORDERING_DISABLED`; ngoài giờ mở cửa cũng bị chặn; "OFF đến hết hôm nay" tự ON lại 00:00; **đơn đang chạy không bị ảnh hưởng** (M2.D-27..31)
   4. Một SĐT không mở được 2 đơn cùng lúc, SĐT trong blacklist bị chặn, rate limit IP + SĐT hoạt động, và `ip_hash` lưu dạng hash — không lưu IP thô (M2.D-40, M2.D-56, M2.D-59)
   5. `GET /api/public/menu` chỉ trả `id, code, name, price, unit, images[], is_out_of_stock` — không leak field nội bộ nào (M2.D-43)
-**Plans**: TBD
+**Plans**: 13 plans / 7 wave
+
+Plans:
+- [ ] 08-01-PLAN.md — **Wave 1** Hợp đồng zod `/api/public/*` + 4 module thuần (store-status, order-guard, haversine, ip-hash) + test Wave 0
+- [ ] 08-02-PLAN.md — **Wave 1** 3 entity mới (§4 spec) + đăng ký `data-source` + `IP_HASH_SALT` + **[BLOCKING]** xác nhận schema bằng truy vấn MySQL thật
+- [ ] 08-03-PLAN.md — **Wave 2** (dep 02) `sharp` resize ảnh webp 800px lúc upload (D-12) + lockfile cross-platform cho alpine
+- [ ] 08-04-PLAN.md — **Wave 1** Router + AppShell + Header 2 biến thể cho `apps/shop` (4 trang đang là dead code) + `zod` direct dep + guard bundle 2 gate
+- [ ] 08-05-PLAN.md — **Wave 2** (dep 01,02) `store_settings` service + `/admin/settings` + `/admin/phone-blacklist` + 3 nhánh audit + `normalizePhone`
+- [ ] 08-06-PLAN.md — **Wave 2** (dep 01,04) Lớp dữ liệu `apps/shop`: `useApi` fetch+zod, `customer_token`, giỏ localStorage 24h có đồng bộ D-07
+- [ ] 08-07-PLAN.md — **Wave 3** (dep 02,05) **[SECURITY]** `CsrfOriginGuard` phủ `/api/public/*` + `GET /api/public/store` + `GET /api/public/menu` (đúng 7 field)
+- [ ] 08-08-PLAN.md — **Wave 3** (dep 05) `apps/web`: widget công tắc 1 chạm ở Dashboard + trang `/admin/settings` 2 tab
+- [ ] 08-09-PLAN.md — **Wave 4** (dep 06,07) Trang menu công khai: card món, dải danh mục, tìm kiếm không dấu, banner OFF/lỗi/giá đổi
+- [ ] 08-10-PLAN.md — **Wave 4** (dep 02,07) `POST /api/public/orders` (6 lớp kiểm tra + gap lock + snapshot giá + HMAC IP) + `GET /orders/:token`
+- [ ] 08-11-PLAN.md — **Wave 5** (dep 09) `/cart` bước 1 (chặn TIẾP TỤC khi có món hết) + `/o/:token` xác nhận tối giản + `/history` empty state
+- [ ] 08-12-PLAN.md — **Wave 6** (dep 10,11) `/checkout` bước 2: PICKUP/DELIVERY, Geolocation không chặn luồng, parse link Maps, submit 8 mã lỗi
+- [ ] 08-13-PLAN.md — **Wave 7** (dep tất cả) `OVERRIDE-DEBT.md` OD-06/07/08 + `08-UAT.md` (gate `sharp`/Docker trước deploy) + checkpoint 15 bước
+
 **UI hint**: yes
-**Gate trước khi chạy**: chốt logo + màu thương hiệu quán (thay `#E4453A` của Lotteria), và giải quyết CONFLICT-DESIGN-01 (lưới món mobile 1 cột theo ref vs 2 cột theo spec §8-bis) tại `/gsd-ui-phase 8` — xem `docs/design-refs/lotteria/README.md`
+**Gate trước khi chạy**: ✅ ĐÃ CHỐT 2026-07-30 — logo wordmark chữ (`apps/shop/src/components/Wordmark.tsx`), bảng màu rút từ 4 ảnh món thật (`OVERRIDE-DEBT.md` OD-04), CONFLICT-DESIGN-01 giải bằng lưới 1 cột mobile (OD-05). Xem `docs/design-refs/lotteria/README.md`
+**Ghi chú thi công**: `synchronize: true` không migration (C-SCHEMA-07) → plan 08-02 có task `[BLOCKING]` xác nhận bảng tồn tại thật bằng truy vấn MySQL, vì `typecheck`/`build` vẫn PASS khi DB chưa có bảng nào · lỗ hổng `CsrfOriginGuard` chưa phủ `/api/public/*` phải đóng ở plan 08-07 **trước** endpoint submit (08-10) · `sharp` là dependency native đầu tiên, Docker build là deferred UAT nhưng là **gate bắt buộc trước deploy production**
 
 ### Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn
 **Goal**: Đơn của khách được duyệt nhanh, không bao giờ bị bỏ quên, và khách tự theo dõi được tiến độ mà không thấy trạng thái từng món
@@ -127,7 +144,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
-| 8. Menu, Checkout & Công tắc | M2 | 0/TBD | Not started | - |
+| 8. Menu, Checkout & Công tắc | M2 | 0/13 | Planned (7 wave) | - |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 

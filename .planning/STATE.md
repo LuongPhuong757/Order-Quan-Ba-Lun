@@ -1,12 +1,17 @@
 ---
-gsd_state_version: '1.0'
-status: planning
+gsd_state_version: 1.0
+milestone: v2.0
+milestone_name: Milestone 2 — Đặt hàng online
+status: verifying
+stopped_at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
+last_updated: "2026-07-30T04:59:55.560Z"
+last_activity: 2026-07-29 — execute phase 7 xong. 5 project typecheck sạch, 18/18 test xanh, bundle guard OK. 7 hạng mục deferred UAT ghi ở `07-UAT.md`
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 17
+  completed_plans: 4
+  percent: 24
 ---
 
 # Project State
@@ -34,6 +39,7 @@ Progress: [░░░░░░░░░░] 0%
 ## Performance Metrics
 
 **Velocity:**
+
 - Total plans completed: 0
 - Average duration: —
 - Total execution time: —
@@ -45,6 +51,7 @@ Progress: [░░░░░░░░░░] 0%
 | - | - | - | - |
 
 **Recent Trend:**
+
 - Last 5 plans: —
 - Trend: —
 
@@ -100,9 +107,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-30
-Stopped at: phase 7 execute xong + mở hết 4 gate của phase 8 (màu, logo, font, số cột). Chưa bắt đầu phase 8.
-Resume file: None — bước tiếp là `/gsd-ui-phase 8` rồi `/gsd-plan-phase 8`
+Last session: 2026-07-30T04:59:55.554Z
+Stopped at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
+Resume file: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-01-PLAN.md
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 
@@ -119,12 +126,16 @@ Resume file: None — bước tiếp là `/gsd-ui-phase 8` rồi `/gsd-plan-phas
    `.claude/commands/gsd-*.md` chứa **đường dẫn tuyệt đối của máy cũ**
    (`@C:/Users/Admin/Desktop/QuanBaLun/...`) nên copy sang máy khác là hỏng — bắt buộc chạy
    installer để nó sinh lại theo đường dẫn máy mới.
+
 3. `pnpm install` — **rồi `pnpm --filter @order/utils build`**. Thiếu bước build này thì
    `apps/api` không typecheck được (`Cannot find module '@order/utils'`).
+
 4. `cp .env.example .env` rồi điền MySQL. Cần MySQL chạy sẵn (máy cũ dùng native cổng 3306;
    `docker-compose.yml` có mysql cổng 3307 nếu dùng Docker).
+
 5. Kiểm tra nhanh: `pnpm -r typecheck` (5 project phải sạch) · `cd apps/api && pnpm test`
    (18/18 xanh) · `sh scripts/check-shop-bundle.sh` (in `OK`).
+
 6. Xem trang khách: `pnpm --filter @order/shop dev` → http://localhost:5174/
 
 ### Tên command
@@ -137,6 +148,7 @@ phải `/gsd:...`. Nếu báo `Unknown command` thì reload cửa sổ VSCode.
 1. **`apps/shop` chưa có router.** `main.tsx` đang render `BrandPreview` (trang xem màu tạm).
    4 trang trong `src/pages/` là dead code, chưa import ở đâu. Phải dựng `BrowserRouter` +
    AppShell rồi xoá `BrandPreview.tsx`.
+
 2. **`/api/public/menu` chưa tồn tại.** Chỉ có `/api/public/health`. Không có endpoint này thì
    trang menu không có gì để hiển thị.
 
@@ -144,9 +156,12 @@ phải `/gsd:...`. Nếu báo `Unknown command` thì reload cửa sổ VSCode.
 
 - `docker build` và `caddy validate` **chưa từng chạy** — máy cũ không có Docker lẫn `caddy` CLI.
   Xem `07-UAT.md` test 6 và 7.
+
 - `.claude/commands/` hiện untracked trên máy cũ (đã gỡ khỏi gitignore để loại nghi vấn slash
   command không được quét). Đừng commit nó — xem lý do đường dẫn tuyệt đối ở trên.
+
 - Thư mục phase đặt tay là `07-shop-infra` vì slug tự sinh từ tên tiếng Việt bị băm thành
   `07-h-t-ng-trang-kh-ch`. GSD nhận theo tiền tố `07-` nên không sao. Phase 8 làm tương tự:
   tự tạo `.planning/phases/08-<tên-ascii>/`.
+
 - Đọc `OVERRIDE-DEBT.md` trước khi sửa gì thuộc §8-bis hoặc CSRF — có 5 override đã ghi.
