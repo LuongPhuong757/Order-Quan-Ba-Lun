@@ -149,8 +149,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const pollEnabledRef = useRef(true);
 
   const isDelivery = table.kind === 'delivery';
-  // Bàn ship mà chưa có thông tin khách → bắt buộc nhập trước khi làm gì khác
-  const needsCustomerInfo = isDelivery && order != null && !order.customer_name;
 
   const refresh = useCallback(async (showError = true) => {
     try {
@@ -184,11 +182,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);
-
-  // Auto-mở modal nhập thông tin khách lần đầu cho bàn ship chưa điền
-  useEffect(() => {
-    if (needsCustomerInfo) setShowCustomerInfo(true);
-  }, [needsCustomerInfo]);
 
   // Nhịp 30s chỉ để đồng hồ chờ tự nhích lên. Poll 2s đã re-render sẵn, nhưng poll
   // tự tắt sau nhiều lần lỗi mạng — không có nhịp này thì đồng hồ đứng ở con số cũ
@@ -532,7 +525,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: '#92400e' }}>
-                        Chưa có thông tin khách. Bấm "Nhập thông tin" để bắt đầu nhận order.
+                        Chưa có thông tin khách (không bắt buộc) — bấm "Nhập thông tin" khi cần lưu.
                       </div>
                     )}
                   </div>
@@ -548,7 +541,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             )}
 
             {/* Action bar — luôn hiển thị cả 3 button (Gọi món + Chuyển bàn + Thanh toán) */}
-            <div style={{ marginBottom: 16, display: 'grid', gap: 8, opacity: needsCustomerInfo ? 0.4 : 1, pointerEvents: needsCustomerInfo ? 'none' : 'auto' }}>
+            <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
               {/* Row 1: hành động chính */}
               <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <button
@@ -800,13 +793,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         {showCustomerInfo && order && (
           <DeliveryInfoModal
             order={order}
-            // Lần đầu nhập (chưa có name) thì không cho dismiss nửa chừng — phải submit hoặc đóng drawer
-            forceFill={!order.customer_name}
-            onClose={() => {
-              setShowCustomerInfo(false);
-              // Nếu lần đầu mà user huỷ → đóng drawer (không cho làm gì khác)
-              if (!order.customer_name) onClose();
-            }}
+            onClose={() => setShowCustomerInfo(false)}
             onSaved={() => {
               setShowCustomerInfo(false);
               refresh();
@@ -820,12 +807,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
 function DeliveryInfoModal({
   order,
-  forceFill,
   onClose,
   onSaved,
 }: {
   order: Order;
-  forceFill: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -838,11 +823,9 @@ function DeliveryInfoModal({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !address.trim() || !phone.trim()) {
-      setErr('Vui lòng nhập đủ tên, địa chỉ, số điện thoại');
-      return;
-    }
-    if (!/^0\d{9}$/.test(phone.trim())) {
+    // Không field nào bắt buộc — bồi bàn có thể lưu mỗi SĐT, hoặc bỏ trống hết.
+    // Chỉ check định dạng SĐT KHI có gõ, tránh lưu số sai không gọi được.
+    if (phone.trim() && !/^0\d{9}$/.test(phone.trim())) {
       setErr('Số điện thoại phải có 10 số, bắt đầu bằng 0 (vd: 0901234567)');
       return;
     }
@@ -869,24 +852,20 @@ function DeliveryInfoModal({
       role="dialog"
       aria-modal="true"
       onClick={(e) => {
-        if (!forceFill && e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
             <h1 style={{ margin: 0 }}>🛵 Thông tin khách giao hàng</h1>
-            {forceFill && (
-              <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
-                Bắt buộc nhập trước khi gọi món
-              </div>
-            )}
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              Không bắt buộc — điền phần nào biết, để trống phần chưa có
+            </div>
           </div>
-          {!forceFill && (
-            <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-              ✕
-            </button>
-          )}
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
         </div>
 
         <div className="row">
@@ -943,14 +922,12 @@ function DeliveryInfoModal({
         {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
 
         <div className="flex" style={{ marginTop: 8 }}>
-          {!forceFill && (
-            <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
-              Huỷ
-            </button>
-          )}
-          <button type="submit" disabled={submitting} style={{ flex: forceFill ? 2 : 1 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Huỷ
+          </button>
+          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
             {submitting && <span className="spinner" />}
-            {forceFill ? 'Lưu & tiếp tục gọi món' : 'Lưu thay đổi'}
+            Lưu thay đổi
           </button>
         </div>
       </form>

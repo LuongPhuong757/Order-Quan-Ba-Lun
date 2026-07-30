@@ -94,10 +94,12 @@ class TransferTableDto {
   @IsUUID() dest_table_id!: string;
 }
 
+/** Cả 3 field đều optional — bàn ship KHÔNG bắt buộc có thông tin khách mới nhận
+ * order được. Chỉ ràng buộc định dạng SĐT khi có gửi lên (chuỗi rỗng = xoá). */
 class UpdateCustomerInfoDto {
-  @IsString() @MinLength(1) @MaxLength(128) name!: string;
-  @IsString() @MinLength(5) @MaxLength(255) address!: string;
-  @IsString() @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải có 10 số, bắt đầu bằng 0' }) phone!: string;
+  @IsOptional() @IsString() @MaxLength(128) name?: string;
+  @IsOptional() @IsString() @MaxLength(255) address?: string;
+  @IsOptional() @IsString() @Matches(/^(0\d{9})?$/, { message: 'Số điện thoại phải có 10 số, bắt đầu bằng 0' }) phone?: string;
 }
 
 /** Cửa sổ thời gian nhân viên (không phải admin) được soi lịch sử/nhật ký bàn. */
