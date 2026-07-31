@@ -79,9 +79,18 @@ rủi ro lớn hơn việc phase 9 phình to.
   thành chết — planner phải quyết định xoá hẳn hay giữ lại làm no-op, và ghi rõ lựa chọn.
 - **D-13:** Đơn đặt trong lúc Đóng cửa xử lý **bằng người**: quán gọi điện xác nhận với khách; khách
   từ chối thì admin bấm Từ chối như đơn thường. Không có luồng tự động nào cho việc này.
-- **D-14:** **Toàn bộ 4 câu chữ nói trên sửa được ở `/admin/settings`, lưu DB** (cùng tab công tắc
-  nhận đơn đã có từ phase 8, cạnh ô lý do tạm ngưng). Đổi chữ là ăn ngay, không cần build lại —
-  quan trọng vì đang cấm deploy production.
+- **D-14:** **Cả 2 câu chữ ở D-11 sửa được ở `/admin/settings`, lưu DB** (cùng tab công tắc nhận
+  đơn đã có từ phase 8, cạnh ô lý do tạm ngưng đã tồn tại). Đổi chữ là ăn ngay, không cần build
+  lại — quan trọng vì đang cấm deploy production. Đúng **2 key cấu hình mới**:
+  1. `closed_banner_text` — banner trên trang khách khi Đóng cửa
+  2. `closed_submit_confirm_text` — màn xác nhận sau submit khi Đóng cửa
+
+  *(Bản đầu của file này ghi nhầm là "4 câu chữ" — lỗi đếm lúc soạn, không phải quyết định của chủ
+  dự án. Sửa 2026-07-31 sau khi `gsd-ui-checker` phát hiện `09-UI-SPEC.md` chỉ định nghĩa được 2.
+  Ô "lý do tạm ngưng" đã có sẵn từ phase 8 và KHÔNG tính vào 2 key này.)*
+
+  ⚠ Cả 2 chuỗi do chủ quán tự nhập nên **độ dài không giới hạn** — layout phải co giãn, không
+  ellipsis, không khoá 1 dòng.
 
 ### Leo thang thông báo
 
