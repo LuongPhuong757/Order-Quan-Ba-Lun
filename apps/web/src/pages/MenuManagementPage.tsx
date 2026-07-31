@@ -572,8 +572,8 @@ function MenuFormModal({
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setErr('Ảnh vượt quá 5MB, vui lòng chọn ảnh nhỏ hơn');
+    if (file.size > 10 * 1024 * 1024) {
+      setErr('Ảnh vượt quá 10MB, vui lòng chọn ảnh nhỏ hơn');
       e.target.value = '';
       return;
     }
@@ -790,7 +790,7 @@ function MenuFormModal({
                 />
               )}
               <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-                JPG/PNG/WEBP/GIF, tối đa 5MB. Trên điện thoại có thể chụp trực tiếp từ camera.
+                JPG/PNG/WEBP/GIF, tối đa 10MB. Trên điện thoại có thể chụp trực tiếp từ camera.
               </p>
             </>
           )}
