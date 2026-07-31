@@ -20,6 +20,7 @@ import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { KIND_FORMAT, formatTableCode, formatTableName } from './table-kind.js';
 
 class CreateTableDto {
   @IsString() @MinLength(1) @MaxLength(16) code!: string;
@@ -48,17 +49,6 @@ class BulkCreateTablesDto {
   /** Số kết thúc (vd 10) → tạo 10 bàn từ 1-10 */
   @IsInt() to_num!: number;
 }
-
-/** Mapping kind → format code + name.
- * - dine-in   → ban-01, ban-02, ... | "Bàn 01", "Bàn 02"
- * - takeaway  → mang-ve-01, ... | "Mang về 01", ...
- * - delivery  → ship-01, ... | "Ship 01", ...
- */
-const KIND_FORMAT: Record<string, { codePrefix: string; namePrefix: string }> = {
-  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn' },
-  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về' },
-  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship' },
-};
 
 @Controller('tables')
 export class TablesController {
@@ -134,9 +124,8 @@ export class TablesController {
     const codes: string[] = [];
     const names: string[] = [];
     for (let n = dto.from_num; n <= dto.to_num; n++) {
-      const numStr = String(n).padStart(width, '0');
-      codes.push(`${fmt.codePrefix}-${numStr}`);
-      names.push(`${fmt.namePrefix} ${numStr}`);
+      codes.push(formatTableCode(dto.kind, n, width));
+      names.push(formatTableName(dto.kind, n, width));
     }
 
     const existing = await this.repo.find({ where: { code: In(codes) }, select: ['code'] });
