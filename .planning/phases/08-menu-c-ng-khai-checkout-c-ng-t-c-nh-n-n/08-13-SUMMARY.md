@@ -10,8 +10,8 @@ requires:
 provides:
   - "OVERRIDE-DEBT.md OD-06..OD-10 — 3 lệch spec đã biết trước (D-09/D-17/§5.2) + 2 lệch phát sinh giữa wave 5-6 (D-10/D-11)"
   - "08-UAT.md — 5 hạng mục deferred UAT phase 8, test 1 (Docker+sharp) là gate bắt buộc trước deploy production"
-  - "08-VALIDATION.md phản ánh kết quả test thật (106 test apps/api + 22 test apps/shop, tất cả xanh)"
-  - "Checkpoint 15 bước đã chuẩn bị sẵn dữ liệu thật (menu_item_id, customer_token, 3 dev server đang chạy) — CHỜ chủ dự án tự kiểm"
+  - "08-VALIDATION.md phản ánh kết quả test thật (106 test apps/api + 22 test apps/shop, tất cả xanh) + Approval: approved (2026-07-31)"
+  - "Checkpoint 15 bước — chủ dự án tự kiểm và gõ 'approved', không báo bước nào sai (2026-07-31)"
 affects: [phase-09-approval-notification-tracking]
 
 tech-stack:
@@ -34,19 +34,19 @@ key-decisions:
 
 requirements-completed: [REQ-I, REQ-J, REQ-K, REQ-L]
 
-duration: ~50min (Task 1+2; Task 3 dừng ở chuẩn bị, chờ checkpoint)
+duration: ~55min (Task 1+2 ~50min tự động; Task 3 chuẩn bị + chờ checkpoint, chủ dự án approved)
 completed: 2026-07-31
 ---
 
 # Phase 08 Plan 13: Đóng phase — OVERRIDE-DEBT, Deferred UAT, Checkpoint chủ dự án Summary
 
-**Ghi đủ 5 override (3 đã biết + 2 phát sinh) vào `OVERRIDE-DEBT.md`, lập `08-UAT.md` với gate `sharp`/Docker bắt buộc trước deploy, cập nhật `08-VALIDATION.md` bằng kết quả test thật (106+22 test xanh), và chuẩn bị sẵn 3 dev server + dữ liệu thật cho chủ dự án tự kiểm 15 bước — checkpoint CHƯA được duyệt.**
+**Ghi đủ 5 override (3 đã biết + 2 phát sinh) vào `OVERRIDE-DEBT.md`, lập `08-UAT.md` với gate `sharp`/Docker bắt buộc trước deploy, cập nhật `08-VALIDATION.md` bằng kết quả test thật (106+22 test xanh), và chủ dự án đã tự kiểm 15 bước luồng đặt hàng đầu-cuối + 4 lớp chống lạm dụng — checkpoint APPROVED 2026-07-31, không báo bước nào sai.**
 
 ## Performance
 
-- **Duration:** ~50 phút cho Task 1+2; Task 3 dừng ở bước chuẩn bị tự động (không tính thời gian chờ người)
+- **Duration:** ~55 phút cho Task 1+2+3 (không tính thời gian chờ phản hồi người)
 - **Started:** 2026-07-31 (giờ đọc file bắt đầu phiên)
-- **Tasks:** 2/3 hoàn thành trọn vẹn (Task 1, Task 2); Task 3 hoàn thành phần chuẩn bị, checkpoint đang mở
+- **Tasks:** 3/3 hoàn thành (Task 1, Task 2, Task 3 — checkpoint approved)
 - **Files modified:** 3 file tài liệu (2 sửa, 1 tạo) + `.env` cục bộ (không commit)
 
 ## Accomplishments
@@ -56,12 +56,13 @@ completed: 2026-07-31
 - `08-VALIDATION.md`: 12/12 dòng Per-Task Verification Map chuyển từ `⬜ pending` sang `✅ green` với số liệu test thật; `nyquist_compliant`/`wave_0_complete` = `true`; thêm mục "Known Acceptance-Criteria Conflicts" ghi nhận xung đột `PHONE_BLACKLISTED`/grep-blacklist của plan 08-12.
 - Chạy lại toàn bộ automated verify của Task 3 — tất cả xanh (xem "Verification Output" bên dưới).
 - Chuẩn bị 3 dev server đang chạy thật + dữ liệu copy-paste sẵn (menu_item_id thật, customer_token 64-hex, curl đã điền đủ) cho checkpoint.
+- **Chủ dự án tự kiểm đủ 15 bước (luồng khách, chặn 2 lớp qua `curl`, 4 lớp chống lạm dụng, OFF-đến-hết-hôm-nay, đơn đang chạy không bị ảnh hưởng) và phản hồi "approved", không báo bước nào sai.**
 
 ## Task Commits
 
 1. **Task 1: OD-06/07/08 + 2 entry phát sinh (OD-09/OD-10) vào OVERRIDE-DEBT.md** - `a4fb6d9` (docs)
 2. **Task 2: 08-UAT.md + cập nhật 08-VALIDATION.md bằng kết quả thật** - `5d42b08` (docs)
-3. **Task 3: checkpoint** — không có commit code; kết quả ghi trong Summary này, `08-VALIDATION.md § Approval` giữ `pending`.
+3. **Task 3: chuẩn bị checkpoint (dev server + dữ liệu thật)** - `c065a6a` (docs) — checkpoint tự nó không sinh code commit; kết quả "approved" của chủ dự án được ghi lại ở commit theo sau (xem cuối Summary này).
 
 ## Files Created/Modified
 
@@ -145,25 +146,45 @@ trong `package.json` gốc, không phải lệnh khác.)
 
 ## User Setup Required
 
-**Không cần cấu hình dịch vụ ngoài nào mới.** 3 dev server đã được khởi động sẵn cho checkpoint — xem mục
-CHECKPOINT bên dưới để biết URL và cách dừng.
+**Không cần cấu hình dịch vụ ngoài nào mới.** 3 dev server đã được khởi động cho checkpoint (`api:3001`,
+`web:5183`, `shop:5184`) và đã được **dừng lại** sau khi chủ dự án kiểm xong — không còn tiến trình nào
+của phase 8 chạy nền.
+
+## Checkpoint Result
+
+**"approved"** — chủ dự án tự tay chạy đủ 15 bước ở `<how-to-verify>` của `08-13-PLAN.md` Task 3 (luồng
+khách A.1-4, chặn 2 lớp qua `curl` B.5-9, 4 lớp chống lạm dụng C.10-13, OFF-đến-hết-hôm-nay D.14, đơn đang
+chạy không bị ảnh hưởng E.15), **không báo bước nào sai**. Đã cập nhật:
+- `08-VALIDATION.md § Approval`: `pending` → **`approved`** (2026-07-31, người duyệt: chủ dự án qua
+  checkpoint `08-13-PLAN.md` Task 3), kèm chú thích rõ phạm vi approval chỉ áp cho 15 bước local, không
+  áp cho 5 hạng mục deferred UAT.
+- `08-UAT.md`: thêm ghi chú phân biệt rõ approval này KHÔNG áp cho 5 hạng mục deferred production —
+  **cả 5 vẫn `result: pending`**, `status: testing` giữ nguyên, không hạng mục nào bị đánh dấu xong.
 
 ## Next Phase Readiness
 
-- Phase 8 đã sẵn sàng về mặt tài liệu (OVERRIDE-DEBT, UAT, VALIDATION) và tự động hoá (106+22 test, typecheck, bundle guard) — chỉ còn thiếu xác nhận tay của chủ dự án (checkpoint Task 3) để đóng phase chính thức.
-- `08-VALIDATION.md § Approval` giữ nguyên `pending` — **không tự đánh dấu đạt**.
-- Nếu chủ dự án gõ "approved": phase 9 (REQ-M/N/O) có thể bắt đầu ngay, không có blocker kỹ thuật nào từ phase 8.
-- Nếu có bước sai: xem checkpoint bên dưới để biết chính xác bước nào, mở gap sửa trước khi đóng phase.
+- **Phase 8 đã đóng chính thức** — 13/13 plan có SUMMARY, 106+22 test xanh, `08-VALIDATION.md § Approval` =
+  `approved`. Phase 9 (REQ-M/N/O — duyệt đơn, thông báo, theo dõi đơn) không còn blocker kỹ thuật nào từ
+  phase 8 để bắt đầu.
+- **Việc còn treo sau phase 8 (không phải blocker của phase 9, nhưng bắt buộc trước khi deploy production
+  thật):** 5 hạng mục `08-UAT.md`, đặc biệt **test 1 (Docker build + `sharp` trên alpine) là gate bắt buộc
+  riêng** — máy dev không có Docker, chưa từng build image thật với `sharp`. 4 hạng mục còn lại (Permissions-
+  Policy geolocation, WebView Zalo/Facebook, ảnh cũ, bundle 3G thật) cũng chưa nghiệm thu, cùng nhóm với 7
+  hạng mục deferred của `07-UAT.md` (DNS, TLS, Caddy...).
+- 2 lệch spec mới phát hiện (OD-09/OD-10, từ 1 commit UI ngoài phạm vi mọi plan) đã ghi đủ vào
+  `OVERRIDE-DEBT.md` — không cần hành động thêm.
 
 ## Self-Check: PASSED
 
 - FOUND: OVERRIDE-DEBT.md (chứa OD-09, OD-10)
-- FOUND: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-UAT.md
-- FOUND: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-VALIDATION.md (nyquist_compliant: true)
+- FOUND: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-UAT.md (5/5 test vẫn `result: pending`, không bị đánh dấu xong)
+- FOUND: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-VALIDATION.md (nyquist_compliant: true, § Approval: approved)
 - FOUND commit: a4fb6d9
 - FOUND commit: 5d42b08
+- FOUND commit: c065a6a
 - `pnpm -r typecheck` / `pnpm --filter @order/api test` / `pnpm --filter @order/shop test` / bundle guard — đều exit 0 (dán nguyên văn ở trên)
+- 3 dev server khởi động cho checkpoint đã được dừng (xác nhận `lsof -iTCP:3001,5183,5184` rỗng)
 
 ---
 *Phase: 08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n*
-*Completed: Task 1-2 xong 2026-07-31; Task 3 đang chờ checkpoint*
+*Completed: 2026-07-31 — checkpoint approved, phase 8 đóng*

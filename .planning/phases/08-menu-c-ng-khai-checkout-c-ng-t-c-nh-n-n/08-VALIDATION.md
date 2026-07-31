@@ -1,7 +1,7 @@
 ---
 phase: 8
 slug: menu-cong-khai-checkout-cong-tac-nhan-don
-status: executed
+status: approved
 nyquist_compliant: true
 wave_0_complete: true
 created: 2026-07-30
@@ -160,5 +160,9 @@ chỉnh trong phạm vi hợp đồng đã có):
 - [x] Feedback latency < 15s
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending — plan 08-13 Task 2 (cập nhật trạng thái thật) đã xong 2026-07-31; Task 3 (checkpoint
-chủ dự án tự kiểm 15 bước) là bước chốt cuối cùng, chưa chạy.
+**Approval:** approved — chủ dự án tự kiểm đủ 15 bước ở checkpoint plan 08-13 Task 3 và phản hồi "approved"
+(2026-07-31), không báo bước nào sai. Người duyệt: chủ dự án (qua checkpoint `08-13-PLAN.md` Task 3).
+
+⚠ Phạm vi approval này CHỈ áp cho 15 bước của Task 3 (luồng đặt hàng đầu-cuối + 4 lớp chống lạm dụng chạy
+được ở local). **KHÔNG áp cho 5 hạng mục deferred UAT ở `08-UAT.md`** — đặc biệt test 1 (Docker build +
+`sharp` trên alpine) vẫn là gate bắt buộc riêng, chưa nghiệm thu, phải xanh trước khi deploy production.

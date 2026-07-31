@@ -16,6 +16,11 @@ GATE BẮT BUỘC TRƯỚC KHI DEPLOY PRODUCTION**, không chỉ trước khi đ
 đầu tiên của `apps/api` — nếu build image thất bại trên alpine, admin không upload được ảnh món nào, và ảnh
 món là nội dung chính của trang khách. Không được deploy production khi test 1 chưa xanh.
 
+⚠ **Không nhầm với checkpoint `08-13-PLAN.md` Task 3** (chủ dự án đã gõ "approved" cho 15 bước luồng đặt
+hàng + anti-abuse chạy ở local, 2026-07-31 — xem `08-VALIDATION.md` § Validation Sign-Off). Approval đó
+CHỈ xác nhận phần chạy được ở local; **cả 5 hạng mục trong file này vẫn `result: pending`**, chưa hạng mục
+nào được nghiệm thu — status frontmatter giữ nguyên `testing`.
+
 ## Current Test
 
 number: —
