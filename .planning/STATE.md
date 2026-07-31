@@ -3,13 +3,13 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
 status: verifying
-stopped_at: Phase 9 UI-SPEC approved (6/6 dimension, 2 FLAG đã đóng)
-last_updated: "2026-07-31T03:44:24.444Z"
+stopped_at: Phase 9 planned — 13 plan / 8 wave, plan-checker APPROVED 0 blocker
+last_updated: "2026-07-31T05:29:51.585Z"
 last_activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
 progress:
   total_phases: 4
   completed_phases: 2
-  total_plans: 17
+  total_plans: 30
   completed_plans: 17
   percent: 50
 ---
@@ -109,9 +109,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-31T03:44:24.435Z
-Stopped at: Phase 9 UI-SPEC approved (6/6 dimension, 2 FLAG đã đóng)
-Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-UI-SPEC.md
+Last session: 2026-07-31T05:29:51.575Z
+Stopped at: Phase 9 planned — 13 plan / 8 wave, plan-checker APPROVED 0 blocker
+Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-01-PLAN.md
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 
