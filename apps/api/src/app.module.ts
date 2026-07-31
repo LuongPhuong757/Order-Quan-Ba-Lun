@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
@@ -22,6 +23,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRoot(dataSourceOptions),
     EventEmitterModule.forRoot(),
+    // Phase 9 (D-19) — scheduler in-process, thay cho OS cron mà repo chưa bao giờ wire
+    // được (C-CRON-01). Mọi `@Cron` trong app (poller outbox 09-05, 2 job retention ở
+    // MaintenanceModule) đều phụ thuộc dòng này — xoá nó là làm chết im lặng cả 3 job.
+    ScheduleModule.forRoot(),
     // P01.D-26 — in-memory rate limit
     // Global generous: 600 req/min/IP (~10/sec) tránh chặn polling UI
     // Auth strict: override inline ở /auth/login + /auth/recover (5/5min/IP)
