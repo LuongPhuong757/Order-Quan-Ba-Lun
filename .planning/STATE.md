@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
-status: verifying
+status: executing
 stopped_at: Phase 9 planned — 13 plan / 8 wave, plan-checker APPROVED 0 blocker
-last_updated: "2026-07-31T05:29:51.585Z"
-last_activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
+last_updated: "2026-07-31T05:33:18.874Z"
+last_activity: 2026-07-31 -- Phase 09 execution started
 progress:
   total_phases: 4
   completed_phases: 2
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-07-29)
 
 **Core value:** Khách đặt được món từ xa mà quán không bao giờ bỏ lọt đơn, và đơn chưa duyệt không bao giờ lẫn vào bếp / sơ đồ bàn / doanh thu.
-**Current focus:** Phase 08 — menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n
+**Current focus:** Phase 09 — duy-t-n-th-ng-b-o-theo-d-i-n
 
 *Progress đếm theo Milestone 2 (4 phase). Milestone 1 (phases 1–6) đã ship dưới VGFlow.*
 
 ## Current Position
 
-Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — COMPLETE (checkpoint approved)
-Plan: 13 of 13 (tất cả xong, kể cả checkpoint Task 3 — chủ dự án gõ "approved" 2026-07-31)
-Status: Phase complete — ready for verification. 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu — không phải blocker phase 9.
-Last activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
+Phase: 09 (duy-t-n-th-ng-b-o-theo-d-i-n) — EXECUTING
+Plan: 1 of 13
+Status: Executing Phase 09
+Last activity: 2026-07-31 -- Phase 09 execution started
 
 Progress: [██████████] 100%
 
