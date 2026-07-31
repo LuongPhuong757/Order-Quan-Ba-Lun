@@ -121,7 +121,7 @@ Plans:
 - [x] 09-02-PLAN.md — **Wave 1** Cài `@nestjs/schedule@6.1.3` (đường không-pnpm) + `ScheduleModule` + hồi sinh 2 cron chết (C-CRON-01)
 - [x] 09-03-PLAN.md — **Wave 1** Tách `KIND_FORMAT` + `runWithRetry` thành module dùng chung + hàm thuần chọn bàn
 - [x] 09-04-PLAN.md — **Wave 1** Entity §4.5/§4.6 + cột ghi chú nội bộ + **[BLOCKING]** xác nhận schema bằng truy vấn MySQL thật
-- [ ] 09-05-PLAN.md — **Wave 2** (dep 02,04) `notification_outbox` service + 2 driver SMS + `EmailChannel` + poller `@Cron` 15s
+- [x] 09-05-PLAN.md — **Wave 2** (dep 02,04) `notification_outbox` service + 2 driver SMS + `EmailChannel` + poller `@Cron` 15s
 - [ ] 09-06-PLAN.md — **Wave 3** (dep 01,03,04,05) `confirm()`/`reject()`/`list()` — transaction cấp bàn `FOR UPDATE` + tự tạo bàn
 - [ ] 09-07-PLAN.md — **Wave 4** (dep 06) Controller `admin/online-orders` 3 route + SSE stream + audit `action_kind`
 - [ ] 09-08-PLAN.md — **Wave 5** (dep 06,07) Integration test MySQL thật (row lock + doanh thu) + `ship_fee` tách khỏi doanh thu món
@@ -161,7 +161,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
 | 8. Menu, Checkout & Công tắc | M2 | 13/13 | Executed (checkpoint approved; 5 deferred UAT còn treo) | 2026-07-31 |
-| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 4/13 | In Progress|  |
+| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 5/13 | In Progress|  |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
 ---
