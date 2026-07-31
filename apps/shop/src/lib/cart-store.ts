@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useSyncExternalStore } from 'react';
 import type { PublicMenuGroup } from '@order/schemas';
 import type { OnlineOrderItemInput } from '@order/schemas';
 
@@ -10,6 +10,10 @@ import type { OnlineOrderItemInput } from '@order/schemas';
  *   (a) Hàm thuần — export được, KHÔNG đụng localStorage/DOM. Đây là phần
  *       được test ở cart-store.test.ts (D-06/D-07).
  *   (b) Hook useCart() — đọc/ghi localStorage, dùng lại các hàm thuần ở trên.
+ *       Trạng thái nằm ở CẤP MODULE (không phải useState trong hook): mọi nơi
+ *       gọi useCart() đều nhìn cùng một giỏ. Trước đây mỗi lần gọi hook là một
+ *       useState riêng, nên MenuPage thêm món xong thì AppShell (header +
+ *       thanh giỏ nổi) không hề biết — badge đứng yên cho tới khi tải lại trang.
  *
  * D-08: KHÔNG lắng nghe `storage` event — không sync giữa nhiều tab, tab nào
  * ghi sau thắng. Đây là quyết định, không phải thiếu sót.
@@ -213,6 +217,32 @@ function writeCartState(lines: CartLine[]): void {
   }
 }
 
+// ── Store cấp module ─────────────────────────────────────────────────────
+// `null` = chưa nạp từ localStorage. Nạp LƯỜI (lần đọc đầu tiên) thay vì lúc
+// import module, để file test chạy ở môi trường không có `window` vẫn import
+// được các hàm thuần bên trên mà không chạm localStorage.
+let cartLines: CartLine[] | null = null;
+const listeners = new Set<() => void>();
+
+function getLines(): CartLine[] {
+  if (cartLines === null) cartLines = readCartState().lines;
+  return cartLines;
+}
+
+/** Đổi giỏ: ghi localStorage + báo cho MỌI component đang dùng useCart(). */
+function commitLines(next: CartLine[]): void {
+  cartLines = next;
+  writeCartState(next);
+  for (const listener of listeners) listener();
+}
+
+function subscribe(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
 export type UseCartResult = {
   lines: CartLine[];
   subtotal: number;
@@ -228,12 +258,7 @@ export type UseCartResult = {
  * tab nào ghi sau thắng. Khách mobile gần như không mở 2 tab menu.
  */
 export function useCart(): UseCartResult {
-  const [lines, setLines] = useState<CartLine[]>(() => readCartState().lines);
-
-  useEffect(() => {
-    writeCartState(lines);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lines]);
+  const lines = useSyncExternalStore(subscribe, getLines, getLines);
 
   const subtotal = lines
     .filter((l) => !l.unavailable)
@@ -244,12 +269,12 @@ export function useCart(): UseCartResult {
     lines,
     subtotal,
     count,
-    add: (item, qty) => setLines((prev) => addLine(prev, item, qty)),
-    setQty: (menu_item_id, qty) => setLines((prev) => setQty(prev, menu_item_id, qty)),
-    clear: () => setLines([]),
+    add: (item, qty) => commitLines(addLine(getLines(), item, qty)),
+    setQty: (menu_item_id, qty) => commitLines(setQty(getLines(), menu_item_id, qty)),
+    clear: () => commitLines([]),
     applyMenuSync: (groups) => {
-      const result = syncCartWithMenu(lines, groups);
-      setLines(result.lines);
+      const result = syncCartWithMenu(getLines(), groups);
+      commitLines(result.lines);
       return { priceChanged: result.priceChanged, blocksCheckout: result.blocksCheckout };
     },
   };

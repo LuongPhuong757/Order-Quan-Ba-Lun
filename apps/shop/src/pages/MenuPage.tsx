@@ -7,6 +7,7 @@ import { useCart } from '../lib/cart-store.ts';
 import { CardItem } from '../components/CardItem.tsx';
 import { CategoryRail } from '../components/CategoryRail.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { CartToast } from '../components/CartToast.tsx';
 
 /**
  * REQ-I — trang menu công khai hoàn chỉnh.
@@ -37,6 +38,9 @@ export function MenuPage(): JSX.Element {
   const q = params.get('q') ?? '';
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [priceChangedBanner, setPriceChangedBanner] = useState(false);
+  // `nonce` tăng mỗi lần thêm món — bấm `+` liên tiếp thì toast hẹn giờ lại từ
+  // đầu và chạy lại hiệu ứng, thay vì đứng im như đã hết tác dụng.
+  const [toast, setToast] = useState<{ message: string; nonce: number } | null>(null);
 
   const store = useApi('/api/public/store', PublicStoreStatus);
   const menu = useApi('/api/public/menu', MenuResponse);
@@ -90,6 +94,10 @@ export function MenuPage(): JSX.Element {
       },
       1,
     );
+    setToast((prev) => ({
+      message: `Đã thêm ${item.name} vào giỏ`,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
   };
 
   const visibleGroups = activeCode ? groups.filter((g) => g.code === activeCode) : groups;
@@ -195,6 +203,12 @@ export function MenuPage(): JSX.Element {
           <p style={emptyText}>Quán chưa có món nào trong menu lúc này.</p>
         </div>
       )}
+
+      <CartToast
+        message={toast?.message ?? null}
+        nonce={toast?.nonce ?? 0}
+        onDismiss={() => setToast(null)}
+      />
     </div>
   );
 }

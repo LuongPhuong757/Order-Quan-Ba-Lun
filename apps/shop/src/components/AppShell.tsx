@@ -2,12 +2,16 @@ import type { CSSProperties, JSX } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Header } from './Header.tsx';
 import { Footer } from './Footer.tsx';
-import { FloatingCart } from './FloatingCart.tsx';
 import { useCart } from '../lib/cart-store.ts';
 
 /**
  * Layout chung của apps/shop: `<Header/>` sticky + `<main>` bọc `<Outlet/>` +
- * `<Footer/>` + `<FloatingCart/>` mobile-only sau cùng.
+ * `<Footer/>`.
+ *
+ * KHÔNG còn thanh giỏ hàng nổi ở đáy (component `FloatingCart` đã bỏ hẳn theo
+ * yêu cầu chủ quán): icon giỏ + badge số món ở `Header` đã là đường vào `/cart`
+ * trên cả mobile lẫn desktop, thanh nổi lặp lại thông tin đó và che mất nội
+ * dung cuối trang. Vì vậy `shell` cũng không cần chừa `padding-bottom` nữa.
  *
  * Không đặt logic nghiệp vụ ở đây — chỉ hiển thị lại dữ liệu từ hook giỏ hàng.
  */
@@ -15,16 +19,12 @@ export function AppShell(): JSX.Element {
   const { count, subtotal } = useCart();
 
   return (
-    <div style={count > 0 ? shellWithFloatingCart : shell}>
+    <div style={shell}>
       <Header cartCount={count} cartTotal={subtotal} />
       <main style={main}>
         <Outlet />
       </main>
-      {/* Footer nằm NGOÀI <main> nên chừa chỗ cho thanh giỏ nổi phải đặt ở
-          `shell`, không đặt ở `main` — nếu đặt ở `main` thì thanh nổi che mất
-          số điện thoại quán ở footer. */}
       <Footer />
-      <FloatingCart count={count} subtotal={subtotal} />
     </div>
   );
 }
@@ -34,12 +34,6 @@ const shell: CSSProperties = {
   background: 'var(--bg-page)',
   color: 'var(--text-strong)',
   fontFamily: 'var(--font-body)',
-};
-
-// Giỏ có món → chừa chỗ cho thanh nổi mobile, tránh che nội dung cuối trang.
-const shellWithFloatingCart: CSSProperties = {
-  ...shell,
-  paddingBottom: 'calc(var(--sticky-cta-h) + var(--safe-bottom) + var(--sp-4))',
 };
 
 const main: CSSProperties = {
