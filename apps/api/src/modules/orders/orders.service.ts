@@ -13,6 +13,7 @@ import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
+import { runWithRetry } from '../../common/run-with-retry.js';
 
 export type OrderCreator = { id: string; full_name: string };
 
@@ -181,26 +182,9 @@ export class OrdersService {
    * @param creator — nhân viên đang mở. Lưu snapshot vào order.created_by_*
    *                  CHỈ khi tạo order mới (không update khi reuse). */
   async getOrCreateOpenOrder(table_id: string, creator?: OrderCreator): Promise<Order> {
-    return this.runWithRetry(() => this.getOrCreateOpenOrderImpl(table_id, creator), 2);
-  }
-
-  /** Retry helper — chạy lại 1-2 lần khi gặp transient DB error (deadlock, lock
-   * timeout). Sleep ngắn ngẫu nhiên giữa các lần để giảm collision. */
-  private async runWithRetry<T>(fn: () => Promise<T>, maxAttempts: number): Promise<T> {
-    let lastErr: unknown;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        return await fn();
-      } catch (err) {
-        lastErr = err;
-        const msg = (err as Error).message || '';
-        const isTransient = /deadlock|lock wait timeout|ER_LOCK/i.test(msg);
-        if (!isTransient || attempt === maxAttempts) throw err;
-        this.logger.warn(`Transient DB error (attempt ${attempt}/${maxAttempts}): ${msg} — retry`);
-        await new Promise((r) => setTimeout(r, 30 + Math.random() * 70));
-      }
-    }
-    throw lastErr;
+    return runWithRetry(() => this.getOrCreateOpenOrderImpl(table_id, creator), 2, {
+      onRetry: (a, m) => this.logger.warn(`Transient DB error (attempt ${a}/2): ${m} — retry`),
+    });
   }
 
   private async getOrCreateOpenOrderImpl(table_id: string, creator?: OrderCreator): Promise<Order> {
