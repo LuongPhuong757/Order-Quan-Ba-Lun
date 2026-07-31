@@ -12,6 +12,7 @@ import { OrderActivityLog } from './modules/orders/entities/order-activity-log.e
 import { StoreSetting } from './modules/settings/entities/store-settings.entity.js';
 import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.entity.js';
 import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
+import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -47,6 +48,7 @@ export const dataSourceOptions: DataSourceOptions = {
     StoreSetting,
     PhoneBlacklist,
     OnlineOrderRequest,
+    NotificationOutbox,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

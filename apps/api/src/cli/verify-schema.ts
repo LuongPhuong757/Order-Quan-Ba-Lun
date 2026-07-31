@@ -1,4 +1,4 @@
-// Kiểm bảng/cột phase 8 tồn tại THẬT trong MySQL — gate, không phải báo cáo.
+// Kiểm bảng/cột phase 8 + phase 9 tồn tại THẬT trong MySQL — gate, không phải báo cáo.
 //
 // Lý do tồn tại: dự án dùng `synchronize: true`, không migration (C-SCHEMA-07). `tsc` xanh
 // không chứng minh được `synchronize` đã thực sự tạo bảng — type đến từ file entity, không
@@ -42,6 +42,38 @@ const CHECKS: TableCheck[] = [
       'ip_hash',
       'distance_km',
       'max_progress_shown',
+      'internal_reject_note',
+    ],
+  },
+  {
+    table: 'orders',
+    requiredColumns: [
+      'source',
+      'fulfillment_type',
+      'online_request_id',
+      'order_token',
+      'customer_lat',
+      'customer_lng',
+      'customer_map_link',
+      'distance_km',
+      'ship_fee',
+      'payment_method',
+    ],
+  },
+  {
+    table: 'notification_outbox',
+    requiredColumns: [
+      'id',
+      'request_id',
+      'channel',
+      'recipient',
+      'level',
+      'status',
+      'attempts',
+      'last_error',
+      'scheduled_at',
+      'sent_at',
+      'created_at',
     ],
   },
 ];
