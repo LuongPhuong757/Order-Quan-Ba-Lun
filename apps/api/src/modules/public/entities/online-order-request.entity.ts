@@ -102,6 +102,12 @@ export class OnlineOrderRequest {
   @Column({ type: 'varchar', length: 255, nullable: true })
   reject_reason!: string | null;
 
+  // D-09 — ghi chú tự do của admin khi từ chối. CHỈ lưu DB + audit log. TUYỆT ĐỐI không
+  // đưa vào `PublicOrderStatus` hay bất kỳ response `/api/public/*` nào; `reject_reason`
+  // (câu soạn sẵn) mới là thứ khách đọc.
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  internal_reject_note!: string | null;
+
   // FK → orders.id, set khi CONFIRMED (phase 9).
   @Column({ type: 'varchar', length: 36, nullable: true })
   order_id!: string | null;

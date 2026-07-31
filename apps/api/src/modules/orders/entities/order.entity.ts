@@ -68,6 +68,45 @@ export class Order {
   @UpdateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   updated_at!: number;
 
+  /** Phase 9 (§4.5). CHỈ THÊM cột. `synchronize: true`, không migration — rename bất kỳ
+   * cột nào ở đây về sau là mất dữ liệu im lặng (C-SCHEMA-07). */
+  @Column({ type: 'varchar', length: 16, default: 'STAFF' })
+  source!: string; // 'STAFF' | 'ONLINE'
+
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  fulfillment_type!: string | null; // 'PICKUP' | 'DELIVERY' | null (null = dine-in)
+
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  @Index()
+  online_request_id!: string | null; // trỏ ngược online_order_requests.id
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Index({ unique: true })
+  order_token!: string | null; // copy từ request để /o/<token> đọc được order thật sau khi duyệt
+
+  // MySQL trả decimal dạng STRING qua mysql2 — khai type TS là `string | null`, giống
+  // online-order-request.entity.ts.
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  customer_lat!: string | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })
+  customer_lng!: string | null;
+
+  @Column({ type: 'varchar', length: 512, nullable: true })
+  customer_map_link!: string | null;
+
+  @Column({ type: 'decimal', precision: 6, scale: 2, nullable: true })
+  distance_km!: string | null;
+
+  // M2.D-62: KHÔNG vào doanh thu món; `PAID_SQL` ở orders.service.ts tính tiền từ order_items
+  // nên mặc định 0 tự động vô hại với đơn tại quán.
+  @Column({ type: 'int', default: 0 })
+  ship_fee!: number;
+
+  // M2.D-58, chỗ ngỏ cho chuyển khoản sau này.
+  @Column({ type: 'varchar', length: 16, default: 'CASH' })
+  payment_method!: string;
+
   @OneToMany(() => OrderItem, (oi) => oi.order)
   items?: Relation<OrderItem[]>;
 }
