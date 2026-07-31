@@ -65,6 +65,86 @@ Mỗi entry phải trả lời: lệch cái gì · ai quyết · vì sao · hệ
 - **Ghi ở:** `docs/design-refs/lotteria/README.md` § CONFLICT-DESIGN-01 · `apps/shop/src/BrandPreview.tsx` (`dishGrid`)
 - **Quay lại thì sao:** đổi `280px` thành `160px` là về 2 cột mobile. Nhưng phải đồng thời ẩn mô tả thành phần dưới 768px và cho giá + nút `+` xếp 2 dòng — card 160px không chứa nổi cả ba.
 
+## OD-06 — `images[]` của M2.D-43 map từ cột `image_url`, không thêm bảng ảnh
+
+- **Ngày:** 2026-07-30 · **Người quyết:** chủ dự án (D-09)
+- **Quyết định gốc:** M2.D-43 mô tả `GET /api/public/menu` trả field `images[]`.
+- **Lệch:** schema DB **không đổi** — `menu_items` vẫn chỉ có `image_url varchar(512)`; BE map
+  `image_url ? [image_url] : []` (0..1 phần tử).
+- **Vì sao:** card món trong `08-UI-SPEC.md` chỉ vẽ 1 ảnh, và nhiều ảnh/món không nằm trong REQ-I..L. Giữ
+  **hợp đồng API** dạng mảng để sau thêm bảng `menu_item_images` thì FE không phải sửa gì.
+- **Ghi ở:** `packages/schemas/src/public-menu.ts`, `apps/api/src/modules/public/public-menu.mapper.ts`,
+  test `public-menu-shape.test.ts` có case `image_url = null` → `[]`.
+- **Quay lại thì sao:** thêm bảng ảnh riêng + sửa mapper là đủ; **không** phải sửa FE vì hợp đồng đã là mảng.
+  Ngược lại nếu ai đổi API thành `image_url` đơn lẻ thì mới là phá hợp đồng.
+
+## OD-07 — "OFF đến hết hôm nay" thi công bằng tính-lúc-đọc, không cron
+
+- **Ngày:** 2026-07-30 · **Người quyết:** chủ dự án (D-17)
+- **Quyết định gốc:** M2.D-28 mô tả hành vi "tự ON lại 00:00 Asia/Ho_Chi_Minh" — cách hiểu tự nhiên là 1 job
+  chạy lúc nửa đêm.
+- **Lệch:** **không có cron**. Lưu `online_ordering_off_until_ms` = 23:59:59.999 ICT hôm nay; mỗi lần đọc
+  trạng thái, `evaluateOrderingStatus()` so với giờ hiện tại và tự coi là đã ON. Cột DB vẫn ghi `false`
+  trong khi hành vi thực tế là ON — **đây là điểm người sau dễ hiểu sai**, nên cấm đọc thẳng cột
+  `online_ordering_enabled` ở bất kỳ đâu ngoài hàm đó.
+- **Vì sao:** sống sót qua restart container và mất điện VPS; repo đang có **2 cron chết** (xem STATE.md) nên
+  thêm cron là thêm điểm chết im lặng thứ ba. Dùng cùng cơ chế cho cả "ngoài giờ mở cửa" (M2.D-30).
+- **Ghi ở:** `apps/api/src/modules/public/store-status.ts` (+ `store-status.test.ts` có case qua nửa đêm),
+  `apps/api/src/modules/settings/settings.service.ts` (`getOrderingStatus`).
+- **Quay lại thì sao:** muốn dùng cron thì phải đồng thời bỏ nhánh auto-revert trong hàm thuần, nếu không sẽ
+  có 2 cơ chế cùng quyết định 1 trạng thái.
+
+## OD-08 — Route admin mới không có tiền tố `/api`
+
+- **Ngày:** 2026-07-30 · **Người quyết:** chủ dự án (chốt trong phiên planning phase 8)
+- **Quyết định gốc:** spec §5.2 ghi `/api/admin/settings` và `/api/admin/phone-blacklist`.
+- **Lệch:** thi công `@Controller('admin/settings')` và `@Controller('admin/phone-blacklist')` — **không**
+  `/api`.
+- **Vì sao:** toàn bộ route admin có sẵn từ Milestone 1 đều không có `/api`
+  (`admin/users`, `admin/audit`), và `apps/web/src/lib/api.ts` gọi thẳng `/admin/...`. Cả 2 cách đều
+  route đúng vì `apiPrefixes` trong `main.ts` liệt kê cả `/api` lẫn `/admin`, nên đây là **lệch chữ,
+  không lệch hành vi**.
+- **Ghi ở:** `apps/api/src/modules/settings/settings.controller.ts`,
+  `apps/api/src/modules/settings/phone-blacklist.controller.ts`, `apps/web/src/pages/AdminSettingsPage.tsx`.
+- **Quay lại thì sao:** đổi 2 decorator + 4 chỗ gọi ở `apps/web`. Nhưng khi đó `admin/users`/`admin/audit`
+  thành không nhất quán — nên nếu muốn bám chữ spec thì phải đổi **cả** route cũ, tức là phá API đang
+  chạy production.
+
+## OD-09 — Placeholder ảnh món không còn in tên món chữ (lệch D-10)
+
+- **Ngày:** 2026-07-30 · **Người quyết:** phát hiện + sửa khi chủ quán báo card món "trông vỡ", ghi bù ở
+  plan 08-13 (thi công thật ở commit `d31649c`, giữa wave 5 và wave 6, ngoài phạm vi mọi plan 08-xx đã viết)
+- **Quyết định gốc:** D-10 (`08-CONTEXT.md`) chốt placeholder ảnh gồm "nền gỗ ấm + icon bát + **tên món**".
+- **Lệch:** `ImagePlaceholder.tsx` không còn render tên món thành chữ nhìn thấy được nữa — chỉ còn nền
+  `--wood-100` + icon bát SVG. Tên món vẫn tới được trình đọc màn hình qua `aria-label`.
+- **Vì sao:** `CardItem.tsx` đã render tên món ở `<h3>` ngay dưới vùng ảnh — khi món không có ảnh thật, tên
+  bị in **2 lần liên tiếp** (1 lần trong ô placeholder, 1 lần ở `<h3>`), khiến card trông như lỗi dữ liệu
+  thay vì placeholder có chủ ý. Bỏ tên khỏi ô ảnh giữ đúng tinh thần D-10 (placeholder "có chủ ý, không
+  giống ảnh lỗi") mà D-10 hướng tới, chỉ khác cách đạt được.
+- **Ghi ở:** `apps/shop/src/components/ImagePlaceholder.tsx`, `apps/shop/src/components/CardItem.tsx`.
+- **Quay lại thì sao:** thêm lại dòng chữ tên món trong `ImagePlaceholder.tsx` là về đúng chữ D-10, nhưng
+  phải đồng thời ẩn tên ở `<h3>` của `CardItem.tsx` khi không có ảnh thật, nếu không sẽ tái lặp lỗi in tên 2
+  lần đã bị chủ quán báo.
+
+## OD-10 — Tỉ lệ khung ảnh card món đổi từ 4/3 (D-11) sang 3/2
+
+- **Ngày:** 2026-07-30 · **Người quyết:** phát hiện + sửa khi chủ quán báo desktop chỉ thấy 1 hàng món (cùng
+  đợt sửa với OD-09, commit `d31649c`)
+- **Quyết định gốc:** D-11 (`08-CONTEXT.md`) chốt "Ảnh trong card dùng `object-fit: cover` trên khung
+  `aspect-ratio: 4/3`". (Lưu ý: `08-UI-SPEC.md` dòng 226 chỉ ghi đây là **khuyến nghị** "4:3", không phải
+  giá trị khoá cứng ở tài liệu đó — nhưng D-11 trong `08-CONTEXT.md` là quyết định đã chốt với chủ dự án,
+  nên vẫn tính là lệch cần ghi.)
+- **Lệch:** đổi sang `aspect-ratio: 3/2` qua token mới `--ratio-card-media`, dùng chung cho ảnh thật và
+  placeholder.
+- **Vì sao:** khung 4/3 làm card cao ~465px, desktop chỉ thấy đúng 1 hàng món trước khi cuộn — vi phạm tinh
+  thần G-3 ("giao diện giữ khách ở lại lâu để chọn món") theo hướng ngược lại: quá ít món nhìn thấy cùng lúc
+  làm khách phải cuộn nhiều hơn để có cảm giác "còn gì để chọn". 3/2 giữ ảnh đủ lớn để làm chủ thể bán hàng
+  nhưng cho thấy nhiều hàng hơn.
+- **Ghi ở:** `apps/shop/src/styles/tokens.css` (token `--ratio-card-media`), `apps/shop/src/components/CardItem.tsx`,
+  `apps/shop/src/components/ImagePlaceholder.tsx`.
+- **Quay lại thì sao:** đổi giá trị token `--ratio-card-media` từ `3/2` về `4/3` là đủ (1 chỗ, dùng chung ảnh
+  thật + placeholder) — nhưng sẽ tái lặp vấn đề "desktop chỉ thấy 1 hàng món" mà chủ quán đã báo.
+
 ---
 
 ## Chưa được ghi ở đây (nợ tồn từ trước)
