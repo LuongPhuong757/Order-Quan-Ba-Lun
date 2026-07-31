@@ -34,7 +34,7 @@ import { toTitleCase } from '../../common/text.js';
 
 const UPLOAD_DIR = 'uploads/menu';
 const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
 
 mkdirSync(UPLOAD_DIR, { recursive: true });
 
