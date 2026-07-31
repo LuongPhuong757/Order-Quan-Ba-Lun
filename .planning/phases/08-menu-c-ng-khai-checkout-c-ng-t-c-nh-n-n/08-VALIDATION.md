@@ -1,20 +1,22 @@
 ---
 phase: 8
 slug: menu-cong-khai-checkout-cong-tac-nhan-don
-status: planned
-nyquist_compliant: false
-wave_0_complete: false
+status: executed
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-30
-updated: 2026-07-30
+updated: 2026-07-31
 ---
 
 # Phase 8 — Validation Strategy
 
 > Per-phase validation contract for feedback sampling during execution.
-> Nguồn: `08-RESEARCH.md` §Validation Architecture. Cột `Task ID`/`Plan` do planner điền 2026-07-30 sau khi
-> chia 13 plan; cột `File Exists`/`Status` do executor cập nhật theo kết quả thật.
-> **Bối cảnh C-TEST-01:** repo hiện có ĐÚNG 1 file test (`apps/api/src/common/origin-allowlist.test.ts`).
-> Toàn bộ file dưới đây là Wave 0 — harness là việc phải làm, không phải giả định.
+> Nguồn: `08-RESEARCH.md` §Validation Architecture. Cột `Task ID`/`Plan` được điền lúc chia 13 plan; cột
+> `File Exists`/`Status` cập nhật ở plan 08-13 theo kết quả chạy thật (`pnpm --filter @order/api test` +
+> `pnpm --filter @order/shop test`, 2026-07-31).
+> **Bối cảnh C-TEST-01:** trước phase 8 repo chỉ có ĐÚNG 1 file test (`apps/api/src/common/origin-allowlist.test.ts`).
+> Toàn bộ file dưới đây là Wave 0 — harness là việc phải làm, không phải giả định. Nay đã có 10 file test
+> `apps/api` (106 test) + 2 file test `apps/shop` (22 test), tất cả xanh.
 
 ---
 
@@ -59,18 +61,18 @@ kể cả comment, nếu không guard báo LEAK oan.
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| Task 2 | 08-01 | 1 | REQ-K | T-08-06 | `evaluateOrderingStatus()` đúng mọi tổ hợp manual/`off_until`/giờ mở cửa, kể cả auto-revert qua 00:00 ICT | unit (pure fn) | `pnpm --filter @order/api test -- store-status.test.ts` | ❌ W0 | ⬜ pending |
-| Task 3 | 08-01 | 1 | REQ-L | T-08-05 | `checkOrderGuard()` trả đúng error code theo mọi tổ hợp input, đúng thứ tự ưu tiên spec §7 | unit (pure fn) | `pnpm --filter @order/api test -- order-guard.test.ts` | ❌ W0 | ⬜ pending |
-| Task 3 | 08-01 | 1 | REQ-L | T-08-03 | `hashIp()` không bao giờ trả IP nguyên văn; đổi salt → hash khác (HMAC-SHA256, không SHA256 trần) | unit (pure fn) | `pnpm --filter @order/api test -- ip-hash.test.ts` | ❌ W0 | ⬜ pending |
-| Task 2 | 08-01 | 1 | REQ-J | — | Haversine × `distance_factor` (M2.D-50) ra đúng km cho các cặp toạ độ đã biết | unit (pure fn) | `pnpm --filter @order/api test -- haversine.test.ts` | ❌ W0 | ⬜ pending |
-| Task 1 | 08-05 | 2 | REQ-K | T-08-22 | `endOfTodayIctMs()` trả mốc 23:59:59.999 theo **ngày ICT**, không theo ngày UTC | unit (pure fn) | `pnpm --filter @order/api test -- store-status.test.ts` | ❌ W0 | ⬜ pending |
-| Task 3 | 08-05 | 2 | REQ-L | T-08-25 | `normalizePhone()` map `0912 345 678` / `+84912345678` / `(091) 234 5678` về cùng 1 khoá | unit (pure fn) | `pnpm --filter @order/api test -- phone.test.ts` | ❌ W0 | ⬜ pending |
-| Task 2 | 08-06 | 2 | REQ-I, REQ-J | T-08-26 | Giỏ hết hạn 24h; giá đổi → cập nhật + cờ báo; món hết → giữ dòng, không tính tổng, chặn checkout (D-07) | unit (pure fn) | `pnpm --filter @order/shop test -- cart-store.test.ts` | ❌ W0 | ⬜ pending |
-| Task 1 | 08-07 | 3 | REQ-L | **T-08-32 (HIGH)** | `pathRequiresCheck('/api/public/orders')` = `true`; `/auth/login` `/auth/recover` vẫn `false` | unit (pure fn) | `pnpm --filter @order/api test -- csrf-paths.test.ts` | ❌ W0 | ⬜ pending |
-| Task 3 | 08-07 | 3 | REQ-I | T-08-33 | `GET /api/public/menu` chỉ trả 7 field (`id, code, name, price, unit, images[], is_out_of_stock`); input "bẩn" thêm field giả → `.strict().parse()` throw | unit (`Object.keys()` + zod strict) | `pnpm --filter @order/api test -- public-menu-shape.test.ts` | ❌ W0 | ⬜ pending |
-| Task 1 | 08-10 | 4 | REQ-K, REQ-L | **T-08-49 (HIGH)** | Submit khi `ordering_enabled=false` → `ONLINE_ORDERING_DISABLED`; client nhồi `unit_price: 0` → `subtotal` vẫn theo giá DB | integration (service + fake-repo) | `pnpm --filter @order/api test -- public-orders.test.ts` | ❌ W0 | ⬜ pending |
-| Task 3 | 08-10 | 4 | REQ-L | **T-08-50 (HIGH)** | Gap lock `FOR UPDATE` ngăn 2 request đồng thời cùng SĐT tạo 2 đơn `WAITING`; không chặn oan SĐT khác | integration (MySQL thật, `DataSource` trực tiếp — không bootstrap Nest) | `pnpm --filter @order/api test -- open-order-lock.integration.test.ts` | ❌ W0 | ⬜ pending |
-| Task 1 | 08-12 | 6 | REQ-J | **T-08-65 (SSRF)** | `parseMapsLink` lấy được toạ độ từ link chứa `@`/`q=`/`!3d!4d`; link `maps.app.goo.gl` → `SHORT_LINK`, **không gọi mạng** | unit (pure fn) | `pnpm --filter @order/shop test -- maps-link.test.ts` | ❌ W0 | ⬜ pending |
+| Task 2 | 08-01 | 1 | REQ-K | T-08-06 | `evaluateOrderingStatus()` đúng mọi tổ hợp manual/`off_until`/giờ mở cửa, kể cả auto-revert qua 00:00 ICT | unit (pure fn) | `pnpm --filter @order/api test -- store-status.test.ts` | ✅ | ✅ green |
+| Task 3 | 08-01 | 1 | REQ-L | T-08-05 | `checkOrderGuard()` trả đúng error code theo mọi tổ hợp input, đúng thứ tự ưu tiên spec §7 | unit (pure fn) | `pnpm --filter @order/api test -- order-guard.test.ts` | ✅ | ✅ green |
+| Task 3 | 08-01 | 1 | REQ-L | T-08-03 | `hashIp()` không bao giờ trả IP nguyên văn; đổi salt → hash khác (HMAC-SHA256, không SHA256 trần) | unit (pure fn) | `pnpm --filter @order/api test -- ip-hash.test.ts` | ✅ | ✅ green |
+| Task 2 | 08-01 | 1 | REQ-J | — | Haversine × `distance_factor` (M2.D-50) ra đúng km cho các cặp toạ độ đã biết | unit (pure fn) | `pnpm --filter @order/api test -- haversine.test.ts` | ✅ | ✅ green |
+| Task 1 | 08-05 | 2 | REQ-K | T-08-22 | `endOfTodayIctMs()` trả mốc 23:59:59.999 theo **ngày ICT**, không theo ngày UTC | unit (pure fn) | `pnpm --filter @order/api test -- store-status.test.ts` | ✅ | ✅ green |
+| Task 3 | 08-05 | 2 | REQ-L | T-08-25 | `normalizePhone()` map `0912 345 678` / `+84912345678` / `(091) 234 5678` về cùng 1 khoá | unit (pure fn) | `pnpm --filter @order/api test -- phone.test.ts` | ✅ | ✅ green |
+| Task 2 | 08-06 | 2 | REQ-I, REQ-J | T-08-26 | Giỏ hết hạn 24h; giá đổi → cập nhật + cờ báo; món hết → giữ dòng, không tính tổng, chặn checkout (D-07) | unit (pure fn) | `pnpm --filter @order/shop test -- cart-store.test.ts` | ✅ | ✅ green |
+| Task 1 | 08-07 | 3 | REQ-L | **T-08-32 (HIGH)** | `pathRequiresCheck('/api/public/orders')` = `true`; `/auth/login` `/auth/recover` vẫn `false` | unit (pure fn) | `pnpm --filter @order/api test -- csrf-paths.test.ts` | ✅ | ✅ green |
+| Task 3 | 08-07 | 3 | REQ-I | T-08-33 | `GET /api/public/menu` chỉ trả 7 field (`id, code, name, price, unit, images[], is_out_of_stock`); input "bẩn" thêm field giả → `.strict().parse()` throw | unit (`Object.keys()` + zod strict) | `pnpm --filter @order/api test -- public-menu-shape.test.ts` | ✅ | ✅ green |
+| Task 1 | 08-10 | 4 | REQ-K, REQ-L | **T-08-49 (HIGH)** | Submit khi `ordering_enabled=false` → `ONLINE_ORDERING_DISABLED`; client nhồi `unit_price: 0` → `subtotal` vẫn theo giá DB | integration (service + fake-repo) | `pnpm --filter @order/api test -- public-orders.test.ts` | ✅ | ✅ green |
+| Task 3 | 08-10 | 4 | REQ-L | **T-08-50 (HIGH)** | Gap lock `FOR UPDATE` ngăn 2 request đồng thời cùng SĐT tạo 2 đơn `WAITING`; không chặn oan SĐT khác | integration (MySQL thật, `DataSource` trực tiếp — không bootstrap Nest) | `pnpm --filter @order/api test -- open-order-lock.integration.test.ts` | ✅ | ✅ green |
+| Task 1 | 08-12 | 6 | REQ-J | **T-08-65 (SSRF)** | `parseMapsLink` lấy được toạ độ từ link chứa `@`/`q=`/`!3d!4d`; link `maps.app.goo.gl` → `SHORT_LINK`, **không gọi mạng** | unit (pure fn) | `pnpm --filter @order/shop test -- maps-link.test.ts` | ✅ | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -78,18 +80,30 @@ kể cả comment, nếu không guard báo LEAK oan.
 
 ## Wave 0 Requirements
 
-- [ ] `apps/api/src/modules/public/store-status.test.ts` — criterion (b), theo mẫu `origin-allowlist.test.ts` (plan 08-01 Task 2, mở rộng ở 08-05 Task 1)
-- [ ] `apps/api/src/modules/public/order-guard.test.ts` — phần logic của criterion (a) + (c) (plan 08-01 Task 3)
-- [ ] `apps/api/src/modules/public/ip-hash.test.ts` (plan 08-01 Task 3)
-- [ ] `apps/api/src/modules/public/haversine.test.ts` (plan 08-01 Task 2)
-- [ ] `apps/api/src/modules/public/phone.test.ts` (plan 08-05 Task 3)
-- [ ] `apps/api/src/common/csrf-paths.test.ts` — khoá lỗ hổng CSRF `/api/public/*` (plan 08-07 Task 1)
-- [ ] `apps/api/src/modules/public/public-menu-shape.test.ts` — criterion (d) (plan 08-07 Task 3)
-- [ ] `apps/api/src/modules/public/public-orders.test.ts` — service + fake-repository cho 409 (plan 08-10 Task 1)
-- [ ] `apps/api/src/modules/public/open-order-lock.integration.test.ts` — MySQL thật, dùng thẳng `DataSource` (plan 08-10 Task 3)
-- [ ] `apps/shop/src/lib/cart-store.test.ts` — D-06/D-07 (plan 08-06 Task 2)
-- [ ] `apps/shop/src/lib/maps-link.test.ts` — A3/SSRF (plan 08-12 Task 1)
+- [x] `apps/api/src/modules/public/store-status.test.ts` — criterion (b), theo mẫu `origin-allowlist.test.ts` (plan 08-01 Task 2, mở rộng ở 08-05 Task 1) — 16 test xanh
+- [x] `apps/api/src/modules/public/order-guard.test.ts` — phần logic của criterion (a) + (c) (plan 08-01 Task 3) — 11 test xanh
+- [x] `apps/api/src/modules/public/ip-hash.test.ts` (plan 08-01 Task 3) — 5 test xanh
+- [x] `apps/api/src/modules/public/haversine.test.ts` (plan 08-01 Task 2) — 4 test xanh
+- [x] `apps/api/src/modules/public/phone.test.ts` (plan 08-05 Task 3) — 11 test xanh
+- [x] `apps/api/src/common/csrf-paths.test.ts` — khoá lỗ hổng CSRF `/api/public/*` (plan 08-07 Task 1) — 10 test xanh
+- [x] `apps/api/src/modules/public/public-menu-shape.test.ts` — criterion (d) (plan 08-07 Task 3) — 9 test xanh
+- [x] `apps/api/src/modules/public/public-orders.test.ts` — service + fake-repository cho 409 (plan 08-10 Task 1) — 19 test xanh
+- [x] `apps/api/src/modules/public/open-order-lock.integration.test.ts` — MySQL thật, dùng thẳng `DataSource` (plan 08-10 Task 3) — 3 test xanh (gồm race 2 connection thật)
+- [x] `apps/shop/src/lib/cart-store.test.ts` — D-06/D-07 (plan 08-06 Task 2) — 11 test xanh
+- [x] `apps/shop/src/lib/maps-link.test.ts` — A3/SSRF (plan 08-12 Task 1) — 11 test xanh
 - **Framework install:** `apps/api` không cần thêm gì (hướng nhẹ đã chốt); `apps/shop` thêm `vitest@^2.1.0` devDependency ở plan 08-06 Task 2
+
+**Kết quả chạy thật (2026-07-31, plan 08-13 Task 2):**
+```
+pnpm -r typecheck                    → 5/5 project sạch
+pnpm --filter @order/api test        → Test Files 10 passed (10), Tests 106 passed (106)
+pnpm --filter @order/shop test       → Test Files 2 passed (2), Tests 22 passed (22)
+pnpm --filter @order/shop build      → JS 356.06 kB / gzip 104.29 kB
+sh scripts/check-shop-bundle.sh      → OK: bundle JS 348 kB (ngưỡng 370 kB); OK: 2 gate (chuỗi cấm + kích thước)
+```
+(Ghi chú thay thế lệnh: `pnpm` global trên máy này yêu cầu Node ≥22.13 trong khi máy đang chạy Node 20.11.0
+— chạy qua `PATH="/opt/homebrew/opt/node@23/bin:$PATH" corepack pnpm ...`, đúng `packageManager: pnpm@9.0.0`
+khai trong `package.json` gốc, không phải substitute khác lệnh.)
 
 **Điều kiện tiên quyết để test được:** logic phải tách thành **hàm thuần nhận `nowMs` làm tham số**, không
 đọc `Date.now()` bên trong. Đây là ràng buộc thiết kế, không phải gợi ý — nếu executor viết
@@ -110,13 +124,41 @@ kể cả comment, nếu không guard báo LEAK oan.
 
 ---
 
+## Known Acceptance-Criteria Conflicts (ghi nhận, không sửa)
+
+Phát hiện khi rà lại toàn phase ở plan 08-13 (waves 5-6 hoàn tất sau khi validation contract này được lập,
+kèm 1 commit sửa UI ngoài phạm vi mọi plan). Đây là vấn đề **tài liệu**, không phải bug code — không "sửa"
+bằng cách đổi mã lỗi hay đổi hành vi.
+
+**`grep -ci "blacklist" apps/shop/src/pages/CheckoutPage.tsx` = 1, không phải 0 như acceptance criteria
+gốc của plan 08-12 Task 3 yêu cầu.** Nguyên nhân: mã lỗi bắt buộc `'PHONE_BLACKLISTED'` (khớp enum
+`ErrorCode` của `packages/schemas`, phải giữ nguyên literal để xử lý đúng 8 mã lỗi) chứa chuỗi con
+`BLACKLIST`. 2 acceptance criteria của plan 08-12 ("8 mã lỗi xuất hiện dạng quoted literal" và "grep
+blacklist = 0") mâu thuẫn nội tại khi cùng áp lên 1 file chứa đúng mã lỗi BE định nghĩa — không có cách
+viết code nào thoả cả hai nếu vẫn dùng tên hằng số thật. D-21 (giọng văn trung tính, không nói "bị
+chặn"/"blacklist" trong copy tiếng Việt hiển thị cho khách) **vẫn được tuân thủ đầy đủ**: không chuỗi tiếng
+Việt nào trong `CheckoutPage.tsx` chứa "chặn"/"blacklist" — FE chỉ hiện nguyên văn `error.message` do BE
+build (đã trung tính từ plan 08-10). Chi tiết đầy đủ ở `08-12-SUMMARY.md` § Deviations mục 2.
+
+**Đã đánh giá nhưng KHÔNG cần entry `OVERRIDE-DEBT.md`** (không lệch quyết định LOCKED nào, chỉ là điều
+chỉnh trong phạm vi hợp đồng đã có):
+- Ngưỡng `MAX_JS_KB` trong `scripts/check-shop-bundle.sh` được nâng 2 lần (320 → 336 → 370 kB, hiện đo
+  thật 348 kB) khi plan 08-11/08-12 thêm route/logic mới — `320 kB` ở plan 08-04 **không phải số spec-pin**,
+  chỉ là ngân sách tự đặt = số đo thật lúc đó + margin; mỗi lần nâng đều ghi số đo thật + lý do trong chính
+  script (không sửa lặng), đúng quy tắc tự đặt ban đầu.
+- `field_errors?: {field,message}[]` thêm vào `ApiError` (`apps/shop/src/lib/use-api.ts`, plan 08-12) —
+  không lệch spec, chỉ hoàn thiện việc đọc `field_errors` mà `ErrorEnvelope` (BE) vốn đã luôn trả cho
+  `VALIDATION_FAILED` nhưng `parseErrorResponse()` cũ (plan 08-06) bỏ sót; thay đổi additive, không đổi chữ
+  ký cũ.
+
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags
-- [ ] Feedback latency < 15s
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags
+- [x] Feedback latency < 15s
+- [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending (plan 08-13 Task 2 cập nhật trạng thái thật, Task 3 là checkpoint chốt)
+**Approval:** pending — plan 08-13 Task 2 (cập nhật trạng thái thật) đã xong 2026-07-31; Task 3 (checkpoint
+chủ dự án tự kiểm 15 bước) là bước chốt cuối cùng, chưa chạy.
