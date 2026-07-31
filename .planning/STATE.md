@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
 status: executing
-stopped_at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
-last_updated: "2026-07-30T09:01:51.949Z"
-last_activity: 2026-07-30 -- Phase 08 execution started
+stopped_at: Phase 8 — 13/13 plan docs xong 2026-07-31, CHỜ chủ dự án approve checkpoint 08-13 Task 3 (08-VALIDATION.md § Approval = pending) trước khi tính phase 8 đã đóng
+last_updated: "2026-07-31T01:57:57.948Z"
+last_activity: 2026-07-31 -- Phase 08 plan 13 Task 1-2 xong, Task 3 checkpoint đang chờ chủ dự án
 progress:
   total_phases: 4
   completed_phases: 1
   total_plans: 17
-  completed_plans: 14
+  completed_plans: 17
   percent: 25
 ---
 
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 
 ## Current Position
 
-Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — EXECUTING
-Plan: 1 of 13
-Status: Executing Phase 08
-Last activity: 2026-07-30 -- Phase 08 execution started
+Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — CHECKPOINT PENDING
+Plan: 13 of 13 (Task 1-2 xong; Task 3 checkpoint 15 bước chờ chủ dự án approve)
+Status: 13/13 plan docs xong, chờ human checkpoint trước khi đóng phase
+Last activity: 2026-07-31 -- Phase 08 plan 13 Task 1-2 xong, Task 3 checkpoint đang chờ chủ dự án
 
 Progress: [██░░░░░░░░] 25% (1/4 phase Milestone 2)
 
@@ -69,6 +69,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - [Ingest]: Poller outbox dùng `@nestjs/schedule` in-process, hồi sinh luôn 2 cron đang chết (Phase 9)
 - [Ingest]: Success criteria Phase 7 là bản dựng lại — `.vg/ROADMAP.md` **chưa bao giờ** có Phase 07 (chỉ 6 phase từ `f5f9e4a` tới `07cad95`)
 - [Ingest]: M2.D-60 ghi đè M2.D-36 — auto-OFF `1800s`. Pseudo-code spec:469 còn ghi `300s` là **stale, không implement**
+- [Phase 08-13]: OVERRIDE-DEBT.md OD-06..OD-10 (3 đã biết + 2 phát sinh sau wave 6); 08-UAT.md 5 hạng mục, test 1 (sharp/Docker) là gate bắt buộc trước deploy production — Đóng threat T-08-73 (override im lặng) cho toàn phase 8, không chỉ 3 lệch đã biết trước
 
 ### Pending Todos
 
@@ -92,6 +93,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - **C-TEST-01**: repo có đúng 1 file test. 4 criteria đã LOCKED bắt buộc test tự động → harness là **việc phải làm**, không phải giả định.
 - **C-INFRA-01**: SSE là transport mới trên codebase chỉ biết poll; pool MySQL 50 connection đang được size cho 2s poller. Thiết kế SSE đừng giữ connection mỗi subscriber.
 - **C-SCHEMA-07**: `synchronize: true`, không migration. Thêm cột an toàn, nhưng **rename** cột mới sau này là mất dữ liệu im lặng.
+- Phase 8 plan 13 Task 3 — checkpoint 15 bước đang chờ chủ dự án tự kiểm (đã chuẩn bị: 3 dev server chạy tại api:3001/web:5183/shop:5184, curl thật cho bước 7/8/9, menu_item_id + customer_token thật). 08-VALIDATION.md § Approval = pending.
 
 ## Deferred Items
 
@@ -107,9 +109,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-30T04:59:55.554Z
+Last session: 2026-07-31T01:56:29.983Z
 Stopped at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
-Resume file: .planning/phases/08-menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n/08-01-PLAN.md
+Resume file: None
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 

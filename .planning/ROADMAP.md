@@ -46,7 +46,7 @@ quy trình ngày 2026-07-29. Bằng chứng đã giao là chính codebase — xe
 ### 🚧 v2.0 Milestone 2 — Đặt hàng online (In Progress)
 
 - [ ] **Phase 7: Hạ tầng trang khách** - `apps/shop` chạy như app riêng trên `order.<domain>`, dùng chung API + DB
-- [ ] **Phase 8: Menu công khai, Checkout & Công tắc nhận đơn** - Khách xem menu và gửi được đơn từ điện thoại
+- [ ] **Phase 8: Menu công khai, Checkout & Công tắc nhận đơn** - Khách xem menu và gửi được đơn từ điện thoại (13/13 plan docs xong 2026-07-31; **chờ chủ dự án approve checkpoint 08-13 Task 3** trước khi coi phase đã đóng — `08-VALIDATION.md § Approval` = pending)
 - [ ] **Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn** - Đơn được duyệt nhanh, không bỏ quên, khách tự theo dõi
 - [ ] **Phase 10: Analytics & Phễu chuyển đổi** - Chủ quán biết bao nhiêu người vào xem và bao nhiêu người đặt
 
@@ -98,7 +98,7 @@ Plans:
 - [x] 08-10-PLAN.md — **Wave 4** (dep 02,07) `POST /api/public/orders` (6 lớp kiểm tra + gap lock + snapshot giá + HMAC IP) + `GET /orders/:token`
 - [x] 08-11-PLAN.md — **Wave 5** (dep 09) `/cart` bước 1 (chặn TIẾP TỤC khi có món hết) + `/o/:token` xác nhận tối giản + `/history` empty state
 - [x] 08-12-PLAN.md — **Wave 6** (dep 10,11) `/checkout` bước 2: PICKUP/DELIVERY, Geolocation không chặn luồng, parse link Maps, submit 8 mã lỗi
-- [ ] 08-13-PLAN.md — **Wave 7** (dep tất cả) `OVERRIDE-DEBT.md` OD-06/07/08 + `08-UAT.md` (gate `sharp`/Docker trước deploy) + checkpoint 15 bước
+- [x] 08-13-PLAN.md — **Wave 7** (dep tất cả) `OVERRIDE-DEBT.md` OD-06/07/08 + `08-UAT.md` (gate `sharp`/Docker trước deploy) + checkpoint 15 bước
 
 **UI hint**: yes
 **Gate trước khi chạy**: ✅ ĐÃ CHỐT 2026-07-30 — logo wordmark chữ (`apps/shop/src/components/Wordmark.tsx`), bảng màu rút từ 4 ảnh món thật (`OVERRIDE-DEBT.md` OD-04), CONFLICT-DESIGN-01 giải bằng lưới 1 cột mobile (OD-05). Xem `docs/design-refs/lotteria/README.md`
@@ -144,7 +144,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
-| 8. Menu, Checkout & Công tắc | M2 | 12/13 | In Progress|  |
+| 8. Menu, Checkout & Công tắc | M2 | 13/13 | Checkpoint pending (08-13 Task 3) | - |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
