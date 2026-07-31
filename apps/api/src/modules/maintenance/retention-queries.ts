@@ -4,30 +4,57 @@
 //
 // Module thuần: `nowMs`/`cutoffMs` LUÔN là tham số, không tự đọc Date.now() bên trong, để
 // test được không cần fake timer (khuôn store-status.ts).
+//
+// ⚠ 2 cột khác kiểu — đừng "thống nhất" lại, sẽ xoá sai:
+// `audit_log.ts_ms` là số epoch ms; `order_activity_logs.created_at` là cột `datetime`
+// (so sánh bằng `Date`, không phải số).
 import type { EntityManager } from 'typeorm';
+import { AuditLog } from '../audit/entities/audit-log.entity.js';
+import { OrderActivityLog } from '../orders/entities/order-activity-log.entity.js';
+import { RevokedJti } from '../auth/entities/revoked-jti.entity.js';
 
-// RED (task 2, TDD): stub tạm — chưa đúng logic, test phải đỏ trước khi cắm GREEN.
-export function auditRetentionCutoffMs(_nowMs: number, _cutoffDays: number): number {
-  return 0;
+export function auditRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
+  return nowMs - cutoffDays * 86_400_000;
 }
 
 export async function pruneAuditLogs(
-  _mgr: EntityManager,
-  _cutoffMs: number,
+  mgr: EntityManager,
+  cutoffMs: number,
 ): Promise<{ deleted_rows: number }> {
-  return { deleted_rows: -1 };
+  const result = await mgr
+    .getRepository(AuditLog)
+    .createQueryBuilder()
+    .delete()
+    .from(AuditLog)
+    .where('ts_ms < :c', { c: cutoffMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
 }
 
 export async function pruneOrderActivityLogs(
-  _mgr: EntityManager,
-  _cutoffMs: number,
+  mgr: EntityManager,
+  cutoffMs: number,
 ): Promise<{ deleted_rows: number }> {
-  return { deleted_rows: -1 };
+  const result = await mgr
+    .getRepository(OrderActivityLog)
+    .createQueryBuilder()
+    .delete()
+    .from(OrderActivityLog)
+    .where('created_at < :c', { c: new Date(cutoffMs) })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
 }
 
 export async function pruneRevokedJti(
-  _mgr: EntityManager,
-  _nowMs: number,
+  mgr: EntityManager,
+  nowMs: number,
 ): Promise<{ deleted_rows: number }> {
-  return { deleted_rows: -1 };
+  const result = await mgr
+    .getRepository(RevokedJti)
+    .createQueryBuilder()
+    .delete()
+    .from(RevokedJti)
+    .where('expires_at_ms < :n', { n: nowMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
 }

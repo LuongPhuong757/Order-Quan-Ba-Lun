@@ -1,5 +1,7 @@
 // Cron: jti-cleanup — delete revoked_jwt_jti rows where expires_at_ms < now.
 // Usage: pnpm cron:jti-cleanup [--dry-run]
+// Từ phase 9 việc chạy định kỳ do `modules/maintenance/maintenance-cron.service.ts`
+// đảm nhiệm. File này giữ lại cho chạy tay/dry-run.
 import 'reflect-metadata';
 import { AppDataSource } from '../data-source.js';
 import { RevokedJti } from '../modules/auth/entities/revoked-jti.entity.js';
