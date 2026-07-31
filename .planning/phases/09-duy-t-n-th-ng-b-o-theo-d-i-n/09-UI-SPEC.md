@@ -70,19 +70,25 @@ phần mở rộng REQ-O:
 
 ## Typography — Mặt A (`apps/web`)
 
-`styles.css` không có thang chữ chính thức nhưng có 5 giá trị đã lặp lại nhất quán qua nhiều trang
-(`h1` 24px, `h2` 20px, body/input 16px, badge/meta 12-13px). Phase 9 **tái dùng đúng 5 giá trị này**,
-không thêm cỡ mới:
+`styles.css` không có thang chữ chính thức nhưng có các giá trị đã lặp lại nhất quán qua nhiều trang.
+Phase 9 **thực sự render đúng 4 cỡ** trong các màn hình của mình — khớp rule chuẩn "3-4 cỡ / 2 độ đậm"
+(ở đây nới thành 3 độ đậm vì kế thừa quy ước đã có, không phải chọn mới):
 
 | Role | Size | Weight | Line Height | Dùng ở đâu (phase 9) |
 |------|------|--------|-------------|----------------------|
 | Display | 24px | 700 | 1.3 | Tiêu đề trang "Hàng chờ duyệt (N)" — `h1`, kế thừa mặc định `styles.css` |
-| Heading | 20px | 600 | 1.35 | Không dùng trực tiếp trong queue (không có section con) — dự phòng nếu chia nhóm PICKUP/DELIVERY |
 | Body | 16px | 400 | 1.5 | Tên khách, SĐT, tên món trong dòng đơn, input phí ship, textarea ghi chú nội bộ |
 | Label/Meta | 13px | 500 | 1.4 | Thời gian gửi đơn, mã đơn, nhãn "Lý do gửi tới khách" / "Ghi chú nội bộ" |
 | Badge/Caption | 12px | 700 | 1 | Số trong badge đếm đơn chờ, đồng hồ đếm giây chờ per-order |
 
 Input **luôn 16px** — đã là mặc định toàn cục (`input, textarea { font-size: 16px }`), không cần khai lại.
+
+**Không tính vào ngân sách cỡ chữ của phase 9 (FLAG đã đóng — trước đây liệt kê nhầm chung bảng):**
+`h2` 20px/600 đã có sẵn trong `styles.css` và đang chạy ở các trang khác (vd `AdminSettingsPage`), nhưng
+**`OnlineOrdersQueuePage` không có section con nào trong phạm vi phase 9** nên không render cỡ này —
+đừng hiểu nhầm là trang có 5 cỡ đang active. Nếu về sau chia hàng chờ thành 2 section PICKUP/DELIVERY
+riêng, dùng lại đúng `h2` 20px/600 có sẵn thay vì phát minh cỡ mới, nhưng đó là việc ngoài phạm vi
+phase này.
 
 ## Typography — Mặt B (`apps/shop`)
 
@@ -183,14 +189,21 @@ trong `TONE_STYLES`, không phải viết component mới.
 | Banner đơn bị từ chối (D-10) | Tiêu đề **"Đơn đã bị từ chối"** + body = **`reject_reason` nguyên văn từ API** (không thêm chữ đệm nào che hoặc giảm nhẹ) + nút gọi quán (tái dùng `ctaButton`) |
 | Banner món bị huỷ khi quán sửa đơn (M2.D-21 "che là lừa khách") | Tiêu đề **"Quán đã cập nhật đơn của bạn"** + body **"{N} món không còn phục vụ được: {tên món, phân cách phẩy}. Rất xin lỗi vì sự bất tiện này."** — tone `info` |
 | ETA phụ (chỉ hiện nếu API trả `eta_min`/`eta_max`) | **"Dự kiến còn khoảng {eta_min}–{eta_max} phút"** |
-| Câu chữ Đóng cửa — banner trang khách (D-11, D-14 — **runtime, sửa được ở `/admin/settings`, không phải literal cứng**) | Mặc định: *"Hiện chúng tôi đang đóng cửa, đơn của quý khách cứ tiếp tục đặt và chúng tôi sẽ xử lý sớm nhất có thể"* |
-| Câu chữ Đóng cửa — màn xác nhận sau submit (D-11, D-14 — runtime) | Mặc định: *"Chúng tôi đã tiếp nhận đơn, và sẽ liên hệ khi quán mở lại"* (thay cho "Đặt hàng thành công") |
+| Câu chữ Đóng cửa — banner trang khách (`closed_banner_text`, D-11 — **runtime-editable, sửa ở `/admin/settings`, không phải literal cứng**) | Mặc định: *"Hiện chúng tôi đang đóng cửa, đơn của quý khách cứ tiếp tục đặt và chúng tôi sẽ xử lý sớm nhất có thể"* |
+| Câu chữ Đóng cửa — màn xác nhận sau submit (`closed_submit_confirm_text`, D-11 — runtime-editable) | Mặc định: *"Chúng tôi đã tiếp nhận đơn, và sẽ liên hệ khi quán mở lại"* (thay cho "Đặt hàng thành công") |
 | Nút gọi quán | Không đổi — tái dùng `ctaButton` đã có ở `OrderTrackPage.tsx` |
 | Destructive confirmation | Không có thao tác phá huỷ nào ở mặt khách trong phase 9 |
 
-⚠ **2 câu chữ trên là runtime content lấy từ `store_settings` (D-14), KHÔNG phải string cứng trong
-code** — executor phải thiết kế layout chịu được độ dài văn bản thay đổi (banner co giãn chiều cao,
-không cắt chữ `text-overflow: ellipsis`, không giới hạn 1 dòng).
+⚠ **Đúng 2 chuỗi runtime-editable trong phạm vi phase 9 (FLAG đã đóng — CONTEXT.md D-14 trước đây ghi
+nhầm "4 câu chữ", đã sửa lại còn 2 key):**
+1. `closed_banner_text` — banner trên trang khách khi Đóng cửa
+2. `closed_submit_confirm_text` — màn xác nhận sau submit khi Đóng cửa
+
+Cả 2 lấy từ `store_settings`, KHÔNG phải string cứng trong code. Ô "lý do tạm ngưng"
+(`online_ordering_off_reason`) **đã có sẵn từ phase 8 và KHÔNG tính vào 2 key trên** — planner/executor
+đừng đi tìm chuỗi runtime thứ 3, thứ 4 nào khác trong phase 9, chỉ đúng 2 key này. Cả 2 chuỗi: executor
+phải thiết kế layout chịu được độ dài văn bản thay đổi (banner co giãn chiều cao, không cắt chữ
+`text-overflow: ellipsis`, không giới hạn 1 dòng).
 
 ---
 
