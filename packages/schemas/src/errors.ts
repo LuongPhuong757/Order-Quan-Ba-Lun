@@ -34,6 +34,9 @@ export const ErrorCode = z.enum([
   'ORDER_TOKEN_NOT_FOUND',
   'MENU_ITEM_UNAVAILABLE',
   'NO_TABLE_AVAILABLE',
+  // M2 phase 09 — duyệt/từ chối đơn online (AdminOnlineOrdersService)
+  'ORDER_EMPTY_AFTER_DROP',
+  'ROLE_FORBIDDEN',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 
