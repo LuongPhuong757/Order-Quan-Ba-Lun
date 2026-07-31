@@ -62,7 +62,9 @@ completed: 2026-07-31
 
 1. **Task 1: OD-06/07/08 + 2 entry phát sinh (OD-09/OD-10) vào OVERRIDE-DEBT.md** - `a4fb6d9` (docs)
 2. **Task 2: 08-UAT.md + cập nhật 08-VALIDATION.md bằng kết quả thật** - `5d42b08` (docs)
-3. **Task 3: chuẩn bị checkpoint (dev server + dữ liệu thật)** - `c065a6a` (docs) — checkpoint tự nó không sinh code commit; kết quả "approved" của chủ dự án được ghi lại ở commit theo sau (xem cuối Summary này).
+3. **Task 3: chuẩn bị checkpoint (dev server + dữ liệu thật)** - `c065a6a` (docs); **kết quả "approved"** ghi lại ở `55b1e80` (docs) — checkpoint tự nó không sinh code, chỉ cập nhật `08-VALIDATION.md § Approval`, `08-UAT.md`, và Summary này.
+
+**Plan metadata (STATE.md/ROADMAP.md, sequential mode):** commit theo sau khi checkpoint approved — xem `git log` (phase 8 đánh dấu Executed trong `ROADMAP.md`, `state.advance-plan` → `ready_for_verification`).
 
 ## Files Created/Modified
 

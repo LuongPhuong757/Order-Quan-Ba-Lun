@@ -46,7 +46,7 @@ quy trình ngày 2026-07-29. Bằng chứng đã giao là chính codebase — xe
 ### 🚧 v2.0 Milestone 2 — Đặt hàng online (In Progress)
 
 - [ ] **Phase 7: Hạ tầng trang khách** - `apps/shop` chạy như app riêng trên `order.<domain>`, dùng chung API + DB
-- [ ] **Phase 8: Menu công khai, Checkout & Công tắc nhận đơn** - Khách xem menu và gửi được đơn từ điện thoại (13/13 plan docs xong 2026-07-31; **chờ chủ dự án approve checkpoint 08-13 Task 3** trước khi coi phase đã đóng — `08-VALIDATION.md § Approval` = pending)
+- [x] **Phase 8: Menu công khai, Checkout & Công tắc nhận đơn** - Khách xem menu và gửi được đơn từ điện thoại (13/13 plan xong, checkpoint 08-13 Task 3 **approved** 2026-07-31 — còn 5 hạng mục `08-UAT.md` deferred trước deploy production, không phải blocker phase 9)
 - [ ] **Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn** - Đơn được duyệt nhanh, không bỏ quên, khách tự theo dõi
 - [ ] **Phase 10: Analytics & Phễu chuyển đổi** - Chủ quán biết bao nhiêu người vào xem và bao nhiêu người đặt
 
@@ -144,7 +144,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 5. Auto-close Bàn | M1 | — | Complete | 2026 (VGFlow) |
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
-| 8. Menu, Checkout & Công tắc | M2 | 13/13 | Checkpoint pending (08-13 Task 3) | - |
+| 8. Menu, Checkout & Công tắc | M2 | 13/13 | Executed (checkpoint approved; 5 deferred UAT còn treo) | 2026-07-31 |
 | 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 

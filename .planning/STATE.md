@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
-status: executing
-stopped_at: Phase 8 — 13/13 plan docs xong 2026-07-31, CHỜ chủ dự án approve checkpoint 08-13 Task 3 (08-VALIDATION.md § Approval = pending) trước khi tính phase 8 đã đóng
-last_updated: "2026-07-31T01:57:57.948Z"
-last_activity: 2026-07-31 -- Phase 08 plan 13 Task 1-2 xong, Task 3 checkpoint đang chờ chủ dự án
+status: verifying
+stopped_at: "Phase 8 hoàn tất 13/13 plan, checkpoint 08-13 Task 3 approved 2026-07-31 — sẵn sàng `/gsd:verify-work` hoặc bắt đầu phase 9 (REQ-M/N/O). 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu."
+last_updated: "2026-07-31T02:13:47.037Z"
+last_activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 17
   completed_plans: 17
-  percent: 25
+  percent: 50
 ---
 
 # Project State
@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 
 ## Current Position
 
-Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — CHECKPOINT PENDING
-Plan: 13 of 13 (Task 1-2 xong; Task 3 checkpoint 15 bước chờ chủ dự án approve)
-Status: 13/13 plan docs xong, chờ human checkpoint trước khi đóng phase
-Last activity: 2026-07-31 -- Phase 08 plan 13 Task 1-2 xong, Task 3 checkpoint đang chờ chủ dự án
+Phase: 08 (menu-c-ng-khai-checkout-c-ng-t-c-nh-n-n) — COMPLETE (checkpoint approved)
+Plan: 13 of 13 (tất cả xong, kể cả checkpoint Task 3 — chủ dự án gõ "approved" 2026-07-31)
+Status: Phase complete — ready for verification. 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu — không phải blocker phase 9.
+Last activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
 
-Progress: [██░░░░░░░░] 25% (1/4 phase Milestone 2)
+Progress: [██████████] 100%
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -70,6 +70,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - [Ingest]: Success criteria Phase 7 là bản dựng lại — `.vg/ROADMAP.md` **chưa bao giờ** có Phase 07 (chỉ 6 phase từ `f5f9e4a` tới `07cad95`)
 - [Ingest]: M2.D-60 ghi đè M2.D-36 — auto-OFF `1800s`. Pseudo-code spec:469 còn ghi `300s` là **stale, không implement**
 - [Phase 08-13]: OVERRIDE-DEBT.md OD-06..OD-10 (3 đã biết + 2 phát sinh sau wave 6); 08-UAT.md 5 hạng mục, test 1 (sharp/Docker) là gate bắt buộc trước deploy production — Đóng threat T-08-73 (override im lặng) cho toàn phase 8, không chỉ 3 lệch đã biết trước
+- [Phase 08-13]: Checkpoint 08-13 Task 3 approved 2026-07-31 — chủ dự án tự kiểm đủ 15 bước, không báo bước nào sai — 08-VALIDATION.md § Approval: approved; phạm vi CHỈ áp cho luồng local, 5 hạng mục 08-UAT.md (gate sharp/Docker) vẫn deferred
 
 ### Pending Todos
 
@@ -93,7 +94,6 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - **C-TEST-01**: repo có đúng 1 file test. 4 criteria đã LOCKED bắt buộc test tự động → harness là **việc phải làm**, không phải giả định.
 - **C-INFRA-01**: SSE là transport mới trên codebase chỉ biết poll; pool MySQL 50 connection đang được size cho 2s poller. Thiết kế SSE đừng giữ connection mỗi subscriber.
 - **C-SCHEMA-07**: `synchronize: true`, không migration. Thêm cột an toàn, nhưng **rename** cột mới sau này là mất dữ liệu im lặng.
-- Phase 8 plan 13 Task 3 — checkpoint 15 bước đang chờ chủ dự án tự kiểm (đã chuẩn bị: 3 dev server chạy tại api:3001/web:5183/shop:5184, curl thật cho bước 7/8/9, menu_item_id + customer_token thật). 08-VALIDATION.md § Approval = pending.
 
 ## Deferred Items
 
@@ -110,7 +110,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 ## Session Continuity
 
 Last session: 2026-07-31T01:56:29.983Z
-Stopped at: Phase 8 planned — 13 plan / 7 wave, checker PASSED, decision coverage 22/22
+Stopped at: Phase 8 hoàn tất 13/13 plan, checkpoint 08-13 Task 3 approved 2026-07-31 — sẵn sàng `/gsd:verify-work` hoặc bắt đầu phase 9 (REQ-M/N/O). 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu.
 Resume file: None
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
