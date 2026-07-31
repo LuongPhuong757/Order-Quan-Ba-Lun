@@ -3,8 +3,8 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
 status: verifying
-stopped_at: "Phase 8 hoàn tất 13/13 plan, checkpoint 08-13 Task 3 approved 2026-07-31 — sẵn sàng `/gsd:verify-work` hoặc bắt đầu phase 9 (REQ-M/N/O). 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu."
-last_updated: "2026-07-31T02:13:47.037Z"
+stopped_at: Phase 9 context gathered — công tắc nhận đơn đổi ngữ nghĩa, phase 9 gộp phần sửa phase 8
+last_updated: "2026-07-31T03:05:18.518Z"
 last_activity: 2026-07-31 -- Phase 08 hoàn tất, checkpoint approved
 progress:
   total_phases: 4
@@ -109,9 +109,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-31T01:56:29.983Z
-Stopped at: Phase 8 hoàn tất 13/13 plan, checkpoint 08-13 Task 3 approved 2026-07-31 — sẵn sàng `/gsd:verify-work` hoặc bắt đầu phase 9 (REQ-M/N/O). 5 hạng mục `08-UAT.md` (deferred UAT, gồm gate sharp/Docker trước deploy production) vẫn chưa nghiệm thu.
-Resume file: None
+Last session: 2026-07-31T03:05:18.509Z
+Stopped at: Phase 9 context gathered — công tắc nhận đơn đổi ngữ nghĩa, phase 9 gộp phần sửa phase 8
+Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-CONTEXT.md
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 
