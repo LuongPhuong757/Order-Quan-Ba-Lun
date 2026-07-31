@@ -114,7 +114,23 @@ Plans:
   3. Đơn `WAITING` **không** xuất hiện ở sơ đồ bàn / bếp / history / doanh thu — chứng minh bằng test đếm doanh thu trước và sau khi có 5 đơn WAITING (M2.D-01)
   4. Đơn quá **90s** chưa duyệt → SMS bắn; quá **1800s** → tự OFF nhận đơn + audit actor SYSTEM và **không tự ON lại**; duyệt trước ngưỡng thì outbox L2/L4 bị huỷ; đổi `SMS_DRIVER` console↔esms không sửa logic (M2.D-36, M2.D-60, M2.D-63)
   5. `/o/<token>` hiện % đúng công thức trọng số, **không bao giờ tụt**, tối đa 95% khi chưa xong, và response **tuyệt đối không chứa** `status` từng item — assert trong test (M2.D-19, M2.D-20, M2.D-23 — điều kiện của G-1)
-**Plans**: TBD
+**Plans**: 13 plans / 8 wave
+
+Plans:
+- [ ] 09-01-PLAN.md — **Wave 1** Hợp đồng zod admin online-orders (5 lý do từ chối soạn sẵn) + hàm thuần `computeProgress()` §6
+- [ ] 09-02-PLAN.md — **Wave 1** Cài `@nestjs/schedule@6.1.3` (đường không-pnpm) + `ScheduleModule` + hồi sinh 2 cron chết (C-CRON-01)
+- [ ] 09-03-PLAN.md — **Wave 1** Tách `KIND_FORMAT` + `runWithRetry` thành module dùng chung + hàm thuần chọn bàn
+- [ ] 09-04-PLAN.md — **Wave 1** Entity §4.5/§4.6 + cột ghi chú nội bộ + **[BLOCKING]** xác nhận schema bằng truy vấn MySQL thật
+- [ ] 09-05-PLAN.md — **Wave 2** (dep 02,04) `notification_outbox` service + 2 driver SMS + `EmailChannel` + poller `@Cron` 15s
+- [ ] 09-06-PLAN.md — **Wave 3** (dep 01,03,04,05) `confirm()`/`reject()`/`list()` — transaction cấp bàn `FOR UPDATE` + tự tạo bàn
+- [ ] 09-07-PLAN.md — **Wave 4** (dep 06) Controller `admin/online-orders` 3 route + SSE stream + audit `action_kind`
+- [ ] 09-08-PLAN.md — **Wave 5** (dep 06,07) Integration test MySQL thật (row lock + doanh thu) + `ship_fee` tách khỏi doanh thu món
+- [ ] 09-09-PLAN.md — **Wave 5** (dep 01,04,05,07) `/api/public/orders/:token` đủ % + 5 mốc + outbox/SSE lúc submit
+- [ ] 09-10-PLAN.md — **Wave 5** (dep 07) `OnlineOrdersQueuePage` — SSE client, chuông, badge, panel từ chối
+- [ ] 09-11-PLAN.md — **Wave 6** (dep 09) `/o/:token` — stepper 5 mốc, %, banner món huỷ, nhánh từ chối
+- [ ] 09-12-PLAN.md — **Wave 7** (dep 11) **Sửa lại phase 8**: công tắc 2 trạng thái đều nhận đơn + 2 key chữ + bỏ auto-OFF
+- [ ] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` OD-11..15 + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + checkpoint
+
 **UI hint**: yes
 **Ghi chú thi công**: cần harness integration MySQL thật cho criterion 2 và 3 (row lock, transaction — mock không chứng minh được, C-TEST-01); poller outbox 15s dùng `@nestjs/schedule` in-process và **đồng thời** hồi sinh 2 cron đang chết (C-CRON-01); SSE phải fan-out in-process qua `@nestjs/event-emitter`, không giữ 1 DB connection mỗi subscriber (C-INFRA-01)
 
@@ -145,7 +161,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
 | 8. Menu, Checkout & Công tắc | M2 | 13/13 | Executed (checkpoint approved; 5 deferred UAT còn treo) | 2026-07-31 |
-| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/TBD | Not started | - |
+| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 0/13 | Planned (8 wave) | - |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
 ---
