@@ -1,5 +1,7 @@
 // Cron: audit retention — delete audit_log rows older than N days (default 90).
 // Usage: pnpm cron:audit-retention [--cutoff-days=90] [--dry-run]
+// Từ phase 9 việc chạy định kỳ do `modules/maintenance/maintenance-cron.service.ts`
+// đảm nhiệm. File này giữ lại cho chạy tay/dry-run.
 import 'reflect-metadata';
 import { AppDataSource } from '../data-source.js';
 import { AuditLog } from '../modules/audit/entities/audit-log.entity.js';
