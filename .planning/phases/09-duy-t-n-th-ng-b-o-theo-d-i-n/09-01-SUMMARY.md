@@ -118,3 +118,11 @@ None - không có cấu hình dịch vụ ngoài nào.
 ---
 *Phase: 09-duy-t-n-th-ng-b-o-theo-d-i-n*
 *Completed: 2026-07-31*
+
+## Self-Check: PASSED
+
+- FOUND: packages/schemas/src/admin-online-orders.ts
+- FOUND: apps/api/src/modules/public/order-progress.ts
+- FOUND: apps/api/src/modules/public/order-progress.test.ts
+- FOUND: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-01-SUMMARY.md
+- FOUND commits: 4aec5fa, 546ad16, 13eb7a4, 3cff96d (git log --oneline -6)
