@@ -16,6 +16,7 @@ import { OrdersModule } from './modules/orders/orders.module.js';
 import { PublicModule } from './modules/public/public.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -52,6 +53,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     // Phase 9 (D-19, C-CRON-01) — hồi sinh 2 cron đang chết (audit-retention, jti-cleanup)
     // thành @Cron chạy trong process API, dùng Nest DI (không AppDataSource thứ hai).
     MaintenanceModule,
+    // Phase 9 (§4.6, D-15) — outbox thông báo (SSE/SMS/EMAIL) + OutboxPoller @Cron 15s.
+    // SMS 90s là lớp DUY NHẤT còn lại tới được người không ngồi trước máy sau khi D-12
+    // bỏ auto-OFF.
+    NotificationsModule,
   ],
   controllers: [HealthController],
   providers: [
