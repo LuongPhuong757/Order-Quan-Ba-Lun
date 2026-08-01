@@ -175,6 +175,38 @@ Ba lớp chặn, xếp từ trong ra:
 - **Ghi ở:** `packages/schemas/src/admin-online-orders.ts` · `admin-online-orders.controller.ts` · `admin-online-orders.service.ts` § `list()` · `apps/web/src/pages/OnlineOrdersQueuePage.tsx`
 - **Quay lại thì sao:** đổi `StatusQuery` về `z.literal('WAITING')` là đóng lại được, nhưng phải xoá luôn 3 tab ở FE và 3 field mới — để field mà không có đường đọc thì lần sau ai đó lại mở filter mà không đọc mục này.
 
+
+## OD-12 — Ngưỡng bundle 370 kB: từ CHẶN thành CẢNH BÁO
+
+- **Ngày:** 2026-08-01 · **Người quyết:** chủ dự án (*"cứ gỡ bỏ giới hạn này nếu cần thiết... sau khi xong xuôi hết ta sẽ quay lại"*)
+- **Quyết định gốc:** M2.D-64 + `scripts/check-shop-bundle.sh` ghi rõ *"ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số tuỳ hứng"*. Plan 09-11 còn đặt acceptance criteria `git diff scripts/check-shop-bundle.sh` phải **trống**, và bắt cắt code nếu vượt thay vì nới gate.
+- **Lệch:** gate kích thước không còn `exit 1`. Vượt mốc thì in `WARN` rồi tiếp tục.
+
+### Điều KHÔNG nới theo
+
+`check-shop-bundle.sh` gộp **2 gate khác bản chất** dưới cùng tên M2.D-64. Chỉ gate 2 được nới:
+
+| Gate | Bản chất | Trạng thái |
+|---|---|---|
+| 11 chuỗi cấm (`/dashboard`, `KitchenPage`…) | **Bảo mật** — khách không được tải code quản lý | **VẪN CHẶN**, không đổi |
+| Kích thước JS ≤ 370 kB | **Hiệu năng** — chi phí đặt lên máy khách | → cảnh báo (OD-12) |
+
+Đã thêm dòng nhắc ngay trong script để lần sau không ai nới gate 1 theo tiền lệ này.
+
+### Vì sao giữ mốc 370 chứ không nâng số
+
+Nâng số là mất mốc so sánh. Giữ 370 thì mỗi lần build vẫn thấy được "đã phình bao nhiêu so với lúc đóng phase 8". Script giờ in thêm 2 số cần cho quyết định cuối milestone: **gzip** (khách thật tải bao nhiêu) và **số chunk JS**.
+
+### Ba việc phải tách bạch khi quay lại bàn (đừng lẫn)
+
+1. **Nâng VPS KHÔNG liên quan.** 352 kB là tiền 3G của khách + thời gian parse JS trên máy rẻ. VPS chỉ gửi file tĩnh đã gzip 103 kB, không tốn CPU đáng kể. Chủ dự án có nêu ý "nâng cấp production để phù hợp hơn" — ghi lại ở đây để lúc đó không đi sai hướng.
+2. **`apps/shop` có ĐÚNG 1 chunk JS, không có `React.lazy`/`import()` nào.** Khách chỉ xem menu vẫn tải cả checkout + trang theo dõi đơn + lịch sử. Tách route là đòn hiệu quả nhất, chưa dùng lần nào.
+3. **Cách đo hiện tại không thấy được việc tách route.** Nó CỘNG TỔNG mọi chunk, nên tách route xong con số không giảm một byte dù lần tải đầu nhẹ đi hẳn. Muốn đo có nghĩa phải đo **chunk vào-đầu** (entry + static import của nó).
+
+- **Ghi ở:** `scripts/check-shop-bundle.sh` § Gate 2 · `.planning/STATE.md` § Deferred Items
+- **Ảnh hưởng plan 09-11:** acceptance criteria *"`git diff scripts/check-shop-bundle.sh` trống"* và *"vượt thì cắt code, không nới gate"* nay **bị quyết định này ghi đè**. Plan 09-13 phải ghi nhận, đừng coi là plan 09-11 làm sai.
+- **Quay lại thì sao:** đổi `WARN` về `FAIL=1` là chặn lại được ngay — nhưng làm vậy trước khi tách route thì sẽ chặn đúng lúc đang cần thi công.
+
 ---
 
 ## Chưa được ghi ở đây (nợ tồn từ trước)
