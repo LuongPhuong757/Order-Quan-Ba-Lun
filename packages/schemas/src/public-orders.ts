@@ -55,6 +55,20 @@ export type OnlineOrderSubmit = z.infer<typeof OnlineOrderSubmit>;
  *
  * `subtotal` là tiền MÓN, KHÔNG bao giờ gồm `ship_fee` (M2.D-62 — phí ship là tiền thu hộ).
  */
+/** 5 mốc tiến độ + nhánh `REJECTED` (spec §6, M2.D-23 — mốc của CẢ ĐƠN, không phải của từng món).
+ * Tách ra khỏi `PublicOrderStatus` để `OrderStepper` ở `apps/shop` dùng đúng union này thay vì gõ
+ * lại — gõ lại là mở đường cho FE và BE lệch nhau khi thêm mốc. */
+export const OrderStage = z.enum([
+  'RECEIVED',
+  'CONFIRMED',
+  'COOKING',
+  'DELIVERING',
+  'READY_FOR_PICKUP',
+  'COMPLETED',
+  'REJECTED',
+]);
+export type OrderStage = z.infer<typeof OrderStage>;
+
 export const PublicOrderStatus = z.object({
   order_token: z.string(),
   status: z.enum(['WAITING', 'CONFIRMED', 'REJECTED', 'CANCELLED_BY_CUSTOMER']),
@@ -71,15 +85,7 @@ export const PublicOrderStatus = z.object({
   store_phone: z.string(),
   reject_reason: z.string().nullable(),
   // ── Phase 9 (REQ-O, spec §6) ──
-  stage: z.enum([
-    'RECEIVED',
-    'CONFIRMED',
-    'COOKING',
-    'DELIVERING',
-    'READY_FOR_PICKUP',
-    'COMPLETED',
-    'REJECTED',
-  ]),
+  stage: OrderStage,
   stage_label: z.string(),
   percent: z.number().int().min(0).max(100),
   cancelled_count: z.number().int().nonnegative(),

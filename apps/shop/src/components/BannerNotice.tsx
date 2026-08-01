@@ -9,12 +9,18 @@ import type { CSSProperties, JSX, ReactNode } from 'react';
  *   - brand: OFF thủ công + banner giá đổi (nền `--brand-100`)
  *   - warn: ngoài giờ mở cửa (nền `--warn-100`)
  *   - danger: lỗi tải/lỗi submit (nền `--danger-100`, `role="alert"`)
+ *   - info: "Quán đã cập nhật đơn của bạn" ở `/o/:token` (nền `--info-100`, phase 9 / M2.D-47)
+ *
+ * Vì sao `info` tách khỏi `brand` dù cùng dùng `InfoGlyph`: `brand` là chuyện của QUÁN (đang tắt
+ * nhận đơn, giá đổi), `info` là chuyện của ĐƠN NÀY (quán vừa sửa đơn của bạn). Hai loại tin khác
+ * nhau về mức liên quan tới khách nên phải khác màu — dùng chung `brand` là để tin về đơn của khách
+ * lẫn vào tin chung của quán.
  *
  * `action.href` — nếu có, đây là SỐ ĐIỆN THOẠI quán (không phải URL đầy đủ);
  * component tự dựng liên kết gọi điện để khách gọi 1 chạm (bảng Copywriting
  * `ONLINE_ORDERING_DISABLED`).
  */
-type Tone = 'brand' | 'warn' | 'danger';
+type Tone = 'brand' | 'warn' | 'danger' | 'info';
 
 type Props = {
   tone: Tone;
@@ -27,6 +33,7 @@ const TONE_STYLES: Record<Tone, { bg: string; text: string }> = {
   brand: { bg: 'var(--brand-100)', text: 'var(--text-strong)' },
   warn: { bg: 'var(--warn-100)', text: 'var(--warn-600)' },
   danger: { bg: 'var(--danger-100)', text: 'var(--danger-600)' },
+  info: { bg: 'var(--info-100)', text: 'var(--info-600)' },
 };
 
 export function BannerNotice({ tone, title, body, action }: Props): JSX.Element {
@@ -73,6 +80,10 @@ export function BannerNotice({ tone, title, body, action }: Props): JSX.Element 
 function renderIcon(tone: Tone): JSX.Element {
   if (tone === 'danger') return <AlertGlyph />;
   if (tone === 'warn') return <ClockGlyph />;
+  // `info` và `brand` dùng chung InfoGlyph — cùng là tin cần đọc chứ không phải cảnh báo, phân
+  // biệt bằng màu nền. Nhánh này viết tường minh để đọc code biết `info` đã được xử lý, không
+  // phải rơi vào default một cách tình cờ.
+  if (tone === 'info') return <InfoGlyph />;
   return <InfoGlyph />;
 }
 
