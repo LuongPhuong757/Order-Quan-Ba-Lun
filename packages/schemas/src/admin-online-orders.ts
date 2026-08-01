@@ -65,8 +65,24 @@ export const AdminOnlineOrderRow = z.object({
   submitted_at_ms: z.number().int(),
   waiting_seconds: z.number().int().nonnegative(),
   out_of_stock_count: z.number().int().nonnegative(),
+
+  // ── 3 field dưới đây CHỈ có giá trị khi đơn đã xử lý (CONFIRMED/REJECTED) ──
+  // Thêm cùng lúc mở filter theo trạng thái (OD-11): tab "Đã xác nhận"/"Đã từ chối" mà không
+  // hiện được xử lý LÚC NÀO, do AI, và vì sao từ chối thì gần như vô dụng.
+  /** Mốc duyệt/từ chối. `null` khi còn WAITING. */
+  reviewed_at_ms: z.number().int().nullable(),
+  /** Tên người duyệt/từ chối — đây là mặt hiển thị của kiểm soát bù trừ D-02. */
+  reviewed_by_full_name: z.string().nullable(),
+  /** Lý do từ chối ĐÃ GỬI TỚI KHÁCH. `null` khi không phải đơn bị từ chối.
+   * TUYỆT ĐỐI KHÔNG map `internal_reject_note` vào đây — ghi chú nội bộ không đi ra HTTP (D-09). */
+  reject_reason: z.string().nullable(),
 });
 export type AdminOnlineOrderRow = z.infer<typeof AdminOnlineOrderRow>;
+
+/** Trạng thái xem được ở màn quản lý đơn online. `CANCELLED_BY_CUSTOMER` KHÔNG có ở đây —
+ * khách tự huỷ thì không cần nhân viên làm gì, đưa vào tab chỉ thêm nhiễu. */
+export const AdminOnlineOrderStatusFilter = z.enum(['WAITING', 'CONFIRMED', 'REJECTED']);
+export type AdminOnlineOrderStatusFilter = z.infer<typeof AdminOnlineOrderStatusFilter>;
 
 export const AdminOnlineOrderList = z.object({
   items: z.array(AdminOnlineOrderRow),

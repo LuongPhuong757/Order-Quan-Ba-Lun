@@ -145,6 +145,36 @@ Mỗi entry phải trả lời: lệch cái gì · ai quyết · vì sao · hệ
 - **Quay lại thì sao:** đổi giá trị token `--ratio-card-media` từ `3/2` về `4/3` là đủ (1 chỗ, dùng chung ảnh
   thật + placeholder) — nhưng sẽ tái lặp vấn đề "desktop chỉ thấy 1 hàng món" mà chủ quán đã báo.
 
+
+## OD-11 — Màn duyệt đơn mở filter 3 trạng thái, không chỉ `WAITING`
+
+- **Ngày:** 2026-08-01 · **Người quyết:** chủ dự án
+- **Quyết định gốc:** 09-UI-SPEC Mặt A đặt màn này là **hàng chờ duyệt** thuần. `admin-online-orders.controller.ts` chốt bằng code: `const StatusQuery = z.literal('WAITING')`, kèm comment *"Không mở sẵn CONFIRMED/REJECTED để tránh trang tra cứu lịch sử đơn mọc ra ở đây thay vì ở trang lịch sử đã có"*.
+- **Lệch:** endpoint `GET /admin/online-orders` nhận `status` ∈ `{WAITING, CONFIRMED, REJECTED}`, mặc định `WAITING`. FE có 3 tab.
+- **Vì sao:** nhân viên cần xem lại đơn vừa duyệt/từ chối **ngay tại màn đang làm** — sang trang khác để tra một đơn vừa xử lý 30 giây trước là quãng đường vô ích giữa giờ cao điểm.
+- **Điều KHÔNG nới theo:** `CANCELLED_BY_CUSTOMER` vẫn không mở (khách tự huỷ thì nhân viên không phải làm gì → chỉ thêm nhiễu). Đổi `z.literal` → `z.enum`, **không** bỏ validate.
+
+### Vì sao việc này có rủi ro, và rủi ro đó đã chặn ở đâu
+
+Đơn đã xử lý là loại đơn **duy nhất** có `internal_reject_note` — ghi chú nội bộ mà D-09 cấm cho khách thấy, và controller ghi rõ là không được đi ra HTTP. Mở đường đọc tới nhóm đơn này là mở đúng chỗ ghi chú đó có thể rò.
+
+Ba lớp chặn, xếp từ trong ra:
+1. `list()` dùng **whitelist tường minh**, không spread entity — `internal_reject_note` không có trong danh sách map.
+2. `AdminOnlineOrderRow` là `z.object` → zod **gạt bỏ** key lạ. Kể cả mapper lỡ tay thêm, nó không qua được schema.
+3. `admin-online-orders-shape.test.ts` (mới, 9 test) khoá lớp 2 lại: assert `internal_reject_note`, `order_token` đầy đủ, `ip_hash`, `user_agent` đều bị gạt; và `AdminOnlineOrderStatusFilter` không nhận `CANCELLED_BY_CUSTOMER`.
+
+### 3 field mới thêm vào `AdminOnlineOrderRow`
+
+`reviewed_at_ms`, `reviewed_by_full_name`, `reject_reason` (câu **đã gửi khách**, không phải ghi chú nội bộ). Không có 3 field này thì tab "Đã xác nhận"/"Đã từ chối" không nói được xử lý lúc nào, do ai, vì sao — tức là mở tab mà vô dụng. `reviewed_by_full_name` đồng thời là **mặt hiển thị của kiểm soát bù trừ D-02**: cả 3 role đều duyệt được, nên phải luôn thấy ai đã duyệt đơn nào.
+
+### 2 quyết định kèm theo, đều để tránh đọc sai số
+
+- **Chiều sắp xếp khác nhau theo tab:** `WAITING` → `submitted_at` ASC (FIFO, việc-phải-làm, ai chờ lâu nhất trước). Đã xử lý → `reviewed_at` DESC (tra cứu, việc vừa xong lên đầu). Sắp ASC ở tab tra cứu là bắt nhân viên cuộn xuống cuối mỗi lần mở.
+- **`waiting_seconds` bị ĐÓNG BĂNG** ở `reviewed_at - submitted_at` cho đơn đã xử lý, thay vì đếm tới hiện tại. Để nó chạy tiếp thì màn tra cứu hiện "đã chờ 3 ngày" cho đơn đã duyệt xong từ hôm qua.
+
+- **Ghi ở:** `packages/schemas/src/admin-online-orders.ts` · `admin-online-orders.controller.ts` · `admin-online-orders.service.ts` § `list()` · `apps/web/src/pages/OnlineOrdersQueuePage.tsx`
+- **Quay lại thì sao:** đổi `StatusQuery` về `z.literal('WAITING')` là đóng lại được, nhưng phải xoá luôn 3 tab ở FE và 3 field mới — để field mà không có đường đọc thì lần sau ai đó lại mở filter mà không đọc mục này.
+
 ---
 
 ## Chưa được ghi ở đây (nợ tồn từ trước)

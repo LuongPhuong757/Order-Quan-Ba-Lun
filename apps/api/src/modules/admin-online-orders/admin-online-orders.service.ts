@@ -32,7 +32,7 @@ import { DataSource, EntityManager, In } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { ConfirmOnlineOrderBody, RejectOnlineOrderBody } from '@order/schemas';
 import { AdminOnlineOrderList, REJECT_REASON_TEXT } from '@order/schemas';
-import type { AdminOnlineOrderRow } from '@order/schemas';
+import type { AdminOnlineOrderRow, AdminOnlineOrderStatusFilter } from '@order/schemas';
 // Import namespace (không phải named import) — tránh dòng import lặp lại đúng chuỗi tên hàm
 // với dòng gọi hàm bên dưới (2 dòng khớp cùng 1 chuỗi sẽ sai lệch với acceptance criteria đếm
 // đúng 1 lần xuất hiện của cơ chế retry trong file này).
@@ -376,12 +376,26 @@ export class AdminOnlineOrdersService {
     }
   }
 
-  /** Hàng chờ duyệt — FIFO theo `submitted_at` ASC (09-UI-SPEC Giả định #1). Re-check tồn kho
-   * 1 lần cho TOÀN BỘ món của mọi đơn (1 query `In(...)`, không N+1 theo từng đơn). */
-  async list(status: 'WAITING' = 'WAITING'): Promise<AdminOnlineOrderList> {
-    const requests = await this.ds
-      .getRepository(OnlineOrderRequest)
-      .find({ where: { status }, order: { submitted_at: 'ASC' } });
+  /** Danh sách đơn online theo trạng thái (OD-11). Re-check tồn kho 1 lần cho TOÀN BỘ món của
+   * mọi đơn (1 query `In(...)`, không N+1 theo từng đơn).
+   *
+   * Thứ tự sắp KHÁC NHAU theo trạng thái, và đó là có chủ ý:
+   *   - `WAITING`  → `submitted_at` **ASC**: FIFO, đơn chờ lâu nhất lên đầu (09-UI-SPEC Giả
+   *     định #1). Đây là danh sách việc-phải-làm, ai chờ lâu nhất phục vụ trước.
+   *   - đã xử lý → `reviewed_at` **DESC**: đây là danh sách tra cứu, việc vừa làm xong mới là
+   *     việc người ta cần xem lại. Sắp ASC ở đây là bắt nhân viên cuộn xuống cuối mỗi lần mở tab. */
+  async list(
+    status: AdminOnlineOrderStatusFilter = 'WAITING',
+  ): Promise<AdminOnlineOrderList> {
+    const requests = await this.ds.getRepository(OnlineOrderRequest).find({
+      where: { status },
+      order:
+        status === 'WAITING'
+          ? { submitted_at: 'ASC' }
+          : // `submitted_at` là mốc phụ cho trường hợp `reviewed_at` bằng nhau (2 đơn duyệt
+            // trong cùng một milisecond) — không có nó thì thứ tự không xác định.
+            { reviewed_at: 'DESC', submitted_at: 'DESC' },
+    });
 
     const allMenuIds = Array.from(
       new Set(requests.flatMap((r) => r.items_snapshot.map((it) => it.menu_item_id))),
@@ -423,8 +437,18 @@ export class AdminOnlineOrdersService {
       })),
       subtotal: r.subtotal,
       submitted_at_ms: r.submitted_at,
-      waiting_seconds: Math.max(0, Math.floor((nowMs - r.submitted_at) / 1000)),
+      // Đơn đã xử lý: đóng băng đồng hồ tại lúc duyệt, KHÔNG đếm tiếp tới hiện tại. Để nó chạy
+      // tiếp là màn tra cứu hiện "đã chờ 3 ngày" cho đơn đã duyệt xong từ hôm qua.
+      waiting_seconds:
+        r.reviewed_at === null
+          ? Math.max(0, Math.floor((nowMs - r.submitted_at) / 1000))
+          : Math.max(0, Math.floor((r.reviewed_at - r.submitted_at) / 1000)),
       out_of_stock_count: r.items_snapshot.filter((it) => isOutOfStock(it.menu_item_id)).length,
+      reviewed_at_ms: r.reviewed_at,
+      reviewed_by_full_name: r.reviewed_by_full_name,
+      // `reject_reason` = câu ĐÃ GỬI KHÁCH. `internal_reject_note` không có mặt ở đây và không
+      // được thêm vào — xem điểm 3 đầu controller (D-09).
+      reject_reason: r.reject_reason,
     }));
 
     const payload: AdminOnlineOrderList = {

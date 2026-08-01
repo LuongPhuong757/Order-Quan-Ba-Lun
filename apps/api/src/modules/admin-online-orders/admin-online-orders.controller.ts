@@ -44,6 +44,7 @@ import { z } from 'zod';
 import { apiOk, type ApiOk } from '@order/utils';
 import {
   AdminOnlineOrderList,
+  AdminOnlineOrderStatusFilter,
   ConfirmOnlineOrderBody,
   OnlineOrderStreamEvent,
   RejectOnlineOrderBody,
@@ -55,10 +56,16 @@ import { AdminOnlineOrdersService, type ConfirmResult } from './admin-online-ord
 
 const UuidParam = z.string().uuid();
 
-/** Chỉ `WAITING` — hàng chờ duyệt là màn hình duy nhất dùng endpoint này (09-UI-SPEC Mặt A).
- * Không mở sẵn `CONFIRMED`/`REJECTED` để tránh trang tra cứu lịch sử đơn mọc ra ở đây thay vì
- * ở trang lịch sử đã có. */
-const StatusQuery = z.literal('WAITING');
+/** 3 trạng thái, mặc định `WAITING` (OD-11 — chủ dự án chỉ đạo 2026-08-01).
+ *
+ * Bản đầu chỉ nhận `z.literal('WAITING')` với lý do "tránh trang tra cứu lịch sử mọc ra ở đây".
+ * Chủ dự án quyết ngược lại: nhân viên cần xem lại đơn vừa duyệt/từ chối NGAY tại màn đang làm,
+ * không phải đi sang trang khác. Đổi thành enum thay vì bỏ hẳn validate — `CANCELLED_BY_CUSTOMER`
+ * vẫn KHÔNG mở, vì khách tự huỷ thì nhân viên không phải làm gì.
+ *
+ * Đơn đã xử lý vẫn đi qua ĐÚNG whitelist của `list()` — mở filter không mở thêm field nào;
+ * `internal_reject_note` vẫn không ra HTTP (D-09). */
+const StatusQuery = AdminOnlineOrderStatusFilter;
 
 /** Nhịp heartbeat SSE. FE đo khoảng lặng giữa 2 heartbeat để biết kết nối đã chết (D-07 —
  * proxy/mạng đứt IM LẶNG, không có event `error` nào). Ngưỡng "coi là đứt" ở FE (~10s) phải
@@ -91,8 +98,10 @@ export class AdminOnlineOrdersController {
     if (!parsed.success) {
       throw new BadRequestException({
         code: 'VALIDATION_FAILED',
-        message: 'Chỉ xem được hàng chờ duyệt (status=WAITING).',
-        field_errors: [{ field: 'status', message: 'Chỉ nhận giá trị WAITING' }],
+        message: 'Trạng thái không xem được ở màn này.',
+        field_errors: [
+          { field: 'status', message: 'Chỉ nhận WAITING, CONFIRMED hoặc REJECTED' },
+        ],
       });
     }
     return apiOk(await this.svc.list(parsed.data));
