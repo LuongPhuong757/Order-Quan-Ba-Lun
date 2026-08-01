@@ -18,6 +18,7 @@ import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
 import { KitchenPage } from './pages/KitchenPage.tsx';
 import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
+import { OnlineOrdersQueuePage } from './pages/OnlineOrdersQueuePage.tsx';
 
 export function App() {
   return (
@@ -38,6 +39,14 @@ export function App() {
             {/* Order: admin + order + kitchen (bếp cần xem để biết món nào của bàn nào) */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/orders" element={<OrdersPage />} />
+            </Route>
+
+            {/* Hàng chờ duyệt đơn online: admin + order + kitchen — D-02 ghi đè M2.D-33,
+                ai đang ở máy thì duyệt. Kiểm soát bù trừ là audit log ghi rõ người duyệt.
+                ⚠ PHẢI nằm ngoài block RoleGate allow={['admin']} bên dưới — nhét vào đó là
+                chặn lại role order/kitchen, đúng cái D-02 vừa bỏ. */}
+            <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
+              <Route path="/admin/online-orders" element={<OnlineOrdersQueuePage />} />
             </Route>
 
             {/* Bếp: admin + kitchen role */}
@@ -142,6 +151,7 @@ function ProtectedShell() {
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
@@ -152,6 +162,8 @@ function ProtectedShell() {
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3 */}
+          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
@@ -160,6 +172,7 @@ function ProtectedShell() {
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}

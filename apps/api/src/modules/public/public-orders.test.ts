@@ -10,6 +10,7 @@ import {
   type SubmitSettings,
 } from './submit-order.js';
 import type { OrderingStatus } from './store-status.js';
+import { PublicOrdersService } from './public-orders.service.js';
 
 // Test tầng service với FAKE `SubmitDeps` (object literal trả dữ liệu định trước) — KHÔNG
 // bootstrap Nest, KHÔNG thêm devDependency test-framework nào (quyết định "hướng nhẹ" đã
@@ -299,5 +300,318 @@ describe('submitOrder — status của row insert', () => {
     await submitOrder(deps, baseInput(), CTX);
     const row = insertRequest.mock.calls[0][0];
     expect(row.status).toBe('WAITING');
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// Phase 9 (plan 09-09) — `PublicOrdersService.getByToken()`
+//
+// Dựng service bằng cách gọi TRỰC TIẾP constructor với repository giả (object literal có đúng
+// các method service dùng). Giữ nguyên "hướng nhẹ" của phase 8: không bootstrap Nest, không
+// MySQL, không thêm devDependency nào.
+//
+// 2 gate được kiểm ở đây là gate AN TOÀN, không phải gate hình thức:
+//  - G-1 (M2.D-23): `JSON.stringify(response)` không được chứa chuỗi `"state"`, và mỗi dòng
+//    `items` phải có ĐÚNG 3 khoá. Dùng `Object.keys` để bắt cả field lọt vào do spread entity.
+//  - D-09: bơm chuỗi mồi `ZZTEST` vào cột ghi chú nội bộ rồi assert nó VẮNG MẶT trong response.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+
+type FakeRequestRow = {
+  id: string;
+  order_token: string;
+  status: string;
+  fulfillment_type: string;
+  items_snapshot: Array<{ name: string; qty: number; unit_price: number }>;
+  subtotal: number;
+  submitted_at: number;
+  reject_reason: string | null;
+  internal_reject_note: string | null;
+  order_id: string | null;
+  max_progress_shown: number;
+};
+
+type FakeItemRow = {
+  order_id: string;
+  menu_item_name: string;
+  menu_item_price: number;
+  qty: number;
+  is_note: boolean;
+  state: string;
+};
+
+const SUBMITTED_MS = 1_800_000_000_000;
+const ORDER_UPDATED_MS = 1_800_000_555_000;
+
+function fakeRequest(overrides: Partial<FakeRequestRow> = {}): FakeRequestRow {
+  return {
+    id: 'req-1',
+    order_token: 'tok-1',
+    status: 'WAITING',
+    fulfillment_type: 'PICKUP',
+    items_snapshot: [{ name: 'Lẩu bò', qty: 2, unit_price: 45000 }],
+    subtotal: 90000,
+    submitted_at: SUBMITTED_MS,
+    reject_reason: null,
+    internal_reject_note: null,
+    order_id: null,
+    max_progress_shown: 0,
+    ...overrides,
+  };
+}
+
+function fakeItem(overrides: Partial<FakeItemRow> = {}): FakeItemRow {
+  return {
+    order_id: 'order-1',
+    menu_item_name: 'Lẩu bò',
+    menu_item_price: 45000,
+    qty: 2,
+    is_note: false,
+    state: 'KITCHEN',
+    ...overrides,
+  };
+}
+
+const FAKE_SETTINGS = {
+  store_phone: '0901234567',
+  eta_pickup_min: 15,
+  eta_pickup_max: 25,
+  eta_delivery_min: 30,
+  eta_delivery_max: 45,
+};
+
+/** Service + spy `update` để assert lệnh ghi `max_progress_shown`. */
+function makeService(opts: { request: FakeRequestRow | null; items?: FakeItemRow[] }) {
+  const update = vi.fn().mockResolvedValue(undefined);
+  const requestRepo = { findOne: vi.fn().mockResolvedValue(opts.request), update };
+  const orderRepo = {
+    findOne: vi.fn().mockResolvedValue({ id: 'order-1', updated_at: ORDER_UPDATED_MS }),
+  };
+  const itemRepo = { find: vi.fn().mockResolvedValue(opts.items ?? []) };
+  const settingsSvc = { readAll: vi.fn().mockResolvedValue(FAKE_SETTINGS) };
+  const outbox = { enqueueForNewRequest: vi.fn() };
+  const emitter = { emit: vi.fn() };
+
+  const svc = new PublicOrdersService(
+    {} as never,
+    requestRepo as never,
+    orderRepo as never,
+    itemRepo as never,
+    settingsSvc as never,
+    outbox as never,
+    emitter as never,
+  );
+  return { svc, update, itemRepo };
+}
+
+describe('getByToken — đơn còn WAITING', () => {
+  it('stage RECEIVED, percent 0, items lấy từ items_snapshot, subtotal là số đã chốt', async () => {
+    const { svc } = makeService({ request: fakeRequest() });
+    const res = await svc.getByToken('tok-1');
+    expect(res.stage).toBe('RECEIVED');
+    expect(res.stage_label).toBe('Đã tiếp nhận');
+    expect(res.percent).toBe(0);
+    expect(res.items).toEqual([{ name: 'Lẩu bò', qty: 2, unit_price: 45000 }]);
+    expect(res.subtotal).toBe(90000);
+    expect(res.updated_at_ms).toBe(SUBMITTED_MS);
+  });
+
+  it('KHÔNG đọc order_items khi chưa có order_id (đơn chưa được duyệt)', async () => {
+    const { svc, itemRepo } = makeService({ request: fakeRequest() });
+    await svc.getByToken('tok-1');
+    expect(itemRepo.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('getByToken — đơn đã CONFIRMED', () => {
+  it('2 món state KITCHEN thì percent 15, stage CONFIRMED, updated_at_ms lấy từ order', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem(), fakeItem({ menu_item_name: 'Cơm rang', menu_item_price: 50000, qty: 1 })],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.percent).toBe(15);
+    expect(res.stage).toBe('CONFIRMED');
+    expect(res.stage_label).toBe('Đã xác nhận');
+    expect(res.updated_at_ms).toBe(ORDER_UPDATED_MS);
+  });
+
+  it('items + subtotal phản ánh order_items THẬT sau khi admin sửa đơn (M2.D-47)', async () => {
+    // Snapshot lúc khách đặt là 1 món 45000×2 = 90000; admin đã bỏ món đó và thêm 2 món khác.
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1', subtotal: 90000 }),
+      items: [
+        fakeItem({ menu_item_name: 'Cơm rang', menu_item_price: 50000, qty: 2 }),
+        fakeItem({ menu_item_name: 'Trà đá', menu_item_price: 5000, qty: 3 }),
+      ],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.items).toEqual([
+      { name: 'Cơm rang', qty: 2, unit_price: 50000 },
+      { name: 'Trà đá', qty: 3, unit_price: 5000 },
+    ]);
+    // 50000×2 + 5000×3 = 115000, KHÁC subtotal cũ 90000.
+    expect(res.subtotal).toBe(115000);
+  });
+
+  it('dòng ghi chú cho bếp (is_note) không hiện với khách và không tính vào phần trăm', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [
+        fakeItem({ state: 'SERVED' }),
+        fakeItem({
+          menu_item_name: 'ít cay nhé',
+          menu_item_price: 0,
+          qty: 1,
+          is_note: true,
+          state: 'KITCHEN',
+        }),
+      ],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.items).toHaveLength(1);
+    expect(res.items[0].name).toBe('Lẩu bò');
+    // Nếu dòng ghi chú bị tính vào mẫu số thì phần trăm chỉ còn 58, không phải 100.
+    expect(res.percent).toBe(100);
+  });
+
+  it('món CANCELLED bị trừ khỏi items nhưng hiện thành dòng cảnh báo (M2.D-21)', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [
+        fakeItem({ state: 'COOKING' }),
+        fakeItem({ menu_item_name: 'Món hết hàng', state: 'CANCELLED' }),
+      ],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.items.map((i) => i.name)).toEqual(['Lẩu bò']);
+    expect(res.cancelled_count).toBe(1);
+    expect(res.cancelled_note).toBe('1 món đã huỷ — quán sẽ liên hệ bạn');
+  });
+
+  it('eta lấy theo fulfillment_type (DELIVERY thì 30/45)', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({
+        status: 'CONFIRMED',
+        order_id: 'order-1',
+        fulfillment_type: 'DELIVERY',
+      }),
+      items: [fakeItem()],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.eta_min).toBe(30);
+    expect(res.eta_max).toBe(45);
+  });
+
+  it('stage COMPLETED thì eta null (không còn dự kiến còn bao lâu)', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem({ state: 'SERVED' })],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.stage).toBe('COMPLETED');
+    expect(res.percent).toBe(100);
+    expect(res.eta_min).toBeNull();
+    expect(res.eta_max).toBeNull();
+  });
+});
+
+describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từng món', () => {
+  it('response không chứa chuỗi state và mỗi item có ĐÚNG 3 khoá', async () => {
+    const cases: Array<{ request: FakeRequestRow; items?: FakeItemRow[] }> = [
+      { request: fakeRequest() },
+      {
+        request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+        items: [fakeItem(), fakeItem({ state: 'COOKING' }), fakeItem({ state: 'CANCELLED' })],
+      },
+      {
+        request: fakeRequest({
+          status: 'CONFIRMED',
+          order_id: 'order-1',
+          fulfillment_type: 'DELIVERY',
+        }),
+        items: [fakeItem({ state: 'READY' })],
+      },
+    ];
+    for (const c of cases) {
+      const { svc } = makeService(c);
+      const res = await svc.getByToken('tok-1');
+      expect(JSON.stringify(res)).not.toContain('"state"');
+      for (const item of res.items) {
+        expect(Object.keys(item).sort()).toEqual(['name', 'qty', 'unit_price']);
+      }
+    }
+  });
+});
+
+describe('getByToken — D-09: ghi chú nội bộ không bao giờ ra response', () => {
+  it('internal_reject_note chứa chuỗi mồi ZZTEST thì response không chứa chuỗi đó', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({
+        status: 'REJECTED',
+        reject_reason: 'Quán đang quá tải, chưa thể nhận thêm',
+        internal_reject_note: 'ZZTEST khách này hay bom hàng',
+      }),
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(JSON.stringify(res)).not.toContain('ZZTEST');
+    expect(JSON.stringify(res)).not.toContain('bom hàng');
+    expect(res.reject_reason).toBe('Quán đang quá tải, chưa thể nhận thêm');
+    expect(res.stage).toBe('REJECTED');
+    expect(res.eta_min).toBeNull();
+  });
+
+  it('khách tự huỷ thì stage_label là Đơn đã huỷ, không phải câu quán từ chối', async () => {
+    const { svc } = makeService({ request: fakeRequest({ status: 'CANCELLED_BY_CUSTOMER' }) });
+    const res = await svc.getByToken('tok-1');
+    expect(res.stage_label).toBe('Đơn đã huỷ');
+  });
+});
+
+describe('getByToken — phần trăm đơn điệu, chỉ ghi DB khi tăng (M2.D-19, T-09-49)', () => {
+  it('percent tăng thì ghi max_progress_shown đúng giá trị mới', async () => {
+    const { svc, update } = makeService({
+      // DELIVERY: `READY` = món đã xong nhưng CHƯA giao tới khách → 80, chưa phải 100. Với PICKUP
+      // thì `READY` đã là hoàn tất (M2.D-15) nên sẽ ra 100 — dùng DELIVERY để test đúng mốc 80.
+      request: fakeRequest({
+        status: 'CONFIRMED',
+        order_id: 'order-1',
+        fulfillment_type: 'DELIVERY',
+        max_progress_shown: 0,
+      }),
+      items: [fakeItem({ state: 'READY' })],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.percent).toBe(80);
+    expect(update).toHaveBeenCalledWith({ id: 'req-1' }, { max_progress_shown: 80 });
+  });
+
+  it('bếp trả 1 món về KITCHEN thì percent KHÔNG tụt và KHÔNG ghi đè xuống thấp', async () => {
+    const { svc, update } = makeService({
+      // Đã từng hiện 80; giờ 1 trong 2 món bị trả về KITCHEN nên phần trăm thô chỉ còn 48.
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1', max_progress_shown: 80 }),
+      items: [fakeItem({ state: 'KITCHEN' }), fakeItem({ state: 'READY' })],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.percent).toBe(80);
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('percent không đổi giữa 2 lần gọi thì không phát sinh lệnh ghi nào', async () => {
+    const { svc, update } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1', max_progress_shown: 15 }),
+      items: [fakeItem({ state: 'KITCHEN' })],
+    });
+    await svc.getByToken('tok-1');
+    await svc.getByToken('tok-1');
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('getByToken — token không tồn tại (không hồi quy phase 8)', () => {
+  it('vẫn 404 ORDER_TOKEN_NOT_FOUND', async () => {
+    const { svc } = makeService({ request: null });
+    const err = await captureHttpError(svc.getByToken('khong-co'));
+    expect(err.code).toBe('ORDER_TOKEN_NOT_FOUND');
+    expect(err.status).toBe(404);
   });
 });

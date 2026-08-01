@@ -34,6 +34,9 @@ type Stats = {
   unpaid_count: number;
   cancelled_count: number;
   paid_revenue: number;
+  // M2.D-62 — phí ship là tiền thu hộ, KHÔNG phải doanh thu món. Hiển thị thành ô RIÊNG,
+  // không cộng vào `paid_revenue`.
+  ship_fee_total: number;
 };
 
 // 'YYYY-MM-DD' (giờ VN) từ epoch ms — gom đơn theo ngày ở bảng.
@@ -412,6 +415,8 @@ export function HistoryPage() {
           bg="#f0fdfa"
           border="#ccfbf1"
         />
+        {/* M2.D-62 — ô RIÊNG, cố ý không gộp vào ô "Doanh thu đã thanh toán" phía trên. */}
+        <StatTile label="Phí ship thu hộ" value={fmt(stats?.ship_fee_total ?? 0)} color="#334155" bg="#f8fafc" border="#e2e8f0" />
         <StatTile label="Đơn đã thanh toán" value={String(stats?.paid_count ?? 0)} color="#059669" bg="#ecfdf5" border="#d1fae5" />
         <StatTile label="Đơn chưa thanh toán" value={String(stats?.unpaid_count ?? 0)} color="#b45309" bg="#fffbeb" border="#fde68a" />
         <StatTile label="Đơn bị huỷ" value={String(stats?.cancelled_count ?? 0)} color="#b91c1c" bg="#fef2f2" border="#fecaca" />

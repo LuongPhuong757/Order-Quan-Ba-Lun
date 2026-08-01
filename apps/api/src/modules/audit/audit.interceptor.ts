@@ -61,6 +61,14 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/tables\/[^/]+$/) && method === 'PATCH') return 'table.updated';
   if (path.match(/^\/tables\/[^/]+$/) && method === 'DELETE') return 'table.deleted';
 
+  // Duyệt đơn online (plan 09-07) — 2 nhánh này LÀ kiểm soát bù trừ của D-02: vì cả 3 role
+  // admin/order/kitchen đều duyệt được (ghi đè M2.D-33), thứ duy nhất còn truy được "ai duyệt
+  // đơn nào" là audit log. Thiếu 2 nhánh này thì fallback ở cuối hàm sinh chuỗi rác kiểu
+  // `post._admin_online_orders__id_confirm`, và trang /admin/audit không lọc được theo hành
+  // động — tức là kiểm soát bù trừ tồn tại trên giấy mà không tra cứu được.
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/confirm$/) && method === 'POST') return 'online_order.confirmed';
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/reject$/) && method === 'POST') return 'online_order.rejected';
+
   // Settings + phone blacklist (plan 08-05, M2.D-25)
   if (path === '/admin/settings' && method === 'PUT') return 'settings.updated';
   if (path === '/admin/phone-blacklist' && method === 'POST') return 'phone_blacklist.added';
@@ -134,6 +142,9 @@ function extractTargetKind(path: string): string | null {
   if (path.startsWith('/setup')) return 'setup';
   if (path.startsWith('/admin/settings')) return 'settings';
   if (path.startsWith('/admin/phone-blacklist')) return 'phone_blacklist';
+  // Khớp `target_kind` mà emit thủ công của AdminOnlineOrdersService đang dùng, để 2 nguồn ghi
+  // audit của cùng 1 nghiệp vụ lọc ra cùng một chỗ (plan 09-07).
+  if (path.startsWith('/admin/online-orders')) return 'online_order_request';
   return null;
 }
 

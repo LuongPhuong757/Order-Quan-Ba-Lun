@@ -69,6 +69,28 @@ textarea {
   background: white;
 }
 
+/* Radio/checkbox KHÔNG phải ô nhập text — quy tắc `input` phía trên (width:100%, min-height:44px,
+   padding, border) làm chúng phình thành khối chiếm hết chiều ngang, đẩy nhãn sang phải và làm vỡ
+   dòng chữ. Trả chúng về kích thước thật của control.
+   Sửa 2026-08-01 (phase 9): lỗi này có từ trước và ảnh hưởng mọi chỗ có radio/checkbox — trang
+   Cài đặt (chọn kiểu tạm ngưng nhận đơn) và trang Hàng chờ duyệt đều bị. */
+input[type='radio'],
+input[type='checkbox'] {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border-radius: 4px;
+  flex: none;
+  accent-color: #0f766e;
+}
+
+input[type='radio'] {
+  border-radius: 999px;
+}
+
 input:focus,
 textarea:focus {
   outline: 2px solid #0f766e;

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
 status: executing
-stopped_at: Phase 9 planned — 13 plan / 8 wave, plan-checker APPROVED 0 blocker
-last_updated: "2026-07-31T05:33:18.874Z"
-last_activity: 2026-07-31 -- Phase 09 execution started
+stopped_at: Phase 09 plan 10 xong (code+test) — CÒN 3 kịch bản trình duyệt chưa chạy, xem 09-10-SUMMARY
+last_updated: "2026-08-01T18:20:00.000Z"
+last_activity: 2026-08-01 -- plan 09-10 complete-with-gap (tiếp 09-11)
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 30
-  completed_plans: 17
-  percent: 50
+  completed_plans: 21
+  percent: 70
 ---
 
 # Project State
@@ -28,13 +28,18 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 ## Current Position
 
 Phase: 09 (duy-t-n-th-ng-b-o-theo-d-i-n) — EXECUTING
-Plan: 1 of 13
+Plan: 10 of 13 xong (hết wave 5). Tiếp theo: 09-11 (wave 6) — trang khách /o/:token
 Status: Executing Phase 09
-Last activity: 2026-07-31 -- Phase 09 execution started
+Last activity: 2026-08-01 -- plan 09-10 complete-with-gap
 
-Progress: [██████████] 100%
+Progress Phase 09: [████████░░] 77% (10/13 plan)
 
-Progress: [░░░░░░░░░░] 0%
+> ⚠ VIỆC CHƯA LÀM của 09-10: 3 kịch bản nghiệm thu trên trình duyệt (3 role vào được · chuông có
+> tiếng thật · SSE đứt 10s hiện banner rồi tự nối lại). Code + test + build đã xanh, nhưng chưa ai
+> mở trang bằng mắt. Chi tiết cách kiểm ở `09-10-SUMMARY.md` § "3 kịch bản trên trình duyệt".
+
+> Lưu ý khi đọc `gsd-tools query roadmap.analyze`: nó báo `progress_percent` cao vọt vì chỉ tính
+> trên phase ĐÃ CÓ plan. Con số đúng cho Milestone 2 là 2/4 phase + phase 09 đang dở.
 
 ## Performance Metrics
 

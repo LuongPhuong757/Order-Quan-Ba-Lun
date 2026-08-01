@@ -9,7 +9,10 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
+import { Order } from '../orders/entities/order.entity.js';
+import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { SettingsModule } from '../settings/settings.module.js';
+import { NotificationsModule } from '../notifications/notifications.module.js';
 
 /**
  * Module cho các endpoint công khai không auth (`/api/public/*`).
@@ -26,14 +29,22 @@ import { SettingsModule } from '../settings/settings.module.js';
  * (`getOrderingStatus()`) — không controller/service nào trong module này được đọc thẳng
  * cột công tắc thô.
  *
- * `TypeOrmModule.forFeature([MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist])` phục
- * vụ `PublicMenuController` (read-only) và `PublicOrdersService` (transaction + gap lock,
- * insert `online_order_requests`, đọc `phone_blacklist`).
+ * `TypeOrmModule.forFeature([...])` phục vụ `PublicMenuController` (read-only) và
+ * `PublicOrdersService` (transaction + gap lock, insert `online_order_requests`, đọc
+ * `phone_blacklist`).
+ *
+ * Phase 09 (plan 09-09) thêm:
+ *  - `Order` + `OrderItem` vào `forFeature` — `getByToken()` phải đọc `order_items` THẬT sau khi
+ *    đơn được duyệt (M2.D-47: admin sửa món thì khách thấy danh sách + tổng tiền mới), không đọc
+ *    `items_snapshot` nữa.
+ *  - Module thông báo — `submit()` gọi `enqueueForNewRequest` BÊN TRONG transaction để hàng
+ *    thông báo L1/L2/L3 commit cùng đơn (outbox pattern, REQ-N).
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist]),
+    TypeOrmModule.forFeature([MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem]),
     SettingsModule,
+    NotificationsModule,
   ],
   controllers: [PublicController, PublicStoreController, PublicMenuController, PublicOrdersController],
   providers: [PublicOrdersService],

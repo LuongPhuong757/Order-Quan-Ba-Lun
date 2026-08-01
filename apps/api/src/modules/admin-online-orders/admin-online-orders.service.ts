@@ -350,20 +350,20 @@ export class AdminOnlineOrdersService {
 
       // D-10 — KHÔNG bắn SMS/thông báo gì cho khách ở nhánh này; khách chỉ biết qua /o/:token.
       this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
-      this.emitter.emit('audit.write', {
-        actor_id: actor.id,
-        actor_name: actor.full_name,
-        ip: 'system',
-        ts_ms: Date.now(),
-        action_kind: 'online_order.rejected',
-        target_kind: 'online_order_request',
-        target_id: requestId,
-        after_json: {
-          reason_code: outcome.reasonCode,
-          reject_reason: outcome.rejectReason,
-          internal_note: outcome.internalNote,
-        },
-      });
+      // Audit `online_order.rejected` KHÔNG emit thủ công ở đây nữa (chốt tại plan 09-07):
+      // `AuditInterceptor` đã có nhánh riêng cho `POST /admin/online-orders/:id/reject`, giữ cả
+      // hai sẽ sinh 2 dòng audit cho 1 lần từ chối. Nhánh duy nhất còn emit thủ công là
+      // `online_order.table_autocreated` trong confirm() — interceptor không có cách nào biết
+      // chuyện tự tạo bàn.
+      //
+      // Đánh đổi đã biết: `after_json` do interceptor ghi lấy từ response body, nên nó có
+      // `reason_code` + `has_internal_note` mà KHÔNG có `reject_reason` (câu gửi khách) lẫn nội
+      // dung `internal_note`. Cả hai vẫn tra được ở `online_order_requests.reject_reason` /
+      // `.internal_reject_note` của chính `target_id` — và nội dung ghi chú nội bộ cố tình
+      // không đi qua HTTP (D-09).
+      this.logger.log(
+        `Từ chối đơn ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}`,
+      );
     } catch (err) {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) {
         throw err;

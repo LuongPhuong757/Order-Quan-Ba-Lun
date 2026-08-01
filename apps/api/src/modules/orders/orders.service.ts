@@ -1061,6 +1061,7 @@ export class OrdersService {
     unpaid_count: number;
     cancelled_count: number;
     paid_revenue: number;
+    ship_fee_total: number;
   }> {
     const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
     // Áp các filter dùng chung (bàn/thu ngân/khoảng ngày) vào 1 QueryBuilder.
@@ -1151,6 +1152,19 @@ export class OrdersService {
         .andWhere(HAS_ALIVE_ITEMS_SQL),
     ).getCount();
 
+    // 4) Phí ship thu hộ — M2.D-62: `ship_fee` là tiền THU HỘ khách trả cho việc giao hàng,
+    //    KHÔNG phải doanh thu món. Truy vấn TÁCH HẲN, cố ý không nhập vào `perOrder`/`paidRevenue`
+    //    (2 chỗ đó tính từ `order_items.menu_item_price` nên `ship_fee` vốn đã không lọt vào).
+    //    Báo cáo hiển thị 2 dòng riêng biệt — AI CỘNG 2 SỐ NÀY VÀO NHAU rồi gọi là doanh thu là
+    //    làm sai quyết định đã chốt.
+    const shipFeeRaw = await applyFilters(
+      this.orderRepo
+        .createQueryBuilder('o')
+        .select('COALESCE(SUM(o.ship_fee), 0)', 'total')
+        .where(PAID_SQL),
+    ).getRawOne<{ total: string | number }>();
+    const ship_fee_total = Number(shipFeeRaw?.total) || 0;
+
     return {
       revenue_by_day: Array.from(dayMap.entries())
         .map(([day, v]) => ({ day, revenue: v.revenue, orders: v.orders }))
@@ -1168,6 +1182,7 @@ export class OrdersService {
       unpaid_count,
       cancelled_count,
       paid_revenue: paidRevenue,
+      ship_fee_total,
     };
   }
 

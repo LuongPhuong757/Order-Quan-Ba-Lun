@@ -17,6 +17,7 @@ import { PublicModule } from './modules/public/public.module.js';
 import { SettingsModule } from './modules/settings/settings.module.js';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
+import { AdminOnlineOrdersModule } from './modules/admin-online-orders/admin-online-orders.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -57,6 +58,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     // SMS 90s là lớp DUY NHẤT còn lại tới được người không ngồi trước máy sau khi D-12
     // bỏ auto-OFF.
     NotificationsModule,
+    // Phase 9 (§7, plan 09-06/09-07) — duyệt/từ chối đơn online + SSE đẩy hàng chờ tới mọi tab
+    // admin. Ranh giới M2.D-01 (staging `online_order_requests` → bảng thật `orders`) nằm trong
+    // module này.
+    AdminOnlineOrdersModule,
   ],
   controllers: [HealthController],
   providers: [
