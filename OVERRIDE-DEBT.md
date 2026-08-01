@@ -176,11 +176,13 @@ Ba lớp chặn, xếp từ trong ra:
 - **Quay lại thì sao:** đổi `StatusQuery` về `z.literal('WAITING')` là đóng lại được, nhưng phải xoá luôn 3 tab ở FE và 3 field mới — để field mà không có đường đọc thì lần sau ai đó lại mở filter mà không đọc mục này.
 
 
-## OD-12 — Ngưỡng bundle 370 kB: từ CHẶN thành CẢNH BÁO
+## OD-12 — Bỏ hẳn ngưỡng bundle 370 kB (chỉ còn báo cáo số)
 
-- **Ngày:** 2026-08-01 · **Người quyết:** chủ dự án (*"cứ gỡ bỏ giới hạn này nếu cần thiết... sau khi xong xuôi hết ta sẽ quay lại"*)
+- **Ngày:** 2026-08-01 · **Người quyết:** chủ dự án. Hai bước: đầu tiên *"cứ gỡ bỏ giới hạn này nếu cần thiết... sau khi xong xuôi hết ta sẽ quay lại"* → em đổi thành cảnh báo; sau đó *"18kb là quá ít, các máy giờ hỗ trợ 4g, 5g rồi bỏ qua giới hạn này"* → **bỏ hẳn ngưỡng**.
 - **Quyết định gốc:** M2.D-64 + `scripts/check-shop-bundle.sh` ghi rõ *"ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số tuỳ hứng"*. Plan 09-11 còn đặt acceptance criteria `git diff scripts/check-shop-bundle.sh` phải **trống**, và bắt cắt code nếu vượt thay vì nới gate.
-- **Lệch:** gate kích thước không còn `exit 1`. Vượt mốc thì in `WARN` rồi tiếp tục.
+- **Lệch:** gate kích thước bị **xoá khỏi logic**. Không còn so sánh với con số nào, không WARN, không FAIL. Script chỉ in `INFO bundle khách: raw N kB · gzip N kB · N chunk JS`. Mốc 370 chỉ còn trong comment lịch sử.
+- **Lý do chủ dự án nêu:** máy khách giờ dùng 4G/5G nên 18 kB dư là quá chật.
+- **Ghi chú kỹ thuật cho lần bàn lại:** 4G/5G rút ngắn thời gian TẢI, nhưng thời gian PARSE + COMPILE JS trên Android giá rẻ phụ thuộc CPU máy khách, không phụ thuộc tốc độ mạng. Hai chi phí khác nhau — raw 352 kB nói về cái thứ hai, gzip 103 kB nói về cái thứ nhất. Script in cả hai chính vì vậy.
 
 ### Điều KHÔNG nới theo
 
@@ -189,13 +191,13 @@ Ba lớp chặn, xếp từ trong ra:
 | Gate | Bản chất | Trạng thái |
 |---|---|---|
 | 11 chuỗi cấm (`/dashboard`, `KitchenPage`…) | **Bảo mật** — khách không được tải code quản lý | **VẪN CHẶN**, không đổi |
-| Kích thước JS ≤ 370 kB | **Hiệu năng** — chi phí đặt lên máy khách | → cảnh báo (OD-12) |
+| Kích thước JS ≤ 370 kB | **Hiệu năng** — chi phí đặt lên máy khách | **bỏ hẳn** (OD-12), chỉ còn in số |
 
 Đã thêm dòng nhắc ngay trong script để lần sau không ai nới gate 1 theo tiền lệ này.
 
-### Vì sao giữ mốc 370 chứ không nâng số
+### Vì sao vẫn ĐO dù đã bỏ ngưỡng
 
-Nâng số là mất mốc so sánh. Giữ 370 thì mỗi lần build vẫn thấy được "đã phình bao nhiêu so với lúc đóng phase 8". Script giờ in thêm 2 số cần cho quyết định cuối milestone: **gzip** (khách thật tải bao nhiêu) và **số chunk JS**.
+Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong milestone 2 — không có số thì không bàn được. Nên script vẫn in 3 số mỗi lần build: **raw** (chi phí parse trên máy khách) · **gzip** (khách thật tải bao nhiêu) · **số chunk** (1 = chưa tách route lần nào). Dãy tham chiếu để thấy độ phình: 244 → 316 → 336 → 352 kB.
 
 ### Ba việc phải tách bạch khi quay lại bàn (đừng lẫn)
 
@@ -205,7 +207,7 @@ Nâng số là mất mốc so sánh. Giữ 370 thì mỗi lần build vẫn th�
 
 - **Ghi ở:** `scripts/check-shop-bundle.sh` § Gate 2 · `.planning/STATE.md` § Deferred Items
 - **Ảnh hưởng plan 09-11:** acceptance criteria *"`git diff scripts/check-shop-bundle.sh` trống"* và *"vượt thì cắt code, không nới gate"* nay **bị quyết định này ghi đè**. Plan 09-13 phải ghi nhận, đừng coi là plan 09-11 làm sai.
-- **Quay lại thì sao:** đổi `WARN` về `FAIL=1` là chặn lại được ngay — nhưng làm vậy trước khi tách route thì sẽ chặn đúng lúc đang cần thi công.
+- **Quay lại thì sao:** thêm lại phép so sánh là chặn được ngay. Nhưng nếu đặt lại ngưỡng thì nên đo **chunk vào-đầu** thay vì tổng mọi chunk — xem điểm 3 ở trên, không thì tách route xong con số vẫn không giảm.
 
 ---
 

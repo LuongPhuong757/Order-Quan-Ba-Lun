@@ -43,14 +43,17 @@ for needle in $FORBIDDEN; do
   fi
 done
 
-# ── Gate 2: kích thước JS — CẢNH BÁO, KHÔNG CHẶN (từ 2026-08-01) ─────────
+# ── Số đo kích thước JS — CHỈ BÁO CÁO, KHÔNG CÓ NGƯỠNG (từ 2026-08-01) ────
 #
-# Chủ dự án quyết 2026-08-01: không để ngưỡng này chặn tiến độ phase 9; sẽ quay lại xét
-# sau khi xong toàn bộ milestone. Ghi ở OVERRIDE-DEBT.md OD-12.
+# Chủ dự án quyết 2026-08-01: **bỏ ngưỡng**, lý do "18 kB là quá ít, máy giờ hỗ trợ 4G/5G".
+# Ghi ở OVERRIDE-DEBT.md OD-12. Không còn so sánh với con số nào, không WARN, không FAIL.
 #
-# Gate này KHÔNG bị xoá, chỉ đổi từ chặn sang cảnh báo — vì con số vẫn phải được ĐO và
-# IN RA mỗi lần build. Xoá hẳn là mất luôn dữ liệu cho quyết định sau, và mất luôn cơ hội
-# nhìn thấy lúc bundle nhảy vọt.
+# Vẫn ĐO và IN RA mỗi lần build, vì chính chủ dự án chốt sẽ quay lại bàn chuyện hiệu năng
+# sau khi xong milestone 2 — không có số thì không bàn được. Đây là báo cáo, không phải gate.
+#
+# Lưu ý cho lúc bàn lại: 4G/5G rút ngắn thời gian TẢI, nhưng thời gian PARSE + COMPILE JS
+# trên điện thoại Android giá rẻ không đổi theo tốc độ mạng — nó phụ thuộc CPU của máy khách.
+# Hai chi phí khác nhau, đừng gộp.
 #
 # ⚠ ĐỪNG LẪN 2 VIỆC KHI QUAY LẠI BÀN:
 #   - Ngưỡng này là chi phí đặt lên ĐIỆN THOẠI KHÁCH (tiền 3G + thời gian parse JS trên
@@ -82,9 +85,9 @@ done
 # (f) Khách vào bằng 3G nên ngưỡng này là HỢP ĐỒNG HIỆU NĂNG, không phải số
 #     tuỳ hứng: muốn nâng phải sửa số này VÀ ghi lý do ngay tại đây, không
 #     được âm thầm nới ngưỡng ở nơi khác.
-# (g) 2026-08-01: giữ nguyên 370 làm MỐC THAM CHIẾU (không nâng số, để còn thấy
-#     bundle đã phình bao nhiêu so với lúc đóng phase 8), nhưng vượt thì chỉ WARN.
-MAX_JS_KB=370
+# (g) 2026-08-01: chủ dự án BỎ ngưỡng. Mốc 370 giữ lại ở đây dạng ghi chú lịch sử
+#     (không còn dùng để so sánh) để lần bàn lại còn biết bundle đã phình bao nhiêu
+#     so với 336 kB lúc đóng plan 08-11. Số tham chiếu: 244 → 316 → 336 → 352 kB.
 
 JS_KB=0
 for f in "$DIST"/assets/*.js; do
@@ -96,15 +99,10 @@ done
 GZIP_KB=$(gzip -c "$DIST"/assets/*.js 2>/dev/null | wc -c | awk '{printf "%.0f", $1/1024}')
 CHUNKS=$(ls "$DIST"/assets/*.js 2>/dev/null | wc -l | tr -d ' ')
 
-if [ "$JS_KB" -gt "$MAX_JS_KB" ]; then
-  # WARN, KHÔNG set FAIL — quyết định của chủ dự án 2026-08-01 (OD-12).
-  echo "WARN: bundle JS ${JS_KB} kB > mốc ${MAX_JS_KB} kB (vượt $((JS_KB - MAX_JS_KB)) kB) — không chặn, xem OD-12"
-else
-  echo "OK: bundle JS ${JS_KB} kB (mốc ${MAX_JS_KB} kB, còn dư $((MAX_JS_KB - JS_KB)) kB)"
-fi
-# In kèm gzip + số chunk: đây là 2 số cần cho quyết định hiệu năng cuối milestone.
-# gzip = khách thật tải bao nhiêu. chunk = 1 nghĩa là chưa tách route lần nào.
-echo "     gzip ${GZIP_KB} kB · ${CHUNKS} chunk JS$([ "$CHUNKS" = 1 ] && echo ' (chưa tách route — khách xem menu vẫn tải cả checkout/tracking/history)')"
+# Báo cáo thuần, KHÔNG so sánh ngưỡng nào (OD-12). 3 số cần cho quyết định hiệu năng
+# cuối milestone: raw = chi phí parse trên máy khách · gzip = khách thật tải bao nhiêu ·
+# chunk = 1 nghĩa là chưa tách route lần nào.
+echo "INFO bundle khách: raw ${JS_KB} kB · gzip ${GZIP_KB} kB · ${CHUNKS} chunk JS$([ "$CHUNKS" = 1 ] && echo ' (chưa tách route — khách xem menu vẫn tải cả checkout/tracking/history)')"
 
 if [ "$FAIL" = 0 ]; then
   echo "OK: bundle khách sạch — $COUNT chuỗi cấm không xuất hiện trong $DIST"

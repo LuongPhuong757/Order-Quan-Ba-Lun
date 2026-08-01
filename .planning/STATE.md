@@ -111,7 +111,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 | UAT | `order.` trả `shop-dist` vs apex trả `web-dist` xuyên Caddy (M2.D-66) | Deferred | 2026-07-29 |
 | v2 | Web Push (VAPID), Telegram bot, voice call L5 | Deferred | 2026-07-29 |
 | v2 | Thanh toán online VietQR/chuyển khoản (M2.D-58 chốt COD) | Deferred | 2026-07-29 |
-| **Hiệu năng** | **Quyết định bundle `apps/shop` — bàn lại SAU khi xong milestone 2** (chủ dự án chốt 2026-08-01, OD-12). Số liệu để quyết: raw 352 kB / gzip 103 kB / **1 chunk, chưa tách route lần nào**. 3 việc phải tách bạch: (a) nâng VPS **không** giúp gì — đây là chi phí trên máy khách, không phải trên server; (b) tách route bằng `React.lazy` là đòn chưa dùng; (c) cách đo hiện tại cộng tổng mọi chunk nên **không thấy được** hiệu quả của việc tách route — phải đổi sang đo chunk vào-đầu. Gate kích thước hiện chỉ `WARN`; gate 11 chuỗi cấm (bảo mật) **vẫn chặn**. | Deferred | 2026-08-01 |
+| **Hiệu năng** | **Quyết định bundle `apps/shop` — bàn lại SAU khi xong milestone 2** (chủ dự án chốt 2026-08-01, OD-12). Số liệu để quyết: raw 352 kB / gzip 103 kB / **1 chunk, chưa tách route lần nào**. 3 việc phải tách bạch: (a) nâng VPS **không** giúp gì — đây là chi phí trên máy khách, không phải trên server; (b) tách route bằng `React.lazy` là đòn chưa dùng; (c) cách đo hiện tại cộng tổng mọi chunk nên **không thấy được** hiệu quả của việc tách route — phải đổi sang đo chunk vào-đầu. Gate kích thước **đã bỏ hẳn** (chỉ in số); gate 11 chuỗi cấm (bảo mật) **vẫn chặn** — đã thử ngược để chứng minh. | Deferred | 2026-08-01 |
 
 ## Session Continuity
 
