@@ -5,16 +5,16 @@ milestone_name: Milestone 2 — Đặt hàng online
 current_phase: 09
 current_phase_name: duy-t-n-th-ng-b-o-theo-d-i-n
 status: executing
-stopped_at: Completed 09-12-PLAN.md — còn 11 hạng mục nghiệm thu trình duyệt của 09-10/11/12
-last_updated: "2026-08-03T14:55:38.091Z"
+stopped_at: "Phase 09 XONG 13/13 — checkpoint approved 2026-08-03. Tiếp: /gsd-verify-work 09 rồi /gsd-plan-phase 10"
+last_updated: "2026-08-03T16:27:46.669Z"
 last_activity: 2026-08-03
-last_activity_desc: plan 09-11 complete-with-gap
+last_activity_desc: plan 09-13 complete, phase đóng
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 30
-  completed_plans: 29
-  percent: 50
+  completed_plans: 30
+  percent: 75
 ---
 
 # Project State
@@ -30,29 +30,21 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 
 ## Current Position
 
-Phase: 09 (duy-t-n-th-ng-b-o-theo-d-i-n) — EXECUTING
-Plan: 12 of 13 xong (hết wave 7). Tiếp theo: 09-13 (wave 8) — plan ĐÓNG PHASE, có checkpoint chặn
-Status: Executing Phase 09
-Last activity: 2026-08-03 -- plan 09-12 complete-with-gap
+Phase: 09 (duy-t-n-th-ng-b-o-theo-d-i-n) — **XONG 13/13**
+Plan: 13 of 13. Checkpoint 09-13 Task 4 (14 bước) **approved 2026-08-03**
+Status: Phase 09 complete — chờ `/gsd-verify-work 09`
+Last activity: 2026-08-03 -- plan 09-13 complete, phase đóng
 
-Progress Phase 09: [█████████▌] 92% (12/13 plan)
+Progress Phase 09: [██████████] 100% (13/13 plan)
 
-> ⚠ **NỢ NGHIỆM THU TRÌNH DUYỆT — nay là 11 hạng mục của 3 plan liên tiếp, cần gom làm 1 buổi kiểm
-> bằng mắt TRƯỚC KHI đóng phase 09.**
-> - 09-10 (mặt admin, 3 kịch bản): 3 role vào được · chuông có tiếng thật · SSE đứt 10s hiện banner
->   rồi tự nối lại. Chi tiết ở `09-10-SUMMARY.md` § "3 kịch bản trên trình duyệt".
-> - 09-11 (mặt khách, 5 kịch bản): WAITING 0% · duyệt đơn thì trang khách đổi trong ≤10s · huỷ món
->   hiện banner info · từ chối hiện banner đỏ không stepper · stepper không tràn ở 375px, cộng hộp
->   xác nhận Huỷ đơn. Chi tiết ở `09-11-SUMMARY.md` § "5 kịch bản trên trình duyệt".
-> - 09-12 (3 hạng mục): bấm **Lưu câu chữ** ở `/admin/settings` (cần mật khẩu admin — tôi không có,
->   nên chưa đi qua `AdminGuard` lần nào) · chuỗi ~300 ký tự ở 375px không tràn và nút gửi đơn vẫn
->   bấm được · `/o/:token` đổi tiêu đề khi Đóng cửa. Chi tiết ở `09-12-SUMMARY.md`.
+> ✅ **Nợ nghiệm thu trình duyệt của 09-10/09-11/09-12 (11 hạng mục) ĐÃ ĐÓNG** bằng checkpoint 14 bước,
+> chủ dự án duyệt 2026-08-03, không báo bước nào sai. Ghi ở `09-VALIDATION.md § Approval`.
 >
-> Cả 3 plan đều đã xanh test + build + kiểm HTTP bằng curl; thứ còn thiếu **chỉ là** mắt người nhìn
-> trang render (và 1 lần đăng nhập admin).
+> ⚠ Approval đó **chỉ áp cho luồng local**. **6 hạng mục `09-UAT.md` vẫn `result: pending`** — trong đó
+> hạng mục 5 (`docker build` + `sharp` trên alpine) là **gate cứng trước deploy production**, kế thừa
+> `08-UAT.md` test 1 và **chưa từng chạy** trong cả 3 phase 7/8/9.
 >
-> ⚠ **Điền `store_phone` ở `/admin/settings` trước khi nghiệm thu** — đang để trống nên nhiều câu gửi
-> khách có khoảng trắng cụt ("…hoặc gọi ."). Không phải lỗi code.
+> ⚠ **REQ-M/N/O vẫn `[ ]`** — cố ý không tự tick, đó là việc của `/gsd-verify-work 09`.
 
 > Lưu ý khi đọc `gsd-tools query roadmap.analyze`: nó báo `progress_percent` cao vọt vì chỉ tính
 > trên phase ĐÃ CÓ plan. Con số đúng cho Milestone 2 là 2/4 phase + phase 09 đang dở.
@@ -92,6 +84,7 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 - [Ingest]: M2.D-60 ghi đè M2.D-36 — auto-OFF `1800s`. Pseudo-code spec:469 còn ghi `300s` là **stale, không implement**
 - [Phase 08-13]: OVERRIDE-DEBT.md OD-06..OD-10 (3 đã biết + 2 phát sinh sau wave 6); 08-UAT.md 5 hạng mục, test 1 (sharp/Docker) là gate bắt buộc trước deploy production — Đóng threat T-08-73 (override im lặng) cho toàn phase 8, không chỉ 3 lệch đã biết trước
 - [Phase 08-13]: Checkpoint 08-13 Task 3 approved 2026-07-31 — chủ dự án tự kiểm đủ 15 bước, không báo bước nào sai — 08-VALIDATION.md § Approval: approved; phạm vi CHỈ áp cho luồng local, 5 hạng mục 08-UAT.md (gate sharp/Docker) vẫn deferred
+- [Phase 09-13]: Checkpoint 09-13 Task 4 approved 2026-08-03 — chủ dự án duyệt 14 bước, không báo bước nào sai — Phạm vi CHỈ áp cho luồng local; 6 hạng mục 09-UAT.md vẫn pending, trong đó gate sharp/Docker bắt buộc trước deploy production
 
 ### Pending Todos
 
@@ -102,11 +95,15 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ### Blockers/Concerns
 
-- **[09-12] 3 tài liệu nay NÓI SAI so với code, 09-13 phải sửa.** D-11 đã gỡ hẳn nhánh chặn của công
-  tắc và D-12 đã xoá auto-OFF, nên: ROADMAP criterion 4 phase 9 ("quá 1800s → tự OFF nhận đơn") sai ·
-  ROADMAP criterion 1 ("role `order` gọi API confirm/reject vẫn bị chặn") sai vì D-02 đã mở cho 3
-  role · REQ-M vẫn ghi "chỉ role `admin`". `order-guard.ts` + `store-status.ts` đã trỏ tới
-  `OVERRIDE-DEBT.md` nên **09-13 không được bỏ** (T-09-71).
+- ✅ **[ĐÃ XỬ LÝ ở 09-13] 3 tài liệu nói sai so với code** — ROADMAP criterion 1 + 4 phase 9, criterion 3
+  phase 8, và REQ-K/M/N đã sửa; `08-VERIFICATION.md` truth #3 được chú thích mà không đổi `status:
+  passed`. Vết ghi đè: `OVERRIDE-DEBT.md` **OD-13** (bỏ chặn công tắc), **OD-15** (bỏ auto-OFF),
+  **OD-16** (3 role duyệt được).
+
+- **[09-13] Số hiệu OD trong `OVERRIDE-DEBT.md` nay tới OD-18, không phải 16.** OD-11 (filter 3 trạng
+  thái) và OD-12 (bỏ ngưỡng bundle) do 09-10/09-11 tự thêm trước khi plan 09-13 chạy, nên 6 entry của
+  09-13 là **OD-13..OD-18**. `getOrCreateOpenOrder` giữ đúng **OD-14** vì code đã trỏ tới số đó. Đừng
+  đánh số lại — có 9 chỗ trong code/script đang tham chiếu OD-11/OD-12/OD-14.
 
 - **[09-11] `ALTER TABLE` sẽ chạy lúc deploy.** `online_order_requests.status` được nới từ
   `varchar(16)` lên `varchar(32)` vì `CANCELLED_BY_CUSTOMER` dài 21 ký tự — giá trị enum này tồn tại
@@ -149,9 +146,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-08-03T14:55:38.066Z
-Stopped at: Completed 09-12-PLAN.md — còn 11 hạng mục nghiệm thu trình duyệt của 09-10/11/12
-Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-13-PLAN.md
+Last session: 2026-08-03T16:23:28.448Z
+Stopped at: Phase 09 XONG 13/13 — checkpoint approved 2026-08-03. Tiếp: /gsd-verify-work 09 rồi /gsd-plan-phase 10
+Resume file: None
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 

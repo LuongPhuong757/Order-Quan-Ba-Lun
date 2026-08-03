@@ -48,7 +48,7 @@ quy trình ngày 2026-07-29. Bằng chứng đã giao là chính codebase — xe
 
 - [ ] **Phase 7: Hạ tầng trang khách** - `apps/shop` chạy như app riêng trên `order.<domain>`, dùng chung API + DB
 - [x] **Phase 8: Menu công khai, Checkout & Công tắc nhận đơn** - Khách xem menu và gửi được đơn từ điện thoại (13/13 plan xong, checkpoint 08-13 Task 3 **approved** 2026-07-31 — còn 5 hạng mục `08-UAT.md` deferred trước deploy production, không phải blocker phase 9)
-- [ ] **Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn** - Đơn được duyệt nhanh, không bỏ quên, khách tự theo dõi
+- [x] **Phase 9: Duyệt đơn, Thông báo & Theo dõi đơn** - Đơn được duyệt nhanh, không bỏ quên, khách tự theo dõi (13/13 plan xong, checkpoint 09-13 Task 4 **approved** 2026-08-03 — còn 6 hạng mục `09-UAT.md` deferred, trong đó gate `sharp`/Docker bắt buộc trước deploy production)
 - [ ] **Phase 10: Analytics & Phễu chuyển đổi** - Chủ quán biết bao nhiêu người vào xem và bao nhiêu người đặt
 
 ## Phase Details
@@ -89,6 +89,7 @@ Plans:
   2. Khách gửi đơn thành công: chọn PICKUP/DELIVERY (PICKUP không hỏi địa chỉ), chia sẻ vị trí ra số km + kết luận phí bằng chữ, nhận `order_token`; giá được **chốt** trong `items_snapshot` (M2.D-15, M2.D-42, M2.D-50..52)
   3. Tắt công tắc: FE khoá nút **và** gọi API tay vẫn nhận `409 ONLINE_ORDERING_DISABLED`; ngoài giờ mở cửa cũng bị chặn; "OFF đến hết hôm nay" tự ON lại 00:00; **đơn đang chạy không bị ảnh hưởng** (M2.D-27..31)
      > ⚠ **Tiêu chí này đúng tại thời điểm đóng phase 8 (2026-07-31) và đã bị phase 9 cố ý làm hết hiệu lực.** D-11 bỏ hẳn việc chặn — công tắc chỉ còn đổi chữ hiển thị, `POST /api/public/orders` trả 201 kể cả khi Đóng cửa. Xem `OVERRIDE-DEBT.md` OD-13. Phần *"đơn đang chạy không bị ảnh hưởng"* và cơ chế "OFF đến hết hôm nay" tự-ON 00:00 (OD-07) **vẫn còn đúng**. Tick `[x]` của Phase 8 giữ nguyên: nó đúng khi verify, thay đổi là quyết định sau đó.
+
   4. Một SĐT không mở được 2 đơn cùng lúc, SĐT trong blacklist bị chặn, rate limit IP + SĐT hoạt động, và `ip_hash` lưu dạng hash — không lưu IP thô (M2.D-40, M2.D-56, M2.D-59)
   5. `GET /api/public/menu` chỉ trả `id, code, name, price, unit, images[], is_out_of_stock` — không leak field nội bộ nào (M2.D-43)
 
@@ -127,7 +128,7 @@ Plans:
   4. Đơn quá **90s** chưa duyệt → SMS bắn; duyệt trước ngưỡng thì outbox L2 bị huỷ; đổi `SMS_DRIVER` console↔esms không sửa logic (M2.D-36 phần SMS, M2.D-63). **Auto-OFF sau 1800s đã bị bỏ hẳn** (D-12 ghi đè M2.D-60 — xem `OVERRIDE-DEBT.md` OD-15): không còn cơ chế nào tự đổi trạng thái công tắc, và không còn lớp `L4` trong outbox. Sau khi bỏ auto-OFF, **SMS 90s là lớp duy nhất còn tới được người không ngồi trước máy**
   5. `/o/<token>` hiện % đúng công thức trọng số, **không bao giờ tụt**, tối đa 95% khi chưa xong, và response **tuyệt đối không chứa** `status` từng item — assert trong test (M2.D-19, M2.D-20, M2.D-23 — điều kiện của G-1)
 
-**Plans**: 12/13 plans executed
+**Plans**: 13/13 plans executed
 
 Plans:
 
@@ -143,7 +144,7 @@ Plans:
 - [x] 09-10-PLAN.md — **Wave 5** (dep 07) `OnlineOrdersQueuePage` — SSE client, chuông, badge, panel từ chối
 - [x] 09-11-PLAN.md — **Wave 6** (dep 09) `/o/:token` — stepper 5 mốc, %, banner món huỷ, nhánh từ chối
 - [x] 09-12-PLAN.md — **Wave 7** (dep 11) **Sửa lại phase 8**: công tắc 2 trạng thái đều nhận đơn + 2 key chữ + bỏ auto-OFF
-- [ ] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` **OD-13..18** (số hiệu lệch so với plan vì OD-11/12 đã bị 09-10/09-11 dùng) + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + `09-UAT.md` + **checkpoint chặn đang chờ chủ dự án**
+- [x] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` **OD-13..18** (số hiệu lệch so với plan vì OD-11/12 đã bị 09-10/09-11 dùng) + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + `09-UAT.md` + checkpoint 14 bước **approved** 2026-08-03
 
 **UI hint**: yes
 **Ghi chú thi công**: cần harness integration MySQL thật cho criterion 2 và 3 (row lock, transaction — mock không chứng minh được, C-TEST-01); poller outbox 15s dùng `@nestjs/schedule` in-process và **đồng thời** hồi sinh 2 cron đang chết (C-CRON-01); SSE phải fan-out in-process qua `@nestjs/event-emitter`, không giữ 1 DB connection mỗi subscriber (C-INFRA-01)
@@ -178,7 +179,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
 | 8. Menu, Checkout & Công tắc | M2 | 13/13 | Executed (checkpoint approved; 5 deferred UAT còn treo) | 2026-07-31 |
-| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 12/13 | In Progress|  |
+| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 13/13 | In Progress|  |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
 ---

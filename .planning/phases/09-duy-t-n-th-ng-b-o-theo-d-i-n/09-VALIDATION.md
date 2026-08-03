@@ -111,4 +111,17 @@ KHAI báo threat đó — có thể khác plan viết test (vd T-09-26 khai ở 
 - [x] Bảng Per-Task Verification Map đã điền Task ID thật — không còn ô nào để trống chờ điền
 - [x] `nyquist_compliant: true` set in frontmatter
 
-**Approval:** pending
+**Approval:** approved — 2026-08-03, chủ dự án.
+
+Checkpoint `09-13-PLAN.md` Task 4 (14 bước) được chủ dự án duyệt, **không báo bước nào sai**.
+
+Phạm vi của approval này — đọc kỹ trước khi dùng làm bằng chứng:
+
+- ✅ Áp cho **luồng chạy ở local**: hàng chờ duyệt + chuông + SSE, duyệt/từ chối đơn, cấp bàn, trang
+  `/o/:token`, khách tự huỷ đơn, và công tắc 2 trạng thái đều nhận đơn (D-11).
+- ❌ **KHÔNG** áp cho 6 hạng mục trong `09-UAT.md` — tất cả vẫn `result: pending`. Trong đó hạng mục 5
+  (`docker build` + `sharp` trên alpine) là **gate cứng trước deploy production**, kế thừa từ
+  `08-UAT.md` test 1 và chưa từng chạy trong cả 3 phase 7/8/9.
+- ⚠ Người thi công **không chạy** được 11 hạng mục nghiệm thu trình duyệt của 09-10/09-11/09-12 (không
+  có công cụ điều khiển trình duyệt) và **không có mật khẩu admin**. Approval này là lần đầu những
+  hạng mục đó được người thật kiểm — nếu sau này phát hiện lệch, đối chiếu lại § Manual-Only ở trên.
