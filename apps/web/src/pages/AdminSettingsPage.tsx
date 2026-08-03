@@ -22,6 +22,9 @@ type StoreSettingsMap = {
   online_ordering_enabled: boolean;
   online_ordering_off_mode: 'MANUAL' | 'UNTIL_TOMORROW';
   online_ordering_off_reason: string;
+  // D-14 — 2 câu chữ khách đọc khi quán Đóng cửa. Chủ quán tự sửa, ăn ngay, không cần build lại.
+  closed_banner_text: string;
+  closed_submit_confirm_text: string;
   open_hours: Array<{ dow: OpenHoursDow; from: string; to: string }>;
   store_phone: string;
   store_lat: number | null;
@@ -153,6 +156,11 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [offMode, setOffMode] = useState<'MANUAL' | 'UNTIL_TOMORROW'>(settings.online_ordering_off_mode);
   const [offReason, setOffReason] = useState(settings.online_ordering_off_reason);
   const [togglingOrdering, setTogglingOrdering] = useState(false);
+  // D-14 — 2 câu chữ khách đọc khi quán Đóng cửa. CỐ Ý không `.slice()` và không `maxLength`:
+  // độ dài không giới hạn, chủ quán tự soạn.
+  const [closedBannerText, setClosedBannerText] = useState(settings.closed_banner_text);
+  const [closedConfirmText, setClosedConfirmText] = useState(settings.closed_submit_confirm_text);
+  const [savingClosedTexts, setSavingClosedTexts] = useState(false);
 
   // Giờ mở cửa
   const [hoursDefault, setHoursDefault] = useState(open_hours_input.default);
@@ -269,6 +277,26 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     }
   };
 
+  // D-14 — nút Lưu RIÊNG cho 2 câu chữ, không gộp vào luồng tắt/bật công tắc.
+  // Lý do: chủ quán phải sửa được câu chữ BẤT CỨ LÚC NÀO, kể cả đang Mở cửa. Nếu nhét 2 ô này vào
+  // khối `showOffPicker` (chỉ hiện khi đang bấm Tắt) thì lúc quán mở không có đường nào sửa — mà đó
+  // chính là lúc người ta muốn soạn trước câu chữ cho lần đóng cửa sau.
+  const saveClosedTexts = async () => {
+    setSavingClosedTexts(true);
+    try {
+      await api.put('/admin/settings', {
+        closed_banner_text: closedBannerText,
+        closed_submit_confirm_text: closedConfirmText,
+      });
+      toast.push('success', 'Đã lưu câu chữ lúc Đóng cửa ✓');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSavingClosedTexts(false);
+    }
+  };
+
   const saveDelivery = async () => {
     setSavingDelivery(true);
     try {
@@ -368,6 +396,45 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
             </div>
           </div>
         )}
+
+        {/* D-11/D-14 — Đóng cửa KHÔNG chặn khách đặt đơn nữa, chỉ đổi 2 câu chữ dưới đây.
+            Luôn hiện (không nằm trong khối `showOffPicker`) để soạn trước được lúc quán còn mở.
+            KHÔNG có `maxLength`, KHÔNG `.slice()`, KHÔNG bộ đếm ký tự — bộ đếm ngụ ý có giới hạn,
+            mà D-14 chốt là không giới hạn. */}
+        <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #e5e7eb', display: 'grid', gap: 12 }}>
+          <p style={{ margin: 0, fontSize: 13, color: '#6b7280' }}>
+            Khi Đóng cửa, khách <strong>vẫn đặt được đơn</strong> — chỉ 2 câu dưới đây thay đổi.
+          </p>
+          <div>
+            <label htmlFor="closed-banner-text">Câu hiển thị trên trang khách khi Đóng cửa</label>
+            <textarea
+              id="closed-banner-text"
+              value={closedBannerText}
+              onChange={(e) => setClosedBannerText(e.target.value)}
+              rows={3}
+              style={{ width: '100%', fontFamily: 'inherit', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db' }}
+            />
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>Khách đọc nguyên văn câu này.</p>
+          </div>
+          <div>
+            <label htmlFor="closed-confirm-text">Câu hiển thị sau khi khách gửi đơn lúc Đóng cửa</label>
+            <textarea
+              id="closed-confirm-text"
+              value={closedConfirmText}
+              onChange={(e) => setClosedConfirmText(e.target.value)}
+              rows={3}
+              style={{ width: '100%', fontFamily: 'inherit', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db' }}
+            />
+            <p style={{ fontSize: 12, color: '#6b7280', margin: '4px 0 0' }}>
+              Đổi chữ là ăn ngay, không cần build lại.
+            </p>
+          </div>
+          <div>
+            <button disabled={savingClosedTexts} onClick={saveClosedTexts}>
+              {savingClosedTexts ? 'Đang lưu...' : 'Lưu câu chữ'}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* 2. Giờ mở cửa (D-15) */}

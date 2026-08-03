@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { PublicOrderCancelResult, PublicOrderStatus } from '@order/schemas';
+import { PublicOrderCancelResult, PublicOrderStatus, PublicStoreStatus } from '@order/schemas';
 import { deleteJson, useApi } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
@@ -44,6 +44,12 @@ export function OrderTrackPage(): JSX.Element {
     PublicOrderStatus,
     { skip: !token },
   );
+
+  // D-11/D-14 — câu xác nhận lúc quán Đóng cửa. Gọi 1 LẦN, KHÔNG poll: câu chữ đổi rất thưa (chủ
+  // quán sửa tay), không đáng thêm một request mỗi 8 giây.
+  // Đọc từ `/api/public/store` thay vì nhận qua router state từ trang checkout, vì khách RẤT hay
+  // tải lại trang này (họ giữ link để theo dõi đơn) — router state mất ngay lần refresh đầu.
+  const store = useApi('/api/public/store', PublicStoreStatus);
 
   // `useApi` bật `loading` và xoá `data` ở MỌI lần gọi lại, kể cả lần poll nền. Render thẳng từ
   // `data` thì trang khách nháy sang skeleton mỗi 8 giây, và một lần poll rớt mạng (rất thường
@@ -130,9 +136,17 @@ export function OrderTrackPage(): JSX.Element {
           <div style={successHead}>
             <CheckGlyph />
             {/* Sau khi quán đã duyệt, tiêu đề "Đã gửi đơn thành công!" mâu thuẫn với stepper —
-                đổi sang chính nhãn mốc của API để hai chỗ nói cùng một chuyện. */}
+                đổi sang chính nhãn mốc của API để hai chỗ nói cùng một chuyện.
+                D-11/D-14: đơn còn chờ duyệt VÀ quán đang Đóng cửa → dùng câu xác nhận chủ quán tự
+                soạn trong Cài đặt. Nếu quán mở lại trong lúc khách đang xem thì lần đọc
+                sau tự về câu bình thường — đó là lý do câu này đọc từ API chứ không nhớ trong URL.
+                Chuỗi dài được phép xuống dòng tự do, không giới hạn số dòng. */}
             <h1 style={heading}>
-              {shown.status === 'WAITING' ? 'Đã gửi đơn thành công!' : shown.stage_label}
+              {shown.status !== 'WAITING'
+                ? shown.stage_label
+                : store.data && store.data.ordering_enabled === false
+                  ? store.data.closed_submit_confirm_text
+                  : 'Đã gửi đơn thành công!'}
             </h1>
           </div>
           <p style={orderCode}>

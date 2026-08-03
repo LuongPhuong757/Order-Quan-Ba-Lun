@@ -40,7 +40,8 @@ const DELIVERY_LABEL = 'Giao tận nơi';
 const CTA_LABEL = 'ĐẶT HÀNG';
 const SUBMITTING_LABEL = 'Đang gửi đơn...';
 const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn này.';
-const STORE_OFF_HINT = 'Quán hiện chưa nhận đơn — xem banner phía trên để biết lý do';
+// D-11 — `STORE_OFF_HINT` đã bị xoá cùng lúc bỏ khoá nút: nút gửi đơn không bao giờ bị vô hiệu vì
+// công tắc nữa, nên không còn dòng gợi ý nào để giải thích chuyện đó.
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
 const GEO_FAILED_MESSAGE = 'Không lấy được vị trí. Bạn nhập địa chỉ ở trên là được nhé.';
 const SHORT_LINK_MESSAGE =
@@ -91,12 +92,9 @@ function errorAction(
   if (error.code === 'MENU_ITEM_UNAVAILABLE') {
     return { label: 'Về giỏ hàng', onClick: onBackToCart };
   }
-  if (
-    error.code === 'ONLINE_ORDERING_DISABLED' ||
-    error.code === 'STORE_CLOSED' ||
-    error.code === 'PHONE_BLACKLISTED' ||
-    error.code === 'NO_TABLE_AVAILABLE'
-  ) {
+  // D-11 — 2 mã của công tắc đã bị bỏ khỏi điều kiện này: BE không còn phát ra chúng.
+  // 2 mã còn lại VẪN SỐNG và vẫn cần nút gọi quán — sửa một phần, không xoá cả khối.
+  if (error.code === 'PHONE_BLACKLISTED' || error.code === 'NO_TABLE_AVAILABLE') {
     return storePhone ? { label: 'Gọi quán', href: storePhone } : undefined;
   }
   if (error.code === 'TOO_MANY_REQUESTS' || error.code === 'VALIDATION_FAILED') {
@@ -173,13 +171,13 @@ export function CheckoutPage(): JSX.Element {
   const fieldErrors = computeFieldErrors(name, phone, address, fulfillment);
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
   const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
+  // D-11 — `storeOff` GIỮ LẠI nhưng đổi ý nghĩa: nay chỉ để biết CÓ HIỆN BANNER không, không còn
+  // là điều kiện khoá nút gửi đơn. Quán Đóng cửa vẫn nhận đơn bình thường.
   const storeOff = store.data ? store.data.ordering_enabled === false : false;
-  const ctaDisabled = storeOff || hasFieldErrors || submitting;
+  const ctaDisabled = hasFieldErrors || submitting;
 
   let ctaHint: string = DISCLOSURE_COPY;
-  if (storeOff) {
-    ctaHint = STORE_OFF_HINT;
-  } else if (hasFieldErrors) {
+  if (hasFieldErrors) {
     ctaHint = FIELD_ERRORS_HINT;
   }
 
@@ -263,20 +261,18 @@ export function CheckoutPage(): JSX.Element {
       </Link>
       <h1 style={heading}>Thông tin nhận hàng</h1>
 
+      {/* D-11 — MỘT banner duy nhất, tone info, dùng câu chủ quán tự soạn nguyên văn.
+          Bản cũ có ternary phân biệt `OUTSIDE_HOURS` vs tắt-thủ-công + 2 chuỗi cứng ở FE: nay bỏ hết,
+          vì với khách thì cả hai đều là "quán đang đóng cửa, vẫn đặt được" — chỉ 1 câu, do chủ quán
+          soạn. Không `action` gọi quán: câu chữ đã do chủ quán tự viết nên họ tự quyết có mời gọi
+          điện hay không; thêm nút cứng ở đây là ép một ngữ cảnh mà họ không kiểm soát được.
+          Banner co giãn theo độ dài chuỗi: chuỗi dài phải xuống dòng đủ, KHÔNG được cắt bớt hay ép
+          giữ trên một dòng — chủ quán viết bao nhiêu thì khách đọc được bấy nhiêu (T-09-69). */}
       {storeOff && store.data && (
         <BannerNotice
-          tone={store.data.blocking_reason === 'OUTSIDE_HOURS' ? 'warn' : 'brand'}
-          title={
-            store.data.blocking_reason === 'OUTSIDE_HOURS'
-              ? 'Quán đang ngoài giờ mở cửa hôm nay'
-              : 'Quán tạm ngưng nhận đơn online'
-          }
-          body={
-            store.data.blocking_reason === 'OUTSIDE_HOURS'
-              ? `Gọi ${store.data.store_phone} nếu cần hỗ trợ.`
-              : `${store.data.off_reason || 'Vui lòng gọi để đặt trực tiếp'} — gọi ${store.data.store_phone} để đặt trực tiếp`
-          }
-          action={{ label: 'Gọi quán', href: store.data.store_phone }}
+          tone="info"
+          title="Quán đang đóng cửa"
+          body={store.data.closed_banner_text}
         />
       )}
 
