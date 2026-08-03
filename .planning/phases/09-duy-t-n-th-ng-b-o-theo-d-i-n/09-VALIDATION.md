@@ -1,10 +1,11 @@
 ---
 phase: 9
 slug: duy-t-n-th-ng-b-o-theo-d-i-n
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-31
+updated: 2026-08-03
 ---
 
 # Phase 9 — Validation Strategy
@@ -45,21 +46,26 @@ không mock được — xem C-TEST-01.
 
 ## Per-Task Verification Map
 
-*Task ID điền sau khi planner sinh PLAN.md. Bảng hiện ghi theo requirement để planner biết mỗi
-requirement phải gắn vào test nào.*
+*Điền đầy đủ 2026-08-03 tại plan 09-13. `Threat Ref` là mã thật trong `<threat_model>` của plan đã
+KHAI báo threat đó — có thể khác plan viết test (vd T-09-26 khai ở 09-06, test integration nằm ở
+09-08). `Status` là kết quả chạy thật, không phải sao lại từ SUMMARY.*
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| TBD | TBD | TBD | REQ-M | TBD | 2 admin duyệt song song không cấp trùng bàn (row lock giữ) | integration (2 MySQL connection thật) | `./node_modules/.bin/vitest run src/modules/admin-online-orders/admin-online-orders.integration.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-M | TBD | Đơn `WAITING` không lọt vào doanh thu / bếp / sơ đồ bàn / history | integration (đếm doanh thu trước và sau khi có 5 đơn WAITING) | cùng file trên, `describe` riêng | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-M | TBD | Cả 3 role duyệt được (D-02) **và** audit log ghi đúng actor đã duyệt | unit (guard) + integration (audit row) | `./node_modules/.bin/vitest run src/modules/admin-online-orders/` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-M | TBD | Ghi chú nội bộ khi từ chối (D-09) KHÔNG xuất hiện trong response công khai | unit (assert shape) | `./node_modules/.bin/vitest run src/modules/public/public-orders.test.ts` | ⚠ mở rộng file có sẵn | ⬜ pending |
-| TBD | TBD | TBD | REQ-N | TBD | Poller outbox quét đúng `scheduled_at <= now AND status = PENDING` | unit (hàm thuần chọn hàng) + integration (bảng thật) | `./node_modules/.bin/vitest run src/modules/notifications/` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-N | TBD | Đổi `SMS_DRIVER` console↔esms không sửa logic gọi | unit (contract test chung cho 2 implementation của `SmsChannel`) | `./node_modules/.bin/vitest run src/modules/notifications/channels/` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-N | TBD | Duyệt trước ngưỡng 90s thì outbox SMS bị huỷ, không gửi | unit hoặc integration | `./node_modules/.bin/vitest run src/modules/notifications/` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-O | TBD | `computeProgress()` đúng công thức §6, **đơn điệu** (không bao giờ tụt), chặn 95% khi chưa xong | unit (hàm thuần) | `./node_modules/.bin/vitest run src/modules/public/order-progress.test.ts` | ❌ W0 | ⬜ pending |
-| TBD | TBD | TBD | REQ-O | TBD | Response `/api/public/orders/:token` **tuyệt đối không** chứa `status` từng item (M2.D-23, điều kiện của G-1) | unit (assert `Object.keys` không có field cấm — theo mẫu `public-menu-shape.test.ts`) | `./node_modules/.bin/vitest run src/modules/public/public-orders.test.ts` | ⚠ mở rộng file có sẵn | ⬜ pending |
-| TBD | TBD | TBD | REQ-M/N/O | TBD | Bỏ chặn 409 theo D-11 mà 4 lớp chống lạm dụng vẫn xanh (D-18) | unit (order-guard viết lại) | `./node_modules/.bin/vitest run src/modules/public/order-guard.test.ts` | ⚠ file có sẵn, sẽ vỡ và phải viết lại | ⬜ pending |
+| 09-08 Task 1 | 09-08 | 5 | REQ-M | T-09-26 | 2 admin duyệt song song không cấp trùng bàn (row lock giữ) | integration (2 MySQL connection thật) | `./node_modules/.bin/vitest run src/modules/admin-online-orders/admin-online-orders.integration.test.ts` | ✅ có | ✅ green |
+| 09-08 Task 2 | 09-08 | 5 | REQ-M | T-09-28 | Đơn `WAITING` không lọt vào doanh thu / bếp / sơ đồ bàn / history | integration (đếm doanh thu trước và sau khi có 5 đơn WAITING) | cùng file trên, `describe` riêng | ✅ có | ✅ green |
+| 09-07 Task 1 + 09-08 Task 2 | 09-07, 09-08 | 4, 5 | REQ-M | T-09-36, T-09-32 | Cả 3 role duyệt được (D-02) **và** audit log ghi đúng actor đã duyệt — kiểm soát bù trừ của OD-16 | unit (guard) + integration (audit row) | `./node_modules/.bin/vitest run src/modules/admin-online-orders/` | ✅ có | ✅ green |
+| 09-09 Task 1 | 09-09 | 5 | REQ-M | T-09-46 | Ghi chú nội bộ khi từ chối (D-09) KHÔNG xuất hiện trong response công khai | unit (assert shape) | `./node_modules/.bin/vitest run src/modules/public/public-orders.test.ts` | ✅ có | ✅ green |
+| 09-05 Task 2 | 09-05 | 2 | REQ-N | T-09-22 | Poller outbox quét đúng `scheduled_at <= now AND status = PENDING` | unit (hàm thuần chọn hàng) + integration (bảng thật) | `./node_modules/.bin/vitest run src/modules/notifications/` | ✅ có | ✅ green |
+| 09-05 Task 1 | 09-05 | 2 | REQ-N | T-09-20 | Đổi `SMS_DRIVER` console↔esms không sửa logic gọi | unit (contract test chung cho 2 implementation của `SmsChannel`) | `./node_modules/.bin/vitest run src/modules/notifications/channels/sms-channel.test.ts` | ✅ có | ✅ green |
+| 09-06 Task 2 + 09-09 Task 2 | 09-06, 09-09 | 3, 5 | REQ-N | T-09-23 | Duyệt trước ngưỡng 90s thì outbox SMS bị huỷ, không gửi | integration (`cancelPendingForRequest` trong cùng transaction duyệt) | `./node_modules/.bin/vitest run src/modules/notifications/` | ✅ có | ✅ green |
+| 09-01 Task 2 | 09-01 | 1 | REQ-O | T-09-02 | `computeProgress()` đúng công thức §6, **đơn điệu** (không bao giờ tụt), chặn 95% khi chưa xong | unit (hàm thuần) | `./node_modules/.bin/vitest run src/modules/public/order-progress.test.ts` | ✅ có | ✅ green |
+| 09-09 Task 1 | 09-09 | 5 | REQ-O | T-09-45 | Response `/api/public/orders/:token` **tuyệt đối không** chứa `status` từng item (M2.D-23, điều kiện của G-1) | unit (`.strict().parse()` + assert khoá) + `curl \| grep -c '"state"'` = 0 chạy thật ở 09-11 | `./node_modules/.bin/vitest run src/modules/public/public-orders.test.ts` | ✅ có | ✅ green |
+| 09-12 Task 2 | 09-12 | 7 | REQ-M/N/O | T-09-65 | Bỏ chặn 409 theo D-11 mà 4 lớp chống lạm dụng vẫn xanh (D-18) | unit (order-guard viết lại, 12 test gồm case quét 16 tổ hợp cờ) + **4 kịch bản HTTP thật** | `./node_modules/.bin/vitest run src/modules/public/order-guard.test.ts` | ✅ có | ✅ green |
+| 09-11 Task 2 | 09-11 | 6 | REQ-O | T-09-63 | Bundle `apps/shop` không rò code trang quản lý sang khách | script gate (11 chuỗi cấm) | `bash scripts/check-shop-bundle.sh` | ✅ có | ⚠️ đổi phạm vi — gate **kích thước** đã bỏ hẳn (OD-12, chỉ còn in số); gate **bảo mật** vẫn chặn và vẫn xanh |
+| 09-12 Task 1 | 09-12 | 7 | REQ-M | T-09-68 | 2 key câu chữ round-trip đủ 3 chỗ, không bị `updateMany` nuốt lặng lẽ, chuỗi dài không bị cắt | manual HTTP + DB (ghi 500 ký tự rồi đọc lại) | `curl -s http://localhost:3001/api/public/store` sau khi ghi `store_settings` | ✅ có | ⚠️ một phần — đã chứng minh DB→`readAll()`→API giữ đủ 500 ký tự; lượt `PUT /admin/settings` qua `AdminGuard` **chưa chạy** (cần mật khẩu admin), xem `09-UAT.md` hạng mục 6 |
+| 09-08 Task 3 | 09-08 | 5 | REQ-M | T-09-43 | `ship_fee` tách khỏi doanh thu **món** (M2.D-62) | integration (đếm doanh thu có/không ship_fee) | `./node_modules/.bin/vitest run src/modules/admin-online-orders/` | ✅ có | ✅ green |
+| 09-02 Task 2 | 09-02 | 1 | REQ-N | T-09-06 | 2 cron đang chết được hồi sinh và thực sự chạy (C-CRON-01) | unit (`ScheduleModule` đăng ký) + log boot | `./node_modules/.bin/vitest run` (full suite) | ✅ có | ✅ green |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -67,17 +73,17 @@ requirement phải gắn vào test nào.*
 
 ## Wave 0 Requirements
 
-- [ ] `apps/api/src/modules/admin-online-orders/admin-online-orders.integration.test.ts` — REQ-M
+- [x] `apps/api/src/modules/admin-online-orders/admin-online-orders.integration.test.ts` — REQ-M
       (row lock cấp bàn + doanh thu không nhiễm đơn WAITING). Dựng theo khuôn
       `apps/api/src/modules/public/open-order-lock.integration.test.ts` đã chạy 2 connection MySQL
       thật ở phase 8.
-- [ ] `apps/api/src/modules/notifications/*.test.ts` — REQ-N (poller outbox + contract test cho 2
+- [x] `apps/api/src/modules/notifications/*.test.ts` — REQ-N (poller outbox + contract test cho 2
       implementation `SmsChannel`)
-- [ ] `apps/api/src/modules/public/order-progress.test.ts` — REQ-O (công thức %, đơn điệu, chặn 95%)
-- [ ] Cài `@nestjs/schedule@6.1.3` vào `apps/api` — **`pnpm` hỏng, phải cài bằng cách khác** và ghi
+- [x] `apps/api/src/modules/public/order-progress.test.ts` — REQ-O (công thức %, đơn điệu, chặn 95%)
+- [x] Cài `@nestjs/schedule@6.1.3` vào `apps/api` — **`pnpm` hỏng, phải cài bằng cách khác** và ghi
       rõ cách đã dùng vào SUMMARY
-- [ ] Mở rộng `apps/api/src/modules/public/public-orders.test.ts` (file phase 8, KHÔNG tạo mới)
-- [ ] Viết lại `apps/api/src/modules/public/order-guard.test.ts` — test hiện tại khẳng định hành vi
+- [x] Mở rộng `apps/api/src/modules/public/public-orders.test.ts` (file phase 8, KHÔNG tạo mới)
+- [x] Viết lại `apps/api/src/modules/public/order-guard.test.ts` — test hiện tại khẳng định hành vi
       chặn 409 mà D-11 vừa bỏ, nên **nó SẼ đỏ**; đây là dự kiến, không phải hồi quy
 
 ---
@@ -97,12 +103,12 @@ requirement phải gắn vào test nào.*
 
 ## Validation Sign-Off
 
-- [ ] All tasks have `<automated>` verify or Wave 0 dependencies
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Wave 0 covers all MISSING references
-- [ ] No watch-mode flags (`vitest run`, không phải `vitest`)
-- [ ] Feedback latency < 25s
-- [ ] Bảng Per-Task Verification Map đã điền task ID thật (không còn `TBD`)
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [x] All tasks have `<automated>` verify or Wave 0 dependencies
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Wave 0 covers all MISSING references
+- [x] No watch-mode flags (`vitest run`, không phải `vitest`)
+- [x] Feedback latency < 25s
+- [x] Bảng Per-Task Verification Map đã điền Task ID thật — không còn ô nào để trống chờ điền
+- [x] `nyquist_compliant: true` set in frontmatter
 
 **Approval:** pending

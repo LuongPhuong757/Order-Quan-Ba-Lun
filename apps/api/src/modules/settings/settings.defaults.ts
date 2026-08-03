@@ -45,7 +45,7 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // hàng `level = 'L4'` (có test khẳng định điều đó), và `AdminSettingsPage.tsx` không có UI nào
   // render key này — giữ lại một setting không ai đọc là mời người sau cài lại auto-OFF.
   // Dòng cũ trong DB (nếu admin từng ghi) được `readAll()` bỏ qua tự nhiên qua `if (!kind) continue`,
-  // không cần xoá tay. D-12 ghi đè M2.D-36 (phần auto-OFF) và M2.D-60 — xem OVERRIDE-DEBT.md.
+  // không cần xoá tay. D-12 ghi đè M2.D-36 (phần auto-OFF) và M2.D-60 — xem OVERRIDE-DEBT.md OD-15.
   { key: 'notify_sms_recipients', kind: 'json', default: [] },
   { key: 'notify_email_recipients', kind: 'json', default: [] },
   { key: 'eta_pickup_min', kind: 'int', default: 15 },

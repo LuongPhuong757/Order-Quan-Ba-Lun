@@ -28,6 +28,23 @@ re_verification: No — initial verification
 
 **Score:** 5/5 truths verified
 
+> ⚠ **Bổ sung 2026-08-03 (phase 9, plan 09-12): truth #3 nay KHÔNG CÒN ĐÚNG — có chủ đích.**
+> D-11/D-12 của `09-CONTEXT.md` bỏ hẳn việc chặn submit khi công tắc tắt, và bỏ hẳn auto-OFF.
+> `POST /api/public/orders` nay trả **201** kể cả khi Đóng cửa hoặc ngoài giờ mở cửa — đã kiểm bằng
+> `curl` thật ở plan 09-12. `CheckoutPage.tsx` không còn khoá nút gửi đơn.
+>
+> **Phần của truth #3 VẪN CÒN ĐÚNG:** *"đơn đang chạy không bị ảnh hưởng"*, và cơ chế "OFF đến hết hôm
+> nay" tự-ON lúc 00:00 (tính-lúc-đọc, OD-07) — `store-status.test.ts` vẫn 16/16 xanh, không sửa một
+> dòng logic nào.
+>
+> **Truth #4 VẪN CÒN ĐÚNG và PHẢI GIỮ:** 4 lớp chống lạm dụng (D-18) độc lập với công tắc. Plan 09-12
+> có unit test riêng + 4 kịch bản HTTP thật chứng minh chúng còn nguyên sau khi gỡ lớp chặn công tắc.
+>
+> Xem `OVERRIDE-DEBT.md` **OD-13** (bỏ chặn) và **OD-15** (bỏ auto-OFF).
+>
+> Trạng thái `passed` của phase 8 **KHÔNG đổi**: nó đúng tại thời điểm verify 2026-07-31. Việc thay đổi
+> là quyết định của chủ dự án SAU đó — sửa lại hồ sơ nghiệm thu cũ còn tệ hơn là chú thích nó.
+
 ### REQ-I/J/K/L Tick-State Independent Confirmation (Scrutiny Item 1)
 
 `REQUIREMENTS.md` currently marks REQ-I/J/K/L as `[x]` Complete. Independently re-derived against shipped code (not the SUMMARY claims):

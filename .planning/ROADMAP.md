@@ -88,6 +88,7 @@ Plans:
   1. Khách mở `order.` xem toàn bộ menu **không cần login**, món hết hàng **làm mờ không ẩn**, và xem được **trước khi** bị hỏi bất kỳ thông tin cá nhân nào (M2.D-08, M2.D-16)
   2. Khách gửi đơn thành công: chọn PICKUP/DELIVERY (PICKUP không hỏi địa chỉ), chia sẻ vị trí ra số km + kết luận phí bằng chữ, nhận `order_token`; giá được **chốt** trong `items_snapshot` (M2.D-15, M2.D-42, M2.D-50..52)
   3. Tắt công tắc: FE khoá nút **và** gọi API tay vẫn nhận `409 ONLINE_ORDERING_DISABLED`; ngoài giờ mở cửa cũng bị chặn; "OFF đến hết hôm nay" tự ON lại 00:00; **đơn đang chạy không bị ảnh hưởng** (M2.D-27..31)
+     > ⚠ **Tiêu chí này đúng tại thời điểm đóng phase 8 (2026-07-31) và đã bị phase 9 cố ý làm hết hiệu lực.** D-11 bỏ hẳn việc chặn — công tắc chỉ còn đổi chữ hiển thị, `POST /api/public/orders` trả 201 kể cả khi Đóng cửa. Xem `OVERRIDE-DEBT.md` OD-13. Phần *"đơn đang chạy không bị ảnh hưởng"* và cơ chế "OFF đến hết hôm nay" tự-ON 00:00 (OD-07) **vẫn còn đúng**. Tick `[x]` của Phase 8 giữ nguyên: nó đúng khi verify, thay đổi là quyết định sau đó.
   4. Một SĐT không mở được 2 đơn cùng lúc, SĐT trong blacklist bị chặn, rate limit IP + SĐT hoạt động, và `ip_hash` lưu dạng hash — không lưu IP thô (M2.D-40, M2.D-56, M2.D-59)
   5. `GET /api/public/menu` chỉ trả `id, code, name, price, unit, images[], is_out_of_stock` — không leak field nội bộ nào (M2.D-43)
 
@@ -120,10 +121,10 @@ Plans:
 **Requirements**: REQ-M, REQ-N, REQ-O
 **Success Criteria** (what must be TRUE):
 
-  1. Admin thấy đơn mới trong **< 2s** (SSE + chuông + badge); role `order` xem được hàng chờ nhưng gọi API confirm/reject trực tiếp vẫn bị chặn (M2.D-32, M2.D-33)
+  1. Admin thấy đơn mới trong **< 2s** (SSE + chuông + badge); **cả 3 role `admin`/`order`/`kitchen` đều xem và duyệt được** — audit log ghi rõ ai duyệt là kiểm soát bù trừ (D-02 **ghi đè M2.D-33** và phần phân quyền của M2.D-32 — xem `OVERRIDE-DEBT.md` OD-16)
   2. Xác nhận → cấp bàn trống đầu tiên theo `code` ASC đúng `kind`; hết bàn thì **tự tạo bàn mới** + audit log (khách không bao giờ bị chặn); 2 admin duyệt song song **không** cấp trùng bàn (M2.D-04..06, M2.D-14)
   3. Đơn `WAITING` **không** xuất hiện ở sơ đồ bàn / bếp / history / doanh thu — chứng minh bằng test đếm doanh thu trước và sau khi có 5 đơn WAITING (M2.D-01)
-  4. Đơn quá **90s** chưa duyệt → SMS bắn; quá **1800s** → tự OFF nhận đơn + audit actor SYSTEM và **không tự ON lại**; duyệt trước ngưỡng thì outbox L2/L4 bị huỷ; đổi `SMS_DRIVER` console↔esms không sửa logic (M2.D-36, M2.D-60, M2.D-63)
+  4. Đơn quá **90s** chưa duyệt → SMS bắn; duyệt trước ngưỡng thì outbox L2 bị huỷ; đổi `SMS_DRIVER` console↔esms không sửa logic (M2.D-36 phần SMS, M2.D-63). **Auto-OFF sau 1800s đã bị bỏ hẳn** (D-12 ghi đè M2.D-60 — xem `OVERRIDE-DEBT.md` OD-15): không còn cơ chế nào tự đổi trạng thái công tắc, và không còn lớp `L4` trong outbox. Sau khi bỏ auto-OFF, **SMS 90s là lớp duy nhất còn tới được người không ngồi trước máy**
   5. `/o/<token>` hiện % đúng công thức trọng số, **không bao giờ tụt**, tối đa 95% khi chưa xong, và response **tuyệt đối không chứa** `status` từng item — assert trong test (M2.D-19, M2.D-20, M2.D-23 — điều kiện của G-1)
 
 **Plans**: 12/13 plans executed
@@ -142,7 +143,7 @@ Plans:
 - [x] 09-10-PLAN.md — **Wave 5** (dep 07) `OnlineOrdersQueuePage` — SSE client, chuông, badge, panel từ chối
 - [x] 09-11-PLAN.md — **Wave 6** (dep 09) `/o/:token` — stepper 5 mốc, %, banner món huỷ, nhánh từ chối
 - [x] 09-12-PLAN.md — **Wave 7** (dep 11) **Sửa lại phase 8**: công tắc 2 trạng thái đều nhận đơn + 2 key chữ + bỏ auto-OFF
-- [ ] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` OD-11..15 + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + checkpoint
+- [ ] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` **OD-13..18** (số hiệu lệch so với plan vì OD-11/12 đã bị 09-10/09-11 dùng) + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + `09-UAT.md` + **checkpoint chặn đang chờ chủ dự án**
 
 **UI hint**: yes
 **Ghi chú thi công**: cần harness integration MySQL thật cho criterion 2 và 3 (row lock, transaction — mock không chứng minh được, C-TEST-01); poller outbox 15s dùng `@nestjs/schedule` in-process và **đồng thời** hồi sinh 2 cron đang chết (C-CRON-01); SSE phải fan-out in-process qua `@nestjs/event-emitter`, không giữ 1 DB connection mỗi subscriber (C-INFRA-01)

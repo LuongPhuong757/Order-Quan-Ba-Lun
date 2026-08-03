@@ -9,7 +9,7 @@
 // trạng thái Mở / Đóng cửa, và **cả hai đều nhận đơn bình thường** — Đóng cửa chỉ đổi CÂU CHỮ hiện
 // cho khách (`closed_banner_text`, `closed_submit_confirm_text`). D-11 ghi đè **M2.D-26 và
 // M2.D-27**; chuỗi kiểm tra 6 bước ở spec §7 dòng 461-463 nay là **STALE** — 2 bước đầu không còn.
-// Vết ghi đè: `OVERRIDE-DEBT.md` (entry do plan 09-13 thêm).
+// Vết ghi đè: `OVERRIDE-DEBT.md` **OD-13**.
 //
 // (Tên 2 mã lỗi đã chết cố ý KHÔNG viết ra trong file này, để lệnh kiểm "guard không còn tham chiếu
 // mã lỗi công tắc" giữ được ý nghĩa — xem `order-guard.test.ts` § hồi quy ngược, nơi 2 tên đó được

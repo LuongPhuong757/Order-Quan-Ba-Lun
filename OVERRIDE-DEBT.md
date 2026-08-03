@@ -211,11 +211,137 @@ Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong mile
 
 ---
 
+## OD-13 — Công tắc "Đóng cửa" không còn chặn đơn (ghi đè M2.D-26 + M2.D-27)
+
+- **Ngày:** 2026-07-31 · **Người quyết:** chủ dự án, trong buổi discuss phase 9 (D-11 của `09-CONTEXT.md`)
+- **Quyết định gốc:** M2.D-26 + M2.D-27 chốt chặn **2 lớp** khi tắt công tắc — FE khoá/ẩn nút gửi đơn, và
+  BE trả `409 ONLINE_ORDERING_DISABLED` (hoặc `STORE_CLOSED` khi ngoài giờ mở cửa) nếu ai gọi API tay.
+  Đây cũng là truth #3 của `08-VERIFICATION.md`, đã `✓ VERIFIED` lúc đóng phase 8.
+- **Lệch:** công tắc còn đúng 2 trạng thái Mở / Đóng cửa, và **CẢ HAI ĐỀU NHẬN ĐƠN BÌNH THƯỜNG**.
+  "Đóng cửa" chỉ đổi **câu chữ hiển thị** cho khách (`closed_banner_text` trên `/checkout`,
+  `closed_submit_confirm_text` trên `/o/:token`). `POST /api/public/orders` trả **201** kể cả khi Đóng
+  cửa hoặc ngoài giờ mở cửa — đã kiểm bằng `curl` thật ở plan 09-12.
+- **Vì sao:** chủ quán muốn **không mất đơn ngoài giờ**. Khách đặt lúc quán đóng cửa là khách thật có
+  nhu cầu thật; chặn họ ở cửa là đẩy họ sang quán khác, trong khi việc xử lý đơn ngoài giờ hoàn toàn làm
+  được bằng người (gọi điện xác nhận — D-13). Lớp chặn cũ giải quyết một vấn đề mà quán không có.
+- **Ghi ở:** `apps/api/src/modules/public/order-guard.ts` (docblock đầu file),
+  `order-guard.test.ts` (§ hồi quy ngược quét 16 tổ hợp cờ), `submit-order.ts`,
+  `apps/api/src/modules/public/store-status.ts` (docblock — đổi ngữ nghĩa `enabled`, KHÔNG đổi logic),
+  `apps/shop/src/pages/CheckoutPage.tsx`, `apps/shop/src/pages/OrderTrackPage.tsx` — plan 09-12.
+- **Quay lại thì sao:** code chặn cũ nằm trong lịch sử git của phase 8 (trước commit `d60d4e0`). Nhưng
+  nếu sau này muốn có "TẮT HẲN" thật thì hãy thêm **trạng thái thứ ba**, **đừng** khôi phục ngữ nghĩa cũ
+  của `enabled` — nay `enabled === false` nghĩa là "đang Đóng cửa, vẫn nhận đơn", và có 3 file đọc theo
+  nghĩa đó. Hai mã `ONLINE_ORDERING_DISABLED`/`STORE_CLOSED` vẫn còn trong `packages/schemas/src/errors.ts`
+  (hợp đồng lỗi lịch sử) nhưng **không còn nơi nào phát ra chúng**.
+
+---
+
+## OD-14 — Không dùng `getOrCreateOpenOrder()` khi duyệt đơn (lệch pseudo-code spec §7 dòng 480)
+
+- **Ngày:** 2026-07-31 · **Người quyết:** phát hiện khi lên plan 09-06, quyết ngay tại plan
+- **Quyết định gốc:** pseudo-code spec §7 dòng ~480 ghi `order = getOrCreateOpenOrder(bàn.id, creator)`.
+- **Lệch:** `confirm()` dựng `Order` **trực tiếp** trên `EntityManager` của transaction đang chạy, không
+  gọi `OrdersService.getOrCreateOpenOrder()`.
+- **Vì sao:** `OrdersService.getOrCreateOpenOrderImpl` **tự mở `ds.transaction` riêng** (connection
+  khác). Gọi nó từ trong transaction cấp bàn thì (a) nó **không nhìn thấy bàn vừa INSERT chưa commit** →
+  trả `NOT_FOUND: Bàn không tồn tại`, và (b) mở đường deadlock giữa 2 connection cùng chờ nhau. Đây là
+  lệch **pseudo-code minh hoạ**, KHÔNG lệch quyết định LOCKED nào — M2.D-02/04/05/06 vẫn thoả đủ.
+- **Ghi ở:** `apps/api/src/modules/admin-online-orders/admin-online-orders.service.ts` (điểm 2 của
+  docblock đầu file, có trỏ `OD-14`) — plan 09-06.
+- **Quay lại thì sao:** muốn dùng lại `getOrCreateOpenOrder` thì phải cho nó **nhận `EntityManager` từ
+  ngoài**. Đó là refactor `orders.service.ts` (1315 dòng, Fragile Area) chứ không phải đổi 1 dòng — và
+  48 điểm query khác đang phụ thuộc file đó.
+
+---
+
+## OD-15 — Bỏ hẳn auto-OFF (ghi đè M2.D-60 và phần auto-OFF của M2.D-36)
+
+- **Ngày:** 2026-07-31 · **Người quyết:** chủ dự án (D-12 của `09-CONTEXT.md`)
+- **Quyết định gốc:** M2.D-36 chốt lớp leo thang thứ 4 — đơn quá ngưỡng chưa duyệt thì **tự TẮT nhận
+  đơn** + audit actor `SYSTEM` và không tự ON lại. M2.D-60 ghi đè ngưỡng đó từ `300s` thành `1800s`
+  (xem thêm mục "nợ tồn từ trước" cuối file).
+- **Lệch:** **không còn cơ chế nào tự đổi trạng thái công tắc.** Lớp `L4` trong `notification_outbox`
+  không tồn tại (`outbox-rules.ts` chỉ sinh L1/L2/L3, có test khẳng định không hàng nào `level = 'L4'`);
+  key `escalate_autooff_after_s` bị **xoá khỏi** `SETTINGS_DEFAULTS` + `StoreSettingsMap`.
+- **Vì sao:** auto-OFF chỉ có nghĩa khi "OFF" thực sự chặn đơn — mà OD-13 vừa bỏ đúng điều đó. Giữ lại
+  thì nó thành một cơ chế tự tắt một công tắc không tắt gì cả. ⚠ **Phần SMS 90s của M2.D-36 vẫn còn
+  hiệu lực** (D-15), và sau khi bỏ auto-OFF thì **nó là lớp duy nhất còn tới được người không ngồi
+  trước máy** — đừng bỏ nó theo.
+- **Ghi ở:** `apps/api/src/modules/notifications/outbox-rules.ts`,
+  `notification-outbox.entity.ts` (comment "không còn mức thứ 4"),
+  `apps/api/src/modules/settings/settings.defaults.ts` — plan 09-05 + 09-12.
+- **Quay lại thì sao:** phải thêm lại **cả ba**: level `'L4'` trong outbox, một job đổi setting, và audit
+  actor `SYSTEM`. Và phải xét lại OD-13 trước — auto-OFF vô nghĩa nếu OFF không chặn.
+
+---
+
+## OD-16 — Cả 3 role duyệt được đơn online (ghi đè M2.D-33 + phần phân quyền của M2.D-32)
+
+- **Ngày:** 2026-07-31 · **Người quyết:** chủ dự án (D-02 của `09-CONTEXT.md`)
+- **Quyết định gốc:** M2.D-33 chốt *"chỉ role `admin` được xác nhận/từ chối đơn online"*; M2.D-32 chốt
+  phân quyền xem hàng chờ.
+- **Lệch:** cả `admin` + `order` + `kitchen` đều **xem và duyệt** được đơn online.
+- **Vì sao:** ai đang ở máy thì duyệt. Giữ nguyên M2.D-33 là biến chủ quán thành **nút thắt** đúng giờ
+  cao điểm — lúc đó chủ quán đang bận nhất, và đơn chờ duyệt là đơn có nguy cơ mất.
+- **Kiểm soát bù trừ (BẮT BUỘC, không được gỡ):** lớp chặn role thứ hai không còn, nên audit log phải
+  ghi rõ **ai** duyệt — `reviewed_by_user_id`/`reviewed_by_full_name` lấy từ `req.user`, cộng
+  `action_kind` `online_order.confirmed`/`rejected` qua `AuditInterceptor`, và có test chứng minh.
+- **Ghi ở:** `admin-online-orders.controller.ts` (`RequireRoles`), `audit.interceptor.ts`,
+  `apps/web/src/App.tsx` (`RoleGate allow={['admin','order','kitchen']}`) — plan 09-06/07/08/10.
+- **Quay lại thì sao:** đổi `RequireRoles('admin','order','kitchen')` về `AdminGuard` ở 2 route + sửa
+  `RoleGate` trong `App.tsx`. **Đừng gỡ audit khi làm vậy** — nó có giá trị độc lập với chuyện phân quyền.
+
+---
+
+## OD-17 — Chuông báo đơn dùng Web Audio API thay `HTMLAudioElement`
+
+- **Ngày:** 2026-08-01 · **Người quyết:** chốt khi lên plan 09-10
+- **Quyết định gốc:** `09-RESEARCH.md` Pattern 4 mô tả `audio.play()` + bắt `NotAllowedError` để biết
+  trình duyệt chặn tự phát.
+- **Lệch:** dùng `AudioContext` + `OscillatorNode` (2 bíp 880/660 Hz sinh tại chỗ). Mở khoá bằng
+  `await ctx.resume()` **trong chính `onClick`**, và kiểm `ctx.state !== 'running'` để biết bị chặn.
+- **Vì sao:** không phải thêm file nhị phân `.mp3` vào repo, mà ngữ nghĩa "mở khoá bằng user gesture"
+  giống hệt. D-03/D-04 chỉ chốt *"có chuông"* và *"nút Bật chuông là bắt buộc"*, **không** chốt cách
+  phát tiếng — nên đây là lệch so với tài liệu RESEARCH, không lệch quyết định của chủ dự án.
+- **Ghi ở:** `apps/web/src/lib/bell.ts` — plan 09-10.
+- **Quay lại thì sao:** thay ruột `bell.ts` bằng `HTMLAudioElement` + thêm asset âm thanh. Giao diện hàm
+  (`unlock`/`ring`/`dispose`) giữ nguyên nên `OnlineOrdersQueuePage.tsx` không phải sửa. ⚠ `bell.ts`
+  **không có test tự động** (`AudioContext` không tồn tại trong vitest thuần) — đổi cách phát thì phải
+  kiểm bằng tai, xem `09-UAT.md` hạng mục 1.
+
+---
+
+## OD-18 — Hoãn có chủ ý nửa `PATCH` của M2.D-44 (khách tự SỬA đơn)
+
+- **Ngày:** 2026-07-31 · **Người quyết:** chủ dự án, khi planner báo M2.D-44 không được plan nào phủ
+- **Quyết định gốc:** M2.D-44 (spec §5.1) chốt *"trước xác nhận: khách tự sửa / huỷ đơn thoải mái, không
+  cần xin phép"* — gồm **cả** `PATCH` **lẫn** `DELETE /api/public/orders/:token`.
+- **Lệch:** **chỉ thi công nửa huỷ.** ⚠ **Nửa huỷ (`DELETE`) ĐÃ LÀM XONG** ở plan 09-11 Task 3 — khách
+  huỷ được đơn còn `WAITING`, có row lock chống race với admin-xác-nhận và 2 test integration MySQL thật.
+  **Đừng đọc entry này thành "cả M2.D-44 bị bỏ".** Nửa còn hoãn là `PATCH` (khách tự sửa món/số lượng):
+  chạy lại toàn bộ guard, snapshot lại giá, UI quay về giỏ hàng.
+- **Vì sao:** nửa huỷ đóng được rủi ro **thật** (khách đặt nhầm bị kẹt, phải gọi điện xin) với chi phí
+  ~1 task và gần như không ăn vào ngân sách bundle của `apps/shop`. Nửa sửa tốn cả một plan và nhiều khả
+  năng buộc nới gate bundle lần nữa. M2.D-44 **không nằm trong 5 success criteria** của ROADMAP § Phase 9
+  nên không chặn phase.
+- **Ghi ở:** nửa huỷ ở `apps/api/src/modules/public/cancel-order.ts` +
+  `apps/shop/src/pages/OrderTrackPage.tsx` (plan 09-11). Nửa hoãn ghi ở
+  `.planning/REQUIREMENTS.md` § Deferred Features.
+- **Quay lại thì sao:** thêm `PATCH` là thêm endpoint + màn sửa. Trạng thái `CANCELLED_BY_CUSTOMER` và
+  cơ chế row lock của 09-11 **dùng lại được nguyên**. Phải đo lại bundle trước khi bắt tay (xem OD-12 —
+  ngưỡng đã bỏ nên không còn gate tự chặn, phải tự nhìn số).
+
+---
+
 ## Chưa được ghi ở đây (nợ tồn từ trước)
 
 Hai chuỗi override **nội bộ spec** mà spec §28 yêu cầu ghi vào file này, hiện chỉ nằm ở `.planning/intel/decisions.md`:
 
 - **M2.D-59 ghi đè M2.D-41** — blacklist SĐT thêm/xoá tay, bỏ TTL 24h, bỏ `cron-blacklist-cleanup.ts`
-- **M2.D-60 ghi đè M2.D-36 (chỉ ngưỡng auto-OFF)** — `escalate_autooff_after_s = 1800` thay `300`. Rung SMS 90s của M2.D-36 vẫn còn hiệu lực. **Pseudo-code spec dòng 469 vẫn ghi `300s` — stale, không implement.**
+- **M2.D-60 ghi đè M2.D-36 (chỉ ngưỡng auto-OFF)** — `escalate_autooff_after_s = 1800` thay `300`.
+  ⚠ **Cập nhật 2026-08-03:** chuỗi này nay chỉ còn giá trị **lịch sử** — `OD-15` đã bỏ hẳn auto-OFF, nên
+  cả ngưỡng `1800s` lẫn `300s` đều không còn được implement, và key `escalate_autooff_after_s` đã bị xoá
+  khỏi codebase. Phần **SMS 90s** của M2.D-36 vẫn còn hiệu lực. Pseudo-code spec dòng 469 (`300s`) vẫn
+  stale, nhưng nay stale gấp đôi: sai cả con số lẫn sự tồn tại của cơ chế.
 
 Hai cái này do chính chủ quán chốt trong vòng review spec, không phải override do thi công. Ghi lại ở đây cho đủ theo §28.

@@ -39,8 +39,11 @@
 
 ### Store Switch
 
-- [x] **REQ-K**: Công tắc ON/OFF nhận đơn online + giờ mở cửa + lý do tạm ngưng; chặn **2 lớp** FE và BE
-  - M2.D-25..31
+- [x] **REQ-K**: Công tắc nhận đơn online 2 trạng thái Mở / Đóng cửa + giờ mở cửa + lý do tạm ngưng —
+  **cả hai trạng thái đều nhận đơn**, Đóng cửa chỉ đổi chữ hiển thị cho khách
+  - M2.D-25..31 · ⚠ D-11 (phase 9) **ghi đè M2.D-26/M2.D-27** — bỏ hẳn việc chặn 2 lớp FE+BE mà bản đầu
+    của REQ này ghi. Xem `OVERRIDE-DEBT.md` OD-13. Tick `[x]` giữ nguyên: REQ đã đạt ở phase 8 theo định
+    nghĩa lúc đó, và vẫn đạt theo định nghĩa mới (công tắc + giờ mở cửa + lý do vẫn hoạt động)
 
 ### Anti-abuse
 
@@ -49,13 +52,21 @@
 
 ### Approval
 
-- [ ] **REQ-M**: Hàng chờ duyệt cho admin; xác nhận → tự cấp bàn (tự tạo nếu hết) → items vào bếp; từ chối kèm lý do; **chỉ role `admin`** được duyệt; re-check tồn kho + nhập phí ship
+- [ ] **REQ-M**: Hàng chờ duyệt; xác nhận → tự cấp bàn (tự tạo nếu hết) → items vào bếp; từ chối kèm lý do;
+  **cả 3 role `admin`/`order`/`kitchen`** duyệt được, audit log ghi rõ người duyệt; re-check tồn kho + nhập phí ship
   - M2.D-01..06, M2.D-14, M2.D-33, M2.D-48, M2.D-58, M2.D-61, M2.D-62
+  - ⚠ D-02 (phase 9) **ghi đè M2.D-33** — bản đầu của REQ này giới hạn quyền duyệt cho một role duy
+    nhất; nay mở cho cả 3, và audit log ghi người duyệt là kiểm soát bù trừ **bắt buộc**, không phải
+    tuỳ chọn. Xem `OVERRIDE-DEBT.md` OD-16
 
 ### Notification
 
-- [ ] **REQ-N**: Thông báo 4 lớp (SSE admin+order / SMS 90s / Email / leo thang + **auto-OFF sau 1800s**) qua adapter `NotificationChannel` + `notification_outbox`
-  - M2.D-32, M2.D-34..39, M2.D-60, M2.D-63 · +C-CRON-01, C-INFRA-01
+- [ ] **REQ-N**: Thông báo **3 lớp** (L1 SSE cho màn quản lý / L2 SMS sau 90s / L3 Email) qua adapter
+  `NotificationChannel` + `notification_outbox`
+  - M2.D-32, M2.D-34..39, M2.D-63 · +C-CRON-01, C-INFRA-01
+  - ⚠ D-12 (phase 9) **ghi đè M2.D-60** — lớp thứ 4 (auto-OFF) bị bỏ hẳn, không còn cơ chế nào tự đổi
+    trạng thái công tắc. Xem `OVERRIDE-DEBT.md` OD-15. Hệ quả cần biết: **L2 SMS 90s nay là lớp duy nhất
+    còn tới được người không ngồi trước máy**
 
 ### Order Tracking
 
@@ -118,6 +129,16 @@ Ghi nhận nhưng chưa vào roadmap.
 - Milestone 2 requirements: 9 total
 - Mapped to phases: 9
 - Unmapped: 0 ✓
+
+## Deferred Features
+
+Tính năng **cố ý chưa làm**. Khác `## Deferred UAT` bên dưới: mục đó là hạng mục *chưa nghiệm thu
+được*, mục này là tính năng *chưa thi công*. Gộp 2 loại vào một chỗ là tự tạo nhầm lẫn cho người sau.
+
+| # | Tính năng | Quyết định | Ghi ở |
+|---|-----------|------------|-------|
+| 1 | **M2.D-44 nửa `PATCH`** — khách tự **SỬA** đơn khi còn `WAITING` (đổi món/số lượng): chạy lại toàn bộ guard, snapshot lại giá, UI quay về giỏ hàng. Hoãn sang phase 10. ⚠ **Nửa huỷ (`DELETE`) ĐÃ thi công ở plan 09-11 Task 3** — khách huỷ được đơn chưa duyệt, có row lock chống race với admin-xác-nhận + 2 test integration MySQL thật. **Đừng đọc thành "cả M2.D-44 bị bỏ".** | Chủ dự án, 2026-07-31 | `OVERRIDE-DEBT.md` OD-18 |
+| 2 | **`GET /api/public/orders?customer_token=`** — danh sách đơn cũ cho trang `/history`. Giữ nguyên empty state tĩnh của phase 8. Không thuộc REQ-M/N/O nên **không cần** entry OVERRIDE-DEBT; ghi ở đây để sau này không ai tưởng là quên. Khách vẫn theo dõi được đơn qua link `/o/:token` mà họ đã có. | Chủ dự án, 2026-07-31 | mục này |
 
 ## Deferred UAT (C-LOCAL-01)
 

@@ -12,7 +12,8 @@
 // `submitOrder` không còn đọc hàm này nữa. Nơi duy nhất còn đọc là `GET /api/public/store` (để
 // trang khách chọn giữa câu bình thường và `closed_banner_text`) và `/admin/settings`.
 // Cơ chế tính-lúc-đọc của OD-07 giữ nguyên từng dòng — `store-status.test.ts` (16 test) phải xanh
-// y nguyên sau plan 09-12, không sửa file test đó. D-11 ghi đè M2.D-26/M2.D-27.
+// y nguyên sau plan 09-12, không sửa file test đó.
+// D-11 ghi đè M2.D-26/M2.D-27 — vết ghi ở `OVERRIDE-DEBT.md` **OD-13**.
 
 // ICT (UTC+7) cố định quanh năm, không có giờ mùa hè (xem Sources trong 08-RESEARCH.md)
 // → không cần thư viện timezone, cộng offset cố định là đủ chính xác.
