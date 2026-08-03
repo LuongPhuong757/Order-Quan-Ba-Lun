@@ -2,16 +2,19 @@
 gsd_state_version: 1.0
 milestone: v2.0
 milestone_name: Milestone 2 — Đặt hàng online
+current_phase: 09
+current_phase_name: duy-t-n-th-ng-b-o-theo-d-i-n
 status: executing
-stopped_at: Phase 09 plan 10 xong (code+test) — CÒN 3 kịch bản trình duyệt chưa chạy, xem 09-10-SUMMARY
-last_updated: "2026-08-01T18:20:00.000Z"
-last_activity: 2026-08-01 -- plan 09-10 complete-with-gap (tiếp 09-11)
+stopped_at: Completed 09-11-PLAN.md (còn 5 kịch bản trình duyệt chưa chạy)
+last_updated: "2026-08-03T03:11:26.065Z"
+last_activity: 2026-08-01
+last_activity_desc: plan 09-10 complete-with-gap
 progress:
   total_phases: 4
   completed_phases: 2
   total_plans: 30
-  completed_plans: 21
-  percent: 70
+  completed_plans: 28
+  percent: 50
 ---
 
 # Project State
@@ -28,15 +31,22 @@ See: .planning/PROJECT.md (updated 2026-07-29)
 ## Current Position
 
 Phase: 09 (duy-t-n-th-ng-b-o-theo-d-i-n) — EXECUTING
-Plan: 10 of 13 xong (hết wave 5). Tiếp theo: 09-11 (wave 6) — trang khách /o/:token
+Plan: 11 of 13 xong (hết wave 6). Tiếp theo: 09-12 (wave 7)
 Status: Executing Phase 09
-Last activity: 2026-08-01 -- plan 09-10 complete-with-gap
+Last activity: 2026-08-03 -- plan 09-11 complete-with-gap
 
-Progress Phase 09: [████████░░] 77% (10/13 plan)
+Progress Phase 09: [████████▌░] 85% (11/13 plan)
 
-> ⚠ VIỆC CHƯA LÀM của 09-10: 3 kịch bản nghiệm thu trên trình duyệt (3 role vào được · chuông có
-> tiếng thật · SSE đứt 10s hiện banner rồi tự nối lại). Code + test + build đã xanh, nhưng chưa ai
-> mở trang bằng mắt. Chi tiết cách kiểm ở `09-10-SUMMARY.md` § "3 kịch bản trên trình duyệt".
+> ⚠ **NỢ NGHIỆM THU TRÌNH DUYỆT — nay là 8 kịch bản của 2 plan liên tiếp, cần gom làm 1 buổi kiểm
+> bằng mắt TRƯỚC KHI đóng phase 09.**
+> - 09-10 (mặt admin, 3 kịch bản): 3 role vào được · chuông có tiếng thật · SSE đứt 10s hiện banner
+>   rồi tự nối lại. Chi tiết ở `09-10-SUMMARY.md` § "3 kịch bản trên trình duyệt".
+> - 09-11 (mặt khách, 5 kịch bản): WAITING 0% · duyệt đơn thì trang khách đổi trong ≤10s · huỷ món
+>   hiện banner info · từ chối hiện banner đỏ không stepper · stepper không tràn ở 375px, cộng hộp
+>   xác nhận Huỷ đơn. Chi tiết ở `09-11-SUMMARY.md` § "5 kịch bản trên trình duyệt".
+>
+> Cả 2 plan đều đã xanh test + build + kiểm HTTP bằng curl; thứ còn thiếu **chỉ là** mắt người nhìn
+> trang render.
 
 > Lưu ý khi đọc `gsd-tools query roadmap.analyze`: nó báo `progress_percent` cao vọt vì chỉ tính
 > trên phase ĐÃ CÓ plan. Con số đúng cho Milestone 2 là 2/4 phase + phase 09 đang dở.
@@ -86,6 +96,16 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ### Blockers/Concerns
 
+- **[09-11] `ALTER TABLE` sẽ chạy lúc deploy.** `online_order_requests.status` được nới từ
+  `varchar(16)` lên `varchar(32)` vì `CANCELLED_BY_CUSTOMER` dài 21 ký tự — giá trị enum này tồn tại
+  từ phase 8 trong type TS nhưng **DB chưa bao giờ lưu nổi** (MySQL trả `Data too long`). Local đã
+  ALTER tay. Trên VPS `synchronize: true` sẽ tự làm lúc app boot, nhưng đó là ALTER trên bảng có dữ
+  liệu — biết trước để không bất ngờ.
+- **[09-11] Huỷ đơn không ghi audit log — LỆCH threat model.** T-09-80 hứa "mọi lần huỷ ghi audit log
+  kèm `ip_hash` để truy được", nhưng `AuditInterceptor` chỉ phủ `/admin/*` nên `DELETE
+  /api/public/orders/:token` không đi qua nó. Hiện chỉ truy được `status` + `cancelled_at`, **không
+  biết ai bấm huỷ**. Phải quyết ở phase sau: mở interceptor cho nhánh này, hoặc sửa lại lời hứa trong
+  threat model. Đừng để nguyên cả hai.
 - **VIỆC ĐẦU PHASE 8 — `apps/shop` chưa có router.** `main.tsx` render một `<main>` tĩnh, còn nguyên `TODO(task-10)`. 4 trang `CartPage`/`CheckoutPage`/`HistoryPage`/`OrderTrackPage` tồn tại nhưng **không được import ở đâu** → dead code, bị tree-shake, không vào bundle. Intel ingest ghi "DONE" là do chỉ verify file tồn tại, không verify file được dùng. Kéo theo: criterion M2.D-64 hiện pass gần như vô nghĩa (bundle shop chưa có route nào), guard chỉ có giá trị thật từ phase 8.
 - **Bug production đã sửa ở phase 7, cần biết khi review:** `apiPrefixes` thiếu `/api` làm mọi `GET /api/*` trả `index.html` ở production (Nest mount router trong `app.init()`, sau `app.use()`). Có từ Milestone 1, chưa ai gặp vì `/api/public/health` là endpoint `/api/*` đầu tiên.
 - **`.env.production` thật trên VPS phải có `ALLOWED_ORIGIN`** — `docker-compose.prod.yml:62` đã truyền biến này nhưng file mẫu trước đây không khai báo; để trống → admin bị 403 toàn bộ mutation.
@@ -115,9 +135,9 @@ Full log ở PROJECT.md § Key Decisions. Quyết định ảnh hưởng việc 
 
 ## Session Continuity
 
-Last session: 2026-07-31T05:29:51.575Z
-Stopped at: Phase 9 planned — 13 plan / 8 wave, plan-checker APPROVED 0 blocker
-Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-01-PLAN.md
+Last session: 2026-08-03T03:11:26.039Z
+Stopped at: Completed 09-11-PLAN.md (còn 5 kịch bản trình duyệt chưa chạy)
+Resume file: .planning/phases/09-duy-t-n-th-ng-b-o-theo-d-i-n/09-12-PLAN.md
 
 ## Bàn giao sang máy khác (viết 2026-07-30)
 
