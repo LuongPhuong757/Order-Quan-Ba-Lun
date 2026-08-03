@@ -126,7 +126,7 @@ Plans:
   4. Đơn quá **90s** chưa duyệt → SMS bắn; quá **1800s** → tự OFF nhận đơn + audit actor SYSTEM và **không tự ON lại**; duyệt trước ngưỡng thì outbox L2/L4 bị huỷ; đổi `SMS_DRIVER` console↔esms không sửa logic (M2.D-36, M2.D-60, M2.D-63)
   5. `/o/<token>` hiện % đúng công thức trọng số, **không bao giờ tụt**, tối đa 95% khi chưa xong, và response **tuyệt đối không chứa** `status` từng item — assert trong test (M2.D-19, M2.D-20, M2.D-23 — điều kiện của G-1)
 
-**Plans**: 11/13 plans executed
+**Plans**: 12/13 plans executed
 
 Plans:
 
@@ -141,7 +141,7 @@ Plans:
 - [x] 09-09-PLAN.md — **Wave 5** (dep 01,04,05,07) `/api/public/orders/:token` đủ % + 5 mốc + outbox/SSE lúc submit
 - [x] 09-10-PLAN.md — **Wave 5** (dep 07) `OnlineOrdersQueuePage` — SSE client, chuông, badge, panel từ chối
 - [x] 09-11-PLAN.md — **Wave 6** (dep 09) `/o/:token` — stepper 5 mốc, %, banner món huỷ, nhánh từ chối
-- [ ] 09-12-PLAN.md — **Wave 7** (dep 11) **Sửa lại phase 8**: công tắc 2 trạng thái đều nhận đơn + 2 key chữ + bỏ auto-OFF
+- [x] 09-12-PLAN.md — **Wave 7** (dep 11) **Sửa lại phase 8**: công tắc 2 trạng thái đều nhận đơn + 2 key chữ + bỏ auto-OFF
 - [ ] 09-13-PLAN.md — **Wave 8** (dep tất cả) `OVERRIDE-DEBT` OD-11..15 + sửa ROADMAP/REQUIREMENTS/08-VERIFICATION + checkpoint
 
 **UI hint**: yes
@@ -177,7 +177,7 @@ Phases execute in numeric order: 7 → 8 → 9 → 10
 | 6. Báo Cáo Cuối Ngày | M1 | — | Complete | 2026 (VGFlow) |
 | 7. Hạ tầng trang khách | M2 | 4/4 | Executed | 2026-07-29 |
 | 8. Menu, Checkout & Công tắc | M2 | 13/13 | Executed (checkpoint approved; 5 deferred UAT còn treo) | 2026-07-31 |
-| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 11/13 | In Progress|  |
+| 9. Duyệt đơn, Thông báo & Theo dõi | M2 | 12/13 | In Progress|  |
 | 10. Analytics & Phễu | M2 | 0/TBD | Not started | - |
 
 ---
