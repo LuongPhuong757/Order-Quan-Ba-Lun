@@ -12,12 +12,15 @@ import { SettingsService } from '../settings/settings.service.js';
  * bảng settings: cột đó có thể vẫn ghi giá trị tắt trong khi thực tế đã tự-ON qua nửa đêm
  * (mode `UNTIL_TOMORROW`) — `getOrderingStatus()` tính lại lúc đọc, không cần cron.
  *
- * Whitelist thủ công (11 field) + `.strict().parse()` trước khi trả — nếu ai đó sau này
- * spread thêm field nội bộ (toạ độ quán, cấu hình leo thang SMS/email...) thì test/dev
+ * Whitelist thủ công (**13 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14, xem
+ * payload bên dưới) + `.strict().parse()` trước khi trả — nếu ai đó
+ * sau này spread thêm field nội bộ (toạ độ quán, cấu hình leo thang SMS/email...) thì test/dev
  * throw ngay thay vì âm thầm leak dữ liệu quán ra production (T-08-34).
+ * ⚠ Thêm field vào `PublicStoreStatus` mà quên payload dưới đây (hoặc ngược lại) = **500 ngay**.
  *
- * `Cache-Control: no-store` bắt buộc: khoảng cách giữa "chủ quán tắt" và "khách bị chặn"
- * phải bằng 0, mà trình duyệt/proxy cache vài chục giây là đủ để mất một đơn (T-08-36).
+ * `Cache-Control: no-store` bắt buộc: từ phase 9, `ordering_enabled === false` không còn chặn
+ * đặt đơn (D-11) nên đây không còn là chuyện "mất đơn" nữa — nhưng vẫn giữ `no-store` vì câu chữ
+ * chủ quán vừa sửa phải ăn ngay, không đợi cache hết hạn (D-14).
  *
  * Không `@Throttle` riêng — throttler `default` global 600 req/phút/IP (phase 7) đã áp.
  */
@@ -38,6 +41,8 @@ export class PublicStoreController {
       open_hours: settings.open_hours,
       is_open_now: status.is_open_now,
       blocking_reason: status.blocking_reason,
+      closed_banner_text: settings.closed_banner_text,
+      closed_submit_confirm_text: settings.closed_submit_confirm_text,
       pickup_enabled: settings.pickup_enabled,
       delivery_enabled: settings.delivery_enabled,
       free_ship_km: settings.free_ship_km,

@@ -26,6 +26,16 @@ export const PublicStoreStatus = z.object({
   open_hours: z.array(OpenHourRule),
   is_open_now: z.boolean(),
   blocking_reason: z.enum(['MANUAL_OFF', 'OUTSIDE_HOURS']).nullable(),
+  // ── D-11/D-14 (phase 9) — 2 câu chữ chủ quán tự soạn ──
+  // `ordering_enabled === false` nay CHỈ có nghĩa "đang Đóng cửa", KHÔNG còn nghĩa "chặn đặt đơn".
+  // Khách vẫn gửi được đơn; hai chuỗi này là toàn bộ khác biệt mà khách nhìn thấy.
+  //
+  // Vì sao `closed_submit_confirm_text` cũng nằm ở endpoint này (lệch gợi ý của 09-PATTERNS.md):
+  // trang `/o/:token` cần câu xác nhận ĐÓ SAU KHI TẢI LẠI TRANG. Truyền qua router state thì khách
+  // refresh một cái là mất. Đặt ở đây (1 request, không poll, vài trăm byte) cho `OrderTrackPage`
+  // đọc lại bất cứ lúc nào — và tự đúng nếu quán đã mở lại trong lúc đó.
+  closed_banner_text: z.string(),
+  closed_submit_confirm_text: z.string(),
   pickup_enabled: z.boolean(),
   delivery_enabled: z.boolean(),
   free_ship_km: z.number().int(),

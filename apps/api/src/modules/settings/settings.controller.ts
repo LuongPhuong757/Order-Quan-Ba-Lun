@@ -60,6 +60,11 @@ class UpdateSettingsDto {
   @IsOptional() online_ordering_enabled?: boolean;
   @IsOptional() @IsIn(['MANUAL', 'UNTIL_TOMORROW']) online_ordering_off_mode?: 'MANUAL' | 'UNTIL_TOMORROW';
   @IsOptional() @IsString() @MaxLength(255) online_ordering_off_reason?: string;
+  // D-14 — CỐ Ý KHÔNG có `@MaxLength`: chủ quán tự soạn câu hiện cho khách, độ dài không giới hạn.
+  // Cột `store_settings.value` là `text` nên chịu được. Thêm `@MaxLength` ở đây là âm thầm cắt chuỗi
+  // của chủ quán ở một tầng họ không nhìn thấy.
+  @IsOptional() @IsString() closed_banner_text?: string;
+  @IsOptional() @IsString() closed_submit_confirm_text?: string;
   @IsOptional() @IsString() @MaxLength(16) store_phone?: string;
   @IsOptional() @IsNumber() @Min(-90) @Max(90) store_lat?: number;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) store_lng?: number;
@@ -115,8 +120,13 @@ export class SettingsController {
     if (dto.online_ordering_off_reason !== undefined) {
       patch.online_ordering_off_reason = dto.online_ordering_off_reason;
     }
+    // ⚠ Đây là chỗ THỨ HAI của round-trip 3 chỗ. `SettingsService.updateMany()` có
+    // `if (!kind) continue`, nên một key thiếu ở `SETTINGS_DEFAULTS` hoặc thiếu trong mảng này sẽ bị
+    // NUỐT LẶNG LẼ: admin bấm Lưu, nhận 200, và không gì được ghi. Thêm key mới thì phải sửa cả 3.
     for (const key of [
       'store_phone',
+      'closed_banner_text',
+      'closed_submit_confirm_text',
       'store_lat',
       'store_lng',
       'free_ship_km',

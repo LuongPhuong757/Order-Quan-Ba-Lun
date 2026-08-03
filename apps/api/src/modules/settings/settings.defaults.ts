@@ -1,5 +1,6 @@
 // Nguồn: docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md §4.1 (dòng ~230-260).
-// Đủ 20 key + kiểu parse của bảng `store_settings` (key-value, cột `value` luôn là text —
+// Đủ 21 key + kiểu parse của bảng `store_settings` (key-value, cột `value` luôn là text —
+// 20 key từ phase 8, rồi phase 9 (D-12/D-14) xoá key auto-OFF và thêm 2 key câu chữ —
 // xem entity `store-settings.entity.ts`). SettingsService (plan 08-05) đọc bảng này để biết
 // cách parse `value` theo `kind` và giá trị fallback khi DB chưa có row (quán mới cài).
 //
@@ -31,9 +32,20 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   { key: 'pickup_enabled', kind: 'bool', default: true },
   { key: 'delivery_enabled', kind: 'bool', default: true },
   { key: 'escalate_sms_after_s', kind: 'int', default: 90 },
-  // M2.D-60 ghi đè M2.D-36: 1800s (30 phút), KHÔNG phải 300s. docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md
-  // dòng ~469 (pseudo-code) còn ghi 300s — đó là STALE, không implement theo dòng đó.
-  { key: 'escalate_autooff_after_s', kind: 'int', default: 1800 },
+  // ── D-14 (chốt 2026-07-31) — 2 câu chữ chủ quán tự sửa ở `/admin/settings` ──
+  // Đổi chữ là ăn ngay ở trang khách, KHÔNG cần build lại — quan trọng vì Milestone 2 đang cấm
+  // deploy production. **Độ dài KHÔNG giới hạn** (cột `store_settings.value` là text): chủ quán tự
+  // soạn câu, không ai đoán trước được họ viết dài bao nhiêu, nên tầng nào cũng không được cắt.
+  { key: 'closed_banner_text', kind: 'string', default: 'Hiện chúng tôi đang đóng cửa, đơn của quý khách cứ tiếp tục đặt và chúng tôi sẽ xử lý sớm nhất có thể' },
+  { key: 'closed_submit_confirm_text', kind: 'string', default: 'Chúng tôi đã tiếp nhận đơn, và sẽ liên hệ khi quán mở lại' },
+  // ⚠ Key `escalate_autooff_…` cũ (mức leo thang thứ 4 — tự TẮT nhận đơn sau 1800s) ĐÃ BỊ XOÁ HẲN
+  // theo D-12 — không phải để lại no-op. Tên key cố ý không viết đủ ở đây để lệnh kiểm
+  // "không còn nơi nào tham chiếu key đó" giữ được ý nghĩa.
+  // Lý do xoá thay vì giữ: `outbox-rules.ts` chưa bao giờ sinh
+  // hàng `level = 'L4'` (có test khẳng định điều đó), và `AdminSettingsPage.tsx` không có UI nào
+  // render key này — giữ lại một setting không ai đọc là mời người sau cài lại auto-OFF.
+  // Dòng cũ trong DB (nếu admin từng ghi) được `readAll()` bỏ qua tự nhiên qua `if (!kind) continue`,
+  // không cần xoá tay. D-12 ghi đè M2.D-36 (phần auto-OFF) và M2.D-60 — xem OVERRIDE-DEBT.md.
   { key: 'notify_sms_recipients', kind: 'json', default: [] },
   { key: 'notify_email_recipients', kind: 'json', default: [] },
   { key: 'eta_pickup_min', kind: 'int', default: 15 },
@@ -58,7 +70,8 @@ export type StoreSettingsMap = {
   pickup_enabled: boolean;
   delivery_enabled: boolean;
   escalate_sms_after_s: number;
-  escalate_autooff_after_s: number;
+  closed_banner_text: string;
+  closed_submit_confirm_text: string;
   notify_sms_recipients: string[];
   notify_email_recipients: string[];
   eta_pickup_min: number;
