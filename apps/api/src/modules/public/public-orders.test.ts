@@ -9,16 +9,15 @@ import {
   type MenuItemLookup,
   type SubmitSettings,
 } from './submit-order.js';
-import type { OrderingStatus } from './store-status.js';
 import { PublicOrdersService } from './public-orders.service.js';
 
 // Test tầng service với FAKE `SubmitDeps` (object literal trả dữ liệu định trước) — KHÔNG
 // bootstrap Nest, KHÔNG thêm devDependency test-framework nào (quyết định "hướng nhẹ" đã
-// chốt, xem 08-VALIDATION.md). Phủ 6 nhánh mã lỗi theo thứ tự spec §7 + snapshot giá (T-08-49).
-
-const ENABLED: OrderingStatus = { enabled: true, is_open_now: true, blocking_reason: null };
-const MANUAL_OFF: OrderingStatus = { enabled: false, is_open_now: true, blocking_reason: 'MANUAL_OFF' };
-const OUTSIDE_HOURS: OrderingStatus = { enabled: false, is_open_now: false, blocking_reason: 'OUTSIDE_HOURS' };
+// chốt, xem 08-VALIDATION.md). Phủ 4 nhánh mã lỗi còn lại + snapshot giá (T-08-49).
+//
+// ⚠ 2 `describe` "công tắc OFF thủ công" và "ngoài giờ mở cửa" đã bị XOÁ ở plan 09-12 (D-11), cùng
+// 3 hằng `OrderingStatus` chỉ chúng dùng. KHÔNG phải hồi quy: công tắc nay không chặn submit nữa,
+// nên `getOrderingStatus` đã bị bỏ khỏi `SubmitDeps`. Thay bằng `describe('D-11 …')` bên dưới.
 
 const FAKE_MENU_ITEM: MenuItemLookup = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -46,7 +45,6 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
 
 function makeDeps(overrides: Partial<SubmitDeps> = {}): SubmitDeps {
   return {
-    getOrderingStatus: vi.fn().mockResolvedValue(ENABLED),
     readSettings: vi.fn().mockResolvedValue(baseSettings()),
     isPhoneBlacklisted: vi.fn().mockResolvedValue(false),
     countRecentByPhone: vi.fn().mockResolvedValue(0),
@@ -82,39 +80,24 @@ async function captureHttpError(p: Promise<unknown>): Promise<{ code: string; me
   throw new Error('expected submitOrder to throw, but it resolved');
 }
 
-describe('submitOrder — công tắc OFF thủ công', () => {
-  it('có off_reason → ONLINE_ORDERING_DISABLED, message chứa off_reason, status 409', async () => {
+describe('D-11 — công tắc Đóng cửa KHÔNG còn chặn đặt đơn', () => {
+  it('submit thành công dù quán đang Đóng cửa: `SubmitDeps` không còn đường nào biết trạng thái công tắc', async () => {
+    // Bằng chứng cấu trúc: nếu ai khôi phục nhánh chặn thì họ phải thêm lại một dep để đọc trạng
+    // thái công tắc — và khoá đó sẽ xuất hiện ở đây, làm case này đỏ.
+    const deps = makeDeps();
+    expect(Object.keys(deps)).not.toContain('getOrderingStatus');
+
+    const result = await submitOrder(deps, baseInput(), CTX);
+    expect(result.order_token).toHaveLength(64);
+    expect(deps.insertRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('có `online_ordering_off_reason` cũng vẫn đặt được — lý do tạm ngưng nay chỉ là chữ hiển thị', async () => {
     const deps = makeDeps({
-      getOrderingStatus: vi.fn().mockResolvedValue(MANUAL_OFF),
       readSettings: vi.fn().mockResolvedValue(baseSettings({ online_ordering_off_reason: 'Hết nguyên liệu' })),
     });
-    const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
-    expect(result.code).toBe('ONLINE_ORDERING_DISABLED');
-    expect(result.message).toContain('Hết nguyên liệu');
-    expect(result.status).toBe(409);
-  });
-
-  it('off_reason rỗng → message chứa store_phone', async () => {
-    const deps = makeDeps({
-      getOrderingStatus: vi.fn().mockResolvedValue(MANUAL_OFF),
-      readSettings: vi.fn().mockResolvedValue(baseSettings({ online_ordering_off_reason: '', store_phone: '0909998888' })),
-    });
-    const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
-    expect(result.code).toBe('ONLINE_ORDERING_DISABLED');
-    expect(result.message).toContain('0909998888');
-  });
-});
-
-describe('submitOrder — ngoài giờ mở cửa', () => {
-  it('OUTSIDE_HOURS → STORE_CLOSED, message chứa store_phone', async () => {
-    const deps = makeDeps({
-      getOrderingStatus: vi.fn().mockResolvedValue(OUTSIDE_HOURS),
-      readSettings: vi.fn().mockResolvedValue(baseSettings({ store_phone: '0912340000' })),
-    });
-    const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
-    expect(result.code).toBe('STORE_CLOSED');
-    expect(result.message).toContain('0912340000');
-    expect(result.status).toBe(409);
+    const result = await submitOrder(deps, baseInput(), CTX);
+    expect(result.order_token).toHaveLength(64);
   });
 });
 

@@ -150,8 +150,9 @@ export class PublicOrdersService {
 
   private makeDeps(mgr: EntityManager): SubmitDeps {
     return {
-      getOrderingStatus: (nowMs) => this.settingsSvc.getOrderingStatus(nowMs),
-
+      // D-11 — `getOrderingStatus` đã bị bỏ khỏi `SubmitDeps`: luồng submit không còn đọc trạng
+      // thái công tắc. `SettingsService.getOrderingStatus()` vẫn là đường duy nhất để biết trạng
+      // thái đó, và vẫn được `PublicStoreController` + `SettingsController` dùng.
       readSettings: async () => {
         const s = await this.settingsSvc.readAll();
         return {

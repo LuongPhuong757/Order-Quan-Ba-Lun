@@ -1,10 +1,18 @@
 // Nguồn: M2.D-17 (Ingest CONTEXT), M2.D-28, M2.D-30 — pure function, KHÔNG import DataSource.
 // Module thuần: không import gì từ @nestjs/* hay typeorm, để test được mà không dựng app/DB.
 //
-// D-17: "OFF đến hết hôm nay" và "ngoài giờ mở cửa" đều TÍNH LÚC ĐỌC, không dùng cron.
+// D-17: "Đóng cửa đến hết hôm nay" và "ngoài giờ mở cửa" đều TÍNH LÚC ĐỌC, không dùng cron.
 // Hàm này KHÔNG mutate settings khi tự-động hết hạn (không ghi lại DB) — đúng nghĩa
 // "tính lúc đọc". `nowMs` LUÔN là tham số — TUYỆT ĐỐI không đọc giờ hệ thống bên trong
 // (ràng buộc của 08-VALIDATION.md, để test được auto-revert qua 00:00 mà không cần fake timer).
+//
+// ── ⚠ D-11 (phase 9) ĐỔI NGỮ NGHĨA, KHÔNG ĐỔI LOGIC ──
+// `enabled === false` nay có nghĩa **"quán đang Đóng cửa — VẪN NHẬN ĐƠN, chỉ đổi chữ hiển thị"**.
+// Nó KHÔNG còn có nghĩa "chặn submit": `order-guard.ts` đã gỡ hẳn nhánh chặn công tắc, và
+// `submitOrder` không còn đọc hàm này nữa. Nơi duy nhất còn đọc là `GET /api/public/store` (để
+// trang khách chọn giữa câu bình thường và `closed_banner_text`) và `/admin/settings`.
+// Cơ chế tính-lúc-đọc của OD-07 giữ nguyên từng dòng — `store-status.test.ts` (16 test) phải xanh
+// y nguyên sau plan 09-12, không sửa file test đó. D-11 ghi đè M2.D-26/M2.D-27.
 
 // ICT (UTC+7) cố định quanh năm, không có giờ mùa hè (xem Sources trong 08-RESEARCH.md)
 // → không cần thư viện timezone, cộng offset cố định là đủ chính xác.
@@ -23,7 +31,7 @@ export type StoreOrderingSettings = {
 };
 
 export type OrderingStatus = {
-  enabled: boolean; // kết luận cuối cùng, dùng để cho phép/chặn submit
+  enabled: boolean; // false = đang Đóng cửa (VẪN nhận đơn — D-11), KHÔNG còn nghĩa "chặn submit"
   is_open_now: boolean; // riêng phần giờ mở cửa (để FE hiện banner đúng lý do)
   blocking_reason: 'MANUAL_OFF' | 'OUTSIDE_HOURS' | null;
 };

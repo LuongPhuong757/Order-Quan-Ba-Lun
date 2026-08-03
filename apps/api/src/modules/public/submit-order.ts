@@ -70,7 +70,6 @@ export type SubmitSettings = {
  * trong `public-orders.test.ts`).
  */
 export type SubmitDeps = {
-  getOrderingStatus(nowMs: number): Promise<OrderingStatus>;
   readSettings(): Promise<SubmitSettings>;
   isPhoneBlacklisted(phone: string): Promise<boolean>;
   countRecentByPhone(phone: string, sinceMs: number): Promise<number>;
@@ -85,13 +84,10 @@ export type SubmitDeps = {
 // Copywriting — 08-UI-SPEC.md bảng Copywriting (BE build message hoàn chỉnh tại chỗ throw;
 // KHÔNG thêm code nào vào `FRIENDLY_VN` của `global-exception.filter.ts`, xem Pitfall #6).
 function buildGuardMessage(code: GuardErrorCode, settings: SubmitSettings): string {
+  // D-11 — 2 case của công tắc ("tắt nhận đơn" và "ngoài giờ mở cửa") đã bị xoá cùng nhánh chặn
+  // trong `order-guard.ts`: Đóng cửa nay CHỈ đổi câu chữ, không sinh lỗi nào. `GuardErrorCode` còn
+  // 4 thành viên nên `switch` này vẫn phủ hết — thiếu case là lỗi biên dịch.
   switch (code) {
-    case 'ONLINE_ORDERING_DISABLED':
-      return settings.online_ordering_off_reason
-        ? `Quán vừa tắt nhận đơn online. ${settings.online_ordering_off_reason}`
-        : `Quán vừa tắt nhận đơn online. Vui lòng gọi ${settings.store_phone} để đặt trực tiếp.`;
-    case 'STORE_CLOSED':
-      return `Quán đang ngoài giờ mở cửa hôm nay. Gọi ${settings.store_phone} nếu cần hỗ trợ.`;
     case 'PHONE_BLACKLISTED':
       // D-21 — tông TRUNG TÍNH: KHÔNG được chứa chữ "bị chặn"/"blacklist" trong message này.
       return `Không thể gửi đơn với số điện thoại này lúc này. Vui lòng gọi ${settings.store_phone} để được hỗ trợ.`;
@@ -129,8 +125,12 @@ export async function submitOrder(
   // bản cài thật (Task 2) mở gap lock `FOR UPDATE` bên trong nó; giữ nó là bước cuối cùng
   // trước insert giúp thời gian giữ lock ngắn nhất có thể — ưu tiên đúng ngữ nghĩa lock hơn
   // là song song hoá tối đa.
-  const [ordering, settings, isBlacklisted, recentCount, menuItems] = await Promise.all([
-    deps.getOrderingStatus(ctx.nowMs),
+  //
+  // D-11 — `getOrderingStatus()` đã bị BỎ khỏi đây và khỏi `SubmitDeps`: sau khi guard không còn
+  // nhánh công tắc thì không ai đọc giá trị đó nữa, giữ lại là một round-trip DB mỗi lần đặt đơn
+  // cho một kết quả bị bỏ đi. Trạng thái công tắc vẫn đọc được ở `GET /api/public/store` (nơi trang
+  // khách cần nó để chọn câu chữ) — chỉ luồng submit là không cần.
+  const [settings, isBlacklisted, recentCount, menuItems] = await Promise.all([
     deps.readSettings(),
     deps.isPhoneBlacklisted(phone),
     deps.countRecentByPhone(phone, ctx.nowMs - PHONE_WINDOW_MS),
@@ -150,7 +150,6 @@ export async function submitOrder(
   }
 
   const guardInput: OrderGuardInput = {
-    ordering,
     isBlacklisted,
     isRateLimited,
     hasOpenOrder,
