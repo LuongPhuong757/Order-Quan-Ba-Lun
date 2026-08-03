@@ -95,3 +95,23 @@ export const PublicOrderStatus = z.object({
   updated_at_ms: z.number().int(),
 });
 export type PublicOrderStatus = z.infer<typeof PublicOrderStatus>;
+
+/**
+ * Hợp đồng `DELETE /api/public/orders/:token` — khách tự huỷ đơn khi quán CHƯA duyệt
+ * (M2.D-44, phần "nửa huỷ"; nửa sửa đơn `PATCH` hoãn sang phase 10).
+ *
+ * Không có request body: `order_token` nằm trên URL và chính nó là credential duy nhất của đơn.
+ *
+ * `status` là literal chứ không phải enum 4 giá trị: endpoint này chỉ có đúng một kết cục thành
+ * công. Mọi trạng thái khác (`CONFIRMED`/`REJECTED`) là nhánh LỖI 409, không phải một giá trị
+ * hợp lệ của response — khai bằng enum rộng là mở đường cho FE tin rằng huỷ đã thành công trong
+ * khi quán vừa xác nhận đơn.
+ *
+ * Gọi lần thứ hai trên đơn đã huỷ vẫn trả 200 với cùng payload (idempotent): khách bấm 2 lần
+ * hoặc mạng chập chờn không được nhận thông báo lỗi cho một việc đã xong.
+ */
+export const PublicOrderCancelResult = z.object({
+  order_token: z.string(),
+  status: z.literal('CANCELLED_BY_CUSTOMER'),
+});
+export type PublicOrderCancelResult = z.infer<typeof PublicOrderCancelResult>;

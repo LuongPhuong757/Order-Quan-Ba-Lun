@@ -1,8 +1,8 @@
-import { BadRequestException, Body, Controller, Get, Header, HttpCode, Param, Post, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Req } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { apiOk, type ApiOk } from '@order/utils';
-import { OnlineOrderSubmit, type PublicOrderStatus } from '@order/schemas';
+import { OnlineOrderSubmit, type PublicOrderCancelResult, type PublicOrderStatus } from '@order/schemas';
 import { PublicOrdersService } from './public-orders.service.js';
 
 /**
@@ -56,5 +56,26 @@ export class PublicOrdersController {
   @Header('Cache-Control', 'no-store')
   async getByToken(@Param('token') token: string): Promise<ApiOk<PublicOrderStatus>> {
     return apiOk(await this.svc.getByToken(token));
+  }
+
+  /**
+   * Khách tự huỷ đơn khi quán chưa duyệt (M2.D-44 nửa huỷ).
+   *
+   * `@Throttle` giống hệt `POST orders` — huỷ đơn là thao tác GHI, không được lỏng hơn đặt đơn
+   * (T-09-81). `CsrfOriginGuard` đã phủ `DELETE` trên `/api/public/*` sẵn
+   * (`csrf-origin.middleware.ts` có `DELETE` trong `MUTATION_METHODS`), KHÔNG thêm ngoại lệ nào.
+   *
+   * Ranh giới quyền đã cân nhắc và chấp nhận (T-09-80): `order_token` là credential DUY NHẤT của
+   * trang này — ai có link là huỷ được, y hệt ai có link là xem được đơn qua `GET /:token` đã
+   * ship từ phase 8. Bắt khách nhập SĐT để huỷ sẽ phá đúng mục tiêu "khách tự huỷ thoải mái,
+   * không cần xin phép" của M2.D-44. Thiệt hại bị chặn ở chỗ khác: chỉ huỷ được khi còn
+   * `WAITING`, và sau khi quán xác nhận thì thao tác này không còn tác dụng.
+   */
+  @Delete('orders/:token')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async cancelByToken(@Param('token') token: string): Promise<ApiOk<PublicOrderCancelResult>> {
+    return apiOk(await this.svc.cancelByToken(token));
   }
 }

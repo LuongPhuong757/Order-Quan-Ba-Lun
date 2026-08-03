@@ -43,7 +43,12 @@ export class OnlineOrderRequest {
   customer_token!: string;
 
   // WAITING | CONFIRMED | REJECTED | CANCELLED_BY_CUSTOMER
-  @Column({ type: 'varchar', length: 16 })
+  //
+  // ⚠ `length` PHẢI ≥ 21: `CANCELLED_BY_CUSTOMER` dài đúng 21 ký tự. Cột này ra đời ở phase 8 với
+  // `length: 16` — đủ cho 3 giá trị đầu, nên không ai phát hiện; giá trị thứ tư chỉ có đường tạo
+  // ra từ phase 9 (plan 09-11, khách tự huỷ) và lúc đó MySQL trả thẳng
+  // `Data too long for column 'status'`. Đừng thu hẹp lại.
+  @Column({ type: 'varchar', length: 32 })
   status!: string;
 
   // PICKUP | DELIVERY
@@ -107,6 +112,12 @@ export class OnlineOrderRequest {
   // (câu soạn sẵn) mới là thứ khách đọc.
   @Column({ type: 'varchar', length: 500, nullable: true })
   internal_reject_note!: string | null;
+
+  // Lúc KHÁCH tự huỷ (M2.D-44, phase 9 plan 09-11). Cột riêng chứ không dùng chung
+  // `reviewed_at`: `reviewed_at` là mốc NHÂN VIÊN xử lý đơn và đi kèm `reviewed_by_*`. Nhét
+  // hành động của khách vào đó là làm hỏng mọi câu hỏi "ai đã xử lý đơn này, lúc nào".
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  cancelled_at!: number | null;
 
   // FK → orders.id, set khi CONFIRMED (phase 9).
   @Column({ type: 'varchar', length: 36, nullable: true })

@@ -7,7 +7,7 @@ import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { OnlineOrderSubmit } from '@order/schemas';
-import { PublicOrderStatus } from '@order/schemas';
+import { PublicOrderCancelResult, PublicOrderStatus } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
@@ -23,6 +23,7 @@ import {
   stageLabel,
 } from './order-progress.js';
 import { submitOrder, type MenuItemLookup, type SubmitDeps } from './submit-order.js';
+import { cancelOrderByCustomer } from './cancel-order.js';
 
 @Injectable()
 export class PublicOrdersService {
@@ -86,6 +87,65 @@ export class PublicOrdersService {
     }
 
     return result;
+  }
+
+  /**
+   * `DELETE /api/public/orders/:token` — khách tự huỷ đơn còn `WAITING` (M2.D-44 nửa huỷ).
+   *
+   * Quyết định nằm ở `cancel-order.ts` (module thuần, test bằng fake-deps); file này CHỈ nối dây
+   * DB thật. Row lock `FOR UPDATE` phải nằm CÙNG transaction với lệnh UPDATE phía sau — đó là
+   * toàn bộ cách giải race với `AdminOnlineOrdersService.confirm()` (T-09-82).
+   *
+   * SSE emit SAU commit, và chỉ khi thực sự vừa đổi trạng thái: emit trong transaction rồi
+   * rollback là báo cho mọi tab admin về một thay đổi không có thật (cùng lý do T-09-51 ở
+   * `submit()`).
+   */
+  async cancelByToken(token: string): Promise<PublicOrderCancelResult> {
+    const settings = await this.settingsSvc.readAll();
+
+    const outcome = await this.ds.transaction(async (mgr) =>
+      cancelOrderByCustomer(
+        {
+          lockRequestByToken: async (t) => {
+            const rows: Array<{ id: string; status: string }> = await mgr.query(
+              'SELECT id, status FROM online_order_requests WHERE order_token = ? FOR UPDATE',
+              [t],
+            );
+            return rows[0] ?? null;
+          },
+          markCancelled: async (id, nowMs) => {
+            await mgr.query(
+              `UPDATE online_order_requests SET status = 'CANCELLED_BY_CUSTOMER', cancelled_at = ? WHERE id = ?`,
+              [new Date(nowMs), id],
+            );
+          },
+          cancelPendingNotifications: async (id) => {
+            await this.outbox.cancelPendingForRequest(id, mgr);
+          },
+          storePhone: settings.store_phone,
+        },
+        token,
+        Date.now(),
+      ),
+    );
+
+    if (outcome.changed) {
+      // Hàng chờ duyệt phải tự bớt đơn này đi — không thì nhân viên bấm Xác nhận một đơn ma rồi
+      // nhận 409. Fire-and-forget: emit lỗi KHÔNG được biến một lần huỷ đã commit thành lỗi 500.
+      try {
+        this.emitter.emit('online_order.reviewed', {
+          request_id: outcome.request_id,
+          at_ms: Date.now(),
+        });
+      } catch (err) {
+        this.logger.warn(`Emit event khách huỷ đơn thất bại (đơn vẫn đã huỷ): ${(err as Error).message}`);
+      }
+    }
+
+    return PublicOrderCancelResult.strict().parse({
+      order_token: outcome.order_token,
+      status: outcome.status,
+    });
   }
 
   private makeDeps(mgr: EntityManager): SubmitDeps {

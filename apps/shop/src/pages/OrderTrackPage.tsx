@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { PublicOrderStatus } from '@order/schemas';
-import { useApi } from '../lib/use-api.ts';
+import { PublicOrderCancelResult, PublicOrderStatus } from '@order/schemas';
+import { deleteJson, useApi } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { OrderStepper } from '../components/OrderStepper.tsx';
@@ -85,6 +85,28 @@ export function OrderTrackPage(): JSX.Element {
   const isTokenNotFound = error?.code === 'ORDER_TOKEN_NOT_FOUND';
   const showError = error !== null && shown === null;
   const [editHelpOpen, setEditHelpOpen] = useState(false);
+
+  // ── Khách tự huỷ đơn còn WAITING (M2.D-44 nửa huỷ) ──
+  const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+
+  async function onCancelOrder(): Promise<void> {
+    if (!token || cancelling) return;
+    setCancelling(true);
+    setCancelError(null);
+    const res = await deleteJson(`/api/public/orders/${token}`, PublicOrderCancelResult);
+    setCancelling(false);
+    if ('error' in res) {
+      // Quán vừa xác nhận trước một nhịp là tình huống BÌNH THƯỜNG, không phải lỗi của khách —
+      // hiện đúng câu BE soạn (có sẵn SĐT quán) rồi tải lại để trang chuyển sang trạng thái mới.
+      setCancelError(res.error.message);
+      reload();
+      return;
+    }
+    setConfirmingCancel(false);
+    reload();
+  }
 
   return (
     <div style={page}>
@@ -172,6 +194,47 @@ export function OrderTrackPage(): JSX.Element {
             <span style={totalLabel}>Tổng cộng</span>
             <span style={totalValue}>{formatVnd(shown.subtotal)}</span>
           </div>
+
+          {/* M2.D-44 (nửa huỷ) — đơn CHƯA duyệt thì khách tự huỷ được, không phải gọi điện xin.
+              Sau khi `CONFIRMED` nút này BIẾN MẤT hoàn toàn (không phải disable) — khớp
+              M2.D-45/46: lúc đó chỉ còn SĐT + nút gọi. Hộp xác nhận 2 nút là bắt buộc vì bấm
+              nhầm ở đây là mất đơn thật, không hoàn tác được. */}
+          {shown.status === 'WAITING' && (
+            <div style={cancelBlock}>
+              {cancelError !== null && <BannerNotice tone="warn" title={cancelError} />}
+              {!confirmingCancel ? (
+                <button type="button" style={dangerTextButton} onClick={() => setConfirmingCancel(true)}>
+                  Huỷ đơn
+                </button>
+              ) : (
+                <div style={confirmRow} role="group" aria-label="Xác nhận huỷ đơn">
+                  <span style={confirmQuestion}>Huỷ đơn này?</span>
+                  <button
+                    type="button"
+                    style={textButton}
+                    disabled={cancelling}
+                    onClick={() => setConfirmingCancel(false)}
+                  >
+                    Không huỷ nữa
+                  </button>
+                  <button
+                    type="button"
+                    style={dangerSolidButton}
+                    disabled={cancelling}
+                    onClick={() => void onCancelOrder()}
+                  >
+                    {cancelling ? 'Đang huỷ…' : 'Huỷ đơn'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {shown.status === 'CANCELLED_BY_CUSTOMER' && (
+            <Link to="/" style={ctaButton}>
+              Xem menu
+            </Link>
+          )}
 
           {/* M2.D-45/D-46 — sau khi quán đã xác nhận, khách KHÔNG tự sửa đơn được nữa. Không có ô
               nhập nào ở đây là cố ý: đơn đã vào bếp, mọi thay đổi phải qua người thật. Nút gọi
@@ -388,6 +451,56 @@ const textButton: CSSProperties = {
   fontSize: 'var(--fs-base)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   textDecoration: 'underline',
+  cursor: 'pointer',
+};
+
+const cancelBlock: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  gap: 'var(--sp-2)',
+};
+
+const confirmRow: CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--sp-2)',
+};
+
+const confirmQuestion: CSSProperties = {
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+// Nút mở hộp xác nhận: chữ, không phải nút đặc — huỷ đơn không phải hành động chính của trang
+// này, để nó nổi ngang nút "Gọi quán" là mời khách bấm nhầm.
+const dangerTextButton: CSSProperties = {
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-3)',
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--danger-600)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  textDecoration: 'underline',
+  cursor: 'pointer',
+};
+
+// Chỉ nút xác nhận CUỐI CÙNG mới đặc màu danger — đây là bước không hoàn tác được.
+const dangerSolidButton: CSSProperties = {
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-4)',
+  border: 'none',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--danger-600)',
+  color: 'var(--text-on-brand)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
   cursor: 'pointer',
 };
 

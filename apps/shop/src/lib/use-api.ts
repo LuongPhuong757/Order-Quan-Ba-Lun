@@ -131,13 +131,36 @@ export async function postJson<T>(
   body: unknown,
   schema: ZodType<T>,
 ): Promise<{ data: T } | { error: ApiError }> {
+  return sendJson('POST', path, body, schema);
+}
+
+/**
+ * `DELETE path` — khách tự huỷ đơn (`DELETE /api/public/orders/:token`, M2.D-44).
+ *
+ * Không có body: `order_token` nằm trên URL. Dùng chung `sendJson` với `postJson` để `DELETE` đi
+ * qua ĐÚNG một đường xử lý lỗi — nhất là `credentials: 'same-origin'` (trình duyệt mới gửi header
+ * `Origin`, thứ `CsrfOriginGuard` bắt buộc phải có ở mọi mutation).
+ */
+export async function deleteJson<T>(
+  path: string,
+  schema: ZodType<T>,
+): Promise<{ data: T } | { error: ApiError }> {
+  return sendJson('DELETE', path, undefined, schema);
+}
+
+async function sendJson<T>(
+  method: 'POST' | 'DELETE',
+  path: string,
+  body: unknown,
+  schema: ZodType<T>,
+): Promise<{ data: T } | { error: ApiError }> {
   let res: Response;
   try {
     res = await fetch(path, {
-      method: 'POST',
+      method,
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   } catch {
     return { error: { code: 'INTERNAL_ERROR', message: NETWORK_ERROR_MESSAGE, kind: 'network' } };
