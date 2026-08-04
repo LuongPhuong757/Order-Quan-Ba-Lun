@@ -15,3 +15,6 @@ Khi ở giỏ hàng ở mobile cần hiển thị rõ tên món ăn để khách
 Khi tiến hành đặt hàng cần có popup comfirm và có cả thông báo là đơn của quý khách đang xử lý và cần gọi để xác nhận
 Hiện chưa biết khi xác nhận rồi thì đơn xong sẽ hiển thị như nào ở cả 2 bên admin và shop
 Chưa có thống kê các đơn lịch sử
+Đơn đã xác nhận hoặc đang giao khách hủy giữa chừng
+Tất cả mọi hành động ở phần online này tôi đều cần log:
+Cần lưu lại log ai xác nhận ai từ chối đơn, khi mà map với bàn rồi thì lưu vào log thành bàn, ai là người nhân đi ship ai là người ấn xác nhận là ship thành công
