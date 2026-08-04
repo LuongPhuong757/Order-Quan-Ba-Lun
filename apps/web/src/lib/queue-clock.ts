@@ -5,7 +5,7 @@
 //
 // ⚠ NGƯỠNG CẢNH BÁO ĐỎ LÀ THAM SỐ, KHÔNG PHẢI HẰNG SỐ TRONG FILE NÀY. Nó đến từ
 // `AdminOnlineOrderList.escalate_sms_after_s` do BE trả về trong chính response hàng chờ. Chủ quán
-// đổi ngưỡng ở `/admin/settings` thì màu đồng hồ phải đổi theo NGAY, không cần deploy lại FE —
+// đổi ngưỡng ở tab Cài đặt của màn Đơn hàng online thì màu đồng hồ phải đổi theo NGAY, không cần deploy lại FE —
 // hardcode con số ở đây là làm nhân viên tin vào một ngưỡng không còn đúng (T-09-58).
 //
 // Cố ý KHÔNG import `item-age.ts`: file đó có ngưỡng 10/20 phút cứng và ngữ nghĩa khác (tuổi món ở

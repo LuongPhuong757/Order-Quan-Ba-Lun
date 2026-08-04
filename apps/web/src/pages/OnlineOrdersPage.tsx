@@ -1,4 +1,16 @@
-// Trang Hàng chờ duyệt đơn online — mặt trận A của 09-UI-SPEC.
+// Trang "Đơn hàng online" — mặt trận A của 09-UI-SPEC, cộng tab Cài đặt gộp vào từ
+// `/admin/settings` (chỉ đạo chủ dự án 2026-08-03).
+//
+// ─── Cấu trúc 2 tab cấp 1 ───
+//   🛎 Hàng chờ  — cả 3 role admin/order/kitchen (D-02)
+//   ⚙ Cài đặt   — CHỈ admin. Order/kitchen không thấy tab, và gõ tay `?view=settings` cũng
+//                 không vào được. BE đã có `AdminGuard` nên đây là lớp UX, không phải bảo mật.
+//
+// ⚠ `QueueView` LUÔN mounted, ẩn bằng `display:none` khi admin xem tab Cài đặt — KHÔNG unmount.
+// Unmount là đóng SSE + huỷ `AudioContext` của chuông, nghĩa là admin vào sửa cài đặt 2 phút thì
+// 2 phút đó không có gì báo đơn mới. Đúng cái "bỏ lọt đơn" mà cả phase 9 sinh ra để chống.
+// Bù lại phải trả giá: badge số đơn chờ nâng lên tab cấp 1 để admin đang ở Cài đặt vẫn thấy số
+// tăng, và `QueueView` báo số đó lên qua `onWaitingCount`.
 //
 // Công cụ NỘI BỘ, nhân viên nhìn cả ca: tối ưu tốc độ thao tác + không bỏ sót đơn, không phải vẻ
 // đẹp. Hai loại LỖI IM LẶNG phải nhìn thấy được, và cả hai đều xử bằng banner CHIẾM CHỖ (không
@@ -26,6 +38,7 @@
 // 2. Sau khi xử lý xong, dòng đơn biến mất sau ~600ms mờ dần; KHÔNG giữ lại trạng thái "đã xử lý".
 // 3. Panel từ chối là khối mở rộng ngay trong dòng đơn, KHÔNG phải hộp thoại nổi.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   REJECT_REASON_TEXT,
   RejectReasonCode,
@@ -35,7 +48,10 @@ import {
   type AdminOnlineOrderStatusFilter,
 } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
+import { C, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
+import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
+import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
 import { createBell } from '../lib/bell.ts';
 import {
   connectionStateFrom,
@@ -57,40 +73,9 @@ const FADE_MS = 600;
  * không ai phải bấm gì; chỉ đơn thật dài mới gấp lại để card không đẩy các đơn sau ra khỏi màn. */
 const ITEMS_VISIBLE_MAX = 5;
 
-const C = {
-  pageBg: '#f9fafb',
-  cardBg: '#ffffff',
-  border: '#d1d5db',
-  borderSoft: '#e5e7eb',
-  accent: '#0f766e',
-  danger: '#dc2626',
-  warn: '#f59e0b',
-  connected: '#059669',
-  text: '#1f2937',
-  muted: '#6b7280',
-  alertBg: '#fee2e2',
-  alertBorder: '#fecaca',
-  alertText: '#991b1b',
-  warnBg: '#fef3c7',
-  warnBorder: '#fde68a',
-  warnText: '#92400e',
-  panelBg: '#f3f4f6',
-
-  // ── Nền khối MÓN, tách khỏi khối KHÁCH (chỉ đạo chủ dự án 2026-08-01) ──
-  // #e9ecef khác trắng 1.19:1 — thấy rõ ranh giới. Nhưng nó KÉO chữ phụ #6b7280 xuống
-  // 4.08:1, DƯỚI ngưỡng AA 4.5. Nên chữ phụ ĐẶT TRÊN nền này phải dùng `mutedOnTint`
-  // (#4b5563 = 6.37:1). Đừng dùng `muted` trong khối món.
-  itemsBg: '#e9ecef',
-  itemsBorder: '#d7dbe0',
-  mutedOnTint: '#4b5563',
-} as const;
-
-/** 3 tab trạng thái. Nhãn ngắn để 3 tab vừa một hàng trên điện thoại. */
-const STATUS_TABS: { value: AdminOnlineOrderStatusFilter; label: string }[] = [
-  { value: 'WAITING', label: 'Chờ duyệt' },
-  { value: 'CONFIRMED', label: 'Đã xác nhận' },
-  { value: 'REJECTED', label: 'Đã từ chối' },
-];
+/** 3 tab trạng thái. Nhãn + màu lấy từ `STATUS_TONE` để pill trên card và tab không bao giờ
+ * lệch nhau — trước đây nhãn tab khai riêng ở đây, nhãn trên card khai riêng trong JSX. */
+const STATUS_TABS: AdminOnlineOrderStatusFilter[] = ['WAITING', 'CONFIRMED', 'REJECTED'];
 
 const REASON_ORDER: RejectReasonCode[] = [
   'OUT_OF_INGREDIENT',
@@ -118,7 +103,127 @@ function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function OnlineOrdersQueuePage() {
+/** 2 tab cấp 1. Nhãn có icon để phân biệt bằng hình, không chỉ bằng chữ. */
+const VIEW_TABS = [
+  { value: 'queue', label: '🛎 Hàng chờ', adminOnly: false },
+  { value: 'settings', label: '⚙ Cài đặt', adminOnly: true },
+] as const;
+
+type ViewTab = (typeof VIEW_TABS)[number]['value'];
+
+export function OnlineOrdersPage() {
+  const { user } = useAuth();
+  const isAdmin = !!user?.is_owner || user?.role === 'admin';
+  const [params, setParams] = useSearchParams();
+
+  // Tab cấp 1 nằm trong URL để chia link được (`?view=settings`) và để redirect từ
+  // `/admin/settings` cũ trỏ thẳng vào đây. Không phải admin thì `view` bị ép về 'queue' —
+  // đó là lớp chặn cho trường hợp gõ tay URL, không chỉ ẩn cái tab.
+  const view: ViewTab = isAdmin && params.get('view') === 'settings' ? 'settings' : 'queue';
+
+  // Số đơn đang chờ, do `QueueView` báo lên. `null` = đang xem tab tra cứu nên chưa biết số
+  // đơn chờ → không hiện badge (thà không có số còn hơn hiện số sai).
+  const [waitingCount, setWaitingCount] = useState<number | null>(null);
+
+  const visibleTabs = VIEW_TABS.filter((t) => isAdmin || !t.adminOnly);
+
+  const goView = (next: ViewTab) => {
+    const n = new URLSearchParams(params);
+    if (next === 'settings') {
+      n.set('view', 'settings');
+    } else {
+      // Rời tab Cài đặt thì dọn luôn state của nó khỏi URL, nếu không lần sau quay lại
+      // sẽ nhảy vào giữa trang 4 của danh sách SĐT bị chặn với ô tìm kiếm còn chữ cũ.
+      n.delete('view');
+      n.delete('tab');
+      n.delete('q');
+      n.delete('page');
+    }
+    setParams(n, { replace: true });
+  };
+
+  return (
+    <div className="container wide oo-page with-bottom-nav">
+      {/* Tiêu đề và tab cấp 1 CÙNG một hàng (`.oo-head`) — trước đây là 2 tầng riêng, cộng thêm
+          tab trạng thái và 2 banner thì chrome ăn gần 300px trước khi thấy đơn đầu tiên. */}
+      <div className="oo-head">
+        <h1>Đơn hàng online</h1>
+
+        {/* Chỉ dựng tablist khi thật sự có từ 2 tab. Với order/kitchen chỉ còn 1 tab, một hàng
+            tab đơn độc là nhiễu thị giác không mang tin gì. */}
+        {visibleTabs.length > 1 && (
+          <div
+            role="tablist"
+            aria-label="Khu vực của màn đơn hàng online"
+            style={{ display: 'flex', gap: 4 }}
+          >
+          {visibleTabs.map((t) => {
+            const active = view === t.value;
+            return (
+              <button
+                key={t.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => goView(t.value)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  minHeight: 44,
+                  padding: '0 14px',
+                  border: 'none',
+                  borderBottom: `2px solid ${active ? C.accent : 'transparent'}`,
+                  borderRadius: 0,
+                  background: 'transparent',
+                  color: active ? C.accent : C.muted,
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  fontWeight: active ? 700 : 500,
+                }}
+              >
+                {t.label}
+                {/* Badge trên TAB, không trên h1 — để admin đang ở tab Cài đặt vẫn thấy đơn
+                    mới dồn vào. Đây là bù trừ cho việc tab Hàng chờ bị ẩn. */}
+                {t.value === 'queue' && waitingCount !== null && waitingCount > 0 && (
+                  <span
+                    aria-label={`${waitingCount} đơn đang chờ`}
+                    style={{
+                      background: C.danger,
+                      color: C.cardBg,
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      lineHeight: 1,
+                      minWidth: 18,
+                      height: 18,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '0 5px',
+                    }}
+                  >
+                    {waitingCount}
+                  </span>
+                )}
+              </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* `display:none` chứ KHÔNG phải `{view === 'queue' && ...}` — xem lý do ở đầu file. */}
+      <div style={{ display: view === 'queue' ? 'block' : 'none' }}>
+        <QueueView onWaitingCount={setWaitingCount} />
+      </div>
+
+      {view === 'settings' && isAdmin && <OnlineOrderSettingsPanel />}
+    </div>
+  );
+}
+
+function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => void }) {
   const toast = useToast();
   const [items, setItems] = useState<AdminOnlineOrderRow[]>([]);
   const [escalateAfterS, setEscalateAfterS] = useState<number>(0);
@@ -239,6 +344,12 @@ export function OnlineOrdersQueuePage() {
     setItems((cur) => cur.filter((i) => i.id !== id));
   }, []);
 
+  // Báo số đơn chờ lên shell để nó vẽ badge trên tab cấp 1. Ở tab tra cứu thì báo `null`:
+  // `items.length` lúc đó là số đơn CŨ đã xử lý, đem hiện thành badge đỏ là báo động giả.
+  useEffect(() => {
+    onWaitingCount(isQueue ? items.length : null);
+  }, [isQueue, items.length, onWaitingCount]);
+
   // Đếm quá hạn CHỈ có nghĩa ở tab chờ duyệt — đơn đã xử lý thì "quá hạn" là chuyện đã rồi.
   const overdueCount = isQueue
     ? items.filter(
@@ -249,84 +360,90 @@ export function OnlineOrdersQueuePage() {
     : 0;
 
   return (
-    // `wide` + `with-bottom-nav` giống MỌI trang làm việc khác của app. Thiếu `wide` là trang bị
-    // khoá ở 480px (chiều rộng điện thoại) trên cả iPad và máy tính; thiếu `with-bottom-nav` là
-    // thanh điều hướng dưới che mất card cuối danh sách.
-    <div className="container wide with-bottom-nav" style={{ background: C.pageBg }}>
-      <header style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-        <h1 style={{ margin: 0, fontSize: 24, fontWeight: 700, lineHeight: 1.3, color: C.text }}>
-          Đơn online
-        </h1>
-        {/* Badge số lượng chỉ có nghĩa ở tab chờ duyệt (số việc phải làm). Ở tab tra cứu nó là
-            "số đơn cũ", không phải thứ cần gây chú ý → không hiện badge đỏ. */}
-        {isQueue && items.length > 0 && (
+    // Vỏ trang (`container wide with-bottom-nav`) + `<h1>` + badge số đơn nay ở `OnlineOrdersPage`.
+    // `<>` ở đây, không phải `<div>`: thêm một tầng div nữa chỉ để bọc là vô ích.
+    <>
+      {/* ── Thanh công cụ DÍNH TRÊN: gộp 3 chỉ báo trước đây rời rạc ở 3 chỗ ──
+          (1) tab trạng thái, (2) số đơn quá hạn (trước là một dòng <p> riêng chiếm cả hàng),
+          (3) đèn kết nối SSE (trước ở cạnh <h1>, tức là nói về hàng chờ mà lại đứng cạnh tên
+          trang). Cả 3 đều là "tình trạng của hàng chờ ngay lúc này" nên phải ở CÙNG một chỗ, và
+          phải theo màn hình khi cuộn — cuộn tới đơn thứ 15 vẫn cần biết SSE còn sống.
+
+          Hai kênh màu TÁCH BIỆT, cố ý:
+          - "đang chọn tab nào" = nền teal đặc + chữ đậm (kênh lựa chọn)
+          - "tab này là trạng thái gì" = chấm màu bên trái nhãn (kênh danh tính)
+          Nhập 2 kênh vào 1 (tab "Đã từ chối" khi chọn thì nền đỏ) là biến lựa chọn thành báo lỗi. */}
+      <div className="oo-toolbar">
+        <div className="oo-tabs" role="tablist" aria-label="Lọc đơn theo trạng thái">
+          {STATUS_TABS.map((value) => {
+            const tone = STATUS_TONE[value];
+            const active = status === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => setStatus(value)}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  minHeight: 44,
+                  padding: '0 16px',
+                  borderRadius: 999,
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  // Tab đang chọn phân biệt bằng NỀN ĐẶC + chữ đậm, không chỉ bằng màu chữ —
+                  // nền đặc vẫn thấy được khi in đen trắng hoặc mắt kém phân biệt màu.
+                  fontWeight: active ? 700 : 400,
+                  background: active ? C.accent : C.cardBg,
+                  color: active ? C.cardBg : C.text,
+                  border: `1px solid ${active ? C.accent : C.border}`,
+                }}
+              >
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 999,
+                    flex: 'none',
+                    // Trên nền teal đặc, chấm màu gốc (vàng/xanh/đỏ) tương phản kém và trông
+                    // như bụi bẩn → tab đang chọn dùng chấm trắng.
+                    background: active ? C.cardBg : tone.edge,
+                  }}
+                />
+                {tone.label}
+              </button>
+            );
+          })}
+        </div>
+        <span style={{ flex: 1 }} />
+
+        {/* Số đơn quá hạn: chip đỏ, chỉ hiện khi thực sự có — không thêm nhiễu lúc bình thường. */}
+        {overdueCount > 0 && (
           <span
-            aria-label={`${items.length} đơn đang chờ`}
             style={{
-              background: C.danger,
-              color: C.cardBg,
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 700,
-              lineHeight: 1,
-              minWidth: 18,
-              height: 18,
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              padding: '0 5px',
+              gap: 6,
+              padding: '4px 10px',
+              borderRadius: 999,
+              background: C.alertBg,
+              border: `1px solid ${C.alertBorder}`,
+              color: C.alertText,
+              fontSize: 13,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
             }}
           >
-            {items.length}
+            ⏰ {overdueCount} đơn quá {escalateAfterS}s
           </span>
         )}
-        <span style={{ flex: 1 }} />
+
         <ConnectionDot state={connState} />
-      </header>
-
-      {/* Tab trạng thái. `role="tablist"` + `aria-selected` để đọc màn hình biết đây là bộ chọn,
-          không phải 3 nút rời. Vùng bấm 44px vì nhân viên bấm bằng ngón trên iPad. */}
-      <div
-        role="tablist"
-        aria-label="Lọc đơn theo trạng thái"
-        style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}
-      >
-        {STATUS_TABS.map((t) => {
-          const active = status === t.value;
-          return (
-            <button
-              key={t.value}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => setStatus(t.value)}
-              style={{
-                minHeight: 44,
-                padding: '0 16px',
-                borderRadius: 999,
-                cursor: 'pointer',
-                fontSize: 16,
-                // Tab đang chọn phân biệt bằng NỀN ĐẶC + chữ đậm, không chỉ bằng màu chữ —
-                // nền đặc vẫn thấy được khi in đen trắng hoặc mắt kém phân biệt màu.
-                fontWeight: active ? 700 : 400,
-                background: active ? C.accent : C.cardBg,
-                color: active ? C.cardBg : C.text,
-                border: `1px solid ${active ? C.accent : C.border}`,
-              }}
-            >
-              {t.label}
-            </button>
-          );
-        })}
       </div>
-
-      {/* Dòng tóm tắt: nhân viên đứng xa vẫn biết có đơn nào đã quá hạn hay chưa, không phải quét
-          từng card. Chỉ hiện khi thực sự có đơn quá hạn — không thêm nhiễu lúc bình thường. */}
-      {overdueCount > 0 && (
-        <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 500, color: C.alertText }}>
-          {overdueCount} đơn đã quá {escalateAfterS} giây — xử lý trước
-        </p>
-      )}
 
       {/* Banner chuông đứng TRƯỚC banner kết nối khi cả hai cùng hiện: không nghe được nghĩa là
           mất luôn 2 kênh cảnh báo, nghiêm trọng hơn. */}
@@ -402,7 +519,7 @@ export function OnlineOrdersQueuePage() {
           />
         ))}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -505,6 +622,12 @@ function OrderCard({
   const [cardError, setCardError] = useState<string | null>(null);
   const [fading, setFading] = useState(false);
   const [expandItems, setExpandItems] = useState(false);
+
+  // Gấp/mở thân card. Hàng chờ MỞ SẴN — bắt bấm thêm 1 lần mới thấy món là làm chậm đúng thao tác
+  // cần nhanh nhất (lý lẽ này có từ 09-UI-SPEC, giữ nguyên). Tab tra cứu GẤP SẴN: 50 đơn cũ đã xử
+  // lý là 50 khối món không ai đọc, cuộn mãi không tới đơn cần tìm.
+  // Đây là "thu gọn thông tin tránh hiển thị quá nhiều" trong Task.md.
+  const [open, setOpen] = useState(!readOnly);
   const [shipFee, setShipFee] = useState('');
   const [rejectOpen, setRejectOpen] = useState(false);
 
@@ -571,42 +694,50 @@ function OrderCard({
   const collapsed = row.items.length > ITEMS_VISIBLE_MAX && !expandItems;
   const shownItems = collapsed ? row.items.slice(0, ITEMS_VISIBLE_MAX) : row.items;
 
-  return (
-    <div
-      style={{
-        background: C.cardBg,
-        // Đơn quá hạn: đổi VIỀN cả card, không chỉ đổi màu con số. Nhân viên quét danh sách từ xa
-        // thấy khối đỏ trước khi đọc được chữ.
-        border: `1px solid ${overdue ? C.alertBorder : C.borderSoft}`,
-        borderRadius: 12,
-        boxShadow: '0 1px 3px rgba(0,0,0,.06)',
-        overflow: 'hidden',
-        opacity: fading ? 0 : 1,
-        transition: prefersReducedMotion() ? undefined : `opacity ${FADE_MS}ms ease-out`,
-      }}
-    >
-      {/* ── Dải 1: quét ── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 8,
-          flexWrap: 'wrap',
-          padding: '8px 16px',
-          background: overdue ? C.alertBg : C.pageBg,
-          borderBottom: `1px solid ${overdue ? C.alertBorder : C.borderSoft}`,
-        }}
-      >
-        <span
-          aria-label={`Thứ tự chờ ${position}`}
-          style={{ fontSize: 13, fontWeight: 500, color: C.muted }}
-        >
-          #{position}
-        </span>
+  // Tone của card. Ở tab "Chờ duyệt" mọi đơn cùng trạng thái nên màu mã hoá ĐỘ GẤP (vàng → đỏ khi
+  // quá hạn); ở tab tra cứu màu mã hoá TRẠNG THÁI (xanh đã xác nhận / đỏ đã từ chối / xám khách
+  // huỷ). Một biến `tone` duy nhất chi phối dải viền trái + nền dải đầu + pill, nên 3 thứ đó
+  // không bao giờ lệch màu nhau.
+  const tone = readOnly ? STATUS_TONE[row.status] : waitingTone(overdue);
+
+  // Có khối phụ nào phía dưới không (kết luận / món hết / phí ship / lỗi / panel từ chối).
+  // Cần biết trước để không dựng một cái khung rỗng chỉ để lấy padding.
+  const hasExtras =
+    readOnly || row.out_of_stock_count > 0 || isDelivery || !!cardError || rejectOpen;
+
+  /* ── Dải đầu: 3 thứ quét được ở khoảng cách 1 mét ──
+     Ở tab tra cứu dải này còn là NÚT GẤP/MỞ, và khi gấp nó phải tự đủ nghĩa: pill trạng thái +
+     tên khách + tổng tiền. Gấp mà chỉ còn "#3 · 14:20" thì tra cứu 50 đơn cũ phải mở từng cái. */
+  const summary = (
+    <>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
+        {/* Số thứ tự chỉ có nghĩa ở hàng chờ (vị trí trong việc-phải-làm). Ở tab tra cứu nó là số
+            vô nghĩa, thay bằng pill trạng thái — đúng thứ người tra cứu đang tìm. */}
+        {readOnly ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '2px 10px',
+              borderRadius: 999,
+              background: tone.bg,
+              border: `1px solid ${tone.border}`,
+              color: tone.text,
+              fontSize: 13,
+              fontWeight: 700,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {tone.icon} {tone.label}
+          </span>
+        ) : (
+          <span aria-label={`Thứ tự chờ ${position}`} style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
+            #{position}
+          </span>
+        )}
         <FulfillmentChip delivery={isDelivery} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
-          {fmtClock(row.submitted_at_ms)}
-        </span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>{fmtClock(row.submitted_at_ms)}</span>
         <span style={{ flex: 1 }} />
         {/* Đơn đã xử lý: đồng hồ đứng yên ở "chờ bao lâu thì được duyệt" (BE đã đóng băng), nên
             nhãn phải nói rõ là ĐÃ CHỜ, không phải đang chờ — cùng con số, khác nghĩa hoàn toàn. */}
@@ -623,10 +754,92 @@ function OrderCard({
           {formatWait(waited)}
           {readOnly ? ' chờ' : ''}
         </span>
+        {readOnly && (
+          <span aria-hidden="true" style={{ fontSize: 13, color: C.muted, width: 16, textAlign: 'center' }}>
+            {open ? '▲' : '▼'}
+          </span>
+        )}
       </div>
 
-      <div style={{ padding: 16 }}>
-        {/* ── Dải 2: khách — có nút gọi và mở bản đồ, không bắt copy tay ── */}
+      {/* Dòng tự-đủ-nghĩa khi đang gấp. */}
+      {readOnly && !open && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            gap: 8,
+            flexWrap: 'wrap',
+            width: '100%',
+            marginTop: 4,
+          }}
+        >
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{row.customer_name}</span>
+          <span style={{ fontSize: 13, color: C.muted }}>{row.items.length} món</span>
+          <span style={{ flex: 1 }} />
+          <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
+        </div>
+      )}
+    </>
+  );
+
+  const stripStyle = {
+    padding: '8px 16px',
+    background: readOnly ? C.pageBg : overdue ? tone.bg : C.pageBg,
+    borderBottom: open ? `1px solid ${overdue && !readOnly ? tone.border : C.borderSoft}` : 'none',
+  } as const;
+
+  return (
+    <div
+      style={{
+        background: C.cardBg,
+        // Đơn quá hạn / đơn bị từ chối: đổi VIỀN cả card, không chỉ đổi màu con số. Nhân viên quét
+        // danh sách từ xa thấy khối màu trước khi đọc được chữ.
+        border: `1px solid ${overdue && !readOnly ? tone.border : C.borderSoft}`,
+        // Dải màu 4px bên trái — thứ DUY NHẤT còn đọc được khi cuộn nhanh. Đây là kênh mã màu
+        // trạng thái mà chủ dự án yêu cầu (Task.md: "phân biệt màu sắc trạng thái của 3 status").
+        borderLeft: `4px solid ${tone.edge}`,
+        borderRadius: 12,
+        boxShadow: '0 1px 3px rgba(0,0,0,.06)',
+        overflow: 'hidden',
+        opacity: fading ? 0 : 1,
+        transition: prefersReducedMotion() ? undefined : `opacity ${FADE_MS}ms ease-out`,
+      }}
+    >
+      {readOnly ? (
+        <button
+          type="button"
+          aria-expanded={open}
+          onClick={() => setOpen((v) => !v)}
+          style={{
+            ...stripStyle,
+            display: 'flex',
+            flexWrap: 'wrap',
+            width: '100%',
+            minHeight: 44,
+            border: 'none',
+            borderBottom: stripStyle.borderBottom,
+            borderRadius: 0,
+            color: C.text,
+            textAlign: 'left',
+            font: 'inherit',
+            cursor: 'pointer',
+          }}
+        >
+          {summary}
+        </button>
+      ) : (
+        <div style={{ ...stripStyle, display: 'flex', flexWrap: 'wrap' }}>{summary}</div>
+      )}
+
+      {/* ── Thân card: 2 CỘT từ 900px (`.oo-card-body`) ──
+          Trước đây khối khách và khối món xếp dọc trong card rộng 928px, mỗi khối dùng ~1/3 chiều
+          ngang, 2/3 còn lại trắng — và card dài gấp đôi cần thiết nên mỗi màn chỉ thấy 1-2 đơn.
+          VẪN giữ MỘT card mỗi hàng (chỉ đạo 2026-08-01): chia cột là chia BÊN TRONG card. */}
+      {open && (
+        <>
+      <div className="oo-card-body">
+        <div>
+        {/* ── Khối khách — có nút gọi và mở bản đồ, không bắt copy tay ── */}
         <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{row.customer_name}</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 16, color: C.text }}>{row.customer_phone}</span>
@@ -663,23 +876,18 @@ function OrderCard({
             {row.customer_note}
           </p>
         )}
+        </div>
 
-        {/* ── Dải 3: món — luôn hiện sẵn, NỀN KHÁC khối khách ──
+        {/* ── Cột phải (mobile: khối dưới): món — NỀN KHÁC khối khách ──
             Chỉ đạo chủ dự án 2026-08-01: phải thấy ngay đâu là thông tin người đặt, đâu là món.
             Trước đây hai khối cùng nền trắng, chỉ cách nhau 1 đường kẻ mảnh — ở màn quét nhanh
             giờ cao điểm thì đường kẻ đó gần như vô hình.
-            `margin: 0 -16px` để khối trải hết chiều ngang card, bù đúng `padding: 16` của cha —
-            khối màu chạy sát viền trông là một dải thật, thụt vào 16px thì lại thành cái hộp lơ lửng.
+            Trên ĐIỆN THOẠI khối này vẫn tràn hết chiều ngang card (`.oo-items` bù đúng padding của
+            cha) để trông là một dải thật — thụt vào thì thành cái hộp lơ lửng. Từ 900px nó thành
+            CỘT PHẢI nên không tràn được nữa, lúc đó là khối bo góc; ranh giới vẫn rõ vì nền tint
+            không đổi. Cả 2 dạng ở `styles.css § .oo-items`.
             CHÚ Ý: chữ phụ trong khối này phải dùng `mutedOnTint`, không phải `muted` (xem C). */}
-        <div
-          style={{
-            margin: '16px -16px 0',
-            padding: '8px 16px 12px',
-            background: C.itemsBg,
-            borderTop: `1px solid ${C.itemsBorder}`,
-            borderBottom: `1px solid ${C.itemsBorder}`,
-          }}
-        >
+        <div className="oo-items">
           {shownItems.map((it) => (
             <ItemLine key={it.menu_item_id} item={it} />
           ))}
@@ -711,7 +919,15 @@ function OrderCard({
             <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
           </div>
         </div>
+      </div>
 
+      {/* ── Khối phụ: TRẢI HẾT chiều ngang card, không nhét vào cột ──
+          Kết luận xử lý, món hết hàng, ô phí ship, lỗi, panel từ chối — mấy thứ này là form và
+          câu văn dài; bóp vào cột 45% thì checkbox xuống dòng và panel từ chối chật không gõ được.
+          `display:grid gap:12` để khoảng cách giữa các khối do MỘT chỗ quyết định, không phải mỗi
+          khối tự khai `marginTop` rồi lệch nhau. */}
+      {hasExtras && (
+        <div style={{ display: 'grid', gap: 12, padding: '0 16px 16px' }}>
         {/* ── Đơn đã xử lý: ai xử lý, lúc nào, và (nếu từ chối) lý do ĐÃ GỬI KHÁCH ──
             Tên người xử lý là mặt hiển thị của kiểm soát bù trừ D-02: cả 3 role đều duyệt được,
             nên phải luôn thấy được ai đã duyệt đơn nào.
@@ -719,16 +935,15 @@ function OrderCard({
         {readOnly && (
           <div
             style={{
-              marginTop: 16,
-              background: row.status === 'REJECTED' ? C.alertBg : C.cardBg,
-              border: `1px solid ${row.status === 'REJECTED' ? C.alertBorder : C.border}`,
-              color: row.status === 'REJECTED' ? C.alertText : C.text,
+              background: tone.bg,
+              border: `1px solid ${tone.border}`,
+              color: tone.text,
               borderRadius: 8,
               padding: '12px 16px',
             }}
           >
             <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-              {row.status === 'REJECTED' ? '✕ Đã từ chối' : '✓ Đã xác nhận'}
+              {tone.icon} {tone.label}
             </p>
             <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500 }}>
               {row.reviewed_at_ms ? fmtClock(row.reviewed_at_ms) : '—'}
@@ -746,7 +961,6 @@ function OrderCard({
         {!readOnly && row.out_of_stock_count > 0 && (
           <div
             style={{
-              marginTop: 16,
               background: C.warnBg,
               border: `1px solid ${C.warnBorder}`,
               color: C.warnText,
@@ -794,7 +1008,7 @@ function OrderCard({
         )}
 
         {!readOnly && isDelivery && (
-          <div style={{ marginTop: 16 }}>
+          <div>
             <label
               htmlFor={`ship-${row.id}`}
               style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
@@ -826,7 +1040,6 @@ function OrderCard({
           <div
             role="alert"
             style={{
-              marginTop: 16,
               background: C.alertBg,
               border: `1px solid ${C.alertBorder}`,
               color: C.alertText,
@@ -846,20 +1059,16 @@ function OrderCard({
             onSubmit={(payload) => void reject(payload)}
           />
         )}
-      </div>
+        </div>
+      )}
 
-      {/* ── Dải 4: hành động. "Xác nhận" rộng gấp đôi — gần như mọi đơn đều được duyệt, và nút
+      {/* ── Dải cuối: hành động. "Xác nhận" rộng gấp đôi — gần như mọi đơn đều được duyệt, và nút
           nhỏ hơn cho nhánh không hoàn tác được thì khó bấm nhầm hơn. 2 nút LUÔN hiện cho cả 3
-          role — D-02 (không gate theo role ở đây). ── */}
+          role — D-02 (không gate theo role ở đây).
+          `.oo-actions` chặn nút ở 460px trên desktop: nút "Xác nhận" dài 1100px vừa xấu vừa biến
+          nửa chiều ngang card thành vùng bấm nguy hiểm. ── */}
       {!readOnly && !rejectOpen && (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '2fr 1fr',
-            gap: 8,
-            padding: '0 16px 16px',
-          }}
-        >
+        <div className="oo-actions">
           <button type="button" disabled={busy} onClick={() => void confirm()}>
             {busy ? 'Đang xử lý...' : 'Xác nhận'}
           </button>
@@ -873,6 +1082,8 @@ function OrderCard({
             Từ chối
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -554,3 +554,201 @@ a:hover {
 .with-bottom-nav {
   padding-bottom: 80px;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Đơn hàng online — hàng chờ + cài đặt
+   Thiết kế lại 2026-08-04 (chỉ đạo chủ dự án: "cả 2 màn đều thiếu khoa học").
+   Ở đây vì cần @media query — inline style trong JSX không viết được breakpoint,
+   và ĐÚNG 3 thứ dưới đây phụ thuộc chiều rộng màn: số cột trong card đơn, số cột
+   khối cài đặt, và việc khối món có tràn viền hay không.
+   Màu vẫn lấy từ `lib/online-ui.ts` cho phần JSX; ở đây chỉ lặp lại những hex
+   thuộc về layout (nền, viền khối) — sửa màu thì sửa CẢ HAI chỗ.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Màn công cụ dùng trên iPad ngang / desktop. 960px của `.container.wide` là quá hẹp cho
+   layout 2 cột trong card: cột món bị bóp còn ~380px, tên món dài xuống 2 dòng liên tục. */
+.container.oo-page {
+  max-width: 1200px;
+}
+
+/* Thanh công cụ hàng chờ: DÍNH TRÊN. Nhân viên cuộn tới đơn thứ 15 vẫn phải đổi được tab và
+   vẫn phải thấy đèn kết nối — đó là 2 thứ nói "trang này còn sống hay không".
+   `top: 0` đủ vì `.header` của app không sticky. */
+.oo-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  background: #f9fafb;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.oo-tabs {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Tiêu đề + tab cấp 1 nằm CÙNG hàng khi đủ rộng — tiết kiệm một tầng chrome trên màn mà
+   chrome đang ăn gần nửa chiều cao hữu ích của điện thoại. */
+.oo-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.oo-head h1 {
+  margin: 0;
+  flex: none;
+}
+
+/* ── Card đơn ────────────────────────────────────────────────────────────── */
+.oo-card-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+/* Khối MÓN. Trên điện thoại: tràn hết chiều ngang card (bù đúng padding 16 của cha) để trông
+   là một DẢI thật — thụt vào thì thành cái hộp lơ lửng (chỉ đạo 2026-08-01). Trên màn rộng nó
+   thành cột phải nên không tràn được nữa; lúc đó dùng dạng khối bo góc, ranh giới vẫn rõ vì
+   nền tint không đổi. */
+.oo-items {
+  margin: 0 -16px;
+  padding: 8px 16px 12px;
+  background: #e9ecef;
+  border-top: 1px solid #d7dbe0;
+  border-bottom: 1px solid #d7dbe0;
+}
+
+@media (min-width: 900px) {
+  /* 1.1fr / 1fr: cột khách cần nhiều hơn một chút vì địa chỉ giao hàng là chuỗi dài nhất trên
+     card. Vẫn giữ MỘT card mỗi hàng (chỉ đạo 2026-08-01) — chia cột là chia BÊN TRONG card,
+     không phải xếp 2 đơn cạnh nhau. */
+  .oo-card-body {
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    gap: 20px;
+    align-items: start;
+  }
+
+  .oo-items {
+    margin: 0;
+    padding: 12px 16px;
+    border: 1px solid #d7dbe0;
+    border-radius: 10px;
+  }
+}
+
+/* Nút Xác nhận / Từ chối. Trên desktop KHÔNG để nút kéo dài 1100px — vừa xấu vừa làm vùng bấm
+   nguy hiểm rộng vô ích; chặn ở 460px và neo bên trái theo mép card. */
+.oo-actions {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+@media (min-width: 900px) {
+  .oo-actions {
+    max-width: 460px;
+  }
+}
+
+/* ── Cài đặt ─────────────────────────────────────────────────────────────── */
+.st-section {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  margin-bottom: 16px;
+}
+
+.st-section > h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+/* Chân khối: nút Lưu của KHỐI NÀY, kèm chỗ cho dấu "chưa lưu". Mỗi khối lưu riêng (3 endpoint
+   con khác nhau, D-14 đòi câu chữ sửa được bất cứ lúc nào), nên nút phải dính vào khối của nó
+   — nút Lưu trôi nổi giữa trang là đúng cách làm mất thay đổi của khối bên trên. */
+.st-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* Mỗi hình thức nhận hàng là MỘT fieldset chứa luôn ETA của chính nó. Trước đây 2 checkbox
+   nằm một chỗ và 4 ô ETA nằm chỗ khác, cách nhau 2 hàng — tắt "khách tự lấy" mà ô "ETA đến lấy"
+   vẫn sáng bên dưới, không ai biết nó còn tác dụng hay không. */
+.st-fieldset {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px 16px;
+  margin: 0;
+}
+
+.st-fieldset > legend {
+  padding: 0 6px;
+  font-weight: 600;
+  color: #374151;
+}
+
+/* Hình thức đang TẮT: xám cả khối + chữ mờ. Không dùng `display:none` — ẩn hẳn thì chủ quán
+   không biết là có cấu hình ETA nào đang nằm chờ ở đó. */
+.st-fieldset[data-off='true'] {
+  background: #f9fafb;
+}
+
+.st-fieldset[data-off='true'] > *:not(legend) {
+  opacity: 0.55;
+}
+
+.st-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 780px) {
+  .st-grid.cols-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Hàng ô nhập ngang (giờ mở–đóng, ETA từ–đến, toạ độ). Quy tắc `input { width: 100% }` toàn
+   cục làm mọi ô phình hết chiều ngang rồi co lại tuỳ hứng trong flex; ở đây trả lại chiều rộng
+   theo nội dung để "08:00 – 22:00" đọc ra một cụm chứ không phải 2 khối rời. */
+.st-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.st-inline > input[type='time'],
+.st-inline > input[type='number'] {
+  width: auto;
+  min-width: 92px;
+  flex: 0 1 auto;
+}
+
+.st-inline > select {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+}

@@ -25,7 +25,9 @@ export function DashboardPage() {
               <strong>📋 Nhật ký hệ thống</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>
             </Link>
-            <Link to="/admin/settings" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+            {/* Cài đặt nhận đơn nay là tab của màn Đơn hàng online (2026-08-03) — link đi thẳng
+                vào tab đó, không qua redirect, để không tốn 1 nhịp điều hướng. */}
+            <Link to="/admin/online-orders?view=settings" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong>⚙ Cài đặt nhận đơn</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giờ mở cửa, giao hàng, SĐT bị chặn</p>
             </Link>
@@ -42,7 +44,8 @@ export function DashboardPage() {
 
 // Widget công tắc nhận đơn — 1 chạm, KHÔNG modal xác nhận, KHÔNG hỏi lý do ở Dashboard
 // (D-13: tình huống thật là hết nguyên liệu giữa giờ cao điểm, chủ quán không có thời
-// gian điều hướng 3 bước). Chọn kiểu OFF / lý do / giờ mở cửa đặt ở /admin/settings.
+// gian điều hướng 3 bước). Chọn kiểu OFF / lý do / giờ mở cửa đặt ở tab Cài đặt của màn
+// Đơn hàng online (`/admin/online-orders?view=settings`).
 type OrderingStatusLite = {
   enabled: boolean;
   is_open_now: boolean;
@@ -124,7 +127,7 @@ function OrderingWidget() {
           <button disabled={toggling} onClick={toggle} style={{ width: '100%' }}>
             {toggling ? 'Đang cập nhật...' : status.enabled ? 'Tắt nhận đơn' : 'Bật lại nhận đơn'}
           </button>
-          <Link to="/admin/settings" style={{ display: 'block', marginTop: 8, fontSize: 13, color: '#0f766e' }}>
+          <Link to="/admin/online-orders?view=settings" style={{ display: 'block', marginTop: 8, fontSize: 13, color: '#0f766e' }}>
             Cài đặt chi tiết (lý do, giờ mở cửa, số bị chặn) →
           </Link>
         </>

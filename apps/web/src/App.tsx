@@ -11,14 +11,13 @@ import { RecoverPage } from './pages/RecoverPage.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
 import { AdminUsersPage } from './pages/AdminUsersPage.tsx';
 import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
-import { AdminSettingsPage } from './pages/AdminSettingsPage.tsx';
 import { AccountPage } from './pages/AccountPage.tsx';
 import { OrdersPage } from './pages/OrdersPage.tsx';
 import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
 import { KitchenPage } from './pages/KitchenPage.tsx';
 import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
-import { OnlineOrdersQueuePage } from './pages/OnlineOrdersQueuePage.tsx';
+import { OnlineOrdersPage } from './pages/OnlineOrdersPage.tsx';
 
 export function App() {
   return (
@@ -41,12 +40,14 @@ export function App() {
               <Route path="/orders" element={<OrdersPage />} />
             </Route>
 
-            {/* Hàng chờ duyệt đơn online: admin + order + kitchen — D-02 ghi đè M2.D-33,
-                ai đang ở máy thì duyệt. Kiểm soát bù trừ là audit log ghi rõ người duyệt.
+            {/* Đơn hàng online: admin + order + kitchen — D-02 ghi đè M2.D-33, ai đang ở máy thì
+                duyệt. Kiểm soát bù trừ là audit log ghi rõ người duyệt.
                 ⚠ PHẢI nằm ngoài block RoleGate allow={['admin']} bên dưới — nhét vào đó là
-                chặn lại role order/kitchen, đúng cái D-02 vừa bỏ. */}
+                chặn lại role order/kitchen, đúng cái D-02 vừa bỏ.
+                Tab "Cài đặt" bên trong trang này CHỈ admin thấy — gate ở `OnlineOrdersPage`,
+                không gate ở đây, vì hàng chờ và cài đặt nay dùng chung 1 route. */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
-              <Route path="/admin/online-orders" element={<OnlineOrdersQueuePage />} />
+              <Route path="/admin/online-orders" element={<OnlineOrdersPage />} />
             </Route>
 
             {/* Bếp: admin + kitchen role */}
@@ -70,7 +71,13 @@ export function App() {
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
-              <Route path="/admin/settings" element={<AdminSettingsPage />} />
+              {/* `/admin/settings` cũ đã gộp thành tab của màn Đơn hàng online (2026-08-03).
+                  Giữ redirect vì bookmark, link trong Dashboard và ảnh chụp màn hình trong
+                  `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. */}
+              <Route
+                path="/admin/settings"
+                element={<Navigate to="/admin/online-orders?view=settings" replace />}
+              />
             </Route>
           </Route>
 
@@ -151,7 +158,9 @@ function ProtectedShell() {
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
+          {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
+              và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
@@ -162,8 +171,9 @@ function ProtectedShell() {
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
-          {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3 */}
-          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
+          {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
+              Role này KHÔNG thấy tab Cài đặt nên title chỉ nói về hàng chờ. */}
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
@@ -172,7 +182,7 @@ function ProtectedShell() {
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Hàng chờ duyệt đơn online"><span className="nav-icon">🛎</span><span className="nav-label">H/chờ</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}

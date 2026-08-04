@@ -42,7 +42,7 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // theo D-12 — không phải để lại no-op. Tên key cố ý không viết đủ ở đây để lệnh kiểm
   // "không còn nơi nào tham chiếu key đó" giữ được ý nghĩa.
   // Lý do xoá thay vì giữ: `outbox-rules.ts` chưa bao giờ sinh
-  // hàng `level = 'L4'` (có test khẳng định điều đó), và `AdminSettingsPage.tsx` không có UI nào
+  // hàng `level = 'L4'` (có test khẳng định điều đó), và `OnlineOrderSettingsPanel.tsx` không có UI nào
   // render key này — giữ lại một setting không ai đọc là mời người sau cài lại auto-OFF.
   // Dòng cũ trong DB (nếu admin từng ghi) được `readAll()` bỏ qua tự nhiên qua `if (!kind) continue`,
   // không cần xoá tay. D-12 ghi đè M2.D-36 (phần auto-OFF) và M2.D-60 — xem OVERRIDE-DEBT.md OD-15.
