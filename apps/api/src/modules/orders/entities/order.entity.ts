@@ -107,6 +107,38 @@ export class Order {
   @Column({ type: 'varchar', length: 16, default: 'CASH' })
   payment_method!: string;
 
+  /** ── 2 mốc chặng giao hàng (thiết kế 2026-08-04) ──────────────────────────
+   *
+   * CHỌN MỐC THỜI GIAN, KHÔNG CHỌN CỘT STATUS. Lý do:
+   * - Mốc thời gian ĐƠN ĐIỆU bẩm sinh: set rồi không unset. Đúng thứ M2.D-19 ("% không bao giờ
+   *   tụt") cần, và không cần code nào canh giữ tính đơn điệu.
+   * - Đo được THỜI LƯỢNG (`ready→ship`, `ship→nhận`). Phase 10 cần đúng loại số này; một cột
+   *   status không cho biết bao lâu.
+   * - Một cột `fulfillment_status` sẽ là NGUỒN SỰ THẬT THỨ HAI cạnh `order_items.state` và phải
+   *   đồng bộ ở mọi lần đổi state — đúng loại lệch mà `OVERRIDE-DEBT.md` ghi lại suốt.
+   *
+   * CHỈ THÊM CỘT (C-SCHEMA-07: `synchronize: true`, không migration). Không đụng `varchar` nào
+   * đang có nên không lặp lại cái `ALTER TABLE` trên bảng có dữ liệu ở 09-11.
+   *
+   * Trạng thái suy diễn từ 2 mốc này nằm ở `public/order-progress.ts` — KHÔNG suy diễn lại ở
+   * chỗ khác.
+   */
+
+  /** Shipper rời quán. LUÔN NULL với PICKUP và dine-in — guard ở `markShipped()`. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  shipped_at!: number | null;
+
+  /** Khách đã cầm hàng: DELIVERY = khách nhận, PICKUP = khách đến lấy.
+   *
+   * ⚠ KHÔNG phải "đã thu tiền" và KHÔNG đóng đơn. Chủ dự án chốt 2026-08-04: bàn giữ tới khi thu
+   * tiền, nên `closed_at`/`is_paid` vẫn đi theo luồng checkout. Với COD, khách nhận hàng và quán
+   * thu được tiền có thể lệch nhau vài tiếng — 2 mốc riêng biệt là cố ý.
+   *
+   * Với PICKUP mốc này GHI ĐÈ M2.D-15 (LOCKED: "PICKUP hoàn tất ở READY, không cần SERVED") —
+   * xem `OVERRIDE-DEBT.md` OD-19. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  received_at!: number | null;
+
   @OneToMany(() => OrderItem, (oi) => oi.order)
   items?: Relation<OrderItem[]>;
 }

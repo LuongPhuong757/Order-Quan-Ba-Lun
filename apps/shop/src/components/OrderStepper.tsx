@@ -2,14 +2,20 @@ import type { CSSProperties, JSX } from 'react';
 import type { OrderStage } from '@order/schemas';
 
 /**
- * Stepper 5 mốc tiến độ đơn ở `/o/:token` (REQ-O, 09-UI-SPEC § B).
+ * Stepper tiến độ đơn ở `/o/:token` (REQ-O, 09-UI-SPEC § B).
+ *
+ * ⚠ 2026-08-04: DELIVERY nay có **5 mốc** (thêm "Đã xong, chờ giao" trước "Đang giao"), PICKUP
+ * vẫn 4 mốc + mốc cuối. Trước đó "bếp xong hết" bị vẽ vào đúng node "Đang giao" khi chưa ai mang
+ * đi đâu cả. Mốc cuối `COMPLETED` nay chỉ sáng khi `orders.received_at` có (ghi đè M2.D-15 với
+ * luồng PICKUP — xem `OVERRIDE-DEBT.md` OD-19).
  *
  * ── 3 điều đã chốt, đừng "sửa cho đẹp" ──
  *
  * 1. NGANG kể cả ở 375px, KHÔNG thu nhỏ, KHÔNG đổi sang dọc.
  *    Đây là **Giả định #4 của 09-UI-SPEC** — giả định của UI researcher, CHƯA hỏi chủ quán. Lý do:
- *    5 mốc xếp dọc chiếm nửa màn điện thoại, đẩy danh sách món xuống dưới màn hình. Nếu chủ quán
+ *    các mốc xếp dọc chiếm nửa màn điện thoại, đẩy danh sách món xuống dưới màn hình. Nếu chủ quán
  *    thấy chật thì đây là chỗ cần bàn lại.
+ *    ⚠ DELIVERY nay 5 node thay vì 4 — chật hơn một chút ở 375px, cần nghiệm thu bằng mắt.
  *
  * 2. CHỈ hiện 1 nhãn chữ (`stage_label`, do trang cha render bên dưới), không hiện 5 nhãn cùng lúc.
  *    5 nhãn ở 375px là chữ 9px xuống dòng lộn xộn. Tên mốc vẫn có trong `aria-label` để trình đọc
@@ -33,9 +39,10 @@ const STAGE_LABELS: Record<Exclude<OrderStage, 'REJECTED'>, string> = {
   RECEIVED: 'Quán đã nhận đơn',
   CONFIRMED: 'Quán đã xác nhận',
   COOKING: 'Đang chuẩn bị',
+  READY_TO_SHIP: 'Đã xong, chờ người giao',
   DELIVERING: 'Đang giao',
   READY_FOR_PICKUP: 'Sẵn sàng để lấy',
-  COMPLETED: 'Hoàn tất',
+  COMPLETED: 'Đã nhận hàng',
 };
 
 const PULSE_CSS = `
@@ -49,15 +56,14 @@ const PULSE_CSS = `
 }
 `;
 
-/** 5 mốc theo thứ tự, nhánh thứ 4 phụ thuộc cách nhận hàng (M2.D-15). */
+/** Các mốc theo thứ tự. DELIVERY có thêm chặng "chờ người giao" giữa bếp xong và đang giao —
+ * PICKUP không có chặng đó vì không ai mang hàng đi đâu cả.
+ * Số node khác nhau giữa 2 luồng là CÓ CHỦ Ý: vẽ đủ 5 node cho PICKUP rồi để 1 node chết vĩnh
+ * viễn thì khách tưởng đơn của mình bị kẹt. */
 function stagesFor(fulfillmentType: Props['fulfillmentType']): Exclude<OrderStage, 'REJECTED'>[] {
-  return [
-    'RECEIVED',
-    'CONFIRMED',
-    'COOKING',
-    fulfillmentType === 'DELIVERY' ? 'DELIVERING' : 'READY_FOR_PICKUP',
-    'COMPLETED',
-  ];
+  return fulfillmentType === 'DELIVERY'
+    ? ['RECEIVED', 'CONFIRMED', 'COOKING', 'READY_TO_SHIP', 'DELIVERING', 'COMPLETED']
+    : ['RECEIVED', 'CONFIRMED', 'COOKING', 'READY_FOR_PICKUP', 'COMPLETED'];
 }
 
 export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | null {

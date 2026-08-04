@@ -76,6 +76,38 @@ export const AdminOnlineOrderRow = z.object({
   /** Lý do từ chối ĐÃ GỬI TỚI KHÁCH. `null` khi không phải đơn bị từ chối.
    * TUYỆT ĐỐI KHÔNG map `internal_reject_note` vào đây — ghi chú nội bộ không đi ra HTTP (D-09). */
   reject_reason: z.string().nullable(),
+
+  // ── Khối dưới đây CHỈ có giá trị khi đơn đã CONFIRMED (đã có `orders` row) ───────────────
+  // Thêm 2026-08-04. Trước đó số bàn được cấp chỉ hiện MỘT LẦN trong toast lúc bấm Xác nhận rồi
+  // mất hẳn — mở lại tab "Đã xác nhận" không còn biết đơn nào thuộc bàn nào, dù DB có sẵn liên kết.
+
+  /** Mã bàn đã cấp (`orders.table_code`). `null` khi đơn chưa duyệt / bị từ chối. */
+  table_code: z.string().nullable(),
+
+  /** Đếm món LIVE theo `order_items.state`.
+   *
+   * ⚠ ĐỌC TỪ `order_items` THẬT, KHÔNG từ `items_snapshot`. Hai danh sách này khác nhau: lúc
+   * duyệt, `drop_menu_item_ids` bỏ món hết hàng khỏi đơn thật (M2.D-61). Đếm theo snapshot thì
+   * một đơn bị bỏ 1 món sẽ hiện "3/5 xong" mãi mãi, không bao giờ tới đủ.
+   *
+   * `null` khi chưa có Order thật. `cancelled` gộp cả CANCELLED và OUT_OF_STOCK. */
+  item_state_counts: z
+    .object({
+      total: z.number().int().nonnegative(),
+      pending: z.number().int().nonnegative(),
+      kitchen: z.number().int().nonnegative(),
+      cooking: z.number().int().nonnegative(),
+      ready: z.number().int().nonnegative(),
+      served: z.number().int().nonnegative(),
+      cancelled: z.number().int().nonnegative(),
+    })
+    .nullable(),
+
+  /** `orders.shipped_at` — shipper đã rời quán. Luôn `null` với PICKUP. */
+  shipped_at_ms: z.number().int().nullable(),
+
+  /** `orders.received_at` — khách đã cầm hàng (DELIVERY: đã nhận, PICKUP: đã lấy). */
+  received_at_ms: z.number().int().nullable(),
 });
 export type AdminOnlineOrderRow = z.infer<typeof AdminOnlineOrderRow>;
 

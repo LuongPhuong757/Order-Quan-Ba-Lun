@@ -245,6 +245,10 @@ export class PublicOrdersService {
     let updatedAtMs = request.submitted_at;
     let itemStates: string[] = [];
     let items: PublicOrderStatus['items'];
+    // 2 mốc chặng giao hàng (2026-08-04). Chỉ tồn tại khi đã có Order thật; đơn còn WAITING thì
+    // luôn null và `computeProgress` cũng không xét tới chúng.
+    let shippedAtMs: number | null = null;
+    let receivedAtMs: number | null = null;
 
     if (request.order_id) {
       const order = await this.orderRepo.findOne({ where: { id: request.order_id } });
@@ -256,7 +260,11 @@ export class PublicOrdersService {
       items = real
         .filter((r) => !(EXCLUDED_ITEM_STATES as readonly string[]).includes(r.state))
         .map((r) => ({ name: r.menu_item_name, qty: r.qty, unit_price: r.menu_item_price }));
-      if (order) updatedAtMs = order.updated_at;
+      if (order) {
+        updatedAtMs = order.updated_at;
+        shippedAtMs = order.shipped_at;
+        receivedAtMs = order.received_at;
+      }
     } else {
       items = request.items_snapshot.map((it) => ({
         name: it.name,
@@ -270,6 +278,8 @@ export class PublicOrdersService {
       fulfillment_type,
       item_states: itemStates,
       max_progress_shown: request.max_progress_shown,
+      shipped_at: shippedAtMs,
+      received_at: receivedAtMs,
     });
 
     // Đơn điệu (M2.D-19): CHỈ ghi khi % TĂNG. Đây là endpoint công khai bị khách poll mỗi 5-10s —

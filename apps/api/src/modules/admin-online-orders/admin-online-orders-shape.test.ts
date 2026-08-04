@@ -43,6 +43,32 @@ function rejectedRow(): Row {
     reviewed_at_ms: 1_700_000_042_000,
     reviewed_by_full_name: 'Nguyễn Văn A',
     reject_reason: 'Hết nguyên liệu món đã đặt',
+    // Đơn bị từ chối không có `orders` row nào → cả 4 field của chặng giao đều null.
+    table_code: null,
+    item_state_counts: null,
+    shipped_at_ms: null,
+    received_at_ms: null,
+  };
+}
+
+/** Một hàng đơn ĐÃ DUYỆT: có bàn, có đếm món live, chưa đi ship. */
+function confirmedRow(): Row {
+  return {
+    ...rejectedRow(),
+    status: 'CONFIRMED',
+    reject_reason: null,
+    table_code: 'S03',
+    item_state_counts: {
+      total: 5,
+      pending: 0,
+      kitchen: 1,
+      cooking: 1,
+      ready: 2,
+      served: 0,
+      cancelled: 1,
+    },
+    shipped_at_ms: null,
+    received_at_ms: null,
   };
 }
 
@@ -100,6 +126,48 @@ describe('AdminOnlineOrderRow — 3 field của đơn đã xử lý', () => {
     const confirmed: Row = { ...rejectedRow(), status: 'CONFIRMED', reject_reason: null };
     const parsed = AdminOnlineOrderRow.parse(confirmed);
     expect(parsed.reviewed_by_full_name).toBe('Nguyễn Văn A');
+  });
+});
+
+// ── 4 field của chặng giao hàng (2026-08-04) ──────────────────────────────────────────────
+describe('AdminOnlineOrderRow — bàn + đếm món + 2 mốc giao hàng', () => {
+  it('đơn đã duyệt mang theo mã bàn — trước đây số bàn chỉ hiện 1 lần trong toast rồi mất', () => {
+    const parsed = AdminOnlineOrderRow.parse(confirmedRow());
+    expect(parsed.table_code).toBe('S03');
+  });
+
+  it('đếm món live giữ đủ 7 con số, cancelled gộp CANCELLED + OUT_OF_STOCK', () => {
+    const parsed = AdminOnlineOrderRow.parse(confirmedRow());
+    expect(parsed.item_state_counts).toEqual({
+      total: 5,
+      pending: 0,
+      kitchen: 1,
+      cooking: 1,
+      ready: 2,
+      served: 0,
+      cancelled: 1,
+    });
+  });
+
+  it('đơn WAITING chưa có Order thật → cả 4 field null', () => {
+    const waiting: Row = { ...rejectedRow(), status: 'WAITING', reviewed_at_ms: null, reviewed_by_full_name: null, reject_reason: null };
+    const parsed = AdminOnlineOrderRow.parse(waiting);
+    expect(parsed.table_code).toBeNull();
+    expect(parsed.item_state_counts).toBeNull();
+    expect(parsed.shipped_at_ms).toBeNull();
+    expect(parsed.received_at_ms).toBeNull();
+  });
+
+  it('thiếu `table_code` thì KHÔNG parse được — BE quên map là lỗi ồn, không phải ô trống', () => {
+    const row = confirmedRow() as unknown as Record<string, unknown>;
+    delete row.table_code;
+    expect(() => AdminOnlineOrderRow.parse(row)).toThrow();
+  });
+
+  it('đếm món thiếu một trạng thái thì KHÔNG parse được — tránh cộng nhầm mẫu số', () => {
+    const row = confirmedRow() as unknown as Record<string, unknown>;
+    row.item_state_counts = { total: 5, pending: 0, kitchen: 1, cooking: 1, ready: 2, served: 0 };
+    expect(() => AdminOnlineOrderRow.parse(row)).toThrow();
   });
 });
 

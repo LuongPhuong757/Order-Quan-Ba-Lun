@@ -55,13 +55,21 @@ export type OnlineOrderSubmit = z.infer<typeof OnlineOrderSubmit>;
  *
  * `subtotal` là tiền MÓN, KHÔNG bao giờ gồm `ship_fee` (M2.D-62 — phí ship là tiền thu hộ).
  */
-/** 5 mốc tiến độ + nhánh `REJECTED` (spec §6, M2.D-23 — mốc của CẢ ĐƠN, không phải của từng món).
+/** 6 mốc tiến độ + nhánh `REJECTED` (spec §6, M2.D-23 — mốc của CẢ ĐƠN, không phải của từng món).
  * Tách ra khỏi `PublicOrderStatus` để `OrderStepper` ở `apps/shop` dùng đúng union này thay vì gõ
- * lại — gõ lại là mở đường cho FE và BE lệch nhau khi thêm mốc. */
+ * lại — gõ lại là mở đường cho FE và BE lệch nhau khi thêm mốc.
+ *
+ * ⚠ 2026-08-04: thêm `READY_TO_SHIP` và sửa nghĩa `DELIVERING`.
+ * Trước đó "bếp xong hết" bị dán nhãn `DELIVERING` = "Đang giao" khi chưa ai mang đi đâu cả.
+ * Nay `DELIVERING` CHỈ xuất hiện khi `orders.shipped_at != null`, và `COMPLETED` chỉ khi
+ * `orders.received_at != null`. Union này phải khớp `OrderStage` ở
+ * `apps/api/src/modules/public/order-progress.ts` — 2 chỗ lệch nhau là 500 ở tầng zod, không
+ * phải hiển thị sai im lặng (đúng như test đã bắt được). */
 export const OrderStage = z.enum([
   'RECEIVED',
   'CONFIRMED',
   'COOKING',
+  'READY_TO_SHIP',
   'DELIVERING',
   'READY_FOR_PICKUP',
   'COMPLETED',

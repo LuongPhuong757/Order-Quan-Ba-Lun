@@ -52,7 +52,11 @@ import {
 } from '@order/schemas';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
-import { AdminOnlineOrdersService, type ConfirmResult } from './admin-online-orders.service.js';
+import {
+  AdminOnlineOrdersService,
+  type ConfirmResult,
+  type FulfillmentResult,
+} from './admin-online-orders.service.js';
 
 const UuidParam = z.string().uuid();
 
@@ -148,6 +152,32 @@ export class AdminOnlineOrdersController {
       reason_code: parsed.data.reason_code,
       has_internal_note: Boolean(parsed.data.internal_note?.trim()),
     });
+  }
+
+  /** Shipper đã rời quán. Chỉ DELIVERY; đơn PICKUP gọi vào đây nhận 400.
+   *
+   * Cả 3 role bấm được, cùng lý lẽ D-02 với confirm/reject — giờ cao điểm ai đang ở máy thì bấm.
+   * Kiểm soát bù trừ vẫn là audit log (`online_order.shipped`, xem `deriveActionKind`). */
+  @Post(':id/ship')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async ship(@Param('id') id: string, @Req() req: Request): Promise<ApiOk<FulfillmentResult>> {
+    const requestId = this.parseId(id);
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    return apiOk(await this.svc.markShipped(requestId, actor));
+  }
+
+  /** Khách đã cầm hàng: DELIVERY = đã nhận, PICKUP = đã tới lấy.
+   *
+   * ⚠ KHÔNG đóng đơn và KHÔNG đánh dấu đã thu tiền — chủ dự án chốt 2026-08-04 là bàn giữ tới
+   * khi thu tiền, nên `closed_at`/`is_paid` vẫn thuộc luồng checkout. Với COD 2 mốc lệch nhau. */
+  @Post(':id/receive')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async receive(@Param('id') id: string, @Req() req: Request): Promise<ApiOk<FulfillmentResult>> {
+    const requestId = this.parseId(id);
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    return apiOk(await this.svc.markReceived(requestId, actor));
   }
 
   /**

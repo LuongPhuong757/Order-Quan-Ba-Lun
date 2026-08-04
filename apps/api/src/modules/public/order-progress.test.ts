@@ -8,6 +8,15 @@ import {
 
 // docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md §6 (dòng 402-454) — công thức % + 5 mốc.
 // 09-UI-SPEC.md § Copywriting Contract — Mặt B — nhãn 5 mốc.
+//
+// ⚠ CẬP NHẬT 2026-08-04 — 6 case dưới đây đổi kết quả CÓ CHỦ Ý, KHÔNG PHẢI HỒI QUY.
+// Thêm 2 chặng `shipped_at`/`received_at` nên thang % chia lại: chặng bếp co về trần 70 (DELIVERY)
+// / 85 (PICKUP), đã đi ship = 90, khách đã nhận = 100. Kéo theo:
+//   - PICKUP mọi món READY KHÔNG còn 100% + all_done (ghi đè M2.D-15 → OVERRIDE-DEBT OD-19)
+//   - DELIVERY mọi món SERVED KHÔNG còn là COMPLETED — `SERVED` nay chỉ là "đã rời bếp"
+//   - stage `DELIVERING` nay CHỈ xuất hiện khi `shipped_at != null`; "bếp xong chờ giao" là
+//     `READY_TO_SHIP` (trước đây bị dán nhãn `DELIVERING`, nói sai sự thật)
+// Ai thấy 6 case này đỏ vì sửa lại code: ĐỌC ĐÂY TRƯỚC, đừng "sửa cho xanh" theo bản cũ.
 
 type Input = Parameters<typeof computeProgress>[0];
 
@@ -37,59 +46,103 @@ describe('computeProgress — tất cả item PENDING', () => {
   });
 });
 
-describe('computeProgress — công thức trọng số §6', () => {
-  it('2 item KITCHEN → percent 15, stage CONFIRMED', () => {
+describe('computeProgress — chặng bếp co về trần của luồng', () => {
+  it('2 item KITCHEN, DELIVERY → percent 11 (0.15 × trần 70), stage CONFIRMED', () => {
     const result = computeProgress(baseInput({ item_states: ['KITCHEN', 'KITCHEN'] }));
-    expect(result.percent).toBe(15);
+    expect(result.percent).toBe(11);
     expect(result.stage).toBe('CONFIRMED');
   });
 
-  it('1 KITCHEN + 1 COOKING → percent 30, stage COOKING', () => {
+  it('1 KITCHEN + 1 COOKING, DELIVERY → percent 21 (0.3 × trần 70), stage COOKING', () => {
     const result = computeProgress(baseInput({ item_states: ['KITCHEN', 'COOKING'] }));
-    expect(result.percent).toBe(30);
+    expect(result.percent).toBe(21);
     expect(result.stage).toBe('COOKING');
   });
 
-  it('tất cả READY, DELIVERY → all_done=false, percent 80, stage DELIVERING', () => {
+  it('tất cả READY, DELIVERY → percent = ĐÚNG trần 70, stage READY_TO_SHIP, all_done=false', () => {
     const result = computeProgress(
       baseInput({ item_states: ['READY', 'READY'], fulfillment_type: 'DELIVERY' }),
     );
+    expect(result.percent).toBe(70);
+    expect(result.stage).toBe('READY_TO_SHIP');
     expect(result.all_done).toBe(false);
-    expect(result.percent).toBe(80);
-    expect(result.stage).toBe('DELIVERING');
   });
 
-  it('tất cả READY, PICKUP → all_done=true, percent 100, stage READY_FOR_PICKUP (M2.D-15)', () => {
-    const result = computeProgress(
-      baseInput({ item_states: ['READY', 'READY'], fulfillment_type: 'PICKUP' }),
-    );
-    expect(result.all_done).toBe(true);
-    expect(result.percent).toBe(100);
-    expect(result.stage).toBe('READY_FOR_PICKUP');
-  });
-
-  it('tất cả SERVED, DELIVERY → percent 100, stage COMPLETED', () => {
+  it('tất cả SERVED, DELIVERY → vẫn là READY_TO_SHIP: SERVED chỉ là "đã rời bếp"', () => {
     const result = computeProgress(
       baseInput({ item_states: ['SERVED', 'SERVED'], fulfillment_type: 'DELIVERY' }),
     );
-    expect(result.percent).toBe(100);
-    expect(result.stage).toBe('COMPLETED');
+    expect(result.percent).toBe(70);
+    expect(result.stage).toBe('READY_TO_SHIP');
+    expect(result.all_done).toBe(false);
   });
 
-  it('tất cả SERVED, PICKUP → percent 100, stage COMPLETED', () => {
+  it('tất cả READY, PICKUP → trần 85, READY_FOR_PICKUP, all_done=false (ghi đè M2.D-15)', () => {
     const result = computeProgress(
-      baseInput({ item_states: ['SERVED', 'SERVED'], fulfillment_type: 'PICKUP' }),
+      baseInput({ item_states: ['READY', 'READY'], fulfillment_type: 'PICKUP' }),
     );
-    expect(result.percent).toBe(100);
-    expect(result.stage).toBe('COMPLETED');
+    expect(result.percent).toBe(85);
+    expect(result.stage).toBe('READY_FOR_PICKUP');
+    expect(result.all_done).toBe(false);
+  });
+
+  it('CHẠM TRẦN ⟺ BẾP XONG: 19 SERVED + 1 COOKING không bao giờ chạm 70', () => {
+    const item_states = [...Array(19).fill('SERVED'), 'COOKING'];
+    const result = computeProgress(baseInput({ item_states }));
+    expect(result.percent).toBeLessThan(70);
+    expect(result.stage).toBe('COOKING');
   });
 });
 
-describe('computeProgress — chặn 95% khi chưa xong', () => {
-  it('19 SERVED + 1 READY (20 item), DELIVERY → percent 95, KHÔNG phải 99', () => {
-    const item_states = [...Array(19).fill('SERVED'), 'READY'];
-    const result = computeProgress(baseInput({ item_states }));
-    expect(result.percent).toBe(95);
+describe('computeProgress — 2 chặng giao hàng (mốc thời gian, 2026-08-04)', () => {
+  it('shipped_at có, received_at null → percent 90, stage DELIVERING', () => {
+    const result = computeProgress(
+      baseInput({ item_states: ['SERVED', 'SERVED'], shipped_at: 1_700_000_000_000 }),
+    );
+    expect(result.percent).toBe(90);
+    expect(result.stage).toBe('DELIVERING');
+    expect(result.all_done).toBe(false);
+  });
+
+  it('received_at có → percent 100, stage COMPLETED, all_done=true', () => {
+    const result = computeProgress(
+      baseInput({
+        item_states: ['SERVED', 'SERVED'],
+        shipped_at: 1_700_000_000_000,
+        received_at: 1_700_000_600_000,
+      }),
+    );
+    expect(result.percent).toBe(100);
+    expect(result.stage).toBe('COMPLETED');
+    expect(result.all_done).toBe(true);
+  });
+
+  it('PICKUP: received_at có (khách đã tới lấy) → 100, COMPLETED, không cần shipped_at', () => {
+    const result = computeProgress(
+      baseInput({
+        item_states: ['READY', 'READY'],
+        fulfillment_type: 'PICKUP',
+        received_at: 1_700_000_600_000,
+      }),
+    );
+    expect(result.percent).toBe(100);
+    expect(result.stage).toBe('COMPLETED');
+    expect(result.all_done).toBe(true);
+  });
+
+  // M2.D-19 phải sống sót cả khi món bị huỷ MUỘN, sau lúc khách đã nhận hàng: mốc thời gian
+  // xét TRƯỚC `item_states` chính là để chặn trường hợp này.
+  it('đã nhận rồi mà món bị huỷ muộn → vẫn 100, không tụt', () => {
+    const result = computeProgress(
+      baseInput({
+        item_states: ['SERVED', 'CANCELLED'],
+        shipped_at: 1_700_000_000_000,
+        received_at: 1_700_000_600_000,
+        max_progress_shown: 100,
+      }),
+    );
+    expect(result.percent).toBe(100);
+    expect(result.cancelled_count).toBe(1);
   });
 });
 
@@ -101,20 +154,34 @@ describe('computeProgress — đơn điệu (max_progress_shown)', () => {
     expect(result.percent).toBe(80);
   });
 
-  it('max_progress_shown=95, tất cả SERVED → percent 100 (đơn điệu không phá mốc 100)', () => {
+  // Ý định gốc của case này là "đơn điệu không phá mốc 100". Sau khi thêm 2 chặng, mốc 100 chỉ
+  // đến từ `received_at` — nên tách thành 2 assert: đơn điệu giữ được số cũ, và mốc 100 vẫn tới.
+  it('max_progress_shown=95, bếp xong (trần 70) → giữ 95, KHÔNG tụt về 70', () => {
     const result = computeProgress(
       baseInput({ item_states: ['SERVED', 'SERVED'], max_progress_shown: 95 }),
+    );
+    expect(result.percent).toBe(95);
+  });
+
+  it('max_progress_shown=95 + received_at → 100 (đơn điệu không chặn mốc 100)', () => {
+    const result = computeProgress(
+      baseInput({
+        item_states: ['SERVED', 'SERVED'],
+        max_progress_shown: 95,
+        shipped_at: 1_700_000_000_000,
+        received_at: 1_700_000_600_000,
+      }),
     );
     expect(result.percent).toBe(100);
   });
 });
 
 describe('computeProgress — món huỷ/hết hàng trừ khỏi mẫu số (M2.D-21)', () => {
-  it('3 item [SERVED,SERVED,CANCELLED], DELIVERY → mẫu số=2, percent 100, cancelled_count=1', () => {
+  it('3 item [SERVED,SERVED,CANCELLED], DELIVERY → mẫu số=2 nên bếp XONG → trần 70', () => {
     const result = computeProgress(
       baseInput({ item_states: ['SERVED', 'SERVED', 'CANCELLED'], fulfillment_type: 'DELIVERY' }),
     );
-    expect(result.percent).toBe(100);
+    expect(result.percent).toBe(70);
     expect(result.cancelled_count).toBe(1);
     expect(result.cancelled_note).toBe('1 món đã huỷ — quán sẽ liên hệ bạn');
   });
@@ -123,7 +190,7 @@ describe('computeProgress — món huỷ/hết hàng trừ khỏi mẫu số (M2
     const result = computeProgress(
       baseInput({ item_states: ['SERVED', 'SERVED', 'OUT_OF_STOCK'] }),
     );
-    expect(result.percent).toBe(100);
+    expect(result.percent).toBe(70);
     expect(result.cancelled_count).toBe(1);
   });
 
@@ -171,11 +238,20 @@ describe('stageLabel — nhãn theo 09-UI-SPEC Mặt B', () => {
     expect(stageLabel('READY_FOR_PICKUP', 'PICKUP')).toBe('Sẵn sàng lấy hàng');
   });
 
+  it("READY_TO_SHIP = 'Đã xong, chờ giao' — KHÔNG phải 'Đang giao'", () => {
+    expect(stageLabel('READY_TO_SHIP', 'DELIVERY')).toBe('Đã xong, chờ giao');
+  });
+
+  // COMPLETED tách câu theo luồng: "đã giao" là vô nghĩa với khách tự tới lấy.
+  it("COMPLETED nói khác nhau theo luồng", () => {
+    expect(stageLabel('COMPLETED', 'DELIVERY')).toBe('Đã nhận hàng');
+    expect(stageLabel('COMPLETED', 'PICKUP')).toBe('Đã lấy hàng');
+  });
+
   const otherLabels: Array<[OrderStage, string]> = [
     ['RECEIVED', 'Đã tiếp nhận'],
     ['CONFIRMED', 'Đã xác nhận'],
     ['COOKING', 'Đang chuẩn bị'],
-    ['COMPLETED', 'Hoàn tất'],
     ['REJECTED', 'Đơn đã bị từ chối'],
   ];
 

@@ -68,6 +68,11 @@ function deriveActionKind(method: string, path: string): string {
   // động — tức là kiểm soát bù trừ tồn tại trên giấy mà không tra cứu được.
   if (path.match(/^\/admin\/online-orders\/[^/]+\/confirm$/) && method === 'POST') return 'online_order.confirmed';
   if (path.match(/^\/admin\/online-orders\/[^/]+\/reject$/) && method === 'POST') return 'online_order.rejected';
+  // 2 chặng giao hàng (2026-08-04). Cùng lý lẽ với 2 nhánh trên: cả 3 role bấm được, nên "ai
+  // bấm đã đi ship / ai bấm khách đã nhận" chỉ còn truy được qua audit log. Với COD thì
+  // "khách đã nhận" là mốc tiền trao tay — càng phải có vết.
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/ship$/) && method === 'POST') return 'online_order.shipped';
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/receive$/) && method === 'POST') return 'online_order.received';
 
   // Settings + phone blacklist (plan 08-05, M2.D-25)
   if (path === '/admin/settings' && method === 'PUT') return 'settings.updated';

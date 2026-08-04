@@ -58,6 +58,11 @@ const CHECKS: TableCheck[] = [
       'distance_km',
       'ship_fee',
       'payment_method',
+      // 2 mốc chặng giao hàng (2026-08-04). `synchronize: true` tự thêm cột NULL vào bảng có dữ
+      // liệu là an toàn, nhưng "an toàn về lý thuyết" không phải bằng chứng — gate này là chỗ
+      // duy nhất chứng minh cột có thật trong MySQL.
+      'shipped_at',
+      'received_at',
     ],
   },
   {

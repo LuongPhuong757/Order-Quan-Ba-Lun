@@ -57,6 +57,16 @@ export type ConfirmResult = {
   dropped_count: number;
 };
 
+/** Kết quả của `markShipped`/`markReceived`. Trả về CẢ HAI mốc (không chỉ mốc vừa set) để FE
+ * vẽ lại được trạng thái đơn mà không phải gọi thêm 1 GET. */
+export type FulfillmentResult = {
+  order_id: string;
+  table_code: string;
+  fulfillment_type: 'PICKUP' | 'DELIVERY';
+  shipped_at_ms: number | null;
+  received_at_ms: number | null;
+};
+
 @Injectable()
 export class AdminOnlineOrdersService {
   private readonly logger = new Logger(AdminOnlineOrdersService.name);
@@ -413,6 +423,71 @@ export class AdminOnlineOrdersService {
     const settings = await this.settingsSvc.readAll();
     const nowMs = Date.now();
 
+    // ── Dữ liệu của Order THẬT: mã bàn + 2 mốc chặng giao + đếm món live ──
+    // 2 query cho CẢ danh sách (không N+1 theo từng đơn), cùng khuôn với `menus` phía trên.
+    // Đơn còn WAITING không có `order_id` nên không tham gia — map rỗng là đúng, không phải lỗi.
+    const orderIds = requests.map((r) => r.order_id).filter((id): id is string => id !== null);
+
+    const orders =
+      orderIds.length === 0
+        ? []
+        : await this.ds.getRepository(Order).find({
+            where: { id: In(orderIds) },
+            select: ['id', 'table_code', 'shipped_at', 'received_at'],
+          });
+    const orderMap = new Map(orders.map((o) => [o.id, o]));
+
+    // Đếm bằng GROUP BY thay vì tải hết `order_items` về rồi đếm trong JS: hàng chờ có thể chứa
+    // vài chục đơn × chục món, và ta chỉ cần 6 con số mỗi đơn.
+    // `is_note = false`: dòng ghi chú cho bếp ("ít cay") không phải món khách đặt — tính vào mẫu
+    // số là hiện "4 món" cho đơn 3 món.
+    type CountRow = { order_id: string; state: string; n: string | number };
+    const countRows: CountRow[] =
+      orderIds.length === 0
+        ? []
+        : await this.ds
+            .getRepository(OrderItem)
+            .createQueryBuilder('oi')
+            .select('oi.order_id', 'order_id')
+            .addSelect('oi.state', 'state')
+            .addSelect('COUNT(*)', 'n')
+            .where('oi.order_id IN (:...ids)', { ids: orderIds })
+            .andWhere('oi.is_note = false')
+            .groupBy('oi.order_id')
+            .addGroupBy('oi.state')
+            .getRawMany<CountRow>();
+
+    const countsByOrder = new Map<string, AdminOnlineOrderRow['item_state_counts']>();
+    for (const row of countRows) {
+      const cur =
+        countsByOrder.get(row.order_id) ??
+        { total: 0, pending: 0, kitchen: 0, cooking: 0, ready: 0, served: 0, cancelled: 0 };
+      const n = Number(row.n);
+      cur.total += n;
+      switch (row.state) {
+        case 'PENDING':
+          cur.pending += n;
+          break;
+        case 'KITCHEN':
+          cur.kitchen += n;
+          break;
+        case 'COOKING':
+          cur.cooking += n;
+          break;
+        case 'READY':
+          cur.ready += n;
+          break;
+        case 'SERVED':
+          cur.served += n;
+          break;
+        default:
+          // CANCELLED + OUT_OF_STOCK gộp một cột: với nhân viên nhìn hàng chờ, cả hai đều nghĩa
+          // là "món này không tới tay khách" — phân biệt lý do là việc của drawer chi tiết.
+          cur.cancelled += n;
+      }
+      countsByOrder.set(row.order_id, cur);
+    }
+
     // Whitelist tường minh — KHÔNG spread entity: hash IP, user-agent, ghi chú từ chối nội bộ,
     // hay `order_token` đầy đủ tuyệt đối không được lọt vào đây (T-09-31).
     const items: AdminOnlineOrderRow[] = requests.map((r) => ({
@@ -449,6 +524,11 @@ export class AdminOnlineOrdersService {
       // `reject_reason` = câu ĐÃ GỬI KHÁCH. `internal_reject_note` không có mặt ở đây và không
       // được thêm vào — xem điểm 3 đầu controller (D-09).
       reject_reason: r.reject_reason,
+
+      table_code: r.order_id ? (orderMap.get(r.order_id)?.table_code ?? null) : null,
+      item_state_counts: r.order_id ? (countsByOrder.get(r.order_id) ?? null) : null,
+      shipped_at_ms: r.order_id ? (orderMap.get(r.order_id)?.shipped_at ?? null) : null,
+      received_at_ms: r.order_id ? (orderMap.get(r.order_id)?.received_at ?? null) : null,
     }));
 
     const payload: AdminOnlineOrderList = {
@@ -456,5 +536,151 @@ export class AdminOnlineOrdersService {
       escalate_sms_after_s: settings.escalate_sms_after_s,
     };
     return AdminOnlineOrderList.strict().parse(payload);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+  // 2 chặng giao hàng (2026-08-04)
+  //
+  // Cả 2 chỉ SET MỘT MỐC THỜI GIAN, không đổi `online_order_requests.status` và KHÔNG đóng đơn.
+  // `received_at` ≠ "đã thu tiền": chủ dự án chốt bàn giữ tới khi thu tiền, nên `closed_at` /
+  // `is_paid` vẫn thuộc luồng checkout ở `OrdersService`. Với COD, khách nhận hàng và quán thu
+  // được tiền lệch nhau vài tiếng là bình thường.
+  //
+  // Thứ tự bắt buộc: `ship` → `receive`. Guard ở đây là chốt chặn THẬT, không phải chỉ ẩn nút:
+  // ẩn nút mà API vẫn mở thì gọi thẳng URL là set được `received_at` cho đơn chưa rời quán, và
+  // 2 cột này sẽ vô nghĩa sau vài tháng.
+  // ══════════════════════════════════════════════════════════════════════════════════════════
+
+  /** Khoá dòng `orders` của một request đã duyệt. Trả cả request để biết `fulfillment_type`.
+   *
+   * `FOR UPDATE` vì 2 nhân viên có thể bấm cùng lúc trên 2 máy — cùng khuôn với
+   * `lockWaitingRequest`, chỉ khác là khoá `orders` thay vì `online_order_requests`. */
+  private async lockConfirmedOrder(
+    mgr: EntityManager,
+    requestId: string,
+  ): Promise<{ request: OnlineOrderRequest; order: Order }> {
+    const request = await mgr.getRepository(OnlineOrderRequest).findOne({ where: { id: requestId } });
+    if (!request) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy đơn này.' });
+    }
+    if (request.status !== 'CONFIRMED' || !request.order_id) {
+      throw new ConflictException({
+        code: 'ORDER_NOT_CONFIRMED',
+        message: 'Đơn chưa được xác nhận nên chưa có gì để giao.',
+      });
+    }
+    const lockRows: Array<{ id: string }> = await mgr.query(
+      'SELECT id FROM orders WHERE id = ? FOR UPDATE',
+      [request.order_id],
+    );
+    if (lockRows.length === 0) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy đơn ở bàn.' });
+    }
+    const order = await mgr.getRepository(Order).findOne({ where: { id: request.order_id } });
+    if (!order) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy đơn ở bàn.' });
+    }
+    return { request, order };
+  }
+
+  /** Đánh dấu shipper đã rời quán. CHỈ áp dụng cho DELIVERY. */
+  async markShipped(requestId: string, actor: ReviewActor): Promise<FulfillmentResult> {
+    return this.ds.transaction(async (mgr) => {
+      const { request, order } = await this.lockConfirmedOrder(mgr, requestId);
+
+      if (request.fulfillment_type !== 'DELIVERY') {
+        throw new BadRequestException({
+          code: 'NOT_A_DELIVERY_ORDER',
+          message: 'Đơn khách tự tới lấy không có chặng giao hàng.',
+        });
+      }
+      if (order.received_at !== null) {
+        throw new ConflictException({
+          code: 'ALREADY_RECEIVED',
+          message: 'Khách đã nhận đơn này rồi.',
+        });
+      }
+      // Bấm 2 lần không phải lỗi của nhân viên (mạng chậm, bấm lại) — nhưng KHÔNG ghi đè mốc cũ,
+      // vì mốc đầu tiên mới là lúc shipper thật sự rời quán. Trả về mốc đang có, coi như xong.
+      if (order.shipped_at !== null) {
+        return this.fulfillmentResult(order, request);
+      }
+
+      order.shipped_at = Date.now();
+      await mgr.getRepository(Order).save(order);
+      await this.writeFulfillmentActivity(mgr, order, actor, 'Đã giao cho shipper — đơn rời quán');
+
+      this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+      return this.fulfillmentResult(order, request);
+    });
+  }
+
+  /** Đánh dấu khách đã cầm hàng. DELIVERY = khách nhận, PICKUP = khách tới lấy.
+   *
+   * Với PICKUP mốc này GHI ĐÈ M2.D-15 (xem `OVERRIDE-DEBT.md` OD-19). */
+  async markReceived(requestId: string, actor: ReviewActor): Promise<FulfillmentResult> {
+    return this.ds.transaction(async (mgr) => {
+      const { request, order } = await this.lockConfirmedOrder(mgr, requestId);
+
+      if (request.fulfillment_type === 'DELIVERY' && order.shipped_at === null) {
+        throw new ConflictException({
+          code: 'NOT_SHIPPED_YET',
+          message: 'Đơn chưa rời quán — bấm "Đã đi ship" trước.',
+        });
+      }
+      if (order.received_at !== null) {
+        return this.fulfillmentResult(order, request);
+      }
+
+      order.received_at = Date.now();
+      await mgr.getRepository(Order).save(order);
+      await this.writeFulfillmentActivity(
+        mgr,
+        order,
+        actor,
+        request.fulfillment_type === 'PICKUP' ? 'Khách đã tới lấy hàng' : 'Khách đã nhận hàng',
+      );
+
+      this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+      return this.fulfillmentResult(order, request);
+    });
+  }
+
+  private fulfillmentResult(order: Order, request: OnlineOrderRequest): FulfillmentResult {
+    return {
+      order_id: order.id,
+      table_code: order.table_code,
+      fulfillment_type: request.fulfillment_type as 'PICKUP' | 'DELIVERY',
+      shipped_at_ms: order.shipped_at,
+      received_at_ms: order.received_at,
+    };
+  }
+
+  /** Ghi vào nhật ký hoạt động của BÀN (`order_activity_log`), song song với audit log của
+   * `AuditInterceptor`. Hai chỗ phục vụ 2 người khác nhau: audit log để chủ quán soi "ai bấm",
+   * nhật ký bàn để nhân viên mở drawer thấy "đơn này đã đi tới đâu".
+   * Lỗi ghi log KHÔNG được làm rớt giao dịch — cùng cách `OrdersService.writeActivity` xử lý. */
+  private async writeFulfillmentActivity(
+    mgr: EntityManager,
+    order: Order,
+    actor: ReviewActor,
+    message: string,
+  ): Promise<void> {
+    try {
+      await mgr.getRepository(OrderActivityLog).save(
+        mgr.getRepository(OrderActivityLog).create({
+          order_id: order.id,
+          table_id: order.table_id,
+          table_code: order.table_code,
+          order_opened_at: order.opened_at,
+          event_kind: 'online_order_fulfillment',
+          message,
+          actor_id: actor.id,
+          actor_name: actor.full_name,
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(`writeFulfillmentActivity thất bại: ${(err as Error).message}`);
+    }
   }
 }

@@ -363,11 +363,22 @@ const FAKE_SETTINGS = {
 };
 
 /** Service + spy `update` để assert lệnh ghi `max_progress_shown`. */
-function makeService(opts: { request: FakeRequestRow | null; items?: FakeItemRow[] }) {
+function makeService(opts: {
+  request: FakeRequestRow | null;
+  items?: FakeItemRow[];
+  /** 2 mốc chặng giao hàng trên `orders` (2026-08-04). Mặc định null = chưa đi ship, chưa nhận. */
+  shipped_at?: number | null;
+  received_at?: number | null;
+}) {
   const update = vi.fn().mockResolvedValue(undefined);
   const requestRepo = { findOne: vi.fn().mockResolvedValue(opts.request), update };
   const orderRepo = {
-    findOne: vi.fn().mockResolvedValue({ id: 'order-1', updated_at: ORDER_UPDATED_MS }),
+    findOne: vi.fn().mockResolvedValue({
+      id: 'order-1',
+      updated_at: ORDER_UPDATED_MS,
+      shipped_at: opts.shipped_at ?? null,
+      received_at: opts.received_at ?? null,
+    }),
   };
   const itemRepo = { find: vi.fn().mockResolvedValue(opts.items ?? []) };
   const settingsSvc = { readAll: vi.fn().mockResolvedValue(FAKE_SETTINGS) };
@@ -406,13 +417,14 @@ describe('getByToken — đơn còn WAITING', () => {
 });
 
 describe('getByToken — đơn đã CONFIRMED', () => {
-  it('2 món state KITCHEN thì percent 15, stage CONFIRMED, updated_at_ms lấy từ order', async () => {
+  // 13 = round(0.15 × trần PICKUP 85). Trước 2026-08-04 là 15 (thang cũ chạy thẳng tới 100).
+  it('2 món state KITCHEN thì percent 13, stage CONFIRMED, updated_at_ms lấy từ order', async () => {
     const { svc } = makeService({
       request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
       items: [fakeItem(), fakeItem({ menu_item_name: 'Cơm rang', menu_item_price: 50000, qty: 1 })],
     });
     const res = await svc.getByToken('tok-1');
-    expect(res.percent).toBe(15);
+    expect(res.percent).toBe(13);
     expect(res.stage).toBe('CONFIRMED');
     expect(res.stage_label).toBe('Đã xác nhận');
     expect(res.updated_at_ms).toBe(ORDER_UPDATED_MS);
@@ -453,8 +465,10 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     const res = await svc.getByToken('tok-1');
     expect(res.items).toHaveLength(1);
     expect(res.items[0].name).toBe('Lẩu bò');
-    // Nếu dòng ghi chú bị tính vào mẫu số thì phần trăm chỉ còn 58, không phải 100.
-    expect(res.percent).toBe(100);
+    // Bếp xong hết → chạm ĐÚNG trần PICKUP 85. Nếu dòng ghi chú bị tính vào mẫu số thì đơn
+    // không còn "xong hết", percent rơi xuống 49 và stage thành COOKING.
+    expect(res.percent).toBe(85);
+    expect(res.stage).toBe('READY_FOR_PICKUP');
   });
 
   it('món CANCELLED bị trừ khỏi items nhưng hiện thành dòng cảnh báo (M2.D-21)', async () => {
@@ -485,16 +499,62 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     expect(res.eta_max).toBe(45);
   });
 
-  it('stage COMPLETED thì eta null (không còn dự kiến còn bao lâu)', async () => {
+  // COMPLETED nay đến từ `orders.received_at`, KHÔNG từ item state (ghi đè M2.D-15 → OD-19).
+  // Bếp xong mà khách chưa tới lấy thì ETA vẫn phải còn — khách vẫn đang chờ để đi lấy.
+  it('bếp xong nhưng chưa nhận hàng → CHƯA phải COMPLETED, eta vẫn còn', async () => {
     const { svc } = makeService({
       request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
       items: [fakeItem({ state: 'SERVED' })],
     });
     const res = await svc.getByToken('tok-1');
+    expect(res.stage).toBe('READY_FOR_PICKUP');
+    expect(res.percent).toBe(85);
+    expect(res.eta_min).not.toBeNull();
+  });
+
+  it('received_at có → stage COMPLETED, percent 100, eta null', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem({ state: 'SERVED' })],
+      received_at: 1_800_000_600_000,
+    });
+    const res = await svc.getByToken('tok-1');
     expect(res.stage).toBe('COMPLETED');
     expect(res.percent).toBe(100);
+    expect(res.stage_label).toBe('Đã lấy hàng');
     expect(res.eta_min).toBeNull();
     expect(res.eta_max).toBeNull();
+  });
+
+  it('DELIVERY đã đi ship, chưa nhận → stage DELIVERING, percent 90', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({
+        status: 'CONFIRMED',
+        order_id: 'order-1',
+        fulfillment_type: 'DELIVERY',
+      }),
+      items: [fakeItem({ state: 'SERVED' })],
+      shipped_at: 1_800_000_500_000,
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.stage).toBe('DELIVERING');
+    expect(res.percent).toBe(90);
+    expect(res.stage_label).toBe('Đang giao');
+  });
+
+  it('DELIVERY bếp xong, CHƯA ship → READY_TO_SHIP chứ không phải "Đang giao"', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({
+        status: 'CONFIRMED',
+        order_id: 'order-1',
+        fulfillment_type: 'DELIVERY',
+      }),
+      items: [fakeItem({ state: 'READY' })],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.stage).toBe('READY_TO_SHIP');
+    expect(res.stage_label).toBe('Đã xong, chờ giao');
+    expect(res.percent).toBe(70);
   });
 });
 
@@ -553,8 +613,8 @@ describe('getByToken — D-09: ghi chú nội bộ không bao giờ ra response'
 describe('getByToken — phần trăm đơn điệu, chỉ ghi DB khi tăng (M2.D-19, T-09-49)', () => {
   it('percent tăng thì ghi max_progress_shown đúng giá trị mới', async () => {
     const { svc, update } = makeService({
-      // DELIVERY: `READY` = món đã xong nhưng CHƯA giao tới khách → 80, chưa phải 100. Với PICKUP
-      // thì `READY` đã là hoàn tất (M2.D-15) nên sẽ ra 100 — dùng DELIVERY để test đúng mốc 80.
+      // DELIVERY: `READY` = bếp xong nhưng chưa ai mang đi → chạm ĐÚNG trần 70, còn 2 chặng nữa
+      // (ship 90, khách nhận 100). Trước 2026-08-04 mốc này là 80 và stage bị gọi là "Đang giao".
       request: fakeRequest({
         status: 'CONFIRMED',
         order_id: 'order-1',
@@ -564,8 +624,8 @@ describe('getByToken — phần trăm đơn điệu, chỉ ghi DB khi tăng (M2.
       items: [fakeItem({ state: 'READY' })],
     });
     const res = await svc.getByToken('tok-1');
-    expect(res.percent).toBe(80);
-    expect(update).toHaveBeenCalledWith({ id: 'req-1' }, { max_progress_shown: 80 });
+    expect(res.percent).toBe(70);
+    expect(update).toHaveBeenCalledWith({ id: 'req-1' }, { max_progress_shown: 70 });
   });
 
   it('bếp trả 1 món về KITCHEN thì percent KHÔNG tụt và KHÔNG ghi đè xuống thấp', async () => {
