@@ -78,6 +78,10 @@ class RemoveItemUnitsDto {
   @IsUUID('all', { each: true })
   item_ids!: string[];
 
+  /** Số PHẦN cần bớt trong nhóm. Bỏ trống = huỷ trọn các dòng được chọn. Có giá trị
+   * khi bớt lẻ (bớt 2 trong dòng qty=5) — BE tách dòng CANCELLED cho phần bị bớt. */
+  @IsOptional() @IsInt() @Min(1) @Max(9999) units?: number;
+
   @IsOptional() @IsString() @MaxLength(255) reason?: string;
 }
 
@@ -90,10 +94,12 @@ class TransferTableDto {
   @IsUUID() dest_table_id!: string;
 }
 
+/** Cả 3 field đều optional — bàn ship KHÔNG bắt buộc có thông tin khách mới nhận
+ * order được. Chỉ ràng buộc định dạng SĐT khi có gửi lên (chuỗi rỗng = xoá). */
 class UpdateCustomerInfoDto {
-  @IsString() @MinLength(1) @MaxLength(128) name!: string;
-  @IsString() @MinLength(5) @MaxLength(255) address!: string;
-  @IsString() @Matches(/^0\d{9}$/, { message: 'Số điện thoại phải có 10 số, bắt đầu bằng 0' }) phone!: string;
+  @IsOptional() @IsString() @MaxLength(128) name?: string;
+  @IsOptional() @IsString() @MaxLength(255) address?: string;
+  @IsOptional() @IsString() @Matches(/^(0\d{9})?$/, { message: 'Số điện thoại phải có 10 số, bắt đầu bằng 0' }) phone?: string;
 }
 
 /** Cửa sổ thời gian nhân viên (không phải admin) được soi lịch sử/nhật ký bàn. */
@@ -192,10 +198,12 @@ export class OrdersController {
    * Mọi nhân viên đều được dùng; truy vết qua nhật ký bàn (ai + lý do). */
   @Post('items/remove')
   async removeItemUnits(@Body() dto: RemoveItemUnitsDto, @Req() req: Request) {
-    const result = await this.svc.removeItemUnits(dto.item_ids, dto.reason, {
-      id: req.user!.sub,
-      full_name: req.user!.full_name,
-    });
+    const result = await this.svc.removeItemUnits(
+      dto.item_ids,
+      dto.reason,
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      dto.units,
+    );
     return { data: result };
   }
 

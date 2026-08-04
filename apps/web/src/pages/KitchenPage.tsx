@@ -15,6 +15,8 @@ type OrderItem = {
   /** NULL với dòng ghi chú — ghi chú không trỏ tới món nào trong menu. */
   menu_item_id: string | null;
   menu_item_name: string;
+  /** Snapshot giá lúc gọi món (VND, không thập phân). Dòng ghi chú luôn 0. */
+  menu_item_price: number;
   qty: number;
   state: string;
   note: string | null;
@@ -56,6 +58,14 @@ type MenuGroup = {
 };
 
 type KitchenItem = OrderItem & { table_code: string; table_name: string; group: string };
+
+/** Định lượng phần ăn, hiển thị gọn: 100000 → "100k", 130000 → "130k".
+ *  Không tròn nghìn (2500) → giữ nguyên "2.500đ" để không mất số.
+ *  Cố tình KHÔNG dùng format tiền đầy đủ như màn Order/bill: ở bếp con số này là
+ *  nhãn định lượng để múc đúng cỡ bát, chữ càng ngắn càng dễ liếc. */
+function fmtPortion(n: number): string {
+  return n % 1000 === 0 ? `${n / 1000}k` : `${n.toLocaleString('vi-VN')}đ`;
+}
 
 // Filter Bếp: Set<string> các group.code đang chọn. Empty Set = chọn tất cả.
 // Cho phép multi-select: tap nhiều nhóm để xem kết hợp.
@@ -152,6 +162,42 @@ export function KitchenPage() {
   useEffect(() => {
     saveFilters(groupFilters);
   }, [groupFilters]);
+
+  // Bật chế độ thông báo cỡ lớn CHỈ ở màn bếp (CSS: body.kds-mode .toast-banner).
+  // Banner do ToastProvider render ở gốc cây DOM nên không thể target bằng CSS
+  // con của .kds-container — phải đánh dấu ở body.
+  // Lý do cần to hơn: bếp đứng cách iPad cả mét, tay ướt/đeo găng, bếp ồn → chữ
+  // 15px như các màn khác thì bỏ lỡ món mới.
+  useEffect(() => {
+    document.body.classList.add('kds-mode');
+    return () => document.body.classList.remove('kds-mode');
+  }, []);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const filterBarRef = useRef<HTMLDivElement>(null);
+
+  // Bar lọc + nav dưới đều position:fixed → board phải chừa đúng tổng chiều cao
+  // của chúng, nếu không card cuối cột bị che. Đo runtime thay vì hardcode px vì:
+  //   - nav-bottom ẩn nav-label ở màn < 380px nên cao thấp khác nhau,
+  //   - nav có padding env(safe-area-inset-bottom) (iPad có home indicator hay không),
+  //   - bar lọc cao thêm khi user zoom trang.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const nav = document.querySelector<HTMLElement>('.nav-bottom');
+    const sync = () => {
+      const navH = nav?.offsetHeight ?? 60;
+      const barH = filterBarRef.current?.offsetHeight ?? 48;
+      el.style.setProperty('--kds-nav-h', `${navH}px`);
+      el.style.setProperty('--kds-bottom-pad', `${navH + barH + 8}px`);
+    };
+    sync();
+    const ro = new ResizeObserver(sync);
+    if (nav) ro.observe(nav);
+    if (filterBarRef.current) ro.observe(filterBarRef.current);
+    return () => ro.disconnect();
+  }, []);
+
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -343,14 +389,55 @@ export function KitchenPage() {
   };
 
   return (
-    <div className="kds-container">
+    <div className="kds-container" ref={containerRef}>
       <style>{`
         /* Layout compact 1-dòng/món: card cao ~46px thay vì ~140px → 1 màn iPad
            thấy được gấp 3 số món, bếp không phải scroll để nắm tình hình. */
         .kds-container {
-          padding: 8px 12px 60px;
+          /* padding-bottom = nav dưới + bar lọc (cả hai fixed) — đo runtime, xem
+             comment ở useEffect đo chiều cao. Fallback 110px cho lần render đầu. */
+          padding: 8px 12px var(--kds-bottom-pad, 110px);
           max-width: 100%;
           margin: 0 auto;
+        }
+        /* Bar lọc dán đáy màn, ngay trên nav-bottom. Bếp đứng nấu nên ngón tay ở
+           nửa dưới iPad — nút lọc ở đáy với tới dễ hơn ở đầu trang, và không bị
+           đẩy khỏi tầm mắt khi cột món dài phải cuộn. */
+        .kds-filter-bar {
+          position: fixed;
+          left: 0;
+          right: 0;
+          bottom: var(--kds-nav-h, 60px);
+          z-index: 90; /* dưới nav-bottom (100), dưới modal (9998+) */
+          background: white;
+          border-top: 1px solid #e5e7eb;
+          box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+          padding: 6px 12px;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        /* CHỈ dải chip cuộn ngang — nút "Lọc nhóm" và "Xoá lọc" ghim 2 đầu để vẫn
+           bấm được khi đang chọn nhiều nhóm (chip trước đây wrap xuống nhiều dòng,
+           đẩy bar cao dần và che mất board). */
+        .kds-filter-bar > button { flex-shrink: 0; }
+        .kds-filter-chips {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-wrap: nowrap;
+          gap: 4px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          scrollbar-width: thin;
+          padding-bottom: 2px;
+        }
+        .kds-filter-chips::-webkit-scrollbar { height: 5px; }
+        .kds-filter-chips::-webkit-scrollbar-thumb {
+          background: #cbd5e1;
+          border-radius: 999px;
         }
         .kds-header {
           display: flex;
@@ -513,6 +600,23 @@ export function KitchenPage() {
         }
         /* Đồng hồ ⏱ (mục đầu) là thông tin cảnh báo — không bao giờ được cắt. */
         .kds-card-meta > :first-child { flex-shrink: 0; }
+        /* Nhãn định lượng. PHẢI khai báo SAU '.kds-card-meta > *' — cùng specificity
+           (0,1,0) nên rule sau thắng, cần thế để huỷ ellipsis: "100…" thì bếp không
+           biết múc cỡ nào. Nền vàng nhạt + 12px (meta 11px) để liếc là thấy giữa
+           dãy meta xám. */
+        .kds-card-portion {
+          font-size: 12px;
+          font-weight: 700;
+          color: #92400e;
+          background: #fffbeb;
+          border: 1px solid #fde68a;
+          border-radius: 5px;
+          padding: 0 5px;
+          white-space: nowrap;
+          overflow: visible;
+          text-overflow: clip;
+          flex-shrink: 0;
+        }
         .kds-card-note {
           font-size: 11px;
           color: #dc2626;
@@ -626,7 +730,7 @@ export function KitchenPage() {
         </p>
         <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Mở filter:</p>
         <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
-          <li>Bấm nút <strong>"🔍 Lọc nhóm"</strong> trên đầu trang → mở popup chọn nhóm.</li>
+          <li>Bấm nút <strong>"🔍 Lọc nhóm"</strong> ở thanh dưới cùng màn hình (ngay trên thanh điều hướng) → mở popup chọn nhóm.</li>
           <li>Mặc định ban đầu là <strong>"Tất cả"</strong> — hiện toàn bộ món của mọi nhóm.</li>
         </ul>
         <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Trong popup lọc:</p>
@@ -647,76 +751,13 @@ export function KitchenPage() {
         <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Sau khi áp dụng:</p>
         <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
           <li>Nút "Lọc nhóm" đổi sang nền màu + hiển thị <strong>số nhóm đang chọn</strong>.</li>
-          <li>Bên cạnh hiện <strong>chip nhỏ liệt kê tên các nhóm</strong> đang chọn + số món của nhóm.</li>
+          <li>Bên cạnh hiện <strong>chip nhỏ liệt kê tên các nhóm</strong> đang chọn + số món của nhóm — chọn nhiều nhóm thì <strong>kéo dải chip sang trái/phải</strong> để xem hết.</li>
           <li>Bấm <strong>"✕ Xoá lọc"</strong> để reset về "Tất cả".</li>
         </ul>
         <p style={{ margin: '6px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
           💾 Lựa chọn được lưu vào trình duyệt — đăng xuất / reload vẫn giữ nguyên. Mỗi thiết bị giữ filter riêng.
         </p>
       </HelpModal>
-
-      {/* Filter bar — 1 nút mở modal chọn nhóm. Chip 'X nhóm' khi đã chọn,
-          nút 'Xoá lọc' để reset về tất cả. Selection lưu localStorage. */}
-      <div
-        style={{
-          display: 'flex',
-          gap: 6,
-          marginBottom: 8,
-          alignItems: 'center',
-          flexWrap: 'wrap',
-        }}
-      >
-        <button
-          onClick={() => setShowFilterModal(true)}
-          className={groupFilters.size > 0 ? '' : 'secondary'}
-          style={{
-            padding: '7px 12px',
-            fontSize: 13,
-            whiteSpace: 'nowrap',
-            minHeight: 36,
-            fontWeight: groupFilters.size > 0 ? 700 : 400,
-          }}
-        >
-          🔍 Lọc nhóm
-          {groupFilters.size === 0
-            ? ` · Tất cả (${totalActiveCount})`
-            : ` · ${groupFilters.size} nhóm`}
-        </button>
-        {groupFilters.size > 0 && (
-          <>
-            {/* Hiện list nhóm đã chọn như chip nhỏ */}
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', flex: 1 }}>
-              {[...groupFilters].map((code) => {
-                const g = groups.find((x) => x.code === code);
-                if (!g) return null;
-                return (
-                  <span
-                    key={code}
-                    style={{
-                      padding: '3px 7px',
-                      background: '#f0fdfa',
-                      border: '1px solid #ccfbf1',
-                      borderRadius: 999,
-                      fontSize: 11,
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {g.icon && <span style={{ marginRight: 2 }}>{g.icon}</span>}
-                    {g.name} ({countByGroup[g.code] || 0})
-                  </span>
-                );
-              })}
-            </div>
-            <button
-              onClick={clearGroups}
-              className="secondary"
-              style={{ padding: '6px 12px', fontSize: 12, minHeight: 32 }}
-            >
-              ✕ Xoá lọc
-            </button>
-          </>
-        )}
-      </div>
 
       {showFilterModal && (
         <GroupFilterModal
@@ -748,6 +789,63 @@ export function KitchenPage() {
           ))}
         </div>
       )}
+
+      {/* Filter bar — dán đáy màn (trên nav dưới). 1 nút mở modal chọn nhóm, dải
+          chip liệt kê nhóm đang chọn (kéo ngang khi dài), nút 'Xoá lọc' reset về
+          tất cả. Selection lưu localStorage. */}
+      <div className="kds-filter-bar" ref={filterBarRef}>
+        <button
+          onClick={() => setShowFilterModal(true)}
+          className={groupFilters.size > 0 ? '' : 'secondary'}
+          style={{
+            padding: '7px 12px',
+            fontSize: 13,
+            whiteSpace: 'nowrap',
+            minHeight: 36,
+            fontWeight: groupFilters.size > 0 ? 700 : 400,
+          }}
+        >
+          🔍 Lọc nhóm
+          {groupFilters.size === 0
+            ? ` · Tất cả (${totalActiveCount})`
+            : ` · ${groupFilters.size} nhóm`}
+        </button>
+        {groupFilters.size > 0 && (
+          <>
+            {/* Hiện list nhóm đã chọn như chip nhỏ — cuộn ngang, không wrap */}
+            <div className="kds-filter-chips">
+              {[...groupFilters].map((code) => {
+                const g = groups.find((x) => x.code === code);
+                if (!g) return null;
+                return (
+                  <span
+                    key={code}
+                    style={{
+                      padding: '3px 7px',
+                      background: '#f0fdfa',
+                      border: '1px solid #ccfbf1',
+                      borderRadius: 999,
+                      fontSize: 11,
+                      whiteSpace: 'nowrap',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {g.icon && <span style={{ marginRight: 2 }}>{g.icon}</span>}
+                    {g.name} ({countByGroup[g.code] || 0})
+                  </span>
+                );
+              })}
+            </div>
+            <button
+              onClick={clearGroups}
+              className="secondary"
+              style={{ padding: '6px 12px', fontSize: 12, minHeight: 32, whiteSpace: 'nowrap' }}
+            >
+              ✕ Xoá lọc
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -771,8 +869,10 @@ function Column({
         <span>
           {def.icon} {def.label}
         </span>
+        {/* Đếm SỐ PHẦN, không đếm số card: 1 card giờ mang cả số lượng của lần gọi
+            (×3), đếm card sẽ báo khối lượng việc ít hơn thực tế. */}
         <span style={{ background: 'rgba(255,255,255,0.25)', padding: '2px 10px', borderRadius: 999, fontSize: 14 }}>
-          {items.length}
+          {items.reduce((s, i) => s + i.qty, 0)}
         </span>
       </div>
       <div className="kds-column-body">
@@ -867,6 +967,18 @@ function Card({
           <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
             {ageTextColor === '#b91c1c' && '⚠ '}⏱ {ageMin}p
           </span>
+          {/* Định lượng phần ăn — CỐ TÌNH không nhân với qty. Ở bếp con số này là
+              nhãn cỡ phần (bát 100k khác định lượng bát 130k), không phải tiền
+              phải trả: gọi 2× món 100k thì vẫn múc 2 bát cỡ "100k", hiện "200k"
+              sẽ khiến bếp múc sai cỡ. Tổng tiền là việc của màn Order + bill.
+              Đặt ở dòng meta (không phải dòng tên món) để tên món dài không phải
+              chia chỗ — cả hai đều nowrap nên cùng dòng sẽ tràn card.
+              Ghi chú (giá 0) không hiện: "0k" trên yêu cầu phục vụ chỉ gây nhiễu. */}
+          {!isNote && item.menu_item_price > 0 && (
+            <span className="kds-card-portion" title="Định lượng — cỡ phần cho MỖI bát/đĩa">
+              {fmtPortion(item.menu_item_price)}
+            </span>
+          )}
           {item.created_by_full_name && (
             <span style={{ color: '#0f766e' }} title="Nhân viên gọi món — hỏi người này nếu có vấn đề">
               👤 {item.created_by_full_name}

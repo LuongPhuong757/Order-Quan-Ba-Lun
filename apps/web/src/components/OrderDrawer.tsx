@@ -25,7 +25,8 @@ type OrderItem = {
   created_at: number;
 };
 
-// Nhóm hiển thị: gộp các đơn vị qty=1 cùng món+ghi chú+trạng thái lại "N×".
+// Nhóm hiển thị: gộp các dòng cùng món+ghi chú+trạng thái lại "N×" (count = tổng
+// qty, vì mỗi dòng có thể mang nhiều phần từ 1 lần gọi).
 // `oldest` = created_at nhỏ nhất trong nhóm → đồng hồ chờ lấy trường hợp xấu nhất,
 // không để phần mới gọi che mất phần đã chờ lâu.
 type ItemGroup = { key: string; rep: OrderItem; count: number; ids: string[]; oldest: number };
@@ -148,8 +149,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const pollEnabledRef = useRef(true);
 
   const isDelivery = table.kind === 'delivery';
-  // Bàn ship mà chưa có thông tin khách → bắt buộc nhập trước khi làm gì khác
-  const needsCustomerInfo = isDelivery && order != null && !order.customer_name;
 
   const refresh = useCallback(async (showError = true) => {
     try {
@@ -184,11 +183,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // Auto-mở modal nhập thông tin khách lần đầu cho bàn ship chưa điền
-  useEffect(() => {
-    if (needsCustomerInfo) setShowCustomerInfo(true);
-  }, [needsCustomerInfo]);
-
   // Nhịp 30s chỉ để đồng hồ chờ tự nhích lên. Poll 2s đã re-render sẵn, nhưng poll
   // tự tắt sau nhiều lần lỗi mạng — không có nhịp này thì đồng hồ đứng ở con số cũ
   // và bồi bàn tưởng món mới gọi trong khi thực tế đã chờ rất lâu.
@@ -198,8 +192,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     return () => clearInterval(t);
   }, []);
 
-  // Thao tác theo NHÓM: món đã tách thành nhiều dòng qty=1 (bếp nấu từng phần),
-  // nhưng ở drawer bồi bàn gộp lại "N×" — nút bấm áp cho TẤT CẢ đơn vị trong nhóm.
+  // Thao tác theo NHÓM: 1 món có thể nằm ở nhiều dòng (gọi nhiều lần), drawer gộp
+  // lại "N×" — nút bấm áp cho TẤT CẢ phần trong nhóm.
   const changeStateGroup = async (g: ItemGroup, to: string) => {
     // Huỷ/trả món → mở modal sửa số lượng với ô nhập đặt sẵn 0 (bỏ hết), nhân viên
     // có thể kéo lên nếu chỉ muốn bớt vài phần. Áp cho mọi trạng thái trước khi
@@ -240,15 +234,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const servedAmount = alive
       .filter((i) => i.state === 'SERVED')
       .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+    const aliveUnits = unitsOf(alive);
 
     const ok = await confirm({
       title: `Huỷ cả ${table.name}?`,
       variant: 'danger',
-      confirmLabel: `🗑 Huỷ cả bàn (${alive.length} món)`,
+      confirmLabel: `🗑 Huỷ cả bàn (${aliveUnits} món)`,
       message: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            Toàn bộ <strong>{alive.length} món</strong> của bàn sẽ bị huỷ, bàn về trạng thái
+            Toàn bộ <strong>{aliveUnits} món</strong> của bàn sẽ bị huỷ, bàn về trạng thái
             trống. Dùng khi khách đã gọi nhưng không dùng nữa.
           </div>
           {servedAmount > 0 && (
@@ -277,7 +272,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
     try {
       await api.post(`/orders/${order.id}/cancel-all`);
-      toast.push('success', `🗑 Đã huỷ cả ${table.name} (${alive.length} món)`);
+      toast.push('success', `🗑 Đã huỷ cả ${table.name} (${aliveUnits} món)`);
       onTransferred?.(); // refresh sơ đồ bàn ở trang cha
       onClose();
     } catch (e) {
@@ -298,7 +293,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     }
   };
 
-  // Gộp các đơn vị qty=1 theo (món + ghi chú) trong 1 cột trạng thái → hiển thị "N×".
+  // Gộp các dòng theo (món + ghi chú) trong 1 cột trạng thái → hiển thị "N×".
   const groupItemsByState = (state: string): ItemGroup[] => {
     const list = order?.items?.filter((i) => i.state === state) || [];
     const map = new Map<string, ItemGroup>();
@@ -322,6 +317,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const servedItems = order?.items?.filter((i) => i.state === 'SERVED') || [];
   const total = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
+  // 1 dòng item mang cả số lượng của lần gọi (qty=N) → mọi chỗ nói "N món" phải cộng
+  // qty, đếm số dòng sẽ báo thiếu (gọi 3 phần 1 lần chỉ ra "1 món").
+  const unitsOf = (list: OrderItem[]) => list.reduce((s, i) => s + i.qty, 0);
+  const servedUnits = unitsOf(servedItems);
+  const activeUnits = unitsOf(activeItems);
 
   const hasItems = (order?.items?.length || 0) > 0;
   // Còn món chưa huỷ → mới có gì để "huỷ cả bàn". Bàn đã huỷ sạch thì ẩn nút.
@@ -339,7 +339,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       return;
     }
     const cancelledItemsList = order?.items?.filter((i) => i.state === 'CANCELLED') || [];
-    // Gộp đơn vị qty=1 (đã tách) lại "N×" cho gọn khi hiển thị xác nhận thanh toán.
+    // Gộp các dòng cùng món lại "N×" cho gọn khi hiển thị xác nhận thanh toán.
     const groupUnits = (list: OrderItem[]): Array<{ rep: OrderItem; count: number }> => {
       const m = new Map<string, { rep: OrderItem; count: number }>();
       for (const it of list) {
@@ -368,7 +368,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
             <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
             <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{servedItems.length} món đã giao</div>
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{servedUnits} món đã giao</div>
           </div>
 
           {/* Món đã giao */}
@@ -384,7 +384,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
           {/* Món sẽ bị huỷ (active items) */}
           {activeItems.length > 0 && (
-            <Section title={`⚠ ${activeItems.length} món chưa giao xong — SẼ HUỶ`} color="#f59e0b" subtitle="(không tính tiền)">
+            <Section title={`⚠ ${activeUnits} món chưa giao xong — SẼ HUỶ`} color="#f59e0b" subtitle="(không tính tiền)">
               {groupUnits(activeItems).map((g) => (
                 <Row key={g.rep.id}
                   left={<><strong>{g.count}×</strong> {g.rep.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[g.rep.state] || g.rep.state})</span></>}
@@ -525,7 +525,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: '#92400e' }}>
-                        Chưa có thông tin khách. Bấm "Nhập thông tin" để bắt đầu nhận order.
+                        Chưa có thông tin khách (không bắt buộc) — bấm "Nhập thông tin" khi cần lưu.
                       </div>
                     )}
                   </div>
@@ -541,7 +541,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             )}
 
             {/* Action bar — luôn hiển thị cả 3 button (Gọi món + Chuyển bàn + Thanh toán) */}
-            <div style={{ marginBottom: 16, display: 'grid', gap: 8, opacity: needsCustomerInfo ? 0.4 : 1, pointerEvents: needsCustomerInfo ? 'none' : 'auto' }}>
+            <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
               {/* Row 1: hành động chính */}
               <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
                 <button
@@ -583,13 +583,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   title={
                     checkoutReady
                       ? 'Sẵn sàng thanh toán'
-                      : `Còn ${activeItems.length} món chưa giao — sẽ tự huỷ khi thanh toán`
+                      : `Còn ${activeUnits} món chưa giao — sẽ tự huỷ khi thanh toán`
                   }
                 >
                   💰 Thanh toán {total > 0 ? total.toLocaleString('vi-VN') + 'đ' : ''}
                   {activeItems.length > 0 && (
                     <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
-                      ({activeItems.length} món sẽ bị huỷ)
+                      ({activeUnits} món sẽ bị huỷ)
                     </span>
                   )}
                 </button>
@@ -710,14 +710,14 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   </div>
                 )}
                 <div style={{ fontSize: 14, color: '#6b7280' }}>
-                  Tổng tiền (đã giao): {servedItems.length} món
+                  Tổng tiền (đã giao): {servedUnits} món
                 </div>
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>
                   {fmt(total)}
                 </div>
                 {activeItems.length > 0 && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
-                    Còn {activeItems.length} món đang xử lý — thanh toán sẽ huỷ các món này
+                    Còn {activeUnits} món đang xử lý — thanh toán sẽ huỷ các món này
                   </div>
                 )}
               </div>
@@ -793,13 +793,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         {showCustomerInfo && order && (
           <DeliveryInfoModal
             order={order}
-            // Lần đầu nhập (chưa có name) thì không cho dismiss nửa chừng — phải submit hoặc đóng drawer
-            forceFill={!order.customer_name}
-            onClose={() => {
-              setShowCustomerInfo(false);
-              // Nếu lần đầu mà user huỷ → đóng drawer (không cho làm gì khác)
-              if (!order.customer_name) onClose();
-            }}
+            onClose={() => setShowCustomerInfo(false)}
             onSaved={() => {
               setShowCustomerInfo(false);
               refresh();
@@ -813,12 +807,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
 function DeliveryInfoModal({
   order,
-  forceFill,
   onClose,
   onSaved,
 }: {
   order: Order;
-  forceFill: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -831,11 +823,9 @@ function DeliveryInfoModal({
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (!name.trim() || !address.trim() || !phone.trim()) {
-      setErr('Vui lòng nhập đủ tên, địa chỉ, số điện thoại');
-      return;
-    }
-    if (!/^0\d{9}$/.test(phone.trim())) {
+    // Không field nào bắt buộc — bồi bàn có thể lưu mỗi SĐT, hoặc bỏ trống hết.
+    // Chỉ check định dạng SĐT KHI có gõ, tránh lưu số sai không gọi được.
+    if (phone.trim() && !/^0\d{9}$/.test(phone.trim())) {
       setErr('Số điện thoại phải có 10 số, bắt đầu bằng 0 (vd: 0901234567)');
       return;
     }
@@ -862,24 +852,20 @@ function DeliveryInfoModal({
       role="dialog"
       aria-modal="true"
       onClick={(e) => {
-        if (!forceFill && e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) onClose();
       }}
     >
       <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
             <h1 style={{ margin: 0 }}>🛵 Thông tin khách giao hàng</h1>
-            {forceFill && (
-              <div style={{ fontSize: 12, color: '#92400e', marginTop: 4 }}>
-                Bắt buộc nhập trước khi gọi món
-              </div>
-            )}
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+              Không bắt buộc — điền phần nào biết, để trống phần chưa có
+            </div>
           </div>
-          {!forceFill && (
-            <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-              ✕
-            </button>
-          )}
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
+            ✕
+          </button>
         </div>
 
         <div className="row">
@@ -936,14 +922,12 @@ function DeliveryInfoModal({
         {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
 
         <div className="flex" style={{ marginTop: 8 }}>
-          {!forceFill && (
-            <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
-              Huỷ
-            </button>
-          )}
-          <button type="submit" disabled={submitting} style={{ flex: forceFill ? 2 : 1 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Huỷ
+          </button>
+          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
             {submitting && <span className="spinner" />}
-            {forceFill ? 'Lưu & tiếp tục gọi món' : 'Lưu thay đổi'}
+            Lưu thay đổi
           </button>
         </div>
       </form>
@@ -1122,10 +1106,13 @@ function EditQtyModal({
     setErr(null);
     try {
       if (delta < 0) {
-        // Bớt: huỷ |delta| phần đầu tiên của nhóm. Lý do luôn optional — BE tự ghi
-        // mặc định theo trạng thái ("Khách không dùng đến" cho món đã giao).
+        // Bớt |delta| phần trong nhóm. Gửi CẢ nhóm + số phần thay vì tự chọn dòng:
+        // 1 dòng giờ mang nhiều phần (qty=N) nên FE không cắt được theo dòng — BE tự
+        // tách dòng CANCELLED cho phần bị bớt. Lý do luôn optional — BE tự ghi mặc
+        // định theo trạng thái ("Khách không dùng đến" cho món đã giao).
         await api.post('/orders/items/remove', {
-          item_ids: group.ids.slice(0, -delta),
+          item_ids: group.ids,
+          units: -delta,
           ...(reason.trim() ? { reason: reason.trim() } : {}),
         });
         toast.push(
