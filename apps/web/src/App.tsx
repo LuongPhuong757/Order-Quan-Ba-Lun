@@ -18,6 +18,7 @@ import { KitchenPage } from './pages/KitchenPage.tsx';
 import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
 import { OnlineOrdersPage } from './pages/OnlineOrdersPage.tsx';
+import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
 
 export function App() {
   return (
@@ -99,6 +100,11 @@ const ROLE_STYLE: Record<Role, { label: string; bg: string; border: string; text
 function ProtectedShell() {
   const { user, loading, logout } = useAuth();
   const loc = useLocation();
+  // Role tính TRƯỚC các early-return vì hook đếm đơn chờ phải chạy ở mọi lần render.
+  const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
+  // Badge số đơn online đang chờ trên nút "Online" — cả 3 role đều duyệt được (D-02) nên có
+  // role là bật. SSE + đếm sống ở shell để đứng ở TRANG NÀO badge cũng nhảy realtime.
+  const waitingCount = useOnlineWaitingCount(role !== null);
   if (loading) {
     return (
       <div className="container">
@@ -111,7 +117,6 @@ function ProtectedShell() {
   if (!user) {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
-  const role = (user.role ?? (user.is_owner ? 'admin' : null)) as Role | null;
   const roleStyle = role ? ROLE_STYLE[role] : null;
 
   return (
@@ -160,7 +165,7 @@ function ProtectedShell() {
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
           {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
               và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
@@ -173,7 +178,7 @@ function ProtectedShell() {
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
           {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
               Role này KHÔNG thấy tab Cài đặt nên title chỉ nói về hàng chờ. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
@@ -182,7 +187,7 @@ function ProtectedShell() {
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
@@ -191,6 +196,42 @@ function ProtectedShell() {
         </nav>
       )}
     </>
+  );
+}
+
+/** Hình tròn đỏ đếm đơn online đang chờ duyệt, neo ở góc trên-PHẢI của ô "Online" trong nav
+ * dưới. `count` null/0 → không vẽ gì (thà không có số còn hơn hiện số sai).
+ *
+ * Style INLINE + `position:absolute` có chủ đích: badge tuyệt đối không được chiếm chỗ trong
+ * flex column của nav item (icon/label) — bản đầu để class chờ CSS, lúc CSS chưa nạp con số
+ * rơi xuống thành dòng thứ 3 làm vỡ cả thanh nav. Neo `position:relative` nằm ở `.nav-bottom a`. */
+function NavBadge({ count }: { count: number | null }) {
+  if (count === null || count <= 0) return null;
+  return (
+    <span
+      aria-label={`${count} đơn online đang chờ duyệt`}
+      style={{
+        position: 'absolute',
+        top: 2,
+        left: 'calc(50% + 6px)',
+        background: '#dc2626',
+        color: 'white',
+        borderRadius: 999,
+        fontSize: 10,
+        fontWeight: 700,
+        lineHeight: 1,
+        minWidth: 16,
+        height: 16,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0 4px',
+        boxSizing: 'border-box',
+        pointerEvents: 'none',
+      }}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
   );
 }
 

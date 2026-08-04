@@ -5,8 +5,12 @@ import { Link } from 'react-router-dom';
  * Thanh CTA dính đáy dùng chung cho nút "TIẾP TỤC" (bước 1 `/cart`, plan 08-11) và
  * "ĐẶT HÀNG" (bước 2 `/checkout`, plan 08-12).
  *
- * Mobile: `position: fixed` đáy màn hình, full-width, bo góc 0, nền `--brand-600`.
- * Desktop (≥768px): không fixed — nút bình thường nằm trong luồng tài liệu (trong card
+ * Mobile: `position: sticky; bottom: 0` — dính đáy màn hình khi đang cuộn giữa trang,
+ * nhưng vì vẫn nằm TRONG luồng tài liệu (cuối nội dung trang, trước `<Footer/>`), cuộn
+ * hết trang thì thanh dừng lại phía TRÊN footer thay vì đè lên footer (bug 2026-08-04,
+ * bản `fixed` cũ che mất footer). Full-bleed bằng margin âm bù 2 lớp gutter (main của
+ * `AppShell` + div trang), bo góc 0, nền `--brand-600`.
+ * Desktop (≥768px): không dính — nút bình thường nằm trong luồng tài liệu (trong card
  * ở trang dùng nó). Chuyển đổi bằng `@media` trong thẻ `<style>` (cùng khuôn
  * `Header.tsx`/`FloatingCart.tsx`), KHÔNG dùng JS đo kích thước màn hình.
  *
@@ -70,15 +74,17 @@ export function StickyCta({ label, onClick, to, disabled = false, hint }: Props)
   );
 }
 
-// Mobile: dính đáy toàn màn hình. Desktop: trở về luồng tài liệu bình thường
-// (trang gọi component này đặt nó bên trong card, không cần full-bleed nữa).
+// Mobile: sticky đáy màn hình, full-bleed bằng margin âm calc(-2 * gutter) mỗi bên —
+// bù đúng 2 lớp padding gutter lồng nhau (main của AppShell + div trang của
+// CartPage/CheckoutPage). Desktop: trở về luồng tài liệu bình thường (trang gọi
+// component này đặt nó bên trong card, không cần full-bleed nữa).
 const MEDIA_CSS = `
 .shop-sticky-cta-bar {
-  position: fixed;
-  left: 0;
-  right: 0;
+  position: sticky;
   bottom: 0;
-  width: 100%;
+  margin-left: calc(-2 * var(--gutter));
+  margin-right: calc(-2 * var(--gutter));
+  width: calc(100% + 4 * var(--gutter));
 }
 .shop-sticky-cta-btn {
   border-radius: 0;
@@ -86,6 +92,9 @@ const MEDIA_CSS = `
 @media (min-width: 768px) {
   .shop-sticky-cta-bar {
     position: static;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
     box-shadow: none !important;
   }
   .shop-sticky-cta-btn {
@@ -97,7 +106,9 @@ const MEDIA_CSS = `
 const bar: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  width: '100%',
+  // Thanh nay nằm trong luồng (sticky/static) nên tự lo khoảng cách với khối phía trên,
+  // các trang không cần chèn margin quanh nó nữa.
+  marginTop: 'var(--sp-6)',
   zIndex: 'var(--z-sticky-cta)' as unknown as number,
   boxShadow: 'var(--shadow-sheet)',
 };

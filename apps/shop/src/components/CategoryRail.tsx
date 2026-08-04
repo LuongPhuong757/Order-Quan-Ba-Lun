@@ -52,8 +52,9 @@ export function CategoryRail({ groups, activeCode, onSelect }: Props): JSX.Eleme
           onClick={() => onSelect(null)}
           aria-pressed={activeCode === null}
           style={activeCode === null ? { ...tile, ...tileActive } : tile}
+          className="shop-category-tile"
         >
-          <span style={{ ...tileSwatch, background: 'var(--wood-100)' }}>
+          <span style={{ ...tileSwatch, background: 'var(--wood-100)' }} className="shop-category-swatch">
             <AllGlyph />
           </span>
           <span style={tileLabel}>Tất cả</span>
@@ -74,8 +75,9 @@ export function CategoryRail({ groups, activeCode, onSelect }: Props): JSX.Eleme
               onClick={() => onSelect(group.code)}
               aria-pressed={isActive}
               style={isActive ? { ...tile, ...tileActive } : tile}
+              className="shop-category-tile"
             >
-              <span style={{ ...tileSwatch, background: `var(--cat-${n})` }}>
+              <span style={{ ...tileSwatch, background: `var(--cat-${n})` }} className="shop-category-swatch">
                 {representativeImage ? (
                   <img src={representativeImage} alt="" style={tileImg} />
                 ) : (
@@ -139,6 +141,24 @@ const RAIL_CSS = `
 .shop-category-dots { display: flex; }
 @media (min-width: 768px) {
   .shop-category-dots { display: none; }
+}
+/* Hover: ô ảnh PHÓNG TO nhẹ (không nhấc lên như card món — chỉ đạo 2026-08-04),
+   rời chuột thì transition tự đưa về kích thước cũ. Scale 1.08 trên ô ~62px chỉ
+   tràn ~2.5px mỗi phía — lọt trong 4px đệm của nút nên không bị container cuộn
+   ngang cắt. Chỉ thiết bị có chuột, khỏi hover dính khi chạm. */
+@media (hover: hover) and (pointer: fine) {
+  .shop-category-swatch {
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      box-shadow var(--dur-base) var(--ease-out);
+  }
+  .shop-category-tile:hover .shop-category-swatch {
+    transform: scale(1.08);
+    box-shadow: var(--shadow-lift);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop-category-tile:hover .shop-category-swatch { transform: none; }
 }
 `;
 

@@ -29,9 +29,13 @@ function fmt(v: number) {
 type Props = {
   onClose: () => void;
   onPick: (item: MenuItem, qty: number, note: string) => Promise<void>;
+  /** Ẩn hàng chip lọc nhóm (Chính/Uống/Phụ/Khác). Chỗ gọi thêm món của đơn online tắt nó đi
+   * (chỉ đạo chủ dự án 2026-08-04) — ở đó nhân viên đang nghe khách đọc TÊN món qua điện
+   * thoại nên gõ ô tìm kiếm là đường nhanh nhất, hàng chip chỉ chiếm chỗ. Màn order giữ. */
+  hideGroupFilter?: boolean;
 };
 
-export function MenuPickerModal({ onClose, onPick }: Props) {
+export function MenuPickerModal({ onClose, onPick, hideGroupFilter }: Props) {
   const toast = useToast();
   const [items, setItems] = useState<MenuItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -160,18 +164,20 @@ export function MenuPickerModal({ onClose, onPick }: Props) {
           />
         </div>
 
-        <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 4 }}>
-          {groups.map((g) => (
-            <button
-              key={g || 'all'}
-              onClick={() => setGroupFilter(g)}
-              className={groupFilter === g ? '' : 'secondary'}
-              style={{ padding: '6px 12px', fontSize: 13, whiteSpace: 'nowrap', minHeight: 36 }}
-            >
-              {g === '' ? 'Tất cả' : GROUP_LABEL[g]}
-            </button>
-          ))}
-        </div>
+        {!hideGroupFilter && (
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12, paddingBottom: 4 }}>
+            {groups.map((g) => (
+              <button
+                key={g || 'all'}
+                onClick={() => setGroupFilter(g)}
+                className={groupFilter === g ? '' : 'secondary'}
+                style={{ padding: '6px 12px', fontSize: 13, whiteSpace: 'nowrap', minHeight: 36 }}
+              >
+                {g === '' ? 'Tất cả' : GROUP_LABEL[g]}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div style={{ flex: 1, overflowY: 'auto', display: 'grid', gap: 8 }}>
           {loading && <p style={{ color: '#6b7280' }}>Đang tải menu...</p>}

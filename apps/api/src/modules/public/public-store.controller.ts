@@ -12,7 +12,8 @@ import { SettingsService } from '../settings/settings.service.js';
  * bảng settings: cột đó có thể vẫn ghi giá trị tắt trong khi thực tế đã tự-ON qua nửa đêm
  * (mode `UNTIL_TOMORROW`) — `getOrderingStatus()` tính lại lúc đọc, không cần cron.
  *
- * Whitelist thủ công (**13 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14, xem
+ * Whitelist thủ công (**17 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14,
+ * 2026-08-04 thêm 4 field footer: địa chỉ + Facebook + Instagram + Zalo, xem
  * payload bên dưới) + `.strict().parse()` trước khi trả — nếu ai đó
  * sau này spread thêm field nội bộ (toạ độ quán, cấu hình leo thang SMS/email...) thì test/dev
  * throw ngay thay vì âm thầm leak dữ liệu quán ra production (T-08-34).
@@ -38,6 +39,10 @@ export class PublicStoreController {
       ordering_enabled: status.enabled,
       off_reason: settings.online_ordering_off_reason,
       store_phone: settings.store_phone,
+      store_address: settings.store_address,
+      store_facebook_url: settings.store_facebook_url,
+      store_instagram_url: settings.store_instagram_url,
+      store_zalo: settings.store_zalo,
       open_hours: settings.open_hours,
       is_open_now: status.is_open_now,
       blocking_reason: status.blocking_reason,

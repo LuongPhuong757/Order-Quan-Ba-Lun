@@ -40,6 +40,11 @@ type Order = {
   customer_name: string | null;
   customer_address: string | null;
   customer_phone: string | null;
+  // 3 field dưới phục vụ badge chặng giao của ĐƠN ONLINE (chỉ đạo 2026-08-04: shipper vào
+  // màn order phải biết đơn đang giao) — BE trả nguyên entity nên có sẵn, chỉ khai thêm type.
+  source?: string; // 'STAFF' | 'ONLINE'
+  shipped_at?: number | null;
+  received_at?: number | null;
   items: OrderItem[];
 };
 
@@ -135,6 +140,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
+  const [fulfillBusy, setFulfillBusy] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showNote, setShowNote] = useState(false);
   // Nhóm món đang sửa số lượng (mở EditQtyModal). `target` = số lượng đặt sẵn
@@ -149,6 +155,41 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const pollEnabledRef = useRef(true);
 
   const isDelivery = table.kind === 'delivery';
+
+  // ── Đơn ONLINE: drawer thu về 2 hành động — mốc giao + thanh toán (chỉ đạo 2026-08-04).
+  // Sửa món/gọi thêm của đơn online làm ở màn Đơn hàng online (có panel sửa + báo lại khách);
+  // gọi món/chuyển bàn/ghi chú ở đây là mở đường cho đơn thật lệch khỏi bản khách đã chốt. ──
+  const isOnline = order?.source === 'ONLINE';
+  /** Nút mốc giao DUY NHẤT là "Đã đi ship" (bàn delivery chưa ship). KHÔNG có nút "khách đã
+   * nhận/tới lấy" — khách nhận = thanh toán (chốt 2026-08-04), luồng checkout tự ghi
+   * `received_at`; bàn takeaway vì thế không có nút mốc nào. */
+  const canMarkShipped =
+    isOnline && order != null && isDelivery && !order.shipped_at && !order.received_at;
+
+  /** Đơn ship chưa rời quán thì CHƯA cho thanh toán (chốt 2026-08-04) — trình tự thật ngoài
+   * đời là hàng đi rồi tiền mới về; cho checkout trước là mở đường bấm nhầm khoá đơn sớm.
+   * BE cũng chặn 409 — đây chỉ là lớp UX. */
+  const checkoutBlockedByShip = isOnline && isDelivery && order != null && !order.shipped_at;
+
+  const markShipped = async () => {
+    if (!order) return;
+    setFulfillBusy(true);
+    try {
+      // BE không ghi đè mốc đã có (bấm 2 lần) — tin mốc trả về, không tự lấy giờ máy.
+      const res = await api.post<{
+        data: { shipped_at_ms: number | null; received_at_ms: number | null };
+      }>(`/admin/online-orders/by-order/${order.id}/ship`);
+      const d = res.data.data;
+      setOrder((cur) =>
+        cur ? { ...cur, shipped_at: d.shipped_at_ms, received_at: d.received_at_ms } : cur,
+      );
+      toast.push('success', 'Đã ghi nhận: đơn rời quán đi giao');
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setFulfillBusy(false);
+    }
+  };
 
   const refresh = useCallback(async (showError = true) => {
     try {
@@ -450,7 +491,32 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       >
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start', gap: 8 }}>
           <div>
-            <h1 style={{ margin: 0 }}>{table.name}</h1>
+            <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              {table.name}
+              {/* Badge chặng giao của đơn ONLINE — shipper mở drawer là biết đơn đã rời quán
+                  chưa mà không phải chạy sang màn Đơn hàng online (chỉ đạo 2026-08-04).
+                  Bấm mốc ship/nhận vẫn ở màn đơn online; ở đây CHỈ ĐỌC. */}
+              {order?.source === 'ONLINE' && (
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    borderRadius: 999,
+                    padding: '2px 10px',
+                    whiteSpace: 'nowrap',
+                    background: order.received_at ? '#ecfdf5' : order.shipped_at ? '#dbeafe' : '#f3f4f6',
+                    border: `1px solid ${order.received_at ? '#a7f3d0' : order.shipped_at ? '#bfdbfe' : '#d1d5db'}`,
+                    color: order.received_at ? '#065f46' : order.shipped_at ? '#1e40af' : '#4b5563',
+                  }}
+                >
+                  {order.received_at
+                    ? '✓ Khách đã nhận'
+                    : order.shipped_at
+                      ? '🛵 Đang giao'
+                      : '🌐 Đơn online'}
+                </span>
+              )}
+            </h1>
             <div style={{ color: '#6b7280', fontSize: 13 }}>
               <code>{table.code}</code> · {table.kind}
               {order && <> · mở từ {new Date(order.opened_at).toLocaleTimeString('vi-VN')}</>}
@@ -540,63 +606,102 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               </div>
             )}
 
-            {/* Action bar — luôn hiển thị cả 3 button (Gọi món + Chuyển bàn + Thanh toán) */}
+            {/* Action bar. Đơn ONLINE (chỉ đạo 2026-08-04) chỉ còn mốc giao + Thanh toán —
+                Gọi món/Chuyển bàn/Ghi chú/Huỷ cả bàn ẩn hết: sửa nội dung đơn online làm ở
+                màn Đơn hàng online, nơi có panel sửa món và nhắc báo lại khách. */}
             <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
-              {/* Row 1: hành động chính */}
-              <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+              {!isOnline && (
+                <>
+                  {/* Row 1: hành động chính */}
+                  <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+                    <button
+                      onClick={() => setShowBulkOrder(true)}
+                      style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
+                    >
+                      🛒 Gọi món
+                    </button>
+                    <button
+                      className="secondary"
+                      onClick={() => setShowTransfer(true)}
+                      style={{ flex: 1, minWidth: 110 }}
+                      disabled={!hasItems}
+                    >
+                      ↪ Chuyển bàn
+                    </button>
+                  </div>
+                  {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
+                      item nên bếp thấy trên KDS và tick được như món thường. */}
+                  <button
+                    className="secondary"
+                    onClick={() => setShowNote(true)}
+                    style={{ width: '100%', minHeight: 42, fontSize: 14 }}
+                    title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
+                  >
+                    📝 Ghi chú cho bếp
+                  </button>
+                </>
+              )}
+
+              {/* Mốc giao của đơn online — bấm được NGAY tại drawer, shipper không phải chạy
+                  sang màn Đơn hàng online. Nền xanh dương khớp badge "Đang giao" trên header. */}
+              {canMarkShipped && (
                 <button
-                  onClick={() => setShowBulkOrder(true)}
-                  style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
+                  onClick={() => void markShipped()}
+                  disabled={fulfillBusy}
+                  style={{
+                    width: '100%',
+                    background: '#1d4ed8',
+                    fontSize: 15,
+                    fontWeight: 700,
+                    minHeight: 48,
+                  }}
                 >
-                  🛒 Gọi món
+                  {fulfillBusy ? 'Đang xử lý...' : '🛵 Đã đi ship'}
                 </button>
-                <button
-                  className="secondary"
-                  onClick={() => setShowTransfer(true)}
-                  style={{ flex: 1, minWidth: 110 }}
-                  disabled={!hasItems}
-                >
-                  ↪ Chuyển bàn
-                </button>
-              </div>
-              {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
-                  item nên bếp thấy trên KDS và tick được như món thường. */}
-              <button
-                className="secondary"
-                onClick={() => setShowNote(true)}
-                style={{ width: '100%', minHeight: 42, fontSize: 14 }}
-                title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
-              >
-                📝 Ghi chú cho bếp
-              </button>
-              {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món */}
+              )}
+              {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món. Đơn ship chưa rời quán
+                  thì khoá nút (chốt 2026-08-04): hàng đi rồi tiền mới về, BE cũng chặn 409. */}
               {hasItems && (
                 <button
                   onClick={checkout}
+                  disabled={checkoutBlockedByShip}
                   style={{
                     width: '100%',
-                    background: checkoutReady ? '#059669' : '#f59e0b',
+                    background: checkoutBlockedByShip
+                      ? '#9ca3af'
+                      : checkoutReady
+                        ? '#059669'
+                        : '#f59e0b',
                     fontSize: 16,
                     fontWeight: 700,
                     minHeight: 52,
                   }}
                   title={
-                    checkoutReady
-                      ? 'Sẵn sàng thanh toán'
-                      : `Còn ${activeUnits} món chưa giao — sẽ tự huỷ khi thanh toán`
+                    checkoutBlockedByShip
+                      ? 'Đơn giao tận nơi chưa rời quán — bấm "Đã đi ship" trước'
+                      : checkoutReady
+                        ? 'Sẵn sàng thanh toán'
+                        : `Còn ${activeUnits} món chưa giao — sẽ tự huỷ khi thanh toán`
                   }
                 >
                   💰 Thanh toán {total > 0 ? total.toLocaleString('vi-VN') + 'đ' : ''}
-                  {activeItems.length > 0 && (
+                  {checkoutBlockedByShip ? (
                     <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
-                      ({activeUnits} món sẽ bị huỷ)
+                      (bấm "Đã đi ship" trước)
                     </span>
+                  ) : (
+                    activeItems.length > 0 && (
+                      <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
+                        ({activeUnits} món sẽ bị huỷ)
+                      </span>
+                    )
                   )}
                 </button>
               )}
               {/* Row 3: Huỷ cả bàn — khách gọi rồi không dùng nữa. Chỉ hiện khi còn
-                  món chưa huỷ, nhạt hơn Thanh toán để không bấm nhầm. */}
-              {hasAliveItems && (
+                  món chưa huỷ, nhạt hơn Thanh toán để không bấm nhầm. Đơn online KHÔNG có
+                  nút này — muốn huỷ thì đi đường từ chối/khách huỷ ở màn Đơn hàng online. */}
+              {!isOnline && hasAliveItems && (
                 <button
                   onClick={cancelWholeTable}
                   className="secondary"

@@ -81,8 +81,13 @@ export const AdminOnlineOrderRow = z.object({
   // Thêm 2026-08-04. Trước đó số bàn được cấp chỉ hiện MỘT LẦN trong toast lúc bấm Xác nhận rồi
   // mất hẳn — mở lại tab "Đã xác nhận" không còn biết đơn nào thuộc bàn nào, dù DB có sẵn liên kết.
 
-  /** Mã bàn đã cấp (`orders.table_code`). `null` khi đơn chưa duyệt / bị từ chối. */
+  /** Mã bàn đã cấp (`orders.table_code`, vd `ship-03`). `null` khi đơn chưa duyệt / bị từ chối. */
   table_code: z.string().nullable(),
+
+  /** TÊN bàn đầy đủ (`restaurant_tables.name`, vd "Ship 03" / "Mang về 02") — thứ hiện ra màn
+   * hình (chỉ đạo chủ dự án 2026-08-04: không hiện mã viết tắt). Đọc từ DB chứ KHÔNG suy từ
+   * `table_code` ở FE: bàn đổi tên tay thì tên thật mới đúng. `null` cùng điều kiện table_code. */
+  table_name: z.string().nullable(),
 
   /** Đếm món LIVE theo `order_items.state`.
    *
@@ -108,12 +113,26 @@ export const AdminOnlineOrderRow = z.object({
 
   /** `orders.received_at` — khách đã cầm hàng (DELIVERY: đã nhận, PICKUP: đã lấy). */
   received_at_ms: z.number().int().nullable(),
+
+  /** Mốc THU TIỀN (checkout ở màn bàn) — `orders.closed_at` KHI VÀ CHỈ KHI `is_paid=1`.
+   * Có giá trị ⟺ đơn thuộc tab "Thành công". ⚠ KHÔNG phải closed_at trần: đơn bị huỷ giữa
+   * chừng cũng bị niêm bằng closed_at nhưng is_paid=0 — field này phải là null ở đơn đó,
+   * nếu không card đơn huỷ hiện pill "Thành công" (bug 2026-08-04). */
+  paid_at_ms: z.number().int().nullable(),
 });
 export type AdminOnlineOrderRow = z.infer<typeof AdminOnlineOrderRow>;
 
 /** Trạng thái xem được ở màn quản lý đơn online. `CANCELLED_BY_CUSTOMER` KHÔNG có ở đây —
  * khách tự huỷ thì không cần nhân viên làm gì, đưa vào tab chỉ thêm nhiễu. */
-export const AdminOnlineOrderStatusFilter = z.enum(['WAITING', 'CONFIRMED', 'REJECTED']);
+// `COMPLETED` (2026-08-04) KHÔNG phải giá trị của `online_order_requests.status` — nó là góc
+// nhìn: đơn CONFIRMED mà Order đã checkout (`orders.closed_at` có). Chủ dự án chốt: thu tiền
+// xong là đơn "thành công", rời tab Đã xác nhận để tab đó chỉ còn việc đang phải theo.
+export const AdminOnlineOrderStatusFilter = z.enum([
+  'WAITING',
+  'CONFIRMED',
+  'REJECTED',
+  'COMPLETED',
+]);
 export type AdminOnlineOrderStatusFilter = z.infer<typeof AdminOnlineOrderStatusFilter>;
 
 export const AdminOnlineOrderList = z.object({
@@ -121,6 +140,14 @@ export const AdminOnlineOrderList = z.object({
   // Ngưỡng leo thang SMS (giây) — FE cần để đổi màu đồng hồ đếm giây chờ từng đơn.
   // 09-UI-SPEC: đây là setting, KHÔNG được hardcode 90 ở FE.
   escalate_sms_after_s: z.number().int(),
+  /** Số đơn TỪNG TAB (badge cạnh nhãn tab, chỉ đạo 2026-08-04) — đếm ở BE trong CÙNG lần gọi
+   * vì FE mỗi lúc chỉ tải 1 tab, tự đếm thì 3 tab kia luôn hiện số cũ. */
+  status_counts: z.object({
+    WAITING: z.number().int().nonnegative(),
+    CONFIRMED: z.number().int().nonnegative(),
+    REJECTED: z.number().int().nonnegative(),
+    COMPLETED: z.number().int().nonnegative(),
+  }),
 });
 export type AdminOnlineOrderList = z.infer<typeof AdminOnlineOrderList>;
 
@@ -149,6 +176,48 @@ export const RejectOnlineOrderBody = z
     }
   });
 export type RejectOnlineOrderBody = z.infer<typeof RejectOnlineOrderBody>;
+
+/** Body `PATCH :id/items` — sửa món của đơn ĐANG CHỜ DUYỆT (Task.md: "cho phép sửa đơn rồi
+ * mới xác nhận", chốt 2026-08-04). Danh sách gửi lên là danh sách THAY THẾ:
+ * - id ĐANG có trong đơn  → nhận qty mới (giữ giá + ghi chú đã chốt lúc khách đặt);
+ * - id vắng mặt           → món bị bỏ khỏi đơn;
+ * - id KHÔNG có trong đơn → GỌI THÊM món đó (chỉ đạo chủ dự án 2026-08-04): BE lấy giá menu
+ *   HIỆN TẠI và `note` gửi kèm; món phải đang bán + còn hàng, không thì 409. Vì giá món thêm
+ *   chốt sau lưng khách, nhân viên phải đọc lại đơn+tổng mới cho khách trước khi Xác nhận. */
+export const EditOnlineOrderItemsBody = z.object({
+  items: z
+    .array(
+      z.object({
+        menu_item_id: z.string().uuid(),
+        qty: z.number().int().min(1).max(99),
+        /** Ghi chú cho bếp — CHỈ dùng khi là món GỌI THÊM; món sẵn có giữ note cũ của khách. */
+        note: z.string().max(255).nullable().optional(),
+      }),
+    )
+    .min(1, 'Đơn phải còn ít nhất 1 món — muốn bỏ cả đơn hãy dùng nút Từ chối')
+    .max(50),
+});
+export type EditOnlineOrderItemsBody = z.infer<typeof EditOnlineOrderItemsBody>;
+
+/** Kết quả `PATCH :id/items` — trả danh sách món MỚI (đã re-check tồn kho như GET list) +
+ * subtotal mới để FE vá row tại chỗ, không phải gọi lại GET. */
+export const EditOnlineOrderItemsResult = z.object({
+  items: z.array(AdminOnlineOrderItem),
+  subtotal: z.number().int().nonnegative(),
+});
+export type EditOnlineOrderItemsResult = z.infer<typeof EditOnlineOrderItemsResult>;
+
+/** Kết quả `POST :id/ship` và `:id/receive` (2 chặng giao hàng, 2026-08-04). Trả về CẢ HAI mốc
+ * (không chỉ mốc vừa set) để FE vá row tại chỗ mà không phải gọi thêm 1 GET — và vì BE không
+ * ghi đè mốc đã có (bấm 2 lần), FE phải tin con số trả về chứ không tự lấy `Date.now()`. */
+export const FulfillmentResult = z.object({
+  order_id: z.string().uuid(),
+  table_code: z.string(),
+  fulfillment_type: z.enum(['PICKUP', 'DELIVERY']),
+  shipped_at_ms: z.number().int().nullable(),
+  received_at_ms: z.number().int().nullable(),
+});
+export type FulfillmentResult = z.infer<typeof FulfillmentResult>;
 
 // Payload SSE cố tình TỐI GIẢN: không kèm dữ liệu đơn. FE nhận event rồi tự gọi lại
 // `GET /admin/online-orders?status=WAITING` (D-06 — DB là nguồn sự thật duy nhất, đúng cả

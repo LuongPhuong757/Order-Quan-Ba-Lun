@@ -2,7 +2,13 @@ import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, P
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { apiOk, type ApiOk } from '@order/utils';
-import { OnlineOrderSubmit, type PublicOrderCancelResult, type PublicOrderStatus } from '@order/schemas';
+import {
+  OnlineOrderSubmit,
+  PublicOrderLookup,
+  type PublicOrderCancelResult,
+  type PublicOrderHistory,
+  type PublicOrderStatus,
+} from '@order/schemas';
 import { PublicOrdersService } from './public-orders.service.js';
 
 /**
@@ -56,6 +62,28 @@ export class PublicOrdersController {
   @Header('Cache-Control', 'no-store')
   async getByToken(@Param('token') token: string): Promise<ApiOk<PublicOrderStatus>> {
     return apiOk(await this.svc.getByToken(token));
+  }
+
+  /**
+   * Tra cứu lịch sử đơn theo SĐT (2026-08-04) — trang "Đơn của tôi" ở apps/shop.
+   *
+   * POST chứ không GET dù đây là thao tác ĐỌC: SĐT không được nằm trên URL (lọt access log
+   * nginx + history), xem docblock `PublicOrderLookup`. Hệ quả chấp nhận được: đi qua
+   * `CsrfOriginGuard` như mọi POST của `/api/public/*` — FE cùng origin nên vô hại.
+   *
+   * `@Throttle` 10/phút/IP — với endpoint này còn là chốt CHỐNG DÒ QUÉT SĐT hàng loạt
+   * (ranh giới "ai biết SĐT là xem được" đã chốt, xem docblock schema).
+   */
+  @Post('orders/lookup')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async lookupByPhone(@Body() body: unknown): Promise<ApiOk<PublicOrderHistory>> {
+    const parsed = PublicOrderLookup.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Số điện thoại không hợp lệ' });
+    }
+    return apiOk(await this.svc.lookupByPhone(parsed.data.phone));
   }
 
   /**

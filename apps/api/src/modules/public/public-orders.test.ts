@@ -27,6 +27,7 @@ const FAKE_MENU_ITEM: MenuItemLookup = {
   unit: 'phần',
   is_active: true,
   is_out_of_stock: false,
+  is_online_hidden: false,
 };
 
 function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
@@ -148,6 +149,14 @@ describe('submitOrder — món hết hàng / không tồn tại', () => {
   it('is_active=false → MENU_ITEM_UNAVAILABLE', async () => {
     const deps = makeDeps({
       findMenuItemsByIds: vi.fn().mockResolvedValue([{ ...FAKE_MENU_ITEM, is_active: false }]),
+    });
+    const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
+    expect(result.code).toBe('MENU_ITEM_UNAVAILABLE');
+  });
+
+  it('is_online_hidden=true → MENU_ITEM_UNAVAILABLE (món POS vẫn bán nhưng đã ẩn khỏi web)', async () => {
+    const deps = makeDeps({
+      findMenuItemsByIds: vi.fn().mockResolvedValue([{ ...FAKE_MENU_ITEM, is_online_hidden: true }]),
     });
     const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
     expect(result.code).toBe('MENU_ITEM_UNAVAILABLE');
@@ -295,7 +304,9 @@ describe('submitOrder — status của row insert', () => {
 //
 // 2 gate được kiểm ở đây là gate AN TOÀN, không phải gate hình thức:
 //  - G-1 (M2.D-23): `JSON.stringify(response)` không được chứa chuỗi `"state"`, và mỗi dòng
-//    `items` phải có ĐÚNG 3 khoá. Dùng `Object.keys` để bắt cả field lọt vào do spread entity.
+//    `items` phải có ĐÚNG 4 khoá (name/qty/unit_price/image — image thêm 2026-08-04, là ảnh
+//    menu tra live, không phải dữ liệu vận hành). Dùng `Object.keys` để bắt cả field lọt vào
+//    do spread entity.
 //  - D-09: bơm chuỗi mồi `ZZTEST` vào cột ghi chú nội bộ rồi assert nó VẮNG MẶT trong response.
 // ══════════════════════════════════════════════════════════════════════════════════════════
 
@@ -304,7 +315,7 @@ type FakeRequestRow = {
   order_token: string;
   status: string;
   fulfillment_type: string;
-  items_snapshot: Array<{ name: string; qty: number; unit_price: number }>;
+  items_snapshot: Array<{ menu_item_id: string; name: string; qty: number; unit_price: number }>;
   subtotal: number;
   submitted_at: number;
   reject_reason: string | null;
@@ -315,6 +326,7 @@ type FakeRequestRow = {
 
 type FakeItemRow = {
   order_id: string;
+  menu_item_id: string | null;
   menu_item_name: string;
   menu_item_price: number;
   qty: number;
@@ -331,7 +343,7 @@ function fakeRequest(overrides: Partial<FakeRequestRow> = {}): FakeRequestRow {
     order_token: 'tok-1',
     status: 'WAITING',
     fulfillment_type: 'PICKUP',
-    items_snapshot: [{ name: 'Lẩu bò', qty: 2, unit_price: 45000 }],
+    items_snapshot: [{ menu_item_id: 'mi-1', name: 'Lẩu bò', qty: 2, unit_price: 45000 }],
     subtotal: 90000,
     submitted_at: SUBMITTED_MS,
     reject_reason: null,
@@ -345,6 +357,7 @@ function fakeRequest(overrides: Partial<FakeRequestRow> = {}): FakeRequestRow {
 function fakeItem(overrides: Partial<FakeItemRow> = {}): FakeItemRow {
   return {
     order_id: 'order-1',
+    menu_item_id: 'mi-1',
     menu_item_name: 'Lẩu bò',
     menu_item_price: 45000,
     qty: 2,
@@ -369,6 +382,8 @@ function makeService(opts: {
   /** 2 mốc chặng giao hàng trên `orders` (2026-08-04). Mặc định null = chưa đi ship, chưa nhận. */
   shipped_at?: number | null;
   received_at?: number | null;
+  /** Ảnh menu cho `findImagesByMenuItemIds` (2026-08-04). Mặc định rỗng → mọi item image null. */
+  menuImages?: Array<{ id: string; image_url: string | null }>;
 }) {
   const update = vi.fn().mockResolvedValue(undefined);
   const requestRepo = { findOne: vi.fn().mockResolvedValue(opts.request), update };
@@ -381,6 +396,7 @@ function makeService(opts: {
     }),
   };
   const itemRepo = { find: vi.fn().mockResolvedValue(opts.items ?? []) };
+  const menuItemRepo = { find: vi.fn().mockResolvedValue(opts.menuImages ?? []) };
   const settingsSvc = { readAll: vi.fn().mockResolvedValue(FAKE_SETTINGS) };
   const outbox = { enqueueForNewRequest: vi.fn() };
   const emitter = { emit: vi.fn() };
@@ -390,11 +406,12 @@ function makeService(opts: {
     requestRepo as never,
     orderRepo as never,
     itemRepo as never,
+    menuItemRepo as never,
     settingsSvc as never,
     outbox as never,
     emitter as never,
   );
-  return { svc, update, itemRepo };
+  return { svc, update, itemRepo, menuItemRepo };
 }
 
 describe('getByToken — đơn còn WAITING', () => {
@@ -404,7 +421,7 @@ describe('getByToken — đơn còn WAITING', () => {
     expect(res.stage).toBe('RECEIVED');
     expect(res.stage_label).toBe('Đã tiếp nhận');
     expect(res.percent).toBe(0);
-    expect(res.items).toEqual([{ name: 'Lẩu bò', qty: 2, unit_price: 45000 }]);
+    expect(res.items).toEqual([{ name: 'Lẩu bò', qty: 2, unit_price: 45000, image: null }]);
     expect(res.subtotal).toBe(90000);
     expect(res.updated_at_ms).toBe(SUBMITTED_MS);
   });
@@ -413,6 +430,44 @@ describe('getByToken — đơn còn WAITING', () => {
     const { svc, itemRepo } = makeService({ request: fakeRequest() });
     await svc.getByToken('tok-1');
     expect(itemRepo.find).not.toHaveBeenCalled();
+  });
+});
+
+describe('getByToken — ảnh món cho trang theo dõi (2026-08-04)', () => {
+  it('món có ảnh trong menu → image là url; món không ảnh → null', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({
+        items_snapshot: [
+          { menu_item_id: 'mi-1', name: 'Lẩu bò', qty: 2, unit_price: 45000 },
+          { menu_item_id: 'mi-2', name: 'Trà đá', qty: 1, unit_price: 5000 },
+        ],
+      }),
+      menuImages: [
+        { id: 'mi-1', image_url: '/uploads/menu/lau-bo.webp' },
+        { id: 'mi-2', image_url: null },
+      ],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.items.map((i) => i.image)).toEqual(['/uploads/menu/lau-bo.webp', null]);
+  });
+
+  it('đơn đã duyệt: tra ảnh theo menu_item_id của order_items; id null (món admin gõ tay) → null', async () => {
+    const { svc } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem(), fakeItem({ menu_item_id: null, menu_item_name: 'Món gõ tay' })],
+      menuImages: [{ id: 'mi-1', image_url: '/uploads/menu/lau-bo.webp' }],
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.items.map((i) => i.image)).toEqual(['/uploads/menu/lau-bo.webp', null]);
+  });
+
+  it('không có menu_item_id nào để tra → KHÔNG query bảng menu_items', async () => {
+    const { svc, menuItemRepo } = makeService({
+      request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem({ menu_item_id: null })],
+    });
+    await svc.getByToken('tok-1');
+    expect(menuItemRepo.find).not.toHaveBeenCalled();
   });
 });
 
@@ -441,8 +496,8 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     });
     const res = await svc.getByToken('tok-1');
     expect(res.items).toEqual([
-      { name: 'Cơm rang', qty: 2, unit_price: 50000 },
-      { name: 'Trà đá', qty: 3, unit_price: 5000 },
+      { name: 'Cơm rang', qty: 2, unit_price: 50000, image: null },
+      { name: 'Trà đá', qty: 3, unit_price: 5000, image: null },
     ]);
     // 50000×2 + 5000×3 = 115000, KHÁC subtotal cũ 90000.
     expect(res.subtotal).toBe(115000);
@@ -580,7 +635,7 @@ describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từ
       const res = await svc.getByToken('tok-1');
       expect(JSON.stringify(res)).not.toContain('"state"');
       for (const item of res.items) {
-        expect(Object.keys(item).sort()).toEqual(['name', 'qty', 'unit_price']);
+        expect(Object.keys(item).sort()).toEqual(['image', 'name', 'qty', 'unit_price']);
       }
     }
   });

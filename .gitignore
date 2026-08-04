@@ -98,3 +98,6 @@ apps/api/shop-dist/
 # apps/shop build output (phase 07)
 apps/shop/dist/
 packages/utils/dist/
+
+# Worktree tạm của Claude agent (Agent tool isolation) — không phải source.
+.claude/worktrees/

@@ -30,6 +30,12 @@ export class MenuGroup {
   @Column({ type: 'int', default: 0 })
   sort_order!: number;
 
+  // Ẩn CẢ NHÓM khỏi web đặt hàng online (2026-08-04) — phủ lên mọi món trong nhóm,
+  // kể cả món thêm vào sau; cờ `is_online_hidden` của TỪNG MÓN vẫn giữ giá trị riêng
+  // (nhóm hiện lại thì món nào bị ẩn lẻ vẫn ẩn). POS không bị ảnh hưởng.
+  @Column({ type: 'boolean', default: false })
+  is_online_hidden!: boolean;
+
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 

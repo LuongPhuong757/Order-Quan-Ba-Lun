@@ -2,14 +2,15 @@
 // có gap lock `FOR UPDATE` (RESEARCH Pattern 3, threat T-08-50 HIGH). Toàn bộ quyết định +
 // build dữ liệu nằm ở `submit-order.ts` (Task 1, test được bằng fake-repository) — file này
 // CHỈ có nhiệm vụ nối dây DB thật, không tự phát minh lại logic guard/giá.
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { OnlineOrderSubmit } from '@order/schemas';
-import { PublicOrderCancelResult, PublicOrderStatus } from '@order/schemas';
+import { PublicOrderCancelResult, PublicOrderHistory, PublicOrderStatus } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
+import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
@@ -24,6 +25,8 @@ import {
 } from './order-progress.js';
 import { submitOrder, type MenuItemLookup, type SubmitDeps } from './submit-order.js';
 import { cancelOrderByCustomer } from './cancel-order.js';
+import { buildHistoryEntry, type HistoryRequestRow } from './order-history.js';
+import { normalizePhone } from './phone.js';
 
 @Injectable()
 export class PublicOrdersService {
@@ -34,6 +37,7 @@ export class PublicOrdersService {
     @InjectRepository(OnlineOrderRequest) private readonly requestRepo: Repository<OnlineOrderRequest>,
     @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
     @InjectRepository(OrderItem) private readonly itemRepo: Repository<OrderItem>,
+    @InjectRepository(MenuItem) private readonly menuItemRepo: Repository<MenuItem>,
     private readonly settingsSvc: SettingsService,
     private readonly outbox: NotificationOutboxService,
     private readonly emitter: EventEmitter2,
@@ -201,10 +205,29 @@ export class PublicOrdersService {
 
       findMenuItemsByIds: async (ids): Promise<MenuItemLookup[]> => {
         if (ids.length === 0) return [];
-        return mgr.getRepository(MenuItem).find({
+        const items = await mgr.getRepository(MenuItem).find({
           where: { id: In(ids) },
-          select: ['id', 'code', 'name', 'price', 'unit', 'is_active', 'is_out_of_stock'],
+          select: ['id', 'code', 'name', 'price', 'unit', 'group', 'is_active', 'is_out_of_stock', 'is_online_hidden'],
         });
+        if (items.length === 0) return [];
+        // `is_online_hidden` trả về submit-order là cờ HIỆU LỰC: món ẩn lẻ HOẶC nằm trong
+        // nhóm bị ẩn cả nhóm (2026-08-04) — submit-order không cần biết khái niệm nhóm.
+        const groupCodes = Array.from(new Set(items.map((m) => m.group)));
+        const hiddenGroups = await mgr.getRepository(MenuGroup).find({
+          where: { code: In(groupCodes), is_online_hidden: true },
+          select: ['code'],
+        });
+        const hiddenGroupCodes = new Set(hiddenGroups.map((g) => g.code));
+        return items.map((m) => ({
+          id: m.id,
+          code: m.code,
+          name: m.name,
+          price: m.price,
+          unit: m.unit,
+          is_active: m.is_active,
+          is_out_of_stock: m.is_out_of_stock,
+          is_online_hidden: m.is_online_hidden || hiddenGroupCodes.has(m.group),
+        }));
       },
 
       insertRequest: async (row) => {
@@ -227,13 +250,33 @@ export class PublicOrdersService {
    * 3 ranh giới cứng của hàm này:
    *
    * - **M2.D-23 / G-1:** `item_states` chỉ dùng để TÍNH `percent`, không bao giờ đi ra response.
-   *   Mỗi dòng `items` được map tay đúng 3 field (`name`/`qty`/`unit_price`) — KHÔNG spread entity
-   *   `OrderItem`, vì spread là cách `state` lọt ra ngoài mà typecheck vẫn xanh.
+   *   Mỗi dòng `items` được map tay đúng 4 field (`name`/`qty`/`unit_price`/`image`) — KHÔNG
+   *   spread entity `OrderItem`, vì spread là cách `state` lọt ra ngoài mà typecheck vẫn xanh.
+   *   `image` là ảnh MENU tra live theo `menu_item_id`, không phải dữ liệu vận hành — không đụng
+   *   tới G-1.
    * - **D-09:** hàm này BỊ CẤM đọc cột ghi chú nội bộ của admin. Nội dung khách được đọc chỉ là
    *   `reject_reason` (câu soạn sẵn). Đừng thêm cột đó vào payload dù "để debug".
    * - **M2.D-47:** sau khi duyệt, `items` + `subtotal` lấy từ `order_items` THẬT, không phải
    *   `items_snapshot` — admin sửa món ở bàn thì khách phải thấy danh sách và tổng tiền mới.
    */
+  /** Ảnh món cho trang theo dõi đơn (2026-08-04) — tra live từ `menu_items` theo id, 1 query
+   * cho cả đơn. Món đã xoá khỏi menu (id không còn) hoặc chưa có ảnh thì vắng mặt trong map →
+   * caller tự về null, FE vẽ placeholder. Chỉ SELECT 2 cột — đừng kéo cả entity vào đây rồi
+   * lỡ tay spread nó ra response (bài học G-1). */
+  private async findImagesByMenuItemIds(
+    ids: Array<string | null>,
+  ): Promise<Map<string, string>> {
+    const wanted = Array.from(new Set(ids.filter((id): id is string => id !== null)));
+    if (wanted.length === 0) return new Map();
+    const rows = await this.menuItemRepo.find({
+      where: { id: In(wanted) },
+      select: ['id', 'image_url'],
+    });
+    return new Map(
+      rows.filter((r) => r.image_url !== null).map((r) => [r.id, r.image_url as string]),
+    );
+  }
+
   async getByToken(token: string): Promise<PublicOrderStatus> {
     const request = await this.requestRepo.findOne({ where: { order_token: token } });
     if (!request) {
@@ -257,19 +300,32 @@ export class PublicOrdersService {
       // khách đặt → không tính vào %, không hiện trong danh sách khách xem.
       const real = rows.filter((r) => !r.is_note);
       itemStates = real.map((r) => r.state);
-      items = real
-        .filter((r) => !(EXCLUDED_ITEM_STATES as readonly string[]).includes(r.state))
-        .map((r) => ({ name: r.menu_item_name, qty: r.qty, unit_price: r.menu_item_price }));
+      const visible = real.filter(
+        (r) => !(EXCLUDED_ITEM_STATES as readonly string[]).includes(r.state),
+      );
+      const imageByMenuItemId = await this.findImagesByMenuItemIds(
+        visible.map((r) => r.menu_item_id),
+      );
+      items = visible.map((r) => ({
+        name: r.menu_item_name,
+        qty: r.qty,
+        unit_price: r.menu_item_price,
+        image: (r.menu_item_id && imageByMenuItemId.get(r.menu_item_id)) || null,
+      }));
       if (order) {
         updatedAtMs = order.updated_at;
         shippedAtMs = order.shipped_at;
         receivedAtMs = order.received_at;
       }
     } else {
+      const imageByMenuItemId = await this.findImagesByMenuItemIds(
+        request.items_snapshot.map((it) => it.menu_item_id),
+      );
       items = request.items_snapshot.map((it) => ({
         name: it.name,
         qty: it.qty,
         unit_price: it.unit_price,
+        image: imageByMenuItemId.get(it.menu_item_id) ?? null,
       }));
     }
 
@@ -323,5 +379,71 @@ export class PublicOrdersService {
       updated_at_ms: updatedAtMs,
     };
     return PublicOrderStatus.strict().parse(shaped);
+  }
+
+  /**
+   * `POST /api/public/orders/lookup` — lịch sử đơn theo SĐT (2026-08-04). Quyết định thuần
+   * nằm ở `order-history.ts` (khuôn submit-order/cancel-order); hàm này chỉ query + gom nhóm.
+   *
+   * - Chuẩn hoá SĐT bằng ĐÚNG `normalizePhone` của luồng submit — cột `customer_phone` chỉ
+   *   chứa dạng chuẩn hoá, so khớp bằng dạng khác là "không tìm thấy" giả.
+   * - Đọc theo index `idx_oor_phone_submitted`, mới nhất trước. Toàn bộ lịch sử, không phân
+   *   trang (chốt 2026-08-04).
+   * - `order_items`/`orders` đọc GOM 1 lần bằng `In(...)` rồi chia nhóm trong RAM — N đơn đã
+   *   duyệt mà query từng đơn là N+1 trên một endpoint public bị throttle lỏng hơn nhiều so
+   *   với chi phí nó gây ra.
+   * - KHÔNG ghi `max_progress_shown` ở đây (khác `getByToken`) — trang danh sách không hiện %.
+   */
+  async lookupByPhone(rawPhone: string): Promise<PublicOrderHistory> {
+    const phone = normalizePhone(rawPhone);
+    if (phone === null) {
+      // Cùng code + câu chữ với nhánh SĐT hỏng của submit-order.ts — FE đã biết xử lý nó.
+      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Số điện thoại không hợp lệ' });
+    }
+
+    const requests = await this.requestRepo.find({
+      where: { customer_phone: phone },
+      order: { submitted_at: 'DESC' },
+    });
+
+    const orderIds = requests
+      .map((r) => r.order_id)
+      .filter((id): id is string => id !== null);
+    const [orders, orderItems] =
+      orderIds.length > 0
+        ? await Promise.all([
+            this.orderRepo.find({ where: { id: In(orderIds) } }),
+            this.itemRepo.find({ where: { order_id: In(orderIds) } }),
+          ])
+        : [[], []];
+
+    const orderById = new Map(orders.map((o) => [o.id, o]));
+    const itemsByOrderId = new Map<string, typeof orderItems>();
+    for (const row of orderItems) {
+      const bucket = itemsByOrderId.get(row.order_id);
+      if (bucket) bucket.push(row);
+      else itemsByOrderId.set(row.order_id, [row]);
+    }
+
+    const entries = requests.map((request) => {
+      const order = request.order_id ? (orderById.get(request.order_id) ?? null) : null;
+      return buildHistoryEntry(
+        {
+          order_token: request.order_token,
+          status: request.status as HistoryRequestRow['status'],
+          fulfillment_type: request.fulfillment_type as HistoryRequestRow['fulfillment_type'],
+          submitted_at: request.submitted_at,
+          max_progress_shown: request.max_progress_shown,
+          subtotal: request.subtotal,
+          items_snapshot: request.items_snapshot,
+          order_id: request.order_id,
+        },
+        order ? { shipped_at: order.shipped_at, received_at: order.received_at } : null,
+        request.order_id ? (itemsByOrderId.get(request.order_id) ?? []) : [],
+      );
+    });
+
+    // `.strict()` là chốt an toàn cuối như mọi payload public khác — field lạ THROW thay vì leak.
+    return PublicOrderHistory.strict().parse({ phone, orders: entries });
   }
 }

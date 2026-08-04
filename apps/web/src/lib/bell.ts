@@ -22,9 +22,12 @@ function resolveAudioContextCtor(): AudioContextCtor | null {
 }
 
 export type Bell = {
-  /** Gọi TRONG onClick của nút "Bật chuông". `'blocked'` = trình duyệt vẫn chặn (nhân viên phải
-   * bấm lại), `'ok'` = từ giờ `ring()` phát được cả khi gọi từ `setInterval` không có gesture. */
-  unlock(): Promise<'ok' | 'blocked'>;
+  /** Gọi TRONG handler của một user gesture (onClick nút "Bật chuông", hoặc listener
+   * pointerdown/keydown toàn trang của cơ chế tự-bật). `'blocked'` = trình duyệt vẫn chặn,
+   * `'ok'` = từ giờ `ring()` phát được cả khi gọi từ `setInterval` không có gesture.
+   * `silent: true` = bỏ tiếng beep xác nhận — dùng cho tự-bật ở thao tác đầu tiên: nhân viên
+   * không chủ đích bật chuông ở cú click đó, beep lên sẽ tưởng máy lỗi. */
+  unlock(opts?: { silent?: boolean }): Promise<'ok' | 'blocked'>;
   /** 2 tiếng "bíp". Chưa mở khoá → im lặng bỏ qua, không throw, không log ồn. */
   ring(): void;
   dispose(): void;
@@ -67,16 +70,17 @@ export function createBell(): Bell {
   };
 
   return {
-    async unlock(): Promise<'ok' | 'blocked'> {
+    async unlock(opts?: { silent?: boolean }): Promise<'ok' | 'blocked'> {
       try {
         const audio = ensureCtx();
         if (!audio) return 'blocked';
         // `resume()` là lệnh DUY NHẤT được await ở đây, và nó phải là lệnh đầu tiên sau cú click.
         if (audio.state !== 'running') await audio.resume();
         if (audio.state !== 'running') return 'blocked';
-        // Phát luôn 1 tiếng để nhân viên NGHE được là chuông đã bật — bấm nút mà im lặng thì họ
-        // không biết đã thành công hay chưa, và đó đúng là lỗi im lặng mà D-03 muốn tránh.
-        tone(audio, TONE_HZ[0], audio.currentTime, BEEP_MS / 1000);
+        // Bấm nút chủ đích thì phát 1 tiếng để nhân viên NGHE được là chuông đã bật — bấm mà im
+        // lặng thì không biết thành công chưa, đúng lỗi im lặng D-03 muốn tránh. Tự-bật thì ngược
+        // lại: beep không mời mà đến giữa lúc đang bấm việc khác mới là thứ gây hoang mang.
+        if (!opts?.silent) tone(audio, TONE_HZ[0], audio.currentTime, BEEP_MS / 1000);
         return 'ok';
       } catch {
         return 'blocked';

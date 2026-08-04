@@ -3,13 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { OnlineOrderSubmit, PublicStoreStatus } from '@order/schemas';
 import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
-import { formatVnd, readCartNote, toSubmitItems, useCart } from '../lib/cart-store.ts';
+import { formatVnd, readCartNote, toSubmitItems, useCart, type CartLine } from '../lib/cart-store.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import * as MapsLink from '../lib/maps-link.ts';
 import { useGeolocation } from '../lib/use-geolocation.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { ErrorToast } from '../components/ErrorToast.tsx';
 
 /**
  * `/checkout` — bước 2 "Thông tin nhận hàng" (D-19: card PICKUP/DELIVERY + địa chỉ +
@@ -39,6 +40,10 @@ const PICKUP_LABEL = 'Đến lấy tại quán';
 const DELIVERY_LABEL = 'Giao tận nơi';
 const CTA_LABEL = 'ĐẶT HÀNG';
 const SUBMITTING_LABEL = 'Đang gửi đơn...';
+/** Thông báo trong popup xác nhận (Task.md, chốt 2026-08-04) — khách phải biết TRƯỚC khi bấm
+ * gửi rằng đơn chưa chốt ngay: nó vào hàng chờ và quán sẽ gọi điện xác nhận. */
+const PROCESSING_NOTICE =
+  'Sau khi đặt, đơn của quý khách sẽ ở trạng thái ĐANG XỬ LÝ — quán sẽ gọi điện cho quý khách để xác nhận trước khi chuẩn bị món.';
 const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn này.';
 // D-11 — `STORE_OFF_HINT` đã bị xoá cùng lúc bỏ khoá nút: nút gửi đơn không bao giờ bị vô hiệu vì
 // công tắc nữa, nên không còn dòng gợi ý nào để giải thích chuyện đó.
@@ -127,11 +132,17 @@ export function CheckoutPage(): JSX.Element {
   const [extraFieldErrors, setExtraFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ApiError | null>(null);
+  // Popup tóm tắt đơn (Task.md 2026-08-04): "ĐẶT HÀNG" chỉ MỞ popup sau khi validate;
+  // gửi thật nằm sau nút "Xác nhận đặt hàng" trong popup.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // Giỏ rỗng — không cho đứng ở bước 2, quay lại /cart.
+  // Giỏ rỗng — không cho đứng ở bước 2, quay lại /cart. `!submitting` là chốt chặn cho lúc
+  // VỪA ĐẶT XONG: cart.clear() làm giỏ về 0 và nếu effect này chen được vào giữa thì nó đá
+  // khách về /cart đè lên điều hướng sang màn theo dõi (bug 2026-08-04 — "xác nhận xong vẫn
+  // đứng ở giỏ hàng"). `submitting` cố ý KHÔNG reset về false ở nhánh thành công vì lẽ này.
   useEffect(() => {
-    if (cart.count === 0) navigate('/cart');
-  }, [cart.count, navigate]);
+    if (cart.count === 0 && !submitting) navigate('/cart');
+  }, [cart.count, submitting, navigate]);
 
   // Mặc định chọn phương thức đang bật; cả 2 bật thì mặc định DELIVERY nếu lần trước
   // khách chọn DELIVERY (đọc từ dữ liệu autofill lần trước có địa chỉ). Chỉ áp 1 lần khi
@@ -181,15 +192,8 @@ export function CheckoutPage(): JSX.Element {
     ctaHint = FIELD_ERRORS_HINT;
   }
 
-  /**
-   * Submit đơn. Body KHÔNG mang giá (BE tự lookup, chống đặt giá 0đ — T-08-66), validate
-   * cục bộ bằng zod trước khi gửi để bắt lỗi sớm, chặn double-submit bằng cờ `submitting`
-   * (không tự retry ngầm khi lỗi mạng — đơn có thể đã vào DB, retry ngầm là đường tạo đơn
-   * trùng, T-08-70).
-   */
-  const handleSubmit = async (): Promise<void> => {
-    if (ctaDisabled) return;
-
+  /** Dựng body + validate zod. Trả `null` nếu hỏng (đồng thời ghi lỗi field lên form). */
+  const buildValidatedBody = (): z.infer<typeof OnlineOrderSubmit> | null => {
     const body: Record<string, unknown> = {
       customer_token: CustomerToken.getOrCreateCustomerToken(),
       customer_name: name,
@@ -215,22 +219,52 @@ export function CheckoutPage(): JSX.Element {
         else if (key === 'customer_address') zodErrors.address = issue.message;
       }
       setExtraFieldErrors(zodErrors);
+      return null;
+    }
+    setExtraFieldErrors({});
+    return parsedBody.data;
+  };
+
+  /** Nút "ĐẶT HÀNG": validate xong thì MỞ popup tóm tắt (Task.md 2026-08-04), KHÔNG gửi.
+   * Validate trước khi mở — popup tóm tắt một đơn không hợp lệ là tóm tắt thứ sắp bị chặn. */
+  const handleCtaClick = (): void => {
+    if (ctaDisabled) return;
+    if (buildValidatedBody() === null) return;
+    setSubmitError(null);
+    setConfirmOpen(true);
+  };
+
+  /**
+   * Gửi đơn thật — chỉ chạy từ nút "Xác nhận đặt hàng" trong popup. Body KHÔNG mang giá (BE
+   * tự lookup, chống đặt giá 0đ — T-08-66); chặn double-submit bằng cờ `submitting` (không tự
+   * retry ngầm khi lỗi mạng — đơn có thể đã vào DB, retry ngầm là đường tạo đơn trùng, T-08-70).
+   * Dựng lại body tại đây thay vì cầm bản lúc mở popup: form bị khoá sau lớp overlay nên 2 bản
+   * y hệt nhau, mà khỏi phải giữ state thứ hai đồng bộ.
+   */
+  const handleSubmit = async (): Promise<void> => {
+    const parsedData = buildValidatedBody();
+    if (parsedData === null) {
+      setConfirmOpen(false);
       return;
     }
 
-    setExtraFieldErrors({});
     setSubmitting(true);
     setSubmitError(null);
 
     const result = await postJson(
       '/api/public/orders',
-      parsedBody.data,
+      parsedData,
       z.object({ order_token: z.string() }),
     );
 
     if ('error' in result) {
       setSubmitting(false);
+      // GIỮ popup mở và hiện lỗi NGAY TRONG popup (bug 2026-08-04): bản đầu đóng popup rồi
+      // vẽ banner ở cuối trang — banner nằm ngoài khung nhìn nên khách bấm xong thấy "không
+      // có gì xảy ra". Lỗi phải hiện đúng nơi mắt khách đang nhìn. Riêng VALIDATION_FAILED
+      // thì đóng: lỗi nằm ở các ô nhập trên form, khách phải quay ra đó sửa.
       if (result.error.code === 'VALIDATION_FAILED' && result.error.field_errors) {
+        setConfirmOpen(false);
         const beFieldErrors: FieldErrors = {};
         for (const fe of result.error.field_errors) {
           if (fe.field.includes('customer_name')) beFieldErrors.name = fe.message;
@@ -249,8 +283,11 @@ export function CheckoutPage(): JSX.Element {
       customer_address: fulfillment === 'DELIVERY' ? address : '',
     });
     CustomerToken.saveLastOrderToken(result.data.order_token);
-    cart.clear();
+    // Điều hướng TRƯỚC, xoá giỏ SAU: thứ tự ngược lại là giỏ về 0 khi còn đứng ở /checkout,
+    // effect "giỏ rỗng → về /cart" phía trên sẽ nuốt mất điều hướng sang màn theo dõi.
+    // Giỏ nằm ở localStorage nên xoá sau navigate vẫn ăn, không phụ thuộc component nào mounted.
     navigate(`/o/${result.data.order_token}`, { replace: true });
+    cart.clear();
   };
 
   return (
@@ -424,10 +461,12 @@ export function CheckoutPage(): JSX.Element {
         </div>
       </section>
 
+      {/* Lỗi gửi đơn = toast XỔ TỪ TRÊN XUỐNG (chỉ đạo 2026-08-04), KHÔNG phải banner giữa
+          trang: bản banner nằm cuối trang, khách bấm gửi trong popup xong thấy "không có gì
+          xảy ra" vì lỗi vẽ ngoài khung nhìn. Toast ở lớp cao hơn popup nên ca nào cũng thấy. */}
       {submitError && (
-        <BannerNotice
-          tone="danger"
-          title={
+        <ErrorToast
+          message={
             submitError.kind === 'schema'
               ? 'Dữ liệu trả về không đúng định dạng mong đợi. Đây là lỗi kỹ thuật, không phải lỗi của bạn.'
               : submitError.message
@@ -439,15 +478,129 @@ export function CheckoutPage(): JSX.Element {
             (token) => navigate(`/o/${token}`),
             () => navigate('/cart'),
           )}
+          onClose={() => setSubmitError(null)}
         />
       )}
 
       <StickyCta
         label={submitting ? SUBMITTING_LABEL : CTA_LABEL}
-        onClick={() => void handleSubmit()}
+        onClick={handleCtaClick}
         disabled={ctaDisabled}
         hint={ctaHint}
       />
+
+      {confirmOpen && (
+        <ConfirmOrderModal
+          lines={cart.lines}
+          subtotal={cart.subtotal}
+          fulfillment={fulfillment}
+          name={name}
+          phone={phone}
+          address={address}
+          note={cartNote}
+          // Quán đang đóng cửa: thay thông báo "sẽ gọi xác nhận" bằng câu chủ quán tự soạn
+          // cho đúng ngữ cảnh ("sẽ liên hệ khi mở cửa lại") — không hứa gọi ngay lúc 2h sáng.
+          notice={storeOff && store.data ? store.data.closed_submit_confirm_text : PROCESSING_NOTICE}
+          submitting={submitting}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={() => void handleSubmit()}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Popup tóm tắt đơn trước khi gửi (Task.md, chốt 2026-08-04) — chốt chặn cuối để khách soát
+ * lại món/số lượng/thông tin nhận hàng, kèm thông báo đơn sẽ ĐANG XỬ LÝ và quán gọi xác nhận.
+ * Bấm overlay = Quay lại (không gửi); mọi nút khoá khi đang gửi để không double-submit.
+ */
+function ConfirmOrderModal({
+  lines,
+  subtotal,
+  fulfillment,
+  name,
+  phone,
+  address,
+  note,
+  notice,
+  submitting,
+  onCancel,
+  onConfirm,
+}: {
+  lines: CartLine[];
+  subtotal: number;
+  fulfillment: Fulfillment;
+  name: string;
+  phone: string;
+  address: string;
+  note: string;
+  notice: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  return (
+    <div
+      style={modalOverlay}
+      role="presentation"
+      onClick={() => {
+        if (!submitting) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Xác nhận đơn hàng"
+        style={modalCard}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 style={modalTitle}>Kiểm tra lại đơn hàng</h2>
+
+        <div style={modalMeta}>
+          <p style={modalMetaLine}>
+            <strong>{fulfillment === 'PICKUP' ? PICKUP_LABEL : DELIVERY_LABEL}</strong>
+          </p>
+          <p style={modalMetaLine}>
+            {name} · {phone}
+          </p>
+          {fulfillment === 'DELIVERY' && address && <p style={modalMetaLine}>{address}</p>}
+          {note && <p style={modalMetaLine}>Ghi chú: {note}</p>}
+        </div>
+
+        <ul style={modalItemList}>
+          {lines.map((l) => (
+            <li key={l.menu_item_id} style={modalItemRow}>
+              <span style={modalItemQty}>{l.qty}×</span>
+              {/* Tên món hiển thị TRỌN VẸN — popup này sinh ra để khách kiểm tra lại,
+                  cùng lý lẽ với việc bỏ ellipsis ở giỏ hàng. */}
+              <span style={modalItemName}>{l.name}</span>
+              <span style={modalItemPrice}>{formatVnd(l.unit_price * l.qty)}</span>
+            </li>
+          ))}
+        </ul>
+
+        <div style={modalTotalRow}>
+          <span style={totalLabel}>Tổng cộng</span>
+          <span style={modalTotalValue}>{formatVnd(subtotal)}</span>
+        </div>
+
+        <div style={modalNotice}>
+          <span aria-hidden="true" style={modalNoticeIcon}>
+            📞
+          </span>
+          <p style={modalNoticeText}>{notice}</p>
+        </div>
+
+        <div style={modalActions}>
+          <button type="button" style={modalBackBtn} disabled={submitting} onClick={onCancel}>
+            Quay lại
+          </button>
+          <button type="button" style={modalConfirmBtn} disabled={submitting} onClick={onConfirm}>
+            {submitting ? SUBMITTING_LABEL : 'XÁC NHẬN ĐẶT HÀNG'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -475,7 +628,9 @@ const page: CSSProperties = {
   maxWidth: 'var(--content-max)',
   margin: '0 auto',
   padding: `var(--sp-4) var(--gutter)`,
-  paddingBottom: 'calc(var(--sticky-cta-h) + var(--safe-bottom) + var(--sp-4))',
+  // 0 chứ không phải sp-4: StickyCta giờ sticky TRONG luồng (không còn fixed đè footer),
+  // là phần tử cuối trang — khoảng cách với footer do marginTop của chính Footer lo.
+  paddingBottom: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-4)',
@@ -765,4 +920,157 @@ const totalValue: CSSProperties = {
   fontSize: 'var(--fs-2xl)',
   fontWeight: 'var(--fw-heavy)' as unknown as number,
   color: 'var(--text-strong)',
+};
+
+// ── Popup xác nhận đơn ──
+// Neo ĐÁY màn hình kiểu bottom-sheet: shop dùng chủ yếu trên điện thoại một tay, nút xác
+// nhận phải nằm trong tầm ngón cái. Trên màn rộng nó vẫn là card giữa-dưới, không sao.
+const modalOverlay: CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  // Theo thang lớp xếp của tokens.css — con số tự chế thấp hơn --z-sticky-cta (210) sẽ để
+  // thanh ĐẶT HÀNG dính đáy nổi ĐÈ LÊN popup (bug 2026-08-04, phát hiện trên mobile).
+  zIndex: 'var(--z-overlay)' as unknown as number,
+  background: 'rgba(0, 0, 0, 0.45)',
+  display: 'flex',
+  alignItems: 'flex-end',
+  justifyContent: 'center',
+};
+
+const modalCard: CSSProperties = {
+  width: '100%',
+  maxWidth: 'var(--content-max)',
+  maxHeight: '85vh',
+  overflowY: 'auto',
+  zIndex: 'var(--z-sheet)' as unknown as number,
+  background: 'var(--bg-surface)',
+  borderRadius: 'var(--r-card) var(--r-card) 0 0',
+  boxShadow: 'var(--shadow-sheet)',
+  padding: 'var(--pad-card)',
+  paddingBottom: 'calc(var(--safe-bottom) + var(--sp-4))',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-3)',
+};
+
+const modalTitle: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-display)',
+  fontSize: 'var(--fs-lg)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const modalMeta: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-1)',
+  paddingBottom: 'var(--sp-3)',
+  borderBottom: '1px solid var(--border-subtle)',
+};
+
+const modalMetaLine: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-strong)',
+  overflowWrap: 'anywhere',
+};
+
+const modalItemList: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-2)',
+};
+
+const modalItemRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 'var(--sp-2)',
+};
+
+const modalItemQty: CSSProperties = {
+  flexShrink: 0,
+  minWidth: '2em',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const modalItemName: CSSProperties = {
+  flex: 1,
+  fontSize: 'var(--fs-base)',
+  color: 'var(--text-strong)',
+  overflowWrap: 'anywhere',
+};
+
+const modalItemPrice: CSSProperties = {
+  flexShrink: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-price-sm)',
+};
+
+const modalTotalRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  paddingTop: 'var(--sp-3)',
+  borderTop: '1px solid var(--border-subtle)',
+};
+
+const modalTotalValue: CSSProperties = {
+  fontSize: 'var(--fs-xl)',
+  fontWeight: 'var(--fw-heavy)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const modalNotice: CSSProperties = {
+  display: 'flex',
+  gap: 'var(--sp-2)',
+  alignItems: 'flex-start',
+  padding: 'var(--sp-3)',
+  background: 'var(--brand-100)',
+  borderRadius: 'var(--r-card)',
+};
+
+const modalNoticeIcon: CSSProperties = {
+  flexShrink: 0,
+  fontSize: 'var(--fs-md)',
+  lineHeight: 1.4,
+};
+
+const modalNoticeText: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-strong)',
+  lineHeight: 1.5,
+};
+
+const modalActions: CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 2fr',
+  gap: 'var(--sp-2)',
+};
+
+const modalBackBtn: CSSProperties = {
+  minHeight: 'var(--tap-min)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--bg-surface)',
+  color: 'var(--text-strong)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  cursor: 'pointer',
+};
+
+const modalConfirmBtn: CSSProperties = {
+  minHeight: 'var(--tap-min)',
+  border: 'none',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  cursor: 'pointer',
 };

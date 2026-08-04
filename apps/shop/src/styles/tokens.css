@@ -217,6 +217,7 @@
   --shadow-sticky: 0 1px 3px rgb(42 29 20 / 8%); /* Header dính khi cuộn */
   --shadow-float: 0 4px 16px rgb(42 29 20 / 14%); /* Giỏ hàng nổi (G-3) */
   --shadow-sheet: 0 -6px 24px rgb(42 29 20 / 16%); /* Bottom sheet, nút dính đáy */
+  --shadow-lift: 0 10px 24px rgb(42 29 20 / 18%); /* Hover "nổi lên" card món/danh mục */
 
   /* ── LỚP XẾP ─────────────────────────────────────────────────────────────
    * Khai báo tập trung để không có z-index: 9999 rải rác. */
@@ -238,7 +239,7 @@
   --tap-min: 44px; /* Sàn Apple HIG — áp cho nút `+`, nút stepper số lượng */
   --safe-bottom: env(safe-area-inset-bottom, 0px); /* Vùng thanh gạt iPhone */
   --safe-top: env(safe-area-inset-top, 0px);
-  --sticky-cta-h: 72px; /* Chiều cao thanh CTA dính đáy — trừ vào padding-bottom trang */
+  --sticky-cta-h: 72px; /* Chiều cao tối thiểu nút CTA dính đáy (giờ sticky trong luồng, trang không cần chừa padding) */
 
   /* ── CHUYỂN ĐỘNG ─────────────────────────────────────────────────────────
    * KHÔNG dùng easing nảy/đàn hồi — cảm giác cũ (anti-pattern: bounce-easing).

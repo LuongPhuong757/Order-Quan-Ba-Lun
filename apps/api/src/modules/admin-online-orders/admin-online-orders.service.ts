@@ -30,9 +30,17 @@ import {
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { ConfirmOnlineOrderBody, RejectOnlineOrderBody } from '@order/schemas';
-import { AdminOnlineOrderList, REJECT_REASON_TEXT } from '@order/schemas';
-import type { AdminOnlineOrderRow, AdminOnlineOrderStatusFilter } from '@order/schemas';
+import type {
+  ConfirmOnlineOrderBody,
+  EditOnlineOrderItemsBody,
+  RejectOnlineOrderBody,
+} from '@order/schemas';
+import { AdminOnlineOrderList, EditOnlineOrderItemsResult, REJECT_REASON_TEXT } from '@order/schemas';
+import type {
+  AdminOnlineOrderRow,
+  AdminOnlineOrderStatusFilter,
+  FulfillmentResult,
+} from '@order/schemas';
 // Import namespace (không phải named import) — tránh dòng import lặp lại đúng chuỗi tên hàm
 // với dòng gọi hàm bên dưới (2 dòng khớp cùng 1 chuỗi sẽ sai lệch với acceptance criteria đếm
 // đúng 1 lần xuất hiện của cơ chế retry trong file này).
@@ -53,19 +61,16 @@ export type ReviewActor = { id: string; full_name: string };
 export type ConfirmResult = {
   order_id: string;
   table_code: string;
+  /** Tên bàn đầy đủ ("Ship 03") — toast FE hiện tên này, không hiện mã (chỉ đạo 2026-08-04). */
+  table_name: string;
   table_created: boolean;
   dropped_count: number;
 };
 
-/** Kết quả của `markShipped`/`markReceived`. Trả về CẢ HAI mốc (không chỉ mốc vừa set) để FE
- * vẽ lại được trạng thái đơn mà không phải gọi thêm 1 GET. */
-export type FulfillmentResult = {
-  order_id: string;
-  table_code: string;
-  fulfillment_type: 'PICKUP' | 'DELIVERY';
-  shipped_at_ms: number | null;
-  received_at_ms: number | null;
-};
+// Kết quả của `markShipped`/`markReceived` nay là hợp đồng chung `FulfillmentResult` bên
+// `@order/schemas` — FE (nút "Đã đi ship"/"Khách đã nhận") đọc cùng một định nghĩa.
+// Re-export để controller giữ nguyên đường import cũ.
+export type { FulfillmentResult };
 
 @Injectable()
 export class AdminOnlineOrdersService {
@@ -312,6 +317,7 @@ export class AdminOnlineOrdersService {
       return {
         order_id: txOut.order.id,
         table_code: txOut.table.code,
+        table_name: txOut.table.name,
         table_created: txOut.tableCreated,
         dropped_count: txOut.droppedCount,
       };
@@ -386,6 +392,79 @@ export class AdminOnlineOrdersService {
     }
   }
 
+  /** Huỷ đơn ĐÃ XÁC NHẬN — khách có vấn đề giữa chừng (chốt 2026-08-04, Task.md). Cả 3 role
+   * (D-02); body dùng CHUNG khuôn reject: 1 trong 5 lý do soạn sẵn gửi khách + ghi chú nội bộ.
+   *
+   * Khác reject (đơn còn WAITING, chưa có gì để dọn), huỷ sau xác nhận phải dọn CẢ HAI phía
+   * trong MỘT transaction:
+   * - Order thật: huỷ mọi món còn sống + NIÊM đơn (`closed_at` set, `is_paid=false` — đúng
+   *   khuôn "Đã huỷ" của `OrdersService.cancelWholeOrder`; niêm xong là bàn tự giải phóng).
+   * - Request: `status='REJECTED'` + lý do — khách mở /o/:token thấy "đơn bị từ chối" kèm câu
+   *   lý do, KHÔNG cần status mới (thêm 1 status là đụng public schema + progress + mọi tab).
+   *   `reviewed_by_*` ghi đè sang NGƯỜI HUỶ — tab Đã từ chối phải trả lời "ai huỷ, lúc nào";
+   *   ai duyệt ban đầu vẫn tra được ở audit log `online_order.confirmed`.
+   *
+   * Đơn đã thu tiền (`closed_at` có) → 409: đơn thành công không huỷ được nữa, muốn hoàn
+   * tiền là nghiệp vụ khác. */
+  async cancelConfirmed(
+    requestId: string,
+    actor: ReviewActor,
+    body: RejectOnlineOrderBody,
+  ): Promise<void> {
+    const outcome = await this.ds.transaction(async (mgr) => {
+      const { request, order } = await this.lockConfirmedOrder(mgr, requestId);
+
+      if (order.closed_at !== null) {
+        throw new ConflictException({
+          code: 'ORDER_ALREADY_CLOSED',
+          message: 'Đơn đã kết (thanh toán hoặc đã huỷ) — không huỷ được nữa.',
+        });
+      }
+
+      const rejectReason =
+        body.reason_code === 'OTHER'
+          ? body.reason_other_text!.trim()
+          : REJECT_REASON_TEXT[body.reason_code];
+      const internalNote = body.internal_note?.trim() || null;
+
+      // Huỷ món — mirror `cancelWholeOrder` (không gọi chéo service: nó tự mở transaction
+      // riêng, gọi từ đây là 2 connection nhìn 2 bản dữ liệu khác nhau).
+      const itemRepo = mgr.getRepository(OrderItem);
+      const items = await itemRepo.find({ where: { order_id: order.id } });
+      for (const it of items) {
+        if (it.state === 'CANCELLED') continue;
+        it.state = 'CANCELLED';
+        it.cancelled_reason = `Quán huỷ đơn online: ${rejectReason}`;
+        it.cancelled_by_user_id = actor.id;
+        it.cancelled_by_full_name = actor.full_name;
+        await itemRepo.save(it);
+      }
+
+      // Niêm đơn → bàn tự giải phóng (mọi câu chọn bàn đều loại bàn có đơn `closed_at IS NULL`).
+      order.closed_at = Date.now();
+      order.is_paid = false;
+      await mgr.getRepository(Order).save(order);
+
+      request.status = 'REJECTED';
+      request.reject_reason = rejectReason;
+      request.internal_reject_note = internalNote;
+      request.reviewed_at = Date.now();
+      request.reviewed_by_user_id = actor.id;
+      request.reviewed_by_full_name = actor.full_name;
+      await mgr.getRepository(OnlineOrderRequest).save(request);
+
+      await this.outbox.cancelPendingForRequest(request.id, mgr);
+      await this.writeFulfillmentActivity(mgr, order, actor, `Quán huỷ đơn online — ${rejectReason}`);
+
+      return { reasonCode: body.reason_code, internalNote };
+    });
+
+    this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+    this.logger.log(
+      `Huỷ đơn đã xác nhận ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}`,
+    );
+  }
+
   /** Danh sách đơn online theo trạng thái (OD-11). Re-check tồn kho 1 lần cho TOÀN BỘ món của
    * mọi đơn (1 query `In(...)`, không N+1 theo từng đơn).
    *
@@ -398,7 +477,10 @@ export class AdminOnlineOrdersService {
     status: AdminOnlineOrderStatusFilter = 'WAITING',
   ): Promise<AdminOnlineOrderList> {
     const requests = await this.ds.getRepository(OnlineOrderRequest).find({
-      where: { status },
+      // Tab "Thành công" không có status DB riêng: đơn vẫn là CONFIRMED trong
+      // `online_order_requests`, "thành công" = Order của nó đã checkout. Query CONFIRMED
+      // rồi chia đôi theo `orders.closed_at` ở dưới.
+      where: { status: status === 'COMPLETED' ? 'CONFIRMED' : status },
       order:
         status === 'WAITING'
           ? { submitted_at: 'ASC' }
@@ -433,9 +515,46 @@ export class AdminOnlineOrdersService {
         ? []
         : await this.ds.getRepository(Order).find({
             where: { id: In(orderIds) },
-            select: ['id', 'table_code', 'shipped_at', 'received_at'],
+            select: [
+              'id',
+              'table_id',
+              'table_code',
+              'shipped_at',
+              'received_at',
+              'closed_at',
+              'is_paid',
+            ],
           });
     const orderMap = new Map(orders.map((o) => [o.id, o]));
+
+    // ── Chia đôi CONFIRMED theo mốc thu tiền: chưa checkout ở tab "Đã xác nhận", đã checkout
+    // sang tab "Thành công". Lọc SAU khi có orderMap vì `closed_at` sống ở bảng `orders`.
+    // ⚠ "Thành công" = closed_at CÓ **và** is_paid=1. Chỉ xét closed_at là dính bug đơn bị
+    // HUỶ giữa chừng (niêm đơn: closed_at set, is_paid=0) hiện pill "Thành công". ──
+    const isPaid = (r: OnlineOrderRequest): boolean => {
+      if (r.order_id === null) return false;
+      const o = orderMap.get(r.order_id);
+      return o != null && o.closed_at != null && o.is_paid;
+    };
+    const visible =
+      status === 'CONFIRMED'
+        ? requests.filter((r) => !isPaid(r))
+        : status === 'COMPLETED'
+          ? requests.filter((r) => isPaid(r))
+          : requests;
+
+    // Tên bàn đầy đủ ("Ship 03", "Mang về 02") — thứ hiện ra màn hình thay cho mã `ship-03`
+    // (chỉ đạo 2026-08-04). Đọc từ `restaurant_tables.name` chứ không format lại từ code:
+    // bàn có thể được đổi tên tay, tên trong DB mới là sự thật.
+    const tableIds = Array.from(new Set(orders.map((o) => o.table_id)));
+    const tables =
+      tableIds.length === 0
+        ? []
+        : await this.ds.getRepository(RestaurantTable).find({
+            where: { id: In(tableIds) },
+            select: ['id', 'name'],
+          });
+    const tableNameById = new Map(tables.map((t) => [t.id, t.name]));
 
     // Đếm bằng GROUP BY thay vì tải hết `order_items` về rồi đếm trong JS: hàng chờ có thể chứa
     // vài chục đơn × chục món, và ta chỉ cần 6 con số mỗi đơn.
@@ -490,7 +609,7 @@ export class AdminOnlineOrdersService {
 
     // Whitelist tường minh — KHÔNG spread entity: hash IP, user-agent, ghi chú từ chối nội bộ,
     // hay `order_token` đầy đủ tuyệt đối không được lọt vào đây (T-09-31).
-    const items: AdminOnlineOrderRow[] = requests.map((r) => ({
+    const items: AdminOnlineOrderRow[] = visible.map((r) => ({
       id: r.id,
       order_token_masked: `${r.order_token.slice(0, 4).toUpperCase()}…`,
       status: r.status as AdminOnlineOrderRow['status'],
@@ -526,16 +645,149 @@ export class AdminOnlineOrdersService {
       reject_reason: r.reject_reason,
 
       table_code: r.order_id ? (orderMap.get(r.order_id)?.table_code ?? null) : null,
+      table_name: r.order_id
+        ? (tableNameById.get(orderMap.get(r.order_id)?.table_id ?? '') ?? null)
+        : null,
       item_state_counts: r.order_id ? (countsByOrder.get(r.order_id) ?? null) : null,
       shipped_at_ms: r.order_id ? (orderMap.get(r.order_id)?.shipped_at ?? null) : null,
       received_at_ms: r.order_id ? (orderMap.get(r.order_id)?.received_at ?? null) : null,
+      // `paid_at_ms` = mốc THU TIỀN thật — đơn bị huỷ (niêm không thu tiền) phải là null,
+      // cùng định nghĩa với `isPaid` phía trên.
+      paid_at_ms: isPaid(r) ? (orderMap.get(r.order_id!)?.closed_at ?? null) : null,
     }));
+
+    // ── Badge số đơn từng tab — 1 câu GROUP BY, đếm trên TOÀN BỘ chứ không phải tab đang mở.
+    // LEFT JOIN vì WAITING/REJECTED không có Order; CONFIRMED chia đôi theo closed_at đúng
+    // như phép lọc `visible` phía trên — 2 chỗ này phải cùng một định nghĩa "thành công".
+    type StatusCountRow = { status: string; open_cnt: string | number; paid_cnt: string | number };
+    const countByStatus: StatusCountRow[] = await this.ds.query(
+      `SELECT r.status AS status,
+              SUM(CASE WHEN o.closed_at IS NOT NULL AND o.is_paid = 1 THEN 0 ELSE 1 END) AS open_cnt,
+              SUM(CASE WHEN o.closed_at IS NOT NULL AND o.is_paid = 1 THEN 1 ELSE 0 END) AS paid_cnt
+         FROM online_order_requests r
+         LEFT JOIN orders o ON o.id = r.order_id
+        WHERE r.status IN ('WAITING', 'CONFIRMED', 'REJECTED')
+        GROUP BY r.status`,
+    );
+    const byStatus = new Map(countByStatus.map((c) => [c.status, c]));
+    const n = (v: string | number | undefined): number => Number(v ?? 0);
+    const status_counts = {
+      WAITING: n(byStatus.get('WAITING')?.open_cnt) + n(byStatus.get('WAITING')?.paid_cnt),
+      CONFIRMED: n(byStatus.get('CONFIRMED')?.open_cnt),
+      COMPLETED: n(byStatus.get('CONFIRMED')?.paid_cnt),
+      REJECTED: n(byStatus.get('REJECTED')?.open_cnt) + n(byStatus.get('REJECTED')?.paid_cnt),
+    };
 
     const payload: AdminOnlineOrderList = {
       items,
       escalate_sms_after_s: settings.escalate_sms_after_s,
+      status_counts,
     };
     return AdminOnlineOrderList.strict().parse(payload);
+  }
+
+  /** Sửa món của đơn ĐANG CHỜ DUYỆT (Task.md "cho phép sửa đơn rồi mới xác nhận", 2026-08-04).
+   *
+   * Ghi thẳng vào `items_snapshot` + `subtotal` của request — trang /o/:token của khách đọc
+   * cùng snapshot nên khách mở link theo dõi là thấy đơn mới ("update ngược về đơn của khách"),
+   * không cần cơ chế đồng bộ nào thêm. Vì snapshot là thứ confirm() dùng để dựng Order thật,
+   * sửa xong rồi Xác nhận là đơn vào bếp đúng bản đã chốt miệng với khách.
+   *
+   * Món GỌI THÊM (id không có trong snapshot): lấy giá menu HIỆN TẠI + phải đang bán và còn
+   * hàng — đơn giá của món thêm không được khách bấm chọn, nên chặn ở server chặt hơn món cũ.
+   *
+   * CHỈ cho đơn WAITING: sau confirm, món sống ở `order_items` (sửa ở màn bàn/bếp như đơn
+   * thường); sửa snapshot lúc đó là sửa vào bản không ai đọc nữa. `lockWaitingRequest` chặn
+   * đua với confirm/reject đang chạy song song (FOR UPDATE).
+   *
+   * Cả 3 role bấm được (D-02) — kiểm soát bù trừ là audit log `online_order.items_edited`
+   * (AuditInterceptor tự ghi actor + response body). */
+  async editItems(
+    requestId: string,
+    body: EditOnlineOrderItemsBody,
+  ): Promise<EditOnlineOrderItemsResult> {
+    const edited = await this.ds.transaction(async (mgr) => {
+      const request = await this.lockWaitingRequest(mgr, requestId);
+
+      const qtyById = new Map(body.items.map((i) => [i.menu_item_id, i.qty]));
+      const snapIds = new Set(request.items_snapshot.map((it) => it.menu_item_id));
+
+      // ── Món gọi thêm: id lạ so với snapshot → tra menu, chốt giá hiện tại ──
+      const additions = body.items.filter((i) => !snapIds.has(i.menu_item_id));
+      let addedSnapshot: typeof request.items_snapshot = [];
+      if (additions.length > 0) {
+        const menus = await mgr
+          .getRepository(MenuItem)
+          .find({ where: { id: In(additions.map((i) => i.menu_item_id)) } });
+        const menuMap = new Map(menus.map((m) => [m.id, m]));
+        const unavailable = additions.filter((i) => {
+          const m = menuMap.get(i.menu_item_id);
+          return !m || !m.is_active || m.is_out_of_stock;
+        });
+        if (unavailable.length > 0) {
+          throw new ConflictException({
+            code: 'MENU_ITEM_UNAVAILABLE',
+            message:
+              'Có món gọi thêm đã hết hàng hoặc ngừng bán — tải lại trang rồi chọn món khác.',
+          });
+        }
+        addedSnapshot = additions.map((i) => {
+          const m = menuMap.get(i.menu_item_id)!;
+          return {
+            menu_item_id: m.id,
+            code: m.code,
+            name: m.name,
+            unit_price: m.price,
+            qty: i.qty,
+            note: i.note?.trim() ? i.note.trim() : null,
+          };
+        });
+      }
+
+      // Món sẵn có giữ nguyên giá + note đã chốt lúc khách đặt, chỉ nhận qty mới; món gọi
+      // thêm nối vào CUỐI — khách mở /o/:token đối chiếu được "phần em đặt" với "phần gọi thêm".
+      const nextSnapshot = request.items_snapshot
+        .filter((it) => qtyById.has(it.menu_item_id))
+        .map((it) => ({ ...it, qty: qtyById.get(it.menu_item_id)! }))
+        .concat(addedSnapshot);
+      if (nextSnapshot.length === 0) {
+        // Schema đã `min(1)` nhưng giữ chốt chặn: mọi đường tới "đơn 0 món" đều phải bị chặn
+        // ở server, cùng lý lẽ ORDER_EMPTY_AFTER_DROP của confirm().
+        throw new ConflictException({
+          code: 'ORDER_EMPTY_AFTER_EDIT',
+          message: 'Đơn không còn món nào. Hãy dùng nút Từ chối thay vì sửa.',
+        });
+      }
+
+      request.items_snapshot = nextSnapshot;
+      request.subtotal = nextSnapshot.reduce((s, it) => s + it.unit_price * it.qty, 0);
+      await mgr.getRepository(OnlineOrderRequest).save(request);
+      return request;
+    });
+
+    // Cùng kênh SSE 'reviewed' như confirm/ship: với FE mọi event chỉ là tín hiệu "tải lại
+    // hàng chờ" (D-06) — tab của nhân viên KHÁC đang mở cùng đơn sẽ thấy bản mới.
+    this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+
+    // Re-check tồn kho như list() để FE vẽ lại được cảnh báo món hết ngay trên bản mới.
+    const menuIds = Array.from(new Set(edited.items_snapshot.map((it) => it.menu_item_id)));
+    const menus = await this.ds.getRepository(MenuItem).find({ where: { id: In(menuIds) } });
+    const menuMap = new Map(menus.map((m) => [m.id, m]));
+    return EditOnlineOrderItemsResult.strict().parse({
+      items: edited.items_snapshot.map((it) => {
+        const m = menuMap.get(it.menu_item_id);
+        return {
+          menu_item_id: it.menu_item_id,
+          code: it.code,
+          name: it.name,
+          unit_price: it.unit_price,
+          qty: it.qty,
+          note: it.note,
+          is_out_of_stock: !m || !m.is_active || m.is_out_of_stock,
+        };
+      }),
+      subtotal: edited.subtotal,
+    });
   }
 
   // ══════════════════════════════════════════════════════════════════════════════════════════
@@ -644,6 +896,22 @@ export class AdminOnlineOrdersService {
       this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
       return this.fulfillmentResult(order, request);
     });
+  }
+
+  /** Tra `request_id` từ `order_id` — cho cặp route `by-order/:orderId/ship|receive` mà DRAWER
+   * màn bàn gọi (2026-08-04): drawer chỉ cầm Order, còn 2 mốc giao sống theo request. */
+  async requestIdByOrderId(orderId: string): Promise<string> {
+    const rows: Array<{ id: string }> = await this.ds.query(
+      'SELECT id FROM online_order_requests WHERE order_id = ? LIMIT 1',
+      [orderId],
+    );
+    if (rows.length === 0) {
+      throw new NotFoundException({
+        code: 'NOT_FOUND',
+        message: 'Bàn này không phải đơn online.',
+      });
+    }
+    return rows[0].id;
   }
 
   private fulfillmentResult(order: Order, request: OnlineOrderRequest): FulfillmentResult {

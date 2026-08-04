@@ -39,6 +39,17 @@ export const C = {
 
   panelBg: '#f3f4f6',
 
+  // ── Chip phương thức nhận hàng (chỉ đạo chủ dự án 2026-08-04: 2 màu khác nhau để phân
+  // biệt nhanh Giao tận nơi / Khách tự lấy). Chọn XANH DƯƠNG + TÍM vì cả hai chưa mang nghĩa
+  // nào ở màn này — vàng đã là "đang chờ", xanh lá "đã xác nhận", đỏ "từ chối/quá hạn";
+  // mượn lại thì chip phương thức trông như trạng thái. Tương phản chữ/nền đều > 7:1 (AA).
+  deliveryBg: '#dbeafe',
+  deliveryBorder: '#bfdbfe',
+  deliveryText: '#1e40af',
+  pickupBg: '#ede9fe',
+  pickupBorder: '#ddd6fe',
+  pickupText: '#5b21b6',
+
   // ── Nền khối MÓN, tách khỏi khối KHÁCH (chỉ đạo chủ dự án 2026-08-01) ──
   itemsBg: '#e9ecef',
   itemsBorder: '#d7dbe0',
@@ -56,11 +67,14 @@ export type Tone = {
   edge: string;
 };
 
-/** 4 trạng thái đơn online. `CANCELLED_BY_CUSTOMER` không có tab riêng (khách tự huỷ thì đơn
+/** Các trạng thái đơn online. `CANCELLED_BY_CUSTOMER` không có tab riêng (khách tự huỷ thì đơn
  * rời hàng chờ) nhưng `AdminOnlineOrderRow.status` khai nó, nên phải có tone kèm — thiếu là
- * `STATUS_TONE[row.status]` trả `undefined` và card vỡ. */
+ * `STATUS_TONE[row.status]` trả `undefined` và card vỡ.
+ * `COMPLETED` là góc nhìn (CONFIRMED + đã thu tiền), không phải giá trị `row.status` — card
+ * tự đổi sang tone này khi `paid_at_ms` có. Màu teal: kênh riêng, không lẫn xanh lá "đã xác
+ * nhận" đứng cạnh nó trên hàng tab. */
 export const STATUS_TONE: Record<
-  'WAITING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED_BY_CUSTOMER',
+  'WAITING' | 'CONFIRMED' | 'REJECTED' | 'CANCELLED_BY_CUSTOMER' | 'COMPLETED',
   Tone
 > = {
   WAITING: {
@@ -94,6 +108,14 @@ export const STATUS_TONE: Record<
     border: C.border,
     text: C.mutedOnTint,
     edge: C.muted,
+  },
+  COMPLETED: {
+    label: 'Thành công',
+    icon: '💰',
+    bg: C.accentSoft,
+    border: '#99f6e4',
+    text: '#115e59',
+    edge: C.accent,
   },
 };
 

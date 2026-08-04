@@ -35,8 +35,18 @@ export function CartPage(): JSX.Element {
     <div style={isEmpty ? { ...page, ...pageEmpty } : page}>
       <Stepper current={1} />
 
+      {/* eslint-disable-next-line react/no-unknown-property */}
+      <style>{HEADING_CSS}</style>
       <div style={headerRow}>
-        <h1 style={heading}>GIỎ HÀNG CỦA BẠN ({count} món)</h1>
+        {/* Số món tách thành chip riêng (2026-08-04): để trong ngoặc ngay trong <h1> thì
+            trên màn 390px tiêu đề gãy dòng giữa "(0" và "món)" — chip nowrap thì hoặc nằm
+            cạnh tiêu đề, hoặc xuống dòng NGUYÊN CỤM, không bao giờ gãy giữa chừng. */}
+        <div style={headingGroup}>
+          <h1 style={heading} className="shop-cart-heading">
+            GIỎ HÀNG CỦA BẠN
+          </h1>
+          <span style={countChip}>{count} món</span>
+        </div>
         <Link to="/" data-testid="cart-back-link" style={addMoreLink}>
           + THÊM MÓN
         </Link>
@@ -206,7 +216,9 @@ const page: CSSProperties = {
   maxWidth: 'var(--content-max)',
   margin: '0 auto',
   padding: `var(--sp-4) var(--gutter)`,
-  paddingBottom: 'calc(var(--sticky-cta-h) + var(--safe-bottom) + var(--sp-4))',
+  // 0 chứ không phải sp-4: StickyCta giờ sticky TRONG luồng (không còn fixed đè footer),
+  // là phần tử cuối trang — khoảng cách với footer do marginTop của chính Footer lo.
+  paddingBottom: 0,
 };
 
 const pageEmpty: CSSProperties = {
@@ -221,12 +233,44 @@ const headerRow: CSSProperties = {
   marginBottom: 'var(--sp-4)',
 };
 
+// Tiêu đề + chip đếm món: flexWrap để trên màn cực hẹp chip rơi xuống dòng dưới
+// nguyên cụm, thay vì ép tiêu đề co chữ.
+const headingGroup: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 'var(--sp-2)',
+  minWidth: 0,
+};
+
+// Cỡ chữ tiêu đề CHỈ khai trong class (không inline) để @media thắng được:
+// mobile 16px cho cả cụm "tiêu đề + chip + THÊM MÓN" nằm gọn 1 dòng trên màn 390px
+// (chỉ đạo 2026-08-04), desktop trả lại fs-lg.
+const HEADING_CSS = `
+.shop-cart-heading { font-size: var(--fs-base); }
+@media (min-width: 768px) {
+  .shop-cart-heading { font-size: var(--fs-lg); }
+}
+`;
+
 const heading: CSSProperties = {
   margin: 0,
   fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-lg)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
   color: 'var(--text-strong)',
+  whiteSpace: 'nowrap',
+};
+
+const countChip: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: 'var(--sp-1) var(--sp-2)',
+  borderRadius: 'var(--r-badge)',
+  background: 'var(--brand-100)',
+  color: 'var(--brand-700)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  whiteSpace: 'nowrap',
 };
 
 const addMoreLink: CSSProperties = {
@@ -294,7 +338,9 @@ const rowBody: CSSProperties = {
 
 const rowTop: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
+  // flex-start (không phải center): tên món nay được xuống dòng, chip "Hết hàng" phải neo
+  // theo DÒNG ĐẦU của tên chứ không trôi lơ lửng giữa khối 2-3 dòng.
+  alignItems: 'flex-start',
   gap: 'var(--sp-2)',
 };
 
@@ -302,9 +348,12 @@ const rowName: CSSProperties = {
   fontSize: 'var(--fs-base)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   color: 'var(--text-strong)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  // KHÔNG cắt 1 dòng + ellipsis (Task.md, chốt 2026-08-04): giỏ hàng là chỗ khách KIỂM TRA
+  // LẠI trước khi đặt — "Bún chả cá thác lác đặc b…" thì không kiểm tra được gì. Trên mobile
+  // cột tên bị bóp giữa ảnh 56px và cụm nút số lượng nên tên dài gần như luôn bị cắt. Cho
+  // xuống dòng trọn vẹn; tên món tối đa 128 ký tự nên xấu nhất ~3 dòng, không cần line-clamp.
+  overflowWrap: 'anywhere',
+  lineHeight: 1.35,
 };
 
 const outOfStockChip: CSSProperties = {

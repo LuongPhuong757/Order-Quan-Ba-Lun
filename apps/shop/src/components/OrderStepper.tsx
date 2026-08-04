@@ -45,14 +45,47 @@ const STAGE_LABELS: Record<Exclude<OrderStage, 'REJECTED'>, string> = {
   COMPLETED: 'Đã nhận hàng',
 };
 
+/** Animation "đơn đang chạy" (chỉ đạo 2026-08-04 — stepper đứng im trông như đơn bị kẹt):
+ * - Node hiện tại: pulse + vòng ring lan toả (ping) màu theo trạng thái node.
+ * - Đoạn nối DẪN VÀO node hiện tại: sọc xanh chảy về phía trước — "đang load dần".
+ * Đơn COMPLETED thì tắt hết (không còn gì đang chạy). Máy bật reduced-motion: đứng yên,
+ * đoạn nối active về màu xanh đặc. Thuần CSS, không thêm lib (ngưỡng bundle M2.D-64). */
 const PULSE_CSS = `
 @keyframes oqbl-step-pulse {
   0%, 100% { transform: scale(1); }
   50%      { transform: scale(1.18); }
 }
-.oqbl-step-current { animation: oqbl-step-pulse 1.8s var(--ease-in-out) infinite; }
+@keyframes oqbl-step-ping {
+  from { transform: scale(1); opacity: 0.6; }
+  to   { transform: scale(2.2); opacity: 0; }
+}
+@keyframes oqbl-conn-flow {
+  to { background-position: 24px 0; }
+}
+.oqbl-step-current {
+  position: relative;
+  animation: oqbl-step-pulse 1.8s var(--ease-in-out) infinite;
+}
+.oqbl-step-current::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  border: 2px solid var(--step-accent, var(--ok-600));
+  animation: oqbl-step-ping 1.8s ease-out infinite;
+}
+.oqbl-conn-current {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--ok-600) 0 10px,
+    var(--border-default) 10px 16px
+  );
+  animation: oqbl-conn-flow 0.9s linear infinite;
+}
 @media (prefers-reduced-motion: reduce) {
   .oqbl-step-current { animation: none; }
+  .oqbl-step-current::after { animation: none; opacity: 0; }
+  .oqbl-conn-current { animation: none; background: var(--ok-600); }
 }
 `;
 
@@ -76,6 +109,8 @@ export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | n
   // `stage` không có trong mảng (vd đơn PICKUP mà BE trả DELIVERING do dữ liệu cũ) → coi như mốc 1
   // thay vì -1, để không có node nào bị đánh dấu "đã qua" một cách sai lệch.
   const currentIndex = Math.max(0, stages.indexOf(stage));
+  // Đơn đã đi hết đường thì stepper ĐỨNG YÊN — animation "đang chạy" trên đơn xong là nói dối.
+  const finished = stage === 'COMPLETED';
 
   return (
     <div style={wrap}>
@@ -87,30 +122,42 @@ export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | n
           // Mốc 1 (`RECEIVED`) là "đã nhận, CHƯA duyệt" — dùng warn để khách thấy còn phải chờ
           // quán. Từ `CONFIRMED` trở đi mới là ok (xanh).
           const currentIsPending = current && s === 'RECEIVED';
+          // Đoạn nối DẪN VÀO node hiện tại mang animation sọc chảy (trừ khi đã xong).
+          const connCurrent = current && !finished;
           return (
             // `aria-label` + `aria-current` đặt trên `<li>`, KHÔNG trên span bên trong: `<li>` đã
             // là listitem sẵn, thêm role="listitem" cho span là lồng 2 listitem, trình đọc màn
             // hình sẽ đọc mỗi mốc 2 lần.
             <li
               key={s}
-              style={item}
+              // Item ĐẦU không có đoạn nối, để nó `flex: 1` như các item sau là sinh một khoảng
+              // trắng chết ngay sau chấm đầu tiên (bug 2026-08-04) — nó chỉ rộng đúng bằng chấm.
+              style={idx === 0 ? itemFirst : item}
               aria-label={STAGE_LABELS[s]}
               {...(current ? { 'aria-current': 'step' as const } : {})}
             >
               {idx > 0 && (
                 <span
                   aria-hidden="true"
+                  className={connCurrent ? 'oqbl-conn-current' : undefined}
                   style={{
                     ...connector,
-                    background: done || current ? 'var(--ok-600)' : 'var(--border-default)',
+                    // Đoạn nối active lấy nền từ CLASS (gradient chạy) — set inline là đè mất.
+                    ...(connCurrent
+                      ? {}
+                      : { background: done || current ? 'var(--ok-600)' : 'var(--border-default)' }),
                   }}
                 />
               )}
               <span
                 aria-hidden="true"
-                className={current ? 'oqbl-step-current' : undefined}
+                className={current && !finished ? 'oqbl-step-current' : undefined}
                 style={{
                   ...node,
+                  // Màu cho vòng ring ::after của node hiện tại — theo đúng màu node.
+                  ['--step-accent' as string]: currentIsPending
+                    ? 'var(--warn-600)'
+                    : 'var(--ok-600)',
                   width: done || current ? 20 : 14,
                   height: done || current ? 20 : 14,
                   background: done
@@ -174,6 +221,12 @@ const item: CSSProperties = {
   // chiều ngang còn lại, không phụ thuộc bề rộng màn.
   flex: '1 1 0',
   minWidth: 0,
+};
+
+/** Item ĐẦU: chỉ rộng bằng đúng cái chấm — không chia phần chiều ngang (xem comment trong JSX). */
+const itemFirst: CSSProperties = {
+  ...item,
+  flex: '0 0 auto',
 };
 
 const connector: CSSProperties = {

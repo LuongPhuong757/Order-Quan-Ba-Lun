@@ -30,6 +30,9 @@ export type MenuItemLookup = {
   unit: string;
   is_active: boolean;
   is_out_of_stock: boolean;
+  /** Món quán không bán online (2026-08-04) — trang khách không thấy, nhưng khách có thể
+   * còn giữ món trong giỏ (localStorage) từ trước khi ẩn → submit vẫn phải chặn. */
+  is_online_hidden: boolean;
 };
 
 export type OnlineOrderRequestInsert = {
@@ -144,7 +147,7 @@ export async function submitOrder(
   const unavailableItemCodes: string[] = [];
   for (const it of input.items) {
     const m = menuById.get(it.menu_item_id);
-    if (!m || !m.is_active || m.is_out_of_stock) {
+    if (!m || !m.is_active || m.is_out_of_stock || m.is_online_hidden) {
       unavailableItemCodes.push(m?.code ?? it.menu_item_id);
     }
   }

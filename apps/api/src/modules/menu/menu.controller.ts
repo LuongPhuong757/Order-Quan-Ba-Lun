@@ -56,6 +56,8 @@ class UpdateMenuItemDto {
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
   @IsOptional() @IsBoolean() is_out_of_stock?: boolean;
   @IsOptional() @IsBoolean() is_active?: boolean;
+  // Tab "Món online" của màn Đơn hàng online (2026-08-04) toggle cờ này qua PATCH.
+  @IsOptional() @IsBoolean() is_online_hidden?: boolean;
 }
 
 class BulkImportRowDto {

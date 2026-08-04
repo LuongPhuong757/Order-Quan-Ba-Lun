@@ -9,6 +9,7 @@ import { CartPage } from './pages/CartPage.tsx';
 import { CheckoutPage } from './pages/CheckoutPage.tsx';
 import { OrderTrackPage } from './pages/OrderTrackPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
+import { TopDishesPage } from './pages/TopDishesPage.tsx';
 
 // Router thật của apps/shop (REQ-I..K, phase 08). 5 route + catch-all render
 // lại MenuPage (khách gõ sai URL thì về menu, không thấy trang trắng).
@@ -28,6 +29,7 @@ createRoot(root).render(
           <Route path="/checkout" element={<CheckoutPage />} />
           <Route path="/o/:token" element={<OrderTrackPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/top" element={<TopDishesPage />} />
           <Route path="*" element={<MenuPage />} />
         </Route>
       </Routes>

@@ -24,6 +24,14 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // luôn mở (xem isWithinOpenHours() trong store-status.ts). Không phải "đóng cửa cả tuần".
   { key: 'open_hours', kind: 'json', default: [] },
   { key: 'store_phone', kind: 'string', default: '' },
+  // ── Footer trang khách (2026-08-04) — địa chỉ + 2 kênh liên hệ ──
+  // Rỗng = footer ẨN HẲN dòng/nút tương ứng (không hiện link chết) — xem Footer.tsx apps/shop.
+  // Chủ quán sửa ở /admin (khối "Thông tin quán"), ăn ngay không cần build lại (tiền lệ D-14).
+  { key: 'store_address', kind: 'string', default: '' },
+  { key: 'store_facebook_url', kind: 'string', default: '' },
+  { key: 'store_instagram_url', kind: 'string', default: '' },
+  // Số điện thoại Zalo HOẶC link đầy đủ (zalo.me / Zalo OA) — FE tự nhận dạng dạng nào.
+  { key: 'store_zalo', kind: 'string', default: '' },
   // null = chưa cấu hình toạ độ quán → chưa tính được distance_km (Haversine cần gốc thật).
   { key: 'store_lat', kind: 'json', default: null },
   { key: 'store_lng', kind: 'json', default: null },
@@ -52,6 +60,15 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   { key: 'eta_pickup_max', kind: 'int', default: 25 },
   { key: 'eta_delivery_min', kind: 'int', default: 30 },
   { key: 'eta_delivery_max', kind: 'int', default: 45 },
+  // ── Bảng xếp hạng "Top món" trên trang khách (chỉ đạo 2026-08-04) ──
+  // Số hiển thị là SUM suất SERVED THẬT của đơn đã thanh toán (POS + online) —
+  // KHÔNG có setting "số cộng thêm": DESIGN.md apps/shop cấm số liệu bán hàng bịa.
+  { key: 'top_dishes_enabled', kind: 'bool', default: true },
+  { key: 'top_dishes_limit', kind: 'int', default: 10 },
+  // 'all' | '30d' | '7d' | 'today' — khoảng thời gian cộng dồn số suất.
+  { key: 'top_dishes_window', kind: 'string', default: 'all' },
+  // Danh sách menu_item_id chủ quán không muốn lộ trên bảng xếp hạng.
+  { key: 'top_dishes_hidden_ids', kind: 'json', default: [] },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -63,6 +80,10 @@ export type StoreSettingsMap = {
   online_ordering_off_until_ms: number | null;
   open_hours: Array<{ dow: 0 | 1 | 2 | 3 | 4 | 5 | 6; from: string; to: string }>;
   store_phone: string;
+  store_address: string;
+  store_facebook_url: string;
+  store_instagram_url: string;
+  store_zalo: string;
   store_lat: number | null;
   store_lng: number | null;
   free_ship_km: number;
@@ -78,6 +99,10 @@ export type StoreSettingsMap = {
   eta_pickup_max: number;
   eta_delivery_min: number;
   eta_delivery_max: number;
+  top_dishes_enabled: boolean;
+  top_dishes_limit: number;
+  top_dishes_window: string;
+  top_dishes_hidden_ids: string[];
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

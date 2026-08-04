@@ -23,6 +23,13 @@ export const PublicStoreStatus = z.object({
   ordering_enabled: z.boolean(),
   off_reason: z.string(),
   store_phone: z.string(),
+  // ── Footer trang khách (2026-08-04) — địa chỉ + Facebook + Zalo ──
+  // Rỗng = chủ quán chưa điền → footer ẩn dòng/nút đó (không hiện link chết).
+  // `store_zalo` là SĐT hoặc link zalo.me/Zalo OA — FE tự nhận dạng (xem shop-contact.ts).
+  store_address: z.string(),
+  store_facebook_url: z.string(),
+  store_instagram_url: z.string(),
+  store_zalo: z.string(),
   open_hours: z.array(OpenHourRule),
   is_open_now: z.boolean(),
   blocking_reason: z.enum(['MANUAL_OFF', 'OUTSIDE_HOURS']).nullable(),

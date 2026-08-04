@@ -39,16 +39,24 @@ export class PublicMenuController {
         where: { is_active: true },
         order: { sort_order: 'ASC', name: 'ASC' },
       }),
+      // `is_online_hidden` (2026-08-04): món chủ quán không bán online bị LOẠI HẲN khỏi
+      // response — khác món hết hàng (vẫn trả, FE làm mờ). Khách không thấy thì không đặt
+      // được; lớp chặn thứ hai nằm ở submit-order (MENU_ITEM_UNAVAILABLE).
       this.itemRepo.find({
-        where: { is_active: true },
+        where: { is_active: true, is_online_hidden: false },
         order: { name: 'ASC' },
       }),
     ]);
 
     const itemsByGroupCode = new Map<string, MenuItem[]>();
     const activeGroupCodes = new Set(groups.map((g) => g.code));
+    // Nhóm bị ẩn khỏi web online (2026-08-04): loại CẢ nhóm LẪN món của nó. Món trong nhóm
+    // ẩn TUYỆT ĐỐI không được rơi vào nhánh orphan bên dưới — nếu rơi, chúng hồi sinh trong
+    // nhóm tổng hợp "Khác" và việc ẩn nhóm thành vô nghĩa.
+    const hiddenGroupCodes = new Set(groups.filter((g) => g.is_online_hidden).map((g) => g.code));
     const orphanItems: MenuItem[] = [];
     for (const item of items) {
+      if (hiddenGroupCodes.has(item.group)) continue;
       if (!activeGroupCodes.has(item.group)) {
         orphanItems.push(item);
         continue;
@@ -60,6 +68,7 @@ export class PublicMenuController {
 
     const result: PublicMenuGroup[] = [];
     for (const group of groups) {
+      if (group.is_online_hidden) continue;
       const groupItems = itemsByGroupCode.get(group.code) ?? [];
       // Nhóm rỗng bị bỏ — tránh dải danh mục có tile chết (không có món nào để bấm vào).
       if (groupItems.length === 0) continue;

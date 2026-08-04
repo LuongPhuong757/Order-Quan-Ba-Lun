@@ -36,6 +36,14 @@ export class MenuItem {
   @Column({ type: 'boolean', default: false })
   is_out_of_stock!: boolean;
 
+  // Ẩn khỏi WEB ĐẶT HÀNG ONLINE (2026-08-04) — khác 2 cờ kia:
+  // - is_active=false: xoá mềm, biến mất MỌI NƠI (cả POS).
+  // - is_out_of_stock=true: hết hàng tạm, trang khách VẪN THẤY (làm mờ), POS vẫn thấy.
+  // - is_online_hidden=true: POS bán bình thường, nhưng trang khách KHÔNG THẤY và
+  //   submit đơn online có món này bị chặn (tránh khách đặt món quán không bán online).
+  @Column({ type: 'boolean', default: false })
+  is_online_hidden!: boolean;
+
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 

@@ -26,6 +26,8 @@ class UpdateGroupDto {
   @IsOptional() @IsIn(['cook', 'ready-made']) kitchen_type?: string;
   @IsOptional() @IsInt() sort_order?: number;
   @IsOptional() @IsBoolean() is_active?: boolean;
+  // Tab "Món online" (2026-08-04): ẩn cả nhóm khỏi web khách — phủ lên mọi món trong nhóm.
+  @IsOptional() @IsBoolean() is_online_hidden?: boolean;
 }
 
 @Controller('menu-groups')

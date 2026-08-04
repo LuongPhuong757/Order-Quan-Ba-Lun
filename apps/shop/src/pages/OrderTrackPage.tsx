@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CSSProperties, JSX } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { PublicOrderCancelResult, PublicOrderStatus, PublicStoreStatus } from '@order/schemas';
-import { deleteJson, useApi } from '../lib/use-api.ts';
+import { PublicOrderStatus, PublicStoreStatus } from '@order/schemas';
+import { useApi } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
 import { OrderStepper } from '../components/OrderStepper.tsx';
 import { detectOrderUpdate } from '../lib/order-update.ts';
 
@@ -90,29 +91,10 @@ export function OrderTrackPage(): JSX.Element {
   // (grep dễ kiểm, dùng lại kỹ thuật BannerNotice.tsx áp cho role="alert"/"status").
   const isTokenNotFound = error?.code === 'ORDER_TOKEN_NOT_FOUND';
   const showError = error !== null && shown === null;
-  const [editHelpOpen, setEditHelpOpen] = useState(false);
 
-  // ── Khách tự huỷ đơn còn WAITING (M2.D-44 nửa huỷ) ──
-  const [confirmingCancel, setConfirmingCancel] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
-  const [cancelError, setCancelError] = useState<string | null>(null);
-
-  async function onCancelOrder(): Promise<void> {
-    if (!token || cancelling) return;
-    setCancelling(true);
-    setCancelError(null);
-    const res = await deleteJson(`/api/public/orders/${token}`, PublicOrderCancelResult);
-    setCancelling(false);
-    if ('error' in res) {
-      // Quán vừa xác nhận trước một nhịp là tình huống BÌNH THƯỜNG, không phải lỗi của khách —
-      // hiện đúng câu BE soạn (có sẵn SĐT quán) rồi tải lại để trang chuyển sang trạng thái mới.
-      setCancelError(res.error.message);
-      reload();
-      return;
-    }
-    setConfirmingCancel(false);
-    reload();
-  }
+  // ⚠ 2026-08-04, chỉ đạo chủ dự án: BỎ nút "Huỷ đơn" (khách tự huỷ, M2.D-44) lẫn "Muốn sửa
+  // đơn?"/"Gọi quán" khỏi màn này — thay bằng MỘT dòng thông tin "muốn sửa/huỷ thì gọi quán".
+  // Mọi thay đổi đơn đều qua người thật; endpoint DELETE tự-huỷ phía BE vẫn còn, chỉ UI bỏ.
 
   return (
     <div style={page}>
@@ -194,12 +176,26 @@ export function OrderTrackPage(): JSX.Element {
             </div>
           )}
 
+          {/* 2026-08-04: dòng món có ảnh giống giỏ hàng (CartPage) cho hấp dẫn hơn. Tên món
+              được WRAP thay vì cắt "…" — thêm ảnh làm hẹp bề ngang, cắt chữ nữa là vỡ layout. */}
           <ul style={itemList}>
             {shown.items.map((item, idx) => (
               <li key={idx} style={itemRow}>
-                <span style={itemName}>
-                  {item.name} × {item.qty}
-                </span>
+                <div style={thumbWrap}>
+                  {item.image ? (
+                    <img src={item.image} alt={item.name} style={thumbImg} />
+                  ) : (
+                    <div style={thumbPlaceholder}>
+                      <ImagePlaceholder name={item.name} />
+                    </div>
+                  )}
+                </div>
+                <div style={itemBody}>
+                  <span style={itemName}>{item.name}</span>
+                  <span style={itemQtyLine}>
+                    {item.qty} × {formatVnd(item.unit_price)}
+                  </span>
+                </div>
                 <span style={itemPrice}>{formatVnd(item.unit_price * item.qty)}</span>
               </li>
             ))}
@@ -209,40 +205,6 @@ export function OrderTrackPage(): JSX.Element {
             <span style={totalValue}>{formatVnd(shown.subtotal)}</span>
           </div>
 
-          {/* M2.D-44 (nửa huỷ) — đơn CHƯA duyệt thì khách tự huỷ được, không phải gọi điện xin.
-              Sau khi `CONFIRMED` nút này BIẾN MẤT hoàn toàn (không phải disable) — khớp
-              M2.D-45/46: lúc đó chỉ còn SĐT + nút gọi. Hộp xác nhận 2 nút là bắt buộc vì bấm
-              nhầm ở đây là mất đơn thật, không hoàn tác được. */}
-          {shown.status === 'WAITING' && (
-            <div style={cancelBlock}>
-              {cancelError !== null && <BannerNotice tone="warn" title={cancelError} />}
-              {!confirmingCancel ? (
-                <button type="button" style={dangerTextButton} onClick={() => setConfirmingCancel(true)}>
-                  Huỷ đơn
-                </button>
-              ) : (
-                <div style={confirmRow} role="group" aria-label="Xác nhận huỷ đơn">
-                  <span style={confirmQuestion}>Huỷ đơn này?</span>
-                  <button
-                    type="button"
-                    style={textButton}
-                    disabled={cancelling}
-                    onClick={() => setConfirmingCancel(false)}
-                  >
-                    Không huỷ nữa
-                  </button>
-                  <button
-                    type="button"
-                    style={dangerSolidButton}
-                    disabled={cancelling}
-                    onClick={() => void onCancelOrder()}
-                  >
-                    {cancelling ? 'Đang huỷ…' : 'Huỷ đơn'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
           {shown.status === 'CANCELLED_BY_CUSTOMER' && (
             <Link to="/" style={ctaButton}>
@@ -250,27 +212,15 @@ export function OrderTrackPage(): JSX.Element {
             </Link>
           )}
 
-          {/* M2.D-45/D-46 — sau khi quán đã xác nhận, khách KHÔNG tự sửa đơn được nữa. Không có ô
-              nhập nào ở đây là cố ý: đơn đã vào bếp, mọi thay đổi phải qua người thật. Nút gọi
-              1 chạm nằm ngay bên dưới. Đơn còn WAITING thì không hiện khối này — đó là trường
-              hợp M2.D-44 (khách tự huỷ), xử lý riêng. */}
-          {shown.status === 'CONFIRMED' && (
-            <div style={editHelpBlock}>
-              <button
-                type="button"
-                style={textButton}
-                aria-expanded={editHelpOpen}
-                onClick={() => setEditHelpOpen((open) => !open)}
-              >
-                Muốn sửa đơn?
-              </button>
-              {editHelpOpen && <p style={editHelpText}>Đơn đã vào bếp, vui lòng gọi quán để đổi.</p>}
-            </div>
-          )}
-
-          <a href={`tel:${shown.store_phone.replace(/[^0-9+]/g, '')}`} style={ctaButton}>
-            Gọi quán: {shown.store_phone}
-          </a>
+          {/* MỘT dòng thông tin thay cho cụm nút Huỷ/Sửa/Gọi (chỉ đạo 2026-08-04) — muốn sửa
+              hay huỷ đơn đều qua người thật: SĐT vẫn bấm gọi được (link tel), nhưng là chữ
+              trong câu, không phải nút. */}
+          <p style={contactHelpText}>
+            Nếu muốn sửa đơn, vui lòng gọi quán:{' '}
+            <a href={`tel:${shown.store_phone.replace(/[^0-9+]/g, '')}`} style={contactPhoneLink}>
+              {shown.store_phone}
+            </a>
+          </p>
         </>
       )}
 
@@ -412,16 +362,55 @@ const itemList: CSSProperties = {
 
 const itemRow: CSSProperties = {
   display: 'flex',
-  justifyContent: 'space-between',
+  alignItems: 'center',
   gap: 'var(--sp-3)',
   fontSize: 'var(--fs-base)',
   color: 'var(--text-strong)',
 };
 
-const itemName: CSSProperties = {
+// Ảnh 56px vuông — cùng cỡ với thumbnail giỏ hàng (CartPage) để 2 màn nhìn đồng bộ.
+const thumbWrap: CSSProperties = {
+  width: '56px',
+  height: '56px',
+  flexShrink: 0,
+  borderRadius: 'var(--r-card)',
   overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  background: 'var(--wood-100)',
+};
+
+const thumbImg: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+};
+
+const thumbPlaceholder: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+};
+
+// minWidth 0 để phần chữ được PHÉP co lại trong flex row — thiếu nó thì tên món dài đẩy
+// cột giá tràn ra ngoài card (đúng kiểu "vỡ giao diện" cần tránh).
+const itemBody: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-1)',
+};
+
+const itemName: CSSProperties = {
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  overflowWrap: 'anywhere',
+};
+
+const itemQtyLine: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
 };
 
 const itemPrice: CSSProperties = {
@@ -448,13 +437,6 @@ const totalValue: CSSProperties = {
   color: 'var(--text-strong)',
 };
 
-const editHelpBlock: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 'var(--sp-1)',
-};
-
 const textButton: CSSProperties = {
   minHeight: 'var(--tap-min)',
   padding: '0 var(--sp-3)',
@@ -468,63 +450,25 @@ const textButton: CSSProperties = {
   cursor: 'pointer',
 };
 
-const cancelBlock: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  alignItems: 'center',
-  gap: 'var(--sp-2)',
-};
-
-const confirmRow: CSSProperties = {
-  display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 'var(--sp-2)',
-};
-
-const confirmQuestion: CSSProperties = {
-  fontSize: 'var(--fs-base)',
-  fontWeight: 'var(--fw-bold)' as unknown as number,
-  color: 'var(--text-strong)',
-};
-
 // Nút mở hộp xác nhận: chữ, không phải nút đặc — huỷ đơn không phải hành động chính của trang
 // này, để nó nổi ngang nút "Gọi quán" là mời khách bấm nhầm.
-const dangerTextButton: CSSProperties = {
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-3)',
-  border: 'none',
-  background: 'transparent',
-  color: 'var(--danger-600)',
-  fontFamily: 'var(--font-body)',
+/** Dòng thông tin liên hệ thay cho cụm nút Huỷ/Sửa/Gọi (2026-08-04). */
+const contactHelpText: CSSProperties = {
+  margin: 0,
   fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-muted)',
+  textAlign: 'center',
+  lineHeight: 1.6,
+};
+
+const contactPhoneLink: CSSProperties = {
+  color: 'var(--brand-600)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
   textDecoration: 'underline',
-  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 };
 
 // Chỉ nút xác nhận CUỐI CÙNG mới đặc màu danger — đây là bước không hoàn tác được.
-const dangerSolidButton: CSSProperties = {
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-4)',
-  border: 'none',
-  borderRadius: 'var(--r-button)',
-  background: 'var(--danger-600)',
-  color: 'var(--text-on-brand)',
-  fontFamily: 'var(--font-body)',
-  fontSize: 'var(--fs-base)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  cursor: 'pointer',
-};
-
-const editHelpText: CSSProperties = {
-  margin: 0,
-  textAlign: 'center',
-  fontSize: 'var(--fs-sm)',
-  color: 'var(--text-muted)',
-};
-
 // Dùng chung cho cả nút gọi quán và nút "Về menu" khi token sai — cùng 1 kiểu
 // nút hành động chính, tránh khai 2 object CSS trùng nhau.
 const ctaButton: CSSProperties = {

@@ -4,6 +4,7 @@ import { PublicController } from './public.controller.js';
 import { PublicStoreController } from './public-store.controller.js';
 import { PublicMenuController } from './public-menu.controller.js';
 import { PublicOrdersController } from './public-orders.controller.js';
+import { PublicTopDishesController } from './public-top-dishes.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
@@ -46,7 +47,14 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     SettingsModule,
     NotificationsModule,
   ],
-  controllers: [PublicController, PublicStoreController, PublicMenuController, PublicOrdersController],
+  controllers: [
+    PublicController,
+    PublicStoreController,
+    PublicMenuController,
+    PublicOrdersController,
+    // GET /api/public/top-dishes (2026-08-04) — bảng xếp hạng món, số suất SERVED thật.
+    PublicTopDishesController,
+  ],
   providers: [PublicOrdersService],
 })
 export class PublicModule {}

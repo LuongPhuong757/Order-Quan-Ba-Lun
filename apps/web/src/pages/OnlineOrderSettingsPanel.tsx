@@ -29,6 +29,7 @@ import { useEffect, useState, FormEvent, ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { C, isDirty } from '../lib/online-ui.ts';
+import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 
@@ -50,6 +51,11 @@ type StoreSettingsMap = {
   closed_submit_confirm_text: string;
   open_hours: Array<{ dow: OpenHoursDow; from: string; to: string }>;
   store_phone: string;
+  // Footer trang khách — rỗng = khách không thấy dòng/nút tương ứng.
+  store_address: string;
+  store_facebook_url: string;
+  store_instagram_url: string;
+  store_zalo: string;
   store_lat: number | null;
   store_lng: number | null;
   free_ship_km: number;
@@ -60,6 +66,12 @@ type StoreSettingsMap = {
   eta_pickup_max: number;
   eta_delivery_min: number;
   eta_delivery_max: number;
+  // Bảng xếp hạng "Top món" trên trang khách (2026-08-04). Số hiển thị luôn là số bán
+  // THẬT — 4 key này chỉ chỉnh cách trình bày (bật/tắt, bao nhiêu món, đếm từ bao giờ, ẩn món).
+  top_dishes_enabled: boolean;
+  top_dishes_limit: number;
+  top_dishes_window: string;
+  top_dishes_hidden_ids: string[];
 };
 
 type OrderingStatus = {
@@ -92,7 +104,9 @@ export function OnlineOrderSettingsPanel() {
   const [data, setData] = useState<SettingsResponse | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const tab = (params.get('tab') === 'blacklist' ? 'blacklist' : 'ordering') as 'ordering' | 'blacklist';
+  const rawTab = params.get('tab');
+  const tab: 'ordering' | 'blacklist' | 'top-dishes' =
+    rawTab === 'blacklist' || rawTab === 'top-dishes' ? rawTab : 'ordering';
   const q = params.get('q') || '';
   const page = Number(params.get('page')) || 1;
 
@@ -133,6 +147,9 @@ export function OnlineOrderSettingsPanel() {
         <TabButton active={tab === 'blacklist'} onClick={() => updateParam('tab', 'blacklist')}>
           Số điện thoại bị chặn
         </TabButton>
+        <TabButton active={tab === 'top-dishes'} onClick={() => updateParam('tab', 'top-dishes')}>
+          Top món bán chạy
+        </TabButton>
       </div>
 
       {loading && <p style={{ color: C.muted }}>Đang tải...</p>}
@@ -146,6 +163,7 @@ export function OnlineOrderSettingsPanel() {
       {!loading && data && tab === 'blacklist' && (
         <BlacklistTab q={q} page={page} onUpdateParam={updateParam} />
       )}
+      {!loading && data && tab === 'top-dishes' && <TopDishesTab data={data} onRefresh={refresh} />}
     </div>
   );
 }
@@ -280,6 +298,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
 
   // Thông tin quán
   const [phone, setPhone] = useState(settings.store_phone);
+  const [address, setAddress] = useState(settings.store_address);
+  const [facebookUrl, setFacebookUrl] = useState(settings.store_facebook_url);
+  const [instagramUrl, setInstagramUrl] = useState(settings.store_instagram_url);
+  const [zalo, setZalo] = useState(settings.store_zalo);
   const [lat, setLat] = useState<number | ''>(settings.store_lat ?? '');
   const [lng, setLng] = useState<number | ''>(settings.store_lng ?? '');
   const [savingStore, setSavingStore] = useState(false);
@@ -301,6 +323,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setFreeShipKm(settings.free_ship_km);
     setDistanceFactor(settings.distance_factor);
     setPhone(settings.store_phone);
+    setAddress(settings.store_address);
+    setFacebookUrl(settings.store_facebook_url);
+    setInstagramUrl(settings.store_instagram_url);
+    setZalo(settings.store_zalo);
     setLat(settings.store_lat ?? '');
     setLng(settings.store_lng ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -341,8 +367,16 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     },
   );
   const storeDirty = isDirty(
-    { phone, lat, lng },
-    { phone: settings.store_phone, lat: settings.store_lat ?? '', lng: settings.store_lng ?? '' },
+    { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
+    {
+      phone: settings.store_phone,
+      address: settings.store_address,
+      facebookUrl: settings.store_facebook_url,
+      instagramUrl: settings.store_instagram_url,
+      zalo: settings.store_zalo,
+      lat: settings.store_lat ?? '',
+      lng: settings.store_lng ?? '',
+    },
   );
 
   // ── Dải trạng thái ──
@@ -490,6 +524,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     try {
       await api.put('/admin/settings', {
         store_phone: phone,
+        store_address: address,
+        store_facebook_url: facebookUrl,
+        store_instagram_url: instagramUrl,
+        store_zalo: zalo,
         ...(lat !== '' ? { store_lat: lat } : {}),
         ...(lng !== '' ? { store_lng: lng } : {}),
       });
@@ -824,7 +862,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       {/* ══ 5. Thông tin quán ══ */}
       <Section
         title="Thông tin quán"
-        hint="Toạ độ dùng để tính khoảng cách tới khách; thiếu toạ độ thì trang khách không hiện được số km."
+        hint="Địa chỉ, Facebook, Zalo hiện ở chân trang khách — ô nào để trống thì khách không thấy dòng đó. Toạ độ dùng để tính khoảng cách tới khách; thiếu toạ độ thì trang khách không hiện được số km."
         dirty={storeDirty}
         saving={savingStore}
         saveLabel="Lưu thông tin quán"
@@ -855,9 +893,262 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               />
             </div>
           </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label htmlFor="s-address">Địa chỉ quán</label>
+            <input
+              id="s-address"
+              type="text"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              maxLength={255}
+              placeholder="Ví dụ: 123 Nguyễn Trãi, TP. Bắc Ninh — hoặc dán link Google Maps"
+            />
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Hiện ở chân trang khách — khách bấm là mở Google Maps. Gõ địa chỉ chữ, hoặc dán link
+              chia sẻ Google Maps (maps.app.goo.gl/...) để pin trỏ đúng quán.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="s-facebook">Facebook</label>
+            <input
+              id="s-facebook"
+              type="url"
+              value={facebookUrl}
+              onChange={(e) => setFacebookUrl(e.target.value)}
+              maxLength={255}
+              placeholder="https://facebook.com/quanbalun"
+            />
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Link trang Facebook của quán — hiện thành nút ở chân trang khách.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="s-instagram">Instagram</label>
+            <input
+              id="s-instagram"
+              type="url"
+              value={instagramUrl}
+              onChange={(e) => setInstagramUrl(e.target.value)}
+              maxLength={255}
+              placeholder="https://instagram.com/quanbalun"
+            />
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Link trang Instagram của quán — hiện thành nút ở chân trang khách.
+            </p>
+          </div>
+          <div>
+            <label htmlFor="s-zalo">Zalo</label>
+            <input
+              id="s-zalo"
+              type="text"
+              value={zalo}
+              onChange={(e) => setZalo(e.target.value)}
+              maxLength={255}
+              placeholder="0912345678 hoặc https://zalo.me/..."
+            />
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Điền số điện thoại Zalo hoặc link Zalo OA — khách bấm là mở cửa sổ chat.
+            </p>
+          </div>
         </div>
       </Section>
     </div>
+  );
+}
+
+// ─── Sub-tab "Top món bán chạy" ──────────────────────────────────────────────
+// Bảng xếp hạng ở trang khách `/top` (2026-08-04). Nguyên tắc đã chốt khi thảo luận
+// feature: số suất hiển thị cho khách LUÔN là số bán thật (SERVED của đơn đã thanh
+// toán, cả POS + online) — tab này KHÔNG có và KHÔNG ĐƯỢC thêm ô "cộng thêm số ảo"
+// (DESIGN.md apps/shop cấm số liệu bán hàng bịa). Admin chỉ chỉnh cách trình bày.
+
+type PickableMenuItem = {
+  id: string;
+  code: string;
+  name: string;
+  group: string;
+  price: number;
+  unit: string;
+  is_out_of_stock: boolean;
+  is_active: boolean;
+};
+
+const TOP_WINDOW_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'all', label: 'Từ trước tới nay (số to nhất, lớn dần theo thời gian)' },
+  { value: '30d', label: '30 ngày gần nhất' },
+  { value: '7d', label: '7 ngày gần nhất' },
+  { value: 'today', label: 'Chỉ hôm nay' },
+];
+
+function TopDishesTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: () => Promise<void> }) {
+  const toast = useToast();
+  const { settings } = data;
+
+  const [enabled, setEnabled] = useState(settings.top_dishes_enabled);
+  const [limit, setLimit] = useState(settings.top_dishes_limit);
+  const [windowValue, setWindowValue] = useState(settings.top_dishes_window);
+  const [hiddenIds, setHiddenIds] = useState<string[]>(settings.top_dishes_hidden_ids);
+  const [saving, setSaving] = useState(false);
+
+  // Danh sách món để tick "ẩn khỏi bảng xếp hạng" — cùng nguồn với MenuPickerModal.
+  const [menuItems, setMenuItems] = useState<PickableMenuItem[]>([]);
+  const [menuLoading, setMenuLoading] = useState(true);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    api.get<{ data: { items: PickableMenuItem[] } }>('/menu?page_size=2000')
+      .then((res) => setMenuItems(res.data.data.items.filter((it) => it.is_active)))
+      .catch((err) => toast.push('error', extractError(err).message))
+      .finally(() => setMenuLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    setEnabled(settings.top_dishes_enabled);
+    setLimit(settings.top_dishes_limit);
+    setWindowValue(settings.top_dishes_window);
+    setHiddenIds(settings.top_dishes_hidden_ids);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  const dirty = isDirty(
+    { enabled, limit, windowValue, hiddenIds: [...hiddenIds].sort() },
+    {
+      enabled: settings.top_dishes_enabled,
+      limit: settings.top_dishes_limit,
+      windowValue: settings.top_dishes_window,
+      hiddenIds: [...settings.top_dishes_hidden_ids].sort(),
+    },
+  );
+
+  const toggleHidden = (id: string) => {
+    setHiddenIds((prev) => (prev.includes(id) ? prev.filter((h) => h !== id) : [...prev, id]));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put('/admin/settings', {
+        top_dishes_enabled: enabled,
+        top_dishes_limit: limit,
+        top_dishes_window: windowValue,
+        top_dishes_hidden_ids: hiddenIds,
+      });
+      toast.push('success', 'Đã lưu cài đặt Top món ✓');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const filtered = filterMenuBySearch(menuItems, search);
+  const hiddenCount = hiddenIds.length;
+
+  return (
+    <Section
+      title="Bảng xếp hạng món trên trang khách"
+      hint={
+        <>
+          Trang khách có màn <strong>Món bán chạy</strong> — số suất đã phục vụ là <strong>số bán thật</strong> (cả
+          tại quán lẫn online), khách mở trang sẽ thấy số đếm chạy lên. Ở đây chỉnh cách trình bày: bật/tắt, số món,
+          khoảng thời gian đếm, và giấu món không muốn lộ.
+        </>
+      }
+      dirty={dirty}
+      saving={saving}
+      saveLabel="Lưu cài đặt Top món"
+      onSave={() => void save()}
+    >
+      <div style={{ display: 'grid', gap: 16 }}>
+        <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginBottom: 0 }}>
+          <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />
+          Hiện bảng xếp hạng cho khách
+        </label>
+
+        <div className="st-grid cols-2">
+          <div>
+            <label htmlFor="td-limit">Số món hiển thị (3–10)</label>
+            <input
+              id="td-limit"
+              type="number"
+              min={3}
+              max={10}
+              disabled={!enabled}
+              value={limit}
+              onChange={(e) => setLimit(Math.min(10, Math.max(3, Number(e.target.value) || 3)))}
+            />
+          </div>
+          <div>
+            <label htmlFor="td-window">Đếm số suất</label>
+            <select
+              id="td-window"
+              disabled={!enabled}
+              value={windowValue}
+              onChange={(e) => setWindowValue(e.target.value)}
+            >
+              {TOP_WINDOW_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label htmlFor="td-search">
+            Món bị ẩn khỏi bảng xếp hạng{hiddenCount > 0 ? ` (đang ẩn ${hiddenCount})` : ''}
+          </label>
+          <input
+            id="td-search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm món để ẩn/hiện... (gõ không dấu cũng được)"
+            disabled={!enabled}
+          />
+          {menuLoading && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0' }}>Đang tải menu...</p>}
+          {!menuLoading && (
+            <div
+              style={{
+                marginTop: 8,
+                maxHeight: 260,
+                overflowY: 'auto',
+                border: `1px solid ${C.borderSoft}`,
+                borderRadius: 8,
+                padding: '4px 12px',
+                opacity: enabled ? 1 : 0.5,
+              }}
+            >
+              {filtered.length === 0 && (
+                <p style={{ fontSize: 13, color: C.muted }}>Không có món nào khớp tìm kiếm.</p>
+              )}
+              {filtered.map((it) => (
+                <label
+                  key={it.id}
+                  style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 0', marginBottom: 0 }}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={!enabled}
+                    checked={hiddenIds.includes(it.id)}
+                    onChange={() => toggleHidden(it.id)}
+                  />
+                  <span style={{ flex: 1 }}>{it.name}</span>
+                  {hiddenIds.includes(it.id) && (
+                    <span style={{ fontSize: 12, color: C.warnText }}>đang ẩn</span>
+                  )}
+                </label>
+              ))}
+            </div>
+          )}
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Món tick vào đây vẫn bán bình thường — chỉ không xuất hiện trên bảng xếp hạng của khách.
+          </p>
+        </div>
+      </div>
+    </Section>
   );
 }
 

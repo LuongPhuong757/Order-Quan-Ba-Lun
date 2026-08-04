@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { PublicMenuGroup, PublicStoreStatus, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import { useCart } from '../lib/cart-store.ts';
-import { CardItem } from '../components/CardItem.tsx';
+import { CardItem, CARD_ITEM_CSS } from '../components/CardItem.tsx';
 import { CategoryRail } from '../components/CategoryRail.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { CartToast } from '../components/CartToast.tsx';
@@ -107,6 +107,9 @@ export function MenuPage(): JSX.Element {
     <div style={page}>
       {/* eslint-disable-next-line react/no-unknown-property */}
       <style>{SKELETON_CSS}</style>
+      {/* CSS hover của card món — nhúng 1 lần ở trang thay vì lặp theo từng card. */}
+      {/* eslint-disable-next-line react/no-unknown-property */}
+      <style>{CARD_ITEM_CSS}</style>
 
       <h1 style={srOnly}>Menu</h1>
 

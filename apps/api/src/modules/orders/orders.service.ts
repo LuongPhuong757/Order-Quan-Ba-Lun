@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
@@ -105,6 +106,7 @@ export class OrdersService {
     @InjectRepository(RestaurantTable) private readonly tableRepo: Repository<RestaurantTable>,
     @InjectRepository(OrderActivityLog) private readonly activityRepo: Repository<OrderActivityLog>,
     @InjectDataSource() private readonly ds: DataSource,
+    private readonly emitter: EventEmitter2,
   ) {}
 
   // ─── Activity log ───────────────────────────────────────────────────────
@@ -964,6 +966,22 @@ export class OrdersService {
         throw new BadRequestException({ code: 'CONFLICT', message: 'Order trống, không có gì để thanh toán' });
       }
 
+      // Đơn ONLINE giao tận nơi: CHƯA bấm "Đã đi ship" thì chưa cho thanh toán (chốt
+      // 2026-08-04) — trình tự thật là hàng rời quán rồi tiền mới về; checkout trước lúc đó
+      // gần như chắc chắn là bấm nhầm và sẽ khoá đơn + giải phóng bàn sớm. FE đã khoá nút,
+      // đây là chốt thật (bàn `delivery` nhận diện qua kind — Order không giữ fulfillment_type).
+      if (order.source === 'ONLINE' && order.shipped_at === null) {
+        const t = await mgr
+          .getRepository(RestaurantTable)
+          .findOne({ where: { id: order.table_id }, select: ['kind'] });
+        if (t?.kind === 'delivery') {
+          throw new ConflictException({
+            code: 'NOT_SHIPPED_YET',
+            message: 'Đơn giao tận nơi chưa rời quán — bấm "Đã đi ship" trước khi thanh toán.',
+          });
+        }
+      }
+
       // Auto-cancel các items chưa SERVED (PENDING / KITCHEN / COOKING / READY)
       const activeItems = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
       const reason = 'Khách thanh toán khi món chưa giao xong';
@@ -977,6 +995,13 @@ export class OrdersService {
       const cancelled = items.filter((i) => i.state === 'CANCELLED' && i.cancelled_reason !== reason);
       const total = served.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
 
+      // Đơn ONLINE: thanh toán ⟹ khách đã cầm hàng (chủ dự án chốt 2026-08-04 — "khách đã
+      // nhận = thanh toán", nút bấm mốc nhận riêng đã bỏ). Chỉ ghi khi mốc còn trống: ai đó
+      // bấm nhận trước rồi thì mốc đầu mới là lúc nhận thật. Thiếu dòng này thì stepper của
+      // khách ở /o/:token kẹt 90% "Đang giao" vĩnh viễn sau khi bỏ nút.
+      if (order.source === 'ONLINE' && order.received_at === null) {
+        order.received_at = Date.now();
+      }
       order.closed_at = Date.now();
       order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
@@ -993,6 +1018,13 @@ export class OrdersService {
         total,
       };
     });
+
+    // Đơn ONLINE checkout xong là chuyển tab "Đã xác nhận" → "Thành công" trên màn đơn online
+    // (2026-08-04). Bắn tín hiệu reload qua CÙNG kênh SSE 'reviewed' — với FE mọi event chỉ là
+    // "tải lại hàng chờ" (D-06), nên không cần tra request_id (payload cho phép null).
+    if (result.order.source === 'ONLINE') {
+      this.emitter.emit('online_order.reviewed', { request_id: null, at_ms: Date.now() });
+    }
 
     // Log "thanh toán" (post-commit).
     await this.writeActivity({

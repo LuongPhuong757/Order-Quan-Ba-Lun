@@ -1,4 +1,5 @@
 import { useState, type CSSProperties, type JSX } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Wordmark } from './Wordmark.tsx';
 import { CartIcon } from './CartIcon.tsx';
@@ -24,6 +25,7 @@ type Props = {
 
 const NAV_ITEMS: { to: string; label: string }[] = [
   { to: '/', label: 'Trang chủ' },
+  { to: '/top', label: 'Món bán chạy' },
   { to: '/history', label: 'Đơn của tôi' },
 ];
 
@@ -137,32 +139,56 @@ export function Header({ cartCount }: Props): JSX.Element {
           </div>
         )}
 
-        {mobileNavOpen && (
-          <div style={navOverlay} role="dialog" aria-modal="true" aria-label="Điều hướng">
-            <button
-              type="button"
-              aria-label="Đóng menu điều hướng"
-              style={closeNavButton}
-              onClick={() => setMobileNavOpen(false)}
+        {mobileNavOpen &&
+          /* Drawer trượt từ phải che ~80% bề ngang (chỉ đạo 2026-08-04) — 20% còn lại
+             là backdrop mờ, bấm vào là đóng. Animation chỉ transform/opacity, thời lượng
+             từ --dur-*, nên tự tắt khi người dùng bật "giảm chuyển động".
+
+             PORTAL ra document.body: header sticky có z-index riêng nên tạo stacking
+             context — để drawer bên trong thì --z-overlay bị "nhốt" ở tầng header và
+             THUA nút CTA dính đáy (--z-sticky-cta) trên /cart, /checkout. Ra body thì
+             overlay 300 > cta 210, drawer đè lên nút "TIẾP TỤC"/"ĐẶT HÀNG" đúng ý đồ
+             phân tầng trong tokens.css. */
+          createPortal(
+          <div
+            className="shop-nav-backdrop"
+            style={navBackdrop}
+            onClick={() => setMobileNavOpen(false)}
+          >
+            <div
+              className="shop-nav-drawer"
+              style={navDrawer}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Điều hướng"
+              onClick={(e) => e.stopPropagation()}
             >
-              <CloseGlyph />
-            </button>
-            <nav style={mobileNavList} aria-label="Điều hướng chính">
-              {NAV_ITEMS.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  onClick={() => setMobileNavOpen(false)}
-                  style={({ isActive }) =>
-                    isActive ? { ...mobileNavLink, ...navLinkActive } : mobileNavLink
-                  }
-                >
-                  {item.label.toUpperCase()}
-                </NavLink>
-              ))}
-            </nav>
-          </div>
+              <button
+                type="button"
+                aria-label="Đóng menu điều hướng"
+                style={closeNavButton}
+                onClick={() => setMobileNavOpen(false)}
+              >
+                <CloseGlyph />
+              </button>
+              <nav style={mobileNavList} aria-label="Điều hướng chính">
+                {NAV_ITEMS.map((item) => (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    end={item.to === '/'}
+                    onClick={() => setMobileNavOpen(false)}
+                    style={({ isActive }) =>
+                      isActive ? { ...mobileNavLink, ...navLinkActive } : mobileNavLink
+                    }
+                  >
+                    {item.label.toUpperCase()}
+                  </NavLink>
+                ))}
+              </nav>
+            </div>
+          </div>,
+          document.body,
         )}
       </div>
     </header>
@@ -223,13 +249,29 @@ function CloseGlyph(): JSX.Element {
 }
 
 // 2 khối DOM ẩn/hiện bằng CSS-only breakpoint — không JS resize listener.
+// + animation mở drawer điều hướng mobile: backdrop mờ dần vào, drawer trượt từ phải
+// (chỉ transform/opacity — rule layout-transition). Chỉ có animation VÀO: đóng là
+// unmount thẳng, không giữ state chờ animation ra để khỏi phức tạp hoá component.
 const MEDIA_CSS = `
 .shop-hd-desktop { display: none; }
 .shop-hd-mobile { display: block; }
 @media (min-width: 768px) {
   .shop-hd-desktop { display: flex; }
   .shop-hd-mobile { display: none; }
+  /* Drawer đã portal ra body (không còn nằm trong .shop-hd-mobile) nên phải tự ẩn
+     ở desktop — giữ hành vi cũ khi đang mở drawer mà phóng to cửa sổ. */
+  .shop-nav-backdrop { display: none; }
 }
+@keyframes shop-nav-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes shop-nav-drawer-in {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+.shop-nav-backdrop { animation: shop-nav-backdrop-in var(--dur-base) var(--ease-out); }
+.shop-nav-drawer { animation: shop-nav-drawer-in var(--dur-slow) var(--ease-out); }
 `;
 
 const headerStyle: CSSProperties = {
@@ -380,12 +422,26 @@ const cancelButton: CSSProperties = {
   cursor: 'pointer',
 };
 
-const navOverlay: CSSProperties = {
+// Backdrop phủ toàn màn nhưng chỉ để hứng chạm-đóng + làm mờ nền — drawer bên trong
+// mới là khối nội dung, rộng 80% (kẹp 320px để máy tính bảng không có drawer khổng lồ).
+const navBackdrop: CSSProperties = {
   position: 'fixed',
   inset: 0,
   zIndex: 'var(--z-overlay)' as unknown as number,
+  background: 'var(--bg-overlay)',
+};
+
+const navDrawer: CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  right: 0,
+  bottom: 0,
+  width: '80%',
+  maxWidth: '320px',
   background: 'var(--bg-surface)',
-  padding: 'var(--sp-6) var(--gutter)',
+  padding: 'calc(var(--sp-6) + var(--safe-top)) var(--gutter) var(--sp-6)',
+  boxShadow: 'var(--shadow-float)',
+  overflowY: 'auto',
 };
 
 const closeNavButton: CSSProperties = {

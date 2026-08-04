@@ -13,6 +13,7 @@
 export const CUSTOMER_TOKEN_KEY = 'qbl.customer_token';
 export const LAST_CUSTOMER_KEY = 'qbl.last_customer';
 export const LAST_ORDER_KEY = 'qbl.last_order';
+export const LOOKUP_PHONE_KEY = 'qbl.lookup_phone';
 
 export type LastCustomerInfo = {
   customer_name: string;
@@ -90,6 +91,28 @@ export function saveLastOrderToken(token: string): void {
 export function readLastOrderToken(): string | null {
   try {
     return window.localStorage.getItem(LAST_ORDER_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * SĐT đã tra cứu lịch sử đơn thành công gần nhất (trang `/history`, 2026-08-04) — lưu BẢN
+ * ĐÃ CHUẨN HOÁ do BE trả về (`PublicOrderHistory.phone`), để lần sau mở trang là tự tra
+ * ngay không phải gõ lại. Tách khỏi `LAST_CUSTOMER_KEY`: khoá kia là autofill checkout,
+ * ghi đè lẫn nhau là mất dữ liệu autofill khi khách tra hộ SĐT người nhà.
+ */
+export function saveLookupPhone(phone: string): void {
+  try {
+    window.localStorage.setItem(LOOKUP_PHONE_KEY, phone);
+  } catch {
+    // Ghi thất bại — lần sau khách gõ lại, không sao.
+  }
+}
+
+export function readLookupPhone(): string | null {
+  try {
+    return window.localStorage.getItem(LOOKUP_PHONE_KEY);
   } catch {
     return null;
   }

@@ -73,6 +73,16 @@ function deriveActionKind(method: string, path: string): string {
   // "khách đã nhận" là mốc tiền trao tay — càng phải có vết.
   if (path.match(/^\/admin\/online-orders\/[^/]+\/ship$/) && method === 'POST') return 'online_order.shipped';
   if (path.match(/^\/admin\/online-orders\/[^/]+\/receive$/) && method === 'POST') return 'online_order.received';
+  // Cặp route drawer màn bàn gọi theo order_id — CÙNG action_kind với cặp theo request id:
+  // với người soi audit "ai bấm ship" thì bấm từ màn nào không phải là câu hỏi.
+  if (path.match(/^\/admin\/online-orders\/by-order\/[^/]+\/ship$/) && method === 'POST') return 'online_order.shipped';
+  if (path.match(/^\/admin\/online-orders\/by-order\/[^/]+\/receive$/) && method === 'POST') return 'online_order.received';
+  // Sửa món lúc chờ duyệt (2026-08-04) — response chứa danh sách món MỚI + subtotal, nên
+  // audit log tự có "bản sau khi sửa" trong `after_json`, khỏi chụp thêm before/after.
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/items$/) && method === 'PATCH') return 'online_order.items_edited';
+  // Huỷ đơn ĐÃ xác nhận (2026-08-04) — action riêng, KHÔNG dùng chung 'online_order.rejected':
+  // từ chối lúc chờ và huỷ giữa chừng là 2 mức nghiêm trọng khác nhau khi soi log.
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/cancel$/) && method === 'POST') return 'online_order.cancelled_by_staff';
 
   // Settings + phone blacklist (plan 08-05, M2.D-25)
   if (path === '/admin/settings' && method === 'PUT') return 'settings.updated';

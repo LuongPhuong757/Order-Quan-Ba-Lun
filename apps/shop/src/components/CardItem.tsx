@@ -26,7 +26,7 @@ export function CardItem({ item, onAdd }: Props): JSX.Element {
   const image = item.images[0] ?? null;
 
   return (
-    <div style={card}>
+    <div style={card} className="shop-card-item">
       <div style={imageWrap}>
         <div style={isOut ? { ...imageInner, ...dimmed } : imageInner}>
           {image ? (
@@ -80,6 +80,27 @@ function PlusGlyph(): JSX.Element {
     </svg>
   );
 }
+
+// Hover "nổi lên" chỉ khai trong class (không inline) vì :hover không viết được
+// inline. Gói trong `@media (hover: hover)` để điện thoại (gần 100% khách) không
+// bị hover dính sau khi chạm; reduced-motion đã được tokens.css đưa --dur-* về
+// 0.01ms, thêm tắt transform cho chắc.
+export const CARD_ITEM_CSS = `
+@media (hover: hover) and (pointer: fine) {
+  .shop-card-item {
+    transition:
+      transform var(--dur-base) var(--ease-out),
+      box-shadow var(--dur-base) var(--ease-out);
+  }
+  .shop-card-item:hover {
+    transform: translateY(-8px);
+    box-shadow: var(--shadow-lift);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop-card-item:hover { transform: none; }
+}
+`;
 
 const card: CSSProperties = {
   display: 'flex',

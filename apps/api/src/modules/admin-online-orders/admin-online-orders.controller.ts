@@ -30,6 +30,7 @@ import {
   HttpCode,
   Logger,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -46,8 +47,10 @@ import {
   AdminOnlineOrderList,
   AdminOnlineOrderStatusFilter,
   ConfirmOnlineOrderBody,
+  EditOnlineOrderItemsBody,
   OnlineOrderStreamEvent,
   RejectOnlineOrderBody,
+  type EditOnlineOrderItemsResult,
   type RejectReasonCode,
 } from '@order/schemas';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
@@ -154,6 +157,51 @@ export class AdminOnlineOrdersController {
     });
   }
 
+  /** Huỷ đơn ĐÃ XÁC NHẬN — khách có vấn đề giữa chừng (2026-08-04). Body dùng CHUNG khuôn
+   * reject (5 lý do soạn sẵn + ghi chú nội bộ, D-08/D-09). Cả 3 role (D-02) — kiểm soát bù
+   * trừ là audit log `online_order.cancelled_by_staff`. Đơn đã thu tiền nhận 409. */
+  @Post(':id/cancel')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async cancelConfirmed(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<ApiOk<{ ok: true; reason_code: RejectReasonCode; has_internal_note: boolean }>> {
+    const requestId = this.parseId(id);
+    const parsed = RejectOnlineOrderBody.safeParse(body);
+    if (!parsed.success) {
+      throw this.validationFailed(parsed.error, 'Dữ liệu huỷ đơn không hợp lệ.');
+    }
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    await this.svc.cancelConfirmed(requestId, actor, parsed.data);
+    // Cùng khuôn response reject: đủ để audit truy vết, không chứa nội dung ghi chú (D-09).
+    return apiOk({
+      ok: true as const,
+      reason_code: parsed.data.reason_code,
+      has_internal_note: Boolean(parsed.data.internal_note?.trim()),
+    });
+  }
+
+  /** Sửa món của đơn ĐANG CHỜ DUYỆT — đổi số lượng / bỏ món để chốt lại với khách trước khi
+   * Xác nhận (Task.md, chốt 2026-08-04). Body là danh sách THAY THẾ (món vắng mặt = bỏ).
+   *
+   * Cả 3 role sửa được, cùng lý lẽ D-02 — kiểm soát bù trừ là audit log
+   * `online_order.items_edited` (xem `deriveActionKind`). Đơn đã xử lý nhận 409. */
+  @Patch(':id/items')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  async editItems(
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ): Promise<ApiOk<EditOnlineOrderItemsResult>> {
+    const requestId = this.parseId(id);
+    const parsed = EditOnlineOrderItemsBody.safeParse(body);
+    if (!parsed.success) {
+      throw this.validationFailed(parsed.error, 'Dữ liệu sửa đơn không hợp lệ.');
+    }
+    return apiOk(await this.svc.editItems(requestId, parsed.data));
+  }
+
   /** Shipper đã rời quán. Chỉ DELIVERY; đơn PICKUP gọi vào đây nhận 400.
    *
    * Cả 3 role bấm được, cùng lý lẽ D-02 với confirm/reject — giờ cao điểm ai đang ở máy thì bấm.
@@ -176,6 +224,34 @@ export class AdminOnlineOrdersController {
   @HttpCode(200)
   async receive(@Param('id') id: string, @Req() req: Request): Promise<ApiOk<FulfillmentResult>> {
     const requestId = this.parseId(id);
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    return apiOk(await this.svc.markReceived(requestId, actor));
+  }
+
+  /** Cặp route cho DRAWER màn bàn (2026-08-04: bàn online chỉ còn 2 hành động — mốc giao và
+   * thanh toán). Drawer cầm `order_id`, không cầm request_id → resolve rồi dùng CHUNG
+   * markShipped/markReceived với cặp route theo :id, mọi ràng buộc (400 PICKUP, 409 chưa
+   * ship, idempotent) giữ nguyên. */
+  @Post('by-order/:orderId/ship')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async shipByOrder(
+    @Param('orderId') orderId: string,
+    @Req() req: Request,
+  ): Promise<ApiOk<FulfillmentResult>> {
+    const requestId = await this.svc.requestIdByOrderId(this.parseId(orderId));
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    return apiOk(await this.svc.markShipped(requestId, actor));
+  }
+
+  @Post('by-order/:orderId/receive')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async receiveByOrder(
+    @Param('orderId') orderId: string,
+    @Req() req: Request,
+  ): Promise<ApiOk<FulfillmentResult>> {
+    const requestId = await this.svc.requestIdByOrderId(this.parseId(orderId));
     const actor = { id: req.user!.sub, full_name: req.user!.full_name };
     return apiOk(await this.svc.markReceived(requestId, actor));
   }

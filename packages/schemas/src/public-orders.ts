@@ -86,6 +86,10 @@ export const PublicOrderStatus = z.object({
       name: z.string(),
       qty: z.number().int().positive(),
       unit_price: z.number().int().nonnegative(),
+      // 2026-08-04: ảnh món cho trang theo dõi đơn (giống giỏ hàng). Tra LIVE từ `menu_items`
+      // theo `menu_item_id` lúc đọc — KHÔNG snapshot: ảnh chỉ để minh hoạ, không phải dữ liệu
+      // chốt giá. Món đã xoá khỏi menu / chưa có ảnh → null, FE tự vẽ placeholder.
+      image: z.string().nullable(),
     }),
   ),
   subtotal: z.number().int().nonnegative(),
@@ -123,3 +127,54 @@ export const PublicOrderCancelResult = z.object({
   status: z.literal('CANCELLED_BY_CUSTOMER'),
 });
 export type PublicOrderCancelResult = z.infer<typeof PublicOrderCancelResult>;
+
+/**
+ * Hợp đồng `POST /api/public/orders/lookup` — tra cứu lịch sử đơn theo SĐT (2026-08-04).
+ *
+ * Vì sao POST chứ không GET `?phone=`: SĐT là dữ liệu cá nhân, để trên query string là lọt
+ * vào access log nginx + history trình duyệt. Body POST thì không (khuôn đã dùng cho
+ * `POST orders` — SĐT cũng đi trong body).
+ *
+ * Ranh giới quyền ĐÃ CHỐT với chủ dự án (2026-08-04, cùng tinh thần T-09-80): SĐT là
+ * credential DUY NHẤT — ai biết SĐT là xem được lịch sử đơn của số đó. Chấp nhận vì:
+ *  1. Payload là whitelist ĐÓNG — KHÔNG có địa chỉ, tên khách, toạ độ, note. Chỉ có thứ
+ *     trang `/o/:token` vốn đã cho xem (món + tiền + tiến độ).
+ *  2. Throttle 10 lần/phút/IP như mọi endpoint public khác — dò quét SĐT hàng loạt rất đắt.
+ */
+export const PublicOrderLookup = z.object({
+  phone: z.string().min(9).max(20),
+});
+export type PublicOrderLookup = z.infer<typeof PublicOrderLookup>;
+
+/**
+ * Một dòng trong lịch sử đơn của khách. Whitelist ĐÓNG như `PublicOrderStatus` và CHẶT HƠN:
+ * không `reject_reason`, không `cancelled_note`, không ETA — muốn xem chi tiết thì bấm vào
+ * đơn để mở `/o/:token` (nơi các field đó đã có sẵn). G-1/M2.D-23 vẫn áp: không trạng thái
+ * từng món; `items` ở đây còn không có cả `unit_price` — danh sách chỉ cần tên + số lượng.
+ */
+export const PublicOrderHistoryEntry = z.object({
+  order_token: z.string(),
+  status: z.enum(['WAITING', 'CONFIRMED', 'REJECTED', 'CANCELLED_BY_CUSTOMER']),
+  fulfillment_type: z.enum(['PICKUP', 'DELIVERY']),
+  stage: OrderStage,
+  stage_label: z.string(),
+  submitted_at_ms: z.number().int(),
+  items: z.array(
+    z.object({
+      name: z.string(),
+      qty: z.number().int().positive(),
+    }),
+  ),
+  /** Tiền MÓN (M2.D-62) — sau duyệt tính từ `order_items` thật (M2.D-47), như `subtotal`
+   * của `PublicOrderStatus`. */
+  subtotal: z.number().int().nonnegative(),
+});
+export type PublicOrderHistoryEntry = z.infer<typeof PublicOrderHistoryEntry>;
+
+export const PublicOrderHistory = z.object({
+  /** SĐT đã chuẩn hoá (`normalizePhone`) — FE lưu lại bản này để lần sau tự tra. */
+  phone: z.string(),
+  /** Mới nhất trước. Toàn bộ lịch sử, không phân trang (chốt 2026-08-04 — quán nhỏ). */
+  orders: z.array(PublicOrderHistoryEntry),
+});
+export type PublicOrderHistory = z.infer<typeof PublicOrderHistory>;

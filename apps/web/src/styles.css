@@ -503,6 +503,8 @@ a:hover {
   gap: 2px;
   text-decoration: none;
   line-height: 1.1;
+  /* Neo cho badge đếm đơn online (NavBadge ở App.tsx) — trước đây chỉ item active mới relative */
+  position: relative;
 }
 
 .nav-bottom a .nav-icon {

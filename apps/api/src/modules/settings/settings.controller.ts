@@ -66,6 +66,11 @@ class UpdateSettingsDto {
   @IsOptional() @IsString() closed_banner_text?: string;
   @IsOptional() @IsString() closed_submit_confirm_text?: string;
   @IsOptional() @IsString() @MaxLength(16) store_phone?: string;
+  // Footer trang khách — rỗng = ẩn dòng/nút tương ứng, không phải lỗi.
+  @IsOptional() @IsString() @MaxLength(255) store_address?: string;
+  @IsOptional() @IsString() @MaxLength(255) store_facebook_url?: string;
+  @IsOptional() @IsString() @MaxLength(255) store_instagram_url?: string;
+  @IsOptional() @IsString() @MaxLength(255) store_zalo?: string;
   @IsOptional() @IsNumber() @Min(-90) @Max(90) store_lat?: number;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) store_lng?: number;
   @IsOptional() @IsInt() @Min(0) @Max(100) free_ship_km?: number;
@@ -76,6 +81,10 @@ class UpdateSettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_pickup_max?: number;
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_delivery_min?: number;
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_delivery_max?: number;
+  @IsOptional() top_dishes_enabled?: boolean;
+  @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
+  @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
+  @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
   @IsOptional()
   @ValidateNested()
   @Type(() => OpenHoursInputDto)
@@ -125,6 +134,10 @@ export class SettingsController {
     // NUỐT LẶNG LẼ: admin bấm Lưu, nhận 200, và không gì được ghi. Thêm key mới thì phải sửa cả 3.
     for (const key of [
       'store_phone',
+      'store_address',
+      'store_facebook_url',
+      'store_instagram_url',
+      'store_zalo',
       'closed_banner_text',
       'closed_submit_confirm_text',
       'store_lat',
@@ -137,6 +150,10 @@ export class SettingsController {
       'eta_pickup_max',
       'eta_delivery_min',
       'eta_delivery_max',
+      'top_dishes_enabled',
+      'top_dishes_limit',
+      'top_dishes_window',
+      'top_dishes_hidden_ids',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

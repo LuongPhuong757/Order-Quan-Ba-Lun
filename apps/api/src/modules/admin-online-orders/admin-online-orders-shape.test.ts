@@ -43,11 +43,13 @@ function rejectedRow(): Row {
     reviewed_at_ms: 1_700_000_042_000,
     reviewed_by_full_name: 'Nguyễn Văn A',
     reject_reason: 'Hết nguyên liệu món đã đặt',
-    // Đơn bị từ chối không có `orders` row nào → cả 4 field của chặng giao đều null.
+    // Đơn bị từ chối không có `orders` row nào → cả 6 field của chặng giao đều null.
     table_code: null,
+    table_name: null,
     item_state_counts: null,
     shipped_at_ms: null,
     received_at_ms: null,
+    paid_at_ms: null,
   };
 }
 
@@ -58,6 +60,7 @@ function confirmedRow(): Row {
     status: 'CONFIRMED',
     reject_reason: null,
     table_code: 'S03',
+    table_name: 'Ship 03',
     item_state_counts: {
       total: 5,
       pending: 0,
@@ -69,6 +72,7 @@ function confirmedRow(): Row {
     },
     shipped_at_ms: null,
     received_at_ms: null,
+    paid_at_ms: null,
   };
 }
 
