@@ -15,6 +15,8 @@ import { OnlineOrderRequest } from './modules/public/entities/online-order-reque
 import { CustomerOtp } from './modules/public/entities/customer-otp.entity.js';
 import { CustomerSession } from './modules/public/entities/customer-session.entity.js';
 import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
+import { WebVisitSession } from './modules/analytics/entities/web-visit-session.entity.js';
+import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-daily.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -53,6 +55,11 @@ export const dataSourceOptions: DataSourceOptions = {
     CustomerOtp,
     CustomerSession,
     NotificationOutbox,
+    // Thống kê truy cập (2026-08-05). Luồng ghi dùng SQL thô `INSERT ... ON DUPLICATE KEY
+    // UPDATE` nên KHÔNG cần repository, nhưng 2 entity này vẫn phải có mặt ở đây: thiếu thì
+    // `synchronize` không tạo bảng và `tsc` vẫn xanh (xem cảnh báo ngay trên).
+    WebVisitSession,
+    WebPageViewDaily,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

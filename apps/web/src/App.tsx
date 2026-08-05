@@ -11,6 +11,7 @@ import { RecoverPage } from './pages/RecoverPage.tsx';
 import { DashboardPage } from './pages/DashboardPage.tsx';
 import { AdminUsersPage } from './pages/AdminUsersPage.tsx';
 import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
+import { AdminAnalyticsPage } from './pages/AdminAnalyticsPage.tsx';
 import { AccountPage } from './pages/AccountPage.tsx';
 import { OrdersPage } from './pages/OrdersPage.tsx';
 import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
@@ -72,6 +73,10 @@ export function App() {
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
+              {/* Thống kê truy cập trang khách (2026-08-05). Admin-only và KHÔNG có trong
+                  nav dưới: nav admin đã 7 mục, thêm mục thứ 8 là bóp nhỏ tất cả trên điện
+                  thoại. Đường vào là thẻ ở Dashboard. */}
+              <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
               {/* `/admin/settings` cũ đã gộp thành tab của màn Đơn hàng online (2026-08-03).
                   Giữ redirect vì bookmark, link trong Dashboard và ảnh chụp màn hình trong
                   `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. */}
@@ -124,7 +129,9 @@ function ProtectedShell() {
       <header className="header">
         <span className="brand">
           <span className="brand-short">🍴</span>
-          <span className="brand-text">Order Quán Bà Lùn</span>
+          {/* "QUẢN TRỊ" phải có mặt ngay trong header: nhân viên mở cả trang khách lẫn trang
+              này trên cùng máy, và hai bên trước đây đều chỉ ghi tên quán. */}
+          <span className="brand-text">Quán Bà Lùn · QUẢN TRỊ</span>
           {/* Khung màu quanh tên user — màu nền + viền theo role:
               vàng = Admin, xanh dương = Order, xanh lá = Bếp */}
           <span

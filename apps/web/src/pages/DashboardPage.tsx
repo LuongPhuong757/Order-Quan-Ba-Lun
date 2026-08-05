@@ -21,6 +21,10 @@ export function DashboardPage() {
               <strong>👥 Nhân viên</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tạo / đổi mật khẩu / tạm nghỉ</p>
             </Link>
+            <Link to="/admin/analytics" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>📈 Truy cập &amp; khách hàng</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Lượt vào web, thời gian ở lại, SĐT từng đặt đơn</p>
+            </Link>
             <Link to="/admin/audit" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong>📋 Nhật ký hệ thống</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>

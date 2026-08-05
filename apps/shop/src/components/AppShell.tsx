@@ -1,8 +1,9 @@
-import type { CSSProperties, JSX } from 'react';
-import { Outlet } from 'react-router-dom';
+import { useEffect, type CSSProperties, type JSX } from 'react';
+import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header.tsx';
 import { Footer } from './Footer.tsx';
 import { useCart } from '../lib/cart-store.ts';
+import { trackPageView } from '../lib/analytics.ts';
 
 /**
  * Layout chung của apps/shop: `<Header/>` sticky + `<main>` bọc `<Outlet/>` +
@@ -17,6 +18,16 @@ import { useCart } from '../lib/cart-store.ts';
  */
 export function AppShell(): JSX.Element {
   const { count, subtotal } = useCart();
+  const { pathname } = useLocation();
+
+  // Thống kê truy cập (2026-08-05). Đặt ở đây vì AppShell là layout DUY NHẤT bọc cả 7 route
+  // (main.tsx) — mỗi trang tự gọi thì sẽ có trang bị quên.
+  //
+  // Nằm trong `useEffect` (chạy SAU khi trang đã vẽ) và `trackPageView` không await gì, nên
+  // không có nhánh nào của việc đo này chen được vào trước nội dung khách đang chờ.
+  useEffect(() => {
+    trackPageView(pathname);
+  }, [pathname]);
 
   return (
     <div style={shell}>
@@ -36,6 +47,10 @@ const shell: CSSProperties = {
   fontFamily: 'var(--font-body)',
 };
 
+// `<main>` là NƠI DUY NHẤT đặt lề trái/phải cho vùng nội dung. Trang con chỉ khai
+// padding DỌC (`var(--sp-6) 0`), không khai --gutter lần nữa — trước 2026-08-05 sáu
+// trang đều khai lại nên lề thành 32px/bên trên mobile, cột nội dung teo còn 311px
+// trên máy 375px và mọi thứ bị dồn vào nhau.
 const main: CSSProperties = {
   maxWidth: 'var(--content-max)',
   margin: '0 auto',

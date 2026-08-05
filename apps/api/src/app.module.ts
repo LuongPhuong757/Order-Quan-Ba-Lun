@@ -18,6 +18,7 @@ import { SettingsModule } from './modules/settings/settings.module.js';
 import { MaintenanceModule } from './modules/maintenance/maintenance.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AdminOnlineOrdersModule } from './modules/admin-online-orders/admin-online-orders.module.js';
+import { AnalyticsModule } from './modules/analytics/analytics.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -62,6 +63,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     // admin. Ranh giới M2.D-01 (staging `online_order_requests` → bảng thật `orders`) nằm trong
     // module này.
     AdminOnlineOrdersModule,
+    // Thống kê truy cập trang khách (2026-08-05) — ping gộp lô trong RAM, flush 10s. Phụ thuộc
+    // `ScheduleModule.forRoot()` ở trên cho `@Interval` flush; xoá dòng đó là thống kê chỉ nằm
+    // trong RAM rồi mất.
+    AnalyticsModule,
   ],
   controllers: [HealthController],
   providers: [

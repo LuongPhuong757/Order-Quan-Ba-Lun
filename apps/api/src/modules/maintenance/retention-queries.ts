@@ -12,6 +12,9 @@ import type { EntityManager } from 'typeorm';
 import { AuditLog } from '../audit/entities/audit-log.entity.js';
 import { OrderActivityLog } from '../orders/entities/order-activity-log.entity.js';
 import { RevokedJti } from '../auth/entities/revoked-jti.entity.js';
+import { WebVisitSession } from '../analytics/entities/web-visit-session.entity.js';
+import { WebPageViewDaily } from '../analytics/entities/web-page-view-daily.entity.js';
+import { dayKeyIct } from '../analytics/visit-hit.js';
 
 export function auditRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
   return nowMs - cutoffDays * 86_400_000;
@@ -55,6 +58,46 @@ export async function pruneRevokedJti(
     .delete()
     .from(RevokedJti)
     .where('expires_at_ms < :n', { n: nowMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
+}
+
+// Thống kê truy cập (2026-08-05). Cùng mốc 90 ngày với audit nhưng biến môi trường RIÊNG
+// (`ANALYTICS_RETENTION_DAYS`): số liệu marketing và vết truy trách nhiệm là hai nhu cầu khác
+// nhau — chủ quán có thể muốn giữ traffic 1 năm mà vẫn dọn audit sau 90 ngày.
+//
+// ⚠ Xoá theo `last_seen_ms` (mốc ping CUỐI của phiên), không theo `first_seen_ms`: một phiên mở
+// tab từ trước nửa đêm nhưng còn hoạt động sau đó vẫn phải sống đủ vòng đời của nó.
+
+export function analyticsRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
+  return nowMs - cutoffDays * 86_400_000;
+}
+
+export async function pruneVisitSessions(
+  mgr: EntityManager,
+  cutoffMs: number,
+): Promise<{ deleted_rows: number }> {
+  const result = await mgr
+    .getRepository(WebVisitSession)
+    .createQueryBuilder()
+    .delete()
+    .from(WebVisitSession)
+    .where('last_seen_ms < :c', { c: cutoffMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
+}
+
+/** `day_key` là chuỗi 'YYYY-MM-DD' nên so sánh CHUỖI là đúng (ISO tự sắp thứ tự theo thời gian). */
+export async function prunePageViewDaily(
+  mgr: EntityManager,
+  cutoffMs: number,
+): Promise<{ deleted_rows: number }> {
+  const result = await mgr
+    .getRepository(WebPageViewDaily)
+    .createQueryBuilder()
+    .delete()
+    .from(WebPageViewDaily)
+    .where('day_key < :c', { c: dayKeyIct(cutoffMs) })
     .execute();
   return { deleted_rows: result.affected ?? 0 };
 }

@@ -7,10 +7,13 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
+  analyticsRetentionCutoffMs,
   auditRetentionCutoffMs,
   pruneAuditLogs,
   pruneOrderActivityLogs,
+  prunePageViewDaily,
   pruneRevokedJti,
+  pruneVisitSessions,
 } from './retention-queries.js';
 
 @Injectable()
@@ -41,6 +44,27 @@ export class MaintenanceCronService {
       // Job lỗi KHÔNG được làm sập app — nuốt lỗi, chỉ log (khuôn AuditEventHandler).
       this.logger.error(
         `cron-audit-retention failed: ${(err as Error).message}`,
+        (err as Error).stack,
+      );
+    }
+  }
+
+  // Dọn số liệu truy cập (2026-08-05) — cùng nhịp 3h sáng với audit: cả hai đều là DELETE
+  // theo khoảng, chạy lúc quán đóng cửa để không tranh I/O với giờ bán hàng.
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async analyticsRetention(): Promise<void> {
+    try {
+      const cutoffDays = Number(process.env.ANALYTICS_RETENTION_DAYS ?? 90);
+      const cutoffMs = analyticsRetentionCutoffMs(Date.now(), cutoffDays);
+      const sessions = await pruneVisitSessions(this.ds.manager, cutoffMs);
+      const pageViews = await prunePageViewDaily(this.ds.manager, cutoffMs);
+      this.logger.log(
+        `cron-analytics-retention: xoá ${sessions.deleted_rows} web_visit_sessions + ` +
+          `${pageViews.deleted_rows} web_page_views_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `cron-analytics-retention failed: ${(err as Error).message}`,
         (err as Error).stack,
       );
     }

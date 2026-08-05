@@ -14,6 +14,12 @@ import type { AuditEvent } from './audit.service.js';
 
 const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+// Ping thống kê truy cập (2026-08-05) — mutation DUY NHẤT trong repo bị gọi nhiều lần mỗi phiên
+// khách (đổi trang + nhịp tim 60s). Nó KHÔNG phải hành động nghiệp vụ của ai, không có gì để
+// truy trách nhiệm; log nó vào audit_log thì bảng audit phình nhanh hơn cả bảng thống kê mà nó
+// đang phục vụ, và trang /admin/audit bị chìm trong rác. Xem `analytics/public-track.controller.ts`.
+const TRACK_PATH = '/api/public/track';
+
 // Action-kind resolver — derives audit action from HTTP method + path
 // Override in controller via @AuditAction decorator if needed (future).
 function deriveActionKind(method: string, path: string): string {
@@ -100,6 +106,8 @@ export class AuditInterceptor implements NestInterceptor {
     const req = ctx.switchToHttp().getRequest<Request>();
     const method = req.method;
     const path = req.route?.path || req.path;
+
+    if (path === TRACK_PATH) return next.handle();
 
     return next.handle().pipe(
       tap((responseBody) => {
