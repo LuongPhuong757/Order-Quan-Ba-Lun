@@ -4,9 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <meta name="theme-color" content="#0f766e" />
-    <link rel="icon" type="image/jpeg" href="/favicon.jpg" />
-    <link rel="apple-touch-icon" href="/favicon.jpg" />
-    <title>Order Quán Bà Lùn</title>
+    <!-- Icon trang QUẢN TRỊ: CÙNG ảnh logo quán như trang khách, chỉ khác KHUNG NGOÀI —
+         tròn + viền xanh mòng, so với vuông bo góc + viền hổ phách bên apps/shop. Nhân
+         viên mở cả 2 tab cùng lúc vẫn nhận ra ngay tab nào là tab nào ở cỡ 16px, vì tròn
+         với vuông khác nhau kể cả khi không phân biệt được màu.
+         apple-touch-icon là PNG 180px full-bleed (không có vùng trong suốt — iOS tô đen
+         vùng đó khi thêm vào màn hình chính), sinh từ favicon.svg bằng rsvg-convert. -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- "Admin" đứng ĐẦU, không phải "Order Quán Bà Lùn": thanh tab bị bóp chỉ còn ~10 ký
+         tự đầu, mà "Order Quán…" và "Quán Bà Lùn…" của trang khách nhìn gần như nhau. -->
+    <title>Admin · Quán Bà Lùn</title>
   </head>
   <body>
     <div id="root"></div>

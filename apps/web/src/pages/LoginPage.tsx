@@ -45,7 +45,7 @@ export function LoginPage() {
   return (
     <div className="container">
       <div className="card">
-        <h1>Order Quán Bà Lùn</h1>
+        <h1>Quán Bà Lùn · QUẢN TRỊ</h1>
         <p style={{ color: '#6b7280', marginTop: -8, marginBottom: 24 }}>Đăng nhập để vào dashboard</p>
 
         <form onSubmit={submit} noValidate>

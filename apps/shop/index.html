@@ -6,9 +6,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
     <!-- = --brand-600 trong src/styles/tokens.css -->
     <meta name="theme-color" content="#b82a1e" />
-    <!-- Favicon riêng của trang khách. KHÔNG dùng favicon.jpg của apps/web —
-         file đó là ảnh chân dung cá nhân, không phải logo quán. -->
+    <!-- Icon trang khách = ĐÚNG ảnh logo quán trong public/logo.jpg (cùng ảnh header
+         đang hiện), nhúng base64 trong favicon.svg. Khung ngoài: vuông bo góc + viền hổ
+         phách, để phân biệt với tab quản trị (tròn + xanh mòng) — chủ quán chốt
+         2026-08-05 là giữ nguyên ảnh, chỉ cho khác bo viền ngoài.
+         apple-touch-icon là PNG 180px full-bleed (không có vùng trong suốt, kẻo iOS tô
+         đen khi khách thêm vào màn hình chính), sinh từ favicon.svg bằng rsvg-convert. -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Quán Bà Lùn — Đặt hàng</title>
   </head>
   <body>
