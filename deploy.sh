@@ -35,7 +35,7 @@ case "${1:-deploy}" in
     echo "▶ git pull trên server…"
     rssh "cd $DEPLOY_PATH && git pull --ff-only origin main && git log --oneline -1"
     echo "▶ rebuild Docker (chạy nền, log /tmp/deploy-build.log)…"
-    rssh "cd $DEPLOY_PATH && rm -f /tmp/deploy-build.log && nohup bash -c 'docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build > /tmp/deploy-build.log 2>&1; echo DEPLOY_DONE_EXIT=\$? >> /tmp/deploy-build.log' >/dev/null 2>&1 & echo BUILD_STARTED"
+    rssh "cd $DEPLOY_PATH && rm -f /tmp/deploy-build.log && nohup bash -c 'docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build > /tmp/deploy-build.log 2>&1; rc=\$?; bash scripts/attach-caddy-networks.sh >> /tmp/deploy-build.log 2>&1; echo DEPLOY_DONE_EXIT=\$rc >> /tmp/deploy-build.log' >/dev/null 2>&1 & echo BUILD_STARTED"
     echo "✅ Đã start build. Theo dõi: ./deploy.sh --logs   |   Kiểm tra: ./deploy.sh --status" ;;
   *) echo "Dùng: ./deploy.sh [--logs|--status]"; exit 1 ;;
 esac

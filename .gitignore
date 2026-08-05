@@ -47,6 +47,7 @@ backups/
 
 # Cấu hình Caddy của site khác dùng chung VPS — thuộc về server, không thuộc repo này
 caddy-local/
+caddy-extra-networks.txt
 
 # Production env (secrets)
 .env.production

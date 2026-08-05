@@ -148,6 +148,27 @@ du -sh uploads/                     # Menu images size
 docker exec ordbl_mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT table_schema,SUM(data_length+index_length)/1024/1024 size_mb FROM information_schema.tables GROUP BY table_schema"
 ```
 
+### VPS này chạy chung Caddy với ứng dụng khác
+
+Trên VPS hiện tại còn `ui2spec.pro.vn` (genspec) đi qua cùng container Caddy. Hai chỗ phải
+giữ, nếu không mỗi lần deploy là site kia sập mà không có cảnh báo nào:
+
+| Trên server (không nằm trong git) | Tác dụng |
+|---|---|
+| `caddy-local/*.caddy` | Site block của app khác — `Caddyfile` import vào |
+| `caddy-extra-networks.txt` | Danh sách Docker network cần đấu lại cho `ordbl_caddy` |
+
+`docker compose up` tạo lại container Caddy sẽ **mất hết** network từng đấu tay bằng
+`docker network connect`. Caddy vẫn chạy, quán vẫn 200, nhưng app kia 502. `deploy.sh` tự chạy
+[scripts/attach-caddy-networks.sh](scripts/attach-caddy-networks.sh) sau mỗi lần build để đấu lại.
+Nếu phải chạy `docker compose up` bằng tay, nhớ chạy script đó theo sau.
+
+Kiểm tra nhanh sau mỗi lần deploy — phải thấy đủ cả hai network:
+
+```bash
+docker inspect ordbl_caddy -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+```
+
 ### Backup MySQL
 
 Service `mysql-backup` trong compose tự dump hằng ngày lúc `BACKUP_HOUR_UTC:BACKUP_MINUTE`
