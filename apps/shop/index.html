@@ -15,6 +15,47 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <title>Quán Bà Lùn — Đặt hàng</title>
+    <meta
+      name="description"
+      content="Đặt món online tại Quán Bà Lùn — giao tận nơi hoặc tự đến lấy, theo dõi đơn theo thời gian thực."
+    />
+
+    <!-- Open Graph — Facebook/Messenger/Zalo KHÔNG chạy JS, chỉ đọc mấy thẻ tĩnh này
+         trong index.html. Thiếu chúng thì dán link quanbalun.site chỉ hiện khung xám
+         trống, không có logo (Task.md dòng 6).
+
+         og:image PHẢI là URL tuyệt đối, ảnh tương đối Facebook bỏ qua. Domain viết cứng
+         theo DOMAIN trong .env.production (quanbalun.site) — đổi tên miền thì sửa cả 3
+         thẻ og:url / og:image / twitter:image ở đây.
+
+         Ảnh 1200x630 sinh từ public/logo.jpg bằng `node scripts/make-og-image.mjs`
+         (đã commit sẵn). Không trỏ thẳng vào logo.jpg vì ảnh gốc dọc 1633x1920, Facebook
+         cắt còn ô vuông nhỏ cạnh tiêu đề thay vì thẻ ảnh lớn tràn ngang.
+
+         Facebook cache preview khá lâu: sau khi deploy, nếu vẫn thấy khung cũ thì quét
+         lại một lần ở developers.facebook.com/tools/debug/ với link quanbalun.site. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Quán Bà Lùn" />
+    <meta property="og:locale" content="vi_VN" />
+    <meta property="og:url" content="https://quanbalun.site/" />
+    <meta property="og:title" content="Quán Bà Lùn — Đặt hàng online" />
+    <meta
+      property="og:description"
+      content="Đặt món online tại Quán Bà Lùn — giao tận nơi hoặc tự đến lấy, theo dõi đơn theo thời gian thực."
+    />
+    <meta property="og:image" content="https://quanbalun.site/og-image.jpg" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Logo Quán Bà Lùn" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Quán Bà Lùn — Đặt hàng online" />
+    <meta
+      name="twitter:description"
+      content="Đặt món online tại Quán Bà Lùn — giao tận nơi hoặc tự đến lấy, theo dõi đơn theo thời gian thực."
+    />
+    <meta name="twitter:image" content="https://quanbalun.site/og-image.jpg" />
   </head>
   <body>
     <div id="root"></div>
