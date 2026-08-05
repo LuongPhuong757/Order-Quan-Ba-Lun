@@ -37,6 +37,16 @@ export const ErrorCode = z.enum([
   // M2 phase 09 — duyệt/từ chối đơn online (AdminOnlineOrdersService)
   'ORDER_EMPTY_AFTER_DROP',
   'ROLE_FORBIDDEN',
+  // OTP đăng nhập bằng SĐT (2026-08-05) — message build tại chỗ throw (otp.ts), cùng luật
+  // Pitfall #6 với nhóm phase 08: KHÔNG thêm vào FRIENDLY_VN. Thiếu code ở enum này là FE
+  // parse ErrorEnvelope FAIL → khách thấy câu "lỗi kỹ thuật" thay vì message thật (bug
+  // 2026-08-05 phát hiện khi thử OTP lần đầu).
+  'OTP_DISABLED',
+  'OTP_NOT_FOUND',
+  'OTP_EXPIRED',
+  'OTP_INVALID',
+  'OTP_TOO_MANY_ATTEMPTS',
+  'OTP_SESSION_REQUIRED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

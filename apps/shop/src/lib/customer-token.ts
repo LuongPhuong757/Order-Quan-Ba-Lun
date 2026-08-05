@@ -14,6 +14,7 @@ export const CUSTOMER_TOKEN_KEY = 'qbl.customer_token';
 export const LAST_CUSTOMER_KEY = 'qbl.last_customer';
 export const LAST_ORDER_KEY = 'qbl.last_order';
 export const LOOKUP_PHONE_KEY = 'qbl.lookup_phone';
+export const PHONE_SESSION_KEY = 'qbl.phone_session';
 
 export type LastCustomerInfo = {
   customer_name: string;
@@ -116,4 +117,77 @@ export function readLookupPhone(): string | null {
   } catch {
     return null;
   }
+}
+
+// ── Phiên đăng nhập SĐT bằng OTP (2026-08-04) ──
+// Verify OTP thành công (ở checkout hoặc trang Đơn của tôi) = BE cấp phiên 90 ngày gắn SĐT.
+// Mỗi thiết bị đúng MỘT phiên (chốt với chủ dự án): đổi số là thay phiên, không giữ nhiều.
+
+export type PhoneSession = {
+  session_token: string;
+  /** SĐT đã chuẩn hoá do BE trả (`PublicPhoneSession.phone`). */
+  phone: string;
+  expires_at_ms: number;
+};
+
+/** Phiên còn hạn trên thiết bị — null nếu chưa đăng nhập/hết hạn/dữ liệu hỏng.
+ * Hạn ở đây chỉ là bản sao để FE khỏi gửi token chết; nguồn sự thật (thu hồi, gia hạn
+ * trượt) nằm ở BE — token bị BE từ chối thì caller phải `clearPhoneSession()` + OTP lại. */
+export function readPhoneSession(): PhoneSession | null {
+  try {
+    const raw = window.localStorage.getItem(PHONE_SESSION_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PhoneSession>;
+    if (
+      typeof parsed.session_token !== 'string' ||
+      typeof parsed.phone !== 'string' ||
+      typeof parsed.expires_at_ms !== 'number'
+    ) {
+      return null;
+    }
+    if (parsed.expires_at_ms <= Date.now()) return null;
+    return parsed as PhoneSession;
+  } catch {
+    return null;
+  }
+}
+
+export function savePhoneSession(session: PhoneSession): void {
+  try {
+    window.localStorage.setItem(PHONE_SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Ghi thất bại (Safari private mode) — phiên vẫn dùng được trong tab hiện tại nếu caller
+    // giữ trong state; chỉ không bền qua reload.
+  }
+}
+
+export function clearPhoneSession(): void {
+  try {
+    window.localStorage.removeItem(PHONE_SESSION_KEY);
+  } catch {
+    // Bỏ qua — không đọc được thì cũng không có gì để xoá.
+  }
+}
+
+/**
+ * Chuẩn hoá SĐT CHỈ ĐỂ SO SÁNH với `PhoneSession.phone` (bản BE đã chuẩn) — quyết định
+ * "số này đã đăng nhập chưa" trước khi mở bước OTP. Sao chép luật `normalizePhone` phía API
+ * (loại ký tự thừa, +84/84 → 0); nguồn sự thật validate vẫn là BE, hàm này lệch thì tệ nhất
+ * cũng chỉ là hỏi OTP thừa một lần chứ không mở được cửa nào.
+ */
+export function normalizePhoneForCompare(raw: string): string | null {
+  const hasPlusPrefix = raw.trim().startsWith('+');
+  const digitsOnly = raw.replace(/\D/g, '');
+
+  let normalized: string;
+  if (hasPlusPrefix && digitsOnly.startsWith('84')) {
+    normalized = `0${digitsOnly.slice(2)}`;
+  } else if (!hasPlusPrefix && digitsOnly.startsWith('84') && digitsOnly.length >= 11) {
+    normalized = `0${digitsOnly.slice(2)}`;
+  } else {
+    normalized = digitsOnly;
+  }
+
+  if (!/^0\d{8,10}$/.test(normalized)) return null;
+  return normalized;
 }

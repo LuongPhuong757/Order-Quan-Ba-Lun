@@ -22,6 +22,12 @@
 // PICKUP đạt 100% ngay khi bếp xong. Chủ dự án chốt 2026-08-04 là cần biết khách ĐÃ ĐẾN LẤY
 // chưa, nên PICKUP cũng phải chờ `received_at` mới 100%. Xem `OVERRIDE-DEBT.md` OD-19.
 // Hệ quả trong file này: `all_done` KHÔNG còn suy ra từ `item_states` — nó là `received_at != null`.
+//
+// ⚠ ĐIỀU CHỈNH OD-19, chủ dự án 2026-08-05: riêng CON SỐ % của PICKUP quay về 100 khi bếp xong,
+// kèm nhãn mời đến lấy — khác đơn ship, món xong là phần việc của QUÁN đã hết, bắt khách nhìn
+// 85% trong khi chẳng còn gì để chờ là nói sai. Phần còn lại của OD-19 GIỮ NGUYÊN: stage chỉ
+// thành `COMPLETED` (và `all_done=true`) khi `received_at` có — quán vẫn theo dõi được khách
+// đã đến lấy hay chưa, chỉ con số % là kết thúc sớm hơn stage.
 
 export const STATE_WEIGHT: Record<string, number> = {
   PENDING: 0,
@@ -37,10 +43,12 @@ export const EXCLUDED_ITEM_STATES = ['CANCELLED', 'OUT_OF_STOCK'] as const;
 
 /** Trần % của chặng BẾP — đạt trần này nghĩa là "bếp xong hết, chờ chặng sau".
  *
- * DELIVERY còn 2 chặng nữa (ship + nhận) nên trần thấp hơn PICKUP (chỉ còn 1 chặng).
- * Cả 2 đều ≤ 95 nên M2.D-20 ("tối đa 95% khi chưa xong") vẫn được tôn trọng — mức mới còn chặt
- * hơn chứ không nới. Đừng nâng 2 số này lên 100: 100% phải dành riêng cho `received_at`. */
-export const KITCHEN_CEILING = { DELIVERY: 70, PICKUP: 85 } as const;
+ * DELIVERY còn 2 chặng nữa (ship + nhận) nên trần 70 — 100% dành riêng cho `received_at`.
+ * PICKUP trần ĐÚNG 100 (điều chỉnh OD-19, 2026-08-05): bếp xong là phần việc của quán đã hết,
+ * khách thấy 100% + lời mời đến lấy; stage `COMPLETED` vẫn chờ `received_at` như cũ.
+ * M2.D-20 ("tối đa 95% khi chưa xong hẳn") vẫn được giữ bằng trần-phụ 95 ở nhánh chưa-xong
+ * trong `computeProgress` — trần 100 này CHỈ chạm được khi `isKitchenDone`. */
+export const KITCHEN_CEILING = { DELIVERY: 70, PICKUP: 100 } as const;
 
 /** % khi shipper đã rời quán nhưng khách chưa xác nhận nhận hàng. Chỉ dùng cho DELIVERY. */
 export const SHIPPING_PERCENT = 90;
@@ -131,15 +139,16 @@ export function computeProgress(input: ComputeProgressInput): ComputeProgressRes
     // TRẦN MANG ĐÚNG MỘT NGHĨA: "bếp xong hết". Nên 2 nhánh tách hẳn:
     // - xong hết  → ĐÚNG BẰNG trần. Không tính theo trọng số, vì mọi món READY cho ra
     //   0.8 × trần (= 56 với DELIVERY) trong khi bếp thật sự đã xong — con số đó nói sai.
-    // - chưa xong → chặn ở `trần - 1`, để "chạm trần" ⟺ "bếp xong" là tương đương hai chiều.
-    //   Thiếu `-1` thì 19 SERVED + 1 COOKING cũng làm tròn lên tới trần và khách thấy
-    //   "đã xong" khi còn 1 món đang nấu.
+    // - chưa xong → chặn ở `min(trần - 1, 95)`, để "chạm trần" ⟺ "bếp xong" là tương đương
+    //   hai chiều. Thiếu `-1` thì 19 SERVED + 1 COOKING cũng làm tròn lên tới trần và khách
+    //   thấy "đã xong" khi còn 1 món đang nấu. Mức 95 là M2.D-20 ("tối đa 95% khi chưa xong
+    //   hẳn") — chỉ cắn với PICKUP từ khi trần lên 100; DELIVERY 70-1=69 đã chặt hơn sẵn.
     const kitchenDone = isKitchenDone(valid);
     if (kitchenDone) {
       percent = ceiling;
     } else {
       const raw = valid.reduce((sum, s) => sum + (STATE_WEIGHT[s] ?? 0), 0) / valid.length;
-      percent = Math.min(Math.round(raw * ceiling), ceiling - 1);
+      percent = Math.min(Math.round(raw * ceiling), ceiling - 1, 95);
     }
     stage = deriveKitchenStage(valid, kitchenDone, input.fulfillment_type);
   }
@@ -192,7 +201,9 @@ export function stageLabel(stage: OrderStage, fulfillment_type: 'PICKUP' | 'DELI
     case 'DELIVERING':
       return 'Đang giao';
     case 'READY_FOR_PICKUP':
-      return 'Sẵn sàng lấy hàng';
+      // Điều chỉnh OD-19 (2026-08-05): đi cùng percent 100 nên nhãn phải là LỜI MỜI hành động,
+      // không phải mô tả trạng thái "sẵn sàng" chung chung.
+      return 'Món đã xong — mời bạn đến lấy';
     case 'COMPLETED':
       // Cùng một stage nhưng 2 luồng nói 2 câu khác nhau — khách tự lấy thì "đã giao" là vô nghĩa.
       return fulfillment_type === 'PICKUP' ? 'Đã lấy hàng' : 'Đã nhận hàng';

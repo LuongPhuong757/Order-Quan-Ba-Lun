@@ -29,31 +29,37 @@ type Props = {
   action?: { label: string; onClick?: () => void; href?: string };
 };
 
-const TONE_STYLES: Record<Tone, { bg: string; text: string }> = {
-  brand: { bg: 'var(--brand-100)', text: 'var(--text-strong)' },
-  warn: { bg: 'var(--warn-100)', text: 'var(--warn-600)' },
-  danger: { bg: 'var(--danger-100)', text: 'var(--danger-600)' },
-  info: { bg: 'var(--info-100)', text: 'var(--info-600)' },
+// Bản thiết kế lại 2026-08-05 (feedback "banner khối màu đặc trông xấu"): banner giờ là CARD
+// nền trắng cùng họ với card món/hoá đơn của trang — tông màu chỉ nói qua 2 kênh nhỏ: mép
+// trái 4px + huy hiệu icon tròn nền nhạt. Chữ luôn là --text-strong/--text-muted như mọi
+// card khác, KHÔNG nhuộm cả đoạn theo tông màu (chữ màu trên nền màu là thứ làm nó rối).
+const TONE_STYLES: Record<Tone, { edge: string; badgeBg: string; badgeText: string }> = {
+  brand: { edge: 'var(--brand-600)', badgeBg: 'var(--brand-100)', badgeText: 'var(--brand-600)' },
+  warn: { edge: 'var(--warn-600)', badgeBg: 'var(--warn-100)', badgeText: 'var(--warn-600)' },
+  danger: { edge: 'var(--danger-600)', badgeBg: 'var(--danger-100)', badgeText: 'var(--danger-600)' },
+  info: { edge: 'var(--info-600)', badgeBg: 'var(--info-100)', badgeText: 'var(--info-600)' },
 };
 
 export function BannerNotice({ tone, title, body, action }: Props): JSX.Element {
   const palette = TONE_STYLES[tone];
-  const containerStyle: CSSProperties = { ...container, background: palette.bg, color: palette.text };
+  const containerStyle: CSSProperties = { ...container, borderLeft: `4px solid ${palette.edge}` };
 
   const content = (
     <>
-      <span style={{ ...iconWrap, color: palette.text }}>{renderIcon(tone)}</span>
+      <span style={{ ...iconBadge, background: palette.badgeBg, color: palette.badgeText }}>
+        {renderIcon(tone)}
+      </span>
       <div style={textCol}>
         <p style={titleStyle}>{title}</p>
         {body && <p style={bodyStyle}>{body}</p>}
       </div>
       {action &&
         (action.href ? (
-          <a href={`tel:${action.href}`} style={actionLink}>
+          <a href={`tel:${action.href}`} style={{ ...actionLink, color: palette.edge }}>
             {action.label}
           </a>
         ) : (
-          <button type="button" onClick={action.onClick} style={actionButton}>
+          <button type="button" onClick={action.onClick} style={{ ...actionButton, color: palette.edge }}>
             {action.label}
           </button>
         ))}
@@ -117,18 +123,31 @@ function AlertGlyph(): JSX.Element {
 const container: CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
-  alignItems: 'center',
+  // flex-start chứ không center: body dài xuống nhiều dòng thì icon phải neo cạnh TIÊU ĐỀ,
+  // không trôi lơ lửng giữa khối chữ.
+  alignItems: 'flex-start',
   gap: 'var(--sp-3)',
   width: '100%',
+  // apps/shop KHÔNG có reset `box-sizing` toàn cục — thiếu dòng này thì width 100% + padding
+  // ngang làm banner phình rộng hơn khung 32px, tràn khỏi mép phải màn hình điện thoại.
+  boxSizing: 'border-box',
   maxWidth: 'var(--content-max)',
   margin: '0 auto',
   padding: 'var(--sp-3) var(--sp-4)',
+  background: 'var(--bg-surface)',
+  border: '1px solid var(--border-subtle)',
   borderRadius: 'var(--r-card)',
 };
 
-const iconWrap: CSSProperties = {
+// Huy hiệu tròn nền nhạt — kênh màu thứ hai bên cạnh mép trái, thay cho việc nhuộm cả banner.
+const iconBadge: CSSProperties = {
   display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   flexShrink: 0,
+  width: '36px',
+  height: '36px',
+  borderRadius: '50%',
 };
 
 const textCol: CSSProperties = {
@@ -137,6 +156,8 @@ const textCol: CSSProperties = {
   gap: 'var(--sp-1)',
   flex: '1 1 auto',
   minWidth: '50%',
+  // Đẩy khối chữ xuống cho dòng tiêu đề canh giữa với huy hiệu 36px.
+  paddingTop: '2px',
 };
 
 const titleStyle: CSSProperties = {
@@ -144,6 +165,8 @@ const titleStyle: CSSProperties = {
   fontFamily: 'var(--font-body)',
   fontSize: 'var(--fs-base)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+  lineHeight: 'var(--lh-snug)',
 };
 
 const bodyStyle: CSSProperties = {
@@ -151,10 +174,12 @@ const bodyStyle: CSSProperties = {
   fontFamily: 'var(--font-body)',
   fontSize: 'var(--fs-sm)',
   color: 'var(--text-muted)',
+  lineHeight: 1.55,
 };
 
 const actionButton: CSSProperties = {
   flexShrink: 0,
+  alignSelf: 'center',
   minHeight: 'var(--tap-min)',
   padding: '0 var(--sp-3)',
   border: '1px solid currentColor',

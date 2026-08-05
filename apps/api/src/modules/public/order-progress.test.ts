@@ -13,6 +13,8 @@ import {
 // Thêm 2 chặng `shipped_at`/`received_at` nên thang % chia lại: chặng bếp co về trần 70 (DELIVERY)
 // / 85 (PICKUP), đã đi ship = 90, khách đã nhận = 100. Kéo theo:
 //   - PICKUP mọi món READY KHÔNG còn 100% + all_done (ghi đè M2.D-15 → OVERRIDE-DEBT OD-19)
+//     ⚠ 2026-08-05 điều chỉnh tiếp: trần PICKUP quay về 100 — bếp xong là khách thấy 100% + mời
+//     đến lấy, nhưng stage vẫn READY_FOR_PICKUP và all_done vẫn chờ `received_at` (xem OD-19).
 //   - DELIVERY mọi món SERVED KHÔNG còn là COMPLETED — `SERVED` nay chỉ là "đã rời bếp"
 //   - stage `DELIVERING` nay CHỈ xuất hiện khi `shipped_at != null`; "bếp xong chờ giao" là
 //     `READY_TO_SHIP` (trước đây bị dán nhãn `DELIVERING`, nói sai sự thật)
@@ -77,11 +79,13 @@ describe('computeProgress — chặng bếp co về trần của luồng', () =>
     expect(result.all_done).toBe(false);
   });
 
-  it('tất cả READY, PICKUP → trần 85, READY_FOR_PICKUP, all_done=false (ghi đè M2.D-15)', () => {
+  // Điều chỉnh OD-19 (2026-08-05): PICKUP bếp xong = 100%, nhưng stage/all_done vẫn chờ
+  // received_at — % kết thúc sớm hơn stage, cố ý.
+  it('tất cả READY, PICKUP → 100%, stage vẫn READY_FOR_PICKUP, all_done=false', () => {
     const result = computeProgress(
       baseInput({ item_states: ['READY', 'READY'], fulfillment_type: 'PICKUP' }),
     );
-    expect(result.percent).toBe(85);
+    expect(result.percent).toBe(100);
     expect(result.stage).toBe('READY_FOR_PICKUP');
     expect(result.all_done).toBe(false);
   });
@@ -90,6 +94,15 @@ describe('computeProgress — chặng bếp co về trần của luồng', () =>
     const item_states = [...Array(19).fill('SERVED'), 'COOKING'];
     const result = computeProgress(baseInput({ item_states }));
     expect(result.percent).toBeLessThan(70);
+    expect(result.stage).toBe('COOKING');
+  });
+
+  // M2.D-20 sống sót sau khi trần PICKUP lên 100: chưa xong hẳn thì tối đa 95, không có chuyện
+  // 19 SERVED + 1 COOKING làm tròn lên 97-99 trông như sắp xong tới nơi.
+  it('PICKUP chưa xong hẳn → chặn ở 95 (M2.D-20), stage COOKING', () => {
+    const item_states = [...Array(19).fill('SERVED'), 'COOKING'];
+    const result = computeProgress(baseInput({ item_states, fulfillment_type: 'PICKUP' }));
+    expect(result.percent).toBe(95);
     expect(result.stage).toBe('COOKING');
   });
 });
@@ -234,8 +247,9 @@ describe('stageLabel — nhãn theo 09-UI-SPEC Mặt B', () => {
     expect(stageLabel('DELIVERING', 'DELIVERY')).toBe('Đang giao');
   });
 
-  it("READY_FOR_PICKUP + PICKUP = 'Sẵn sàng lấy hàng'", () => {
-    expect(stageLabel('READY_FOR_PICKUP', 'PICKUP')).toBe('Sẵn sàng lấy hàng');
+  // Nhãn đi cùng percent 100 (điều chỉnh OD-19) nên là lời mời hành động, không phải "sẵn sàng".
+  it("READY_FOR_PICKUP + PICKUP = 'Món đã xong — mời bạn đến lấy'", () => {
+    expect(stageLabel('READY_FOR_PICKUP', 'PICKUP')).toBe('Món đã xong — mời bạn đến lấy');
   });
 
   it("READY_TO_SHIP = 'Đã xong, chờ giao' — KHÔNG phải 'Đang giao'", () => {

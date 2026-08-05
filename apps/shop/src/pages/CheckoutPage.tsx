@@ -3,7 +3,14 @@ import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 import { OnlineOrderSubmit, PublicStoreStatus } from '@order/schemas';
 import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
-import { formatVnd, readCartNote, toSubmitItems, useCart, type CartLine } from '../lib/cart-store.ts';
+import {
+  clearCartNote,
+  formatVnd,
+  readCartNote,
+  toSubmitItems,
+  useCart,
+  type CartLine,
+} from '../lib/cart-store.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import * as MapsLink from '../lib/maps-link.ts';
 import { useGeolocation } from '../lib/use-geolocation.ts';
@@ -11,6 +18,7 @@ import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
+import { OtpSheet } from '../components/OtpSheet.tsx';
 
 /**
  * `/checkout` — bước 2 "Thông tin nhận hàng" (D-19: card PICKUP/DELIVERY + địa chỉ +
@@ -135,6 +143,10 @@ export function CheckoutPage(): JSX.Element {
   // Popup tóm tắt đơn (Task.md 2026-08-04): "ĐẶT HÀNG" chỉ MỞ popup sau khi validate;
   // gửi thật nằm sau nút "Xác nhận đặt hàng" trong popup.
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Bước OTP (2026-08-04, chốt với chủ dự án): đứng TRƯỚC popup xác nhận. SĐT chưa có phiên
+  // trên thiết bị (hoặc khác số đang đăng nhập) → verify OTP xong mới tới popup; có phiên
+  // đúng số thì bỏ qua hẳn — không hỏi lại, không tốn tin nhắn.
+  const [otpOpen, setOtpOpen] = useState(false);
 
   // Giỏ rỗng — không cho đứng ở bước 2, quay lại /cart. `!submitting` là chốt chặn cho lúc
   // VỪA ĐẶT XONG: cart.clear() làm giỏ về 0 và nếu effect này chen được vào giữa thì nó đá
@@ -192,14 +204,26 @@ export function CheckoutPage(): JSX.Element {
     ctaHint = FIELD_ERRORS_HINT;
   }
 
+  /** SĐT đang nhập ĐÃ có phiên OTP đúng số trên thiết bị chưa — quyết định có chen bước OTP. */
+  const hasSessionForPhone = (): boolean => {
+    const session = CustomerToken.readPhoneSession();
+    if (!session) return false;
+    return CustomerToken.normalizePhoneForCompare(phone) === session.phone;
+  };
+
   /** Dựng body + validate zod. Trả `null` nếu hỏng (đồng thời ghi lỗi field lên form). */
   const buildValidatedBody = (): z.infer<typeof OnlineOrderSubmit> | null => {
+    const session = CustomerToken.readPhoneSession();
     const body: Record<string, unknown> = {
       customer_token: CustomerToken.getOrCreateCustomerToken(),
       customer_name: name,
       customer_phone: phone,
       fulfillment_type: fulfillment,
       items: toSubmitItems(cart.lines),
+      // Phiên OTP (2026-08-04) — chỉ gắn khi phiên thuộc đúng SĐT trong đơn; BE đối chiếu lại.
+      ...(session && CustomerToken.normalizePhoneForCompare(phone) === session.phone
+        ? { session_token: session.session_token }
+        : {}),
     };
     if (cartNote) body.customer_note = cartNote;
     if (fulfillment === 'DELIVERY') body.customer_address = address;
@@ -226,11 +250,17 @@ export function CheckoutPage(): JSX.Element {
   };
 
   /** Nút "ĐẶT HÀNG": validate xong thì MỞ popup tóm tắt (Task.md 2026-08-04), KHÔNG gửi.
-   * Validate trước khi mở — popup tóm tắt một đơn không hợp lệ là tóm tắt thứ sắp bị chặn. */
+   * Validate trước khi mở — popup tóm tắt một đơn không hợp lệ là tóm tắt thứ sắp bị chặn.
+   * Quán bật OTP + SĐT chưa đăng nhập trên thiết bị → bước OTP chen vào TRƯỚC popup
+   * (thứ tự chốt 2026-08-04: điền thông tin → OTP → xác nhận đơn). */
   const handleCtaClick = (): void => {
     if (ctaDisabled) return;
     if (buildValidatedBody() === null) return;
     setSubmitError(null);
+    if (store.data?.otp_required && !hasSessionForPhone()) {
+      setOtpOpen(true);
+      return;
+    }
     setConfirmOpen(true);
   };
 
@@ -259,6 +289,15 @@ export function CheckoutPage(): JSX.Element {
 
     if ('error' in result) {
       setSubmitting(false);
+      // Phiên OTP chết phía server (hết hạn/bị thu hồi khi đổi số ở thiết bị khác... trong khi
+      // localStorage còn bản sao) — dọn phiên hỏng rồi đưa khách vào thẳng bước OTP, không
+      // hiện lỗi chữ trong popup: câu "vui lòng xác minh" mà không kèm đường xác minh là ngõ cụt.
+      if (result.error.code === 'OTP_SESSION_REQUIRED') {
+        CustomerToken.clearPhoneSession();
+        setConfirmOpen(false);
+        setOtpOpen(true);
+        return;
+      }
       // GIỮ popup mở và hiện lỗi NGAY TRONG popup (bug 2026-08-04): bản đầu đóng popup rồi
       // vẽ banner ở cuối trang — banner nằm ngoài khung nhìn nên khách bấm xong thấy "không
       // có gì xảy ra". Lỗi phải hiện đúng nơi mắt khách đang nhìn. Riêng VALIDATION_FAILED
@@ -288,6 +327,9 @@ export function CheckoutPage(): JSX.Element {
     // Giỏ nằm ở localStorage nên xoá sau navigate vẫn ăn, không phụ thuộc component nào mounted.
     navigate(`/o/${result.data.order_token}`, { replace: true });
     cart.clear();
+    // Ghi chú chỉ thuộc về đơn vừa đặt — xoá luôn để đơn sau không dính ghi chú cũ
+    // (tên/SĐT/địa chỉ thì vẫn giữ lại để prefill).
+    clearCartNote();
   };
 
   return (
@@ -298,7 +340,9 @@ export function CheckoutPage(): JSX.Element {
       </Link>
       <h1 style={heading}>Thông tin nhận hàng</h1>
 
-      {/* D-11 — MỘT banner duy nhất, tone info, dùng câu chủ quán tự soạn nguyên văn.
+      {/* D-11 — MỘT banner duy nhất, dùng câu chủ quán tự soạn nguyên văn. Tone `brand`
+          (nền hồng ấm, cùng tông theme) chứ không phải `info` xanh dương: theo phân vai trong
+          BannerNotice, tin về QUÁN là brand — info dành riêng cho tin về ĐƠN của khách.
           Bản cũ có ternary phân biệt `OUTSIDE_HOURS` vs tắt-thủ-công + 2 chuỗi cứng ở FE: nay bỏ hết,
           vì với khách thì cả hai đều là "quán đang đóng cửa, vẫn đặt được" — chỉ 1 câu, do chủ quán
           soạn. Không `action` gọi quán: câu chữ đã do chủ quán tự viết nên họ tự quyết có mời gọi
@@ -307,7 +351,7 @@ export function CheckoutPage(): JSX.Element {
           giữ trên một dòng — chủ quán viết bao nhiêu thì khách đọc được bấy nhiêu (T-09-69). */}
       {storeOff && store.data && (
         <BannerNotice
-          tone="info"
+          tone="brand"
           title="Quán đang đóng cửa"
           body={store.data.closed_banner_text}
         />
@@ -488,6 +532,19 @@ export function CheckoutPage(): JSX.Element {
         disabled={ctaDisabled}
         hint={ctaHint}
       />
+
+      {otpOpen && (
+        <OtpSheet
+          phone={phone}
+          // Verify xong (OtpSheet đã tự lưu phiên) → sang thẳng popup xác nhận: khách không
+          // phải bấm ĐẶT HÀNG lần hai — OTP chỉ là bước chen giữa, không phải ngõ rẽ.
+          onVerified={() => {
+            setOtpOpen(false);
+            setConfirmOpen(true);
+          }}
+          onCancel={() => setOtpOpen(false)}
+        />
+      )}
 
       {confirmOpen && (
         <ConfirmOrderModal

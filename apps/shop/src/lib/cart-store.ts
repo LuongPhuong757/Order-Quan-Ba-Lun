@@ -183,6 +183,18 @@ export function saveCartNote(note: string): void {
   }
 }
 
+/**
+ * Xoá ghi chú sau khi đặt đơn thành công — ghi chú chỉ thuộc về MỘT đơn,
+ * khác với tên/SĐT/địa chỉ (lưu lại để prefill đơn sau).
+ */
+export function clearCartNote(): void {
+  try {
+    window.localStorage.removeItem(CART_NOTE_KEY);
+  } catch {
+    // Xoá thất bại (Safari private mode) — chấp nhận, ghi chú cũ chỉ hiện lại nếu reload.
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // (b) Hook useCart() — đọc/ghi localStorage
 // ─────────────────────────────────────────────────────────────────────────

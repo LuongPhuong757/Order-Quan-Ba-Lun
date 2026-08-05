@@ -120,23 +120,25 @@ export function MenuPage(): JSX.Element {
       <div style={bannerStack}>
         {/* Nút + thêm món ở lưới bên dưới VẪN bấm được dù banner này hiện
             (D-20) — chỉ nút ĐẶT HÀNG ở bước checkout mới bị khoá, không phải
-            việc của trang này. */}
-        {store.data &&
-          store.data.ordering_enabled === false &&
-          (store.data.blocking_reason === 'OUTSIDE_HOURS' ? (
-            <BannerNotice
-              tone="warn"
-              title="Quán đang ngoài giờ mở cửa hôm nay"
-              body={`Gọi ${store.data.store_phone} nếu cần hỗ trợ.`}
-            />
-          ) : (
-            <BannerNotice
-              tone="brand"
-              title="Quán tạm ngưng nhận đơn online"
-              body={`${store.data.off_reason || 'Vui lòng gọi để đặt trực tiếp'} — gọi ${store.data.store_phone} để đặt trực tiếp`}
-              action={{ label: 'Gọi quán', href: store.data.store_phone }}
-            />
-          ))}
+            việc của trang này.
+
+            D-11 — MỘT banner duy nhất, dùng nguyên văn `closed_banner_text` chủ quán soạn trong
+            Cài đặt (đổi chữ là ăn ngay, `/api/public/store` đã `no-store`). Bản cũ của phase 08
+            có ternary OUTSIDE_HOURS vs tắt-thủ-công + chữ cứng ở FE + `off_reason`: phase 9 đã bỏ
+            mô hình đó ở CheckoutPage nhưng bỏ sót trang này — với khách, cả hai tình huống đều là
+            "quán đang đóng cửa, vẫn đặt được". Không `action` gọi quán: câu chữ do chủ quán tự
+            viết, họ tự quyết có mời gọi điện hay không.
+
+            Tone `brand` (nền hồng ấm), KHÔNG phải `info` (xanh dương): theo phân vai trong
+            BannerNotice, tin về QUÁN (đang đóng cửa) là brand; info dành riêng cho tin về ĐƠN
+            của khách. Nền xanh info cũng lạc hẳn khỏi theme kem ấm + đỏ ớt của trang khách. */}
+        {store.data && store.data.ordering_enabled === false && (
+          <BannerNotice
+            tone="brand"
+            title="Quán đang đóng cửa"
+            body={store.data.closed_banner_text}
+          />
+        )}
 
         {priceChangedBanner && (
           <BannerNotice

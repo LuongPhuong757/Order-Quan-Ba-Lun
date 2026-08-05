@@ -12,6 +12,8 @@ import { OrderActivityLog } from './modules/orders/entities/order-activity-log.e
 import { StoreSetting } from './modules/settings/entities/store-settings.entity.js';
 import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.entity.js';
 import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
+import { CustomerOtp } from './modules/public/entities/customer-otp.entity.js';
+import { CustomerSession } from './modules/public/entities/customer-session.entity.js';
 import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
@@ -48,6 +50,8 @@ export const dataSourceOptions: DataSourceOptions = {
     StoreSetting,
     PhoneBlacklist,
     OnlineOrderRequest,
+    CustomerOtp,
+    CustomerSession,
     NotificationOutbox,
   ],
   migrations: ['src/migrations/*.ts'],

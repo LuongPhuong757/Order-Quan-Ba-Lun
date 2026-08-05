@@ -72,6 +72,8 @@ type StoreSettingsMap = {
   top_dishes_limit: number;
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
+  // Xác minh OTP khi đặt/tra cứu đơn (2026-08-04) — mặc định tắt vì kênh gửi thật chưa cắm.
+  otp_login_enabled: boolean;
 };
 
 type OrderingStatus = {
@@ -296,6 +298,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [distanceFactor, setDistanceFactor] = useState(settings.distance_factor);
   const [savingFulfillment, setSavingFulfillment] = useState(false);
 
+  // Xác minh OTP (2026-08-04)
+  const [otpEnabled, setOtpEnabled] = useState(settings.otp_login_enabled);
+  const [savingOtp, setSavingOtp] = useState(false);
+
   // Thông tin quán
   const [phone, setPhone] = useState(settings.store_phone);
   const [address, setAddress] = useState(settings.store_address);
@@ -322,6 +328,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setEtaDeliveryMax(settings.eta_delivery_max);
     setFreeShipKm(settings.free_ship_km);
     setDistanceFactor(settings.distance_factor);
+    setOtpEnabled(settings.otp_login_enabled);
     setPhone(settings.store_phone);
     setAddress(settings.store_address);
     setFacebookUrl(settings.store_facebook_url);
@@ -366,6 +373,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       distanceFactor: settings.distance_factor,
     },
   );
+  const otpDirty = isDirty({ otpEnabled }, { otpEnabled: settings.otp_login_enabled });
   const storeDirty = isDirty(
     { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
     {
@@ -516,6 +524,19 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       toast.push('error', extractError(err).message);
     } finally {
       setSavingFulfillment(false);
+    }
+  };
+
+  const saveOtp = async () => {
+    setSavingOtp(true);
+    try {
+      await api.put('/admin/settings', { otp_login_enabled: otpEnabled });
+      toast.push('success', otpEnabled ? 'Đã bật xác minh OTP ✓' : 'Đã tắt xác minh OTP ✓');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSavingOtp(false);
     }
   };
 
@@ -856,6 +877,29 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
 
         <p style={{ fontSize: 12, color: C.muted, margin: '12px 0 0' }}>
           Hệ thống không tự tính tiền ship — chỉ hiện quy tắc cho khách, phí cuối do quán chốt khi gọi lại.
+        </p>
+      </Section>
+
+      {/* ══ 4b. Xác minh OTP (2026-08-04) ══
+          Công tắc của toàn bộ luồng "đăng nhập bằng OTP" phía khách. Mặc định TẮT vì kênh gửi
+          tin thật (Zalo ZNS / SMS) chưa đăng ký — hiện mã chỉ ghi ra log server (mock). Bật khi
+          chưa có kênh thật = khách không nhận được mã = KHÔNG AI đặt được đơn. */}
+      <Section
+        title="Xác minh OTP"
+        hint="Bật lên thì khách phải nhập mã OTP gửi về số điện thoại trước khi đặt đơn và khi tra cứu lịch sử. Xác minh một lần là đăng nhập 90 ngày trên thiết bị đó."
+        dirty={otpDirty}
+        saving={savingOtp}
+        saveLabel="Lưu xác minh OTP"
+        onSave={() => void saveOtp()}
+      >
+        <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginBottom: 0 }}>
+          <input type="checkbox" checked={otpEnabled} onChange={(e) => setOtpEnabled(e.target.checked)} />
+          Yêu cầu OTP khi đặt đơn và tra cứu lịch sử
+        </label>
+        <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
+          ⚠ Kênh gửi tin nhắn thật chưa được cài — hiện mã OTP chỉ ghi ra log server (chế độ thử
+          nghiệm). Chỉ bật khi thử nghiệm hoặc sau khi đã đăng ký Zalo ZNS / SMS brandname; bật
+          khi chưa có kênh thật thì khách sẽ không nhận được mã và không đặt được đơn.
         </p>
       </Section>
 

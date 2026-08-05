@@ -65,6 +65,7 @@ import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
 import { OnlineMenuPanel } from './OnlineMenuPanel.tsx';
 import { createBell } from '../lib/bell.ts';
 import { connectionStateFrom, type SseConnState } from '../lib/online-orders-sse.ts';
+import { filterOrdersBySearch } from '../lib/online-order-search.ts';
 import { subscribeQueueStream } from '../lib/online-waiting-badge.ts';
 import { formatWait, isOverdue, waitingSeconds } from '../lib/queue-clock.ts';
 
@@ -274,6 +275,13 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
   // trên từng row, thêm query param để BE lọc lại thứ FE làm được trong 1 vòng lặp là thừa.
   const [stepFilter, setStepFilter] = useState<FulfillmentStep | 'ALL'>('ALL');
 
+  // Ô tìm kiếm (tên khách / SĐT / món trong đơn) — lọc tại FE vì BE trả TOÀN BỘ đơn của tab
+  // trong 1 lần GET, mọi field cần tìm đã nằm trên row. Khác `stepFilter`, search GIỮ NGUYÊN
+  // khi đổi tab trạng thái: luồng thật là "khách gọi báo số điện thoại → tìm ở Chờ duyệt không
+  // thấy → lật sang Đã xác nhận tìm tiếp". Không có bẫy lọc-ngầm vì chữ đang tìm luôn hiện
+  // trong ô ngay trên danh sách.
+  const [search, setSearch] = useState('');
+
   // Giữ tab đang xem trong ref: SSE handler được tạo 1 lần, nếu đọc `status` qua closure thì nó
   // mãi thấy 'WAITING' và tab tra cứu sẽ không bao giờ tự tải lại.
   const statusRef = useRef(status);
@@ -437,20 +445,25 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
       ).length
     : 0;
 
-  // Số đơn từng chặng cho chip lọc. Đếm trên TOÀN danh sách (không phải danh sách đã lọc) —
-  // con số trên chip là "tab Đã xác nhận có bao nhiêu đơn ở chặng này", bất kể đang lọc gì.
+  // Tìm kiếm thu hẹp TRƯỚC, chip chặng lọc tiếp trên kết quả tìm. Query rỗng thì
+  // `filterOrdersBySearch` trả nguyên mảng gốc nên mọi hành vi cũ giữ nguyên.
+  const searchedItems = useMemo(() => filterOrdersBySearch(items, search), [items, search]);
+
+  // Số đơn từng chặng cho chip lọc. Đếm trên danh sách ĐÃ QUA TÌM KIẾM (nhưng chưa qua chip):
+  // không tìm gì thì đó là toàn tab như trước; đang tìm 1 khách thì con số trên chip trả lời
+  // đúng câu đang hỏi — "đơn của khách này đang ở chặng nào".
   const stepCounts = useMemo(() => {
     const c: Record<FulfillmentStep, number> = { KITCHEN: 0, READY: 0, SHIPPED: 0, RECEIVED: 0 };
     if (status === 'CONFIRMED') {
-      for (const r of items) c[fulfillmentView(r).step] += 1;
+      for (const r of searchedItems) c[fulfillmentView(r).step] += 1;
     }
     return c;
-  }, [status, items]);
+  }, [status, searchedItems]);
 
   const visibleItems =
     status === 'CONFIRMED' && stepFilter !== 'ALL'
-      ? items.filter((r) => fulfillmentView(r).step === stepFilter)
-      : items;
+      ? searchedItems.filter((r) => fulfillmentView(r).step === stepFilter)
+      : searchedItems;
 
   return (
     // Vỏ trang (`container wide with-bottom-nav`) + `<h1>` + badge số đơn nay ở `OnlineOrdersPage`.
@@ -582,6 +595,55 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
         <ConnectionDot state={connState} />
       </div>
 
+      {/* ── Ô tìm kiếm: tên khách / SĐT / món trong đơn ──
+          Hàng riêng dưới toolbar (không nhét vào toolbar dính — trên điện thoại toolbar đã
+          chật với 4 tab + chip quá hạn + chuông). Gõ không dấu vẫn khớp; SĐT khớp theo đoạn
+          số bất kỳ. Nút ✕ để xoá nhanh bằng 1 chạm thay vì giữ Backspace. */}
+      <div style={{ position: 'relative', marginBottom: 16 }}>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="🔍 Tìm theo tên khách, SĐT hoặc món…"
+          aria-label="Tìm đơn theo tên khách, số điện thoại hoặc món trong đơn"
+          style={{
+            width: '100%',
+            minHeight: 44,
+            padding: search ? '0 44px 0 12px' : '0 12px',
+            fontSize: 16,
+            color: C.text,
+            background: C.cardBg,
+            border: `1px solid ${C.border}`,
+            borderRadius: 8,
+          }}
+        />
+        {search !== '' && (
+          <button
+            type="button"
+            aria-label="Xoá tìm kiếm"
+            onClick={() => setSearch('')}
+            style={{
+              position: 'absolute',
+              right: 4,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              width: 36,
+              height: 36,
+              minHeight: 0,
+              padding: 0,
+              border: 'none',
+              borderRadius: 8,
+              background: 'transparent',
+              color: C.muted,
+              fontSize: 16,
+              cursor: 'pointer',
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       {/* ── Hàng chip lọc CHẶNG — chỉ ở tab "Đã xác nhận" ──
           Tab trạng thái trả lời "đơn được duyệt chưa"; hàng chip này trả lời câu tiếp theo:
           "đơn đã duyệt rồi thì đi tới đâu trong 2 chặng giao". Là hàng RIÊNG dưới toolbar chứ
@@ -595,7 +657,7 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
         >
           {STEP_FILTERS.map(({ value, label }) => {
             const active = stepFilter === value;
-            const count = value === 'ALL' ? items.length : stepCounts[value];
+            const count = value === 'ALL' ? searchedItems.length : stepCounts[value];
             return (
               <button
                 key={value}
@@ -637,15 +699,31 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
         </div>
       )}
 
-      {/* Có đơn nhưng chip lọc hiện tại rỗng — nói rõ là DO LỌC, kèm đường về "Tất cả".
-          Thiếu câu này thì màn trống trơn trông hệt như "quán chưa có đơn nào". */}
-      {!loading && !loadError && items.length > 0 && visibleItems.length === 0 && (
+      {/* Có đơn nhưng TÌM KIẾM không khớp đơn nào — nói rõ là do tìm kiếm, kèm nút xoá.
+          Nhắc lật tab khác vì search giữ nguyên khi đổi tab: đơn cần tìm hay nằm ở tab bên. */}
+      {!loading && !loadError && items.length > 0 && searchedItems.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: 32 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.text }}>
+            Không tìm thấy đơn nào khớp “{search.trim()}”
+          </p>
+          <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>
+            Thử tab trạng thái khác — ô tìm kiếm vẫn giữ nguyên khi đổi tab.
+          </p>
+          <button type="button" className="secondary" onClick={() => setSearch('')}>
+            Xoá tìm kiếm
+          </button>
+        </div>
+      )}
+
+      {/* Tìm kiếm CÓ kết quả nhưng chip lọc chặng hiện tại rỗng — nói rõ là DO LỌC, kèm đường
+          về "Tất cả". Thiếu câu này thì màn trống trơn trông hệt như "quán chưa có đơn nào". */}
+      {!loading && !loadError && searchedItems.length > 0 && visibleItems.length === 0 && (
         <div className="card" style={{ textAlign: 'center', padding: 32 }}>
           <p style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: C.text }}>
             Không có đơn nào ở chặng này
           </p>
           <button type="button" className="secondary" onClick={() => setStepFilter('ALL')}>
-            Xem tất cả {items.length} đơn
+            Xem tất cả {searchedItems.length} đơn
           </button>
         </div>
       )}

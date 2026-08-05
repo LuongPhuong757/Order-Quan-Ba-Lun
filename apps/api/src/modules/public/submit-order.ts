@@ -9,7 +9,13 @@
 // `findMenuItemsByIds()` (dữ liệu DB), KHÔNG BAO GIỜ đọc trường giá từ dòng item của request
 // khách gửi lên. Nếu tương lai ai lỡ thêm field giá vào DTO, đây là chỗ PHẢI tiếp tục bỏ qua nó.
 import { randomBytes } from 'node:crypto';
-import { BadRequestException, ConflictException, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { OnlineOrderSubmit } from '@order/schemas';
 import { checkOrderGuard, type GuardErrorCode, type OrderGuardInput } from './order-guard.js';
 import type { OrderingStatus } from './store-status.js';
@@ -65,6 +71,8 @@ export type SubmitSettings = {
   online_ordering_off_reason: string;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
+  /** OTP đăng nhập (2026-08-04) — true thì đơn PHẢI kèm phiên khớp SĐT, xem guard bên dưới. */
+  otp_login_enabled: boolean;
 };
 
 /**
@@ -82,6 +90,12 @@ export type SubmitDeps = {
   insertRequest(row: OnlineOrderRequestInsert): Promise<void>;
   /** Bọc salt sẵn (`hashIp` + `resolveIpHashSalt`) — để test không cần env var. */
   hashIpFn(ip: string): string;
+  // ── OTP đăng nhập (2026-08-04) — 2 dep chỉ được gọi khi `otp_login_enabled` bật ──
+  /** SĐT của phiên còn sống (chưa thu hồi/hết hạn) — null nếu không. Impl thật ở
+   * `PublicOtpService.findSessionPhone` (đường đọc duy nhất của bảng `customer_sessions`). */
+  findSessionPhone(token: string, nowMs: number): Promise<string | null>;
+  /** Gia hạn trượt 90 ngày sau khi phiên được dùng hợp lệ. */
+  touchSession(token: string, nowMs: number): Promise<void>;
 };
 
 // Copywriting — 08-UI-SPEC.md bảng Copywriting (BE build message hoàn chỉnh tại chỗ throw;
@@ -139,6 +153,24 @@ export async function submitOrder(
     deps.countRecentByPhone(phone, ctx.nowMs - PHONE_WINDOW_MS),
     deps.findMenuItemsByIds(ids),
   ]);
+  // OTP đăng nhập (2026-08-04, chốt với chủ dự án): công tắc bật thì đơn PHẢI kèm phiên OTP
+  // còn sống và phiên phải thuộc ĐÚNG SĐT trong đơn — đây là chốt chặn THẬT, cờ
+  // `otp_required` ở `GET /store` chỉ là UI hint. Kiểm TRƯỚC mọi guard khác: chưa xác minh
+  // là chưa được đụng tới quota/blacklist (đỡ lộ tín hiệu dò SĐT qua mã lỗi khác nhau).
+  // FE nhận `OTP_SESSION_REQUIRED` thì mở bước nhập OTP rồi gửi lại đơn.
+  if (settings.otp_login_enabled) {
+    const sessionPhone = input.session_token
+      ? await deps.findSessionPhone(input.session_token, ctx.nowMs)
+      : null;
+    if (sessionPhone !== phone) {
+      throw new UnauthorizedException({
+        code: 'OTP_SESSION_REQUIRED',
+        message: 'Vui lòng xác minh số điện thoại bằng mã OTP trước khi đặt đơn.',
+      });
+    }
+    await deps.touchSession(input.session_token!, ctx.nowMs);
+  }
+
   const hasOpenOrder = await deps.hasOpenOrderForPhoneLocked(phone);
 
   const isRateLimited = recentCount >= PHONE_MAX_ORDERS_PER_WINDOW;

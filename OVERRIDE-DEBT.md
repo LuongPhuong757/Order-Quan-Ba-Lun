@@ -333,6 +333,31 @@ Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong mile
 
 ---
 
+## OD-19 — PICKUP không hoàn tất ở READY nữa (ghi đè M2.D-15), rồi điều chỉnh riêng con số %
+
+- **Ngày:** 2026-08-04 · điều chỉnh 2026-08-05 · **Người quyết:** chủ dự án (cả 2 lần)
+- **Quyết định gốc:** M2.D-15 (LOCKED) chốt *"PICKUP hoàn tất ở READY, không cần SERVED"* — bếp xong
+  là đơn PICKUP đạt 100% và coi như xong.
+- **Lệch (2026-08-04):** chủ dự án cần biết khách **đã đến lấy chưa** → thêm mốc `orders.received_at`;
+  `stage COMPLETED` + `all_done` chỉ đến khi mốc đó có. Chặng bếp của PICKUP co về trần 85%.
+- **Điều chỉnh (2026-08-05):** riêng **con số %** quay về 100 khi bếp xong, kèm nhãn
+  `'Món đã xong — mời bạn đến lấy'` và **tắt ETA** — khác đơn ship, món xong là phần việc của quán
+  đã hết, bắt khách nhìn 85% khi chẳng còn gì để chờ là nói sai. Phần còn lại của override 08-04
+  GIỮ NGUYÊN: `COMPLETED`/`all_done` vẫn chờ `received_at`, quán vẫn bấm "Khách đã lấy" ở màn
+  quản lý. Hệ quả cố ý: **% kết thúc sớm hơn stage** — 100% không còn đồng nghĩa COMPLETED.
+- **Kiểm soát bù trừ:** M2.D-20 ("tối đa 95% khi chưa xong hẳn") giữ bằng trần-phụ 95 ở nhánh
+  chưa-xong của `computeProgress` — 100 chỉ chạm được khi `isKitchenDone`. M2.D-19 (đơn điệu)
+  không bị ảnh hưởng: 100 là đỉnh, không có đường tụt.
+- **Ghi ở:** `apps/api/src/modules/public/order-progress.ts` (`KITCHEN_CEILING`, `stageLabel`),
+  `public-orders.service.ts` (ETA tắt ở `READY_FOR_PICKUP`), test ở `order-progress.test.ts` +
+  `public-orders.test.ts`. FE: `apps/shop/src/components/OrderStepper.tsx` — stepper PICKUP còn
+  4 node, kết thúc ở `READY_FOR_PICKUP` để thanh ĐẦY đúng lúc % chạm 100; stage `COMPLETED` vẽ
+  vào chính node cuối (đứng yên thay vì nhấp nháy).
+- **Quay lại thì sao:** hạ `KITCHEN_CEILING.PICKUP` xuống < 100 là % lại chờ `received_at`; mốc
+  `received_at` và 2 nút ở màn quản lý độc lập với con số %, không phải đụng.
+
+---
+
 ## Chưa được ghi ở đây (nợ tồn từ trước)
 
 Hai chuỗi override **nội bộ spec** mà spec §28 yêu cầu ghi vào file này, hiện chỉ nằm ở `.planning/intel/decisions.md`:

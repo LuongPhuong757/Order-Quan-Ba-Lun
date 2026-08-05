@@ -69,6 +69,11 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   { key: 'top_dishes_window', kind: 'string', default: 'all' },
   // Danh sách menu_item_id chủ quán không muốn lộ trên bảng xếp hạng.
   { key: 'top_dishes_hidden_ids', kind: 'json', default: [] },
+  // ── OTP đăng nhập bằng SĐT (2026-08-04) ──
+  // Mặc định TẮT vì kênh gửi thật (ZNS/SMS) chưa đăng ký — sender hiện là mock ghi log,
+  // bật lên khi chưa có kênh thật = khách không nhận được mã = không ai đặt được đơn.
+  // Bật ở /admin (khu Đơn hàng online) sau khi cắm sender thật, hoặc để thử nghiệm.
+  { key: 'otp_login_enabled', kind: 'bool', default: false },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -103,6 +108,7 @@ export type StoreSettingsMap = {
   top_dishes_limit: number;
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
+  otp_login_enabled: boolean;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

@@ -6,9 +6,14 @@ import { PublicMenuController } from './public-menu.controller.js';
 import { PublicOrdersController } from './public-orders.controller.js';
 import { PublicTopDishesController } from './public-top-dishes.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
+import { PublicOtpController } from './public-otp.controller.js';
+import { PublicOtpService } from './public-otp.service.js';
+import { LogOtpSender, OTP_SENDER } from './otp-sender.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
+import { CustomerOtp } from './entities/customer-otp.entity.js';
+import { CustomerSession } from './entities/customer-session.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
@@ -43,7 +48,11 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem]),
+    TypeOrmModule.forFeature([
+      MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem,
+      // OTP đăng nhập bằng SĐT (2026-08-04) — xem docblock `otp.ts`.
+      CustomerOtp, CustomerSession,
+    ]),
     SettingsModule,
     NotificationsModule,
   ],
@@ -54,7 +63,15 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     PublicOrdersController,
     // GET /api/public/top-dishes (2026-08-04) — bảng xếp hạng món, số suất SERVED thật.
     PublicTopDishesController,
+    // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
+    PublicOtpController,
   ],
-  providers: [PublicOrdersService],
+  providers: [
+    PublicOrdersService,
+    PublicOtpService,
+    // Kênh gửi OTP: mock ghi log (chốt "mock trước, chọn kênh sau"). Cắm ZNS/SMS thật =
+    // viết class mới implement `OtpSender` rồi đổi `useClass` — không sửa luồng.
+    { provide: OTP_SENDER, useClass: LogOtpSender },
+  ],
 })
 export class PublicModule {}

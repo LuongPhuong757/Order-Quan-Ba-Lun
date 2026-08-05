@@ -1,14 +1,7 @@
-Cho phép đăng nhập bằng sđt để khách xem lại lịch sư
-Ở web/shop có màn tra cứu đơn theo số điện thoại dựa vào otp
-Nếu đã đăng nhập bằng otp rồi thì không cần đăng nhập lại nữa tránh mất thời gian và mã otp, lưu token trong 1 ngày
-Sau khi đặt đơn xong thì đăng nhập bằng sđt của khách luôn và cho token mãi mãi, lưu lại cả địa chỉ và họ tên
 Có màn hướng dẫn cụ thể sử dụng web
-Cần màn settig các lời thông báo đến người dùng trên web
 Có thông báo ở màn web của người đặt online
 Có chưc năng khuyến mãi
-Lên lịch ON-OFF web
 Check ngưỡng 375k gì đó, hỏi lại để thỏa luân kỹ hơn
-Phân biệt đơn đang xử lý và lịch sử đơn
 Ở giao diện bếp, order online chỉ hiển thị 24h còn admin hiên thị tất cả
 --------------------------------------------------------
 Sửa lại màn quản lý dễ nhìn hơn: Cho phép thu gọn thông tin tránh hiển thị quá nhieu, phân biệt màu sắc trạng thái của 3 status đơn online, cho phép sửa đơn rồi mới xác nhận  - DONE
@@ -24,6 +17,13 @@ Với giao diện đã xác nhân online Giao tận nơi và Khách tự lấy c
 Cho phép chọn món, mục được xuất hiện online - DONE
 Xem top các món ăn, fake data để biết quán đang có khách - DONE
 Hãy làm lại phần footer - DONE
-Tìm kiếm đơn online theo sđt, tên
-Với đơn đến lấy, khi tất cả các món xong thì đơn báo 100% hãy đến lấy và khi mà lấy xong thanh toán thì chuyên oke
-Ghi chú đang bị lưu lại cho các đơn sau,
+Ở web/shop có màn tra cứu đơn theo số điện thoại dựa vào otp - DONE
+Cho phép đăng nhập bằng sđt để khách xem lại lịch sư - DONE
+Phân biệt đơn đang xử lý và lịch sử đơn - DONE
+Tìm kiếm đơn online theo sđt, tên - DONE
+Nếu đã đăng nhập bằng otp rồi thì không cần đăng nhập lại nữa tránh mất thời gian và mã otp, lưu token trong 1 ngày - DONE
+Sau khi đặt đơn xong thì đăng nhập bằng sđt của khách luôn và cho token mãi mãi, lưu lại cả địa chỉ và họ tên - DONE
+Cần màn settig các lời thông báo đến người dùng trên web - DONE
+Lên lịch ON-OFF web - DONE
+Với đơn đến lấy, khi tất cả các món xong thì đơn báo 100% hãy đến lấy và khi mà lấy xong thanh toán thì chuyên oke - DONE
+Ghi chú đang bị lưu lại cho các đơn sau - DONE

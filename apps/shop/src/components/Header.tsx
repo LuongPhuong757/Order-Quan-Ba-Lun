@@ -27,6 +27,7 @@ const NAV_ITEMS: { to: string; label: string }[] = [
   { to: '/', label: 'Trang chủ' },
   { to: '/top', label: 'Món bán chạy' },
   { to: '/history', label: 'Đơn của tôi' },
+  { to: '/guide', label: 'Hướng dẫn' },
 ];
 
 export function Header({ cartCount }: Props): JSX.Element {

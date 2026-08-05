@@ -4,10 +4,16 @@ import type { OrderStage } from '@order/schemas';
 /**
  * Stepper tiến độ đơn ở `/o/:token` (REQ-O, 09-UI-SPEC § B).
  *
- * ⚠ 2026-08-04: DELIVERY nay có **5 mốc** (thêm "Đã xong, chờ giao" trước "Đang giao"), PICKUP
- * vẫn 4 mốc + mốc cuối. Trước đó "bếp xong hết" bị vẽ vào đúng node "Đang giao" khi chưa ai mang
- * đi đâu cả. Mốc cuối `COMPLETED` nay chỉ sáng khi `orders.received_at` có (ghi đè M2.D-15 với
- * luồng PICKUP — xem `OVERRIDE-DEBT.md` OD-19).
+ * ⚠ 2026-08-04: DELIVERY nay có **6 mốc** (thêm "Đã xong, chờ giao" trước "Đang giao") — mốc cuối
+ * `COMPLETED` chỉ sáng khi `orders.received_at` có. Trước đó "bếp xong hết" bị vẽ vào đúng node
+ * "Đang giao" khi chưa ai mang đi đâu cả.
+ *
+ * ⚠ 2026-08-05 (điều chỉnh OD-19): PICKUP chỉ còn **4 mốc**, kết thúc ở `READY_FOR_PICKUP` —
+ * KHÔNG có node `COMPLETED` riêng. Bếp xong là BE trả 100%, mà 100% đứng cạnh một stepper còn
+ * 1 node chưa sáng là hai con số đá nhau (bug chủ dự án báo 2026-08-05). Hành trình của KHÁCH
+ * dừng ở "đến lấy món"; mốc `COMPLETED` (quán bấm "Khách đã lấy") vẫn tồn tại ở BE/stage nhưng
+ * trên stepper nó vẽ vào CHÍNH node cuối: nhấp nháy = đang chờ bạn tới, đứng yên = bạn đã lấy
+ * (tiêu đề trang đổi theo `stage_label` nên không mất thông tin).
  *
  * ── 3 điều đã chốt, đừng "sửa cho đẹp" ──
  *
@@ -41,7 +47,7 @@ const STAGE_LABELS: Record<Exclude<OrderStage, 'REJECTED'>, string> = {
   COOKING: 'Đang chuẩn bị',
   READY_TO_SHIP: 'Đã xong, chờ người giao',
   DELIVERING: 'Đang giao',
-  READY_FOR_PICKUP: 'Sẵn sàng để lấy',
+  READY_FOR_PICKUP: 'Món đã xong, chờ bạn đến lấy',
   COMPLETED: 'Đã nhận hàng',
 };
 
@@ -91,12 +97,13 @@ const PULSE_CSS = `
 
 /** Các mốc theo thứ tự. DELIVERY có thêm chặng "chờ người giao" giữa bếp xong và đang giao —
  * PICKUP không có chặng đó vì không ai mang hàng đi đâu cả.
- * Số node khác nhau giữa 2 luồng là CÓ CHỦ Ý: vẽ đủ 5 node cho PICKUP rồi để 1 node chết vĩnh
- * viễn thì khách tưởng đơn của mình bị kẹt. */
+ * Số node khác nhau giữa 2 luồng là CÓ CHỦ Ý: vẽ node cho PICKUP theo khuôn DELIVERY rồi để
+ * node chết vĩnh viễn thì khách tưởng đơn của mình bị kẹt.
+ * PICKUP dừng ở `READY_FOR_PICKUP` (= lúc BE trả 100%) — xem docblock 2026-08-05 ở đầu file. */
 function stagesFor(fulfillmentType: Props['fulfillmentType']): Exclude<OrderStage, 'REJECTED'>[] {
   return fulfillmentType === 'DELIVERY'
     ? ['RECEIVED', 'CONFIRMED', 'COOKING', 'READY_TO_SHIP', 'DELIVERING', 'COMPLETED']
-    : ['RECEIVED', 'CONFIRMED', 'COOKING', 'READY_FOR_PICKUP', 'COMPLETED'];
+    : ['RECEIVED', 'CONFIRMED', 'COOKING', 'READY_FOR_PICKUP'];
 }
 
 export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | null {
@@ -106,11 +113,17 @@ export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | n
   if (stage === 'REJECTED') return null;
 
   const stages = stagesFor(fulfillmentType);
+  // PICKUP không có node COMPLETED riêng — "đã lấy hàng" vẽ vào chính node cuối (xem docblock).
+  const effectiveStage =
+    fulfillmentType === 'PICKUP' && stage === 'COMPLETED' ? 'READY_FOR_PICKUP' : stage;
   // `stage` không có trong mảng (vd đơn PICKUP mà BE trả DELIVERING do dữ liệu cũ) → coi như mốc 1
   // thay vì -1, để không có node nào bị đánh dấu "đã qua" một cách sai lệch.
-  const currentIndex = Math.max(0, stages.indexOf(stage));
+  const currentIndex = Math.max(0, stages.indexOf(effectiveStage));
   // Đơn đã đi hết đường thì stepper ĐỨNG YÊN — animation "đang chạy" trên đơn xong là nói dối.
   const finished = stage === 'COMPLETED';
+  // PICKUP bếp xong: sọc "đang load" chảy vào node cuối là nói dối — quán không còn làm gì nữa,
+  // quả bóng ở chân khách. Đoạn nối về xanh đặc; node cuối VẪN nhấp nháy (đang chờ bạn tới lấy).
+  const waitingOnCustomer = stage === 'READY_FOR_PICKUP';
 
   return (
     <div style={wrap}>
@@ -122,8 +135,9 @@ export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | n
           // Mốc 1 (`RECEIVED`) là "đã nhận, CHƯA duyệt" — dùng warn để khách thấy còn phải chờ
           // quán. Từ `CONFIRMED` trở đi mới là ok (xanh).
           const currentIsPending = current && s === 'RECEIVED';
-          // Đoạn nối DẪN VÀO node hiện tại mang animation sọc chảy (trừ khi đã xong).
-          const connCurrent = current && !finished;
+          // Đoạn nối DẪN VÀO node hiện tại mang animation sọc chảy (trừ khi đã xong,
+          // hoặc chỉ còn chờ khách tới lấy — lúc đó phần việc của quán đã hết).
+          const connCurrent = current && !finished && !waitingOnCustomer;
           return (
             // `aria-label` + `aria-current` đặt trên `<li>`, KHÔNG trên span bên trong: `<li>` đã
             // là listitem sẵn, thêm role="listitem" cho span là lồng 2 listitem, trình đọc màn
@@ -133,7 +147,10 @@ export function OrderStepper({ stage, fulfillmentType }: Props): JSX.Element | n
               // Item ĐẦU không có đoạn nối, để nó `flex: 1` như các item sau là sinh một khoảng
               // trắng chết ngay sau chấm đầu tiên (bug 2026-08-04) — nó chỉ rộng đúng bằng chấm.
               style={idx === 0 ? itemFirst : item}
-              aria-label={STAGE_LABELS[s]}
+              // Node cuối của PICKUP gánh 2 pha (chờ lấy / đã lấy) — nhãn máy đọc đổi theo pha.
+              aria-label={
+                s === 'READY_FOR_PICKUP' && finished ? 'Đã lấy hàng' : STAGE_LABELS[s]
+              }
               {...(current ? { 'aria-current': 'step' as const } : {})}
             >
               {idx > 0 && (

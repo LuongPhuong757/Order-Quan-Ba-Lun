@@ -2,7 +2,13 @@
 // có gap lock `FOR UPDATE` (RESEARCH Pattern 3, threat T-08-50 HIGH). Toàn bộ quyết định +
 // build dữ liệu nằm ở `submit-order.ts` (Task 1, test được bằng fake-repository) — file này
 // CHỈ có nhiệm vụ nối dây DB thật, không tự phát minh lại logic guard/giá.
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -27,6 +33,7 @@ import { submitOrder, type MenuItemLookup, type SubmitDeps } from './submit-orde
 import { cancelOrderByCustomer } from './cancel-order.js';
 import { buildHistoryEntry, type HistoryRequestRow } from './order-history.js';
 import { normalizePhone } from './phone.js';
+import { PublicOtpService } from './public-otp.service.js';
 
 @Injectable()
 export class PublicOrdersService {
@@ -41,6 +48,7 @@ export class PublicOrdersService {
     private readonly settingsSvc: SettingsService,
     private readonly outbox: NotificationOutboxService,
     private readonly emitter: EventEmitter2,
+    private readonly otpSvc: PublicOtpService,
   ) {}
 
   /**
@@ -168,8 +176,16 @@ export class PublicOrdersService {
           online_ordering_off_reason: s.online_ordering_off_reason,
           pickup_enabled: s.pickup_enabled,
           delivery_enabled: s.delivery_enabled,
+          otp_login_enabled: s.otp_login_enabled,
         };
       },
+
+      // OTP đăng nhập (2026-08-04) — uỷ quyền cho PublicOtpService (đường đọc/ghi duy nhất
+      // của `customer_sessions`). Cố ý chạy NGOÀI transaction của submit: đọc phiên + gia hạn
+      // trượt không cần lock, và phiên không được rollback theo đơn (đơn fail thì khách vẫn
+      // đang đăng nhập).
+      findSessionPhone: (token, nowMs) => this.otpSvc.findSessionPhone(token, nowMs),
+      touchSession: (token, nowMs) => this.otpSvc.touchSession(token, nowMs),
 
       // M2.D-59 — điều kiện `expires_at` viết sẵn cho tính năng chặn tạm thời sau này; hiện
       // cột luôn NULL (chỉ thêm/xoá tay), nhưng logic đọc đã đúng ngay từ đầu.
@@ -350,10 +366,17 @@ export class PublicOrdersService {
       : request.subtotal;
 
     // Đơn đã kết thúc (từ chối/khách huỷ/hoàn tất) thì không còn "dự kiến còn bao lâu" nữa.
-    const finished = progress.stage === 'REJECTED' || progress.stage === 'COMPLETED';
+    // `READY_FOR_PICKUP` cũng tắt ETA (điều chỉnh OD-19, 2026-08-05): món đã sẵn và % đã 100,
+    // "còn bao lâu" giờ phụ thuộc bước chân của khách — hiện "dự kiến còn 15–20 phút" cạnh
+    // lời mời đến lấy là hai câu đá nhau. Stage này chỉ tồn tại với PICKUP; READY_TO_SHIP của
+    // DELIVERY vẫn giữ ETA vì chặng giao còn ở phía trước.
+    const noEta =
+      progress.stage === 'REJECTED' ||
+      progress.stage === 'COMPLETED' ||
+      progress.stage === 'READY_FOR_PICKUP';
     const isPickup = fulfillment_type === 'PICKUP';
-    const eta_min = finished ? null : isPickup ? settings.eta_pickup_min : settings.eta_delivery_min;
-    const eta_max = finished ? null : isPickup ? settings.eta_pickup_max : settings.eta_delivery_max;
+    const eta_min = noEta ? null : isPickup ? settings.eta_pickup_min : settings.eta_delivery_min;
+    const eta_max = noEta ? null : isPickup ? settings.eta_pickup_max : settings.eta_delivery_max;
 
     const shaped = {
       order_token: request.order_token,
@@ -393,12 +416,34 @@ export class PublicOrdersService {
    *   duyệt mà query từng đơn là N+1 trên một endpoint public bị throttle lỏng hơn nhiều so
    *   với chi phí nó gây ra.
    * - KHÔNG ghi `max_progress_shown` ở đây (khác `getByToken`) — trang danh sách không hiện %.
+   *
+   * OTP đăng nhập (2026-08-04): công tắc `otp_login_enabled` bật thì SĐT trần KHÔNG còn là
+   * credential — chỉ nhận `session_token`, SĐT tra cứu lấy TỪ PHIÊN (vá lỗ "ai biết SĐT là
+   * xem được lịch sử người khác"). Công tắc tắt thì giữ nguyên ranh giới cũ đã chốt.
    */
-  async lookupByPhone(rawPhone: string): Promise<PublicOrderHistory> {
-    const phone = normalizePhone(rawPhone);
-    if (phone === null) {
-      // Cùng code + câu chữ với nhánh SĐT hỏng của submit-order.ts — FE đã biết xử lý nó.
-      throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Số điện thoại không hợp lệ' });
+  async lookupByPhone(input: { phone?: string; session_token?: string }): Promise<PublicOrderHistory> {
+    const settings = await this.settingsSvc.readAll();
+    let phone: string | null;
+
+    if (settings.otp_login_enabled) {
+      const nowMs = Date.now();
+      const sessionPhone = input.session_token
+        ? await this.otpSvc.findSessionPhone(input.session_token, nowMs)
+        : null;
+      if (sessionPhone === null) {
+        throw new UnauthorizedException({
+          code: 'OTP_SESSION_REQUIRED',
+          message: 'Vui lòng xác minh số điện thoại bằng mã OTP để xem lịch sử đơn.',
+        });
+      }
+      await this.otpSvc.touchSession(input.session_token!, nowMs);
+      phone = sessionPhone;
+    } else {
+      phone = normalizePhone(input.phone ?? '');
+      if (phone === null) {
+        // Cùng code + câu chữ với nhánh SĐT hỏng của submit-order.ts — FE đã biết xử lý nó.
+        throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Số điện thoại không hợp lệ' });
+      }
     }
 
     const requests = await this.requestRepo.find({

@@ -50,6 +50,8 @@ export class PublicStoreController {
       closed_submit_confirm_text: settings.closed_submit_confirm_text,
       pickup_enabled: settings.pickup_enabled,
       delivery_enabled: settings.delivery_enabled,
+      // OTP đăng nhập (2026-08-04) — UI hint cho apps/shop; chốt chặn thật ở submit/lookup.
+      otp_required: settings.otp_login_enabled,
       free_ship_km: settings.free_ship_km,
       distance_factor: settings.distance_factor,
       eta: {

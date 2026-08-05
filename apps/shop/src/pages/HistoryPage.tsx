@@ -1,11 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, CSSProperties, FormEvent, JSX } from 'react';
 import { Link } from 'react-router-dom';
-import { PublicOrderHistory, type PublicOrderHistoryEntry } from '@order/schemas';
-import { postJson, type ApiError } from '../lib/use-api.ts';
+import { PublicOrderHistory, PublicStoreStatus, type PublicOrderHistoryEntry } from '@order/schemas';
+import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
-import { readLastCustomer, readLookupPhone, saveLookupPhone } from '../lib/customer-token.ts';
+import { OtpSheet } from '../components/OtpSheet.tsx';
+import {
+  clearPhoneSession,
+  normalizePhoneForCompare,
+  readLastCustomer,
+  readLookupPhone,
+  readPhoneSession,
+  saveLookupPhone,
+  type PhoneSession,
+} from '../lib/customer-token.ts';
 
 /**
  * `/history` — "Đơn của tôi": tra cứu lịch sử đơn theo SĐT (2026-08-04).
@@ -19,6 +28,12 @@ import { readLastCustomer, readLookupPhone, saveLookupPhone } from '../lib/custo
  *  - SĐT tra thành công được nhớ (`qbl.lookup_phone`, bản BE đã chuẩn hoá) — lần sau mở
  *    trang là tự tra ngay. Chưa từng tra thì mồi bằng SĐT checkout gần nhất (autofill
  *    M2.D-12) vì gần như chắc chắn đó là số khách muốn tra.
+ *
+ * ── OTP đăng nhập (2026-08-04, chốt sau 3 quyết định trên) ──
+ * Khi quán bật `otp_required`, SĐT trần KHÔNG còn là credential: trang này tra bằng PHIÊN
+ * (`session_token` từ verify OTP). Có phiên → tự tra ngay không hỏi gì; chưa có/tra số
+ * khác số đang đăng nhập → mở `OtpSheet`, verify xong phiên MỚI thay phiên cũ ("đăng nhập
+ * sang tài khoản khác" — mỗi thiết bị một số). Công tắc tắt thì mọi thứ như 3 quyết định cũ.
  *
  * FE KHÔNG tự dựng nhãn trạng thái — `stage_label` render nguyên văn từ API (cùng nguyên
  * tắc "FE không tính lại tiến độ" của OrderTrackPage). FE chỉ chọn MÀU chip theo `stage`,
@@ -73,9 +88,14 @@ function chipPalette(entry: PublicOrderHistoryEntry): { bg: string; text: string
 }
 
 export function HistoryPage(): JSX.Element {
-  // Mồi ô nhập: SĐT tra thành công lần trước > SĐT checkout gần nhất > rỗng.
+  // Cần biết quán có bật OTP không TRƯỚC khi tự tra — quyết định credential là SĐT hay phiên.
+  const store = useApi('/api/public/store', PublicStoreStatus);
+  const [session, setSession] = useState<PhoneSession | null>(() => readPhoneSession());
+  const [otpOpen, setOtpOpen] = useState(false);
+
+  // Mồi ô nhập: số đang đăng nhập > SĐT tra thành công lần trước > SĐT checkout gần nhất.
   const [phone, setPhone] = useState<string>(
-    () => readLookupPhone() ?? readLastCustomer()?.customer_phone ?? '',
+    () => readPhoneSession()?.phone ?? readLookupPhone() ?? readLastCustomer()?.customer_phone ?? '',
   );
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [history, setHistory] = useState<PublicOrderHistory | null>(null);
@@ -86,21 +106,26 @@ export function HistoryPage(): JSX.Element {
   // trước chưa xong) — `postJson` không có AbortController như `useApi`.
   const seqRef = useRef(0);
 
-  async function lookup(raw: string): Promise<void> {
-    if (!isLikelyPhone(raw)) {
-      setFieldError(PHONE_INVALID_MSG);
-      return;
-    }
+  /** Gọi lookup với credential đã chọn sẵn (SĐT trần khi quán tắt OTP, phiên khi bật). */
+  async function lookup(body: { phone?: string; session_token?: string }): Promise<void> {
     const seq = ++seqRef.current;
     setFieldError(null);
     setLoading(true);
     setError(null);
 
-    const result = await postJson('/api/public/orders/lookup', { phone: raw }, PublicOrderHistory);
+    const result = await postJson('/api/public/orders/lookup', body, PublicOrderHistory);
     if (seq !== seqRef.current) return;
     setLoading(false);
 
     if ('error' in result) {
+      // Phiên chết phía server trong khi localStorage còn bản sao (hết hạn/bị thu hồi) —
+      // dọn phiên rồi mở thẳng bước OTP, không bắt khách tự hiểu câu lỗi.
+      if (result.error.code === 'OTP_SESSION_REQUIRED') {
+        clearPhoneSession();
+        setSession(null);
+        if (isLikelyPhone(phone)) setOtpOpen(true);
+        return;
+      }
       setError(result.error);
       return;
     }
@@ -110,19 +135,44 @@ export function HistoryPage(): JSX.Element {
     setPhone(result.data.phone);
   }
 
-  // Có số mồi hợp lệ thì tra luôn, khách khỏi bấm — đây chính là giá trị của việc nhớ SĐT.
+  /** Đường tra cứu khi khách bấm nút / trang tự tra: tự chọn credential theo công tắc OTP. */
+  function startLookup(raw: string): void {
+    if (!isLikelyPhone(raw)) {
+      setFieldError(PHONE_INVALID_MSG);
+      return;
+    }
+    if (store.data?.otp_required) {
+      // Số nhập trùng số đang đăng nhập → dùng phiên luôn; khác số → OTP để "đăng nhập
+      // sang tài khoản khác" (phiên cũ sẽ bị BE thu hồi lúc verify).
+      if (session && normalizePhoneForCompare(raw) === session.phone) {
+        void lookup({ session_token: session.session_token });
+      } else {
+        setOtpOpen(true);
+      }
+      return;
+    }
+    void lookup({ phone: raw });
+  }
+
+  // Tự tra khi mở trang — chờ biết trạng thái công tắc OTP rồi mới quyết định credential.
+  // Quán bật OTP mà thiết bị chưa đăng nhập thì KHÔNG tự mở OtpSheet: tự dưng bắn 1 tin nhắn
+  // (tiền!) khi khách mới chỉ mở trang là quá tay — khách bấm Tra cứu mới hỏi OTP.
   // Ref guard: StrictMode dev mount 2 lần, không bắn 2 request trùng.
   const didAutoLookup = useRef(false);
   useEffect(() => {
-    if (didAutoLookup.current) return;
+    if (didAutoLookup.current || !store.data) return;
     didAutoLookup.current = true;
-    if (phone && isLikelyPhone(phone)) void lookup(phone);
+    if (store.data.otp_required) {
+      if (session) void lookup({ session_token: session.session_token });
+      return;
+    }
+    if (phone && isLikelyPhone(phone)) void lookup({ phone });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [store.data]);
 
   function onSubmit(e: FormEvent<HTMLFormElement>): void {
     e.preventDefault();
-    void lookup(phone);
+    startLookup(phone);
   }
 
   return (
@@ -158,13 +208,35 @@ export function HistoryPage(): JSX.Element {
           </button>
         </div>
         {fieldError && <p style={errorText}>{fieldError}</p>}
+        {/* Dòng trạng thái đăng nhập (chỉ khi quán bật OTP): khách biết vì sao không bị hỏi mã,
+            và hiểu rằng tra số KHÁC sẽ cần OTP của số đó (đổi tài khoản). */}
+        {store.data?.otp_required && session && (
+          <p style={sessionHint}>
+            Số <span style={monoPhone}>{session.phone}</span> đã xác minh trên thiết bị này — tra số
+            khác sẽ cần mã OTP của số đó.
+          </p>
+        )}
       </form>
 
       {error && (
         <BannerNotice
           tone="danger"
           title={error.message}
-          action={{ label: 'Thử lại', onClick: () => void lookup(phone) }}
+          action={{ label: 'Thử lại', onClick: () => startLookup(phone) }}
+        />
+      )}
+
+      {otpOpen && (
+        <OtpSheet
+          phone={phone}
+          onVerified={(s) => {
+            // OtpSheet đã lưu phiên mới (phiên cũ bị BE thu hồi) — cập nhật state rồi tra ngay.
+            setSession(s);
+            setOtpOpen(false);
+            setPhone(s.phone);
+            void lookup({ session_token: s.session_token });
+          }}
+          onCancel={() => setOtpOpen(false)}
         />
       )}
 
@@ -370,6 +442,12 @@ const errorText: CSSProperties = {
   margin: 0,
   fontSize: 'var(--fs-caption)',
   color: 'var(--danger-600)',
+};
+
+const sessionHint: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
 };
 
 // Cùng idiom nút chính của StickyCta: IN HOA + giãn chữ rộng trên nền --brand-600.

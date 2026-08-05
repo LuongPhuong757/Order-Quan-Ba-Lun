@@ -14,6 +14,10 @@ export type OnlineOrderItemInput = z.infer<typeof OnlineOrderItemInput>;
 export const OnlineOrderSubmit = z
   .object({
     customer_token: z.string().min(32),
+    // Phiên OTP của SĐT (2026-08-04) — BẮT BUỘC khi `otp_login_enabled` bật: BE đối chiếu
+    // phiên ↔ `customer_phone`, lệch/thiếu là `OTP_SESSION_REQUIRED` (FE mở bước nhập OTP).
+    // Optional ở tầng schema vì công tắc tắt thì luồng cũ (không OTP) phải chạy y nguyên.
+    session_token: z.string().min(32).optional(),
     customer_name: z.string().min(1).max(128),
     customer_phone: z.string().min(9).max(16),
     fulfillment_type: z.enum(['PICKUP', 'DELIVERY']),
@@ -141,9 +145,18 @@ export type PublicOrderCancelResult = z.infer<typeof PublicOrderCancelResult>;
  *     trang `/o/:token` vốn đã cho xem (món + tiền + tiến độ).
  *  2. Throttle 10 lần/phút/IP như mọi endpoint public khác — dò quét SĐT hàng loạt rất đắt.
  */
-export const PublicOrderLookup = z.object({
-  phone: z.string().min(9).max(20),
-});
+export const PublicOrderLookup = z
+  .object({
+    phone: z.string().min(9).max(20).optional(),
+    /** Phiên OTP (2026-08-04) — khi `otp_login_enabled` bật, đây là credential DUY NHẤT
+     * được chấp nhận (SĐT trần bị từ chối, vá lỗ "ai biết SĐT là xem được lịch sử").
+     * SĐT tra cứu lấy từ phiên phía BE, không tin `phone` client gửi. */
+    session_token: z.string().min(32).optional(),
+  })
+  .refine((v) => v.phone !== undefined || v.session_token !== undefined, {
+    message: 'Thiếu số điện thoại',
+    path: ['phone'],
+  });
 export type PublicOrderLookup = z.infer<typeof PublicOrderLookup>;
 
 /**

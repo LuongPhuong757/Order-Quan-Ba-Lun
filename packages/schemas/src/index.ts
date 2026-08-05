@@ -8,4 +8,5 @@ export * from './public-store.js';
 export * from './public-menu.js';
 export * from './public-orders.js';
 export * from './public-top-dishes.js';
+export * from './public-otp.js';
 export * from './admin-online-orders.js';

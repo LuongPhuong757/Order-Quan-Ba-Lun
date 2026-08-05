@@ -82,6 +82,8 @@ class UpdateSettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_delivery_min?: number;
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_delivery_max?: number;
   @IsOptional() top_dishes_enabled?: boolean;
+  // OTP đăng nhập bằng SĐT (2026-08-04) — xem settings.defaults.ts về vì sao mặc định tắt.
+  @IsOptional() otp_login_enabled?: boolean;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
   @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
@@ -154,6 +156,7 @@ export class SettingsController {
       'top_dishes_limit',
       'top_dishes_window',
       'top_dishes_hidden_ids',
+      'otp_login_enabled',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

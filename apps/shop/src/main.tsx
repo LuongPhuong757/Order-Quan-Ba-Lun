@@ -10,8 +10,9 @@ import { CheckoutPage } from './pages/CheckoutPage.tsx';
 import { OrderTrackPage } from './pages/OrderTrackPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
 import { TopDishesPage } from './pages/TopDishesPage.tsx';
+import { GuidePage } from './pages/GuidePage.tsx';
 
-// Router thật của apps/shop (REQ-I..K, phase 08). 5 route + catch-all render
+// Router thật của apps/shop (REQ-I..K, phase 08). 6 route + catch-all render
 // lại MenuPage (khách gõ sai URL thì về menu, không thấy trang trắng).
 // Trang xem màu tạm trước đây (file vẫn còn trên đĩa để tham khảo) không còn
 // nằm trên đường import nào từ điểm mount này.
@@ -30,6 +31,7 @@ createRoot(root).render(
           <Route path="/o/:token" element={<OrderTrackPage />} />
           <Route path="/history" element={<HistoryPage />} />
           <Route path="/top" element={<TopDishesPage />} />
+          <Route path="/guide" element={<GuidePage />} />
           <Route path="*" element={<MenuPage />} />
         </Route>
       </Routes>

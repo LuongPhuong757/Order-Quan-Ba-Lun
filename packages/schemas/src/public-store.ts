@@ -45,6 +45,11 @@ export const PublicStoreStatus = z.object({
   closed_submit_confirm_text: z.string(),
   pickup_enabled: z.boolean(),
   delivery_enabled: z.boolean(),
+  // ── OTP đăng nhập bằng SĐT (2026-08-04) ──
+  // true = checkout/tra cứu yêu cầu phiên OTP (`otp_login_enabled` trong settings). FE đọc
+  // cờ này để quyết định có chen bước OTP hay không — nhưng chốt CHẶN THẬT nằm ở BE
+  // (`submit-order.ts` + `lookupByPhone`), cờ này chỉ là UI hint.
+  otp_required: z.boolean(),
   free_ship_km: z.number().int(),
   distance_factor: z.number(),
   eta: z.object({

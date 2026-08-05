@@ -40,6 +40,7 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
     online_ordering_off_reason: '',
     pickup_enabled: true,
     delivery_enabled: true,
+    otp_login_enabled: false,
     ...overrides,
   };
 }
@@ -53,6 +54,9 @@ function makeDeps(overrides: Partial<SubmitDeps> = {}): SubmitDeps {
     findMenuItemsByIds: vi.fn().mockResolvedValue([FAKE_MENU_ITEM]),
     insertRequest: vi.fn().mockResolvedValue(undefined),
     hashIpFn: vi.fn((ip: string) => `hashed(${ip})`),
+    // OTP đăng nhập (2026-08-04) — mặc định công tắc tắt nên 2 dep này không được gọi.
+    findSessionPhone: vi.fn().mockResolvedValue(null),
+    touchSession: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
@@ -99,6 +103,53 @@ describe('D-11 — công tắc Đóng cửa KHÔNG còn chặn đặt đơn', ()
     });
     const result = await submitOrder(deps, baseInput(), CTX);
     expect(result.order_token).toHaveLength(64);
+  });
+});
+
+describe('submitOrder — OTP đăng nhập (2026-08-04)', () => {
+  const SESSION_TOKEN = 's'.repeat(64);
+
+  it('công tắc TẮT → không đụng gì tới phiên, luồng cũ chạy y nguyên', async () => {
+    const deps = makeDeps();
+    await submitOrder(deps, baseInput(), CTX);
+    expect(deps.findSessionPhone).not.toHaveBeenCalled();
+    expect(deps.touchSession).not.toHaveBeenCalled();
+  });
+
+  it('công tắc BẬT + không gửi session_token → OTP_SESSION_REQUIRED 401, không insert', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ otp_login_enabled: true })),
+    });
+    const result = await captureHttpError(submitOrder(deps, baseInput(), CTX));
+    expect(result.code).toBe('OTP_SESSION_REQUIRED');
+    expect(result.status).toBe(401);
+    expect(deps.insertRequest).not.toHaveBeenCalled();
+  });
+
+  it('phiên thuộc SĐT KHÁC với SĐT trong đơn → OTP_SESSION_REQUIRED (không mượn phiên người khác được)', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ otp_login_enabled: true })),
+      findSessionPhone: vi.fn().mockResolvedValue('0999999999'),
+    });
+    const result = await captureHttpError(
+      submitOrder(deps, baseInput({ session_token: SESSION_TOKEN } as Partial<OnlineOrderSubmit>), CTX),
+    );
+    expect(result.code).toBe('OTP_SESSION_REQUIRED');
+  });
+
+  it('phiên khớp SĐT (kể cả khách gõ dạng +84) → đặt được + gia hạn trượt phiên', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ otp_login_enabled: true })),
+      findSessionPhone: vi.fn().mockResolvedValue('0912345678'),
+    });
+    const result = await submitOrder(
+      deps,
+      baseInput({ customer_phone: '+84912345678', session_token: SESSION_TOKEN } as Partial<OnlineOrderSubmit>),
+      CTX,
+    );
+    expect(result.order_token).toHaveLength(64);
+    expect(deps.findSessionPhone).toHaveBeenCalledWith(SESSION_TOKEN, CTX.nowMs);
+    expect(deps.touchSession).toHaveBeenCalledWith(SESSION_TOKEN, CTX.nowMs);
   });
 });
 
@@ -400,6 +451,8 @@ function makeService(opts: {
   const settingsSvc = { readAll: vi.fn().mockResolvedValue(FAKE_SETTINGS) };
   const outbox = { enqueueForNewRequest: vi.fn() };
   const emitter = { emit: vi.fn() };
+  // OTP đăng nhập (2026-08-04) — các test ở đây không đi qua nhánh phiên, fake tối thiểu.
+  const otpSvc = { findSessionPhone: vi.fn().mockResolvedValue(null), touchSession: vi.fn() };
 
   const svc = new PublicOrdersService(
     {} as never,
@@ -410,6 +463,7 @@ function makeService(opts: {
     settingsSvc as never,
     outbox as never,
     emitter as never,
+    otpSvc as never,
   );
   return { svc, update, itemRepo, menuItemRepo };
 }
@@ -472,14 +526,15 @@ describe('getByToken — ảnh món cho trang theo dõi (2026-08-04)', () => {
 });
 
 describe('getByToken — đơn đã CONFIRMED', () => {
-  // 13 = round(0.15 × trần PICKUP 85). Trước 2026-08-04 là 15 (thang cũ chạy thẳng tới 100).
-  it('2 món state KITCHEN thì percent 13, stage CONFIRMED, updated_at_ms lấy từ order', async () => {
+  // 15 = round(0.15 × trần PICKUP 100). Trần PICKUP quay về 100 từ 2026-08-05 (điều chỉnh
+  // OD-19 — bếp xong là khách thấy 100%); giai đoạn 08-04→08-05 trần 85 cho ra 13.
+  it('2 món state KITCHEN thì percent 15, stage CONFIRMED, updated_at_ms lấy từ order', async () => {
     const { svc } = makeService({
       request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
       items: [fakeItem(), fakeItem({ menu_item_name: 'Cơm rang', menu_item_price: 50000, qty: 1 })],
     });
     const res = await svc.getByToken('tok-1');
-    expect(res.percent).toBe(13);
+    expect(res.percent).toBe(15);
     expect(res.stage).toBe('CONFIRMED');
     expect(res.stage_label).toBe('Đã xác nhận');
     expect(res.updated_at_ms).toBe(ORDER_UPDATED_MS);
@@ -520,9 +575,9 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     const res = await svc.getByToken('tok-1');
     expect(res.items).toHaveLength(1);
     expect(res.items[0].name).toBe('Lẩu bò');
-    // Bếp xong hết → chạm ĐÚNG trần PICKUP 85. Nếu dòng ghi chú bị tính vào mẫu số thì đơn
-    // không còn "xong hết", percent rơi xuống 49 và stage thành COOKING.
-    expect(res.percent).toBe(85);
+    // Bếp xong hết → chạm ĐÚNG trần PICKUP 100. Nếu dòng ghi chú bị tính vào mẫu số thì đơn
+    // không còn "xong hết", percent rơi xuống 58 và stage thành COOKING.
+    expect(res.percent).toBe(100);
     expect(res.stage).toBe('READY_FOR_PICKUP');
   });
 
@@ -555,16 +610,19 @@ describe('getByToken — đơn đã CONFIRMED', () => {
   });
 
   // COMPLETED nay đến từ `orders.received_at`, KHÔNG từ item state (ghi đè M2.D-15 → OD-19).
-  // Bếp xong mà khách chưa tới lấy thì ETA vẫn phải còn — khách vẫn đang chờ để đi lấy.
-  it('bếp xong nhưng chưa nhận hàng → CHƯA phải COMPLETED, eta vẫn còn', async () => {
+  // Điều chỉnh 2026-08-05: PICKUP bếp xong = 100% + mời đến lấy, và ETA TẮT — món đã sẵn,
+  // "còn bao lâu" phụ thuộc bước chân của khách; nhưng stage vẫn CHƯA phải COMPLETED.
+  it('bếp xong nhưng chưa nhận hàng → 100% READY_FOR_PICKUP, CHƯA COMPLETED, eta tắt', async () => {
     const { svc } = makeService({
       request: fakeRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
       items: [fakeItem({ state: 'SERVED' })],
     });
     const res = await svc.getByToken('tok-1');
     expect(res.stage).toBe('READY_FOR_PICKUP');
-    expect(res.percent).toBe(85);
-    expect(res.eta_min).not.toBeNull();
+    expect(res.stage_label).toBe('Món đã xong — mời bạn đến lấy');
+    expect(res.percent).toBe(100);
+    expect(res.eta_min).toBeNull();
+    expect(res.eta_max).toBeNull();
   });
 
   it('received_at có → stage COMPLETED, percent 100, eta null', async () => {

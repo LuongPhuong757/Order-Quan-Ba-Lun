@@ -83,7 +83,14 @@ export class PublicOrdersController {
     if (!parsed.success) {
       throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Số điện thoại không hợp lệ' });
     }
-    return apiOk(await this.svc.lookupByPhone(parsed.data.phone));
+    // OTP đăng nhập (2026-08-04): service tự quyết nhận SĐT trần hay bắt phiên tuỳ công tắc
+    // `otp_login_enabled` — controller chỉ chuyển tiếp cả hai field.
+    return apiOk(
+      await this.svc.lookupByPhone({
+        phone: parsed.data.phone,
+        session_token: parsed.data.session_token,
+      }),
+    );
   }
 
   /**
