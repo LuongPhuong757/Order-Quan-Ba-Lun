@@ -19,10 +19,18 @@ import { DataSource } from 'typeorm';
 import { dataSourceOptions } from '../../data-source.js';
 
 // SĐT sentinel — không đụng dữ liệu thật. Dọn sạch ở beforeEach + afterAll.
-const SENTINEL_PHONE_LOCK = '0900000001';
-const SENTINEL_PHONE_OTHER = '0900000002';
-const SENTINEL_PHONE_RATE = '0900000003';
-const SENTINEL_LIKE = '09000000%';
+//
+// Tiền tố `09000020` phải KHÔNG giao với tiền tố sentinel của file integration khác. Trước đây
+// file này và `admin-online-orders.integration.test.ts` cùng dùng `09000000%`, mà cả hai đều
+// `DELETE ... WHERE customer_phone LIKE <tiền tố>` ở beforeEach/afterAll. Vitest chạy các file
+// test SONG SONG trên cùng một MySQL, nên file kia xoá mất row của file này giữa chừng và test
+// rate-limit fail ngẫu nhiên (đếm được 0 thay vì 3) — chỉ fail khi chạy cả suite, chạy riêng thì
+// pass, đúng kiểu flaky khó lần nhất. Thêm sentinel mới thì giữ nguyên nguyên tắc: mỗi file một
+// tiền tố riêng.
+const SENTINEL_PHONE_LOCK = '0900002001';
+const SENTINEL_PHONE_OTHER = '0900002002';
+const SENTINEL_PHONE_RATE = '0900002003';
+const SENTINEL_LIKE = '09000020%';
 
 let ds: DataSource;
 

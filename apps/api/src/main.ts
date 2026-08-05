@@ -13,12 +13,17 @@ import { GlobalExceptionFilter } from './common/filters/global-exception.filter.
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware.js';
 import { CsrfOriginGuard } from './common/middleware/csrf-origin.middleware.js';
 
-// M2.D-66 — order.<domain> phục vụ app khách (shop-dist), còn lại phục vụ app quản lý (web-dist).
-// Strip port trước khi so (order.localhost:3001 → order.localhost) để test local bằng
-// curl -H "Host: order.localhost" đi đúng nhánh.
-function isShopHost(host: string | undefined): boolean {
+// M2.D-66 (sửa 2026-08-05) — admin.<domain> phục vụ app quản lý (web-dist), MỌI host còn lại
+// phục vụ app khách (shop-dist): apex + www là địa chỉ khách gõ tay / quét QR nên phải là
+// đường ngắn nhất, nhân viên bookmark một lần nên chịu được subdomain dài.
+//
+// Chiều mặc định là CÓ CHỦ Ý: host lạ (truy cập thẳng bằng IP, Host header rác, hostname mới
+// chưa kịp khai báo) rơi vào trang khách — lộ menu thì vô hại, lộ màn quản lý thì không.
+// Strip port trước khi so (admin.localhost:3001 → admin.localhost) để test local bằng
+// curl -H "Host: admin.localhost" đi đúng nhánh.
+function isAdminHost(host: string | undefined): boolean {
   const h = (host || '').split(':')[0].toLowerCase();
-  return h.startsWith('order.');
+  return h.startsWith('admin.');
 }
 
 async function bootstrap() {
@@ -56,7 +61,7 @@ async function bootstrap() {
     const webStatic = hasWeb ? express.static(webDist) : null;
     const shopStatic = hasShop ? express.static(shopDist) : null;
     app.use((req: Request, res: Response, next: NextFunction) => {
-      const handler = isShopHost(req.headers.host) ? shopStatic : webStatic;
+      const handler = isAdminHost(req.headers.host) ? webStatic : shopStatic;
       if (!handler) return next();
       return handler(req, res, next);
     });
@@ -75,8 +80,8 @@ async function bootstrap() {
       if (req.method !== 'GET') return next();
       if (req.path.includes('.')) return next();  // file requests like /assets/x.js
       // M2.D-66 — SPA shell phải là index.html của ĐÚNG app tương ứng host,
-      // không được trả web-dist/index.html cho khách vào order.<domain>.
-      const dist = isShopHost(req.headers.host) ? shopDist : webDist;
+      // không được trả web-dist/index.html cho khách vào apex.
+      const dist = isAdminHost(req.headers.host) ? webDist : shopDist;
       if (!existsSync(dist)) return next();
       const wantsHtml = (req.headers.accept || '').includes('text/html');
       if (wantsHtml) {

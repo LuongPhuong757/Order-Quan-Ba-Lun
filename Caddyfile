@@ -1,37 +1,15 @@
 # Caddy reverse proxy → API container.
 # HTTPS auto qua Let's Encrypt — Caddy tự cấp + renew cert.
 # DOMAIN env (vd: quanbalun.site) — set ở .env.production.
+#
+# Hai site block, CÙNG trỏ về một container api:3001. main.ts chọn thư mục static theo
+# Host header (M2.D-66): host bắt đầu `admin.` → web-dist, còn lại → shop-dist.
+#
+# 2026-08-05 — apex thuộc về TRANG KHÁCH (trước đây là trang quản lý). Địa chỉ ngắn nhất
+# dành cho người gõ tay và quét QR; nhân viên bookmark admin.<domain> một lần là xong.
 
+# ─── Trang khách: apex + www ────────────────────────────────────────────────
 {$DOMAIN}, www.{$DOMAIN} {
-    log {
-        output stdout
-        format console
-    }
-
-    reverse_proxy api:3001 {
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
-
-    # Security headers — có HSTS vì đã HTTPS
-    header {
-        Strict-Transport-Security "max-age=31536000; includeSubDomains"
-        X-Frame-Options "DENY"
-        X-Content-Type-Options "nosniff"
-        Referrer-Policy "strict-origin-when-cross-origin"
-        Permissions-Policy "geolocation=(), camera=(self), microphone=()"
-    }
-
-    # Compression — giảm 60-80% payload JSON
-    encode zstd gzip
-}
-
-# M2.D-69 — site block RIÊNG cho trang khách (order.<domain>).
-# Tách khỏi block apex ở trên, KHÔNG gộp hostname vào đó: geolocation phải BẬT cho khách
-# (nút "Chia sẻ vị trí" khi chọn giao hàng) nhưng phải TẮT ở trang quản lý.
-# Cùng trỏ về một container api:3001 — main.ts chọn shop-dist theo Host header (M2.D-66).
-order.{$DOMAIN} {
     log {
         output stdout
         format console
@@ -49,10 +27,39 @@ order.{$DOMAIN} {
         X-Content-Type-Options "nosniff"
         # C-INFRA-03 — order_token là bearer credential nằm ngay trong URL /o/<token>.
         # no-referrer để token không rò sang site ngoài qua header Referer.
-        # KHÁC block apex (strict-origin-when-cross-origin) là có chủ ý.
+        # KHÁC block admin (strict-origin-when-cross-origin) là có chủ ý.
         Referrer-Policy "no-referrer"
-        # M2.D-69 — bật geolocation cho chính origin này. Block apex giữ geolocation=().
+        # M2.D-69 — geolocation BẬT cho khách (nút "Chia sẻ vị trí" khi chọn giao hàng).
+        # Block admin bên dưới giữ geolocation=() vì màn quản lý không cần.
         Permissions-Policy "geolocation=(self), camera=(), microphone=()"
+    }
+
+    # Compression — giảm 60-80% payload JSON
+    encode zstd gzip
+}
+
+# ─── Trang quản lý: admin.<domain> ──────────────────────────────────────────
+admin.{$DOMAIN} {
+    log {
+        output stdout
+        format console
+    }
+
+    reverse_proxy api:3001 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # camera=(self): màn quản lý quét mã bằng camera. geolocation tắt hẳn.
+        Permissions-Policy "geolocation=(), camera=(self), microphone=()"
+        # Màn quản lý không bao giờ nên nằm trong kết quả tìm kiếm.
+        X-Robots-Tag "noindex, nofollow"
     }
 
     # Compression — giảm 60-80% payload JSON

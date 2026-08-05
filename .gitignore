@@ -42,6 +42,9 @@ test-results/
 apps/api/uploads/
 uploads/
 
+# Dump MySQL do sidecar mysql-backup sinh ra — dữ liệu thật, tuyệt đối không lên git
+backups/
+
 # Production env (secrets)
 .env.production
 .env.local

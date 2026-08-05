@@ -32,14 +32,32 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 ## 2. DNS
 
-Trỏ domain về IP VPS (qua A record):
+Trỏ domain về IP VPS (qua A record). **Cả 3 bản ghi đều bắt buộc:**
 
-| Type | Name | Value | TTL |
-|---|---|---|---|
-| A | `@` | `<IP_VPS>` | 300 |
-| A | `www` | `<IP_VPS>` | 300 |
+| Type | Name | Value | TTL | Phục vụ |
+|---|---|---|---|---|
+| A | `@` | `<IP_VPS>` | 300 | Trang khách |
+| A | `www` | `<IP_VPS>` | 300 | Trang khách |
+| A | `admin` | `<IP_VPS>` | 300 | Trang quản lý |
 
-Đợi DNS propagate ~5-30 phút (`dig quanbalun.com` xác nhận).
+Apex dành cho **khách** (địa chỉ ngắn nhất, dùng cho QR và biển hiệu); nhân viên vào
+`admin.<domain>`. API chọn bundle theo `Host` header ở [main.ts](apps/api/src/main.ts) —
+host bắt đầu bằng `admin.` nhận `web-dist`, mọi host khác nhận `shop-dist`.
+
+Xác nhận cả 3 trước khi build:
+
+```bash
+for h in quanbalun.site www.quanbalun.site admin.quanbalun.site; do
+  echo "$h → $(dig +short A $h)"
+done
+```
+
+> ⚠️ **Phải đợi `admin` phân giải xong rồi mới deploy.** Deploy khi bản ghi này còn thiếu
+> nghĩa là apex đã chuyển sang trang khách trong khi `admin.<domain>` chưa tồn tại —
+> nhân viên mất hẳn đường vào POS. Đây là lỗi khoá cửa, không phải lỗi hiển thị.
+>
+> Let's Encrypt cũng giới hạn 5 cert trùng lặp mỗi tuần cho một domain. Rebuild nhiều lần
+> trong lúc DNS chưa xong là tự khoá mình cả tuần.
 
 ## 3. Clone code + setup env
 
@@ -129,6 +147,50 @@ docker system df                    # Image + volume size
 du -sh uploads/                     # Menu images size
 docker exec ordbl_mysql mysql -uroot -p$MYSQL_ROOT_PASSWORD -e "SELECT table_schema,SUM(data_length+index_length)/1024/1024 size_mb FROM information_schema.tables GROUP BY table_schema"
 ```
+
+### Backup MySQL
+
+Service `mysql-backup` trong compose tự dump hằng ngày lúc `BACKUP_HOUR_UTC:BACKUP_MINUTE`
+(mặc định 20:30 UTC = **03:30 sáng giờ VN**), ghi ra `./backups/ordbl-<timestamp>.sql.gz`,
+giữ 14 ngày và luôn chừa lại tối thiểu 7 bản. Nó cũng chạy một lần ngay khi container khởi
+động, nên sau mỗi lần deploy là có bản mới liền.
+
+```bash
+ls -lh backups/                                          # danh sách bản đã có
+docker compose -f docker-compose.prod.yml logs mysql-backup | tail -20
+```
+
+Dump dùng `--single-transaction` nên **không khoá bảng** — quán vẫn nhận đơn bình thường
+trong lúc backup chạy. Mỗi bản được kiểm tra gzip toàn vẹn và có marker `Dump completed`
+trước khi được công nhận; bản lỗi bị bỏ và các bản cũ giữ nguyên.
+
+**Chạy backup ngay lập tức** (không đợi tới giờ hẹn):
+
+```bash
+docker compose -f docker-compose.prod.yml restart mysql-backup
+```
+
+#### Restore
+
+```bash
+cd /opt/orderquanbalun
+gunzip -c backups/ordbl-20260805-203000.sql.gz | \
+  docker exec -i ordbl_mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" order_quan_balun
+docker compose -f docker-compose.prod.yml restart api
+```
+
+Nên **thử restore vào một DB tạm ít nhất một lần** để biết chắc bản dump dùng được — backup
+chưa từng restore thử thì chưa phải là backup.
+
+#### Hai điều bản backup này KHÔNG lo được
+
+1. **Nó nằm cùng ổ đĩa với database.** Hỏng ổ hoặc mất VPS là mất cả hai. Muốn an toàn thật
+   thì phải copy ra ngoài, ví dụ kéo về máy ở nhà hằng ngày:
+   ```bash
+   rsync -avz -e ssh root@<IP_VPS>:/opt/orderquanbalun/backups/ ~/qbl-backups/
+   ```
+2. **Nó chỉ chứa database, không chứa ảnh món.** Thư mục `uploads/` phải copy riêng — nó cũng
+   nằm trên host nên cùng nằm trong lệnh `rsync` trên nếu thêm đường dẫn.
 
 ### Reset toàn bộ (nuke data)
 

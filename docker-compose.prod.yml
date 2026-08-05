@@ -1,12 +1,17 @@
-# Production stack: caddy (HTTP only) → api → mysql.
+# Production stack: caddy (HTTPS) → api → mysql, kèm sidecar backup MySQL.
 # Triển khai: cp .env.production.example .env.production → sửa secrets →
 # docker compose -f docker-compose.prod.yml --env-file .env.production up -d --build
 #
-# HTTP-only mode (chưa có domain). Khi có domain:
-# - Mở comment ports 443 + 443/udp ở caddy
-# - Set DOMAIN trong .env.production
-# - Đổi Caddyfile từ `:80` sang `{$DOMAIN}`
-# - Set COOKIE_SECURE=true cho api
+# Hostname (2026-08-05): apex + www = trang khách, admin.<domain> = trang quản lý.
+# Cả hai cùng vào api:3001, main.ts chọn bundle theo Host header. Xem Caddyfile.
+
+# Giới hạn log mọi container. Không có cái này, json-file log phình vô hạn và lấp đầy ổ —
+# ổ đầy thì mysqldump ghi ra file cụt, tức là mất luôn cả backup đúng lúc cần nó nhất.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   mysql:
@@ -34,7 +39,33 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+    logging: *default-logging
     # KHÔNG expose port — chỉ api truy cập qua internal network.
+    networks:
+      - backend
+
+  # Backup MySQL hằng ngày → ./backups/ordbl-<timestamp>.sql.gz (script: scripts/mysql-backup.sh).
+  # Dùng lại image mysql:8.0 đã có sẵn nên không phải pull thêm gì.
+  mysql-backup:
+    image: mysql:8.0
+    container_name: ordbl_mysql_backup
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      BACKUP_HOUR_UTC: ${BACKUP_HOUR_UTC:-20}
+      BACKUP_MINUTE: ${BACKUP_MINUTE:-30}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+      BACKUP_KEEP_MIN: ${BACKUP_KEEP_MIN:-7}
+    # Ghi đè entrypoint của image mysql (nó vốn định khởi động cả một server MySQL).
+    entrypoint: ["bash", "/backup.sh"]
+    volumes:
+      - ./scripts/mysql-backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      mysql:
+        condition: service_healthy
+    logging: *default-logging
     networks:
       - backend
 
@@ -66,6 +97,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+    logging: *default-logging
     networks:
       - backend
       - frontend
@@ -87,6 +119,7 @@ services:
       DOMAIN: ${DOMAIN:-}
     depends_on:
       - api
+    logging: *default-logging
     networks:
       - frontend
 
