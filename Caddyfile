@@ -65,3 +65,14 @@ admin.{$DOMAIN} {
     # Compression — giảm 60-80% payload JSON
     encode zstd gzip
 }
+
+# ─── Site khác dùng chung Caddy này ─────────────────────────────────────────
+# Container Caddy này KHÔNG chỉ phục vụ Quán Bà Lùn — trên VPS còn ứng dụng khác
+# (ui2spec.pro.vn / genspec) trỏ qua đây. Trước đây các block đó được thêm TAY thẳng
+# vào file này trên server, khiến `git pull` lúc deploy bị chặn vì local change; ghi đè
+# đại là site kia sập mà không ai biết cho tới khi có người phàn nàn.
+#
+# Nên: file này thuộc về repo và deploy được ghi đè thoải mái; cấu hình của site khác nằm
+# ở ./caddy-local/*.caddy trên server (KHÔNG tracked, không bị deploy đụng vào).
+# Glob không khớp file nào cũng hợp lệ — repo mới clone chưa có gì trong đó vẫn chạy.
+import /etc/caddy/local/*.caddy

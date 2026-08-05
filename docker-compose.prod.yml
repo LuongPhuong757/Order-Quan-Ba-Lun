@@ -113,6 +113,9 @@ services:
       - "443:443/udp"  # HTTP/3 QUIC
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Cấu hình Caddy của các site khác trên cùng VPS (xem cuối Caddyfile).
+      # Thư mục này KHÔNG nằm trong git — deploy không bao giờ ghi đè nội dung bên trong.
+      - ./caddy-local:/etc/caddy/local:ro
       - caddy_data:/data        # Let's Encrypt certs (persistent — sẵn sàng khi switch HTTPS)
       - caddy_config:/config
     environment:

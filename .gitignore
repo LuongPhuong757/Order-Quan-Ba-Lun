@@ -45,6 +45,9 @@ uploads/
 # Dump MySQL do sidecar mysql-backup sinh ra — dữ liệu thật, tuyệt đối không lên git
 backups/
 
+# Cấu hình Caddy của site khác dùng chung VPS — thuộc về server, không thuộc repo này
+caddy-local/
+
 # Production env (secrets)
 .env.production
 .env.local
