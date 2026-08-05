@@ -115,16 +115,20 @@ export function OtpSheet({
 
   return (
     <div
+      className="shop-otp-overlay"
       style={overlay}
       role="presentation"
       onClick={() => {
         if (!verifying) onCancel();
       }}
     >
+      {/* eslint-disable-next-line react/no-unknown-property */}
+      <style>{OTP_SHEET_CSS}</style>
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Xác minh số điện thoại"
+        className="shop-otp-sheet"
         style={sheet}
         onClick={(e) => e.stopPropagation()}
       >
@@ -210,6 +214,35 @@ export function OtpSheet({
     </div>
   );
 }
+
+/**
+ * Animation MỞ hộp thoại (chỉ có vào, không có ra — đóng là unmount thẳng, cùng cách
+ * `Header.tsx` xử lý drawer để không phải giữ state chờ animation ra).
+ *
+ * Hộp thoại này nằm GIỮA màn hình (quyết định 2026-08-05, xem docblock đầu file) nên
+ * PHÓNG NHẸ TỪ TÂM chứ không trượt từ đáy lên: trượt-từ-đáy là ngôn ngữ của bottom
+ * sheet, dùng cho hộp giữa màn hình sẽ thành một khối bay ngang qua nội dung.
+ *
+ * 0.96 → 1 là mức cố tình nhỏ: sheet chứa 6 ô mã cỡ mono --fs-xl, phóng mạnh hơn thì
+ * chữ số bị nhoè trong lúc chạy. Chỉ opacity trên lớp phủ + transform trên sheet.
+ * Lớp phủ mờ dần đã kéo theo cả sheet (con của nó) nên keyframe của sheet KHÔNG lặp
+ * lại opacity — hai lớp opacity nhân nhau làm nhịp hiện ra bị chậm ở nửa đầu.
+ */
+const OTP_SHEET_CSS = `
+@keyframes shop-otp-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes shop-otp-sheet-in {
+  from { transform: scale(0.96); }
+  to { transform: scale(1); }
+}
+.shop-otp-overlay { animation: shop-otp-backdrop-in var(--dur-base) var(--ease-out); }
+.shop-otp-sheet { animation: shop-otp-sheet-in var(--dur-base) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .shop-otp-overlay, .shop-otp-sheet { animation: none; }
+}
+`;
 
 // Cùng thang lớp xếp với popup xác nhận đơn (tokens.css) — thấp hơn là thanh ĐẶT HÀNG dính
 // đáy sẽ nổi đè lên sheet (bug 2026-08-04 của ConfirmOrderModal). GIỮA màn hình (feedback

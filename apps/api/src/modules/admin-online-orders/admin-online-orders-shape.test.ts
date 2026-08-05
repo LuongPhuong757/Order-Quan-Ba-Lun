@@ -23,6 +23,8 @@ function rejectedRow(): Row {
     customer_phone: '0900000001',
     customer_address: '1 Đường Thử',
     customer_map_link: null,
+    customer_lat: '10.7626220',
+    customer_lng: '106.6601720',
     distance_km: '2.50',
     customer_note: null,
     items: [
@@ -102,6 +104,27 @@ describe('AdminOnlineOrderRow — ghi chú nội bộ không đi ra HTTP (D-09)'
   it('giữ `reject_reason` — đây là câu ĐÃ gửi khách, khác hoàn toàn ghi chú nội bộ', () => {
     const parsed = AdminOnlineOrderRow.parse(rejectedRow());
     expect(parsed.reject_reason).toBe('Hết nguyên liệu món đã đặt');
+  });
+});
+
+// ── Toạ độ khách (2026-08-05) ─────────────────────────────────────────────────────────────
+describe('AdminOnlineOrderRow — toạ độ khách đi ra tới màn quản lý', () => {
+  it('giữ lat/lng dạng chuỗi decimal — nguồn để FE dựng link bản đồ khi khách không dán link', () => {
+    const parsed = AdminOnlineOrderRow.parse(rejectedRow());
+    expect(parsed.customer_lat).toBe('10.7626220');
+    expect(parsed.customer_lng).toBe('106.6601720');
+  });
+
+  it('đơn không chia sẻ vị trí → cả hai null, không phải chuỗi rỗng', () => {
+    const parsed = AdminOnlineOrderRow.parse({ ...rejectedRow(), customer_lat: null, customer_lng: null });
+    expect(parsed.customer_lat).toBeNull();
+    expect(parsed.customer_lng).toBeNull();
+  });
+
+  it('BE quên map lat/lng thì KHÔNG parse được — đúng cái bug vừa sửa, phải ồn chứ không im', () => {
+    const row = rejectedRow() as unknown as Record<string, unknown>;
+    delete row.customer_lat;
+    expect(() => AdminOnlineOrderRow.parse(row)).toThrow();
   });
 });
 

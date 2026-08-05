@@ -475,7 +475,9 @@ describe('getByToken — đơn còn WAITING', () => {
     expect(res.stage).toBe('RECEIVED');
     expect(res.stage_label).toBe('Đã tiếp nhận');
     expect(res.percent).toBe(0);
-    expect(res.items).toEqual([{ name: 'Lẩu bò', qty: 2, unit_price: 45000, image: null }]);
+    expect(res.items).toEqual([
+      { name: 'Lẩu bò', qty: 2, unit_price: 45000, image: null, note: null },
+    ]);
     expect(res.subtotal).toBe(90000);
     expect(res.updated_at_ms).toBe(SUBMITTED_MS);
   });
@@ -551,8 +553,8 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     });
     const res = await svc.getByToken('tok-1');
     expect(res.items).toEqual([
-      { name: 'Cơm rang', qty: 2, unit_price: 50000, image: null },
-      { name: 'Trà đá', qty: 3, unit_price: 5000, image: null },
+      { name: 'Cơm rang', qty: 2, unit_price: 50000, image: null, note: null },
+      { name: 'Trà đá', qty: 3, unit_price: 5000, image: null, note: null },
     ]);
     // 50000×2 + 5000×3 = 115000, KHÁC subtotal cũ 90000.
     expect(res.subtotal).toBe(115000);
@@ -672,7 +674,9 @@ describe('getByToken — đơn đã CONFIRMED', () => {
 });
 
 describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từng món', () => {
-  it('response không chứa chuỗi state và mỗi item có ĐÚNG 3 khoá', async () => {
+  // `note` (ghi chú khách tự dặn cho món) nằm trong whitelist — đó là dữ liệu của chính
+  // khách, không phải trạng thái vận hành mà G-1 cấm lộ.
+  it('response không chứa chuỗi state và mỗi item có ĐÚNG 5 khoá', async () => {
     const cases: Array<{ request: FakeRequestRow; items?: FakeItemRow[] }> = [
       { request: fakeRequest() },
       {
@@ -693,7 +697,7 @@ describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từ
       const res = await svc.getByToken('tok-1');
       expect(JSON.stringify(res)).not.toContain('"state"');
       for (const item of res.items) {
-        expect(Object.keys(item).sort()).toEqual(['image', 'name', 'qty', 'unit_price']);
+        expect(Object.keys(item).sort()).toEqual(['image', 'name', 'note', 'qty', 'unit_price']);
       }
     }
   });

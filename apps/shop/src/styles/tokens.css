@@ -264,6 +264,32 @@
   --opacity-disabled: 0.5;
 }
 
+/* ── ĐIỀU CHỈNH CHO MÀN HÌNH HẸP (< 768px) ──────────────────────────────────
+ * Chủ quán soi trên điện thoại 2026-08-05: lề hai bên ăn quá nhiều bề ngang nên
+ * nội dung bị dồn vào giữa, và thang chữ ở trên (dựng cho desktop) đọc trên máy
+ * 375px thì to quá mức.
+ *
+ * Sửa Ở ĐÂY chứ không sửa từng trang: mọi .tsx đều đọc var(--...), đổi một chỗ
+ * là cả 7 route đổi theo và không trang nào lệch nhịp. 768px là đúng ngưỡng mà
+ * Header / CategoryRail / StickyCta / CartPage đang dùng để đổi bố cục.
+ *
+ * BA TOKEN CỐ Ý KHÔNG ĐỘNG VÀO:
+ *   --fs-base 16px — hạ xuống là Safari iOS tự zoom khi khách bấm vào ô nhập.
+ *   --fs-sm 14px / --fs-caption 12px — đã nằm ở sàn undersized-ui-text/tiny-text.
+ * Nghĩa là chỉ các bậc TO mới co lại; phần chữ nhỏ vốn đã đúng cỡ thì giữ nguyên,
+ * nhờ vậy phân cấp không bị bẹt (rule: flat-type-hierarchy). */
+@media (max-width: 767px) {
+  :root {
+    --gutter: var(--sp-3); /* 12px thay 16px — trả ~8px bề ngang mỗi bên cho nội dung */
+
+    --fs-md: 1.0625rem; /* 17px ← 18px — tên món */
+    --fs-lg: 1.125rem; /* 18px ← 20px — tiêu đề khối, tên nhóm menu */
+    --fs-xl: 1.25rem; /* 20px ← 24px — giá món */
+    --fs-2xl: 1.5rem; /* 24px ← 30px — tổng tiền giỏ hàng */
+    --fs-3xl: 1.75rem; /* 28px ← 36px — số lớn ở /o/:token */
+  }
+}
+
 /* Người dùng bật "giảm chuyển động" trong cài đặt máy → tôn trọng.
  * Đặt gần 0 chứ không phải 0 để callback transitionend vẫn chạy. */
 @media (prefers-reduced-motion: reduce) {

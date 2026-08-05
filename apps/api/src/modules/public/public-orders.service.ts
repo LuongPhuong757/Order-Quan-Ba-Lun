@@ -327,6 +327,7 @@ export class PublicOrdersService {
         qty: r.qty,
         unit_price: r.menu_item_price,
         image: (r.menu_item_id && imageByMenuItemId.get(r.menu_item_id)) || null,
+        note: r.note ?? null,
       }));
       if (order) {
         updatedAtMs = order.updated_at;
@@ -342,6 +343,9 @@ export class PublicOrdersService {
         qty: it.qty,
         unit_price: it.unit_price,
         image: imageByMenuItemId.get(it.menu_item_id) ?? null,
+        // `?? null`: `items_snapshot` là JSON — đơn cũ lưu trước khi có ghi chú từng món
+        // không có khoá `note`, đọc ra là `undefined` và `.strict().parse` sẽ throw.
+        note: it.note ?? null,
       }));
     }
 

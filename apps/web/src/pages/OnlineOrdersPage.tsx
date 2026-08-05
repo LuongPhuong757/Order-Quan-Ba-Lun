@@ -58,11 +58,13 @@ import {
   type FulfillmentStep,
 } from '../lib/fulfillment.ts';
 import { C, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
+import { customerMapHref } from '../lib/customer-map.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { MenuPickerModal } from '../components/MenuPickerModal.tsx';
 import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
 import { OnlineMenuPanel } from './OnlineMenuPanel.tsx';
+import { AdminAnalyticsPanel } from './AdminAnalyticsPage.tsx';
 import { createBell } from '../lib/bell.ts';
 import { connectionStateFrom, type SseConnState } from '../lib/online-orders-sse.ts';
 import { filterOrdersBySearch } from '../lib/online-order-search.ts';
@@ -131,12 +133,16 @@ function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
-/** 3 tab cấp 1. Nhãn có icon để phân biệt bằng hình, không chỉ bằng chữ.
+/** 4 tab cấp 1. Nhãn có icon để phân biệt bằng hình, không chỉ bằng chữ.
  * "Món online" (2026-08-04): quản lý món nào xuất hiện trên web khách — cùng gate
- * admin với Cài đặt (BE: PATCH /menu/:id là AdminGuard). */
+ * admin với Cài đặt (BE: PATCH /menu/:id là AdminGuard).
+ * "Thống kê" (2026-08-05): lượt vào web / thời gian ở lại / SĐT từng đặt đơn. Ở ĐÂY chứ không
+ * phải một mục nav riêng vì nav admin đã 7 mục, và vì `/dashboard` (đường vào cũ qua thẻ) không
+ * có link nào trong nav — xem đầu `AdminAnalyticsPage.tsx`. */
 const VIEW_TABS = [
   { value: 'queue', label: '🛎 Hàng chờ', adminOnly: false },
   { value: 'menu', label: '🍜 Món online', adminOnly: true },
+  { value: 'stats', label: '📈 Thống kê', adminOnly: true },
   { value: 'settings', label: '⚙ Cài đặt', adminOnly: true },
 ] as const;
 
@@ -152,7 +158,9 @@ export function OnlineOrdersPage() {
   // đó là lớp chặn cho trường hợp gõ tay URL, không chỉ ẩn cái tab.
   const rawView = params.get('view');
   const view: ViewTab =
-    isAdmin && (rawView === 'settings' || rawView === 'menu') ? rawView : 'queue';
+    isAdmin && (rawView === 'settings' || rawView === 'menu' || rawView === 'stats')
+      ? rawView
+      : 'queue';
 
   // Số đơn đang chờ, do `QueueView` báo lên. `null` = đang xem tab tra cứu nên chưa biết số
   // đơn chờ → không hiện badge (thà không có số còn hơn hiện số sai).
@@ -249,6 +257,11 @@ export function OnlineOrdersPage() {
       </div>
 
       {view === 'menu' && isAdmin && <OnlineMenuPanel />}
+      {/* Mount theo điều kiện (không phải display:none như QueueView): panel này gọi 2 endpoint
+          gộp ~10 câu SQL lúc mount, giữ nó luôn sống là mỗi lần vào màn Online đều chạy chúng
+          dù admin chỉ định duyệt đơn. QueueView được ưu tiên giữ mount vì nó có polling + state
+          cuộn; màn này không có gì để mất khi mount lại. */}
+      {view === 'stats' && isAdmin && <AdminAnalyticsPanel />}
       {view === 'settings' && isAdmin && <OnlineOrderSettingsPanel />}
     </div>
   );
@@ -899,6 +912,7 @@ function OrderCard({
   const waited = waitingSeconds(nowMs, row.submitted_at_ms);
   const overdue = escalateAfterS > 0 && isOverdue(waited, escalateAfterS);
   const isDelivery = row.fulfillment_type === 'DELIVERY';
+  const mapHref = customerMapHref(row);
 
   const finish = (message: string) => {
     if (prefersReducedMotion()) {
@@ -1232,9 +1246,13 @@ function OrderCard({
               {row.customer_address}
               {row.distance_km ? ` · ${row.distance_km} km` : ''}
             </span>
-            {row.customer_map_link && (
+            {/* Link bản đồ dựng qua `customerMapHref`: có map_link khách dán thì dùng, không thì
+                dựng từ toạ độ GPS. Trước 2026-08-05 chỗ này đọc thẳng `row.customer_map_link`
+                nên đơn khách bấm "Chia sẻ vị trí" (toạ độ chính xác nhất) lại KHÔNG có nút mở
+                bản đồ — xem `lib/customer-map.ts`. */}
+            {mapHref && (
               <a
-                href={row.customer_map_link}
+                href={mapHref}
                 target="_blank"
                 rel="noreferrer"
                 style={{ fontSize: 13, fontWeight: 500, color: C.accent }}

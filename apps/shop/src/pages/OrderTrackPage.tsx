@@ -6,6 +6,7 @@ import { useApi } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
+import { FadeInImage } from '../components/FadeInImage.tsx';
 import { OrderStepper } from '../components/OrderStepper.tsx';
 import { detectOrderUpdate } from '../lib/order-update.ts';
 
@@ -183,7 +184,7 @@ export function OrderTrackPage(): JSX.Element {
               <li key={idx} style={itemRow}>
                 <div style={thumbWrap}>
                   {item.image ? (
-                    <img src={item.image} alt={item.name} style={thumbImg} />
+                    <FadeInImage src={item.image} alt={item.name} style={thumbImg} />
                   ) : (
                     <div style={thumbPlaceholder}>
                       <ImagePlaceholder name={item.name} />
@@ -195,6 +196,9 @@ export function OrderTrackPage(): JSX.Element {
                   <span style={itemQtyLine}>
                     {item.qty} × {formatVnd(item.unit_price)}
                   </span>
+                  {/* Ghi chú khách tự dặn cho món này — hiện lại để khách soát được quán
+                      đã nhận đúng lời dặn chưa. */}
+                  {item.note && <span style={itemNote}>📝 {item.note}</span>}
                 </div>
                 <span style={itemPrice}>{formatVnd(item.unit_price * item.qty)}</span>
               </li>
@@ -273,7 +277,8 @@ const SKELETON_CSS = `
 const page: CSSProperties = {
   maxWidth: 'var(--content-max)',
   margin: '0 auto',
-  padding: `var(--sp-6) var(--gutter)`,
+  // Ngang = 0: `<main>` trong AppShell đã lo lề --gutter cho mọi route (xem CartPage).
+  padding: `var(--sp-6) 0`,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-4)',
@@ -411,6 +416,12 @@ const itemName: CSSProperties = {
 const itemQtyLine: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   color: 'var(--text-muted)',
+};
+
+const itemNote: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+  overflowWrap: 'anywhere',
 };
 
 const itemPrice: CSSProperties = {

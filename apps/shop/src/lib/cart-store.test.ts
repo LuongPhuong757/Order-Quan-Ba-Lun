@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicMenuGroup } from '@order/schemas';
-import { isCartExpired, syncCartWithMenu, setQty, type CartLine } from './cart-store.ts';
+import {
+  isCartExpired,
+  syncCartWithMenu,
+  setQty,
+  setLineNote,
+  toSubmitItems,
+  MAX_ITEM_NOTE_LEN,
+  type CartLine,
+} from './cart-store.ts';
 
 // D-05..D-08 — giỏ hàng localStorage: hết hạn 24h + đồng bộ menu mới.
 // Test chỉ phủ hàm thuần (không đụng localStorage/DOM) — useCart() là hook,
@@ -131,5 +139,46 @@ describe('setQty — cập nhật số lượng dòng giỏ', () => {
     const lines = [makeLine({ menu_item_id: 'item-1', qty: 2 })];
     const result = setQty(lines, 'item-1', 150);
     expect(result[0].qty).toBe(99);
+  });
+});
+
+describe('setLineNote — ghi chú riêng từng món (gửi xuống bếp)', () => {
+  it('chỉ đổi ghi chú của đúng dòng được chỉ định', () => {
+    const lines = [makeLine({ menu_item_id: 'item-1' }), makeLine({ menu_item_id: 'item-2' })];
+    const result = setLineNote(lines, 'item-2', 'ít cay');
+    expect(result[0].note).toBeNull();
+    expect(result[1].note).toBe('ít cay');
+  });
+
+  it('GIỮ nguyên khoảng trắng giữa chừng — trim từng phím gõ thì khách không gõ nổi 2 từ', () => {
+    const lines = [makeLine({ menu_item_id: 'item-1' })];
+    expect(setLineNote(lines, 'item-1', 'ít cay ')[0].note).toBe('ít cay ');
+  });
+
+  it('chuỗi rỗng / toàn khoảng trắng → null (bếp không nhận dòng 📝 trống)', () => {
+    const lines = [makeLine({ menu_item_id: 'item-1', note: 'ít cay' })];
+    expect(setLineNote(lines, 'item-1', '')[0].note).toBeNull();
+    expect(setLineNote(lines, 'item-1', '   ')[0].note).toBeNull();
+  });
+
+  it('kẹp đúng giới hạn 255 của schema (khách không bị 400 sau khi gõ xong)', () => {
+    const lines = [makeLine({ menu_item_id: 'item-1' })];
+    const result = setLineNote(lines, 'item-1', 'a'.repeat(300));
+    expect(result[0].note).toHaveLength(MAX_ITEM_NOTE_LEN);
+  });
+});
+
+describe('toSubmitItems — payload gửi BE', () => {
+  it('gửi kèm ghi chú từng món, đã cắt khoảng trắng thừa', () => {
+    const lines = [makeLine({ menu_item_id: 'item-1', qty: 2, note: '  ít cay  ' })];
+    expect(toSubmitItems(lines)).toEqual([{ menu_item_id: 'item-1', qty: 2, note: 'ít cay' }]);
+  });
+
+  it('món không ghi chú → không có field note; món hết hàng bị loại khỏi payload', () => {
+    const lines = [
+      makeLine({ menu_item_id: 'item-1', qty: 1 }),
+      makeLine({ menu_item_id: 'item-2', qty: 1, note: 'ít cay', unavailable: true }),
+    ];
+    expect(toSubmitItems(lines)).toEqual([{ menu_item_id: 'item-1', qty: 1, note: undefined }]);
   });
 });

@@ -8,8 +8,8 @@ import { Link } from 'react-router-dom';
  * Mobile: `position: sticky; bottom: 0` — dính đáy màn hình khi đang cuộn giữa trang,
  * nhưng vì vẫn nằm TRONG luồng tài liệu (cuối nội dung trang, trước `<Footer/>`), cuộn
  * hết trang thì thanh dừng lại phía TRÊN footer thay vì đè lên footer (bug 2026-08-04,
- * bản `fixed` cũ che mất footer). Full-bleed bằng margin âm bù 2 lớp gutter (main của
- * `AppShell` + div trang), bo góc 0, nền `--brand-600`.
+ * bản `fixed` cũ che mất footer). Full-bleed bằng margin âm bù lớp gutter của `<main>`
+ * trong `AppShell`, bo góc 0, nền `--brand-600`.
  * Desktop (≥768px): không dính — nút bình thường nằm trong luồng tài liệu (trong card
  * ở trang dùng nó). Chuyển đổi bằng `@media` trong thẻ `<style>` (cùng khuôn
  * `Header.tsx`/`FloatingCart.tsx`), KHÔNG dùng JS đo kích thước màn hình.
@@ -74,17 +74,19 @@ export function StickyCta({ label, onClick, to, disabled = false, hint }: Props)
   );
 }
 
-// Mobile: sticky đáy màn hình, full-bleed bằng margin âm calc(-2 * gutter) mỗi bên —
-// bù đúng 2 lớp padding gutter lồng nhau (main của AppShell + div trang của
-// CartPage/CheckoutPage). Desktop: trở về luồng tài liệu bình thường (trang gọi
-// component này đặt nó bên trong card, không cần full-bleed nữa).
+// Mobile: sticky đáy màn hình, full-bleed bằng margin âm 1 lớp gutter mỗi bên.
+// MỘT lớp chứ không phải hai (2026-08-05): CartPage/CheckoutPage đã bỏ --gutter ngang
+// khỏi div trang, giờ chỉ còn đúng lớp padding của `<main>` trong AppShell để bù. Để
+// nguyên hệ số 2 cũ thì thanh tràn ra ngoài viewport và sinh cuộn ngang.
+// Desktop: trở về luồng tài liệu bình thường (trang gọi component này đặt nó bên
+// trong card, không cần full-bleed nữa).
 const MEDIA_CSS = `
 .shop-sticky-cta-bar {
   position: sticky;
   bottom: 0;
-  margin-left: calc(-2 * var(--gutter));
-  margin-right: calc(-2 * var(--gutter));
-  width: calc(100% + 4 * var(--gutter));
+  margin-left: calc(-1 * var(--gutter));
+  margin-right: calc(-1 * var(--gutter));
+  width: calc(100% + 2 * var(--gutter));
 }
 .shop-sticky-cta-btn {
   border-radius: 0;

@@ -100,6 +100,35 @@ export function MenuPage(): JSX.Element {
     }));
   };
 
+  /**
+   * Số lượng từng món đang có trong giỏ, để card tự biết hiện nút `+` hay stepper.
+   *
+   * Bỏ dòng `unavailable` ra ngoài: món hết hàng vẫn còn dòng trong giỏ theo D-07, nhưng
+   * trên lưới menu nó phải là nút `+` KHOÁ — hiện stepper thì khách cộng số lượng cho món
+   * quán không làm được.
+   */
+  const qtyById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const line of cart.lines) {
+      if (!line.unavailable) map.set(line.menu_item_id, line.qty);
+    }
+    return map;
+    // `cart.lines` là tham chiếu từ store (useSyncExternalStore) nên chỉ đổi khi giỏ đổi
+    // thật, không đổi mỗi lần render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.lines]);
+
+  /**
+   * Đổi số lượng món ĐÃ có trong giỏ, ngay trên lưới menu.
+   *
+   * CỐ Ý không bắn toast ở đây (khác `handleAdd`): con số trên stepper đã đứng ngay dưới
+   * ngón tay khách và nó là trạng thái bền, không tự tắt sau 1.8s. Toast thêm vào chỉ là
+   * lớp nhiễu che mất nội dung đáy màn hình cho một thông tin đã hiển thị rõ hơn ở chỗ khác.
+   */
+  const handleSetQty = (item: PublicMenuItem, qty: number): void => {
+    cart.setQty(item.id, qty);
+  };
+
   const visibleGroups = activeCode ? groups.filter((g) => g.code === activeCode) : groups;
   const loading = (menu.loading || store.loading) && !menu.data;
 
@@ -184,8 +213,15 @@ export function MenuPage(): JSX.Element {
             </div>
           ) : (
             <div style={grid} data-testid="menu-grid">
-              {filteredItems.map((item) => (
-                <CardItem key={item.id} item={item} onAdd={handleAdd} />
+              {filteredItems.map((item, i) => (
+                <CardItem
+                  key={item.id}
+                  item={item}
+                  onAdd={handleAdd}
+                  qtyInCart={qtyById.get(item.id) ?? 0}
+                  onSetQty={handleSetQty}
+                  index={i}
+                />
               ))}
             </div>
           )}
@@ -195,8 +231,15 @@ export function MenuPage(): JSX.Element {
           <section key={group.id} style={groupSection}>
             <h2 style={groupHeading}>{group.name}</h2>
             <div style={grid} data-testid="menu-grid">
-              {group.items.map((item) => (
-                <CardItem key={item.id} item={item} onAdd={handleAdd} />
+              {group.items.map((item, i) => (
+                <CardItem
+                  key={item.id}
+                  item={item}
+                  onAdd={handleAdd}
+                  qtyInCart={qtyById.get(item.id) ?? 0}
+                  onSetQty={handleSetQty}
+                  index={i}
+                />
               ))}
             </div>
           </section>
@@ -327,7 +370,8 @@ const emptyState: CSSProperties = {
   flexDirection: 'column',
   alignItems: 'center',
   gap: 'var(--sp-3)',
-  padding: 'var(--sp-12) var(--gutter)',
+  // --sp-4 chứ không --gutter: `<main>` đã lo lề trang, đây chỉ là đệm trong ô rỗng.
+  padding: 'var(--sp-12) var(--sp-4)',
   textAlign: 'center',
 };
 

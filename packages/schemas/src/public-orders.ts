@@ -94,6 +94,10 @@ export const PublicOrderStatus = z.object({
       // theo `menu_item_id` lúc đọc — KHÔNG snapshot: ảnh chỉ để minh hoạ, không phải dữ liệu
       // chốt giá. Món đã xoá khỏi menu / chưa có ảnh → null, FE tự vẽ placeholder.
       image: z.string().nullable(),
+      /** Ghi chú KHÁCH tự dặn cho món này ("ít cay"). Không đụng G-1: G-1 cấm lộ TRẠNG THÁI
+       * từng món (thông tin vận hành nội bộ), còn đây là dữ liệu chính khách vừa nhập —
+       * cho xem lại để khách soát mình đã dặn đúng chưa. */
+      note: z.string().nullable(),
     }),
   ),
   subtotal: z.number().int().nonnegative(),

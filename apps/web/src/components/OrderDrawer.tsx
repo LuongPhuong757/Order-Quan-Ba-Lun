@@ -7,6 +7,7 @@ import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpButton, HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
+import { customerMapHref } from '../lib/customer-map.ts';
 
 type OrderItem = {
   id: string;
@@ -40,6 +41,14 @@ type Order = {
   customer_name: string | null;
   customer_address: string | null;
   customer_phone: string | null;
+  // 4 field vị trí (2026-08-05, yêu cầu chủ dự án: "người đi ship vào bàn order phải xem được
+  // địa chỉ"). BE trả nguyên entity `orders` ở `GET /orders/by-table/:id` nên dữ liệu có sẵn từ
+  // lúc duyệt đơn online (admin-online-orders.service copy sang order) — chỉ thiếu phần khai
+  // type + vẽ ra. `decimal` của MySQL về dạng string, KHÔNG phải number.
+  customer_lat?: string | null;
+  customer_lng?: string | null;
+  customer_map_link?: string | null;
+  distance_km?: string | null;
   // 3 field dưới phục vụ badge chặng giao của ĐƠN ONLINE (chỉ đạo 2026-08-04: shipper vào
   // màn order phải biết đơn đang giao) — BE trả nguyên entity nên có sẵn, chỉ khai thêm type.
   source?: string; // 'STAFF' | 'ONLINE'
@@ -155,6 +164,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const pollEnabledRef = useRef(true);
 
   const isDelivery = table.kind === 'delivery';
+  const mapHref = order ? customerMapHref(order) : null;
 
   // ── Đơn ONLINE: drawer thu về 2 hành động — mốc giao + thanh toán (chỉ đạo 2026-08-04).
   // Sửa món/gọi thêm của đơn online làm ở màn Đơn hàng online (có panel sửa + báo lại khách);
@@ -587,7 +597,37 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                     {order.customer_name ? (
                       <div style={{ fontSize: 14, lineHeight: 1.5 }}>
                         <div><strong>{order.customer_name}</strong> · <a href={`tel:${order.customer_phone}`} style={{ color: '#0f766e' }}>{order.customer_phone}</a></div>
-                        <div style={{ color: '#374151', wordBreak: 'break-word' }}>📍 {order.customer_address}</div>
+                        {order.customer_address && (
+                          <div style={{ color: '#374151', wordBreak: 'break-word' }}>
+                            📍 {order.customer_address}
+                            {order.distance_km ? ` · ${order.distance_km} km` : ''}
+                          </div>
+                        )}
+                        {/* Nút mở bản đồ cho người đi ship — dùng chung `customerMapHref` với màn
+                            Đơn hàng online: có link khách dán thì mở link đó, không thì dựng từ
+                            toạ độ GPS khách chia sẻ. Đây là thứ shipper cần nhất mà bản cũ không
+                            có: chỉ in địa chỉ dạng chữ, muốn dẫn đường phải tự gõ lại vào Maps. */}
+                        {mapHref && (
+                          <div style={{ marginTop: 4 }}>
+                            <a
+                              href={mapHref}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{
+                                display: 'inline-block',
+                                padding: '4px 10px',
+                                borderRadius: 8,
+                                border: '1px solid #0f766e',
+                                color: '#0f766e',
+                                fontWeight: 600,
+                                fontSize: 13,
+                                textDecoration: 'none',
+                              }}
+                            >
+                              🗺 Mở bản đồ chỉ đường
+                            </a>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div style={{ fontSize: 13, color: '#92400e' }}>

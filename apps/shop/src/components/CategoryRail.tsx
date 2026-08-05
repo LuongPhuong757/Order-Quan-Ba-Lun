@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react';
 import type { PublicMenuGroup } from '@order/schemas';
+import { FadeInImage } from './FadeInImage.tsx';
 
 /**
  * Dải danh mục sticky ngay dưới `<Header/>`, cuộn ngang. Trên mobile chỉ hiện
@@ -79,7 +80,7 @@ export function CategoryRail({ groups, activeCode, onSelect }: Props): JSX.Eleme
             >
               <span style={{ ...tileSwatch, background: `var(--cat-${n})` }} className="shop-category-swatch">
                 {representativeImage ? (
-                  <img src={representativeImage} alt="" style={tileImg} />
+                  <FadeInImage src={representativeImage} alt="" style={tileImg} />
                 ) : (
                   <span aria-hidden="true" style={tileGlyphText}>
                     {group.icon ?? group.name.charAt(0).toUpperCase()}
@@ -168,7 +169,10 @@ const wrapper: CSSProperties = {
   zIndex: 'var(--z-category-rail)' as unknown as number,
   background: 'var(--bg-page)',
   borderBottom: '1px solid var(--border-subtle)',
-  padding: 'var(--sp-3) var(--gutter) 0',
+  // Ngang = 0: dải này render trong MenuPage, tức đã nằm trong `<main>` (AppShell)
+  // vốn có sẵn `padding: 0 var(--gutter)`. Thêm --gutter nữa thì ô danh mục thụt
+  // vào so với lưới món ngay bên dưới, và trên mobile mất thêm một ô hiện ra.
+  padding: 'var(--sp-3) 0 0',
 };
 
 const rail: CSSProperties = {

@@ -14,6 +14,7 @@ import {
 import * as CustomerToken from '../lib/customer-token.ts';
 import * as MapsLink from '../lib/maps-link.ts';
 import { useGeolocation } from '../lib/use-geolocation.ts';
+import { useCountUp } from '../lib/use-count-up.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
@@ -38,6 +39,9 @@ import { OtpSheet } from '../components/OtpSheet.tsx';
 
 type Fulfillment = 'PICKUP' | 'DELIVERY';
 
+/** Thời lượng số tiền chạy tới giá trị mới — giữ khớp với `MONEY_COUNT_MS` của CartPage. */
+const MONEY_COUNT_MS = 350;
+
 type FieldErrors = {
   name?: string;
   phone?: string;
@@ -57,10 +61,31 @@ const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn nà
 // công tắc nữa, nên không còn dòng gợi ý nào để giải thích chuyện đó.
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
 const GEO_FAILED_MESSAGE = 'Không lấy được vị trí. Bạn nhập địa chỉ ở trên là được nhé.';
+/** Bấm "Lấy lại vị trí" mà GPS hỏng: đơn VẪN có toạ độ cũ, nên không được nói "không lấy được
+ *  vị trí" như trên (khách tưởng mất trắng) — phải nói rõ là giữ vị trí đã có. Thiếu dòng này
+ *  thì cú bấm thất bại không đổi gì trên màn hình, đúng kiểu lỗi im lặng. */
+const GEO_RETRY_FAILED_MESSAGE = 'Không lấy lại được vị trí mới — quán vẫn nhận vị trí bạn đã chia sẻ.';
 const SHORT_LINK_MESSAGE =
   "Link rút gọn chưa đọc được toạ độ. Bạn mở link đó rồi copy lại link đầy đủ, hoặc bấm 'Chia sẻ vị trí' phía trên.";
 const NO_COORDS_MESSAGE = 'Link này không chứa toạ độ.';
-const HAS_LOCATION_COPY = 'Đã có vị trí của bạn — quán sẽ thấy khoảng cách chính xác';
+// Cắt bớt phần "quán sẽ thấy khoảng cách chính xác" (2026-08-05): dòng phụ ngay trên đã nói
+// công dụng rồi, để cả câu thì dòng trạng thái xanh dài 2 hàng, chen giữa card trông chật.
+const HAS_LOCATION_COPY = 'Đã có vị trí của bạn';
+/**
+ * Nhãn + dòng phụ của khối vị trí (2026-08-05). Trước đây khối này chỉ có đúng cái nút
+ * "Chia sẻ vị trí của bạn" nằm ngay dưới ô địa chỉ, không nhãn không giải thích — khách đọc
+ * ra thành "cách khác thay cho việc nhập địa chỉ", làm xong rồi thấy phải nhập địa chỉ nữa
+ * nên tưởng app bắt làm hai lần. Phải nói thẳng: không bắt buộc, và để làm gì.
+ */
+const LOCATION_LABEL = 'Vị trí GPS (không bắt buộc)';
+const LOCATION_HINT =
+  'Giúp quán tính đúng khoảng cách và phí giao. Vẫn cần địa chỉ ở trên để shipper tìm được số nhà.';
+const LOCATION_VERIFY_COPY = 'Xem trên bản đồ';
+const LOCATION_RETRY_COPY = 'Lấy lại vị trí';
+/** Trên ngưỡng này thì toạ độ chỉ còn để ước lượng km, không đủ để tìm nhà → phải nói ra. */
+const LOW_ACCURACY_THRESHOLD_M = 200;
+const lowAccuracyCopy = (meters: number): string =>
+  `Vị trí chỉ chính xác khoảng ${Math.round(meters)}m — bạn mở bản đồ kiểm tra và ghi rõ số nhà giúp quán nhé.`;
 const NAME_REQUIRED_MSG = 'Vui lòng nhập họ và tên';
 const PHONE_INVALID_MSG = 'Số điện thoại không hợp lệ';
 const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập địa chỉ giao hàng';
@@ -127,12 +152,20 @@ export function CheckoutPage(): JSX.Element {
   const lastCustomer = useMemo(() => CustomerToken.readLastCustomer(), []);
   const cartNote = useMemo(() => readCartNote(), []);
 
+  // Số tiền chạy tới giá trị mới thay vì nhảy bậc — cùng lý do và cùng thời lượng như ở
+  // `/cart` (xem CartPage.tsx). CHỈ dùng cho phần tóm tắt của trang; con số trong popup
+  // xác nhận đơn cố ý giữ nguyên `cart.subtotal` chính xác: đó là dòng khách đọc để chốt
+  // "đúng số tiền này thì tôi đặt", một con số đang đếm ở đó thì không chốt vào đâu được.
+  const shownSubtotal = useCountUp(cart.subtotal, MONEY_COUNT_MS);
+
   const [fulfillment, setFulfillment] = useState<Fulfillment>('PICKUP');
   const [defaultApplied, setDefaultApplied] = useState(false);
   const [name, setName] = useState(lastCustomer?.customer_name ?? '');
   const [phone, setPhone] = useState(lastCustomer?.customer_phone ?? '');
   const [address, setAddress] = useState(lastCustomer?.customer_address ?? '');
-  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  // `accuracy_m`: chỉ GPS mới có sai số; toạ độ lấy từ link Maps do khách tự chọn điểm nên
+  // không có khái niệm sai số → null, và không hiện dòng cảnh báo.
+  const [location, setLocation] = useState<{ lat: number; lng: number; accuracy_m: number | null } | null>(null);
   const [mapLinkRaw, setMapLinkRaw] = useState('');
   const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
   const [showMapLinkInput, setShowMapLinkInput] = useState(false);
@@ -175,7 +208,7 @@ export function CheckoutPage(): JSX.Element {
   // khách bấm nút sau khi đã dán link thì kết quả GPS thật mới nhất phải thắng.
   useEffect(() => {
     if (geo.coords) {
-      setLocation({ lat: geo.coords.lat, lng: geo.coords.lng });
+      setLocation({ lat: geo.coords.lat, lng: geo.coords.lng, accuracy_m: geo.coords.accuracy_m });
       setMapLinkValue(null);
     }
   }, [geo.coords]);
@@ -186,7 +219,7 @@ export function CheckoutPage(): JSX.Element {
       setMapLinkMessage(result.error === 'SHORT_LINK' ? SHORT_LINK_MESSAGE : NO_COORDS_MESSAGE);
       return;
     }
-    setLocation(result);
+    setLocation({ ...result, accuracy_m: null });
     setMapLinkValue(mapLinkRaw);
     setMapLinkMessage(null);
   };
@@ -432,46 +465,98 @@ export function CheckoutPage(): JSX.Element {
               {displayFieldErrors.address && <p style={errorText}>{displayFieldErrors.address}</p>}
             </div>
 
-            <div style={locationBlock}>
-              {geo.state === 'failed' ? (
-                <div style={geoFailedWrap}>
-                  <p style={geoFailedText}>{GEO_FAILED_MESSAGE}</p>
-                  <button type="button" style={geoRetryLink} onClick={geo.request}>
-                    Bấm lại
-                  </button>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  style={geo.state === 'asking' ? { ...geoButton, ...geoButtonDisabled } : geoButton}
-                  disabled={geo.state === 'asking'}
-                  onClick={geo.request}
+            {/* Khối vị trí = MỘT CARD riêng, không phải mấy dòng rời rạc trôi cùng cấp với ô
+                địa chỉ (sửa 2026-08-05: bản trước có 3 link gạch chân đỏ xếp liền nhau + ô dán
+                link tràn khỏi khung, nhìn rối và vỡ layout). Trật tự trong card: nói đây là gì
+                → kết quả hiện tại → việc có thể làm → đường phụ (dán link) nằm cuối, chữ nhạt. */}
+            <div style={locationCard}>
+              <span style={fieldLabel}>{LOCATION_LABEL}</span>
+              <p style={locationHintText}>{LOCATION_HINT}</p>
+
+              {/* Trạng thái đứng TRƯỚC nút: khách đọc "đã có vị trí" rồi mới tới việc cần làm. */}
+              {location && (
+                <p
+                  style={
+                    location.accuracy_m !== null && location.accuracy_m > LOW_ACCURACY_THRESHOLD_M
+                      ? locationWarnText
+                      : locationOkText
+                  }
                 >
-                  <PinGlyph />
-                  {geo.state === 'asking' ? 'Đang lấy vị trí...' : 'Chia sẻ vị trí của bạn'}
-                </button>
+                  {location.accuracy_m !== null && location.accuracy_m > LOW_ACCURACY_THRESHOLD_M
+                    ? lowAccuracyCopy(location.accuracy_m)
+                    : `✓ ${HAS_LOCATION_COPY}`}
+                </p>
+              )}
+              {geo.state === 'failed' && (
+                <p style={geoFailedText}>{location ? GEO_RETRY_FAILED_MESSAGE : GEO_FAILED_MESSAGE}</p>
               )}
 
-              <button type="button" style={mapLinkToggle} onClick={() => setShowMapLinkInput((v) => !v)}>
-                Hoặc dán link Google Maps
-              </button>
-
-              {showMapLinkInput && (
-                <div style={mapLinkRow}>
-                  <input
-                    type="text"
-                    value={mapLinkRaw}
-                    onChange={(e: ChangeEvent<HTMLInputElement>) => setMapLinkRaw(e.target.value)}
-                    placeholder="Dán link Google Maps vào đây"
-                    style={{ ...inputBase, fontSize: 'var(--fs-base)' }}
-                  />
-                  <button type="button" style={mapLinkConfirmBtn} onClick={handleMapLinkConfirm}>
-                    Xác nhận
+              {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là
+                  "Xem trên bản đồ" (đường duy nhất để khách tự kiểm tra), "Lấy lại vị trí" đứng
+                  cạnh dưới dạng chữ nhạt để không tranh mắt với nó. */}
+              <div style={locationActionRow}>
+                {location ? (
+                  <>
+                    <a
+                      href={MapsLink.buildMapsUrl(location.lat, location.lng)}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={geoButton}
+                    >
+                      <PinGlyph />
+                      {LOCATION_VERIFY_COPY}
+                    </a>
+                    <button
+                      type="button"
+                      style={geo.state === 'asking' ? { ...quietAction, ...geoButtonDisabled } : quietAction}
+                      disabled={geo.state === 'asking'}
+                      onClick={geo.request}
+                    >
+                      {geo.state === 'asking' ? 'Đang lấy...' : LOCATION_RETRY_COPY}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    style={geo.state === 'asking' ? { ...geoButton, ...geoButtonDisabled } : geoButton}
+                    disabled={geo.state === 'asking'}
+                    onClick={geo.request}
+                  >
+                    <PinGlyph />
+                    {geo.state === 'asking'
+                      ? 'Đang lấy vị trí...'
+                      : geo.state === 'failed'
+                        ? 'Thử lại'
+                        : 'Chia sẻ vị trí của bạn'}
                   </button>
-                </div>
-              )}
-              {mapLinkMessage && <p style={mapLinkMessageStyle}>{mapLinkMessage}</p>}
-              {location && !mapLinkMessage && <p style={locationOkText}>{HAS_LOCATION_COPY}</p>}
+                )}
+              </div>
+
+              {/* Đường phụ, tách bằng đường kẻ mảnh + chữ nhạt: khách bình thường không cần đọc. */}
+              <div style={mapLinkFoot}>
+                <button type="button" style={mapLinkToggle} onClick={() => setShowMapLinkInput((v) => !v)}>
+                  {showMapLinkInput ? 'Ẩn ô dán link Google Maps' : 'Hoặc dán link Google Maps'}
+                </button>
+
+                {showMapLinkInput && (
+                  <div style={mapLinkRow}>
+                    <input
+                      type="text"
+                      value={mapLinkRaw}
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => setMapLinkRaw(e.target.value)}
+                      placeholder="Dán link vào đây"
+                      // `minWidth: 0` + `flexWrap` ở hàng cha là chốt chống vỡ: input mặc định có
+                      // chiều rộng tối thiểu ~180px của UA, thiếu 2 thứ này thì nó đẩy nút "Xác
+                      // nhận" tràn khỏi card trên máy 390px (đúng ảnh chủ dự án gửi).
+                      style={{ ...inputBase, fontSize: 'var(--fs-base)', flex: '1 1 150px', minWidth: 0 }}
+                    />
+                    <button type="button" style={mapLinkConfirmBtn} onClick={handleMapLinkConfirm}>
+                      Xác nhận
+                    </button>
+                  </div>
+                )}
+                {mapLinkMessage && <p style={mapLinkMessageStyle}>{mapLinkMessage}</p>}
+              </div>
             </div>
           </>
         )}
@@ -488,7 +573,7 @@ export function CheckoutPage(): JSX.Element {
       <section style={summaryCard}>
         <div style={summaryRow}>
           <span style={summaryLabel}>Tạm tính</span>
-          <span style={summaryValue}>{formatVnd(cart.subtotal)}</span>
+          <span style={summaryValue}>{formatVnd(shownSubtotal)}</span>
         </div>
         {fulfillment === 'DELIVERY' && (
           <div style={summaryRow}>
@@ -501,7 +586,7 @@ export function CheckoutPage(): JSX.Element {
         )}
         <div style={summaryRowTotal}>
           <span style={totalLabel}>Tổng cộng</span>
-          <span style={totalValue}>{formatVnd(cart.subtotal)}</span>
+          <span style={totalValue}>{formatVnd(shownSubtotal)}</span>
         </div>
       </section>
 
@@ -554,6 +639,7 @@ export function CheckoutPage(): JSX.Element {
           name={name}
           phone={phone}
           address={address}
+          hasLocation={location !== null}
           note={cartNote}
           // Quán đang đóng cửa: thay thông báo "sẽ gọi xác nhận" bằng câu chủ quán tự soạn
           // cho đúng ngữ cảnh ("sẽ liên hệ khi mở cửa lại") — không hứa gọi ngay lúc 2h sáng.
@@ -579,6 +665,7 @@ function ConfirmOrderModal({
   name,
   phone,
   address,
+  hasLocation,
   note,
   notice,
   submitting,
@@ -591,6 +678,8 @@ function ConfirmOrderModal({
   name: string;
   phone: string;
   address: string;
+  /** Đơn có kèm toạ độ hay không — popup nói ra để khách biết bước chia sẻ vị trí ĂN hay TRƯỢT. */
+  hasLocation: boolean;
   note: string;
   notice: string;
   submitting: boolean;
@@ -622,6 +711,11 @@ function ConfirmOrderModal({
             {name} · {phone}
           </p>
           {fulfillment === 'DELIVERY' && address && <p style={modalMetaLine}>{address}</p>}
+          {/* Không có LINK ở đây: bấm link là rời trang giữa lúc chốt đơn. Chỗ để kiểm tra bản đồ
+              là khối vị trí ở form; popup chỉ trả lời đúng một câu "vị trí có được kèm không". */}
+          {fulfillment === 'DELIVERY' && (
+            <p style={modalMetaLine}>{hasLocation ? '📍 Có kèm vị trí GPS' : 'Không kèm vị trí GPS'}</p>
+          )}
           {note && <p style={modalMetaLine}>Ghi chú: {note}</p>}
         </div>
 
@@ -630,8 +724,12 @@ function ConfirmOrderModal({
             <li key={l.menu_item_id} style={modalItemRow}>
               <span style={modalItemQty}>{l.qty}×</span>
               {/* Tên món hiển thị TRỌN VẸN — popup này sinh ra để khách kiểm tra lại,
-                  cùng lý lẽ với việc bỏ ellipsis ở giỏ hàng. */}
-              <span style={modalItemName}>{l.name}</span>
+                  cùng lý lẽ với việc bỏ ellipsis ở giỏ hàng. Ghi chú từng món cũng phải
+                  có mặt: nó đi thẳng xuống bếp, khách phải soát được trước khi gửi. */}
+              <span style={modalItemName}>
+                {l.name}
+                {l.note && <span style={modalItemNote}>📝 {l.note}</span>}
+              </span>
               <span style={modalItemPrice}>{formatVnd(l.unit_price * l.qty)}</span>
             </li>
           ))}
@@ -684,7 +782,8 @@ function PinGlyph(): JSX.Element {
 const page: CSSProperties = {
   maxWidth: 'var(--content-max)',
   margin: '0 auto',
-  padding: `var(--sp-4) var(--gutter)`,
+  // Ngang = 0: `<main>` trong AppShell đã lo lề --gutter cho mọi route (xem CartPage).
+  padding: `var(--sp-4) 0`,
   // 0 chứ không phải sp-4: StickyCta giờ sticky TRONG luồng (không còn fixed đè footer),
   // là phần tử cuối trang — khoảng cách với footer do marginTop của chính Footer lo.
   paddingBottom: 0,
@@ -796,10 +895,23 @@ const errorText: CSSProperties = {
   color: 'var(--danger-600)',
 };
 
-const locationBlock: CSSProperties = {
+/** Card gom cả khối vị trí lại thành một đơn vị, đặt trên nền `--bg-surface` để tách khỏi
+ *  mấy ô input (nền lõm `--bg-sunken`) — mắt đọc form thấy ngay đây là phần phụ, đóng khung. */
+const locationCard: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-2)',
+  padding: 'var(--pad-card-tight)',
+  background: 'var(--bg-surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--r-card)',
+};
+
+const locationActionRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--sp-3)',
+  flexWrap: 'wrap',
 };
 
 const geoButton: CSSProperties = {
@@ -817,18 +929,13 @@ const geoButton: CSSProperties = {
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   cursor: 'pointer',
   alignSelf: 'flex-start',
+  // Style này nay dùng cho cả <a> "Xem trên bản đồ", không chỉ <button>.
+  textDecoration: 'none',
 };
 
 const geoButtonDisabled: CSSProperties = {
   opacity: 'var(--opacity-disabled)',
   cursor: 'not-allowed',
-};
-
-const geoFailedWrap: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--sp-2)',
-  flexWrap: 'wrap',
 };
 
 const geoFailedText: CSSProperties = {
@@ -837,15 +944,24 @@ const geoFailedText: CSSProperties = {
   color: 'var(--text-muted)',
 };
 
-const geoRetryLink: CSSProperties = {
+/** Hành động phụ đứng cạnh nút chính: chữ thường, KHÔNG gạch chân đỏ — bản trước để hai link
+ *  đỏ gạch chân sát nhau nên không biết cái nào là việc chính. */
+const quietAction: CSSProperties = {
   border: 'none',
   background: 'transparent',
-  padding: 0,
-  color: 'var(--brand-600)',
+  padding: 'var(--sp-2) 0',
+  color: 'var(--text-muted)',
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   cursor: 'pointer',
-  textDecoration: 'underline',
+};
+
+const mapLinkFoot: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-2)',
+  paddingTop: 'var(--sp-2)',
+  borderTop: '1px solid var(--border-subtle)',
 };
 
 const mapLinkToggle: CSSProperties = {
@@ -853,9 +969,8 @@ const mapLinkToggle: CSSProperties = {
   border: 'none',
   background: 'transparent',
   padding: 0,
-  color: 'var(--brand-600)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-muted)',
+  fontSize: 'var(--fs-caption)',
   cursor: 'pointer',
   textDecoration: 'underline',
 };
@@ -863,6 +978,8 @@ const mapLinkToggle: CSSProperties = {
 const mapLinkRow: CSSProperties = {
   display: 'flex',
   gap: 'var(--sp-2)',
+  // Máy hẹp: nút "Xác nhận" tự xuống hàng thay vì đẩy input tràn khỏi card.
+  flexWrap: 'wrap',
 };
 
 const mapLinkConfirmBtn: CSSProperties = {
@@ -888,6 +1005,19 @@ const locationOkText: CSSProperties = {
   margin: 0,
   fontSize: 'var(--fs-caption)',
   color: 'var(--herb-600)',
+};
+
+const locationHintText: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
+};
+
+/** Sai số lớn là LƯU Ý, không phải lỗi → dùng màu cảnh báo, không dùng `--danger-600`. */
+const locationWarnText: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--warn-600)',
 };
 
 const recapBlock: CSSProperties = {
@@ -1059,6 +1189,13 @@ const modalItemName: CSSProperties = {
   flex: 1,
   fontSize: 'var(--fs-base)',
   color: 'var(--text-strong)',
+  overflowWrap: 'anywhere',
+};
+
+const modalItemNote: CSSProperties = {
+  display: 'block',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
   overflowWrap: 'anywhere',
 };
 

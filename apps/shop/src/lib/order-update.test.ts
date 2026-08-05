@@ -15,8 +15,8 @@ function base(): PublicOrderStatus {
     status: 'WAITING',
     fulfillment_type: 'DELIVERY',
     items: [
-      { name: 'Lẩu hải sản', qty: 1, unit_price: 185_000, image: null },
-      { name: 'Rau nhúng', qty: 2, unit_price: 25_000, image: null },
+      { name: 'Lẩu hải sản', qty: 1, unit_price: 185_000, image: null, note: null },
+      { name: 'Rau nhúng', qty: 2, unit_price: 25_000, image: null, note: null },
     ],
     subtotal: 235_000,
     submitted_at_ms: 1_700_000_000_000,
@@ -76,7 +76,7 @@ describe('detectOrderUpdate — những thay đổi LÀ "quán sửa đơn"', ()
   it('thêm 1 món', () => {
     const next = {
       ...base(),
-      items: [...base().items, { name: 'Bia', qty: 1, unit_price: 20_000, image: null }],
+      items: [...base().items, { name: 'Bia', qty: 1, unit_price: 20_000, image: null, note: null }],
       subtotal: 255_000,
     };
     expect(detectOrderUpdate(base(), next)).toBe(true);

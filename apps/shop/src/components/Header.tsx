@@ -2,7 +2,7 @@ import { useState, type CSSProperties, type JSX } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Wordmark } from './Wordmark.tsx';
-import { CartIcon } from './CartIcon.tsx';
+import { CartIcon, CART_ICON_CSS } from './CartIcon.tsx';
 
 /**
  * Header sticky của apps/shop — 2 biến thể desktop/mobile (D-22 giả định #8).
@@ -56,6 +56,9 @@ export function Header({ cartCount }: Props): JSX.Element {
     <header style={headerStyle}>
       {/* eslint-disable-next-line react/no-unknown-property */}
       <style>{MEDIA_CSS}</style>
+      {/* Nhịp nảy của badge số món — nhúng 1 lần ở đây cho cả 2 CartIcon bên dưới. */}
+      {/* eslint-disable-next-line react/no-unknown-property */}
+      <style>{CART_ICON_CSS}</style>
 
       {/* ── Desktop ──────────────────────────────────────────────────── */}
       <div className="shop-hd-desktop" style={desktopBar}>

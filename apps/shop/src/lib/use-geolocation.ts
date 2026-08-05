@@ -16,7 +16,13 @@ import { useCallback, useRef, useState } from 'react';
  * ở đây.
  */
 
-export type GeolocationCoords = { lat: number; lng: number };
+/**
+ * `accuracy_m` = bán kính sai số (mét) do trình duyệt tự báo, `null` nếu nó không báo con số
+ * dùng được. GIỮ LẠI chứ không bỏ đi như bản đầu: đây là tín hiệu rẻ nhất để biết toạ độ vừa
+ * lấy có đáng tin không — trong nhà/WebView thường 100–1000m, laptop rơi về định vị theo IP
+ * còn lệch cả quận. UI dùng nó để đổi câu chữ, KHÔNG dùng để chặn đặt hàng (D-19/D-20).
+ */
+export type GeolocationCoords = { lat: number; lng: number; accuracy_m: number | null };
 export type GeolocationState = 'idle' | 'asking' | 'ok' | 'failed';
 
 export type UseGeolocationResult = {
@@ -45,7 +51,14 @@ export function useGeolocation(): UseGeolocationResult {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         askingRef.current = false;
-        setCoords({ lat: position.coords.latitude, lng: position.coords.longitude });
+        const accuracy = position.coords.accuracy;
+        setCoords({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          // Spec nói `accuracy` luôn là số, nhưng WebView đời cũ có trả `null`/`NaN` — lọc lại
+          // để UI không in ra "chính xác khoảng NaNm".
+          accuracy_m: typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null,
+        });
         setState('ok');
       },
       () => {

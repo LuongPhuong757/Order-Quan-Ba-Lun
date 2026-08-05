@@ -25,7 +25,12 @@ export const CART_STORAGE_KEY = 'qbl.cart.v1';
 export const CART_NOTE_KEY = 'qbl.cart_note';
 
 const MS_PER_DAY = 24 * 3600_000;
-const MAX_QTY = 99;
+/** Trần số lượng MỖI món. Export vì stepper trên card menu phải khoá nút `+` đúng ở mốc này
+ * — nếu FE để bấm quá, `clampQty` im lặng kẹp lại và khách thấy số đứng yên như app bị treo. */
+export const MAX_QTY = 99;
+/** Khớp `OnlineOrderItemInput.note` (`z.string().max(255)`) — FE kẹp trước để khách
+ * không bị 400 sau khi đã gõ xong cả đơn. Đổi ở đây thì phải đổi cả schema. */
+export const MAX_ITEM_NOTE_LEN = 255;
 
 export type CartLine = {
   menu_item_id: string;
@@ -135,6 +140,22 @@ export function setQty(lines: CartLine[], menu_item_id: string, qty: number): Ca
   return lines.map((l) => (l.menu_item_id === menu_item_id ? { ...l, qty: clamped } : l));
 }
 
+/**
+ * Ghi chú riêng cho MỘT món ("ít cay", "không hành") — đi thẳng xuống bếp qua
+ * `order_items.note` khi quán duyệt đơn, khác `customer_note` (ghi chú cho cả đơn,
+ * chỉ quán đọc). Chuỗi rỗng/toàn khoảng trắng lưu thành `null` để không tạo dòng
+ * 📝 trống trên màn Bếp.
+ */
+export function setLineNote(lines: CartLine[], menu_item_id: string, note: string): CartLine[] {
+  // CỐ Ý không `trim()` giá trị lưu: hàm này chạy sau MỖI phím gõ, trim ở đây thì khách
+  // không gõ nổi dấu cách giữa hai từ (space vừa gõ bị xoá ngay). Chỉ kẹp độ dài; khoảng
+  // trắng thừa được cắt lúc gửi đơn (`toSubmitItems`).
+  const next = note.slice(0, MAX_ITEM_NOTE_LEN);
+  return lines.map((l) =>
+    l.menu_item_id === menu_item_id ? { ...l, note: next.trim() === '' ? null : next } : l,
+  );
+}
+
 /** Món đã có thì cộng dồn qty (kẹp 99), chưa có thì thêm dòng mới. */
 export function addLine(
   lines: CartLine[],
@@ -161,7 +182,9 @@ export function toSubmitItems(lines: CartLine[]): OnlineOrderItemInput[] {
     .map((l) => ({
       menu_item_id: l.menu_item_id,
       qty: l.qty,
-      note: l.note ?? undefined,
+      // `|| undefined`: ghi chú toàn khoảng trắng KHÔNG được gửi lên — bếp không cần
+      // một dòng 📝 rỗng.
+      note: l.note?.trim() || undefined,
     }));
 }
 
@@ -261,6 +284,7 @@ export type UseCartResult = {
   count: number;
   add: (item: Omit<CartLine, 'qty' | 'unavailable'>, qty: number) => void;
   setQty: (menu_item_id: string, qty: number) => void;
+  setNote: (menu_item_id: string, note: string) => void;
   clear: () => void;
   applyMenuSync: (groups: PublicMenuGroup[]) => { priceChanged: boolean; blocksCheckout: boolean };
 };
@@ -283,6 +307,7 @@ export function useCart(): UseCartResult {
     count,
     add: (item, qty) => commitLines(addLine(getLines(), item, qty)),
     setQty: (menu_item_id, qty) => commitLines(setQty(getLines(), menu_item_id, qty)),
+    setNote: (menu_item_id, note) => commitLines(setLineNote(getLines(), menu_item_id, note)),
     clear: () => commitLines([]),
     applyMenuSync: (groups) => {
       const result = syncCartWithMenu(getLines(), groups);

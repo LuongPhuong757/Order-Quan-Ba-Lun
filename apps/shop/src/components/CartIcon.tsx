@@ -34,13 +34,38 @@ export function CartIcon({ count, size = 20 }: Props): JSX.Element {
         <circle cx="17" cy="20" r="1.4" fill="currentColor" stroke="none" />
       </svg>
       {count > 0 && (
-        <span style={badge} aria-hidden="true">
+        // `key={count}`: đổi key là React tháo span cũ và gắn span mới, nên animation
+        // chạy LẠI mỗi lần số đổi. Không có nó, CSS animation chỉ chạy đúng một lần
+        // lúc badge xuất hiện rồi im lặng suốt các lần thêm món sau.
+        <span key={count} className="shop-cart-badge" style={badge} aria-hidden="true">
           {count}
         </span>
       )}
     </span>
   );
 }
+
+/**
+ * Badge nảy một nhịp mỗi lần số món đổi — dấu hiệu "đã thêm được" ở NGAY chỗ khách sẽ
+ * bấm để đi tiếp, bù cho việc `CartToast` hiện ở đáy màn hình còn icon giỏ ở đỉnh.
+ *
+ * Nhúng 1 lần ở `Header.tsx` (nơi đặt CartIcon) thay vì mỗi instance tự render một thẻ
+ * `<style>` — header có 2 CartIcon (mobile + desktop) nên tự render sẽ nhân đôi CSS.
+ *
+ * 240ms là literal chứ không phải var(--dur-base): nhịp nảy cần dài hơn một chút mới
+ * đọc được thành "nảy" thay vì "giật". Máy bật giảm chuyển động thì tắt hẳn.
+ */
+export const CART_ICON_CSS = `
+@keyframes shop-cart-badge-bump {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+.shop-cart-badge { animation: shop-cart-badge-bump 240ms var(--ease-out); }
+@media (prefers-reduced-motion: reduce) {
+  .shop-cart-badge { animation: none; }
+}
+`;
 
 const wrap: CSSProperties = {
   position: 'relative',

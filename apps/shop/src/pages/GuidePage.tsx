@@ -349,7 +349,8 @@ const RESPONSIVE_CSS = `
 const page: CSSProperties = {
   maxWidth: '880px',
   margin: '0 auto',
-  padding: `var(--sp-6) var(--gutter) var(--sp-12)`,
+  // Ngang = 0: `<main>` trong AppShell đã lo lề --gutter cho mọi route (xem CartPage).
+  padding: `var(--sp-6) 0 var(--sp-12)`,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-8)',

@@ -618,6 +618,11 @@ export class AdminOnlineOrdersService {
       customer_phone: r.customer_phone,
       customer_address: r.customer_address,
       customer_map_link: r.customer_map_link,
+      // Toạ độ đi kèm để màn quản lý dựng được link bản đồ cho đơn khách bấm "Chia sẻ vị trí"
+      // (không có `customer_map_link`). Đây là dữ liệu giao hàng, không phải dữ liệu nội bộ —
+      // khác hẳn `ip_hash`/`user_agent` bị chặn ở whitelist này.
+      customer_lat: r.customer_lat,
+      customer_lng: r.customer_lng,
       distance_km: r.distance_km,
       customer_note: r.customer_note,
       items: r.items_snapshot.map((it) => ({

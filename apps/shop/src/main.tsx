@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
 import './styles/tokens.css';
+import './styles/motion.css'; // Dùng var(--dur-*)/var(--ease-*) nên phải nạp SAU tokens
 import { AppShell } from './components/AppShell.tsx';
 import { MenuPage } from './pages/MenuPage.tsx';
 import { CartPage } from './pages/CartPage.tsx';

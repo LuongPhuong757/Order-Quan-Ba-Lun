@@ -1,0 +1,60 @@
+/* ============================================================================
+ * Chuyển động dùng chung — apps/shop (trang khách đặt hàng online)
+ * ============================================================================
+ * File này CHỈ nhận những chuyển động không thuộc về riêng component nào. Hiệu
+ * ứng của một component vẫn nằm cạnh chính nó theo lệ của repo (`CARD_ITEM_CSS`
+ * trong CardItem.tsx, keyframes trong ErrorToast.tsx, MEDIA_CSS trong
+ * Header.tsx...) — đừng dồn chúng về đây.
+ *
+ * Vì sao phản hồi-khi-bấm phải là CSS toàn cục chứ không nhắc ở từng component:
+ * khách gần như 100% vào bằng điện thoại nên KHÔNG có :hover — `:active` là kênh
+ * phản hồi duy nhất, và nó phải đúng ở cả ~20 nút rải khắp 7 trang. Nhắc tay
+ * từng nơi là chắc chắn bỏ sót nút nào đó.
+ *
+ * Ràng buộc kế thừa từ tokens.css: chỉ animate transform / opacity (rule
+ * layout-transition), không easing nảy. `--dur-*` tự về 0.01ms khi máy khách bật
+ * "giảm chuyển động", nên phần lớn rule ở đây không cần @media riêng.
+ * ========================================================================= */
+
+/* ── NÚT LÚN XUỐNG KHI ĐÈ NGÓN TAY ──────────────────────────────────────────
+ * `:not(:disabled)` là phần quan trọng nhất của rule: nút đang khoá (ĐẶT HÀNG
+ * khi chưa đủ thông tin, nút `+` món hết hàng) mà lún như bấm được là nói dối
+ * với khách.
+ *
+ * CỐ Ý không khai `will-change: transform`: giữ layer GPU cho ~20 nút suốt vòng
+ * đời trang đắt hơn nhiều so với một transform 120ms lúc chạm.
+ *
+ * KHÔNG có nhánh `prefers-reduced-motion` tắt hẳn transform này (khác với hover
+ * "nổi lên" của card): đây là phản hồi cho thao tác do CHÍNH khách vừa thực hiện
+ * — WCAG 2.3.3 chỉ nhắm vào chuyển động trang trí. Máy bật giảm chuyển động thì
+ * --dur-fast = 0.01ms nên nút đổi trạng thái tức thì thay vì trượt, vẫn còn phản
+ * hồi. Tắt hẳn là để khách không biết mình đã bấm trúng chưa. */
+button,
+[role='button'] {
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+button:not(:disabled):active,
+[role='button']:not([aria-disabled='true']):active {
+  transform: scale(0.97);
+}
+
+/* ── NGOẠI LỆ: THANH CTA DÍNH ĐÁY ───────────────────────────────────────────
+ * Nút này rộng tràn viền màn hình (StickyCta.tsx full-bleed) — scale 0.97 hở ra
+ * hai khe nền ở mép, trông như lỗi vẽ chứ không như nút bị đè. Đổi sang tối màu
+ * lại: cùng ngôn ngữ "--brand-700 dành cho :hover/:active" của tokens.css.
+ *
+ * Dùng `filter: brightness()` chứ KHÔNG phải `background` vì màu nền của nút được
+ * đặt bằng inline style trong StickyCta.tsx — inline luôn thắng stylesheet, một
+ * rule `background` ở đây sẽ im lặng không có tác dụng. filter chạy trên
+ * compositor nên vẫn không gây tính lại layout. */
+.shop-sticky-cta-bar .shop-sticky-cta-btn {
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out);
+}
+
+.shop-sticky-cta-bar .shop-sticky-cta-btn:not(:disabled):active {
+  transform: none;
+  filter: brightness(0.9);
+}

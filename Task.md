@@ -3,6 +3,13 @@ Có thông báo ở màn web của người đặt online
 Có chưc năng khuyến mãi
 Check ngưỡng 375k gì đó, hỏi lại để thỏa luân kỹ hơn
 Ở giao diện bếp, order online chỉ hiển thị 24h còn admin hiên thị tất cả
+Khi thêm món ăn ở giao diện order cũng phải hiển thị số lượng cụ thể để cho đỡ phải vào giỏ hàng
+Khi mà gửi domain của quán tôi muốn hiển thị logo
+Test traffic hàng loạt xem xử lý như nào
+Chia sẻ vị trí chưa hợp lý lắm
+Đổi trên titel và logo để dễ phân biệt quán bà lùn admin và order
+Thêm bổ sung, bát đĩa, tương ớt
+Logic chưa tiếp nhận thì vẫn sửa đơn được
 --------------------------------------------------------
 Sửa lại màn quản lý dễ nhìn hơn: Cho phép thu gọn thông tin tránh hiển thị quá nhieu, phân biệt màu sắc trạng thái của 3 status đơn online, cho phép sửa đơn rồi mới xác nhận  - DONE
 Cho phép admin, bếp, order sửa lại đơn online và update ngược về đơn của khách - DONE
@@ -27,3 +34,6 @@ Cần màn settig các lời thông báo đến người dùng trên web - DONE
 Lên lịch ON-OFF web - DONE
 Với đơn đến lấy, khi tất cả các món xong thì đơn báo 100% hãy đến lấy và khi mà lấy xong thanh toán thì chuyên oke - DONE
 Ghi chú đang bị lưu lại cho các đơn sau - DONE
+Ghi chú cho từng món ăn - DONE
+Thêm animation khi chuyển trang, chuyển nhóm - Done
+Màn quản lý trafic vào trang web, user, số điện thoai các thứ (admin > 📈 Truy cập & khách hàng) - DONE

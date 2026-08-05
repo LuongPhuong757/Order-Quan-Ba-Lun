@@ -6,6 +6,12 @@ import { useEffect, type CSSProperties, type JSX } from 'react';
  * Trước đây bấm `+` không có dấu hiệu gì trên màn hình nên khách không biết
  * món đã vào giỏ hay chưa, dễ bấm lại nhiều lần.
  *
+ * Từ 2026-08-05 toast này CHỈ còn bắn ở bước 0 → 1 (món mới vào giỏ). Các lần
+ * `+`/`−` sau đó không bắn nữa: `CardItem` đã đổi nút `+` thành stepper `− N +`
+ * nên số lượng nằm sẵn dưới ngón tay khách dưới dạng trạng thái bền, còn toast
+ * là loại hiện-rồi-tắt. Lặp lại cùng một thông tin ở đáy màn hình chỉ che mất
+ * nội dung. Xem `MenuPage.handleSetQty`.
+ *
  * MÀU: nền `--bg-wood` + chữ `--text-on-wood` — cùng khối nâu gỗ mà `Footer` và
  * header trang `/o/:token` đang dùng, nên toast nằm trong cùng bảng màu ấm của
  * quán. Cố ý KHÔNG dùng:

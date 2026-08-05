@@ -5,6 +5,7 @@ import { useApi } from '../lib/use-api.ts';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { FadeInImage } from '../components/FadeInImage.tsx';
 
 /**
  * `/top` — bảng xếp hạng món được gọi nhiều nhất (chỉ đạo chủ dự án 2026-08-04).
@@ -116,7 +117,7 @@ function TopDishRow({ dish, rank, maxQty }: { dish: PublicTopDish; rank: number;
         {/* Huy hiệu hạng đè góc ảnh — không chiếm cột riêng, dồn bề ngang cho tên món. */}
         <span style={thumbWrap} className="shop-top-thumb" aria-hidden="true">
           {image ? (
-            <img src={image} alt="" loading="lazy" decoding="async" style={thumbImg} />
+            <FadeInImage src={image} alt="" style={thumbImg} />
           ) : (
             <span style={thumbPlaceholder}>
               <BowlGlyph />
@@ -226,7 +227,8 @@ const SKELETON_CSS = `
 const page: CSSProperties = {
   maxWidth: '720px',
   margin: '0 auto',
-  padding: `var(--sp-6) var(--gutter) var(--sp-12)`,
+  // Ngang = 0: `<main>` trong AppShell đã lo lề --gutter cho mọi route (xem CartPage).
+  padding: `var(--sp-6) 0 var(--sp-12)`,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-4)',

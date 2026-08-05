@@ -58,6 +58,17 @@ export const AdminOnlineOrderRow = z.object({
   customer_phone: z.string(),
   customer_address: z.string().nullable(),
   customer_map_link: z.string().nullable(),
+  /**
+   * Toạ độ khách chia sẻ, dạng CHUỖI vì cột DB là `decimal` (cùng lý lẽ với `distance_km` —
+   * không tin driver trả về `number`).
+   *
+   * Thêm 2026-08-05: trước đó lat/lng chỉ nằm trong DB để BE tính `distance_km` rồi thôi, màn
+   * quản lý đơn không nhận được nên nút "Mở bản đồ" CHỈ hiện khi khách dán link Maps. Khách
+   * bấm "Chia sẻ vị trí" (đường chính, GPS thật) thì shipper không có bản đồ nào để mở — công
+   * sức chia sẻ vị trí coi như bỏ. Giờ FE tự dựng link từ 2 field này khi thiếu map_link.
+   */
+  customer_lat: z.string().nullable(),
+  customer_lng: z.string().nullable(),
   distance_km: z.string().nullable(),
   customer_note: z.string().nullable(),
   items: z.array(AdminOnlineOrderItem),
