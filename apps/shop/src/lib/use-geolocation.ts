@@ -25,15 +25,30 @@ import { useCallback, useRef, useState } from 'react';
 export type GeolocationCoords = { lat: number; lng: number; accuracy_m: number | null };
 export type GeolocationState = 'idle' | 'asking' | 'ok' | 'failed';
 
+/**
+ * Lý do thất bại, để UI nói được KHÁCH PHẢI LÀM GÌ.
+ *
+ * Bản trước gộp cả 3 mã lỗi về một câu "Không lấy được vị trí" (comment cũ ghi rõ là cố ý:
+ * không hiện mã kỹ thuật). Thực tế 2026-08-05 cho thấy gộp là sai hướng: chủ dự án bấm nút
+ * trên iPhone thật, thấy đúng câu đó và không có cách nào biết là Safari đang CHẶN QUYỀN hay
+ * chỉ là máy lấy tín hiệu quá lâu — hai ca cần hai hành động khác nhau hoàn toàn.
+ *
+ * Vẫn giữ nguyên tinh thần cũ: KHÔNG hiện mã số/tên hằng số ra cho khách. Chỗ này chỉ dịch
+ * mã thành nhãn nội bộ, còn câu chữ do UI quyết định.
+ */
+export type GeolocationErrorKind = 'denied' | 'unavailable' | 'timeout' | 'unsupported';
+
 export type UseGeolocationResult = {
   coords: GeolocationCoords | null;
   state: GeolocationState;
+  errorKind: GeolocationErrorKind | null;
   request: () => void;
 };
 
 export function useGeolocation(): UseGeolocationResult {
   const [coords, setCoords] = useState<GeolocationCoords | null>(null);
   const [state, setState] = useState<GeolocationState>('idle');
+  const [errorKind, setErrorKind] = useState<GeolocationErrorKind | null>(null);
   const askingRef = useRef(false);
 
   const request = useCallback(() => {
@@ -41,11 +56,13 @@ export function useGeolocation(): UseGeolocationResult {
 
     if (typeof navigator === 'undefined' || !navigator.geolocation) {
       // WebView cắt hẳn Geolocation — về thẳng 'failed', không throw.
+      setErrorKind('unsupported');
       setState('failed');
       return;
     }
 
     askingRef.current = true;
+    setErrorKind(null);
     setState('asking');
 
     navigator.geolocation.getCurrentPosition(
@@ -59,17 +76,22 @@ export function useGeolocation(): UseGeolocationResult {
           // để UI không in ra "chính xác khoảng NaNm".
           accuracy_m: typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null,
         });
+        setErrorKind(null);
         setState('ok');
       },
-      () => {
-        // Cả 3 mã lỗi (PERMISSION_DENIED=1, POSITION_UNAVAILABLE=2, TIMEOUT=3) dẫn về
-        // cùng 1 trạng thái 'failed' — không phân biệt, không hiện mã lỗi kỹ thuật.
+      (err: GeolocationPositionError) => {
         askingRef.current = false;
+        // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT. Mã lạ (WebView tự
+        // định nghĩa) rơi về 'unavailable' — câu chữ trung tính nhất trong 3 ca.
+        setErrorKind(err?.code === 1 ? 'denied' : err?.code === 3 ? 'timeout' : 'unavailable');
         setState('failed');
       },
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 60_000 },
+      // timeout 15s (trước là 10s): GPS trên điện thoại lần định vị đầu (cold start, trong nhà)
+      // thường quá 10s, nên bản cũ báo "không lấy được vị trí" cho những ca đáng ra chỉ cần
+      // chờ thêm vài giây. `maximumAge` 60s vẫn cho dùng lại bản đọc gần đây nếu có.
+      { enableHighAccuracy: true, timeout: 15_000, maximumAge: 60_000 },
     );
   }, []);
 
-  return { coords, state, request };
+  return { coords, state, errorKind, request };
 }

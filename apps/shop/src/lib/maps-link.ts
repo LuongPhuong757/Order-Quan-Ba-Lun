@@ -59,13 +59,21 @@ export function parseMapsLink(raw: string): MapsLinkResult {
     return { error: 'NO_COORDS' };
   }
 
-  // 3. ?q=lat,lng hoặc &q=lat,lng.
-  const qMatch = trimmed.match(/[?&]q=(-?\d+(?:\.\d+)?),\s*(-?\d+(?:\.\d+)?)/);
-  if (qMatch) {
-    const lat = Number(qMatch[1]);
-    const lng = Number(qMatch[2]);
-    if (inRange(lat, lng)) return { lat, lng };
-    return { error: 'NO_COORDS' };
+  // 3. Toạ độ nằm trong query param. Ngoài `q=` (bản đầu chỉ đọc mỗi cái này), Google Maps còn
+  //    sinh ra `ll=` (link cũ/link nhúng), `center=`, và `destination=`/`daddr=` (link chỉ
+  //    đường) — cùng khuôn "lat,lng" nên nhận thêm là gần như miễn phí. `q=loc:10.7,106.6` là
+  //    dạng link chia sẻ trên Android. Thiếu mấy khuôn này thì link khách dán đúng chỗ vẫn bị
+  //    báo "không mang toạ độ" (2026-08-05).
+  for (const param of ['q', 'll', 'center', 'destination', 'daddr']) {
+    const paramMatch = trimmed.match(
+      new RegExp(`[?&]${param}=(?:loc:)?(-?\\d+(?:\\.\\d+)?),\\s*(-?\\d+(?:\\.\\d+)?)`, 'i'),
+    );
+    if (paramMatch) {
+      const lat = Number(paramMatch[1]);
+      const lng = Number(paramMatch[2]);
+      if (inRange(lat, lng)) return { lat, lng };
+      return { error: 'NO_COORDS' };
+    }
   }
 
   // 4. Khách dán thẳng cặp số "lat, lng".

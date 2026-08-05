@@ -79,3 +79,45 @@ describe('buildMapsUrl', () => {
     expect(buildMapsUrl(parsed.lat, parsed.lng)).toContain('query=10.762622,106.660172');
   });
 });
+
+// ── Thêm khuôn param (2026-08-05) — link khách dán thật hay rơi vào mấy dạng này ──
+describe('parseMapsLink — toạ độ trong query param khác ngoài q=', () => {
+  it('ll= (link cũ / link nhúng)', () => {
+    expect(parseMapsLink('https://maps.google.com/maps?ll=10.762622,106.660172&z=17')).toEqual({
+      lat: 10.762622,
+      lng: 106.660172,
+    });
+  });
+
+  it('center= ', () => {
+    expect(parseMapsLink('https://www.google.com/maps/embed?center=10.76,106.66')).toEqual({ lat: 10.76, lng: 106.66 });
+  });
+
+  it('destination= (link chỉ đường)', () => {
+    expect(parseMapsLink('https://www.google.com/maps/dir/?api=1&destination=10.76,106.66')).toEqual({
+      lat: 10.76,
+      lng: 106.66,
+    });
+  });
+
+  it('daddr= (link chỉ đường dạng cũ)', () => {
+    expect(parseMapsLink('http://maps.google.com/maps?daddr=10.76,106.66')).toEqual({ lat: 10.76, lng: 106.66 });
+  });
+
+  it('q=loc:lat,lng (dạng chia sẻ trên Android)', () => {
+    expect(parseMapsLink('geo:0,0?q=loc:10.762622,106.660172')).toEqual({ lat: 10.762622, lng: 106.660172 });
+  });
+
+  it('link tên địa điểm thuần (không toạ độ) vẫn NO_COORDS — không đoán bừa', () => {
+    expect(parseMapsLink('https://www.google.com/maps/place/Qu%C3%A1n+B%C3%A0+L%C3%B9n')).toEqual({
+      error: 'NO_COORDS',
+    });
+  });
+
+  it('!3d/!4d vẫn thắng param khi link có cả hai', () => {
+    expect(parseMapsLink('https://www.google.com/maps?ll=1,2&x=!3d10.7626!4d106.6601')).toEqual({
+      lat: 10.7626,
+      lng: 106.6601,
+    });
+  });
+});

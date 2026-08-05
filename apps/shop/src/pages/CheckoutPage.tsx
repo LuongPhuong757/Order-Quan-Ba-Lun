@@ -13,7 +13,7 @@ import {
 } from '../lib/cart-store.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import * as MapsLink from '../lib/maps-link.ts';
-import { useGeolocation } from '../lib/use-geolocation.ts';
+import { useGeolocation, type GeolocationErrorKind } from '../lib/use-geolocation.ts';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
@@ -60,14 +60,40 @@ const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn nà
 // D-11 — `STORE_OFF_HINT` đã bị xoá cùng lúc bỏ khoá nút: nút gửi đơn không bao giờ bị vô hiệu vì
 // công tắc nữa, nên không còn dòng gợi ý nào để giải thích chuyện đó.
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
-const GEO_FAILED_MESSAGE = 'Không lấy được vị trí. Bạn nhập địa chỉ ở trên là được nhé.';
+/**
+ * Câu chữ theo TỪNG lý do thất bại (2026-08-05). Bản trước chỉ có một câu chung "Không lấy
+ * được vị trí. Bạn nhập địa chỉ ở trên là được nhé." — chủ dự án gặp đúng câu đó trên iPhone
+ * thật và không biết phải làm gì, vì câu đó không phân biệt được:
+ *   - quyền bị chặn  → bấm lại 10 lần cũng vô ích, phải vào Cài đặt máy
+ *   - quá thời gian  → bấm lại là xong
+ * Vẫn KHÔNG hiện mã lỗi kỹ thuật, chỉ nói việc cần làm. Cả 4 câu đều nhắc lại đường thoát an
+ * toàn (nhập địa chỉ tay) vì toạ độ chưa bao giờ là bắt buộc (D-19/D-20).
+ */
+const geoFailedMessage = (kind: GeolocationErrorKind | null): string => {
+  switch (kind) {
+    case 'denied':
+      return 'Trình duyệt đang chặn quyền vị trí của trang này. iPhone: Cài đặt → Safari → Vị trí → chọn "Hỏi" rồi bấm lại. Hoặc bỏ qua, chỉ cần nhập địa chỉ ở trên.';
+    case 'timeout':
+      return 'Máy lấy vị trí quá lâu. Bạn bấm thử lại (ra chỗ thoáng thì nhanh hơn), hoặc chỉ cần nhập địa chỉ ở trên.';
+    case 'unsupported':
+      return 'Trình duyệt trong ứng dụng này không cho lấy vị trí. Bạn mở link bằng Safari/Chrome, hoặc chỉ cần nhập địa chỉ ở trên.';
+    default:
+      return 'Máy chưa lấy được tín hiệu vị trí. Bạn kiểm tra đã bật Dịch vụ định vị chưa rồi thử lại, hoặc chỉ cần nhập địa chỉ ở trên.';
+  }
+};
 /** Bấm "Lấy lại vị trí" mà GPS hỏng: đơn VẪN có toạ độ cũ, nên không được nói "không lấy được
  *  vị trí" như trên (khách tưởng mất trắng) — phải nói rõ là giữ vị trí đã có. Thiếu dòng này
  *  thì cú bấm thất bại không đổi gì trên màn hình, đúng kiểu lỗi im lặng. */
 const GEO_RETRY_FAILED_MESSAGE = 'Không lấy lại được vị trí mới — quán vẫn nhận vị trí bạn đã chia sẻ.';
 const SHORT_LINK_MESSAGE =
   "Link rút gọn chưa đọc được toạ độ. Bạn mở link đó rồi copy lại link đầy đủ, hoặc bấm 'Chia sẻ vị trí' phía trên.";
-const NO_COORDS_MESSAGE = 'Link này không chứa toạ độ.';
+/**
+ * Câu cũ chỉ có 8 chữ "Link này không chứa toạ độ." — đúng nhưng bỏ khách đứng đó, vì phần lớn
+ * link copy từ Google Maps (link tên địa điểm, link kết quả tìm kiếm) THẬT SỰ không mang toạ độ
+ * và khách không có cách nào tự biết phải lấy link kiểu nào. Nay chỉ luôn cách lấy.
+ */
+const NO_COORDS_MESSAGE =
+  'Link này không mang toạ độ. Cách nhanh nhất: mở Google Maps, NHẤN GIỮ vào đúng chỗ nhà bạn cho ghim đỏ hiện ra, rồi copy dãy số toạ độ ở ô trên cùng và dán vào đây.';
 // Cắt bớt phần "quán sẽ thấy khoảng cách chính xác" (2026-08-05): dòng phụ ngay trên đã nói
 // công dụng rồi, để cả câu thì dòng trạng thái xanh dài 2 hàng, chen giữa card trông chật.
 const HAS_LOCATION_COPY = 'Đã có vị trí của bạn';
@@ -488,7 +514,9 @@ export function CheckoutPage(): JSX.Element {
                 </p>
               )}
               {geo.state === 'failed' && (
-                <p style={geoFailedText}>{location ? GEO_RETRY_FAILED_MESSAGE : GEO_FAILED_MESSAGE}</p>
+                <p style={geoFailedText}>
+                  {location ? GEO_RETRY_FAILED_MESSAGE : geoFailedMessage(geo.errorKind)}
+                </p>
               )}
 
               {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là
@@ -543,7 +571,13 @@ export function CheckoutPage(): JSX.Element {
                     <input
                       type="text"
                       value={mapLinkRaw}
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => setMapLinkRaw(e.target.value)}
+                      // Gõ/dán lại là XOÁ thông báo lỗi cũ: bản trước giữ nguyên câu "Link này
+                      // không chứa toạ độ" kể cả khi khách đã xoá trắng ô và dán link khác, nên
+                      // màn hình đang báo lỗi cho một nội dung không còn tồn tại.
+                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                        setMapLinkRaw(e.target.value);
+                        setMapLinkMessage(null);
+                      }}
                       placeholder="Dán link vào đây"
                       // `minWidth: 0` + `flexWrap` ở hàng cha là chốt chống vỡ: input mặc định có
                       // chiều rộng tối thiểu ~180px của UA, thiếu 2 thứ này thì nó đẩy nút "Xác
