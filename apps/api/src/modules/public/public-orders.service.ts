@@ -22,6 +22,7 @@ import {
   normalizeShipFeeTiers,
 } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
+import type { StoreSettingsMap } from '../settings/settings.defaults.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
@@ -94,6 +95,23 @@ export class PublicOrdersService {
    * TOÀN BỘ transaction (đã kiểm chứng: 90 lỗi để lại 0 dòng rác) và `submitImpl` không có side
    * effect nào nằm ngoài transaction — không ghi audit, không gửi SMS, `order_token` sinh lại
    * mỗi lần thử. Emit SSE nằm sau `await` nên chỉ chạy khi đã commit thật.
+   *
+   * ⚠⚠ QUY TẮC 1 CONNECTION — đọc trước khi thêm bất cứ thứ gì vào transaction này.
+   *
+   * **Không một dòng code nào chạy bên trong `ds.transaction()` được phép xin connection thứ hai
+   * từ pool.** Cụ thể: cấm gọi `this.<service>.<method>()` hay `this.<xxx>Repo` bên trong — chúng
+   * dùng connection RIÊNG. Mọi truy vấn phải đi qua `mgr` được transaction trao cho.
+   *
+   * Vi phạm quy tắc này KHÔNG gây lỗi lúc vắng khách, và đó chính là chỗ nguy hiểm. Nó chỉ nổ khi
+   * số request đồng thời chạm `connectionLimit` (50, `data-source.ts`): cả 50 connection bị 50
+   * transaction đang mở giữ, mỗi transaction lại đứng chờ connection thứ 51 không bao giờ có →
+   * **treo vĩnh viễn**, không phải chậm. MySQL nhìn thấy 50 phiên `Sleep` mà `innodb_trx` vẫn báo
+   * 50 transaction sống; không có timeout nào cứu, phải restart process.
+   *
+   * Đo được đúng cảnh này trên production 2026-08-07: 100 đơn đồng thời → 100% timeout, 0 đơn vào
+   * DB, 50 transaction treo cứng tới khi `docker restart`. Thủ phạm là `readSettings` gọi
+   * `settingsSvc.readAll()` từ trong transaction. Nay settings đọc TRƯỚC rồi truyền vào
+   * `makeDeps`, và 2 dep phiên OTP nhận `mgr` (OD-21).
    */
   async submit(
     input: OnlineOrderSubmit,
@@ -112,8 +130,12 @@ export class PublicOrdersService {
     input: OnlineOrderSubmit,
     ctx: { ip: string; userAgent: string; nowMs: number },
   ): Promise<{ order_token: string; distance_km: string | null }> {
+    // ĐỌC SETTINGS TRƯỚC KHI MỞ TRANSACTION — bắt buộc, xem "quy tắc 1 connection" ở docblock
+    // `submit()`. `cancelByToken`/`editByToken` vốn đã làm đúng như vậy.
+    const settings = await this.settingsSvc.readAll();
+
     const { result, requestId } = await this.ds.transaction(async (mgr) => {
-      const txResult = await submitOrder(this.makeDeps(mgr), input, ctx);
+      const txResult = await submitOrder(this.makeDeps(mgr, settings), input, ctx);
       // `submitOrder` (module thuần phase 8) cố ý KHÔNG trả id — không đổi chữ ký của nó vì plan
       // 09-12 còn phải sửa file đó, tránh đụng độ. Đọc lại id trong CÙNG transaction.
       const rows: Array<{ id: string }> = await mgr.query(
@@ -298,7 +320,7 @@ export class PublicOrdersService {
 
           // Dùng lại ĐÚNG dep của luồng submit — món gọi thêm phải qua cùng bộ lọc "đang bán +
           // còn hàng + không ẩn online (kể cả ẩn cả nhóm)" như lúc đặt đơn lần đầu.
-          findMenuItemsByIds: this.makeDeps(mgr).findMenuItemsByIds,
+          findMenuItemsByIds: this.makeDeps(mgr, settings).findMenuItemsByIds,
 
           saveEdit: async (id, patch) => {
             // Ghi cả 5 cột vị trí trong MỘT lệnh: địa chỉ, toạ độ và km phải cùng đổi hoặc cùng
@@ -404,13 +426,16 @@ export class PublicOrdersService {
     }
   }
 
-  private makeDeps(mgr: EntityManager): SubmitDeps {
+  /** `settings` được truyền VÀO chứ không đọc trong này — `makeDeps` chỉ được gọi bên trong
+   * `ds.transaction()`, và đọc settings ở đó là xin connection thứ hai giữa lúc đang giữ
+   * transaction. Xem "quy tắc 1 connection" ở docblock `submit()`. */
+  private makeDeps(mgr: EntityManager, settings: StoreSettingsMap): SubmitDeps {
     return {
       // D-11 — `getOrderingStatus` đã bị bỏ khỏi `SubmitDeps`: luồng submit không còn đọc trạng
       // thái công tắc. `SettingsService.getOrderingStatus()` vẫn là đường duy nhất để biết trạng
       // thái đó, và vẫn được `PublicStoreController` + `SettingsController` dùng.
       readSettings: async () => {
-        const s = await this.settingsSvc.readAll();
+        const s = settings;
         return {
           store_phone: s.store_phone,
           store_lat: s.store_lat,
@@ -424,11 +449,18 @@ export class PublicOrdersService {
       },
 
       // OTP đăng nhập (2026-08-04) — uỷ quyền cho PublicOtpService (đường đọc/ghi duy nhất
-      // của `customer_sessions`). Cố ý chạy NGOÀI transaction của submit: đọc phiên + gia hạn
-      // trượt không cần lock, và phiên không được rollback theo đơn (đơn fail thì khách vẫn
-      // đang đăng nhập).
-      findSessionPhone: (token, nowMs) => this.otpSvc.findSessionPhone(token, nowMs),
-      touchSession: (token, nowMs) => this.otpSvc.touchSession(token, nowMs),
+      // của `customer_sessions`).
+      //
+      // ⚠ 2026-08-07 — ĐẢO NGƯỢC chủ ý ban đầu "cố ý chạy NGOÀI transaction" (xem OD-21).
+      // Chạy ngoài nghĩa là xin connection THỨ HAI giữa lúc đang giữ transaction, và đó là
+      // nguyên nhân treo cứng toàn bộ luồng đặt đơn khi đông khách. Truyền `mgr` vào để dùng
+      // đúng connection của transaction.
+      //
+      // Hệ quả đã cân nhắc: đơn fail thì lần gia hạn trượt này rollback theo. Khách KHÔNG bị
+      // đăng xuất — phiên vẫn còn nguyên với `expires_at` cũ, chỉ là không được đẩy lùi thêm.
+      // Trên TTL 90 ngày thì một lần không gia hạn là không đáng kể.
+      findSessionPhone: (token, nowMs) => this.otpSvc.findSessionPhone(token, nowMs, mgr),
+      touchSession: (token, nowMs) => this.otpSvc.touchSession(token, nowMs, mgr),
 
       // M2.D-59 — điều kiện `expires_at` viết sẵn cho tính năng chặn tạm thời sau này; hiện
       // cột luôn NULL (chỉ thêm/xoá tay), nhưng logic đọc đã đúng ngay từ đầu.

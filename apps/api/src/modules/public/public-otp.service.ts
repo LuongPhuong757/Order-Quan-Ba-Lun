@@ -2,7 +2,7 @@
 // quyết định (cooldown, quota, attempts, phiên 90 ngày) nằm ở `otp.ts` (khuôn submit-order).
 import { ConflictException, Inject, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { EntityManager, IsNull, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SettingsService } from '../settings/settings.service.js';
 import { CustomerOtp } from './entities/customer-otp.entity.js';
@@ -59,20 +59,26 @@ export class PublicOtpService {
    * SĐT của phiên còn sống (chưa thu hồi, chưa hết hạn) — null nếu không. Đường đọc DUY NHẤT
    * để `submit`/`lookup` đối chiếu phiên; đọc thẳng bảng `customer_sessions` ở nơi khác là
    * tự chế nguồn sự thật thứ hai.
+   *
+   * `mgr` (2026-08-07): khi người gọi đang giữ một transaction thì PHẢI truyền `EntityManager`
+   * của transaction đó vào. Bỏ trống là dùng `sessionRepo` — tức xin một connection MỚI từ pool —
+   * và nếu người gọi đang trong transaction thì đó là công thức treo cứng cả process khi đông
+   * khách (xem OD-21 + docblock `PublicOrdersService.submit()`).
    */
-  async findSessionPhone(token: string, nowMs: number): Promise<string | null> {
-    const row = await this.sessionRepo.findOne({ where: { token, revoked_at: IsNull() } });
+  async findSessionPhone(token: string, nowMs: number, mgr?: EntityManager): Promise<string | null> {
+    const repo = mgr ? mgr.getRepository(CustomerSession) : this.sessionRepo;
+    const row = await repo.findOne({ where: { token, revoked_at: IsNull() } });
     if (!row || row.expires_at <= nowMs) return null;
     return row.phone;
   }
 
   /** Gia hạn TRƯỢT: mỗi lần phiên được dùng hợp lệ, đẩy `expires_at` lùi đủ 90 ngày —
-   * khách quen không bao giờ phải OTP lại. Fire-and-forget phía caller (lỗi không chặn luồng). */
-  async touchSession(token: string, nowMs: number): Promise<void> {
-    await this.sessionRepo.update(
-      { token },
-      { last_used_at: nowMs, expires_at: nowMs + SESSION_TTL_MS },
-    );
+   * khách quen không bao giờ phải OTP lại. Fire-and-forget phía caller (lỗi không chặn luồng).
+   *
+   * `mgr`: xem ghi chú ở `findSessionPhone` — cùng một lý do, cùng một bắt buộc. */
+  async touchSession(token: string, nowMs: number, mgr?: EntityManager): Promise<void> {
+    const repo = mgr ? mgr.getRepository(CustomerSession) : this.sessionRepo;
+    await repo.update({ token }, { last_used_at: nowMs, expires_at: nowMs + SESSION_TTL_MS });
   }
 
   /** Task.md: "mọi hành động ở phần online đều cần log". Actor null = khách vãng lai;

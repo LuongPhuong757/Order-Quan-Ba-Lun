@@ -395,6 +395,35 @@ Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong mile
   ngay lập tức, không cần deploy. Muốn khôi phục hẳn `free_ship_km` thì phải thêm lại key ở
   `SETTINGS_DEFAULTS` + DTO + payload public + ô nhập, và sửa `shipFeeUnknownCopy` ở CheckoutPage.
 
+## OD-21 — Phiên OTP đọc/ghi TRONG transaction của submit (đảo ngược chủ ý "cố ý chạy ngoài")
+
+- **Ngày:** 2026-08-07 · **Người quyết:** phát hiện khi đo tải production, sửa luôn
+- **Quyết định gốc:** comment tại `PublicOrdersService.makeDeps` (2026-08-04) ghi rõ 2 dep phiên
+  OTP *"cố ý chạy NGOÀI transaction của submit: đọc phiên + gia hạn trượt không cần lock, và phiên
+  không được rollback theo đơn (đơn fail thì khách vẫn đang đăng nhập)"*.
+- **Lệch:** `findSessionPhone`/`touchSession` nay nhận `EntityManager` của transaction và chạy
+  TRONG nó. Cùng lúc, `readSettings` không còn gọi `settingsSvc.readAll()` từ trong transaction —
+  settings đọc trước rồi truyền vào `makeDeps`.
+- **Vì sao:** "chạy ngoài transaction" trong một callback `ds.transaction()` không có nghĩa là chạy
+  sau — nó có nghĩa là **xin connection thứ hai từ pool trong lúc đang giữ connection thứ nhất**.
+  Khi số request đồng thời chạm `connectionLimit` (50), cả 50 connection bị 50 transaction đang mở
+  giữ và mỗi transaction đứng chờ một connection không bao giờ có. Không phải chậm — **treo vĩnh
+  viễn**, không timeout nào cứu, phải restart process.
+
+  Đo trên production 2026-08-07 với 100 đơn đồng thời: **100% timeout, 0 đơn vào DB, 50 transaction
+  treo cứng** (MySQL báo 50 phiên `Sleep` mà `innodb_trx` vẫn đếm 50 transaction sống). Thủ phạm
+  trực tiếp là `readSettings`; 2 dep OTP là quả bom cùng loại chưa nổ vì `otp_login_enabled` đang
+  tắt. Sửa một cái mà để lại cái kia là hẹn giờ cho lần bật OTP.
+- **Hệ quả của việc lệch:** đơn fail thì lần gia hạn trượt của phiên rollback theo. Khách **không**
+  bị đăng xuất — phiên vẫn nguyên với `expires_at` cũ, chỉ là không được đẩy lùi thêm 90 ngày trong
+  đúng lần thử hỏng đó. Trên TTL 90 ngày, không đáng kể. Lý do gốc ("khách vẫn đang đăng nhập") vẫn
+  được giữ nguyên.
+- **Ghi ở:** docblock `PublicOrdersService.submit()` mục "QUY TẮC 1 CONNECTION" · `public-otp.service.ts`
+  · công cụ dựng lại: `scripts/loadtest/`.
+- **Quay lại thì sao:** bỏ `mgr` đi là tái lập treo cứng, nhưng chỉ khi đông khách — dev và staging
+  vắng sẽ không bao giờ bắt được. Nếu buộc phải tách phiên OTP ra khỏi transaction thật thì phải
+  đọc/ghi nó TRƯỚC hoặc SAU `ds.transaction()`, tuyệt đối không phải bên trong callback.
+
 ---
 
 ## Chưa được ghi ở đây (nợ tồn từ trước)

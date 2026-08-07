@@ -3,12 +3,8 @@ Có chưc năng khuyến mãi
 Check ngưỡng 375k gì đó, hỏi lại để thỏa luân kỹ hơn
 Khi mà gửi domain của quán tôi muốn hiển thị logo
 Test traffic hàng loạt xem xử lý như nào
-Chia sẻ vị trí chưa hợp lý lắm
 Thêm bổ sung, bát đĩa, tương ớt
-Khi mà đã tính phí ship rồi, thì ở màn chờ xác nhận cũng phải hiển thị phí ship và có ghi chú là phí ship này là tính tạm thời chung tôi sẽ gọi lại để xác nhận về phí ship. Chứ không thể lúc tính tiền ở giở hàng 1 phí ship, sau đo đặt hàng lại không hiển thị phí ship đó - DONE (trang /o/:token hiện "Phí giao hàng (tạm tính)" + "Tổng cộng (tạm tính)" kèm câu "quán xác nhận lại khi gọi"; BE trả `ship_fee_estimated` tính lại từ distance_km + bảng bậc, tự tắt khi quán đã chốt phí)
-Để không làm mất trải nghiệm ở màn mobile đưa hướng dẫn ra ngoài và highlind lên để vào là có thể ấn vào và xem luôn. - DONE (header mobile có nút "Hướng dẫn" nổi nền đỏ nhạt + viền brand, đứng ngoài menu ba gạch; nhãn tự ẩn dưới 400px, vẫn giữ mục trong drawer/desktop nav)
-Mô tả màn hương dẫn chi tiết hơn. Ấn vào biểu tượng giỏ hàng thì phải có biểu tượng ở đó - DONE (bảng chú giải 8 biểu tượng đầu trang /guide + nhúng chính glyph đó vào giữa câu chữ từng bước; glyph gom về components/Glyphs.tsx dùng chung với Header nên không lệch; thêm icon điện thoại vào số quán ở /o/:token cho khớp chú giải; mô tả từng bước viết kỹ hơn)
-Bảng phí giao hàng trên mobile xấu - DONE (có hàng tiêu đề Giá trị đơn / Ưu đãi giao hàng, mỗi bậc 2 cột không rơi dòng chéo, "Miễn phí X km" tách khỏi "vượt Yđ/km", dòng đang áp dụng có viền trái đỏ + chip trắng-đỏ; nút "Xem bảng phí giao hàng" ở /checkout có mũi tên xoay)
+Đơn trên 30km thì thông báo không nhận luôn
 --------------------------------------------------------
 Sửa lại màn quản lý dễ nhìn hơn: Cho phép thu gọn thông tin tránh hiển thị quá nhieu, phân biệt màu sắc trạng thái của 3 status đơn online, cho phép sửa đơn rồi mới xác nhận  - DONE
 Cho phép admin, bếp, order sửa lại đơn online và update ngược về đơn của khách - DONE
@@ -58,3 +54,8 @@ Giỏ hàng quá 24h bị dọn thì nói một câu, không biến mất im l�
 Banner đóng cửa nói thêm "Quán mở lại lúc …" khi lý do là ngoài giờ mở cửa - DONE
 Tìm món khớp cả tên NHÓM ("lẩu", "nướng"); không ra kết quả thì gợi ý món hay được gọi nhất - DONE
 Số đơn chờ duyệt hiện trên tiêu đề tab trình duyệt của màn quản trị — "(3) Đơn mới · …" - DONE
+Khi mà đã tính phí ship rồi, thì ở màn chờ xác nhận cũng phải hiển thị phí ship và có ghi chú là phí ship này là tính tạm thời chung tôi sẽ gọi lại để xác nhận về phí ship. Chứ không thể lúc tính tiền ở giở hàng 1 phí ship, sau đo đặt hàng lại không hiển thị phí ship đó - DONE (trang /o/:token hiện "Phí giao hàng (tạm tính)" + "Tổng cộng (tạm tính)" kèm câu "quán xác nhận lại khi gọi"; BE trả `ship_fee_estimated` tính lại từ distance_km + bảng bậc, tự tắt khi quán đã chốt phí) - DONE
+Để không làm mất trải nghiệm ở màn mobile đưa hướng dẫn ra ngoài và highlind lên để vào là có thể ấn vào và xem luôn. - DONE 
+Mô tả màn hương dẫn chi tiết hơn. Ấn vào biểu tượng giỏ hàng thì phải có biểu tượng ở đó - DONE 
+Bảng phí giao hàng trên mobile xấu - DONE 
+Chia sẻ vị trí chưa hợp lý lắm - DONE
