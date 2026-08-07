@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
-import * as XLSX from 'xlsx';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -810,6 +809,22 @@ function MenuFormModal({
   );
 }
 
+/** `xlsx` một mình chiếm 415 KB — 38% cả bundle apps/web — mà chỉ modal này dùng tới.
+ * Import tĩnh nghĩa là anh bếp mở màn hàng chờ trên điện thoại cũng phải tải nguyên
+ * thư viện Excel rồi không bao giờ chạm vào. Nạp động để nó nằm ở chunk riêng, chỉ tải
+ * khi thật sự chọn file hoặc tải template.
+ *
+ * Cache lại promise (không phải module) để 2 lần bấm liên tiếp không gọi mạng 2 lần,
+ * và nếu lần đầu lỗi mạng thì lần sau vẫn thử lại được — nên xoá cache khi reject. */
+let xlsxPromise: Promise<typeof import('xlsx')> | null = null;
+function loadXlsx(): Promise<typeof import('xlsx')> {
+  xlsxPromise ??= import('xlsx').catch((e: unknown) => {
+    xlsxPromise = null;
+    throw e;
+  });
+  return xlsxPromise;
+}
+
 // ─── ImportMenuModal: upload CSV/XLSX → preview → bulk upsert ────────────────
 type ImportRow = {
   code: string;
@@ -877,14 +892,17 @@ function ImportMenuModal({
   const [fileName, setFileName] = useState<string>('');
   const [multiplyByThousand, setMultiplyByThousand] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  /** Chunk `xlsx` đang trên đường về — nút template phải nói gì đó thay vì im lặng. */
+  const [loadingXlsx, setLoadingXlsx] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const validGroupCodes = new Set(groups.map((g) => g.code));
 
   const parseFile = async (file: File) => {
     setFileName(file.name);
+    setLoadingXlsx(true);
     try {
-      const buf = await file.arrayBuffer();
+      const [XLSX, buf] = await Promise.all([loadXlsx(), file.arrayBuffer()]);
       const wb = XLSX.read(buf, { type: 'array' });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
@@ -982,6 +1000,8 @@ function ImportMenuModal({
     } catch (e) {
       console.error(e);
       toast.push('error', 'Không đọc được file. Đảm bảo định dạng CSV hoặc XLSX hợp lệ.');
+    } finally {
+      setLoadingXlsx(false);
     }
   };
 
@@ -995,15 +1015,24 @@ function ImportMenuModal({
     })));
   };
 
-  const downloadTemplate = () => {
-    const sample = [
-      { code: 'F001', name: 'Phở bò', group: 'food', price: 50000, unit: 'tô' },
-      { code: 'D001', name: 'Trà đá', group: 'drink', price: 5000, unit: 'cốc' },
-    ];
-    const ws = XLSX.utils.json_to_sheet(sample);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'menu');
-    XLSX.writeFile(wb, 'menu-template.xlsx');
+  const downloadTemplate = async () => {
+    setLoadingXlsx(true);
+    try {
+      const XLSX = await loadXlsx();
+      const sample = [
+        { code: 'F001', name: 'Phở bò', group: 'food', price: 50000, unit: 'tô' },
+        { code: 'D001', name: 'Trà đá', group: 'drink', price: 5000, unit: 'cốc' },
+      ];
+      const ws = XLSX.utils.json_to_sheet(sample);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'menu');
+      XLSX.writeFile(wb, 'menu-template.xlsx');
+    } catch (e) {
+      console.error(e);
+      toast.push('error', 'Không tải được bộ đọc Excel — kiểm tra kết nối rồi thử lại.');
+    } finally {
+      setLoadingXlsx(false);
+    }
   };
 
   const submit = async () => {
@@ -1095,14 +1124,22 @@ function ImportMenuModal({
                 marginBottom: 12,
               }}
             >
-              <div style={{ fontSize: 48 }}>📄</div>
-              <div style={{ fontWeight: 600, marginTop: 8 }}>Bấm để chọn file</div>
+              <div style={{ fontSize: 48 }}>{loadingXlsx && fileName ? '⏳' : '📄'}</div>
+              <div style={{ fontWeight: 600, marginTop: 8 }}>
+                {loadingXlsx && fileName ? `Đang đọc ${fileName}…` : 'Bấm để chọn file'}
+              </div>
               <div style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>
                 .xlsx, .xls, hoặc .csv (tối đa 500 dòng)
               </div>
             </div>
-            <button type="button" className="secondary" onClick={downloadTemplate} style={{ width: '100%' }}>
-              ⬇ Tải template Excel mẫu
+            <button
+              type="button"
+              className="secondary"
+              onClick={downloadTemplate}
+              disabled={loadingXlsx}
+              style={{ width: '100%' }}
+            >
+              {loadingXlsx ? '⏳ Đang chuẩn bị…' : '⬇ Tải template Excel mẫu'}
             </button>
           </>
         ) : (

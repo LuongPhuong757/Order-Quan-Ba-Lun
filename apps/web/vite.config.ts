@@ -32,4 +32,11 @@ export default defineConfig({
       '/uploads':     apiProxy(),
     },
   },
+  build: {
+    // Cùng lý do như apps/shop/vite.config.ts: `manifest` để `scripts/check-bundle-budget.mjs`
+    // phân biệt được chunk tải-lần-đầu với chunk lazy; `chunkSizeWarningLimit` là lưới thô thứ hai
+    // sau cửa chắn gzip thật ở `pnpm bundle:budget`.
+    manifest: true,
+    chunkSizeWarningLimit: 450,
+  },
 });

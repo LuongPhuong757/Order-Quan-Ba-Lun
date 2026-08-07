@@ -1,6 +1,6 @@
 Có thông báo ở màn web của người đặt online
 Có chưc năng khuyến mãi
-Check ngưỡng 375k gì đó, hỏi lại để thỏa luân kỹ hơn
+Check ngưỡng 375k gì đó, hỏi lại để thỏa luân kỹ hơn - DONE (chốt là 375 KB bundle JS. Đo 2026-08-07: shop 476 KB raw/134 KB gzip, web 1.095 KB raw/338 KB gzip — web sát ngưỡng. Đã tách chunk theo route cả 2 app + lazy `xlsx`; nay tải lần đầu shop 107 KB gzip, web 119 KB gzip. Cửa chắn: `pnpm bundle:budget`)
 Khi mà gửi domain của quán tôi muốn hiển thị logo
 Test traffic hàng loạt xem xử lý như nào
 Thêm bổ sung, bát đĩa, tương ớt

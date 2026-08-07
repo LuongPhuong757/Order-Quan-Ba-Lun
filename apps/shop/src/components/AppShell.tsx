@@ -1,7 +1,8 @@
-import { useEffect, type CSSProperties, type JSX } from 'react';
+import { Suspense, useEffect, type CSSProperties, type JSX } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header.tsx';
 import { Footer } from './Footer.tsx';
+import { RouteFallback } from './RouteFallback.tsx';
 import { ActiveOrderBar } from './ActiveOrderBar.tsx';
 import { useCart } from '../lib/cart-store.ts';
 import { trackPageView } from '../lib/analytics.ts';
@@ -38,8 +39,13 @@ export function AppShell(): JSX.Element {
           xem `ActiveOrderBar`. Cố ý KHÔNG sticky: header đã dính rồi, dính thêm một dải nữa là
           ăn mất chiều cao màn hình điện thoại cho một thông tin liếc-qua. */}
       <ActiveOrderBar />
+      {/* `Suspense` đặt Ở ĐÂY, quanh `<Outlet/>` — không quanh cả `<div style={shell}>` — để lúc
+          chunk của route đang tải thì Header / ActiveOrderBar / Footer VẪN ĐỨNG NGUYÊN. Bọc ra
+          ngoài là cả trang trắng mỗi lần đổi tab, đúng cái cảm giác "web lag" cần tránh. */}
       <main style={main}>
-        <Outlet />
+        <Suspense fallback={<RouteFallback />}>
+          <Outlet />
+        </Suspense>
       </main>
       <Footer />
     </div>

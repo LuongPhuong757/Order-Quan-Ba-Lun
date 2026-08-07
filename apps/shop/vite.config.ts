@@ -32,5 +32,14 @@ export default defineConfig({
   },
   build: {
     outDir: 'dist',
+    // `manifest` cho `scripts/check-bundle-budget.mjs` biết chunk nào là entry và chunk nào được
+    // entry import TĨNH — tức là chính xác những file khách phải tải xong mới thấy trang đầu.
+    // Không có manifest thì script chỉ cộng bừa mọi file .js trong dist, mà từ 2026-08-07 phần lớn
+    // số đó là chunk lazy chỉ tải khi khách bấm vào — cộng vào là ra một con số vô nghĩa.
+    manifest: true,
+    // Cảnh báo mặc định của Vite là 500 kB và tính theo RAW nên khá thô. Cửa chắn thật là
+    // `pnpm bundle:budget` (tính theo gzip = số byte đi qua 4G). Để 450 ở đây làm lưới thứ hai:
+    // đủ rộng để không kêu oan hôm nay, đủ chặt để hét lên nếu ai gộp lại thành một bundle.
+    chunkSizeWarningLimit: 450,
   },
 });

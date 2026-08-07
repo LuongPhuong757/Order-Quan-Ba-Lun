@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { Suspense, lazy, useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth, defaultLandingPath, type Role } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
@@ -6,22 +6,96 @@ import { ConfirmProvider } from './components/ConfirmDialog.tsx';
 import { ReLoginModal } from './components/ReLoginModal.tsx';
 import { ReadyListener } from './components/ReadyListener.tsx';
 import { NotificationBell } from './components/NotificationBell.tsx';
-import { LoginPage } from './pages/LoginPage.tsx';
-import { SetupPage } from './pages/SetupPage.tsx';
-import { RecoverPage } from './pages/RecoverPage.tsx';
-import { DashboardPage } from './pages/DashboardPage.tsx';
-import { AdminUsersPage } from './pages/AdminUsersPage.tsx';
-import { AdminAuditPage } from './pages/AdminAuditPage.tsx';
-import { AdminAnalyticsPage } from './pages/AdminAnalyticsPage.tsx';
-import { AccountPage } from './pages/AccountPage.tsx';
-import { OrdersPage } from './pages/OrdersPage.tsx';
-import { MenuManagementPage } from './pages/MenuManagementPage.tsx';
-import { KitchenPage } from './pages/KitchenPage.tsx';
-import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
-import { HistoryPage } from './pages/HistoryPage.tsx';
-import { OnlineOrdersPage } from './pages/OnlineOrdersPage.tsx';
 import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
 import { useOpenTablesCount } from './lib/open-tables-badge.ts';
+
+// ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
+// Trước đây 14 trang nằm trong MỘT file .js 1.095 KB. Nghĩa là anh bếp mở màn Bếp trên điện
+// thoại phải tải kèm Dashboard, Thống kê truy cập, Nhật ký audit, Quản lý nhân viên — những
+// màn role của anh còn KHÔNG CÓ QUYỀN vào. Mỗi trang một chunk thì mỗi role chỉ tải phần mình dùng.
+//
+// Tất cả đều lazy, kể cả trang đăng nhập: không trang nào là "trang ai cũng vào" ở đây (landing
+// khác nhau theo role — xem `defaultLandingPath`), nên chừa một trang ra làm eager chỉ khiến
+// 2/3 số role tải thừa. Bù lại bằng `PREFETCH_BY_ROLE` phía dưới.
+//
+// Các trang đều `export function` (không phải default) nên phải map `.then` sang `{ default }`.
+const LoginPage = lazy(() => import('./pages/LoginPage.tsx').then((m) => ({ default: m.LoginPage })));
+const SetupPage = lazy(() => import('./pages/SetupPage.tsx').then((m) => ({ default: m.SetupPage })));
+const RecoverPage = lazy(() =>
+  import('./pages/RecoverPage.tsx').then((m) => ({ default: m.RecoverPage })),
+);
+const DashboardPage = lazy(() =>
+  import('./pages/DashboardPage.tsx').then((m) => ({ default: m.DashboardPage })),
+);
+const AdminUsersPage = lazy(() =>
+  import('./pages/AdminUsersPage.tsx').then((m) => ({ default: m.AdminUsersPage })),
+);
+const AdminAuditPage = lazy(() =>
+  import('./pages/AdminAuditPage.tsx').then((m) => ({ default: m.AdminAuditPage })),
+);
+const AdminAnalyticsPage = lazy(() =>
+  import('./pages/AdminAnalyticsPage.tsx').then((m) => ({ default: m.AdminAnalyticsPage })),
+);
+const AccountPage = lazy(() =>
+  import('./pages/AccountPage.tsx').then((m) => ({ default: m.AccountPage })),
+);
+const OrdersPage = lazy(() =>
+  import('./pages/OrdersPage.tsx').then((m) => ({ default: m.OrdersPage })),
+);
+const MenuManagementPage = lazy(() =>
+  import('./pages/MenuManagementPage.tsx').then((m) => ({ default: m.MenuManagementPage })),
+);
+const KitchenPage = lazy(() =>
+  import('./pages/KitchenPage.tsx').then((m) => ({ default: m.KitchenPage })),
+);
+const TablesManagementPage = lazy(() =>
+  import('./pages/TablesManagementPage.tsx').then((m) => ({ default: m.TablesManagementPage })),
+);
+const HistoryPage = lazy(() =>
+  import('./pages/HistoryPage.tsx').then((m) => ({ default: m.HistoryPage })),
+);
+const OnlineOrdersPage = lazy(() =>
+  import('./pages/OnlineOrdersPage.tsx').then((m) => ({ default: m.OnlineOrdersPage })),
+);
+
+/**
+ * Những màn mỗi role bấm vào NHIỀU NHẤT trong một buổi làm — kéo sẵn về khi máy rảnh.
+ *
+ * Nhân viên ở quán nhảy qua lại giữa 2-3 màn này suốt buổi. Để mỗi lần bấm là một vòng request
+ * thì đúng lúc đông khách lại thành "máy đang nghĩ". Nạp trước lúc rảnh thì lần bấm nào cũng
+ * tức thì, mà lần tải đầu vẫn chỉ gồm chunk của màn đang mở.
+ *
+ * CHỈ liệt kê màn mà role đó THẬT SỰ có quyền vào (đối chiếu `RoleGate` trong `App`) — kéo sẵn
+ * một màn rồi bị chặn ở cửa là tốn băng thông 4G của quán không đổi lấy gì.
+ */
+const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
+  admin: [
+    () => import('./pages/OrdersPage.tsx'),
+    () => import('./pages/OnlineOrdersPage.tsx'),
+    () => import('./pages/KitchenPage.tsx'),
+  ],
+  order: [() => import('./pages/OrdersPage.tsx'), () => import('./pages/OnlineOrdersPage.tsx')],
+  kitchen: [
+    () => import('./pages/KitchenPage.tsx'),
+    () => import('./pages/OnlineOrdersPage.tsx'),
+    () => import('./pages/OrdersPage.tsx'),
+  ],
+};
+
+/** Vỏ chờ trong lúc chunk của một trang đang về. Dùng lại đúng khung `.container`/`.spinner`
+ * của màn "Đang xác thực..." để không xuất hiện một kiểu loading thứ hai trong cùng app.
+ * `.spinner` global có viền trắng (dựng cho nút màu) → phải đổi sang xám, không thì trên nền
+ * trắng của trang là không thấy gì cả. */
+function PageFallback() {
+  return (
+    <div className="container" role="status">
+      <p style={{ textAlign: 'center', color: '#6b7280' }}>
+        <span className="spinner" style={{ borderColor: '#d1d5db', borderTopColor: 'transparent' }} />{' '}
+        Đang tải...
+      </p>
+    </div>
+  );
+}
 
 export function App() {
   return (
@@ -30,6 +104,12 @@ export function App() {
        <ConfirmProvider>
         <ReadyListener />
         <ReLoginModal />
+        {/* `Suspense` NGOÀI này chỉ phục vụ 3 route công khai (setup/login/recover) và 404 —
+            lúc đó chưa có header/nav nên hiện vỏ chờ toàn trang là đúng.
+            Route đã đăng nhập có `Suspense` RIÊNG bên trong `ProtectedShell`, bọc `<Outlet/>`,
+            nên header và nav dưới đứng nguyên khi đổi màn. React lấy boundary GẦN NHẤT, nên cái
+            trong luôn thắng cái ngoài — không sợ chớp cả trang. */}
+        <Suspense fallback={<PageFallback />}>
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/login" element={<LoginPage />} />
@@ -91,6 +171,7 @@ export function App() {
 
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
        </ConfirmProvider>
       </ToastProvider>
     </AuthProvider>
@@ -138,6 +219,30 @@ function ProtectedShell() {
       document.title = base;
     };
   }, [waitingCount]);
+
+  /**
+   * Nạp trước chunk của những màn role này dùng nhiều nhất (xem `PREFETCH_BY_ROLE`).
+   *
+   * Chạy khi máy rảnh nên KHÔNG giành băng thông với dữ liệu của màn đang mở. Bọc trong
+   * `requestIdleCallback` (Safari iOS chưa có → fallback `setTimeout`), và huỷ ở cleanup để
+   * lúc đăng xuất ngay sau khi vào thì không còn kéo tiếp chunk của role vừa rời.
+   *
+   * `.catch` im lặng có chủ ý: đây chỉ là nạp trước. Mất mạng giữa đường thì không được phép
+   * nổi lên một toast lỗi nào cả — lát nữa `React.lazy` mới là lần tải thật, và nó tự báo.
+   */
+  useEffect(() => {
+    if (!role) return;
+    const run = () => PREFETCH_BY_ROLE[role].forEach((load) => void load().catch(() => {}));
+    // `typeof window.requestIdleCallback` chứ KHÔNG dùng `'requestIdleCallback' in window`: lib.dom
+    // khai hàm này là luôn có, nên `in` làm TS thu hẹp nhánh dưới thành `never` rồi báo
+    // "Property 'setTimeout' does not exist on type 'never'". Kiểm typeof chỉ thu hẹp thuộc tính đó.
+    if (typeof window.requestIdleCallback === 'function') {
+      const id = window.requestIdleCallback(run, { timeout: 3000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = window.setTimeout(run, 2000);
+    return () => window.clearTimeout(id);
+  }, [role]);
 
   if (loading) {
     return (
@@ -195,7 +300,11 @@ function ProtectedShell() {
           </button>
         </div>
       </header>
-      <Outlet />
+      {/* Bọc quanh `<Outlet/>` chứ không quanh cả `<>...</>`: đổi màn thì header và nav dưới
+          PHẢI đứng yên. Bọc ra ngoài là mất luôn thanh nav mỗi lần bấm, nhân viên mất điểm tựa. */}
+      <Suspense fallback={<PageFallback />}>
+        <Outlet />
+      </Suspense>
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
