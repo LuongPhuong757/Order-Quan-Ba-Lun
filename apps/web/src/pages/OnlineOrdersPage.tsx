@@ -42,6 +42,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
+  FULFILLMENT_LABEL,
+  REJECT_REASON_LABEL,
   REJECT_REASON_TEXT,
   RejectReasonCode,
   type AdminOnlineOrderItem,
@@ -50,6 +52,9 @@ import {
   type AdminOnlineOrderStatusFilter,
   type EditOnlineOrderItemsResult,
   type FulfillmentResult,
+  type RejectOnlineOrderBody,
+  type SwitchFulfillmentBody,
+  type SwitchFulfillmentResult,
 } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import {
@@ -59,6 +64,7 @@ import {
 } from '../lib/fulfillment.ts';
 import { C, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
 import { customerMapHref } from '../lib/customer-map.ts';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { MenuPickerModal } from '../components/MenuPickerModal.tsx';
@@ -68,11 +74,41 @@ import { AdminAnalyticsPanel } from './AdminAnalyticsPage.tsx';
 import { createBell } from '../lib/bell.ts';
 import { connectionStateFrom, type SseConnState } from '../lib/online-orders-sse.ts';
 import { filterOrdersBySearch } from '../lib/online-order-search.ts';
-import { subscribeQueueStream } from '../lib/online-waiting-badge.ts';
+import { onlineWaitingStore, subscribeQueueStream } from '../lib/online-waiting-badge.ts';
+import { attachRefreshTriggers, type RefreshTriggers } from '../lib/refresh-triggers.ts';
 import { formatWait, isOverdue, waitingSeconds } from '../lib/queue-clock.ts';
 
-const queueUrl = (status: AdminOnlineOrderStatusFilter) =>
-  `/admin/online-orders?status=${status}`;
+const queueUrl = (status: AdminOnlineOrderStatusFilter, hours: number | null) =>
+  `/admin/online-orders?status=${status}${hours === null ? '' : `&hours=${hours}`}`;
+
+/** Nhịp tải lại hàng chờ khi SSE không đẩy gì về. Đây là mức TỆ NHẤT nhân viên phải chờ để thấy
+ * đơn mới trong trường hợp stream đã chết — 15s cho màn việc-phải-làm này, chứ không thưa như
+ * badge nav (20s): ở đây người ta đang ngồi trực đơn. Đường SSE bình thường vẫn tức thì và nó
+ * dời nhịp này về sau, nên bình thường poll gần như không chạy. */
+const QUEUE_FALLBACK_POLL_MS = 15_000;
+
+/** Bộ lọc thời gian — CHỈ admin thấy (chỉ đạo 2026-08-06). Order/bếp bị BE ghim ở
+ * `STAFF_ONLINE_WINDOW_HOURS` giờ dù FE có gửi gì đi nữa, nên với họ hàng chip này là nút
+ * bấm không có tác dụng — thay bằng một dòng nói rõ cửa sổ đang áp dụng.
+ *
+ * `null` = không giới hạn. Mặc định của admin là `null` ("admin thì xem được hết"), các mốc
+ * còn lại là để thu hẹp khi cần soi một ca cụ thể. */
+const RANGE_FILTERS: Array<{ hours: number | null; label: string }> = [
+  { hours: null, label: 'Tất cả' },
+  { hours: 14, label: '14 giờ' },
+  { hours: 24, label: '24 giờ' },
+  { hours: 24 * 7, label: '7 ngày' },
+  { hours: 24 * 30, label: '30 ngày' },
+];
+
+/** Câu mô tả cửa sổ đang áp dụng, cho dòng thông báo của order/bếp. */
+function windowLabel(hours: number): string {
+  if (hours % 24 === 0 && hours >= 24) {
+    const d = hours / 24;
+    return d === 1 ? '24 giờ' : `${d} ngày`;
+  }
+  return `${hours} giờ`;
+}
 
 /** Lặp lại chuông chừng nào còn đơn chờ (D-04) — 5 phút. */
 const BELL_REPEAT_MS = 5 * 60_000;
@@ -253,7 +289,7 @@ export function OnlineOrdersPage() {
 
       {/* `display:none` chứ KHÔNG phải `{view === 'queue' && ...}` — xem lý do ở đầu file. */}
       <div style={{ display: view === 'queue' ? 'block' : 'none' }}>
-        <QueueView onWaitingCount={setWaitingCount} />
+        <QueueView onWaitingCount={setWaitingCount} isAdmin={isAdmin} />
       </div>
 
       {view === 'menu' && isAdmin && <OnlineMenuPanel />}
@@ -267,7 +303,13 @@ export function OnlineOrdersPage() {
   );
 }
 
-function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => void }) {
+function QueueView({
+  onWaitingCount,
+  isAdmin,
+}: {
+  onWaitingCount: (n: number | null) => void;
+  isAdmin: boolean;
+}) {
   const toast = useToast();
   const [items, setItems] = useState<AdminOnlineOrderRow[]>([]);
   const [escalateAfterS, setEscalateAfterS] = useState<number>(0);
@@ -295,10 +337,22 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
   // trong ô ngay trên danh sách.
   const [search, setSearch] = useState('');
 
+  // Bộ lọc thời gian của admin (`null` = tất cả). Order/bếp không có hàng chip này; BE vẫn ghim
+  // họ ở 14h nên state ở đây luôn `null` với họ và KHÔNG được gửi `hours` lên — gửi đi chỉ làm
+  // URL trông như thể nhân viên tự chọn được.
+  const [rangeHours, setRangeHours] = useState<number | null>(null);
+  /** Cửa sổ BE THẬT SỰ áp dụng (`null` = không giới hạn). Dùng để nói với nhân viên vì sao
+   * danh sách thiếu đơn cũ — không tự suy từ role ở FE. */
+  const [windowHours, setWindowHours] = useState<number | null>(null);
+
   // Giữ tab đang xem trong ref: SSE handler được tạo 1 lần, nếu đọc `status` qua closure thì nó
   // mãi thấy 'WAITING' và tab tra cứu sẽ không bao giờ tự tải lại.
   const statusRef = useRef(status);
   statusRef.current = status;
+  // Cùng lý do với `statusRef`: đổi khoảng thời gian xong, event SSE kế tiếp phải tải lại theo
+  // khoảng MỚI, không phải khoảng lúc handler được tạo.
+  const rangeRef = useRef(rangeHours);
+  rangeRef.current = rangeHours;
 
   // Chuông: `audioReady=false` → banner chiếm chỗ. Giữ instance trong ref để `setInterval` lặp
   // chuông không bị đóng băng bởi closure của render cũ.
@@ -313,10 +367,19 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
   const itemCountRef = useRef(0);
   itemCountRef.current = items.length;
 
+  // Lưới an toàn cho danh sách (poll + quay lại tab + có mạng lại). Giữ trong ref để `loadQueue`
+  // báo `noteFresh` được mà không phải nằm trong deps của effect gắn lưới.
+  const triggersRef = useRef<RefreshTriggers | null>(null);
+
   const loadQueue = useCallback(async () => {
     const forStatus = statusRef.current;
+    // Mọi đường tải (SSE, đổi tab, poll, mount) đều báo "vừa mới" → nhịp poll dự phòng bị dời,
+    // nên nó chỉ thực sự chạy khi các đường kia đã tắt.
+    triggersRef.current?.noteFresh();
     try {
-      const res = await api.get<{ data: AdminOnlineOrderList }>(queueUrl(forStatus));
+      const res = await api.get<{ data: AdminOnlineOrderList }>(
+        queueUrl(forStatus, rangeRef.current),
+      );
       const payload = res.data.data;
       // Sắp ở FE chứ không tin thứ tự BE trả về — nhưng chiều sắp phụ thuộc tab:
       //   chờ duyệt → FIFO tăng dần (giả định #1, đơn chờ lâu nhất lên đầu)
@@ -333,6 +396,7 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
       if (statusRef.current !== forStatus) return;
       setItems(sorted);
       setEscalateAfterS(payload.escalate_sms_after_s);
+      setWindowHours(payload.window_hours);
       setStatusCounts(payload.status_counts);
       setLoadError(null);
     } catch (err) {
@@ -352,7 +416,9 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
     // quay lại sẽ thấy danh sách bị lọc sẵn theo lựa chọn cũ mà không nhớ vì sao thiếu đơn.
     setStepFilter('ALL');
     void loadQueue();
-  }, [status, loadQueue]);
+    // `rangeHours` cũng nằm trong deps: đổi khoảng thời gian là đổi TẬP đơn, phải tải lại và
+    // xoá danh sách cũ y hệt đổi tab (giữ danh sách cũ = hiện đơn ngoài khoảng vừa chọn).
+  }, [status, rangeHours, loadQueue]);
 
   // ── Đồng hồ đếm giây: MỘT interval dùng chung cho cả trang (không 1 interval mỗi đơn) ──
   useEffect(() => {
@@ -381,6 +447,27 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
     });
     void loadQueue();
     return stop;
+  }, [loadQueue]);
+
+  // ── Lưới an toàn: SSE KHÔNG phải nguồn duy nhất ──────────────────────────────
+  // 2026-08-06: badge nav hiện 1 đơn chờ trong khi màn này hiện "Không có đơn nào đang chờ" — DB
+  // có đơn thật. Nguyên nhân: danh sách CHỈ tải lại theo event SSE, mà stream chết im lặng (proxy
+  // đóng / iPad khoá màn hình / wifi rớt mà `onerror` không bắn) thì không còn event nào nữa, và
+  // trang treo ở dữ liệu cũ trong khi trông vẫn bình thường. Đây là màn VIỆC-PHẢI-LÀM: treo ở
+  // "không có đơn" nghĩa là khách đợi mà không ai biết.
+  //
+  // Chấm màu + banner mất kết nối vẫn giữ (nhân viên cần biết stream đứt), nhưng từ nay trang TỰ
+  // CHỮA chứ không chỉ báo lỗi rồi ngồi im.
+  useEffect(() => {
+    const t = attachRefreshTriggers({
+      refresh: () => void loadQueue(),
+      pollMs: QUEUE_FALLBACK_POLL_MS,
+    });
+    triggersRef.current = t;
+    return () => {
+      t.stop();
+      triggersRef.current = null;
+    };
   }, [loadQueue]);
 
   // ── Chuông lặp mỗi 5 phút chừng nào CÒN đơn chờ (D-04); hết đơn thì im ──
@@ -447,6 +534,11 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
   // items.length cho lúc chưa có counts, đúng hành vi cũ.
   useEffect(() => {
     onWaitingCount(statusCounts ? statusCounts.WAITING : isQueue ? items.length : null);
+    // Đẩy luôn vào store badge nav dưới: đứng ở màn này thì badge nav khớp CHÍNH XÁC con số trên
+    // tab (không có cửa sổ 1-2 giây lệch nhau), và store hoãn nhịp poll nên không fetch trùng với
+    // `loadQueue`. Chỉ đẩy khi BE đã trả counts — `items.length` là số của TAB ĐANG MỞ, đẩy nó lên
+    // là badge nav hiện số đơn đã từ chối khi nhân viên xem tab tra cứu.
+    if (statusCounts) onlineWaitingStore.publish(statusCounts.WAITING);
   }, [statusCounts, isQueue, items.length, onWaitingCount]);
 
   // Đếm quá hạn CHỈ có nghĩa ở tab chờ duyệt — đơn đã xử lý thì "quá hạn" là chuyện đã rồi.
@@ -657,6 +749,52 @@ function QueueView({ onWaitingCount }: { onWaitingCount: (n: number | null) => v
         )}
       </div>
 
+      {/* ── Hàng lọc THỜI GIAN ──
+          Admin: chip chọn khoảng (mặc định "Tất cả" — admin xem được hết).
+          Order/bếp: KHÔNG có chip, chỉ một dòng nói rõ cửa sổ BE đang áp dụng. Không có dòng
+          này thì nhân viên mở tab "Thành công" thấy 3 đơn thay vì 30 và tưởng dữ liệu bị mất.
+          Đây là trục lọc thứ 3 (sau trạng thái và chặng) nên đứng thành hàng riêng, không nhồi
+          vào toolbar dính vốn đã chật trên điện thoại. */}
+      {isAdmin ? (
+        <div
+          role="group"
+          aria-label="Lọc đơn theo thời gian đặt"
+          style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}
+        >
+          <span style={{ fontSize: 13, color: C.muted, whiteSpace: 'nowrap' }}>🕒 Khách đặt trong</span>
+          {RANGE_FILTERS.map(({ hours, label }) => {
+            const active = rangeHours === hours;
+            return (
+              <button
+                key={label}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setRangeHours(hours)}
+                style={{
+                  minHeight: 36,
+                  padding: '4px 12px',
+                  borderRadius: 999,
+                  fontSize: 13,
+                  fontWeight: active ? 700 : 500,
+                  background: active ? C.accent : C.cardBg,
+                  color: active ? C.cardBg : C.text,
+                  border: `1px solid ${active ? C.accent : C.border}`,
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      ) : (
+        windowHours !== null && (
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
+            🕒 Chỉ hiện đơn khách đặt trong {windowLabel(windowHours)} gần nhất. Cần xem đơn cũ
+            hơn, nhờ chủ quán mở màn này.
+          </p>
+        )
+      )}
+
       {/* ── Hàng chip lọc CHẶNG — chỉ ở tab "Đã xác nhận" ──
           Tab trạng thái trả lời "đơn được duyệt chưa"; hàng chip này trả lời câu tiếp theo:
           "đơn đã duyệt rồi thì đi tới đâu trong 2 chặng giao". Là hàng RIÊNG dưới toolbar chứ
@@ -839,6 +977,20 @@ function AlertBanner({
 /** Chip phương thức nhận hàng — 1 khối có viền thay vì emoji lẫn trong câu chữ, để quét được.
  * 2 MÀU KHÁC NHAU (xanh dương = giao, tím = tự lấy; chỉ đạo 2026-08-04): shipper sắp ra cửa
  * cần lọc bằng mắt "đơn nào của mình" trong danh sách trộn lẫn 2 loại. */
+/** Phần "chặn số" trong response của `reject`/`cancel` (2026-08-06). BE trả 2 field vì có 2 kết
+ * cục khác nhau, và nhân viên cần đọc được cả hai. */
+type ReviewResult = { blacklisted_phone: string | null; blacklist_already: boolean };
+
+/** Đuôi câu toast nói kết cục của ô tick "chặn số". Nói RÕ SỐ vừa chặn — đây là hành động khoá
+ * một khách hàng thật, người bấm phải thấy đúng số mình vừa khoá để kịp phát hiện tick nhầm thẻ. */
+function blacklistSuffix(r: ReviewResult): string {
+  if (r.blacklisted_phone) return ` · đã chặn số ${r.blacklisted_phone}`;
+  // Tick nhưng số đã nằm sẵn trong danh sách: không phải lỗi, nhưng im lặng thì nhân viên tưởng
+  // vừa mới chặn xong — hai chuyện khác nhau khi sau này có ai hỏi "ai chặn số này".
+  if (r.blacklist_already) return ' · số này đã bị chặn từ trước';
+  return '';
+}
+
 function FulfillmentChip({ delivery }: { delivery: boolean }) {
   return (
     <span
@@ -857,6 +1009,48 @@ function FulfillmentChip({ delivery }: { delivery: boolean }) {
       }}
     >
       {delivery ? '🛵 Giao tận nơi' : '🏠 Khách tự lấy'}
+    </span>
+  );
+}
+
+/**
+ * Chip khoảng cách của đơn giao tận nơi. Chỉ render khi `distance_km !== null` (chỗ gọi lo).
+ *
+ * 3 trạng thái, phân biệt bằng CHỮ trước rồi mới tới màu:
+ *   - `suggested_ship_fee === 0`   → "trong vùng miễn phí" (xanh)
+ *   - `suggested_ship_fee > 0`     → "+15.000đ" (hổ phách — có tiền phải thu thêm)
+ *   - `null` (chưa cấu hình giá/km) → chỉ có số km (xám)
+ */
+function DistanceChip({ row }: { row: AdminOnlineOrderRow }) {
+  const fee = row.suggested_ship_fee;
+  // Xanh lá `ok*` và hổ phách `warn*`, KHÔNG mượn `pickup*`/`delivery*` (hai màu đó đã có nghĩa
+  // "hình thức nhận hàng" ở chip ngay bên cạnh) và KHÔNG mượn `alert*` đỏ (dành cho đơn quá hạn —
+  // phải thu thêm tiền ship không phải một sự cố).
+  const tone =
+    fee === null
+      ? { bg: C.pageBg, border: C.border, text: C.muted }
+      : fee === 0
+        ? { bg: C.okBg, border: C.okBorder, text: C.okText }
+        : { bg: C.warnBg, border: C.warnBorder, text: C.warnText };
+
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px',
+        borderRadius: 999,
+        fontSize: 13,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        color: tone.text,
+      }}
+    >
+      🛵 {row.distance_km} km
+      {fee === 0 ? ' · miễn phí ship' : fee !== null ? ` · +${fmtVnd(fee)}` : ''}
     </span>
   );
 }
@@ -895,13 +1089,31 @@ function OrderCard({
   // lý là 50 khối món không ai đọc, cuộn mãi không tới đơn cần tìm.
   // Đây là "thu gọn thông tin tránh hiển thị quá nhiều" trong Task.md.
   const [open, setOpen] = useState(!readOnly);
-  const [shipFee, setShipFee] = useState('');
+  /**
+   * Ô phí ship — ĐIỀN SẴN gợi ý của BE khi có (2026-08-06).
+   *
+   * Trước đó ô này luôn trống và mỗi nhân viên tự nhẩm một con số theo trí nhớ, nên cùng một quãng
+   * đường thu mỗi ca một giá. `suggested_ship_fee` tính từ `distance_km` + bảng giá trong Cài đặt,
+   * và quan trọng nhất: nó là CÙNG một phép tính với con số khách đã đọc ở bước checkout — gọi
+   * lại báo một giá khác là mất lòng tin ngay ở cú điện thoại đầu tiên.
+   *
+   * `null` (đơn đến lấy / không có toạ độ / chủ quán chưa đặt giá mỗi km) → ô TRỐNG như cũ, không
+   * điền 0: một số 0 điền sẵn cho đơn giao 8km là cách âm thầm làm quán mất tiền.
+   *
+   * Chỉ là giá trị KHỞI TẠO: nhân viên gõ đè thoải mái, và con số gửi đi luôn là thứ trong ô.
+   */
+  const [shipFee, setShipFee] = useState(() =>
+    row.suggested_ship_fee === null ? '' : formatMoneyInput(String(row.suggested_ship_fee)),
+  );
   const [rejectOpen, setRejectOpen] = useState(false);
   // Panel sửa món (đổi qty / bỏ món) — chỉ đơn CHỜ DUYỆT. Mở cùng lúc với panel từ chối thì
   // card thành 2 form chồng nhau nên 2 nút mở loại trừ lẫn nhau.
   const [editOpen, setEditOpen] = useState(false);
   // Panel huỷ đơn ĐÃ XÁC NHẬN (tab tra cứu) — dùng chung RejectPanel với nhãn nút riêng.
   const [cancelOpen, setCancelOpen] = useState(false);
+  // Panel đổi hình thức nhận hàng (ship ⇄ tự tới lấy, 2026-08-06). Loại trừ lẫn nhau với 3 panel
+  // trên vì cùng chiếm chỗ trong card.
+  const [switchOpen, setSwitchOpen] = useState(false);
 
   // Món hết hàng MẶC ĐỊNH ĐÃ TICK = sẽ bị bỏ khỏi đơn khi xác nhận. Nhân viên bỏ tick nếu biết
   // chắc còn hàng (M2.D-61).
@@ -930,8 +1142,10 @@ function OrderCard({
     setCardError(null);
     try {
       const body: { ship_fee?: number; drop_menu_item_ids?: string[] } = {};
-      const fee = Number(shipFee);
-      if (isDelivery && shipFee.trim() !== '' && Number.isFinite(fee) && fee > 0) body.ship_fee = fee;
+      // Ô hiển thị "10.000" → gửi đi 10000. Bóc dấu chấm ở ĐÚNG chỗ này, không sớm hơn: state phải
+      // giữ nguyên chuỗi khách đang nhìn thấy.
+      const fee = Number(digitsOnly(shipFee));
+      if (isDelivery && Number.isFinite(fee) && fee > 0) body.ship_fee = fee;
       if (dropIds.length > 0) body.drop_menu_item_ids = dropIds;
       const res = await api.post<{ data: { table_code: string; table_name: string } }>(
         `/admin/online-orders/${row.id}/confirm`,
@@ -946,16 +1160,15 @@ function OrderCard({
     }
   };
 
-  const reject = async (payload: {
-    reason_code: RejectReasonCode;
-    reason_other_text?: string;
-    internal_note?: string;
-  }) => {
+  const reject = async (payload: RejectOnlineOrderBody) => {
     setBusy(true);
     setCardError(null);
     try {
-      await api.post(`/admin/online-orders/${row.id}/reject`, payload);
-      finish('Đã từ chối đơn');
+      const res = await api.post<{ data: ReviewResult }>(
+        `/admin/online-orders/${row.id}/reject`,
+        payload,
+      );
+      finish(`Đã từ chối đơn${blacklistSuffix(res.data.data)}`);
     } catch (err) {
       // Panel giữ nguyên nội dung đã gõ — không bắt nhân viên gõ lại ghi chú.
       setCardError(extractError(err).message);
@@ -965,16 +1178,17 @@ function OrderCard({
 
   /** Huỷ đơn ĐÃ XÁC NHẬN — khách có vấn đề giữa chừng (2026-08-04). BE huỷ món + niêm Order
    * (bàn tự giải phóng) + chuyển request sang REJECTED, nên card rời tab "Đã xác nhận" luôn. */
-  const cancelConfirmed = async (payload: {
-    reason_code: RejectReasonCode;
-    reason_other_text?: string;
-    internal_note?: string;
-  }) => {
+  const cancelConfirmed = async (payload: RejectOnlineOrderBody) => {
     setBusy(true);
     setCardError(null);
     try {
-      await api.post(`/admin/online-orders/${row.id}/cancel`, payload);
-      finish('Đã huỷ đơn — khách sẽ thấy lý do trên trang theo dõi');
+      const res = await api.post<{ data: ReviewResult }>(
+        `/admin/online-orders/${row.id}/cancel`,
+        payload,
+      );
+      finish(
+        `Đã huỷ đơn — khách sẽ thấy lý do trên trang theo dõi${blacklistSuffix(res.data.data)}`,
+      );
     } catch (err) {
       // Panel giữ nguyên nội dung đã gõ — không bắt nhân viên gõ lại ghi chú.
       setCardError(extractError(err).message);
@@ -1043,7 +1257,56 @@ function OrderCard({
     }
   };
 
-  const total = row.items.reduce((s, i) => s + i.unit_price * i.qty, 0);
+  /** Đổi hình thức nhận hàng (2026-08-06). BE lo hết phần nặng: chuyển đơn sang bàn đúng loại,
+   * đưa phí ship về 0 khi thôi giao, và cập nhật cả bản khách đang đọc ở /o/:token — nên ở đây
+   * chỉ việc vá row bằng ĐÚNG những gì BE trả về, không tự suy ra bàn mới hay phí mới. */
+  const switchFulfillment = async (payload: SwitchFulfillmentBody) => {
+    setBusy(true);
+    setCardError(null);
+    try {
+      const res = await api.post<{ data: SwitchFulfillmentResult }>(
+        `/admin/online-orders/${row.id}/fulfillment`,
+        payload,
+      );
+      const d = res.data.data;
+      onPatch(row.id, {
+        fulfillment_type: d.fulfillment_type,
+        customer_address: d.customer_address,
+        distance_km: d.distance_km,
+        ship_fee: d.ship_fee,
+        // Gợi ý phí ship của địa chỉ MỚI (BE tính lại) — giữ số cũ là chip khoảng cách và ô phí
+        // ship nói về một quãng đường không còn liên quan.
+        suggested_ship_fee: d.suggested_ship_fee,
+        // Đơn chưa duyệt không có bàn — giữ nguyên null thay vì xoá field đang có.
+        ...(d.table_code ? { table_code: d.table_code, table_name: d.table_name } : {}),
+      });
+      // Ô phí ship của đơn CHỜ DUYỆT là state cục bộ, BE không biết tới: chuyển sang tự tới lấy
+      // mà để nguyên số đã gõ thì lát nữa bấm Xác nhận là đơn "tự lấy" vẫn cõng phí ship.
+      // Chiều ngược lại (sang giao tận nơi): điền gợi ý MỚI của BE, đúng như lúc mở card lần đầu.
+      if (d.fulfillment_type === 'PICKUP') setShipFee('');
+      else if (d.suggested_ship_fee !== null) {
+        setShipFee(formatMoneyInput(String(d.suggested_ship_fee)));
+      }
+      setSwitchOpen(false);
+      toast.push(
+        'success',
+        `Đã chuyển sang ${FULFILLMENT_LABEL[d.fulfillment_type]}` +
+          (d.table_code ? ` — ${d.table_name ?? d.table_code}` : '') +
+          ' · nhớ báo lại với khách',
+      );
+    } catch (err) {
+      setCardError(extractError(err).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const itemsTotal = row.items.reduce((s, i) => s + i.unit_price * i.qty, 0);
+  // M2.D-62 — tổng PHẢI gồm phí ship, đúng như màn bàn và như lúc thu tiền. Trước 2026-08-06 màn
+  // này chỉ cộng tiền món nên cùng một đơn hiện 120.000đ ở đây và 140.000đ ở màn bàn, không màn
+  // nào nói vì sao lệch.
+  const shipFeeOfRow = row.ship_fee ?? 0;
+  const total = itemsTotal + shipFeeOfRow;
   const collapsed = row.items.length > ITEMS_VISIBLE_MAX && !expandItems;
   const shownItems = collapsed ? row.items.slice(0, ITEMS_VISIBLE_MAX) : row.items;
 
@@ -1063,10 +1326,128 @@ function OrderCard({
   // 4 field bàn/đếm món/mốc đều null). `fv.action` là nút kế tiếp nhân viên cần bấm.
   const fv = row.status === 'CONFIRMED' ? fulfillmentView(row) : null;
 
-  // Có khối phụ nào phía dưới không (kết luận / món hết / phí ship / lỗi / panel từ chối).
-  // Cần biết trước để không dựng một cái khung rỗng chỉ để lấy padding.
+  // Đổi hình thức nhận hàng được tới TRƯỚC lúc mang đi ship (chỉ đạo chủ dự án 2026-08-06).
+  // Điều kiện ở đây phải KHỚP `decideSwitchFulfillment` phía BE — nhưng nó chỉ để ẩn nút cho gọn
+  // màn hình, chốt chặn thật nằm ở BE (gọi thẳng API vẫn nhận 409).
+  const canSwitch =
+    row.status === 'WAITING' ||
+    (row.status === 'CONFIRMED' &&
+      row.shipped_at_ms === null &&
+      row.received_at_ms === null &&
+      row.paid_at_ms === null);
+  const switchTarget: 'PICKUP' | 'DELIVERY' = isDelivery ? 'PICKUP' : 'DELIVERY';
+
+  // Ô phí ship + nút đổi hình thức nay nằm TRONG CỘT KHÁCH (xem `deliveryControls`), nên không
+  // còn tính vào khối phụ. `switchOpen` vẫn tính: lúc mở, panel đổi hình thức là form nên chạy
+  // full-width ở dưới.
+  //
+  // Có khối phụ nào phía dưới không (kết luận / món hết / lỗi / panel). Cần biết trước để không
+  // dựng một cái khung rỗng chỉ để lấy padding.
   const hasExtras =
-    readOnly || row.out_of_stock_count > 0 || isDelivery || !!cardError || rejectOpen || editOpen;
+    readOnly ||
+    row.out_of_stock_count > 0 ||
+    !!cardError ||
+    rejectOpen ||
+    editOpen ||
+    switchOpen;
+
+  /* ── Khối giao hàng, nằm CUỐI CỘT KHÁCH: ô phí ship + nút đổi hình thức ──
+     Trước đây (tới 2026-08-06) hai thứ này là 2 dải riêng chạy hết chiều ngang card ở dưới cùng.
+     Kết quả trên desktop: cột khách chỉ cao ~70px trong khi cột món cao ~230px nên đáy cột khách
+     là một vùng TRẮNG TRƠN cỡ bằng cả khối món, rồi bên dưới là 2 dải nữa mà mỗi dải chỉ có một
+     nhãn bên trái và một nút bị đẩy sang tận mép phải, cách nhau gần 900px. Card vừa rỗng vừa
+     rời rạc.
+     Nay gom vào đây: cả hai đều là chuyện GIAO HÀNG nên thuộc về cột có địa chỉ, và chúng lấp
+     đúng chỗ trống đó. Panel đổi hình thức khi MỞ vẫn chạy full-width ở khối phụ — nó là form,
+     bóp vào cột 45% thì chật.
+     Nhãn "Hình thức nhận hàng: Giao tận nơi" bị BỎ (không thay bằng gì): pill ở dải đầu card đã
+     nói đúng điều đó, và nút "Chuyển sang …" tự nói nốt phần còn lại. */
+  const showShipFeeField = !readOnly && isDelivery;
+  const showSwitchButton = canSwitch && !switchOpen;
+  const deliveryControls = (showShipFeeField || showSwitchButton) && (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 8,
+        // `flex-end` để đáy ô input thẳng hàng với đáy nút, dù ô có nhãn ở trên còn nút thì không.
+        alignItems: 'flex-end',
+      }}
+    >
+      {showShipFeeField && (
+        <div>
+          <label
+            htmlFor={`ship-${row.id}`}
+            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+          >
+            Phí ship (nếu có)
+          </label>
+          {/* "đ" nằm TRONG khung, dính vào ô — trước đây nó là một chữ trôi bên ngoài, trông như
+              ký tự lạc chứ không như đơn vị của ô nhập. Viền do khối ngoài vẽ, input bên trong
+              không viền, nên cả cụm là MỘT ô. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+              background: C.cardBg,
+              overflow: 'hidden',
+              width: 140,
+            }}
+          >
+            <input
+              id={`ship-${row.id}`}
+              // `text` chứ không `number`: input number từ chối giá trị có dấu chấm phân cách.
+              type="text"
+              inputMode="numeric"
+              placeholder="0"
+              // State giữ CHUỖI ĐÃ ĐỊNH DẠNG (`10.000`); lúc gửi đi thì `digitsOnly` bóc lại
+              // thành số. Giữ số thô trong state rồi format khi render nghe gọn hơn nhưng làm
+              // con trỏ nhảy về cuối mỗi lần gõ giữa chuỗi.
+              value={shipFee}
+              onChange={(e) => setShipFee(formatMoneyInput(e.target.value))}
+              style={{
+                flex: 1,
+                minWidth: 0,
+                padding: '10px 4px 10px 12px',
+                border: 'none',
+                borderRadius: 0,
+                background: 'transparent',
+                textAlign: 'right',
+              }}
+            />
+            <span style={{ fontSize: 14, color: C.muted, padding: '0 12px 0 2px' }}>đ</span>
+          </div>
+          {/* Nói rõ con số ở đâu ra — ô tự có số mà không giải thích thì nhân viên không biết nên
+              tin hay nên sửa. Và phải nói được rằng KHÁCH ĐÃ THẤY con số này: đó là lý do không
+              nên đổi nó tuỳ hứng. */}
+          {row.suggested_ship_fee !== null && (
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.muted, maxWidth: 200 }}>
+              Gợi ý theo {row.distance_km} km — khách đã thấy số này lúc đặt. Sửa được.
+            </p>
+          )}
+        </div>
+      )}
+
+      {showSwitchButton && (
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy}
+          onClick={() => {
+            setRejectOpen(false);
+            setEditOpen(false);
+            setCancelOpen(false);
+            setSwitchOpen(true);
+          }}
+          style={{ fontSize: 13 }}
+        >
+          🔄 Chuyển sang {FULFILLMENT_LABEL[switchTarget]}
+        </button>
+      )}
+    </div>
+  );
 
   /* ── Dải đầu: 3 thứ quét được ở khoảng cách 1 mét ──
      Ở tab tra cứu dải này còn là NÚT GẤP/MỞ, và khi gấp nó phải tự đủ nghĩa: pill trạng thái +
@@ -1165,6 +1546,13 @@ function OrderCard({
             </span>
           )}
           <span style={{ flex: 1 }} />
+          {/* Dải tóm tắt (thẻ đang thu gọn): phí ship là chip riêng, không gộp im lặng vào tổng —
+              thu gọn không có nghĩa là giấu tiền khách phải trả thêm. */}
+          {shipFeeOfRow > 0 && (
+            <span style={{ fontSize: 12, fontWeight: 600, color: C.mutedOnTint }}>
+              +ship {fmtVnd(shipFeeOfRow)}
+            </span>
+          )}
           <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
         </div>
       )}
@@ -1227,7 +1615,7 @@ function OrderCard({
       {open && (
         <>
       <div className="oo-card-body">
-        <div>
+        <div className="oo-customer">
         {/* ── Khối khách — có nút gọi và mở bản đồ, không bắt copy tay ── */}
         <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{row.customer_name}</p>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
@@ -1244,8 +1632,14 @@ function OrderCard({
           <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
               {row.customer_address}
-              {row.distance_km ? ` · ${row.distance_km} km` : ''}
             </span>
+            {/* Khoảng cách tách thành CHIP có màu (2026-08-06), không còn là mấy chữ " · 2.50 km"
+                nối đuôi địa chỉ. Người duyệt đơn cần trả lời đúng một câu trong một giây — "xa hay
+                gần, có tính thêm tiền không" — mà con số chìm trong dòng địa chỉ xám thì phải đọc
+                cả dòng mới thấy. Màu lấy từ chính `suggested_ship_fee` nên không có ngưỡng thứ hai
+                nào để lệch với bảng giá: xanh = trong vùng miễn phí, hổ phách = có phụ phí, xám =
+                chưa tính được. Chữ luôn nói đủ nghĩa, màu chỉ là kênh phụ (rule color-only-meaning). */}
+            {row.distance_km !== null && <DistanceChip row={row} />}
             {/* Link bản đồ dựng qua `customerMapHref`: có map_link khách dán thì dùng, không thì
                 dựng từ toạ độ GPS. Trước 2026-08-05 chỗ này đọc thẳng `row.customer_map_link`
                 nên đơn khách bấm "Chia sẻ vị trí" (toạ độ chính xác nhất) lại KHÔNG có nút mở
@@ -1307,7 +1701,11 @@ function OrderCard({
             }}
           >
             <span style={{ fontSize: 13, fontWeight: 500, color: C.mutedOnTint }}>
-              Tổng {row.items.length} món
+              {/* Có phí ship thì PHẢI nói ra ngay cạnh con số: nhân viên nhìn "140.000đ" mà danh
+                  sách món cộng lại chỉ 120.000đ sẽ tưởng hệ thống tính sai. */}
+              {shipFeeOfRow > 0
+                ? `${row.items.length} món ${fmtVnd(itemsTotal)} + ship ${fmtVnd(shipFeeOfRow)}`
+                : `Tổng ${row.items.length} món`}
             </span>
             <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
           </div>
@@ -1329,11 +1727,16 @@ function OrderCard({
             </button>
           )}
         </div>
+
+        {/* Khối giao hàng — trong DOM nằm SAU khối món (đúng thứ tự đọc trên điện thoại: khách →
+            món → phí ship → nút Xác nhận). Trên desktop CSS xếp nó xuống dưới cột khách để lấp
+            vùng trắng ở đó; xem `styles.css § .oo-delivery`. */}
+        {deliveryControls && <div className="oo-delivery">{deliveryControls}</div>}
       </div>
 
       {/* ── Khối phụ: TRẢI HẾT chiều ngang card, không nhét vào cột ──
-          Kết luận xử lý, món hết hàng, ô phí ship, lỗi, panel từ chối — mấy thứ này là form và
-          câu văn dài; bóp vào cột 45% thì checkbox xuống dòng và panel từ chối chật không gõ được.
+          Kết luận xử lý, món hết hàng, lỗi, panel từ chối/sửa món — mấy thứ này là form và câu văn
+          dài; bóp vào cột 45% thì checkbox xuống dòng và panel từ chối chật không gõ được.
           `display:grid gap:12` để khoảng cách giữa các khối do MỘT chỗ quyết định, không phải mỗi
           khối tự khai `marginTop` rồi lệch nhau. */}
       {hasExtras && (
@@ -1451,6 +1854,7 @@ function OrderCard({
                 {cancelOpen && (
                   <RejectPanel
                     busy={busy}
+                    phone={row.customer_phone}
                     submitLabel="Xác nhận huỷ đơn"
                     onCancel={() => setCancelOpen(false)}
                     onSubmit={(payload) => void cancelConfirmed(payload)}
@@ -1459,6 +1863,29 @@ function OrderCard({
               </div>
             )}
           </div>
+        )}
+
+        {/* ── Đổi hình thức nhận hàng: ship ⇄ khách tự tới lấy (chỉ đạo 2026-08-06) ──
+            Khách đổi ý sau khi đặt là chuyện thường ngày, và trước đây đường duy nhất là HUỶ đơn
+            rồi bắt khách đặt lại từ đầu. Cả 3 role bấm được (D-02) — kiểm soát bù trừ là audit
+            log `online_order.fulfillment_switched` + nhật ký bàn.
+            Đặt SAU khối kết luận và TRƯỚC khối món hết: với đơn đã duyệt, đây là phần tiếp nối
+            câu chuyện "đơn đang ở đâu, đi đường nào". */}
+        {/* Panel đổi hình thức: full-width vì là form (địa chỉ + phí ship + xác nhận). Nút MỞ nó
+            nằm ở cuối cột khách — xem `deliveryControls`. */}
+        {canSwitch && switchOpen && (
+          <SwitchFulfillmentPanel
+            target={switchTarget}
+            currentAddress={row.customer_address}
+            currentShipFee={shipFeeOfRow}
+            // Đơn CHỜ DUYỆT chưa có `orders` để ghi phí ship — nhân viên nhập ở ô "Phí ship"
+            // của thẻ rồi bấm Xác nhận như cũ. Bày ô phí ship thứ hai ở đây là 2 ô cho cùng
+            // một con số, và chỉ một trong hai được gửi đi.
+            showShipFee={row.status === 'CONFIRMED'}
+            busy={busy}
+            onCancel={() => setSwitchOpen(false)}
+            onSubmit={(payload) => void switchFulfillment(payload)}
+          />
         )}
 
         {!readOnly && row.out_of_stock_count > 0 && (
@@ -1510,35 +1937,6 @@ function OrderCard({
           </div>
         )}
 
-        {!readOnly && isDelivery && (
-          <div>
-            <label
-              htmlFor={`ship-${row.id}`}
-              style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
-            >
-              Phí ship (nếu có)
-            </label>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <input
-                id={`ship-${row.id}`}
-                type="number"
-                min={0}
-                inputMode="numeric"
-                placeholder="0"
-                value={shipFee}
-                onChange={(e) => setShipFee(e.target.value)}
-                style={{
-                  padding: '10px 12px',
-                  borderRadius: 8,
-                  border: `1px solid ${C.border}`,
-                  width: 140,
-                }}
-              />
-              <span style={{ fontSize: 16, color: C.muted }}>đ</span>
-            </div>
-          </div>
-        )}
-
         {cardError && (
           <div
             role="alert"
@@ -1567,6 +1965,7 @@ function OrderCard({
         {rejectOpen && (
           <RejectPanel
             busy={busy}
+            phone={row.customer_phone}
             onCancel={() => setRejectOpen(false)}
             onSubmit={(payload) => void reject(payload)}
           />
@@ -1579,7 +1978,7 @@ function OrderCard({
           role — D-02 (không gate theo role ở đây).
           `.oo-actions` chặn nút ở 460px trên desktop: nút "Xác nhận" dài 1100px vừa xấu vừa biến
           nửa chiều ngang card thành vùng bấm nguy hiểm. ── */}
-      {!readOnly && !rejectOpen && !editOpen && (
+      {!readOnly && !rejectOpen && !editOpen && !switchOpen && (
         <div className="oo-actions">
           <button type="button" disabled={busy} onClick={() => void confirm()}>
             {busy ? 'Đang xử lý...' : 'Xác nhận'}
@@ -1600,6 +1999,143 @@ function OrderCard({
       )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Panel đổi hình thức nhận hàng — khối mở rộng trong card, cùng khuôn `RejectPanel`/
+ * `EditItemsPanel` (09-UI-SPEC giả định #3: KHÔNG hộp thoại nổi).
+ *
+ * Đây là thao tác đổi CẢ TIỀN khách phải trả lẫn BÀN đơn đang ngồi, nên panel phải nói trước
+ * hệ quả rồi mới cho bấm — bấm một nút rồi mới phát hiện phí ship đã bị xoá là kiểu bất ngờ
+ * không sửa lại được bằng một lần bấm khác.
+ *
+ * Ô địa chỉ điền sẵn địa chỉ đang lưu (nếu có): đơn từng là giao tận nơi, đổi sang tự lấy rồi
+ * đổi lại thì địa chỉ vẫn còn — bắt gõ lại giữa lúc đang nghe điện thoại là bước thừa.
+ */
+function SwitchFulfillmentPanel({
+  target,
+  currentAddress,
+  currentShipFee,
+  showShipFee,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  target: 'PICKUP' | 'DELIVERY';
+  currentAddress: string | null;
+  currentShipFee: number;
+  /** Đơn đã duyệt mới sửa được phí ship ở đây (đơn chờ duyệt dùng ô phí ship của thẻ). */
+  showShipFee: boolean;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: (payload: SwitchFulfillmentBody) => void;
+}) {
+  const toDelivery = target === 'DELIVERY';
+  const [address, setAddress] = useState(currentAddress ?? '');
+  const [fee, setFee] = useState(currentShipFee > 0 ? formatMoneyInput(String(currentShipFee)) : '');
+
+  const addressMissing = toDelivery && address.trim() === '';
+  const addressChanged = toDelivery && address.trim() !== (currentAddress ?? '').trim();
+
+  return (
+    <div
+      style={{
+        background: C.panelBg,
+        border: `1px solid ${C.border}`,
+        borderRadius: 8,
+        padding: '12px 16px',
+        display: 'grid',
+        gap: 8,
+      }}
+    >
+      <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
+        🔄 Chuyển sang {FULFILLMENT_LABEL[target]}
+      </p>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: C.muted, lineHeight: 1.5 }}>
+        {toDelivery
+          ? 'Đơn sẽ được chuyển sang một bàn Ship còn trống. Khách xem trang theo dõi sẽ thấy đổi ngay.'
+          : 'Đơn sẽ được chuyển sang một bàn Mang về còn trống và PHÍ SHIP VỀ 0đ. Khách xem trang theo dõi sẽ thấy đổi ngay.'}
+      </p>
+
+      {toDelivery && (
+        <div>
+          <label
+            htmlFor="switch-address"
+            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+          >
+            Địa chỉ giao (bắt buộc)
+          </label>
+          <input
+            id="switch-address"
+            type="text"
+            value={address}
+            maxLength={255}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Số nhà, đường, phường…"
+            style={{
+              width: '100%',
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: `1px solid ${addressMissing ? C.alertBorder : C.border}`,
+            }}
+          />
+          {/* Đổi địa chỉ là xoá toạ độ + số km đang lưu (BE quyết, xem `resolveSwitchAddress`) —
+              nói ra ở đây vì số km đó là căn cứ nhân viên nhìn để chốt phí ship. */}
+          {addressChanged && (currentAddress ?? '') !== '' && (
+            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500, color: C.warnText }}>
+              Địa chỉ khác địa chỉ khách đã gửi — vị trí bản đồ và số km sẽ bị xoá.
+            </p>
+          )}
+        </div>
+      )}
+
+      {toDelivery && showShipFee && (
+        <div>
+          <label
+            htmlFor="switch-ship-fee"
+            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+          >
+            Phí ship (nếu có)
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <input
+              id="switch-ship-fee"
+              type="text"
+              inputMode="numeric"
+              placeholder="0"
+              value={fee}
+              onChange={(e) => setFee(formatMoneyInput(e.target.value))}
+              style={{ padding: '10px 12px', borderRadius: 8, border: `1px solid ${C.border}`, width: 140 }}
+            />
+            <span style={{ fontSize: 16, color: C.muted }}>đ</span>
+          </div>
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginTop: 4 }}>
+        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>
+          Huỷ
+        </button>
+        <button
+          type="button"
+          disabled={busy || addressMissing}
+          onClick={() =>
+            onSubmit({
+              fulfillment_type: target,
+              ...(toDelivery ? { customer_address: address.trim() } : {}),
+              // Ô trống = KHÔNG gửi field, tức là giữ nguyên phí đang có. Gửi 0 ở đây là âm thầm
+              // xoá con số nhân viên đã chốt miệng với khách từ trước.
+              ...(toDelivery && showShipFee && digitsOnly(fee) !== ''
+                ? { ship_fee: Number(digitsOnly(fee)) }
+                : {}),
+            })
+          }
+        >
+          {busy ? 'Đang xử lý...' : `Chuyển sang ${FULFILLMENT_LABEL[target]}`}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1969,23 +2505,28 @@ function EditItemsPanel({
  */
 function RejectPanel({
   busy,
+  phone,
   onCancel,
   onSubmit,
   submitLabel = 'Xác nhận từ chối',
 }: {
   busy: boolean;
+  /** SĐT của đơn — CHỈ để hiện trên ô tick chặn số. Số gửi lên BE vẫn là số BE tự đọc từ đơn;
+   * ở đây chỉ là chữ cho người bấm nhìn thấy mình sắp khoá đúng số nào. */
+  phone: string;
   onCancel: () => void;
-  onSubmit: (p: {
-    reason_code: RejectReasonCode;
-    reason_other_text?: string;
-    internal_note?: string;
-  }) => void;
+  onSubmit: (p: RejectOnlineOrderBody) => void;
   /** Nhãn nút gửi — panel này dùng cho CẢ từ chối (đơn chờ) lẫn huỷ đơn đã xác nhận. */
   submitLabel?: string;
 }) {
   const [code, setCode] = useState<RejectReasonCode | null>(null);
   const [otherText, setOtherText] = useState('');
   const [internalNote, setInternalNote] = useState('');
+  // Chặn số ngay tại đây (chỉ đạo chủ dự án 2026-08-06) — khách cố tình phá đám thì không phải
+  // đi vòng sang màn blacklist. MẶC ĐỊNH TẮT: đại đa số đơn bị từ chối là do quán (hết nguyên
+  // liệu, quá tải), khách không làm gì sai; ô tick sẵn là cách khoá oan khách ruột chỉ vì nhân
+  // viên bấm nhanh qua form.
+  const [blacklist, setBlacklist] = useState(false);
 
   const otherMissing = code === 'OTHER' && otherText.trim() === '';
   const canSubmit = code !== null && !otherMissing && !busy;
@@ -2001,7 +2542,7 @@ function RejectPanel({
           style={{
             display: 'flex',
             gap: 8,
-            alignItems: 'center',
+            alignItems: 'flex-start',
             marginBottom: 4,
             fontSize: 16,
             fontWeight: 400,
@@ -2019,10 +2560,19 @@ function RejectPanel({
             name="reject-reason"
             checked={code === rc}
             onChange={() => setCode(rc)}
+            style={{ marginTop: 4, flex: 'none' }}
           />
-          {/* Nhãn 4 lý do soạn sẵn lấy TỪ @order/schemas — 1 nguồn sự thật với câu BE gửi khách.
-              Gõ lại chuỗi tiếng Việt ở FE là mở đường cho 2 bản lệch nhau. */}
-          <span>{rc === 'OTHER' ? 'Lý do khác (ghi rõ bên dưới)' : REJECT_REASON_TEXT[rc]}</span>
+          {/* Cả nhãn ngắn lẫn câu gửi khách đều lấy TỪ @order/schemas — 1 nguồn sự thật với chuỗi
+              BE ghi vào DB. Gõ lại chuỗi tiếng Việt ở FE là mở đường cho 2 bản lệch nhau.
+              Hai tầng chữ, cố ý: dòng đậm để nhân viên chọn nhanh giờ cao điểm, dòng mờ là
+              NGUYÊN VĂN khách sẽ đọc — câu xin lỗi dài, gửi đi mà không ai đọc trước thì sớm
+              muộn cũng có câu sai ngữ cảnh tới tay khách. */}
+          <span>
+            <span style={{ fontWeight: 500 }}>{REJECT_REASON_LABEL[rc]}</span>
+            <span style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: C.muted }}>
+              {rc === 'OTHER' ? 'Tự gõ câu gửi khách ở ô bên dưới' : REJECT_REASON_TEXT[rc]}
+            </span>
+          </span>
         </label>
       ))}
 
@@ -2083,6 +2633,43 @@ function RejectPanel({
         </p>
       </div>
 
+      {/* ── Chặn số ngay trong hộp thoại này (2026-08-06) ──
+          Cả 3 role tick được (cùng lý lẽ D-02 với duyệt/từ chối) — kiểm soát bù trừ là audit
+          `phone_blacklist.added` ghi rõ ai chặn, số nào, vì đơn nào. GỠ thì vẫn chỉ admin làm
+          được ở màn Cài đặt: mở quyền chặn không đồng nghĩa mở quyền gỡ.
+          Viền đỏ + chữ "vĩnh viễn": đây là thứ khách không bao giờ được báo, họ chỉ thấy web
+          không cho đặt nữa — nên người bấm phải đọc được hệ quả TRƯỚC khi tick. */}
+      <label
+        style={{
+          display: 'flex',
+          gap: 8,
+          alignItems: 'flex-start',
+          marginBottom: 16,
+          padding: '12px 16px',
+          border: `1px solid ${blacklist ? C.alertBorder : C.borderSoft}`,
+          background: blacklist ? C.alertBg : C.cardBg,
+          borderRadius: 8,
+          fontWeight: 400,
+          cursor: 'pointer',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={blacklist}
+          onChange={(e) => setBlacklist(e.target.checked)}
+          style={{ marginTop: 4, flex: 'none' }}
+        />
+        <span>
+          <span style={{ fontSize: 16, fontWeight: 500, color: blacklist ? C.alertText : C.text }}>
+            🚫 Chặn số {phone} khỏi đặt online
+          </span>
+          <span style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: C.muted }}>
+            Dành cho khách cố tình phá đám. Chặn VĨNH VIỄN — muốn gỡ thì vào Cài đặt ▸ Chặn số
+            điện thoại (chỉ admin).
+          </span>
+        </span>
+      </label>
+
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8 }}>
         <button type="button" className="secondary" onClick={onCancel}>
           Huỷ
@@ -2092,6 +2679,7 @@ function RejectPanel({
               reason_code: code as RejectReasonCode,
               ...(code === 'OTHER' ? { reason_other_text: otherText.trim() } : {}),
               ...(internalNote.trim() ? { internal_note: internalNote.trim() } : {}),
+              ...(blacklist ? { blacklist_phone: true } : {}),
             })
           }
         >

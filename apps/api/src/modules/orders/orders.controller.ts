@@ -127,6 +127,15 @@ export class OrdersController {
     return { data: { items: orders } };
   }
 
+  /** GET /orders/open-count — chỉ số bàn đang mở, cho badge nav dưới.
+   *
+   * PHẢI khai TRƯỚC các route có tham số động để Nest không hiểu 'open-count' là id.
+   * Mọi role đăng nhập đều gọi được: cả 3 role đều có nút "Order" ở nav dưới. */
+  @Get('open-count')
+  async openCount() {
+    return { data: { count: await this.svc.countOpenOrders() } };
+  }
+
   /** GET /orders/by-table/:tableId — get or create the open order for a table */
   @Get('by-table/:tableId')
   async byTable(@Param('tableId') tableId: string, @Req() req: Request) {

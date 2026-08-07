@@ -22,6 +22,7 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { REJECT_REASON_TEXT } from '@order/schemas';
 import { dataSourceOptions } from '../../data-source.js';
 import { AdminOnlineOrdersService } from './admin-online-orders.service.js';
 
@@ -86,6 +87,28 @@ async function cleanupSentinelRows(): Promise<void> {
       WHERE t.code LIKE ? OR t.code LIKE ?`,
     [TABLE_LIKE_DELIVERY, TABLE_LIKE_TAKEAWAY],
   );
+  // Dọn theo ĐƠN SENTINEL, không theo bàn: `switchFulfillment` chuyển order sang bàn trống đầu
+  // tiên cùng loại — có thể là một bàn THẬT của quán (`mang-ve-01`), nằm ngoài dải bàn sentinel.
+  // Thiếu 3 câu này thì mỗi lần chạy test để lại một đơn MỞ trên bàn thật, và sơ đồ bàn của quán
+  // hiện một bàn bận không ai mở.
+  await ds.query(
+    `DELETE oi FROM order_items oi
+       JOIN online_order_requests r ON r.order_id = oi.order_id
+      WHERE r.customer_phone LIKE ?`,
+    [SENTINEL_PHONE_LIKE],
+  );
+  await ds.query(
+    `DELETE oal FROM order_activity_logs oal
+       JOIN online_order_requests r ON r.order_id = oal.order_id
+      WHERE r.customer_phone LIKE ?`,
+    [SENTINEL_PHONE_LIKE],
+  );
+  await ds.query(
+    `DELETE o FROM orders o
+       JOIN online_order_requests r ON r.order_id = o.id
+      WHERE r.customer_phone LIKE ?`,
+    [SENTINEL_PHONE_LIKE],
+  );
   await ds.query(
     `DELETE nob FROM notification_outbox nob
        JOIN online_order_requests r ON r.id = nob.request_id
@@ -95,6 +118,8 @@ async function cleanupSentinelRows(): Promise<void> {
   await ds.query('DELETE FROM online_order_requests WHERE customer_phone LIKE ?', [
     SENTINEL_PHONE_LIKE,
   ]);
+  // Chặn số từ hộp thoại từ chối/huỷ đơn (2026-08-06) ghi vào bảng này — cùng dải SĐT sentinel.
+  await ds.query('DELETE FROM phone_blacklist WHERE phone LIKE ?', [SENTINEL_PHONE_LIKE]);
   await ds.query('DELETE FROM restaurant_tables WHERE code LIKE ? OR code LIKE ?', [
     TABLE_LIKE_DELIVERY,
     TABLE_LIKE_TAKEAWAY,
@@ -600,7 +625,10 @@ describe('Huỷ đơn ĐÃ xác nhận — cancelConfirmed (Task.md 2026-08-04)'
       [requestId],
     );
     expect(req.status).toBe('REJECTED');
-    expect(req.reject_reason).toBe('Không liên lạc được với khách');
+    // So với hằng số, KHÔNG chép lại chuỗi: câu gửi khách được viết lại theo chỉ đạo (2026-08-06
+    // sửa cho lịch sự hơn) và sẽ còn sửa nữa. Điều cần khoá là "ghi ĐÚNG câu soạn sẵn của mã lý
+    // do đó vào DB", không phải một chuỗi tiếng Việt cụ thể.
+    expect(req.reject_reason).toBe(REJECT_REASON_TEXT.CANNOT_CONTACT);
     expect(req.reviewed_by_full_name).toBe('NV Test');
 
     const [ord] = await ds.query('SELECT closed_at, is_paid FROM orders WHERE id = ?', [orderId]);
@@ -630,5 +658,343 @@ describe('Huỷ đơn ĐÃ xác nhận — cancelConfirmed (Task.md 2026-08-04)'
       .cancelConfirmed(requestId, { id: randomUUID(), full_name: 'NV Test' }, { reason_code: 'OVERLOADED' })
       .then(() => null, (e: unknown) => e as { getResponse(): { code?: string } });
     expect(err?.getResponse().code).toBe('ORDER_ALREADY_CLOSED');
+  }, 15_000);
+});
+
+describe('Cửa sổ 14h của order/bếp — list() (chỉ đạo chủ dự án 2026-08-06)', () => {
+  /** `list()` đụng `ds` + `settingsSvc` (đọc ngưỡng leo thang SMS); outbox/emitter không tham gia. */
+  function makeService(): AdminOnlineOrdersService {
+    return new AdminOnlineOrdersService(
+      ds,
+      new EventEmitter2(),
+      null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[2],
+      { readAll: async () => ({ escalate_sms_after_s: 90 }) } as unknown as ConstructorParameters<
+        typeof AdminOnlineOrdersService
+      >[3],
+    );
+  }
+
+  /** Đơn WAITING với mốc ĐẶT tự chọn — đây là thứ cửa sổ 14h lọc theo. Tham số là Date vì cột
+   * `submitted_at` là DATETIME(6): đẩy số ms thẳng vào MySQL sẽ so sánh sai im lặng. */
+  async function insertWaitingAt(phone: string, submittedAt: Date): Promise<string> {
+    const id = randomUUID();
+    await ds.query(
+      `INSERT INTO online_order_requests
+        (id, order_token, customer_token, status, fulfillment_type, customer_name, customer_phone,
+         customer_address, customer_lat, customer_lng, customer_map_link, distance_km, customer_note,
+         items_snapshot, subtotal, submitted_at, ip_hash, user_agent, max_progress_shown)
+       VALUES (?, ?, ?, 'WAITING', 'PICKUP', 'Sentinel 14h', ?, NULL, NULL, NULL, NULL, NULL, NULL,
+               ?, ?, ?, ?, 'vitest', 0)`,
+      [
+        id,
+        randomBytes(32).toString('hex'),
+        randomBytes(16).toString('hex'),
+        phone,
+        JSON.stringify([
+          { menu_item_id: randomUUID(), code: 'SP-TEST', name: 'Món test', unit_price: 50_000, qty: 1, note: null },
+        ]),
+        50_000,
+        submittedAt,
+        randomBytes(32).toString('hex'),
+      ],
+    );
+    return id;
+  }
+
+  const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000);
+
+  it('order/bếp KHÔNG thấy đơn đặt quá 14h, admin thấy cả hai', async () => {
+    const fresh = await insertWaitingAt('0900000080', hoursAgo(2));
+    const old = await insertWaitingAt('0900000081', hoursAgo(20));
+    const svc = makeService();
+
+    // Cửa sổ nhân viên: 14h.
+    const staff = await svc.list('WAITING', { maxAgeMs: 14 * 60 * 60 * 1000, windowHours: 14 });
+    const staffIds = staff.items.map((i) => i.id);
+    expect(staffIds).toContain(fresh);
+    expect(staffIds).not.toContain(old);
+    expect(staff.window_hours).toBe(14);
+
+    // Admin không giới hạn: thấy cả đơn 20h.
+    const admin = await svc.list('WAITING', { maxAgeMs: undefined, windowHours: null });
+    const adminIds = admin.items.map((i) => i.id);
+    expect(adminIds).toContain(fresh);
+    expect(adminIds).toContain(old);
+    expect(admin.window_hours).toBeNull();
+  }, 15_000);
+
+  // Đo bằng CHÊNH LỆCH so với mốc trước khi chèn, không bằng số tuyệt đối: DB dev của máy chạy
+  // test có sẵn đơn thật, khẳng định "đúng 3 đơn" sẽ đỏ vì lý do không liên quan tới cửa sổ.
+  it('badge `status_counts` đếm TRONG cửa sổ, không đếm toàn bảng', async () => {
+    const svc = makeService();
+    const staff14 = { maxAgeMs: 14 * 60 * 60 * 1000, windowHours: 14 };
+    const noLimit = { maxAgeMs: undefined, windowHours: null };
+    const before = {
+      staff: (await svc.list('WAITING', staff14)).status_counts.WAITING,
+      admin: (await svc.list('WAITING', noLimit)).status_counts.WAITING,
+    };
+
+    await insertWaitingAt('0900000082', hoursAgo(1));
+    await insertWaitingAt('0900000083', hoursAgo(30));
+    await insertWaitingAt('0900000084', hoursAgo(50));
+
+    const staff = await svc.list('WAITING', staff14);
+    // Badge phải khớp đúng số đơn danh sách trả về — lệch là nhân viên thấy "12" trên một tab
+    // mở ra chỉ có 3 đơn.
+    expect(staff.status_counts.WAITING).toBe(staff.items.length);
+    expect(staff.status_counts.WAITING - before.staff).toBe(1);
+
+    const admin = await svc.list('WAITING', noLimit);
+    expect(admin.status_counts.WAITING - before.admin).toBe(3);
+  }, 15_000);
+
+  it('bộ lọc thời gian của admin (vd 24h) cắt đúng mốc đặt', async () => {
+    const svc = makeService();
+    const range24 = { maxAgeMs: 24 * 60 * 60 * 1000, windowHours: 24 };
+    const before = (await svc.list('WAITING', range24)).items.length;
+
+    await insertWaitingAt('0900000085', hoursAgo(10));
+    await insertWaitingAt('0900000086', hoursAgo(20));
+    await insertWaitingAt('0900000087', hoursAgo(40));
+
+    const res = await svc.list('WAITING', range24);
+    expect(res.items.length - before).toBe(2);
+    expect(res.status_counts.WAITING).toBe(res.items.length);
+    expect(res.window_hours).toBe(24);
+  }, 15_000);
+});
+
+describe('Đổi hình thức nhận hàng — switchFulfillment (chỉ đạo chủ dự án 2026-08-06)', () => {
+  /** Đụng `ds` + `emitter` + `settingsSvc` (từ 2026-08-06 kết quả trả kèm `suggested_ship_fee`,
+   *  tính từ bảng giá ship trong settings); outbox không tham gia.
+   *  `ship_fee_per_km: 0` = quán chưa đặt bảng giá → gợi ý luôn `null`, đúng mặc định hệ thống. */
+  function makeService(): AdminOnlineOrdersService {
+    return new AdminOnlineOrdersService(
+      ds,
+      new EventEmitter2(),
+      null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[2],
+      {
+        readAll: async () => ({ free_ship_km: 10, ship_fee_per_km: 0 }),
+      } as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+    );
+  }
+
+  const actor = { id: randomUUID(), full_name: 'NV Test' };
+
+  /** Đơn DELIVERY đã duyệt, đang ngồi bàn ship + có phí ship đã chốt. */
+  async function seedConfirmedDelivery(tableCode: string, phone: string, shipFee = 20_000) {
+    const tableId = await insertTable(tableCode, 'delivery');
+    const orderId = randomUUID();
+    await ds.query(
+      `INSERT INTO orders (id, table_id, table_code, opened_at, closed_at, is_paid, source,
+                           fulfillment_type, ship_fee, customer_address, payment_method)
+       VALUES (?, ?, ?, NOW(6), NULL, 0, 'ONLINE', 'DELIVERY', ?, '12 Lê Lợi', 'CASH')`,
+      [orderId, tableId, tableCode, shipFee],
+    );
+    const requestId = await insertWaitingRequest(phone, 150_000);
+    await ds.query(
+      `UPDATE online_order_requests
+          SET status = 'CONFIRMED', order_id = ?, fulfillment_type = 'DELIVERY',
+              customer_address = '12 Lê Lợi', distance_km = '3.20'
+        WHERE id = ?`,
+      [orderId, requestId],
+    );
+    return { requestId, orderId, tableId };
+  }
+
+  it('DELIVERY → PICKUP: đơn CHUYỂN sang bàn mang về, phí ship về 0, bàn ship được trả lại', async () => {
+    // Bàn mang về sentinel để chắc chắn có bàn trống (không rơi vào nhánh tự tạo bàn).
+    await insertTable('mang-ve-90', 'takeaway');
+    const { requestId, orderId, tableId } = await seedConfirmedDelivery('ship-91', '0900000091');
+
+    const res = await makeService().switchFulfillment(requestId, actor, {
+      fulfillment_type: 'PICKUP',
+    });
+
+    expect(res.from_fulfillment_type).toBe('DELIVERY');
+    expect(res.previous_table_code).toBe('ship-91');
+    expect(res.ship_fee).toBe(0);
+
+    // Bàn mới PHẢI đúng loại — đây là điều kiện để sơ đồ bàn/màn bếp hiện đơn đúng chỗ.
+    const [ord] = await ds.query(
+      `SELECT o.fulfillment_type, o.ship_fee, o.table_code, t.kind
+         FROM orders o JOIN restaurant_tables t ON t.id = o.table_id WHERE o.id = ?`,
+      [orderId],
+    );
+    expect(ord.fulfillment_type).toBe('PICKUP');
+    expect(Number(ord.ship_fee)).toBe(0);
+    expect(ord.kind).toBe('takeaway');
+    expect(ord.table_code).toBe(res.table_code);
+
+    const [req] = await ds.query(
+      'SELECT fulfillment_type, customer_address FROM online_order_requests WHERE id = ?',
+      [requestId],
+    );
+    expect(req.fulfillment_type).toBe('PICKUP');
+    // Địa chỉ GIỮ NGUYÊN — đổi ngược lại không bắt nhân viên gõ lại (điểm 3 `switch-fulfillment.ts`).
+    expect(req.customer_address).toBe('12 Lê Lợi');
+
+    // Bàn ship cũ tự do trở lại: mọi câu chọn bàn đều loại bàn còn đơn `closed_at IS NULL`.
+    const [{ cnt }] = await ds.query(
+      'SELECT COUNT(*) AS cnt FROM orders WHERE table_id = ? AND closed_at IS NULL',
+      [tableId],
+    );
+    expect(Number(cnt)).toBe(0);
+  }, 15_000);
+
+  it('đơn ĐÃ RỜI QUÁN → 409 ALREADY_SHIPPED, không đụng gì tới dữ liệu', async () => {
+    await insertTable('mang-ve-92', 'takeaway');
+    const { requestId, orderId, tableId } = await seedConfirmedDelivery('ship-92', '0900000092');
+    await ds.query('UPDATE orders SET shipped_at = NOW(6) WHERE id = ?', [orderId]);
+
+    const err = await makeService()
+      .switchFulfillment(requestId, actor, { fulfillment_type: 'PICKUP' })
+      .then(() => null, (e: unknown) => e as { getResponse(): { code?: string } });
+    expect(err?.getResponse().code).toBe('ALREADY_SHIPPED');
+
+    const [ord] = await ds.query('SELECT table_id, ship_fee FROM orders WHERE id = ?', [orderId]);
+    expect(ord.table_id).toBe(tableId);
+    expect(Number(ord.ship_fee)).toBe(20_000);
+  }, 15_000);
+
+  it('đơn CHỜ DUYỆT: PICKUP → DELIVERY cần địa chỉ; có địa chỉ thì đổi được mà không cấp bàn', async () => {
+    const requestId = await insertWaitingRequest('0900000093', 90_000);
+    const svc = makeService();
+
+    const err = await svc
+      .switchFulfillment(requestId, actor, { fulfillment_type: 'DELIVERY' })
+      .then(() => null, (e: unknown) => e as { getResponse(): { code?: string } });
+    expect(err?.getResponse().code).toBe('ADDRESS_REQUIRED');
+
+    const res = await svc.switchFulfillment(requestId, actor, {
+      fulfillment_type: 'DELIVERY',
+      customer_address: '  99 Trần Phú  ',
+    });
+    // Chưa duyệt thì chưa có bàn nào để đổi — cấp bàn ở đây là vi phạm ranh giới M2.D-01.
+    expect(res.table_code).toBeNull();
+    expect(res.customer_address).toBe('99 Trần Phú');
+
+    const [req] = await ds.query(
+      'SELECT fulfillment_type, customer_address, order_id FROM online_order_requests WHERE id = ?',
+      [requestId],
+    );
+    expect(req.fulfillment_type).toBe('DELIVERY');
+    expect(req.customer_address).toBe('99 Trần Phú');
+    expect(req.order_id).toBeNull();
+  }, 15_000);
+
+  it('bấm đúng hình thức đang có → 409 FULFILLMENT_UNCHANGED', async () => {
+    const requestId = await insertWaitingRequest('0900000094', 50_000); // seed là PICKUP
+    const err = await makeService()
+      .switchFulfillment(requestId, actor, { fulfillment_type: 'PICKUP' })
+      .then(() => null, (e: unknown) => e as { getResponse(): { code?: string } });
+    expect(err?.getResponse().code).toBe('FULFILLMENT_UNCHANGED');
+  }, 15_000);
+});
+
+describe('Chặn SĐT ngay trong lượt từ chối / huỷ đơn (chỉ đạo chủ dự án 2026-08-06)', () => {
+  function makeService(): AdminOnlineOrdersService {
+    return new AdminOnlineOrdersService(
+      ds,
+      new EventEmitter2(),
+      { cancelPendingForRequest: async () => {} } as unknown as ConstructorParameters<
+        typeof AdminOnlineOrdersService
+      >[2],
+      null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+    );
+  }
+
+  const actor = { id: randomUUID(), full_name: 'NV Test' };
+
+  async function blacklistRow(phone: string) {
+    const rows: Array<{ phone: string; reason: string; expires_at: Date | null }> = await ds.query(
+      'SELECT phone, reason, expires_at FROM phone_blacklist WHERE phone = ?',
+      [phone],
+    );
+    return rows[0] ?? null;
+  }
+
+  it('từ chối đơn CHỜ DUYỆT + tick chặn → số vào blacklist, chặn VĨNH VIỄN (expires_at NULL)', async () => {
+    const phone = '0900000071';
+    const requestId = await insertWaitingRequest(phone, 80_000);
+
+    const res = await makeService().reject(requestId, actor, {
+      reason_code: 'OTHER',
+      reason_other_text: 'Đặt 10 đơn ảo rồi tắt máy',
+      blacklist_phone: true,
+    });
+
+    expect(res.blacklisted_phone).toBe(phone);
+    expect(res.blacklist_already).toBe(false);
+    const row = await blacklistRow(phone);
+    expect(row).not.toBeNull();
+    expect(row.expires_at).toBeNull();
+    // Lý do "Khác" thì lấy chính câu đã gửi khách — admin mở màn chặn số phải đọc được VÌ SAO.
+    expect(row.reason).toContain('Đặt 10 đơn ảo rồi tắt máy');
+    // Ghi chú nội bộ KHÔNG được nhân bản sang bảng này (D-09 — nó có chỗ sống riêng).
+    expect(row.reason).not.toContain('ghi chú');
+
+    // Đơn vẫn bị từ chối bình thường — chặn số là việc phụ, không được nuốt việc chính.
+    const [req] = await ds.query('SELECT status FROM online_order_requests WHERE id = ?', [requestId]);
+    expect(req.status).toBe('REJECTED');
+  }, 15_000);
+
+  it('KHÔNG tick → không có dòng nào trong blacklist', async () => {
+    const phone = '0900000072';
+    const requestId = await insertWaitingRequest(phone, 80_000);
+    const res = await makeService().reject(requestId, actor, { reason_code: 'OVERLOADED' });
+    expect(res.blacklisted_phone).toBeNull();
+    expect(await blacklistRow(phone)).toBeNull();
+  }, 15_000);
+
+  it('huỷ đơn ĐÃ XÁC NHẬN + tick chặn: đơn niêm VÀ số bị chặn trong cùng một lần bấm', async () => {
+    const phone = '0900000073';
+    const tableId = await insertTable('ship-97', 'delivery');
+    const orderId = randomUUID();
+    await ds.query(
+      `INSERT INTO orders (id, table_id, table_code, opened_at, closed_at, is_paid, source, payment_method)
+       VALUES (?, ?, 'ship-97', NOW(6), NULL, 0, 'ONLINE', 'CASH')`,
+      [orderId, tableId],
+    );
+    const requestId = await insertWaitingRequest(phone, 120_000);
+    await ds.query(
+      `UPDATE online_order_requests SET status = 'CONFIRMED', order_id = ? WHERE id = ?`,
+      [orderId, requestId],
+    );
+
+    const res = await makeService().cancelConfirmed(requestId, actor, {
+      reason_code: 'CANNOT_CONTACT',
+      internal_note: 'khách phá đám, ghi chú nội bộ',
+      blacklist_phone: true,
+    });
+
+    expect(res.blacklisted_phone).toBe(phone);
+    const [ord] = await ds.query('SELECT closed_at FROM orders WHERE id = ?', [orderId]);
+    expect(ord.closed_at).not.toBeNull();
+    const row = await blacklistRow(phone);
+    expect(row.reason).toContain('Huỷ đơn online đã xác nhận');
+    expect(row.reason).not.toContain('ghi chú nội bộ');
+  }, 15_000);
+
+  it('số đã bị chặn từ trước → BÁO "đã có sẵn", KHÔNG ném lỗi và đơn vẫn bị từ chối', async () => {
+    // Nhân viên tick lần hai (đơn thứ hai của cùng một số) là chuyện thường. Ném 409 ở đây là làm
+    // rớt cả lượt từ chối chỉ vì một cái tick thừa.
+    const phone = '0900000074';
+    const first = await insertWaitingRequest(phone, 60_000);
+    await makeService().reject(first, actor, { reason_code: 'OTHER', reason_other_text: 'phá đám', blacklist_phone: true });
+
+    const second = await insertWaitingRequest(phone, 60_000);
+    const res = await makeService().reject(second, actor, {
+      reason_code: 'OTHER',
+      reason_other_text: 'phá đám lần 2',
+      blacklist_phone: true,
+    });
+
+    expect(res.blacklisted_phone).toBeNull();
+    expect(res.blacklist_already).toBe(true);
+    const [{ cnt }] = await ds.query('SELECT COUNT(*) AS cnt FROM phone_blacklist WHERE phone = ?', [phone]);
+    expect(Number(cnt)).toBe(1);
+    const [req] = await ds.query('SELECT status FROM online_order_requests WHERE id = ?', [second]);
+    expect(req.status).toBe('REJECTED');
   }, 15_000);
 });

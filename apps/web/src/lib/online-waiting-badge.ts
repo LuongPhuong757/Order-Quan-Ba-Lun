@@ -11,10 +11,15 @@
 // Số đơn KHÔNG lấy từ payload SSE (payload cố tình tối giản — D-06): mỗi event/lần nối lại thì
 // gọi lại GET list, đọc `status_counts.WAITING`. Đây là fetch RIÊNG với `loadQueue` của trang —
 // trùng 1 GET mỗi event khi đang đứng ở màn hàng chờ, đổi lấy việc 2 bên không phụ thuộc nhau.
+//
+// SSE là đường NHANH, KHÔNG phải đường duy nhất. Bản đầu chỉ fetch lại khi có event SSE nên khi
+// stream chết im lặng (proxy đóng, iPad khoá màn hình, wifi rớt mà `onerror` không bắn) badge
+// đứng yên ở số cũ — đúng cái "thỉnh thoảng sai" user báo 2026-08-06. Lưới an toàn (poll thưa +
+// fetch lại khi quay lại tab / có mạng lại) nằm trong `createNavBadgeCount`.
 
-import { useEffect, useState } from 'react';
 import type { AdminOnlineOrderList } from '@order/schemas';
 import { api } from './api.ts';
+import { createNavBadgeCount, useNavBadgeCount } from './nav-badge-count.ts';
 import { subscribeOnlineOrders, type SseHandlers } from './online-orders-sse.ts';
 
 // ── Kênh SSE dùng chung (refcount) ──────────────────────────────────────────
@@ -61,68 +66,34 @@ export function subscribeQueueStream(handlers: SseHandlers): () => void {
 
 // ── Store đếm đơn WAITING ───────────────────────────────────────────────────
 
-/** `null` = chưa tải được lần nào → không hiện badge (thà không có số còn hơn hiện số sai). */
-let waitingCount: number | null = null;
-const countListeners = new Set<(n: number | null) => void>();
-let stopChannel: (() => void) | null = null;
-/** Đánh dấu lần fetch mới nhất — kết quả của lần cũ về muộn thì BỎ, không ghi đè số mới. */
-let fetchSeq = 0;
+/** Nhịp poll dự phòng. Thưa CÓ CHỦ ĐÍCH: SSE lo phần realtime, đây chỉ để bắt trường hợp stream
+ * chết im lặng. 20s là mức tệ nhất nhân viên phải chờ khi SSE đã chết — vẫn nhanh hơn hẳn việc
+ * badge treo vô hạn, mà không tạo tải đáng kể (1 GET/20s/máy). */
+const WAITING_POLL_MS = 20_000;
 
-function broadcast(n: number | null): void {
-  waitingCount = n;
-  for (const l of [...countListeners]) l(n);
-}
-
-async function refetchCount(): Promise<void> {
-  const seq = ++fetchSeq;
-  try {
-    const res = await api.get<{ data: AdminOnlineOrderList }>(
-      '/admin/online-orders?status=WAITING',
-    );
-    if (seq !== fetchSeq) return;
-    broadcast(res.data.data.status_counts.WAITING);
-  } catch {
-    // Lỗi thoáng qua → GIỮ số cũ, event SSE kế tiếp (hoặc lần nối lại) sẽ fetch lại.
-  }
-}
+export const onlineWaitingStore = createNavBadgeCount({
+  fetchCount: async () => {
+    const res = await api.get<{ data: AdminOnlineOrderList }>('/admin/online-orders?status=WAITING');
+    return res.data.data.status_counts.WAITING;
+  },
+  pollMs: WAITING_POLL_MS,
+  subscribe: (signal) =>
+    subscribeQueueStream({
+      onOpen: signal,
+      onError: () => {
+        /* mất kết nối → giữ số cuối; màn hàng chờ mới là nơi báo đứt kết nối */
+      },
+      onEvent: (ev) => {
+        if (ev.type !== 'heartbeat') signal();
+      },
+    }),
+});
 
 /**
- * Số đơn online đang chờ duyệt, cập nhật realtime qua SSE. Dùng ở shell để vẽ badge nav.
- * `enabled=false` (chưa đăng nhập / không có role) → trả `null` và KHÔNG mở kết nối nào —
- * cả 3 role đều xem được hàng chờ (D-02) nên có role là bật được.
+ * Số đơn online đang chờ duyệt, cập nhật realtime qua SSE (kèm poll dự phòng). Dùng ở shell để vẽ
+ * badge nav. `enabled=false` (chưa đăng nhập / không có role) → trả `null` và KHÔNG mở kết nối
+ * nào — cả 3 role đều xem được hàng chờ (D-02) nên có role là bật được.
  */
 export function useOnlineWaitingCount(enabled: boolean): number | null {
-  const [count, setCount] = useState<number | null>(enabled ? waitingCount : null);
-
-  useEffect(() => {
-    if (!enabled) {
-      setCount(null);
-      return;
-    }
-    setCount(waitingCount);
-    countListeners.add(setCount);
-    if (countListeners.size === 1) {
-      stopChannel = subscribeQueueStream({
-        onOpen: () => void refetchCount(),
-        onError: () => {
-          /* mất kết nối → giữ số cuối; màn hàng chờ mới là nơi báo đứt kết nối */
-        },
-        onEvent: (ev) => {
-          if (ev.type !== 'heartbeat') void refetchCount();
-        },
-      });
-      void refetchCount();
-    }
-    return () => {
-      countListeners.delete(setCount);
-      if (countListeners.size === 0 && stopChannel) {
-        stopChannel();
-        stopChannel = null;
-        // Đăng nhập lại là phiên mới — số của phiên trước không còn đáng tin.
-        waitingCount = null;
-      }
-    };
-  }, [enabled]);
-
-  return count;
+  return useNavBadgeCount(onlineWaitingStore, enabled);
 }

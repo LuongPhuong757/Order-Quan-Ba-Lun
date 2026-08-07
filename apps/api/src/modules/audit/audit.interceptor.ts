@@ -89,6 +89,11 @@ function deriveActionKind(method: string, path: string): string {
   // Huỷ đơn ĐÃ xác nhận (2026-08-04) — action riêng, KHÔNG dùng chung 'online_order.rejected':
   // từ chối lúc chờ và huỷ giữa chừng là 2 mức nghiêm trọng khác nhau khi soi log.
   if (path.match(/^\/admin\/online-orders\/[^/]+\/cancel$/) && method === 'POST') return 'online_order.cancelled_by_staff';
+  // Đổi hình thức nhận hàng ship ⇄ tự tới lấy (2026-08-06). Đây là hành động ĐỔI TIỀN KHÁCH PHẢI
+  // TRẢ (phí ship về 0) và ĐỔI BÀN của một đơn đang sống — cả 3 role bấm được, nên nó phải để
+  // lại vết như confirm/cancel. `after_json` lấy từ response nên tự có cả `from_fulfillment_type`
+  // lẫn bàn cũ/bàn mới, khỏi chụp before/after riêng.
+  if (path.match(/^\/admin\/online-orders\/[^/]+\/fulfillment$/) && method === 'POST') return 'online_order.fulfillment_switched';
 
   // Settings + phone blacklist (plan 08-05, M2.D-25)
   if (path === '/admin/settings' && method === 'PUT') return 'settings.updated';

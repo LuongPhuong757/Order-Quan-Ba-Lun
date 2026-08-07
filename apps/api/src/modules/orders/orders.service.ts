@@ -15,6 +15,7 @@ import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
+import { computeCheckoutTotals } from './checkout-total.js';
 
 export type OrderCreator = { id: string; full_name: string };
 
@@ -313,6 +314,9 @@ export class OrdersService {
         'o.created_by_full_name',
         'o.customer_name',
         'o.customer_phone',
+        // M2.D-62 (thiếu tới 2026-08-06): không SELECT cột này thì drawer thu ngân không có
+        // đường nào biết phí ship, nên nó tính tổng chỉ bằng tiền món và thu thiếu.
+        'o.ship_fee',
         'i.id',
         'i.menu_item_id',
         'i.menu_item_name',
@@ -348,6 +352,25 @@ export class OrdersService {
 
     // Phantom: order có 0 item HOẶC tất cả CANCELLED không phải nghiệp vụ
     return ordersWithName.filter((o) => (o.items || []).some((it) => it.state !== 'CANCELLED'));
+  }
+
+  /** Đếm số bàn đang mở — cho badge trên nút "Order" ở nav dưới.
+   *
+   * Tồn tại riêng thay vì để FE đếm `listOpenOrders().length`: badge phải sống ở MỌI trang, và
+   * kéo cả payload đơn + món (vài chục KB) mỗi vài giây trên mọi máy chỉ để lấy 1 con số là
+   * lãng phí. Đây là 1 câu COUNT, không đọc dòng nào.
+   *
+   * ĐỊNH NGHĨA PHẢI KHỚP `listOpenOrders`: order chưa đóng VÀ còn ≥1 món chưa bị huỷ (phantom
+   * order — 0 món hoặc huỷ hết — không phải bàn đang dùng). Lệch định nghĩa là badge hiện 5
+   * trong khi màn Order chỉ liệt kê 4 bàn. Dùng LẠI `HAS_ALIVE_ITEMS_SQL` chứ không viết lại
+   * điều kiện: 2 bản sao của cùng một định nghĩa là 2 chỗ để chúng trôi khỏi nhau.
+   */
+  async countOpenOrders(): Promise<number> {
+    const rows: Array<{ c: string | number }> = await this.ds.query(
+      `SELECT COUNT(*) AS c FROM orders o
+        WHERE o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`,
+    );
+    return Number(rows[0]?.c ?? 0);
   }
 
   async getOrderWithItems(id: string): Promise<Order> {
@@ -950,6 +973,10 @@ export class OrdersService {
     served_items: number;
     cancelled_items: number;
     auto_cancelled_items: number;
+    /** Tiền MÓN đã giao, tách khỏi `total` để màn thu ngân và nhật ký bàn nói rõ tiền nào là
+     * tiền nào — gộp một cục thì không ai đối soát được phí ship (M2.D-62). */
+    items_total: number;
+    ship_fee: number;
     total: number;
   }> {
     const result = await this.ds.transaction(async (mgr) => {
@@ -993,7 +1020,11 @@ export class OrdersService {
 
       const served = items.filter((i) => i.state === 'SERVED');
       const cancelled = items.filter((i) => i.state === 'CANCELLED' && i.cancelled_reason !== reason);
-      const total = served.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+      // M2.D-62: **Tổng thu = tiền món + `ship_fee`.** Trước 2026-08-06 chỗ này chỉ cộng tiền
+      // món, nên phí ship admin nhập lúc duyệt đơn KHÔNG BAO GIỜ được thu — thu thiếu đúng bằng
+      // phí ship, mỗi đơn giao tận nơi. Công thức nay nằm ở `checkout-total.ts` (thuần, có test);
+      // đừng tính tay lại ở đây.
+      const { items_total, ship_fee, total } = computeCheckoutTotals(items, order.ship_fee);
 
       // Đơn ONLINE: thanh toán ⟹ khách đã cầm hàng (chủ dự án chốt 2026-08-04 — "khách đã
       // nhận = thanh toán", nút bấm mốc nhận riêng đã bỏ). Chỉ ghi khi mốc còn trống: ai đó
@@ -1015,6 +1046,8 @@ export class OrdersService {
         served_items: units(served),
         cancelled_items: units(cancelled),
         auto_cancelled_items: units(activeItems),
+        items_total,
+        ship_fee,
         total,
       };
     });
@@ -1033,6 +1066,9 @@ export class OrdersService {
       message:
         `Thanh toán: ${OrdersService.fmtVnd(result.total)} ` +
         `(${result.served_items} món đã giao` +
+        // Phí ship phải hiện TÁCH RIÊNG trong nhật ký bàn: đối soát cuối ngày mà chỉ thấy một
+        // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
+        `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
         `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})`,
       actor: cashier,
     });

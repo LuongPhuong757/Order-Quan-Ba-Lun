@@ -693,11 +693,32 @@ a:hover {
      không phải xếp 2 đơn cạnh nhau. */
   .oo-card-body {
     grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
-    gap: 20px;
+    gap: 12px 20px;
     align-items: start;
   }
 
+  /* Xếp tường minh thay vì để grid tự dòng: khối món cao gấp 3 khối khách (3-5 dòng món + tổng
+     tiền + nút sửa món, so với tên + SĐT + địa chỉ), nên nếu để mặc định thì đáy cột khách là một
+     vùng TRẮNG TRƠN to bằng cả khối món — thấy rõ trong ảnh chụp 2026-08-06.
+     Nay: khách ở ô trên-trái, khối giao hàng (phí ship + đổi hình thức) tụt xuống ngay dưới nó,
+     món chiếm CẢ CHIỀU CAO cột phải. Vùng trắng biến thành chỗ chứa việc thật.
+     Thứ tự trong DOM vẫn là khách → món → giao hàng vì đó là thứ tự đọc đúng khi 1 cột (điện
+     thoại): nhân viên đọc món rồi mới nhập phí ship rồi bấm Xác nhận ngay dưới. */
+  .oo-customer {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .oo-delivery {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
   .oo-items {
+    grid-column: 2;
+    /* `span 2` để khối món cao bằng cả 2 dòng bên trái — không có nó thì nó dính vào dòng 1 và
+       dòng 2 bên phải lại trống, đúng cái vừa sửa nhưng lật ngược. */
+    grid-row: 1 / span 2;
     margin: 0;
     padding: 12px 16px;
     border: 1px solid #d7dbe0;

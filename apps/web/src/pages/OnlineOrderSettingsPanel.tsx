@@ -59,6 +59,7 @@ type StoreSettingsMap = {
   store_lat: number | null;
   store_lng: number | null;
   free_ship_km: number;
+  ship_fee_per_km: number;
   distance_factor: number;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
@@ -295,6 +296,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [etaDeliveryMin, setEtaDeliveryMin] = useState(settings.eta_delivery_min);
   const [etaDeliveryMax, setEtaDeliveryMax] = useState(settings.eta_delivery_max);
   const [freeShipKm, setFreeShipKm] = useState(settings.free_ship_km);
+  const [shipFeePerKm, setShipFeePerKm] = useState(settings.ship_fee_per_km);
   const [distanceFactor, setDistanceFactor] = useState(settings.distance_factor);
   const [savingFulfillment, setSavingFulfillment] = useState(false);
 
@@ -327,6 +329,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setEtaDeliveryMin(settings.eta_delivery_min);
     setEtaDeliveryMax(settings.eta_delivery_max);
     setFreeShipKm(settings.free_ship_km);
+    setShipFeePerKm(settings.ship_fee_per_km);
     setDistanceFactor(settings.distance_factor);
     setOtpEnabled(settings.otp_login_enabled);
     setPhone(settings.store_phone);
@@ -360,6 +363,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaDeliveryMin,
       etaDeliveryMax,
       freeShipKm,
+      shipFeePerKm,
       distanceFactor,
     },
     {
@@ -370,6 +374,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaDeliveryMin: settings.eta_delivery_min,
       etaDeliveryMax: settings.eta_delivery_max,
       freeShipKm: settings.free_ship_km,
+      shipFeePerKm: settings.ship_fee_per_km,
       distanceFactor: settings.distance_factor,
     },
   );
@@ -516,6 +521,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         eta_delivery_min: etaDeliveryMin,
         eta_delivery_max: etaDeliveryMax,
         free_ship_km: freeShipKm,
+        ship_fee_per_km: shipFeePerKm,
         distance_factor: distanceFactor,
       });
       toast.push('success', 'Đã lưu hình thức nhận hàng ✓');
@@ -857,6 +863,28 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               />
             </div>
 
+            {/* ── Giá ship mỗi km ngoài vùng miễn phí (2026-08-06) ──
+                Đây là công tắc bật/tắt TOÀN BỘ việc hiện phí tạm tính: để 0 thì trang khách giữ
+                nguyên câu hẹn cũ ("phí cuối do quán xác nhận khi gọi lại") và ô phí ship ở màn
+                duyệt đơn vẫn trống như trước — đúng hành vi cũ, không ép quán nào phải theo. */}
+            <label style={{ fontSize: 13, marginTop: 12 }}>Phí ship mỗi km vượt (đ/km)</label>
+            <div className="st-inline">
+              <input
+                type="number"
+                min={0}
+                max={200000}
+                step={1000}
+                disabled={!deliveryEnabled}
+                value={shipFeePerKm}
+                onChange={(e) => setShipFeePerKm(Number(e.target.value))}
+              />
+            </div>
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Để <strong>0</strong> nếu quán tự báo giá ship qua điện thoại. Điền số thì khách thấy
+              phí tạm tính ngay khi chia sẻ vị trí, và ô phí ship lúc duyệt đơn được điền sẵn đúng
+              con số đó. Phần km vượt làm tròn lên km chẵn, tiền làm tròn lên 1.000đ.
+            </p>
+
             <label style={{ fontSize: 13, marginTop: 12 }}>Hệ số đường thực tế</label>
             <div className="st-inline">
               <input
@@ -875,8 +903,12 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           </fieldset>
         </div>
 
+        {/* Câu này đổi theo cấu hình (2026-08-06): để nguyên bản cũ khi quán ĐÃ điền giá mỗi km
+            là mô tả sai hệ thống — lúc đó nó có tính, và khách có đọc con số. */}
         <p style={{ fontSize: 12, color: C.muted, margin: '12px 0 0' }}>
-          Hệ thống không tự tính tiền ship — chỉ hiện quy tắc cho khách, phí cuối do quán chốt khi gọi lại.
+          {shipFeePerKm > 0
+            ? 'Phí hiện cho khách luôn là TẠM TÍNH — phí cuối vẫn do quán chốt khi gọi lại, và nhân viên sửa được lúc duyệt đơn.'
+            : 'Hệ thống không tự tính tiền ship — chỉ hiện quy tắc cho khách, phí cuối do quán chốt khi gọi lại.'}
         </p>
       </Section>
 

@@ -28,14 +28,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, In } from 'typeorm';
+import { DataSource, EntityManager, In, MoreThanOrEqual } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type {
   ConfirmOnlineOrderBody,
   EditOnlineOrderItemsBody,
   RejectOnlineOrderBody,
+  SwitchFulfillmentBody,
 } from '@order/schemas';
-import { AdminOnlineOrderList, EditOnlineOrderItemsResult, REJECT_REASON_TEXT } from '@order/schemas';
+import {
+  AdminOnlineOrderList,
+  EditOnlineOrderItemsResult,
+  REJECT_REASON_LABEL,
+  REJECT_REASON_TEXT,
+  SwitchFulfillmentResult,
+} from '@order/schemas';
 import type {
   AdminOnlineOrderRow,
   AdminOnlineOrderStatusFilter,
@@ -46,17 +53,37 @@ import type {
 // đúng 1 lần xuất hiện của cơ chế retry trong file này).
 import * as RetryLib from '../../common/run-with-retry.js';
 import { pickFreeTable, nextTableCode, kindForFulfillment } from './table-assign.js';
+import {
+  decideSwitchFulfillment,
+  resolveSwitchAddress,
+  FULFILLMENT_LABEL,
+  type FulfillmentType,
+} from './switch-fulfillment.js';
+import type { OnlineWindow } from './online-window.js';
 import { formatTableName } from '../tables/table-kind.js';
 import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
+// Dùng CHUNG quy tắc phí ship với trang khách — xem docblock `ship-fee.ts` về vì sao không được
+// có bản sao thứ hai của công thức này.
+import { computeShipFee } from '../public/ship-fee.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { OrderActivityLog } from '../orders/entities/order-activity-log.entity.js';
+import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service.js';
 import { SettingsService } from '../settings/settings.service.js';
 
 export type ReviewActor = { id: string; full_name: string };
+
+/** Kết quả phần "chặn SĐT" của một lượt từ chối / huỷ đơn (2026-08-06). Tách 2 field thay vì
+ * một boolean vì FE phải nói được 2 câu KHÁC NHAU: "đã chặn số 09xx" và "số này vốn đã bị chặn
+ * từ trước" — câu thứ hai là thông tin nhân viên cần biết, không phải lỗi. */
+export type ReviewBlacklistOutcome = {
+  /** Số vừa bị chặn TRONG lượt bấm này. `null` = không tick, hoặc số đã nằm sẵn trong danh sách. */
+  blacklisted_phone: string | null;
+  blacklist_already: boolean;
+};
 
 export type ConfirmResult = {
   order_id: string;
@@ -83,11 +110,15 @@ export class AdminOnlineOrdersService {
     private readonly settingsSvc: SettingsService,
   ) {}
 
-  /** Khoá 1 dòng `online_order_requests` (chặn 2 admin cùng duyệt/từ chối 1 đơn) rồi trả về
+  /** Khoá 1 dòng `online_order_requests` (chặn 2 nhân viên cùng thao tác 1 đơn) rồi trả về
    * bản ghi đầy đủ qua repository (KHÔNG parse tay kết quả raw query — cột datetime/json cần
    * transformer của entity, giống cách `NotificationOutboxService.claimDue` đã làm: khoá bằng
-   * raw SQL, đọc lại bằng repo trong CÙNG transaction). `status !== 'WAITING'` → 409. */
-  private async lockWaitingRequest(mgr: EntityManager, requestId: string): Promise<OnlineOrderRequest> {
+   * raw SQL, đọc lại bằng repo trong CÙNG transaction).
+   *
+   * KHÔNG kiểm tra `status` — nhánh nào cần trạng thái nào thì tự chốt sau khi có khoá.
+   * `lockWaitingRequest` (duyệt/từ chối/sửa món) và `switchFulfillment` (đổi hình thức, chạy
+   * được cả trước lẫn sau duyệt) dùng chung đúng một cách khoá này. */
+  private async lockRequestRow(mgr: EntityManager, requestId: string): Promise<OnlineOrderRequest> {
     const lockRows: Array<{ id: string }> = await mgr.query(
       'SELECT id FROM online_order_requests WHERE id = ? FOR UPDATE',
       [requestId],
@@ -99,6 +130,12 @@ export class AdminOnlineOrdersService {
     if (!request) {
       throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy đơn này.' });
     }
+    return request;
+  }
+
+  /** Như `lockRequestRow` nhưng chốt thêm `status === 'WAITING'` → 409 cho mọi trạng thái khác. */
+  private async lockWaitingRequest(mgr: EntityManager, requestId: string): Promise<OnlineOrderRequest> {
+    const request = await this.lockRequestRow(mgr, requestId);
     if (request.status !== 'WAITING') {
       throw new ConflictException({
         code: 'ORDER_ALREADY_CONFIRMED',
@@ -106,6 +143,71 @@ export class AdminOnlineOrdersService {
       });
     }
     return request;
+  }
+
+  /** Cấp 1 bàn TRỐNG thuộc `kind`, tự tạo bàn mới khi hết (M2.D-04/05/06/14).
+   *
+   * Tách khỏi `confirm()` ngày 2026-08-06 để "đổi hình thức nhận hàng" dùng lại NGUYÊN cơ chế
+   * này — chép lại một bản thứ hai là mở đường cho 2 luồng cấp bàn phân kỳ (một bên loại bàn
+   * đang mở, một bên quên), tức là 2 đơn cùng ngồi một bàn.
+   *
+   * `actionLabel` chỉ đi vào câu báo lỗi đua-tạo-bàn, để nhân viên biết bấm lại NÚT NÀO.
+   *
+   * ⚠ Chỉ gọi TRONG transaction: `FOR UPDATE` ở câu chọn bàn chỉ có nghĩa khi việc ghi
+   * `orders.table_id` phía sau nằm cùng transaction với nó. */
+  private async allocateTable(
+    mgr: EntityManager,
+    kind: string,
+    actionLabel: string,
+  ): Promise<{ table: { id: string; code: string; name: string }; tableCreated: boolean }> {
+    const candidates: Array<{ id: string; code: string; name: string }> = await mgr.query(
+      `SELECT t.id, t.code, t.name FROM restaurant_tables t
+       WHERE t.kind = ? AND t.is_active = 1 AND t.kiotviet_locked = 0
+         AND t.id NOT IN (SELECT o.table_id FROM orders o WHERE o.closed_at IS NULL)
+       ORDER BY t.code ASC LIMIT 1 FOR UPDATE`,
+      [kind],
+    );
+    // Khoá dòng bàn tìm được (khác kiểu khoá khoảng mà phase 8 dùng cho
+    // `online_order_requests`): giao dịch thứ hai chọn trùng bàn sẽ phải đợi tới khi giao
+    // dịch này kết thúc, rồi điều kiện loại-trừ-bàn-đang-mở của nó sẽ tự đá bàn đó ra.
+    const picked = pickFreeTable(candidates);
+    if (picked) return { table: picked, tableCreated: false };
+
+    // Hết bàn trống → TỰ TẠO (M2.D-05 — khách không bao giờ bị chặn vì hết bàn).
+    const existing = await mgr
+      .getRepository(RestaurantTable)
+      .find({ where: { kind }, select: ['code'] });
+    const code = nextTableCode(kind, existing.map((t) => t.code));
+    const numMatch = /-(\d+)$/.exec(code);
+    const num = numMatch ? Number(numMatch[1]) : 1;
+    const name = formatTableName(kind, num);
+    try {
+      const saved = await mgr.getRepository(RestaurantTable).save(
+        mgr.getRepository(RestaurantTable).create({
+          code,
+          name,
+          kind,
+          x: 0,
+          y: 0,
+          is_active: true,
+          kiotviet_locked: false,
+        }),
+      );
+      return { table: { id: saved.id, code: saved.code, name: saved.name }, tableCreated: true };
+    } catch (err) {
+      const msg = (err as Error).message || '';
+      if (/Duplicate entry/i.test(msg)) {
+        // 2 giao dịch cùng sinh 1 code cùng lúc — không transient nên `RetryLib` không tự
+        // thử lại; báo nhân viên bấm lại thay vì để họ nhìn lỗi SQL lạ.
+        throw new ConflictException({
+          code: 'CONFLICT',
+          message: `Có máy khác vừa tạo bàn cùng lúc, bấm ${actionLabel} lại.`,
+        });
+      }
+      throw err;
+    }
+    // Mã lỗi "hết bàn" cũ của phase 8 KHÔNG được phép xuất hiện ở nhánh này — M2.D-05 đã
+    // loại bỏ hoàn toàn khả năng khách bị chặn vì quán hết chỗ.
   }
 
   async confirm(
@@ -156,59 +258,7 @@ export class AdminOnlineOrdersService {
 
         // ── Bước 3: cấp bàn (M2.D-04/05/06/14) ──
         const kind = kindForFulfillment(request.fulfillment_type as 'PICKUP' | 'DELIVERY');
-        const candidates: Array<{ id: string; code: string; name: string }> = await mgr.query(
-          `SELECT t.id, t.code, t.name FROM restaurant_tables t
-           WHERE t.kind = ? AND t.is_active = 1 AND t.kiotviet_locked = 0
-             AND t.id NOT IN (SELECT o.table_id FROM orders o WHERE o.closed_at IS NULL)
-           ORDER BY t.code ASC LIMIT 1 FOR UPDATE`,
-          [kind],
-        );
-        // Khoá dòng bàn tìm được (khác kiểu khoá khoảng mà phase 8 dùng cho
-        // `online_order_requests`): giao dịch thứ hai chọn trùng bàn sẽ phải đợi tới khi giao
-        // dịch này kết thúc, rồi điều kiện loại-trừ-bàn-đang-mở của nó sẽ tự đá bàn đó ra.
-        const picked = pickFreeTable(candidates);
-        let table: { id: string; code: string; name: string };
-        let tableCreated = false;
-        if (picked) {
-          table = picked;
-        } else {
-          // Hết bàn trống → TỰ TẠO (M2.D-05 — khách không bao giờ bị chặn vì hết bàn).
-          const existing = await mgr
-            .getRepository(RestaurantTable)
-            .find({ where: { kind }, select: ['code'] });
-          const code = nextTableCode(kind, existing.map((t) => t.code));
-          const numMatch = /-(\d+)$/.exec(code);
-          const num = numMatch ? Number(numMatch[1]) : 1;
-          const name = formatTableName(kind, num);
-          try {
-            const saved = await mgr.getRepository(RestaurantTable).save(
-              mgr.getRepository(RestaurantTable).create({
-                code,
-                name,
-                kind,
-                x: 0,
-                y: 0,
-                is_active: true,
-                kiotviet_locked: false,
-              }),
-            );
-            table = { id: saved.id, code: saved.code, name: saved.name };
-            tableCreated = true;
-          } catch (err) {
-            const msg = (err as Error).message || '';
-            if (/Duplicate entry/i.test(msg)) {
-              // 2 giao dịch cùng sinh 1 code cùng lúc — không transient nên `RetryLib` không tự
-              // thử lại; báo admin bấm lại thay vì để họ nhìn lỗi SQL lạ.
-              throw new ConflictException({
-                code: 'CONFLICT',
-                message: 'Có admin khác vừa tạo bàn cùng lúc, bấm Xác nhận lại.',
-              });
-            }
-            throw err;
-          }
-          // Mã lỗi "hết bàn" cũ của phase 8 KHÔNG được phép xuất hiện ở nhánh này — M2.D-05 đã
-          // loại bỏ hoàn toàn khả năng khách bị chặn vì quán hết chỗ.
-        }
+        const { table, tableCreated } = await this.allocateTable(mgr, kind, 'Xác nhận');
 
         // ── Bước 4: tạo Order trực tiếp trên `mgr` (xem điểm 2 ở đầu file) ──
         const nowMs = Date.now();
@@ -334,8 +384,15 @@ export class AdminOnlineOrdersService {
   }
 
   /** Từ chối đơn — không cần transaction phức tạp như confirm, nhưng vẫn khoá request để 2
-   * admin không cùng từ chối 1 đơn (dùng chung `lockWaitingRequest`). */
-  async reject(requestId: string, actor: ReviewActor, body: RejectOnlineOrderBody): Promise<void> {
+   * admin không cùng từ chối 1 đơn (dùng chung `lockWaitingRequest`).
+   *
+   * `body.blacklist_phone` bật thì chặn luôn SĐT của đơn TRONG cùng transaction — xem
+   * `blacklistPhoneForRequest`. */
+  async reject(
+    requestId: string,
+    actor: ReviewActor,
+    body: RejectOnlineOrderBody,
+  ): Promise<ReviewBlacklistOutcome> {
     try {
       const outcome = await this.ds.transaction(async (mgr) => {
         const request = await this.lockWaitingRequest(mgr, requestId);
@@ -361,7 +418,15 @@ export class AdminOnlineOrdersService {
 
         await this.outbox.cancelPendingForRequest(request.id, mgr);
 
-        return { reasonCode: body.reason_code, rejectReason, internalNote };
+        const blacklist = body.blacklist_phone
+          ? await this.blacklistPhoneForRequest(
+              mgr,
+              request,
+              this.blacklistReason(body, 'Từ chối đơn online'),
+            )
+          : null;
+
+        return { reasonCode: body.reason_code, rejectReason, internalNote, blacklist };
       });
 
       // D-10 — KHÔNG bắn SMS/thông báo gì cho khách ở nhánh này; khách chỉ biết qua /o/:token.
@@ -377,9 +442,25 @@ export class AdminOnlineOrdersService {
       // dung `internal_note`. Cả hai vẫn tra được ở `online_order_requests.reject_reason` /
       // `.internal_reject_note` của chính `target_id` — và nội dung ghi chú nội bộ cố tình
       // không đi qua HTTP (D-09).
+      // Audit RIÊNG cho việc chặn số — xem docblock `emitBlacklistAudit`. Phát SAU commit, và
+      // chỉ khi thật sự có dòng mới: tick lại một số đã chặn không phải là một lần chặn nữa.
+      if (outcome.blacklist && !outcome.blacklist.alreadyThere) {
+        this.emitBlacklistAudit(
+          actor,
+          outcome.blacklist.phone,
+          this.blacklistReason(body, 'Từ chối đơn online'),
+          requestId,
+        );
+      }
       this.logger.log(
-        `Từ chối đơn ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}`,
+        `Từ chối đơn ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}` +
+          (outcome.blacklist ? ` · chặn SĐT ${outcome.blacklist.phone}` : ''),
       );
+      return {
+        blacklisted_phone:
+          outcome.blacklist && !outcome.blacklist.alreadyThere ? outcome.blacklist.phone : null,
+        blacklist_already: outcome.blacklist?.alreadyThere ?? false,
+      };
     } catch (err) {
       if (err instanceof NotFoundException || err instanceof BadRequestException || err instanceof ConflictException) {
         throw err;
@@ -410,7 +491,7 @@ export class AdminOnlineOrdersService {
     requestId: string,
     actor: ReviewActor,
     body: RejectOnlineOrderBody,
-  ): Promise<void> {
+  ): Promise<ReviewBlacklistOutcome> {
     const outcome = await this.ds.transaction(async (mgr) => {
       const { request, order } = await this.lockConfirmedOrder(mgr, requestId);
 
@@ -456,13 +537,35 @@ export class AdminOnlineOrdersService {
       await this.outbox.cancelPendingForRequest(request.id, mgr);
       await this.writeFulfillmentActivity(mgr, order, actor, `Quán huỷ đơn online — ${rejectReason}`);
 
-      return { reasonCode: body.reason_code, internalNote };
+      const blacklist = body.blacklist_phone
+        ? await this.blacklistPhoneForRequest(
+            mgr,
+            request,
+            this.blacklistReason(body, 'Huỷ đơn online đã xác nhận'),
+          )
+        : null;
+
+      return { reasonCode: body.reason_code, internalNote, blacklist };
     });
 
     this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+    if (outcome.blacklist && !outcome.blacklist.alreadyThere) {
+      this.emitBlacklistAudit(
+        actor,
+        outcome.blacklist.phone,
+        this.blacklistReason(body, 'Huỷ đơn online đã xác nhận'),
+        requestId,
+      );
+    }
     this.logger.log(
-      `Huỷ đơn đã xác nhận ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}`,
+      `Huỷ đơn đã xác nhận ${requestId} — lý do ${outcome.reasonCode}${outcome.internalNote ? ' (có ghi chú nội bộ)' : ''}` +
+        (outcome.blacklist ? ` · chặn SĐT ${outcome.blacklist.phone}` : ''),
     );
+    return {
+      blacklisted_phone:
+        outcome.blacklist && !outcome.blacklist.alreadyThere ? outcome.blacklist.phone : null,
+      blacklist_already: outcome.blacklist?.alreadyThere ?? false,
+    };
   }
 
   /** Danh sách đơn online theo trạng thái (OD-11). Re-check tồn kho 1 lần cho TOÀN BỘ món của
@@ -472,15 +575,30 @@ export class AdminOnlineOrdersService {
    *   - `WAITING`  → `submitted_at` **ASC**: FIFO, đơn chờ lâu nhất lên đầu (09-UI-SPEC Giả
    *     định #1). Đây là danh sách việc-phải-làm, ai chờ lâu nhất phục vụ trước.
    *   - đã xử lý → `reviewed_at` **DESC**: đây là danh sách tra cứu, việc vừa làm xong mới là
-   *     việc người ta cần xem lại. Sắp ASC ở đây là bắt nhân viên cuộn xuống cuối mỗi lần mở tab. */
+   *     việc người ta cần xem lại. Sắp ASC ở đây là bắt nhân viên cuộn xuống cuối mỗi lần mở tab.
+   *
+   * `window` = cửa sổ thời gian được xem (order/bếp 14h, admin tuỳ bộ lọc) — controller quyết,
+   * service chỉ thực thi. Xem `online-window.ts`. */
   async list(
     status: AdminOnlineOrderStatusFilter = 'WAITING',
+    window: OnlineWindow = { maxAgeMs: undefined, windowHours: null },
   ): Promise<AdminOnlineOrderList> {
+    // Mốc cắt tính MỘT LẦN cho cả `find` lẫn câu đếm badge — 2 chỗ dùng 2 `Date.now()` khác
+    // nhau thì một đơn nằm sát mép có thể được đếm mà không có trong danh sách.
+    const cutoffMs = window.maxAgeMs === undefined ? null : Date.now() - window.maxAgeMs;
+
     const requests = await this.ds.getRepository(OnlineOrderRequest).find({
       // Tab "Thành công" không có status DB riêng: đơn vẫn là CONFIRMED trong
       // `online_order_requests`, "thành công" = Order của nó đã checkout. Query CONFIRMED
       // rồi chia đôi theo `orders.closed_at` ở dưới.
-      where: { status: status === 'COMPLETED' ? 'CONFIRMED' : status },
+      //
+      // Cửa sổ lọc theo `submitted_at` (LÚC KHÁCH ĐẶT), không theo `reviewed_at`: chỉ đạo là
+      // "đơn được đặt trong vòng 14h". Lọc theo mốc duyệt thì một đơn đặt từ hôm kia mới duyệt
+      // sáng nay vẫn hiện — không đúng câu đã chốt.
+      where: {
+        status: status === 'COMPLETED' ? 'CONFIRMED' : status,
+        ...(cutoffMs === null ? {} : { submitted_at: MoreThanOrEqual(cutoffMs) }),
+      },
       order:
         status === 'WAITING'
           ? { submitted_at: 'ASC' }
@@ -523,6 +641,9 @@ export class AdminOnlineOrdersService {
               'received_at',
               'closed_at',
               'is_paid',
+              // M2.D-62 — không SELECT thì màn quản lý đơn không có đường nào biết phí ship,
+              // và nó hiện tổng lệch với màn bàn mà không ai giải thích được (2026-08-06).
+              'ship_fee',
             ],
           });
     const orderMap = new Map(orders.map((o) => [o.id, o]));
@@ -635,6 +756,19 @@ export class AdminOnlineOrdersService {
         is_out_of_stock: isOutOfStock(it.menu_item_id),
       })),
       subtotal: r.subtotal,
+      ship_fee: r.order_id ? (orderMap.get(r.order_id)?.ship_fee ?? 0) : 0,
+      // Gợi ý cho ô phí ship (2026-08-06) — CÙNG công thức với con số khách đã đọc ở checkout
+      // (`POST /api/public/ship-quote`), nên nhân viên gọi lại không báo một giá khác. Đơn đến
+      // lấy không có phí ship nên không có gợi ý; `computeShipFee` tự trả null khi thiếu toạ độ
+      // hoặc chủ quán chưa đặt giá mỗi km.
+      suggested_ship_fee:
+        r.fulfillment_type === 'DELIVERY'
+          ? computeShipFee({
+              distanceKm: r.distance_km === null ? null : Number(r.distance_km),
+              freeShipKm: settings.free_ship_km,
+              perKm: settings.ship_fee_per_km,
+            })
+          : null,
       submitted_at_ms: r.submitted_at,
       // Đơn đã xử lý: đóng băng đồng hồ tại lúc duyệt, KHÔNG đếm tiếp tới hiện tại. Để nó chạy
       // tiếp là màn tra cứu hiện "đã chờ 3 ngày" cho đơn đã duyệt xong từ hôm qua.
@@ -665,6 +799,7 @@ export class AdminOnlineOrdersService {
     // LEFT JOIN vì WAITING/REJECTED không có Order; CONFIRMED chia đôi theo closed_at đúng
     // như phép lọc `visible` phía trên — 2 chỗ này phải cùng một định nghĩa "thành công".
     type StatusCountRow = { status: string; open_cnt: string | number; paid_cnt: string | number };
+    // Cửa sổ 14h (nếu có) phải vào CẢ câu này — badge và danh sách nói cùng một con số.
     const countByStatus: StatusCountRow[] = await this.ds.query(
       `SELECT r.status AS status,
               SUM(CASE WHEN o.closed_at IS NOT NULL AND o.is_paid = 1 THEN 0 ELSE 1 END) AS open_cnt,
@@ -672,7 +807,12 @@ export class AdminOnlineOrdersService {
          FROM online_order_requests r
          LEFT JOIN orders o ON o.id = r.order_id
         WHERE r.status IN ('WAITING', 'CONFIRMED', 'REJECTED')
+          ${cutoffMs === null ? '' : 'AND r.submitted_at >= ?'}
         GROUP BY r.status`,
+      // `new Date(...)` chứ KHÔNG phải số ms: `submitted_at` là DATETIME(6). Đẩy số vào đây thì
+      // MySQL ép kiểu ngầm và điều kiện luôn ĐÚNG — badge đếm toàn bảng trong khi danh sách đã
+      // bị cắt, không có lỗi nào nổ ra (bắt được lúc chạy integration test 2026-08-06).
+      cutoffMs === null ? [] : [new Date(cutoffMs)],
     );
     const byStatus = new Map(countByStatus.map((c) => [c.status, c]));
     const n = (v: string | number | undefined): number => Number(v ?? 0);
@@ -686,6 +826,7 @@ export class AdminOnlineOrdersService {
     const payload: AdminOnlineOrderList = {
       items,
       escalate_sms_after_s: settings.escalate_sms_after_s,
+      window_hours: window.windowHours,
       status_counts,
     };
     return AdminOnlineOrderList.strict().parse(payload);
@@ -792,6 +933,268 @@ export class AdminOnlineOrdersService {
         };
       }),
       subtotal: edited.subtotal,
+    });
+  }
+
+  /**
+   * Chặn SĐT của đơn ngay trong lượt từ chối / huỷ đơn (chỉ đạo chủ dự án 2026-08-06 — "khách cố
+   * tình phá đám thì cho vào blacklist luôn, đỡ mất công vào màn blacklist").
+   *
+   * ── 3 điều bắt buộc phải nhớ ──
+   *
+   * 1. **Số lấy từ `request.customer_phone`, KHÔNG BAO GIỜ từ body.** Hai endpoint gọi vào đây
+   *    mở cho cả 3 role; nhận số từ client là biến chúng thành đường chặn số bất kỳ mà không cần
+   *    quyền admin. Cột `phone` đã chuẩn hoá từ lúc khách submit nên không cần chuẩn hoá lại.
+   *
+   * 2. **Số đã có trong danh sách = XONG, không phải lỗi.** Ném 409 ở đây là làm rớt cả lượt
+   *    huỷ đơn chỉ vì một cái tick thừa — trong khi việc chính (huỷ đơn) đã thành công.
+   *
+   * 3. **Chạy TRONG transaction của lượt huỷ/từ chối.** Nhân viên được hứa 2 việc trong 1 lần
+   *    bấm; "đơn đã huỷ nhưng số không bị chặn" là trạng thái không ai kiểm lại được bằng mắt.
+   *
+   * Quyền GỠ vẫn chỉ admin (`/admin/phone-blacklist` có `AdminGuard`) — mở quyền chặn cho 3 role
+   * không đồng nghĩa mở quyền gỡ. Kiểm soát bù trừ là audit `phone_blacklist.added` phát ở dưới.
+   */
+  private async blacklistPhoneForRequest(
+    mgr: EntityManager,
+    request: OnlineOrderRequest,
+    reason: string,
+  ): Promise<{ phone: string; alreadyThere: boolean }> {
+    const repo = mgr.getRepository(PhoneBlacklist);
+    const phone = request.customer_phone;
+    const exists = await repo.findOne({ where: { phone } });
+    if (exists) return { phone, alreadyThere: true };
+    await repo.save(
+      repo.create({
+        phone,
+        // Cột `varchar(255)` — cắt ở đây chứ không để MySQL cắt ngầm (strict mode thì nó ném lỗi
+        // và làm rollback cả lượt huỷ đơn).
+        reason: reason.slice(0, 255),
+        expires_at: null, // vĩnh viễn (M2.D-59) — không có cron nào tự gỡ
+      }),
+    );
+    return { phone, alreadyThere: false };
+  }
+
+  /** Câu ghi vào cột `reason` của blacklist — thứ admin đọc ở màn danh sách chặn khi cần quyết
+   * định có gỡ hay không.
+   *
+   * CỐ Ý KHÔNG chép `internal_note` vào đây: ghi chú nội bộ có chỗ sống riêng (cột
+   * `internal_reject_note` + audit log, D-09), nhân bản nó sang bảng thứ ba là thêm một chỗ nữa
+   * phải nhớ khi cần xoá. Với lý do "Khác" thì lấy chính câu đã gửi khách — câu đó không bí mật
+   * và là thứ mô tả sự việc rõ nhất. */
+  private blacklistReason(body: RejectOnlineOrderBody, context: string): string {
+    const detail =
+      body.reason_code === 'OTHER'
+        ? (body.reason_other_text?.trim() ?? REJECT_REASON_LABEL.OTHER)
+        : REJECT_REASON_LABEL[body.reason_code];
+    return `${context} — ${detail}`;
+  }
+
+  /** Audit riêng cho việc chặn số. KHÔNG trùng vai với audit của chính lượt từ chối/huỷ đơn
+   * (`AuditInterceptor` ghi): người đi soi "số này ai chặn, vì sao" lọc theo action kind
+   * `phone_blacklist.added` — nếu việc chặn từ màn đơn online không phát event đó thì mọi số bị
+   * chặn qua đường này trở nên vô hình với đúng câu hỏi đó. */
+  private emitBlacklistAudit(
+    actor: ReviewActor,
+    phone: string,
+    reason: string,
+    requestId: string,
+  ): void {
+    this.emitter.emit('audit.write', {
+      actor_id: actor.id,
+      actor_name: actor.full_name,
+      ip: 'system',
+      ts_ms: Date.now(),
+      action_kind: 'phone_blacklist.added',
+      target_kind: 'phone_blacklist',
+      target_id: phone,
+      after_json: { phone, reason, from_online_order_request: requestId },
+    });
+  }
+
+  /** Đổi hình thức nhận hàng: Giao tận nơi ⇄ Đến lấy tại quán (chốt 2026-08-06 — "order, bếp và
+   * admin đều làm được, bất cứ lúc nào TRƯỚC khi mang đi ship").
+   *
+   * Luật ai-đổi-được nằm ở module thuần `switch-fulfillment.ts`; hàm này chỉ thực thi. 3 việc
+   * phải xảy ra CÙNG MỘT transaction, không tách được:
+   *
+   * 1. `online_order_requests.fulfillment_type` — bản khách đang đọc ở /o/:token.
+   * 2. `orders.fulfillment_type` + **BÀN** — đơn đã duyệt đang ngồi ở bàn SAI LOẠI (ship-03 cho
+   *    đơn giờ là "tự tới lấy"). Sơ đồ bàn, màn bếp và mọi câu đếm bàn đều đọc `kind` của bàn,
+   *    nên để nguyên bàn cũ là đơn hiện nhầm chỗ ở KHẮP NƠI. Đổi bàn bằng cách trỏ
+   *    `orders.table_id` sang bàn mới — KHÔNG dùng `OrdersService.transferTable`: hàm đó tạo
+   *    Order MỚI rồi XOÁ order cũ, mà `online_order_requests.order_id` đang trỏ vào đúng order
+   *    đó (đứt liên kết = mất luôn 2 mốc giao hàng và đường về /o/:token).
+   * 3. `ship_fee` — đổi sang PICKUP là về 0, không có ngoại lệ (M2.D-62; xem điểm 2 đầu
+   *    `switch-fulfillment.ts`).
+   *
+   * Khoá theo ĐÚNG thứ tự của confirm() (request trước, orders sau) để 2 luồng chạy song song
+   * không ôm khoá chéo nhau. */
+  async switchFulfillment(
+    requestId: string,
+    actor: ReviewActor,
+    body: SwitchFulfillmentBody,
+  ): Promise<SwitchFulfillmentResult> {
+    const target = body.fulfillment_type;
+
+    const out = await this.ds.transaction(async (mgr) => {
+      const request = await this.lockRequestRow(mgr, requestId);
+
+      // Đơn đã duyệt: khoá luôn dòng `orders` — nhân viên khác có thể đang bấm "Đã đi ship" ở
+      // đúng giây này, và mốc đó là thứ quyết định đơn còn đổi được hay không.
+      let order: Order | null = null;
+      if (request.status === 'CONFIRMED' && request.order_id) {
+        const lockRows: Array<{ id: string }> = await mgr.query(
+          'SELECT id FROM orders WHERE id = ? FOR UPDATE',
+          [request.order_id],
+        );
+        if (lockRows.length > 0) {
+          order = await mgr.getRepository(Order).findOne({ where: { id: request.order_id } });
+        }
+      }
+
+      const decision = decideSwitchFulfillment(
+        {
+          status: request.status,
+          fulfillment_type: request.fulfillment_type,
+          order:
+            order === null
+              ? null
+              : {
+                  shipped_at: order.shipped_at,
+                  received_at: order.received_at,
+                  closed_at: order.closed_at,
+                },
+        },
+        target,
+      );
+      if (decision.kind === 'CONFLICT') {
+        throw new ConflictException({ code: decision.code, message: decision.message });
+      }
+
+      const addr = resolveSwitchAddress(target, request.customer_address, body.customer_address);
+      if (addr.kind === 'ERROR') {
+        throw new BadRequestException({ code: addr.code, message: addr.message });
+      }
+
+      const from = request.fulfillment_type as FulfillmentType;
+      const previousTableCode = order?.table_code ?? null;
+
+      // ── Chuyển bàn (chỉ đơn đã duyệt) ──
+      let table: { id: string; code: string; name: string } | null = null;
+      let tableCreated = false;
+      if (decision.needsTableMove && order) {
+        const allocated = await this.allocateTable(
+          mgr,
+          kindForFulfillment(target),
+          'Đổi hình thức',
+        );
+        table = allocated.table;
+        tableCreated = allocated.tableCreated;
+      }
+
+      // ── Ghi request (bản khách đọc) ──
+      request.fulfillment_type = target;
+      request.customer_address = addr.customer_address;
+      if (addr.clearGeo) {
+        // 3 field này mô tả địa chỉ CŨ. Giữ lại là để shipper mở bản đồ ra một cái nhà không còn
+        // liên quan, và `distance_km` thành căn cứ tính phí ship của quãng đường không ai đi.
+        request.customer_lat = null;
+        request.customer_lng = null;
+        request.customer_map_link = null;
+        request.distance_km = null;
+      }
+      await mgr.getRepository(OnlineOrderRequest).save(request);
+
+      // ── Ghi order thật (nếu có) ──
+      if (order) {
+        if (table) {
+          order.table_id = table.id;
+          order.table_code = table.code;
+        }
+        order.fulfillment_type = target;
+        order.customer_address = request.customer_address;
+        if (addr.clearGeo) {
+          order.customer_lat = null;
+          order.customer_lng = null;
+          order.customer_map_link = null;
+          order.distance_km = null;
+        }
+        // Đổi sang PICKUP: KHÔNG còn khoản thu hộ nào. Đổi sang DELIVERY: chỉ ghi khi nhân viên
+        // thực sự nhập — không gửi gì thì giữ nguyên phí đang có (đổi qua đổi lại không được
+        // âm thầm xoá con số đã chốt miệng với khách).
+        if (target === 'PICKUP') {
+          order.ship_fee = 0;
+        } else if (body.ship_fee !== undefined) {
+          order.ship_fee = body.ship_fee;
+        }
+        await mgr.getRepository(Order).save(order);
+
+        await this.writeFulfillmentActivity(
+          mgr,
+          order,
+          actor,
+          `Đổi hình thức nhận hàng: ${FULFILLMENT_LABEL[from]} → ${FULFILLMENT_LABEL[target]}` +
+            (table && previousTableCode
+              ? ` · chuyển bàn ${previousTableCode} → ${table.code}${tableCreated ? ' (bàn tự tạo)' : ''}`
+              : ''),
+        );
+      }
+
+      return { request, order, table, tableCreated, from, previousTableCode };
+    });
+
+    if (out.tableCreated && out.table) {
+      this.emitter.emit('audit.write', {
+        actor_id: actor.id,
+        actor_name: actor.full_name,
+        ip: 'system',
+        ts_ms: Date.now(),
+        action_kind: 'online_order.table_autocreated',
+        target_kind: 'table',
+        target_id: out.table.id,
+        after_json: {
+          code: out.table.code,
+          kind: kindForFulfillment(target),
+          reason: 'Hết bàn trống khi đổi hình thức nhận hàng',
+          request_id: requestId,
+        },
+      });
+    }
+    // Cùng kênh SSE với confirm/ship: mọi tab đang mở tự tải lại hàng chờ (D-06).
+    this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+    this.logger.log(
+      `Đổi hình thức đơn ${requestId}: ${out.from} → ${target}` +
+        (out.table ? ` (bàn ${out.previousTableCode} → ${out.table.code})` : ' (đơn chưa duyệt)'),
+    );
+
+    const settings = await this.settingsSvc.readAll();
+
+    return SwitchFulfillmentResult.strict().parse({
+      request_id: requestId,
+      from_fulfillment_type: out.from,
+      fulfillment_type: target,
+      customer_address: out.request.customer_address,
+      distance_km: out.request.distance_km,
+      table_code: out.table?.code ?? out.order?.table_code ?? null,
+      table_name: out.table?.name ?? null,
+      previous_table_code: out.previousTableCode,
+      table_created: out.tableCreated,
+      ship_fee: out.order?.ship_fee ?? 0,
+      // Gợi ý phí ship phải đi cùng chuyến với `distance_km` mới: đổi sang địa chỉ khác (hoặc thôi
+      // giao hẳn) mà FE giữ gợi ý cũ thì ô phí ship điền sẵn một con số của quãng đường không còn
+      // liên quan — cùng loại lỗi mà `switch-fulfillment.ts` đã phải xoá toạ độ + link bản đồ để
+      // tránh. Tính lại bằng ĐÚNG hàm dùng ở hàng chờ và ở trang khách.
+      suggested_ship_fee:
+        target === 'DELIVERY'
+          ? computeShipFee({
+              distanceKm:
+                out.request.distance_km === null ? null : Number(out.request.distance_km),
+              freeShipKm: settings.free_ship_km,
+              perKm: settings.ship_fee_per_km,
+            })
+          : null,
     });
   }
 

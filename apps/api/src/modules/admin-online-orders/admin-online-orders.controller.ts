@@ -44,14 +44,17 @@ import { Observable, defer, finalize, fromEvent, map, merge, takeUntil, timer } 
 import { z } from 'zod';
 import { apiOk, type ApiOk } from '@order/utils';
 import {
+  AdminOnlineOrderHoursQuery,
   AdminOnlineOrderList,
   AdminOnlineOrderStatusFilter,
   ConfirmOnlineOrderBody,
   EditOnlineOrderItemsBody,
   OnlineOrderStreamEvent,
   RejectOnlineOrderBody,
+  SwitchFulfillmentBody,
   type EditOnlineOrderItemsResult,
   type RejectReasonCode,
+  type SwitchFulfillmentResult,
 } from '@order/schemas';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
@@ -59,9 +62,18 @@ import {
   AdminOnlineOrdersService,
   type ConfirmResult,
   type FulfillmentResult,
+  type ReviewBlacklistOutcome,
 } from './admin-online-orders.service.js';
+import { resolveOnlineWindow } from './online-window.js';
 
 const UuidParam = z.string().uuid();
+
+/** Role hiệu lực của phiên. `is_owner` không có `role` riêng nhưng là admin — bỏ nhánh này là
+ * chủ quán bị cắt xuống cửa sổ 14h của nhân viên. Cùng cách suy như `staffHistoryWindowMs`. */
+function roleOf(req: Request): 'admin' | 'order' | 'kitchen' | null {
+  const role = req.user!.role ?? (req.user!.is_owner ? 'admin' : null);
+  return role as 'admin' | 'order' | 'kitchen' | null;
+}
 
 /** 3 trạng thái, mặc định `WAITING` (OD-11 — chủ dự án chỉ đạo 2026-08-01).
  *
@@ -100,7 +112,11 @@ export class AdminOnlineOrdersController {
   @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
   // Hàng chờ duyệt không được cache: khoảng cách giữa "đơn tới" và "admin thấy" phải bằng 0.
   @Header('Cache-Control', 'no-store')
-  async list(@Query('status') status?: string): Promise<ApiOk<AdminOnlineOrderList>> {
+  async list(
+    @Req() req: Request,
+    @Query('status') status?: string,
+    @Query('hours') hours?: string,
+  ): Promise<ApiOk<AdminOnlineOrderList>> {
     const parsed = StatusQuery.safeParse(status ?? 'WAITING');
     if (!parsed.success) {
       throw new BadRequestException({
@@ -111,7 +127,24 @@ export class AdminOnlineOrdersController {
         ],
       });
     }
-    return apiOk(await this.svc.list(parsed.data));
+
+    let requestedHours: number | undefined;
+    if (hours !== undefined && hours !== '') {
+      const h = AdminOnlineOrderHoursQuery.safeParse(hours);
+      if (!h.success) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'Khoảng thời gian không hợp lệ.',
+          field_errors: [{ field: 'hours', message: 'Phải là số giờ từ 1 đến 8784' }],
+        });
+      }
+      requestedHours = h.data;
+    }
+
+    // Cửa sổ chốt ở đây, KHÔNG ở service: đây là quyết định quyền (order/bếp 14h — chỉ đạo
+    // 2026-08-06), cùng khuôn với `staffHistoryWindowMs` của nhật ký bàn.
+    const window = resolveOnlineWindow(roleOf(req), requestedHours);
+    return apiOk(await this.svc.list(parsed.data, window));
   }
 
   @Post(':id/confirm')
@@ -140,20 +173,21 @@ export class AdminOnlineOrdersController {
     @Param('id') id: string,
     @Body() body: unknown,
     @Req() req: Request,
-  ): Promise<ApiOk<{ ok: true; reason_code: RejectReasonCode; has_internal_note: boolean }>> {
+  ): Promise<ApiOk<{ ok: true; reason_code: RejectReasonCode; has_internal_note: boolean } & ReviewBlacklistOutcome>> {
     const requestId = this.parseId(id);
     const parsed = RejectOnlineOrderBody.safeParse(body);
     if (!parsed.success) {
       throw this.validationFailed(parsed.error, 'Dữ liệu từ chối đơn không hợp lệ.');
     }
     const actor = { id: req.user!.sub, full_name: req.user!.full_name };
-    await this.svc.reject(requestId, actor, parsed.data);
+    const outcome = await this.svc.reject(requestId, actor, parsed.data);
     // `after_json` của AuditInterceptor lấy từ response body này, nên nó phải đủ để truy vết
     // (mã lý do + CÓ hay KHÔNG ghi chú nội bộ) mà vẫn không chứa nội dung ghi chú (D-09).
     return apiOk({
       ok: true as const,
       reason_code: parsed.data.reason_code,
       has_internal_note: Boolean(parsed.data.internal_note?.trim()),
+      ...outcome,
     });
   }
 
@@ -167,19 +201,20 @@ export class AdminOnlineOrdersController {
     @Param('id') id: string,
     @Body() body: unknown,
     @Req() req: Request,
-  ): Promise<ApiOk<{ ok: true; reason_code: RejectReasonCode; has_internal_note: boolean }>> {
+  ): Promise<ApiOk<{ ok: true; reason_code: RejectReasonCode; has_internal_note: boolean } & ReviewBlacklistOutcome>> {
     const requestId = this.parseId(id);
     const parsed = RejectOnlineOrderBody.safeParse(body);
     if (!parsed.success) {
       throw this.validationFailed(parsed.error, 'Dữ liệu huỷ đơn không hợp lệ.');
     }
     const actor = { id: req.user!.sub, full_name: req.user!.full_name };
-    await this.svc.cancelConfirmed(requestId, actor, parsed.data);
+    const outcome = await this.svc.cancelConfirmed(requestId, actor, parsed.data);
     // Cùng khuôn response reject: đủ để audit truy vết, không chứa nội dung ghi chú (D-09).
     return apiOk({
       ok: true as const,
       reason_code: parsed.data.reason_code,
       has_internal_note: Boolean(parsed.data.internal_note?.trim()),
+      ...outcome,
     });
   }
 
@@ -200,6 +235,31 @@ export class AdminOnlineOrdersController {
       throw this.validationFailed(parsed.error, 'Dữ liệu sửa đơn không hợp lệ.');
     }
     return apiOk(await this.svc.editItems(requestId, parsed.data));
+  }
+
+  /** Đổi hình thức nhận hàng: Giao tận nơi ⇄ Đến lấy tại quán (chốt 2026-08-06).
+   *
+   * Cả 3 role bấm được — chủ dự án chốt nguyên văn "order, bếp và admin". Cùng lý lẽ D-02:
+   * không có lớp chặn role thứ 2, kiểm soát bù trừ là audit log
+   * `online_order.fulfillment_switched` (đã có nhánh riêng ở `deriveActionKind`) + nhật ký bàn.
+   *
+   * Đổi được cả TRƯỚC và SAU khi duyệt, chốt chặn duy nhất là đơn chưa rời quán — mọi guard
+   * nằm ở `decideSwitchFulfillment`, không ở đây. */
+  @Post(':id/fulfillment')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @HttpCode(200)
+  async switchFulfillment(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<ApiOk<SwitchFulfillmentResult>> {
+    const requestId = this.parseId(id);
+    const parsed = SwitchFulfillmentBody.safeParse(body);
+    if (!parsed.success) {
+      throw this.validationFailed(parsed.error, 'Dữ liệu đổi hình thức nhận hàng không hợp lệ.');
+    }
+    const actor = { id: req.user!.sub, full_name: req.user!.full_name };
+    return apiOk(await this.svc.switchFulfillment(requestId, actor, parsed.data));
   }
 
   /** Shipper đã rời quán. Chỉ DELIVERY; đơn PICKUP gọi vào đây nhận 400.

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth, defaultLandingPath, type Role } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
@@ -20,6 +21,7 @@ import { TablesManagementPage } from './pages/TablesManagementPage.tsx';
 import { HistoryPage } from './pages/HistoryPage.tsx';
 import { OnlineOrdersPage } from './pages/OnlineOrdersPage.tsx';
 import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
+import { useOpenTablesCount } from './lib/open-tables-badge.ts';
 
 export function App() {
   return (
@@ -110,6 +112,33 @@ function ProtectedShell() {
   // Badge số đơn online đang chờ trên nút "Online" — cả 3 role đều duyệt được (D-02) nên có
   // role là bật. SSE + đếm sống ở shell để đứng ở TRANG NÀO badge cũng nhảy realtime.
   const waitingCount = useOnlineWaitingCount(role !== null);
+  // Badge số bàn đang mở trên nút "Order" — cả 3 role đều có nút này ở nav dưới. Cũng phải tính
+  // TRƯỚC early-return vì cùng lý do trên.
+  const openTablesCount = useOpenTablesCount(role !== null);
+
+  /**
+   * Số đơn chờ duyệt lên TIÊU ĐỀ TAB (2026-08-06): `(3) Đơn mới · …`.
+   *
+   * Máy ở quán gần như luôn mở nhiều tab, và tab quản trị thường nằm ở nền trong khi nhân viên
+   * đang làm việc khác. Badge đỏ ở nav dưới chỉ thấy được khi đã nhìn vào tab này, còn chuông thì
+   * trình duyệt hay chặn cho tới khi có thao tác đầu tiên — tiêu đề tab là kênh duy nhất còn lại
+   * khi tab bị che, và nó không tốn thêm request nào (dùng lại đúng con số của badge).
+   *
+   * Phải nằm ở đây (`ProtectedShell`) chứ không phải trong màn Đơn hàng online: đứng ở trang nào
+   * cũng phải thấy, kể cả khi nhân viên đang ở màn Bếp.
+   */
+  useEffect(() => {
+    // Giữ ĐÚNG chuỗi trong `apps/web/index.html` — hai chỗ lệch nhau thì tiêu đề tab đổi một cái
+    // khi app mount xong, và người dùng thấy tab "nhảy chữ" mà không hiểu vì sao.
+    const base = 'Admin · Quán Bà Lùn';
+    document.title = waitingCount && waitingCount > 0 ? `(${waitingCount}) Đơn mới · ${base}` : base;
+    // Trả tiêu đề về nguyên trạng khi rời khu vực đã đăng nhập (đăng xuất) — để lại "(3) Đơn mới"
+    // trên màn hình đăng nhập là nói về dữ liệu người vừa đăng xuất không còn quyền xem.
+    return () => {
+      document.title = base;
+    };
+  }, [waitingCount]);
+
   if (loading) {
     return (
       <div className="container">
@@ -169,10 +198,10 @@ function ProtectedShell() {
       <Outlet />
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
           {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
               và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
@@ -182,10 +211,10 @@ function ProtectedShell() {
       )}
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
           {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
               Role này KHÔNG thấy tab Cài đặt nên title chỉ nói về hàng chờ. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
@@ -194,8 +223,8 @@ function ProtectedShell() {
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} /></NavLink>
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
@@ -206,22 +235,35 @@ function ProtectedShell() {
   );
 }
 
-/** Hình tròn đỏ đếm đơn online đang chờ duyệt, neo ở góc trên-PHẢI của ô "Online" trong nav
- * dưới. `count` null/0 → không vẽ gì (thà không có số còn hơn hiện số sai).
+/** Hình tròn đếm, neo ở góc trên-PHẢI của một ô trong nav dưới. `count` null/0 → không vẽ gì
+ * (thà không có số còn hơn hiện số sai).
+ *
+ * Màu phân biệt VIỆC PHẢI LÀM với THÔNG TIN: đỏ = đơn online đang chờ duyệt (khách đang đợi,
+ * phải bấm), xanh = số bàn đang mở (chỉ để biết, không ai phải làm gì). Hai badge nằm cạnh nhau
+ * trên cùng thanh nav nên cùng màu đỏ là nhân viên liếc qua tưởng cả hai đều cần xử lý.
  *
  * Style INLINE + `position:absolute` có chủ đích: badge tuyệt đối không được chiếm chỗ trong
  * flex column của nav item (icon/label) — bản đầu để class chờ CSS, lúc CSS chưa nạp con số
  * rơi xuống thành dòng thứ 3 làm vỡ cả thanh nav. Neo `position:relative` nằm ở `.nav-bottom a`. */
-function NavBadge({ count }: { count: number | null }) {
+function NavBadge({
+  count,
+  label,
+  tone = 'alert',
+}: {
+  count: number | null;
+  /** Đọc cho screen reader, dạng "3 <label>". */
+  label: string;
+  tone?: 'alert' | 'info';
+}) {
   if (count === null || count <= 0) return null;
   return (
     <span
-      aria-label={`${count} đơn online đang chờ duyệt`}
+      aria-label={`${count} ${label}`}
       style={{
         position: 'absolute',
         top: 2,
         left: 'calc(50% + 6px)',
-        background: '#dc2626',
+        background: tone === 'alert' ? '#dc2626' : '#2563eb',
         color: 'white',
         borderRadius: 999,
         fontSize: 10,

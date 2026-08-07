@@ -54,6 +54,10 @@ type Order = {
   source?: string; // 'STAFF' | 'ONLINE'
   shipped_at?: number | null;
   received_at?: number | null;
+  /** Phí ship admin nhập lúc duyệt đơn online (M2.D-62). PHẢI cộng vào tổng cần thu — thiếu nó
+   * là thu thiếu đúng bằng phí ship, mỗi đơn giao tận nơi (lỗi phát hiện 2026-08-06). Đơn tại
+   * quán không có cột này trong payload cũ nên để optional, `?? 0`. */
+  ship_fee?: number;
   items: OrderItem[];
 };
 
@@ -366,7 +370,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const terminalStates: string[] = ['SERVED', 'CANCELLED'];
 
   const servedItems = order?.items?.filter((i) => i.state === 'SERVED') || [];
-  const total = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+  const itemsTotal = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+  // M2.D-62 — tổng cần thu = tiền món + phí ship. BE `checkout()` cũng tính đúng công thức này;
+  // 2 chỗ lệch nhau thì thu ngân đọc một số, hệ thống ghi sổ một số khác.
+  const shipFee = order?.ship_fee ?? 0;
+  const total = itemsTotal + shipFee;
   const activeItems = order?.items?.filter((i) => activeStates.includes(i.state)) || [];
   // 1 dòng item mang cả số lượng của lần gọi (qty=N) → mọi chỗ nói "N món" phải cộng
   // qty, đếm số dòng sẽ báo thiếu (gọi 3 phần 1 lần chỉ ra "1 món").
@@ -419,7 +427,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
             <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
             <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{servedUnits} món đã giao</div>
+            {/* Có phí ship thì PHẢI tách dòng: thu ngân đọc một con số gộp sẽ không biết trong đó
+                có tiền thu hộ shipper, và cuối ngày không đối soát được (M2.D-62). */}
+            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+              {shipFee > 0
+                ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
+                : `${servedUnits} món đã giao`}
+            </div>
           </div>
 
           {/* Món đã giao */}
@@ -860,6 +874,14 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 <div style={{ fontSize: 24, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>
                   {fmt(total)}
                 </div>
+                {/* Phí ship phải hiện NGAY TRÊN MÀN, không đợi tới lúc bấm Thanh toán mới thấy:
+                    bếp và người đi ship mở bàn ra là phải biết đơn này có tiền thu hộ, và vì sao
+                    tổng lớn hơn tiền món (M2.D-62, chủ dự án báo lệch số 2026-08-06). */}
+                {shipFee > 0 && (
+                  <div style={{ marginTop: 4, fontSize: 13, color: '#6b7280' }}>
+                    Món {fmt(itemsTotal)} + phí ship <strong style={{ color: '#0f766e' }}>{fmt(shipFee)}</strong>
+                  </div>
+                )}
                 {activeItems.length > 0 && (
                   <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
                     Còn {activeUnits} món đang xử lý — thanh toán sẽ huỷ các món này

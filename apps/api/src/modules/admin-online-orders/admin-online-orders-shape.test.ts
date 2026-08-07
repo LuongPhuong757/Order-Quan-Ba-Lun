@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest';
 import {
   AdminOnlineOrderRow,
   AdminOnlineOrderStatusFilter,
+  SwitchFulfillmentBody,
   type AdminOnlineOrderRow as Row,
 } from '@order/schemas';
 
@@ -39,6 +40,8 @@ function rejectedRow(): Row {
       },
     ],
     subtotal: 185_000,
+    ship_fee: 0,
+    suggested_ship_fee: null,
     submitted_at_ms: 1_700_000_000_000,
     waiting_seconds: 42,
     out_of_stock_count: 0,
@@ -213,5 +216,30 @@ describe('AdminOnlineOrderStatusFilter — đúng 3 trạng thái xem được',
     for (const s of ['', 'waiting', 'ALL', 'PENDING', null, undefined]) {
       expect(AdminOnlineOrderStatusFilter.safeParse(s).success).toBe(false);
     }
+  });
+});
+
+describe('SwitchFulfillmentBody — hợp đồng đổi hình thức nhận hàng (2026-08-06)', () => {
+  it('chỉ nhận đúng 2 hình thức, không nhận chữ thường hay giá trị lạ', () => {
+    expect(SwitchFulfillmentBody.safeParse({ fulfillment_type: 'PICKUP' }).success).toBe(true);
+    expect(SwitchFulfillmentBody.safeParse({ fulfillment_type: 'DELIVERY' }).success).toBe(true);
+    for (const v of ['pickup', 'SHIP', '', null, undefined]) {
+      expect(SwitchFulfillmentBody.safeParse({ fulfillment_type: v }).success).toBe(false);
+    }
+  });
+
+  it('phí ship âm KHÔNG qua được — đổi hình thức không phải đường vòng để nhập số âm', () => {
+    expect(
+      SwitchFulfillmentBody.safeParse({ fulfillment_type: 'DELIVERY', ship_fee: -1 }).success,
+    ).toBe(false);
+  });
+
+  it('địa chỉ dài quá cột DB (255) bị chặn ở schema, không để MySQL cắt cụt im lặng', () => {
+    expect(
+      SwitchFulfillmentBody.safeParse({
+        fulfillment_type: 'DELIVERY',
+        customer_address: 'x'.repeat(256),
+      }).success,
+    ).toBe(false);
   });
 });

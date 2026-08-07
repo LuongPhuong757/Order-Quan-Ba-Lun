@@ -7,6 +7,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
+import { openTablesStore } from '../lib/open-tables-badge.ts';
 
 type Table = {
   id: string;
@@ -98,6 +99,10 @@ export function OrdersPage() {
         setOpenOrders(o.data.data.items);
         // Diff vs previous poll → emit notification cho items chuyển sang READY
         readyNotifier.ingest(o.data.data.items);
+        // Badge "Order" ở nav dưới: đứng ở đây thì lấy luôn số của nhịp 2s này (khớp tuyệt đối
+        // với sơ đồ bàn đang thấy) và store hoãn poll `/orders/open-count` → không fetch trùng.
+        // BE đã lọc phantom order nên `items.length` chính là số bàn đang mở.
+        openTablesStore.publish(o.data.data.items.length);
       }
       errorCountRef.current = 0;  // reset on success
     } catch (err) {
