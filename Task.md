@@ -5,6 +5,9 @@ Khi mà gửi domain của quán tôi muốn hiển thị logo
 Test traffic hàng loạt xem xử lý như nào
 Chia sẻ vị trí chưa hợp lý lắm
 Thêm bổ sung, bát đĩa, tương ớt
+Khi mà đã tính phí ship rồi, thì ở màn chờ xác nhận cũng phải hiển thị phí ship và có ghi chú là phí ship này là tính tạm thời chung tôi sẽ gọi lại để xác nhận về phí ship. Chứ không thể lúc tính tiền ở giở hàng 1 phí ship, sau đo đặt hàng lại không hiển thị phí ship đó - DONE (trang /o/:token hiện "Phí giao hàng (tạm tính)" + "Tổng cộng (tạm tính)" kèm câu "quán xác nhận lại khi gọi"; BE trả `ship_fee_estimated` tính lại từ distance_km + bảng bậc, tự tắt khi quán đã chốt phí)
+Để không làm mất trải nghiệm ở màn mobile đưa hướng dẫn ra ngoài và highlind lên để vào là có thể ấn vào và xem luôn.
+Mô tả màn hương dẫn chi tiết hơn. Ấn vào biểu tượng giỏ hàng thì phải có biểu tượng ở đó
 --------------------------------------------------------
 Sửa lại màn quản lý dễ nhìn hơn: Cho phép thu gọn thông tin tránh hiển thị quá nhieu, phân biệt màu sắc trạng thái của 3 status đơn online, cho phép sửa đơn rồi mới xác nhận  - DONE
 Cho phép admin, bếp, order sửa lại đơn online và update ngược về đơn của khách - DONE
@@ -46,7 +49,9 @@ Khi có vị trí thì tóm tắt khoảng cách + gợi ý phí ship ở màn a
 Thanh "đơn đang theo dõi" hiện ở mọi trang khách — đóng tab rồi vẫn quay lại xem đơn được, không cần OTP - DONE
 Nút "Đặt lại đơn này" ở lịch sử đơn + trang theo dõi đơn đã xong (giá/tình trạng còn hàng tra lại từ menu hiện hành) - DONE
 Thêm món thẳng vào giỏ ngay trên bảng xếp hạng Món bán chạy - DONE
-Khách chia sẻ vị trí thì thấy luôn số km + phí ship tạm tính ở bước đặt hàng (cấu hình "Phí ship mỗi km vượt" ở Cài đặt; để 0 là tắt) - DONE
+Khách chia sẻ vị trí thì thấy luôn số km + phí ship tạm tính ở bước đặt hàng - DONE
+Phí ship theo BẬC GIÁ TRỊ ĐƠN, cấu hình được ở Cài đặt (bảng mẫu: <100k free 3km · từ 100k free 5km · từ 300k free 7km · từ 500k free 10km, vượt 5k/km); bỏ hẳn ô "Miễn phí ship trong (km)" cũ - DONE
+Bảng giá giao hàng cho khách xem (gấp sẵn ở bước đặt hàng, mở sẵn ở trang Hướng dẫn) + gợi ý "thêm Xđ nữa để được miễn phí" - DONE
 Ô tên/SĐT/địa chỉ ở checkout cho trình duyệt tự điền (autocomplete) - DONE
 Giỏ hàng quá 24h bị dọn thì nói một câu, không biến mất im lặng - DONE
 Banner đóng cửa nói thêm "Quán mở lại lúc …" khi lý do là ngoài giờ mở cửa - DONE

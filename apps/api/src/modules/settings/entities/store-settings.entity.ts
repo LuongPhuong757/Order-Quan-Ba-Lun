@@ -3,7 +3,7 @@ import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 
 // Bảng key-value theo §4.1 spec (docs/MILESTONE-02-ONLINE-ORDERING-SPEC.md) — KHÔNG phải
 // bảng 1 dòng nhiều cột. Mỗi setting (vd `online_ordering_enabled`, `open_hours`,
-// `free_ship_km`...) là 1 row, cột `value` luôn lưu dạng text; tầng service (plan 08-05)
+// `distance_factor`...) là 1 row, cột `value` luôn lưu dạng text; tầng service (plan 08-05)
 // chịu trách nhiệm parse đúng kiểu (bool/int/json/string) theo key.
 //
 // CẢNH BÁO: `key` là TỪ KHOÁ MySQL. TypeORM tự bọc backtick nên đi qua repository API vẫn

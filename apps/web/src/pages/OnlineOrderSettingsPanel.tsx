@@ -27,8 +27,10 @@
 //    D-11 đã bỏ hẳn việc chặn — khách vẫn đặt được đơn khi Đóng cửa. Nhãn mới nói đúng sự thật.
 import { useEffect, useState, FormEvent, ReactNode } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { MAX_SHIP_FEE_TIERS, type ShipFeeTier } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { C, isDirty } from '../lib/online-ui.ts';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -58,8 +60,9 @@ type StoreSettingsMap = {
   store_zalo: string;
   store_lat: number | null;
   store_lng: number | null;
-  free_ship_km: number;
-  ship_fee_per_km: number;
+  /** Bảng bậc phí giao theo giá trị đơn (2026-08-07) — `[]` = chưa cấu hình, hệ thống không tự
+   *  tính phí ship. Hình dạng do `ShipFeeTier` của @order/schemas khoá. */
+  ship_fee_tiers: ShipFeeTier[];
   distance_factor: number;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
@@ -100,6 +103,73 @@ const DOW_LABELS: Record<OpenHoursDow, string> = {
   6: 'Thứ bảy',
 };
 const DOW_VALUES: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
+
+// ══ Bảng phí giao theo giá trị đơn (2026-08-07) ══════════════════════════════════════════════
+// Form giữ CHUỖI (thứ chủ quán đang gõ, có dấu chấm nghìn), chỉ bóc về số lúc gửi — cùng quy ước
+// với ô phí ship ở màn duyệt đơn, xem `money-input.ts`. Giữ số thô rồi format lúc render sẽ làm
+// con trỏ nhảy về cuối ô mỗi lần sửa ở giữa chuỗi.
+
+type TierDraft = { min_subtotal: string; free_km: string; per_km: string };
+
+/** Bảng mẫu = đúng bảng chủ quán mô tả 2026-08-07. Chỉ là điểm khởi đầu, sửa được hết. */
+const SAMPLE_TIERS: TierDraft[] = [
+  { min_subtotal: '0', free_km: '3', per_km: '5.000' },
+  { min_subtotal: '100.000', free_km: '5', per_km: '5.000' },
+  { min_subtotal: '300.000', free_km: '7', per_km: '5.000' },
+  { min_subtotal: '500.000', free_km: '10', per_km: '5.000' },
+];
+
+function toDrafts(tiers: ShipFeeTier[]): TierDraft[] {
+  return [...tiers]
+    .sort((a, b) => a.min_subtotal - b.min_subtotal)
+    .map((t) => ({
+      min_subtotal: formatMoneyInput(String(t.min_subtotal)),
+      free_km: String(t.free_km),
+      per_km: formatMoneyInput(String(t.per_km)),
+    }));
+}
+
+/**
+ * Form → payload. Ô để trống đọc thành 0 (chủ quán xoá trắng ô "vượt" nghĩa là bậc đó miễn phí
+ * giao), và dòng ĐẦU luôn bị ép về mốc 0 — BE cũng chặn, nhưng chặn sớm ở đây thì chủ quán không
+ * bao giờ phải gặp câu lỗi đó.
+ */
+function draftsToTiers(drafts: TierDraft[]): ShipFeeTier[] {
+  return drafts.map((d, i) => ({
+    min_subtotal: i === 0 ? 0 : Number(digitsOnly(d.min_subtotal) || '0'),
+    free_km: Number(d.free_km || '0'),
+    per_km: Number(digitsOnly(d.per_km) || '0'),
+  }));
+}
+
+function updateTier(
+  setTiers: React.Dispatch<React.SetStateAction<TierDraft[]>>,
+  index: number,
+  patch: Partial<TierDraft>,
+): void {
+  setTiers((cur) => cur.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+}
+
+/** Một ô trong hàng bậc: nhãn nhỏ phía trên, input bên dưới, bề ngang cố định để các hàng thẳng
+ *  cột nhau nhưng vẫn tự xuống dòng trên màn hẹp. */
+function TierField({
+  label,
+  width,
+  children,
+}: {
+  label: string;
+  width: number;
+  children: ReactNode;
+}) {
+  return (
+    <div style={{ width, minWidth: 0 }}>
+      <label style={{ display: 'block', fontSize: 12, color: C.muted, marginBottom: 2 }}>
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
 
 export function OnlineOrderSettingsPanel() {
   const [params, setParams] = useSearchParams();
@@ -295,8 +365,9 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [etaPickupMax, setEtaPickupMax] = useState(settings.eta_pickup_max);
   const [etaDeliveryMin, setEtaDeliveryMin] = useState(settings.eta_delivery_min);
   const [etaDeliveryMax, setEtaDeliveryMax] = useState(settings.eta_delivery_max);
-  const [freeShipKm, setFreeShipKm] = useState(settings.free_ship_km);
-  const [shipFeePerKm, setShipFeePerKm] = useState(settings.ship_fee_per_km);
+  // Bảng bậc giữ dạng CHUỖI ĐÃ ĐỊNH DẠNG khi đang gõ (`10.000`), bóc về số lúc gửi — cùng quy
+  // ước với ô phí ship ở màn duyệt đơn, xem `money-input.ts`.
+  const [tiers, setTiers] = useState<TierDraft[]>(() => toDrafts(settings.ship_fee_tiers));
   const [distanceFactor, setDistanceFactor] = useState(settings.distance_factor);
   const [savingFulfillment, setSavingFulfillment] = useState(false);
 
@@ -328,8 +399,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setEtaPickupMax(settings.eta_pickup_max);
     setEtaDeliveryMin(settings.eta_delivery_min);
     setEtaDeliveryMax(settings.eta_delivery_max);
-    setFreeShipKm(settings.free_ship_km);
-    setShipFeePerKm(settings.ship_fee_per_km);
+    setTiers(toDrafts(settings.ship_fee_tiers));
     setDistanceFactor(settings.distance_factor);
     setOtpEnabled(settings.otp_login_enabled);
     setPhone(settings.store_phone);
@@ -362,8 +432,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaPickupMax,
       etaDeliveryMin,
       etaDeliveryMax,
-      freeShipKm,
-      shipFeePerKm,
+      tiers: draftsToTiers(tiers),
       distanceFactor,
     },
     {
@@ -373,8 +442,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaPickupMax: settings.eta_pickup_max,
       etaDeliveryMin: settings.eta_delivery_min,
       etaDeliveryMax: settings.eta_delivery_max,
-      freeShipKm: settings.free_ship_km,
-      shipFeePerKm: settings.ship_fee_per_km,
+      tiers: settings.ship_fee_tiers,
       distanceFactor: settings.distance_factor,
     },
   );
@@ -520,8 +588,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         eta_pickup_max: etaPickupMax,
         eta_delivery_min: etaDeliveryMin,
         eta_delivery_max: etaDeliveryMax,
-        free_ship_km: freeShipKm,
-        ship_fee_per_km: shipFeePerKm,
+        ship_fee_tiers: draftsToTiers(tiers),
         distance_factor: distanceFactor,
       });
       toast.push('success', 'Đã lưu hình thức nhận hàng ✓');
@@ -780,7 +847,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
 
       {/* ══ 4. Hình thức nhận hàng — MỖI hình thức kèm ETA và phí CỦA CHÍNH NÓ ══
           Đây là lỗi cấu trúc nặng nhất của bản cũ: 2 checkbox nằm một chỗ, 4 ô ETA nằm chỗ khác,
-          `free_ship_km`/`distance_factor` (chỉ có nghĩa với giao tận nơi) thì nằm TRÊN cả hai. */}
+          bảng phí ship + `distance_factor` (chỉ có nghĩa với giao tận nơi) thì nằm TRÊN cả hai. */}
       <Section
         title="Hình thức nhận hàng"
         hint="Tắt hình thức nào thì khách không chọn được hình thức đó ở trang đặt hàng. Cấu hình của hình thức đang tắt vẫn giữ nguyên, không mất."
@@ -851,40 +918,6 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               />
             </div>
 
-            <label style={{ fontSize: 13, marginTop: 12 }}>Miễn phí ship trong (km)</label>
-            <div className="st-inline">
-              <input
-                type="number"
-                min={0}
-                max={100}
-                disabled={!deliveryEnabled}
-                value={freeShipKm}
-                onChange={(e) => setFreeShipKm(Number(e.target.value))}
-              />
-            </div>
-
-            {/* ── Giá ship mỗi km ngoài vùng miễn phí (2026-08-06) ──
-                Đây là công tắc bật/tắt TOÀN BỘ việc hiện phí tạm tính: để 0 thì trang khách giữ
-                nguyên câu hẹn cũ ("phí cuối do quán xác nhận khi gọi lại") và ô phí ship ở màn
-                duyệt đơn vẫn trống như trước — đúng hành vi cũ, không ép quán nào phải theo. */}
-            <label style={{ fontSize: 13, marginTop: 12 }}>Phí ship mỗi km vượt (đ/km)</label>
-            <div className="st-inline">
-              <input
-                type="number"
-                min={0}
-                max={200000}
-                step={1000}
-                disabled={!deliveryEnabled}
-                value={shipFeePerKm}
-                onChange={(e) => setShipFeePerKm(Number(e.target.value))}
-              />
-            </div>
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Để <strong>0</strong> nếu quán tự báo giá ship qua điện thoại. Điền số thì khách thấy
-              phí tạm tính ngay khi chia sẻ vị trí, và ô phí ship lúc duyệt đơn được điền sẵn đúng
-              con số đó. Phần km vượt làm tròn lên km chẵn, tiền làm tròn lên 1.000đ.
-            </p>
-
             <label style={{ fontSize: 13, marginTop: 12 }}>Hệ số đường thực tế</label>
             <div className="st-inline">
               <input
@@ -903,10 +936,168 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           </fieldset>
         </div>
 
+        {/* ══ Bảng phí giao theo GIÁ TRỊ ĐƠN (2026-08-07) ══
+            Đây là công tắc bật/tắt TOÀN BỘ việc tự tính phí ship: bảng rỗng thì trang khách giữ
+            nguyên câu hẹn cũ và ô phí ship ở màn duyệt đơn vẫn trống — đúng hành vi trước đây.
+            Bậc đầu LUÔN là "Mọi đơn" (mốc 0đ) và không xoá được: thiếu nó thì đơn nhỏ rơi vào
+            khoảng trống không luật nào phủ và hệ thống lặng lẽ không thu phí (BE cũng chặn). */}
+        <div style={{ marginTop: 16, opacity: deliveryEnabled ? 1 : 0.5 }}>
+          <label style={{ fontSize: 13, fontWeight: 600 }}>Bảng phí giao theo giá trị đơn</label>
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 8px' }}>
+            Đơn càng lớn, bán kính miễn phí càng rộng. Khách đọc được đúng bảng này ở trang đặt
+            hàng và trang Hướng dẫn. Km vượt làm tròn lên km chẵn, tiền làm tròn lên 1.000đ.
+          </p>
+
+          {tiers.length === 0 ? (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 13, color: C.muted }}>
+                Chưa cấu hình — hệ thống không tự tính phí ship.
+              </span>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!deliveryEnabled}
+                onClick={() => setTiers(SAMPLE_TIERS.map((t) => ({ ...t })))}
+                style={{ fontSize: 13 }}
+              >
+                Dùng bảng mẫu
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={!deliveryEnabled}
+                onClick={() => setTiers([{ min_subtotal: '0', free_km: '3', per_km: '5.000' }])}
+                style={{ fontSize: 13 }}
+              >
+                + Tự tạo từ đầu
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {tiers.map((tier, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    alignItems: 'flex-end',
+                    padding: 8,
+                    background: C.panelBg,
+                    border: `1px solid ${C.borderSoft}`,
+                    borderRadius: 8,
+                  }}
+                >
+                  <TierField label={i === 0 ? 'Áp dụng cho' : 'Đơn từ (đ)'} width={140}>
+                    {i === 0 ? (
+                      // Bậc gốc: không cho sửa mốc — nó phải là 0. Hiện chữ thay vì ô nhập khoá
+                      // mờ, để không ai đi tìm cách gõ vào một ô trông như gõ được.
+                      <span style={{ fontSize: 14, fontWeight: 600, color: C.text }}>Mọi đơn</span>
+                    ) : (
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        disabled={!deliveryEnabled}
+                        value={tier.min_subtotal}
+                        onChange={(e) =>
+                          updateTier(setTiers, i, { min_subtotal: formatMoneyInput(e.target.value) })
+                        }
+                        style={{ width: '100%', textAlign: 'right' }}
+                      />
+                    )}
+                  </TierField>
+
+                  <TierField label="Miễn phí (km)" width={110}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      disabled={!deliveryEnabled}
+                      value={tier.free_km}
+                      onChange={(e) => updateTier(setTiers, i, { free_km: e.target.value })}
+                      style={{ width: '100%' }}
+                    />
+                  </TierField>
+
+                  <TierField label="Vượt (đ/km)" width={130}>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      disabled={!deliveryEnabled}
+                      value={tier.per_km}
+                      onChange={(e) =>
+                        updateTier(setTiers, i, { per_km: formatMoneyInput(e.target.value) })
+                      }
+                      style={{ width: '100%', textAlign: 'right' }}
+                    />
+                  </TierField>
+
+                  <span style={{ flex: 1 }} />
+
+                  {i === 0 ? (
+                    <span style={{ fontSize: 12, color: C.muted, alignSelf: 'center' }}>
+                      bậc gốc, không xoá được
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={!deliveryEnabled}
+                      onClick={() => setTiers((cur) => cur.filter((_, j) => j !== i))}
+                      style={{ fontSize: 13, color: C.danger, borderColor: C.alertBorder }}
+                    >
+                      Xoá bậc
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!deliveryEnabled || tiers.length >= MAX_SHIP_FEE_TIERS}
+                  onClick={() =>
+                    setTiers((cur) => [
+                      ...cur,
+                      // Mốc gợi ý = mốc cuối + 100k, giá mỗi km chép từ bậc cuối: gần như luôn
+                      // đúng ý, và chủ quán chỉ việc sửa con số nào lệch.
+                      {
+                        min_subtotal: formatMoneyInput(
+                          String(Number(digitsOnly(cur[cur.length - 1].min_subtotal) || '0') + 100_000),
+                        ),
+                        free_km: cur[cur.length - 1].free_km,
+                        per_km: cur[cur.length - 1].per_km,
+                      },
+                    ])
+                  }
+                  style={{ fontSize: 13 }}
+                >
+                  + Thêm bậc
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={!deliveryEnabled}
+                  onClick={() => setTiers([])}
+                  style={{ fontSize: 13 }}
+                >
+                  Xoá bảng (không tự tính phí)
+                </button>
+                {tiers.length >= MAX_SHIP_FEE_TIERS && (
+                  <span style={{ fontSize: 12, color: C.muted, alignSelf: 'center' }}>
+                    Tối đa {MAX_SHIP_FEE_TIERS} bậc — bảng dài hơn thì khách không đọc nữa.
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Câu này đổi theo cấu hình (2026-08-06): để nguyên bản cũ khi quán ĐÃ điền giá mỗi km
             là mô tả sai hệ thống — lúc đó nó có tính, và khách có đọc con số. */}
         <p style={{ fontSize: 12, color: C.muted, margin: '12px 0 0' }}>
-          {shipFeePerKm > 0
+          {tiers.length > 0
             ? 'Phí hiện cho khách luôn là TẠM TÍNH — phí cuối vẫn do quán chốt khi gọi lại, và nhân viên sửa được lúc duyệt đơn.'
             : 'Hệ thống không tự tính tiền ship — chỉ hiện quy tắc cho khách, phí cuối do quán chốt khi gọi lại.'}
         </p>

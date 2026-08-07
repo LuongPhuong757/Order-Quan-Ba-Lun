@@ -32,8 +32,17 @@
          (đã commit sẵn). Không trỏ thẳng vào logo.jpg vì ảnh gốc dọc 1633x1920, Facebook
          cắt còn ô vuông nhỏ cạnh tiêu đề thay vì thẻ ảnh lớn tràn ngang.
 
-         Facebook cache preview khá lâu: sau khi deploy, nếu vẫn thấy khung cũ thì quét
-         lại một lần ở developers.facebook.com/tools/debug/ với link quanbalun.site. -->
+         ── ?v= LÀ PHẦN BẮT BUỘC, ĐỪNG BỎ (2026-08-07) ──
+         Facebook/Zalo cache preview theo URL, và chúng cache CẢ LẦN TẢI ẢNH HỎNG. Ảnh cũ
+         là progressive JPEG nên crawler Zalo đọc không ra và ghi nhớ "link này không có
+         ảnh"; lúc đó quét lại trang cũng vô ích vì URL ảnh y hệt, chúng lấy luôn kết quả
+         rỗng trong cache ra dùng. Đổi số `v` là ép chúng tải lại từ đầu.
+         ⇒ Mỗi lần chạy lại make-og-image.mjs (đổi logo, sửa chữ trên thẻ) thì TĂNG `v`
+         ở CẢ og:image, og:image:secure_url và twitter:image.
+
+         Sau deploy vẫn còn thấy khung trống thì quét lại một lần:
+           Facebook/Messenger → developers.facebook.com/tools/debug/
+           Zalo               → developers.zalo.me/tools/debug-open-graph -->
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="Quán Bà Lùn" />
     <meta property="og:locale" content="vi_VN" />
@@ -43,7 +52,9 @@
       property="og:description"
       content="Đặt món online tại Quán Bà Lùn — giao tận nơi hoặc tự đến lấy, theo dõi đơn theo thời gian thực."
     />
-    <meta property="og:image" content="https://quanbalun.site/og-image.jpg" />
+    <meta property="og:image" content="https://quanbalun.site/og-image.jpg?v=2" />
+    <!-- Zalo đọc secure_url trước og:image; thiếu thẻ này là một lý do nữa để nó bỏ ảnh. -->
+    <meta property="og:image:secure_url" content="https://quanbalun.site/og-image.jpg?v=2" />
     <meta property="og:image:type" content="image/jpeg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -55,7 +66,7 @@
       name="twitter:description"
       content="Đặt món online tại Quán Bà Lùn — giao tận nơi hoặc tự đến lấy, theo dõi đơn theo thời gian thực."
     />
-    <meta name="twitter:image" content="https://quanbalun.site/og-image.jpg" />
+    <meta name="twitter:image" content="https://quanbalun.site/og-image.jpg?v=2" />
   </head>
   <body>
     <div id="root"></div>

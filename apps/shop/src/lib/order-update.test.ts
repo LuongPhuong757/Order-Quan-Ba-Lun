@@ -20,6 +20,7 @@ function base(): PublicOrderStatus {
     ],
     subtotal: 235_000,
     ship_fee: 0,
+    ship_fee_estimated: null,
     customer_note: null,
     customer_address: null,
     submitted_at_ms: 1_700_000_000_000,

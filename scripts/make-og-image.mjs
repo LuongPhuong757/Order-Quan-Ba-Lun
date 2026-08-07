@@ -90,7 +90,33 @@ await sharp(bg)
     { input: photo, top: PHOTO_Y, left: PHOTO_X },
     { input: frame, top: 0, left: 0 },
   ])
-  .jpeg({ quality: 86, mozjpeg: true })
+  // JPEG BASELINE, KHÔNG progressive (2026-08-07 — sửa lần "lại mất logo" thứ hai).
+  //
+  // Bản trước dùng `mozjpeg: true` cho gọn. Cờ đó nén tốt thật, nhưng nó BẬT KÈM
+  // `progressive` — và crawler xem trước link (Zalo rõ nhất, một số bot Messenger cũ nữa)
+  // đọc progressive JPEG không ra, bỏ luôn ảnh rồi cache cái kết quả rỗng đó. Nên phải
+  // liệt kê từng tuỳ chọn của mozjpeg bằng tay thay vì bật cờ gộp: giữ nguyên chất lượng
+  // nén, chỉ bỏ đúng phần progressive.
+  //
+  // ⚠ KHÔNG rút gọn lại thành `{ mozjpeg: true, progressive: false }` — trong sharp, khối
+  // xử lý `mozjpeg` chạy SAU nên nó ghi đè `progressive: false`, ảnh lại thành progressive
+  // mà không có lỗi nào báo ra.
+  .jpeg({
+    quality: 86,
+    progressive: false,
+    trellisQuantisation: true,
+    overshootDeringing: true,
+    // Cần progressive mới có tác dụng — để true là sharp bật progressive trở lại.
+    optimiseScans: false,
+    quantisationTable: 3,
+  })
   .toFile(OUT);
+
+// Chốt chặn: sinh ra ảnh progressive là hỏng đúng thứ script này sinh ra để sửa, mà nhìn
+// file thì không thấy gì khác — nên fail ngay tại đây thay vì để nó đi tới tận Zalo.
+const outMeta = await sharp(OUT).metadata();
+if (outMeta.isProgressive) {
+  throw new Error('og-image.jpg bị progressive — crawler Zalo sẽ không đọc được. Xem chú thích .jpeg() ở trên.');
+}
 
 console.log(`✓ ${OUT} — ${W}x${H}`);

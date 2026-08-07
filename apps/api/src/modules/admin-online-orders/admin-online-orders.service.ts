@@ -42,6 +42,10 @@ import {
   REJECT_REASON_LABEL,
   REJECT_REASON_TEXT,
   SwitchFulfillmentResult,
+  // Quy tắc phí ship dùng CHUNG với trang khách — xem docblock `@order/schemas/ship-fee.ts` về
+  // vì sao tuyệt đối không được có bản sao thứ hai của công thức này.
+  computeShipFee,
+  normalizeShipFeeTiers,
 } from '@order/schemas';
 import type {
   AdminOnlineOrderRow,
@@ -62,9 +66,6 @@ import {
 import type { OnlineWindow } from './online-window.js';
 import { formatTableName } from '../tables/table-kind.js';
 import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
-// Dùng CHUNG quy tắc phí ship với trang khách — xem docblock `ship-fee.ts` về vì sao không được
-// có bản sao thứ hai của công thức này.
-import { computeShipFee } from '../public/ship-fee.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
@@ -621,6 +622,8 @@ export class AdminOnlineOrdersService {
     };
 
     const settings = await this.settingsSvc.readAll();
+    // Chuẩn hoá MỘT LẦN cho cả danh sách thay vì mỗi đơn một lần — bảng bậc là cấu hình chung.
+    const shipFeeTiers = normalizeShipFeeTiers(settings.ship_fee_tiers);
     const nowMs = Date.now();
 
     // ── Dữ liệu của Order THẬT: mã bàn + 2 mốc chặng giao + đếm món live ──
@@ -765,9 +768,11 @@ export class AdminOnlineOrdersService {
         r.fulfillment_type === 'DELIVERY'
           ? computeShipFee({
               distanceKm: r.distance_km === null ? null : Number(r.distance_km),
-              freeShipKm: settings.free_ship_km,
-              perKm: settings.ship_fee_per_km,
-            })
+              // Bậc phí theo TIỀN MÓN của chính đơn này (2026-08-07) — `r.subtotal` là số server
+              // tự cộng từ giá trong DB lúc khách gửi đơn, không phải số client khai.
+              subtotal: r.subtotal,
+              tiers: shipFeeTiers,
+            }).fee
           : null,
       submitted_at_ms: r.submitted_at,
       // Đơn đã xử lý: đóng băng đồng hồ tại lúc duyệt, KHÔNG đếm tiếp tới hiện tại. Để nó chạy
@@ -1191,9 +1196,9 @@ export class AdminOnlineOrdersService {
           ? computeShipFee({
               distanceKm:
                 out.request.distance_km === null ? null : Number(out.request.distance_km),
-              freeShipKm: settings.free_ship_km,
-              perKm: settings.ship_fee_per_km,
-            })
+              subtotal: out.request.subtotal,
+              tiers: normalizeShipFeeTiers(settings.ship_fee_tiers),
+            }).fee
           : null,
     });
   }

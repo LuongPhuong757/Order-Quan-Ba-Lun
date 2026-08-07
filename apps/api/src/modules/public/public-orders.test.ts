@@ -36,7 +36,6 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
     store_lat: null,
     store_lng: null,
     distance_factor: 1.3,
-    free_ship_km: 10,
     online_ordering_off_reason: '',
     pickup_enabled: true,
     delivery_enabled: true,
@@ -377,6 +376,9 @@ type FakeRequestRow = {
   internal_reject_note: string | null;
   order_id: string | null;
   max_progress_shown: number;
+  /** Km đường bộ ước tính, DECIMAL nên TypeORM trả về STRING (2026-08-07) — nguồn của phí ship
+   *  tạm tính trên trang theo dõi. `null` = khách không chia sẻ vị trí / quán chưa có toạ độ. */
+  distance_km: string | null;
 };
 
 type FakeItemRow = {
@@ -407,6 +409,7 @@ function fakeRequest(overrides: Partial<FakeRequestRow> = {}): FakeRequestRow {
     internal_reject_note: null,
     order_id: null,
     max_progress_shown: 0,
+    distance_km: null,
     ...overrides,
   };
 }
@@ -430,6 +433,12 @@ const FAKE_SETTINGS = {
   eta_pickup_max: 25,
   eta_delivery_min: 30,
   eta_delivery_max: 45,
+  // Bảng bậc cho phí ship tạm tính (2026-08-07): dưới 100k miễn 3 km, từ 100k miễn 5 km,
+  // vượt bán kính thì 5.000đ/km. Đúng ví dụ trong docblock `ship-fee.ts`.
+  ship_fee_tiers: [
+    { min_subtotal: 0, free_km: 3, per_km: 5_000 },
+    { min_subtotal: 100_000, free_km: 5, per_km: 5_000 },
+  ],
 };
 
 /** Service + spy `update` để assert lệnh ghi `max_progress_shown`. */
@@ -441,6 +450,10 @@ function makeService(opts: {
   received_at?: number | null;
   /** Ảnh menu cho `findImagesByMenuItemIds` (2026-08-04). Mặc định rỗng → mọi item image null. */
   menuImages?: Array<{ id: string; image_url: string | null }>;
+  /** Đè setting (2026-08-07) — dùng cho nhánh "quán chưa cấu hình bảng phí ship". */
+  settings?: Partial<typeof FAKE_SETTINGS>;
+  /** Phí ship CHỐT trên `orders` (M2.D-62). Mặc định 0 = quán chưa nhập. */
+  ship_fee?: number;
 }) {
   const update = vi.fn().mockResolvedValue(undefined);
   const requestRepo = { findOne: vi.fn().mockResolvedValue(opts.request), update };
@@ -450,11 +463,14 @@ function makeService(opts: {
       updated_at: ORDER_UPDATED_MS,
       shipped_at: opts.shipped_at ?? null,
       received_at: opts.received_at ?? null,
+      ship_fee: opts.ship_fee ?? 0,
     }),
   };
   const itemRepo = { find: vi.fn().mockResolvedValue(opts.items ?? []) };
   const menuItemRepo = { find: vi.fn().mockResolvedValue(opts.menuImages ?? []) };
-  const settingsSvc = { readAll: vi.fn().mockResolvedValue(FAKE_SETTINGS) };
+  const settingsSvc = {
+    readAll: vi.fn().mockResolvedValue({ ...FAKE_SETTINGS, ...opts.settings }),
+  };
   const outbox = { enqueueForNewRequest: vi.fn() };
   const emitter = { emit: vi.fn() };
   // OTP đăng nhập (2026-08-04) — các test ở đây không đi qua nhánh phiên, fake tối thiểu.
@@ -492,6 +508,94 @@ describe('getByToken — đơn còn WAITING', () => {
     const { svc, itemRepo } = makeService({ request: fakeRequest() });
     await svc.getByToken('tok-1');
     expect(itemRepo.find).not.toHaveBeenCalled();
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════════════════════
+// Phí ship TẠM TÍNH trên trang theo dõi (2026-08-07)
+//
+// Lỗi gốc chủ dự án bắt được: khách xem "phí giao 20.000đ" ở giỏ hàng, đặt xong vào `/o/:token`
+// thì phí biến mất và "Tổng cộng" chỉ còn tiền món. Cùng loại lỗi với M2.D-62, chỉ đổi chiều.
+//
+// Ranh giới của `ship_fee_estimated`, cả 3 nhánh đều được khoá bằng test dưới đây:
+//   - CHỈ đơn DELIVERY chưa duyệt mới có số;
+//   - `null` khi thật sự không biết (thiếu km, hoặc quán chưa cấu hình bảng bậc) — bịa 0đ ở đây
+//     là hứa miễn phí thay quán;
+//   - đơn ĐÃ duyệt luôn `null`: `ship_fee` khi đó là số CHỐT, hai con số cùng sống là mời khách
+//     đoán xem số nào phải trả.
+// ══════════════════════════════════════════════════════════════════════════════════════════
+describe('getByToken — phí ship tạm tính cho đơn chưa duyệt (2026-08-07)', () => {
+  /** Đơn DELIVERY 90.000đ (bậc 0: miễn 3 km, 5.000đ/km), xa 7,4 km. */
+  const deliveryRequest = (overrides: Partial<FakeRequestRow> = {}) =>
+    fakeRequest({ fulfillment_type: 'DELIVERY', distance_km: '7.40', ...overrides });
+
+  it('tính đúng bằng công thức chung: vượt 4,4 km → làm tròn LÊN 5 km × 5.000đ', async () => {
+    const { svc } = makeService({ request: deliveryRequest() });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBe(25_000);
+    // `subtotal` vẫn là tiền MÓN — phí ship KHÔNG BAO GIỜ được cộng vào đây (M2.D-62).
+    expect(res.subtotal).toBe(90_000);
+    expect(res.ship_fee).toBe(0);
+  });
+
+  it('bậc theo TIỀN MÓN: đơn 150.000đ được miễn 5 km nên cùng quãng đường rẻ hơn', async () => {
+    const { svc } = makeService({
+      request: deliveryRequest({
+        items_snapshot: [{ menu_item_id: 'mi-1', name: 'Lẩu bò', qty: 2, unit_price: 75_000 }],
+        subtotal: 150_000,
+      }),
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBe(15_000); // vượt 2,4 km → 3 km × 5.000đ
+  });
+
+  it('trong bán kính miễn phí → 0 (khẳng định "miễn phí"), KHÁC null', async () => {
+    const { svc } = makeService({ request: deliveryRequest({ distance_km: '2.10' }) });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBe(0);
+  });
+
+  it('đơn PICKUP → null (không có khoản phí giao nào để tạm tính)', async () => {
+    const { svc } = makeService({ request: fakeRequest({ distance_km: '7.40' }) });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBeNull();
+  });
+
+  it('chưa đo được km (khách không chia sẻ vị trí) → null, KHÔNG bịa 0đ', async () => {
+    const { svc } = makeService({ request: deliveryRequest({ distance_km: null }) });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBeNull();
+  });
+
+  it('quán chưa cấu hình bảng bậc → null (quay về hành vi "quán báo phí khi gọi lại")', async () => {
+    const { svc } = makeService({
+      request: deliveryRequest(),
+      settings: { ship_fee_tiers: [] },
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBeNull();
+  });
+
+  it('đơn ĐÃ duyệt → null kể cả khi quán để phí ship = 0 (số chốt là `ship_fee`)', async () => {
+    const { svc } = makeService({
+      request: deliveryRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem()],
+      ship_fee: 0,
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee_estimated).toBeNull();
+    expect(res.ship_fee).toBe(0);
+  });
+
+  it('đơn đã duyệt có phí chốt → `ship_fee` là số quán gõ, tạm tính biến mất', async () => {
+    const { svc } = makeService({
+      request: deliveryRequest({ status: 'CONFIRMED', order_id: 'order-1' }),
+      items: [fakeItem()],
+      ship_fee: 30_000,
+    });
+    const res = await svc.getByToken('tok-1');
+    expect(res.ship_fee).toBe(30_000);
+    expect(res.ship_fee_estimated).toBeNull();
   });
 });
 

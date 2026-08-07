@@ -767,14 +767,14 @@ describe('Cửa sổ 14h của order/bếp — list() (chỉ đạo chủ dự �
 describe('Đổi hình thức nhận hàng — switchFulfillment (chỉ đạo chủ dự án 2026-08-06)', () => {
   /** Đụng `ds` + `emitter` + `settingsSvc` (từ 2026-08-06 kết quả trả kèm `suggested_ship_fee`,
    *  tính từ bảng giá ship trong settings); outbox không tham gia.
-   *  `ship_fee_per_km: 0` = quán chưa đặt bảng giá → gợi ý luôn `null`, đúng mặc định hệ thống. */
+   *  `ship_fee_tiers: []` = quán chưa đặt bảng bậc → gợi ý luôn `null`, đúng mặc định hệ thống. */
   function makeService(): AdminOnlineOrdersService {
     return new AdminOnlineOrdersService(
       ds,
       new EventEmitter2(),
       null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[2],
       {
-        readAll: async () => ({ free_ship_km: 10, ship_fee_per_km: 0 }),
+        readAll: async () => ({ ship_fee_tiers: [] }),
       } as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
     );
   }

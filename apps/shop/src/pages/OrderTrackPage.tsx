@@ -13,6 +13,7 @@ import { OrderStepper } from '../components/OrderStepper.tsx';
 import { detectOrderUpdate } from '../lib/order-update.ts';
 import { clearLastOrderToken, readLastOrderToken, saveLastOrderToken } from '../lib/customer-token.ts';
 import { useReorder } from '../lib/use-reorder.ts';
+import { SHIP_ESTIMATE_HINT } from '../lib/ship-copy.ts';
 
 /**
  * `/o/:token` — trang khách theo dõi đơn (REQ-O, 09-UI-SPEC § B).
@@ -317,6 +318,39 @@ export function OrderTrackPage(): JSX.Element {
                 <span style={totalLabel}>Tổng cộng</span>
                 <span style={totalValue}>{formatVnd(shown.subtotal + shown.ship_fee)}</span>
               </div>
+            </div>
+          ) : shown.ship_fee_estimated !== null ? (
+            /* Đơn CHƯA duyệt mà đã tính được phí tạm (2026-08-07). Trước đó màn này chỉ hiện tiền
+               món: khách vừa xem "phí giao 20.000đ" ở giỏ hàng, đặt xong vào đây thấy phí biến mất
+               và "Tổng cộng" tụt đúng 20.000đ — trông y như quán đã bỏ phí ship, rồi lúc gọi xác
+               nhận thì phí quay lại. Đây là cùng một lỗi với M2.D-62, chỉ đổi chiều.
+
+               Hiện cả khi = 0 ("Miễn phí"), khác với nhánh phí CHỐT ở trên: ở đó "0đ" là một khoản
+               không tồn tại, còn ở đây nó là ĐÚNG thứ khách vừa đọc ở giỏ hàng — im lặng bỏ đi thì
+               khách không biết mình còn được miễn phí nữa hay không.
+
+               Mọi số ở khối này BẮT BUỘC đi kèm `SHIP_ESTIMATE_HINT` — phí chốt là số quán gõ khi
+               duyệt đơn, một con số không kèm chữ "tạm tính" là lời hứa ta không giữ được. */
+            <div style={billBlock}>
+              <div style={billRow}>
+                <span style={billLabel}>Tiền món</span>
+                <span style={billValue}>{formatVnd(shown.subtotal)}</span>
+              </div>
+              <div style={billRow}>
+                <span style={billLabel}>Phí giao hàng (tạm tính)</span>
+                <span style={billValue}>
+                  {shown.ship_fee_estimated === 0
+                    ? 'Miễn phí'
+                    : formatVnd(shown.ship_fee_estimated)}
+                </span>
+              </div>
+              <div style={totalRowInBill}>
+                <span style={totalLabel}>Tổng cộng (tạm tính)</span>
+                <span style={totalValue}>
+                  {formatVnd(shown.subtotal + shown.ship_fee_estimated)}
+                </span>
+              </div>
+              <p style={shipEstimateHint}>{SHIP_ESTIMATE_HINT}</p>
             </div>
           ) : (
             <div style={totalRow}>
@@ -684,6 +718,14 @@ const billValue: CSSProperties = {
   fontSize: 'var(--fs-base)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   color: 'var(--text-strong)',
+};
+
+// Câu "tạm tính" nằm TRONG khung hoá đơn, ngay dưới dòng Tổng cộng: nó là chú thích của mấy con
+// số ngay trên nó, để trôi ra ngoài khung là một câu chữ khách dễ lướt qua.
+const shipEstimateHint: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
 };
 
 const totalRowInBill: CSSProperties = {

@@ -67,7 +67,6 @@ export type SubmitSettings = {
   store_lat: number | null;
   store_lng: number | null;
   distance_factor: number;
-  free_ship_km: number;
   online_ordering_off_reason: string;
   pickup_enabled: boolean;
   delivery_enabled: boolean;

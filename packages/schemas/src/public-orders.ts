@@ -125,6 +125,25 @@ export const PublicOrderStatus = z.object({
    * không vào doanh thu món). FE tự cộng để hiện dòng "Tổng cộng".
    */
   ship_fee: z.number().int().nonnegative(),
+  /**
+   * Phí giao TẠM TÍNH — con số khách đã nhìn thấy ở bước đặt hàng, tính lại từ `distance_km` đã
+   * lưu trong đơn + bảng bậc hiện hành (`computeShipFee`, cùng công thức với trang đặt hàng và
+   * với ô điền sẵn phía admin).
+   *
+   * `null` khi KHÔNG được nói với khách một con số nào:
+   *   - đơn PICKUP (không có phí giao),
+   *   - chưa đo được km (khách không chia sẻ vị trí / quán chưa có toạ độ) hoặc bảng bậc rỗng,
+   *   - **đơn đã được quán duyệt** — lúc đó `ship_fee` là số CHỐT, và để cả hai số cùng sống là
+   *     mời khách đoán xem số nào mới là số phải trả.
+   *
+   * Thêm 2026-08-07 vì chủ dự án phát hiện: khách xem phí ship ở giỏ hàng, đặt xong vào trang theo
+   * dõi thì phí ship biến mất và "Tổng cộng" tụt xuống chỉ còn tiền món — trông y như quán đã bỏ
+   * phí ship. FE PHẢI hiện kèm câu "tạm tính, quán gọi lại xác nhận" (xem `OrderTrackPage`);
+   * hiện số này như một khoản đã chốt là tái lập đúng lỗi mà `ship_fee` sinh ra hồi 2026-08-06.
+   *
+   * `subtotal` VẪN là tiền MÓN và không gồm số này.
+   */
+  ship_fee_estimated: z.number().int().nonnegative().nullable(),
   /** Ghi chú KHÁCH dặn cho CẢ ĐƠN ("giao giờ trưa"). Cùng lý lẽ với `note` của từng món: đây là
    * dữ liệu chính khách nhập, cho xem lại để soát — không phải thông tin vận hành nội bộ, nên
    * không đụng G-1. (Ghi chú NỘI BỘ của admin là `internal_reject_note`, D-09 cấm tuyệt đối.)

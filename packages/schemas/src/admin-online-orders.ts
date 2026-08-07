@@ -111,11 +111,11 @@ export const AdminOnlineOrderRow = z.object({
    */
   ship_fee: z.number().int().nonnegative(),
   /**
-   * Phí ship GỢI Ý cho ô nhập lúc duyệt — BE tính từ `distance_km` + `free_ship_km` +
-   * `ship_fee_per_km` (2026-08-06).
+   * Phí ship GỢI Ý cho ô nhập lúc duyệt — BE tính từ `distance_km` + bảng bậc `ship_fee_tiers`
+   * ứng với TIỀN MÓN của đơn (2026-08-06, chuyển sang bậc 2026-08-07).
    *
    * `null` = KHÔNG có gợi ý nào, và ô nhập phải để TRỐNG như trước: đơn đến lấy, đơn chưa có toạ
-   * độ (khách không chia sẻ vị trí), hoặc chủ quán chưa đặt giá mỗi km. Đừng đổi `null` thành `0`
+   * độ (khách không chia sẻ vị trí), hoặc chủ quán chưa cấu hình bảng bậc. Đừng đổi `null` thành `0`
    * ở bất cứ tầng nào — `0` là một lời khẳng định ("miễn phí"), `null` là "không biết", và ô nhập
    * điền sẵn số 0 cho một đơn giao xa 8km là cách âm thầm làm quán mất tiền.
    *

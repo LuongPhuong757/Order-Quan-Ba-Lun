@@ -358,6 +358,45 @@ Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong mile
 
 ---
 
+## OD-20 — Phí ship theo BẬC GIÁ TRỊ ĐƠN; xoá hẳn setting `free_ship_km` (ghi đè M2.D-51/D-52/D-53)
+
+- **Ngày:** 2026-08-07 · **Người quyết:** chủ dự án (yêu cầu trực tiếp trong phiên làm việc)
+- **Quyết định gốc:** M2.D-53 chốt ngưỡng miễn phí là **một** setting `free_ship_km` (mặc định 10);
+  M2.D-51/D-52 chốt trang khách **không bao giờ tự điền số tiền ship**, chỉ hiện nguyên văn quy tắc
+  *"trong {free_ship_km} km miễn phí, xa hơn có phụ phí"* và để quán chốt phí khi gọi lại.
+- **Lệch:** ngưỡng miễn phí nay **phụ thuộc giá trị đơn** — bảng bậc `ship_fee_tiers`
+  (`[{ min_subtotal, free_km, per_km }]`, tối đa 6 bậc, bậc đầu bắt buộc mốc 0đ). Trang khách **CÓ**
+  hiện số tiền ship, kèm chữ "tạm tính". Setting `free_ship_km` bị **xoá hẳn** khỏi defaults, DTO,
+  payload `GET /api/public/store` và màn Cài đặt.
+- **Vì sao:** một ngưỡng phẳng không phản ánh cách quán bán thật (đơn to đi xa vẫn lời, đơn nhỏ đi xa
+  thì không), và chủ quán muốn dùng bán kính miễn phí làm đòn bẩy tăng giá trị đơn. Giữ `free_ship_km`
+  song song với bảng bậc là **hai nguồn sự thật** cho cùng một câu hỏi ("miễn phí mấy km?") — chủ quán
+  nhìn màn Cài đặt thấy 10 km trong khi khách được tính theo 3 km là lỗi không ai truy ra được.
+  Về M2.D-52: lý do gốc của "không tự điền số" là *không có dữ liệu để tính*; nay có toạ độ quán +
+  toạ độ khách + bảng giá của chính chủ quán, nên im lặng không còn là lựa chọn trung thực hơn.
+- **Kiểm soát bù trừ (BẮT BUỘC, không được gỡ):**
+  1. Con số hiện cho khách **luôn kèm chữ "tạm tính"** + câu "quán xác nhận lại khi gọi" — phí ghi vào
+     đơn vẫn là số nhân viên gõ lúc duyệt (M2.D-62 giữ nguyên).
+  2. Công thức nằm ở **đúng một chỗ** (`packages/schemas/src/ship-fee.ts`) cho cả 3 nơi đọc nó
+     (trang khách, màn duyệt đơn, BE) — nếu không, con số khách đọc và con số nhân viên báo qua điện
+     thoại sẽ trôi khỏi nhau.
+  3. `null` (chưa cấu hình / chưa có toạ độ) **không bao giờ** được rơi về `0`: 0 là lời khẳng định
+     "miễn phí". Bảng rỗng = hệ thống quay về đúng hành vi M2.D-51/D-52 cũ.
+  4. Bảng giá **công khai cho khách đọc** (checkout + trang Hướng dẫn) — thu tiền theo một bảng mà
+     khách không xem được là kiểu phí bất ngờ ở bước cuối.
+- **Ghi ở:** `packages/schemas/src/ship-fee.ts` (+16 test ở `apps/api/.../ship-fee.test.ts`),
+  `settings.defaults.ts`, `settings.controller.ts` (chặn bậc đầu ≠ 0đ), `public-ship-quote.controller.ts`,
+  `public-store.controller.ts`, `admin-online-orders.service.ts` (`suggested_ship_fee`),
+  `apps/shop/src/components/ShipFeeTable.tsx` + `CheckoutPage.tsx` + `GuidePage.tsx`,
+  `apps/web/src/pages/OnlineOrderSettingsPanel.tsx` (trình soạn bảng bậc).
+- **Còn thiếu, đã biết:** công thức **không có trần** và chưa có bán kính giao tối đa — đơn 66 km ra
+  315.000đ vẫn đặt được. Chủ dự án đã được báo, chưa chốt hướng xử lý.
+- **Quay lại thì sao:** xoá bảng bậc ở màn Cài đặt (nút "Xoá bảng") là mọi thứ về đúng hành vi cũ
+  ngay lập tức, không cần deploy. Muốn khôi phục hẳn `free_ship_km` thì phải thêm lại key ở
+  `SETTINGS_DEFAULTS` + DTO + payload public + ô nhập, và sửa `shipFeeUnknownCopy` ở CheckoutPage.
+
+---
+
 ## Chưa được ghi ở đây (nợ tồn từ trước)
 
 Hai chuỗi override **nội bộ spec** mà spec §28 yêu cầu ghi vào file này, hiện chỉ nằm ở `.planning/intel/decisions.md`:

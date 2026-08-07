@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ShipFeeTier } from './ship-fee.js';
 
 // M2.D-17/D-27/D-30 — hợp đồng GET /api/public/store.
 // store_lat/store_lng KHÔNG trả cho khách (toạ độ quán không cần lộ,
@@ -50,7 +51,15 @@ export const PublicStoreStatus = z.object({
   // cờ này để quyết định có chen bước OTP hay không — nhưng chốt CHẶN THẬT nằm ở BE
   // (`submit-order.ts` + `lookupByPhone`), cờ này chỉ là UI hint.
   otp_required: z.boolean(),
-  free_ship_km: z.number().int(),
+  /**
+   * Bảng phí giao theo bậc giá trị đơn (2026-08-07) — CÔNG KHAI có chủ đích: trang khách phải
+   * hiện được bảng giá này ở bước đặt hàng và trang Hướng dẫn, kể cả khi chưa biết khách ở đâu.
+   * Nó là bảng giá niêm yết, không phải dữ liệu nội bộ.
+   *
+   * Rỗng = quán chưa cấu hình → không đâu hiện phí tạm tính, và trang khách chỉ nói "phí giao do
+   * quán xác nhận khi gọi lại". Đó cũng là mặc định của hệ thống.
+   */
+  ship_fee_tiers: z.array(ShipFeeTier),
   distance_factor: z.number(),
   eta: z.object({
     pickup: z.object({ min: z.number().int(), max: z.number().int() }),
@@ -73,6 +82,14 @@ export type PublicStoreStatus = z.infer<typeof PublicStoreStatus>;
 export const PublicShipQuoteInput = z.object({
   lat: z.number().min(-90).max(90),
   lng: z.number().min(-180).max(180),
+  /**
+   * TIỀN MÓN của giỏ hàng (không gồm ship) — quyết định BẬC phí nào được áp dụng (2026-08-07).
+   *
+   * Con số này do client gửi và điều đó CHẤP NHẬN ĐƯỢC vì nó chỉ ảnh hưởng tới một ƯỚC TÍNH hiển
+   * thị: phí thật ghi vào đơn là số nhân viên gõ lúc duyệt, tính từ `subtotal` server tự cộng lại
+   * từ giá trong DB. Khai man ở đây chỉ làm khách tự xem một con số sai, không đổi được gì.
+   */
+  subtotal: z.number().int().nonnegative(),
 });
 export type PublicShipQuoteInput = z.infer<typeof PublicShipQuoteInput>;
 
@@ -81,15 +98,18 @@ export const PublicShipQuote = z.object({
    * → không có gốc để đo, và FE phải im lặng thay vì đoán bừa. */
   distance_km: z.number().nullable(),
   /**
-   * Phí giao TẠM TÍNH theo `free_ship_km` + `ship_fee_per_km`. `null` = chưa tính được
-   * (thiếu toạ độ quán) HOẶC chủ quán chưa đặt giá mỗi km (`ship_fee_per_km = 0`) — hai trường
-   * hợp đều có nghĩa "đừng hứa với khách một con số nào", khác hẳn `0` nghĩa là MIỄN PHÍ.
+   * Phí giao TẠM TÍNH theo bậc ứng với `subtotal`. `null` = chưa tính được (thiếu toạ độ quán)
+   * HOẶC quán chưa cấu hình bảng bậc — cả hai đều nghĩa là "đừng hứa với khách con số nào",
+   * khác hẳn `0` nghĩa là MIỄN PHÍ.
    *
    * Đây LUÔN là ước tính: phí chốt thật do quán nhập lúc duyệt đơn (M2.D-62), và mọi câu chữ FE
    * kèm số này phải nói rõ điều đó.
    */
   ship_fee: z.number().int().nonnegative().nullable(),
-  /** Bán kính miễn phí đang áp dụng — FE dùng để giải thích vì sao phí bằng 0. */
-  free_ship_km: z.number().int(),
+  /** Bậc ĐANG ÁP DỤNG cho giỏ hàng này — FE dùng để viết "Đơn từ 100.000đ: miễn phí 5 km".
+   *  `null` khi quán chưa cấu hình bảng bậc. */
+  tier: ShipFeeTier.nullable(),
+  /** Bậc NGAY TRÊN (nếu còn) — để gợi ý "mua thêm 40.000đ nữa được miễn phí 7 km". */
+  next_tier: ShipFeeTier.nullable(),
 });
 export type PublicShipQuote = z.infer<typeof PublicShipQuote>;

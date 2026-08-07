@@ -3,7 +3,8 @@
 // Prefix route KHÔNG có `/api` (lệch chữ spec §5.2 vốn ghi `/api/admin/settings`), khớp
 // convention thật của repo (`admin/users`, `admin/audit`) và khớp apps/web/src/lib/api.ts
 // (baseURL là host, path gọi thẳng `/admin/...`). Xem entry OVERRIDE-DEBT.md (plan 08-13).
-import { Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Put, Req, UseGuards } from '@nestjs/common';
+import { normalizeShipFeeTiers } from '@order/schemas';
 import type { Request } from 'express';
 import { Type } from 'class-transformer';
 import {
@@ -73,10 +74,13 @@ class UpdateSettingsDto {
   @IsOptional() @IsString() @MaxLength(255) store_zalo?: string;
   @IsOptional() @IsNumber() @Min(-90) @Max(90) store_lat?: number;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) store_lng?: number;
-  @IsOptional() @IsInt() @Min(0) @Max(100) free_ship_km?: number;
-  // Trần 200.000đ/km: cao hơn mọi bảng giá ship thật, nhưng vẫn chặn được cú gõ nhầm thừa số 0
-  // (5.000 → 500.000) vốn sẽ hiện thẳng thành phí tạm tính trên trang khách.
-  @IsOptional() @IsInt() @Min(0) @Max(200_000) ship_fee_per_km?: number;
+  /**
+   * Bảng phí giao theo bậc giá trị đơn (2026-08-07). Hình dạng từng dòng do zod `ShipFeeTier`
+   * kiểm (trần 100 km / 200.000đ mỗi km — cao hơn mọi bảng giá thật, nhưng chặn được cú gõ nhầm
+   * thừa một số 0 vốn sẽ hiện thẳng thành phí trên trang khách), nên ở đây chỉ nhận mảng thô rồi
+   * validate ở `update()`. Gửi `[]` = tắt tính năng, quay về hành vi không tự tính phí ship.
+   */
+  @IsOptional() @IsArray() ship_fee_tiers?: unknown[];
   @IsOptional() @IsNumber() @Min(1) @Max(3) distance_factor?: number;
   @IsOptional() pickup_enabled?: boolean;
   @IsOptional() delivery_enabled?: boolean;
@@ -134,6 +138,28 @@ export class SettingsController {
     if (dto.online_ordering_off_reason !== undefined) {
       patch.online_ordering_off_reason = dto.online_ordering_off_reason;
     }
+
+    /**
+     * Bảng bậc phí giao (2026-08-07) — chuẩn hoá + 1 luật CHẶN duy nhất: bậc đầu phải bắt đầu từ 0.
+     *
+     * Thiếu bậc 0 thì đơn nhỏ nhất rơi vào khoảng trống không luật nào phủ, và hệ thống lặng lẽ
+     * KHÔNG tính phí ship cho đúng nhóm đơn quán cần thu nhất — một lỗi cấu hình không nhìn ra
+     * được từ giao diện, chỉ lộ ra sau vài chục đơn mất tiền. Chặn thẳng ở đây, còn hơn để nó
+     * thành mặc định im lặng.
+     *
+     * `normalizeShipFeeTiers` đã tự sắp xếp, bỏ dòng hỏng, bỏ mốc trùng và cắt còn tối đa 6 dòng —
+     * FE gửi sao cũng được, thứ ghi vào DB luôn là bảng sạch.
+     */
+    if (dto.ship_fee_tiers !== undefined) {
+      const tiers = normalizeShipFeeTiers(dto.ship_fee_tiers);
+      if (tiers.length > 0 && tiers[0].min_subtotal !== 0) {
+        throw new BadRequestException({
+          code: 'VALIDATION_FAILED',
+          message: 'Bậc phí ship đầu tiên phải áp dụng từ 0đ, nếu không đơn nhỏ sẽ không có phí nào.',
+        });
+      }
+      patch.ship_fee_tiers = tiers;
+    }
     // ⚠ Đây là chỗ THỨ HAI của round-trip 3 chỗ. `SettingsService.updateMany()` có
     // `if (!kind) continue`, nên một key thiếu ở `SETTINGS_DEFAULTS` hoặc thiếu trong mảng này sẽ bị
     // NUỐT LẶNG LẼ: admin bấm Lưu, nhận 200, và không gì được ghi. Thêm key mới thì phải sửa cả 3.
@@ -147,8 +173,6 @@ export class SettingsController {
       'closed_submit_confirm_text',
       'store_lat',
       'store_lng',
-      'free_ship_km',
-      'ship_fee_per_km',
       'distance_factor',
       'pickup_enabled',
       'delivery_enabled',

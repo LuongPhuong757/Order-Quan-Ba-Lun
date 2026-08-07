@@ -1,6 +1,6 @@
 import { Controller, Get, Header } from '@nestjs/common';
 import { apiOk, type ApiOk } from '@order/utils';
-import { PublicStoreStatus } from '@order/schemas';
+import { PublicStoreStatus, normalizeShipFeeTiers } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 
 /**
@@ -13,6 +13,7 @@ import { SettingsService } from '../settings/settings.service.js';
  * (mode `UNTIL_TOMORROW`) — `getOrderingStatus()` tính lại lúc đọc, không cần cron.
  *
  * Whitelist thủ công (**17 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14,
+ * 2026-08-07 thêm `ship_fee_tiers` là BẢNG GIÁ NIÊM YẾT, cố ý công khai,
  * 2026-08-04 thêm 4 field footer: địa chỉ + Facebook + Instagram + Zalo, xem
  * payload bên dưới) + `.strict().parse()` trước khi trả — nếu ai đó
  * sau này spread thêm field nội bộ (toạ độ quán, cấu hình leo thang SMS/email...) thì test/dev
@@ -52,7 +53,10 @@ export class PublicStoreController {
       delivery_enabled: settings.delivery_enabled,
       // OTP đăng nhập (2026-08-04) — UI hint cho apps/shop; chốt chặn thật ở submit/lookup.
       otp_required: settings.otp_login_enabled,
-      free_ship_km: settings.free_ship_km,
+      // Bảng giá niêm yết — trang khách hiện nó ở bước đặt hàng và trang Hướng dẫn.
+      // `normalizeShipFeeTiers` là hàng rào với dữ liệu rác trong DB: bảng hỏng thì thành rỗng
+      // (quay về "không tự tính phí"), KHÔNG được làm 500 trang menu của khách.
+      ship_fee_tiers: normalizeShipFeeTiers(settings.ship_fee_tiers),
       distance_factor: settings.distance_factor,
       eta: {
         pickup: { min: settings.eta_pickup_min, max: settings.eta_pickup_max },

@@ -1,7 +1,13 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { OnlineOrderSubmit, PublicShipQuote, PublicStoreStatus } from '@order/schemas';
+import {
+  OnlineOrderSubmit,
+  PublicShipQuote,
+  PublicStoreStatus,
+  computeShipFee,
+  resolveShipTier,
+} from '@order/schemas';
 import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
 import {
   clearCartNote,
@@ -21,6 +27,8 @@ import { StickyCta } from '../components/StickyCta.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
 import { OtpSheet } from '../components/OtpSheet.tsx';
+import { ShipFeeTable } from '../components/ShipFeeTable.tsx';
+import { SHIP_ESTIMATE_HINT } from '../lib/ship-copy.ts';
 
 /**
  * `/checkout` — bước 2 "Thông tin nhận hàng" (D-19: card PICKUP/DELIVERY + địa chỉ +
@@ -65,17 +73,21 @@ const NAME_REQUIRED_MSG = 'Vui lòng nhập họ và tên';
 const PHONE_INVALID_MSG = 'Số điện thoại không hợp lệ';
 const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập địa chỉ giao hàng';
 
-/** Copy phí ship khi chưa biết km chính xác — nguyên văn bảng Copywriting UI-SPEC. */
-function shipFeeUnknownCopy(freeShipKm: number): string {
-  return `Trong ${freeShipKm} km miễn phí, xa hơn có phụ phí — phí cuối do quán xác nhận khi gọi lại`;
-}
-
 /**
- * Câu đi kèm mọi con số phí ship tạm tính (2026-08-06). BẮT BUỘC phải có mặt ở mọi chỗ hiện số
- * đó: phí chốt thật là số quán gõ lúc duyệt đơn (M2.D-62), và một con số không kèm chữ "tạm tính"
- * là một lời hứa ta không giữ được — khách chuẩn bị đúng số tiền đó rồi shipper đòi khác.
+ * Copy phí ship khi CHƯA có con số cụ thể.
+ *
+ * `freeKm` là bán kính miễn phí của BẬC đang áp dụng cho giỏ này (xem `resolveShipTier`), `null`
+ * khi quán chưa cấu hình bảng bậc.
+ *
+ * Nhánh `null` không còn nhắc tới một số km nào (2026-08-07): setting `free_ship_km` cũ đã bị gỡ
+ * hẳn vì nó nói một con số thứ hai, mâu thuẫn với bảng bậc. Không có bảng thì ta THẬT SỰ không
+ * biết bán kính miễn phí là bao nhiêu — nói đại một con số là hứa hộ quán.
  */
-const SHIP_ESTIMATE_HINT = 'Phí tạm tính theo khoảng cách — quán xác nhận lại khi gọi.';
+function shipFeeUnknownCopy(freeKm: number | null): string {
+  return freeKm === null
+    ? 'Phí giao do quán xác nhận khi gọi lại'
+    : `Trong ${freeKm} km miễn phí, xa hơn có phụ phí — phí cuối do quán xác nhận khi gọi lại`;
+}
 
 /** `2.4` → `2,4 km`. Một chữ số thập phân: km chính xác tới 10m là độ chính xác giả. */
 function formatKm(km: number): string {
@@ -187,7 +199,9 @@ export function CheckoutPage(): JSX.Element {
     let cancelled = false;
     void postJson(
       '/api/public/ship-quote',
-      { lat: location.lat, lng: location.lng },
+      // `subtotal` quyết định BẬC phí (2026-08-07) — cùng giỏ, đơn to hơn thì bán kính miễn phí
+      // rộng hơn. Gửi tiền MÓN, không gồm ship (M2.D-62).
+      { lat: location.lat, lng: location.lng, subtotal: cart.subtotal },
       PublicShipQuote,
     ).then((result) => {
       if (cancelled) return;
@@ -199,12 +213,43 @@ export function CheckoutPage(): JSX.Element {
     // Theo toạ độ chứ không theo tham chiếu object: `location` được dựng mới mỗi lần khách bấm
     // "Lấy lại vị trí", nhưng nếu toạ độ y như cũ thì không cần hỏi lại BE.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fulfillment, location?.lat, location?.lng]);
+  }, [fulfillment, location?.lat, location?.lng, cart.subtotal]);
 
   /** Phí tạm tính CÓ CỘNG vào tổng hay không. Chỉ cộng khi BE trả một con số thật (`null` là
    *  "không biết", xem `PublicShipQuote`) — cộng 0 cho một đơn chưa tính được là hứa miễn phí. */
   const estimatedShipFee = fulfillment === 'DELIVERY' ? (quote?.ship_fee ?? null) : null;
   const shownTotal = shownSubtotal + (estimatedShipFee ?? 0);
+
+  /** Bảng bậc niêm yết của quán (rỗng = chưa cấu hình → mọi thứ về hành vi cũ). */
+  const shipTiers = store.data?.ship_fee_tiers ?? [];
+  /** Bậc ứng với giỏ hiện tại — dùng cho câu chữ khi CHƯA có toạ độ (chưa gọi quote được). */
+  const currentTier = resolveShipTier(shipTiers, cart.subtotal);
+
+  /**
+   * Gợi ý nâng bậc: "Thêm 20.000đ nữa (đơn từ 100.000đ) — phí giao còn 0đ".
+   *
+   * Chỉ hiện khi nó CÓ LỢI THẬT: đang phải trả phí, còn bậc trên, và ở bậc trên phí thật sự
+   * giảm. Tính bằng ĐÚNG hàm tính phí (không tự suy ra từ `free_km`), nên câu gợi ý không bao giờ
+   * hứa một mức giá mà công thức không cho ra.
+   *
+   * Đây là lý do chính của cả bảng bậc: khách chỉ tăng giá trị đơn khi biết mình được gì.
+   */
+  const upsell = ((): { needMore: number; nextFee: number; minSubtotal: number } | null => {
+    const next = quote?.next_tier ?? null;
+    if (next === null || estimatedShipFee === null || estimatedShipFee <= 0) return null;
+    if (quote?.distance_km == null) return null;
+    const nextFee = computeShipFee({
+      distanceKm: quote.distance_km,
+      subtotal: next.min_subtotal,
+      tiers: shipTiers,
+    }).fee;
+    if (nextFee === null || nextFee >= estimatedShipFee) return null;
+    return {
+      needMore: Math.max(0, next.min_subtotal - cart.subtotal),
+      nextFee,
+      minSubtotal: next.min_subtotal,
+    };
+  })();
 
   // Đang ở chế độ SỬA ĐƠN (2026-08-06) mà lọt vào đây (gõ tay URL, nút Back) → đá về `/cart`.
   // Bước 2 này luôn tạo ĐƠN MỚI; chạy nó với giỏ đang mang món của đơn cũ là đặt trùng một đơn
@@ -539,19 +584,52 @@ export function CheckoutPage(): JSX.Element {
                 {quote?.distance_km != null && (
                   <span style={shipHintStyle}>
                     ≈ {formatKm(quote.distance_km)}
-                    {estimatedShipFee === 0 ? ` · trong ${quote.free_ship_km} km miễn phí` : ''}
+                    {/* Phí 0đ có 2 lý do khác nhau, và khách phải phân biệt được: nằm trong bán
+                        kính miễn phí của BẬC ĐANG ÁP DỤNG, hay bậc đó miễn phí giao không giới
+                        hạn km (`per_km = 0`). */}
+                    {estimatedShipFee === 0 && quote.tier !== null
+                      ? quote.tier.per_km <= 0
+                        ? ' · quán miễn phí giao'
+                        : ` · trong ${quote.tier.free_km} km miễn phí`
+                      : ''}
                   </span>
                 )}
               </span>
             ) : quote?.distance_km != null ? (
               <span style={shipEstimateWrap}>
                 <span style={summaryValue}>≈ {formatKm(quote.distance_km)}</span>
-                <span style={shipHintStyle}>{shipFeeUnknownCopy(quote.free_ship_km)}</span>
+                <span style={shipHintStyle}>
+                  {shipFeeUnknownCopy(quote.tier?.free_km ?? null)}
+                </span>
               </span>
             ) : (
-              <span style={shipHintStyle}>{shipFeeUnknownCopy(store.data?.free_ship_km ?? 0)}</span>
+              <span style={shipHintStyle}>
+                {/* Chưa chia sẻ vị trí: vẫn nói được bán kính miễn phí của ĐÚNG bậc giỏ này —
+                    con số đó phụ thuộc tiền món, không phụ thuộc việc biết khách ở đâu. */}
+                {shipFeeUnknownCopy(currentTier?.free_km ?? null)}
+              </span>
             )}
           </div>
+        )}
+
+        {/* Gợi ý nâng bậc — chỉ khi thật sự giảm được phí (xem `upsell`). */}
+        {fulfillment === 'DELIVERY' && upsell !== null && (
+          <p style={upsellLine}>
+            Thêm <strong>{formatVnd(upsell.needMore)}</strong> nữa (đơn từ{' '}
+            {formatVnd(upsell.minSubtotal)}) → phí giao còn{' '}
+            <strong>{upsell.nextFee === 0 ? 'miễn phí' : formatVnd(upsell.nextFee)}</strong>.
+          </p>
+        )}
+
+        {/* Bảng giá niêm yết — GẤP SẴN: nó là thứ để tra khi thắc mắc, không phải thứ phải đọc
+            trước khi đặt. `<details>` thuần, không JS, không state. */}
+        {fulfillment === 'DELIVERY' && shipTiers.length > 0 && (
+          <details style={tableDetails}>
+            <summary style={tableSummary}>Xem bảng phí giao hàng</summary>
+            <div style={tableBody}>
+              <ShipFeeTable tiers={shipTiers} subtotal={cart.subtotal} />
+            </div>
+          </details>
         )}
         {store.data && (
           <p style={etaText}>{`Dự kiến ${etaFor(store.data, fulfillment).min}–${etaFor(store.data, fulfillment).max} phút`}</p>
@@ -956,6 +1034,38 @@ const shipHintStyle: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   color: 'var(--text-muted)',
   textAlign: 'right',
+};
+
+/** Gợi ý nâng bậc — nền kem tre ấm, KHÔNG dùng `--brand-*` (dành cho giá + nút chính) và không
+ *  dùng màu cảnh báo: đây là một lời mời, không phải lỗi cũng không phải hành động chính. */
+const upsellLine: CSSProperties = {
+  margin: 0,
+  padding: 'var(--sp-2) var(--sp-3)',
+  background: 'var(--wood-100)',
+  borderRadius: 'var(--r-badge)',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-strong)',
+  lineHeight: 1.5,
+};
+
+/** Bảng giá gấp sẵn. `<details>` thuần — mũi tên mở/đóng do trình duyệt lo, không JS. */
+const tableDetails: CSSProperties = {
+  borderTop: '1px solid var(--border-subtle)',
+  paddingTop: 'var(--sp-3)',
+};
+
+const tableSummary: CSSProperties = {
+  cursor: 'pointer',
+  minHeight: 'var(--tap-min)',
+  display: 'flex',
+  alignItems: 'center',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--brand-600)',
+};
+
+const tableBody: CSSProperties = {
+  paddingTop: 'var(--sp-2)',
 };
 
 /** Cột phải của dòng "Phí giao hàng" khi đã có ước tính: con số ở trên, km/giải thích ở dưới —

@@ -1,10 +1,15 @@
 import { BadRequestException, Body, Controller, Header, HttpCode, Post } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { apiOk, type ApiOk } from '@order/utils';
-import { PublicShipQuote, PublicShipQuoteInput } from '@order/schemas';
+import {
+  PublicShipQuote,
+  PublicShipQuoteInput,
+  computeShipFee,
+  nextShipTier,
+  normalizeShipFeeTiers,
+} from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { estimatedRoadDistanceKm, haversineKm } from './haversine.js';
-import { computeShipFee } from './ship-fee.js';
 
 /**
  * `POST /api/public/ship-quote` — khách chia sẻ vị trí ở bước checkout thì thấy ngay
@@ -52,14 +57,20 @@ export class PublicShipQuoteController {
             s.distance_factor,
           );
 
+    // Bậc phí phụ thuộc TIỀN MÓN của giỏ (2026-08-07) — cùng bảng bậc, cùng hàm với màn duyệt đơn.
+    const tiers = normalizeShipFeeTiers(s.ship_fee_tiers);
+    const { fee, tier } = computeShipFee({
+      distanceKm: distance_km,
+      subtotal: parsed.data.subtotal,
+      tiers,
+    });
+
     const payload: PublicShipQuote = {
       distance_km,
-      ship_fee: computeShipFee({
-        distanceKm: distance_km,
-        freeShipKm: s.free_ship_km,
-        perKm: s.ship_fee_per_km,
-      }),
-      free_ship_km: s.free_ship_km,
+      ship_fee: fee,
+      tier,
+      // Bậc trên kế tiếp — trang khách dùng để nói "mua thêm 40.000đ nữa được miễn phí 7 km".
+      next_tier: nextShipTier(tiers, parsed.data.subtotal),
     };
 
     return apiOk(PublicShipQuote.strict().parse(payload));

@@ -18,6 +18,8 @@ import {
   PublicOrderEditResult,
   PublicOrderHistory,
   PublicOrderStatus,
+  computeShipFee,
+  normalizeShipFeeTiers,
 } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -352,7 +354,6 @@ export class PublicOrdersService {
           store_lat: s.store_lat,
           store_lng: s.store_lng,
           distance_factor: s.distance_factor,
-          free_ship_km: s.free_ship_km,
           online_ordering_off_reason: s.online_ordering_off_reason,
           pickup_enabled: s.pickup_enabled,
           delivery_enabled: s.delivery_enabled,
@@ -557,6 +558,21 @@ export class PublicOrdersService {
       ? items.reduce((sum, it) => sum + it.unit_price * it.qty, 0)
       : request.subtotal;
 
+    // Phí ship TẠM TÍNH cho đơn CHƯA duyệt (2026-08-07). Tính lại tại đây thay vì lưu lúc submit:
+    // khách sửa đơn (`PATCH`) làm đổi cả `subtotal` lẫn `distance_km`, và một con số đóng băng từ
+    // lúc đặt sẽ lệch với đúng thứ khách vừa nhìn thấy ở giỏ hàng.
+    //
+    // Đơn ĐÃ duyệt (`request.order_id`) trả `null`: `ship_fee` khi đó là số CHỐT, kể cả khi bằng 0
+    // (quán miễn phí). Trả kèm số tạm tính ở đó là bày ra hai con số mâu thuẫn cho cùng một khoản.
+    const shipFeeEstimated =
+      request.order_id || fulfillment_type !== 'DELIVERY'
+        ? null
+        : computeShipFee({
+            distanceKm: request.distance_km === null ? null : Number(request.distance_km),
+            subtotal,
+            tiers: normalizeShipFeeTiers(settings.ship_fee_tiers),
+          }).fee;
+
     // Dòng phụ dưới nhãn mốc. Quyết định "mốc này nói gì" nằm TRỌN ở `etaLine()` cùng nhà với
     // `stageLabel()` — trước 2026-08-06 chỗ này tự chọn khi nào tắt ETA bằng một danh sách `noEta`
     // rời rạc, và FE tự ghép câu, nên không ai đọc được toàn cảnh "6 mốc hiện gì".
@@ -575,6 +591,7 @@ export class PublicOrdersService {
       items,
       subtotal,
       ship_fee: shipFee,
+      ship_fee_estimated: shipFeeEstimated,
       customer_note: request.customer_note,
       customer_address: request.customer_address,
       submitted_at_ms: request.submitted_at,
