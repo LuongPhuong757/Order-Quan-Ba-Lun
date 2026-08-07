@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isTransientDbError, runWithRetry } from './run-with-retry.js';
+import { expBackoffMs, flatBackoffMs, isTransientDbError, runWithRetry } from './run-with-retry.js';
 
 // Nguồn gốc: private method trong OrdersService (Milestone 1), tách ra ở phase 9 để
 // AdminOnlineOrdersService (cấp bàn, M2.D-06) dùng chung. Test này lần đầu tiên chứng
@@ -111,5 +111,67 @@ describe('runWithRetry — chạy lại khi gặp lỗi transient', () => {
     expect(waited).toHaveLength(1);
     expect(waited[0]).toBeGreaterThanOrEqual(30);
     expect(waited[0]).toBeLessThan(100);
+  });
+});
+
+// Thêm 2026-08-07 sau khi đo tải production: 100 đơn đồng thời → 90% deadlock vì backoff phẳng
+// 30-100ms không tãi nổi đám đông (tất cả cùng thức dậy trong một cửa sổ 70ms rồi va lại).
+describe('backoff — phẳng cho luồng nội bộ, luỹ thừa cho luồng công khai', () => {
+  it('flatBackoffMs luôn nằm trong 30-100ms', () => {
+    for (let i = 0; i < 200; i++) {
+      const ms = flatBackoffMs();
+      expect(ms).toBeGreaterThanOrEqual(30);
+      expect(ms).toBeLessThan(100);
+    }
+  });
+
+  it('expBackoffMs: cửa sổ mỗi lần thử là [base/2, base*1.5) với base = 40·2^(n-1)', () => {
+    const bounds = [
+      { attempt: 1, min: 20, max: 60 },
+      { attempt: 2, min: 40, max: 120 },
+      { attempt: 3, min: 80, max: 240 },
+      { attempt: 4, min: 160, max: 480 },
+    ];
+    for (const { attempt, min, max } of bounds) {
+      for (let i = 0; i < 100; i++) {
+        const ms = expBackoffMs(attempt);
+        expect(ms).toBeGreaterThanOrEqual(min);
+        expect(ms).toBeLessThan(max);
+      }
+    }
+  });
+
+  it('cửa sổ GIÃN RA theo lần thử — đây mới là thứ tãi được đám đông, không phải độ dài trung bình', () => {
+    const width = (n: number) => {
+      const samples = Array.from({ length: 500 }, () => expBackoffMs(n));
+      return Math.max(...samples) - Math.min(...samples);
+    };
+    expect(width(2)).toBeGreaterThan(width(1));
+    expect(width(3)).toBeGreaterThan(width(2));
+  });
+
+  it('runWithRetry dùng backoffMs truyền vào thay cho mặc định phẳng', async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Deadlock found when trying to get lock'))
+      .mockRejectedValueOnce(new Error('Deadlock found when trying to get lock'))
+      .mockResolvedValueOnce('ok');
+    const waited: number[] = [];
+    const sleepFn = vi.fn(async (ms: number) => {
+      waited.push(ms);
+    });
+    const result = await runWithRetry(fn, 5, { sleepFn, backoffMs: (a) => a * 1000 });
+    expect(result).toBe('ok');
+    // Nhận đúng số thứ tự lần thử (1, rồi 2) chứ không phải hằng số.
+    expect(waited).toEqual([1000, 2000]);
+  });
+
+  it('maxAttempts=5 với deadlock liên tục → gọi đúng 5 lần rồi mới ném', async () => {
+    const err = new Error('Deadlock found when trying to get lock');
+    const fn = vi.fn().mockRejectedValue(err);
+    const sleepFn = vi.fn().mockResolvedValue(undefined);
+    await expect(runWithRetry(fn, 5, { sleepFn, backoffMs: expBackoffMs })).rejects.toBe(err);
+    expect(fn).toHaveBeenCalledTimes(5);
+    expect(sleepFn).toHaveBeenCalledTimes(4);
   });
 });
