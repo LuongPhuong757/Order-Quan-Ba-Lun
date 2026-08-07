@@ -1,6 +1,22 @@
-import { useEffect, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useState,
+  type ChangeEvent,
+  type CSSProperties,
+  type JSX,
+} from 'react';
 import * as MapsLink from '../lib/maps-link.ts';
 import { useGeolocation, type GeolocationErrorKind } from '../lib/use-geolocation.ts';
+
+/**
+ * Bản đồ nạp RỜI (2026-08-07) — `lazy()` chứ không phải import tĩnh, và đây là điều kiện để tính
+ * năng này không đụng tới ngân sách bundle: leaflet (~42 KB gzip) + CSS của nó nằm trong một chunk
+ * riêng, chỉ tải khi thật sự có bản đồ để vẽ. Import tĩnh là cộng thẳng vào lần tải đầu của MỌI
+ * khách, kể cả khách lấy tại quán chẳng bao giờ thấy bản đồ. Xem `scripts/check-bundle-budget.mjs`.
+ */
+const LocationMap = lazy(() => import('./LocationMap.tsx'));
 
 /**
  * Khối "Vị trí GPS (không bắt buộc)" — dùng ở CẢ `/checkout` (đặt đơn) lẫn `/cart` khi khách sửa
@@ -76,10 +92,18 @@ const lowAccuracyCopy = (meters: number): string =>
 export function LocationPicker({
   location,
   onChange,
+  mapEnabled = false,
 }: {
   location: PickedLocation | null;
   /** `mapLink` là link Maps thô khách dán (để gửi kèm đơn), null khi toạ độ đến từ GPS. */
   onChange: (location: PickedLocation | null, mapLink: string | null) => void;
+  /**
+   * Cờ `map_checkout_enabled` từ `GET /api/public/store` — chủ quán tắt được ở /admin nếu bản đồ
+   * làm máy khách chậm. Mặc định `false` CÓ CHỦ ĐÍCH: trang nào chưa kịp biết cờ (store chưa về,
+   * hoặc request lỗi) thì hành xử y như trước khi có tính năng này, chứ không vẽ bản đồ rồi giật
+   * đi khi cờ về.
+   */
+  mapEnabled?: boolean;
 }): JSX.Element {
   const geo = useGeolocation();
   const [mapLinkRaw, setMapLinkRaw] = useState('');
@@ -134,6 +158,22 @@ export function LocationPicker({
         <p style={geoFailedText}>
           {location ? GEO_RETRY_FAILED_MESSAGE : geoFailedMessage(geo.errorKind)}
         </p>
+      )}
+
+      {/* Bản đồ chỉ dựng khi ĐÃ CÓ toạ độ và chủ quán đang bật cờ. Khách chưa chia sẻ vị trí thì
+          không có gì để vẽ, và quan trọng hơn: không tải một byte nào của leaflet.
+          `onMove` xoá `mapLink` (tham số thứ hai = null) vì sau khi khách tự kéo ghim thì link
+          Maps họ dán lúc trước KHÔNG còn trỏ đúng chỗ nữa — mà `customerMapHref` phía quán lại ưu
+          tiên link đó, nên giữ lại là người ship được dẫn tới điểm khách vừa bỏ đi.
+          `accuracy_m: null` cũng vậy: sai số của GPS không còn mô tả được điểm khách tự chọn tay. */}
+      {mapEnabled && location && (
+        <Suspense fallback={<div style={mapFallback}>Đang tải bản đồ…</div>}>
+          <LocationMap
+            lat={location.lat}
+            lng={location.lng}
+            onMove={(lat, lng) => onChange({ lat, lng, accuracy_m: null }, null)}
+          />
+        </Suspense>
       )}
 
       {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là
@@ -307,6 +347,20 @@ const quietAction: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   cursor: 'pointer',
+};
+
+/** Khung giữ chỗ đúng bằng chiều cao bản đồ — để lúc chunk leaflet về, phần nội dung phía dưới
+ *  (nút Đặt đơn) không bị nhảy xuống dưới ngón tay khách đang định bấm. */
+const mapFallback: CSSProperties = {
+  marginTop: 10,
+  height: 190,
+  borderRadius: 12,
+  background: '#e9edf1',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 13,
+  color: 'var(--c-muted, #6b7280)',
 };
 
 const mapLinkFoot: CSSProperties = {

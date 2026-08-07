@@ -39,7 +39,7 @@
 //    đang chạm vào 1 dòng để duyệt.
 // 2. Sau khi xử lý xong, dòng đơn biến mất sau ~600ms mờ dần; KHÔNG giữ lại trạng thái "đã xử lý".
 // 3. Panel từ chối là khối mở rộng ngay trong dòng đơn, KHÔNG phải hộp thoại nổi.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
   FULFILLMENT_LABEL,
@@ -77,6 +77,14 @@ import { filterOrdersBySearch } from '../lib/online-order-search.ts';
 import { onlineWaitingStore, subscribeQueueStream } from '../lib/online-waiting-badge.ts';
 import { attachRefreshTriggers, type RefreshTriggers } from '../lib/refresh-triggers.ts';
 import { formatWait, isOverdue, waitingSeconds } from '../lib/queue-clock.ts';
+
+/**
+ * Bản đồ tổng quan nạp RỜI (2026-08-07) — `lazy()` là điều kiện để tính năng này không cộng gì
+ * vào lần tải đầu của màn đơn: leaflet + CSS của nó nằm trong chunk riêng, chỉ tải khi nhân viên
+ * bấm "Xem bản đồ". Đổi sang import tĩnh là mọi người mở màn duyệt đơn đều tải leaflet, kể cả
+ * quán đã tắt tính năng ở Cài đặt. Xem `scripts/check-bundle-budget.mjs`.
+ */
+const OrdersMap = lazy(() => import('../components/OrdersMap.tsx'));
 
 const queueUrl = (status: AdminOnlineOrderStatusFilter, hours: number | null) =>
   `/admin/online-orders?status=${status}${hours === null ? '' : `&hours=${hours}`}`;
@@ -320,6 +328,12 @@ function QueueView({
   );
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bản đồ tổng quan (2026-08-07). Cờ + toạ độ quán đi kèm response danh sách — xem
+  // `AdminOnlineOrderList`. Mặc định TẮT cho tới khi response đầu tiên về: chưa biết chủ quán bật
+  // hay không thì đừng bày nút rồi giấu đi.
+  const [mapEnabled, setMapEnabled] = useState(false);
+  const [storeCoords, setStoreCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [showMap, setShowMap] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
   // Tab trạng thái — mặc định `WAITING` (OD-11). Đây là tab việc-phải-làm; 2 tab kia là tra cứu.
@@ -398,6 +412,12 @@ function QueueView({
       setEscalateAfterS(payload.escalate_sms_after_s);
       setWindowHours(payload.window_hours);
       setStatusCounts(payload.status_counts);
+      setMapEnabled(payload.map_enabled);
+      setStoreCoords(
+        payload.store_lat === null || payload.store_lng === null
+          ? null
+          : { lat: payload.store_lat, lng: payload.store_lng },
+      );
       setLoadError(null);
     } catch (err) {
       if (statusRef.current !== forStatus) return;
@@ -569,6 +589,47 @@ function QueueView({
     status === 'CONFIRMED' && stepFilter !== 'ALL'
       ? searchedItems.filter((r) => fulfillmentView(r).step === stepFilter)
       : searchedItems;
+
+  /**
+   * Bao nhiêu đơn LÊN ĐƯỢC bản đồ và bao nhiêu thì không (2026-08-07).
+   *
+   * Đếm ở đây chứ không để bản đồ tự báo ra, vì con số "đơn không có toạ độ" phải hiện được CẢ KHI
+   * bản đồ đang đóng — và vì đây là điều kiện của cái nút: mở một bản đồ trống không giúp gì ai.
+   * Chỉ tính đơn DELIVERY: đơn khách tự tới lấy không thuộc câu hỏi "giao ở đâu".
+   */
+  const { mappableCount, unmappableCount } = useMemo(() => {
+    let ok = 0;
+    let missing = 0;
+    for (const r of visibleItems) {
+      if (r.fulfillment_type !== 'DELIVERY') continue;
+      const hasCoords =
+        r.customer_lat !== null &&
+        r.customer_lng !== null &&
+        Number.isFinite(Number(r.customer_lat)) &&
+        Number.isFinite(Number(r.customer_lng));
+      if (hasCoords) ok += 1;
+      else missing += 1;
+    }
+    return { mappableCount: ok, unmappableCount: missing };
+  }, [visibleItems]);
+
+  /** Bấm một chấm trên bản đồ → đưa đúng card đơn đó vào giữa màn hình. Cuộn chứ không mở một
+   *  popup thứ hai: mọi thao tác với đơn (xác nhận, phí ship, ghi chú) đều nằm trên card, dựng
+   *  bản sao rút gọn trong bản đồ là hai chỗ cùng sửa một đơn. */
+  const scrollToOrder = useCallback((id: string) => {
+    const el = document.getElementById(`oo-card-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Viền nháy 1.5s — sau cú cuộn, nhân viên cần biết CÁI NÀO trong mấy card giống nhau là đơn
+    // vừa bấm. Đặt/gỡ style trực tiếp để không phải thêm state chỉ cho một hiệu ứng thị giác.
+    el.style.outline = `3px solid ${C.accent}`;
+    el.style.outlineOffset = '2px';
+    el.style.borderRadius = '12px';
+    window.setTimeout(() => {
+      el.style.outline = '';
+      el.style.outlineOffset = '';
+    }, 1500);
+  }, []);
 
   return (
     // Vỏ trang (`container wide with-bottom-nav`) + `<h1>` + badge số đơn nay ở `OnlineOrdersPage`.
@@ -835,6 +896,82 @@ function QueueView({
         </div>
       )}
 
+      {/* ── Bản đồ tổng quan (2026-08-07) ──
+          MẶC ĐỊNH ĐÓNG, và đó là cả thiết kế: chunk leaflet (~46 KB) chỉ tải khi ai đó thật sự
+          bấm mở, nên người vào màn này để duyệt đơn không trả một byte nào cho nó. Cũng vì vậy
+          nút này không phải "trang trí có thể bỏ" — nó là ranh giới tải.
+          Bản đồ vẽ ĐÚNG `visibleItems`, tức đúng những đơn đang hiện bên dưới. */}
+      {mapEnabled && !loadError && (
+        <div style={{ marginBottom: 16 }}>
+          <button
+            type="button"
+            className="secondary"
+            aria-expanded={showMap}
+            onClick={() => setShowMap((v) => !v)}
+          >
+            {showMap ? '▲ Ẩn bản đồ' : `🗺 Xem bản đồ${mappableCount > 0 ? ` · ${mappableCount} đơn` : ''}`}
+          </button>
+
+          {showMap && (
+            <div style={{ marginTop: 12 }}>
+              {mappableCount === 0 ? (
+                <div className="card" style={{ padding: 20, textAlign: 'center' }}>
+                  <p style={{ margin: 0, fontSize: 14, color: C.text }}>
+                    Không có đơn giao hàng nào kèm toạ độ ở tab này.
+                  </p>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>
+                    Đơn chỉ lên bản đồ khi khách bấm chia sẻ vị trí hoặc dán link Google Maps lúc
+                    đặt.
+                  </p>
+                </div>
+              ) : (
+                <Suspense
+                  fallback={
+                    <div
+                      style={{
+                        height: 420,
+                        borderRadius: 12,
+                        border: `1px solid ${C.border}`,
+                        background: '#e9edf1',
+                        display: 'grid',
+                        placeItems: 'center',
+                        color: C.muted,
+                        fontSize: 14,
+                      }}
+                    >
+                      Đang tải bản đồ…
+                    </div>
+                  }
+                >
+                  <OrdersMap
+                    rows={visibleItems}
+                    storeLat={storeCoords?.lat ?? null}
+                    storeLng={storeCoords?.lng ?? null}
+                    onPickOrder={scrollToOrder}
+                  />
+                </Suspense>
+              )}
+
+              {/* Đơn KHÔNG lên được bản đồ phải được nói ra thành số. Thiếu dòng này thì bản đồ
+                  hiện 3 chấm trong khi danh sách có 8 đơn, và không gì trên màn hình giải thích
+                  vì sao — nhân viên sẽ tin vào cái họ nhìn thấy. */}
+              {unmappableCount > 0 && (
+                <p style={{ margin: '8px 2px 0', fontSize: 12, color: C.warnText }}>
+                  {unmappableCount} đơn giao hàng không có toạ độ nên không lên bản đồ — vẫn nằm
+                  trong danh sách bên dưới.
+                </p>
+              )}
+              {storeCoords === null && (
+                <p style={{ margin: '4px 2px 0', fontSize: 12, color: C.muted }}>
+                  Chưa cấu hình toạ độ quán (Cài đặt → Thông tin quán) nên bản đồ căn theo các đơn
+                  và chưa có ghim quán.
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {connState === 'dead' && (
         <AlertBanner title="⚠ Mất kết nối" body="Đang thử nối lại — đơn mới có thể chưa hiện ngay." />
       )}
@@ -904,8 +1041,11 @@ function QueueView({
           dọc — quan trọng ở màn dùng giờ cao điểm. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
         {visibleItems.map((row, idx) => (
+          // Bọc thêm một tầng CHỈ để có mỏ neo `id` cho `scrollToOrder` (bấm chấm trên bản đồ →
+          // cuộn tới đúng card này). Đặt id thẳng lên `OrderCard` thì phải chọc một prop xuyên
+          // qua component chỉ để gắn thuộc tính DOM.
+          <div key={row.id} id={`oo-card-${row.id}`}>
           <OrderCard
-            key={row.id}
             row={row}
             position={idx + 1}
             nowMs={nowMs}
@@ -915,6 +1055,7 @@ function QueueView({
             toast={toast}
             readOnly={!isQueue}
           />
+          </div>
         ))}
       </div>
     </>

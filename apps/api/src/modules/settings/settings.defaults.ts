@@ -83,6 +83,16 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // bật lên khi chưa có kênh thật = khách không nhận được mã = không ai đặt được đơn.
   // Bật ở /admin (khu Đơn hàng online) sau khi cắm sender thật, hoặc để thử nghiệm.
   { key: 'otp_login_enabled', kind: 'bool', default: false },
+  // ── Bản đồ (2026-08-07) — 2 công tắc RIÊNG cho 2 nơi, không phải một ──
+  // Chủ quán yêu cầu tắt được "nếu lag ảnh hưởng hệ thống". Hai nơi có rủi ro hoàn toàn khác nhau
+  // nên gộp thành một công tắc là buộc họ hi sinh cái không có vấn đề để cứu cái có:
+  //  - `map_checkout_enabled`: map trong trang khách. Khách dùng 4G, đang ở bước dễ bỏ giỏ nhất →
+  //    đây là cái đáng tắt trước khi mạng khu vực chậm.
+  //  - `map_admin_enabled`: map tổng quan ở màn duyệt đơn. Đã nằm sau một nút bấm (không tải khi
+  //    vào trang), nên gần như không có lý do phải tắt cùng lúc với cái trên.
+  // Mặc định BẬT vì đây là tính năng vừa được đặt làm; tắt là hành động có chủ ý của chủ quán.
+  { key: 'map_checkout_enabled', kind: 'bool', default: true },
+  { key: 'map_admin_enabled', kind: 'bool', default: true },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -120,6 +130,8 @@ export type StoreSettingsMap = {
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
   otp_login_enabled: boolean;
+  map_checkout_enabled: boolean;
+  map_admin_enabled: boolean;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

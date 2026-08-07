@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { PublicOrderEditResult, PublicOrderStatus } from '@order/schemas';
+import { PublicOrderEditResult, PublicOrderStatus, PublicStoreStatus } from '@order/schemas';
 import {
   MAX_ITEM_NOTE_LEN,
   consumeCartExpired,
@@ -97,6 +97,13 @@ export function CartPage(): JSX.Element {
     { skip: !editSession },
   );
   const isDelivery = order.data?.fulfillment_type === 'DELIVERY';
+
+  /**
+   * Chỉ để biết chủ quán có đang bật bản đồ hay không (2026-08-07). Đây là request THỨ HAI của
+   * trang, nên `skip` khi không phải đơn giao hàng: khách sửa đơn lấy tại quán không có phần vị
+   * trí nào để vẽ, hỏi cờ cho nó là tốn một vòng mạng không đổi lấy gì.
+   */
+  const store = useApi('/api/public/store', PublicStoreStatus, { skip: !isDelivery });
 
   // Địa chỉ + toạ độ: `null` = chưa nạp xong từ server. Phân biệt với chuỗi rỗng (khách vừa xoá
   // trắng ô) — thiếu phân biệt này thì lần render đầu sẽ gửi địa chỉ rỗng đè lên địa chỉ thật.
@@ -292,6 +299,7 @@ export function CartPage(): JSX.Element {
                   setMapLinkValue(link);
                   setLocationTouched(true);
                 }}
+                mapEnabled={store.data?.map_checkout_enabled ?? false}
               />
             </section>
           )}

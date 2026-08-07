@@ -78,6 +78,9 @@ type StoreSettingsMap = {
   top_dishes_hidden_ids: string[];
   // Xác minh OTP khi đặt/tra cứu đơn (2026-08-04) — mặc định tắt vì kênh gửi thật chưa cắm.
   otp_login_enabled: boolean;
+  // Bản đồ (2026-08-07) — 2 công tắc riêng cho 2 nơi, xem settings.defaults.ts phía API.
+  map_checkout_enabled: boolean;
+  map_admin_enabled: boolean;
 };
 
 type OrderingStatus = {
@@ -375,6 +378,11 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [otpEnabled, setOtpEnabled] = useState(settings.otp_login_enabled);
   const [savingOtp, setSavingOtp] = useState(false);
 
+  // Bản đồ (2026-08-07)
+  const [mapCheckout, setMapCheckout] = useState(settings.map_checkout_enabled);
+  const [mapAdmin, setMapAdmin] = useState(settings.map_admin_enabled);
+  const [savingMap, setSavingMap] = useState(false);
+
   // Thông tin quán
   const [phone, setPhone] = useState(settings.store_phone);
   const [address, setAddress] = useState(settings.store_address);
@@ -402,6 +410,8 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setTiers(toDrafts(settings.ship_fee_tiers));
     setDistanceFactor(settings.distance_factor);
     setOtpEnabled(settings.otp_login_enabled);
+    setMapCheckout(settings.map_checkout_enabled);
+    setMapAdmin(settings.map_admin_enabled);
     setPhone(settings.store_phone);
     setAddress(settings.store_address);
     setFacebookUrl(settings.store_facebook_url);
@@ -447,6 +457,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     },
   );
   const otpDirty = isDirty({ otpEnabled }, { otpEnabled: settings.otp_login_enabled });
+  const mapDirty = isDirty(
+    { mapCheckout, mapAdmin },
+    { mapCheckout: settings.map_checkout_enabled, mapAdmin: settings.map_admin_enabled },
+  );
   const storeDirty = isDirty(
     { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
     {
@@ -610,6 +624,22 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       toast.push('error', extractError(err).message);
     } finally {
       setSavingOtp(false);
+    }
+  };
+
+  const saveMap = async () => {
+    setSavingMap(true);
+    try {
+      await api.put('/admin/settings', {
+        map_checkout_enabled: mapCheckout,
+        map_admin_enabled: mapAdmin,
+      });
+      toast.push('success', 'Đã lưu cài đặt bản đồ ✓');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSavingMap(false);
     }
   };
 
@@ -1124,6 +1154,52 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           nghiệm). Chỉ bật khi thử nghiệm hoặc sau khi đã đăng ký Zalo ZNS / SMS brandname; bật
           khi chưa có kênh thật thì khách sẽ không nhận được mã và không đặt được đơn.
         </p>
+      </Section>
+
+      {/* ══ 4c. Bản đồ (2026-08-07) ══
+          Hai công tắc TÁCH RIÊNG vì rủi ro hai nơi khác hẳn nhau: map trang khách nằm giữa bước
+          checkout trên điện thoại 4G, map ở đây nằm sau một nút bấm trên máy quán. Gộp làm một
+          công tắc là bắt chủ quán tắt cả cái đang chạy tốt để cứu cái đang chậm.
+          Cả hai đều CHỈ ảnh hưởng hiển thị: tắt không làm mất toạ độ đơn nào, không đổi phí ship,
+          và các đơn cũ vẫn mở được bằng nút "Mở bản đồ" như trước. */}
+      <Section
+        title="Bản đồ"
+        hint="Tắt bất cứ lúc nào nếu thấy máy chậm — tắt xong mọi thứ quay về đúng như trước khi có bản đồ, không mất dữ liệu đơn nào."
+        dirty={mapDirty}
+        saving={savingMap}
+        saveLabel="Lưu cài đặt bản đồ"
+        onSave={() => void saveMap()}
+      >
+        <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginBottom: 0 }}>
+          <input
+            type="checkbox"
+            checked={mapCheckout}
+            onChange={(e) => setMapCheckout(e.target.checked)}
+          />
+          Hiện bản đồ ở trang đặt hàng của khách
+        </label>
+        <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+          Khách thấy ghim vị trí mình và kéo được cho đúng nhà; kéo xong phí giao tạm tính cập nhật
+          theo. Bản đồ chỉ tải khi khách chọn Giao hàng và đã chia sẻ vị trí — khách lấy tại quán
+          không tải gì thêm. Tắt thì khách quay về nút “Xem trên bản đồ” mở Google Maps ở tab mới.
+        </p>
+
+        <label
+          style={{ display: 'inline-flex', gap: 8, alignItems: 'center', margin: '16px 0 0' }}
+        >
+          <input type="checkbox" checked={mapAdmin} onChange={(e) => setMapAdmin(e.target.checked)} />
+          Hiện nút “Xem bản đồ” ở màn Đơn online
+        </label>
+        <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+          Bản đồ lấy quán làm tâm, mỗi đơn là một chấm màu theo trạng thái — để nhìn ra các đơn gần
+          nhau và gom một chuyến giao. Chỉ tải khi bấm nút, nên không làm chậm lúc mở màn đơn.
+        </p>
+        {(settings.store_lat === null || settings.store_lng === null) && mapAdmin && (
+          <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
+            ⚠ Chưa có toạ độ quán ở khối “Thông tin quán” bên dưới — bản đồ chưa biết lấy đâu làm
+            tâm nên sẽ căn theo các đơn hiện có, và không vẽ được ghim quán.
+          </p>
+        )}
       </Section>
 
       {/* ══ 5. Thông tin quán ══ */}

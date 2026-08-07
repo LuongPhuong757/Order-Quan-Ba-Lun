@@ -12,7 +12,8 @@ import { SettingsService } from '../settings/settings.service.js';
  * bảng settings: cột đó có thể vẫn ghi giá trị tắt trong khi thực tế đã tự-ON qua nửa đêm
  * (mode `UNTIL_TOMORROW`) — `getOrderingStatus()` tính lại lúc đọc, không cần cron.
  *
- * Whitelist thủ công (**17 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14,
+ * Whitelist thủ công (**18 field** — phase 9 thêm 2 câu chữ lúc Đóng cửa theo D-11/D-14,
+ * 2026-08-07 thêm `map_checkout_enabled` là CỜ HIỂN THỊ (không phải dữ liệu quán),
  * 2026-08-07 thêm `ship_fee_tiers` là BẢNG GIÁ NIÊM YẾT, cố ý công khai,
  * 2026-08-04 thêm 4 field footer: địa chỉ + Facebook + Instagram + Zalo, xem
  * payload bên dưới) + `.strict().parse()` trước khi trả — nếu ai đó
@@ -58,6 +59,9 @@ export class PublicStoreController {
       // (quay về "không tự tính phí"), KHÔNG được làm 500 trang menu của khách.
       ship_fee_tiers: normalizeShipFeeTiers(settings.ship_fee_tiers),
       distance_factor: settings.distance_factor,
+      // Công tắc bản đồ ở bước chọn vị trí. CHỈ cờ bật/tắt đi ra ngoài — `store_lat/lng` vẫn ở
+      // lại BE như cũ, nên bản đồ trang khách không bao giờ vẽ được ghim quán.
+      map_checkout_enabled: settings.map_checkout_enabled,
       eta: {
         pickup: { min: settings.eta_pickup_min, max: settings.eta_pickup_max },
         delivery: { min: settings.eta_delivery_min, max: settings.eta_delivery_max },

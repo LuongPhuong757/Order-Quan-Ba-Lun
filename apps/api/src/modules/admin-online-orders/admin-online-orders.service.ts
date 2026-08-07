@@ -833,6 +833,11 @@ export class AdminOnlineOrdersService {
       escalate_sms_after_s: settings.escalate_sms_after_s,
       window_hours: window.windowHours,
       status_counts,
+      // Bản đồ tổng quan (2026-08-07) — cờ + tâm bản đồ. Xem `AdminOnlineOrderList` về vì sao 3
+      // field này đi kèm danh sách thay vì có endpoint riêng.
+      map_enabled: settings.map_admin_enabled,
+      store_lat: settings.store_lat,
+      store_lng: settings.store_lng,
     };
     return AdminOnlineOrderList.strict().parse(payload);
   }

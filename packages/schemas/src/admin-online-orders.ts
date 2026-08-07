@@ -231,6 +231,25 @@ export const AdminOnlineOrderList = z.object({
     REJECTED: z.number().int().nonnegative(),
     COMPLETED: z.number().int().nonnegative(),
   }),
+  /**
+   * Bản đồ tổng quan có được bật không (`map_admin_enabled`, 2026-08-07) — chủ quán tắt ở
+   * `?view=settings` nếu thấy máy quán chậm.
+   *
+   * Đi kèm danh sách chứ không phải một request riêng, cùng lý lẽ với `escalate_sms_after_s` ngay
+   * trên: màn này vốn gọi endpoint này mỗi lần poll, và `/admin/settings` thì order/bếp không gọi
+   * được (AdminGuard) — hỏi cờ ở đó là màn của họ không bao giờ có bản đồ.
+   */
+  map_enabled: z.boolean(),
+  /**
+   * Toạ độ quán — tâm của bản đồ tổng quan. `null` = chủ quán chưa cấu hình, FE tự căn khung theo
+   * các đơn có toạ độ và không vẽ ghim quán.
+   *
+   * ⚠ Đây là endpoint NỘI BỘ (3 role đã đăng nhập), khác hẳn `GET /api/public/store` nơi toạ độ
+   * quán cố ý không ra ngoài. Nhân viên đứng ngay tại quán — giấu vị trí quán với họ không bảo vệ
+   * được gì. Đừng lấy field này làm tiền lệ để thêm toạ độ vào endpoint công khai.
+   */
+  store_lat: z.number().nullable(),
+  store_lng: z.number().nullable(),
 });
 export type AdminOnlineOrderList = z.infer<typeof AdminOnlineOrderList>;
 

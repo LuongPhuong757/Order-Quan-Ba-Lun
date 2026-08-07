@@ -61,6 +61,18 @@ export const PublicStoreStatus = z.object({
    */
   ship_fee_tiers: z.array(ShipFeeTier),
   distance_factor: z.number(),
+  /**
+   * Bản đồ ở bước chọn vị trí có được vẽ không (2026-08-07) — công tắc `map_checkout_enabled`.
+   *
+   * Là CỜ HIỂN THỊ thuần: tắt thì trang khách quay về đúng hành vi cũ (nút "Xem trên bản đồ" mở
+   * Google Maps ở tab ngoài), không có gì về đơn thay đổi. Toạ độ vẫn được gửi kèm đơn như cũ vì
+   * nó đến từ GPS/link khách dán, không phải từ bản đồ.
+   *
+   * Cờ đi kèm `GET /api/public/store` chứ không phải một request riêng: trang khách đã gọi
+   * endpoint này trước khi vẽ gì, thêm một request nữa chỉ để hỏi "có vẽ map không" là đánh đổi
+   * ngược — tốn một vòng mạng trên 4G để tiết kiệm vài byte.
+   */
+  map_checkout_enabled: z.boolean(),
   eta: z.object({
     pickup: z.object({ min: z.number().int(), max: z.number().int() }),
     delivery: z.object({ min: z.number().int(), max: z.number().int() }),
