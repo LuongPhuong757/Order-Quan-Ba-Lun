@@ -7,7 +7,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import { SettingsService } from '../settings/settings.service.js';
 import { CustomerOtp } from './entities/customer-otp.entity.js';
 import { CustomerSession } from './entities/customer-session.entity.js';
-import { hashIp, resolveIpHashSalt } from './ip-hash.js';
+import { auditIpValue, hashIp, resolveIpHashSalt } from './ip-hash.js';
 import { OTP_SENDER, type OtpSender } from './otp-sender.js';
 import {
   SESSION_TTL_MS,
@@ -82,7 +82,9 @@ export class PublicOtpService {
       this.emitter.emit('audit.write', {
         actor_id: null,
         actor_name: null,
-        ip: `hashed:${hashIp(ip, resolveIpHashSalt())}`,
+        // `auditIpValue` (không tự ghép hash đầy đủ): chuỗi 71 ký tự vượt varchar(45) và làm
+        // MỌI dòng audit của luồng public rơi im lặng — xem docblock hàm đó.
+        ip: auditIpValue(ip),
         ts_ms: Date.now(),
         action_kind: ev.action_kind,
         target_kind: 'customer_phone',

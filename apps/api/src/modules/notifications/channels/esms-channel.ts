@@ -9,6 +9,17 @@ type FetchFn = typeof globalThis.fetch;
 
 const DEFAULT_ENDPOINT = 'https://rest.esms.vn/MainService.svc/json/SendMultipleMessage_V4_post_json/';
 
+/**
+ * SmsType của eSMS (2026-08-06):
+ *  - '2' = brandname CSKH — hiện tên quán, nhưng phải đăng ký brandname (cần GPKD, 2-3 tuần,
+ *    50k/tháng/nhà mạng) → BẮT BUỘC có `ESMS_BRANDNAME`.
+ *  - '8' = đầu số cố định 10 số — rẻ hơn, mở tài khoản nạp tiền là chạy, KHÔNG có brandname
+ *    (nhưng phải đăng ký trước MẪU nội dung với eSMS, gửi sai mẫu là bị từ chối).
+ * Mặc định giữ '2' để không đổi hành vi của SMS báo nhân viên đang chạy.
+ */
+const DEFAULT_SMS_TYPE = '2';
+const SMS_TYPE_NEEDS_BRANDNAME = '2';
+
 interface EsmsResponseBody {
   CodeResult?: string;
   ErrorMessage?: string;
@@ -29,8 +40,10 @@ export class EsmsChannel implements SmsChannel {
     const apiKey = process.env.ESMS_API_KEY;
     const secretKey = process.env.ESMS_SECRET_KEY;
     const brandname = process.env.ESMS_BRANDNAME;
+    const smsType = process.env.ESMS_SMS_TYPE || DEFAULT_SMS_TYPE;
     // Thiếu env → trả lỗi NGAY, không gọi mạng, không throw (M2.D-63).
-    if (!apiKey || !secretKey || !brandname) {
+    // Brandname chỉ bắt buộc với SmsType '2'; đầu số cố định ('8') không có brandname nào để điền.
+    if (!apiKey || !secretKey || (smsType === SMS_TYPE_NEEDS_BRANDNAME && !brandname)) {
       return { ok: false, error: 'ESMS chưa cấu hình' };
     }
 
@@ -47,8 +60,13 @@ export class EsmsChannel implements SmsChannel {
           Content: message,
           ApiKey: apiKey,
           SecretKey: secretKey,
-          Brandname: brandname,
-          SmsType: '2',
+          // Không có brandname thì BỎ HẲN field, không gửi chuỗi rỗng — eSMS trả lỗi 104
+          // ("brandname không tồn tại") khi field có mặt mà rỗng.
+          ...(brandname ? { Brandname: brandname } : {}),
+          SmsType: smsType,
+          // Sandbox='1': eSMS nhận request, trả CodeResult=100 nhưng KHÔNG gửi tin và KHÔNG
+          // trừ tiền — dùng để nghiệm thu cấu hình key/SmsType trước khi bật thật.
+          ...(process.env.ESMS_SANDBOX === '1' ? { Sandbox: '1' } : {}),
         }),
         signal: AbortSignal.timeout(10_000),
       });

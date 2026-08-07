@@ -8,6 +8,12 @@ import { buildEscalationSms, isValidSmsRecipient, SMS_MAX_LENGTH, type SmsChanne
 
 type Factory = (opts?: { forceThrow?: boolean }) => SmsChannel;
 
+/** Trả env về trạng thái cũ. Gán `undefined` trực tiếp sẽ thành chuỗi "undefined" — phải delete. */
+function restoreEnv(key: string, value: string | undefined): void {
+  if (value === undefined) delete process.env[key];
+  else process.env[key] = value;
+}
+
 /** Bộ hành vi bắt buộc mọi driver SmsChannel phải thoả — không phụ thuộc implementation. */
 function describeSmsChannelContract(name: string, factory: Factory): void {
   describe(`SmsChannel contract — ${name}`, () => {
@@ -132,6 +138,73 @@ describe('EsmsChannel — hành vi riêng', () => {
       }
     }
     consoleLogSpy.mockRestore();
+  });
+
+  // Đầu số cố định (2026-08-06) — kênh chủ quán chọn để gửi OTP: rẻ hơn brandname, không cần GPKD.
+  it('ESMS_SMS_TYPE=8 → body có SmsType "8" và KHÔNG có field Brandname', async () => {
+    const originalType = process.env.ESMS_SMS_TYPE;
+    const originalBrand = process.env.ESMS_BRANDNAME;
+    process.env.ESMS_SMS_TYPE = '8';
+    delete process.env.ESMS_BRANDNAME;
+
+    const fetchSpy = vi.fn(async () => ({ json: async () => ({ CodeResult: '100' }) })) as unknown as typeof fetch;
+    const result = await new EsmsChannel(fetchSpy).send({ to: '0900000001', message: 'Ma xac minh 123456' });
+
+    expect(result.ok).toBe(true);
+    const [, init] = (fetchSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string);
+    expect(body.SmsType).toBe('8');
+    expect(body).not.toHaveProperty('Brandname');
+
+    // ⚠ Gán thẳng `undefined` vào process.env biến nó thành CHUỖI "undefined" — phải delete.
+    restoreEnv('ESMS_SMS_TYPE', originalType);
+    restoreEnv('ESMS_BRANDNAME', originalBrand);
+  });
+
+  it('SmsType mặc định vẫn là "2" khi không đặt ESMS_SMS_TYPE (không đổi hành vi SMS báo nhân viên)', async () => {
+    const original = process.env.ESMS_SMS_TYPE;
+    delete process.env.ESMS_SMS_TYPE;
+
+    const fetchSpy = vi.fn(async () => ({ json: async () => ({ CodeResult: '100' }) })) as unknown as typeof fetch;
+    await new EsmsChannel(fetchSpy).send({ to: '0900000001', message: 'nội dung' });
+
+    const [, init] = (fetchSpy as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string).SmsType).toBe('2');
+
+    restoreEnv('ESMS_SMS_TYPE', original);
+  });
+
+  it('ESMS_SANDBOX=1 → body có Sandbox "1"; không đặt → KHÔNG có field Sandbox', async () => {
+    const original = process.env.ESMS_SANDBOX;
+
+    process.env.ESMS_SANDBOX = '1';
+    const sandboxFetch = vi.fn(async () => ({ json: async () => ({ CodeResult: '100' }) })) as unknown as typeof fetch;
+    await new EsmsChannel(sandboxFetch).send({ to: '0900000001', message: 'nội dung' });
+    const [, sandboxInit] = (sandboxFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(sandboxInit.body as string).Sandbox).toBe('1');
+
+    delete process.env.ESMS_SANDBOX;
+    const liveFetch = vi.fn(async () => ({ json: async () => ({ CodeResult: '100' }) })) as unknown as typeof fetch;
+    await new EsmsChannel(liveFetch).send({ to: '0900000001', message: 'nội dung' });
+    const [, liveInit] = (liveFetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(liveInit.body as string)).not.toHaveProperty('Sandbox');
+
+    restoreEnv('ESMS_SANDBOX', original);
+  });
+
+  it('SmsType 2 mà thiếu ESMS_BRANDNAME → { ok: false }, không gọi fetch', async () => {
+    const original = process.env.ESMS_BRANDNAME;
+    delete process.env.ESMS_BRANDNAME;
+
+    const fetchSpy = vi.fn();
+    const result = await new EsmsChannel(fetchSpy as unknown as typeof fetch).send({
+      to: '0900000001',
+      message: 'nội dung',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    restoreEnv('ESMS_BRANDNAME', original);
   });
 
   it('thiếu ESMS_API_KEY → { ok: false, error chứa "ESMS chưa cấu hình" }, không gọi fetch', async () => {

@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 // Kênh gửi mã OTP (2026-08-04) — interface cắm được, chốt với chủ dự án: "mock trước,
-// chọn kênh sau". Khi đăng ký xong Zalo ZNS / SMS brandname thì viết class mới implement
-// `OtpSender` và đổi `useClass` ở `public.module.ts` — KHÔNG sửa luồng request/verify.
+// chọn kênh sau".
+//
+// 2026-08-06: kênh thật đã có — `SmsOtpSender` (eSMS, đầu số cố định). Chọn kênh bằng env
+// `OTP_CHANNEL` ở `public.module.ts`, KHÔNG sửa luồng request/verify.
 
 export const OTP_SENDER = 'OTP_SENDER';
 
@@ -11,12 +13,12 @@ export interface OtpSender {
 }
 
 /**
- * Bản mock: ghi mã ra log server thay vì gửi tin thật.
+ * Bản mock: ghi mã ra log server thay vì gửi tin thật. Là kênh MẶC ĐỊNH (`OTP_CHANNEL` khác
+ * `sms`) — fail-safe: thà không gửi còn hơn âm thầm đốt tiền tin nhắn khi cấu hình sai.
  *
- * ⚠ Vì kênh thật chưa có, toàn bộ luồng OTP nằm sau công tắc `otp_login_enabled`
- * (mặc định TẮT). Bật công tắc khi đang dùng sender này = khách thật không nhận được mã
- * = không ai đặt được đơn — chỉ bật để thử nghiệm (đọc mã trong log, hoặc đặt env
- * `OTP_MOCK_CODE` để mã luôn cố định, xem `PublicOtpService`).
+ * ⚠ Bật `otp_login_enabled` mà vẫn để sender này = khách thật không nhận được mã = không ai
+ * đăng nhập được — chỉ bật để thử nghiệm (đọc mã trong log, hoặc đặt env `OTP_MOCK_CODE` để
+ * mã luôn cố định, xem `PublicOtpService`). Chạy thật thì đặt `OTP_CHANNEL=sms`.
  */
 @Injectable()
 export class LogOtpSender implements OtpSender {

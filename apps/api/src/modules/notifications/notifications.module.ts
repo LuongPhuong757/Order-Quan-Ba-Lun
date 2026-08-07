@@ -36,6 +36,8 @@ const moduleLogger = new Logger('NotificationsModule');
     },
   ],
   // plan 09-06 (huỷ L2 khi duyệt/từ chối) và 09-09 (enqueue lúc submit) đều cần service này.
-  exports: [NotificationOutboxService],
+  // `SMS_CHANNEL` export ra để `SmsOtpSender` (PublicModule) gửi mã OTP qua ĐÚNG driver đã
+  // chọn ở đây — không dựng đường ra SMS thứ hai (2026-08-06).
+  exports: [NotificationOutboxService, SMS_CHANNEL],
 })
 export class NotificationsModule {}

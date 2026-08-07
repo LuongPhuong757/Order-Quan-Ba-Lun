@@ -91,6 +91,17 @@ services:
       SETUP_ALLOWED_IP: ${SETUP_ALLOWED_IP:-127.0.0.1}
       # CSRF origin check — set theo public URL của site
       ALLOWED_ORIGIN: ${ALLOWED_ORIGIN}
+      # Salt hash IP luồng public (M2.D-56). Bỏ trống = rơi về salt dev mặc định trong code.
+      IP_HASH_SALT: ${IP_HASH_SALT:-}
+      # SMS + OTP (2026-08-06) — xem .env.production.example để biết từng biến.
+      SMS_DRIVER: ${SMS_DRIVER:-console}
+      ESMS_API_KEY: ${ESMS_API_KEY:-}
+      ESMS_SECRET_KEY: ${ESMS_SECRET_KEY:-}
+      ESMS_BRANDNAME: ${ESMS_BRANDNAME:-}
+      ESMS_SMS_TYPE: ${ESMS_SMS_TYPE:-2}
+      ESMS_SANDBOX: ${ESMS_SANDBOX:-}
+      OTP_CHANNEL: ${OTP_CHANNEL:-log}
+      OTP_SMS_TEMPLATE: ${OTP_SMS_TEMPLATE:-}
     volumes:
       # Persist menu images (mất container không mất file)
       - ./uploads:/app/apps/api/uploads
