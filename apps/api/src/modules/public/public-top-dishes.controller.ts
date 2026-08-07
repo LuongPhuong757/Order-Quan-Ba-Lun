@@ -67,6 +67,10 @@ export class PublicTopDishesController {
       .addSelect('m.unit', 'unit')
       .addSelect('m.price', 'price')
       .addSelect('m.image_url', 'image_url')
+      // Món hết hàng VẪN vào bảng xếp hạng (nó vẫn là món bán chạy) — cờ này để trang khách khoá
+      // nút thêm giỏ, cùng cách `/api/public/menu` làm. Lọc nó ra khỏi bảng mới là nói dối về
+      // dữ liệu bán hàng.
+      .addSelect('m.is_out_of_stock', 'is_out_of_stock')
       .addSelect('SUM(i.qty)', 'qty')
       .where(PAID_SQL)
       .andWhere("i.state = 'SERVED'")
@@ -85,6 +89,7 @@ export class PublicTopDishesController {
       .addGroupBy('m.unit')
       .addGroupBy('m.price')
       .addGroupBy('m.image_url')
+      .addGroupBy('m.is_out_of_stock')
       .orderBy('qty', 'DESC')
       // Tie-break theo tên để 2 món bằng suất không đổi chỗ nhau giữa 2 lần poll.
       .addOrderBy('m.name', 'ASC')

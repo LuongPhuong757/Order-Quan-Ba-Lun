@@ -13,6 +13,8 @@ export type TopDishRawRow = {
   price: string | number;
   image_url: string | null;
   qty: string | number;
+  /** MySQL trả cột boolean là 0/1 (có driver trả '0'/'1') — ép ở mapper, đừng tin kiểu. */
+  is_out_of_stock: boolean | number | string;
 };
 
 export function toPublicTopDish(row: TopDishRawRow): PublicTopDish {
@@ -24,6 +26,9 @@ export function toPublicTopDish(row: TopDishRawRow): PublicTopDish {
     // D-09 (dùng lại của public-menu): 0..1 phần tử từ image_url.
     images: row.image_url ? [row.image_url] : [],
     qty: Number(row.qty) || 0,
+    // `Number(...) === 1` chứ không `Boolean(...)`: chuỗi '0' là truthy trong JS, và nếu driver
+    // đổi kiểu trả về thì món CÒN HÀNG sẽ bị dán nhãn hết hàng ở mọi dòng.
+    is_out_of_stock: Number(row.is_out_of_stock) === 1,
   };
   return PublicTopDish.strict().parse(out);
 }

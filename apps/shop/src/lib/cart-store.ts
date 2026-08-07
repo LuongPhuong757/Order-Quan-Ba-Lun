@@ -222,6 +222,23 @@ export function clearCartNote(): void {
 // (b) Hook useCart() — đọc/ghi localStorage
 // ─────────────────────────────────────────────────────────────────────────
 
+/**
+ * Giỏ vừa bị dọn vì quá 24h (D-06) — đặt ở lần đọc đầu tiên, đọc bằng `consumeCartExpired()`.
+ *
+ * Vì sao cần (2026-08-06): trước đó giỏ hết hạn biến mất HOÀN TOÀN im lặng. Khách chọn món tối
+ * qua, sáng nay mở lại thấy giỏ trống và không có cách nào biết là do hết hạn hay do app nuốt mất
+ * đơn của họ — cùng loại "mất dữ liệu không ai báo" mà D-07 cấm ở nhánh món hết hàng.
+ */
+let cartExpiredOnLoad = false;
+
+/** Trả `true` ĐÚNG MỘT LẦN sau khi giỏ bị dọn vì hết hạn. Lần gọi sau trả `false`: đây là tin
+ *  một-lần, hiện lại ở mỗi lần đổi trang thì nó thành tiếng ồn. */
+export function consumeCartExpired(): boolean {
+  if (!cartExpiredOnLoad) return false;
+  cartExpiredOnLoad = false;
+  return true;
+}
+
 function readCartState(): CartState {
   try {
     const raw = window.localStorage.getItem(CART_STORAGE_KEY);
@@ -231,7 +248,9 @@ function readCartState(): CartState {
       return { lines: [], savedAtMs: Date.now() };
     }
     if (isCartExpired(parsed.savedAtMs, Date.now())) {
-      // D-06: hết hạn → xoá sạch, khách thấy empty state bình thường.
+      // D-06: hết hạn → xoá sạch. Có cờ để trang nói ra một câu; giỏ vốn RỖNG mới là thứ khách
+      // thấy, cờ chỉ giải thích vì sao (xem `cartExpiredOnLoad`).
+      cartExpiredOnLoad = parsed.lines.length > 0;
       return { lines: [], savedAtMs: Date.now() };
     }
     return { lines: parsed.lines as CartLine[], savedAtMs: parsed.savedAtMs };
@@ -286,6 +305,10 @@ export type UseCartResult = {
   setQty: (menu_item_id: string, qty: number) => void;
   setNote: (menu_item_id: string, note: string) => void;
   clear: () => void;
+  /** THAY nguyên giỏ bằng danh sách khác. Chỉ dùng cho chế độ sửa đơn (`order-edit.ts`): nạp món
+   * của đơn đang chờ vào giỏ, và trả lại giỏ cũ khi thoát. Không dùng cho luồng đặt hàng thường —
+   * ở đó chỉ có `add`/`setQty`, thứ khách hiểu được từ thao tác họ vừa làm. */
+  replace: (lines: CartLine[]) => void;
   applyMenuSync: (groups: PublicMenuGroup[]) => { priceChanged: boolean; blocksCheckout: boolean };
 };
 
@@ -309,6 +332,7 @@ export function useCart(): UseCartResult {
     setQty: (menu_item_id, qty) => commitLines(setQty(getLines(), menu_item_id, qty)),
     setNote: (menu_item_id, note) => commitLines(setLineNote(getLines(), menu_item_id, note)),
     clear: () => commitLines([]),
+    replace: (next) => commitLines(next),
     applyMenuSync: (groups) => {
       const result = syncCartWithMenu(getLines(), groups);
       commitLines(result.lines);

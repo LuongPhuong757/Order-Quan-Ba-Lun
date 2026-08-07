@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type JSX } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { z } from 'zod';
-import { PublicMenuGroup, PublicStoreStatus, type PublicMenuItem } from '@order/schemas';
+import {
+  PublicMenuGroup,
+  PublicStoreStatus,
+  PublicTopDishes,
+  type PublicMenuItem,
+} from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
-import { useCart } from '../lib/cart-store.ts';
+import { consumeCartExpired, useCart } from '../lib/cart-store.ts';
+import { nextOpeningText } from '../lib/open-hours.ts';
 import { CardItem, CARD_ITEM_CSS } from '../components/CardItem.tsx';
 import { CategoryRail } from '../components/CategoryRail.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
@@ -38,6 +44,13 @@ export function MenuPage(): JSX.Element {
   const q = params.get('q') ?? '';
   const [activeCode, setActiveCode] = useState<string | null>(null);
   const [priceChangedBanner, setPriceChangedBanner] = useState(false);
+  /** Giỏ tối qua vừa bị dọn vì quá 24h (D-06) — nói một câu thay vì để giỏ trống im lặng.
+   *  Đọc trong effect (không phải initializer của useState) để StrictMode dev không "tiêu thụ"
+   *  mất cờ ở lần render nháp đầu tiên. */
+  const [cartExpired, setCartExpired] = useState(false);
+  useEffect(() => {
+    if (consumeCartExpired()) setCartExpired(true);
+  }, []);
   // `nonce` tăng mỗi lần thêm món — bấm `+` liên tiếp thì toast hẹn giờ lại từ
   // đầu và chạy lại hiệu ứng, thay vì đứng im như đã hết tác dụng.
   const [toast, setToast] = useState<{ message: string; nonce: number } | null>(null);
@@ -63,17 +76,51 @@ export function MenuPage(): JSX.Element {
   const normalizedQuery = normalizeForSearch(q);
   const isSearching = normalizedQuery.length > 0;
 
+  /**
+   * Kết quả tìm kiếm: khớp TÊN MÓN, MÃ MÓN, hoặc TÊN NHÓM (2026-08-06 thêm nhóm).
+   *
+   * Khách gõ theo cách họ nghĩ về đồ ăn — "lẩu", "nướng", "đồ uống" — mà mấy chữ đó là tên NHÓM
+   * chứ không nằm trong tên món nào ("Lẩu" thì còn may, "Đồ uống" thì không món nào tên vậy). Bản
+   * cũ trả về 0 kết quả cho đúng những từ khách hay gõ nhất.
+   */
   const filteredItems: PublicMenuItem[] = useMemo(() => {
     if (!normalizedQuery) return [];
-    return groups
-      .flatMap((g) => g.items)
-      .filter(
+    return groups.flatMap((group) => {
+      // Cả nhóm khớp → lấy trọn nhóm (khách gõ "lẩu" là muốn xem hết mục Lẩu, không phải lọc tiếp).
+      if (normalizeForSearch(group.name).includes(normalizedQuery)) return group.items;
+      return group.items.filter(
         (item) =>
           normalizeForSearch(item.name).includes(normalizedQuery) ||
           normalizeForSearch(item.code).includes(normalizedQuery),
       );
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [groups, normalizedQuery]);
+
+  /**
+   * Gợi ý khi tìm không ra món nào (2026-08-06).
+   *
+   * "Không tìm thấy món nào" + một link quay lại là một ngõ cụt: khách gõ sai chính tả hoặc tìm
+   * món quán không bán, và ta để họ tự nghĩ ra từ khoá khác. Bảng xếp hạng món bán chạy đã có sẵn
+   * endpoint riêng — đây là chỗ nó có ích nhất.
+   *
+   * Chỉ gọi khi THỰC SỰ rơi vào ngõ cụt (`skip` bên dưới): tải sẵn cho mọi lượt xem menu là một
+   * request thừa trên 3G cho một nhánh hiếm.
+   */
+  const noResults = isSearching && filteredItems.length === 0 && menu.data !== null;
+  const topDishes = useApi('/api/public/top-dishes', PublicTopDishes, { skip: !noResults });
+
+  /** Món gợi ý = món bán chạy TRA NGƯỢC về menu đang có trong bộ nhớ — nhờ vậy card gợi ý là
+   *  `CardItem` thật (thêm giỏ được ngay), không phải một danh sách chữ chỉ để đọc. */
+  const suggestedItems: PublicMenuItem[] = useMemo(() => {
+    if (!topDishes.data?.enabled) return [];
+    const byId = new Map(groups.flatMap((g) => g.items).map((item) => [item.id, item]));
+    return topDishes.data.items
+      .map((dish) => byId.get(dish.id))
+      .filter((item): item is PublicMenuItem => item !== undefined && !item.is_out_of_stock)
+      .slice(0, 4);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [topDishes.data, groups]);
 
   const clearSearch = (): void => {
     const next = new URLSearchParams(params);
@@ -129,6 +176,35 @@ export function MenuPage(): JSX.Element {
     cart.setQty(item.id, qty);
   };
 
+  /** Câu "Quán mở lại lúc …" — tính lại mỗi lần dữ liệu quán đổi. Không cần đồng hồ chạy: khách
+   *  đọc nó đúng một lần lúc mở trang, và câu này đủ đúng trong cả tiếng đồng hồ sau đó. */
+  const reopenText = store.data ? nextOpeningText(store.data.open_hours, Date.now()) : null;
+
+  /**
+   * Đổi nhóm món xong thì ĐƯA MÀN HÌNH VỀ ĐẦU DANH SÁCH (2026-08-07).
+   *
+   * Trên mobile khách cuộn sâu giữa nhóm cũ rồi bấm nhóm khác: dải danh mục dính trên đầu nên
+   * vẫn bấm được, nhưng danh sách bên dưới thay nội dung TẠI CHỖ — khách rơi vào lưng chừng
+   * nhóm mới (hoặc chạm đáy nếu nhóm mới ít món hơn), tưởng nhóm đó chỉ có mấy món cuối.
+   *
+   * Mốc cuộn là `railAnchorRef` — một điểm 0px NGAY TRƯỚC dải danh mục, không phải chính dải
+   * (dải sticky nên khi đã dính thì `getBoundingClientRect().top` luôn bằng offset, đo ra 0).
+   * Trừ đi chiều cao header thật (header sticky `top: 0`) để dải nằm khít dưới header đúng như
+   * lúc nó vừa dính, thay vì cuộn thẳng về 0 và bỏ phí một màn hình.
+   */
+  const railAnchorRef = useRef<HTMLDivElement>(null);
+  const handleSelectCategory = (code: string | null): void => {
+    setActiveCode(code);
+    const anchor = railAnchorRef.current;
+    if (!anchor || typeof window === 'undefined') return;
+    const headerHeight = document.querySelector('header')?.getBoundingClientRect().height ?? 0;
+    const top = Math.max(0, window.scrollY + anchor.getBoundingClientRect().top - headerHeight);
+    // Đã ở đúng chỗ rồi thì khỏi gọi cuộn (tránh giật nhẹ khi khách bấm ngay lúc mở trang).
+    if (Math.abs(top - window.scrollY) < 2) return;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    window.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
+
   const visibleGroups = activeCode ? groups.filter((g) => g.code === activeCode) : groups;
   const loading = (menu.loading || store.loading) && !menu.data;
 
@@ -142,8 +218,11 @@ export function MenuPage(): JSX.Element {
 
       <h1 style={srOnly}>Menu</h1>
 
+      {/* Mốc đo cho `handleSelectCategory` — phải nằm NGOÀI dải sticky mới đo được vị trí thật. */}
+      <div ref={railAnchorRef} aria-hidden="true" />
+
       {groups.length > 0 && (
-        <CategoryRail groups={groups} activeCode={activeCode} onSelect={setActiveCode} />
+        <CategoryRail groups={groups} activeCode={activeCode} onSelect={handleSelectCategory} />
       )}
 
       <div style={bannerStack}>
@@ -165,7 +244,26 @@ export function MenuPage(): JSX.Element {
           <BannerNotice
             tone="brand"
             title="Quán đang đóng cửa"
-            body={store.data.closed_banner_text}
+            body={
+              <>
+                {store.data.closed_banner_text}
+                {/* Dòng "mở lại lúc …" — THÊM VÀO, không thay câu chủ quán soạn (D-14 giữ nguyên
+                    văn). Chỉ hiện khi đóng vì NGOÀI GIỜ: quán tắt nhận đơn bằng tay thì mốc mở
+                    lại không nằm trong `open_hours`, đoán là hứa hộ họ một giờ họ chưa hứa. */}
+                {store.data.blocking_reason === 'OUTSIDE_HOURS' && reopenText !== null && (
+                  <span style={reopenLine}>{reopenText}</span>
+                )}
+              </>
+            }
+          />
+        )}
+
+        {cartExpired && (
+          <BannerNotice
+            tone="brand"
+            title="Giỏ hàng cũ đã được dọn"
+            body="Giỏ hàng chỉ giữ trong 24 giờ nên các món bạn chọn hôm trước không còn ở đây. Bạn chọn lại giúp quán nhé — giá hôm nay có thể đã khác."
+            action={{ label: 'Đã hiểu', onClick: () => setCartExpired(false) }}
           />
         )}
 
@@ -205,12 +303,38 @@ export function MenuPage(): JSX.Element {
             </button>
           </div>
           {filteredItems.length === 0 ? (
-            <div style={emptyState}>
-              <p style={emptyText}>Không tìm thấy món nào</p>
-              <button type="button" style={linkButton} onClick={clearSearch}>
-                Xem tất cả món
-              </button>
-            </div>
+            <>
+              <div style={emptyState}>
+                <p style={emptyText}>Không tìm thấy món nào khớp «{q}»</p>
+                <p style={emptyHint}>
+                  Bạn thử từ ngắn hơn (ví dụ «lẩu», «nướng») — tìm được cả theo tên nhóm món.
+                </p>
+                <button type="button" style={linkButton} onClick={clearSearch}>
+                  Xem tất cả món
+                </button>
+              </div>
+
+              {/* Ngõ cụt biến thành lối ra: mấy món quán bán chạy nhất, thêm giỏ được ngay tại
+                  đây. Không có gợi ý nào (quán tắt bảng xếp hạng / chưa đủ dữ liệu bán) thì không
+                  vẽ khối rỗng — xem `suggestedItems`. */}
+              {suggestedItems.length > 0 && (
+                <section style={groupSection}>
+                  <h2 style={groupHeading}>Hay được gọi nhất</h2>
+                  <div style={grid}>
+                    {suggestedItems.map((item, i) => (
+                      <CardItem
+                        key={item.id}
+                        item={item}
+                        onAdd={handleAdd}
+                        qtyInCart={qtyById.get(item.id) ?? 0}
+                        onSetQty={handleSetQty}
+                        index={i}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
           ) : (
             <div style={grid} data-testid="menu-grid">
               {filteredItems.map((item, i) => (
@@ -314,6 +438,15 @@ const srOnly: CSSProperties = {
   border: 0,
 };
 
+/** Dòng "Quán mở lại lúc …" trong banner đóng cửa — xuống dòng riêng và đậm hơn câu chủ quán
+ *  soạn, vì đây mới là thứ khách đang muốn biết ("bao giờ thì đặt được?"). */
+const reopenLine: CSSProperties = {
+  display: 'block',
+  marginTop: 'var(--sp-1)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
 const bannerStack: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -378,6 +511,14 @@ const emptyState: CSSProperties = {
 const emptyText: CSSProperties = {
   margin: 0,
   fontSize: 'var(--fs-base)',
+  color: 'var(--text-muted)',
+};
+
+/** Câu mách nước dưới "không tìm thấy" — nhỏ hơn, vì nó là hướng dẫn chứ không phải kết quả. */
+const emptyHint: CSSProperties = {
+  margin: 0,
+  maxWidth: '38ch',
+  fontSize: 'var(--fs-sm)',
   color: 'var(--text-muted)',
 };
 

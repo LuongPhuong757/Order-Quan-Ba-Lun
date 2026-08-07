@@ -148,8 +148,21 @@ export async function deleteJson<T>(
   return sendJson('DELETE', path, undefined, schema);
 }
 
+/**
+ * `PATCH path` — khách tự sửa đơn còn chờ duyệt (`PATCH /api/public/orders/:token`, M2.D-44 nửa
+ * sửa). Đi chung `sendJson` với POST/DELETE để dùng ĐÚNG một đường xử lý lỗi + `credentials:
+ * 'same-origin'` (thiếu nó là không có header `Origin`, `CsrfOriginGuard` chặn thẳng).
+ */
+export async function patchJson<T>(
+  path: string,
+  body: unknown,
+  schema: ZodType<T>,
+): Promise<{ data: T } | { error: ApiError }> {
+  return sendJson('PATCH', path, body, schema);
+}
+
 async function sendJson<T>(
-  method: 'POST' | 'DELETE',
+  method: 'POST' | 'PATCH' | 'DELETE',
   path: string,
   body: unknown,
   schema: ZodType<T>,

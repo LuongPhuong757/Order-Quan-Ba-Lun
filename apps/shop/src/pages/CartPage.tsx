@@ -1,13 +1,21 @@
-import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { PublicOrderEditResult, PublicOrderStatus } from '@order/schemas';
 import {
   MAX_ITEM_NOTE_LEN,
+  consumeCartExpired,
   formatVnd,
   readCartNote,
   saveCartNote,
+  toSubmitItems,
   useCart,
   type CartLine,
 } from '../lib/cart-store.ts';
+import { clearEditSession, readEditSession } from '../lib/order-edit.ts';
+import { patchJson, useApi, type ApiError } from '../lib/use-api.ts';
+import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
+import { BannerNotice } from '../components/BannerNotice.tsx';
+import { ErrorToast } from '../components/ErrorToast.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
 import { Stepper } from '../components/Stepper.tsx';
@@ -34,8 +42,77 @@ const MONEY_COUNT_MS = 350;
 const ROW_EXIT_MS = 200;
 
 export function CartPage(): JSX.Element {
-  const { lines, subtotal, count, setQty, setNote: setLineNote } = useCart();
+  const navigate = useNavigate();
+  // `routerLocation`, KHÔNG phải `location`: trang này đã có một `location` khác hẳn — toạ độ GPS
+  // khách chia sẻ ở chế độ sửa đơn (`PickedLocation` bên dưới).
+  const routerLocation = useLocation();
+  const { lines, subtotal, count, setQty, setNote: setLineNote, replace } = useCart();
   const [note, setNote] = useState<string>(() => readCartNote());
+
+  /**
+   * Câu giải thích của luồng "Đặt lại" (2026-08-06) — món nào trong đơn cũ KHÔNG thêm được vào
+   * giỏ (hết hàng / quán không còn bán). `useReorder` gửi kèm qua router state vì đây mới là nơi
+   * khách nhìn thấy kết quả cú bấm.
+   *
+   * Đọc MỘT LẦN vào state rồi xoá khỏi history entry: `location.state` sống qua cả F5, không dọn
+   * thì khách quay lại giỏ hàng ngày mai vẫn thấy câu nói về một lần đặt lại từ hôm qua.
+   */
+  const [reorderNotice, setReorderNotice] = useState<string | null>(
+    () => (routerLocation.state as { reorderNotice?: string | null } | null)?.reorderNotice ?? null,
+  );
+  useEffect(() => {
+    if (routerLocation.state !== null) {
+      navigate(routerLocation.pathname, { replace: true, state: null });
+    }
+    // Chỉ chạy cho lần vào trang này; `navigate` đổi mỗi render nên không đưa vào deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  /** Giỏ vừa bị dọn vì quá 24h (D-06) — cùng cơ chế cờ-một-lần với MenuPage. Khách vào thẳng
+   *  `/cart` (bookmark, nút giỏ ở header) cũng phải đọc được lời giải thích, không chỉ khách đi
+   *  qua trang menu. */
+  const [cartExpired, setCartExpired] = useState(false);
+  useEffect(() => {
+    if (consumeCartExpired()) setCartExpired(true);
+  }, []);
+
+  /**
+   * Chế độ SỬA ĐƠN (M2.D-44 nửa sửa, 2026-08-06) — xem docblock `order-edit.ts`. Đọc phiên MỘT
+   * LẦN lúc mount: nó chỉ đổi khi khách bấm ở trang khác rồi điều hướng tới đây, và đọc lại mỗi
+   * render là mỗi render một lần `JSON.parse` localStorage cho một giá trị không đổi.
+   */
+  const editSession = useMemo(() => readEditSession(), []);
+  const [updating, setUpdating] = useState(false);
+  const [updateError, setUpdateError] = useState<ApiError | null>(null);
+
+  /**
+   * Đơn đang sửa. ĐỌC LẠI TỪ SERVER chứ không nhét sẵn vào phiên sửa ở localStorage: địa chỉ là
+   * thứ quán có thể vừa sửa hộ khách qua điện thoại, và bản trong localStorage thì không ai làm
+   * mới được. Đọc lại cũng là cách duy nhất biết đơn còn `WAITING` hay không sau khi khách để
+   * trang mở 20 phút.
+   */
+  const order = useApi(
+    `/api/public/orders/${editSession?.order_token ?? ''}`,
+    PublicOrderStatus,
+    { skip: !editSession },
+  );
+  const isDelivery = order.data?.fulfillment_type === 'DELIVERY';
+
+  // Địa chỉ + toạ độ: `null` = chưa nạp xong từ server. Phân biệt với chuỗi rỗng (khách vừa xoá
+  // trắng ô) — thiếu phân biệt này thì lần render đầu sẽ gửi địa chỉ rỗng đè lên địa chỉ thật.
+  const [address, setAddress] = useState<string | null>(null);
+  const [location, setLocation] = useState<PickedLocation | null>(null);
+  const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
+  /** Khách có ĐỘNG vào phần vị trí không. Không động thì `PATCH` không gửi field nào của địa chỉ
+   * → server giữ nguyên toàn bộ (địa chỉ + toạ độ + km). Đây là chốt chống "sửa món xong tự dưng
+   * mất toạ độ": toạ độ CŨ không đọc được về FE (payload không trả), nên gửi bừa là xoá mất. */
+  const [locationTouched, setLocationTouched] = useState(false);
+
+  // Nạp địa chỉ thật vào ô nhập, ĐÚNG MỘT LẦN. `address === null` là điều kiện: các lần poll sau
+  // không được ghi đè thứ khách đang gõ dở.
+  useEffect(() => {
+    if (order.data && address === null) setAddress(order.data.customer_address ?? '');
+  }, [order.data, address]);
 
   // Tiền CHẠY tới số mới thay vì nhảy bậc: bấm `+` một cái mà con số tổng đổi tức thì thì
   // mắt không bắt được là nó vừa đổi, khách phải đọc lại để tự kiểm tra. 350ms (không phải
@@ -46,15 +123,89 @@ export function CartPage(): JSX.Element {
   const hasUnavailable = lines.some((l) => l.unavailable);
   const isEmpty = count === 0;
 
+  /** Đơn giao tận nơi mà địa chỉ trống là đơn không giao được — chặn ngay ở FE để khách sửa tại
+   * chỗ, thay vì bấm cập nhật rồi ăn 400 từ server. `address === null` (chưa nạp) KHÔNG phải lỗi. */
+  const addressError =
+    isDelivery && address !== null && address.trim() === ''
+      ? 'Vui lòng nhập địa chỉ giao hàng'
+      : null;
+
   const handleNoteChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const value = e.target.value;
     setNote(value);
     saveCartNote(value);
   };
 
+  /**
+   * Thoát chế độ sửa: TRẢ LẠI giỏ hàng khách đang có trước khi bấm "Sửa đơn" (lý do ở docblock
+   * `order-edit.ts`) rồi về trang theo dõi đơn.
+   *
+   * Điều hướng TRƯỚC, ghi giỏ SAU — cùng lý lẽ với `handleSubmit` của CheckoutPage: giỏ về rỗng
+   * khi còn đứng ở `/cart` thì khách thấy một nháy "giỏ hàng trống" trước khi trang đổi. Giỏ nằm ở
+   * localStorage + store cấp module nên ghi sau `navigate` vẫn ăn, không phụ thuộc component nào.
+   */
+  const exitEditMode = (token: string): void => {
+    navigate(`/o/${token}`, { replace: true });
+    replace(editSession?.prev_lines ?? []);
+    saveCartNote(editSession?.prev_note ?? '');
+    clearEditSession();
+  };
+
+  const handleUpdateOrder = async (): Promise<void> => {
+    if (!editSession || updating) return;
+    if (addressError !== null) return;
+    setUpdating(true);
+    setUpdateError(null);
+
+    const body: Record<string, unknown> = {
+      items: toSubmitItems(lines),
+      // `customer_note` gửi LUÔN (kể cả chuỗi rỗng): ô ghi chú trên màn này đã được prefill bằng
+      // ghi chú thật của đơn, nên rỗng ở đây nghĩa là khách CỐ Ý xoá — không phải "không biết".
+      customer_note: note,
+    };
+    // Địa chỉ chỉ gửi khi đơn là DELIVERY và khách thực sự đổi chữ. Gửi kèm mọi lần là ghi đè
+    // địa chỉ bằng chính nó — vô hại, NHƯNG nó kéo theo cả nhánh tính lại toạ độ ở server, và
+    // toạ độ thì FE không đọc được bản cũ để gửi lại. Im lặng là giữ nguyên.
+    if (isDelivery && address !== null && address.trim() !== (order.data?.customer_address ?? '')) {
+      body.customer_address = address.trim();
+    }
+    if (isDelivery && locationTouched) {
+      // Khách bấm chia sẻ vị trí (hoặc dán link) → gửi toạ độ mới. `null` tường minh khi họ đổi
+      // địa chỉ mà không lấy được vị trí: xoá ghim cũ còn hơn để nó chỉ sang nhà cũ.
+      body.customer_lat = location?.lat ?? null;
+      body.customer_lng = location?.lng ?? null;
+      body.customer_map_link = mapLinkValue;
+    }
+
+    const result = await patchJson(
+      `/api/public/orders/${editSession.order_token}`,
+      body,
+      PublicOrderEditResult,
+    );
+    setUpdating(false);
+    if ('error' in result) {
+      // Đơn vừa được quán xác nhận/từ chối giữa lúc khách sửa (409) — không tự thoát chế độ sửa ở
+      // đây: khách phải đọc được câu BE giải thích trước, rồi tự bấm thoát. Tự đá về trang đơn là
+      // toast lỗi biến mất cùng lúc trang đổi, và khách không hiểu vì sao sửa không ăn.
+      setUpdateError(result.error);
+      return;
+    }
+    exitEditMode(editSession.order_token);
+  };
+
   return (
     <div style={isEmpty ? { ...page, ...pageEmpty } : page}>
-      <Stepper current={1} />
+      {/* Chế độ sửa đơn KHÔNG có bước 2 (`/checkout`) — thông tin nhận hàng của đơn cũ giữ nguyên,
+          `PATCH` chỉ đổi món + ghi chú. Nên stepper "1 Giỏ hàng → 2 Thông tin" bị thay bằng thanh
+          nói rõ đang sửa đơn nào: để stepper lại là hứa với khách một bước không tồn tại. */}
+      {editSession ? (
+        <EditModeBar
+          orderCode={`${editSession.order_token.slice(0, 4).toUpperCase()}…`}
+          onExit={() => exitEditMode(editSession.order_token)}
+        />
+      ) : (
+        <Stepper current={1} />
+      )}
 
       {/* eslint-disable-next-line react/no-unknown-property */}
       <style>{HEADING_CSS}</style>
@@ -73,6 +224,31 @@ export function CartPage(): JSX.Element {
         </Link>
       </div>
 
+      {/* Kết quả của cú bấm "Đặt lại" ở màn trước: món nào KHÔNG vào được giỏ. Không có gì bị bỏ
+          lại thì `useReorder` gửi `null` và ở đây không vẽ gì — đơn vào giỏ trọn vẹn thì chính
+          danh sách bên dưới đã là câu trả lời. */}
+      {reorderNotice && (
+        <div style={noticeSlot}>
+          <BannerNotice
+            tone="brand"
+            title="Đã thêm đơn cũ vào giỏ"
+            body={reorderNotice}
+            action={{ label: 'Đã hiểu', onClick: () => setReorderNotice(null) }}
+          />
+        </div>
+      )}
+
+      {cartExpired && (
+        <div style={noticeSlot}>
+          <BannerNotice
+            tone="brand"
+            title="Giỏ hàng cũ đã được dọn"
+            body="Giỏ hàng chỉ giữ trong 24 giờ nên các món bạn chọn hôm trước không còn ở đây."
+            action={{ label: 'Đã hiểu', onClick: () => setCartExpired(false) }}
+          />
+        </div>
+      )}
+
       {isEmpty ? (
         <EmptyCart />
       ) : (
@@ -87,6 +263,38 @@ export function CartPage(): JSX.Element {
               />
             ))}
           </ul>
+
+          {/* Địa chỉ giao — CHỈ trong chế độ sửa và CHỈ với đơn giao tận nơi (2026-08-06).
+              Không có tên/SĐT ở đây: chủ dự án chốt chỉ cho đổi địa chỉ cho đỡ phức tạp, và SĐT
+              thì server cũng chặn (nó neo quota/blacklist/phiên OTP — xem `PublicOrderEdit`). */}
+          {editSession && isDelivery && address !== null && (
+            <section style={addressCard}>
+              <h2 style={addressCardTitle}>Địa chỉ giao hàng</h2>
+              <input
+                type="text"
+                // Cùng lý lẽ với 3 ô ở `/checkout` (2026-08-06): để trình duyệt mời điền sẵn địa
+                // chỉ đã lưu, khách sửa đơn không phải gõ lại cả dòng trên điện thoại.
+                autoComplete="street-address"
+                value={address}
+                maxLength={255}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
+                aria-label="Địa chỉ giao hàng"
+                style={{ ...addressInput, ...(addressError ? addressInputError : {}) }}
+              />
+              {addressError && <p style={addressErrorText}>{addressError}</p>}
+
+              {/* Đổi địa chỉ mà giữ ghim bản đồ cũ là shipper đi sang nhà cũ — nên khối vị trí
+                  phải đứng ngay đây, không phải một màn khác. */}
+              <LocationPicker
+                location={location}
+                onChange={(loc, link) => {
+                  setLocation(loc);
+                  setMapLinkValue(link);
+                  setLocationTouched(true);
+                }}
+              />
+            </section>
+          )}
 
           <div style={noteBlock}>
             {/* Nhãn nói rõ "cả đơn" từ khi mỗi món có ô ghi chú riêng — không thì khách gõ
@@ -123,15 +331,88 @@ export function CartPage(): JSX.Element {
             </div>
           </div>
 
-          <StickyCta
-            label="TIẾP TỤC"
-            to="/checkout"
-            disabled={hasUnavailable}
-            hint={hasUnavailable ? 'Vui lòng xoá món đã hết trước khi tiếp tục' : undefined}
-          />
+          {editSession ? (
+            <StickyCta
+              label={updating ? 'Đang cập nhật...' : 'CẬP NHẬT ĐƠN'}
+              onClick={() => void handleUpdateOrder()}
+              disabled={hasUnavailable || updating || addressError !== null}
+              hint={
+                hasUnavailable
+                  ? 'Vui lòng xoá món đã hết trước khi cập nhật'
+                  : (addressError ?? 'Quán chưa xác nhận nên bạn sửa thoải mái')
+              }
+            />
+          ) : (
+            <StickyCta
+              label="TIẾP TỤC"
+              to="/checkout"
+              disabled={hasUnavailable}
+              hint={hasUnavailable ? 'Vui lòng xoá món đã hết trước khi tiếp tục' : undefined}
+            />
+          )}
         </>
       )}
+
+      {/* Toast xổ từ trên xuống, KHÔNG phải banner cuối trang: khách bấm CTA ở đáy màn hình, lỗi
+          vẽ ngoài khung nhìn thì họ thấy "không có gì xảy ra" (bug 2026-08-04 ở CheckoutPage). */}
+      {updateError && editSession && (
+        <ErrorToast
+          message={updateError.message}
+          action={{ label: 'Xem đơn', onClick: () => exitEditMode(editSession.order_token) }}
+          onClose={() => setUpdateError(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/**
+ * Thanh "đang sửa đơn" — thay cho stepper khi vào chế độ sửa (2026-08-06).
+ *
+ * Bản đầu dùng `BannerNotice tone="info"` và chủ dự án phản hồi ngay là lạc theme: `--info-600`
+ * là XANH DƯƠNG (#1f5f9e), sinh ra cho banner ở `/o/:token`; đặt giữa trang giỏ hàng nền kem
+ * (`--bg-page` #fdf7ee) thì nó là mảng màu duy nhất không thuộc bảng màu ấm của shop.
+ *
+ * Nên đây là component riêng, KHÔNG phải một tone mới của `BannerNotice`: thứ này không phải một
+ * TIN BÁO (đọc xong là thôi) mà là chỉ báo TRẠNG THÁI — nó phải nằm đó suốt lúc khách còn đang
+ * sửa. Dùng `--wood-*` (hổ phách/kem tre): ấm, và không đụng vai với `--brand-*` vốn dành riêng
+ * cho giá + nút hành động chính, cũng không đụng `--danger-*` của lỗi.
+ */
+function EditModeBar({ orderCode, onExit }: { orderCode: string; onExit: () => void }): JSX.Element {
+  return (
+    <div style={editBar} role="status">
+      <span style={editBarIcon} aria-hidden="true">
+        <PencilGlyph />
+      </span>
+      <div style={editBarText}>
+        <p style={editBarTitle}>Đang sửa đơn {orderCode}</p>
+        <p style={editBarBody}>
+          Thêm hoặc bớt món rồi bấm CẬP NHẬT ĐƠN. Đơn của bạn chỉ thay đổi khi bạn bấm nút đó.
+        </p>
+      </div>
+      <button type="button" style={editBarExit} onClick={onExit}>
+        Thoát
+      </button>
+    </div>
+  );
+}
+
+function PencilGlyph(): JSX.Element {
+  return (
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5Z" />
+      <path d="m14.5 6.5 3 3" />
+    </svg>
   );
 }
 
@@ -320,6 +601,142 @@ const page: CSSProperties = {
 
 const pageEmpty: CSSProperties = {
   paddingBottom: 'var(--sp-4)',
+};
+
+// ── Card địa chỉ giao (chỉ hiện khi sửa đơn DELIVERY) ──
+// Cùng khuôn card với `summaryCard`/`noteBlock` của trang này để nó không nhìn như một khối lạ
+// mới ghép vào; nền `--bg-surface`, viền `--border-subtle`.
+const addressCard: CSSProperties = {
+  boxSizing: 'border-box',
+  padding: 'var(--pad-card)',
+  marginBottom: 'var(--sp-4)',
+  background: 'var(--bg-surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--r-card)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-3)',
+};
+
+const addressCardTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-md)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+// `fontSize` PHẢI ≥16px (--fs-base): dưới mức đó Safari iOS tự phóng to trang khi khách chạm vào
+// ô nhập, và trang không bao giờ thu lại — lỗi cũ đã ghi ở CheckoutPage.
+const addressInput: CSSProperties = {
+  width: '100%',
+  boxSizing: 'border-box',
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-3)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--r-input)',
+  background: 'var(--bg-sunken)',
+  color: 'var(--text-strong)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-base)',
+};
+
+const addressInputError: CSSProperties = {
+  border: '1px solid var(--danger-600)',
+};
+
+const addressErrorText: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--danger-600)',
+};
+
+// ── Thanh "đang sửa đơn" ──
+// Nền kem tre `--wood-100` + mép trái hổ phách: cùng họ ấm với `--bg-page`, đọc ra ngay là "trang
+// này đang ở một trạng thái khác thường" mà không hét lên như một lỗi. `boxSizing` bắt buộc —
+// apps/shop KHÔNG có reset box-sizing toàn cục, thiếu nó là width 100% + padding ngang tràn khỏi
+// mép phải màn hình điện thoại (đúng bài học đã ghi ở BannerNotice).
+const editBar: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 'var(--sp-4)',
+  flexWrap: 'wrap',
+  width: '100%',
+  boxSizing: 'border-box',
+  padding: 'var(--sp-4)',
+  // Thanh này ĐỨNG THAY CHỖ `Stepper`, mà Stepper tự có `padding: var(--sp-3) 0` nên nó không bao
+  // giờ dính vào tiêu đề "GIỎ HÀNG CỦA BẠN". Thanh này là card có nền, không có khoảng thở nào —
+  // thiếu marginBottom là hai khối chạm nhau (chủ dự án báo 2026-08-06). Dùng sp-5 chứ không sp-4:
+  // đây là ranh giới giữa hai vùng khác nhau (chỉ báo trạng thái ↔ nội dung giỏ), không phải
+  // khoảng cách giữa hai dòng cùng khối.
+  marginBottom: 'var(--sp-5)',
+  background: 'var(--wood-100)',
+  border: '1px solid var(--border-subtle)',
+  borderLeft: '4px solid var(--wood-700)',
+  borderRadius: 'var(--r-card)',
+};
+
+const editBarIcon: CSSProperties = {
+  flexShrink: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  // `--wood-700` là bậc DUY NHẤT của họ gỗ đạt tương phản cho chữ/icon (5.71:1) — wood-400/500
+  // chỉ dùng làm nền, xem tokens.css.
+  color: 'var(--wood-700)',
+  // Canh icon ngang hàng chữ tiêu đề chứ không lơ lửng giữa khối 2 dòng.
+  paddingTop: '2px',
+};
+
+// minWidth 0 để cụm chữ được PHÉP co trong flex — thiếu nó thì câu dài đẩy nút "Thoát" tràn ra.
+const editBarText: CSSProperties = {
+  flex: '1 1 200px',
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-1)',
+};
+
+const editBarTitle: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const editBarBody: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+  lineHeight: 1.5,
+};
+
+/** "Thoát" — nút thật (chủ dự án chốt 2026-08-06), không còn là chữ gạch chân.
+ *
+ * Nền `--bg-surface` nổi trên nền kem tre của thanh, viền trung tính, chữ màu gỗ: đọc ra ngay là
+ * bấm được mà không tranh mắt với CẬP NHẬT ĐƠN dính đáy — đó mới là hành động chính. KHÔNG dùng
+ * màu đỏ: thoát chế độ sửa không xoá gì của khách, đơn cũ còn nguyên. */
+const editBarExit: CSSProperties = {
+  flexShrink: 0,
+  alignSelf: 'center',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-5)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--bg-surface)',
+  color: 'var(--wood-700)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  cursor: 'pointer',
+};
+
+/** Chỗ đứng cho banner tin-một-lần (đặt lại đơn / giỏ hết hạn) — chỉ lo khoảng thở với khối dưới;
+ *  `BannerNotice` tự lo phần còn lại. */
+const noticeSlot: CSSProperties = {
+  marginBottom: 'var(--sp-4)',
 };
 
 const headerRow: CSSProperties = {

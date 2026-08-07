@@ -23,6 +23,12 @@ export const PublicTopDish = z.object({
   // Giống D-09 của public-menu: 0..1 phần tử từ menu_item.image_url.
   images: z.array(z.string()).max(1),
   qty: z.number().int().nonnegative(),
+  /** Cùng nghĩa với `is_out_of_stock` của `PublicMenuItem` (món hết tạm thời, vẫn hiện).
+   *
+   * Thêm 2026-08-06 cùng nút "Thêm vào giỏ" ngay trên bảng xếp hạng: không có cờ này thì nút `+`
+   * ở đây mời khách thêm một món quán không làm được, và khách chỉ biết khi tới `/cart` — đúng
+   * kiểu "bất ngờ ở bước cuối" mà D-07 sinh ra để tránh. */
+  is_out_of_stock: z.boolean(),
 });
 export type PublicTopDish = z.infer<typeof PublicTopDish>;
 

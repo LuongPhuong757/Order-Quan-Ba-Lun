@@ -1,10 +1,11 @@
-import { useEffect, useState, type CSSProperties, type JSX } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties, type JSX } from 'react';
 import { Link } from 'react-router-dom';
 import { PublicTopDishes, type PublicTopDish, type TopDishesWindow } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import { useCountUp } from '../lib/use-count-up.ts';
-import { formatVnd } from '../lib/cart-store.ts';
+import { MAX_QTY, formatVnd, useCart } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { CartToast } from '../components/CartToast.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
 
 /**
@@ -37,6 +38,46 @@ const WINDOW_LABELS: Record<TopDishesWindow, string> = {
 
 export function TopDishesPage(): JSX.Element {
   const { data, loading, error, reload } = useApi('/api/public/top-dishes', PublicTopDishes);
+  const cart = useCart();
+  const [toast, setToast] = useState<{ message: string; nonce: number } | null>(null);
+
+  /** Số lượng từng món trong giỏ — dòng `unavailable` bị loại như ở MenuPage: món hết hàng phải
+   *  hiện chữ "Hết hàng", không phải một stepper mời khách cộng thêm. */
+  const qtyById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const line of cart.lines) {
+      if (!line.unavailable) map.set(line.menu_item_id, line.qty);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.lines]);
+
+  /** Thêm món từ bảng xếp hạng. `code` để rỗng — payload top-dishes không có mã món, và giỏ chỉ
+   *  dùng `code` làm nhãn phụ (BE tra lại mọi thứ từ `menu_item_id` lúc gửi đơn). Bịa một mã ở
+   *  đây mới là thứ nguy hiểm; cùng lý lẽ với `orderItemsToCartLines`. */
+  const handleAdd = (dish: PublicTopDish): void => {
+    cart.add(
+      {
+        menu_item_id: dish.id,
+        code: '',
+        name: dish.name,
+        unit_price: dish.price,
+        note: null,
+        image: dish.images[0] ?? null,
+      },
+      1,
+    );
+    setToast((prev) => ({
+      message: `Đã thêm ${dish.name} vào giỏ`,
+      nonce: (prev?.nonce ?? 0) + 1,
+    }));
+  };
+
+  /** Đổi số lượng món ĐÃ trong giỏ — cố ý KHÔNG bắn toast, đúng như MenuPage: con số trên stepper
+   *  đã nằm ngay dưới ngón tay khách và nó là trạng thái bền. */
+  const handleSetQty = (dish: PublicTopDish, qty: number): void => {
+    cart.setQty(dish.id, qty);
+  };
 
   const [shown, setShown] = useState<PublicTopDishes | null>(null);
   useEffect(() => {
@@ -80,19 +121,48 @@ export function TopDishesPage(): JSX.Element {
       {shown?.enabled && shown.items.length > 0 && (
         <ol style={list}>
           {shown.items.map((dish, i) => (
-            <TopDishRow key={dish.id} dish={dish} rank={i + 1} maxQty={maxQty} />
+            <TopDishRow
+              key={dish.id}
+              dish={dish}
+              rank={i + 1}
+              maxQty={maxQty}
+              qtyInCart={qtyById.get(dish.id) ?? 0}
+              onAdd={handleAdd}
+              onSetQty={handleSetQty}
+            />
           ))}
         </ol>
       )}
 
       <Link to="/" style={ctaButton}>
-        Đặt món ngay
+        Xem toàn bộ menu
       </Link>
+
+      <CartToast
+        message={toast?.message ?? null}
+        nonce={toast?.nonce ?? 0}
+        onDismiss={() => setToast(null)}
+      />
     </div>
   );
 }
 
-function TopDishRow({ dish, rank, maxQty }: { dish: PublicTopDish; rank: number; maxQty: number }): JSX.Element {
+function TopDishRow({
+  dish,
+  rank,
+  maxQty,
+  qtyInCart,
+  onAdd,
+  onSetQty,
+}: {
+  dish: PublicTopDish;
+  rank: number;
+  maxQty: number;
+  /** Số lượng món này đang có trong giỏ; 0 = chưa có (hiện nút `+` thay vì stepper). */
+  qtyInCart: number;
+  onAdd: (dish: PublicTopDish) => void;
+  onSetQty: (dish: PublicTopDish, qty: number) => void;
+}): JSX.Element {
   const qty = useCountUp(dish.qty);
   // Thanh phổ biến trượt vào sau mount — scaleX (transform), không animate width.
   const [barIn, setBarIn] = useState(false);
@@ -149,7 +219,82 @@ function TopDishRow({ dish, rank, maxQty }: { dish: PublicTopDish; rank: number;
           <span style={qtyUnit}>{dish.unit} đã bán</span>
         </span>
       </Link>
+
+      {/* ── Thêm vào giỏ NGAY TẠI ĐÂY (2026-08-06) ──
+          Trước đó cả hàng chỉ là link về `/?q=<tên món>`: khách thấy món hot phải sang trang menu,
+          đọc lại kết quả tìm kiếm rồi mới bấm được `+`. Ba bước cho một ý định đã rất rõ.
+          Món hết hàng: KHÔNG render nút (thay bằng chữ "Hết hàng") — mời thêm vào giỏ một món quán
+          không làm được là để khách phát hiện ở `/cart`, đúng kiểu bất-ngờ-ở-bước-cuối mà D-07
+          sinh ra để tránh. Cờ `is_out_of_stock` mới được thêm vào payload cho đúng việc này. */}
+      {dish.is_out_of_stock ? (
+        <span style={outOfStockNote}>Hết hàng</span>
+      ) : qtyInCart > 0 ? (
+        <span role="group" aria-label={`Số lượng ${dish.name} trong giỏ`} style={qtyStepper}>
+          <button
+            type="button"
+            onClick={() => onSetQty(dish, qtyInCart - 1)}
+            aria-label={qtyInCart === 1 ? `Bỏ ${dish.name} khỏi giỏ` : `Giảm số lượng ${dish.name}`}
+            style={minusButton}
+          >
+            <MinusGlyph />
+          </button>
+          <span style={qtyValue}>{qtyInCart}</span>
+          <button
+            type="button"
+            onClick={() => onSetQty(dish, qtyInCart + 1)}
+            disabled={qtyInCart >= MAX_QTY}
+            aria-disabled={qtyInCart >= MAX_QTY}
+            aria-label={`Tăng số lượng ${dish.name}`}
+            style={qtyInCart >= MAX_QTY ? { ...addButton, ...addButtonDisabled } : addButton}
+          >
+            <PlusGlyph />
+          </button>
+        </span>
+      ) : (
+        <button
+          type="button"
+          onClick={() => onAdd(dish)}
+          aria-label={`Thêm ${dish.name} vào giỏ`}
+          style={addButton}
+        >
+          <PlusGlyph />
+        </button>
+      )}
     </li>
+  );
+}
+
+function PlusGlyph(): JSX.Element {
+  return (
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+function MinusGlyph(): JSX.Element {
+  return (
+    <svg
+      width={20}
+      height={20}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
+      <path d="M5 12h14" />
+    </svg>
   );
 }
 
@@ -270,20 +415,95 @@ const list: CSSProperties = {
   gap: 'var(--sp-3)',
 };
 
+// Hàng = link xem món + nút thêm giỏ đứng CẠNH NHAU (2026-08-06), không lồng nhau: nút bấm được
+// nằm trong link bấm được thì bàn phím tab vào không ra, và trên điện thoại một cú chạm lệch vài
+// pixel là nhảy sang trang khác thay vì thêm món.
 const row: CSSProperties = {
   margin: 0,
+  display: 'flex',
+  alignItems: 'stretch',
+  gap: 'var(--sp-2)',
 };
 
 const rowLink: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 'var(--sp-3)',
+  // minWidth 0 + flex 1: cụm chữ được PHÉP co lại, không đẩy nút thêm giỏ ra ngoài mép phải.
+  flex: 1,
+  minWidth: 0,
   padding: 'var(--sp-3)',
   background: 'var(--bg-surface)',
   border: '1px solid var(--border-subtle)',
   borderRadius: 'var(--r-card)',
   textDecoration: 'none',
   minHeight: 'var(--tap-min)',
+};
+
+/** Nút thêm giỏ ngay trên bảng xếp hạng — cùng hình dáng nút `+` của card món ở lưới menu
+ *  (`CardItem`), để hai màn nói cùng một ngôn ngữ: đỏ đặc, vuông đúng một vùng chạm 44px. */
+const addButton: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  alignSelf: 'center',
+  width: 'var(--tap-min)',
+  height: 'var(--tap-min)',
+  flexShrink: 0,
+  border: 'none',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
+  cursor: 'pointer',
+};
+
+const addButtonDisabled: CSSProperties = {
+  opacity: 'var(--opacity-disabled)',
+  cursor: 'not-allowed',
+};
+
+/** Stepper `− N +` khi món đã có trong giỏ — cùng lý lẽ với `CardItem`: con số trong giỏ là
+ *  phản hồi BỀN duy nhất, toast thì tắt sau 1.8s và khách cuộn qua vài hàng là mất dấu. */
+const qtyStepper: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  alignSelf: 'center',
+  gap: 'var(--sp-1)',
+  flexShrink: 0,
+};
+
+const minusButton: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 'var(--tap-min)',
+  height: 'var(--tap-min)',
+  flexShrink: 0,
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--bg-surface)',
+  color: 'var(--text-strong)',
+  cursor: 'pointer',
+};
+
+const qtyValue: CSSProperties = {
+  minWidth: 'var(--sp-6)',
+  textAlign: 'center',
+  fontFamily: 'var(--font-display)',
+  fontSize: 'var(--fs-md)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const outOfStockNote: CSSProperties = {
+  alignSelf: 'center',
+  flexShrink: 0,
+  maxWidth: '84px',
+  fontSize: 'var(--fs-caption)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--danger-600)',
+  textAlign: 'center',
 };
 
 // Khung ảnh: kích thước do class `.shop-top-thumb` quyết định (mobile 56 / desktop 72).

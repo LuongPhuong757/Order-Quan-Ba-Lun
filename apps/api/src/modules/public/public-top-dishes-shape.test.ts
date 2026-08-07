@@ -12,12 +12,25 @@ const ROW = {
   price: '150000', // cột số qua getRawMany() có thể là string
   image_url: '/uploads/menu/x.webp',
   qty: '42', // SQL SUM() trả string
+  is_out_of_stock: 0, // MySQL trả boolean là 0/1
 };
 
-describe('toPublicTopDish — đúng 6 field, không hơn', () => {
-  it('output có đúng 6 key', () => {
+describe('toPublicTopDish — đúng 7 field, không hơn', () => {
+  it('output có đúng 7 key', () => {
     const result = toPublicTopDish(ROW);
-    expect(Object.keys(result).sort()).toEqual(['id', 'images', 'name', 'price', 'qty', 'unit'].sort());
+    expect(Object.keys(result).sort()).toEqual(
+      ['id', 'images', 'is_out_of_stock', 'name', 'price', 'qty', 'unit'].sort(),
+    );
+  });
+
+  // Cờ hết hàng quyết định nút "+" trên bảng xếp hạng có bấm được không — ép sai kiểu ở đây là
+  // mời khách đặt món quán không làm được (hoặc khoá nút của món còn hàng).
+  it('is_out_of_stock: 0/1 và "0"/"1" của driver đều ra boolean đúng', () => {
+    expect(toPublicTopDish(ROW).is_out_of_stock).toBe(false);
+    expect(toPublicTopDish({ ...ROW, is_out_of_stock: 1 }).is_out_of_stock).toBe(true);
+    expect(toPublicTopDish({ ...ROW, is_out_of_stock: '0' }).is_out_of_stock).toBe(false);
+    expect(toPublicTopDish({ ...ROW, is_out_of_stock: '1' }).is_out_of_stock).toBe(true);
+    expect(toPublicTopDish({ ...ROW, is_out_of_stock: true }).is_out_of_stock).toBe(true);
   });
 
   it('qty/price string từ SQL → number', () => {
