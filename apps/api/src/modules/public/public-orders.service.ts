@@ -144,7 +144,9 @@ export class PublicOrdersService {
       );
       const id = rows[0]?.id;
       if (id) {
-        await this.outbox.enqueueForNewRequest(id, ctx.nowMs, mgr);
+        // `settings` truyền vào — outbox mà tự gọi `readAll()` ở đây là xin connection thứ hai
+        // giữa transaction (xem "QUY TẮC 1 CONNECTION" ở docblock trên).
+        await this.outbox.enqueueForNewRequest(id, ctx.nowMs, mgr, settings);
       }
       return { result: txResult, requestId: id };
     });

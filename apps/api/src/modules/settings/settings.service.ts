@@ -3,8 +3,22 @@
 // cấm đọc thẳng cột `online_ordering_enabled` ở bất kỳ đâu khác, vì cột có thể ghi `false`
 // trong khi thực tế đã tự-ON qua nửa đêm (D-17, xem evaluateOrderingStatus()).
 //
-// Không cache trong bộ nhớ: công tắc phải phản ánh ngay lần đọc kế tiếp — khoảng cách giữa
-// "chủ quán tắt" và "khách bị chặn" phải bằng 0.
+// CACHE (2026-08-07) — chỉnh lại nguyên tắc "không cache" ban đầu, KHÔNG bỏ nó.
+//
+// Yêu cầu gốc vẫn giữ nguyên: *"khoảng cách giữa chủ quán tắt và khách bị chặn phải bằng 0"*.
+// `updateMany()` là đường GHI DUY NHẤT và nó xoá cache ngay tại chỗ, nên khoảng cách đó đúng
+// bằng 0 y như trước — cache chỉ thay đổi số lần chạm DB, không thay đổi thời điểm thấy giá trị mới.
+//
+// Vì sao phải làm: `readAll()` bị gọi ở 12 nơi, trong đó có những nơi nằm trong `ds.transaction()`.
+// Mỗi lần gọi là một connection xin thêm từ pool. Khi đông khách, cả 50 connection bị 50
+// transaction đang mở giữ và mỗi transaction lại chờ connection thứ 51 → treo cứng cả process
+// (đo được 2026-08-07: 100 đơn đồng thời → 100% timeout, phải `docker restart`).
+//
+// `inflight` quan trọng ngang cache: 100 request đến lúc cache nguội thì chỉ MỘT truy vấn được
+// bắn đi, 99 cái còn lại chờ chung kết quả. Không có nó thì lúc cache nguội vẫn đúng 100 query.
+//
+// TTL chỉ là lưới an toàn cho trường hợp settings bị sửa NGOÀI process (vá tay thẳng vào DB, hoặc
+// mai này chạy nhiều instance API). Đường ghi trong app không dựa vào TTL.
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,17 +33,48 @@ import { evaluateOrderingStatus, type OrderingStatus, type StoreOrderingSettings
 
 type Actor = { user_id: string; full_name: string };
 
+/** Lưới an toàn cho sửa đổi NGOÀI process. Đường ghi trong app xoá cache ngay nên không chờ TTL. */
+export const SETTINGS_CACHE_TTL_MS = 3_000;
+
 @Injectable()
 export class SettingsService {
   private readonly logger = new Logger(SettingsService.name);
+  private cache: { at: number; value: StoreSettingsMap } | null = null;
+  private inflight: Promise<StoreSettingsMap> | null = null;
 
   constructor(
     @InjectRepository(StoreSetting) private readonly repo: Repository<StoreSetting>,
   ) {}
 
   /** Đọc mọi row, parse theo `kind`, merge lên SETTINGS_DEFAULTS_MAP (key chưa có row → default).
-   * DB trống vẫn chạy đúng — không cần seed script, row chỉ sinh khi admin ghi lần đầu. */
+   * DB trống vẫn chạy đúng — không cần seed script, row chỉ sinh khi admin ghi lần đầu.
+   *
+   * Có cache + gộp request trùng — xem đầu file. `updateMany()` xoá cache nên chủ quán bấm lưu
+   * là lần đọc kế tiếp thấy ngay, không phải đợi TTL. */
   async readAll(): Promise<StoreSettingsMap> {
+    const now = Date.now();
+    if (this.cache && now - this.cache.at < SETTINGS_CACHE_TTL_MS) return this.cache.value;
+    // Đã có một lượt đọc đang bay → bám vào nó thay vì bắn thêm query. Đây là thứ giữ cho lúc
+    // cache nguội + 100 request đồng thời chỉ tốn 1 connection chứ không phải 100.
+    if (this.inflight) return this.inflight;
+
+    this.inflight = this.fetchAll()
+      .then((value) => {
+        this.cache = { at: Date.now(), value };
+        return value;
+      })
+      .finally(() => {
+        this.inflight = null;
+      });
+    return this.inflight;
+  }
+
+  /** Xoá cache — gọi sau MỌI thao tác ghi vào `store_settings`. */
+  invalidate(): void {
+    this.cache = null;
+  }
+
+  private async fetchAll(): Promise<StoreSettingsMap> {
     const rows = await this.repo.find();
     const result = { ...SETTINGS_DEFAULTS_MAP } as Record<string, unknown>;
     for (const row of rows) {
@@ -79,6 +124,9 @@ export class SettingsService {
         }),
       );
     }
+    // TRƯỚC `readAll()` — không thì hàm này trả về đúng bản cache cũ vừa bị mình ghi đè, và chủ
+    // quán bấm Lưu xong nhìn thấy giá trị cũ quay lại.
+    this.invalidate();
     return this.readAll();
   }
 }

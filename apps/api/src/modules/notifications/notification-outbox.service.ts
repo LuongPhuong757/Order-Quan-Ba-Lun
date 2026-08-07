@@ -5,6 +5,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In } from 'typeorm';
 import { SettingsService } from '../settings/settings.service.js';
+import type { StoreSettingsMap } from '../settings/settings.defaults.js';
 import { NotificationOutbox } from './entities/notification-outbox.entity.js';
 import { nextAttemptDecision, planOutboxRows } from './outbox-rules.js';
 
@@ -24,9 +25,23 @@ export class NotificationOutboxService {
    * settings). Nhận `mgr` tuỳ chọn để plan 09-09 gọi BÊN TRONG transaction submit — outbox
    * pattern: hàng thông báo và hàng đơn cùng commit hoặc cùng rollback, không được có đơn
    * mà không có lịch SMS.
+   *
+   * ⚠ 2026-08-07 — `settings` nay TRUYỀN VÀO được. Khi gọi từ trong transaction thì người gọi
+   * PHẢI truyền, vì `settingsSvc.readAll()` ở đây là xin connection thứ hai giữa lúc đang giữ
+   * transaction — chính xác thứ đã treo cứng cả process khi 100 khách đặt cùng lúc. Nhận `mgr`
+   * mà vẫn tự đọc settings là "đúng một nửa", và nửa sai mới là nửa giết hệ thống. Xem
+   * "QUY TẮC 1 CONNECTION" ở `PublicOrdersService.submit()`.
    */
-  async enqueueForNewRequest(requestId: string, nowMs: number, mgr?: EntityManager): Promise<void> {
-    const settings = await this.settingsSvc.readAll();
+  async enqueueForNewRequest(
+    requestId: string,
+    nowMs: number,
+    mgr?: EntityManager,
+    presetSettings?: Pick<
+      StoreSettingsMap,
+      'escalate_sms_after_s' | 'notify_sms_recipients' | 'notify_email_recipients'
+    >,
+  ): Promise<void> {
+    const settings = presetSettings ?? (await this.settingsSvc.readAll());
     const rows = planOutboxRows({
       requestId,
       nowMs,
