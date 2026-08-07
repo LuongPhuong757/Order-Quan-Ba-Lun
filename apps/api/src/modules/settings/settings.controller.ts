@@ -74,6 +74,9 @@ class UpdateSettingsDto {
   @IsOptional() @IsNumber() @Min(-90) @Max(90) store_lat?: number;
   @IsOptional() @IsNumber() @Min(-180) @Max(180) store_lng?: number;
   @IsOptional() @IsInt() @Min(0) @Max(100) free_ship_km?: number;
+  // Trần 200.000đ/km: cao hơn mọi bảng giá ship thật, nhưng vẫn chặn được cú gõ nhầm thừa số 0
+  // (5.000 → 500.000) vốn sẽ hiện thẳng thành phí tạm tính trên trang khách.
+  @IsOptional() @IsInt() @Min(0) @Max(200_000) ship_fee_per_km?: number;
   @IsOptional() @IsNumber() @Min(1) @Max(3) distance_factor?: number;
   @IsOptional() pickup_enabled?: boolean;
   @IsOptional() delivery_enabled?: boolean;
@@ -145,6 +148,7 @@ export class SettingsController {
       'store_lat',
       'store_lng',
       'free_ship_km',
+      'ship_fee_per_km',
       'distance_factor',
       'pickup_enabled',
       'delivery_enabled',

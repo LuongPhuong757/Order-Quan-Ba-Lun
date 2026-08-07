@@ -36,6 +36,11 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   { key: 'store_lat', kind: 'json', default: null },
   { key: 'store_lng', kind: 'json', default: null },
   { key: 'free_ship_km', kind: 'int', default: 10 },
+  // ── Giá ship mỗi km NGOÀI bán kính miễn phí (2026-08-06) ──
+  // 0 = CHƯA CẤU HÌNH → không đâu hiện phí tạm tính, ô phí ship ở màn duyệt để trống như trước.
+  // Mặc định phải là 0 chứ không phải một con số "hợp lý": quán nào cũng có bảng giá riêng, đoán
+  // hộ họ là khách đọc được một con số quán chưa bao giờ đồng ý.
+  { key: 'ship_fee_per_km', kind: 'int', default: 0 },
   { key: 'distance_factor', kind: 'float', default: 1.3 },
   { key: 'pickup_enabled', kind: 'bool', default: true },
   { key: 'delivery_enabled', kind: 'bool', default: true },
@@ -92,6 +97,7 @@ export type StoreSettingsMap = {
   store_lat: number | null;
   store_lng: number | null;
   free_ship_km: number;
+  ship_fee_per_km: number;
   distance_factor: number;
   pickup_enabled: boolean;
   delivery_enabled: boolean;

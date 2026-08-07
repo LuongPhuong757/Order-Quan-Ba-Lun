@@ -58,3 +58,38 @@ export const PublicStoreStatus = z.object({
   }),
 });
 export type PublicStoreStatus = z.infer<typeof PublicStoreStatus>;
+
+/**
+ * `POST /api/public/ship-quote` — ước tính khoảng cách + phí giao TRƯỚC khi khách gửi đơn
+ * (2026-08-06).
+ *
+ * Vì sao là endpoint riêng chứ không nhét toạ độ quán vào `GET /api/public/store` cho FE tự tính:
+ * `store_lat`/`store_lng` CỐ Ý không công khai (xem đầu file này), và "BE là nơi duy nhất tính
+ * Haversine" là ranh giới đã chốt từ M2.D-49/D-50. Cho FE tính thì con số khách thấy ở checkout và
+ * con số quán thấy ở màn duyệt đơn sẽ trôi khỏi nhau ngay lần đầu ai đó sửa hệ số đường bộ.
+ *
+ * POST chứ không GET: toạ độ nhà khách không nên nằm trên URL (log truy cập, header Referer).
+ */
+export const PublicShipQuoteInput = z.object({
+  lat: z.number().min(-90).max(90),
+  lng: z.number().min(-180).max(180),
+});
+export type PublicShipQuoteInput = z.infer<typeof PublicShipQuoteInput>;
+
+export const PublicShipQuote = z.object({
+  /** Km đường bộ ƯỚC TÍNH (Haversine × `distance_factor`). `null` = quán chưa cấu hình toạ độ
+   * → không có gốc để đo, và FE phải im lặng thay vì đoán bừa. */
+  distance_km: z.number().nullable(),
+  /**
+   * Phí giao TẠM TÍNH theo `free_ship_km` + `ship_fee_per_km`. `null` = chưa tính được
+   * (thiếu toạ độ quán) HOẶC chủ quán chưa đặt giá mỗi km (`ship_fee_per_km = 0`) — hai trường
+   * hợp đều có nghĩa "đừng hứa với khách một con số nào", khác hẳn `0` nghĩa là MIỄN PHÍ.
+   *
+   * Đây LUÔN là ước tính: phí chốt thật do quán nhập lúc duyệt đơn (M2.D-62), và mọi câu chữ FE
+   * kèm số này phải nói rõ điều đó.
+   */
+  ship_fee: z.number().int().nonnegative().nullable(),
+  /** Bán kính miễn phí đang áp dụng — FE dùng để giải thích vì sao phí bằng 0. */
+  free_ship_km: z.number().int(),
+});
+export type PublicShipQuote = z.infer<typeof PublicShipQuote>;

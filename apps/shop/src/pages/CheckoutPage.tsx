@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { z } from 'zod';
-import { OnlineOrderSubmit, PublicStoreStatus } from '@order/schemas';
+import { OnlineOrderSubmit, PublicShipQuote, PublicStoreStatus } from '@order/schemas';
 import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
 import {
   clearCartNote,
@@ -11,9 +11,10 @@ import {
   useCart,
   type CartLine,
 } from '../lib/cart-store.ts';
+import { readEditSession } from '../lib/order-edit.ts';
+import { nextOpeningText } from '../lib/open-hours.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
-import * as MapsLink from '../lib/maps-link.ts';
-import { useGeolocation, type GeolocationErrorKind } from '../lib/use-geolocation.ts';
+import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
@@ -60,58 +61,6 @@ const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn nà
 // D-11 — `STORE_OFF_HINT` đã bị xoá cùng lúc bỏ khoá nút: nút gửi đơn không bao giờ bị vô hiệu vì
 // công tắc nữa, nên không còn dòng gợi ý nào để giải thích chuyện đó.
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
-/**
- * Câu chữ theo TỪNG lý do thất bại (2026-08-05). Bản trước chỉ có một câu chung "Không lấy
- * được vị trí. Bạn nhập địa chỉ ở trên là được nhé." — chủ dự án gặp đúng câu đó trên iPhone
- * thật và không biết phải làm gì, vì câu đó không phân biệt được:
- *   - quyền bị chặn  → bấm lại 10 lần cũng vô ích, phải vào Cài đặt máy
- *   - quá thời gian  → bấm lại là xong
- * Vẫn KHÔNG hiện mã lỗi kỹ thuật, chỉ nói việc cần làm. Cả 4 câu đều nhắc lại đường thoát an
- * toàn (nhập địa chỉ tay) vì toạ độ chưa bao giờ là bắt buộc (D-19/D-20).
- */
-const geoFailedMessage = (kind: GeolocationErrorKind | null): string => {
-  switch (kind) {
-    case 'denied':
-      return 'Trình duyệt đang chặn quyền vị trí của trang này. iPhone: Cài đặt → Safari → Vị trí → chọn "Hỏi" rồi bấm lại. Hoặc bỏ qua, chỉ cần nhập địa chỉ ở trên.';
-    case 'timeout':
-      return 'Máy lấy vị trí quá lâu. Bạn bấm thử lại (ra chỗ thoáng thì nhanh hơn), hoặc chỉ cần nhập địa chỉ ở trên.';
-    case 'unsupported':
-      return 'Trình duyệt trong ứng dụng này không cho lấy vị trí. Bạn mở link bằng Safari/Chrome, hoặc chỉ cần nhập địa chỉ ở trên.';
-    default:
-      return 'Máy chưa lấy được tín hiệu vị trí. Bạn kiểm tra đã bật Dịch vụ định vị chưa rồi thử lại, hoặc chỉ cần nhập địa chỉ ở trên.';
-  }
-};
-/** Bấm "Lấy lại vị trí" mà GPS hỏng: đơn VẪN có toạ độ cũ, nên không được nói "không lấy được
- *  vị trí" như trên (khách tưởng mất trắng) — phải nói rõ là giữ vị trí đã có. Thiếu dòng này
- *  thì cú bấm thất bại không đổi gì trên màn hình, đúng kiểu lỗi im lặng. */
-const GEO_RETRY_FAILED_MESSAGE = 'Không lấy lại được vị trí mới — quán vẫn nhận vị trí bạn đã chia sẻ.';
-const SHORT_LINK_MESSAGE =
-  "Link rút gọn chưa đọc được toạ độ. Bạn mở link đó rồi copy lại link đầy đủ, hoặc bấm 'Chia sẻ vị trí' phía trên.";
-/**
- * Câu cũ chỉ có 8 chữ "Link này không chứa toạ độ." — đúng nhưng bỏ khách đứng đó, vì phần lớn
- * link copy từ Google Maps (link tên địa điểm, link kết quả tìm kiếm) THẬT SỰ không mang toạ độ
- * và khách không có cách nào tự biết phải lấy link kiểu nào. Nay chỉ luôn cách lấy.
- */
-const NO_COORDS_MESSAGE =
-  'Link này không mang toạ độ. Cách nhanh nhất: mở Google Maps, NHẤN GIỮ vào đúng chỗ nhà bạn cho ghim đỏ hiện ra, rồi copy dãy số toạ độ ở ô trên cùng và dán vào đây.';
-// Cắt bớt phần "quán sẽ thấy khoảng cách chính xác" (2026-08-05): dòng phụ ngay trên đã nói
-// công dụng rồi, để cả câu thì dòng trạng thái xanh dài 2 hàng, chen giữa card trông chật.
-const HAS_LOCATION_COPY = 'Đã có vị trí của bạn';
-/**
- * Nhãn + dòng phụ của khối vị trí (2026-08-05). Trước đây khối này chỉ có đúng cái nút
- * "Chia sẻ vị trí của bạn" nằm ngay dưới ô địa chỉ, không nhãn không giải thích — khách đọc
- * ra thành "cách khác thay cho việc nhập địa chỉ", làm xong rồi thấy phải nhập địa chỉ nữa
- * nên tưởng app bắt làm hai lần. Phải nói thẳng: không bắt buộc, và để làm gì.
- */
-const LOCATION_LABEL = 'Vị trí GPS (không bắt buộc)';
-const LOCATION_HINT =
-  'Giúp quán tính đúng khoảng cách và phí giao. Vẫn cần địa chỉ ở trên để shipper tìm được số nhà.';
-const LOCATION_VERIFY_COPY = 'Xem trên bản đồ';
-const LOCATION_RETRY_COPY = 'Lấy lại vị trí';
-/** Trên ngưỡng này thì toạ độ chỉ còn để ước lượng km, không đủ để tìm nhà → phải nói ra. */
-const LOW_ACCURACY_THRESHOLD_M = 200;
-const lowAccuracyCopy = (meters: number): string =>
-  `Vị trí chỉ chính xác khoảng ${Math.round(meters)}m — bạn mở bản đồ kiểm tra và ghi rõ số nhà giúp quán nhé.`;
 const NAME_REQUIRED_MSG = 'Vui lòng nhập họ và tên';
 const PHONE_INVALID_MSG = 'Số điện thoại không hợp lệ';
 const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập địa chỉ giao hàng';
@@ -119,6 +68,18 @@ const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập địa chỉ giao hàng';
 /** Copy phí ship khi chưa biết km chính xác — nguyên văn bảng Copywriting UI-SPEC. */
 function shipFeeUnknownCopy(freeShipKm: number): string {
   return `Trong ${freeShipKm} km miễn phí, xa hơn có phụ phí — phí cuối do quán xác nhận khi gọi lại`;
+}
+
+/**
+ * Câu đi kèm mọi con số phí ship tạm tính (2026-08-06). BẮT BUỘC phải có mặt ở mọi chỗ hiện số
+ * đó: phí chốt thật là số quán gõ lúc duyệt đơn (M2.D-62), và một con số không kèm chữ "tạm tính"
+ * là một lời hứa ta không giữ được — khách chuẩn bị đúng số tiền đó rồi shipper đòi khác.
+ */
+const SHIP_ESTIMATE_HINT = 'Phí tạm tính theo khoảng cách — quán xác nhận lại khi gọi.';
+
+/** `2.4` → `2,4 km`. Một chữ số thập phân: km chính xác tới 10m là độ chính xác giả. */
+function formatKm(km: number): string {
+  return `${km.toFixed(1).replace('.', ',')} km`;
 }
 
 /** Validate cục bộ trước khi bật nút submit chính. Geolocation KHÔNG nằm trong điều kiện này. */
@@ -174,7 +135,6 @@ export function CheckoutPage(): JSX.Element {
   const navigate = useNavigate();
   const cart = useCart();
   const store = useApi('/api/public/store', PublicStoreStatus);
-  const geo = useGeolocation();
   const lastCustomer = useMemo(() => CustomerToken.readLastCustomer(), []);
   const cartNote = useMemo(() => readCartNote(), []);
 
@@ -192,10 +152,7 @@ export function CheckoutPage(): JSX.Element {
   // `accuracy_m`: chỉ GPS mới có sai số; toạ độ lấy từ link Maps do khách tự chọn điểm nên
   // không có khái niệm sai số → null, và không hiện dòng cảnh báo.
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy_m: number | null } | null>(null);
-  const [mapLinkRaw, setMapLinkRaw] = useState('');
   const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
-  const [showMapLinkInput, setShowMapLinkInput] = useState(false);
-  const [mapLinkMessage, setMapLinkMessage] = useState<string | null>(null);
   const [extraFieldErrors, setExtraFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ApiError | null>(null);
@@ -206,6 +163,56 @@ export function CheckoutPage(): JSX.Element {
   // trên thiết bị (hoặc khác số đang đăng nhập) → verify OTP xong mới tới popup; có phiên
   // đúng số thì bỏ qua hẳn — không hỏi lại, không tốn tin nhắn.
   const [otpOpen, setOtpOpen] = useState(false);
+
+  /**
+   * Ước tính km + phí giao ngay khi khách vừa chia sẻ vị trí (2026-08-06).
+   *
+   * Trước đó dòng "Phí giao hàng" ở đây LUÔN là một câu hẹn ("phí cuối do quán xác nhận khi gọi
+   * lại"), kể cả khi khách đã bấm chia sẻ GPS. Khách ở xa chốt đơn mà không biết mình phải trả
+   * thêm bao nhiêu, và con số thật chỉ tới ở cú điện thoại xác nhận — đúng lúc dễ mất đơn nhất.
+   *
+   * BE tính (`POST /api/public/ship-quote`), FE chỉ hiển thị: toạ độ quán không công khai và
+   * "BE là nơi duy nhất tính Haversine" là ranh giới đã chốt. Nhờ vậy con số ở đây và con số điền
+   * sẵn ô phí ship của nhân viên là CÙNG một phép tính.
+   *
+   * Hỏng thì IM LẶNG (giữ nguyên câu hẹn cũ): đây là thông tin thêm, không phải điều kiện để đặt
+   * đơn — bày một banner lỗi cho một phép tính phụ là chặn khách vì việc của mình.
+   */
+  const [quote, setQuote] = useState<PublicShipQuote | null>(null);
+  useEffect(() => {
+    if (fulfillment !== 'DELIVERY' || location === null) {
+      setQuote(null);
+      return;
+    }
+    let cancelled = false;
+    void postJson(
+      '/api/public/ship-quote',
+      { lat: location.lat, lng: location.lng },
+      PublicShipQuote,
+    ).then((result) => {
+      if (cancelled) return;
+      setQuote('error' in result ? null : result.data);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // Theo toạ độ chứ không theo tham chiếu object: `location` được dựng mới mỗi lần khách bấm
+    // "Lấy lại vị trí", nhưng nếu toạ độ y như cũ thì không cần hỏi lại BE.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fulfillment, location?.lat, location?.lng]);
+
+  /** Phí tạm tính CÓ CỘNG vào tổng hay không. Chỉ cộng khi BE trả một con số thật (`null` là
+   *  "không biết", xem `PublicShipQuote`) — cộng 0 cho một đơn chưa tính được là hứa miễn phí. */
+  const estimatedShipFee = fulfillment === 'DELIVERY' ? (quote?.ship_fee ?? null) : null;
+  const shownTotal = shownSubtotal + (estimatedShipFee ?? 0);
+
+  // Đang ở chế độ SỬA ĐƠN (2026-08-06) mà lọt vào đây (gõ tay URL, nút Back) → đá về `/cart`.
+  // Bước 2 này luôn tạo ĐƠN MỚI; chạy nó với giỏ đang mang món của đơn cũ là đặt trùng một đơn
+  // khách tưởng mình đang sửa. BE vẫn chặn được (1 đơn mở / 1 SĐT) nhưng khách chỉ nhận một câu
+  // 409 khó hiểu ở cuối luồng, thay vì không bao giờ đi vào ngõ cụt đó.
+  useEffect(() => {
+    if (readEditSession() !== null) navigate('/cart', { replace: true });
+  }, [navigate]);
 
   // Giỏ rỗng — không cho đứng ở bước 2, quay lại /cart. `!submitting` là chốt chặn cho lúc
   // VỪA ĐẶT XONG: cart.clear() làm giỏ về 0 và nếu effect này chen được vào giữa thì nó đá
@@ -230,32 +237,14 @@ export function CheckoutPage(): JSX.Element {
     }
   }, [store.data, defaultApplied, lastCustomer]);
 
-  // Geolocation thành công → dùng làm nguồn toạ độ hiện hành, bỏ link Maps cũ (nếu có) —
-  // khách bấm nút sau khi đã dán link thì kết quả GPS thật mới nhất phải thắng.
-  useEffect(() => {
-    if (geo.coords) {
-      setLocation({ lat: geo.coords.lat, lng: geo.coords.lng, accuracy_m: geo.coords.accuracy_m });
-      setMapLinkValue(null);
-    }
-  }, [geo.coords]);
-
-  const handleMapLinkConfirm = (): void => {
-    const result = MapsLink.parseMapsLink(mapLinkRaw);
-    if ('error' in result) {
-      setMapLinkMessage(result.error === 'SHORT_LINK' ? SHORT_LINK_MESSAGE : NO_COORDS_MESSAGE);
-      return;
-    }
-    setLocation({ ...result, accuracy_m: null });
-    setMapLinkValue(mapLinkRaw);
-    setMapLinkMessage(null);
-  };
-
   const fieldErrors = computeFieldErrors(name, phone, address, fulfillment);
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
   const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
   // D-11 — `storeOff` GIỮ LẠI nhưng đổi ý nghĩa: nay chỉ để biết CÓ HIỆN BANNER không, không còn
   // là điều kiện khoá nút gửi đơn. Quán Đóng cửa vẫn nhận đơn bình thường.
   const storeOff = store.data ? store.data.ordering_enabled === false : false;
+  /** "Quán mở lại lúc …" cho banner đóng cửa — xem `open-hours.ts`. */
+  const reopenText = store.data ? nextOpeningText(store.data.open_hours, Date.now()) : null;
   const ctaDisabled = hasFieldErrors || submitting;
 
   let ctaHint: string = DISCLOSURE_COPY;
@@ -412,7 +401,16 @@ export function CheckoutPage(): JSX.Element {
         <BannerNotice
           tone="brand"
           title="Quán đang đóng cửa"
-          body={store.data.closed_banner_text}
+          body={
+            <>
+              {store.data.closed_banner_text}
+              {/* Cùng quy tắc với banner ở trang menu (2026-08-06): thêm dòng "mở lại lúc …", chỉ
+                  khi lý do đóng là NGOÀI GIỜ — và không đụng một chữ nào của chủ quán. */}
+              {store.data.blocking_reason === 'OUTSIDE_HOURS' && reopenText !== null && (
+                <span style={reopenLine}>{reopenText}</span>
+              )}
+            </>
+          }
         />
       )}
 
@@ -447,9 +445,16 @@ export function CheckoutPage(): JSX.Element {
           <label style={fieldLabel} htmlFor="checkout-name">
             Họ và tên
           </label>
+          {/* `autoComplete` (2026-08-06): 3 ô này trước đây không khai gì, nên trình duyệt không
+              mời điền sẵn tên/SĐT/địa chỉ đã lưu và khách gõ tay cả 3 dòng trên điện thoại. Tên
+              chuẩn của HTML (`name`/`tel`/`street-address`) chứ không phải chuỗi tự đặt — trình
+              duyệt chỉ nhận đúng bộ từ khoá này.
+              Không đụng gì tới autofill riêng của quán (`readLastCustomer`, M2.D-12): hai thứ bù
+              cho nhau — lần đầu vào máy chưa có dữ liệu quán thì trình duyệt gánh. */}
           <input
             id="checkout-name"
             type="text"
+            autoComplete="name"
             value={name}
             maxLength={128}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
@@ -466,6 +471,7 @@ export function CheckoutPage(): JSX.Element {
             id="checkout-phone"
             type="tel"
             inputMode="tel"
+            autoComplete="tel"
             value={phone}
             maxLength={16}
             onChange={(e: ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
@@ -483,6 +489,7 @@ export function CheckoutPage(): JSX.Element {
               <input
                 id="checkout-address"
                 type="text"
+                autoComplete="street-address"
                 value={address}
                 maxLength={255}
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
@@ -491,107 +498,15 @@ export function CheckoutPage(): JSX.Element {
               {displayFieldErrors.address && <p style={errorText}>{displayFieldErrors.address}</p>}
             </div>
 
-            {/* Khối vị trí = MỘT CARD riêng, không phải mấy dòng rời rạc trôi cùng cấp với ô
-                địa chỉ (sửa 2026-08-05: bản trước có 3 link gạch chân đỏ xếp liền nhau + ô dán
-                link tràn khỏi khung, nhìn rối và vỡ layout). Trật tự trong card: nói đây là gì
-                → kết quả hiện tại → việc có thể làm → đường phụ (dán link) nằm cuối, chữ nhạt. */}
-            <div style={locationCard}>
-              <span style={fieldLabel}>{LOCATION_LABEL}</span>
-              <p style={locationHintText}>{LOCATION_HINT}</p>
-
-              {/* Trạng thái đứng TRƯỚC nút: khách đọc "đã có vị trí" rồi mới tới việc cần làm. */}
-              {location && (
-                <p
-                  style={
-                    location.accuracy_m !== null && location.accuracy_m > LOW_ACCURACY_THRESHOLD_M
-                      ? locationWarnText
-                      : locationOkText
-                  }
-                >
-                  {location.accuracy_m !== null && location.accuracy_m > LOW_ACCURACY_THRESHOLD_M
-                    ? lowAccuracyCopy(location.accuracy_m)
-                    : `✓ ${HAS_LOCATION_COPY}`}
-                </p>
-              )}
-              {geo.state === 'failed' && (
-                <p style={geoFailedText}>
-                  {location ? GEO_RETRY_FAILED_MESSAGE : geoFailedMessage(geo.errorKind)}
-                </p>
-              )}
-
-              {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là
-                  "Xem trên bản đồ" (đường duy nhất để khách tự kiểm tra), "Lấy lại vị trí" đứng
-                  cạnh dưới dạng chữ nhạt để không tranh mắt với nó. */}
-              <div style={locationActionRow}>
-                {location ? (
-                  <>
-                    <a
-                      href={MapsLink.buildMapsUrl(location.lat, location.lng)}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={geoButton}
-                    >
-                      <PinGlyph />
-                      {LOCATION_VERIFY_COPY}
-                    </a>
-                    <button
-                      type="button"
-                      style={geo.state === 'asking' ? { ...quietAction, ...geoButtonDisabled } : quietAction}
-                      disabled={geo.state === 'asking'}
-                      onClick={geo.request}
-                    >
-                      {geo.state === 'asking' ? 'Đang lấy...' : LOCATION_RETRY_COPY}
-                    </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    style={geo.state === 'asking' ? { ...geoButton, ...geoButtonDisabled } : geoButton}
-                    disabled={geo.state === 'asking'}
-                    onClick={geo.request}
-                  >
-                    <PinGlyph />
-                    {geo.state === 'asking'
-                      ? 'Đang lấy vị trí...'
-                      : geo.state === 'failed'
-                        ? 'Thử lại'
-                        : 'Chia sẻ vị trí của bạn'}
-                  </button>
-                )}
-              </div>
-
-              {/* Đường phụ, tách bằng đường kẻ mảnh + chữ nhạt: khách bình thường không cần đọc. */}
-              <div style={mapLinkFoot}>
-                <button type="button" style={mapLinkToggle} onClick={() => setShowMapLinkInput((v) => !v)}>
-                  {showMapLinkInput ? 'Ẩn ô dán link Google Maps' : 'Hoặc dán link Google Maps'}
-                </button>
-
-                {showMapLinkInput && (
-                  <div style={mapLinkRow}>
-                    <input
-                      type="text"
-                      value={mapLinkRaw}
-                      // Gõ/dán lại là XOÁ thông báo lỗi cũ: bản trước giữ nguyên câu "Link này
-                      // không chứa toạ độ" kể cả khi khách đã xoá trắng ô và dán link khác, nên
-                      // màn hình đang báo lỗi cho một nội dung không còn tồn tại.
-                      onChange={(e: ChangeEvent<HTMLInputElement>) => {
-                        setMapLinkRaw(e.target.value);
-                        setMapLinkMessage(null);
-                      }}
-                      placeholder="Dán link vào đây"
-                      // `minWidth: 0` + `flexWrap` ở hàng cha là chốt chống vỡ: input mặc định có
-                      // chiều rộng tối thiểu ~180px của UA, thiếu 2 thứ này thì nó đẩy nút "Xác
-                      // nhận" tràn khỏi card trên máy 390px (đúng ảnh chủ dự án gửi).
-                      style={{ ...inputBase, fontSize: 'var(--fs-base)', flex: '1 1 150px', minWidth: 0 }}
-                    />
-                    <button type="button" style={mapLinkConfirmBtn} onClick={handleMapLinkConfirm}>
-                      Xác nhận
-                    </button>
-                  </div>
-                )}
-                {mapLinkMessage && <p style={mapLinkMessageStyle}>{mapLinkMessage}</p>}
-              </div>
-            </div>
+            {/* Khối vị trí đã tách sang `components/LocationPicker.tsx` (2026-08-06) để màn SỬA
+                ĐƠN ở `/cart` dùng lại nguyên vẹn — xem docblock component đó về lý do. */}
+            <LocationPicker
+              location={location}
+              onChange={(loc, link) => {
+                setLocation(loc);
+                setMapLinkValue(link);
+              }}
+            />
           </>
         )}
       </section>
@@ -609,10 +524,33 @@ export function CheckoutPage(): JSX.Element {
           <span style={summaryLabel}>Tạm tính</span>
           <span style={summaryValue}>{formatVnd(shownSubtotal)}</span>
         </div>
+        {/* 3 mức thông tin về phí giao, tuỳ ta biết được tới đâu — KHÔNG bao giờ bịa mức cao hơn:
+            1. có km + có phí   → con số tạm tính (cộng vào tổng, kèm câu "quán xác nhận lại");
+            2. có km, chưa có bảng giá mỗi km → hiện km thôi (đã hữu ích: khách tự đoán được xa/gần);
+            3. chưa chia sẻ vị trí → nguyên câu hẹn cũ của UI-SPEC. */}
         {fulfillment === 'DELIVERY' && (
           <div style={summaryRow}>
             <span style={summaryLabel}>Phí giao hàng</span>
-            <span style={shipHintStyle}>{shipFeeUnknownCopy(store.data?.free_ship_km ?? 0)}</span>
+            {estimatedShipFee !== null ? (
+              <span style={shipEstimateWrap}>
+                <span style={summaryValue}>
+                  {estimatedShipFee === 0 ? 'Miễn phí' : formatVnd(estimatedShipFee)}
+                </span>
+                {quote?.distance_km != null && (
+                  <span style={shipHintStyle}>
+                    ≈ {formatKm(quote.distance_km)}
+                    {estimatedShipFee === 0 ? ` · trong ${quote.free_ship_km} km miễn phí` : ''}
+                  </span>
+                )}
+              </span>
+            ) : quote?.distance_km != null ? (
+              <span style={shipEstimateWrap}>
+                <span style={summaryValue}>≈ {formatKm(quote.distance_km)}</span>
+                <span style={shipHintStyle}>{shipFeeUnknownCopy(quote.free_ship_km)}</span>
+              </span>
+            ) : (
+              <span style={shipHintStyle}>{shipFeeUnknownCopy(store.data?.free_ship_km ?? 0)}</span>
+            )}
           </div>
         )}
         {store.data && (
@@ -620,8 +558,13 @@ export function CheckoutPage(): JSX.Element {
         )}
         <div style={summaryRowTotal}>
           <span style={totalLabel}>Tổng cộng</span>
-          <span style={totalValue}>{formatVnd(shownSubtotal)}</span>
+          <span style={totalValue}>{formatVnd(shownTotal)}</span>
         </div>
+        {/* Câu này chỉ hiện khi tổng ĐÃ gồm một khoản tạm tính — nó giải thích đúng con số vừa
+            đọc, nên không được đứng đó khi tổng chỉ có tiền món. */}
+        {estimatedShipFee !== null && estimatedShipFee > 0 && (
+          <p style={etaText}>{SHIP_ESTIMATE_HINT}</p>
+        )}
       </section>
 
       {/* Lỗi gửi đơn = toast XỔ TỪ TRÊN XUỐNG (chỉ đạo 2026-08-04), KHÔNG phải banner giữa
@@ -669,6 +612,11 @@ export function CheckoutPage(): JSX.Element {
         <ConfirmOrderModal
           lines={cart.lines}
           subtotal={cart.subtotal}
+          // Popup phải nói đúng con số khách vừa đọc ở phần tóm tắt: thấy "Tổng cộng" gồm phí ship
+          // ở trên rồi popup chốt đơn lại chỉ hiện tiền món là hai con số khác nhau ở hai bước
+          // liền nhau của cùng một đơn.
+          estimatedShipFee={estimatedShipFee}
+          distanceKm={quote?.distance_km ?? null}
           fulfillment={fulfillment}
           name={name}
           phone={phone}
@@ -695,6 +643,8 @@ export function CheckoutPage(): JSX.Element {
 function ConfirmOrderModal({
   lines,
   subtotal,
+  estimatedShipFee,
+  distanceKm,
   fulfillment,
   name,
   phone,
@@ -708,6 +658,9 @@ function ConfirmOrderModal({
 }: {
   lines: CartLine[];
   subtotal: number;
+  /** Phí giao TẠM TÍNH (`null` = chưa tính được → popup không hiện dòng nào về phí). */
+  estimatedShipFee: number | null;
+  distanceKm: number | null;
   fulfillment: Fulfillment;
   name: string;
   phone: string;
@@ -769,10 +722,34 @@ function ConfirmOrderModal({
           ))}
         </ul>
 
+        {/* Tách tiền món / phí giao thành 2 dòng khi có ước tính — cùng khuôn với hoá đơn ở trang
+            theo dõi đơn (`/o/:token`), nơi phí ship đã chốt cũng được tách ra chứ không gộp im
+            lặng vào tổng. */}
+        {estimatedShipFee !== null && (
+          <>
+            <div style={modalMoneyRow}>
+              <span style={modalMoneyLabel}>Tiền món</span>
+              <span style={modalMoneyValue}>{formatVnd(subtotal)}</span>
+            </div>
+            <div style={modalMoneyRow}>
+              <span style={modalMoneyLabel}>
+                Phí giao (tạm tính)
+                {distanceKm !== null ? ` · ≈ ${formatKm(distanceKm)}` : ''}
+              </span>
+              <span style={modalMoneyValue}>
+                {estimatedShipFee === 0 ? 'Miễn phí' : formatVnd(estimatedShipFee)}
+              </span>
+            </div>
+          </>
+        )}
+
         <div style={modalTotalRow}>
           <span style={totalLabel}>Tổng cộng</span>
-          <span style={modalTotalValue}>{formatVnd(subtotal)}</span>
+          <span style={modalTotalValue}>{formatVnd(subtotal + (estimatedShipFee ?? 0))}</span>
         </div>
+        {estimatedShipFee !== null && estimatedShipFee > 0 && (
+          <p style={modalShipHint}>{SHIP_ESTIMATE_HINT}</p>
+        )}
 
         <div style={modalNotice}>
           <span aria-hidden="true" style={modalNoticeIcon}>
@@ -791,25 +768,6 @@ function ConfirmOrderModal({
         </div>
       </div>
     </div>
-  );
-}
-
-function PinGlyph(): JSX.Element {
-  return (
-    <svg
-      width={18}
-      height={18}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21Z" />
-      <circle cx="12" cy="9.5" r="2.25" />
-    </svg>
   );
 }
 
@@ -843,6 +801,14 @@ const heading: CSSProperties = {
   fontFamily: 'var(--font-display)',
   fontSize: 'var(--fs-lg)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+/** Dòng "Quán mở lại lúc …" — cùng kiểu với bản ở MenuPage. */
+const reopenLine: CSSProperties = {
+  display: 'block',
+  marginTop: 'var(--sp-1)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
   color: 'var(--text-strong)',
 };
 
@@ -929,131 +895,6 @@ const errorText: CSSProperties = {
   color: 'var(--danger-600)',
 };
 
-/** Card gom cả khối vị trí lại thành một đơn vị, đặt trên nền `--bg-surface` để tách khỏi
- *  mấy ô input (nền lõm `--bg-sunken`) — mắt đọc form thấy ngay đây là phần phụ, đóng khung. */
-const locationCard: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--sp-2)',
-  padding: 'var(--pad-card-tight)',
-  background: 'var(--bg-surface)',
-  border: '1px solid var(--border-subtle)',
-  borderRadius: 'var(--r-card)',
-};
-
-const locationActionRow: CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--sp-3)',
-  flexWrap: 'wrap',
-};
-
-const geoButton: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  gap: 'var(--sp-2)',
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-3)',
-  border: '1px solid var(--brand-600)',
-  borderRadius: 'var(--r-button)',
-  background: 'transparent',
-  color: 'var(--brand-600)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  cursor: 'pointer',
-  alignSelf: 'flex-start',
-  // Style này nay dùng cho cả <a> "Xem trên bản đồ", không chỉ <button>.
-  textDecoration: 'none',
-};
-
-const geoButtonDisabled: CSSProperties = {
-  opacity: 'var(--opacity-disabled)',
-  cursor: 'not-allowed',
-};
-
-const geoFailedText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-sm)',
-  color: 'var(--text-muted)',
-};
-
-/** Hành động phụ đứng cạnh nút chính: chữ thường, KHÔNG gạch chân đỏ — bản trước để hai link
- *  đỏ gạch chân sát nhau nên không biết cái nào là việc chính. */
-const quietAction: CSSProperties = {
-  border: 'none',
-  background: 'transparent',
-  padding: 'var(--sp-2) 0',
-  color: 'var(--text-muted)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  cursor: 'pointer',
-};
-
-const mapLinkFoot: CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--sp-2)',
-  paddingTop: 'var(--sp-2)',
-  borderTop: '1px solid var(--border-subtle)',
-};
-
-const mapLinkToggle: CSSProperties = {
-  alignSelf: 'flex-start',
-  border: 'none',
-  background: 'transparent',
-  padding: 0,
-  color: 'var(--text-muted)',
-  fontSize: 'var(--fs-caption)',
-  cursor: 'pointer',
-  textDecoration: 'underline',
-};
-
-const mapLinkRow: CSSProperties = {
-  display: 'flex',
-  gap: 'var(--sp-2)',
-  // Máy hẹp: nút "Xác nhận" tự xuống hàng thay vì đẩy input tràn khỏi card.
-  flexWrap: 'wrap',
-};
-
-const mapLinkConfirmBtn: CSSProperties = {
-  flexShrink: 0,
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-3)',
-  border: '1px solid var(--brand-600)',
-  borderRadius: 'var(--r-button)',
-  background: 'transparent',
-  color: 'var(--brand-600)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  cursor: 'pointer',
-};
-
-const mapLinkMessageStyle: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--text-muted)',
-};
-
-const locationOkText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--herb-600)',
-};
-
-const locationHintText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--text-muted)',
-};
-
-/** Sai số lớn là LƯU Ý, không phải lỗi → dùng màu cảnh báo, không dùng `--danger-600`. */
-const locationWarnText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--warn-600)',
-};
-
 const recapBlock: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
@@ -1115,6 +956,16 @@ const shipHintStyle: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   color: 'var(--text-muted)',
   textAlign: 'right',
+};
+
+/** Cột phải của dòng "Phí giao hàng" khi đã có ước tính: con số ở trên, km/giải thích ở dưới —
+ *  hai thứ khác vai nên không nhồi vào một dòng chữ dài chạy tràn trên màn 390px. */
+const shipEstimateWrap: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: '2px',
+  minWidth: 0,
 };
 
 const etaText: CSSProperties = {
@@ -1237,6 +1088,33 @@ const modalItemPrice: CSSProperties = {
   flexShrink: 0,
   fontSize: 'var(--fs-sm)',
   color: 'var(--text-price-sm)',
+};
+
+// 2 dòng tiền món / phí giao trong popup — nhẹ hơn dòng "Tổng cộng" ngay dưới, để con số cuối
+// vẫn là thứ nổi nhất.
+const modalMoneyRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
+  gap: 'var(--sp-3)',
+};
+
+const modalMoneyLabel: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+};
+
+const modalMoneyValue: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-strong)',
+  whiteSpace: 'nowrap',
+};
+
+const modalShipHint: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
 };
 
 const modalTotalRow: CSSProperties = {
