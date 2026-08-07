@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { Link, NavLink, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Wordmark } from './Wordmark.tsx';
 import { CartIcon, CART_ICON_CSS } from './CartIcon.tsx';
+import { CloseGlyph, GuideGlyph, HamburgerGlyph, SearchGlyph } from './Glyphs.tsx';
 
 /**
  * Header sticky của apps/shop — 2 biến thể desktop/mobile (D-22 giả định #8).
@@ -102,6 +103,25 @@ export function Header({ cartCount }: Props): JSX.Element {
           </Link>
 
           <div style={mobileRight}>
+            {/* "Hướng dẫn" ĐỨNG NGOÀI drawer (chỉ đạo chủ dự án 2026-08-07): trước đây nó nằm
+                lẫn trong menu ba gạch nên khách mobile phải mở drawer mới thấy — khách lần đầu
+                không biết có trang hướng dẫn thì chẳng bao giờ mở ra tìm. Nay là một nút NỔI
+                (nền brand-050 + viền brand) bấm phát vào luôn. Vẫn giữ trong NAV_ITEMS để
+                desktop và drawer có đường vào thứ hai — thừa một lối vào không hại ai.
+                Chữ "Hướng dẫn" tự ẩn dưới 400px (xem MEDIA_CSS) để hàng nút không tràn
+                trên máy hẹp; lúc đó dấu "?" nổi màu vẫn đủ nghĩa. */}
+            <NavLink
+              to="/guide"
+              aria-label="Hướng dẫn đặt món"
+              style={({ isActive }) =>
+                isActive ? { ...guidePill, ...guidePillActive } : guidePill
+              }
+            >
+              <GuideGlyph />
+              <span className="shop-hd-guide-label" style={guidePillLabel}>
+                Hướng dẫn
+              </span>
+            </NavLink>
             <button
               type="button"
               aria-label="Tìm món"
@@ -199,59 +219,6 @@ export function Header({ cartCount }: Props): JSX.Element {
   );
 }
 
-function SearchGlyph(): JSX.Element {
-  return (
-    <svg
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <circle cx="11" cy="11" r="6.5" />
-      <path d="m20 20-4-4" />
-    </svg>
-  );
-}
-
-function HamburgerGlyph(): JSX.Element {
-  return (
-    <svg
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M4 6h16M4 12h16M4 18h16" />
-    </svg>
-  );
-}
-
-function CloseGlyph(): JSX.Element {
-  return (
-    <svg
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.75}
-      strokeLinecap="round"
-      aria-hidden="true"
-    >
-      <path d="M5 5l14 14M19 5 5 19" />
-    </svg>
-  );
-}
-
 // 2 khối DOM ẩn/hiện bằng CSS-only breakpoint — không JS resize listener.
 // + animation mở drawer điều hướng mobile: backdrop mờ dần vào, drawer trượt từ phải
 // (chỉ transform/opacity — rule layout-transition). Chỉ có animation VÀO: đóng là
@@ -259,6 +226,13 @@ function CloseGlyph(): JSX.Element {
 const MEDIA_CSS = `
 .shop-hd-desktop { display: none; }
 .shop-hd-mobile { display: block; }
+/* Nhãn "Hướng dẫn" chỉ hiện khi hàng nút còn chỗ. Dưới 400px (iPhone SE, máy Android
+   cỡ nhỏ) logo + 4 nút đã kín chiều ngang, giữ nhãn thì tràn hoặc bóp nút xuống dưới
+   ngưỡng chạm 44px — bỏ nhãn, còn lại dấu "?" nổi màu. */
+.shop-hd-guide-label { display: none; }
+@media (min-width: 400px) {
+  .shop-hd-guide-label { display: inline; }
+}
 @media (min-width: 768px) {
   .shop-hd-desktop { display: flex; }
   .shop-hd-mobile { display: none; }
@@ -373,6 +347,37 @@ const mobileRight: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 'var(--sp-2)',
+};
+
+// Nút Hướng dẫn ở header mobile: viên thuốc nổi màu thương hiệu — CỐ Ý khác hẳn 3 nút
+// icon trần bên cạnh, vì mục tiêu là "nhìn phát thấy ngay", không phải hoà vào hàng nút.
+const guidePill: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--sp-1)',
+  minHeight: 'var(--tap-min)',
+  minWidth: 'var(--tap-min)',
+  padding: '0 var(--sp-2)',
+  borderRadius: 'var(--r-button)',
+  border: '1px solid var(--border-brand)',
+  background: 'var(--brand-050)',
+  color: 'var(--brand-600)',
+  textDecoration: 'none',
+};
+
+// Đang ở /guide thì đảo màu — cùng quy ước "trang hiện tại" của nav desktop.
+const guidePillActive: CSSProperties = {
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
+};
+
+const guidePillLabel: CSSProperties = {
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-caption)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  letterSpacing: 'var(--ls-wide)',
+  whiteSpace: 'nowrap',
 };
 
 const iconButton: CSSProperties = {

@@ -29,6 +29,7 @@ import { ErrorToast } from '../components/ErrorToast.tsx';
 import { OtpSheet } from '../components/OtpSheet.tsx';
 import { ShipFeeTable } from '../components/ShipFeeTable.tsx';
 import { SHIP_ESTIMATE_HINT } from '../lib/ship-copy.ts';
+import { ChevronDownGlyph } from '../components/Glyphs.tsx';
 
 /**
  * `/checkout` — bước 2 "Thông tin nhận hàng" (D-19: card PICKUP/DELIVERY + địa chỉ +
@@ -624,8 +625,18 @@ export function CheckoutPage(): JSX.Element {
         {/* Bảng giá niêm yết — GẤP SẴN: nó là thứ để tra khi thắc mắc, không phải thứ phải đọc
             trước khi đặt. `<details>` thuần, không JS, không state. */}
         {fulfillment === 'DELIVERY' && shipTiers.length > 0 && (
-          <details style={tableDetails}>
-            <summary style={tableSummary}>Xem bảng phí giao hàng</summary>
+          <details className="shop-ship-details" style={tableDetails}>
+            {/* eslint-disable-next-line react/no-unknown-property */}
+            <style>{SHIP_DETAILS_CSS}</style>
+            <summary style={tableSummary}>
+              <span>Xem bảng phí giao hàng</span>
+              {/* Mũi tên xoay khi mở: `display:flex` trên <summary> làm mất tam giác mặc định của
+                  trình duyệt, nên nếu không tự vẽ thì dòng này trông như một câu chữ đỏ chết,
+                  không ai biết bấm được (chủ dự án chê 2026-08-07). */}
+              <span className="shop-ship-chevron" aria-hidden="true" style={tableChevron}>
+                <ChevronDownGlyph />
+              </span>
+            </summary>
             <div style={tableBody}>
               <ShipFeeTable tiers={shipTiers} subtotal={cart.subtotal} />
             </div>
@@ -1059,10 +1070,29 @@ const tableSummary: CSSProperties = {
   minHeight: 'var(--tap-min)',
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 'var(--sp-2)',
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   color: 'var(--brand-600)',
+  // Bỏ nốt tam giác mặc định của Safari/iOS (`::-webkit-details-marker` ẩn ở CSS bên dưới) —
+  // ở đây chỉ cần chắc chắn không còn khoảng thụt của marker.
+  listStyle: 'none',
 };
+
+const tableChevron: CSSProperties = {
+  display: 'inline-flex',
+  flexShrink: 0,
+};
+
+const SHIP_DETAILS_CSS = `
+.shop-ship-details > summary::-webkit-details-marker { display: none; }
+.shop-ship-chevron { transition: transform var(--dur-base) var(--ease-out); }
+.shop-ship-details[open] .shop-ship-chevron { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  .shop-ship-chevron { transition: none; }
+}
+`;
 
 const tableBody: CSSProperties = {
   paddingTop: 'var(--sp-2)',

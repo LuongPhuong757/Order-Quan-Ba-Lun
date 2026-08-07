@@ -23,9 +23,15 @@ function tierLabel(tier: ShipFeeTier, index: number): string {
   return `Đơn từ ${formatVnd(tier.min_subtotal)}`;
 }
 
-function tierValue(tier: ShipFeeTier): string {
-  if (tier.per_km <= 0) return 'Miễn phí giao';
-  return `Miễn phí ${tier.free_km} km · vượt ${formatVnd(tier.per_km)}/km`;
+/**
+ * Tách quyền lợi thành 2 mẩu để cột phải có THỨ BẬC: dòng trên là cái khách quan tâm
+ * ("miễn phí mấy km"), dòng dưới là điều kiện phụ ("vượt thì bao nhiêu"). Trước đây nhồi cả
+ * hai vào một chuỗi nối bằng "·" nên trên điện thoại nó tự rơi dòng ở chỗ ngẫu nhiên, nhìn
+ * như một đoạn văn xuôi chứ không ra bảng giá (chủ dự án phản ánh 2026-08-07).
+ */
+function tierValue(tier: ShipFeeTier): { free: string; extra: string | null } {
+  if (tier.per_km <= 0) return { free: 'Miễn phí giao', extra: null };
+  return { free: `Miễn phí ${tier.free_km} km`, extra: `vượt ${formatVnd(tier.per_km)}/km` };
 }
 
 export function ShipFeeTable({
@@ -47,19 +53,39 @@ export function ShipFeeTable({
 
   return (
     <div style={wrap}>
+      {/* Hàng tiêu đề: 2 chữ nhỏ nhưng là thứ biến danh sách này thành BẢNG — khách hiểu ngay
+          cột trái là điều kiện, cột phải là quyền lợi, khỏi phải đoán từ nội dung. */}
+      <div style={headRow}>
+        <span style={headCell}>Giá trị đơn</span>
+        <span style={{ ...headCell, textAlign: 'right' }}>Ưu đãi giao hàng</span>
+      </div>
       <ul style={list}>
         {sorted.map((tier, i) => {
           const active = i === activeIndex;
+          const value = tierValue(tier);
           return (
-            <li key={tier.min_subtotal} style={active ? { ...row, ...rowActive } : row}>
-              <span style={active ? { ...rowLabel, ...rowLabelActive } : rowLabel}>
-                {tierLabel(tier, i)}
+            <li
+              key={tier.min_subtotal}
+              style={{
+                ...row,
+                // Vạch kẻ giữa các bậc, KHÔNG kẻ trên dòng đầu (đã có hàng tiêu đề ngay trên).
+                ...(i > 0 ? rowDivided : null),
+                ...(active ? rowActive : null),
+              }}
+            >
+              <span style={tierCol}>
+                <span style={active ? { ...tierName, ...tierNameActive } : tierName}>
+                  {tierLabel(tier, i)}
+                </span>
                 {/* Chữ "đang áp dụng" chứ không chỉ tô màu: khách mù màu vẫn phải đọc ra dòng nào
                     là của giỏ mình (rule color-only-meaning). */}
-                {active && <span style={activeTag}>đang áp dụng</span>}
+                {active && <span style={activeTag}>Đang áp dụng</span>}
               </span>
-              <span style={active ? { ...rowValue, ...rowValueActive } : rowValue}>
-                {tierValue(tier)}
+              <span style={benefitCol}>
+                <span style={active ? { ...freeText, ...freeTextActive } : freeText}>
+                  {value.free}
+                </span>
+                {value.extra && <span style={extraText}>{value.extra}</span>}
               </span>
             </li>
           );
@@ -79,58 +105,110 @@ const wrap: CSSProperties = {
   gap: 'var(--sp-2)',
 };
 
+const headRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  justifyContent: 'space-between',
+  gap: 'var(--sp-3)',
+  padding: '0 var(--sp-2) var(--sp-1)',
+};
+
+const headCell: CSSProperties = {
+  fontSize: 'var(--fs-caption)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  letterSpacing: 'var(--ls-wide)',
+  textTransform: 'uppercase',
+  color: 'var(--text-faint)',
+};
+
 const list: CSSProperties = {
   listStyle: 'none',
   margin: 0,
   padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 'var(--sp-1)',
 };
 
-// Mỗi bậc là MỘT dòng 2 cột, wrap được: trên màn 390px cột phải ("Miễn phí 5 km · vượt 5.000đ/km")
-// dài hơn nửa màn hình nên phải cho rơi xuống dòng dưới nguyên cụm thay vì ép co chữ.
+/**
+ * Mỗi bậc là một dòng 2 cột KHÔNG cho wrap chéo nhau: cột trái co được (`minWidth: 0`), cột
+ * phải giữ nguyên khổ và tự xuống dòng BÊN TRONG nó.
+ *
+ * Bản cũ để `flexWrap: wrap` cho cả dòng nên trên điện thoại cột phải rơi hẳn xuống dưới, canh
+ * phải, thành ra 2 dòng chữ so le không rõ cái nào thuộc bậc nào — đúng chỗ chủ dự án chê xấu.
+ */
 const row: CSSProperties = {
   display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'baseline',
+  alignItems: 'center',
   justifyContent: 'space-between',
-  gap: 'var(--sp-2)',
-  padding: 'var(--sp-2)',
-  borderRadius: 'var(--r-badge)',
-  fontSize: 'var(--fs-sm)',
+  gap: 'var(--sp-3)',
+  padding: 'var(--sp-3) var(--sp-2)',
+  borderRadius: 'var(--r-input)',
 };
 
+const rowDivided: CSSProperties = {
+  borderTop: '1px solid var(--border-subtle)',
+};
+
+// Dòng đang áp dụng: nền thương hiệu nhạt + viền trái đậm — viền trái nằm trong padding nên
+// không đẩy các dòng khác lệch đi 1px như khi thêm border cả 4 cạnh.
 const rowActive: CSSProperties = {
-  background: 'var(--wood-100)',
+  background: 'var(--brand-050)',
+  borderTop: '1px solid transparent',
+  boxShadow: 'inset 3px 0 0 0 var(--brand-600)',
 };
 
-const rowLabel: CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'baseline',
-  gap: 'var(--sp-2)',
-  color: 'var(--text-muted)',
+const tierCol: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  minWidth: 0,
 };
 
-const rowLabelActive: CSSProperties = {
+const tierName: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-body)',
+};
+
+const tierNameActive: CSSProperties = {
   color: 'var(--text-strong)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
 };
 
 const activeTag: CSSProperties = {
+  alignSelf: 'flex-start',
+  padding: '0 var(--sp-1)',
+  borderRadius: 'var(--r-badge)',
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
   fontSize: 'var(--fs-caption)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
-  color: 'var(--wood-700)',
   whiteSpace: 'nowrap',
 };
 
-const rowValue: CSSProperties = {
-  color: 'var(--text-strong)',
+const benefitCol: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: '2px',
+  flexShrink: 0,
   textAlign: 'right',
 };
 
-const rowValueActive: CSSProperties = {
+const freeText: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-strong)',
+  whiteSpace: 'nowrap',
+};
+
+const freeTextActive: CSSProperties = {
+  color: 'var(--brand-600)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+};
+
+const extraText: CSSProperties = {
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
+  whiteSpace: 'nowrap',
 };
 
 const note: CSSProperties = {

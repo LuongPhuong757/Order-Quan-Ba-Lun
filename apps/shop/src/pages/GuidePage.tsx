@@ -3,6 +3,17 @@ import { Link } from 'react-router-dom';
 import { PublicStoreStatus } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import { ShipFeeTable } from '../components/ShipFeeTable.tsx';
+import { CartIcon } from '../components/CartIcon.tsx';
+import {
+  ArrowGlyph,
+  GuideGlyph,
+  HamburgerGlyph,
+  LocationGlyph,
+  PencilGlyph,
+  PhoneGlyph,
+  ReorderGlyph,
+  SearchGlyph,
+} from '../components/Glyphs.tsx';
 
 /**
  * `/guide` — trang hướng dẫn đặt món cho khách lần đầu (chỉ đạo chủ dự án 2026-08-05).
@@ -38,12 +49,99 @@ import { ShipFeeTable } from '../components/ShipFeeTable.tsx';
  *   - Thanh "đơn đang theo dõi" bám mọi trang (ActiveOrderBar).
  *   - Sửa/huỷ đơn khi còn chờ duyệt + "Đặt lại đơn này" (OrderTrackPage, HistoryPage).
  * Thêm/bớt tính năng ở luồng khách thì SỬA LUÔN ở đây — đó là hợp đồng của trang này.
+ *
+ * ── Đợt cập nhật 2026-08-07 (lần 2) ─────────────────────────────────────────
+ * Chỉ đạo chủ dự án: "ấn vào biểu tượng giỏ hàng thì phải có biểu tượng ở đó để nhận biết".
+ * Hướng dẫn tả bằng CHỮ SUÔNG ("bấm biểu tượng giỏ ở góc phải") buộc khách phải tự đoán
+ * xem cái nào là giỏ, cái nào là kính lúp. Nên:
+ *   - Mọi câu nhắc tới một nút đều nhúng CHÍNH glyph đó vào giữa dòng chữ (`<Ic>`), lấy từ
+ *     `components/Glyphs.tsx` — cùng file mà Header đang dùng, nên icon ở đây không bao giờ
+ *     lệch với icon thật trên màn hình.
+ *   - Có thêm bảng CHÚ GIẢI BIỂU TƯỢNG ngay đầu trang: icon nào, tên gì, nằm ở đâu.
+ * Nhớ: nội dung bước giờ là ReactNode, không còn là string.
+ *
+ * ── Đợt cập nhật 2026-08-07 (lần 3) ─────────────────────────────────────────
+ * Chủ dự án: "quá nhiều text gây khó đọc". Mỗi bước bị cắt từ MỘT đoạn văn thành `lead` (một
+ * câu) + `bullets` (mỗi ý một dòng ngắn, có icon dẫn đầu) + tối đa một `note` chữ nhỏ. Luật
+ * giữ cho các đợt sau: thêm thông tin mới thì thêm MỘT gạch đầu dòng ngắn, đừng nối thêm mệnh
+ * đề vào ý đang có — cứ nối là trang lại trôi về khối chữ đặc như cũ.
  */
+
+/** Cỡ glyph khi nhúng giữa dòng chữ — nhỏ hơn icon thật (20/24px) để không phá nhịp dòng. */
+const INLINE_ICON = 16;
+
+/**
+ * Bảng chú giải: icon nào — tên gì — nằm ở đâu.
+ *
+ * Icon vẽ ở cỡ THẬT (20px, riêng giỏ hàng 24px như trên header desktop) để khách so mặt được
+ * ngay, khác với bản 16px nhúng giữa câu chữ. Giỏ hàng cố tình có badge số (count=2) vì đó
+ * chính là thứ khách hay hỏi "số đỏ này là gì".
+ */
+const LEGEND: { icon: ReactNode; name: string; where: string }[] = [
+  {
+    icon: <CartIcon count={2} size={22} />,
+    name: 'Giỏ hàng',
+    where: 'Góc trên phải · số đỏ là số món đang chọn',
+  },
+  { icon: <SearchGlyph />, name: 'Tìm món', where: 'Góc trên phải · gõ tên món hoặc tên nhóm' },
+  { icon: <GuideGlyph />, name: 'Hướng dẫn', where: 'Góc trên phải · mở đúng trang này' },
+  { icon: <HamburgerGlyph />, name: 'Menu', where: 'Góc trên phải · Đơn của tôi, Món bán chạy' },
+  {
+    icon: <LocationGlyph />,
+    name: 'Chia sẻ vị trí',
+    where: 'Bước điền địa chỉ · cho biết km và phí giao',
+  },
+  { icon: <PencilGlyph />, name: 'Ghi chú món', where: 'Trong giỏ, dưới mỗi món' },
+  {
+    icon: <ReorderGlyph />,
+    name: 'Đặt lại đơn',
+    where: 'Ở Đơn của tôi · thêm nguyên đơn cũ vào giỏ',
+  },
+  { icon: <PhoneGlyph />, name: 'Gọi quán', where: 'Trang theo dõi đơn · bấm là gọi' },
+];
+
+/**
+ * Icon nhúng giữa dòng chữ. KHÔNG `aria-hidden`: ở đây icon là một phần của câu ("bấm biểu
+ * tượng ⟨giỏ⟩"), người dùng trình đọc màn hình mất nó là mất nghĩa — khác hẳn mock-UI minh hoạ
+ * bên dưới (trang trí thuần nên bị ẩn).
+ */
+function Ic({ label, children }: { label: string; children: ReactNode }): JSX.Element {
+  return (
+    <span style={inlineIcon} role="img" aria-label={label}>
+      {children}
+    </span>
+  );
+}
+
+/** Nhãn của một nút/chip có thật trên màn hình — in nghiêng kiểu "phím bấm" để tách khỏi lời văn. */
+function Kbd({ children }: { children: ReactNode }): JSX.Element {
+  return <span style={kbd}>{children}</span>;
+}
+
+/**
+ * Một bước = MỘT câu dẫn + vài gạch đầu dòng, KHÔNG phải một đoạn văn.
+ *
+ * Bản trước gói cả bước vào một `desc` dài 5–6 dòng; trên điện thoại nó thành một khối chữ
+ * đặc, "quá nhiều text gây khó chịu" (chủ dự án 2026-08-07). Khách đọc hướng dẫn là đang
+ * DÒ, không phải đang đọc truyện — nên:
+ *   - `lead`: một câu, trả lời "ở bước này tôi phải làm gì".
+ *   - `bullets`: mỗi ý một dòng ngắn, có icon dẫn đầu để mắt bám được; tối đa 4 ý/bước, ý nào
+ *     dài quá một dòng rưỡi là dấu hiệu phải cắt tiếp hoặc bỏ.
+ * Chi tiết vụn (mẹo, trường hợp hiếm) thì bỏ hẳn — đã có `note` cho đúng một ý phụ mỗi bước.
+ */
+type Bullet = {
+  /** Icon dẫn đầu. Bỏ trống thì vẽ chấm tròn — vẫn giữ được cột thẳng hàng. */
+  icon?: ReactNode;
+  text: ReactNode;
+};
 
 type Step = {
   key: string;
   title: string;
-  desc: string;
+  lead: ReactNode;
+  bullets: Bullet[];
+  /** Một ý phụ duy nhất, chữ nhỏ, đứng cuối bước (trường hợp hiếm / trấn an). */
+  note?: ReactNode;
   /** Các đường tắt tới đúng màn của bước. Nhiều hơn một nút thì xếp cùng hàng, tự xuống dòng. */
   ctas?: { to: string; label: string }[];
   art: ReactNode;
@@ -58,7 +156,21 @@ export function GuidePage(): JSX.Element {
     {
       key: 'menu',
       title: 'Chọn món',
-      desc: 'Lướt dải danh mục hoặc gõ vào ô tìm kiếm — tìm được cả theo tên nhóm (gõ "lẩu" là ra trọn mục Lẩu). Bấm "+ Thêm" trên món bạn thích; món đã có trong giỏ thì nút đổi thành − 1 + để tăng giảm ngay tại chỗ. Món hết hàng bị làm mờ. Chưa biết ăn gì thì xem Món bán chạy, thêm thẳng từ bảng xếp hạng.',
+      lead: 'Lướt dải danh mục ở đầu trang, hoặc tìm theo tên.',
+      bullets: [
+        {
+          icon: <SearchGlyph size={INLINE_ICON} />,
+          text: (
+            <>
+              Gõ tên món hoặc tên nhóm — "lẩu" ra trọn mục Lẩu.
+            </>
+          ),
+        },
+        { text: <>Bấm <Kbd>+ Thêm</Kbd> để cho món vào giỏ.</> },
+        { text: <>Món đã có trong giỏ: chỉnh <Kbd>− 1 +</Kbd> ngay tại chỗ.</> },
+        { text: <>Món bị làm mờ là đã hết hàng.</> },
+      ],
+      note: 'Chưa biết ăn gì? Xem Món bán chạy, thêm thẳng từ bảng xếp hạng.',
       ctas: [
         { to: '/', label: 'Xem menu' },
         { to: '/top', label: 'Món bán chạy' },
@@ -68,14 +180,45 @@ export function GuidePage(): JSX.Element {
     {
       key: 'cart',
       title: 'Kiểm tra giỏ hàng',
-      desc: 'Bấm biểu tượng giỏ ở góc phải màn hình để xem lại. Chỉnh số lượng bằng nút − / +, ghi chú riêng cho từng món (ví dụ "ít cay", "không hành") và một ghi chú chung cho cả đơn, rồi bấm TIẾP TỤC.',
+      // Bản nhúng giữa câu KHÔNG có badge số (count=0): badge 18px cạnh glyph 16px sẽ phá
+      // nhịp dòng chữ. Bản CÓ badge nằm ở bảng chú giải đầu trang, cỡ thật.
+      lead: (
+        <>
+          Bấm biểu tượng giỏ{' '}
+          <Ic label="biểu tượng giỏ hàng"><CartIcon count={0} size={INLINE_ICON} /></Ic> ở góc
+          trên bên phải.
+        </>
+      ),
+      bullets: [
+        { text: <>Số đỏ trên giỏ = số món bạn đang chọn.</> },
+        { text: <>Sửa số lượng bằng <Kbd>−</Kbd> / <Kbd>+</Kbd>; bấm <Kbd>−</Kbd> tới 0 là xoá món.</> },
+        {
+          icon: <PencilGlyph size={INLINE_ICON} />,
+          text: <>Ghi chú riêng từng món: "ít cay", "không hành".</>,
+        },
+        { text: <>Xem dòng tạm tính, rồi bấm <Kbd>TIẾP TỤC</Kbd>.</> },
+      ],
       ctas: [{ to: '/cart', label: 'Mở giỏ hàng' }],
       art: <FakeCart />,
     },
     {
       key: 'info',
       title: 'Điền thông tin nhận hàng',
-      desc: 'Chọn "Đến lấy tại quán" hoặc "Giao tận nơi", điền họ tên và số điện thoại. Giao tận nơi thì thêm địa chỉ, rồi bấm "Chia sẻ vị trí" (hoặc dán link Google Maps) để thấy ngay quãng đường và phí giao tạm tính. Không bắt buộc — không chia sẻ được vị trí thì chỉ cần địa chỉ là đủ.',
+      lead: (
+        <>
+          Chọn <Kbd>Đến lấy tại quán</Kbd> hoặc <Kbd>Giao tận nơi</Kbd>, rồi điền họ tên và số
+          điện thoại.
+        </>
+      ),
+      bullets: [
+        { text: <>Ô đang chọn có viền và nền đỏ nhạt.</> },
+        { text: <>Giao tận nơi thì điền thêm địa chỉ.</> },
+        {
+          icon: <LocationGlyph size={INLINE_ICON} />,
+          text: <>Bấm <Kbd>Chia sẻ vị trí</Kbd> để thấy ngay số km và phí giao tạm tính.</>,
+        },
+      ],
+      note: 'Máy không cho phép định vị cũng không sao: dán link Google Maps, hoặc chỉ ghi địa chỉ — quán sẽ gọi hỏi lại.',
       art: <FakeForm />,
     },
     ...(showOtp
@@ -83,7 +226,12 @@ export function GuidePage(): JSX.Element {
           {
             key: 'otp',
             title: 'Xác minh số điện thoại',
-            desc: 'Lần đầu đặt món, quán gửi mã 6 số qua tin nhắn SMS tới số bạn vừa điền. Nhập mã là xong — thiết bị được ghi nhớ, lần sau không cần nhập lại.',
+            lead: 'Lần đầu đặt món, quán gửi mã 6 số qua tin nhắn SMS.',
+            bullets: [
+              { text: <>Nhập đủ 6 ô là tự chạy tiếp, không cần bấm nút nào.</> },
+              { text: <>Chưa thấy tin nhắn? Hết đếm ngược thì bấm <Kbd>Gửi lại</Kbd>.</> },
+              { text: <>Máy này được ghi nhớ — lần sau không hỏi mã nữa.</> },
+            ],
             art: <FakeOtp />,
           } satisfies Step,
         ]
@@ -91,23 +239,64 @@ export function GuidePage(): JSX.Element {
     {
       key: 'submit',
       title: 'Đặt hàng & theo dõi đơn',
-      desc: 'Bấm ĐẶT HÀNG, xem lại tóm tắt trong hộp xác nhận rồi gửi. Quán sẽ gọi điện xác nhận trước khi chuẩn bị món. Đóng tab cũng không lạc đơn: thanh "đơn đang theo dõi" hiện sẵn ở mọi trang, bấm vào là quay lại đúng màn tiến độ.',
+      lead: (
+        <>
+          Bấm <Kbd>ĐẶT HÀNG</Kbd>, xem lại tóm tắt trong hộp xác nhận rồi gửi.
+        </>
+      ),
+      bullets: [
+        { icon: <PhoneGlyph size={INLINE_ICON} />, text: <>Quán GỌI ĐIỆN xác nhận trước khi nấu.</> },
+        { text: <>Trang theo dõi cho biết đơn đang ở bước nào.</> },
+        {
+          text: (
+            <>
+              Đóng tab vẫn không lạc đơn: thanh <Kbd>Đơn đang theo dõi</Kbd> bám ở mọi trang, bấm{' '}
+              <Kbd>XEM</Kbd> là quay lại.
+            </>
+          ),
+        },
+      ],
       art: <FakeTracking />,
     },
     {
       key: 'modify',
       title: 'Đổi ý? Sửa hoặc huỷ đơn',
-      desc: 'Chừng nào quán CHƯA xác nhận, ngay trên trang theo dõi có nút "Sửa đơn" (mở lại giỏ để thêm bớt món, đổi ghi chú, đổi địa chỉ) và nút "Huỷ đơn". Quán xác nhận rồi thì gọi điện cho quán — số hiển thị sẵn ngay trên trang đơn.',
+      lead: (
+        <>
+          Đơn còn chip vàng <Kbd>Đang chờ xác nhận</Kbd> thì bạn tự sửa được.
+        </>
+      ),
+      bullets: [
+        { text: <><Kbd>Sửa đơn</Kbd> — mở lại giỏ để thêm bớt món, đổi ghi chú, đổi địa chỉ.</> },
+        { text: <>Sửa xong gửi lại: vẫn là đơn cũ, KHÔNG thành đơn mới.</> },
+        { text: <><Kbd>Huỷ đơn</Kbd> — bấm một nút là xong.</> },
+        {
+          icon: <PhoneGlyph size={INLINE_ICON} />,
+          text: <>Quán xác nhận rồi thì 2 nút này ẩn đi — gọi số quán ngay trên trang đơn.</>,
+        },
+      ],
       art: <FakeOrderActions />,
     },
     {
       key: 'history',
       title: 'Xem lại & đặt lại đơn cũ',
+      lead: (
+        <>
+          Mở <Ic label="biểu tượng menu"><HamburgerGlyph size={INLINE_ICON} /></Ic>{' '}
+          <Kbd>Đơn của tôi</Kbd>, nhập số điện thoại.
+        </>
+      ),
+      bullets: [
+        { text: <>Đơn đang chạy và đơn đã xong tách riêng, có chip trạng thái màu.</> },
+        {
+          icon: <ReorderGlyph size={INLINE_ICON} />,
+          text: <><Kbd>Đặt lại đơn này</Kbd> — thêm nguyên đơn cũ vào giỏ theo giá hiện hành.</>,
+        },
+        { text: <>Món nào đã hết hàng sẽ được báo rõ.</> },
+      ],
       // Câu về mã xác minh chỉ xuất hiện khi quán thật sự bật OTP — cùng cờ `otp_required` chi
       // phối bước 4, vì `/history` cũng tra bằng phiên OTP khi công tắc đó bật.
-      desc: `Vào "Đơn của tôi", nhập số điện thoại là thấy toàn bộ đơn đã đặt, mới nhất trước${
-        showOtp ? ' (lần đầu trên máy mới sẽ hỏi mã xác minh như bước trên)' : ''
-      }. Thích lại đơn nào thì bấm "Đặt lại đơn này" — cả đơn được thêm vào giỏ, món nào hết hàng sẽ được báo rõ.`,
+      note: showOtp ? 'Lần đầu trên máy mới sẽ hỏi mã xác minh như bước trên.' : undefined,
       ctas: [{ to: '/history', label: 'Đơn của tôi' }],
       art: <FakeHistory />,
     },
@@ -125,6 +314,29 @@ export function GuidePage(): JSX.Element {
         </p>
       </header>
 
+      {/* ── Chú giải biểu tượng ──
+          Đặt TRƯỚC các bước: khách đọc "bấm biểu tượng giỏ" mà chưa biết cái nào là giỏ thì
+          bước 2 vô nghĩa. Đây là bảng tra nhanh, các bước bên dưới mới là trình tự. */}
+      <section style={legendSection}>
+        <h2 style={legendHeading}>Các biểu tượng trên màn hình</h2>
+        <p style={legendIntro}>
+          Nhớ mặt {LEGEND.length} nút này là làm theo các bước dưới rất nhanh.
+        </p>
+        <ul className="shop-guide-legend" style={legendList}>
+          {LEGEND.map((row) => (
+            <li key={row.name} style={legendRow}>
+              <span style={legendIcon} aria-hidden="true">
+                {row.icon}
+              </span>
+              <span style={legendTextCol}>
+                <span style={legendName}>{row.name}</span>
+                <span style={legendWhere}>{row.where}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <ol className="shop-guide-list" style={list}>
         {steps.map((step, i) => (
           <li key={step.key} className="shop-guide-step" style={stepItem}>
@@ -133,7 +345,20 @@ export function GuidePage(): JSX.Element {
                 <span style={stepBadge}>{i + 1}</span>
                 <h2 style={stepTitle}>{step.title}</h2>
               </div>
-              <p style={stepDesc}>{step.desc}</p>
+              <p style={stepLead}>{step.lead}</p>
+              <ul style={bulletList}>
+                {step.bullets.map((b, bi) => (
+                  <li key={bi} style={bulletRow}>
+                    <span style={bulletMark} aria-hidden="true">
+                      {/* Không có icon riêng thì một chấm tròn — vẫn giữ cột icon thẳng hàng,
+                          chữ của mọi gạch đầu dòng bắt đầu ở cùng một mốc. */}
+                      {b.icon ?? <span style={bulletDot} />}
+                    </span>
+                    <span style={bulletText}>{b.text}</span>
+                  </li>
+                ))}
+              </ul>
+              {step.note && <p style={stepNote}>{step.note}</p>}
               {step.ctas && (
                 <div style={stepCtaRow}>
                   {step.ctas.map((cta) => (
@@ -405,27 +630,19 @@ function BowlGlyph(): JSX.Element {
   );
 }
 
-function ArrowGlyph(): JSX.Element {
-  return (
-    <svg
-      width={16}
-      height={16}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M5 12h14M13 6l6 6-6 6" />
-    </svg>
-  );
-}
-
 /* ═══ Responsive: mobile timeline dọc / ≥768px zigzag + kẻ đứt giữa ═══ */
 
 const RESPONSIVE_CSS = `
+/* Chú giải: 1 cột trên điện thoại, 2 cột từ 768px. display/gap khai trong class vì cùng lý do
+   với .shop-guide-step bên dưới (inline style đè chết @media). */
+.shop-guide-legend {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-3);
+}
+@media (min-width: 768px) {
+  .shop-guide-legend { grid-template-columns: 1fr 1fr; gap: var(--sp-3) var(--sp-6); }
+}
 /* flex-direction + gap của từng bước CỐ Ý chỉ khai trong class, KHÔNG khai inline:
    inline style đè chết @media (bài học đã ghi ở TopDishesPage.tsx — và chính trang
    này từng dính khi khai inline, zigzag không bao giờ kích hoạt). */
@@ -477,6 +694,103 @@ const page: CSSProperties = {
 
 const hero: CSSProperties = {
   textAlign: 'center',
+};
+
+/* ── Chú giải biểu tượng ── */
+
+const legendSection: CSSProperties = {
+  boxSizing: 'border-box',
+  padding: 'var(--pad-card)',
+  background: 'var(--bg-surface)',
+  border: '1px solid var(--border-subtle)',
+  borderRadius: 'var(--r-card)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-3)',
+};
+
+const legendHeading: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-display)',
+  fontSize: 'var(--fs-lg)',
+  color: 'var(--text-strong)',
+};
+
+const legendIntro: CSSProperties = {
+  margin: 0,
+  maxWidth: 'var(--measure)',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--text-muted)',
+  lineHeight: 1.6,
+};
+
+// display/grid nằm trong RESPONSIVE_CSS (class .shop-guide-legend).
+const legendList: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+};
+
+const legendRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 'var(--sp-3)',
+};
+
+// Ô vuông nền chìm quanh icon: tách icon khỏi chữ và cho nó cùng "khung" ở mọi dòng, kể cả
+// khi glyph rộng hẹp khác nhau (giỏ hàng có badge lòi ra ngoài nên cần chỗ thở).
+const legendIcon: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '40px',
+  height: '40px',
+  flexShrink: 0,
+  borderRadius: 'var(--r-button)',
+  border: '1px solid var(--border-subtle)',
+  background: 'var(--bg-sunken)',
+  color: 'var(--text-strong)',
+};
+
+const legendTextCol: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  minWidth: 0,
+};
+
+const legendName: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-bold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const legendWhere: CSSProperties = {
+  fontSize: 'var(--fs-caption)',
+  lineHeight: 1.5,
+  color: 'var(--text-muted)',
+};
+
+/* ── Icon & nhãn nút nhúng giữa dòng chữ ── */
+
+const inlineIcon: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  // Nhích xuống 3px cho tâm icon trùng đường giữa chữ thay vì đường chân chữ.
+  verticalAlign: '-3px',
+  color: 'var(--brand-600)',
+};
+
+const kbd: CSSProperties = {
+  display: 'inline-block',
+  padding: '0 var(--sp-1)',
+  borderRadius: 'var(--r-badge)',
+  background: 'var(--bg-sunken)',
+  color: 'var(--text-strong)',
+  fontSize: '0.94em',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  whiteSpace: 'nowrap',
 };
 
 /** Khối bảng phí giao — card cùng họ với các khối khác của trang khách (nền trắng, viền mảnh). */
@@ -574,12 +888,66 @@ const stepTitle: CSSProperties = {
   color: 'var(--text-strong)',
 };
 
-const stepDesc: CSSProperties = {
+// Câu dẫn của bước: đậm hơn các gạch đầu dòng để mắt bám vào nó trước.
+const stepLead: CSSProperties = {
   margin: 0,
   maxWidth: 'var(--measure)',
   fontSize: 'var(--fs-base)',
   lineHeight: 'var(--lh-normal)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  color: 'var(--text-strong)',
+};
+
+const bulletList: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-2)',
+  maxWidth: 'var(--measure)',
+};
+
+const bulletRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 'var(--sp-2)',
+};
+
+const bulletMark: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: '20px',
+  // Đẩy icon xuống cho tâm nó trùng dòng chữ đầu tiên thay vì dính mép trên.
+  height: 'calc(var(--fs-sm) * var(--lh-normal))',
+  flexShrink: 0,
+  color: 'var(--brand-600)',
+};
+
+const bulletDot: CSSProperties = {
+  width: '6px',
+  height: '6px',
+  borderRadius: 'var(--r-badge)',
+  background: 'var(--brand-600)',
+};
+
+const bulletText: CSSProperties = {
+  fontSize: 'var(--fs-sm)',
+  lineHeight: 'var(--lh-normal)',
   color: 'var(--text-body)',
+};
+
+// Ý phụ cuối bước: chữ nhỏ, mờ, có vạch dọc bên trái — nhìn là biết "đọc cũng được, bỏ qua
+// cũng chẳng sao", không tranh chỗ với các bước chính.
+const stepNote: CSSProperties = {
+  margin: 0,
+  maxWidth: 'var(--measure)',
+  paddingLeft: 'var(--sp-3)',
+  borderLeft: '2px solid var(--border-subtle)',
+  fontSize: 'var(--fs-caption)',
+  lineHeight: 1.6,
+  color: 'var(--text-muted)',
 };
 
 // Nhiều đường tắt trên một bước (bước "Chọn món" có cả menu lẫn bảng xếp hạng): xếp ngang,

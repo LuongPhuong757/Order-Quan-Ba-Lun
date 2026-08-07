@@ -14,6 +14,7 @@ import { detectOrderUpdate } from '../lib/order-update.ts';
 import { clearLastOrderToken, readLastOrderToken, saveLastOrderToken } from '../lib/customer-token.ts';
 import { useReorder } from '../lib/use-reorder.ts';
 import { SHIP_ESTIMATE_HINT } from '../lib/ship-copy.ts';
+import { PhoneGlyph } from '../components/Glyphs.tsx';
 
 /**
  * `/o/:token` — trang khách theo dõi đơn (REQ-O, 09-UI-SPEC § B).
@@ -410,7 +411,11 @@ export function OrderTrackPage(): JSX.Element {
           {!canModify && (
             <p style={contactHelpText}>
               Nếu muốn sửa đơn, vui lòng gọi quán:{' '}
+              {/* Icon ống nghe đi kèm số (2026-08-07): trang /guide có mục "Gọi quán" kèm đúng
+                  glyph này, hướng dẫn chỉ đúng khi trên màn thật cũng có nó. Đồng thời một dòng
+                  số trần rất dễ bị đọc thành chữ, có icon thì thấy ngay là bấm gọi được. */}
               <a href={`tel:${shown.store_phone.replace(/[^0-9+]/g, '')}`} style={contactPhoneLink}>
+                <PhoneGlyph size={16} />
                 {shown.store_phone}
               </a>
             </p>
@@ -906,6 +911,9 @@ const contactHelpText: CSSProperties = {
 };
 
 const contactPhoneLink: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 'var(--sp-1)',
   color: 'var(--brand-600)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
   textDecoration: 'underline',

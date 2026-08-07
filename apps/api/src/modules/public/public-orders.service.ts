@@ -43,6 +43,15 @@ import { editOrderByCustomer, type EditableRequestRow } from './edit-order.js';
 import { buildHistoryEntry, type HistoryRequestRow } from './order-history.js';
 import { normalizePhone } from './phone.js';
 import { PublicOtpService } from './public-otp.service.js';
+import { expBackoffMs, runWithRetry } from '../../common/run-with-retry.js';
+
+/** Số lần thử cho 3 luồng GHI công khai (đặt / huỷ / sửa đơn).
+ *
+ * Vì sao 5 chứ không phải 2 như luồng nội bộ: gap lock `FOR UPDATE` trên `idx_oor_phone_status`
+ * sinh deadlock theo cấp số nhân với số khách bấm cùng lúc. Đo trên production 2026-08-07:
+ * 100 đơn đồng thời, KHÔNG retry → 90 đơn mất trắng (HTTP 500). Nhân viên trong quán nhiều lắm
+ * 3-4 người nên 2 lần là đủ; khách thì có thể 100 người cùng một giây sau một bài Facebook. */
+const PUBLIC_WRITE_MAX_ATTEMPTS = 5;
 
 @Injectable()
 export class PublicOrdersService {
@@ -72,8 +81,34 @@ export class PublicOrdersService {
    *    hoặc cùng rollback.
    * 2. **Emit SSE SAU khi commit** — nếu emit trong transaction rồi transaction rollback thì mọi
    *    tab admin nhận tín hiệu về một "đơn ma" không tồn tại trong DB (T-09-51).
+   *
+   * ⚠ 2026-08-07 — RETRY DEADLOCK (`runWithRetry` bọc ngoài, xem `PUBLIC_WRITE_MAX_ATTEMPTS`).
+   * Đo tải trên production: 100 khách bấm đặt trong cùng một giây → **90 đơn mất trắng** vì
+   * `QueryFailedError: Deadlock found`. Gốc rễ là gap lock ở `hasOpenOrderForPhoneLocked`: khi
+   * SĐT chưa có đơn WAITING nào thì InnoDB không có row để khoá nên nó khoá cả KHOẢNG TRỐNG trên
+   * `idx_oor_phone_status`; các khoảng trống của những SĐT khác nhau chồng lấn, hai transaction
+   * khoá chéo là MySQL giết một cái.
+   *
+   * Cái lock đó KHÔNG được gỡ — nó là chốt chống T-08-50. Cách đúng chính là điều MySQL ghi
+   * trong thông báo lỗi: *try restarting transaction*. Retry an toàn ở đây vì deadlock rollback
+   * TOÀN BỘ transaction (đã kiểm chứng: 90 lỗi để lại 0 dòng rác) và `submitImpl` không có side
+   * effect nào nằm ngoài transaction — không ghi audit, không gửi SMS, `order_token` sinh lại
+   * mỗi lần thử. Emit SSE nằm sau `await` nên chỉ chạy khi đã commit thật.
    */
   async submit(
+    input: OnlineOrderSubmit,
+    ctx: { ip: string; userAgent: string; nowMs: number },
+  ): Promise<{ order_token: string; distance_km: string | null }> {
+    return runWithRetry(() => this.submitImpl(input, ctx), PUBLIC_WRITE_MAX_ATTEMPTS, {
+      backoffMs: expBackoffMs,
+      onRetry: (a, m) =>
+        this.logger.warn(
+          `Transient DB error khi khách đặt đơn (attempt ${a}/${PUBLIC_WRITE_MAX_ATTEMPTS}): ${m} — retry`,
+        ),
+    });
+  }
+
+  private async submitImpl(
     input: OnlineOrderSubmit,
     ctx: { ip: string; userAgent: string; nowMs: number },
   ): Promise<{ order_token: string; distance_km: string | null }> {
@@ -122,6 +157,19 @@ export class PublicOrdersService {
    * `submit()`).
    */
   async cancelByToken(token: string, ctx?: { ip: string }): Promise<PublicOrderCancelResult> {
+    return runWithRetry(() => this.cancelByTokenImpl(token, ctx), PUBLIC_WRITE_MAX_ATTEMPTS, {
+      backoffMs: expBackoffMs,
+      onRetry: (a, m) =>
+        this.logger.warn(
+          `Transient DB error khi khách huỷ đơn (attempt ${a}/${PUBLIC_WRITE_MAX_ATTEMPTS}): ${m} — retry`,
+        ),
+    });
+  }
+
+  private async cancelByTokenImpl(
+    token: string,
+    ctx?: { ip: string },
+  ): Promise<PublicOrderCancelResult> {
     const settings = await this.settingsSvc.readAll();
 
     const outcome = await this.ds.transaction(async (mgr) =>
@@ -193,6 +241,20 @@ export class PublicOrdersService {
    *    mỗi lần khách bấm sửa — khách sửa 3 lần là quán không bao giờ nhận được SMS L2.
    */
   async editByToken(
+    token: string,
+    input: PublicOrderEdit,
+    ctx?: { ip: string },
+  ): Promise<PublicOrderEditResult> {
+    return runWithRetry(() => this.editByTokenImpl(token, input, ctx), PUBLIC_WRITE_MAX_ATTEMPTS, {
+      backoffMs: expBackoffMs,
+      onRetry: (a, m) =>
+        this.logger.warn(
+          `Transient DB error khi khách sửa đơn (attempt ${a}/${PUBLIC_WRITE_MAX_ATTEMPTS}): ${m} — retry`,
+        ),
+    });
+  }
+
+  private async editByTokenImpl(
     token: string,
     input: PublicOrderEdit,
     ctx?: { ip: string },
@@ -392,6 +454,11 @@ export class PublicOrdersService {
       // T-08-50 (HIGH) — gap lock: `SELECT ... FOR UPDATE` trên khoảng index
       // `idx_oor_phone_status` trong CÙNG transaction với insert bên dưới. KHÔNG thay bằng
       // `findOne` thường (mất lock), KHÔNG dùng `GET_LOCK()` hay bảng lock phụ.
+      //
+      // Chính câu này sinh ra deadlock khi nhiều khách đặt cùng lúc (đo 2026-08-07: 100 đơn
+      // đồng thời → 90% chết). Đó là CÁI GIÁ ĐÃ BIẾT của gap lock, không phải lỗi cần sửa ở
+      // đây — `submit()` bọc `runWithRetry` để nuốt nó. Đừng "tối ưu" câu này thành khoá nhẹ
+      // hơn: nhẹ hơn là mở lại T-08-50.
       hasOpenOrderForPhoneLocked: async (phone) => {
         const rows: Array<{ id: string }> = await mgr.query(
           `SELECT id FROM online_order_requests WHERE customer_phone = ? AND status = 'WAITING' FOR UPDATE`,
