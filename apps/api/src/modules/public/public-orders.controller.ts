@@ -1,11 +1,25 @@
-import { BadRequestException, Body, Controller, Delete, Get, Header, HttpCode, Param, Post, Req } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Header,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { apiOk, type ApiOk } from '@order/utils';
 import {
   OnlineOrderSubmit,
+  PublicOrderEdit,
   PublicOrderLookup,
   type PublicOrderCancelResult,
+  type PublicOrderEditResult,
   type PublicOrderHistory,
   type PublicOrderStatus,
 } from '@order/schemas';
@@ -110,7 +124,44 @@ export class PublicOrdersController {
   @HttpCode(200)
   @Header('Cache-Control', 'no-store')
   @Throttle({ default: { limit: 10, ttl: 60_000 } })
-  async cancelByToken(@Param('token') token: string): Promise<ApiOk<PublicOrderCancelResult>> {
-    return apiOk(await this.svc.cancelByToken(token));
+  async cancelByToken(
+    @Param('token') token: string,
+    @Req() req: Request,
+  ): Promise<ApiOk<PublicOrderCancelResult>> {
+    return apiOk(await this.svc.cancelByToken(token, { ip: req.ip ?? '' }));
+  }
+
+  /**
+   * Khách tự sửa món/ghi chú khi quán chưa duyệt (M2.D-44 nửa sửa, chốt 2026-08-06).
+   *
+   * `@Throttle` giống `POST orders` và `DELETE` — cùng là thao tác GHI trên đơn, không được lỏng
+   * hơn. `CsrfOriginGuard` phủ sẵn `PATCH` trên `/api/public/*` (`MUTATION_METHODS`), KHÔNG thêm
+   * ngoại lệ path nào ở đây.
+   *
+   * Ranh giới quyền y hệt `DELETE` (T-09-80): `order_token` là credential DUY NHẤT — ai có link là
+   * sửa được, đúng như ai có link là huỷ được và là xem được. Thiệt hại bị chặn ở chỗ khác: chỉ
+   * sửa được khi đơn còn `WAITING`, giá luôn do BE quyết, và mỗi lần sửa đều vào audit log.
+   */
+  @Patch('orders/:token')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
+  async editByToken(
+    @Param('token') token: string,
+    @Body() body: unknown,
+    @Req() req: Request,
+  ): Promise<ApiOk<PublicOrderEditResult>> {
+    const parsed = PublicOrderEdit.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Dữ liệu sửa đơn không hợp lệ, vui lòng kiểm tra lại.',
+        field_errors: parsed.error.issues.map((issue) => ({
+          field: issue.path.join('.'),
+          message: issue.message,
+        })),
+      });
+    }
+    return apiOk(await this.svc.editByToken(token, parsed.data, { ip: req.ip ?? '' }));
   }
 }

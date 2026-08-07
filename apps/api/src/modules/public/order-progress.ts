@@ -188,10 +188,68 @@ function deriveKitchenStage(
 // huỷ (CANCELLED_BY_CUSTOMER) — tránh 2 nguồn nhãn cho cùng stage 'REJECTED'.
 export const STAGE_LABEL_CANCELLED_BY_CUSTOMER = 'Đơn đã huỷ';
 
+/**
+ * Dòng phụ dưới nhãn mốc ở `/o/:token` — "còn phải chờ gì nữa", theo TỪNG mốc.
+ *
+ * ── Vì sao không còn là một con số ETA cố định ──
+ * Trước 2026-08-06, dòng này luôn là "Dự kiến còn khoảng {min}–{max} phút" ở MỌI mốc, vì nó lấy
+ * thẳng từ cấu hình quán. Đơn giao tận nơi đi qua 6 mốc, nên khách đọc được đúng câu đó lúc quán
+ * vừa xác nhận, lúc bếp đang nấu, lúc món đã xong chờ shipper, VÀ lúc shipper đã tới đầu ngõ —
+ * chủ dự án gọi đúng tên vấn đề: gây hiểu nhầm. Con số đó là ước lượng cho CẢ chặng, tính từ lúc
+ * quán nhận đơn; lặp lại nguyên vẹn ở mốc thứ năm là ngầm bảo khách "còn 45 phút nữa" khi hàng
+ * sắp tới cửa.
+ *
+ * Nguyên tắc mới: **chỉ nói số khi con số còn đúng**, còn lại nói việc đang xảy ra.
+ *   - Số chỉ xuất hiện ở mốc `CONFIRMED` — ngay sau khi quán chốt đơn, đó là lúc duy nhất "còn
+ *     khoảng X–Y phút" phản ánh đúng quãng đường còn lại.
+ *   - Từ `COOKING` trở đi, mỗi mốc nói việc thật đang diễn ra. Khách nhìn thanh tiến độ nhích là
+ *     đã biết đơn đang chạy; cái họ cần là biết ai đang giữ đơn của mình.
+ *
+ * Trả `null` = KHÔNG hiện dòng nào. Ba mốc kết thúc (`COMPLETED`/`REJECTED`) không còn gì để chờ,
+ * và `READY_FOR_PICKUP` thì nhãn mốc đã là lời mời đến lấy — thêm một dòng nữa là nói hai lần.
+ */
+export function etaLine(
+  stage: OrderStage,
+  fulfillment_type: 'PICKUP' | 'DELIVERY',
+  etaMin: number,
+  etaMax: number,
+): string | null {
+  switch (stage) {
+    case 'RECEIVED':
+      // Đơn còn chờ duyệt: đồng hồ CHƯA chạy (chưa ai bấm xác nhận), nên không có số nào đúng cả.
+      // Việc sắp xảy ra là cuộc gọi của quán — nói đúng thứ đó.
+      return 'Quán sẽ gọi lại sau ít phút';
+    case 'CONFIRMED':
+      return fulfillment_type === 'PICKUP'
+        ? `Dự kiến xong sau khoảng ${etaMin}–${etaMax} phút`
+        : `Dự kiến giao trong khoảng ${etaMin}–${etaMax} phút`;
+    case 'COOKING':
+      return fulfillment_type === 'PICKUP'
+        ? 'Bếp đang làm món của bạn'
+        : 'Bếp đang làm món của bạn, xong là shipper đi ngay';
+    case 'READY_TO_SHIP':
+      return 'Món đã xong, đang chờ shipper nhận đơn';
+    case 'DELIVERING':
+      return 'Shipper đang trên đường tới chỗ bạn';
+    case 'READY_FOR_PICKUP':
+    case 'COMPLETED':
+    case 'REJECTED':
+      return null;
+    default: {
+      const _exhaustive: never = stage;
+      return _exhaustive;
+    }
+  }
+}
+
 export function stageLabel(stage: OrderStage, fulfillment_type: 'PICKUP' | 'DELIVERY'): string {
   switch (stage) {
     case 'RECEIVED':
-      return 'Đã tiếp nhận';
+      // "Đã gửi đơn" chứ không phải "Đã tiếp nhận" (chủ dự án chốt 2026-08-06). Mốc này CHỈ tồn
+      // tại khi đơn còn `WAITING` (xem `computeProgress` nhánh 2) — tức là quán CHƯA nhận gì cả,
+      // đơn mới nằm trong hàng chờ. "Đã tiếp nhận" nói rằng quán đã cầm đơn rồi, và khách đọc
+      // xong sẽ ngồi đợi món thay vì đợi cuộc gọi xác nhận.
+      return 'Đã gửi đơn';
     case 'CONFIRMED':
       return 'Đã xác nhận';
     case 'COOKING':

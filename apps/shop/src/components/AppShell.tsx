@@ -2,6 +2,7 @@ import { useEffect, type CSSProperties, type JSX } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { Header } from './Header.tsx';
 import { Footer } from './Footer.tsx';
+import { ActiveOrderBar } from './ActiveOrderBar.tsx';
 import { useCart } from '../lib/cart-store.ts';
 import { trackPageView } from '../lib/analytics.ts';
 
@@ -32,6 +33,11 @@ export function AppShell(): JSX.Element {
   return (
     <div style={shell}>
       <Header cartCount={count} cartTotal={subtotal} />
+      {/* NGOÀI `<main>` và full-bleed: thanh này là một dải chạy hết bề ngang ngay dưới header,
+          không phải một khối nội dung trong cột. Tự ẩn khi khách không có đơn nào đang chạy —
+          xem `ActiveOrderBar`. Cố ý KHÔNG sticky: header đã dính rồi, dính thêm một dải nữa là
+          ăn mất chiều cao màn hình điện thoại cho một thông tin liếc-qua. */}
+      <ActiveOrderBar />
       <main style={main}>
         <Outlet />
       </main>

@@ -1,14 +1,16 @@
-import { Module } from '@nestjs/common';
+import { Logger, Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { PublicController } from './public.controller.js';
 import { PublicStoreController } from './public-store.controller.js';
 import { PublicMenuController } from './public-menu.controller.js';
 import { PublicOrdersController } from './public-orders.controller.js';
 import { PublicTopDishesController } from './public-top-dishes.controller.js';
+import { PublicShipQuoteController } from './public-ship-quote.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
 import { PublicOtpController } from './public-otp.controller.js';
 import { PublicOtpService } from './public-otp.service.js';
 import { LogOtpSender, OTP_SENDER } from './otp-sender.js';
+import { SmsOtpSender } from './sms-otp-sender.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
@@ -63,15 +65,34 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     PublicOrdersController,
     // GET /api/public/top-dishes (2026-08-04) — bảng xếp hạng món, số suất SERVED thật.
     PublicTopDishesController,
+    // POST /api/public/ship-quote (2026-08-06) — km + phí giao tạm tính ở bước checkout.
+    PublicShipQuoteController,
     // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
     PublicOtpController,
   ],
   providers: [
     PublicOrdersService,
     PublicOtpService,
-    // Kênh gửi OTP: mock ghi log (chốt "mock trước, chọn kênh sau"). Cắm ZNS/SMS thật =
-    // viết class mới implement `OtpSender` rồi đổi `useClass` — không sửa luồng.
-    { provide: OTP_SENDER, useClass: LogOtpSender },
+    LogOtpSender,
+    SmsOtpSender,
+    {
+      provide: OTP_SENDER,
+      // Kênh gửi OTP chọn bằng env `OTP_CHANNEL`, KHÔNG sửa dòng logic nào (khuôn M2.D-63):
+      //   'sms' → gửi tin thật qua SMS_CHANNEL (nhớ đặt SMS_DRIVER=esms, không thì "tin thật"
+      //           chỉ chạy ra console log của chính máy chủ)
+      //   khác  → LogOtpSender (mặc định, fail-safe: thà không gửi còn hơn âm thầm đốt tiền)
+      // Tách RIÊNG với SMS_DRIVER có chủ đích: SMS báo nhân viên và SMS gửi khách là hai
+      // khoản tiền khác nhau, chủ quán phải bật/tắt được độc lập.
+      useFactory: (logSender: LogOtpSender, smsSender: SmsOtpSender) => {
+        const requested = (process.env.OTP_CHANNEL ?? 'log').toLowerCase();
+        const selected = requested === 'sms' ? smsSender : logSender;
+        new Logger('PublicModule').log(
+          `Kênh gửi OTP: "${selected.constructor.name}" (OTP_CHANNEL="${requested}")`,
+        );
+        return selected;
+      },
+      inject: [LogOtpSender, SmsOtpSender],
+    },
   ],
 })
 export class PublicModule {}

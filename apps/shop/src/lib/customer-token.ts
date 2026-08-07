@@ -80,7 +80,13 @@ export function saveLastCustomer(info: LastCustomerInfo): void {
   }
 }
 
-/** Lưu order_token cho link "Xem đơn đang chờ" trong copy lỗi `ORDER_ALREADY_OPEN_FOR_PHONE`. */
+/**
+ * Lưu order_token của đơn gần nhất. Hai chỗ dùng:
+ *  - link "Xem đơn đang chờ" trong copy lỗi `ORDER_ALREADY_OPEN_FOR_PHONE` (từ phase 8);
+ *  - thanh "đơn đang theo dõi" hiện ở MỌI trang (`ActiveOrderBar`, 2026-08-06) — đây mới là
+ *    đường về trang `/o/:token` cho khách đã đóng tab; trước đó token này nằm im trong
+ *    localStorage và khách phải đi vòng qua `/history` (+ OTP) mới xem lại được đơn của mình.
+ */
 export function saveLastOrderToken(token: string): void {
   try {
     window.localStorage.setItem(LAST_ORDER_KEY, token);
@@ -94,6 +100,21 @@ export function readLastOrderToken(): string | null {
     return window.localStorage.getItem(LAST_ORDER_KEY);
   } catch {
     return null;
+  }
+}
+
+/**
+ * Quên đơn gần nhất — gọi khi đơn đã đi hết đường (hoàn tất/từ chối/khách huỷ) hoặc link đã chết.
+ *
+ * Bắt buộc phải có cùng `ActiveOrderBar`: một token sống mãi trong localStorage nghĩa là thanh
+ * theo dõi đơn bám trên đầu trang vĩnh viễn cho một đơn đã xong từ tháng trước, và mỗi lần mở
+ * trang là một request đọc lại chính nó.
+ */
+export function clearLastOrderToken(): void {
+  try {
+    window.localStorage.removeItem(LAST_ORDER_KEY);
+  } catch {
+    // Không xoá được (Safari private mode) — thanh sẽ tự ẩn nhờ nhánh `isEnded` ở FE.
   }
 }
 

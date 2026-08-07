@@ -6,6 +6,7 @@ import { postJson, useApi, type ApiError } from '../lib/use-api.ts';
 import { formatVnd } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { OtpSheet } from '../components/OtpSheet.tsx';
+import { useReorder, type UseReorderResult } from '../lib/use-reorder.ts';
 import {
   clearPhoneSession,
   normalizePhoneForCompare,
@@ -101,6 +102,10 @@ export function HistoryPage(): JSX.Element {
   const [history, setHistory] = useState<PublicOrderHistory | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  // MỘT hook cho cả danh sách (không phải mỗi card một hook): tải menu là việc dùng chung, và
+  // khách chỉ bấm đặt lại một đơn tại một thời điểm — dùng chung `busy` cũng chính là chốt chặn
+  // hai cú bấm chồng nhau đổ hai đơn vào cùng một giỏ.
+  const reorder = useReorder();
 
   // Đánh số lần gọi để bỏ response cũ về muộn (khách sửa số rồi bấm tra lại khi request
   // trước chưa xong) — `postJson` không có AbortController như `useApi`.
@@ -226,6 +231,17 @@ export function HistoryPage(): JSX.Element {
         />
       )}
 
+      {/* Đặt lại KHÔNG thành (mọi món đều hết / không còn bán / rớt mạng). Thành công thì khách đã
+          sang `/cart` và đọc câu giải thích ở đó — ở đây chỉ còn nhánh đứng yên tại chỗ. */}
+      {reorder.error && (
+        <BannerNotice
+          tone="brand"
+          title="Chưa đặt lại được đơn này"
+          body={reorder.error}
+          action={{ label: 'Đã hiểu', onClick: reorder.clearError }}
+        />
+      )}
+
       {otpOpen && (
         <OtpSheet
           phone={phone}
@@ -263,7 +279,7 @@ export function HistoryPage(): JSX.Element {
               </p>
               <ul style={orderList}>
                 {history.orders.map((entry) => (
-                  <OrderCard key={entry.order_token} entry={entry} />
+                  <OrderCard key={entry.order_token} entry={entry} reorder={reorder} />
                 ))}
               </ul>
             </>
@@ -278,7 +294,13 @@ export function HistoryPage(): JSX.Element {
   );
 }
 
-function OrderCard({ entry }: { entry: PublicOrderHistoryEntry }): JSX.Element {
+function OrderCard({
+  entry,
+  reorder,
+}: {
+  entry: PublicOrderHistoryEntry;
+  reorder: UseReorderResult;
+}): JSX.Element {
   const palette = chipPalette(entry);
   const shown = entry.items.slice(0, MAX_ITEM_ROWS);
   const hiddenCount = entry.items.length - shown.length;
@@ -329,6 +351,33 @@ function OrderCard({ entry }: { entry: PublicOrderHistoryEntry }): JSX.Element {
           ›
         </span>
       </Link>
+
+      {/* ── "Đặt lại" — NGOÀI thẻ <Link> bao cả card ──
+          Nút bên trong link là phần tử bấm được lồng trong phần tử bấm được: bàn phím tab vào
+          không ra, và trên điện thoại một cú chạm lệch vài pixel là mở nhầm trang theo dõi thay
+          vì thêm vào giỏ. Nên nó là một hàng riêng dưới card, chữ nhẹ ký (không nền đặc): hành
+          động chính của màn này vẫn là MỞ đơn ra xem.
+          Đơn không còn dòng món nào (bị từ chối trước khi duyệt) thì không có gì để đặt lại. */}
+      {hasItems && (
+        <div style={cardActionRow}>
+          <button
+            type="button"
+            style={reorder.busy ? { ...reorderButton, ...reorderButtonBusy } : reorderButton}
+            disabled={reorder.busy}
+            onClick={() =>
+              reorder.start(
+                entry.items.map((it) => ({
+                  menu_item_id: it.menu_item_id,
+                  name: it.name,
+                  qty: it.qty,
+                })),
+              )
+            }
+          >
+            {reorder.busy ? 'Đang thêm...' : '↻ Đặt lại đơn này'}
+          </button>
+        </div>
+      )}
     </li>
   );
 }
@@ -604,6 +653,31 @@ const cardTotal: CSSProperties = {
   fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
   color: 'var(--text-price-sm)',
+};
+
+/** Hàng nút dưới mỗi card — canh phải, sát card phía trên (nó thuộc về card đó, không phải một
+ *  khối riêng trôi giữa hai đơn). */
+const cardActionRow: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'flex-end',
+  marginTop: 'var(--sp-1)',
+};
+
+const reorderButton: CSSProperties = {
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-3)',
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--brand-600)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  cursor: 'pointer',
+};
+
+const reorderButtonBusy: CSSProperties = {
+  opacity: 'var(--opacity-disabled)',
+  cursor: 'progress',
 };
 
 const chevron: CSSProperties = {

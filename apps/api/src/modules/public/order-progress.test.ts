@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeProgress,
+  etaLine,
   stageLabel,
   STAGE_LABEL_CANCELLED_BY_CUSTOMER,
   type OrderStage,
@@ -263,7 +264,7 @@ describe('stageLabel — nhãn theo 09-UI-SPEC Mặt B', () => {
   });
 
   const otherLabels: Array<[OrderStage, string]> = [
-    ['RECEIVED', 'Đã tiếp nhận'],
+    ['RECEIVED', 'Đã gửi đơn'],
     ['CONFIRMED', 'Đã xác nhận'],
     ['COOKING', 'Đang chuẩn bị'],
     ['REJECTED', 'Đơn đã bị từ chối'],
@@ -274,6 +275,56 @@ describe('stageLabel — nhãn theo 09-UI-SPEC Mặt B', () => {
       expect(stageLabel(stage, 'DELIVERY')).toBe(label);
     });
   }
+});
+
+// Lỗi gốc (chủ dự án báo 2026-08-06): đơn giao tận nơi đi qua 6 mốc mà dòng phụ luôn là
+// "Dự kiến còn khoảng 30–45 phút", kể cả lúc shipper sắp tới cửa. Nhóm test này khoá 2 điều:
+// mỗi mốc nói một câu KHÁC NHAU, và con số phút chỉ được xuất hiện ở đúng MỘT mốc.
+describe('etaLine — dòng phụ theo từng mốc', () => {
+  const DELIVERY_FLOW: OrderStage[] = [
+    'RECEIVED',
+    'CONFIRMED',
+    'COOKING',
+    'READY_TO_SHIP',
+    'DELIVERING',
+    'COMPLETED',
+  ];
+
+  it('6 mốc của đơn giao: không mốc nào lặp lại câu của mốc khác', () => {
+    const lines = DELIVERY_FLOW.map((s) => etaLine(s, 'DELIVERY', 30, 45)).filter(
+      (l): l is string => l !== null,
+    );
+    expect(new Set(lines).size).toBe(lines.length);
+  });
+
+  it('CHỈ mốc CONFIRMED được nói số phút — đây là hồi quy của lỗi gốc', () => {
+    const withNumbers = DELIVERY_FLOW.filter((s) => /\d/.test(etaLine(s, 'DELIVERY', 30, 45) ?? ''));
+    expect(withNumbers).toEqual(['CONFIRMED']);
+  });
+
+  it('DELIVERING nói shipper đang trên đường, KHÔNG hứa thêm 30–45 phút nữa', () => {
+    const line = etaLine('DELIVERING', 'DELIVERY', 30, 45);
+    expect(line).toBe('Shipper đang trên đường tới chỗ bạn');
+    expect(line).not.toMatch(/\d/);
+  });
+
+  it('RECEIVED (chưa duyệt) nói về cuộc gọi xác nhận, không nói thời gian nấu', () => {
+    expect(etaLine('RECEIVED', 'DELIVERY', 30, 45)).toBe('Quán sẽ gọi lại sau ít phút');
+  });
+
+  it('CONFIRMED khác câu theo luồng, và dùng đúng số phút truyền vào', () => {
+    expect(etaLine('CONFIRMED', 'DELIVERY', 30, 45)).toBe('Dự kiến giao trong khoảng 30–45 phút');
+    expect(etaLine('CONFIRMED', 'PICKUP', 15, 20)).toBe('Dự kiến xong sau khoảng 15–20 phút');
+  });
+
+  it.each([
+    ['READY_FOR_PICKUP', 'nhãn mốc đã là lời mời đến lấy'],
+    ['COMPLETED', 'đơn xong, không còn gì để chờ'],
+    ['REJECTED', 'đơn kết thúc'],
+  ] as Array<[OrderStage, string]>)('%s → null (%s)', (stage) => {
+    expect(etaLine(stage, 'DELIVERY', 30, 45)).toBeNull();
+    expect(etaLine(stage, 'PICKUP', 15, 20)).toBeNull();
+  });
 });
 
 describe('computeProgress — clamp cứng 0..100', () => {

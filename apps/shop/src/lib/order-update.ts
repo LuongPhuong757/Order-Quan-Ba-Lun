@@ -12,10 +12,16 @@ import type { PublicOrderStatus } from '@order/schemas';
  * khách biết) thì không ai còn đọc banner nữa. Banner mất tác dụng chính là cách vi phạm M2.D-21
  * mà vẫn "đã implement".
  *
- * Nên điều kiện là 3 thứ khách THẤY ĐƯỢC trên màn hình:
+ * Nên điều kiện là 4 thứ khách THẤY ĐƯỢC trên màn hình:
  *   1. chữ ký danh sách món (tên · số lượng · đơn giá)
  *   2. `subtotal`
  *   3. `cancelled_count`
+ *   4. `ship_fee` (thêm 2026-08-06)
+ *   5. `fulfillment_type` (thêm 2026-08-06, cùng ngày mở tính năng cho quán đổi ship ⇄ tự lấy)
+ *
+ * `ship_fee` là mục quan trọng nhất trong 4 mục: nó là TIỀN KHÁCH PHẢI TRẢ THÊM, quán chốt sau
+ * khi gọi điện. Không có nó ở đây thì phí ship được cộng vào đơn hoàn toàn im lặng — khách đang
+ * mở sẵn trang theo dõi cũng không thấy gì đổi, chuẩn bị đúng tiền món, rồi shipper tới đòi thêm.
  *
  * Đổi `status`/`stage`/`percent` KHÔNG tính — stepper và số % đã diễn đạt việc đó rõ hơn banner.
  */
@@ -27,6 +33,11 @@ export function detectOrderUpdate(
   if (prev === null) return false;
 
   if (prev.subtotal !== next.subtotal) return true;
+  if (prev.ship_fee !== next.ship_fee) return true;
+  // Quán đổi ship ⇄ tự tới lấy (nhân viên bấm ở màn Đơn hàng online, 2026-08-06). Đây là thứ đổi
+  // CÁCH KHÁCH NHẬN HÀNG — không báo thì khách ngồi nhà đợi shipper cho một đơn giờ phải tự ra
+  // quán lấy. Stepper cũng đổi hình theo (5 mốc ⇄ 6 mốc) nhưng đổi im lặng, không ai để ý.
+  if (prev.fulfillment_type !== next.fulfillment_type) return true;
   if (prev.cancelled_count !== next.cancelled_count) return true;
   return itemsSignature(prev) !== itemsSignature(next);
 }

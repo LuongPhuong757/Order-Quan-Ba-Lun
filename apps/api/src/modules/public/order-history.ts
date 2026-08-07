@@ -7,7 +7,8 @@
 //
 // Ranh giới kế thừa NGUYÊN VẸN từ `getByToken()` — sửa bên đó thì soi lại bên này:
 //  - G-1/M2.D-23: `state` từng món chỉ dùng TÍNH stage, không bao giờ ra response. Mỗi dòng
-//    `items` map tay đúng 2 field (`name`/`qty`) — KHÔNG spread row.
+//    `items` map tay đúng 3 field (`menu_item_id`/`name`/`qty`) — KHÔNG spread row. `menu_item_id`
+//    thêm 2026-08-06 cho nút "Đặt lại"; nó là id công khai của menu, xem schema.
 //  - M2.D-47: sau duyệt, `items` + `subtotal` lấy từ `order_items` THẬT (đã trừ món huỷ),
 //    không phải `items_snapshot`.
 //  - Dòng ghi chú (`is_note`) không phải món — loại trước khi tính bất cứ thứ gì.
@@ -28,7 +29,7 @@ export type HistoryRequestRow = {
   submitted_at: number;
   max_progress_shown: number;
   subtotal: number;
-  items_snapshot: Array<{ name: string; qty: number; unit_price: number }>;
+  items_snapshot: Array<{ menu_item_id: string; name: string; qty: number; unit_price: number }>;
   order_id: string | null;
 };
 
@@ -38,6 +39,8 @@ export type HistoryOrderRow = {
 };
 
 export type HistoryOrderItemRow = {
+  /** `null` với món nhân viên thêm tay ở bàn (không gắn menu) — nút "Đặt lại" bỏ qua dòng đó. */
+  menu_item_id: string | null;
   menu_item_name: string;
   menu_item_price: number;
   qty: number;
@@ -52,7 +55,7 @@ export type PublicOrderHistoryEntryShape = {
   stage: string;
   stage_label: string;
   submitted_at_ms: number;
-  items: Array<{ name: string; qty: number }>;
+  items: Array<{ menu_item_id: string | null; name: string; qty: number }>;
   subtotal: number;
 };
 
@@ -66,7 +69,7 @@ export function buildHistoryEntry(
   orderItems: HistoryOrderItemRow[],
 ): PublicOrderHistoryEntryShape {
   let itemStates: string[] = [];
-  let items: Array<{ name: string; qty: number }>;
+  let items: Array<{ menu_item_id: string | null; name: string; qty: number }>;
   let subtotal: number;
 
   if (request.order_id) {
@@ -75,11 +78,19 @@ export function buildHistoryEntry(
     const visible = real.filter(
       (r) => !(EXCLUDED_ITEM_STATES as readonly string[]).includes(r.state),
     );
-    items = visible.map((r) => ({ name: r.menu_item_name, qty: r.qty }));
+    items = visible.map((r) => ({
+      menu_item_id: r.menu_item_id,
+      name: r.menu_item_name,
+      qty: r.qty,
+    }));
     // M2.D-62 — tiền MÓN, không cộng ship_fee.
     subtotal = visible.reduce((sum, r) => sum + r.menu_item_price * r.qty, 0);
   } else {
-    items = request.items_snapshot.map((it) => ({ name: it.name, qty: it.qty }));
+    items = request.items_snapshot.map((it) => ({
+      menu_item_id: it.menu_item_id,
+      name: it.name,
+      qty: it.qty,
+    }));
     subtotal = request.subtotal;
   }
 

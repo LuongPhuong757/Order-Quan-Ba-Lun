@@ -12,8 +12,13 @@ import {
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { OnlineOrderSubmit } from '@order/schemas';
-import { PublicOrderCancelResult, PublicOrderHistory, PublicOrderStatus } from '@order/schemas';
+import type { OnlineOrderSubmit, PublicOrderEdit } from '@order/schemas';
+import {
+  PublicOrderCancelResult,
+  PublicOrderEditResult,
+  PublicOrderHistory,
+  PublicOrderStatus,
+} from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
@@ -22,15 +27,17 @@ import { Order } from '../orders/entities/order.entity.js';
 import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
-import { hashIp, resolveIpHashSalt } from './ip-hash.js';
+import { auditIpValue, hashIp, resolveIpHashSalt } from './ip-hash.js';
 import {
   EXCLUDED_ITEM_STATES,
   STAGE_LABEL_CANCELLED_BY_CUSTOMER,
   computeProgress,
+  etaLine,
   stageLabel,
 } from './order-progress.js';
 import { submitOrder, type MenuItemLookup, type SubmitDeps } from './submit-order.js';
 import { cancelOrderByCustomer } from './cancel-order.js';
+import { editOrderByCustomer, type EditableRequestRow } from './edit-order.js';
 import { buildHistoryEntry, type HistoryRequestRow } from './order-history.js';
 import { normalizePhone } from './phone.js';
 import { PublicOtpService } from './public-otp.service.js';
@@ -112,7 +119,7 @@ export class PublicOrdersService {
    * rollback là báo cho mọi tab admin về một thay đổi không có thật (cùng lý do T-09-51 ở
    * `submit()`).
    */
-  async cancelByToken(token: string): Promise<PublicOrderCancelResult> {
+  async cancelByToken(token: string, ctx?: { ip: string }): Promise<PublicOrderCancelResult> {
     const settings = await this.settingsSvc.readAll();
 
     const outcome = await this.ds.transaction(async (mgr) =>
@@ -152,12 +159,185 @@ export class PublicOrdersService {
       } catch (err) {
         this.logger.warn(`Emit event khách huỷ đơn thất bại (đơn vẫn đã huỷ): ${(err as Error).message}`);
       }
+      // CHỈ log lần huỷ THẬT: lần gọi lại trên đơn đã huỷ (idempotent) không phải một hành động
+      // mới, ghi nữa là làm loãng đúng dòng log mà chủ quán cần đọc.
+      this.auditPublic(ctx?.ip ?? '', {
+        action_kind: 'public.order_cancelled',
+        target_id: outcome.request_id,
+      });
     }
 
     return PublicOrderCancelResult.strict().parse({
       order_token: outcome.order_token,
       status: outcome.status,
     });
+  }
+
+  /**
+   * `PATCH /api/public/orders/:token` — khách tự sửa món/ghi chú khi đơn còn `WAITING`
+   * (M2.D-44 nửa sửa, chốt 2026-08-06).
+   *
+   * Quyết định + dựng snapshot nằm ở `edit-order.ts` (module thuần, test bằng fake-deps); hàm này
+   * CHỈ nối dây DB thật, đúng khuôn `cancelByToken`.
+   *
+   * 3 thứ phải giữ nguyên thứ tự:
+   *
+   * 1. **Lock + save trong CÙNG transaction** — đó là toàn bộ cách giải race với
+   *    `AdminOnlineOrdersService.confirm()`. Xem điểm 1 đầu `edit-order.ts`.
+   * 2. **SSE emit SAU commit** — emit rồi rollback là báo cho mọi tab admin về một bản sửa không
+   *    tồn tại (cùng lý do T-09-51 ở `submit()`).
+   * 3. **KHÔNG đụng hàng thông báo.** Đơn vẫn `WAITING`, lịch SMS leo thang L1/L2/L3 (REQ-N) vẫn
+   *    đúng mục đích: nhắc quán duyệt một đơn đang chờ. Huỷ rồi xếp lại là đẩy lùi mốc leo thang
+   *    mỗi lần khách bấm sửa — khách sửa 3 lần là quán không bao giờ nhận được SMS L2.
+   */
+  async editByToken(
+    token: string,
+    input: PublicOrderEdit,
+    ctx?: { ip: string },
+  ): Promise<PublicOrderEditResult> {
+    const settings = await this.settingsSvc.readAll();
+
+    const outcome = await this.ds.transaction(async (mgr) =>
+      editOrderByCustomer(
+        {
+          lockRequestByToken: async (t) => {
+            // `SELECT ... FOR UPDATE` bằng query thô (không `findOne`) vì chỉ câu này mới giữ
+            // được row lock — cùng hàng mà `lockWaitingRequest()` phía admin khoá.
+            const rows: Array<{
+              id: string;
+              status: string;
+              fulfillment_type: string;
+              items_snapshot: unknown;
+              customer_note: string | null;
+              customer_address: string | null;
+              customer_lat: string | null;
+              customer_lng: string | null;
+              customer_map_link: string | null;
+              distance_km: string | null;
+            }> = await mgr.query(
+              `SELECT id, status, fulfillment_type, items_snapshot, customer_note,
+                      customer_address, customer_lat, customer_lng, customer_map_link, distance_km
+                 FROM online_order_requests WHERE order_token = ? FOR UPDATE`,
+              [t],
+            );
+            const row = rows[0];
+            if (!row) return null;
+            // mysql2 trả cột `json` đã parse sẵn thành object; bản cũ hơn (và một số cấu hình)
+            // trả chuỗi. Không đoán — xử cả hai, vì đoán sai ở đây là `.map is not a function`
+            // ngay giữa một transaction đang giữ lock.
+            const snapshot =
+              typeof row.items_snapshot === 'string'
+                ? JSON.parse(row.items_snapshot)
+                : row.items_snapshot;
+            return { ...row, items_snapshot: snapshot ?? [] } as EditableRequestRow;
+          },
+
+          // Dùng lại ĐÚNG dep của luồng submit — món gọi thêm phải qua cùng bộ lọc "đang bán +
+          // còn hàng + không ẩn online (kể cả ẩn cả nhóm)" như lúc đặt đơn lần đầu.
+          findMenuItemsByIds: this.makeDeps(mgr).findMenuItemsByIds,
+
+          saveEdit: async (id, patch) => {
+            // Ghi cả 5 cột vị trí trong MỘT lệnh: địa chỉ, toạ độ và km phải cùng đổi hoặc cùng
+            // giữ. `edit-order.ts` đã lo tính nhất quán, ở đây chỉ việc ghi đúng thứ nó đưa ra —
+            // đừng thêm nhánh `if` nào tại đây, đó là cách hai chỗ bắt đầu nghĩ khác nhau.
+            await mgr.query(
+              `UPDATE online_order_requests
+                  SET items_snapshot = ?, subtotal = ?, customer_note = ?,
+                      customer_address = ?, customer_lat = ?, customer_lng = ?,
+                      customer_map_link = ?, distance_km = ?
+                WHERE id = ?`,
+              [
+                JSON.stringify(patch.items_snapshot),
+                patch.subtotal,
+                patch.customer_note,
+                patch.customer_address,
+                patch.customer_lat,
+                patch.customer_lng,
+                patch.customer_map_link,
+                patch.distance_km,
+                id,
+              ],
+            );
+          },
+
+          storePhone: settings.store_phone,
+          storeGeo: {
+            store_lat: settings.store_lat,
+            store_lng: settings.store_lng,
+            distance_factor: settings.distance_factor,
+          },
+        },
+        token,
+        input,
+      ),
+    );
+
+    try {
+      this.emitter.emit('online_order.reviewed', {
+        request_id: outcome.request_id,
+        at_ms: Date.now(),
+      });
+    } catch (err) {
+      this.logger.warn(`Emit event khách sửa đơn thất bại (bản sửa vẫn đã lưu): ${(err as Error).message}`);
+    }
+
+    // Task.md: "mọi hành động ở phần online đều cần log". Ghi CẢ bản trước và bản sau — câu hỏi
+    // thật của chủ quán không phải "đơn giờ có gì" (nhìn đơn là thấy) mà là "khách đã đổi gì so
+    // với lúc gọi điện chốt miệng".
+    this.auditPublic(ctx?.ip ?? '', {
+      action_kind: 'public.order_edited',
+      target_id: outcome.request_id,
+      before: {
+        items: outcome.before.items_snapshot,
+        customer_note: outcome.before.customer_note,
+        customer_address: outcome.before.customer_address,
+      },
+      after: {
+        items: outcome.items_snapshot,
+        customer_note: outcome.customer_note,
+        customer_address: outcome.customer_address,
+        subtotal: outcome.subtotal,
+      },
+    });
+
+    return PublicOrderEditResult.strict().parse({
+      order_token: token,
+      items: outcome.items_snapshot.map((it) => ({
+        menu_item_id: it.menu_item_id,
+        name: it.name,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        note: it.note ?? null,
+      })),
+      subtotal: outcome.subtotal,
+    });
+  }
+
+  /** Ghi audit cho hành động của KHÁCH (không đăng nhập) — khuôn `PublicOtpService.auditFn`:
+   * actor null, IP đi dạng HASH (M2.D-56 — luồng public không bao giờ lưu IP thô).
+   *
+   * Fire-and-forget: một lần ghi log hỏng KHÔNG được biến thao tác đã commit thành lỗi 500. */
+  private auditPublic(
+    ip: string,
+    ev: { action_kind: string; target_id: string; before?: unknown; after?: unknown },
+  ): void {
+    try {
+      this.emitter.emit('audit.write', {
+        actor_id: null,
+        actor_name: null,
+        // Dùng `auditIpValue` — KHÔNG tự ghép `hashed:` + hash đầy đủ ở đây: chuỗi đó dài 71 ký
+        // tự, vượt `varchar(45)` của cột và làm cả dòng log rơi im lặng (xem docblock hàm đó).
+        ip: auditIpValue(ip),
+        ts_ms: Date.now(),
+        action_kind: ev.action_kind,
+        target_kind: 'online_order_request',
+        target_id: ev.target_id,
+        before_json: ev.before ?? null,
+        after_json: ev.after ?? null,
+      });
+    } catch (err) {
+      this.logger.warn(`Ghi audit ${ev.action_kind} thất bại: ${(err as Error).message}`);
+    }
   }
 
   private makeDeps(mgr: EntityManager): SubmitDeps {
@@ -308,6 +488,9 @@ export class PublicOrdersService {
     // luôn null và `computeProgress` cũng không xét tới chúng.
     let shippedAtMs: number | null = null;
     let receivedAtMs: number | null = null;
+    // M2.D-62 — phí ship sống ở `orders.ship_fee`, admin nhập lúc duyệt. Đơn chưa duyệt thì chưa
+    // có Order nào nên luôn 0; đó là sự thật chứ không phải giá trị mặc định tạm.
+    let shipFee = 0;
 
     if (request.order_id) {
       const order = await this.orderRepo.findOne({ where: { id: request.order_id } });
@@ -323,6 +506,9 @@ export class PublicOrdersService {
         visible.map((r) => r.menu_item_id),
       );
       items = visible.map((r) => ({
+        // Món thêm tay ở bàn không có `menu_item_id` → null. Đơn ở nhánh này đã được duyệt nên
+        // khách không sửa được nữa, FE chỉ dùng field này cho đơn còn WAITING (nhánh dưới).
+        menu_item_id: r.menu_item_id ?? null,
         name: r.menu_item_name,
         qty: r.qty,
         unit_price: r.menu_item_price,
@@ -333,12 +519,14 @@ export class PublicOrdersService {
         updatedAtMs = order.updated_at;
         shippedAtMs = order.shipped_at;
         receivedAtMs = order.received_at;
+        shipFee = order.ship_fee ?? 0;
       }
     } else {
       const imageByMenuItemId = await this.findImagesByMenuItemIds(
         request.items_snapshot.map((it) => it.menu_item_id),
       );
       items = request.items_snapshot.map((it) => ({
+        menu_item_id: it.menu_item_id,
         name: it.name,
         qty: it.qty,
         unit_price: it.unit_price,
@@ -369,18 +557,16 @@ export class PublicOrdersService {
       ? items.reduce((sum, it) => sum + it.unit_price * it.qty, 0)
       : request.subtotal;
 
-    // Đơn đã kết thúc (từ chối/khách huỷ/hoàn tất) thì không còn "dự kiến còn bao lâu" nữa.
-    // `READY_FOR_PICKUP` cũng tắt ETA (điều chỉnh OD-19, 2026-08-05): món đã sẵn và % đã 100,
-    // "còn bao lâu" giờ phụ thuộc bước chân của khách — hiện "dự kiến còn 15–20 phút" cạnh
-    // lời mời đến lấy là hai câu đá nhau. Stage này chỉ tồn tại với PICKUP; READY_TO_SHIP của
-    // DELIVERY vẫn giữ ETA vì chặng giao còn ở phía trước.
-    const noEta =
-      progress.stage === 'REJECTED' ||
-      progress.stage === 'COMPLETED' ||
-      progress.stage === 'READY_FOR_PICKUP';
+    // Dòng phụ dưới nhãn mốc. Quyết định "mốc này nói gì" nằm TRỌN ở `etaLine()` cùng nhà với
+    // `stageLabel()` — trước 2026-08-06 chỗ này tự chọn khi nào tắt ETA bằng một danh sách `noEta`
+    // rời rạc, và FE tự ghép câu, nên không ai đọc được toàn cảnh "6 mốc hiện gì".
     const isPickup = fulfillment_type === 'PICKUP';
-    const eta_min = noEta ? null : isPickup ? settings.eta_pickup_min : settings.eta_delivery_min;
-    const eta_max = noEta ? null : isPickup ? settings.eta_pickup_max : settings.eta_delivery_max;
+    const eta_text = etaLine(
+      progress.stage,
+      fulfillment_type,
+      isPickup ? settings.eta_pickup_min : settings.eta_delivery_min,
+      isPickup ? settings.eta_pickup_max : settings.eta_delivery_max,
+    );
 
     const shaped = {
       order_token: request.order_token,
@@ -388,6 +574,9 @@ export class PublicOrdersService {
       fulfillment_type,
       items,
       subtotal,
+      ship_fee: shipFee,
+      customer_note: request.customer_note,
+      customer_address: request.customer_address,
       submitted_at_ms: request.submitted_at,
       store_phone: settings.store_phone,
       reject_reason: request.reject_reason,
@@ -401,8 +590,7 @@ export class PublicOrdersService {
       percent: progress.percent,
       cancelled_count: progress.cancelled_count,
       cancelled_note: progress.cancelled_note,
-      eta_min,
-      eta_max,
+      eta_text,
       updated_at_ms: updatedAtMs,
     };
     return PublicOrderStatus.strict().parse(shaped);

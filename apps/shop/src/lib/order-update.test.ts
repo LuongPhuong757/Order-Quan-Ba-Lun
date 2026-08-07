@@ -15,10 +15,13 @@ function base(): PublicOrderStatus {
     status: 'WAITING',
     fulfillment_type: 'DELIVERY',
     items: [
-      { name: 'Lẩu hải sản', qty: 1, unit_price: 185_000, image: null, note: null },
-      { name: 'Rau nhúng', qty: 2, unit_price: 25_000, image: null, note: null },
+      { menu_item_id: 'mi-lau', name: 'Lẩu hải sản', qty: 1, unit_price: 185_000, image: null, note: null },
+      { menu_item_id: 'mi-rau', name: 'Rau nhúng', qty: 2, unit_price: 25_000, image: null, note: null },
     ],
     subtotal: 235_000,
+    ship_fee: 0,
+    customer_note: null,
+    customer_address: null,
     submitted_at_ms: 1_700_000_000_000,
     store_phone: '0900000000',
     reject_reason: null,
@@ -27,8 +30,7 @@ function base(): PublicOrderStatus {
     percent: 0,
     cancelled_count: 0,
     cancelled_note: null,
-    eta_min: null,
-    eta_max: null,
+    eta_text: null,
     updated_at_ms: 1_700_000_000_000,
   };
 }
@@ -76,7 +78,10 @@ describe('detectOrderUpdate — những thay đổi LÀ "quán sửa đơn"', ()
   it('thêm 1 món', () => {
     const next = {
       ...base(),
-      items: [...base().items, { name: 'Bia', qty: 1, unit_price: 20_000, image: null, note: null }],
+      items: [
+        ...base().items,
+        { menu_item_id: 'mi-bia', name: 'Bia', qty: 1, unit_price: 20_000, image: null, note: null },
+      ],
       subtotal: 255_000,
     };
     expect(detectOrderUpdate(base(), next)).toBe(true);
@@ -85,6 +90,18 @@ describe('detectOrderUpdate — những thay đổi LÀ "quán sửa đơn"', ()
   it('đổi qty của 1 món', () => {
     const items = base().items.map((i, idx) => (idx === 1 ? { ...i, qty: 4 } : i));
     expect(detectOrderUpdate(base(), { ...base(), items, subtotal: 285_000 })).toBe(true);
+  });
+
+  it('quán vừa NHẬP PHÍ SHIP → phải báo, dù món và tiền món không đổi', () => {
+    // Đây là lý do quan trọng nhất của banner: phí ship là tiền khách phải trả THÊM, quán chốt
+    // sau khi gọi điện. Không bắt được thay đổi này thì nó vào đơn hoàn toàn im lặng.
+    expect(detectOrderUpdate(base(), { ...base(), ship_fee: 20_000 })).toBe(true);
+  });
+
+  it('quán ĐỔI HÌNH THỨC NHẬN HÀNG (ship → tự tới lấy) → phải báo', () => {
+    // Thêm 2026-08-06 cùng lúc mở tính năng cho quán đổi. Khách không đọc được thay đổi này thì
+    // ngồi nhà đợi shipper cho một đơn mà quán đang xếp vào "khách tự tới lấy".
+    expect(detectOrderUpdate(base(), { ...base(), fulfillment_type: 'PICKUP' })).toBe(true);
   });
 
   it('đổi subtotal dù danh sách món trông y hệt', () => {

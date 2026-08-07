@@ -368,6 +368,10 @@ type FakeRequestRow = {
   fulfillment_type: string;
   items_snapshot: Array<{ menu_item_id: string; name: string; qty: number; unit_price: number }>;
   subtotal: number;
+  /** Ghi chú cả đơn của khách — vào response từ 2026-08-06 (cùng luồng khách tự sửa đơn). */
+  customer_note: string | null;
+  /** Địa chỉ giao — cũng vào response từ 2026-08-06 để màn sửa đơn prefill được ô địa chỉ. */
+  customer_address: string | null;
   submitted_at: number;
   reject_reason: string | null;
   internal_reject_note: string | null;
@@ -396,6 +400,8 @@ function fakeRequest(overrides: Partial<FakeRequestRow> = {}): FakeRequestRow {
     fulfillment_type: 'PICKUP',
     items_snapshot: [{ menu_item_id: 'mi-1', name: 'Lẩu bò', qty: 2, unit_price: 45000 }],
     subtotal: 90000,
+    customer_note: null,
+    customer_address: null,
     submitted_at: SUBMITTED_MS,
     reject_reason: null,
     internal_reject_note: null,
@@ -473,10 +479,10 @@ describe('getByToken — đơn còn WAITING', () => {
     const { svc } = makeService({ request: fakeRequest() });
     const res = await svc.getByToken('tok-1');
     expect(res.stage).toBe('RECEIVED');
-    expect(res.stage_label).toBe('Đã tiếp nhận');
+    expect(res.stage_label).toBe('Đã gửi đơn');
     expect(res.percent).toBe(0);
     expect(res.items).toEqual([
-      { name: 'Lẩu bò', qty: 2, unit_price: 45000, image: null, note: null },
+      { menu_item_id: 'mi-1', name: 'Lẩu bò', qty: 2, unit_price: 45000, image: null, note: null },
     ]);
     expect(res.subtotal).toBe(90000);
     expect(res.updated_at_ms).toBe(SUBMITTED_MS);
@@ -553,8 +559,8 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     });
     const res = await svc.getByToken('tok-1');
     expect(res.items).toEqual([
-      { name: 'Cơm rang', qty: 2, unit_price: 50000, image: null, note: null },
-      { name: 'Trà đá', qty: 3, unit_price: 5000, image: null, note: null },
+      { menu_item_id: 'mi-1', name: 'Cơm rang', qty: 2, unit_price: 50000, image: null, note: null },
+      { menu_item_id: 'mi-1', name: 'Trà đá', qty: 3, unit_price: 5000, image: null, note: null },
     ]);
     // 50000×2 + 5000×3 = 115000, KHÁC subtotal cũ 90000.
     expect(res.subtotal).toBe(115000);
@@ -597,7 +603,7 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     expect(res.cancelled_note).toBe('1 món đã huỷ — quán sẽ liên hệ bạn');
   });
 
-  it('eta lấy theo fulfillment_type (DELIVERY thì 30/45)', async () => {
+  it('mốc CONFIRMED của DELIVERY: dòng phụ có số phút theo cấu hình (30–45)', async () => {
     const { svc } = makeService({
       request: fakeRequest({
         status: 'CONFIRMED',
@@ -607,8 +613,8 @@ describe('getByToken — đơn đã CONFIRMED', () => {
       items: [fakeItem()],
     });
     const res = await svc.getByToken('tok-1');
-    expect(res.eta_min).toBe(30);
-    expect(res.eta_max).toBe(45);
+    // CONFIRMED là mốc DUY NHẤT còn nói số phút — xem docblock `etaLine()`.
+    expect(res.eta_text).toBe('Dự kiến giao trong khoảng 30–45 phút');
   });
 
   // COMPLETED nay đến từ `orders.received_at`, KHÔNG từ item state (ghi đè M2.D-15 → OD-19).
@@ -623,8 +629,7 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     expect(res.stage).toBe('READY_FOR_PICKUP');
     expect(res.stage_label).toBe('Món đã xong — mời bạn đến lấy');
     expect(res.percent).toBe(100);
-    expect(res.eta_min).toBeNull();
-    expect(res.eta_max).toBeNull();
+    expect(res.eta_text).toBeNull();
   });
 
   it('received_at có → stage COMPLETED, percent 100, eta null', async () => {
@@ -637,8 +642,7 @@ describe('getByToken — đơn đã CONFIRMED', () => {
     expect(res.stage).toBe('COMPLETED');
     expect(res.percent).toBe(100);
     expect(res.stage_label).toBe('Đã lấy hàng');
-    expect(res.eta_min).toBeNull();
-    expect(res.eta_max).toBeNull();
+    expect(res.eta_text).toBeNull();
   });
 
   it('DELIVERY đã đi ship, chưa nhận → stage DELIVERING, percent 90', async () => {
@@ -676,7 +680,9 @@ describe('getByToken — đơn đã CONFIRMED', () => {
 describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từng món', () => {
   // `note` (ghi chú khách tự dặn cho món) nằm trong whitelist — đó là dữ liệu của chính
   // khách, không phải trạng thái vận hành mà G-1 cấm lộ.
-  it('response không chứa chuỗi state và mỗi item có ĐÚNG 5 khoá', async () => {
+  // `menu_item_id` vào whitelist từ 2026-08-06 (luồng khách tự sửa đơn cần nó để dựng lại giỏ) —
+  // id công khai, `GET /api/public/menu` đã trả sẵn cho mọi khách, không phải dữ liệu vận hành.
+  it('response không chứa chuỗi state và mỗi item có ĐÚNG 6 khoá', async () => {
     const cases: Array<{ request: FakeRequestRow; items?: FakeItemRow[] }> = [
       { request: fakeRequest() },
       {
@@ -697,7 +703,14 @@ describe('getByToken — G-1 hard gate (M2.D-23): không lộ trạng thái từ
       const res = await svc.getByToken('tok-1');
       expect(JSON.stringify(res)).not.toContain('"state"');
       for (const item of res.items) {
-        expect(Object.keys(item).sort()).toEqual(['image', 'name', 'note', 'qty', 'unit_price']);
+        expect(Object.keys(item).sort()).toEqual([
+          'image',
+          'menu_item_id',
+          'name',
+          'note',
+          'qty',
+          'unit_price',
+        ]);
       }
     }
   });
@@ -717,7 +730,7 @@ describe('getByToken — D-09: ghi chú nội bộ không bao giờ ra response'
     expect(JSON.stringify(res)).not.toContain('bom hàng');
     expect(res.reject_reason).toBe('Quán đang quá tải, chưa thể nhận thêm');
     expect(res.stage).toBe('REJECTED');
-    expect(res.eta_min).toBeNull();
+    expect(res.eta_text).toBeNull();
   });
 
   it('khách tự huỷ thì stage_label là Đơn đã huỷ, không phải câu quán từ chối', async () => {

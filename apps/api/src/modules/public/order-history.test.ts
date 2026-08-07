@@ -20,8 +20,8 @@ function baseRequest(overrides: Partial<HistoryRequestRow> = {}): HistoryRequest
     max_progress_shown: 0,
     subtotal: 90_000,
     items_snapshot: [
-      { name: 'Lẩu bò', qty: 1, unit_price: 60_000 },
-      { name: 'Trà đá', qty: 3, unit_price: 10_000 },
+      { menu_item_id: 'mi-lau-bo', name: 'Lẩu bò', qty: 1, unit_price: 60_000 },
+      { menu_item_id: 'mi-tra-da', name: 'Trà đá', qty: 3, unit_price: 10_000 },
     ],
     order_id: null,
     ...overrides,
@@ -30,6 +30,7 @@ function baseRequest(overrides: Partial<HistoryRequestRow> = {}): HistoryRequest
 
 function item(overrides: Partial<HistoryOrderItemRow> = {}): HistoryOrderItemRow {
   return {
+    menu_item_id: 'mi-lau-bo',
     menu_item_name: 'Lẩu bò',
     menu_item_price: 60_000,
     qty: 1,
@@ -40,13 +41,13 @@ function item(overrides: Partial<HistoryOrderItemRow> = {}): HistoryOrderItemRow
 }
 
 describe('buildHistoryEntry — đơn chưa duyệt (đọc items_snapshot)', () => {
-  it('WAITING → stage RECEIVED, items từ snapshot (chỉ name+qty), subtotal từ request', () => {
+  it('WAITING → stage RECEIVED, items từ snapshot (chỉ menu_item_id+name+qty), subtotal từ request', () => {
     const entry = buildHistoryEntry(baseRequest(), null, []);
     expect(entry.stage).toBe('RECEIVED');
-    expect(entry.stage_label).toBe('Đã tiếp nhận');
+    expect(entry.stage_label).toBe('Đã gửi đơn');
     expect(entry.items).toEqual([
-      { name: 'Lẩu bò', qty: 1 },
-      { name: 'Trà đá', qty: 3 },
+      { menu_item_id: 'mi-lau-bo', name: 'Lẩu bò', qty: 1 },
+      { menu_item_id: 'mi-tra-da', name: 'Trà đá', qty: 3 },
     ]);
     expect(entry.subtotal).toBe(90_000);
   });
@@ -68,12 +69,12 @@ describe('buildHistoryEntry — đơn đã duyệt (đọc order_items thật, M
 
   it('items + subtotal tính từ order_items, KHÔNG dùng snapshot', () => {
     const entry = buildHistoryEntry(confirmed(), { shipped_at: null, received_at: null }, [
-      item({ menu_item_name: 'Lẩu gà', menu_item_price: 250_000, qty: 1, state: 'READY' }),
-      item({ menu_item_name: 'Bún', menu_item_price: 10_000, qty: 2, state: 'READY' }),
+      item({ menu_item_id: 'mi-lau-ga', menu_item_name: 'Lẩu gà', menu_item_price: 250_000, qty: 1, state: 'READY' }),
+      item({ menu_item_id: 'mi-bun', menu_item_name: 'Bún', menu_item_price: 10_000, qty: 2, state: 'READY' }),
     ]);
     expect(entry.items).toEqual([
-      { name: 'Lẩu gà', qty: 1 },
-      { name: 'Bún', qty: 2 },
+      { menu_item_id: 'mi-lau-ga', name: 'Lẩu gà', qty: 1 },
+      { menu_item_id: 'mi-bun', name: 'Bún', qty: 2 },
     ]);
     expect(entry.subtotal).toBe(270_000);
     expect(entry.stage).toBe('READY_TO_SHIP');
@@ -81,11 +82,11 @@ describe('buildHistoryEntry — đơn đã duyệt (đọc order_items thật, M
 
   it('món huỷ/hết hàng bị loại khỏi items lẫn subtotal; dòng ghi chú (is_note) không phải món', () => {
     const entry = buildHistoryEntry(confirmed(), { shipped_at: null, received_at: null }, [
-      item({ menu_item_name: 'Lẩu gà', menu_item_price: 250_000, state: 'COOKING' }),
+      item({ menu_item_id: 'mi-lau-ga', menu_item_name: 'Lẩu gà', menu_item_price: 250_000, state: 'COOKING' }),
       item({ menu_item_name: 'Món huỷ', menu_item_price: 99_000, state: 'CANCELLED' }),
-      item({ menu_item_name: 'ít cay', menu_item_price: 0, is_note: true }),
+      item({ menu_item_id: null, menu_item_name: 'ít cay', menu_item_price: 0, is_note: true }),
     ]);
-    expect(entry.items).toEqual([{ name: 'Lẩu gà', qty: 1 }]);
+    expect(entry.items).toEqual([{ menu_item_id: 'mi-lau-ga', name: 'Lẩu gà', qty: 1 }]);
     expect(entry.subtotal).toBe(250_000);
   });
 
