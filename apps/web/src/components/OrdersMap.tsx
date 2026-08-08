@@ -38,6 +38,12 @@ const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
 // Ghi công OpenStreetMap là điều kiện dùng tile miễn phí của họ.
 const TILE_ATTRIBUTION = '© OpenStreetMap';
 
+/** Bán kính chấm đơn. 7px (bản đầu) quá nhỏ để nhắm trúng bằng ngón tay trên tablet của quán —
+ *  10px cho đường kính 20px, cộng viền trắng là vừa tầm chạm mà chưa nuốt mất cụm chấm gần nhau. */
+const DOT_RADIUS = 10;
+const DOT_RADIUS_HOVER = 13;
+
+
 const STORE_ICON = L.divIcon({
   className: '',
   html: `<div style="width:14px;height:14px;border-radius:3px;background:${C.accent};border:3px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,.5)"></div>`,
@@ -124,14 +130,28 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
     for (const { row, pos } of points) {
       const stage = stageOf(row);
       const dot = L.circleMarker(pos, {
-        radius: 7,
+        radius: DOT_RADIUS,
         color: '#ffffff',
-        weight: 2,
+        weight: 2.5,
         fillColor: MAP_STAGE_COLOR[stage],
         fillOpacity: 0.95,
       });
       const km = row.distance_km === null ? '' : ` · ≈${Number(row.distance_km).toFixed(1)}km`;
       const stageLabel = MAP_STAGE_LABEL[stage];
+
+      // Rê chuột là ra tên/SĐT/địa chỉ người nhận — không phải bấm rồi mới biết chấm nào là ai.
+      // Popup (bấm) vẫn giữ, vì chỉ nó mới chứa được nút "Mở đơn này"; tooltip không bấm vào được.
+      dot.bindTooltip(
+        `<div style="font-weight:700">${escapeHtml(row.customer_name)}</div>
+         <div style="color:${C.muted}">${escapeHtml(row.customer_phone)}${km}</div>
+         <div>${stageLabel}</div>
+         ${row.customer_address ? `<div style="color:${C.muted};max-width:220px">${escapeHtml(row.customer_address)}</div>` : ''}`,
+        { direction: 'top', offset: [0, -DOT_RADIUS], className: 'order-dot-tip', sticky: false },
+      );
+      // Chấm phình ra khi rê vào: trên cụm chấm chồng nhau, đây là cách duy nhất thấy được
+      // tooltip đang nói về chấm NÀO.
+      dot.on('mouseover', () => dot.setRadius(DOT_RADIUS_HOVER));
+      dot.on('mouseout', () => dot.setRadius(DOT_RADIUS));
       // `escapeHtml` cho MỌI thứ do khách nhập (tên, SĐT, địa chỉ): popup của Leaflet nhận HTML
       // thô, nên một cái tên có dấu `<` là đủ để làm vỡ popup — và tệ hơn thì không chỉ là vỡ.
       dot.bindPopup(
@@ -161,7 +181,6 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
       fittedRef.current = true;
     }
   }, [points, storeLat, storeLng]);
-
   return (
     <div>
       <div ref={hostRef} style={mapHost} aria-label="Bản đồ các đơn giao hàng" />
@@ -183,6 +202,15 @@ const mapHost: CSSProperties = {
   borderRadius: 12,
   border: `1px solid ${C.border}`,
   background: '#e9edf1',
+  /** Leaflet tự đặt z-index cho lớp bên trong nó: pane 400-700, control 800, .leaflet-top/bottom
+   *  1000. Nếu khung này không phải một stacking context thì mấy số đó tính ở cấp TOÀN TRANG và
+   *  thắng cả nav dưới (100) lẫn header (200) — bản đồ đè lên giao diện. `isolation` nhốt chúng
+   *  lại bên trong; `position` + `z-index: 0` là đường lui cho trình duyệt cũ. */
+  isolation: 'isolate',
+  position: 'relative',
+  zIndex: 0,
+  /** Không có cái này thì tile vuông góc tràn ra ngoài 4 góc bo. */
+  overflow: 'hidden',
 };
 
 const legend: CSSProperties = {

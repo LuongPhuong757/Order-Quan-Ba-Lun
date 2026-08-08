@@ -831,3 +831,16 @@ a:hover {
   border-radius: 8px;
   background: #fff;
 }
+
+/* Tooltip hover của chấm đơn trên bản đồ (OrdersMap.tsx). Mặc định Leaflet để 12px/1.4 và
+   không xuống dòng — địa chỉ khách dài thành một hàng chạy hết màn hình. */
+.leaflet-tooltip.order-dot-tip {
+  font-size: 13px;
+  line-height: 1.45;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
+  white-space: normal;
+  max-width: 240px;
+}
