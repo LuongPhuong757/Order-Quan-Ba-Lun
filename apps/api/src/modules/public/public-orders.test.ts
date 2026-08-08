@@ -36,7 +36,9 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
     store_lat: null,
     store_lng: null,
     distance_factor: 1.3,
-    // 0 = quán KHÔNG đặt bán kính giao tối đa (mặc định hệ thống) → mọi test cũ giữ nguyên hành vi.
+    // 0 = quán KHÔNG đặt bán kính giao tối đa → mọi test cũ giữ nguyên hành vi.
+    // (Mặc định của HỆ THỐNG là 30 km từ 2026-08-09; ở đây cố ý dùng 0 để tách bạch: các test cũ
+    //  không nói gì về bán kính thì không được vô tình bị bán kính chi phối.)
     max_delivery_km: 0,
     online_ordering_off_reason: '',
     pickup_enabled: true,
@@ -338,7 +340,7 @@ describe('submitOrder — bán kính giao tối đa (max_delivery_km)', () => {
     expect(result.distance_km).not.toBeNull();
   });
 
-  it('max_delivery_km = 0 (mặc định) → KHÔNG giới hạn, dù khách ở rất xa', async () => {
+  it('max_delivery_km = 0 (quán tự tắt giới hạn) → nhận đơn dù khách ở rất xa', async () => {
     const deps = makeDeps({
       readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 0 })),
     });

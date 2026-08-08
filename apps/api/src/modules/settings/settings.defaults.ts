@@ -46,12 +46,20 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // lý": mỗi quán một bảng giá, đoán hộ họ là khách đọc được con số quán chưa bao giờ đồng ý.
   { key: 'ship_fee_tiers', kind: 'json', default: [] },
   { key: 'distance_factor', kind: 'float', default: 1.3 },
-  // ── Bán kính giao tối đa (2026-08-07) — TỰ TỪ CHỐI đơn giao ở quá xa ──
-  // `0` = KHÔNG giới hạn, và mặc định buộc phải là 0: mọi quán đang chạy đều chưa có row này
-  // trong DB, nên một mặc định khác 0 sẽ âm thầm bắt đầu từ chối đơn thật mà chủ quán không bật gì.
+  // ── Bán kính giao tối đa — TỰ TỪ CHỐI đơn giao ở quá xa ──
+  //
+  // `0` = không giới hạn. Mặc định là **30 km** (chủ dự án chốt 2026-08-09, ghi đè lựa chọn `0`
+  // của bản 2026-08-07).
+  //
+  // ⚠ HỆ QUẢ PHẢI BIẾT: key này chưa tồn tại trong DB của quán đang chạy, nên fallback ở đây LÀ
+  // giá trị có hiệu lực thật. Nghĩa là ngay lần deploy đầu tiên, đơn giao có toạ độ xa hơn 30 km
+  // sẽ bị từ chối TỰ ĐỘNG mà không ai phải bật gì. Bản trước cố ý để `0` chính vì lo điều đó;
+  // quyết định nay là 30 km, và 30 km rộng hơn mọi chuyến giao thực tế của một quán ăn nên rủi ro
+  // chấp nhận được — nhưng nếu sau này thấy mất đơn không rõ lý do thì đây là chỗ nhìn đầu tiên.
+  //
   // Chỉ có nghĩa với đơn GIAO và chỉ khi tính được km (có toạ độ quán + khách chia sẻ vị trí) —
   // xem `delivery-radius.ts` về vì sao "không biết khách ở đâu" không được thành "quá xa".
-  { key: 'max_delivery_km', kind: 'float', default: 0 },
+  { key: 'max_delivery_km', kind: 'float', default: 30 },
   { key: 'pickup_enabled', kind: 'bool', default: true },
   { key: 'delivery_enabled', kind: 'bool', default: true },
   { key: 'escalate_sms_after_s', kind: 'int', default: 90 },
