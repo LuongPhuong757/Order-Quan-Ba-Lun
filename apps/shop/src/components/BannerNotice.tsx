@@ -9,12 +9,14 @@ import type { CSSProperties, JSX, ReactNode } from 'react';
  *   - brand: OFF thủ công + banner giá đổi (nền `--brand-100`)
  *   - warn: ngoài giờ mở cửa (nền `--warn-100`)
  *   - danger: lỗi tải/lỗi submit (nền `--danger-100`, `role="alert"`)
- *   - info: "Quán đã cập nhật đơn của bạn" ở `/o/:token` (nền `--info-100`, phase 9 / M2.D-47)
+ *   - info: "Quán đã cập nhật đơn của bạn" ở `/o/:token` (nền `--wood-100`, phase 9 / M2.D-47)
  *
  * Vì sao `info` tách khỏi `brand` dù cùng dùng `InfoGlyph`: `brand` là chuyện của QUÁN (đang tắt
  * nhận đơn, giá đổi), `info` là chuyện của ĐƠN NÀY (quán vừa sửa đơn của bạn). Hai loại tin khác
  * nhau về mức liên quan tới khách nên phải khác màu — dùng chung `brand` là để tin về đơn của khách
  * lẫn vào tin chung của quán.
+ *
+ * ⚠ `info` KHÔNG còn dùng token `--info-*` (xanh dương) từ 2026-08-08 — xem lý do ở `TONE_STYLES`.
  *
  * `action.href` — nếu có, đây là SỐ ĐIỆN THOẠI quán (không phải URL đầy đủ);
  * component tự dựng liên kết gọi điện để khách gọi 1 chạm (bảng Copywriting
@@ -37,7 +39,28 @@ const TONE_STYLES: Record<Tone, { edge: string; badgeBg: string; badgeText: stri
   brand: { edge: 'var(--brand-600)', badgeBg: 'var(--brand-100)', badgeText: 'var(--brand-600)' },
   warn: { edge: 'var(--warn-600)', badgeBg: 'var(--warn-100)', badgeText: 'var(--warn-600)' },
   danger: { edge: 'var(--danger-600)', badgeBg: 'var(--danger-100)', badgeText: 'var(--danger-600)' },
-  info: { edge: 'var(--info-600)', badgeBg: 'var(--info-100)', badgeText: 'var(--info-600)' },
+  /**
+   * `info` dùng họ GỖ, KHÔNG dùng `--info-*` (đổi 2026-08-08 theo phản hồi chủ dự án).
+   *
+   * `--info-600` là XANH DƯƠNG (#1f5f9e). Ở dạng chip nhỏ trong danh sách Lịch sử đơn thì không
+   * sao, nhưng ở đây nó là một banner chiếm hết bề ngang trên nền kem `--bg-page` (#fdf7ee) —
+   * mảng màu lạnh duy nhất giữa một bảng màu ấm, và là thứ đập vào mắt trước cả nội dung.
+   *
+   * Đây là LẦN THỨ HAI vấn đề này được báo: `EditModeBar` (CartPage, 2026-08-06) đã bỏ
+   * `tone="info"` vì đúng lý do đó và chuyển sang `--wood-*`. Dùng lại đúng cặp màu ấy để hai chỗ
+   * không nói hai thứ tiếng.
+   *
+   * Vì sao không mượn `--brand-*`: brand dành riêng cho giá + nút hành động chính (xem tokens.css)
+   * — nhuộm đỏ một banner chỉ để báo tin là làm loãng tín hiệu "chỗ này bấm được / đây là tiền".
+   *
+   * ⚠ `--wood-700` (#8c5610) khá gần `--warn-600` (#96590a). Chấp nhận được vì hai banner này
+   * KHÔNG BAO GIỜ cùng xuất hiện (warn ở trang menu/checkout, info chỉ ở `/o/:token`), và vì luật
+   * `color-only-meaning` của dự án vốn đã cấm phân biệt bằng riêng màu — mỗi tone có glyph + tiêu
+   * đề riêng. Đừng "sửa" bằng cách kéo nó về xanh.
+   *
+   * Tương phản đã đo trên nền kem: #8c5610 = 5.71:1 ✓AA; trên nền badge `--wood-100` = 5.19:1 ✓AA.
+   */
+  info: { edge: 'var(--wood-700)', badgeBg: 'var(--wood-100)', badgeText: 'var(--wood-700)' },
 };
 
 export function BannerNotice({ tone, title, body, action }: Props): JSX.Element {
