@@ -34,6 +34,9 @@ export const ErrorCode = z.enum([
   'ORDER_TOKEN_NOT_FOUND',
   'MENU_ITEM_UNAVAILABLE',
   'NO_TABLE_AVAILABLE',
+  // Ngoài bán kính giao (2026-08-07) — `max_delivery_km`. Cùng luật Pitfall #6 với nhóm trên:
+  // message nội suy km + `store_phone` nên build tại chỗ throw, KHÔNG vào FRIENDLY_VN.
+  'DELIVERY_TOO_FAR',
   // M2 phase 09 — duyệt/từ chối đơn online (AdminOnlineOrdersService)
   'ORDER_EMPTY_AFTER_DROP',
   'ROLE_FORBIDDEN',

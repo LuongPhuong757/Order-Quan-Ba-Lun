@@ -82,6 +82,13 @@ class UpdateSettingsDto {
    */
   @IsOptional() @IsArray() ship_fee_tiers?: unknown[];
   @IsOptional() @IsNumber() @Min(1) @Max(3) distance_factor?: number;
+  /**
+   * Bán kính giao tối đa (km) — `0` = tắt giới hạn. Trần 100 km cùng cỡ với trần `free_km` của
+   * `ShipFeeTier`: cao hơn mọi bán kính giao thật, nhưng chặn được cú gõ nhầm thừa một số 0 (vốn
+   * biến "5 km" thành "50 km" và mở toang cho đơn quán không giao nổi).
+   * Không `@IsInt`: quán đặt 2.5 km là hợp lý.
+   */
+  @IsOptional() @IsNumber() @Min(0) @Max(100) max_delivery_km?: number;
   @IsOptional() pickup_enabled?: boolean;
   @IsOptional() delivery_enabled?: boolean;
   @IsOptional() @IsInt() @Min(0) @Max(240) eta_pickup_min?: number;
@@ -177,6 +184,7 @@ export class SettingsController {
       'store_lat',
       'store_lng',
       'distance_factor',
+      'max_delivery_km',
       'pickup_enabled',
       'delivery_enabled',
       'eta_pickup_min',

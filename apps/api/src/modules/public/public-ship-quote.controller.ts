@@ -10,6 +10,7 @@ import {
 } from '@order/schemas';
 import { SettingsService } from '../settings/settings.service.js';
 import { estimatedRoadDistanceKm, haversineKm } from './haversine.js';
+import { isBeyondDeliveryRadius } from './delivery-radius.js';
 
 /**
  * `POST /api/public/ship-quote` — khách chia sẻ vị trí ở bước checkout thì thấy ngay
@@ -71,6 +72,11 @@ export class PublicShipQuoteController {
       tier,
       // Bậc trên kế tiếp — trang khách dùng để nói "mua thêm 40.000đ nữa được miễn phí 7 km".
       next_tier: nextShipTier(tiers, parsed.data.subtotal),
+      // Bán kính giao tối đa (2026-08-07). Trả cả con số VÀ kết luận: con số để trang khách viết
+      // được câu "quán chỉ giao trong 5 km", kết luận `too_far` để nó không phải tự so sánh —
+      // quyết định nghiệp vụ chỉ ra từ một nơi, xem `delivery-radius.ts`.
+      max_delivery_km: s.max_delivery_km,
+      too_far: isBeyondDeliveryRadius(distance_km, s.max_delivery_km),
     };
 
     return apiOk(PublicShipQuote.strict().parse(payload));

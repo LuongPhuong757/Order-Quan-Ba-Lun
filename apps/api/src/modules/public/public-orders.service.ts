@@ -443,6 +443,7 @@ export class PublicOrdersService {
           store_lat: s.store_lat,
           store_lng: s.store_lng,
           distance_factor: s.distance_factor,
+          max_delivery_km: s.max_delivery_km,
           online_ordering_off_reason: s.online_ordering_off_reason,
           pickup_enabled: s.pickup_enabled,
           delivery_enabled: s.delivery_enabled,

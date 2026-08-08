@@ -123,5 +123,25 @@ export const PublicShipQuote = z.object({
   tier: ShipFeeTier.nullable(),
   /** Bậc NGAY TRÊN (nếu còn) — để gợi ý "mua thêm 40.000đ nữa được miễn phí 7 km". */
   next_tier: ShipFeeTier.nullable(),
+  /**
+   * Bán kính giao TỐI ĐA của quán (2026-08-07) — `0` = quán không đặt giới hạn.
+   *
+   * Công khai có chủ đích, cùng lý lẽ với `ship_fee_tiers`: đây là điều kiện phục vụ, khách phải
+   * đọc được con số quán đang áp thay vì chỉ nhận một câu "quá xa". Nó KHÔNG tiết lộ vị trí quán
+   * (một bán kính không có tâm thì không định vị được gì).
+   */
+  max_delivery_km: z.number(),
+  /**
+   * Vị trí khách VƯỢT bán kính trên → quán không nhận đơn giao tới đây.
+   *
+   * Vì sao là field riêng chứ không để FE tự so `distance_km > max_delivery_km`: đây là một QUYẾT
+   * ĐỊNH nghiệp vụ, và nó phải do đúng một nơi ra — BE. FE tự so thì hai bên lệch nhau ngay lần
+   * đầu ai đó đổi cách làm tròn km, và triệu chứng là khách bị chặn ở bước cuối sau khi trang
+   * checkout đã bảo "ổn" (hoặc ngược lại).
+   *
+   * `false` khi CHƯA tính được (`distance_km === null`, quán thiếu toạ độ) hoặc quán không đặt
+   * giới hạn — "không biết" không bao giờ được thành "quá xa".
+   */
+  too_far: z.boolean(),
 });
 export type PublicShipQuote = z.infer<typeof PublicShipQuote>;

@@ -216,6 +216,18 @@ export function CheckoutPage(): JSX.Element {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fulfillment, location?.lat, location?.lng, cart.subtotal]);
 
+  /**
+   * Ngoài bán kính giao của quán (2026-08-07) — quán đã bật `max_delivery_km` và vị trí khách vượt
+   * mức đó, nên BE sẽ TỪ CHỐI đơn giao này.
+   *
+   * Chặn ngay tại đây, ở bước khách vừa chia sẻ vị trí, là toàn bộ mục đích của tính năng: để khách
+   * không điền nốt tên/SĐT/ghi chú rồi mới ăn một câu 409 ở cú bấm cuối. Nhưng đây CHỈ là chặn sớm —
+   * `submit-order.ts` mới là chốt thật, và nó tự tính lại chứ không tin cờ này.
+   *
+   * Đọc `too_far` do BE trả chứ KHÔNG tự so `distance_km > max_delivery_km`: xem `PublicShipQuote`.
+   */
+  const tooFar = fulfillment === 'DELIVERY' && quote?.too_far === true;
+
   /** Phí tạm tính CÓ CỘNG vào tổng hay không. Chỉ cộng khi BE trả một con số thật (`null` là
    *  "không biết", xem `PublicShipQuote`) — cộng 0 cho một đơn chưa tính được là hứa miễn phí. */
   const estimatedShipFee = fulfillment === 'DELIVERY' ? (quote?.ship_fee ?? null) : null;
@@ -291,11 +303,16 @@ export function CheckoutPage(): JSX.Element {
   const storeOff = store.data ? store.data.ordering_enabled === false : false;
   /** "Quán mở lại lúc …" cho banner đóng cửa — xem `open-hours.ts`. */
   const reopenText = store.data ? nextOpeningText(store.data.open_hours, Date.now()) : null;
-  const ctaDisabled = hasFieldErrors || submitting;
+  // `tooFar` khoá nút gửi: khác các banner khác của trang này (Đóng cửa, giá đổi) vốn chỉ báo tin,
+  // đây là điều kiện BE sẽ từ chối — để nút bấm được là mời khách đi vào một cú 409.
+  const ctaDisabled = hasFieldErrors || submitting || tooFar;
 
   let ctaHint: string = DISCLOSURE_COPY;
   if (hasFieldErrors) {
     ctaHint = FIELD_ERRORS_HINT;
+  }
+  if (tooFar) {
+    ctaHint = 'Vị trí này ngoài phạm vi giao hàng của quán — vui lòng chọn “Đến lấy tại quán”.';
   }
 
   /** SĐT đang nhập ĐÃ có phiên OTP đúng số trên thiết bị chưa — quyết định có chen bước OTP. */
@@ -616,8 +633,38 @@ export function CheckoutPage(): JSX.Element {
           </div>
         )}
 
-        {/* Gợi ý nâng bậc — chỉ khi thật sự giảm được phí (xem `upsell`). */}
-        {fulfillment === 'DELIVERY' && upsell !== null && (
+        {/* ══ Ngoài bán kính giao (2026-08-07) ══
+            Đặt NGAY DƯỚI dòng phí giao, không phải ở đầu trang: khách vừa bấm chia sẻ vị trí xong,
+            mắt đang ở đúng khối này. Banner ở đầu trang là banner khách phải cuộn ngược lên mới
+            thấy — cùng bài học với lỗi submit từng bị vẽ ngoài khung nhìn (2026-08-04).
+            `action` là một lối ra bấm được, không phải lời khuyên suông: đổi sang Đến lấy chỉ khi
+            quán ĐANG bật hình thức đó; nếu không thì chừa số quán để khách gọi. */}
+        {tooFar && (
+          <div style={{ marginTop: 12 }}>
+            <BannerNotice
+              tone="danger"
+              title="Quá xa, quán chưa giao tới được"
+              body={
+                <>
+                  {quote?.distance_km != null && <>Vị trí của bạn cách quán khoảng <strong>{formatKm(quote.distance_km)}</strong>, </>}
+                  vượt bán kính giao <strong>{quote?.max_delivery_km} km</strong> của quán.
+                </>
+              }
+              action={
+                store.data?.pickup_enabled
+                  ? { label: 'Đổi sang Đến lấy tại quán', onClick: () => setFulfillment('PICKUP') }
+                  : store.data?.store_phone
+                    ? { label: `Gọi quán ${store.data.store_phone}`, href: store.data.store_phone }
+                    : undefined
+              }
+            />
+          </div>
+        )}
+
+        {/* Gợi ý nâng bậc — chỉ khi thật sự giảm được phí (xem `upsell`).
+            Im lặng khi `tooFar`: mời khách mua thêm để được giảm phí một chuyến giao mà quán sẽ
+            không nhận là câu vô nghĩa nhất có thể đặt cạnh một lời từ chối. */}
+        {fulfillment === 'DELIVERY' && !tooFar && upsell !== null && (
           <p style={upsellLine}>
             Thêm <strong>{formatVnd(upsell.needMore)}</strong> nữa (đơn từ{' '}
             {formatVnd(upsell.minSubtotal)}) → phí giao còn{' '}

@@ -46,6 +46,12 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // lý": mỗi quán một bảng giá, đoán hộ họ là khách đọc được con số quán chưa bao giờ đồng ý.
   { key: 'ship_fee_tiers', kind: 'json', default: [] },
   { key: 'distance_factor', kind: 'float', default: 1.3 },
+  // ── Bán kính giao tối đa (2026-08-07) — TỰ TỪ CHỐI đơn giao ở quá xa ──
+  // `0` = KHÔNG giới hạn, và mặc định buộc phải là 0: mọi quán đang chạy đều chưa có row này
+  // trong DB, nên một mặc định khác 0 sẽ âm thầm bắt đầu từ chối đơn thật mà chủ quán không bật gì.
+  // Chỉ có nghĩa với đơn GIAO và chỉ khi tính được km (có toạ độ quán + khách chia sẻ vị trí) —
+  // xem `delivery-radius.ts` về vì sao "không biết khách ở đâu" không được thành "quá xa".
+  { key: 'max_delivery_km', kind: 'float', default: 0 },
   { key: 'pickup_enabled', kind: 'bool', default: true },
   { key: 'delivery_enabled', kind: 'bool', default: true },
   { key: 'escalate_sms_after_s', kind: 'int', default: 90 },
@@ -114,6 +120,8 @@ export type StoreSettingsMap = {
    *  (cùng cách các key json khác được canh ở chỗ dùng, ví dụ `top_dishes_hidden_ids`). */
   ship_fee_tiers: ShipFeeTier[];
   distance_factor: number;
+  /** Bán kính giao tối đa (km). `0` = không giới hạn — xem `delivery-radius.ts`. */
+  max_delivery_km: number;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
   escalate_sms_after_s: number;

@@ -64,6 +64,8 @@ type StoreSettingsMap = {
    *  tính phí ship. Hình dạng do `ShipFeeTier` của @order/schemas khoá. */
   ship_fee_tiers: ShipFeeTier[];
   distance_factor: number;
+  /** Bán kính giao tối đa (km); `0` = không giới hạn (2026-08-07). */
+  max_delivery_km: number;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
   eta_pickup_min: number;
@@ -143,6 +145,20 @@ function draftsToTiers(drafts: TierDraft[]): ShipFeeTier[] {
     free_km: Number(d.free_km || '0'),
     per_km: Number(digitsOnly(d.per_km) || '0'),
   }));
+}
+
+/**
+ * Ô "bán kính giao tối đa" → số km gửi lên BE (2026-08-07).
+ *
+ * Ô TRỐNG đọc thành `0` = KHÔNG giới hạn, và đó cũng là cách chủ quán tắt tính năng: xoá trắng ô.
+ * Gõ dở (`.`, `-`) cũng về 0 vì lẽ đó — `NaN` lọt lên BE là một 400 khó hiểu cho một ô đang gõ.
+ * Số âm bị kẹp về 0: BE có `@Min(0)` chặn, nhưng để form tự gửi thứ nó biết chắc sẽ bị từ chối
+ * thì chủ quán phải đọc câu lỗi thay vì thấy ô tự sửa.
+ */
+function parseMaxDeliveryKm(raw: string): number {
+  const n = Number(raw.trim());
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(n, 100); // trần khớp `@Max(100)` của UpdateSettingsDto
 }
 
 function updateTier(
@@ -372,6 +388,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   // ước với ô phí ship ở màn duyệt đơn, xem `money-input.ts`.
   const [tiers, setTiers] = useState<TierDraft[]>(() => toDrafts(settings.ship_fee_tiers));
   const [distanceFactor, setDistanceFactor] = useState(settings.distance_factor);
+  // Bán kính giao tối đa (2026-08-07). Giữ dạng CHUỖI khi đang gõ: `useState<number>` + `Number()`
+  // ở onChange làm ô nhảy về 0 ngay khi chủ quán xoá hết để gõ lại số mới — cùng lý do bảng bậc
+  // phí giữ chuỗi (xem `TierDraft`).
+  const [maxDeliveryKm, setMaxDeliveryKm] = useState(String(settings.max_delivery_km));
   const [savingFulfillment, setSavingFulfillment] = useState(false);
 
   // Xác minh OTP (2026-08-04)
@@ -409,6 +429,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setEtaDeliveryMax(settings.eta_delivery_max);
     setTiers(toDrafts(settings.ship_fee_tiers));
     setDistanceFactor(settings.distance_factor);
+    setMaxDeliveryKm(String(settings.max_delivery_km));
     setOtpEnabled(settings.otp_login_enabled);
     setMapCheckout(settings.map_checkout_enabled);
     setMapAdmin(settings.map_admin_enabled);
@@ -444,6 +465,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaDeliveryMax,
       tiers: draftsToTiers(tiers),
       distanceFactor,
+      maxDeliveryKm: parseMaxDeliveryKm(maxDeliveryKm),
     },
     {
       pickupEnabled: settings.pickup_enabled,
@@ -454,6 +476,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       etaDeliveryMax: settings.eta_delivery_max,
       tiers: settings.ship_fee_tiers,
       distanceFactor: settings.distance_factor,
+      maxDeliveryKm: settings.max_delivery_km,
     },
   );
   const otpDirty = isDirty({ otpEnabled }, { otpEnabled: settings.otp_login_enabled });
@@ -604,6 +627,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         eta_delivery_max: etaDeliveryMax,
         ship_fee_tiers: draftsToTiers(tiers),
         distance_factor: distanceFactor,
+        max_delivery_km: parseMaxDeliveryKm(maxDeliveryKm),
       });
       toast.push('success', 'Đã lưu hình thức nhận hàng ✓');
       await onRefresh();
@@ -963,6 +987,38 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
             <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
               Đường đi thực tế dài hơn đường chim bay bao nhiêu lần.
             </p>
+
+            {/* ══ Bán kính giao tối đa (2026-08-07) ══
+                Khác mọi ô còn lại trong khối này: các ô kia đổi CON SỐ khách nhìn thấy, ô này TỪ
+                CHỐI đơn. Nên nó phải nói thẳng ra điều đó ngay dưới ô, và phải nói cả giới hạn của
+                nó — không có toạ độ thì không đo được, và đơn đó vẫn vào hàng chờ như trước. */}
+            <label style={{ fontSize: 13, marginTop: 12 }}>Bán kính giao tối đa (km)</label>
+            <div className="st-inline">
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={0.5}
+                placeholder="0 = không giới hạn"
+                disabled={!deliveryEnabled}
+                value={maxDeliveryKm}
+                onChange={(e) => setMaxDeliveryKm(e.target.value)}
+              />
+              <span style={{ fontSize: 12, color: C.muted }}>
+                {parseMaxDeliveryKm(maxDeliveryKm) === 0 ? 'Không giới hạn' : 'Đang bật'}
+              </span>
+            </div>
+            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+              Khách chia sẻ vị trí mà xa hơn mức này thì hệ thống <strong>tự từ chối</strong> đơn
+              giao ngay lúc khách đặt — không vào hàng chờ, không phải gọi lại để huỷ. Để trống hoặc
+              0 là không giới hạn.
+            </p>
+            {parseMaxDeliveryKm(maxDeliveryKm) > 0 && (lat === '' || lng === '') && (
+              <p style={{ fontSize: 12, color: C.warnText, margin: '6px 0 0' }}>
+                ⚠ Quán chưa có toạ độ ở khối “Thông tin quán” nên chưa đo được khoảng cách — bán
+                kính này sẽ <strong>chưa chặn được đơn nào</strong>.
+              </p>
+            )}
           </fieldset>
         </div>
 

@@ -36,6 +36,8 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
     store_lat: null,
     store_lng: null,
     distance_factor: 1.3,
+    // 0 = quán KHÔNG đặt bán kính giao tối đa (mặc định hệ thống) → mọi test cũ giữ nguyên hành vi.
+    max_delivery_km: 0,
     online_ordering_off_reason: '',
     pickup_enabled: true,
     delivery_enabled: true,
@@ -283,6 +285,98 @@ describe('submitOrder — DELIVERY thiếu toạ độ quán (chưa cấu hình)
     });
     const result = await submitOrder(deps, input, CTX);
     expect(result.distance_km).toBeNull();
+  });
+});
+
+/**
+ * Bán kính giao tối đa (2026-08-07) — `max_delivery_km`.
+ *
+ * Nhóm test này canh 2 hướng, và hướng THỨ HAI mới là hướng dễ vỡ về sau: các trường hợp KHÔNG
+ * được chặn. Một luật "quá xa thì từ chối" cài quá tay sẽ lặng lẽ chặn cả khách gõ địa chỉ tay
+ * (không có toạ độ) hoặc chặn khi quán chưa cấu hình gì — và không ai phát hiện cho tới khi mất đơn.
+ */
+describe('submitOrder — bán kính giao tối đa (max_delivery_km)', () => {
+  /** Cặp toạ độ cách nhau ~1.55 km đường chim bay → ≈2.0 km sau khi nhân distance_factor 1.3. */
+  const STORE = { store_lat: 10.762622, store_lng: 106.660172 };
+  const NEAR = { customer_lat: 10.772622, customer_lng: 106.670172 };
+
+  const deliveryInput = () =>
+    baseInput({ fulfillment_type: 'DELIVERY', customer_address: '123 Đường ABC', ...NEAR });
+
+  it('vượt bán kính → 409 DELIVERY_TOO_FAR, KHÔNG insert đơn nào', async () => {
+    const insertRequest = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({
+      insertRequest,
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 1 })),
+    });
+    await expect(submitOrder(deps, deliveryInput(), CTX)).rejects.toMatchObject({
+      response: { code: 'DELIVERY_TOO_FAR' },
+    });
+    // Chặn mà vẫn ghi đơn là tệ hơn không chặn: quán thấy đơn trong hàng chờ, khách thấy lỗi.
+    expect(insertRequest).not.toHaveBeenCalled();
+  });
+
+  it('message nói ra CẢ bán kính quán lẫn SĐT quán để khách còn đường gọi', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(
+        baseSettings({ ...STORE, max_delivery_km: 1, store_phone: '0901234567' }),
+      ),
+    });
+    await expect(submitOrder(deps, deliveryInput(), CTX)).rejects.toMatchObject({
+      response: { message: expect.stringContaining('1 km') },
+    });
+    await expect(submitOrder(deps, deliveryInput(), CTX)).rejects.toMatchObject({
+      response: { message: expect.stringContaining('0901234567') },
+    });
+  });
+
+  it('trong bán kính → đặt được bình thường', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 10 })),
+    });
+    const result = await submitOrder(deps, deliveryInput(), CTX);
+    expect(result.distance_km).not.toBeNull();
+  });
+
+  it('max_delivery_km = 0 (mặc định) → KHÔNG giới hạn, dù khách ở rất xa', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 0 })),
+    });
+    // Toạ độ Hà Nội với quán ở TP.HCM: ~1100 km.
+    const input = baseInput({
+      fulfillment_type: 'DELIVERY',
+      customer_address: 'Hà Nội',
+      customer_lat: 21.028511,
+      customer_lng: 105.804817,
+    });
+    await expect(submitOrder(deps, input, CTX)).resolves.toBeTruthy();
+  });
+
+  it('khách KHÔNG chia sẻ vị trí (gõ địa chỉ tay) → không tính được km → vẫn nhận đơn', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 1 })),
+    });
+    const input = baseInput({ fulfillment_type: 'DELIVERY', customer_address: '123 Đường ABC' });
+    const result = await submitOrder(deps, input, CTX);
+    expect(result.distance_km).toBeNull();
+  });
+
+  it('quán chưa cấu hình toạ độ → không có gốc để đo → vẫn nhận đơn dù có đặt bán kính', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(
+        baseSettings({ store_lat: null, store_lng: null, max_delivery_km: 1 }),
+      ),
+    });
+    const result = await submitOrder(deps, deliveryInput(), CTX);
+    expect(result.distance_km).toBeNull();
+  });
+
+  it('đơn ĐẾN LẤY không bị bán kính chặn (không ai đi giao nó)', async () => {
+    const deps = makeDeps({
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ ...STORE, max_delivery_km: 1 })),
+    });
+    const input = baseInput({ fulfillment_type: 'PICKUP', ...NEAR });
+    await expect(submitOrder(deps, input, CTX)).resolves.toBeTruthy();
   });
 });
 

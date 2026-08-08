@@ -20,6 +20,7 @@ import type { OnlineOrderSubmit } from '@order/schemas';
 import { checkOrderGuard, type GuardErrorCode, type OrderGuardInput } from './order-guard.js';
 import type { OrderingStatus } from './store-status.js';
 import { haversineKm, estimatedRoadDistanceKm } from './haversine.js';
+import { buildTooFarMessage, isBeyondDeliveryRadius } from './delivery-radius.js';
 import { normalizePhone } from './phone.js';
 import type { OnlineOrderItemSnapshot } from './entities/online-order-request.entity.js';
 
@@ -67,6 +68,8 @@ export type SubmitSettings = {
   store_lat: number | null;
   store_lng: number | null;
   distance_factor: number;
+  /** Bán kính giao tối đa (km); `0` = không giới hạn — xem `delivery-radius.ts`. */
+  max_delivery_km: number;
   online_ordering_off_reason: string;
   pickup_enabled: boolean;
   delivery_enabled: boolean;
@@ -233,6 +236,29 @@ export async function submitOrder(
   ) {
     const straightKm = haversineKm(input.customer_lat, input.customer_lng, settings.store_lat, settings.store_lng);
     distance_km = estimatedRoadDistanceKm(straightKm, settings.distance_factor).toFixed(2);
+  }
+
+  /**
+   * Bán kính giao tối đa (2026-08-07) — TỰ từ chối đơn giao ở quá xa, thay vì để nhân viên gọi lại
+   * huỷ tay từng đơn.
+   *
+   * Vì sao nó nằm ở ĐÂY, sau `checkOrderGuard` chứ không ở trong đó: `order-guard.ts` cố ý chỉ nhận
+   * boolean/array đã fetch sẵn và KHÔNG biết gì về toạ độ — còn luật này cần chính con số
+   * `distance_km` vừa tính xong ngay phía trên. Nhét nó vào guard là phải bơm toạ độ + hệ số đường
+   * + bán kính vào một module vốn được giữ sạch để test không cần biết gì về địa lý.
+   *
+   * Vì sao vẫn chặn ở đây dù `POST /ship-quote` đã báo trước cho khách: quote là UI hint. Khách có
+   * thể lấy quote ở một vị trí rồi đổi vị trí, gọi API thẳng, hoặc chạy với JS lỗi — cùng lý lẽ với
+   * cặp `otp_required` / kiểm phiên OTP ở trên.
+   *
+   * 409 (không phải 400): đơn của khách hợp lệ về hình thức, chỉ là quán không phục vụ tới đó —
+   * cùng nhóm với `pickup_enabled`/`delivery_enabled` ngay phía trên.
+   */
+  if (isBeyondDeliveryRadius(distance_km === null ? null : Number(distance_km), settings.max_delivery_km)) {
+    throw new ConflictException({
+      code: 'DELIVERY_TOO_FAR',
+      message: buildTooFarMessage(Number(distance_km), settings.max_delivery_km, settings.store_phone),
+    });
   }
 
   const order_token = randomBytes(32).toString('hex');
