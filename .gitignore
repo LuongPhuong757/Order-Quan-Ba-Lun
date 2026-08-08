@@ -108,3 +108,24 @@ packages/utils/dist/
 
 # Worktree tạm của Claude agent (Agent tool isolation) — không phải source.
 .claude/worktrees/
+
+# ── Mọi file .md (yêu cầu chủ dự án 2026-08-08) ────────────────────────────────────────────
+#
+# ⚠ HAI ĐIỀU PHẢI BIẾT TRƯỚC KHI TIN VÀO DÒNG NÀY:
+#
+# 1. **Nó KHÔNG gỡ 103 file .md đang được git theo dõi.** `.gitignore` chỉ có tác dụng với file
+#    CHƯA từng được add. README.md, Task.md, DEPLOY.md, toàn bộ `.planning/**` … vẫn nằm nguyên
+#    trong repo và vẫn hiện ở `git status` khi sửa. Muốn bỏ theo dõi thật thì phải chạy tay:
+#        git rm --cached -r '*.md'
+#    (file vẫn còn trên ổ đĩa, nhưng lần commit sau là chúng BIẾN MẤT khỏi repo — cân nhắc kỹ,
+#     vì toàn bộ lịch sử quyết định của dự án này sống trong mấy file đó.)
+#
+# 2. **Mọi tài liệu MỚI từ nay sẽ bị bỏ qua trong im lặng.** Viết một plan phase mới, một
+#    SUMMARY, một ghi chú bàn giao → `git status` không nhắc gì, và nó không bao giờ được commit.
+#    Đây đúng là cái bẫy mà dòng `# .planning/` phía trên cố ý ĐỂ TẮT hồi trước.
+#
+# Bỏ dấu # ở dòng tương ứng nếu muốn giữ lại nhóm nào:
+*.md
+# !README.md
+# !.planning/**/*.md
+# !docs/**/*.md
