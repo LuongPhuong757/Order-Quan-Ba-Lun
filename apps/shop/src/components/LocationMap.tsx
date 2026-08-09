@@ -29,9 +29,24 @@ import 'leaflet/dist/leaflet.css';
  * ghim tàng hình — bug kinh điển, không đáng rước về chỉ để có cái ghim.
  */
 
+const pinHtml = (background: string, extra = ''): string =>
+  `<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${background};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);${extra}"></div>`;
+
 const PIN_ICON = L.divIcon({
   className: '',
-  html: '<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#e11d48;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)"></div>',
+  html: pinHtml('#e11d48'),
+  iconSize: [20, 20],
+  iconAnchor: [10, 20],
+});
+
+/**
+ * Ghim TẠM — bản đồ mở ở giữa xã khách vừa chọn, chứ đây chưa phải nhà của họ (xem `confirmed`).
+ * Xám và mờ để nó đọc ra là "gợi ý, cần chỉnh" chứ không phải "hệ thống đã biết bạn ở đâu".
+ * Cùng màu đỏ với ghim thật là khách tin nhầm rồi bấm Đặt đơn với một toạ độ lệch vài km.
+ */
+const PIN_ICON_UNCONFIRMED = L.divIcon({
+  className: '',
+  html: pinHtml('#9ca3af', 'opacity:.75'),
   iconSize: [20, 20],
   iconAnchor: [10, 20],
 });
@@ -46,9 +61,24 @@ type Props = {
   /** Gọi khi khách THẢ ghim (hoặc chạm chọn điểm mới) — không gọi trong lúc đang kéo. Trang cha
    *  dùng nó để cập nhật toạ độ gửi kèm đơn và hỏi lại phí giao tạm tính. */
   onMove: (lat: number, lng: number) => void;
+  /**
+   * Toạ độ đang vẽ có phải do KHÁCH chọn không.
+   *
+   * `false` = bản đồ đang mở ở điểm giữa xã khách vừa chọn, chỉ để họ có chỗ bắt đầu kéo (xem
+   * `vn-address.ts`). Đây là đường thoát cho khách mở link từ Zalo — WebView đó chặn hẳn
+   * Geolocation, và trước khi có nó thì không GPS = không bản đồ = quay về gõ địa chỉ tay.
+   *
+   * Điểm giữa xã lệch chỗ ở thật vài km, nên trang cha TUYỆT ĐỐI không được coi nó là toạ độ của
+   * khách chừng nào `onMove` chưa bắn: gửi nó lên như toạ độ thật là ghim sai nhà và có thể ăn
+   * một cú từ chối "ngoài bán kính" oan. Toạ độ chỉ thành thật khi khách chạm vào bản đồ hoặc
+   * bấm nút xác nhận.
+   *
+   * Mặc định `true` để các chỗ gọi cũ (đã có toạ độ thật rồi mới dựng bản đồ) giữ nguyên hành vi.
+   */
+  confirmed?: boolean;
 };
 
-export default function LocationMap({ lat, lng, onMove }: Props) {
+export default function LocationMap({ lat, lng, onMove, confirmed = true }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -85,7 +115,10 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
     });
     L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(map);
 
-    const marker = L.marker([lat, lng], { icon: PIN_ICON, draggable: false }).addTo(map);
+    const marker = L.marker([lat, lng], {
+      icon: confirmed ? PIN_ICON : PIN_ICON_UNCONFIRMED,
+      draggable: false,
+    }).addTo(map);
     marker.on('dragend', () => {
       const p = marker.getLatLng();
       onMoveRef.current(p.lat, p.lng);
@@ -126,6 +159,12 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
     map.panTo([lat, lng]);
   }, [lat, lng]);
 
+  // Ghim đổi kiểu khi khách xác nhận (tạm → thật). Tách khỏi effect dựng map vì map chỉ dựng MỘT
+  // lần cho cả vòng đời component, còn `confirmed` đổi ngay giữa vòng đời đó.
+  useEffect(() => {
+    markerRef.current?.setIcon(confirmed ? PIN_ICON : PIN_ICON_UNCONFIRMED);
+  }, [confirmed]);
+
   // Bật/tắt tương tác. Gom hết vào một chỗ để không có trạng thái nửa vời (kéo được nhưng không
   // zoom được, hay ngược lại).
   useEffect(() => {
@@ -146,15 +185,30 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
 
       {!active && (
         <button type="button" style={overlay} onClick={() => setActive(true)}>
-          <span style={overlayChip}>Chạm để chỉnh vị trí</span>
+          <span style={overlayChip}>
+            {confirmed ? 'Chạm để chỉnh vị trí' : 'Chạm để ghim đúng nhà bạn'}
+          </span>
         </button>
       )}
 
       {active && (
         <div style={activeBar}>
           <span style={activeHint}>Kéo ghim hoặc chạm vào đúng nhà bạn</span>
-          <button type="button" style={doneBtn} onClick={() => setActive(false)}>
-            Xong
+          {/* Ghim còn TẠM thì nút phải là "dùng điểm này", không phải "Xong": khách kéo bản đồ mà
+              không chạm trúng ghim rồi bấm Xong sẽ rời đi mà đơn vẫn không có toạ độ nào — đúng
+              cái ngõ cụt mà cả tính năng này sinh ra để gỡ. Bấm nút là chốt luôn điểm đang hiện. */}
+          <button
+            type="button"
+            style={doneBtn}
+            onClick={() => {
+              if (!confirmed) {
+                const p = markerRef.current?.getLatLng();
+                if (p) onMoveRef.current(p.lat, p.lng);
+              }
+              setActive(false);
+            }}
+          >
+            {confirmed ? 'Xong' : 'Dùng vị trí này'}
           </button>
         </div>
       )}

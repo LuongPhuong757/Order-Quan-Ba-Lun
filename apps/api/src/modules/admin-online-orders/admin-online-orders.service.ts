@@ -741,6 +741,9 @@ export class AdminOnlineOrdersService {
       customer_name: r.customer_name,
       customer_phone: r.customer_phone,
       customer_address: r.customer_address,
+      // `?? null` vì hàng cũ (trước khi cột này tồn tại) đọc ra `undefined`, mà schema là
+      // `.nullable()` chứ không `.optional()` — cùng lý lẽ với `getByToken` phía khách.
+      customer_ward_code: r.customer_ward_code ?? null,
       customer_map_link: r.customer_map_link,
       // Toạ độ đi kèm để màn quản lý dựng được link bản đồ cho đơn khách bấm "Chia sẻ vị trí"
       // (không có `customer_map_link`). Đây là dữ liệu giao hàng, không phải dữ liệu nội bộ —

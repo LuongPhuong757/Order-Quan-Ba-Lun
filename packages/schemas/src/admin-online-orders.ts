@@ -85,6 +85,9 @@ export const AdminOnlineOrderRow = z.object({
   customer_name: z.string(),
   customer_phone: z.string(),
   customer_address: z.string().nullable(),
+  /** Mã xã/phường — bản CÓ CẤU TRÚC của phần đuôi `customer_address`, để màn quản lý gom đơn theo
+   * khu vực thay vì so chuỗi. `null` với đơn PICKUP và với mọi đơn đặt trước 2026-08. */
+  customer_ward_code: z.string().nullable(),
   customer_map_link: z.string().nullable(),
   /**
    * Toạ độ khách chia sẻ, dạng CHUỖI vì cột DB là `decimal` (cùng lý lẽ với `distance_km` —

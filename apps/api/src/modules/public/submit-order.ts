@@ -22,6 +22,7 @@ import type { OrderingStatus } from './store-status.js';
 import { haversineKm, estimatedRoadDistanceKm } from './haversine.js';
 import { buildTooFarMessage, isBeyondDeliveryRadius } from './delivery-radius.js';
 import { normalizePhone } from './phone.js';
+import { sanitizeWardCode } from './ward.js';
 import type { OnlineOrderItemSnapshot } from './entities/online-order-request.entity.js';
 
 // D-18 / M2.D-40 — tối đa 3 đơn/giờ theo SĐT, đếm MỌI trạng thái trong DB (không throttler
@@ -50,6 +51,7 @@ export type OnlineOrderRequestInsert = {
   customer_name: string;
   customer_phone: string;
   customer_address: string | null;
+  customer_ward_code: string | null;
   customer_lat: number | null;
   customer_lng: number | null;
   customer_map_link: string | null;
@@ -271,6 +273,8 @@ export async function submitOrder(
     customer_name: input.customer_name,
     customer_phone: phone,
     customer_address: input.customer_address ?? null,
+    // Mã sai/lạ → `null`, KHÔNG phải lỗi 400. Xem `ward.ts` về vì sao luật này không được nới.
+    customer_ward_code: sanitizeWardCode(input.customer_ward_code, input.fulfillment_type),
     customer_lat: input.customer_lat ?? null,
     customer_lng: input.customer_lng ?? null,
     customer_map_link: input.customer_map_link ?? null,

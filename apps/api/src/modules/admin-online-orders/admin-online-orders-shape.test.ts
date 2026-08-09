@@ -23,6 +23,7 @@ function rejectedRow(): Row {
     customer_name: 'Khách thử',
     customer_phone: '0900000001',
     customer_address: '1 Đường Thử',
+    customer_ward_code: null,
     customer_map_link: null,
     customer_lat: '10.7626220',
     customer_lng: '106.6601720',

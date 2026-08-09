@@ -770,7 +770,7 @@ function QueueView({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Tìm theo tên khách, SĐT hoặc món…"
+          placeholder="🔍 Tìm theo tên khách, SĐT, món hoặc xã…"
           aria-label="Tìm đơn theo tên khách, số điện thoại hoặc món trong đơn"
           style={{
             width: '100%',

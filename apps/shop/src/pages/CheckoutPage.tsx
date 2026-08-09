@@ -21,6 +21,9 @@ import { readEditSession } from '../lib/order-edit.ts';
 import { nextOpeningText } from '../lib/open-hours.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
+import { AddressSelect } from '../components/AddressSelect.tsx';
+import { ADDRESS_DETAIL_MAX, composeAddress, extractAddressDetail } from '../lib/address.ts';
+import { findWard, isValidWardCode } from '@order/schemas/vn-address';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
@@ -56,6 +59,7 @@ type FieldErrors = {
   name?: string;
   phone?: string;
   address?: string;
+  ward?: string;
 };
 
 const PICKUP_LABEL = 'Đến lấy tại quán';
@@ -72,7 +76,8 @@ const DISCLOSURE_COPY = 'Thông tin của bạn chỉ dùng để giao đơn nà
 const FIELD_ERRORS_HINT = 'Vui lòng điền đầy đủ thông tin bắt buộc ở trên';
 const NAME_REQUIRED_MSG = 'Vui lòng nhập họ và tên';
 const PHONE_INVALID_MSG = 'Số điện thoại không hợp lệ';
-const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập địa chỉ giao hàng';
+const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập số nhà, thôn/xóm';
+const WARD_REQUIRED_MSG = 'Vui lòng chọn xã/phường';
 
 /**
  * Copy phí ship khi CHƯA có con số cụ thể.
@@ -96,11 +101,22 @@ function formatKm(km: number): string {
 }
 
 /** Validate cục bộ trước khi bật nút submit chính. Geolocation KHÔNG nằm trong điều kiện này. */
-function computeFieldErrors(name: string, phone: string, address: string, fulfillment: Fulfillment): FieldErrors {
+function computeFieldErrors(
+  name: string,
+  phone: string,
+  address: string,
+  wardCode: string | null,
+  fulfillment: Fulfillment,
+): FieldErrors {
   const errors: FieldErrors = {};
   if (!name.trim()) errors.name = NAME_REQUIRED_MSG;
   if (phone.replace(/\D/g, '').length < 9) errors.phone = PHONE_INVALID_MSG;
   if (fulfillment === 'DELIVERY' && !address.trim()) errors.address = ADDRESS_REQUIRED_MSG;
+  // Xã BẮT BUỘC với đơn giao — khác hẳn toạ độ (không bao giờ bắt buộc, D-19/D-20). Ô chọn không
+  // xin quyền gì của máy và không phụ thuộc mạng nên nó không thể "thất bại" như Geolocation;
+  // bắt buộc ở đây không dựng thêm ngõ cụt nào. Đây cũng là chỗ chặn địa chỉ ma rẻ nhất: khách
+  // bịa được số nhà nhưng không bịa được một xã không có trong danh mục.
+  if (fulfillment === 'DELIVERY' && !wardCode) errors.ward = WARD_REQUIRED_MSG;
   return errors;
 }
 
@@ -161,7 +177,21 @@ export function CheckoutPage(): JSX.Element {
   const [defaultApplied, setDefaultApplied] = useState(false);
   const [name, setName] = useState(lastCustomer?.customer_name ?? '');
   const [phone, setPhone] = useState(lastCustomer?.customer_phone ?? '');
-  const [address, setAddress] = useState(lastCustomer?.customer_address ?? '');
+  // `address` giữ PHẦN CHI TIẾT (số nhà, thôn, ngõ) — KHÔNG phải chuỗi địa chỉ đầy đủ. Chuỗi đầy
+  // đủ chỉ được dựng đúng lúc gửi, bằng `composeAddress()`. Bản lưu trong localStorage là chuỗi
+  // đầy đủ (đơn cũ cũng vậy), nên phải tách đuôi xã ra trước khi prefill; đơn cũ không có mã xã
+  // thì `extractAddressDetail` trả nguyên chuỗi, khách sửa lại một lần rồi thôi.
+  const [address, setAddress] = useState(() =>
+    extractAddressDetail(lastCustomer?.customer_address ?? '', lastCustomer?.customer_ward_code ?? null),
+  );
+  // Lọc qua danh mục HIỆN HÀNH: mã trong localStorage có thể đến từ trước một đợt sắp xếp đơn vị
+  // hành chính. Không lọc thì ô chọn hiện trống trơn nhưng validate vẫn cho qua, và đơn đi lên với
+  // một mã BE sẽ vứt bỏ. Lọc ở ĐÂY chứ không ở `customer-token.ts` — xem lý do ngân sách bundle ở đó.
+  const [wardCode, setWardCode] = useState<string | null>(() =>
+    isValidWardCode(lastCustomer?.customer_ward_code)
+      ? (lastCustomer?.customer_ward_code ?? null)
+      : null,
+  );
   // `accuracy_m`: chỉ GPS mới có sai số; toạ độ lấy từ link Maps do khách tự chọn điểm nên
   // không có khái niệm sai số → null, và không hiện dòng cảnh báo.
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy_m: number | null } | null>(null);
@@ -295,7 +325,14 @@ export function CheckoutPage(): JSX.Element {
     }
   }, [store.data, defaultApplied, lastCustomer]);
 
-  const fieldErrors = computeFieldErrors(name, phone, address, fulfillment);
+  /** Điểm giữa xã đang chọn — chỉ để mở bản đồ đúng vùng, không phải toạ độ của khách. */
+  // Tỉnh chưa được geocode thì xã không có toạ độ (xem `vn-address.ts`) — khi đó không có gì để
+  // mở bản đồ, và mọi thứ quay về đúng hành vi cũ: có GPS thì có bản đồ, không thì thôi.
+  const ward = findWard(wardCode)?.ward;
+  const wardCenter =
+    ward?.lat !== undefined && ward.lng !== undefined ? { lat: ward.lat, lng: ward.lng } : null;
+
+  const fieldErrors = computeFieldErrors(name, phone, address, wardCode, fulfillment);
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
   const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
   // D-11 — `storeOff` GIỮ LẠI nhưng đổi ý nghĩa: nay chỉ để biết CÓ HIỆN BANNER không, không còn
@@ -337,7 +374,12 @@ export function CheckoutPage(): JSX.Element {
         : {}),
     };
     if (cartNote) body.customer_note = cartNote;
-    if (fulfillment === 'DELIVERY') body.customer_address = address;
+    if (fulfillment === 'DELIVERY') {
+      // Chuỗi đầy đủ cho shipper đọc + mã xã riêng cho quán lọc/gom tuyến. Gửi cả hai chứ không
+      // để BE tự parse ngược tên xã ra khỏi chuỗi — xem `address.ts`.
+      body.customer_address = composeAddress(address, wardCode);
+      if (wardCode) body.customer_ward_code = wardCode;
+    }
     if (location) {
       body.customer_lat = location.lat;
       body.customer_lng = location.lng;
@@ -430,7 +472,10 @@ export function CheckoutPage(): JSX.Element {
     CustomerToken.saveLastCustomer({
       customer_name: name,
       customer_phone: phone,
-      customer_address: fulfillment === 'DELIVERY' ? address : '',
+      // Lưu chuỗi ĐẦY ĐỦ (không phải phần chi tiết) để tương thích với bản ghi cũ và với mọi chỗ
+      // khác đang đọc khoá này; lúc prefill sẽ tách lại bằng `extractAddressDetail`.
+      customer_address: fulfillment === 'DELIVERY' ? composeAddress(address, wardCode) : '',
+      ...(fulfillment === 'DELIVERY' && wardCode ? { customer_ward_code: wardCode } : {}),
     });
     CustomerToken.saveLastOrderToken(result.data.order_token);
     // Điều hướng TRƯỚC, xoá giỏ SAU: thứ tự ngược lại là giỏ về 0 khi còn đứng ở /checkout,
@@ -545,16 +590,30 @@ export function CheckoutPage(): JSX.Element {
 
         {fulfillment === 'DELIVERY' && (
           <>
+            {/* Xã TRƯỚC số nhà: chọn xong khu vực rồi mới điền chi tiết là thứ tự khách nghĩ, và
+                nó cũng là thứ tự bản đồ cần — chọn xã xong là `LocationPicker` bên dưới đã có
+                điểm để mở ra, không phải chờ khách bấm chia sẻ vị trí. */}
+            <AddressSelect
+              value={wardCode}
+              onChange={setWardCode}
+              wardError={displayFieldErrors.ward ?? null}
+              idPrefix="checkout"
+            />
+
             <div style={fieldGroup}>
               <label style={fieldLabel} htmlFor="checkout-address">
-                Địa chỉ giao hàng
+                Số nhà, thôn/xóm, ngõ
               </label>
               <input
                 id="checkout-address"
                 type="text"
-                autoComplete="street-address"
+                // `address-line1` chứ không phải `street-address`: ô này nay chỉ còn phần chi tiết,
+                // còn `street-address` là chuẩn cho địa chỉ ĐẦY ĐỦ nhiều dòng — khai sai thì trình
+                // duyệt đổ cả "…, Phường X, Bắc Ninh" vào đây và khách có hai lần tên xã.
+                autoComplete="address-line1"
                 value={address}
-                maxLength={255}
+                maxLength={ADDRESS_DETAIL_MAX}
+                placeholder="VD: Số 12, ngõ 3, thôn Đông"
                 onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
                 style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(displayFieldErrors.address ? inputErrorBorder : {}) }}
               />
@@ -572,6 +631,9 @@ export function CheckoutPage(): JSX.Element {
               // Khách kéo ghim → `location` đổi → effect phí giao ở trên tự hỏi lại BE. Không cần
               // debounce riêng: bản đồ chỉ báo ra khi khách THẢ ghim, không báo trong lúc kéo.
               mapEnabled={store.data?.map_checkout_enabled ?? false}
+              // Chọn xã xong là bản đồ mở được ngay, không cần khách bấm chia sẻ vị trí. Đây chỉ
+              // là khung nhìn — nó KHÔNG trở thành toạ độ của đơn (xem prop này ở LocationPicker).
+              fallbackCenter={wardCenter}
             />
           </>
         )}
@@ -759,7 +821,9 @@ export function CheckoutPage(): JSX.Element {
           fulfillment={fulfillment}
           name={name}
           phone={phone}
-          address={address}
+          // Popup xác nhận phải hiện ĐÚNG chuỗi sắp gửi đi, kèm tên xã — đây là lần cuối khách
+          // đọc lại địa chỉ của mình trước khi đơn vào bếp.
+          address={composeAddress(address, wardCode)}
           hasLocation={location !== null}
           note={cartNote}
           // Quán đang đóng cửa: thay thông báo "sẽ gọi xác nhận" bằng câu chủ quán tự soạn

@@ -82,6 +82,9 @@ const HAS_LOCATION_COPY = 'Đã có vị trí của bạn';
 const LOCATION_LABEL = 'Vị trí GPS (không bắt buộc)';
 const LOCATION_HINT =
   'Giúp quán tính đúng khoảng cách và phí giao. Vẫn cần địa chỉ ở trên để shipper tìm được số nhà.';
+/** Hiện khi bản đồ đang mở ở giữa xã mà khách chưa ghim — xem prop `fallbackCenter`. */
+const UNCONFIRMED_PIN_HINT =
+  'Ghim đang ở giữa xã bạn chọn, chưa phải nhà bạn. Chạm vào bản đồ rồi kéo ghim về đúng nhà để quán giao nhanh hơn.';
 const LOCATION_VERIFY_COPY = 'Xem trên bản đồ';
 const LOCATION_RETRY_COPY = 'Lấy lại vị trí';
 /** Trên ngưỡng này thì toạ độ chỉ còn để ước lượng km, không đủ để tìm nhà → phải nói ra. */
@@ -93,10 +96,24 @@ export function LocationPicker({
   location,
   onChange,
   mapEnabled = false,
+  fallbackCenter = null,
 }: {
   location: PickedLocation | null;
   /** `mapLink` là link Maps thô khách dán (để gửi kèm đơn), null khi toạ độ đến từ GPS. */
   onChange: (location: PickedLocation | null, mapLink: string | null) => void;
+  /**
+   * Điểm giữa xã khách vừa chọn — chỗ để MỞ bản đồ khi chưa có toạ độ thật (2026-08-09).
+   *
+   * VIỆC NÓ GIẢI QUYẾT: trước đây bản đồ chỉ dựng khi đã có toạ độ, nên khách bị chặn Geolocation
+   * (Zalo WebView — xem docblock đầu file) không có bản đồ nào để mà ghim, và đường duy nhất còn
+   * lại là gõ địa chỉ tay. Nay chọn xã xong là đã có chỗ bắt đầu, không cần xin quyền gì của máy.
+   *
+   * KHÔNG BAO GIỜ tự trở thành toạ độ của đơn. Nó chỉ là khung nhìn ban đầu; `onChange` chỉ bắn
+   * khi khách thật sự chạm/kéo/bấm xác nhận trên bản đồ. Giữ ranh giới này là điều kiện để D-19/
+   * D-20 vẫn đúng (toạ độ không bao giờ bắt buộc) và để không ai bị từ chối "ngoài bán kính" vì
+   * một điểm họ chưa từng chọn.
+   */
+  fallbackCenter?: { lat: number; lng: number } | null;
   /**
    * Cờ `map_checkout_enabled` từ `GET /api/public/store` — chủ quán tắt được ở /admin nếu bản đồ
    * làm máy khách chậm. Mặc định `false` CÓ CHỦ ĐÍCH: trang nào chưa kịp biết cờ (store chưa về,
@@ -106,6 +123,9 @@ export function LocationPicker({
   mapEnabled?: boolean;
 }): JSX.Element {
   const geo = useGeolocation();
+  /** Toạ độ THẬT của khách thắng centroid xã. Không có cả hai → không dựng bản đồ (và không tải
+   *  byte nào của leaflet), y như trước khi có `fallbackCenter`. */
+  const mapCenter = location ?? fallbackCenter;
   const [mapLinkRaw, setMapLinkRaw] = useState('');
   const [showMapLinkInput, setShowMapLinkInput] = useState(false);
   const [mapLinkMessage, setMapLinkMessage] = useState<string | null>(null);
@@ -166,14 +186,20 @@ export function LocationPicker({
           Maps họ dán lúc trước KHÔNG còn trỏ đúng chỗ nữa — mà `customerMapHref` phía quán lại ưu
           tiên link đó, nên giữ lại là người ship được dẫn tới điểm khách vừa bỏ đi.
           `accuracy_m: null` cũng vậy: sai số của GPS không còn mô tả được điểm khách tự chọn tay. */}
-      {mapEnabled && location && (
+      {mapEnabled && mapCenter && (
         <Suspense fallback={<div style={mapFallback}>Đang tải bản đồ…</div>}>
           <LocationMap
-            lat={location.lat}
-            lng={location.lng}
+            lat={mapCenter.lat}
+            lng={mapCenter.lng}
+            confirmed={location !== null}
             onMove={(lat, lng) => onChange({ lat, lng, accuracy_m: null }, null)}
           />
         </Suspense>
+      )}
+      {/* Câu này CHỈ hiện lúc ghim còn tạm. Không có nó thì khách nhìn thấy một cái ghim và tin
+          rằng quán đã biết nhà mình — rồi shipper tới giữa xã. */}
+      {mapEnabled && mapCenter && location === null && (
+        <p style={locationHintText}>{UNCONFIRMED_PIN_HINT}</p>
       )}
 
       {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là

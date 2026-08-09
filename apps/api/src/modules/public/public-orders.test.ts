@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { HttpException } from '@nestjs/common';
-import type { OnlineOrderSubmit } from '@order/schemas';
+import { VN_PROVINCES, type OnlineOrderSubmit } from '@order/schemas';
 import {
   submitOrder,
   PHONE_MAX_ORDERS_PER_WINDOW,
@@ -76,6 +76,9 @@ function baseInput(overrides: Partial<OnlineOrderSubmit> = {}): OnlineOrderSubmi
 }
 
 const CTX = { ip: '203.0.113.7', userAgent: 'vitest-agent', nowMs: 1_800_000_000_000 };
+
+/** Một xã CÓ THẬT, lấy từ chính danh mục để test không mục nát khi danh mục đổi. */
+const SAMPLE_WARD = VN_PROVINCES[0]!.wards[0]!;
 
 async function captureHttpError(p: Promise<unknown>): Promise<{ code: string; message: string; status: number }> {
   try {
@@ -247,6 +250,48 @@ describe('submitOrder — snapshot giá do BE tự lookup (T-08-49 HIGH)', () =>
     expect(row.items_snapshot[0].unit_price).toBe(45000);
     expect(row.subtotal).toBe(45000);
     expect(row.subtotal).toBeGreaterThan(0);
+  });
+});
+
+describe('submitOrder — mã xã KHÔNG BAO GIỜ chặn được đơn', () => {
+  // Xem `ward.ts`. Đây là mấy khẳng định cần nhất trong nhóm này: mã xã là dữ liệu làm giàu, và
+  // biến nó thành điều kiện hợp lệ là dựng thêm một cửa chặn đơn mà khách không tự sửa được.
+  const delivery = (extra: Record<string, unknown>) =>
+    baseInput({ fulfillment_type: 'DELIVERY', customer_address: '123 Đường ABC', ...extra });
+
+  it('mã xã lạ → đơn VẪN VÀO, cột lưu null', async () => {
+    const insertRequest = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ insertRequest });
+    await submitOrder(deps, delivery({ customer_ward_code: '99999' }), CTX);
+    expect(insertRequest).toHaveBeenCalledTimes(1);
+    expect(insertRequest.mock.calls[0][0].customer_ward_code).toBeNull();
+  });
+
+  it('mã xã có thật → lưu đúng mã đó', async () => {
+    const insertRequest = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ insertRequest });
+    await submitOrder(deps, delivery({ customer_ward_code: SAMPLE_WARD.code }), CTX);
+    expect(insertRequest.mock.calls[0][0].customer_ward_code).toBe(SAMPLE_WARD.code);
+  });
+
+  it('không gửi mã xã → đơn vẫn vào (khách trình duyệt cũ, hoặc tự gọi API)', async () => {
+    const insertRequest = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ insertRequest });
+    await submitOrder(deps, delivery({}), CTX);
+    expect(insertRequest).toHaveBeenCalledTimes(1);
+    expect(insertRequest.mock.calls[0][0].customer_ward_code).toBeNull();
+  });
+
+  it('đơn PICKUP có gửi mã xã → lưu null, KHÔNG báo lỗi', async () => {
+    const insertRequest = vi.fn().mockResolvedValue(undefined);
+    const deps = makeDeps({ insertRequest });
+    await submitOrder(
+      deps,
+      baseInput({ fulfillment_type: 'PICKUP', customer_ward_code: SAMPLE_WARD.code }),
+      CTX,
+    );
+    expect(insertRequest).toHaveBeenCalledTimes(1);
+    expect(insertRequest.mock.calls[0][0].customer_ward_code).toBeNull();
   });
 });
 
