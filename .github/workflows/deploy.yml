@@ -85,6 +85,15 @@ jobs:
       - name: Cài dependency
         run: pnpm install --frozen-lockfile
 
+      # BUILD ĐỨNG ĐẦU, và thứ tự này là kết quả của lần chạy CI đầu tiên bị đỏ (2026-08-10).
+      # `packages/schemas` + `packages/utils` phơi API qua `dist/index.d.ts`, nên trên một checkout
+      # SẠCH thì mọi thứ đọc chúng đều hỏng cho tới khi chúng được build: `tsc` của apps/api báo
+      # hàng chục `TS2307: Cannot find module '@order/schemas'`, và `schema:verify` (chạy node
+      # trực tiếp, không qua turbo) cũng không nạp được entity.
+      # Trên máy đã build một lần thì không ai thấy điều này — dist còn lại từ lần trước.
+      - name: Build
+        run: pnpm build
+
       # Dựng schema THẬT rồi kiểm lại. Dự án không dùng migration (`synchronize: true`), nên
       # `AppDataSource.initialize()` trong CLI này là thứ tạo bảng; phần verify sau đó truy vấn
       # `information_schema` và exit 1 nếu thiếu cột. Chạy TRƯỚC test vì test tích hợp giả định
@@ -98,11 +107,8 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Build
-        run: pnpm build
-
-      # Cửa chắn ngân sách bundle — vượt là FAIL, không phải cảnh báo. Phải đứng sau `build`
-      # vì nó đọc `dist/.vite/manifest.json`.
+      # Cửa chắn ngân sách bundle — vượt là FAIL, không phải cảnh báo. Đọc
+      # `dist/.vite/manifest.json` nên phải đứng sau `build`.
       - name: Ngân sách bundle
         run: pnpm bundle:budget
 
