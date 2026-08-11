@@ -25,8 +25,13 @@
  *      trả điểm của một xã khác mà KHÔNG báo lỗi — lần chạy đầu cho Bắc Ninh có 2 xã nhận cùng
  *      một toạ độ y hệt, và 2 xã lệch gần 40 km.
  *   4. Xã nào lệch thì thử lại bằng truy vấn khác, và CHỈ nhận ứng viên nào phân cấp địa chỉ của
- *      chính OSM khẳng định là nằm trong xã đó.
+ *      chính OSM khẳng định là nằm trong xã đó — rồi reverse-geocode LẠI chính ứng viên đó trước
+ *      khi ghi đè (2026-08-10: trước đây bước sửa lỗi này ghi thẳng, và nó tự tạo ra lỗi mới).
  *   5. Kiểm tổng thể rồi mới ghi file. Không đạt là DỪNG, không ghi đè file đang chạy được.
+ *
+ * PHÉP KIỂM "XUNG ĐỘT XÃ" (`conflictWith`) LÀ CHỐT CHẶN THẬT, không phải phép "tên có khớp không".
+ * OSM còn giữ cơ cấu trước sáp nhập nên nó KHÔNG trả lời được "đây có phải xã X không"; nó chỉ trả
+ * lời được "đây là xã Y". Đọc docblock của hàm đó trước khi sửa bất cứ bước nào ở trên.
  *
  * Vì sao KHÔNG lấy centroid từ ranh giới OSM (Overpass `admin_level=8`): sau sáp nhập, ranh giới
  * xã cũ đã bị xoá khỏi OSM còn xã mới chưa ai vẽ — truy vấn cả tỉnh Bắc Ninh chỉ còn đúng 1 quan
@@ -46,13 +51,20 @@ const OUT = join(
 );
 
 /** Tỉnh được geocode toạ độ xã. Xem docblock đầu file trước khi thêm. */
-const GEOCODE_PROVINCES = ['24']; // Tỉnh Bắc Ninh — nơi quán đang giao hàng.
+const GEOCODE_PROVINCES = [
+  '1', // Thành phố Hà Nội — giáp Bắc Ninh, Long Biên/Gia Lâm nằm trong bán kính giao 30 km.
+  '24', // Tỉnh Bắc Ninh — nơi quán đang giao hàng.
+];
 
 const UA = 'quanbalun-address-build/1.0 (+https://github.com/quanbalun)';
 const SLEEP_MS = 1200; // Nominatim cho tối đa 1 req/s. Để dư, đừng hạ xuống.
 
 /** Hộp bao dùng để bắt kết quả geocode lạc sang tỉnh khác. Chỉ cần cho tỉnh có geocode. */
 const BBOX = {
+  // Hà Nội: bắc Sóc Sơn ~21,39 · nam Mỹ Đức ~20,53 · tây Ba Vì ~105,29 · đông Gia Lâm ~106,02.
+  // Nới mỗi phía ~0,06° cho điểm nằm sát rìa, KHÔNG nới rộng hơn: hộp này là thứ duy nhất bắt được
+  // kết quả Nominatim lạc sang Vĩnh Phúc / Hưng Yên / Bắc Ninh, mà mấy tỉnh đó bao quanh Hà Nội.
+  1: { minLat: 20.5, maxLat: 21.45, minLng: 105.25, maxLng: 106.1 },
   24: { minLat: 20.95, maxLat: 21.9, minLng: 105.65, maxLng: 107.15 },
 };
 
@@ -72,6 +84,13 @@ const MANUAL = {
  * nối rồi im lặng là script treo vĩnh viễn, không log, không lỗi, không cách nào biết ngoài việc
  * đi xem tiến trình. Đã bị đúng lần này — chạy 6 tiếng với 0.9s CPU.
  */
+/**
+ * Trùng tên với một xã cách xa hơn mức này thì coi là trùng NGẪU NHIÊN, không phải toạ độ sai.
+ * 10 km ≈ hai xã kề nhau: geocode hỏng thì rơi sang hàng xóm chứ không nhảy qua nửa tỉnh, mà nhảy
+ * xa thì phép kiểm tên ở bước 3 đã bắt được rồi. Xem `conflictWith`.
+ */
+const CONFLICT_NEAR_KM = 10;
+
 const REQUEST_TIMEOUT_MS = 20_000;
 const fetchJson = async (url) => {
   const res = await fetch(url, {
@@ -133,6 +152,55 @@ function belongsTo(candidate, wardName) {
   );
 }
 
+/**
+ * Tên ở tầng ĐỊA PHƯƠNG của một kết quả reverse — cố ý KHÔNG lấy tầng huyện/tỉnh
+ * (`city_district`, `municipality`). Xem `conflictWith`.
+ */
+function localNames(r) {
+  const a = r?.address ?? {};
+  return [String(r?.display_name ?? '').split(',')[0], a.suburb, a.quarter, a.village, a.town]
+    .filter(Boolean)
+    .map(norm)
+    .filter(Boolean);
+}
+
+/**
+ * Điểm này có nằm ở một xã KHÁC trong cùng tỉnh không? Trả xã đó, hoặc `null`.
+ *
+ * VÌ SAO PHÉP KIỂM NÀY TỒN TẠI BÊN CẠNH PHÉP "tên xã có trong địa chỉ không" (2026-08-10).
+ * Phép kia hỏng theo hai chiều, và lần thêm Hà Nội làm lộ cả hai:
+ *
+ *   - THỪA: OSM vẫn giữ cơ cấu TRƯỚC sáp nhập, nên nó trả tên xã CŨ ("Tiên Dược") cho một điểm
+ *     hoàn toàn đúng ở xã MỚI ("Xã Sóc Sơn") → 43/126 xã Hà Nội bị gắn cờ oan.
+ *   - THIẾU, và đây mới là cái đắt: nhiều xã mới lấy luôn TÊN HUYỆN CŨ. OSM trả tên huyện cũ
+ *     trong phân cấp địa chỉ, nên "Xã Gia Bình" khớp với MỌI điểm nằm trong huyện Gia Bình cũ —
+ *     kể cả điểm thật ra nằm ở xã Lâm Thao. Xã Gia Bình đã đi qua bước 3 với một toạ độ lệch
+ *     8,3 km đúng theo đường này, và file vẫn báo "99/99 xã đã đối chiếu".
+ *
+ * Câu hỏi ở đây khác hẳn: không hỏi "có phải xã này không" (OSM không trả lời được nữa) mà hỏi
+ * "có bằng chứng đây là xã KHÁC không". Chỉ so ở tầng địa phương, vì chính tầng huyện gây ra cú
+ * bỏ sót trên. Trùng tên một xã khác = bằng chứng cứng; không trùng ai = tên cũ, không kết luận.
+ */
+function conflictWith(wardsByName, ward, r) {
+  const self = norm(ward.name);
+  const locals = localNames(r);
+  // 1. OSM có nhắc tới CHÍNH xã này ở bất kỳ tầng địa phương nào → xong, không xét gì thêm. Tên
+  //    xã khác xuất hiện cạnh đó chỉ là thôn/khu phố bên trong ("Minh Châu, Xã Thanh Trì").
+  if (locals.includes(self)) return null;
+  for (const n of locals) {
+    if (n === self || !wardsByName.has(n)) continue;
+    const other = wardsByName.get(n);
+    // 2. Chỉ tin khi xã trùng tên đó Ở GẦN. Tên xã trùng nhau trong một tỉnh là chuyện thường
+    //    (thôn "Thanh Xuân" ở Sóc Sơn vs Phường Thanh Xuân nội thành, cách 26 km; "Xuân Đình" vs
+    //    "Xuân Đỉnh" chỉ trùng sau khi bỏ dấu). Geocode sai thì rơi sang xã BÊN CẠNH, không nhảy
+    //    25 km — nên trùng tên ở xa là trùng ngẫu nhiên, chặn build vì nó là chặn nhầm.
+    if (other.lat === null || other.lng === null) continue;
+    const km = Math.hypot((other.lat - ward.lat) * 111, (other.lng - ward.lng) * 104);
+    if (km <= CONFLICT_NEAR_KM) return other;
+  }
+  return null;
+}
+
 function pick(box, results) {
   const valid = (results ?? []).filter((r) => inBbox(box, Number(r.lat), Number(r.lon)));
   return (
@@ -167,6 +235,13 @@ const totalWards = provinces.reduce((n, p) => n + p.wards.length, 0);
 console.log(`\n     ${provinces.length} tỉnh/thành · ${totalWards} đơn vị cấp xã\n`);
 
 // ── 2-4. Toạ độ cho các tỉnh được chọn ───────────────────────────────────────
+/**
+ * Xã mà OSM khẳng định toạ độ đang nằm ở một xã KHÁC, và bước 4 lẫn `MANUAL` đều chưa gỡ được.
+ * Còn dòng nào ở đây là bước 5 TỪ CHỐI ghi file: đây là bằng chứng cứng về toạ độ sai, không phải
+ * chuyện "chưa xác nhận được" — để nó đi qua là lặp lại đúng ca Gia Bình.
+ */
+const unresolved = new Map();
+
 for (const provinceCode of GEOCODE_PROVINCES) {
   const province = provinces.find((p) => p.code === provinceCode);
   if (!province) throw new Error(`GEOCODE_PROVINCES có mã ${provinceCode} không tồn tại`);
@@ -189,6 +264,8 @@ for (const provinceCode of GEOCODE_PROVINCES) {
     process.stdout.write(`${hit ? '·' : '✗'}${(i + 1) % 40 === 0 ? ` ${i + 1}\n` : ''}`);
   }
 
+  const wardsByName = new Map(province.wards.map((w) => [norm(w.name), w]));
+
   console.log(`\n\n3/5  Reverse-geocode đối chiếu (~${Math.ceil((province.wards.length * SLEEP_MS) / 1000)}s) ...`);
   const suspect = [];
   for (const [i, w] of province.wards.entries()) {
@@ -198,14 +275,13 @@ for (const provinceCode of GEOCODE_PROVINCES) {
       continue;
     }
     const r = await reverse(w.lat, w.lng);
-    const hay = norm(
-      [r?.display_name, r?.address?.suburb, r?.address?.village, r?.address?.town, r?.address?.quarter]
-        .filter(Boolean)
-        .join(' | '),
-    );
-    const ok = hay.includes(norm(w.name));
-    if (!ok) suspect.push(w);
-    process.stdout.write(`${ok ? '·' : '✗'}${(i + 1) % 40 === 0 ? ` ${i + 1}\n` : ''}`);
+    const clash = conflictWith(wardsByName, w, r);
+    if (clash) unresolved.set(w.code, { province, ward: w, clash });
+    // Nghi ngờ theo HAI đường: OSM không xác nhận đúng tên (có thể chỉ vì tên cũ), HOẶC OSM chỉ
+    // thẳng sang một xã khác. Đường thứ hai là đường bắt được Gia Bình — xem `conflictWith`.
+    const confirmed = localNames(r).includes(norm(w.name));
+    if (!confirmed || clash) suspect.push(w);
+    process.stdout.write(`${clash ? '✗' : confirmed ? '·' : '?'}${(i + 1) % 40 === 0 ? ` ${i + 1}\n` : ''}`);
     await sleep(SLEEP_MS);
   }
   console.log(`\n\n4/5  Kiểm lại ${suspect.length} xã lệch ...`);
@@ -219,8 +295,21 @@ for (const provinceCode of GEOCODE_PROVINCES) {
     ]) {
       const results = await search(q, 'addressdetails=1&');
       await sleep(SLEEP_MS);
-      picked = (results ?? []).find((r) => belongsTo(r, w.name)) ?? null;
-      if (picked) break;
+      const cand = (results ?? []).find((r) => belongsTo(r, w.name)) ?? null;
+      if (!cand) continue;
+      // ĐIỂM THAY THẾ PHẢI TỰ ĐỐI CHIẾU LẠI (2026-08-10). Trước đây bước này ghi thẳng, không ai
+      // kiểm — mà `belongsTo` cũng đọc cả tầng huyện cũ nên nó nhận nhầm y như bước 3. Kết quả:
+      // một xã dời sang xã bên cạnh rồi lọt qua mọi bước kiểm còn lại. Một lượt reverse cho mỗi
+      // ứng viên là cái giá rẻ nhất để bước "sửa lỗi" không tự tạo ra lỗi mới.
+      const check = await reverse(round5(cand.lat), round5(cand.lon));
+      await sleep(SLEEP_MS);
+      const clash = conflictWith(wardsByName, w, check);
+      if (clash) {
+        console.log(`     · ${w.name}: bỏ ứng viên vì OSM nói đó là ${clash.name}`);
+        continue;
+      }
+      picked = cand;
+      break;
     }
     if (!picked) {
       console.log(`     · ${w.name}: không tìm được điểm OSM xác nhận → chờ MANUAL`);
@@ -233,12 +322,14 @@ for (const provinceCode of GEOCODE_PROVINCES) {
       console.log(`     · ${w.name}: dời ${moved.toFixed(1)} km về ${lat},${lng}`);
     w.lat = lat;
     w.lng = lng;
+    unresolved.delete(w.code);
   }
 
   for (const [code, coord] of Object.entries(MANUAL)) {
     const row = province.wards.find((r) => r.code === String(code));
     if (row) {
       Object.assign(row, coord);
+      unresolved.delete(String(code));
       console.log(`     · ${row.name}: dùng toạ độ chốt tay`);
     }
   }
@@ -279,6 +370,12 @@ for (const provinceCode of GEOCODE_PROVINCES) {
   }
 }
 
+for (const { province, ward, clash } of unresolved.values())
+  problems.push(
+    `${province.name} / ${ward.name}: toạ độ ${ward.lat},${ward.lng} nằm ở ${clash.name} theo OSM — ` +
+      `thêm mã ${ward.code} vào MANUAL kèm căn cứ, hoặc kiểm lại bằng tay`,
+  );
+
 if (problems.length) {
   console.error('\n❌ KHÔNG ghi file — dữ liệu chưa đạt:');
   problems.forEach((x) => console.error(`   ${x}`));
@@ -292,6 +389,11 @@ for (const c of GEOCODE_PROVINCES) {
 
 provinces.sort((a, b) => Number(a.code) - Number(b.code));
 for (const p of provinces) p.wards.sort((a, b) => Number(a.code) - Number(b.code));
+
+/** "Hà Nội + Bắc Ninh" — để docblock của file sinh ra không nói sai khi thêm tỉnh mà quên sửa chữ. */
+const geocodedLabel = GEOCODE_PROVINCES.map((c) =>
+  provinces.find((p) => p.code === c).name.replace(/^(Tỉnh|Thành phố)\s+/, ''),
+).join(' + ');
 
 const esc = (s) => s.replace(/'/g, "\\'");
 const body = provinces
@@ -330,9 +432,10 @@ writeFileSync(
  * cây dữ liệu này sâu đúng 2 tầng, và trang khách chỉ có HAI ô chọn chứ không phải ba.
  *
  * \`lat\`/\`lng\` LÀ TUỲ CHỌN, VÀ THIẾU LÀ CHUYỆN BÌNH THƯỜNG. Chỉ những tỉnh trong
- * \`GEOCODE_PROVINCES\` của script mới có toạ độ (hiện là Bắc Ninh — nơi quán giao hàng); geocode
- * cả ${totalWards} xã là hơn 2 giờ gọi Nominatim và không ai kiểm lại nổi từng dòng. Xã không có toạ
- * độ vẫn chọn được bình thường, chỉ là bản đồ không tự mở ở giữa xã.
+ * \`GEOCODE_PROVINCES\` của script mới có toạ độ (hiện là ${geocodedLabel} — nơi quán
+ * giao hàng và tỉnh giáp ranh nằm trong bán kính giao); geocode cả ${totalWards} xã là hơn 2 giờ gọi
+ * Nominatim và không ai kiểm lại nổi từng dòng. Xã không có toạ độ vẫn chọn được bình thường, chỉ
+ * là bản đồ không tự mở ở giữa xã và toạ độ khách chia sẻ không suy ngược ra được tên xã.
  *
  * KHI CÓ TOẠ ĐỘ THÌ NÓ LÀ ĐIỂM GIỮA XÃ, KHÔNG PHẢI NHÀ KHÁCH. Xã ở Bắc Ninh trung bình ~48 km²,
  * nên điểm này lệch chỗ ở thật của khách vài km là chuyện bình thường. Hệ quả bắt buộc phải nhớ:
