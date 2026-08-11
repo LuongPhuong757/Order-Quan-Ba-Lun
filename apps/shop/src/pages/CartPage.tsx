@@ -113,7 +113,6 @@ export function CartPage(): JSX.Element {
   /** Mã xã. `undefined` = chưa nạp từ server (phân biệt với `null` = đơn không có xã, đơn cũ). */
   const [wardCode, setWardCode] = useState<string | null | undefined>(undefined);
   const [location, setLocation] = useState<PickedLocation | null>(null);
-  const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
   /**
    * Màn này LUÔN mở ở nhánh nhập tay: đơn đang sửa đã có sẵn địa chỉ, hỏi "bạn muốn nhập kiểu gì"
    * cho một thứ đã điền xong là hỏi thừa. Nút "Dùng vị trí hiện tại thay" trong `DeliveryAddress`
@@ -207,11 +206,16 @@ export function CartPage(): JSX.Element {
       body.customer_ward_code = wardCode ?? null;
     }
     if (isDelivery && locationTouched) {
-      // Khách bấm chia sẻ vị trí (hoặc dán link) → gửi toạ độ mới. `null` tường minh khi họ đổi
-      // địa chỉ mà không lấy được vị trí: xoá ghim cũ còn hơn để nó chỉ sang nhà cũ.
+      // Khách bấm chia sẻ vị trí → gửi toạ độ mới. `null` tường minh khi họ đổi địa chỉ mà không
+      // lấy được vị trí: xoá ghim cũ còn hơn để nó chỉ sang nhà cũ.
       body.customer_lat = location?.lat ?? null;
       body.customer_lng = location?.lng ?? null;
-      body.customer_map_link = mapLinkValue;
+      // LUÔN `null`, và dòng này KHÔNG được bỏ đi cùng lúc gỡ ô dán link (2026-08-11).
+      // Trang khách không sinh ra link mới nữa, NHƯNG đơn cũ vẫn còn `customer_map_link` khách
+      // dán từ trước. Bỏ dòng này thì `edit-order.ts` coi vắng mặt là "giữ nguyên": đơn giữ link
+      // cũ trỏ về CHỖ CŨ trong khi lat/lng vừa đổi sang chỗ mới — mà `customerMapHref` phía quán
+      // ưu tiên link, nên người ship được dẫn thẳng tới địa chỉ khách vừa bỏ đi.
+      body.customer_map_link = null;
     }
 
     const result = await patchJson(
@@ -317,9 +321,8 @@ export function CartPage(): JSX.Element {
                 detail={address}
                 onDetailChange={setAddress}
                 location={location}
-                onLocationChange={(loc, link) => {
+                onLocationChange={(loc) => {
                   setLocation(loc);
-                  setMapLinkValue(link);
                   setLocationTouched(true);
                 }}
                 mapEnabled={store.data?.map_checkout_enabled ?? false}

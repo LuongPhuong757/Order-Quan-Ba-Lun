@@ -58,7 +58,8 @@ type Props = {
  */
 const PIN_ZOOM = 17;
 
-/** Xa hơn mức này thì coi là NHẢY VÙNG (dán link Maps ở nơi khác), không phải chỉnh vài chục mét. */
+/** Xa hơn mức này thì coi là NHẢY VÙNG (khách đi chỗ khác rồi bấm "Lấy lại vị trí"), không phải
+ *  chỉnh vài chục mét. */
 const REGION_JUMP_M = 1500;
 
 export default function LocationMap({ lat, lng, onMove }: Props) {
@@ -129,13 +130,13 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
   }, []);
 
   /**
-   * Toạ độ đổi từ bên ngoài (bấm "Lấy lại vị trí", dán link Maps) → dời ghim + đưa bản đồ về đó.
+   * Toạ độ đổi từ bên ngoài (khách bấm "Lấy lại vị trí") → dời ghim + đưa bản đồ về đó.
    *
    * HAI KIỂU "ĐỔI" KHÁC HẲN NHAU:
    *   - Nhích vài chục mét (khách vừa kéo ghim, hoặc GPS trả điểm mới gần đó) → `panTo`, GIỮ NGUYÊN
    *     zoom khách đang để. Ép zoom ở đây là mỗi lần kéo ghim xong bản đồ lại tự nhảy, đúng lúc họ
    *     đang căn cho chính xác.
-   *   - Nhảy sang vùng khác (dán link Maps của một nơi cách đó hàng km) → `setView` về mức ghim,
+   *   - Nhảy sang vùng khác (lấy lại vị trí ở một nơi cách đó hàng km) → `setView` về mức ghim,
    *     KHÔNG animate: bay 20 km là kéo về cả một dải tile dọc đường đi, tốn 4G của khách để xem
    *     một đoạn phim không ai cần.
    */

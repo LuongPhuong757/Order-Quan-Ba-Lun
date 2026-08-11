@@ -7,10 +7,13 @@
  * toạ độ chính xác nhất lại là đơn không mở được bản đồ. Giờ thiếu map_link thì dựng link từ
  * `customer_lat/lng`.
  *
+ * 2026-08-11: ô dán link Google Maps ĐÃ GỠ khỏi trang khách, nên `customer_map_link` chỉ còn
+ * xuất hiện ở ĐƠN CŨ. Nhánh đọc map_link dưới đây vì vậy KHÔNG được xoá theo — xoá là mấy đơn
+ * đó mất luôn link bản đồ. Đơn mới đi thẳng vào nhánh toạ độ.
+ *
  * Chốt thứ hai: `customer_map_link` là CHUỖI DO KHÁCH DÁN, không phải URL đã kiểm. Khách hay
- * dán thẳng cặp số "10.76, 106.66" (parseMapsLink phía shop nhận dạng này) — nhét nguyên vào
- * `href` là ra link tương đối, bấm vào đi lạc trong trang admin. Nên chỉ dùng map_link khi nó
- * thật sự là http(s), còn lại quay về toạ độ.
+ * dán thẳng cặp số "10.76, 106.66" — nhét nguyên vào `href` là ra link tương đối, bấm vào đi
+ * lạc trong trang admin. Nên chỉ dùng map_link khi nó thật sự là http(s), còn lại quay về toạ độ.
  */
 
 /** Field khai OPTIONAL để dùng được cho cả 2 nguồn: hàng đơn online (`AdminOnlineOrderRow`, đủ
