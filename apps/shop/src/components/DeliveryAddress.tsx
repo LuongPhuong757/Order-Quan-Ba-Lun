@@ -54,7 +54,22 @@ const DETAIL_PLACEHOLDER = 'VD: Số 12, ngõ 3, thôn Đông';
 /** Đổi nhánh: một cú bấm sang thẳng nhánh kia, KHÔNG quay về cửa vào. Cửa vào không có thông tin
  *  nào họ cần đọc lại, nên bắt đi qua nó là thêm một lần bấm cho không. */
 const TO_GPS_COPY = '📍 Dùng vị trí hiện tại thay';
-const TO_MANUAL_COPY = '✏️ Nhập địa chỉ thay';
+/**
+ * Không icon (2026-08-11, chốt chủ dự án). Cái bút ✏️ cũ vừa thừa vừa sai nghĩa: chữ "Nhập địa
+ * chỉ" đã nói đúng việc đó rồi, còn hình cái bút ở web mua hàng đọc quen thành "sửa dòng phía
+ * trên" — mà nút này không sửa gì, nó ĐỔI CẢ MÀN.
+ */
+const TO_MANUAL_COPY = 'Nhập địa chỉ thay';
+/**
+ * Nói KHI NÀO nên bấm, không phải bấm thì ra gì (nhãn nút đã nói rồi).
+ *
+ * Không có dòng này thì nút đứng trơ giữa một màn đang chạy tốt và khách không có lý do gì để
+ * bấm — trong khi đúng nhóm cần nó nhất (Zalo WebView chặn định vị, máy tắt Dịch vụ định vị) lại
+ * là nhóm đang bí và đi tìm đường thoát. Nêu luôn cả ca "muốn giao tới chỗ khác": máy định vị
+ * ĐÚNG chỗ khách đang đứng vẫn có thể là SAI chỗ khách muốn nhận hàng.
+ */
+const TO_MANUAL_HINT =
+  'Không chia sẻ được vị trí, hoặc muốn giao tới địa chỉ khác? Bấm nút dưới để tự chọn tỉnh, xã và gõ địa chỉ.';
 /** Dòng dưới ô chỉ-đọc. Nói xã này ở đâu ra, để khách không đi tìm chỗ sửa nó. */
 const AUTO_FILLED_COPY = 'Lấy theo vị trí bạn chia sẻ — muốn đổi thì bấm "Nhập địa chỉ thay".';
 /**
@@ -82,7 +97,7 @@ type Props = {
   detail: string;
   onDetailChange: (value: string) => void;
   location: PickedLocation | null;
-  onLocationChange: (location: PickedLocation | null, mapLink: string | null) => void;
+  onLocationChange: (location: PickedLocation | null) => void;
   mapEnabled: boolean;
   wardError?: string | null;
   detailError?: string | null;
@@ -149,7 +164,7 @@ export function DeliveryAddress({
   const resolved = findWard(wardCode);
 
   const switchMode = (next: AddressMode): void => {
-    if (next === 'manual' && location !== null) onLocationChange(null, null);
+    if (next === 'manual' && location !== null) onLocationChange(null);
     setEnteredGpsByTap(next === 'gps');
     onModeChange(next);
   };
@@ -252,13 +267,21 @@ export function DeliveryAddress({
           Nhánh GPS lúc CHƯA có toạ độ đã có nút lui riêng ngay cạnh câu lỗi trong `LocationPicker`
           — chỗ mắt khách đang nhìn — nên ở đó không lặp lại nút này. */}
       {(mode === 'manual' || location !== null) && (
-        <button
-          type="button"
-          style={switchLink}
-          onClick={() => switchMode(mode === 'gps' ? 'manual' : 'gps')}
-        >
-          {mode === 'gps' ? TO_MANUAL_COPY : TO_GPS_COPY}
-        </button>
+        <div style={switchGroup}>
+          {/* Ghi chú ĐỨNG TRƯỚC nút (chốt chủ dự án 2026-08-11): nêu hoàn cảnh rồi mới đưa việc
+              cần làm — khách đọc "không chia sẻ được vị trí?" mới có lý do nhìn xuống cái nút.
+              Nút đứng trước thì câu giải thích thành lời chú thích cho một thứ đã bấm qua rồi.
+              Chỉ có ở chiều GPS → nhập tay. Chiều ngược lại không cần: khách đang gõ tay mà thấy
+              nút "Dùng vị trí hiện tại" thì tự hiểu, không ai đang bí ở đó cả. */}
+          {mode === 'gps' && <p style={switchHint}>{TO_MANUAL_HINT}</p>}
+          <button
+            type="button"
+            style={switchButton}
+            onClick={() => switchMode(mode === 'gps' ? 'manual' : 'gps')}
+          >
+            {mode === 'gps' ? TO_MANUAL_COPY : TO_GPS_COPY}
+          </button>
+        </div>
       )}
     </>
   );
@@ -296,16 +319,48 @@ const autoNote: CSSProperties = {
  *  Vẫn `--warn-600` chứ không `--danger-600`: chưa có gì sai, chỉ là có thứ cần kiểm. */
 const autoWarnNote: CSSProperties = { ...autoNote, color: 'var(--warn-600)' };
 
-const switchLink: CSSProperties = {
-  alignSelf: 'flex-start',
-  border: 'none',
-  background: 'transparent',
-  padding: 'var(--sp-2) 0',
-  color: 'var(--brand-600)',
+const switchGroup: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-1)',
+  alignItems: 'flex-start',
+};
+
+/**
+ * NÚT THẬT, không phải link chữ (2026-08-11, chốt chủ dự án).
+ *
+ * Bản trước là chữ màu thương hiệu không viền — trên màn đang có sẵn 2-3 dòng chữ nâu đỏ khác
+ * (nhãn, câu ghi chú) nó chìm nghỉm, đúng nhóm khách đang bí nhất lại không nhận ra đây là thứ
+ * bấm được. Có viền + có nền là mắt nhận ra ngay trong một lần quét.
+ *
+ * Viền trung tính `--border-default` chứ KHÔNG phải viền thương hiệu như "Xem trên bản đồ" /
+ * "Chia sẻ vị trí": đây là ĐƯỜNG LUI, không được tranh mắt với đường mặc định — nếu nó trông
+ * ngang hàng nút chia sẻ vị trí thì lại thành hai lựa chọn ngang nhau, đúng cái màn lẫn lộn mà
+ * việc tách hai nhánh sinh ra để dẹp.
+ *
+ * `--tap-min` giữ vùng chạm đủ lớn: link chữ cũ chỉ cao bằng một dòng, hụt chuẩn 44px trên iPhone.
+ */
+const switchButton: CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 'var(--tap-min)',
+  padding: '0 var(--sp-4)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--r-button)',
+  background: 'var(--bg-surface)',
+  color: 'var(--text-strong)',
   fontFamily: 'var(--font-body)',
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
   cursor: 'pointer',
+};
+
+const switchHint: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-caption)',
+  color: 'var(--text-muted)',
+  lineHeight: 1.5,
 };
 
 const fieldGroup: CSSProperties = {

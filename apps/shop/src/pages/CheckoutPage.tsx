@@ -212,22 +212,30 @@ export function CheckoutPage(): JSX.Element {
   // `accuracy_m`: chỉ GPS mới có sai số; toạ độ lấy từ link Maps do khách tự chọn điểm nên
   // không có khái niệm sai số → null, và không hiện dòng cảnh báo.
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy_m: number | null } | null>(null);
-  const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
   /**
    * Vùng để mở bản đồ theo địa chỉ đang chọn — `AddressSelect` báo ra (tâm xã, hay tâm tỉnh khi
    * chưa chọn xã). KHÔNG phải một phần của địa chỉ gửi lên server, chỉ là khung nhìn: mã xã vẫn là
    * nguồn sự thật duy nhất, cái này chỉ nói "mở bản đồ ở đâu cho khách nhìn thấy vùng của mình".
    */
   /**
-   * Nhánh nhập địa chỉ đang dùng. Mặc định là GPS (xem `DeliveryAddress`).
+   * Nhánh nhập địa chỉ đang dùng. LUÔN mở ở nhánh GPS, KHÔNG có ngoại lệ nào (chốt chủ dự án
+   * 2026-08-11 — xem `DeliveryAddress`).
    *
-   * NGOẠI LỆ: khách quay lại đã có địa chỉ cũ thì vào thẳng nhánh nhập tay với dữ liệu đó. Bày ra
-   * nút xin định vị cho một người đã có sẵn địa chỉ đúng là mời họ làm lại một việc đã xong — và
-   * nếu họ bấm thật thì xã bị tự điền đè lên, kèm nguy cơ lệch với dòng số nhà cũ.
+   * Từng có ngoại lệ "khách quay lại đã có địa chỉ cũ thì vào thẳng nhánh nhập tay", với lý do
+   * không mời họ làm lại một việc đã xong. Bỏ vì nó sai ở hai chỗ:
+   *
+   *   1. Nó biến "mặc định là màn vị trí" thành sai với chính chủ quán và mọi khách quen — tức là
+   *      gần như mọi người thật, vì chỉ khách đặt lần ĐẦU mới không có `lastCustomer`.
+   *   2. Địa chỉ cũ KHÔNG bảo đảm còn dùng được. Mã xã lưu trong máy bị lọc qua danh mục hiện
+   *      hành (xem `wardCode` ở trên) và mã từ trước đợt sắp xếp đơn vị hành chính bị loại — khách
+   *      rơi thẳng vào nhánh nhập tay với ô Xã/Phường trống và một dòng báo đỏ ngay lúc vừa mở
+   *      trang, chưa chạm vào gì. Đó là màn hình chủ dự án gặp thật.
+   *
+   * Dữ liệu cũ KHÔNG mất: `address`/`wardCode` vẫn prefill sẵn trong state, bấm "Nhập địa chỉ
+   * thay" là thấy lại nguyên vẹn. Còn nếu họ chia sẻ vị trí thì xã mới đè lên xã cũ — và đó đúng
+   * là ca `AUTO_REPLACED_COPY` đã có: một dòng cảnh báo nhắc kiểm lại số nhà.
    */
-  const [addressMode, setAddressMode] = useState<AddressMode>(() =>
-    lastCustomer?.customer_address ? 'manual' : 'gps',
-  );
+  const [addressMode, setAddressMode] = useState<AddressMode>('gps');
   const [extraFieldErrors, setExtraFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ApiError | null>(null);
@@ -419,7 +427,10 @@ export function CheckoutPage(): JSX.Element {
       body.customer_lat = location.lat;
       body.customer_lng = location.lng;
     }
-    if (mapLinkValue) body.customer_map_link = mapLinkValue;
+    // `customer_map_link` KHÔNG còn được gửi từ trang khách (2026-08-11): ô dán link Google Maps
+    // đã gỡ, toạ độ giờ chỉ đến từ GPS. Field vẫn còn ở BE cho đơn CŨ đã lưu link — phía quán
+    // (`apps/web/src/lib/customer-map.ts`) tự dựng link từ lat/lng khi thiếu, nên đơn mới không
+    // mất đường mở bản đồ.
 
     const parsedBody = OnlineOrderSubmit.safeParse(body);
     if (!parsedBody.success) {
@@ -635,10 +646,7 @@ export function CheckoutPage(): JSX.Element {
             detail={address}
             onDetailChange={setAddress}
             location={location}
-            onLocationChange={(loc, link) => {
-              setLocation(loc);
-              setMapLinkValue(link);
-            }}
+            onLocationChange={setLocation}
             // Khách kéo ghim → `location` đổi → effect phí giao ở trên tự hỏi lại BE. Không cần
             // debounce riêng: bản đồ chỉ báo ra khi khách THẢ ghim, không báo trong lúc kéo.
             mapEnabled={store.data?.map_checkout_enabled ?? false}
