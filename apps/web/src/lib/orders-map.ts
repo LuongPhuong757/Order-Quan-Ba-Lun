@@ -76,3 +76,80 @@ export function coordsOf(
   const lng = Number(row.customer_lng);
   return Number.isFinite(lat) && Number.isFinite(lng) ? [lat, lng] : null;
 }
+
+/**
+ * Khoảng cách (pixel màn hình) mà dưới nó hai chấm coi như CHỒNG NHAU (2026-08-11).
+ *
+ * Chấm có bán kính 10px + viền, nên hai tâm cách nhau dưới ~26px là hai hình tròn dính vào nhau —
+ * mắt đọc thành một. Đây là con số ĐO TRÊN MÀN HÌNH chứ không phải mét: cùng 30m thật, ở zoom 19
+ * là hai chấm rời, ở zoom 10 là một. Gộp theo mét sẽ gộp sai ở một trong hai đầu.
+ */
+export const CLUSTER_RADIUS_PX = 26;
+
+export type ClusterInput<T> = { item: T; pos: [number, number] };
+
+export type Cluster<T> = {
+  /** Tâm cụm = trung bình các điểm thành viên, tính trong hệ pixel rồi trả lại lat/lng. */
+  pos: [number, number];
+  items: T[];
+};
+
+/**
+ * Gộp các điểm nằm đè lên nhau ở mức zoom hiện tại thành cụm (2026-08-11).
+ *
+ * VIỆC NÓ GIẢI QUYẾT: 8 đơn đặt từ cùng một chỗ (lệch nhau 10–30m) vẽ ra 8 chấm chồng khít — màn
+ * hình nói "1 đơn" trong khi danh sách nói 8. Nhân viên tin vào cái họ nhìn thấy. Có gộp thì chỗ
+ * đó thành MỘT chấm mang số "8": vẫn là một hình tròn, nhưng nó tự khai ra nó là mấy đơn.
+ *
+ * Thuật toán: quét tuyến tính, mỗi điểm hoặc nhập vào cụm đầu tiên có tâm nằm trong `radiusPx`,
+ * hoặc mở cụm mới. KHÔNG phải k-means và không cần: đầu vào là vài chục tới vài trăm đơn, và tiêu
+ * chí duy nhất ở đây là "có đè lên nhau trên màn hình không".
+ *
+ * `project` / `unproject` do người gọi đưa vào (Leaflet `map.project` ở zoom hiện tại) — nhờ vậy
+ * hàm này không đụng tới Leaflet và test được bằng một phép chiếu phẳng.
+ */
+export function clusterPoints<T>(
+  points: ClusterInput<T>[],
+  project: (pos: [number, number]) => { x: number; y: number },
+  unproject: (pt: { x: number; y: number }) => [number, number],
+  radiusPx: number = CLUSTER_RADIUS_PX,
+): Cluster<T>[] {
+  const acc: { x: number; y: number; sumX: number; sumY: number; items: T[] }[] = [];
+  const r2 = radiusPx * radiusPx;
+
+  for (const p of points) {
+    const pt = project(p.pos);
+    let joined = false;
+    for (const c of acc) {
+      const dx = c.x - pt.x;
+      const dy = c.y - pt.y;
+      if (dx * dx + dy * dy <= r2) {
+        c.items.push(p.item);
+        c.sumX += pt.x;
+        c.sumY += pt.y;
+        // Tâm trôi theo thành viên mới: cụm bám vào chỗ đông đơn nhất, không bám vào đơn nào tình
+        // cờ được duyệt trước.
+        c.x = c.sumX / c.items.length;
+        c.y = c.sumY / c.items.length;
+        joined = true;
+        break;
+      }
+    }
+    if (!joined) acc.push({ x: pt.x, y: pt.y, sumX: pt.x, sumY: pt.y, items: [p.item] });
+  }
+
+  return acc.map((c) => ({ pos: unproject({ x: c.x, y: c.y }), items: c.items }));
+}
+
+/**
+ * Chặng của cả một cụm: cụm thuần một chặng thì mang đúng chặng đó, cụm pha tạp thì `null`.
+ *
+ * Không bịa ra "chặng đại diện" cho cụm pha tạp. Một chấm vàng ghi "5" mà bên trong có 2 đơn đã
+ * xong chờ giao là nói dối đúng thứ mà bảng màu này dùng để quyết định: đi giao chuyến nào bây giờ.
+ * Cụm pha tạp vẽ màu trung tính, chi tiết từng chặng nằm ở tooltip.
+ */
+export function clusterStage(stages: MapStageKey[]): MapStageKey | null {
+  if (stages.length === 0) return null;
+  const first = stages[0]!;
+  return stages.every((s) => s === first) ? first : null;
+}

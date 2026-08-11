@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { AdminOnlineOrderRow } from '@order/schemas';
 import { C } from '../lib/online-ui.ts';
 import {
+  CLUSTER_RADIUS_PX,
   MAP_STAGES,
   MAP_STAGE_COLOR,
   MAP_STAGE_LABEL,
+  clusterPoints,
+  clusterStage,
   coordsOf,
   stageOf,
 } from '../lib/orders-map.ts';
@@ -32,6 +35,11 @@ import {
  *    phải giao. Xem `mappable`/`unmappable` do component này tính hộ và trả qua `onCounts`.
  *
  * 4. **Đơn tự đến lấy (PICKUP) không có chấm.** Không ai đi giao chúng, vẽ lên chỉ làm loãng cụm.
+ *
+ * 5. **Chấm đè lên nhau được gộp thành một chấm mang SỐ (2026-08-11).** Đơn đặt từ cùng một xóm
+ *    lệch nhau 10–30m: ở zoom vừa nhìn cả thành phố, 8 chấm đó vẽ chồng khít thành một — màn hình
+ *    nói "1 đơn" trong khi danh sách nói 8, và nhân viên tin vào cái họ nhìn thấy. Luật gộp nằm ở
+ *    `lib/orders-map.ts` và tính bằng PIXEL nên nó đổi theo zoom: kéo zoom vào là cụm tự tách.
  */
 
 const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
@@ -66,6 +74,108 @@ type Props = {
   onPickOrder: (id: string) => void;
 };
 
+/** Bán kính chấm cụm, giãn theo số đơn bên trong để cụm 20 đơn không trông y hệt cụm 2 đơn. Chặn
+ *  trên 22px: to hơn nữa thì chính cái chấm che mất khu vực nó đang nói tới. */
+function clusterRadius(count: number): number {
+  return Math.min(22, 13 + Math.round(Math.log2(count) * 3));
+}
+
+type Point = { row: AdminOnlineOrderRow; pos: [number, number] };
+
+/** Zoom sâu nhất mà nút "Phóng to vào cụm" đưa tới. 18 là mức thấy được từng nhà; sâu hơn nữa thì
+ *  tile OSM bắt đầu trống ở vùng ngoại thành. */
+const CLUSTER_ZOOM_IN_MAX = 18;
+
+/**
+ * Một cụm = một chấm mang SỐ ĐƠN, rê chuột ra bảng phân tích theo chặng, bấm ra danh sách đơn.
+ *
+ * Dùng `divIcon` chứ không `circleMarker` như chấm đơn lẻ: canvas không vẽ được chữ, mà con số
+ * chính là toàn bộ lý do cụm tồn tại. Đánh đổi là mỗi cụm một node DOM — chấp nhận được vì cụm
+ * luôn ít hơn đơn, và đơn lẻ thì vẫn đi đường canvas.
+ */
+function makeClusterMarker(
+  pos: [number, number],
+  items: Point[],
+  map: L.Map,
+  onPickRef: { current: (id: string) => void },
+): L.Marker {
+  const stages = items.map((p) => stageOf(p.row));
+  const pure = clusterStage(stages);
+  // Cụm pha tạp mang màu trung tính: một chấm vàng ghi "5" mà bên trong có 2 đơn đã xong chờ giao
+  // là nói dối đúng thứ mà bảng màu này dùng để quyết định.
+  const bg = pure === null ? C.text : MAP_STAGE_COLOR[pure];
+  const r = clusterRadius(items.length);
+
+  const marker = L.marker(pos, {
+    icon: L.divIcon({
+      className: '',
+      html: `<div style="width:${r * 2}px;height:${r * 2}px;border-radius:50%;background:${bg};border:2.5px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4);color:#fff;font-weight:700;font-size:${items.length > 99 ? 11 : 12}px;display:flex;align-items:center;justify-content:center">${items.length}</div>`,
+      iconSize: [r * 2, r * 2],
+      iconAnchor: [r, r],
+    }),
+  });
+
+  const breakdown = MAP_STAGES.map((s) => ({ s, n: stages.filter((k) => k === s.key).length }))
+    .filter((b) => b.n > 0)
+    .map(
+      (b) =>
+        `<div><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${b.s.color};margin-right:6px"></span>${b.s.label} · ${b.n}</div>`,
+    )
+    .join('');
+
+  marker.bindTooltip(
+    `<div style="font-weight:700">${items.length} đơn ở đây</div>${breakdown}
+     <div style="color:${C.muted};margin-top:2px">Bấm để xem danh sách</div>`,
+    { direction: 'top', offset: [0, -r], className: 'order-dot-tip' },
+  );
+
+  // Danh sách đơn nằm ngay trong popup — KHÔNG chỉ dựa vào "zoom vào là tách ra". Đơn đặt từ đúng
+  // một toạ độ (khách bấm chia sẻ vị trí ở cùng chỗ) không bao giờ tách, dù zoom tới đâu.
+  const MAX_LIST = 12;
+  const shown = items.slice(0, MAX_LIST);
+  const rest = items.length - shown.length;
+  marker.bindPopup(
+    `<div style="min-width:220px;max-width:260px">
+       <div style="font-weight:700;margin-bottom:6px">${items.length} đơn ở khu vực này</div>
+       <div style="max-height:220px;overflow:auto;display:grid;gap:4px">
+         ${shown
+           .map(
+             (p) => `<button type="button" data-order-id="${p.row.id}" style="display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid ${C.border};border-radius:8px;background:#fff;cursor:pointer">
+                <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${MAP_STAGE_COLOR[stageOf(p.row)]};margin-right:6px"></span>
+                <span style="font-weight:600">${escapeHtml(p.row.customer_name)}</span>
+                <span style="color:${C.muted};font-size:12px"> · ${escapeHtml(p.row.customer_phone)}</span>
+              </button>`,
+           )
+           .join('')}
+       </div>
+       ${rest > 0 ? `<div style="color:${C.muted};font-size:12px;margin-top:4px">… và ${rest} đơn nữa — phóng to để tách cụm</div>` : ''}
+       <button type="button" data-zoom-cluster="1" style="margin-top:8px;width:100%;padding:6px 10px;border:1px solid ${C.border};border-radius:8px;background:${C.panelBg};font-weight:600;cursor:pointer">Phóng to vào cụm</button>
+     </div>`,
+  );
+
+  marker.on('popupopen', (e: L.PopupEvent) => {
+    const el = e.popup.getElement();
+    el?.querySelectorAll<HTMLButtonElement>('button[data-order-id]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        map.closePopup();
+        onPickRef.current(btn.dataset.orderId!);
+      });
+    });
+    el?.querySelector<HTMLButtonElement>('button[data-zoom-cluster]')?.addEventListener(
+      'click',
+      () => {
+        map.closePopup();
+        map.fitBounds(L.latLngBounds(items.map((p) => p.pos)), {
+          padding: [60, 60],
+          maxZoom: CLUSTER_ZOOM_IN_MAX,
+        });
+      },
+    );
+  });
+
+  return marker;
+}
+
 export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -78,6 +188,10 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
   /** Đã tự căn khung một lần chưa. Căn lại mỗi lần poll (5s) là bản đồ giật về chỗ cũ ngay giữa
    *  lúc nhân viên đang kéo xem một khu — lỗi khó chịu hơn nhiều so với việc phải tự kéo. */
   const fittedRef = useRef(false);
+  /** Đổi mỗi lần zoom xong, chỉ để bắt vẽ lại. Luật gộp tính bằng pixel nên cùng một bộ đơn phải
+   *  cho ra cụm khác nhau ở mỗi mức zoom — không có cái này thì cụm đóng băng ở zoom đầu tiên và
+   *  kéo zoom vào không tách được. */
+  const [zoom, setZoom] = useState<number | null>(null);
 
   const points = useMemo(
     () =>
@@ -107,10 +221,13 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
 
     dotsRef.current = L.layerGroup().addTo(map);
     mapRef.current = map;
+    map.on('zoomend', () => setZoom(map.getZoom()));
+    setZoom(map.getZoom());
 
     const t = window.setTimeout(() => map.invalidateSize(), 0);
     return () => {
       window.clearTimeout(t);
+      map.off('zoomend');
       map.remove();
       mapRef.current = null;
       dotsRef.current = null;
@@ -127,7 +244,26 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
     if (!map || !dots) return;
 
     dots.clearLayers();
-    for (const { row, pos } of points) {
+
+    // Gộp theo PIXEL ở đúng mức zoom đang hiển thị: `map.project` đưa lat/lng về hệ toạ độ pixel
+    // của Leaflet, `unproject` trả tâm cụm về lại lat/lng để đặt chấm.
+    const z = map.getZoom();
+    const clusters = clusterPoints(
+      points.map((p) => ({ item: p, pos: p.pos })),
+      (pos) => map.project(pos, z),
+      (pt) => {
+        const ll = map.unproject(L.point(pt.x, pt.y), z);
+        return [ll.lat, ll.lng];
+      },
+      CLUSTER_RADIUS_PX,
+    );
+
+    for (const cluster of clusters) {
+      if (cluster.items.length > 1) {
+        dots.addLayer(makeClusterMarker(cluster.pos, cluster.items, map, onPickRef));
+        continue;
+      }
+      const { row, pos } = cluster.items[0]!;
       const stage = stageOf(row);
       const dot = L.circleMarker(pos, {
         radius: DOT_RADIUS,
@@ -180,7 +316,7 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
       map.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
       fittedRef.current = true;
     }
-  }, [points, storeLat, storeLng]);
+  }, [points, storeLat, storeLng, zoom]);
   return (
     <div>
       <div ref={hostRef} style={mapHost} aria-label="Bản đồ các đơn giao hàng" />
@@ -191,6 +327,11 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
             {s.label}
           </span>
         ))}
+        {/* Không có dòng này thì chấm ghi "7" trông như một mã trạng thái nào đó. */}
+        <span style={legendItem}>
+          <span style={{ ...legendDot, background: C.text }} />
+          Chấm có số = nhiều đơn cùng một chỗ (bấm để xem / phóng to)
+        </span>
       </div>
     </div>
   );
