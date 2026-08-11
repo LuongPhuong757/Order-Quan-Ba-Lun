@@ -20,10 +20,9 @@ import {
 import { readEditSession } from '../lib/order-edit.ts';
 import { nextOpeningText } from '../lib/open-hours.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
-import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
-import { AddressSelect } from '../components/AddressSelect.tsx';
-import { ADDRESS_DETAIL_MAX, composeAddress, extractAddressDetail } from '../lib/address.ts';
-import { findWard, isValidWardCode } from '@order/schemas/vn-address';
+import { DeliveryAddress, type AddressMode } from '../components/DeliveryAddress.tsx';
+import { composeAddress, extractAddressDetail } from '../lib/address.ts';
+import { isValidWardCode } from '@order/schemas/vn-address';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
@@ -60,6 +59,8 @@ type FieldErrors = {
   phone?: string;
   address?: string;
   ward?: string;
+  /** Đang ở nhánh GPS mà chưa có toạ độ — chưa ô nào hiện ra để mà thiếu. Xem `DeliveryAddress`. */
+  addressMode?: string;
 };
 
 const PICKUP_LABEL = 'Đến lấy tại quán';
@@ -78,6 +79,14 @@ const NAME_REQUIRED_MSG = 'Vui lòng nhập họ và tên';
 const PHONE_INVALID_MSG = 'Số điện thoại không hợp lệ';
 const ADDRESS_REQUIRED_MSG = 'Vui lòng nhập số nhà, thôn/xóm';
 const WARD_REQUIRED_MSG = 'Vui lòng chọn xã/phường';
+/**
+ * Đang ở nhánh GPS mà chưa có toạ độ (chưa bấm, đang hỏi, hoặc máy chặn).
+ *
+ * Ở trạng thái này màn hình CHƯA bày ô tỉnh/xã/số nhà nào cả — nên câu chung "vui lòng điền đầy đủ
+ * thông tin bắt buộc ở trên" là chỉ khách đi tìm những ô không tồn tại. Phải nói đúng hai việc
+ * đang làm được: chia sẻ vị trí, hoặc bỏ sang gõ tay.
+ */
+const ADDRESS_GPS_PENDING_MSG = 'Bấm "Chia sẻ vị trí của bạn", hoặc "Nhập địa chỉ thay" để tự gõ';
 
 /**
  * Copy phí ship khi CHƯA có con số cụ thể.
@@ -107,10 +116,18 @@ function computeFieldErrors(
   address: string,
   wardCode: string | null,
   fulfillment: Fulfillment,
+  addressMode: AddressMode,
+  hasLocation: boolean,
 ): FieldErrors {
   const errors: FieldErrors = {};
   if (!name.trim()) errors.name = NAME_REQUIRED_MSG;
   if (phone.replace(/\D/g, '').length < 9) errors.phone = PHONE_INVALID_MSG;
+  // Nhánh GPS chưa có toạ độ → chưa có ô nào hiện ra để mà thiếu. Trả về NGAY, không kèm thêm câu
+  // lỗi nào về tỉnh/xã/số nhà: đó là những ô khách còn chưa nhìn thấy.
+  if (fulfillment === 'DELIVERY' && addressMode === 'gps' && !hasLocation) {
+    errors.addressMode = ADDRESS_GPS_PENDING_MSG;
+    return errors;
+  }
   if (fulfillment === 'DELIVERY' && !address.trim()) errors.address = ADDRESS_REQUIRED_MSG;
   // Xã BẮT BUỘC với đơn giao — khác hẳn toạ độ (không bao giờ bắt buộc, D-19/D-20). Ô chọn không
   // xin quyền gì của máy và không phụ thuộc mạng nên nó không thể "thất bại" như Geolocation;
@@ -196,6 +213,21 @@ export function CheckoutPage(): JSX.Element {
   // không có khái niệm sai số → null, và không hiện dòng cảnh báo.
   const [location, setLocation] = useState<{ lat: number; lng: number; accuracy_m: number | null } | null>(null);
   const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
+  /**
+   * Vùng để mở bản đồ theo địa chỉ đang chọn — `AddressSelect` báo ra (tâm xã, hay tâm tỉnh khi
+   * chưa chọn xã). KHÔNG phải một phần của địa chỉ gửi lên server, chỉ là khung nhìn: mã xã vẫn là
+   * nguồn sự thật duy nhất, cái này chỉ nói "mở bản đồ ở đâu cho khách nhìn thấy vùng của mình".
+   */
+  /**
+   * Nhánh nhập địa chỉ đang dùng. Mặc định là GPS (xem `DeliveryAddress`).
+   *
+   * NGOẠI LỆ: khách quay lại đã có địa chỉ cũ thì vào thẳng nhánh nhập tay với dữ liệu đó. Bày ra
+   * nút xin định vị cho một người đã có sẵn địa chỉ đúng là mời họ làm lại một việc đã xong — và
+   * nếu họ bấm thật thì xã bị tự điền đè lên, kèm nguy cơ lệch với dòng số nhà cũ.
+   */
+  const [addressMode, setAddressMode] = useState<AddressMode>(() =>
+    lastCustomer?.customer_address ? 'manual' : 'gps',
+  );
   const [extraFieldErrors, setExtraFieldErrors] = useState<FieldErrors>({});
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<ApiError | null>(null);
@@ -325,14 +357,15 @@ export function CheckoutPage(): JSX.Element {
     }
   }, [store.data, defaultApplied, lastCustomer]);
 
-  /** Điểm giữa xã đang chọn — chỉ để mở bản đồ đúng vùng, không phải toạ độ của khách. */
-  // Tỉnh chưa được geocode thì xã không có toạ độ (xem `vn-address.ts`) — khi đó không có gì để
-  // mở bản đồ, và mọi thứ quay về đúng hành vi cũ: có GPS thì có bản đồ, không thì thôi.
-  const ward = findWard(wardCode)?.ward;
-  const wardCenter =
-    ward?.lat !== undefined && ward.lng !== undefined ? { lat: ward.lat, lng: ward.lng } : null;
-
-  const fieldErrors = computeFieldErrors(name, phone, address, wardCode, fulfillment);
+  const fieldErrors = computeFieldErrors(
+    name,
+    phone,
+    address,
+    wardCode,
+    fulfillment,
+    addressMode,
+    location !== null,
+  );
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
   const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
   // D-11 — `storeOff` GIỮ LẠI nhưng đổi ý nghĩa: nay chỉ để biết CÓ HIỆN BANNER không, không còn
@@ -346,7 +379,9 @@ export function CheckoutPage(): JSX.Element {
 
   let ctaHint: string = DISCLOSURE_COPY;
   if (hasFieldErrors) {
-    ctaHint = FIELD_ERRORS_HINT;
+    // Nhánh GPS chưa có toạ độ thì nói ĐÚNG việc đó, không nói câu chung "điền đầy đủ thông tin ở
+    // trên" — ở trên đang không có ô nào trống để điền.
+    ctaHint = fieldErrors.addressMode ?? FIELD_ERRORS_HINT;
   }
   if (tooFar) {
     ctaHint = 'Vị trí này ngoài phạm vi giao hàng của quán — vui lòng chọn “Đến lấy tại quán”.';
@@ -588,55 +623,30 @@ export function CheckoutPage(): JSX.Element {
           {displayFieldErrors.phone && <p style={errorText}>{displayFieldErrors.phone}</p>}
         </div>
 
+        {/* Cả phần địa chỉ nằm trong `DeliveryAddress`: cửa hai lựa chọn, hai nhánh, ô số nhà và
+            khối vị trí. Gom lại vì màn sửa đơn ở `/cart` phải giống hệt — xem docblock ở đó. */}
         {fulfillment === 'DELIVERY' && (
-          <>
-            {/* Xã TRƯỚC số nhà: chọn xong khu vực rồi mới điền chi tiết là thứ tự khách nghĩ, và
-                nó cũng là thứ tự bản đồ cần — chọn xã xong là `LocationPicker` bên dưới đã có
-                điểm để mở ra, không phải chờ khách bấm chia sẻ vị trí. */}
-            <AddressSelect
-              value={wardCode}
-              onChange={setWardCode}
-              wardError={displayFieldErrors.ward ?? null}
-              idPrefix="checkout"
-            />
-
-            <div style={fieldGroup}>
-              <label style={fieldLabel} htmlFor="checkout-address">
-                Số nhà, thôn/xóm, ngõ
-              </label>
-              <input
-                id="checkout-address"
-                type="text"
-                // `address-line1` chứ không phải `street-address`: ô này nay chỉ còn phần chi tiết,
-                // còn `street-address` là chuẩn cho địa chỉ ĐẦY ĐỦ nhiều dòng — khai sai thì trình
-                // duyệt đổ cả "…, Phường X, Bắc Ninh" vào đây và khách có hai lần tên xã.
-                autoComplete="address-line1"
-                value={address}
-                maxLength={ADDRESS_DETAIL_MAX}
-                placeholder="VD: Số 12, ngõ 3, thôn Đông"
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
-                style={{ ...inputBase, fontSize: 'var(--fs-base)', ...(displayFieldErrors.address ? inputErrorBorder : {}) }}
-              />
-              {displayFieldErrors.address && <p style={errorText}>{displayFieldErrors.address}</p>}
-            </div>
-
-            {/* Khối vị trí đã tách sang `components/LocationPicker.tsx` (2026-08-06) để màn SỬA
-                ĐƠN ở `/cart` dùng lại nguyên vẹn — xem docblock component đó về lý do. */}
-            <LocationPicker
-              location={location}
-              onChange={(loc, link) => {
-                setLocation(loc);
-                setMapLinkValue(link);
-              }}
-              // Khách kéo ghim → `location` đổi → effect phí giao ở trên tự hỏi lại BE. Không cần
-              // debounce riêng: bản đồ chỉ báo ra khi khách THẢ ghim, không báo trong lúc kéo.
-              mapEnabled={store.data?.map_checkout_enabled ?? false}
-              // Chọn xã xong là bản đồ mở được ngay, không cần khách bấm chia sẻ vị trí. Đây chỉ
-              // là khung nhìn — nó KHÔNG trở thành toạ độ của đơn (xem prop này ở LocationPicker).
-              fallbackCenter={wardCenter}
-            />
-          </>
+          <DeliveryAddress
+            idPrefix="checkout"
+            mode={addressMode}
+            onModeChange={setAddressMode}
+            wardCode={wardCode}
+            onWardCodeChange={setWardCode}
+            detail={address}
+            onDetailChange={setAddress}
+            location={location}
+            onLocationChange={(loc, link) => {
+              setLocation(loc);
+              setMapLinkValue(link);
+            }}
+            // Khách kéo ghim → `location` đổi → effect phí giao ở trên tự hỏi lại BE. Không cần
+            // debounce riêng: bản đồ chỉ báo ra khi khách THẢ ghim, không báo trong lúc kéo.
+            mapEnabled={store.data?.map_checkout_enabled ?? false}
+            wardError={displayFieldErrors.ward ?? null}
+            detailError={displayFieldErrors.address ?? null}
+          />
         )}
+
       </section>
 
       <div style={recapBlock}>

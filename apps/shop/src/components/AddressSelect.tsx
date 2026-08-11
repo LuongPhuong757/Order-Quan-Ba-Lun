@@ -27,11 +27,17 @@ import { normalizeVi } from '../lib/vi-text.ts';
  * nó là loại nhầm người ở rìa xã — mà họ không bao giờ biết vì sao, vì xã của họ đơn giản là
  * không có trong danh sách. Việc chặn đơn quá xa đã có `delivery-radius.ts` làm, dựa trên toạ độ
  * do chính khách ghim.
+ *
+ * CHỈ DÙNG Ở NHÁNH NHẬP TAY. Nhánh chia sẻ vị trí không dựng component này: ở đó tỉnh + xã do toạ
+ * độ quyết định và khách KHÔNG sửa được (chốt 2026-08-11) — `DeliveryAddress` vẽ một dòng chữ chỉ
+ * để đọc. Vì vậy ở đây không có khái niệm "khoá", "tự điền" hay "chọn lại": component này luôn
+ * hoàn toàn sửa được, còn không thì nó không được dựng.
  */
 
 /** Bao nhiêu kết quả hiện tối đa. Danh sách dài hơn màn hình thì cuộn trong khung riêng, nhưng
  *  đổ hết 168 mục của TP.HCM vào DOM mỗi lần gõ là việc thừa — ai cũng gõ tiếp để thu hẹp. */
 const MAX_RESULTS = 60;
+
 
 type Props = {
   /** Mã xã đang chọn, `null` = chưa chọn. Component CÓ ĐIỀU KHIỂN — trang cha giữ state. */

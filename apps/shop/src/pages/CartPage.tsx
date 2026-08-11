@@ -13,10 +13,9 @@ import {
 } from '../lib/cart-store.ts';
 import { clearEditSession, readEditSession } from '../lib/order-edit.ts';
 import { patchJson, useApi, type ApiError } from '../lib/use-api.ts';
-import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
-import { AddressSelect } from '../components/AddressSelect.tsx';
-import { ADDRESS_DETAIL_MAX, composeAddress, extractAddressDetail } from '../lib/address.ts';
-import { findWard } from '@order/schemas/vn-address';
+import { type PickedLocation } from '../components/LocationPicker.tsx';
+import { DeliveryAddress, type AddressMode } from '../components/DeliveryAddress.tsx';
+import { composeAddress, extractAddressDetail } from '../lib/address.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
@@ -115,6 +114,12 @@ export function CartPage(): JSX.Element {
   const [wardCode, setWardCode] = useState<string | null | undefined>(undefined);
   const [location, setLocation] = useState<PickedLocation | null>(null);
   const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
+  /**
+   * Màn này LUÔN mở ở nhánh nhập tay: đơn đang sửa đã có sẵn địa chỉ, hỏi "bạn muốn nhập kiểu gì"
+   * cho một thứ đã điền xong là hỏi thừa. Nút "Dùng vị trí hiện tại thay" trong `DeliveryAddress`
+   * vẫn cho họ đổi sang nhánh GPS bằng một cú bấm.
+   */
+  const [addressMode, setAddressMode] = useState<AddressMode>('manual');
   /** Khách có ĐỘNG vào phần vị trí không. Không động thì `PATCH` không gửi field nào của địa chỉ
    * → server giữ nguyên toàn bộ (địa chỉ + toạ độ + km). Đây là chốt chống "sửa món xong tự dưng
    * mất toạ độ": toạ độ CŨ không đọc được về FE (payload không trả), nên gửi bừa là xoá mất. */
@@ -155,11 +160,6 @@ export function CartPage(): JSX.Element {
    * chuẩn hoá — chứ không phải một cửa chặn bất ngờ ở màn khác. */
   const wardError =
     isDelivery && wardCode !== undefined && !wardCode ? 'Vui lòng chọn xã/phường' : null;
-
-  /** Điểm giữa xã đang chọn — chỉ để mở bản đồ đúng vùng, không phải toạ độ của khách. */
-  const ward = findWard(wardCode ?? null)?.ward;
-  const wardCenter =
-    ward?.lat !== undefined && ward.lng !== undefined ? { lat: ward.lat, lng: ward.lng } : null;
 
   const handleNoteChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const value = e.target.value;
@@ -308,39 +308,23 @@ export function CartPage(): JSX.Element {
             <section style={addressCard}>
               <h2 style={addressCardTitle}>Địa chỉ giao hàng</h2>
 
-              <AddressSelect
+              <DeliveryAddress
                 idPrefix="cart"
-                value={wardCode ?? null}
-                onChange={setWardCode}
-                wardError={wardError}
-              />
-
-              <input
-                type="text"
-                // `address-line1` chứ không phải `street-address`: ô này chỉ còn phần chi tiết —
-                // cùng lý do đã ghi ở `/checkout`.
-                autoComplete="address-line1"
-                value={address}
-                maxLength={ADDRESS_DETAIL_MAX}
-                placeholder="VD: Số 12, ngõ 3, thôn Đông"
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
-                aria-label="Số nhà, thôn/xóm, ngõ"
-                style={{ ...addressInput, ...(addressError ? addressInputError : {}) }}
-              />
-              {addressError && <p style={addressErrorText}>{addressError}</p>}
-
-              {/* Đổi địa chỉ mà giữ ghim bản đồ cũ là shipper đi sang nhà cũ — nên khối vị trí
-                  phải đứng ngay đây, không phải một màn khác. */}
-              <LocationPicker
+                mode={addressMode}
+                onModeChange={setAddressMode}
+                wardCode={wardCode ?? null}
+                onWardCodeChange={setWardCode}
+                detail={address}
+                onDetailChange={setAddress}
                 location={location}
-                onChange={(loc, link) => {
+                onLocationChange={(loc, link) => {
                   setLocation(loc);
                   setMapLinkValue(link);
                   setLocationTouched(true);
                 }}
                 mapEnabled={store.data?.map_checkout_enabled ?? false}
-                // Cùng vai trò như ở `/checkout`: chỗ để MỞ bản đồ, không phải toạ độ của đơn.
-                fallbackCenter={wardCenter}
+                wardError={wardError}
+                detailError={addressError}
               />
             </section>
           )}
@@ -676,29 +660,6 @@ const addressCardTitle: CSSProperties = {
 
 // `fontSize` PHẢI ≥16px (--fs-base): dưới mức đó Safari iOS tự phóng to trang khi khách chạm vào
 // ô nhập, và trang không bao giờ thu lại — lỗi cũ đã ghi ở CheckoutPage.
-const addressInput: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-3)',
-  border: '1px solid var(--border-default)',
-  borderRadius: 'var(--r-input)',
-  background: 'var(--bg-sunken)',
-  color: 'var(--text-strong)',
-  fontFamily: 'var(--font-body)',
-  fontSize: 'var(--fs-base)',
-};
-
-const addressInputError: CSSProperties = {
-  border: '1px solid var(--danger-600)',
-};
-
-const addressErrorText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--danger-600)',
-};
-
 // ── Thanh "đang sửa đơn" ──
 // Nền kem tre `--wood-100` + mép trái hổ phách: cùng họ ấm với `--bg-page`, đọc ra ngay là "trang
 // này đang ở một trạng thái khác thường" mà không hét lên như một lỗi. `boxSizing` bắt buộc —

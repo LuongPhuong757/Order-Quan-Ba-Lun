@@ -29,24 +29,9 @@ import 'leaflet/dist/leaflet.css';
  * ghim tàng hình — bug kinh điển, không đáng rước về chỉ để có cái ghim.
  */
 
-const pinHtml = (background: string, extra = ''): string =>
-  `<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:${background};border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45);${extra}"></div>`;
-
 const PIN_ICON = L.divIcon({
   className: '',
-  html: pinHtml('#e11d48'),
-  iconSize: [20, 20],
-  iconAnchor: [10, 20],
-});
-
-/**
- * Ghim TẠM — bản đồ mở ở giữa xã khách vừa chọn, chứ đây chưa phải nhà của họ (xem `confirmed`).
- * Xám và mờ để nó đọc ra là "gợi ý, cần chỉnh" chứ không phải "hệ thống đã biết bạn ở đâu".
- * Cùng màu đỏ với ghim thật là khách tin nhầm rồi bấm Đặt đơn với một toạ độ lệch vài km.
- */
-const PIN_ICON_UNCONFIRMED = L.divIcon({
-  className: '',
-  html: pinHtml('#9ca3af', 'opacity:.75'),
+  html: '<div style="width:20px;height:20px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:#e11d48;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.45)"></div>',
   iconSize: [20, 20],
   iconAnchor: [10, 20],
 });
@@ -61,24 +46,22 @@ type Props = {
   /** Gọi khi khách THẢ ghim (hoặc chạm chọn điểm mới) — không gọi trong lúc đang kéo. Trang cha
    *  dùng nó để cập nhật toạ độ gửi kèm đơn và hỏi lại phí giao tạm tính. */
   onMove: (lat: number, lng: number) => void;
-  /**
-   * Toạ độ đang vẽ có phải do KHÁCH chọn không.
-   *
-   * `false` = bản đồ đang mở ở điểm giữa xã khách vừa chọn, chỉ để họ có chỗ bắt đầu kéo (xem
-   * `vn-address.ts`). Đây là đường thoát cho khách mở link từ Zalo — WebView đó chặn hẳn
-   * Geolocation, và trước khi có nó thì không GPS = không bản đồ = quay về gõ địa chỉ tay.
-   *
-   * Điểm giữa xã lệch chỗ ở thật vài km, nên trang cha TUYỆT ĐỐI không được coi nó là toạ độ của
-   * khách chừng nào `onMove` chưa bắn: gửi nó lên như toạ độ thật là ghim sai nhà và có thể ăn
-   * một cú từ chối "ngoài bán kính" oan. Toạ độ chỉ thành thật khi khách chạm vào bản đồ hoặc
-   * bấm nút xác nhận.
-   *
-   * Mặc định `true` để các chỗ gọi cũ (đã có toạ độ thật rồi mới dựng bản đồ) giữ nguyên hành vi.
-   */
-  confirmed?: boolean;
 };
 
-export default function LocationMap({ lat, lng, onMove, confirmed = true }: Props) {
+/**
+ * Bản đồ này CHỈ vẽ toạ độ thật của khách, nên luôn mở ở mức ghim.
+ *
+ * 17 là mức duy nhất phân biệt được hai ngõ cạnh nhau — mà ghim thì phải chính xác tới ngõ. Từng có
+ * một bản mở bản đồ ở tâm xã/tâm tỉnh cho khách bị Zalo chặn GPS tự ghim (09–10/08/2026); bản đó đã
+ * gỡ khi luồng địa chỉ tách thành hai nhánh rõ ràng: nhánh nhập tay không có bản đồ nữa. Vì vậy
+ * không còn ca "toạ độ chưa xác nhận", không còn ghim xám, và không cần mức zoom nào khác.
+ */
+const PIN_ZOOM = 17;
+
+/** Xa hơn mức này thì coi là NHẢY VÙNG (dán link Maps ở nơi khác), không phải chỉnh vài chục mét. */
+const REGION_JUMP_M = 1500;
+
+export default function LocationMap({ lat, lng, onMove }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
@@ -102,7 +85,7 @@ export default function LocationMap({ lat, lng, onMove, confirmed = true }: Prop
 
     const map = L.map(host, {
       center: [lat, lng],
-      zoom: 17,
+      zoom: PIN_ZOOM,
       // Tất cả tương tác TẮT lúc mở — bật ở effect `active` bên dưới. Xem ràng buộc 2 ở đầu file.
       dragging: false,
       touchZoom: false,
@@ -115,10 +98,7 @@ export default function LocationMap({ lat, lng, onMove, confirmed = true }: Prop
     });
     L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(map);
 
-    const marker = L.marker([lat, lng], {
-      icon: confirmed ? PIN_ICON : PIN_ICON_UNCONFIRMED,
-      draggable: false,
-    }).addTo(map);
+    const marker = L.marker([lat, lng], { icon: PIN_ICON, draggable: false }).addTo(map);
     marker.on('dragend', () => {
       const p = marker.getLatLng();
       onMoveRef.current(p.lat, p.lng);
@@ -148,22 +128,26 @@ export default function LocationMap({ lat, lng, onMove, confirmed = true }: Prop
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Toạ độ đổi từ bên ngoài (khách bấm "Lấy lại vị trí", hoặc dán link Maps) → dời ghim + đưa bản
-  // đồ về đó. Cũng chạy sau khi chính khách kéo ghim, lúc đó `setLatLng` là phép gán lại giá trị
-  // cũ — vô hại.
+  /**
+   * Toạ độ đổi từ bên ngoài (bấm "Lấy lại vị trí", dán link Maps) → dời ghim + đưa bản đồ về đó.
+   *
+   * HAI KIỂU "ĐỔI" KHÁC HẲN NHAU:
+   *   - Nhích vài chục mét (khách vừa kéo ghim, hoặc GPS trả điểm mới gần đó) → `panTo`, GIỮ NGUYÊN
+   *     zoom khách đang để. Ép zoom ở đây là mỗi lần kéo ghim xong bản đồ lại tự nhảy, đúng lúc họ
+   *     đang căn cho chính xác.
+   *   - Nhảy sang vùng khác (dán link Maps của một nơi cách đó hàng km) → `setView` về mức ghim,
+   *     KHÔNG animate: bay 20 km là kéo về cả một dải tile dọc đường đi, tốn 4G của khách để xem
+   *     một đoạn phim không ai cần.
+   */
   useEffect(() => {
     const map = mapRef.current;
     const marker = markerRef.current;
     if (!map || !marker) return;
+    const jumped = map.distance(map.getCenter(), L.latLng(lat, lng)) > REGION_JUMP_M;
     marker.setLatLng([lat, lng]);
-    map.panTo([lat, lng]);
+    if (jumped) map.setView([lat, lng], PIN_ZOOM, { animate: false });
+    else map.panTo([lat, lng]);
   }, [lat, lng]);
-
-  // Ghim đổi kiểu khi khách xác nhận (tạm → thật). Tách khỏi effect dựng map vì map chỉ dựng MỘT
-  // lần cho cả vòng đời component, còn `confirmed` đổi ngay giữa vòng đời đó.
-  useEffect(() => {
-    markerRef.current?.setIcon(confirmed ? PIN_ICON : PIN_ICON_UNCONFIRMED);
-  }, [confirmed]);
 
   // Bật/tắt tương tác. Gom hết vào một chỗ để không có trạng thái nửa vời (kéo được nhưng không
   // zoom được, hay ngược lại).
@@ -185,30 +169,15 @@ export default function LocationMap({ lat, lng, onMove, confirmed = true }: Prop
 
       {!active && (
         <button type="button" style={overlay} onClick={() => setActive(true)}>
-          <span style={overlayChip}>
-            {confirmed ? 'Chạm để chỉnh vị trí' : 'Chạm để ghim đúng nhà bạn'}
-          </span>
+          <span style={overlayChip}>Chạm để chỉnh vị trí</span>
         </button>
       )}
 
       {active && (
         <div style={activeBar}>
           <span style={activeHint}>Kéo ghim hoặc chạm vào đúng nhà bạn</span>
-          {/* Ghim còn TẠM thì nút phải là "dùng điểm này", không phải "Xong": khách kéo bản đồ mà
-              không chạm trúng ghim rồi bấm Xong sẽ rời đi mà đơn vẫn không có toạ độ nào — đúng
-              cái ngõ cụt mà cả tính năng này sinh ra để gỡ. Bấm nút là chốt luôn điểm đang hiện. */}
-          <button
-            type="button"
-            style={doneBtn}
-            onClick={() => {
-              if (!confirmed) {
-                const p = markerRef.current?.getLatLng();
-                if (p) onMoveRef.current(p.lat, p.lng);
-              }
-              setActive(false);
-            }}
-          >
-            {confirmed ? 'Xong' : 'Dùng vị trí này'}
+          <button type="button" style={doneBtn} onClick={() => setActive(false)}>
+            Xong
           </button>
         </div>
       )}
@@ -222,6 +191,19 @@ const wrap: CSSProperties = {
   borderRadius: 12,
   overflow: 'hidden',
   border: '1px solid var(--c-border, #e5e7eb)',
+  /**
+   * Leaflet tự đặt z-index cho lớp bên trong nó: pane 400-700, control 800, .leaflet-top/bottom
+   * 1000. Khung này KHÔNG phải một stacking context thì mấy số đó được tính ở cấp TOÀN TRANG và
+   * thắng cả `--z-sticky-cta` (210) — bản đồ cùng dòng ghi công OpenStreetMap trồi lên đè nút
+   * "ĐẶT HÀNG" dính đáy (ảnh chủ dự án gửi 2026-08-11). `isolation` nhốt chúng lại bên trong;
+   * `position` + `z-index: 0` là đường lui cho trình duyệt cũ.
+   *
+   * Đây là ĐÚNG lỗi đã sửa cho bản đồ bên admin ở 93608dc (`OrdersMap.tsx`), chỉ khác là bản đồ
+   * trang khách sinh sau nên không được thừa hưởng bản vá. Sửa Leaflet ở chỗ mới nào cũng phải
+   * nhớ 3 dòng này — không có nó thì lỗi chỉ lộ ra khi trang tình cờ có phần tử dính.
+   */
+  isolation: 'isolate',
+  zIndex: 0,
 };
 
 const mapHost: CSSProperties = {

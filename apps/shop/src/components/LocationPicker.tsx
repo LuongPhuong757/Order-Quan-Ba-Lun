@@ -19,8 +19,15 @@ import { useGeolocation, type GeolocationErrorKind } from '../lib/use-geolocatio
 const LocationMap = lazy(() => import('./LocationMap.tsx'));
 
 /**
- * Khối "Vị trí GPS (không bắt buộc)" — dùng ở CẢ `/checkout` (đặt đơn) lẫn `/cart` khi khách sửa
- * địa chỉ của đơn đang chờ (2026-08-06).
+ * Khối vị trí của NHÁNH "Chia sẻ vị trí" — dùng ở CẢ `/checkout` (đặt đơn) lẫn `/cart` khi khách
+ * sửa địa chỉ của đơn đang chờ (2026-08-06).
+ *
+ * ĐỨNG MỘT MÌNH TRÊN MÀN, KHÔNG KÈM Ô NHẬP ĐỊA CHỈ (2026-08-11). Trước đây khối này nằm chung với
+ * ô nhập địa chỉ và chủ dự án chỉ ra là hai đường cùng lúc gây hiểu nhầm. Nay `DeliveryAddress`
+ * chỉ bày ô tỉnh/xã/số nhà SAU khi có toạ độ; chưa có thì màn hình chỉ có đúng khối này.
+ *
+ * KHÔNG tự gọi `geo.request()` lúc mount: hộp xin quyền bật lên khi khách chưa chạm vào gì là thứ
+ * người ta bấm "Không cho phép" theo phản xạ, mà "denied" thì không xin lại được.
  *
  * Tách ra thành component vì toàn bộ giá trị của khối này nằm ở CÂU CHỮ, không ở code: 4 câu lỗi
  * phân biệt theo từng lý do thất bại (chủ dự án gặp đúng câu chung chung trên iPhone thật và không
@@ -79,12 +86,13 @@ const HAS_LOCATION_COPY = 'Đã có vị trí của bạn';
  * ra thành "cách khác thay cho việc nhập địa chỉ", làm xong rồi thấy phải nhập địa chỉ nữa
  * nên tưởng app bắt làm hai lần. Phải nói thẳng: không bắt buộc, và để làm gì.
  */
-const LOCATION_LABEL = 'Vị trí GPS (không bắt buộc)';
+const LOCATION_LABEL = 'Vị trí của bạn';
 const LOCATION_HINT =
-  'Giúp quán tính đúng khoảng cách và phí giao. Vẫn cần địa chỉ ở trên để shipper tìm được số nhà.';
-/** Hiện khi bản đồ đang mở ở giữa xã mà khách chưa ghim — xem prop `fallbackCenter`. */
-const UNCONFIRMED_PIN_HINT =
-  'Ghim đang ở giữa xã bạn chọn, chưa phải nhà bạn. Chạm vào bản đồ rồi kéo ghim về đúng nhà để quán giao nhanh hơn.';
+  'Giúp quán tính đúng khoảng cách và phí giao. Vẫn cần số nhà, thôn/xóm ở dưới để shipper tìm được cửa.';
+/** Chờ máy trả toạ độ, lần đầu vào nhánh — khách vừa bấm một nút và cần biết máy đang làm gì. */
+const ASKING_COPY = 'Đang lấy vị trí của bạn...';
+/** Nhãn nút bỏ nhánh GPS, quay sang gõ địa chỉ. Xem `onFallbackToManual`. */
+const FALLBACK_TO_MANUAL_COPY = 'Nhập địa chỉ thay';
 const LOCATION_VERIFY_COPY = 'Xem trên bản đồ';
 const LOCATION_RETRY_COPY = 'Lấy lại vị trí';
 /** Trên ngưỡng này thì toạ độ chỉ còn để ước lượng km, không đủ để tìm nhà → phải nói ra. */
@@ -96,24 +104,31 @@ export function LocationPicker({
   location,
   onChange,
   mapEnabled = false,
-  fallbackCenter = null,
+  onFallbackToManual,
+  requestOnMount = false,
 }: {
   location: PickedLocation | null;
   /** `mapLink` là link Maps thô khách dán (để gửi kèm đơn), null khi toạ độ đến từ GPS. */
   onChange: (location: PickedLocation | null, mapLink: string | null) => void;
   /**
-   * Điểm giữa xã khách vừa chọn — chỗ để MỞ bản đồ khi chưa có toạ độ thật (2026-08-09).
+   * Bỏ nhánh GPS, chuyển sang nhánh gõ địa chỉ tay.
    *
-   * VIỆC NÓ GIẢI QUYẾT: trước đây bản đồ chỉ dựng khi đã có toạ độ, nên khách bị chặn Geolocation
-   * (Zalo WebView — xem docblock đầu file) không có bản đồ nào để mà ghim, và đường duy nhất còn
-   * lại là gõ địa chỉ tay. Nay chọn xã xong là đã có chỗ bắt đầu, không cần xin quyền gì của máy.
-   *
-   * KHÔNG BAO GIỜ tự trở thành toạ độ của đơn. Nó chỉ là khung nhìn ban đầu; `onChange` chỉ bắn
-   * khi khách thật sự chạm/kéo/bấm xác nhận trên bản đồ. Giữ ranh giới này là điều kiện để D-19/
-   * D-20 vẫn đúng (toạ độ không bao giờ bắt buộc) và để không ai bị từ chối "ngoài bán kính" vì
-   * một điểm họ chưa từng chọn.
+   * ĐÂY LÀ ĐƯỜNG LUI BẮT BUỘC PHẢI CÓ. Zalo WebView chặn hẳn Geolocation (xem docblock đầu file):
+   * khách vào nhánh này rồi mới biết máy mình không cho, và nếu không có nút thoát thì họ ngồi
+   * trong một màn hình chỉ có câu lỗi. Toạ độ chưa bao giờ là bắt buộc (D-19/D-20) — cái bắt buộc
+   * là luôn còn một đường đi tiếp.
    */
-  fallbackCenter?: { lat: number; lng: number } | null;
+  onFallbackToManual: () => void;
+  /**
+   * Xin quyền vị trí NGAY lúc mount, không đợi khách bấm nút trong khối này.
+   *
+   * Chỉ bật khi cú mount đến TỪ MỘT CÚ BẤM của khách — cụ thể là nút "Dùng vị trí hiện tại thay" ở
+   * nhánh nhập tay. Bấm một nút ghi đúng chữ đó rồi lại thấy thêm một nút "Chia sẻ vị trí của bạn"
+   * là bắt làm hai lần cùng một việc, và khách sẽ tự hỏi cú bấm đầu đã làm gì.
+   *
+   * Mặc định `false`: lần đầu vào trang thì KHÔNG tự xin — xem docblock đầu file.
+   */
+  requestOnMount?: boolean;
   /**
    * Cờ `map_checkout_enabled` từ `GET /api/public/store` — chủ quán tắt được ở /admin nếu bản đồ
    * làm máy khách chậm. Mặc định `false` CÓ CHỦ ĐÍCH: trang nào chưa kịp biết cờ (store chưa về,
@@ -123,9 +138,11 @@ export function LocationPicker({
   mapEnabled?: boolean;
 }): JSX.Element {
   const geo = useGeolocation();
-  /** Toạ độ THẬT của khách thắng centroid xã. Không có cả hai → không dựng bản đồ (và không tải
-   *  byte nào của leaflet), y như trước khi có `fallbackCenter`. */
-  const mapCenter = location ?? fallbackCenter;
+  useEffect(() => {
+    if (requestOnMount && location === null) geo.request();
+    // Cố ý deps rỗng: đây là hành vi của LẦN MOUNT, không phải thứ chạy lại khi state đổi.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [mapLinkRaw, setMapLinkRaw] = useState('');
   const [showMapLinkInput, setShowMapLinkInput] = useState(false);
   const [mapLinkMessage, setMapLinkMessage] = useState<string | null>(null);
@@ -174,6 +191,7 @@ export function LocationPicker({
             : `✓ ${HAS_LOCATION_COPY}`}
         </p>
       )}
+      {geo.state === 'asking' && location === null && <p style={geoFailedText}>{ASKING_COPY}</p>}
       {geo.state === 'failed' && (
         <p style={geoFailedText}>
           {location ? GEO_RETRY_FAILED_MESSAGE : geoFailedMessage(geo.errorKind)}
@@ -186,20 +204,14 @@ export function LocationPicker({
           Maps họ dán lúc trước KHÔNG còn trỏ đúng chỗ nữa — mà `customerMapHref` phía quán lại ưu
           tiên link đó, nên giữ lại là người ship được dẫn tới điểm khách vừa bỏ đi.
           `accuracy_m: null` cũng vậy: sai số của GPS không còn mô tả được điểm khách tự chọn tay. */}
-      {mapEnabled && mapCenter && (
+      {mapEnabled && location && (
         <Suspense fallback={<div style={mapFallback}>Đang tải bản đồ…</div>}>
           <LocationMap
-            lat={mapCenter.lat}
-            lng={mapCenter.lng}
-            confirmed={location !== null}
+            lat={location.lat}
+            lng={location.lng}
             onMove={(lat, lng) => onChange({ lat, lng, accuracy_m: null }, null)}
           />
         </Suspense>
-      )}
-      {/* Câu này CHỈ hiện lúc ghim còn tạm. Không có nó thì khách nhìn thấy một cái ghim và tin
-          rằng quán đã biết nhà mình — rồi shipper tới giữa xã. */}
-      {mapEnabled && mapCenter && location === null && (
-        <p style={locationHintText}>{UNCONFIRMED_PIN_HINT}</p>
       )}
 
       {/* Một hàng hành động duy nhất cho cả 3 trạng thái. Đã có toạ độ → nút chính là
@@ -242,6 +254,14 @@ export function LocationPicker({
           </button>
         )}
       </div>
+
+      {/* Đường lui. Đứng CẠNH nút thử lại chứ không giấu ở cuối card: khách bị Zalo chặn quyền thì
+          "Thử lại" bấm bao nhiêu lần cũng vô ích, và đây là việc duy nhất còn làm được. */}
+      {location === null && (
+        <button type="button" style={fallbackAction} onClick={onFallbackToManual}>
+          {FALLBACK_TO_MANUAL_COPY}
+        </button>
+      )}
 
       {/* Đường phụ, tách bằng đường kẻ mảnh + chữ nhạt: khách bình thường không cần đọc. */}
       <div style={mapLinkFoot}>
@@ -387,6 +407,23 @@ const mapFallback: CSSProperties = {
   justifyContent: 'center',
   fontSize: 13,
   color: 'var(--c-muted, #6b7280)',
+};
+
+/**
+ * Đường lui sang gõ địa chỉ tay. Màu thương hiệu + đậm, KHÔNG phải chữ xám gạch chân như "dán link
+ * Google Maps" bên dưới: với khách bị Zalo chặn định vị thì đây không phải đường phụ, đây là đường
+ * DUY NHẤT đi tiếp. Vẫn nhẹ hơn nút "Chia sẻ vị trí" một bậc để không tranh mất đường mặc định.
+ */
+const fallbackAction: CSSProperties = {
+  alignSelf: 'flex-start',
+  border: 'none',
+  background: 'transparent',
+  padding: 'var(--sp-2) 0',
+  color: 'var(--brand-600)',
+  fontFamily: 'var(--font-body)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)' as unknown as number,
+  cursor: 'pointer',
 };
 
 const mapLinkFoot: CSSProperties = {
