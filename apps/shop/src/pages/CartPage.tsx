@@ -13,7 +13,9 @@ import {
 } from '../lib/cart-store.ts';
 import { clearEditSession, readEditSession } from '../lib/order-edit.ts';
 import { patchJson, useApi, type ApiError } from '../lib/use-api.ts';
-import { LocationPicker, type PickedLocation } from '../components/LocationPicker.tsx';
+import { type PickedLocation } from '../components/LocationPicker.tsx';
+import { DeliveryAddress, type AddressMode } from '../components/DeliveryAddress.tsx';
+import { composeAddress, extractAddressDetail } from '../lib/address.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
@@ -108,8 +110,15 @@ export function CartPage(): JSX.Element {
   // Địa chỉ + toạ độ: `null` = chưa nạp xong từ server. Phân biệt với chuỗi rỗng (khách vừa xoá
   // trắng ô) — thiếu phân biệt này thì lần render đầu sẽ gửi địa chỉ rỗng đè lên địa chỉ thật.
   const [address, setAddress] = useState<string | null>(null);
+  /** Mã xã. `undefined` = chưa nạp từ server (phân biệt với `null` = đơn không có xã, đơn cũ). */
+  const [wardCode, setWardCode] = useState<string | null | undefined>(undefined);
   const [location, setLocation] = useState<PickedLocation | null>(null);
-  const [mapLinkValue, setMapLinkValue] = useState<string | null>(null);
+  /**
+   * Màn này LUÔN mở ở nhánh nhập tay: đơn đang sửa đã có sẵn địa chỉ, hỏi "bạn muốn nhập kiểu gì"
+   * cho một thứ đã điền xong là hỏi thừa. Nút "Dùng vị trí hiện tại thay" trong `DeliveryAddress`
+   * vẫn cho họ đổi sang nhánh GPS bằng một cú bấm.
+   */
+  const [addressMode, setAddressMode] = useState<AddressMode>('manual');
   /** Khách có ĐỘNG vào phần vị trí không. Không động thì `PATCH` không gửi field nào của địa chỉ
    * → server giữ nguyên toàn bộ (địa chỉ + toạ độ + km). Đây là chốt chống "sửa món xong tự dưng
    * mất toạ độ": toạ độ CŨ không đọc được về FE (payload không trả), nên gửi bừa là xoá mất. */
@@ -118,7 +127,13 @@ export function CartPage(): JSX.Element {
   // Nạp địa chỉ thật vào ô nhập, ĐÚNG MỘT LẦN. `address === null` là điều kiện: các lần poll sau
   // không được ghi đè thứ khách đang gõ dở.
   useEffect(() => {
-    if (order.data && address === null) setAddress(order.data.customer_address ?? '');
+    if (order.data && address === null) {
+      // Ô nhập chỉ giữ PHẦN CHI TIẾT; đuôi ", <xã>, Bắc Ninh" do `composeAddress` ghép lại lúc
+      // gửi. Đơn cũ (chưa có mã xã) thì `extractAddressDetail` trả nguyên chuỗi — khách thấy
+      // đúng thứ mình từng gõ, và chọn xã một lần là đơn được chuẩn hoá từ đó.
+      setWardCode(order.data.customer_ward_code);
+      setAddress(extractAddressDetail(order.data.customer_address, order.data.customer_ward_code));
+    }
   }, [order.data, address]);
 
   // Tiền CHẠY tới số mới thay vì nhảy bậc: bấm `+` một cái mà con số tổng đổi tức thì thì
@@ -134,8 +149,16 @@ export function CartPage(): JSX.Element {
    * chỗ, thay vì bấm cập nhật rồi ăn 400 từ server. `address === null` (chưa nạp) KHÔNG phải lỗi. */
   const addressError =
     isDelivery && address !== null && address.trim() === ''
-      ? 'Vui lòng nhập địa chỉ giao hàng'
+      ? 'Vui lòng nhập số nhà, thôn/xóm'
       : null;
+
+  /** Xã bắt buộc — nhưng CHỈ sau khi đã nạp xong (`undefined` là chưa nạp, không phải thiếu).
+   *
+   * Đơn cũ đặt trước khi có ô này thì `customer_ward_code` là `null`, và khách phải chọn xã mới
+   * cập nhật được. Đó là chủ ý: họ đang mở đúng màn sửa địa chỉ, chọn một lần là đơn cũ được
+   * chuẩn hoá — chứ không phải một cửa chặn bất ngờ ở màn khác. */
+  const wardError =
+    isDelivery && wardCode !== undefined && !wardCode ? 'Vui lòng chọn xã/phường' : null;
 
   const handleNoteChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
     const value = e.target.value;
@@ -160,7 +183,7 @@ export function CartPage(): JSX.Element {
 
   const handleUpdateOrder = async (): Promise<void> => {
     if (!editSession || updating) return;
-    if (addressError !== null) return;
+    if (addressError !== null || wardError !== null) return;
     setUpdating(true);
     setUpdateError(null);
 
@@ -173,15 +196,26 @@ export function CartPage(): JSX.Element {
     // Địa chỉ chỉ gửi khi đơn là DELIVERY và khách thực sự đổi chữ. Gửi kèm mọi lần là ghi đè
     // địa chỉ bằng chính nó — vô hại, NHƯNG nó kéo theo cả nhánh tính lại toạ độ ở server, và
     // toạ độ thì FE không đọc được bản cũ để gửi lại. Im lặng là giữ nguyên.
-    if (isDelivery && address !== null && address.trim() !== (order.data?.customer_address ?? '')) {
-      body.customer_address = address.trim();
+    // So chuỗi ĐÃ GHÉP với chuỗi server đang giữ, không so phần chi tiết: khách chỉ đổi mỗi xã
+    // (số nhà giữ nguyên) vẫn phải tính là có đổi địa chỉ.
+    const composed = address === null ? null : composeAddress(address, wardCode ?? null);
+    if (isDelivery && composed !== null && composed !== (order.data?.customer_address ?? '')) {
+      body.customer_address = composed;
+      // Gửi kèm mã xã trong CÙNG lần: `edit-order.ts` coi vắng mặt là "giữ nguyên", nên đổi chuỗi
+      // mà im lặng về mã là đơn mang địa chỉ xã mới nhưng vẫn được đếm vào xã cũ.
+      body.customer_ward_code = wardCode ?? null;
     }
     if (isDelivery && locationTouched) {
-      // Khách bấm chia sẻ vị trí (hoặc dán link) → gửi toạ độ mới. `null` tường minh khi họ đổi
-      // địa chỉ mà không lấy được vị trí: xoá ghim cũ còn hơn để nó chỉ sang nhà cũ.
+      // Khách bấm chia sẻ vị trí → gửi toạ độ mới. `null` tường minh khi họ đổi địa chỉ mà không
+      // lấy được vị trí: xoá ghim cũ còn hơn để nó chỉ sang nhà cũ.
       body.customer_lat = location?.lat ?? null;
       body.customer_lng = location?.lng ?? null;
-      body.customer_map_link = mapLinkValue;
+      // LUÔN `null`, và dòng này KHÔNG được bỏ đi cùng lúc gỡ ô dán link (2026-08-11).
+      // Trang khách không sinh ra link mới nữa, NHƯNG đơn cũ vẫn còn `customer_map_link` khách
+      // dán từ trước. Bỏ dòng này thì `edit-order.ts` coi vắng mặt là "giữ nguyên": đơn giữ link
+      // cũ trỏ về CHỖ CŨ trong khi lat/lng vừa đổi sang chỗ mới — mà `customerMapHref` phía quán
+      // ưu tiên link, nên người ship được dẫn thẳng tới địa chỉ khách vừa bỏ đi.
+      body.customer_map_link = null;
     }
 
     const result = await patchJson(
@@ -277,29 +311,23 @@ export function CartPage(): JSX.Element {
           {editSession && isDelivery && address !== null && (
             <section style={addressCard}>
               <h2 style={addressCardTitle}>Địa chỉ giao hàng</h2>
-              <input
-                type="text"
-                // Cùng lý lẽ với 3 ô ở `/checkout` (2026-08-06): để trình duyệt mời điền sẵn địa
-                // chỉ đã lưu, khách sửa đơn không phải gõ lại cả dòng trên điện thoại.
-                autoComplete="street-address"
-                value={address}
-                maxLength={255}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => setAddress(e.target.value)}
-                aria-label="Địa chỉ giao hàng"
-                style={{ ...addressInput, ...(addressError ? addressInputError : {}) }}
-              />
-              {addressError && <p style={addressErrorText}>{addressError}</p>}
 
-              {/* Đổi địa chỉ mà giữ ghim bản đồ cũ là shipper đi sang nhà cũ — nên khối vị trí
-                  phải đứng ngay đây, không phải một màn khác. */}
-              <LocationPicker
+              <DeliveryAddress
+                idPrefix="cart"
+                mode={addressMode}
+                onModeChange={setAddressMode}
+                wardCode={wardCode ?? null}
+                onWardCodeChange={setWardCode}
+                detail={address}
+                onDetailChange={setAddress}
                 location={location}
-                onChange={(loc, link) => {
+                onLocationChange={(loc) => {
                   setLocation(loc);
-                  setMapLinkValue(link);
                   setLocationTouched(true);
                 }}
                 mapEnabled={store.data?.map_checkout_enabled ?? false}
+                wardError={wardError}
+                detailError={addressError}
               />
             </section>
           )}
@@ -343,11 +371,11 @@ export function CartPage(): JSX.Element {
             <StickyCta
               label={updating ? 'Đang cập nhật...' : 'CẬP NHẬT ĐƠN'}
               onClick={() => void handleUpdateOrder()}
-              disabled={hasUnavailable || updating || addressError !== null}
+              disabled={hasUnavailable || updating || addressError !== null || wardError !== null}
               hint={
                 hasUnavailable
                   ? 'Vui lòng xoá món đã hết trước khi cập nhật'
-                  : (addressError ?? 'Quán chưa xác nhận nên bạn sửa thoải mái')
+                  : (addressError ?? wardError ?? 'Quán chưa xác nhận nên bạn sửa thoải mái')
               }
             />
           ) : (
@@ -635,29 +663,6 @@ const addressCardTitle: CSSProperties = {
 
 // `fontSize` PHẢI ≥16px (--fs-base): dưới mức đó Safari iOS tự phóng to trang khi khách chạm vào
 // ô nhập, và trang không bao giờ thu lại — lỗi cũ đã ghi ở CheckoutPage.
-const addressInput: CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  minHeight: 'var(--tap-min)',
-  padding: '0 var(--sp-3)',
-  border: '1px solid var(--border-default)',
-  borderRadius: 'var(--r-input)',
-  background: 'var(--bg-sunken)',
-  color: 'var(--text-strong)',
-  fontFamily: 'var(--font-body)',
-  fontSize: 'var(--fs-base)',
-};
-
-const addressInputError: CSSProperties = {
-  border: '1px solid var(--danger-600)',
-};
-
-const addressErrorText: CSSProperties = {
-  margin: 0,
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--danger-600)',
-};
-
 // ── Thanh "đang sửa đơn" ──
 // Nền kem tre `--wood-100` + mép trái hổ phách: cùng họ ấm với `--bg-page`, đọc ra ngay là "trang
 // này đang ở một trạng thái khác thường" mà không hét lên như một lỗi. `boxSizing` bắt buộc —

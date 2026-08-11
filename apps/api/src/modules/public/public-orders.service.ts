@@ -298,13 +298,15 @@ export class PublicOrdersService {
               items_snapshot: unknown;
               customer_note: string | null;
               customer_address: string | null;
+              customer_ward_code: string | null;
               customer_lat: string | null;
               customer_lng: string | null;
               customer_map_link: string | null;
               distance_km: string | null;
             }> = await mgr.query(
               `SELECT id, status, fulfillment_type, items_snapshot, customer_note,
-                      customer_address, customer_lat, customer_lng, customer_map_link, distance_km
+                      customer_address, customer_ward_code, customer_lat, customer_lng,
+                      customer_map_link, distance_km
                  FROM online_order_requests WHERE order_token = ? FOR UPDATE`,
               [t],
             );
@@ -325,20 +327,21 @@ export class PublicOrdersService {
           findMenuItemsByIds: this.makeDeps(mgr, settings).findMenuItemsByIds,
 
           saveEdit: async (id, patch) => {
-            // Ghi cả 5 cột vị trí trong MỘT lệnh: địa chỉ, toạ độ và km phải cùng đổi hoặc cùng
-            // giữ. `edit-order.ts` đã lo tính nhất quán, ở đây chỉ việc ghi đúng thứ nó đưa ra —
-            // đừng thêm nhánh `if` nào tại đây, đó là cách hai chỗ bắt đầu nghĩ khác nhau.
+            // Ghi cả 6 cột vị trí trong MỘT lệnh: địa chỉ, mã xã, toạ độ và km phải cùng đổi hoặc
+            // cùng giữ. `edit-order.ts` đã lo tính nhất quán, ở đây chỉ việc ghi đúng thứ nó đưa ra
+            // — đừng thêm nhánh `if` nào tại đây, đó là cách hai chỗ bắt đầu nghĩ khác nhau.
             await mgr.query(
               `UPDATE online_order_requests
                   SET items_snapshot = ?, subtotal = ?, customer_note = ?,
-                      customer_address = ?, customer_lat = ?, customer_lng = ?,
-                      customer_map_link = ?, distance_km = ?
+                      customer_address = ?, customer_ward_code = ?, customer_lat = ?,
+                      customer_lng = ?, customer_map_link = ?, distance_km = ?
                 WHERE id = ?`,
               [
                 JSON.stringify(patch.items_snapshot),
                 patch.subtotal,
                 patch.customer_note,
                 patch.customer_address,
+                patch.customer_ward_code,
                 patch.customer_lat,
                 patch.customer_lng,
                 patch.customer_map_link,
@@ -696,6 +699,11 @@ export class PublicOrdersService {
       ship_fee_estimated: shipFeeEstimated,
       customer_note: request.customer_note,
       customer_address: request.customer_address,
+      // `?? null` chứ không đọc thẳng: `PublicOrderStatus` là `.strict()`, nên một hàng thiếu cột
+      // này sẽ làm parse THROW và khách mất luôn màn theo dõi đơn. Hàng thiếu cột là chuyện có
+      // thật trong khoảnh khắc code mới chạy trước khi `synchronize` kịp thêm cột. Đổi một tiện
+      // ích (lọc đơn theo xã) lấy việc khách không xem được đơn là đổi sai chiều.
+      customer_ward_code: request.customer_ward_code ?? null,
       submitted_at_ms: request.submitted_at,
       store_phone: settings.store_phone,
       reject_reason: request.reject_reason,

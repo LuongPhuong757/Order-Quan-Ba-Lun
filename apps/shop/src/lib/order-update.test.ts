@@ -23,6 +23,7 @@ function base(): PublicOrderStatus {
     ship_fee_estimated: null,
     customer_note: null,
     customer_address: null,
+    customer_ward_code: null,
     submitted_at_ms: 1_700_000_000_000,
     store_phone: '0900000000',
     reject_reason: null,

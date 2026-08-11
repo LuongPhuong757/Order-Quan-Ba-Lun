@@ -261,7 +261,19 @@
    * M2.D-31: món hết hàng LÀM MỜ chứ không ẩn. Không mờ quá kẻo không đọc nổi
    * tên món — 0.45 là mức vẫn giữ tương phản chữ đạt AA. */
   --opacity-out-of-stock: 0.45;
+  /* Chỉ dùng cho control nằm TRONG luồng trang. Xem --disabled-600 ngay dưới. */
   --opacity-disabled: 0.5;
+
+  /* ── NÚT BỊ KHOÁ TRÊN NỀN ĐANG CUỘN ──────────────────────────────────────
+   * `opacity` KHÔNG dùng được cho thanh CTA dính đáy: nó đè lên nội dung đang
+   * cuộn, nên làm mờ là nhìn xuyên qua thấy ô input chạy bên dưới chữ "ĐẶT
+   * HÀNG" (ảnh chủ dự án gửi 2026-08-11). Nút khoá ở đó phải là màu ĐẶC.
+   * Nâu xám ấm: rút hết sắc đỏ nên đọc ra ngay là "chưa bấm được", mà vẫn
+   * giữ được chữ trắng in hoa như nút thường — trắng trên nó 5.14:1 ✓AA.
+   * Chữ trên control bị khoá không bắt buộc đạt AA, nhưng một cái nút không
+   * đọc nổi nội dung thì cũng không nói được cho khách biết nó là nút gì. */
+  --disabled-600: #7d6a5b;
+  --text-on-disabled: #ffffff;
 }
 
 /* ── ĐIỀU CHỈNH CHO MÀN HÌNH HẸP (< 768px) ──────────────────────────────────

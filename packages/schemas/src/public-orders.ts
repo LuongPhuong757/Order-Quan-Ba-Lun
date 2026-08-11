@@ -22,6 +22,23 @@ export const OnlineOrderSubmit = z
     customer_phone: z.string().min(9).max(16),
     fulfillment_type: z.enum(['PICKUP', 'DELIVERY']),
     customer_address: z.string().max(255).optional(),
+    /**
+     * Mã xã/phường theo danh mục hành chính (xem `vn-address.ts`). Trang khách chọn từ danh
+     * sách nên chuỗi này luôn là một mã có thật ở đường đi bình thường.
+     *
+     * OPTIONAL, VÀ PHẢI MÃI OPTIONAL. Đây là dữ liệu LÀM GIÀU cho địa chỉ, không phải điều kiện
+     * hợp lệ của đơn: khách dùng trình duyệt cũ không render được ô chọn, khách gọi API thẳng,
+     * hay đơn đặt trước lần đổi danh mục hành chính — tất cả vẫn phải đặt được hàng. Địa chỉ đầy
+     * đủ đã nằm trong `customer_address` rồi.
+     *
+     * Mã lạ/không có trong danh mục thì BE BỎ QUA field này và vẫn nhận đơn — KHÔNG 400. Nâng nó
+     * thành điều kiện hợp lệ là tự tay dựng thêm một cửa chặn đơn, mà đơn bị chặn ở đây thì khách
+     * không có cách nào tự sửa.
+     *
+     * `.max(20)` chứ không `.length(N)`: mã hành chính đã đổi độ dài qua các đợt sắp xếp, ràng
+     * đúng độ dài hôm nay là hẹn một lần sập trong tương lai.
+     */
+    customer_ward_code: z.string().max(20).optional(),
     customer_lat: z.number().min(-90).max(90).optional(),
     customer_lng: z.number().min(-180).max(180).optional(),
     customer_map_link: z.string().max(512).optional(),
@@ -162,6 +179,13 @@ export const PublicOrderStatus = z.object({
    * vốn đã sửa/huỷ được đơn rồi, nên đọc được địa chỉ giao của chính đơn đó không mở thêm cửa
    * nào; còn SĐT thì tuyệt đối không ra (nó là khoá tra cứu lịch sử của khách). */
   customer_address: z.string().nullable(),
+  /** Mã xã/phường của đơn, `null` khi đơn không có (đơn cũ, hoặc khách không chọn được).
+   *
+   * Ra tới đây vì màn sửa đơn ở `/cart` phải prefill lại ô chọn xã — cùng lý do `customer_address`
+   * được nới ở trên. Trả MÃ chứ không trả tên: tên xã đổi thì bản prefill vẫn đúng, và FE đã có
+   * sẵn danh mục để tra tên. Không mở thêm cửa PII nào — ai cầm `order_token` vốn đã đọc được
+   * địa chỉ giao của chính đơn đó. */
+  customer_ward_code: z.string().nullable(),
   submitted_at_ms: z.number().int(),
   store_phone: z.string(),
   reject_reason: z.string().nullable(),
@@ -242,6 +266,10 @@ export const PublicOrderEdit = z.object({
    * đơn DELIVERY; `.min(1)` vì đơn giao mà địa chỉ rỗng là đơn không giao được — muốn bỏ giao tận
    * nơi thì huỷ đơn rồi đặt lại kiểu Đến lấy. */
   customer_address: z.string().min(1).max(255).optional(),
+  /** Mã xã mới đi kèm địa chỉ. Cùng quy ước với toạ độ ngay dưới: vắng mặt = GIỮ NGUYÊN, `null`
+   * tường minh = XOÁ. Khách đổi sang địa chỉ ở xã khác mà mã xã cũ còn nguyên thì báo cáo theo
+   * khu vực của quán đếm nhầm đơn đó sang xã cũ. */
+  customer_ward_code: z.string().max(20).nullable().optional(),
   /** Toạ độ mới đi kèm địa chỉ. Gửi `null` tường minh = XOÁ toạ độ cũ (khách đổi sang địa chỉ
    * khác mà không chia sẻ lại vị trí) — vắng mặt mới là giữ nguyên. Phân biệt được hai chuyện này
    * là điều kiện để không bao giờ còn ghim bản đồ chỉ sang nhà cũ. */

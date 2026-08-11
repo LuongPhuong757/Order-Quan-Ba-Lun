@@ -65,6 +65,15 @@ export class OnlineOrderRequest {
   @Column({ type: 'varchar', length: 255, nullable: true })
   customer_address!: string | null;
 
+  // Mã xã/phường (danh mục hành chính) — bản có cấu trúc của phần đuôi `customer_address`, để
+  // quán lọc/gom đơn theo khu vực thay vì so chuỗi. NULL là chuyện BÌNH THƯỜNG, không phải dữ
+  // liệu hỏng: mọi đơn đặt trước 2026-08 đều NULL, và đơn PICKUP thì không có xã.
+  //
+  // Tên xã KHÔNG lưu ở đây — tra từ `vn-address.ts`. Lưu tên là mỗi lần nhà nước đổi tên xã
+  // thì bảng đơn có hai loại tên cho cùng một nơi, và không truy vấn nào gộp lại được.
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  customer_ward_code!: string | null;
+
   // MySQL trả decimal dạng STRING qua mysql2 (không tự ép number) — khai type TS là
   // `string | null`, KHÔNG khai `number` rồi tin sai.
   @Column({ type: 'decimal', precision: 10, scale: 7, nullable: true })

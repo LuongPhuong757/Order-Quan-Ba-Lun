@@ -48,6 +48,20 @@ type Props = {
   onMove: (lat: number, lng: number) => void;
 };
 
+/**
+ * Bản đồ này CHỈ vẽ toạ độ thật của khách, nên luôn mở ở mức ghim.
+ *
+ * 17 là mức duy nhất phân biệt được hai ngõ cạnh nhau — mà ghim thì phải chính xác tới ngõ. Từng có
+ * một bản mở bản đồ ở tâm xã/tâm tỉnh cho khách bị Zalo chặn GPS tự ghim (09–10/08/2026); bản đó đã
+ * gỡ khi luồng địa chỉ tách thành hai nhánh rõ ràng: nhánh nhập tay không có bản đồ nữa. Vì vậy
+ * không còn ca "toạ độ chưa xác nhận", không còn ghim xám, và không cần mức zoom nào khác.
+ */
+const PIN_ZOOM = 17;
+
+/** Xa hơn mức này thì coi là NHẢY VÙNG (khách đi chỗ khác rồi bấm "Lấy lại vị trí"), không phải
+ *  chỉnh vài chục mét. */
+const REGION_JUMP_M = 1500;
+
 export default function LocationMap({ lat, lng, onMove }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -72,7 +86,7 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
 
     const map = L.map(host, {
       center: [lat, lng],
-      zoom: 17,
+      zoom: PIN_ZOOM,
       // Tất cả tương tác TẮT lúc mở — bật ở effect `active` bên dưới. Xem ràng buộc 2 ở đầu file.
       dragging: false,
       touchZoom: false,
@@ -115,15 +129,25 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Toạ độ đổi từ bên ngoài (khách bấm "Lấy lại vị trí", hoặc dán link Maps) → dời ghim + đưa bản
-  // đồ về đó. Cũng chạy sau khi chính khách kéo ghim, lúc đó `setLatLng` là phép gán lại giá trị
-  // cũ — vô hại.
+  /**
+   * Toạ độ đổi từ bên ngoài (khách bấm "Lấy lại vị trí") → dời ghim + đưa bản đồ về đó.
+   *
+   * HAI KIỂU "ĐỔI" KHÁC HẲN NHAU:
+   *   - Nhích vài chục mét (khách vừa kéo ghim, hoặc GPS trả điểm mới gần đó) → `panTo`, GIỮ NGUYÊN
+   *     zoom khách đang để. Ép zoom ở đây là mỗi lần kéo ghim xong bản đồ lại tự nhảy, đúng lúc họ
+   *     đang căn cho chính xác.
+   *   - Nhảy sang vùng khác (lấy lại vị trí ở một nơi cách đó hàng km) → `setView` về mức ghim,
+   *     KHÔNG animate: bay 20 km là kéo về cả một dải tile dọc đường đi, tốn 4G của khách để xem
+   *     một đoạn phim không ai cần.
+   */
   useEffect(() => {
     const map = mapRef.current;
     const marker = markerRef.current;
     if (!map || !marker) return;
+    const jumped = map.distance(map.getCenter(), L.latLng(lat, lng)) > REGION_JUMP_M;
     marker.setLatLng([lat, lng]);
-    map.panTo([lat, lng]);
+    if (jumped) map.setView([lat, lng], PIN_ZOOM, { animate: false });
+    else map.panTo([lat, lng]);
   }, [lat, lng]);
 
   // Bật/tắt tương tác. Gom hết vào một chỗ để không có trạng thái nửa vời (kéo được nhưng không
@@ -168,6 +192,19 @@ const wrap: CSSProperties = {
   borderRadius: 12,
   overflow: 'hidden',
   border: '1px solid var(--c-border, #e5e7eb)',
+  /**
+   * Leaflet tự đặt z-index cho lớp bên trong nó: pane 400-700, control 800, .leaflet-top/bottom
+   * 1000. Khung này KHÔNG phải một stacking context thì mấy số đó được tính ở cấp TOÀN TRANG và
+   * thắng cả `--z-sticky-cta` (210) — bản đồ cùng dòng ghi công OpenStreetMap trồi lên đè nút
+   * "ĐẶT HÀNG" dính đáy (ảnh chủ dự án gửi 2026-08-11). `isolation` nhốt chúng lại bên trong;
+   * `position` + `z-index: 0` là đường lui cho trình duyệt cũ.
+   *
+   * Đây là ĐÚNG lỗi đã sửa cho bản đồ bên admin ở 93608dc (`OrdersMap.tsx`), chỉ khác là bản đồ
+   * trang khách sinh sau nên không được thừa hưởng bản vá. Sửa Leaflet ở chỗ mới nào cũng phải
+   * nhớ 3 dòng này — không có nó thì lỗi chỉ lộ ra khi trang tình cờ có phần tử dính.
+   */
+  isolation: 'isolate',
+  zIndex: 0,
 };
 
 const mapHost: CSSProperties = {

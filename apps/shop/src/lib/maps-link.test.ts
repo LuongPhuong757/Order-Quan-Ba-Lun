@@ -1,64 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { buildMapsUrl, parseMapsLink } from './maps-link.ts';
+import { buildMapsUrl } from './maps-link.ts';
 
-// Task 1 (08-12-PLAN.md) — parseMapsLink là hàm thuần, 100% client-side, không fetch.
-
-describe('parseMapsLink — link chứa toạ độ', () => {
-  it('parse link dạng @lat,lng (tâm khung nhìn)', () => {
-    const result = parseMapsLink('https://www.google.com/maps/@10.762622,106.660172,17z');
-    expect(result).toEqual({ lat: 10.762622, lng: 106.660172 });
-  });
-
-  it('parse link dạng ?q=lat,lng', () => {
-    const result = parseMapsLink('https://maps.google.com/?q=10.762622,106.660172');
-    expect(result).toEqual({ lat: 10.762622, lng: 106.660172 });
-  });
-
-  it('link "place" có cả @ và !3d/!4d → ưu tiên !3d/!4d (toạ độ chính xác của địa điểm)', () => {
-    const result = parseMapsLink(
-      'https://www.google.com/maps/place/X/@10.76,106.66,17z/data=!3m1!4b1!4m2!3d10.7626!4d106.6601',
-    );
-    expect(result).toEqual({ lat: 10.7626, lng: 106.6601 });
-  });
-
-  it('khách dán thẳng cặp số "lat, lng"', () => {
-    const result = parseMapsLink('10.762622, 106.660172');
-    expect(result).toEqual({ lat: 10.762622, lng: 106.660172 });
-  });
-
-  it('toạ độ âm parse đúng dấu', () => {
-    const result = parseMapsLink('-33.86, 151.20');
-    expect(result).toEqual({ lat: -33.86, lng: 151.2 });
-  });
-});
-
-describe('parseMapsLink — link rút gọn KHÔNG hỗ trợ (Assumptions Log A3)', () => {
-  it('maps.app.goo.gl → SHORT_LINK', () => {
-    expect(parseMapsLink('https://maps.app.goo.gl/abc123')).toEqual({ error: 'SHORT_LINK' });
-  });
-
-  it('goo.gl/maps → SHORT_LINK', () => {
-    expect(parseMapsLink('https://goo.gl/maps/abc')).toEqual({ error: 'SHORT_LINK' });
-  });
-});
-
-describe('parseMapsLink — không có toạ độ hợp lệ', () => {
-  it('URL bất kỳ không chứa toạ độ → NO_COORDS', () => {
-    expect(parseMapsLink('https://example.com/whatever')).toEqual({ error: 'NO_COORDS' });
-  });
-
-  it('chuỗi rỗng → NO_COORDS', () => {
-    expect(parseMapsLink('')).toEqual({ error: 'NO_COORDS' });
-  });
-
-  it('lat ngoài dải hợp lệ (91) → NO_COORDS', () => {
-    expect(parseMapsLink('@91,106.660172')).toEqual({ error: 'NO_COORDS' });
-  });
-
-  it('lng ngoài dải hợp lệ (181) → NO_COORDS', () => {
-    expect(parseMapsLink('@10.762622,181')).toEqual({ error: 'NO_COORDS' });
-  });
-});
+// Bộ test `parseMapsLink` (16 ca) đã xoá cùng lúc gỡ ô dán link Google Maps (2026-08-11) — xem
+// `maps-link.ts`. Giữ lại test cho một hàm không còn ai gọi là dựng một hàng rào quanh chỗ trống:
+// nó vẫn xanh mãi mãi và không nói được điều gì về trang khách.
 
 // ── buildMapsUrl (2026-08-05) — đường để khách TỰ KIỂM TRA vị trí vừa chia sẻ ──
 describe('buildMapsUrl', () => {
@@ -72,52 +17,7 @@ describe('buildMapsUrl', () => {
     expect(buildMapsUrl(-33.86, 151.2)).toBe('https://www.google.com/maps/search/?api=1&query=-33.86,151.2');
   });
 
-  it('parse rồi dựng lại — link mở ra ĐÚNG điểm sắp gửi cho quán, không lệch', () => {
-    const parsed = parseMapsLink('https://www.google.com/maps/@10.762622,106.660172,17z');
-    expect('error' in parsed).toBe(false);
-    if ('error' in parsed) return;
-    expect(buildMapsUrl(parsed.lat, parsed.lng)).toContain('query=10.762622,106.660172');
-  });
-});
-
-// ── Thêm khuôn param (2026-08-05) — link khách dán thật hay rơi vào mấy dạng này ──
-describe('parseMapsLink — toạ độ trong query param khác ngoài q=', () => {
-  it('ll= (link cũ / link nhúng)', () => {
-    expect(parseMapsLink('https://maps.google.com/maps?ll=10.762622,106.660172&z=17')).toEqual({
-      lat: 10.762622,
-      lng: 106.660172,
-    });
-  });
-
-  it('center= ', () => {
-    expect(parseMapsLink('https://www.google.com/maps/embed?center=10.76,106.66')).toEqual({ lat: 10.76, lng: 106.66 });
-  });
-
-  it('destination= (link chỉ đường)', () => {
-    expect(parseMapsLink('https://www.google.com/maps/dir/?api=1&destination=10.76,106.66')).toEqual({
-      lat: 10.76,
-      lng: 106.66,
-    });
-  });
-
-  it('daddr= (link chỉ đường dạng cũ)', () => {
-    expect(parseMapsLink('http://maps.google.com/maps?daddr=10.76,106.66')).toEqual({ lat: 10.76, lng: 106.66 });
-  });
-
-  it('q=loc:lat,lng (dạng chia sẻ trên Android)', () => {
-    expect(parseMapsLink('geo:0,0?q=loc:10.762622,106.660172')).toEqual({ lat: 10.762622, lng: 106.660172 });
-  });
-
-  it('link tên địa điểm thuần (không toạ độ) vẫn NO_COORDS — không đoán bừa', () => {
-    expect(parseMapsLink('https://www.google.com/maps/place/Qu%C3%A1n+B%C3%A0+L%C3%B9n')).toEqual({
-      error: 'NO_COORDS',
-    });
-  });
-
-  it('!3d/!4d vẫn thắng param khi link có cả hai', () => {
-    expect(parseMapsLink('https://www.google.com/maps?ll=1,2&x=!3d10.7626!4d106.6601')).toEqual({
-      lat: 10.7626,
-      lng: 106.6601,
-    });
+  it('link mở ra ĐÚNG cặp toạ độ sắp gửi cho quán, không làm tròn', () => {
+    expect(buildMapsUrl(21.028511, 105.804817)).toContain('query=21.028511,105.804817');
   });
 });

@@ -43,6 +43,7 @@ const CHECKS: TableCheck[] = [
       'distance_km',
       'max_progress_shown',
       'internal_reject_note',
+      'customer_ward_code',
     ],
   },
   {

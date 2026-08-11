@@ -20,6 +20,9 @@ export type LastCustomerInfo = {
   customer_name: string;
   customer_phone: string;
   customer_address: string;
+  /** Mã xã lần trước. OPTIONAL vì mọi bản ghi lưu trước 2026-08 đều không có nó — bắt buộc là
+   * mỗi khách cũ mất sạch autofill tên/SĐT chỉ vì thiếu một field mới. */
+  customer_ward_code?: string;
 };
 
 function toHex(bytes: Uint8Array): string {
@@ -63,7 +66,19 @@ export function readLastCustomer(): LastCustomerInfo | null {
       typeof parsed.customer_phone === 'string' &&
       typeof parsed.customer_address === 'string'
     ) {
-      return parsed as LastCustomerInfo;
+      return {
+        customer_name: parsed.customer_name,
+        customer_phone: parsed.customer_phone,
+        customer_address: parsed.customer_address,
+        // KHÔNG đối chiếu mã xã với danh mục ở đây, dù mã cũ (từ trước một đợt sắp xếp đơn vị
+        // hành chính) là chuyện có thật. Lý do là ngân sách bundle: file này nằm trong bundle
+        // TẢI LẦN ĐẦU của mọi khách, còn danh mục hành chính nặng ~30 KB gzip — nhập nó vào đây
+        // là bắt cả những khách chỉ xem thực đơn tải theo. Việc lọc mã lạ để ở `AddressSelect`,
+        // nơi danh mục vốn đã được tải (và là chunk lazy của trang checkout).
+        ...(typeof parsed.customer_ward_code === 'string'
+          ? { customer_ward_code: parsed.customer_ward_code }
+          : {}),
+      };
     }
     return null;
   } catch {

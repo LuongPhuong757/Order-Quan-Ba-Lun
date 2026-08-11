@@ -28,6 +28,7 @@ import type { PublicOrderEdit } from '@order/schemas';
 import type { OnlineOrderItemSnapshot } from './entities/online-order-request.entity.js';
 import { estimatedRoadDistanceKm, haversineKm } from './haversine.js';
 import type { MenuItemLookup } from './submit-order.js';
+import { sanitizeWardCode } from './ward.js';
 
 /** Trạng thái đọc được trong lock. Chuỗi thô từ DB (cột `varchar`) — dữ liệu cũ có giá trị lạ thì
  * phải rơi vào nhánh an toàn chứ không crash (khuôn `decideCancel`). */
@@ -76,6 +77,7 @@ export type EditableRequestRow = {
   items_snapshot: OnlineOrderItemSnapshot[];
   customer_note: string | null;
   customer_address: string | null;
+  customer_ward_code: string | null;
   /** decimal → mysql2 trả STRING. Khai đúng kiểu thật để không ai lỡ đem cộng trừ trên nó. */
   customer_lat: string | null;
   customer_lng: string | null;
@@ -111,6 +113,7 @@ export type EditPatch = {
   subtotal: number;
   customer_note: string | null;
   customer_address: string | null;
+  customer_ward_code: string | null;
   customer_lat: number | null;
   customer_lng: number | null;
   customer_map_link: string | null;
@@ -234,9 +237,18 @@ function resolveLocation(
   geo: EditStoreGeo,
   row: EditableRequestRow,
   input: PublicOrderEdit,
-): Pick<EditPatch, 'customer_address' | 'customer_lat' | 'customer_lng' | 'customer_map_link' | 'distance_km'> {
+): Pick<
+  EditPatch,
+  | 'customer_address'
+  | 'customer_ward_code'
+  | 'customer_lat'
+  | 'customer_lng'
+  | 'customer_map_link'
+  | 'distance_km'
+> {
   const touchesLocation =
     input.customer_address !== undefined ||
+    input.customer_ward_code !== undefined ||
     input.customer_lat !== undefined ||
     input.customer_lng !== undefined ||
     input.customer_map_link !== undefined;
@@ -263,6 +275,7 @@ function resolveLocation(
     // sửa món lại xoá trắng số km quán dùng để tính phí ship.
     return {
       customer_address: row.customer_address,
+      customer_ward_code: row.customer_ward_code,
       customer_lat: keepLat,
       customer_lng: keepLng,
       customer_map_link: row.customer_map_link,
@@ -272,6 +285,12 @@ function resolveLocation(
 
   const customer_address =
     input.customer_address === undefined ? row.customer_address : input.customer_address.trim();
+  // Mã lạ → `null` chứ không phải 400, cùng luật với lúc đặt đơn (xem `ward.ts`). `undefined` là
+  // giữ nguyên mã cũ; `null` tường minh là khách xoá.
+  const customer_ward_code =
+    input.customer_ward_code === undefined
+      ? row.customer_ward_code
+      : sanitizeWardCode(input.customer_ward_code, 'DELIVERY');
   const customer_lat = input.customer_lat === undefined ? keepLat : input.customer_lat;
   const customer_lng = input.customer_lng === undefined ? keepLng : input.customer_lng;
   const customer_map_link =
@@ -281,6 +300,7 @@ function resolveLocation(
 
   return {
     customer_address,
+    customer_ward_code,
     customer_lat,
     customer_lng,
     customer_map_link,

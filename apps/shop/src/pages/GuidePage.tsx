@@ -218,7 +218,9 @@ export function GuidePage(): JSX.Element {
           text: <>Bấm <Kbd>Chia sẻ vị trí</Kbd> để thấy ngay số km và phí giao tạm tính.</>,
         },
       ],
-      note: 'Máy không cho phép định vị cũng không sao: dán link Google Maps, hoặc chỉ ghi địa chỉ — quán sẽ gọi hỏi lại.',
+      // Bỏ vế 'dán link Google Maps' (2026-08-11) cùng lúc gỡ ô đó ở màn đặt đơn: hướng dẫn
+      // chỉ khách đi tìm một thứ không còn trên màn hình là tệ hơn không có hướng dẫn.
+      note: 'Máy không cho phép định vị cũng không sao: bấm "Nhập địa chỉ thay" rồi tự chọn tỉnh, xã và ghi địa chỉ — quán sẽ gọi hỏi lại.',
       art: <FakeForm />,
     },
     ...(showOtp

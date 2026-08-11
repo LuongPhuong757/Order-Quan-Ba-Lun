@@ -770,7 +770,7 @@ function QueueView({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Tìm theo tên khách, SĐT hoặc món…"
+          placeholder="🔍 Tìm theo tên khách, SĐT, món hoặc xã…"
           aria-label="Tìm đơn theo tên khách, số điện thoại hoặc món trong đơn"
           style={{
             width: '100%',
@@ -920,8 +920,7 @@ function QueueView({
                     Không có đơn giao hàng nào kèm toạ độ ở tab này.
                   </p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>
-                    Đơn chỉ lên bản đồ khi khách bấm chia sẻ vị trí hoặc dán link Google Maps lúc
-                    đặt.
+                    Đơn chỉ lên bản đồ khi khách bấm chia sẻ vị trí lúc đặt.
                   </p>
                 </div>
               ) : (

@@ -114,6 +114,7 @@ describe('editOrderByCustomer — orchestrator', () => {
     items_snapshot: items,
     customer_note: note,
     customer_address: 'Số 1 Ngõ 2 Phố Cũ',
+    customer_ward_code: '9187', // Phường Kinh Bắc
     customer_lat: '21.0100000',
     customer_lng: '105.8100000',
     customer_map_link: null,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAP_STAGES, coordsOf, stageOf } from './orders-map.ts';
+import { MAP_STAGES, clusterPoints, clusterStage, coordsOf, stageOf } from './orders-map.ts';
 
 const counts = (over: Partial<{ total: number; ready: number; served: number; cancelled: number }> = {}) => ({
   total: 2,
@@ -88,5 +88,59 @@ describe('coordsOf — đơn nào lên được bản đồ', () => {
   it('chuỗi RỖNG → null: Number("") là 0, một toạ độ hợp lệ ngoài khơi châu Phi', () => {
     expect(coordsOf(src({ customer_lat: '', customer_lng: '' }))).toBeNull();
     expect(coordsOf(src({ customer_lat: '  ' }))).toBeNull();
+  });
+});
+
+/**
+ * Phép chiếu giả: 1 đơn vị lat/lng = 1000 pixel. Đủ để kiểm luật gộp mà không phải kéo Leaflet vào
+ * test — `clusterPoints` cố ý nhận projection từ ngoài đúng vì lý do này.
+ */
+const proj = (pos: [number, number]) => ({ x: pos[1] * 1000, y: pos[0] * 1000 });
+const unproj = (pt: { x: number; y: number }): [number, number] => [pt.y / 1000, pt.x / 1000];
+const pt = (lat: number, lng: number, name: string) => ({ item: name, pos: [lat, lng] as [number, number] });
+
+describe('clusterPoints — chấm đè lên nhau phải tự khai ra nó là mấy đơn', () => {
+  it('các điểm trong bán kính gộp thành MỘT cụm, giữ đủ thành viên', () => {
+    // 3 điểm cách nhau 10px ở phép chiếu trên (0.01 lat = 10px).
+    const out = clusterPoints([pt(0, 0, 'a'), pt(0.01, 0, 'b'), pt(0.02, 0, 'c')], proj, unproj, 26);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.items).toEqual(['a', 'b', 'c']);
+  });
+
+  it('điểm cách xa hơn bán kính KHÔNG bị gộp — đây là ca 7 đơn một chỗ + 1 đơn ở tỉnh khác', () => {
+    const out = clusterPoints([pt(0, 0, 'a'), pt(0.005, 0, 'b'), pt(1, 0, 'xa')], proj, unproj, 26);
+    expect(out.map((c) => c.items)).toEqual([['a', 'b'], ['xa']]);
+  });
+
+  it('cùng một bộ điểm: zoom sâu (bán kính pixel nhỏ đi tương đối) thì cụm tách ra', () => {
+    const pts = [pt(0, 0, 'a'), pt(0.02, 0, 'b')];
+    expect(clusterPoints(pts, proj, unproj, 26)).toHaveLength(1);
+    // Cùng dữ liệu, chiếu ở mức "zoom sâu hơn" (x10 pixel) → 200px, quá xa để gộp.
+    const deep = (p: [number, number]) => ({ x: p[1] * 10000, y: p[0] * 10000 });
+    const deepBack = (q: { x: number; y: number }): [number, number] => [q.y / 10000, q.x / 10000];
+    expect(clusterPoints(pts, deep, deepBack, 26)).toHaveLength(2);
+  });
+
+  it('tâm cụm là trung bình thành viên, không phải điểm đầu tiên gặp', () => {
+    const out = clusterPoints([pt(0, 0, 'a'), pt(0.02, 0, 'b')], proj, unproj, 26);
+    expect(out[0]!.pos[0]).toBeCloseTo(0.01, 6);
+  });
+
+  it('danh sách rỗng → không cụm nào', () => {
+    expect(clusterPoints([], proj, unproj)).toEqual([]);
+  });
+});
+
+describe('clusterStage — cụm pha tạp không được mang màu của một chặng', () => {
+  it('cụm thuần một chặng → đúng chặng đó', () => {
+    expect(clusterStage(['READY', 'READY'])).toBe('READY');
+  });
+
+  it('cụm pha tạp → null (vẽ màu trung tính, chi tiết ở tooltip)', () => {
+    expect(clusterStage(['READY', 'KITCHEN'])).toBeNull();
+  });
+
+  it('cụm rỗng → null', () => {
+    expect(clusterStage([])).toBeNull();
   });
 });
