@@ -101,6 +101,8 @@ class UpdateSettingsDto {
   // Bản đồ (2026-08-07) — 2 công tắc riêng, xem settings.defaults.ts về vì sao không gộp làm một.
   @IsOptional() map_checkout_enabled?: boolean;
   @IsOptional() map_admin_enabled?: boolean;
+  // Khoá ô tỉnh của khách về Bắc Ninh (2026-08-11) — xem settings.defaults.ts.
+  @IsOptional() province_lock_enabled?: boolean;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
   @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
@@ -198,6 +200,7 @@ export class SettingsController {
       'otp_login_enabled',
       'map_checkout_enabled',
       'map_admin_enabled',
+      'province_lock_enabled',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

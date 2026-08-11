@@ -326,6 +326,7 @@ export function CartPage(): JSX.Element {
                   setLocationTouched(true);
                 }}
                 mapEnabled={store.data?.map_checkout_enabled ?? false}
+                provinceLocked={store.data?.province_lock_enabled ?? false}
                 wardError={wardError}
                 detailError={addressError}
               />

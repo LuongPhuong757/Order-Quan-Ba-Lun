@@ -73,6 +73,22 @@ export const PublicStoreStatus = z.object({
    * ngược — tốn một vòng mạng trên 4G để tiết kiệm vài byte.
    */
   map_checkout_enabled: z.boolean(),
+  /**
+   * Ô "Tỉnh / Thành phố" của khách có bị khoá về một tỉnh không (2026-08-11) — công tắc
+   * `province_lock_enabled` ở /admin.
+   *
+   * `true` → trang khách bày tỉnh thành một dòng chữ chỉ đọc (Bắc Ninh), khách chỉ chọn xã.
+   * `false` → chọn được cả 34 tỉnh. Mặc định `false`.
+   *
+   * CỜ HIỂN THỊ, KHÔNG PHẢI LUẬT NHẬN ĐƠN. BE vẫn nhận mã xã của mọi tỉnh khi cờ đang bật, và đó
+   * là cố ý: khoá là để dẫn hướng cho khách khỏi chọn nhầm chỗ quán không tới, còn việc từ chối
+   * đơn quá xa đã có `delivery-radius.ts` làm bằng toạ độ thật. Lấy ranh giới hành chính làm luật
+   * nhận đơn là loại nhầm người ở rìa tỉnh — nhà cách quán 3 km nhưng khác tỉnh — trong khi vẫn
+   * nhận người cùng tỉnh mà cách 60 km. Đơn vị hành chính không phải đơn vị đo khoảng cách.
+   *
+   * Vì vậy đổi cờ này KHÔNG đụng gì tới đơn cũ và không cần đợi khách tải lại trang.
+   */
+  province_lock_enabled: z.boolean(),
   eta: z.object({
     pickup: z.object({ min: z.number().int(), max: z.number().int() }),
     delivery: z.object({ min: z.number().int(), max: z.number().int() }),

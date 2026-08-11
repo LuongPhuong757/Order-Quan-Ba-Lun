@@ -82,6 +82,7 @@ type StoreSettingsMap = {
   otp_login_enabled: boolean;
   // Bản đồ (2026-08-07) — 2 công tắc riêng cho 2 nơi, xem settings.defaults.ts phía API.
   map_checkout_enabled: boolean;
+  province_lock_enabled: boolean;
   map_admin_enabled: boolean;
 };
 
@@ -403,6 +404,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [mapAdmin, setMapAdmin] = useState(settings.map_admin_enabled);
   const [savingMap, setSavingMap] = useState(false);
 
+  // Khoá tỉnh ở ô địa chỉ của khách (2026-08-11)
+  const [provinceLock, setProvinceLock] = useState(settings.province_lock_enabled);
+  const [savingProvinceLock, setSavingProvinceLock] = useState(false);
+
   // Thông tin quán
   const [phone, setPhone] = useState(settings.store_phone);
   const [address, setAddress] = useState(settings.store_address);
@@ -433,6 +438,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setOtpEnabled(settings.otp_login_enabled);
     setMapCheckout(settings.map_checkout_enabled);
     setMapAdmin(settings.map_admin_enabled);
+    setProvinceLock(settings.province_lock_enabled);
     setPhone(settings.store_phone);
     setAddress(settings.store_address);
     setFacebookUrl(settings.store_facebook_url);
@@ -483,6 +489,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const mapDirty = isDirty(
     { mapCheckout, mapAdmin },
     { mapCheckout: settings.map_checkout_enabled, mapAdmin: settings.map_admin_enabled },
+  );
+  const provinceLockDirty = isDirty(
+    { provinceLock },
+    { provinceLock: settings.province_lock_enabled },
   );
   const storeDirty = isDirty(
     { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
@@ -648,6 +658,22 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       toast.push('error', extractError(err).message);
     } finally {
       setSavingOtp(false);
+    }
+  };
+
+  const saveProvinceLock = async () => {
+    setSavingProvinceLock(true);
+    try {
+      await api.put('/admin/settings', { province_lock_enabled: provinceLock });
+      toast.push(
+        'success',
+        provinceLock ? 'Đã khoá địa chỉ khách về Bắc Ninh ✓' : 'Đã mở cho khách chọn mọi tỉnh ✓',
+      );
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSavingProvinceLock(false);
     }
   };
 
@@ -1210,6 +1236,44 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           nghiệm). Chỉ bật khi thử nghiệm hoặc sau khi đã đăng ký Zalo ZNS / SMS brandname; bật
           khi chưa có kênh thật thì khách sẽ không nhận được mã và không đặt được đơn.
         </p>
+      </Section>
+
+      {/* ══ 4b-bis. Địa chỉ giao hàng (2026-08-11) ══
+          Tách thành Section RIÊNG, không nhét chung với "Bản đồ": bản đồ là chuyện hiển thị cho
+          nhẹ máy, còn cái này quyết định KHÁCH Ở ĐÂU ĐẶT ĐƯỢC — gộp làm một khối là để chủ quán
+          bấm nhầm một cái tưởng vô hại. */}
+      <Section
+        title="Địa chỉ giao hàng"
+        hint="Quyết định khách chọn được những tỉnh nào ở bước điền địa chỉ."
+        dirty={provinceLockDirty}
+        saving={savingProvinceLock}
+        saveLabel="Lưu cài đặt địa chỉ"
+        onSave={() => void saveProvinceLock()}
+      >
+        <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginBottom: 0 }}>
+          <input
+            type="checkbox"
+            checked={provinceLock}
+            onChange={(e) => setProvinceLock(e.target.checked)}
+          />
+          Chỉ cho khách đặt trong Tỉnh Bắc Ninh
+        </label>
+        <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+          Bật: ô “Tỉnh / Thành phố” của khách khoá cứng ở Bắc Ninh, khách chỉ còn chọn xã/phường —
+          bớt một bước và không ai chọn nhầm tỉnh quán không tới. Tắt: khách chọn được cả 34
+          tỉnh/thành.
+        </p>
+        <p style={{ fontSize: 12, color: C.muted, margin: '8px 0 0' }}>
+          Đây là <strong>hướng dẫn trên màn hình khách</strong>, không phải luật chặn đơn. Việc từ
+          chối đơn ở quá xa vẫn do “Bán kính giao tối đa” phía trên lo, tính theo toạ độ thật —
+          cách đó không loại nhầm người ở sát quán nhưng khác tỉnh.
+        </p>
+        {provinceLock && (
+          <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
+            ⚠ Khách ở tỉnh khác sẽ không tự điền được địa chỉ của họ nữa. Nếu quán vẫn nhận vài đơn
+            Hà Nội thì để tắt.
+          </p>
+        )}
       </Section>
 
       {/* ══ 4c. Bản đồ (2026-08-07) ══

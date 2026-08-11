@@ -650,6 +650,7 @@ export function CheckoutPage(): JSX.Element {
             // Khách kéo ghim → `location` đổi → effect phí giao ở trên tự hỏi lại BE. Không cần
             // debounce riêng: bản đồ chỉ báo ra khi khách THẢ ghim, không báo trong lúc kéo.
             mapEnabled={store.data?.map_checkout_enabled ?? false}
+            provinceLocked={store.data?.province_lock_enabled ?? false}
             wardError={displayFieldErrors.ward ?? null}
             detailError={displayFieldErrors.address ?? null}
           />

@@ -107,6 +107,19 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // Mặc định BẬT vì đây là tính năng vừa được đặt làm; tắt là hành động có chủ ý của chủ quán.
   { key: 'map_checkout_enabled', kind: 'bool', default: true },
   { key: 'map_admin_enabled', kind: 'bool', default: true },
+  // ── Khoá tỉnh ở ô địa chỉ giao (2026-08-11) ──
+  // Bật = ô "Tỉnh / Thành phố" của khách khoá cứng về Bắc Ninh (`DEFAULT_PROVINCE_CODE` ở
+  // `vn-address.ts`), khách chỉ còn chọn xã. Tắt = chọn được cả 34 tỉnh.
+  //
+  // Mặc định TẮT, và đây là lựa chọn có chủ đích chứ không phải quên: bật sẵn là ĐANG THU HẸP
+  // vùng khách đặt được ngay lúc deploy, âm thầm, cho một quán đã geocode cả Hà Nội lẫn Bắc Ninh
+  // (xem `address-geo.ts`). Thu hẹp ai được đặt hàng phải là một cú bấm có chủ đích của chủ quán
+  // ở /admin, không phải hệ quả kèm theo của một lần cập nhật code.
+  //
+  // Đây CHỈ là cờ hiển thị cho trang khách. BE không lấy nó làm điều kiện nhận đơn — chặn đơn quá
+  // xa là việc của `delivery-radius.ts` dựa trên toạ độ thật, và cách đó không loại nhầm người ở
+  // rìa tỉnh. Xem thêm ghi chú ở `public-store.ts`.
+  { key: 'province_lock_enabled', kind: 'bool', default: false },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -148,6 +161,9 @@ export type StoreSettingsMap = {
   otp_login_enabled: boolean;
   map_checkout_enabled: boolean;
   map_admin_enabled: boolean;
+  /** Khoá ô tỉnh của khách về `DEFAULT_PROVINCE_CODE` (Bắc Ninh). Cờ HIỂN THỊ, không phải luật
+   *  nhận đơn — xem ghi chú ở `SETTINGS_DEFAULTS`. */
+  province_lock_enabled: boolean;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type CSSProperties, type JSX } from 'react';
-import { findWard } from '@order/schemas/vn-address';
+import { DEFAULT_PROVINCE_CODE, findWard } from '@order/schemas/vn-address';
 import { AddressSelect } from './AddressSelect.tsx';
 import { LocationPicker, type PickedLocation } from './LocationPicker.tsx';
 import { ADDRESS_DETAIL_MAX, provinceLabel } from '../lib/address.ts';
@@ -102,6 +102,15 @@ type Props = {
   wardError?: string | null;
   detailError?: string | null;
   idPrefix: string;
+  /**
+   * Cờ `province_lock_enabled` từ `GET /api/public/store` — bật thì ô tỉnh khoá về Bắc Ninh.
+   *
+   * Mặc định `false` CÓ CHỦ ĐÍCH, cùng lý do với `mapEnabled`: trang chưa kịp biết cờ (store chưa
+   * về, hoặc request lỗi) thì hành xử y như trước khi có tính năng — cho chọn cả 34 tỉnh. Đoán
+   * nhầm theo hướng này chỉ là bày thừa lựa chọn; đoán nhầm theo hướng kia là KHOÁ nhầm khách ở
+   * tỉnh khác ra khỏi luồng đặt đơn vì một request lỗi.
+   */
+  provinceLocked?: boolean;
 };
 
 export function DeliveryAddress({
@@ -117,7 +126,11 @@ export function DeliveryAddress({
   wardError = null,
   detailError = null,
   idPrefix,
+  provinceLocked = false,
 }: Props): JSX.Element {
+  /** Cờ → mã tỉnh. Đổi ở ĐÚNG MỘT chỗ này để `AddressSelect` không phải biết tỉnh nào là tỉnh
+   *  của quán, và để `DEFAULT_PROVINCE_CODE` vẫn là nguồn sự thật duy nhất. */
+  const lockedProvinceCode = provinceLocked ? DEFAULT_PROVINCE_CODE : null;
   /**
    * Rời nhánh GPS thì XOÁ toạ độ.
    *
@@ -235,12 +248,16 @@ export function DeliveryAddress({
                   <p aria-live="polite" style={autoNote}>
                     {UNMATCHED_COPY}
                   </p>
-                  {/* Không khớp được thì không có gì để khoá — khách tự chọn, toạ độ vẫn giữ. */}
+                  {/* Không khớp được xã thì khách tự chọn, toạ độ vẫn giữ. `lockedProvinceCode`
+                      VẪN áp ở đây: khách rơi vào nhánh này là người đứng NGOÀI vùng đã geocode
+                      (Hà Nội + Bắc Ninh) — đúng nhóm dễ chọn nhầm một tỉnh quán không giao tới
+                      nhất, nên bỏ khoá ở riêng chỗ này là bỏ đúng chỗ cần nó. */}
                   <AddressSelect
                     value={wardCode}
                     onChange={onWardCodeChange}
                     wardError={wardError}
                     idPrefix={idPrefix}
+                    lockedProvinceCode={lockedProvinceCode}
                   />
                 </>
               )}
@@ -250,12 +267,14 @@ export function DeliveryAddress({
         </>
       ) : (
         <>
-          {/* Nhánh nhập tay: KHÔNG `pickedLocation`, nên không có gì tự điền và không có gì khoá. */}
+          {/* Nhánh nhập tay: KHÔNG `pickedLocation`, nên không có gì tự điền. Chỉ có ô tỉnh là có
+              thể bị khoá, và đó là do cấu hình của quán chứ không phải do toạ độ. */}
           <AddressSelect
             value={wardCode}
             onChange={onWardCodeChange}
             wardError={wardError}
             idPrefix={idPrefix}
+            lockedProvinceCode={lockedProvinceCode}
           />
           {detailField}
         </>
