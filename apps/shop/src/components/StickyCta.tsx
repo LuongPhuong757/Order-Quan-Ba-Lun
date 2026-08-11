@@ -146,7 +146,17 @@ const button: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/**
+ * Màu ĐẶC, KHÔNG `opacity` (sửa 2026-08-11).
+ *
+ * Thanh này `position: sticky` — nó nằm ĐÈ lên nội dung đang cuộn phía dưới. `opacity: .5` làm mờ
+ * cả nút lẫn chữ, nên khách nhìn xuyên qua thấy ô "số nhà, thôn/xóm" trôi ngay dưới dòng chữ
+ * "ĐẶT HÀNG": trông như giao diện vỡ chứ không đọc ra là nút đang khoá. Đây là điểm khác biệt so
+ * với mọi chỗ khác trong app còn dùng `--opacity-disabled` — những chỗ đó nằm trong luồng trang,
+ * không có gì chạy phía sau, nên làm mờ vẫn đúng.
+ */
 const buttonDisabled: CSSProperties = {
-  opacity: 'var(--opacity-disabled)',
+  background: 'var(--disabled-600)',
+  color: 'var(--text-on-disabled)',
   cursor: 'not-allowed',
 };
