@@ -6,6 +6,7 @@ import { PublicMenuController } from './public-menu.controller.js';
 import { PublicOrdersController } from './public-orders.controller.js';
 import { PublicTopDishesController } from './public-top-dishes.controller.js';
 import { PublicShipQuoteController } from './public-ship-quote.controller.js';
+import { PublicGeoLogController } from './public-geo-log.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
 import { PublicOtpController } from './public-otp.controller.js';
 import { PublicOtpService } from './public-otp.service.js';
@@ -67,6 +68,8 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     PublicTopDishesController,
     // POST /api/public/ship-quote (2026-08-06) — km + phí giao tạm tính ở bước checkout.
     PublicShipQuoteController,
+    // POST /api/public/geo-log (2026-08-16) — nhật ký chẩn đoán nút "Chia sẻ vị trí".
+    PublicGeoLogController,
     // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
     PublicOtpController,
   ],

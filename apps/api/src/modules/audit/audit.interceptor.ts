@@ -20,6 +20,10 @@ const MUTATION_METHODS = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 // đang phục vụ, và trang /admin/audit bị chìm trong rác. Xem `analytics/public-track.controller.ts`.
 const TRACK_PATH = '/api/public/track';
 
+// Nhật ký chẩn đoán Geolocation (2026-08-16) — cùng bản chất với ping thống kê: telemetry
+// nhiều lần mỗi phiên, không phải hành động nghiệp vụ của ai. Xem `public/public-geo-log.controller.ts`.
+const GEO_LOG_PATH = '/api/public/geo-log';
+
 // Action-kind resolver — derives audit action from HTTP method + path
 // Override in controller via @AuditAction decorator if needed (future).
 function deriveActionKind(method: string, path: string): string {
@@ -112,7 +116,7 @@ export class AuditInterceptor implements NestInterceptor {
     const method = req.method;
     const path = req.route?.path || req.path;
 
-    if (path === TRACK_PATH) return next.handle();
+    if (path === TRACK_PATH || path === GEO_LOG_PATH) return next.handle();
 
     return next.handle().pipe(
       tap((responseBody) => {

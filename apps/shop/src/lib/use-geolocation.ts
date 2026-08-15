@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { reportGeoOutcome } from './geo-log.ts';
 
 /**
  * useGeolocation — Geolocation là TĂNG CƯỜNG, không phải điều kiện bắt buộc (D-19/D-20).
@@ -58,23 +59,36 @@ export function useGeolocation(): UseGeolocationResult {
       // WebView cắt hẳn Geolocation — về thẳng 'failed', không throw.
       setErrorKind('unsupported');
       setState('failed');
+      reportGeoOutcome({ outcome: 'unsupported', elapsed_ms: 0 });
       return;
     }
 
     askingRef.current = true;
     setErrorKind(null);
     setState('asking');
+    // Nhật ký chẩn đoán (2026-08-16): mỗi cú bấm — thành công lẫn thất bại — gửi một dòng
+    // fire-and-forget về server, vì lỗi Geolocation không tự để lại vết nào ngoài máy khách.
+    // `performance.now()` chứ không phải `Date.now()`: đồng hồ tường bị NTP chỉnh giữa chừng
+    // là ra số âm/lệch, còn đồng hồ monotonic thì không.
+    const startedAtMs = performance.now();
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
         askingRef.current = false;
         const accuracy = position.coords.accuracy;
+        const accuracyOk =
+          typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0;
+        reportGeoOutcome({
+          outcome: 'ok',
+          elapsed_ms: performance.now() - startedAtMs,
+          ...(accuracyOk ? { accuracy_m: accuracy } : {}),
+        });
         setCoords({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           // Spec nói `accuracy` luôn là số, nhưng WebView đời cũ có trả `null`/`NaN` — lọc lại
           // để UI không in ra "chính xác khoảng NaNm".
-          accuracy_m: typeof accuracy === 'number' && Number.isFinite(accuracy) && accuracy > 0 ? accuracy : null,
+          accuracy_m: accuracyOk ? accuracy : null,
         });
         setErrorKind(null);
         setState('ok');
@@ -83,8 +97,19 @@ export function useGeolocation(): UseGeolocationResult {
         askingRef.current = false;
         // 1 = PERMISSION_DENIED, 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT. Mã lạ (WebView tự
         // định nghĩa) rơi về 'unavailable' — câu chữ trung tính nhất trong 3 ca.
-        setErrorKind(err?.code === 1 ? 'denied' : err?.code === 3 ? 'timeout' : 'unavailable');
+        const kind = err?.code === 1 ? 'denied' : err?.code === 3 ? 'timeout' : 'unavailable';
+        setErrorKind(kind);
         setState('failed');
+        reportGeoOutcome({
+          outcome: kind,
+          elapsed_ms: performance.now() - startedAtMs,
+          ...(typeof err?.code === 'number' ? { code: err.code } : {}),
+          // Chuỗi thô của trình duyệt — trên iOS nó phân biệt được "không bắt được tín hiệu"
+          // (kCLErrorLocationUnknown) với các ca khác, đúng thứ cần cho ca "lúc được lúc không".
+          ...(typeof err?.message === 'string' && err.message.length > 0
+            ? { message: err.message }
+            : {}),
+        });
       },
       // timeout 15s (trước là 10s): GPS trên điện thoại lần định vị đầu (cold start, trong nhà)
       // thường quá 10s, nên bản cũ báo "không lấy được vị trí" cho những ca đáng ra chỉ cần
