@@ -49,11 +49,18 @@ export type PickedLocation = { lat: number; lng: number; accuracy_m: number | nu
  *   - quá thời gian  → bấm lại là xong
  * Vẫn KHÔNG hiện mã lỗi kỹ thuật, chỉ nói việc cần làm. Cả 4 câu đều nhắc lại đường thoát an
  * toàn (nhập địa chỉ tay) vì toạ độ chưa bao giờ là bắt buộc (D-19/D-20).
+ *
+ * Câu 'denied' viết lại 2026-08-16 từ ca chẩn đoán THẬT trên iPhone chủ dự án (log [geo-log]
+ * server: denied code=1 sau 2–28ms — iOS tự từ chối, không hề hiện hộp hỏi quyền): trên iPhone
+ * quyền vị trí có HAI tầng, và câu cũ chỉ dẫn tầng thấp (Safari → Vị trí theo trang). Chủ dự án
+ * đổi đúng như hướng dẫn mà vẫn hỏng, vì tầng cao hơn — Dịch vụ định vị → Trang web Safari —
+ * đang ở "Không bao giờ", và khi tầng này chặn thì cài đặt theo trang không bao giờ được hỏi
+ * tới. Kèm bước tắt hẳn Safari vì tab đang mở giữ trạng thái quyền cũ sau khi đổi cài đặt.
  */
 const geoFailedMessage = (kind: GeolocationErrorKind | null): string => {
   switch (kind) {
     case 'denied':
-      return 'Trình duyệt đang chặn quyền vị trí của trang này. iPhone: Cài đặt → Safari → Vị trí → chọn "Hỏi" rồi bấm lại. Hoặc bỏ qua, bấm "Nhập địa chỉ thay" ở dưới.';
+      return 'Điện thoại đang chặn quyền vị trí. iPhone: vào Cài đặt → Quyền riêng tư & Bảo mật → Dịch vụ định vị → Trang web Safari → chọn "Khi dùng ứng dụng"; và Cài đặt → Safari → Vị trí → chọn "Hỏi". Sau đó tắt hẳn Safari, mở lại trang rồi bấm lại. Hoặc bỏ qua, bấm "Nhập địa chỉ thay" ở dưới.';
     case 'timeout':
       return 'Máy lấy vị trí quá lâu. Bạn bấm thử lại (ra chỗ thoáng thì nhanh hơn), hoặc bấm "Nhập địa chỉ thay" ở dưới.';
     case 'unsupported':
