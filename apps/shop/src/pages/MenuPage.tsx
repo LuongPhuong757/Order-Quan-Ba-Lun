@@ -9,7 +9,6 @@ import {
 } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import { consumeCartExpired, useCart } from '../lib/cart-store.ts';
-import { nextOpeningText } from '../lib/open-hours.ts';
 import { CardItem, CARD_ITEM_CSS } from '../components/CardItem.tsx';
 import { CategoryRail } from '../components/CategoryRail.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
@@ -176,10 +175,6 @@ export function MenuPage(): JSX.Element {
     cart.setQty(item.id, qty);
   };
 
-  /** Câu "Quán mở lại lúc …" — tính lại mỗi lần dữ liệu quán đổi. Không cần đồng hồ chạy: khách
-   *  đọc nó đúng một lần lúc mở trang, và câu này đủ đúng trong cả tiếng đồng hồ sau đó. */
-  const reopenText = store.data ? nextOpeningText(store.data.open_hours, Date.now()) : null;
-
   /**
    * Đổi nhóm món xong thì ĐƯA MÀN HÌNH VỀ ĐẦU DANH SÁCH (2026-08-07).
    *
@@ -226,40 +221,11 @@ export function MenuPage(): JSX.Element {
       )}
 
       <div style={bannerStack}>
-        {/* Nút + thêm món ở lưới bên dưới VẪN bấm được dù banner này hiện
-            (D-20) — chỉ nút ĐẶT HÀNG ở bước checkout mới bị khoá, không phải
-            việc của trang này.
-
-            D-11 — MỘT banner duy nhất, dùng nguyên văn `closed_banner_text` chủ quán soạn trong
-            Cài đặt (đổi chữ là ăn ngay, `/api/public/store` đã `no-store`). Bản cũ của phase 08
-            có ternary OUTSIDE_HOURS vs tắt-thủ-công + chữ cứng ở FE + `off_reason`: phase 9 đã bỏ
-            mô hình đó ở CheckoutPage nhưng bỏ sót trang này — với khách, cả hai tình huống đều là
-            "quán đang đóng cửa, vẫn đặt được". Không `action` gọi quán: câu chữ do chủ quán tự
-            viết, họ tự quyết có mời gọi điện hay không.
-
-            Tone `brand` (nền hồng ấm), KHÔNG phải `info` (xanh dương): theo phân vai trong
-            BannerNotice, tin về QUÁN (đang đóng cửa) là brand; info dành riêng cho tin về ĐƠN
-            của khách. Nền xanh info cũng lạc hẳn khỏi theme kem ấm + đỏ ớt của trang khách. */}
-        {store.data && store.data.ordering_enabled === false && (
-          <BannerNotice
-            tone="brand"
-            // "không nhận đơn online" chứ KHÔNG phải "đóng cửa" (chỉ đạo 2026-08-16): quán có
-            // thể vẫn mở bán tại chỗ, chỉ tắt kênh online — nói "đóng cửa" là đuổi nhầm khách.
-            title="Quán đang không nhận đơn online"
-            body={
-              <>
-                {store.data.closed_banner_text}
-                {/* Dòng "mở lại lúc …" — THÊM VÀO, không thay câu chủ quán soạn (D-14 giữ nguyên
-                    văn). Chỉ hiện khi đóng vì NGOÀI GIỜ: quán tắt nhận đơn bằng tay thì mốc mở
-                    lại không nằm trong `open_hours`, đoán là hứa hộ họ một giờ họ chưa hứa. */}
-                {store.data.blocking_reason === 'OUTSIDE_HOURS' && reopenText !== null && (
-                  <span style={reopenLine}>{reopenText}</span>
-                )}
-              </>
-            }
-          />
-        )}
-
+        {/* Banner "quán không nhận đơn online" ĐÃ GỠ KHỎI TRANG NÀY (2026-08-16, chỉ đạo chủ
+            dự án): popup nổi toàn trang `ClosedNotice` (AppShell) nay nói cùng một chuyện —
+            kèm câu chủ quán soạn lẫn đồng hồ đếm ngược — nên banner ở đây là bản lặp thứ hai
+            trên cùng một màn hình. Nút + thêm món VẪN bấm được khi quán đóng (D-20) — chỉ bước
+            đặt ở checkout bị khoá, không phải việc của trang này. */}
         {cartExpired && (
           <BannerNotice
             tone="brand"
@@ -438,15 +404,6 @@ const srOnly: CSSProperties = {
   clip: 'rect(0, 0, 0, 0)',
   whiteSpace: 'nowrap',
   border: 0,
-};
-
-/** Dòng "Quán mở lại lúc …" trong banner đóng cửa — xuống dòng riêng và đậm hơn câu chủ quán
- *  soạn, vì đây mới là thứ khách đang muốn biết ("bao giờ thì đặt được?"). */
-const reopenLine: CSSProperties = {
-  display: 'block',
-  marginTop: 'var(--sp-1)',
-  fontWeight: 'var(--fw-semibold)' as unknown as number,
-  color: 'var(--text-strong)',
 };
 
 const bannerStack: CSSProperties = {

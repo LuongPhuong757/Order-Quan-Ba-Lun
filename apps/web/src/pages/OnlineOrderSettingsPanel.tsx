@@ -110,6 +110,48 @@ const DOW_LABELS: Record<OpenHoursDow, string> = {
 };
 const DOW_VALUES: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
 
+// ══ Ô chọn giờ 24h (2026-08-16) ═══════════════════════════════════════════════════════════════
+// Thay `<input type="time">`: input đó hiện AM/PM hay 24h là TUỲ NGÔN NGỮ HỆ ĐIỀU HÀNH của từng
+// máy, không có thuộc tính nào ép được — chủ dự án dùng máy tiếng Anh nên toàn thấy AM/PM và báo
+// là rất khó dùng. Dropdown tự dựng thì chữ trên màn là chữ mình in: luôn 00:00 → 24:00.
+// Bước 30 phút: giờ mở quán không ai đặt 07:12. Giá trị lẻ ĐÃ LƯU từ thời input cũ (vd "07:15")
+// được chèn thêm làm option để select không âm thầm hiển thị sai giá trị đang có trong DB.
+/** "24:00" — nghĩa là "đến hết ngày", chỉ dành cho ô giờ ĐÓNG (`endOfDay`). */
+const END_OF_DAY = '24:00';
+
+function timeOptions(current: string, endOfDay: boolean): string[] {
+  const opts: string[] = [];
+  for (let h = 0; h < 24; h += 1) {
+    for (const m of [0, 30]) {
+      opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+    }
+  }
+  if (endOfDay) opts.push(END_OF_DAY);
+  if (current && !opts.includes(current)) opts.push(current);
+  // So chuỗi là đủ: mọi giá trị đều dạng HH:mm nên thứ tự chữ = thứ tự thời gian ("24:00" cuối).
+  return opts.sort();
+}
+
+function TimeSelect({
+  value,
+  onChange,
+  endOfDay = false,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  endOfDay?: boolean;
+}) {
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      {timeOptions(value, endOfDay).map((t) => (
+        <option key={t} value={t}>
+          {t}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 // ══ Bảng phí giao theo giá trị đơn (2026-08-07) ══════════════════════════════════════════════
 // Form giữ CHUỖI (thứ chủ quán đang gõ, có dấu chấm nghìn), chỉ bóc về số lúc gửi — cùng quy ước
 // với ô phí ship ở màn duyệt đơn, xem `money-input.ts`. Giữ số thô rồi format lúc render sẽ làm
@@ -842,8 +884,10 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               rows={3}
               style={{ fontFamily: 'inherit' }}
             />
+            {/* 2026-08-16 — quán đóng nay CHẶN gửi đơn mới (đảo ngược OD-13): câu này chỉ còn
+                gặp ở khách đang xem đơn cũ trên /o/:token, không phải khách vừa gửi đơn lúc đóng. */}
             <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Khách vẫn gửi đơn được khi Đóng cửa, nên câu này nên nói rõ quán sẽ gọi lại lúc nào.
+              Hiện cho khách đang theo dõi đơn cũ khi quán đóng nhận đơn. Đơn MỚI lúc quán đóng đã bị chặn từ 08/2026.
             </p>
           </div>
         </div>
@@ -853,9 +897,12 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       <Section
         title="Giờ mở cửa"
         hint={
+          // 2026-08-16 — ngoài giờ nay CHẶN đặt đơn thật (đảo ngược OD-13): trang khách hiện
+          // popup + đồng hồ đếm ngược tới giờ mở, nút ĐẶT HÀNG khoá. Câu cũ "khách vẫn đặt
+          // được đơn" mô tả hành vi đã bỏ.
           open_hours_configured
-            ? 'Ngoài khoảng này trang khách hiện "ngoài giờ mở cửa" — khách vẫn đặt được đơn.'
-            : 'Chưa cấu hình — hiện quán nhận đơn mọi giờ. Giá trị bên dưới là gợi ý, CHƯA phải dữ liệu đã lưu.'
+            ? 'Ngoài khoảng này khách KHÔNG đặt được đơn — trang khách hiện đồng hồ đếm ngược tới giờ mở.'
+            : 'Chưa cấu hình — quán nhận đơn 24/24. Muốn giữ nhận đơn cả ngày thì cứ để trống. Giá trị bên dưới là gợi ý, CHƯA phải dữ liệu đã lưu.'
         }
         dirty={hoursDirty}
         saving={savingHours}
@@ -866,16 +913,15 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           <div>
             <label>Mọi ngày</label>
             <div className="st-inline">
-              <input
-                type="time"
+              <TimeSelect
                 value={hoursDefault.from}
-                onChange={(e) => setHoursDefault((h) => ({ ...h, from: e.target.value }))}
+                onChange={(v) => setHoursDefault((h) => ({ ...h, from: v }))}
               />
               <span>–</span>
-              <input
-                type="time"
+              <TimeSelect
                 value={hoursDefault.to}
-                onChange={(e) => setHoursDefault((h) => ({ ...h, to: e.target.value }))}
+                onChange={(v) => setHoursDefault((h) => ({ ...h, to: v }))}
+                endOfDay
               />
             </div>
             {hoursErr.default && <div className="field-error">{hoursErr.default}</div>}
@@ -897,9 +943,9 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
                         </option>
                       ))}
                     </select>
-                    <input type="time" value={ex.from} onChange={(e) => updateException(i, { from: e.target.value })} />
+                    <TimeSelect value={ex.from} onChange={(v) => updateException(i, { from: v })} />
                     <span>–</span>
-                    <input type="time" value={ex.to} onChange={(e) => updateException(i, { to: e.target.value })} />
+                    <TimeSelect value={ex.to} onChange={(v) => updateException(i, { to: v })} endOfDay />
                     <button
                       type="button"
                       className="secondary"

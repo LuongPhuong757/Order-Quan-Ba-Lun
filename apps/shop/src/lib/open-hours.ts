@@ -35,12 +35,15 @@ const DOW_LABELS = [
   'Thứ Bảy',
 ] as const;
 
-/** "07:30" → 450. Chuỗi rác trả `null` để chỗ gọi bỏ qua rule đó thay vì tính ra NaN. */
+/** "07:30" → 450. Chuỗi rác trả `null` để chỗ gọi bỏ qua rule đó thay vì tính ra NaN.
+ *  "24:00" = 1440 là hợp lệ (2026-08-16): giờ ĐÓNG "hết ngày" mà /admin nay cho chọn — BE đã
+ *  nhận nó (HHMM_TO ở settings.controller). Chỉ đúng chuỗi đó; 24:01 trở đi vẫn là rác. */
 function toMinutes(hhmm: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!match) return null;
   const h = Number(match[1]);
   const m = Number(match[2]);
+  if (h === 24) return m === 0 ? 1440 : null;
   if (h > 23 || m > 59) return null;
   return h * 60 + m;
 }

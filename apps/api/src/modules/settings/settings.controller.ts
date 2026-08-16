@@ -25,13 +25,18 @@ import { SettingsService } from './settings.service.js';
 import { collapseToDefaultExceptions, endOfTodayIctMs, expandToWeek } from '../public/store-status.js';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+// Giờ ĐÓNG nhận thêm đúng một giá trị "24:00" = mở tới hết ngày (2026-08-16, đi cùng ô chọn giờ
+// 24h ở /admin). CHỈ ô `to`: "24:00" làm giờ MỞ là vô nghĩa (mọi giờ đóng đều đứng trước nó).
+// `inRange()` của store-status so bằng SỐ PHÚT nên 24:00 = 1440 tự đúng, không cần nhánh riêng;
+// `toMinutes()` phía shop (open-hours.ts) đã được dạy nhận 24:00 cùng ngày.
+const HHMM_TO = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
 const DOW_VALUES = [0, 1, 2, 3, 4, 5, 6] as const;
 
 class OpenHoursDefaultDto {
   @IsString() @Matches(HHMM)
   from!: string;
 
-  @IsString() @Matches(HHMM)
+  @IsString() @Matches(HHMM_TO)
   to!: string;
 }
 
@@ -42,7 +47,7 @@ class OpenHoursExceptionDto {
   @IsString() @Matches(HHMM)
   from!: string;
 
-  @IsString() @Matches(HHMM)
+  @IsString() @Matches(HHMM_TO)
   to!: string;
 }
 

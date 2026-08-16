@@ -93,3 +93,20 @@ describe('nextOpeningMs — mốc đếm ngược phải khớp từng phút v�
     expect(nextOpeningMs([], ictMoment(2026, 8, 6, 5, 0))).toBeNull();
   });
 });
+
+describe('giờ đóng "24:00" — mở tới hết ngày (2026-08-16, đi cùng ô chọn giờ 24h ở /admin)', () => {
+  const LATE: OpenHourRule[] = [{ dow: 4, from: '07:00', to: '24:00' }];
+
+  it('rule không bị coi là hỏng: 5:00 sáng thứ Năm vẫn tính được mốc mở 07:00', () => {
+    expect(nextOpeningMs(LATE, ictMoment(2026, 8, 6, 5, 0))).toBe(ictMoment(2026, 8, 6, 7, 0));
+  });
+
+  it('todayOpenRange hiện đủ khung giờ thay vì null', () => {
+    expect(todayOpenRange(LATE, ictMoment(2026, 8, 6, 10, 0))).toBe('07:00 – 24:00');
+  });
+
+  it('"24:01" trở đi vẫn là rác — rule bị bỏ qua', () => {
+    const broken: OpenHourRule[] = [{ dow: 4, from: '07:00', to: '24:01' }];
+    expect(nextOpeningMs(broken, ictMoment(2026, 8, 6, 5, 0))).toBeNull();
+  });
+});
