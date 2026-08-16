@@ -4,6 +4,7 @@ import { Header } from './Header.tsx';
 import { Footer } from './Footer.tsx';
 import { RouteFallback } from './RouteFallback.tsx';
 import { ActiveOrderBar } from './ActiveOrderBar.tsx';
+import { ClosedNotice } from './ClosedNotice.tsx';
 import { useCart } from '../lib/cart-store.ts';
 import { trackPageView } from '../lib/analytics.ts';
 
@@ -48,6 +49,10 @@ export function AppShell(): JSX.Element {
         </Suspense>
       </main>
       <Footer />
+      {/* Popup nổi "quán không nhận đơn online" (2026-08-16) — đặt ở AppShell vì nó phải sống
+          qua MỌI route (cùng lý do với trackPageView ở trên); tự ẩn khi quán đang nhận đơn.
+          Xem docblock ClosedNotice về vị trí, chữ nghĩa và đồng hồ đếm ngược. */}
+      <ClosedNotice />
     </div>
   );
 }

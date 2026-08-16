@@ -243,7 +243,9 @@ export function MenuPage(): JSX.Element {
         {store.data && store.data.ordering_enabled === false && (
           <BannerNotice
             tone="brand"
-            title="Quán đang đóng cửa"
+            // "không nhận đơn online" chứ KHÔNG phải "đóng cửa" (chỉ đạo 2026-08-16): quán có
+            // thể vẫn mở bán tại chỗ, chỉ tắt kênh online — nói "đóng cửa" là đuổi nhầm khách.
+            title="Quán đang không nhận đơn online"
             body={
               <>
                 {store.data.closed_banner_text}

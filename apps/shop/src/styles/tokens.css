@@ -230,6 +230,10 @@
    * AppShell) sẽ đè lên nút hành động chính, chặn thao tác chạm — bug tìm thấy
    * lúc thi công StickyCta.tsx, không phải thiết kế có chủ đích. */
   --z-sticky-cta: 210; /* Nút "TIẾP TỤC"/"ĐẶT HÀNG" dính đáy trên mobile */
+  /* Popup "quán không nhận đơn online" nổi đáy màn hình (2026-08-16). DƯỚI --z-sticky-cta
+   * có chủ đích: trên /cart nút TIẾP TỤC vẫn phải là thứ bấm được trên cùng — popup báo tin,
+   * không được chặn thao tác. Trên --z-floating-cart để không bị thanh giỏ nổi che. */
+  --z-closed-notice: 205;
   --z-overlay: 300;
   --z-sheet: 310;
   --z-toast: 400;
