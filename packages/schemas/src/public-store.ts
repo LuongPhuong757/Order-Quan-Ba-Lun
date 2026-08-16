@@ -34,6 +34,12 @@ export const PublicStoreStatus = z.object({
   open_hours: z.array(OpenHourRule),
   is_open_now: z.boolean(),
   blocking_reason: z.enum(['MANUAL_OFF', 'OUTSIDE_HOURS']).nullable(),
+  // ── Giờ server tại thời điểm trả response (2026-08-16) ──
+  // Cho đồng hồ đếm ngược "quán mở lại sau HH:MM:SS" ở nút đặt đơn: FE lấy
+  // `server_now_ms - Date.now()` làm offset một lần rồi đếm bằng đồng hồ máy khách đã hiệu
+  // chỉnh. TUYỆT ĐỐI không đếm thẳng bằng giờ máy khách: máy lệch vài phút là nút mở sớm
+  // (khách bấm → BE 409, trải nghiệm tệ hơn cả không có đồng hồ) hoặc mở muộn (mất đơn thật).
+  server_now_ms: z.number(),
   // ── D-11/D-14 (phase 9) — 2 câu chữ chủ quán tự soạn ──
   // `ordering_enabled === false` nay CHỈ có nghĩa "đang Đóng cửa", KHÔNG còn nghĩa "chặn đặt đơn".
   // Khách vẫn gửi được đơn; hai chuỗi này là toàn bộ khác biệt mà khách nhìn thấy.

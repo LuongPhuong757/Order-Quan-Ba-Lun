@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OpenHourRule } from '@order/schemas';
-import { ICT_OFFSET_MS, nextOpeningText, todayOpenRange } from './open-hours.ts';
+import { ICT_OFFSET_MS, nextOpeningMs, nextOpeningText, todayOpenRange } from './open-hours.ts';
 
 // "Quán mở lại lúc …" (2026-08-06). Mọi mốc thời gian dựng theo GIỜ VIỆT NAM tường minh — test
 // không được phụ thuộc múi giờ của máy chạy CI.
@@ -65,5 +65,31 @@ describe('todayOpenRange', () => {
   it('hôm nay nghỉ → null', () => {
     // 2026-08-09 là Chủ Nhật.
     expect(todayOpenRange(WEEK, ictMoment(2026, 8, 9, 10, 0))).toBeNull();
+  });
+});
+
+describe('nextOpeningMs — mốc đếm ngược phải khớp từng phút với câu chữ (2026-08-16)', () => {
+  it('5:00 sáng thứ Năm → mốc là 07:00 ICT cùng ngày, đúng bằng epoch tính tay', () => {
+    const now = ictMoment(2026, 8, 6, 5, 0);
+    expect(nextOpeningMs(WEEK, now)).toBe(ictMoment(2026, 8, 6, 7, 0));
+  });
+
+  it('23:30 thứ Năm (đã qua giờ mở hôm nay) → mốc là 07:00 sáng mai', () => {
+    const now = ictMoment(2026, 8, 6, 23, 30);
+    expect(nextOpeningMs(WEEK, now)).toBe(ictMoment(2026, 8, 7, 7, 0));
+  });
+
+  it('tối thứ Bảy, Chủ Nhật nghỉ → nhảy qua tới 07:00 Thứ Hai', () => {
+    const now = ictMoment(2026, 8, 8, 23, 30);
+    expect(nextOpeningMs(WEEK, now)).toBe(ictMoment(2026, 8, 10, 7, 0));
+  });
+
+  it('dùng giờ mở RIÊNG của thứ Bảy (08:00), không phải giờ mặc định', () => {
+    const now = ictMoment(2026, 8, 7, 23, 0);
+    expect(nextOpeningMs(WEEK, now)).toBe(ictMoment(2026, 8, 8, 8, 0));
+  });
+
+  it('open_hours rỗng → null (không giới hạn giờ thì không có gì để đếm)', () => {
+    expect(nextOpeningMs([], ictMoment(2026, 8, 6, 5, 0))).toBeNull();
   });
 });

@@ -36,10 +36,14 @@ export class PublicStoreController {
   @Header('Cache-Control', 'no-store')
   async getStore(): Promise<ApiOk<PublicStoreStatus>> {
     const settings = await this.settings.readAll();
-    const status = await this.settings.getOrderingStatus(Date.now());
+    const nowMs = Date.now();
+    const status = await this.settings.getOrderingStatus(nowMs);
 
     const payload: PublicStoreStatus = {
       ordering_enabled: status.enabled,
+      // Cùng một `nowMs` với `getOrderingStatus` — trạng thái và mốc giờ phải kể cùng một câu
+      // chuyện. FE dùng làm gốc cho đồng hồ đếm ngược tới giờ mở cửa (xem schema).
+      server_now_ms: nowMs,
       off_reason: settings.online_ordering_off_reason,
       store_phone: settings.store_phone,
       store_address: settings.store_address,

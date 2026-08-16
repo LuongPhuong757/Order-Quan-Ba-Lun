@@ -86,6 +86,13 @@ export type SubmitSettings = {
  */
 export type SubmitDeps = {
   readSettings(): Promise<SubmitSettings>;
+  /**
+   * Trạng thái nhận đơn (công tắc + giờ mở cửa) — quay lại `SubmitDeps` ngày 2026-08-16, ĐẢO
+   * NGƯỢC D-11/OD-13 theo quyết định mới của chủ dự án: quán đóng thì CHẶN tạo đơn mới (khách
+   * thấy đồng hồ đếm ngược tới giờ mở thay vì nút đặt). Bản cài thật tính bằng
+   * `evaluateOrderingStatus` từ settings ĐÃ fetch — không thêm round-trip DB nào so với trước.
+   */
+  getOrderingStatus(nowMs: number): Promise<OrderingStatus>;
   isPhoneBlacklisted(phone: string): Promise<boolean>;
   countRecentByPhone(phone: string, sinceMs: number): Promise<number>;
   /** Bản cài thật dùng `SELECT ... FOR UPDATE` trong transaction (gap lock, Task 2). */
@@ -147,16 +154,37 @@ export async function submitOrder(
   // trước insert giúp thời gian giữ lock ngắn nhất có thể — ưu tiên đúng ngữ nghĩa lock hơn
   // là song song hoá tối đa.
   //
-  // D-11 — `getOrderingStatus()` đã bị BỎ khỏi đây và khỏi `SubmitDeps`: sau khi guard không còn
-  // nhánh công tắc thì không ai đọc giá trị đó nữa, giữ lại là một round-trip DB mỗi lần đặt đơn
-  // cho một kết quả bị bỏ đi. Trạng thái công tắc vẫn đọc được ở `GET /api/public/store` (nơi trang
-  // khách cần nó để chọn câu chữ) — chỉ luồng submit là không cần.
-  const [settings, isBlacklisted, recentCount, menuItems] = await Promise.all([
+  // 2026-08-16 — `getOrderingStatus` QUAY LẠI `SubmitDeps` (đảo ngược D-11/OD-13, quyết định
+  // chủ dự án trong buổi thảo luận cùng ngày): quán đóng thì chặn tạo đơn mới. Xem nhánh chặn
+  // ngay dưới Promise.all.
+  const [settings, ordering, isBlacklisted, recentCount, menuItems] = await Promise.all([
     deps.readSettings(),
+    deps.getOrderingStatus(ctx.nowMs),
     deps.isPhoneBlacklisted(phone),
     deps.countRecentByPhone(phone, ctx.nowMs - PHONE_WINDOW_MS),
     deps.findMenuItemsByIds(ids),
   ]);
+
+  // ── Chặn đặt đơn khi quán đóng (2026-08-16, đảo ngược OD-13 — vết ghi ở OVERRIDE-DEBT.md) ──
+  // Đứng TRƯỚC mọi guard khác, kể cả OTP: quán đóng thì không có lý do gì đụng tới phiên/quota
+  // của khách. CHỈ chặn TẠO đơn mới — sửa/huỷ đơn WAITING đi đường khác (`edit-order.ts`,
+  // `cancel-order.ts`) và CỐ Ý không chặn: khách rút đơn lúc nửa đêm là đỡ một cú gọi xác nhận
+  // sáng hôm sau. Đây là lưới CUỐI cho người gọi API tay — khách thật đã bị FE khoá nút từ trước.
+  if (!ordering.enabled) {
+    if (ordering.blocking_reason === 'MANUAL_OFF') {
+      throw new ConflictException({
+        code: 'ONLINE_ORDERING_DISABLED',
+        message:
+          settings.online_ordering_off_reason ||
+          `Quán đang tạm ngưng nhận đơn online. Vui lòng quay lại sau hoặc gọi ${settings.store_phone}.`,
+      });
+    }
+    throw new ConflictException({
+      code: 'STORE_CLOSED',
+      message:
+        'Quán đang ngoài giờ nhận đơn online. Giỏ hàng của bạn vẫn được giữ — quay lại đặt khi quán mở cửa nhé.',
+    });
+  }
   // OTP đăng nhập (2026-08-04, chốt với chủ dự án): công tắc bật thì đơn PHẢI kèm phiên OTP
   // còn sống và phiên phải thuộc ĐÚNG SĐT trong đơn — đây là chốt chặn THẬT, cờ
   // `otp_required` ở `GET /store` chỉ là UI hint. Kiểm TRƯỚC mọi guard khác: chưa xác minh

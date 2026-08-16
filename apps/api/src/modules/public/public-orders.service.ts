@@ -31,6 +31,7 @@ import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
 import { auditIpValue, hashIp, resolveIpHashSalt } from './ip-hash.js';
+import { evaluateOrderingStatus } from './store-status.js';
 import {
   EXCLUDED_ITEM_STATES,
   STAGE_LABEL_CANCELLED_BY_CUSTOMER,
@@ -436,9 +437,22 @@ export class PublicOrdersService {
    * transaction. Xem "quy tắc 1 connection" ở docblock `submit()`. */
   private makeDeps(mgr: EntityManager, settings: StoreSettingsMap): SubmitDeps {
     return {
-      // D-11 — `getOrderingStatus` đã bị bỏ khỏi `SubmitDeps`: luồng submit không còn đọc trạng
-      // thái công tắc. `SettingsService.getOrderingStatus()` vẫn là đường duy nhất để biết trạng
-      // thái đó, và vẫn được `PublicStoreController` + `SettingsController` dùng.
+      // 2026-08-16 — `getOrderingStatus` QUAY LẠI `SubmitDeps` (đảo ngược D-11/OD-13): quán đóng
+      // thì submit bị chặn. Tính bằng pure function từ `settings` ĐÃ được truyền vào — không xin
+      // connection thứ hai giữa transaction (quy tắc 1 connection, xem docblock `makeDeps`),
+      // không round-trip DB thêm. KHÔNG gọi `SettingsService.getOrderingStatus()` ở đây vì nó
+      // tự đọc DB.
+      getOrderingStatus: async (nowMs) =>
+        evaluateOrderingStatus(
+          {
+            online_ordering_enabled: settings.online_ordering_enabled,
+            online_ordering_off_mode: settings.online_ordering_off_mode,
+            online_ordering_off_reason: settings.online_ordering_off_reason,
+            online_ordering_off_until_ms: settings.online_ordering_off_until_ms,
+            open_hours: settings.open_hours,
+          },
+          nowMs,
+        ),
       readSettings: async () => {
         const s = settings;
         return {

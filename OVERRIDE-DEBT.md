@@ -213,6 +213,19 @@ Chính chủ dự án chốt sẽ quay lại bàn hiệu năng sau khi xong mile
 
 ## OD-13 — Công tắc "Đóng cửa" không còn chặn đơn (ghi đè M2.D-26 + M2.D-27)
 
+> ⚠ **ĐÃ ĐẢO NGƯỢC 2026-08-16** (chủ dự án, buổi thảo luận cùng ngày): quán đóng (tắt tay LẪN
+> ngoài giờ) **chặn TẠO đơn mới trở lại** — lý do vận hành: đơn lọt vào hàng chờ ngoài giờ tạo
+> trạng thái lơ lửng phải nhớ xử lý, phức tạp hơn giá trị nó mang lại. Khác bản gốc M2.D-26/27:
+> - Nhánh chặn nằm ở `submit-order.ts` (cạnh luật pickup/delivery_enabled), **không** khôi phục
+>   vào `order-guard.ts` và **không** đổi lại ngữ nghĩa `enabled` — đúng lời dặn "Quay lại thì sao"
+>   bên dưới.
+> - CHỈ chặn tạo đơn mới; khách SỬA/HUỶ đơn WAITING sẵn có vẫn được (đỡ cú gọi xác nhận sáng sau).
+> - FE: giỏ hàng vẫn thêm món tự do; nút ĐẶT HÀNG ngoài giờ thành đồng hồ đếm ngược tới giờ mở
+>   (`use-reopen-countdown.ts`, đếm theo `server_now_ms` của `GET /api/public/store`); tắt tay
+>   thì khoá nút + banner câu chủ quán soạn.
+> - 2 mã `STORE_CLOSED`/`ONLINE_ORDERING_DISABLED` có người phát ra trở lại. OD-15 (auto-OFF)
+>   vẫn giữ nguyên trạng thái đã gỡ — muốn hồi sinh phải làm lại cả 3 phần như ghi ở đó.
+
 - **Ngày:** 2026-07-31 · **Người quyết:** chủ dự án, trong buổi discuss phase 9 (D-11 của `09-CONTEXT.md`)
 - **Quyết định gốc:** M2.D-26 + M2.D-27 chốt chặn **2 lớp** khi tắt công tắc — FE khoá/ẩn nút gửi đơn, và
   BE trả `409 ONLINE_ORDERING_DISABLED` (hoặc `STORE_CLOSED` khi ngoài giờ mở cửa) nếu ai gọi API tay.

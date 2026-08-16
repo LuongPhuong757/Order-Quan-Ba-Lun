@@ -29,6 +29,8 @@ const payloadFromSettings = (s: typeof SETTINGS_DEFAULTS_MAP): PublicStoreStatus
   open_hours: s.open_hours,
   is_open_now: true,
   blocking_reason: null,
+  // Mốc cố định thay vì Date.now(): test shape canh HỢP ĐỒNG, không canh đồng hồ.
+  server_now_ms: 1_800_000_000_000,
   closed_banner_text: s.closed_banner_text,
   closed_submit_confirm_text: s.closed_submit_confirm_text,
   pickup_enabled: s.pickup_enabled,

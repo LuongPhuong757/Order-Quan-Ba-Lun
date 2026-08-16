@@ -53,6 +53,38 @@ function toMinutes(hhmm: string): number | null {
  * là "không giới hạn giờ"). Chỗ gọi phải chịu được `null` và đơn giản là không hiện dòng nào.
  */
 export function nextOpeningText(openHours: OpenHourRule[], nowMs: number): string | null {
+  const found = findNextOpening(openHours, nowMs);
+  if (!found) return null;
+  const { dayOffset, dow, clock } = found;
+  if (dayOffset === 0) return `Quán mở lại lúc ${clock} hôm nay.`;
+  if (dayOffset === 1) return `Quán mở lại lúc ${clock} sáng mai.`;
+  return `Quán mở lại ${DOW_LABELS[dow]} lúc ${clock}.`;
+}
+
+/**
+ * MỐC epoch ms của lần mở cửa gần nhất — cho đồng hồ đếm ngược ở nút đặt đơn (2026-08-16).
+ * Cùng một vòng quét với `nextOpeningText` (tách chung thành `findNextOpening`): câu chữ và con
+ * số đếm ngược mà tính bằng hai đường riêng thì sớm muộn banner nói "mở lúc 07:30" trong khi
+ * đồng hồ đếm về một giờ khác.
+ *
+ * `nowMs` NÊN là giờ server đã hiệu chỉnh (xem `server_now_ms` của `GET /api/public/store`) —
+ * hàm này thuần tuý tin `nowMs` được đưa vào, việc hiệu chỉnh là của chỗ gọi.
+ */
+export function nextOpeningMs(openHours: OpenHourRule[], nowMs: number): number | null {
+  const found = findNextOpening(openHours, nowMs);
+  if (!found) return null;
+  // Nửa đêm ICT của "hôm nay" (theo lịch VN), cộng offset ngày + phút mở cửa, rồi trừ ngược
+  // về epoch thật. Cùng kiểu số học +7 cố định như mọi hàm trong file.
+  const vnDate = new Date(nowMs + VN_OFFSET_MS);
+  const vnMidnightShifted = Date.UTC(vnDate.getUTCFullYear(), vnDate.getUTCMonth(), vnDate.getUTCDate());
+  return vnMidnightShifted + found.dayOffset * DAY_MS + found.fromMinutes * 60_000 - VN_OFFSET_MS;
+}
+
+/** Vòng quét 7 ngày dùng chung cho câu chữ + mốc đếm ngược — xem docblock `nextOpeningMs`. */
+function findNextOpening(
+  openHours: OpenHourRule[],
+  nowMs: number,
+): { dayOffset: number; dow: number; fromMinutes: number; clock: string } | null {
   if (openHours.length === 0) return null;
 
   const vnDate = new Date(nowMs + VN_OFFSET_MS);
@@ -70,10 +102,7 @@ export function nextOpeningText(openHours: OpenHourRule[], nowMs: number): strin
     if (from === null || to === null || from >= to) continue; // Rule hỏng — bỏ, đừng đoán.
     if (offset === 0 && nowMinutes >= from) continue; // Hôm nay đã qua giờ mở.
 
-    const clock = rule.from.trim();
-    if (offset === 0) return `Quán mở lại lúc ${clock} hôm nay.`;
-    if (offset === 1) return `Quán mở lại lúc ${clock} sáng mai.`;
-    return `Quán mở lại ${DOW_LABELS[dow]} lúc ${clock}.`;
+    return { dayOffset: offset, dow, fromMinutes: from, clock: rule.from.trim() };
   }
 
   return null;

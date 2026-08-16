@@ -15,9 +15,11 @@ import { PublicOrdersService } from './public-orders.service.js';
 // bootstrap Nest, KHÔNG thêm devDependency test-framework nào (quyết định "hướng nhẹ" đã
 // chốt, xem 08-VALIDATION.md). Phủ 4 nhánh mã lỗi còn lại + snapshot giá (T-08-49).
 //
-// ⚠ 2 `describe` "công tắc OFF thủ công" và "ngoài giờ mở cửa" đã bị XOÁ ở plan 09-12 (D-11), cùng
-// 3 hằng `OrderingStatus` chỉ chúng dùng. KHÔNG phải hồi quy: công tắc nay không chặn submit nữa,
-// nên `getOrderingStatus` đã bị bỏ khỏi `SubmitDeps`. Thay bằng `describe('D-11 …')` bên dưới.
+// ⚠ Lịch sử đổi chiều 2 lần — đọc trước khi sửa các test công tắc:
+//   - plan 09-12 (D-11): gỡ chặn công tắc, `getOrderingStatus` bị bỏ khỏi `SubmitDeps`.
+//   - 2026-08-16: chủ dự án ĐẢO NGƯỢC D-11 (vết ở OVERRIDE-DEBT.md § OD-13) — quán đóng chặn
+//     TẠO đơn mới trở lại, `getOrderingStatus` quay về `SubmitDeps`. `describe('2026-08-16 …')`
+//     bên dưới thay cho `describe('D-11 …')` cũ.
 
 const FAKE_MENU_ITEM: MenuItemLookup = {
   id: '11111111-1111-1111-1111-111111111111',
@@ -51,6 +53,10 @@ function baseSettings(overrides: Partial<SubmitSettings> = {}): SubmitSettings {
 function makeDeps(overrides: Partial<SubmitDeps> = {}): SubmitDeps {
   return {
     readSettings: vi.fn().mockResolvedValue(baseSettings()),
+    // Mặc định QUÁN ĐANG MỞ — mọi test cũ không nói gì về giờ giấc giữ nguyên hành vi.
+    getOrderingStatus: vi
+      .fn()
+      .mockResolvedValue({ enabled: true, is_open_now: true, blocking_reason: null }),
     isPhoneBlacklisted: vi.fn().mockResolvedValue(false),
     countRecentByPhone: vi.fn().mockResolvedValue(0),
     hasOpenOrderForPhoneLocked: vi.fn().mockResolvedValue(false),
@@ -91,24 +97,51 @@ async function captureHttpError(p: Promise<unknown>): Promise<{ code: string; me
   throw new Error('expected submitOrder to throw, but it resolved');
 }
 
-describe('D-11 — công tắc Đóng cửa KHÔNG còn chặn đặt đơn', () => {
-  it('submit thành công dù quán đang Đóng cửa: `SubmitDeps` không còn đường nào biết trạng thái công tắc', async () => {
-    // Bằng chứng cấu trúc: nếu ai khôi phục nhánh chặn thì họ phải thêm lại một dep để đọc trạng
-    // thái công tắc — và khoá đó sẽ xuất hiện ở đây, làm case này đỏ.
-    const deps = makeDeps();
-    expect(Object.keys(deps)).not.toContain('getOrderingStatus');
+describe('2026-08-16 — quán đóng CHẶN tạo đơn mới (đảo ngược D-11/OD-13)', () => {
+  it('ngoài giờ mở cửa → 409 STORE_CLOSED, không insert, không đụng phiên OTP', async () => {
+    const deps = makeDeps({
+      getOrderingStatus: vi
+        .fn()
+        .mockResolvedValue({ enabled: false, is_open_now: false, blocking_reason: 'OUTSIDE_HOURS' }),
+      // Bật OTP để chứng minh nhánh chặn đứng TRƯỚC bước OTP: quán đóng thì không lý do gì
+      // đụng tới phiên/quota của khách.
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ otp_login_enabled: true })),
+    });
+    const err = await captureHttpError(submitOrder(deps, baseInput(), CTX));
+    expect(err).toMatchObject({ code: 'STORE_CLOSED', status: 409 });
+    expect(deps.insertRequest).not.toHaveBeenCalled();
+    expect(deps.findSessionPhone).not.toHaveBeenCalled();
+  });
 
+  it('tắt tay (MANUAL_OFF) có lý do → 409 ONLINE_ORDERING_DISABLED, message là NGUYÊN VĂN lý do', async () => {
+    const deps = makeDeps({
+      getOrderingStatus: vi
+        .fn()
+        .mockResolvedValue({ enabled: false, is_open_now: true, blocking_reason: 'MANUAL_OFF' }),
+      readSettings: vi.fn().mockResolvedValue(baseSettings({ online_ordering_off_reason: 'Hết nguyên liệu' })),
+    });
+    const err = await captureHttpError(submitOrder(deps, baseInput(), CTX));
+    expect(err).toMatchObject({ code: 'ONLINE_ORDERING_DISABLED', status: 409 });
+    expect(err.message).toBe('Hết nguyên liệu');
+    expect(deps.insertRequest).not.toHaveBeenCalled();
+  });
+
+  it('tắt tay KHÔNG có lý do → câu mặc định phải kèm SĐT quán cho khách còn đường đặt', async () => {
+    const deps = makeDeps({
+      getOrderingStatus: vi
+        .fn()
+        .mockResolvedValue({ enabled: false, is_open_now: true, blocking_reason: 'MANUAL_OFF' }),
+    });
+    const err = await captureHttpError(submitOrder(deps, baseInput(), CTX));
+    expect(err.code).toBe('ONLINE_ORDERING_DISABLED');
+    expect(err.message).toContain('0901234567');
+  });
+
+  it('quán đang mở → đặt bình thường (đường chính không đổi)', async () => {
+    const deps = makeDeps();
     const result = await submitOrder(deps, baseInput(), CTX);
     expect(result.order_token).toHaveLength(64);
     expect(deps.insertRequest).toHaveBeenCalledTimes(1);
-  });
-
-  it('có `online_ordering_off_reason` cũng vẫn đặt được — lý do tạm ngưng nay chỉ là chữ hiển thị', async () => {
-    const deps = makeDeps({
-      readSettings: vi.fn().mockResolvedValue(baseSettings({ online_ordering_off_reason: 'Hết nguyên liệu' })),
-    });
-    const result = await submitOrder(deps, baseInput(), CTX);
-    expect(result.order_token).toHaveLength(64);
   });
 });
 

@@ -15,6 +15,12 @@
 // mã lỗi công tắc" giữ được ý nghĩa — xem `order-guard.test.ts` § hồi quy ngược, nơi 2 tên đó được
 // khẳng định tường minh là không bao giờ xuất hiện nữa.)
 //
+// ── 2026-08-16 — OD-13 ĐÃ BỊ ĐẢO NGƯỢC, nhưng KHÔNG phải ở file này ──
+// Chủ dự án quyết định chặn lại việc TẠO đơn khi quán đóng (khách thấy đếm ngược tới giờ mở).
+// Nhánh chặn mới sống ở `submit-order.ts` (cạnh luật pickup/delivery_enabled), KHÔNG quay về đây:
+// module này giữ nguyên bề mặt 4 cờ boolean như test đang khoá. Hai mã lỗi công tắc vì vậy có
+// người phát ra trở lại — từ submit-order, không bao giờ từ guard.
+//
 // ⚠ **D-18 — 4 lớp còn lại ĐỘC LẬP với công tắc, KHÔNG được gỡ theo.** Chúng là toàn bộ hàng rào
 // chống bom đơn của phase 8. Gỡ công tắc mà gỡ nhầm một trong 4 lớp này là mở toang cửa cho lạm
 // dụng (T-09-65, severity HIGH) — và triệu chứng sẽ không lộ ra cho tới khi có người khai thác thật.

@@ -19,6 +19,7 @@ import {
 } from '../lib/cart-store.ts';
 import { readEditSession } from '../lib/order-edit.ts';
 import { nextOpeningText } from '../lib/open-hours.ts';
+import { useReopenCountdown } from '../lib/use-reopen-countdown.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
 import { DeliveryAddress, type AddressMode } from '../components/DeliveryAddress.tsx';
 import { composeAddress, extractAddressDetail } from '../lib/address.ts';
@@ -376,14 +377,22 @@ export function CheckoutPage(): JSX.Element {
   );
   const hasFieldErrors = Object.keys(fieldErrors).length > 0;
   const displayFieldErrors: FieldErrors = { ...fieldErrors, ...extraFieldErrors };
-  // D-11 — `storeOff` GIỮ LẠI nhưng đổi ý nghĩa: nay chỉ để biết CÓ HIỆN BANNER không, không còn
-  // là điều kiện khoá nút gửi đơn. Quán Đóng cửa vẫn nhận đơn bình thường.
+  // 2026-08-16 — `storeOff` LẤY LẠI vai trò khoá nút (đảo ngược D-11/OD-13, quyết định chủ dự án):
+  // quán đóng thì giỏ vẫn giữ nguyên nhưng KHÔNG đặt được đơn — BE cũng chặn thật bằng 409
+  // (`submit-order.ts`), nút khoá ở đây chỉ là lớp lịch sự để khách không phải ăn cú 409 đó.
   const storeOff = store.data ? store.data.ordering_enabled === false : false;
   /** "Quán mở lại lúc …" cho banner đóng cửa — xem `open-hours.ts`. */
   const reopenText = store.data ? nextOpeningText(store.data.open_hours, Date.now()) : null;
+  /**
+   * Đồng hồ đếm ngược tới giờ mở — CHỈ chạy khi lý do đóng là NGOÀI GIỜ (tắt tay không có mốc
+   * hẹn nào để đếm). Về 0 thì `reload()` store: nút chỉ mở khi server xác nhận, không phải khi
+   * đồng hồ FE nghĩ là tới giờ. Chi tiết chống lệch giờ máy khách ở `use-reopen-countdown.ts`.
+   */
+  const reopenCountdown = useReopenCountdown(store.data, store.reload);
   // `tooFar` khoá nút gửi: khác các banner khác của trang này (Đóng cửa, giá đổi) vốn chỉ báo tin,
   // đây là điều kiện BE sẽ từ chối — để nút bấm được là mời khách đi vào một cú 409.
-  const ctaDisabled = hasFieldErrors || submitting || tooFar;
+  // `storeOff` cùng lý lẽ từ 2026-08-16.
+  const ctaDisabled = hasFieldErrors || submitting || tooFar || storeOff;
 
   let ctaHint: string = DISCLOSURE_COPY;
   if (hasFieldErrors) {
@@ -393,6 +402,14 @@ export function CheckoutPage(): JSX.Element {
   }
   if (tooFar) {
     ctaHint = 'Vị trí này ngoài phạm vi giao hàng của quán — vui lòng chọn “Đến lấy tại quán”.';
+  }
+  if (storeOff) {
+    // Đứng SAU các nhánh trên: quán đóng là lý do lấn át — sửa xong field mà quán vẫn đóng thì
+    // nút vẫn khoá, hint phải nói đúng cái đang khoá.
+    ctaHint =
+      store.data?.blocking_reason === 'OUTSIDE_HOURS'
+        ? 'Quán đang ngoài giờ nhận đơn — nút sẽ tự mở khi tới giờ. Giỏ hàng của bạn vẫn được giữ nguyên.'
+        : 'Quán đang tạm ngưng nhận đơn online. Giỏ hàng của bạn vẫn được giữ nguyên.';
   }
 
   /** SĐT đang nhập ĐÃ có phiên OTP đúng số trên thiết bị chưa — quyết định có chen bước OTP. */
@@ -497,6 +514,13 @@ export function CheckoutPage(): JSX.Element {
         setOtpOpen(true);
         return;
       }
+      // Quán vừa đóng NGAY GIỮA lúc khách đứng ở checkout (2026-08-16) — payload store trên tay
+      // khách đã cũ. Reload để trang tự lật sang trạng thái đóng: nút thành đồng hồ/khoá, banner
+      // hiện, và khách hiểu vì sao cú bấm vừa rồi bị từ chối (toast lỗi vẫn hiện bên dưới).
+      if (result.error.code === 'STORE_CLOSED' || result.error.code === 'ONLINE_ORDERING_DISABLED') {
+        setConfirmOpen(false);
+        store.reload();
+      }
       // GIỮ popup mở và hiện lỗi NGAY TRONG popup (bug 2026-08-04): bản đầu đóng popup rồi
       // vẽ banner ở cuối trang — banner nằm ngoài khung nhìn nên khách bấm xong thấy "không
       // có gì xảy ra". Lỗi phải hiện đúng nơi mắt khách đang nhìn. Riêng VALIDATION_FAILED
@@ -542,15 +566,15 @@ export function CheckoutPage(): JSX.Element {
       </Link>
       <h1 style={heading}>Thông tin nhận hàng</h1>
 
-      {/* D-11 — MỘT banner duy nhất, dùng câu chủ quán tự soạn nguyên văn. Tone `brand`
+      {/* MỘT banner duy nhất, dùng câu chủ quán tự soạn nguyên văn (D-14). Tone `brand`
           (nền hồng ấm, cùng tông theme) chứ không phải `info` xanh dương: theo phân vai trong
           BannerNotice, tin về QUÁN là brand — info dành riêng cho tin về ĐƠN của khách.
-          Bản cũ có ternary phân biệt `OUTSIDE_HOURS` vs tắt-thủ-công + 2 chuỗi cứng ở FE: nay bỏ hết,
-          vì với khách thì cả hai đều là "quán đang đóng cửa, vẫn đặt được" — chỉ 1 câu, do chủ quán
-          soạn. Không `action` gọi quán: câu chữ đã do chủ quán tự viết nên họ tự quyết có mời gọi
+          Không `action` gọi quán: câu chữ đã do chủ quán tự viết nên họ tự quyết có mời gọi
           điện hay không; thêm nút cứng ở đây là ép một ngữ cảnh mà họ không kiểm soát được.
           Banner co giãn theo độ dài chuỗi: chuỗi dài phải xuống dòng đủ, KHÔNG được cắt bớt hay ép
-          giữ trên một dòng — chủ quán viết bao nhiêu thì khách đọc được bấy nhiêu (T-09-69). */}
+          giữ trên một dòng — chủ quán viết bao nhiêu thì khách đọc được bấy nhiêu (T-09-69).
+          ⚠ 2026-08-16: quán đóng nay CHẶN đặt đơn trở lại (đảo ngược D-11) — câu chủ quán soạn
+          từ thời "vẫn đặt được" có thể đang hứa điều ngược lại; nhắc chủ quán rà lại chữ ở /admin. */}
       {storeOff && store.data && (
         <BannerNotice
           tone="brand"
@@ -808,8 +832,17 @@ export function CheckoutPage(): JSX.Element {
         />
       )}
 
+      {/* Ngoài giờ: nhãn nút THÀNH đồng hồ đếm ngược (2026-08-16) — khách nhìn nút là biết còn
+          bao lâu, không phải đọc banner mới hiểu vì sao không bấm được. Tắt tay/không tính được
+          mốc thì giữ nhãn cũ, hint + banner lo phần giải thích. */}
       <StickyCta
-        label={submitting ? SUBMITTING_LABEL : CTA_LABEL}
+        label={
+          submitting
+            ? SUBMITTING_LABEL
+            : storeOff && reopenCountdown !== null
+              ? `⏰ Mở lại sau ${reopenCountdown}`
+              : CTA_LABEL
+        }
         onClick={handleCtaClick}
         disabled={ctaDisabled}
         hint={ctaHint}
