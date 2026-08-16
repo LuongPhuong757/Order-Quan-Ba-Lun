@@ -36,7 +36,20 @@ export type Bell = {
 const BEEP_MS = 180;
 const BEEP_GAP_MS = 220;
 const TONE_HZ = [880, 660] as const;
-const PEAK_GAIN = 0.25;
+/**
+ * 0.25 → 0.85 (2026-08-16, yêu cầu chủ dự án: chuông đơn online phải LỚN HƠN — quán giờ đông
+ * ồn, 2 tiếng bíp nhỏ chìm nghỉm và đơn nằm chờ không ai biết). 0.85 chứ không phải 1.0: sine
+ * full-scale ở loa điện thoại rẻ bắt đầu rè, và cần chừa đầu cho ramp không clip.
+ */
+const PEAK_GAIN = 0.85;
+/**
+ * Hồi chuông = lặp cặp bíp 3 lần (~1.8s) thay vì 1 lần (2026-08-16, cùng yêu cầu trên):
+ * to hơn mà vẫn chỉ kêu 0.4s thì người đứng bếp quay lưng lại vẫn lỡ — dài hơn mới là thứ
+ * kéo được sự chú ý. 3 lần là trần: chuông réo cả chục giây thì thành còi báo động, và
+ * `ring()` bị gọi lại ở lần poll sau nếu đơn vẫn chưa ai nhận.
+ */
+const RING_CYCLES = 3;
+const CYCLE_MS = BEEP_GAP_MS + BEEP_MS + 200;
 
 export function createBell(): Bell {
   let ctx: AudioContext | null = null;
@@ -91,8 +104,11 @@ export function createBell(): Bell {
       try {
         if (!ctx || ctx.state !== 'running') return; // chưa mở khoá → im lặng, không throw
         const start = ctx.currentTime;
-        tone(ctx, TONE_HZ[0], start, BEEP_MS / 1000);
-        tone(ctx, TONE_HZ[1], start + BEEP_GAP_MS / 1000, BEEP_MS / 1000);
+        for (let cycle = 0; cycle < RING_CYCLES; cycle += 1) {
+          const cycleStart = start + (cycle * CYCLE_MS) / 1000;
+          tone(ctx, TONE_HZ[0], cycleStart, BEEP_MS / 1000);
+          tone(ctx, TONE_HZ[1], cycleStart + BEEP_GAP_MS / 1000, BEEP_MS / 1000);
+        }
       } catch {
         // Chuông hỏng không được làm sập trang.
       }

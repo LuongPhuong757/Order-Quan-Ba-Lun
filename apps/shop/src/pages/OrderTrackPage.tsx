@@ -407,10 +407,13 @@ export function OrderTrackPage(): JSX.Element {
               2026-08-06). Ở đơn còn sửa được, ngay trên đã có nút Sửa đơn / Huỷ đơn nên câu này
               chỉ là chữ thừa chen giữa nút và đường về menu.
               ⚠ KHÔNG bỏ nốt nhánh còn lại: đơn đã duyệt thì `PATCH` không dùng được, cú điện
-              thoại là đường DUY NHẤT khách sửa được đơn. */}
+              thoại là đường DUY NHẤT khách sửa được đơn.
+              Câu chữ đổi 2026-08-16 (chủ dự án): "muốn sửa đơn" → "có vấn đề gì" — cú gọi này
+              không chỉ để sửa đơn (hỏi đơn tới đâu, báo shipper chưa thấy...), câu cũ hẹp hơn
+              thực tế. */}
           {!canModify && (
             <p style={contactHelpText}>
-              Nếu muốn sửa đơn, vui lòng gọi quán:{' '}
+              Nếu có vấn đề gì vui lòng liên lạc:{' '}
               {/* Icon ống nghe đi kèm số (2026-08-07): trang /guide có mục "Gọi quán" kèm đúng
                   glyph này, hướng dẫn chỉ đúng khi trên màn thật cũng có nó. Đồng thời một dòng
                   số trần rất dễ bị đọc thành chữ, có icon thì thấy ngay là bấm gọi được. */}
