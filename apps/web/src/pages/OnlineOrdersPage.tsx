@@ -63,7 +63,7 @@ import {
   type FulfillmentStep,
 } from '../lib/fulfillment.ts';
 import { C, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
-import { customerMapHref } from '../lib/customer-map.ts';
+import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
@@ -602,12 +602,8 @@ function QueueView({
     let missing = 0;
     for (const r of visibleItems) {
       if (r.fulfillment_type !== 'DELIVERY') continue;
-      const hasCoords =
-        r.customer_lat !== null &&
-        r.customer_lng !== null &&
-        Number.isFinite(Number(r.customer_lat)) &&
-        Number.isFinite(Number(r.customer_lng));
-      if (hasCoords) ok += 1;
+      // Cùng một định nghĩa "có vị trí" với chip nguồn địa chỉ trên card — xem `customer-map.ts`.
+      if (hasSharedLocation(r)) ok += 1;
       else missing += 1;
     }
     return { mappableCount: ok, unmappableCount: missing };
@@ -1191,6 +1187,45 @@ function DistanceChip({ row }: { row: AdminOnlineOrderRow }) {
     >
       🛵 {row.distance_km} km
       {fee === 0 ? ' · miễn phí ship' : fee !== null ? ` · +${fmtVnd(fee)}` : ''}
+    </span>
+  );
+}
+
+/**
+ * Chip NGUỒN ĐỊA CHỈ của đơn giao tận nơi (2026-08-16, yêu cầu chủ dự án): người duyệt đơn phải
+ * phân biệt được ngay 2 loại đơn vì cách làm việc khác nhau:
+ *   - "Khách chia sẻ vị trí" (xanh) → có ghim GPS đúng chỗ nhà khách, shipper bấm "Mở bản đồ"
+ *     là đi được, dòng địa chỉ chữ chỉ để đối chiếu số nhà.
+ *   - "Địa chỉ nhập tay" (xám) → KHÔNG có ghim, tìm nhà dựa hoàn toàn vào dòng chữ khách gõ —
+ *     nên đọc kỹ trước khi duyệt, mơ hồ thì gọi khách hỏi trước chứ đừng để shipper ôm hàng đi dò.
+ * Trước đây phân biệt này chỉ lộ GIÁN TIẾP qua việc nút "Mở bản đồ" có hiện hay không — kiểu
+ * suy luận từ sự-vắng-mặt mà không ai dạy thì không ai biết.
+ *
+ * Màu: xanh `ok*` = có toạ độ tin được, xám trung tính = thiếu. KHÔNG dùng hổ phách/đỏ — đơn
+ * nhập tay là chuyện bình thường hằng ngày (Zalo chặn định vị...), không phải sự cố. Chữ luôn
+ * nói đủ nghĩa, màu chỉ là kênh phụ (rule color-only-meaning, giống DistanceChip).
+ */
+function AddressSourceChip({ shared }: { shared: boolean }) {
+  const tone = shared
+    ? { bg: C.okBg, border: C.okBorder, text: C.okText }
+    : { bg: C.pageBg, border: C.border, text: C.muted };
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
+        padding: '2px 8px',
+        borderRadius: 999,
+        fontSize: 13,
+        fontWeight: 700,
+        whiteSpace: 'nowrap',
+        background: tone.bg,
+        border: `1px solid ${tone.border}`,
+        color: tone.text,
+      }}
+    >
+      {shared ? '📍 Khách chia sẻ vị trí' : '✍️ Địa chỉ nhập tay'}
     </span>
   );
 }
@@ -1780,6 +1815,9 @@ function OrderCard({
                 nào để lệch với bảng giá: xanh = trong vùng miễn phí, hổ phách = có phụ phí, xám =
                 chưa tính được. Chữ luôn nói đủ nghĩa, màu chỉ là kênh phụ (rule color-only-meaning). */}
             {row.distance_km !== null && <DistanceChip row={row} />}
+            {/* Nguồn địa chỉ — xem docblock AddressSourceChip. Đứng TRƯỚC link "Mở bản đồ" để
+                câu chuyện đọc xuôi: đây là loại đơn gì → rồi mới tới việc làm được với nó. */}
+            <AddressSourceChip shared={hasSharedLocation(row)} />
             {/* Link bản đồ dựng qua `customerMapHref`: có map_link khách dán thì dùng, không thì
                 dựng từ toạ độ GPS. Trước 2026-08-05 chỗ này đọc thẳng `row.customer_map_link`
                 nên đơn khách bấm "Chia sẻ vị trí" (toạ độ chính xác nhất) lại KHÔNG có nút mở

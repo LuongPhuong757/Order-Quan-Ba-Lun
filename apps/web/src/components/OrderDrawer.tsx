@@ -7,7 +7,7 @@ import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpButton, HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
-import { customerMapHref } from '../lib/customer-map.ts';
+import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
 
 type OrderItem = {
   id: string;
@@ -615,6 +615,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                           <div style={{ color: '#374151', wordBreak: 'break-word' }}>
                             📍 {order.customer_address}
                             {order.distance_km ? ` · ${order.distance_km} km` : ''}
+                          </div>
+                        )}
+                        {/* Nguồn địa chỉ (2026-08-16) — cùng định nghĩa với chip ở màn Đơn online
+                            (`hasSharedLocation`). Shipper cần biết TRƯỚC KHI ĐI: có ghim GPS đúng
+                            nhà khách, hay chỉ có dòng chữ khách gõ (mơ hồ thì gọi hỏi trước).
+                            Chưa có cả địa chỉ lẫn toạ độ (nhân viên chưa điền) thì không hiện —
+                            "địa chỉ nhập tay" cho một đơn chưa có dòng địa chỉ nào là nói sai. */}
+                        {(order.customer_address || hasSharedLocation(order)) && (
+                          <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2, color: hasSharedLocation(order) ? '#047857' : '#6b7280' }}>
+                            {hasSharedLocation(order)
+                              ? '📍 Khách chia sẻ vị trí — ghim bản đồ đúng chỗ nhà khách'
+                              : '✍️ Địa chỉ nhập tay — chưa có ghim bản đồ, tìm nhà theo dòng địa chỉ'}
                           </div>
                         )}
                         {/* Nút mở bản đồ cho người đi ship — dùng chung `customerMapHref` với màn

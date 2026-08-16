@@ -29,6 +29,28 @@ function isHttpUrl(raw: string): boolean {
   return trimmed.startsWith('https://') || trimmed.startsWith('http://');
 }
 
+/**
+ * Đơn giao tận nơi có 2 nguồn địa chỉ và người duyệt/shipper cần phân biệt được (2026-08-16):
+ *  - Khách bấm "Chia sẻ vị trí" → có `customer_lat/lng` GPS, ghim bản đồ ĐÚNG CHỖ NHÀ KHÁCH.
+ *  - Khách gõ tay tỉnh/xã/số nhà → KHÔNG có toạ độ, chỉ có chữ — tìm nhà dựa hoàn toàn vào
+ *    dòng địa chỉ (và cú điện thoại nếu không thấy).
+ * Một hàm một chỗ cho cả màn Đơn online lẫn drawer bàn — hai màn tự so `customer_lat` là hai
+ * định nghĩa "có vị trí" sớm muộn lệch nhau.
+ *
+ * Kiểm `Number.isFinite` chứ không chỉ khác null: decimal MySQL về qua mysql2 là CHUỖI, và
+ * chuỗi rác trong DB mà lọt qua đây thì chip nói "có vị trí" cho một đơn không mở được bản đồ.
+ * (Đơn cũ chỉ có `customer_map_link` không kèm toạ độ hợp lệ cũng tính là NHẬP TAY: link khách
+ * dán có thể là link tìm kiếm không mang toạ độ — không đảm bảo được "ghim đúng chỗ".)
+ */
+export function hasSharedLocation(row: CustomerMapSource): boolean {
+  return (
+    row.customer_lat != null &&
+    row.customer_lng != null &&
+    Number.isFinite(Number(row.customer_lat)) &&
+    Number.isFinite(Number(row.customer_lng))
+  );
+}
+
 export function customerMapHref(row: CustomerMapSource): string | null {
   if (row.customer_map_link && isHttpUrl(row.customer_map_link)) {
     return row.customer_map_link.trim();
