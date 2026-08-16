@@ -343,25 +343,30 @@ const row: CSSProperties = {
   boxSizing: 'border-box',
 };
 
+/** 60 → 108px (chỉ đạo 2026-08-16: "ảnh quá bé khó nhìn, cho to hẳn lên") — người lớn tuổi
+ *  phải NHÌN RÕ ảnh hiện tại mới biết món nào cần chụp lại. Hàng cao lên theo, chấp nhận cuộn
+ *  dài hơn: trang này là trang làm việc với ẢNH, ảnh chính là nội dung chứ không phải trang trí. */
+const THUMB_SIZE = 108;
+
 const thumb: CSSProperties = {
-  width: 60,
-  height: 60,
+  width: THUMB_SIZE,
+  height: THUMB_SIZE,
   objectFit: 'cover',
-  borderRadius: 10,
+  borderRadius: 12,
   flexShrink: 0,
   background: 'var(--bg-sunken)',
 };
 
 const thumbEmpty: CSSProperties = {
-  width: 60,
-  height: 60,
+  width: THUMB_SIZE,
+  height: THUMB_SIZE,
   flexShrink: 0,
-  borderRadius: 10,
+  borderRadius: 12,
   border: '2px dashed var(--border-default)',
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  fontSize: 24,
+  fontSize: 40,
   background: 'var(--bg-sunken)',
 };
 
