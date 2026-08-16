@@ -102,6 +102,9 @@ services:
       ESMS_SANDBOX: ${ESMS_SANDBOX:-}
       OTP_CHANNEL: ${OTP_CHANNEL:-log}
       OTP_SMS_TEMPLATE: ${OTP_SMS_TEMPLATE:-}
+      # Link bí mật cập nhật ảnh món (2026-08-16) — ≥16 ký tự thì /anh-mon/<token> hoạt động,
+      # bỏ trống = tính năng tắt hẳn. Xem public-menu-photos.controller.ts.
+      MENU_PHOTO_TOKEN: ${MENU_PHOTO_TOKEN:-}
     volumes:
       # Persist menu images (mất container không mất file)
       - ./uploads:/app/apps/api/uploads

@@ -19,10 +19,6 @@ import {
 import type { Request } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { join } from 'node:path';
-import { mkdirSync } from 'node:fs';
-import { randomBytes } from 'node:crypto';
-import sharp from 'sharp';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
@@ -32,12 +28,9 @@ import { MenuGroup } from './entities/menu-group.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { toTitleCase } from '../../common/text.js';
-
-const UPLOAD_DIR = 'uploads/menu';
-const ALLOWED_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-const MAX_FILE_BYTES = 10 * 1024 * 1024; // 10MB
-
-mkdirSync(UPLOAD_DIR, { recursive: true });
+// Pipeline ảnh tách sang menu-image.ts (2026-08-16) — dùng chung với trang cập nhật ảnh qua
+// link bí mật (public-menu-photos.controller.ts). Sửa luật resize/nén thì sửa Ở ĐÓ.
+import { MENU_IMAGE_ALLOWED_MIMES as ALLOWED_MIMES, MENU_IMAGE_MAX_BYTES as MAX_FILE_BYTES, saveMenuImage } from './menu-image.js';
 
 class CreateMenuItemDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
@@ -174,19 +167,8 @@ export class MenuController {
   )
   async uploadImage(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Thiếu file ảnh' });
-
-    const name = `${Date.now()}-${randomBytes(6).toString('hex')}.webp`;
-    try {
-      await sharp(file.buffer)
-        .rotate()
-        .resize({ width: 800, withoutEnlargement: true })
-        .webp({ quality: 82 })
-        .toFile(join(UPLOAD_DIR, name));
-    } catch {
-      throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Ảnh không đọc được, vui lòng chọn ảnh khác' });
-    }
-
-    return { data: { url: `/uploads/menu/${name}` } };
+    const url = await saveMenuImage(file.buffer);
+    return { data: { url } };
   }
 
   /** POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).

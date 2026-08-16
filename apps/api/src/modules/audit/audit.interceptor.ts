@@ -53,6 +53,10 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/orders\/by-table\/[^/]+$/) && method === 'GET') return 'order.opened_drawer';
 
   // Menu
+  // Upload ảnh qua link bí mật (2026-08-16) — `path` ở đây là route PATTERN (`:token`), không
+  // phải giá trị thật, nên token KHÔNG lọt vào audit_log; đặt tên action rõ để soi được
+  // "ảnh món bị đổi từ link, lúc nào".
+  if (path.match(/^\/api\/public\/menu-photos\/[^/]+\/[^/]+$/) && method === 'POST') return 'menu.image_updated_via_link';
   if (path === '/menu' && method === 'POST') return 'menu.item_created';
   if (path === '/menu/bulk-import' && method === 'POST') return 'menu.bulk_imported';
   if (path === '/menu/upload-image' && method === 'POST') return 'menu.image_uploaded';

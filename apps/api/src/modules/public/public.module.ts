@@ -7,6 +7,7 @@ import { PublicOrdersController } from './public-orders.controller.js';
 import { PublicTopDishesController } from './public-top-dishes.controller.js';
 import { PublicShipQuoteController } from './public-ship-quote.controller.js';
 import { PublicGeoLogController } from './public-geo-log.controller.js';
+import { PublicMenuPhotosController } from './public-menu-photos.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
 import { PublicOtpController } from './public-otp.controller.js';
 import { PublicOtpService } from './public-otp.service.js';
@@ -70,6 +71,8 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     PublicShipQuoteController,
     // POST /api/public/geo-log (2026-08-16) — nhật ký chẩn đoán nút "Chia sẻ vị trí".
     PublicGeoLogController,
+    // GET/POST /api/public/menu-photos/:token (2026-08-16) — cập nhật ảnh món qua link bí mật.
+    PublicMenuPhotosController,
     // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
     PublicOtpController,
   ],

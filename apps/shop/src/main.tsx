@@ -1,4 +1,4 @@
-import { StrictMode, lazy } from 'react';
+import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
@@ -40,6 +40,12 @@ const TopDishesPage = lazy(() =>
 const GuidePage = lazy(() =>
   import('./pages/GuidePage.tsx').then((m) => ({ default: m.GuidePage })),
 );
+// Trang cập nhật ảnh món qua link bí mật (2026-08-16) — cho NGƯỜI NHÀ chủ quán, không phải
+// khách. Lazy để khách thường không tải một byte nào của nó; route đặt NGOÀI AppShell (không
+// header/giỏ/footer — xem docblock trong file).
+const PhotoUploadPage = lazy(() =>
+  import('./pages/PhotoUploadPage.tsx').then((m) => ({ default: m.PhotoUploadPage })),
+);
 
 const root = document.getElementById('root');
 if (!root) throw new Error('#root không tồn tại trong index.html');
@@ -48,6 +54,16 @@ createRoot(root).render(
   <StrictMode>
     <BrowserRouter>
       <Routes>
+        {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.
+            Suspense riêng vì vỏ chờ của AppShell không bao tới đây. */}
+        <Route
+          path="/anh-mon/:token"
+          element={
+            <Suspense fallback={null}>
+              <PhotoUploadPage />
+            </Suspense>
+          }
+        />
         <Route element={<AppShell />}>
           <Route path="/" element={<MenuPage />} />
           <Route path="/cart" element={<CartPage />} />
