@@ -14,8 +14,11 @@ import { useApi } from '../lib/use-api.ts';
  * Vì đối tượng đó, MỌI quyết định UI ở đây nghiêng về to-rõ-ít-chữ:
  *  - ĐỨNG NGOÀI AppShell: không header, không giỏ hàng, không footer — màn hình chỉ có đúng
  *    một việc. Người không quen công nghệ lạc vào menu khách là không tìm được đường về.
- *  - Món CHƯA CÓ ẢNH dồn hết lên đầu thành mục riêng — đó chính là việc cần làm; xong việc
- *    thì mục này tự rỗng, nhìn phát biết còn bao nhiêu món.
+ *  - MỘT danh sách theo thứ tự menu + 3 chip lọc (Tất cả / Chưa có ảnh / Đã có ảnh). Bản đầu
+ *    chia 2 mục cứng "chưa có ảnh" trên, "đã có ảnh" dưới — chủ dự án bắt ngay lỗi tư duy
+ *    (2026-08-16): vừa thêm ảnh xong thì món BIẾN MẤT khỏi chỗ đang đứng (nhảy xuống mục
+ *    dưới), người dùng tưởng hỏng. Nay món đứng YÊN tại chỗ sau khi thêm ảnh — thumbnail đổi
+ *    + dòng "✓ Đã xong" ngay dưới hàng; muốn dồn việc thì bấm chip "Chưa có ảnh".
  *  - Cả HÀNG là một nút (cao ≥76px), không có nút con nhỏ xíu phải nhắm trúng.
  *  - `<input type="file" accept="image/*">`: điện thoại tự mở đúng hộp "Chụp ảnh / Thư viện"
  *    quen thuộc của máy — không tự chế trình chụp ảnh nào cả.
@@ -45,12 +48,14 @@ function normalize(value: string): string {
 }
 
 type RowStatus = { kind: 'uploading' | 'done' | 'error'; message: string };
+type PhotoFilter = 'all' | 'missing' | 'having';
 
 export function PhotoUploadPage(): JSX.Element {
   const { token = '' } = useParams();
   const list = useApi(`/api/public/menu-photos/${token}`, PhotoList);
 
   const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState<PhotoFilter>('all');
   // Ảnh vừa upload xong — đè lên dữ liệu gốc để thumbnail đổi ngay không cần tải lại trang.
   const [uploadedUrls, setUploadedUrls] = useState<Record<string, string>>({});
   const [status, setStatus] = useState<Record<string, RowStatus>>({});
@@ -67,8 +72,13 @@ export function PhotoUploadPage(): JSX.Element {
   }, [list.data, search]);
 
   const urlOf = (it: PhotoItem): string | null => uploadedUrls[it.id] ?? it.image_url;
-  const missing = items.filter((it) => urlOf(it) === null);
-  const having = items.filter((it) => urlOf(it) !== null);
+  // Đếm trên danh sách ĐÃ QUA TÌM KIẾM: đang tìm "cháo" thì con số trên chip trả lời đúng câu
+  // đang hỏi ("mấy món cháo chưa có ảnh"), không phải con số của cả menu.
+  const missingCount = items.filter((it) => urlOf(it) === null).length;
+  const shown =
+    filter === 'all'
+      ? items
+      : items.filter((it) => (filter === 'missing' ? urlOf(it) === null : urlOf(it) !== null));
 
   const pick = (it: PhotoItem): void => {
     targetRef.current = it;
@@ -149,30 +159,40 @@ export function PhotoUploadPage(): JSX.Element {
         style={searchInput}
       />
 
+      {/* 3 chip lọc — món ĐỨNG YÊN theo thứ tự menu, chip chỉ thu hẹp danh sách. Con số trên
+          chip "Chưa có ảnh" chính là "còn bao nhiêu việc". */}
+      <div style={chipRow}>
+        {(
+          [
+            { v: 'all', label: `Tất cả (${items.length})` },
+            { v: 'missing', label: `Chưa có ảnh (${missingCount})` },
+            { v: 'having', label: `Đã có ảnh (${items.length - missingCount})` },
+          ] as { v: PhotoFilter; label: string }[]
+        ).map((c) => (
+          <button
+            key={c.v}
+            type="button"
+            onClick={() => setFilter(c.v)}
+            style={filter === c.v ? chipActive : chip}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+
       {list.loading && <p style={{ fontSize: 16, color: 'var(--text-muted)' }}>Đang tải danh sách món...</p>}
 
-      {!list.loading && missing.length > 0 && (
-        <section>
-          <h2 style={sectionTitle}>
-            Món chưa có ảnh <span style={{ color: 'var(--danger-600, #dc2626)' }}>({missing.length})</span>
-          </h2>
-          {missing.map((it) => (
-            <Row key={it.id} item={it} url={null} status={status[it.id]} onPick={pick} />
-          ))}
-        </section>
-      )}
-
-      {!list.loading && missing.length === 0 && items.length > 0 && (
+      {!list.loading && missingCount === 0 && items.length > 0 && filter !== 'having' && (
         <p style={allDone}>🎉 Tất cả món đều đã có ảnh! Bấm vào món nào đó nếu muốn thay ảnh đẹp hơn.</p>
       )}
 
-      {!list.loading && having.length > 0 && (
-        <section>
-          <h2 style={sectionTitle}>Món đã có ảnh — bấm để đổi</h2>
-          {having.map((it) => (
-            <Row key={it.id} item={it} url={urlOf(it)} status={status[it.id]} onPick={pick} />
-          ))}
-        </section>
+      {!list.loading &&
+        shown.map((it) => <Row key={it.id} item={it} url={urlOf(it)} status={status[it.id]} onPick={pick} />)}
+
+      {!list.loading && shown.length === 0 && items.length > 0 && (
+        <p style={{ fontSize: 16, color: 'var(--text-muted)' }}>
+          {filter === 'missing' ? 'Không còn món nào thiếu ảnh trong danh sách này.' : 'Không có món nào trong mục này.'}
+        </p>
       )}
 
       {!list.loading && items.length === 0 && (
@@ -280,10 +300,32 @@ const searchInput: CSSProperties = {
   marginBottom: 16,
 };
 
-const sectionTitle: CSSProperties = {
+const chipRow: CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  flexWrap: 'wrap',
+  marginBottom: 14,
+};
+
+/** Chip lọc — cao ≥44px cho ngón tay, chữ 15px đủ đọc với người lớn tuổi. */
+const chip: CSSProperties = {
+  minHeight: 44,
+  padding: '0 14px',
   fontSize: 15,
-  fontWeight: 700,
-  margin: '18px 0 8px',
+  fontWeight: 600,
+  fontFamily: 'var(--font-body)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 999,
+  background: 'var(--bg-surface)',
+  color: 'var(--text-strong)',
+  cursor: 'pointer',
+};
+
+const chipActive: CSSProperties = {
+  ...chip,
+  border: '1px solid var(--brand-600)',
+  background: 'var(--brand-600)',
+  color: 'var(--text-on-brand)',
 };
 
 const row: CSSProperties = {
@@ -323,13 +365,15 @@ const thumbEmpty: CSSProperties = {
   background: 'var(--bg-sunken)',
 };
 
+/** Tên món hiển thị ĐỦ, xuống dòng thoải mái — KHÔNG ellipsis (chỉ đạo 2026-08-16: người dùng
+ *  lớn tuổi, tên bị cắt "Cháo Tim C..." là không biết mình đang thêm ảnh cho món nào). Hàng đã
+ *  có minHeight, tên dài thì hàng tự cao lên. */
 const rowName: CSSProperties = {
   display: 'block',
   fontSize: 17,
   fontWeight: 700,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  lineHeight: 1.35,
+  overflowWrap: 'break-word',
   color: 'var(--text-strong)',
 };
 
