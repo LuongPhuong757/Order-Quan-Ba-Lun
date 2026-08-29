@@ -36,9 +36,18 @@ const PIN_ICON = L.divIcon({
   iconAnchor: [10, 20],
 });
 
-const TILE_URL = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
-// Ghi công OpenStreetMap là ĐIỀU KIỆN dùng tile miễn phí của họ, không phải phần trang trí bỏ được.
-const TILE_ATTRIBUTION = '© OpenStreetMap';
+/**
+ * Nền bản đồ lấy từ CARTO (vẫn là dữ liệu OpenStreetMap), KHÔNG lấy thẳng từ tile.openstreetmap.org.
+ *
+ * Lý do (2026-08-29): nhiều DNS ở VN trả NXDOMAIN cho `openstreetmap.org` — trình duyệt không tải
+ * nổi một ô nền nào, bản đồ ra một mảng xám trong khi chấm/ghim vẫn vẽ đúng (chúng do Leaflet tự
+ * vẽ, không cần mạng). Máy quán không sửa được DNS, nên đổi nguồn nền là cách chữa duy nhất nằm
+ * trong tầm tay mình. `basemaps.cartocdn.com` phân giải bình thường trên cùng đường mạng đó.
+ */
+const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
+const TILE_SUBDOMAINS = 'abcd';
+// Ghi công là ĐIỀU KIỆN dùng tile miễn phí, không phải phần trang trí bỏ được — ghi cả hai bên.
+const TILE_ATTRIBUTION = '© OpenStreetMap · © CARTO';
 
 type Props = {
   lat: number;
@@ -96,7 +105,11 @@ export default function LocationMap({ lat, lng, onMove }: Props) {
       zoomControl: false,
       attributionControl: true,
     });
-    L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(map);
+    L.tileLayer(TILE_URL, {
+      attribution: TILE_ATTRIBUTION,
+      subdomains: TILE_SUBDOMAINS,
+      maxZoom: 20,
+    }).addTo(map);
 
     const marker = L.marker([lat, lng], { icon: PIN_ICON, draggable: false }).addTo(map);
     marker.on('dragend', () => {
