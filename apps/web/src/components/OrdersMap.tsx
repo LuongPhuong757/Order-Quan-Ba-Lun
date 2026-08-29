@@ -43,17 +43,23 @@ import {
  */
 
 /**
- * Nền bản đồ lấy từ CARTO (vẫn là dữ liệu OpenStreetMap), KHÔNG lấy thẳng từ tile.openstreetmap.org.
+ * Nền bản đồ lấy từ máy chủ cộng đồng OSM Đức, KHÔNG phải `tile.openstreetmap.org`.
  *
- * Lý do (2026-08-29): nhiều DNS ở VN trả NXDOMAIN cho `openstreetmap.org` — trình duyệt không tải
- * nổi một ô nền nào, bản đồ ra một mảng xám trong khi chấm/ghim vẫn vẽ đúng (chúng do Leaflet tự
- * vẽ, không cần mạng). Máy quán không sửa được DNS, nên đổi nguồn nền là cách chữa duy nhất nằm
- * trong tầm tay mình. `basemaps.cartocdn.com` phân giải bình thường trên cùng đường mạng đó.
+ * Lý do (2026-08-29): DNS ở đây trỏ `tile.openstreetmap.org` về 127.0.0.1 — một cú chặn cố ý, chứ
+ * không phải mạng lỗi. Trình duyệt không tải nổi ô nền nào, bản đồ ra một mảng xám trong khi
+ * chấm/ghim vẫn vẽ đúng (Leaflet tự vẽ chúng, không cần mạng). Máy quán và điện thoại KHÁCH thì
+ * mình không sửa DNS được, nên đổi nguồn nền là cách chữa duy nhất nằm trong tầm tay.
+ *
+ * ĐÃ THỬ VÀ LOẠI: `basemaps.cartocdn.com` phân giải được nhưng CARTO nay đóng cửa nền miễn phí —
+ * tile về vẫn 200 OK, chỉ là bên trong ảnh đã in đè chữ "API KEY REQUIRED" kín màn hình. Mã HTTP
+ * không nói ra điều đó, phải nhìn mới thấy.
+ *
+ * `openstreetmap.de` là tên miền khác nên không dính cú chặn, phục vụ đúng style OSM chuẩn, không
+ * cần key. Máy ở Đức nên ô nền về chậm hơn CDN một nhịp — đánh đổi chấp nhận được để bản đồ hiện.
  */
-const TILE_URL = 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-const TILE_SUBDOMAINS = 'abcd';
-// Ghi công là điều kiện dùng tile miễn phí — của cả nguồn dữ liệu lẫn bên phát nền.
-const TILE_ATTRIBUTION = '© OpenStreetMap · © CARTO';
+const TILE_URL = 'https://tile.openstreetmap.de/{z}/{x}/{y}.png';
+// Ghi công là điều kiện dùng tile miễn phí của họ.
+const TILE_ATTRIBUTION = '© OpenStreetMap';
 
 /** Bán kính chấm đơn. 7px (bản đầu) quá nhỏ để nhắm trúng bằng ngón tay trên tablet của quán —
  *  10px cho đường kính 20px, cộng viền trắng là vừa tầm chạm mà chưa nuốt mất cụm chấm gần nhau. */
@@ -220,11 +226,7 @@ export default function OrdersMap({ rows, storeLat, storeLng, onPickOrder }: Pro
       preferCanvas: true,
       zoomControl: true,
     });
-    L.tileLayer(TILE_URL, {
-      attribution: TILE_ATTRIBUTION,
-      subdomains: TILE_SUBDOMAINS,
-      maxZoom: 20,
-    }).addTo(map);
+    L.tileLayer(TILE_URL, { attribution: TILE_ATTRIBUTION, maxZoom: 19 }).addTo(map);
 
     if (storeLat !== null && storeLng !== null) {
       L.marker([storeLat, storeLng], { icon: STORE_ICON, zIndexOffset: 1000 })
