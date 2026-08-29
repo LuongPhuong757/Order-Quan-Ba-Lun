@@ -37,9 +37,13 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
+type OpenHoursSpan = { from: string; to: string };
+
+// Mỗi ngày là một DANH SÁCH khoảng (2026-08-30): bán sáng, nghỉ trưa, mở lại tối tới rạng sáng.
+// `spans: []` ở một ngoại lệ nghĩa là NGHỈ CẢ NGÀY hôm đó — trạng thái trước đây không nói được.
 type OpenHoursInput = {
-  default: { from: string; to: string };
-  exceptions: Array<{ dow: OpenHoursDow; from: string; to: string }>;
+  default: OpenHoursSpan[];
+  exceptions: Array<{ dow: OpenHoursDow; spans: OpenHoursSpan[] }>;
 };
 
 // Chỉ khai các field trang này thực sự đọc/ghi — BE trả nhiều hơn (escalate_*, notify_*...),
@@ -116,20 +120,47 @@ const DOW_VALUES: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
 // là rất khó dùng. Dropdown tự dựng thì chữ trên màn là chữ mình in: luôn 00:00 → 24:00.
 // Bước 30 phút: giờ mở quán không ai đặt 07:12. Giá trị lẻ ĐÃ LƯU từ thời input cũ (vd "07:15")
 // được chèn thêm làm option để select không âm thầm hiển thị sai giá trị đang có trong DB.
-/** "24:00" — nghĩa là "đến hết ngày", chỉ dành cho ô giờ ĐÓNG (`endOfDay`). */
-const END_OF_DAY = '24:00';
+/**
+ * Giờ ĐÓNG chạy tiếp qua 24:00 để nói được ca đêm (2026-08-30): chọn "26:00" là quán bán tới 2h
+ * sáng hôm sau. Trước đó dropdown dừng ở "24:00" nên ca đêm đơn giản là KHÔNG cài được — chủ quán
+ * bán tới 2h sáng mà phần mềm tự khoá đặt hàng đúng lúc nửa đêm.
+ *
+ * Con số 26:00 thì không ai đọc ra "2h sáng" được, nên option in kèm nghĩa: "26:00 → 02:00 hôm
+ * sau". Giá trị lưu vẫn là "26:00" — cùng một quy ước với BE và trang khách.
+ *
+ * Trần 30:00 (6h sáng) khớp `HHMM_TO` ở settings.controller. Quá đó thì ca đêm đã liếm sang ca hôm
+ * sau và thứ cần sửa là giờ MỞ.
+ */
+const LAST_CLOSE_MINUTES = 30 * 60;
 
 function timeOptions(current: string, endOfDay: boolean): string[] {
   const opts: string[] = [];
-  for (let h = 0; h < 24; h += 1) {
-    for (const m of [0, 30]) {
-      opts.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    }
+  const lastMinutes = endOfDay ? LAST_CLOSE_MINUTES : 23 * 60 + 30;
+  for (let mins = 0; mins <= lastMinutes; mins += 30) {
+    opts.push(`${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`);
   }
-  if (endOfDay) opts.push(END_OF_DAY);
   if (current && !opts.includes(current)) opts.push(current);
-  // So chuỗi là đủ: mọi giá trị đều dạng HH:mm nên thứ tự chữ = thứ tự thời gian ("24:00" cuối).
+  // So chuỗi là đủ: mọi giá trị đều dạng HH:mm 2 chữ số nên thứ tự chữ = thứ tự thời gian.
   return opts.sort();
+}
+
+/** 1560 → "26:00". Nghịch đảo của `minutesOf`, dùng khi dựng khoảng mới. */
+function hhmm(minutes: number): string {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
+}
+
+/** "26:00" → 1560. Dùng cho phép kiểm độ dài ca. */
+function minutesOf(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** Nhãn hiện trên dropdown. "26:00" một mình là câu đố; kèm nghĩa thì không phải đoán. */
+function timeOptionLabel(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (h < 24) return hhmm;
+  const next = `${String(h - 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return `${hhmm} → ${next} hôm sau`;
 }
 
 function TimeSelect({
@@ -145,10 +176,62 @@ function TimeSelect({
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       {timeOptions(value, endOfDay).map((t) => (
         <option key={t} value={t}>
-          {t}
+          {timeOptionLabel(t)}
         </option>
       ))}
     </select>
+  );
+}
+
+/**
+ * Danh sách khoảng giờ của MỘT ngày (2026-08-30) — mỗi dòng một khoảng, xoá được, thêm được.
+ *
+ * Vì sao là danh sách chứ không phải một cặp ô: quán nghỉ trưa rồi mở lại tối là chuyện thường,
+ * và với đúng một khoảng thì cách duy nhất diễn đạt là kéo dài khoảng đó qua cả buổi nghỉ — tức
+ * nói dối khách đúng vào lúc họ bấm đặt hàng.
+ *
+ * Danh sách RỖNG hiện chữ "Nghỉ cả ngày" chứ không hiện gì cả: một khoảng trắng không nói được
+ * nó nghĩa là "nghỉ" hay "chưa cấu hình", mà hai thứ đó dẫn tới hai hành vi ngược nhau.
+ */
+function SpanListEditor({
+  spans,
+  onChange,
+  onAdd,
+}: {
+  spans: OpenHoursSpan[];
+  onChange: (spans: OpenHoursSpan[]) => void;
+  onAdd: () => void;
+}) {
+  const update = (i: number, patch: Partial<OpenHoursSpan>) =>
+    onChange(spans.map((sp, idx) => (idx === i ? { ...sp, ...patch } : sp)));
+
+  return (
+    <div style={{ display: 'grid', gap: 6 }}>
+      {spans.length === 0 && (
+        <span style={{ fontSize: 13, color: C.muted }}>Nghỉ cả ngày — khách không đặt được đơn.</span>
+      )}
+      {spans.map((sp, i) => (
+        <div className="st-inline" key={i}>
+          <TimeSelect value={sp.from} onChange={(v) => update(i, { from: v })} />
+          <span>–</span>
+          <TimeSelect value={sp.to} onChange={(v) => update(i, { to: v })} endOfDay />
+          <button
+            type="button"
+            className="secondary"
+            style={{ color: C.danger }}
+            onClick={() => onChange(spans.filter((_, idx) => idx !== i))}
+            aria-label="Xoá khoảng giờ này"
+          >
+            Xoá
+          </button>
+        </div>
+      ))}
+      <div>
+        <button type="button" className="secondary" onClick={onAdd}>
+          + Thêm khoảng
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -617,21 +700,65 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const addException = () => {
     const free = DOW_VALUES.find((d) => !usedDows.has(d));
     if (free === undefined) return;
-    setExceptions([...exceptions, { dow: free, from: hoursDefault.from, to: hoursDefault.to }]);
+    setExceptions([...exceptions, { dow: free, spans: hoursDefault.map((sp) => ({ ...sp })) }]);
   };
   const removeException = (i: number) => {
     setExceptions(exceptions.filter((_, idx) => idx !== i));
   };
-  const updateException = (i: number, patch: Partial<{ dow: OpenHoursDow; from: string; to: string }>) => {
-    setExceptions(exceptions.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  const setExceptionDow = (i: number, dow: OpenHoursDow) => {
+    setExceptions(exceptions.map((e, idx) => (idx === i ? { ...e, dow } : e)));
+  };
+  const setExceptionSpans = (i: number, spans: OpenHoursSpan[]) => {
+    setExceptions(exceptions.map((e, idx) => (idx === i ? { ...e, spans } : e)));
+  };
+
+  /** Khoảng mới nối SAU khoảng cuối để không đè lên nó (BE từ chối khoảng đè nhau). Ngày đang
+   *  trống thì mở bằng khung chiều-tối, khung mà quán này thực sự bán. */
+  const appendSpan = (spans: OpenHoursSpan[]): OpenHoursSpan[] => {
+    const last = spans[spans.length - 1];
+    if (!last) return [{ from: '17:00', to: '22:00' }];
+    const start = minutesOf(last.to);
+    if (start >= 23 * 60 + 30) return spans; // Hết chỗ trong ngày.
+    return [...spans, { from: hhmm(start), to: hhmm(Math.min(start + 120, 30 * 60)) }];
   };
 
   const saveHours = async () => {
     const errs: Record<string, string> = {};
-    if (hoursDefault.from >= hoursDefault.to) errs.default = 'Giờ mở phải trước giờ đóng';
+    // Ca đêm ghi bằng giờ chạy tiếp ("26:00" = 2h sáng hôm sau) nên phép so vẫn là `from < to`,
+    // không cần nhánh riêng cho ca qua nửa đêm. Thêm trần 24 tiếng: "00:00 – 30:00" lọt qua phép
+    // so trên nhưng là một ca dài 30 tiếng chồng lên chính nó ngày hôm sau. BE chặn lần nữa —
+    // đây chỉ là để chủ quán thấy lỗi ngay tại ô, không phải sau một vòng mạng.
+    const dayErr = (spans: OpenHoursSpan[]): string | null => {
+      const sorted = [...spans].sort((a, b) => (a.from < b.from ? -1 : 1));
+      let prevEnd: number | null = null;
+      for (const sp of sorted) {
+        if (sp.from >= sp.to) return 'Giờ đóng phải sau giờ mở';
+        if (minutesOf(sp.to) - minutesOf(sp.from) > 24 * 60) {
+          return 'Một ca không được dài quá 24 tiếng';
+        }
+        if (prevEnd !== null && minutesOf(sp.from) < prevEnd) {
+          return 'Hai khoảng trong cùng một ngày đang đè lên nhau';
+        }
+        prevEnd = minutesOf(sp.to);
+      }
+      return null;
+    };
+    const defaultErr = dayErr(hoursDefault);
+    if (defaultErr) errs.default = defaultErr;
     exceptions.forEach((ex, i) => {
-      if (ex.from >= ex.to) errs[String(i)] = 'Giờ mở phải trước giờ đóng';
+      const err = dayErr(ex.spans);
+      if (err) errs[String(i)] = err;
     });
+    // Xoá sạch mọi khoảng thì `open_hours` về mảng rỗng, mà rỗng nghĩa là "không giới hạn giờ,
+    // mở 24/24" — đúng ngược lại điều chủ quán vừa định làm. BE cũng chặn; báo ở đây để họ thấy
+    // ngay tại form thay vì sau một vòng mạng.
+    const totalSpans =
+      hoursDefault.length * (7 - exceptions.length) +
+      exceptions.reduce((n, ex) => n + ex.spans.length, 0);
+    if (totalSpans === 0) {
+      errs.default =
+        'Phải còn ít nhất một khoảng giờ mở. Muốn ngừng nhận đơn thì dùng công tắc Đóng cửa ở trên.';
+    }
     setHoursErr(errs);
     if (Object.keys(errs).length > 0) return;
     setSavingHours(true);
@@ -901,7 +1028,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           // popup + đồng hồ đếm ngược tới giờ mở, nút ĐẶT HÀNG khoá. Câu cũ "khách vẫn đặt
           // được đơn" mô tả hành vi đã bỏ.
           open_hours_configured
-            ? 'Ngoài khoảng này khách KHÔNG đặt được đơn — trang khách hiện đồng hồ đếm ngược tới giờ mở.'
+            ? 'Ngoài các khoảng này khách KHÔNG đặt được đơn — trang khách hiện đồng hồ đếm ngược tới giờ mở. Bán qua đêm thì chọn giờ đóng sau 24:00 (vd 26:00 = 2h sáng hôm sau). Nghỉ trưa thì tách làm nhiều khoảng.'
             : 'Chưa cấu hình — quán nhận đơn 24/24. Muốn giữ nhận đơn cả ngày thì cứ để trống. Giá trị bên dưới là gợi ý, CHƯA phải dữ liệu đã lưu.'
         }
         dirty={hoursDirty}
@@ -912,18 +1039,11 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         <div style={{ display: 'grid', gap: 12 }}>
           <div>
             <label>Mọi ngày</label>
-            <div className="st-inline">
-              <TimeSelect
-                value={hoursDefault.from}
-                onChange={(v) => setHoursDefault((h) => ({ ...h, from: v }))}
-              />
-              <span>–</span>
-              <TimeSelect
-                value={hoursDefault.to}
-                onChange={(v) => setHoursDefault((h) => ({ ...h, to: v }))}
-                endOfDay
-              />
-            </div>
+            <SpanListEditor
+              spans={hoursDefault}
+              onChange={setHoursDefault}
+              onAdd={() => setHoursDefault((h) => appendSpan(h))}
+            />
             {hoursErr.default && <div className="field-error">{hoursErr.default}</div>}
           </div>
 
@@ -931,11 +1051,11 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
             <div style={{ display: 'grid', gap: 8 }}>
               <label style={{ marginBottom: 0 }}>Ngoại lệ theo thứ</label>
               {exceptions.map((ex, i) => (
-                <div key={i}>
+                <div key={i} style={{ display: 'grid', gap: 6 }}>
                   <div className="st-inline">
                     <select
                       value={ex.dow}
-                      onChange={(e) => updateException(i, { dow: Number(e.target.value) as OpenHoursDow })}
+                      onChange={(e) => setExceptionDow(i, Number(e.target.value) as OpenHoursDow)}
                     >
                       {DOW_VALUES.filter((d) => d === ex.dow || !usedDows.has(d)).map((d) => (
                         <option key={d} value={d}>
@@ -943,17 +1063,21 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
                         </option>
                       ))}
                     </select>
-                    <TimeSelect value={ex.from} onChange={(v) => updateException(i, { from: v })} />
-                    <span>–</span>
-                    <TimeSelect value={ex.to} onChange={(v) => updateException(i, { to: v })} endOfDay />
                     <button
                       type="button"
                       className="secondary"
                       style={{ color: C.danger }}
                       onClick={() => removeException(i)}
                     >
-                      Xoá
+                      Bỏ ngoại lệ
                     </button>
+                  </div>
+                  <div style={{ paddingLeft: 12 }}>
+                    <SpanListEditor
+                      spans={ex.spans}
+                      onChange={(spans) => setExceptionSpans(i, spans)}
+                      onAdd={() => setExceptionSpans(i, appendSpan(ex.spans))}
+                    />
                   </div>
                   {hoursErr[String(i)] && <div className="field-error">{hoursErr[String(i)]}</div>}
                 </div>

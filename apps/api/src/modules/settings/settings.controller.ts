@@ -8,6 +8,7 @@ import { normalizeShipFeeTiers } from '@order/schemas';
 import type { Request } from 'express';
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
   IsArray,
   IsIn,
   IsInt,
@@ -25,14 +26,25 @@ import { SettingsService } from './settings.service.js';
 import { collapseToDefaultExceptions, endOfTodayIctMs, expandToWeek } from '../public/store-status.js';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
-// Giờ ĐÓNG nhận thêm đúng một giá trị "24:00" = mở tới hết ngày (2026-08-16, đi cùng ô chọn giờ
-// 24h ở /admin). CHỈ ô `to`: "24:00" làm giờ MỞ là vô nghĩa (mọi giờ đóng đều đứng trước nó).
-// `inRange()` của store-status so bằng SỐ PHÚT nên 24:00 = 1440 tự đúng, không cần nhánh riêng;
-// `toMinutes()` phía shop (open-hours.ts) đã được dạy nhận 24:00 cùng ngày.
-const HHMM_TO = /^(([01]\d|2[0-3]):[0-5]\d|24:00)$/;
+// Giờ ĐÓNG chạy tiếp QUA 24:00 để nói được ca đêm: "26:00" = 2h sáng hôm sau (2026-08-30, nới từ
+// mốc "24:00 = hết ngày" của 2026-08-16). Trần 30:00 = 6h sáng — quá đó thì ca đêm đã liếm sang ca
+// hôm sau, và cái cần sửa là giờ MỞ chứ không phải giờ đóng.
+// CHỈ ô `to`: giờ MỞ quá 24:00 là vô nghĩa (không có "mở lúc 26:00" — đó là mở lúc 2h sáng hôm sau,
+// tức rule của ngày hôm sau). `inRange()` của store-status so bằng SỐ PHÚT nên 26:00 = 1560 tự
+// đúng; `isWithinOpenHours` soi thêm rule hôm qua để bắt phần ca tràn sang.
+const HHMM_TO = /^(([01]\d|2[0-3]):[0-5]\d|(2[4-9]):[0-5]\d|30:00)$/;
 const DOW_VALUES = [0, 1, 2, 3, 4, 5, 6] as const;
 
-class OpenHoursDefaultDto {
+/** "26:00" → 1560. Chỉ gọi sau khi @Matches đã duyệt, nên không cần phòng chuỗi rác. */
+function hhmmToMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  return h * 60 + m;
+}
+
+/** Trần 4 khoảng/ngày: quá đó là bảng giờ không ai đọc nổi, và gần như chắc chắn do bấm nhầm. */
+const MAX_SPANS_PER_DAY = 4;
+
+class OpenHoursSpanDto {
   @IsString() @Matches(HHMM)
   from!: string;
 
@@ -44,17 +56,20 @@ class OpenHoursExceptionDto {
   @IsIn(DOW_VALUES)
   dow!: (typeof DOW_VALUES)[number];
 
-  @IsString() @Matches(HHMM)
-  from!: string;
-
-  @IsString() @Matches(HHMM_TO)
-  to!: string;
+  // Mảng RỖNG là hợp lệ và có nghĩa hẳn hoi: nghỉ cả ngày hôm đó.
+  @IsArray()
+  @ArrayMaxSize(MAX_SPANS_PER_DAY)
+  @ValidateNested({ each: true })
+  @Type(() => OpenHoursSpanDto)
+  spans!: OpenHoursSpanDto[];
 }
 
 class OpenHoursInputDto {
-  @ValidateNested()
-  @Type(() => OpenHoursDefaultDto)
-  default!: OpenHoursDefaultDto;
+  @IsArray()
+  @ArrayMaxSize(MAX_SPANS_PER_DAY)
+  @ValidateNested({ each: true })
+  @Type(() => OpenHoursSpanDto)
+  default!: OpenHoursSpanDto[];
 
   @IsArray()
   @ValidateNested({ each: true })
@@ -132,7 +147,39 @@ export class SettingsController {
     const patch: Record<string, unknown> = {};
 
     if (dto.open_hours_input) {
-      patch.open_hours = expandToWeek(dto.open_hours_input);
+      // Regex chỉ soi từng ô rời; ba luật dưới là quan hệ GIỮA các ô nên phải kiểm ở đây.
+      const dayLists: OpenHoursSpanDto[][] = [
+        dto.open_hours_input.default,
+        ...(dto.open_hours_input.exceptions ?? []).map((ex) => ex.spans),
+      ];
+      for (const spans of dayLists) {
+        const sorted = [...spans].sort((a, b) => (a.from < b.from ? -1 : 1));
+        let prevEnd: number | null = null;
+        for (const span of sorted) {
+          const from = hhmmToMinutes(span.from);
+          const to = hhmmToMinutes(span.to);
+          // "20:00 – 19:00" lưu được thì quán khoá đặt hàng 24/24 mà không ai hiểu vì sao.
+          if (to <= from) throw new BadRequestException('Giờ đóng phải sau giờ mở');
+          // "00:00 – 30:00" là một ca dài 30 tiếng chồng lên chính nó ngày hôm sau.
+          if (to - from > 24 * 60) throw new BadRequestException('Một ca không được dài quá 24 tiếng');
+          // Hai khoảng đè nhau không sai về kết quả (vẫn ra "đang mở") nhưng là bảng giờ nói dối:
+          // chủ quán đọc "17:00–20:00" và "19:00–26:00" rồi tưởng có hai ca tách biệt.
+          if (prevEnd !== null && from < prevEnd) {
+            throw new BadRequestException('Các khoảng giờ trong cùng một ngày không được đè lên nhau');
+          }
+          prevEnd = to;
+        }
+      }
+
+      const expanded = expandToWeek(dto.open_hours_input);
+      // Mảng rỗng KHÔNG có nghĩa "nghỉ cả tuần" mà là "không giới hạn giờ, mở 24/24" (spec §4.1).
+      // Nếu để lọt, chủ quán xoá sạch khoảng giờ với ý đóng cửa và nhận lại đúng điều ngược lại.
+      if (expanded.length === 0) {
+        throw new BadRequestException(
+          'Phải có ít nhất một khoảng giờ mở. Muốn nhận đơn 24/24 thì dùng nút tắt giờ mở cửa, muốn ngừng nhận đơn thì dùng công tắc Đóng cửa.',
+        );
+      }
+      patch.open_hours = expanded;
     }
     if (dto.online_ordering_enabled !== undefined) {
       patch.online_ordering_enabled = dto.online_ordering_enabled;
@@ -220,7 +267,7 @@ export class SettingsController {
     const openHoursConfigured = settings.open_hours.length > 0;
     const open_hours_input = openHoursConfigured
       ? collapseToDefaultExceptions(settings.open_hours)
-      : { default: { from: '10:00', to: '22:00' }, exceptions: [] };
+      : { default: [{ from: '10:00', to: '22:00' }], exceptions: [] };
     const ordering_status = await this.settings.getOrderingStatus(Date.now());
     return {
       data: {

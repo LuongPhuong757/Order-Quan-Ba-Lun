@@ -127,11 +127,14 @@ describe('evaluateOrderingStatus — múi giờ ICT lệch ngày với UTC', () 
   });
 });
 
+// 2026-08-30 — `OpenHoursInput` đổi shape để chứa NHIỀU khoảng mỗi ngày: `{from,to}` thành
+// `[{from,to}]`. Hai test dưới đây chỉ được cập nhật cho khớp KIỂU; điều chúng khẳng định
+// (7 phần tử, ngoại lệ ghi đè đúng dow, expand∘collapse = identity) giữ nguyên từng chữ.
 describe('expandToWeek — mặc định + ngoại lệ theo thứ (D-15)', () => {
   it('trả đúng 7 phần tử, ngoại lệ ghi đè đúng dow', () => {
     const result = expandToWeek({
-      default: { from: '10:00', to: '22:00' },
-      exceptions: [{ dow: 0, from: '11:00', to: '20:00' }],
+      default: [{ from: '10:00', to: '22:00' }],
+      exceptions: [{ dow: 0, spans: [{ from: '11:00', to: '20:00' }] }],
     });
     expect(result).toHaveLength(7);
     expect(result.find((r) => r.dow === 0)).toEqual({ dow: 0, from: '11:00', to: '20:00' });
@@ -142,8 +145,8 @@ describe('expandToWeek — mặc định + ngoại lệ theo thứ (D-15)', () =
 describe('collapseToDefaultExceptions — nghịch đảo của expandToWeek', () => {
   it('expand rồi collapse ra lại input ban đầu', () => {
     const input = {
-      default: { from: '10:00', to: '22:00' },
-      exceptions: [{ dow: 0 as const, from: '11:00', to: '20:00' }],
+      default: [{ from: '10:00', to: '22:00' }],
+      exceptions: [{ dow: 0 as const, spans: [{ from: '11:00', to: '20:00' }] }],
     };
     const rules = expandToWeek(input);
     expect(collapseToDefaultExceptions(rules)).toEqual(input);

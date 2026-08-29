@@ -18,6 +18,7 @@
 // ICT (UTC+7) cố định quanh năm, không có giờ mùa hè (xem Sources trong 08-RESEARCH.md)
 // → không cần thư viện timezone, cộng offset cố định là đủ chính xác.
 const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
+const MINUTES_PER_DAY = 24 * 60;
 
 export type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -59,6 +60,19 @@ export function evaluateOrderingStatus(s: StoreOrderingSettings, nowMs: number):
   return { enabled: true, is_open_now: true, blocking_reason: null };
 }
 
+/**
+ * ── CA QUÁ NỬA ĐÊM (2026-08-30) ──
+ *
+ * Quán bán tới 2-3h sáng. Giờ đóng vì thế ghi bằng SỐ PHÚT TIẾP TỤC CHẠY QUA 24:00: "26:00" nghĩa
+ * là 2h sáng HÔM SAU. Không dùng cách "to < from thì hiểu là qua đêm" — với cách đó `16:00–02:00`
+ * và `02:00–16:00` trông giống hệt nhau trên màn hình chủ quán, và mọi phép so `from < to` rải rác
+ * khắp FE/BE đều phải mọc thêm một nhánh ngoại lệ. Ghi "26:00" thì bất biến `from < to` còn đúng ở
+ * mọi nơi, và "24:00" (mở tới hết ngày, có từ 2026-08-16) chỉ là một trường hợp của cùng quy ước.
+ *
+ * Hệ quả: lúc 01:00 thứ Ba, ca đang chạy là ca của thứ HAI. Nên phải soi HAI rule — của hôm nay,
+ * và của hôm qua với mốc thời gian đẩy thêm 24h. Thiếu vế thứ hai thì đúng 00:00 quán tự khoá đặt
+ * hàng giữa lúc bếp vẫn đỏ lửa.
+ */
 function isWithinOpenHours(openHours: OpenHourRule[], nowMs: number): boolean {
   // open_hours rỗng (chưa cấu hình, default spec §4.1) → KHÔNG giới hạn giờ, luôn mở.
   // Điều chỉnh BẮT BUỘC so với bản mẫu 08-RESEARCH.md: bản mẫu trả `false` khi không
@@ -69,9 +83,21 @@ function isWithinOpenHours(openHours: OpenHourRule[], nowMs: number): boolean {
   const vnDate = new Date(vnMs);
   const dow = vnDate.getUTCDay() as OpenHoursDow;
   const minutesNow = vnDate.getUTCHours() * 60 + vnDate.getUTCMinutes();
-  const rule = openHours.find((r) => r.dow === dow);
-  if (!rule) return false; // nghỉ ngày đó (rule thiếu cho dow hiện tại)
-  return inRange(minutesNow, rule.from, rule.to);
+
+  // `filter` chứ không `find`: một ngày có thể có NHIỀU khoảng (2026-08-30) — vd bán sáng
+  // 06:00–10:00, nghỉ trưa, rồi 17:00–29:00. `find` lấy khoảng đầu tiên và im lặng nuốt phần còn
+  // lại, nghĩa là quán mở nhưng phần mềm bảo đóng.
+  const today = openHours.filter((r) => r.dow === dow);
+  if (today.some((r) => inRange(minutesNow, r.from, r.to))) return true;
+
+  // Ca đêm của hôm qua còn kéo sang: 01:00 hôm nay = phút thứ 1500 tính từ 00:00 hôm qua.
+  // Với rule đóng trước 24:00 thì `minutesNow + 1440 >= 1440 > to` nên vế này luôn sai — hành vi
+  // của các quán đóng trong ngày không đổi một li.
+  const yesterdayDow = ((dow + 6) % 7) as OpenHoursDow;
+  const yesterday = openHours.filter((r) => r.dow === yesterdayDow);
+  if (yesterday.some((r) => inRange(minutesNow + MINUTES_PER_DAY, r.from, r.to))) return true;
+
+  return false;
 }
 
 function inRange(minutes: number, from: string, to: string): boolean {
@@ -80,20 +106,41 @@ function inRange(minutes: number, from: string, to: string): boolean {
   return minutes >= fh * 60 + fm && minutes < th * 60 + tm;
 }
 
-// Shape "mặc định + ngoại lệ" cho D-15 (UI /admin/settings), tách khỏi shape lưu DB
-// (spec §schema không đổi — open_hours vẫn luôn 7 phần tử khi đọc/ghi DB).
+// Shape "mặc định + ngoại lệ" cho D-15 (UI /admin/settings), tách khỏi shape lưu DB.
+//
+// ── NHIỀU KHOẢNG MỖI NGÀY (2026-08-30) ──
+// Trước đây mỗi thứ đúng một khoảng, nên `open_hours` luôn có đúng 7 phần tử. Nay một thứ có thể
+// có nhiều khoảng (bán sáng, nghỉ trưa, mở lại tối) hoặc KHÔNG khoảng nào (nghỉ cả ngày), nên
+// `open_hours` dài ngắn tuỳ cấu hình. Cột DB không đổi kiểu — nó vốn đã là mảng `{dow, from, to}`,
+// chỉ là chưa ai xếp hai dòng cùng một `dow` vào đó.
+//
+// ⚠ Mảng RỖNG có nghĩa "không giới hạn giờ, mở 24/24" (spec §4.1) chứ KHÔNG phải "nghỉ cả tuần".
+// Nên cấu hình mà mọi ngày đều rỗng phải bị chặn ở controller — nếu lọt, chủ quán bấm "nghỉ hết"
+// rồi nhận đơn suốt đêm.
+const ALL_DOWS: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
+
+export type OpenHoursSpan = { from: string; to: string };
+
 export type OpenHoursInput = {
-  default: { from: string; to: string };
-  exceptions: Array<{ dow: OpenHoursDow; from: string; to: string }>;
+  default: OpenHoursSpan[];
+  exceptions: Array<{ dow: OpenHoursDow; spans: OpenHoursSpan[] }>;
 };
 
 export function expandToWeek(input: OpenHoursInput): OpenHourRule[] {
-  const byDow = new Map(input.exceptions.map((e) => [e.dow, e]));
-  const allDows: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
-  return allDows.map((dow) => {
-    const ex = byDow.get(dow);
-    return ex ?? { dow, ...input.default };
-  });
+  const byDow = new Map(input.exceptions.map((e) => [e.dow, e.spans]));
+  return ALL_DOWS.flatMap((dow) =>
+    (byDow.get(dow) ?? input.default).map((span) => ({ dow, from: span.from, to: span.to })),
+  );
+}
+
+/** Khoá so sánh "hai ngày có giống hệt khung giờ không". Đã sắp theo `from` nên thứ tự người dùng
+ *  nhập vào không làm hai ngày giống nhau trông thành khác nhau. */
+function spansKey(spans: OpenHoursSpan[]): string {
+  return spans.map((s) => `${s.from}-${s.to}`).join('|');
+}
+
+function sortSpans(spans: OpenHoursSpan[]): OpenHoursSpan[] {
+  return [...spans].sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
 }
 
 // M2.D-28 — "OFF đến hết hôm nay": mốc lưu vào `online_ordering_off_until_ms` là 23:59:59.999
@@ -114,18 +161,32 @@ export function endOfTodayIctMs(nowMs: number): number {
   return endOfDayVnMs - VN_OFFSET_MS;
 }
 
-// Chiều ngược lại (đọc để hiển thị form): dòng nào KHÔNG khớp giá trị phổ biến nhất → thành exception.
+// Chiều ngược lại (đọc để hiển thị form): gom rule về từng thứ, thứ nào KHÔNG khớp khung giờ phổ
+// biến nhất trong tuần → thành ngoại lệ.
+//
+// Quét đủ cả 7 thứ chứ không chỉ những thứ có rule: một thứ vắng mặt trong `open_hours` nghĩa là
+// NGHỈ cả ngày, và form phải hiện ra được điều đó (ngoại lệ với 0 khoảng) thay vì âm thầm cho nó
+// thừa hưởng khung giờ mặc định — lưu lại một phát là ngày nghỉ biến mất.
 export function collapseToDefaultExceptions(rules: OpenHourRule[]): OpenHoursInput {
+  const spansByDow = new Map<OpenHoursDow, OpenHoursSpan[]>(
+    ALL_DOWS.map((dow) => [
+      dow,
+      sortSpans(rules.filter((r) => r.dow === dow).map((r) => ({ from: r.from, to: r.to }))),
+    ]),
+  );
+
   const counts = new Map<string, number>();
-  for (const r of rules) {
-    const key = `${r.from}-${r.to}`;
+  for (const dow of ALL_DOWS) {
+    const key = spansKey(spansByDow.get(dow)!);
     counts.set(key, (counts.get(key) ?? 0) + 1);
   }
-  const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
-  const [mostCommonKey] = sorted[0];
-  const [from, to] = mostCommonKey.split('-');
-  const exceptions = rules
-    .filter((r) => `${r.from}-${r.to}` !== mostCommonKey)
-    .map((r) => ({ dow: r.dow, from: r.from, to: r.to }));
-  return { default: { from, to }, exceptions };
+  const [mostCommonKey] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  const defaultDow = ALL_DOWS.find((dow) => spansKey(spansByDow.get(dow)!) === mostCommonKey)!;
+  return {
+    default: spansByDow.get(defaultDow)!,
+    exceptions: ALL_DOWS.filter((dow) => spansKey(spansByDow.get(dow)!) !== mostCommonKey).map(
+      (dow) => ({ dow, spans: spansByDow.get(dow)! }),
+    ),
+  };
 }

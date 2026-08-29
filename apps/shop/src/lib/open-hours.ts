@@ -36,16 +36,27 @@ const DOW_LABELS = [
 ] as const;
 
 /** "07:30" → 450. Chuỗi rác trả `null` để chỗ gọi bỏ qua rule đó thay vì tính ra NaN.
- *  "24:00" = 1440 là hợp lệ (2026-08-16): giờ ĐÓNG "hết ngày" mà /admin nay cho chọn — BE đã
- *  nhận nó (HHMM_TO ở settings.controller). Chỉ đúng chuỗi đó; 24:01 trở đi vẫn là rác. */
+ *  Giờ ĐÓNG chạy tiếp qua 24:00 cho ca đêm: "26:00" = 1560 = 2h sáng hôm sau (2026-08-30, nới từ
+ *  mốc "24:00 = hết ngày" của 2026-08-16). Trần 30:00 khớp `HHMM_TO` ở settings.controller —
+ *  nới rộng hơn BE thì shop sẽ vẽ ra một giờ mà BE không bao giờ lưu nổi. */
+const MAX_CLOSE_MINUTES = 30 * 60;
+
 function toMinutes(hhmm: string): number | null {
   const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!match) return null;
   const h = Number(match[1]);
   const m = Number(match[2]);
-  if (h === 24) return m === 0 ? 1440 : null;
-  if (h > 23 || m > 59) return null;
-  return h * 60 + m;
+  if (m > 59) return null;
+  const total = h * 60 + m;
+  return total > MAX_CLOSE_MINUTES ? null : total;
+}
+
+/** 1560 → "02:00". Chỉ để HIỂN THỊ: khách đọc "quán bán tới 26:00" thì phải tự trừ trong đầu. */
+function formatClock(minutes: number): string {
+  const wrapped = minutes % (24 * 60);
+  const h = Math.floor(wrapped / 60);
+  const m = wrapped % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
 /**
@@ -97,15 +108,21 @@ function findNextOpening(
   // 0 = hôm nay (chỉ tính nếu giờ mở còn ở phía trước), tới 7 = đúng hôm nay tuần sau.
   for (let offset = 0; offset <= 7; offset += 1) {
     const dow = (todayDow + offset) % 7;
-    const rule = openHours.find((r) => r.dow === dow);
-    if (!rule) continue; // Nghỉ ngày đó.
 
-    const from = toMinutes(rule.from);
-    const to = toMinutes(rule.to);
-    if (from === null || to === null || from >= to) continue; // Rule hỏng — bỏ, đừng đoán.
-    if (offset === 0 && nowMinutes >= from) continue; // Hôm nay đã qua giờ mở.
+    // Một ngày có thể có nhiều khoảng (2026-08-30). Lấy khoảng mở SỚM NHẤT còn ở phía trước —
+    // `find` khoảng đầu tiên là sai ngay khi quán nghỉ trưa: 11h trưa mà đếm ngược tới ca sáng
+    // 06:00 đã qua, thay vì tới ca chiều 17:00 sắp mở.
+    const candidates = openHours
+      .filter((r) => r.dow === dow)
+      .map((r) => ({ from: toMinutes(r.from), to: toMinutes(r.to), clock: r.from.trim() }))
+      // Rule hỏng — bỏ, đừng đoán.
+      .filter((r): r is { from: number; to: number; clock: string } =>
+        r.from !== null && r.to !== null && r.from < r.to)
+      .filter((r) => offset > 0 || nowMinutes < r.from) // Hôm nay: chỉ khoảng chưa tới giờ mở.
+      .sort((a, b) => a.from - b.from);
 
-    return { dayOffset: offset, dow, fromMinutes: from, clock: rule.from.trim() };
+    const next = candidates[0];
+    if (next) return { dayOffset: offset, dow, fromMinutes: next.from, clock: next.clock };
   }
 
   return null;
@@ -116,10 +133,26 @@ function findNextOpening(
 export function todayOpenRange(openHours: OpenHourRule[], nowMs: number): string | null {
   if (openHours.length === 0) return null;
   const dow = new Date(nowMs + VN_OFFSET_MS).getUTCDay();
-  const rule = openHours.find((r) => r.dow === dow);
-  if (!rule) return null;
-  if (toMinutes(rule.from) === null || toMinutes(rule.to) === null) return null;
-  return `${rule.from.trim()} – ${rule.to.trim()}`;
+  const spans = openHours
+    .filter((r) => r.dow === dow)
+    .map((r) => ({ from: toMinutes(r.from), to: toMinutes(r.to) }))
+    .filter((r): r is { from: number; to: number } => r.from !== null && r.to !== null)
+    .sort((a, b) => a.from - b.from);
+  if (spans.length === 0) return null; // Hôm nay nghỉ.
+  // Nhiều khoảng thì liệt kê hết: "06:00 – 10:00, 17:00 – 02:00 (hôm sau)". Chỉ hiện khoảng đầu
+  // là nói với khách rằng quán đóng cửa từ 10h sáng.
+  return spans.map((s) => formatSpan(s.from, s.to)).join(', ');
+}
+
+function formatSpan(from: number, to: number): string {
+  // Ca vắt qua nửa đêm phải nói rõ "hôm sau": "16:00 – 02:00" trần trụi đọc như quán mở 10 tiếng
+  // buổi sáng rồi đóng lúc trưa.
+  //
+  // Đúng 24:00 giữ nguyên chữ "24:00" như từ 2026-08-16: "00:00 (hôm sau)" đúng về nghĩa nhưng
+  // rối hơn hẳn cho cái nó muốn nói, là "mở tới hết ngày".
+  if (to === 24 * 60) return `${formatClock(from)} – 24:00`;
+  const suffix = to > 24 * 60 ? ' (hôm sau)' : '';
+  return `${formatClock(from)} – ${formatClock(to)}${suffix}`;
 }
 
 /** Đưa ra ngoài để test khỏi tự tính lại offset ICT khi dựng mốc thời gian. */

@@ -105,8 +105,50 @@ describe('giờ đóng "24:00" — mở tới hết ngày (2026-08-16, đi cùng
     expect(todayOpenRange(LATE, ictMoment(2026, 8, 6, 10, 0))).toBe('07:00 – 24:00');
   });
 
-  it('"24:01" trở đi vẫn là rác — rule bị bỏ qua', () => {
-    const broken: OpenHourRule[] = [{ dow: 4, from: '07:00', to: '24:01' }];
+  // 2026-08-30 — "24:01 trở đi là rác" KHÔNG còn đúng: giờ đóng nay chạy tiếp qua 24:00 để nói
+  // được ca đêm, nên 24:01 là một giờ đóng hợp lệ (0h01 hôm sau). Ranh giới rác dời tới 30:00,
+  // khớp `HHMM_TO` ở settings.controller.
+  it('quá 30:00 mới là rác — rule bị bỏ qua', () => {
+    const broken: OpenHourRule[] = [{ dow: 4, from: '07:00', to: '30:30' }];
     expect(nextOpeningMs(broken, ictMoment(2026, 8, 6, 5, 0))).toBeNull();
+  });
+});
+
+describe('ca đêm — giờ đóng chạy tiếp qua 24:00 (2026-08-30)', () => {
+  // 2026-08-06 là thứ Năm (dow 4). Quán bán 16:00 tới 2h sáng hôm sau.
+  const NIGHT: OpenHourRule[] = [{ dow: 4, from: '16:00', to: '26:00' }];
+
+  it('rule không bị coi là hỏng: 05:00 thứ Năm vẫn tính được mốc mở 16:00', () => {
+    expect(nextOpeningMs(NIGHT, ictMoment(2026, 8, 6, 5, 0))).toBe(ictMoment(2026, 8, 6, 16, 0));
+  });
+
+  it('todayOpenRange nói rõ "hôm sau" — "16:00 – 02:00" trần trụi đọc như ca ban ngày', () => {
+    expect(todayOpenRange(NIGHT, ictMoment(2026, 8, 6, 20, 0))).toBe('16:00 – 02:00 (hôm sau)');
+  });
+});
+
+describe('nhiều khoảng trong một ngày (2026-08-30)', () => {
+  // 2026-08-06 là thứ Năm (dow 4): bán sáng 06:00–10:00, nghỉ trưa, mở lại 17:00 tới 2h sáng.
+  const SPLIT: OpenHourRule[] = [
+    { dow: 4, from: '06:00', to: '10:00' },
+    { dow: 4, from: '17:00', to: '26:00' },
+  ];
+
+  it('11h trưa đếm ngược tới ca CHIỀU, không phải ca sáng đã qua', () => {
+    expect(nextOpeningMs(SPLIT, ictMoment(2026, 8, 6, 11, 0))).toBe(ictMoment(2026, 8, 6, 17, 0));
+  });
+
+  it('5h sáng vẫn đếm ngược tới ca sáng — khoảng sớm nhất còn ở phía trước', () => {
+    expect(nextOpeningMs(SPLIT, ictMoment(2026, 8, 6, 5, 0))).toBe(ictMoment(2026, 8, 6, 6, 0));
+  });
+
+  it('todayOpenRange liệt kê ĐỦ hai khoảng — chỉ hiện khoảng đầu là bảo khách quán đóng từ 10h', () => {
+    expect(todayOpenRange(SPLIT, ictMoment(2026, 8, 6, 8, 0))).toBe(
+      '06:00 – 10:00, 17:00 – 02:00 (hôm sau)',
+    );
+  });
+
+  it('ngày không có khoảng nào = nghỉ → todayOpenRange null', () => {
+    expect(todayOpenRange(SPLIT, ictMoment(2026, 8, 5, 8, 0))).toBeNull();
   });
 });
