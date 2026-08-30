@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, type CSSProperties, type JSX } from 'react';
 import * as MapsLink from '../lib/maps-link.ts';
+import { consumeGeoReloadFlag, reloadForGeoPermission } from '../lib/geo-permission-reload.ts';
 import { useGeolocation, type GeolocationErrorKind } from '../lib/use-geolocation.ts';
 
 /**
@@ -60,7 +61,7 @@ export type PickedLocation = { lat: number; lng: number; accuracy_m: number | nu
 const geoFailedMessage = (kind: GeolocationErrorKind | null): string => {
   switch (kind) {
     case 'denied':
-      return 'Điện thoại đang chặn quyền vị trí. iPhone: vào Cài đặt → Quyền riêng tư & Bảo mật → Dịch vụ định vị → Trang web Safari → chọn "Khi dùng ứng dụng"; và Cài đặt → Safari → Vị trí → chọn "Hỏi". Sau đó tắt hẳn Safari, mở lại trang rồi bấm lại. Hoặc bỏ qua, bấm "Nhập địa chỉ thay" ở dưới.';
+      return 'Điện thoại đang chặn quyền vị trí. iPhone: vào Cài đặt → Quyền riêng tư & Bảo mật → Dịch vụ định vị → Trang web Safari → chọn "Khi dùng ứng dụng"; và Cài đặt → Safari → Vị trí → chọn "Hỏi". Xong quay lại đây bấm nút bên dưới. Hoặc bỏ qua, bấm "Nhập địa chỉ thay" ở dưới.';
     case 'timeout':
       return 'Máy lấy vị trí quá lâu. Bạn bấm thử lại (ra chỗ thoáng thì nhanh hơn), hoặc bấm "Nhập địa chỉ thay" ở dưới.';
     case 'unsupported':
@@ -97,6 +98,14 @@ const FALLBACK_TO_MANUAL_HINT =
   'Nếu không chia sẻ được vị trí, bạn chuyển qua tự chọn tỉnh, xã và gõ địa chỉ.';
 const LOCATION_VERIFY_COPY = 'Xem trên bản đồ';
 const LOCATION_RETRY_COPY = 'Lấy lại vị trí';
+/**
+ * Nhãn riêng cho ca quyền bị chặn. Phải nói THẲNG là trang sẽ tải lại: bấm một nút ghi "Thử lại"
+ * rồi thấy cả trang chớp trắng và dựng lại là thứ khách tưởng mình vừa làm hỏng cái gì.
+ *
+ * Vì sao không dùng chung nút "Thử lại": gọi lại `getCurrentPosition` trong cùng trang thì hỏng
+ * lại tức thì — xem `lib/geo-permission-reload.ts`. Nút cũ ở ca này là một nút không bao giờ chạy.
+ */
+const PERMISSION_RELOAD_COPY = 'Tải lại trang & thử lại';
 /** Trên ngưỡng này thì toạ độ chỉ còn để ước lượng km, không đủ để tìm nhà → phải nói ra. */
 const LOW_ACCURACY_THRESHOLD_M = 200;
 const lowAccuracyCopy = (meters: number): string =>
@@ -108,6 +117,7 @@ export function LocationPicker({
   mapEnabled = false,
   onFallbackToManual,
   requestOnMount = false,
+  onPermissionReload,
 }: {
   location: PickedLocation | null;
   onChange: (location: PickedLocation | null) => void;
@@ -137,13 +147,38 @@ export function LocationPicker({
    * đi khi cờ về.
    */
   mapEnabled?: boolean;
+  /**
+   * Khách bấm nút tải lại ở ca quyền bị chặn. Trang cha lưu nháp những ô sẽ mất khi trang dựng
+   * lại RỒI tự gọi `reloadForGeoPermission(draft)`.
+   *
+   * Bỏ trống thì tải lại trơn, không giữ nháp — đúng cho màn nào mọi thứ đã nằm trong storage
+   * hoặc lấy lại được từ server.
+   */
+  onPermissionReload?: () => void;
 }): JSX.Element {
   const geo = useGeolocation();
   useEffect(() => {
+    // Cú tải lại vừa rồi là DO MÌNH (khách bấm nút ở ca quyền bị chặn) → xin vị trí luôn. Bắt họ
+    // bấm thêm một lần nữa sau khi trang tự dựng lại là thêm một bước ở đúng chỗ họ đã bỏ cuộc.
+    if (consumeGeoReloadFlag()) {
+      geo.request();
+      return;
+    }
     if (requestOnMount && location === null) geo.request();
     // Cố ý deps rỗng: đây là hành vi của LẦN MOUNT, không phải thứ chạy lại khi state đổi.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Quyền bị chặn thì gọi lại API trong cùng trang không bao giờ ăn — nút phải tải lại trang.
+  const needsPermissionReload = geo.state === 'failed' && geo.errorKind === 'denied';
+  const handleRetry = () => {
+    if (!needsPermissionReload) {
+      geo.request();
+      return;
+    }
+    if (onPermissionReload) onPermissionReload();
+    else reloadForGeoPermission();
+  };
   // Geolocation thành công → dùng làm nguồn toạ độ hiện hành.
   useEffect(() => {
     if (geo.coords) {
@@ -217,9 +252,13 @@ export function LocationPicker({
               type="button"
               style={geo.state === 'asking' ? { ...quietAction, ...geoButtonDisabled } : quietAction}
               disabled={geo.state === 'asking'}
-              onClick={geo.request}
+              onClick={handleRetry}
             >
-              {geo.state === 'asking' ? 'Đang lấy...' : LOCATION_RETRY_COPY}
+              {geo.state === 'asking'
+                ? 'Đang lấy...'
+                : needsPermissionReload
+                  ? PERMISSION_RELOAD_COPY
+                  : LOCATION_RETRY_COPY}
             </button>
           </>
         ) : (
@@ -227,14 +266,16 @@ export function LocationPicker({
             type="button"
             style={geo.state === 'asking' ? { ...geoButton, ...geoButtonDisabled } : geoButton}
             disabled={geo.state === 'asking'}
-            onClick={geo.request}
+            onClick={handleRetry}
           >
             <PinGlyph />
             {geo.state === 'asking'
               ? 'Đang lấy vị trí...'
-              : geo.state === 'failed'
-                ? 'Thử lại'
-                : 'Chia sẻ vị trí của bạn'}
+              : needsPermissionReload
+                ? PERMISSION_RELOAD_COPY
+                : geo.state === 'failed'
+                  ? 'Thử lại'
+                  : 'Chia sẻ vị trí của bạn'}
           </button>
         )}
       </div>

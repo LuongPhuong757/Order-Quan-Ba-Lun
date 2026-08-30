@@ -99,6 +99,8 @@ type Props = {
   location: PickedLocation | null;
   onLocationChange: (location: PickedLocation | null) => void;
   mapEnabled: boolean;
+  /** Chuyển thẳng xuống `LocationPicker` — xem docblock của prop đó. */
+  onPermissionReload?: () => void;
   wardError?: string | null;
   detailError?: string | null;
   idPrefix: string;
@@ -123,6 +125,7 @@ export function DeliveryAddress({
   location,
   onLocationChange,
   mapEnabled,
+  onPermissionReload,
   wardError = null,
   detailError = null,
   idPrefix,
@@ -217,6 +220,7 @@ export function DeliveryAddress({
             mapEnabled={mapEnabled}
             onFallbackToManual={() => switchMode('manual')}
             requestOnMount={enteredGpsByTap}
+            onPermissionReload={onPermissionReload}
           />
           {/* Chỉ hỏi tỉnh/xã + số nhà KHI ĐÃ có toạ độ. Chưa có thì màn hình đang là "đang lấy vị
               trí" hoặc một câu lỗi — bày thêm ô nhập vào lúc đó là dựng lại đúng cái màn lẫn lộn

@@ -18,6 +18,7 @@ import {
   type CartLine,
 } from '../lib/cart-store.ts';
 import { readEditSession } from '../lib/order-edit.ts';
+import { peekGeoReloadDraft, reloadForGeoPermission } from '../lib/geo-permission-reload.ts';
 import { nextOpeningText } from '../lib/open-hours.ts';
 import { useReopenCountdown } from '../lib/use-reopen-countdown.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
@@ -191,10 +192,32 @@ export function CheckoutPage(): JSX.Element {
   // "đúng số tiền này thì tôi đặt", một con số đang đếm ở đó thì không chốt vào đâu được.
   const shownSubtotal = useCountUp(cart.subtotal, MONEY_COUNT_MS);
 
-  const [fulfillment, setFulfillment] = useState<Fulfillment>('PICKUP');
-  const [defaultApplied, setDefaultApplied] = useState(false);
-  const [name, setName] = useState(lastCustomer?.customer_name ?? '');
-  const [phone, setPhone] = useState(lastCustomer?.customer_phone ?? '');
+  /**
+   * Nháp giữ hộ qua cú tải lại trang của nút "Tải lại trang & thử lại" (2026-08-30).
+   *
+   * Chỉ 3 ô, vì chỉ 3 ô này thật sự mất: giỏ hàng và ghi chú đã nằm trong localStorage, còn
+   * địa chỉ/xã thì ở nhánh GPS chưa có toạ độ nên chưa hiện ra để mà điền. Tên và SĐT thì nằm
+   * NGAY TRÊN khối vị trí — khách gần như chắc chắn đã gõ xong trước khi bấm chia sẻ vị trí, và
+   * bắt gõ lại đúng lúc họ vừa lặn lội vào Cài đặt máy là chỗ người ta bỏ đơn.
+   *
+   * `peek` chứ không `consume`: cờ do `LocationPicker` xoá lúc nó mount, tức sau chỗ này.
+   */
+  const geoDraft = useMemo(() => peekGeoReloadDraft(), []);
+  const draftText = (key: string): string | null =>
+    typeof geoDraft?.[key] === 'string' ? (geoDraft[key] as string) : null;
+
+  const [fulfillment, setFulfillment] = useState<Fulfillment>(
+    geoDraft?.fulfillment === 'DELIVERY' || geoDraft?.fulfillment === 'PICKUP'
+      ? (geoDraft.fulfillment as Fulfillment)
+      : 'PICKUP',
+  );
+  // Khôi phục từ nháp = coi như MẶC ĐỊNH ĐÃ ÁP. Không có dòng này thì effect "áp mặc định khi
+  // dữ liệu quán vừa về" (bên dưới) đè `fulfillment` vừa khôi phục về lại PICKUP, và khối địa chỉ
+  // biến mất ngay sau cú tải lại — đúng cái khối khách vừa quay lại để dùng. Guard đó vốn để
+  // "không ghi đè lựa chọn khách tự đổi", mà nháp chính là lựa chọn của khách.
+  const [defaultApplied, setDefaultApplied] = useState(geoDraft !== null);
+  const [name, setName] = useState(draftText('name') ?? lastCustomer?.customer_name ?? '');
+  const [phone, setPhone] = useState(draftText('phone') ?? lastCustomer?.customer_phone ?? '');
   // `address` giữ PHẦN CHI TIẾT (số nhà, thôn, ngõ) — KHÔNG phải chuỗi địa chỉ đầy đủ. Chuỗi đầy
   // đủ chỉ được dựng đúng lúc gửi, bằng `composeAddress()`. Bản lưu trong localStorage là chuỗi
   // đầy đủ (đơn cũ cũng vậy), nên phải tách đuôi xã ra trước khi prefill; đơn cũ không có mã xã
@@ -664,6 +687,7 @@ export function CheckoutPage(): JSX.Element {
             khối vị trí. Gom lại vì màn sửa đơn ở `/cart` phải giống hệt — xem docblock ở đó. */}
         {fulfillment === 'DELIVERY' && (
           <DeliveryAddress
+            onPermissionReload={() => reloadForGeoPermission({ name, phone, fulfillment })}
             idPrefix="checkout"
             mode={addressMode}
             onModeChange={setAddressMode}
