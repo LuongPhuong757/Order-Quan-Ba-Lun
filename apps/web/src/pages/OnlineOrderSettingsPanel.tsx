@@ -131,7 +131,15 @@ const DOW_VALUES: OpenHoursDow[] = [0, 1, 2, 3, 4, 5, 6];
  * Trần 30:00 (6h sáng) khớp `HHMM_TO` ở settings.controller. Quá đó thì ca đêm đã liếm sang ca hôm
  * sau và thứ cần sửa là giờ MỞ.
  */
-const LAST_CLOSE_MINUTES = 30 * 60;
+/**
+ * Giờ đóng muộn nhất chọn được là 24:00 (2026-08-30, thu lại từ 30:00 của cùng ngày).
+ *
+ * Bản đầu cho chọn tới "30:00 → 06:00 hôm sau" để nói ca đêm bằng MỘT khoảng. Nhưng ngay sau đó
+ * bảng giờ có nhiều khoảng mỗi ngày, và ca đêm nói bằng hai khoảng — `17:00–24:00` cộng
+ * `00:00–05:00` — thì tự nhiên hơn hẳn cho người đọc. Giữ cả hai đường chỉ tổ đẻ ra 12 dòng
+ * dropdown mà không thêm được điều gì diễn đạt mới.
+ */
+const LAST_CLOSE_MINUTES = 24 * 60;
 
 function timeOptions(current: string, endOfDay: boolean): string[] {
   const opts: string[] = [];
@@ -155,10 +163,16 @@ function minutesOf(hhmm: string): number {
   return h * 60 + m;
 }
 
-/** Nhãn hiện trên dropdown. "26:00" một mình là câu đố; kèm nghĩa thì không phải đoán. */
+/**
+ * Nhãn hiện trên dropdown — thường là chính chuỗi giờ.
+ *
+ * Ngoại lệ: giá trị QUÁ 24:00 đã lưu trong DB từ bản trước (vd "26:00"). Dropdown không còn đẻ ra
+ * chúng, nhưng `timeOptions` vẫn chèn `current` vào để select không âm thầm hiện sai giờ đang có.
+ * Một mình "26:00" là câu đố, nên chỗ đó kèm nghĩa.
+ */
 function timeOptionLabel(hhmm: string): string {
   const [h, m] = hhmm.split(':').map(Number);
-  if (h < 24) return hhmm;
+  if (h <= 24) return hhmm;
   const next = `${String(h - 24).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   return `${hhmm} → ${next} hôm sau`;
 }
@@ -712,14 +726,40 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setExceptions(exceptions.map((e, idx) => (idx === i ? { ...e, spans } : e)));
   };
 
-  /** Khoảng mới nối SAU khoảng cuối để không đè lên nó (BE từ chối khoảng đè nhau). Ngày đang
-   *  trống thì mở bằng khung chiều-tối, khung mà quán này thực sự bán. */
+  /**
+   * Khoảng mới rơi vào CHỖ TRỐNG đầu tiên còn lại trong ngày, không phải nối đuôi khoảng cuối.
+   *
+   * Lý do: ca đêm nay viết thành `17:00–24:00` cộng `00:00–05:00`, mà nối đuôi thì sau 24:00
+   * không còn chỗ — nút "+ Thêm khoảng" bấm vào không ra gì, đúng lúc nó cần dùng nhất. Tìm chỗ
+   * trống thì khoảng mới rơi vào rạng sáng, sẵn ở đó để sửa thành 05:00.
+   */
   const appendSpan = (spans: OpenHoursSpan[]): OpenHoursSpan[] => {
-    const last = spans[spans.length - 1];
-    if (!last) return [{ from: '17:00', to: '22:00' }];
-    const start = minutesOf(last.to);
-    if (start >= 23 * 60 + 30) return spans; // Hết chỗ trong ngày.
-    return [...spans, { from: hhmm(start), to: hhmm(Math.min(start + 120, 30 * 60)) }];
+    if (spans.length === 0) return [{ from: '17:00', to: '22:00' }];
+
+    const sorted = [...spans].sort((a, b) => minutesOf(a.from) - minutesOf(b.from));
+    const MIN_GAP = 30;
+    let cursor = 0;
+    let gapStart: number | null = null;
+    for (const sp of sorted) {
+      if (minutesOf(sp.from) - cursor >= MIN_GAP) {
+        gapStart = cursor;
+        break;
+      }
+      cursor = Math.max(cursor, minutesOf(sp.to));
+    }
+    const gapEnd =
+      gapStart === null
+        ? 24 * 60
+        : minutesOf(sorted.find((sp) => minutesOf(sp.from) > gapStart!)!.from);
+    if (gapStart === null) {
+      if (24 * 60 - cursor < MIN_GAP) return spans; // Ngày đã kín, không còn chỗ nhét.
+      gapStart = cursor;
+    }
+    // Sắp lại theo giờ: khoảng rạng sáng vừa thêm phải nằm TRÊN ca tối trong danh sách, nếu không
+    // chủ quán đọc "17:00–24:00 / 00:00–05:00" và tưởng mình vừa tạo ra một thứ tự kỳ quặc.
+    return [...spans, { from: hhmm(gapStart), to: hhmm(Math.min(gapStart + 120, gapEnd)) }].sort(
+      (a, b) => minutesOf(a.from) - minutesOf(b.from),
+    );
   };
 
   const saveHours = async () => {
@@ -1028,7 +1068,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           // popup + đồng hồ đếm ngược tới giờ mở, nút ĐẶT HÀNG khoá. Câu cũ "khách vẫn đặt
           // được đơn" mô tả hành vi đã bỏ.
           open_hours_configured
-            ? 'Ngoài các khoảng này khách KHÔNG đặt được đơn — trang khách hiện đồng hồ đếm ngược tới giờ mở. Bán qua đêm thì chọn giờ đóng sau 24:00 (vd 26:00 = 2h sáng hôm sau). Nghỉ trưa thì tách làm nhiều khoảng.'
+            ? 'Ngoài các khoảng này khách KHÔNG đặt được đơn — trang khách hiện đồng hồ đếm ngược tới giờ mở. Nghỉ trưa, hoặc bán xuyên đêm (17:00–24:00 rồi 00:00–05:00), thì tách làm nhiều khoảng.'
             : 'Chưa cấu hình — quán nhận đơn 24/24. Muốn giữ nhận đơn cả ngày thì cứ để trống. Giá trị bên dưới là gợi ý, CHƯA phải dữ liệu đã lưu.'
         }
         dirty={hoursDirty}
