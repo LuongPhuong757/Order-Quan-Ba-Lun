@@ -9,7 +9,9 @@ import { DataSource } from 'typeorm';
 import {
   analyticsRetentionCutoffMs,
   auditRetentionCutoffMs,
+  cartSnapshotRetentionCutoffMs,
   pruneAuditLogs,
+  pruneCartSnapshots,
   pruneOrderActivityLogs,
   pruneGeoShareDaily,
   prunePageViewDaily,
@@ -60,10 +62,19 @@ export class MaintenanceCronService {
       const sessions = await pruneVisitSessions(this.ds.manager, cutoffMs);
       const pageViews = await prunePageViewDaily(this.ds.manager, cutoffMs);
       const geoShare = await pruneGeoShareDaily(this.ds.manager, cutoffMs);
+      // Ảnh chụp giỏ hàng dùng mốc RIÊNG, ngắn hơn nhiều — xem docblock
+      // `cartSnapshotRetentionCutoffMs`. Nằm cùng job này (không thêm @Cron thứ tư) vì cùng
+      // một nhịp 3h sáng và cùng một loại việc.
+      const cartDays = Number(process.env.CART_SNAPSHOT_RETENTION_DAYS ?? 7);
+      const carts = await pruneCartSnapshots(
+        this.ds.manager,
+        cartSnapshotRetentionCutoffMs(Date.now(), cartDays),
+      );
       this.logger.log(
         `cron-analytics-retention: xoá ${sessions.deleted_rows} web_visit_sessions + ` +
           `${pageViews.deleted_rows} web_page_views_daily + ` +
-          `${geoShare.deleted_rows} geo_share_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})`,
+          `${geoShare.deleted_rows} geo_share_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})` +
+          ` + ${carts.deleted_rows} web_cart_snapshots (cutoffDays=${cartDays})`,
       );
     } catch (err) {
       this.logger.error(

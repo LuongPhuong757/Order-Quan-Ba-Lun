@@ -14,6 +14,13 @@
  *  5. Mọi truy cập storage bọc try/catch — Safari private mode throw khi ghi (T-08-31).
  *  6. `navigator.webdriver` (script tự động, load test) không gửi gì.
  *
+ * Từ 2026-09-03 ping mang thêm ảnh chụp giỏ hàng (`cid`/`cq`) cho màn thống kê admin. Nó
+ * GHÉP vào ping có sẵn chứ không có nhịp riêng — 6 luật trên vẫn nguyên vẹn, số request không
+ * đổi. Hệ quả đã biết và chấp nhận: giỏ đổi giữa lúc khách đang ở một trang thì màn admin biết
+ * trễ tối đa một nhịp tim (60s), hoặc ngay lúc khách rời trang (`pagehide`). Muốn tươi hơn thì
+ * phải ping mỗi lần khách bấm `+`/`−` — tức là biến mỗi cú bấm của khách thành một request, đổi
+ * luật (3) lấy vài chục giây tươi hơn cho biểu đồ. Không đáng.
+ *
  * KHÔNG dùng `use-api.ts` ở đây dù nó là lớp dữ liệu chuẩn của app: `postJson()` cố tình
  * zod-parse response và trả lỗi cho UI xử lý — hai thứ ping này phải KHÔNG làm.
  *
@@ -23,6 +30,10 @@
  * đặt đơn) đều đã nằm trong DB của chính mình.
  */
 import { LAST_CUSTOMER_KEY } from './customer-token.ts';
+// `cartPingPayload` chỉ đọc state cấp module của giỏ + cộng vài số, không I/O — xem docblock
+// của nó về 3 tính chất bắt buộc. Import này KHÔNG kéo thêm gì vào bundle tải-lần-đầu:
+// `cart-store.ts` đã nằm trong đó từ trước vì `AppShell` dùng `useCart()`.
+import { cartPingPayload } from './cart-store.ts';
 
 const TRACK_URL = '/api/public/track';
 const SID_KEY = 'qbl.analytics_sid';
@@ -108,6 +119,12 @@ function send(useBeacon: boolean): void {
   s.pending = [];
   s.lastSentMs = Date.now();
 
+  // Giỏ hàng đang treo (2026-09-03) — đi GHÉP vào ping có sẵn, không phải request riêng. Vì
+  // vậy độ tươi của số ở màn admin đúng bằng nhịp ping: đổi trang, nhịp tim 60s, và `pagehide`
+  // (lần cuối này mới là lần quan trọng — nó chốt đúng cái giỏ khách bỏ lại lúc rời web).
+  // `null` = khách chưa từng có đồ trong giỏ → không gửi 3 field, BE không ghi dòng nào.
+  const cart = cartPingPayload();
+
   const body = JSON.stringify({
     sid: s.sid,
     pv: s.pv,
@@ -116,6 +133,7 @@ function send(useBeacon: boolean): void {
     // biết được của phiên nên gửi mọi lần cũng không sai số.
     ...(document.referrer ? { ref: document.referrer } : {}),
     ...(readPhone() ? { phone: readPhone() } : {}),
+    ...(cart ? { cid: cart.cart_key, cq: cart.qty } : {}),
   });
 
   try {

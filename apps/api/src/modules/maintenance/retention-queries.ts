@@ -15,6 +15,7 @@ import { RevokedJti } from '../auth/entities/revoked-jti.entity.js';
 import { WebVisitSession } from '../analytics/entities/web-visit-session.entity.js';
 import { WebPageViewDaily } from '../analytics/entities/web-page-view-daily.entity.js';
 import { GeoShareDaily } from '../public/entities/geo-share-daily.entity.js';
+import { WebCartSnapshot } from '../analytics/entities/web-cart-snapshot.entity.js';
 import { dayKeyIct } from '../analytics/visit-hit.js';
 
 export function auditRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
@@ -102,6 +103,34 @@ export async function pruneGeoShareDaily(
     .delete()
     .from(GeoShareDaily)
     .where('day_key < :c', { c: dayKeyIct(cutoffMs) })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
+}
+
+/**
+ * Giỏ hàng treo (2026-09-03) — mốc riêng, NGẮN hơn nhiều so với 90 ngày của traffic
+ * (`CART_SNAPSHOT_RETENTION_DAYS`, mặc định 7). Đây là NGOẠI LỆ có chủ ý với lý lẽ "mọi bảng
+ * thống kê cùng rụng ở một mốc" ở hàm ngay trên, nên phải nói rõ vì sao:
+ *
+ * Bảng kia là LỊCH SỬ (một dòng mỗi ngày, cộng dồn mãi) nên chân trời dữ liệu của nó là thứ
+ * biểu đồ vẽ ra. Bảng này là ẢNH CHỤP hiện tại — không có biểu đồ nào đọc nó, chỉ có 2 con số
+ * "ngay lúc này" với cửa sổ 24 giờ. Một dòng không được ping lại 7 ngày là thiết bị đã bỏ web
+ * (giỏ ở máy khách tự chết sau 24h); giữ nó thêm 83 ngày chỉ để nó nằm ngoài mọi cửa sổ truy vấn.
+ */
+export function cartSnapshotRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
+  return nowMs - cutoffDays * 86_400_000;
+}
+
+export async function pruneCartSnapshots(
+  mgr: EntityManager,
+  cutoffMs: number,
+): Promise<{ deleted_rows: number }> {
+  const result = await mgr
+    .getRepository(WebCartSnapshot)
+    .createQueryBuilder()
+    .delete()
+    .from(WebCartSnapshot)
+    .where('updated_ms < :c', { c: cutoffMs })
     .execute();
   return { deleted_rows: result.affected ?? 0 };
 }

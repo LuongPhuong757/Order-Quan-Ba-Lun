@@ -6,6 +6,7 @@ import {
   setQty,
   setLineNote,
   toSubmitItems,
+  countCartForPing,
   MAX_ITEM_NOTE_LEN,
   type CartLine,
 } from './cart-store.ts';
@@ -180,5 +181,27 @@ describe('toSubmitItems — payload gửi BE', () => {
       makeLine({ menu_item_id: 'item-2', qty: 1, note: 'ít cay', unavailable: true }),
     ];
     expect(toSubmitItems(lines)).toEqual([{ menu_item_id: 'item-1', qty: 1, note: undefined }]);
+  });
+});
+
+describe('countCartForPing — tổng số món cho thống kê admin', () => {
+  it('cộng số lượng mọi dòng', () => {
+    const lines = [
+      makeLine({ menu_item_id: 'item-1', qty: 2 }),
+      makeLine({ menu_item_id: 'item-2', qty: 3 }),
+    ];
+    expect(countCartForPing(lines)).toBe(5);
+  });
+
+  it('BỎ món hết hàng — phải khớp con số khách thấy trên badge giỏ', () => {
+    const lines = [
+      makeLine({ menu_item_id: 'item-1', qty: 2 }),
+      makeLine({ menu_item_id: 'item-2', qty: 9, unavailable: true }),
+    ];
+    expect(countCartForPing(lines)).toBe(2);
+  });
+
+  it('giỏ rỗng → 0 (tín hiệu "giỏ vừa rỗng" gửi lên BE, không phải bỏ qua)', () => {
+    expect(countCartForPing([])).toBe(0);
   });
 });

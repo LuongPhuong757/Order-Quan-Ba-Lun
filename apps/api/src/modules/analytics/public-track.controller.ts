@@ -29,7 +29,9 @@ import {
 import { AnalyticsCollectorService } from './analytics-collector.service.js';
 import { hashIp, resolveIpHashSalt } from '../public/ip-hash.js';
 import {
+  MAX_CART_QTY,
   classifyDevice,
+  normalizeCartHit,
   normalizeTrackPhone,
   referrerHost,
   sanitizePath,
@@ -65,6 +67,28 @@ class TrackDto {
   @IsString()
   @MaxLength(20)
   phone?: string;
+
+  // ── Giỏ hàng đang treo (2026-09-03) ──
+  // CẢ 2 field đều `@IsOptional()`, và điều đó là BẮT BUỘC chứ không phải cho gọn: pipe toàn
+  // cục bật `forbidNonWhitelisted` + `whitelist` (main.ts), nên client CŨ (bản JS đã cache
+  // trong máy khách, không có 2 field này) vẫn phải ping được bình thường. Ngược lại — deploy
+  // FE trước BE — thì mọi ping mang field mới bị 400 và mất im; hai app build/deploy cùng nhau
+  // nên không xảy ra, nhưng đừng tách ra.
+
+  /** Khoá thiết bị của giỏ (`CART_ID_KEY` ở apps/shop) — hex, cùng khuôn `sid`. */
+  @IsOptional()
+  @IsString()
+  @Length(16, 64)
+  @Matches(/^[a-f0-9]+$/i, { message: 'cid phải là chuỗi hex' })
+  cid?: string;
+
+  /** Tổng số lượng món trong giỏ. `0` là giá trị HỢP LỆ và có nghĩa ("giỏ vừa rỗng") — đừng
+   *  đổi thành `@Min(1)`, số ở màn admin sẽ không bao giờ tụt sau khi khách đặt đơn. */
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_CART_QTY)
+  cq?: number;
 }
 
 @Controller('api/public/track')
@@ -89,6 +113,9 @@ export class PublicTrackController {
       device: classifyDevice(req.headers['user-agent']),
       ip_hash: hashIp(req.ip || 'unknown', resolveIpHashSalt()),
       customer_phone: normalizeTrackPhone(dto.phone),
+      // Thiếu bất kỳ field nào trong 2 → `null` → collector bỏ qua nửa giỏ, nửa truy cập vẫn
+      // được ghi bình thường. Ping không bao giờ hỏng vì phần giỏ.
+      cart: normalizeCartHit(dto.cid, dto.cq),
       now_ms: nowMs,
     });
   }

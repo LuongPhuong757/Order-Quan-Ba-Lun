@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+
+  MAX_CART_QTY,
   OTHER_PATH,
   classifyDevice,
   dayKeyIct,
+  mergeCartHit,
   mergeHit,
+  normalizeCartHit,
   pageViewDeltas,
   referrerHost,
   sanitizePath,
@@ -24,6 +28,7 @@ function hit(overrides: Partial<VisitHit> = {}): VisitHit {
     device: 'mobile',
     ip_hash: 'x'.repeat(64),
     customer_phone: null,
+    cart: null,
     now_ms: WED_10AM_ICT,
     ...overrides,
   };
@@ -163,5 +168,76 @@ describe('rangeForDays / dayKeysInRange', () => {
     expect(dayKeyIct(range.from_ms)).toBe('2026-07-29');
     // 00:00 ICT = 17:00 UTC hôm trước.
     expect(new Date(range.from_ms).toISOString()).toBe('2026-07-28T17:00:00.000Z');
+  });
+});
+
+// ── Giỏ hàng đang treo (2026-09-03) ─────────────────────────────────────────
+
+const CART_KEY = 'ab12cd34ef567890';
+
+describe('normalizeCartHit', () => {
+  it('nhận payload hợp lệ, hạ khoá về chữ thường', () => {
+    expect(normalizeCartHit('AB12CD34EF567890', 7)).toEqual({ cart_key: CART_KEY, qty: 7 });
+  });
+
+  it('qty = 0 là HỢP LỆ — đó là tín hiệu "giỏ vừa rỗng", không phải thiếu dữ liệu', () => {
+    expect(normalizeCartHit(CART_KEY, 0)).toEqual({ cart_key: CART_KEY, qty: 0 });
+  });
+
+  it('thiếu / sai khoá → null (không biết ghi vào dòng nào)', () => {
+    expect(normalizeCartHit(undefined, 1)).toBeNull();
+    expect(normalizeCartHit('quá-ngắn', 1)).toBeNull();
+    expect(normalizeCartHit('zzzz1111zzzz1111', 1)).toBeNull(); // không phải hex
+  });
+
+  it('số không hữu hạn / không phải số → null, tuyệt đối không trả NaN xuống DB', () => {
+    expect(normalizeCartHit(CART_KEY, Number.NaN)).toBeNull();
+    expect(normalizeCartHit(CART_KEY, Number.POSITIVE_INFINITY)).toBeNull();
+    expect(normalizeCartHit(CART_KEY, '3')).toBeNull();
+  });
+
+  it('kẹp số âm về 0, số vượt trần về trần, thập phân về số nguyên', () => {
+    expect(normalizeCartHit(CART_KEY, -5)?.qty).toBe(0);
+    expect(normalizeCartHit(CART_KEY, 9_999_999)?.qty).toBe(MAX_CART_QTY);
+    expect(normalizeCartHit(CART_KEY, 5.9)?.qty).toBe(5);
+  });
+});
+
+describe('mergeCartHit', () => {
+  function cartHit(qty: number, nowMs: number) {
+    return hit({ cart: { cart_key: CART_KEY, qty }, now_ms: nowMs }) as VisitHit & {
+      cart: NonNullable<VisitHit['cart']>;
+    };
+  }
+
+  it('ping đầu tiên tạo dòng mới với mốc đồng hồ server', () => {
+    expect(mergeCartHit(undefined, cartHit(4, WED_10AM_ICT))).toEqual({
+      cart_key: CART_KEY,
+      qty: 4,
+      device: 'mobile',
+      updated_ms: WED_10AM_ICT,
+    });
+  });
+
+  it('giỏ CO LẠI thì số phải giảm theo — đây là lý do không gộp bằng max', () => {
+    const first = mergeCartHit(undefined, cartHit(9, WED_10AM_ICT));
+    expect(mergeCartHit(first, cartHit(2, WED_10AM_ICT + 60_000)).qty).toBe(2);
+  });
+
+  it('khách đặt đơn xong (giỏ về 0) thì dòng về 0, không giữ số cũ', () => {
+    const first = mergeCartHit(undefined, cartHit(5, WED_10AM_ICT));
+    expect(mergeCartHit(first, cartHit(0, WED_10AM_ICT + 30_000)).qty).toBe(0);
+  });
+
+  it('ping CŨ đến muộn không ghi đè được ping mới', () => {
+    const fresh = mergeCartHit(undefined, cartHit(2, WED_10AM_ICT + 60_000));
+    const late = mergeCartHit(fresh, cartHit(9, WED_10AM_ICT));
+    expect(late.qty).toBe(2);
+    expect(late.updated_ms).toBe(WED_10AM_ICT + 60_000);
+  });
+
+  it('ping trùng đúng cùng mốc thời gian là idempotent', () => {
+    const first = mergeCartHit(undefined, cartHit(3, WED_10AM_ICT));
+    expect(mergeCartHit(first, cartHit(3, WED_10AM_ICT))).toEqual(first);
   });
 });

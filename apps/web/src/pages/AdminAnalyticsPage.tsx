@@ -91,6 +91,15 @@ type CustomerData = {
   }>;
 };
 
+/** `GET /admin/analytics/carts` — ẢNH CHỤP "ngay lúc này", KHÔNG theo khoảng ngày như 2 type
+ *  trên (giỏ hàng chỉ có trạng thái hiện tại, bảng ghi đè mỗi ping). Vì thế nó không dùng
+ *  `days` và không tải lại khi người dùng đổi khoảng ngày. */
+type CartData = {
+  fresh_hours: number;
+  carts_with_items: number;
+  items_total: number;
+};
+
 // 2 màu cho 2 chuỗi số của biểu đồ theo ngày (lượt vào / đơn hàng). Cặp này đã qua validator
 // palette (tách được với cả 3 dạng mù màu ở nền sáng) — đổi màu thì phải chạy lại, đừng chọn
 // bằng mắt. Mọi biểu đồ 1 chuỗi khác trong file dùng CHUNG một màu xanh: một chuỗi thì màu
@@ -159,19 +168,24 @@ export function AdminAnalyticsPanel() {
   const [days, setDays] = useState(7);
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [customers, setCustomers] = useState<CustomerData | null>(null);
+  const [carts, setCarts] = useState<CartData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(
     async (d: number) => {
       setLoading(true);
       try {
-        // 2 endpoint độc lập → gọi song song, đừng để người dùng chờ cộng dồn.
-        const [t, c] = await Promise.all([
+        // 3 endpoint độc lập → gọi song song, đừng để người dùng chờ cộng dồn.
+        // `carts` KHÔNG nhận `days` (ảnh chụp hiện tại) nhưng vẫn tải lại cùng nhịp: người
+        // bấm "↻" muốn mọi con số trên màn tươi lại, không phải hai phần lệch tuổi nhau.
+        const [t, c, k] = await Promise.all([
           api.get<{ data: TrafficData }>(`/admin/analytics/traffic?days=${d}`),
           api.get<{ data: CustomerData }>(`/admin/analytics/customers?days=${d}`),
+          api.get<{ data: CartData }>('/admin/analytics/carts'),
         ]);
         setTraffic(t.data.data);
         setCustomers(c.data.data);
+        setCarts(k.data.data);
       } catch (err) {
         toast.push('error', extractError(err).message);
       } finally {
@@ -362,6 +376,33 @@ export function AdminAnalyticsPanel() {
               />
             )}
           </Panel>
+        </>
+      )}
+
+      {carts && (
+        <>
+          <h2 style={{ marginTop: 28 }}>Giỏ hàng đang treo</h2>
+          <p style={{ color: INK_MUTED, fontSize: 13, margin: '0 0 12px' }}>
+            Khách đã chọn món nhưng CHƯA bấm đặt. Tính các giỏ còn hoạt động trong{' '}
+            {carts.fresh_hours} giờ gần nhất — giỏ trên máy khách tự hết hạn sau 24 giờ.
+          </p>
+          <div style={tileGrid}>
+            <Tile
+              label="Giỏ đang có món"
+              value={fmtInt(carts.carts_with_items)}
+              hint="Đếm theo máy khách (mỗi máy 1 giỏ)"
+            />
+            <Tile
+              label="Tổng số món trong các giỏ đó"
+              value={fmtInt(carts.items_total)}
+            />
+          </div>
+
+          <p style={{ ...empty, marginTop: 12 }}>
+            Số món do máy khách tự báo kèm lượt truy cập, KHÔNG phải đơn hàng — chỉ dùng để
+            biết còn bao nhiêu khách đang lửng lơ. Mọi con số về đơn và doanh thu vẫn lấy từ
+            đơn thật.
+          </p>
         </>
       )}
 

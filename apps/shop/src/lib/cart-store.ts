@@ -20,6 +20,16 @@ import type { OnlineOrderItemInput } from '@order/schemas';
  */
 
 export const CART_STORAGE_KEY = 'qbl.cart.v1';
+/**
+ * Khoá thiết bị để màn admin đếm được "bao nhiêu giỏ đang treo" (2026-09-03) — hex CSPRNG,
+ * sinh LƯỜI: chỉ tạo ở lần đầu giỏ CÓ ĐỒ (xem `cartPingPayload`), nên người chỉ xem thực đơn
+ * không bị ghi gì.
+ *
+ * Tách khỏi `CUSTOMER_TOKEN_KEY` có chủ ý: token kia thuộc luồng ĐẶT ĐƠN (BE dùng để nhận
+ * đơn của ai), dùng nó cho thống kê thì thống kê phải sinh token cho cả khách chưa đặt gì —
+ * tức là thò tay vào dữ liệu của luồng đặt hàng chỉ để đếm số.
+ */
+export const CART_ID_KEY = 'qbl.cart_id';
 /** Ghi chú đơn hàng bước 1 `/cart` (plan 08-11) — tách khoá riêng khỏi `CART_STORAGE_KEY`
  * để bước 2 `/checkout` (plan 08-12) đọc lại độc lập với danh sách dòng giỏ. */
 export const CART_NOTE_KEY = 'qbl.cart_note';
@@ -188,6 +198,17 @@ export function toSubmitItems(lines: CartLine[]): OnlineOrderItemInput[] {
     }));
 }
 
+/**
+ * Tổng số món trong giỏ cho ping thống kê (2026-09-03).
+ *
+ * Dùng ĐÚNG luật của `useCart().count` — bỏ dòng `unavailable`. Lý do: con số ở màn admin phải
+ * là con số khách đang thấy trên badge giỏ; đếm cả món đã hết hàng thì chủ quán đọc "khách có 5
+ * món trong giỏ" trong khi khách thấy badge số 3 và không thể checkout.
+ */
+export function countCartForPing(lines: CartLine[]): number {
+  return lines.filter((l) => !l.unavailable).reduce((sum, l) => sum + l.qty, 0);
+}
+
 /** Đọc ghi chú đơn hàng đã lưu — bọc try/catch (Safari private mode ném lỗi khi đọc). */
 export function readCartNote(): string {
   try {
@@ -295,6 +316,55 @@ function subscribe(listener: () => void): () => void {
   return () => {
     listeners.delete(listener);
   };
+}
+
+/**
+ * Payload giỏ để `analytics.ts` gắn kèm ping truy cập (2026-09-03). Trả `null` = "đừng gửi gì
+ * về giỏ" và đó là trạng thái MẶC ĐỊNH của mọi khách chỉ ghé xem thực đơn.
+ *
+ * 3 tính chất phải giữ — mỗi cái là một cách nó có thể làm hỏng trải nghiệm khách:
+ *
+ *  1. KHÔNG có request nào, KHÔNG có `await`. Hàm chỉ đọc `getLines()` (state cấp module mà
+ *     `useCart()` đã nạp từ trước khi trang vẽ xong) rồi cộng vài số. Việc gửi vẫn là ping
+ *     fire-and-forget có sẵn — tính năng này KHÔNG thêm một byte request nào cho khách.
+ *  2. Khoá `cart_id` sinh LƯỜI, chỉ khi giỏ có đồ. Người chỉ xem thực đơn không bị ghi gì
+ *     vào localStorage và không sinh dòng nào trong DB.
+ *  3. Giỏ RỖNG mà ĐÃ có `cart_id` thì vẫn gửi (`qty: 0`). Đây là nửa quan trọng nhất: khách
+ *     bấm đặt đơn xong giỏ về 0, không gửi thì dòng cũ nằm im với số lượng cũ và màn admin
+ *     báo "đang có 5 món treo" vĩnh viễn.
+ *
+ * Toàn bộ bọc try/catch: thống kê không bao giờ được throw ra trang của khách (T-08-31,
+ * Safari private mode throw cả khi ĐỌC localStorage).
+ */
+export function cartPingPayload(): { cart_key: string; qty: number } | null {
+  try {
+    const qty = countCartForPing(getLines());
+    let key: string | null = null;
+    try {
+      key = window.localStorage.getItem(CART_ID_KEY);
+    } catch {
+      // Không đọc được storage — coi như chưa có khoá.
+    }
+    if (!key || !/^[a-f0-9]{16,64}$/.test(key)) {
+      // Giỏ rỗng và chưa từng có khoá → không có gì để thống kê, và KHÔNG tạo khoá.
+      if (qty === 0) return null;
+      const bytes = new Uint8Array(16);
+      crypto.getRandomValues(bytes);
+      key = Array.from(bytes)
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+      try {
+        window.localStorage.setItem(CART_ID_KEY, key);
+      } catch {
+        // Ghi thất bại (private mode) — vẫn gửi được ping này; lần mở web sau sinh khoá mới
+        // nên thiết bị đó có thể bị đếm thành nhiều giỏ. Chấp nhận: sai số thống kê, không
+        // phải sai giỏ hàng của khách.
+      }
+    }
+    return { cart_key: key, qty };
+  } catch {
+    return null;
+  }
 }
 
 export type UseCartResult = {

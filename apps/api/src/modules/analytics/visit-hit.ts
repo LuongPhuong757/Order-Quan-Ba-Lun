@@ -78,6 +78,19 @@ export function dayKeyIct(ms: number): string {
   return new Date(ms + VN_OFFSET_MS).toISOString().slice(0, 10);
 }
 
+/**
+ * Giỏ hàng khách tự khai kèm ping (2026-09-03). `null` = ping không nói gì về giỏ (client cũ
+ * chưa có tính năng, hoặc thiết bị chưa bao giờ thêm món) → luồng ghi BỎ QUA, không tạo dòng.
+ * Khác hẳn `{ qty: 0 }` = "tôi có giỏ và giỏ đang RỖNG", phải ghi để số ở màn admin tụt xuống
+ * sau khi khách đặt đơn.
+ */
+export type CartHit = {
+  /** Khoá thiết bị, hex do CSPRNG sinh client-side (`CART_ID_KEY` ở apps/shop). */
+  cart_key: string;
+  /** Tổng số lượng món. `0` là giá trị CÓ NGHĨA, không phải thiếu dữ liệu — xem trên. */
+  qty: number;
+};
+
 /** Payload đã chuẩn hoá của MỘT ping. */
 export type VisitHit = {
   session_id: string;
@@ -91,6 +104,8 @@ export type VisitHit = {
   device: Device;
   ip_hash: string;
   customer_phone: string | null;
+  /** `null` nếu ping không mang thông tin giỏ — xem docblock `CartHit`. */
+  cart: CartHit | null;
   now_ms: number;
 };
 
@@ -159,4 +174,63 @@ export function pageViewDeltas(hit: VisitHit): Array<{ day_key: string; path: st
 export function normalizeTrackPhone(raw: unknown): string | null {
   if (typeof raw !== 'string' || raw.length === 0) return null;
   return normalizePhone(raw);
+}
+
+// ── Giỏ hàng đang treo (2026-09-03) ──────────────────────────────────────────
+
+/** Trần số lượng ghi vào DB. Cột là `int unsigned` nên giá trị rác không làm hỏng câu INSERT,
+ *  nhưng SUM() của cả bảng thì bị một dòng bịa 2 tỉ làm sai hết — kẹp ở đây là hàng rào thứ hai
+ *  sau ràng buộc `@Max` của DTO (client sửa được payload, DTO chặn được, còn hàm này chặn cả
+ *  trường hợp có ai gọi `record()` từ chỗ khác). */
+export const MAX_CART_QTY = 50_000;
+
+/**
+ * Chuẩn hoá 2 field giỏ trong payload ping. Trả `null` (⇒ luồng ghi bỏ qua) khi:
+ *   - thiếu `cart_key` hoặc key không phải hex đúng cỡ → không biết ghi vào dòng nào;
+ *   - `qty` không phải số hữu hạn → thà mất số của một ping còn hơn ghi `NaN`.
+ * Số âm kẹp về 0, số quá trần kẹp về trần: đây là thống kê, không phải đơn hàng.
+ */
+export function normalizeCartHit(cart_key: unknown, qty: unknown): CartHit | null {
+  if (typeof cart_key !== 'string' || !/^[a-f0-9]{16,64}$/i.test(cart_key)) return null;
+  if (typeof qty !== 'number' || !Number.isFinite(qty)) return null;
+  return {
+    cart_key: cart_key.toLowerCase(),
+    qty: Math.min(MAX_CART_QTY, Math.max(0, Math.floor(qty))),
+  };
+}
+
+/** Dòng sắp ghi vào `web_cart_snapshots` (đã gộp mọi ping của thiết bị trong cửa sổ flush). */
+export type BufferedCart = {
+  cart_key: string;
+  qty: number;
+  device: Device;
+  updated_ms: number;
+};
+
+/**
+ * Gộp thông tin giỏ của một ping vào dòng đang đệm — luật MỚI-NHẤT-THẮNG, KHÁC hẳn `mergeHit()`
+ * (min/max).
+ *
+ * Vì sao không dùng max như bên phiên truy cập: giỏ hàng CO LẠI được. Khách bỏ 5 món rồi bấm
+ * đặt đơn → giỏ về 0. Gộp bằng `GREATEST` thì con số ở màn admin chỉ tăng, và chủ quán đọc
+ * "đang có 40 món trong giỏ chờ" trong khi cả 40 món đó đã thành đơn xong từ sáng.
+ *
+ * Ping đến SAI THỨ TỰ vẫn đúng nhờ so `updated_ms` (đồng hồ server, gán lúc nhận): ping cũ
+ * lọt vào sau bị BỎ HẲN, không ghi đè được ping mới. Cùng luật này được lặp lại ở nhánh
+ * `ON DUPLICATE KEY UPDATE` khi ghi DB — sửa ở đây thì phải sửa cả câu SQL, nếu không số
+ * trong RAM và số trong DB tính khác nhau.
+ */
+export function mergeCartHit(
+  prev: BufferedCart | undefined,
+  // `cart` non-null nằm trong KIỂU, không kiểm tra lúc chạy: phía gọi phải tự lọc ping không
+  // có giỏ (`hit.cart === null`) trước khi vào đây, và `tsc` bắt lỗi nếu quên.
+  hit: VisitHit & { cart: CartHit },
+): BufferedCart {
+  if (prev && hit.now_ms < prev.updated_ms) return prev;
+  return {
+    cart_key: hit.cart.cart_key,
+    qty: hit.cart.qty,
+    device: hit.device,
+    updated_ms: hit.now_ms,
+  };
 }

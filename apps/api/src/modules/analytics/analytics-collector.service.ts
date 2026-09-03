@@ -15,7 +15,15 @@ import { Injectable, Logger, OnApplicationShutdown } from '@nestjs/common';
 import { Interval } from '@nestjs/schedule';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { mergeHit, pageViewDeltas, type BufferedSession, type VisitHit } from './visit-hit.js';
+import {
+  mergeCartHit,
+  mergeHit,
+  pageViewDeltas,
+  type BufferedCart,
+  type BufferedSession,
+  type CartHit,
+  type VisitHit,
+} from './visit-hit.js';
 
 const FLUSH_MS = 10_000;
 
@@ -26,6 +34,8 @@ const MAX_SESSIONS_BUFFER = 5_000;
 // `web_page_views_daily` bị chặn cardinality từ trước bởi `KNOWN_PATHS` (≈8 đường dẫn), trần
 // này chỉ là dây bảo hiểm thứ hai.
 const MAX_PV_BUFFER = 2_000;
+// Giỏ hàng: bằng trần phiên, vì tệ nhất mỗi phiên mang theo đúng một giỏ.
+const MAX_CART_BUFFER = 5_000;
 
 // Số dòng tối đa trong một câu INSERT. Giữ nhỏ để không đụng `max_allowed_packet` và để một
 // câu chậm không giữ connection quá lâu.
@@ -39,6 +49,8 @@ export class AnalyticsCollectorService implements OnApplicationShutdown {
   private sessions = new Map<string, BufferedSession>();
   /** `${day_key}|${path}` → số lượt cộng thêm. */
   private pageViews = new Map<string, { day_key: string; path: string; views: number }>();
+  /** cart_key → ảnh chụp giỏ MỚI NHẤT trong cửa sổ flush (2026-09-03). */
+  private carts = new Map<string, BufferedCart>();
   private dropped = 0;
   private flushing = false;
 
@@ -66,10 +78,25 @@ export class AnalyticsCollectorService implements OnApplicationShutdown {
           cur.views += d.views;
         }
       }
+
+      // Ping không mang thông tin giỏ (client cũ, hoặc thiết bị chưa bao giờ thêm món) → bỏ
+      // qua hẳn, KHÔNG tạo dòng qty=0 cho mọi người vào xem thực đơn.
+      if (hit.cart) this.recordCart(hit as VisitHit & { cart: CartHit });
     } catch (err) {
       // Thống kê KHÔNG được làm lỗi request của khách trong bất kỳ trường hợp nào.
       this.logger.warn(`analytics record failed: ${(err as Error).message}`);
     }
+  }
+
+  /** Tách riêng khỏi `record()` chỉ để `record()` đọc được — cùng luật "đồng bộ, không I/O". */
+  private recordCart(hit: VisitHit & { cart: CartHit }): void {
+    const key = hit.cart.cart_key;
+    const existing = this.carts.get(key);
+    if (!existing && this.carts.size >= MAX_CART_BUFFER) {
+      this.dropped += 1;
+      return;
+    }
+    this.carts.set(key, mergeCartHit(existing, hit));
   }
 
   @Interval(FLUSH_MS)
@@ -85,16 +112,18 @@ export class AnalyticsCollectorService implements OnApplicationShutdown {
   async flush(): Promise<void> {
     // Nhịp trước còn đang chạy (DB chậm) → bỏ nhịp này, không xếp hàng chồng nhau.
     if (this.flushing) return;
-    if (this.sessions.size === 0 && this.pageViews.size === 0) return;
+    if (this.sessions.size === 0 && this.pageViews.size === 0 && this.carts.size === 0) return;
     this.flushing = true;
 
     // Đổi bộ đệm TRƯỚC khi await: ping đến trong lúc đang ghi rơi vào Map mới, không bị mất
     // và cũng không bị ghi hai lần.
     const sessions = [...this.sessions.values()];
     const pageViews = [...this.pageViews.values()];
+    const carts = [...this.carts.values()];
     const dropped = this.dropped;
     this.sessions = new Map();
     this.pageViews = new Map();
+    this.carts = new Map();
     this.dropped = 0;
 
     try {
@@ -103,6 +132,9 @@ export class AnalyticsCollectorService implements OnApplicationShutdown {
       }
       for (let i = 0; i < pageViews.length; i += CHUNK) {
         await this.upsertPageViews(pageViews.slice(i, i + CHUNK));
+      }
+      for (let i = 0; i < carts.length; i += CHUNK) {
+        await this.upsertCarts(carts.slice(i, i + CHUNK));
       }
       if (dropped > 0) {
         this.logger.warn(`analytics: bỏ ${dropped} ping vì bộ đệm đầy (trần ${MAX_SESSIONS_BUFFER})`);
@@ -158,8 +190,36 @@ export class AnalyticsCollectorService implements OnApplicationShutdown {
     );
   }
 
+  /**
+   * Ảnh chụp giỏ (2026-09-03) — luật gộp MỚI-NHẤT-THẮNG, KHÁC 2 câu trên (min/max/cộng dồn).
+   * Phải khớp `mergeCartHit()`; xem docblock hàm đó về lý do giỏ không được gộp bằng GREATEST.
+   *
+   * ⚠ THỨ TỰ các phép gán trong `ON DUPLICATE KEY UPDATE` là BẮT BUỘC: MySQL đánh giá tuần tự
+   * từ trên xuống, nên `updated_ms` phải nằm CUỐI — mấy dòng trên nó vẫn đang so với giá trị
+   * CŨ của cột. Đưa nó lên đầu là mọi điều kiện `IF` bên dưới luôn sai (so mốc mới với chính
+   * nó) và giỏ không bao giờ được cập nhật.
+   */
+  private async upsertCarts(rows: BufferedCart[]): Promise<void> {
+    const placeholders = rows.map(() => '(?,?,?,?)').join(',');
+    const params: unknown[] = [];
+    for (const r of rows) params.push(r.cart_key, r.qty, r.device, r.updated_ms);
+    await this.ds.query(
+      `INSERT INTO web_cart_snapshots (cart_key, qty, device, updated_ms)
+       VALUES ${placeholders}
+       ON DUPLICATE KEY UPDATE
+         qty        = IF(VALUES(updated_ms) >= updated_ms, VALUES(qty), qty),
+         device     = IF(VALUES(updated_ms) >= updated_ms, VALUES(device), device),
+         updated_ms = GREATEST(updated_ms, VALUES(updated_ms))`,
+      params,
+    );
+  }
+
   /** Chỉ dùng cho test/chẩn đoán. */
-  bufferSize(): { sessions: number; page_views: number } {
-    return { sessions: this.sessions.size, page_views: this.pageViews.size };
+  bufferSize(): { sessions: number; page_views: number; carts: number } {
+    return {
+      sessions: this.sessions.size,
+      page_views: this.pageViews.size,
+      carts: this.carts.size,
+    };
   }
 }

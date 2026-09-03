@@ -363,6 +363,54 @@ export async function customerStats(ds: DataSource, range: Range): Promise<Custo
   };
 }
 
+// ── Giỏ hàng đang treo (2026-09-03) ─────────────────────────────────────────
+//
+// Chốt phạm vi: ĐÚNG 2 con số — "bao nhiêu giỏ đang có món" và "tổng bao nhiêu món trong các
+// giỏ đó". Một câu SQL, không JOIN. Đừng thêm SĐT / tiền / danh sách giỏ vào đây mà không đọc
+// lại docblock entity `WebCartSnapshot` trước: bảng đã cố ý không lưu những thứ đó.
+//
+// 3 điều kiện lọc dưới đây đi LIỀN NHAU, đừng bỏ lẻ một cái:
+//   1. `qty > 0`            — dòng qty = 0 là giỏ ĐÃ rỗng (khách đặt xong / tự xoá), vẫn giữ
+//                             trong bảng để lần ping sau cập nhật, nhưng KHÔNG phải "giỏ treo".
+//   2. `device <> 'bot'`    — cùng quy ước với mọi con số khách trong file này.
+//   3. `updated_ms >= ?`    — cửa sổ "còn tươi". Giỏ ở máy khách TỰ HẾT HẠN sau 24 giờ
+//                             (`isCartExpired` ở apps/shop/src/lib/cart-store.ts), nên một dòng
+//                             không được ping lại quá 24h nghĩa là giỏ đó đã chết mà thiết bị
+//                             không còn mở web để báo. Đếm nó vào "đang treo" là báo số ảo.
+//                             Mặc định cửa sổ khớp đúng 24h đó — đổi thì đổi cả 2 nơi.
+
+/** Cửa sổ mặc định, khớp `MS_PER_DAY` của giỏ ở apps/shop (giỏ tự hết hạn sau 24h). */
+export const CART_FRESH_HOURS = 24;
+
+export type CartStats = {
+  /** Cửa sổ "còn tươi" đang áp dụng, để FE ghi rõ trên màn hình thay vì hardcode lại. */
+  fresh_hours: number;
+  /** Số GIỎ đang có món (đếm theo thiết bị). */
+  carts_with_items: number;
+  /** TỔNG SỐ MÓN trong các giỏ đó. */
+  items_total: number;
+};
+
+export async function cartStats(
+  ds: DataSource,
+  nowMs: number,
+  freshHours: number = CART_FRESH_HOURS,
+): Promise<CartStats> {
+  const [row] = (await ds.query(
+    `SELECT COUNT(*)              AS carts,
+            COALESCE(SUM(qty), 0) AS items
+       FROM web_cart_snapshots
+      WHERE qty > 0 AND device <> 'bot' AND updated_ms >= ?`,
+    [nowMs - freshHours * 3600_000],
+  )) as Array<Record<string, unknown>>;
+
+  return {
+    fresh_hours: freshHours,
+    carts_with_items: num(row?.carts),
+    items_total: num(row?.items),
+  };
+}
+
 /** Dùng ở controller để trả kèm mốc ngày cho FE hiển thị tiêu đề khoảng thời gian. */
 export function rangeLabel(range: Range): { from_day: string; to_day: string } {
   return { from_day: dayKeyIct(range.from_ms), to_day: dayKeyIct(range.to_ms - 1) };

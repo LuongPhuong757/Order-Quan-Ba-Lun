@@ -8,7 +8,9 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import {
+  CART_FRESH_HOURS,
   activeNow,
+  cartStats,
   customerStats,
   durationBuckets,
   geoShareStats,
@@ -26,10 +28,20 @@ import {
 // hỏi xa hơn thì dữ liệu đã bị dọn, biểu đồ trả về toàn 0 và người xem tưởng là quán vắng.
 const MAX_DAYS = 90;
 
+// Trần 7 ngày cho cửa sổ giỏ hàng: giỏ ở máy khách tự chết sau 24h, hỏi xa hơn một tuần thì
+// chỉ đếm thêm rác của những thiết bị không bao giờ quay lại.
+const MAX_CART_HOURS = 168;
+
 function parseDays(raw: unknown, fallback: number): number {
   const n = Number(raw);
   if (!Number.isFinite(n)) return fallback;
   return Math.min(MAX_DAYS, Math.max(1, Math.floor(n)));
+}
+
+function parseHours(raw: unknown, fallback: number): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(MAX_CART_HOURS, Math.max(1, Math.floor(n)));
 }
 
 @Controller('admin/analytics')
@@ -81,5 +93,19 @@ export class AdminAnalyticsController {
     const range = rangeForDays(nowMs, d);
     const stats = await customerStats(this.ds, range);
     return { data: { range: { days: d, ...range, ...rangeLabel(range) }, ...stats } };
+  }
+
+  /**
+   * Giỏ hàng đang treo (2026-09-03) — ĐÚNG 2 con số: bao nhiêu giỏ đang có món, tổng bao nhiêu
+   * món. Một câu SQL.
+   *
+   * KHÔNG nhận `days` như 2 endpoint trên: đây là ẢNH CHỤP "ngay lúc này", không phải số liệu
+   * theo khoảng — giỏ hàng chỉ có một trạng thái hiện tại, không có lịch sử (bảng lưu một dòng
+   * mỗi thiết bị, ghi đè mỗi ping).
+   */
+  @Get('carts')
+  async carts(@Query('hours') hours?: string) {
+    const stats = await cartStats(this.ds, Date.now(), parseHours(hours, CART_FRESH_HOURS));
+    return { data: stats };
   }
 }
