@@ -5,6 +5,7 @@ import {
   auditRetentionCutoffMs,
   pruneAuditLogs,
   pruneOrderActivityLogs,
+  pruneGeoShareDaily,
   prunePageViewDaily,
   pruneRevokedJti,
   pruneVisitSessions,
@@ -172,5 +173,22 @@ describe('prunePageViewDaily', () => {
     const mgr = makeFakeManager({}, undefined);
     const result = await prunePageViewDaily(mgr, Date.parse('2026-07-29T03:00:00Z'));
     expect(result.deleted_rows).toBe(0);
+  });
+});
+
+describe('pruneGeoShareDaily', () => {
+  it('xoá theo day_key ICT, cùng mốc với web_page_views_daily', async () => {
+    const captured: { column?: string; value?: unknown } = {};
+    const mgr = makeFakeManager(captured, 4);
+    const result = await pruneGeoShareDaily(mgr, Date.parse('2026-07-29T03:00:00Z'));
+    expect(captured.column).toBe('day_key < :c');
+    expect(captured.value).toBe('2026-07-29');
+    expect(result.deleted_rows).toBe(4);
+  });
+
+  it('mốc 17:30Z = 00:30 ICT hôm sau → cắt theo NGÀY ICT, không phải ngày UTC', async () => {
+    const captured: { column?: string; value?: unknown } = {};
+    await pruneGeoShareDaily(makeFakeManager(captured, 0), Date.parse('2026-07-29T17:30:00Z'));
+    expect(captured.value).toBe('2026-07-30');
   });
 });

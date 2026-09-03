@@ -14,6 +14,7 @@ import { OrderActivityLog } from '../orders/entities/order-activity-log.entity.j
 import { RevokedJti } from '../auth/entities/revoked-jti.entity.js';
 import { WebVisitSession } from '../analytics/entities/web-visit-session.entity.js';
 import { WebPageViewDaily } from '../analytics/entities/web-page-view-daily.entity.js';
+import { GeoShareDaily } from '../public/entities/geo-share-daily.entity.js';
 import { dayKeyIct } from '../analytics/visit-hit.js';
 
 export function auditRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
@@ -83,6 +84,24 @@ export async function pruneVisitSessions(
     .delete()
     .from(WebVisitSession)
     .where('last_seen_ms < :c', { c: cutoffMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
+}
+
+/** Bộ đếm chia sẻ vị trí — cùng mốc retention với `web_page_views_daily` (2026-08-30). Bảng này
+ *  bé (tối đa 5 dòng/ngày) nên dọn không phải vì dung lượng, mà để mọi bảng thống kê cùng rụng ở
+ *  một mốc: giữ số geo lâu hơn số truy cập là dựng ra hai chân trời dữ liệu lệch nhau, và biểu đồ
+ *  ghép hai thứ đó lại sẽ nói dối ở phần đuôi. */
+export async function pruneGeoShareDaily(
+  mgr: EntityManager,
+  cutoffMs: number,
+): Promise<{ deleted_rows: number }> {
+  const result = await mgr
+    .getRepository(GeoShareDaily)
+    .createQueryBuilder()
+    .delete()
+    .from(GeoShareDaily)
+    .where('day_key < :c', { c: dayKeyIct(cutoffMs) })
     .execute();
   return { deleted_rows: result.affected ?? 0 };
 }

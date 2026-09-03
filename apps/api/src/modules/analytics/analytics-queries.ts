@@ -367,3 +367,54 @@ export async function customerStats(ds: DataSource, range: Range): Promise<Custo
 export function rangeLabel(range: Range): { from_day: string; to_day: string } {
   return { from_day: dayKeyIct(range.from_ms), to_day: dayKeyIct(range.to_ms - 1) };
 }
+
+/**
+ * Chia sẻ vị trí: thành công / hỏng, trong khoảng đang xem (2026-08-30).
+ *
+ * Đọc `geo_share_daily` — bộ đếm do `POST /api/public/geo-log` cộng dồn mỗi cú bấm. Xem docblock
+ * entity để biết vì sao con số này phải nằm trong DB chứ không phải log container.
+ *
+ * `failed` gộp cả 4 kiểu hỏng vì đó là con số chủ quán cần ("bao nhiêu khách không chia sẻ được"),
+ * nhưng `by_outcome` giữ nguyên chi tiết: `denied` (quyền bị chặn) và `timeout` (máy lấy quá lâu)
+ * dẫn tới hai việc phải làm khác hẳn nhau, gộp lại là mất đúng thứ đáng đọc.
+ */
+export type GeoShareStats = {
+  ok: number;
+  failed: number;
+  total: number;
+  /** % hỏng trên tổng số lượt bấm, làm tròn 1 chữ số. `null` khi chưa có lượt nào — 0% và
+   *  "chưa có dữ liệu" là hai chuyện khác nhau, đừng vẽ 0% cho cái thứ hai. */
+  failed_pct: number | null;
+  by_outcome: Array<{ outcome: string; hits: number }>;
+};
+
+export async function geoShareStats(
+  ds: DataSource,
+  range: Range,
+  nowMs: number,
+): Promise<GeoShareStats> {
+  const keys = dayKeysInRange(range, nowMs);
+  const empty: GeoShareStats = { ok: 0, failed: 0, total: 0, failed_pct: null, by_outcome: [] };
+  if (keys.length === 0) return empty;
+
+  const rows = (await ds.query(
+    `SELECT outcome, COALESCE(SUM(hits), 0) AS hits
+       FROM geo_share_daily
+      WHERE day_key >= ? AND day_key <= ?
+      GROUP BY outcome
+      ORDER BY hits DESC`,
+    [keys[0], keys[keys.length - 1]],
+  )) as Array<Record<string, unknown>>;
+
+  const by_outcome = rows.map((r) => ({ outcome: String(r.outcome), hits: num(r.hits) }));
+  const ok = by_outcome.find((r) => r.outcome === 'ok')?.hits ?? 0;
+  const total = by_outcome.reduce((sum, r) => sum + r.hits, 0);
+  const failed = total - ok;
+  return {
+    ok,
+    failed,
+    total,
+    failed_pct: total === 0 ? null : Math.round((failed / total) * 1000) / 10,
+    by_outcome,
+  };
+}

@@ -11,6 +11,7 @@ import {
   auditRetentionCutoffMs,
   pruneAuditLogs,
   pruneOrderActivityLogs,
+  pruneGeoShareDaily,
   prunePageViewDaily,
   pruneRevokedJti,
   pruneVisitSessions,
@@ -58,9 +59,11 @@ export class MaintenanceCronService {
       const cutoffMs = analyticsRetentionCutoffMs(Date.now(), cutoffDays);
       const sessions = await pruneVisitSessions(this.ds.manager, cutoffMs);
       const pageViews = await prunePageViewDaily(this.ds.manager, cutoffMs);
+      const geoShare = await pruneGeoShareDaily(this.ds.manager, cutoffMs);
       this.logger.log(
         `cron-analytics-retention: xoá ${sessions.deleted_rows} web_visit_sessions + ` +
-          `${pageViews.deleted_rows} web_page_views_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})`,
+          `${pageViews.deleted_rows} web_page_views_daily + ` +
+          `${geoShare.deleted_rows} geo_share_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})`,
       );
     } catch (err) {
       this.logger.error(

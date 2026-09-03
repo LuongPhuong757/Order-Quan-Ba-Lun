@@ -47,7 +47,30 @@ type TrafficData = {
   top_paths: Array<{ path: string; views: number }>;
   top_referrers: Array<{ host: string; sessions: number }>;
   active_now: number;
+  /** Bộ đếm nút "Chia sẻ vị trí" ở trang khách (2026-08-30) — xem `geo_share_daily` phía BE. */
+  geo_share: {
+    ok: number;
+    failed: number;
+    total: number;
+    /** `null` = chưa có lượt bấm nào. KHÁC 0% (có bấm, không lượt nào hỏng). */
+    failed_pct: number | null;
+    by_outcome: Array<{ outcome: string; hits: number }>;
+  };
   collecting: boolean;
+};
+
+/**
+ * Nhãn tiếng Việt cho từng kiểu hỏng. Mỗi kiểu dẫn tới một việc PHẢI LÀM khác hẳn nhau, nên
+ * không gộp: 'denied' là khách phải mở quyền trong Cài đặt máy, 'timeout' là sóng/GPS yếu (chờ
+ * thêm là xong), còn 'unsupported' là khách đang mở link trong WebView Zalo/Facebook — ba việc
+ * không liên quan gì tới nhau.
+ */
+const GEO_OUTCOME_LABEL: Record<string, string> = {
+  ok: 'Chia sẻ được',
+  denied: 'Máy chặn quyền vị trí',
+  timeout: 'Lấy quá lâu (sóng/GPS yếu)',
+  unavailable: 'Máy không bắt được tín hiệu',
+  unsupported: 'Trình duyệt trong app chặn (Zalo/Facebook)',
 };
 
 type CustomerData = {
@@ -289,6 +312,38 @@ export function AdminAnalyticsPanel() {
               />
             </Panel>
           </div>
+
+          <Panel title="Khách chia sẻ vị trí có trót lọt không">
+            {traffic.geo_share.total === 0 ? (
+              <p style={empty}>
+                Chưa có lượt bấm "Chia sẻ vị trí" nào trong khoảng này.
+              </p>
+            ) : (
+              <>
+                <p style={{ margin: '0 0 12px', fontSize: 14 }}>
+                  {traffic.geo_share.total} lượt bấm ·{' '}
+                  <strong
+                    style={{
+                      // Ngưỡng 20%: dưới mức đó là nền nhiễu bình thường (khách bấm nhầm, đi
+                      // thang máy, để máy trong túi). Trên mức đó là có thứ hỏng có hệ thống và
+                      // đáng đi tìm — tô đỏ để mắt dừng lại đúng lúc cần.
+                      color: (traffic.geo_share.failed_pct ?? 0) > 20 ? '#dc2626' : INK_MUTED,
+                    }}
+                  >
+                    {traffic.geo_share.failed} lượt hỏng ({traffic.geo_share.failed_pct}%)
+                  </strong>
+                </p>
+                <RowBars
+                  rows={traffic.geo_share.by_outcome.map((o) => ({
+                    key: o.outcome,
+                    label: GEO_OUTCOME_LABEL[o.outcome] ?? o.outcome,
+                    value: o.hits,
+                  }))}
+                  unit="lượt"
+                />
+              </>
+            )}
+          </Panel>
 
           <Panel title="Khách đến từ đâu">
             {traffic.top_referrers.length === 0 ? (

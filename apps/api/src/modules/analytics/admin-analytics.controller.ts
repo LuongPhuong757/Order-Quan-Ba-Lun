@@ -11,6 +11,7 @@ import {
   activeNow,
   customerStats,
   durationBuckets,
+  geoShareStats,
   rangeForDays,
   rangeLabel,
   topPaths,
@@ -42,7 +43,7 @@ export class AdminAnalyticsController {
     const d = parseDays(days, 7);
     const range = rangeForDays(nowMs, d);
     // Chạy song song: 7 câu độc lập nhau, tuần tự thì cộng dồn latency vô ích.
-    const [totals, by_day, by_hour, by_device, duration, paths, referrers, active] =
+    const [totals, by_day, by_hour, by_device, duration, paths, referrers, active, geo_share] =
       await Promise.all([
         trafficTotals(this.ds, range),
         trafficByDay(this.ds, range, nowMs),
@@ -52,6 +53,9 @@ export class AdminAnalyticsController {
         topPaths(this.ds, range, nowMs),
         topReferrers(this.ds, range),
         activeNow(this.ds, nowMs),
+        // Đi kèm `traffic` chứ không thành endpoint riêng: nó dùng CHUNG bộ lọc ngày của màn này,
+        // tách ra là hai đường phải giữ cho khớp nhau mãi mãi.
+        geoShareStats(this.ds, range, nowMs),
       ]);
     return {
       data: {
@@ -64,6 +68,7 @@ export class AdminAnalyticsController {
         top_paths: paths,
         top_referrers: referrers,
         active_now: active,
+        geo_share,
         collecting: process.env.ANALYTICS_ENABLED !== 'false',
       },
     };

@@ -7,8 +7,13 @@
 // về đây, và đây chỉ làm đúng một việc: in một dòng ra log container (`docker logs api`).
 //
 // 3 ranh giới:
-//  1. KHÔNG chạm DB, KHÔNG response body (204) — cùng luật với `/api/public/track`: thứ được
-//     gọi từ đường nóng của khách không được phép chậm hay hỏng.
+//  1. KHÔNG response body (204), và cú ghi DB KHÔNG nằm trên đường trả lời — cùng luật với
+//     `/api/public/track`: thứ được gọi từ đường nóng của khách không được phép chậm hay hỏng.
+//
+//     ⚠ 2026-08-30 — ranh giới này TỪNG là "KHÔNG chạm DB". Nay có chạm, vì log container chết
+//     mỗi lần deploy (`docker compose up --build`) và số liệu biến mất đúng lúc vừa sửa xong thứ
+//     cần đo. Nhưng tinh thần giữ nguyên: `void` chứ không `await`, lỗi ghi chỉ ghi log rồi thôi,
+//     và 204 trả về trước khi câu UPSERT xong. Khách bấm nút không bao giờ phải chờ DB.
 //  2. KHÔNG nhận toạ độ. Chẩn đoán cần lý do thất bại + sai số + thời gian chờ, không cần
 //     biết khách đứng ở đâu — giữ đúng ranh giới "không log toạ độ" của `ship-quote`.
 //  3. `message` là chuỗi lỗi THÔ của trình duyệt (vd "kCLErrorDomain error 0" trên iOS —
@@ -17,6 +22,9 @@
 //
 // Cách đọc log: `docker compose logs api | grep '\[geo-log\]'`.
 import { Body, Controller, HttpCode, Logger, Post, Req } from '@nestjs/common';
+import { InjectDataSource } from '@nestjs/typeorm';
+import { DataSource } from 'typeorm';
+import { dayKeyIct } from '../analytics/visit-hit.js';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
@@ -75,6 +83,8 @@ class GeoLogDto {
 export class PublicGeoLogController {
   private readonly logger = new Logger('GeoLog');
 
+  constructor(@InjectDataSource() private readonly ds: DataSource) {}
+
   // Cùng trần với ship-quote (30/phút/IP): khách bấm "Lấy lại vị trí" vài lần là bình thường,
   // nhưng đủ chặn script spam làm ngập log.
   @Throttle({ default: { limit: 30, ttl: 60_000 } })
@@ -100,5 +110,30 @@ export class PublicGeoLogController {
     // `warn` cho thất bại để mắt người quét log bắt được ngay giữa các dòng thường.
     if (dto.outcome === 'ok') this.logger.log(parts.join(' '));
     else this.logger.warn(parts.join(' '));
+
+    // Bộ đếm bền (2026-08-30) — `void`, KHÔNG `await`: 204 phải trả về ngay, khách bấm nút không
+    // đứng chờ MySQL. Chỉ đếm theo ngày + kết quả; mọi thứ nhận dạng khách ở trên chỉ đi ra log.
+    void this.bumpCounter(dto.outcome);
+  }
+
+  /**
+   * `INSERT ... ON DUPLICATE KEY UPDATE` trên UNIQUE (day_key, outcome) — cùng khuôn với
+   * `upsertPageViews` ở analytics-collector, gồm cả việc dùng cú pháp `VALUES(col)` đời cũ để câu
+   * SQL còn chạy nếu ai đó hạ image MySQL xuống 5.7.
+   *
+   * Nuốt lỗi có chủ đích: đây là telemetry. DB đầy hay bảng chưa kịp `synchronize` thì mất một con
+   * số thống kê — chấp nhận được; ném lỗi ra giữa đường nóng của khách thì không.
+   */
+  private async bumpCounter(outcome: string): Promise<void> {
+    try {
+      await this.ds.query(
+        `INSERT INTO geo_share_daily (day_key, outcome, hits)
+         VALUES (?, ?, 1)
+         ON DUPLICATE KEY UPDATE hits = hits + 1`,
+        [dayKeyIct(Date.now()), outcome],
+      );
+    } catch (err) {
+      this.logger.error(`geo_share_daily upsert failed: ${(err as Error).message}`);
+    }
   }
 }

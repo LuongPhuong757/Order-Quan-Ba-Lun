@@ -17,6 +17,7 @@ import { CustomerSession } from './modules/public/entities/customer-session.enti
 import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
 import { WebVisitSession } from './modules/analytics/entities/web-visit-session.entity.js';
 import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-daily.entity.js';
+import { GeoShareDaily } from './modules/public/entities/geo-share-daily.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -60,6 +61,10 @@ export const dataSourceOptions: DataSourceOptions = {
     // `synchronize` không tạo bảng và `tsc` vẫn xanh (xem cảnh báo ngay trên).
     WebVisitSession,
     WebPageViewDaily,
+    // Bộ đếm "chia sẻ vị trí thành công / hỏng" theo ngày (2026-08-30). Cùng lý do có mặt ở đây
+    // như 2 entity trên: luồng ghi là SQL thô, nhưng thiếu dòng này thì `synchronize` không tạo
+    // bảng và `tsc` vẫn xanh.
+    GeoShareDaily,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
