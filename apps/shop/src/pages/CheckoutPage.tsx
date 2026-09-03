@@ -209,7 +209,10 @@ export function CheckoutPage(): JSX.Element {
   const [fulfillment, setFulfillment] = useState<Fulfillment>(
     geoDraft?.fulfillment === 'DELIVERY' || geoDraft?.fulfillment === 'PICKUP'
       ? (geoDraft.fulfillment as Fulfillment)
-      : 'PICKUP',
+      // 'DELIVERY' chứ không phải 'PICKUP' (2026-08-30): đây là giá trị hiện trong khoảnh khắc
+      // trước khi `GET /api/public/store` về. Để PICKUP ở đây thì hình thức đúng chỉ xuất hiện
+      // sau một cú nhảy tab ngay trước mắt khách — và ai đọc nhanh sẽ tưởng mình chọn nhầm.
+      : 'DELIVERY',
   );
   // Khôi phục từ nháp = coi như MẶC ĐỊNH ĐÃ ÁP. Không có dòng này thì effect "áp mặc định khi
   // dữ liệu quán vừa về" (bên dưới) đè `fulfillment` vừa khôi phục về lại PICKUP, và khối địa chỉ
@@ -374,20 +377,20 @@ export function CheckoutPage(): JSX.Element {
     if (cart.count === 0 && !submitting) navigate('/cart');
   }, [cart.count, submitting, navigate]);
 
-  // Mặc định chọn phương thức đang bật; cả 2 bật thì mặc định DELIVERY nếu lần trước
-  // khách chọn DELIVERY (đọc từ dữ liệu autofill lần trước có địa chỉ). Chỉ áp 1 lần khi
-  // dữ liệu quán vừa tải xong, không ghi đè lựa chọn khách tự đổi sau đó.
+  // Mặc định chọn phương thức đang bật; cả 2 bật thì LUÔN là DELIVERY. Chỉ áp 1 lần khi dữ liệu
+  // quán vừa tải xong, không ghi đè lựa chọn khách tự đổi sau đó.
+  //
+  // 2026-08-30 — bỏ luật cũ "DELIVERY nếu đơn trước có địa chỉ, ngược lại PICKUP". Luật đó khiến
+  // MỌI khách đặt lần đầu rơi vào PICKUP, tức mặc định sai cho đúng nhóm chưa quen trang.
   useEffect(() => {
     if (!store.data || defaultApplied) return;
     setDefaultApplied(true);
-    if (!store.data.pickup_enabled && store.data.delivery_enabled) {
-      setFulfillment('DELIVERY');
-    } else if (store.data.pickup_enabled && !store.data.delivery_enabled) {
-      setFulfillment('PICKUP');
-    } else {
-      setFulfillment(lastCustomer?.customer_address ? 'DELIVERY' : 'PICKUP');
-    }
-  }, [store.data, defaultApplied, lastCustomer]);
+    // Chỉ rơi về PICKUP khi quán đang TẮT giao tận nơi. Mọi trường hợp còn lại — gồm cả cả-hai-bật
+    // và cả-hai-tắt (lúc đó không đặt được đơn nên chọn gì cũng vậy) — là DELIVERY.
+    setFulfillment(
+      store.data.pickup_enabled && !store.data.delivery_enabled ? 'PICKUP' : 'DELIVERY',
+    );
+  }, [store.data, defaultApplied]);
 
   const fieldErrors = computeFieldErrors(
     name,
@@ -620,14 +623,8 @@ export function CheckoutPage(): JSX.Element {
       <section style={card}>
         <h2 style={cardTitle}>Nhận hàng</h2>
         <div style={segmentedWrap} role="group" aria-label="Phương thức nhận hàng">
-          <button
-            type="button"
-            style={fulfillment === 'PICKUP' ? segmentActive : segment}
-            disabled={store.data ? !store.data.pickup_enabled : false}
-            onClick={() => setFulfillment('PICKUP')}
-          >
-            {PICKUP_LABEL}
-          </button>
+          {/* Giao tận nơi ĐỨNG TRƯỚC (2026-08-30, chốt chủ quán): đây là hình thức phần lớn
+              khách chọn, và ô đứng đầu là ô người ta đọc trước rồi mặc nhiên coi là mặc định. */}
           <button
             type="button"
             style={fulfillment === 'DELIVERY' ? segmentActive : segment}
@@ -636,12 +633,20 @@ export function CheckoutPage(): JSX.Element {
           >
             {DELIVERY_LABEL}
           </button>
+          <button
+            type="button"
+            style={fulfillment === 'PICKUP' ? segmentActive : segment}
+            disabled={store.data ? !store.data.pickup_enabled : false}
+            onClick={() => setFulfillment('PICKUP')}
+          >
+            {PICKUP_LABEL}
+          </button>
         </div>
-        {store.data && !store.data.pickup_enabled && (
-          <p style={disabledHint}>{`${PICKUP_LABEL} đang tạm ngưng`}</p>
-        )}
         {store.data && !store.data.delivery_enabled && (
           <p style={disabledHint}>{`${DELIVERY_LABEL} đang tạm ngưng`}</p>
+        )}
+        {store.data && !store.data.pickup_enabled && (
+          <p style={disabledHint}>{`${PICKUP_LABEL} đang tạm ngưng`}</p>
         )}
 
         <div style={fieldGroup}>
