@@ -5,6 +5,7 @@ Khi mà gửi domain của quán tôi muốn hiển thị logo
 Test traffic hàng loạt xem xử lý như nào
 Thêm bổ sung, bát đĩa, tương ớt
 Đơn trên 30km thì thông báo không nhận luôn
+Khi chia sẻ vị trí hiện tại, hoặc dán gg map có auto fill vào vị trí phường, xã tỉnh được không và khóa lại phường xã không cho đổi
 --------------------------------------------------------
 Sửa lại màn quản lý dễ nhìn hơn: Cho phép thu gọn thông tin tránh hiển thị quá nhieu, phân biệt màu sắc trạng thái của 3 status đơn online, cho phép sửa đơn rồi mới xác nhận  - DONE
 Cho phép admin, bếp, order sửa lại đơn online và update ngược về đơn của khách - DONE
