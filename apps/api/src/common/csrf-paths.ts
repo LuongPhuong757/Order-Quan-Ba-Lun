@@ -18,7 +18,11 @@
 //
 // 3) `apps/shop` gọi API cùng-origin (`order.<domain>`) nên request thật từ trình duyệt
 //    luôn kèm header `Origin` hợp lệ trên mọi mutation — không lo chặn nhầm khách thật.
-export function pathRequiresCheck(path: string): boolean {
+export function pathRequiresCheck(rawPath: string): boolean {
+  // SEC — Express route KHÔNG phân biệt hoa/thường (mặc định `case sensitive routing` = off),
+  // nên `POST /API/public/orders` vẫn tới đúng controller. Nếu so khớp ở đây phân biệt
+  // hoa/thường thì viết hoa 1 chữ là né được toàn bộ Origin check. Hạ về chữ thường trước.
+  const path = rawPath.toLowerCase();
   // Mutations on /admin/* and /auth/* (except login + recover which need to work pre-auth)
   if (path.startsWith('/admin/')) return true;
   if (path.startsWith('/auth/')) {

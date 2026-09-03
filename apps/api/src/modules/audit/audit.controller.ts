@@ -2,6 +2,7 @@ import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
 import { AuditService } from './audit.service.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { csvRow } from '../../common/csv.js';
 
 @Controller('admin/audit')
 @UseGuards(AdminGuard)
@@ -35,30 +36,27 @@ export class AuditController {
     });
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=audit-${Date.now()}.csv`);
-    const header = 'id,ts_ms,actor_id,actor_name,ip,action_kind,target_kind,target_id,request_id\n';
-    res.write(header);
+    // SEC — escape MỌI cột qua csvRow (bọc nháy + chống formula injection). Trước đây chỉ
+    // actor_name được escape; request_id (client gửi) và target_id đi thẳng vào file.
+    res.write(
+      csvRow(['id', 'ts_ms', 'actor_id', 'actor_name', 'ip', 'action_kind', 'target_kind', 'target_id', 'request_id']),
+    );
     for (const r of result.items) {
       res.write(
-        [
+        csvRow([
           r.id,
           r.ts_ms,
-          r.actor_id ?? '',
-          csvEscape(r.actor_name ?? ''),
+          r.actor_id,
+          r.actor_name,
           r.ip,
           r.action_kind,
-          r.target_kind ?? '',
-          r.target_id ?? '',
-          r.request_id ?? '',
-        ].join(',') + '\n',
+          r.target_kind,
+          r.target_id,
+          r.request_id,
+        ]),
       );
     }
     res.end();
   }
 }
 
-function csvEscape(s: string): string {
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}

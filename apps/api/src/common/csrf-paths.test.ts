@@ -47,3 +47,21 @@ describe('pathRequiresCheck — T-08-32: đóng lỗ hổng /api/public/*', () =
     expect(pathRequiresCheck('/api/publicfoo')).toBe(false);
   });
 });
+
+describe('pathRequiresCheck — SEC: không né được bằng viết hoa (Express route case-insensitive)', () => {
+  it('/API/public/orders vẫn bị kiểm Origin', () => {
+    expect(pathRequiresCheck('/API/public/orders')).toBe(true);
+  });
+
+  it('/Admin/users vẫn bị kiểm Origin', () => {
+    expect(pathRequiresCheck('/Admin/users')).toBe(true);
+  });
+
+  it('/AUTH/logout vẫn bị kiểm Origin', () => {
+    expect(pathRequiresCheck('/AUTH/logout')).toBe(true);
+  });
+
+  it('/Auth/Login vẫn là ngoại lệ pre-auth (so khớp ngoại lệ cũng không phân biệt hoa/thường)', () => {
+    expect(pathRequiresCheck('/Auth/Login')).toBe(false);
+  });
+});
