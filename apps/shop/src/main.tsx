@@ -105,12 +105,19 @@ if (isMenuHost) {
             <Route path="/guide" element={<GuidePage />} />
             <Route path="*" element={<MenuPage />} />
           </Route>
-          {/* Quyển menu cũng mở được từ tên miền chính (`quanbalun.site/menu`) — tiện khi
+          {/* Quyển menu cũng mở được từ tên miền chính (`quanbalun.site/thuc-don`) — tiện khi
               cần dán một đường dẫn duy nhất cho khách. CỐ Ý nằm NGOÀI `<Route
               element={<AppShell/>}>`: trang này không có header giỏ hàng, không giỏ nổi.
-              React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên `/menu` vẫn thắng
-              catch-all dù đứng sau nó. */}
-          <Route path="/menu" element={<MenuBookPage />} />
+              React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên đường dẫn này vẫn thắng
+              catch-all dù đứng sau nó.
+
+              ⚠ KHÔNG ĐƯỢC đặt là `/menu`. Cùng một server Node vừa chạy API vừa trả file
+              tĩnh của SPA, mà API đã có sẵn `@Controller('menu')` (màn quản lý menu, yêu cầu
+              đăng nhập). Route của Nest được khớp TRƯỚC nhánh trả index.html, nên
+              `quanbalun.site/menu` không bao giờ tới được React — nó trả thẳng 401 JSON.
+              Đã dính đúng lỗi này lúc deploy 2026-09-04. `/thuc-don` không đụng controller
+              nào, và cũng dễ đọc hơn với khách Việt. */}
+          <Route path="/thuc-don" element={<MenuBookPage />} />
         </Routes>
       </BrowserRouter>
     </StrictMode>,

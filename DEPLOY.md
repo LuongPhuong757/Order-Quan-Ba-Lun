@@ -48,7 +48,7 @@ host bắt đầu bằng `admin.` nhận `web-dist`, mọi host khác nhận `sh
 `menu.<domain>` cũng nhận `shop-dist` như apex; việc vẽ quyển menu thay vì màn đặt hàng do
 [apps/shop/src/main.tsx](apps/shop/src/main.tsx) quyết định trong trình duyệt theo
 `location.hostname`. Thiếu bản ghi này thì mọi thứ khác VẪN CHẠY — Caddy chỉ không xin được
-cert cho host đó, và quyển menu vẫn mở được ở `<domain>/menu`. Khác hẳn `admin`: thiếu
+cert cho host đó, và quyển menu vẫn mở được ở `<domain>/thuc-don`. Khác hẳn `admin`: thiếu
 `admin` là nhân viên mất đường vào POS.
 
 Xác nhận trước khi build:
