@@ -7,6 +7,7 @@ import { MAX_QTY, formatVnd, useCart } from '../lib/cart-store.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { CartToast } from '../components/CartToast.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
+import { QtyInput } from '../components/QtyInput.tsx';
 
 /**
  * `/top` — bảng xếp hạng món được gọi nhiều nhất (chỉ đạo chủ dự án 2026-08-04).
@@ -238,7 +239,12 @@ function TopDishRow({
           >
             <MinusGlyph />
           </button>
-          <span style={qtyValue}>{qtyInCart}</span>
+          <QtyInput
+            value={qtyInCart}
+            onCommit={(qty) => onSetQty(dish, qty)}
+            label={`Số lượng ${dish.name}`}
+            style={qtyValue}
+          />
           <button
             type="button"
             onClick={() => onSetQty(dish, qtyInCart + 1)}
@@ -486,14 +492,12 @@ const minusButton: CSSProperties = {
   cursor: 'pointer',
 };
 
+// Ô gõ số (`QtyInput`) — cùng kích cỡ với `CardItem`.
 const qtyValue: CSSProperties = {
-  minWidth: 'var(--sp-6)',
-  textAlign: 'center',
+  width: 'var(--sp-6)',
+  height: 'var(--tap-min)',
   fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
-  color: 'var(--text-strong)',
-  fontVariantNumeric: 'tabular-nums',
 };
 
 const outOfStockNote: CSSProperties = {

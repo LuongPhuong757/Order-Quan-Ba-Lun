@@ -20,6 +20,7 @@ import { BannerNotice } from '../components/BannerNotice.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
+import { QtyInput } from '../components/QtyInput.tsx';
 import { Stepper } from '../components/Stepper.tsx';
 import { StickyCta } from '../components/StickyCta.tsx';
 import { useCountUp } from '../lib/use-count-up.ts';
@@ -536,7 +537,16 @@ function CartLineRow({
             >
               −
             </button>
-            <span style={qtyValue}>{line.qty}</span>
+            <span style={qtyDivider}>
+              <QtyInput
+                value={line.qty}
+                onCommit={(qty) => onSetQty(line.menu_item_id, qty)}
+                label={`Số lượng ${line.name}`}
+                disabled={isOut}
+                style={qtyValue}
+                testId={`cart-line-qty-${line.menu_item_id}`}
+              />
+            </span>
             <button
               type="button"
               aria-label={`Tăng số lượng ${line.name}`}
@@ -551,11 +561,13 @@ function CartLineRow({
           <span style={lineTotalStyle}>{isOut ? '—' : formatVnd(lineTotal)}</span>
         </div>
 
-        {isOut && (
-          <button type="button" style={removeButton} onClick={requestRemove}>
-            Xoá món này
-          </button>
-        )}
+        {/* Nút xoá hiện cho MỌI dòng (chỉ đạo 2026-09-04), không chỉ món hết hàng: nay ô số
+            lượng gõ được nhưng cố ý không nhận 0 (xem `QtyInput`), nên khách cần một lối xoá
+            rõ ràng thay vì đoán rằng bấm `−` ở qty 1 là bỏ món. Vẫn KHÔNG hộp xác nhận (xem
+            doc comment đầu file). */}
+        <button type="button" style={removeButton} onClick={requestRemove}>
+          Xoá món này
+        </button>
 
         {!isOut &&
           (noteOpen ? (
@@ -994,17 +1006,18 @@ const qtyButtonDisabled: CSSProperties = {
   cursor: 'not-allowed',
 };
 
-const qtyValue: CSSProperties = {
-  minWidth: 'var(--sp-10)',
-  height: 'var(--tap-min)',
+// Vạch chia của khối liền — thay cho khoảng trống 8px giữa 3 ô rời. Nằm trên span bọc ngoài
+// vì `QtyInput` khoá `border: none` để không lộ viền input mặc định của trình duyệt.
+const qtyDivider: CSSProperties = {
   display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  // Vạch chia của khối liền — thay cho khoảng trống 8px giữa 3 ô rời.
   borderLeft: '1px solid var(--border-subtle)',
   borderRight: '1px solid var(--border-subtle)',
-  textAlign: 'center',
-  fontSize: 'var(--fs-base)',
+};
+
+// Ô gõ số (`QtyInput`).
+const qtyValue: CSSProperties = {
+  width: 'var(--sp-10)',
+  height: 'var(--tap-min)',
   fontWeight: 'var(--fw-semibold)' as unknown as number,
 };
 

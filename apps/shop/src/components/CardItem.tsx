@@ -3,6 +3,7 @@ import type { PublicMenuItem } from '@order/schemas';
 import { MAX_QTY, formatVnd } from '../lib/cart-store.ts';
 import { ImagePlaceholder } from './ImagePlaceholder.tsx';
 import { FadeInImage } from './FadeInImage.tsx';
+import { QtyInput } from './QtyInput.tsx';
 
 /**
  * Card món trong lưới menu (`components.card-item`, `apps/shop/DESIGN.md`).
@@ -111,9 +112,13 @@ export function CardItem({
               >
                 <MinusGlyph />
               </button>
-              <span style={qtyValue} data-testid={`menu-qty-${item.id}`}>
-                {qtyInCart}
-              </span>
+              <QtyInput
+                value={qtyInCart}
+                onCommit={(qty) => onSetQty(item, qty)}
+                label={`Số lượng ${item.name}`}
+                style={qtyValue}
+                testId={`menu-qty-${item.id}`}
+              />
               <button
                 type="button"
                 onClick={() => onSetQty(item, qtyInCart + 1)}
@@ -344,15 +349,14 @@ const minusButton: CSSProperties = {
   cursor: 'pointer',
 };
 
+// Ô gõ số (`QtyInput`): giữ đúng 24px như span cũ để phép tính bề ngang ở `priceRow` còn đúng,
+// cao bằng nút hai bên để vùng chạm không
+// hụt. Chữ/canh giữa/tabular-nums do `QtyInput` tự lo.
 const qtyValue: CSSProperties = {
-  minWidth: 'var(--sp-6)',
-  textAlign: 'center',
+  width: 'var(--sp-6)',
+  height: 'var(--tap-min)',
   fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-bold)' as unknown as number,
-  color: 'var(--text-strong)',
-  // Chữ số cùng bề ngang: đổi 1 → 2 không làm hai nút hai bên xê dịch.
-  fontVariantNumeric: 'tabular-nums',
 };
 
 const price: CSSProperties = {
