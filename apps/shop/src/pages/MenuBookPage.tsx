@@ -15,8 +15,10 @@ import { PublicMenuGroup, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import {
   computeGrid,
+  findCoverOfGroup,
   findFirstPageOfGroup,
   findPageOfItem,
+  groupAccents,
   paginateGroups,
   searchItems,
   type BookGrid,
@@ -111,6 +113,15 @@ export function MenuBookPage(): JSX.Element {
     return () => ro.disconnect();
   }, []);
 
+  /**
+   * Màu chủ đạo của từng nhóm. Tính một lần cho cả bảng chứ không tính lẻ từng chỗ dùng —
+   * màu phải GIỐNG NHAU ở dải chip, ở nền trang và ở bìa, nếu không khách không nối được
+   * "chip màu vàng nghệ" với "trang màu vàng nghệ".
+   */
+  const accents = useMemo(() => groupAccents(groups), [groups]);
+  /** Nền trang. Kết quả tìm kiếm không thuộc nhóm nào nên về nền kem trung tính. */
+  const accentOf = (code: string) => accents.get(code) ?? 'var(--bg-page)';
+
   // ── Dựng danh sách trang ───────────────────────────────────────────────────────────
   const results = useMemo(() => searchItems(groups, query), [groups, query]);
   const isSearching = query.trim().length > 0;
@@ -148,9 +159,14 @@ export function MenuBookPage(): JSX.Element {
   const prevPagesRef = useRef(pages);
   useLayoutEffect(() => {
     if (prevPagesRef.current === pages) return;
-    const anchor = prevPagesRef.current[indexRef.current]?.items[0]?.id ?? null;
+    const was = prevPagesRef.current[indexRef.current];
     prevPagesRef.current = pages;
-    const at = findPageOfItem(pages, anchor);
+    // Trang bìa không có món nào để bám — bám theo mã nhóm, nếu không khách đang ngắm bìa
+    // mà xoay máy là bị ném thẳng về đầu quyển.
+    const at =
+      was?.kind === 'cover'
+        ? findCoverOfGroup(pages, was.group.code)
+        : findPageOfItem(pages, was?.items[0]?.id ?? null);
     setIndex(Math.min(at, Math.max(0, pages.length - 1)));
   }, [pages]);
 
@@ -381,6 +397,10 @@ export function MenuBookPage(): JSX.Element {
       <div
         style={{
           ...pageLeaf,
+          // Nền tờ giấy mang màu của nhóm — đây là tín hiệu chính của "mỗi nhóm một màu".
+          // Đặt ở TỜ GIẤY chứ không ở khung ngoài: lúc đang lật, hai tờ hai màu khác nhau
+          // trượt qua nhau, và chính khoảnh khắc đó nói cho khách biết họ vừa sang nhóm mới.
+          background: accentOf(p.group.code),
           transform: `rotateY(${angle}deg)`,
           transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
           // Tờ bên dưới không bao giờ xoay nên đừng bắt trình duyệt giữ layer GPU cho nó.
@@ -391,29 +411,56 @@ export function MenuBookPage(): JSX.Element {
         inert={!live}
         onTransitionEnd={layer === 'under' ? undefined : onLeafTransitionEnd}
       >
-        <div
-          // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
-          // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animateCards` cho phép.
-          key={at}
-          style={{
-            ...gridStyle,
-            gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-            gridAutoRows: 'min-content',
-            gap: grid.gap,
-          }}
-        >
-          {p.items.map((item, i) => (
-            <BookCard
-              key={item.id}
-              item={item}
-              wide={grid.cols > 2}
-              eager={layer === 'current' || neighboursReady}
-              index={i}
-              animate={layer === 'current' && animateCards}
-              onOpen={(it, from) => setPreview({ item: it, from })}
+        {p.kind === 'cover' ? (
+          /* Trang bìa "sang chương": đúng một tấm ảnh tràn viền + tên nhóm, không có món
+             nào bấm được. Đây là nhịp nghỉ giữa hai nhóm — thứ làm quyển menu điện tử đọc
+             ra như menu in chứ không như một danh sách dài vô tận. */
+          <div key={at} style={coverFrame}>
+            <img
+              src={p.coverImage ?? ''}
+              alt=""
+              aria-hidden="true"
+              loading={layer === 'current' || neighboursReady ? 'eager' : 'lazy'}
+              decoding="async"
+              style={coverImg}
             />
-          ))}
-        </div>
+            {/* Nền tối chuyển dần ở chân ảnh: ảnh món có chỗ sáng chỗ tối tuỳ tấm, chữ
+                trắng đặt thẳng lên là chỗ đọc được chỗ không. Lớp này bảo đảm tương phản
+                bất kể ảnh nào rơi vào đây. */}
+            <div aria-hidden="true" style={coverScrim} />
+            <div style={coverText}>
+              <p style={coverName}>
+                {p.group.icon ? `${p.group.icon} ` : ''}
+                {p.group.name}
+              </p>
+              <p style={coverCount}>{p.group.items.length} món</p>
+            </div>
+          </div>
+        ) : (
+          <div
+            // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
+            // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animateCards` cho phép.
+            key={at}
+            style={{
+              ...gridStyle,
+              gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+              gridAutoRows: 'min-content',
+              gap: grid.gap,
+            }}
+          >
+            {p.items.map((item, i) => (
+              <BookCard
+                key={item.id}
+                item={item}
+                wide={grid.cols > 2}
+                eager={layer === 'current' || neighboursReady}
+                index={i}
+                animate={layer === 'current' && animateCards}
+                onOpen={(it, from) => setPreview({ item: it, from })}
+              />
+            ))}
+          </div>
+        )}
         {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
       </div>
     );
@@ -472,7 +519,15 @@ export function MenuBookPage(): JSX.Element {
                   type="button"
                   onClick={() => jumpTo(findFirstPageOfGroup(pages, g.code))}
                   aria-current={active ? 'true' : undefined}
-                  style={active ? { ...chip, ...chipActive } : chip}
+                  // Chip nghỉ mang đúng màu nhóm nên cả dải thành một mục lục có màu; chip
+                  // ĐANG XEM vẫn là đỏ thương hiệu. Giữ đỏ ở đây là có chủ ý: nếu chip active
+                  // cũng chỉ là một pastel nữa thì giữa 32 chip pastel không còn gì nói được
+                  // "bạn đang ở đây" — vị trí hiện tại phải khác LOẠI màu, không chỉ khác sắc.
+                  style={
+                    active
+                      ? { ...chip, ...chipActive }
+                      : { ...chip, background: accentOf(g.code), borderColor: 'transparent' }
+                  }
                 >
                   {g.icon ? `${g.icon} ` : ''}
                   {g.name}
@@ -483,9 +538,17 @@ export function MenuBookPage(): JSX.Element {
         </nav>
       )}
 
-      {page && (
-        <p style={pageHeading}>
+      {/* Trang bìa đã in tên nhóm cỡ lớn ngay trên ảnh — lặp lại ở thanh nhỏ này là thừa,
+          và làm tấm ảnh bị đẩy tụt xuống một dòng. */}
+      {page && page.kind === 'items' && (
+        // Thanh tiêu đề đứng NGOÀI tờ giấy (nó không được lật đi cùng), nên phải tự nhuộm
+        // màu nhóm. Để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc
+        // lõng, nhìn như trang chưa vẽ xong.
+        <p style={{ ...pageHeading, background: accentOf(page.group.code) }}>
           <span style={pageHeadingName}>
+            {/* Vạch màu nhắc lại màu của nhóm ngay cạnh tên — nền trang là màu rất nhạt,
+                một vạch đặc cho mắt cái mốc chắc chắn để đối chiếu với chip trên dải. */}
+            <span aria-hidden="true" style={{ ...headingBar, background: accentOf(page.group.code) }} />
             {page.group.icon ? `${page.group.icon} ` : ''}
             {page.group.name}
           </span>
@@ -743,6 +806,17 @@ const pageHeadingName: CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
+const headingBar: CSSProperties = {
+  display: 'inline-block',
+  width: 4,
+  height: '0.95em',
+  marginRight: 'var(--sp-2)',
+  borderRadius: 2,
+  verticalAlign: '-0.08em',
+  // Viền mảnh để vạch không biến mất khi màu nhóm gần trùng nền trang (vd kem tre).
+  boxShadow: 'inset 0 0 0 1px rgb(42 29 20 / 12%)',
+};
+
 const pageHeadingCount: CSSProperties = {
   flex: 'none',
   fontSize: 'var(--fs-caption)',
@@ -813,6 +887,61 @@ const leafShade: CSSProperties = {
   inset: 0,
   pointerEvents: 'none',
   background: 'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 55%) 100%)',
+};
+
+/* ── Trang bìa nhóm ──────────────────────────────────────────────────────────────────
+ * Ảnh chiếm trọn tờ giấy, bo góc như một tấm ảnh dán vào trang menu. Đệm dọc để tấm ảnh
+ * không dính sát mép trên/dưới của khung — có khoảng thở thì mới ra "ảnh in trên trang",
+ * dán sát mép thì ra "ảnh nền của app".
+ */
+const coverFrame: CSSProperties = {
+  position: 'relative',
+  height: '100%',
+  margin: 'var(--sp-1) 0 var(--sp-3)',
+  borderRadius: 'var(--r-category)',
+  overflow: 'hidden',
+  background: 'var(--wood-100)',
+};
+
+const coverImg: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  objectFit: 'cover',
+  display: 'block',
+};
+
+const coverScrim: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  background: 'linear-gradient(180deg, rgb(0 0 0 / 0%) 45%, rgb(0 0 0 / 72%) 100%)',
+};
+
+const coverText: CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: 0,
+  padding: 'var(--sp-5)',
+};
+
+const coverName: CSSProperties = {
+  margin: 0,
+  fontFamily: 'var(--font-display)',
+  fontSize: 'var(--fs-2xl)',
+  fontWeight: 'var(--fw-heavy)',
+  lineHeight: 'var(--lh-tight)',
+  letterSpacing: 'var(--ls-tight)',
+  color: '#ffffff',
+  // Ảnh món có chỗ sáng gắt (đèn, mâm trắng); riêng lớp nền tối chưa chắc đủ ở mọi tấm.
+  textShadow: '0 2px 12px rgb(0 0 0 / 55%)',
+};
+
+const coverCount: CSSProperties = {
+  margin: 'var(--sp-1) 0 0',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-medium)',
+  color: 'rgb(255 255 255 / 82%)',
+  textShadow: '0 1px 8px rgb(0 0 0 / 55%)',
 };
 
 const gridStyle: CSSProperties = {

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { PublicMenuGroup, PublicMenuItem } from '@order/schemas';
 import {
   computeGrid,
+  findCoverOfGroup,
   findFirstPageOfGroup,
   findPageOfItem,
+  groupAccents,
   paginateGroups,
   searchItems,
 } from './menu-book.ts';
@@ -14,6 +16,11 @@ import {
 
 function item(id: string, name: string, code = id): PublicMenuItem {
   return { id, code, name, price: 50_000, unit: 'phần', images: [], is_out_of_stock: false };
+}
+
+/** Món CÓ ảnh — chỉ nhóm nào có ít nhất một món như thế mới sinh ra trang bìa. */
+function itemWithPhoto(id: string, name: string, url = `/uploads/${id}.webp`): PublicMenuItem {
+  return { ...item(id, name), images: [url] };
 }
 
 function group(code: string, name: string, items: PublicMenuItem[]): PublicMenuGroup {
@@ -65,6 +72,94 @@ describe('paginateGroups', () => {
   it('perPage bằng 0 (đo hụt lúc màn chưa vẽ xong) vẫn ra trang, không ra mảng rỗng', () => {
     const pages = paginateGroups([group('x', 'X', [item('x', 'X')])], 0);
     expect(pages).toHaveLength(1);
+  });
+});
+
+describe('trang bìa mở đầu nhóm', () => {
+  it('nhóm có ảnh thì mở đầu bằng một trang bìa, không tính vào số trang món', () => {
+    const pages = paginateGroups(
+      [group('food', 'Món chính', [itemWithPhoto('a', 'Lẩu bò'), item('b', 'Lẩu gà')])],
+      10,
+    );
+    expect(pages.map((p) => p.kind)).toEqual(['cover', 'items']);
+    expect(pages[0].coverImage).toBe('/uploads/a.webp');
+    expect(pages[0].items).toEqual([]);
+    // Khách đọc "trang 1/1" ở trang món đầu tiên — tấm bìa là tờ ảnh, không phải trang menu.
+    expect(pages[1].pageInGroup).toBe(1);
+    expect(pages[1].pagesInGroup).toBe(1);
+  });
+
+  it('nhóm KHÔNG món nào có ảnh thì không sinh bìa', () => {
+    const pages = paginateGroups([group('x', 'X', [item('a', 'A'), item('b', 'B')])], 10);
+    expect(pages.map((p) => p.kind)).toEqual(['items']);
+  });
+
+  it('ảnh bìa là ảnh của món ĐẦU TIÊN có ảnh — kéo món lên đầu là đổi được bìa', () => {
+    const pages = paginateGroups(
+      [
+        group('g', 'G', [
+          item('khong-anh', 'Không ảnh'),
+          itemWithPhoto('thu-hai', 'Thứ hai'),
+          itemWithPhoto('thu-ba', 'Thứ ba'),
+        ]),
+      ],
+      10,
+    );
+    expect(pages[0].coverImage).toBe('/uploads/thu-hai.webp');
+  });
+
+  it('bìa KHÔNG làm rơi món nào', () => {
+    const items = Array.from({ length: 9 }, (_, i) => itemWithPhoto(`i${i}`, `Món ${i}`));
+    const flat = paginateGroups([group('g', 'G', items)], 4).flatMap((p) => p.items.map((i) => i.id));
+    expect(flat).toHaveLength(9);
+    expect(new Set(flat).size).toBe(9);
+  });
+
+  it('đang xem bìa mà xoay máy thì vẫn ở lại bìa nhóm đó', () => {
+    const groups = [
+      group('a', 'A', [itemWithPhoto('a0', 'A0'), item('a1', 'A1'), item('a2', 'A2')]),
+      group('b', 'B', [itemWithPhoto('b0', 'B0')]),
+    ];
+    const after = paginateGroups(groups, 6);
+    const at = findCoverOfGroup(after, 'b');
+    expect(after[at].kind).toBe('cover');
+    expect(after[at].group.code).toBe('b');
+  });
+
+  it('nhảy tới nhóm là nhảy tới BÌA của nhóm đó', () => {
+    const pages = paginateGroups(
+      [
+        group('a', 'A', [itemWithPhoto('a0', 'A0')]),
+        group('b', 'B', [itemWithPhoto('b0', 'B0')]),
+      ],
+      6,
+    );
+    const at = findFirstPageOfGroup(pages, 'b');
+    expect(pages[at].kind).toBe('cover');
+  });
+});
+
+describe('màu chủ đạo từng nhóm', () => {
+  it('hai nhóm cạnh nhau luôn khác màu', () => {
+    const gs = Array.from({ length: 7 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
+    const colors = groupAccents(gs);
+    for (let i = 1; i < gs.length; i += 1) {
+      expect(colors.get(gs[i].code)).not.toBe(colors.get(gs[i - 1].code));
+    }
+  });
+
+  it('chỉ dùng token --cat-* có sẵn, không chế màu mới', () => {
+    const gs = Array.from({ length: 20 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
+    for (const v of groupAccents(gs).values()) {
+      expect(v).toMatch(/^var\(--cat-[1-7]\)$/);
+    }
+  });
+
+  it('màu lặp lại sau mỗi 7 nhóm', () => {
+    const gs = Array.from({ length: 9 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
+    const c = groupAccents(gs);
+    expect(c.get('g7')).toBe(c.get('g0'));
+    expect(c.get('g8')).toBe(c.get('g1'));
   });
 });
 

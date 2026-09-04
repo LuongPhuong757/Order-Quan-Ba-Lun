@@ -13,8 +13,21 @@ import type { PublicMenuGroup, PublicMenuItem } from '@order/schemas';
 /** Một trang trong quyển menu. Trang KHÔNG BAO GIỜ chứa món của hai nhóm khác nhau. */
 export type BookPage = {
   group: PublicMenuGroup;
+  /**
+   * `cover` = trang bìa mở đầu một nhóm: đúng một tấm ảnh lớn tràn viền và tên nhóm, không
+   * có món nào. Đây là trang "sang chương" của menu in — thứ chủ quán chỉ vào ảnh mẫu và
+   * bảo muốn có. `items` = trang danh sách món bình thường.
+   */
+  kind: 'cover' | 'items';
+  /** Luôn rỗng với trang bìa. */
   items: PublicMenuItem[];
-  /** Thứ tự trang trong phạm vi nhóm, đếm từ 1 — hiện ở tiêu đề "Món chính (2/3)". */
+  /** Chỉ có ở trang bìa. */
+  coverImage: string | null;
+  /**
+   * Thứ tự trang trong phạm vi nhóm, đếm từ 1 — hiện ở tiêu đề "Món chính (2/3)".
+   * Trang bìa mang số 0 và KHÔNG được tính vào `pagesInGroup`: với khách, "trang 1" là
+   * trang món đầu tiên, còn tấm bìa là một tờ ảnh chứ không phải một trang menu.
+   */
   pageInGroup: number;
   pagesInGroup: number;
 };
@@ -46,17 +59,42 @@ export function paginateGroups(groups: PublicMenuGroup[], perPage: number): Book
   const pages: BookPage[] = [];
   for (const group of groups) {
     if (group.items.length === 0) continue;
+    const cover = pickCoverImage(group);
+    if (cover) {
+      pages.push({ group, kind: 'cover', items: [], coverImage: cover, pageInGroup: 0, pagesInGroup: 0 });
+    }
     const pagesInGroup = Math.ceil(group.items.length / size);
     for (let i = 0; i < pagesInGroup; i += 1) {
       pages.push({
         group,
+        kind: 'items',
         items: group.items.slice(i * size, (i + 1) * size),
+        coverImage: null,
         pageInGroup: i + 1,
         pagesInGroup,
       });
     }
   }
   return pages;
+}
+
+/**
+ * Ảnh bìa của một nhóm: ảnh của MÓN ĐẦU TIÊN trong nhóm mà có ảnh.
+ *
+ * Chủ quán chọn "tự lấy ảnh đẹp nhất trong nhóm" (2026-09-04) — nhưng máy không biết ảnh
+ * nào đẹp, nên nó lấy ảnh đầu tiên theo đúng thứ tự chủ quán đã sắp ở màn "Menu xem". Nói
+ * cách khác: muốn đổi ảnh bìa thì kéo món có tấm ảnh ưng ý lên đầu nhóm. Đó là một cách
+ * điều khiển thật, không phải ngẫu nhiên.
+ *
+ * Nhóm không món nào có ảnh → `null` → KHÔNG sinh trang bìa. Một trang bìa trống trơn hoặc
+ * mang hoạ tiết "chưa có ảnh" phóng to hết màn thì tệ hơn hẳn là không có bìa.
+ */
+function pickCoverImage(group: PublicMenuGroup): string | null {
+  for (const item of group.items) {
+    const url = item.images[0];
+    if (url) return url;
+  }
+  return null;
 }
 
 /**
@@ -155,6 +193,15 @@ export function findPageOfItem(pages: BookPage[], itemId: string | null): number
 }
 
 /**
+ * Neo cho TRANG BÌA: bìa không có món nào nên `findPageOfItem` không bám vào đâu được, và
+ * khách xoay máy lúc đang xem bìa sẽ bị ném về đầu quyển. Bám theo mã nhóm thay thế.
+ */
+export function findCoverOfGroup(pages: BookPage[], groupCode: string): number {
+  const at = pages.findIndex((page) => page.kind === 'cover' && page.group.code === groupCode);
+  return at < 0 ? findFirstPageOfGroup(pages, groupCode) : at;
+}
+
+/**
  * Định dạng tiền VND. CỐ Ý chép lại một dòng thay vì import `formatVnd` từ `cart-store.ts`.
  *
  * Không phải để tiết kiệm dung lượng (`main.tsx` vẫn nạp module đó cho tên miền đặt hàng)
@@ -164,6 +211,30 @@ export function findPageOfItem(pages: BookPage[], itemId: string | null): number
  */
 export function formatVnd(amount: number): string {
   return `${new Intl.NumberFormat('vi-VN').format(amount)}đ`;
+}
+
+/**
+ * Màu chủ đạo của từng nhóm (chủ quán yêu cầu 2026-09-04: "mỗi thư mục một màu, vẫn giữ
+ * theme chung").
+ *
+ * KHÔNG chế bảng màu mới. `tokens.css` đã có sẵn `--cat-1..7` — bộ pastel rút từ chính 4
+ * tấm ảnh món của quán (ớt, cà rốt, nghệ, rau, tre, gỗ, mâm hồng), và cả 7 đều đã được đo
+ * đạt ≥13:1 với `--text-strong`. Dùng lại đúng bộ đó là cách duy nhất vừa cho mỗi nhóm một
+ * màu riêng vừa không tự dựng lên một hệ màu thứ hai cãi nhau với trang đặt hàng.
+ *
+ * Gán theo THỨ TỰ NHÓM chứ không băm từ mã nhóm: thứ tự do chủ quán sắp, nên hai nhóm cạnh
+ * nhau chắc chắn khác màu. Băm chuỗi thì hai nhóm liền kề hoàn toàn có thể rơi trúng cùng
+ * một màu và dải nhóm trông như lỗi. Quán 32 nhóm nên màu lặp lại sau mỗi 7 — không sao,
+ * thứ cần phân biệt là nhóm ĐANG XEM với hai nhóm bên cạnh nó.
+ */
+const CAT_COLOR_COUNT = 7;
+
+export function groupAccents(groups: PublicMenuGroup[]): Map<string, string> {
+  const map = new Map<string, string>();
+  groups.forEach((g, i) => {
+    map.set(g.code, `var(--cat-${(i % CAT_COLOR_COUNT) + 1})`);
+  });
+  return map;
 }
 
 /** Trang đầu tiên của một nhóm — dải nhóm ở đầu trang nhảy tới đây. */
