@@ -1,5 +1,4 @@
 import {
-  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -478,47 +477,21 @@ export function MenuBookPage(): JSX.Element {
    * một MẶT của tờ giấy đôi mặt (máy tính). Ba chỗ khác nhau về khung, giống hệt nhau về
    * ruột — nhân bản ra ba bản là ba chỗ để quên sửa.
    */
-  const renderPageBody = (p: BookPage, at: number, eager: boolean, animate: boolean) => {
-    /**
-     * NỀN CỦA TỪNG TRANG LÀ ẢNH MÓN CỦA CHÍNH NHÓM ĐÓ, làm mờ mạnh.
-     *
-     * Chủ quán xem xong bảo "vẫn đơn điệu, không thấy khác gì" — và đúng: mọi lớp vân,
-     * vignette, hạt đá tôi đặt ở khung ngoài đều bị TỜ GIẤY che kín, vì tờ giấy phủ hết
-     * màn hình bằng một màu đặc. Muốn nền có gì để nhìn thì phải làm ở đây.
-     *
-     * Lấy ảnh món ĐẦU TIÊN của trang: nó đã nằm trong cache của trình duyệt (chính tấm
-     * ảnh card ở dưới đang dùng), nên không thêm một lượt tải nào. Blur 34px + phóng 1.12
-     * để không thấy mép ảnh, rồi phủ một lớp tối dày lên trên — nền phải là KHÔNG KHÍ của
-     * món, không phải một tấm ảnh nữa tranh chỗ với card.
-     *
-     * Nhờ vậy mỗi nhóm có một nền khác nhau thật: trang Ốc ngả nâu đỏ của sốt, trang Bia
-     * ngả vàng của ly bia — không còn 32 nhóm cùng một mảng màu.
-     */
-    const hero = p.items.find((it) => it.images[0])?.images[0] ?? null;
-    return (
-      <Fragment key={at}>
-        {hero && (
-          <div aria-hidden="true" style={pageHero}>
-            <div style={{ ...pageHeroImage, backgroundImage: `url("${hero}")` }} />
-            <div style={pageHeroVeil} />
-          </div>
-        )}
-        <div style={pageList}>
-          {p.items.map((item, i) => (
-            <BookCard
-              key={item.id}
-              item={item}
-              roomy={grid.roomy}
-              index={i}
-              eager={eager}
-              animate={animate}
-              onOpen={(it, from) => setPreview({ item: it, from })}
-            />
-          ))}
-        </div>
-      </Fragment>
-    );
-  };
+  const renderPageBody = (p: BookPage, at: number, eager: boolean, animate: boolean) => (
+    <div key={at} style={pageList}>
+      {p.items.map((item, i) => (
+        <BookCard
+          key={item.id}
+          item={item}
+          roomy={grid.roomy}
+          index={i}
+          eager={eager}
+          animate={animate}
+          onOpen={(it, from) => setPreview({ item: it, from })}
+        />
+      ))}
+    </div>
+  );
 
   // ── Chế độ HAI trang, mở như quyển sách (máy tính / tablet ngang) ──────────────────
   /**
@@ -1179,50 +1152,7 @@ const leafShade: CSSProperties = {
  * mất hàng (rule line-length trong tokens.css). Trang đôi mỗi nửa đã hẹp sẵn nên chặn này
  * chỉ có tác dụng ở chế độ một trang trên máy tính.
  */
-/**
- * Ba lớp nền của một trang, xếp từ dưới lên: ảnh món làm mờ → lớp phủ tối → danh sách.
- *
- * `position: absolute; inset: 0` bên trong tờ giấy (tờ giấy là khung cuộn) nên nó cao
- * bằng CẢ chiều dài cuộn được, không phải một màn hình — cuộn xuống vẫn còn nền, không
- * hụt thành màu trơn ở nửa dưới.
- */
-const pageHero: CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  zIndex: 0,
-  overflow: 'hidden',
-  pointerEvents: 'none',
-};
-
-const pageHeroImage: CSSProperties = {
-  position: 'absolute',
-  // Phóng to hơn khung rồi mới blur: blur ở mép ảnh sinh ra một vành sáng mờ, phóng ra
-  // ngoài khung là vành đó nằm ngoài vùng thấy được.
-  inset: '-8%',
-  backgroundSize: 'cover',
-  backgroundPosition: 'center',
-  filter: 'blur(34px) saturate(1.25)',
-  transform: 'scale(1.12)',
-  opacity: 0.55,
-};
-
-/**
- * Lớp phủ tối — thứ giữ cho chữ đọc được. Đậm ở trên (chỗ dải chip trong suốt đi qua) và
- * ở dưới (chỗ hai nút lật), nhạt hơn ở giữa để còn thấy màu của ảnh.
- *
- * Tương phản tại chỗ nhạt nhất: chữ --menu-text #fff trên nền tổng hợp ≈ 9,4:1 ✓AAA.
- */
-const pageHeroVeil: CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  background:
-    'linear-gradient(180deg, rgb(22 18 15 / 88%) 0%, rgb(22 18 15 / 62%) 32%, rgb(22 18 15 / 66%) 68%, rgb(22 18 15 / 90%) 100%)',
-};
-
 const pageList: CSSProperties = {
-  // Nằm TRÊN hai lớp nền ảnh.
-  position: 'relative',
-  zIndex: 1,
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-3)',
