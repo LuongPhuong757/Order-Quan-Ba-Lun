@@ -8,6 +8,7 @@ import {
   groupAccents,
   paginateGroups,
   searchItems,
+  shouldSpread,
 } from './menu-book.ts';
 
 // Quyển menu điện tử (menu.<domain>, 2026-09-04). Thứ đáng test ở đây KHÔNG phải giao diện mà
@@ -164,14 +165,39 @@ describe('màu chủ đạo từng nhóm', () => {
 });
 
 describe('computeGrid', () => {
-  it('điện thoại 2 cột, máy tính 3 cột', () => {
+  it('điện thoại 2 cột; máy tính mở hai trang, mỗi trang 2 cột', () => {
     expect(computeGrid(390, 600).cols).toBe(2);
-    expect(computeGrid(1280, 900).cols).toBe(3);
+    expect(computeGrid(390, 600).spread).toBe(false);
+    // 1280 mở sách → mỗi trang 640px → 2 cột mỗi trang (4 ô ngang cả trang đôi).
+    expect(computeGrid(1280, 900).spread).toBe(true);
+    expect(computeGrid(1280, 900).cols).toBe(2);
+  });
+
+  it('màn rất rộng thì mỗi trang mới lên 3 cột', () => {
+    // 1600/2 = 800 ≥ 768 → 3 cột mỗi trang.
+    expect(computeGrid(1600, 900).cols).toBe(3);
+  });
+
+  it('"ô rộng rãi" tính theo bề ngang MỘT Ô, không theo số cột', () => {
+    // Điện thoại: 2 cột nhưng mỗi ô chỉ ~195px → chật.
+    expect(computeGrid(390, 800).roomy).toBe(false);
+    // Trang đôi 1440: mỗi trang 720px, 2 cột → ô 360px → rộng, dù cũng là "2 cột".
+    expect(computeGrid(1440, 900).roomy).toBe(true);
+    // Ô rộng thì thấp hơn, nên cùng chiều cao màn sẽ xếp được nhiều dòng hơn.
+    expect(computeGrid(1440, 900).rows).toBeGreaterThan(computeGrid(390, 900).rows);
+  });
+
+  it('ngưỡng mở sách là 1024px — tablet dọc và điện thoại nằm ngang vẫn một trang', () => {
+    expect(shouldSpread(1023)).toBe(false);
+    expect(shouldSpread(1024)).toBe(true);
+    expect(shouldSpread(844)).toBe(false);
+    expect(computeGrid(768, 1024).spread).toBe(false);
   });
 
   it('màn càng cao càng nhiều dòng, nhưng không quá 10', () => {
     expect(computeGrid(1280, 400).rows).toBeLessThan(computeGrid(1280, 900).rows);
     expect(computeGrid(1280, 5000).rows).toBe(10);
+    expect(computeGrid(390, 5000).rows).toBe(10);
   });
 
   it('màn cực thấp vẫn còn ít nhất 2 dòng', () => {

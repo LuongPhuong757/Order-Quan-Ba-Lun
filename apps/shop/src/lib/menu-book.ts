@@ -35,11 +35,40 @@ export type BookPage = {
 export type BookGrid = {
   cols: number;
   rows: number;
-  /** = cols × rows. Số món tối đa một trang chứa được ở khổ màn hiện tại. */
+  /** = cols × rows. Số món tối đa MỘT TRANG chứa được ở khổ màn hiện tại. */
   perPage: number;
   /** Khoảng cách giữa các ô, px — trang tự dùng lại để không lệch với phép đo ở đây. */
   gap: number;
+  /**
+   * Màn đủ rộng để mở HAI TRANG cạnh nhau như quyển sách thật, gáy ở giữa (chủ quán chốt
+   * 2026-09-04). Khi bật, `cols` đã được tính trên NỬA bề ngang — mỗi nửa là một trang
+   * hoàn chỉnh, không phải một cột của cùng một trang.
+   */
+  spread: boolean;
+  /**
+   * Ô món có RỘNG RÃI không (≥300px mỗi ô).
+   *
+   * Số cột KHÔNG nói lên điều đó: 2 cột trên điện thoại 390px cho ô 179px, còn 2 cột trên
+   * một nửa trang đôi 720px cho ô 350px — cùng "2 cột" mà một bên phải cắt tên món xuống 3
+   * dòng, một bên tên nằm gọn 1 dòng. Ô rộng thì ảnh to hơn, tên chỉ cần 2 dòng, và ô THẤP
+   * hơn — nên đây cũng là thứ quyết định một trang chứa được mấy dòng.
+   */
+  roomy: boolean;
 };
+
+/**
+ * Ngưỡng mở hai trang: 1024px.
+ *
+ * Dưới ngưỡng này chia đôi là mỗi trang chưa tới 512px, mà một trang cần ít nhất 2 cột ô
+ * món mới ra hình quyển menu — 2 cột trong 500px là vừa đủ, hẹp hơn thì tên món vỡ vụn.
+ * 1024 cũng đúng bề ngang tablet nằm ngang, tức là thiết bị mỏng nhất mà mở sách còn có
+ * nghĩa. Điện thoại (kể cả nằm ngang, 844px) luôn ở chế độ một trang.
+ */
+const SPREAD_MIN_WIDTH = 1024;
+
+export function shouldSpread(width: number): boolean {
+  return width >= SPREAD_MIN_WIDTH;
+}
 
 /**
  * Chia toàn bộ menu thành các trang, MỖI NHÓM BẮT ĐẦU MỘT TRANG MỚI (chủ quán chốt
@@ -114,18 +143,23 @@ function pickCoverImage(group: PublicMenuGroup): string | null {
  * thà ô bị tràn một chút còn hơn trang chỉ còn một món.
  */
 export function computeGrid(width: number, height: number): BookGrid {
-  const cols = width < 768 ? 2 : 3;
+  const spread = shouldSpread(width);
+  // Mở hai trang thì MỖI TRANG chỉ còn nửa bề ngang — lưới phải đo trên nửa đó, không phải
+  // trên cả màn. Đo nhầm trên cả màn là ô món tràn qua gáy sách.
+  const pageWidth = spread ? width / 2 : width;
+  const cols = pageWidth < 768 ? 2 : 3;
+  const roomy = pageWidth / cols >= 300;
   // Chiều cao một ô, phải KHỚP với `BookCard.tsx` — lệch là lưới tràn khỏi trang hoặc chừa
   // một khoảng trống ở chân trang.
-  //   2 cột (điện thoại): tên món 3 dòng (57) + giá (19) + đệm (16) ≈ 94. Ảnh 48px thấp hơn
+  //   ô chật  (~180px): tên món 3 dòng (57) + giá (19) + đệm (16) ≈ 94. Ảnh 48px thấp hơn
   //     khối chữ nên không phải nó quyết định chiều cao.
-  //   3 cột (máy tính):   tên 2 dòng (38) + giá (19) + đệm (16) = 73, nhưng ảnh 64px + đệm
+  //   ô rộng  (≥300px): tên 2 dòng (38) + giá (19) + đệm (16) = 73, nhưng ảnh 64px + đệm
   //     = 80 mới là cái cao hơn → 84.
-  const rowHeight = cols === 2 ? 94 : 84;
-  const gap = cols === 2 ? 8 : 12;
+  const rowHeight = roomy ? 84 : 94;
+  const gap = roomy ? 12 : 8;
   const fit = Math.floor((height + gap) / (rowHeight + gap));
   const rows = Math.min(10, Math.max(2, Number.isFinite(fit) ? fit : 2));
-  return { cols, rows, perPage: cols * rows, gap };
+  return { cols, rows, perPage: cols * rows, gap, spread, roomy };
 }
 
 /**

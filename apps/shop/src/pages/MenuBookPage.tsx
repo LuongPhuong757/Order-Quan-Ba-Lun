@@ -21,7 +21,9 @@ import {
   groupAccents,
   paginateGroups,
   searchItems,
+  shouldSpread,
   type BookGrid,
+  type BookPage,
 } from '../lib/menu-book.ts';
 import { BookCard, BOOK_CARD_CSS } from '../components/BookCard.tsx';
 import { BookDishPreview, BOOK_PREVIEW_CSS } from '../components/BookDishPreview.tsx';
@@ -167,7 +169,9 @@ export function MenuBookPage(): JSX.Element {
       was?.kind === 'cover'
         ? findCoverOfGroup(pages, was.group.code)
         : findPageOfItem(pages, was?.items[0]?.id ?? null);
-    setIndex(Math.min(at, Math.max(0, pages.length - 1)));
+    const aligned = grid.spread ? at - (at % 2) : at;
+    setIndex(Math.min(aligned, Math.max(0, pages.length - 1)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages]);
 
   // Gõ từ khoá mới luôn bắt đầu từ kết quả đầu tiên. Không có dòng này thì món khách đang
@@ -223,9 +227,15 @@ export function MenuBookPage(): JSX.Element {
    */
   const [animateCards, setAnimateCards] = useState(true);
 
+  /**
+   * Lật một cái đi mấy trang. Mở sách thì mỗi lần lật là MỘT TỜ GIẤY, mà một tờ giấy có hai
+   * mặt nên đi 2 trang — y như sách thật. Điện thoại một trang thì đi 1.
+   */
+  const step = grid.spread ? 2 : 1;
+
   const canGo = useCallback(
-    (dir: number) => (dir < 0 ? index > 0 : index < total - 1),
-    [index, total],
+    (dir: number) => (dir < 0 ? index - step >= 0 : index + step <= total - 1),
+    [index, total, step],
   );
 
   /** Góc xuất phát của tờ đang lật: lật tới thì tờ hiện tại đi từ 0°, lật lùi thì tờ trước
@@ -245,13 +255,25 @@ export function MenuBookPage(): JSX.Element {
    *  một vệt nhoè dài hai giây. Món hiện ra so le đã đủ báo "trang đã đổi". */
   const jumpTo = useCallback(
     (target: number) => {
-      if (target === index) return;
+      // Mở sách thì trang trái LUÔN là số chẵn — một tờ giấy gồm trang chẵn + trang lẻ, và
+      // nhảy vào giữa một tờ giấy là điều không tồn tại trong sách thật. Lùi về chẵn gần
+      // nhất; nhóm cần tới vẫn nằm trong tầm mắt, chỉ là ở nửa bên phải.
+      const aligned = grid.spread ? target - (target % 2) : target;
+      if (aligned === index) return;
       setTurn(null);
       setAnimateCards(true);
-      setIndex(Math.min(Math.max(0, target), Math.max(0, total - 1)));
+      setIndex(Math.min(Math.max(0, aligned), Math.max(0, total - 1)));
     },
-    [index, total],
+    [index, total, grid.spread],
   );
+
+  // Đổi qua lại giữa một trang và hai trang (xoay tablet, kéo cửa sổ) có thể để lại chỉ số
+  // lẻ ở chế độ mở sách. Kéo về chẵn ngay, nếu không cả chồng giấy lệch một trang so với
+  // mọi phép tính bên dưới.
+  useLayoutEffect(() => {
+    if (!grid.spread) return;
+    setIndex((i) => (i % 2 === 0 ? i : Math.max(0, i - 1)));
+  }, [grid.spread]);
 
   const onLeafTransitionEnd = (e: ReactTransitionEvent<HTMLDivElement>) => {
     // `transitionend` NỔI BỌT: card món bên trong cũng có transition (viền, nhấc lên khi rê
@@ -263,7 +285,7 @@ export function MenuBookPage(): JSX.Element {
     // chỗ cũ) thì chỉ việc bỏ trạng thái lật đi.
     if (turn.angle === endAngle(turn.dir)) {
       setAnimateCards(false);
-      setIndex((i) => Math.min(Math.max(0, i + turn.dir), Math.max(0, total - 1)));
+      setIndex((i) => Math.min(Math.max(0, i + turn.dir * step), Math.max(0, total - 1)));
     }
     setTurn(null);
   };
@@ -336,7 +358,7 @@ export function MenuBookPage(): JSX.Element {
       if (cur.angle === target) {
         if (target === endAngle(dir)) {
           setAnimateCards(false);
-          setIndex((i) => Math.min(Math.max(0, i + dir), Math.max(0, total - 1)));
+          setIndex((i) => Math.min(Math.max(0, i + dir * step), Math.max(0, total - 1)));
         }
         return null;
       }
@@ -373,6 +395,40 @@ export function MenuBookPage(): JSX.Element {
 
   // ── Vẽ ─────────────────────────────────────────────────────────────────────────────
   const activeGroupCode = page?.group.code ?? null;
+
+  /**
+   * Thanh tiêu đề phía trên khung trang. Chỉ nói về những trang DANH SÁCH đang mở — trang
+   * bìa đã in tên nhóm cỡ lớn ngay trên ảnh rồi.
+   *
+   * Mở sách thì hai trang cạnh nhau có thể thuộc hai nhóm (cuối nhóm này gặp bìa nhóm sau),
+   * nên tên phải gọi cả hai, ngăn bằng dấu chấm giữa. Số "2/4" chỉ hiện khi cả hai trang
+   * cùng một nhóm — hai nhóm khác nhau mà chỉ in một cặp số thì không ai biết nó của nhóm
+   * nào.
+   */
+  const heading = (() => {
+    const shown = (grid.spread ? [pages[index], pages[index + 1]] : [page]).filter(
+      (p): p is BookPage => p !== undefined && p.kind === 'items',
+    );
+    if (shown.length === 0) return null;
+    const names: string[] = [];
+    for (const p of shown) {
+      const label = `${p.group.icon ? `${p.group.icon} ` : ''}${p.group.name}`;
+      if (!names.includes(label)) names.push(label);
+    }
+    const sameGroup = shown.every((p) => p.group.code === shown[0].group.code);
+    const first = shown[0];
+    const last = shown[shown.length - 1];
+    return {
+      accentCode: first.group.code,
+      label: names.join(' · '),
+      count:
+        sameGroup && first.pagesInGroup > 1
+          ? first === last
+            ? `${first.pageInGroup}/${first.pagesInGroup}`
+            : `${first.pageInGroup}–${last.pageInGroup}/${first.pagesInGroup}`
+          : null,
+    };
+  })();
   /** Góc hiện tại của một tờ: chỉ tờ đang được lật mới rời khỏi chỗ đậu của nó. */
   const angleOf = (which: 'current' | 'prev'): number => {
     if (turn?.dir === 1 && which === 'current') return turn.angle;
@@ -381,6 +437,180 @@ export function MenuBookPage(): JSX.Element {
   };
 
   /** Dựng một tờ giấy. `layer` quyết định nó đậu ở đâu và có bấm được không. */
+  /**
+   * Nội dung MỘT trang — bìa ảnh lớn hoặc lưới món. Tách riêng vì cùng một trang có thể
+   * xuất hiện ở ba chỗ khác nhau: tờ giấy đơn (điện thoại), một nửa của trang đôi, hoặc
+   * một MẶT của tờ giấy đôi mặt (máy tính). Ba chỗ khác nhau về khung, giống hệt nhau về
+   * ruột — nhân bản ra ba bản là ba chỗ để quên sửa.
+   */
+  const renderPageBody = (p: BookPage, at: number, eager: boolean, animate: boolean) => {
+    if (p.kind === 'cover') {
+      /* Trang bìa "sang chương": đúng một tấm ảnh tràn viền + tên nhóm, không có món nào
+         bấm được. Đây là nhịp nghỉ giữa hai nhóm — thứ làm quyển menu điện tử đọc ra như
+         menu in chứ không như một danh sách dài vô tận. */
+      return (
+        <div key={at} style={coverFrame}>
+          <img
+            src={p.coverImage ?? ''}
+            alt=""
+            aria-hidden="true"
+            loading={eager ? 'eager' : 'lazy'}
+            decoding="async"
+            style={coverImg}
+          />
+          {/* Nền tối chuyển dần ở chân ảnh: ảnh món có chỗ sáng chỗ tối tuỳ tấm, chữ trắng
+              đặt thẳng lên là chỗ đọc được chỗ không. Lớp này bảo đảm tương phản bất kể
+              tấm ảnh nào rơi vào đây. */}
+          <div aria-hidden="true" style={coverScrim} />
+          <div style={coverText}>
+            <p style={coverName}>
+              {p.group.icon ? `${p.group.icon} ` : ''}
+              {p.group.name}
+            </p>
+            <p style={coverCount}>{p.group.items.length} món</p>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div
+        // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
+        // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animate` cho phép.
+        key={at}
+        style={{
+          ...gridStyle,
+          gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+          gridAutoRows: 'min-content',
+          gap: grid.gap,
+        }}
+      >
+        {p.items.map((item, i) => (
+          <BookCard
+            key={item.id}
+            item={item}
+            wide={grid.roomy}
+            eager={eager}
+            index={i}
+            animate={animate}
+            onOpen={(it, from) => setPreview({ item: it, from })}
+          />
+        ))}
+      </div>
+    );
+  };
+
+  // ── Chế độ HAI trang, mở như quyển sách (máy tính / tablet ngang) ──────────────────
+  /**
+   * Khác chế độ một trang ở chỗ tờ giấy có HAI MẶT thật.
+   *
+   * Trong một quyển sách, tờ giấy nào cũng xoay quanh gáy ở GIỮA, mặt trước là trang lẻ
+   * bên phải, mặt sau là trang chẵn bên trái. Lật tới = nhấc tờ bên phải sang trái: mặt
+   * trước (trang i+1) quay đi, mặt sau (trang i+2) úp xuống thành trang trái mới, và trang
+   * i+3 lộ ra bên phải. Vì vậy ở đây KHÔNG dùng được mẹo `backface-visibility: hidden` của
+   * chế độ một trang — mặt sau là một trang thật, phải vẽ ra.
+   *
+   * Bốn lớp, dưới lên trên:
+   *   1. nửa trái tĩnh  = trang i−2 (lộ ra khi lật lùi)
+   *   2. nửa phải tĩnh  = trang i+3 (lộ ra khi lật tới)
+   *   3+4. hai tờ giấy: tờ "tới" đậu ở 0° (đang nằm bên phải), tờ "lùi" đậu ở 180° (đang
+   *        nằm bên trái). Nghĩa là trang TRÁI khách đang đọc chính là MẶT SAU của tờ vừa
+   *        lật qua — đúng như sách thật, không phải một lớp riêng.
+   *
+   * Tờ ĐANG lật phải render SAU CÙNG: nó quét ngang qua nửa bên kia, đứng dưới là bị tờ
+   * đậu ở đó che mất một nửa cú lật.
+   */
+  const renderBookLeaf = (dir: 1 | -1) => {
+    const frontAt = dir === 1 ? index + 1 : index - 1;
+    const backAt = dir === 1 ? index + 2 : index;
+    const front = pages[frontAt];
+    const back = pages[backAt];
+    if (!front && !back) return null;
+
+    const angle = turn?.dir === dir ? turn.angle : dir === 1 ? 0 : 180;
+    // Mặt nào đang quay về phía khách. Dùng để quyết mặt nào bấm được — mặt kia đang úp,
+    // để nó nhận chạm là khách bấm trúng một món họ không nhìn thấy.
+    const frontFacing = angle < 90;
+    const live = turn === null;
+    // Đậm nhất lúc tờ giấy dựng đứng (90°) rồi nhạt dần — đúng cách ánh sáng rơi trên một
+    // tờ giấy đang xoay. Khác chế độ một trang (ở đó tờ giấy biến mất sau 90° nên bóng chỉ
+    // cần tăng dần).
+    const shade = Math.sin((angle * Math.PI) / 180) * 0.45;
+
+    const face = (p: BookPage | undefined, at: number, isFront: boolean) => {
+      if (!p) return null;
+      const facing = isFront === frontFacing;
+      return (
+        <div
+          style={{
+            ...leafFace,
+            background: accentOf(p.group.code),
+            transform: isFront ? undefined : 'rotateY(180deg)',
+            pointerEvents: live && facing ? undefined : 'none',
+          }}
+          data-page-slot={facing ? (isFront ? 'current' : 'left') : 'hidden'}
+          inert={!(live && facing)}
+        >
+          {renderPageBody(p, at, facing || neighboursReady, live && facing && animateCards)}
+          {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
+        </div>
+      );
+    };
+
+    return (
+      <div
+        key={dir}
+        style={{
+          ...bookLeaf,
+          transform: `rotateY(${angle}deg)`,
+          transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
+        }}
+        onTransitionEnd={onLeafTransitionEnd}
+      >
+        {face(front, frontAt, true)}
+        {face(back, backAt, false)}
+      </div>
+    );
+  };
+
+  const renderSpread = () => {
+    const leftUnder = pages[index - 2];
+    const rightUnder = pages[index + 3];
+    /**
+     * THỨ TỰ HAI TỜ GIẤY TRONG DOM LÀ CỐ ĐỊNH. Từng đảo thứ tự để đưa tờ đang lật lên
+     * trên, và nó hỏng theo kiểu rất khó đoán: React có `key` nên nó DI CHUYỂN node thay
+     * vì vẽ lại — mà nhấc một node ra rồi cắm lại chỗ khác là trình duyệt huỷ luôn
+     * transition đang chạy. Tờ giấy nhảy phịch tới đích, `transitionend` không bao giờ bắn,
+     * trạng thái lật kẹt lại và không lật lùi được nữa.
+     *
+     * Không cần đảo: khung ngoài có `perspective` nên các lớp được xếp theo ĐỘ SÂU 3D thật.
+     * Tờ đang lật quay về phía người xem (góc dương) nên tự nó nổi lên trên tờ kia.
+     */
+    const leaves: (1 | -1)[] = [-1, 1];
+    return (
+      <>
+        {leftUnder && (
+          <div style={{ ...spreadHalf, left: 0, background: accentOf(leftUnder.group.code) }} inert>
+            {renderPageBody(leftUnder, index - 2, neighboursReady, false)}
+          </div>
+        )}
+        {rightUnder && (
+          <div
+            style={{ ...spreadHalf, left: '50%', background: accentOf(rightUnder.group.code) }}
+            inert
+          >
+            {renderPageBody(rightUnder, index + 3, neighboursReady, false)}
+          </div>
+        )}
+        {leaves.map((d) => renderBookLeaf(d))}
+        {/* Gáy sách: vệt tối hẹp ở giữa. Không có nó thì hai trang trông như hai khung dán
+            cạnh nhau; có nó thì mắt đọc ra một tờ giấy gấp đôi. Nằm TRÊN CÙNG và không
+            nhận chạm — gáy là chi tiết vật lý, phủ lên cả tờ đang lật cũng đúng. */}
+        <div aria-hidden="true" style={spine} />
+      </>
+    );
+  };
+
+  // ── Chế độ MỘT trang (điện thoại) ──────────────────────────────────────────────────
   const renderLeaf = (layer: 'under' | 'current' | 'prev') => {
     const at = layer === 'under' ? index + 1 : layer === 'current' ? index : index - 1;
     const p = pages[at];
@@ -411,56 +641,7 @@ export function MenuBookPage(): JSX.Element {
         inert={!live}
         onTransitionEnd={layer === 'under' ? undefined : onLeafTransitionEnd}
       >
-        {p.kind === 'cover' ? (
-          /* Trang bìa "sang chương": đúng một tấm ảnh tràn viền + tên nhóm, không có món
-             nào bấm được. Đây là nhịp nghỉ giữa hai nhóm — thứ làm quyển menu điện tử đọc
-             ra như menu in chứ không như một danh sách dài vô tận. */
-          <div key={at} style={coverFrame}>
-            <img
-              src={p.coverImage ?? ''}
-              alt=""
-              aria-hidden="true"
-              loading={layer === 'current' || neighboursReady ? 'eager' : 'lazy'}
-              decoding="async"
-              style={coverImg}
-            />
-            {/* Nền tối chuyển dần ở chân ảnh: ảnh món có chỗ sáng chỗ tối tuỳ tấm, chữ
-                trắng đặt thẳng lên là chỗ đọc được chỗ không. Lớp này bảo đảm tương phản
-                bất kể ảnh nào rơi vào đây. */}
-            <div aria-hidden="true" style={coverScrim} />
-            <div style={coverText}>
-              <p style={coverName}>
-                {p.group.icon ? `${p.group.icon} ` : ''}
-                {p.group.name}
-              </p>
-              <p style={coverCount}>{p.group.items.length} món</p>
-            </div>
-          </div>
-        ) : (
-          <div
-            // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
-            // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animateCards` cho phép.
-            key={at}
-            style={{
-              ...gridStyle,
-              gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-              gridAutoRows: 'min-content',
-              gap: grid.gap,
-            }}
-          >
-            {p.items.map((item, i) => (
-              <BookCard
-                key={item.id}
-                item={item}
-                wide={grid.cols > 2}
-                eager={layer === 'current' || neighboursReady}
-                index={i}
-                animate={layer === 'current' && animateCards}
-                onOpen={(it, from) => setPreview({ item: it, from })}
-              />
-            ))}
-          </div>
-        )}
+        {renderPageBody(p, at, layer === 'current' || neighboursReady, live && animateCards)}
         {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
       </div>
     );
@@ -539,24 +720,19 @@ export function MenuBookPage(): JSX.Element {
       )}
 
       {/* Trang bìa đã in tên nhóm cỡ lớn ngay trên ảnh — lặp lại ở thanh nhỏ này là thừa,
-          và làm tấm ảnh bị đẩy tụt xuống một dòng. */}
-      {page && page.kind === 'items' && (
-        // Thanh tiêu đề đứng NGOÀI tờ giấy (nó không được lật đi cùng), nên phải tự nhuộm
-        // màu nhóm. Để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc
-        // lõng, nhìn như trang chưa vẽ xong.
-        <p style={{ ...pageHeading, background: accentOf(page.group.code) }}>
+          và làm tấm ảnh bị đẩy tụt xuống một dòng. Mở sách thì hai trang có thể thuộc hai
+          nhóm khác nhau, lúc đó thanh này gọi tên cả hai. */}
+      {heading && (
+        // Thanh này đứng NGOÀI tờ giấy (nó không được lật đi cùng) nên phải tự nhuộm màu
+        // nhóm; để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc lõng.
+        <p style={{ ...pageHeading, background: accentOf(heading.accentCode) }}>
           <span style={pageHeadingName}>
-            {/* Vạch màu nhắc lại màu của nhóm ngay cạnh tên — nền trang là màu rất nhạt,
-                một vạch đặc cho mắt cái mốc chắc chắn để đối chiếu với chip trên dải. */}
-            <span aria-hidden="true" style={{ ...headingBar, background: accentOf(page.group.code) }} />
-            {page.group.icon ? `${page.group.icon} ` : ''}
-            {page.group.name}
+            {/* Vạch màu đặc nhắc lại màu nhóm: nền trang là màu rất nhạt, mắt cần một mốc
+                chắc chắn để đối chiếu với chip trên dải nhóm. */}
+            <span aria-hidden="true" style={{ ...headingBar, background: accentOf(heading.accentCode) }} />
+            {heading.label}
           </span>
-          {page.pagesInGroup > 1 && (
-            <span style={pageHeadingCount}>
-              {page.pageInGroup}/{page.pagesInGroup}
-            </span>
-          )}
+          {heading.count && <span style={pageHeadingCount}>{heading.count}</span>}
         </p>
       )}
 
@@ -597,13 +773,16 @@ export function MenuBookPage(): JSX.Element {
         {/* Chồng tờ giấy. Thứ tự trong DOM CHÍNH LÀ thứ tự chồng lên nhau: tờ sẽ lộ ra nằm
             dưới cùng, tờ đang đọc ở giữa, tờ vừa lật qua nằm trên (đậu ở 180° nên mặt sau
             quay ra và `backface-visibility` giấu nó đi cho tới khi khách lật lùi). */}
-        {total > 0 && (
-          <>
-            {renderLeaf('under')}
-            {renderLeaf('current')}
-            {renderLeaf('prev')}
-          </>
-        )}
+        {total > 0 &&
+          (grid.spread ? (
+            renderSpread()
+          ) : (
+            <>
+              {renderLeaf('under')}
+              {renderLeaf('current')}
+              {renderLeaf('prev')}
+            </>
+          ))}
       </div>
 
       {total > 0 && (
@@ -630,7 +809,7 @@ export function MenuBookPage(): JSX.Element {
           </div>
 
           <span style={counter} aria-live="polite">
-            {index + 1}/{total}
+            {grid.spread && index + 1 < total ? `${index + 1}–${index + 2}` : index + 1}/{total}
           </span>
 
           <button
@@ -872,6 +1051,60 @@ const pageLeaf: CSSProperties = {
   transformOrigin: 'left center',
   backfaceVisibility: 'hidden',
   WebkitBackfaceVisibility: 'hidden',
+};
+
+/* ── Chế độ hai trang ──────────────────────────────────────────────────────────────── */
+
+/** Một nửa tĩnh của trang đôi (trang sẽ lộ ra khi nhấc tờ giấy lên). */
+const spreadHalf: CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  width: '50%',
+  height: '100%',
+  padding: '0 var(--gutter)',
+  boxSizing: 'border-box',
+};
+
+/**
+ * Tờ giấy đôi mặt. Chiếm NỬA PHẢI và xoay quanh mép trái của chính nó — mép đó nằm đúng
+ * giữa màn, tức là gáy sách. Quay 180° là nó úp gọn sang nửa trái, không lệch một pixel.
+ *
+ * `transformStyle: preserve-3d` là bắt buộc: thiếu nó, hai mặt bị bẹp về cùng một mặt
+ * phẳng và mặt sau hiện đè lên mặt trước ngay từ 0°.
+ */
+const bookLeaf: CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  left: '50%',
+  width: '50%',
+  height: '100%',
+  transformOrigin: 'left center',
+  transformStyle: 'preserve-3d',
+  willChange: 'transform',
+};
+
+/** Một mặt của tờ giấy đôi mặt. Mặt sau được lật sẵn 180° nên khi cả tờ quay 180° thì nó
+ *  về đúng chiều đọc (180 + 180 = 360). */
+const leafFace: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  padding: '0 var(--gutter)',
+  boxSizing: 'border-box',
+  backfaceVisibility: 'hidden',
+  WebkitBackfaceVisibility: 'hidden',
+  overflow: 'hidden',
+};
+
+/** Gáy sách — vệt tối hẹp ở chính giữa, đậm nhất tại đường gấp. */
+const spine: CSSProperties = {
+  position: 'absolute',
+  top: 0,
+  bottom: 0,
+  left: 'calc(50% - 22px)',
+  width: 44,
+  pointerEvents: 'none',
+  background:
+    'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 14%) 46%, rgb(42 29 20 / 20%) 50%, rgb(42 29 20 / 14%) 54%, rgb(42 29 20 / 0%) 100%)',
 };
 
 /**
