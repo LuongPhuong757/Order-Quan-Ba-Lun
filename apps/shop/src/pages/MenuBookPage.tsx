@@ -19,7 +19,6 @@ import {
   findPageOfItem,
   groupAccents,
   paginateGroups,
-  searchItems,
   shouldSpread,
   type BookGrid,
   type BookPage,
@@ -77,8 +76,6 @@ export function MenuBookPage(): JSX.Element {
   const menu = useApi('/api/public/menu-book', MenuBookResponse);
   const groups = useMemo(() => menu.data?.groups ?? [], [menu.data]);
 
-  const [query, setQuery] = useState('');
-  const [searchOpen, setSearchOpen] = useState(false);
   const [preview, setPreview] = useState<{ item: PublicMenuItem; from: DOMRect } | null>(null);
 
   // Trang này dùng chung `index.html` với trang đặt hàng (một bundle, chọn theo tên miền),
@@ -164,24 +161,9 @@ export function MenuBookPage(): JSX.Element {
   const accentOf = (code: string) => accents.get(code)?.accent ?? 'var(--wood-400)';
 
   // ── Dựng danh sách trang ───────────────────────────────────────────────────────────
-  const results = useMemo(() => searchItems(groups, query), [groups, query]);
-  const isSearching = query.trim().length > 0;
-
-  const pages = useMemo(() => {
-    if (isSearching) {
-      if (results.length === 0) return [];
-      return paginateGroups([
-        {
-          id: 'search-results',
-          code: '__search',
-          name: `Kết quả cho "${query.trim()}"`,
-          icon: '🔍',
-          items: results,
-        },
-      ]);
-    }
-    return paginateGroups(groups);
-  }, [groups, results, isSearching, query]);
+  // Quyển menu KHÔNG có tìm kiếm (chủ quán, 2026-09-04): dải nhóm là đường đi duy nhất.
+  // Một ô gõ chữ trên trang này là một dải nữa chiếm chỗ của món.
+  const pages = useMemo(() => paginateGroups(groups), [groups]);
 
   const [index, setIndex] = useState(0);
   const indexRef = useRef(0);
@@ -204,12 +186,6 @@ export function MenuBookPage(): JSX.Element {
     setIndex(Math.min(aligned, Math.max(0, pages.length - 1)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pages]);
-
-  // Gõ từ khoá mới luôn bắt đầu từ kết quả đầu tiên. Không có dòng này thì món khách đang
-  // xem dở lại tình cờ nằm trong kết quả và trang nhảy vào giữa danh sách, trông như lỗi.
-  useEffect(() => {
-    setIndex(0);
-  }, [query]);
 
   const page = pages[index];
   const total = pages.length;
@@ -674,11 +650,11 @@ export function MenuBookPage(): JSX.Element {
       <style>{BOOK_PAGE_CSS}</style>
 
       {/* Thanh trên NỔI trên quyển sách chứ không đứng thành một dải riêng: trang cuộn
-          xuyên qua nó, ảnh món đi ngang sau lớp kính mờ. Đó là chỗ khác nhau giữa "trong
-          suốt" và "cùng màu với nền" — bản trước chỉ là cái sau. */}
-      <div style={topBar} className="book-glass">
+          xuyên qua nó, ảnh món đi ngang phía sau. Cùng lẽ với chân trang — cả dải KHÔNG có
+          nền, chỉ từng chip tự mang màu nhóm của nó, nên nhìn xuyên qua thấy trọn món. */}
+      <div style={topBar}>
         {/* Dải nhóm: với ~600 món thì đây mới là đường đi chính, không phải vuốt 50 lần. */}
-        {!isSearching && groups.length > 1 && (
+        {groups.length > 1 && (
           <nav style={rail} aria-label="Nhảy tới nhóm món">
             <div ref={railRef} style={railInner} className="book-rail">
               {groups.map((g) => {
@@ -710,45 +686,6 @@ export function MenuBookPage(): JSX.Element {
         )}
       </div>
 
-      {/*
-        Ô tìm món KHÔNG mất theo thanh trên — với ~600 món, gõ tên là đường đi ngắn nhất và
-        dải nhóm không thay được việc đó. Nó chỉ thu thành một nút tròn nổi ở góc, mở ra khi
-        cần: hết một dải ngang chiếm chỗ, vẫn còn đường tìm.
-      */}
-      <div style={searchFloat}>
-        {searchOpen ? (
-          <input
-            autoFocus
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onBlur={() => {
-              if (!query) setSearchOpen(false);
-            }}
-            placeholder="Tìm món…"
-            aria-label="Tìm món trong menu"
-            style={searchInput}
-            className="book-glass"
-          />
-        ) : null}
-        <button
-          type="button"
-          style={iconBtn}
-          className="book-glass"
-          aria-label={searchOpen ? 'Đóng tìm món' : 'Tìm món'}
-          onClick={() => {
-            if (searchOpen) {
-              setQuery('');
-              setSearchOpen(false);
-            } else {
-              setSearchOpen(true);
-            }
-          }}
-        >
-          {searchOpen ? <CloseGlyph /> : <SearchGlyph />}
-        </button>
-      </div>
-
       <div
         ref={viewportRef}
         style={viewport}
@@ -776,11 +713,7 @@ export function MenuBookPage(): JSX.Element {
         )}
 
         {!menu.loading && !menu.error && total === 0 && (
-          <p style={notice}>
-            {isSearching
-              ? `Không có món nào khớp "${query.trim()}".`
-              : 'Menu đang được cập nhật, mời bạn quay lại sau.'}
-          </p>
+          <p style={notice}>Menu đang được cập nhật, mời bạn quay lại sau.</p>
         )}
 
         {/* Chồng tờ giấy. Thứ tự trong DOM CHÍNH LÀ thứ tự chồng lên nhau: tờ sẽ lộ ra nằm
@@ -799,10 +732,11 @@ export function MenuBookPage(): JSX.Element {
       </div>
 
       {total > 0 && (
-        <footer style={footer} className="book-glass-foot">
+        <footer style={footer}>
           <button
             type="button"
             style={navBtn}
+            className="book-glass"
             onClick={() => go(-1)}
             disabled={index === 0}
             aria-label="Trang trước"
@@ -813,7 +747,9 @@ export function MenuBookPage(): JSX.Element {
           {/* Logo về giữa chân trang: đầu trang giờ chỉ còn dải nhóm, mà tên quán vẫn phải
               có mặt ở đâu đó — khách chụp màn menu gửi cho nhau thì ảnh phải mang tên quán.
               Cỡ nhỏ (`--fs-sm`) vì đây là chữ ký, không phải tiêu đề. */}
-          <Wordmark variant="plaque" size="var(--fs-sm)" />
+          <span style={footerMark}>
+            <Wordmark variant="plaque" size="var(--fs-sm)" />
+          </span>
 
           {/* Số trang chỉ còn đọc cho trình đọc màn hình: người sáng đã thấy món đổi,
               còn người dùng screen reader thì không có mốc nào khác để biết đã lật. */}
@@ -826,6 +762,7 @@ export function MenuBookPage(): JSX.Element {
           <button
             type="button"
             style={navBtn}
+            className="book-glass"
             onClick={() => go(1)}
             disabled={index >= total - 1}
             aria-label="Trang sau"
@@ -843,23 +780,6 @@ export function MenuBookPage(): JSX.Element {
         />
       )}
     </div>
-  );
-}
-
-function SearchGlyph(): JSX.Element {
-  return (
-    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx={11} cy={11} r={7} stroke="currentColor" strokeWidth={2} />
-      <path d="M16.5 16.5 21 21" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function CloseGlyph(): JSX.Element {
-  return (
-    <svg width={20} height={20} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
-    </svg>
   );
 }
 
@@ -891,15 +811,13 @@ const BOOK_PAGE_CSS = `
  * không hỗ trợ 'backdrop-filter' thì rơi về khối @supports bên dưới: đục hơn một chút để
  * chữ không bao giờ nằm trên ảnh trần.
  */
-.book-glass,
-.book-glass-foot {
+.book-glass {
   background: rgb(22 18 15 / 34%);
   -webkit-backdrop-filter: blur(18px) saturate(1.25);
   backdrop-filter: blur(18px) saturate(1.25);
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .book-glass,
-  .book-glass-foot {
+  .book-glass {
     background: rgb(22 18 15 / 72%);
   }
 }
@@ -987,42 +905,6 @@ const topBar: CSSProperties = {
   zIndex: 4,
 };
 
-/** Nút tìm món (và ô gõ khi mở) nổi ở góc trên-phải, trên cùng mọi lớp của quyển sách. */
-const searchFloat: CSSProperties = {
-  position: 'absolute',
-  top: 'calc(var(--safe-top) + var(--sp-2))',
-  right: 'var(--gutter)',
-  zIndex: 5,
-  display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--sp-2)',
-};
-
-const searchInput: CSSProperties = {
-  width: 'min(200px, 42vw)',
-  // 16px bắt buộc — dưới mức đó Safari iOS tự phóng to trang khi khách bấm vào ô.
-  fontSize: 'var(--fs-base)',
-  fontFamily: 'var(--font-body)',
-  padding: '6px var(--sp-3)',
-  border: '1px solid var(--menu-line)',
-  borderRadius: 'var(--r-input)',
-  background: 'rgb(255 255 255 / 8%)',
-  color: 'var(--menu-text)',
-};
-
-const iconBtn: CSSProperties = {
-  flex: 'none',
-  width: 'var(--tap-min)',
-  height: 'var(--tap-min)',
-  display: 'grid',
-  placeItems: 'center',
-  // Tròn hẳn: nó đứng một mình trên trang, không còn thanh nào để dựa vào.
-  borderRadius: '999px',
-  border: '1px solid rgb(255 255 255 / 14%)',
-  color: 'var(--menu-text)',
-  cursor: 'pointer',
-};
-
 const rail: CSSProperties = {
   flex: 'none',
   background: 'transparent',
@@ -1030,22 +912,26 @@ const rail: CSSProperties = {
 
 const railInner: CSSProperties = {
   display: 'flex',
-  gap: 'var(--sp-2)',
+  gap: 'var(--sp-3)',
   overflowX: 'auto',
-  // Chừa bên phải cho nút tìm món nổi ở góc, không thì chip cuối luôn nằm dưới nó.
-  padding: 'var(--sp-2) calc(var(--gutter) + var(--tap-min)) var(--sp-2) var(--gutter)',
+  padding: 'var(--sp-2) var(--gutter)',
   WebkitOverflowScrolling: 'touch',
 };
 
 const chip: CSSProperties = {
   flex: 'none',
-  padding: '6px var(--sp-3)',
+  // To hơn bản đầu (6px/--fs-sm): đây là đường đi CHÍNH của cả quyển menu, ngón tay phải
+  // bấm trúng ngay lần đầu trên xe bus, không phải nhắm.
+  padding: '10px var(--sp-4)',
+  minHeight: 40,
+  display: 'inline-flex',
+  alignItems: 'center',
   borderRadius: 'var(--r-badge)',
   border: '1px solid var(--menu-line)',
   background: 'var(--menu-chrome)',
   color: 'var(--text-body)',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-medium)',
+  fontSize: 'var(--fs-base)',
+  fontWeight: 'var(--fw-semibold)',
   fontFamily: 'var(--font-body)',
   whiteSpace: 'nowrap',
   cursor: 'pointer',
@@ -1209,12 +1095,12 @@ const pageList: CSSProperties = {
   /**
    * Đệm trên/dưới phải VƯỢT chiều cao hai thanh kính, nếu không dòng món đầu và cuối đứng
    * yên vĩnh viễn dưới lớp mờ và không ai đọc được.
-   *   trên  = dải chip (~40) + thở   → 56
-   *   dưới  = chân trang (~60) + thở  → 84
+   *   trên  = dải chip (~56) + thở   → 72
+   *   dưới  = hai nút lật (~44) + thở  → 68
    * Đây là ĐỆM, không phải chiều cao trang: trang vẫn cao hết màn, nên khi cuộn thì ảnh
    * món vẫn đi xuyên qua kính đúng như chủ quán muốn.
    */
-  padding: '56px 0 84px',
+  padding: '72px 0 68px',
 };
 
 
@@ -1232,20 +1118,32 @@ const footer: CSSProperties = {
   justifyContent: 'space-between',
   gap: 'var(--sp-3)',
   padding: 'var(--sp-2) var(--gutter)',
+  // KHÔNG có nền: cả dải ngang này trong suốt hoàn toàn, chữ và ảnh món phía sau đọc được
+  // trọn vẹn. Chỉ ba vật thật sự bấm/đọc được (2 mũi tên + logo) mới tự mang một miếng
+  // kính nhỏ dưới chân mình — đủ để chúng không tan vào ảnh.
   background: 'transparent',
+  pointerEvents: 'none',
 };
 
 const navBtn: CSSProperties = {
   flex: 'none',
+  // Chân trang tắt `pointerEvents` để trang phía sau bấm được xuyên qua; bật lại ở đúng
+  // hai nút này.
+  pointerEvents: 'auto',
   width: 'var(--tap-min)',
   height: 'var(--tap-min)',
   display: 'grid',
   placeItems: 'center',
   borderRadius: 'var(--r-button)',
-  border: '1px solid var(--menu-line)',
-  background: 'rgb(255 255 255 / 6%)',
+  border: '1px solid rgb(255 255 255 / 16%)',
   color: 'var(--menu-text)',
   cursor: 'pointer',
+};
+
+/** Logo ở giữa chân trang — chỉ để đọc, không bấm được, nên không nhận lại con trỏ. */
+const footerMark: CSSProperties = {
+  flex: 'none',
+  opacity: 0.82,
 };
 
 const notice: CSSProperties = {
