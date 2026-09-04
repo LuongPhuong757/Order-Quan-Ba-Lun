@@ -41,11 +41,12 @@ import { Wordmark } from '../components/Wordmark.tsx';
  * là hết trang. Đúng cảm giác cầm quyển menu.
  *
  * ── BA THỨ QUYẾT ĐỊNH ĐỘ MƯỢT, ĐỪNG PHÁ ─────────────────────────────────────────────
- * 1. Dải trang chỉ dựng 3 trang (trước / đang xem / kế) chứ không dựng cả 50 trang. Quán
- *    ~600 món; dựng hết là ~600 nút và ~600 thẻ ảnh nằm trong DOM, điện thoại tầm trung
- *    đứng hình ngay lúc mở trang.
- * 2. Lật bằng MỘT phép `transform` trên dải đó — không đổi `left`, không đổi `width`.
- *    Chuyển động chạy trên compositor, không frame nào phải tính lại layout.
+ * 1. Chỉ dựng 3 tờ giấy (trước / đang đọc / kế) chứ không dựng cả 64 trang. Quán ~600 món;
+ *    dựng hết là ~600 nút và ~600 thẻ ảnh nằm trong DOM, điện thoại tầm trung đứng hình
+ *    ngay lúc mở trang.
+ * 2. Cả cú lật là MỘT phép `rotateY` trên một lớp đã composite — không đổi `left`, không
+ *    đổi `width`, không frame nào phải tính lại layout. Chi tiết mô hình 3 tờ giấy: xem
+ *    khối "Lật trang như lật một tờ giấy" bên dưới.
  * 3. Ảnh của trang bên cạnh chỉ bắt đầu tải khi máy rảnh (xem `neighboursReady`). Tải
  *    ngay cùng lúc với trang đang xem là 3 trang ảnh giành nhau băng thông 3G, và trang
  *    khách ĐANG NHÌN là trang xong sau cùng.
@@ -54,8 +55,20 @@ import { Wordmark } from '../components/Wordmark.tsx';
 const MenuBookResponse = z.object({ groups: PublicMenuGroup.array() });
 type MenuBookResponse = z.infer<typeof MenuBookResponse>;
 
-/** Vuốt quá ngần này (hoặc 18% bề ngang, lấy số nhỏ hơn) thì lật hẳn sang trang. */
-const SWIPE_COMMIT_PX = 64;
+/**
+ * Buông tay khi tờ giấy đã đi được ngần này quãng đường (28%) thì nó lật nốt; chưa tới thì
+ * bật về chỗ cũ. Thấp hơn nữa là chạm khẽ cũng lật mất trang; cao hơn nữa là phải vuốt gần
+ * hết màn hình mới sang được trang, mỏi tay khi menu có tới 64 trang.
+ */
+const TURN_COMMIT_RATIO = 0.28;
+
+/**
+ * Tờ giấy đang xoay. `dir` 1 = lật tới (tờ đang đọc xoay đi), −1 = lật lùi (tờ trước đó
+ * xoay về). `angle` ∈ [−180, 0] độ. `settling` = đang tự chạy nốt bằng CSS transition;
+ * false nghĩa là đang bám theo ngón tay, lúc đó KHÔNG được bật transition kẻo tờ giấy đi
+ * trễ hơn ngón tay một nhịp.
+ */
+type Turn = { dir: 1 | -1; angle: number; settling: boolean } | null;
 
 export function MenuBookPage(): JSX.Element {
   const menu = useApi('/api/public/menu-book', MenuBookResponse);
@@ -150,63 +163,94 @@ export function MenuBookPage(): JSX.Element {
   const page = pages[index];
   const total = pages.length;
 
-  // ── Lật trang ──────────────────────────────────────────────────────────────────────
-  /** −1 = đang chạy về trang trước, 1 = trang sau, 0 = đứng yên. */
-  const [shift, setShift] = useState(0);
-  const [dragPx, setDragPx] = useState(0);
-  /** Một frame duy nhất TẮT hiệu ứng, để dải trang nhảy về giữa mà mắt không thấy. */
-  const [snapping, setSnapping] = useState(false);
-  const dragRef = useRef<{ x: number; y: number; id: number; captured: boolean } | null>(null);
+  // ── Lật trang như lật một tờ giấy ──────────────────────────────────────────────────
+  /**
+   * MÔ HÌNH: quyển menu là một chồng tờ giấy, gáy nằm ở MÉP TRÁI màn hình. Đúng ba lớp
+   * chồng lên nhau, dưới lên trên:
+   *
+   *   1. `pages[index + 1]` — tờ nằm sẵn bên dưới, sẽ lộ ra khi lật tới. Luôn có mặt trong
+   *      DOM nên ảnh của nó kịp tải trước lúc khách nhìn thấy.
+   *   2. `pages[index]`     — tờ đang đọc. Xoay đi khi lật TỚI.
+   *   3. `pages[index - 1]` — tờ vừa lật qua, đậu sẵn ở 180°. Xoay về khi lật LÙI.
+   *
+   * `angle` của một tờ luôn nằm trong [0°, 180°]: 0° là nằm phẳng đang đọc, 180° là đã lật
+   * hẳn sang trái. `backface-visibility: hidden` làm tờ giấy BIẾN MẤT đúng lúc quay quá
+   * 90° — nghĩa là nửa sau của cú lật để lộ tờ bên dưới, đúng ngữ pháp thị giác của việc
+   * lật trang. Không cần vẽ mặt sau tờ giấy, cũng không cần lớp thứ tư.
+   *
+   * DẤU CỦA GÓC LÀ DƯƠNG, KHÔNG PHẢI ÂM — và đây là chỗ dễ làm hỏng nhất. Góc âm cho mép
+   * giấy ngả RA SAU màn hình; khung ngoài có `perspective` nên trình duyệt xếp các lớp
+   * theo độ sâu 3D thật, và tờ giấy đang lật bị chính tờ nằm dưới che khuất — nhìn ra chỉ
+   * thấy trang mới hiện ra đột ngột, không thấy tờ giấy nào cả (đã dính đúng lỗi này). Góc
+   * dương cho mép giấy nhấc về PHÍA NGƯỜI XEM rồi mới gạt sang trái: vừa nổi lên trên, vừa
+   * đúng động tác tay khi lật một quyển sách thật.
+   *
+   * VÌ SAO CHỈ `rotateY`: cả cú lật là MỘT phép biến hình 3D trên một lớp đã composite —
+   * không frame nào phải tính lại layout. Xoay `perspective` đặt ở khung ngoài chứ không
+   * ở tờ giấy, để mọi tờ cùng nhìn từ một điểm nhìn (đặt trên từng tờ thì mỗi tờ có phối
+   * cảnh riêng và cú lật trông như gãy khúc).
+   */
+  const [turn, setTurn] = useState<Turn>(null);
+  const dragRef = useRef<{ x: number; id: number; dir: 1 | -1 | 0; captured: boolean } | null>(
+    null,
+  );
   /** Ngón tay vừa ĐI một quãng thật (không phải chạm gọn) — dùng để nuốt cú `click` sinh ra
    *  sau đó. Thiếu nó thì vuốt lật trang mà điểm chạm rơi trúng một card sẽ vừa lật trang
    *  vừa bung ảnh lớn của món đó. */
   const draggedRef = useRef(false);
+  /**
+   * Trang mới hiện ra có chạy hiệu ứng "món hiện ra so le" không.
+   *
+   * TẮT sau mỗi cú lật: lúc đó tờ giấy đã quay xong và trang mới ĐANG NẰM SẴN trước mắt
+   * khách rồi — cho các ô mờ đi rồi hiện lại lần nữa là một cú nháy vô nghĩa. Chỉ BẬT khi
+   * trang xuất hiện mà không qua cú lật nào: lần tải đầu, bấm chip nhóm, đổi từ khoá tìm.
+   */
+  const [animateCards, setAnimateCards] = useState(true);
 
   const canGo = useCallback(
     (dir: number) => (dir < 0 ? index > 0 : index < total - 1),
     [index, total],
   );
 
+  /** Góc xuất phát của tờ đang lật: lật tới thì tờ hiện tại đi từ 0°, lật lùi thì tờ trước
+   *  đó đi từ 180° (đang đậu úp mặt, `backface-visibility` giấu đi). */
+  const startAngle = (dir: 1 | -1) => (dir === 1 ? 0 : 180);
+  const endAngle = (dir: 1 | -1) => (dir === 1 ? 180 : 0);
+
   const go = useCallback(
     (dir: -1 | 1) => {
-      if (shift !== 0 || !canGo(dir)) return;
-      setDragPx(0);
-      setShift(dir);
+      if (turn || !canGo(dir)) return;
+      setTurn({ dir, angle: endAngle(dir), settling: true });
     },
-    [shift, canGo],
+    [turn, canGo],
   );
 
-  /** Nhảy thẳng tới một trang bất kỳ (bấm chip nhóm) — không trượt, vì trượt qua 30 trang
-   *  chỉ là một vệt nhoè vô nghĩa. Món hiện ra so le đã đủ báo "trang đã đổi". */
+  /** Nhảy thẳng tới một trang bất kỳ (bấm chip nhóm). KHÔNG lật: lật qua 30 tờ giấy chỉ là
+   *  một vệt nhoè dài hai giây. Món hiện ra so le đã đủ báo "trang đã đổi". */
   const jumpTo = useCallback(
     (target: number) => {
       if (target === index) return;
-      setShift(0);
-      setDragPx(0);
-      setSnapping(true);
+      setTurn(null);
+      setAnimateCards(true);
       setIndex(Math.min(Math.max(0, target), Math.max(0, total - 1)));
     },
     [index, total],
   );
 
-  const onTrackTransitionEnd = (e: ReactTransitionEvent<HTMLDivElement>) => {
+  const onLeafTransitionEnd = (e: ReactTransitionEvent<HTMLDivElement>) => {
     // `transitionend` NỔI BỌT: card món bên trong cũng có transition (viền, nhấc lên khi rê
     // chuột), và sự kiện của chúng cũng chạy tới đây. Không lọc thì rê chuột qua một card
-    // đúng lúc trang đang trượt sẽ kết thúc cú lật sớm và nhảy sai trang.
+    // đúng lúc trang đang lật sẽ kết thúc cú lật sớm và nhảy sai trang.
     if (e.target !== e.currentTarget || e.propertyName !== 'transform') return;
-    if (shift === 0) return;
-    setSnapping(true);
-    setIndex((i) => Math.min(Math.max(0, i + shift), Math.max(0, total - 1)));
-    setShift(0);
+    if (!turn) return;
+    // Tờ giấy đi hết đường thì trang mới thành trang đang đọc; buông giữa chừng (tờ bật về
+    // chỗ cũ) thì chỉ việc bỏ trạng thái lật đi.
+    if (turn.angle === endAngle(turn.dir)) {
+      setAnimateCards(false);
+      setIndex((i) => Math.min(Math.max(0, i + turn.dir), Math.max(0, total - 1)));
+    }
+    setTurn(null);
   };
-
-  // Bật lại hiệu ứng ngay frame kế tiếp. Nếu bật lại trong cùng frame với lúc dời dải
-  // trang về giữa, trình duyệt sẽ animate luôn cú dời đó và khách thấy trang trượt ngược.
-  useEffect(() => {
-    if (!snapping) return;
-    const raf = requestAnimationFrame(() => setSnapping(false));
-    return () => cancelAnimationFrame(raf);
-  }, [snapping]);
 
   // Phím ← → cho máy tính. Tắt khi đang mở ảnh lớn (lúc đó Esc mới là phím có nghĩa) và
   // khi con trỏ đang ở trong ô tìm món (mũi tên ở đó để di con trỏ trong chữ).
@@ -223,13 +267,13 @@ export function MenuBookPage(): JSX.Element {
   }, [go, preview]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (shift !== 0 || preview) return;
-    dragRef.current = { x: e.clientX, y: e.clientY, id: e.pointerId, captured: false };
+    if (turn || preview) return;
+    dragRef.current = { x: e.clientX, id: e.pointerId, dir: 0, captured: false };
     draggedRef.current = false;
     // CỐ Ý KHÔNG `setPointerCapture` ở đây. Bắt con trỏ ngay từ lúc chạm thì trình duyệt
     // dồn luôn cả `click` về đúng phần tử đang bắt — tức là chạm vào một món chỉ báo về
-    // dải trang, còn `onClick` của card KHÔNG BAO GIỜ chạy và ảnh lớn không bao giờ mở.
-    // Chỉ bắt khi ngón tay đã đi đủ xa để chắc chắn đây là cử chỉ vuốt (xem `onPointerMove`).
+    // khung trang, còn `onClick` của card KHÔNG BAO GIỜ chạy và ảnh lớn không bao giờ mở.
+    // Chỉ bắt khi ngón tay đã đi đủ xa để chắc chắn đây là cử chỉ vuốt.
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -238,18 +282,23 @@ export function MenuBookPage(): JSX.Element {
     const dx = e.clientX - d.x;
     // 6px: dưới ngưỡng này là ngón tay rung lúc chạm, không phải cử chỉ vuốt — coi đó là
     // kéo thì mọi cú chạm vào card đều bị nuốt mất và không mở được ảnh nào.
-    if (Math.abs(dx) > 6 && !d.captured) {
+    if (!d.captured) {
+      if (Math.abs(dx) <= 6) return;
       draggedRef.current = true;
       d.captured = true;
-      // Từ đây mới bắt con trỏ: ngón tay trượt ra ngoài mép màn giữa chừng thì `pointerup`
-      // vẫn về đúng chỗ này, không để dải trang kẹt lại giữa hai trang.
+      // CHỐT hướng ngay tại đây và không đổi nữa. Cho phép đổi hướng giữa chừng thì tờ giấy
+      // phải nhảy giữa hai tờ khác nhau trong lúc ngón tay vẫn đang chạm — vừa giật vừa vô lý
+      // với một quyển sách thật.
+      d.dir = dx < 0 ? 1 : -1;
       e.currentTarget.setPointerCapture(e.pointerId);
     }
-    // Ở mép quyển menu thì kéo nặng tay hẳn (chỉ đi 28% quãng ngón tay) rồi bật lại —
-    // đó là cách nói "hết trang rồi" mà không cần chữ nào, và không khoá cứng cử chỉ
-    // khiến khách tưởng máy treo.
-    const resisted = canGo(dx > 0 ? -1 : 1) ? dx : dx * 0.28;
-    setDragPx(resisted);
+    const dir = d.dir as 1 | -1;
+    const width = viewportRef.current?.clientWidth || 1;
+    // Ở mép quyển menu thì tờ giấy chỉ nhấc lên được một góc nhỏ rồi thôi — đó là cách nói
+    // "hết trang rồi" mà không cần chữ nào, và không khoá cứng cử chỉ khiến khách tưởng treo.
+    const raw = Math.min(1, Math.abs(dx) / width);
+    const progress = canGo(dir) ? raw : raw * 0.12;
+    setTurn({ dir, angle: startAngle(dir) + (endAngle(dir) - startAngle(dir)) * progress, settling: false });
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -259,13 +308,24 @@ export function MenuBookPage(): JSX.Element {
     if (d.captured && e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
-    const width = viewportRef.current?.clientWidth ?? 320;
-    const threshold = Math.min(SWIPE_COMMIT_PX, width * 0.18);
-    const dx = dragPx;
-    setDragPx(0);
-    if (Math.abs(dx) < threshold) return;
-    const dir = dx < 0 ? 1 : -1;
-    if (canGo(dir)) go(dir);
+    if (!d.captured || d.dir === 0) return;
+    const dir = d.dir as 1 | -1;
+    setTurn((cur) => {
+      if (!cur) return null;
+      const travelled = Math.abs(cur.angle - startAngle(dir)) / 180;
+      const target =
+        travelled >= TURN_COMMIT_RATIO && canGo(dir) ? endAngle(dir) : startAngle(dir);
+      // Tờ giấy đang đứng đúng chỗ cần tới thì sẽ KHÔNG có `transitionend` nào bắn ra, và
+      // trạng thái lật kẹt lại mãi mãi (không lật được nữa). Kết sổ ngay tại đây.
+      if (cur.angle === target) {
+        if (target === endAngle(dir)) {
+          setAnimateCards(false);
+          setIndex((i) => Math.min(Math.max(0, i + dir), Math.max(0, total - 1)));
+        }
+        return null;
+      }
+      return { dir, angle: target, settling: true };
+    });
   };
 
   /**
@@ -297,13 +357,66 @@ export function MenuBookPage(): JSX.Element {
 
   // ── Vẽ ─────────────────────────────────────────────────────────────────────────────
   const activeGroupCode = page?.group.code ?? null;
-  // Dải trang luôn có 3 ô (trước / đang xem / kế) nên trang đang xem đứng ở mốc −100%.
-  // Lật = dời thêm một ô nữa; kéo tay = cộng thêm quãng ngón tay đã đi.
-  const trackStyle: CSSProperties = {
-    ...track,
-    transform: `translate3d(calc(${-100 - shift * 100}% + ${dragPx}px), 0, 0)`,
-    transition:
-      snapping || dragRef.current !== null ? 'none' : 'transform var(--dur-slow) var(--ease-out)',
+  /** Góc hiện tại của một tờ: chỉ tờ đang được lật mới rời khỏi chỗ đậu của nó. */
+  const angleOf = (which: 'current' | 'prev'): number => {
+    if (turn?.dir === 1 && which === 'current') return turn.angle;
+    if (turn?.dir === -1 && which === 'prev') return turn.angle;
+    return which === 'current' ? 0 : 180;
+  };
+
+  /** Dựng một tờ giấy. `layer` quyết định nó đậu ở đâu và có bấm được không. */
+  const renderLeaf = (layer: 'under' | 'current' | 'prev') => {
+    const at = layer === 'under' ? index + 1 : layer === 'current' ? index : index - 1;
+    const p = pages[at];
+    if (!p) return null;
+    const angle = layer === 'under' ? 0 : angleOf(layer);
+    // Chỉ tờ đang nằm phẳng trước mặt khách mới nhận thao tác. Tờ bên dưới và tờ đã lật qua
+    // phải `inert`: không có nó thì Tab nhảy vào những ô không nhìn thấy và trình đọc màn
+    // hình đọc luôn món của trang khác như thể đang ở trên trang này.
+    const live = layer === 'current' && turn === null;
+    // Bóng đổ trên tờ giấy đậm dần theo góc quay — đó là thứ làm cú lật ra chất giấy thay
+    // vì một tấm ảnh phẳng xoay quanh trục.
+    const shade = Math.min(1, Math.abs(angle) / 90) * 0.42;
+    return (
+      <div
+        style={{
+          ...pageLeaf,
+          transform: `rotateY(${angle}deg)`,
+          transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
+          // Tờ bên dưới không bao giờ xoay nên đừng bắt trình duyệt giữ layer GPU cho nó.
+          willChange: layer === 'under' ? undefined : 'transform',
+          pointerEvents: live ? undefined : 'none',
+        }}
+        data-page-slot={layer === 'current' ? 'current' : layer}
+        inert={!live}
+        onTransitionEnd={layer === 'under' ? undefined : onLeafTransitionEnd}
+      >
+        <div
+          // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
+          // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animateCards` cho phép.
+          key={at}
+          style={{
+            ...gridStyle,
+            gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
+            gridAutoRows: 'min-content',
+            gap: grid.gap,
+          }}
+        >
+          {p.items.map((item, i) => (
+            <BookCard
+              key={item.id}
+              item={item}
+              wide={grid.cols > 2}
+              eager={layer === 'current' || neighboursReady}
+              index={i}
+              animate={layer === 'current' && animateCards}
+              onOpen={(it, from) => setPreview({ item: it, from })}
+            />
+          ))}
+        </div>
+        {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
+      </div>
+    );
   };
 
   return (
@@ -418,51 +531,15 @@ export function MenuBookPage(): JSX.Element {
           </p>
         )}
 
+        {/* Chồng tờ giấy. Thứ tự trong DOM CHÍNH LÀ thứ tự chồng lên nhau: tờ sẽ lộ ra nằm
+            dưới cùng, tờ đang đọc ở giữa, tờ vừa lật qua nằm trên (đậu ở 180° nên mặt sau
+            quay ra và `backface-visibility` giấu nó đi cho tới khi khách lật lùi). */}
         {total > 0 && (
-          <div style={trackStyle} onTransitionEnd={onTrackTransitionEnd}>
-            {[index - 1, index, index + 1].map((slot, position) => {
-              const p = pages[slot];
-              const current = position === 1;
-              return (
-                <div
-                  key={`${slot}-${p?.group.code ?? 'empty'}`}
-                  style={slotStyle}
-                  data-page-slot={current ? 'current' : 'side'}
-                  // Hai trang bên cạnh nằm ngoài màn nhưng VẪN trong DOM. Không có `inert`
-                  // thì trình đọc màn hình đọc luôn món của chúng như thể đang ở trên
-                  // trang, và người dùng bàn phím bấm Tab là rơi vào một card không nhìn
-                  // thấy — trình duyệt cuộn ngang theo và dải trang lệch hẳn khỏi mốc.
-                  // `inert` gỡ cả nhánh khỏi tab order lẫn cây trợ năng, đúng một thuộc tính.
-                  inert={!current}
-                >
-                  {p && (
-                    <div
-                      // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ
-                      // vậy hiệu ứng "món hiện ra so le" chạy lại từ đầu mỗi lần lật.
-                      key={slot}
-                      style={{
-                        ...gridStyle,
-                        gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-                        gridAutoRows: 'min-content',
-                        gap: grid.gap,
-                      }}
-                    >
-                      {p.items.map((item, i) => (
-                        <BookCard
-                          key={item.id}
-                          item={item}
-                          wide={grid.cols > 2}
-                          eager={position === 1 || neighboursReady}
-                          index={position === 1 ? i : 0}
-                          onOpen={(it, from) => setPreview({ item: it, from })}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <>
+            {renderLeaf('under')}
+            {renderLeaf('current')}
+            {renderLeaf('prev')}
+          </>
         )}
       </div>
 
@@ -677,31 +754,65 @@ const viewport: CSSProperties = {
   minHeight: 0,
   position: 'relative',
   // `overflow: hidden` cắt ở MÉP NGOÀI của phần đệm, không phải mép nội dung. Nên nếu khung
-  // này có `padding` ngang thì dải đệm bên phải trở thành một khe hở để lộ trang kế đang
-  // nằm chờ — trên máy thật là một cột món lạ dính ở rìa màn. Đệm phải nằm ở TỪNG TRANG
-  // (`slotStyle`), không nằm ở khung cắt.
+  // này có `padding` ngang thì dải đệm hai bên trở thành khe hở để lộ tờ giấy bên dưới. Đệm
+  // phải nằm ở TỪNG TỜ (`pageLeaf`), không nằm ở khung cắt.
   overflow: 'hidden',
+  /**
+   * Điểm nhìn 3D cho cả chồng giấy, đặt Ở ĐÂY chứ không đặt trên từng tờ: chung một điểm
+   * nhìn thì các tờ mới thuộc cùng một không gian và cú lật liền mạch. Đặt trên từng tờ là
+   * mỗi tờ có phối cảnh riêng, tờ nào cũng quay quanh "camera" của chính nó, trông gãy khúc.
+   *
+   * 1600px là khoảng cách mắt–trang: nhỏ hơn thì méo như ống kính mắt cá, lớn hơn thì gần
+   * như phẳng và mất luôn cảm giác tờ giấy có bề dày không gian.
+   *
+   * `overflow: hidden` ở đây KHÔNG làm hỏng 3D: nó chỉ cắt phần thò ra ngoài khung. Thứ làm
+   * bẹp không gian 3D là `transform-style: preserve-3d` đi kèm overflow — mà các tờ giấy ở
+   * đây đều là mặt phẳng đơn nên không cần preserve-3d.
+   */
+  perspective: '1600px',
   // Trang không cuộn theo chiều nào, và trình duyệt phải nhường hẳn cử chỉ vuốt cho
   // phần lật trang bên dưới — thiếu dòng này thì Chrome Android nuốt mất `pointermove`
   // để chạy kéo-để-tải-lại.
   touchAction: 'none',
 };
 
-const track: CSSProperties = {
-  display: 'flex',
-  height: '100%',
-  width: '100%',
-  willChange: 'transform',
-};
-
-const slotStyle: CSSProperties = {
-  flex: '0 0 100%',
-  width: '100%',
-  height: '100%',
-  minWidth: 0,
-  // Đệm nằm ở đây chứ không ở khung cắt — xem ghi chú trong `viewport`.
+/**
+ * Một tờ giấy trong quyển menu. Ba tờ nằm CHỒNG khít lên nhau (`position: absolute`), thứ
+ * tự trong DOM quyết định tờ nào nằm trên.
+ *
+ * `background` PHẢI đục: tờ giấy trong suốt thì nhìn xuyên thấy luôn trang bên dưới và cú
+ * lật thành hai lớp chữ chồng nhau.
+ *
+ * `transformOrigin: left center` = gáy sách nằm ở mép trái màn hình, đúng chiều lật của một
+ * quyển sách tiếng Việt.
+ *
+ * `backfaceVisibility: hidden` là mấu chốt: quay quá 90° thì tờ giấy tự biến mất, để lộ tờ
+ * bên dưới. Nhờ vậy không phải vẽ mặt sau tờ giấy và không cần thêm lớp nào nữa.
+ */
+const pageLeaf: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
   padding: '0 var(--gutter)',
   boxSizing: 'border-box',
+  background: 'var(--bg-page)',
+  transformOrigin: 'left center',
+  backfaceVisibility: 'hidden',
+  WebkitBackfaceVisibility: 'hidden',
+};
+
+/**
+ * Bóng đổ trên tờ giấy đang xoay: đậm dần về phía mép ngoài, và đậm dần theo góc quay.
+ *
+ * Đây là chi tiết biến "một hình chữ nhật xoay quanh trục" thành "một tờ giấy đang được lật"
+ * — mắt đọc ra chiều sâu từ bóng, không phải từ phép biến hình. Là một lớp phủ riêng chứ
+ * không phải `filter: brightness()`: filter buộc trình duyệt vẽ lại cả tờ mỗi frame, còn
+ * lớp phủ này chỉ đổi `opacity`, chạy thẳng trên compositor.
+ */
+const leafShade: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  pointerEvents: 'none',
+  background: 'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 55%) 100%)',
 };
 
 const gridStyle: CSSProperties = {

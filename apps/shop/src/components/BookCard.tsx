@@ -33,11 +33,20 @@ type Props = {
   eager: boolean;
   /** Thứ tự trong trang — chỉ dùng để so le lúc hiện ra. */
   index: number;
+  /**
+   * Có chạy hiệu ứng hiện-ra-so-le không.
+   *
+   * TẮT khi trang xuất hiện do một cú LẬT: lúc tờ giấy quay xong thì trang mới đã nằm sẵn
+   * trước mắt khách suốt nửa sau cú lật rồi — cho các ô mờ đi rồi hiện lại lần nữa là một
+   * cú nháy vô nghĩa, và tệ hơn là nó phá mất cảm giác "tờ giấy vừa lật ra đúng trang này".
+   * BẬT khi trang xuất hiện không qua cú lật nào: lần tải đầu, bấm chip nhóm, đổi từ khoá.
+   */
+  animate?: boolean;
   /** Truyền kèm ô ảnh đang đứng ở đâu trên màn, để ảnh lớn bay ra từ đúng chỗ đó. */
   onOpen: (item: PublicMenuItem, from: DOMRect) => void;
 };
 
-export function BookCard({ item, wide, eager, index, onOpen }: Props): JSX.Element {
+export function BookCard({ item, wide, eager, index, animate = true, onOpen }: Props): JSX.Element {
   const image = item.images[0] ?? null;
   const isOut = item.is_out_of_stock;
   const thumbSize = wide ? 64 : 48;
@@ -53,10 +62,10 @@ export function BookCard({ item, wide, eager, index, onOpen }: Props): JSX.Eleme
   return (
     <button
       type="button"
-      className="book-card book-card-enter"
+      className={animate ? 'book-card book-card-enter' : 'book-card'}
       // So le tối đa 12 ô: quá số đó thì ô cuối trang hiện ra chậm tới mức khách kịp
       // nhận ra mình đang chờ. 18ms/ô đủ để mắt thấy một lượt quét, không thấy giật cục.
-      style={{ ...card, animationDelay: `${Math.min(index, 12) * 18}ms` }}
+      style={animate ? { ...card, animationDelay: `${Math.min(index, 12) * 18}ms` } : card}
       onClick={(e) => onOpen(item, e.currentTarget.getBoundingClientRect())}
       aria-label={`${item.name}, ${formatVnd(item.price)} một ${item.unit}${
         isOut ? ', tạm hết' : ''

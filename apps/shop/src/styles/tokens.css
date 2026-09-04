@@ -252,6 +252,10 @@
   --dur-fast: 120ms; /* Đổi màu khi bấm */
   --dur-base: 200ms; /* Mở/đóng, hiện/ẩn */
   --dur-slow: 320ms; /* Bottom sheet trượt lên */
+  /* Lật một trang trong quyển menu điện tử (menu.<domain>). Dài hơn --dur-slow có chủ ý:
+   * đây là một tờ giấy xoay 180° trong không gian, không phải một tấm ván trượt ngang —
+   * chạy 320ms thì mắt không kịp đọc ra chuyển động, chỉ thấy trang "nháy" một cái. */
+  --dur-page-turn: 460ms;
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
@@ -313,5 +317,6 @@
     --dur-fast: 0.01ms;
     --dur-base: 0.01ms;
     --dur-slow: 0.01ms;
+    --dur-page-turn: 0.01ms;
   }
 }
