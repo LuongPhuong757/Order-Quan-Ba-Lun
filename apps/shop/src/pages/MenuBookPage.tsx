@@ -666,15 +666,16 @@ export function MenuBookPage(): JSX.Element {
                     data-group-chip={g.code}
                     onClick={() => jumpTo(findFirstPageOfGroup(pages, g.code))}
                     aria-current={active ? 'true' : undefined}
-                    // Chip nghỉ mang đúng màu nhóm nên cả dải thành một mục lục có màu; chip
-                    // ĐANG XEM vẫn là đỏ thương hiệu. Giữ đỏ ở đây là có chủ ý: nếu chip active
-                    // cũng chỉ là một pastel nữa thì giữa 32 chip pastel không còn gì nói được
-                    // "bạn đang ở đây" — vị trí hiện tại phải khác LOẠI màu, không chỉ khác sắc.
+                    // Chip nghỉ TRONG SUỐT: màu nhóm chuyển từ NỀN sang VIỀN + CHỮ, nên ảnh
+                    // món phía sau vẫn thấy trọn mà mắt vẫn nối được "chip vàng nghệ" với
+                    // "trang vàng nghệ". Chip ĐANG XEM vẫn là khối đỏ đặc — giữa 32 chip rỗng
+                    // thì một khối đặc mới nói được "bạn đang ở đây", viền đậm hơn không đủ.
                     style={
                       active
                         ? { ...chip, ...chipActive }
-                        : { ...chip, background: accentOf(g.code), borderColor: 'transparent' }
+                        : { ...chip, borderColor: accentOf(g.code), color: accentOf(g.code) }
                     }
+                    className={active ? undefined : 'book-glass-chip'}
                   >
                     {g.icon ? `${g.icon} ` : ''}
                     {g.name}
@@ -823,6 +824,17 @@ const BOOK_PAGE_CSS = `
 }
 
 /*
+ * Chip nhóm lúc nghỉ: trong suốt, nhưng có một lớp kính CỰC mỏng (14%) dưới chân. Không có
+ * lớp đó thì khi chip trôi ngang qua một tấm ảnh sáng, chữ pastel mảnh gần như tan mất —
+ * trong suốt mà không đọc được thì không phải trong suốt, là mất chữ.
+ */
+.book-glass-chip {
+  background: rgb(22 18 15 / 14%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+/*
  * Thanh cuộn của tờ giấy: mảnh và tối. Mặc định của macOS/Windows là một vệt SÁNG nằm
  * đúng mép phải trang — trên nền tối nó đọc ra như một viền trắng, không như thanh cuộn.
  */
@@ -849,15 +861,32 @@ const BOOK_PAGE_CSS = `
 .book-shell {
   isolation: isolate;
   background:
-    radial-gradient(115% 70% at 50% -12%, rgb(232 163 61 / 14%), transparent 62%),
-    radial-gradient(85% 55% at 108% 106%, rgb(184 42 30 / 16%), transparent 60%),
+    /* 1. Vùng tối quanh mép (vignette) — thứ làm nên cảm giác 'chụp trên bàn có đèn rọi'
+          thay vì 'ảnh chụp dưới đèn tuýp'. Đặt TRÊN CÙNG để nó ăn cả hai vầng sáng dưới. */
+    radial-gradient(125% 95% at 50% 42%, rgb(0 0 0 / 0%) 42%, rgb(0 0 0 / 52%) 100%),
+    /* 2. Vầng đèn ấm rọi từ trên xuống, hơi lệch trái như một nguồn sáng thật. */
+    radial-gradient(105% 62% at 38% -14%, rgb(232 163 61 / 17%), transparent 60%),
+    /* 3. Ánh phản chiếu lạnh ở góc trên-phải: hai nguồn sáng khác nhiệt độ màu mới ra
+          chiều sâu — một nguồn duy nhất thì nền vẫn phẳng, chỉ là phẳng có màu. */
+    radial-gradient(70% 45% at 104% 4%, rgb(146 170 190 / 9%), transparent 62%),
+    /* 4. Vệt đỏ thương hiệu ở góc dưới-phải. */
+    radial-gradient(85% 55% at 108% 106%, rgb(184 42 30 / 15%), transparent 60%),
     var(--menu-chrome);
 }
 
 /*
- * Vân nền — những sợi chéo rất mờ, cho nền một bề mặt thay vì một mảng màu chết. Nằm ở
- * pseudo-element 'position: fixed' + 'pointer-events: none' + 'z-index: -1': không chen
- * vào layout, không dính vào cú vuốt lật trang, và luôn nằm dưới mọi thứ trong trang.
+ * BỀ MẶT ĐÁ PHIẾN. Sợi chéo đều tăm tắp của bản trước đọc ra là 'vân dệt', không phải đá —
+ * mà menu sang trọng nào cũng chụp trên đá hoặc gỗ tối, không chụp trên vải kẻ.
+ *
+ * Hai lớp:
+ *   1. HẠT MỊN — nhiễu Perlin của SVG ('feTurbulence'), nhúng thẳng vào CSS bằng data URI
+ *      nên không thêm một request nào. Đây là thứ khử hiện tượng dải màu (banding) trên
+ *      gradient tối: màn OLED điện thoại vẽ gradient tối thành từng bậc thấy rõ, một lớp
+ *      hạt mờ trộn các bậc đó lại.
+ *   2. VỆT VÂN LỚN — vài vệt sáng/tối rộng, chéo, không đều nhau, như thớ đá.
+ *
+ * Vẫn 'position: fixed' + 'z-index: -1' + 'pointer-events: none': không chen vào layout,
+ * không dính cú vuốt lật trang, luôn nằm dưới mọi thứ.
  */
 .book-shell::before {
   content: '';
@@ -865,14 +894,42 @@ const BOOK_PAGE_CSS = `
   inset: 0;
   z-index: -1;
   pointer-events: none;
-  background-image: repeating-linear-gradient(
-    115deg,
-    rgb(255 255 255 / 3%) 0 1px,
-    transparent 1px 7px
-  );
-  /* Mờ dần về phía chân trang: đậm đều từ trên xuống dưới trông như lỗi hiển thị. */
-  -webkit-mask-image: linear-gradient(180deg, #000, transparent 78%);
-  mask-image: linear-gradient(180deg, #000, transparent 78%);
+  opacity: 0.5;
+  background-image:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)' opacity='0.42'/%3E%3C/svg%3E"),
+    repeating-linear-gradient(
+      108deg,
+      rgb(255 255 255 / 2.4%) 0 1px,
+      transparent 1px 9px,
+      rgb(0 0 0 / 4%) 9px 13px,
+      transparent 13px 34px
+    );
+  background-size:
+    140px 140px,
+    auto;
+}
+
+/*
+ * Đốm sáng lấm tấm — như vụn muối, hạt tiêu, giọt sốt rơi trên mặt bàn ở ảnh menu thật.
+ * Là 6 gradient tròn cực nhỏ nằm rải rác, KHÔNG lặp: nền có vài điểm để mắt bám vào, đó
+ * là khác biệt giữa 'tối và sạch' với 'tối và trống'.
+ *
+ * Không mô phỏng ảnh món thật — muốn được như ảnh mẫu chủ quán gửi thì phải có ảnh chụp
+ * bàn ăn của chính quán, đây là thứ gần nhất làm được bằng CSS mà không thêm byte tải.
+ */
+.book-shell::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(circle 2px at 12% 24%, rgb(232 163 61 / 26%), transparent),
+    radial-gradient(circle 1px at 26% 71%, rgb(255 255 255 / 20%), transparent),
+    radial-gradient(circle 3px at 68% 16%, rgb(232 163 61 / 14%), transparent),
+    radial-gradient(circle 1px at 82% 58%, rgb(255 255 255 / 16%), transparent),
+    radial-gradient(circle 2px at 45% 88%, rgb(184 42 30 / 22%), transparent),
+    radial-gradient(circle 1px at 92% 33%, rgb(232 163 61 / 20%), transparent);
 }
 `;
 
@@ -928,8 +985,8 @@ const chip: CSSProperties = {
   alignItems: 'center',
   borderRadius: 'var(--r-badge)',
   border: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
-  color: 'var(--text-body)',
+  background: 'transparent',
+  color: 'var(--menu-text)',
   fontSize: 'var(--fs-base)',
   fontWeight: 'var(--fw-semibold)',
   fontFamily: 'var(--font-body)',
@@ -993,6 +1050,15 @@ const viewport: CSSProperties = {
 const pageLeaf: CSSProperties = {
   position: 'absolute',
   inset: 0,
+  /**
+   * Bóng đổ SÂU + một sợi vàng mảnh chạy quanh mép trong.
+   *
+   * Đây là chi tiết làm nên cảm giác 'quyển menu bìa cứng đặt trên bàn' thay vì 'một khối
+   * màu dán lên nền': bóng nói tờ giấy có bề dày và đang nhấc khỏi mặt bàn, sợi vàng 9% là
+   * ánh kim phản chiếu ở mép — chỉ 9% nên nó là ÁNH SÁNG, không phải cái viền (viền trắng
+   * đậm ở mép phải đúng là thứ chủ quán đã bắt bỏ đi).
+   */
+  boxShadow: '0 22px 60px rgb(0 0 0 / 52%), inset 0 0 0 1px rgb(232 163 61 / 9%)',
   padding: '0 var(--gutter)',
   boxSizing: 'border-box',
   background: 'var(--menu-chrome)',
