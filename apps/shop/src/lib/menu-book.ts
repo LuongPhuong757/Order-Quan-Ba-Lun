@@ -10,48 +10,34 @@ import type { PublicMenuGroup, PublicMenuItem } from '@order/schemas';
  * Không import React — mọi hàm trong file này là hàm thuần.
  */
 
-/** Một trang trong quyển menu. Trang KHÔNG BAO GIỜ chứa món của hai nhóm khác nhau. */
+/**
+ * Một trang trong quyển menu = ĐÚNG MỘT NHÓM MÓN (chủ quán chốt 2026-09-04).
+ *
+ * Trước đây nhóm dài bị cắt thành nhiều trang và mỗi nhóm còn có thêm một trang bìa ảnh —
+ * quán 32 nhóm mà thành 89 trang, lật mãi không hết. Giờ số trang BẰNG số nhóm: bấm chip
+ * "Set Lẩu" là tới trang Set Lẩu, không phải trang 1 trong 5 của Set Lẩu.
+ *
+ * Nhóm dài hơn một màn hình thì TRANG KÉO DÀI XUỐNG và cuộn dọc — giống hệt việc mở một
+ * tờ thực đơn gấp. Đổi lại, không còn khái niệm "trang 2/4" trong nhóm nữa.
+ */
 export type BookPage = {
   group: PublicMenuGroup;
-  /**
-   * `cover` = trang bìa mở đầu một nhóm: đúng một tấm ảnh lớn tràn viền và tên nhóm, không
-   * có món nào. Đây là trang "sang chương" của menu in — thứ chủ quán chỉ vào ảnh mẫu và
-   * bảo muốn có. `items` = trang danh sách món bình thường.
-   */
-  kind: 'cover' | 'items';
-  /** Luôn rỗng với trang bìa. */
   items: PublicMenuItem[];
-  /** Chỉ có ở trang bìa. */
-  coverImage: string | null;
-  /**
-   * Thứ tự trang trong phạm vi nhóm, đếm từ 1 — hiện ở tiêu đề "Món chính (2/3)".
-   * Trang bìa mang số 0 và KHÔNG được tính vào `pagesInGroup`: với khách, "trang 1" là
-   * trang món đầu tiên, còn tấm bìa là một tờ ảnh chứ không phải một trang menu.
-   */
-  pageInGroup: number;
-  pagesInGroup: number;
 };
 
+/** Khổ trang: quyết định cỡ ảnh và cách xếp món, KHÔNG còn quyết định số món mỗi trang. */
 export type BookGrid = {
-  cols: number;
-  rows: number;
-  /** = cols × rows. Số món tối đa MỘT TRANG chứa được ở khổ màn hiện tại. */
-  perPage: number;
-  /** Khoảng cách giữa các ô, px — trang tự dùng lại để không lệch với phép đo ở đây. */
-  gap: number;
   /**
    * Màn đủ rộng để mở HAI TRANG cạnh nhau như quyển sách thật, gáy ở giữa (chủ quán chốt
-   * 2026-09-04). Khi bật, `cols` đã được tính trên NỬA bề ngang — mỗi nửa là một trang
-   * hoàn chỉnh, không phải một cột của cùng một trang.
+   * 2026-09-04). Khi bật, mọi phép đo bên dưới tính trên NỬA bề ngang — mỗi nửa là một
+   * trang hoàn chỉnh.
    */
   spread: boolean;
   /**
-   * Ô món có RỘNG RÃI không (≥300px mỗi ô).
+   * Trang có RỘNG RÃI không (≥560px).
    *
-   * Số cột KHÔNG nói lên điều đó: 2 cột trên điện thoại 390px cho ô 179px, còn 2 cột trên
-   * một nửa trang đôi 720px cho ô 350px — cùng "2 cột" mà một bên phải cắt tên món xuống 3
-   * dòng, một bên tên nằm gọn 1 dòng. Ô rộng thì ảnh to hơn, tên chỉ cần 2 dòng, và ô THẤP
-   * hơn — nên đây cũng là thứ quyết định một trang chứa được mấy dòng.
+   * Quyết định cỡ ảnh tròn và cỡ chữ của từng dòng món. Điện thoại 390px và một nửa trang
+   * đôi 720px là hai thế giới khác nhau, dù cả hai đều "một cột".
    */
   roomy: boolean;
 };
@@ -59,10 +45,10 @@ export type BookGrid = {
 /**
  * Ngưỡng mở hai trang: 1024px.
  *
- * Dưới ngưỡng này chia đôi là mỗi trang chưa tới 512px, mà một trang cần ít nhất 2 cột ô
- * món mới ra hình quyển menu — 2 cột trong 500px là vừa đủ, hẹp hơn thì tên món vỡ vụn.
- * 1024 cũng đúng bề ngang tablet nằm ngang, tức là thiết bị mỏng nhất mà mở sách còn có
- * nghĩa. Điện thoại (kể cả nằm ngang, 844px) luôn ở chế độ một trang.
+ * Dưới ngưỡng này chia đôi là mỗi trang chưa tới 512px — hẹp hơn cả điện thoại, không còn
+ * chỗ cho ảnh tròn lẫn tên món trên cùng một dòng. 1024 cũng đúng bề ngang tablet nằm
+ * ngang, thiết bị mỏng nhất mà mở sách còn có nghĩa. Điện thoại (kể cả nằm ngang, 844px)
+ * luôn ở chế độ một trang.
  */
 const SPREAD_MIN_WIDTH = 1024;
 
@@ -71,95 +57,26 @@ export function shouldSpread(width: number): boolean {
 }
 
 /**
- * Chia toàn bộ menu thành các trang, MỖI NHÓM BẮT ĐẦU MỘT TRANG MỚI (chủ quán chốt
- * 2026-09-04).
+ * Mỗi nhóm thành đúng một trang. Nhóm rỗng bị bỏ — một trang trắng mang tên nhóm còn khó
+ * hiểu hơn là không có trang nào (BE đã lọc rồi, đây là lớp chặn thứ hai).
  *
- * Nhóm dài hơn một trang thì tràn sang trang kế và vẫn mang tên nhóm đó — giống hệt menu
- * giấy, không phải "trang 4 không biết đang là mục gì".
- *
- * Nhóm rỗng bị bỏ hẳn: BE đã lọc rồi, nhưng nếu vì lý do nào đó lọt xuống đây thì một
- * trang trắng mang tên nhóm còn khó hiểu hơn là không có trang nào.
- *
- * `perPage < 1` (đo hụt lúc màn chưa vẽ xong) được ép về 1 thay vì trả mảng rỗng — trang
- * rỗng làm khách tưởng quán không còn món nào, chỉ vì một phép đo chạy sớm vài ms.
+ * KHÔNG còn tham số số-món-mỗi-trang: chiều cao trang do nội dung quyết định, không do
+ * phép đo màn hình.
  */
-export function paginateGroups(groups: PublicMenuGroup[], perPage: number): BookPage[] {
-  const size = Math.max(1, Math.floor(perPage));
-  const pages: BookPage[] = [];
-  for (const group of groups) {
-    if (group.items.length === 0) continue;
-    const cover = pickCoverImage(group);
-    if (cover) {
-      pages.push({ group, kind: 'cover', items: [], coverImage: cover, pageInGroup: 0, pagesInGroup: 0 });
-    }
-    const pagesInGroup = Math.ceil(group.items.length / size);
-    for (let i = 0; i < pagesInGroup; i += 1) {
-      pages.push({
-        group,
-        kind: 'items',
-        items: group.items.slice(i * size, (i + 1) * size),
-        coverImage: null,
-        pageInGroup: i + 1,
-        pagesInGroup,
-      });
-    }
-  }
-  return pages;
+export function paginateGroups(groups: PublicMenuGroup[]): BookPage[] {
+  return groups.filter((g) => g.items.length > 0).map((group) => ({ group, items: group.items }));
 }
 
 /**
- * Ảnh bìa của một nhóm: ảnh của MÓN ĐẦU TIÊN trong nhóm mà có ảnh.
+ * Khổ trang theo bề ngang khung đọc.
  *
- * Chủ quán chọn "tự lấy ảnh đẹp nhất trong nhóm" (2026-09-04) — nhưng máy không biết ảnh
- * nào đẹp, nên nó lấy ảnh đầu tiên theo đúng thứ tự chủ quán đã sắp ở màn "Menu xem". Nói
- * cách khác: muốn đổi ảnh bìa thì kéo món có tấm ảnh ưng ý lên đầu nhóm. Đó là một cách
- * điều khiển thật, không phải ngẫu nhiên.
- *
- * Nhóm không món nào có ảnh → `null` → KHÔNG sinh trang bìa. Một trang bìa trống trơn hoặc
- * mang hoạ tiết "chưa có ảnh" phóng to hết màn thì tệ hơn hẳn là không có bìa.
+ * Không còn đo chiều cao: từ 2026-09-04 một nhóm là một trang và trang tự kéo dài xuống,
+ * nên chiều cao màn hình không còn quyết định điều gì cả.
  */
-function pickCoverImage(group: PublicMenuGroup): string | null {
-  for (const item of group.items) {
-    const url = item.images[0];
-    if (url) return url;
-  }
-  return null;
-}
-
-/**
- * Đo xem vùng trang chứa được lưới bao nhiêu cột × bao nhiêu dòng.
- *
- * VÌ SAO ĐO CHỨ KHÔNG ĐẶT CỨNG 3×10: chủ quán mô tả trang menu theo màn hình máy tính
- * (3 món/dòng, 10 dòng). Áp đúng con số đó lên iPhone thì mỗi ô rộng ~110px và cao ~66px —
- * ảnh món bằng con tem, tên món cụt. Đo thật rồi tự chọn số dòng cho vừa MỘT màn hình là
- * cách duy nhất giữ được đúng tinh thần "một trang = một màn, lật là hết trang" trên cả
- * điện thoại lẫn màn hình lớn: máy tính đủ cao vẫn ra đúng 3×10, điện thoại tự rút còn
- * 2×N cho chữ đọc được.
- *
- * Trần 10 dòng là con số chủ quán đưa — màn hình rất cao (TV dựng đứng) cũng không nhồi
- * quá mức, vì lúc đó ô sẽ giãn ra chứ không thêm dòng.
- *
- * Sàn 2 dòng: bàn phím ảo bật lên khi khách gõ tìm món có thể nuốt gần hết chiều cao;
- * thà ô bị tràn một chút còn hơn trang chỉ còn một món.
- */
-export function computeGrid(width: number, height: number): BookGrid {
+export function computeGrid(width: number): BookGrid {
   const spread = shouldSpread(width);
-  // Mở hai trang thì MỖI TRANG chỉ còn nửa bề ngang — lưới phải đo trên nửa đó, không phải
-  // trên cả màn. Đo nhầm trên cả màn là ô món tràn qua gáy sách.
   const pageWidth = spread ? width / 2 : width;
-  const cols = pageWidth < 768 ? 2 : 3;
-  const roomy = pageWidth / cols >= 300;
-  // Chiều cao một ô, phải KHỚP với `BookCard.tsx` — lệch là lưới tràn khỏi trang hoặc chừa
-  // một khoảng trống ở chân trang.
-  //   ô chật  (~180px): tên món 3 dòng (57) + giá (19) + đệm (16) ≈ 94. Ảnh 48px thấp hơn
-  //     khối chữ nên không phải nó quyết định chiều cao.
-  //   ô rộng  (≥300px): tên 2 dòng (38) + giá (19) + đệm (16) = 73, nhưng ảnh 64px + đệm
-  //     = 80 mới là cái cao hơn → 84.
-  const rowHeight = roomy ? 84 : 94;
-  const gap = roomy ? 12 : 8;
-  const fit = Math.floor((height + gap) / (rowHeight + gap));
-  const rows = Math.min(10, Math.max(2, Number.isFinite(fit) ? fit : 2));
-  return { cols, rows, perPage: cols * rows, gap, spread, roomy };
+  return { spread, roomy: pageWidth >= 560 };
 }
 
 /**
@@ -224,15 +141,6 @@ export function findPageOfItem(pages: BookPage[], itemId: string | null): number
   if (!itemId) return 0;
   const at = pages.findIndex((page) => page.items.some((item) => item.id === itemId));
   return at < 0 ? 0 : at;
-}
-
-/**
- * Neo cho TRANG BÌA: bìa không có món nào nên `findPageOfItem` không bám vào đâu được, và
- * khách xoay máy lúc đang xem bìa sẽ bị ném về đầu quyển. Bám theo mã nhóm thay thế.
- */
-export function findCoverOfGroup(pages: BookPage[], groupCode: string): number {
-  const at = pages.findIndex((page) => page.kind === 'cover' && page.group.code === groupCode);
-  return at < 0 ? findFirstPageOfGroup(pages, groupCode) : at;
 }
 
 /**

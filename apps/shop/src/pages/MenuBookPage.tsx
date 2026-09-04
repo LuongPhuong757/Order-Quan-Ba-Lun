@@ -15,7 +15,6 @@ import { PublicMenuGroup, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import {
   computeGrid,
-  findCoverOfGroup,
   findFirstPageOfGroup,
   findPageOfItem,
   groupAccents,
@@ -94,20 +93,18 @@ export function MenuBookPage(): JSX.Element {
 
   // ── Đo vùng trang để biết lưới mấy cột mấy dòng ────────────────────────────────────
   const viewportRef = useRef<HTMLDivElement>(null);
-  const [grid, setGrid] = useState<BookGrid>(() => computeGrid(360, 420));
+  const [grid, setGrid] = useState<BookGrid>(() => computeGrid(360));
   useLayoutEffect(() => {
     const el = viewportRef.current;
     if (!el) return;
     const measure = () => {
       const rect = el.getBoundingClientRect();
       if (rect.width === 0 || rect.height === 0) return;
-      const next = computeGrid(rect.width, rect.height);
-      // So từng trường thay vì thay object mù quáng: `ResizeObserver` bắn cả khi kích
-      // thước lệch một phần pixel (thanh địa chỉ Safari trượt lên xuống lúc cuộn), và mỗi
-      // lần đổi state ở đây là một lần chia lại toàn bộ ~600 món.
-      setGrid((cur) =>
-        cur.cols === next.cols && cur.rows === next.rows && cur.gap === next.gap ? cur : next,
-      );
+      const next = computeGrid(rect.width);
+      // So từng trường thay vì thay object mù quáng: `ResizeObserver` bắn cả khi kích thước
+      // lệch một phần pixel (thanh địa chỉ Safari trượt lên xuống lúc cuộn), mà mỗi lần đổi
+      // state ở đây là một lần vẽ lại toàn bộ trang.
+      setGrid((cur) => (cur.spread === next.spread && cur.roomy === next.roomy ? cur : next));
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -131,21 +128,18 @@ export function MenuBookPage(): JSX.Element {
   const pages = useMemo(() => {
     if (isSearching) {
       if (results.length === 0) return [];
-      return paginateGroups(
-        [
-          {
-            id: 'search-results',
-            code: '__search',
-            name: `Kết quả cho "${query.trim()}"`,
-            icon: '🔍',
-            items: results,
-          },
-        ],
-        grid.perPage,
-      );
+      return paginateGroups([
+        {
+          id: 'search-results',
+          code: '__search',
+          name: `Kết quả cho "${query.trim()}"`,
+          icon: '🔍',
+          items: results,
+        },
+      ]);
     }
-    return paginateGroups(groups, grid.perPage);
-  }, [groups, results, isSearching, query, grid.perPage]);
+    return paginateGroups(groups);
+  }, [groups, results, isSearching, query]);
 
   const [index, setIndex] = useState(0);
   const indexRef = useRef(0);
@@ -163,12 +157,7 @@ export function MenuBookPage(): JSX.Element {
     if (prevPagesRef.current === pages) return;
     const was = prevPagesRef.current[indexRef.current];
     prevPagesRef.current = pages;
-    // Trang bìa không có món nào để bám — bám theo mã nhóm, nếu không khách đang ngắm bìa
-    // mà xoay máy là bị ném thẳng về đầu quyển.
-    const at =
-      was?.kind === 'cover'
-        ? findCoverOfGroup(pages, was.group.code)
-        : findPageOfItem(pages, was?.items[0]?.id ?? null);
+    const at = findPageOfItem(pages, was?.items[0]?.id ?? null);
     const aligned = grid.spread ? at - (at % 2) : at;
     setIndex(Math.min(aligned, Math.max(0, pages.length - 1)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -211,9 +200,13 @@ export function MenuBookPage(): JSX.Element {
    * cảnh riêng và cú lật trông như gãy khúc).
    */
   const [turn, setTurn] = useState<Turn>(null);
-  const dragRef = useRef<{ x: number; id: number; dir: 1 | -1 | 0; captured: boolean } | null>(
-    null,
-  );
+  const dragRef = useRef<{
+    x: number;
+    y: number;
+    id: number;
+    dir: 1 | -1 | 0;
+    captured: boolean;
+  } | null>(null);
   /** Ngón tay vừa ĐI một quãng thật (không phải chạm gọn) — dùng để nuốt cú `click` sinh ra
    *  sau đó. Thiếu nó thì vuốt lật trang mà điểm chạm rơi trúng một card sẽ vừa lật trang
    *  vừa bung ảnh lớn của món đó. */
@@ -306,7 +299,7 @@ export function MenuBookPage(): JSX.Element {
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (turn || preview) return;
-    dragRef.current = { x: e.clientX, id: e.pointerId, dir: 0, captured: false };
+    dragRef.current = { x: e.clientX, y: e.clientY, id: e.pointerId, dir: 0, captured: false };
     draggedRef.current = false;
     // CỐ Ý KHÔNG `setPointerCapture` ở đây. Bắt con trỏ ngay từ lúc chạm thì trình duyệt
     // dồn luôn cả `click` về đúng phần tử đang bắt — tức là chạm vào một món chỉ báo về
@@ -318,10 +311,18 @@ export function MenuBookPage(): JSX.Element {
     const d = dragRef.current;
     if (!d) return;
     const dx = e.clientX - d.x;
+    const dy = e.clientY - d.y;
     // 6px: dưới ngưỡng này là ngón tay rung lúc chạm, không phải cử chỉ vuốt — coi đó là
-    // kéo thì mọi cú chạm vào card đều bị nuốt mất và không mở được ảnh nào.
+    // kéo thì mọi cú chạm vào món đều bị nuốt mất và không mở được ảnh nào.
     if (!d.captured) {
       if (Math.abs(dx) <= 6) return;
+      // Từ 2026-09-04 trang CUỘN DỌC được (một nhóm một trang, dài thì kéo dài xuống), nên
+      // phải phân biệt hai cử chỉ. Ngón tay đi dọc nhiều hơn ngang là khách đang đọc tiếp
+      // xuống dưới — bỏ qua hẳn cú này, đừng lật trang giữa lúc người ta đang cuộn.
+      if (Math.abs(dy) > Math.abs(dx)) {
+        dragRef.current = null;
+        return;
+      }
       draggedRef.current = true;
       d.captured = true;
       // CHỐT hướng ngay tại đây và không đổi nữa. Cho phép đổi hướng giữa chừng thì tờ giấy
@@ -407,27 +408,22 @@ export function MenuBookPage(): JSX.Element {
    */
   const heading = (() => {
     const shown = (grid.spread ? [pages[index], pages[index + 1]] : [page]).filter(
-      (p): p is BookPage => p !== undefined && p.kind === 'items',
+      (x): x is BookPage => x !== undefined,
     );
     if (shown.length === 0) return null;
     const names: string[] = [];
-    for (const p of shown) {
-      const label = `${p.group.icon ? `${p.group.icon} ` : ''}${p.group.name}`;
+    for (const x of shown) {
+      const label = `${x.group.icon ? `${x.group.icon} ` : ''}${x.group.name}`;
       if (!names.includes(label)) names.push(label);
     }
-    const sameGroup = shown.every((p) => p.group.code === shown[0].group.code);
-    const first = shown[0];
-    const last = shown[shown.length - 1];
-    return {
-      accentCode: first.group.code,
-      label: names.join(' · '),
-      count:
-        sameGroup && first.pagesInGroup > 1
-          ? first === last
-            ? `${first.pageInGroup}/${first.pagesInGroup}`
-            : `${first.pageInGroup}–${last.pageInGroup}/${first.pagesInGroup}`
-          : null,
-    };
+    // Một nhóm là một trang nên không còn "2/4" nữa; thay bằng số món của nhóm — thứ khách
+    // thật sự muốn biết khi vừa mở tới một chương mới.
+    //
+    // Mở sách mà hai trang là hai nhóm khác nhau thì BỎ HẲN con số: cộng gộp 39 + 12 thành
+    // "51 món" là nói dối, mà in hai con số cạnh nhau thì không ai biết số nào của nhóm nào.
+    // Tên hai nhóm đã đủ nói khách đang ở đâu.
+    const count = names.length === 1 ? `${shown[0].items.length} món` : null;
+    return { accentCode: shown[0].group.code, label: names.join(' · '), count };
   })();
   /** Góc hiện tại của một tờ: chỉ tờ đang được lật mới rời khỏi chỗ đậu của nó. */
   const angleOf = (which: 'current' | 'prev'): number => {
@@ -443,61 +439,21 @@ export function MenuBookPage(): JSX.Element {
    * một MẶT của tờ giấy đôi mặt (máy tính). Ba chỗ khác nhau về khung, giống hệt nhau về
    * ruột — nhân bản ra ba bản là ba chỗ để quên sửa.
    */
-  const renderPageBody = (p: BookPage, at: number, eager: boolean, animate: boolean) => {
-    if (p.kind === 'cover') {
-      /* Trang bìa "sang chương": đúng một tấm ảnh tràn viền + tên nhóm, không có món nào
-         bấm được. Đây là nhịp nghỉ giữa hai nhóm — thứ làm quyển menu điện tử đọc ra như
-         menu in chứ không như một danh sách dài vô tận. */
-      return (
-        <div key={at} style={coverFrame}>
-          <img
-            src={p.coverImage ?? ''}
-            alt=""
-            aria-hidden="true"
-            loading={eager ? 'eager' : 'lazy'}
-            decoding="async"
-            style={coverImg}
-          />
-          {/* Nền tối chuyển dần ở chân ảnh: ảnh món có chỗ sáng chỗ tối tuỳ tấm, chữ trắng
-              đặt thẳng lên là chỗ đọc được chỗ không. Lớp này bảo đảm tương phản bất kể
-              tấm ảnh nào rơi vào đây. */}
-          <div aria-hidden="true" style={coverScrim} />
-          <div style={coverText}>
-            <p style={coverName}>
-              {p.group.icon ? `${p.group.icon} ` : ''}
-              {p.group.name}
-            </p>
-            <p style={coverCount}>{p.group.items.length} món</p>
-          </div>
-        </div>
-      );
-    }
-    return (
-      <div
-        // `key` theo chỉ số trang: đổi trang là React dựng lại các ô, nhờ vậy hiệu ứng
-        // "món hiện ra so le" chạy lại từ đầu — nhưng chỉ khi `animate` cho phép.
-        key={at}
-        style={{
-          ...gridStyle,
-          gridTemplateColumns: `repeat(${grid.cols}, minmax(0, 1fr))`,
-          gridAutoRows: 'min-content',
-          gap: grid.gap,
-        }}
-      >
-        {p.items.map((item, i) => (
-          <BookCard
-            key={item.id}
-            item={item}
-            wide={grid.roomy}
-            eager={eager}
-            index={i}
-            animate={animate}
-            onOpen={(it, from) => setPreview({ item: it, from })}
-          />
-        ))}
-      </div>
-    );
-  };
+  const renderPageBody = (p: BookPage, at: number, eager: boolean, animate: boolean) => (
+    <div key={at} style={pageList}>
+      {p.items.map((item, i) => (
+        <BookCard
+          key={item.id}
+          item={item}
+          roomy={grid.roomy}
+          index={i}
+          eager={eager}
+          animate={animate}
+          onOpen={(it, from) => setPreview({ item: it, from })}
+        />
+      ))}
+    </div>
+  );
 
   // ── Chế độ HAI trang, mở như quyển sách (máy tính / tablet ngang) ──────────────────
   /**
@@ -719,9 +675,7 @@ export function MenuBookPage(): JSX.Element {
         </nav>
       )}
 
-      {/* Trang bìa đã in tên nhóm cỡ lớn ngay trên ảnh — lặp lại ở thanh nhỏ này là thừa,
-          và làm tấm ảnh bị đẩy tụt xuống một dòng. Mở sách thì hai trang có thể thuộc hai
-          nhóm khác nhau, lúc đó thanh này gọi tên cả hai. */}
+      {/* Mở sách thì hai trang là hai nhóm khác nhau, lúc đó thanh này gọi tên cả hai. */}
       {heading && (
         // Thanh này đứng NGOÀI tờ giấy (nó không được lật đi cùng) nên phải tự nhuộm màu
         // nhóm; để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc lõng.
@@ -1023,10 +977,16 @@ const viewport: CSSProperties = {
    * đây đều là mặt phẳng đơn nên không cần preserve-3d.
    */
   perspective: '1600px',
-  // Trang không cuộn theo chiều nào, và trình duyệt phải nhường hẳn cử chỉ vuốt cho
-  // phần lật trang bên dưới — thiếu dòng này thì Chrome Android nuốt mất `pointermove`
-  // để chạy kéo-để-tải-lại.
-  touchAction: 'none',
+  /**
+   * `pan-y`: nhường chiều DỌC cho trình duyệt tự cuộn trang (mượt hơn mọi thứ mình tự viết,
+   * và có cả quán tính), giữ lại chiều NGANG cho việc lật trang.
+   *
+   * Không để `auto`: Chrome Android sẽ nuốt `pointermove` ngang để chạy kéo-để-tải-lại và
+   * vuốt lật trang chết hẳn. Cũng không để `none` như bản trước — hồi đó trang không cuộn
+   * được nên chặn hết là đúng, giờ một nhóm là một trang dài thì chặn dọc là khoá luôn
+   * đường đọc.
+   */
+  touchAction: 'pan-y',
 };
 
 /**
@@ -1048,6 +1008,10 @@ const pageLeaf: CSSProperties = {
   padding: '0 var(--gutter)',
   boxSizing: 'border-box',
   background: 'var(--bg-page)',
+  // Nhóm dài hơn một màn thì TRANG KÉO DÀI XUỐNG và cuộn — chủ quán chốt 2026-09-04.
+  // `overscrollBehavior: contain` chặn cú cuộn quá đà lan ra ngoài kéo cả trang web đi theo.
+  overflowY: 'auto',
+  overscrollBehavior: 'contain',
   transformOrigin: 'left center',
   backfaceVisibility: 'hidden',
   WebkitBackfaceVisibility: 'hidden',
@@ -1063,6 +1027,7 @@ const spreadHalf: CSSProperties = {
   height: '100%',
   padding: '0 var(--gutter)',
   boxSizing: 'border-box',
+  overflow: 'hidden',
 };
 
 /**
@@ -1092,7 +1057,9 @@ const leafFace: CSSProperties = {
   boxSizing: 'border-box',
   backfaceVisibility: 'hidden',
   WebkitBackfaceVisibility: 'hidden',
-  overflow: 'hidden',
+  overflowY: 'auto',
+  overflowX: 'hidden',
+  overscrollBehavior: 'contain',
 };
 
 /** Gáy sách — vệt tối hẹp ở chính giữa, đậm nhất tại đường gấp. */
@@ -1122,72 +1089,25 @@ const leafShade: CSSProperties = {
   background: 'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 55%) 100%)',
 };
 
-/* ── Trang bìa nhóm ──────────────────────────────────────────────────────────────────
- * Ảnh chiếm trọn tờ giấy, bo góc như một tấm ảnh dán vào trang menu. Đệm dọc để tấm ảnh
- * không dính sát mép trên/dưới của khung — có khoảng thở thì mới ra "ảnh in trên trang",
- * dán sát mép thì ra "ảnh nền của app".
+/**
+ * Danh sách món của một trang. MỘT CỘT, không phải lưới: bố cục so le chỉ đọc ra được khi
+ * mỗi món chiếm trọn bề ngang và ảnh đổi bên qua từng dòng. Xếp 2 cột là hai cái zigzag
+ * chạy song song, mắt không bám được cái nào.
+ *
+ * `maxWidth` chặn dòng món dài ngoẵng trên màn rộng: một dòng chữ quá dài thì mắt trượt
+ * mất hàng (rule line-length trong tokens.css). Trang đôi mỗi nửa đã hẹp sẵn nên chặn này
+ * chỉ có tác dụng ở chế độ một trang trên máy tính.
  */
-const coverFrame: CSSProperties = {
-  position: 'relative',
-  height: '100%',
-  margin: 'var(--sp-1) 0 var(--sp-3)',
-  borderRadius: 'var(--r-category)',
-  overflow: 'hidden',
-  background: 'var(--wood-100)',
-};
-
-const coverImg: CSSProperties = {
-  width: '100%',
-  height: '100%',
-  objectFit: 'cover',
-  display: 'block',
-};
-
-const coverScrim: CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  background: 'linear-gradient(180deg, rgb(0 0 0 / 0%) 45%, rgb(0 0 0 / 72%) 100%)',
-};
-
-const coverText: CSSProperties = {
-  position: 'absolute',
-  left: 0,
-  right: 0,
-  bottom: 0,
-  padding: 'var(--sp-5)',
-};
-
-const coverName: CSSProperties = {
-  margin: 0,
-  fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-2xl)',
-  fontWeight: 'var(--fw-heavy)',
-  lineHeight: 'var(--lh-tight)',
-  letterSpacing: 'var(--ls-tight)',
-  color: '#ffffff',
-  // Ảnh món có chỗ sáng gắt (đèn, mâm trắng); riêng lớp nền tối chưa chắc đủ ở mọi tấm.
-  textShadow: '0 2px 12px rgb(0 0 0 / 55%)',
-};
-
-const coverCount: CSSProperties = {
-  margin: 'var(--sp-1) 0 0',
-  fontSize: 'var(--fs-sm)',
-  fontWeight: 'var(--fw-medium)',
-  color: 'rgb(255 255 255 / 82%)',
-  textShadow: '0 1px 8px rgb(0 0 0 / 55%)',
-};
-
-const gridStyle: CSSProperties = {
-  display: 'grid',
-  alignContent: 'start',
-  height: '100%',
-  // Trên màn rộng, để lưới giãn hết 1440px thì mỗi ô dài ngoẵng với một khoảng trắng mênh
-  // mông bên phải chữ. Chặn ở `--content-max` (1200px) và căn giữa — cùng con số mà trang
-  // đặt hàng đang dùng, nên hai trang không lệch nhịp khi xem cạnh nhau trên máy tính.
-  maxWidth: 'var(--content-max)',
+const pageList: CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 'var(--sp-3)',
+  maxWidth: 720,
   margin: '0 auto',
-  width: '100%',
+  // Chừa thở ở đầu và cuối danh sách — dòng món dính sát mép trang trông như bị cắt.
+  padding: 'var(--sp-2) 0 var(--sp-8)',
 };
+
 
 const footer: CSSProperties = {
   flex: 'none',
