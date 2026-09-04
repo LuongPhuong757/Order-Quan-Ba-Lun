@@ -10,6 +10,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Req,
   UploadedFile,
@@ -21,7 +22,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
@@ -51,6 +52,24 @@ class UpdateMenuItemDto {
   @IsOptional() @IsBoolean() is_active?: boolean;
   // Tab "Món online" của màn Đơn hàng online (2026-08-04) toggle cờ này qua PATCH.
   @IsOptional() @IsBoolean() is_online_hidden?: boolean;
+  // Tab "Menu xem" (2026-09-04) — ẩn/hiện món trên quyển menu ở menu.<domain>.
+  @IsOptional() @IsBoolean() is_menu_hidden?: boolean;
+  // Đổi thứ tự MỘT món lẻ. Kéo thả cả nhóm thì dùng PUT /menu/book-order (1 request).
+  @IsOptional() @IsInt() @Min(0) @Max(100_000) menu_sort_order?: number;
+}
+
+/** Một dòng trong lệnh sắp lại thứ tự menu xem: món `id` về vị trí `menu_sort_order`. */
+class BookOrderRowDto {
+  @IsUUID() id!: string;
+  @IsInt() @Min(0) @Max(100_000) menu_sort_order!: number;
+}
+
+class BookOrderDto {
+  // 2000 = trần `page_size` của GET /menu, tức là nhiều nhất bằng một lần tải hết menu.
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => BookOrderRowDto)
+  items!: BookOrderRowDto[];
 }
 
 class BulkImportRowDto {
@@ -284,6 +303,56 @@ export class MenuController {
     Object.assign(item, patched);
     await this.repo.save(item);
     return { data: item };
+  }
+
+  /**
+   * PUT /menu/book-order — owner only. Ghi lại thứ tự món trên trang menu xem (2026-09-04).
+   *
+   * VÌ SAO KHÔNG DÙNG `PATCH /menu/:id` SẴN CÓ: chủ quán kéo một món từ cuối nhóm lên đầu
+   * là ĐỔI VỊ TRÍ CỦA CẢ NHÓM — nhóm 80 món thành 80 request PATCH. Trên 3G ở quán, một
+   * nửa số đó rớt giữa chừng và menu còn lại thứ tự lai giữa cũ và mới, không ai biết.
+   * Ở đây cả nhóm đi trong MỘT request, MỘT transaction: hoặc đúng hết, hoặc không đổi gì.
+   *
+   * Gộp thành `UPDATE ... CASE id WHEN ...` theo lô 200 thay vì 200 lệnh UPDATE rời: cùng
+   * nằm trong một transaction thì số vòng đi-về tới MySQL mới là thứ quyết định thời gian,
+   * không phải số dòng.
+   *
+   * `id` lạ (món vừa bị xoá ở máy khác trong lúc chủ quán đang kéo) bị BỎ QUA im lặng, cố
+   * ý: cả lệnh sắp xếp đổ vì một món không còn tồn tại thì tệ hơn nhiều so với việc sắp
+   * đúng những món còn lại. Số dòng thật sự đổi được trả về để FE nói lại cho chủ quán.
+   */
+  @Put('book-order')
+  @UseGuards(AdminGuard)
+  async setBookOrder(@Body() dto: BookOrderDto) {
+    // Món trùng id trong payload (kéo thả lỗi ở FE) — giữ lần xuất hiện CUỐI, vì đó là vị
+    // trí mới nhất mà người dùng thả xuống.
+    const wanted = new Map<string, number>();
+    for (const row of dto.items) wanted.set(row.id, row.menu_sort_order);
+
+    return await this.ds.transaction(async (mgr) => {
+      const repo = mgr.getRepository(MenuItem);
+      const ids = [...wanted.keys()];
+      const existing = await repo.find({ where: { id: In(ids) }, select: { id: true } });
+      const known = existing.map((it) => it.id);
+
+      const CHUNK = 200;
+      for (let i = 0; i < known.length; i += CHUNK) {
+        const chunk = known.slice(i, i + CHUNK);
+        const cases = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+        const params: (string | number)[] = [];
+        for (const id of chunk) {
+          params.push(id, wanted.get(id) as number);
+        }
+        await mgr.query(
+          `UPDATE menu_items SET menu_sort_order = CASE id ${cases} END WHERE id IN (${chunk
+            .map(() => '?')
+            .join(',')})`,
+          [...params, ...chunk],
+        );
+      }
+
+      return { data: { updated: known.length, skipped: ids.length - known.length } };
+    });
   }
 
   /** POST /menu/:id/toggle-stock — staff có quyền (bếp dùng).

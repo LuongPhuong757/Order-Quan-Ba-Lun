@@ -66,6 +66,42 @@ admin.{$DOMAIN} {
     encode zstd gzip
 }
 
+# ─── Quyển menu điện tử: menu.<domain> ──────────────────────────────────────
+# 2026-09-04 — trang CHỈ ĐỌC cho khách xem toàn bộ món (nhà đang thiếu menu giấy).
+# Cùng vào api:3001 và cùng nhận shop-dist như apex: `main.ts` chỉ tách riêng host
+# `admin.`, mọi host còn lại đều là app khách. Việc chọn vẽ quyển menu thay vì màn đặt
+# hàng do `apps/shop/src/main.tsx` quyết định trong trình duyệt, theo `location.hostname`.
+menu.{$DOMAIN} {
+    log {
+        output stdout
+        format console
+    }
+
+    reverse_proxy api:3001 {
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        # KHÁC block apex (no-referrer): ở đó `Referer` có thể rò `order_token` nằm trong
+        # URL /o/<token>. Trang menu không có token nào trong đường dẫn, nên giữ mức
+        # thường để còn biết khách tới từ Facebook hay Zalo.
+        Referrer-Policy "strict-origin-when-cross-origin"
+        # Quyển menu không cần bất cứ quyền thiết bị nào — kể cả vị trí (khác apex, nơi
+        # khách bấm "Chia sẻ vị trí" lúc chọn giao hàng).
+        Permissions-Policy "geolocation=(), camera=(), microphone=()"
+    }
+
+    # CỐ Ý KHÔNG có `X-Robots-Tag: noindex` (khác block admin): quán MUỐN trang này nằm
+    # trong kết quả tìm kiếm — người ta google "menu quán bà lùn" là ra ngay.
+
+    encode zstd gzip
+}
+
 # ─── Site khác dùng chung Caddy này ─────────────────────────────────────────
 # Container Caddy này KHÔNG chỉ phục vụ Quán Bà Lùn — trên VPS còn ứng dụng khác
 # (ui2spec.pro.vn / genspec) trỏ qua đây. Trước đây các block đó được thêm TAY thẳng

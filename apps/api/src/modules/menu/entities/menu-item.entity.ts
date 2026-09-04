@@ -44,6 +44,19 @@ export class MenuItem {
   @Column({ type: 'boolean', default: false })
   is_online_hidden!: boolean;
 
+  // Ẩn khỏi TRANG MENU XEM (menu.<domain>, 2026-09-04) — cờ thứ tư, độc lập hoàn toàn
+  // với 3 cờ trên. Trang menu xem là quyển menu điện tử để khách ngắm món, KHÔNG phải
+  // web đặt hàng: món quán chỉ bán tại chỗ (không ship) vẫn phải khoe được ở đó.
+  // Vì vậy `/api/public/menu-book` CỐ Ý bỏ qua `is_online_hidden` và chỉ đọc cờ này.
+  @Column({ type: 'boolean', default: false })
+  is_menu_hidden!: boolean;
+
+  // Thứ tự món trong nhóm trên trang menu xem. Chủ quán kéo thả ở tab "Menu xem".
+  // Mặc định 0 cho MỌI món cũ — khi cả nhóm cùng 0 thì truy vấn rơi về sắp theo tên,
+  // tức là menu vẫn có thứ tự hợp lý ngay cả khi chưa ai vào kéo thả lần nào.
+  @Column({ type: 'int', default: 0 })
+  menu_sort_order!: number;
+
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 

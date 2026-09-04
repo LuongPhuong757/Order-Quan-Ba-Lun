@@ -36,6 +36,13 @@ export class MenuGroup {
   @Column({ type: 'boolean', default: false })
   is_online_hidden!: boolean;
 
+  // Ẩn CẢ NHÓM khỏi trang menu xem (2026-09-04). Song song với `is_online_hidden` nhưng
+  // cho một mặt trận khác: nhóm có thể không bán online mà vẫn muốn in trong menu, và
+  // ngược lại (vd nhóm "Combo nhân viên" bán online cho khách quen nhưng không khoe).
+  // Cờ riêng của TỪNG MÓN giữ nguyên khi bật/tắt cờ này — giống hệt lệ của nhóm online.
+  @Column({ type: 'boolean', default: false })
+  is_menu_hidden!: boolean;
+
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 

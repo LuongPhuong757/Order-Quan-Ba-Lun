@@ -6,6 +6,7 @@ import './styles/tokens.css';
 import './styles/motion.css'; // Dùng var(--dur-*)/var(--ease-*) nên phải nạp SAU tokens
 import { AppShell } from './components/AppShell.tsx';
 import { MenuPage } from './pages/MenuPage.tsx';
+import { MenuBookPage } from './pages/MenuBookPage.tsx';
 
 // Router thật của apps/shop (REQ-I..K, phase 08). 6 route + catch-all render
 // lại MenuPage (khách gõ sai URL thì về menu, không thấy trang trắng).
@@ -50,34 +51,71 @@ const PhotoUploadPage = lazy(() =>
 const root = document.getElementById('root');
 if (!root) throw new Error('#root không tồn tại trong index.html');
 
-createRoot(root).render(
-  <StrictMode>
-    <BrowserRouter>
-      <Routes>
-        {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.
-            Suspense riêng vì vỏ chờ của AppShell không bao tới đây. */}
-        <Route
-          path="/anh-mon/:token"
-          element={
-            <Suspense fallback={null}>
-              <PhotoUploadPage />
-            </Suspense>
-          }
-        />
-        <Route element={<AppShell />}>
-          <Route path="/" element={<MenuPage />} />
-          <Route path="/cart" element={<CartPage />} />
-          <Route path="/checkout" element={<CheckoutPage />} />
-          <Route path="/o/:token" element={<OrderTrackPage />} />
-          <Route path="/history" element={<HistoryPage />} />
-          <Route path="/top" element={<TopDishesPage />} />
-          <Route path="/guide" element={<GuidePage />} />
-          <Route path="*" element={<MenuPage />} />
-        </Route>
-      </Routes>
-    </BrowserRouter>
-  </StrictMode>,
-);
+/**
+ * `menu.<domain>` = QUYỂN MENU ĐIỆN TỬ, không phải web đặt hàng (2026-09-04).
+ *
+ * Cùng một bundle phục vụ hai tên miền, giống hệt cách `apps/api/src/main.ts` chọn
+ * `web-dist` hay `shop-dist` theo header `Host` — chỉ khác là ở đây việc chọn xảy ra trong
+ * trình duyệt. Dựng hẳn một app Vite thứ ba chỉ để hiện một danh sách CHỈ ĐỌC là thêm một
+ * Dockerfile, một lần build, và một bộ design token thứ hai phải giữ đồng bộ bằng tay;
+ * không đáng.
+ *
+ * Cắt port trước khi so (`menu.localhost:5173` → `menu.localhost`) để chạy thử được ở máy
+ * local — cùng lý do và cùng cách làm với `isAdminHost` bên API.
+ *
+ * `MenuBookPage` import TĨNH chứ không `lazy`: trên tên miền menu nó là thứ DUY NHẤT cần
+ * vẽ, lazy nó chỉ thêm đúng một vòng request vào đường găng của lần tải đầu. Đổi lại,
+ * khách vào tên miền đặt hàng tải thừa vài KB — rẻ hơn nhiều so với việc bắt mọi khách xem
+ * menu chờ thêm một vòng mạng 3G.
+ */
+const isMenuHost = window.location.hostname.split(':')[0].toLowerCase().startsWith('menu.');
+
+if (isMenuHost) {
+  // KHÔNG bọc `AppShell` (header có giỏ, giỏ nổi, thanh đơn đang chạy) và KHÔNG cần
+  // `BrowserRouter`: quyển menu chỉ có đúng một màn, mọi đường dẫn trên tên miền đó đều
+  // dẫn về nó. Bỏ router cũng là bỏ luôn mọi đường trang này có thể điều hướng sang màn
+  // đặt hàng — thứ duy nhất nó làm được là hiển thị.
+  createRoot(root).render(
+    <StrictMode>
+      <MenuBookPage />
+    </StrictMode>,
+  );
+} else {
+  createRoot(root).render(
+    <StrictMode>
+      <BrowserRouter>
+        <Routes>
+          {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.
+              Suspense riêng vì vỏ chờ của AppShell không bao tới đây. */}
+          <Route
+            path="/anh-mon/:token"
+            element={
+              <Suspense fallback={null}>
+                <PhotoUploadPage />
+              </Suspense>
+            }
+          />
+          <Route element={<AppShell />}>
+            <Route path="/" element={<MenuPage />} />
+            <Route path="/cart" element={<CartPage />} />
+            <Route path="/checkout" element={<CheckoutPage />} />
+            <Route path="/o/:token" element={<OrderTrackPage />} />
+            <Route path="/history" element={<HistoryPage />} />
+            <Route path="/top" element={<TopDishesPage />} />
+            <Route path="/guide" element={<GuidePage />} />
+            <Route path="*" element={<MenuPage />} />
+          </Route>
+          {/* Quyển menu cũng mở được từ tên miền chính (`quanbalun.site/menu`) — tiện khi
+              cần dán một đường dẫn duy nhất cho khách. CỐ Ý nằm NGOÀI `<Route
+              element={<AppShell/>}>`: trang này không có header giỏ hàng, không giỏ nổi.
+              React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên `/menu` vẫn thắng
+              catch-all dù đứng sau nó. */}
+          <Route path="/menu" element={<MenuBookPage />} />
+        </Routes>
+      </BrowserRouter>
+    </StrictMode>,
+  );
+}
 
 // ─── Nạp trước đường đi mua hàng khi máy rảnh ────────────────────────────────
 // Tách chunk giúp lần tải đầu nhẹ, nhưng đổi lại lần đầu bấm vào giỏ là một vòng request
@@ -97,8 +135,12 @@ const prefetchBuyingPath = () => {
 // Kiểm bằng `typeof window.requestIdleCallback` chứ KHÔNG dùng `'requestIdleCallback' in window`:
 // lib.dom khai hàm này là luôn có, nên `in` làm TS thu hẹp nhánh else thành `never` rồi báo
 // "Property 'setTimeout' does not exist on type 'never'". Kiểm typeof chỉ thu hẹp thuộc tính đó.
-if (typeof window.requestIdleCallback === 'function') {
-  window.requestIdleCallback(prefetchBuyingPath, { timeout: 3000 });
-} else {
-  window.setTimeout(prefetchBuyingPath, 2000);
+// `!isMenuHost`: khách vào quyển menu không có đường nào dẫn tới giỏ hay trang đặt hàng,
+// kéo sẵn 2 chunk đó về máy họ chỉ là tốn băng thông 3G cho thứ không bao giờ mở tới.
+if (!isMenuHost) {
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(prefetchBuyingPath, { timeout: 3000 });
+  } else {
+    window.setTimeout(prefetchBuyingPath, 2000);
+  }
 }

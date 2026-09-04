@@ -3,6 +3,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
+import { MenuBookPanel } from './MenuBookPanel.tsx';
 
 type MenuGroup = {
   id: string;
@@ -57,6 +58,10 @@ export function MenuManagementPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showGroupsManager, setShowGroupsManager] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  // Màn "Menu xem" (2026-09-04) — sắp món cho quyển menu ở menu.<domain>. Mở dạng hộp thoại
+  // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
+  // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
+  const [showMenuBook, setShowMenuBook] = useState(false);
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -149,6 +154,11 @@ export function MenuManagementPage() {
           {canManage && (
             <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
               📥 Import
+            </button>
+          )}
+          {canManage && (
+            <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
+              📖 Menu xem
             </button>
           )}
           {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
@@ -396,6 +406,17 @@ export function MenuManagementPage() {
           groups={groups}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); refresh(); }}
+        />
+      )}
+      {/* `refresh()` khi đóng: màn Menu xem có sửa `is_menu_hidden`/`menu_sort_order` của
+          món, mà lưới phía sau đang giữ bản cũ trong state — không tải lại thì hai màn nói
+          hai chuyện khác nhau về cùng một món. */}
+      {showMenuBook && (
+        <MenuBookPanel
+          onClose={() => {
+            setShowMenuBook(false);
+            refresh();
+          }}
         />
       )}
     </div>
