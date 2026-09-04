@@ -137,6 +137,11 @@ export function AdminAnalyticsPanel() {
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [customers, setCustomers] = useState<CustomerData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Nút ↻ tự nó không cho biết gì: bấm xong màn hình đứng yên vài trăm ms rồi số nhảy — người
+  // dùng không biết đã bấm trúng chưa nên bấm lại 2-3 lần. `refreshing` cho nó quay, và
+  // `justRefreshed` đổi thành dấu ✓ xanh ~1.2s để thấy rõ LÚC NÀO xong.
+  const [refreshing, setRefreshing] = useState(false);
+  const [justRefreshed, setJustRefreshed] = useState(false);
 
   const load = useCallback(
     async (d: number) => {
@@ -162,6 +167,22 @@ export function AdminAnalyticsPanel() {
     load(days);
   }, [days, load]);
 
+  // Chỉ chớp ✓ khi NGƯỜI DÙNG bấm ↻, không chớp lúc mở màn hay đổi khoảng ngày — lúc đó cả
+  // trang đang tự vẽ lại, thêm một dấu ✓ nhấp nháy chỉ là nhiễu.
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    setJustRefreshed(false);
+    await load(days);
+    setRefreshing(false);
+    setJustRefreshed(true);
+  }, [days, load]);
+
+  useEffect(() => {
+    if (!justRefreshed) return;
+    const t = setTimeout(() => setJustRefreshed(false), 1200);
+    return () => clearTimeout(t);
+  }, [justRefreshed]);
+
   return (
     <>
       {/* Hàng chọn khoảng ngày. KHÔNG có <h1> ở đây: khi nhúng vào tab, tiêu đề đã là "Đơn hàng
@@ -176,8 +197,26 @@ export function AdminAnalyticsPanel() {
             {r.label}
           </button>
         ))}
-        <button className="secondary" onClick={() => load(days)} title="Tải lại số liệu">
-          ↻
+        <button
+          className="secondary"
+          onClick={refresh}
+          disabled={refreshing}
+          title="Tải lại số liệu"
+          style={{
+            color: justRefreshed ? '#059669' : undefined,
+            borderColor: justRefreshed ? '#059669' : undefined,
+            transition: 'color .2s, border-color .2s',
+          }}
+        >
+          {/* Quay nằm ở <span> chứ không ở <button>: quay cả nút thì viền và nền quay theo. */}
+          <span
+            style={{
+              display: 'inline-block',
+              animation: refreshing ? 'spin 0.7s linear infinite' : undefined,
+            }}
+          >
+            {justRefreshed ? '✓' : '↻'}
+          </span>
         </button>
       </div>
 
