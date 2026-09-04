@@ -118,8 +118,10 @@ export function MenuBookPage(): JSX.Element {
    * "chip màu vàng nghệ" với "trang màu vàng nghệ".
    */
   const accents = useMemo(() => groupAccents(groups), [groups]);
-  /** Nền trang. Kết quả tìm kiếm không thuộc nhóm nào nên về nền kem trung tính. */
-  const accentOf = (code: string) => accents.get(code) ?? 'var(--bg-page)';
+  /** Nền TRANG (đá phiến tối). Kết quả tìm kiếm không thuộc nhóm nào → nền trung tính. */
+  const pageBgOf = (code: string) => accents.get(code)?.page ?? 'var(--menu-chrome)';
+  /** Màu NHẬN DIỆN nhóm (pastel sáng) — chip trên dải và vạch cạnh tên nhóm. */
+  const accentOf = (code: string) => accents.get(code)?.accent ?? 'var(--wood-400)';
 
   // ── Dựng danh sách trang ───────────────────────────────────────────────────────────
   const results = useMemo(() => searchItems(groups, query), [groups, query]);
@@ -499,7 +501,7 @@ export function MenuBookPage(): JSX.Element {
         <div
           style={{
             ...leafFace,
-            background: accentOf(p.group.code),
+            background: pageBgOf(p.group.code),
             transform: isFront ? undefined : 'rotateY(180deg)',
             pointerEvents: live && facing ? undefined : 'none',
           }}
@@ -545,13 +547,13 @@ export function MenuBookPage(): JSX.Element {
     return (
       <>
         {leftUnder && (
-          <div style={{ ...spreadHalf, left: 0, background: accentOf(leftUnder.group.code) }} inert>
+          <div style={{ ...spreadHalf, left: 0, background: pageBgOf(leftUnder.group.code) }} inert>
             {renderPageBody(leftUnder, index - 2, neighboursReady, false)}
           </div>
         )}
         {rightUnder && (
           <div
-            style={{ ...spreadHalf, left: '50%', background: accentOf(rightUnder.group.code) }}
+            style={{ ...spreadHalf, left: '50%', background: pageBgOf(rightUnder.group.code) }}
             inert
           >
             {renderPageBody(rightUnder, index + 3, neighboursReady, false)}
@@ -583,10 +585,10 @@ export function MenuBookPage(): JSX.Element {
       <div
         style={{
           ...pageLeaf,
-          // Nền tờ giấy mang màu của nhóm — đây là tín hiệu chính của "mỗi nhóm một màu".
-          // Đặt ở TỜ GIẤY chứ không ở khung ngoài: lúc đang lật, hai tờ hai màu khác nhau
-          // trượt qua nhau, và chính khoảnh khắc đó nói cho khách biết họ vừa sang nhóm mới.
-          background: accentOf(p.group.code),
+          // Nền tờ giấy mang màu (tối) của nhóm. Đặt ở TỜ GIẤY chứ không ở khung ngoài:
+          // lúc đang lật, hai tờ hai sắc khác nhau trượt qua nhau, và chính khoảnh khắc đó
+          // nói cho khách biết họ vừa sang nhóm mới.
+          background: pageBgOf(p.group.code),
           transform: `rotateY(${angle}deg)`,
           transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
           // Tờ bên dưới không bao giờ xoay nên đừng bắt trình duyệt giữ layer GPU cho nó.
@@ -610,7 +612,9 @@ export function MenuBookPage(): JSX.Element {
       <style>{BOOK_PAGE_CSS}</style>
 
       <header style={header}>
-        <Wordmark variant="bare" size="var(--fs-md)" />
+        {/* `plaque` là bản Wordmark dựng cho nền TỐI, `bare` cho nền sáng. Khung menu giờ
+            tối nên phải đổi, không thì chữ "QUÁN BÀ LÙN" gần như biến mất. */}
+        <Wordmark variant="plaque" size="var(--fs-md)" />
         <div style={headerRight}>
           {searchOpen ? (
             <input
@@ -679,7 +683,7 @@ export function MenuBookPage(): JSX.Element {
       {heading && (
         // Thanh này đứng NGOÀI tờ giấy (nó không được lật đi cùng) nên phải tự nhuộm màu
         // nhóm; để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc lõng.
-        <p style={{ ...pageHeading, background: accentOf(heading.accentCode) }}>
+        <p style={{ ...pageHeading, background: pageBgOf(heading.accentCode) }}>
           <span style={pageHeadingName}>
             {/* Vạch màu đặc nhắc lại màu nhóm: nền trang là màu rất nhạt, mắt cần một mốc
                 chắc chắn để đối chiếu với chip trên dải nhóm. */}
@@ -833,7 +837,7 @@ const shell: CSSProperties = {
   height: '100dvh',
   display: 'flex',
   flexDirection: 'column',
-  background: 'var(--bg-page)',
+  background: 'var(--menu-chrome)',
   color: 'var(--text-body)',
   fontFamily: 'var(--font-body)',
   overflow: 'hidden',
@@ -848,8 +852,8 @@ const header: CSSProperties = {
   justifyContent: 'space-between',
   gap: 'var(--sp-2)',
   padding: 'var(--sp-2) var(--gutter)',
-  borderBottom: '1px solid var(--border-subtle)',
-  background: 'var(--bg-surface)',
+  borderBottom: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
 };
 
 const headerRight: CSSProperties = {
@@ -865,10 +869,10 @@ const searchInput: CSSProperties = {
   fontSize: 'var(--fs-base)',
   fontFamily: 'var(--font-body)',
   padding: '6px var(--sp-3)',
-  border: '1px solid var(--border-default)',
+  border: '1px solid var(--menu-line)',
   borderRadius: 'var(--r-input)',
-  background: 'var(--bg-sunken)',
-  color: 'var(--text-strong)',
+  background: 'rgb(255 255 255 / 8%)',
+  color: 'var(--menu-text)',
 };
 
 const iconBtn: CSSProperties = {
@@ -879,14 +883,14 @@ const iconBtn: CSSProperties = {
   placeItems: 'center',
   border: 'none',
   background: 'transparent',
-  color: 'var(--wood-700)',
+  color: 'var(--menu-text)',
   cursor: 'pointer',
 };
 
 const rail: CSSProperties = {
   flex: 'none',
-  borderBottom: '1px solid var(--border-subtle)',
-  background: 'var(--wood-100)',
+  borderBottom: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
 };
 
 const railInner: CSSProperties = {
@@ -901,8 +905,8 @@ const chip: CSSProperties = {
   flex: 'none',
   padding: '6px var(--sp-3)',
   borderRadius: 'var(--r-badge)',
-  border: '1px solid var(--border-default)',
-  background: 'var(--bg-surface)',
+  border: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
   color: 'var(--text-body)',
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-medium)',
@@ -932,7 +936,7 @@ const pageHeadingName: CSSProperties = {
   fontFamily: 'var(--font-display)',
   fontSize: 'var(--fs-lg)',
   fontWeight: 'var(--fw-bold)',
-  color: 'var(--text-strong)',
+  color: 'var(--menu-text)',
   letterSpacing: 'var(--ls-tight)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -947,13 +951,13 @@ const headingBar: CSSProperties = {
   borderRadius: 2,
   verticalAlign: '-0.08em',
   // Viền mảnh để vạch không biến mất khi màu nhóm gần trùng nền trang (vd kem tre).
-  boxShadow: 'inset 0 0 0 1px rgb(42 29 20 / 12%)',
+  boxShadow: 'inset 0 0 0 1px rgb(0 0 0 / 30%)',
 };
 
 const pageHeadingCount: CSSProperties = {
   flex: 'none',
   fontSize: 'var(--fs-caption)',
-  color: 'var(--text-muted)',
+  color: 'var(--menu-text-muted)',
 };
 
 const viewport: CSSProperties = {
@@ -1007,7 +1011,7 @@ const pageLeaf: CSSProperties = {
   inset: 0,
   padding: '0 var(--gutter)',
   boxSizing: 'border-box',
-  background: 'var(--bg-page)',
+  background: 'var(--menu-chrome)',
   // Nhóm dài hơn một màn thì TRANG KÉO DÀI XUỐNG và cuộn — chủ quán chốt 2026-09-04.
   // `overscrollBehavior: contain` chặn cú cuộn quá đà lan ra ngoài kéo cả trang web đi theo.
   overflowY: 'auto',
@@ -1071,7 +1075,7 @@ const spine: CSSProperties = {
   width: 44,
   pointerEvents: 'none',
   background:
-    'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 14%) 46%, rgb(42 29 20 / 20%) 50%, rgb(42 29 20 / 14%) 54%, rgb(42 29 20 / 0%) 100%)',
+    'linear-gradient(90deg, rgb(0 0 0 / 0%) 0%, rgb(0 0 0 / 26%) 46%, rgb(0 0 0 / 42%) 50%, rgb(0 0 0 / 26%) 54%, rgb(0 0 0 / 0%) 100%)',
 };
 
 /**
@@ -1086,7 +1090,7 @@ const leafShade: CSSProperties = {
   position: 'absolute',
   inset: 0,
   pointerEvents: 'none',
-  background: 'linear-gradient(90deg, rgb(42 29 20 / 0%) 0%, rgb(42 29 20 / 55%) 100%)',
+  background: 'linear-gradient(90deg, rgb(0 0 0 / 0%) 0%, rgb(0 0 0 / 62%) 100%)',
 };
 
 /**
@@ -1115,8 +1119,8 @@ const footer: CSSProperties = {
   alignItems: 'center',
   gap: 'var(--sp-3)',
   padding: 'var(--sp-2) var(--gutter)',
-  borderTop: '1px solid var(--border-subtle)',
-  background: 'var(--bg-surface)',
+  borderTop: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
 };
 
 const navBtn: CSSProperties = {
@@ -1126,9 +1130,9 @@ const navBtn: CSSProperties = {
   display: 'grid',
   placeItems: 'center',
   borderRadius: 'var(--r-button)',
-  border: '1px solid var(--border-default)',
-  background: 'var(--bg-surface)',
-  color: 'var(--wood-700)',
+  border: '1px solid var(--menu-line)',
+  background: 'rgb(255 255 255 / 6%)',
+  color: 'var(--menu-text)',
   cursor: 'pointer',
 };
 
@@ -1136,7 +1140,7 @@ const progressWrap: CSSProperties = {
   flex: 1,
   height: 4,
   borderRadius: 'var(--r-badge)',
-  background: 'var(--border-subtle)',
+  background: 'rgb(255 255 255 / 14%)',
   overflow: 'hidden',
 };
 
@@ -1144,7 +1148,7 @@ const progressFill: CSSProperties = {
   height: '100%',
   width: '100%',
   transformOrigin: 'left center',
-  background: 'var(--brand-500)',
+  background: 'var(--menu-price)',
   transition: 'transform var(--dur-base) var(--ease-out)',
 };
 
@@ -1152,7 +1156,7 @@ const counter: CSSProperties = {
   flex: 'none',
   fontSize: 'var(--fs-caption)',
   fontWeight: 'var(--fw-semibold)',
-  color: 'var(--text-muted)',
+  color: 'var(--menu-text-muted)',
   fontVariantNumeric: 'tabular-nums',
 };
 
@@ -1160,7 +1164,7 @@ const notice: CSSProperties = {
   margin: 'var(--sp-8) auto',
   maxWidth: 'var(--measure)',
   textAlign: 'center',
-  color: 'var(--text-muted)',
+  color: 'var(--menu-text-muted)',
   fontSize: 'var(--fs-base)',
 };
 

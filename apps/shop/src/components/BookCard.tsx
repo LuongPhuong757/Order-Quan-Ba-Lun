@@ -1,7 +1,7 @@
 import type { CSSProperties, JSX } from 'react';
 import type { PublicMenuItem } from '@order/schemas';
 import { formatVnd } from '../lib/menu-book.ts';
-import { ImagePlaceholder } from './ImagePlaceholder.tsx';
+import { BowlGlyph } from './ImagePlaceholder.tsx';
 
 /**
  * Một dòng món trong quyển menu điện tử (`menu.<domain>`).
@@ -47,7 +47,10 @@ export function BookCard({
   const image = item.images[0] ?? null;
   const isOut = item.is_out_of_stock;
   const photoRight = index % 2 === 1;
-  const size = roomy ? 128 : 88;
+  // Chủ quán: "hình ảnh đang quá bé" (2026-09-04). 88 → 132 trên điện thoại: ô ảnh tròn
+  // giờ chiếm hơn 1/3 bề ngang màn, đủ để nhìn ra món ăn chứ không chỉ nhận ra có ảnh.
+  // Phần chữ còn ~200px, vẫn đủ cho tên món dài xuống 2 dòng.
+  const size = roomy ? 190 : 132;
 
   return (
     <button
@@ -83,7 +86,12 @@ export function BookCard({
             style={photoImg}
           />
         ) : (
-          <ImagePlaceholder name={item.name} />
+          /* Món chưa có ảnh. KHÔNG dùng `ImagePlaceholder`: khung của nó là chữ nhật 3:2
+             nền kem, nhét vào hình tròn ra một vòng nửa kem nửa tối (đã thấy trên máy
+             thật). Ở đây khung là chính hình tròn tối sẵn có, chỉ mượn lại hình bát. */
+          <span role="img" aria-label={`${item.name} — chưa có ảnh`} style={noPhoto}>
+            <BowlGlyph />
+          </span>
         )}
       </span>
 
@@ -185,9 +193,25 @@ const photo: CSSProperties = {
   overflow: 'hidden',
   // Tròn hẳn. Xem docblock đầu file để biết vì sao không phải vuông bo góc.
   borderRadius: '50%',
-  background: 'var(--wood-100)',
-  // Bóng rất nhẹ để tấm ảnh tách khỏi nền màu của nhóm mà không thành một cái hộp.
-  boxShadow: '0 2px 10px rgb(42 29 20 / 14%)',
+  background: 'var(--menu-chrome)',
+  /**
+   * Trên nền tối, bóng đen vô hình. Thay bằng một vòng sáng mảnh + quầng sáng rất nhẹ —
+   * đúng cách một tấm ảnh bóng tách khỏi mặt giấy tối, và nó viền quanh món ăn khiến món
+   * trông nổi hẳn lên thay vì dán bẹt vào nền.
+   */
+  boxShadow: '0 0 0 2px rgb(255 255 255 / 14%), 0 6px 20px rgb(0 0 0 / 35%)',
+};
+
+/** Ruột hình tròn khi món chưa có ảnh: sáng hơn nền trang một chút để vẫn thấy có ô ảnh,
+ *  nhưng tối hơn hẳn ảnh thật để nó không giành mắt với những món CÓ ảnh bên cạnh. */
+const noPhoto: CSSProperties = {
+  width: '100%',
+  height: '100%',
+  display: 'grid',
+  placeItems: 'center',
+  background: 'rgb(255 255 255 / 7%)',
+  color: 'var(--menu-price)',
+  opacity: 0.55,
 };
 
 const photoImg: CSSProperties = {
@@ -209,7 +233,8 @@ const name: CSSProperties = {
   fontFamily: 'var(--font-display)',
   fontWeight: 'var(--fw-bold)',
   lineHeight: 'var(--lh-snug)',
-  color: 'var(--text-strong)',
+  // Trắng — chủ quán chốt 2026-09-04. Thấp nhất 10.79:1 trên 7 nền nhóm.
+  color: 'var(--menu-text)',
   // Tên món dài được xuống dòng thoải mái: trang tự kéo dài xuống nên không còn lý do gì
   // để cắt cụt tên nữa (bản lưới cũ buộc phải cắt vì chiều cao ô là cố định).
   overflowWrap: 'anywhere',
@@ -226,20 +251,20 @@ const priceRow: CSSProperties = {
 const price: CSSProperties = {
   fontFamily: 'var(--font-display)',
   fontWeight: 'var(--fw-heavy)',
-  // --brand-600 chứ không phải --brand-500: giá giờ nằm THẲNG trên nền màu của nhóm (không
-  // còn hộp trắng đỡ bên dưới). Bậc 500 đo trên nền kem được 4.75:1, nhưng trên mấy nền
-  // pastel đậm hơn (xanh rau, nâu gỗ) thì tụt xuống dưới ngưỡng AA. Bậc 600 còn dư biên.
-  color: 'var(--brand-600)',
+  // Hổ phách, KHÔNG phải đỏ thương hiệu: nền giờ là đá phiến tối, mà đỏ ớt trên nền đó chỉ
+  // được ~3:1 — không đọc nổi dù giá là cỡ chữ lớn. Hổ phách là màu đèn lồng trong chính
+  // ảnh quán nên vẫn đúng tông, và đạt 5.00:1 ở nền tối nhất. Xem --menu-price/tokens.css.
+  color: 'var(--menu-price)',
   whiteSpace: 'nowrap',
 };
 
 const unit: CSSProperties = {
   fontSize: 'var(--fs-sm)',
-  color: 'var(--text-muted)',
+  color: 'var(--menu-text-muted)',
 };
 
 const outLabel: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)',
-  color: 'var(--danger-600)',
+  color: 'var(--menu-danger)',
 };

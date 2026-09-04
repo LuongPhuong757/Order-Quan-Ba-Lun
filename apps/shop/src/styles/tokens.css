@@ -116,6 +116,43 @@
   --cat-6: #f0e4d6; /* nâu gỗ nhạt — 13.06:1 */
   --cat-7: #fae6e2; /* hồng mâm tre — 13.61:1 */
 
+  /* ── QUYỂN MENU ĐIỆN TỬ: NỀN TỐI (menu.<domain>, 2026-09-04) ─────────────
+   * CHỈ trang menu dùng khối này. Trang đặt hàng giữ nguyên nền kem — hai trang
+   * cố ý khác nhau, đừng "thống nhất" lại.
+   *
+   * VÌ SAO TỐI: ảnh món của quán toàn tông ấm (thịt đỏ, dầu vàng, mâm gỗ). Đặt
+   * lên nền kem thì ảnh và nền cùng một họ màu, món ăn chìm nghỉm. Nền đá phiến
+   * tối đẩy hẳn màu đồ ăn ra — đúng cách menu in làm, và đúng tấm ảnh mẫu chủ
+   * quán gửi (chốt 2026-09-04, thay quyết định "giữ nền kem" trước đó).
+   *
+   * 7 nền dưới đây là 7 sắc độ của cùng một màu đá phiến, lệch nhau ở SẮC chứ
+   * không ở độ sáng (10.79-12.66:1 với chữ trắng, chênh nhau chỉ 1.01-1.11:1).
+   * Cố ý: lệch độ sáng thì trang này sáng trang kia tối, đọc mệt. Muốn thấy rõ
+   * "đang ở nhóm nào" thì nhìn chip trên dải nhóm — chỗ đó dùng bản pastel sáng.
+   *
+   * Mọi tỉ lệ ghi ở đây tính bằng công thức WCAG 2.1, không ước lượng. */
+  --cat-dark-1: #40302e; /* ớt     - trắng: 12.50:1 ✓AAA */
+  --cat-dark-2: #40362e; /* cà rốt - trắng: 11.76:1 ✓AAA */
+  --cat-dark-3: #403b2e; /* nghệ   - trắng: 11.15:1 ✓AAA */
+  --cat-dark-4: #31402e; /* rau    - trắng: 11.03:1 ✓AAA */
+  --cat-dark-5: #39402e; /* tre    - trắng: 10.79:1 ✓AAA */
+  --cat-dark-6: #40342e; /* gỗ     - trắng: 12.01:1 ✓AAA */
+  --cat-dark-7: #402e34; /* mâm    - trắng: 12.66:1 ✓AAA */
+
+  /* Khung quanh trang menu: thanh tiêu đề, dải nhóm, chân trang. Tối hơn nền
+   * trang một chút để trang nổi lên như tờ giấy đặt trên mặt bàn. */
+  --menu-chrome: #2f2b27; /* trắng trên nó: 13.86:1 ✓AAA */
+  --menu-line: #4a433c; /* đường kẻ, viền nút trên nền tối */
+
+  /* Chữ trên nền tối. Chủ quán chốt: tên món màu TRẮNG. */
+  --menu-text: #ffffff; /* tên món, tiêu đề nhóm - thấp nhất 10.79:1 trên 7 nền */
+  --menu-text-muted: #c9bdb2; /* đơn vị, ghi chú - thấp nhất 5.86:1 ✓AA */
+  --menu-price: #e8a33d; /* giá. = --wood-400 (hổ phách đèn lồng) - thấp nhất 5.00:1 ✓AA
+                          * KHÔNG dùng --brand-500/600 ở đây: đỏ ớt trên nền đá phiến tối
+                          * chỉ được ~3:1, không đọc nổi ở cỡ chữ giá. */
+  --menu-danger: #ff9d92; /* "Tạm hết" - thấp nhất 7.71:1 ✓AAA */
+
+
   /* ── CHỮ: BỘ FONT ────────────────────────────────────────────────────────
    * KHÔNG dùng system-ui / Inter / Arial: cả ba đều là font mặc định của UI do
    * AI sinh, trang nào cũng giống nhau (detector rule: overused-font).

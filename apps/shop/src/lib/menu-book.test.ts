@@ -122,22 +122,33 @@ describe('màu chủ đạo từng nhóm', () => {
     const gs = Array.from({ length: 7 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
     const colors = groupAccents(gs);
     for (let i = 1; i < gs.length; i += 1) {
-      expect(colors.get(gs[i].code)).not.toBe(colors.get(gs[i - 1].code));
+      expect(colors.get(gs[i].code)!.page).not.toBe(colors.get(gs[i - 1].code)!.page);
+      expect(colors.get(gs[i].code)!.accent).not.toBe(colors.get(gs[i - 1].code)!.accent);
     }
   });
 
-  it('chỉ dùng token --cat-* có sẵn, không chế màu mới', () => {
+  it('chỉ dùng token có sẵn trong tokens.css, không chế màu mới', () => {
     const gs = Array.from({ length: 20 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
     for (const v of groupAccents(gs).values()) {
-      expect(v).toMatch(/^var\(--cat-[1-7]\)$/);
+      // Nền trang là bản đá phiến TỐI, chip trên dải là bản pastel SÁNG — cùng một sắc.
+      expect(v.page).toMatch(/^var\(--cat-dark-[1-7]\)$/);
+      expect(v.accent).toMatch(/^var\(--cat-[1-7]\)$/);
+    }
+  });
+
+  it('nền tối và màu chip của cùng một nhóm luôn cùng số thứ tự', () => {
+    const gs = Array.from({ length: 9 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
+    for (const v of groupAccents(gs).values()) {
+      const n = v.page.match(/(\d)/)![1];
+      expect(v.accent).toBe(`var(--cat-${n})`);
     }
   });
 
   it('màu lặp lại sau mỗi 7 nhóm', () => {
     const gs = Array.from({ length: 9 }, (_, i) => group(`g${i}`, `G${i}`, [item(`i${i}`, 'x')]));
     const c = groupAccents(gs);
-    expect(c.get('g7')).toBe(c.get('g0'));
-    expect(c.get('g8')).toBe(c.get('g1'));
+    expect(c.get('g7')).toEqual(c.get('g0'));
+    expect(c.get('g8')).toEqual(c.get('g1'));
   });
 });
 

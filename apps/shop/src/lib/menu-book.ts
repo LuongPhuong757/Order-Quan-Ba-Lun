@@ -159,10 +159,10 @@ export function formatVnd(amount: number): string {
  * Màu chủ đạo của từng nhóm (chủ quán yêu cầu 2026-09-04: "mỗi thư mục một màu, vẫn giữ
  * theme chung").
  *
- * KHÔNG chế bảng màu mới. `tokens.css` đã có sẵn `--cat-1..7` — bộ pastel rút từ chính 4
- * tấm ảnh món của quán (ớt, cà rốt, nghệ, rau, tre, gỗ, mâm hồng), và cả 7 đều đã được đo
- * đạt ≥13:1 với `--text-strong`. Dùng lại đúng bộ đó là cách duy nhất vừa cho mỗi nhóm một
- * màu riêng vừa không tự dựng lên một hệ màu thứ hai cãi nhau với trang đặt hàng.
+ * MỖI NHÓM HAI MÀU, không phải một: bản đá phiến TỐI cho nền trang (`--cat-dark-*`) và bản
+ * pastel SÁNG cho chip trên dải nhóm (`--cat-*`). Cùng một sắc, hai độ sáng, dùng ở hai
+ * loại nền ngược nhau. Cả hai bộ đều đã nằm sẵn trong `tokens.css` kèm số đo tương phản —
+ * không chế bảng màu mới ở đây.
  *
  * Gán theo THỨ TỰ NHÓM chứ không băm từ mã nhóm: thứ tự do chủ quán sắp, nên hai nhóm cạnh
  * nhau chắc chắn khác màu. Băm chuỗi thì hai nhóm liền kề hoàn toàn có thể rơi trúng cùng
@@ -171,10 +171,21 @@ export function formatVnd(amount: number): string {
  */
 const CAT_COLOR_COUNT = 7;
 
-export function groupAccents(groups: PublicMenuGroup[]): Map<string, string> {
-  const map = new Map<string, string>();
+/** Hai màu của một nhóm, dùng ở hai loại nền khác nhau. */
+export type GroupColors = {
+  /** Nền TRANG — bản đá phiến tối, để ảnh món nổi lên. */
+  page: string;
+  /** Chip trên dải nhóm và vạch cạnh tên nhóm — bản pastel sáng, đặt trên nền tối.
+   *  Đây mới là chỗ khách thật sự NHÌN RA nhóm nào là màu gì: 7 nền tối lệch nhau rất
+   *  nhẹ (cố ý, xem tokens.css), còn 7 chip sáng thì tách bạch ngay. */
+  accent: string;
+};
+
+export function groupAccents(groups: PublicMenuGroup[]): Map<string, GroupColors> {
+  const map = new Map<string, GroupColors>();
   groups.forEach((g, i) => {
-    map.set(g.code, `var(--cat-${(i % CAT_COLOR_COUNT) + 1})`);
+    const n = (i % CAT_COLOR_COUNT) + 1;
+    map.set(g.code, { page: `var(--cat-dark-${n})`, accent: `var(--cat-${n})` });
   });
   return map;
 }

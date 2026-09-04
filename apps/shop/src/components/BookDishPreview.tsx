@@ -10,7 +10,7 @@ import {
 } from 'react';
 import type { PublicMenuItem } from '@order/schemas';
 import { formatVnd } from '../lib/menu-book.ts';
-import { ImagePlaceholder } from './ImagePlaceholder.tsx';
+import { BowlGlyph } from './ImagePlaceholder.tsx';
 
 /**
  * Xem ảnh lớn một món trên nền đen mờ (quyển menu điện tử, 2026-09-04).
@@ -204,8 +204,11 @@ export function BookDishPreview({ item, from, onClose }: Props): JSX.Element {
           {image ? (
             <img src={image} alt={item.name} style={bigImg} decoding="async" />
           ) : (
-            <div style={placeholderBox}>
-              <ImagePlaceholder name={item.name} />
+            /* Cùng lý do như trong `BookCard`: khung kem 3:2 của `ImagePlaceholder` đặt
+               vào khung 4/3 trên nền đen sẽ ra một mảng kem chỏng chơ. Mượn lại hình bát,
+               tự dựng khung cho hợp nền tối. */
+            <div role="img" aria-label={`${item.name} — chưa có ảnh`} style={placeholderBox}>
+              <BowlGlyph />
             </div>
           )}
         </div>
@@ -300,6 +303,11 @@ const bigImg: CSSProperties = {
 const placeholderBox: CSSProperties = {
   width: '100%',
   height: '100%',
+  display: 'grid',
+  placeItems: 'center',
+  background: 'rgb(255 255 255 / 6%)',
+  color: 'var(--menu-price)',
+  opacity: 0.6,
 };
 
 const meta: CSSProperties = {

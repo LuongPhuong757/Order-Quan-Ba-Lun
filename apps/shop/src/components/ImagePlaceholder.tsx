@@ -25,7 +25,16 @@ export function ImagePlaceholder({ name }: Props): JSX.Element {
   );
 }
 
-function BowlGlyph(): JSX.Element {
+/**
+ * Export (2026-09-04) để quyển menu điện tử dùng lại ĐÚNG hình bát này trong khung TRÒN
+ * trên nền tối. Ở đó không dùng được cả component `ImagePlaceholder`: khung của nó là chữ
+ * nhật 3:2 nền kem, nhét vào hình tròn thì chỉ phủ được 2/3 và ra một vòng tròn nửa kem
+ * nửa tối. Chỉ hình vẽ là dùng chung được — khung thì mỗi nơi một kiểu.
+ *
+ * Màu lấy từ `currentColor` của chỗ gọi (`style` bên dưới chỉ đặt màu mặc định), nên nền
+ * tối chỉ cần đặt `color` ở khung bao là xong.
+ */
+export function BowlGlyph(): JSX.Element {
   return (
     <svg
       width={44}
@@ -60,6 +69,8 @@ const frame: CSSProperties = {
 const glyph: CSSProperties = {
   // Nhạt hơn `--wood-700`: icon là vật trang trí lấp chỗ trống, không được
   // hút mắt hơn tên món và giá ngay bên dưới.
+  // CHỈ là mặc định — svg vẽ bằng `currentColor` nên chỗ gọi khác (quyển menu nền tối)
+  // đặt `color` ở khung bao là đè được.
   color: 'var(--wood-500)',
   flexShrink: 0,
 };
