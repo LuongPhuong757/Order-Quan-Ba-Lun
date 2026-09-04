@@ -3,6 +3,7 @@ import {
 
   MAX_CART_QTY,
   OTHER_PATH,
+  classifyBrowser,
   classifyDevice,
   dayKeyIct,
   mergeCartHit,
@@ -239,5 +240,56 @@ describe('mergeCartHit', () => {
   it('ping trùng đúng cùng mốc thời gian là idempotent', () => {
     const first = mergeCartHit(undefined, cartHit(3, WED_10AM_ICT));
     expect(mergeCartHit(first, cartHit(3, WED_10AM_ICT))).toEqual(first);
+  });
+});
+
+/**
+ * `classifyBrowser` — toàn bộ giá trị của hàm này nằm ở THỨ TỰ kiểm tra, nên test cũng đi theo
+ * thứ tự đó. Ca quan trọng nhất: UA của WebView Zalo/Facebook chứa nguyên chuỗi 'Safari' hoặc
+ * 'Chrome'; nhận nhầm chúng thành trình duyệt thật là mất đúng thứ bảng chẩn đoán sinh ra để tìm.
+ */
+describe('classifyBrowser', () => {
+  const IOS_SAFARI =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+
+  it('WebView Zalo thắng Safari dù UA chứa "Safari"', () => {
+    expect(classifyBrowser(`${IOS_SAFARI} ZaloTheme/light Zalo/24.08.01`)).toBe('zalo');
+  });
+
+  it('WebView Facebook nhận qua token FBAN/FBAV, không phải chữ "Safari" trong UA', () => {
+    expect(classifyBrowser(`${IOS_SAFARI} [FBAN/FBIOS;FBAV/470.0.0.42.109]`)).toBe('facebook');
+  });
+
+  it('Instagram tách riêng khỏi Facebook', () => {
+    expect(classifyBrowser(`${IOS_SAFARI} Instagram 320.0.0.0`)).toBe('instagram');
+  });
+
+  it('Safari thật (không có token app nào) vẫn là safari', () => {
+    expect(classifyBrowser(IOS_SAFARI)).toBe('safari');
+  });
+
+  it('Chrome trên iOS là CriOS — không được rơi vào safari dù UA có chữ Safari', () => {
+    expect(classifyBrowser(`${IOS_SAFARI.replace('Version/17.5', 'CriOS/127.0.6533.107')}`)).toBe(
+      'chrome',
+    );
+  });
+
+  it('Edge và Samsung phải xét TRƯỚC Chrome — UA của cả hai đều chứa "Chrome"', () => {
+    expect(
+      classifyBrowser(
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36 Edg/127.0.2651.86',
+      ),
+    ).toBe('edge');
+    expect(
+      classifyBrowser(
+        'Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) SamsungBrowser/25.0 Chrome/121.0.0.0 Mobile Safari/537.36',
+      ),
+    ).toBe('samsung');
+  });
+
+  it('UA rỗng / không phải chuỗi → other (KHÁC classifyDevice, cái đó trả bot)', () => {
+    expect(classifyBrowser('')).toBe('other');
+    expect(classifyBrowser(undefined)).toBe('other');
+    expect(classifyBrowser(123)).toBe('other');
   });
 });

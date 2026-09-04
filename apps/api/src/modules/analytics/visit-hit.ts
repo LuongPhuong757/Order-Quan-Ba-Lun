@@ -71,6 +71,45 @@ export function classifyDevice(ua: unknown): Device {
   return 'desktop';
 }
 
+export type Browser =
+  | 'zalo'
+  | 'facebook'
+  | 'instagram'
+  | 'safari'
+  | 'chrome'
+  | 'firefox'
+  | 'edge'
+  | 'samsung'
+  | 'other';
+
+/**
+ * Phân loại TRÌNH DUYỆT từ User-Agent — chỉ dùng cho bảng chẩn đoán `geo_share_failures`.
+ *
+ * ⚠ THỨ TỰ kiểm tra là toàn bộ giá trị của hàm này, đừng sắp lại cho "gọn":
+ *   1. WebView trong app (Zalo, Facebook, Instagram) phải xét TRƯỚC. UA của chúng chứa nguyên
+ *      chuỗi 'Safari' hoặc 'Chrome' vì chúng nhúng đúng engine đó — xét Safari trước thì mọi ca
+ *      "khách mở link từ Zalo" bị dán nhãn Safari, tức là mất đúng thứ cần tìm: WebView là nghi
+ *      phạm số một của "chia sẻ vị trí cái được cái không".
+ *   2. Edge/Samsung trước Chrome: UA của chúng cũng chứa 'Chrome'.
+ *   3. Safari CUỐI trong nhóm trình duyệt thật: mọi trình duyệt trên iOS đều chứa 'Safari'
+ *      (Chrome iOS là 'CriOS', Firefox iOS là 'FxiOS' — hai nhãn đó bắt ở bước trên).
+ */
+export function classifyBrowser(ua: unknown): Browser {
+  const s = typeof ua === 'string' ? ua.toLowerCase() : '';
+  if (!s) return 'other';
+  // WebView trong app — nhận diện bằng token riêng của từng app.
+  if (/zalo/.test(s)) return 'zalo';
+  if (/fban|fbav|fb_iab|fbios|facebook/.test(s)) return 'facebook';
+  if (/instagram/.test(s)) return 'instagram';
+  // Trình duyệt thật.
+  if (/edg[ei]?\//.test(s)) return 'edge';
+  if (/samsungbrowser/.test(s)) return 'samsung';
+  if (/fxios|firefox/.test(s)) return 'firefox';
+  if (/crios|chrome|chromium/.test(s)) return 'chrome';
+  if (/safari/.test(s)) return 'safari';
+  return 'other';
+}
+
 /** 'YYYY-MM-DD' theo giờ VN (UTC+7 cố định, không DST) — xem docblock entity `WebPageViewDaily`. */
 export const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 

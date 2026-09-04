@@ -52,47 +52,32 @@ export function dayKeysInRange(range: Range, nowMs: number): string[] {
   return out;
 }
 
+// 2026-09-04 — màn admin rút còn 4 con số tổng (lượt vào / thiết bị / lượt xem trang / đơn),
+// nên hàm này chỉ còn 3 cột và MỘT câu SQL. Bản trước tính thêm `avg_duration_sec`,
+// `bounce_rate`, `bot_sessions`, `phones_seen`; cả 4 đã bị bỏ khỏi màn nên bỏ luôn khỏi đây thay
+// vì để chúng chạy mỗi lần tải trang mà không ai đọc — riêng `bot_sessions` là hẳn một câu SQL
+// thứ hai. Dữ liệu THÔ vẫn còn nguyên trong `web_visit_sessions` (cột `device`, 2 mốc thời gian),
+// nên muốn dựng lại con số nào cũng chỉ là viết lại câu SELECT, không mất gì vĩnh viễn.
 export type TrafficTotals = {
   sessions: number;
   page_views: number;
   visitors: number;
-  avg_duration_sec: number;
-  /** % phiên chỉ xem 1 trang rồi đi trong dưới 10 giây. */
-  bounce_rate: number;
-  bot_sessions: number;
-  phones_seen: number;
 };
 
 export async function trafficTotals(ds: DataSource, range: Range): Promise<TrafficTotals> {
   const [row] = (await ds.query(
-    `SELECT COUNT(*)                                        AS sessions,
-            COALESCE(SUM(page_views), 0)                    AS page_views,
-            COUNT(DISTINCT ip_hash)                         AS visitors,
-            COALESCE(SUM(GREATEST(last_seen_ms - first_seen_ms, 0)), 0) AS duration_ms,
-            SUM(CASE WHEN page_views <= 1 AND last_seen_ms - first_seen_ms < 10000
-                     THEN 1 ELSE 0 END)                     AS bounces,
-            COUNT(DISTINCT customer_phone)                  AS phones_seen
+    `SELECT COUNT(*)                     AS sessions,
+            COALESCE(SUM(page_views), 0) AS page_views,
+            COUNT(DISTINCT ip_hash)      AS visitors
        FROM web_visit_sessions
       WHERE ${HUMAN} AND first_seen_ms >= ? AND first_seen_ms < ?`,
     [range.from_ms, range.to_ms],
   )) as Array<Record<string, unknown>>;
 
-  const [bot] = (await ds.query(
-    `SELECT COUNT(*) AS sessions
-       FROM web_visit_sessions
-      WHERE app = 'shop' AND device = 'bot' AND first_seen_ms >= ? AND first_seen_ms < ?`,
-    [range.from_ms, range.to_ms],
-  )) as Array<Record<string, unknown>>;
-
-  const sessions = num(row?.sessions);
   return {
-    sessions,
+    sessions: num(row?.sessions),
     page_views: num(row?.page_views),
     visitors: num(row?.visitors),
-    avg_duration_sec: sessions === 0 ? 0 : Math.round(num(row?.duration_ms) / sessions / 1000),
-    bounce_rate: sessions === 0 ? 0 : Math.round((num(row?.bounces) / sessions) * 100),
-    bot_sessions: num(bot?.sessions),
-    phones_seen: num(row?.phones_seen),
   };
 }
 
@@ -101,7 +86,6 @@ export type DayRow = {
   sessions: number;
   page_views: number;
   visitors: number;
-  avg_duration_sec: number;
   /** Số đơn online khách gửi trong ngày đó — để đọc được tỉ lệ "vào xem → đặt đơn". */
   orders: number;
 };
@@ -112,11 +96,10 @@ export async function trafficByDay(
   nowMs: number,
 ): Promise<DayRow[]> {
   const rows = (await ds.query(
-    `SELECT FLOOR((first_seen_ms + ?) / ?)          AS day_idx,
-            COUNT(*)                                AS sessions,
-            COALESCE(SUM(page_views), 0)            AS page_views,
-            COUNT(DISTINCT ip_hash)                 AS visitors,
-            COALESCE(SUM(GREATEST(last_seen_ms - first_seen_ms, 0)), 0) AS duration_ms
+    `SELECT FLOOR((first_seen_ms + ?) / ?) AS day_idx,
+            COUNT(*)                       AS sessions,
+            COALESCE(SUM(page_views), 0)   AS page_views,
+            COUNT(DISTINCT ip_hash)        AS visitors
        FROM web_visit_sessions
       WHERE ${HUMAN} AND first_seen_ms >= ? AND first_seen_ms < ?
       GROUP BY day_idx
@@ -142,13 +125,11 @@ export async function trafficByDay(
 
   return dayKeysInRange(range, nowMs).map((day) => {
     const r = byKey.get(day);
-    const sessions = num(r?.sessions);
     return {
       day,
-      sessions,
+      sessions: num(r?.sessions),
       page_views: num(r?.page_views),
       visitors: num(r?.visitors),
-      avg_duration_sec: sessions === 0 ? 0 : Math.round(num(r?.duration_ms) / sessions / 1000),
       orders: ordersByKey.get(day) ?? 0,
     };
   });
@@ -171,48 +152,11 @@ export async function trafficByHour(
   return Array.from({ length: 24 }, (_, h) => ({ hour: h, sessions: map.get(h) ?? 0 }));
 }
 
-export async function trafficByDevice(
-  ds: DataSource,
-  range: Range,
-): Promise<Array<{ device: string; sessions: number }>> {
-  const rows = (await ds.query(
-    `SELECT device, COUNT(*) AS sessions
-       FROM web_visit_sessions
-      WHERE app = 'shop' AND first_seen_ms >= ? AND first_seen_ms < ?
-      GROUP BY device
-      ORDER BY sessions DESC`,
-    [range.from_ms, range.to_ms],
-  )) as Array<Record<string, unknown>>;
-  return rows.map((r) => ({ device: String(r.device ?? 'desktop'), sessions: num(r.sessions) }));
-}
-
-/** Phân bố thời gian ở lại — trả lời trực tiếp câu "khách ở lại bao lâu". */
-export async function durationBuckets(
-  ds: DataSource,
-  range: Range,
-): Promise<Array<{ label: string; sessions: number }>> {
-  const [row] = (await ds.query(
-    `SELECT
-        SUM(CASE WHEN d < 10000                    THEN 1 ELSE 0 END) AS b1,
-        SUM(CASE WHEN d >= 10000  AND d < 30000    THEN 1 ELSE 0 END) AS b2,
-        SUM(CASE WHEN d >= 30000  AND d < 120000   THEN 1 ELSE 0 END) AS b3,
-        SUM(CASE WHEN d >= 120000 AND d < 300000   THEN 1 ELSE 0 END) AS b4,
-        SUM(CASE WHEN d >= 300000 AND d < 900000   THEN 1 ELSE 0 END) AS b5,
-        SUM(CASE WHEN d >= 900000                  THEN 1 ELSE 0 END) AS b6
-       FROM (SELECT GREATEST(last_seen_ms - first_seen_ms, 0) AS d
-               FROM web_visit_sessions
-              WHERE ${HUMAN} AND first_seen_ms >= ? AND first_seen_ms < ?) t`,
-    [range.from_ms, range.to_ms],
-  )) as Array<Record<string, unknown>>;
-  return [
-    { label: 'Dưới 10 giây', sessions: num(row?.b1) },
-    { label: '10 – 30 giây', sessions: num(row?.b2) },
-    { label: '30 giây – 2 phút', sessions: num(row?.b3) },
-    { label: '2 – 5 phút', sessions: num(row?.b4) },
-    { label: '5 – 15 phút', sessions: num(row?.b5) },
-    { label: 'Trên 15 phút', sessions: num(row?.b6) },
-  ];
-}
+// 2026-09-04 — 3 hàm `trafficByDevice` / `durationBuckets` / `topReferrers` đã bị XOÁ cùng lúc
+// với 3 panel đọc chúng ("Khách vào bằng thiết bị gì", "Khách ở lại bao lâu", "Khách đến từ đâu").
+// Ghi lại vì cả 3 vẫn còn ĐỦ DỮ LIỆU THÔ để dựng lại bất cứ lúc nào: `device`, hai mốc
+// `first_seen_ms`/`last_seen_ms` và `referrer_host` vẫn được ghi bình thường mỗi ping — chỉ có
+// câu SELECT là không còn chạy. Muốn khôi phục panel nào thì viết lại đúng câu GROUP BY của nó.
 
 export async function topPaths(
   ds: DataSource,
@@ -231,23 +175,6 @@ export async function topPaths(
     [keys[0], keys[keys.length - 1]],
   )) as Array<Record<string, unknown>>;
   return rows.map((r) => ({ path: String(r.path), views: num(r.views) }));
-}
-
-export async function topReferrers(
-  ds: DataSource,
-  range: Range,
-): Promise<Array<{ host: string; sessions: number }>> {
-  const rows = (await ds.query(
-    `SELECT referrer_host AS host, COUNT(*) AS sessions
-       FROM web_visit_sessions
-      WHERE ${HUMAN} AND referrer_host IS NOT NULL
-        AND first_seen_ms >= ? AND first_seen_ms < ?
-      GROUP BY referrer_host
-      ORDER BY sessions DESC
-      LIMIT 10`,
-    [range.from_ms, range.to_ms],
-  )) as Array<Record<string, unknown>>;
-  return rows.map((r) => ({ host: String(r.host), sessions: num(r.sessions) }));
 }
 
 /** Số phiên còn "sống" (có ping trong 5 phút gần nhất) — trễ tối đa 10s do gộp lô khi ghi. */
@@ -465,4 +392,58 @@ export async function geoShareStats(
     failed_pct: total === 0 ? null : Math.round((failed / total) * 1000) / 10,
     by_outcome,
   };
+}
+
+/**
+ * Các lần chia sẻ vị trí HỎNG gần đây (2026-09-04) — nguồn của bảng chẩn đoán ở màn Truy cập.
+ *
+ * Khác `geoShareStats` ngay ở loại câu hỏi nó trả lời: hàm kia đếm "bao nhiêu lượt hỏng", hàm
+ * này kể "hỏng như thế nào". Vì vậy nó đọc bảng khác (`geo_share_failures`, một dòng mỗi lượt
+ * hỏng) và KHÔNG gộp gì cả.
+ *
+ * `LIMIT` nội suy thẳng vào chuỗi SQL sau khi đã ép về số nguyên trong khoảng an toàn — mysql2
+ * không nhận placeholder ở vị trí LIMIT khi câu lệnh chạy ở chế độ prepared.
+ */
+export type GeoFailureRow = {
+  at_ms: number;
+  outcome: string;
+  code: number | null;
+  message: string | null;
+  elapsed_ms: number;
+  device: string;
+  browser: string;
+  page: string;
+  secure: boolean;
+};
+
+export const GEO_FAILURES_LIMIT = 30;
+
+export async function geoShareFailures(
+  ds: DataSource,
+  range: Range,
+  limit: number = GEO_FAILURES_LIMIT,
+): Promise<GeoFailureRow[]> {
+  const n = Math.min(200, Math.max(1, Math.floor(Number(limit) || GEO_FAILURES_LIMIT)));
+  const rows = (await ds.query(
+    `SELECT created_ms, outcome, code, message, elapsed_ms, device, browser, page, secure
+       FROM geo_share_failures
+      WHERE created_ms >= ? AND created_ms < ?
+      ORDER BY created_ms DESC
+      LIMIT ${n}`,
+    [range.from_ms, range.to_ms],
+  )) as Array<Record<string, unknown>>;
+
+  return rows.map((r) => ({
+    at_ms: num(r.created_ms),
+    outcome: String(r.outcome),
+    // Cột nullable: `num()` biến null thành 0, mà 0 là một MÃ LỖI THẬT — phải kiểm tra null trước.
+    code: r.code === null || r.code === undefined ? null : num(r.code),
+    message: r.message === null || r.message === undefined ? null : String(r.message),
+    elapsed_ms: num(r.elapsed_ms),
+    device: String(r.device ?? 'desktop'),
+    browser: String(r.browser ?? 'other'),
+    page: String(r.page ?? ''),
+    // MySQL trả tinyint(1) về dạng số (hoặc boolean tuỳ driver) — ép về boolean thật cho FE.
+    secure: r.secure === true || num(r.secure) === 1,
+  }));
 }

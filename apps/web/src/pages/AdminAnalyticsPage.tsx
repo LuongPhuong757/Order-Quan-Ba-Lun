@@ -28,25 +28,30 @@ type TrafficData = {
     sessions: number;
     page_views: number;
     visitors: number;
-    avg_duration_sec: number;
-    bounce_rate: number;
-    bot_sessions: number;
-    phones_seen: number;
   };
   by_day: Array<{
     day: string;
     sessions: number;
     page_views: number;
     visitors: number;
-    avg_duration_sec: number;
     orders: number;
   }>;
   by_hour: Array<{ hour: number; sessions: number }>;
-  by_device: Array<{ device: string; sessions: number }>;
-  duration_buckets: Array<{ label: string; sessions: number }>;
   top_paths: Array<{ path: string; views: number }>;
-  top_referrers: Array<{ host: string; sessions: number }>;
   active_now: number;
+  /** Từng lần chia sẻ vị trí HỎNG, mới nhất trước (2026-09-04). Tối đa 30 dòng, xem
+   *  `GEO_FAILURES_LIMIT` phía BE. */
+  geo_failures: Array<{
+    at_ms: number;
+    outcome: string;
+    code: number | null;
+    message: string | null;
+    elapsed_ms: number;
+    device: string;
+    browser: string;
+    page: string;
+    secure: boolean;
+  }>;
   /** Bộ đếm nút "Chia sẻ vị trí" ở trang khách (2026-08-30) — xem `geo_share_daily` phía BE. */
   geo_share: {
     ok: number;
@@ -124,23 +129,34 @@ const DEVICE_LABEL: Record<string, string> = {
   bot: '🤖 Bot / máy quét',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  WAITING: 'Đang chờ duyệt',
-  CONFIRMED: 'Đã xác nhận',
-  REJECTED: 'Bị từ chối',
-  CANCELLED_BY_CUSTOMER: 'Khách tự huỷ',
-  CANCELLED_BY_STAFF: 'Quán huỷ',
+/**
+ * Nhãn trình duyệt cho bảng "Lần hỏng gần đây". 3 nhãn đầu là WEBVIEW TRONG APP — tách riêng
+ * khỏi trình duyệt thật vì đó là nghi phạm số một của "chia sẻ vị trí cái được cái không":
+ * WebView có tầng quyền riêng của app, khách cho quyền Safari không có nghĩa là Zalo được phép.
+ */
+const BROWSER_LABEL: Record<string, string> = {
+  zalo: 'Zalo (app)',
+  facebook: 'Facebook (app)',
+  instagram: 'Instagram (app)',
+  safari: 'Safari',
+  chrome: 'Chrome',
+  firefox: 'Firefox',
+  edge: 'Edge',
+  samsung: 'Samsung Internet',
+  other: 'Khác',
 };
 
 function fmtInt(n: number): string {
   return n.toLocaleString('vi-VN');
 }
 
-function fmtDuration(sec: number): string {
-  if (sec < 60) return `${sec} giây`;
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  return s === 0 ? `${m} phút` : `${m} phút ${s} giây`;
+/**
+ * Thời gian chờ của một lần bấm chia sẻ vị trí. Giữ đơn vị ms khi dưới 1 giây thay vì làm tròn
+ * thành "0s": chênh lệch giữa 80ms và 900ms chính là thứ phân biệt "quyền đã bị nhớ Deny, máy
+ * từ chối tức thì" với "máy có hỏi rồi mới hỏng".
+ */
+function fmtElapsed(ms: number): string {
+  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
 function fmtMoney(n: number): string {
@@ -254,16 +270,6 @@ export function AdminAnalyticsPanel() {
             />
             <Tile label="Lượt xem trang" value={fmtInt(traffic.totals.page_views)} />
             <Tile
-              label="Ở lại trung bình"
-              value={fmtDuration(traffic.totals.avg_duration_sec)}
-              hint="Từ lúc mở web đến lần cuối còn thấy hoạt động"
-            />
-            <Tile
-              label="Vào rồi đi ngay"
-              value={`${traffic.totals.bounce_rate}%`}
-              hint="Chỉ xem 1 trang và dưới 10 giây"
-            />
-            <Tile
               label="Đơn online"
               value={fmtInt(customers?.orders_in_range ?? 0)}
               hint={
@@ -271,11 +277,6 @@ export function AdminAnalyticsPanel() {
                   ? `Tỉ lệ đặt đơn ${Math.round(((customers?.orders_in_range ?? 0) / traffic.totals.sessions) * 100)}% số lượt vào`
                   : undefined
               }
-            />
-            <Tile
-              label="Bot / máy quét"
-              value={fmtInt(traffic.totals.bot_sessions)}
-              hint="Đã tách khỏi mọi con số khách ở trên"
             />
           </div>
 
@@ -291,29 +292,6 @@ export function AdminAnalyticsPanel() {
             <Panel title="Giờ nào đông khách">
               <HourChart rows={traffic.by_hour} />
             </Panel>
-            <Panel title="Khách ở lại bao lâu">
-              <RowBars
-                rows={traffic.duration_buckets.map((b) => ({
-                  key: b.label,
-                  label: b.label,
-                  value: b.sessions,
-                }))}
-                unit="lượt"
-              />
-            </Panel>
-          </div>
-
-          <div style={twoCol}>
-            <Panel title="Khách vào bằng thiết bị gì">
-              <RowBars
-                rows={traffic.by_device.map((d) => ({
-                  key: d.device,
-                  label: DEVICE_LABEL[d.device] ?? d.device,
-                  value: d.sessions,
-                }))}
-                unit="lượt"
-              />
-            </Panel>
             <Panel title="Trang khách xem nhiều nhất">
               <RowBars
                 rows={traffic.top_paths.map((p) => ({
@@ -327,15 +305,13 @@ export function AdminAnalyticsPanel() {
             </Panel>
           </div>
 
-          <Panel title="Khách chia sẻ vị trí có trót lọt không">
+          <Panel title="Khách chia sẻ vị trí">
             {traffic.geo_share.total === 0 ? (
-              <p style={empty}>
-                Chưa có lượt bấm "Chia sẻ vị trí" nào trong khoảng này.
-              </p>
+              <p style={empty}>Chưa có lượt bấm "Chia sẻ vị trí" nào trong khoảng này.</p>
             ) : (
               <>
-                <p style={{ margin: '0 0 12px', fontSize: 14 }}>
-                  {traffic.geo_share.total} lượt bấm ·{' '}
+                <p style={{ margin: '0 0 4px', fontSize: 14 }}>
+                  {fmtInt(traffic.geo_share.total)} lượt bấm ·{' '}
                   <strong
                     style={{
                       // Ngưỡng 20%: dưới mức đó là nền nhiễu bình thường (khách bấm nhầm, đi
@@ -344,36 +320,108 @@ export function AdminAnalyticsPanel() {
                       color: (traffic.geo_share.failed_pct ?? 0) > 20 ? '#dc2626' : INK_MUTED,
                     }}
                   >
-                    {traffic.geo_share.failed} lượt hỏng ({traffic.geo_share.failed_pct}%)
+                    {fmtInt(traffic.geo_share.failed)} lượt hỏng ({traffic.geo_share.failed_pct}%)
                   </strong>
                 </p>
-                <RowBars
-                  rows={traffic.geo_share.by_outcome.map((o) => ({
-                    key: o.outcome,
-                    label: GEO_OUTCOME_LABEL[o.outcome] ?? o.outcome,
-                    value: o.hits,
-                  }))}
-                  unit="lượt"
-                />
-              </>
-            )}
-          </Panel>
 
-          <Panel title="Khách đến từ đâu">
-            {traffic.top_referrers.length === 0 ? (
-              <p style={empty}>
-                Chưa ghi nhận nguồn nào — nghĩa là khách gõ địa chỉ / quét QR / bấm link trong
-                app nhắn tin (những nguồn đó không để lại dấu).
-              </p>
-            ) : (
-              <RowBars
-                rows={traffic.top_referrers.map((r) => ({
-                  key: r.host,
-                  label: r.host,
-                  value: r.sessions,
-                }))}
-                unit="lượt"
-              />
+                {/* Đếm gộp theo kiểu hỏng — cần bên cạnh bảng bên dưới vì bảng chỉ giữ 30 lần
+                    gần nhất, còn dòng này tính trên TOÀN khoảng đang xem. */}
+                <p style={{ ...empty, marginBottom: 14 }}>
+                  {traffic.geo_share.by_outcome
+                    .filter((o) => o.outcome !== 'ok')
+                    .map((o) => `${GEO_OUTCOME_LABEL[o.outcome] ?? o.outcome}: ${o.hits}`)
+                    .join(' · ') || 'Không có lượt nào hỏng.'}
+                </p>
+
+                {traffic.geo_failures.length === 0 ? (
+                  <p style={empty}>
+                    Không có lần hỏng nào được ghi chi tiết trong khoảng này.
+                  </p>
+                ) : (
+                  <>
+                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: INK }}>
+                      {traffic.geo_failures.length} lần hỏng gần đây nhất
+                    </h4>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                        <thead>
+                          <tr style={{ textAlign: 'left', color: INK_MUTED }}>
+                            <th style={th}>Lúc</th>
+                            <th style={th}>Khách vào bằng gì</th>
+                            <th style={th}>Lỗi</th>
+                            <th style={{ ...th, textAlign: 'right' }}>Chờ</th>
+                            <th style={th}>Trang</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {traffic.geo_failures.map((f) => (
+                            <tr
+                              key={`${f.at_ms}-${f.page}-${f.outcome}`}
+                              style={{ borderTop: `1px solid ${GRID}` }}
+                            >
+                              <td style={{ ...td, color: INK_MUTED, whiteSpace: 'nowrap' }}>
+                                {new Date(f.at_ms).toLocaleString('vi-VN', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </td>
+                              <td style={{ ...td, whiteSpace: 'nowrap' }}>
+                                {DEVICE_LABEL[f.device] ?? f.device}
+                                <span style={{ color: INK_MUTED }}>
+                                  {' · '}
+                                  {BROWSER_LABEL[f.browser] ?? f.browser}
+                                </span>
+                              </td>
+                              <td style={td}>
+                                {GEO_OUTCOME_LABEL[f.outcome] ?? f.outcome}
+                                {/* Chuỗi lỗi THÔ của trình duyệt — không diễn dịch. Trên iOS đây
+                                    là thứ phân biệt được hai ca cùng `outcome` nhưng khác hẳn
+                                    nguyên nhân (vd "kCLErrorDomain error 0"). */}
+                                {f.message && (
+                                  <div
+                                    style={{
+                                      color: INK_MUTED,
+                                      fontSize: 11,
+                                      fontFamily: 'ui-monospace, monospace',
+                                      marginTop: 2,
+                                      wordBreak: 'break-word',
+                                    }}
+                                  >
+                                    {f.code !== null && `[${f.code}] `}
+                                    {f.message}
+                                  </div>
+                                )}
+                                {!f.secure && (
+                                  <div style={{ color: '#dc2626', fontSize: 11, marginTop: 2 }}>
+                                    ⚠ Trang mở KHÔNG qua HTTPS — trình duyệt chặn định vị
+                                  </div>
+                                )}
+                              </td>
+                              <td
+                                style={{
+                                  ...td,
+                                  textAlign: 'right',
+                                  whiteSpace: 'nowrap',
+                                  fontVariantNumeric: 'tabular-nums',
+                                }}
+                              >
+                                {fmtElapsed(f.elapsed_ms)}
+                              </td>
+                              <td style={{ ...td, color: INK_MUTED }}>{f.page}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p style={{ ...empty, marginTop: 10 }}>
+                      Chỉ ghi lần HỎNG, giữ 14 ngày. Không lưu IP, toạ độ hay danh tính khách —
+                      "Khách vào bằng gì" suy ra từ User-Agent.
+                    </p>
+                  </>
+                )}
+              </>
             )}
           </Panel>
         </>
@@ -437,18 +485,6 @@ export function AdminAnalyticsPanel() {
             />
           </div>
 
-          <Panel title={`Đơn online trong ${customers.range.days} ngày, theo trạng thái`}>
-            <RowBars
-              rows={customers.orders_by_status.map((s) => ({
-                key: s.status,
-                label: STATUS_LABEL[s.status] ?? s.status,
-                value: s.count,
-              }))}
-              unit="đơn"
-              empty="Chưa có đơn nào trong kỳ."
-            />
-          </Panel>
-
           <Panel title="Khách đặt nhiều nhất (mọi thời điểm)">
             {customers.top_phones.length === 0 ? (
               <p style={empty}>Chưa có khách nào đặt đơn online.</p>
@@ -492,8 +528,8 @@ export function AdminAnalyticsPanel() {
           </Panel>
 
           <p style={{ ...empty, marginTop: 20 }}>
-            Ghi chú: số liệu truy cập gửi về theo lô 10 giây và giữ 90 ngày, nên con số vài giây
-            gần nhất có thể chưa hiện. Web KHÔNG dùng Google Analytics hay script theo dõi bên
+            Ghi chú: số liệu truy cập gửi về theo lô 10 giây và giữ 90 ngày (riêng chi tiết lần
+            chia sẻ vị trí hỏng giữ 14 ngày), nên con số vài giây gần nhất có thể chưa hiện. Web KHÔNG dùng Google Analytics hay script theo dõi bên
             ngoài — chỉ đếm trên máy chủ của quán, không lưu IP thật (chỉ lưu bản mã hoá) và
             không lưu địa chỉ trang khách đến từ đâu ngoài tên miền.
           </p>
@@ -544,7 +580,7 @@ function DayChart({ rows }: { rows: TrafficData['by_day'] }) {
           <div key={r.day} style={{ flex: '1 1 0', minWidth: 26, textAlign: 'center' }}>
             <div
               style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 130 }}
-              title={`${r.day}\n${r.sessions} lượt vào · ${r.visitors} thiết bị · ${r.page_views} lượt xem trang\nở lại TB ${fmtDuration(r.avg_duration_sec)} · ${r.orders} đơn`}
+              title={`${r.day}\n${r.sessions} lượt vào · ${r.visitors} thiết bị · ${r.page_views} lượt xem trang\n${r.orders} đơn online`}
             >
               <Bar value={r.sessions} max={max} color={C_SESSION} />
               <Bar value={r.orders} max={max} color={C_ORDER} />

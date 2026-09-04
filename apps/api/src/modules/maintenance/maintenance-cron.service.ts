@@ -9,11 +9,14 @@ import { DataSource } from 'typeorm';
 import {
   analyticsRetentionCutoffMs,
   auditRetentionCutoffMs,
+  capGeoShareFailures,
   cartSnapshotRetentionCutoffMs,
+  geoFailureRetentionCutoffMs,
   pruneAuditLogs,
   pruneCartSnapshots,
   pruneOrderActivityLogs,
   pruneGeoShareDaily,
+  pruneGeoShareFailures,
   prunePageViewDaily,
   pruneRevokedJti,
   pruneVisitSessions,
@@ -70,11 +73,22 @@ export class MaintenanceCronService {
         this.ds.manager,
         cartSnapshotRetentionCutoffMs(Date.now(), cartDays),
       );
+      // Chi tiết lần chia sẻ vị trí hỏng (2026-09-04): mốc ngày RIÊNG + trần số dòng. Cần cả
+      // hai — xem docblock `capGeoShareFailures`.
+      const geoFailDays = Number(process.env.GEO_FAILURE_RETENTION_DAYS ?? 14);
+      const geoFailMax = Number(process.env.GEO_FAILURE_MAX_ROWS ?? 1000);
+      const geoFailOld = await pruneGeoShareFailures(
+        this.ds.manager,
+        geoFailureRetentionCutoffMs(Date.now(), geoFailDays),
+      );
+      const geoFailCap = await capGeoShareFailures(this.ds.manager, geoFailMax);
       this.logger.log(
         `cron-analytics-retention: xoá ${sessions.deleted_rows} web_visit_sessions + ` +
           `${pageViews.deleted_rows} web_page_views_daily + ` +
           `${geoShare.deleted_rows} geo_share_daily (cutoffDays=${cutoffDays}, cutoff_ms=${cutoffMs})` +
-          ` + ${carts.deleted_rows} web_cart_snapshots (cutoffDays=${cartDays})`,
+          ` + ${carts.deleted_rows} web_cart_snapshots (cutoffDays=${cartDays})` +
+          ` + ${geoFailOld.deleted_rows + geoFailCap.deleted_rows} geo_share_failures ` +
+          `(cutoffDays=${geoFailDays}, keepMax=${geoFailMax})`,
       );
     } catch (err) {
       this.logger.error(

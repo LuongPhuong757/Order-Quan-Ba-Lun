@@ -16,6 +16,7 @@ import { WebVisitSession } from '../analytics/entities/web-visit-session.entity.
 import { WebPageViewDaily } from '../analytics/entities/web-page-view-daily.entity.js';
 import { GeoShareDaily } from '../public/entities/geo-share-daily.entity.js';
 import { WebCartSnapshot } from '../analytics/entities/web-cart-snapshot.entity.js';
+import { GeoShareFailure } from '../analytics/entities/geo-share-failure.entity.js';
 import { dayKeyIct } from '../analytics/visit-hit.js';
 
 export function auditRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
@@ -148,4 +149,54 @@ export async function prunePageViewDaily(
     .where('day_key < :c', { c: dayKeyIct(cutoffMs) })
     .execute();
   return { deleted_rows: result.affected ?? 0 };
+}
+
+/**
+ * Chi tiết lần chia sẻ vị trí hỏng (2026-09-04) — mốc RIÊNG, ngắn (`GEO_FAILURE_RETENTION_DAYS`,
+ * mặc định 14 ngày). Đây là bảng CHẨN ĐOÁN, không phải lịch sử: giá trị của một dòng nằm ở chỗ
+ * nó vừa xảy ra và còn sửa được, chứ không ở chỗ so sánh với tháng trước — xu hướng dài hạn đã
+ * có `geo_share_daily` giữ đủ 90 ngày.
+ */
+export function geoFailureRetentionCutoffMs(nowMs: number, cutoffDays: number): number {
+  return nowMs - cutoffDays * 86_400_000;
+}
+
+export async function pruneGeoShareFailures(
+  mgr: EntityManager,
+  cutoffMs: number,
+): Promise<{ deleted_rows: number }> {
+  const result = await mgr
+    .getRepository(GeoShareFailure)
+    .createQueryBuilder()
+    .delete()
+    .from(GeoShareFailure)
+    .where('created_ms < :c', { c: cutoffMs })
+    .execute();
+  return { deleted_rows: result.affected ?? 0 };
+}
+
+/**
+ * Trần SỐ DÒNG cho `geo_share_failures` — giữ `keepMax` dòng mới nhất, xoá phần còn lại.
+ *
+ * Vì sao cần thêm cái này bên cạnh mốc ngày ở trên: endpoint `/api/public/geo-log` cho 30
+ * lượt/phút/IP. Một script spam chạy cả ngày đẻ được hàng chục nghìn dòng, mà mốc 14 ngày thì
+ * phải đợi 14 ngày mới dọn tới. Trần dòng cắt ngay ở nhịp 3h sáng kế tiếp.
+ *
+ * `id` là auto-increment nên thứ tự id CHÍNH LÀ thứ tự thời gian — cắt theo id rẻ hơn cắt theo
+ * `created_ms` (khoá chính, không phải index phụ). Bảng dẫn xuất `x` bọc quanh subquery là BẮT
+ * BUỘC: MySQL không cho SELECT thẳng từ chính bảng đang DELETE. `COALESCE(..., 0)` để khi bảng
+ * còn ít hơn `keepMax` dòng thì subquery trả NULL và câu lệnh không xoá gì.
+ */
+export async function capGeoShareFailures(
+  mgr: EntityManager,
+  keepMax: number,
+): Promise<{ deleted_rows: number }> {
+  const n = Math.min(100_000, Math.max(1, Math.floor(Number(keepMax) || 1000)));
+  const result = (await mgr.query(
+    `DELETE FROM geo_share_failures
+      WHERE id < COALESCE(
+        (SELECT id FROM (SELECT id FROM geo_share_failures ORDER BY id DESC LIMIT 1 OFFSET ${n}) x),
+        0)`,
+  )) as { affectedRows?: number };
+  return { deleted_rows: result?.affectedRows ?? 0 };
 }

@@ -24,7 +24,7 @@
 import { Body, Controller, HttpCode, Logger, Post, Req } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { dayKeyIct } from '../analytics/visit-hit.js';
+import { classifyBrowser, classifyDevice, dayKeyIct } from '../analytics/visit-hit.js';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
 import { IsBoolean, IsIn, IsInt, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
@@ -112,8 +112,13 @@ export class PublicGeoLogController {
     else this.logger.warn(parts.join(' '));
 
     // Bộ đếm bền (2026-08-30) — `void`, KHÔNG `await`: 204 phải trả về ngay, khách bấm nút không
-    // đứng chờ MySQL. Chỉ đếm theo ngày + kết quả; mọi thứ nhận dạng khách ở trên chỉ đi ra log.
+    // đứng chờ MySQL. Chỉ đếm theo ngày + kết quả.
     void this.bumpCounter(dto.outcome);
+
+    // Chi tiết lần HỎNG (2026-09-04) — cùng luật `void`/nuốt lỗi với bộ đếm trên. Chỉ ghi khi
+    // hỏng: 'ok' không mang thông tin chẩn đoán nào, ghi vào là biến bảng chẩn đoán thành bảng
+    // theo dõi hành vi (xem docblock entity `GeoShareFailure`).
+    if (dto.outcome !== 'ok') void this.recordFailure(dto, ua);
   }
 
   /**
@@ -134,6 +139,39 @@ export class PublicGeoLogController {
       );
     } catch (err) {
       this.logger.error(`geo_share_daily upsert failed: ${(err as Error).message}`);
+    }
+  }
+
+  /**
+   * Một dòng cho MỘT lần hỏng — nguồn của bảng "Lần hỏng gần đây" ở màn Truy cập.
+   *
+   * `device`/`browser` phân loại từ UA của SERVER, không tin client tự khai: đúng cùng lý do
+   * `web_visit_sessions.device` làm vậy. Không ghi UA thô, không ghi IP/sid/toạ độ — chi tiết đó
+   * vẫn đi ra log container ở dòng ngay trên.
+   *
+   * Nuốt lỗi có chủ đích (telemetry): bảng chưa kịp `synchronize` hay DB đầy thì mất một dòng
+   * chẩn đoán — chấp nhận được; ném lỗi ra giữa đường nóng của khách thì không.
+   */
+  private async recordFailure(dto: GeoLogDto, ua: string): Promise<void> {
+    try {
+      await this.ds.query(
+        `INSERT INTO geo_share_failures
+           (created_ms, outcome, code, message, elapsed_ms, device, browser, page, secure)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          Date.now(),
+          dto.outcome,
+          dto.code ?? null,
+          dto.message ?? null,
+          dto.elapsed_ms,
+          classifyDevice(ua),
+          classifyBrowser(ua),
+          dto.page,
+          dto.secure,
+        ],
+      );
+    } catch (err) {
+      this.logger.error(`geo_share_failures insert failed: ${(err as Error).message}`);
     }
   }
 }

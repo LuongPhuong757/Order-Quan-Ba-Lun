@@ -19,6 +19,7 @@ import { WebVisitSession } from './modules/analytics/entities/web-visit-session.
 import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-daily.entity.js';
 import { GeoShareDaily } from './modules/public/entities/geo-share-daily.entity.js';
 import { WebCartSnapshot } from './modules/analytics/entities/web-cart-snapshot.entity.js';
+import { GeoShareFailure } from './modules/analytics/entities/geo-share-failure.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -68,6 +69,9 @@ export const dataSourceOptions: DataSourceOptions = {
     GeoShareDaily,
     // Giỏ hàng đang treo trên máy khách (2026-09-03) — cùng luồng ghi gộp lô với 2 entity trên.
     WebCartSnapshot,
+    // Chi tiết từng lần chia sẻ vị trí HỎNG (2026-09-04) — bảng chẩn đoán, một dòng mỗi lượt
+    // hỏng; xem docblock entity về vì sao nó là ngoại lệ với luật "gộp sẵn" của module này.
+    GeoShareFailure,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
