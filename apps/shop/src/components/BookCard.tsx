@@ -16,9 +16,9 @@ import { BowlGlyph } from './ImagePlaceholder.tsx';
  * của nhóm mới thật sự là "màu của trang", chứ không phải một dải nền bị chục cái hộp
  * trắng che gần hết.
  *
- * ẢNH TRÒN chứ không phải vuông bo góc: đĩa thức ăn chụp từ trên xuống vốn đã tròn nên cắt
- * tròn là ăn đúng hình món, và hình tròn giữa một trang toàn chữ thẳng hàng tạo ra nhịp
- * mềm mà hình vuông không có được.
+ * ẢNH CHỮ NHẬT RỘNG GẦN NỬA DÒNG (đổi 2026-09-04, trước đó là hình tròn nhỏ). Hình tròn
+ * đẹp nhưng cắt mất hai đầu đĩa và nhỏ hơn hẳn ở cùng bề ngang; chủ quán cần nhìn ra MÓN
+ * ĂN, không cần một hoạ tiết trang trí. Chi tiết tỉ lệ: xem `photoBtn` cuối file.
  *
  * KHÔNG import gì từ `cart-store.ts` — đó là cách "trang chỉ để xem" được bảo đảm bằng
  * cấu trúc chứ không bằng lời hứa.
@@ -47,14 +47,9 @@ export function BookCard({
   const image = item.images[0] ?? null;
   const isOut = item.is_out_of_stock;
   const photoRight = index % 2 === 1;
-  // Chủ quán: "hình ảnh đang quá bé" (2026-09-04). 88 → 132 trên điện thoại: ô ảnh tròn
-  // giờ chiếm hơn 1/3 bề ngang màn, đủ để nhìn ra món ăn chứ không chỉ nhận ra có ảnh.
-  // Phần chữ còn ~200px, vẫn đủ cho tên món dài xuống 2 dòng.
-  const size = roomy ? 190 : 132;
 
   return (
-    <button
-      type="button"
+    <div
       className={animate ? 'book-row book-row-enter' : 'book-row'}
       style={{
         ...row,
@@ -63,18 +58,20 @@ export function BookCard({
         // kịp nhận ra mình đang chờ.
         animationDelay: animate ? `${Math.min(index, 10) * 26}ms` : undefined,
       }}
-      onClick={(e) => onOpen(item, e.currentTarget.getBoundingClientRect())}
-      aria-label={`${item.name}, ${formatVnd(item.price)} một ${item.unit}${
-        isOut ? ', tạm hết' : ''
-      }. Xem ảnh lớn`}
     >
-      <span
-        style={{
-          ...photo,
-          width: size,
-          height: size,
-          opacity: isOut ? 'var(--opacity-out-of-stock)' : 1,
-        }}
+      {/*
+        CHỈ TẤM ẢNH LÀ NÚT — chủ quán yêu cầu 2026-09-04, và đây là sửa một lỗi thật.
+        Trước đây cả dòng là một `<button>` rộng hết bề ngang trang. Vuốt để lật trang mà
+        ngón tay đặt ở đâu cũng rơi trúng nút, nên mỗi cú vuốt hụt là bung ảnh lớn của một
+        món ngẫu nhiên — lật trang thành ra rất khó. Thu vùng bấm về đúng tấm ảnh thì phần
+        chữ (chiếm hơn nửa bề ngang) trở thành chỗ vuốt an toàn.
+      */}
+      <button
+        type="button"
+        className="book-row-photo"
+        style={{ ...photoBtn, opacity: isOut ? 'var(--opacity-out-of-stock)' : 1 }}
+        onClick={(e) => onOpen(item, e.currentTarget.getBoundingClientRect())}
+        aria-label={`Xem ảnh lớn: ${item.name}`}
       >
         {image ? (
           <img
@@ -93,10 +90,10 @@ export function BookCard({
             <BowlGlyph />
           </span>
         )}
-      </span>
+      </button>
 
-      <span style={{ ...body, textAlign: photoRight ? 'right' : 'left' }}>
-        <span
+      <div style={{ ...body, textAlign: photoRight ? 'right' : 'left' }}>
+        <p
           style={{
             ...name,
             fontSize: roomy ? 'var(--fs-lg)' : 'var(--fs-md)',
@@ -104,8 +101,8 @@ export function BookCard({
           }}
         >
           {item.name}
-        </span>
-        <span style={{ ...priceRow, justifyContent: photoRight ? 'flex-end' : 'flex-start' }}>
+        </p>
+        <p style={{ ...priceRow, justifyContent: photoRight ? 'flex-end' : 'flex-start' }}>
           {/* Món hết hàng: chữ "Tạm hết" đứng THAY chỗ giá, không phải chỉ làm mờ giá đi.
               Màu đơn độc không được mang nghĩa (rule color-only-meaning trong tokens.css). */}
           {isOut ? (
@@ -120,9 +117,9 @@ export function BookCard({
               {item.unit !== 'phần' && <span style={unit}>/ {item.unit}</span>}
             </>
           )}
-        </span>
-      </span>
-    </button>
+        </p>
+      </div>
+    </div>
   );
 }
 
@@ -158,16 +155,22 @@ export const BOOK_CARD_CSS = `
 /* Máy có chuột: ảnh phóng nhẹ để thấy dòng bấm được. Điện thoại không có :hover nên phản
    hồi chạm do rule chung trong motion.css lo (scale 0.97). */
 @media (hover: hover) {
-  .book-row > span:first-child {
-    transition: transform var(--dur-base) var(--ease-out);
-  }
-  .book-row:hover > span:first-child {
-    transform: scale(1.06);
+  .book-row-photo:hover {
+    /* Nhấc lên thật: đi lên một quãng ngắn VÀ bóng đổ giãn rộng ra. Chỉ phóng to mà bóng
+       giữ nguyên thì ra "ảnh to lên", không ra "ảnh nhấc khỏi mặt giấy". Scale nhẹ thôi —
+       6% trên một tấm rộng nửa dòng là một cú giật rất to. */
+    transform: translateY(-5px) scale(1.02);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 22%),
+      0 3px 7px rgb(0 0 0 / 40%),
+      0 22px 44px rgb(0 0 0 / 58%),
+      0 44px 80px rgb(0 0 0 / 38%);
   }
 }
 @media (prefers-reduced-motion: reduce) {
   @media (hover: hover) {
-    .book-row:hover > span:first-child { transform: none; }
+    /* Bóng vẫn đổi (đó là dấu hiệu bấm được), chỉ bỏ phần dịch chuyển. */
+    .book-row-photo:hover { transform: none; }
   }
 }
 `;
@@ -179,27 +182,51 @@ const row: CSSProperties = {
   width: '100%',
   padding: 'var(--sp-2) var(--sp-1)',
   // Không nền, không viền: menu in không có hộp nào, chỉ có ảnh và chữ đặt lên trang.
-  background: 'none',
-  border: 'none',
-  cursor: 'pointer',
-  font: 'inherit',
-  color: 'inherit',
-  textAlign: 'left',
 };
 
-const photo: CSSProperties = {
-  flex: 'none',
+/**
+ * Tấm ảnh: CHỮ NHẬT, rộng 46% dòng (chủ quán chốt 2026-09-04 — "gần bằng nửa chiều rộng",
+ * và đổi từ tròn sang chữ nhật).
+ *
+ * Rộng theo PHẦN TRĂM chứ không theo px cố định: cùng một dòng món phải chạy trên điện
+ * thoại 390px lẫn nửa trang đôi 720px, đặt cứng px là một bên bé tí một bên chình ình.
+ * 46% chừa 54% còn lại cho chữ và khoảng cách — tên món dài vẫn đủ chỗ xuống 2 dòng.
+ *
+ * `aspect-ratio: 4/3` chứ không vuông: ảnh món của quán chụp ngang, khung vuông cắt mất
+ * hai đầu đĩa. Cũng KHÔNG dùng `--ratio-card-media` (3/2) của trang đặt hàng: ở đây ảnh
+ * đứng cạnh chữ chứ không nằm trên chữ, 3/2 cho một dải quá dẹt so với khối chữ bên cạnh.
+ */
+const photoBtn: CSSProperties = {
+  flex: '0 0 46%',
   display: 'block',
+  padding: 0,
+  border: 'none',
+  cursor: 'pointer',
   overflow: 'hidden',
-  // Tròn hẳn. Xem docblock đầu file để biết vì sao không phải vuông bo góc.
-  borderRadius: '50%',
+  aspectRatio: '4 / 3',
+  borderRadius: 'var(--r-category)',
   background: 'var(--menu-chrome)',
   /**
-   * Trên nền tối, bóng đen vô hình. Thay bằng một vòng sáng mảnh + quầng sáng rất nhẹ —
-   * đúng cách một tấm ảnh bóng tách khỏi mặt giấy tối, và nó viền quanh món ăn khiến món
-   * trông nổi hẳn lên thay vì dán bẹt vào nền.
+   * BÓNG ĐỔ NHIỀU TẦNG để tấm ảnh NỔI HẲN LÊN khỏi mặt trang (chủ quán chốt 2026-09-04).
+   *
+   * Một lớp bóng duy nhất chỉ ra vệt mờ, không ra cảm giác nâng lên. Vật thật nổi trên mặt
+   * phẳng luôn có ba thứ cùng lúc, và đây đúng ba dòng dưới:
+   *   1. viền sáng mảnh   — mép trên bắt ánh sáng, đó là thứ tách ảnh khỏi nền tối;
+   *   2. bóng TIẾP XÚC    — tối, sát mép, gần như không nhoè: nói "vật này chạm mặt bàn";
+   *   3. bóng ĐỔ          — rộng và mờ, lệch xuống dưới: nói "vật này cách mặt bàn một quãng".
+   * Thiếu (2) thì ảnh trông như trôi lơ lửng; thiếu (3) thì trông như dán bẹt.
+   *
+   * `box-shadow` chứ không `filter: drop-shadow`: ảnh là khối chữ nhật bo góc đặc, không có
+   * vùng trong suốt, nên drop-shadow chỉ tốn thêm một lượt vẽ lại mà ra cùng kết quả.
    */
-  boxShadow: '0 0 0 2px rgb(255 255 255 / 14%), 0 6px 20px rgb(0 0 0 / 35%)',
+  boxShadow: [
+    '0 0 0 1px rgb(255 255 255 / 15%)',
+    '0 2px 5px rgb(0 0 0 / 38%)',
+    '0 14px 30px rgb(0 0 0 / 52%)',
+    '0 30px 60px rgb(0 0 0 / 32%)',
+  ].join(', '),
+  // Bóng cũng phải đổi theo lúc nhấc lên khi rê chuột, không thì ảnh bay lên mà bóng đứng im.
+  transition: 'transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out)',
 };
 
 /** Ruột hình tròn khi món chưa có ảnh: sáng hơn nền trang một chút để vẫn thấy có ô ảnh,
@@ -230,6 +257,9 @@ const body: CSSProperties = {
 };
 
 const name: CSSProperties = {
+  // `<p>` nên phải tự dọn margin mặc định của trình duyệt, nếu không hai dòng chữ bị đẩy
+  // lệch khỏi tâm tấm ảnh.
+  margin: 0,
   fontFamily: 'var(--font-display)',
   fontWeight: 'var(--fw-bold)',
   lineHeight: 'var(--lh-snug)',
@@ -241,6 +271,7 @@ const name: CSSProperties = {
 };
 
 const priceRow: CSSProperties = {
+  margin: 0,
   display: 'flex',
   alignItems: 'baseline',
   gap: 'var(--sp-1)',

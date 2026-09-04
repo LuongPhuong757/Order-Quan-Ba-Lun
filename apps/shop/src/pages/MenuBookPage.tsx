@@ -118,8 +118,30 @@ export function MenuBookPage(): JSX.Element {
    * "chip màu vàng nghệ" với "trang màu vàng nghệ".
    */
   const accents = useMemo(() => groupAccents(groups), [groups]);
-  /** Nền TRANG (đá phiến tối). Kết quả tìm kiếm không thuộc nhóm nào → nền trung tính. */
-  const pageBgOf = (code: string) => accents.get(code)?.page ?? 'var(--menu-chrome)';
+  /**
+   * Nền TRANG: màu đá phiến của nhóm + một lớp bóng như mặt kính.
+   *
+   * Chủ quán: "background chỉ 1 màn, không có tương phản" (2026-09-04). Đúng — một mảng
+   * màu phẳng lì trải hết màn thì không có chiều sâu, và mấy tấm ảnh tròn trông như dán
+   * lên tường sơn. Lớp gradient này làm ba việc:
+   *   1. vệt sáng chéo từ góc trên-trái  → ánh phản chiếu của một mặt bóng;
+   *   2. nhạt dần về giữa trang          → chỗ nghỉ cho mắt, và làm ảnh ở giữa nổi lên;
+   *   3. tối lại ở đáy                   → chân trang lún xuống, trang có bề dày.
+   *
+   * Là gradient chồng lên MÀU NỀN (cú pháp `background: <ảnh>, <màu>`), nên đổi màu nhóm
+   * ở tokens.css là độ bóng tự theo — không phải đi sửa 7 chỗ.
+   *
+   * Kết quả tìm kiếm không thuộc nhóm nào → nền trung tính, vẫn có bóng.
+   */
+  const pageBgOf = (code: string) => {
+    const base = accents.get(code)?.page ?? 'var(--menu-chrome)';
+    return (
+      'linear-gradient(157deg, rgb(255 255 255 / 10%) 0%, rgb(255 255 255 / 4%) 22%, ' +
+      `rgb(255 255 255 / 0%) 52%, rgb(0 0 0 / 16%) 100%), ${base}`
+    );
+  };
+  /** Chỉ MÀU nền, không kèm bóng — cho những chỗ nhỏ như thanh tiêu đề. */
+  const pageColorOf = (code: string) => accents.get(code)?.page ?? 'var(--menu-chrome)';
   /** Màu NHẬN DIỆN nhóm (pastel sáng) — chip trên dải và vạch cạnh tên nhóm. */
   const accentOf = (code: string) => accents.get(code)?.accent ?? 'var(--wood-400)';
 
@@ -683,7 +705,7 @@ export function MenuBookPage(): JSX.Element {
       {heading && (
         // Thanh này đứng NGOÀI tờ giấy (nó không được lật đi cùng) nên phải tự nhuộm màu
         // nhóm; để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc lõng.
-        <p style={{ ...pageHeading, background: pageBgOf(heading.accentCode) }}>
+        <p style={{ ...pageHeading, background: pageColorOf(heading.accentCode) }}>
           <span style={pageHeadingName}>
             {/* Vạch màu đặc nhắc lại màu nhóm: nền trang là màu rất nhạt, mắt cần một mốc
                 chắc chắn để đối chiếu với chip trên dải nhóm. */}
