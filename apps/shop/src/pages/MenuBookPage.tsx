@@ -140,8 +140,6 @@ export function MenuBookPage(): JSX.Element {
       `rgb(255 255 255 / 0%) 52%, rgb(0 0 0 / 16%) 100%), ${base}`
     );
   };
-  /** Chỉ MÀU nền, không kèm bóng — cho những chỗ nhỏ như thanh tiêu đề. */
-  const pageColorOf = (code: string) => accents.get(code)?.page ?? 'var(--menu-chrome)';
   /** Màu NHẬN DIỆN nhóm (pastel sáng) — chip trên dải và vạch cạnh tên nhóm. */
   const accentOf = (code: string) => accents.get(code)?.accent ?? 'var(--wood-400)';
 
@@ -422,33 +420,44 @@ export function MenuBookPage(): JSX.Element {
   const activeGroupCode = page?.group.code ?? null;
 
   /**
-   * Thanh tiêu đề phía trên khung trang. Chỉ nói về những trang DANH SÁCH đang mở — trang
-   * bìa đã in tên nhóm cỡ lớn ngay trên ảnh rồi.
+   * Dải chip nhóm phải TỰ CUỘN theo nhóm đang xem. Quán có nhiều nhóm hơn bề ngang màn
+   * hình, nên lật vài trang là chip của nhóm đang xem trôi ra ngoài khung: khách thấy một
+   * dải chip không chip nào đỏ và mất luôn mốc "mình đang ở đâu".
    *
-   * Mở sách thì hai trang cạnh nhau có thể thuộc hai nhóm (cuối nhóm này gặp bìa nhóm sau),
-   * nên tên phải gọi cả hai, ngăn bằng dấu chấm giữa. Số "2/4" chỉ hiện khi cả hai trang
-   * cùng một nhóm — hai nhóm khác nhau mà chỉ in một cặp số thì không ai biết nó của nhóm
-   * nào.
+   * Tính tay `scrollLeft` chứ không gọi `scrollIntoView`: hàm đó cuộn cả những khung cha,
+   * tức là kéo lệch cả trang trên iOS. Đây chỉ động vào đúng một trục cuộn của dải chip.
    */
-  const heading = (() => {
-    const shown = (grid.spread ? [pages[index], pages[index + 1]] : [page]).filter(
-      (x): x is BookPage => x !== undefined,
+  const railRef = useRef<HTMLDivElement>(null);
+  const railSyncedRef = useRef(false);
+  useEffect(() => {
+    const rail = railRef.current;
+    if (!rail || activeGroupCode === null) return;
+    // Quét con thay vì `querySelector`: mã nhóm do chủ quán tự đặt, ký tự lạ trong đó là
+    // một selector sai chứ không phải một lỗi thấy được.
+    const chipEl = Array.from(rail.children).find(
+      (el): el is HTMLElement =>
+        el instanceof HTMLElement && el.dataset.groupChip === activeGroupCode,
     );
-    if (shown.length === 0) return null;
-    const names: string[] = [];
-    for (const x of shown) {
-      const label = `${x.group.icon ? `${x.group.icon} ` : ''}${x.group.name}`;
-      if (!names.includes(label)) names.push(label);
-    }
-    // Một nhóm là một trang nên không còn "2/4" nữa; thay bằng số món của nhóm — thứ khách
-    // thật sự muốn biết khi vừa mở tới một chương mới.
-    //
-    // Mở sách mà hai trang là hai nhóm khác nhau thì BỎ HẲN con số: cộng gộp 39 + 12 thành
-    // "51 món" là nói dối, mà in hai con số cạnh nhau thì không ai biết số nào của nhóm nào.
-    // Tên hai nhóm đã đủ nói khách đang ở đâu.
-    const count = names.length === 1 ? `${shown[0].items.length} món` : null;
-    return { accentCode: shown[0].group.code, label: names.join(' · '), count };
-  })();
+    if (!chipEl) return;
+    const target = chipEl.offsetLeft - (rail.clientWidth - chipEl.offsetWidth) / 2;
+    const left = Math.max(0, Math.min(target, rail.scrollWidth - rail.clientWidth));
+    if (Math.abs(left - rail.scrollLeft) < 1) return;
+    // Lần đầu mở trang thì đặt thẳng — không ai cần xem một cú cuộn lúc trang vừa hiện.
+    rail.scrollTo({ left, behavior: railSyncedRef.current ? 'smooth' : 'auto' });
+    railSyncedRef.current = true;
+  }, [activeGroupCode]);
+
+  /**
+   * Lật trang xong thì ĐƯA MÀN HÌNH VỀ ĐẦU. Bản thân quyển menu cao đúng `100dvh` và
+   * không cuộn, nhưng trên Safari/Chrome mobile cả trang vẫn bị đẩy lệch khỏi mốc 0 sau
+   * khi thanh địa chỉ co lại, hoặc sau khi bàn phím của ô tìm món đóng vào — khi đó dải
+   * chip nhóm nằm khuất trên mép máy và trang trông như bị cắt đầu.
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined' || window.scrollY === 0) return;
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, [index]);
+
   /** Góc hiện tại của một tờ: chỉ tờ đang được lật mới rời khỏi chỗ đậu của nó. */
   const angleOf = (which: 'current' | 'prev'): number => {
     if (turn?.dir === 1 && which === 'current') return turn.angle;
@@ -628,7 +637,7 @@ export function MenuBookPage(): JSX.Element {
   };
 
   return (
-    <div style={shell}>
+    <div style={shell} className="book-shell">
       <style>{BOOK_CARD_CSS}</style>
       <style>{BOOK_PREVIEW_CSS}</style>
       <style>{BOOK_PAGE_CSS}</style>
@@ -673,13 +682,14 @@ export function MenuBookPage(): JSX.Element {
       {/* Dải nhóm: với ~600 món thì đây mới là đường đi chính, không phải vuốt 50 lần. */}
       {!isSearching && groups.length > 1 && (
         <nav style={rail} aria-label="Nhảy tới nhóm món">
-          <div style={railInner} className="book-rail">
+          <div ref={railRef} style={railInner} className="book-rail">
             {groups.map((g) => {
               const active = g.code === activeGroupCode;
               return (
                 <button
                   key={g.id}
                   type="button"
+                  data-group-chip={g.code}
                   onClick={() => jumpTo(findFirstPageOfGroup(pages, g.code))}
                   aria-current={active ? 'true' : undefined}
                   // Chip nghỉ mang đúng màu nhóm nên cả dải thành một mục lục có màu; chip
@@ -699,21 +709,6 @@ export function MenuBookPage(): JSX.Element {
             })}
           </div>
         </nav>
-      )}
-
-      {/* Mở sách thì hai trang là hai nhóm khác nhau, lúc đó thanh này gọi tên cả hai. */}
-      {heading && (
-        // Thanh này đứng NGOÀI tờ giấy (nó không được lật đi cùng) nên phải tự nhuộm màu
-        // nhóm; để nguyên nền kem thì giữa dải chip và trang màu hở ra một vệt kem lạc lõng.
-        <p style={{ ...pageHeading, background: pageColorOf(heading.accentCode) }}>
-          <span style={pageHeadingName}>
-            {/* Vạch màu đặc nhắc lại màu nhóm: nền trang là màu rất nhạt, mắt cần một mốc
-                chắc chắn để đối chiếu với chip trên dải nhóm. */}
-            <span aria-hidden="true" style={{ ...headingBar, background: accentOf(heading.accentCode) }} />
-            {heading.label}
-          </span>
-          {heading.count && <span style={pageHeadingCount}>{heading.count}</span>}
-        </p>
       )}
 
       <div
@@ -777,19 +772,12 @@ export function MenuBookPage(): JSX.Element {
             <ArrowGlyph dir="left" />
           </button>
 
-          <div style={progressWrap} aria-hidden="true">
-            <div
-              style={{
-                ...progressFill,
-                // Thanh tiến độ thay vì một hàng chấm: 50 trang thì hàng chấm dài hơn cả
-                // màn hình và không đọc được gì. Chỉ animate transform (rule layout-transition).
-                transform: `scaleX(${total <= 1 ? 1 : (index + 1) / total})`,
-              }}
-            />
-          </div>
-
-          <span style={counter} aria-live="polite">
-            {grid.spread && index + 1 < total ? `${index + 1}–${index + 2}` : index + 1}/{total}
+          {/* Số trang chỉ còn đọc cho trình đọc màn hình: người sáng đã thấy món đổi,
+              còn người dùng screen reader thì không có mốc nào khác để biết đã lật. */}
+          <span style={srOnly} aria-live="polite">
+            {grid.spread && index + 1 < total
+              ? `Trang ${index + 1}–${index + 2} trên ${total}`
+              : `Trang ${index + 1} trên ${total}`}
           </span>
 
           <button
@@ -851,6 +839,44 @@ function ArrowGlyph({ dir }: { dir: 'left' | 'right' }): JSX.Element {
 const BOOK_PAGE_CSS = `
 .book-rail { scrollbar-width: none; }
 .book-rail::-webkit-scrollbar { display: none; }
+
+/*
+ * Nền quanh quyển sách: một vầng đèn ấm rọi từ trên xuống + một vệt đỏ ở góc dưới, trên
+ * nền gỗ trầm --menu-chrome. Cùng bảng màu thương hiệu (hổ phách --wood-400, đỏ
+ * --brand-600) và đều ở độ mờ rất thấp — đủ cho nền có chiều sâu, chưa tới mức tranh
+ * nhau với ảnh món. Trước đó nền là một mảng #2f2b27 phẳng, trông như màn hình chờ.
+ *
+ * 'isolation: isolate' để lớp vân bên dưới (z-index -1) ở LẠI trong khung này: thiếu nó
+ * lớp vân trôi lên tận gốc trang và nằm khuất sau nền của body.
+ */
+.book-shell {
+  isolation: isolate;
+  background:
+    radial-gradient(115% 70% at 50% -12%, rgb(232 163 61 / 14%), transparent 62%),
+    radial-gradient(85% 55% at 108% 106%, rgb(184 42 30 / 16%), transparent 60%),
+    var(--menu-chrome);
+}
+
+/*
+ * Vân nền — những sợi chéo rất mờ, cho nền một bề mặt thay vì một mảng màu chết. Nằm ở
+ * pseudo-element 'position: fixed' + 'pointer-events: none' + 'z-index: -1': không chen
+ * vào layout, không dính vào cú vuốt lật trang, và luôn nằm dưới mọi thứ trong trang.
+ */
+.book-shell::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: repeating-linear-gradient(
+    115deg,
+    rgb(255 255 255 / 3%) 0 1px,
+    transparent 1px 7px
+  );
+  /* Mờ dần về phía chân trang: đậm đều từ trên xuống dưới trông như lỗi hiển thị. */
+  -webkit-mask-image: linear-gradient(180deg, #000, transparent 78%);
+  mask-image: linear-gradient(180deg, #000, transparent 78%);
+}
 `;
 
 const shell: CSSProperties = {
@@ -859,7 +885,8 @@ const shell: CSSProperties = {
   height: '100dvh',
   display: 'flex',
   flexDirection: 'column',
-  background: 'var(--menu-chrome)',
+  // Nền do '.book-shell' trong CSS lo (nhiều lớp gradient + vân) — để ở đây thì style
+  // inline đè mất lớp CSS.
   color: 'var(--text-body)',
   fontFamily: 'var(--font-body)',
   overflow: 'hidden',
@@ -873,9 +900,10 @@ const header: CSSProperties = {
   alignItems: 'center',
   justifyContent: 'space-between',
   gap: 'var(--sp-2)',
-  padding: 'var(--sp-2) var(--gutter)',
-  borderBottom: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
+  // Trong suốt và không viền: logo với ô tìm món nổi trên đúng nền quyển menu, không
+  // chiếm thêm một dải màu nào. Mỗi dải màu ngang là một lần cắt vụn khoảng trống của món.
+  padding: 'var(--sp-1) var(--gutter)',
+  background: 'transparent',
 };
 
 const headerRight: CSSProperties = {
@@ -911,15 +939,14 @@ const iconBtn: CSSProperties = {
 
 const rail: CSSProperties = {
   flex: 'none',
-  borderBottom: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
+  background: 'transparent',
 };
 
 const railInner: CSSProperties = {
   display: 'flex',
   gap: 'var(--sp-2)',
   overflowX: 'auto',
-  padding: 'var(--sp-2) var(--gutter)',
+  padding: '0 var(--gutter) var(--sp-2)',
   WebkitOverflowScrolling: 'touch',
 };
 
@@ -942,44 +969,6 @@ const chipActive: CSSProperties = {
   borderColor: 'var(--brand-600)',
   color: 'var(--text-on-brand)',
   fontWeight: 'var(--fw-semibold)',
-};
-
-const pageHeading: CSSProperties = {
-  flex: 'none',
-  margin: 0,
-  padding: 'var(--sp-3) var(--gutter) var(--sp-2)',
-  display: 'flex',
-  alignItems: 'baseline',
-  justifyContent: 'space-between',
-  gap: 'var(--sp-2)',
-};
-
-const pageHeadingName: CSSProperties = {
-  fontFamily: 'var(--font-display)',
-  fontSize: 'var(--fs-lg)',
-  fontWeight: 'var(--fw-bold)',
-  color: 'var(--menu-text)',
-  letterSpacing: 'var(--ls-tight)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-};
-
-const headingBar: CSSProperties = {
-  display: 'inline-block',
-  width: 4,
-  height: '0.95em',
-  marginRight: 'var(--sp-2)',
-  borderRadius: 2,
-  verticalAlign: '-0.08em',
-  // Viền mảnh để vạch không biến mất khi màu nhóm gần trùng nền trang (vd kem tre).
-  boxShadow: 'inset 0 0 0 1px rgb(0 0 0 / 30%)',
-};
-
-const pageHeadingCount: CSSProperties = {
-  flex: 'none',
-  fontSize: 'var(--fs-caption)',
-  color: 'var(--menu-text-muted)',
 };
 
 const viewport: CSSProperties = {
@@ -1139,10 +1128,12 @@ const footer: CSSProperties = {
   flex: 'none',
   display: 'flex',
   alignItems: 'center',
+  // Hai mũi tên dạt về hai mép: ngón cái với tới được ở cả hai bên, và khoảng giữa để
+  // trống cho nền chạy liền mạch xuống chân máy.
+  justifyContent: 'space-between',
   gap: 'var(--sp-3)',
   padding: 'var(--sp-2) var(--gutter)',
-  borderTop: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
+  background: 'transparent',
 };
 
 const navBtn: CSSProperties = {
@@ -1156,30 +1147,6 @@ const navBtn: CSSProperties = {
   background: 'rgb(255 255 255 / 6%)',
   color: 'var(--menu-text)',
   cursor: 'pointer',
-};
-
-const progressWrap: CSSProperties = {
-  flex: 1,
-  height: 4,
-  borderRadius: 'var(--r-badge)',
-  background: 'rgb(255 255 255 / 14%)',
-  overflow: 'hidden',
-};
-
-const progressFill: CSSProperties = {
-  height: '100%',
-  width: '100%',
-  transformOrigin: 'left center',
-  background: 'var(--menu-price)',
-  transition: 'transform var(--dur-base) var(--ease-out)',
-};
-
-const counter: CSSProperties = {
-  flex: 'none',
-  fontSize: 'var(--fs-caption)',
-  fontWeight: 'var(--fw-semibold)',
-  color: 'var(--menu-text-muted)',
-  fontVariantNumeric: 'tabular-nums',
 };
 
 const notice: CSSProperties = {
@@ -1208,4 +1175,17 @@ const retryBtn: CSSProperties = {
   fontWeight: 'var(--fw-semibold)',
   fontFamily: 'var(--font-body)',
   cursor: 'pointer',
+};
+
+/** Chỉ trình đọc màn hình thấy — cùng công thức với `srOnly` của các trang khác trong app. */
+const srOnly: CSSProperties = {
+  position: 'absolute',
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
 };
