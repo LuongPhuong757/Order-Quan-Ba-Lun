@@ -28,6 +28,9 @@ class UpdateGroupDto {
   @IsOptional() @IsBoolean() is_active?: boolean;
   // Tab "Món online" (2026-08-04): ẩn cả nhóm khỏi web khách — phủ lên mọi món trong nhóm.
   @IsOptional() @IsBoolean() is_online_hidden?: boolean;
+  // Tab "Menu xem" (2026-09-04): ẩn cả nhóm khỏi quyển menu ở menu.<domain>. Cờ RIÊNG —
+  // nhóm không bán online vẫn in được trong menu, và ngược lại.
+  @IsOptional() @IsBoolean() is_menu_hidden?: boolean;
 }
 
 @Controller('menu-groups')

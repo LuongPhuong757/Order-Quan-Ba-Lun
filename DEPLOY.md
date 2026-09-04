@@ -32,22 +32,29 @@ echo '/swapfile none swap sw 0 0' >> /etc/fstab
 
 ## 2. DNS
 
-Trỏ domain về IP VPS (qua A record). **Cả 3 bản ghi đều bắt buộc:**
+Trỏ domain về IP VPS (qua A record). **3 bản ghi đầu bắt buộc, bản ghi `menu` tuỳ chọn:**
 
 | Type | Name | Value | TTL | Phục vụ |
 |---|---|---|---|---|
 | A | `@` | `<IP_VPS>` | 300 | Trang khách |
 | A | `www` | `<IP_VPS>` | 300 | Trang khách |
 | A | `admin` | `<IP_VPS>` | 300 | Trang quản lý |
+| A | `menu` | `<IP_VPS>` | 300 | Quyển menu điện tử (2026-09-04) |
 
 Apex dành cho **khách** (địa chỉ ngắn nhất, dùng cho QR và biển hiệu); nhân viên vào
 `admin.<domain>`. API chọn bundle theo `Host` header ở [main.ts](apps/api/src/main.ts) —
 host bắt đầu bằng `admin.` nhận `web-dist`, mọi host khác nhận `shop-dist`.
 
-Xác nhận cả 3 trước khi build:
+`menu.<domain>` cũng nhận `shop-dist` như apex; việc vẽ quyển menu thay vì màn đặt hàng do
+[apps/shop/src/main.tsx](apps/shop/src/main.tsx) quyết định trong trình duyệt theo
+`location.hostname`. Thiếu bản ghi này thì mọi thứ khác VẪN CHẠY — Caddy chỉ không xin được
+cert cho host đó, và quyển menu vẫn mở được ở `<domain>/menu`. Khác hẳn `admin`: thiếu
+`admin` là nhân viên mất đường vào POS.
+
+Xác nhận trước khi build:
 
 ```bash
-for h in quanbalun.site www.quanbalun.site admin.quanbalun.site; do
+for h in quanbalun.site www.quanbalun.site admin.quanbalun.site menu.quanbalun.site; do
   echo "$h → $(dig +short A $h)"
 done
 ```

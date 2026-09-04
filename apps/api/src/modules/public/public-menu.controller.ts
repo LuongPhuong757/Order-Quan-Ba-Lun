@@ -88,4 +88,81 @@ export class PublicMenuController {
 
     return apiOk<PublicMenuResponse>({ groups: result });
   }
+
+  /**
+   * GET /api/public/menu-book — quyển menu điện tử ở `menu.<domain>` (2026-09-04).
+   *
+   * KHÁC `/api/public/menu` ở đúng 3 điểm, và cả 3 đều là cố ý:
+   *
+   * 1. BỎ QUA `is_online_hidden` (cả nhóm lẫn món). Đây là quyển menu để khách NGẮM, không
+   *    phải web đặt hàng: món quán chỉ bán tại chỗ, món cồng kềnh không ship được, món chỉ
+   *    bán cho khách ngồi bàn — tất cả vẫn phải có mặt. Cờ quyết định ở đây là
+   *    `is_menu_hidden`, một cờ hoàn toàn riêng.
+   * 2. Sắp theo `menu_sort_order` (chủ quán kéo thả), rớt về tên khi cả nhóm còn 0.
+   * 3. `Cache-Control: public, max-age=60` thay vì `no-store`. Trang này KHÔNG có nút đặt
+   *    hàng nên giá trễ 1 phút không gây hậu quả gì, mà quán ~600 món thì payload không
+   *    nhỏ — để khách lật qua lật lại mà tải lại từ đầu là phí băng thông 3G của họ.
+   *
+   * GIỐNG `/api/public/menu` ở chỗ quan trọng nhất: đi qua ĐÚNG mapper whitelist 7 field
+   * (`toPublicMenuItem`), nên mọi cột nội bộ thêm vào `menu_items` sau này vẫn không lọt.
+   * Endpoint CHỈ ĐỌC — không có nhánh ghi nào, không đụng session/cookie của khách.
+   *
+   * Nhóm rỗng vẫn bị bỏ (không có trang trắng), và món mồ côi vẫn gom vào "Khác" — hai lệ
+   * này giữ nguyên vì lý do của chúng không đổi.
+   */
+  @Get('menu-book')
+  @Header('Cache-Control', 'public, max-age=60')
+  async getMenuBook(): Promise<ApiOk<PublicMenuResponse>> {
+    const [groups, items] = await Promise.all([
+      this.groupRepo.find({
+        where: { is_active: true, is_menu_hidden: false },
+        order: { sort_order: 'ASC', name: 'ASC' },
+      }),
+      this.itemRepo.find({
+        where: { is_active: true, is_menu_hidden: false },
+        order: { menu_sort_order: 'ASC', name: 'ASC' },
+      }),
+    ]);
+
+    // Nhóm bị ẩn khỏi menu xem đã bị loại ngay ở truy vấn trên, nên món của nó KHÔNG được
+    // rơi vào nhánh mồ côi mà hồi sinh trong "Khác" — chặn bằng danh sách mã nhóm còn sống
+    // lấy từ toàn bộ nhóm active (kể cả nhóm đang ẩn), giống hệt cách `/menu` làm.
+    const visibleGroupCodes = new Set(groups.map((g) => g.code));
+    const hiddenGroupCodes = new Set(
+      (await this.groupRepo.find({ where: { is_active: true, is_menu_hidden: true } })).map(
+        (g) => g.code,
+      ),
+    );
+
+    const itemsByGroupCode = new Map<string, MenuItem[]>();
+    const orphanItems: MenuItem[] = [];
+    for (const item of items) {
+      if (hiddenGroupCodes.has(item.group)) continue;
+      if (!visibleGroupCodes.has(item.group)) {
+        orphanItems.push(item);
+        continue;
+      }
+      const list = itemsByGroupCode.get(item.group) ?? [];
+      list.push(item);
+      itemsByGroupCode.set(item.group, list);
+    }
+
+    const result: PublicMenuGroup[] = [];
+    for (const group of groups) {
+      const groupItems = itemsByGroupCode.get(group.code) ?? [];
+      if (groupItems.length === 0) continue;
+      result.push(toPublicMenuGroup(group, groupItems.map(toPublicMenuItem)));
+    }
+
+    if (orphanItems.length > 0) {
+      result.push(
+        toPublicMenuGroup(
+          { id: randomUUID(), code: 'other', name: 'Khác', icon: null },
+          orphanItems.map(toPublicMenuItem),
+        ),
+      );
+    }
+
+    return apiOk<PublicMenuResponse>({ groups: result });
+  }
 }

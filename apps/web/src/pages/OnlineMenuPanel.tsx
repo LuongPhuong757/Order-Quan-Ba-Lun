@@ -34,7 +34,10 @@ type MenuRow = {
   is_online_hidden: boolean;
 };
 
-type GroupRow = {
+// Export (2026-09-04) để màn "Menu xem" (`MenuBookPanel.tsx`) dùng lại `ReorderGroupsModal`
+// bên dưới thay vì dựng thêm một hộp sắp thứ tự nhóm thứ hai: `sort_order` là thứ tự CHUNG
+// (web đặt hàng, quyển menu, dải chip POS đều đọc nó), nên hai hộp riêng là hai chỗ để lệch.
+export type GroupRow = {
   id: string;
   code: string;
   name: string;
@@ -499,17 +502,20 @@ export function OnlineMenuPanel() {
 // `sort_order` là thứ tự CHUNG của nhóm (web khách + dải chip POS đều đọc nó) — đổi ở đây
 // là đổi cả hai, không có thứ tự riêng cho online. Lưu bằng cách đánh lại sort_order
 // tuần tự 0..n-1 và chỉ PATCH những nhóm có giá trị đổi (dữ liệu cũ hay dồn cục 999).
-function ReorderGroupsModal({
+// Generic theo `T` (2026-09-04): màn "Menu xem" truyền vào nhóm có thêm cờ `is_menu_hidden`,
+// và cần nhận LẠI đúng kiểu đó ở `onSaved` — nếu chốt cứng `GroupRow[]` thì cờ kia rụng mất
+// khỏi kiểu trả về và bên gọi phải đi ghép lại bằng tay theo id.
+export function ReorderGroupsModal<T extends GroupRow>({
   groups,
   onClose,
   onSaved,
 }: {
-  groups: GroupRow[];
+  groups: T[];
   onClose: () => void;
-  onSaved: (next: GroupRow[]) => void;
+  onSaved: (next: T[]) => void;
 }) {
   const toast = useToast();
-  const [ordered, setOrdered] = useState<GroupRow[]>(groups);
+  const [ordered, setOrdered] = useState<T[]>(groups);
   const [saving, setSaving] = useState(false);
   // Kéo thả bằng HTML5 drag events thuần (không thêm lib). Hàng đang kéo được dời NGAY
   // khi rê qua hàng khác (live reorder) — mượt hơn kiểu thả mới đổi chỗ. Nút ↑/↓ giữ lại
