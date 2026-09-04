@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { PublicMenuGroup, PublicMenuItem } from '@order/schemas';
 import {
   computeGrid,
+  dragAngle,
   findFirstPageOfGroup,
   findPageOfItem,
   groupAccents,
   paginateGroups,
   searchItems,
   shouldSpread,
+  turnAngles,
+  turnTravelled,
 } from './menu-book.ts';
 
 // Quyển menu điện tử (menu.<domain>). Thứ đáng test ở đây KHÔNG phải giao diện mà là phép
@@ -174,3 +177,50 @@ describe('giữ chỗ và nhảy tới nhóm', () => {
     expect(findPageOfItem(paginateGroups(groups), null)).toBe(0);
   });
 });
+
+describe('mốc góc của cú lật trang', () => {
+  it('tờ lùi đậu ở −90°, KHÔNG phải −180° — bản lề ở mép trái nên −180° là ngoài màn hình', () => {
+    expect(turnAngles(-1).parked).toBe(-90);
+    expect(turnAngles(1).parked).toBe(0);
+  });
+
+  it('ngón tay chỉ điều khiển 90° thấy được, cả hai chiều', () => {
+    expect(Math.abs(turnAngles(1).dragTo - turnAngles(1).dragFrom)).toBe(90);
+    expect(Math.abs(turnAngles(-1).dragTo - turnAngles(-1).dragFrom)).toBe(90);
+  });
+
+  it('kéo hết một bề ngang màn thì tờ giấy đi hết tầm THẤY ĐƯỢC, không dừng giữa đường', () => {
+    // Đây là bug chủ quán báo: trước đây kéo hết màn mới được nửa đường.
+    expect(dragAngle(-1, 1)).toBe(0);
+    expect(dragAngle(1, 1)).toBe(-90);
+  });
+
+  it('kéo nửa màn thì được nửa tầm, và kẹp lại ở hai đầu', () => {
+    expect(dragAngle(-1, 0.5)).toBe(-45);
+    expect(dragAngle(1, 0.5)).toBe(-45);
+    expect(dragAngle(-1, 1.4)).toBe(0);
+    expect(dragAngle(1, -0.2)).toBe(0);
+  });
+
+  it('mở HAI trang thì bản lề ở gáy giữa màn nên cả 180° đều thấy được', () => {
+    // Khác hẳn một trang: ở đây KHÔNG được rút tầm kéo về 90°, làm vậy là tờ giấy nhảy
+    // một phát từ −180° về −90° ngay khi ngón tay vừa chạm.
+    expect(turnAngles(-1, true).parked).toBe(-180);
+    expect(turnAngles(-1, true).dragFrom).toBe(-180);
+    expect(dragAngle(-1, 0.5, true)).toBe(-90);
+    expect(dragAngle(1, 1, true)).toBe(-180);
+    expect(turnTravelled(-1, -90, true)).toBeCloseTo(0.5);
+  });
+
+  it('đích chốt vẫn là trọn 180° — tờ tới bay ra ngoài màn, tờ lùi nằm phẳng', () => {
+    expect(turnAngles(1).commit).toBe(-180);
+    expect(turnAngles(-1).commit).toBe(0);
+  });
+
+  it('quãng đã kéo tính theo tầm thấy được: nửa tầm là 0,5 ở CẢ HAI chiều', () => {
+    expect(turnTravelled(-1, -45)).toBeCloseTo(0.5);
+    expect(turnTravelled(1, -45)).toBeCloseTo(0.5);
+    expect(turnTravelled(-1, -90)).toBe(0);
+    expect(turnTravelled(-1, 0)).toBe(1);
+  });
+})

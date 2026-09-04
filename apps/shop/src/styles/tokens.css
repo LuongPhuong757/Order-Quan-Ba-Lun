@@ -292,7 +292,7 @@
   /* Lật một trang trong quyển menu điện tử (menu.<domain>). Dài hơn --dur-slow có chủ ý:
    * đây là một tờ giấy xoay 180° trong không gian, không phải một tấm ván trượt ngang —
    * chạy 320ms thì mắt không kịp đọc ra chuyển động, chỉ thấy trang "nháy" một cái. */
-  --dur-page-turn: 460ms;
+  --dur-page-turn: 760ms;
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 

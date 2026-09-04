@@ -18,11 +18,15 @@ import {
   findFirstPageOfGroup,
   findPageOfItem,
   groupAccents,
+  dragAngle,
   paginateGroups,
+  turnAngles,
+  turnTravelled,
   shouldSpread,
   type BookGrid,
   type BookPage,
 } from '../lib/menu-book.ts';
+import { playPageTurn } from '../lib/page-turn-sound.ts';
 import { BookCard, BOOK_CARD_CSS } from '../components/BookCard.tsx';
 import { BookDishPreview, BOOK_PREVIEW_CSS } from '../components/BookDishPreview.tsx';
 import { Wordmark } from '../components/Wordmark.tsx';
@@ -62,11 +66,11 @@ type MenuBookResponse = z.infer<typeof MenuBookResponse>;
  * bật về chỗ cũ. Thấp hơn nữa là chạm khẽ cũng lật mất trang; cao hơn nữa là phải vuốt gần
  * hết màn hình mới sang được trang, mỏi tay khi menu có tới 64 trang.
  */
-const TURN_COMMIT_RATIO = 0.28;
+const TURN_COMMIT_RATIO = 0.22;
 
 /**
  * Tờ giấy đang xoay. `dir` 1 = lật tới (tờ đang đọc xoay đi), −1 = lật lùi (tờ trước đó
- * xoay về). `angle` ∈ [−180, 0] độ. `settling` = đang tự chạy nốt bằng CSS transition;
+ * xoay về). `angle` ∈ [−180, 0] độ — âm, xem ghi chú dấu góc ở dưới. `settling` = đang tự chạy nốt bằng CSS transition;
  * false nghĩa là đang bám theo ngón tay, lúc đó KHÔNG được bật transition kẻo tờ giấy đi
  * trễ hơn ngón tay một nhịp.
  */
@@ -152,11 +156,82 @@ export function MenuBookPage(): JSX.Element {
    */
   const pageBgOf = (code: string) => {
     const base = accents.get(code)?.page ?? 'var(--menu-chrome)';
-    return (
-      'linear-gradient(157deg, rgb(255 255 255 / 10%) 0%, rgb(255 255 255 / 4%) 22%, ' +
-      `rgb(255 255 255 / 0%) 52%, rgb(0 0 0 / 16%) 100%), ${base}`
-    );
+    /*
+     * NỀN CỦA TỜ GIẤY — cái "background" khách thật sự nhìn thấy.
+     *
+     * Ảnh mẫu thứ tư (chủ quán gửi trực tiếp một tấm nền, không phải một quyển menu): TẤM
+     * ĐÁ PHIẾN ĐEN có thớ chạy ngang, trên đó lá húng quế, cà chua bi và vụn muối rơi vãi.
+     * Đây là ảnh rõ ý nhất trong bốn tấm, nên nền lần này bám sát nó:
+     *   · ĐEN, không còn xám xanh: lớp phủ #0c0c0b ở 88% dìm màu nhóm xuống gần hết, chỉ
+     *     còn một hơi sắc để trang Ốc không giống hệt trang Bia;
+     *   · THỚ ĐÁ CHẠY NGANG — đá phiến nứt theo lớp, thớ nằm ngang chứ không phải vân chéo
+     *     hay ô gạch. Bốn dải sóng ngang chồng nhau ở độ mờ rất thấp;
+     *   · vụn đổi hẳn kiểu: LÁ HÚNG QUẾ vẽ thật (hai cung gặp nhau ở hai đầu nhọn, có gân
+     *     giữa, gân phụ, cuống), CÀ CHUA BI có cuống và vệt loá, VỤN MUỐI là những mảnh
+     *     trắng méo không đều — không còn hình tròn hay khoanh nào;
+     *   · mỗi vụn có BÓNG ĐỔ (`feDropShadow` trong SVG): đây là thứ làm nó "nằm trên" mặt
+     *     đá thay vì "in vào" mặt đá, và là khác biệt lớn nhất so với bản trước.
+     *
+     * Không dùng `filter` của CSS ở bất cứ đâu trong này: `filter` làm bẹp không gian 3D và
+     * đã một lần làm vỡ chồng tờ giấy. Mọi blur/bóng đều nằm TRONG ảnh SVG.
+     *
+     * Xếp từ TRÊN xuống DƯỚI:
+     */
+    return [
+      // 1. Tối dần quanh mép — mép tấm đá lún vào bóng, đúng như ảnh mẫu.
+      'radial-gradient(118% 84% at 50% 34%, rgb(0 0 0 / 0%) 34%, rgb(0 0 0 / 58%) 100%)',
+      // 2. Một vùng sáng mờ lệch trên-trái: nguồn sáng duy nhất trong ảnh mẫu.
+      'radial-gradient(72% 40% at 34% 6%, rgb(255 250 240 / 9%), transparent 72%)',
+      /*
+       * 3. ẢNH NỀN THẬT, nếu chủ quán đã đặt file vào `apps/shop/public/menu-bg.jpg`.
+       *
+       * Chủ quán hỏi "sao không lấy luôn ảnh của tôi làm background" — đúng ra là nên, và
+       * mọi thứ vẽ bằng CSS ở dưới chỉ là bản mô phỏng thay thế. Một tấm ảnh đá phiến thật
+       * hơn mọi lớp gradient tôi xếp được.
+       *
+       * KHÔNG CÓ FILE THÌ KHÔNG SAO: một lớp `url()` trỏ vào file không tồn tại chỉ bị bỏ
+       * qua, những lớp bên dưới (thớ đá, lá húng, vụn muối vẽ bằng SVG) hiện ra thay. Nên
+       * đây là "có thì đẹp hơn", không phải "thiếu thì vỡ trang".
+       *
+       * `cover` + `center` để ảnh phủ kín mọi tỉ lệ màn hình. Cố ý KHÔNG dùng
+       * `background-attachment: fixed`: tờ giấy là phần tử có `transform` 3D, ở đó `fixed`
+       * neo theo phần tử đã biến hình chứ không theo màn hình, và ảnh sẽ trượt loạn trong
+       * lúc lật trang.
+       */
+      "url('/menu-bg.jpg') center / cover no-repeat",
+      /*
+       * 4. Lớp phủ tối ĐỀ LÊN ảnh — thứ giữ cho chữ đọc được, và là chỗ phải cân đo:
+       *    · quá nhạt: tên món trắng rơi trúng vụn muối hoặc quả cà chua sáng là mất chữ;
+       *    · quá đậm: ảnh chủ quán gửi thành một mảng đen, công đưa ảnh vào thành vô nghĩa.
+       *    Chọn 48% ở đỉnh → 60% ở chân: ảnh còn thấy rõ thớ đá và lá húng, mà chữ trắng
+       *    trên nền tổng hợp vẫn ≈8:1. Ảnh gốc đã rất tối nên không cần tay nặng hơn.
+       */
+      'linear-gradient(rgb(10 10 9 / 48%), rgb(10 10 9 / 54%) 36%, rgb(10 10 9 / 56%) 72%, rgb(8 8 7 / 62%))',
+
+      // 3. Lá húng quế, cà chua bi, vụn muối — có bóng đổ nên nằm TRÊN mặt đá.
+      `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='560' height='560'%3E%3Cdefs%3E%3ClinearGradient id='lf' x1='0' y1='0' x2='0.6' y2='1'%3E%3Cstop offset='0' stop-color='%238fd15a'/%3E%3Cstop offset='0.55' stop-color='%234e8f2a'/%3E%3Cstop offset='1' stop-color='%232c5c17'/%3E%3C/linearGradient%3E%3CradialGradient id='tm' cx='34%' cy='26%' r='76%'%3E%3Cstop offset='0' stop-color='%23f4785a'/%3E%3Cstop offset='0.55' stop-color='%23c62d19'/%3E%3Cstop offset='1' stop-color='%236f150a'/%3E%3C/radialGradient%3E%3Cfilter id='sf' x='-40%' y='-40%' width='180%' height='180%'%3E%3CfeGaussianBlur stdDeviation='0.45'/%3E%3C/filter%3E%3Cfilter id='dr' x='-50%' y='-50%' width='200%' height='200%'%3E%3CfeDropShadow dx='1.2' dy='2' stdDeviation='1.6' flood-color='%23000' flood-opacity='0.55'/%3E%3C/filter%3E%3C/defs%3E%3Cg transform='translate(96 108) rotate(-24) scale(1.0)' opacity='0.9' filter='url(%23dr)'%3E%3Cpath d='M 0 -17 C 9 -11 13 -3 12 5 C 11 13 5 17 0 17 C -5 17 -11 13 -12 5 C -13 -3 -9 -11 0 -17 Z' fill='url(%23lf)'/%3E%3Cpath d='M 0 -15 L 0 15' stroke='%23224a12' stroke-width='1.1' opacity='0.6'/%3E%3Cpath d='M 0 -8 L 6 -3 M 0 -2 L 7 3 M 0 4 L 5 9 M 0 -8 L -6 -3 M 0 -2 L -7 3 M 0 4 L -5 9' stroke='%23224a12' stroke-width='0.7' opacity='0.42'/%3E%3Cpath d='M 0 17 C 0 21 -1 23 -2 25' stroke='%233d6b1f' stroke-width='1.6' fill='none'/%3E%3Cpath d='M -7 -8 C -4 -12 0 -14 3 -13' stroke='%23c9ee9a' stroke-width='0.9' fill='none' opacity='0.5'/%3E%3C/g%3E%3Cg transform='translate(126 142) rotate(38) scale(0.7)' opacity='0.8' filter='url(%23dr)'%3E%3Cpath d='M 0 -17 C 9 -11 13 -3 12 5 C 11 13 5 17 0 17 C -5 17 -11 13 -12 5 C -13 -3 -9 -11 0 -17 Z' fill='url(%23lf)'/%3E%3Cpath d='M 0 -15 L 0 15' stroke='%23224a12' stroke-width='1.1' opacity='0.6'/%3E%3Cpath d='M 0 -8 L 6 -3 M 0 -2 L 7 3 M 0 4 L 5 9 M 0 -8 L -6 -3 M 0 -2 L -7 3 M 0 4 L -5 9' stroke='%23224a12' stroke-width='0.7' opacity='0.42'/%3E%3Cpath d='M 0 17 C 0 21 -1 23 -2 25' stroke='%233d6b1f' stroke-width='1.6' fill='none'/%3E%3Cpath d='M -7 -8 C -4 -12 0 -14 3 -13' stroke='%23c9ee9a' stroke-width='0.9' fill='none' opacity='0.5'/%3E%3C/g%3E%3Cg transform='translate(430 330) rotate(62) scale(0.95)' opacity='0.85' filter='url(%23dr)'%3E%3Cpath d='M 0 -17 C 9 -11 13 -3 12 5 C 11 13 5 17 0 17 C -5 17 -11 13 -12 5 C -13 -3 -9 -11 0 -17 Z' fill='url(%23lf)'/%3E%3Cpath d='M 0 -15 L 0 15' stroke='%23224a12' stroke-width='1.1' opacity='0.6'/%3E%3Cpath d='M 0 -8 L 6 -3 M 0 -2 L 7 3 M 0 4 L 5 9 M 0 -8 L -6 -3 M 0 -2 L -7 3 M 0 4 L -5 9' stroke='%23224a12' stroke-width='0.7' opacity='0.42'/%3E%3Cpath d='M 0 17 C 0 21 -1 23 -2 25' stroke='%233d6b1f' stroke-width='1.6' fill='none'/%3E%3Cpath d='M -7 -8 C -4 -12 0 -14 3 -13' stroke='%23c9ee9a' stroke-width='0.9' fill='none' opacity='0.5'/%3E%3C/g%3E%3Cg transform='translate(300 486) rotate(-12) scale(0.8)' opacity='0.8' filter='url(%23dr)'%3E%3Cpath d='M 0 -17 C 9 -11 13 -3 12 5 C 11 13 5 17 0 17 C -5 17 -11 13 -12 5 C -13 -3 -9 -11 0 -17 Z' fill='url(%23lf)'/%3E%3Cpath d='M 0 -15 L 0 15' stroke='%23224a12' stroke-width='1.1' opacity='0.6'/%3E%3Cpath d='M 0 -8 L 6 -3 M 0 -2 L 7 3 M 0 4 L 5 9 M 0 -8 L -6 -3 M 0 -2 L -7 3 M 0 4 L -5 9' stroke='%23224a12' stroke-width='0.7' opacity='0.42'/%3E%3Cpath d='M 0 17 C 0 21 -1 23 -2 25' stroke='%233d6b1f' stroke-width='1.6' fill='none'/%3E%3Cpath d='M -7 -8 C -4 -12 0 -14 3 -13' stroke='%23c9ee9a' stroke-width='0.9' fill='none' opacity='0.5'/%3E%3C/g%3E%3Cg transform='translate(500 96) rotate(128) scale(0.62)' opacity='0.75' filter='url(%23dr)'%3E%3Cpath d='M 0 -17 C 9 -11 13 -3 12 5 C 11 13 5 17 0 17 C -5 17 -11 13 -12 5 C -13 -3 -9 -11 0 -17 Z' fill='url(%23lf)'/%3E%3Cpath d='M 0 -15 L 0 15' stroke='%23224a12' stroke-width='1.1' opacity='0.6'/%3E%3Cpath d='M 0 -8 L 6 -3 M 0 -2 L 7 3 M 0 4 L 5 9 M 0 -8 L -6 -3 M 0 -2 L -7 3 M 0 4 L -5 9' stroke='%23224a12' stroke-width='0.7' opacity='0.42'/%3E%3Cpath d='M 0 17 C 0 21 -1 23 -2 25' stroke='%233d6b1f' stroke-width='1.6' fill='none'/%3E%3Cpath d='M -7 -8 C -4 -12 0 -14 3 -13' stroke='%23c9ee9a' stroke-width='0.9' fill='none' opacity='0.5'/%3E%3C/g%3E%3Cg transform='translate(384 148) rotate(8) scale(1.0)' opacity='0.9' filter='url(%23dr)'%3E%3Ccircle cx='0' cy='0' r='11' fill='url(%23tm)'/%3E%3Cellipse cx='-4' cy='-5' rx='3.4' ry='2.2' fill='%23ffffff' opacity='0.3'/%3E%3Cpath d='M -3 -10 L 0 -13 L 3 -10 M 0 -13 L 0 -10' stroke='%233d6b1f' stroke-width='1.4' fill='none'/%3E%3C/g%3E%3Cg transform='translate(64 372) rotate(-20) scale(0.72)' opacity='0.8' filter='url(%23dr)'%3E%3Ccircle cx='0' cy='0' r='11' fill='url(%23tm)'/%3E%3Cellipse cx='-4' cy='-5' rx='3.4' ry='2.2' fill='%23ffffff' opacity='0.3'/%3E%3Cpath d='M -3 -10 L 0 -13 L 3 -10 M 0 -13 L 0 -10' stroke='%233d6b1f' stroke-width='1.4' fill='none'/%3E%3C/g%3E%3Cg transform='translate(228 244) scale(1.2)' opacity='0.85' filter='url(%23sf)'%3E%3Cpath d='M 0 0 L 3.4 1.1 L 2.6 4 L -0.6 3.2 Z' fill='%23fffdf7'/%3E%3Cpath d='M 6 5 L 8.6 5.6 L 8 8 L 5.4 7.2 Z' fill='%23fffdf7' opacity='0.85'/%3E%3Ccircle cx='11' cy='2' r='1.1' fill='%23fffdf7' opacity='0.8'/%3E%3Ccircle cx='2' cy='9' r='0.9' fill='%23fffdf7' opacity='0.7'/%3E%3Ccircle cx='-4' cy='6' r='1.4' fill='%23fffdf7' opacity='0.75'/%3E%3Cpath d='M -8 -2 L -5.6 -1.4 L -6.2 1 L -8.6 0.4 Z' fill='%23fffdf7' opacity='0.7'/%3E%3C/g%3E%3Cg transform='translate(462 452) scale(0.9)' opacity='0.7' filter='url(%23sf)'%3E%3Cpath d='M 0 0 L 3.4 1.1 L 2.6 4 L -0.6 3.2 Z' fill='%23fffdf7'/%3E%3Cpath d='M 6 5 L 8.6 5.6 L 8 8 L 5.4 7.2 Z' fill='%23fffdf7' opacity='0.85'/%3E%3Ccircle cx='11' cy='2' r='1.1' fill='%23fffdf7' opacity='0.8'/%3E%3Ccircle cx='2' cy='9' r='0.9' fill='%23fffdf7' opacity='0.7'/%3E%3Ccircle cx='-4' cy='6' r='1.4' fill='%23fffdf7' opacity='0.75'/%3E%3Cpath d='M -8 -2 L -5.6 -1.4 L -6.2 1 L -8.6 0.4 Z' fill='%23fffdf7' opacity='0.7'/%3E%3C/g%3E%3Cg transform='translate(150 300) scale(0.7)' opacity='0.6' filter='url(%23sf)'%3E%3Cpath d='M 0 0 L 3.4 1.1 L 2.6 4 L -0.6 3.2 Z' fill='%23fffdf7'/%3E%3Cpath d='M 6 5 L 8.6 5.6 L 8 8 L 5.4 7.2 Z' fill='%23fffdf7' opacity='0.85'/%3E%3Ccircle cx='11' cy='2' r='1.1' fill='%23fffdf7' opacity='0.8'/%3E%3Ccircle cx='2' cy='9' r='0.9' fill='%23fffdf7' opacity='0.7'/%3E%3Ccircle cx='-4' cy='6' r='1.4' fill='%23fffdf7' opacity='0.75'/%3E%3Cpath d='M -8 -2 L -5.6 -1.4 L -6.2 1 L -8.6 0.4 Z' fill='%23fffdf7' opacity='0.7'/%3E%3C/g%3E%3Cg transform='translate(330 60) scale(0.8)' opacity='0.65' filter='url(%23sf)'%3E%3Cpath d='M 0 0 L 3.4 1.1 L 2.6 4 L -0.6 3.2 Z' fill='%23fffdf7'/%3E%3Cpath d='M 6 5 L 8.6 5.6 L 8 8 L 5.4 7.2 Z' fill='%23fffdf7' opacity='0.85'/%3E%3Ccircle cx='11' cy='2' r='1.1' fill='%23fffdf7' opacity='0.8'/%3E%3Ccircle cx='2' cy='9' r='0.9' fill='%23fffdf7' opacity='0.7'/%3E%3Ccircle cx='-4' cy='6' r='1.4' fill='%23fffdf7' opacity='0.75'/%3E%3Cpath d='M -8 -2 L -5.6 -1.4 L -6.2 1 L -8.6 0.4 Z' fill='%23fffdf7' opacity='0.7'/%3E%3C/g%3E%3C/svg%3E") 0 0 / 560px 560px repeat`,
+      // 5. THỚ ĐÁ PHIẾN chạy ngang (chỉ thấy khi CHƯA có ảnh nền): bốn dải sóng lệch nhau, dải nào cũng gần như không
+      //    thấy. Đá phiến tách theo lớp nên thớ phải NGANG — vân chéo là gỗ, ô vuông là
+      //    gạch men, cả hai đều không phải thứ trong ảnh mẫu.
+      'repeating-linear-gradient(178deg, rgb(255 255 255 / 3.5%) 0 1px, transparent 1px 7px)',
+      'repeating-linear-gradient(181deg, rgb(0 0 0 / 26%) 0 2px, transparent 2px 23px)',
+      'repeating-linear-gradient(177deg, rgb(255 255 255 / 2%) 0 1px, transparent 1px 41px)',
+      'repeating-linear-gradient(183deg, rgb(0 0 0 / 18%) 0 3px, transparent 3px 67px)',
+      // 6. Vết loang của mặt đá: sáu vệt tròn rất lớn, mép nhoè, lệch nhau.
+      'radial-gradient(closest-side circle at 18% 22%, rgb(255 255 255 / 5%), transparent)',
+      'radial-gradient(closest-side circle at 76% 14%, rgb(0 0 0 / 24%), transparent)',
+      'radial-gradient(closest-side circle at 88% 58%, rgb(255 255 255 / 3%), transparent)',
+      'radial-gradient(closest-side circle at 32% 71%, rgb(0 0 0 / 22%), transparent)',
+      'radial-gradient(closest-side circle at 8% 92%, rgb(0 0 0 / 18%), transparent)',
+      // 7. Hạt nhám của đá, và nó cũng khử hiện tượng gradient tối bị chia bậc trên OLED.
+      `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.7' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.28'/%3E%3C/svg%3E")`,
+      // 8. Lớp đen dìm màu nhóm xuống còn một hơi sắc.
+      'linear-gradient(rgb(12 12 11 / 88%), rgb(8 8 7 / 92%))',
+      // 9. Màu nhóm, dưới cùng.
+      base,
+    ].join(', ');
   };
+
   /** Màu NHẬN DIỆN nhóm (pastel sáng) — chip trên dải và vạch cạnh tên nhóm. */
   const accentOf = (code: string) => accents.get(code)?.accent ?? 'var(--wood-400)';
 
@@ -198,19 +273,25 @@ export function MenuBookPage(): JSX.Element {
    *   1. `pages[index + 1]` — tờ nằm sẵn bên dưới, sẽ lộ ra khi lật tới. Luôn có mặt trong
    *      DOM nên ảnh của nó kịp tải trước lúc khách nhìn thấy.
    *   2. `pages[index]`     — tờ đang đọc. Xoay đi khi lật TỚI.
-   *   3. `pages[index - 1]` — tờ vừa lật qua, đậu sẵn ở 180°. Xoay về khi lật LÙI.
+   *   3. `pages[index - 1]` — tờ vừa lật qua, đậu sẵn ở −180°. Xoay về khi lật LÙI.
    *
-   * `angle` của một tờ luôn nằm trong [0°, 180°]: 0° là nằm phẳng đang đọc, 180° là đã lật
-   * hẳn sang trái. `backface-visibility: hidden` làm tờ giấy BIẾN MẤT đúng lúc quay quá
+   * `angle` của một tờ luôn nằm trong [−180°, 0°]: 0° là nằm phẳng đang đọc, −180° là đã
+   * lật hẳn sang trái. `backface-visibility: hidden` làm tờ giấy BIẾN MẤT đúng lúc quay quá
    * 90° — nghĩa là nửa sau của cú lật để lộ tờ bên dưới, đúng ngữ pháp thị giác của việc
    * lật trang. Không cần vẽ mặt sau tờ giấy, cũng không cần lớp thứ tư.
    *
-   * DẤU CỦA GÓC LÀ DƯƠNG, KHÔNG PHẢI ÂM — và đây là chỗ dễ làm hỏng nhất. Góc âm cho mép
-   * giấy ngả RA SAU màn hình; khung ngoài có `perspective` nên trình duyệt xếp các lớp
-   * theo độ sâu 3D thật, và tờ giấy đang lật bị chính tờ nằm dưới che khuất — nhìn ra chỉ
-   * thấy trang mới hiện ra đột ngột, không thấy tờ giấy nào cả (đã dính đúng lỗi này). Góc
-   * dương cho mép giấy nhấc về PHÍA NGƯỜI XEM rồi mới gạt sang trái: vừa nổi lên trên, vừa
-   * đúng động tác tay khi lật một quyển sách thật.
+   * DẤU CỦA GÓC LÀ ÂM (2026-09-04). Ghi chú cũ ở đây nói ngược, và chủ quán bắt được:
+   * "lật như đang lật vào trong, không giống lật sách".
+   *
+   * Trong hệ trục CSS (x phải, y xuống, z hướng ra người xem), `rotateY(θ)` đưa điểm ở +x
+   * tới z = −x·sin θ. Góc DƯƠNG ⇒ z âm ⇒ mép phải tờ giấy chìm RA SAU màn hình — đúng cái
+   * cảm giác "lật vào trong". Góc ÂM ⇒ z dương ⇒ mép giấy nhấc RA PHÍA NGƯỜI XEM rồi mới
+   * gạt sang trái, đúng động tác tay khi lật sách thật.
+   *
+   * Kèm theo đó là `translateZ`: tờ đang lật được nhấc hẳn khỏi mặt sách (cao nhất lúc
+   * dựng đứng 90°). Khung ngoài có `perspective` nên các lớp được xếp theo độ sâu 3D thật;
+   * nhấc lên là cách CHẮC CHẮN để tờ đang lật không bị tờ nằm dưới che — lần trước đổi dấu
+   * mà không nhấc, tờ giấy biến mất và trang mới hiện ra đột ngột.
    *
    * VÌ SAO CHỈ `rotateY`: cả cú lật là MỘT phép biến hình 3D trên một lớp đã composite —
    * không frame nào phải tính lại layout. Xoay `perspective` đặt ở khung ngoài chứ không
@@ -229,6 +310,9 @@ export function MenuBookPage(): JSX.Element {
    *  sau đó. Thiếu nó thì vuốt lật trang mà điểm chạm rơi trúng một card sẽ vừa lật trang
    *  vừa bung ảnh lớn của món đó. */
   const draggedRef = useRef(false);
+  /** Cú vuốt này đã kêu tiếng lật chưa. Không có cờ thì mỗi frame `pointermove` là một tiếng
+   *  xoạt, và một cú vuốt thành tiếng xé giấy. */
+  const turnSoundRef = useRef(false);
   /**
    * Trang mới hiện ra có chạy hiệu ứng "món hiện ra so le" không.
    *
@@ -237,6 +321,13 @@ export function MenuBookPage(): JSX.Element {
    * trang xuất hiện mà không qua cú lật nào: lần tải đầu, bấm chip nhóm, đổi từ khoá tìm.
    */
   const [animateCards, setAnimateCards] = useState(true);
+
+  /**
+   * Nhóm khách vừa bấm trên dải chip — chỉ để biết chip nào sáng, không ảnh hưởng trang nào
+   * đang mở. Xoá ngay khi khách LẬT (lật là họ tự đi tiếp, lúc đó nhóm của trang trái mới
+   * là câu trả lời đúng) hoặc khi nhóm đó không còn nằm trong hai trang đang mở.
+   */
+  const [focusGroup, setFocusGroup] = useState<string | null>(null);
 
   /**
    * Lật một cái đi mấy trang. Mở sách thì mỗi lần lật là MỘT TỜ GIẤY, mà một tờ giấy có hai
@@ -249,14 +340,19 @@ export function MenuBookPage(): JSX.Element {
     [index, total, step],
   );
 
-  /** Góc xuất phát của tờ đang lật: lật tới thì tờ hiện tại đi từ 0°, lật lùi thì tờ trước
-   *  đó đi từ 180° (đang đậu úp mặt, `backface-visibility` giấu đi). */
-  const startAngle = (dir: 1 | -1) => (dir === 1 ? 0 : 180);
-  const endAngle = (dir: 1 | -1) => (dir === 1 ? 180 : 0);
+  /**
+   * Mốc góc của cú lật — định nghĩa và LÝ DO ở `turnAngles` trong `lib/menu-book.ts`, có
+   * test riêng. Tóm lại: tờ giấy đậu ở 0° (tờ tới) hoặc −90° (tờ lùi, dựng đứng nên vô
+   * hình), ngón tay điều khiển đúng 90° thấy được, còn đích chốt vẫn là trọn 180°.
+   */
+  const startAngle = (dir: 1 | -1) => turnAngles(dir, grid.spread).parked;
+  const endAngle = (dir: 1 | -1) => turnAngles(dir, grid.spread).commit;
 
   const go = useCallback(
     (dir: -1 | 1) => {
       if (turn || !canGo(dir)) return;
+      setFocusGroup(null);
+      playPageTurn();
       setTurn({ dir, angle: endAngle(dir), settling: true });
     },
     [turn, canGo],
@@ -270,12 +366,17 @@ export function MenuBookPage(): JSX.Element {
       // nhảy vào giữa một tờ giấy là điều không tồn tại trong sách thật. Lùi về chẵn gần
       // nhất; nhóm cần tới vẫn nằm trong tầm mắt, chỉ là ở nửa bên phải.
       const aligned = grid.spread ? target - (target % 2) : target;
+      // Nhớ nhóm khách VỪA BẤM. Bắt buộc, vì khi mã nhóm rơi vào trang lẻ thì cú lùi-về-chẵn
+      // ở trên đưa nhóm đó sang NỬA PHẢI, còn nửa trái là nhóm trước nó — thiếu dòng này thì
+      // chip sáng lên là chip của nhóm trước, đúng lỗi "bấm tab này nhảy sang tab khác" chủ
+      // quán gặp trên laptop (điện thoại một trang nên không bao giờ lộ).
+      setFocusGroup(pages[target]?.group.code ?? null);
       if (aligned === index) return;
       setTurn(null);
       setAnimateCards(true);
       setIndex(Math.min(Math.max(0, aligned), Math.max(0, total - 1)));
     },
-    [index, total, grid.spread],
+    [index, total, grid.spread, pages],
   );
 
   // Đổi qua lại giữa một trang và hai trang (xoay tablet, kéo cửa sổ) có thể để lại chỉ số
@@ -319,6 +420,7 @@ export function MenuBookPage(): JSX.Element {
     if (turn || preview) return;
     dragRef.current = { x: e.clientX, y: e.clientY, id: e.pointerId, dir: 0, captured: false };
     draggedRef.current = false;
+    turnSoundRef.current = false;
     // CỐ Ý KHÔNG `setPointerCapture` ở đây. Bắt con trỏ ngay từ lúc chạm thì trình duyệt
     // dồn luôn cả `click` về đúng phần tử đang bắt — tức là chạm vào một món chỉ báo về
     // khung trang, còn `onClick` của card KHÔNG BAO GIỜ chạy và ảnh lớn không bao giờ mở.
@@ -350,12 +452,33 @@ export function MenuBookPage(): JSX.Element {
       e.currentTarget.setPointerCapture(e.pointerId);
     }
     const dir = d.dir as 1 | -1;
-    const width = viewportRef.current?.clientWidth || 1;
+    /**
+     * QUÃNG NGÓN TAY CẦN ĐI để lật trọn một tờ — và đây là chỗ làm hỏng cú kéo LÙI trên
+     * laptop (chủ quán: "kéo từ trái qua phải chỉ dừng lại ở giữa", 2026-09-04).
+     *
+     * Bản cũ lấy TRỌN bề ngang khung làm quãng. Mở hai trang thì khung đó là CẢ HAI trang,
+     * nên con chuột bấm ở giữa trang phải rồi kéo sang mép phải chỉ đi được ~25% bề ngang
+     * — dưới ngưỡng chốt 28%, tờ giấy bật ngược về chỗ cũ. Chiều ngược lại (phải→trái) tình
+     * cờ vẫn chạy vì kéo từ trang phải sang mép trái là đi được hơn nửa bề ngang. Đúng cái
+     * bất đối xứng chủ quán gặp: một chiều được, chiều kia dừng giữa đường.
+     *
+     * Quãng đúng là bề ngang MỘT TRANG (nửa khung khi mở hai trang), lấy 80% để tay không
+     * phải đi tới sát mép mới lật được — mép màn hình là chỗ ngón tay hay trượt ra ngoài.
+     */
+    const frame = viewportRef.current?.clientWidth || 1;
+    const width = Math.max(1, (grid.spread ? frame / 2 : frame) * 0.8);
     // Ở mép quyển menu thì tờ giấy chỉ nhấc lên được một góc nhỏ rồi thôi — đó là cách nói
     // "hết trang rồi" mà không cần chữ nào, và không khoá cứng cử chỉ khiến khách tưởng treo.
     const raw = Math.min(1, Math.abs(dx) / width);
     const progress = canGo(dir) ? raw : raw * 0.12;
-    setTurn({ dir, angle: startAngle(dir) + (endAngle(dir) - startAngle(dir)) * progress, settling: false });
+    const angle = dragAngle(dir, progress, grid.spread);
+    // Kêu đúng lúc cú lật VỪA VƯỢT NGƯỠNG CHỐT — từ đây trở đi thả tay là trang lật thật.
+    // Kêu ngay lúc mới chạm thì tiếng đi trước động tác; kêu lúc thả tay thì tiếng đi sau.
+    if (!turnSoundRef.current && canGo(dir) && progress >= TURN_COMMIT_RATIO) {
+      turnSoundRef.current = true;
+      playPageTurn();
+    }
+    setTurn({ dir, angle, settling: false });
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -369,7 +492,7 @@ export function MenuBookPage(): JSX.Element {
     const dir = d.dir as 1 | -1;
     setTurn((cur) => {
       if (!cur) return null;
-      const travelled = Math.abs(cur.angle - startAngle(dir)) / 180;
+      const travelled = turnTravelled(dir, cur.angle, grid.spread);
       const target =
         travelled >= TURN_COMMIT_RATIO && canGo(dir) ? endAngle(dir) : startAngle(dir);
       // Tờ giấy đang đứng đúng chỗ cần tới thì sẽ KHÔNG có `transitionend` nào bắn ra, và
@@ -413,7 +536,19 @@ export function MenuBookPage(): JSX.Element {
   }, [index]);
 
   // ── Vẽ ─────────────────────────────────────────────────────────────────────────────
-  const activeGroupCode = page?.group.code ?? null;
+  /**
+   * Chip nào đang sáng.
+   *
+   * Một trang là một nhóm, nên mở sách là ĐANG XEM HAI NHÓM cùng lúc — câu hỏi "đang ở nhóm
+   * nào" có hai câu trả lời đúng. Luật: nếu khách vừa bấm một chip và nhóm đó đang hiện ở
+   * một trong hai trang thì sáng chip đó (họ vừa nói họ muốn tới đâu); còn lại thì lấy nhóm
+   * của trang TRÁI, vì mắt đọc từ trái sang.
+   */
+  const visibleCodes = [page?.group.code, grid.spread ? pages[index + 1]?.group.code : undefined];
+  const activeGroupCode =
+    focusGroup !== null && visibleCodes.includes(focusGroup)
+      ? focusGroup
+      : (page?.group.code ?? null);
 
   /**
    * Dải chip nhóm phải TỰ CUỘN theo nhóm đang xem. Quán có nhiều nhóm hơn bề ngang màn
@@ -463,12 +598,12 @@ export function MenuBookPage(): JSX.Element {
     });
   }, [index]);
 
-  /** Góc hiện tại của một tờ: chỉ tờ đang được lật mới rời khỏi chỗ đậu của nó. */
-  const angleOf = (which: 'current' | 'prev'): number => {
-    if (turn?.dir === 1 && which === 'current') return turn.angle;
-    if (turn?.dir === -1 && which === 'prev') return turn.angle;
-    return which === 'current' ? 0 : 180;
-  };
+
+  /**
+   * Tờ giấy nhấc lên bao nhiêu (px) ở một góc cho trước. Bằng 0 khi nằm phẳng (0° hoặc
+   * ±180°), cao nhất khi dựng đứng — như tay nhấc mép giấy khỏi mặt sách rồi mới gạt.
+   */
+  const liftOf = (angle: number) => Math.abs(Math.sin((angle * Math.PI) / 180)) * 40;
 
   /** Dựng một tờ giấy. `layer` quyết định nó đậu ở đâu và có bấm được không. */
   /**
@@ -506,7 +641,7 @@ export function MenuBookPage(): JSX.Element {
    * Bốn lớp, dưới lên trên:
    *   1. nửa trái tĩnh  = trang i−2 (lộ ra khi lật lùi)
    *   2. nửa phải tĩnh  = trang i+3 (lộ ra khi lật tới)
-   *   3+4. hai tờ giấy: tờ "tới" đậu ở 0° (đang nằm bên phải), tờ "lùi" đậu ở 180° (đang
+   *   3+4. hai tờ giấy: tờ "tới" đậu ở 0° (đang nằm bên phải), tờ "lùi" đậu ở −180° (đang
    *        nằm bên trái). Nghĩa là trang TRÁI khách đang đọc chính là MẶT SAU của tờ vừa
    *        lật qua — đúng như sách thật, không phải một lớp riêng.
    *
@@ -520,15 +655,15 @@ export function MenuBookPage(): JSX.Element {
     const back = pages[backAt];
     if (!front && !back) return null;
 
-    const angle = turn?.dir === dir ? turn.angle : dir === 1 ? 0 : 180;
+    const angle = turn?.dir === dir ? turn.angle : turnAngles(dir, true).parked;
     // Mặt nào đang quay về phía khách. Dùng để quyết mặt nào bấm được — mặt kia đang úp,
     // để nó nhận chạm là khách bấm trúng một món họ không nhìn thấy.
-    const frontFacing = angle < 90;
+    const frontFacing = angle > -90;
     const live = turn === null;
     // Đậm nhất lúc tờ giấy dựng đứng (90°) rồi nhạt dần — đúng cách ánh sáng rơi trên một
     // tờ giấy đang xoay. Khác chế độ một trang (ở đó tờ giấy biến mất sau 90° nên bóng chỉ
     // cần tăng dần).
-    const shade = Math.sin((angle * Math.PI) / 180) * 0.45;
+    const shade = Math.abs(Math.sin((angle * Math.PI) / 180)) * 0.45;
 
     const face = (p: BookPage | undefined, at: number, isFront: boolean) => {
       if (!p) return null;
@@ -556,7 +691,7 @@ export function MenuBookPage(): JSX.Element {
         key={dir}
         style={{
           ...bookLeaf,
-          transform: `rotateY(${angle}deg)`,
+          transform: `translateZ(${liftOf(angle)}px) rotateY(${angle}deg)`,
           transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
         }}
         onTransitionEnd={onLeafTransitionEnd}
@@ -606,39 +741,82 @@ export function MenuBookPage(): JSX.Element {
   };
 
   // ── Chế độ MỘT trang (điện thoại) ──────────────────────────────────────────────────
-  const renderLeaf = (layer: 'under' | 'current' | 'prev') => {
-    const at = layer === 'under' ? index + 1 : layer === 'current' ? index : index - 1;
-    const p = pages[at];
-    if (!p) return null;
-    const angle = layer === 'under' ? 0 : angleOf(layer);
-    // Chỉ tờ đang nằm phẳng trước mặt khách mới nhận thao tác. Tờ bên dưới và tờ đã lật qua
-    // phải `inert`: không có nó thì Tab nhảy vào những ô không nhìn thấy và trình đọc màn
-    // hình đọc luôn món của trang khác như thể đang ở trên trang này.
-    const live = layer === 'current' && turn === null;
-    // Bóng đổ trên tờ giấy đậm dần theo góc quay — đó là thứ làm cú lật ra chất giấy thay
-    // vì một tấm ảnh phẳng xoay quanh trục.
-    const shade = Math.min(1, Math.abs(angle) / 90) * 0.42;
+  /**
+   * TỜ GIẤY HAI MẶT cho chế độ MỘT trang (điện thoại).
+   *
+   * Bản trước dùng ba lớp một mặt (dưới / đang đọc / vừa lật) và mượn mẹo
+   * `backface-visibility: hidden`: tờ giấy biến mất khi quay quá 90°. Lật TỚI thì mẹo đó
+   * chạy đúng — nửa đầu thấy tờ giấy, nửa sau nó biến đi để lộ trang mới. Nhưng lật LÙI
+   * thì ngược lại: tờ giấy đậu ở −180° đang úp mặt sau ra ngoài nên nó VÔ HÌNH suốt nửa
+   * đầu, khách chỉ thấy nửa sau. Đúng như chủ quán bắt được: "phải qua trái thì đúng, trái
+   * qua phải chỉ được một nửa".
+   *
+   * Cách sửa không phải là vá góc, mà là dựng đúng mô hình vật lý: một tờ giấy có HAI MẶT.
+   * Mặt trước là trang N, mặt sau là trang N+1 — y như một tờ trong quyển sách thật. Nhờ
+   * vậy suốt cả 180° luôn có một mặt hướng về khách, cả hai chiều đều thấy đủ cú lật.
+   *
+   * Chỉ cần ĐÚNG HAI tờ trong DOM, và không cần lớp "trang nằm dưới" nào nữa:
+   *   · tờ TỚI  — mặt trước pages[index], mặt sau pages[index+1], đậu ở 0°;
+   *   · tờ LÙI  — mặt trước pages[index−1], mặt sau pages[index],  đậu ở −180°.
+   * Lúc đậu, cả hai đều đang cho khách xem pages[index] (một tờ bằng mặt trước, tờ kia
+   * bằng mặt sau) nên chồng nhau không thấy gì lạ.
+   *
+   * Tờ đang đậu bị đẩy lùi 1px (`translateZ(-1px)`): hai mặt phẳng nằm ĐÚNG cùng một độ
+   * sâu là công thức của hiện tượng z-fighting — hai mặt tranh nhau vẽ, ra một vệt nhấp
+   * nháy chạy dọc trang.
+   */
+  const renderSheet = (dir: 1 | -1) => {
+    const frontAt = dir === 1 ? index : index - 1;
+    const backAt = dir === 1 ? index + 1 : index;
+    const front = pages[frontAt];
+    const back = pages[backAt];
+    if (!front && !back) return null;
+
+    const turning = turn?.dir === dir;
+    const angle = turning ? turn.angle : turnAngles(dir).parked; // một trang: tờ lùi đậu ở −90°
+    // Mặt nào đang hướng về khách. Quá −90° là mặt sau.
+    const frontFacing = angle > -90;
+    const live = turn === null;
+    // Đậm nhất lúc tờ giấy dựng đứng rồi nhạt dần — ánh sáng rơi trên một tờ giấy đang xoay.
+    const shade = Math.abs(Math.sin((angle * Math.PI) / 180)) * 0.45;
+
+    const face = (page: BookPage | undefined, at: number, isFront: boolean) => {
+      if (!page) return null;
+      const facing = isFront === frontFacing;
+      return (
+        <div
+          style={{
+            ...pageLeaf,
+            // Nền tờ giấy mang màu (tối) của nhóm. Đặt ở TỜ GIẤY chứ không ở khung ngoài:
+            // lúc đang lật, hai tờ hai sắc khác nhau trượt qua nhau, và chính khoảnh khắc
+            // đó nói cho khách biết họ vừa sang nhóm mới.
+            background: pageBgOf(page.group.code),
+            transform: isFront ? undefined : 'rotateY(180deg)',
+            pointerEvents: live && facing ? undefined : 'none',
+          }}
+          className="book-leaf"
+          data-page-slot={facing ? 'current' : 'hidden'}
+          inert={!(live && facing)}
+        >
+          {renderPageBody(page, at, facing || neighboursReady, live && facing && animateCards)}
+          {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
+        </div>
+      );
+    };
+
     return (
       <div
+        key={dir}
         style={{
-          ...pageLeaf,
-          // Nền tờ giấy mang màu (tối) của nhóm. Đặt ở TỜ GIẤY chứ không ở khung ngoài:
-          // lúc đang lật, hai tờ hai sắc khác nhau trượt qua nhau, và chính khoảnh khắc đó
-          // nói cho khách biết họ vừa sang nhóm mới.
-          background: pageBgOf(p.group.code),
-          transform: `rotateY(${angle}deg)`,
+          ...sheet,
+          transform: `translateZ(${turning ? liftOf(angle) : -1}px) rotateY(${angle}deg)`,
           transition: turn?.settling ? 'transform var(--dur-page-turn) var(--ease-in-out)' : 'none',
-          // Tờ bên dưới không bao giờ xoay nên đừng bắt trình duyệt giữ layer GPU cho nó.
-          willChange: layer === 'under' ? undefined : 'transform',
-          pointerEvents: live ? undefined : 'none',
+          willChange: turning ? 'transform' : undefined,
         }}
-        className="book-leaf"
-        data-page-slot={layer === 'current' ? 'current' : layer}
-        inert={!live}
-        onTransitionEnd={layer === 'under' ? undefined : onLeafTransitionEnd}
+        onTransitionEnd={onLeafTransitionEnd}
       >
-        {renderPageBody(p, at, layer === 'current' || neighboursReady, live && animateCards)}
-        {shade > 0 && <div aria-hidden="true" style={{ ...leafShade, opacity: shade }} />}
+        {face(front, frontAt, true)}
+        {face(back, backAt, false)}
       </div>
     );
   };
@@ -725,9 +903,11 @@ export function MenuBookPage(): JSX.Element {
             renderSpread()
           ) : (
             <>
-              {renderLeaf('under')}
-              {renderLeaf('current')}
-              {renderLeaf('prev')}
+              {/* THỨ TỰ CỐ ĐỊNH, đừng đảo để "đưa tờ đang lật lên trên": React có `key` nên
+                  nó DI CHUYỂN node thật trong DOM, và cú di chuyển đó cắt ngang transition
+                  đang chạy — tờ giấy đứng sững giữa đường. Độ sâu đã do `translateZ` lo. */}
+              {renderSheet(1)}
+              {renderSheet(-1)}
             </>
           ))}
       </div>
@@ -1047,6 +1227,19 @@ const viewport: CSSProperties = {
  * `backfaceVisibility: hidden` là mấu chốt: quay quá 90° thì tờ giấy tự biến mất, để lộ tờ
  * bên dưới. Nhờ vậy không phải vẽ mặt sau tờ giấy và không cần thêm lớp nào nữa.
  */
+/**
+ * KHUNG của tờ giấy hai mặt ở chế độ một trang. Bản thân nó không vẽ gì — hai mặt bên trong
+ * mới có nền và nội dung. `preserve-3d` là thứ bắt buộc: thiếu nó thì hai mặt bị bẹp vào
+ * cùng một mặt phẳng và `backface-visibility` của chúng mất tác dụng, hai trang chồng lên
+ * nhau thành một vũng chữ.
+ */
+const sheet: CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  transformOrigin: 'left center',
+  transformStyle: 'preserve-3d',
+};
+
 const pageLeaf: CSSProperties = {
   position: 'absolute',
   inset: 0,

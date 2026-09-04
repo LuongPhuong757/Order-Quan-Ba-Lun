@@ -195,3 +195,62 @@ export function findFirstPageOfGroup(pages: BookPage[], groupCode: string): numb
   const at = pages.findIndex((page) => page.group.code === groupCode);
   return at < 0 ? 0 : at;
 }
+
+/**
+ * Bốn cái mốc góc của một cú lật trang, cho từng chiều.
+ *
+ * VÌ SAO PHẢI TÁCH "TẦM KÉO" KHỎI "ĐÍCH CHỐT" — chủ quán: "kéo từ trái qua phải chỉ dừng
+ * lại ở giữa mà không đi tiếp" (2026-09-04).
+ *
+ * Ở chế độ một trang, bản lề tờ giấy nằm đúng MÉP TRÁI MÀN HÌNH. Nghĩa là tờ giấy quay quá
+ * 90° thì nó nằm ngoài màn hình, không ai thấy gì. Bản cũ cho ngón tay điều khiển trọn
+ * 180°, nên khi kéo LÙI (−180° → 0°):
+ *   · nửa đầu cú kéo (−180° → −90°) diễn ra ngoài màn hình — kéo mà màn hình không đổi gì;
+ *   · ngón tay chạm mép phải màn hình thì góc mới tới khoảng −60°, tức tờ giấy đứng nghiêng
+ *     giữa trang rồi hết đường kéo. Đúng chữ "dừng lại ở giữa".
+ *
+ * Cách sửa: ngón tay chỉ điều khiển 90° THẤY ĐƯỢC, còn 90° ngoài màn hình không tính vào
+ * quãng kéo.
+ *   parked   — chỗ tờ giấy đậu khi không lật. Tờ lùi đậu ở −90° (dựng đứng, bề ngang bằng 0
+ *              nên vô hình) thay vì −180° (nằm ngoài màn hình): từ đó nó mở vào giữa trang.
+ *   dragFrom — góc lúc ngón tay bắt đầu; dragTo — góc khi ngón tay đi hết một bề ngang màn.
+ *   commit   — đích khi cú lật được chốt (tờ tới bay hẳn ra ngoài ở −180°; tờ lùi nằm phẳng
+ *              ở 0°).
+ */
+export type TurnAngles = { parked: number; dragFrom: number; dragTo: number; commit: number };
+
+/**
+ * `spread` = đang mở HAI trang (máy tính). Hai chế độ có bản lề ở hai chỗ khác nhau, nên
+ * mốc góc khác nhau — đây là chỗ dễ nhầm nhất trong cả cú lật:
+ *   · MỘT trang: bản lề ở mép trái MÀN HÌNH ⇒ quá 90° là ra ngoài màn, chỉ 90° đầu thấy
+ *     được. Tờ lùi đậu ở −90° (dựng đứng, vô hình) rồi mở vào giữa trang.
+ *   · HAI trang: bản lề ở GÁY SÁCH giữa màn ⇒ tờ giấy quay 180° vẫn nằm trọn trong màn
+ *     (nó úp sang nửa trái). Cả 180° đều thấy được, nên ngón tay điều khiển trọn 180° và
+ *     tờ lùi đậu ở −180° như một tờ giấy thật đang nằm bên trái.
+ */
+export function turnAngles(dir: 1 | -1, spread = false): TurnAngles {
+  if (spread) {
+    return dir === 1
+      ? { parked: 0, dragFrom: 0, dragTo: -180, commit: -180 }
+      : { parked: -180, dragFrom: -180, dragTo: 0, commit: 0 };
+  }
+  return dir === 1
+    ? { parked: 0, dragFrom: 0, dragTo: -90, commit: -180 }
+    : { parked: -90, dragFrom: -90, dragTo: 0, commit: 0 };
+}
+
+/** Góc của tờ giấy khi ngón tay đã đi được `progress` (0…1) một bề ngang màn hình. */
+export function dragAngle(dir: 1 | -1, progress: number, spread = false): number {
+  const { dragFrom, dragTo } = turnAngles(dir, spread);
+  const clamped = Math.min(1, Math.max(0, progress));
+  return dragFrom + (dragTo - dragFrom) * clamped;
+}
+
+/**
+ * Ngón tay đã đi được bao nhiêu phần của tầm kéo THẤY ĐƯỢC (0…1) — số này đem so với
+ * ngưỡng chốt. Chia cho 90 chứ không phải 180: xem ghi chú `turnAngles`.
+ */
+export function turnTravelled(dir: 1 | -1, angle: number, spread = false): number {
+  const { dragFrom, dragTo } = turnAngles(dir, spread);
+  return Math.min(1, Math.abs(angle - dragFrom) / Math.abs(dragTo - dragFrom));
+}
