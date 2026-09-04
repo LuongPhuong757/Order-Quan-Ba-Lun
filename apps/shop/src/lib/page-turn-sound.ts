@@ -105,7 +105,7 @@ export function playPageTurn(): void {
      * 14 hạt rải theo phân bố lệch (`t*t`) nên dày ở đầu, thưa dần về sau — đúng lúc mép
      * giấy vừa bung ra là lúc nhiều sợi bật cùng nhau nhất.
      */
-    const dur = 0.34;
+    const dur = 0.46;
 
     // 1. Tiếng miết.
     layer(now, dur, 0.1, 1500, 380, 0.6);

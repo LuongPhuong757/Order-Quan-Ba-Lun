@@ -291,8 +291,13 @@
   --dur-slow: 320ms; /* Bottom sheet trượt lên */
   /* Lật một trang trong quyển menu điện tử (menu.<domain>). Dài hơn --dur-slow có chủ ý:
    * đây là một tờ giấy xoay 180° trong không gian, không phải một tấm ván trượt ngang —
-   * chạy 320ms thì mắt không kịp đọc ra chuyển động, chỉ thấy trang "nháy" một cái. */
-  --dur-page-turn: 760ms;
+   * chạy 320ms thì mắt không kịp đọc ra chuyển động, chỉ thấy trang "nháy" một cái.
+   * Chủ quán chỉnh dần: 460ms → 760ms → 1000ms (2026-09-04). Một giây nghe như lâu, nhưng
+   * đây là cả một tờ giấy xoay trong không gian, và ở tốc độ này mới thấy được mặt giấy
+   * nghiêng đi. Đừng tăng nữa: quá 1,2s thì khách lật liên tiếp sẽ phải CHỜ máy.
+   * `page-turn-sound.ts` có một hằng số đi cặp với nó (`dur`) — đổi đây thì xem lại bên đó,
+   * tiếng kêu ngắn hơn cú lật nhiều là nghe ra hai chuyện rời nhau. */
+  --dur-page-turn: 1000ms;
   --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
   --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
 
