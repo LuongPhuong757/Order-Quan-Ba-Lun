@@ -19,6 +19,12 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
+import {
+  ItemStatsPanel,
+  PriceChangesPanel,
+  PriceHistoryDialog,
+  PriceMatrixPanel,
+} from './SupplierReports.tsx';
 
 type Supplier = {
   id: string;
@@ -54,7 +60,7 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Tab = 'suppliers' | 'deliveries';
+type Tab = 'suppliers' | 'deliveries' | 'prices' | 'items';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -89,6 +95,7 @@ export function SuppliersPage() {
   const [showForm, setShowForm] = useState<{ supplierId?: string } | null>(null);
   const [showEditor, setShowEditor] = useState<Supplier | 'new' | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
+  const [history, setHistory] = useState<{ id: string; name: string } | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -123,6 +130,8 @@ export function SuppliersPage() {
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
     { value: 'deliveries', label: 'Phiếu nhập' },
+    { value: 'prices', label: 'Biến động giá' },
+    { value: 'items', label: 'Mặt hàng nhập' },
   ];
 
   return (
@@ -199,9 +208,34 @@ export function SuppliersPage() {
 
       {tab === 'deliveries' && !loading && <DeliveryList deliveries={deliveries} period={period.label} />}
 
+      {tab === 'prices' && (
+        <>
+          <PriceChangesPanel
+            from={period.from}
+            to={period.to}
+            periodLabel={period.label}
+            onOpenHistory={(id, name) => setHistory({ id, name })}
+          />
+          <h3 style={{ margin: '28px 0 12px', fontSize: 17 }}>So giá giữa các nhà cung cấp</h3>
+          <PriceMatrixPanel />
+        </>
+      )}
+
+      {tab === 'items' && (
+        <ItemStatsPanel from={period.from} to={period.to} periodLabel={period.label} />
+      )}
+
       {/* Mở lại ĐÚNG panel đang dùng ở màn Menu (M3.D-32). Danh mục nguyên liệu là MỘT bảng;
           dựng UI thứ hai để sửa cùng bảng đó là nguồn bug và lệch hành vi. */}
       {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
+
+      {history && (
+        <PriceHistoryDialog
+          ingredientId={history.id}
+          ingredientName={history.name}
+          onClose={() => setHistory(null)}
+        />
+      )}
 
       {detail && (
         <SupplierDetail
@@ -211,6 +245,7 @@ export function SuppliersPage() {
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
           onIntake={() => setShowForm({ supplierId: detail.id })}
+          onOpenHistory={(id, name) => setHistory({ id, name })}
         />
       )}
 
@@ -340,6 +375,7 @@ function SupplierDetail({
   onClose,
   onEdit,
   onIntake,
+  onOpenHistory,
 }: {
   supplier: Supplier;
   deliveries: Delivery[];
@@ -347,6 +383,7 @@ function SupplierDetail({
   onClose: () => void;
   onEdit: () => void;
   onIntake: () => void;
+  onOpenHistory: (ingredientId: string, name: string) => void;
 }) {
   const [items, setItems] = useState<SupplierItemRow[] | null>(null);
 
@@ -436,7 +473,27 @@ function SupplierDetail({
               <tbody>
                 {items.map((it) => (
                   <tr key={it.ingredient_id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                    <td style={{ padding: 8 }}>{it.ingredient_name}</td>
+                    <td style={{ padding: 8 }}>
+                      {/* Bấm tên mặt hàng → lịch sử giá đầy đủ của nó qua mọi NCC (mục 4.3).
+                          Đây là đường đi tự nhiên: đang xem giá NCC này thấy lạ thì muốn biết
+                          ngay nơi khác bán bao nhiêu và giá đã trôi thế nào. */}
+                      <button
+                        type="button"
+                        onClick={() => onOpenHistory(it.ingredient_id, it.ingredient_name)}
+                        style={{
+                          border: 'none',
+                          background: 'none',
+                          padding: 0,
+                          minHeight: 0,
+                          textDecoration: 'underline',
+                          cursor: 'pointer',
+                          color: 'inherit',
+                          font: 'inherit',
+                        }}
+                      >
+                        {it.ingredient_name}
+                      </button>
+                    </td>
                     <td style={{ padding: 8, color: C.mutedOnTint }}>{it.purchase_unit}</td>
                     <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
                       {vnd(it.last_unit_price)}đ

@@ -8,6 +8,8 @@ import { SuppliersController } from './suppliers.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 import { DeliveriesController } from './deliveries.controller.js';
 import { DeliveriesService } from './deliveries.service.js';
+import { ReportsController } from './reports.controller.js';
+import { ReportsService } from './reports.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { IngredientsModule } from '../ingredients/ingredients.module.js';
 
@@ -24,8 +26,8 @@ import { IngredientsModule } from '../ingredients/ingredients.module.js';
     AuthModule,
     IngredientsModule,
   ],
-  controllers: [SuppliersController, DeliveriesController],
-  providers: [SuppliersService, DeliveriesService],
-  exports: [SuppliersService, DeliveriesService, TypeOrmModule],
+  controllers: [SuppliersController, DeliveriesController, ReportsController],
+  providers: [SuppliersService, DeliveriesService, ReportsService],
+  exports: [SuppliersService, DeliveriesService, ReportsService, TypeOrmModule],
 })
 export class SuppliersModule {}

@@ -301,8 +301,8 @@ Phiếu admin nhập hộ vào thẳng `Đã kiểm` (M3.D-07).
 
 | Bước | Nội dung | Ghi chú |
 |---|---|---|
-| **1** | Route `/suppliers` + tab 1 (danh sách NCC) + tab 2 (phiếu nhập) + tab 4 (nối `IngredientsPanel`) + màn nhập phiếu admin + **popup cảnh báo giá** | Chạy được thật ngay, rủi ro gần bằng 0, bắt đầu sinh lịch sử giá. `ingredients` đã có sẵn (5.1). |
-| **2** | **Thống kê mặt hàng nhập** (3.3) + bảng giá mặt hàng của NCC (3.2) + tab **Biến động giá** (4.1–4.4) | Cần dữ liệu của bước 1. 3.3 dùng được ngay từ phiếu đầu tiên; 4.1 cần ~2 kỳ nhập mới có nghĩa |
+| ✅ **1** | Route `/suppliers` + tab 1 (danh sách NCC) + tab 2 (phiếu nhập) + tab 4 (nối `IngredientsPanel`) + màn nhập phiếu admin + **popup cảnh báo giá** | Chạy được thật ngay, rủi ro gần bằng 0, bắt đầu sinh lịch sử giá. `ingredients` đã có sẵn (5.1). |
+| ✅ **2** | **Thống kê mặt hàng nhập** (3.3) + bảng giá mặt hàng của NCC (3.2) + tab **Biến động giá** (4.1–4.4) | Cần dữ liệu của bước 1. 3.3 dùng được ngay từ phiếu đầu tiên; 4.1 cần ~2 kỳ nhập mới có nghĩa |
 | **3** | **Công nợ**: `supplier_payments` + số dư đầu kỳ + màn ghi nhận thanh toán (M3.D-39→41, mục 3.5) | Tách riêng vì phụ thuộc **việc vận hành** — chủ quán phải đối chiếu số dư đầu kỳ với từng NCC trước khi bật (Q-7). Code xong mà chưa có số dư thì con số hiển thị vẫn sai. |
 | **4** | Tài khoản NCC tự nhập (M3.D-01→04), phát PIN cho 3–5 NCC dễ tính nhất làm thử | Mở rộng dần; ai không dùng thì vĩnh viễn ở đường admin nhập hộ |
 | **5** | Nối `ingredients` vào `recipe_lines` → **giá vốn món ăn theo thời gian thực** | Ghép với `feat/misa-sync-and-recipe` |
