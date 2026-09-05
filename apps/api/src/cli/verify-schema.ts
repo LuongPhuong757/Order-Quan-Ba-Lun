@@ -75,7 +75,18 @@ const CHECKS: TableCheck[] = [
   // của data-source.ts thì `synchronize` bỏ qua im lặng mà `tsc` vẫn xanh; gate này bắt được.
   {
     table: 'ingredients',
-    requiredColumns: ['id', 'name', 'name_key', 'unit', 'note', 'is_active', 'merged_into_id'],
+    requiredColumns: [
+      'id',
+      'name',
+      'name_key',
+      'unit',
+      'note',
+      'is_active',
+      'merged_into_id',
+      // Ngưỡng cảnh báo đổi giá riêng từng mặt hàng (M3.D-23). Cột THÊM vào bảng đã có — kiểu
+      // thay đổi dễ trôi nhất: bảng vẫn tồn tại nên gate cũ vẫn xanh, chỉ cột mới là thiếu.
+      'price_alert_threshold_pct',
+    ],
   },
   {
     table: 'recipe_lines',
@@ -92,6 +103,60 @@ const CHECKS: TableCheck[] = [
       'unit',
       'qty_total',
       'qty',
+    ],
+  },
+  // Nhập hàng NCC (2026-09-05, Milestone 3). Bốn bảng mới hoàn toàn — cùng lý do có mặt ở đây
+  // như nhóm nguyên liệu bên trên.
+  {
+    table: 'suppliers',
+    requiredColumns: ['id', 'name', 'name_key', 'phone', 'note', 'is_active'],
+  },
+  {
+    table: 'supplier_items',
+    requiredColumns: [
+      'id',
+      'supplier_id',
+      'ingredient_id',
+      'purchase_unit',
+      'qty_base_per_unit',
+      'last_unit_price',
+      'last_unit_price_base',
+      'last_delivery_date',
+    ],
+  },
+  {
+    table: 'supplier_deliveries',
+    requiredColumns: [
+      'id',
+      'supplier_id',
+      'delivery_date',
+      'status',
+      'source',
+      'created_by_user_id',
+      'created_by_name',
+      'total_amount',
+    ],
+  },
+  {
+    table: 'supplier_delivery_lines',
+    requiredColumns: [
+      'id',
+      'delivery_id',
+      'ingredient_id',
+      'ingredient_name_snapshot',
+      'unit_snapshot',
+      'purchase_unit_snapshot',
+      'qty_base_per_unit_snapshot',
+      'qty_purchase',
+      'unit_price',
+      'amount',
+      'qty_base',
+      // Cột sống còn của cảnh báo giá: thiếu nó thì so sánh rơi về `unit_price` và popup báo
+      // động sai mỗi khi NCC đổi đơn vị báo giá (M3.D-36).
+      'unit_price_base',
+      'prev_unit_price_base',
+      'price_change_pct',
+      'prev_qty_base_per_unit',
     ],
   },
   {

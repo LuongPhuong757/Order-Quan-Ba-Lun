@@ -57,6 +57,9 @@ const HistoryPage = lazy(() =>
 const OnlineOrdersPage = lazy(() =>
   import('./pages/OnlineOrdersPage.tsx').then((m) => ({ default: m.OnlineOrdersPage })),
 );
+const SuppliersPage = lazy(() =>
+  import('./pages/SuppliersPage.tsx').then((m) => ({ default: m.SuppliersPage })),
+);
 
 /**
  * Những màn mỗi role bấm vào NHIỀU NHẤT trong một buổi làm — kéo sẵn về khi máy rảnh.
@@ -147,6 +150,15 @@ export function App() {
                 Giới hạn thực thi ở BE — xem staffHistoryWindowMs ở orders.controller. */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/history" element={<HistoryPage />} />
+            </Route>
+
+            {/* Nhà cung cấp (M3.D-31, 2026-09-05): admin + order.
+                Nhân viên order là người NHẬN HÀNG tại quán, nên họ phải nhập được phiếu — nhập hộ
+                là đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ. Bếp không vào:
+                bếp không nhận hàng và không thấy giá mua.
+                Các nút sửa/xoá NCC bên trong gate riêng theo role, khớp với AdminGuard ở BE. */}
+            <Route element={<RoleGate allow={['admin', 'order']} />}>
+              <Route path="/suppliers" element={<SuppliersPage />} />
             </Route>
 
             {/* Admin-only: tables, users, audit, dashboard */}

@@ -23,6 +23,10 @@ import { GeoShareFailure } from './modules/analytics/entities/geo-share-failure.
 import { Ingredient } from './modules/ingredients/entities/ingredient.entity.js';
 import { RecipeLine } from './modules/ingredients/entities/recipe-line.entity.js';
 import { OrderItemIngredientUsage } from './modules/ingredients/entities/order-item-ingredient-usage.entity.js';
+import { Supplier } from './modules/suppliers/entities/supplier.entity.js';
+import { SupplierItem } from './modules/suppliers/entities/supplier-item.entity.js';
+import { SupplierDelivery } from './modules/suppliers/entities/supplier-delivery.entity.js';
+import { SupplierDeliveryLine } from './modules/suppliers/entities/supplier-delivery-line.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -80,6 +84,12 @@ export const dataSourceOptions: DataSourceOptions = {
     RecipeLine,
     // Bản chốt tiêu hao — ghi khi món vào bếp, là nguồn duy nhất cho báo cáo nguyên liệu.
     OrderItemIngredientUsage,
+    // Nhập hàng NCC (2026-09-05, Milestone 3). `supplier_delivery_lines` là nguồn duy nhất cho
+    // cả ba báo cáo của milestone: biến động giá, thống kê mặt hàng nhập, tổng mua theo kỳ.
+    Supplier,
+    SupplierItem,
+    SupplierDelivery,
+    SupplierDeliveryLine,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

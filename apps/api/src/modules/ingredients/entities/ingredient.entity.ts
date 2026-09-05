@@ -43,6 +43,18 @@ export class Ingredient {
   @Column({ type: 'varchar', length: 255, nullable: true })
   note!: string | null;
 
+  /** Ngưỡng cảnh báo đổi giá RIÊNG cho mặt hàng này, tính bằng % (M3.D-23). NULL = dùng ngưỡng
+   * chung 10% — xem `DEFAULT_WARN_PCT` trong `suppliers/purchase-units.ts`.
+   *
+   * Cố ý cho phép NULL và mặc định là NULL: bắt chủ quán gắn nhãn "giá cố định / giá thả nổi"
+   * cho vài trăm mặt hàng TRƯỚC khi dùng được thì tính năng chết yểu. Nguyên tắc là khai báo
+   * khi thấy đau — mặt hàng nào kêu quá nhiều thì mới vào nới ngưỡng riêng cho nó.
+   *
+   * `string` chứ không phải `number`: mysql2 trả decimal dạng chuỗi, giống `recipe_lines
+   * .qty_per_serving` và `orders.distance_km`. Khai `number` thì `tsc` xanh mà runtime là chuỗi. */
+  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
+  price_alert_threshold_pct!: string | null;
+
   /** Xoá mềm, cùng lệ với `menu_items.is_active`.
    *
    * Nguyên liệu bị gộp đi cũng để `false` ở đây (không DELETE): các bản chốt tiêu hao trong quá

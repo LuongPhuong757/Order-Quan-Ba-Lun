@@ -1,0 +1,90 @@
+import { Body, Controller, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  IsArray,
+  IsBoolean,
+  IsNumber,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MaxLength,
+  Min,
+  ValidateNested,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+import type { Request } from 'express';
+import { DeliveriesService } from './deliveries.service.js';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { RequireRoles } from '../auth/guards/roles.guard.js';
+
+class DeliveryLineDto {
+  /** Rỗng = mặt hàng chưa có trong danh mục, tạo tại chỗ từ `ingredient_name` + `base_unit`
+   * (M3.D-13). Đây là đường đi bình thường chứ không phải trường hợp lỗi. */
+  @IsOptional() @IsUUID() ingredient_id?: string | null;
+  @IsOptional() @IsString() @MaxLength(128) ingredient_name?: string | null;
+  @IsOptional() @IsString() @MaxLength(16) base_unit?: string | null;
+
+  @IsString() @MaxLength(32) purchase_unit!: string;
+  @IsNumber() @Min(0.001) qty_base_per_unit!: number;
+  @IsNumber() @Min(0.001) qty_purchase!: number;
+  @IsNumber() @Min(0) unit_price!: number;
+}
+
+class CreateDeliveryDto {
+  @IsUUID() supplier_id!: string;
+  /** 'YYYY-MM-DD'. Bỏ trống = hôm nay theo giờ VN. Admin sửa được để nhập bù phiếu hôm qua
+   * (M3.D-06). */
+  @IsOptional() @IsString() @MaxLength(10) delivery_date?: string;
+  @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+
+  @IsArray() @ValidateNested({ each: true }) @Type(() => DeliveryLineDto)
+  lines!: DeliveryLineDto[];
+
+  /** Mặt hàng người dùng đã bấm đồng ý ở popup đổi giá (M3.D-21). Xem docblock
+   * `DeliveriesService.create` về lý do là danh sách chứ không phải một cờ boolean. */
+  @IsOptional() @IsArray() @IsUUID('all', { each: true }) approved_ingredient_ids?: string[];
+
+  /** Người dùng đã xem cảnh báo trùng phiếu và vẫn muốn tạo (M3.D-11) — NCC giao hai chuyến
+   * trong một ngày là chuyện có thật. */
+  @IsOptional() @IsBoolean() allow_duplicate?: boolean;
+}
+
+/** Phiếu nhập hàng (2026-09-05).
+ *
+ * admin + order: nhân viên order là người nhận hàng tại quán, họ phải nhập được phiếu. Đây là
+ * đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ.
+ */
+@Controller('supplier-deliveries')
+@UseGuards(JwtAuthGuard, RequireRoles('admin', 'order'))
+export class DeliveriesController {
+  constructor(private readonly svc: DeliveriesService) {}
+
+  @Get()
+  async list(@Query() q: Record<string, string>) {
+    const items = await this.svc.list({
+      supplier_id: q.supplier_id || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+      limit: q.limit ? Number(q.limit) : undefined,
+    });
+    return { data: { items } };
+  }
+
+  @Get(':id')
+  async get(@Param('id') id: string) {
+    return { data: await this.svc.get(id) };
+  }
+
+  /** Nhịp một trả `created: false` kèm danh sách dòng lệch giá — KHÔNG phải lỗi, mà là một bước
+   * bình thường của luồng. Vì vậy vẫn là 200 với `data`, không dùng error envelope: 4xx sẽ đẩy
+   * màn hình vào nhánh xử lý lỗi và hiện toast đỏ, trong khi việc cần làm là mở popup xác nhận.
+   */
+  @Post()
+  @HttpCode(200)
+  async create(@Body() dto: CreateDeliveryDto, @Req() req: Request) {
+    const result = await this.svc.create(dto, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: result };
+  }
+}

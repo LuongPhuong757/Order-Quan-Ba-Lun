@@ -25,6 +25,13 @@ export function DashboardPage() {
               <strong>📈 Truy cập &amp; khách hàng</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Lượt vào web, thời gian ở lại, SĐT từng đặt đơn</p>
             </Link>
+            {/* Nhà cung cấp (2026-09-05). Đường vào là thẻ ở đây chứ KHÔNG phải nav dưới, cùng
+                lý do với Thống kê truy cập: nav admin đã 7 mục, mục thứ 8 bóp nhỏ tất cả trên
+                điện thoại. */}
+            <Link to="/suppliers" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>🚚 Nhà cung cấp</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Nhập hàng, giá từng mặt hàng, tổng mua theo tháng</p>
+            </Link>
             <Link to="/admin/audit" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong>📋 Nhật ký hệ thống</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>

@@ -116,6 +116,11 @@ Một route riêng, lazy-load + `RoleGate` theo đúng lệ `App.tsx` (cùng nh�
 | **3. Biến động giá** | Toàn bộ mục 4 dưới đây | Trọng tâm của milestone |
 | **4. Mặt hàng** | Mở lại `IngredientsPanel` đang có (M3.D-32) | Không viết panel mới |
 
+> **Sửa khi implement (2026-09-05):** "Mặt hàng" là **nút**, không phải tab. `IngredientsPanel`
+> đang là modal toàn màn (`.modal-overlay`) nên đặt làm nội dung tab thì nó che luôn thanh tab
+> vừa bấm. Giữ quyết định quan trọng hơn (M3.D-32 — dùng lại đúng panel đó) và đổi lối vào; sửa
+> panel thành inline sẽ kéo theo đổi hành vi màn `/menu` đang chạy.
+
 ### 3.1 Chi tiết một NCC
 
 Bấm vào một NCC ở tab 1 → trang chi tiết, gồm:
