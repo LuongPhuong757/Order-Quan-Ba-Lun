@@ -128,4 +128,4 @@ packages/utils/dist/
 *.md
 # !README.md
 # !.planning/**/*.md
-# !docs/**/*.md
+!docs/**/*.md
