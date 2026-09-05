@@ -25,6 +25,7 @@ import {
   PriceHistoryDialog,
   PriceMatrixPanel,
 } from './SupplierReports.tsx';
+import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 
 type Supplier = {
   id: string;
@@ -83,6 +84,8 @@ export function SuppliersPage() {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  // Số dư đầu kỳ chỉ chủ quán đặt được (M3.D-40) — khác `isAdmin`.
+  const isOwner = !!user?.is_owner;
 
   const [tab, setTab] = useState<Tab>('suppliers');
   const [monthOffset, setMonthOffset] = useState(0);
@@ -96,6 +99,10 @@ export function SuppliersPage() {
   const [showEditor, setShowEditor] = useState<Supplier | 'new' | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
   const [history, setHistory] = useState<{ id: string; name: string } | null>(null);
+  const [balances, setBalances] = useState<Map<string, Balance>>(new Map());
+  // Tăng lên mỗi khi có thứ làm đổi công nợ (phiếu mới, thanh toán, số dư đầu kỳ) — khối công nợ
+  // trong chi tiết NCC nạp lại theo giá trị này.
+  const [balanceTick, setBalanceTick] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -111,7 +118,18 @@ export function SuppliersPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast, period]);
+
+    // Công nợ lấy MỘT lượt cho cả danh sách, không gọi 30 lần. Tách khỏi `Promise.all` ở trên vì
+    // chỉ admin đọc được (role `order` nhập hàng nhưng không xem tiền nợ) — lỗi 403 ở đây không
+    // được phép làm hỏng cả màn hình của nhân viên order.
+    if (!isAdmin) return;
+    try {
+      const b = await api.get<{ data: { items: Balance[] } }>('/suppliers/balances/all');
+      setBalances(new Map(b.data.data.items.map((x) => [x.supplier_id!, x])));
+    } catch {
+      setBalances(new Map());
+    }
+  }, [toast, period, isAdmin]);
 
   useEffect(() => {
     refresh();
@@ -200,6 +218,7 @@ export function SuppliersPage() {
       {tab === 'suppliers' && !loading && (
         <SupplierList
           suppliers={suppliers}
+          balances={balances}
           isAdmin={isAdmin}
           onOpen={setDetail}
           onNew={() => setShowEditor('new')}
@@ -242,10 +261,13 @@ export function SuppliersPage() {
           supplier={detail}
           deliveries={deliveries.filter((d) => d.supplier_id === detail.id)}
           isAdmin={isAdmin}
+          isOwner={isOwner}
+          balanceTick={balanceTick}
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
           onIntake={() => setShowForm({ supplierId: detail.id })}
           onOpenHistory={(id, name) => setHistory({ id, name })}
+          onBalanceChanged={refresh}
         />
       )}
 
@@ -254,7 +276,12 @@ export function SuppliersPage() {
           suppliers={suppliers}
           lockedSupplierId={showForm.supplierId}
           onClose={() => setShowForm(null)}
-          onSaved={refresh}
+          onSaved={() => {
+            refresh();
+            // Phiếu mới làm tăng nợ — khối công nợ đang mở phải tính lại, không thì con số ở đó
+            // đứng im và lệch với thẻ ngoài danh sách.
+            setBalanceTick((t) => t + 1);
+          }}
         />
       )}
 
@@ -274,11 +301,13 @@ export function SuppliersPage() {
 
 function SupplierList({
   suppliers,
+  balances,
   isAdmin,
   onOpen,
   onNew,
 }: {
   suppliers: Supplier[];
+  balances: Map<string, Balance>;
   isAdmin: boolean;
   onOpen: (s: Supplier) => void;
   onNew: () => void;
@@ -315,11 +344,35 @@ function SupplierList({
           >
             <div style={{ fontWeight: 700, fontSize: 17 }}>{s.name}</div>
             {s.phone && <div style={{ fontSize: 14, color: C.mutedOnTint }}>{s.phone}</div>}
-            <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8 }}>{vnd(s.period_amount)}đ</div>
-            <div style={{ fontSize: 13, color: C.muted }}>
-              {s.period_deliveries} phiếu ·{' '}
-              {s.last_delivery_date ? `giao gần nhất ${s.last_delivery_date}` : 'chưa từng giao'}
-            </div>
+            {/* Công nợ đặt TO NHẤT và trên cùng — đây là câu hỏi chủ quán mở màn này ra để hỏi.
+                Tổng mua theo kỳ tụt xuống làm dòng phụ. */}
+            {balances.has(s.id) ? (
+              <>
+                <div style={{ fontSize: 13, color: C.muted, marginTop: 8 }}>
+                  {balances.get(s.id)!.balance >= 0 ? 'Còn phải trả' : 'Đã trả dư'}
+                </div>
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 800,
+                    color: balances.get(s.id)!.balance > 0 ? '#c2410c' : '#15803d',
+                  }}
+                >
+                  {vnd(Math.abs(balances.get(s.id)!.balance))}đ
+                </div>
+                <div style={{ fontSize: 13, color: C.muted }}>
+                  Mua kỳ này {vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8 }}>{vnd(s.period_amount)}đ</div>
+                <div style={{ fontSize: 13, color: C.muted }}>
+                  {s.period_deliveries} phiếu ·{' '}
+                  {s.last_delivery_date ? `giao gần nhất ${s.last_delivery_date}` : 'chưa từng giao'}
+                </div>
+              </>
+            )}
           </button>
         ))}
       </div>
@@ -372,18 +425,24 @@ function SupplierDetail({
   supplier,
   deliveries,
   isAdmin,
+  isOwner,
+  balanceTick,
   onClose,
   onEdit,
   onIntake,
   onOpenHistory,
+  onBalanceChanged,
 }: {
   supplier: Supplier;
   deliveries: Delivery[];
   isAdmin: boolean;
+  isOwner: boolean;
+  balanceTick: number;
   onClose: () => void;
   onEdit: () => void;
   onIntake: () => void;
   onOpenHistory: (ingredientId: string, name: string) => void;
+  onBalanceChanged: () => void;
 }) {
   const [items, setItems] = useState<SupplierItemRow[] | null>(null);
 
@@ -450,6 +509,17 @@ function SupplierDetail({
             </button>
           )}
         </div>
+
+        {/* Công nợ chỉ admin xem — nhân viên order nhập hàng được nhưng không thấy tiền nợ. */}
+        {isAdmin && (
+          <SupplierBalancePanel
+            supplierId={supplier.id}
+            supplierName={supplier.name}
+            isOwner={isOwner}
+            refreshKey={balanceTick}
+            onChanged={onBalanceChanged}
+          />
+        )}
 
         <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Mặt hàng hay giao</h3>
         {items === null && <p style={{ color: C.muted }}>Đang tải…</p>}

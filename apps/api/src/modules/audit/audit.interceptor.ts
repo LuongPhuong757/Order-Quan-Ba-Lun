@@ -69,6 +69,27 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'PATCH') return 'menu_group.updated';
   if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'DELETE') return 'menu_group.deleted';
 
+  // Nhà cung cấp & nhập hàng (2026-09-05, Milestone 3). Đây là các hành động ĐỘNG TỚI TIỀN, nên
+  // đặt tên tường minh thay vì để fallback ở cuối hàm sinh chuỗi rác kiểu
+  // `put._suppliers__id_opening_balance` — trang /admin/audit lọc theo action_kind, tên rác thì
+  // coi như không tra cứu được.
+  if (path === '/suppliers' && method === 'POST') return 'supplier.created';
+  if (path.match(/^\/suppliers\/[^/]+\/opening-balance$/) && method === 'PUT') {
+    // M3.D-40 — số dư đầu kỳ là con số DUY NHẤT không kiểm chứng được từ dữ liệu, và mọi báo cáo
+    // công nợ đứng trên nó. Vết ở đây là lớp kiểm soát bù trừ duy nhất cho việc sửa nó.
+    return 'supplier.opening_balance_set';
+  }
+  if (path.match(/^\/suppliers\/[^/]+\/payments$/) && method === 'POST') return 'supplier.payment_recorded';
+  if (path.match(/^\/suppliers\/payments\/[^/]+$/) && method === 'DELETE') return 'supplier.payment_deleted';
+  if (path.match(/^\/suppliers\/[^/]+$/) && method === 'PATCH') return 'supplier.updated';
+  if (path.match(/^\/suppliers\/[^/]+$/) && method === 'DELETE') return 'supplier.deleted';
+  // `submitted` chứ không phải `created`: endpoint này đi HAI NHỊP (xem `DeliveriesService
+  // .create`), nhịp một trả `created:false` kèm danh sách dòng lệch giá mà không ghi gì. Cả hai
+  // nhịp đều để lại vết ở đây, và đó là CỐ Ý — cặp bản ghi "gửi lần 1 thấy cảnh báo giá / gửi
+  // lần 2 đã duyệt" chính là bằng chứng người nhập đã được cho xem cảnh báo trước khi xác nhận
+  // (M3.D-21). `after_json` giữ nguyên `created` nên phân biệt được hai nhịp.
+  if (path === '/supplier-deliveries' && method === 'POST') return 'supplier.delivery_submitted';
+
   // Tables
   if (path === '/tables' && method === 'POST') return 'table.created';
   if (path === '/tables/bulk' && method === 'POST') return 'table.bulk_created';

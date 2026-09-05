@@ -109,7 +109,30 @@ const CHECKS: TableCheck[] = [
   // như nhóm nguyên liệu bên trên.
   {
     table: 'suppliers',
-    requiredColumns: ['id', 'name', 'name_key', 'phone', 'note', 'is_active'],
+    requiredColumns: [
+      'id',
+      'name',
+      'name_key',
+      'phone',
+      'note',
+      'is_active',
+      // Số dư đầu kỳ (M3.D-40). Cột THÊM vào bảng đã có — thiếu thì bảng vẫn tồn tại, gate cũ
+      // vẫn xanh, và công nợ âm thầm tính từ 0 cho mọi NCC.
+      'opening_balance',
+      'opening_balance_date',
+    ],
+  },
+  {
+    table: 'supplier_payments',
+    requiredColumns: [
+      'id',
+      'supplier_id',
+      'paid_on',
+      'amount',
+      'method',
+      'created_by_user_id',
+      'created_by_name',
+    ],
   },
   {
     table: 'supplier_items',

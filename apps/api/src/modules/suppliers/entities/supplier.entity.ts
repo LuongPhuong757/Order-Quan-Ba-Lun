@@ -35,6 +35,25 @@ export class Supplier {
   @Column({ type: 'varchar', length: 255, nullable: true })
   note!: string | null;
 
+  /** Số tiền quán ĐANG NỢ nhà cung cấp này tại thời điểm bắt đầu dùng phần mềm (M3.D-40), VND.
+   *
+   * Đây là con số DUY NHẤT trong hệ thống không kiểm chứng được từ dữ liệu — nó đến từ việc chủ
+   * quán ngồi đối chiếu sổ với từng NCC. Vì vậy chỉ owner sửa được và mỗi lần sửa có vết ở audit
+   * log; sửa lung tung thì mọi báo cáo công nợ mất giá trị mà không ai phát hiện ra.
+   *
+   * Để 0 cũng dùng được: khi đó con số "còn phải trả" hiểu là phát sinh TỪ NGÀY BẮT ĐẦU DÙNG,
+   * không phải tổng nợ thật (Q-7 trong spec). */
+  @Column({ type: 'int', default: 0 })
+  opening_balance!: number;
+
+  /** Mốc của số dư đầu kỳ, 'YYYY-MM-DD'. NULL = số dư tính từ đầu thời gian.
+   *
+   * BẮT BUỘC PHẢI CÓ, không phải cột trang trí: phiếu nhập và lần trả tiền TRƯỚC mốc này đã nằm
+   * trong `opening_balance` rồi. Cộng chúng thêm lần nữa là tính hai lần và số nợ phồng lên —
+   * xem `sumAfter` trong `balance.ts`. */
+  @Column({ type: 'date', nullable: true })
+  opening_balance_date!: string | null;
+
   /** Xoá mềm, cùng lệ với `ingredients.is_active` và `menu_items.is_active`: phiếu nhập cũ đã
    * snapshot tên nên báo cáo quá khứ không hỏng, nhưng giữ dòng lại thì còn truy được. */
   @Column({ type: 'boolean', default: true })
