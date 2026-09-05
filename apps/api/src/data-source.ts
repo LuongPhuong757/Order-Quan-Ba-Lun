@@ -22,6 +22,7 @@ import { WebCartSnapshot } from './modules/analytics/entities/web-cart-snapshot.
 import { GeoShareFailure } from './modules/analytics/entities/geo-share-failure.entity.js';
 import { Ingredient } from './modules/ingredients/entities/ingredient.entity.js';
 import { RecipeLine } from './modules/ingredients/entities/recipe-line.entity.js';
+import { OrderItemIngredientUsage } from './modules/ingredients/entities/order-item-ingredient-usage.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -77,6 +78,8 @@ export const dataSourceOptions: DataSourceOptions = {
     // Định lượng nguyên liệu (2026-09-05): danh mục nguyên liệu dùng chung + công thức từng món.
     Ingredient,
     RecipeLine,
+    // Bản chốt tiêu hao — ghi khi món vào bếp, là nguồn duy nhất cho báo cáo nguyên liệu.
+    OrderItemIngredientUsage,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

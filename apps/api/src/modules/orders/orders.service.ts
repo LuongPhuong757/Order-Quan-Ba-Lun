@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
 
@@ -108,6 +109,7 @@ export class OrdersService {
     @InjectRepository(OrderActivityLog) private readonly activityRepo: Repository<OrderActivityLog>,
     @InjectDataSource() private readonly ds: DataSource,
     private readonly emitter: EventEmitter2,
+    private readonly consumption: ConsumptionService,
   ) {}
 
   // ─── Activity log ───────────────────────────────────────────────────────
@@ -572,6 +574,13 @@ export class OrdersService {
       await itemRepo.save(item);
       if (to === 'KITCHEN') {
         await this.markFirstKitchenIfNull(mgr, item.order_id);
+      }
+      // CHỐT TIÊU HAO NGUYÊN LIỆU (2026-09-05) — điểm duy nhất trong cả hệ thống món đi vào
+      // trạng thái đã-nấu, nên cũng là điểm duy nhất chốt. Trong CÙNG transaction: đổi state
+      // thành công mà chốt hỏng sẽ để lại món đã nấu không có tiêu hao, sai lệch âm thầm.
+      // Idempotent nên COOKING → READY → SERVED chỉ ghi một lần.
+      if (COOKED_STATES.includes(to)) {
+        await this.consumption.captureSafe(mgr, item);
       }
       return item;
     });

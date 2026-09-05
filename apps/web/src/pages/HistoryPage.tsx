@@ -39,6 +39,23 @@ type Stats = {
   ship_fee_total: number;
 };
 
+type ConsumptionRow = {
+  ingredient_name: string;
+  unit: string;
+  qty_total: number;
+  portions: number;
+  dishes: number;
+};
+
+/** Đổi lên đơn vị lớn khi số đủ lớn — khớp `formatQty` ở BE. "45,2 kg" dễ hình dung hơn nhiều
+ * so với "45200 g", còn "150 g" thì giữ nguyên vì "0,15 kg" lại khó đọc hơn. */
+function fmtIngredientQty(qty: number, unit: string): string {
+  const n = (v: number) => v.toLocaleString('vi-VN', { maximumFractionDigits: 2 });
+  if (unit === 'g' && qty >= 1000) return `${n(qty / 1000)} kg`;
+  if (unit === 'ml' && qty >= 1000) return `${n(qty / 1000)} l`;
+  return `${n(qty)} ${unit}`;
+}
+
 // 'YYYY-MM-DD' (giờ VN) từ epoch ms — gom đơn theo ngày ở bảng.
 function vnDayKey(ms: number): string {
   return new Date(ms + 7 * 3600 * 1000).toISOString().slice(0, 10);
@@ -186,6 +203,7 @@ export function HistoryPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [consumption, setConsumption] = useState<ConsumptionRow[]>([]);
   const [showCharts, setShowCharts] = useState(true);
   const PAGE_SIZE = 20;
 
@@ -247,6 +265,17 @@ export function HistoryPage() {
       .get<{ data: Stats }>(`/orders/stats?${q.toString()}`)
       .then((res) => setStats(res.data.data))
       .catch(() => setStats(null));
+
+    // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn, bỏ `cashier_user_id`: nguyên liệu tốn theo
+    // món khách ăn, không theo ai đứng thu tiền.
+    const cq = new URLSearchParams();
+    if (tableFilter) cq.set('table_id', tableFilter);
+    if (startDate) cq.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
+    if (endDate) cq.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
+    api
+      .get<{ data: { items: ConsumptionRow[] } }>(`/consumption?${cq.toString()}`)
+      .then((res) => setConsumption(res.data.data.items))
+      .catch(() => setConsumption([]));
   }, [isAdmin, tableFilter, cashierFilter, startDate, endDate]);
 
   const onResetFilters = () => {
@@ -516,6 +545,35 @@ export function HistoryPage() {
                 data={stats.by_hour.map((h) => ({ label: `${h.hour}h`, value: h.orders }))}
                 color="#3b82f6"
               />
+            </ChartCard>
+            {/* Tiêu hao nguyên liệu (2026-09-05) — theo ĐÚNG bộ lọc ngày/bàn đang chọn ở trên,
+                nên "tháng này" hay "bàn này" chỉ là đổi bộ lọc, không cần màn riêng.
+
+                BẢNG chứ không phải biểu đồ thanh: các dòng có ĐƠN VỊ KHÁC NHAU (45.000 g cạnh
+                12 quả), vẽ chung một thang thì thanh dài ngắn không nói lên điều gì thật. */}
+            <ChartCard title="🥬 Tiêu hao nguyên liệu" hint="Chốt khi bếp bắt đầu nấu · món huỷ trước khi nấu không tính">
+              {consumption.length === 0 ? (
+                <div style={{ color: '#9ca3af', fontSize: 13, padding: '8px 0' }}>
+                  Chưa có số liệu — món phải được khai công thức thì mới tính được tiêu hao.
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {consumption.map((c) => (
+                    <div
+                      key={`${c.ingredient_name}¦${c.unit}`}
+                      style={{ display: 'flex', justifyContent: 'space-between', gap: 10, fontSize: 13, borderBottom: '1px solid #f3f4f6', paddingBottom: 4 }}
+                    >
+                      <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {c.ingredient_name}
+                        <span style={{ color: '#9ca3af' }}> · {c.portions} phần</span>
+                      </span>
+                      <strong style={{ whiteSpace: 'nowrap', color: '#0f766e' }}>
+                        {fmtIngredientQty(c.qty_total, c.unit)}
+                      </strong>
+                    </div>
+                  ))}
+                </div>
+              )}
             </ChartCard>
             <ChartCard title="📈 Tỉ lệ thanh toán">
               <Donut

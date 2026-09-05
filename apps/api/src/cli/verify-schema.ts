@@ -82,6 +82,19 @@ const CHECKS: TableCheck[] = [
     requiredColumns: ['id', 'menu_item_id', 'ingredient_id', 'qty_per_serving'],
   },
   {
+    table: 'order_item_ingredient_usage',
+    requiredColumns: [
+      'id',
+      'order_item_id',
+      'order_id',
+      'ingredient_id',
+      'ingredient_name',
+      'unit',
+      'qty_total',
+      'qty',
+    ],
+  },
+  {
     table: 'notification_outbox',
     requiredColumns: [
       'id',
