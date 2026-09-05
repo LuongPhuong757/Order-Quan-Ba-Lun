@@ -141,6 +141,38 @@ function Row({ left, right }: { left: React.ReactNode; right: React.ReactNode })
   );
 }
 
+/** Ô tick "đã gõ sang MISA" trong hộp thoại thu tiền (2026-09-05).
+ *
+ * TỰ GIỮ STATE và báo ra ngoài qua callback, KHÔNG dùng state của OrderDrawer: `message` truyền
+ * vào `confirm()` được ConfirmProvider giữ nguyên si trong state của nó, nên OrderDrawer re-render
+ * cũng không vẽ lại nội dung hộp thoại — checkbox điều khiển từ ngoài sẽ không bao giờ đổi hình. */
+function MisaCheckbox({ onChange }: { onChange: (v: boolean) => void }) {
+  const [checked, setChecked] = useState(false);
+  return (
+    <label
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+        border: `1px solid ${checked ? '#0f766e' : '#e5e7eb'}`,
+        background: checked ? '#f0fdfa' : '#fff',
+        borderRadius: 8, cursor: 'pointer', minHeight: 44,
+      }}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => { setChecked(e.target.checked); onChange(e.target.checked); }}
+        style={{ width: 18, height: 18, flexShrink: 0 }}
+      />
+      <span style={{ fontSize: 14 }}>
+        Đã sao chép sang <strong>MISA</strong>
+        <div style={{ fontSize: 12, color: '#6b7280' }}>
+          Bỏ trống cũng thu tiền được — đơn sẽ nằm ở mục “Chưa lên MISA” để làm sau.
+        </div>
+      </span>
+    </label>
+  );
+}
+
 type Props = {
   table: Table;
   onClose: () => void;
@@ -417,6 +449,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
     const fmt = (v: number) => v.toLocaleString('vi-VN') + 'đ';
 
+    // Ref chứ không phải state: hộp thoại nằm ngoài cây render của drawer (xem MisaCheckbox),
+    // nên giá trị phải đi ra bằng đường ref rồi đọc lại sau khi confirm() resolve.
+    const misaCopiedRef = { current: false };
+
     const okCheckout = await confirm({
       title: `Thanh toán ${table.name}?`,
       variant: activeItems.length > 0 ? 'warning' : 'success',
@@ -479,6 +515,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               Chưa có món nào đã giao — thanh toán với tổng = 0đ.
             </div>
           )}
+
+          {/* Đối soát MISA — đặt sát nút thu tiền vì đó là lúc người gõ nhớ rõ nhất mình
+              đã gõ bàn này sang AMIS hay chưa. */}
+          <MisaCheckbox onChange={(v) => { misaCopiedRef.current = v; }} />
         </div>
       ),
     });
@@ -487,12 +527,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     try {
       const res = await api.post<{
         data: { total: number; served_items: number; auto_cancelled_items: number };
-      }>(`/orders/${order.id}/checkout`);
+      }>(`/orders/${order.id}/checkout`, { misa_copied: misaCopiedRef.current });
       const { total: totalPaid, auto_cancelled_items } = res.data.data;
       let msg = `✓ Đã thanh toán ${table.name} · ${totalPaid.toLocaleString('vi-VN')}đ`;
       if (auto_cancelled_items > 0) {
         msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
       }
+      if (misaCopiedRef.current) msg += ' · đã đánh dấu MISA';
       toast.push('success', msg);
       // KHÔNG push notif — Admin checkout poller (ReadyListener) sẽ emit cross-device
       onTransferred?.();

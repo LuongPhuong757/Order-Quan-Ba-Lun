@@ -139,6 +139,38 @@ export class Order {
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
   received_at!: number | null;
 
+  /** ── ĐỐI SOÁT MISA (amis.misa.vn) — chốt 2026-09-05 ──────────────────────
+   *
+   * Quán gõ tay đơn sang AMIS MISA để làm kế toán. Hệ thống này KHÔNG đẩy dữ liệu sang
+   * MISA (giai đoạn 1), chỉ ghi nhận "đơn này đã sao chép sang chưa" để cuối ca lọc ra
+   * đơn còn sót.
+   *
+   * CỜ ĐẶT Ở ĐƠN, KHÔNG ĐẶT Ở BÀN. Một bàn trong ngày có nhiều lượt khách; cờ ở
+   * `restaurant_tables` (như `kiotviet_locked`) sẽ bị lượt sau ghi đè lên lượt trước và
+   * không còn vết nào để đối soát.
+   *
+   * CHỈ THÊM CỘT (C-SCHEMA-07: `synchronize: true`, không migration).
+   */
+
+  /** NULL = chưa sao chép sang MISA. Set tại checkout (thu ngân tick) hoặc bù sau ở màn
+   * Lịch sử. Bỏ tick thì về NULL — tick nhầm bàn phải sửa lại được. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  misa_copied_at!: number | null;
+
+  /** Snapshot ai gõ sang MISA — cùng lệ snapshot với `checked_out_by_*`. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  misa_copied_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  misa_copied_by_full_name!: string | null;
+
+  /** Số chứng từ bên MISA, nhập tay nếu cần đối soát ngược.
+   *
+   * CHỖ NGỎ CHO GIAI ĐOẠN 2: khi nối API AMIS, chính cột này giữ id chứng từ MISA trả về
+   * — luồng tự động dùng lại cột sẵn có, không phải đổi schema lần nữa. */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  misa_ref!: string | null;
+
   @OneToMany(() => OrderItem, (oi) => oi.order)
   items?: Relation<OrderItem[]>;
 }

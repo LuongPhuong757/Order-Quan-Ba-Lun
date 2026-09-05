@@ -77,6 +77,10 @@ type HistoryOrder = {
   customer_phone: string | null;
   created_by_full_name: string | null;
   checked_out_by_full_name: string | null;
+  // Đối soát MISA (2026-09-05) — null = chưa gõ đơn này sang amis.misa.vn.
+  misa_copied_at: number | null;
+  misa_copied_by_full_name: string | null;
+  misa_ref: string | null;
   items: OrderItem[];
 };
 
@@ -112,6 +116,7 @@ const EVENT_ICON: Record<string, string> = {
   transfer: '↔️',
   checkout: '💰',
   order_cancelled: '🗑️',
+  misa_copied: '📋', // đánh dấu đã gõ đơn sang amis.misa.vn
 };
 
 function fmt(v: number) {
@@ -174,6 +179,8 @@ export function HistoryPage() {
   const [tableFilter, setTableFilter] = useState<string>('');
   const [cashierFilter, setCashierFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<Status>('all');
+  // Đối soát MISA — '' = không lọc, 'pending' = đã thu tiền nhưng chưa gõ sang AMIS.
+  const [misaFilter, setMisaFilter] = useState<'' | 'pending' | 'copied'>('');
   const [startDate, setStartDate] = useState(''); // yyyy-mm-dd
   const [endDate, setEndDate] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -189,6 +196,7 @@ export function HistoryPage() {
       if (tableFilter) q.set('table_id', tableFilter);
       if (cashierFilter) q.set('cashier_user_id', cashierFilter);
       if (statusFilter !== 'all') q.set('status', statusFilter);
+      if (misaFilter) q.set('misa', misaFilter);
       if (startDate) q.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
       if (endDate) q.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
       q.set('page', String(page));
@@ -220,7 +228,7 @@ export function HistoryPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableFilter, cashierFilter, statusFilter, startDate, endDate, page]);
+  }, [tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate, page]);
 
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày (KHÔNG theo status/trang).
   // Bỏ hẳn request với nhân viên order: endpoint có AdminGuard nên gọi chỉ để nhận
@@ -245,6 +253,7 @@ export function HistoryPage() {
     setTableFilter('');
     setCashierFilter('');
     setStatusFilter('all');
+    setMisaFilter('');
     setStartDate('');
     setEndDate('');
     setPage(1);
@@ -254,6 +263,39 @@ export function HistoryPage() {
     return (o.items || [])
       .filter((i) => i.state === 'SERVED')
       .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+  };
+
+  // Bếp xem được lịch sử nhưng không đối soát kế toán → chỉ thấy badge, không bấm được.
+  // BE cũng chặn bằng RequireRoles('admin','order'); đây chỉ là lớp UX.
+  const canMarkMisa = ['admin', 'order'].includes(user?.role ?? (user?.is_owner ? 'admin' : ''));
+
+  /** Tick / bỏ tick "đã gõ sang MISA" ngay trên dòng lịch sử.
+   *
+   * Cập nhật tại chỗ thay vì refresh() cả trang: khi đang ở bộ lọc "Chưa lên MISA", refresh sẽ
+   * làm dòng vừa tick biến mất và cả danh sách nhảy — người đang gõ dở mất chỗ. Dòng ở lại,
+   * badge đổi màu; lần lọc sau nó mới rời danh sách. */
+  const toggleMisa = async (o: HistoryOrder) => {
+    const next = o.misa_copied_at == null;
+    try {
+      const res = await api.patch<{
+        data: { misa_copied_at: number | null; misa_copied_by_full_name: string | null };
+      }>(`/orders/${o.id}/misa`, { copied: next });
+      const d = res.data.data;
+      setOrders((cur) =>
+        cur.map((x) =>
+          x.id === o.id
+            ? {
+                ...x,
+                misa_copied_at: d.misa_copied_at,
+                misa_copied_by_full_name: d.misa_copied_by_full_name,
+              }
+            : x,
+        ),
+      );
+      toast.push('success', next ? `✓ ${o.table_name} — đã đánh dấu lên MISA` : `Đã bỏ đánh dấu MISA — ${o.table_name}`);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
   };
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -277,7 +319,7 @@ export function HistoryPage() {
   }, [stats]);
 
   const hasActiveFilter =
-    tableFilter || cashierFilter || statusFilter !== 'all' || startDate || endDate;
+    tableFilter || cashierFilter || statusFilter !== 'all' || misaFilter || startDate || endDate;
 
   return (
     <div className="container wide with-bottom-nav">
@@ -315,6 +357,19 @@ export function HistoryPage() {
             onClick={() => { setStatusFilter('cancelled'); setPage(1); }}
           >
             🗑 Đã huỷ
+          </StatusPill>
+
+          {/* Đối soát MISA (2026-09-05) — pill RIÊNG, không nhập chung dãy trạng thái đơn:
+              nó cắt ngang trạng thái ("đã thanh toán + chưa lên MISA"), gộp vào một dãy sẽ
+              biến hai câu hỏi khác nhau thành một nhóm loại trừ lẫn nhau. */}
+          <span style={{ width: 1, background: '#e5e7eb', margin: '2px 4px' }} />
+          <StatusPill
+            active={misaFilter === 'pending'}
+            color="#7c3aed"
+            bg="#ede9fe"
+            onClick={() => { setMisaFilter(misaFilter === 'pending' ? '' : 'pending'); setPage(1); }}
+          >
+            📋 Chưa lên MISA
           </StatusPill>
         </div>
 
@@ -556,6 +611,16 @@ export function HistoryPage() {
                               ) : (
                                 <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
                               )}
+                              {/* Cờ MISA chỉ có nghĩa với đơn đã thu tiền — đơn huỷ / đang dùng
+                                  không có bill để gõ sang AMIS nên không hiện gì. */}
+                              {isPaid && (
+                                <MisaBadge
+                                  copied={o.misa_copied_at != null}
+                                  by={o.misa_copied_by_full_name}
+                                  disabled={!canMarkMisa}
+                                  onToggle={() => toggleMisa(o)}
+                                />
+                              )}
                               <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
                             </td>
                           </tr>
@@ -686,6 +751,51 @@ const cancelledBadge: React.CSSProperties = {
   padding: '2px 8px',
   borderRadius: 999,
 };
+
+/** Badge đối soát MISA — bấm để tick / bỏ tick ngay trên dòng lịch sử (2026-09-05).
+ *
+ * `stopPropagation`: dòng lịch sử có onClick mở/đóng chi tiết. Thiếu nó thì mỗi lần tick, bảng
+ * lại bung ra một khối chi tiết — người đối soát 30 đơn cuối ca sẽ phải cuộn lại từ đầu. */
+function MisaBadge({
+  copied,
+  by,
+  disabled,
+  onToggle,
+}: {
+  copied: boolean;
+  by: string | null;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const label = copied ? '📋 MISA ✓' : '📋 Chưa MISA';
+  const title = copied
+    ? `Đã sao chép sang MISA${by ? ` · ${by}` : ''}${disabled ? '' : ' — bấm để bỏ đánh dấu'}`
+    : disabled
+      ? 'Chưa sao chép sang MISA'
+      : 'Chưa sao chép sang MISA — bấm để đánh dấu đã gõ';
+  const style: React.CSSProperties = {
+    fontSize: 11,
+    fontWeight: 700,
+    marginLeft: 6,
+    padding: '2px 8px',
+    borderRadius: 999,
+    border: 'none',
+    color: copied ? '#6d28d9' : '#9ca3af',
+    background: copied ? '#ede9fe' : '#f3f4f6',
+    cursor: disabled ? 'default' : 'pointer',
+  };
+  if (disabled) return <span style={style} title={title}>{label}</span>;
+  return (
+    <button
+      type="button"
+      style={style}
+      title={title}
+      onClick={(e) => { e.stopPropagation(); onToggle(); }}
+    >
+      {label}
+    </button>
+  );
+}
 
 function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
   const items = order.items || [];

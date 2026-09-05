@@ -967,8 +967,11 @@ export class OrdersService {
    * - CANCELLED items (manual + auto) không tính.
    * - Set closed_at = now, is_paid = true.
    * - Order + items vẫn giữ trong DB cho báo cáo (REQ-H).
+   * - `misa_copied` (2026-09-05): thu ngân tick "đã gõ sang MISA" ngay trong hộp thoại thu
+   *   tiền. KHÔNG chặn thanh toán khi bỏ trống — thu tiền là việc của khách đang đứng đợi,
+   *   đối soát kế toán là việc cuối ca; đơn bỏ trống rơi vào bộ lọc "chưa lên MISA".
    */
-  async checkout(order_id: string, cashier?: OrderCreator): Promise<{
+  async checkout(order_id: string, cashier?: OrderCreator, misa_copied?: boolean): Promise<{
     order: Order;
     served_items: number;
     cancelled_items: number;
@@ -1037,6 +1040,13 @@ export class OrdersService {
       order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
       order.checked_out_by_full_name = cashier?.full_name ?? null;
+      // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
+      // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
+      if (misa_copied) {
+        order.misa_copied_at = Date.now();
+        order.misa_copied_by_user_id = cashier?.id ?? null;
+        order.misa_copied_by_full_name = cashier?.full_name ?? null;
+      }
       await orderRepo.save(order);
 
       // Đếm theo SỐ PHẦN (sum qty), không theo số dòng — 1 dòng có thể mang N phần.
@@ -1069,10 +1079,66 @@ export class OrdersService {
         // Phí ship phải hiện TÁCH RIÊNG trong nhật ký bàn: đối soát cuối ngày mà chỉ thấy một
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
-        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})`,
+        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})` +
+        `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
     return result;
+  }
+
+  /** Đánh dấu / bỏ đánh dấu "đã sao chép sang MISA" cho đơn ĐÃ thanh toán.
+   *
+   * Tách khỏi `checkout()` vì hai việc lệch nhau về thời gian: khách trả tiền lúc 12h, kế
+   * toán gõ sang AMIS lúc cuối ca. Không có đường bù sau thì thu ngân sẽ tick bừa ngay tại
+   * quầy cho xong — cờ mất hết ý nghĩa đối soát.
+   *
+   * Cho phép BỎ tick (`copied = false`): tick nhầm bàn là chuyện thường ở quầy đông khách,
+   * khoá một chiều chỉ đẩy người dùng đi tìm cách lách.
+   */
+  async setMisaCopied(
+    order_id: string,
+    copied: boolean,
+    actor?: OrderCreator,
+    misa_ref?: string | null,
+  ): Promise<Order> {
+    const order = await this.orderRepo.findOne({ where: { id: order_id } });
+    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    // Đơn chưa kết thì chưa có gì để gõ sang MISA — chứng từ kế toán dựng trên bill đã chốt.
+    if (!order.closed_at) {
+      throw new BadRequestException({
+        code: 'CONFLICT',
+        message: 'Đơn chưa thanh toán — chưa có bill để sao chép sang MISA',
+      });
+    }
+    const was = order.misa_copied_at != null;
+    if (copied) {
+      // Giữ nguyên mốc cũ khi tick lại lần nữa: mốc đầu tiên mới là lúc gõ thật.
+      if (!was) {
+        order.misa_copied_at = Date.now();
+        order.misa_copied_by_user_id = actor?.id ?? null;
+        order.misa_copied_by_full_name = actor?.full_name ?? null;
+      }
+      if (misa_ref !== undefined) order.misa_ref = misa_ref || null;
+    } else {
+      order.misa_copied_at = null;
+      order.misa_copied_by_user_id = null;
+      order.misa_copied_by_full_name = null;
+      order.misa_ref = null;
+    }
+    await this.orderRepo.save(order);
+
+    // Chỉ ghi nhật ký khi cờ THỰC SỰ đổi — tick lại cái đã tick không phải sự kiện.
+    if (was !== copied) {
+      await this.writeActivity({
+        order,
+        event_kind: 'misa_copied',
+        message: copied
+          ? `Đánh dấu đã sao chép sang MISA${order.misa_ref ? ` (${order.misa_ref})` : ''}`
+          : 'Bỏ đánh dấu đã sao chép sang MISA',
+        actor,
+      });
+    }
+    return order;
   }
 
   /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
@@ -1085,6 +1151,10 @@ export class OrdersService {
     end_ms?: number;
     cashier_user_id?: string;
     status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    /** Đối soát MISA (2026-09-05). 'pending' = việc cần làm cuối ca: đơn ĐÃ THU TIỀN nhưng
+     * chưa gõ sang AMIS. Cố ý loại đơn huỷ và đơn đang dùng — không có bill thì không có gì
+     * để gõ, để lẫn vào là danh sách việc bị nhiễu và nhân viên bỏ qua cả danh sách. */
+    misa?: 'pending' | 'copied';
     page?: number;
     page_size?: number;
     /** Giới hạn tuổi đơn được xem (nhân viên order: 48h). Chặn ở server, không
@@ -1106,6 +1176,9 @@ export class OrdersService {
     if (status === 'paid') wheres.push(PAID_SQL);
     else if (status === 'cancelled') wheres.push(CANCELLED_SQL);
     else if (status === 'unpaid') wheres.push(`o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`);
+    // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
+    if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
+    else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
     // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
     // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
