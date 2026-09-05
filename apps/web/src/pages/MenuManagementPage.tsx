@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
+import { IngredientsPanel } from './IngredientsPanel.tsx';
 
 type MenuGroup = {
   id: string;
@@ -62,6 +63,9 @@ export function MenuManagementPage() {
   // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
   // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
   const [showMenuBook, setShowMenuBook] = useState(false);
+  // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như 3 màn trên: khai công thức là
+  // việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
+  const [showIngredients, setShowIngredients] = useState(false);
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -159,6 +163,11 @@ export function MenuManagementPage() {
           {canManage && (
             <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
               📖 Menu xem
+            </button>
+          )}
+          {canManage && (
+            <button className="secondary" onClick={() => setShowIngredients(true)} style={{ padding: '8px 12px' }}>
+              🥬 Nguyên liệu
             </button>
           )}
           {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
@@ -419,6 +428,9 @@ export function MenuManagementPage() {
           }}
         />
       )}
+      {/* KHÔNG refresh() khi đóng: panel nguyên liệu không đụng tới bảng `menu_items`, nên tải
+          lại lưới món chỉ là một lượt request thừa. */}
+      {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
     </div>
   );
 }

@@ -20,6 +20,8 @@ import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-dai
 import { GeoShareDaily } from './modules/public/entities/geo-share-daily.entity.js';
 import { WebCartSnapshot } from './modules/analytics/entities/web-cart-snapshot.entity.js';
 import { GeoShareFailure } from './modules/analytics/entities/geo-share-failure.entity.js';
+import { Ingredient } from './modules/ingredients/entities/ingredient.entity.js';
+import { RecipeLine } from './modules/ingredients/entities/recipe-line.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -72,6 +74,9 @@ export const dataSourceOptions: DataSourceOptions = {
     // Chi tiết từng lần chia sẻ vị trí HỎNG (2026-09-04) — bảng chẩn đoán, một dòng mỗi lượt
     // hỏng; xem docblock entity về vì sao nó là ngoại lệ với luật "gộp sẵn" của module này.
     GeoShareFailure,
+    // Định lượng nguyên liệu (2026-09-05): danh mục nguyên liệu dùng chung + công thức từng món.
+    Ingredient,
+    RecipeLine,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

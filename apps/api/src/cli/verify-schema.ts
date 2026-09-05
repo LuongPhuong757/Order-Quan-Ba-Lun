@@ -64,7 +64,22 @@ const CHECKS: TableCheck[] = [
       // duy nhất chứng minh cột có thật trong MySQL.
       'shipped_at',
       'received_at',
+      // Đối soát MISA (2026-09-05) — cùng lý do có mặt ở đây như 2 mốc trên.
+      'misa_copied_at',
+      'misa_copied_by_user_id',
+      'misa_copied_by_full_name',
+      'misa_ref',
     ],
+  },
+  // Định lượng nguyên liệu (2026-09-05). Hai BẢNG MỚI hoàn toàn — nếu thiếu ở mảng `entities`
+  // của data-source.ts thì `synchronize` bỏ qua im lặng mà `tsc` vẫn xanh; gate này bắt được.
+  {
+    table: 'ingredients',
+    requiredColumns: ['id', 'name', 'name_key', 'unit', 'note', 'is_active', 'merged_into_id'],
+  },
+  {
+    table: 'recipe_lines',
+    requiredColumns: ['id', 'menu_item_id', 'ingredient_id', 'qty_per_serving'],
   },
   {
     table: 'notification_outbox',

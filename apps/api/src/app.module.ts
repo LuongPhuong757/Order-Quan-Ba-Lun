@@ -11,6 +11,7 @@ import { AuditModule } from './modules/audit/audit.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { SetupModule } from './modules/setup/setup.module.js';
 import { MenuModule } from './modules/menu/menu.module.js';
+import { IngredientsModule } from './modules/ingredients/ingredients.module.js';
 import { TablesModule } from './modules/tables/tables.module.js';
 import { OrdersModule } from './modules/orders/orders.module.js';
 import { PublicModule } from './modules/public/public.module.js';
@@ -42,6 +43,9 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     AdminModule,
     SetupModule,
     MenuModule,
+    // Định lượng nguyên liệu (2026-09-05) — danh mục nguyên liệu dùng chung + công thức món,
+    // nền cho báo cáo tiêu hao theo tháng/bàn.
+    IngredientsModule,
     TablesModule,
     OrdersModule,
     // Phase 07 — endpoint công khai không auth. HealthController giữ nguyên ở
