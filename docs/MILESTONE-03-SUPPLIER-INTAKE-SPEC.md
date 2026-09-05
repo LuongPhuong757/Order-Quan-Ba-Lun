@@ -1,8 +1,8 @@
 # Milestone 3 — Nhập Hàng Nhà Cung Cấp & Danh Mục Nguyên Liệu
 
-**Trạng thái:** SPEC ĐÃ CHỐT (vòng 3) — 38 quyết định, còn Q-2/Q-3/Q-6 là chi tiết chỉnh được sau
+**Trạng thái:** SPEC ĐÃ CHỐT (vòng 4) — 42 quyết định, còn Q-7 (số dư đầu kỳ) là việc vận hành
 **Ngày chốt:** 2026-09-05
-**Nguồn:** Phiên thảo luận trực tiếp với chủ quán (3 vòng hỏi–đáp)
+**Nguồn:** Phiên thảo luận trực tiếp với chủ quán (4 vòng hỏi–đáp)
 **Nhánh git:** làm trên `feat/misa-sync-and-recipe` (spec này merge về từ `feat/supplier-portal`)
 **Liên quan:** dùng chung module `ingredients` với tính năng MISA + định lượng — xem 5.1
 
@@ -78,7 +78,11 @@ Cách giải: **làm cả hai, admin nhập hộ là đường mặc định, NC
 | ID | Quyết định | Lý do |
 |---|---|---|
 | **M3.D-28** | Số liệu tiền **chỉ hiển thị dạng thống kê ở màn quản lý NCC (phía admin)**, chưa show cho NCC. | Chủ quán chốt. |
-| **M3.D-29** | Giai đoạn 1 làm **"tổng mua theo kỳ"** (Σ phiếu đã duyệt), KHÔNG làm công nợ thật. | Công nợ thật cần thêm bảng thanh toán + số dư đầu kỳ từng NCC; nhập sai số dư đầu kỳ là sai vĩnh viễn. Tổng mua theo kỳ đã trả lời được câu quán hay hỏi nhất, và dữ liệu phiếu dùng lại được nguyên khi cần nâng lên công nợ thật. |
+| **M3.D-29** | ~~Chỉ làm "tổng mua theo kỳ"~~ → **NÂNG LÊN CÔNG NỢ THẬT** (chủ quán yêu cầu 2026-09-05 vòng 4): hiển thị **số tiền quán còn phải trả từng NCC**. | Chủ quán chốt lại. Kéo theo M3.D-39→41 và một khoản việc vận hành bắt buộc: phải nhập số dư đầu kỳ và ghi nhận mỗi lần trả tiền, nếu không con số "còn phải trả" sai vĩnh viễn. |
+| **M3.D-39** | Công thức: `Còn phải trả = số dư đầu kỳ + Σ phiếu đã duyệt − Σ đã thanh toán`. Bảng mới `supplier_payments`, cột mới `suppliers.opening_balance` + `opening_balance_date`. | Không có bảng thanh toán thì chỉ ra được "đã mua bao nhiêu", không ra được "còn nợ bao nhiêu" — hai con số khác nhau. |
+| **M3.D-40** | **Số dư đầu kỳ nhập một lần khi khai NCC**, sau đó **chỉ owner sửa được** và mỗi lần sửa ghi audit log. | Đây là con số duy nhất trong hệ thống không kiểm chứng được từ dữ liệu; sửa lung tung thì mọi báo cáo công nợ mất giá trị. |
+| **M3.D-41** | Phiếu chỉ vào công nợ khi ở trạng thái **đã duyệt**. Phiếu `NCC gửi` / `Chờ quán duyệt giá` KHÔNG tính. | Cùng nguyên tắc M3.D-08: số NCC tự khai không được tự động thành nợ của quán. |
+| **M3.D-42** | Có **thống kê mặt hàng nhập** (mục 3.3): theo kỳ, cho từng NCC và cho toàn quán — số lượng, số lần nhập, tổng tiền, giá bình quân. | Chủ quán yêu cầu. Bổ khuyết cho biến động giá: giá tăng 5% mà lượng nhập tăng gấp đôi thì tiền đội lên nhiều hơn hẳn, chỉ nhìn % giá không thấy. |
 | **M3.D-30** | Có **màn "Biến động giá" tổng hợp toàn bộ NCC × mặt hàng** (mục 4 dưới đây) — không chỉ popup lúc nhập. | Chủ quán chốt. Popup chỉ bắt được cú nhảy đột ngột của **một phiếu**; kiểu tăng nguy hiểm hơn là tăng 2%/tháng suốt 6 tháng — không lần nào chạm ngưỡng, cuối năm đắt hơn 13%. |
 
 ### Đơn vị mua & chuẩn hoá đơn giá
@@ -117,13 +121,51 @@ Một route riêng, lazy-load + `RoleGate` theo đúng lệ `App.tsx` (cùng nh�
 Bấm vào một NCC ở tab 1 → trang chi tiết, gồm:
 
 - **Đầu trang**: tên, SĐT, ghi chú, trạng thái tài khoản (`chưa có tài khoản` / `đã phát PIN` / `đang khoá`), nút **Reset PIN** (M3.D-03).
+- **Ba số lớn**: `Còn phải trả` (M3.D-39) · `Đã mua kỳ này` · `Đã trả kỳ này`. Con số "còn phải trả" đặt to nhất và đầu tiên.
 - **Tổng mua theo kỳ**: 6 tháng gần nhất, dạng cột.
-- **Mặt hàng NCC này hay giao** — tự sinh từ lịch sử (M3.D-18): tên, đơn vị, giá gần nhất, ngày giá đó, **▲▼ so với lần trước**. Đây là bảng chủ quán mở ra trước khi gọi điện đặt hàng.
+- **Mặt hàng NCC này hay giao** — bảng của mục 3.3 lọc theo NCC này.
 - **Lịch sử phiếu** của NCC này.
+- **Lịch sử thanh toán** + nút `＋ Ghi nhận thanh toán`.
 
-### 3.2 Nút `＋ Nhập hàng`
+### 3.2 Bảng giá mặt hàng của NCC này
+
+Tự sinh từ lịch sử nhập (M3.D-18), một dòng cho mỗi mặt hàng NCC này từng giao:
+
+| Mặt hàng | Đơn vị mua | Giá gần nhất | Quy về | Ngày | So lần trước | Xu hướng 6 lần |
+|---|---|---|---|---|---|---|
+| Nước mắm | thùng (24×500ml) | 180.000 | 15,0 đ/ml | 03/09 | ▲ 7,1% | ▁▁▂▃▃▅ |
+| Rau muống | bó | 12.000 | 12.000 đ/bó | 05/09 | — | ▃▂▃▂▃▃ |
+| Thịt ba chỉ | kg | 145.000 | 145 đ/g | 05/09 | ▲ 7,4% | ▁▂▃▅▆▆ |
+
+Cột `Quy về` là `unit_price_base` (M3.D-36) — đây là con số duy nhất so sánh được qua thời gian và qua NCC. Cột `So lần trước` cũng tính trên nó, nên đổi cỡ đóng gói vẫn hiện ra (M3.D-37).
+
+**Đây là bảng chủ quán mở ra trước khi gọi điện đặt hàng.** Bấm một dòng → lịch sử giá đầy đủ của mặt hàng đó (mục 4.3).
+
+### 3.3 Thống kê mặt hàng nhập (M3.D-42)
+
+Cùng một bảng, dùng ở hai nơi: trong chi tiết NCC thì lọc sẵn theo NCC đó, ở tab "Phiếu nhập" thì gộp toàn quán.
+
+| Mặt hàng | NCC | Số lần nhập | Lượng nhập | Tổng tiền | Giá bình quân | Giá gần nhất |
+|---|---|---|---|---|---|---|
+| Thịt ba chỉ | NCC A | 8 | 245 kg | 34.775.000 | 141,9 đ/g | 145 đ/g |
+| Rau muống | NCC B | 26 | 520 bó | 6.240.000 | 12.000 đ/bó | 12.000 đ/bó |
+
+- **Giá bình quân** = `Σ tiền ÷ Σ lượng` (bình quân gia quyền, không phải trung bình các đơn giá) — mua 200kg giá thấp và 5kg giá cao thì bình quân phải nghiêng về giá thấp.
+- Sắp mặc định theo `Tổng tiền` giảm dần: mặt hàng ngốn nhiều tiền nhất nằm trên.
+- Lọc theo kỳ; xuất Excel.
+- Dòng tổng cuối bảng: tổng tiền nhập trong kỳ, khớp với `Đã mua kỳ này` ở mục 3.1.
+
+Lý do bảng này cần tồn tại song song với biến động giá: **giá tăng 5% mà lượng nhập tăng gấp đôi thì tiền đội lên nhiều hơn hẳn**, mà nhìn cột % giá không thấy gì.
+
+### 3.4 Nút `＋ Nhập hàng`
 
 Có ở cả tab 1 (trong chi tiết NCC, NCC điền sẵn) và tab 2 (phải chọn NCC). Mở đúng màn nhập của M3.D-06 — cùng một màn NCC dùng, admin chỉ thêm quyền chọn NCC / sửa ngày / sửa giá.
+
+### 3.5 Ghi nhận thanh toán (M3.D-39)
+
+Màn nhỏ: NCC · ngày trả · số tiền · hình thức (tiền mặt / chuyển khoản) · ghi chú. Không gán vào phiếu cụ thể — chỉ trừ vào tổng nợ của NCC.
+
+Cố ý **không** làm đối chiếu từng phiếu với từng lần trả: quán trả tiền theo đợt, gộp nhiều phiếu, và bắt gán từng phiếu là tự tạo ra một module kế toán mà không ai duy trì nổi.
 
 ---
 
@@ -196,7 +238,12 @@ Cần **thêm** vào `ingredients`: cột `price_alert_threshold_pct NULL` (M3.D
 
 ```
 suppliers
-  id, name, phone, note, is_active
+  id, name, phone, note, is_active,
+  opening_balance, opening_balance_date            -- M3.D-40, chỉ owner sửa, có audit log
+
+supplier_payments           -- M3.D-39
+  id, supplier_id, paid_on, amount, method, note,
+  created_by_user_id, created_at
 
 supplier_users              -- giai đoạn 3 (M3.D-01)
   id, supplier_id, phone, pin_hash, failed_attempts, locked_until
@@ -226,17 +273,18 @@ supplier_delivery_lines
   price_approved_by_user_id
 ```
 
-**Hai đẳng thức bất biến** (validate ở service, không tin client):
+**Bốn đẳng thức bất biến** (validate ở service, không tin client):
 
 ```
 qty_base        = qty_purchase × qty_base_per_unit_snapshot
 unit_price_base = unit_price   ÷ qty_base_per_unit_snapshot
 amount          = qty_purchase × unit_price
+còn phải trả    = opening_balance + Σ amount (phiếu ĐÃ DUYỆT) − Σ payments   -- M3.D-39, 41
 ```
 
 `purchase_unit` chỉ là nhãn để đọc; **mọi phép tính đi qua `qty_base` / `unit_price_base`**. Đơn vị mua không bao giờ được truyền vào `toBaseQty()` (M3.D-34).
 
-Index cần cho màn biến động giá: `(ingredient_id, supplier_id, delivery_date)` trên `supplier_delivery_lines` join `supplier_deliveries`.
+Index cần: `(ingredient_id, supplier_id, delivery_date)` trên `supplier_delivery_lines` join `supplier_deliveries` — dùng cho cả biến động giá (mục 4) và thống kê mặt hàng nhập (3.3). Thêm `(supplier_id, paid_on)` trên `supplier_payments`.
 
 **Trạng thái phiếu:** `NCC gửi` 🟡 → `Chờ quán duyệt giá` 🟠 (nếu lệch) → `Đã kiểm` 🔵 → `Khớp` 🟢 / `Lệch` 🔴
 
@@ -249,11 +297,12 @@ Phiếu admin nhập hộ vào thẳng `Đã kiểm` (M3.D-07).
 | Bước | Nội dung | Ghi chú |
 |---|---|---|
 | **1** | Route `/suppliers` + tab 1 (danh sách NCC) + tab 2 (phiếu nhập) + tab 4 (nối `IngredientsPanel`) + màn nhập phiếu admin + **popup cảnh báo giá** | Chạy được thật ngay, rủi ro gần bằng 0, bắt đầu sinh lịch sử giá. `ingredients` đã có sẵn (5.1). |
-| **2** | Tab **Biến động giá** (4.1–4.4) + thống kê tổng mua ở tab 1 | Cần dữ liệu của bước 1; 4.1 dùng được ngay sau ~2 kỳ nhập |
-| **3** | Tài khoản NCC tự nhập (M3.D-01→04), phát PIN cho 3–5 NCC dễ tính nhất làm thử | Mở rộng dần; ai không dùng thì vĩnh viễn ở đường admin nhập hộ |
-| **4** | Nối `ingredients` vào `recipe_lines` → **giá vốn món ăn theo thời gian thực** | Ghép với `feat/misa-sync-and-recipe` |
+| **2** | **Thống kê mặt hàng nhập** (3.3) + bảng giá mặt hàng của NCC (3.2) + tab **Biến động giá** (4.1–4.4) | Cần dữ liệu của bước 1. 3.3 dùng được ngay từ phiếu đầu tiên; 4.1 cần ~2 kỳ nhập mới có nghĩa |
+| **3** | **Công nợ**: `supplier_payments` + số dư đầu kỳ + màn ghi nhận thanh toán (M3.D-39→41, mục 3.5) | Tách riêng vì phụ thuộc **việc vận hành** — chủ quán phải đối chiếu số dư đầu kỳ với từng NCC trước khi bật (Q-7). Code xong mà chưa có số dư thì con số hiển thị vẫn sai. |
+| **4** | Tài khoản NCC tự nhập (M3.D-01→04), phát PIN cho 3–5 NCC dễ tính nhất làm thử | Mở rộng dần; ai không dùng thì vĩnh viễn ở đường admin nhập hộ |
+| **5** | Nối `ingredients` vào `recipe_lines` → **giá vốn món ăn theo thời gian thực** | Ghép với `feat/misa-sync-and-recipe` |
 
-Bước 4 mới là câu trả lời cuối cùng cho "giá tăng thì sao": *"Bún chả — giá vốn 18.000 → 21.500, biên lợi nhuận còn 46%."*
+Bước 5 mới là câu trả lời cuối cùng cho "giá tăng thì sao": *"Bún chả — giá vốn 18.000 → 21.500, biên lợi nhuận còn 46%."*
 
 ---
 
@@ -262,8 +311,9 @@ Bước 4 mới là câu trả lời cuối cùng cho "giá tăng thì sao": *"B
 | # | Vấn đề | Ghi chú |
 |---|---|---|
 | ~~Q-1~~ | ~~Bảng `ingredients` chưa tồn tại~~ | **ĐÃ GIẢI QUYẾT 2026-09-05**: nhánh `feat/supplier-portal` đã dựng trên `feat/misa-sync-and-recipe`, module `ingredients` có sẵn. Xem 4.1. |
-| Q-2 | Ngưỡng 10%/30% (M3.D-22) là đề xuất, chưa được chủ quán xác nhận | Chỉnh được sau, không ảnh hưởng cấu trúc dữ liệu |
-| Q-3 | "Kỳ trước" ở màn biến động giá tính theo tháng lịch hay theo lần nhập gần nhất trước đó? | Claude đề nghị: bảng 3.1 so **giá nhập cuối kỳ trước vs giá nhập cuối kỳ này** (ổn định hơn giá trung bình khi số lần nhập ít) |
+| ~~Q-2~~ | ~~Ngưỡng 10%/30%~~ | **CHỐT 2026-09-05** theo đề xuất: 10% vào popup, 30% bắt duyệt từng dòng. Chỉnh được sau qua `ingredients.price_alert_threshold_pct`, không ảnh hưởng cấu trúc dữ liệu. |
+| ~~Q-3~~ | ~~"Kỳ trước" tính thế nào~~ | **CHỐT 2026-09-05** theo đề xuất: bảng 4.1 so **giá nhập cuối kỳ trước vs giá nhập cuối kỳ này** (ổn định hơn giá bình quân khi số lần nhập ít). Riêng cột `Giá bình quân` ở 3.3 vẫn là bình quân gia quyền theo lượng. |
 | ~~Q-4~~ | ~~Đơn vị MUA khác đơn vị LƯU~~ | **ĐÃ CHỐT 2026-09-05 — phương án B**: thêm đơn vị mua + hệ số quy đổi, không đụng `ingredient-units.ts`. Xem M3.D-33→35. |
 | ~~Q-5~~ | ~~Đơn giá so sánh phải chuẩn hoá~~ | **ĐÃ CHỐT 2026-09-05**: lưu `unit_price_base`, mọi so sánh chạy trên cột đó. Xem M3.D-36→38. |
-| **Q-6** | Đơn vị mua là chuỗi tự do (M3.D-33) → sẽ có "thùng" / "Thùng" / "thung" thành 3 nhãn khác nhau cho cùng một thứ | Không nguy hiểm như trùng mặt hàng (vì mọi phép tính đi qua `qty_base`, nhãn chỉ để đọc), nhưng làm ma trận so giá 4.2 trông lởm chởm. Claude đề nghị: chuẩn hoá nhãn bằng `normalizeName()` có sẵn khi so khớp, và gợi ý các `purchase_unit` NCC đó đã dùng trước đó. |
+| ~~Q-6~~ | ~~Nhãn đơn vị mua tự do sẽ sinh "thùng"/"Thùng"/"thung"~~ | **CHỐT 2026-09-05** theo đề xuất: so khớp nhãn qua `normalizeName()` có sẵn, và ô đơn vị mua gợi ý sẵn các `purchase_unit` NCC đó đã dùng. Không nguy hiểm như trùng mặt hàng vì mọi phép tính đi qua `qty_base`. |
+| **Q-7** | **Số dư đầu kỳ (M3.D-40) chưa có số.** Con số "còn phải trả" chỉ đúng khi chủ quán nhập đúng số dư đang nợ từng NCC ở thời điểm bắt đầu dùng. | Đây là **việc của chủ quán, không phải việc của code**: phải đối chiếu với sổ/NCC một lần cho 10–30 NCC trước khi bật tính năng công nợ. Nếu chưa có số, để `opening_balance = 0` và hiểu con số hiển thị là "phát sinh từ ngày bắt đầu dùng", KHÔNG phải tổng nợ thật. |
