@@ -5,6 +5,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
+import { RecipePanel } from './RecipePanel.tsx';
 
 type MenuGroup = {
   id: string;
@@ -66,6 +67,9 @@ export function MenuManagementPage() {
   // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như 3 màn trên: khai công thức là
   // việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
   const [showIngredients, setShowIngredients] = useState(false);
+  // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
+  const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
+  const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -83,6 +87,25 @@ export function MenuManagementPage() {
   useEffect(() => {
     setPage(1);
   }, [groupFilter, stockFilter, debouncedSearch, sort]);
+
+  /** Số dòng công thức của các món ĐANG HIỆN — một request cho cả trang, không hỏi từng món.
+   *
+   * Lỗi ở đây KHÔNG làm hỏng màn Menu: số nguyên liệu chỉ là chỉ dấu phụ trên nút, còn danh sách
+   * món phải hiện được kể cả khi phần công thức có trục trặc. */
+  const loadRecipeCounts = async (ids: string[]) => {
+    if (ids.length === 0) {
+      setRecipeCounts({});
+      return;
+    }
+    try {
+      const res = await api.get<{ data: { counts: Record<string, number> } }>(
+        `/recipes/counts?menu_item_ids=${ids.join(',')}`,
+      );
+      setRecipeCounts(res.data.data.counts);
+    } catch {
+      setRecipeCounts({});
+    }
+  };
 
   const refresh = async () => {
     setLoading(true);
@@ -102,6 +125,7 @@ export function MenuManagementPage() {
       setItems(itemsRes.data.data.items);
       setTotal(itemsRes.data.data.total);
       setGroups(groupsRes.data.data.items);
+      loadRecipeCounts(itemsRes.data.data.items.map((i) => i.id));
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -348,6 +372,21 @@ export function MenuManagementPage() {
                     >
                       Sửa
                     </button>
+                    {/* Số nguyên liệu hiện ngay trên nút: món chưa khai công thức thì không sinh
+                        tiêu hao, và đó là thứ chủ quán cần nhìn ra khi soi báo cáo thiếu số. */}
+                    <button
+                      className="secondary"
+                      onClick={() => setRecipeFor(it)}
+                      style={{ padding: '6px 10px', fontSize: 13 }}
+                      title="Khai nguyên liệu + định lượng cho món này"
+                    >
+                      📋 Công thức
+                      {recipeCounts[it.id] ? (
+                        <span style={{ color: '#0f766e', fontWeight: 700 }}> {recipeCounts[it.id]}</span>
+                      ) : (
+                        <span style={{ color: '#b45309' }}> —</span>
+                      )}
+                    </button>
                     {it.is_active && (
                       <button
                         className="danger"
@@ -431,6 +470,18 @@ export function MenuManagementPage() {
       {/* KHÔNG refresh() khi đóng: panel nguyên liệu không đụng tới bảng `menu_items`, nên tải
           lại lưới món chỉ là một lượt request thừa. */}
       {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
+      {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả lưới món): số nguyên liệu
+          trên nút vừa đổi, còn `menu_items` thì không đụng tới. */}
+      {recipeFor && (
+        <RecipePanel
+          menuItemId={recipeFor.id}
+          menuItemName={recipeFor.name}
+          onClose={() => {
+            setRecipeFor(null);
+            loadRecipeCounts(items.map((i) => i.id));
+          }}
+        />
+      )}
     </div>
   );
 }
