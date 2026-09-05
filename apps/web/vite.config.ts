@@ -30,6 +30,14 @@ export default defineConfig({
       '/tables':      apiProxy(),
       '/orders':      apiProxy(),
       '/uploads':     apiProxy(),
+      // Định lượng nguyên liệu (2026-09-05). ⚠ DANH SÁCH NÀY LÀ CỨNG: thêm controller mới ở
+      // BE mà quên thêm vào đây thì dev server nuốt request và trả về index.html — axios nhận
+      // HTML thay vì JSON và màn hình vỡ, trong khi log API sạch bong vì request chưa từng
+      // tới nơi. Production KHÔNG có bẫy này (Caddy proxy toàn bộ về api:3001), nên lỗi chỉ
+      // xuất hiện khi chạy local.
+      '/ingredients': apiProxy(),
+      '/recipes':     apiProxy(),
+      '/consumption': apiProxy(),
     },
   },
   build: {

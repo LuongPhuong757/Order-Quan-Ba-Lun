@@ -164,9 +164,9 @@ function MisaCheckbox({ onChange }: { onChange: (v: boolean) => void }) {
         style={{ width: 18, height: 18, flexShrink: 0 }}
       />
       <span style={{ fontSize: 14 }}>
-        Đã sao chép sang <strong>MISA</strong>
+        <strong>Misa</strong>
         <div style={{ fontSize: 12, color: '#6b7280' }}>
-          Bỏ trống cũng thu tiền được — đơn sẽ nằm ở mục “Chưa lên MISA” để làm sau.
+          Bỏ trống cũng thu tiền được — đánh dấu bù sau ở màn Lịch sử.
         </div>
       </span>
     </label>
