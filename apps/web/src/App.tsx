@@ -60,6 +60,9 @@ const OnlineOrdersPage = lazy(() =>
 const SuppliersPage = lazy(() =>
   import('./pages/SuppliersPage.tsx').then((m) => ({ default: m.SuppliersPage })),
 );
+const NccPortalPage = lazy(() =>
+  import('./pages/NccPortalPage.tsx').then((m) => ({ default: m.NccPortalPage })),
+);
 
 /**
  * Những màn mỗi role bấm vào NHIỀU NHẤT trong một buổi làm — kéo sẵn về khi máy rảnh.
@@ -117,6 +120,10 @@ export function App() {
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/recover" element={<RecoverPage />} />
+          {/* Cổng nhà cung cấp (2026-09-05, bước 4). NGOÀI `ProtectedShell` một cách cố ý: NCC
+              không phải nhân viên, không có role, và tự xác thực bằng phiên riêng
+              (`x-supplier-token`). Nhét vào trong đó là bắt họ đăng nhập bằng tài khoản nội bộ. */}
+          <Route path="/ncc" element={<NccPortalPage />} />
 
           <Route element={<ProtectedShell />}>
             <Route path="/" element={<HomeRedirect />} />

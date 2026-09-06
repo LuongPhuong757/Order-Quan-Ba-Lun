@@ -123,6 +123,14 @@ const CHECKS: TableCheck[] = [
     ],
   },
   {
+    table: 'supplier_users',
+    requiredColumns: ['id', 'supplier_id', 'phone', 'pin_hash', 'failed_attempts', 'locked_until', 'is_active'],
+  },
+  {
+    table: 'supplier_sessions',
+    requiredColumns: ['id', 'token', 'supplier_id', 'supplier_user_id', 'expires_at', 'revoked_at'],
+  },
+  {
     table: 'supplier_payments',
     requiredColumns: [
       'id',

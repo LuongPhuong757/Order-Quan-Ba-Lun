@@ -26,6 +26,7 @@ import {
   PriceMatrixPanel,
 } from './SupplierReports.tsx';
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
+import { SupplierAccountPanel } from './SupplierAccountPanel.tsx';
 
 type Supplier = {
   id: string;
@@ -225,7 +226,16 @@ export function SuppliersPage() {
         />
       )}
 
-      {tab === 'deliveries' && !loading && <DeliveryList deliveries={deliveries} period={period.label} />}
+      {tab === 'deliveries' && !loading && (
+        <DeliveryList
+          deliveries={deliveries}
+          period={period.label}
+          onChanged={() => {
+            refresh();
+            setBalanceTick((t) => t + 1);
+          }}
+        />
+      )}
 
       {tab === 'prices' && (
         <>
@@ -380,40 +390,128 @@ function SupplierList({
   );
 }
 
-function DeliveryList({ deliveries, period }: { deliveries: Delivery[]; period: string }) {
+/** Nhãn trạng thái phiếu. Phiếu NCC tự gửi dừng ở `PENDING_*` cho tới khi quán duyệt — nó là ĐỀ
+ * NGHỊ, chưa vào kho và chưa vào công nợ (M3.D-08, 41). */
+const DELIVERY_STATUS: Record<string, { label: string; color: string }> = {
+  PENDING_REVIEW: { label: 'Chờ kiểm hàng', color: '#b45309' },
+  PENDING_PRICE: { label: 'Chờ duyệt giá', color: '#c2410c' },
+  CONFIRMED: { label: 'Đã duyệt', color: '#15803d' },
+  CANCELLED: { label: 'Đã huỷ', color: '#b91c1c' },
+};
+
+function DeliveryList({
+  deliveries,
+  period,
+  onChanged,
+}: {
+  deliveries: Delivery[];
+  period: string;
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const confirmDialog = useConfirm();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const act = async (d: Delivery, kind: 'confirm' | 'cancel') => {
+    if (kind === 'cancel') {
+      const ok = await confirmDialog({
+        title: 'Huỷ phiếu này?',
+        variant: 'danger',
+        message: `${d.supplier_name} · ${vnd(d.total_amount)}đ. Phiếu vẫn còn trong lịch sử, chỉ không tính vào kho và công nợ.`,
+        confirmLabel: 'Huỷ phiếu',
+      });
+      if (!ok) return;
+    }
+    setBusy(d.id);
+    try {
+      await api.post(`/supplier-deliveries/${d.id}/${kind}`);
+      toast.push('success', kind === 'confirm' ? 'Đã duyệt phiếu' : 'Đã huỷ phiếu');
+      onChanged();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (deliveries.length === 0) {
     return <div className="empty-state card">Chưa có phiếu nhập nào trong {period.toLowerCase()}.</div>;
   }
+
+  const pending = deliveries.filter((d) => d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE');
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-        <thead>
-          <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-            <th style={{ padding: 8 }}>Ngày</th>
-            <th style={{ padding: 8 }}>Nhà cung cấp</th>
-            <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
-            <th style={{ padding: 8 }}>Người nhập</th>
-          </tr>
-        </thead>
-        <tbody>
-          {deliveries.map((d) => (
-            <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-              <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
-              <td style={{ padding: 8 }}>{d.supplier_name}</td>
-              <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
-              <td style={{ padding: 8, color: C.mutedOnTint }}>
-                {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai nhập
-                    cái này?". Cột này trả lời mà không phải đào audit log. */}
-                {d.created_by_name}
-                {d.source === 'SUPPLIER' && (
-                  <span style={{ color: C.muted, fontSize: 12 }}> · NCC tự gửi</span>
-                )}
-              </td>
+    <>
+      {/* Phiếu NCC gửi mà chưa duyệt là việc TỒN — đưa lên đầu, không để chìm giữa bảng. */}
+      {pending.length > 0 && (
+        <div className="card" style={{ marginBottom: 12, background: '#fffbeb' }}>
+          <strong>{pending.length} phiếu chờ quán duyệt</strong>
+          <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
+            Chưa duyệt thì chưa tính vào kho và công nợ.
+          </div>
+        </div>
+      )}
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+              <th style={{ padding: 8 }}>Ngày</th>
+              <th style={{ padding: 8 }}>Nhà cung cấp</th>
+              <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
+              <th style={{ padding: 8 }}>Trạng thái</th>
+              <th style={{ padding: 8 }}>Người nhập</th>
+              <th style={{ padding: 8 }} />
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+          </thead>
+          <tbody>
+            {deliveries.map((d) => {
+              const st = DELIVERY_STATUS[d.status] ?? { label: d.status, color: C.muted };
+              const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
+              return (
+                <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
+                  <td style={{ padding: 8 }}>{d.supplier_name}</td>
+                  <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
+                  <td style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
+                    ● {st.label}
+                  </td>
+                  <td style={{ padding: 8, color: C.mutedOnTint }}>
+                    {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
+                        nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
+                    {d.source === 'SUPPLIER' ? (
+                      <span style={{ color: C.muted }}>NCC tự gửi</span>
+                    ) : (
+                      d.created_by_name
+                    )}
+                  </td>
+                  <td style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                    {waiting && (
+                      <>
+                        <button
+                          onClick={() => act(d, 'confirm')}
+                          disabled={busy === d.id}
+                          style={{ minHeight: 36, padding: '0 12px' }}
+                        >
+                          Duyệt
+                        </button>
+                        <button
+                          className="secondary"
+                          onClick={() => act(d, 'cancel')}
+                          disabled={busy === d.id}
+                          style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
+                        >
+                          Huỷ
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 
@@ -509,6 +607,8 @@ function SupplierDetail({
             </button>
           )}
         </div>
+
+        {isAdmin && <SupplierAccountPanel supplierId={supplier.id} supplierPhone={supplier.phone} />}
 
         {/* Công nợ chỉ admin xem — nhân viên order nhập hàng được nhưng không thấy tiền nợ. */}
         {isAdmin && (

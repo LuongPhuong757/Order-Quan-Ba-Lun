@@ -78,6 +78,24 @@ export class DeliveriesController {
    * bình thường của luồng. Vì vậy vẫn là 200 với `data`, không dùng error envelope: 4xx sẽ đẩy
    * màn hình vào nhánh xử lý lỗi và hiện toast đỏ, trong khi việc cần làm là mở popup xác nhận.
    */
+  /** Duyệt phiếu NCC gửi → vào kho và vào công nợ (M3.D-08). Đây cũng là chỗ giá tham chiếu mới
+   * được dịch theo phiếu đó. */
+  @Post(':id/confirm')
+  @HttpCode(200)
+  async confirm(@Param('id') id: string, @Req() req: Request) {
+    const d = await this.svc.confirm(id, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: d };
+  }
+
+  @Post(':id/cancel')
+  @HttpCode(200)
+  async cancel(@Param('id') id: string) {
+    return { data: await this.svc.cancel(id) };
+  }
+
   @Post()
   @HttpCode(200)
   async create(@Body() dto: CreateDeliveryDto, @Req() req: Request) {

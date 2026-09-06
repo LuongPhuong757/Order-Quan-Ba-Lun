@@ -233,32 +233,125 @@ export class DeliveriesService {
           ),
         );
 
-        // Cập nhật bảng giá tham chiếu cho lần nhập sau (M3.D-18, 20).
-        if (p.prev) {
-          await items.update(p.prev.id, {
-            purchase_unit: p.purchase_unit,
-            qty_base_per_unit: String(p.qty_base_per_unit),
-            last_unit_price: p.unit_price,
-            last_unit_price_base: String(p.amounts.unit_price_base),
-            last_delivery_date: delivery_date,
-          });
-        } else {
-          await items.save(
-            items.create({
-              supplier_id: input.supplier_id,
-              ingredient_id: p.ingredient.id,
-              purchase_unit: p.purchase_unit,
-              qty_base_per_unit: String(p.qty_base_per_unit),
-              last_unit_price: p.unit_price,
-              last_unit_price_base: String(p.amounts.unit_price_base),
-              last_delivery_date: delivery_date,
-            }),
-          );
-        }
       }
+
+      // Giá tham chiếu chỉ dịch theo phiếu ĐÃ DUYỆT — xem `applyItemReferences`.
+      await applyItemReferences(items, input.supplier_id, delivery_date, saved);
 
       return { created: true, delivery, lines: saved };
     });
+  }
+
+  /** NCC tự gửi phiếu (bước 4). KHÔNG vào kho ngay — nó là ĐỀ NGHỊ (M3.D-08).
+   *
+   * Khác đường nhân viên nhập hộ ở ba chỗ, và cả ba đều cố ý:
+   * 1. Không có popup duyệt giá. NCC không được tự quyết giá mới (M3.D-26) — lệch giá thì phiếu
+   *    dừng ở `PENDING_PRICE` cho quán xử lý, chứ không phải hỏi chính người đang bán.
+   * 2. Ngày giao luôn là hôm nay: NCC không sửa được ngày, tránh phiếu lùi ngày vào kỳ đã chốt.
+   * 3. Không cập nhật `supplier_items` — mốc giá chỉ dịch khi quán duyệt.
+   */
+  async submitBySupplier(
+    supplier_id: string,
+    input: { note?: string | null; lines: DeliveryLineInput[] },
+  ): Promise<{ delivery: SupplierDelivery; lines: SupplierDeliveryLine[] }> {
+    if (!input.lines?.length) {
+      throw new BadRequestException({ code: 'BAD_INPUT', message: 'Phiếu chưa có mặt hàng nào' });
+    }
+    const delivery_date = DeliveriesService.today();
+    const prepared = await this.prepareLines(supplier_id, input.lines);
+    const flagged = prepared.some((p) => p.level !== 'none');
+
+    return this.ds.transaction(async (mgr) => {
+      const deliveries = mgr.getRepository(SupplierDelivery);
+      const lines = mgr.getRepository(SupplierDeliveryLine);
+
+      const delivery = await deliveries.save(
+        deliveries.create({
+          supplier_id,
+          delivery_date,
+          status: flagged ? 'PENDING_PRICE' : 'PENDING_REVIEW',
+          source: 'SUPPLIER',
+          created_by_user_id: null,
+          created_by_name: '',
+          note: input.note?.trim() || null,
+          total_amount: prepared.reduce((sum, p) => sum + p.amounts.amount, 0),
+        }),
+      );
+
+      const saved: SupplierDeliveryLine[] = [];
+      for (const p of prepared) {
+        saved.push(
+          await lines.save(
+            lines.create({
+              delivery_id: delivery.id,
+              ingredient_id: p.ingredient.id,
+              ingredient_name_snapshot: p.ingredient.name,
+              unit_snapshot: p.ingredient.unit,
+              purchase_unit_snapshot: p.purchase_unit,
+              qty_base_per_unit_snapshot: String(p.qty_base_per_unit),
+              qty_purchase: String(p.qty_purchase),
+              unit_price: p.unit_price,
+              amount: p.amounts.amount,
+              qty_base: String(p.amounts.qty_base),
+              unit_price_base: String(p.amounts.unit_price_base),
+              prev_unit_price_base: p.prev?.last_unit_price_base ?? null,
+              price_change_pct: p.pct === null ? null : String(p.pct),
+              prev_qty_base_per_unit: p.prev?.qty_base_per_unit ?? null,
+              price_approved_by_user_id: null,
+            }),
+          ),
+        );
+      }
+      return { delivery, lines: saved };
+    });
+  }
+
+  /** Quán duyệt một phiếu NCC gửi → vào kho và vào công nợ (M3.D-08, 41).
+   *
+   * Đây là chỗ `supplier_items` mới được dịch mốc giá, và cũng là chỗ đóng dấu ai chịu trách
+   * nhiệm cho mức giá lệch.
+   */
+  async confirm(id: string, actor: Actor): Promise<SupplierDelivery> {
+    return this.ds.transaction(async (mgr) => {
+      const deliveries = mgr.getRepository(SupplierDelivery);
+      const lineRepo = mgr.getRepository(SupplierDeliveryLine);
+      const items = mgr.getRepository(SupplierItem);
+
+      const d = await deliveries.findOne({ where: { id } });
+      if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+      if (d.status === 'CONFIRMED') return d;
+      if (d.status === 'CANCELLED') {
+        throw new BadRequestException({ code: 'BAD_STATE', message: 'Phiếu đã huỷ, không duyệt được' });
+      }
+
+      const lines = await lineRepo.find({ where: { delivery_id: id } });
+      // Đóng dấu người duyệt lên đúng những dòng lệch giá — cùng lý lẽ với luồng nhân viên nhập.
+      for (const l of lines) {
+        if (l.price_change_pct !== null && l.price_approved_by_user_id === null) {
+          await lineRepo.update(l.id, { price_approved_by_user_id: actor.id });
+        }
+      }
+
+      d.status = 'CONFIRMED';
+      await deliveries.save(d);
+      await applyItemReferences(items, d.supplier_id, toDateString(d.delivery_date) ?? '', lines);
+      return d;
+    });
+  }
+
+  /** Huỷ phiếu. Giữ lại để truy vết chứ không xoá — phiếu biến mất là câu hỏi không ai trả lời
+   * được ở lần đối chiếu sau. */
+  async cancel(id: string): Promise<SupplierDelivery> {
+    const d = await this.deliveryRepo.findOne({ where: { id } });
+    if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    if (d.status === 'CONFIRMED') {
+      throw new BadRequestException({
+        code: 'BAD_STATE',
+        message: 'Phiếu đã duyệt rồi — không huỷ được, nó đã vào kho và công nợ',
+      });
+    }
+    d.status = 'CANCELLED';
+    return this.deliveryRepo.save(d);
   }
 
   /** Tính lại toàn bộ một phiếu: quy đổi, so với lần trước, xếp mức cảnh báo.
@@ -393,5 +486,38 @@ export class DeliveriesService {
       total_amount: d.total_amount,
       created_by_name: d.created_by_name,
     };
+  }
+}
+
+/** Cập nhật bảng giá tham chiếu `supplier_items` từ các dòng của một phiếu (M3.D-18, 20).
+ *
+ * CHỈ gọi khi phiếu ở trạng thái đã duyệt. Phiếu NCC tự gửi mà chưa ai kiểm thì không được phép
+ * dịch mốc giá: cho dịch thì NCC gửi một phiếu giá cao, lần sau hệ thống so với chính con số họ
+ * vừa khai, và cảnh báo đổi giá im lặng — đúng cái nó sinh ra để chặn (M3.D-08, 26).
+ */
+async function applyItemReferences(
+  items: Repository<SupplierItem>,
+  supplier_id: string,
+  delivery_date: string,
+  lines: SupplierDeliveryLine[],
+): Promise<void> {
+  for (const l of lines) {
+    const prev = await items.findOne({ where: { supplier_id, ingredient_id: l.ingredient_id } });
+    const patch = {
+      purchase_unit: l.purchase_unit_snapshot,
+      qty_base_per_unit: l.qty_base_per_unit_snapshot,
+      last_unit_price: l.unit_price,
+      last_unit_price_base: l.unit_price_base,
+      last_delivery_date: delivery_date,
+    };
+    if (prev) {
+      // Nhập bù phiếu ngày cũ KHÔNG được ghi đè giá của lần giao mới hơn: mốc tham chiếu phải
+      // luôn là lần giao gần nhất theo NGÀY GIAO, không phải theo thứ tự ai ngồi nhập trước.
+      const prevDate = toDateString(prev.last_delivery_date) ?? '';
+      if (prevDate > delivery_date) continue;
+      await items.update(prev.id, patch);
+    } else {
+      await items.save(items.create({ supplier_id, ingredient_id: l.ingredient_id, ...patch }));
+    }
   }
 }

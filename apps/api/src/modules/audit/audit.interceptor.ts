@@ -81,6 +81,17 @@ function deriveActionKind(method: string, path: string): string {
   }
   if (path.match(/^\/suppliers\/[^/]+\/payments$/) && method === 'POST') return 'supplier.payment_recorded';
   if (path.match(/^\/suppliers\/payments\/[^/]+$/) && method === 'DELETE') return 'supplier.payment_deleted';
+  // Cấp / đặt lại PIN cho NCC (M3.D-03). Người cầm PIN gửi được phiếu nhập vào hệ thống, nên
+  // "ai phát mã cho ai, lúc nào" phải có vết. `after_json` bị `sanitize` cắt trường nhạy cảm —
+  // xem hàm đó — nên PIN không nằm lại trong audit log.
+  if (path.match(/^\/suppliers\/[^/]+\/account$/) && method === 'PUT') return 'supplier.account_issued';
+  if (path.match(/^\/suppliers\/[^/]+\/account$/) && method === 'DELETE') return 'supplier.account_disabled';
+  if (path.match(/^\/supplier-deliveries\/[^/]+\/confirm$/) && method === 'POST') return 'supplier.delivery_confirmed';
+  if (path.match(/^\/supplier-deliveries\/[^/]+\/cancel$/) && method === 'POST') return 'supplier.delivery_cancelled';
+  // NCC tự gửi phiếu qua cổng riêng — không có `actor_id` vì họ không phải nhân viên; cột
+  // `target_id` giữ id phiếu để lần ra ai gửi.
+  if (path === '/supplier-portal/deliveries' && method === 'POST') return 'supplier.portal_delivery_submitted';
+  if (path === '/supplier-portal/login' && method === 'POST') return 'supplier.portal_login';
   if (path.match(/^\/suppliers\/[^/]+$/) && method === 'PATCH') return 'supplier.updated';
   if (path.match(/^\/suppliers\/[^/]+$/) && method === 'DELETE') return 'supplier.deleted';
   // `submitted` chứ không phải `created`: endpoint này đi HAI NHỊP (xem `DeliveriesService
@@ -213,7 +224,21 @@ function extractTargetId(req: Request): string | null {
 function sanitize(body: unknown): unknown {
   if (!body || typeof body !== 'object') return body;
   const out = JSON.parse(JSON.stringify(body));
-  redactKeys(out, ['password', 'password_hash', 'recovery_code', 'temp_password', 'jwt', 'token']);
+  // `pin` / `pin_hash` / `session_token` (2026-09-05, bước 4): endpoint cấp PIN cho NCC trả mã
+  // dạng CHỮ trong response, và `after_json` lưu nguyên response. Thiếu ba khoá này thì mọi mã
+  // PIN đã phát nằm vĩnh viễn trong `audit_log` — ai đọc được nhật ký là đăng nhập được thay
+  // mọi nhà cung cấp.
+  redactKeys(out, [
+    'password',
+    'password_hash',
+    'recovery_code',
+    'temp_password',
+    'jwt',
+    'token',
+    'pin',
+    'pin_hash',
+    'session_token',
+  ]);
   return out;
 }
 

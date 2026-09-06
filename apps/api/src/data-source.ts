@@ -28,6 +28,8 @@ import { SupplierItem } from './modules/suppliers/entities/supplier-item.entity.
 import { SupplierDelivery } from './modules/suppliers/entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './modules/suppliers/entities/supplier-delivery-line.entity.js';
 import { SupplierPayment } from './modules/suppliers/entities/supplier-payment.entity.js';
+import { SupplierUser } from './modules/suppliers/entities/supplier-user.entity.js';
+import { SupplierSession } from './modules/suppliers/entities/supplier-session.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -94,6 +96,9 @@ export const dataSourceOptions: DataSourceOptions = {
     // Công nợ NCC (bước 3). Thiếu dòng này thì `synchronize` không tạo bảng, mọi lần ghi nhận
     // thanh toán ném lỗi runtime, mà `tsc` vẫn xanh.
     SupplierPayment,
+    // Tài khoản + phiên đăng nhập của NCC (bước 4).
+    SupplierUser,
+    SupplierSession,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
