@@ -314,8 +314,10 @@ export class OrdersController {
     return { data: result };
   }
 
-  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin). Cùng filter với
-   * history (trừ status — biểu đồ luôn phản ánh đủ trong phạm vi ngày/bàn/thu ngân). */
+  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin).
+   *
+   * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05): tab ở màn Lịch sử đổi thì
+   * cả bảng số bên dưới đổi theo, không chỉ danh sách đơn. */
   @Get('stats')
   @UseGuards(AdminGuard)
   async stats(@Query() q: Record<string, string>) {
@@ -324,6 +326,9 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      status:
+        q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
+      misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
     });
     return { data };
   }

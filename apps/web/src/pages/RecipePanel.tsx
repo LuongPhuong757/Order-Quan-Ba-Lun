@@ -229,6 +229,9 @@ function AddLineForm({
                 style={{
                   display: 'block', width: '100%', textAlign: 'left', padding: '9px 12px',
                   background: 'none', border: 'none', borderBottom: '1px solid #f3f4f6',
+                  // Nút toàn cục là nền xanh CHỮ TRẮNG. Đè nền thành trong suốt mà quên màu chữ
+                  // thì tên nguyên liệu thành chữ trắng trên nền trắng — trông như danh sách rỗng.
+                  color: '#111827',
                   fontSize: 14, cursor: 'pointer',
                 }}
               >

@@ -1253,9 +1253,19 @@ export class OrdersService {
 
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ ở màn Giao dịch.
    *
-   * Áp filter bàn/thu ngân/khoảng ngày (KHÔNG áp status — biểu đồ luôn phản ánh
-   * đủ bức tranh trong phạm vi ngày/bàn/thu ngân). Doanh thu = tổng món state
-   * SERVED của các đơn ĐÃ thanh toán (closed_at NOT NULL) — khớp cách tính ở FE.
+   * Áp filter bàn/thu ngân/khoảng ngày, VÀ tab đang chọn ở màn Lịch sử (2026-09-05): chủ quán
+   * bấm tab "Đã huỷ" thì cả bảng số bên dưới phải nói về đơn huỷ, không riêng danh sách đơn.
+   * Mỗi tab đổi 2 thứ: phạm vi ĐƠN (`scopeSql`) và món nào được tính tiền (`itemStateSql`).
+   *
+   *   all / paid  → đơn đã thu tiền, món SERVED   = doanh thu thật
+   *   misa=copied → như trên, thêm đã gõ sang Misa
+   *   unpaid      → đơn đang mở, món chưa huỷ     = tiền đang chờ thu
+   *   cancelled   → đơn kết bằng huỷ, món CANCELLED = giá trị đã huỷ (số để soi gian lận;
+   *                 nếu vẫn đếm món SERVED thì mọi biểu đồ tab này bằng 0, vô dụng)
+   *
+   * 3 con số đếm theo trạng thái cũng cắt theo tab khi có tab đang chọn → 2 trong 3 về 0, và
+   * biểu đồ tròn "tỉ lệ thanh toán" thành 1 lát 100%. Đó là lý do FE chỉ vẽ ô đếm của tab đang
+   * chọn và ẩn biểu đồ tròn ở các tab — KHÔNG phải chỗ để "sửa" bằng cách bỏ cắt theo tab.
    *
    * Bucket theo NGÀY/GIỜ giờ Việt Nam (UTC+7, cố định, không DST): cộng offset
    * 7h vào epoch ms rồi lấy phần ngày/giờ — tránh lệ thuộc timezone table MySQL.
@@ -1265,6 +1275,8 @@ export class OrdersService {
     cashier_user_id?: string;
     start_ms?: number;
     end_ms?: number;
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    misa?: 'pending' | 'copied';
   }): Promise<{
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
@@ -1292,21 +1304,43 @@ export class OrdersService {
       return qb;
     };
 
-    // 1) Doanh thu từng đơn ĐÃ thanh toán (kèm epoch ms + thu ngân) → gom theo
+    // Phạm vi đơn của TAB đang chọn (xem doc-comment ở trên).
+    const tabActive = (!!opts.status && opts.status !== 'all') || !!opts.misa;
+    let scopeSql =
+      opts.status === 'unpaid'
+        ? `o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`
+        : opts.status === 'cancelled'
+          ? CANCELLED_SQL
+          : PAID_SQL;
+    // Misa chỉ có nghĩa với đơn đã thu tiền — cùng lệ với listHistory.
+    if (opts.misa === 'copied') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NOT NULL`;
+    else if (opts.misa === 'pending') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NULL`;
+
+    const itemStateSql =
+      opts.status === 'cancelled'
+        ? "i.state = 'CANCELLED'"
+        : opts.status === 'unpaid'
+          ? "i.state <> 'CANCELLED'"
+          : "i.state = 'SERVED'";
+
+    // 1) Doanh thu từng đơn trong phạm vi tab (kèm epoch ms + thu ngân) → gom theo
     //    ngày/giờ/thu ngân bằng JS (tránh hàm timezone trong SQL).
     const perOrder = await applyFilters(
       this.orderRepo
         .createQueryBuilder('o')
         .leftJoin('o.items', 'i')
-        .select('UNIX_TIMESTAMP(o.closed_at) * 1000', 'closed_ms')
+        // COALESCE: tab "Chưa thanh toán" chưa có closed_at — thiếu nó thì cả tab rơi vào
+        // ngày 1970 và biểu đồ theo ngày/giờ trống trơn.
+        .select('UNIX_TIMESTAMP(COALESCE(o.closed_at, o.opened_at)) * 1000', 'closed_ms')
         .addSelect('o.checked_out_by_full_name', 'cashier')
         .addSelect(
-          "SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)",
+          `SUM(CASE WHEN ${itemStateSql} THEN i.menu_item_price * i.qty ELSE 0 END)`,
           'revenue',
         )
-        .where(PAID_SQL)
+        .where(scopeSql)
         .groupBy('o.id')
         .addGroupBy('o.closed_at')
+        .addGroupBy('o.opened_at')
         .addGroupBy('o.checked_out_by_full_name'),
     ).getRawMany<{ closed_ms: string | number; cashier: string | null; revenue: string | number }>();
 
@@ -1337,8 +1371,8 @@ export class OrdersService {
         .select('i.menu_item_name', 'name')
         .addSelect('SUM(i.qty)', 'qty')
         .addSelect('SUM(i.menu_item_price * i.qty)', 'revenue')
-        .where(PAID_SQL)
-        .andWhere("i.state = 'SERVED'")
+        .where(scopeSql)
+        .andWhere(itemStateSql)
         // Ghi chú ("lấy bát", "nước mắm") không phải hàng bán → không được lọt
         // vào top món bán chạy, nếu không nó đứng đầu bảng với doanh thu 0đ.
         .andWhere('i.is_note = 0')
@@ -1348,21 +1382,30 @@ export class OrdersService {
     ).getRawMany<{ name: string; qty: string | number; revenue: string | number }>();
 
     // 3) Đếm đơn theo 3 trạng thái (cùng phạm vi filter).
+    //
+    // Có tab đang chọn thì các số đếm cũng CẮT theo tab (2026-09-05): ở tab "Đã huỷ" mà ô
+    // "Đơn đã thanh toán" vẫn đề 27 thì người đọc tưởng bảng số chưa đổi. Hệ quả: 2 trong 3 ô
+    // về 0 — FE chỉ vẽ ô của tab đang chọn nên không lộ ra ô 0 vô nghĩa.
+    const scoped = (qb: import('typeorm').SelectQueryBuilder<Order>) =>
+      tabActive ? qb.andWhere(scopeSql) : qb;
+
     const paid_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where(PAID_SQL),
+      scoped(this.orderRepo.createQueryBuilder('o').where(PAID_SQL)),
     ).getCount();
     // Đơn bị HUỶ — đếm riêng để chủ quán soi được: bàn có gọi món nhưng kết thúc
     // bằng huỷ chứ không phải thu tiền.
     const cancelled_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL),
+      scoped(this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL)),
     ).getCount();
     // Đơn rỗng (tap mở bàn chưa gọi gì / đã huỷ hết) KHÔNG tính là "chưa thanh
     // toán" — nếu tính thì con số này phình theo số lần bấm vào bàn.
     const unpaid_count = await applyFilters(
-      this.orderRepo
-        .createQueryBuilder('o')
-        .where('o.closed_at IS NULL')
-        .andWhere(HAS_ALIVE_ITEMS_SQL),
+      scoped(
+        this.orderRepo
+          .createQueryBuilder('o')
+          .where('o.closed_at IS NULL')
+          .andWhere(HAS_ALIVE_ITEMS_SQL),
+      ),
     ).getCount();
 
     // 4) Phí ship thu hộ — M2.D-62: `ship_fee` là tiền THU HỘ khách trả cho việc giao hàng,
@@ -1374,7 +1417,7 @@ export class OrdersService {
       this.orderRepo
         .createQueryBuilder('o')
         .select('COALESCE(SUM(o.ship_fee), 0)', 'total')
-        .where(PAID_SQL),
+        .where(scopeSql),
     ).getRawOne<{ total: string | number }>();
     const ship_fee_total = Number(shipFeeRaw?.total) || 0;
 

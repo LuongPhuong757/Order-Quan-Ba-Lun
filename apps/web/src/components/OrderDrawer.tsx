@@ -533,7 +533,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       if (auto_cancelled_items > 0) {
         msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
       }
-      if (misaCopiedRef.current) msg += ' · đã đánh dấu MISA';
+      if (misaCopiedRef.current) msg += ' · đã đánh dấu Misa';
       toast.push('success', msg);
       // KHÔNG push notif — Admin checkout poller (ReadyListener) sẽ emit cross-device
       onTransferred?.();

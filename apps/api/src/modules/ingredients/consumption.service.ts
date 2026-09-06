@@ -95,6 +95,9 @@ export class ConsumptionService {
     start_ms?: number;
     end_ms?: number;
     table_id?: string;
+    /** Tab đang chọn ở màn Lịch sử. 'all' (mặc định) = mọi đơn, giữ nguyên hành vi cũ. */
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    misa?: 'pending' | 'copied';
   }): Promise<{
     items: Array<{ ingredient_name: string; unit: string; qty_total: number; portions: number; dishes: number }>;
     total_rows: number;
@@ -112,6 +115,17 @@ export class ConsumptionService {
       .orderBy('qty_total', 'DESC');
 
     if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
+    // Phạm vi đơn theo tab — cùng định nghĩa trạng thái với `orders.service`:
+    // closed_at = đã kết đơn, is_paid = kết bằng thu tiền hay huỷ.
+    if (opts.status === 'paid') qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1');
+    else if (opts.status === 'cancelled') qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 0');
+    else if (opts.status === 'unpaid') qb.andWhere('o.closed_at IS NULL');
+    // Misa chỉ gắn với đơn đã thu tiền.
+    if (opts.misa === 'copied') {
+      qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1 AND o.misa_copied_at IS NOT NULL');
+    } else if (opts.misa === 'pending') {
+      qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1 AND o.misa_copied_at IS NULL');
+    }
     // COALESCE giống `listHistory`: đơn chưa kết thì lấy mốc mở bàn, nếu không nó rơi khỏi mọi
     // khoảng ngày và biến mất khỏi báo cáo dù nguyên liệu đã dùng thật.
     if (opts.start_ms) {
