@@ -19,6 +19,7 @@ import { SupplierAuthService } from './supplier-auth.service.js';
 import { SupplierPortalController } from './supplier-portal.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { IngredientsModule } from '../ingredients/ingredients.module.js';
+import { MenuModule } from '../menu/menu.module.js';
 
 @Module({
   // IngredientsModule để dùng `IngredientsService.findOrCreate` (tạo mặt hàng tại chỗ lúc nhập
@@ -40,6 +41,9 @@ import { IngredientsModule } from '../ingredients/ingredients.module.js';
     ]),
     AuthModule,
     IngredientsModule,
+    // MenuModule cho repository `MenuItem` — giá vốn món cần tên + giá bán (bước 5). Nó đã
+    // `exports: [TypeOrmModule]` sẵn.
+    MenuModule,
   ],
   // `PaymentsController` dùng chung tiền tố `suppliers` với `SuppliersController`. Không xung
   // đột route: các đường của nó đều có thêm một đoạn (`:id/payments`, `:id/balance`,

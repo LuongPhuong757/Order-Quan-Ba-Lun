@@ -30,6 +30,14 @@ export class ReportsController {
     return { data: { from, to, items } };
   }
 
+  /** Giá vốn món ăn (bước 5) — chỗ hai nửa của milestone gặp nhau. */
+  @Get('food-cost')
+  async foodCost(@Query() q: Record<string, string>) {
+    const windowDays = Math.min(Math.max(Number(q.window_days) || 90, 7), 365);
+    const { from, rows } = await this.svc.foodCost(windowDays);
+    return { data: { from, window_days: windowDays, items: rows } };
+  }
+
   @Get('matrix')
   async matrix() {
     return { data: { items: await this.svc.matrix() } };

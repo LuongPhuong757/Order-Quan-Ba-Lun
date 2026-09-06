@@ -6,9 +6,13 @@
 // xảy ra thật, và cả hai làm `unit_price` mất tính so sánh (M3.D-36, 37).
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
+import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
+import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
+import { MenuItem } from '../menu/entities/menu-item.entity.js';
+import { computeFoodCost, ingredientPrices, type FoodCostRow } from './food-cost.js';
 import {
   aggregateByPair,
   buildPriceMatrix,
@@ -35,7 +39,84 @@ export class ReportsService {
   constructor(
     @InjectRepository(SupplierDeliveryLine) private readonly lineRepo: Repository<SupplierDeliveryLine>,
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
+    @InjectRepository(RecipeLine) private readonly recipeRepo: Repository<RecipeLine>,
+    @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
+    @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
   ) {}
+
+  /** Giá vốn từng món theo giá nguyên liệu đang mua (bước 5).
+   *
+   * `windowDays` là cửa sổ lấy bình quân giá — mặc định 90 ngày. Ngắn quá thì một đợt hàng đắt
+   * kéo lệch cả bảng; dài quá thì giá vốn phản ánh chuyện của quý trước.
+   */
+  async foodCost(windowDays = 90): Promise<{ from: string; rows: FoodCostRow[] }> {
+    const from = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10);
+
+    const [recipeLines, purchases, fallback] = await Promise.all([
+      this.recipeRepo.find(),
+      this.lineRepo
+        .createQueryBuilder('l')
+        .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
+        .select('l.ingredient_id', 'ingredient_id')
+        .addSelect('SUM(l.qty_base)', 'qty_base')
+        .addSelect('SUM(l.amount)', 'amount')
+        // Chỉ phiếu ĐÃ DUYỆT (M3.D-41) — giá vốn không được tính theo số NCC tự khai mà quán
+        // chưa kiểm.
+        .where("d.status = 'CONFIRMED'")
+        .andWhere('d.delivery_date >= :from', { from })
+        .groupBy('l.ingredient_id')
+        .getRawMany<{ ingredient_id: string; qty_base: string; amount: string }>(),
+      this.itemRepo
+        .createQueryBuilder('si')
+        .select('si.ingredient_id', 'ingredient_id')
+        // Một nguyên liệu có thể mua từ nhiều NCC; lấy giá RẺ NHẤT đang biết làm giá dự phòng —
+        // đó là mức quán thật sự mua được nếu cần đặt lại hôm nay.
+        .addSelect('MIN(si.last_unit_price_base)', 'unit_price_base')
+        .groupBy('si.ingredient_id')
+        .getRawMany<{ ingredient_id: string; unit_price_base: string }>(),
+    ]);
+
+    if (recipeLines.length === 0) return { from, rows: [] };
+
+    const ingIds = [...new Set(recipeLines.map((r) => r.ingredient_id))];
+    const itemIds = [...new Set(recipeLines.map((r) => r.menu_item_id))];
+    const [ingredients, menuItems] = await Promise.all([
+      this.ingredientRepo.find({ where: { id: In(ingIds) } }),
+      this.menuRepo.find({ where: { id: In(itemIds) } }),
+    ]);
+    const ingById = new Map(ingredients.map((i) => [i.id, i]));
+
+    const prices = ingredientPrices(
+      purchases.map((p) => ({
+        ingredient_id: p.ingredient_id,
+        qty_base: Number(p.qty_base),
+        amount: Number(p.amount),
+      })),
+      fallback.map((f) => ({
+        ingredient_id: f.ingredient_id,
+        unit_price_base: Number(f.unit_price_base),
+      })),
+    );
+
+    const rows = computeFoodCost(
+      menuItems
+        // Món đã xoá mềm thì không còn bán — để lại chỉ làm bảng dài ra.
+        .filter((m) => m.is_active)
+        .map((m) => ({ id: m.id, name: m.name, price: m.price })),
+      recipeLines
+        .filter((r) => ingById.has(r.ingredient_id))
+        .map((r) => ({
+          menu_item_id: r.menu_item_id,
+          ingredient_id: r.ingredient_id,
+          ingredient_name: ingById.get(r.ingredient_id)!.name,
+          base_unit: ingById.get(r.ingredient_id)!.unit,
+          qty_per_serving: Number(r.qty_per_serving),
+        })),
+      prices,
+    );
+
+    return { from, rows };
+  }
 
   /** Số liệu theo cặp (NCC, mặt hàng) trong kỳ — nguồn chung của mục 4.1 và 3.3.
    *

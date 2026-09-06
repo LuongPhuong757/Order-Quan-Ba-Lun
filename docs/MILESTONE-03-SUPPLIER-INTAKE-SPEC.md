@@ -1,6 +1,6 @@
 # Milestone 3 — Nhập Hàng Nhà Cung Cấp & Danh Mục Nguyên Liệu
 
-**Trạng thái:** SPEC ĐÃ CHỐT (vòng 4) — 42 quyết định, còn Q-7 (số dư đầu kỳ) là việc vận hành
+**Trạng thái:** ĐÃ IMPLEMENT cả 5 bước — 42 quyết định. Còn Q-7 (số dư đầu kỳ) là việc vận hành, và toàn bộ chưa chạy thử với MySQL/trình duyệt thật.
 **Ngày chốt:** 2026-09-05
 **Nguồn:** Phiên thảo luận trực tiếp với chủ quán (4 vòng hỏi–đáp)
 **Nhánh git:** làm trên `feat/misa-sync-and-recipe` (spec này merge về từ `feat/supplier-portal`)
@@ -305,7 +305,7 @@ Phiếu admin nhập hộ vào thẳng `Đã kiểm` (M3.D-07).
 | ✅ **2** | **Thống kê mặt hàng nhập** (3.3) + bảng giá mặt hàng của NCC (3.2) + tab **Biến động giá** (4.1–4.4) | Cần dữ liệu của bước 1. 3.3 dùng được ngay từ phiếu đầu tiên; 4.1 cần ~2 kỳ nhập mới có nghĩa |
 | ✅ **3** | **Công nợ**: `supplier_payments` + số dư đầu kỳ + màn ghi nhận thanh toán (M3.D-39→41, mục 3.5) | Tách riêng vì phụ thuộc **việc vận hành** — chủ quán phải đối chiếu số dư đầu kỳ với từng NCC trước khi bật (Q-7). Code xong mà chưa có số dư thì con số hiển thị vẫn sai. |
 | ✅ **4** | Tài khoản NCC tự nhập (M3.D-01→04), phát PIN cho 3–5 NCC dễ tính nhất làm thử | Mở rộng dần; ai không dùng thì vĩnh viễn ở đường admin nhập hộ |
-| **5** | Nối `ingredients` vào `recipe_lines` → **giá vốn món ăn theo thời gian thực** | Ghép với `feat/misa-sync-and-recipe` |
+| ✅ **5** | Nối `ingredients` vào `recipe_lines` → **giá vốn món ăn theo thời gian thực** | Ghép với `feat/misa-sync-and-recipe` |
 
 Bước 5 mới là câu trả lời cuối cùng cho "giá tăng thì sao": *"Bún chả — giá vốn 18.000 → 21.500, biên lợi nhuận còn 46%."*
 

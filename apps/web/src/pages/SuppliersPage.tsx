@@ -27,6 +27,7 @@ import {
 } from './SupplierReports.tsx';
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 import { SupplierAccountPanel } from './SupplierAccountPanel.tsx';
+import { FoodCostPanel } from './FoodCostPanel.tsx';
 
 type Supplier = {
   id: string;
@@ -62,7 +63,7 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Tab = 'suppliers' | 'deliveries' | 'prices' | 'items';
+type Tab = 'suppliers' | 'deliveries' | 'prices' | 'items' | 'foodcost';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -151,6 +152,7 @@ export function SuppliersPage() {
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
+    { value: 'foodcost', label: 'Giá vốn món' },
   ];
 
   return (
@@ -253,6 +255,10 @@ export function SuppliersPage() {
       {tab === 'items' && (
         <ItemStatsPanel from={period.from} to={period.to} periodLabel={period.label} />
       )}
+
+      {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —
+          giá vốn là con số để định giá bán, cắt theo tháng thì nhảy lung tung. */}
+      {tab === 'foodcost' && <FoodCostPanel />}
 
       {/* Mở lại ĐÚNG panel đang dùng ở màn Menu (M3.D-32). Danh mục nguyên liệu là MỘT bảng;
           dựng UI thứ hai để sửa cùng bảng đó là nguồn bug và lệch hành vi. */}
