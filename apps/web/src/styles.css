@@ -21,6 +21,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
   font-size: 16px; /* iOS no-zoom on focus */
@@ -59,6 +60,7 @@ button.danger {
 }
 
 input,
+select,
 textarea {
   display: block;
   width: 100%;
@@ -67,6 +69,40 @@ textarea {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: white;
+  color: #1f2937;
+}
+
+/* Ô chọn: bỏ mũi tên mặc định của HĐH (mỗi hệ một kiểu, đều thô) và vẽ lại bằng SVG nền.
+   `padding-right` phải chừa chỗ cho mũi tên, không thì chữ dài chạy đè lên nó. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+select:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+  border-color: #0f766e;
+}
+
+/* Ô ngày: Chromium vẽ nút lịch to và đậm hơn hẳn phần còn lại của form. Kéo nó về đúng cỡ
+   và đúng tông xám của các ô khác. */
+input[type='date'] {
+  font-weight: 400;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 2px;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
 }
 
 /* Radio/checkbox KHÔNG phải ô nhập text — quy tắc `input` phía trên (width:100%, min-height:44px,
@@ -134,6 +170,10 @@ label {
 
 .card {
   background: white;
+  /* Bắt buộc, không phải trang trí: thẻ này được dùng cả trên <button> và <a>, mà `button`
+     ở trên đặt `color: white`. Không khai màu ở đây thì mọi dòng chữ trong thẻ KHÔNG tự đặt
+     màu sẽ là trắng trên nền trắng — đúng vụ tên nhà cung cấp biến mất ở màn /suppliers. */
+  color: #1f2937;
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -648,13 +688,13 @@ a:hover {
    hoặc tràn khỏi ô. */
 @media (min-width: 640px) {
   .nav-bottom {
-    padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+    padding: 9px 0 max(9px, env(safe-area-inset-bottom));
   }
   .nav-bottom a {
     flex-direction: row;
     justify-content: center;
     gap: 6px;
-    padding: 6px 4px;
+    padding: 9px 4px;
     white-space: nowrap;
   }
   .nav-bottom a .nav-icon { font-size: 16px; }
@@ -754,10 +794,10 @@ a:hover {
 .with-bottom-nav {
   padding-bottom: 80px;
 }
-/* Nav 1 dòng ở desktop chỉ cao ~40px — giữ 80px là chừa một khoảng trống vô cớ cuối trang. */
+/* Nav 1 dòng ở desktop cao ~54px — giữ 80px là chừa một khoảng trống vô cớ cuối trang. */
 @media (min-width: 640px) {
   .with-bottom-nav {
-    padding-bottom: 56px;
+    padding-bottom: 70px;
   }
 }
 
@@ -1466,4 +1506,313 @@ a:hover {
     justify-self: stretch;
     text-align: center;
   }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Popup Nhập hàng — MỘT cây JSX, hai bố cục
+   Thêm 2026-09-06 theo yêu cầu chủ quán ("mỗi mặt hàng một dòng", rồi "thiết kế
+   cho cả mobile nữa").
+
+   ≥1001px — mỗi mặt hàng là MỘT hàng 5 cột dóng thẳng nhau, nhãn chỉ hiện ở dòng
+   đầu. Mắt dóng theo cột để soát số, nên cột "Đơn vị tính" vẫn chiếm chỗ kể cả
+   với mặt hàng đã có trong danh mục (lúc đó là ô chỉ đọc) — để nó biến mất thì
+   các dòng lệch cột nhau.
+
+   ≤1000px — cùng đúng những ô đó xếp thành một THẺ: tên hàng trên cùng, rồi Đơn vị
+   tính · Số lượng · Đơn giá. Nhãn hiện lại ở mọi dòng vì lúc này thứ tự cột không
+   còn nói lên điều gì.
+
+   Thứ cho phép một cây JSX chạy được cả hai kiểu là `display: contents` trên hai
+   bọc `.dl-units` / `.dl-money`: ở desktop chúng tan ra để con của chúng thành
+   cột thật của lưới cha; ở điện thoại chúng thành khối riêng.
+   (Chủ quán bỏ ô "NCC bán theo" và ô quy đổi 2026-09-06 — .dl-units giờ chỉ còn
+   một ô, nhưng giữ nguyên bọc để hai bố cục vẫn dùng chung một cây JSX.)
+   ════════════════════════════════════════════════════════════════════════════ */
+.dl-line {
+  display: grid;
+  gap: 8px;
+  align-items: end;
+  grid-template-columns: minmax(220px, 3fr) minmax(96px, 1fr) minmax(96px, 1fr) minmax(110px, 1.2fr) 44px;
+}
+
+.dl-units,
+.dl-money {
+  display: contents;
+}
+
+/* `label` mang sẵn margin-bottom 6px. Trong lưới `align-items: end` thì thứ được dóng là HỘP
+   LỀ, nên cột nào là <label> bị đẩy lên cao hơn cột nào là <div> đúng 6px. */
+.dl-line > label,
+.dl-units > label,
+.dl-money > label {
+  margin-bottom: 0;
+}
+
+/* Nhãn cột chỉ hiện ở dòng ĐẦU. Lặp lại nhãn trên mọi dòng làm bảng nhiễu đặc chữ, mà từ dòng
+   thứ hai trở đi vị trí cột đã đủ để biết ô nào là ô nào. */
+.dl-line.dl-rest .dl-lab {
+  display: none;
+}
+
+.dl-lab {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.dl-del {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+
+/* Thành tiền từng dòng: chỉ có nghĩa ở bố cục thẻ — desktop đã có cột tiền dóng thẳng. */
+.dl-foot-line {
+  display: none;
+}
+
+/* ── ≤1000px: bố cục thẻ ──────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .dl-line {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    /* Chừa chỗ cho nút ✕ neo ở góc trên phải. */
+    padding-right: 40px;
+    position: relative;
+  }
+
+  .dl-line.dl-rest .dl-lab {
+    display: block;
+  }
+
+  .dl-units,
+  .dl-money {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dl-units {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dl-del {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 8px;
+  }
+
+  .dl-item {
+    padding: 12px;
+  }
+
+  .dl-foot-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .dl-line-total {
+    font-size: 17px;
+    font-weight: 800;
+    margin-left: auto;
+  }
+
+  /* Tờ giấy tràn viền: 16px lề overlay + 24px lề thẻ ăn mất 80px trên tổng 390px, tức hơn 20%
+     bề ngang máy chỉ để làm khung. */
+  .dl-overlay {
+    padding: 0;
+  }
+
+  .dl-sheet {
+    border-radius: 0;
+    padding: 16px 14px 0;
+    min-height: 100%;
+  }
+
+  /* Thanh tổng + nút ghim đáy màn. Phiếu 10 mặt hàng dài hơn 2 màn hình. */
+  .dl-bar {
+    position: sticky;
+    bottom: 0;
+    margin: 16px -14px 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ── ≥1001px: thanh tổng nằm cuối form như cũ ─────────────────────────────── */
+@media (min-width: 1001px) {
+  .dl-sheet {
+    max-width: 1180px;
+    width: 100%;
+    margin: auto;
+  }
+
+  .dl-overlay {
+    padding: 16px;
+  }
+}
+
+.dl-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 1001px) {
+  .dl-bar {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Nhà cung cấp trên điện thoại (2026-09-07 — chủ quán: "nút hơi to", "thiết kế
+   lại tab mặt hàng nhập / phiếu nhập / biến động giá cho mobile").
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Nút thao tác của màn NCC. Trước đây mỗi nút tự khai `minHeight: 48` + `padding: 0 20px`
+   ngay trong JSX, nên trên máy 390px hai nút "Mặt hàng" + "＋ Nhập hàng" cộng lại rộng hơn
+   màn hình và bị cắt mất một nửa. Gom về một class để còn hạ cỡ theo breakpoint — inline
+   style thì không viết được media query. */
+.sup-action {
+  min-height: 44px;
+  padding: 0 18px;
+}
+@media (max-width: 639px) {
+  .sup-action {
+    min-height: 38px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 14px;
+    border-radius: 7px;
+  }
+}
+
+/* Cặp đối của `.hide-on-mobile`: chỉ hiện dưới 640px. */
+.only-on-mobile { display: none !important; }
+
+@media (max-width: 639px) {
+  .only-on-mobile { display: revert !important; }
+
+  /* Dãy nút sắp xếp thay cho tiêu đề cột bấm được — ở chế độ thẻ `thead` bị ẩn, không có
+     dãy này thì trên điện thoại mất hẳn khả năng đổi cách xếp (tiền / lần / lượng). */
+  .sort-strip.only-on-mobile {
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 12px;
+    /* Chừa mép phải để chip cuối không dính sát cạnh màn hình khi vuốt hết. */
+    padding: 0 2px 2px 0;
+  }
+  .sort-strip::-webkit-scrollbar { display: none; }
+  /* `flex: 0 0 auto` là phần bắt buộc để dãy này TRƯỢT thay vì VỠ. Mặc định flex item co
+     được, nên 6 chip cố nhét vào 390px: hộp bị bóp dưới bề rộng chữ, `nowrap` giữ chữ một
+     dòng và chữ bị cắt cụt ("Bình quâr", "Mặt hàn"), còn `overflow-x` thì không bao giờ có
+     gì để cuộn. Cấm co lại là tổng bề rộng vượt màn hình và thanh cuộn ngang mới hoạt động. */
+  .sort-strip button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    border-radius: 999px;
+  }
+
+  /* Dòng TIÊU ĐỀ của thẻ (tên mặt hàng / tên NCC): chiếm trọn bề ngang, không có nhãn
+     "Mặt hàng ─── …" vì nó chính là tên của thẻ. */
+  table.responsive td.sup-cell-title {
+    display: block;
+    padding: 0 0 6px;
+    border-top: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  table.responsive td.sup-cell-title::before { display: none; }
+  table.responsive td.sup-cell-title button {
+    width: auto;
+    padding: 0;
+    min-height: 0;
+    font-size: 16px;
+  }
+
+  /* Hàng nút cuối thẻ (Duyệt/Huỷ). Phiếu đã duyệt thì ô này rỗng — `:empty` để nó không
+     để lại một dòng gạch đứt trống ở đáy thẻ. */
+  table.responsive td.sup-cell-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 10px;
+  }
+  table.responsive td.sup-cell-actions::before { display: none; }
+  table.responsive td.sup-cell-actions:empty { display: none; }
+
+  /* Dòng tổng cộng — `tfoot` không nằm trong luật thẻ ở trên nên phải tự lo, nếu không nó
+     tụt về mô hình bảng và dính chữ vào nhau. */
+  table.responsive tfoot { display: block; }
+  table.responsive tfoot tr {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px;
+  }
+  table.responsive tfoot td { display: block; padding: 0; }
+  /* Ô đệm `colSpan` cuối hàng tổng — ở chế độ thẻ nó thành một cột rỗng đẩy con số tổng vào
+     giữa thẻ. */
+  table.responsive tfoot td:empty { display: none; }
+}
+
+/* Thẻ có DÒNG TIÊU ĐỀ nằm trên cùng, bất kể cột đó đứng thứ mấy trong bảng.
+   Bảng "Phiếu nhập" có cột Ngày đứng trước cột Nhà cung cấp — trên máy tính đúng, nhưng ở
+   chế độ thẻ thì tên NCC mới là thứ mắt tìm trước, mà nó lại nằm dưới dòng "Ngày ─── …".
+   `flex-direction: column` biến các `td` thành flex item để `order: -1` kéo tiêu đề lên đầu;
+   `display: block` của luật thẻ chung thì không sắp lại được. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards tbody tr {
+    display: flex;
+    flex-direction: column;
+  }
+  table.responsive.sup-cards td.sup-cell-title { order: -1; }
+  /* Gạch ngăn tính lại theo THỨ TỰ NHÌN THẤY: luật chung dùng `td + td` (thứ tự trong DOM),
+     sau khi đảo chỗ thì nó bỏ sót đúng dòng ngay dưới tiêu đề. */
+  table.responsive.sup-cards tbody tr > td { border-top: 1px dashed #f1f5f9; }
+  table.responsive.sup-cards tbody tr > td.sup-cell-title { border-top: 0; }
+}
+
+/* Giá trị + đơn vị phải DÍNH nhau ở mép phải. Ô "Lượng" là `17,72 <span>g</span>` — hai nút
+   con, nên `justify-content: space-between` của luật thẻ chung dàn chúng thành ba cột rời rạc
+   ("Lượng ─── 17,72 ─── g"), đọc như ba giá trị khác nhau. Đẩy nhãn ra bằng `margin-right:
+   auto` rồi cho phần còn lại dồn phải là xong. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
+  table.responsive.sup-cards td::before { margin-right: auto; }
+  table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
 }

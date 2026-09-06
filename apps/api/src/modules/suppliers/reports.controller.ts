@@ -22,12 +22,13 @@ export class ReportsController {
    */
   @Get('pairs')
   async pairs(@Query() q: Record<string, string>) {
-    const to = q.to || DeliveriesService.today();
-    // Mặc định 30 ngày gần nhất khi không truyền `from` — đủ để bảng có nghĩa mà không quét cả
-    // lịch sử lúc ai đó gọi thẳng endpoint.
-    const from = q.from || shiftDays(to, -30);
+    // Không truyền `from`/`to` = TOÀN BỘ lịch sử (chủ quán chốt 2026-09-06, màn /suppliers bỏ
+    // hẳn bộ lọc tháng). Trước đây mặc định 30 ngày gần nhất, và đó chính là chỗ lọt: vụ NCC
+    // tăng giá vắt qua ranh giới cửa sổ thì trong cửa sổ nhìn giá vẫn phẳng.
+    const from = q.from || undefined;
+    const to = q.to || undefined;
     const items = await this.svc.pairs({ from, to, supplier_id: q.supplier_id || undefined });
-    return { data: { from, to, items } };
+    return { data: { from: from ?? null, to: to ?? null, items } };
   }
 
   /** Giá vốn món ăn (bước 5) — chỗ hai nửa của milestone gặp nhau. */
@@ -36,6 +37,12 @@ export class ReportsController {
     const windowDays = Math.min(Math.max(Number(q.window_days) || 90, 7), 365);
     const { from, rows } = await this.svc.foodCost(windowDays);
     return { data: { from, window_days: windowDays, items: rows } };
+  }
+
+  /** Chi tiêu theo ngày. Không truyền gì = toàn bộ lịch sử, cùng luật với `pairs`. */
+  @Get('daily')
+  async daily(@Query() q: Record<string, string>) {
+    return { data: { items: await this.svc.daily({ supplier_id: q.supplier_id || undefined }) } };
   }
 
   @Get('matrix')

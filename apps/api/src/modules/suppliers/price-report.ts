@@ -46,9 +46,19 @@ export type PairReport = {
    * một con số không mô tả đồng nào có thật. */
   avg_unit_price_base: number;
 
-  /** Giá cuối kỳ TRƯỚC. Lấy từ `prev_unit_price_base` của dòng ĐẦU TIÊN trong kỳ — cột đó đã
-   * chốt sẵn lúc ghi phiếu nên không phải truy vấn ngược lịch sử. NULL = chưa từng nhập trước
-   * kỳ này. */
+/** Giá để SO SÁNH với giá hiện tại.
+   *
+   * Ưu tiên `prev_unit_price_base` của dòng ĐẦU TIÊN trong kỳ (cột đó chốt sẵn lúc ghi phiếu
+   * nên không phải truy vấn ngược lịch sử) — khi có cắt kỳ, đó chính là giá cuối kỳ trước và
+   * `change_pct` là mức đổi giá của CẢ KỲ.
+   *
+   * Không có thì lùi về giá của lần nhập LIỀN TRƯỚC trong chính kỳ này. Đây là ca thường gặp
+   * kể từ 2026-09-06 khi màn NCC bỏ bộ lọc tháng: kỳ = toàn bộ lịch sử, nên dòng đầu tiên
+   * không có gì đứng trước nó và cột kia luôn NULL. Trước khi có nhánh này, một mặt hàng mua
+   * 250.000 hai lần rồi 260.000 vẫn bị coi là "không đổi giá" và biến mất khỏi màn Biến động
+   * giá — đúng vụ chủ quán báo với "Trâu Tươi".
+   *
+   * NULL = mặt hàng mới nhập đúng một lần, thật sự không có gì để so. */
   prev_base: number | null;
   /** Giá của lần nhập CUỐI trong kỳ. */
   last_base: number;
@@ -92,7 +102,9 @@ export function aggregateByPair(lines: ReportLine[]): PairReport[] {
     const last = g[g.length - 1];
     const qty_base = sum(g.map((l) => l.qty_base));
     const amount = sum(g.map((l) => l.amount));
-    const prev_base = first.prev_unit_price_base;
+    // Xem docblock `prev_base`. `g.length > 1` là điều kiện đủ để có dòng liền trước dòng cuối.
+    const prev_base =
+      first.prev_unit_price_base ?? (g.length > 1 ? g[g.length - 2].unit_price_base : null);
     const change_pct =
       prev_base !== null && prev_base > 0
         ? round(((last.unit_price_base - prev_base) / prev_base) * 100, 2)

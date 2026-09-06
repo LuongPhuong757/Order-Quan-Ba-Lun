@@ -3,7 +3,8 @@
 // Popup lúc nhập phiếu chỉ bắt được cú nhảy đột ngột của MỘT phiếu. Kiểu tăng nguy hiểm hơn là
 // tăng 2%/tháng suốt 6 tháng — không lần nào chạm ngưỡng cảnh báo, cuối năm đắt hơn 13%. Ba bảng
 // ở đây là để nhìn ra đúng thứ đó.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
@@ -72,6 +73,21 @@ function downloadCsv(filename: string, rows: string[][]) {
   URL.revokeObjectURL(url);
 }
 
+/** Ném nút lên ô trống cạnh "Tổng mua" ở đầu màn Nhà cung cấp (`#sup-toolbar-slot`).
+ *
+ * Nút "Xuất Excel" thuộc về panel — chỉ panel biết đang lọc gì, xếp theo cột nào — nhưng chỗ
+ * ĐỨNG của nó thì thuộc về đầu màn. Trước đây nó chiếm nguyên một dòng ngay dưới dòng "Tổng
+ * mua", tức hai dòng cho hai thứ mỗi thứ có vài chữ.
+ *
+ * `useLayoutEffect` chứ không `useEffect`: hai cái chạy trước và sau lượt vẽ, dùng cái sau
+ * thì có một khung hình nút hiện ở chỗ cũ rồi mới nhảy lên đầu màn. Không tìm thấy ô thì
+ * render tại chỗ — panel còn được dùng ở màn khác thì vẫn không mất nút. */
+function ToolbarSlot({ children }: { children: React.ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => setSlot(document.getElementById('sup-toolbar-slot')), []);
+  return slot ? createPortal(children, slot) : <>{children}</>;
+}
+
 /** Đường xu hướng nhỏ trong ô bảng. SVG nội tuyến, không kéo thư viện biểu đồ về cho một hình
  * 90×24 px. */
 function Sparkline({ values }: { values: number[] }) {
@@ -94,14 +110,10 @@ function Sparkline({ values }: { values: number[] }) {
 
 /** Mục 4.1 — bảng biến động giá toàn bộ NCC × mặt hàng trong kỳ. */
 export function PriceChangesPanel({
-  from,
-  to,
-  periodLabel,
+  supplierId,
   onOpenHistory,
 }: {
-  from: string;
-  to: string;
-  periodLabel: string;
+  supplierId?: string;
   onOpenHistory: (ingredientId: string, name: string) => void;
 }) {
   const toast = useToast();
@@ -111,13 +123,15 @@ export function PriceChangesPanel({
   useEffect(() => {
     setRows(null);
     api
-      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', { params: { from, to } })
+      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', {
+        params: { supplier_id: supplierId },
+      })
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [from, to, toast]);
+  }, [supplierId, toast]);
 
   const changed = useMemo(
     () =>
@@ -136,7 +150,7 @@ export function PriceChangesPanel({
   if (changed.length === 0) {
     return (
       <div className="empty-state card">
-        Không có mặt hàng nào đổi giá trong {periodLabel.toLowerCase()}.
+        Chưa có mặt hàng nào đổi giá.
       </div>
     );
   }
@@ -149,7 +163,7 @@ export function PriceChangesPanel({
         style={{ marginBottom: 12, background: netImpact > 0 ? '#fef2f2' : '#f0fdf4' }}
       >
         <div style={{ fontSize: 15 }}>
-          {periodLabel} chi phí nguyên liệu{' '}
+          Chi phí nguyên liệu{' '}
           <strong style={{ fontSize: 22, color: netImpact > 0 ? '#b91c1c' : '#15803d' }}>
             {netImpact > 0 ? 'tăng thêm' : 'giảm'} {vnd(Math.abs(netImpact))}đ
           </strong>{' '}
@@ -173,32 +187,36 @@ export function PriceChangesPanel({
             {label}
           </button>
         ))}
-        <button
-          type="button"
-          className="secondary"
-          style={{ marginLeft: 'auto', minHeight: 40 }}
-          onClick={() =>
-            downloadCsv(`bien-dong-gia-${from}-${to}.csv`, [
-              ['Mặt hàng', 'NCC', 'Giá kỳ trước', 'Giá hiện tại', 'Đơn vị', '%', 'Lượng nhập', 'Tiền ảnh hưởng'],
-              ...changed.map((r) => [
-                r.ingredient_name,
-                r.supplier_name,
-                num(r.prev_base ?? 0),
-                num(r.last_base),
-                `đ/${r.base_unit}`,
-                String(r.change_pct ?? ''),
-                num(r.qty_base),
-                String(r.impact_amount),
-              ]),
-            ])
-          }
-        >
-          Xuất Excel
-        </button>
+        <ToolbarSlot>
+          <button
+            type="button"
+            className="secondary sup-action"
+            onClick={() =>
+              downloadCsv('bien-dong-gia.csv', [
+                ['Mặt hàng', 'NCC', 'Giá kỳ trước', 'Giá hiện tại', 'Đơn vị', '%', 'Lượng nhập', 'Tiền ảnh hưởng'],
+                ...changed.map((r) => [
+                  r.ingredient_name,
+                  r.supplier_name,
+                  num(r.prev_base ?? 0),
+                  num(r.last_base),
+                  `đ/${r.base_unit}`,
+                  String(r.change_pct ?? ''),
+                  num(r.qty_base),
+                  String(r.impact_amount),
+                ]),
+              ])
+            }
+          >
+            Xuất Excel
+          </button>
+        </ToolbarSlot>
       </div>
 
+      {/* `responsive` (styles.css): dưới 640px bảng 7 cột này thành một chồng THẺ
+          "nhãn ─── giá trị". Bảng giá mà phải vuốt ngang mới thấy cột "Tiền ảnh hưởng" —
+          đúng cột người ta mở màn này để xem — thì coi như không đọc được trên điện thoại. */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Mặt hàng</th>
@@ -213,7 +231,7 @@ export function PriceChangesPanel({
           <tbody>
             {changed.map((r) => (
               <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8 }}>
+                <td className="sup-cell-title" style={{ padding: 8 }}>
                   <button
                     type="button"
                     className="secondary"
@@ -223,14 +241,15 @@ export function PriceChangesPanel({
                     <span style={{ textDecoration: 'underline' }}>{r.ingredient_name}</span>
                   </button>
                 </td>
-                <td style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
-                <td style={{ padding: 8, textAlign: 'right', color: C.muted }}>
+                <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
+                <td data-label="Kỳ trước" style={{ padding: 8, textAlign: 'right', color: C.muted }}>
                   {num(r.prev_base ?? 0)}
                 </td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
+                <td data-label="Hiện tại" style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
                   {num(r.last_base)} <span style={{ color: C.muted, fontSize: 12 }}>đ/{r.base_unit}</span>
                 </td>
                 <td
+                  data-label="Thay đổi"
                   style={{
                     padding: 8,
                     textAlign: 'right',
@@ -241,6 +260,7 @@ export function PriceChangesPanel({
                   {pct(r.change_pct ?? 0)}
                 </td>
                 <td
+                  data-label="Tiền ảnh hưởng"
                   style={{
                     padding: 8,
                     textAlign: 'right',
@@ -251,7 +271,7 @@ export function PriceChangesPanel({
                   {r.impact_amount > 0 ? '+' : ''}
                   {vnd(r.impact_amount)}đ
                 </td>
-                <td style={{ padding: 8 }}>
+                <td data-label="Xu hướng" style={{ padding: 8 }}>
                   <Sparkline values={r.trend} />
                 </td>
               </tr>
@@ -345,52 +365,91 @@ export function PriceMatrixPanel() {
 
 /** Mục 3.3 — thống kê mặt hàng nhập. Cần song song với biến động giá: giá tăng 5% mà lượng nhập
  * gấp đôi thì tiền đội lên nhiều hơn hẳn, nhìn cột % giá không thấy gì. */
+/** Các cách xếp bảng "Mặt hàng nhập".
+ *
+ * Chủ quán hỏi "món nào nhập nhiều, món nào nhập ít" (2026-09-06) — mà "nhiều" có ba nghĩa khác
+ * nhau và cả ba đều đúng tuỳ lúc: nhiều TIỀN (ăn vào chi phí), nhiều LẦN (giao liên tục, hết
+ * nhanh), nhiều LƯỢNG (khối lượng thực). Bảng cũ chỉ xếp theo tiền nên hai câu hỏi kia không
+ * trả lời được, và không có cách nào lật ngược để nhìn nhóm nhập ít nhất.
+ *
+ * `qty_base` chỉ so được giữa các dòng CÙNG đơn vị gốc — "10 bó" với "3 kg" là hai thang đo
+ * khác nhau. Vẫn cho xếp vì trong một nhóm cùng đơn vị nó có nghĩa, nhưng đó là lý do TIỀN vẫn
+ * là cách xếp mặc định. */
+const ITEM_SORTS = {
+  amount: { label: 'Tổng tiền', get: (r: PairReport) => r.amount },
+  deliveries: { label: 'Lần', get: (r: PairReport) => r.deliveries },
+  qty_base: { label: 'Lượng', get: (r: PairReport) => r.qty_base },
+  avg_unit_price_base: { label: 'Bình quân', get: (r: PairReport) => r.avg_unit_price_base },
+  last_date: { label: 'Gần nhất', get: (r: PairReport) => r.last_date },
+  ingredient_name: { label: 'Mặt hàng', get: (r: PairReport) => r.ingredient_name },
+} as const;
+
+type ItemSortKey = keyof typeof ITEM_SORTS;
+
 export function ItemStatsPanel({
-  from,
-  to,
-  periodLabel,
   supplierId,
+  onOpenHistory,
 }: {
-  from: string;
-  to: string;
-  periodLabel: string;
   supplierId?: string;
+  onOpenHistory?: (ingredientId: string, name: string) => void;
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<PairReport[] | null>(null);
+  const [sortKey, setSortKey] = useState<ItemSortKey>('amount');
+  const [asc, setAsc] = useState(false);
 
   const load = useCallback(() => {
     setRows(null);
     api
       .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', {
-        params: { from, to, supplier_id: supplierId },
+        params: { supplier_id: supplierId },
       })
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [from, to, supplierId, toast]);
+  }, [supplierId, toast]);
 
   useEffect(load, [load]);
 
-  const sorted = useMemo(() => [...(rows ?? [])].sort((a, b) => b.amount - a.amount), [rows]);
+  const sorted = useMemo(() => {
+    const get = ITEM_SORTS[sortKey].get;
+    return [...(rows ?? [])].sort((a, b) => {
+      const x = get(a);
+      const y = get(b);
+      const d = typeof x === 'string' ? x.localeCompare(String(y), 'vi') : Number(x) - Number(y);
+      return asc ? d : -d;
+    });
+  }, [rows, sortKey, asc]);
+
+  /** Bấm cột đang xếp thì ĐẢO chiều; bấm cột khác thì nhảy sang cột đó.
+   *
+   *  Chiều mặc định khác nhau theo KIỂU cột: cột số mặc định giảm dần vì câu hỏi thường gặp là
+   *  "cái nào nhiều nhất"; cột chữ mặc định tăng dần vì bấm "Mặt hàng" mà ra Z→A thì không ai
+   *  hiểu là đang sắp xếp. */
+  const bamCot = (k: ItemSortKey) => {
+    if (k === sortKey) setAsc((v) => !v);
+    else {
+      setSortKey(k);
+      setAsc(k === 'ingredient_name');
+    }
+  };
   const total = sorted.reduce((s, r) => s + r.amount, 0);
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
   if (sorted.length === 0) {
-    return <div className="empty-state card">Chưa nhập mặt hàng nào trong {periodLabel.toLowerCase()}.</div>;
+    return <div className="empty-state card">Chưa nhập mặt hàng nào.</div>;
   }
 
   return (
     <>
-      <div style={{ display: 'flex', marginBottom: 12 }}>
+      <ToolbarSlot>
         <button
           type="button"
-          className="secondary"
-          style={{ marginLeft: 'auto', minHeight: 40 }}
+          className="secondary sup-action"
           onClick={() =>
-            downloadCsv(`mat-hang-nhap-${from}-${to}.csv`, [
+            downloadCsv('mat-hang-nhap.csv', [
               ['Mặt hàng', 'NCC', 'Số lần nhập', 'Lượng nhập', 'Đơn vị', 'Tổng tiền', 'Giá bình quân', 'Giá gần nhất'],
               ...sorted.map((r) => [
                 r.ingredient_name,
@@ -407,43 +466,87 @@ export function ItemStatsPanel({
         >
           Xuất Excel
         </button>
+      </ToolbarSlot>
+      {/* Dưới 640px `thead` bị ẩn (chế độ thẻ) nên MẤT LUÔN chỗ bấm để đổi cách xếp — mà
+          "món nào nhập nhiều nhất" chính là câu hỏi của màn này. Dãy nút này thay cho hàng
+          tiêu đề bấm được, cùng dùng `bamCot` nên hành vi đảo chiều y hệt trên máy tính. */}
+      <div className="sort-strip only-on-mobile" role="group" aria-label="Sắp xếp mặt hàng">
+        {(Object.keys(ITEM_SORTS) as ItemSortKey[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={sortKey === k ? '' : 'secondary'}
+            aria-pressed={sortKey === k}
+            onClick={() => bamCot(k)}
+          >
+            {ITEM_SORTS[k].label}
+            {sortKey === k ? (asc ? ' ▲' : ' ▼') : ''}
+          </button>
+        ))}
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <th style={{ padding: 8 }}>Mặt hàng</th>
+              <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
               <th style={{ padding: 8 }}>NCC</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Lần</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Lượng</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Tổng tiền</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Bình quân</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Gần nhất</th>
+              <ThSort k="deliveries" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="qty_base" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="amount" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="avg_unit_price_base" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="last_date" now={sortKey} asc={asc} onPick={bamCot} right />
             </tr>
           </thead>
           <tbody>
             {sorted.map((r) => (
               <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8 }}>{r.ingredient_name}</td>
-                <td style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>
+                <td className="sup-cell-title" style={{ padding: 0 }}>
+                  {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta hay
+                      quét chọn để copy, biến cả hàng thành nút thì quét chữ cũng mở popup. */}
+                  {onOpenHistory ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenHistory(r.ingredient_id, r.ingredient_name)}
+                      style={{
+                        width: '100%',
+                        minHeight: 36,
+                        padding: 8,
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 0,
+                        textAlign: 'left',
+                        color: C.accent,
+                        fontWeight: 600,
+                        fontSize: 14,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: 3,
+                      }}
+                    >
+                      {r.ingredient_name}
+                    </button>
+                  ) : (
+                    <span style={{ display: 'block', padding: 8 }}>{r.ingredient_name}</span>
+                  )}
+                </td>
+                <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
+                <td data-label="Lần nhập" style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
+                <td data-label="Lượng" style={{ padding: 8, textAlign: 'right' }}>
                   {num(r.qty_base)} <span style={{ color: C.muted, fontSize: 12 }}>{r.base_unit}</span>
                 </td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
+                <td data-label="Tổng tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
                 {/* Bình quân GIA QUYỀN theo lượng — mua 200kg giá thấp và 5kg giá cao thì con số
                     này phải nghiêng về giá thấp. */}
-                <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
+                <td data-label="Bình quân" style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
                   {num(r.avg_unit_price_base)}
                 </td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
+                <td data-label="Gần nhất" style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr style={{ borderTop: '2px solid #d1d5db', fontWeight: 800 }}>
               <td style={{ padding: 8 }} colSpan={4}>
-                Tổng {periodLabel.toLowerCase()}
+                Tổng cộng
               </td>
               <td style={{ padding: 8, textAlign: 'right' }}>{vnd(total)}đ</td>
               <td colSpan={2} />
@@ -478,6 +581,15 @@ export function PriceHistoryDialog({
       .then((r) => setPoints(r.data.data.items))
       .catch(() => setPoints([]));
   }, [ingredientId]);
+
+  /** Bảng liệt kê xếp GẦN NHẤT LÊN ĐẦU (chủ quán chốt 2026-09-07).
+   *
+   * Câu hỏi khi mở bảng này ra là "lần gần đây mua bao nhiêu", không phải "hồi đầu mua bao
+   * nhiêu" — bắt cuộn xuống đáy mới thấy lần mới nhất là ngược với việc người ta đang làm.
+   *
+   * Chỉ đảo Ở BẢNG. Biểu đồ bên trên vẫn đọc `points` theo thứ tự thời gian gốc: một đường giá
+   * vẽ ngược thời gian thì tăng thành giảm. */
+  const moiNhatTruoc = useMemo(() => [...(points ?? [])].reverse(), [points]);
 
   const bySupplier = useMemo(() => {
     const m = new Map<string, PricePoint[]>();
@@ -572,7 +684,7 @@ export function PriceHistoryDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {[...points].reverse().map((p, i) => (
+                  {moiNhatTruoc.map((p, i) => (
                     <tr key={i} style={{ borderTop: '1px solid #e5e7eb' }}>
                       <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{p.delivery_date}</td>
                       <td style={{ padding: 8 }}>{p.supplier_name}</td>
@@ -593,5 +705,54 @@ export function PriceHistoryDialog({
         )}
       </div>
     </div>
+  );
+}
+
+/** Ô tiêu đề bấm được của bảng "Mặt hàng nhập".
+ *
+ * Là <button> thật bên trong <th>, không phải <th onClick>: bàn phím phải tab tới và Enter được,
+ * mà `role="button"` gắn tay lên th thì còn phải tự lo phím. */
+function ThSort({
+  k,
+  now,
+  asc,
+  onPick,
+  right,
+}: {
+  k: ItemSortKey;
+  now: ItemSortKey;
+  asc: boolean;
+  onPick: (k: ItemSortKey) => void;
+  right?: boolean;
+}) {
+  const active = k === now;
+  return (
+    <th
+      style={{ padding: 0, textAlign: right ? 'right' : 'left' }}
+      aria-sort={active ? (asc ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onPick(k)}
+        style={{
+          width: '100%',
+          minHeight: 36,
+          padding: 8,
+          background: 'transparent',
+          border: 'none',
+          borderRadius: 0,
+          textAlign: right ? 'right' : 'left',
+          color: active ? C.accent : C.mutedOnTint,
+          fontWeight: active ? 700 : 500,
+          fontSize: 14,
+        }}
+      >
+        {ITEM_SORTS[k].label}
+        <span aria-hidden="true" style={{ opacity: active ? 1 : 0.25 }}>
+          {' '}
+          {active && asc ? '▲' : '▼'}
+        </span>
+      </button>
+    </th>
   );
 }

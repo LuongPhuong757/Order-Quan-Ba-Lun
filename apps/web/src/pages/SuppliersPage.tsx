@@ -13,12 +13,16 @@
 // kéo theo đổi hành vi của màn `/menu` đang chạy, đắt hơn nhiều so với đổi một cái nút.
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
+import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
+import { DailySpendPanel } from './DailySpendPanel.tsx';
+import { Select } from '../components/Select.tsx';
 import {
   ItemStatsPanel,
   PriceChangesPanel,
@@ -63,24 +67,14 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Tab = 'suppliers' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'daily' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+
+/** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
+ *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
+const TABS_CO_LOC: Tab[] = ['daily', 'deliveries', 'prices', 'items'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
-
-/** Đầu và cuối tháng đang xem, 'YYYY-MM-DD' theo giờ VN. `offset` 0 = tháng này, -1 = tháng trước. */
-function monthRange(offset: number): { from: string; to: string; label: string } {
-  const now = new Date(Date.now() + VN_OFFSET_MS);
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth() + offset;
-  const start = new Date(Date.UTC(y, m, 1));
-  const end = new Date(Date.UTC(y, m + 1, 0));
-  return {
-    from: start.toISOString().slice(0, 10),
-    to: end.toISOString().slice(0, 10),
-    label: `Tháng ${start.getUTCMonth() + 1}/${start.getUTCFullYear()}`,
-  };
-}
 
 export function SuppliersPage() {
   const toast = useToast();
@@ -90,8 +84,10 @@ export function SuppliersPage() {
   const isOwner = !!user?.is_owner;
 
   const [tab, setTab] = useState<Tab>('suppliers');
-  const [monthOffset, setMonthOffset] = useState(0);
-  const period = useMemo(() => monthRange(monthOffset), [monthOffset]);
+  // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
+  // tiêu của một NCC rồi chuyển tab để nhìn góc khác của CÙNG NCC đó — bắt chọn lại ở mỗi tab là
+  // ba lần chọn cho một câu hỏi.
+  const [filterSupplierId, setFilterSupplierId] = useState('');
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -110,8 +106,10 @@ export function SuppliersPage() {
     setLoading(true);
     try {
       const [s, d] = await Promise.all([
-        api.get<{ data: { items: Supplier[] } }>('/suppliers', { params: period }),
-        api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', { params: period }),
+        api.get<{ data: { items: Supplier[] } }>('/suppliers'),
+        api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', {
+          params: { supplier_id: filterSupplierId || undefined },
+        }),
       ]);
       setSuppliers(s.data.data.items);
       setDeliveries(d.data.data.items);
@@ -131,7 +129,7 @@ export function SuppliersPage() {
     } catch {
       setBalances(new Map());
     }
-  }, [toast, period, isAdmin]);
+  }, [toast, isAdmin, filterSupplierId]);
 
   useEffect(() => {
     refresh();
@@ -149,6 +147,7 @@ export function SuppliersPage() {
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
+    { value: 'daily', label: 'Theo ngày' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -159,7 +158,16 @@ export function SuppliersPage() {
     <div className="container wide with-bottom-nav">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>
-        <div role="tablist" aria-label="Khu vực màn nhà cung cấp" style={{ display: 'flex', gap: 4 }}>
+        {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
+            MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
+            nên khi thêm tab thứ sáu ("Theo ngày") nó rộng 410px và kéo cả trang tràn ngang ở
+            390px. `minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng trong flex cha. */}
+        <div
+          role="tablist"
+          aria-label="Khu vực màn nhà cung cấp"
+          className="tabstrip"
+          style={{ gap: 4, flex: '1 1 auto', minWidth: 0 }}
+        >
           {tabs.map((t) => {
             const active = tab === t.value;
             return (
@@ -188,33 +196,66 @@ export function SuppliersPage() {
           })}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button className="secondary" onClick={() => setShowIngredients(true)} style={{ minHeight: 48 }}>
+          <button className="secondary sup-action" onClick={() => setShowIngredients(true)}>
             Mặt hàng
           </button>
-          <button onClick={() => setShowForm({})} style={{ minHeight: 48, padding: '0 20px' }}>
+          <button className="sup-action" onClick={() => setShowForm({})}>
             ＋ Nhập hàng
           </button>
         </div>
       </div>
 
-      {(
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', margin: '16px 0', flexWrap: 'wrap' }}>
-          {[0, -1, -2].map((o) => (
-            <button
-              key={o}
-              type="button"
-              className={monthOffset === o ? '' : 'secondary'}
-              onClick={() => setMonthOffset(o)}
-              style={{ minHeight: 40, padding: '0 14px', fontSize: 14 }}
-            >
-              {monthRange(o).label}
-            </button>
-          ))}
-          <div style={{ marginLeft: 'auto', fontSize: 14, color: C.mutedOnTint }}>
-            Tổng mua {period.label.toLowerCase()}: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+      {/* Không cắt theo tháng nữa (chủ quán chốt 2026-09-06): mọi tab dưới đây nhìn TOÀN BỘ
+          lịch sử. Cắt theo tháng làm lọt đúng thứ cần bắt nhất — vụ NCC tăng giá vắt qua ranh
+          giới hai tháng thì mỗi tháng nhìn riêng đều thấy giá phẳng. */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          margin: '16px 0',
+          flexWrap: 'wrap',
+        }}
+      >
+        {TABS_CO_LOC.includes(tab) && (
+          // `flex: 1 1 220px` + `minWidth: 0`: rộng 220px khi còn chỗ, CO lại khi không. Đặt
+          // `minWidth: 220` cứng thì ở 390px nó cộng với dòng "Tổng mua" thành 412px và cả
+          // trang bị kéo ngang.
+          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+            <Select
+              full
+              value={filterSupplierId}
+              neutralValue=""
+              placeholder="Tất cả nhà cung cấp"
+              ariaLabel="Lọc theo nhà cung cấp"
+              onChange={setFilterSupplierId}
+              options={[
+                { value: '', label: 'Tất cả nhà cung cấp' },
+                ...suppliers.map((x) => ({ value: x.id, label: x.name })),
+              ]}
+            />
           </div>
+        )}
+        {/* "Tổng mua" và nút "Xuất Excel" của tab con NẰM CHUNG một dòng. Nút do panel con
+            (SupplierReports) dựng vì chỉ nó biết dữ liệu đang lọc/sắp xếp; nó bắn vào ô
+            'sup-toolbar-slot' dưới đây bằng portal thay vì chiếm thêm một dòng riêng —
+            trên điện thoại mỗi dòng thừa là một lần phải vuốt. */}
+        <div
+          style={{
+            marginLeft: 'auto',
+            fontSize: 14,
+            color: C.mutedOnTint,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span>
+            Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+          </span>
+          <span id="sup-toolbar-slot" style={{ display: 'flex', gap: 8 }} />
         </div>
-      )}
+      </div>
 
       {loading && <p style={{ color: C.muted }}>Đang tải…</p>}
 
@@ -228,10 +269,11 @@ export function SuppliersPage() {
         />
       )}
 
+      {tab === 'daily' && <DailySpendPanel supplierId={filterSupplierId || undefined} />}
+
       {tab === 'deliveries' && !loading && (
         <DeliveryList
           deliveries={deliveries}
-          period={period.label}
           onChanged={() => {
             refresh();
             setBalanceTick((t) => t + 1);
@@ -242,9 +284,7 @@ export function SuppliersPage() {
       {tab === 'prices' && (
         <>
           <PriceChangesPanel
-            from={period.from}
-            to={period.to}
-            periodLabel={period.label}
+            supplierId={filterSupplierId || undefined}
             onOpenHistory={(id, name) => setHistory({ id, name })}
           />
           <h3 style={{ margin: '28px 0 12px', fontSize: 17 }}>So giá giữa các nhà cung cấp</h3>
@@ -253,7 +293,10 @@ export function SuppliersPage() {
       )}
 
       {tab === 'items' && (
-        <ItemStatsPanel from={period.from} to={period.to} periodLabel={period.label} />
+        <ItemStatsPanel
+          supplierId={filterSupplierId || undefined}
+          onOpenHistory={(id, name) => setHistory({ id, name })}
+        />
       )}
 
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —
@@ -337,7 +380,7 @@ function SupplierList({
         Chưa có nhà cung cấp nào.
         {isAdmin && (
           <div style={{ marginTop: 12 }}>
-            <button onClick={onNew} style={{ minHeight: 44 }}>
+            <button className="sup-action" onClick={onNew}>
               ＋ Thêm nhà cung cấp
             </button>
           </div>
@@ -348,7 +391,7 @@ function SupplierList({
   return (
     <>
       {isAdmin && (
-        <button className="secondary" onClick={onNew} style={{ marginBottom: 12, minHeight: 44 }}>
+        <button className="secondary sup-action" onClick={onNew} style={{ marginBottom: 12 }}>
           ＋ Thêm nhà cung cấp
         </button>
       )}
@@ -380,7 +423,7 @@ function SupplierList({
                   {vnd(Math.abs(balances.get(s.id)!.balance))}đ
                 </div>
                 <div style={{ fontSize: 13, color: C.muted }}>
-                  Mua kỳ này {vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
+                  Đã mua {vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
                 </div>
               </>
             ) : (
@@ -410,16 +453,15 @@ const DELIVERY_STATUS: Record<string, { label: string; color: string }> = {
 
 function DeliveryList({
   deliveries,
-  period,
   onChanged,
 }: {
   deliveries: Delivery[];
-  period: string;
   onChanged: () => void;
 }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
+  const [photosOf, setPhotosOf] = useState<Delivery | null>(null);
 
   const act = async (d: Delivery, kind: 'confirm' | 'cancel') => {
     if (kind === 'cancel') {
@@ -444,7 +486,7 @@ function DeliveryList({
   };
 
   if (deliveries.length === 0) {
-    return <div className="empty-state card">Chưa có phiếu nhập nào trong {period.toLowerCase()}.</div>;
+    return <div className="empty-state card">Chưa có phiếu nhập nào.</div>;
   }
 
   const pending = deliveries.filter((d) => d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE');
@@ -460,8 +502,11 @@ function DeliveryList({
           </div>
         </div>
       )}
+      {/* `responsive` (styles.css) — dưới 640px bảng 7 cột này bỏ mô hình bảng, mỗi phiếu
+          thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
+          vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Ngày</th>
@@ -469,6 +514,7 @@ function DeliveryList({
               <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
               <th style={{ padding: 8 }}>Trạng thái</th>
               <th style={{ padding: 8 }}>Người nhập</th>
+              <th style={{ padding: 8 }}>Ảnh</th>
               <th style={{ padding: 8 }} />
             </tr>
           </thead>
@@ -478,13 +524,13 @@ function DeliveryList({
               const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
               return (
                 <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
-                  <td style={{ padding: 8 }}>{d.supplier_name}</td>
-                  <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
-                  <td style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
+                  <td data-label="Ngày" style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
+                  <td className="sup-cell-title" style={{ padding: 8 }}>{d.supplier_name}</td>
+                  <td data-label="Số tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
+                  <td data-label="Trạng thái" style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
                     ● {st.label}
                   </td>
-                  <td style={{ padding: 8, color: C.mutedOnTint }}>
+                  <td data-label="Người nhập" style={{ padding: 8, color: C.mutedOnTint }}>
                     {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
                         nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
                     {d.source === 'SUPPLIER' ? (
@@ -493,7 +539,17 @@ function DeliveryList({
                       d.created_by_name
                     )}
                   </td>
-                  <td style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <td data-label="Ảnh" style={{ padding: 8 }}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setPhotosOf(d)}
+                      style={{ minHeight: 36, padding: '0 10px', fontSize: 13 }}
+                    >
+                      Xem ảnh
+                    </button>
+                  </td>
+                  <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {waiting && (
                       <>
                         <button
@@ -520,6 +576,14 @@ function DeliveryList({
           </tbody>
         </table>
       </div>
+
+      {photosOf && (
+        <DeliveryPhotosDialog
+          deliveryId={photosOf.id}
+          title={`${photosOf.supplier_name} · ${photosOf.delivery_date}`}
+          onClose={() => setPhotosOf(null)}
+        />
+      )}
     </>
   );
 }
@@ -574,7 +638,7 @@ function SupplierDetail({
         justifyContent: 'center',
         padding: 16,
         overflowY: 'auto',
-        zIndex: 40,
+        zIndex: 9000,
       }}
     >
       <div className="card" style={{ maxWidth: 760, width: '100%', margin: 'auto' }}>
@@ -607,11 +671,11 @@ function SupplierDetail({
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <button onClick={onIntake} style={{ minHeight: 48, padding: '0 20px' }}>
+          <button className="sup-action" onClick={onIntake}>
             ＋ Nhập hàng
           </button>
           {isAdmin && (
-            <button className="secondary" onClick={onEdit} style={{ minHeight: 48 }}>
+            <button className="secondary sup-action" onClick={onEdit}>
               Sửa thông tin
             </button>
           )}
@@ -728,12 +792,9 @@ function SupplierEditor({
   const confirm = useConfirm();
   const [name, setName] = useState(supplier?.name ?? '');
   const [phone, setPhone] = useState(supplier?.phone ?? '');
-  const [note, setNote] = useState(supplier?.note ?? '');
+  // Giữ nguyên chuỗi người dùng gõ (đã chèn dấu chấm) chứ không giữ số: gõ dở "1.0" mà ép về
+  // number rồi format lại mỗi phím sẽ nhảy con trỏ về cuối ô.
   const [owed, setOwed] = useState('');
-  const [owedDate, setOwedDate] = useState(
-    () => new Date(Date.now() + VN_OFFSET_MS).toISOString().slice(0, 10),
-  );
-  const [owedNote, setOwedNote] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Chỉ hỏi số dư đầu kỳ lúc TẠO MỚI, và chỉ với chủ quán (M3.D-40). Sửa NCC đã có thì dùng nút
@@ -745,17 +806,20 @@ function SupplierEditor({
     e.preventDefault();
     setSaving(true);
     try {
-      const body = { name: name.trim(), phone: phone.trim(), note: note.trim() || null };
+      const body = { name: name.trim(), phone: phone.trim() };
       if (supplier) {
         await api.patch(`/suppliers/${supplier.id}`, body);
       } else {
         await api.post('/suppliers', {
           ...body,
-          ...(askOpening && Number(owed) > 0
+          // Mốc số dư là NGÀY TẠO NCC — không hỏi nữa. Nhập số nợ đúng lúc đang ngồi đối chiếu
+          // sổ với NCC thì mốc luôn là hôm nay; hỏi thêm một ô ngày chỉ tổ gõ nhầm.
+          ...(askOpening
             ? {
-                opening_balance: Math.round(Number(owed)),
-                opening_balance_date: owedDate,
-                opening_balance_note: owedNote.trim() || null,
+                opening_balance: Number(digitsOnly(owed) || 0),
+                opening_balance_date: new Date(Date.now() + VN_OFFSET_MS)
+                  .toISOString()
+                  .slice(0, 10),
               }
             : {}),
         });
@@ -800,7 +864,7 @@ function SupplierEditor({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 16,
-        zIndex: 70,
+        zIndex: 9020,
       }}
     >
       <form className="card" onSubmit={save} style={{ maxWidth: 440, width: '100%' }}>
@@ -827,68 +891,21 @@ function SupplierEditor({
             style={{ width: '100%', minHeight: 44, fontSize: 16 }}
           />
         </label>
-        <label style={{ display: 'block', marginBottom: 16 }}>
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={255}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-
         {askOpening && (
-          <div
-            style={{
-              borderTop: '1px solid #e5e7eb',
-              paddingTop: 14,
-              marginBottom: 16,
-            }}
-          >
-            <div style={{ fontWeight: 700, marginBottom: 2 }}>Đang nợ nhà cung cấp này?</div>
-            <div style={{ fontSize: 13, color: C.mutedOnTint, marginBottom: 10 }}>
-              Bỏ trống nếu chưa nợ gì, hoặc nếu bạn định nhập từng phiếu cũ thành phiếu nhập riêng.
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <label style={{ flex: '1 1 140px' }}>
-                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số tiền (đ)</span>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  step="1"
-                  value={owed}
-                  onChange={(e) => setOwed(e.target.value)}
-                  style={{ width: '100%', minHeight: 44, fontSize: 18, fontWeight: 700 }}
-                />
-              </label>
-              <label style={{ flex: '1 1 140px' }}>
-                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Tính tới ngày</span>
-                <input
-                  type="date"
-                  value={owedDate}
-                  onChange={(e) => setOwedDate(e.target.value)}
-                  style={{ width: '100%', minHeight: 44 }}
-                />
-              </label>
-            </div>
-
-            {/* Bắt buộc về mặt vận hành chứ không phải về mặt kỹ thuật: con số trên không truy
-                ngược được từ dữ liệu, nên dòng này là thứ duy nhất giải thích nó về sau. */}
-            {Number(owed) > 0 && (
-              <label style={{ display: 'block', marginTop: 8 }}>
-                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Gồm những gì?</span>
-                <input
-                  value={owedNote}
-                  onChange={(e) => setOwedNote(e.target.value)}
-                  maxLength={255}
-                  placeholder="VD: 3 phiếu tháng 8 chưa trả (5/8, 17/8, 29/8)"
-                  style={{ width: '100%', minHeight: 44 }}
-                />
-              </label>
-            )}
-          </div>
+          <label style={{ display: 'block', marginBottom: 16 }}>
+            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số tiền đang nợ (đ) *</span>
+            <input
+              value={owed}
+              onChange={(e) => setOwed(formatMoneyInput(e.target.value))}
+              required
+              inputMode="numeric"
+              placeholder="0"
+              style={{ width: '100%', minHeight: 44, fontSize: 18, fontWeight: 700 }}
+            />
+            <span style={{ display: 'block', fontSize: 13, color: C.mutedOnTint, marginTop: 4 }}>
+              Chưa nợ gì thì điền 0.
+            </span>
+          </label>
         )}
 
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

@@ -9,6 +9,11 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
+import { Select } from '../components/Select.tsx';
+import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
+import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
+import { lowerUnit, titleCaseVi } from '../lib/text-case.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -78,6 +83,9 @@ export function DeliveryFormPanel({
   const [known, setKnown] = useState<SupplierItemRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [dialog, setDialog] = useState<{ changes: PriceChange[]; duplicate: DuplicateHint | null } | null>(null);
+  // Ảnh chờ gửi. Chưa có id phiếu thì chưa gắn được, nên giữ File trong bộ nhớ và đẩy lên NGAY
+  // SAU khi phiếu lưu xong (xem `uploadPhotos`).
+  const [photos, setPhotos] = useState<File[]>([]);
 
   useEffect(() => {
     api
@@ -116,13 +124,13 @@ export function DeliveryFormPanel({
       base_unit: ing.unit,
       purchase_unit: k?.purchase_unit ?? ing.unit,
       qty_base_per_unit: k?.qty_base_per_unit ? String(Number(k.qty_base_per_unit)) : '1',
-      unit_price: k ? String(k.last_unit_price) : '',
+      unit_price: k ? formatMoneyInput(String(k.last_unit_price)) : '',
     });
   };
 
   const total = lines.reduce((sum, l) => {
     const q = Number(l.qty_purchase);
-    const p = Number(l.unit_price);
+    const p = Number(digitsOnly(l.unit_price));
     return sum + (Number.isFinite(q) && Number.isFinite(p) ? Math.round(q * p) : 0);
   }, 0);
 
@@ -133,14 +141,37 @@ export function DeliveryFormPanel({
         ingredient_id: l.ingredient_id || undefined,
         ingredient_name: l.ingredient_id ? undefined : l.ingredient_name.trim(),
         base_unit: l.ingredient_id ? undefined : l.base_unit.trim(),
-        purchase_unit: l.purchase_unit.trim() || l.base_unit.trim(),
-        qty_base_per_unit: Number(l.qty_base_per_unit) || 1,
+        // Hai trường này không còn ô nhập nào (xem ghi chú ở LineRow). Ghim cứng để "Đơn giá"
+        // luôn có đúng một nghĩa: giá trên MỘT đơn vị gốc.
+        purchase_unit: l.base_unit.trim() || l.purchase_unit.trim(),
+        qty_base_per_unit: 1,
         qty_purchase: Number(l.qty_purchase),
-        unit_price: Number(l.unit_price) || 0,
+        // Ô đơn giá giữ CHUỖI đã chấm nghìn ("100.000") — bóc về số ngay trước khi gửi.
+        unit_price: Number(digitsOnly(l.unit_price)) || 0,
       }));
 
   /** Gửi phiếu. Nhịp một để trống `approved_ingredient_ids` — server trả về danh sách dòng lệch
    * giá và KHÔNG ghi gì. Nhịp hai gửi lại kèm những dòng người dùng đã bấm đồng ý. */
+  /** Đẩy ảnh lên cho phiếu vừa tạo. Trả về mô tả lỗi nếu hỏng, `null` nếu xong (hoặc không có
+   *  ảnh nào để gửi).
+   *
+   *  Số ảnh KHÔNG bị chặn (chủ quán chốt 2026-09-06), nhưng vẫn chia lô: một request ôm cả trăm
+   *  tấm là một request có thể hỏng giữa chừng và mất sạch, mà server cũng phải giữ ngần ấy bytes
+   *  trong RAM cùng lúc. Lô 20 tấm khớp với trần `FilesInterceptor` phía server. */
+  const uploadPhotos = async (deliveryId: string): Promise<string | null> => {
+    const BATCH = 20;
+    for (let i = 0; i < photos.length; i += BATCH) {
+      const fd = new FormData();
+      photos.slice(i, i + BATCH).forEach((f) => fd.append('files', f));
+      try {
+        await api.post(`/supplier-deliveries/${deliveryId}/photos`, fd);
+      } catch (err) {
+        return `ảnh gửi không được (${extractError(err).message})`;
+      }
+    }
+    return null;
+  };
+
   const submit = async (approved?: string[], allowDuplicate?: boolean) => {
     const body = payloadLines();
     if (body.length === 0) {
@@ -152,7 +183,7 @@ export function DeliveryFormPanel({
       const res = await api.post<{
         data:
           | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
-          | { created: true };
+          | { created: true; delivery: { id: string } };
       }>('/supplier-deliveries', {
         supplier_id: supplierId,
         delivery_date: date,
@@ -166,7 +197,15 @@ export function DeliveryFormPanel({
         setDialog({ changes: data.price_changes, duplicate: data.duplicate });
         return;
       }
-      toast.push('success', `Đã lưu phiếu ${vnd(total)}đ`);
+      // Ảnh đẩy lên SAU khi phiếu đã lưu. Nếu bước này hỏng thì phiếu VẪN CÒN — nói thẳng ra
+      // thay vì nuốt lỗi, vì người nhập cần biết là phải vào phiếu chụp bù chứ không phải nhập
+      // lại cả phiếu.
+      const anhHong = await uploadPhotos(data.delivery.id);
+      if (anhHong) {
+        toast.push('error', `Đã lưu phiếu ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
+      } else {
+        toast.push('success', `Đã lưu phiếu ${vnd(total)}đ`);
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -197,35 +236,58 @@ export function DeliveryFormPanel({
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: 16,
         overflowY: 'auto',
-        zIndex: 50,
+        zIndex: 9010,
       }}
+      className="dl-overlay"
     >
-      <form className="card" onSubmit={onSubmit} style={{ maxWidth: 860, width: '100%', margin: 'auto' }}>
+      {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
+          bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
+      <form className="card dl-sheet" onSubmit={onSubmit}>
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
 
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          <label style={{ display: 'block' }}>
-            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Nhà cung cấp</span>
-            <select
-              value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
-              disabled={!!lockedSupplierId}
-              style={{ width: '100%', minHeight: 44 }}
-            >
-              <option value="">— chọn —</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Nhà cung cấp
+            </span>
+            {lockedSupplierId ? (
+              // Lối NCC tự nhập: không có gì để chọn, và một ô chọn chỉ-một-lựa-chọn bị khoá
+              // trông như lỗi. Hiện thẳng tên ra.
+              <div
+                style={{
+                  minHeight: 44,
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 12px',
+                  border: '1px solid ' + C.borderSoft,
+                  borderRadius: 8,
+                  background: C.panelBg,
+                  fontWeight: 600,
+                }}
+              >
+                {suppliers.find((x) => x.id === lockedSupplierId)?.name ?? '—'}
+              </div>
+            ) : (
+              <Select
+                full
+                value={supplierId}
+                neutralValue=""
+                placeholder="— chọn —"
+                ariaLabel="Nhà cung cấp"
+                onChange={setSupplierId}
+                options={suppliers.map((x) => ({
+                  value: x.id,
+                  label: x.name,
+                  hint: x.phone || undefined,
+                }))}
+              />
+            )}
+          </div>
           <label style={{ display: 'block' }}>
             {/* Ngày GIAO, không phải ngày nhập liệu. Nhân viên bận thì tối mới ngồi nhập phiếu
                 của sáng, và nhập bù phiếu hôm qua là chuyện thường. */}
-            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ngày giao</span>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>Ngày giao</span>
             <input
               type="date"
               value={date}
@@ -259,6 +321,8 @@ export function DeliveryFormPanel({
           ＋ Thêm dòng
         </button>
 
+        <PhotoPicker files={photos} onChange={setPhotos} />
+
         <label style={{ display: 'block', marginTop: 16 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
           <input
@@ -269,17 +333,10 @@ export function DeliveryFormPanel({
           />
         </label>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginTop: 20,
-            flexWrap: 'wrap',
-            borderTop: '1px solid #e5e7eb',
-            paddingTop: 16,
-          }}
-        >
+        {/* Ghim đáy trên điện thoại: phiếu 10 mặt hàng dài hơn 2 màn, mà con số tổng và nút GỬI
+            là hai thứ người nhập phải với tới bất cứ lúc nào — cuộn xuống đáy mới bấm được là
+            chỗ dễ bỏ sót nhất khi NCC đang đứng đợi. */}
+        <div className="dl-bar">
           <div style={{ fontSize: 22, fontWeight: 800 }}>{vnd(total)}đ</div>
           <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
             Huỷ
@@ -305,8 +362,11 @@ export function DeliveryFormPanel({
   );
 }
 
-/** Một dòng hàng. Tách component để ô gợi ý tên mặt hàng có state đóng/mở riêng — gom hết vào
- * form cha thì gõ ở dòng 1 làm đóng gợi ý của dòng 7. */
+/** Một dòng hàng.
+ *
+ * Trên desktop là MỘT hàng 7 cột dóng thẳng nhau. Trên điện thoại cùng đúng những ô đó xếp
+ * thành một thẻ (xem `.dl-line` trong styles.css) — hai bọc `display: contents` ở giữa là thứ
+ * cho phép một cây JSX duy nhất chạy được cả hai kiểu, không phải viết hai component. */
 function LineRow({
   line,
   index,
@@ -324,188 +384,147 @@ function LineRow({
   onPatch: (next: Partial<DraftLine>) => void;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const q = line.ingredient_name.trim();
-
-  // Gợi ý tra trên tên đã bỏ dấu (M3.D-14): gõ "rau muong" phải ra "Rau muống". Lọc tại chỗ vì
-  // danh mục một quán ăn là vài chục tới vài trăm dòng — gọi API mỗi lần gõ chỉ làm nhấp nháy.
-  const matches = useMemo(() => {
-    if (!q) return [];
-    const nq = norm(q);
-    return catalog.filter((i) => norm(i.name).includes(nq)).slice(0, 6);
-  }, [q, catalog]);
-
-  const exact = matches.some((m) => norm(m.name) === norm(q));
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
+  const catalogOptions = useMemo(
+    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: i.unit })),
+    [catalog],
+  );
+  const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
+
+  const qty = Number(line.qty_purchase);
+  const price = Number(digitsOnly(line.unit_price));
+  const lineTotal =
+    Number.isFinite(qty) && Number.isFinite(price) && qty > 0 ? Math.round(qty * price) : 0;
 
   return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
-          <input
+    <div className="dl-item">
+      <div className={`dl-line${index > 0 ? ' dl-rest' : ''}`}>
+        <div className="dl-name" style={{ minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            Mặt hàng
+          </span>
+          <Autocomplete
             value={line.ingredient_name}
-            placeholder={`Mặt hàng ${index + 1}`}
-            onChange={(e) => {
-              // Gõ lại tên = bỏ liên kết với mặt hàng đã chọn. Không làm vậy thì người dùng sửa
-              // tên thành thứ khác mà `ingredient_id` vẫn trỏ vào mặt hàng cũ, và phiếu ghi sai
-              // hàng trong im lặng.
-              onPatch({ ingredient_name: e.target.value, ingredient_id: null });
-              setOpen(true);
+            // Gõ lại tên = bỏ liên kết với mặt hàng đã chọn. Không làm vậy thì người dùng sửa tên
+            // thành thứ khác mà `ingredient_id` vẫn trỏ vào mặt hàng cũ, và phiếu ghi sai hàng
+            // trong im lặng.
+            onChange={(text) => onPatch({ ingredient_name: titleCaseVi(text), ingredient_id: null })}
+            onPick={(o) => {
+              const ing = catalog.find((c) => c.id === o.value);
+              if (ing) onPick(ing);
             }}
-            onFocus={() => setOpen(true)}
-            onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            options={catalogOptions}
+            normalize={norm}
+            maxItems={6}
+            placeholder={`Mặt hàng ${index + 1}`}
+            ariaLabel={`Mặt hàng ${index + 1}`}
+            // Lời nhắc tạo mới nằm CUỐI panel và ở dạng chữ nhạt, KHÔNG phải nút (M3.D-15):
+            // người dùng vội bấm cái đầu tiên nhìn thấy, đặt nút tạo mới lên trên là mỗi lần gõ
+            // nhanh lại đẻ một dòng trùng vào danh mục dùng chung.
+            footer={(q, hasExact) =>
+              q && !hasExact ? (
+                <AcFooter>Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới</AcFooter>
+              ) : null
+            }
           />
-          {open && q && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                background: '#fff',
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                boxShadow: '0 8px 20px rgba(0,0,0,.12)',
-                zIndex: 10,
-              }}
-            >
-              {matches.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className="secondary"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onPick(m);
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    border: 'none',
-                    borderRadius: 0,
-                    minHeight: 44,
-                    background: 'transparent',
-                  }}
-                >
-                  {m.name} <span style={{ color: C.muted }}>({m.unit})</span>
-                </button>
-              ))}
-              {/* Nút tạo mới nằm CUỐI danh sách và ở dạng chữ nhạt (M3.D-15). Người dùng vội bấm
-                  cái đầu tiên nhìn thấy — đặt nó lên trên là mỗi lần gõ nhanh lại đẻ một dòng
-                  trùng vào danh mục dùng chung. */}
-              {!exact && (
-                <div
-                  style={{
-                    borderTop: matches.length ? '1px solid #e5e7eb' : 'none',
-                    padding: '8px 12px',
-                    fontSize: 13,
-                    color: C.muted,
-                  }}
-                >
-                  Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới
-                </div>
-              )}
-            </div>
-          )}
+        </div>
+
+        {/* Chủ quán chốt 2026-09-06: bỏ ô "NCC bán theo" và ô quy đổi "1 đv = ?".
+            HỆ QUẢ, ghi ở đây để người sau khỏi tưởng là quên: "Đơn giá" từ giờ LUÔN là giá trên
+            ĐƠN VỊ GỐC (đ/kg, đ/lít) — nơi dựng payload ghim cứng hệ số quy đổi = 1 và đơn vị mua
+            = đơn vị gốc. Đổi lại, hệ thống không còn ghi được kiểu mua theo thùng/bao, nên cũng
+            không còn tự bắt được vụ NCC giữ nguyên giá thùng mà rút ruột thùng (10000ml→8000ml).
+            Việc quy ra giá đơn vị gốc chuyển sang cho người nhập. */}
+        <div className="dl-units">
+          {/* Mặt hàng MỚI thì đơn vị gốc là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho
+              và không tính tiêu hao được. Mặt hàng đã có trong danh mục thì ô này chỉ để đọc:
+              giữ chỗ cho cột khỏi lệch giữa các dòng, và tiện thể nhắc luôn đơn vị đang dùng. */}
+          <div style={{ minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              {line.ingredient_id ? 'Đơn vị tính' : 'Đơn vị tính *'}
+            </span>
+            {line.ingredient_id ? (
+              <input
+                value={line.base_unit}
+                readOnly
+                aria-label="Đơn vị tính"
+                style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
+              />
+            ) : (
+              // Gõ TỰ DO, danh sách chỉ là gợi ý (chủ quán chốt 2026-09-06: "có nhiều kiểu
+              // đơn vị khác nhau, không cần list cố định"). Không `openOnFocus`: bung sẵn 13
+              // mục cố định làm ô này trông như chỉ được chọn trong đó, mà quán thì còn con,
+              // mẹt, khay, thùng xốp…
+              <Autocomplete
+                value={line.base_unit}
+                onChange={(v) => onPatch({ base_unit: lowerUnit(v) })}
+                options={unitOptions}
+                maxItems={6}
+                placeholder="kg, lít, bó, con, mẹt…"
+                ariaLabel="Đơn vị tính"
+              />
+            )}
+          </div>
+
+        </div>
+
+        {/* Hai ô gõ nhiều nhất — trên điện thoại chúng đứng cạnh nhau ngay dưới tên hàng. */}
+        <div className="dl-money">
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Số lượng
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={line.qty_purchase}
+              onChange={(e) => onPatch({ qty_purchase: e.target.value })}
+              style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            />
+          </label>
+
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Đơn giá
+            </span>
+            <input
+              inputMode="numeric"
+              value={line.unit_price}
+              onChange={(e) => onPatch({ unit_price: formatMoneyInput(e.target.value) })}
+              style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            />
+          </label>
         </div>
 
         <button
           type="button"
-          className="secondary"
+          className="secondary dl-del"
           onClick={onRemove}
-          aria-label="Xoá dòng"
-          style={{ minHeight: 44, minWidth: 44 }}
+          aria-label={`Xoá mặt hàng ${index + 1}`}
         >
           ✕
         </button>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gap: 8,
-          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-          marginTop: 8,
-        }}
-      >
-        {!line.ingredient_id && (
-          // Mặt hàng mới thì đơn vị GỐC là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho
-          // và không tính tiêu hao được.
-          <label style={{ display: 'block' }}>
-            <span style={{ fontSize: 13, color: C.mutedOnTint }}>Đơn vị tính *</span>
-            <input
-              list="unit-suggestions"
-              value={line.base_unit}
-              onChange={(e) => onPatch({ base_unit: e.target.value })}
-              placeholder="kg, lít, bó…"
-              style={{ width: '100%', minHeight: 44 }}
-            />
-          </label>
-        )}
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>NCC bán theo</span>
-          <input
-            value={line.purchase_unit}
-            onChange={(e) => onPatch({ purchase_unit: e.target.value })}
-            placeholder="thùng, bao, kg…"
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>
-            1 {line.purchase_unit || 'đơn vị'} = ? {line.base_unit || 'đv gốc'}
-          </span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0.001"
-            step="any"
-            value={line.qty_base_per_unit}
-            onChange={(e) => onPatch({ qty_base_per_unit: e.target.value })}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>Số lượng</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={line.qty_purchase}
-            onChange={(e) => onPatch({ qty_purchase: e.target.value })}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
-          />
-        </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>Đơn giá</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            step="1"
-            value={line.unit_price}
-            onChange={(e) => onPatch({ unit_price: e.target.value })}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
-          />
-        </label>
-      </div>
-
-      {prev && (
-        // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
-        // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
-        <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
-          Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+      {/* Chân dòng: thành tiền của riêng dòng này + giá lần trước. Trên desktop cột tiền đã dóng
+          thẳng nên chỉ cần dòng giá cũ; trên điện thoại thì thành tiền từng dòng là thứ duy nhất
+          giúp soát lại phiếu mà không phải tự nhân nhẩm. */}
+      {(lineTotal > 0 || prev) && (
+        <div className="dl-foot-line">
+          {prev && (
+            // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
+            // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
+            <span style={{ color: C.muted }}>
+              Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+            </span>
+          )}
+          {lineTotal > 0 && (
+            <strong className="dl-line-total">{vnd(lineTotal)}đ</strong>
+          )}
         </div>
       )}
-      <datalist id="unit-suggestions">
-        {UNIT_SUGGESTIONS.map((u) => (
-          <option key={u} value={u} />
-        ))}
-      </datalist>
     </div>
   );
 }

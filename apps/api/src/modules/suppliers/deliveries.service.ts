@@ -11,6 +11,7 @@ import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
+import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { IngredientsService } from '../ingredients/ingredients.service.js';
 import { toDateString } from './suppliers.service.js';
@@ -79,6 +80,8 @@ export class DeliveriesService {
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
     @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
     @InjectRepository(SupplierDeliveryLine) private readonly lineRepo: Repository<SupplierDeliveryLine>,
+    @InjectRepository(SupplierDeliveryPhoto)
+    private readonly photoRepo: Repository<SupplierDeliveryPhoto>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
     private readonly ingredients: IngredientsService,
     private readonly ds: DataSource,
@@ -125,12 +128,14 @@ export class DeliveriesService {
   async get(id: string): Promise<{
     delivery: SupplierDelivery & { supplier_name: string };
     lines: SupplierDeliveryLine[];
+    photos: SupplierDeliveryPhoto[];
   }> {
     const d = await this.deliveryRepo.findOne({ where: { id } });
     if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
-    const [supplier, lines] = await Promise.all([
+    const [supplier, lines, photos] = await Promise.all([
       this.supplierRepo.findOne({ where: { id: d.supplier_id } }),
       this.lineRepo.find({ where: { delivery_id: id }, order: { created_at: 'ASC' } }),
+      this.photoRepo.find({ where: { delivery_id: id }, order: { created_at: 'ASC' } }),
     ]);
     return {
       delivery: {
@@ -139,7 +144,37 @@ export class DeliveriesService {
         supplier_name: supplier?.name ?? '(đã xoá)',
       },
       lines,
+      photos,
     };
+  }
+
+  /** Gắn ảnh vào phiếu. Ảnh đã được resize/nén và ghi đĩa trước khi vào đây — tham số là URL
+   * công khai, không phải bytes.
+   *
+   * Gắn được vào phiếu Ở BẤT KỲ trạng thái nào, kể cả CONFIRMED: ảnh là bằng chứng chứ không
+   * phải số liệu, thêm ảnh không đụng tới kho hay công nợ. Chặn ở đây chỉ tạo ra tình huống
+   * "quên chụp hoá đơn, phiếu đã duyệt, thôi khỏi lưu". */
+  async addPhotos(deliveryId: string, urls: string[]): Promise<SupplierDeliveryPhoto[]> {
+    const d = await this.deliveryRepo.findOne({ where: { id: deliveryId } });
+    if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    const rows = urls.map((url) => this.photoRepo.create({ delivery_id: deliveryId, url }));
+    return this.photoRepo.save(rows);
+  }
+
+  async listPhotos(deliveryId: string): Promise<SupplierDeliveryPhoto[]> {
+    return this.photoRepo.find({ where: { delivery_id: deliveryId }, order: { created_at: 'ASC' } });
+  }
+
+  /** Xoá một ảnh khỏi phiếu.
+   *
+   * CHỈ xoá dòng trong DB, KHÔNG xoá file trên đĩa. Cố ý: một tấm ảnh vài chục KB không đáng để
+   * đánh đổi lấy rủi ro xoá nhầm file mà một phiếu khác đang trỏ tới, và ảnh mồ côi thì dọn được
+   * bằng tay bất cứ lúc nào — ngược lại thì không. */
+  async deletePhoto(photoId: string): Promise<{ deleted: true }> {
+    const ph = await this.photoRepo.findOne({ where: { id: photoId } });
+    if (!ph) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ảnh không tồn tại' });
+    await this.photoRepo.delete({ id: photoId });
+    return { deleted: true };
   }
 
   /** Tạo phiếu nhập. Xem docblock đầu file về luồng hai nhịp.

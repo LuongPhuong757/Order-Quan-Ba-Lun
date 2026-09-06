@@ -124,6 +124,10 @@ const CHECKS: TableCheck[] = [
     ],
   },
   {
+    table: 'supplier_delivery_photos',
+    requiredColumns: ['id', 'delivery_id', 'url', 'created_at'],
+  },
+  {
     table: 'supplier_users',
     requiredColumns: ['id', 'supplier_id', 'phone', 'pin_hash', 'failed_attempts', 'locked_until', 'is_active'],
   },
