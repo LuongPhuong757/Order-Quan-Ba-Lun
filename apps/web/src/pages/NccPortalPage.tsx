@@ -57,6 +57,16 @@ export function NccPortalPage() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
   const [name, setName] = useState('');
 
+  // `index.html` đặt tiêu đề "Admin · Quán Bà Lùn" cho app nội bộ. NCC mở link trên điện thoại mà
+  // thấy chữ "Admin" thì vừa khó hiểu vừa sai — đây là màn của họ, không phải màn quản trị.
+  useEffect(() => {
+    const prev = document.title;
+    document.title = 'Giao hàng · Quán Bà Lùn';
+    return () => {
+      document.title = prev;
+    };
+  }, []);
+
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     setToken(null);
