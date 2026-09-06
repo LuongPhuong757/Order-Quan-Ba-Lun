@@ -8,6 +8,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
+import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
@@ -38,6 +39,7 @@ export type PricePoint = {
 export class ReportsService {
   constructor(
     @InjectRepository(SupplierDeliveryLine) private readonly lineRepo: Repository<SupplierDeliveryLine>,
+    @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
     @InjectRepository(RecipeLine) private readonly recipeRepo: Repository<RecipeLine>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
@@ -258,9 +260,55 @@ export class ReportsService {
       unit_price_base: Number(r.unit_price_base),
     }));
   }
+
+  /** Chi tiêu nhập hàng theo NGÀY × NCC (2026-09-06).
+   *
+   * Gộp ở DB chứ không kéo hết phiếu về rồi gộp bằng JS: bảng phiếu lớn dần theo thời gian mà
+   * màn này không cắt theo kỳ, nên đây là chỗ duy nhất trong module đọc toàn bộ lịch sử phiếu.
+   *
+   * Trả về từng cặp (ngày, NCC) chứ không gộp sẵn theo ngày: màn hình cần CẢ hai mức — dòng
+   * tổng của ngày để liếc, và tách theo NCC khi bấm mở ra. Gộp sẵn ở server thì mất mức thứ hai
+   * và phải gọi thêm một lượt nữa.
+   *
+   * CHỈ phiếu đã duyệt (M3.D-41), cùng luật với mọi con số tiền khác của module: phiếu NCC tự
+   * khai mà quán chưa kiểm không được làm phồng chi tiêu.
+   */
+  async daily(opts: { supplier_id?: string } = {}): Promise<DailyRow[]> {
+    const qb = this.deliveryRepo
+      .createQueryBuilder('d')
+      .innerJoin('suppliers', 's', 's.id = d.supplier_id')
+      .select('d.delivery_date', 'delivery_date')
+      .addSelect('d.supplier_id', 'supplier_id')
+      .addSelect('s.name', 'supplier_name')
+      .addSelect('SUM(d.total_amount)', 'amount')
+      .addSelect('COUNT(*)', 'deliveries')
+      .where("d.status = 'CONFIRMED'");
+    if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
+    const raw = await qb
+      .groupBy('d.delivery_date')
+      .addGroupBy('d.supplier_id')
+      .addGroupBy('s.name')
+      .orderBy('d.delivery_date', 'DESC')
+      .getRawMany<Record<string, unknown>>();
+    return raw.map((r) => ({
+      delivery_date: dateStr(r.delivery_date),
+      supplier_id: String(r.supplier_id),
+      supplier_name: String(r.supplier_name),
+      amount: Number(r.amount),
+      deliveries: Number(r.deliveries),
+    }));
+  }
 }
 
 /** Cột DATE về từ mysql2 lúc là `Date`, lúc là chuỗi tuỳ hàm gộp — ép về 'YYYY-MM-DD' một chỗ. */
+export type DailyRow = {
+  delivery_date: string;
+  supplier_id: string;
+  supplier_name: string;
+  amount: number;
+  deliveries: number;
+};
+
 function dateStr(v: unknown): string {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
   return String(v ?? '').slice(0, 10);

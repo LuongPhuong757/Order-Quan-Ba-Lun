@@ -21,6 +21,8 @@ import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
+import { DailySpendPanel } from './DailySpendPanel.tsx';
+import { Select } from '../components/Select.tsx';
 import {
   ItemStatsPanel,
   PriceChangesPanel,
@@ -65,7 +67,11 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Tab = 'suppliers' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'daily' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+
+/** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
+ *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
+const TABS_CO_LOC: Tab[] = ['daily', 'deliveries', 'prices', 'items'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -78,6 +84,10 @@ export function SuppliersPage() {
   const isOwner = !!user?.is_owner;
 
   const [tab, setTab] = useState<Tab>('suppliers');
+  // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
+  // tiêu của một NCC rồi chuyển tab để nhìn góc khác của CÙNG NCC đó — bắt chọn lại ở mỗi tab là
+  // ba lần chọn cho một câu hỏi.
+  const [filterSupplierId, setFilterSupplierId] = useState('');
 
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
@@ -97,7 +107,9 @@ export function SuppliersPage() {
     try {
       const [s, d] = await Promise.all([
         api.get<{ data: { items: Supplier[] } }>('/suppliers'),
-        api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries'),
+        api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', {
+          params: { supplier_id: filterSupplierId || undefined },
+        }),
       ]);
       setSuppliers(s.data.data.items);
       setDeliveries(d.data.data.items);
@@ -117,7 +129,7 @@ export function SuppliersPage() {
     } catch {
       setBalances(new Map());
     }
-  }, [toast, isAdmin]);
+  }, [toast, isAdmin, filterSupplierId]);
 
   useEffect(() => {
     refresh();
@@ -135,6 +147,7 @@ export function SuppliersPage() {
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
+    { value: 'daily', label: 'Theo ngày' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -145,7 +158,16 @@ export function SuppliersPage() {
     <div className="container wide with-bottom-nav">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>
-        <div role="tablist" aria-label="Khu vực màn nhà cung cấp" style={{ display: 'flex', gap: 4 }}>
+        {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
+            MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
+            nên khi thêm tab thứ sáu ("Theo ngày") nó rộng 410px và kéo cả trang tràn ngang ở
+            390px. `minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng trong flex cha. */}
+        <div
+          role="tablist"
+          aria-label="Khu vực màn nhà cung cấp"
+          className="tabstrip"
+          style={{ gap: 4, flex: '1 1 auto', minWidth: 0 }}
+        >
           {tabs.map((t) => {
             const active = tab === t.value;
             return (
@@ -186,7 +208,34 @@ export function SuppliersPage() {
       {/* Không cắt theo tháng nữa (chủ quán chốt 2026-09-06): mọi tab dưới đây nhìn TOÀN BỘ
           lịch sử. Cắt theo tháng làm lọt đúng thứ cần bắt nhất — vụ NCC tăng giá vắt qua ranh
           giới hai tháng thì mỗi tháng nhìn riêng đều thấy giá phẳng. */}
-      <div style={{ display: 'flex', margin: '16px 0' }}>
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          margin: '16px 0',
+          flexWrap: 'wrap',
+        }}
+      >
+        {TABS_CO_LOC.includes(tab) && (
+          // `flex: 1 1 220px` + `minWidth: 0`: rộng 220px khi còn chỗ, CO lại khi không. Đặt
+          // `minWidth: 220` cứng thì ở 390px nó cộng với dòng "Tổng mua" thành 412px và cả
+          // trang bị kéo ngang.
+          <div style={{ flex: '1 1 220px', minWidth: 0 }}>
+            <Select
+              full
+              value={filterSupplierId}
+              neutralValue=""
+              placeholder="Tất cả nhà cung cấp"
+              ariaLabel="Lọc theo nhà cung cấp"
+              onChange={setFilterSupplierId}
+              options={[
+                { value: '', label: 'Tất cả nhà cung cấp' },
+                ...suppliers.map((x) => ({ value: x.id, label: x.name })),
+              ]}
+            />
+          </div>
+        )}
         <div style={{ marginLeft: 'auto', fontSize: 14, color: C.mutedOnTint }}>
           Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
         </div>
@@ -204,6 +253,8 @@ export function SuppliersPage() {
         />
       )}
 
+      {tab === 'daily' && <DailySpendPanel supplierId={filterSupplierId || undefined} />}
+
       {tab === 'deliveries' && !loading && (
         <DeliveryList
           deliveries={deliveries}
@@ -216,14 +267,17 @@ export function SuppliersPage() {
 
       {tab === 'prices' && (
         <>
-          <PriceChangesPanel onOpenHistory={(id, name) => setHistory({ id, name })} />
+          <PriceChangesPanel
+            supplierId={filterSupplierId || undefined}
+            onOpenHistory={(id, name) => setHistory({ id, name })}
+          />
           <h3 style={{ margin: '28px 0 12px', fontSize: 17 }}>So giá giữa các nhà cung cấp</h3>
           <PriceMatrixPanel />
         </>
       )}
 
       {tab === 'items' && (
-        <ItemStatsPanel />
+        <ItemStatsPanel supplierId={filterSupplierId || undefined} />
       )}
 
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —

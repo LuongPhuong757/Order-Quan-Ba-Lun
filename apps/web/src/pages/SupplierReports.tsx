@@ -94,8 +94,10 @@ function Sparkline({ values }: { values: number[] }) {
 
 /** Mục 4.1 — bảng biến động giá toàn bộ NCC × mặt hàng trong kỳ. */
 export function PriceChangesPanel({
+  supplierId,
   onOpenHistory,
 }: {
+  supplierId?: string;
   onOpenHistory: (ingredientId: string, name: string) => void;
 }) {
   const toast = useToast();
@@ -105,13 +107,15 @@ export function PriceChangesPanel({
   useEffect(() => {
     setRows(null);
     api
-      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs')
+      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', {
+        params: { supplier_id: supplierId },
+      })
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [toast]);
+  }, [supplierId, toast]);
 
   const changed = useMemo(
     () =>

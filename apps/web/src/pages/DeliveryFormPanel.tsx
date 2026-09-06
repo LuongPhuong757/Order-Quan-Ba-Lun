@@ -451,13 +451,16 @@ function LineRow({
                 style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
               />
             ) : (
+              // Gõ TỰ DO, danh sách chỉ là gợi ý (chủ quán chốt 2026-09-06: "có nhiều kiểu
+              // đơn vị khác nhau, không cần list cố định"). Không `openOnFocus`: bung sẵn 13
+              // mục cố định làm ô này trông như chỉ được chọn trong đó, mà quán thì còn con,
+              // mẹt, khay, thùng xốp…
               <Autocomplete
                 value={line.base_unit}
                 onChange={(v) => onPatch({ base_unit: lowerUnit(v) })}
                 options={unitOptions}
-                openOnFocus
-                maxItems={20}
-                placeholder="kg, lít, bó…"
+                maxItems={6}
+                placeholder="kg, lít, bó, con, mẹt…"
                 ariaLabel="Đơn vị tính"
               />
             )}
