@@ -343,9 +343,32 @@ export function PriceMatrixPanel() {
 
 /** Mục 3.3 — thống kê mặt hàng nhập. Cần song song với biến động giá: giá tăng 5% mà lượng nhập
  * gấp đôi thì tiền đội lên nhiều hơn hẳn, nhìn cột % giá không thấy gì. */
+/** Các cách xếp bảng "Mặt hàng nhập".
+ *
+ * Chủ quán hỏi "món nào nhập nhiều, món nào nhập ít" (2026-09-06) — mà "nhiều" có ba nghĩa khác
+ * nhau và cả ba đều đúng tuỳ lúc: nhiều TIỀN (ăn vào chi phí), nhiều LẦN (giao liên tục, hết
+ * nhanh), nhiều LƯỢNG (khối lượng thực). Bảng cũ chỉ xếp theo tiền nên hai câu hỏi kia không
+ * trả lời được, và không có cách nào lật ngược để nhìn nhóm nhập ít nhất.
+ *
+ * `qty_base` chỉ so được giữa các dòng CÙNG đơn vị gốc — "10 bó" với "3 kg" là hai thang đo
+ * khác nhau. Vẫn cho xếp vì trong một nhóm cùng đơn vị nó có nghĩa, nhưng đó là lý do TIỀN vẫn
+ * là cách xếp mặc định. */
+const ITEM_SORTS = {
+  amount: { label: 'Tổng tiền', get: (r: PairReport) => r.amount },
+  deliveries: { label: 'Lần', get: (r: PairReport) => r.deliveries },
+  qty_base: { label: 'Lượng', get: (r: PairReport) => r.qty_base },
+  avg_unit_price_base: { label: 'Bình quân', get: (r: PairReport) => r.avg_unit_price_base },
+  last_date: { label: 'Gần nhất', get: (r: PairReport) => r.last_date },
+  ingredient_name: { label: 'Mặt hàng', get: (r: PairReport) => r.ingredient_name },
+} as const;
+
+type ItemSortKey = keyof typeof ITEM_SORTS;
+
 export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
   const toast = useToast();
   const [rows, setRows] = useState<PairReport[] | null>(null);
+  const [sortKey, setSortKey] = useState<ItemSortKey>('amount');
+  const [asc, setAsc] = useState(false);
 
   const load = useCallback(() => {
     setRows(null);
@@ -362,7 +385,28 @@ export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
 
   useEffect(load, [load]);
 
-  const sorted = useMemo(() => [...(rows ?? [])].sort((a, b) => b.amount - a.amount), [rows]);
+  const sorted = useMemo(() => {
+    const get = ITEM_SORTS[sortKey].get;
+    return [...(rows ?? [])].sort((a, b) => {
+      const x = get(a);
+      const y = get(b);
+      const d = typeof x === 'string' ? x.localeCompare(String(y), 'vi') : Number(x) - Number(y);
+      return asc ? d : -d;
+    });
+  }, [rows, sortKey, asc]);
+
+  /** Bấm cột đang xếp thì ĐẢO chiều; bấm cột khác thì nhảy sang cột đó.
+   *
+   *  Chiều mặc định khác nhau theo KIỂU cột: cột số mặc định giảm dần vì câu hỏi thường gặp là
+   *  "cái nào nhiều nhất"; cột chữ mặc định tăng dần vì bấm "Mặt hàng" mà ra Z→A thì không ai
+   *  hiểu là đang sắp xếp. */
+  const bamCot = (k: ItemSortKey) => {
+    if (k === sortKey) setAsc((v) => !v);
+    else {
+      setSortKey(k);
+      setAsc(k === 'ingredient_name');
+    }
+  };
   const total = sorted.reduce((s, r) => s + r.amount, 0);
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
@@ -400,13 +444,13 @@ export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <th style={{ padding: 8 }}>Mặt hàng</th>
+              <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
               <th style={{ padding: 8 }}>NCC</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Lần</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Lượng</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Tổng tiền</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Bình quân</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Gần nhất</th>
+              <ThSort k="deliveries" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="qty_base" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="amount" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="avg_unit_price_base" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="last_date" now={sortKey} asc={asc} onPick={bamCot} right />
             </tr>
           </thead>
           <tbody>
@@ -581,5 +625,54 @@ export function PriceHistoryDialog({
         )}
       </div>
     </div>
+  );
+}
+
+/** Ô tiêu đề bấm được của bảng "Mặt hàng nhập".
+ *
+ * Là <button> thật bên trong <th>, không phải <th onClick>: bàn phím phải tab tới và Enter được,
+ * mà `role="button"` gắn tay lên th thì còn phải tự lo phím. */
+function ThSort({
+  k,
+  now,
+  asc,
+  onPick,
+  right,
+}: {
+  k: ItemSortKey;
+  now: ItemSortKey;
+  asc: boolean;
+  onPick: (k: ItemSortKey) => void;
+  right?: boolean;
+}) {
+  const active = k === now;
+  return (
+    <th
+      style={{ padding: 0, textAlign: right ? 'right' : 'left' }}
+      aria-sort={active ? (asc ? 'ascending' : 'descending') : 'none'}
+    >
+      <button
+        type="button"
+        onClick={() => onPick(k)}
+        style={{
+          width: '100%',
+          minHeight: 36,
+          padding: 8,
+          background: 'transparent',
+          border: 'none',
+          borderRadius: 0,
+          textAlign: right ? 'right' : 'left',
+          color: active ? C.accent : C.mutedOnTint,
+          fontWeight: active ? 700 : 500,
+          fontSize: 14,
+        }}
+      >
+        {ITEM_SORTS[k].label}
+        <span aria-hidden="true" style={{ opacity: active ? 1 : 0.25 }}>
+          {' '}
+          {active && asc ? '▲' : '▼'}
+        </span>
+      </button>
+    </th>
   );
 }
