@@ -263,6 +263,22 @@ function ProtectedShell() {
     return () => window.clearTimeout(id);
   }, [role]);
 
+  /* Thanh nav dưới CUỘN NGANG trên điện thoại (xem `.nav-bottom` trong styles.css): số mục sẽ
+     còn tăng, chia đều chỗ mãi thì tới lúc mỗi mục chỉ còn cái emoji không đọc được. Đánh đổi
+     của việc cuộn là mục đang mở có thể nằm ngoài tầm nhìn — admin đang ở "N/viên" (mục thứ 7)
+     mà thanh nav chỉ hiện tới mục thứ 5 thì không còn điểm tựa "mình đang ở đâu".
+     Nên mỗi lần đổi route thì kéo mục đang sáng vào giữa. `inline: 'center'` chứ không phải
+     'nearest': mục ở giữa cho thấy luôn cả mục trước và mục sau, tức là thấy được rằng thanh
+     này còn trượt được. `block: 'nearest'` để không làm cuộn dọc cả trang. */
+  useEffect(() => {
+    const active = document.querySelector<HTMLElement>('.nav-bottom a[aria-current="page"]');
+    if (!active) return;
+    const bar = active.parentElement;
+    // Chỉ cuộn khi thanh thật sự tràn — trang vừa đủ mục thì gọi cũng vô hại nhưng thừa.
+    if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+    active.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [loc.pathname, role]);
+
   if (loading) {
     return (
       <div className="container">

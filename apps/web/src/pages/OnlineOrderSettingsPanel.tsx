@@ -321,7 +321,7 @@ function TierField({
   children: ReactNode;
 }) {
   return (
-    <div style={{ width, minWidth: 0 }}>
+    <div className="st-tier-field" style={{ width, minWidth: 0 }}>
       <label style={{ display: 'block', fontSize: 12, color: C.muted, marginBottom: 2 }}>
         {label}
       </label>
@@ -372,7 +372,7 @@ export function OnlineOrderSettingsPanel() {
     <div>
       {/* Sub-tab: kiểu gạch chân, CỐ Ý khác kiểu viên thuốc của tab cấp 1 ở `OnlineOrdersPage` —
           hai kiểu khác nhau để không ai nhầm đây là cùng một cấp điều hướng. */}
-      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${C.borderSoft}`, marginBottom: 16 }}>
+      <div className="tabstrip" style={{ gap: 4, borderBottom: `1px solid ${C.borderSoft}`, marginBottom: 16 }}>
         <TabButton active={tab === 'ordering'} onClick={() => updateParam('tab', 'ordering')}>
           Nhận đơn & giờ mở cửa
         </TabButton>
@@ -462,6 +462,7 @@ function Section({
   saving = false,
   saveLabel = 'Lưu',
   onSave,
+  defaultOpen,
   children,
 }: {
   title: string;
@@ -472,25 +473,63 @@ function Section({
   saving?: boolean;
   saveLabel?: string;
   onSave?: () => void;
+  /** Ép mở sẵn kể cả trên điện thoại — dùng cho khối vừa hiện ra do người dùng bấm một nút,
+   *  gập nó lại là bắt bấm thêm lần nữa cho đúng việc họ vừa yêu cầu. */
+  defaultOpen?: boolean;
   children: ReactNode;
 }) {
+  /* GẬP LẠI TRÊN ĐIỆN THOẠI (chỉ đạo chủ quán 2026-09-06: "hiển thị như này quá dài dòng").
+     9 khối cài đặt trải hết ra là ~5800px — cuộn 7 màn hình mới hết, mà mỗi lần vào người ta
+     thường chỉ sửa MỘT khối. Gập lại thì cả 9 tiêu đề nằm gọn trong một màn, thấy được toàn bộ
+     những thứ chỉnh được rồi mới mở đúng cái cần.
+     Desktop mở sẵn như cũ: ở đó chiều dọc không phải thứ khan hiếm, và mở sẵn cho phép Ctrl+F.
+     Đo MỘT LẦN lúc mount, không theo dõi xoay máy — xoay ngang giữa chừng mà các khối tự bung
+     ra thì mất chỗ đang đọc, tệ hơn là để nguyên. */
+  const [open, setOpen] = useState(
+    () => defaultOpen ?? !window.matchMedia('(max-width: 639px)').matches,
+  );
+
   return (
-    <section className="st-section">
+    <section className="st-section" data-open={open}>
       <h2>
-        {title}
-        {dirty && <DirtyMark />}
+        {/* Nút nằm TRONG h2 (không phải h2 trong nút): `<button>` chỉ được chứa phrasing content,
+            nhét heading vào trong là HTML sai và trình đọc màn hình mất luôn cấp tiêu đề. */}
+        <button type="button" className="st-head" aria-expanded={open} onClick={() => setOpen((v) => !v)}>
+          <span className="st-head-title">
+            {title}
+            {dirty && <DirtyMark />}
+          </span>
+          <svg
+            className="st-head-caret"
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
       </h2>
-      <p style={{ margin: '6px 0 16px', fontSize: 13, color: C.muted }}>{hint}</p>
-      {children}
-      {onSave && (
-        <div className="st-foot">
-          <button disabled={saving || !dirty} onClick={onSave}>
-            {saving ? 'Đang lưu...' : saveLabel}
-          </button>
-          {!dirty && !saving && (
-            <span style={{ fontSize: 13, color: C.muted }}>Đang khớp với dữ liệu đã lưu</span>
+      {open && (
+        <>
+          <p style={{ margin: '6px 0 16px', fontSize: 13, color: C.muted }}>{hint}</p>
+          {children}
+          {onSave && (
+            <div className="st-foot">
+              <button disabled={saving || !dirty} onClick={onSave}>
+                {saving ? 'Đang lưu...' : saveLabel}
+              </button>
+              {!dirty && !saving && (
+                <span style={{ fontSize: 13, color: C.muted }}>Đang khớp với dữ liệu đã lưu</span>
+              )}
+            </div>
           )}
-        </div>
+        </>
       )}
     </section>
   );
@@ -969,7 +1008,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           Không để thường trú: 3 radio + 1 textarea đứng đó cả ngày trong khi quán đang mở là 4
           control không dùng tới, đúng loại nhiễu làm trang "nhiều mà không rõ". */}
       {ordering_status.enabled && showOffPicker && (
-        <Section title="Chuyển sang Đóng cửa" hint="Chọn khi nào tự mở lại và soạn lý do khách sẽ đọc.">
+        <Section defaultOpen title="Chuyển sang Đóng cửa" hint="Chọn khi nào tự mở lại và soạn lý do khách sẽ đọc.">
           <div style={{ display: 'grid', gap: 10 }}>
             <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 0 }}>
               <input
@@ -1299,6 +1338,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               {tiers.map((tier, i) => (
                 <div
                   key={i}
+                  className="st-tier"
                   style={{
                     display: 'flex',
                     flexWrap: 'wrap',
@@ -1354,7 +1394,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
                     />
                   </TierField>
 
-                  <span style={{ flex: 1 }} />
+                  <span className="st-tier-spacer" style={{ flex: 1 }} />
 
                   {i === 0 ? (
                     <span style={{ fontSize: 12, color: C.muted, alignSelf: 'center' }}>

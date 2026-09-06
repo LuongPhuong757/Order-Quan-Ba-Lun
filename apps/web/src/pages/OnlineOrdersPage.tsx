@@ -40,6 +40,7 @@
 // 2. Sau khi xử lý xong, dòng đơn biến mất sau ~600ms mờ dần; KHÔNG giữ lại trạng thái "đã xử lý".
 // 3. Panel từ chối là khối mở rộng ngay trong dòng đơn, KHÔNG phải hộp thoại nổi.
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import {
   FULFILLMENT_LABEL,
@@ -210,6 +211,13 @@ export function OnlineOrdersPage() {
   // đơn chờ → không hiện badge (thà không có số còn hơn hiện số sai).
   const [waitingCount, setWaitingCount] = useState<number | null>(null);
 
+  // Ô chứa nút "Bật chuông" trên hàng tiêu đề. Nút đó thuộc `QueueView` (nó giữ `bellRef` +
+  // `audioReady`), nhưng phải HIỆN ở hàng `<h1>` — nên QueueView bắn nó lên đây bằng portal
+  // thay vì phải kéo cả state chuông + SSE lên component cha.
+  // Chỉ đạo chủ quán 2026-09-06: nút này nằm trong thanh công cụ thì nó bóp mất dãy tab trạng
+  // thái, trên máy 390px chỉ còn thấy 1,5 tab.
+  const [bellSlot, setBellSlot] = useState<HTMLElement | null>(null);
+
   const visibleTabs = VIEW_TABS.filter((t) => isAdmin || !t.adminOnly);
 
   const goView = (next: ViewTab) => {
@@ -230,6 +238,10 @@ export function OnlineOrdersPage() {
           tab trạng thái và 2 banner thì chrome ăn gần 300px trước khi thấy đơn đầu tiên. */}
       <div className="oo-head">
         <h1>Đơn hàng online</h1>
+        {/* Ô neo cho nút "Bật chuông" mà `QueueView` bắn lên bằng portal — xem `bellSlot` ở trên.
+            `margin-left: auto` đẩy nó về mép phải của hàng `<h1>`; dãy tab cấp 1 dài hơn màn
+            nên tự rớt xuống dòng dưới, không tranh chỗ. */}
+        <div ref={setBellSlot} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} />
 
         {/* Chỉ dựng tablist khi thật sự có từ 2 tab. Với order/kitchen chỉ còn 1 tab, một hàng
             tab đơn độc là nhiễu thị giác không mang tin gì. */}
@@ -237,7 +249,8 @@ export function OnlineOrdersPage() {
           <div
             role="tablist"
             aria-label="Khu vực của màn đơn hàng online"
-            style={{ display: 'flex', gap: 4 }}
+            className="tabstrip"
+            style={{ gap: 4 }}
           >
           {visibleTabs.map((t) => {
             const active = view === t.value;
@@ -297,7 +310,7 @@ export function OnlineOrdersPage() {
 
       {/* `display:none` chứ KHÔNG phải `{view === 'queue' && ...}` — xem lý do ở đầu file. */}
       <div style={{ display: view === 'queue' ? 'block' : 'none' }}>
-        <QueueView onWaitingCount={setWaitingCount} isAdmin={isAdmin} />
+        <QueueView onWaitingCount={setWaitingCount} isAdmin={isAdmin} bellSlot={bellSlot} />
       </div>
 
       {view === 'menu' && isAdmin && <OnlineMenuPanel />}
@@ -314,9 +327,12 @@ export function OnlineOrdersPage() {
 function QueueView({
   onWaitingCount,
   isAdmin,
+  bellSlot,
 }: {
   onWaitingCount: (n: number | null) => void;
   isAdmin: boolean;
+  /** Ô trên hàng `<h1>` để bắn nút "Bật chuông" lên (portal). `null` = chưa gắn xong ref. */
+  bellSlot: HTMLElement | null;
 }) {
   const toast = useToast();
   const [items, setItems] = useState<AdminOnlineOrderRow[]>([]);
@@ -700,7 +716,9 @@ function QueueView({
             );
           })}
         </div>
-        <span style={{ flex: 1 }} />
+        {/* Đệm co giãn — chỉ có nghĩa khi cả hàng vừa MỘT dòng. Trên điện thoại hàng đã wrap,
+            nó biến thành một dòng trống; `oo-spacer` cho nó biến mất dưới 640px. */}
+        <span className="oo-spacer" style={{ flex: 1 }} />
 
         {/* Số đơn quá hạn: chip đỏ, chỉ hiện khi thực sự có — không thêm nhiễu lúc bình thường. */}
         {overdueCount > 0 && (
@@ -723,11 +741,20 @@ function QueueView({
           </span>
         )}
 
-        {/* Chip 🔕 thay cho banner "Chuông đang tắt" (ghi đè D-03 theo chỉ đạo 2026-08-04 —
-            banner chiếm chỗ gây khó chịu). Bình thường nó biến mất ngay ở thao tác đầu tiên
-            (cơ chế tự-bật phía trên); chip chỉ còn hiện khi trang vừa tải mà chưa ai đụng gì,
-            hoặc trình duyệt chặn cứng audio. Bấm chip = unlock CÓ beep xác nhận. */}
-        {!audioReady && (
+        <ConnectionDot state={connState} />
+      </div>
+
+      {/* Chip 🔕 thay cho banner "Chuông đang tắt" (ghi đè D-03 theo chỉ đạo 2026-08-04 —
+          banner chiếm chỗ gây khó chịu). Bình thường nó biến mất ngay ở thao tác đầu tiên
+          (cơ chế tự-bật phía trên); chip chỉ còn hiện khi trang vừa tải mà chưa ai đụng gì,
+          hoặc trình duyệt chặn cứng audio. Bấm chip = unlock CÓ beep xác nhận.
+
+          Render bằng PORTAL lên hàng `<h1>` (chỉ đạo chủ quán 2026-09-06): để trong thanh công
+          cụ thì nó ăn 125px của dãy tab trạng thái, máy 390px chỉ còn thấy 1,5 tab. Logic chuông
+          (`bellRef`, `audioReady`) vẫn ở đây vì SSE ở đây — portal chỉ dời chỗ VẼ, không dời state. */}
+      {!audioReady &&
+        bellSlot &&
+        createPortal(
           <button
             type="button"
             className="secondary"
@@ -751,11 +778,9 @@ function QueueView({
             }}
           >
             🔕 Bật chuông
-          </button>
+          </button>,
+          bellSlot,
         )}
-
-        <ConnectionDot state={connState} />
-      </div>
 
       {/* ── Ô tìm kiếm: tên khách / SĐT / món trong đơn ──
           Hàng riêng dưới toolbar (không nhét vào toolbar dính — trên điện thoại toolbar đã
@@ -816,9 +841,17 @@ function QueueView({
         <div
           role="group"
           aria-label="Lọc đơn theo thời gian đặt"
-          style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginBottom: 16 }}
+          style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, minWidth: 0 }}
         >
-          <span style={{ fontSize: 13, color: C.muted, whiteSpace: 'nowrap' }}>🕒 Khách đặt trong</span>
+          {/* Nhãn nằm NGOÀI vùng cuộn: nó chiếm ~130px trong 332px của máy 390px, để nó cuộn
+              cùng thì vuốt sang là mất luôn câu giải thích các nút đang lọc theo cái gì. */}
+          <span style={{ fontSize: 13, color: C.muted, whiteSpace: 'nowrap', flex: 'none' }}>
+            🕒 Khách đặt trong
+          </span>
+          {/* Chỉ dãy nút cuộn ngang (chỉ đạo chủ quán 2026-09-06) — trước `flexWrap: wrap` cho
+              5 nút gãy thành 2 hàng. `minWidth: 0` là phần bắt buộc để `overflow-x` của
+              `.tabstrip` có tác dụng thay vì cả dãy tràn ra ngoài. */}
+          <div className="tabstrip" style={{ gap: 8, flex: '1 1 auto', minWidth: 0 }}>
           {RANGE_FILTERS.map(({ hours, label }) => {
             const active = rangeHours === hours;
             return (
@@ -842,6 +875,7 @@ function QueueView({
               </button>
             );
           })}
+          </div>
         </div>
       ) : (
         windowHours !== null && (
@@ -856,12 +890,15 @@ function QueueView({
           Tab trạng thái trả lời "đơn được duyệt chưa"; hàng chip này trả lời câu tiếp theo:
           "đơn đã duyệt rồi thì đi tới đâu trong 2 chặng giao". Là hàng RIÊNG dưới toolbar chứ
           không nhét thêm tab trạng thái thứ 4/5/6 — 2 trục phân loại khác nhau, trộn vào một
-          hàng tab là hết hiểu tab nào loại nào. */}
+          hàng tab là hết hiểu tab nào loại nào.
+          Hàng này cũng là MỘT DÒNG cuộn ngang như hàng lọc thời gian ngay trên: hai hàng chip
+          nằm sát nhau, để một hàng wrap còn một hàng cuộn thì trông như lỗi. */}
       {status === 'CONFIRMED' && (
         <div
           role="tablist"
           aria-label="Lọc đơn đã xác nhận theo chặng giao hàng"
-          style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}
+          className="tabstrip"
+          style={{ gap: 8, marginBottom: 16 }}
         >
           {STEP_FILTERS.map(({ value, label }) => {
             const active = stepFilter === value;

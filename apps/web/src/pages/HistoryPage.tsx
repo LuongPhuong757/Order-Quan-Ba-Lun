@@ -204,7 +204,9 @@ export function HistoryPage() {
   const [page, setPage] = useState(1);
   const [stats, setStats] = useState<Stats | null>(null);
   const [consumption, setConsumption] = useState<ConsumptionRow[]>([]);
-  const [showCharts, setShowCharts] = useState(true);
+  // Mặc định ẨN biểu đồ (chốt 2026-09-05): việc thường ngày ở màn này là soi danh sách đơn,
+  // biểu đồ đẩy nó xuống dưới màn hình. Ai cần thì bấm "Hiện biểu đồ thống kê".
+  const [showCharts, setShowCharts] = useState(false);
   const PAGE_SIZE = 20;
 
   const refresh = async () => {
@@ -248,7 +250,9 @@ export function HistoryPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate, page]);
 
-  // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày (KHÔNG theo status/trang).
+  // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày VÀ tab đang chọn (2026-09-05): đổi tab
+  // thì doanh thu theo ngày, top món, tiêu hao... đổi theo, không chỉ danh sách đơn. Vẫn
+  // KHÔNG theo trang: bảng số nói về cả bộ lọc, không phải 20 dòng đang xem.
   // Bỏ hẳn request với nhân viên order: endpoint có AdminGuard nên gọi chỉ để nhận
   // 403, vừa vô ích vừa làm rác log server.
   useEffect(() => {
@@ -259,6 +263,8 @@ export function HistoryPage() {
     const q = new URLSearchParams();
     if (tableFilter) q.set('table_id', tableFilter);
     if (cashierFilter) q.set('cashier_user_id', cashierFilter);
+    if (statusFilter !== 'all') q.set('status', statusFilter);
+    if (misaFilter) q.set('misa', misaFilter);
     if (startDate) q.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
     if (endDate) q.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
     api
@@ -266,17 +272,35 @@ export function HistoryPage() {
       .then((res) => setStats(res.data.data))
       .catch(() => setStats(null));
 
-    // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn, bỏ `cashier_user_id`: nguyên liệu tốn theo
-    // món khách ăn, không theo ai đứng thu tiền.
+    // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn + tab, bỏ `cashier_user_id`: nguyên liệu tốn
+    // theo món khách ăn, không theo ai đứng thu tiền.
     const cq = new URLSearchParams();
     if (tableFilter) cq.set('table_id', tableFilter);
+    if (statusFilter !== 'all') cq.set('status', statusFilter);
+    if (misaFilter) cq.set('misa', misaFilter);
     if (startDate) cq.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
     if (endDate) cq.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
     api
       .get<{ data: { items: ConsumptionRow[] } }>(`/consumption?${cq.toString()}`)
       .then((res) => setConsumption(res.data.data.items))
       .catch(() => setConsumption([]));
-  }, [isAdmin, tableFilter, cashierFilter, startDate, endDate]);
+  }, [isAdmin, tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate]);
+
+  /** Chọn 1 tab trong dãy pill trên cùng — loại trừ lẫn nhau.
+   *
+   * Misa và trạng thái đơn nằm chung MỘT dãy tab: chọn tab này thì tab kia tắt. Trước đây
+   * Misa là bộ lọc chồng lên trạng thái nên bấm nó xong, kết quả của mọi tab trạng thái đều
+   * bị cắt theo Misa — nhìn như cả trang đổi chứ không chỉ danh sách đơn. */
+  const selectTab = (tab: Status | 'misa') => {
+    if (tab === 'misa') {
+      setMisaFilter('copied');
+      setStatusFilter('all');
+    } else {
+      setMisaFilter('');
+      setStatusFilter(tab);
+    }
+    setPage(1);
+  };
 
   const onResetFilters = () => {
     setTableFilter('');
@@ -294,13 +318,31 @@ export function HistoryPage() {
       .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   };
 
+  /** Có đang đứng ở một tab cụ thể không (khác "Tất cả") — số liệu bên dưới cắt theo tab đó. */
+  const tabActive = statusFilter !== 'all' || !!misaFilter;
+
+  /** Nhãn số liệu theo tab đang chọn.
+   *
+   * Cùng bộ biểu đồ nhưng Ý NGHĨA đổi theo tab, nên nhãn phải đổi theo: ở tab "Đã huỷ", con số
+   * to màu xanh mà vẫn đề "Doanh thu đã thanh toán" là đọc sai hẳn báo cáo. */
+  const tabView =
+    misaFilter === 'copied'
+      ? { money: 'Doanh thu đã lên Misa', count: 'Đơn đã lên Misa', hint: 'Đơn đã thu tiền & đã gõ sang Misa', top: '🔥 Top món (đơn đã lên Misa)' }
+      : statusFilter === 'unpaid'
+        ? { money: 'Tiền đang chờ thu', count: 'Đơn chưa thanh toán', hint: 'Đơn đang mở · món chưa huỷ', top: '🔥 Top món đang chờ thu' }
+        : statusFilter === 'cancelled'
+          ? { money: 'Giá trị đơn đã huỷ', count: 'Đơn bị huỷ', hint: 'Món bị huỷ ở các đơn kết bằng huỷ', top: '🔥 Top món bị huỷ' }
+          : statusFilter === 'paid'
+            ? { money: 'Doanh thu đã thanh toán', count: 'Đơn đã thanh toán', hint: 'Chỉ tính đơn đã thanh toán', top: '🔥 Top món bán chạy' }
+            : { money: 'Doanh thu đã thanh toán', count: 'Tổng đơn khớp lọc', hint: 'Chỉ tính đơn đã thanh toán', top: '🔥 Top món bán chạy' };
+
   // Bếp xem được lịch sử nhưng không đối soát kế toán → chỉ thấy badge, không bấm được.
   // BE cũng chặn bằng RequireRoles('admin','order'); đây chỉ là lớp UX.
   const canMarkMisa = ['admin', 'order'].includes(user?.role ?? (user?.is_owner ? 'admin' : ''));
 
   /** Tick / bỏ tick "đã gõ sang MISA" ngay trên dòng lịch sử.
    *
-   * Cập nhật tại chỗ thay vì refresh() cả trang: khi đang ở bộ lọc "Chưa lên MISA", refresh sẽ
+   * Cập nhật tại chỗ thay vì refresh() cả trang: khi đang ở bộ lọc "Misa", refresh sẽ
    * làm dòng vừa tick biến mất và cả danh sách nhảy — người đang gõ dở mất chỗ. Dòng ở lại,
    * badge đổi màu; lần lọc sau nó mới rời danh sách. */
   const toggleMisa = async (o: HistoryOrder) => {
@@ -321,7 +363,7 @@ export function HistoryPage() {
             : x,
         ),
       );
-      toast.push('success', next ? `✓ ${o.table_name} — đã đánh dấu lên MISA` : `Đã bỏ đánh dấu MISA — ${o.table_name}`);
+      toast.push('success', next ? `✓ ${o.table_name} — đã đánh dấu lên Misa` : `Đã bỏ đánh dấu Misa — ${o.table_name}`);
     } catch (err) {
       toast.push('error', extractError(err).message);
     }
@@ -351,115 +393,136 @@ export function HistoryPage() {
     tableFilter || cashierFilter || statusFilter !== 'all' || misaFilter || startDate || endDate;
 
   return (
-    <div className="container wide with-bottom-nav">
+    <div className="container txn-page with-bottom-nav">
       <h1>📊 Quản lý giao dịch</h1>
 
-      {/* Filters */}
-      <div className="card" style={{ marginBottom: 16, padding: 14, display: 'grid', gap: 10 }}>
-        {/* Status pills — primary filter, dễ tap */}
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          <StatusPill active={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setPage(1); }}>
+      {/* Filters — TẤT CẢ trên một dòng (chốt 2026-09-05).
+          Trước đây xếp 3 tầng (pill / 2 select / 2 ô ngày) chiếm gần nửa màn hình trước khi
+          thấy đơn nào. `flexWrap` giữ cho mobile vẫn xuống dòng được thay vì tràn ngang. */}
+      <div
+        className="card txn-filters"
+        style={{
+          marginBottom: 16,
+          padding: 10,
+          display: 'flex',
+          flexWrap: 'wrap',
+          alignItems: 'center',
+          gap: 6,
+        }}
+      >
+        {/* Dãy tab trạng thái — MỘT DÒNG, kéo ngang khi không đủ chỗ (chỉ đạo chủ quán
+            2026-09-06). Trước để `flexWrap: wrap` nên trên điện thoại 5 viên thuốc gãy thành
+            2-3 hàng cao ~80px, và mỗi lần thêm một trạng thái là cao thêm một hàng nữa. Class
+            `tabstrip` (styles.css) giữ chúng trên một hàng và cho vuốt ngang — trên desktop
+            hàng vẫn vừa nên không có gì đổi.
+            `flex: 1 1 auto; minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng: thiếu
+            `minWidth: 0` thì flex item không co được xuống dưới bề rộng nội dung và cả dãy
+            tràn ra ngoài thẻ thay vì sinh thanh cuộn.
+            Đây là dãy tab LOẠI TRỪ lẫn nhau (kể cả Misa): chọn tab nào thì danh sách đơn đổi
+            theo đúng tab đó, không cộng dồn bộ lọc từ tab trước. */}
+        <div className="tabstrip" style={{ gap: 4, flex: '1 1 auto', minWidth: 0 }}>
+          <StatusPill active={!misaFilter && statusFilter === 'all'} onClick={() => selectTab('all')}>
             Tất cả
           </StatusPill>
           <StatusPill
-            active={statusFilter === 'paid'}
+            active={!misaFilter && statusFilter === 'paid'}
             color="#059669"
             bg="#d1fae5"
-            onClick={() => { setStatusFilter('paid'); setPage(1); }}
+            onClick={() => selectTab('paid')}
           >
             ✓ Đã thanh toán
           </StatusPill>
           <StatusPill
-            active={statusFilter === 'unpaid'}
+            active={!misaFilter && statusFilter === 'unpaid'}
             color="#b45309"
             bg="#fef3c7"
-            onClick={() => { setStatusFilter('unpaid'); setPage(1); }}
+            onClick={() => selectTab('unpaid')}
           >
             ⏳ Chưa thanh toán
           </StatusPill>
           {/* Bàn kết thúc bằng huỷ (huỷ cả bàn hoặc huỷ hết từng món) — tab riêng
               để chủ quán soi gian lận: gọi đồ rồi huỷ thay vì thu tiền. */}
           <StatusPill
-            active={statusFilter === 'cancelled'}
+            active={!misaFilter && statusFilter === 'cancelled'}
             color="#b91c1c"
             bg="#fee2e2"
-            onClick={() => { setStatusFilter('cancelled'); setPage(1); }}
+            onClick={() => selectTab('cancelled')}
           >
             🗑 Đã huỷ
           </StatusPill>
 
-          {/* Đối soát MISA (2026-09-05) — pill RIÊNG, không nhập chung dãy trạng thái đơn:
-              nó cắt ngang trạng thái ("đã thanh toán + chưa lên MISA"), gộp vào một dãy sẽ
-              biến hai câu hỏi khác nhau thành một nhóm loại trừ lẫn nhau. */}
-          <span style={{ width: 1, background: '#e5e7eb', margin: '2px 4px' }} />
+          {/* Tab Misa (2026-09-05) — các đơn đã tick "Misa" lúc thu tiền hoặc đánh dấu bù. */}
           <StatusPill
-            active={misaFilter === 'pending'}
+            active={misaFilter === 'copied'}
             color="#7c3aed"
             bg="#ede9fe"
-            onClick={() => { setMisaFilter(misaFilter === 'pending' ? '' : 'pending'); setPage(1); }}
+            onClick={() => selectTab('misa')}
           >
-            📋 Chưa lên MISA
+            📋 Misa
           </StatusPill>
         </div>
 
-        {/* 2 filter chính: Bàn + Thu ngân — side-by-side trên desktop, stack trên mobile */}
-        <div
-          style={{
-            display: 'grid',
-            gap: 10,
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-          }}
-        >
-          <SearchableSelect
-            label="🍽 Bàn"
-            placeholder="Tất cả bàn"
-            value={tableFilter}
-            options={tables.map((t) => ({
-              value: t.id,
-              label: t.name,
-              hint: t.code,
-              group: TABLE_KIND_LABEL[t.kind] || t.kind,
-            }))}
-            onChange={(v) => { setTableFilter(v); setPage(1); }}
-          />
+        {/* Vạch ngăn: bên trái là TAB (đơn nào), bên phải là bộ lọc phạm vi (bàn/người/ngày). */}
+        <span className="txn-filter-sep" style={{ width: 1, alignSelf: 'stretch', background: '#e5e7eb', margin: '0 2px' }} />
 
-          <SearchableSelect
-            label="💵 Người thanh toán"
-            placeholder="Tất cả thu ngân"
-            value={cashierFilter}
-            options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
-            onChange={(v) => { setCashierFilter(v); setPage(1); }}
-          />
-        </div>
+        <SearchableSelect
+          compact
+          width={150}
+          label="🍽"
+          placeholder="Tất cả bàn"
+          value={tableFilter}
+          options={tables.map((t) => ({
+            value: t.id,
+            label: t.name,
+            hint: t.code,
+            group: TABLE_KIND_LABEL[t.kind] || t.kind,
+          }))}
+          onChange={(v) => { setTableFilter(v); setPage(1); }}
+        />
 
-        <div className="flex" style={{ gap: 8 }}>
-          <div className="row" style={{ flex: 1, margin: 0 }}>
-            <label htmlFor="hist-start">Từ ngày</label>
-            <input
-              id="hist-start"
-              type="date"
-              value={startDate}
-              max={endDate || todayIso()}
-              onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-              style={{ minHeight: 44 }}
-            />
-          </div>
-          <div className="row" style={{ flex: 1, margin: 0 }}>
-            <label htmlFor="hist-end">Đến ngày</label>
-            <input
-              id="hist-end"
-              type="date"
-              value={endDate}
-              min={startDate}
-              max={todayIso()}
-              onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-              style={{ minHeight: 44 }}
-            />
-          </div>
-        </div>
+        <SearchableSelect
+          compact
+          width={160}
+          label="💵"
+          placeholder="Tất cả thu ngân"
+          value={cashierFilter}
+          options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
+          onChange={(v) => { setCashierFilter(v); setPage(1); }}
+        />
+
+        {/* Khoảng ngày — bỏ nhãn "Từ ngày / Đến ngày" xếp trên, dùng dấu → ở giữa: cùng thông
+            tin, cao 34px thay vì 70px. `aria-label` giữ lại phần nhãn cho screen reader. */}
+        <input
+          type="date"
+          aria-label="Từ ngày"
+          title="Từ ngày"
+          value={startDate}
+          max={endDate || todayIso()}
+          onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
+          className="txn-date"
+          style={dateInputStyle}
+        />
+        <span style={{ color: '#9ca3af', fontSize: 13 }}>→</span>
+        <input
+          type="date"
+          aria-label="Đến ngày"
+          title="Đến ngày"
+          value={endDate}
+          min={startDate}
+          max={todayIso()}
+          onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
+          className="txn-date"
+          style={dateInputStyle}
+        />
+
         {hasActiveFilter && (
-          <button className="secondary" onClick={onResetFilters} style={{ alignSelf: 'flex-start', padding: '6px 12px' }}>
-            ✕ Xoá bộ lọc
+          <button
+            className="secondary"
+            onClick={onResetFilters}
+            title="Xoá toàn bộ bộ lọc"
+            style={{ padding: '0 10px', minHeight: 34, fontSize: 13, marginLeft: 'auto' }}
+          >
+            ✕ Xoá lọc
           </button>
         )}
       </div>
@@ -482,7 +545,9 @@ export function HistoryPage() {
         </div>
       )}
 
-      {/* Tổng quan — số liệu THỰC toàn bộ bộ lọc (không chỉ trang hiện tại).
+      {/* Tổng quan — ĐÚNG 2 ô: tiền và số đơn của bộ lọc/tab đang chọn (chốt 2026-09-05).
+          Trước đây dãy này có 6 ô, trong đó 2 ô đếm đơn nói 2 con số khác nhau ("Đơn chưa thanh
+          toán 0" cạnh "Tổng đơn khớp lọc 30") — người xem không biết tin ô nào.
           Ẩn hoàn toàn với nhân viên order: cả doanh thu lẫn số đơn tổng. */}
       {isAdmin && (
       <div
@@ -494,18 +559,21 @@ export function HistoryPage() {
         }}
       >
         <StatTile
-          label="Doanh thu đã thanh toán"
+          label={tabView.money}
           value={fmt(stats?.paid_revenue ?? 0)}
-          color="#0f766e"
-          bg="#f0fdfa"
-          border="#ccfbf1"
+          color={statusFilter === 'cancelled' && !misaFilter ? '#b91c1c' : '#0f766e'}
+          bg={statusFilter === 'cancelled' && !misaFilter ? '#fef2f2' : '#f0fdfa'}
+          border={statusFilter === 'cancelled' && !misaFilter ? '#fecaca' : '#ccfbf1'}
         />
-        {/* M2.D-62 — ô RIÊNG, cố ý không gộp vào ô "Doanh thu đã thanh toán" phía trên. */}
-        <StatTile label="Phí ship thu hộ" value={fmt(stats?.ship_fee_total ?? 0)} color="#334155" bg="#f8fafc" border="#e2e8f0" />
-        <StatTile label="Đơn đã thanh toán" value={String(stats?.paid_count ?? 0)} color="#059669" bg="#ecfdf5" border="#d1fae5" />
-        <StatTile label="Đơn chưa thanh toán" value={String(stats?.unpaid_count ?? 0)} color="#b45309" bg="#fffbeb" border="#fde68a" />
-        <StatTile label="Đơn bị huỷ" value={String(stats?.cancelled_count ?? 0)} color="#b91c1c" bg="#fef2f2" border="#fecaca" />
-        <StatTile label="Tổng đơn khớp lọc" value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0) + (stats?.cancelled_count ?? 0))} color="#334155" bg="#f8fafc" border="#e2e8f0" />
+        {/* Số đơn: cộng 3 count lại. Có tab đang chọn thì BE chỉ trả count của tab đó (2 count
+            còn lại = 0), nên tổng này luôn = số đơn thật của tab — khớp với danh sách bên dưới. */}
+        <StatTile
+          label={tabView.count}
+          value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0) + (stats?.cancelled_count ?? 0))}
+          color="#334155"
+          bg="#f8fafc"
+          border="#e2e8f0"
+        />
       </div>
       )}
 
@@ -521,13 +589,13 @@ export function HistoryPage() {
         </button>
         {showCharts && stats && (
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-            <ChartCard title="💰 Doanh thu theo ngày" hint="Chỉ tính đơn đã thanh toán">
+            <ChartCard title="💰 Doanh thu theo ngày" hint={tabView.hint}>
               <BarChart
                 data={stats.revenue_by_day.map((d) => ({ label: vnDayLabel(d.day).slice(0, 5), value: d.revenue }))}
                 formatValue={fmtShort}
               />
             </ChartCard>
-            <ChartCard title="🔥 Top món bán chạy" hint="Theo doanh thu · món đã giao">
+            <ChartCard title={tabView.top} hint={tabView.hint}>
               <RankBars
                 data={stats.top_items.map((t) => ({ label: t.name, value: t.revenue, sub: `${t.qty} phần` }))}
                 formatValue={fmtShort}
@@ -575,6 +643,9 @@ export function HistoryPage() {
                 </div>
               )}
             </ChartCard>
+            {/* Phân rã theo trạng thái — chỉ có nghĩa ở tab "Tất cả". Vào tab cụ thể, số liệu đã
+                cắt theo tab nên vòng tròn chỉ còn một lát 100% → ẩn hẳn thay vì vẽ ra. */}
+            {!tabActive && (
             <ChartCard title="📈 Tỉ lệ thanh toán">
               <Donut
                 segments={[
@@ -584,6 +655,7 @@ export function HistoryPage() {
                 ]}
               />
             </ChartCard>
+            )}
           </div>
         )}
         {showCharts && !stats && <div style={{ color: '#9ca3af', fontSize: 13 }}>Đang tải số liệu...</div>}
@@ -598,8 +670,30 @@ export function HistoryPage() {
 
       {!loading && orders.length > 0 && (
         <>
-          <table className="responsive card" style={{ padding: 0 }}>
-            <thead>
+          {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
+              `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
+              ra hoặc gãy xuống dòng, cắt "…" không bao giờ xảy ra.
+              Mobile không bị ảnh hưởng: `table.responsive` cho td thành block ở <640px. */}
+          <table className="responsive card txn-table" style={{ padding: 0, tableLayout: 'fixed' }}>
+            {/* Bề rộng cột CỐ ĐỊNH cho các cột nội dung ngắn (giờ, tiền, trạng thái) — không
+                khai thì bảng chia đều 100% bề ngang và cột nào cũng thừa chỗ, trong khi cột
+                "Trạng thái" lại hẹp đến mức mũi ▼ bị đẩy xuống dòng thứ hai.
+                Cột "Bàn" cố ý để `auto`: nó hứng phần dư và là chỗ duy nhất có chuỗi dài
+                (tên bàn + tên khách ship). Trên mobile thead ẩn và td thành block nên
+                colgroup không ảnh hưởng gì. */}
+            <colgroup>
+              <col style={{ width: 76 }} />
+              <col />
+              <col style={{ width: 130 }} />
+              <col style={{ width: 76 }} />
+              <col style={{ width: 96 }} />
+              <col style={{ width: 116 }} />
+              <col style={{ width: 140 }} />
+              <col style={{ width: 150 }} />
+            </colgroup>
+            {/* `nowrap` cho MỌI ô tiêu đề: cột hẹp làm "Giờ vào" / "Thu ngân" gãy làm 2 dòng,
+                đẩy cả hàng tiêu đề cao gấp đôi trong khi chữ thì ngắn. */}
+            <thead style={{ whiteSpace: 'nowrap' }}>
               <tr>
                 <th>Giờ vào</th>
                 <th>Bàn</th>
@@ -608,6 +702,10 @@ export function HistoryPage() {
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
                 <th>Trạng thái</th>
+                {/* Cột thao tác: những thứ BẤM ĐƯỢC (đánh dấu Misa, mở chi tiết) tách khỏi cột
+                    trạng thái — cột kia chỉ để đọc. Trước đây 3 thứ chen chung 1 ô nên không
+                    rõ cái nào bấm được, và mũi ▼ hay bị đẩy xuống dòng. */}
+                <th style={{ textAlign: 'right' }}>Thao tác</th>
               </tr>
             </thead>
             <tbody>
@@ -615,8 +713,11 @@ export function HistoryPage() {
                 const dayRev = dayRevenue.get(g.key);
                 return (
                   <Fragment key={g.key}>
-                    <tr>
-                      <td className="txn-day" colSpan={7}>
+                    {/* `txn-day-row`: trên điện thoại `table.responsive` biến mọi `tr` thành THẺ TRẮNG —
+                        hàng tiêu đề ngày mà thành thẻ thì nó trông y hệt một đơn hàng. Class này trả nó
+                        về dạng dải phân cách (xem styles.css). */}
+                    <tr className="txn-day-row">
+                      <td className="txn-day" colSpan={8}>
                         📅 {vnDayLabel(g.key)} · {g.orders.length} đơn
                         {dayRev != null && <> · doanh thu ngày: <strong>{fmt(dayRev)}</strong></>}
                       </td>
@@ -635,11 +736,22 @@ export function HistoryPage() {
                         <Fragment key={o.id}>
                           <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
                             <td data-label="Giờ vào">{fmtHm(o.opened_at)}</td>
+                            {/* Tên khách ship có thể dài tuỳ ý ("Khach 0909 D duyet ngay") — cắt
+                                bằng "…" trong 1 dòng, tên đầy đủ nằm ở `title` và ở khối chi tiết
+                                khi bấm mở. Cho xuống dòng là cả bảng cao gấp đôi ở đúng 1 đơn. */}
                             <td data-label="Bàn">
-                              <strong style={{ color: '#0f766e' }} title={o.table_code}>{o.table_name}</strong>
-                              {o.customer_name && <span style={{ color: '#6b7280' }}> · 🛵 {o.customer_name}</span>}
+                              <div
+                                style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                                title={o.customer_name ? `${o.table_name} · ${o.customer_name}` : o.table_code}
+                              >
+                                <strong style={{ color: '#0f766e' }}>{o.table_name}</strong>
+                                {o.customer_name && <span style={{ color: '#6b7280' }}> · 🛵 {o.customer_name}</span>}
+                              </div>
                             </td>
-                            <td data-label="Thu ngân">
+                            <td
+                              data-label="Thu ngân"
+                              style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+                            >
                               {o.closed_at && o.checked_out_by_full_name ? (
                                 <span style={isCancelled ? { color: '#dc2626' } : undefined}>
                                   {o.checked_out_by_full_name}
@@ -649,19 +761,21 @@ export function HistoryPage() {
                                 '—'
                               )}
                             </td>
-                            <td data-label="Giờ TT">
+                            <td data-label="Giờ TT" style={{ whiteSpace: 'nowrap' }}>
                               {o.closed_at ? fmtHm(o.closed_at) : '—'}
                             </td>
-                            <td data-label="Món">
+                            <td data-label="Món" style={{ whiteSpace: 'nowrap' }}>
                               ✓ {servedCount}
                               {cancelledCount > 0 && <span style={{ color: '#dc2626' }}> · huỷ {cancelledCount}</span>}
                             </td>
-                            <td data-label="Tổng" style={{ textAlign: 'right' }}>
+                            <td data-label="Tổng" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                               <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
                                 {fmt(total)}
                               </strong>
                             </td>
-                            <td data-label="Trạng thái">
+                            {/* nowrap: badge trạng thái không được gãy dòng, nếu không mỗi đơn
+                                cao gần gấp đôi. */}
+                            <td data-label="Trạng thái" style={{ whiteSpace: 'nowrap' }}>
                               {isPaid ? (
                                 <span style={paidBadge}>✓ Đã thanh toán</span>
                               ) : isCancelled ? (
@@ -669,22 +783,36 @@ export function HistoryPage() {
                               ) : (
                                 <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
                               )}
-                              {/* Cờ MISA chỉ có nghĩa với đơn đã thu tiền — đơn huỷ / đang dùng
-                                  không có bill để gõ sang AMIS nên không hiện gì. */}
-                              {isPaid && (
-                                <MisaBadge
-                                  copied={o.misa_copied_at != null}
-                                  by={o.misa_copied_by_full_name}
-                                  disabled={!canMarkMisa}
-                                  onToggle={() => toggleMisa(o)}
-                                />
-                              )}
-                              <span style={{ color: '#9ca3af', marginLeft: 6, fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
+                            </td>
+                            {/* Cột thao tác — dồn về phải, cùng chiều cao 1 dòng. */}
+                            <td
+                              data-label="Thao tác"
+                              style={{ whiteSpace: 'nowrap', textAlign: 'right' }}
+                            >
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {/* Cờ Misa chỉ có nghĩa với đơn đã thu tiền — đơn huỷ / đang dùng
+                                    không có bill để gõ sang AMIS nên không hiện gì. */}
+                                {isPaid && (
+                                  <MisaBadge
+                                    copied={o.misa_copied_at != null}
+                                    by={o.misa_copied_by_full_name}
+                                    disabled={!canMarkMisa}
+                                    onToggle={() => toggleMisa(o)}
+                                  />
+                                )}
+                                <span
+                                  aria-hidden
+                                  title={isOpen ? 'Thu gọn' : 'Xem chi tiết'}
+                                  style={{ color: '#9ca3af', fontSize: 12, width: 14, textAlign: 'center' }}
+                                >
+                                  {isOpen ? '▲' : '▼'}
+                                </span>
+                              </span>
                             </td>
                           </tr>
                           {isOpen && (
                             <tr>
-                              <td className="txn-full" colSpan={7}>
+                              <td className="txn-full" colSpan={8}>
                                 <HistoryOrderDetail order={o} />
                               </td>
                             </tr>
@@ -747,6 +875,18 @@ function StatTile({
   );
 }
 
+/** Ô ngày trong thanh lọc 1 dòng — cùng chiều cao 34px với pill và select compact. */
+const dateInputStyle: React.CSSProperties = {
+  minHeight: 34,
+  height: 34,
+  padding: '0 8px',
+  fontSize: 13,
+  width: 140,
+  border: '1px solid #d1d5db',
+  borderRadius: 8,
+  margin: 0,
+};
+
 function StatusPill({
   active,
   color = '#0f766e',
@@ -765,8 +905,9 @@ function StatusPill({
       type="button"
       onClick={onClick}
       style={{
-        padding: '8px 14px',
-        minHeight: 40,
+        padding: '0 11px',
+        minHeight: 34,
+        height: 34,
         fontSize: 13,
         fontWeight: active ? 700 : 500,
         background: active ? color : bg,
@@ -825,16 +966,15 @@ function MisaBadge({
   disabled: boolean;
   onToggle: () => void;
 }) {
-  const label = copied ? '📋 MISA ✓' : '📋 Chưa MISA';
+  const label = copied ? '📋 Misa ✓' : '📋 Chưa Misa';
   const title = copied
-    ? `Đã sao chép sang MISA${by ? ` · ${by}` : ''}${disabled ? '' : ' — bấm để bỏ đánh dấu'}`
+    ? `Đã sao chép sang Misa${by ? ` · ${by}` : ''}${disabled ? '' : ' — bấm để bỏ đánh dấu'}`
     : disabled
-      ? 'Chưa sao chép sang MISA'
-      : 'Chưa sao chép sang MISA — bấm để đánh dấu đã gõ';
+      ? 'Chưa sao chép sang Misa'
+      : 'Chưa sao chép sang Misa — bấm để đánh dấu đã gõ';
   const style: React.CSSProperties = {
     fontSize: 11,
     fontWeight: 700,
-    marginLeft: 6,
     padding: '2px 8px',
     borderRadius: 999,
     border: 'none',
@@ -1014,12 +1154,18 @@ function SearchableSelect({
   value,
   options,
   onChange,
+  compact = false,
+  width,
 }: {
   label: string;
   placeholder: string;
   value: string;
   options: SelectOption[];
   onChange: (v: string) => void;
+  /** Một dòng thay vì 2 tầng (nhãn trên, giá trị dưới) — dùng cho thanh lọc 1 dòng. */
+  compact?: boolean;
+  /** Bề rộng cố định; cần vì trong flex row wrapper không tự có bề rộng như ở grid. */
+  width?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -1076,33 +1222,38 @@ function SearchableSelect({
   };
 
   return (
-    <div ref={wrapperRef} style={{ position: 'relative' }}>
+    <div ref={wrapperRef} className={compact ? 'txn-fsel' : undefined} style={{ position: 'relative', width, flexShrink: 0 }}>
       {/* Trigger button */}
       <button
         type="button"
+        title={label}
         onClick={() => setOpen((v) => !v)}
         style={{
           width: '100%',
-          minHeight: 48,
-          padding: '8px 12px',
+          minHeight: compact ? 34 : 48,
+          height: compact ? 34 : undefined,
+          padding: compact ? '0 8px' : '8px 12px',
           background: 'white',
           border: `1.5px solid ${selected ? '#0f766e' : '#d1d5db'}`,
-          borderRadius: 10,
+          borderRadius: compact ? 8 : 10,
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
-          gap: 8,
+          gap: compact ? 5 : 8,
           textAlign: 'left',
           color: '#1f2937',
           fontWeight: 500,
           fontSize: 14,
         }}
       >
+        {/* compact: nhãn thành tiền tố CÙNG DÒNG với giá trị — 34px thay vì 48px, và không còn
+            dòng nhãn nào chiếm chỗ khi thanh lọc đã ép hết vào một hàng. */}
+        {compact && <span style={{ fontSize: 13, flexShrink: 0 }}>{label}</span>}
         <div style={{ flex: 1, minWidth: 0, lineHeight: 1.2 }}>
-          <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>{label}</div>
+          {!compact && <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 500 }}>{label}</div>}
           <div
             style={{
-              fontSize: 15,
+              fontSize: compact ? 13 : 15,
               fontWeight: selected ? 700 : 400,
               color: selected ? '#0f766e' : '#9ca3af',
               overflow: 'hidden',
@@ -1111,7 +1262,7 @@ function SearchableSelect({
             }}
           >
             {selected ? selected.label : placeholder}
-            {selected?.hint && (
+            {selected?.hint && !compact && (
               <span style={{ fontSize: 11, color: '#6b7280', fontWeight: 400, marginLeft: 6 }}>
                 {selected.hint}
               </span>
@@ -1124,8 +1275,8 @@ function SearchableSelect({
             aria-label="Xoá lọc"
             onClick={(e) => { e.stopPropagation(); pick(''); }}
             style={{
-              width: 26,
-              height: 26,
+              width: compact ? 20 : 26,
+              height: compact ? 20 : 26,
               borderRadius: '50%',
               background: '#f3f4f6',
               color: '#6b7280',
@@ -1152,6 +1303,9 @@ function SearchableSelect({
             top: 'calc(100% + 6px)',
             left: 0,
             right: 0,
+            // Nút bấm ở chế độ compact chỉ rộng 150px — panel phải rộng hơn nút, nếu không tên
+            // bàn / tên thu ngân bị cắt ngay trong danh sách đang chọn.
+            minWidth: compact ? 240 : undefined,
             background: 'white',
             border: '1px solid #e5e7eb',
             borderRadius: 10,

@@ -6,6 +6,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
+import { Select } from '../components/Select.tsx';
 
 type MenuGroup = {
   id: string;
@@ -107,8 +108,20 @@ export function MenuManagementPage() {
     }
   };
 
-  const refresh = async () => {
-    setLoading(true);
+  /**
+   * `silent: true` = tải lại dữ liệu mà KHÔNG bật cờ `loading`.
+   *
+   * Vì sao cần: phần render là `{loading && 'Đang tải...'}` / `{!loading && lưới món}`, nên bật
+   * `loading` là GỠ CẢ LƯỚI khỏi DOM. Trang đang cao ~7000px tụt còn ~400px, trình duyệt kẹp
+   * vị trí cuộn về 0, và khi lưới quay lại thì người dùng đã ở đầu trang. Ai đánh dấu hết một
+   * món ở cuối trang 30 món đều bị văng lên đầu (chủ quán báo 2026-09-06).
+   *
+   * Quy tắc: đổi bộ lọc / trang / sắp xếp thì gọi loud (nhảy lên đầu là ĐÚNG, đó là danh sách
+   * khác). Còn thao tác trên MỘT món của danh sách đang xem — đánh dấu hết, sửa, xoá, import —
+   * thì gọi silent: danh sách vẫn là danh sách cũ, người dùng phải ở nguyên chỗ họ đang đứng.
+   */
+  const refresh = async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setLoading(true);
     try {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
@@ -144,7 +157,7 @@ export function MenuManagementPage() {
     try {
       await api.post(`/menu/${it.id}/toggle-stock`);
       toast.push('success', `${it.name} → ${it.is_out_of_stock ? 'Có lại' : 'Hết'}`);
-      refresh();
+      refresh({ silent: true });
     } catch (err) {
       toast.push('error', extractError(err).message);
     }
@@ -161,7 +174,7 @@ export function MenuManagementPage() {
     try {
       await api.delete(`/menu/${it.id}`);
       toast.push('success', `Đã xoá ${it.name}`);
-      refresh();
+      refresh({ silent: true });
     } catch (err) {
       toast.push('error', extractError(err).message);
     }
@@ -173,7 +186,14 @@ export function MenuManagementPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Menu</h1>
-        <div className="flex" style={{ gap: 6, flexWrap: 'wrap' }}>
+        {/* Dãy nút công cụ — MỘT DÒNG kéo ngang (chỉ đạo chủ quán 2026-09-06). 5 nút cần ~444px
+            mà máy 390px chỉ có 362px, nên trước đây chúng wrap thành 2 hàng ~130px đẩy món đầu
+            tiên xuống tận y=382. Cuộn ngang giữ chúng ở 44px và không phình thêm khi có nút mới.
+            `minWidth: 0` là phần bắt buộc để `overflow-x` của `.tabstrip` có tác dụng.
+            "+ Món" nằm NGOÀI vùng cuộn, neo bên phải: nó là nút dùng nhiều nhất ở màn này, để
+            nó trong dãy cuộn thì lúc dãy đang ở đầu là nó khuất, phải vuốt mới bấm được. */}
+        <div className="flex" style={{ gap: 6, flex: '1 1 auto', minWidth: 0, alignItems: 'center' }}>
+          <div className="tabstrip" style={{ gap: 6, flex: '1 1 auto', minWidth: 0 }}>
           {canManage && (
             <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 12px' }}>
               Nhóm
@@ -194,11 +214,12 @@ export function MenuManagementPage() {
               🥬 Nguyên liệu
             </button>
           )}
-          {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px' }}>+ Món</button>}
+          </div>
+          {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>+ Món</button>}
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="card mm-filters" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Row 1: search + sort */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
           <input
@@ -216,24 +237,22 @@ export function MenuManagementPage() {
               minHeight: 40,
             }}
           />
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortMode)}
-            style={{
-              padding: '8px 12px',
-              borderRadius: 8,
-              border: '1px solid #d1d5db',
-              fontSize: 14,
-              minHeight: 40,
-              background: 'white',
-              cursor: 'pointer',
-            }}
-            title="Sắp xếp"
-          >
-            <option value="newest">↓ Mới nhất</option>
-            <option value="name">A → Z (tên)</option>
-            <option value="group">Theo nhóm</option>
-          </select>
+          {/* Dropdown tự vẽ, không phải `<select>`: danh sách bung ra của `<select>` là chrome
+              hệ điều hành, CSS không với tới — xem `components/Select.tsx`. */}
+          <div style={{ flex: '0 1 auto', minWidth: 0 }}>
+            <Select
+              value={sort}
+              onChange={setSort}
+              ariaLabel="Sắp xếp danh sách món"
+              neutralValue="newest"
+              compact
+              options={[
+                { value: 'newest', label: '↓ Mới nhất' },
+                { value: 'name', label: 'A → Z (tên)' },
+                { value: 'group', label: 'Theo nhóm' },
+              ]}
+            />
+          </div>
           {(search || groupFilter || stockFilter) && (
             <button
               type="button"
@@ -247,7 +266,7 @@ export function MenuManagementPage() {
         </div>
 
         {/* Row 1b: stock status filter — bếp lọc nhanh món hết / còn để xử lý */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        <div className="mm-stock tabstrip" style={{ gap: 8 }}>
           {([
             { v: '', label: 'Tất cả tình trạng' },
             { v: 'in', label: '✅ Còn hàng' },
@@ -264,8 +283,9 @@ export function MenuManagementPage() {
           ))}
         </div>
 
-        {/* Row 2: group tabs */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', overflowX: 'auto' }}>
+        {/* Row 2: group tabs — class `tabstrip-sm`: wrap trên desktop, cuộn ngang một hàng trên
+            điện thoại (quán có ~25 nhóm, wrap trên máy 390px là bức tường ~1000px trước khi thấy món). */}
+        <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {groupCodes.map((g) => (
             <button
               key={g || 'all'}
@@ -355,13 +375,13 @@ export function MenuManagementPage() {
                 </div>
               )}
 
-              <div className="flex" style={{ flexWrap: 'wrap', gap: 6 }}>
+              <div className="flex mm-actions" style={{ flexWrap: 'wrap', gap: 6 }}>
                 <button
                   className={it.is_out_of_stock ? '' : 'secondary'}
                   onClick={() => toggleStock(it)}
                   style={{ padding: '6px 10px', fontSize: 13, flex: 1, minWidth: 120 }}
                 >
-                  {it.is_out_of_stock ? '✓ Có lại' : '🚫 Đánh dấu hết'}
+                  {it.is_out_of_stock ? '✓ Có lại' : '🚫 Hết'}
                 </button>
                 {canManage && (
                   <>
@@ -431,7 +451,7 @@ export function MenuManagementPage() {
         <MenuFormModal
           groups={groups}
           onClose={() => setShowCreate(false)}
-          onSaved={() => { setShowCreate(false); refresh(); }}
+          onSaved={() => { setShowCreate(false); refresh({ silent: true }); }}
         />
       )}
       {editing && (
@@ -439,21 +459,21 @@ export function MenuManagementPage() {
           existing={editing}
           groups={groups}
           onClose={() => setEditing(null)}
-          onSaved={() => { setEditing(null); refresh(); }}
+          onSaved={() => { setEditing(null); refresh({ silent: true }); }}
         />
       )}
       {showGroupsManager && (
         <GroupsManagerModal
           groups={groups}
           onClose={() => setShowGroupsManager(false)}
-          onChanged={() => refresh()}
+          onChanged={() => refresh({ silent: true })}
         />
       )}
       {showImport && (
         <ImportMenuModal
           groups={groups}
           onClose={() => setShowImport(false)}
-          onImported={() => { setShowImport(false); refresh(); }}
+          onImported={() => { setShowImport(false); refresh({ silent: true }); }}
         />
       )}
       {/* `refresh()` khi đóng: màn Menu xem có sửa `is_menu_hidden`/`menu_sort_order` của
@@ -463,7 +483,7 @@ export function MenuManagementPage() {
         <MenuBookPanel
           onClose={() => {
             setShowMenuBook(false);
-            refresh();
+            refresh({ silent: true });
           }}
         />
       )}

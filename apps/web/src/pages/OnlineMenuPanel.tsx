@@ -183,7 +183,10 @@ export function OnlineMenuPanel() {
 
   return (
     <div>
-      <p style={{ margin: '0 0 12px', fontSize: 13, color: C.muted }}>
+      {/* Đoạn giải thích dài 3 dòng — ẩn trên điện thoại (chỉ đạo chủ quán 2026-09-06): nó chỉ
+          cần đọc MỘT LẦN lúc học cách dùng, nhưng chiếm ~70px mỗi lần vào màn. Desktop rộng nên
+          giữ lại. Số món đang ẩn thì luôn hiện, ở chip riêng ngay dưới. */}
+      <p className="hide-on-mobile" style={{ margin: "0 0 12px", fontSize: 13, color: C.muted }}>
         Món bị ẩn sẽ <strong>biến hẳn</strong> khỏi web đặt hàng của khách (POS trong quán không ảnh hưởng).
         <strong> Ẩn cả nhóm</strong> = ẩn mọi món trong nhóm, kể cả món thêm sau; <strong>ẩn từng món</strong> thì
         chỉ món đó. Thay đổi có hiệu lực ngay.
@@ -228,7 +231,8 @@ export function OnlineMenuPanel() {
           )}
         </div>
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06). */}
+        <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {([
             { v: '', label: 'Tất cả tình trạng' },
             { v: 'visible', label: '✅ Đang bán online' },
@@ -247,7 +251,10 @@ export function OnlineMenuPanel() {
 
         {/* Hàng chip nhóm — nhóm đang ẩn cả nhóm có 🚫 ngay trên chip để nhìn phát biết ngay.
             Thứ tự chip = đúng thứ tự khách thấy trên web (sort_order) — sửa bằng nút ↕. */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', overflowX: 'auto' }}>
+        {/* Dãy nhóm — khai cùng lúc flexWrap:wrap VÀ overflowX:auto thì WRAP THẮNG, nên đây vẫn
+            là bức tường ~25 nhóm cao cả nghìn px trên điện thoại. Class tabstrip-sm ép một hàng
+            cuộn ngang dưới 640px, desktop vẫn wrap để thấy hết một lượt (chốt 2026-09-06). */}
+        <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button
             onClick={() => setGroupFilter('')}
             className={groupFilter === '' ? '' : 'secondary'}
