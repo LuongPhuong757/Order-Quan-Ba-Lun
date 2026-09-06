@@ -9,6 +9,8 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
+import { Select } from '../components/Select.tsx';
+import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -208,26 +210,47 @@ export function DeliveryFormPanel({
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
 
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-          <label style={{ display: 'block' }}>
-            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Nhà cung cấp</span>
-            <select
-              value={supplierId}
-              onChange={(e) => setSupplierId(e.target.value)}
-              disabled={!!lockedSupplierId}
-              style={{ width: '100%', minHeight: 44 }}
-            >
-              <option value="">— chọn —</option>
-              {suppliers.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Nhà cung cấp
+            </span>
+            {lockedSupplierId ? (
+              // Lối NCC tự nhập: không có gì để chọn, và một ô chọn chỉ-một-lựa-chọn bị khoá
+              // trông như lỗi. Hiện thẳng tên ra.
+              <div
+                style={{
+                  minHeight: 44,
+                  display: 'flex',
+                  alignItems: 'center',
+                  padding: '0 12px',
+                  border: '1px solid ' + C.borderSoft,
+                  borderRadius: 8,
+                  background: C.panelBg,
+                  fontWeight: 600,
+                }}
+              >
+                {suppliers.find((x) => x.id === lockedSupplierId)?.name ?? '—'}
+              </div>
+            ) : (
+              <Select
+                full
+                value={supplierId}
+                neutralValue=""
+                placeholder="— chọn —"
+                ariaLabel="Nhà cung cấp"
+                onChange={setSupplierId}
+                options={suppliers.map((x) => ({
+                  value: x.id,
+                  label: x.name,
+                  hint: x.phone || undefined,
+                }))}
+              />
+            )}
+          </div>
           <label style={{ display: 'block' }}>
             {/* Ngày GIAO, không phải ngày nhập liệu. Nhân viên bận thì tối mới ngồi nhập phiếu
                 của sáng, và nhập bù phiếu hôm qua là chuyện thường. */}
-            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ngày giao</span>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>Ngày giao</span>
             <input
               type="date"
               value={date}
@@ -307,8 +330,7 @@ export function DeliveryFormPanel({
   );
 }
 
-/** Một dòng hàng. Tách component để ô gợi ý tên mặt hàng có state đóng/mở riêng — gom hết vào
- * form cha thì gõ ở dòng 1 làm đóng gợi ý của dòng 7. */
+/** Một dòng hàng. */
 function LineRow({
   line,
   index,
@@ -326,117 +348,74 @@ function LineRow({
   onPatch: (next: Partial<DraftLine>) => void;
   onRemove: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const q = line.ingredient_name.trim();
-
-  // Gợi ý tra trên tên đã bỏ dấu (M3.D-14): gõ "rau muong" phải ra "Rau muống". Lọc tại chỗ vì
-  // danh mục một quán ăn là vài chục tới vài trăm dòng — gọi API mỗi lần gõ chỉ làm nhấp nháy.
-  const matches = useMemo(() => {
-    if (!q) return [];
-    const nq = norm(q);
-    return catalog.filter((i) => norm(i.name).includes(nq)).slice(0, 6);
-  }, [q, catalog]);
-
-  const exact = matches.some((m) => norm(m.name) === norm(q));
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
+
+  // Danh mục một quán ăn là vài chục tới vài trăm dòng — lọc tại chỗ, không gọi API mỗi lần gõ.
+  const catalogOptions = useMemo(
+    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: i.unit })),
+    [catalog],
+  );
+  const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
 
   return (
     <div className="dl-item">
       <div className={`dl-line${index > 0 ? ' dl-rest' : ''}`}>
-        <div className="dl-name" style={{ position: 'relative', minWidth: 0 }}>
+        <div className="dl-name" style={{ minWidth: 0 }}>
           <span className="dl-lab" style={{ color: C.mutedOnTint }}>
             Mặt hàng
           </span>
-          <input
+          <Autocomplete
             value={line.ingredient_name}
-            placeholder={`Mặt hàng ${index + 1}`}
-            onChange={(e) => {
-              // Gõ lại tên = bỏ liên kết với mặt hàng đã chọn. Không làm vậy thì người dùng sửa
-              // tên thành thứ khác mà `ingredient_id` vẫn trỏ vào mặt hàng cũ, và phiếu ghi sai
-              // hàng trong im lặng.
-              onPatch({ ingredient_name: e.target.value, ingredient_id: null });
-              setOpen(true);
+            // Gõ lại tên = bỏ liên kết với mặt hàng đã chọn. Không làm vậy thì người dùng sửa tên
+            // thành thứ khác mà `ingredient_id` vẫn trỏ vào mặt hàng cũ, và phiếu ghi sai hàng
+            // trong im lặng.
+            onChange={(text) => onPatch({ ingredient_name: text, ingredient_id: null })}
+            onPick={(o) => {
+              const ing = catalog.find((c) => c.id === o.value);
+              if (ing) onPick(ing);
             }}
-            onFocus={() => setOpen(true)}
-            onBlur={() => window.setTimeout(() => setOpen(false), 150)}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            options={catalogOptions}
+            normalize={norm}
+            maxItems={6}
+            placeholder={`Mặt hàng ${index + 1}`}
+            ariaLabel={`Mặt hàng ${index + 1}`}
+            // Lời nhắc tạo mới nằm CUỐI panel và ở dạng chữ nhạt, KHÔNG phải nút (M3.D-15):
+            // người dùng vội bấm cái đầu tiên nhìn thấy, đặt nút tạo mới lên trên là mỗi lần gõ
+            // nhanh lại đẻ một dòng trùng vào danh mục dùng chung.
+            footer={(q, hasExact) =>
+              q && !hasExact ? (
+                <AcFooter>Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới</AcFooter>
+              ) : null
+            }
           />
-          {open && q && (
-            <div
-              style={{
-                position: 'absolute',
-                top: '100%',
-                left: 0,
-                right: 0,
-                background: '#fff',
-                border: '1px solid #e5e7eb',
-                borderRadius: 8,
-                boxShadow: '0 8px 20px rgba(0,0,0,.12)',
-                zIndex: 10,
-              }}
-            >
-              {matches.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  className="secondary"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => {
-                    onPick(m);
-                    setOpen(false);
-                  }}
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    textAlign: 'left',
-                    border: 'none',
-                    borderRadius: 0,
-                    minHeight: 44,
-                    background: 'transparent',
-                  }}
-                >
-                  {m.name} <span style={{ color: C.muted }}>({m.unit})</span>
-                </button>
-              ))}
-              {/* Nút tạo mới nằm CUỐI danh sách và ở dạng chữ nhạt (M3.D-15). Người dùng vội bấm
-                  cái đầu tiên nhìn thấy — đặt nó lên trên là mỗi lần gõ nhanh lại đẻ một dòng
-                  trùng vào danh mục dùng chung. */}
-              {!exact && (
-                <div
-                  style={{
-                    borderTop: matches.length ? '1px solid #e5e7eb' : 'none',
-                    padding: '8px 12px',
-                    fontSize: 13,
-                    color: C.muted,
-                  }}
-                >
-                  Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới
-                </div>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Mặt hàng MỚI thì đơn vị gốc là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho và
             không tính tiêu hao được. Mặt hàng đã có trong danh mục thì ô này chỉ để đọc: giữ chỗ
             cho cột khỏi lệch giữa các dòng, và tiện thể nhắc luôn đơn vị đang dùng. */}
-        <label style={{ display: 'block', minWidth: 0 }}>
+        <div style={{ minWidth: 0 }}>
           <span className="dl-lab" style={{ color: C.mutedOnTint }}>
             {line.ingredient_id ? 'Đơn vị tính' : 'Đơn vị tính *'}
           </span>
-          <input
-            list={line.ingredient_id ? undefined : 'unit-suggestions'}
-            value={line.base_unit}
-            onChange={(e) => onPatch({ base_unit: e.target.value })}
-            readOnly={!!line.ingredient_id}
-            placeholder="kg, lít, bó…"
-            style={{
-              width: '100%',
-              minHeight: 44,
-              ...(line.ingredient_id ? { background: '#f3f4f6', color: C.muted } : {}),
-            }}
-          />
-        </label>
+          {line.ingredient_id ? (
+            <input
+              value={line.base_unit}
+              readOnly
+              aria-label="Đơn vị tính"
+              style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
+            />
+          ) : (
+            <Autocomplete
+              value={line.base_unit}
+              onChange={(v) => onPatch({ base_unit: v })}
+              options={unitOptions}
+              openOnFocus
+              maxItems={20}
+              placeholder="kg, lít, bó…"
+              ariaLabel="Đơn vị tính"
+            />
+          )}
+        </div>
 
         <label style={{ display: 'block', minWidth: 0 }}>
           <span className="dl-lab" style={{ color: C.mutedOnTint }}>
@@ -517,11 +496,6 @@ function LineRow({
           Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
         </div>
       )}
-      <datalist id="unit-suggestions">
-        {UNIT_SUGGESTIONS.map((u) => (
-          <option key={u} value={u} />
-        ))}
-      </datalist>
     </div>
   );
 }
