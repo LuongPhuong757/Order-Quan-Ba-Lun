@@ -38,6 +38,15 @@ export default defineConfig({
       '/ingredients': apiProxy(),
       '/recipes':     apiProxy(),
       '/consumption': apiProxy(),
+      // Nhà cung cấp (2026-09-05..06) — chính là cái bẫy mô tả ở trên: thiếu 4 dòng này thì mọi
+      // request của màn NCC bị vite trả index.html, axios parse HTML rồi văng lỗi hàng loạt.
+      // `/suppliers` trùng tên với route React `/suppliers`, nhưng `bypass()` ở trên đã tách:
+      // browser mở trang (Accept: text/html) → index.html, axios gọi API → proxy sang BE.
+      '/suppliers':          apiProxy(),
+      '/supplier-deliveries': apiProxy(),
+      '/supplier-reports':    apiProxy(),
+      // Cổng NCC tự đăng nhập (màn /ncc)
+      '/supplier-portal':     apiProxy(),
     },
   },
   build: {

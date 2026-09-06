@@ -350,6 +350,11 @@ function ProtectedShell() {
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
           <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
+          {/* Nhà cung cấp — thành mục thứ 8 (2026-09-06). Trước đây cố tình để ngoài nav vì sợ
+              bóp nhỏ các mục khác, nhưng thẻ ở Dashboard là đường vào quá kín: nhập hàng là việc
+              LÀM HÀNG NGÀY, không phải màn tra cứu thỉnh thoảng như Thống kê truy cập.
+              8 mục vẫn vừa: dưới 380px nhãn đã tự ẩn, chỉ còn icon 20px. */}
+          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng, công nợ"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon">👥</span><span className="nav-label">N/viên</span></NavLink>
         </nav>
       )}
@@ -361,6 +366,9 @@ function ProtectedShell() {
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          {/* Nhân viên order là người NHẬN HÀNG tại quán (M3.D-05) nên phải nhập được phiếu.
+              Role này KHÔNG có Dashboard, nên nếu không có nút ở đây thì không có đường vào nào. */}
+          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
