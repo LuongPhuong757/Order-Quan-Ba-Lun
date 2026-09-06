@@ -6,6 +6,7 @@
 // nợ thật, rồi ai đó mang đi đối chiếu với NCC và mất mặt.
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
@@ -338,7 +339,7 @@ function PaymentDialog({
 }) {
   const toast = useToast();
   const [paidOn, setPaidOn] = useState(today());
-  const [amount, setAmount] = useState(suggested > 0 ? String(suggested) : '');
+  const [amount, setAmount] = useState(suggested > 0 ? formatMoneyInput(String(suggested)) : '');
   const [method, setMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
@@ -349,11 +350,11 @@ function PaymentDialog({
     try {
       await api.post(`/suppliers/${supplierId}/payments`, {
         paid_on: paidOn,
-        amount: Math.round(Number(amount)),
+        amount: Number(digitsOnly(amount)),
         method,
         note: note.trim() || undefined,
       });
-      toast.push('success', `Đã ghi trả ${vnd(Number(amount))}đ cho ${supplierName}`);
+      toast.push('success', `Đã ghi trả ${vnd(Number(digitsOnly(amount)))}đ cho ${supplierName}`);
       onSaved();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -371,13 +372,10 @@ function PaymentDialog({
         <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số tiền *</span>
           <input
-            type="number"
             inputMode="numeric"
-            min="1"
-            step="1"
             required
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>
@@ -444,7 +442,7 @@ function OpeningBalanceDialog({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const [amount, setAmount] = useState(String(current.opening_balance));
+  const [amount, setAmount] = useState(formatMoneyInput(String(current.opening_balance)));
   const [date, setDate] = useState(current.counted_from ?? today());
   const [note, setNote] = useState(current.opening_balance_note ?? '');
   const [saving, setSaving] = useState(false);
@@ -454,7 +452,7 @@ function OpeningBalanceDialog({
     setSaving(true);
     try {
       await api.put(`/suppliers/${supplierId}/opening-balance`, {
-        opening_balance: Math.round(Number(amount)),
+        opening_balance: Number(digitsOnly(amount)),
         opening_balance_date: date || null,
         opening_balance_note: note.trim() || null,
       });
@@ -493,13 +491,10 @@ function OpeningBalanceDialog({
         <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Đang nợ (đ)</span>
           <input
-            type="number"
             inputMode="numeric"
-            min="0"
-            step="1"
             required
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>

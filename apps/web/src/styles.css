@@ -688,13 +688,13 @@ a:hover {
    hoặc tràn khỏi ô. */
 @media (min-width: 640px) {
   .nav-bottom {
-    padding: 4px 0 max(4px, env(safe-area-inset-bottom));
+    padding: 9px 0 max(9px, env(safe-area-inset-bottom));
   }
   .nav-bottom a {
     flex-direction: row;
     justify-content: center;
     gap: 6px;
-    padding: 6px 4px;
+    padding: 9px 4px;
     white-space: nowrap;
   }
   .nav-bottom a .nav-icon { font-size: 16px; }
@@ -794,10 +794,10 @@ a:hover {
 .with-bottom-nav {
   padding-bottom: 80px;
 }
-/* Nav 1 dòng ở desktop chỉ cao ~40px — giữ 80px là chừa một khoảng trống vô cớ cuối trang. */
+/* Nav 1 dòng ở desktop cao ~54px — giữ 80px là chừa một khoảng trống vô cớ cuối trang. */
 @media (min-width: 640px) {
   .with-bottom-nav {
-    padding-bottom: 56px;
+    padding-bottom: 70px;
   }
 }
 
@@ -1687,4 +1687,96 @@ a:hover {
     padding-top: 16px;
     border-top: 1px solid #e5e7eb;
   }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Nhà cung cấp trên điện thoại (2026-09-07 — chủ quán: "nút hơi to", "thiết kế
+   lại tab mặt hàng nhập / phiếu nhập / biến động giá cho mobile").
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Nút thao tác của màn NCC. Trước đây mỗi nút tự khai `minHeight: 48` + `padding: 0 20px`
+   ngay trong JSX, nên trên máy 390px hai nút "Mặt hàng" + "＋ Nhập hàng" cộng lại rộng hơn
+   màn hình và bị cắt mất một nửa. Gom về một class để còn hạ cỡ theo breakpoint — inline
+   style thì không viết được media query. */
+.sup-action {
+  min-height: 44px;
+  padding: 0 18px;
+}
+@media (max-width: 639px) {
+  .sup-action {
+    min-height: 38px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 14px;
+    border-radius: 7px;
+  }
+}
+
+/* Cặp đối của `.hide-on-mobile`: chỉ hiện dưới 640px. */
+.only-on-mobile { display: none !important; }
+
+@media (max-width: 639px) {
+  .only-on-mobile { display: revert !important; }
+
+  /* Dãy nút sắp xếp thay cho tiêu đề cột bấm được — ở chế độ thẻ `thead` bị ẩn, không có
+     dãy này thì trên điện thoại mất hẳn khả năng đổi cách xếp (tiền / lần / lượng). */
+  .sort-strip.only-on-mobile {
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 12px;
+    padding-bottom: 2px;
+  }
+  .sort-strip::-webkit-scrollbar { display: none; }
+  .sort-strip button {
+    min-height: 34px;
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 13px;
+    white-space: nowrap;
+    border-radius: 999px;
+  }
+
+  /* Dòng TIÊU ĐỀ của thẻ (tên mặt hàng / tên NCC): chiếm trọn bề ngang, không có nhãn
+     "Mặt hàng ─── …" vì nó chính là tên của thẻ. */
+  table.responsive td.sup-cell-title {
+    display: block;
+    padding: 0 0 6px;
+    border-top: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  table.responsive td.sup-cell-title::before { display: none; }
+  table.responsive td.sup-cell-title button {
+    width: auto;
+    padding: 0;
+    min-height: 0;
+    font-size: 16px;
+  }
+
+  /* Hàng nút cuối thẻ (Duyệt/Huỷ). Phiếu đã duyệt thì ô này rỗng — `:empty` để nó không
+     để lại một dòng gạch đứt trống ở đáy thẻ. */
+  table.responsive td.sup-cell-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 10px;
+  }
+  table.responsive td.sup-cell-actions::before { display: none; }
+  table.responsive td.sup-cell-actions:empty { display: none; }
+
+  /* Dòng tổng cộng — `tfoot` không nằm trong luật thẻ ở trên nên phải tự lo, nếu không nó
+     tụt về mô hình bảng và dính chữ vào nhau. */
+  table.responsive tfoot { display: block; }
+  table.responsive tfoot tr {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px;
+  }
+  table.responsive tfoot td { display: block; padding: 0; }
 }

@@ -196,10 +196,10 @@ export function SuppliersPage() {
           })}
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button className="secondary" onClick={() => setShowIngredients(true)} style={{ minHeight: 48 }}>
+          <button className="secondary sup-action" onClick={() => setShowIngredients(true)}>
             Mặt hàng
           </button>
-          <button onClick={() => setShowForm({})} style={{ minHeight: 48, padding: '0 20px' }}>
+          <button className="sup-action" onClick={() => setShowForm({})}>
             ＋ Nhập hàng
           </button>
         </div>
@@ -277,7 +277,10 @@ export function SuppliersPage() {
       )}
 
       {tab === 'items' && (
-        <ItemStatsPanel supplierId={filterSupplierId || undefined} />
+        <ItemStatsPanel
+          supplierId={filterSupplierId || undefined}
+          onOpenHistory={(id, name) => setHistory({ id, name })}
+        />
       )}
 
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —
@@ -361,7 +364,7 @@ function SupplierList({
         Chưa có nhà cung cấp nào.
         {isAdmin && (
           <div style={{ marginTop: 12 }}>
-            <button onClick={onNew} style={{ minHeight: 44 }}>
+            <button className="sup-action" onClick={onNew}>
               ＋ Thêm nhà cung cấp
             </button>
           </div>
@@ -372,7 +375,7 @@ function SupplierList({
   return (
     <>
       {isAdmin && (
-        <button className="secondary" onClick={onNew} style={{ marginBottom: 12, minHeight: 44 }}>
+        <button className="secondary sup-action" onClick={onNew} style={{ marginBottom: 12 }}>
           ＋ Thêm nhà cung cấp
         </button>
       )}
@@ -483,8 +486,11 @@ function DeliveryList({
           </div>
         </div>
       )}
+      {/* `responsive` (styles.css) — dưới 640px bảng 7 cột này bỏ mô hình bảng, mỗi phiếu
+          thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
+          vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Ngày</th>
@@ -502,13 +508,13 @@ function DeliveryList({
               const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
               return (
                 <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
-                  <td style={{ padding: 8 }}>{d.supplier_name}</td>
-                  <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
-                  <td style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
+                  <td data-label="Ngày" style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
+                  <td className="sup-cell-title" style={{ padding: 8 }}>{d.supplier_name}</td>
+                  <td data-label="Số tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
+                  <td data-label="Trạng thái" style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
                     ● {st.label}
                   </td>
-                  <td style={{ padding: 8, color: C.mutedOnTint }}>
+                  <td data-label="Người nhập" style={{ padding: 8, color: C.mutedOnTint }}>
                     {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
                         nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
                     {d.source === 'SUPPLIER' ? (
@@ -517,7 +523,7 @@ function DeliveryList({
                       d.created_by_name
                     )}
                   </td>
-                  <td style={{ padding: 8 }}>
+                  <td data-label="Ảnh" style={{ padding: 8 }}>
                     <button
                       type="button"
                       className="secondary"
@@ -527,7 +533,7 @@ function DeliveryList({
                       Xem ảnh
                     </button>
                   </td>
-                  <td style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                  <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {waiting && (
                       <>
                         <button
@@ -649,11 +655,11 @@ function SupplierDetail({
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <button onClick={onIntake} style={{ minHeight: 48, padding: '0 20px' }}>
+          <button className="sup-action" onClick={onIntake}>
             ＋ Nhập hàng
           </button>
           {isAdmin && (
-            <button className="secondary" onClick={onEdit} style={{ minHeight: 48 }}>
+            <button className="secondary sup-action" onClick={onEdit}>
               Sửa thông tin
             </button>
           )}

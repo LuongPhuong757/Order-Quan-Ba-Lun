@@ -23,6 +23,61 @@ function line(over: Partial<ReportLine> = {}): ReportLine {
 }
 
 describe('aggregateByPair', () => {
+  // Nhóm này chặn đúng vụ chủ quán báo 2026-09-07: "Trâu Tươi 250.000 lên 260.000 nhưng không
+  // thấy ở màn Biến động giá". Nguyên nhân là màn NCC bỏ bộ lọc tháng (2026-09-06) nên kỳ =
+  // toàn bộ lịch sử, dòng đầu tiên không có gì đứng trước nó, `prev_unit_price_base` NULL, và
+  // cả mặt hàng bị coi là không đổi giá.
+  describe('không có giá kỳ trước thì so với lần nhập LIỀN TRƯỚC trong kỳ', () => {
+    it('250k, 250k rồi 260k → tăng 4%, không phải "không đổi giá"', () => {
+      const rows = aggregateByPair([
+        line({ delivery_date: '2026-08-23', unit_price_base: 250_000, prev_unit_price_base: null }),
+        line({ delivery_date: '2026-08-25', unit_price_base: 250_000 }),
+        line({ delivery_date: '2026-09-06', unit_price_base: 260_000 }),
+      ]);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].prev_base).toBe(250_000);
+      expect(rows[0].change_pct).toBe(4);
+    });
+
+    it('giá kỳ trước CÓ thật thì vẫn ưu tiên nó — mức đổi giá của cả kỳ, không phải của lần cuối', () => {
+      const rows = aggregateByPair([
+        line({ delivery_date: '2026-09-01', unit_price_base: 200, prev_unit_price_base: 100 }),
+        line({ delivery_date: '2026-09-02', unit_price_base: 300 }),
+      ]);
+      // So với 100 (cuối kỳ trước) → +200%. Nếu lùi về dòng liền trước (200) thì chỉ ra +50%.
+      expect(rows[0].prev_base).toBe(100);
+      expect(rows[0].change_pct).toBe(200);
+    });
+
+    it('mặt hàng mới nhập đúng một lần thì vẫn NULL — thật sự không có gì để so', () => {
+      const rows = aggregateByPair([line({ unit_price_base: 250_000, prev_unit_price_base: null })]);
+      expect(rows[0].prev_base).toBeNull();
+      expect(rows[0].change_pct).toBeNull();
+    });
+
+    it('hai lần nhập cùng giá thì change_pct = 0, không phải NULL', () => {
+      const rows = aggregateByPair([
+        line({ delivery_date: '2026-09-01', unit_price_base: 250_000, prev_unit_price_base: null }),
+        line({ delivery_date: '2026-09-02', unit_price_base: 250_000 }),
+      ]);
+      expect(rows[0].change_pct).toBe(0);
+    });
+
+    it('tiền ảnh hưởng tính theo giá lùi về, không còn là 0', () => {
+      const rows = aggregateByPair([
+        line({
+          delivery_date: '2026-09-01',
+          unit_price_base: 100,
+          qty_base: 10,
+          prev_unit_price_base: null,
+        }),
+        line({ delivery_date: '2026-09-02', unit_price_base: 120, qty_base: 10 }),
+      ]);
+      // (120 - 100) × tổng lượng 20 = 400.
+      expect(rows[0].impact_amount).toBe(400);
+    });
+  });
+
   it('gộp theo cặp (NCC, mặt hàng) — cùng mặt hàng khác NCC là hai dòng', () => {
     const rows = aggregateByPair([
       line(),

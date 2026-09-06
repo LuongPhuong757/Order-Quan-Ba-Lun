@@ -364,7 +364,13 @@ const ITEM_SORTS = {
 
 type ItemSortKey = keyof typeof ITEM_SORTS;
 
-export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
+export function ItemStatsPanel({
+  supplierId,
+  onOpenHistory,
+}: {
+  supplierId?: string;
+  onOpenHistory?: (ingredientId: string, name: string) => void;
+}) {
   const toast = useToast();
   const [rows, setRows] = useState<PairReport[] | null>(null);
   const [sortKey, setSortKey] = useState<ItemSortKey>('amount');
@@ -456,7 +462,34 @@ export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
           <tbody>
             {sorted.map((r) => (
               <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8 }}>{r.ingredient_name}</td>
+                <td style={{ padding: 0 }}>
+                  {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta hay
+                      quét chọn để copy, biến cả hàng thành nút thì quét chữ cũng mở popup. */}
+                  {onOpenHistory ? (
+                    <button
+                      type="button"
+                      onClick={() => onOpenHistory(r.ingredient_id, r.ingredient_name)}
+                      style={{
+                        width: '100%',
+                        minHeight: 36,
+                        padding: 8,
+                        background: 'transparent',
+                        border: 'none',
+                        borderRadius: 0,
+                        textAlign: 'left',
+                        color: C.accent,
+                        fontWeight: 600,
+                        fontSize: 14,
+                        textDecoration: 'underline',
+                        textUnderlineOffset: 3,
+                      }}
+                    >
+                      {r.ingredient_name}
+                    </button>
+                  ) : (
+                    <span style={{ display: 'block', padding: 8 }}>{r.ingredient_name}</span>
+                  )}
+                </td>
                 <td style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
                 <td style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
                 <td style={{ padding: 8, textAlign: 'right' }}>
@@ -510,6 +543,15 @@ export function PriceHistoryDialog({
       .then((r) => setPoints(r.data.data.items))
       .catch(() => setPoints([]));
   }, [ingredientId]);
+
+  /** Bảng liệt kê xếp GẦN NHẤT LÊN ĐẦU (chủ quán chốt 2026-09-07).
+   *
+   * Câu hỏi khi mở bảng này ra là "lần gần đây mua bao nhiêu", không phải "hồi đầu mua bao
+   * nhiêu" — bắt cuộn xuống đáy mới thấy lần mới nhất là ngược với việc người ta đang làm.
+   *
+   * Chỉ đảo Ở BẢNG. Biểu đồ bên trên vẫn đọc `points` theo thứ tự thời gian gốc: một đường giá
+   * vẽ ngược thời gian thì tăng thành giảm. */
+  const moiNhatTruoc = useMemo(() => [...(points ?? [])].reverse(), [points]);
 
   const bySupplier = useMemo(() => {
     const m = new Map<string, PricePoint[]>();
@@ -604,7 +646,7 @@ export function PriceHistoryDialog({
                   </tr>
                 </thead>
                 <tbody>
-                  {[...points].reverse().map((p, i) => (
+                  {moiNhatTruoc.map((p, i) => (
                     <tr key={i} style={{ borderTop: '1px solid #e5e7eb' }}>
                       <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{p.delivery_date}</td>
                       <td style={{ padding: 8 }}>{p.supplier_name}</td>
