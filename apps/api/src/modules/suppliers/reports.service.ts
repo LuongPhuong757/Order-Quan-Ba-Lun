@@ -125,7 +125,7 @@ export class ReportsService {
    * không viết window function. Quy mô ở đây là một quán ăn — vài trăm tới vài nghìn dòng mỗi
    * tháng, gộp trong RAM rẻ hơn nhiều so với một câu SQL không ai đọc nổi.
    */
-  async pairs(opts: { from: string; to: string; supplier_id?: string }): Promise<PairReport[]> {
+  async pairs(opts: { from?: string; to?: string; supplier_id?: string }): Promise<PairReport[]> {
     const qb = this.lineRepo
       .createQueryBuilder('l')
       .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
@@ -147,9 +147,10 @@ export class ReportsService {
       ])
       // Chỉ phiếu ĐÃ DUYỆT (M3.D-41) — phiếu NCC gửi mà quán chưa kiểm không được làm lệch báo
       // cáo giá, đúng cùng nguyên tắc với tổng mua theo kỳ.
-      .where("d.status = 'CONFIRMED'")
-      .andWhere('d.delivery_date >= :from', { from: opts.from })
-      .andWhere('d.delivery_date <= :to', { to: opts.to });
+      .where("d.status = 'CONFIRMED'");
+    // Thiếu mốc = không chặn đầu đó. Mặc định của màn /suppliers là không truyền gì cả.
+    if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('d.delivery_date <= :to', { to: opts.to });
     if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
 
     const raw = await qb.getRawMany<Record<string, unknown>>();

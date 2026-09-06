@@ -94,14 +94,8 @@ function Sparkline({ values }: { values: number[] }) {
 
 /** Mục 4.1 — bảng biến động giá toàn bộ NCC × mặt hàng trong kỳ. */
 export function PriceChangesPanel({
-  from,
-  to,
-  periodLabel,
   onOpenHistory,
 }: {
-  from: string;
-  to: string;
-  periodLabel: string;
   onOpenHistory: (ingredientId: string, name: string) => void;
 }) {
   const toast = useToast();
@@ -111,13 +105,13 @@ export function PriceChangesPanel({
   useEffect(() => {
     setRows(null);
     api
-      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', { params: { from, to } })
+      .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs')
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [from, to, toast]);
+  }, [toast]);
 
   const changed = useMemo(
     () =>
@@ -136,7 +130,7 @@ export function PriceChangesPanel({
   if (changed.length === 0) {
     return (
       <div className="empty-state card">
-        Không có mặt hàng nào đổi giá trong {periodLabel.toLowerCase()}.
+        Chưa có mặt hàng nào đổi giá.
       </div>
     );
   }
@@ -149,7 +143,7 @@ export function PriceChangesPanel({
         style={{ marginBottom: 12, background: netImpact > 0 ? '#fef2f2' : '#f0fdf4' }}
       >
         <div style={{ fontSize: 15 }}>
-          {periodLabel} chi phí nguyên liệu{' '}
+          Chi phí nguyên liệu{' '}
           <strong style={{ fontSize: 22, color: netImpact > 0 ? '#b91c1c' : '#15803d' }}>
             {netImpact > 0 ? 'tăng thêm' : 'giảm'} {vnd(Math.abs(netImpact))}đ
           </strong>{' '}
@@ -178,7 +172,7 @@ export function PriceChangesPanel({
           className="secondary"
           style={{ marginLeft: 'auto', minHeight: 40 }}
           onClick={() =>
-            downloadCsv(`bien-dong-gia-${from}-${to}.csv`, [
+            downloadCsv('bien-dong-gia.csv', [
               ['Mặt hàng', 'NCC', 'Giá kỳ trước', 'Giá hiện tại', 'Đơn vị', '%', 'Lượng nhập', 'Tiền ảnh hưởng'],
               ...changed.map((r) => [
                 r.ingredient_name,
@@ -345,17 +339,7 @@ export function PriceMatrixPanel() {
 
 /** Mục 3.3 — thống kê mặt hàng nhập. Cần song song với biến động giá: giá tăng 5% mà lượng nhập
  * gấp đôi thì tiền đội lên nhiều hơn hẳn, nhìn cột % giá không thấy gì. */
-export function ItemStatsPanel({
-  from,
-  to,
-  periodLabel,
-  supplierId,
-}: {
-  from: string;
-  to: string;
-  periodLabel: string;
-  supplierId?: string;
-}) {
+export function ItemStatsPanel({ supplierId }: { supplierId?: string }) {
   const toast = useToast();
   const [rows, setRows] = useState<PairReport[] | null>(null);
 
@@ -363,14 +347,14 @@ export function ItemStatsPanel({
     setRows(null);
     api
       .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', {
-        params: { from, to, supplier_id: supplierId },
+        params: { supplier_id: supplierId },
       })
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [from, to, supplierId, toast]);
+  }, [supplierId, toast]);
 
   useEffect(load, [load]);
 
@@ -379,7 +363,7 @@ export function ItemStatsPanel({
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
   if (sorted.length === 0) {
-    return <div className="empty-state card">Chưa nhập mặt hàng nào trong {periodLabel.toLowerCase()}.</div>;
+    return <div className="empty-state card">Chưa nhập mặt hàng nào.</div>;
   }
 
   return (
@@ -390,7 +374,7 @@ export function ItemStatsPanel({
           className="secondary"
           style={{ marginLeft: 'auto', minHeight: 40 }}
           onClick={() =>
-            downloadCsv(`mat-hang-nhap-${from}-${to}.csv`, [
+            downloadCsv('mat-hang-nhap.csv', [
               ['Mặt hàng', 'NCC', 'Số lần nhập', 'Lượng nhập', 'Đơn vị', 'Tổng tiền', 'Giá bình quân', 'Giá gần nhất'],
               ...sorted.map((r) => [
                 r.ingredient_name,
@@ -443,7 +427,7 @@ export function ItemStatsPanel({
           <tfoot>
             <tr style={{ borderTop: '2px solid #d1d5db', fontWeight: 800 }}>
               <td style={{ padding: 8 }} colSpan={4}>
-                Tổng {periodLabel.toLowerCase()}
+                Tổng cộng
               </td>
               <td style={{ padding: 8, textAlign: 'right' }}>{vnd(total)}đ</td>
               <td colSpan={2} />

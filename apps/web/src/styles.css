@@ -21,6 +21,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
   font-size: 16px; /* iOS no-zoom on focus */
@@ -59,6 +60,7 @@ button.danger {
 }
 
 input,
+select,
 textarea {
   display: block;
   width: 100%;
@@ -67,6 +69,40 @@ textarea {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: white;
+  color: #1f2937;
+}
+
+/* Ô chọn: bỏ mũi tên mặc định của HĐH (mỗi hệ một kiểu, đều thô) và vẽ lại bằng SVG nền.
+   `padding-right` phải chừa chỗ cho mũi tên, không thì chữ dài chạy đè lên nó. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+select:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+  border-color: #0f766e;
+}
+
+/* Ô ngày: Chromium vẽ nút lịch to và đậm hơn hẳn phần còn lại của form. Kéo nó về đúng cỡ
+   và đúng tông xám của các ô khác. */
+input[type='date'] {
+  font-weight: 400;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 2px;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
 }
 
 /* Radio/checkbox KHÔNG phải ô nhập text — quy tắc `input` phía trên (width:100%, min-height:44px,
@@ -134,6 +170,10 @@ label {
 
 .card {
   background: white;
+  /* Bắt buộc, không phải trang trí: thẻ này được dùng cả trên <button> và <a>, mà `button`
+     ở trên đặt `color: white`. Không khai màu ở đây thì mọi dòng chữ trong thẻ KHÔNG tự đặt
+     màu sẽ là trắng trên nền trắng — đúng vụ tên nhà cung cấp biến mất ở màn /suppliers. */
+  color: #1f2937;
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -1465,5 +1505,72 @@ a:hover {
     align-self: end;
     justify-self: stretch;
     text-align: center;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   .dl-line — một mặt hàng ở popup Nhập hàng chiếm ĐÚNG MỘT DÒNG
+   Thêm 2026-09-06 theo yêu cầu chủ quán.
+
+   Trước đây: tên mặt hàng chiếm trọn một dòng, 5 ô thông số xuống dòng dưới. Nhập phiếu 10
+   mặt hàng là 20 dòng, phải cuộn 3 màn mới thấy nút GỬI — mà nhập phiếu là việc làm khi NCC
+   đang đứng đợi ngay đó.
+
+   Cột "Đơn vị tính" LUÔN chiếm chỗ kể cả với mặt hàng đã có trong danh mục (lúc đó nó là ô
+   chỉ đọc hiện sẵn đơn vị). Nếu để nó biến mất thì các dòng trong cùng một phiếu lệch cột
+   nhau, mắt không dóng hàng được để soát số.
+   ════════════════════════════════════════════════════════════════════════════ */
+.dl-line {
+  display: grid;
+  gap: 8px;
+  align-items: end;
+  grid-template-columns: minmax(180px, 2.4fr) repeat(2, minmax(90px, 1fr)) minmax(96px, 1.1fr) repeat(2, minmax(90px, 1fr)) 44px;
+}
+
+/* Nhãn cột chỉ hiện ở dòng ĐẦU. Lặp lại nhãn trên mọi dòng làm bảng nhiễu đặc chữ, mà từ dòng
+   thứ hai trở đi vị trí cột đã đủ để biết ô nào là ô nào. */
+.dl-line.dl-rest .dl-lab {
+  display: none;
+}
+
+/* Khung bao quanh một mặt hàng — mảnh hơn hẳn khi mỗi mặt hàng chỉ còn một dòng. */
+.dl-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.dl-line > label {
+  margin-bottom: 0;
+}
+
+.dl-lab {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dưới 1000px không đủ chỗ cho 7 cột — về 2 cột, tên mặt hàng ăn trọn chiều ngang, và nhãn
+   phải hiện lại ở MỌI dòng vì lúc này thứ tự cột không còn nói lên điều gì. */
+@media (max-width: 1000px) {
+  .dl-line {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dl-line .dl-name {
+    grid-column: 1 / -1;
+  }
+
+  .dl-line.dl-rest .dl-lab {
+    display: block;
+  }
+
+  .dl-line .dl-del {
+    grid-column: 2;
+    justify-self: end;
   }
 }

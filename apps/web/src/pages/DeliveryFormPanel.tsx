@@ -202,7 +202,9 @@ export function DeliveryFormPanel({
         zIndex: 50,
       }}
     >
-      <form className="card" onSubmit={onSubmit} style={{ maxWidth: 860, width: '100%', margin: 'auto' }}>
+      {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
+          bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
+      <form className="card" onSubmit={onSubmit} style={{ maxWidth: 1180, width: '100%', margin: 'auto' }}>
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
 
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -339,9 +341,12 @@ function LineRow({
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
 
   return (
-    <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: 12 }}>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
-        <div style={{ position: 'relative', flex: '1 1 220px', minWidth: 0 }}>
+    <div className="dl-item">
+      <div className={`dl-line${index > 0 ? ' dl-rest' : ''}`}>
+        <div className="dl-name" style={{ position: 'relative', minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            Mặt hàng
+          </span>
           <input
             value={line.ingredient_name}
             placeholder={`Mặt hàng ${index + 1}`}
@@ -412,51 +417,46 @@ function LineRow({
           )}
         </div>
 
-        <button
-          type="button"
-          className="secondary"
-          onClick={onRemove}
-          aria-label="Xoá dòng"
-          style={{ minHeight: 44, minWidth: 44 }}
-        >
-          ✕
-        </button>
-      </div>
+        {/* Mặt hàng MỚI thì đơn vị gốc là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho và
+            không tính tiêu hao được. Mặt hàng đã có trong danh mục thì ô này chỉ để đọc: giữ chỗ
+            cho cột khỏi lệch giữa các dòng, và tiện thể nhắc luôn đơn vị đang dùng. */}
+        <label style={{ display: 'block', minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            {line.ingredient_id ? 'Đơn vị tính' : 'Đơn vị tính *'}
+          </span>
+          <input
+            list={line.ingredient_id ? undefined : 'unit-suggestions'}
+            value={line.base_unit}
+            onChange={(e) => onPatch({ base_unit: e.target.value })}
+            readOnly={!!line.ingredient_id}
+            placeholder="kg, lít, bó…"
+            style={{
+              width: '100%',
+              minHeight: 44,
+              ...(line.ingredient_id ? { background: '#f3f4f6', color: C.muted } : {}),
+            }}
+          />
+        </label>
 
-      <div
-        style={{
-          display: 'grid',
-          gap: 8,
-          gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
-          marginTop: 8,
-        }}
-      >
-        {!line.ingredient_id && (
-          // Mặt hàng mới thì đơn vị GỐC là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho
-          // và không tính tiêu hao được.
-          <label style={{ display: 'block' }}>
-            <span style={{ fontSize: 13, color: C.mutedOnTint }}>Đơn vị tính *</span>
-            <input
-              list="unit-suggestions"
-              value={line.base_unit}
-              onChange={(e) => onPatch({ base_unit: e.target.value })}
-              placeholder="kg, lít, bó…"
-              style={{ width: '100%', minHeight: 44 }}
-            />
-          </label>
-        )}
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>NCC bán theo</span>
+        <label style={{ display: 'block', minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            NCC bán theo
+          </span>
           <input
             value={line.purchase_unit}
             onChange={(e) => onPatch({ purchase_unit: e.target.value })}
-            placeholder="thùng, bao, kg…"
+            placeholder="thùng, bao…"
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>
-            1 {line.purchase_unit || 'đơn vị'} = ? {line.base_unit || 'đv gốc'}
+
+        <label style={{ display: 'block', minWidth: 0 }}>
+          <span
+            className="dl-lab"
+            style={{ color: C.mutedOnTint }}
+            title={`1 ${line.purchase_unit || 'đơn vị'} = ? ${line.base_unit || 'đơn vị gốc'}`}
+          >
+            1 {line.purchase_unit || 'đv'} = ?
           </span>
           <input
             type="number"
@@ -468,8 +468,11 @@ function LineRow({
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>Số lượng</span>
+
+        <label style={{ display: 'block', minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            Số lượng
+          </span>
           <input
             type="number"
             inputMode="decimal"
@@ -480,8 +483,11 @@ function LineRow({
             style={{ width: '100%', minHeight: 44, fontSize: 16 }}
           />
         </label>
-        <label style={{ display: 'block' }}>
-          <span style={{ fontSize: 13, color: C.mutedOnTint }}>Đơn giá</span>
+
+        <label style={{ display: 'block', minWidth: 0 }}>
+          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+            Đơn giá
+          </span>
           <input
             type="number"
             inputMode="numeric"
@@ -492,6 +498,16 @@ function LineRow({
             style={{ width: '100%', minHeight: 44, fontSize: 16 }}
           />
         </label>
+
+        <button
+          type="button"
+          className="secondary dl-del"
+          onClick={onRemove}
+          aria-label="Xoá dòng"
+          style={{ minHeight: 44, minWidth: 44, padding: 0 }}
+        >
+          ✕
+        </button>
       </div>
 
       {prev && (
