@@ -3,7 +3,8 @@
 // Popup lúc nhập phiếu chỉ bắt được cú nhảy đột ngột của MỘT phiếu. Kiểu tăng nguy hiểm hơn là
 // tăng 2%/tháng suốt 6 tháng — không lần nào chạm ngưỡng cảnh báo, cuối năm đắt hơn 13%. Ba bảng
 // ở đây là để nhìn ra đúng thứ đó.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
@@ -70,6 +71,21 @@ function downloadCsv(filename: string, rows: string[][]) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+/** Ném nút lên ô trống cạnh "Tổng mua" ở đầu màn Nhà cung cấp (`#sup-toolbar-slot`).
+ *
+ * Nút "Xuất Excel" thuộc về panel — chỉ panel biết đang lọc gì, xếp theo cột nào — nhưng chỗ
+ * ĐỨNG của nó thì thuộc về đầu màn. Trước đây nó chiếm nguyên một dòng ngay dưới dòng "Tổng
+ * mua", tức hai dòng cho hai thứ mỗi thứ có vài chữ.
+ *
+ * `useLayoutEffect` chứ không `useEffect`: hai cái chạy trước và sau lượt vẽ, dùng cái sau
+ * thì có một khung hình nút hiện ở chỗ cũ rồi mới nhảy lên đầu màn. Không tìm thấy ô thì
+ * render tại chỗ — panel còn được dùng ở màn khác thì vẫn không mất nút. */
+function ToolbarSlot({ children }: { children: React.ReactNode }) {
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => setSlot(document.getElementById('sup-toolbar-slot')), []);
+  return slot ? createPortal(children, slot) : <>{children}</>;
 }
 
 /** Đường xu hướng nhỏ trong ô bảng. SVG nội tuyến, không kéo thư viện biểu đồ về cho một hình
@@ -171,32 +187,36 @@ export function PriceChangesPanel({
             {label}
           </button>
         ))}
-        <button
-          type="button"
-          className="secondary"
-          style={{ marginLeft: 'auto', minHeight: 40 }}
-          onClick={() =>
-            downloadCsv('bien-dong-gia.csv', [
-              ['Mặt hàng', 'NCC', 'Giá kỳ trước', 'Giá hiện tại', 'Đơn vị', '%', 'Lượng nhập', 'Tiền ảnh hưởng'],
-              ...changed.map((r) => [
-                r.ingredient_name,
-                r.supplier_name,
-                num(r.prev_base ?? 0),
-                num(r.last_base),
-                `đ/${r.base_unit}`,
-                String(r.change_pct ?? ''),
-                num(r.qty_base),
-                String(r.impact_amount),
-              ]),
-            ])
-          }
-        >
-          Xuất Excel
-        </button>
+        <ToolbarSlot>
+          <button
+            type="button"
+            className="secondary sup-action"
+            onClick={() =>
+              downloadCsv('bien-dong-gia.csv', [
+                ['Mặt hàng', 'NCC', 'Giá kỳ trước', 'Giá hiện tại', 'Đơn vị', '%', 'Lượng nhập', 'Tiền ảnh hưởng'],
+                ...changed.map((r) => [
+                  r.ingredient_name,
+                  r.supplier_name,
+                  num(r.prev_base ?? 0),
+                  num(r.last_base),
+                  `đ/${r.base_unit}`,
+                  String(r.change_pct ?? ''),
+                  num(r.qty_base),
+                  String(r.impact_amount),
+                ]),
+              ])
+            }
+          >
+            Xuất Excel
+          </button>
+        </ToolbarSlot>
       </div>
 
+      {/* `responsive` (styles.css): dưới 640px bảng 7 cột này thành một chồng THẺ
+          "nhãn ─── giá trị". Bảng giá mà phải vuốt ngang mới thấy cột "Tiền ảnh hưởng" —
+          đúng cột người ta mở màn này để xem — thì coi như không đọc được trên điện thoại. */}
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Mặt hàng</th>
@@ -211,7 +231,7 @@ export function PriceChangesPanel({
           <tbody>
             {changed.map((r) => (
               <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8 }}>
+                <td className="sup-cell-title" style={{ padding: 8 }}>
                   <button
                     type="button"
                     className="secondary"
@@ -221,14 +241,15 @@ export function PriceChangesPanel({
                     <span style={{ textDecoration: 'underline' }}>{r.ingredient_name}</span>
                   </button>
                 </td>
-                <td style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
-                <td style={{ padding: 8, textAlign: 'right', color: C.muted }}>
+                <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
+                <td data-label="Kỳ trước" style={{ padding: 8, textAlign: 'right', color: C.muted }}>
                   {num(r.prev_base ?? 0)}
                 </td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
+                <td data-label="Hiện tại" style={{ padding: 8, textAlign: 'right', fontWeight: 600 }}>
                   {num(r.last_base)} <span style={{ color: C.muted, fontSize: 12 }}>đ/{r.base_unit}</span>
                 </td>
                 <td
+                  data-label="Thay đổi"
                   style={{
                     padding: 8,
                     textAlign: 'right',
@@ -239,6 +260,7 @@ export function PriceChangesPanel({
                   {pct(r.change_pct ?? 0)}
                 </td>
                 <td
+                  data-label="Tiền ảnh hưởng"
                   style={{
                     padding: 8,
                     textAlign: 'right',
@@ -249,7 +271,7 @@ export function PriceChangesPanel({
                   {r.impact_amount > 0 ? '+' : ''}
                   {vnd(r.impact_amount)}đ
                 </td>
-                <td style={{ padding: 8 }}>
+                <td data-label="Xu hướng" style={{ padding: 8 }}>
                   <Sparkline values={r.trend} />
                 </td>
               </tr>
@@ -422,11 +444,10 @@ export function ItemStatsPanel({
 
   return (
     <>
-      <div style={{ display: 'flex', marginBottom: 12 }}>
+      <ToolbarSlot>
         <button
           type="button"
-          className="secondary"
-          style={{ marginLeft: 'auto', minHeight: 40 }}
+          className="secondary sup-action"
           onClick={() =>
             downloadCsv('mat-hang-nhap.csv', [
               ['Mặt hàng', 'NCC', 'Số lần nhập', 'Lượng nhập', 'Đơn vị', 'Tổng tiền', 'Giá bình quân', 'Giá gần nhất'],
@@ -445,9 +466,26 @@ export function ItemStatsPanel({
         >
           Xuất Excel
         </button>
+      </ToolbarSlot>
+      {/* Dưới 640px `thead` bị ẩn (chế độ thẻ) nên MẤT LUÔN chỗ bấm để đổi cách xếp — mà
+          "món nào nhập nhiều nhất" chính là câu hỏi của màn này. Dãy nút này thay cho hàng
+          tiêu đề bấm được, cùng dùng `bamCot` nên hành vi đảo chiều y hệt trên máy tính. */}
+      <div className="sort-strip only-on-mobile" role="group" aria-label="Sắp xếp mặt hàng">
+        {(Object.keys(ITEM_SORTS) as ItemSortKey[]).map((k) => (
+          <button
+            key={k}
+            type="button"
+            className={sortKey === k ? '' : 'secondary'}
+            aria-pressed={sortKey === k}
+            onClick={() => bamCot(k)}
+          >
+            {ITEM_SORTS[k].label}
+            {sortKey === k ? (asc ? ' ▲' : ' ▼') : ''}
+          </button>
+        ))}
       </div>
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
@@ -462,7 +500,7 @@ export function ItemStatsPanel({
           <tbody>
             {sorted.map((r) => (
               <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 0 }}>
+                <td className="sup-cell-title" style={{ padding: 0 }}>
                   {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta hay
                       quét chọn để copy, biến cả hàng thành nút thì quét chữ cũng mở popup. */}
                   {onOpenHistory ? (
@@ -490,18 +528,18 @@ export function ItemStatsPanel({
                     <span style={{ display: 'block', padding: 8 }}>{r.ingredient_name}</span>
                   )}
                 </td>
-                <td style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>
+                <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
+                <td data-label="Lần nhập" style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
+                <td data-label="Lượng" style={{ padding: 8, textAlign: 'right' }}>
                   {num(r.qty_base)} <span style={{ color: C.muted, fontSize: 12 }}>{r.base_unit}</span>
                 </td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
+                <td data-label="Tổng tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
                 {/* Bình quân GIA QUYỀN theo lượng — mua 200kg giá thấp và 5kg giá cao thì con số
                     này phải nghiêng về giá thấp. */}
-                <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
+                <td data-label="Bình quân" style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
                   {num(r.avg_unit_price_base)}
                 </td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
+                <td data-label="Gần nhất" style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
               </tr>
             ))}
           </tbody>

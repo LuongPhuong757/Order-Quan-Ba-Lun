@@ -236,8 +236,24 @@ export function SuppliersPage() {
             />
           </div>
         )}
-        <div style={{ marginLeft: 'auto', fontSize: 14, color: C.mutedOnTint }}>
-          Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+        {/* "Tổng mua" và nút "Xuất Excel" của tab con NẰM CHUNG một dòng. Nút do panel con
+            (SupplierReports) dựng vì chỉ nó biết dữ liệu đang lọc/sắp xếp; nó bắn vào ô
+            'sup-toolbar-slot' dưới đây bằng portal thay vì chiếm thêm một dòng riêng —
+            trên điện thoại mỗi dòng thừa là một lần phải vuốt. */}
+        <div
+          style={{
+            marginLeft: 'auto',
+            fontSize: 14,
+            color: C.mutedOnTint,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <span>
+            Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+          </span>
+          <span id="sup-toolbar-slot" style={{ display: 'flex', gap: 8 }} />
         </div>
       </div>
 
@@ -490,7 +506,7 @@ function DeliveryList({
           thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
           vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
       <div style={{ overflowX: 'auto' }}>
-        <table className="responsive" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Ngày</th>

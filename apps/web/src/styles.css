@@ -1726,13 +1726,19 @@ a:hover {
     overflow-x: auto;
     scrollbar-width: none;
     margin-bottom: 12px;
-    padding-bottom: 2px;
+    /* Chừa mép phải để chip cuối không dính sát cạnh màn hình khi vuốt hết. */
+    padding: 0 2px 2px 0;
   }
   .sort-strip::-webkit-scrollbar { display: none; }
+  /* `flex: 0 0 auto` là phần bắt buộc để dãy này TRƯỢT thay vì VỠ. Mặc định flex item co
+     được, nên 6 chip cố nhét vào 390px: hộp bị bóp dưới bề rộng chữ, `nowrap` giữ chữ một
+     dòng và chữ bị cắt cụt ("Bình quâr", "Mặt hàn"), còn `overflow-x` thì không bao giờ có
+     gì để cuộn. Cấm co lại là tổng bề rộng vượt màn hình và thanh cuộn ngang mới hoạt động. */
   .sort-strip button {
+    flex: 0 0 auto;
     min-height: 34px;
     min-width: 0;
-    padding: 0 10px;
+    padding: 0 12px;
     font-size: 13px;
     white-space: nowrap;
     border-radius: 999px;
@@ -1779,4 +1785,34 @@ a:hover {
     padding: 12px;
   }
   table.responsive tfoot td { display: block; padding: 0; }
+  /* Ô đệm `colSpan` cuối hàng tổng — ở chế độ thẻ nó thành một cột rỗng đẩy con số tổng vào
+     giữa thẻ. */
+  table.responsive tfoot td:empty { display: none; }
+}
+
+/* Thẻ có DÒNG TIÊU ĐỀ nằm trên cùng, bất kể cột đó đứng thứ mấy trong bảng.
+   Bảng "Phiếu nhập" có cột Ngày đứng trước cột Nhà cung cấp — trên máy tính đúng, nhưng ở
+   chế độ thẻ thì tên NCC mới là thứ mắt tìm trước, mà nó lại nằm dưới dòng "Ngày ─── …".
+   `flex-direction: column` biến các `td` thành flex item để `order: -1` kéo tiêu đề lên đầu;
+   `display: block` của luật thẻ chung thì không sắp lại được. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards tbody tr {
+    display: flex;
+    flex-direction: column;
+  }
+  table.responsive.sup-cards td.sup-cell-title { order: -1; }
+  /* Gạch ngăn tính lại theo THỨ TỰ NHÌN THẤY: luật chung dùng `td + td` (thứ tự trong DOM),
+     sau khi đảo chỗ thì nó bỏ sót đúng dòng ngay dưới tiêu đề. */
+  table.responsive.sup-cards tbody tr > td { border-top: 1px dashed #f1f5f9; }
+  table.responsive.sup-cards tbody tr > td.sup-cell-title { border-top: 0; }
+}
+
+/* Giá trị + đơn vị phải DÍNH nhau ở mép phải. Ô "Lượng" là `17,72 <span>g</span>` — hai nút
+   con, nên `justify-content: space-between` của luật thẻ chung dàn chúng thành ba cột rời rạc
+   ("Lượng ─── 17,72 ─── g"), đọc như ba giá trị khác nhau. Đẩy nhãn ra bằng `margin-right:
+   auto` rồi cho phần còn lại dồn phải là xong. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
+  table.responsive.sup-cards td::before { margin-right: auto; }
+  table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
 }
