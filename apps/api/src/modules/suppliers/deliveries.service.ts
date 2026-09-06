@@ -11,10 +11,7 @@ import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
-import {
-  SupplierDeliveryPhoto,
-  type DeliveryPhotoKind,
-} from './entities/supplier-delivery-photo.entity.js';
+import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { IngredientsService } from '../ingredients/ingredients.service.js';
 import { toDateString } from './suppliers.service.js';
@@ -157,14 +154,10 @@ export class DeliveriesService {
    * Gắn được vào phiếu Ở BẤT KỲ trạng thái nào, kể cả CONFIRMED: ảnh là bằng chứng chứ không
    * phải số liệu, thêm ảnh không đụng tới kho hay công nợ. Chặn ở đây chỉ tạo ra tình huống
    * "quên chụp hoá đơn, phiếu đã duyệt, thôi khỏi lưu". */
-  async addPhotos(
-    deliveryId: string,
-    urls: string[],
-    kind: DeliveryPhotoKind,
-  ): Promise<SupplierDeliveryPhoto[]> {
+  async addPhotos(deliveryId: string, urls: string[]): Promise<SupplierDeliveryPhoto[]> {
     const d = await this.deliveryRepo.findOne({ where: { id: deliveryId } });
     if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
-    const rows = urls.map((url) => this.photoRepo.create({ delivery_id: deliveryId, url, kind }));
+    const rows = urls.map((url) => this.photoRepo.create({ delivery_id: deliveryId, url }));
     return this.photoRepo.save(rows);
   }
 

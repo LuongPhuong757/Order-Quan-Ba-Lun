@@ -8,12 +8,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
 
-type Photo = { id: string; kind: 'INVOICE' | 'PRODUCT'; url: string; created_at: number };
-
-const KIND_LABEL: Record<Photo['kind'], string> = {
-  INVOICE: 'Hoá đơn',
-  PRODUCT: 'Hàng hoá',
-};
+type Photo = { id: string; url: string; created_at: number };
 
 export function DeliveryPhotosDialog({
   deliveryId,
@@ -94,12 +89,12 @@ export function DeliveryPhotosDialog({
 
         {photos && photos.length > 0 && (
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            {photos.map((p) => (
+            {photos.map((p, i) => (
               <div key={p.id} style={{ width: 150 }}>
                 <button
                   type="button"
                   onClick={() => setZoom(p)}
-                  aria-label={`Phóng to ảnh ${KIND_LABEL[p.kind].toLowerCase()}`}
+                  aria-label={`Phóng to ảnh ${i + 1}`}
                   style={{
                     display: 'block',
                     width: 150,
@@ -113,17 +108,16 @@ export function DeliveryPhotosDialog({
                 >
                   <img
                     src={p.url}
-                    alt={KIND_LABEL[p.kind]}
+                    alt={`Ảnh ${i + 1}`}
                     style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
                   />
                 </button>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                  <span style={{ fontSize: 13, color: C.mutedOnTint }}>{KIND_LABEL[p.kind]}</span>
                   <button
                     type="button"
                     className="secondary"
                     onClick={() => remove(p)}
-                    style={{ marginLeft: 'auto', minHeight: 36, minWidth: 36, padding: '0 8px', fontSize: 13 }}
+                    style={{ marginLeft: 'auto', minHeight: 36, minWidth: 36, padding: '0 10px', fontSize: 13 }}
                   >
                     Xoá
                   </button>
@@ -160,7 +154,7 @@ export function DeliveryPhotosDialog({
         >
           <img
             src={zoom.url}
-            alt={KIND_LABEL[zoom.kind]}
+            alt="Ảnh phiếu"
             style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
           />
         </div>

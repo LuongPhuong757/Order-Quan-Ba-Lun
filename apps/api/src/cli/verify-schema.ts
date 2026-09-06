@@ -125,7 +125,7 @@ const CHECKS: TableCheck[] = [
   },
   {
     table: 'supplier_delivery_photos',
-    requiredColumns: ['id', 'delivery_id', 'kind', 'url', 'created_at'],
+    requiredColumns: ['id', 'delivery_id', 'url', 'created_at'],
   },
   {
     table: 'supplier_users',

@@ -16,7 +16,6 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { saveImage } from '../menu/menu-image.js';
-import type { DeliveryPhotoKind } from './entities/supplier-delivery-photo.entity.js';
 import {
   IsArray,
   IsBoolean,
@@ -71,12 +70,15 @@ class CreateDeliveryDto {
  * admin + order: nhân viên order là người nhận hàng tại quán, họ phải nhập được phiếu. Đây là
  * đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ.
  */
-/** Ảnh chụp bằng điện thoại đời mới là 3-8MB, và một lần giao hàng hiếm khi cần quá 10 tấm
- * (1 tờ hoá đơn + vài thùng hàng). Hai con số này chặn ở tầng multer, tức TRƯỚC khi bytes kịp
- * vào RAM của tiến trình. */
+/** Chặn theo TỪNG TẤM và theo TỪNG REQUEST, KHÔNG chặn tổng số ảnh của một phiếu (chủ quán
+ * chốt 2026-09-06: "bao nhiêu ảnh tuỳ thích"). Màn hình chia xấp ảnh thành từng lô rồi gửi nhiều
+ * request, nên trần dưới đây là trần của một lô — nó ở đó để một request đơn lẻ không kéo được
+ * hàng GB vào RAM tiến trình, không phải để giới hạn người dùng.
+ *
+ * Ảnh chụp bằng điện thoại đời mới là 3-8MB, nên 12MB/tấm là rộng rãi. */
 const DELIVERY_PHOTO_DIR = 'uploads/supplier-deliveries';
 const DELIVERY_PHOTO_MAX_BYTES = 12 * 1024 * 1024;
-const DELIVERY_PHOTO_MAX_COUNT = 10;
+const DELIVERY_PHOTO_BATCH = 20;
 // heic/heif: iPhone mặc định chụp định dạng này. Trình duyệt trên máy chưa chắc decode được,
 // nhưng `sharp` phía server thì có — chặn ở mime là chặn nhầm đúng cái điện thoại phổ biến nhất.
 const DELIVERY_PHOTO_MIMES = new Set([
@@ -140,7 +142,7 @@ export class DeliveriesController {
   @Post(':id/photos')
   @HttpCode(201)
   @UseInterceptors(
-    FilesInterceptor('files', DELIVERY_PHOTO_MAX_COUNT, {
+    FilesInterceptor('files', DELIVERY_PHOTO_BATCH, {
       storage: memoryStorage(),
       limits: { fileSize: DELIVERY_PHOTO_MAX_BYTES },
       fileFilter: (_req, file, cb) => {
@@ -158,20 +160,15 @@ export class DeliveriesController {
       },
     }),
   )
-  async addPhotos(
-    @Param('id') id: string,
-    @UploadedFiles() files: Express.Multer.File[],
-    @Body('kind') kind?: string,
-  ) {
+  async addPhotos(@Param('id') id: string, @UploadedFiles() files: Express.Multer.File[]) {
     if (!files?.length) {
       throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Chưa chọn ảnh nào' });
     }
-    const k: DeliveryPhotoKind = kind === 'INVOICE' ? 'INVOICE' : 'PRODUCT';
     const urls: string[] = [];
     for (const f of files) {
       urls.push(await saveImage(f.buffer, { dir: DELIVERY_PHOTO_DIR, width: 1400 }));
     }
-    return { data: { items: await this.svc.addPhotos(id, urls, k) } };
+    return { data: { items: await this.svc.addPhotos(id, urls) } };
   }
 
   @Get(':id/photos')

@@ -12,6 +12,8 @@ import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './Price
 import { Select } from '../components/Select.tsx';
 import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
+import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
+import { lowerUnit, titleCaseVi } from '../lib/text-case.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -83,8 +85,7 @@ export function DeliveryFormPanel({
   const [dialog, setDialog] = useState<{ changes: PriceChange[]; duplicate: DuplicateHint | null } | null>(null);
   // Ảnh chờ gửi. Chưa có id phiếu thì chưa gắn được, nên giữ File trong bộ nhớ và đẩy lên NGAY
   // SAU khi phiếu lưu xong (xem `uploadPhotos`).
-  const [invoicePhotos, setInvoicePhotos] = useState<File[]>([]);
-  const [productPhotos, setProductPhotos] = useState<File[]>([]);
+  const [photos, setPhotos] = useState<File[]>([]);
 
   useEffect(() => {
     api
@@ -123,13 +124,13 @@ export function DeliveryFormPanel({
       base_unit: ing.unit,
       purchase_unit: k?.purchase_unit ?? ing.unit,
       qty_base_per_unit: k?.qty_base_per_unit ? String(Number(k.qty_base_per_unit)) : '1',
-      unit_price: k ? String(k.last_unit_price) : '',
+      unit_price: k ? formatMoneyInput(String(k.last_unit_price)) : '',
     });
   };
 
   const total = lines.reduce((sum, l) => {
     const q = Number(l.qty_purchase);
-    const p = Number(l.unit_price);
+    const p = Number(digitsOnly(l.unit_price));
     return sum + (Number.isFinite(q) && Number.isFinite(p) ? Math.round(q * p) : 0);
   }, 0);
 
@@ -145,28 +146,27 @@ export function DeliveryFormPanel({
         purchase_unit: l.base_unit.trim() || l.purchase_unit.trim(),
         qty_base_per_unit: 1,
         qty_purchase: Number(l.qty_purchase),
-        unit_price: Number(l.unit_price) || 0,
+        // Ô đơn giá giữ CHUỖI đã chấm nghìn ("100.000") — bóc về số ngay trước khi gửi.
+        unit_price: Number(digitsOnly(l.unit_price)) || 0,
       }));
 
   /** Gửi phiếu. Nhịp một để trống `approved_ingredient_ids` — server trả về danh sách dòng lệch
    * giá và KHÔNG ghi gì. Nhịp hai gửi lại kèm những dòng người dùng đã bấm đồng ý. */
   /** Đẩy ảnh lên cho phiếu vừa tạo. Trả về mô tả lỗi nếu hỏng, `null` nếu xong (hoặc không có
-   *  ảnh nào để gửi). Mỗi loại một request, gửi cả xấp một lượt — trên 3G ở quán thì mười vòng
-   *  chờ nối tiếp nhau là quá lâu. */
+   *  ảnh nào để gửi).
+   *
+   *  Số ảnh KHÔNG bị chặn (chủ quán chốt 2026-09-06), nhưng vẫn chia lô: một request ôm cả trăm
+   *  tấm là một request có thể hỏng giữa chừng và mất sạch, mà server cũng phải giữ ngần ấy bytes
+   *  trong RAM cùng lúc. Lô 20 tấm khớp với trần `FilesInterceptor` phía server. */
   const uploadPhotos = async (deliveryId: string): Promise<string | null> => {
-    const groups: Array<[string, File[]]> = [
-      ['INVOICE', invoicePhotos],
-      ['PRODUCT', productPhotos],
-    ];
-    for (const [kind, files] of groups) {
-      if (!files.length) continue;
+    const BATCH = 20;
+    for (let i = 0; i < photos.length; i += BATCH) {
       const fd = new FormData();
-      fd.append('kind', kind);
-      files.forEach((f) => fd.append('files', f));
+      photos.slice(i, i + BATCH).forEach((f) => fd.append('files', f));
       try {
         await api.post(`/supplier-deliveries/${deliveryId}/photos`, fd);
       } catch (err) {
-        return `${kind === 'INVOICE' ? 'ảnh hoá đơn' : 'ảnh hàng hoá'} gửi không được (${extractError(err).message})`;
+        return `ảnh gửi không được (${extractError(err).message})`;
       }
     }
     return null;
@@ -321,20 +321,7 @@ export function DeliveryFormPanel({
           ＋ Thêm dòng
         </button>
 
-        <PhotoPicker
-          label="Ảnh hoá đơn"
-          hint="tờ NCC đưa"
-          files={invoicePhotos}
-          onChange={setInvoicePhotos}
-          capture
-        />
-        <PhotoPicker
-          label="Ảnh hàng hoá"
-          hint="chụp lúc nhận"
-          files={productPhotos}
-          onChange={setProductPhotos}
-          capture
-        />
+        <PhotoPicker files={photos} onChange={setPhotos} />
 
         <label style={{ display: 'block', marginTop: 16 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
@@ -405,7 +392,7 @@ function LineRow({
   const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
 
   const qty = Number(line.qty_purchase);
-  const price = Number(line.unit_price);
+  const price = Number(digitsOnly(line.unit_price));
   const lineTotal =
     Number.isFinite(qty) && Number.isFinite(price) && qty > 0 ? Math.round(qty * price) : 0;
 
@@ -421,7 +408,7 @@ function LineRow({
             // Gõ lại tên = bỏ liên kết với mặt hàng đã chọn. Không làm vậy thì người dùng sửa tên
             // thành thứ khác mà `ingredient_id` vẫn trỏ vào mặt hàng cũ, và phiếu ghi sai hàng
             // trong im lặng.
-            onChange={(text) => onPatch({ ingredient_name: text, ingredient_id: null })}
+            onChange={(text) => onPatch({ ingredient_name: titleCaseVi(text), ingredient_id: null })}
             onPick={(o) => {
               const ing = catalog.find((c) => c.id === o.value);
               if (ing) onPick(ing);
@@ -466,7 +453,7 @@ function LineRow({
             ) : (
               <Autocomplete
                 value={line.base_unit}
-                onChange={(v) => onPatch({ base_unit: v })}
+                onChange={(v) => onPatch({ base_unit: lowerUnit(v) })}
                 options={unitOptions}
                 openOnFocus
                 maxItems={20}
@@ -500,12 +487,9 @@ function LineRow({
               Đơn giá
             </span>
             <input
-              type="number"
               inputMode="numeric"
-              min="0"
-              step="1"
               value={line.unit_price}
-              onChange={(e) => onPatch({ unit_price: e.target.value })}
+              onChange={(e) => onPatch({ unit_price: formatMoneyInput(e.target.value) })}
               style={{ width: '100%', minHeight: 44, fontSize: 16 }}
             />
           </label>
