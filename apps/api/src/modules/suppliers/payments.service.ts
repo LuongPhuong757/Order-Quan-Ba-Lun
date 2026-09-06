@@ -6,11 +6,19 @@ import { Supplier } from './entities/supplier.entity.js';
 import { SupplierPayment, type PaymentMethod } from './entities/supplier-payment.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { toDateString } from './suppliers.service.js';
-import { computeBalance, type SupplierBalance } from './balance.js';
+import { computeBalance, countsToward, type SupplierBalance } from './balance.js';
 
 export type Actor = { id: string; full_name: string; is_owner?: boolean };
 
 export type BalanceRow = SupplierBalance & { supplier_id: string };
+
+/** Công nợ một NCC kèm những dòng đã cấu thành nên nó — để màn hình trả lời được câu "con số này
+ * ở đâu ra". */
+export type SupplierBalanceDetail = SupplierBalance & {
+  opening_balance_note: string | null;
+  counted_deliveries: Array<{ id: string; date: string; amount: number; source: string }>;
+  counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
+};
 
 @Injectable()
 export class PaymentsService {
@@ -72,10 +80,17 @@ export class PaymentsService {
     return out;
   }
 
-  /** Công nợ một NCC. Dùng `computeBalance` trên dữ liệu thô thay vì SUM dưới SQL: số lượng dòng
-   * của một NCC là vài chục tới vài trăm, và đi qua đúng hàm đã có test là cách chắc chắn nhất
-   * để con số ở màn chi tiết không lệch với con số ở danh sách. */
-  async balanceOf(supplier_id: string): Promise<SupplierBalance> {
+  /** Công nợ một NCC, KÈM danh sách đã cấu thành nên nó.
+   *
+   * Trả cả chi tiết chứ không chỉ con số tổng: "còn phải trả 4.250.000đ" mà không nói được gồm
+   * phiếu nào, đã trả những lần nào thì đến lúc ngồi đối chiếu với NCC là bó tay — và người ta
+   * sẽ quay về dùng sổ tay, tức là tính năng thất bại.
+   *
+   * Dùng `computeBalance` trên dữ liệu thô thay vì SUM dưới SQL: số dòng của một NCC là vài chục
+   * tới vài trăm, và đi qua đúng hàm đã có test là cách chắc chắn nhất để con số ở màn chi tiết
+   * không lệch với con số ngoài danh sách.
+   */
+  async balanceOf(supplier_id: string): Promise<SupplierBalanceDetail> {
     const s = await this.supplierRepo.findOne({ where: { id: supplier_id } });
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhà cung cấp không tồn tại' });
 
@@ -84,9 +99,10 @@ export class PaymentsService {
       this.paymentRepo.find({ where: { supplier_id } }),
     ]);
 
-    return computeBalance({
+    const cutoff = toDateString(s.opening_balance_date);
+    const base = computeBalance({
       opening_balance: Number(s.opening_balance ?? 0),
-      opening_balance_date: toDateString(s.opening_balance_date),
+      opening_balance_date: cutoff,
       deliveries: deliveries.map((d) => ({
         date: toDateString(d.delivery_date) ?? '',
         amount: d.total_amount,
@@ -96,6 +112,33 @@ export class PaymentsService {
         amount: p.amount,
       })),
     });
+
+    // Chỉ liệt kê những dòng THẬT SỰ được cộng vào con số. Dòng trước mốc số dư đầu kỳ đã nằm
+    // trong `opening_balance` — hiện chúng ở đây thì tổng nhìn không khớp với danh sách, và
+    // người đối chiếu sẽ tưởng hệ thống tính sai.
+    const counted = <T extends { date: string }>(rows: T[]) =>
+      rows.filter((r) => countsToward(r.date, cutoff)).sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+      ...base,
+      opening_balance_note: s.opening_balance_note,
+      counted_deliveries: counted(
+        deliveries.map((d) => ({
+          id: d.id,
+          date: toDateString(d.delivery_date) ?? '',
+          amount: d.total_amount,
+          source: d.source,
+        })),
+      ),
+      counted_payments: counted(
+        payments.map((p) => ({
+          id: p.id,
+          date: toDateString(p.paid_on) ?? '',
+          amount: p.amount,
+          method: p.method,
+        })),
+      ),
+    };
   }
 
   async list(supplier_id: string): Promise<SupplierPayment[]> {
@@ -153,7 +196,11 @@ export class PaymentsService {
    */
   async setOpeningBalance(
     supplier_id: string,
-    input: { opening_balance: number; opening_balance_date: string | null },
+    input: {
+      opening_balance: number;
+      opening_balance_date: string | null;
+      opening_balance_note?: string | null;
+    },
     actor: Actor,
   ): Promise<Supplier> {
     if (!actor.is_owner) {
@@ -167,6 +214,9 @@ export class PaymentsService {
 
     s.opening_balance = Math.round(input.opening_balance);
     s.opening_balance_date = input.opening_balance_date || null;
+    if (input.opening_balance_note !== undefined) {
+      s.opening_balance_note = input.opening_balance_note?.trim() || null;
+    }
     return this.supplierRepo.save(s);
   }
 }

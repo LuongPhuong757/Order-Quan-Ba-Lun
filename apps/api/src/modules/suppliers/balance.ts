@@ -31,9 +31,17 @@ export type SupplierBalance = {
  * tự thời gian, và tránh hẳn chuyện lệch múi giờ khi máy chủ chạy UTC còn quán ở +07.
  */
 export function sumAfter(rows: DatedAmount[], cutoff: string | null): number {
-  return rows
-    .filter((r) => cutoff === null || r.date >= cutoff)
-    .reduce((sum, r) => sum + r.amount, 0);
+  return rows.filter((r) => countsToward(r.date, cutoff)).reduce((sum, r) => sum + r.amount, 0);
+}
+
+/** Dòng ngày `date` có được cộng vào công nợ hay không, với mốc số dư đầu kỳ `cutoff`.
+ *
+ * Tách riêng để màn hình "con số này ở đâu ra" lọc bằng ĐÚNG một điều kiện với phép cộng. Viết
+ * lại điều kiện ở chỗ liệt kê là mở đường cho hai bên lệch nhau, và khi đó tổng hiện ra không
+ * khớp với danh sách ngay bên dưới nó — người đọc sẽ kết luận hệ thống tính sai.
+ */
+export function countsToward(date: string, cutoff: string | null): boolean {
+  return cutoff === null || date >= cutoff;
 }
 
 export function computeBalance(input: {

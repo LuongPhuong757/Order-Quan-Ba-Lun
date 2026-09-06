@@ -19,6 +19,13 @@ export type Balance = {
   counted_from: string | null;
 };
 
+/** Công nợ kèm những dòng đã cấu thành nên nó — chỉ có ở endpoint chi tiết một NCC. */
+type BalanceDetail = Balance & {
+  opening_balance_note: string | null;
+  counted_deliveries: Array<{ id: string; date: string; amount: number; source: string }>;
+  counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
+};
+
 type Payment = {
   id: string;
   paid_on: string;
@@ -48,7 +55,8 @@ export function SupplierBalancePanel({
 }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [balance, setBalance] = useState<Balance | null>(null);
+  const [balance, setBalance] = useState<BalanceDetail | null>(null);
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [showPay, setShowPay] = useState(false);
   const [showOpening, setShowOpening] = useState(false);
@@ -56,7 +64,7 @@ export function SupplierBalancePanel({
   const load = useCallback(async () => {
     try {
       const [b, p] = await Promise.all([
-        api.get<{ data: Balance }>(`/suppliers/${supplierId}/balance`),
+        api.get<{ data: BalanceDetail }>(`/suppliers/${supplierId}/balance`),
         api.get<{ data: { items: Payment[] } }>(`/suppliers/${supplierId}/payments`),
       ]);
       setBalance(b.data.data);
@@ -131,6 +139,35 @@ export function SupplierBalancePanel({
             </>
           )}
         </div>
+
+        {/* Số dư đầu kỳ gồm những gì — chủ quán tự ghi lúc nhập. Không có dòng này thì sáu tháng
+            sau không ai biết con số đó ở đâu ra. */}
+        {balance.opening_balance > 0 && (
+          <div style={{ fontSize: 13, marginTop: 6 }}>
+            {balance.opening_balance_note ? (
+              <span style={{ color: C.mutedOnTint }}>
+                Số dư đầu kỳ gồm: <em>{balance.opening_balance_note}</em>
+              </span>
+            ) : (
+              <span style={{ color: '#b45309' }}>
+                ⚠ Số dư đầu kỳ chưa ghi rõ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
+              </span>
+            )}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => setShowBreakdown((v) => !v)}
+          style={{ marginTop: 10, minHeight: 36, fontSize: 13, padding: '0 12px' }}
+        >
+          {showBreakdown ? 'Ẩn chi tiết' : 'Con số này ở đâu ra?'}
+        </button>
+
+        {showBreakdown && (
+          <BalanceBreakdown detail={balance} />
+        )}
 
         <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
           <button onClick={() => setShowPay(true)} style={{ minHeight: 44 }}>
@@ -207,6 +244,81 @@ export function SupplierBalancePanel({
         />
       )}
     </>
+  );
+}
+
+/** "Con số này ở đâu ra" — liệt kê ĐÚNG những dòng đã cộng trừ ra nó.
+ *
+ * Đây là thứ biến công nợ từ một con số phải tin thành một con số kiểm được. Lúc ngồi đối chiếu
+ * với NCC, chủ quán đọc từng dòng ở đây; không có nó thì họ quay về sổ tay và tính năng thất bại.
+ *
+ * Cố ý KHÔNG hiện phiếu/thanh toán trước mốc số dư đầu kỳ: chúng đã nằm trong số dư đó rồi, hiện
+ * ra thì tổng nhìn không khớp với danh sách và người đọc tưởng hệ thống tính sai.
+ */
+function BalanceBreakdown({ detail }: { detail: BalanceDetail }) {
+  const rows: Array<{ date: string; label: string; amount: number }> = [
+    ...(detail.opening_balance > 0
+      ? [
+          {
+            date: detail.counted_from ?? '',
+            label: `Số dư đầu kỳ${detail.opening_balance_note ? ` — ${detail.opening_balance_note}` : ''}`,
+            amount: detail.opening_balance,
+          },
+        ]
+      : []),
+    ...detail.counted_deliveries.map((d) => ({
+      date: d.date,
+      label: d.source === 'SUPPLIER' ? 'Phiếu nhập (NCC gửi)' : 'Phiếu nhập',
+      amount: d.amount,
+    })),
+    ...detail.counted_payments.map((p) => ({
+      date: p.date,
+      label: p.method === 'CASH' ? 'Trả tiền mặt' : 'Chuyển khoản',
+      amount: -p.amount,
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date));
+
+  return (
+    <div style={{ marginTop: 10, background: '#fff', borderRadius: 8, padding: 10 }}>
+      {rows.length === 0 ? (
+        <div style={{ fontSize: 13, color: C.muted }}>Chưa có giao dịch nào.</div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid #f3f4f6' }}>
+                <td style={{ padding: '4px 6px', whiteSpace: 'nowrap', color: C.muted }}>
+                  {r.date || '—'}
+                </td>
+                <td style={{ padding: '4px 6px' }}>{r.label}</td>
+                <td
+                  style={{
+                    padding: '4px 6px',
+                    textAlign: 'right',
+                    whiteSpace: 'nowrap',
+                    color: r.amount < 0 ? '#15803d' : undefined,
+                    fontWeight: 600,
+                  }}
+                >
+                  {r.amount < 0 ? '−' : '+'}
+                  {vnd(Math.abs(r.amount))}đ
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr style={{ borderTop: '2px solid #d1d5db' }}>
+              <td colSpan={2} style={{ padding: '6px', fontWeight: 700 }}>
+                Còn phải trả
+              </td>
+              <td style={{ padding: '6px', textAlign: 'right', fontWeight: 800 }}>
+                {vnd(detail.balance)}đ
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -327,13 +439,14 @@ function OpeningBalanceDialog({
 }: {
   supplierId: string;
   supplierName: string;
-  current: Balance;
+  current: BalanceDetail;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const toast = useToast();
   const [amount, setAmount] = useState(String(current.opening_balance));
   const [date, setDate] = useState(current.counted_from ?? today());
+  const [note, setNote] = useState(current.opening_balance_note ?? '');
   const [saving, setSaving] = useState(false);
 
   const save = async (e: FormEvent) => {
@@ -343,6 +456,7 @@ function OpeningBalanceDialog({
       await api.put(`/suppliers/${supplierId}/opening-balance`, {
         opening_balance: Math.round(Number(amount)),
         opening_balance_date: date || null,
+        opening_balance_note: note.trim() || null,
       });
       toast.push('success', 'Đã đặt số dư đầu kỳ');
       onSaved();
@@ -389,13 +503,25 @@ function OpeningBalanceDialog({
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>
-        <label style={{ display: 'block', marginBottom: 16 }}>
+        <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Tại ngày</span>
           <input
             type="date"
             required
             value={date}
             onChange={(e) => setDate(e.target.value)}
+            style={{ width: '100%', minHeight: 44 }}
+          />
+        </label>
+        {/* Con số kia không truy ngược được từ dữ liệu — dòng này là thứ DUY NHẤT giải thích nó
+            cho lần đối chiếu sau. */}
+        <label style={{ display: 'block', marginBottom: 16 }}>
+          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số dư này gồm những gì?</span>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            maxLength={255}
+            placeholder="VD: 3 phiếu tháng 8 chưa trả (5/8, 17/8, 29/8)"
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>

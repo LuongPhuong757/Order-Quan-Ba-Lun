@@ -1,6 +1,6 @@
 // Test THUẦN, không cần MySQL.
 import { describe, expect, it } from 'vitest';
-import { computeBalance, sumAfter } from './balance.js';
+import { computeBalance, countsToward, sumAfter } from './balance.js';
 
 describe('sumAfter — chặn tính hai lần quanh mốc số dư đầu kỳ', () => {
   const rows = [
@@ -21,6 +21,22 @@ describe('sumAfter — chặn tính hai lần quanh mốc số dư đầu kỳ',
 
   it('mốc sau mọi dòng thì không cộng gì', () => {
     expect(sumAfter(rows, '2026-12-31')).toBe(0);
+  });
+});
+
+describe('countsToward — cùng một điều kiện cho phép cộng và cho danh sách chi tiết', () => {
+  // Màn "con số này ở đâu ra" lọc bằng hàm này, `sumAfter` cộng bằng chính nó. Hai bên lệch nhau
+  // thì tổng hiện ra không khớp danh sách ngay bên dưới, và người đọc kết luận hệ thống tính sai.
+  it('tổng của các dòng ĐƯỢC ĐẾM luôn bằng sumAfter', () => {
+    const rows = [
+      { date: '2026-07-01', amount: 1_000 },
+      { date: '2026-08-01', amount: 2_000 },
+      { date: '2026-09-01', amount: 3_000 },
+    ];
+    for (const cutoff of [null, '2026-06-01', '2026-08-01', '2026-08-15', '2026-12-31']) {
+      const listed = rows.filter((r) => countsToward(r.date, cutoff));
+      expect(listed.reduce((s, r) => s + r.amount, 0)).toBe(sumAfter(rows, cutoff));
+    }
   });
 });
 

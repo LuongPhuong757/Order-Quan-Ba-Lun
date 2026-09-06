@@ -29,6 +29,8 @@ class CreatePaymentDto {
 class OpeningBalanceDto {
   @IsInt() @Min(0) opening_balance!: number;
   @IsOptional() @IsString() @MaxLength(10) opening_balance_date?: string | null;
+  /** Số dư này GỒM NHỮNG GÌ — xem docblock cột `opening_balance_note`. */
+  @IsOptional() @IsString() @MaxLength(255) opening_balance_note?: string | null;
 }
 
 /** Công nợ nhà cung cấp (bước 3).
@@ -94,6 +96,7 @@ export class PaymentsController {
       {
         opening_balance: dto.opening_balance,
         opening_balance_date: dto.opening_balance_date ?? null,
+        opening_balance_note: dto.opening_balance_note,
       },
       { id: req.user!.sub, full_name: req.user!.full_name, is_owner: req.user!.is_owner },
     );

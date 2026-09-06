@@ -304,10 +304,13 @@ export function SuppliersPage() {
       {showEditor && (
         <SupplierEditor
           supplier={showEditor === 'new' ? null : showEditor}
+          isOwner={isOwner}
           onClose={() => setShowEditor(null)}
           onSaved={() => {
             setShowEditor(null);
             refresh();
+            // NCC mới có thể đã kèm số dư đầu kỳ — công nợ phải tính lại ngay.
+            setBalanceTick((t) => t + 1);
           }}
         />
       )}
@@ -712,10 +715,12 @@ function SupplierDetail({
 
 function SupplierEditor({
   supplier,
+  isOwner,
   onClose,
   onSaved,
 }: {
   supplier: Supplier | null;
+  isOwner: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -724,15 +729,37 @@ function SupplierEditor({
   const [name, setName] = useState(supplier?.name ?? '');
   const [phone, setPhone] = useState(supplier?.phone ?? '');
   const [note, setNote] = useState(supplier?.note ?? '');
+  const [owed, setOwed] = useState('');
+  const [owedDate, setOwedDate] = useState(
+    () => new Date(Date.now() + VN_OFFSET_MS).toISOString().slice(0, 10),
+  );
+  const [owedNote, setOwedNote] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Chỉ hỏi số dư đầu kỳ lúc TẠO MỚI, và chỉ với chủ quán (M3.D-40). Sửa NCC đã có thì dùng nút
+  // riêng trong khối công nợ — nhét vào đây sẽ khiến người sửa số điện thoại vô tình ghi đè một
+  // con số tiền mà họ không định đụng tới.
+  const askOpening = !supplier && isOwner;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
       const body = { name: name.trim(), phone: phone.trim(), note: note.trim() || null };
-      if (supplier) await api.patch(`/suppliers/${supplier.id}`, body);
-      else await api.post('/suppliers', body);
+      if (supplier) {
+        await api.patch(`/suppliers/${supplier.id}`, body);
+      } else {
+        await api.post('/suppliers', {
+          ...body,
+          ...(askOpening && Number(owed) > 0
+            ? {
+                opening_balance: Math.round(Number(owed)),
+                opening_balance_date: owedDate,
+                opening_balance_note: owedNote.trim() || null,
+              }
+            : {}),
+        });
+      }
       toast.push('success', supplier ? 'Đã lưu' : `Đã thêm "${body.name}"`);
       onSaved();
     } catch (err) {
@@ -809,6 +836,61 @@ function SupplierEditor({
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>
+
+        {askOpening && (
+          <div
+            style={{
+              borderTop: '1px solid #e5e7eb',
+              paddingTop: 14,
+              marginBottom: 16,
+            }}
+          >
+            <div style={{ fontWeight: 700, marginBottom: 2 }}>Đang nợ nhà cung cấp này?</div>
+            <div style={{ fontSize: 13, color: C.mutedOnTint, marginBottom: 10 }}>
+              Bỏ trống nếu chưa nợ gì, hoặc nếu bạn định nhập từng phiếu cũ thành phiếu nhập riêng.
+            </div>
+
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <label style={{ flex: '1 1 140px' }}>
+                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số tiền (đ)</span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min="0"
+                  step="1"
+                  value={owed}
+                  onChange={(e) => setOwed(e.target.value)}
+                  style={{ width: '100%', minHeight: 44, fontSize: 18, fontWeight: 700 }}
+                />
+              </label>
+              <label style={{ flex: '1 1 140px' }}>
+                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Tính tới ngày</span>
+                <input
+                  type="date"
+                  value={owedDate}
+                  onChange={(e) => setOwedDate(e.target.value)}
+                  style={{ width: '100%', minHeight: 44 }}
+                />
+              </label>
+            </div>
+
+            {/* Bắt buộc về mặt vận hành chứ không phải về mặt kỹ thuật: con số trên không truy
+                ngược được từ dữ liệu, nên dòng này là thứ duy nhất giải thích nó về sau. */}
+            {Number(owed) > 0 && (
+              <label style={{ display: 'block', marginTop: 8 }}>
+                <span style={{ fontSize: 14, color: C.mutedOnTint }}>Gồm những gì?</span>
+                <input
+                  value={owedNote}
+                  onChange={(e) => setOwedNote(e.target.value)}
+                  maxLength={255}
+                  placeholder="VD: 3 phiếu tháng 8 chưa trả (5/8, 17/8, 29/8)"
+                  style={{ width: '100%', minHeight: 44 }}
+                />
+              </label>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {supplier && (
             <button type="button" className="secondary" onClick={remove} style={{ minHeight: 44 }}>

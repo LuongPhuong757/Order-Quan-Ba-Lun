@@ -9,10 +9,12 @@ import {
   Post,
   Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 import { SuppliersService } from './suppliers.service.js';
+import type { Request } from 'express';
 import { SupplierAuthService } from './supplier-auth.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -22,6 +24,13 @@ class CreateSupplierDto {
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
   @IsOptional() @IsString() @MaxLength(32) phone?: string;
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+
+  /** Số dư đầu kỳ nhập luôn lúc tạo — đó là lúc chủ quán đang cầm sổ đối chiếu với NCC. Ba
+   * trường này CHỈ được ghi khi người tạo là chủ quán (M3.D-40); admin thường gửi lên cũng bị
+   * service bỏ qua. */
+  @IsOptional() @IsInt() @Min(0) opening_balance?: number;
+  @IsOptional() @IsString() @MaxLength(10) opening_balance_date?: string | null;
+  @IsOptional() @IsString() @MaxLength(255) opening_balance_note?: string | null;
 }
 
 class IssueAccountDto {
@@ -75,8 +84,8 @@ export class SuppliersController {
   @Post()
   @HttpCode(201)
   @UseGuards(AdminGuard)
-  async create(@Body() dto: CreateSupplierDto) {
-    return { data: await this.svc.create(dto) };
+  async create(@Body() dto: CreateSupplierDto, @Req() req: Request) {
+    return { data: await this.svc.create({ ...dto, is_owner: req.user!.is_owner }) };
   }
 
   @Patch(':id')

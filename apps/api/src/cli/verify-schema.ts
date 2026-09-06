@@ -120,6 +120,7 @@ const CHECKS: TableCheck[] = [
       // vẫn xanh, và công nợ âm thầm tính từ 0 cho mọi NCC.
       'opening_balance',
       'opening_balance_date',
+      'opening_balance_note',
     ],
   },
   {
