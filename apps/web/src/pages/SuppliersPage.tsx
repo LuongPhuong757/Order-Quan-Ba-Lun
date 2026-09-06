@@ -20,6 +20,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
+import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import {
   ItemStatsPanel,
   PriceChangesPanel,
@@ -387,6 +388,7 @@ function DeliveryList({
   const toast = useToast();
   const confirmDialog = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
+  const [photosOf, setPhotosOf] = useState<Delivery | null>(null);
 
   const act = async (d: Delivery, kind: 'confirm' | 'cancel') => {
     if (kind === 'cancel') {
@@ -436,6 +438,7 @@ function DeliveryList({
               <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
               <th style={{ padding: 8 }}>Trạng thái</th>
               <th style={{ padding: 8 }}>Người nhập</th>
+              <th style={{ padding: 8 }}>Ảnh</th>
               <th style={{ padding: 8 }} />
             </tr>
           </thead>
@@ -459,6 +462,16 @@ function DeliveryList({
                     ) : (
                       d.created_by_name
                     )}
+                  </td>
+                  <td style={{ padding: 8 }}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setPhotosOf(d)}
+                      style={{ minHeight: 36, padding: '0 10px', fontSize: 13 }}
+                    >
+                      Xem ảnh
+                    </button>
                   </td>
                   <td style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
                     {waiting && (
@@ -487,6 +500,14 @@ function DeliveryList({
           </tbody>
         </table>
       </div>
+
+      {photosOf && (
+        <DeliveryPhotosDialog
+          deliveryId={photosOf.id}
+          title={`${photosOf.supplier_name} · ${photosOf.delivery_date}`}
+          onClose={() => setPhotosOf(null)}
+        />
+      )}
     </>
   );
 }

@@ -11,6 +11,7 @@ import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
 import { Select } from '../components/Select.tsx';
 import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
+import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -80,6 +81,10 @@ export function DeliveryFormPanel({
   const [known, setKnown] = useState<SupplierItemRow[]>([]);
   const [saving, setSaving] = useState(false);
   const [dialog, setDialog] = useState<{ changes: PriceChange[]; duplicate: DuplicateHint | null } | null>(null);
+  // Ảnh chờ gửi. Chưa có id phiếu thì chưa gắn được, nên giữ File trong bộ nhớ và đẩy lên NGAY
+  // SAU khi phiếu lưu xong (xem `uploadPhotos`).
+  const [invoicePhotos, setInvoicePhotos] = useState<File[]>([]);
+  const [productPhotos, setProductPhotos] = useState<File[]>([]);
 
   useEffect(() => {
     api
@@ -145,6 +150,28 @@ export function DeliveryFormPanel({
 
   /** Gửi phiếu. Nhịp một để trống `approved_ingredient_ids` — server trả về danh sách dòng lệch
    * giá và KHÔNG ghi gì. Nhịp hai gửi lại kèm những dòng người dùng đã bấm đồng ý. */
+  /** Đẩy ảnh lên cho phiếu vừa tạo. Trả về mô tả lỗi nếu hỏng, `null` nếu xong (hoặc không có
+   *  ảnh nào để gửi). Mỗi loại một request, gửi cả xấp một lượt — trên 3G ở quán thì mười vòng
+   *  chờ nối tiếp nhau là quá lâu. */
+  const uploadPhotos = async (deliveryId: string): Promise<string | null> => {
+    const groups: Array<[string, File[]]> = [
+      ['INVOICE', invoicePhotos],
+      ['PRODUCT', productPhotos],
+    ];
+    for (const [kind, files] of groups) {
+      if (!files.length) continue;
+      const fd = new FormData();
+      fd.append('kind', kind);
+      files.forEach((f) => fd.append('files', f));
+      try {
+        await api.post(`/supplier-deliveries/${deliveryId}/photos`, fd);
+      } catch (err) {
+        return `${kind === 'INVOICE' ? 'ảnh hoá đơn' : 'ảnh hàng hoá'} gửi không được (${extractError(err).message})`;
+      }
+    }
+    return null;
+  };
+
   const submit = async (approved?: string[], allowDuplicate?: boolean) => {
     const body = payloadLines();
     if (body.length === 0) {
@@ -156,7 +183,7 @@ export function DeliveryFormPanel({
       const res = await api.post<{
         data:
           | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
-          | { created: true };
+          | { created: true; delivery: { id: string } };
       }>('/supplier-deliveries', {
         supplier_id: supplierId,
         delivery_date: date,
@@ -170,7 +197,15 @@ export function DeliveryFormPanel({
         setDialog({ changes: data.price_changes, duplicate: data.duplicate });
         return;
       }
-      toast.push('success', `Đã lưu phiếu ${vnd(total)}đ`);
+      // Ảnh đẩy lên SAU khi phiếu đã lưu. Nếu bước này hỏng thì phiếu VẪN CÒN — nói thẳng ra
+      // thay vì nuốt lỗi, vì người nhập cần biết là phải vào phiếu chụp bù chứ không phải nhập
+      // lại cả phiếu.
+      const anhHong = await uploadPhotos(data.delivery.id);
+      if (anhHong) {
+        toast.push('error', `Đã lưu phiếu ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
+      } else {
+        toast.push('success', `Đã lưu phiếu ${vnd(total)}đ`);
+      }
       onSaved();
       onClose();
     } catch (err) {
@@ -285,6 +320,21 @@ export function DeliveryFormPanel({
         >
           ＋ Thêm dòng
         </button>
+
+        <PhotoPicker
+          label="Ảnh hoá đơn"
+          hint="tờ NCC đưa"
+          files={invoicePhotos}
+          onChange={setInvoicePhotos}
+          capture
+        />
+        <PhotoPicker
+          label="Ảnh hàng hoá"
+          hint="chụp lúc nhận"
+          files={productPhotos}
+          onChange={setProductPhotos}
+          capture
+        />
 
         <label style={{ display: 'block', marginTop: 16 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>

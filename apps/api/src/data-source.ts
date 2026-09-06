@@ -27,6 +27,7 @@ import { Supplier } from './modules/suppliers/entities/supplier.entity.js';
 import { SupplierItem } from './modules/suppliers/entities/supplier-item.entity.js';
 import { SupplierDelivery } from './modules/suppliers/entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './modules/suppliers/entities/supplier-delivery-line.entity.js';
+import { SupplierDeliveryPhoto } from './modules/suppliers/entities/supplier-delivery-photo.entity.js';
 import { SupplierPayment } from './modules/suppliers/entities/supplier-payment.entity.js';
 import { SupplierUser } from './modules/suppliers/entities/supplier-user.entity.js';
 import { SupplierSession } from './modules/suppliers/entities/supplier-session.entity.js';
@@ -93,6 +94,9 @@ export const dataSourceOptions: DataSourceOptions = {
     SupplierItem,
     SupplierDelivery,
     SupplierDeliveryLine,
+    // Ảnh đính kèm phiếu (2026-09-06). Thiếu dòng này thì bảng không được tạo và mọi lần
+    // upload ném lỗi runtime.
+    SupplierDeliveryPhoto,
     // Công nợ NCC (bước 3). Thiếu dòng này thì `synchronize` không tạo bảng, mọi lần ghi nhận
     // thanh toán ném lỗi runtime, mà `tsc` vẫn xanh.
     SupplierPayment,

@@ -4,6 +4,7 @@ import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
+import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { SupplierUser } from './entities/supplier-user.entity.js';
 import { SupplierSession } from './entities/supplier-session.entity.js';
@@ -35,6 +36,7 @@ import { MenuModule } from '../menu/menu.module.js';
       SupplierItem,
       SupplierDelivery,
       SupplierDeliveryLine,
+      SupplierDeliveryPhoto,
       SupplierPayment,
       SupplierUser,
       SupplierSession,
