@@ -1510,39 +1510,49 @@ a:hover {
 
 
 /* ════════════════════════════════════════════════════════════════════════════
-   .dl-line — một mặt hàng ở popup Nhập hàng chiếm ĐÚNG MỘT DÒNG
-   Thêm 2026-09-06 theo yêu cầu chủ quán.
+   Popup Nhập hàng — MỘT cây JSX, hai bố cục
+   Thêm 2026-09-06 theo yêu cầu chủ quán ("mỗi mặt hàng một dòng", rồi "thiết kế
+   cho cả mobile nữa").
 
-   Trước đây: tên mặt hàng chiếm trọn một dòng, 5 ô thông số xuống dòng dưới. Nhập phiếu 10
-   mặt hàng là 20 dòng, phải cuộn 3 màn mới thấy nút GỬI — mà nhập phiếu là việc làm khi NCC
-   đang đứng đợi ngay đó.
+   ≥1001px — mỗi mặt hàng là MỘT hàng 5 cột dóng thẳng nhau, nhãn chỉ hiện ở dòng
+   đầu. Mắt dóng theo cột để soát số, nên cột "Đơn vị tính" vẫn chiếm chỗ kể cả
+   với mặt hàng đã có trong danh mục (lúc đó là ô chỉ đọc) — để nó biến mất thì
+   các dòng lệch cột nhau.
 
-   Cột "Đơn vị tính" LUÔN chiếm chỗ kể cả với mặt hàng đã có trong danh mục (lúc đó nó là ô
-   chỉ đọc hiện sẵn đơn vị). Nếu để nó biến mất thì các dòng trong cùng một phiếu lệch cột
-   nhau, mắt không dóng hàng được để soát số.
+   ≤1000px — cùng đúng những ô đó xếp thành một THẺ: tên hàng trên cùng, rồi Đơn vị
+   tính · Số lượng · Đơn giá. Nhãn hiện lại ở mọi dòng vì lúc này thứ tự cột không
+   còn nói lên điều gì.
+
+   Thứ cho phép một cây JSX chạy được cả hai kiểu là `display: contents` trên hai
+   bọc `.dl-units` / `.dl-money`: ở desktop chúng tan ra để con của chúng thành
+   cột thật của lưới cha; ở điện thoại chúng thành khối riêng.
+   (Chủ quán bỏ ô "NCC bán theo" và ô quy đổi 2026-09-06 — .dl-units giờ chỉ còn
+   một ô, nhưng giữ nguyên bọc để hai bố cục vẫn dùng chung một cây JSX.)
    ════════════════════════════════════════════════════════════════════════════ */
 .dl-line {
   display: grid;
   gap: 8px;
   align-items: end;
-  grid-template-columns: minmax(180px, 2.4fr) repeat(2, minmax(90px, 1fr)) minmax(96px, 1.1fr) repeat(2, minmax(90px, 1fr)) 44px;
+  grid-template-columns: minmax(220px, 3fr) minmax(96px, 1fr) minmax(96px, 1fr) minmax(110px, 1.2fr) 44px;
+}
+
+.dl-units,
+.dl-money {
+  display: contents;
+}
+
+/* `label` mang sẵn margin-bottom 6px. Trong lưới `align-items: end` thì thứ được dóng là HỘP
+   LỀ, nên cột nào là <label> bị đẩy lên cao hơn cột nào là <div> đúng 6px. */
+.dl-line > label,
+.dl-units > label,
+.dl-money > label {
+  margin-bottom: 0;
 }
 
 /* Nhãn cột chỉ hiện ở dòng ĐẦU. Lặp lại nhãn trên mọi dòng làm bảng nhiễu đặc chữ, mà từ dòng
    thứ hai trở đi vị trí cột đã đủ để biết ô nào là ô nào. */
 .dl-line.dl-rest .dl-lab {
   display: none;
-}
-
-/* Khung bao quanh một mặt hàng — mảnh hơn hẳn khi mỗi mặt hàng chỉ còn một dòng. */
-.dl-item {
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 10px 12px;
-}
-
-.dl-line > label {
-  margin-bottom: 0;
 }
 
 .dl-lab {
@@ -1554,23 +1564,127 @@ a:hover {
   text-overflow: ellipsis;
 }
 
-/* Dưới 1000px không đủ chỗ cho 7 cột — về 2 cột, tên mặt hàng ăn trọn chiều ngang, và nhãn
-   phải hiện lại ở MỌI dòng vì lúc này thứ tự cột không còn nói lên điều gì. */
+.dl-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.dl-del {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+
+/* Thành tiền từng dòng: chỉ có nghĩa ở bố cục thẻ — desktop đã có cột tiền dóng thẳng. */
+.dl-foot-line {
+  display: none;
+}
+
+/* ── ≤1000px: bố cục thẻ ──────────────────────────────────────────────────── */
 @media (max-width: 1000px) {
   .dl-line {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .dl-line .dl-name {
-    grid-column: 1 / -1;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    /* Chừa chỗ cho nút ✕ neo ở góc trên phải. */
+    padding-right: 40px;
+    position: relative;
   }
 
   .dl-line.dl-rest .dl-lab {
     display: block;
   }
 
-  .dl-line .dl-del {
-    grid-column: 2;
-    justify-self: end;
+  .dl-units,
+  .dl-money {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dl-units {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dl-del {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 8px;
+  }
+
+  .dl-item {
+    padding: 12px;
+  }
+
+  .dl-foot-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .dl-line-total {
+    font-size: 17px;
+    font-weight: 800;
+    margin-left: auto;
+  }
+
+  /* Tờ giấy tràn viền: 16px lề overlay + 24px lề thẻ ăn mất 80px trên tổng 390px, tức hơn 20%
+     bề ngang máy chỉ để làm khung. */
+  .dl-overlay {
+    padding: 0;
+  }
+
+  .dl-sheet {
+    border-radius: 0;
+    padding: 16px 14px 0;
+    min-height: 100%;
+  }
+
+  /* Thanh tổng + nút ghim đáy màn. Phiếu 10 mặt hàng dài hơn 2 màn hình. */
+  .dl-bar {
+    position: sticky;
+    bottom: 0;
+    margin: 16px -14px 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ── ≥1001px: thanh tổng nằm cuối form như cũ ─────────────────────────────── */
+@media (min-width: 1001px) {
+  .dl-sheet {
+    max-width: 1180px;
+    width: 100%;
+    margin: auto;
+  }
+
+  .dl-overlay {
+    padding: 16px;
+  }
+}
+
+.dl-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 1001px) {
+  .dl-bar {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
   }
 }

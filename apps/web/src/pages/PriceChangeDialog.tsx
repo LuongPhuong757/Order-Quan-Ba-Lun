@@ -84,7 +84,7 @@ export function PriceChangeDialog({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 16,
-        zIndex: 60,
+        zIndex: 9030,
       }}
     >
       <div

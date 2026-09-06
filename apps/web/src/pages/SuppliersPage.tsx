@@ -541,7 +541,7 @@ function SupplierDetail({
         justifyContent: 'center',
         padding: 16,
         overflowY: 'auto',
-        zIndex: 40,
+        zIndex: 9000,
       }}
     >
       <div className="card" style={{ maxWidth: 760, width: '100%', margin: 'auto' }}>
@@ -767,7 +767,7 @@ function SupplierEditor({
         alignItems: 'center',
         justifyContent: 'center',
         padding: 16,
-        zIndex: 70,
+        zIndex: 9020,
       }}
     >
       <form className="card" onSubmit={save} style={{ maxWidth: 440, width: '100%' }}>

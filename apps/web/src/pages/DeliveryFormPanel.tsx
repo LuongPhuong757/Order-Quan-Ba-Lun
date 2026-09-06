@@ -135,8 +135,10 @@ export function DeliveryFormPanel({
         ingredient_id: l.ingredient_id || undefined,
         ingredient_name: l.ingredient_id ? undefined : l.ingredient_name.trim(),
         base_unit: l.ingredient_id ? undefined : l.base_unit.trim(),
-        purchase_unit: l.purchase_unit.trim() || l.base_unit.trim(),
-        qty_base_per_unit: Number(l.qty_base_per_unit) || 1,
+        // Hai trường này không còn ô nhập nào (xem ghi chú ở LineRow). Ghim cứng để "Đơn giá"
+        // luôn có đúng một nghĩa: giá trên MỘT đơn vị gốc.
+        purchase_unit: l.base_unit.trim() || l.purchase_unit.trim(),
+        qty_base_per_unit: 1,
         qty_purchase: Number(l.qty_purchase),
         unit_price: Number(l.unit_price) || 0,
       }));
@@ -199,14 +201,14 @@ export function DeliveryFormPanel({
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
-        padding: 16,
         overflowY: 'auto',
-        zIndex: 50,
+        zIndex: 9010,
       }}
+      className="dl-overlay"
     >
       {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
           bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
-      <form className="card" onSubmit={onSubmit} style={{ maxWidth: 1180, width: '100%', margin: 'auto' }}>
+      <form className="card dl-sheet" onSubmit={onSubmit}>
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
 
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
@@ -294,17 +296,10 @@ export function DeliveryFormPanel({
           />
         </label>
 
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginTop: 20,
-            flexWrap: 'wrap',
-            borderTop: '1px solid #e5e7eb',
-            paddingTop: 16,
-          }}
-        >
+        {/* Ghim đáy trên điện thoại: phiếu 10 mặt hàng dài hơn 2 màn, mà con số tổng và nút GỬI
+            là hai thứ người nhập phải với tới bất cứ lúc nào — cuộn xuống đáy mới bấm được là
+            chỗ dễ bỏ sót nhất khi NCC đang đứng đợi. */}
+        <div className="dl-bar">
           <div style={{ fontSize: 22, fontWeight: 800 }}>{vnd(total)}đ</div>
           <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
             Huỷ
@@ -330,7 +325,11 @@ export function DeliveryFormPanel({
   );
 }
 
-/** Một dòng hàng. */
+/** Một dòng hàng.
+ *
+ * Trên desktop là MỘT hàng 7 cột dóng thẳng nhau. Trên điện thoại cùng đúng những ô đó xếp
+ * thành một thẻ (xem `.dl-line` trong styles.css) — hai bọc `display: contents` ở giữa là thứ
+ * cho phép một cây JSX duy nhất chạy được cả hai kiểu, không phải viết hai component. */
 function LineRow({
   line,
   index,
@@ -349,13 +348,16 @@ function LineRow({
   onRemove: () => void;
 }) {
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
-
-  // Danh mục một quán ăn là vài chục tới vài trăm dòng — lọc tại chỗ, không gọi API mỗi lần gõ.
   const catalogOptions = useMemo(
     () => catalog.map((i) => ({ value: i.id, label: i.name, hint: i.unit })),
     [catalog],
   );
   const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
+
+  const qty = Number(line.qty_purchase);
+  const price = Number(line.unit_price);
+  const lineTotal =
+    Number.isFinite(qty) && Number.isFinite(price) && qty > 0 ? Math.round(qty * price) : 0;
 
   return (
     <div className="dl-item">
@@ -390,110 +392,100 @@ function LineRow({
           />
         </div>
 
-        {/* Mặt hàng MỚI thì đơn vị gốc là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho và
-            không tính tiêu hao được. Mặt hàng đã có trong danh mục thì ô này chỉ để đọc: giữ chỗ
-            cho cột khỏi lệch giữa các dòng, và tiện thể nhắc luôn đơn vị đang dùng. */}
-        <div style={{ minWidth: 0 }}>
-          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
-            {line.ingredient_id ? 'Đơn vị tính' : 'Đơn vị tính *'}
-          </span>
-          {line.ingredient_id ? (
-            <input
-              value={line.base_unit}
-              readOnly
-              aria-label="Đơn vị tính"
-              style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
-            />
-          ) : (
-            <Autocomplete
-              value={line.base_unit}
-              onChange={(v) => onPatch({ base_unit: v })}
-              options={unitOptions}
-              openOnFocus
-              maxItems={20}
-              placeholder="kg, lít, bó…"
-              ariaLabel="Đơn vị tính"
-            />
-          )}
+        {/* Chủ quán chốt 2026-09-06: bỏ ô "NCC bán theo" và ô quy đổi "1 đv = ?".
+            HỆ QUẢ, ghi ở đây để người sau khỏi tưởng là quên: "Đơn giá" từ giờ LUÔN là giá trên
+            ĐƠN VỊ GỐC (đ/kg, đ/lít) — nơi dựng payload ghim cứng hệ số quy đổi = 1 và đơn vị mua
+            = đơn vị gốc. Đổi lại, hệ thống không còn ghi được kiểu mua theo thùng/bao, nên cũng
+            không còn tự bắt được vụ NCC giữ nguyên giá thùng mà rút ruột thùng (10000ml→8000ml).
+            Việc quy ra giá đơn vị gốc chuyển sang cho người nhập. */}
+        <div className="dl-units">
+          {/* Mặt hàng MỚI thì đơn vị gốc là bắt buộc (M3.D-16) — thiếu nó thì không cộng tồn kho
+              và không tính tiêu hao được. Mặt hàng đã có trong danh mục thì ô này chỉ để đọc:
+              giữ chỗ cho cột khỏi lệch giữa các dòng, và tiện thể nhắc luôn đơn vị đang dùng. */}
+          <div style={{ minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              {line.ingredient_id ? 'Đơn vị tính' : 'Đơn vị tính *'}
+            </span>
+            {line.ingredient_id ? (
+              <input
+                value={line.base_unit}
+                readOnly
+                aria-label="Đơn vị tính"
+                style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
+              />
+            ) : (
+              <Autocomplete
+                value={line.base_unit}
+                onChange={(v) => onPatch({ base_unit: v })}
+                options={unitOptions}
+                openOnFocus
+                maxItems={20}
+                placeholder="kg, lít, bó…"
+                ariaLabel="Đơn vị tính"
+              />
+            )}
+          </div>
+
         </div>
 
-        <label style={{ display: 'block', minWidth: 0 }}>
-          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
-            NCC bán theo
-          </span>
-          <input
-            value={line.purchase_unit}
-            onChange={(e) => onPatch({ purchase_unit: e.target.value })}
-            placeholder="thùng, bao…"
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
+        {/* Hai ô gõ nhiều nhất — trên điện thoại chúng đứng cạnh nhau ngay dưới tên hàng. */}
+        <div className="dl-money">
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Số lượng
+            </span>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={line.qty_purchase}
+              onChange={(e) => onPatch({ qty_purchase: e.target.value })}
+              style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            />
+          </label>
 
-        <label style={{ display: 'block', minWidth: 0 }}>
-          <span
-            className="dl-lab"
-            style={{ color: C.mutedOnTint }}
-            title={`1 ${line.purchase_unit || 'đơn vị'} = ? ${line.base_unit || 'đơn vị gốc'}`}
-          >
-            1 {line.purchase_unit || 'đv'} = ?
-          </span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0.001"
-            step="any"
-            value={line.qty_base_per_unit}
-            onChange={(e) => onPatch({ qty_base_per_unit: e.target.value })}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-
-        <label style={{ display: 'block', minWidth: 0 }}>
-          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
-            Số lượng
-          </span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="any"
-            value={line.qty_purchase}
-            onChange={(e) => onPatch({ qty_purchase: e.target.value })}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
-          />
-        </label>
-
-        <label style={{ display: 'block', minWidth: 0 }}>
-          <span className="dl-lab" style={{ color: C.mutedOnTint }}>
-            Đơn giá
-          </span>
-          <input
-            type="number"
-            inputMode="numeric"
-            min="0"
-            step="1"
-            value={line.unit_price}
-            onChange={(e) => onPatch({ unit_price: e.target.value })}
-            style={{ width: '100%', minHeight: 44, fontSize: 16 }}
-          />
-        </label>
+          <label style={{ display: 'block', minWidth: 0 }}>
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Đơn giá
+            </span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min="0"
+              step="1"
+              value={line.unit_price}
+              onChange={(e) => onPatch({ unit_price: e.target.value })}
+              style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+            />
+          </label>
+        </div>
 
         <button
           type="button"
           className="secondary dl-del"
           onClick={onRemove}
-          aria-label="Xoá dòng"
-          style={{ minHeight: 44, minWidth: 44, padding: 0 }}
+          aria-label={`Xoá mặt hàng ${index + 1}`}
         >
           ✕
         </button>
       </div>
 
-      {prev && (
-        // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
-        // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
-        <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
-          Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+      {/* Chân dòng: thành tiền của riêng dòng này + giá lần trước. Trên desktop cột tiền đã dóng
+          thẳng nên chỉ cần dòng giá cũ; trên điện thoại thì thành tiền từng dòng là thứ duy nhất
+          giúp soát lại phiếu mà không phải tự nhân nhẩm. */}
+      {(lineTotal > 0 || prev) && (
+        <div className="dl-foot-line">
+          {prev && (
+            // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
+            // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
+            <span style={{ color: C.muted }}>
+              Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+            </span>
+          )}
+          {lineTotal > 0 && (
+            <strong className="dl-line-total">{vnd(lineTotal)}đ</strong>
+          )}
         </div>
       )}
     </div>
