@@ -6,7 +6,7 @@ import { Supplier } from './entities/supplier.entity.js';
 import { SupplierPayment, type PaymentMethod } from './entities/supplier-payment.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { toDateString } from './suppliers.service.js';
-import { computeBalance, countsToward, type SupplierBalance } from './balance.js';
+import { computeBalance, type SupplierBalance } from './balance.js';
 
 export type Actor = { id: string; full_name: string; is_owner?: boolean };
 
@@ -41,23 +41,21 @@ export class PaymentsService {
 
     const purchased = await this.deliveryRepo
       .createQueryBuilder('d')
-      .innerJoin(Supplier, 's', 's.id = d.supplier_id')
       .select('d.supplier_id', 'supplier_id')
       .addSelect('SUM(d.total_amount)', 'total')
       // Chỉ phiếu ĐÃ DUYỆT vào công nợ (M3.D-41): số NCC tự khai mà quán chưa kiểm không được
       // tự động thành nợ của quán.
       .where("d.status = 'CONFIRMED'")
-      // Phiếu TRƯỚC mốc số dư đầu kỳ đã nằm trong `opening_balance` — cộng lại là tính hai lần.
-      .andWhere('(s.opening_balance_date IS NULL OR d.delivery_date >= s.opening_balance_date)')
+      // KHÔNG lọc theo `opening_balance_date` nữa (2026-09-07) — số dư đầu kỳ là nợ cũ ngoài hệ
+      // thống, mọi phiếu trong hệ thống đều là phát sinh. Xem docblock đầu `balance.ts`.
       .groupBy('d.supplier_id')
       .getRawMany<{ supplier_id: string; total: string | null }>();
 
     const paid = await this.paymentRepo
       .createQueryBuilder('p')
-      .innerJoin(Supplier, 's', 's.id = p.supplier_id')
       .select('p.supplier_id', 'supplier_id')
       .addSelect('SUM(p.amount)', 'total')
-      .where('(s.opening_balance_date IS NULL OR p.paid_on >= s.opening_balance_date)')
+      // Cùng lý lẽ với phiếu: MỌI lần trả đều trừ vào nợ, kể cả lần trả trước mốc số dư đầu kỳ.
       .groupBy('p.supplier_id')
       .getRawMany<{ supplier_id: string; total: string | null }>();
 
@@ -74,7 +72,7 @@ export class PaymentsService {
         purchased: purchasedAmt,
         paid: paidAmt,
         balance: opening_balance + purchasedAmt - paidAmt,
-        counted_from: toDateString(s.opening_balance_date),
+        opening_balance_date: toDateString(s.opening_balance_date),
       });
     }
     return out;
@@ -99,10 +97,9 @@ export class PaymentsService {
       this.paymentRepo.find({ where: { supplier_id } }),
     ]);
 
-    const cutoff = toDateString(s.opening_balance_date);
     const base = computeBalance({
       opening_balance: Number(s.opening_balance ?? 0),
-      opening_balance_date: cutoff,
+      opening_balance_date: toDateString(s.opening_balance_date),
       deliveries: deliveries.map((d) => ({
         date: toDateString(d.delivery_date) ?? '',
         amount: d.total_amount,
@@ -113,11 +110,10 @@ export class PaymentsService {
       })),
     });
 
-    // Chỉ liệt kê những dòng THẬT SỰ được cộng vào con số. Dòng trước mốc số dư đầu kỳ đã nằm
-    // trong `opening_balance` — hiện chúng ở đây thì tổng nhìn không khớp với danh sách, và
-    // người đối chiếu sẽ tưởng hệ thống tính sai.
+    // Liệt kê TẤT CẢ, vì từ 2026-09-07 tất cả đều được cộng/trừ. Danh sách này phải khớp đúng
+    // với con số tổng ở trên nó — lệch một dòng là người đối chiếu kết luận hệ thống tính sai.
     const counted = <T extends { date: string }>(rows: T[]) =>
-      rows.filter((r) => countsToward(r.date, cutoff)).sort((a, b) => b.date.localeCompare(a.date));
+      [...rows].sort((a, b) => b.date.localeCompare(a.date));
 
     return {
       ...base,

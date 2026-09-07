@@ -80,11 +80,12 @@ export class SuppliersController {
     return { data: { items: await this.svc.items(id) } };
   }
 
+  /** Nợ cũ (`opening_*`) ghi được bởi MỌI admin từ 2026-09-07 — không truyền `is_owner` nữa. */
   @Post()
   @HttpCode(201)
   @UseGuards(AdminGuard)
-  async create(@Body() dto: CreateSupplierDto, @Req() req: Request) {
-    return { data: await this.svc.create({ ...dto, is_owner: req.user!.is_owner }) };
+  async create(@Body() dto: CreateSupplierDto) {
+    return { data: await this.svc.create(dto) };
   }
 
   @Patch(':id')

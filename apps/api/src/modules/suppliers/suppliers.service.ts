@@ -95,10 +95,10 @@ export class SuppliersService {
 
   /** Tạo NCC.
    *
-   * `opening_*` chỉ được ghi khi người tạo là CHỦ QUÁN (M3.D-40) — controller đã chặn, ở đây
-   * nhận `is_owner` để chặn lần nữa. Cho nhập ngay lúc tạo là vì đó đúng là lúc chủ quán đang
-   * cầm sổ đối chiếu với NCC; bắt tạo xong rồi mở chi tiết ra đặt tiếp là ba bước, và bước cuối
-   * rất dễ quên — quên thì công nợ của NCC đó âm thầm tính từ 0.
+   * `opening_*` ghi được bởi MỌI admin (2026-09-07; chốt "chỉ chủ quán" của M3.D-40 đã bỏ, xem
+   * `PaymentsService.setOpeningBalance`). Cho nhập ngay lúc tạo là vì đó đúng là lúc người ta
+   * đang cầm sổ đối chiếu với NCC; bắt tạo xong rồi mở chi tiết ra đặt tiếp là ba bước, và bước
+   * cuối rất dễ quên — quên thì công nợ của NCC đó âm thầm tính từ 0.
    */
   async create(input: {
     name: string;
@@ -107,7 +107,6 @@ export class SuppliersService {
     opening_balance?: number;
     opening_balance_date?: string | null;
     opening_balance_note?: string | null;
-    is_owner?: boolean;
   }): Promise<Supplier> {
     const name = input.name.trim();
     if (!name) throw new BadRequestException({ code: 'BAD_INPUT', message: 'Tên nhà cung cấp trống' });
@@ -130,15 +129,14 @@ export class SuppliersService {
       });
     }
 
-    // Số dư đầu kỳ chỉ ghi khi CHỦ QUÁN tạo. Admin thường tạo NCC thì bỏ qua ba trường này chứ
-    // không ném lỗi: họ vẫn nên tạo được NCC, chỉ là phần tiền để chủ quán đặt sau.
-    const opening = input.is_owner
-      ? {
-          opening_balance: Math.max(0, Math.round(input.opening_balance ?? 0)),
-          opening_balance_date: input.opening_balance_date || null,
-          opening_balance_note: input.opening_balance_note?.trim() || null,
-        }
-      : {};
+    // Nợ cũ: MỌI admin ghi được (2026-09-07, cùng chốt với việc bỏ `OwnerGuard` khỏi
+    // `PUT /suppliers/:id/opening-balance`). Chốt "chỉ chủ quán" cũ khiến admin tạo NCC xong con
+    // số nợ họ vừa gõ bị bỏ im lặng — tệ hơn hẳn việc chặn thẳng.
+    const opening = {
+      opening_balance: Math.max(0, Math.round(input.opening_balance ?? 0)),
+      opening_balance_date: input.opening_balance_date || null,
+      opening_balance_note: input.opening_balance_note?.trim() || null,
+    };
 
     return this.repo.save(
       this.repo.create({
