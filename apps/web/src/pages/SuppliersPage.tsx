@@ -81,8 +81,6 @@ export function SuppliersPage() {
   const toast = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  // Số dư đầu kỳ chỉ chủ quán đặt được (M3.D-40) — khác `isAdmin`.
-  const isOwner = !!user?.is_owner;
 
   const [tab, setTab] = useState<Tab>('suppliers');
   // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
@@ -321,7 +319,6 @@ export function SuppliersPage() {
           supplier={detail}
           deliveries={deliveries.filter((d) => d.supplier_id === detail.id)}
           isAdmin={isAdmin}
-          isOwner={isOwner}
           balanceTick={balanceTick}
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
@@ -354,7 +351,6 @@ export function SuppliersPage() {
       {showEditor && (
         <SupplierEditor
           supplier={showEditor === 'new' ? null : showEditor}
-          isOwner={isOwner}
           onClose={() => setShowEditor(null)}
           onSaved={() => {
             setShowEditor(null);
@@ -633,7 +629,6 @@ function SupplierDetail({
   supplier,
   deliveries,
   isAdmin,
-  isOwner,
   balanceTick,
   onClose,
   onEdit,
@@ -645,7 +640,6 @@ function SupplierDetail({
   supplier: Supplier;
   deliveries: Delivery[];
   isAdmin: boolean;
-  isOwner: boolean;
   balanceTick: number;
   onClose: () => void;
   onEdit: () => void;
@@ -743,7 +737,6 @@ function SupplierDetail({
           <SupplierBalancePanel
             supplierId={supplier.id}
             supplierName={supplier.name}
-            isOwner={isOwner}
             refreshKey={balanceTick}
             onChanged={onBalanceChanged}
           />
@@ -834,12 +827,10 @@ function SupplierDetail({
 
 function SupplierEditor({
   supplier,
-  isOwner,
   onClose,
   onSaved,
 }: {
   supplier: Supplier | null;
-  isOwner: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -852,10 +843,10 @@ function SupplierEditor({
   const [owed, setOwed] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Chỉ hỏi số dư đầu kỳ lúc TẠO MỚI, và chỉ với chủ quán (M3.D-40). Sửa NCC đã có thì dùng nút
-  // riêng trong khối công nợ — nhét vào đây sẽ khiến người sửa số điện thoại vô tình ghi đè một
-  // con số tiền mà họ không định đụng tới.
-  const askOpening = !supplier && isOwner;
+  // Chỉ hỏi số dư đầu kỳ lúc TẠO MỚI. Sửa NCC đã có thì dùng nút riêng trong khối công nợ —
+  // nhét vào đây sẽ khiến người sửa số điện thoại vô tình ghi đè một con số tiền mà họ không
+  // định đụng tới. (Chốt "chỉ chủ quán" của M3.D-40 đã bỏ 2026-09-07.)
+  const askOpening = !supplier;
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
