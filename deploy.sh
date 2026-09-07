@@ -49,7 +49,14 @@ case "${1:-deploy}" in
     # Kiểm nhánh đang checkout TRƯỚC khi pull. `git pull --ff-only origin <nhánh>` sẽ merge
     # nhánh đó vào nhánh đang đứng, bất kể nó là nhánh nào — sau lần đổi tên, checkout trên VPS
     # còn ở `main` mà pull `production` vào là im lặng trộn hai đường deploy. Thà đỏ ở đây.
-    rssh "cd $DEPLOY_PATH && CUR=\$(git rev-parse --abbrev-ref HEAD) && if [ \"\$CUR\" != '$PROD_BRANCH' ]; then echo \"❌ checkout trên VPS đang ở nhánh '\$CUR', không phải '$PROD_BRANCH'. Sửa: git -C $DEPLOY_PATH fetch origin --prune && git -C $DEPLOY_PATH checkout $PROD_BRANCH\"; exit 1; fi && git pull --ff-only origin $PROD_BRANCH && git log --oneline -1"
+    #
+    # `git pull` có RETRY (2026-09-07). Đo thật trên VPS này: mở TCP tới github.com:443 fail
+    # khoảng 2/5 lần — chặn chập chờn ở tầng ISP, cùng loại với chuyện openstreetmap.org bị
+    # trả về 127.0.0.1. Không retry thì mỗi lần deploy có ~40% xác suất đỏ ngẫu nhiên ngay ở
+    # bước đầu, và đỏ ngẫu nhiên dạy người ta bỏ qua CI đỏ. Đã làm gãy deploy develop 2 lần
+    # trong ngày. Fail cả 5 lần thì exit 1 — KHÔNG đi tiếp, vì đi tiếp là build lại đúng
+    # commit cũ rồi báo deploy thành công.
+    rssh "cd $DEPLOY_PATH && CUR=\$(git rev-parse --abbrev-ref HEAD) && if [ \"\$CUR\" != '$PROD_BRANCH' ]; then echo \"❌ checkout trên VPS đang ở nhánh '\$CUR', không phải '$PROD_BRANCH'. Sửa: git -C $DEPLOY_PATH fetch origin --prune && git -C $DEPLOY_PATH checkout $PROD_BRANCH\"; exit 1; fi && PULLED=0 && for i in 1 2 3 4 5; do if git pull --ff-only origin $PROD_BRANCH; then PULLED=1; break; fi; echo \"git pull lần \$i thất bại (mạng VPS ↔ github.com chập chờn) — thử lại sau 10s\"; sleep 10; done && { [ \"\$PULLED\" = 1 ] || { echo '❌ 5 lần git pull đều thất bại — kiểm tra mạng VPS ra github.com'; exit 1; }; } && git log --oneline -1"
     echo "▶ rebuild Docker (chạy nền, log /tmp/deploy-build.log)…"
     # `sync-caddyfile` (2026-09-04) — BƯỚC BẮT BUỘC, đừng bỏ. Caddyfile được mount kiểu MỘT
     # FILE (./Caddyfile:/etc/caddy/Caddyfile). Bind mount một file bám theo inode, mà `git pull`
