@@ -6,6 +6,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
+import { DateRangeFields } from '../components/TimeRangeFilter.tsx';
 
 // Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
 const ITEM_STATE_LABEL: Record<string, string> = {
@@ -490,29 +491,14 @@ export function HistoryPage() {
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
 
-        {/* Khoảng ngày — bỏ nhãn "Từ ngày / Đến ngày" xếp trên, dùng dấu → ở giữa: cùng thông
-            tin, cao 34px thay vì 70px. `aria-label` giữ lại phần nhãn cho screen reader. */}
-        <input
-          type="date"
-          aria-label="Từ ngày"
-          title="Từ ngày"
-          value={startDate}
-          max={endDate || todayIso()}
-          onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-          className="txn-date"
-          style={dateInputStyle}
-        />
-        <span style={{ color: '#9ca3af', fontSize: 13 }}>→</span>
-        <input
-          type="date"
-          aria-label="Đến ngày"
-          title="Đến ngày"
-          value={endDate}
-          min={startDate}
+        {/* Khoảng ngày — dùng chung `DateRangeFields` với các màn lọc thời gian khác, thay cho
+            hai ô `<input type="date">` tự dựng ở đây trước đó. */}
+        <DateRangeFields
+          from={startDate}
+          to={endDate}
           max={todayIso()}
-          onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-          className="txn-date"
-          style={dateInputStyle}
+          onFromChange={(v) => { setStartDate(v); setPage(1); }}
+          onToChange={(v) => { setEndDate(v); setPage(1); }}
         />
 
         {hasActiveFilter && (
@@ -874,18 +860,6 @@ function StatTile({
     </div>
   );
 }
-
-/** Ô ngày trong thanh lọc 1 dòng — cùng chiều cao 34px với pill và select compact. */
-const dateInputStyle: React.CSSProperties = {
-  minHeight: 34,
-  height: 34,
-  padding: '0 8px',
-  fontSize: 13,
-  width: 140,
-  border: '1px solid #d1d5db',
-  borderRadius: 8,
-  margin: 0,
-};
 
 function StatusPill({
   active,
