@@ -17,6 +17,14 @@ if [[ ! -f .env.deploy ]]; then echo "❌ Thiếu .env.deploy (xem README/skill 
 source .env.deploy
 : "${DEPLOY_HOST:?}" "${DEPLOY_USER:?}" "${DEPLOY_PORT:?}" "${DEPLOY_PASS:?}" "${DEPLOY_PATH:?}"
 
+# Nhánh production. Đổi tên `main` → `production` ngày 2026-09-07 để tên nhánh nói thẳng nó
+# deploy đi đâu (đối xứng với `develop`).
+#
+# Để dạng biến, không hardcode: lúc đổi tên, repo trên GitHub và checkout trên VPS chắc chắn
+# lệch nhau một nhịp, và `DEPLOY_BRANCH=main ./deploy.sh` cho phép deploy được trong lúc đó
+# mà không phải sửa script rồi sửa lại. Cũng là đường lùi nếu phải quay về tên cũ.
+PROD_BRANCH="${DEPLOY_BRANCH:-production}"
+
 # SSH có retry — sshd VPS đôi khi rate-limit khi kết nối liên tiếp (fail2ban).
 rssh() {
   local out
@@ -37,8 +45,11 @@ case "${1:-deploy}" in
   # này ở cuối; để riêng ra đây để kiểm bất cứ lúc nào mà không phải deploy lại.
   --verify) rssh "cd $DEPLOY_PATH && bash scripts/verify-env.sh" ;;
   deploy)
-    echo "▶ git pull trên server…"
-    rssh "cd $DEPLOY_PATH && git pull --ff-only origin main && git log --oneline -1"
+    echo "▶ git pull trên server (nhánh $PROD_BRANCH)…"
+    # Kiểm nhánh đang checkout TRƯỚC khi pull. `git pull --ff-only origin <nhánh>` sẽ merge
+    # nhánh đó vào nhánh đang đứng, bất kể nó là nhánh nào — sau lần đổi tên, checkout trên VPS
+    # còn ở `main` mà pull `production` vào là im lặng trộn hai đường deploy. Thà đỏ ở đây.
+    rssh "cd $DEPLOY_PATH && CUR=\$(git rev-parse --abbrev-ref HEAD) && if [ \"\$CUR\" != '$PROD_BRANCH' ]; then echo \"❌ checkout trên VPS đang ở nhánh '\$CUR', không phải '$PROD_BRANCH'. Sửa: git -C $DEPLOY_PATH fetch origin --prune && git -C $DEPLOY_PATH checkout $PROD_BRANCH\"; exit 1; fi && git pull --ff-only origin $PROD_BRANCH && git log --oneline -1"
     echo "▶ rebuild Docker (chạy nền, log /tmp/deploy-build.log)…"
     # `sync-caddyfile` (2026-09-04) — BƯỚC BẮT BUỘC, đừng bỏ. Caddyfile được mount kiểu MỘT
     # FILE (./Caddyfile:/etc/caddy/Caddyfile). Bind mount một file bám theo inode, mà `git pull`

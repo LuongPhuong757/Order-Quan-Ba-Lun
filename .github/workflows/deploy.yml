@@ -1,8 +1,13 @@
-# CI + tự động deploy lên VPS khi có commit vào `main`.
+# CI + tự động deploy lên VPS khi có commit vào `production`.
+#
+# Nhánh production ĐỔI TÊN TỪ `main` ngày 2026-09-07 — cùng lúc với `develop`, để tên nhánh
+# nói thẳng nó deploy đi đâu. Đổi ở đây thì phải đổi đủ 4 chỗ, thiếu một là deploy im lặng
+# không chạy: `branches:` bên dưới, điều kiện `github.ref` ở job deploy, `PROD_BRANCH` trong
+# deploy.sh, và nhánh đang checkout của $DEPLOY_PATH trên VPS.
 #
 # HAI VIỆC, THEO THỨ TỰ — và thứ tự đó là toàn bộ giá trị của file này:
 #   1. `ci`     — cài, dựng schema DB thật, typecheck, test, build, gác ngân sách bundle.
-#   2. `deploy` — CHỈ chạy khi `ci` xanh, và chỉ với commit trên `main`.
+#   2. `deploy` — CHỈ chạy khi `ci` xanh, và chỉ với commit trên `production`.
 # Deploy không bao giờ chạy song song với `ci` của chính nó: một bản build hỏng không bao giờ
 # tới được VPS, vì `needs: ci` chặn ở đó.
 #
@@ -19,14 +24,14 @@ name: CI + Deploy
 
 on:
   push:
-    branches: [main]
+    branches: [production]
   # PR chạy CI nhưng KHÔNG deploy (điều kiện `if` ở job deploy) — để biết nhánh có gãy gì không
-  # trước khi merge vào main, chứ không phải phát hiện sau khi nó đã lên production.
+  # trước khi merge vào production, chứ không phải phát hiện sau khi nó đã lên server thật.
   pull_request:
   # Cho phép bấm deploy tay từ tab Actions — cần khi VPS được cài lại mà code không đổi.
   workflow_dispatch:
 
-# Hai lần push liền nhau vào main → deploy xếp hàng, KHÔNG chạy chồng.
+# Hai lần push liền nhau vào production → deploy xếp hàng, KHÔNG chạy chồng.
 # `cancel-in-progress: false` là cố ý: huỷ giữa chừng một lần `docker compose up --build` để lại
 # server ở trạng thái nửa vời, tệ hơn nhiều so với việc đợi thêm vài phút.
 concurrency:
@@ -114,8 +119,8 @@ jobs:
 
   deploy:
     needs: ci
-    # 3 điều kiện, thiếu một là không deploy: CI xanh (`needs`), đang ở main, và không phải PR.
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    # 3 điều kiện, thiếu một là không deploy: CI xanh (`needs`), đang ở production, và không phải PR.
+    if: github.ref == 'refs/heads/production' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     # Khai `environment` để bật được "Required reviewers" trong Settings → Environments: khi nào
     # muốn chuyển từ tự động sang "phải bấm duyệt mới lên production" thì tick ở đó, KHÔNG cần
