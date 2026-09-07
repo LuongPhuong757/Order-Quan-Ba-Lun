@@ -152,7 +152,9 @@ case "${1:-deploy}" in
   --init)
     echo "▶ Đặt mật khẩu basic auth cho server dev (chỉ mình bạn biết)"
     read_password
-    read -rp "  Username [dev]: " DEV_USER; DEV_USER="${DEV_USER:-dev}"
+    if [[ -n "${DEV_USERNAME:-}" ]]; then DEV_USER="$DEV_USERNAME"
+    else read -rp "  Username [dev]: " DEV_USER || true; fi
+    DEV_USER="${DEV_USER:-dev}"
 
     echo "▶ Clone + dựng .env.dev trên VPS…"
     rrun "set -euo pipefail
