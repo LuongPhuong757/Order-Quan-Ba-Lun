@@ -8,8 +8,8 @@ import { apiOk, type ApiOk } from '@order/utils';
  *
  * Nó chứng minh 3 việc cùng lúc:
  *  1. Trang khách gọi được API **cùng origin** — không cần CORS.
- *  2. Namespace `/api/*` tới được controller chứ không bị SPA fallback nuốt
- *     (main.ts:46 `apiPrefixes` không có `/api` — Task 08 sửa).
+ *  2. Namespace `/api/*` tới được controller chứ không bị SPA fallback nuốt (từ 2026-09-07
+ *     fallback chỉ nuốt GET xin `text/html`, nên mọi request axios/fetch đều tới controller).
  *  3. `@order/utils` resolve được lúc chạy thật trong docker image.
  *
  * KHÔNG có nghiệp vụ gì. `/api/public/menu` và các endpoint còn lại là phase 08.
