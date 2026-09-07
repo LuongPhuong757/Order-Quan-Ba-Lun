@@ -1,6 +1,6 @@
 // Test THUẦN, không cần MySQL — chạy được cả khi DB dev chưa đồng bộ schema.
 import { describe, expect, it } from 'vitest';
-import { formatQty, normalizeName, parseUnit, toBaseQty } from './ingredient-units.js';
+import { baseUnitsPerUnit, formatQty, normalizeName, parseUnit, toBaseQty } from './ingredient-units.js';
 
 describe('normalizeName — chặn nguyên liệu trùng do gõ khác nhau', () => {
   it('mọi cách gõ "thịt bò" đều ra cùng một key', () => {
@@ -94,5 +94,29 @@ describe('formatQty — hiển thị cho người đọc', () => {
 
   it('đơn vị đếm không bao giờ đổi thang', () => {
     expect(formatQty(1200, 'quả')).toBe('1.200 quả');
+  });
+});
+
+describe('baseUnitsPerUnit — hệ số quy đổi của một dòng phiếu nhập', () => {
+  // Đây là bug production 2026-09-07: hệ số bị ghim cứng = 1 nên 10 KG vào DB thành 10 g.
+  it('KG trên nguyên liệu đo bằng g → 1000', () => {
+    expect(baseUnitsPerUnit('KG', 'g')).toBe(1000);
+    expect(baseUnitsPerUnit('kg', 'g')).toBe(1000);
+    expect(baseUnitsPerUnit('LÍT', 'ml')).toBe(1000);
+    expect(baseUnitsPerUnit('L', 'ml')).toBe(1000);
+  });
+
+  it('gõ đúng đơn vị gốc → 1 (đường đi của mặt hàng đã có trong danh mục)', () => {
+    expect(baseUnitsPerUnit('G', 'g')).toBe(1);
+    expect(baseUnitsPerUnit('ML', 'ml')).toBe(1);
+    expect(baseUnitsPerUnit('BÓ', 'bó')).toBe(1);
+  });
+
+  it('không suy ra được → null, caller phải giữ hệ số người dùng khai chứ KHÔNG coi là 1', () => {
+    expect(baseUnitsPerUnit('thùng', 'ml')).toBeNull();  // đơn vị lạ
+    expect(baseUnitsPerUnit('mẹt', 'g')).toBeNull();
+    expect(baseUnitsPerUnit('KG', 'ml')).toBeNull();     // khác nhóm
+    expect(baseUnitsPerUnit('quả', 'bó')).toBeNull();    // hai đơn vị đếm khác nhau
+    expect(baseUnitsPerUnit('', 'g')).toBeNull();
   });
 });

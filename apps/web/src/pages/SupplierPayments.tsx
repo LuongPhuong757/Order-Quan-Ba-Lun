@@ -43,13 +43,11 @@ const today = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 1
 export function SupplierBalancePanel({
   supplierId,
   supplierName,
-  isOwner,
   refreshKey,
   onChanged,
 }: {
   supplierId: string;
   supplierName: string;
-  isOwner: boolean;
   /** Đổi giá trị này để nạp lại sau khi phiếu nhập mới được lưu — công nợ phụ thuộc phiếu. */
   refreshKey: number;
   onChanged: () => void;
@@ -174,13 +172,11 @@ export function SupplierBalancePanel({
           <button onClick={() => setShowPay(true)} style={{ minHeight: 44 }}>
             ＋ Ghi nhận thanh toán
           </button>
-          {/* M3.D-40 — chỉ chủ quán. Nút cũng ẩn với admin thường để không tạo kỳ vọng rồi bị
-              chặn ở BE. */}
-          {isOwner && (
-            <button className="secondary" onClick={() => setShowOpening(true)} style={{ minHeight: 44 }}>
-              Đặt số dư đầu kỳ
-            </button>
-          )}
+          {/* Mọi admin đặt/sửa được (chủ quán chốt 2026-09-07, trước đó chỉ owner). Cả khối
+              công nợ này đã nằm sau `isAdmin` ở màn cha, nên ở đây không cần chặn thêm. */}
+          <button className="secondary" onClick={() => setShowOpening(true)} style={{ minHeight: 44 }}>
+            {balance.counted_from ? 'Sửa số dư đầu kỳ' : 'Đặt số dư đầu kỳ'}
+          </button>
         </div>
       </div>
 
@@ -427,7 +423,8 @@ function PaymentDialog({
   );
 }
 
-/** M3.D-40 — số dư đầu kỳ. Chỉ chủ quán, và màn hình phải nói rõ vì sao nó nguy hiểm. */
+/** M3.D-40 — số dư đầu kỳ. Mọi admin đặt/sửa được (chốt 2026-09-07), nên màn hình càng phải nói
+ *  rõ vì sao con số này nguy hiểm: lớp chặn theo quyền đã bỏ, chỉ còn nhật ký. */
 function OpeningBalanceDialog({
   supplierId,
   supplierName,
@@ -485,7 +482,8 @@ function OpeningBalanceDialog({
           lần trả tiền <strong>trước ngày đó</strong> sẽ không được cộng thêm lần nữa.
           <br />
           Đây là con số duy nhất hệ thống không tự kiểm chứng được — phải đối chiếu sổ với nhà cung
-          cấp trước khi nhập. Mỗi lần sửa đều được ghi vào nhật ký hệ thống.
+          cấp trước khi nhập. Sửa lại bao nhiêu lần cũng được, và mỗi lần sửa đều ghi vào nhật ký
+          hệ thống kèm tên người sửa.
         </div>
 
         <label style={{ display: 'block', marginBottom: 12 }}>

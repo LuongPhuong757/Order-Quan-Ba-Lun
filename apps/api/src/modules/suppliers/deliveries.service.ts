@@ -14,6 +14,7 @@ import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.j
 import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { IngredientsService } from '../ingredients/ingredients.service.js';
+import { baseUnitsPerUnit } from '../ingredients/ingredient-units.js';
 import { toDateString } from './suppliers.service.js';
 import type { AlertLevel } from './purchase-units.js';
 import {
@@ -404,7 +405,7 @@ export class DeliveriesService {
     for (const raw of inputs) {
       const qty_purchase = Number(raw.qty_purchase);
       const unit_price = Number(raw.unit_price);
-      const qty_base_per_unit = Number(raw.qty_base_per_unit);
+      const claimed_base_per_unit = Number(raw.qty_base_per_unit);
       const purchase_unit = (raw.purchase_unit ?? '').trim();
 
       if (!purchase_unit) {
@@ -416,7 +417,7 @@ export class DeliveriesService {
       if (!(unit_price >= 0)) {
         throw new BadRequestException({ code: 'BAD_INPUT', message: 'Đơn giá không hợp lệ' });
       }
-      if (!(qty_base_per_unit > 0)) {
+      if (!(claimed_base_per_unit > 0)) {
         throw new BadRequestException({
           code: 'BAD_INPUT',
           message: `"${purchase_unit}" quy ra bao nhiêu đơn vị gốc? Hệ số phải lớn hơn 0`,
@@ -431,6 +432,17 @@ export class DeliveriesService {
         });
       }
       seen.add(ingredient.id);
+
+      // Hệ số quy đổi TỰ TÍNH ở server, không tin số client gửi — cùng lý lẽ với `qty_base` và
+      // `unit_price_base` (xem docblock `LineAmounts`). Bug production 2026-09-07: màn Nhập hàng
+      // ghim cứng hệ số = 1 cho MỌI đơn vị, nên khai mặt hàng mới theo "KG" (đơn vị gốc lưu
+      // xuống DB là 'g') làm tồn kho và giá gốc lệch đúng 1000 lần mà phiếu vẫn hiện đúng.
+      //
+      // Suy ra được thì hệ số của server THẮNG: client không có bảng đơn vị nên không có cách
+      // nào biết 'KG' → 1000. Không suy ra được (đơn vị lạ kiểu "thùng", "mẹt" — cổng NCC tự gửi
+      // vẫn khai được) thì mới dùng số người dùng khai.
+      const derived_base_per_unit = baseUnitsPerUnit(purchase_unit, ingredient.unit);
+      const qty_base_per_unit = derived_base_per_unit ?? claimed_base_per_unit;
 
       const amounts = computeLineAmounts({ qty_purchase, unit_price, qty_base_per_unit });
       const prev = await this.itemRepo.findOne({

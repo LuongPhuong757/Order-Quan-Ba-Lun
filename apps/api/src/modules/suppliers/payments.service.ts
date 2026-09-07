@@ -1,5 +1,5 @@
 // Thanh toán cho NCC + công nợ (M3.D-39→41, bước 3 của Milestone 3).
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Supplier } from './entities/supplier.entity.js';
@@ -188,11 +188,13 @@ export class PaymentsService {
     await this.paymentRepo.delete(id);
   }
 
-  /** Đặt số dư đầu kỳ (M3.D-40) — CHỈ owner.
+  /** Đặt số dư đầu kỳ (M3.D-40). Sửa lại bao nhiêu lần cũng được — đối chiếu sổ với NCC là việc
+   * làm nhiều nhịp, chốt cứng một lần thì sai một chữ số là phải sửa thẳng vào DB.
    *
-   * Guard ở controller đã chặn, nhưng chặn lần nữa ở đây là cố ý: đây là con số duy nhất không
-   * kiểm chứng được từ dữ liệu, và mọi báo cáo công nợ đứng trên nó. Một lần ai đó gắn nhầm
-   * decorator ở controller là đủ để mất lớp bảo vệ duy nhất.
+   * Chủ quán chốt 2026-09-07: MỌI admin đặt được, không chỉ owner. Chốt cũ (`!actor.is_owner` →
+   * 403) đã bỏ cùng `OwnerGuard` ở controller. Vẫn là con số duy nhất hệ thống không tự kiểm
+   * chứng được và mọi báo cáo công nợ đứng trên nó, nên thứ thay thế lớp chặn đó là NHẬT KÝ:
+   * `audit.interceptor` ghi `supplier.opening_balance_set` kèm tên người sửa. Đừng bỏ nốt nó.
    */
   async setOpeningBalance(
     supplier_id: string,
@@ -203,12 +205,6 @@ export class PaymentsService {
     },
     actor: Actor,
   ): Promise<Supplier> {
-    if (!actor.is_owner) {
-      throw new ForbiddenException({
-        code: 'OWNER_ONLY',
-        message: 'Chỉ chủ quán đặt được số dư đầu kỳ',
-      });
-    }
     const s = await this.supplierRepo.findOne({ where: { id: supplier_id } });
     if (!s) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhà cung cấp không tồn tại' });
 
