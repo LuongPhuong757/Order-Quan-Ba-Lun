@@ -1,4 +1,12 @@
 import React from 'react';
+import {
+  matchPreset,
+  presetRange,
+  rangeLabel,
+  vnDayIso,
+  type DayRange,
+  type RangePreset,
+} from '../lib/date-range.ts';
 
 /**
  * Bộ lọc thời gian dùng chung cho toàn hệ thống.
@@ -123,5 +131,104 @@ export function DateRangeFields({
         onChange={(e) => onToChange(e.target.value)}
       />
     </>
+  );
+}
+
+const PRESET_CHIPS: ReadonlyArray<TimeRangeOption<RangePreset>> = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'today', label: 'Hôm nay' },
+  { value: '7d', label: '7 ngày' },
+  { value: '30d', label: '30 ngày' },
+];
+
+/**
+ * Bộ chọn khoảng ngày đầy đủ: dãy preset + khoảng tự chọn.
+ *
+ * Trước đây màn Lịch sử chỉ có hai ô `<input type="date">` trần, nên việc hay làm nhất — "xem
+ * hôm nay" — tốn hai lần mở lịch và bốn cú chạm. Nay một cú chạm, và ô ngày chỉ hiện ra khi
+ * thật sự cần khoảng riêng.
+ *
+ * Preset đang bật được SUY NGƯỢC từ khoảng ngày (`matchPreset`) chứ không giữ thêm một state
+ * riêng: giữ riêng thì sửa tay một ô ngày mà chip vẫn sáng, tức là giao diện nói dối.
+ */
+export function DateRangePicker({
+  value,
+  onChange,
+  nowMs,
+  label,
+  ariaLabel = 'Lọc theo khoảng ngày',
+}: {
+  value: DayRange;
+  onChange: (range: DayRange) => void;
+  /** Cho test bơm mốc thời gian cố định. Bỏ trống thì lấy giờ hiện tại. */
+  nowMs?: number;
+  label?: React.ReactNode;
+  ariaLabel?: string;
+}) {
+  const now = nowMs ?? Date.now();
+  const active = matchPreset(value, now);
+  // Ô ngày hiện ra khi đang ở khoảng tự chọn, hoặc khi người dùng chủ động mở. Đóng lại ngay
+  // khi bấm một preset — để mở thì nó chiếm một hàng mà không dùng tới.
+  const [openCustom, setOpenCustom] = React.useState(false);
+  const showCustom = openCustom || active === null;
+  const today = vnDayIso(now);
+
+  return (
+    <div style={{ minWidth: 0 }}>
+      <TimeRangeChips
+        ariaLabel={ariaLabel}
+        label={label}
+        value={active}
+        options={PRESET_CHIPS}
+        onChange={(p) => {
+          setOpenCustom(false);
+          onChange(presetRange(p as RangePreset, now));
+        }}
+        trailing={
+          <button
+            type="button"
+            className="time-chip"
+            // `aria-pressed` chứ không phải `aria-expanded`: nút này vừa mở ô ngày vừa là
+            // trạng thái thứ năm của cùng một nhóm lựa chọn — đọc màn hình phải nghe nó cùng
+            // họ với bốn chip kia.
+            aria-pressed={showCustom}
+            onClick={() => setOpenCustom((v) => !v)}
+            style={{ flex: 'none' }}
+          >
+            📅 Tuỳ chọn
+          </button>
+        }
+      />
+
+      {showCustom && (
+        <div
+          className="time-custom-row"
+          style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 8, flexWrap: 'wrap' }}
+        >
+          <DateRangeFields
+            from={value.from}
+            to={value.to}
+            max={today}
+            onFromChange={(from) => onChange({ ...value, from })}
+            onToChange={(to) => onChange({ ...value, to })}
+          />
+          {(value.from || value.to) && (
+            <button
+              type="button"
+              className="time-chip"
+              onClick={() => onChange({ from: '', to: '' })}
+              style={{ flex: 'none' }}
+            >
+              ✕ Bỏ khoảng ngày
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Câu chốt lại "đang xem khoảng nào". Bắt buộc phải có vì ô `<input type="date">` hiển
+          thị theo LOCALE CỦA MÁY — máy để tiếng Anh thì mùng 1 tháng 9 hiện ra "09/01/2026",
+          đọc thành mùng 9 tháng 1. Đây là chỗ duy nhất nói rõ không nhầm được. */}
+      <p className="time-range-summary">Đang xem: {rangeLabel(value)}</p>
+    </div>
   );
 }
