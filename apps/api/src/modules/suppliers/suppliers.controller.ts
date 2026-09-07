@@ -94,11 +94,15 @@ export class SuppliersController {
     return { data: await this.svc.update(id, dto) };
   }
 
+  /** Xoá NCC — xoá CỨNG kèm toàn bộ phiếu nhập, bảng giá, tiền đã trả và tài khoản của họ.
+   *
+   * Response cố ý trả về tên NCC + số dòng đã xoá thay vì `{ ok: true }`: `AuditInterceptor` lưu
+   * nguyên response vào `after_json`, nên đây là vết DUY NHẤT còn lại sau khi các dòng kia biến
+   * mất. Xem docblock `SuppliersService.remove`. */
   @Delete(':id')
   @UseGuards(AdminGuard)
   async remove(@Param('id') id: string) {
-    await this.svc.remove(id);
-    return { data: { ok: true } };
+    return { data: await this.svc.remove(id) };
   }
 
   /** Trạng thái tài khoản đăng nhập của NCC. KHÔNG bao giờ trả PIN. */

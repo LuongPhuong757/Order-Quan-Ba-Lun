@@ -274,6 +274,7 @@ export function SuppliersPage() {
       {tab === 'deliveries' && !loading && (
         <DeliveryList
           deliveries={deliveries}
+          isAdmin={isAdmin}
           onEdit={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
           onChanged={() => {
             refresh();
@@ -367,11 +368,24 @@ export function SuppliersPage() {
   );
 }
 
+/** Số dòng đã xoá, về từ `DELETE /suppliers/:id` — xem `SupplierPurge` phía server. */
+type SupplierPurge = {
+  counts: {
+    deliveries: number;
+    items: number;
+    payments: number;
+  };
+};
+
 /** Hỏi rồi xoá một NCC. Trả `true` nếu đã xoá xong.
  *
  * Tách ra khỏi component vì có HAI nút gọi tới nó: nút ngoài màn chi tiết (đường chính) và nút
  * trong form Sửa thông tin (giữ lại cho người đang sửa dở thấy sai mối thì xoá luôn). Hai chỗ mà
- * chép hai lần thì sớm muộn lời cảnh báo công nợ ở một chỗ bị quên cập nhật.
+ * chép hai lần thì sớm muộn lời cảnh báo ở một chỗ bị quên cập nhật.
+ *
+ * Lời cảnh báo phải nói ĐÚNG mức độ: từ 2026-09-07 đây là xoá VĨNH VIỄN cả phiếu nhập, bảng giá
+ * và tiền đã trả (xem `SuppliersService.remove`), không còn là "biến mất khỏi danh sách" như
+ * trước. Nói nhẹ hơn thực tế ở một hộp thoại không hoàn lại được là cái bẫy tệ nhất.
  */
 async function confirmAndDeleteSupplier(
   supplier: Supplier,
@@ -382,14 +396,19 @@ async function confirmAndDeleteSupplier(
     title: `Xoá "${supplier.name}"?`,
     variant: 'danger',
     message:
-      'Nhà cung cấp sẽ biến mất khỏi danh sách. Phiếu nhập đã ghi không đổi, ' +
-      'nhưng công nợ chưa trả của NCC này cũng biến khỏi bảng công nợ.',
-    confirmLabel: 'Xoá',
+      'XOÁ VĨNH VIỄN, không lấy lại được: toàn bộ phiếu nhập, bảng giá mặt hàng, tiền đã trả ' +
+      'và tài khoản đăng nhập của nhà cung cấp này. Báo cáo chi tiêu và giá vốn của những ' +
+      'tháng đã qua sẽ hụt đi đúng phần của họ. Chỉ muốn ẩn khỏi danh sách chọn thì đừng xoá.',
+    confirmLabel: 'Xoá vĩnh viễn',
   });
   if (!ok) return false;
   try {
-    await api.delete(`/suppliers/${supplier.id}`);
-    toast.push('success', `Đã xoá "${supplier.name}"`);
+    const r = await api.delete<{ data: SupplierPurge }>(`/suppliers/${supplier.id}`);
+    const c = r.data.data.counts;
+    toast.push(
+      'success',
+      `Đã xoá "${supplier.name}" · ${c.deliveries} phiếu, ${c.items} mặt hàng, ${c.payments} lần trả tiền`,
+    );
     return true;
   } catch (err) {
     toast.push('error', extractError(err).message);
@@ -489,10 +508,12 @@ const DELIVERY_STATUS: Record<string, { label: string; color: string }> = {
 
 function DeliveryList({
   deliveries,
+  isAdmin,
   onEdit,
   onChanged,
 }: {
   deliveries: Delivery[];
+  isAdmin: boolean;
   onEdit: (d: Delivery) => void;
   onChanged: () => void;
 }) {
@@ -515,6 +536,33 @@ function DeliveryList({
     try {
       await api.post(`/supplier-deliveries/${d.id}/${kind}`);
       toast.push('success', kind === 'confirm' ? 'Đã duyệt phiếu' : 'Đã huỷ phiếu');
+      onChanged();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** Xoá HẲN một phiếu (2026-09-07). Đứng cạnh "Huỷ" nhưng KHÁC việc, và hộp thoại phải nói rõ
+   * cái khác đó — hai nút đỏ cạnh nhau mà người bấm không phân biệt được thì sớm muộn bấm sai:
+   * "Huỷ" giữ phiếu lại trong lịch sử, nút này thì không còn gì để xem lại. */
+  const destroy = async (d: Delivery) => {
+    const ok = await confirmDialog({
+      title: 'Xoá hẳn phiếu này?',
+      variant: 'danger',
+      message:
+        `${d.supplier_name} · ${d.delivery_date} · ${vnd(d.total_amount)}đ. ` +
+        'XOÁ VĨNH VIỄN, không lấy lại được — phiếu không còn trong lịch sử, số tiền này rời khỏi ' +
+        'công nợ và báo cáo chi tiêu. Chỉ dùng cho phiếu nhập trùng hoặc nhập sai; phiếu NCC gửi ' +
+        'mà quán không nhận hàng thì bấm "Huỷ" để còn đối chiếu về sau.',
+      confirmLabel: 'Xoá vĩnh viễn',
+    });
+    if (!ok) return;
+    setBusy(d.id);
+    try {
+      await api.delete(`/supplier-deliveries/${d.id}`);
+      toast.push('success', 'Đã xoá phiếu');
       onChanged();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -618,6 +666,20 @@ function DeliveryList({
                         style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
                       >
                         Sửa
+                      </button>
+                    )}
+                    {/* Xoá hẳn — hiện ở MỌI trạng thái, kể cả phiếu đã huỷ (phiếu huỷ nhập
+                        trùng thì cũng chẳng có gì để giữ). Chỉ admin: `DeliveriesController`
+                        đã chặn bằng `AdminGuard`, nên hiện nút cho role khác chỉ là mời họ
+                        bấm để nhận 403. */}
+                    {isAdmin && (
+                      <button
+                        className="secondary"
+                        onClick={() => destroy(d)}
+                        disabled={busy === d.id}
+                        style={{ minHeight: 36, padding: '0 10px', marginLeft: 6, color: C.danger }}
+                      >
+                        Xoá
                       </button>
                     )}
                   </td>

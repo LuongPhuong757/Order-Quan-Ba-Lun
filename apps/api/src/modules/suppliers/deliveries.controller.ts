@@ -206,6 +206,25 @@ export class DeliveriesController {
     return { data: await this.svc.cancel(id) };
   }
 
+  /** Xoá HẲN một phiếu (2026-09-07) — dùng cho phiếu nhập trùng / nhập sai NCC / nhập thử. Khác
+   * `cancel` (giữ lại với nhãn "đã huỷ"): xem docblock `DeliveriesService.destroy`.
+   *
+   * Khai SAU `@Delete('photos/:photoId')` là BẮT BUỘC, không phải chuyện thẩm mỹ: Nest khớp
+   * route theo thứ tự khai báo, để `:id` lên trước thì `DELETE /supplier-deliveries/photos/<id>`
+   * rơi vào đây và đi xoá một "phiếu" có id là chuỗi `photos`.
+   *
+   * Response trả cả ảnh chụp phiếu đã xoá — `AuditInterceptor` lưu vào `after_json`, và đó là
+   * vết duy nhất còn lại sau khi các dòng kia biến mất.
+   */
+  @Delete(':id')
+  async destroy(@Param('id') id: string, @Req() req: Request) {
+    const result = await this.svc.destroy(id, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: result };
+  }
+
   /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07) — admin-only qua `AdminGuard` ở cấp class.
    *
    * Hai nhịp y như lúc tạo: nhịp một không kèm `approved_ingredient_ids` thì server trả về
