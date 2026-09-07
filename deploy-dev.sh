@@ -337,15 +337,27 @@ git log --oneline -1"
     # Dọn container của TÊN SERVICE CŨ (2026-09-07 — `api`/`mysql` → `dev_api`/`dev_mysql`).
     # Compose gắn nhãn service vào container; đổi tên service nghĩa là nó muốn tạo container
     # MỚI nhưng `container_name` (ordbl_dev_api / ordbl_dev_mysql) thì vẫn thế → "container name
-    # is already in use" và deploy gãy giữa đường. `down` không có `-v` nên volume
-    # `mysql_dev_data` giữ nguyên, DB dev không mất gì. Chỉ chạy đúng một lần, lần deploy đầu
-    # sau khi đổi tên; các lần sau nhãn đã khớp nên bỏ qua.
+    # is already in use" và deploy gãy giữa đường.
+    #
+    # `--remove-orphans` là BẮT BUỘC, không phải cho gọn: sau khi đổi tên service, hai container
+    # cũ không còn thuộc service nào trong compose file nữa, nên `down` trần KHÔNG đụng tới
+    # chúng — chúng là orphan của project. Đã dính đúng lỗi này ở lần deploy develop
+    # 05:07 ngày 2026-09-07: guard chạy, in ra "tắt stack một lần", `down` báo thành công, rồi
+    # `up` vẫn gãy vì hai container cũ còn nguyên đó.
+    #
+    # KHÔNG có `-v` nên volume `mysql_dev_data` giữ nguyên, DB dev không mất gì. Orphan chỉ tính
+    # trong phạm vi project `ordbl-dev` (`name:` cố định trong compose file) nên không thể chạm
+    # tới container của prod hay của site khác.
+    #
+    # Chỉ chạy đúng một lần, lần deploy đầu sau khi đổi tên; các lần sau nhãn đã khớp nên bỏ qua.
     rrun "set -euo pipefail
 cd $DEV_PATH
 OLD=\$(docker inspect ordbl_dev_api -f '{{index .Config.Labels \"com.docker.compose.service\"}}' 2>/dev/null || true)
 if [ -n \"\$OLD\" ] && [ \"\$OLD\" != 'dev_api' ]; then
   echo \"[dev] tên service cũ ('\$OLD') — tắt stack một lần để đổi sang dev_api/dev_mysql (volume DB giữ nguyên)\"
-  $DC down
+  $DC down --remove-orphans
+  echo '[dev] container còn sót tên cũ (phải rỗng):'
+  docker ps -a --filter name=ordbl_dev_ --format '  {{.Names}} {{.Status}}'
 else
   echo '[dev] = tên service đã khớp, không cần dọn'
 fi"
