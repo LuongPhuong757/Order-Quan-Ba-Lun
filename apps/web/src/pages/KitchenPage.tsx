@@ -9,6 +9,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor } from '../lib/item-age.ts';
+import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
 
 type OrderItem = {
   id: string;
@@ -214,6 +215,17 @@ export function KitchenPage() {
         setOrders(ordersRes.data.data.items);
         // Notify khi item chuyển sang READY / mới vào KITCHEN / bếp báo hết
         readyNotifier.ingest(ordersRes.data.data.items);
+        // Đẩy luôn số món chờ vào store badge nav: đứng ở màn này thì badge khớp NGAY theo nhịp
+        // 2s và store không gọi thêm `/orders/kitchen-count` lần nào.
+        // Đếm từ dữ liệu THÔ, KHÔNG qua `buckets`: buckets đã lọc theo nhóm bếp đang chọn, mà
+        // badge phải nói về toàn bộ việc của bếp — không thì lọc "đồ nướng" là badge tụt xuống
+        // và các máy khác đọc một con số khác hẳn.
+        kitchenPendingStore.publish(
+          ordersRes.data.data.items.reduce(
+            (n, o) => n + (o.items || []).filter((it) => it.state === 'KITCHEN').length,
+            0,
+          ),
+        );
       }
       if (menuRes.data?.data?.items) {
         const m = new Map<string, MenuItem>();
