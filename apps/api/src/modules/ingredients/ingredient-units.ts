@@ -101,6 +101,28 @@ export function toBaseQty(qty: number, unit: string, base_unit: string): number 
   return qty * from.factor;
 }
 
+/** MỘT đơn vị người nhập gõ bằng bao nhiêu đơn vị gốc — tức `qty_base_per_unit` của phiếu nhập.
+ *
+ * Sinh ra sau bug production 2026-09-07: màn Nhập hàng ghim cứng hệ số = 1 với MỌI đơn vị, nên
+ * khai mặt hàng mới theo "KG" (BE lưu đơn vị gốc là 'g') làm tồn kho và giá gốc lệch đúng 1000
+ * lần — nhập 10 KG giá 100.000đ ghi thành 10 g giá 100.000 đ/g. Hệ số phải TỰ TÍNH ở server từ
+ * hai đơn vị thật, không được nhận từ client: client không có bảng đơn vị nên không thể biết.
+ *
+ * Trả `null` khi không suy ra được — đơn vị lạ ("thùng", "mẹt") hoặc khác nhóm với đơn vị gốc.
+ * Caller giữ nguyên hệ số người dùng khai, KHÔNG được coi `null` là 1: đó đúng là cái bug này.
+ */
+export function baseUnitsPerUnit(purchase_unit: string, base_unit: string): number | null {
+  const from = parseUnit(purchase_unit);
+  const to = parseUnit(base_unit);
+  if (!from || !to) return null;
+  if (from.kind !== to.kind) return null;
+  // Trong nhóm đếm, 'quả' và 'lá' cùng kind nhưng KHÔNG đổi cho nhau được.
+  if (from.kind === 'count' && from.base_unit !== to.base_unit) return null;
+  // Chia cho `to.factor` chứ không giả định nó bằng 1: đơn vị gốc trong DB là do `resolveUnit`
+  // sinh ra nên hôm nay luôn là đơn vị nhỏ nhất, nhưng phép tính đúng thì không cần giả định đó.
+  return from.factor / to.factor;
+}
+
 /** Hiển thị định lượng cho người đọc: 1500 g → "1,5 kg", 800 g → "800 g".
  *
  * Chỉ đổi lên đơn vị lớn khi số đủ lớn — báo cáo tháng ra "45,2 kg thịt bò" dễ đọc hơn nhiều so
