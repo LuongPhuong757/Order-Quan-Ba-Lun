@@ -1,47 +1,9 @@
-// Test THUẦN, không cần MySQL.
+// Công nợ NCC. Luật đổi 2026-09-07: cộng MỌI phiếu, trừ MỌI lần trả — xem docblock `balance.ts`.
 import { describe, expect, it } from 'vitest';
-import { computeBalance, countsToward, sumAfter } from './balance.js';
+import { computeBalance } from './balance.js';
 
-describe('sumAfter — chặn tính hai lần quanh mốc số dư đầu kỳ', () => {
-  const rows = [
-    { date: '2026-07-15', amount: 5_000_000 }, // trước mốc — đã nằm trong opening_balance
-    { date: '2026-08-01', amount: 3_000_000 }, // đúng ngày mốc
-    { date: '2026-08-20', amount: 2_000_000 }, // sau mốc
-  ];
-
-  it('bỏ dòng TRƯỚC mốc, giữ dòng ĐÚNG NGÀY mốc', () => {
-    // Đây là cái bẫy chính: phiếu 5 triệu hồi tháng 7 đã được chủ quán tính vào số dư đầu kỳ
-    // rồi. Cộng lại lần nữa là nợ phồng lên 5 triệu mà không ai biết vì sao.
-    expect(sumAfter(rows, '2026-08-01')).toBe(5_000_000);
-  });
-
-  it('không có mốc thì cộng tất cả', () => {
-    expect(sumAfter(rows, null)).toBe(10_000_000);
-  });
-
-  it('mốc sau mọi dòng thì không cộng gì', () => {
-    expect(sumAfter(rows, '2026-12-31')).toBe(0);
-  });
-});
-
-describe('countsToward — cùng một điều kiện cho phép cộng và cho danh sách chi tiết', () => {
-  // Màn "con số này ở đâu ra" lọc bằng hàm này, `sumAfter` cộng bằng chính nó. Hai bên lệch nhau
-  // thì tổng hiện ra không khớp danh sách ngay bên dưới, và người đọc kết luận hệ thống tính sai.
-  it('tổng của các dòng ĐƯỢC ĐẾM luôn bằng sumAfter', () => {
-    const rows = [
-      { date: '2026-07-01', amount: 1_000 },
-      { date: '2026-08-01', amount: 2_000 },
-      { date: '2026-09-01', amount: 3_000 },
-    ];
-    for (const cutoff of [null, '2026-06-01', '2026-08-01', '2026-08-15', '2026-12-31']) {
-      const listed = rows.filter((r) => countsToward(r.date, cutoff));
-      expect(listed.reduce((s, r) => s + r.amount, 0)).toBe(sumAfter(rows, cutoff));
-    }
-  });
-});
-
-describe('computeBalance', () => {
-  it('số dư đầu kỳ + đã mua − đã trả', () => {
+describe('computeBalance — số dư đầu kỳ + Σ phiếu − Σ đã trả', () => {
+  it('cộng phiếu, trừ thanh toán', () => {
     const b = computeBalance({
       opening_balance: 4_000_000,
       opening_balance_date: '2026-08-01',
@@ -53,24 +15,52 @@ describe('computeBalance', () => {
     expect(b.balance).toBe(7_000_000);
   });
 
-  it('phiếu và thanh toán trước mốc KHÔNG được tính lại', () => {
+  // Đây là hình dạng ĐÚNG của sự cố production 2026-09-07: mốc số dư đầu kỳ là ngày tạo NCC
+  // (hôm nay), còn 12 phiếu nhập bù đều mang ngày của mấy tuần trước. Luật cũ bỏ hết chúng và
+  // "đã mua" hiện 0đ.
+  it('phiếu TRƯỚC mốc số dư đầu kỳ vẫn được cộng', () => {
     const b = computeBalance({
-      opening_balance: 4_000_000,
-      opening_balance_date: '2026-08-01',
+      opening_balance: 61_307_000,
+      opening_balance_date: '2026-09-07',
       deliveries: [
-        { date: '2026-06-01', amount: 99_000_000 }, // lịch sử cũ, đã gộp vào số dư đầu kỳ
-        { date: '2026-08-10', amount: 6_000_000 },
+        { date: '2026-08-24', amount: 2_716_000 },
+        { date: '2026-08-25', amount: 2_220_000 },
+        { date: '2026-09-05', amount: 17_264_500 },
       ],
-      payments: [
-        { date: '2026-06-05', amount: 99_000_000 },
-        { date: '2026-08-20', amount: 3_000_000 },
-      ],
+      payments: [],
     });
-    expect(b.balance).toBe(7_000_000);
+    expect(b.purchased).toBe(22_200_500);
+    expect(b.balance).toBe(83_507_500);
+  });
+
+  it('thanh toán TRƯỚC mốc số dư đầu kỳ vẫn được trừ', () => {
+    const b = computeBalance({
+      opening_balance: 10_000_000,
+      opening_balance_date: '2026-09-07',
+      deliveries: [],
+      payments: [{ date: '2026-08-30', amount: 4_000_000 }],
+    });
+    expect(b.paid).toBe(4_000_000);
+    expect(b.balance).toBe(6_000_000);
+  });
+
+  it('mốc chỉ còn là THÔNG TIN, đổi mốc không đổi con số', () => {
+    const input = {
+      opening_balance: 5_000_000,
+      deliveries: [{ date: '2026-06-01', amount: 1_000_000 }],
+      payments: [{ date: '2026-07-01', amount: 400_000 }],
+    };
+    const som = computeBalance({ ...input, opening_balance_date: '2026-01-01' });
+    const muon = computeBalance({ ...input, opening_balance_date: '2026-12-31' });
+    const chua = computeBalance({ ...input, opening_balance_date: null });
+    expect(som.balance).toBe(5_600_000);
+    expect(muon.balance).toBe(5_600_000);
+    expect(chua.balance).toBe(5_600_000);
+    expect(chua.opening_balance_date).toBeNull();
   });
 
   it('chưa khai số dư đầu kỳ: con số là phát sinh từ đầu lịch sử, không phải nợ thật', () => {
-    // Q-7 trong spec. Vẫn dùng được, nhưng màn hình phải nói rõ nó tính từ đâu — `counted_from`
+    // Q-7 trong spec. Vẫn dùng được, nhưng màn hình phải nói rõ — `opening_balance_date` null
     // là thứ để nói câu đó.
     const b = computeBalance({
       opening_balance: 0,
@@ -79,7 +69,7 @@ describe('computeBalance', () => {
       payments: [],
     });
     expect(b.balance).toBe(6_000_000);
-    expect(b.counted_from).toBeNull();
+    expect(b.opening_balance_date).toBeNull();
   });
 
   it('trả dư ra số âm chứ không kẹp về 0', () => {
@@ -94,13 +84,13 @@ describe('computeBalance', () => {
     expect(b.balance).toBe(-500_000);
   });
 
-  it('không có giao dịch nào thì còn đúng số dư đầu kỳ', () => {
+  it('không có gì cả thì bằng 0, không phải NaN', () => {
     const b = computeBalance({
-      opening_balance: 4_000_000,
-      opening_balance_date: '2026-08-01',
+      opening_balance: 0,
+      opening_balance_date: null,
       deliveries: [],
       payments: [],
     });
-    expect(b.balance).toBe(4_000_000);
+    expect(b.balance).toBe(0);
   });
 });

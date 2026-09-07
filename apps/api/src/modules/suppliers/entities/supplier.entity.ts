@@ -46,11 +46,14 @@ export class Supplier {
   @Column({ type: 'int', default: 0 })
   opening_balance!: number;
 
-  /** Mốc của số dư đầu kỳ, 'YYYY-MM-DD'. NULL = số dư tính từ đầu thời gian.
+  /** Nợ cũ tính đến ngày nào, 'YYYY-MM-DD'. NULL = chưa khai nợ cũ.
    *
-   * BẮT BUỘC PHẢI CÓ, không phải cột trang trí: phiếu nhập và lần trả tiền TRƯỚC mốc này đã nằm
-   * trong `opening_balance` rồi. Cộng chúng thêm lần nữa là tính hai lần và số nợ phồng lên —
-   * xem `sumAfter` trong `balance.ts`. */
+   * THÔNG TIN, không phải điều kiện lọc (đổi 2026-09-07). Trước đây phiếu và lần trả TRƯỚC mốc
+   * này bị bỏ khỏi phép cộng vì coi như đã nằm trong `opening_balance`; luật đó bỏ rồi vì mốc bị
+   * ghim cứng = ngày tạo NCC, còn việc đầu tiên ai cũng làm là nhập bù phiếu cũ — nên phiếu vừa
+   * nhập biến mất khỏi công nợ mà không báo gì. Xem docblock đầu `balance.ts`.
+   *
+   * Giữ cột lại vì màn hình cần nói "nợ cũ này tính đến ngày nào" ở lần đối chiếu sau. */
   @Column({ type: 'date', nullable: true })
   opening_balance_date!: string | null;
 

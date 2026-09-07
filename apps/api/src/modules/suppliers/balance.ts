@@ -4,45 +4,37 @@
 //
 //     còn phải trả = số dư đầu kỳ + Σ phiếu ĐÃ DUYỆT − Σ đã thanh toán
 //
-// Nhưng có một cái bẫy làm hỏng toàn bộ con số nếu bỏ qua: phiếu nhập và lần trả tiền xảy ra
-// TRƯỚC mốc số dư đầu kỳ thì đã nằm sẵn trong `opening_balance` rồi. Cộng chúng thêm lần nữa là
-// tính hai lần. Đó là lý do `sumAfter` tồn tại và được test riêng.
+// Cộng MỌI phiếu và trừ MỌI lần trả, không lọc theo ngày (chủ quán chốt 2026-09-07).
+//
+// Bản trước lọc theo `opening_balance_date`: phiếu và lần trả TRƯỚC mốc bị coi là "đã nằm sẵn
+// trong số dư đầu kỳ" nên không cộng/trừ lần nữa. Ý đúng, nhưng sai với cách người ta thật sự
+// dùng phần mềm: mốc bị ghim cứng = ngày TẠO NCC, còn việc đầu tiên ai cũng làm là nhập bù phiếu
+// mấy tuần trước — nên toàn bộ phiếu vừa nhập rơi vào vùng bị bỏ. Thấy thật trên production
+// 2026-09-07: 12 phiếu tổng 22.200.500đ, "đã mua" hiện 0đ.
+//
+// Nghĩa mới, gọn hơn một bậc và không có vùng im lặng nào: **số dư đầu kỳ là nợ cũ NGOÀI hệ
+// thống**, phiếu trong hệ thống là phát sinh, cộng cả hai. `opening_balance_date` từ giờ chỉ là
+// thông tin "nợ cũ tính đến ngày nào", không còn là điều kiện lọc.
+//
+// Đánh đổi: lớp chống đếm hai lần theo ngày mất đi. Nếu ai đó gộp mấy phiếu đã nhập vào luôn số
+// dư đầu kỳ thì nợ sẽ phồng lên. Bù lại bằng cảnh báo ngay tại ô nhập số dư đầu kỳ (màn hình nói
+// rõ NCC này đã có bao nhiêu phiếu trong hệ thống), chứ không bằng một phép lọc mà người dùng
+// không nhìn thấy.
 
 export type DatedAmount = { date: string; amount: number };
 
 export type SupplierBalance = {
   opening_balance: number;
-  /** Σ phiếu đã duyệt TỪ mốc số dư đầu kỳ trở đi. */
+  /** Σ MỌI phiếu đã duyệt. */
   purchased: number;
-  /** Σ đã trả TỪ mốc số dư đầu kỳ trở đi. */
+  /** Σ MỌI lần đã trả. */
   paid: number;
   /** Kết quả cuối. Âm = quán đã trả dư (trả trước, hoặc ghi nhầm). */
   balance: number;
-  /** Mốc đang tính từ đó, để màn hình nói rõ "số này tính từ ngày nào". NULL = từ đầu. */
-  counted_from: string | null;
+  /** Nợ cũ tính đến ngày nào — THÔNG TIN để màn hình nói rõ số dư đầu kỳ là của mốc nào.
+   *  KHÔNG phải điều kiện lọc nữa. NULL = chưa khai số dư đầu kỳ. */
+  opening_balance_date: string | null;
 };
-
-/** Cộng những dòng KỂ TỪ `cutoff` trở đi (bao gồm chính ngày đó).
- *
- * `cutoff` NULL = cộng tất cả: chưa khai số dư đầu kỳ thì mặc định coi như bắt đầu từ con số 0
- * ở đầu thời gian, và toàn bộ lịch sử là phát sinh.
- *
- * So chuỗi 'YYYY-MM-DD' trực tiếp, không đổi sang `Date`: định dạng này so từ điển ra đúng thứ
- * tự thời gian, và tránh hẳn chuyện lệch múi giờ khi máy chủ chạy UTC còn quán ở +07.
- */
-export function sumAfter(rows: DatedAmount[], cutoff: string | null): number {
-  return rows.filter((r) => countsToward(r.date, cutoff)).reduce((sum, r) => sum + r.amount, 0);
-}
-
-/** Dòng ngày `date` có được cộng vào công nợ hay không, với mốc số dư đầu kỳ `cutoff`.
- *
- * Tách riêng để màn hình "con số này ở đâu ra" lọc bằng ĐÚNG một điều kiện với phép cộng. Viết
- * lại điều kiện ở chỗ liệt kê là mở đường cho hai bên lệch nhau, và khi đó tổng hiện ra không
- * khớp với danh sách ngay bên dưới nó — người đọc sẽ kết luận hệ thống tính sai.
- */
-export function countsToward(date: string, cutoff: string | null): boolean {
-  return cutoff === null || date >= cutoff;
-}
 
 export function computeBalance(input: {
   opening_balance: number;
@@ -50,14 +42,14 @@ export function computeBalance(input: {
   deliveries: DatedAmount[];
   payments: DatedAmount[];
 }): SupplierBalance {
-  const cutoff = input.opening_balance_date;
-  const purchased = sumAfter(input.deliveries, cutoff);
-  const paid = sumAfter(input.payments, cutoff);
+  const sum = (rows: DatedAmount[]) => rows.reduce((s, r) => s + r.amount, 0);
+  const purchased = sum(input.deliveries);
+  const paid = sum(input.payments);
   return {
     opening_balance: input.opening_balance,
     purchased,
     paid,
     balance: input.opening_balance + purchased - paid,
-    counted_from: cutoff,
+    opening_balance_date: input.opening_balance_date,
   };
 }
