@@ -159,21 +159,19 @@ export function App() {
               <Route path="/history" element={<HistoryPage />} />
             </Route>
 
-            {/* Nhà cung cấp (M3.D-31, 2026-09-05): admin + order.
-                Nhân viên order là người NHẬN HÀNG tại quán, nên họ phải nhập được phiếu — nhập hộ
-                là đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ. Bếp không vào:
-                bếp không nhận hàng và không thấy giá mua.
-                Các nút sửa/xoá NCC bên trong gate riêng theo role, khớp với AdminGuard ở BE. */}
-            <Route element={<RoleGate allow={['admin', 'order']} />}>
-              <Route path="/suppliers" element={<SuppliersPage />} />
-            </Route>
+            {/* Admin-only: tables, users, audit, dashboard, nhà cung cấp.
 
-            {/* Admin-only: tables, users, audit, dashboard */}
+                Nhà cung cấp (2026-09-07, thay M3.D-31): trước đây role `order` vào được để nhập
+                phiếu hộ. Chủ quán chốt bỏ — màn này bày GIÁ MUA và công nợ, tức là bày luôn lãi
+                của quán, nhân viên không được nhìn. Bếp vốn đã không vào.
+                Gate ở BE cũng đổi theo (AdminGuard trên cả 3 controller suppliers/deliveries/
+                reports) — sửa một mình chỗ này chỉ giấu nút, gõ thẳng URL vẫn ra dữ liệu. */}
             <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
               {/* Thống kê truy cập trang khách (2026-08-05). Admin-only và KHÔNG có trong
                   nav dưới: nav admin đã 7 mục, thêm mục thứ 8 là bóp nhỏ tất cả trên điện
                   thoại. Đường vào là thẻ ở Dashboard. */}
@@ -366,9 +364,6 @@ function ProtectedShell() {
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
-          {/* Nhân viên order là người NHẬN HÀNG tại quán (M3.D-05) nên phải nhập được phiếu.
-              Role này KHÔNG có Dashboard, nên nếu không có nút ở đây thì không có đường vào nào. */}
-          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}

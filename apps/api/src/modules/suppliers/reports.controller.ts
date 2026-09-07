@@ -2,7 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { RequireRoles } from '../auth/guards/roles.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 
 /** Báo cáo giá & mặt hàng nhập (bước 2).
  *
@@ -10,7 +10,7 @@ import { RequireRoles } from '../auth/guards/roles.guard.js';
  * đối chiếu ngay lúc NCC đứng đó, không phải chờ hỏi chủ quán.
  */
 @Controller('supplier-reports')
-@UseGuards(JwtAuthGuard, RequireRoles('admin', 'order'))
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class ReportsController {
   constructor(private readonly svc: ReportsService) {}
 
