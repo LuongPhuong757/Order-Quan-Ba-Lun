@@ -87,18 +87,20 @@ set -a; source .env.dev; set +a
 : "\${DOMAIN:?thiếu DOMAIN trong .env.dev}"
 : "\${DEV_AUTH_HASH:?thiếu DEV_AUTH_HASH — server dev không được chạy khi không có basic auth}"
 
-# Chưa có DNS mà đã bật site block là Caddy lao vào xin cert rồi trượt liên tục. Let's
-# Encrypt đếm số lần thẩm định THẤT BẠI theo hostname, và hạn mức đó tính chung cho cả
-# domain của quán — nên hỏng ở đây là kéo theo cả prod. Đợi DNS xong rồi bật.
-MISSING=""
+# Chưa có DNS mà đã bật site block là Caddy lao vào xin cert rồi trượt liên tục — mỗi
+# hostname chỉ được 5 lần thẩm định hỏng mỗi giờ. Cert của mỗi tên được xin RIÊNG, nên một
+# tên chưa có DNS không kéo theo tên kia: có tên nào phân giải được thì cứ bật, chỉ cảnh
+# báo tên còn thiếu. Không tên nào phân giải được thì bỏ qua hẳn, chưa có gì để phục vụ.
+MISSING=""; RESOLVED=""
 for H in "dev.\$DOMAIN" "admin.dev.\$DOMAIN"; do
-  getent hosts "\$H" >/dev/null 2>&1 || MISSING="\$MISSING \$H"
+  if getent hosts "\$H" >/dev/null 2>&1; then RESOLVED="\$RESOLVED \$H"; else MISSING="\$MISSING \$H"; fi
 done
-if [ -n "\$MISSING" ] && [ -z "\${ORDBL_FORCE_CADDY:-}" ]; then
-  echo "[dev] ⏭  BỎ QUA phần Caddy — chưa phân giải được:\$MISSING"
+if [ -z "\$RESOLVED" ] && [ -z "\${ORDBL_FORCE_CADDY:-}" ]; then
+  echo "[dev] ⏭  BỎ QUA phần Caddy — chưa phân giải được tên nào:\$MISSING"
   echo "[dev]    Thêm bản ghi A trỏ về IP VPS rồi chạy: ./deploy-dev.sh --caddy"
   exit 0
 fi
+[ -n "\$MISSING" ] && echo "[dev] ⚠ chưa có DNS cho:\$MISSING — tên này sẽ 'không mở được' cho tới khi thêm bản ghi A"
 
 DEST="$DEPLOY_PATH/caddy-local/dev.caddy"
 mkdir -p "$DEPLOY_PATH/caddy-local"
