@@ -27,6 +27,19 @@ type RecipeLine = {
 
 const UNIT_OPTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'hộp', 'lát', 'con', 'miếng', 'cái'];
 
+/** Danh sách cho ô chọn đơn vị, LUÔN có đơn vị thật của nguyên liệu đang chọn ở đầu.
+ *
+ * Từ 2026-09-07 đơn vị tính nhập tuỳ ý, nên nguyên liệu có thể đang đo bằng "mẹt" — không nằm
+ * trong `UNIT_OPTIONS`. Thiếu bước này thì `pick()` set đơn vị 'mẹt' vào một `<select>` không có
+ * option nào khớp: trình duyệt tự nhảy về option đầu ('g'), và người dùng gửi đi một định lượng
+ * mang đơn vị họ không hề chọn. */
+function unitChoices(current: string): string[] {
+  const c = current.trim();
+  if (!c) return UNIT_OPTIONS;
+  const rest = UNIT_OPTIONS.filter((u) => u.toLowerCase() !== c.toLowerCase());
+  return [c, ...rest];
+}
+
 /** Bỏ dấu để so khớp gợi ý — cùng quy tắc với `normalizeName` ở BE, giữ hai bên hiểu giống nhau. */
 function norm(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
@@ -269,7 +282,7 @@ function AddLineForm({
           onChange={(e) => setUnit(e.target.value)}
           style={{ padding: '10px 8px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 15 }}
         >
-          {UNIT_OPTIONS.map((u) => (
+          {unitChoices(unit).map((u) => (
             <option key={u} value={u}>{u}</option>
           ))}
         </select>

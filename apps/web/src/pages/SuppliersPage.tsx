@@ -92,7 +92,8 @@ export function SuppliersPage() {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Supplier | null>(null);
-  const [showForm, setShowForm] = useState<{ supplierId?: string } | null>(null);
+  // `editingId` = đang SỬA phiếu đó (2026-09-07) thay vì nhập phiếu mới.
+  const [showForm, setShowForm] = useState<{ supplierId?: string; editingId?: string } | null>(null);
   const [showEditor, setShowEditor] = useState<Supplier | 'new' | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
   const [history, setHistory] = useState<{ id: string; name: string } | null>(null);
@@ -273,6 +274,7 @@ export function SuppliersPage() {
       {tab === 'deliveries' && !loading && (
         <DeliveryList
           deliveries={deliveries}
+          onEdit={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
           onChanged={() => {
             refresh();
             setBalanceTick((t) => t + 1);
@@ -338,6 +340,7 @@ export function SuppliersPage() {
         <DeliveryFormPanel
           suppliers={suppliers}
           lockedSupplierId={showForm.supplierId}
+          editingId={showForm.editingId}
           onClose={() => setShowForm(null)}
           onSaved={() => {
             refresh();
@@ -486,9 +489,11 @@ const DELIVERY_STATUS: Record<string, { label: string; color: string }> = {
 
 function DeliveryList({
   deliveries,
+  onEdit,
   onChanged,
 }: {
   deliveries: Delivery[];
+  onEdit: (d: Delivery) => void;
   onChanged: () => void;
 }) {
   const toast = useToast();
@@ -601,6 +606,19 @@ function DeliveryList({
                           Huỷ
                         </button>
                       </>
+                    )}
+                    {/* Sửa phiếu đã nhập (2026-09-07). Hiện cho cả phiếu ĐÃ DUYỆT — đó chính là
+                        trường hợp cần sửa: phiếu nhân viên nhập vào là CONFIRMED ngay. Phiếu đã
+                        HUỶ thì không: sửa nó là làm sống lại một phiếu ai đó đã bỏ. */}
+                    {d.status !== 'CANCELLED' && (
+                      <button
+                        className="secondary"
+                        onClick={() => onEdit(d)}
+                        disabled={busy === d.id}
+                        style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
+                      >
+                        Sửa
+                      </button>
                     )}
                   </td>
                 </tr>
