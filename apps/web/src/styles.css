@@ -7,7 +7,9 @@
 html,
 body {
   margin: 0;
-  padding: 0;
+  /* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
+     Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào. */
+  padding: var(--env-banner-h, 0px) 0 0 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 16px; /* iOS no-zoom baseline */
   line-height: 1.5;
@@ -217,7 +219,7 @@ h2 {
    cao 56px). Chỉ 1 cái tại 1 thời điểm — cái mới ghi đè cái cũ. */
 .toast-banner-wrap {
   position: fixed;
-  top: 56px;
+  top: calc(56px + var(--env-banner-h, 0px));
   left: 0;
   right: 0;
   z-index: 9000;
@@ -731,7 +733,7 @@ a:hover {
   /* Sticky để banner thông báo (fixed top:56px) luôn nằm ngay dưới header
      kể cả khi cuộn trang. z-index dưới modal (9998+). */
   position: sticky;
-  top: 0;
+  top: var(--env-banner-h, 0px);
   z-index: 200;
   box-sizing: border-box;
 }
@@ -1815,4 +1817,42 @@ a:hover {
   table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
   table.responsive.sup-cards td::before { margin-right: auto; }
   table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
+}
+/* ── Dải đỏ báo môi trường dev ────────────────────────────────────────────────
+ * Chỉ hiện trên dev.<domain> / admin.dev.<domain> / localhost — xem
+ * components/EnvBanner.tsx. `fixed` chứ không `sticky`: header đã sticky rồi, dải này phải
+ * đứng yên KỂ CẢ khi cuộn, vì cái nó trả lời ("tôi đang ở đâu") không đổi theo vị trí cuộn.
+ * z-index trên cả modal (9998+): một modal che mất dải là đúng lúc dễ bấm nhầm nhất.
+ * `pointer-events: none` để nó không bao giờ nuốt cú chạm của ai. */
+.env-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--env-banner-h, 26px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Sọc chéo, không phải màu phẳng: trang quản lý vốn đã có nút đỏ (Đăng xuất, nút xoá),
+     một dải đỏ trơn dễ bị mắt xếp chung vào nhóm đó. Sọc thì không nhầm với gì được. */
+  background: repeating-linear-gradient(
+    -45deg,
+    #dc2626 0 12px,
+    #b91c1c 12px 24px
+  );
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  /* Điện thoại: bỏ bớt chữ, giữ nguyên chiều cao — chiều cao mới là thứ mắt nhận ra. */
+  .env-banner { font-size: 10px; letter-spacing: 0.03em; }
 }

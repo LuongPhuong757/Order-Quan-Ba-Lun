@@ -254,7 +254,9 @@ const MEDIA_CSS = `
 
 const headerStyle: CSSProperties = {
   position: 'sticky',
-  top: 0,
+  // Tụt xuống dưới dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
+  // Trên production biến này không tồn tại → 0px → header dính sát đỉnh y như cũ.
+  top: 'var(--env-banner-h, 0px)',
   zIndex: 'var(--z-sticky-header)' as unknown as number,
   background: 'var(--bg-surface)',
   borderBottom: '1px solid var(--border-subtle)',

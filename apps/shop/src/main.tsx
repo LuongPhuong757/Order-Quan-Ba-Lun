@@ -4,7 +4,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
 import './styles/tokens.css';
 import './styles/motion.css'; // Dùng var(--dur-*)/var(--ease-*) nên phải nạp SAU tokens
+import './styles/env-banner.css'; // Dải đỏ báo môi trường dev — chỉ hiện trên host dev
 import { AppShell } from './components/AppShell.tsx';
+import { EnvBanner } from './components/EnvBanner.tsx';
 import { MenuPage } from './pages/MenuPage.tsx';
 import { MenuBookPage } from './pages/MenuBookPage.tsx';
 
@@ -77,12 +79,18 @@ if (isMenuHost) {
   // đặt hàng — thứ duy nhất nó làm được là hiển thị.
   createRoot(root).render(
     <StrictMode>
+      {/* Quyển menu cũng phải mang dấu: nó là màn duy nhất trên tên miền menu, không có
+          header nào khác để mà nhận ra mình đang ở bản thử. */}
+      <EnvBanner />
       <MenuBookPage />
     </StrictMode>,
   );
 } else {
   createRoot(root).render(
     <StrictMode>
+      {/* NGOÀI `<BrowserRouter>`: dải phải có mặt trên mọi route, kể cả trang cập nhật ảnh
+          món nằm ngoài `AppShell` (không có header). */}
+      <EnvBanner />
       <BrowserRouter>
         <Routes>
           {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.

@@ -1,0 +1,54 @@
+/* ============================================================================
+ * Dải đỏ báo môi trường dev — apps/shop
+ * ============================================================================
+ * Chỉ hiện trên dev.<domain> / localhost; xem components/EnvBanner.tsx.
+ *
+ * VÌ SAO LÀ FILE CSS RIÊNG, KHÔNG PHẢI INLINE STYLE NHƯ CÁC COMPONENT KHÁC
+ * Ở đây cần hai thứ mà inline style không làm được: sọc chéo lặp
+ * (`repeating-linear-gradient`) và một quy tắc lên thẳng `body`. Và nó cũng không thuộc
+ * `tokens.css` — file đó là bảng màu/chữ/khoảng cách của thương hiệu, còn cái này là một
+ * mảnh giàn giáo của môi trường thử, đúng ra phải xoá đi được mà không ai để ý.
+ *
+ * SỌC CHỨ KHÔNG PHẢI ĐỎ TRƠN: màu thương hiệu của quán CHÍNH LÀ đỏ ớt (--brand-500). Một dải
+ * đỏ trơn trên trang khách sẽ trông như một phần thiết kế, tức là mất sạch tác dụng cảnh báo.
+ * ========================================================================= */
+
+/* Chừa chỗ cho dải `fixed`. Đặt trên `body` chứ không trên `AppShell` vì quyển menu điện tử
+   và trang cập nhật ảnh món nằm NGOÀI `AppShell` (xem main.tsx) — đặt ở shell là hai màn đó
+   bị dải che mất 26px đầu trang. Production không có biến này → 0px → không đổi gì. */
+body {
+  padding-top: var(--env-banner-h, 0px);
+}
+
+.env-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--env-banner-h, 26px);
+  /* Trên mọi lớp của trang khách (--z-sheet 310 là cao nhất): sheet OTP mở toàn màn mà che
+     mất dải thì đúng lúc đang gõ số điện thoại lại không biết mình đang ở môi trường nào. */
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: repeating-linear-gradient(-45deg, #dc2626 0 12px, #7f1d1d 12px 24px);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  /* Không bao giờ nuốt cú chạm của khách. */
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  .env-banner {
+    font-size: 10px;
+    letter-spacing: 0.03em;
+  }
+}
