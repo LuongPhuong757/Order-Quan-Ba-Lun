@@ -21,7 +21,24 @@ export function addDaysIso(iso: string, days: number): string {
   return new Date(base + days * DAY_MS).toISOString().slice(0, 10);
 }
 
-export type RangePreset = 'all' | 'today' | '7d' | '30d';
+/** Ngày đầu tháng chứa `iso`, vẫn theo giờ VN (chuỗi thuần, không đụng `Date`). */
+export function monthStartIso(iso: string): string {
+  return `${iso.slice(0, 7)}-01`;
+}
+
+/** Cộng/trừ THÁNG trên chuỗi 'YYYY-MM-DD', trả về ngày ĐẦU tháng kết quả.
+ *
+ * Không dùng `Date.setMonth`: 31/3 lùi một tháng ra 3/3 (tháng 2 không có ngày 31). Ở đây chỉ
+ * cần mốc đầu tháng nên tính thẳng trên số tháng, không có bẫy nào. */
+export function addMonthsStartIso(iso: string, months: number): string {
+  const y = Number(iso.slice(0, 4));
+  const m = Number(iso.slice(5, 7)) - 1 + months;
+  const year = y + Math.floor(m / 12);
+  const month = ((m % 12) + 12) % 12;
+  return `${year}-${String(month + 1).padStart(2, '0')}-01`;
+}
+
+export type RangePreset = 'all' | 'today' | '7d' | '30d' | '90d' | 'month' | 'prev_month';
 
 export type DayRange = { from: string; to: string };
 
@@ -39,6 +56,15 @@ export function presetRange(preset: RangePreset, nowMs: number): DayRange {
       return { from: addDaysIso(today, -6), to: today };
     case '30d':
       return { from: addDaysIso(today, -29), to: today };
+    case '90d':
+      return { from: addDaysIso(today, -89), to: today };
+    // "Tháng này" = mùng 1 tới HÔM NAY, không tới cuối tháng: chặn `to` ở cuối tháng thì mọi
+    // ngày trong tháng đều cho cùng một khoảng, và dòng "Đang xem" nói một quãng chưa xảy ra.
+    case 'month':
+      return { from: monthStartIso(today), to: today };
+    // "Tháng trước" là tháng ĐÃ ĐÓNG, nên chặn cả hai đầu: mùng 1 → hôm trước mùng 1 tháng này.
+    case 'prev_month':
+      return { from: addMonthsStartIso(today, -1), to: addDaysIso(monthStartIso(today), -1) };
   }
 }
 
@@ -48,8 +74,16 @@ export function presetRange(preset: RangePreset, nowMs: number): DayRange {
  * Suy ngược từ giá trị thay vì giữ thêm một biến state "preset đang chọn": hai nguồn sự thật
  * thì sớm muộn cũng lệch — sửa tay một ô ngày mà chip vẫn sáng là nói dối người dùng.
  */
-export function matchPreset(range: DayRange, nowMs: number): RangePreset | null {
-  const presets: RangePreset[] = ['all', 'today', '7d', '30d'];
+export function matchPreset(
+  range: DayRange,
+  nowMs: number,
+  /** Chỉ dò trong những preset ĐANG hiện trên màn. Bỏ trống = dò hết.
+   *
+   *  Cần tham số này vì hai preset có thể trùng khoảng: mùng 1 hằng tháng thì "Hôm nay" và
+   *  "Tháng này" cho cùng {mùng 1, mùng 1}. Dò hết thì màn nào không có chip "Hôm nay" sẽ
+   *  không sáng chip nào cả trong đúng ngày đó. */
+  presets: readonly RangePreset[] = ['all', 'today', '7d', '30d', '90d', 'month', 'prev_month'],
+): RangePreset | null {
   for (const p of presets) {
     const r = presetRange(p, nowMs);
     if (r.from === range.from && r.to === range.to) return p;

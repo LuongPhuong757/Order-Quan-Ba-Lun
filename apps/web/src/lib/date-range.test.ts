@@ -60,6 +60,35 @@ describe('presetRange', () => {
   it('"Tất cả" bỏ trống hai đầu — không chặn gì', () => {
     expect(presetRange('all', TOI_VN)).toEqual({ from: '', to: '' });
   });
+
+  it('"90 ngày" lùi 89', () => {
+    expect(presetRange('90d', TOI_VN)).toEqual({ from: '2026-06-10', to: '2026-09-07' });
+  });
+
+  it('"Tháng này" = mùng 1 tới HÔM NAY, không tới cuối tháng', () => {
+    expect(presetRange('month', TOI_VN)).toEqual({ from: '2026-09-01', to: '2026-09-07' });
+  });
+
+  it('"Tháng trước" chặn cả hai đầu, tới đúng ngày cuối tháng đó', () => {
+    expect(presetRange('prev_month', TOI_VN)).toEqual({ from: '2026-08-01', to: '2026-08-31' });
+  });
+
+  it('"Tháng trước" vắt qua ranh giới NĂM', () => {
+    const thang1 = Date.parse('2026-01-15T05:00:00Z');
+    expect(presetRange('prev_month', thang1)).toEqual({ from: '2025-12-01', to: '2025-12-31' });
+  });
+
+  it('"Tháng trước" của tháng 3 ra tháng 2 đúng 28/29 ngày, không phải 30', () => {
+    expect(presetRange('prev_month', Date.parse('2026-03-10T05:00:00Z'))).toEqual({
+      from: '2026-02-01',
+      to: '2026-02-28',
+    });
+    // Năm nhuận.
+    expect(presetRange('prev_month', Date.parse('2024-03-10T05:00:00Z'))).toEqual({
+      from: '2024-02-01',
+      to: '2024-02-29',
+    });
+  });
 });
 
 describe('matchPreset', () => {
@@ -79,6 +108,21 @@ describe('matchPreset', () => {
 
   it('chỉ điền một đầu cũng là tự chọn', () => {
     expect(matchPreset({ from: '2026-09-01', to: '' }, TOI_VN)).toBeNull();
+  });
+
+  it('chỉ dò trong dãy preset được truyền vào', () => {
+    const cuaTabThongKe = ['all', '7d', '30d', '90d', 'month', 'prev_month'] as const;
+    expect(matchPreset({ from: '2026-09-01', to: '2026-09-07' }, TOI_VN, cuaTabThongKe)).toBe('7d');
+    expect(matchPreset({ from: '2026-08-01', to: '2026-08-31' }, TOI_VN, cuaTabThongKe)).toBe('prev_month');
+    // "Hôm nay" không nằm trong dãy → không sáng chip nào, dù khoảng đúng là hôm nay.
+    expect(matchPreset({ from: '2026-09-07', to: '2026-09-07' }, TOI_VN, cuaTabThongKe)).toBeNull();
+  });
+
+  it('mùng 1 hằng tháng: "Hôm nay" và "Tháng này" trùng khoảng, dãy chip quyết định chip nào sáng', () => {
+    const mung1 = Date.parse('2026-09-01T05:00:00Z');
+    const trung = { from: '2026-09-01', to: '2026-09-01' };
+    expect(matchPreset(trung, mung1, ['all', 'today', '7d', '30d'])).toBe('today');
+    expect(matchPreset(trung, mung1, ['all', '30d', 'month'])).toBe('month');
   });
 });
 

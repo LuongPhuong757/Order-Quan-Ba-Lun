@@ -488,13 +488,13 @@ export function ItemStatsPanel({
         <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
           <thead>
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
+              <ThSort k="ingredient_name" label={ITEM_SORTS.ingredient_name.label} now={sortKey} asc={asc} onPick={bamCot} />
               <th style={{ padding: 8 }}>NCC</th>
-              <ThSort k="deliveries" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="qty_base" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="amount" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="avg_unit_price_base" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="last_date" now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="deliveries" label={ITEM_SORTS.deliveries.label} now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="qty_base" label={ITEM_SORTS.qty_base.label} now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="amount" label={ITEM_SORTS.amount.label} now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="avg_unit_price_base" label={ITEM_SORTS.avg_unit_price_base.label} now={sortKey} asc={asc} onPick={bamCot} right />
+              <ThSort k="last_date" label={ITEM_SORTS.last_date.label} now={sortKey} asc={asc} onPick={bamCot} right />
             </tr>
           </thead>
           <tbody>
@@ -712,17 +712,22 @@ export function PriceHistoryDialog({
  *
  * Là <button> thật bên trong <th>, không phải <th onClick>: bàn phím phải tab tới và Enter được,
  * mà `role="button"` gắn tay lên th thì còn phải tự lo phím. */
-function ThSort({
+/** Ô tiêu đề bảng bấm được để đổi cách xếp. Generic theo khoá + nhận `label` qua prop nên dùng
+ *  được cho MỌI bảng, không riêng bảng mặt hàng — tab "Thống kê" dùng lại đúng ô này để hai
+ *  bảng cùng một hành vi bấm-đảo-chiều và cùng `aria-sort`. */
+export function ThSort<K extends string>({
   k,
+  label,
   now,
   asc,
   onPick,
   right,
 }: {
-  k: ItemSortKey;
-  now: ItemSortKey;
+  k: K;
+  label: string;
+  now: K;
   asc: boolean;
-  onPick: (k: ItemSortKey) => void;
+  onPick: (k: K) => void;
   right?: boolean;
 }) {
   const active = k === now;
@@ -747,7 +752,7 @@ function ThSort({
           fontSize: 14,
         }}
       >
-        {ITEM_SORTS[k].label}
+        {label}
         <span aria-hidden="true" style={{ opacity: active ? 1 : 0.25 }}>
           {' '}
           {active && asc ? '▲' : '▼'}

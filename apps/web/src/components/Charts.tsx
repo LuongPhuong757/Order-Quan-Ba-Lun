@@ -22,11 +22,18 @@ export function BarChart({
   color = TEAL,
   height = 160,
   formatValue,
+  valueLabels = 'all',
 }: {
-  data: Array<{ label: string; value: number; sub?: string }>;
+  data: Array<{ label: string; value: number; sub?: string; tooltip?: string }>;
   color?: string;
   height?: number;
   formatValue?: (v: number) => string;
+  /** Con số in trên đầu cột: mọi cột, chỉ cột cao nhất, hoặc không cột nào.
+   *
+   *  Cần lựa chọn này từ khi có biểu đồ dài (chi tiêu 90 ngày): 90 con số 10px xếp cạnh nhau
+   *  thành một dải nhiễu che mất đúng cái hình mà biểu đồ vẽ ra. Giá trị từng cột vẫn đọc
+   *  được bằng cách trỏ/giữ vào cột. */
+  valueLabels?: 'all' | 'peak' | 'none';
 }) {
   const max = Math.max(1, ...data.map((d) => d.value));
   if (data.length === 0) return <Empty />;
@@ -35,13 +42,18 @@ export function BarChart({
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height, minWidth: data.length * 34 }}>
         {data.map((d, i) => {
           const h = Math.round((d.value / max) * (height - 26));
+          const shown = formatValue ? formatValue(d.value) : String(d.value);
+          const showLabel =
+            d.value > 0 && (valueLabels === 'all' || (valueLabels === 'peak' && d.value === max));
           return (
             <div key={i} style={{ flex: '1 0 26px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                {d.value > 0 ? (formatValue ? formatValue(d.value) : d.value) : ''}
+              {/* Ô chữ giữ chỗ kể cả khi trống — bỏ hẳn thì hàng cột cao thêm 14px và cột cao
+                  nhất bị cắt mất đầu ở chế độ 'peak'. */}
+              <div style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap', minHeight: 14 }}>
+                {showLabel ? shown : ''}
               </div>
               <div
-                title={`${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}
+                title={d.tooltip ? `${d.tooltip}: ${shown}` : `${d.label}: ${shown}`}
                 style={{
                   width: '100%',
                   maxWidth: 40,
@@ -76,7 +88,13 @@ export function RankBars({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {data.map((d, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, alignItems: 'center' }}>
+        <div
+          key={i}
+          // Tên món dài bị cắt bằng ellipsis, nên phải có tooltip — không thì dòng đầu bảng xếp
+          // hạng đọc thành "Thịt bò Úc nhập kh…" và không cách nào biết đủ.
+          title={`${d.label}: ${formatValue ? formatValue(d.value) : d.value}${d.sub ? ` · ${d.sub}` : ''}`}
+          style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, alignItems: 'center' }}
+        >
           <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 13, color: '#1f2937', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {i + 1}. {d.label}

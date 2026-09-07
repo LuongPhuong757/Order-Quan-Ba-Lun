@@ -42,7 +42,12 @@ export class ReportsController {
   /** Chi tiêu theo ngày. Không truyền gì = toàn bộ lịch sử, cùng luật với `pairs`. */
   @Get('daily')
   async daily(@Query() q: Record<string, string>) {
-    return { data: { items: await this.svc.daily({ supplier_id: q.supplier_id || undefined }) } };
+    const items = await this.svc.daily({
+      supplier_id: q.supplier_id || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+    });
+    return { data: { items } };
   }
 
   @Get('matrix')

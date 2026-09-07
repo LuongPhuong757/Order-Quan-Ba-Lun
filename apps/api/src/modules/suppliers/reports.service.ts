@@ -272,8 +272,14 @@ export class ReportsService {
    *
    * CHỈ phiếu đã duyệt (M3.D-41), cùng luật với mọi con số tiền khác của module: phiếu NCC tự
    * khai mà quán chưa kiểm không được làm phồng chi tiêu.
+   *
+   * `from`/`to` (2026-09-07, cho tab "Thống kê") — thiếu mốc nào là không chặn đầu đó, cùng luật
+   * với `pairs`. Đây là endpoint DUY NHẤT của module nhận khoảng ngày từ giao diện: quyết định
+   * 2026-09-06 bỏ cắt-theo-tháng vẫn giữ nguyên cho các tab so giá, chỗ mà cắt kỳ làm lọt vụ
+   * NCC tăng giá vắt qua ranh giới hai tháng. Câu hỏi của tab Thống kê thì khác — "kỳ này tiêu
+   * bao nhiêu" — và câu đó bắt buộc phải có kỳ.
    */
-  async daily(opts: { supplier_id?: string } = {}): Promise<DailyRow[]> {
+  async daily(opts: { supplier_id?: string; from?: string; to?: string } = {}): Promise<DailyRow[]> {
     const qb = this.deliveryRepo
       .createQueryBuilder('d')
       .innerJoin('suppliers', 's', 's.id = d.supplier_id')
@@ -284,6 +290,8 @@ export class ReportsService {
       .addSelect('COUNT(*)', 'deliveries')
       .where("d.status = 'CONFIRMED'");
     if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
+    if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('d.delivery_date <= :to', { to: opts.to });
     const raw = await qb
       .groupBy('d.delivery_date')
       .addGroupBy('d.supplier_id')

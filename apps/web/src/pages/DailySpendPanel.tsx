@@ -6,12 +6,16 @@
 // lại thành con số của ngày.
 //
 // Bấm một ngày là xổ ra các NCC đã giao hôm đó — hai mức trong một bảng, không phải nhảy màn.
+//
+// 2026-09-07: panel này KHÔNG còn là một tab riêng. Nó nằm trong tab "Thống kê", dưới biểu đồ
+// cột, ở dạng thu gọn — biểu đồ trả lời "hình chi tiêu trông thế nào", bảng này trả lời "hôm đó
+// tiêu vào NCC nào". Gộp một chỗ vì đó là hai câu hỏi liền nhau của cùng một lần nhìn.
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 
-type DailyRow = {
+export type DailyRow = {
   delivery_date: string;
   supplier_id: string;
   supplier_name: string;
@@ -28,23 +32,45 @@ type Day = {
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 
-export function DailySpendPanel({ supplierId }: { supplierId?: string }) {
+export function DailySpendPanel({
+  supplierId,
+  from,
+  to,
+  hideSummary = false,
+  rows: given,
+}: {
+  supplierId?: string;
+  /** Khoảng ngày đang lọc, 'YYYY-MM-DD'. Bỏ trống đầu nào = không chặn đầu đó. */
+  from?: string;
+  to?: string;
+  /** Ẩn thẻ tổng ở trên. Bật khi panel nằm dưới một khối tổng khác (tab Thống kê) — hai khối
+   *  nói cùng một con số cạnh nhau chỉ làm người xem nghi là có hai con số khác nhau. */
+  hideSummary?: boolean;
+  /** Dữ liệu người gọi ĐÃ CÓ. Truyền vào thì panel không gọi API nữa.
+   *
+   *  Cần thiết vì tab Thống kê đã tải đúng dữ liệu này để vẽ biểu đồ cột — để panel tự gọi lại
+   *  là gọi hai lần cùng một endpoint cùng tham số cho một lần mở tab, và bảng còn hiện "Đang
+   *  tải…" trong khi biểu đồ ngay trên nó đã vẽ xong. */
+  rows?: DailyRow[];
+}) {
   const toast = useToast();
-  const [rows, setRows] = useState<DailyRow[] | null>(null);
+  const [fetched, setFetched] = useState<DailyRow[] | null>(null);
   const [open, setOpen] = useState<string | null>(null);
+  const rows = given ?? fetched;
 
   const load = useCallback(() => {
-    setRows(null);
+    if (given) return;
+    setFetched(null);
     api
       .get<{ data: { items: DailyRow[] } }>('/supplier-reports/daily', {
-        params: { supplier_id: supplierId },
+        params: { supplier_id: supplierId, from: from || undefined, to: to || undefined },
       })
-      .then((r) => setRows(r.data.data.items))
+      .then((r) => setFetched(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
-        setRows([]);
+        setFetched([]);
       });
-  }, [supplierId, toast]);
+  }, [given, supplierId, from, to, toast]);
 
   useEffect(load, [load]);
 
@@ -72,17 +98,19 @@ export function DailySpendPanel({ supplierId }: { supplierId?: string }) {
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
   if (days.length === 0) {
-    return <div className="empty-state card">Chưa có phiếu nhập nào đã duyệt.</div>;
+    return <div className="empty-state card">Không có phiếu nhập nào đã duyệt trong khoảng này.</div>;
   }
 
   return (
     <>
-      <div className="card" style={{ marginBottom: 12 }}>
-        <span style={{ fontSize: 15 }}>
-          {days.length} ngày có nhập hàng · tổng{' '}
-          <strong style={{ fontSize: 22 }}>{vnd(total)}đ</strong>
-        </span>
-      </div>
+      {!hideSummary && (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <span style={{ fontSize: 15 }}>
+            {days.length} ngày có nhập hàng · tổng{' '}
+            <strong style={{ fontSize: 22 }}>{vnd(total)}đ</strong>
+          </span>
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>

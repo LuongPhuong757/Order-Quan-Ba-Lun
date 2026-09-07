@@ -22,8 +22,10 @@ import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { upperUnit } from '../lib/text-case.ts';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
-import { DailySpendPanel } from './DailySpendPanel.tsx';
+import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
+import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { presetRange, type DayRange, type RangePreset } from '../lib/date-range.ts';
 import {
   ItemStatsPanel,
   PriceChangesPanel,
@@ -68,11 +70,19 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Tab = 'suppliers' | 'daily' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost';
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
-const TABS_CO_LOC: Tab[] = ['daily', 'deliveries', 'prices', 'items'];
+const TABS_CO_LOC: Tab[] = ['stats', 'deliveries', 'prices', 'items'];
+
+/** Dãy chip thời gian của tab "Thống kê".
+ *
+ * KHÔNG có "Hôm nay": nhập hàng không diễn ra hằng ngày, nên chip đó cho ra biểu đồ trống rỗng
+ * trong phần lớn các ngày bấm vào. Có "90 ngày" và "Tháng trước" vì đó là hai mốc thật sự dùng
+ * khi đối chiếu chi tiêu — một quý và một tháng đã đóng.
+ */
+const CHIP_THOI_GIAN: ReadonlyArray<RangePreset> = ['7d', '30d', '90d', 'month', 'prev_month', 'all'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -88,7 +98,15 @@ export function SuppliersPage() {
   // ba lần chọn cho một câu hỏi.
   const [filterSupplierId, setFilterSupplierId] = useState('');
 
-  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  // Khoảng ngày CHỈ dùng cho tab "Thống kê" (2026-09-07). Mặc định 30 ngày: đủ dài để thấy
+  // nhịp nhập hàng, đủ ngắn để biểu đồ vẫn vẽ theo từng ngày.
+  const [range, setRange] = useState<DayRange>(() => presetRange('30d', Date.now()));
+
+  // TẤT CẢ nhà cung cấp, kể cả đã ngừng hợp tác. Danh sách hiện ở tab đầu và ô chọn NCC lúc
+  // nhập phiếu thì lọc lại còn NCC đang hoạt động; nhưng con số TIỀN thì phải tính cả NCC đã
+  // ngừng — tiền đó đã tiêu rồi. Bỏ qua họ chính là chỗ làm "Tổng mua" ở đầu màn lệch với tổng
+  // của tab Thống kê (phát hiện 2026-09-07).
+  const [allSuppliers, setAllSuppliers] = useState<Supplier[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Supplier | null>(null);
@@ -106,12 +124,12 @@ export function SuppliersPage() {
     setLoading(true);
     try {
       const [s, d] = await Promise.all([
-        api.get<{ data: { items: Supplier[] } }>('/suppliers'),
+        api.get<{ data: { items: Supplier[] } }>('/suppliers', { params: { include_inactive: '1' } }),
         api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', {
           params: { supplier_id: filterSupplierId || undefined },
         }),
       ]);
-      setSuppliers(s.data.data.items);
+      setAllSuppliers(s.data.data.items);
       setDeliveries(d.data.data.items);
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -139,15 +157,21 @@ export function SuppliersPage() {
   // chi tiết đứng im sau khi vừa nhập thêm một phiếu cho chính NCC đó.
   useEffect(() => {
     if (!detail) return;
-    const fresh = suppliers.find((s) => s.id === detail.id);
+    const fresh = allSuppliers.find((s) => s.id === detail.id);
     if (fresh && fresh !== detail) setDetail(fresh);
-  }, [suppliers, detail]);
+  }, [allSuppliers, detail]);
 
-  const periodTotal = suppliers.reduce((sum, s) => sum + s.period_amount, 0);
+  // NCC đã ngừng hợp tác KHÔNG hiện ở danh sách và KHÔNG chọn được lúc nhập phiếu mới — nhưng
+  // vẫn chọn được ở ô lọc để xem lại lịch sử mua của họ.
+  const suppliers = useMemo(() => allSuppliers.filter((s) => s.is_active), [allSuppliers]);
+
+  // Cộng trên `allSuppliers`: đây là con số phải KHỚP với tổng của tab Thống kê và của bảng
+  // "theo ngày", hai chỗ đọc thẳng từ bảng phiếu nên vốn đã gồm cả NCC đã ngừng.
+  const periodTotal = allSuppliers.reduce((sum, s) => sum + s.period_amount, 0);
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
-    { value: 'daily', label: 'Theo ngày' },
+    { value: 'stats', label: 'Thống kê' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -205,9 +229,10 @@ export function SuppliersPage() {
         </div>
       </div>
 
-      {/* Không cắt theo tháng nữa (chủ quán chốt 2026-09-06): mọi tab dưới đây nhìn TOÀN BỘ
-          lịch sử. Cắt theo tháng làm lọt đúng thứ cần bắt nhất — vụ NCC tăng giá vắt qua ranh
-          giới hai tháng thì mỗi tháng nhìn riêng đều thấy giá phẳng. */}
+      {/* Các tab SO GIÁ nhìn TOÀN BỘ lịch sử, không cắt theo kỳ (chủ quán chốt 2026-09-06): cắt
+          kỳ làm lọt đúng thứ cần bắt nhất — vụ NCC tăng giá vắt qua ranh giới hai tháng thì mỗi
+          tháng nhìn riêng đều thấy giá phẳng. Riêng tab "Thống kê" có khoảng ngày (2026-09-07)
+          vì câu hỏi của nó là "kỳ này tiêu bao nhiêu", câu bắt buộc phải có kỳ. */}
       <div
         style={{
           display: 'flex',
@@ -231,7 +256,12 @@ export function SuppliersPage() {
               onChange={setFilterSupplierId}
               options={[
                 { value: '', label: 'Tất cả nhà cung cấp' },
-                ...suppliers.map((x) => ({ value: x.id, label: x.name })),
+                // NCC đã ngừng vẫn chọn được, có gắn nhãn: chi tiêu quá khứ của họ là số liệu
+                // thật và câu "hồi đó mua của ai" vẫn phải trả lời được.
+                ...allSuppliers.map((x) => ({
+                  value: x.id,
+                  label: x.is_active ? x.name : `${x.name} (đã ngừng)`,
+                })),
               ]}
             />
           </div>
@@ -250,12 +280,32 @@ export function SuppliersPage() {
             gap: 10,
           }}
         >
-          <span>
-            Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
-          </span>
+          {/* "Tổng mua" là tổng TOÀN BỘ lịch sử. Ẩn nó ở tab "Thống kê" — tab đó có khoảng ngày
+              riêng và thẻ "Tổng nhập" của kỳ đứng ngay dưới; để cả hai thì hai con số khác nhau
+              nằm cách nhau 40px mà không chỗ nào nói con nào là của kỳ nào. Ô portal
+              'sup-toolbar-slot' vẫn giữ vì nút "Xuất Excel" của các tab khác bắn vào đó. */}
+          {tab !== 'stats' && (
+            <span>
+              Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+            </span>
+          )}
           <span id="sup-toolbar-slot" style={{ display: 'flex', gap: 8 }} />
         </div>
       </div>
+
+      {/* Khoảng ngày đứng thành HÀNG RIÊNG dưới ô lọc NCC — cùng cách đã áp cho màn Lịch sử và
+          màn Đơn online: đây là trục lọc khác hẳn (bao nhiêu lâu) so với "của ai", và hàng trên
+          đã chật tới mức gãy 2 dòng trên điện thoại. */}
+      {tab === 'stats' && (
+        <div style={{ margin: '0 0 16px' }}>
+          <DateRangePicker
+            label="🕒 Khoảng ngày"
+            value={range}
+            onChange={setRange}
+            presets={CHIP_THOI_GIAN}
+          />
+        </div>
+      )}
 
       {loading && <p style={{ color: C.muted }}>Đang tải…</p>}
 
@@ -269,7 +319,14 @@ export function SuppliersPage() {
         />
       )}
 
-      {tab === 'daily' && <DailySpendPanel supplierId={filterSupplierId || undefined} />}
+      {tab === 'stats' && (
+        <SupplierStatsPanel
+          supplierId={filterSupplierId || undefined}
+          from={range.from || undefined}
+          to={range.to || undefined}
+          onOpenHistory={(id, name) => setHistory({ id, name })}
+        />
+      )}
 
       {tab === 'deliveries' && !loading && (
         <DeliveryList

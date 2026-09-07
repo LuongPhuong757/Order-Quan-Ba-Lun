@@ -134,12 +134,19 @@ export function DateRangeFields({
   );
 }
 
-const PRESET_CHIPS: ReadonlyArray<TimeRangeOption<RangePreset>> = [
-  { value: 'all', label: 'Tất cả' },
-  { value: 'today', label: 'Hôm nay' },
-  { value: '7d', label: '7 ngày' },
-  { value: '30d', label: '30 ngày' },
-];
+/** Nhãn của mọi preset. Khai MỘT chỗ để hai màn dùng chung không gọi cùng khoảng bằng hai tên. */
+const PRESET_LABEL: Record<RangePreset, string> = {
+  all: 'Tất cả',
+  today: 'Hôm nay',
+  '7d': '7 ngày',
+  '30d': '30 ngày',
+  '90d': '90 ngày',
+  month: 'Tháng này',
+  prev_month: 'Tháng trước',
+};
+
+/** Dãy chip mặc định — đúng bộ màn Lịch sử và màn Đơn online đang dùng. */
+const DEFAULT_PRESETS: ReadonlyArray<RangePreset> = ['all', 'today', '7d', '30d'];
 
 /**
  * Bộ chọn khoảng ngày đầy đủ: dãy preset + khoảng tự chọn.
@@ -157,6 +164,7 @@ export function DateRangePicker({
   nowMs,
   label,
   ariaLabel = 'Lọc theo khoảng ngày',
+  presets = DEFAULT_PRESETS,
 }: {
   value: DayRange;
   onChange: (range: DayRange) => void;
@@ -164,9 +172,16 @@ export function DateRangePicker({
   nowMs?: number;
   label?: React.ReactNode;
   ariaLabel?: string;
+  /** Những preset hiện thành chip, theo đúng thứ tự. Mỗi màn hỏi một câu khác nhau nên cần
+   *  bộ chip khác nhau — tab Thống kê NCC hỏi "kỳ này tiêu bao nhiêu" nên cần 90 ngày và
+   *  tháng trước, còn "Hôm nay" thì vô nghĩa với nhập hàng (không phải ngày nào cũng nhập). */
+  presets?: ReadonlyArray<RangePreset>;
 }) {
   const now = nowMs ?? Date.now();
-  const active = matchPreset(value, now);
+  // Dò preset CHỈ trong dãy chip đang hiện: dò hết thì một khoảng trùng preset không hiện trên
+  // màn (vd "tháng này") sẽ làm cả hàng chip tối om mà ô ngày cũng đóng — không còn gì nói lên
+  // đang xem khoảng nào.
+  const active = matchPreset(value, now, presets);
   // Ô ngày hiện ra khi đang ở khoảng tự chọn, hoặc khi người dùng chủ động mở. Đóng lại ngay
   // khi bấm một preset — để mở thì nó chiếm một hàng mà không dùng tới.
   const [openCustom, setOpenCustom] = React.useState(false);
@@ -179,7 +194,7 @@ export function DateRangePicker({
         ariaLabel={ariaLabel}
         label={label}
         value={active}
-        options={PRESET_CHIPS}
+        options={presets.map((p) => ({ value: p, label: PRESET_LABEL[p] }))}
         onChange={(p) => {
           setOpenCustom(false);
           onChange(presetRange(p as RangePreset, now));
