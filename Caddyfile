@@ -2,8 +2,17 @@
 # HTTPS auto qua Let's Encrypt — Caddy tự cấp + renew cert.
 # DOMAIN env (vd: quanbalun.site) — set ở .env.production.
 #
-# Hai site block, CÙNG trỏ về một container api:3001. main.ts chọn thư mục static theo
+# Hai site block, CÙNG trỏ về một container ordbl_api:3001. main.ts chọn thư mục static theo
 # Host header (M2.D-66): host bắt đầu `admin.` → web-dist, còn lại → shop-dist.
+#
+# 2026-09-07 — upstream phải là TÊN CONTAINER `ordbl_api`, KHÔNG BAO GIỜ là tên service `api`.
+# Stack develop (`docker-compose.dev.yml`, project `ordbl-dev`) cũng có service tên `api`, và
+# container Caddy này được đấu vào cả network của prod lẫn của dev (caddy-extra-networks.txt).
+# Docker DNS khi đó phân giải `api` sang container nào tuỳ network nào tới trước — sáng
+# 2026-09-07 nó chọn `ordbl_dev_api`, nên toàn bộ trang production (apex + admin + menu) chạy
+# trên backend và DATABASE DEV suốt ~1 tiếng. Không có lỗi nào: mọi request vẫn 200, chỉ là
+# đọc ghi sai database. Tên container là duy nhất toàn máy nên không có chỗ cho nhập nhằng.
+# Chốt chặn phát hiện lại: xem `./deploy.sh --verify` và field `env` của /api/public/health.
 #
 # 2026-08-05 — apex thuộc về TRANG KHÁCH (trước đây là trang quản lý). Địa chỉ ngắn nhất
 # dành cho người gõ tay và quét QR; nhân viên bookmark admin.<domain> một lần là xong.
@@ -15,7 +24,7 @@
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
@@ -45,7 +54,7 @@ admin.{$DOMAIN} {
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
@@ -68,7 +77,7 @@ admin.{$DOMAIN} {
 
 # ─── Quyển menu điện tử: menu.<domain> ──────────────────────────────────────
 # 2026-09-04 — trang CHỈ ĐỌC cho khách xem toàn bộ món (nhà đang thiếu menu giấy).
-# Cùng vào api:3001 và cùng nhận shop-dist như apex: `main.ts` chỉ tách riêng host
+# Cùng vào ordbl_api:3001 và cùng nhận shop-dist như apex: `main.ts` chỉ tách riêng host
 # `admin.`, mọi host còn lại đều là app khách. Việc chọn vẽ quyển menu thay vì màn đặt
 # hàng do `apps/shop/src/main.tsx` quyết định trong trình duyệt, theo `location.hostname`.
 menu.{$DOMAIN} {
@@ -77,7 +86,7 @@ menu.{$DOMAIN} {
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
