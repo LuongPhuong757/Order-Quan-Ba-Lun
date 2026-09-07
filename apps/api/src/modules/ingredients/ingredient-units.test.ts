@@ -54,12 +54,27 @@ describe('parseUnit — nhận diện đơn vị', () => {
     expect(parseUnit('hop')).toEqual({ kind: 'count', base_unit: 'hộp', factor: 1 });
   });
 
-  it('đơn vị rác → null để caller báo lỗi, KHÔNG đoán bừa', () => {
-    expect(parseUnit('ít')).toBeNull();
-    expect(parseUnit('vừa đủ')).toBeNull();
+  // Chủ quán chốt 2026-09-07: đơn vị tính nhập TUỲ Ý, bỏ whitelist. Từ lạ thành đơn vị đếm mà
+  // chính nó là gốc — không quy đổi với bất cứ gì nên không thể sai 1000 lần.
+  it('đơn vị lạ vẫn nhận, tự nó là đơn vị gốc, hệ số 1', () => {
+    expect(parseUnit('mẹt')).toEqual({ kind: 'count', base_unit: 'mẹt', factor: 1 });
+    expect(parseUnit('KHAY')).toEqual({ kind: 'count', base_unit: 'khay', factor: 1 });
+    expect(parseUnit('Thùng  xốp')).toEqual({ kind: 'count', base_unit: 'thùng xốp', factor: 1 });
+    // "lạng" giờ nhận được, nhưng KHÔNG bao giờ tự thành gram — đó mới là chỗ nguy hiểm cũ.
+    expect(parseUnit('lạng')).toEqual({ kind: 'count', base_unit: 'lạng', factor: 1 });
+    expect(toBaseQty(3, 'lạng', 'g')).toBeNull();
+  });
+
+  it('chỉ chuỗi RỖNG mới là null — thiếu đơn vị là thiếu dữ liệu, không phải đơn vị lạ', () => {
     expect(parseUnit('')).toBeNull();
-    // "lạng" cố ý không nhận — xem chú thích ở MASS_FACTORS.
-    expect(parseUnit('lạng')).toBeNull();
+    expect(parseUnit('   ')).toBeNull();
+  });
+
+  it('đơn vị lạ gõ có dấu hay không đều trỏ về cùng một đơn vị', () => {
+    expect(toBaseQty(2, 'met', 'mẹt')).toBe(2);
+    expect(toBaseQty(2, 'MẸT', 'mẹt')).toBe(2);
+    // Nhưng hai từ KHÁC nhau thì vẫn không đổi cho nhau được.
+    expect(toBaseQty(2, 'khay', 'mẹt')).toBeNull();
   });
 });
 
@@ -112,8 +127,13 @@ describe('baseUnitsPerUnit — hệ số quy đổi của một dòng phiếu nh
     expect(baseUnitsPerUnit('BÓ', 'bó')).toBe(1);
   });
 
+  it('đơn vị lạ trên nguyên liệu cùng đơn vị lạ đó → 1', () => {
+    expect(baseUnitsPerUnit('MẸT', 'mẹt')).toBe(1);
+    expect(baseUnitsPerUnit('met', 'mẹt')).toBe(1);
+  });
+
   it('không suy ra được → null, caller phải giữ hệ số người dùng khai chứ KHÔNG coi là 1', () => {
-    expect(baseUnitsPerUnit('thùng', 'ml')).toBeNull();  // đơn vị lạ
+    expect(baseUnitsPerUnit('thùng', 'ml')).toBeNull();  // đơn vị lạ vs thể tích: khác nhóm
     expect(baseUnitsPerUnit('mẹt', 'g')).toBeNull();
     expect(baseUnitsPerUnit('KG', 'ml')).toBeNull();     // khác nhóm
     expect(baseUnitsPerUnit('quả', 'bó')).toBeNull();    // hai đơn vị đếm khác nhau
