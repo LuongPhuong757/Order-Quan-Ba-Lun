@@ -180,15 +180,20 @@ export class SuppliersService {
 
   /** Xoá mềm. Chặn khi đã có phiếu nhập — NCC có lịch sử giao dịch mà biến mất khỏi danh sách
    * thì các phiếu cũ mồ côi, và tổng mua theo kỳ hụt đi mà không ai biết vì sao. */
+  /** Xoá NCC — luôn là xoá MỀM (`is_active = false`), kể cả khi đã có phiếu nhập.
+   *
+   * Trước 2026-09-07 chỗ này chặn khi NCC đã có phiếu (`SUPPLIER_IN_USE`) vì sợ lịch sử mồ côi.
+   * Chủ quán yêu cầu bỏ chặn: quán đổi mối liên tục, NCC nghỉ bán mà vẫn nằm trong danh sách chọn
+   * thì mỗi lần nhập hàng lại phải lướt qua. Lịch sử KHÔNG mồ côi vì không xoá dòng nào — phiếu
+   * nhập giữ nguyên `supplier_id`, và mọi màn tra cứu lịch sử đều đọc NCC theo id chứ không lọc
+   * `is_active` (xem `list({ include_inactive })`, `deliveries.service`).
+   *
+   * HỆ QUẢ phải biết: công nợ tính trên NCC đang hoạt động (`payments.service.allBalances` lọc
+   * `is_active: true`), nên xoá một NCC còn nợ là số nợ đó biến khỏi bảng công nợ. Trả hết nợ
+   * rồi hãy xoá.
+   */
   async remove(id: string): Promise<void> {
     const s = await this.get(id);
-    const count = await this.deliveryRepo.count({ where: { supplier_id: id } });
-    if (count > 0) {
-      throw new ConflictException({
-        code: 'SUPPLIER_IN_USE',
-        message: `"${s.name}" đã có ${count} phiếu nhập — không xoá được, dữ liệu lịch sử sẽ mồ côi`,
-      });
-    }
     s.is_active = false;
     await this.repo.save(s);
   }

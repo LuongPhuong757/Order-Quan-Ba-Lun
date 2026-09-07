@@ -18,7 +18,6 @@ import type { Request } from 'express';
 import { SupplierAuthService } from './supplier-auth.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
-import { RequireRoles } from '../auth/guards/roles.guard.js';
 
 class CreateSupplierDto {
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
@@ -45,9 +44,9 @@ class UpdateSupplierDto {
 
 /** Nhà cung cấp (2026-09-05).
  *
- * ĐỌC: admin + order — nhân viên order là người nhận hàng và nhập phiếu, không xem được danh
- * sách NCC thì không nhập hộ được (M3.D-05), mà nhập hộ là đường mặc định của cả tính năng.
- * GHI: chỉ admin — thêm/xoá NCC là việc của chủ quán, và mỗi NCC là một nhánh công nợ.
+ * ĐỌC và GHI: chỉ admin (chủ quán chốt 2026-09-07, thay M3.D-31). Trước đây role `order` đọc
+ * được danh sách để nhập phiếu hộ, nhưng bảng giá NCC là GIÁ MUA — nhìn được giá mua là nhìn
+ * được lãi của quán, nên nhân viên không được vào. Nhập hộ giờ là việc của admin.
  */
 @Controller('suppliers')
 @UseGuards(JwtAuthGuard)
@@ -58,7 +57,7 @@ export class SuppliersController {
   ) {}
 
   @Get()
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(AdminGuard)
   async list(@Query() q: Record<string, string>) {
     const items = await this.svc.list({
       from: q.from || undefined,
@@ -69,14 +68,14 @@ export class SuppliersController {
   }
 
   @Get(':id')
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(AdminGuard)
   async get(@Param('id') id: string) {
     return { data: await this.svc.get(id) };
   }
 
   /** Bảng giá mặt hàng NCC này hay giao (mục 3.2) — cũng là nguồn điền sẵn cho màn nhập phiếu. */
   @Get(':id/items')
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(AdminGuard)
   async items(@Param('id') id: string) {
     return { data: { items: await this.svc.items(id) } };
   }

@@ -2,8 +2,16 @@
 # HTTPS auto qua Let's Encrypt — Caddy tự cấp + renew cert.
 # DOMAIN env (vd: quanbalun.site) — set ở .env.production.
 #
-# Hai site block, CÙNG trỏ về một container api:3001. main.ts chọn thư mục static theo
+# Hai site block, CÙNG trỏ về một container ordbl_api:3001. main.ts chọn thư mục static theo
 # Host header (M2.D-66): host bắt đầu `admin.` → web-dist, còn lại → shop-dist.
+#
+# 2026-09-07 — PHẢI là `ordbl_api` (container_name), KHÔNG được rút gọn về `api`.
+# `deploy-dev.sh` đấu chính container ordbl_caddy này vào network `ordbl_dev_frontend` để
+# phục vụ luôn server develop. Trong network đó tên `api` CŨNG phân giải được — sang
+# `ordbl_dev_api`. Caddy nằm trên cả hai network nên Docker DNS trả về khi thì container
+# prod khi thì container dev, và một phần request của khách rơi vào build nhánh develop:
+# `POST /supplier-deliveries` trả 404 (develop chưa có Milestone 3) còn SPA shell là bản
+# build cũ. Tên container là duy nhất toàn máy nên không bao giờ lẫn.
 #
 # 2026-08-05 — apex thuộc về TRANG KHÁCH (trước đây là trang quản lý). Địa chỉ ngắn nhất
 # dành cho người gõ tay và quét QR; nhân viên bookmark admin.<domain> một lần là xong.
@@ -15,7 +23,7 @@
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
@@ -45,7 +53,7 @@ admin.{$DOMAIN} {
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}
@@ -77,7 +85,7 @@ menu.{$DOMAIN} {
         format console
     }
 
-    reverse_proxy api:3001 {
+    reverse_proxy ordbl_api:3001 {
         header_up X-Real-IP {remote_host}
         header_up X-Forwarded-For {remote_host}
         header_up X-Forwarded-Proto {scheme}

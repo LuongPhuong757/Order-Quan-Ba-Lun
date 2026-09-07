@@ -11,6 +11,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { api, extractError } from '../lib/api.ts';
+import { upperUnit } from '../lib/text-case.ts';
 
 const TOKEN_KEY = 'ncc_token';
 
@@ -359,7 +360,7 @@ function ComposeScreen({
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
               <strong style={{ fontSize: 18 }}>{l.item.ingredient_name}</strong>
               <span style={{ fontSize: 16, color: '#4b5563' }}>
-                {vnd(l.item.last_unit_price)}đ/{l.item.purchase_unit}
+                {vnd(l.item.last_unit_price)}đ/{upperUnit(l.item.purchase_unit)}
               </span>
             </div>
             {/* Số lượng bằng NÚT, không bắt gõ. Ô số vẫn có để nhập nhanh khi cần nhiều. */}
@@ -389,7 +390,7 @@ function ComposeScreen({
               >
                 ＋
               </button>
-              <span style={{ fontSize: 16, minWidth: 48, color: '#4b5563' }}>{l.item.purchase_unit}</span>
+              <span style={{ fontSize: 16, minWidth: 48, color: '#4b5563' }}>{upperUnit(l.item.purchase_unit)}</span>
             </div>
           </div>
         ))}
