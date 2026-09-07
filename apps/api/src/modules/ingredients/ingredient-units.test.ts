@@ -46,6 +46,14 @@ describe('parseUnit — nhận diện đơn vị', () => {
     expect(parseUnit('lá')).toEqual({ kind: 'count', base_unit: 'lá', factor: 1 });
   });
 
+  // Bug production 2026-09-07: nhập hàng khai mặt hàng mới đơn vị "HỘP" bị 400 BAD_UNIT.
+  // "hộp" là kiểu đóng gói người nhập gõ thật (sữa, bơ, kem) nên phải là đơn vị đếm hợp lệ.
+  it('nhận "hộp" — và nhận cả khi gõ HOA hoặc bỏ dấu', () => {
+    expect(parseUnit('hộp')).toEqual({ kind: 'count', base_unit: 'hộp', factor: 1 });
+    expect(parseUnit('HỘP')).toEqual({ kind: 'count', base_unit: 'hộp', factor: 1 });
+    expect(parseUnit('hop')).toEqual({ kind: 'count', base_unit: 'hộp', factor: 1 });
+  });
+
   it('đơn vị rác → null để caller báo lỗi, KHÔNG đoán bừa', () => {
     expect(parseUnit('ít')).toBeNull();
     expect(parseUnit('vừa đủ')).toBeNull();

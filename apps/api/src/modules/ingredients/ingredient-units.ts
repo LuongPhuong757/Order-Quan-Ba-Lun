@@ -45,7 +45,19 @@ const VOLUME_FACTORS: Record<string, number> = { ml: 1, l: 1000, lit: 1000, lít
 
 /** Các đơn vị đếm được chấp nhận. Người nhập gõ tự do nhưng chỉ những từ này mới coi là đơn vị
  * đếm hợp lệ — tránh đơn vị rác kiểu "ít", "vừa" lọt vào rồi không cộng được. */
-const COUNT_UNITS = ['cái', 'quả', 'trái', 'củ', 'lá', 'nhánh', 'bó', 'gói', 'lát', 'con', 'miếng'];
+// 'hộp' thêm 2026-09-07 sau bug production: nhập hàng khai mặt hàng mới ("sữa đặc", "bơ") với
+// đơn vị HỘP bị 400. Đây là kiểu đóng gói người nhập gõ thật, và một hộp là một hộp — đếm được,
+// không nhập nhằng như "lạng", nên không có lý do chặn.
+const COUNT_UNITS = ['cái', 'quả', 'trái', 'củ', 'lá', 'nhánh', 'bó', 'gói', 'hộp', 'lát', 'con', 'miếng'];
+
+/** Danh sách đơn vị hợp lệ để in ra trong thông báo lỗi. Sinh TỪ chính các bảng trên chứ không
+ * gõ tay: bản gõ tay đã lệch một lần (thêm đơn vị mà quên sửa câu lỗi, người dùng đọc câu lỗi
+ * rồi tưởng đơn vị mình gõ vẫn không được nhận). */
+export const ACCEPTED_UNITS: string[] = [
+  ...Object.keys(MASS_FACTORS),
+  ...Object.keys(VOLUME_FACTORS),
+  ...COUNT_UNITS,
+];
 
 export type ParsedUnit = { kind: UnitKind; base_unit: string; factor: number };
 

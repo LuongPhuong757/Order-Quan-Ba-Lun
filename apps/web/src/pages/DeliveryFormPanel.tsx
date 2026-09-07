@@ -44,7 +44,7 @@ type DraftLine = {
   unit_price: string;
 };
 
-const UNIT_SUGGESTIONS = ['G', 'KG', 'ML', 'L', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
+const UNIT_SUGGESTIONS = ['G', 'KG', 'ML', 'L', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'HỘP', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 

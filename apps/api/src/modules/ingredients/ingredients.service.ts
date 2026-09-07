@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
-import { normalizeName, parseUnit } from './ingredient-units.js';
+import { ACCEPTED_UNITS, normalizeName, parseUnit } from './ingredient-units.js';
 
 export type Actor = { id: string; full_name: string };
 
@@ -236,7 +236,7 @@ export class IngredientsService {
     if (!parsed) {
       throw new BadRequestException({
         code: 'BAD_UNIT',
-        message: `Đơn vị "${raw}" không hợp lệ. Dùng: g, kg, ml, l, quả, lá, củ, bó, gói, lát, con, miếng, cái`,
+        message: `Đơn vị "${raw}" không hợp lệ. Dùng: ${ACCEPTED_UNITS.join(', ')}`,
       });
     }
     return parsed.base_unit;
