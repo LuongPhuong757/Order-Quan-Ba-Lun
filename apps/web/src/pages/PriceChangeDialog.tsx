@@ -11,6 +11,8 @@
 import { useMemo, useState } from 'react';
 import { C } from '../lib/online-ui.ts';
 
+import { upperUnit } from '../lib/text-case.ts';
+
 export type PriceChange = {
   ingredient_id: string;
   ingredient_name: string;
@@ -140,13 +142,13 @@ export function PriceChangeDialog({
                         <div style={{ fontWeight: 700, fontSize: 16 }}>{c.ingredient_name}</div>
                         <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 2 }}>
                           {vnd(c.prev_unit_price)} → <strong>{vnd(c.unit_price)}</strong> đ/
-                          {c.purchase_unit}
+                          {upperUnit(c.purchase_unit)}
                         </div>
                         {/* Giá quy đổi luôn hiện kèm: đây mới là con số so sánh được, và khi NCC
                             đổi đơn vị báo giá thì hai dòng trên nhìn như không liên quan gì. */}
                         <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
                           {baseprice(c.prev_unit_price_base)} → {baseprice(c.unit_price_base)} đ/
-                          {c.base_unit}
+                          {upperUnit(c.base_unit)}
                         </div>
                         {c.pack_size_changed && (
                           // M3.D-37 — không nói rõ chỗ này thì người xem tưởng hệ thống tính sai:
@@ -161,10 +163,10 @@ export function PriceChangeDialog({
                               padding: '4px 8px',
                             }}
                           >
-                            Cỡ đóng gói đổi: 1 {c.purchase_unit} từ{' '}
+                            Cỡ đóng gói đổi: 1 {upperUnit(c.purchase_unit)} từ{' '}
                             {baseprice(c.prev_qty_base_per_unit ?? '0')} xuống{' '}
-                            {baseprice(c.qty_base_per_unit)} {c.base_unit} — giá mỗi{' '}
-                            {c.purchase_unit} không đổi nhưng hàng ít đi.
+                            {baseprice(c.qty_base_per_unit)} {upperUnit(c.base_unit)} — giá mỗi{' '}
+                            {upperUnit(c.purchase_unit)} không đổi nhưng hàng ít đi.
                           </div>
                         )}
                       </div>

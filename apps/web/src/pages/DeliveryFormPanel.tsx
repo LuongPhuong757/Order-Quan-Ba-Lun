@@ -13,7 +13,7 @@ import { Select } from '../components/Select.tsx';
 import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
-import { lowerUnit, titleCaseVi } from '../lib/text-case.ts';
+import { upperUnit, titleCaseVi } from '../lib/text-case.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -44,7 +44,7 @@ type DraftLine = {
   unit_price: string;
 };
 
-const UNIT_SUGGESTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'lát', 'con', 'miếng', 'cái'];
+const UNIT_SUGGESTIONS = ['G', 'KG', 'ML', 'L', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 
@@ -246,6 +246,7 @@ export function DeliveryFormPanel({
       <form className="card dl-sheet" onSubmit={onSubmit}>
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
 
+
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
           <div>
             <span className="dl-lab" style={{ color: C.mutedOnTint }}>
@@ -386,7 +387,7 @@ function LineRow({
 }) {
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
   const catalogOptions = useMemo(
-    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: i.unit })),
+    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: upperUnit(i.unit) })),
     [catalog],
   );
   const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
@@ -445,7 +446,10 @@ function LineRow({
             </span>
             {line.ingredient_id ? (
               <input
-                value={line.base_unit}
+                // Hoa ở CHỖ HIỂN THỊ chứ không sửa dữ liệu: đơn vị này lấy từ danh mục nguyên
+                // liệu, phần lớn là dòng cũ lưu chữ thường. Ghi đè xuống DB chỉ để cho đẹp là
+                // đụng vào cột mà công thức món cũng đang đọc.
+                value={upperUnit(line.base_unit)}
                 readOnly
                 aria-label="Đơn vị tính"
                 style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
@@ -457,10 +461,10 @@ function LineRow({
               // mẹt, khay, thùng xốp…
               <Autocomplete
                 value={line.base_unit}
-                onChange={(v) => onPatch({ base_unit: lowerUnit(v) })}
+                onChange={(v) => onPatch({ base_unit: upperUnit(v) })}
                 options={unitOptions}
                 maxItems={6}
-                placeholder="kg, lít, bó, con, mẹt…"
+                placeholder="KG, LÍT, BÓ, CON, MẸT…"
                 ariaLabel="Đơn vị tính"
               />
             )}
@@ -517,7 +521,7 @@ function LineRow({
             // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
             // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
             <span style={{ color: C.muted }}>
-              Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+              Lần trước {vnd(prev.last_unit_price)}đ/{upperUnit(prev.purchase_unit)} · {prev.last_delivery_date}
             </span>
           )}
           {lineTotal > 0 && (

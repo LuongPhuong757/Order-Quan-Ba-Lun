@@ -1,6 +1,6 @@
 /**
  * Chuẩn hoá chữ hoa/thường cho ô nhập tên mặt hàng và ô đơn vị tính (chủ quán yêu cầu
- * 2026-09-06: "thịt bò tự động chuyển thành Thịt Bò", "đơn vị tính tự động chữ thường").
+ * 2026-09-06: "thịt bò tự động chuyển thành Thịt Bò", "đơn vị tính luôn viết hoa").
  *
  * Vì sao đáng có, chứ không phải chuyện thẩm mỹ: danh mục nguyên liệu là MỘT bảng DÙNG CHUNG giữa
  * nhập hàng và công thức món. Người nhập lúc 6h sáng gõ "thit bo", tối gõ "Thịt Bò", hôm sau gõ
@@ -31,8 +31,13 @@ export function titleCaseVi(raw: string): string {
   });
 }
 
-/** "KG" → "kg". Đơn vị đo viết thường là quy ước chung, và "Kg" cạnh "kg" trong bảng báo cáo chỉ
- *  làm người đọc tưởng là hai đơn vị khác nhau. */
-export function lowerUnit(raw: string): string {
-  return raw.toLocaleLowerCase(VI);
+/** "kg" → "KG". Chủ quán chốt 2026-09-07 (đảo lại quy ước chữ thường ngày 2026-09-06): ô đơn vị
+ *  nằm cạnh ô số lượng và ô đơn giá trên màn nhập hàng, chữ HOA đọc lướt là thấy ngay đang tính
+ *  theo kg hay theo bó. Ép về MỘT dạng vẫn là mục đích chính — "Kg" cạnh "kg" trong bảng báo cáo
+ *  làm người đọc tưởng hai đơn vị khác nhau; hoa hay thường đều được, miễn chỉ một.
+ *
+ *  An toàn với backend: `parseUnit` nhận diện đơn vị qua `normalizeName` (đã hạ chữ thường), nên
+ *  "KG" và "kg" vào đến DB vẫn ra cùng một nhóm đơn vị. */
+export function upperUnit(raw: string): string {
+  return raw.toLocaleUpperCase(VI);
 }

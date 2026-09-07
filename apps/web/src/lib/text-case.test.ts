@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lowerUnit, titleCaseVi } from './text-case.ts';
+import { upperUnit, titleCaseVi } from './text-case.ts';
 
 describe('titleCaseVi — hoa chữ đầu mỗi từ', () => {
   it('hoa chữ đầu từng từ', () => {
@@ -32,14 +32,14 @@ describe('titleCaseVi — hoa chữ đầu mỗi từ', () => {
   });
 });
 
-describe('lowerUnit — đơn vị tính về chữ thường', () => {
-  it('hạ mọi kiểu viết về chữ thường', () => {
-    expect(lowerUnit('KG')).toBe('kg');
-    expect(lowerUnit('Lít')).toBe('lít');
-    expect(lowerUnit('Bó')).toBe('bó');
+describe('upperUnit — đơn vị tính về chữ HOA', () => {
+  it('nâng mọi kiểu viết lên chữ hoa', () => {
+    expect(upperUnit('kg')).toBe('KG');
+    expect(upperUnit('Lít')).toBe('LÍT');
+    expect(upperUnit('Bó')).toBe('BÓ');
   });
 
   it('chuỗi rỗng không ném lỗi', () => {
-    expect(lowerUnit('')).toBe('');
+    expect(upperUnit('')).toBe('');
   });
 });

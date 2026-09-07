@@ -19,6 +19,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
+import { upperUnit } from '../lib/text-case.ts';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import { DailySpendPanel } from './DailySpendPanel.tsx';
@@ -737,7 +738,7 @@ function SupplierDetail({
                         {it.ingredient_name}
                       </button>
                     </td>
-                    <td style={{ padding: 8, color: C.mutedOnTint }}>{it.purchase_unit}</td>
+                    <td style={{ padding: 8, color: C.mutedOnTint }}>{upperUnit(it.purchase_unit)}</td>
                     <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
                       {vnd(it.last_unit_price)}đ
                     </td>
@@ -747,7 +748,7 @@ function SupplierDetail({
                       {Number(it.last_unit_price_base).toLocaleString('vi-VN', {
                         maximumFractionDigits: 3,
                       })}
-                      đ/{it.base_unit}
+                      đ/{upperUnit(it.base_unit)}
                     </td>
                     <td style={{ padding: 8, color: C.muted, whiteSpace: 'nowrap' }}>
                       {it.last_delivery_date}
