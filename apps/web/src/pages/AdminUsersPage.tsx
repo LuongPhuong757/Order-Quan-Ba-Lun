@@ -3,6 +3,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
+import { Select } from '../components/Select.tsx';
 
 type Role = 'admin' | 'order' | 'kitchen';
 
@@ -147,16 +148,19 @@ export function AdminUsersPage() {
         <button onClick={() => setShowCreate(true)}>+ Thêm</button>
       </div>
 
-      {/* Tổng quan */}
+      {/* Tổng quan — MỘT hàng chip, không phải lưới 4 thẻ.
+          Lưới cũ `minmax(130px, 1fr)` trên máy 390px thành 2×2 cao ~200px, tức là gần một phần
+          tư màn hình chỉ để nói 4 con số mà quán 4 nhân viên thì liếc danh sách là biết. Chip
+          một dòng nói đúng chừng ấy trong ~35px (chủ quán báo 2026-09-06). */}
       {!loading && items.length > 0 && (
-        <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', marginBottom: 14 }}>
+        <div className="usr-stats" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
           <UserStat label="Tổng nhân sự" value={items.length} color="#334155" bg="#f8fafc" border="#e2e8f0" />
           <UserStat label="Đang làm" value={activeCount} color="#059669" bg="#ecfdf5" border="#d1fae5" />
           <UserStat label="Tạm nghỉ" value={suspendedCount} color="#b45309" bg="#fffbeb" border="#fde68a" />
           <UserStat
             label="Theo quyền"
             valueNode={
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
+              <span style={{ fontWeight: 600 }}>
                 👑 {roleCount('admin')} · 🍽 {roleCount('order')} · 👨‍🍳 {roleCount('kitchen')}
               </span>
             }
@@ -167,19 +171,37 @@ export function AdminUsersPage() {
         </div>
       )}
 
-      {/* Bộ lọc */}
+      {/* Bộ lọc — 2 dropdown thay cho 2 hàng viên thuốc (chỉ đạo chủ quán 2026-09-06).
+          7 viên thuốc wrap thành 3-4 hàng, cao ~110px và còn phình thêm mỗi lần thêm một quyền
+          mới; 2 dropdown thì cao 44px và không đổi dù có bao nhiêu lựa chọn. */}
       {!loading && items.length > 0 && (
-        <div className="card" style={{ padding: 12, marginBottom: 14, display: 'grid', gap: 10 }}>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <FilterPill active={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>Tất cả trạng thái</FilterPill>
-            <FilterPill active={statusFilter === 'active'} color="#059669" onClick={() => setStatusFilter('active')}>● Đang làm</FilterPill>
-            <FilterPill active={statusFilter === 'suspended'} color="#b45309" onClick={() => setStatusFilter('suspended')}>⏸ Tạm nghỉ</FilterPill>
+        <div className="card" style={{ padding: 10, marginBottom: 14, display: 'flex', gap: 8 }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Select
+              value={statusFilter}
+              onChange={setStatusFilter}
+              ariaLabel="Lọc theo trạng thái"
+              neutralValue="all"
+              full
+              options={[
+                { value: 'all', label: 'Tất cả trạng thái' },
+                { value: 'active', label: '● Đang làm' },
+                { value: 'suspended', label: '⏸ Tạm nghỉ' },
+              ]}
+            />
           </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            <FilterPill active={roleFilter === 'all'} onClick={() => setRoleFilter('all')}>Tất cả quyền</FilterPill>
-            {ROLE_OPTIONS.map((r) => (
-              <FilterPill key={r} active={roleFilter === r} onClick={() => setRoleFilter(r)}>{ROLE_LABEL[r]}</FilterPill>
-            ))}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Select
+              value={roleFilter}
+              onChange={setRoleFilter}
+              ariaLabel="Lọc theo quyền"
+              neutralValue="all"
+              full
+              options={[
+                { value: 'all', label: 'Tất cả quyền' },
+                ...ROLE_OPTIONS.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
+              ]}
+            />
           </div>
         </div>
       )}
@@ -381,43 +403,25 @@ function UserStat({
   border: string;
 }) {
   return (
-    <div className="card" style={{ padding: '10px 12px', background: bg, border: `1px solid ${border}` }}>
-      <div style={{ fontSize: 12, color: '#6b7280' }}>{label}</div>
-      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{valueNode ?? value}</div>
-    </div>
-  );
-}
-
-function FilterPill({
-  active,
-  color = '#0f766e',
-  onClick,
-  children,
-}: {
-  active: boolean;
-  color?: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
+    // Chip MỘT DÒNG: nhãn và số nằm cạnh nhau chứ không xếp chồng. Xếp chồng làm mỗi ô cao
+    // ~55px, bốn ô thành 2 hàng ~200px; nằm ngang thì cả bốn vừa 1-2 hàng ~35-70px mà vẫn đọc
+    // được đủ chữ. `flex: 1 1 auto` để chúng tự dàn cho kín hàng thay vì để lại khe trống.
+    <div
+      className="card"
       style={{
-        padding: '6px 12px',
-        minHeight: 36,
-        fontSize: 13,
-        fontWeight: active ? 700 : 500,
-        background: active ? color : '#f8fafc',
-        color: active ? 'white' : color,
-        border: `1px solid ${color}`,
-        borderRadius: 999,
-        cursor: 'pointer',
+        flex: '1 1 auto',
+        display: 'flex',
+        alignItems: 'baseline',
+        gap: 6,
+        padding: '7px 11px',
+        background: bg,
+        border: `1px solid ${border}`,
         whiteSpace: 'nowrap',
       }}
     >
-      {children}
-    </button>
+      <span style={{ fontSize: 12, color: '#6b7280' }}>{label}</span>
+      <span style={{ fontSize: 16, fontWeight: 700, color }}>{valueNode ?? value}</span>
+    </div>
   );
 }
 

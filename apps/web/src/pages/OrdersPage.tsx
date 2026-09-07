@@ -548,9 +548,13 @@ export function OrdersPage() {
 
       {!loading && tables.length > 0 && (
         <>
-          {/* Filter tiles — tương tự màn Bàn */}
+          {/* Dãy lọc — MỘT DÒNG kéo ngang (chỉ đạo chủ quán 2026-09-06).
+              Trước là `flexWrap: wrap` + nút `flex: 1 1 auto; minWidth: 130`, nên 8 nút trên máy
+              390px xếp thành lưới 2 cột 4 hàng cao ~270px — gần một phần ba màn hình trước khi
+              thấy cái bàn đầu tiên. `tabstrip` giữ một hàng, nút giữ bề rộng theo chữ, thiếu chỗ
+              thì vuốt ngang. Desktop rộng nên hàng vẫn vừa, không đổi gì. */}
           <div
-            className="card"
+            className="card tabstrip-sm"
             style={{
               marginBottom: 16,
               padding: 8,

@@ -5,9 +5,9 @@
 // 1. Prefix route KHÔNG có `/api` (OD-08). Spec §5.2 ghi đường dẫn có thêm tiền tố đó ở trước
 //    `admin/online-orders` là SAI với repo này — `admin/users`, `admin/audit`,
 //    `admin/settings` đều không có tiền tố đó, và
-//    `apps/web/src/lib/api.ts` gọi thẳng `/admin/...`. `apiPrefixes` của SPA fallback trong
-//    `main.ts` đã phủ `/admin`, `pathRequiresCheck()` của CSRF guard cũng đã phủ
-//    `path.startsWith('/admin/')` — KHÔNG cần sửa 2 chỗ đó.
+//    `apps/web/src/lib/api.ts` gọi thẳng `/admin/...`. SPA fallback trong `main.ts` chỉ nuốt
+//    GET xin `text/html` (không còn danh sách prefix nào phải khai), `pathRequiresCheck()` của
+//    CSRF guard cũng đã phủ `path.startsWith('/admin/')` — KHÔNG cần sửa 2 chỗ đó.
 //
 // 2. D-02 GHI ĐÈ M2.D-33. Spec + ROADMAP criterion 1 hiện ghi role `order` chỉ được XEM hàng
 //    chờ; chủ dự án đã đổi ngày 2026-07-31 thành **cả 3 role admin/order/kitchen đều duyệt và

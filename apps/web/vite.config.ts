@@ -30,6 +30,23 @@ export default defineConfig({
       '/tables':      apiProxy(),
       '/orders':      apiProxy(),
       '/uploads':     apiProxy(),
+      // Định lượng nguyên liệu (2026-09-05). ⚠ DANH SÁCH NÀY LÀ CỨNG: thêm controller mới ở
+      // BE mà quên thêm vào đây thì dev server nuốt request và trả về index.html — axios nhận
+      // HTML thay vì JSON và màn hình vỡ, trong khi log API sạch bong vì request chưa từng
+      // tới nơi. Production KHÔNG có bẫy này (Caddy proxy toàn bộ về api:3001), nên lỗi chỉ
+      // xuất hiện khi chạy local.
+      '/ingredients': apiProxy(),
+      '/recipes':     apiProxy(),
+      '/consumption': apiProxy(),
+      // Nhà cung cấp (2026-09-05..06) — chính là cái bẫy mô tả ở trên: thiếu 4 dòng này thì mọi
+      // request của màn NCC bị vite trả index.html, axios parse HTML rồi văng lỗi hàng loạt.
+      // `/suppliers` trùng tên với route React `/suppliers`, nhưng `bypass()` ở trên đã tách:
+      // browser mở trang (Accept: text/html) → index.html, axios gọi API → proxy sang BE.
+      '/suppliers':          apiProxy(),
+      '/supplier-deliveries': apiProxy(),
+      '/supplier-reports':    apiProxy(),
+      // Cổng NCC tự đăng nhập (màn /ncc)
+      '/supplier-portal':     apiProxy(),
     },
   },
   build: {

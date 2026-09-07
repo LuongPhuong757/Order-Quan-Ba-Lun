@@ -23,6 +23,10 @@ import { OrderItem } from './entities/order-item.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from './../tables/entities/restaurant-table.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
+import { ConsumptionService } from '../ingredients/consumption.service.js';
+import { OrderItemIngredientUsage } from '../ingredients/entities/order-item-ingredient-usage.entity.js';
+import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
+import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 
 /** Tiền tố sentinel RIÊNG của file này — mỗi file integration một tiền tố, vì vitest chạy các file
  * song song trên cùng MySQL và mỗi file đều `DELETE ... LIKE <tiền tố>` ở beforeEach. Dùng chung
@@ -101,6 +105,13 @@ beforeAll(async () => {
     ds.getRepository(OrderActivityLog),
     ds,
     new EventEmitter2(),
+    // Chốt tiêu hao nguyên liệu (2026-09-05) — file này chỉ kiểm số bàn đang mở, không đụng tới
+    // luồng bếp, nhưng OrdersService vẫn cần dependency để dựng được.
+    new ConsumptionService(
+      ds.getRepository(OrderItemIngredientUsage),
+      ds.getRepository(RecipeLine),
+      ds.getRepository(Ingredient),
+    ),
   );
 }, 20_000);
 

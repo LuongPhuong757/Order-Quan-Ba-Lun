@@ -127,5 +127,5 @@ packages/utils/dist/
 # Bỏ dấu # ở dòng tương ứng nếu muốn giữ lại nhóm nào:
 *.md
 # !README.md
-# !.planning/**/*.md
-# !docs/**/*.md
+!.planning/**/*.md
+!docs/**/*.md

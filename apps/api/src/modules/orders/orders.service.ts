@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
 
@@ -108,6 +109,7 @@ export class OrdersService {
     @InjectRepository(OrderActivityLog) private readonly activityRepo: Repository<OrderActivityLog>,
     @InjectDataSource() private readonly ds: DataSource,
     private readonly emitter: EventEmitter2,
+    private readonly consumption: ConsumptionService,
   ) {}
 
   // ─── Activity log ───────────────────────────────────────────────────────
@@ -573,6 +575,13 @@ export class OrdersService {
       if (to === 'KITCHEN') {
         await this.markFirstKitchenIfNull(mgr, item.order_id);
       }
+      // CHỐT TIÊU HAO NGUYÊN LIỆU (2026-09-05) — điểm duy nhất trong cả hệ thống món đi vào
+      // trạng thái đã-nấu, nên cũng là điểm duy nhất chốt. Trong CÙNG transaction: đổi state
+      // thành công mà chốt hỏng sẽ để lại món đã nấu không có tiêu hao, sai lệch âm thầm.
+      // Idempotent nên COOKING → READY → SERVED chỉ ghi một lần.
+      if (COOKED_STATES.includes(to)) {
+        await this.consumption.captureSafe(mgr, item);
+      }
       return item;
     });
 
@@ -967,8 +976,11 @@ export class OrdersService {
    * - CANCELLED items (manual + auto) không tính.
    * - Set closed_at = now, is_paid = true.
    * - Order + items vẫn giữ trong DB cho báo cáo (REQ-H).
+   * - `misa_copied` (2026-09-05): thu ngân tick "đã gõ sang MISA" ngay trong hộp thoại thu
+   *   tiền. KHÔNG chặn thanh toán khi bỏ trống — thu tiền là việc của khách đang đứng đợi,
+   *   đối soát kế toán là việc cuối ca; đơn bỏ trống rơi vào bộ lọc "chưa lên MISA".
    */
-  async checkout(order_id: string, cashier?: OrderCreator): Promise<{
+  async checkout(order_id: string, cashier?: OrderCreator, misa_copied?: boolean): Promise<{
     order: Order;
     served_items: number;
     cancelled_items: number;
@@ -1037,6 +1049,13 @@ export class OrdersService {
       order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
       order.checked_out_by_full_name = cashier?.full_name ?? null;
+      // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
+      // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
+      if (misa_copied) {
+        order.misa_copied_at = Date.now();
+        order.misa_copied_by_user_id = cashier?.id ?? null;
+        order.misa_copied_by_full_name = cashier?.full_name ?? null;
+      }
       await orderRepo.save(order);
 
       // Đếm theo SỐ PHẦN (sum qty), không theo số dòng — 1 dòng có thể mang N phần.
@@ -1069,10 +1088,66 @@ export class OrdersService {
         // Phí ship phải hiện TÁCH RIÊNG trong nhật ký bàn: đối soát cuối ngày mà chỉ thấy một
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
-        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})`,
+        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})` +
+        `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
     return result;
+  }
+
+  /** Đánh dấu / bỏ đánh dấu "đã sao chép sang MISA" cho đơn ĐÃ thanh toán.
+   *
+   * Tách khỏi `checkout()` vì hai việc lệch nhau về thời gian: khách trả tiền lúc 12h, kế
+   * toán gõ sang AMIS lúc cuối ca. Không có đường bù sau thì thu ngân sẽ tick bừa ngay tại
+   * quầy cho xong — cờ mất hết ý nghĩa đối soát.
+   *
+   * Cho phép BỎ tick (`copied = false`): tick nhầm bàn là chuyện thường ở quầy đông khách,
+   * khoá một chiều chỉ đẩy người dùng đi tìm cách lách.
+   */
+  async setMisaCopied(
+    order_id: string,
+    copied: boolean,
+    actor?: OrderCreator,
+    misa_ref?: string | null,
+  ): Promise<Order> {
+    const order = await this.orderRepo.findOne({ where: { id: order_id } });
+    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    // Đơn chưa kết thì chưa có gì để gõ sang MISA — chứng từ kế toán dựng trên bill đã chốt.
+    if (!order.closed_at) {
+      throw new BadRequestException({
+        code: 'CONFLICT',
+        message: 'Đơn chưa thanh toán — chưa có bill để sao chép sang MISA',
+      });
+    }
+    const was = order.misa_copied_at != null;
+    if (copied) {
+      // Giữ nguyên mốc cũ khi tick lại lần nữa: mốc đầu tiên mới là lúc gõ thật.
+      if (!was) {
+        order.misa_copied_at = Date.now();
+        order.misa_copied_by_user_id = actor?.id ?? null;
+        order.misa_copied_by_full_name = actor?.full_name ?? null;
+      }
+      if (misa_ref !== undefined) order.misa_ref = misa_ref || null;
+    } else {
+      order.misa_copied_at = null;
+      order.misa_copied_by_user_id = null;
+      order.misa_copied_by_full_name = null;
+      order.misa_ref = null;
+    }
+    await this.orderRepo.save(order);
+
+    // Chỉ ghi nhật ký khi cờ THỰC SỰ đổi — tick lại cái đã tick không phải sự kiện.
+    if (was !== copied) {
+      await this.writeActivity({
+        order,
+        event_kind: 'misa_copied',
+        message: copied
+          ? `Đánh dấu đã sao chép sang MISA${order.misa_ref ? ` (${order.misa_ref})` : ''}`
+          : 'Bỏ đánh dấu đã sao chép sang MISA',
+        actor,
+      });
+    }
+    return order;
   }
 
   /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
@@ -1085,6 +1160,10 @@ export class OrdersService {
     end_ms?: number;
     cashier_user_id?: string;
     status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    /** Đối soát MISA (2026-09-05). 'pending' = việc cần làm cuối ca: đơn ĐÃ THU TIỀN nhưng
+     * chưa gõ sang AMIS. Cố ý loại đơn huỷ và đơn đang dùng — không có bill thì không có gì
+     * để gõ, để lẫn vào là danh sách việc bị nhiễu và nhân viên bỏ qua cả danh sách. */
+    misa?: 'pending' | 'copied';
     page?: number;
     page_size?: number;
     /** Giới hạn tuổi đơn được xem (nhân viên order: 48h). Chặn ở server, không
@@ -1106,6 +1185,9 @@ export class OrdersService {
     if (status === 'paid') wheres.push(PAID_SQL);
     else if (status === 'cancelled') wheres.push(CANCELLED_SQL);
     else if (status === 'unpaid') wheres.push(`o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`);
+    // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
+    if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
+    else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
     // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
     // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
@@ -1171,9 +1253,19 @@ export class OrdersService {
 
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ ở màn Giao dịch.
    *
-   * Áp filter bàn/thu ngân/khoảng ngày (KHÔNG áp status — biểu đồ luôn phản ánh
-   * đủ bức tranh trong phạm vi ngày/bàn/thu ngân). Doanh thu = tổng món state
-   * SERVED của các đơn ĐÃ thanh toán (closed_at NOT NULL) — khớp cách tính ở FE.
+   * Áp filter bàn/thu ngân/khoảng ngày, VÀ tab đang chọn ở màn Lịch sử (2026-09-05): chủ quán
+   * bấm tab "Đã huỷ" thì cả bảng số bên dưới phải nói về đơn huỷ, không riêng danh sách đơn.
+   * Mỗi tab đổi 2 thứ: phạm vi ĐƠN (`scopeSql`) và món nào được tính tiền (`itemStateSql`).
+   *
+   *   all / paid  → đơn đã thu tiền, món SERVED   = doanh thu thật
+   *   misa=copied → như trên, thêm đã gõ sang Misa
+   *   unpaid      → đơn đang mở, món chưa huỷ     = tiền đang chờ thu
+   *   cancelled   → đơn kết bằng huỷ, món CANCELLED = giá trị đã huỷ (số để soi gian lận;
+   *                 nếu vẫn đếm món SERVED thì mọi biểu đồ tab này bằng 0, vô dụng)
+   *
+   * 3 con số đếm theo trạng thái cũng cắt theo tab khi có tab đang chọn → 2 trong 3 về 0, và
+   * biểu đồ tròn "tỉ lệ thanh toán" thành 1 lát 100%. Đó là lý do FE chỉ vẽ ô đếm của tab đang
+   * chọn và ẩn biểu đồ tròn ở các tab — KHÔNG phải chỗ để "sửa" bằng cách bỏ cắt theo tab.
    *
    * Bucket theo NGÀY/GIỜ giờ Việt Nam (UTC+7, cố định, không DST): cộng offset
    * 7h vào epoch ms rồi lấy phần ngày/giờ — tránh lệ thuộc timezone table MySQL.
@@ -1183,6 +1275,8 @@ export class OrdersService {
     cashier_user_id?: string;
     start_ms?: number;
     end_ms?: number;
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    misa?: 'pending' | 'copied';
   }): Promise<{
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
@@ -1210,21 +1304,43 @@ export class OrdersService {
       return qb;
     };
 
-    // 1) Doanh thu từng đơn ĐÃ thanh toán (kèm epoch ms + thu ngân) → gom theo
+    // Phạm vi đơn của TAB đang chọn (xem doc-comment ở trên).
+    const tabActive = (!!opts.status && opts.status !== 'all') || !!opts.misa;
+    let scopeSql =
+      opts.status === 'unpaid'
+        ? `o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`
+        : opts.status === 'cancelled'
+          ? CANCELLED_SQL
+          : PAID_SQL;
+    // Misa chỉ có nghĩa với đơn đã thu tiền — cùng lệ với listHistory.
+    if (opts.misa === 'copied') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NOT NULL`;
+    else if (opts.misa === 'pending') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NULL`;
+
+    const itemStateSql =
+      opts.status === 'cancelled'
+        ? "i.state = 'CANCELLED'"
+        : opts.status === 'unpaid'
+          ? "i.state <> 'CANCELLED'"
+          : "i.state = 'SERVED'";
+
+    // 1) Doanh thu từng đơn trong phạm vi tab (kèm epoch ms + thu ngân) → gom theo
     //    ngày/giờ/thu ngân bằng JS (tránh hàm timezone trong SQL).
     const perOrder = await applyFilters(
       this.orderRepo
         .createQueryBuilder('o')
         .leftJoin('o.items', 'i')
-        .select('UNIX_TIMESTAMP(o.closed_at) * 1000', 'closed_ms')
+        // COALESCE: tab "Chưa thanh toán" chưa có closed_at — thiếu nó thì cả tab rơi vào
+        // ngày 1970 và biểu đồ theo ngày/giờ trống trơn.
+        .select('UNIX_TIMESTAMP(COALESCE(o.closed_at, o.opened_at)) * 1000', 'closed_ms')
         .addSelect('o.checked_out_by_full_name', 'cashier')
         .addSelect(
-          "SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)",
+          `SUM(CASE WHEN ${itemStateSql} THEN i.menu_item_price * i.qty ELSE 0 END)`,
           'revenue',
         )
-        .where(PAID_SQL)
+        .where(scopeSql)
         .groupBy('o.id')
         .addGroupBy('o.closed_at')
+        .addGroupBy('o.opened_at')
         .addGroupBy('o.checked_out_by_full_name'),
     ).getRawMany<{ closed_ms: string | number; cashier: string | null; revenue: string | number }>();
 
@@ -1255,8 +1371,8 @@ export class OrdersService {
         .select('i.menu_item_name', 'name')
         .addSelect('SUM(i.qty)', 'qty')
         .addSelect('SUM(i.menu_item_price * i.qty)', 'revenue')
-        .where(PAID_SQL)
-        .andWhere("i.state = 'SERVED'")
+        .where(scopeSql)
+        .andWhere(itemStateSql)
         // Ghi chú ("lấy bát", "nước mắm") không phải hàng bán → không được lọt
         // vào top món bán chạy, nếu không nó đứng đầu bảng với doanh thu 0đ.
         .andWhere('i.is_note = 0')
@@ -1266,21 +1382,30 @@ export class OrdersService {
     ).getRawMany<{ name: string; qty: string | number; revenue: string | number }>();
 
     // 3) Đếm đơn theo 3 trạng thái (cùng phạm vi filter).
+    //
+    // Có tab đang chọn thì các số đếm cũng CẮT theo tab (2026-09-05): ở tab "Đã huỷ" mà ô
+    // "Đơn đã thanh toán" vẫn đề 27 thì người đọc tưởng bảng số chưa đổi. Hệ quả: 2 trong 3 ô
+    // về 0 — FE chỉ vẽ ô của tab đang chọn nên không lộ ra ô 0 vô nghĩa.
+    const scoped = (qb: import('typeorm').SelectQueryBuilder<Order>) =>
+      tabActive ? qb.andWhere(scopeSql) : qb;
+
     const paid_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where(PAID_SQL),
+      scoped(this.orderRepo.createQueryBuilder('o').where(PAID_SQL)),
     ).getCount();
     // Đơn bị HUỶ — đếm riêng để chủ quán soi được: bàn có gọi món nhưng kết thúc
     // bằng huỷ chứ không phải thu tiền.
     const cancelled_count = await applyFilters(
-      this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL),
+      scoped(this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL)),
     ).getCount();
     // Đơn rỗng (tap mở bàn chưa gọi gì / đã huỷ hết) KHÔNG tính là "chưa thanh
     // toán" — nếu tính thì con số này phình theo số lần bấm vào bàn.
     const unpaid_count = await applyFilters(
-      this.orderRepo
-        .createQueryBuilder('o')
-        .where('o.closed_at IS NULL')
-        .andWhere(HAS_ALIVE_ITEMS_SQL),
+      scoped(
+        this.orderRepo
+          .createQueryBuilder('o')
+          .where('o.closed_at IS NULL')
+          .andWhere(HAS_ALIVE_ITEMS_SQL),
+      ),
     ).getCount();
 
     // 4) Phí ship thu hộ — M2.D-62: `ship_fee` là tiền THU HỘ khách trả cho việc giao hàng,
@@ -1292,7 +1417,7 @@ export class OrdersService {
       this.orderRepo
         .createQueryBuilder('o')
         .select('COALESCE(SUM(o.ship_fee), 0)', 'total')
-        .where(PAID_SQL),
+        .where(scopeSql),
     ).getRawOne<{ total: string | number }>();
     const ship_fee_total = Number(shipFeeRaw?.total) || 0;
 

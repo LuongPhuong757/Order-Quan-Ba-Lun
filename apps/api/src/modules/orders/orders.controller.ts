@@ -61,6 +61,19 @@ class SetPriorityDto {
   @IsBoolean() priority!: boolean;
 }
 
+/** Thanh toán. Body OPTIONAL toàn phần — client cũ post rỗng vẫn chạy như trước. */
+class CheckoutDto {
+  /** Thu ngân tick "đã gõ sang MISA" ngay trong hộp thoại thu tiền (2026-09-05). */
+  @IsOptional() @IsBoolean() misa_copied?: boolean;
+}
+
+/** Đánh dấu / bỏ đánh dấu đã sao chép sang AMIS MISA. */
+class SetMisaDto {
+  @IsBoolean() copied!: boolean;
+  /** Số chứng từ MISA, tuỳ chọn. Cùng độ dài với cột `orders.misa_ref`. */
+  @IsOptional() @IsString() @MaxLength(64) misa_ref?: string | null;
+}
+
 /** Ghi chú cho bếp. `text` giới hạn 128 ký tự vì lưu vào cột menu_item_name
  * varchar(128) — ghi chú dùng chung dòng item với món thật. */
 class AddNoteDto {
@@ -245,12 +258,34 @@ export class OrdersController {
 
   /** POST /orders/:id/checkout — thanh toán + đóng order */
   @Post(':id/checkout')
-  async checkout(@Param('id') id: string, @Req() req: Request) {
-    const result = await this.svc.checkout(id, {
+  async checkout(@Param('id') id: string, @Body() body: CheckoutDto, @Req() req: Request) {
+    const result = await this.svc.checkout(
+      id,
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      body?.misa_copied,
+    );
+    return { data: result };
+  }
+
+  /** PATCH /orders/:id/misa — đánh dấu bù "đã sao chép sang MISA" sau khi đã thu tiền.
+   *
+   * Cùng quyền với /orders/history: ai đối soát được cuối ca thì tick được. Đây là cờ ghi
+   * chép nội bộ, không đụng tiền hay trạng thái đơn nên không cần AdminGuard. */
+  @Patch(':id/misa')
+  @UseGuards(RequireRoles('admin', 'order'))
+  async setMisa(@Param('id') id: string, @Body() body: SetMisaDto, @Req() req: Request) {
+    const order = await this.svc.setMisaCopied(id, body.copied, {
       id: req.user!.sub,
       full_name: req.user!.full_name,
-    });
-    return { data: result };
+    }, body.misa_ref);
+    return {
+      data: {
+        id: order.id,
+        misa_copied_at: order.misa_copied_at,
+        misa_copied_by_full_name: order.misa_copied_by_full_name,
+        misa_ref: order.misa_ref,
+      },
+    };
   }
 
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
@@ -264,12 +299,14 @@ export class OrdersController {
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
+    const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
     const result = await this.svc.listHistory({
       table_id: q.table_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
       cashier_user_id: q.cashier_user_id || undefined,
       status,
+      misa,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
       max_age_ms: staffHistoryWindowMs(req),
@@ -277,8 +314,10 @@ export class OrdersController {
     return { data: result };
   }
 
-  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin). Cùng filter với
-   * history (trừ status — biểu đồ luôn phản ánh đủ trong phạm vi ngày/bàn/thu ngân). */
+  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin).
+   *
+   * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05): tab ở màn Lịch sử đổi thì
+   * cả bảng số bên dưới đổi theo, không chỉ danh sách đơn. */
   @Get('stats')
   @UseGuards(AdminGuard)
   async stats(@Query() q: Record<string, string>) {
@@ -287,6 +326,9 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      status:
+        q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
+      misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
     });
     return { data };
   }

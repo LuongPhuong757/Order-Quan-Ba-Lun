@@ -20,6 +20,17 @@ import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-dai
 import { GeoShareDaily } from './modules/public/entities/geo-share-daily.entity.js';
 import { WebCartSnapshot } from './modules/analytics/entities/web-cart-snapshot.entity.js';
 import { GeoShareFailure } from './modules/analytics/entities/geo-share-failure.entity.js';
+import { Ingredient } from './modules/ingredients/entities/ingredient.entity.js';
+import { RecipeLine } from './modules/ingredients/entities/recipe-line.entity.js';
+import { OrderItemIngredientUsage } from './modules/ingredients/entities/order-item-ingredient-usage.entity.js';
+import { Supplier } from './modules/suppliers/entities/supplier.entity.js';
+import { SupplierItem } from './modules/suppliers/entities/supplier-item.entity.js';
+import { SupplierDelivery } from './modules/suppliers/entities/supplier-delivery.entity.js';
+import { SupplierDeliveryLine } from './modules/suppliers/entities/supplier-delivery-line.entity.js';
+import { SupplierDeliveryPhoto } from './modules/suppliers/entities/supplier-delivery-photo.entity.js';
+import { SupplierPayment } from './modules/suppliers/entities/supplier-payment.entity.js';
+import { SupplierUser } from './modules/suppliers/entities/supplier-user.entity.js';
+import { SupplierSession } from './modules/suppliers/entities/supplier-session.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -72,6 +83,26 @@ export const dataSourceOptions: DataSourceOptions = {
     // Chi tiết từng lần chia sẻ vị trí HỎNG (2026-09-04) — bảng chẩn đoán, một dòng mỗi lượt
     // hỏng; xem docblock entity về vì sao nó là ngoại lệ với luật "gộp sẵn" của module này.
     GeoShareFailure,
+    // Định lượng nguyên liệu (2026-09-05): danh mục nguyên liệu dùng chung + công thức từng món.
+    Ingredient,
+    RecipeLine,
+    // Bản chốt tiêu hao — ghi khi món vào bếp, là nguồn duy nhất cho báo cáo nguyên liệu.
+    OrderItemIngredientUsage,
+    // Nhập hàng NCC (2026-09-05, Milestone 3). `supplier_delivery_lines` là nguồn duy nhất cho
+    // cả ba báo cáo của milestone: biến động giá, thống kê mặt hàng nhập, tổng mua theo kỳ.
+    Supplier,
+    SupplierItem,
+    SupplierDelivery,
+    SupplierDeliveryLine,
+    // Ảnh đính kèm phiếu (2026-09-06). Thiếu dòng này thì bảng không được tạo và mọi lần
+    // upload ném lỗi runtime.
+    SupplierDeliveryPhoto,
+    // Công nợ NCC (bước 3). Thiếu dòng này thì `synchronize` không tạo bảng, mọi lần ghi nhận
+    // thanh toán ném lỗi runtime, mà `tsc` vẫn xanh.
+    SupplierPayment,
+    // Tài khoản + phiên đăng nhập của NCC (bước 4).
+    SupplierUser,
+    SupplierSession,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

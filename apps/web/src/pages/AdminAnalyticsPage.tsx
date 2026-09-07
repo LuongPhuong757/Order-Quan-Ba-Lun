@@ -219,7 +219,8 @@ export function AdminAnalyticsPanel() {
     <>
       {/* Hàng chọn khoảng ngày. KHÔNG có <h1> ở đây: khi nhúng vào tab, tiêu đề đã là "Đơn hàng
           online" + nhãn tab — thêm một h1 nữa là 2 tiêu đề chồng nhau trên cùng màn hình. */}
-      <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+      {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06). */}
+      <div className="tabstrip-sm" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
         {RANGES.map((r) => (
           <button
             key={r.days}

@@ -21,6 +21,7 @@ body {
 
 button,
 input,
+select,
 textarea {
   font: inherit;
   font-size: 16px; /* iOS no-zoom on focus */
@@ -59,6 +60,7 @@ button.danger {
 }
 
 input,
+select,
 textarea {
   display: block;
   width: 100%;
@@ -67,6 +69,40 @@ textarea {
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: white;
+  color: #1f2937;
+}
+
+/* Ô chọn: bỏ mũi tên mặc định của HĐH (mỗi hệ một kiểu, đều thô) và vẽ lại bằng SVG nền.
+   `padding-right` phải chừa chỗ cho mũi tên, không thì chữ dài chạy đè lên nó. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 40px;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+}
+
+select:focus {
+  outline: 2px solid #0f766e;
+  outline-offset: -2px;
+  border-color: #0f766e;
+}
+
+/* Ô ngày: Chromium vẽ nút lịch to và đậm hơn hẳn phần còn lại của form. Kéo nó về đúng cỡ
+   và đúng tông xám của các ô khác. */
+input[type='date'] {
+  font-weight: 400;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator {
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 2px;
+}
+
+input[type='date']::-webkit-calendar-picker-indicator:hover {
+  opacity: 0.85;
 }
 
 /* Radio/checkbox KHÔNG phải ô nhập text — quy tắc `input` phía trên (width:100%, min-height:44px,
@@ -125,8 +161,19 @@ label {
   max-width: 960px;
 }
 
+/* Màn Quản lý giao dịch: bảng 8 cột + thanh lọc 1 dòng. Ở 960px của `.container.wide`, hai
+   bên màn hình desktop bỏ trống hàng trăm px trong khi cột "Bàn" bên trong lại bị bóp đến mức
+   tên khách ship phải cắt "…". 1360px là chỗ vừa đủ cho cả 8 cột mà không thành bảng tràn màn. */
+.container.txn-page {
+  max-width: 1360px;
+}
+
 .card {
   background: white;
+  /* Bắt buộc, không phải trang trí: thẻ này được dùng cả trên <button> và <a>, mà `button`
+     ở trên đặt `color: white`. Không khai màu ở đây thì mọi dòng chữ trong thẻ KHÔNG tự đặt
+     màu sẽ là trắng trên nền trắng — đúng vụ tên nhà cung cấp biến mất ở màn /suppliers. */
+  color: #1f2937;
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -370,9 +417,37 @@ th {
 @media (max-width: 639px) {
   /* Helper class — text ẩn trên mobile, hiện trên desktop. Dùng cho icon-only buttons. */
   .hide-on-mobile { display: none !important; }
+  /* PHẢI thoát hẳn khỏi mô hình bảng, không chỉ ẩn thead.
+     Bảng Lịch sử khai `table-layout: fixed` + `<colgroup>` (76px, 130px, 96px…) để cắt "…" đúng
+     trên máy tính. Chừng nào thẻ `<table>` còn `display: table`, hai thứ đó VẪN CHI PHỐI: các
+     `tr` đã thành block bị trình duyệt bọc vào một ô bảng ẩn danh, và ô đó lấy bề rộng của CỘT
+     ĐẦU TIÊN — 76px. Kết quả trên điện thoại: mỗi đơn là một cột giấy dài 76px, "11:42" rơi
+     xuống mỗi dòng một chữ số. Sửa 2026-09-05.
+     Cho `table`/`tbody` thành block và ẩn `colgroup` là bỏ toàn bộ ràng buộc cột đó. */
+  table.responsive,
+  table.responsive tbody {
+    display: block;
+    width: 100%;
+  }
+  table.responsive colgroup {
+    display: none;
+  }
   table.responsive thead {
     display: none;
   }
+
+
+  /* Bản thân THẺ TABLE phải trong suốt ở chế độ thẻ.
+     Các bảng này viết là `<table className="responsive card">`, nên ở mobile ta có một tấm
+     TRẮNG (.card) làm nền cho một chồng thẻ cũng TRẮNG — ranh giới giữa các đơn/nhân sự biến
+     mất, chỉ còn viền xám 1px chìm nghỉm giữa nền trắng. Trả nền về trong suốt để nền xám
+     #f9fafb của trang lộ ra ở khe giữa các thẻ. Sửa 2026-09-05. */
+  table.responsive.card {
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+  }
+
   table.responsive tbody tr {
     display: block;
     background: white;
@@ -382,18 +457,56 @@ th {
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
     border: 1px solid #e5e7eb;
   }
+
+  /* Mỗi ô = MỘT DÒNG "nhãn ─── giá trị", nhãn trái / giá trị phải.
+     Trước đây `display:block` + nhãn `inline-block` chỉ chạy đúng khi nội dung ô là text trần.
+     Rất nhiều ô lại bọc `<div>` (cột "Bàn" ở Lịch sử, cột "Quyền"/"Trạng thái" ở Nhân sự) —
+     div là block nên nó rớt xuống DÒNG DƯỚI, để lại nhãn đứng trơ một mình. Đó là lý do thẻ
+     trên điện thoại cao gấp đôi và đọc như một cột chữ lộn xộn.
+     `flex` sửa gốc: nhãn và giá trị luôn cùng một dòng dù nội dung là gì. */
   table.responsive td {
-    display: block;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
     border: 0;
-    padding: 4px 0;
+    padding: 6px 0;
+    overflow-wrap: anywhere;
+    /* Ghi đè `textAlign:'right'` inline ở các cột tiền/thao tác — ở chế độ thẻ, việc căn phải
+       đã do `justify-content` lo, để nguyên inline thì chữ bị đẩy ra sát mép hai lần. */
+    text-align: left;
   }
+
+  /* Gạch mờ ngăn từng dòng trong thẻ — không có nó, 6-8 dòng nhãn/giá trị dính thành một khối
+     chữ. Dòng cuối không kẻ để không thành viền đôi với viền thẻ. */
+  table.responsive tbody tr > td + td {
+    border-top: 1px dashed #f1f5f9;
+  }
+
   table.responsive td::before {
     content: attr(data-label);
     font-weight: 600;
     color: #6b7280;
-    display: inline-block;
-    min-width: 100px;
+    font-size: 13px;
+    /* `flex: none` + không min-width: nhãn chỉ chiếm đúng bề rộng chữ, phần dư nhường hết cho
+       giá trị (địa chỉ, tên khách ship là chuỗi dài nhất trên thẻ). */
+    flex: none;
   }
+
+  /* Chuỗi dài bọc trong `div` (tên bàn + tên khách ship ở Lịch sử) được XUỐNG DÒNG trên điện
+     thoại thay vì cắt "…": ở đây không có chuột để hover đọc `title`, cắt chữ là mất thông tin
+     thật. Chỉ nhắm `div` — badge trạng thái nằm trong `span` vẫn giữ nowrap như thiết kế. */
+  table.responsive td > div {
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  /* Phần giá trị: được co lại và tự cắt "…" thay vì đẩy nhãn ra khỏi thẻ. */
+  table.responsive td > * {
+    min-width: 0;
+  }
+
   /* Dòng full-width (header ngày / chi tiết đơn) — không hiện nhãn ::before */
   table.responsive td.txn-full::before,
   table.responsive td.txn-day::before {
@@ -401,7 +514,36 @@ th {
     min-width: 0;
     display: none;
   }
-  table.responsive td.txn-full { padding: 0; }
+  table.responsive td.txn-full,
+  table.responsive td.txn-day {
+    display: block;
+    border-top: 0;
+  }
+  /* Chi tiết đơn tràn hết bề ngang thẻ (bù đúng padding 12 của `tr`) — thụt vào thì khối chi
+     tiết trông như một hộp lơ lửng bên trong thẻ. */
+  table.responsive td.txn-full {
+    padding: 0;
+    margin: -12px;
+    border-radius: 9px;
+    overflow: hidden;
+  }
+
+  /* Hàng tiêu đề NGÀY không phải một đơn — không được mang hình dạng thẻ trắng, nếu không
+     người dùng đếm nhầm số đơn trong ngày. Nó là một dải phân cách. */
+  table.responsive tbody tr.txn-day-row {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+    margin: 16px 0 8px;
+  }
+  table.responsive tbody tr.txn-day-row:first-child {
+    margin-top: 0;
+  }
+  table.responsive td.txn-day {
+    padding: 8px 12px;
+    border-radius: 8px;
+  }
 }
 
 /* Bảng giao dịch: dòng đơn bấm được, header ngày, hover trên desktop */
@@ -515,8 +657,48 @@ a:hover {
   font-size: 10px;
   font-weight: 500;
 }
-@media (max-width: 380px) {
-  .nav-bottom a .nav-label { display: none; }
+/* Thanh nav dưới TRƯỢT NGANG (chỉ đạo chủ quán 2026-09-06: "rồi sẽ phát sinh càng ngày càng
+   nhiều, cho trượt ngay đi").
+   Trước đây mỗi mục `flex: 1` nên chia đều chỗ: 7 mục trên máy 390px còn 55px/mục, và mỗi mục
+   thêm vào lại bóp tất cả nhỏ đi một lần nữa — cách này có trần cứng, thêm tới mục thứ 9-10 là
+   chỉ còn cái emoji. Nay mỗi mục có bề rộng SÀN, thanh nào không đủ chỗ thì vuốt ngang.
+   `flex: 1 0 66px` — vẫn `grow: 1` nên thanh 4 mục (role Order) vẫn dàn đều hết bề ngang như
+   cũ; chỉ khi tổng vượt màn hình thì mới thành thanh cuộn. `shrink: 0` là chỗ chặn không cho
+   bóp xuống dưới 66px.
+   Mục đang mở được kéo vào giữa bằng JS ở `ProtectedShell` (App.tsx) — không có nó thì đứng ở
+   mục thứ 7 sẽ không thấy mình đang ở đâu. */
+.nav-bottom {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.nav-bottom::-webkit-scrollbar {
+  display: none;
+}
+
+.nav-bottom a {
+  flex: 1 0 66px;
+  scroll-snap-align: center;
+}
+
+/* Desktop/tablet: icon và chữ nằm CÙNG một dòng — thanh nav còn ~40px thay vì 2 tầng.
+   Dưới 640px vẫn xếp dọc: ở đó bề ngang mới là thứ khan hiếm, xếp ngang là chữ bị bóp
+   hoặc tràn khỏi ô. */
+@media (min-width: 640px) {
+  .nav-bottom {
+    padding: 9px 0 max(9px, env(safe-area-inset-bottom));
+  }
+  .nav-bottom a {
+    flex-direction: row;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 4px;
+    white-space: nowrap;
+  }
+  .nav-bottom a .nav-icon { font-size: 16px; }
+  .nav-bottom a .nav-label { font-size: 13px; }
 }
 
 .nav-bottom a[aria-current="page"] {
@@ -612,6 +794,12 @@ a:hover {
 .with-bottom-nav {
   padding-bottom: 80px;
 }
+/* Nav 1 dòng ở desktop cao ~54px — giữ 80px là chừa một khoảng trống vô cớ cuối trang. */
+@media (min-width: 640px) {
+  .with-bottom-nav {
+    padding-bottom: 70px;
+  }
+}
 
 /* ════════════════════════════════════════════════════════════════════════════
    Màn Đơn hàng online — hàng chờ + cài đặt
@@ -631,10 +819,13 @@ a:hover {
 
 /* Thanh công cụ hàng chờ: DÍNH TRÊN. Nhân viên cuộn tới đơn thứ 15 vẫn phải đổi được tab và
    vẫn phải thấy đèn kết nối — đó là 2 thứ nói "trang này còn sống hay không".
-   `top: 0` đủ vì `.header` của app không sticky. */
+   `top: 56px` = đúng chiều cao `.header` (min-height 56, position:sticky top:0, z-index 200).
+   Ghi chú cũ ở đây nói "`.header` của app không sticky" — SAI kể từ khi header thành sticky:
+   với `top: 0` thanh này trượt CHUI XUỐNG DƯỚI header (z-index 5 < 200) và biến mất đúng lúc
+   cần nhất. Trên điện thoại thấy rõ nhất vì header luôn nằm đó. Sửa 2026-09-05. */
 .oo-toolbar {
   position: sticky;
-  top: 0;
+  top: 56px;
   z-index: 5;
   display: flex;
   align-items: center;
@@ -843,4 +1034,785 @@ a:hover {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   white-space: normal;
   max-width: 240px;
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Điện thoại (<640px) — 4 màn công cụ: Online / Menu / Lịch sử / Nhân sự
+   Thêm 2026-09-05 (chỉ đạo chủ dự án: "4 màn này trên mobile đang rất khó nhìn").
+   Bốn màn này viết cho iPad ngang trở lên: thanh lọc nhiều trục, ô nhập bề rộng cố định,
+   tiêu đề + dãy nút cùng một hàng. Trên máy 360px chúng không VỠ (đã có `flexWrap`) nhưng
+   xếp thành 5-6 tầng chrome trước khi thấy dữ liệu đầu tiên, và các ô rộng cố định để lại
+   khe trống lởm chởm. Khối này ép chúng về nếp dọc gọn.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  /* 20px mỗi bên là gần 12% bề ngang máy 360px, trong khi các thẻ bên trong đã có padding
+     riêng. Hạ xuống 14 để trả lại ~12px cho nội dung — vừa đủ cho một cột tiền không bị cắt.
+     KHÔNG dùng shorthand `padding`: nó ghi luôn cả `padding-bottom`, mà `.with-bottom-nav`
+     (80px chừa chỗ cho thanh điều hướng cố định dưới đáy) khai TRƯỚC khối này trong tệp nên sẽ
+     bị đè — nội dung cuối trang chui xuống dưới thanh nav. */
+  .container {
+    padding-left: 14px;
+    padding-right: 14px;
+    padding-top: 16px;
+  }
+
+  /* Tiêu đề trang + dãy nút hành động: `.flex.between` không có `flex-wrap`, nên `<h1>` 24px
+     và cụm nút ép nhau trên cùng một hàng — h1 gãy chữ giữa từ, nút bị bóp. Cho xuống dòng và
+     h1 nhỏ lại. */
+  .flex.between {
+    flex-wrap: wrap;
+  }
+  h1 {
+    font-size: 20px;
+  }
+
+  /* ── Màn Online: thanh công cụ dính ──────────────────────────────────────
+     4 tab (chấm + nhãn + số) ở cỡ 16px là ~150px/tab → 2-3 hàng tab, cao 100-140px, DÍNH TRÊN
+     màn, tức là chiếm gần một phần ba màn hình suốt lúc cuộn. Ép về MỘT hàng cuộn ngang:
+     tab đang chọn vẫn luôn thấy, các tab khác vuốt sang. */
+  /* Thanh công cụ KHÔNG wrap: chỉ dãy tab bên trong nó mới cuộn. Trước đây toolbar wrap nên
+     chuông + đèn kết nối bị đẩy xuống một dòng riêng, cộng với hàng tab cấp 1, hàng tìm kiếm
+     và hàng lọc thời gian là 6 tầng chrome ~400px trước khi thấy đơn đầu tiên (chủ quán báo
+     2026-09-06 "chưa thấy thiết kế đúng với mobile"). Gộp lại còn 5 tầng.
+     Chuông và đèn PHẢI nằm ngoài vùng cuộn: chúng nói "trang này còn sống không" nên không
+     được phép trôi khuất khi vuốt tab. */
+  .oo-toolbar {
+    flex-wrap: nowrap;
+  }
+
+  /* Mọi thứ KHÔNG phải dãy tab đều giữ nguyên bề rộng. Thiếu dòng này thì flex bóp đều tất cả
+     và nút "🔕 Bật chuông" bị cắt còn "Bật chuôn" — dãy tab mới là chỗ được phép co, vì nó có
+     thanh cuộn riêng để bù. */
+  .oo-toolbar > *:not(.oo-tabs) {
+    flex: none;
+  }
+
+  .oo-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    /* `1 1 auto` + `min-width: 0`: dãy tab nuốt hết chỗ còn thừa rồi tự cuộn bên trong, thay vì
+       đẩy chuông/đèn ra khỏi hàng. */
+    flex: 1 1 auto;
+    min-width: 0;
+    /* Chừa chỗ cho viền tab không bị cắt cụt ở mép vùng cuộn. */
+    padding: 2px;
+    margin: -2px;
+    scrollbar-width: none;
+  }
+  .oo-tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .oo-tabs > button {
+    flex: none;
+    /* 16px→14px và padding 16→12: 4 tab vừa gần đủ một màn 360px, phần thừa vuốt nhẹ là tới. */
+    font-size: 14px !important;
+    padding: 0 12px !important;
+    white-space: nowrap;
+  }
+
+  /* Khoảng đệm co giãn giữa tab và cụm chỉ báo. Ở màn rộng nó đẩy đèn kết nối về mép phải;
+     khi hàng đã wrap thì nó biến thành một ô trống chiếm trọn một dòng, đẩy đèn/chuông xuống
+     hàng thứ ba. Trên điện thoại bỏ hẳn — các chỉ báo dồn sát tab là đúng. */
+  .oo-spacer {
+    display: none !important;
+  }
+
+  /* ── Màn Lịch sử: thanh lọc ──────────────────────────────────────────────
+     Hàng lọc gộp 5 nhóm điều khiển (tab trạng thái, chọn bàn, chọn thu ngân, 2 ô ngày).
+     Trên điện thoại chúng wrap thành 4-5 dòng lệch nhau vì mỗi thứ một bề rộng cứng. */
+  .txn-filters {
+    /* Ô lọc chiếm trọn bề ngang thay vì canh giữa hàng — mép trái thẳng cột thì mắt quét nhanh. */
+    align-items: stretch !important;
+  }
+
+  /* Vạch ngăn dọc giữa "tab" và "bộ lọc phạm vi": `align-self: stretch` trên một hàng đã wrap
+     biến nó thành sợi tóc dựng đứng giữa màn, không ngăn cách gì cả. */
+  .txn-filter-sep {
+    display: none !important;
+  }
+
+  /* Hai ô ngày: bỏ bề rộng cố định 140px, chia đôi hàng còn lại. `font-size: 16px` là bắt buộc
+     — iOS Safari TỰ PHÓNG TO cả trang khi focus vào ô nhập có chữ nhỏ hơn 16px, và người dùng
+     phải tự vuốt thu lại. Đây là lý do lớn nhất khiến thanh lọc này "khó dùng" trên iPhone. */
+  .txn-date {
+    /* `flex-basis` theo PHẦN TRĂM, không phải 0. Với `0 0` hai ô ngày phải giành chỗ với 2 ô
+       chọn trên cùng một dòng wrap và bị bóp còn ~20px — chỉ còn cái icon lịch, không đọc được
+       ngày nào. 40% ép chúng tự tách thành một hàng riêng của hai ô, chia đôi. */
+    flex: 1 1 40% !important;
+    width: auto !important;
+    min-width: 118px !important;
+    min-height: 40px !important;
+    height: 40px !important;
+    font-size: 16px !important;
+  }
+
+  /* Hai ô chọn (bàn / thu ngân) — cùng lý do: bỏ 150/160px cứng, mỗi ô nửa hàng. Nâng chiều
+     cao 34→40px cho gần ngưỡng chạm 44px. */
+  .txn-fsel {
+    flex: 1 1 45% !important;
+    width: auto !important;
+    min-width: 130px !important;
+  }
+  .txn-fsel > button {
+    min-height: 40px !important;
+    height: 40px !important;
+  }
+
+  /* ── Ô nhập nói chung ────────────────────────────────────────────────────
+     Mọi ô nhập/ô chọn bị đặt cỡ chữ nhỏ hơn 16px bằng inline style đều làm iOS phóng trang khi
+     focus (ô tìm món ở màn Menu, ô sắp xếp, ô tìm trong dropdown lọc). Ép sàn 16px ở đây thay
+     vì đi sửa từng inline style — sàn này chính là điều `body { font-size: 16px }` ở đầu tệp
+     đang cố giữ. */
+  input:not([type='radio']):not([type='checkbox']),
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   .tabstrip — hàng tab/pill KHÔNG bao giờ gãy chữ
+   Thêm 2026-09-06 sau khi soi app thật ở 390px.
+   Các hàng tab đang viết là `display:flex; gap:4` trần. Flex mặc định cho phép item CO LẠI
+   dưới bề rộng nội dung, nên trên điện thoại "Nhận đơn & giờ mở cửa" bị ép thành 3 dòng chữ
+   xếp dọc, và một hàng 4 tab cao 90px trông như một cái bảng chứ không như một hàng tab.
+   Cách chữa đúng là cho hàng CUỘN NGANG thay vì bóp: mỗi tab giữ nguyên bề rộng chữ, tab nào
+   không vừa thì vuốt tới. Dùng được ở mọi bề rộng — trên desktop hàng vừa đủ nên không cuộn.
+   ════════════════════════════════════════════════════════════════════════════ */
+.tabstrip {
+  display: flex;
+  overflow-x: auto;
+  flex-wrap: nowrap;
+  /* Vuốt trên iOS dừng đúng mép tab thay vì trôi tự do. */
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabstrip::-webkit-scrollbar {
+  display: none;
+}
+
+.tabstrip > * {
+  flex: none;
+  white-space: nowrap;
+  scroll-snap-align: start;
+}
+
+/* Biến thể CHỈ mobile. Dãy nhóm món ở màn Menu có tới ~25 nhóm: trên desktop cho wrap thành
+   2-3 hàng là đúng (thấy hết một lượt, chuột không vuốt ngang được). Nhưng trên điện thoại
+   25 viên thuốc xếp wrap = một bức tường ~1000px, phải cuộn qua 3 màn hình mới thấy món đầu
+   tiên. Dưới 640px ép về một hàng cuộn ngang: 44px thay vì 1000px. */
+@media (max-width: 639px) {
+  .tabstrip-sm {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+    scroll-snap-type: x proximity;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    /* Chừa chỗ cho viền pill khỏi bị cắt ở mép vùng cuộn. */
+    padding: 2px;
+    margin: -2px;
+  }
+  .tabstrip-sm::-webkit-scrollbar {
+    display: none;
+  }
+  .tabstrip-sm > * {
+    flex: none !important;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+}
+
+/* Số điện thoại là thứ nhân viên BẤM ĐỂ GỌI (màn Thống kê, khối chi tiết đơn ở Lịch sử).
+   Ở cỡ chữ bảng, một link `tel:` chỉ cao 19px — dưới xa ngưỡng chạm 44px của Apple HIG, bấm
+   trượt sang dòng bên cạnh là chuyện thường. Nới vùng chạm theo chiều dọc mà không đổi cỡ chữ
+   nên bảng không cao thêm đáng kể. Thêm 2026-09-06. */
+@media (max-width: 639px) {
+  a[href^='tel:'] {
+    display: inline-block;
+    padding: 7px 0;
+    min-height: 33px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Lịch sử giao dịch trên điện thoại — mỗi đơn 3 DÒNG thay vì 8
+   Sửa 2026-09-06 (chỉ đạo chủ quán: "quá dài, chiếm quá nhiều diện tích").
+   Cách "nhãn trái ─ giá trị phải" cho từng ô là đúng cho bảng Nhân sự / Nhật ký, nhưng bảng
+   này có 8 cột nên một đơn cao ~470px: màn hình 844px chỉ chứa được MỘT đơn rưỡi. Người xem
+   lịch sử cần QUÉT nhiều đơn, không phải đọc kỹ từng đơn — chi tiết đã có sẵn ở khối bung ra
+   khi bấm vào dòng.
+   Nay xếp lại thành lưới 3×3, ~110px một đơn (7 đơn mỗi màn):
+     06:19   Bàn 01 · 🛵 Khách…        205.000đ
+     Thu ngân Chủ quán                Giờ TT 23:19
+     ✓4      [✓ Đã thanh toán]        [📋] ▼
+   Nhãn chỉ giữ ở 2 ô mơ hồ (thu ngân / giờ TT); giờ vào, tên bàn, tiền, badge và nút thì tự
+   nói lên nó là gì nên bỏ nhãn — đó là chỗ tiết kiệm được nhiều chiều ngang nhất.
+   Chỉ áp cho `.txn-table` — các bảng khác giữ nguyên kiểu nhãn/giá trị.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  table.responsive.txn-table tbody tr.txn-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    column-gap: 8px;
+    row-gap: 3px;
+    padding: 10px 12px;
+    align-items: baseline;
+  }
+
+  table.responsive.txn-table tbody tr.txn-row > td {
+    display: block;
+    padding: 0;
+    border-top: 0;
+    text-align: left;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Ô tự nói lên nội dung → bỏ nhãn hẳn. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(1)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(2)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(5)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(6)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(7)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(8)::before {
+    content: none;
+  }
+
+  /* Dòng 1 — thứ nhận diện đơn: giờ vào · bàn · tổng tiền. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(1) {
+    grid-area: 1 / 1;
+    color: #6b7280;
+    font-variant-numeric: tabular-nums;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(2) {
+    grid-area: 1 / 2;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(6) {
+    grid-area: 1 / 3;
+    text-align: right;
+  }
+
+  /* Dòng 2 — bối cảnh, chữ nhỏ mờ: ai thu, thu lúc nào. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(3) {
+    grid-area: 2 / 1 / auto / span 2;
+    font-size: 12px;
+    color: #6b7280;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(4) {
+    grid-area: 2 / 3;
+    font-size: 12px;
+    color: #6b7280;
+    text-align: right;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(3)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(4)::before {
+    font-size: 11px;
+    font-weight: 500;
+    margin-right: 4px;
+  }
+
+  /* Dòng 3 — trạng thái và thao tác. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(5) {
+    grid-area: 3 / 1;
+    font-size: 12px;
+    color: #6b7280;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(7) {
+    grid-area: 3 / 2;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(8) {
+    grid-area: 3 / 3;
+    text-align: right;
+    overflow: visible;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Bàn ăn trên điện thoại — 2 thẻ mỗi dòng
+   Sửa 2026-09-06 (chỉ đạo chủ quán: "1 dòng nên có 2-3 bàn").
+   `minmax(220px, 1fr)` cần 452px cho 2 cột, mà máy 390px chỉ có 362px → rơi về 1 cột, mỗi bàn
+   ăn ~145px chiều dọc, quán 29 bàn phải cuộn 5 màn. Hạ ngưỡng xuống 150px: 390px cho 2 cột,
+   máy lớn / iPad ngang tự lên 3-4 cột như cũ (desktop KHÔNG đổi vì rule này chỉ chạy <640px).
+   Kèm theo phải bóp nội dung thẻ, cột 175px không chứa nổi tên bàn 22px NẰM CẠNH nhãn loại
+   bàn — cho nhãn xuống dòng dưới và hạ cỡ tên.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  .tbl-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+    gap: 10px !important;
+  }
+
+  .tbl-card {
+    padding: 10px !important;
+  }
+
+  /* Tên bàn và nhãn loại xếp DỌC: cạnh nhau thì "Mang về 01" + "🥡 Mang về" cần ~195px,
+     quá chỗ của một cột 175px. */
+  .tbl-head {
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 6px !important;
+  }
+
+  .tbl-name {
+    font-size: 18px !important;
+    line-height: 1.2;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Menu trên điện thoại — thu gọn khối lọc
+   Sửa 2026-09-06 (chỉ đạo chủ quán: "phần filter chiếm quá nhiều diện tích").
+   Đo trên máy 390px: từ mép trên vùng nội dung tới món đầu tiên mất ~470/844px — hơn NỬA màn
+   hình là chrome. Ba chỗ phí, sửa cả ba mà không bỏ điều khiển nào:
+
+   1. Ô sắp xếp bị đẩy xuống dòng riêng. Ô tìm khai `flex: 1 1 220px; min-width: 180px`, cộng
+      ô sắp xếp ~140px là 360 > 338px chỗ thật có → wrap. Cho ô tìm co được (`min-width: 0`)
+      thì hai cái nằm chung một dòng. Tiết kiệm ~62px.
+   2. Ba nút tình trạng ("Tất cả tình trạng / Còn hàng / Hết hàng") tràn thành 2 dòng vì
+      padding 14px + chữ 14px. Bóp padding và chữ → vừa một dòng. Tiết kiệm ~52px.
+   3. Padding và khoảng cách trong thẻ lọc rộng hơn mức cần trên màn hẹp. Tiết kiệm ~14px.
+   ════════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 639px) {
+  .mm-filters {
+    padding: 10px !important;
+    gap: 8px !important;
+  }
+
+  /* Ô tìm kiếm: bỏ sàn 180px để nó nhường chỗ cho ô sắp xếp trên cùng một dòng. */
+  .mm-filters input[type='text'] {
+    flex: 1 1 120px !important;
+    min-width: 0 !important;
+  }
+
+  /* Ô sắp xếp: chữ 16px (chống iOS phóng trang) nhưng padding hẹp lại cho vừa dòng. */
+  .mm-filters select {
+    flex: 0 1 auto;
+    min-width: 0;
+    padding: 8px 6px !important;
+  }
+
+  .mm-stock > button {
+    padding: 7px 9px !important;
+    font-size: 13px !important;
+  }
+}
+
+/* Hàng 4 nút trong thẻ món (Đánh dấu hết / Sửa / Công thức / Xoá) phải nằm MỘT dòng
+   (chỉ đạo chủ quán 2026-09-06). Đo thật: 4 nút cần 364px + 18px gap, thẻ chỉ rộng 332px →
+   "Xoá" rớt xuống dòng hai, mỗi thẻ cao thêm 50px, nhân 30 món là 1500px cuộn thừa.
+   Chữ "Công thức" đã ẩn ở JSX (`hide-on-mobile`), đây là phần còn lại: bóp padding ngang và
+   bỏ sàn 120px của nút đầu để nó co theo chỗ trống thay vì đẩy cả hàng xuống dòng. */
+@media (max-width: 639px) {
+  .mm-actions {
+    flex-wrap: nowrap !important;
+  }
+  .mm-actions > button {
+    padding: 6px 8px !important;
+  }
+  .mm-actions > button:first-child {
+    min-width: 0 !important;
+  }
+}
+
+/* ── Khối cài đặt gập/mở (accordion) ────────────────────────────────────────
+   Thêm 2026-09-06. Tiêu đề khối là một cái nút chiếm trọn bề ngang; phần thân chỉ render khi
+   mở (xem `Section` trong OnlineOrderSettingsPanel.tsx). Ở đây chỉ là phần tạo dáng: trả nút
+   về hình dạng một dòng tiêu đề, cộng mũi chevron xoay theo trạng thái. */
+.st-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  /* Ghi đè toàn bộ dáng nút mặc định của app (nền teal, bo góc, padding 12/16). */
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.st-head-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.st-head-caret {
+  flex: none;
+  color: #6b7280;
+  transition: transform 0.15s ease;
+}
+
+.st-section[data-open='false'] .st-head-caret {
+  transform: rotate(-90deg);
+}
+
+/* Khối đang gập: bóp padding lại. Chín khối gập ở padding 20px là 9 × 60px chỉ để hiện 9 dòng
+   chữ; ở 14px thì cả chín vừa một màn điện thoại. */
+.st-section[data-open='false'] {
+  padding: 14px 16px;
+  margin-bottom: 10px;
+}
+
+/* Vùng chạm phải phủ hết bề ngang khối, không chỉ mấy chữ tiêu đề — nới bằng padding âm để
+   không đổi vị trí chữ. */
+@media (max-width: 639px) {
+  .st-head {
+    padding: 4px 0;
+    margin: -4px 0;
+  }
+}
+
+/* ── Bảng phí giao theo giá trị đơn, trên điện thoại ────────────────────────
+   Sửa 2026-09-06. Mỗi bậc là một hàng flex-wrap gồm 3 ô bề rộng CỨNG (140/110/130px) + một
+   đệm co giãn + nút Xoá. Trên máy 390px (lòng khối ~300px) chúng wrap tuỳ hứng: ô "Miễn phí"
+   nhảy lên nằm cạnh nhãn "Áp dụng cho", nút "Xoá bậc" thì bị đệm đẩy sang tận mép phải của
+   dòng dưới — nhìn không ra bậc nào đi với ô nào.
+   Ép về lưới 2 cột cố định, mỗi bậc đọc thành:
+       [Đơn từ (đ)  ] [Miễn phí (km)]
+       [Vượt (đ/km) ] [Xoá bậc      ]  */
+@media (max-width: 639px) {
+  .st-tier {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+    align-items: end;
+  }
+
+  /* Bỏ bề rộng cứng — cột lưới quyết định. */
+  .st-tier-field {
+    width: auto !important;
+  }
+
+  /* Đệm chỉ có nghĩa khi cả hàng nằm trên một dòng; trong lưới nó thành một ô trống. */
+  .st-tier-spacer {
+    display: none;
+  }
+
+  /* Nút Xoá và câu "bậc gốc, không xoá được" nằm ở ô cuối, canh đáy cho thẳng hàng với các ô
+     nhập bên cạnh. */
+  .st-tier > button,
+  .st-tier > span:not(.st-tier-spacer) {
+    align-self: end;
+    justify-self: stretch;
+    text-align: center;
+  }
+}
+
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Popup Nhập hàng — MỘT cây JSX, hai bố cục
+   Thêm 2026-09-06 theo yêu cầu chủ quán ("mỗi mặt hàng một dòng", rồi "thiết kế
+   cho cả mobile nữa").
+
+   ≥1001px — mỗi mặt hàng là MỘT hàng 5 cột dóng thẳng nhau, nhãn chỉ hiện ở dòng
+   đầu. Mắt dóng theo cột để soát số, nên cột "Đơn vị tính" vẫn chiếm chỗ kể cả
+   với mặt hàng đã có trong danh mục (lúc đó là ô chỉ đọc) — để nó biến mất thì
+   các dòng lệch cột nhau.
+
+   ≤1000px — cùng đúng những ô đó xếp thành một THẺ: tên hàng trên cùng, rồi Đơn vị
+   tính · Số lượng · Đơn giá. Nhãn hiện lại ở mọi dòng vì lúc này thứ tự cột không
+   còn nói lên điều gì.
+
+   Thứ cho phép một cây JSX chạy được cả hai kiểu là `display: contents` trên hai
+   bọc `.dl-units` / `.dl-money`: ở desktop chúng tan ra để con của chúng thành
+   cột thật của lưới cha; ở điện thoại chúng thành khối riêng.
+   (Chủ quán bỏ ô "NCC bán theo" và ô quy đổi 2026-09-06 — .dl-units giờ chỉ còn
+   một ô, nhưng giữ nguyên bọc để hai bố cục vẫn dùng chung một cây JSX.)
+   ════════════════════════════════════════════════════════════════════════════ */
+.dl-line {
+  display: grid;
+  gap: 8px;
+  align-items: end;
+  grid-template-columns: minmax(220px, 3fr) minmax(96px, 1fr) minmax(96px, 1fr) minmax(110px, 1.2fr) 44px;
+}
+
+.dl-units,
+.dl-money {
+  display: contents;
+}
+
+/* `label` mang sẵn margin-bottom 6px. Trong lưới `align-items: end` thì thứ được dóng là HỘP
+   LỀ, nên cột nào là <label> bị đẩy lên cao hơn cột nào là <div> đúng 6px. */
+.dl-line > label,
+.dl-units > label,
+.dl-money > label {
+  margin-bottom: 0;
+}
+
+/* Nhãn cột chỉ hiện ở dòng ĐẦU. Lặp lại nhãn trên mọi dòng làm bảng nhiễu đặc chữ, mà từ dòng
+   thứ hai trở đi vị trí cột đã đủ để biết ô nào là ô nào. */
+.dl-line.dl-rest .dl-lab {
+  display: none;
+}
+
+.dl-lab {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dl-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.dl-del {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+}
+
+/* Thành tiền từng dòng: chỉ có nghĩa ở bố cục thẻ — desktop đã có cột tiền dóng thẳng. */
+.dl-foot-line {
+  display: none;
+}
+
+/* ── ≤1000px: bố cục thẻ ──────────────────────────────────────────────────── */
+@media (max-width: 1000px) {
+  .dl-line {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    /* Chừa chỗ cho nút ✕ neo ở góc trên phải. */
+    padding-right: 40px;
+    position: relative;
+  }
+
+  .dl-line.dl-rest .dl-lab {
+    display: block;
+  }
+
+  .dl-units,
+  .dl-money {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .dl-units {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dl-del {
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-height: 36px;
+    min-width: 36px;
+    border-radius: 8px;
+  }
+
+  .dl-item {
+    padding: 12px;
+  }
+
+  .dl-foot-line {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .dl-line-total {
+    font-size: 17px;
+    font-weight: 800;
+    margin-left: auto;
+  }
+
+  /* Tờ giấy tràn viền: 16px lề overlay + 24px lề thẻ ăn mất 80px trên tổng 390px, tức hơn 20%
+     bề ngang máy chỉ để làm khung. */
+  .dl-overlay {
+    padding: 0;
+  }
+
+  .dl-sheet {
+    border-radius: 0;
+    padding: 16px 14px 0;
+    min-height: 100%;
+  }
+
+  /* Thanh tổng + nút ghim đáy màn. Phiếu 10 mặt hàng dài hơn 2 màn hình. */
+  .dl-bar {
+    position: sticky;
+    bottom: 0;
+    margin: 16px -14px 0;
+    padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
+    background: white;
+    border-top: 1px solid #e5e7eb;
+    box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+  }
+}
+
+/* ── ≥1001px: thanh tổng nằm cuối form như cũ ─────────────────────────────── */
+@media (min-width: 1001px) {
+  .dl-sheet {
+    max-width: 1180px;
+    width: 100%;
+    margin: auto;
+  }
+
+  .dl-overlay {
+    padding: 16px;
+  }
+}
+
+.dl-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 1001px) {
+  .dl-bar {
+    margin-top: 20px;
+    padding-top: 16px;
+    border-top: 1px solid #e5e7eb;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Nhà cung cấp trên điện thoại (2026-09-07 — chủ quán: "nút hơi to", "thiết kế
+   lại tab mặt hàng nhập / phiếu nhập / biến động giá cho mobile").
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Nút thao tác của màn NCC. Trước đây mỗi nút tự khai `minHeight: 48` + `padding: 0 20px`
+   ngay trong JSX, nên trên máy 390px hai nút "Mặt hàng" + "＋ Nhập hàng" cộng lại rộng hơn
+   màn hình và bị cắt mất một nửa. Gom về một class để còn hạ cỡ theo breakpoint — inline
+   style thì không viết được media query. */
+.sup-action {
+  min-height: 44px;
+  padding: 0 18px;
+}
+@media (max-width: 639px) {
+  .sup-action {
+    min-height: 38px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 14px;
+    border-radius: 7px;
+  }
+}
+
+/* Cặp đối của `.hide-on-mobile`: chỉ hiện dưới 640px. */
+.only-on-mobile { display: none !important; }
+
+@media (max-width: 639px) {
+  .only-on-mobile { display: revert !important; }
+
+  /* Dãy nút sắp xếp thay cho tiêu đề cột bấm được — ở chế độ thẻ `thead` bị ẩn, không có
+     dãy này thì trên điện thoại mất hẳn khả năng đổi cách xếp (tiền / lần / lượng). */
+  .sort-strip.only-on-mobile {
+    display: flex !important;
+    gap: 6px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    margin-bottom: 12px;
+    /* Chừa mép phải để chip cuối không dính sát cạnh màn hình khi vuốt hết. */
+    padding: 0 2px 2px 0;
+  }
+  .sort-strip::-webkit-scrollbar { display: none; }
+  /* `flex: 0 0 auto` là phần bắt buộc để dãy này TRƯỢT thay vì VỠ. Mặc định flex item co
+     được, nên 6 chip cố nhét vào 390px: hộp bị bóp dưới bề rộng chữ, `nowrap` giữ chữ một
+     dòng và chữ bị cắt cụt ("Bình quâr", "Mặt hàn"), còn `overflow-x` thì không bao giờ có
+     gì để cuộn. Cấm co lại là tổng bề rộng vượt màn hình và thanh cuộn ngang mới hoạt động. */
+  .sort-strip button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    min-width: 0;
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+    border-radius: 999px;
+  }
+
+  /* Dòng TIÊU ĐỀ của thẻ (tên mặt hàng / tên NCC): chiếm trọn bề ngang, không có nhãn
+     "Mặt hàng ─── …" vì nó chính là tên của thẻ. */
+  table.responsive td.sup-cell-title {
+    display: block;
+    padding: 0 0 6px;
+    border-top: 0;
+    font-size: 16px;
+    font-weight: 700;
+  }
+  table.responsive td.sup-cell-title::before { display: none; }
+  table.responsive td.sup-cell-title button {
+    width: auto;
+    padding: 0;
+    min-height: 0;
+    font-size: 16px;
+  }
+
+  /* Hàng nút cuối thẻ (Duyệt/Huỷ). Phiếu đã duyệt thì ô này rỗng — `:empty` để nó không
+     để lại một dòng gạch đứt trống ở đáy thẻ. */
+  table.responsive td.sup-cell-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding-top: 10px;
+  }
+  table.responsive td.sup-cell-actions::before { display: none; }
+  table.responsive td.sup-cell-actions:empty { display: none; }
+
+  /* Dòng tổng cộng — `tfoot` không nằm trong luật thẻ ở trên nên phải tự lo, nếu không nó
+     tụt về mô hình bảng và dính chữ vào nhau. */
+  table.responsive tfoot { display: block; }
+  table.responsive tfoot tr {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 12px;
+  }
+  table.responsive tfoot td { display: block; padding: 0; }
+  /* Ô đệm `colSpan` cuối hàng tổng — ở chế độ thẻ nó thành một cột rỗng đẩy con số tổng vào
+     giữa thẻ. */
+  table.responsive tfoot td:empty { display: none; }
+}
+
+/* Thẻ có DÒNG TIÊU ĐỀ nằm trên cùng, bất kể cột đó đứng thứ mấy trong bảng.
+   Bảng "Phiếu nhập" có cột Ngày đứng trước cột Nhà cung cấp — trên máy tính đúng, nhưng ở
+   chế độ thẻ thì tên NCC mới là thứ mắt tìm trước, mà nó lại nằm dưới dòng "Ngày ─── …".
+   `flex-direction: column` biến các `td` thành flex item để `order: -1` kéo tiêu đề lên đầu;
+   `display: block` của luật thẻ chung thì không sắp lại được. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards tbody tr {
+    display: flex;
+    flex-direction: column;
+  }
+  table.responsive.sup-cards td.sup-cell-title { order: -1; }
+  /* Gạch ngăn tính lại theo THỨ TỰ NHÌN THẤY: luật chung dùng `td + td` (thứ tự trong DOM),
+     sau khi đảo chỗ thì nó bỏ sót đúng dòng ngay dưới tiêu đề. */
+  table.responsive.sup-cards tbody tr > td { border-top: 1px dashed #f1f5f9; }
+  table.responsive.sup-cards tbody tr > td.sup-cell-title { border-top: 0; }
+}
+
+/* Giá trị + đơn vị phải DÍNH nhau ở mép phải. Ô "Lượng" là `17,72 <span>g</span>` — hai nút
+   con, nên `justify-content: space-between` của luật thẻ chung dàn chúng thành ba cột rời rạc
+   ("Lượng ─── 17,72 ─── g"), đọc như ba giá trị khác nhau. Đẩy nhãn ra bằng `margin-right:
+   auto` rồi cho phần còn lại dồn phải là xong. */
+@media (max-width: 639px) {
+  table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
+  table.responsive.sup-cards td::before { margin-right: auto; }
+  table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
 }

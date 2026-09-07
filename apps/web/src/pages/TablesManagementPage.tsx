@@ -99,7 +99,10 @@ export function TablesManagementPage() {
         )}
       </div>
 
-      <div className="card" style={{ marginBottom: 16, padding: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+      {/* Dãy lọc loại bàn — MỘT DÒNG kéo ngang (quy tắc chung cho mọi filter trên mobile,
+          chốt 2026-09-06). Bỏ `flexWrap` và `flex: 1 1 auto; minWidth: 110` của nút: cả hai
+          cùng ép 4 nút chia đôi thành 2 hàng trên máy 390px. */}
+      <div className="card tabstrip-sm" style={{ marginBottom: 16, padding: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {kinds.map((k) => (
           <button
             key={k || 'all'}
@@ -121,20 +124,20 @@ export function TablesManagementPage() {
       )}
 
       {!loading && filtered.length > 0 && (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
+        <div className="tbl-grid" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
           {filtered.map((t) => (
             <div
               key={t.id}
-              className="card"
+              className="card tbl-card"
               style={{
                 padding: 14,
                 background: KIND_COLOR[t.kind] || '#f9fafb',
                 border: '1px solid #e5e7eb',
               }}
             >
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+              <div className="tbl-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
                 <div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{t.name}</div>
+                  <div className="tbl-name" style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{t.name}</div>
                   <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>{t.code}</div>
                 </div>
                 <span style={{

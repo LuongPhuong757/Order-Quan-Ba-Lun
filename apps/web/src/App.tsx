@@ -57,6 +57,12 @@ const HistoryPage = lazy(() =>
 const OnlineOrdersPage = lazy(() =>
   import('./pages/OnlineOrdersPage.tsx').then((m) => ({ default: m.OnlineOrdersPage })),
 );
+const SuppliersPage = lazy(() =>
+  import('./pages/SuppliersPage.tsx').then((m) => ({ default: m.SuppliersPage })),
+);
+const NccPortalPage = lazy(() =>
+  import('./pages/NccPortalPage.tsx').then((m) => ({ default: m.NccPortalPage })),
+);
 
 /**
  * Những màn mỗi role bấm vào NHIỀU NHẤT trong một buổi làm — kéo sẵn về khi máy rảnh.
@@ -114,6 +120,10 @@ export function App() {
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/recover" element={<RecoverPage />} />
+          {/* Cổng nhà cung cấp (2026-09-05, bước 4). NGOÀI `ProtectedShell` một cách cố ý: NCC
+              không phải nhân viên, không có role, và tự xác thực bằng phiên riêng
+              (`x-supplier-token`). Nhét vào trong đó là bắt họ đăng nhập bằng tài khoản nội bộ. */}
+          <Route path="/ncc" element={<NccPortalPage />} />
 
           <Route element={<ProtectedShell />}>
             <Route path="/" element={<HomeRedirect />} />
@@ -147,6 +157,15 @@ export function App() {
                 Giới hạn thực thi ở BE — xem staffHistoryWindowMs ở orders.controller. */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/history" element={<HistoryPage />} />
+            </Route>
+
+            {/* Nhà cung cấp (M3.D-31, 2026-09-05): admin + order.
+                Nhân viên order là người NHẬN HÀNG tại quán, nên họ phải nhập được phiếu — nhập hộ
+                là đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ. Bếp không vào:
+                bếp không nhận hàng và không thấy giá mua.
+                Các nút sửa/xoá NCC bên trong gate riêng theo role, khớp với AdminGuard ở BE. */}
+            <Route element={<RoleGate allow={['admin', 'order']} />}>
+              <Route path="/suppliers" element={<SuppliersPage />} />
             </Route>
 
             {/* Admin-only: tables, users, audit, dashboard */}
@@ -244,6 +263,22 @@ function ProtectedShell() {
     return () => window.clearTimeout(id);
   }, [role]);
 
+  /* Thanh nav dưới CUỘN NGANG trên điện thoại (xem `.nav-bottom` trong styles.css): số mục sẽ
+     còn tăng, chia đều chỗ mãi thì tới lúc mỗi mục chỉ còn cái emoji không đọc được. Đánh đổi
+     của việc cuộn là mục đang mở có thể nằm ngoài tầm nhìn — admin đang ở "N/viên" (mục thứ 7)
+     mà thanh nav chỉ hiện tới mục thứ 5 thì không còn điểm tựa "mình đang ở đâu".
+     Nên mỗi lần đổi route thì kéo mục đang sáng vào giữa. `inline: 'center'` chứ không phải
+     'nearest': mục ở giữa cho thấy luôn cả mục trước và mục sau, tức là thấy được rằng thanh
+     này còn trượt được. `block: 'nearest'` để không làm cuộn dọc cả trang. */
+  useEffect(() => {
+    const active = document.querySelector<HTMLElement>('.nav-bottom a[aria-current="page"]');
+    if (!active) return;
+    const bar = active.parentElement;
+    // Chỉ cuộn khi thanh thật sự tràn — trang vừa đủ mục thì gọi cũng vô hại nhưng thừa.
+    if (!bar || bar.scrollWidth <= bar.clientWidth) return;
+    active.scrollIntoView({ inline: 'center', block: 'nearest' });
+  }, [loc.pathname, role]);
+
   if (loading) {
     return (
       <div className="container">
@@ -315,6 +350,11 @@ function ProtectedShell() {
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
           <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
+          {/* Nhà cung cấp — thành mục thứ 8 (2026-09-06). Trước đây cố tình để ngoài nav vì sợ
+              bóp nhỏ các mục khác, nhưng thẻ ở Dashboard là đường vào quá kín: nhập hàng là việc
+              LÀM HÀNG NGÀY, không phải màn tra cứu thỉnh thoảng như Thống kê truy cập.
+              8 mục vẫn vừa: dưới 380px nhãn đã tự ẩn, chỉ còn icon 20px. */}
+          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng, công nợ"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon">👥</span><span className="nav-label">N/viên</span></NavLink>
         </nav>
       )}
@@ -326,6 +366,9 @@ function ProtectedShell() {
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          {/* Nhân viên order là người NHẬN HÀNG tại quán (M3.D-05) nên phải nhập được phiếu.
+              Role này KHÔNG có Dashboard, nên nếu không có nút ở đây thì không có đường vào nào. */}
+          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}

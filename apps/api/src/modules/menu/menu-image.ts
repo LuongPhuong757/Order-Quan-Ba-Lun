@@ -22,17 +22,32 @@ export const MENU_IMAGE_MAX_BYTES = 10 * 1024 * 1024; // 10MB
 
 mkdirSync(MENU_UPLOAD_DIR, { recursive: true });
 
-/** Resize + nén + ghi đĩa, trả về URL công khai (`/uploads/menu/<file>.webp`). Ảnh rác → 400. */
-export async function saveMenuImage(buffer: Buffer): Promise<string> {
+/** Resize + nén + ghi đĩa, trả về URL công khai. Ảnh rác → 400.
+ *
+ * Tách ra khỏi `saveMenuImage` (2026-09-06) khi ảnh đính kèm phiếu nhập cần cùng pipeline này
+ * nhưng khác thư mục và khác bề rộng — xem cảnh báo ở đầu tệp: hai bản copy của cùng một
+ * pipeline là hai chỗ lệch nhau dần về chất lượng ảnh và luật an toàn. Mọi luật ASVS ở đây giữ
+ * nguyên cho cả hai đường: `memoryStorage` phía controller, `.rotate()` áp EXIF, `.webp()`
+ * không copy EXIF/GPS, tên file sinh 100% ở server. */
+export async function saveImage(
+  buffer: Buffer,
+  opts: { dir: string; width: number; quality?: number },
+): Promise<string> {
+  mkdirSync(opts.dir, { recursive: true });
   const name = `${Date.now()}-${randomBytes(6).toString('hex')}.webp`;
   try {
     await sharp(buffer)
       .rotate()
-      .resize({ width: 800, withoutEnlargement: true })
-      .webp({ quality: 82 })
-      .toFile(join(MENU_UPLOAD_DIR, name));
+      .resize({ width: opts.width, withoutEnlargement: true })
+      .webp({ quality: opts.quality ?? 82 })
+      .toFile(join(opts.dir, name));
   } catch {
     throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Ảnh không đọc được, vui lòng chọn ảnh khác' });
   }
-  return `/uploads/menu/${name}`;
+  return `/${opts.dir}/${name}`;
+}
+
+/** Ảnh món — 800px là đủ cho thẻ món trên trang khách, và khách 3G không phải tải ảnh gốc. */
+export async function saveMenuImage(buffer: Buffer): Promise<string> {
+  return saveImage(buffer, { dir: MENU_UPLOAD_DIR, width: 800 });
 }
