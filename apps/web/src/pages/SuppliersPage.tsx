@@ -325,6 +325,12 @@ export function SuppliersPage() {
           balanceTick={balanceTick}
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
+          onDeleted={() => {
+            setDetail(null);
+            refresh();
+            // NCC biến mất kéo theo dòng nợ của nó — bảng công nợ phải tính lại.
+            setBalanceTick((t) => t + 1);
+          }}
           onIntake={() => setShowForm({ supplierId: detail.id })}
           onOpenHistory={(id, name) => setHistory({ id, name })}
           onBalanceChanged={refresh}
@@ -360,6 +366,36 @@ export function SuppliersPage() {
       )}
     </div>
   );
+}
+
+/** Hỏi rồi xoá một NCC. Trả `true` nếu đã xoá xong.
+ *
+ * Tách ra khỏi component vì có HAI nút gọi tới nó: nút ngoài màn chi tiết (đường chính) và nút
+ * trong form Sửa thông tin (giữ lại cho người đang sửa dở thấy sai mối thì xoá luôn). Hai chỗ mà
+ * chép hai lần thì sớm muộn lời cảnh báo công nợ ở một chỗ bị quên cập nhật.
+ */
+async function confirmAndDeleteSupplier(
+  supplier: Supplier,
+  confirm: ReturnType<typeof useConfirm>,
+  toast: ReturnType<typeof useToast>,
+): Promise<boolean> {
+  const ok = await confirm({
+    title: `Xoá "${supplier.name}"?`,
+    variant: 'danger',
+    message:
+      'Nhà cung cấp sẽ biến mất khỏi danh sách. Phiếu nhập đã ghi không đổi, ' +
+      'nhưng công nợ chưa trả của NCC này cũng biến khỏi bảng công nợ.',
+    confirmLabel: 'Xoá',
+  });
+  if (!ok) return false;
+  try {
+    await api.delete(`/suppliers/${supplier.id}`);
+    toast.push('success', `Đã xoá "${supplier.name}"`);
+    return true;
+  } catch (err) {
+    toast.push('error', extractError(err).message);
+    return false;
+  }
 }
 
 function SupplierList({
@@ -601,6 +637,7 @@ function SupplierDetail({
   balanceTick,
   onClose,
   onEdit,
+  onDeleted,
   onIntake,
   onOpenHistory,
   onBalanceChanged,
@@ -612,10 +649,13 @@ function SupplierDetail({
   balanceTick: number;
   onClose: () => void;
   onEdit: () => void;
+  onDeleted: () => void;
   onIntake: () => void;
   onOpenHistory: (ingredientId: string, name: string) => void;
   onBalanceChanged: () => void;
 }) {
+  const toast = useToast();
+  const confirm = useConfirm();
   const [items, setItems] = useState<SupplierItemRow[] | null>(null);
 
   useEffect(() => {
@@ -678,6 +718,20 @@ function SupplierDetail({
           {isAdmin && (
             <button className="secondary sup-action" onClick={onEdit}>
               Sửa thông tin
+            </button>
+          )}
+          {/* Xoá đứng NGAY đây chứ không nằm trong form "Sửa thông tin". Chôn nó sau một lần bấm
+              nữa thì chủ quán không tìm ra — nghỉ mối là việc thường xuyên, không phải thao tác
+              hiếm đến mức phải giấu. Vẫn có hộp xác nhận nên bấm nhầm không mất gì. */}
+          {isAdmin && (
+            <button
+              className="secondary sup-action"
+              style={{ marginLeft: 'auto', color: C.danger }}
+              onClick={async () => {
+                if (await confirmAndDeleteSupplier(supplier, confirm, toast)) onDeleted();
+              }}
+            >
+              Xoá NCC
             </button>
           )}
         </div>
@@ -836,22 +890,7 @@ function SupplierEditor({
 
   const remove = async () => {
     if (!supplier) return;
-    const ok = await confirm({
-      title: `Xoá "${supplier.name}"?`,
-      variant: 'danger',
-      message:
-        'Nhà cung cấp sẽ biến mất khỏi danh sách. Phiếu nhập đã ghi không đổi, ' +
-        'nhưng công nợ chưa trả của NCC này cũng biến khỏi bảng công nợ.',
-      confirmLabel: 'Xoá',
-    });
-    if (!ok) return;
-    try {
-      await api.delete(`/suppliers/${supplier.id}`);
-      toast.push('success', 'Đã xoá');
-      onSaved();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    }
+    if (await confirmAndDeleteSupplier(supplier, confirm, toast)) onSaved();
   };
 
   return (
