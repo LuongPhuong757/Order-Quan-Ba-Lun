@@ -2,12 +2,22 @@
 # container riêng (ordbl_dev_*), MySQL riêng, volume riêng, thư mục checkout riêng.
 # Triển khai: ./deploy-dev.sh (từ máy local). Xem DEPLOY.md mục 11.
 #
-# KHÁC docker-compose.prod.yml ở 3 điểm, đều có chủ ý:
+# KHÁC docker-compose.prod.yml ở 4 điểm, đều có chủ ý:
 #   1. KHÔNG có service caddy — dùng chung container Caddy của prod (ordbl_caddy).
 #      Site block dev được deploy-dev.sh render vào caddy-local/dev.caddy trên server;
 #      Caddyfile của prod đã `import /etc/caddy/local/*.caddy` sẵn.
 #   2. KHÔNG có mysql-backup — DB dev là data vứt đi, mất cũng không sao.
 #   3. MySQL cấp ít RAM hơn hẳn (256M thay vì 1G) — prod phải được ưu tiên bộ nhớ.
+#   4. Tên service là `dev_api` / `dev_mysql`, KHÔNG trùng `api` / `mysql` của prod.
+#
+# Vì sao điểm 4 quan trọng (sự cố 2026-09-07): trước đây file này cũng đặt tên service là
+# `api`. Container Caddy dùng chung được đấu vào network của CẢ HAI stack, và Caddyfile prod
+# khi đó trỏ upstream `api:3001` — Docker DNS phân giải sang container nào là tuỳ network nào
+# tới trước. Nó chọn `ordbl_dev_api`, nên apex + admin + menu của production chạy trên backend
+# và DATABASE DEV gần một tiếng, không một lỗi nào để mà thấy: mọi request vẫn 200.
+#
+# Đã sửa ở hai lớp, giữ cả hai: Caddyfile prod trỏ bằng TÊN CONTAINER (`ordbl_api:3001`), và
+# tên service ở đây không còn trùng để không có gì phân giải nhập nhằng được nữa.
 #
 # `name:` cố định để mọi lệnh docker compose đều gom đúng stack này, không phụ thuộc
 # tên thư mục checkout.
@@ -20,7 +30,7 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  mysql:
+  dev_mysql:
     image: mysql:8.0
     container_name: ordbl_dev_mysql
     restart: unless-stopped
@@ -47,11 +57,11 @@ services:
       timeout: 5s
       retries: 10
     logging: *default-logging
-    # KHÔNG expose port — chỉ api trong network dev truy cập được.
+    # KHÔNG expose port — chỉ dev_api trong network dev truy cập được.
     networks:
       - dev_backend
 
-  api:
+  dev_api:
     build:
       context: .
       dockerfile: Dockerfile
@@ -61,8 +71,12 @@ services:
       # production, KHÔNG phải development: chỉ ở mode này main.ts mới serve web-dist/
       # shop-dist. Đây là bản build thật của nhánh develop, không phải Vite dev server.
       NODE_ENV: production
+      # Nhãn môi trường trả ra /api/public/health. Đây là thứ chứng minh được `dev.<domain>`
+      # đang nói chuyện với stack NÀY, và quan trọng hơn: prod trả `production` chứ không phải
+      # `develop` (sự cố 2026-09-07). Xem scripts/verify-env.sh.
+      APP_ENV: develop
       API_PORT: 3001
-      MYSQL_HOST: mysql
+      MYSQL_HOST: dev_mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
@@ -91,7 +105,7 @@ services:
     volumes:
       - ./uploads:/app/apps/api/uploads
     depends_on:
-      mysql:
+      dev_mysql:
         condition: service_healthy
     logging: *default-logging
     networks:

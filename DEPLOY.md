@@ -308,6 +308,7 @@ MySQL riêng, volume riêng, container `ordbl_dev_*`. Không có bất cứ đư
 | Compose | `docker-compose.prod.yml` | `docker-compose.dev.yml` |
 | Env | `.env.production` | `.env.dev` |
 | Container | `ordbl_mysql` / `ordbl_api` | `ordbl_dev_mysql` / `ordbl_dev_api` |
+| Tên service compose | `mysql` / `api` | `dev_mysql` / `dev_api` |
 | Volume DB | `mysql_data` | `mysql_dev_data` |
 | Database | `order_quan_balun` | `order_quan_balun_dev` |
 | Site khách | `<domain>` | `dev.<domain>` |
@@ -320,6 +321,36 @@ Caddy thì **dùng chung container của prod** (`ordbl_caddy`). Site block củ
 `deploy-dev.sh` render ra `caddy-local/dev.caddy` trong checkout prod — đúng thư mục mà
 `Caddyfile` đã `import` sẵn. Nghĩa là: gỡ server dev chỉ cần xoá một file, và một lỗi cú
 pháp bên dev không bao giờ nằm trong `Caddyfile` của prod.
+
+### ⚠ Hai môi trường gặp nhau ở đúng một chỗ: container Caddy
+
+VPS chỉ có một cặp port 80/443, nên **không thể tách dev/prod bằng port** — một Caddy phục vụ
+cả hai. Đó là chỗ duy nhất hai môi trường chạm nhau, và nó đã gãy một lần:
+
+Sáng 2026-09-07, cả hai stack đều đặt tên service là `api` và `Caddyfile` prod trỏ upstream
+`api:3001`. `ordbl_caddy` nằm trong network của cả hai, nên Docker DNS chọn container nào là
+tuỳ network nào tới trước — nó chọn `ordbl_dev_api`. Apex, `admin.` và `menu.` của **production
+chạy trên backend + database DEV gần một tiếng**. Không có gì báo: mọi request vẫn 200, health
+vẫn `ok`, log Caddy vẫn sạch. Người dùng chỉ thấy "sai mật khẩu" vì đang tra vào DB khác.
+
+Ba lớp chặn, giữ cả ba:
+
+1. `Caddyfile` prod trỏ bằng **tên container** `ordbl_api:3001` — tên container là duy nhất
+   toàn máy, không có chỗ cho nhập nhằng.
+2. Tên service của hai stack **không trùng nhau** (`dev_api`/`dev_mysql` vs `api`/`mysql`).
+3. [scripts/verify-env.sh](scripts/verify-env.sh) hỏi thẳng domain công khai xem stack nào trả
+   lời (field `env` của `/api/public/health`, lấy từ biến `APP_ENV`). `deploy.sh` chạy nó sau
+   mỗi lần deploy prod, và `deploy-dev.sh` cũng chạy nó với `WANT_ENV=production` sau khi chạm
+   vào Caddy — deploy dev mà cướp domain prod là **fail ngay tại đó**.
+
+**Thứ tự khi sửa lớp routing này: `main`/production TRƯỚC, `develop` sau.** Mỗi lần deploy
+develop đều ghi `dev.caddy`, `docker network connect`, rồi `caddy reload` trên Caddy của prod —
+push `develop` trước khi prod có bản sửa là tự dựng lại đúng sự cố cũ.
+
+> Lần deploy dev đầu tiên sau khi đổi tên service, `deploy-dev.sh` tự `docker compose down` một
+> lần (không `-v`, nên volume `mysql_dev_data` giữ nguyên): compose gắn nhãn service vào
+> container, đổi tên service mà `container_name` không đổi thì nó báo "container name is already
+> in use" và deploy gãy giữa đường.
 
 ### 11.1 Dựng lần đầu
 

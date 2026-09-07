@@ -155,6 +155,22 @@ fi
 docker exec ordbl_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
   && echo "[dev] ✓ Caddy đã reload" \
   || { echo "[dev] ❌ Caddy từ chối config mới — config cũ vẫn chạy, prod không sao."; exit 1; }
+
+# Chốt chặn cuối (2026-09-07): deploy dev KHÔNG ĐƯỢC cướp domain production.
+#
+# Cả khối trên đây đều chạm vào Caddy CỦA PROD — ghi dev.caddy, \`docker network connect\`,
+# rồi \`caddy reload\` — nên đây đúng là thời điểm prod có thể lặng lẽ đổi upstream sang stack
+# dev. Sáng 2026-09-07 nó đã xảy ra thật: apex + admin + menu của quán chạy trên backend và
+# database DEV gần một tiếng, mọi request vẫn 200 nên không có gì báo.
+#
+# Không tin cấu hình — hỏi thẳng domain prod xem ai đang trả lời. Prod không có basic auth
+# nên bước này không cần mật khẩu nào.
+if [ -f "$DEPLOY_PATH/scripts/verify-env.sh" ]; then
+  ( cd "$DEPLOY_PATH" && WANT_ENV=production bash scripts/verify-env.sh ) || { echo "[dev] ❌ deploy dev đã làm domain PRODUCTION trỏ sai stack — xem phần chẩn đoán ngay trên"; exit 1; }
+else
+  echo "[dev] ⚠ chưa có $DEPLOY_PATH/scripts/verify-env.sh — checkout prod còn cũ, bỏ qua chốt chặn."
+  echo "[dev]    Deploy main (production) trước thì mới có bước kiểm này."
+fi
 REMOTE
 }
 
@@ -228,7 +244,7 @@ fi"
 
   # ── Xem log / trạng thái ──────────────────────────────────────────────────
   --logs)     require_stack; rrun "tail -n 60 $BUILD_LOG" ;;
-  --api-logs) require_stack; rrun "cd $DEV_PATH && $DC logs --tail 80 api" ;;
+  --api-logs) require_stack; rrun "cd $DEV_PATH && $DC logs --tail 80 dev_api" ;;
   --status)
     require_stack
     rrun "cd $DEV_PATH && $DC ps
@@ -248,7 +264,7 @@ ls -l $DEPLOY_PATH/caddy-local/dev.caddy 2>/dev/null || echo '(chưa có)'" ;;
 cd $DEV_PATH
 sed -i 's|^SETUP_ALLOWED_IP=.*|SETUP_ALLOWED_IP=$MYIP,127.0.0.1|' .env.dev
 grep '^SETUP_ALLOWED_IP=' .env.dev
-$DC up -d api
+$DC up -d dev_api
 echo '[dev] ✓ đã restart api với IP mới'"
     echo "✅ Mở https://admin.dev.<domain>/setup (nhập basic auth trước)"
     ;;
@@ -317,6 +333,22 @@ else
   echo '❌ Không tìm thấy nhánh lẫn commit \"$REF\" trên origin — push lên GitHub trước'; exit 1
 fi
 git log --oneline -1"
+
+    # Dọn container của TÊN SERVICE CŨ (2026-09-07 — `api`/`mysql` → `dev_api`/`dev_mysql`).
+    # Compose gắn nhãn service vào container; đổi tên service nghĩa là nó muốn tạo container
+    # MỚI nhưng `container_name` (ordbl_dev_api / ordbl_dev_mysql) thì vẫn thế → "container name
+    # is already in use" và deploy gãy giữa đường. `down` không có `-v` nên volume
+    # `mysql_dev_data` giữ nguyên, DB dev không mất gì. Chỉ chạy đúng một lần, lần deploy đầu
+    # sau khi đổi tên; các lần sau nhãn đã khớp nên bỏ qua.
+    rrun "set -euo pipefail
+cd $DEV_PATH
+OLD=\$(docker inspect ordbl_dev_api -f '{{index .Config.Labels \"com.docker.compose.service\"}}' 2>/dev/null || true)
+if [ -n \"\$OLD\" ] && [ \"\$OLD\" != 'dev_api' ]; then
+  echo \"[dev] tên service cũ ('\$OLD') — tắt stack một lần để đổi sang dev_api/dev_mysql (volume DB giữ nguyên)\"
+  $DC down
+else
+  echo '[dev] = tên service đã khớp, không cần dọn'
+fi"
 
     # Render Caddy chạy SAU khi build xong (cùng tiến trình nền), giống cách deploy.sh
     # gọi attach-caddy-networks.sh: có upstream rồi mới cho Caddy trỏ vào.
