@@ -321,9 +321,20 @@ echo '[dev] ✓ đã dọn sạch'"
     echo "▶ Ref: $REF → $DEV_PATH"
     # Nhận CẢ tên nhánh lẫn commit SHA. CI truyền SHA vì giữa lúc job xếp hàng có thể đã có
     # commit mới hơn — deploy "nhánh develop" khi đó là đẩy lên một commit chưa qua CI.
+    # `git fetch` có RETRY (2026-09-07). Đo thật trên VPS này: mở TCP tới github.com:443 fail
+    # khoảng 2/5 lần — chặn chập chờn ở tầng ISP, cùng loại với chuyện openstreetmap.org bị
+    # trả về 127.0.0.1. Không retry thì mỗi lần deploy có ~40% xác suất đỏ ngẫu nhiên ngay ở
+    # bước đầu, và đỏ kiểu đó dạy người ta bỏ qua CI đỏ — tệ hơn nhiều so với đợi thêm 10 giây.
+    # Timeout mỗi lần thử là 130s (mặc định của TCP), nên 5 lần vẫn nằm trong 22 phút của CI.
     rrun "set -euo pipefail
 cd $DEV_PATH
-git fetch origin --prune --tags
+FETCHED=0
+for i in 1 2 3 4 5; do
+  if git fetch origin --prune --tags; then FETCHED=1; break; fi
+  echo \"[dev] git fetch lần \$i thất bại (mạng VPS ↔ github.com chập chờn) — thử lại sau 10s\"
+  sleep 10
+done
+[ \"\$FETCHED\" = 1 ] || { echo '❌ 5 lần git fetch đều thất bại — kiểm tra mạng VPS ra github.com'; exit 1; }
 if git rev-parse --verify --quiet origin/$REF >/dev/null; then
   git checkout -B $REF origin/$REF
   git reset --hard origin/$REF
