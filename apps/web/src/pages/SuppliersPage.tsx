@@ -861,9 +861,9 @@ function SupplierEditor({
   const [owed, setOwed] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Chỉ hỏi số dư đầu kỳ lúc TẠO MỚI. Sửa NCC đã có thì dùng nút riêng trong khối công nợ —
-  // nhét vào đây sẽ khiến người sửa số điện thoại vô tình ghi đè một con số tiền mà họ không
-  // định đụng tới. (Chốt "chỉ chủ quán" của M3.D-40 đã bỏ 2026-09-07.)
+  // Chỉ hỏi nợ cũ lúc TẠO MỚI. Sửa NCC đã có thì dùng nút riêng trong khối công nợ — nhét vào
+  // đây sẽ khiến người sửa số điện thoại vô tình ghi đè một con số tiền mà họ không định đụng
+  // tới. (Chốt "chỉ chủ quán" của M3.D-40 đã bỏ 2026-09-07.)
   const askOpening = !supplier;
 
   const save = async (e: FormEvent) => {
