@@ -111,4 +111,8 @@ menu.{$DOMAIN} {
 # Nên: file này thuộc về repo và deploy được ghi đè thoải mái; cấu hình của site khác nằm
 # ở ./caddy-local/*.caddy trên server (KHÔNG tracked, không bị deploy đụng vào).
 # Glob không khớp file nào cũng hợp lệ — repo mới clone chưa có gì trong đó vẫn chạy.
+#
+# Server DEVELOP (dev.<domain> + admin.dev.<domain>) cũng đi qua đây, dưới dạng
+# caddy-local/dev.caddy do `deploy-dev.sh` render từ Caddyfile.dev. Cùng lý do: block dev
+# sai cú pháp mà nằm trong file này thì Caddy không load được config và SẬP CẢ TRANG QUÁN.
 import /etc/caddy/local/*.caddy

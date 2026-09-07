@@ -296,4 +296,120 @@ Khi quán đông hơn (40-50 staff) hoặc mở chi nhánh:
 
 ---
 
+## 11. Server develop (cùng VPS, DB riêng, chỉ mình chủ vào được)
+
+Môi trường thử nghiệm chạy **cùng VPS** với production nhưng tách hẳn: checkout riêng,
+MySQL riêng, volume riêng, container `ordbl_dev_*`. Không có bất cứ đường nào để dev
+đọc hay ghi vào DB prod.
+
+| | Production | Develop |
+|---|---|---|
+| Checkout | `$DEPLOY_PATH` (nhánh `main`) | `/opt/ordbl-dev` (nhánh `develop`) |
+| Compose | `docker-compose.prod.yml` | `docker-compose.dev.yml` |
+| Env | `.env.production` | `.env.dev` |
+| Container | `ordbl_mysql` / `ordbl_api` | `ordbl_dev_mysql` / `ordbl_dev_api` |
+| Volume DB | `mysql_data` | `mysql_dev_data` |
+| Database | `order_quan_balun` | `order_quan_balun_dev` |
+| Site khách | `<domain>` | `dev.<domain>` |
+| Site quản lý | `admin.<domain>` | `admin.dev.<domain>` |
+| Ai vào được | cả thế giới | chỉ ai biết basic auth |
+| Backup | có sidecar hằng ngày | **không** (data vứt đi) |
+| SMS | eSMS thật | `console` — OTP chỉ in ra log |
+
+Caddy thì **dùng chung container của prod** (`ordbl_caddy`). Site block của dev được
+`deploy-dev.sh` render ra `caddy-local/dev.caddy` trong checkout prod — đúng thư mục mà
+`Caddyfile` đã `import` sẵn. Nghĩa là: gỡ server dev chỉ cần xoá một file, và một lỗi cú
+pháp bên dev không bao giờ nằm trong `Caddyfile` của prod.
+
+### 11.1 Dựng lần đầu
+
+```bash
+# 1) DNS — thêm 2 bản ghi A trỏ về IP VPS
+#    dev.<domain>  và  admin.dev.<domain>
+dig +short A dev.quanbalun.site admin.dev.quanbalun.site
+
+# 2) Nhánh develop phải có trên GitHub
+git checkout -b develop main && git push -u origin develop
+
+# 3) Clone + sinh .env.dev (secrets random) + đặt mật khẩu basic auth
+./deploy-dev.sh --init
+
+# 4) Build + chạy
+./deploy-dev.sh
+
+# 5) Mở /setup cho IP hiện tại rồi tạo owner của môi trường dev
+./deploy-dev.sh --allow-setup
+# → https://admin.dev.<domain>/setup   (trình duyệt hỏi basic auth trước)
+```
+
+> ⚠️ Đợi DNS phân giải xong rồi mới chạy bước 4. Let's Encrypt giới hạn 5 cert trùng
+> lặp mỗi tuần cho một domain — build lại nhiều lần lúc DNS chưa xong là tự khoá cả tuần,
+> và giới hạn đó tính chung với `<domain>` của prod.
+
+### 11.2 Dùng hằng ngày
+
+```bash
+./deploy-dev.sh                 # deploy nhánh develop
+./deploy-dev.sh feat/abc        # deploy một nhánh bất kỳ để xem thử
+./deploy-dev.sh --logs          # log build
+./deploy-dev.sh --api-logs      # log runtime — OTP ở SMS_DRIVER=console in ra đây
+./deploy-dev.sh --status        # container + network Caddy + site block
+./deploy-dev.sh --caddy         # render lại site block + reload Caddy (sau khi DNS lên)
+./deploy-dev.sh --passwd        # đổi mật khẩu basic auth (có hiệu lực ngay)
+./deploy-dev.sh --allow-setup   # nhà đổi IP → mở lại /setup
+./deploy-dev.sh --down          # tắt, giữ DB
+./deploy-dev.sh --nuke          # xoá sạch stack dev
+```
+
+Biến trong `.env.dev` xem mẫu ở [docs/env.dev.example](docs/env.dev.example). File thật
+nằm ở `/opt/ordbl-dev/.env.dev` trên VPS, `chmod 600`, không nằm trong git.
+
+### 11.3 Ba điều dễ sai
+
+1. **`docker compose` gõ tay trong `/opt/ordbl-dev` phải luôn có `-f docker-compose.dev.yml
+   --env-file .env.dev`.** Thư mục dev là bản clone đầy đủ của repo nên `docker-compose.prod.yml`
+   cũng nằm ở đó; gõ nhầm là dựng một stack production thứ hai đè lên tên container của prod.
+2. **Deploy prod tạo lại container Caddy sẽ rụng network của dev.** `deploy-dev.sh` đã ghi
+   `ordbl_dev_frontend` vào `caddy-extra-networks.txt`, và `deploy.sh` chạy
+   [scripts/attach-caddy-networks.sh](scripts/attach-caddy-networks.sh) sau mỗi lần build để
+   đấu lại. Nếu `dev.<domain>` trả 502 ngay sau một lần deploy prod, kiểm tra:
+   ```bash
+   docker inspect ordbl_caddy -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+   ```
+3. **`SMS_DRIVER=esms` trên dev là nhắn tin thật vào số thật và tốn tiền thật.** Mặc định
+   `console` không phải để cho tiện — nó là để một vòng test tự động không bắn 200 tin nhắn
+   vào khách hàng.
+
+### 11.4 CI/CD cho nhánh `develop`
+
+Push vào `develop` là tự chạy [.github/workflows/deploy-develop.yml](.github/workflows/deploy-develop.yml):
+CI (build → schema:verify → typecheck → test → ngân sách bundle) → nếu xanh thì deploy lên
+server dev → đợi build trên VPS xong và đọc mã thoát → kiểm tra site sống.
+
+Định nghĩa CI nằm ở [.github/workflows/ci.yml](.github/workflows/ci.yml) và được **dùng chung**
+với đường production. `develop` không được kiểm lỏng hơn `main`: kiểm lỏng hơn thì mọi thứ gãy
+sẽ chỉ lộ ra lúc merge, đúng lúc muộn nhất.
+
+| Secret / Variable | Bắt buộc | Dùng để |
+|---|---|---|
+| `DEPLOY_HOST` `DEPLOY_USER` `DEPLOY_PORT` `DEPLOY_PASS` `DEPLOY_PATH` | ✅ (dùng chung với prod) | SSH vào VPS |
+| Variable `DEPLOY_DEV_PATH` | không (mặc định `/opt/ordbl-dev`) | checkout của stack dev |
+| Variable `DEV_HEALTH_URL` | không | bỏ trống thì bỏ qua bước kiểm tra site |
+| Secret `DEV_BASIC_AUTH` (`user:matkhau`) | không | có thì healthcheck đăng nhập thật và đòi 200; không có thì coi **401** là đạt — 401 chính là bằng chứng Caddy phục vụ đúng site và hàng rào còn nguyên |
+
+CI truyền **commit SHA** chứ không phải tên nhánh cho `deploy-dev.sh`: giữa lúc job xếp hàng có
+thể đã có commit mới hơn, và deploy "nhánh develop" khi đó là đẩy lên một commit mà job này chưa
+từng chạy CI.
+
+### 11.5 RAM
+
+Stack dev ăn thêm khoảng **600–700MB** (MySQL 256M buffer pool + Node API). VPS 4GB chạy
+được cả hai, nhưng nếu `free -h` cho thấy đang chạm đáy thì tắt dev khi không dùng:
+
+```bash
+./deploy-dev.sh --down     # bật lại: ./deploy-dev.sh
+```
+
+---
+
 **Liên hệ hỗ trợ**: <chủ quán điền>

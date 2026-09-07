@@ -1,0 +1,113 @@
+# Stack DEVELOP — chạy CÙNG VPS với production nhưng tách hoàn toàn:
+# container riêng (ordbl_dev_*), MySQL riêng, volume riêng, thư mục checkout riêng.
+# Triển khai: ./deploy-dev.sh (từ máy local). Xem DEPLOY.md mục 11.
+#
+# KHÁC docker-compose.prod.yml ở 3 điểm, đều có chủ ý:
+#   1. KHÔNG có service caddy — dùng chung container Caddy của prod (ordbl_caddy).
+#      Site block dev được deploy-dev.sh render vào caddy-local/dev.caddy trên server;
+#      Caddyfile của prod đã `import /etc/caddy/local/*.caddy` sẵn.
+#   2. KHÔNG có mysql-backup — DB dev là data vứt đi, mất cũng không sao.
+#   3. MySQL cấp ít RAM hơn hẳn (256M thay vì 1G) — prod phải được ưu tiên bộ nhớ.
+#
+# `name:` cố định để mọi lệnh docker compose đều gom đúng stack này, không phụ thuộc
+# tên thư mục checkout.
+name: ordbl-dev
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ordbl_dev_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: UTC
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-time-zone=+00:00
+      # 256M — DB dev nhỏ và không có khách thật. Cấp rộng tay ở đây là ăn vào RAM
+      # của MySQL prod trên cùng VPS.
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=50
+      - --performance-schema=OFF
+    volumes:
+      - mysql_dev_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    logging: *default-logging
+    # KHÔNG expose port — chỉ api trong network dev truy cập được.
+    networks:
+      - dev_backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ordbl_dev_api
+    restart: unless-stopped
+    environment:
+      # production, KHÔNG phải development: chỉ ở mode này main.ts mới serve web-dist/
+      # shop-dist. Đây là bản build thật của nhánh develop, không phải Vite dev server.
+      NODE_ENV: production
+      API_PORT: 3001
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_LIFETIME_DAYS: ${JWT_LIFETIME_DAYS:-7}
+      # Tên cookie khác prod → đăng nhập dev không đá văng phiên đăng nhập prod
+      # khi mở hai tab cạnh nhau.
+      COOKIE_NAME: ${COOKIE_NAME:-ssp_token_dev}
+      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      SETUP_ALLOWED_IP: ${SETUP_ALLOWED_IP:-127.0.0.1}
+      ALLOWED_ORIGIN: ${ALLOWED_ORIGIN}
+      IP_HASH_SALT: ${IP_HASH_SALT:-}
+      # SMS mặc định `console` trên dev: KHÔNG bắn tin thật, OTP chỉ ghi ra log.
+      # Đổi sang esms là tốn tiền thật và nhắn vào số thật — chỉ làm khi cố ý test SMS.
+      SMS_DRIVER: ${SMS_DRIVER:-console}
+      ESMS_API_KEY: ${ESMS_API_KEY:-}
+      ESMS_SECRET_KEY: ${ESMS_SECRET_KEY:-}
+      ESMS_BRANDNAME: ${ESMS_BRANDNAME:-}
+      ESMS_SMS_TYPE: ${ESMS_SMS_TYPE:-2}
+      ESMS_SANDBOX: ${ESMS_SANDBOX:-}
+      OTP_CHANNEL: ${OTP_CHANNEL:-log}
+      OTP_SMS_TEMPLATE: ${OTP_SMS_TEMPLATE:-}
+      # Link bí mật cập nhật ảnh món — bỏ trống = tính năng tắt hẳn (mặc định trên dev).
+      MENU_PHOTO_TOKEN: ${MENU_PHOTO_TOKEN:-}
+    volumes:
+      - ./uploads:/app/apps/api/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+    logging: *default-logging
+    networks:
+      - dev_backend
+      - dev_frontend
+    # KHÔNG expose port ra host — vào bằng https://dev.<domain> qua Caddy, có basic auth.
+
+volumes:
+  mysql_dev_data:
+
+networks:
+  dev_backend:
+    driver: bridge
+  dev_frontend:
+    driver: bridge
+    # Tên cố định (không để compose thêm tiền tố project) vì container Caddy của stack
+    # PROD phải `docker network connect` vào đúng tên này. deploy-dev.sh ghi tên này vào
+    # caddy-extra-networks.txt của prod để mỗi lần deploy prod tự đấu lại.
+    name: ordbl_dev_frontend
