@@ -138,6 +138,42 @@ docker compose -f docker-compose.prod.yml logs -f mysql    # DB logs
 docker compose -f docker-compose.prod.yml restart api
 ```
 
+### Tên nhánh: `production` (đổi từ `main` ngày 2026-09-07)
+
+Push vào `production` → `deploy.yml` → deploy lên VPS này. Push vào `develop` → server dev
+(mục 11). Tên nhánh nói thẳng nó deploy đi đâu, không phải đoán.
+
+Đổi tên nhánh này lần nữa thì phải đổi **đủ 4 chỗ** — thiếu một chỗ là deploy im lặng không
+chạy, hoặc chạy vào nhánh sai:
+
+| Chỗ | Giá trị |
+|---|---|
+| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) `on.push.branches` | `[production]` |
+| [.github/workflows/deploy.yml](.github/workflows/deploy.yml) `jobs.deploy.if` | `refs/heads/production` |
+| [deploy.sh](deploy.sh) `PROD_BRANCH` | mặc định `production`, override bằng `DEPLOY_BRANCH` |
+| Checkout trên VPS (`$DEPLOY_PATH`) | phải đang **đứng** ở nhánh đó |
+
+`deploy.sh` kiểm chỗ thứ 4 trước khi pull và **đỏ ngay** nếu lệch, thay vì âm thầm merge nhánh
+này vào nhánh khác. Trong lúc đang đổi tên (repo đã đổi mà VPS chưa, hoặc ngược lại) thì
+`DEPLOY_BRANCH=main ./deploy.sh` vẫn deploy được, không phải sửa script.
+
+Các bước đổi tên (GitHub không giữ alias cho `git fetch`, nên VPS và máy local phải tự đổi):
+
+```bash
+# 1) GitHub: Settings → Branches → rename `main` → `production`
+#    (tự cập nhật default branch, branch protection và base của mọi PR đang mở)
+
+# 2) VPS — checkout prod
+ssh <vps> 'cd /opt/orderquanbalun && git fetch origin --prune \
+  && git branch -m main production \
+  && git branch --set-upstream-to=origin/production production \
+  && git rev-parse --abbrev-ref HEAD'
+
+# 3) Máy local
+git fetch origin --prune && git branch -m main production
+git branch --set-upstream-to=origin/production production
+```
+
 ### Update code mới
 
 ```bash
@@ -203,7 +239,7 @@ biến vẫn tự nhận là prod, đúng cái bẫy mà field này sinh ra đ�
 
 > Deploy `develop` cũng chạm vào Caddy của prod (`deploy-dev.sh` ghi `caddy-local/dev.caddy`,
 > `docker network connect`, rồi `caddy reload` trên `ordbl_caddy`). Nên khi sửa lớp routing này,
-> **đưa lên `main`/production TRƯỚC**, rồi mới push `develop`.
+> **đưa lên nhánh `production` TRƯỚC**, rồi mới push `develop`.
 
 ### Backup MySQL
 
