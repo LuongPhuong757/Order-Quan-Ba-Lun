@@ -838,7 +838,9 @@ function SupplierEditor({
     const ok = await confirm({
       title: `Xoá "${supplier.name}"?`,
       variant: 'danger',
-      message: 'Nhà cung cấp sẽ biến mất khỏi danh sách. Phiếu nhập đã ghi không đổi.',
+      message:
+        'Nhà cung cấp sẽ biến mất khỏi danh sách. Phiếu nhập đã ghi không đổi, ' +
+        'nhưng công nợ chưa trả của NCC này cũng biến khỏi bảng công nợ.',
       confirmLabel: 'Xoá',
     });
     if (!ok) return;
