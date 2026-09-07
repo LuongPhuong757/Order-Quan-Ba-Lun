@@ -125,7 +125,15 @@ jobs:
     # Khai `environment` để bật được "Required reviewers" trong Settings → Environments: khi nào
     # muốn chuyển từ tự động sang "phải bấm duyệt mới lên production" thì tick ở đó, KHÔNG cần
     # sửa file này. Cũng là nơi GitHub ghi lại lịch sử từng lần deploy.
-    environment: production
+    #
+    # `url` trỏ vào màn Đơn hàng của trang quản lý (2026-09-07): mỗi lần deploy, GitHub hiện
+    # đúng một link bấm được ở tab Actions và ở Environments → production, mở ra CHÍNH cái màn
+    # nhân viên dùng. Cố ý không phải apex: apex là trang khách, mà thứ cần kiểm ngay sau khi
+    # deploy là POS còn chạy không. Đặt ở đây chứ không phải trong Settings vì đây là chỗ duy
+    # nhất GitHub đọc `url` cho một lần deployment.
+    environment:
+      name: production
+      url: https://admin.quanbalun.site/orders
 
     steps:
       - uses: actions/checkout@v4
