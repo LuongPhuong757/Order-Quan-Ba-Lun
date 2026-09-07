@@ -1,0 +1,119 @@
+# CI + tự động deploy lên SERVER DEVELOP khi có commit vào `develop`.
+#
+# Anh em song sinh của `deploy.yml`, khác đúng ba chỗ và mỗi chỗ đều có lý do:
+#   1. Gọi `./deploy-dev.sh` thay vì `./deploy.sh` → stack `ordbl-dev`, DB riêng, checkout riêng.
+#   2. `environment: develop` → lịch sử deploy dev tách khỏi production trong tab Environments,
+#      và muốn bắt duyệt tay thì tick riêng, không dính tới production.
+#   3. Bước kiểm tra site chấp nhận **401** là đạt. Site dev nằm sau basic auth, nên 401 chính là
+#      bằng chứng Caddy đang phục vụ đúng site và hàng rào còn nguyên. Khai secret
+#      `DEV_BASIC_AUTH` (dạng `user:matkhau`) thì bước này đăng nhập thật và đòi 200.
+#
+# Job `ci` dùng chung định nghĩa ở `ci.yml` với đường production — cùng MySQL thật, cùng
+# schema:verify, cùng ngân sách bundle. Nhánh develop KHÔNG được kiểm lỏng hơn main: nếu ở đây
+# dễ hơn thì mọi thứ gãy sẽ chỉ lộ ra lúc merge vào main, đúng lúc muộn nhất.
+name: CI + Deploy Develop
+
+on:
+  push:
+    branches: [develop]
+  # Bấm tay từ tab Actions — cần khi VPS được cài lại, hoặc khi muốn đẩy lại đúng commit cũ.
+  workflow_dispatch:
+
+# Xếp hàng, không chạy chồng. Group KHÁC `deploy-production` để deploy dev không phải đợi
+# deploy prod và ngược lại — hai stack độc lập, chỉ dùng chung mỗi container Caddy.
+concurrency:
+  group: deploy-develop
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    environment: develop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cài sshpass
+        run: sudo apt-get update && sudo apt-get install -y sshpass
+
+      - name: Dựng .env.deploy từ secrets
+        # Dùng CHUNG bộ secret SSH với đường production — cùng một VPS, cùng một tài khoản.
+        # `DEPLOY_PATH` vẫn phải có: `deploy-dev.sh` đọc nó để biết checkout prod nằm đâu, vì
+        # site block của dev được ghi vào `caddy-local/` của prod và Caddy của prod phục vụ nó.
+        # `DEPLOY_DEV_PATH` để trống thì script tự dùng /opt/ordbl-dev.
+        run: |
+          umask 077
+          cat > .env.deploy <<EOF
+          DEPLOY_HOST=${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER=${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT=${{ secrets.DEPLOY_PORT }}
+          DEPLOY_PASS=${{ secrets.DEPLOY_PASS }}
+          DEPLOY_PATH=${{ secrets.DEPLOY_PATH }}
+          DEPLOY_DEV_PATH=${{ vars.DEPLOY_DEV_PATH || '/opt/ordbl-dev' }}
+          EOF
+
+      - name: Deploy (git fetch + rebuild stack dev trên VPS)
+        # Truyền thẳng commit vừa push thay vì tên nhánh: giữa lúc job xếp hàng có thể đã có
+        # commit mới hơn, và deploy "nhánh develop" khi đó là deploy một commit mà job này chưa
+        # từng chạy CI. Bám vào SHA thì thứ lên server luôn đúng thứ vừa được kiểm.
+        run: ./deploy-dev.sh "${{ github.sha }}"
+
+      - name: Đợi build trên server xong
+        # `deploy-dev.sh` bung build ở chế độ nền giống `deploy.sh`, nên bước trên trả về ngay.
+        # Không đợi thì mọi lần deploy đều xanh, kể cả lần Docker build gãy.
+        timeout-minutes: 22
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 120); do
+            log="$(./deploy-dev.sh --logs || true)"
+            if echo "$log" | grep -q "DEPLOY_DEV_DONE_EXIT="; then
+              code="$(echo "$log" | grep -o 'DEPLOY_DEV_DONE_EXIT=[0-9]*' | tail -1 | cut -d= -f2)"
+              echo "$log"
+              if [ "$code" = "0" ]; then
+                echo "✅ Build stack dev xong, mã thoát 0"
+                exit 0
+              fi
+              echo "❌ Build stack dev thất bại, mã thoát $code"
+              exit 1
+            fi
+            echo "… đang build trên server ($((i * 10))s)"
+            sleep 10
+          done
+          echo "❌ Quá 20 phút chưa thấy DEPLOY_DEV_DONE_EXIT — vào VPS xem /tmp/deploy-dev-build.log"
+          exit 1
+
+      - name: Kiểm tra site dev sống
+        # Bỏ qua nếu chưa khai `DEV_HEALTH_URL` (Settings → Variables) — dùng được ngay cả khi
+        # DNS `dev.<domain>` chưa trỏ xong.
+        env:
+          DEV_HEALTH_URL: ${{ vars.DEV_HEALTH_URL }}
+          DEV_BASIC_AUTH: ${{ secrets.DEV_BASIC_AUTH }}
+        run: |
+          if [ -z "${DEV_HEALTH_URL:-}" ]; then
+            echo "⏭  Chưa khai biến DEV_HEALTH_URL — bỏ qua bước kiểm tra site."
+            exit 0
+          fi
+          if [ -n "${DEV_BASIC_AUTH:-}" ]; then
+            want=200; auth=(-u "$DEV_BASIC_AUTH")
+          else
+            # 401 = Caddy đang phục vụ site dev VÀ hàng rào basic auth còn nguyên. Coi đây là
+            # đạt còn tốt hơn nhét mật khẩu dev vào secret chỉ để healthcheck.
+            want=401; auth=()
+          fi
+          for i in 1 2 3 4 5 6; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${auth[@]}" "$DEV_HEALTH_URL" || true)"
+            echo "lần $i: $DEV_HEALTH_URL → $code (mong đợi $want)"
+            [ "$code" = "$want" ] && exit 0
+            sleep 15
+          done
+          echo "❌ Site dev chưa trả $want sau 6 lần thử. Kiểm tra: ./deploy-dev.sh --status"
+          exit 1
+
+      - name: Dọn credentials
+        if: always()
+        run: rm -f .env.deploy

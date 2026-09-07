@@ -31,7 +31,7 @@ import { Type } from 'class-transformer';
 import type { Request } from 'express';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { RequireRoles } from '../auth/guards/roles.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
 
 class DeliveryLineDto {
   /** Rỗng = mặt hàng chưa có trong danh mục, tạo tại chỗ từ `ingredient_name` + `base_unit`
@@ -91,7 +91,7 @@ const DELIVERY_PHOTO_MIMES = new Set([
 ]);
 
 @Controller('supplier-deliveries')
-@UseGuards(JwtAuthGuard, RequireRoles('admin', 'order'))
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class DeliveriesController {
   constructor(private readonly svc: DeliveriesService) {}
 

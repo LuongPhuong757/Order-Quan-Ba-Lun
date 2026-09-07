@@ -5,14 +5,23 @@
 # Hai site block, CÙNG trỏ về một container ordbl_api:3001. main.ts chọn thư mục static theo
 # Host header (M2.D-66): host bắt đầu `admin.` → web-dist, còn lại → shop-dist.
 #
-# 2026-09-07 — upstream phải là TÊN CONTAINER `ordbl_api`, KHÔNG BAO GIỜ là tên service `api`.
-# Stack develop (`docker-compose.dev.yml`, project `ordbl-dev`) cũng có service tên `api`, và
-# container Caddy này được đấu vào cả network của prod lẫn của dev (caddy-extra-networks.txt).
-# Docker DNS khi đó phân giải `api` sang container nào tuỳ network nào tới trước — sáng
-# 2026-09-07 nó chọn `ordbl_dev_api`, nên toàn bộ trang production (apex + admin + menu) chạy
-# trên backend và DATABASE DEV suốt ~1 tiếng. Không có lỗi nào: mọi request vẫn 200, chỉ là
-# đọc ghi sai database. Tên container là duy nhất toàn máy nên không có chỗ cho nhập nhằng.
-# Chốt chặn phát hiện lại: xem `./deploy.sh --verify` và field `env` của /api/public/health.
+# 2026-09-07 — upstream PHẢI là TÊN CONTAINER `ordbl_api`, KHÔNG BAO GIỜ rút gọn về tên
+# service `api`. Stack develop (`docker-compose.dev.yml`, project `ordbl-dev`) cũng có service
+# tên `api`, và `deploy-dev.sh` đấu chính container ordbl_caddy này vào network
+# `ordbl_dev_frontend` (xem caddy-extra-networks.txt). Caddy nằm trên cả hai network nên Docker
+# DNS trả về khi thì container prod khi thì container dev.
+#
+# Đã hỏng hai lần trong cùng một ngày, hai triệu chứng khác nhau — và không lần nào có lỗi để
+# mà thấy, vì phía dev cũng trả 200:
+#   1. Một phần request của khách rơi vào build nhánh develop: `POST /supplier-deliveries` trả
+#      404 (develop chưa có Milestone 3), SPA shell là bản build cũ.
+#   2. TOÀN BỘ trang production (apex + admin + menu) chạy trên backend và DATABASE DEV suốt
+#      ~1 tiếng. Health vẫn `ok`, log Caddy vẫn sạch; triệu chứng duy nhất là nhân viên đăng
+#      nhập bị báo "sai mật khẩu", vì đang tra vào database khác.
+#
+# Tên container là duy nhất toàn máy nên không có chỗ cho nhập nhằng. Lớp thứ hai: tên service
+# của stack dev đã đổi thành `dev_api`/`dev_mysql` để không còn gì trùng. Lớp thứ ba, để lần
+# sau không lặng lẽ: `./deploy.sh --verify` + field `env` của /api/public/health.
 #
 # 2026-08-05 — apex thuộc về TRANG KHÁCH (trước đây là trang quản lý). Địa chỉ ngắn nhất
 # dành cho người gõ tay và quét QR; nhân viên bookmark admin.<domain> một lần là xong.
@@ -120,4 +129,8 @@ menu.{$DOMAIN} {
 # Nên: file này thuộc về repo và deploy được ghi đè thoải mái; cấu hình của site khác nằm
 # ở ./caddy-local/*.caddy trên server (KHÔNG tracked, không bị deploy đụng vào).
 # Glob không khớp file nào cũng hợp lệ — repo mới clone chưa có gì trong đó vẫn chạy.
+#
+# Server DEVELOP (dev.<domain> + admin.dev.<domain>) cũng đi qua đây, dưới dạng
+# caddy-local/dev.caddy do `deploy-dev.sh` render từ Caddyfile.dev. Cùng lý do: block dev
+# sai cú pháp mà nằm trong file này thì Caddy không load được config và SẬP CẢ TRANG QUÁN.
 import /etc/caddy/local/*.caddy

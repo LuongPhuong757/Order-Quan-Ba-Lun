@@ -4,7 +4,10 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
 import './styles/tokens.css';
 import './styles/motion.css'; // Dùng var(--dur-*)/var(--ease-*) nên phải nạp SAU tokens
+import './styles/env-banner.css'; // Dải đỏ báo môi trường dev — chỉ hiện trên host dev
 import { AppShell } from './components/AppShell.tsx';
+import { EnvBanner } from './components/EnvBanner.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { MenuPage } from './pages/MenuPage.tsx';
 import { MenuBookPage } from './pages/MenuBookPage.tsx';
 
@@ -77,49 +80,65 @@ if (isMenuHost) {
   // đặt hàng — thứ duy nhất nó làm được là hiển thị.
   createRoot(root).render(
     <StrictMode>
-      <MenuBookPage />
+      {/* Quyển menu cũng phải mang dấu: nó là màn duy nhất trên tên miền menu, không có
+          header nào khác để mà nhận ra mình đang ở bản thử. NGOÀI `<ErrorBoundary>` để màn
+          báo lỗi cũng còn dải đỏ — xem lý do đầy đủ ở `apps/web/src/main.tsx`. */}
+      <EnvBanner />
+      {/* Bọc cả nhánh này chứ không riêng nhánh đặt hàng: quyển menu cũng nạp chunk CSS
+          riêng và cũng chết trắng y hệt khi bản cũ gặp một lần deploy. */}
+      <ErrorBoundary>
+        <MenuBookPage />
+      </ErrorBoundary>
     </StrictMode>,
   );
 } else {
   createRoot(root).render(
     <StrictMode>
-      <BrowserRouter>
-        <Routes>
-          {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.
-              Suspense riêng vì vỏ chờ của AppShell không bao tới đây. */}
-          <Route
-            path="/anh-mon/:token"
-            element={
-              <Suspense fallback={null}>
-                <PhotoUploadPage />
-              </Suspense>
-            }
-          />
-          <Route element={<AppShell />}>
-            <Route path="/" element={<MenuPage />} />
-            <Route path="/cart" element={<CartPage />} />
-            <Route path="/checkout" element={<CheckoutPage />} />
-            <Route path="/o/:token" element={<OrderTrackPage />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/top" element={<TopDishesPage />} />
-            <Route path="/guide" element={<GuidePage />} />
-            <Route path="*" element={<MenuPage />} />
-          </Route>
-          {/* Quyển menu cũng mở được từ tên miền chính (`quanbalun.site/thuc-don`) — tiện khi
-              cần dán một đường dẫn duy nhất cho khách. CỐ Ý nằm NGOÀI `<Route
-              element={<AppShell/>}>`: trang này không có header giỏ hàng, không giỏ nổi.
-              React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên đường dẫn này vẫn thắng
-              catch-all dù đứng sau nó.
+      {/* NGOÀI `<BrowserRouter>` và ngoài cả `<ErrorBoundary>`: dải phải có mặt trên mọi
+          route, kể cả trang cập nhật ảnh món nằm ngoài `AppShell` (không có header), và kể
+          cả màn báo lỗi. */}
+      <EnvBanner />
+      {/* NGOÀI `<BrowserRouter>`: lỗi có thể văng ra từ chính router. Xem docblock trong
+          `ErrorBoundary.tsx` — đây là thứ đứng giữa một lần deploy và một màn hình trắng. */}
+      <ErrorBoundary>
+        <BrowserRouter>
+          <Routes>
+            {/* Ngoài AppShell: trang cho người nhà chủ quán, không cần (và không nên có) header/giỏ.
+                Suspense riêng vì vỏ chờ của AppShell không bao tới đây. */}
+            <Route
+              path="/anh-mon/:token"
+              element={
+                <Suspense fallback={null}>
+                  <PhotoUploadPage />
+                </Suspense>
+              }
+            />
+            <Route element={<AppShell />}>
+              <Route path="/" element={<MenuPage />} />
+              <Route path="/cart" element={<CartPage />} />
+              <Route path="/checkout" element={<CheckoutPage />} />
+              <Route path="/o/:token" element={<OrderTrackPage />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/top" element={<TopDishesPage />} />
+              <Route path="/guide" element={<GuidePage />} />
+              <Route path="*" element={<MenuPage />} />
+            </Route>
+            {/* Quyển menu cũng mở được từ tên miền chính (`quanbalun.site/thuc-don`) — tiện khi
+                cần dán một đường dẫn duy nhất cho khách. CỐ Ý nằm NGOÀI `<Route
+                element={<AppShell/>}>`: trang này không có header giỏ hàng, không giỏ nổi.
+                React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên đường dẫn này vẫn thắng
+                catch-all dù đứng sau nó.
 
-              ⚠ KHÔNG ĐƯỢC đặt là `/menu`. Cùng một server Node vừa chạy API vừa trả file
-              tĩnh của SPA, mà API đã có sẵn `@Controller('menu')` (màn quản lý menu, yêu cầu
-              đăng nhập). Route của Nest được khớp TRƯỚC nhánh trả index.html, nên
-              `quanbalun.site/menu` không bao giờ tới được React — nó trả thẳng 401 JSON.
-              Đã dính đúng lỗi này lúc deploy 2026-09-04. `/thuc-don` không đụng controller
-              nào, và cũng dễ đọc hơn với khách Việt. */}
-          <Route path="/thuc-don" element={<MenuBookPage />} />
-        </Routes>
-      </BrowserRouter>
+                ⚠ KHÔNG ĐƯỢC đặt là `/menu`. Cùng một server Node vừa chạy API vừa trả file
+                tĩnh của SPA, mà API đã có sẵn `@Controller('menu')` (màn quản lý menu, yêu cầu
+                đăng nhập). Route của Nest được khớp TRƯỚC nhánh trả index.html, nên
+                `quanbalun.site/menu` không bao giờ tới được React — nó trả thẳng 401 JSON.
+                Đã dính đúng lỗi này lúc deploy 2026-09-04. `/thuc-don` không đụng controller
+                nào, và cũng dễ đọc hơn với khách Việt. */}
+            <Route path="/thuc-don" element={<MenuBookPage />} />
+          </Routes>
+        </BrowserRouter>
+      </ErrorBoundary>
     </StrictMode>,
   );
 }

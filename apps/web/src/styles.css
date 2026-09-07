@@ -7,7 +7,9 @@
 html,
 body {
   margin: 0;
-  padding: 0;
+  /* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
+     Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào. */
+  padding: var(--env-banner-h, 0px) 0 0 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 16px; /* iOS no-zoom baseline */
   line-height: 1.5;
@@ -217,7 +219,7 @@ h2 {
    cao 56px). Chỉ 1 cái tại 1 thời điểm — cái mới ghi đè cái cũ. */
 .toast-banner-wrap {
   position: fixed;
-  top: 56px;
+  top: calc(56px + var(--env-banner-h, 0px));
   left: 0;
   right: 0;
   z-index: 9000;
@@ -653,6 +655,35 @@ a:hover {
   font-size: 20px;
   line-height: 1;
 }
+/* Neo của badge đếm (`.nav-badge`): bọc RIÊNG cái icon, không phải cả ô nav.
+   Neo vào ô nav thì từ 640px trở lên ô xếp ngang (icon | chữ) nên "giữa ô" rơi vào khoảng
+   giữa icon và chữ — con số trôi lên mép trên, đè vạch xanh của mục đang mở. */
+.nav-bottom a .nav-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  line-height: 1;
+}
+.nav-bottom a .nav-badge {
+  position: absolute;
+  /* Góc trên bên phải icon, thò ra ngoài một chút cho đúng dáng badge quen thuộc.
+     Dùng `left: 100%` + lùi lại, KHÔNG dùng `right`: số 2 chữ số phải nở sang PHẢI, nở sang
+     trái là nó bò vào giữa icon. */
+  top: -6px;
+  left: calc(100% - 6px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
 .nav-bottom a .nav-label {
   font-size: 10px;
   font-weight: 500;
@@ -699,6 +730,10 @@ a:hover {
   }
   .nav-bottom a .nav-icon { font-size: 16px; }
   .nav-bottom a .nav-label { font-size: 13px; }
+  /* Ở đây icon và chữ nằm CÙNG hàng, mà badge thò ra bên phải icon — không chừa chỗ thì con số
+     2 chữ số ("12") bò đè lên chữ đầu của nhãn. Chỉ mục CÓ badge mới bọc `.nav-icon-wrap`,
+     nên chỉ mục đó rộng thêm. Dưới 640px không cần: ở đó chữ nằm DƯỚI icon. */
+  .nav-bottom a .nav-icon-wrap { margin-right: 10px; }
 }
 
 .nav-bottom a[aria-current="page"] {
@@ -731,7 +766,7 @@ a:hover {
   /* Sticky để banner thông báo (fixed top:56px) luôn nằm ngay dưới header
      kể cả khi cuộn trang. z-index dưới modal (9998+). */
   position: sticky;
-  top: 0;
+  top: var(--env-banner-h, 0px);
   z-index: 200;
   box-sizing: border-box;
 }
@@ -1131,19 +1166,16 @@ a:hover {
     display: none !important;
   }
 
-  /* Hai ô ngày: bỏ bề rộng cố định 140px, chia đôi hàng còn lại. `font-size: 16px` là bắt buộc
-     — iOS Safari TỰ PHÓNG TO cả trang khi focus vào ô nhập có chữ nhỏ hơn 16px, và người dùng
-     phải tự vuốt thu lại. Đây là lý do lớn nhất khiến thanh lọc này "khó dùng" trên iPhone. */
-  .txn-date {
+  /* Hai ô ngày: bỏ bề rộng cố định 140px, chia đôi hàng còn lại. (Class đổi `.txn-date` →
+     `.time-date` 2026-09-07 khi hai ô này chuyển sang dùng chung `DateRangeFields`; luật vẫn
+     bó trong `.txn-filters` vì `flex-basis: 40%` chỉ đúng cho hàng lọc CÓ wrap của màn này.) */
+  .txn-filters .time-date {
     /* `flex-basis` theo PHẦN TRĂM, không phải 0. Với `0 0` hai ô ngày phải giành chỗ với 2 ô
        chọn trên cùng một dòng wrap và bị bóp còn ~20px — chỉ còn cái icon lịch, không đọc được
        ngày nào. 40% ép chúng tự tách thành một hàng riêng của hai ô, chia đôi. */
     flex: 1 1 40% !important;
     width: auto !important;
     min-width: 118px !important;
-    min-height: 40px !important;
-    height: 40px !important;
-    font-size: 16px !important;
   }
 
   /* Hai ô chọn (bàn / thu ngân) — cùng lý do: bỏ 150/160px cứng, mỗi ô nửa hàng. Nâng chiều
@@ -1815,4 +1847,162 @@ a:hover {
   table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
   table.responsive.sup-cards td::before { margin-right: auto; }
   table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
+}
+/* ── Dải đỏ báo môi trường dev ────────────────────────────────────────────────
+ * Chỉ hiện trên dev.<domain> / admin.dev.<domain> / localhost — xem
+ * components/EnvBanner.tsx. `fixed` chứ không `sticky`: header đã sticky rồi, dải này phải
+ * đứng yên KỂ CẢ khi cuộn, vì cái nó trả lời ("tôi đang ở đâu") không đổi theo vị trí cuộn.
+ * z-index trên cả modal (9998+): một modal che mất dải là đúng lúc dễ bấm nhầm nhất.
+ * `pointer-events: none` để nó không bao giờ nuốt cú chạm của ai. */
+.env-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--env-banner-h, 26px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  /* Sọc chéo, không phải màu phẳng: trang quản lý vốn đã có nút đỏ (Đăng xuất, nút xoá),
+     một dải đỏ trơn dễ bị mắt xếp chung vào nhóm đó. Sọc thì không nhầm với gì được. */
+  background: repeating-linear-gradient(
+    -45deg,
+    #dc2626 0 12px,
+    #b91c1c 12px 24px
+  );
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+@media (max-width: 480px) {
+  /* Điện thoại: bỏ bớt chữ, giữ nguyên chiều cao — chiều cao mới là thứ mắt nhận ra. */
+  .env-banner { font-size: 10px; letter-spacing: 0.03em; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Bộ lọc thời gian dùng chung (.time-*) — thêm 2026-09-07
+   Trước đây mỗi màn tự vẽ một kiểu: Thống kê web dùng nút primary/secondary VUÔNG cao 44px,
+   Đơn online dùng pill bo tròn với style inline riêng, Lịch sử chỉ có 2 ô ngày trần không
+   preset. Ba màn cùng trả lời một câu hỏi ("xem khoảng nào") mà nhìn như ba thành phần khác
+   nhau — chưa kể style inline không viết được :hover/:focus nên chip không có phản hồi khi rê
+   chuột và vòng focus bàn phím bị mất.
+   Nay gom về một bộ class. Chiều cao 34px khớp sẵn với select compact và ô ngày của thanh lọc
+   Lịch sử, nên nhét chung một dòng không bị so le.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Hàng lọc: nhãn (nếu có) và nút phụ đứng NGOÀI vùng cuộn, chỉ dãy chip cuộn ngang. Nhãn cuộn
+   theo thì vuốt sang là mất luôn câu giải thích các chip đang lọc theo cái gì. */
+.time-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.time-filter-label {
+  font-size: 13px;
+  color: #4b5563;
+  white-space: nowrap;
+  flex: none;
+}
+
+.time-chip {
+  /* `min-height` chứ không `height`: chữ có dấu tiếng Việt (Ơ, Ộ) cao hơn chữ thường, cố định
+     chiều cao là cắt mất dấu. */
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.time-chip:hover:not([aria-pressed='true']) {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #f0fdfa;
+}
+
+.time-chip[aria-pressed='true'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Vòng focus phải thấy được cả khi chip đang bật (nền teal đậm) — dùng offset ra ngoài viền. */
+.time-chip:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+/* Ô ngày của khoảng tự chọn — cùng 34px với chip để đứng chung một dòng không so le. */
+.time-date {
+  min-height: 34px;
+  height: 34px;
+  width: 140px;
+  padding: 0 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  background: #fff;
+}
+
+.time-date:hover {
+  border-color: #0f766e;
+}
+
+.time-date:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: -1px;
+  border-color: #0f766e;
+}
+
+.time-date-sep {
+  color: #9ca3af;
+  font-size: 13px;
+  flex: none;
+}
+
+/* Điện thoại: `font-size: 16px` là BẮT BUỘC — iOS Safari tự phóng to cả trang khi focus vào ô
+   nhập có chữ nhỏ hơn 16px, và người dùng phải tự vuốt thu lại. Đây là lý do lớn nhất khiến
+   thanh lọc ngày bị chê "khó dùng" trên iPhone. Kèm theo là nới 34→40px cho gần ngưỡng chạm
+   44px của Apple HIG. Bề rộng thì mỗi màn tự lo (xem `.txn-filters .time-date`). */
+@media (max-width: 639px) {
+  .time-date {
+    min-height: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  /* Chip cũng nới lên cho vừa ngón tay — 34px là cỡ desktop. */
+  .time-chip {
+    min-height: 40px;
+  }
+}
+
+/* Câu "Đang xem: ..." dưới bộ chọn khoảng ngày. Nhỏ và mờ vì nó chỉ XÁC NHẬN lại lựa chọn
+   vừa bấm, không phải một điều khiển — nhưng không bỏ được: ô `<input type="date">` hiển thị
+   theo locale của máy nên "09/01/2026" đọc được thành hai ngày khác nhau. */
+.time-range-summary {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #6b7280;
 }

@@ -375,6 +375,27 @@ export class OrdersService {
     return Number(rows[0]?.c ?? 0);
   }
 
+  /** Đếm số MÓN đang nằm ở cột "Đã order" của màn Bếp — cho badge trên nút "Bếp" ở nav dưới.
+   *
+   * Bếp không ngồi trước màn KDS cả ca: lúc đang ở màn Order/Menu thì không có gì báo rằng vừa
+   * có món mới gọi, phải tự nhớ tạt sang xem. Badge này là chỗ báo đó.
+   *
+   * ĐỊNH NGHĨA PHẢI KHỚP cột KITCHEN của `KitchenPage`: màn bếp vẽ từ `listOpenOrders()` rồi lọc
+   * `item.state === 'KITCHEN'` — nên ở đây là đếm DÒNG order_item state KITCHEN thuộc đơn chưa
+   * đóng, không nhân `qty` (bếp làm theo dòng, 1 dòng qty 3 vẫn là 1 thẻ trên bảng).
+   *
+   * Không cần thêm điều kiện "đơn còn món chưa huỷ" như `countOpenOrders`: chính dòng KITCHEN
+   * này đã là món chưa huỷ, nên đơn chứa nó không bao giờ là phantom.
+   */
+  async countKitchenPendingItems(): Promise<number> {
+    const rows: Array<{ c: string | number }> = await this.ds.query(
+      `SELECT COUNT(*) AS c FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+        WHERE o.closed_at IS NULL AND oi.state = 'KITCHEN'`,
+    );
+    return Number(rows[0]?.c ?? 0);
+  }
+
   async getOrderWithItems(id: string): Promise<Order> {
     const order = await this.orderRepo.findOne({ where: { id }, relations: ['items'] });
     if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });

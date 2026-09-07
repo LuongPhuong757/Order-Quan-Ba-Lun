@@ -6,6 +6,8 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
+import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { vnDayIso } from '../lib/date-range.ts';
 
 // Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
 const ITEM_STATE_LABEL: Record<string, string> = {
@@ -56,10 +58,6 @@ function fmtIngredientQty(qty: number, unit: string): string {
   return `${n(qty)} ${unit}`;
 }
 
-// 'YYYY-MM-DD' (giờ VN) từ epoch ms — gom đơn theo ngày ở bảng.
-function vnDayKey(ms: number): string {
-  return new Date(ms + 7 * 3600 * 1000).toISOString().slice(0, 10);
-}
 function vnDayLabel(key: string): string {
   const [y, m, d] = key.split('-');
   return `${d}/${m}/${y}`;
@@ -150,9 +148,6 @@ function fmtDate(ms: number) {
   });
 }
 
-function todayIso() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function fmtTime(ms: number) {
   return new Date(ms).toLocaleString('vi-VN', {
@@ -375,7 +370,7 @@ export function HistoryPage() {
   const dayGroups = useMemo(() => {
     const groups: Array<{ key: string; orders: HistoryOrder[] }> = [];
     for (const o of orders) {
-      const key = vnDayKey(o.opened_at); // gom theo ngày VÀO ĂN
+      const key = vnDayIso(o.opened_at); // gom theo ngày VÀO ĂN
       const last = groups[groups.length - 1];
       if (last && last.key === key) last.orders.push(o);
       else groups.push({ key, orders: [o] });
@@ -490,31 +485,6 @@ export function HistoryPage() {
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
 
-        {/* Khoảng ngày — bỏ nhãn "Từ ngày / Đến ngày" xếp trên, dùng dấu → ở giữa: cùng thông
-            tin, cao 34px thay vì 70px. `aria-label` giữ lại phần nhãn cho screen reader. */}
-        <input
-          type="date"
-          aria-label="Từ ngày"
-          title="Từ ngày"
-          value={startDate}
-          max={endDate || todayIso()}
-          onChange={(e) => { setStartDate(e.target.value); setPage(1); }}
-          className="txn-date"
-          style={dateInputStyle}
-        />
-        <span style={{ color: '#9ca3af', fontSize: 13 }}>→</span>
-        <input
-          type="date"
-          aria-label="Đến ngày"
-          title="Đến ngày"
-          value={endDate}
-          min={startDate}
-          max={todayIso()}
-          onChange={(e) => { setEndDate(e.target.value); setPage(1); }}
-          className="txn-date"
-          style={dateInputStyle}
-        />
-
         {hasActiveFilter && (
           <button
             className="secondary"
@@ -526,6 +496,17 @@ export function HistoryPage() {
           </button>
         )}
       </div>
+
+      {/* Khoảng ngày đứng thành HÀNG RIÊNG, không nhồi vào thanh lọc dính phía trên — cùng
+          quyết định đã áp cho màn Đơn online: đây là trục lọc khác hẳn (bao nhiêu lâu) so với
+          bàn/thu ngân (của ai), và thanh trên đã chật tới mức phải gãy 3 dòng trên điện thoại.
+          Đổi sang `DateRangePicker` nên việc hay làm nhất — xem hôm nay — còn MỘT cú chạm
+          thay vì mở lịch hai lần. */}
+      <DateRangePicker
+        label="🕒 Khoảng ngày"
+        value={{ from: startDate, to: endDate }}
+        onChange={(r) => { setStartDate(r.from); setEndDate(r.to); setPage(1); }}
+      />
 
       {/* Nhân viên order: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
       {!isAdmin && (
@@ -874,18 +855,6 @@ function StatTile({
     </div>
   );
 }
-
-/** Ô ngày trong thanh lọc 1 dòng — cùng chiều cao 34px với pill và select compact. */
-const dateInputStyle: React.CSSProperties = {
-  minHeight: 34,
-  height: 34,
-  padding: '0 8px',
-  fontSize: 13,
-  width: 140,
-  border: '1px solid #d1d5db',
-  borderRadius: 8,
-  margin: 0,
-};
 
 function StatusPill({
   active,

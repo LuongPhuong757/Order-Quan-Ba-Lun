@@ -13,7 +13,7 @@ import { Select } from '../components/Select.tsx';
 import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
-import { lowerUnit, titleCaseVi } from '../lib/text-case.ts';
+import { upperUnit, titleCaseVi } from '../lib/text-case.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -44,12 +44,80 @@ type DraftLine = {
   unit_price: string;
 };
 
-const UNIT_SUGGESTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'lát', 'con', 'miếng', 'cái'];
+const UNIT_SUGGESTIONS = ['G', 'KG', 'ML', 'L', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 
 const norm = (s: string) =>
   s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
+
+/** Bản nháp phiếu đang gõ dở, giữ trong `localStorage`.
+ *
+ * Vì sao cần: phiếu nhập là 5-15 dòng gõ tay trên điện thoại, mất 5-10 phút. Trước đây bất kỳ
+ * lỗi nào lúc bấm Lưu — mất mạng ở quán, hay chính vụ Caddy trỏ nhầm sang container dev làm
+ * `POST /supplier-deliveries` trả 404 — cũng chỉ hiện một toast đỏ, người nhập đóng màn ra là
+ * mất sạch và phải gõ lại từ đầu.
+ *
+ * Nháp được ghi liên tục theo từng phím, KHÔNG chỉ ghi lúc lỗi: lỗi hay gặp nhất là mất mạng và
+ * tải lại trang, lúc đó không có chỗ nào để chạy code "ghi khi hỏng".
+ *
+ * Ảnh KHÔNG nằm trong nháp: `File` không serialize được, và giữ vài chục tấm base64 là vượt hạn
+ * mức localStorage. Khôi phục nháp xong phải chọn lại ảnh — banner nói rõ điều đó.
+ *
+ * Khoá tách theo lối vào (`lockedSupplierId`): NCC tự nhập ở máy họ và nhân viên nhập hộ ở máy
+ * quán là hai phiếu khác nhau, không được đè lên nhau khi trùng trình duyệt.
+ */
+type DeliveryDraft = {
+  supplierId: string;
+  date: string;
+  note: string;
+  lines: DraftLine[];
+};
+
+const draftKey = (lockedSupplierId?: string) =>
+  `ordbl.delivery-draft.v1${lockedSupplierId ? `.ncc.${lockedSupplierId}` : ''}`;
+
+/** Nháp rỗng thì đừng ghi — mở màn rồi đóng ngay không được để lại banner khôi phục. */
+const draftHasContent = (d: DeliveryDraft) =>
+  !!d.note.trim() ||
+  d.lines.some((l) => l.ingredient_id || l.ingredient_name.trim() || l.qty_purchase.trim() || l.unit_price.trim());
+
+function readDraft(key: string): DeliveryDraft | null {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const d = JSON.parse(raw) as DeliveryDraft;
+    // Đọc phòng thủ: bản nháp có thể do phiên bản cũ ghi ra, thiếu trường là ném ngay ở render.
+    if (!d || !Array.isArray(d.lines) || d.lines.length === 0) return null;
+    return {
+      supplierId: typeof d.supplierId === 'string' ? d.supplierId : '',
+      date: typeof d.date === 'string' ? d.date : '',
+      note: typeof d.note === 'string' ? d.note : '',
+      lines: d.lines,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(key: string, d: DeliveryDraft) {
+  // localStorage ném khi hết dung lượng hoặc khi trình duyệt chặn (chế độ riêng tư). Không cứu
+  // được gì ở đây, nhưng cũng KHÔNG được để nó làm hỏng cả màn đang nhập.
+  try {
+    if (draftHasContent(d)) localStorage.setItem(key, JSON.stringify(d));
+    else localStorage.removeItem(key);
+  } catch {
+    /* hết chỗ hoặc bị chặn — bỏ qua */
+  }
+}
+
+function clearDraft(key: string) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* bỏ qua */
+  }
+}
 
 let seq = 0;
 const newLine = (): DraftLine => ({
@@ -75,10 +143,17 @@ export function DeliveryFormPanel({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const [supplierId, setSupplierId] = useState(lockedSupplierId ?? '');
-  const [date, setDate] = useState(() => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10));
-  const [note, setNote] = useState('');
-  const [lines, setLines] = useState<DraftLine[]>([newLine()]);
+  const KEY = draftKey(lockedSupplierId);
+  // Đọc nháp MỘT lần lúc dựng component (không phải trong useEffect): đặt giá trị ban đầu ngay
+  // từ đây thì màn không chớp một lượt rỗng rồi mới nhảy sang nội dung cũ.
+  const [restored] = useState(() => readDraft(KEY));
+  const [showRestored, setShowRestored] = useState(!!restored);
+  const [supplierId, setSupplierId] = useState(lockedSupplierId ?? restored?.supplierId ?? '');
+  const [date, setDate] = useState(
+    () => restored?.date || new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10),
+  );
+  const [note, setNote] = useState(restored?.note ?? '');
+  const [lines, setLines] = useState<DraftLine[]>(restored?.lines ?? [newLine()]);
   const [catalog, setCatalog] = useState<Ingredient[]>([]);
   const [known, setKnown] = useState<SupplierItemRow[]>([]);
   const [saving, setSaving] = useState(false);
@@ -86,6 +161,12 @@ export function DeliveryFormPanel({
   // Ảnh chờ gửi. Chưa có id phiếu thì chưa gắn được, nên giữ File trong bộ nhớ và đẩy lên NGAY
   // SAU khi phiếu lưu xong (xem `uploadPhotos`).
   const [photos, setPhotos] = useState<File[]>([]);
+
+  // Ghi nháp theo từng thay đổi. Rẻ: một `JSON.stringify` của vài chục dòng chữ, chạy khi state
+  // đổi chứ không chạy mỗi lần render.
+  useEffect(() => {
+    writeDraft(KEY, { supplierId, date, note, lines });
+  }, [KEY, supplierId, date, note, lines]);
 
   useEffect(() => {
     api
@@ -200,6 +281,9 @@ export function DeliveryFormPanel({
       // Ảnh đẩy lên SAU khi phiếu đã lưu. Nếu bước này hỏng thì phiếu VẪN CÒN — nói thẳng ra
       // thay vì nuốt lỗi, vì người nhập cần biết là phải vào phiếu chụp bù chứ không phải nhập
       // lại cả phiếu.
+      // Phiếu đã vào sổ — nháp hết nhiệm vụ. Xoá TRƯỚC bước ảnh: ảnh hỏng thì phiếu vẫn còn,
+      // giữ lại nháp lúc đó chỉ khiến lần mở màn sau bị mời nhập lại một phiếu đã lưu.
+      clearDraft(KEY);
       const anhHong = await uploadPhotos(data.delivery.id);
       if (anhHong) {
         toast.push('error', `Đã lưu phiếu ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
@@ -209,7 +293,9 @@ export function DeliveryFormPanel({
       onSaved();
       onClose();
     } catch (err) {
-      toast.push('error', extractError(err).message);
+      // Nói rõ là KHÔNG mất phiếu. Người nhập vừa gõ 10 dòng mà chỉ thấy một dòng lỗi đỏ thì
+      // phản xạ đầu tiên là gõ lại từ đầu ở nơi khác, hoặc bỏ luôn không nhập.
+      toast.push('error', `${extractError(err).message} — phiếu đang nhập vẫn được giữ, mở lại là có`);
     } finally {
       setSaving(false);
     }
@@ -245,6 +331,49 @@ export function DeliveryFormPanel({
           bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
       <form className="card dl-sheet" onSubmit={onSubmit}>
         <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
+
+        {/* Banner khôi phục. Có nó thì việc giữ nháp mới đủ: không báo gì mà tự điền lại phiếu cũ
+            là người nhập tưởng mình đang gõ phiếu mới, và cũng không có đường nào để bắt đầu lại
+            từ trắng — đóng màn cũng không xoá nháp (cố ý: đóng nhầm là chuyện thường). */}
+        {showRestored && (
+          <div
+            role="status"
+            style={{
+              margin: '0 0 16px',
+              padding: '10px 12px',
+              borderRadius: 8,
+              border: '1px solid ' + C.borderSoft,
+              background: C.panelBg,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 12,
+              flexWrap: 'wrap',
+              fontSize: 14,
+            }}
+          >
+            <span style={{ flex: 1, minWidth: 200 }}>
+              Đã khôi phục phiếu nhập dở lần trước. <strong>Ảnh phải chọn lại.</strong>
+            </span>
+            <button
+              type="button"
+              className="secondary"
+              style={{ minHeight: 36 }}
+              onClick={() => {
+                clearDraft(KEY);
+                setSupplierId(lockedSupplierId ?? '');
+                setDate(new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10));
+                setNote('');
+                setLines([newLine()]);
+                setShowRestored(false);
+              }}
+            >
+              Bỏ, nhập phiếu mới
+            </button>
+            <button type="button" className="secondary" style={{ minHeight: 36 }} onClick={() => setShowRestored(false)}>
+              Dùng tiếp
+            </button>
+          </div>
+        )}
 
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
           <div>
@@ -386,7 +515,7 @@ function LineRow({
 }) {
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
   const catalogOptions = useMemo(
-    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: i.unit })),
+    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: upperUnit(i.unit) })),
     [catalog],
   );
   const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
@@ -445,7 +574,10 @@ function LineRow({
             </span>
             {line.ingredient_id ? (
               <input
-                value={line.base_unit}
+                // Hoa ở CHỖ HIỂN THỊ chứ không sửa dữ liệu: đơn vị này lấy từ danh mục nguyên
+                // liệu, phần lớn là dòng cũ lưu chữ thường. Ghi đè xuống DB chỉ để cho đẹp là
+                // đụng vào cột mà công thức món cũng đang đọc.
+                value={upperUnit(line.base_unit)}
                 readOnly
                 aria-label="Đơn vị tính"
                 style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}
@@ -457,10 +589,10 @@ function LineRow({
               // mẹt, khay, thùng xốp…
               <Autocomplete
                 value={line.base_unit}
-                onChange={(v) => onPatch({ base_unit: lowerUnit(v) })}
+                onChange={(v) => onPatch({ base_unit: upperUnit(v) })}
                 options={unitOptions}
                 maxItems={6}
-                placeholder="kg, lít, bó, con, mẹt…"
+                placeholder="KG, LÍT, BÓ, CON, MẸT…"
                 ariaLabel="Đơn vị tính"
               />
             )}
@@ -517,7 +649,7 @@ function LineRow({
             // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
             // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
             <span style={{ color: C.muted }}>
-              Lần trước {vnd(prev.last_unit_price)}đ/{prev.purchase_unit} · {prev.last_delivery_date}
+              Lần trước {vnd(prev.last_unit_price)}đ/{upperUnit(prev.purchase_unit)} · {prev.last_delivery_date}
             </span>
           )}
           {lineTotal > 0 && (

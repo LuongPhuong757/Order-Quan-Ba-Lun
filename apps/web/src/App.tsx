@@ -8,6 +8,7 @@ import { ReadyListener } from './components/ReadyListener.tsx';
 import { NotificationBell } from './components/NotificationBell.tsx';
 import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
 import { useOpenTablesCount } from './lib/open-tables-badge.ts';
+import { useKitchenPendingCount } from './lib/kitchen-pending-badge.ts';
 
 // ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
 // Trước đây 14 trang nằm trong MỘT file .js 1.095 KB. Nghĩa là anh bếp mở màn Bếp trên điện
@@ -159,21 +160,19 @@ export function App() {
               <Route path="/history" element={<HistoryPage />} />
             </Route>
 
-            {/* Nhà cung cấp (M3.D-31, 2026-09-05): admin + order.
-                Nhân viên order là người NHẬN HÀNG tại quán, nên họ phải nhập được phiếu — nhập hộ
-                là đường mặc định của cả tính năng (M3.D-05), không phải ngoại lệ. Bếp không vào:
-                bếp không nhận hàng và không thấy giá mua.
-                Các nút sửa/xoá NCC bên trong gate riêng theo role, khớp với AdminGuard ở BE. */}
-            <Route element={<RoleGate allow={['admin', 'order']} />}>
-              <Route path="/suppliers" element={<SuppliersPage />} />
-            </Route>
+            {/* Admin-only: tables, users, audit, dashboard, nhà cung cấp.
 
-            {/* Admin-only: tables, users, audit, dashboard */}
+                Nhà cung cấp (2026-09-07, thay M3.D-31): trước đây role `order` vào được để nhập
+                phiếu hộ. Chủ quán chốt bỏ — màn này bày GIÁ MUA và công nợ, tức là bày luôn lãi
+                của quán, nhân viên không được nhìn. Bếp vốn đã không vào.
+                Gate ở BE cũng đổi theo (AdminGuard trên cả 3 controller suppliers/deliveries/
+                reports) — sửa một mình chỗ này chỉ giấu nút, gõ thẳng URL vẫn ra dữ liệu. */}
             <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/dashboard" element={<DashboardPage />} />
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
+              <Route path="/suppliers" element={<SuppliersPage />} />
               {/* Thống kê truy cập trang khách (2026-08-05). Admin-only và KHÔNG có trong
                   nav dưới: nav admin đã 7 mục, thêm mục thứ 8 là bóp nhỏ tất cả trên điện
                   thoại. Đường vào là thẻ ở Dashboard. */}
@@ -215,6 +214,10 @@ function ProtectedShell() {
   // Badge số bàn đang mở trên nút "Order" — cả 3 role đều có nút này ở nav dưới. Cũng phải tính
   // TRƯỚC early-return vì cùng lý do trên.
   const openTablesCount = useOpenTablesCount(role !== null);
+  // Badge số món đang chờ bếp làm trên nút "Bếp" — chỉ admin và role kitchen có nút này ở nav
+  // dưới, role `order` không có nên không bật (bật thừa = mỗi máy order thêm 1 request/5s cho một
+  // con số không ai nhìn thấy).
+  const kitchenPendingCount = useKitchenPendingCount(role === 'admin' || role === 'kitchen');
 
   /**
    * Số đơn chờ duyệt lên TIÊU ĐỀ TAB (2026-08-06): `(3) Đơn mới · …`.
@@ -342,11 +345,11 @@ function ProtectedShell() {
       </Suspense>
       {role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
           {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
               và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
-          <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon">👨‍🍳</span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
           <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
@@ -360,23 +363,20 @@ function ProtectedShell() {
       )}
       {role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
           {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
               Role này KHÔNG thấy tab Cài đặt nên title chỉ nói về hàng chờ. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
-          {/* Nhân viên order là người NHẬN HÀNG tại quán (M3.D-05) nên phải nhập được phiếu.
-              Role này KHÔNG có Dashboard, nên nếu không có nút ở đây thì không có đường vào nào. */}
-          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
       {role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/kitchen" title="Bếp"><span className="nav-icon">👨‍🍳</span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon">🛎</span><span className="nav-label">Online</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></NavLink>
-          <NavLink to="/orders" title="Order"><span className="nav-icon">🍽</span><span className="nav-label">Order</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></NavLink>
+          <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon">👨‍🍳</span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
@@ -397,6 +397,15 @@ function ProtectedShell() {
  * Style INLINE + `position:absolute` có chủ đích: badge tuyệt đối không được chiếm chỗ trong
  * flex column của nav item (icon/label) — bản đầu để class chờ CSS, lúc CSS chưa nạp con số
  * rơi xuống thành dòng thứ 3 làm vỡ cả thanh nav. Neo `position:relative` nằm ở `.nav-bottom a`. */
+/** Con số nhỏ ở GÓC TRÊN BÊN PHẢI icon của một mục nav.
+ *
+ * Hình dáng + vị trí nằm ở `.nav-badge` trong styles.css, không phải inline: badge được neo vào
+ * `.nav-icon-wrap` (bọc riêng icon) chứ không vào cả ô nav — bản cũ dùng
+ * `top: 2; left: calc(50% + 6px)` tính theo ô nav, mà từ 640px trở lên ô nav xếp NGANG
+ * (icon | chữ) nên giữa ô rơi vào khoảng giữa icon và chữ: con số trôi lên sát mép trên, đè lên
+ * vạch xanh của mục đang mở và trông như rụng khỏi icon (ảnh chủ quán gửi 2026-09-07).
+ *
+ * Chỉ còn màu là inline vì nó phụ thuộc `tone`. */
 function NavBadge({
   count,
   label,
@@ -411,25 +420,8 @@ function NavBadge({
   return (
     <span
       aria-label={`${count} ${label}`}
-      style={{
-        position: 'absolute',
-        top: 2,
-        left: 'calc(50% + 6px)',
-        background: tone === 'alert' ? '#dc2626' : '#2563eb',
-        color: 'white',
-        borderRadius: 999,
-        fontSize: 10,
-        fontWeight: 700,
-        lineHeight: 1,
-        minWidth: 16,
-        height: 16,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '0 4px',
-        boxSizing: 'border-box',
-        pointerEvents: 'none',
-      }}
+      className="nav-badge"
+      style={{ background: tone === 'alert' ? '#dc2626' : '#2563eb' }}
     >
       {count > 99 ? '99+' : count}
     </span>
