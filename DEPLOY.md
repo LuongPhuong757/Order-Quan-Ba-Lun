@@ -138,10 +138,26 @@ docker compose -f docker-compose.prod.yml logs -f mysql    # DB logs
 docker compose -f docker-compose.prod.yml restart api
 ```
 
-### Tên nhánh: `production` (đổi từ `main` ngày 2026-09-07)
+### Tên nhánh: `production` (thay `main` từ 2026-09-07)
 
 Push vào `production` → `deploy.yml` → deploy lên VPS này. Push vào `develop` → server dev
 (mục 11). Tên nhánh nói thẳng nó deploy đi đâu, không phải đoán.
+
+Mỗi lần deploy, GitHub hiện link tới <https://admin.quanbalun.site/orders> ở tab Actions và ở
+Environments → production (khai bằng `environment.url` trong `deploy.yml`). Cố ý trỏ vào màn
+Đơn hàng chứ không phải apex: apex là trang khách, còn thứ cần kiểm ngay sau khi deploy là POS
+của nhân viên còn chạy không.
+
+> ⚠ **`main` vẫn còn trên GitHub và KHÔNG còn deploy gì cả.** `production` được tạo ra cạnh
+> `main` (cùng history) chứ chưa phải rename thật — rename default branch cần quyền admin
+> repo. Hai việc còn phải làm bằng tay, trên GitHub:
+>
+> 1. Settings → General → Default branch → đổi sang `production`.
+> 2. Xoá nhánh `main` (sau khi đã đổi default branch), để không ai push vào một nhánh không
+>    deploy đi đâu rồi tưởng đã lên production.
+>
+> Tới khi làm xong 2 việc đó, `main` là một cái bẫy im lặng: push vào nó CI vẫn xanh, vì
+> `deploy.yml` chỉ bỏ qua job deploy chứ không báo lỗi.
 
 Đổi tên nhánh này lần nữa thì phải đổi **đủ 4 chỗ** — thiếu một chỗ là deploy im lặng không
 chạy, hoặc chạy vào nhánh sai:
@@ -157,22 +173,33 @@ chạy, hoặc chạy vào nhánh sai:
 này vào nhánh khác. Trong lúc đang đổi tên (repo đã đổi mà VPS chưa, hoặc ngược lại) thì
 `DEPLOY_BRANCH=main ./deploy.sh` vẫn deploy được, không phải sửa script.
 
-Các bước đổi tên (GitHub không giữ alias cho `git fetch`, nên VPS và máy local phải tự đổi):
+Các bước đổi tên (GitHub **không** giữ alias cho `git fetch` sau khi rename, nên VPS và máy
+local phải tự đổi — đã làm ngày 2026-09-07, ghi lại để lần sau khỏi mò):
 
 ```bash
-# 1) GitHub: Settings → Branches → rename `main` → `production`
-#    (tự cập nhật default branch, branch protection và base của mọi PR đang mở)
+# 1) GitHub — cần quyền ADMIN repo. Một trong hai:
+#    - Settings → Branches → rename `main` → `production` (tự đổi default branch,
+#      branch protection và base của mọi PR đang mở), HOẶC
+#    - đã có `production` rồi thì Settings → General → Default branch → `production`,
+#      rồi xoá `main`.
+#    Token không có quyền admin thì `gh api .../branches/main/rename` trả 403.
 
-# 2) VPS — checkout prod
+# 2) VPS — checkout prod. `git branch -m` chứ không phải `checkout`: giữ nguyên
+#    working tree, chỉ đổi tên nhánh local rồi trỏ upstream sang nhánh mới.
 ssh <vps> 'cd /opt/orderquanbalun && git fetch origin --prune \
   && git branch -m main production \
   && git branch --set-upstream-to=origin/production production \
   && git rev-parse --abbrev-ref HEAD'
 
-# 3) Máy local
+# 3) Máy local (+ đổi tên thư mục worktree cho khỏi lệch với tên nhánh)
 git fetch origin --prune && git branch -m main production
 git branch --set-upstream-to=origin/production production
+git worktree move ../OrderQuanBaLun-main ../OrderQuanBaLun-production
 ```
+
+Làm bước 1 trước bước 2 thì lần deploy ngay sau đó **sẽ đỏ** ở chốt kiểm nhánh của `deploy.sh`
+("checkout trên VPS đang ở nhánh 'main'…"). Đó là đúng, không phải lỗi — nó chặn việc pull
+`production` vào nhánh `main` local trên server. Chạy bước 2 rồi deploy lại.
 
 ### Update code mới
 
