@@ -653,6 +653,35 @@ a:hover {
   font-size: 20px;
   line-height: 1;
 }
+/* Neo của badge đếm (`.nav-badge`): bọc RIÊNG cái icon, không phải cả ô nav.
+   Neo vào ô nav thì từ 640px trở lên ô xếp ngang (icon | chữ) nên "giữa ô" rơi vào khoảng
+   giữa icon và chữ — con số trôi lên mép trên, đè vạch xanh của mục đang mở. */
+.nav-bottom a .nav-icon-wrap {
+  position: relative;
+  display: inline-flex;
+  line-height: 1;
+}
+.nav-bottom a .nav-badge {
+  position: absolute;
+  /* Góc trên bên phải icon, thò ra ngoài một chút cho đúng dáng badge quen thuộc.
+     Dùng `left: 100%` + lùi lại, KHÔNG dùng `right`: số 2 chữ số phải nở sang PHẢI, nở sang
+     trái là nó bò vào giữa icon. */
+  top: -6px;
+  left: calc(100% - 6px);
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
 .nav-bottom a .nav-label {
   font-size: 10px;
   font-weight: 500;
@@ -699,6 +728,10 @@ a:hover {
   }
   .nav-bottom a .nav-icon { font-size: 16px; }
   .nav-bottom a .nav-label { font-size: 13px; }
+  /* Ở đây icon và chữ nằm CÙNG hàng, mà badge thò ra bên phải icon — không chừa chỗ thì con số
+     2 chữ số ("12") bò đè lên chữ đầu của nhãn. Chỉ mục CÓ badge mới bọc `.nav-icon-wrap`,
+     nên chỉ mục đó rộng thêm. Dưới 640px không cần: ở đó chữ nằm DƯỚI icon. */
+  .nav-bottom a .nav-icon-wrap { margin-right: 10px; }
 }
 
 .nav-bottom a[aria-current="page"] {

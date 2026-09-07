@@ -149,6 +149,16 @@ export class OrdersController {
     return { data: { count: await this.svc.countOpenOrders() } };
   }
 
+  /** GET /orders/kitchen-count — số món đang chờ bếp làm (cột "Đã order"), cho badge nav dưới.
+   *
+   * Cũng phải khai TRƯỚC route có tham số động, cùng lý do với 'open-count'.
+   * Mọi role đăng nhập đều gọi được: nút "Bếp" có ở nav của admin lẫn role kitchen, và FE tự
+   * quyết định bật badge cho role nào. */
+  @Get('kitchen-count')
+  async kitchenCount() {
+    return { data: { count: await this.svc.countKitchenPendingItems() } };
+  }
+
   /** GET /orders/by-table/:tableId — get or create the open order for a table */
   @Get('by-table/:tableId')
   async byTable(@Param('tableId') tableId: string, @Req() req: Request) {
