@@ -7,6 +7,7 @@ import {
   HttpCode,
   Param,
   Post,
+  Put,
   Query,
   Req,
   UseGuards,
@@ -63,6 +64,22 @@ class CreateDeliveryDto {
   /** Người dùng đã xem cảnh báo trùng phiếu và vẫn muốn tạo (M3.D-11) — NCC giao hai chuyến
    * trong một ngày là chuyện có thật. */
   @IsOptional() @IsBoolean() allow_duplicate?: boolean;
+}
+
+/** Sửa phiếu đã nhập (2026-09-07). Giống `CreateDeliveryDto` trừ `supplier_id`: chuyển phiếu
+ * sang NCC khác là viết lại công nợ của cả hai bên cùng lúc — muốn vậy thì huỷ rồi nhập lại.
+ *
+ * Không có `allow_duplicate`: cảnh báo trùng phiếu là để chặn NHẬP ĐÔI lúc tạo. Sửa một phiếu
+ * đang có thì nó vốn đã nằm đó, hỏi lại "có phiếu cùng ngày rồi" chỉ là hỏi về chính nó.
+ */
+class UpdateDeliveryDto {
+  @IsOptional() @IsString() @MaxLength(10) delivery_date?: string;
+  @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+
+  @IsArray() @ValidateNested({ each: true }) @Type(() => DeliveryLineDto)
+  lines!: DeliveryLineDto[];
+
+  @IsOptional() @IsArray() @IsUUID('all', { each: true }) approved_ingredient_ids?: string[];
 }
 
 /** Phiếu nhập hàng (2026-09-05).
@@ -187,6 +204,28 @@ export class DeliveriesController {
   @HttpCode(200)
   async cancel(@Param('id') id: string) {
     return { data: await this.svc.cancel(id) };
+  }
+
+  /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07) — admin-only qua `AdminGuard` ở cấp class.
+   *
+   * Hai nhịp y như lúc tạo: nhịp một không kèm `approved_ingredient_ids` thì server trả về
+   * `updated: false` + danh sách dòng lệch giá và KHÔNG ghi gì; nhịp hai gửi lại kèm những mặt
+   * hàng người dùng đã bấm đồng ý. Xem `DeliveriesService.update`.
+   */
+  @Put(':id')
+  @HttpCode(200)
+  async update(@Param('id') id: string, @Body() dto: UpdateDeliveryDto, @Req() req: Request) {
+    const result = await this.svc.update(
+      id,
+      {
+        delivery_date: dto.delivery_date,
+        note: dto.note,
+        lines: dto.lines,
+        approved_ingredient_ids: dto.approved_ingredient_ids,
+      },
+      { id: req.user!.sub, full_name: req.user!.full_name },
+    );
+    return { data: result };
   }
 
   @Post()

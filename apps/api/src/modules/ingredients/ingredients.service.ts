@@ -3,7 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
-import { ACCEPTED_UNITS, normalizeName, parseUnit } from './ingredient-units.js';
+import { normalizeName, parseUnit } from './ingredient-units.js';
 
 export type Actor = { id: string; full_name: string };
 
@@ -229,14 +229,21 @@ export class IngredientsService {
     });
   }
 
-  /** Nhận đơn vị người dùng gõ → đơn vị gốc để lưu. Ném 400 khi không nhận ra: thà bắt gõ lại
-   * còn hơn ghi vào một đơn vị hệ thống không cộng được, rồi phát hiện lúc xem báo cáo. */
+  /** Nhận đơn vị người dùng gõ → đơn vị gốc để lưu.
+   *
+   * ĐƠN VỊ TUỲ Ý (chủ quán chốt 2026-09-07): gõ gì cũng nhận, `parseUnit` lo phần quy đổi —
+   * 'kg' hạ về 'g', từ lạ thì chính nó là đơn vị gốc. Chốt whitelist cũ (400 `BAD_UNIT` cho từ
+   * ngoài danh sách) đã bỏ; quán còn dùng mẹt, khay, thùng xốp và bắt gõ lại là bắt gõ sai đi.
+   *
+   * Chỉ còn chặn RỖNG: thiếu đơn vị thì không cộng được tồn kho, mà đó là thiếu dữ liệu chứ
+   * không phải một đơn vị lạ.
+   */
   private resolveUnit(raw: string): string {
     const parsed = parseUnit(raw ?? '');
     if (!parsed) {
       throw new BadRequestException({
         code: 'BAD_UNIT',
-        message: `Đơn vị "${raw}" không hợp lệ. Dùng: ${ACCEPTED_UNITS.join(', ')}`,
+        message: 'Chưa khai đơn vị tính — gõ gì cũng được (kg, lít, bó, mẹt…) nhưng không để trống',
       });
     }
     return parsed.base_unit;

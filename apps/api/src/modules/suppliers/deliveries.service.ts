@@ -7,6 +7,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import type { EntityManager } from 'typeorm';
 import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
@@ -17,6 +18,8 @@ import { IngredientsService } from '../ingredients/ingredients.service.js';
 import { baseUnitsPerUnit } from '../ingredients/ingredient-units.js';
 import { toDateString } from './suppliers.service.js';
 import type { AlertLevel } from './purchase-units.js';
+import { replayPrices } from './price-replay.js';
+import type { ReplayDelivery, ReplayPriceChange } from './price-replay.js';
 import {
   alertLevel,
   computeLineAmounts,
@@ -73,6 +76,46 @@ export type DuplicateHint = {
 export type CreateResult =
   | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
   | { created: true; delivery: SupplierDelivery; lines: SupplierDeliveryLine[] };
+
+/** Ảnh phiếu TRƯỚC khi sửa, gói vào response để nhật ký giữ được cả hai bản.
+ *
+ * `audit.interceptor` chỉ lưu `after_json` = response body; nó không có móc nào để chụp trạng
+ * thái trước. Nhét bản gốc vào response là cách duy nhất để /admin/audit trả lời được câu
+ * "phiếu này bị sửa gì" mà không phải thêm bảng lịch sử riêng. */
+export type DeliverySnapshot = {
+  delivery_date: string;
+  note: string | null;
+  total_amount: number;
+  lines: {
+    ingredient_name: string;
+    purchase_unit: string;
+    qty_purchase: string;
+    unit_price: number;
+    amount: number;
+  }[];
+};
+
+export type UpdateResult =
+  | { updated: false; price_changes: ReplayPriceChange[] }
+  | {
+      updated: true;
+      delivery: SupplierDelivery;
+      lines: SupplierDeliveryLine[];
+      /** Bản trước khi sửa — xem `DeliverySnapshot`. */
+      replaced: DeliverySnapshot;
+    };
+
+/** Ném ra để cuộn ngược transaction khi bản sửa có dòng lệch giá chưa được duyệt.
+ *
+ * Vì sao dùng transaction + rollback thay vì "thử tính trước rồi mới ghi": biến động giá của
+ * phiếu đang sửa chỉ tính đúng SAU khi phát lại cả chuỗi (giá tham chiếu hiện tại đang chứa
+ * đóng góp của chính phiếu này — so với nó là so với chính mình). Ghi rồi phát lại rồi soát,
+ * cuộn ngược nếu chưa duyệt, là cách duy nhất để nhịp "hỏi trước" dùng ĐÚNG con số của nhịp ghi. */
+class UnapprovedPriceChanges extends Error {
+  constructor(readonly changes: ReplayPriceChange[]) {
+    super('unapproved price changes');
+  }
+}
 
 @Injectable()
 export class DeliveriesService {
@@ -373,6 +416,211 @@ export class DeliveriesService {
       await applyItemReferences(items, d.supplier_id, toDateString(d.delivery_date) ?? '', lines);
       return d;
     });
+  }
+
+  /** Sửa một phiếu ĐÃ NHẬP (chủ quán yêu cầu 2026-09-07). Admin-only qua guard ở controller.
+   *
+   * Trước đây phiếu vào là vĩnh viễn: `cancel` chặn phiếu `CONFIRMED` vì "nó đã vào kho và công
+   * nợ". Nhưng phiếu nhập sai đơn vị hoặc sai số vẫn là chuyện có thật, và cách duy nhất còn lại
+   * là sửa thẳng DB — tệ hơn hẳn một đường sửa có nhật ký.
+   *
+   * Ba việc, đúng thứ tự này:
+   * 1. Thay TOÀN BỘ dòng của phiếu (không sửa từng dòng): `prepareLines` tính lại mọi đẳng thức
+   *    — kể cả hệ số quy đổi đơn vị, nên phiếu cũ nhập sai KG/g sửa lại là đúng luôn.
+   * 2. `replayPriceHistory` phát lại cả chuỗi giá của NCC đó theo NGÀY GIAO.
+   * 3. Soát dòng lệch giá của phiếu vừa sửa; chưa được duyệt thì cuộn ngược cả transaction.
+   *
+   * Trạng thái phiếu KHÔNG đổi: phiếu `CONFIRMED` sửa xong vẫn `CONFIRMED`. Đưa nó về chờ duyệt
+   * lại là làm công nợ tụt xuống một cách vô hình cho tới khi có ai bấm duyệt.
+   */
+  async update(
+    id: string,
+    input: {
+      delivery_date?: string;
+      note?: string | null;
+      lines: DeliveryLineInput[];
+      approved_ingredient_ids?: string[];
+    },
+    actor: Actor,
+  ): Promise<UpdateResult> {
+    const existing = await this.deliveryRepo.findOne({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    }
+    if (existing.status === 'CANCELLED') {
+      throw new BadRequestException({
+        code: 'BAD_STATE',
+        message: 'Phiếu đã huỷ — sửa nó là làm sống lại một phiếu ai đó đã bỏ. Nhập phiếu mới.',
+      });
+    }
+    if (!input.lines?.length) {
+      throw new BadRequestException({ code: 'BAD_INPUT', message: 'Phiếu chưa có mặt hàng nào' });
+    }
+    // NCC KHÔNG đổi được: chuyển phiếu sang NCC khác là viết lại công nợ của hai bên cùng lúc,
+    // và mọi giá tham chiếu của cả hai. Muốn vậy thì huỷ phiếu rồi nhập lại ở NCC đúng.
+    const supplier_id = existing.supplier_id;
+    const delivery_date = input.delivery_date || toDateString(existing.delivery_date) || DeliveriesService.today();
+
+    const replaced = await this.snapshot(existing);
+    const approved = new Set(input.approved_ingredient_ids ?? []);
+
+    try {
+      return await this.ds.transaction(async (mgr) => {
+        const deliveries = mgr.getRepository(SupplierDelivery);
+        const lineRepo = mgr.getRepository(SupplierDeliveryLine);
+        // Không lấy repo `SupplierItem` ở đây: bảng giá do `replayPriceHistory` dựng lại từ
+        // trạng thái cuối chuỗi, ghi thêm ở đây là hai chỗ cùng viết một bảng.
+
+        const prepared = await this.prepareLines(supplier_id, input.lines);
+
+        // Xoá hết dòng cũ rồi ghi lại: dòng bị bỏ khỏi phiếu phải biến mất khỏi tồn kho, mà
+        // so từng dòng để biết cái nào bị bỏ thì phức tạp hơn mà không được gì.
+        await lineRepo.delete({ delivery_id: id });
+
+        const total_amount = prepared.reduce((sum, p) => sum + p.amounts.amount, 0);
+        await deliveries.update(id, {
+          delivery_date,
+          note: input.note?.trim() || null,
+          total_amount,
+        });
+
+        const saved: SupplierDeliveryLine[] = [];
+        for (const p of prepared) {
+          saved.push(
+            await lineRepo.save(
+              lineRepo.create({
+                delivery_id: id,
+                ingredient_id: p.ingredient.id,
+                ingredient_name_snapshot: p.ingredient.name,
+                unit_snapshot: p.ingredient.unit,
+                purchase_unit_snapshot: p.purchase_unit,
+                qty_base_per_unit_snapshot: String(p.qty_base_per_unit),
+                qty_purchase: String(p.qty_purchase),
+                unit_price: p.unit_price,
+                amount: p.amounts.amount,
+                qty_base: String(p.amounts.qty_base),
+                unit_price_base: String(p.amounts.unit_price_base),
+                // Bốn cột dưới đây do `replayPriceHistory` ghi đè ngay sau: giá trị ở đây tính
+                // theo bảng giá HIỆN TẠI, mà bảng giá đó đang chứa đóng góp của chính phiếu này.
+                prev_unit_price_base: null,
+                price_change_pct: null,
+                prev_qty_base_per_unit: null,
+                price_approved_by_user_id: null,
+              }),
+            ),
+          );
+        }
+
+        // Phát lại cả chuỗi, rồi mới biết phiếu này thật sự lệch giá bao nhiêu.
+        const changes = await this.replayPriceHistory(mgr, supplier_id, actor);
+        const mine = (changes.get(id) ?? []).filter((c) => !approved.has(c.ingredient_id));
+        if (mine.length > 0) throw new UnapprovedPriceChanges(mine);
+
+        const delivery = (await deliveries.findOne({ where: { id } }))!;
+        const lines = await lineRepo.find({ where: { delivery_id: id }, order: { created_at: 'ASC' } });
+        return { updated: true as const, delivery, lines, replaced };
+      });
+    } catch (err) {
+      if (err instanceof UnapprovedPriceChanges) {
+        return { updated: false, price_changes: err.changes };
+      }
+      throw err;
+    }
+  }
+
+  /** Ảnh phiếu trước khi sửa, để nhét vào response cho nhật ký. Xem `DeliverySnapshot`. */
+  private async snapshot(d: SupplierDelivery): Promise<DeliverySnapshot> {
+    const lines = await this.lineRepo.find({ where: { delivery_id: d.id }, order: { created_at: 'ASC' } });
+    return {
+      delivery_date: toDateString(d.delivery_date) ?? '',
+      note: d.note,
+      total_amount: d.total_amount,
+      lines: lines.map((l) => ({
+        ingredient_name: l.ingredient_name_snapshot,
+        purchase_unit: l.purchase_unit_snapshot,
+        qty_purchase: l.qty_purchase,
+        unit_price: l.unit_price,
+        amount: l.amount,
+      })),
+    };
+  }
+
+  /** Phát lại chuỗi giá của một NCC rồi ghi kết quả xuống DB. Phép tính nằm ở `replayPrices`
+   * (thuần, không DB) — ở đây chỉ đọc rows, gọi nó, ghi lại.
+   *
+   * Chỉ phiếu ĐÃ DUYỆT tham gia, cùng lý lẽ với `applyItemReferences`: phiếu NCC tự gửi mà chưa
+   * ai kiểm thì không được dịch mốc giá.
+   *
+   * Trả về: id phiếu → dòng lệch giá quá ngưỡng, để caller soát nhịp duyệt.
+   */
+  private async replayPriceHistory(
+    mgr: EntityManager,
+    supplier_id: string,
+    actor: Actor,
+  ): Promise<Map<string, ReplayPriceChange[]>> {
+    const deliveries = mgr.getRepository(SupplierDelivery);
+    const lineRepo = mgr.getRepository(SupplierDeliveryLine);
+    const items = mgr.getRepository(SupplierItem);
+
+    // Sắp theo NGÀY GIAO rồi mới `created_at`: nhập bù phiếu hôm qua thì nó phải nằm đúng chỗ
+    // của hôm qua trong chuỗi, không phải cuối chuỗi vì mới được nhập.
+    const chainRows = await deliveries.find({
+      where: { supplier_id, status: 'CONFIRMED' },
+      order: { delivery_date: 'ASC', created_at: 'ASC' },
+    });
+
+    const chain: ReplayDelivery[] = [];
+    const ingredientIds = new Set<string>();
+    for (const d of chainRows) {
+      const lines = await lineRepo.find({ where: { delivery_id: d.id }, order: { created_at: 'ASC' } });
+      for (const l of lines) ingredientIds.add(l.ingredient_id);
+      chain.push({
+        id: d.id,
+        delivery_date: toDateString(d.delivery_date) ?? '',
+        lines: lines.map((l) => ({
+          id: l.id,
+          ingredient_id: l.ingredient_id,
+          ingredient_name: l.ingredient_name_snapshot,
+          base_unit: l.unit_snapshot,
+          purchase_unit: l.purchase_unit_snapshot,
+          qty_base_per_unit: l.qty_base_per_unit_snapshot,
+          unit_price: l.unit_price,
+          unit_price_base: l.unit_price_base,
+          price_approved_by_user_id: l.price_approved_by_user_id,
+        })),
+      });
+    }
+
+    // Ngưỡng riêng của từng nguyên liệu (M3.D-23) — nạp một lần, không phải mỗi dòng một query.
+    const thresholds = new Map<string, number | null>();
+    if (ingredientIds.size > 0) {
+      const ings = await mgr.getRepository(Ingredient).find({ where: { id: In([...ingredientIds]) } });
+      for (const ing of ings) {
+        thresholds.set(
+          ing.id,
+          ing.price_alert_threshold_pct === null ? null : Number(ing.price_alert_threshold_pct),
+        );
+      }
+    }
+
+    const { line_patches, refs, flagged } = replayPrices(chain, thresholds, actor.id);
+
+    for (const [line_id, patch] of line_patches) {
+      await lineRepo.update(line_id, patch);
+    }
+
+    // Dựng lại bảng giá từ trạng thái cuối chuỗi.
+    const current = await items.find({ where: { supplier_id } });
+    for (const row of current) {
+      if (!refs.has(row.ingredient_id)) await items.delete(row.id);
+    }
+    for (const [ingredient_id, r] of refs) {
+      const row = current.find((c) => c.ingredient_id === ingredient_id);
+      if (row) await items.update(row.id, r);
+      else await items.save(items.create({ supplier_id, ingredient_id, ...r }));
+    }
+
+    return flagged;
   }
 
   /** Huỷ phiếu. Giữ lại để truy vết chứ không xoá — phiếu biến mất là câu hỏi không ai trả lời

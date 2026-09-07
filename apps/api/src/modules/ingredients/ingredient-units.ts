@@ -43,17 +43,19 @@ export const BASE_UNIT: Record<UnitKind, string> = {
 const MASS_FACTORS: Record<string, number> = { g: 1, gr: 1, gram: 1, kg: 1000 };
 const VOLUME_FACTORS: Record<string, number> = { ml: 1, l: 1000, lit: 1000, lít: 1000 };
 
-/** Các đơn vị đếm được chấp nhận. Người nhập gõ tự do nhưng chỉ những từ này mới coi là đơn vị
- * đếm hợp lệ — tránh đơn vị rác kiểu "ít", "vừa" lọt vào rồi không cộng được. */
+/** Các đơn vị đếm BIẾT TRƯỚC. Đây KHÔNG còn là danh sách được phép (chủ quán chốt 2026-09-07:
+ * "đơn vị tính cho nhập tuỳ ý, không validate cố định") — đơn vị lạ vẫn nhập được, xem
+ * `parseUnit`. Danh sách này chỉ còn hai việc: giữ dạng chữ CÓ DẤU chuẩn để báo cáo đọc lên là
+ * "12 quả trứng", và làm gợi ý cho ô nhập ở web. */
 // 'hộp' thêm 2026-09-07 sau bug production: nhập hàng khai mặt hàng mới ("sữa đặc", "bơ") với
 // đơn vị HỘP bị 400. Đây là kiểu đóng gói người nhập gõ thật, và một hộp là một hộp — đếm được,
 // không nhập nhằng như "lạng", nên không có lý do chặn.
 const COUNT_UNITS = ['cái', 'quả', 'trái', 'củ', 'lá', 'nhánh', 'bó', 'gói', 'hộp', 'lát', 'con', 'miếng'];
 
-/** Danh sách đơn vị hợp lệ để in ra trong thông báo lỗi. Sinh TỪ chính các bảng trên chứ không
- * gõ tay: bản gõ tay đã lệch một lần (thêm đơn vị mà quên sửa câu lỗi, người dùng đọc câu lỗi
- * rồi tưởng đơn vị mình gõ vẫn không được nhận). */
-export const ACCEPTED_UNITS: string[] = [
+/** Đơn vị BIẾT TRƯỚC, để gợi ý. Không phải danh sách được phép nữa — `parseUnit` nhận mọi từ.
+ * Sinh TỪ chính các bảng trên chứ không gõ tay: bản gõ tay đã lệch một lần (thêm đơn vị mà quên
+ * sửa câu lỗi, người dùng đọc câu lỗi rồi tưởng đơn vị mình gõ vẫn không được nhận). */
+export const KNOWN_UNITS: string[] = [
   ...Object.keys(MASS_FACTORS),
   ...Object.keys(VOLUME_FACTORS),
   ...COUNT_UNITS,
@@ -64,8 +66,16 @@ export type ParsedUnit = { kind: UnitKind; base_unit: string; factor: number };
 /** Nhận diện đơn vị người dùng gõ → (nhóm, đơn vị gốc, hệ số quy đổi).
  *
  * `factor` là số nhân để ra đơn vị gốc: 'kg' → 1000 (1kg = 1000g), 'g' → 1, 'quả' → 1.
- * Trả `null` khi không nhận ra — caller PHẢI báo lỗi thay vì đoán bừa; đoán sai đơn vị là sai
- * số liệu tiêu hao gấp 1000 lần mà không ai nhìn ra.
+ *
+ * ĐƠN VỊ TUỲ Ý (chủ quán chốt 2026-09-07, đảo lại chốt whitelist ngày 2026-09-05): gõ gì cũng
+ * nhận. Từ lạ ("mẹt", "khay", "thùng xốp") thành đơn vị ĐẾM mà chính nó là đơn vị gốc, hệ số 1 —
+ * đúng cơ chế đang chạy cho "bó"/"hộp", nên "3 mẹt + 2 mẹt = 5 mẹt" vẫn cộng được trong báo cáo.
+ *
+ * Vì sao mở ra mà không sợ sai 1000 lần: cái nguy hiểm không phải từ lạ, mà là QUY ĐỔI sai. Từ
+ * lạ có hệ số 1 và là gốc của chính nó nên không quy đổi với bất cứ gì — kể cả "lạng" (miền Bắc
+ * hiểu 100g, nơi khác hiểu khác) giờ chỉ cộng với "lạng", không bao giờ tự thành gram.
+ *
+ * Chỉ còn `null` cho chuỗi RỖNG: không đơn vị thì không phải đơn vị tuỳ ý, mà là thiếu dữ liệu.
  */
 export function parseUnit(raw: string): ParsedUnit | null {
   const u = normalizeName(raw);
@@ -83,7 +93,16 @@ export function parseUnit(raw: string): ParsedUnit | null {
   const countUnit = COUNT_UNITS.find((k) => normalizeName(k) === u);
   if (countUnit) return { kind: 'count', base_unit: countUnit, factor: 1 };
 
-  return null;
+  // Đơn vị lạ. Hạ chữ thường + gộp khoảng trắng nhưng GIỮ DẤU: đây là chuỗi sẽ nằm trong cột
+  // `ingredients.unit` và hiện lên báo cáo, "mẹt" phải ra "mẹt" chứ không phải "met". Hạ chữ để
+  // "MẸT" và "Mẹt" không thành hai đơn vị; so khớp giữa các dòng thì đi qua `sameCountUnit`.
+  return { kind: 'count', base_unit: raw.trim().replace(/\s+/g, ' ').toLowerCase(), factor: 1 };
+}
+
+/** Hai đơn vị đếm có phải MỘT thứ. So trên chuỗi đã bỏ dấu: đơn vị tuỳ ý nghĩa là người nhập gõ
+ * "mẹt" hôm nay và "met" hôm sau, hai lần đó phải trỏ về cùng một đơn vị chứ không bị từ chối. */
+function sameCountUnit(a: string, b: string): boolean {
+  return normalizeName(a) === normalizeName(b);
 }
 
 /** Quy định lượng người nhập về đơn vị gốc của nguyên liệu.
@@ -97,7 +116,7 @@ export function toBaseQty(qty: number, unit: string, base_unit: string): number 
   if (!from || !to) return null;
   if (from.kind !== to.kind) return null;
   // Trong nhóm đếm, 'quả' và 'lá' cùng kind nhưng KHÔNG đổi cho nhau được.
-  if (from.kind === 'count' && from.base_unit !== to.base_unit) return null;
+  if (from.kind === 'count' && !sameCountUnit(from.base_unit, to.base_unit)) return null;
   return qty * from.factor;
 }
 
@@ -117,7 +136,7 @@ export function baseUnitsPerUnit(purchase_unit: string, base_unit: string): numb
   if (!from || !to) return null;
   if (from.kind !== to.kind) return null;
   // Trong nhóm đếm, 'quả' và 'lá' cùng kind nhưng KHÔNG đổi cho nhau được.
-  if (from.kind === 'count' && from.base_unit !== to.base_unit) return null;
+  if (from.kind === 'count' && !sameCountUnit(from.base_unit, to.base_unit)) return null;
   // Chia cho `to.factor` chứ không giả định nó bằng 1: đơn vị gốc trong DB là do `resolveUnit`
   // sinh ra nên hôm nay luôn là đơn vị nhỏ nhất, nhưng phép tính đúng thì không cần giả định đó.
   return from.factor / to.factor;

@@ -22,6 +22,8 @@ type Ingredient = {
 
 /** Đơn vị gợi ý cho ô nhập — khớp danh sách BE nhận (xem `ingredient-units.ts`). Người dùng vẫn
  * gõ được 'kg'/'lít'; BE quy về đơn vị gốc rồi mới lưu. */
+// GỢI Ý, không phải danh sách được phép: đơn vị tính nhập tuỳ ý (chủ quán chốt 2026-09-07), ô
+// gõ bên dưới mới là nguồn thật. Chip chỉ để đỡ phải gõ những đơn vị dùng hằng ngày.
 const UNIT_SUGGESTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'hộp', 'lát', 'con', 'miếng', 'cái'];
 
 export function IngredientsPanel({ onClose }: { onClose: () => void }) {
@@ -281,6 +283,17 @@ function IngredientForm({
             </button>
           ))}
         </div>
+        {/* Ô gõ là nguồn thật của đơn vị — quán còn dùng mẹt, khay, thùng xốp, không có trong
+            chip nào. BE nhận mọi từ (đơn vị lạ thành đơn vị đếm tự nó là gốc), chỉ chặn để trống. */}
+        <input
+          type="text"
+          value={unit}
+          onChange={(e) => setUnit(e.target.value)}
+          placeholder="kg, lít, bó, mẹt…"
+          aria-label="Đơn vị tính"
+          disabled={!!editing && editing.used_in_items > 0}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 16, marginBottom: 4 }}
+        />
         {/* Đổi đơn vị của nguyên liệu ĐANG DÙNG bị BE chặn (mọi số cũ sẽ đổi nghĩa). Nói trước ở
             đây để người dùng không phải chạm vào lỗi mới biết. */}
         {editing && editing.used_in_items > 0 && (
