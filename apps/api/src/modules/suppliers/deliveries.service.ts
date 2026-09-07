@@ -105,6 +105,19 @@ export type UpdateResult =
       replaced: DeliverySnapshot;
     };
 
+/** Kết quả xoá HẲN một phiếu — cũng là bản ghi duy nhất còn lại về nó.
+ *
+ * `AuditInterceptor` lưu nguyên response vào `after_json` (action `supplier.delivery_deleted`),
+ * nên `removed` phải đủ để đọc lại phiếu đã mất: ngày, tổng tiền, từng dòng hàng. */
+export type DeliveryPurge = {
+  deleted: true;
+  supplier_id: string;
+  /** Trạng thái lúc bị xoá — phân biệt "xoá phiếu chờ duyệt" với "xoá phiếu đã vào công nợ". */
+  status: string;
+  removed: DeliverySnapshot;
+  counts: { delivery_lines: number; delivery_photos: number };
+};
+
 /** Ném ra để cuộn ngược transaction khi bản sửa có dòng lệch giá chưa được duyệt.
  *
  * Vì sao dùng transaction + rollback thay vì "thử tính trước rồi mới ghi": biến động giá của
@@ -636,6 +649,59 @@ export class DeliveriesService {
     }
     d.status = 'CANCELLED';
     return this.deliveryRepo.save(d);
+  }
+
+  /** Xoá HẲN một phiếu, kèm dòng hàng và ảnh của nó (chủ quán yêu cầu 2026-09-07).
+   *
+   * Vì sao có cả `cancel` lẫn hàm này, và khi nào dùng cái nào:
+   * - `cancel` cho phiếu NCC gửi mà quán KHÔNG nhận hàng — phiếu đó là một đề nghị thật đã xảy
+   *   ra, giữ lại để lần sau còn đối chiếu "hôm đó họ báo gửi mà mình từ chối".
+   * - `destroy` cho phiếu KHÔNG NÊN TỒN TẠI: nhập trùng hai lần, nhập sai NCC, nhập thử. Giữ nó
+   *   lại dưới dạng đã huỷ chỉ làm bảng phiếu dài ra bằng những dòng không ai muốn đọc.
+   *
+   * Xoá được ở MỌI trạng thái, kể cả `CONFIRMED` — đó chính là trạng thái của phiếu nhân viên
+   * nhập vào (vào thẳng kho và công nợ), tức là trường hợp nhập trùng cần xoá nhất. `cancel` cố
+   * ý chặn `CONFIRMED` và ở đó là đúng: huỷ một phiếu đã duyệt để nó nằm lại trong lịch sử với
+   * nhãn "đã huỷ" thì số liệu và cái nhãn nói hai chuyện khác nhau.
+   *
+   * Ba việc, đúng thứ tự này (giống `update`):
+   * 1. Chụp ảnh phiếu TRƯỚC khi xoá — sau khi xoá thì không còn gì để chụp, mà audit cần nó.
+   * 2. Xoá ảnh + dòng hàng + phiếu trong CÙNG một transaction.
+   * 3. `replayPriceHistory` phát lại cả chuỗi giá của NCC đó: "giá lần trước" và "% biến động"
+   *    trên những phiếu SAU nó đang so với phiếu vừa bị xoá, không phát lại là để lại số sai.
+   *
+   * KHÔNG chặn theo dòng lệch giá mà phép phát lại phát hiện ra (khác `update`, chỗ đó cuộn
+   * ngược cả transaction): xoá một phiếu có thể khiến phiếu sau nó nhảy giá quá ngưỡng, nhưng
+   * bắt người dùng đi duyệt lại giá của MỘT PHIẾU KHÁC mới xoá được phiếu nhập trùng là một cửa
+   * không lối ra. `replayPrices` đóng dấu admin đang xoá lên đúng những dòng lệch giá mới phát
+   * sinh, nên trách nhiệm vẫn có người đứng tên.
+   *
+   * File ảnh trên đĩa KHÔNG xoá, chỉ xoá dòng DB — cùng lý lẽ với `deletePhoto`, xem docblock ở
+   * đó.
+   */
+  async destroy(id: string, actor: Actor): Promise<DeliveryPurge> {
+    const d = await this.deliveryRepo.findOne({ where: { id } });
+    if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    const removed = await this.snapshot(d);
+    const supplier_id = d.supplier_id;
+    const status = d.status;
+
+    return this.ds.transaction(async (mgr) => {
+      const photos = await mgr.getRepository(SupplierDeliveryPhoto).delete({ delivery_id: id });
+      const lines = await mgr.getRepository(SupplierDeliveryLine).delete({ delivery_id: id });
+      await mgr.getRepository(SupplierDelivery).delete({ id });
+      await this.replayPriceHistory(mgr, supplier_id, actor);
+      return {
+        deleted: true as const,
+        supplier_id,
+        status,
+        removed,
+        counts: {
+          delivery_lines: lines.affected ?? 0,
+          delivery_photos: photos.affected ?? 0,
+        },
+      };
+    });
   }
 
   /** Tính lại toàn bộ một phiếu: quy đổi, so với lần trước, xếp mức cảnh báo.

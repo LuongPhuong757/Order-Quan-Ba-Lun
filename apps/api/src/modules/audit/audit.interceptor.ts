@@ -92,6 +92,11 @@ function deriveActionKind(method: string, path: string): string {
   // nợ và cả bảng giá tham chiếu đều dịch theo. `after_json` giữ cả bản trước khi sửa (trường
   // `replaced`, xem `DeliverySnapshot`) nên vết ở đây trả lời được "phiếu này bị sửa gì".
   if (path.match(/^\/supplier-deliveries\/[^/]+$/) && method === 'PUT') return 'supplier.delivery_updated';
+  // Xoá HẲN phiếu (2026-09-07). Nặng hơn cả `delivery_updated`: dòng phiếu không còn tồn tại,
+  // nên `after_json` (chứa trường `removed` — xem `DeliveryPurge`) là bản ghi DUY NHẤT còn lại
+  // về phiếu đó. Thiếu nhánh này thì action_kind rơi vào fallback rác
+  // `delete._supplier_deliveries__id_` và trang /admin/audit không lọc ra được.
+  if (path.match(/^\/supplier-deliveries\/[^/]+$/) && method === 'DELETE') return 'supplier.delivery_deleted';
   // NCC tự gửi phiếu qua cổng riêng — không có `actor_id` vì họ không phải nhân viên; cột
   // `target_id` giữ id phiếu để lần ra ai gửi.
   if (path === '/supplier-portal/deliveries' && method === 'POST') return 'supplier.portal_delivery_submitted';

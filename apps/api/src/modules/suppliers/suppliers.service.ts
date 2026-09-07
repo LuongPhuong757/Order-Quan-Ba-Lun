@@ -1,10 +1,15 @@
 // Quản lý nhà cung cấp + bảng giá mặt hàng của từng NCC (2026-09-05).
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
+import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
+import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
+import { SupplierPayment } from './entities/supplier-payment.entity.js';
+import { SupplierUser } from './entities/supplier-user.entity.js';
+import { SupplierSession } from './entities/supplier-session.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { normalizeName } from '../ingredients/ingredient-units.js';
 
@@ -15,6 +20,24 @@ export type SupplierWithStats = Supplier & {
   period_deliveries: number;
   /** 'YYYY-MM-DD' của lần giao gần nhất, bất kể kỳ. NULL khi chưa từng giao. */
   last_delivery_date: string | null;
+};
+
+/** Kết quả xoá một NCC — cũng chính là bản ghi duy nhất còn lại về những gì đã mất.
+ *
+ * `AuditInterceptor` lưu nguyên response của `DELETE /suppliers/:id` vào `after_json`, nên đây
+ * là chỗ trả lời "hôm đó xoá mối nào, mất bao nhiêu phiếu" khi báo cáo tháng trước hụt đi. */
+export type SupplierPurge = {
+  deleted: true;
+  supplier: { id: string; name: string; phone: string };
+  counts: {
+    deliveries: number;
+    delivery_lines: number;
+    delivery_photos: number;
+    items: number;
+    payments: number;
+    accounts: number;
+    sessions: number;
+  };
 };
 
 /** Một dòng trong bảng giá mặt hàng của NCC (mục 3.2). */
@@ -37,6 +60,7 @@ export class SuppliersService {
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
     @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
+    private readonly ds: DataSource,
   ) {}
 
   /** Danh sách NCC + số liệu kỳ. `from`/`to` dạng 'YYYY-MM-DD', bao gồm cả hai đầu.
@@ -114,9 +138,10 @@ export class SuppliersService {
 
     const existing = await this.repo.findOne({ where: { name_key } });
     if (existing) {
-      // NCC đã ngừng hợp tác rồi quay lại thì HỒI SINH dòng cũ, giữ nguyên lịch sử giá và phiếu
-      // nhập của họ. Tạo dòng mới sẽ xẻ đôi lịch sử của cùng một người. Cùng cách xử lý với
-      // `IngredientsService.create`.
+      // NCC đã ngừng hợp tác rồi quay lại thì HỒI SINH dòng cũ thay vì tạo dòng thứ hai cùng
+      // tên. Nhánh này chỉ còn gặp dòng bị xoá MỀM từ trước 2026-09-07 (xem `remove`, giờ xoá
+      // cứng) — giữ lại vì đúng những dòng đó mới còn lịch sử giá và phiếu nhập để hồi sinh.
+      // Cùng cách xử lý với `IngredientsService.create`.
       if (!existing.is_active) {
         existing.is_active = true;
         if (input.phone !== undefined) existing.phone = input.phone.trim();
@@ -176,24 +201,70 @@ export class SuppliersService {
     return this.repo.save(s);
   }
 
-  /** Xoá mềm. Chặn khi đã có phiếu nhập — NCC có lịch sử giao dịch mà biến mất khỏi danh sách
-   * thì các phiếu cũ mồ côi, và tổng mua theo kỳ hụt đi mà không ai biết vì sao. */
-  /** Xoá NCC — luôn là xoá MỀM (`is_active = false`), kể cả khi đã có phiếu nhập.
+  /** Xoá NCC — xoá CỨNG, kéo theo toàn bộ dữ liệu của họ (chủ quán yêu cầu 2026-09-07).
    *
-   * Trước 2026-09-07 chỗ này chặn khi NCC đã có phiếu (`SUPPLIER_IN_USE`) vì sợ lịch sử mồ côi.
-   * Chủ quán yêu cầu bỏ chặn: quán đổi mối liên tục, NCC nghỉ bán mà vẫn nằm trong danh sách chọn
-   * thì mỗi lần nhập hàng lại phải lướt qua. Lịch sử KHÔNG mồ côi vì không xoá dòng nào — phiếu
-   * nhập giữ nguyên `supplier_id`, và mọi màn tra cứu lịch sử đều đọc NCC theo id chứ không lọc
-   * `is_active` (xem `list({ include_inactive })`, `deliveries.service`).
+   * Hai lần đổi luật ở chỗ này, ghi lại cả hai để không ai đi ngược lần nữa:
+   * 1. Ban đầu chặn khi NCC đã có phiếu (`SUPPLIER_IN_USE`) — sợ lịch sử mồ côi.
+   * 2. Rồi thành xoá MỀM (`is_active = false`) — bỏ chặn nhưng giữ mọi dòng dữ liệu.
+   * 3. Nay là xoá CỨNG: chủ quán nói xoá mối thì phải sạch, vì xoá mềm để lại bảng giá của NCC
+   *    đã nghỉ (màn nhập hàng vẫn điền sẵn giá của họ) và phiếu cũ vẫn cộng vào báo cáo chi tiêu,
+   *    nên "đã xoá" mà số liệu không đổi — đúng thứ làm chủ quán mất tin vào con số.
    *
-   * HỆ QUẢ phải biết: công nợ tính trên NCC đang hoạt động (`payments.service.allBalances` lọc
-   * `is_active: true`), nên xoá một NCC còn nợ là số nợ đó biến khỏi bảng công nợ. Trả hết nợ
-   * rồi hãy xoá.
+   * HỆ QUẢ, phải nói rõ vì KHÔNG hoàn lại được: mọi phiếu nhập của NCC này biến mất, nên báo cáo
+   * chi tiêu / giá vốn / công nợ của những kỳ ĐÃ QUA cũng hụt đi đúng phần của họ. Vết duy nhất
+   * còn lại là `audit_log` — vì vậy hàm trả về tên NCC + số dòng đã xoá của từng bảng, và
+   * `AuditInterceptor` lưu nguyên response vào `after_json` (action `supplier.deleted`). Đổi
+   * kiểu trả về thành `void` là xoá luôn vết đó.
+   *
+   * Nguyên liệu trong danh mục (`ingredients`) KHÔNG bị xoá: đó là bảng DÙNG CHUNG với công thức
+   * món (M3.D-12), "thịt bò" không thuộc về một mối nào cả.
    */
-  async remove(id: string): Promise<void> {
+  async remove(id: string): Promise<SupplierPurge> {
     const s = await this.get(id);
-    s.is_active = false;
-    await this.repo.save(s);
+    return this.ds.transaction(async (mgr) => {
+      // Dòng phiếu + ảnh phải xoá TRƯỚC phiếu, và lọc qua truy vấn con thay vì nạp danh sách id
+      // rồi `In([...])`: một mối làm ăn vài năm có hàng nghìn phiếu, nhồi hết id vào một câu
+      // `IN` là tự đặt một giới hạn ngầm vào chỗ không có lý do gì phải có giới hạn.
+      const sub = '(SELECT id FROM supplier_deliveries WHERE supplier_id = :id)';
+      const photos = await mgr
+        .getRepository(SupplierDeliveryPhoto)
+        .createQueryBuilder()
+        .delete()
+        .where(`delivery_id IN ${sub}`, { id })
+        .execute();
+      const lines = await mgr
+        .getRepository(SupplierDeliveryLine)
+        .createQueryBuilder()
+        .delete()
+        .where(`delivery_id IN ${sub}`, { id })
+        .execute();
+
+      const deliveries = await mgr.getRepository(SupplierDelivery).delete({ supplier_id: id });
+      // Bảng giá tham chiếu: không cần phát lại chuỗi giá như `DeliveriesService.destroy` — cả
+      // chuỗi của NCC này đang bị xoá, và bảng giá là dữ liệu RIÊNG theo từng NCC nên không có
+      // NCC nào khác phải tính lại.
+      const items = await mgr.getRepository(SupplierItem).delete({ supplier_id: id });
+      const payments = await mgr.getRepository(SupplierPayment).delete({ supplier_id: id });
+      // Phiên đăng nhập trước tài khoản: bỏ sót phiên là để lại một token còn sống trỏ vào NCC
+      // không còn tồn tại.
+      const sessions = await mgr.getRepository(SupplierSession).delete({ supplier_id: id });
+      const users = await mgr.getRepository(SupplierUser).delete({ supplier_id: id });
+      await mgr.getRepository(Supplier).delete({ id });
+
+      return {
+        deleted: true as const,
+        supplier: { id: s.id, name: s.name, phone: s.phone },
+        counts: {
+          deliveries: deliveries.affected ?? 0,
+          delivery_lines: lines.affected ?? 0,
+          delivery_photos: photos.affected ?? 0,
+          items: items.affected ?? 0,
+          payments: payments.affected ?? 0,
+          accounts: users.affected ?? 0,
+          sessions: sessions.affected ?? 0,
+        },
+      };
+    });
   }
 
   /** Bảng giá mặt hàng của một NCC (mục 3.2) — tự sinh từ lịch sử nhập (M3.D-18).
