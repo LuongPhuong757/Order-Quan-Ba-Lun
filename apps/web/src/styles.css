@@ -1131,19 +1131,16 @@ a:hover {
     display: none !important;
   }
 
-  /* Hai ô ngày: bỏ bề rộng cố định 140px, chia đôi hàng còn lại. `font-size: 16px` là bắt buộc
-     — iOS Safari TỰ PHÓNG TO cả trang khi focus vào ô nhập có chữ nhỏ hơn 16px, và người dùng
-     phải tự vuốt thu lại. Đây là lý do lớn nhất khiến thanh lọc này "khó dùng" trên iPhone. */
-  .txn-date {
+  /* Hai ô ngày: bỏ bề rộng cố định 140px, chia đôi hàng còn lại. (Class đổi `.txn-date` →
+     `.time-date` 2026-09-07 khi hai ô này chuyển sang dùng chung `DateRangeFields`; luật vẫn
+     bó trong `.txn-filters` vì `flex-basis: 40%` chỉ đúng cho hàng lọc CÓ wrap của màn này.) */
+  .txn-filters .time-date {
     /* `flex-basis` theo PHẦN TRĂM, không phải 0. Với `0 0` hai ô ngày phải giành chỗ với 2 ô
        chọn trên cùng một dòng wrap và bị bóp còn ~20px — chỉ còn cái icon lịch, không đọc được
        ngày nào. 40% ép chúng tự tách thành một hàng riêng của hai ô, chia đôi. */
     flex: 1 1 40% !important;
     width: auto !important;
     min-width: 118px !important;
-    min-height: 40px !important;
-    height: 40px !important;
-    font-size: 16px !important;
   }
 
   /* Hai ô chọn (bàn / thu ngân) — cùng lý do: bỏ 150/160px cứng, mỗi ô nửa hàng. Nâng chiều
@@ -1815,4 +1812,114 @@ a:hover {
   table.responsive.sup-cards td { justify-content: flex-start; gap: 4px; }
   table.responsive.sup-cards td::before { margin-right: auto; }
   table.responsive.sup-cards td.sup-cell-actions { justify-content: flex-end; gap: 8px; }
+}
+/* ════════════════════════════════════════════════════════════════════════════
+   Bộ lọc thời gian dùng chung (.time-*) — thêm 2026-09-07
+   Trước đây mỗi màn tự vẽ một kiểu: Thống kê web dùng nút primary/secondary VUÔNG cao 44px,
+   Đơn online dùng pill bo tròn với style inline riêng, Lịch sử chỉ có 2 ô ngày trần không
+   preset. Ba màn cùng trả lời một câu hỏi ("xem khoảng nào") mà nhìn như ba thành phần khác
+   nhau — chưa kể style inline không viết được :hover/:focus nên chip không có phản hồi khi rê
+   chuột và vòng focus bàn phím bị mất.
+   Nay gom về một bộ class. Chiều cao 34px khớp sẵn với select compact và ô ngày của thanh lọc
+   Lịch sử, nên nhét chung một dòng không bị so le.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* Hàng lọc: nhãn (nếu có) và nút phụ đứng NGOÀI vùng cuộn, chỉ dãy chip cuộn ngang. Nhãn cuộn
+   theo thì vuốt sang là mất luôn câu giải thích các chip đang lọc theo cái gì. */
+.time-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.time-filter-label {
+  font-size: 13px;
+  color: #4b5563;
+  white-space: nowrap;
+  flex: none;
+}
+
+.time-chip {
+  /* `min-height` chứ không `height`: chữ có dấu tiếng Việt (Ơ, Ộ) cao hơn chữ thường, cố định
+     chiều cao là cắt mất dấu. */
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.time-chip:hover:not([aria-pressed='true']) {
+  border-color: #0f766e;
+  color: #0f766e;
+  background: #f0fdfa;
+}
+
+.time-chip[aria-pressed='true'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Vòng focus phải thấy được cả khi chip đang bật (nền teal đậm) — dùng offset ra ngoài viền. */
+.time-chip:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: 2px;
+}
+
+/* Ô ngày của khoảng tự chọn — cùng 34px với chip để đứng chung một dòng không so le. */
+.time-date {
+  min-height: 34px;
+  height: 34px;
+  width: 140px;
+  padding: 0 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  color: #374151;
+  background: #fff;
+}
+
+.time-date:hover {
+  border-color: #0f766e;
+}
+
+.time-date:focus-visible {
+  outline: 2px solid #0f766e;
+  outline-offset: -1px;
+  border-color: #0f766e;
+}
+
+.time-date-sep {
+  color: #9ca3af;
+  font-size: 13px;
+  flex: none;
+}
+
+/* Điện thoại: `font-size: 16px` là BẮT BUỘC — iOS Safari tự phóng to cả trang khi focus vào ô
+   nhập có chữ nhỏ hơn 16px, và người dùng phải tự vuốt thu lại. Đây là lý do lớn nhất khiến
+   thanh lọc ngày bị chê "khó dùng" trên iPhone. Kèm theo là nới 34→40px cho gần ngưỡng chạm
+   44px của Apple HIG. Bề rộng thì mỗi màn tự lo (xem `.txn-filters .time-date`). */
+@media (max-width: 639px) {
+  .time-date {
+    min-height: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+
+  /* Chip cũng nới lên cho vừa ngón tay — 34px là cỡ desktop. */
+  .time-chip {
+    min-height: 40px;
+  }
 }

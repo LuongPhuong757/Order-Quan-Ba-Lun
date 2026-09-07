@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { TimeRangeChips, type TimeRangeOption } from '../components/TimeRangeFilter.tsx';
 
 type TrafficData = {
   range: { days: number; from_day: string; to_day: string };
@@ -115,11 +116,11 @@ const INK = '#374151';
 const INK_MUTED = '#6b7280';
 const GRID = '#e5e7eb';
 
-const RANGES = [
-  { days: 1, label: 'Hôm nay' },
-  { days: 7, label: '7 ngày' },
-  { days: 30, label: '30 ngày' },
-  { days: 90, label: '90 ngày' },
+const RANGES: ReadonlyArray<TimeRangeOption<number>> = [
+  { value: 1, label: 'Hôm nay' },
+  { value: 7, label: '7 ngày' },
+  { value: 30, label: '30 ngày' },
+  { value: 90, label: '90 ngày' },
 ];
 
 const DEVICE_LABEL: Record<string, string> = {
@@ -219,21 +220,28 @@ export function AdminAnalyticsPanel() {
     <>
       {/* Hàng chọn khoảng ngày. KHÔNG có <h1> ở đây: khi nhúng vào tab, tiêu đề đã là "Đơn hàng
           online" + nhãn tab — thêm một h1 nữa là 2 tiêu đề chồng nhau trên cùng màn hình. */}
-      {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06). */}
-      <div className="tabstrip-sm" style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
-        {RANGES.map((r) => (
+      {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06).
+          Dùng `TimeRangeChips` chung với Đơn online: trước đây chỗ này là nút primary/secondary
+          VUÔNG cao 44px, cùng một câu hỏi "xem khoảng nào" mà nhìn khác hẳn màn kia. */}
+      <TimeRangeChips
+        ariaLabel="Chọn khoảng thời gian xem thống kê"
+        value={days}
+        options={RANGES}
+        onChange={setDays}
+        style={{ marginBottom: 12 }}
+        trailing={
           <button
-            key={r.days}
-            className={r.days === days ? '' : 'secondary'}
-            onClick={() => setDays(r.days)}
+            type="button"
+            className="time-chip"
+            onClick={() => load(days)}
+            title="Tải lại số liệu"
+            aria-label="Tải lại số liệu"
+            style={{ flex: 'none' }}
           >
-            {r.label}
+            ↻
           </button>
-        ))}
-        <button className="secondary" onClick={() => load(days)} title="Tải lại số liệu">
-          ↻
-        </button>
-      </div>
+        }
+      />
 
       {traffic && (
         <p style={{ color: INK_MUTED, fontSize: 13, margin: '0 0 12px' }}>

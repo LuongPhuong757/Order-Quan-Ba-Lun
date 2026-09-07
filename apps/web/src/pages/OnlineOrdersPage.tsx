@@ -69,6 +69,7 @@ import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { MenuPickerModal } from '../components/MenuPickerModal.tsx';
+import { TimeRangeChips, type TimeRangeOption } from '../components/TimeRangeFilter.tsx';
 import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
 import { OnlineMenuPanel } from './OnlineMenuPanel.tsx';
 import { AdminAnalyticsPanel } from './AdminAnalyticsPage.tsx';
@@ -102,12 +103,12 @@ const QUEUE_FALLBACK_POLL_MS = 15_000;
  *
  * `null` = không giới hạn. Mặc định của admin là `null` ("admin thì xem được hết"), các mốc
  * còn lại là để thu hẹp khi cần soi một ca cụ thể. */
-const RANGE_FILTERS: Array<{ hours: number | null; label: string }> = [
-  { hours: null, label: 'Tất cả' },
-  { hours: 14, label: '14 giờ' },
-  { hours: 24, label: '24 giờ' },
-  { hours: 24 * 7, label: '7 ngày' },
-  { hours: 24 * 30, label: '30 ngày' },
+const RANGE_FILTERS: ReadonlyArray<TimeRangeOption<number | null>> = [
+  { value: null, label: 'Tất cả' },
+  { value: 14, label: '14 giờ' },
+  { value: 24, label: '24 giờ' },
+  { value: 24 * 7, label: '7 ngày' },
+  { value: 24 * 30, label: '30 ngày' },
 ];
 
 /** Câu mô tả cửa sổ đang áp dụng, cho dòng thông báo của order/bếp. */
@@ -838,45 +839,18 @@ function QueueView({
           Đây là trục lọc thứ 3 (sau trạng thái và chặng) nên đứng thành hàng riêng, không nhồi
           vào toolbar dính vốn đã chật trên điện thoại. */}
       {isAdmin ? (
-        <div
-          role="group"
-          aria-label="Lọc đơn theo thời gian đặt"
-          style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16, minWidth: 0 }}
-        >
-          {/* Nhãn nằm NGOÀI vùng cuộn: nó chiếm ~130px trong 332px của máy 390px, để nó cuộn
-              cùng thì vuốt sang là mất luôn câu giải thích các nút đang lọc theo cái gì. */}
-          <span style={{ fontSize: 13, color: C.muted, whiteSpace: 'nowrap', flex: 'none' }}>
-            🕒 Khách đặt trong
-          </span>
-          {/* Chỉ dãy nút cuộn ngang (chỉ đạo chủ quán 2026-09-06) — trước `flexWrap: wrap` cho
-              5 nút gãy thành 2 hàng. `minWidth: 0` là phần bắt buộc để `overflow-x` của
-              `.tabstrip` có tác dụng thay vì cả dãy tràn ra ngoài. */}
-          <div className="tabstrip" style={{ gap: 8, flex: '1 1 auto', minWidth: 0 }}>
-          {RANGE_FILTERS.map(({ hours, label }) => {
-            const active = rangeHours === hours;
-            return (
-              <button
-                key={label}
-                type="button"
-                aria-pressed={active}
-                onClick={() => setRangeHours(hours)}
-                style={{
-                  minHeight: 36,
-                  padding: '4px 12px',
-                  borderRadius: 999,
-                  fontSize: 13,
-                  fontWeight: active ? 700 : 500,
-                  background: active ? C.accent : C.cardBg,
-                  color: active ? C.cardBg : C.text,
-                  border: `1px solid ${active ? C.accent : C.border}`,
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-          </div>
-        </div>
+        /* Nhãn nằm NGOÀI vùng cuộn (do `TimeRangeChips` lo): nó chiếm ~130px trong 332px của
+           máy 390px, để nó cuộn cùng thì vuốt sang là mất luôn câu giải thích các nút đang lọc
+           theo cái gì. Dãy nút cuộn ngang chứ không `flexWrap` (chỉ đạo chủ quán 2026-09-06) —
+           trước đây 5 nút gãy thành 2 hàng. */
+        <TimeRangeChips
+          ariaLabel="Lọc đơn theo thời gian đặt"
+          label="🕒 Khách đặt trong"
+          value={rangeHours}
+          options={RANGE_FILTERS}
+          onChange={setRangeHours}
+          style={{ marginBottom: 16 }}
+        />
       ) : (
         windowHours !== null && (
           <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
