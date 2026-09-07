@@ -1997,3 +1997,12 @@ a:hover {
     min-height: 40px;
   }
 }
+
+/* Câu "Đang xem: ..." dưới bộ chọn khoảng ngày. Nhỏ và mờ vì nó chỉ XÁC NHẬN lại lựa chọn
+   vừa bấm, không phải một điều khiển — nhưng không bỏ được: ô `<input type="date">` hiển thị
+   theo locale của máy nên "09/01/2026" đọc được thành hai ngày khác nhau. */
+.time-range-summary {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #6b7280;
+}
