@@ -22,7 +22,7 @@ type Ingredient = {
 
 /** Đơn vị gợi ý cho ô nhập — khớp danh sách BE nhận (xem `ingredient-units.ts`). Người dùng vẫn
  * gõ được 'kg'/'lít'; BE quy về đơn vị gốc rồi mới lưu. */
-const UNIT_SUGGESTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'lát', 'con', 'miếng', 'cái'];
+const UNIT_SUGGESTIONS = ['g', 'kg', 'ml', 'l', 'quả', 'lá', 'củ', 'bó', 'gói', 'hộp', 'lát', 'con', 'miếng', 'cái'];
 
 export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   const toast = useToast();
