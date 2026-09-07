@@ -44,7 +44,23 @@ type DraftLine = {
   unit_price: string;
 };
 
-const UNIT_SUGGESTIONS = ['G', 'KG', 'ML', 'L', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'HỘP', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
+const UNIT_SUGGESTIONS = ['KG', 'G', 'L', 'ML', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'HỘP', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
+
+/** Đơn vị NGƯỜI MUA gõ, ứng với đơn vị gốc mà DB lưu.
+ *
+ * BE lưu mọi nguyên liệu bằng đơn vị NHỎ NHẤT của nhóm ('g', 'ml') để định lượng công thức là số
+ * nguyên đẹp. Nhưng không ai đi chợ mua "10000 g thịt" — và màn này trước đây đem thẳng 'g' ra
+ * làm nhãn ô đơn vị, nên người nhập gõ số lượng theo kg vào một ô đang tính theo gram (bug
+ * production 2026-09-07: khai KG xong ô hiện G).
+ *
+ * Chỉ đổi CHỖ HIỂN THỊ + đơn vị gửi lên; đơn vị gốc trong DB không đụng tới. Server tự quy đổi
+ * (`baseUnitsPerUnit`), nên "KG" gửi lên vẫn vào DB thành gram. */
+const PURCHASE_UNIT_OF_BASE: Record<string, string> = { g: 'KG', ml: 'L' };
+
+function purchaseUnitOf(base_unit: string): string {
+  const key = base_unit.trim().toLowerCase();
+  return PURCHASE_UNIT_OF_BASE[key] ?? upperUnit(base_unit);
+}
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 
@@ -224,7 +240,13 @@ export function DeliveryFormPanel({
         base_unit: l.ingredient_id ? undefined : l.base_unit.trim(),
         // Hai trường này không còn ô nhập nào (xem ghi chú ở LineRow). Ghim cứng để "Đơn giá"
         // luôn có đúng một nghĩa: giá trên MỘT đơn vị gốc.
-        purchase_unit: l.base_unit.trim() || l.purchase_unit.trim(),
+        // Mặt hàng ĐÃ CÓ: gửi đơn vị đang hiện trên ô (KG/L), không gửi đơn vị gốc 'g'/'ml' —
+        // phải khớp với con số người nhập vừa gõ. Mặt hàng MỚI: chính chữ họ gõ.
+        purchase_unit: l.ingredient_id
+          ? purchaseUnitOf(l.base_unit)
+          : l.base_unit.trim() || l.purchase_unit.trim(),
+        // Server TỰ TÍNH lại hệ số từ `purchase_unit` và đơn vị gốc của nguyên liệu; số 1 ở đây
+        // chỉ còn là đường lùi cho đơn vị lạ ("thùng", "mẹt") mà server không suy ra được.
         qty_base_per_unit: 1,
         qty_purchase: Number(l.qty_purchase),
         // Ô đơn giá giữ CHUỖI đã chấm nghìn ("100.000") — bóc về số ngay trước khi gửi.
@@ -574,10 +596,10 @@ function LineRow({
             </span>
             {line.ingredient_id ? (
               <input
-                // Hoa ở CHỖ HIỂN THỊ chứ không sửa dữ liệu: đơn vị này lấy từ danh mục nguyên
-                // liệu, phần lớn là dòng cũ lưu chữ thường. Ghi đè xuống DB chỉ để cho đẹp là
-                // đụng vào cột mà công thức món cũng đang đọc.
-                value={upperUnit(line.base_unit)}
+                // Hoa + đổi 'g'→'KG' Ở CHỖ HIỂN THỊ chứ không sửa dữ liệu: đơn vị này lấy từ
+                // danh mục nguyên liệu, phần lớn là dòng cũ lưu chữ thường. Ghi đè xuống DB chỉ
+                // để cho đẹp là đụng vào cột mà công thức món cũng đang đọc. Xem `purchaseUnitOf`.
+                value={purchaseUnitOf(line.base_unit)}
                 readOnly
                 aria-label="Đơn vị tính"
                 style={{ width: '100%', minHeight: 44, background: C.panelBg, color: C.muted }}

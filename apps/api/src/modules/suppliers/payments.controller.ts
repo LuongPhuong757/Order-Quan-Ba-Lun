@@ -16,7 +16,6 @@ import { PaymentsService } from './payments.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
-import { OwnerGuard } from '../auth/guards/owner.guard.js';
 
 class CreatePaymentDto {
   /** 'YYYY-MM-DD'. Bỏ trống = hôm nay theo giờ VN. Sửa được để ghi bù lần trả hôm qua. */
@@ -83,9 +82,14 @@ export class PaymentsController {
     return { data: { ok: true } };
   }
 
-  /** M3.D-40 — `OwnerGuard`, không phải `AdminGuard`. Service chặn lần nữa; xem docblock ở đó. */
+  /** M3.D-40, nới cho admin 2026-09-07 theo yêu cầu chủ quán (trước đó là `OwnerGuard`).
+   *
+   * Lớp bảo vệ còn lại là NHẬT KÝ: `audit.interceptor` ghi mọi lần gọi thành
+   * `supplier.opening_balance_set` kèm người sửa, xem được ở /admin/audit. Con số này vẫn là con
+   * số duy nhất hệ thống không tự kiểm chứng được, nên nếu bỏ luôn nhật ký thì không còn gì.
+   */
   @Put(':id/opening-balance')
-  @UseGuards(OwnerGuard)
+  @UseGuards(AdminGuard)
   async setOpeningBalance(
     @Param('id') id: string,
     @Body() dto: OpeningBalanceDto,
