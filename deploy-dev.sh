@@ -83,7 +83,14 @@ render_caddy_script() {
   cat <<REMOTE
 set -euo pipefail
 cd "$DEV_PATH"
-set -a; source .env.dev; set +a
+
+# ĐỌC bằng grep, KHÔNG \`source\`. Hash bcrypt có dạng \$2a\$14\$… — \`source\` là bash bung
+# \`\$2a\` và \`\$14\` thành tham số vị trí, và với \`set -u\` thì gãy ngay tại đó
+# ("line 3: \$2: unbound variable"). Đây là env file, không phải script; đừng chạy nó.
+envget() { grep -E "^\$1=" .env.dev | head -1 | cut -d= -f2- | sed -e "s/^['\\\"]//" -e "s/['\\\"]\$//"; }
+DOMAIN="\$(envget DOMAIN)"
+DEV_AUTH_USER="\$(envget DEV_AUTH_USER)"
+DEV_AUTH_HASH="\$(envget DEV_AUTH_HASH)"
 : "\${DOMAIN:?thiếu DOMAIN trong .env.dev}"
 : "\${DEV_AUTH_HASH:?thiếu DEV_AUTH_HASH — server dev không được chạy khi không có basic auth}"
 
@@ -179,7 +186,7 @@ else
   cat > .env.dev <<ENVEOF
 DOMAIN=\$DOM
 DEV_AUTH_USER=$DEV_USER
-DEV_AUTH_HASH=\$HASH
+DEV_AUTH_HASH='\$HASH'
 MYSQL_ROOT_PASSWORD=\$(openssl rand -base64 48 | tr -d /=+ | cut -c1-32)
 MYSQL_DATABASE=order_quan_balun_dev
 MYSQL_USER=ordbl_dev
@@ -249,7 +256,7 @@ echo '[dev] ✓ đã restart api với IP mới'"
     rrun "set -euo pipefail
 cd $DEV_PATH
 HASH=\$(docker run --rm caddy:2-alpine caddy hash-password --plaintext '$PW1')
-sed -i \"s|^DEV_AUTH_HASH=.*|DEV_AUTH_HASH=\$HASH|\" .env.dev
+sed -i \"s|^DEV_AUTH_HASH=.*|DEV_AUTH_HASH='\$HASH'|\" .env.dev
 echo '[dev] ✓ đã đổi hash trong .env.dev'"
     push_post_script
     rrun "bash $POST_SCRIPT"
