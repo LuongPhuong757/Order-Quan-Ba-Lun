@@ -71,7 +71,16 @@ read_password() {
     read -rsp "  Nhập lại: " PW2; echo
     [[ "$PW1" == "$PW2" ]] || { echo "❌ Hai lần nhập khác nhau"; exit 1; }
   fi
-  [[ ${#PW1} -ge 12 ]] || { echo "❌ Phải ≥ 12 ký tự — đây là hàng rào DUY NHẤT của server dev"; exit 1; }
+  # Ngưỡng 12 ký tự là MẶC ĐỊNH, không phải luật: site dev nằm ngoài internet và basic auth là
+  # hàng rào duy nhất của nó, nên mật khẩu đoán được là cửa mở. Ai cố ý muốn mật khẩu ngắn
+  # (ví dụ dev/dev cho tiện gõ trên điện thoại) thì phải nói ra bằng ALLOW_WEAK_DEV_PASSWORD=1
+  # — để lựa chọn đó nằm trong lệnh, chứ không nằm trong một dòng if bị sửa lặng lẽ.
+  if [[ ${#PW1} -lt 12 && -z "${ALLOW_WEAK_DEV_PASSWORD:-}" ]]; then
+    echo "❌ Phải ≥ 12 ký tự — đây là hàng rào DUY NHẤT của server dev."
+    echo "   Vẫn muốn dùng mật khẩu ngắn: ALLOW_WEAK_DEV_PASSWORD=1 ./deploy-dev.sh --passwd"
+    exit 1
+  fi
+  [[ ${#PW1} -ge 12 ]] || echo "⚠ Mật khẩu ngắn ($((${#PW1})) ký tự) — chấp nhận vì ALLOW_WEAK_DEV_PASSWORD=1"
   [[ "$PW1" != *"'"* ]] || { echo "❌ Không dùng dấu nháy đơn ( ' ) trong mật khẩu"; exit 1; }
 }
 
