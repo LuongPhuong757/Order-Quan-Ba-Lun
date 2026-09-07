@@ -88,6 +88,10 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/suppliers\/[^/]+\/account$/) && method === 'DELETE') return 'supplier.account_disabled';
   if (path.match(/^\/supplier-deliveries\/[^/]+\/confirm$/) && method === 'POST') return 'supplier.delivery_confirmed';
   if (path.match(/^\/supplier-deliveries\/[^/]+\/cancel$/) && method === 'POST') return 'supplier.delivery_cancelled';
+  // Sửa phiếu đã nhập (2026-09-07). Đây là hành động ĐỘNG TỚI TIỀN đã ghi nhận — tồn kho, công
+  // nợ và cả bảng giá tham chiếu đều dịch theo. `after_json` giữ cả bản trước khi sửa (trường
+  // `replaced`, xem `DeliverySnapshot`) nên vết ở đây trả lời được "phiếu này bị sửa gì".
+  if (path.match(/^\/supplier-deliveries\/[^/]+$/) && method === 'PUT') return 'supplier.delivery_updated';
   // NCC tự gửi phiếu qua cổng riêng — không có `actor_id` vì họ không phải nhân viên; cột
   // `target_id` giữ id phiếu để lần ra ai gửi.
   if (path === '/supplier-portal/deliveries' && method === 'POST') return 'supplier.portal_delivery_submitted';

@@ -30,6 +30,18 @@ type SupplierItemRow = {
 
 type Ingredient = { id: string; name: string; unit: string };
 
+/** Một dòng phiếu về từ `GET /supplier-deliveries/:id` — dùng để điền sẵn lúc SỬA phiếu.
+ *  Toàn bộ là ẢNH CHỤP lúc nhập (`*_snapshot`), không phải giá trị hiện tại của nguyên liệu. */
+type DeliveryLineRow = {
+  ingredient_id: string;
+  ingredient_name_snapshot: string;
+  unit_snapshot: string;
+  purchase_unit_snapshot: string;
+  qty_base_per_unit_snapshot: string;
+  qty_purchase: string;
+  unit_price: number;
+};
+
 /** Một dòng đang gõ dở trên màn. Giữ ở dạng chuỗi vì đây là nội dung ô input — ép số quá sớm
  * làm ô nhảy lung tung khi người dùng đang xoá để gõ lại. */
 type DraftLine = {
@@ -150,19 +162,27 @@ const newLine = (): DraftLine => ({
 export function DeliveryFormPanel({
   suppliers,
   lockedSupplierId,
+  editingId,
   onClose,
   onSaved,
 }: {
   suppliers: Supplier[];
   lockedSupplierId?: string;
+  /** Có id = SỬA phiếu đã nhập (2026-09-07), không phải nhập phiếu mới.
+   *
+   * Ở chế độ sửa, bản nháp localStorage bị TẮT hoàn toàn: nháp sinh ra để cứu phiếu đang gõ dở
+   * lúc điện thoại sập, mà một bản nháp mang nội dung phiếu cũ thì lần mở màn "nhập hàng" sau sẽ
+   * mời người dùng nhập lại nguyên một phiếu đã có trong sổ. */
+  editingId?: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const toast = useToast();
+  const isEdit = !!editingId;
   const KEY = draftKey(lockedSupplierId);
   // Đọc nháp MỘT lần lúc dựng component (không phải trong useEffect): đặt giá trị ban đầu ngay
   // từ đây thì màn không chớp một lượt rỗng rồi mới nhảy sang nội dung cũ.
-  const [restored] = useState(() => readDraft(KEY));
+  const [restored] = useState(() => (editingId ? null : readDraft(KEY)));
   const [showRestored, setShowRestored] = useState(!!restored);
   const [supplierId, setSupplierId] = useState(lockedSupplierId ?? restored?.supplierId ?? '');
   const [date, setDate] = useState(
@@ -181,8 +201,48 @@ export function DeliveryFormPanel({
   // Ghi nháp theo từng thay đổi. Rẻ: một `JSON.stringify` của vài chục dòng chữ, chạy khi state
   // đổi chứ không chạy mỗi lần render.
   useEffect(() => {
+    if (isEdit) return; // xem docblock `editingId`
     writeDraft(KEY, { supplierId, date, note, lines });
-  }, [KEY, supplierId, date, note, lines]);
+  }, [isEdit, KEY, supplierId, date, note, lines]);
+
+  // Nạp phiếu đang sửa. Chạy MỘT lần theo `editingId` — không phụ thuộc `catalog`, nếu không
+  // mỗi lần danh mục nguyên liệu về là nó ghi đè những gì người dùng vừa sửa.
+  useEffect(() => {
+    if (!editingId) return;
+    let alive = true;
+    api
+      .get<{ data: { delivery: { delivery_date: string; note: string | null }; lines: DeliveryLineRow[] } }>(
+        `/supplier-deliveries/${editingId}`,
+      )
+      .then((r) => {
+        if (!alive) return;
+        const d = r.data.data;
+        setDate(d.delivery.delivery_date);
+        setNote(d.delivery.note ?? '');
+        setLines(
+          d.lines.length === 0
+            ? [newLine()]
+            : d.lines.map((l) => ({
+                key: `e${++seq}`,
+                ingredient_id: l.ingredient_id,
+                ingredient_name: l.ingredient_name_snapshot,
+                // `unit_snapshot` là ĐƠN VỊ GỐC của nguyên liệu ('g'), không phải đơn vị đã gõ
+                // lúc nhập. Ô đơn vị tự đổi nó sang đơn vị mua (KG) — xem `purchaseUnitOf`.
+                base_unit: l.unit_snapshot,
+                purchase_unit: l.purchase_unit_snapshot,
+                qty_base_per_unit: String(Number(l.qty_base_per_unit_snapshot)),
+                // decimal về từ MySQL là chuỗi "10.000" — bỏ số 0 vô nghĩa, người sửa nhìn thấy
+                // đúng con số họ đã gõ.
+                qty_purchase: String(Number(l.qty_purchase)),
+                unit_price: formatMoneyInput(String(l.unit_price)),
+              })),
+        );
+      })
+      .catch((err) => toast.push('error', extractError(err).message));
+    return () => {
+      alive = false;
+    };
+  }, [editingId, toast]);
 
   useEffect(() => {
     api
@@ -283,21 +343,37 @@ export function DeliveryFormPanel({
     }
     setSaving(true);
     try {
-      const res = await api.post<{
-        data:
-          | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
-          | { created: true; delivery: { id: string } };
-      }>('/supplier-deliveries', {
-        supplier_id: supplierId,
-        delivery_date: date,
-        note: note.trim() || undefined,
-        lines: body,
-        approved_ingredient_ids: approved,
-        allow_duplicate: allowDuplicate,
-      });
-      const data = res.data.data;
-      if (!data.created) {
-        setDialog({ changes: data.price_changes, duplicate: data.duplicate });
+      // SỬA phiếu đi đường PUT. Không gửi `supplier_id` (BE không cho đổi NCC) và không gửi
+      // `allow_duplicate` — cảnh báo trùng phiếu là để chặn nhập đôi lúc TẠO; phiếu đang sửa
+      // vốn đã nằm trong sổ nên hỏi lại "có phiếu cùng ngày rồi" là hỏi về chính nó.
+      const res = editingId
+        ? await api.put<{
+            data:
+              | { updated: false; price_changes: PriceChange[] }
+              | { updated: true; delivery: { id: string } };
+          }>(`/supplier-deliveries/${editingId}`, {
+            delivery_date: date,
+            note: note.trim() || undefined,
+            lines: body,
+            approved_ingredient_ids: approved,
+          })
+        : await api.post<{
+            data:
+              | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
+              | { created: true; delivery: { id: string } };
+          }>('/supplier-deliveries', {
+            supplier_id: supplierId,
+            delivery_date: date,
+            note: note.trim() || undefined,
+            lines: body,
+            approved_ingredient_ids: approved,
+            allow_duplicate: allowDuplicate,
+          });
+      const data = res.data.data as
+        | { created?: false; updated?: false; price_changes: PriceChange[]; duplicate?: DuplicateHint | null }
+        | { created?: true; updated?: true; delivery: { id: string } };
+      if ('price_changes' in data) {
+        setDialog({ changes: data.price_changes, duplicate: data.duplicate ?? null });
         return;
       }
       // Ảnh đẩy lên SAU khi phiếu đã lưu. Nếu bước này hỏng thì phiếu VẪN CÒN — nói thẳng ra
@@ -305,12 +381,13 @@ export function DeliveryFormPanel({
       // lại cả phiếu.
       // Phiếu đã vào sổ — nháp hết nhiệm vụ. Xoá TRƯỚC bước ảnh: ảnh hỏng thì phiếu vẫn còn,
       // giữ lại nháp lúc đó chỉ khiến lần mở màn sau bị mời nhập lại một phiếu đã lưu.
-      clearDraft(KEY);
+      if (!isEdit) clearDraft(KEY);
       const anhHong = await uploadPhotos(data.delivery.id);
+      const viec = isEdit ? 'Đã sửa phiếu' : 'Đã lưu phiếu';
       if (anhHong) {
-        toast.push('error', `Đã lưu phiếu ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
+        toast.push('error', `${viec} ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
       } else {
-        toast.push('success', `Đã lưu phiếu ${vnd(total)}đ`);
+        toast.push('success', `${viec} ${vnd(total)}đ`);
       }
       onSaved();
       onClose();
@@ -352,7 +429,27 @@ export function DeliveryFormPanel({
       {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
           bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
       <form className="card dl-sheet" onSubmit={onSubmit}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>Nhập hàng</h2>
+        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>{isEdit ? 'Sửa phiếu nhập' : 'Nhập hàng'}</h2>
+
+        {/* Nói trước những gì lưu xong sẽ tự thay đổi. Người sửa phiếu đang nghĩ về một con số
+            gõ sai, không nghĩ tới việc bảng giá và cảnh báo biến động giá cũng dịch theo. */}
+        {isEdit && (
+          <div
+            role="status"
+            style={{
+              background: '#fffbeb',
+              border: '1px solid #fde68a',
+              borderRadius: 8,
+              padding: 12,
+              fontSize: 14,
+              marginBottom: 16,
+            }}
+          >
+            Lưu xong, hệ thống tính lại <strong>tồn kho, công nợ, bảng giá</strong> và{' '}
+            <strong>biến động giá</strong> của cả những phiếu sau phiếu này. Mỗi lần sửa đều ghi
+            vào nhật ký hệ thống kèm tên người sửa và nội dung phiếu trước khi sửa.
+          </div>
+        )}
 
         {/* Banner khôi phục. Có nó thì việc giữ nháp mới đủ: không báo gì mà tự điền lại phiếu cũ
             là người nhập tưởng mình đang gõ phiếu mới, và cũng không có đường nào để bắt đầu lại
@@ -493,7 +590,7 @@ export function DeliveryFormPanel({
             Huỷ
           </button>
           <button type="submit" disabled={saving} style={{ minHeight: 48, padding: '0 24px' }}>
-            {saving ? 'Đang lưu…' : 'GỬI'}
+            {saving ? 'Đang lưu…' : isEdit ? 'LƯU SỬA' : 'GỬI'}
           </button>
         </div>
       </form>
