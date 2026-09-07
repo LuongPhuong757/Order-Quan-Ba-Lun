@@ -176,6 +176,35 @@ Kiểm tra nhanh sau mỗi lần deploy — phải thấy đủ cả hai network
 docker inspect ordbl_caddy -f '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
 ```
 
+### ⚠ Upstream phải là TÊN CONTAINER, không phải tên service
+
+Trên VPS này còn **stack develop** (`/opt/ordbl-dev`, compose project `ordbl-dev`), và cả hai
+stack đều đặt tên service là `api`. `ordbl_caddy` được đấu vào network của cả hai, nên
+`reverse_proxy api:3001` để Docker DNS chọn container nào là **tuỳ network nào tới trước**.
+
+Sáng 2026-09-07 nó chọn `ordbl_dev_api`: apex, `admin.` và `menu.` của production đều chạy trên
+backend + **database DEV** gần một tiếng. Không có gì báo — mọi request vẫn 200,
+`/api/public/health` vẫn `ok`, log Caddy vẫn sạch. Người dùng chỉ thấy "sai mật khẩu", vì đang
+tra vào database khác.
+
+Nên: [Caddyfile](Caddyfile) trỏ `ordbl_api:3001` (tên container là duy nhất toàn máy). Và mỗi
+lần deploy, `deploy.sh` tự chạy [scripts/verify-env.sh](scripts/verify-env.sh) — nó hỏi thẳng
+domain công khai xem stack nào trả lời, mã thoát gộp vào `DEPLOY_DONE_EXIT` nên CI báo đỏ chứ
+không im lặng. Kiểm bất cứ lúc nào:
+
+```bash
+./deploy.sh --verify                                # phải in: ✓ <domain> → env=production
+curl -s https://admin.<domain>/api/public/health    # field "env" phải là "production"
+```
+
+`env` đọc từ biến `APP_ENV` (khai trong `docker-compose.prod.yml`). **Thiếu biến thì health trả
+`unknown` và verify báo đỏ** — cố ý như vậy: nếu mặc định là `production` thì một stack quên khai
+biến vẫn tự nhận là prod, đúng cái bẫy mà field này sinh ra để chặn.
+
+> Deploy `develop` cũng chạm vào Caddy của prod (`deploy-dev.sh` ghi `caddy-local/dev.caddy`,
+> `docker network connect`, rồi `caddy reload` trên `ordbl_caddy`). Nên khi sửa lớp routing này,
+> **đưa lên `main`/production TRƯỚC**, rồi mới push `develop`.
+
 ### Backup MySQL
 
 Service `mysql-backup` trong compose tự dump hằng ngày lúc `BACKUP_HOUR_UTC:BACKUP_MINUTE`

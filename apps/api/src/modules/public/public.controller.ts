@@ -32,7 +32,29 @@ type PublicHealth = {
   db: 'up' | 'down';
   uptime_s: number;
   version: string;
+  /** Môi trường đang THỰC SỰ trả lời request này (2026-09-07). Xem `readEnvLabel`. */
+  env: 'production' | 'develop' | 'unknown';
 };
+
+/**
+ * Nhãn môi trường, đọc từ `APP_ENV`.
+ *
+ * Vì sao cần: sáng 2026-09-07 toàn bộ trang production chạy trên backend + database DEV gần
+ * một tiếng mà không ai biết, vì Caddy prod trỏ upstream bằng tên service `api` — tên mà cả
+ * hai stack đều có (xem đầu file `Caddyfile`). Mọi request vẫn 200, health vẫn `ok`, chỉ là
+ * đọc ghi sai database. Nhãn môi trường biến lỗi thầm lặng đó thành lỗi thấy ngay:
+ * `./deploy.sh --verify` đòi đúng `"env":"production"` sau mỗi lần deploy.
+ *
+ * Mặc định KHÔNG phải `production`: thiếu biến thì trả `unknown` để chốt chặn báo đỏ. Nếu
+ * mặc định là `production` thì một stack quên khai biến vẫn tự nhận là prod — đúng cái bẫy
+ * mà field này sinh ra để chặn.
+ *
+ * Chỉ trả nhãn trong danh sách đóng, KHÔNG echo giá trị biến môi trường thô ra ngoài — giữ
+ * nguyên cam kết "response world-readable, không chứa giá trị biến môi trường" của `health()`.
+ */
+export function readEnvLabel(raw = process.env.APP_ENV): PublicHealth['env'] {
+  return raw === 'production' || raw === 'develop' ? raw : 'unknown';
+}
 
 @Controller('api/public')
 export class PublicController {
@@ -60,6 +82,7 @@ export class PublicController {
       db,
       uptime_s: Math.floor((Date.now() - start_at) / 1000),
       version: '0.1.0',
+      env: readEnvLabel(),
     });
   }
 }
