@@ -87,7 +87,10 @@ cd "$DEV_PATH"
 # ĐỌC bằng grep, KHÔNG \`source\`. Hash bcrypt có dạng \$2a\$14\$… — \`source\` là bash bung
 # \`\$2a\` và \`\$14\` thành tham số vị trí, và với \`set -u\` thì gãy ngay tại đó
 # ("line 3: \$2: unbound variable"). Đây là env file, không phải script; đừng chạy nó.
-envget() { grep -E "^\$1=" .env.dev | head -1 | cut -d= -f2- | sed -e "s/^['\\\"]//" -e "s/['\\\"]\$//"; }
+# \\x27 / \\x22 = nháy đơn / nháy kép, viết dạng mã để KHÔNG có dấu nháy thật nào trong
+# biểu thức — chuỗi này đi qua hai tầng heredoc trước khi tới server, và tầng escape đó
+# đã một lần biến \\" thành \\\\" làm script gãy ở dòng này.
+envget() { grep -E "^\$1=" .env.dev | head -1 | cut -d= -f2- | sed -e 's/^[\x27\x22]//' -e 's/[\x27\x22]\$//'; }
 DOMAIN="\$(envget DOMAIN)"
 DEV_AUTH_USER="\$(envget DEV_AUTH_USER)"
 DEV_AUTH_HASH="\$(envget DEV_AUTH_HASH)"
