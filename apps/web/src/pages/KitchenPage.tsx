@@ -22,7 +22,13 @@ import { NotificationBell } from '../components/NotificationBell.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
-import { groupByItem, groupByTable, type KdsGroup } from '../lib/kds-group.ts';
+import {
+  applyStickyOrder,
+  groupByItem,
+  groupByTable,
+  type GroupOrder,
+  type KdsGroup,
+} from '../lib/kds-group.ts';
 
 type OrderItem = {
   id: string;
@@ -128,6 +134,7 @@ const STORAGE_KEY = 'kitchen-group-filters-v1';
 // quán thì reload/khoá máy suốt — bắt chọn lại mỗi lần là đúng cái "mất công" phải bỏ.
 const TAB_KEY = 'kitchen-tab-v1';
 const VIEW_KEY = 'kitchen-view-v1';
+const SORT_KEY = 'kitchen-group-sort-v1';
 
 function loadStoredFilters(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -188,6 +195,24 @@ export function KitchenPage() {
   const [view, setView] = useState<ViewKey>(() =>
     loadStored(VIEW_KEY, ['priority', 'item', 'table'] as const, 'priority'),
   );
+  // Thứ tự nhóm ở 2 chế độ gộp. MẶC ĐỊNH 'az': tên món / tên bàn không đổi khi bếp
+  // làm xong dòng nào, nên không nhóm nào nhảy chỗ — bếp nhớ được chỗ mình đang làm
+  // như nhớ vị trí trên quyển menu giấy. 'qty' để nấu gộp khối lớn, đổi theo tiến độ
+  // nên phải đi kèm thứ tự đóng băng (applyStickyOrder).
+  const [groupSort, setGroupSort] = useState<GroupOrder>(() =>
+    loadStored(SORT_KEY, ['az', 'qty'] as const, 'az'),
+  );
+  // Bấm "Sắp lại" thì tăng số này → xoá thứ tự đang đóng băng, sắp lại từ đầu.
+  const [resortNonce, setResortNonce] = useState(0);
+  /** Thứ tự nhóm ĐANG HIỆN trên màn, theo key. Xem applyStickyOrder: nhóm đã hiện
+   *  phải đứng yên, nếu không thì bấm xong một dòng là cả danh sách trượt đi.
+   *  `sig` là "danh sách này đang nói về cái gì" — đổi chế độ xem / đổi lọc nhóm /
+   *  bấm Sắp lại thì thứ tự cũ vô nghĩa, phải bỏ NGAY trong lần render đó (dùng
+   *  useEffect thì màn còn hiện thứ tự cũ cho tới nhịp poll sau). */
+  const stickyRef = useRef<{ sig: string; keys: Record<TabKey, string[]> }>({
+    sig: '',
+    keys: { PENDING: [], DONE: [] },
+  });
 
   // Persist filter / tab / chế độ xem ra localStorage mỗi khi thay đổi
   useEffect(() => {
@@ -197,10 +222,11 @@ export function KitchenPage() {
     try {
       localStorage.setItem(TAB_KEY, tab);
       localStorage.setItem(VIEW_KEY, view);
+      localStorage.setItem(SORT_KEY, groupSort);
     } catch {
       // ignore quota errors
     }
-  }, [tab, view]);
+  }, [tab, view, groupSort]);
 
   // Bật chế độ thông báo cỡ lớn CHỈ ở màn bếp (CSS: body.kds-mode .toast-banner).
   // Banner do ToastProvider render ở gốc cây DOM nên không thể target bằng CSS
@@ -327,9 +353,21 @@ export function KitchenPage() {
   // màn ≥900px hiện cả hai cùng lúc, mà list bếp cỡ trăm dòng nên rẻ.
   const grouped = useMemo<Record<TabKey, KdsGroup<KitchenItem>[]> | null>(() => {
     if (view === 'priority') return null;
+    const sig = `${view}|${groupSort}|${[...groupFilters].sort().join(',')}|${resortNonce}`;
+    if (stickyRef.current.sig !== sig) {
+      stickyRef.current = { sig, keys: { PENDING: [], DONE: [] } };
+    }
     const fn = view === 'item' ? groupByItem : groupByTable;
-    return { PENDING: fn(buckets.PENDING), DONE: fn(buckets.DONE) };
-  }, [view, buckets]);
+    const out = {} as Record<TabKey, KdsGroup<KitchenItem>[]>;
+    for (const k of ['PENDING', 'DONE'] as TabKey[]) {
+      const sorted = fn(buckets[k], groupSort);
+      // 'az' KHÔNG cần đóng băng: thứ tự đã không phụ thuộc tiến độ, mà đóng băng lại
+      // đẩy nhóm mới xuống cuối thay vì về đúng chữ cái của nó — sai hẳn ý A→Z.
+      out[k] = groupSort === 'az' ? sorted : applyStickyOrder(sorted, stickyRef.current.keys[k]);
+      stickyRef.current.keys[k] = out[k].map((g) => g.key);
+    }
+    return out;
+  }, [view, buckets, groupFilters, groupSort, resortNonce]);
 
   const clearGroups = () => setGroupFilters(new Set());
 
@@ -967,6 +1005,36 @@ export function KitchenPage() {
             {v.label}
           </button>
         ))}
+        {/* Chỉ có nghĩa ở 2 chế độ gộp. Mặc định A→Z vì thứ tự đó không tự đổi. */}
+        {view !== 'priority' && (
+          <>
+            <span className="kds-views-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className={`kds-view-btn ${groupSort === 'qty' ? 'active' : ''}`}
+              onClick={() => setGroupSort((m) => (m === 'az' ? 'qty' : 'az'))}
+              title={
+                groupSort === 'az'
+                  ? 'Đang sắp A→Z (thứ tự không tự đổi). Bấm để sắp theo nhiều phần nhất trước.'
+                  : 'Đang sắp theo nhiều phần nhất trước. Bấm để về A→Z.'
+              }
+            >
+              {groupSort === 'az' ? '⇅ A→Z' : '⇅ Nhiều nhất'}
+            </button>
+            {/* Ở 'qty' thì thứ tự bị đóng băng để không nhảy dưới ngón tay — nút này
+                là chỗ chủ động yêu cầu sắp lại khi bếp đã làm xong một đợt. */}
+            {groupSort === 'qty' && (
+              <button
+                type="button"
+                className="kds-view-btn"
+                onClick={() => setResortNonce((n) => n + 1)}
+                title="Sắp lại ngay: nhiều phần nhất lên đầu. Nhóm mới đang xếp ở cuối danh sách."
+              >
+                ↺ Sắp lại
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       {/* ─── Board ───────────────────────────────────────────────────────────── */}
@@ -1136,6 +1204,26 @@ export function KitchenPage() {
           <li>
             <strong>Theo phòng/bàn</strong> — gom món theo bàn, để món của một bàn ra cùng lúc.
           </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>⇅ Thứ tự nhóm — mặc định A→Z</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>
+            <strong>⇅ A→Z</strong> (mặc định) — sắp theo tên món / tên bàn. Tên không đổi khi bếp làm
+            xong dòng nào, nên <strong>không khối nào tự nhảy chỗ</strong>: nhớ được "món này ở khoảng
+            giữa" như nhớ trên quyển menu giấy. Số trong tên so theo giá trị nên "Ship 2" đứng trước
+            "Ship 10", "Ba Chỉ Nướng : 150" trước ": 200".
+          </li>
+          <li>
+            Bấm thành <strong>⇅ Nhiều nhất</strong> khi muốn nấu gộp: khối nhiều phần nhất lên đầu,
+            bằng nhau thì khối chờ lâu nhất trước.
+          </li>
+          <li>
+            Ở chế độ "Nhiều nhất", khối đã hiện <strong>vẫn đứng yên</strong> dù số phần tụt (nếu không
+            thì bấm xong một dòng là cả danh sách trượt đi). Khối mới xuống cuối. Bấm{' '}
+            <strong>↺ Sắp lại</strong> khi làm xong một đợt để sắp lại từ đầu.
+          </li>
+          <li>Khối có món <strong>⭐ ƯU TIÊN</strong> luôn lên đầu ở cả hai chế độ.</li>
         </ul>
 
         <h3 style={{ marginBottom: 6 }}>⏱ Đồng hồ + màu chữ</h3>
