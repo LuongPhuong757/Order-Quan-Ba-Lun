@@ -714,19 +714,17 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
               </>
             )}
           </button>
+          {/* XEM ĐƠN, không phải Báo bếp (chỉ đạo chủ quán 2026-09-08). Báo bếp từ ngoài này
+              là gửi mà chưa từng nhìn lại giỏ: chọn 10 món trên lưới, tap trúng một món hai lần
+              là thành 2 phần mà không hề biết — gửi xong mới phát hiện thì món đã nằm ở bếp.
+              Nay bắt buộc mở giỏ ra đã; nút Báo bếp CHỈ còn trong đó. */}
           <button
             className="submit"
-            onClick={submit}
-            disabled={submitting || cartLines.length === 0}
+            onClick={() => setMobileCartOpen(true)}
+            disabled={cartLines.length === 0}
           >
-            {submitting ? (
-              <><span className="spinner" />Đang gửi</>
-            ) : (
-              <>
-                <span className="icon">📢</span>
-                <span>Báo bếp</span>
-              </>
-            )}
+            <span className="icon">🧾</span>
+            <span>Xem đơn</span>
           </button>
         </div>
       </div>
