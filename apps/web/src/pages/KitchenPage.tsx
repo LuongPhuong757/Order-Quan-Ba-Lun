@@ -464,7 +464,14 @@ export function KitchenPage() {
         body.kds-mode { overflow: hidden; }
         .kds-shell {
           position: fixed;
-          inset: 0;
+          /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
+             z-index:10000 (styles.css .env-banner) nên nó đè lên tab bar. Tụt xuống
+             đúng chiều cao dải đó; trên production biến này không tồn tại → 0px, trang
+             thật không đổi lấy một pixel. */
+          top: var(--env-banner-h, 0px);
+          left: 0;
+          right: 0;
+          bottom: 0;
           display: flex;
           flex-direction: column;
           background: #f3f4f6;
@@ -485,6 +492,7 @@ export function KitchenPage() {
         .kds-tab {
           flex: 1;
           min-width: 0;
+          min-height: 46px;
           display: flex;
           align-items: center;
           justify-content: center;
@@ -534,7 +542,12 @@ export function KitchenPage() {
         .kds-view-btn {
           flex-shrink: 0;
           padding: 6px 13px;
+          /* min-height/min-width phải khai LẠI ở mọi nút của màn này: styles.css có
+             'button { min-height:44px; min-width:44px; padding:12px 16px }' cho touch
+             target, mà ở KDS thì 44px làm dải nút cao gấp rưỡi cần thiết và ăn mất chỗ
+             của danh sách món. Nút nào cần to (› » ⏻) thì tự đủ 40px trở lên. */
           min-height: 34px;
+          min-width: 0;
           border-radius: 999px;
           border: 1px solid #d1d5db;
           background: white;
@@ -571,15 +584,17 @@ export function KitchenPage() {
              không bấm sang món kế bên (bếp tay ướt / đeo găng). */
           gap: 12px;
         }
+        /* Panel là flex column có overflow → flex item mặc định co được. Danh sách bếp
+           luôn dài hơn màn nên KHÔNG được co: một khối bị bóp là chữ chồng lên nút. */
+        .kds-panel > * { flex-shrink: 0; }
         @media (max-width: 899px) {
           /* Màn hẹp chỉ hiện panel của tab đang chọn — cả chiều cao cho danh sách. */
           .kds-panel[data-active='false'] { display: none; }
         }
         @media (min-width: 900px) {
-          /* Màn rộng hiện cả hai như ảnh tham khảo: việc chưa xong chiếm phần lớn chỗ,
-             cột "đã xong" hẹp hơn vì nó chỉ là hàng chờ mang ra. */
-          .kds-panel[data-key='PENDING'] { flex: 1.7; border-right: 1px solid #e5e7eb; }
-          .kds-tab[data-key='PENDING'] { flex: 1.7; }
+          /* Màn rộng hiện cả hai panel, CHIA ĐỀU 50/50 — tên món ở đây dài
+             ("Bạch Tuộc Nướng : 150 / 1 Đĩa") nên cột nào hẹp là cắt ellipsis ngay. */
+          .kds-panel[data-key='PENDING'] { border-right: 1px solid #e5e7eb; }
           .kds-tab {
             color: var(--tab-col);
             background: var(--tab-bg);
@@ -642,6 +657,9 @@ export function KitchenPage() {
         .kds-bulk-btn {
           border-radius: 7px;
           height: 34px;
+          /* Xem ghi chú ở .kds-view-btn — phải đè global 'button' min-height 44px. */
+          min-height: 34px;
+          min-width: 0;
           padding: 0 11px;
           font-size: 12px;
           font-weight: 700;
@@ -801,6 +819,7 @@ export function KitchenPage() {
           border-radius: 7px;
           min-width: 48px;
           height: 40px;
+          min-height: 40px;
           font-size: 21px;
           font-weight: 800;
           line-height: 1;
@@ -830,6 +849,8 @@ export function KitchenPage() {
           border-radius: 6px;
           padding: 0 10px;
           height: 40px;
+          min-height: 40px;
+          min-width: 0;
           font-size: 15px;
           line-height: 1;
           cursor: pointer;
@@ -861,6 +882,7 @@ export function KitchenPage() {
           flex-shrink: 0;
           min-width: 44px;
           height: 40px;
+          min-height: 40px;
           padding: 0 10px;
           border-radius: 8px;
           border: 1px solid #d1d5db;
@@ -1088,7 +1110,14 @@ export function KitchenPage() {
             title="Đăng xuất"
             aria-label="Đăng xuất"
           >
-            ⏻
+            {/* Lucide log-out (mũi tên ra khỏi cửa) — KHÔNG dùng emoji ⏻ U+23FB: máy ở
+                quán không có glyph cho nó nên nút hiện ra một khối trống. App.tsx chọn
+                đúng icon này cho nút đăng xuất ở header, giữ cho khớp. */}
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
           </button>
         </div>
       </div>
@@ -1222,6 +1251,24 @@ function GroupBlock({
   const doneLabel = tab === 'PENDING' ? 'Xong tất cả' : 'Đã giao tất cả';
   const doneTo = tab === 'PENDING' ? 'READY' : 'SERVED';
   const doneColor = tab === 'PENDING' ? '#10b981' : '#0f766e';
+
+  // Nhóm chỉ có ĐÚNG 1 dòng thì tiêu đề khối lặp lại nguyên xi nội dung của dòng đó
+  // (cùng tên món, cùng số phần, cùng nút) — chồng hai lớp lên nhau làm danh sách cao
+  // gấp đôi mà không thêm thông tin nào. Ở menu này phần lớn món là tên riêng theo cỡ
+  // ("Ba Chỉ Nướng : 150" khác ": 200") nên đó là đa số các nhóm. Render thẳng card.
+  if (group.items.length === 1) {
+    const only = group.items[0];
+    return (
+      <Card
+        item={only}
+        tab={tab}
+        menuItem={menuMap.get(only.menu_item_id ?? '')}
+        onDone={() => onStateChange(only, tab === 'PENDING' ? 'READY' : 'SERVED')}
+        onStartCooking={() => onStateChange(only, 'COOKING')}
+        onToggleStock={() => onToggleStock(only)}
+      />
+    );
+  }
 
   return (
     <div className={`kds-group ${group.hasPriority ? 'priority' : ''}`}>
