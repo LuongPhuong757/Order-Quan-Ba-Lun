@@ -16,7 +16,6 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
-import { pickAutoItem } from './auto-items.js';
 import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
@@ -269,7 +268,6 @@ export class OrdersService {
           message: 'Mở đơn mới',
           actor: creator,
         });
-        await this.addAutoItems(resultOrder, table, creator);
       }
       return resultOrder;
     } catch (err) {
@@ -280,37 +278,6 @@ export class OrdersService {
         (err as Error).stack,
       );
       throw err;
-    }
-  }
-
-  /** Món tự thêm khi VỪA MỞ bàn — khăn ướt ×5, chỉ bàn ăn tại chỗ (chủ quán 2026-09-08).
-   * Luật "món nào / mấy phần / bàn nào" nằm ở `auto-items.ts` và có test riêng.
-   *
-   * Gọi SAU khi transaction tạo order đã commit, và nuốt mọi lỗi: đây là tiện ích, KHÔNG được
-   * phép làm hỏng thao tác mở bàn. Menu chưa có món khăn ướt, hoặc query lỗi — nhân viên vẫn
-   * phải mở được bàn rồi gọi món bình thường.
-   *
-   * `send_to_kitchen = false`: khăn ướt không ai nấu. Để ở "Đang gọi" cho nhân viên nhìn thấy
-   * và bỏ được nếu bàn không lấy — từ 2026-09-08 mọi món chưa huỷ đều tính tiền, nên một dòng
-   * lọt vào im lặng là thu thừa tiền của khách.
-   */
-  private async addAutoItems(
-    order: Order,
-    table: RestaurantTable,
-    creator?: OrderCreator,
-  ): Promise<void> {
-    try {
-      const menu = await this.menuRepo.find({
-        where: { is_active: true },
-        select: ['id', 'name', 'is_active'],
-      });
-      const pick = pickAutoItem(table.kind, menu);
-      if (!pick) return;
-      await this.addItemsBulk(order.id, [pick], false, creator);
-    } catch (err) {
-      this.logger.warn(
-        `Tự thêm món khi mở bàn ${table.code} thất bại (bỏ qua): ${(err as Error).message}`,
-      );
     }
   }
 
