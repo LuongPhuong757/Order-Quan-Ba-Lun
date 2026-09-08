@@ -21,7 +21,7 @@ import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
-import { DailySpendPanel } from './DailySpendPanel.tsx';
+import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
 import {
   ItemStatsPanel,
@@ -56,11 +56,11 @@ type Delivery = {
   total_amount: number;
 };
 
-type Tab = 'suppliers' | 'daily' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost';
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
-const TABS_CO_LOC: Tab[] = ['daily', 'deliveries', 'prices', 'items'];
+const TABS_CO_LOC: Tab[] = ['stats', 'deliveries', 'prices', 'items'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -135,7 +135,7 @@ export function SuppliersPage() {
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
-    { value: 'daily', label: 'Theo ngày' },
+    { value: 'stats', label: 'Thống kê' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -148,7 +148,7 @@ export function SuppliersPage() {
         <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>
         {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
             MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
-            nên khi thêm tab thứ sáu ("Theo ngày") nó rộng 410px và kéo cả trang tràn ngang ở
+            nên khi thêm tab thứ sáu ("Thống kê") nó rộng 410px và kéo cả trang tràn ngang ở
             390px. `minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng trong flex cha. */}
         <div
           role="tablist"
@@ -257,7 +257,9 @@ export function SuppliersPage() {
         />
       )}
 
-      {tab === 'daily' && <DailySpendPanel supplierId={filterSupplierId || undefined} />}
+      {/* Tab này có bộ lọc thời gian RIÊNG bên trong (2026-09-08). Các tab còn lại vẫn nhìn
+          toàn bộ lịch sử — xem chú thích ở khối bộ lọc phía trên. */}
+      {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
 
       {tab === 'deliveries' && !loading && (
         <DeliveryList
