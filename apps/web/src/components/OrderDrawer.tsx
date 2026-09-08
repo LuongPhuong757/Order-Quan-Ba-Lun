@@ -903,12 +903,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               if (groups.length === 0) return null;
               const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
-/* Mỗi vùng trạng thái là một KHUNG có viền màu của chính trạng thái đó (chỉ đạo chủ quán
-                     2026-09-08: ba vùng "khó nhìn"). Trước đây chỉ có một dòng chữ màu làm mốc, nên
-                     cuộn giữa danh sách dài là mất dấu mình đang ở vùng nào. Tiêu đề là CHIP ôm sát
-                     chữ, không phải dải chạy hết bề ngang: nhãn ngắn như "Xong, chờ giao (5)" mà kẻ
-                     khung cả dòng thì cái khung to hơn thông tin nó mang. */
-                <div key={st} className="item-section" style={{ borderColor: `${COLOR[st]}55` }}>
+/* Mốc phân vùng là CHIP ở tiêu đề, ôm sát chữ — không kẻ khung quanh cả vùng (chủ
+                     quán 2026-09-08). Nhãn ngắn như "Xong, chờ giao (5)" mà kẻ khung hết bề ngang
+                     thì cái khung to hơn thông tin nó mang, và chồng thêm một lớp viền nữa lên
+                     viền của từng thẻ món. */
+                <div key={st} className="item-section">
                   <h2
                     className="item-section-title"
                     style={{
@@ -947,7 +946,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 <div
                   key={st}
                   className="item-section"
-                  style={{ borderColor: `${COLOR[st]}55`, opacity: st === 'CANCELLED' ? 0.85 : 1 }}
+                  style={{ opacity: st === 'CANCELLED' ? 0.85 : 1 }}
                 >
                   <h2
                     className="item-section-title"
