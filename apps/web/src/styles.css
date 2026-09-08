@@ -797,7 +797,12 @@ a:hover {
 }
 
 .header {
-  background: white;
+  /* Nền TRONG SUỐT TUYỆT ĐỐI (2026-09-08, chủ quán). Không phải `#f9fafb` cho giống nền trang:
+     trong suốt thật thì header hoà vào bất cứ nền nào phía sau nó, kể cả dải đỏ môi trường dev.
+     ⚠ Header vẫn `position: sticky`, nên khi cuộn, nội dung trang chạy NGAY DƯỚI chữ của
+     header. Đổi lại đúng thứ được yêu cầu; nếu chữ bị chồng khó đọc thì đường sửa là bỏ sticky
+     hoặc thêm `backdrop-filter`, KHÔNG phải trả lại nền trắng. */
+  background: transparent;
   border-bottom: 1px solid #e5e7eb;
   padding: 10px 14px;
   display: flex;
