@@ -782,10 +782,14 @@ export function KitchenPage() {
           align-items: center;
           gap: 8px;
           padding: 7px 10px;
-          /* Nền TRẮNG như dòng con — cả khối một màu. Ngăn tiêu đề với dòng con bằng
-             đường kẻ + cỡ chữ, không bằng màu nền. */
-          background: transparent;
-          border-bottom: 1px solid var(--kds-line);
+          /* Nền xanh ĐẬM RÕ, GIỐNG NHAU ở mọi khối. Phân biệt hai việc khác nhau:
+             - khối này với khối kia thì KHÔNG được khác màu (đã bỏ kẻ sọc: hai màu
+               cạnh nhau làm người dùng tưởng hai màu mang nghĩa khác nhau),
+             - nhưng TIÊU ĐỀ với DÒNG CON thì phải khác rõ, không thì cả khối là một
+               mảng trắng và mắt không thấy đâu là đầu khối.
+             Chữ tiêu đề navy đậm trên nền này vẫn đủ tương phản. */
+          background: #cfe0f5;
+          border-bottom: 2px solid #a9c7e8;
           flex-wrap: wrap;
           row-gap: 6px;
         }
