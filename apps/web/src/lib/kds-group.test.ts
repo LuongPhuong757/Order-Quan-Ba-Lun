@@ -73,15 +73,41 @@ describe('groupByItem — gộp món để bếp nấu 1 lượt', () => {
     expect(g.map((x) => x.title)).toEqual(['ƯU TIÊN', 'GỌI TRƯỚC']);
   });
 
-  it('không ai ưu tiên → nhóm nào chờ lâu nhất lên đầu (oldest = created_at nhỏ nhất)', () => {
+  it('nhóm NHIỀU PHẦN nhất lên đầu, dù gọi muộn hơn', () => {
     const g = groupByItem([
-      it_({ menu_item_id: 'm-moi', menu_item_name: 'MỚI', created_at: T0 + 600_000 }),
-      it_({ menu_item_id: 'm-cu', menu_item_name: 'CŨ', created_at: T0 }),
-      it_({ menu_item_id: 'm-moi', menu_item_name: 'MỚI', created_at: T0 - 60_000 }),
+      it_({ menu_item_id: 'm-cu', menu_item_name: 'ÍT NHƯNG GỌI SỚM', qty: 1, created_at: T0 }),
+      it_({ menu_item_id: 'm-nhieu', menu_item_name: 'NHIỀU', qty: 4, created_at: T0 + 600_000 }),
+      it_({ menu_item_id: 'm-vua', menu_item_name: 'VỪA', qty: 2, created_at: T0 + 300_000 }),
     ]);
-    // Nhóm MỚI có 1 dòng gọi từ T0-60s → oldest của nó sớm hơn nhóm CŨ
-    expect(g.map((x) => x.title)).toEqual(['MỚI', 'CŨ']);
-    expect(g[0].oldest).toBe(T0 - 60_000);
+    expect(g.map((x) => x.title)).toEqual(['NHIỀU', 'VỪA', 'ÍT NHƯNG GỌI SỚM']);
+    expect(g.map((x) => x.qty)).toEqual([4, 2, 1]);
+  });
+
+  it('số phần cộng dồn nhiều dòng cũng tính — 3 dòng ×1 thắng 1 dòng ×2', () => {
+    const g = groupByItem([
+      it_({ menu_item_id: 'm-doi', menu_item_name: 'MỘT DÒNG ×2', qty: 2, created_at: T0 }),
+      it_({ menu_item_id: 'm-ba', menu_item_name: 'BA DÒNG ×1', qty: 1, created_at: T0 + 1000 }),
+      it_({ menu_item_id: 'm-ba', menu_item_name: 'BA DÒNG ×1', qty: 1, created_at: T0 + 2000, table_code: 'B03', table_name: 'Bàn 3' }),
+      it_({ menu_item_id: 'm-ba', menu_item_name: 'BA DÒNG ×1', qty: 1, created_at: T0 + 3000, table_code: 'B07', table_name: 'Bàn 7' }),
+    ]);
+    expect(g.map((x) => x.title)).toEqual(['BA DÒNG ×1', 'MỘT DÒNG ×2']);
+  });
+
+  it('CÙNG số phần → nhóm chờ lâu nhất lên đầu (oldest = created_at nhỏ nhất)', () => {
+    const g = groupByItem([
+      it_({ menu_item_id: 'm-moi', menu_item_name: 'MỚI', qty: 2, created_at: T0 + 600_000 }),
+      it_({ menu_item_id: 'm-cu', menu_item_name: 'CŨ', qty: 2, created_at: T0 }),
+    ]);
+    expect(g.map((x) => x.title)).toEqual(['CŨ', 'MỚI']);
+    expect(g[0].oldest).toBe(T0);
+  });
+
+  it('⭐ ưu tiên vẫn thắng số phần — khách sắp về thì nấu trước, dù chỉ 1 phần', () => {
+    const g = groupByItem([
+      it_({ menu_item_id: 'm-nhieu', menu_item_name: 'NHIỀU', qty: 9, created_at: T0 }),
+      it_({ menu_item_id: 'm-uu', menu_item_name: 'ƯU TIÊN 1 PHẦN', qty: 1, created_at: T0 + 600_000, is_priority: true }),
+    ]);
+    expect(g.map((x) => x.title)).toEqual(['ƯU TIÊN 1 PHẦN', 'NHIỀU']);
   });
 
   it('danh sách rỗng → không nhóm nào', () => {
@@ -108,6 +134,14 @@ describe('groupByTable — gộp theo bàn để ra món cùng lúc', () => {
       it_({ table_code: 'B02', table_name: 'Bàn anh Long' }),
     ]);
     expect(g).toHaveLength(2);
+  });
+
+  it('KHÔNG sắp theo số phần — bàn nhiều món không gấp hơn bàn ngồi chờ lâu', () => {
+    const g = groupByTable([
+      it_({ table_code: 'B01', table_name: 'Bàn ít, chờ lâu', qty: 1, created_at: T0 }),
+      it_({ table_code: 'B02', table_name: 'Bàn nhiều, mới gọi', qty: 9, created_at: T0 + 600_000 }),
+    ]);
+    expect(g.map((x) => x.title)).toEqual(['Bàn ít, chờ lâu', 'Bàn nhiều, mới gọi']);
   });
 
   it('bàn có món ⭐ ưu tiên lên đầu', () => {

@@ -28,9 +28,14 @@ export type OrderCreator = { id: string; full_name: string };
 // dùng hết. Cần thiết vì tiền bill = tổng món SERVED (xem checkout) — không mở
 // transition này thì không có cách nào bớt món khỏi bill. Bắt buộc kèm lý do,
 // ghi nhật ký bàn với event riêng `item_returned` để phân biệt với huỷ thường.
-const ALLOWED_TRANSITIONS: Record<string, string[]> = {
+// KITCHEN → READY (2026-09-08): màn Bếp giờ có ĐÚNG MỘT nút "xong" trên mỗi dòng —
+// bước COOKING thành tuỳ chọn, không còn bắt buộc đi qua. Bếp bấm một lần là món
+// sang "Đã xong". Không mở transition này thì mọi lần bấm đều trả 409 "Dữ liệu xung
+// đột". COOKING vẫn giữ nguyên (màn Order vẫn set được, đơn online vẫn đọc để vẽ
+// thanh tiến trình) — chỉ là không còn là chặng bắt buộc.
+export const ALLOWED_TRANSITIONS: Record<string, string[]> = {
   PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
-  KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
+  KITCHEN:   ['COOKING', 'READY', 'SERVED', 'CANCELLED'],
   COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
   SERVED:    ['CANCELLED'],
