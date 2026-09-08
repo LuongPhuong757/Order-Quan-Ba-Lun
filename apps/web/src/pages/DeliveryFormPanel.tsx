@@ -633,10 +633,36 @@ function LineRow({
   onRemove: () => void;
 }) {
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
-  const catalogOptions = useMemo(
-    () => catalog.map((i) => ({ value: i.id, label: i.name, hint: upperUnit(i.unit) })),
-    [catalog],
+  // Danh sách gợi ý mặt hàng CHỈ gồm hàng của NCC đang chọn (chủ quán chốt 2026-09-08): một
+  // NCC bán vài chục thứ, đổ cả danh mục vài trăm nguyên liệu ra là mỗi lần gõ lại phải soi xem
+  // dòng nào mới là hàng của họ.
+  //
+  // Vẫn có ĐƯỜNG LÙI: gõ một cái tên mà không hàng nào của NCC khớp thì danh sách mở ra cả danh
+  // mục (dòng lạ có ghi chú "chưa mua từ NCC này"). Không có đường lùi này thì lần đầu NCC bán
+  // thêm một món đã có sẵn trong danh mục, người nhập buộc phải gõ tay lại đúng tên và khai lại
+  // đơn vị — gõ lệch một chữ là đẻ ra nguyên liệu trùng trong danh mục dùng chung.
+  const supplierOptions = useMemo(
+    () =>
+      catalog
+        .filter((i) => known.has(i.id))
+        .map((i) => ({ value: i.id, label: i.name, hint: upperUnit(i.unit) })),
+    [catalog, known],
   );
+  const allOptions = useMemo(
+    () =>
+      catalog.map((i) => ({
+        value: i.id,
+        label: i.name,
+        hint: known.has(i.id) ? upperUnit(i.unit) : `${upperUnit(i.unit)} · chưa mua từ NCC này`,
+      })),
+    [catalog, known],
+  );
+  const catalogOptions = useMemo(() => {
+    if (known.size === 0) return allOptions; // chưa chọn NCC, hoặc NCC chưa có bảng giá
+    const q = norm(line.ingredient_name.trim());
+    if (!q) return supplierOptions;
+    return supplierOptions.some((o) => norm(o.label).includes(q)) ? supplierOptions : allOptions;
+  }, [known, line.ingredient_name, supplierOptions, allOptions]);
   const unitOptions = useMemo(() => UNIT_SUGGESTIONS.map((u) => ({ value: u, label: u })), []);
 
   const qty = Number(line.qty_purchase);
@@ -663,7 +689,10 @@ function LineRow({
             }}
             options={catalogOptions}
             normalize={norm}
-            maxItems={6}
+            // Danh sách đã gọn lại còn hàng của NCC nên bấm vào ô là bung sẵn ra xem được —
+            // với cả danh mục thì đổ hết ra chỉ làm rối (xem docblock `openOnFocus`).
+            openOnFocus={known.size > 0}
+            maxItems={known.size > 0 ? 12 : 6}
             placeholder={`Mặt hàng ${index + 1}`}
             ariaLabel={`Mặt hàng ${index + 1}`}
             // Lời nhắc tạo mới nằm CUỐI panel và ở dạng chữ nhạt, KHÔNG phải nút (M3.D-15):
