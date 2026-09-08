@@ -902,14 +902,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               if (groups.length === 0) return null;
               const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
-                <div key={st} style={{ marginBottom: 14 }}>
+/* Mỗi vùng trạng thái là một KHUNG có viền màu của chính trạng thái đó (chỉ đạo chủ quán
+                     2026-09-08: ba vùng "khó nhìn"). Trước đây chỉ có một dòng chữ màu làm mốc, nên
+                     cuộn giữa danh sách dài là mất dấu mình đang ở vùng nào. Tiêu đề là CHIP ôm sát
+                     chữ, không phải dải chạy hết bề ngang: nhãn ngắn như "Xong, chờ giao (5)" mà kẻ
+                     khung cả dòng thì cái khung to hơn thông tin nó mang. */
+                <div key={st} className="item-section" style={{ borderColor: `${COLOR[st]}55` }}>
                   <h2
+                    className="item-section-title"
                     style={{
-                      margin: '0 0 8px',
-                      fontSize: 14,
                       color: COLOR[st],
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
+                      borderColor: `${COLOR[st]}66`,
+                      background: `${COLOR[st]}14`,
                     }}
                   >
                     {LABEL[st]} ({unitCount})
@@ -939,14 +943,17 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               if (groups.length === 0) return null;
               const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
-                <div key={st} style={{ marginBottom: 14, opacity: st === 'CANCELLED' ? 0.85 : 1 }}>
+<div
+                  key={st}
+                  className="item-section"
+                  style={{ borderColor: `${COLOR[st]}55`, opacity: st === 'CANCELLED' ? 0.85 : 1 }}
+                >
                   <h2
+                    className="item-section-title"
                     style={{
-                      margin: '0 0 8px',
-                      fontSize: 14,
                       color: COLOR[st],
-                      textTransform: 'uppercase',
-                      letterSpacing: 0.5,
+                      borderColor: `${COLOR[st]}66`,
+                      background: `${COLOR[st]}14`,
                     }}
                   >
                     {LABEL[st]} ({unitCount})
@@ -1620,6 +1627,9 @@ function ItemRow({
     setRevealed((v) => !v);
   };
 
+  /** Nút Ưu tiên có nghĩa hay không — dùng ở hai chỗ nên tính một lần. */
+  const showPriority = !readonly && !!canSetPriority && !!onTogglePriority && item.state === 'KITCHEN';
+
   const showAge = WAITING_STATES.has(item.state);
   const ageAt = oldest ?? item.created_at;
   const waitedMin = ageMinutes(ageAt);
@@ -1710,7 +1720,7 @@ function ItemRow({
           <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
           {/* ⋯ NGAY DƯỚI GIÁ — đường mở hàng nút cho ai không vuốt (chuột, hoặc chưa biết là
               vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi vuốt cũng không lệch nhau. */}
-          {!readonly && (next.length > 0 || cancelAllowed) && (
+          {!readonly && (onEditQty || cancelAllowed) && (
             <button
               type="button"
               className="item-more"
@@ -1724,17 +1734,12 @@ function ItemRow({
           )}
         </div>
       </div>
-      {/* Hàng nút của một món: ĐÚNG MỘT DÒNG, nhiều nhất 4 nút (Báo bếp/Đã giao · Ưu tiên ·
-          Sửa SL · Huỷ). Không `flexWrap`, và mỗi nút `flex: 1 1 0` + `minWidth: 0` — chữ bên
-          trong không được đặt sàn bề rộng, nếu không trên máy 360px cái cuối rơi xuống dòng
-          thứ hai và mỗi món cao thêm 44px (ảnh chủ quán gửi 2026-09-08).
-          Hàng này ẩn đi, mở bằng cú vuốt ngang hoặc nút ⋯; khi mở thì TRƯỢT NGANG vào chứ
-          không đổ dọc xuống — xem `.item-actions` trong styles.css. */}
-      {!readonly && (next.length > 0 || cancelAllowed) && (
-        <div
-          className={`item-actions${revealed ? ' revealed' : ''}`}
-          style={{ marginTop: 8, gap: 4 }}
-        >
+      {/* HÀNG LUÔN HIỆN — chuyển trạng thái (Đã giao, Báo bếp) và Ưu tiên (chỉ đạo chủ quán
+          2026-09-08). Đây là những việc làm nhiều nhất trên một món: bưng ra bàn rồi tick, hoặc
+          khách giục thì đẩy lên đầu hàng bếp. Bắt vuốt hoặc bấm ⋯ trước là thêm một nhịp cho
+          thao tác lặp lại vài chục lần mỗi buổi. */}
+      {!readonly && (next.length > 0 || showPriority) && (
+        <div className="flex" style={{ marginTop: 8, gap: 4 }}>
           {next.map((to) => (
             <button
               key={to}
@@ -1744,9 +1749,9 @@ function ItemRow({
               {NEXT_LABEL[to]}
             </button>
           ))}
-          {/* Priority toggle — chỉ hiện cho Order/Admin khi item đang ở KITCHEN.
-              State khác (PENDING/COOKING/...) → BE từ chối nên ẩn hẳn cho gọn. */}
-          {!readonly && canSetPriority && onTogglePriority && item.state === 'KITCHEN' && (
+          {/* Ưu tiên chỉ có nghĩa khi món đang nằm ở hàng chờ BẾP (state KITCHEN) và người bấm
+              là Order/Admin — trạng thái khác thì BE từ chối, nên ẩn hẳn cho gọn. */}
+          {showPriority && (
             <button
               onClick={onTogglePriority}
               style={{ ...ROW_BTN, background: item.is_priority ? '#b45309' : '#f59e0b', color: 'white' }}
@@ -1755,6 +1760,18 @@ function ItemRow({
               {item.is_priority ? '★ Bỏ ƯT' : '⭐ Ưu tiên'}
             </button>
           )}
+        </div>
+      )}
+
+      {/* Còn lại (Sửa SL · Huỷ) vẫn ẩn: đó là những việc THỈNH THOẢNG mới làm, và
+          Huỷ thì càng không nên nằm sẵn dưới ngón tay. Mở bằng cú vuốt ngang hoặc nút ⋯; khi
+          mở thì TRƯỢT NGANG vào chứ không đổ dọc — xem `.item-actions` trong styles.css.
+          Mỗi nút `flex: 1 1 0` + `minWidth: 0` để cả hàng nằm gọn một dòng trên máy 360px. */}
+      {!readonly && (onEditQty || cancelAllowed) && (
+        <div
+          className={`item-actions${revealed ? ' revealed' : ''}`}
+          style={{ gap: 4 }}
+        >
           {/* Sửa số lượng — hiện ở MỌI trạng thái trước khi thanh toán. Trước đây
               chức năng này bị giấu sau nút "Huỷ" nên không ai tìm thấy. */}
           {onEditQty && (
