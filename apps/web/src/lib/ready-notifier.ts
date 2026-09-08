@@ -33,9 +33,18 @@ type EventBase = {
 
 export type ReadyEvent = EventBase;
 export type NewOrderEvent = EventBase;
-export type KitchenCancelEvent = EventBase & { reason: string };
+/** `prev_state` = state NGAY TRƯỚC khi huỷ. Màn Bếp cần nó để biết món đã từng nằm
+ *  trên màn bếp chưa: huỷ một món còn PENDING (chưa báo bếp) thì bếp không cần biết,
+ *  còn huỷ món đang KITCHEN/COOKING/READY thì món vừa BIẾN MẤT khỏi danh sách và bếp
+ *  phải được nói cho biết vì sao. */
+export type KitchenCancelEvent = EventBase & { reason: string; prev_state: string };
 export type ItemServedEvent = EventBase & { served_by: string };
-export type ItemCancelByStaffEvent = EventBase & { cancelled_by: string; reason: string };
+export type ItemCancelByStaffEvent = EventBase & {
+  cancelled_by: string;
+  reason: string;
+  /** Xem KitchenCancelEvent.prev_state. */
+  prev_state: string;
+};
 // Aggregate event — N items chuyển từ A → B trong cùng 1 transfer = 1 noti
 export type TableTransferEvent = {
   from_table_code: string;
@@ -156,11 +165,12 @@ class ReadyNotifier {
             if (it.state === 'CANCELLED' && prev !== 'CANCELLED') {
               const reason = it.cancelled_reason || '';
               if (reason.startsWith(KITCHEN_CANCEL_PREFIX)) {
-                this.emitKitchenCancel({ ...base, reason });
+                this.emitKitchenCancel({ ...base, reason, prev_state: prev });
               } else {
                 this.emitItemCancelByStaff({
                   ...base,
                   reason,
+                  prev_state: prev,
                   cancelled_by: it.cancelled_by_full_name || 'không xác định',
                 });
               }

@@ -23,6 +23,13 @@ import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
 import {
+  addCancelled,
+  describeCancelled,
+  dismissCancelled,
+  pruneCancelled,
+  type CancelledEntry,
+} from '../lib/kds-cancelled.ts';
+import {
   applyStickyOrder,
   groupByItem,
   groupByTable,
@@ -135,6 +142,26 @@ const STORAGE_KEY = 'kitchen-group-filters-v1';
 const TAB_KEY = 'kitchen-tab-v1';
 const VIEW_KEY = 'kitchen-view-v1';
 const SORT_KEY = 'kitchen-group-sort-v1';
+// Thẻ "món vừa bị huỷ" lưu localStorage: bếp reload / khoá máy giữa lúc đông khách là
+// chuyện thường, mà mất thẻ là mất luôn lời giải thích cho món vừa biến mất.
+const CANCELLED_KEY = 'kitchen-cancelled-v1';
+
+function loadCancelled(): CancelledEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CANCELLED_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    // Lọc bằng chính pruneCancelled để luật hết hạn chỉ nằm ở MỘT chỗ.
+    return pruneCancelled(
+      arr.filter((e) => e && typeof e.item_id === 'string' && typeof e.at === 'number'),
+      Date.now(),
+    );
+  } catch {
+    return [];
+  }
+}
 
 function loadStoredFilters(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -204,6 +231,8 @@ export function KitchenPage() {
   );
   // Bấm "Sắp lại" thì tăng số này → xoá thứ tự đang đóng băng, sắp lại từ đầu.
   const [resortNonce, setResortNonce] = useState(0);
+  // Món vừa bị huỷ, GIỮ LẠI trên màn cho tới khi bếp bấm "Đã biết" — xem lib/kds-cancelled.ts
+  const [cancelled, setCancelled] = useState<CancelledEntry[]>(() => loadCancelled());
   /** Thứ tự nhóm ĐANG HIỆN trên màn, theo key. Xem applyStickyOrder: nhóm đã hiện
    *  phải đứng yên, nếu không thì bấm xong một dòng là cả danh sách trượt đi.
    *  `sig` là "danh sách này đang nói về cái gì" — đổi chế độ xem / đổi lọc nhóm /
@@ -227,6 +256,69 @@ export function KitchenPage() {
       // ignore quota errors
     }
   }, [tab, view, groupSort]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CANCELLED_KEY, JSON.stringify(cancelled));
+    } catch {
+      // ignore quota errors
+    }
+  }, [cancelled]);
+
+  /* Nghe 2 đường huỷ từ readyNotifier (nó tự diff giữa các nhịp poll /orders):
+       - onItemCancelByStaff: nhân viên huỷ hộ khách, hoặc admin huỷ đơn online đã duyệt
+       - onKitchenCancel: chính bếp bấm 🚫 báo hết → auto-huỷ order chưa nấu
+     Cả hai đều làm món BIẾN MẤT khỏi danh sách bếp, nên cả hai đều phải để lại thẻ.
+     addCancelled tự bỏ món còn PENDING (bếp chưa từng thấy) và tự chống trùng. */
+  useEffect(() => {
+    const offStaff = readyNotifier.onItemCancelByStaff((ev) =>
+      setCancelled((l) =>
+        addCancelled(
+          l,
+          {
+            item_id: ev.item_id,
+            table_name: ev.table_name,
+            menu_item_name: ev.menu_item_name,
+            qty: ev.qty,
+            cancelled_by: ev.cancelled_by,
+            reason: ev.reason,
+            prev_state: ev.prev_state,
+          },
+          Date.now(),
+        ),
+      ),
+    );
+    const offKitchen = readyNotifier.onKitchenCancel((ev) =>
+      setCancelled((l) =>
+        addCancelled(
+          l,
+          {
+            item_id: ev.item_id,
+            table_name: ev.table_name,
+            menu_item_name: ev.menu_item_name,
+            qty: ev.qty,
+            // Đường "bếp báo hết" là auto-huỷ của hệ thống, không có người bấm cụ thể.
+            cancelled_by: '',
+            reason: ev.reason,
+            prev_state: ev.prev_state,
+          },
+          Date.now(),
+        ),
+      ),
+    );
+    return () => {
+      offStaff();
+      offKitchen();
+    };
+  }, []);
+
+  // Dọn thẻ quá hạn theo nhịp 'now' (5 phút) — không cần timer riêng.
+  useEffect(() => {
+    setCancelled((l) => {
+      const next = pruneCancelled(l, Date.now());
+      return next.length === l.length ? l : next;
+    });
+  }, [now]);
 
   // Bật chế độ thông báo cỡ lớn CHỈ ở màn bếp (CSS: body.kds-mode .toast-banner).
   // Banner do ToastProvider render ở gốc cây DOM nên không thể target bằng CSS
@@ -938,6 +1030,62 @@ export function KitchenPage() {
           flex-shrink: 0;
         }
         .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
+        /* Thẻ huỷ: đỏ đặc, khác hẳn mọi thứ khác trên màn. Nó KHÔNG phải một món để
+           nấu mà là một việc phải dừng lại — nên không dùng chung dáng .kds-card. */
+        .kds-cancel-card {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: #fee2e2;
+          border: 2px solid #dc2626;
+          flex-wrap: wrap;
+          row-gap: 8px;
+        }
+        .kds-cancel-info { flex: 1 1 170px; min-width: 0; }
+        .kds-cancel-title {
+          font-size: 14px;
+          font-weight: 800;
+          color: #991b1b;
+          line-height: 1.3;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-cancel-sub {
+          font-size: 11px;
+          color: #b91c1c;
+          margin-top: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-cancel-ok {
+          flex-shrink: 0;
+          margin-left: auto;
+          height: 40px;
+          min-height: 40px;
+          min-width: 0;
+          padding: 0 14px;
+          border-radius: 999px;
+          border: 2px solid #dc2626;
+          background: white;
+          color: #991b1b;
+          font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-cancel-ok.all {
+          margin-left: 0;
+          align-self: flex-end;
+          background: #dc2626;
+          color: white;
+          height: 34px;
+          min-height: 34px;
+          font-size: 12px;
+        }
         .kds-empty {
           color: #93a3b8;
           text-align: center;
@@ -1099,6 +1247,42 @@ export function KitchenPage() {
       <div className="kds-board">
         {TABS.map((t) => (
           <div key={t.key} className="kds-panel" data-key={t.key} data-active={tab === t.key}>
+            {/* Thẻ đỏ "món vừa bị huỷ" — CHỈ ở cột chờ chế biến, và luôn ở TRÊN CÙNG.
+                Món bị huỷ rời khỏi state bếp nên biến mất khỏi danh sách ngay; nếu bếp
+                đang nấu nó thì chỉ thấy một dòng tự dưng mất. Thẻ này là lời giải
+                thích, nằm lại tới khi bếp tự tay bấm "Đã biết". */}
+            {t.key === 'PENDING' &&
+              cancelled.map((c) => (
+                <div key={c.item_id} className="kds-cancel-card">
+                  <div className="kds-cancel-info">
+                    <div className="kds-cancel-title" title={`${c.qty}× ${c.menu_item_name}`}>
+                      ✕ ĐÃ HUỶ · {c.qty}× {c.menu_item_name}
+                    </div>
+                    <div className="kds-cancel-sub">
+                      {c.table_name} · {describeCancelled(c)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="kds-cancel-ok"
+                    onClick={() => setCancelled((l) => dismissCancelled(l, c.item_id))}
+                    title="Bỏ thẻ này khỏi màn — đã đọc và đã bỏ món khỏi chảo"
+                  >
+                    Đã biết
+                  </button>
+                </div>
+              ))}
+            {t.key === 'PENDING' && cancelled.length > 1 && (
+              <button
+                type="button"
+                className="kds-cancel-ok all"
+                onClick={() => setCancelled([])}
+                title="Bỏ tất cả thẻ huỷ khỏi màn"
+              >
+                Đã biết tất cả ({cancelled.length})
+              </button>
+            )}
+
             {loading && (
               <div className="kds-empty">
                 <span className="spinner" /> Đang tải...
@@ -1302,6 +1486,19 @@ export function KitchenPage() {
           <li>
             Badge <strong>⭐ ƯU TIÊN</strong> do nhân viên Order đánh dấu (khách sắp về) — nấu trước.
           </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>✕ Thẻ đỏ "ĐÃ HUỶ"</h3>
+        <p style={{ margin: '4px 0', lineHeight: 1.7 }}>
+          Món bị huỷ thì <strong>biến mất khỏi danh sách ngay</strong> — nếu đang nấu thì bếp chỉ thấy
+          một dòng tự dưng mất, không biết vì sao. Nên món vừa huỷ để lại một{' '}
+          <strong style={{ color: '#991b1b' }}>thẻ đỏ ở trên cùng</strong> cột "Chờ chế biến", ghi rõ
+          món đó <strong>đang nấu / chờ nấu / đã nấu xong</strong> lúc bị huỷ, ai huỷ và lý do.
+        </p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>Thấy "đang nấu" → <strong>bỏ món khỏi chảo ngay</strong>, đừng nấu tiếp.</li>
+          <li>Bấm <strong>"Đã biết"</strong> để bỏ thẻ. Thẻ KHÔNG tự mất khi reload — chỉ tự hết sau 1 giờ.</li>
+          <li>Món bị huỷ lúc <strong>chưa báo bếp</strong> thì không sinh thẻ: bếp chưa từng thấy nó.</li>
         </ul>
 
         <h3 style={{ marginBottom: 6 }}>🚫 Báo hết món</h3>
