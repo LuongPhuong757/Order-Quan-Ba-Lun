@@ -7,6 +7,13 @@ const menu = [
   { id: 'm3', name: 'Khăn ướt lạnh cao cấp' },
 ];
 
+/** Bảng giá THẬT của quán, đọc từ DB 2026-09-08 — không có "khăn ướt", chỉ có "Khăn Lạnh". */
+const menuThat = [
+  { id: 'sp1137', name: 'Khăn Lạnh' },
+  { id: 'sp1141', name: 'Khăn Lạnh 5 Cái' },
+  { id: 'sp0682', name: 'Khấu Đuôi Chiên Móc Mật' },
+];
+
 describe('khongDau', () => {
   it('bỏ dấu và hạ chữ thường', () => {
     expect(khongDau('KHĂN ƯỚT')).toBe('khan uot');
@@ -37,7 +44,25 @@ describe('pickAutoItem', () => {
     expect(r?.menu_item_id).toBe('y');
   });
 
-  it('menu KHÔNG có khăn ướt → null, mở bàn vẫn phải chạy được', () => {
+  it('bảng giá thật của quán chỉ có "Khăn Lạnh" → vẫn thêm đúng, 5 phần', () => {
+    // Hồi quy của lỗi 2026-09-08: chỉ dò "khan uot" nên chạy xong không thêm được gì.
+    expect(pickAutoItem('dine-in', menuThat)).toEqual({ menu_item_id: 'sp1137', qty: 5 });
+  });
+
+  it('KHÔNG chọn gói "Khăn Lạnh 5 Cái" — nhân 5 lần nữa là tính tiền 25 chiếc', () => {
+    const r = pickAutoItem('dine-in', menuThat);
+    expect(r?.menu_item_id).not.toBe('sp1141');
+  });
+
+  it('có cả hai tên thì "khăn ướt" được ưu tiên trước "khăn lạnh"', () => {
+    const r = pickAutoItem('dine-in', [
+      { id: 'a', name: 'Khăn Lạnh' },
+      { id: 'b', name: 'Khăn ướt' },
+    ]);
+    expect(r?.menu_item_id).toBe('b');
+  });
+
+  it('menu KHÔNG có khăn nào → null, mở bàn vẫn phải chạy được', () => {
     expect(pickAutoItem('dine-in', [{ id: 'm1', name: 'Ba Chỉ Cháy Cạnh' }])).toBeNull();
   });
 
