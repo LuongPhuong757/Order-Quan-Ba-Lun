@@ -4,7 +4,7 @@
 // Quy tắc role (per user spec — STRICT, admin KHÔNG nhận event nghiệp vụ):
 // 1. Có món được order (NewOrder)     → CHỈ Bếp
 // 2. Món đã xong (READY)              → CHỈ Order
-// 3. Món huỷ (StaffCancel)            → CHỈ Bếp
+// 3. Món huỷ (khách đổi ý / NV huỷ)   → CHỈ Bếp (tự mình bấm thì chỉ ghi 🔔)
 // 4. Đánh dấu hết (KitchenOutOfStock) → CẢ Bếp + Order
 // 5. Thanh toán xong (Checkout)       → CHỈ Admin
 // 6. Món đã giao tới khách (Served)   → CHỈ Bếp — chỉ ghi vào 🔔, KHÔNG toast/beep
@@ -79,17 +79,31 @@ export function ReadyListener() {
       readyNotifier.playAlertBeep();
     });
 
-    // ─── Rule 3: StaffCancel (order staff huỷ món) → CHỈ Bếp ──────
+    // ─── Rule 3: Huỷ món (khách đổi ý / nhân viên huỷ hộ) → CHỈ Bếp ───────
+    //
+    // Bao gồm mọi đường huỷ mà bếp CẦN biết:
+    //   - nhân viên huỷ hộ khách ở màn Order (khách đổi ý, khách không ăn nữa)
+    //   - admin huỷ đơn online ĐÃ DUYỆT (items đã vào bếp) ở màn Đơn online
+    // KHÔNG gồm khách tự huỷ đơn online: khách chỉ huỷ được khi đơn còn WAITING
+    // (public/cancel-order.ts), lúc đó chưa duyệt nên chưa sinh món nào — bếp không
+    // có gì phải bỏ khỏi chảo.
+    //
+    // Đổi 2026-09-08: bỏ cửa "bỏ qua thao tác của chính mình". Cửa đó làm mất thông
+    // báo thật khi quán dùng CHUNG một tài khoản cho cả màn Order và màn Bếp — huỷ
+    // món ở màn Order thì bếp không nhận được gì. Thay vì bỏ hẳn event, phân biệt:
+    //   - người KHÁC huỷ → banner + beep to (món có thể đang trên chảo, bỏ lỡ là nấu
+    //     thừa, tiền nguyên liệu mất thật)
+    //   - tự mình vừa bấm → chỉ ghi sổ 🔔, không banner không tiếng: đã biết rồi, mà
+    //     ở màn bếp banner bị phóng rất to nên nó che mất danh sách món
     const offStaffCancel = readyNotifier.onItemCancelByStaff((ev) => {
       if (!isKitchen) return;
-      // Self-action skip: nếu bếp tự huỷ thì không cần báo lại chính mình
-      if (ev.cancelled_by === userFullName) return;
-      const msg = `✕ ${ev.table_name} HUỶ ${ev.qty}× ${ev.menu_item_name} (bởi ${ev.cancelled_by})`;
-      toast.push('error', msg + (ev.reason ? ` — ${ev.reason}` : ''), 8000);
       notificationStore.push(
         'order_cancel',
         `${ev.table_name} — ${ev.cancelled_by} huỷ ${ev.qty}× ${ev.menu_item_name}${ev.reason ? `: ${ev.reason}` : ''}.`,
       );
+      if (ev.cancelled_by === userFullName) return;
+      const msg = `✕ ${ev.table_name} HUỶ ${ev.qty}× ${ev.menu_item_name} (bởi ${ev.cancelled_by})`;
+      toast.push('error', msg + (ev.reason ? ` — ${ev.reason}` : ''), 8000);
       // Beep bếp (to + dài): món có thể đang trên chảo, bỏ lỡ là nấu thừa.
       readyNotifier.playKitchenAlertBeep();
     });
