@@ -110,12 +110,43 @@ export function SupplierBalancePanel({
   };
 
   const owed = balance?.balance ?? 0;
-  // Số phiếu đứng cạnh "Đã mua" cho biết con số đó gộp từ bao nhiêu dòng — đúng bằng số dòng
-  // "Phiếu nhập" trong sổ giao dịch bên dưới, để hai chỗ soi được vào nhau.
+  // Số phiếu nhập đứng ngay dưới con số nợ: nó nói con số kia gộp từ bao nhiêu dòng, và phải
+  // khớp đúng số dòng "Phiếu nhập" trong sổ bên dưới để hai chỗ soi được vào nhau.
   const soPhieu = balance?.counted_deliveries.length ?? 0;
 
   return (
     <>
+      {/* Con số nợ đứng ĐẦU màn, trên cả hàng nút (chủ quán 2026-09-08). Đây là thứ duy nhất
+          người ta mở NCC ra để xem — bắt nó xếp sau một hàng nút là bắt đọc qua thao tác rồi mới
+          tới kết quả.
+
+          Phép cộng "GỒM" (nợ cũ + đã mua − đã trả) đã bỏ khỏi thẻ: nó lặp lại đúng những gì sổ
+          giao dịch bên dưới liệt kê chi tiết hơn, và ba con số tiền chồng ngay dưới con số chính
+          làm loãng chính nó. Nợ cũ gồm những gì thì xem ở dòng "Nợ cũ" trong sổ. */}
+      {balance ? (
+        <div className="card" style={{ marginTop: 16, background: owed > 0 ? '#fff7ed' : '#f0fdf4' }}>
+          <div style={{ fontSize: 13, color: C.mutedOnTint }}>
+            {owed >= 0 ? 'Còn phải trả' : 'Đã trả dư (quán đang ứng trước)'}
+          </div>
+          <div style={{ fontSize: 34, fontWeight: 800, color: owed > 0 ? '#c2410c' : '#15803d' }}>
+            {vnd(Math.abs(owed))}đ
+          </div>
+          <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 2 }}>{soPhieu} phiếu nhập</div>
+
+          {/* Chú thích này KHÔNG phải trang trí — xem docblock đầu file. Nó cũng là thứ DUY NHẤT
+              còn lại cảnh báo ca chưa khai nợ cũ: chưa khai thì sổ giao dịch không có dòng "Nợ
+              cũ" nào để người đọc tự nhận ra. */}
+          {!balance.opening_balance_date && (
+            <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
+              ⚠ Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
+              không phải tổng nợ thật.
+            </div>
+          )}
+        </div>
+      ) : (
+        <p style={{ color: C.muted, marginTop: 16 }}>Đang tải công nợ…</p>
+      )}
+
       {/* MỘT hàng nút duy nhất cho cả màn. `.tabstrip` = cuộn ngang thay vì xuống dòng, nên
           thêm nút thứ sáu cũng không làm màn cao thêm một dòng trên điện thoại. */}
       <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
@@ -135,76 +166,8 @@ export function SupplierBalancePanel({
         {actionsAfter}
       </div>
 
-      {!balance ? (
-        <p style={{ color: C.muted }}>Đang tải công nợ…</p>
-      ) : (
+      {balance && (
         <>
-          <div className="card" style={{ marginTop: 16, background: owed > 0 ? '#fff7ed' : '#f0fdf4' }}>
-            <div style={{ fontSize: 13, color: C.mutedOnTint }}>
-              {owed >= 0 ? 'Còn phải trả' : 'Đã trả dư (quán đang ứng trước)'}
-            </div>
-            <div style={{ fontSize: 34, fontWeight: 800, color: owed > 0 ? '#c2410c' : '#15803d' }}>
-              {vnd(Math.abs(owed))}đ
-            </div>
-
-            {/* BẢNG CỘNG DỌC, không phải ba con số nằm ngang (chủ quán 2026-09-07: "quá nhiều số
-                tiền hơi rối mắt"). Công nợ VỐN là một phép cộng ba số hạng — trình bày nó thành ba
-                ô cạnh nhau thì người đọc phải tự đoán số nào cộng, số nào trừ. Ở đây dấu +/− nằm
-                ngay trước từng dòng, số dóng phải theo `tabular-nums` nên các chữ số thẳng cột và
-                so độ dài bằng mắt được. */}
-            <div style={{ fontSize: 12, color: C.muted, marginTop: 14, letterSpacing: .3 }}>GỒM</div>
-            <table
-              style={{
-                width: '100%',
-                maxWidth: 420,
-                borderCollapse: 'collapse',
-                marginTop: 4,
-                fontSize: 15,
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            >
-              <tbody>
-                <LedgerRow
-                  sign=""
-                  label="Nợ cũ"
-                  hint={balance.opening_balance_date ? `đến ${balance.opening_balance_date}` : undefined}
-                  amount={balance.opening_balance}
-                />
-                <LedgerRow
-                  sign="+"
-                  label="Đã mua"
-                  hint={`${soPhieu} phiếu`}
-                  amount={balance.purchased}
-                />
-                <LedgerRow sign="−" label="Đã trả" amount={balance.paid} />
-              </tbody>
-            </table>
-
-            {/* Hai chú thích dưới đây KHÔNG phải trang trí — xem docblock đầu file. */}
-            {!balance.opening_balance_date && (
-              <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
-                ⚠ Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
-                không phải tổng nợ thật.
-              </div>
-            )}
-
-            {/* Nợ cũ gồm những gì — chủ quán tự ghi lúc nhập. Không có dòng này thì sáu tháng sau
-                không ai biết con số đó ở đâu ra. */}
-            {balance.opening_balance > 0 && (
-              <div style={{ fontSize: 13, marginTop: 6 }}>
-                {balance.opening_balance_note ? (
-                  <span style={{ color: C.mutedOnTint }}>
-                    Nợ cũ gồm: <em>{balance.opening_balance_note}</em>
-                  </span>
-                ) : (
-                  <span style={{ color: '#b45309' }}>
-                    ⚠ Nợ cũ chưa ghi rõ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-
           {/* Sổ giao dịch THAY LUÔN nút "Con số này ở đâu ra?" và bảng "Lịch sử thanh toán" cũ:
               cả hai đều là một phần của cùng một danh sách, tách ra thì phải đọc hai chỗ mới ráp
               lại được một dòng thời gian. */}
@@ -246,35 +209,6 @@ export function SupplierBalancePanel({
         />
       )}
     </>
-  );
-}
-
-/** Một dòng của bảng cộng công nợ: dấu · nhãn (+ chú thích mờ) · số tiền dóng phải.
- *
- * Dấu để RIÊNG một cột hẹp chứ không dán vào con số: dán vào thì "−4.000.000" dài hơn các dòng
- * khác một ký tự và cả cột số lệch đi, đúng thứ làm người ta phải đọc lại hai lần. */
-function LedgerRow({
-  sign,
-  label,
-  hint,
-  amount,
-}: {
-  sign: string;
-  label: string;
-  hint?: string;
-  amount: number;
-}) {
-  return (
-    <tr>
-      <td style={{ padding: '5px 6px 5px 0', width: 14, color: C.mutedOnTint }}>{sign}</td>
-      <td style={{ padding: '5px 8px 5px 0', color: C.mutedOnTint }}>
-        {label}
-        {hint && <span style={{ color: C.muted, fontSize: 13 }}> · {hint}</span>}
-      </td>
-      <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {vnd(amount)}đ
-      </td>
-    </tr>
   );
 }
 
