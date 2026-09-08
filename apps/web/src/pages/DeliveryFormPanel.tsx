@@ -291,6 +291,23 @@ export function DeliveryFormPanel({
     return sum + (Number.isFinite(q) && Number.isFinite(p) ? Math.round(q * p) : 0);
   }, 0);
 
+  /** Dòng đã bắt đầu gõ nhưng chưa đủ để gửi — trả về tên để nói thẳng ra dòng nào.
+   *
+   * Trước 2026-09-08 `payloadLines` lặng lẽ BỎ những dòng này rồi phiếu vẫn lưu và vẫn báo
+   * "Đã lưu phiếu": chủ quán nhập Tôm mà quên số lượng thì mất luôn dòng Tôm mà không có một
+   * chữ nào cảnh báo. Mất dữ liệu trong im lặng là kiểu lỗi tệ nhất ở màn này — người nhập chỉ
+   * phát hiện ra hàng tuần sau, lúc xem báo cáo. */
+  const incompleteLines = () =>
+    lines
+      .filter((l) => {
+        const coTen = Boolean(l.ingredient_id || l.ingredient_name.trim());
+        const coSoLuong = Number(l.qty_purchase) > 0;
+        // Dòng trống hoàn toàn là dòng khung mẫu, không phải lỗi — form mở ra đã có sẵn một dòng.
+        if (!coTen && !coSoLuong) return false;
+        return !coTen || !coSoLuong;
+      })
+      .map((l, i) => l.ingredient_name.trim() || `Mặt hàng ${i + 1}`);
+
   const payloadLines = () =>
     lines
       .filter((l) => (l.ingredient_id || l.ingredient_name.trim()) && Number(l.qty_purchase) > 0)
@@ -336,6 +353,15 @@ export function DeliveryFormPanel({
   };
 
   const submit = async (approved?: string[], allowDuplicate?: boolean) => {
+    // Soát dòng dở dang TRƯỚC khi dựng payload: xem `incompleteLines`.
+    const thieu = incompleteLines();
+    if (thieu.length > 0) {
+      toast.push(
+        'error',
+        `Chưa đủ thông tin: ${thieu.join(', ')} — mỗi dòng phải có cả mặt hàng và số lượng (hoặc bấm ✕ để xoá dòng)`,
+      );
+      return;
+    }
     const body = payloadLines();
     if (body.length === 0) {
       toast.push('error', 'Chưa có dòng hàng nào hợp lệ');
