@@ -113,9 +113,9 @@ const TAB_OF_STATE: Record<string, TabKey> = {
 // cùng màu viền, không badge. Bếp không cần phân biệt, và không có nút nào ở màn
 // này tạo ra COOKING nữa.
 const STATE_META: Record<string, { color: string; label: string }> = {
-  KITCHEN: { color: '#f59e0b', label: 'Chờ làm' },
-  COOKING: { color: '#f59e0b', label: 'Chờ làm' },
-  READY: { color: '#10b981', label: 'Đã xong' },
+  KITCHEN: { color: '#1565c0', label: 'Chờ làm' },
+  COOKING: { color: '#1565c0', label: 'Chờ làm' },
+  READY: { color: '#22a04a', label: 'Đã xong' },
 };
 
 type ViewKey = 'priority' | 'item' | 'table';
@@ -493,7 +493,22 @@ export function KitchenPage() {
         /* Khung cố định toàn màn: màn bếp không có header/nav (App.tsx ẩn ở /kitchen)
            nên nó tự lo đủ 100vh và tự chừa safe-area cho iPad có home indicator. */
         body.kds-mode { overflow: hidden; }
+        /* Bảng màu theo KDS của KiotViet (ảnh tham khảo của chủ quán):
+           - chrome (dải nút trên + thanh nút dưới) navy đậm, chữ trắng
+           - tiêu đề nhóm xanh dương, tên món gần đen
+           - nút hành động HỒNG ở cột "chờ chế biến", XANH LÁ ở cột "đã xong":
+             hai cột phải khác màu nút, không thì bấm nhầm cột là món nhảy sai chặng
+           - khối nhóm kẻ sọc xanh rất nhạt xen kẽ cho dễ dò mắt
+           Khai ở :root của .kds-shell để đổi một chỗ là đổi cả màn. */
         .kds-shell {
+          --kds-navy: #123f7d;
+          --kds-navy-2: #0e3466;
+          --kds-blue: #1565c0;
+          --kds-pink: #ee3e79;
+          --kds-green: #22a04a;
+          --kds-page: #f4f7fb;
+          --kds-line: #dde5ef;
+          --kds-row-alt: #eef4fb;
           position: fixed;
           /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
              z-index:10000 (styles.css .env-banner) nên nó đè lên tab bar. Tụt xuống
@@ -505,7 +520,7 @@ export function KitchenPage() {
           bottom: 0;
           display: flex;
           flex-direction: column;
-          background: #f3f4f6;
+          background: var(--kds-navy);
           overflow: hidden;
           /* KHÔNG đặt z-index: giữ auto để position:fixed không tạo stacking context,
              nhờ vậy modal con (z 10000) vẫn nằm trên toast banner ở gốc cây DOM. */
@@ -523,18 +538,18 @@ export function KitchenPage() {
           min-height: 34px;
           min-width: 0;
           border-radius: 999px;
-          border: 1.5px solid #d1d5db;
-          background: white;
-          color: #9ca3af;
+          border: 1.5px solid rgba(255, 255, 255, 0.3);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.72);
           font-size: 13px;
           font-weight: 700;
           cursor: pointer;
           white-space: nowrap;
         }
-        .kds-tab-pill.active { border-color: var(--tab-col); color: var(--tab-col); }
+        .kds-tab-pill.active { background: white; border-color: white; color: var(--tab-col); }
         .kds-tab-pill-n {
-          background: #e5e7eb;
-          color: #4b5563;
+          background: rgba(255, 255, 255, 0.18);
+          color: white;
           border-radius: 999px;
           padding: 0 7px;
           font-size: 13px;
@@ -550,7 +565,7 @@ export function KitchenPage() {
           flex-shrink: 0;
           width: 1px;
           align-self: stretch;
-          background: #e5e7eb;
+          background: rgba(255, 255, 255, 0.25);
           margin: 0 3px;
         }
 
@@ -561,8 +576,8 @@ export function KitchenPage() {
           gap: 6px;
           flex-shrink: 0;
           padding: 6px 10px;
-          background: white;
-          border-bottom: 1px solid #e5e7eb;
+          background: var(--kds-navy);
+          color: white;
           overflow-x: auto;
           overflow-y: hidden;
           -webkit-overflow-scrolling: touch;
@@ -570,6 +585,11 @@ export function KitchenPage() {
         .kds-view-btn {
           flex-shrink: 0;
           padding: 6px 13px;
+          /* Nút trên nền navy → viền + chữ trắng mờ; đang chọn thì đảo thành nền trắng
+             chữ navy, đúng cách KiotViet làm nổi tab đang mở. */
+          border-color: rgba(255, 255, 255, 0.3);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.85);
           /* min-height/min-width phải khai LẠI ở mọi nút của màn này: styles.css có
              'button { min-height:44px; min-width:44px; padding:12px 16px }' cho touch
              target, mà ở KDS thì 44px làm dải nút cao gấp rưỡi cần thiết và ăn mất chỗ
@@ -586,10 +606,10 @@ export function KitchenPage() {
           white-space: nowrap;
         }
         .kds-view-btn.active {
-          background: #0f766e;
-          border-color: #0f766e;
-          color: white;
-          font-weight: 700;
+          background: white;
+          border-color: white;
+          color: var(--kds-navy);
+          font-weight: 800;
         }
 
         /* ─── Board 2 panel ───────────────────────────────────────────────────── */
@@ -597,11 +617,16 @@ export function KitchenPage() {
           flex: 1;
           min-height: 0;
           display: flex;
+          /* Rãnh navy giữa 2 panel — thay cho đường kẻ xám, để mắt không lẫn hai cột
+             với nhau khi bấm nhanh (bấm nhầm cột là món nhảy sai chặng). */
+          gap: 4px;
+          background: var(--kds-navy);
           overflow: hidden;
         }
         .kds-panel {
           flex: 1;
           min-width: 0;
+          background: var(--kds-page);
           overflow-y: auto;
           -webkit-overflow-scrolling: touch;
           overscroll-behavior-y: contain;
@@ -622,7 +647,7 @@ export function KitchenPage() {
         @media (min-width: 900px) {
           /* Màn rộng hiện cả hai panel, CHIA ĐỀU 50/50 — tên món ở đây dài
              ("Bạch Tuộc Nướng : 150 / 1 Đĩa") nên cột nào hẹp là cắt ellipsis ngay. */
-          .kds-panel[data-key='PENDING'] { border-right: 1px solid #e5e7eb; }
+          /* Rãnh navy của .kds-board đã tách 2 cột, không cần thêm đường kẻ. */
           /* Cả 2 panel đang hiện → nút tab không còn là lựa chọn, chỉ là chỗ đọc số. */
           .kds-tab-pill { border-color: var(--tab-col); color: var(--tab-col); cursor: default; }
           .kds-tab-pill .kds-tab-pill-n { background: var(--tab-col); color: white; }
@@ -631,18 +656,22 @@ export function KitchenPage() {
         /* ─── Khối gộp (chế độ Theo món / Theo phòng·bàn) ─────────────────────── */
         .kds-group {
           background: white;
-          border: 1px solid #e5e7eb;
+          border: 1px solid var(--kds-line);
           border-radius: 10px;
           overflow: hidden;
         }
+        /* Kẻ sọc xen kẽ: 40 nhóm cùng một màu trắng thì mắt trượt, không biết dòng nào
+           thuộc khối nào. Nền lệch một nhịp là đủ để dò, không cần thêm viền. */
+        .kds-group.alt { background: var(--kds-row-alt); }
+        .kds-group.alt .kds-card { background: transparent; }
         .kds-group.priority { border-color: #f59e0b; }
         .kds-group-head {
           display: flex;
           align-items: center;
           gap: 8px;
           padding: 7px 10px;
-          background: #f9fafb;
-          border-bottom: 1px solid #eef0f2;
+          background: rgba(21, 101, 192, 0.06);
+          border-bottom: 1px solid var(--kds-line);
           flex-wrap: wrap;
           row-gap: 6px;
         }
@@ -664,7 +693,7 @@ export function KitchenPage() {
         }
         .kds-group-qty {
           flex-shrink: 0;
-          background: #0f766e;
+          background: var(--kds-blue);
           color: white;
           border-radius: 7px;
           padding: 2px 9px;
@@ -679,7 +708,7 @@ export function KitchenPage() {
           margin-left: auto;
         }
         .kds-bulk-btn {
-          border-radius: 7px;
+          border-radius: 999px;
           height: 34px;
           /* Xem ghi chú ở .kds-view-btn — phải đè global 'button' min-height 44px. */
           min-height: 34px;
@@ -697,7 +726,7 @@ export function KitchenPage() {
           background: white;
           border-radius: 8px;
           padding: 7px 10px;
-          border: 1px solid #e5e7eb;
+          border: 1px solid var(--kds-line);
           display: flex;
           /* 14px giữa nút 🚫 và nút chuyển trạng thái → tránh bấm nhầm "báo hết"
              (2 hành động rất khác nhau, khó undo). */
@@ -714,7 +743,7 @@ export function KitchenPage() {
         .kds-group-rows > .kds-card {
           border: none;
           border-radius: 0;
-          border-top: 1px solid #f3f4f6;
+          border-top: 1px solid var(--kds-line);
           min-height: 56px;
         }
         .kds-group-rows > .kds-card:first-child { border-top: none; }
@@ -777,7 +806,7 @@ export function KitchenPage() {
         }
         .kds-card-table {
           font-weight: 700;
-          color: #0f766e;
+          color: var(--kds-blue);
           font-size: 13px;
           white-space: nowrap;
           /* Tên bàn dài ("Takeaway 1", bàn đặt tên theo khách) không được đẩy tên
@@ -860,10 +889,13 @@ export function KitchenPage() {
           transition: transform 0.1s ease, opacity 0.15s;
         }
         .kds-done {
-          background: var(--col, #10b981);
+          background: var(--col, var(--kds-pink));
           color: white;
-          border: 2px solid var(--col, #10b981);
-          min-width: 56px;
+          border: 2px solid var(--col, var(--kds-pink));
+          min-width: 58px;
+          /* Pill như KiotViet — hình dáng khác hẳn nút 🚫 vuông cạnh nó, tay ướt bấm
+             nhanh vẫn phân biệt được bằng viền ngoài chứ không phải bằng icon. */
+          border-radius: 999px;
         }
         .kds-done:active { transform: translateX(3px); opacity: 0.9; }
         .kds-small-btn {
@@ -882,7 +914,7 @@ export function KitchenPage() {
         }
         .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
         .kds-empty {
-          color: #9ca3af;
+          color: #93a3b8;
           text-align: center;
           padding: 22px 16px;
           font-size: 13px;
@@ -898,9 +930,9 @@ export function KitchenPage() {
           gap: 6px;
           padding: 6px 8px;
           padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
-          background: white;
-          border-top: 1px solid #e5e7eb;
-          box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
+          background: var(--kds-navy);
+          /* color ở đây để nút 🔔 (NotificationBell tự style color:inherit) ăn theo. */
+          color: white;
         }
         .kds-bar-btn {
           flex-shrink: 0;
@@ -909,9 +941,9 @@ export function KitchenPage() {
           min-height: 40px;
           padding: 0 10px;
           border-radius: 8px;
-          border: 1px solid #d1d5db;
-          background: white;
-          color: #374151;
+          border: 1px solid rgba(255, 255, 255, 0.32);
+          background: transparent;
+          color: white;
           font-size: 18px;
           line-height: 1;
           cursor: pointer;
@@ -921,9 +953,9 @@ export function KitchenPage() {
           gap: 6px;
         }
         .kds-bar-btn.filter-on {
-          background: #0f766e;
-          border-color: #0f766e;
-          color: white;
+          background: white;
+          border-color: white;
+          color: var(--kds-navy);
           font-weight: 700;
         }
         .kds-bar-btn-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
@@ -953,8 +985,9 @@ export function KitchenPage() {
         .kds-filter-chips::-webkit-scrollbar { display: none; }
         .kds-chip {
           padding: 3px 7px;
-          background: #f0fdfa;
-          border: 1px solid #ccfbf1;
+          background: rgba(255, 255, 255, 0.14);
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          color: white;
           border-radius: 999px;
           font-size: 11px;
           white-space: nowrap;
@@ -1067,10 +1100,11 @@ export function KitchenPage() {
 
             {!loading &&
               grouped &&
-              grouped[t.key].map((g) => (
+              grouped[t.key].map((g, i) => (
                 <GroupBlock
                   key={g.key}
                   group={g}
+                  alt={i % 2 === 1}
                   tab={t.key}
                   view={view}
                   menuMap={menuMap}
@@ -1289,6 +1323,7 @@ export function KitchenPage() {
 // ─── Khối gộp: tiêu đề (+ nút chuyển cả khối) rồi từng dòng ───────────────────
 function GroupBlock({
   group,
+  alt,
   tab,
   view,
   menuMap,
@@ -1297,6 +1332,8 @@ function GroupBlock({
   onToggleStock,
 }: {
   group: KdsGroup<KitchenItem>;
+  /** Khối ở vị trí lẻ → nền lệch một nhịp, xem .kds-group.alt. */
+  alt: boolean;
   tab: TabKey;
   view: ViewKey;
   menuMap: Map<string, MenuItem>;
@@ -1304,10 +1341,14 @@ function GroupBlock({
   onStateChange: (it: KitchenItem, to: string) => void;
   onToggleStock: (it: KitchenItem) => void;
 }) {
-  const oldestColor = ageColor(group.oldest);
+  // ageColor trả #111827 khi còn trong giờ → đổi sang xanh dương cho khớp theme
+  // KiotViet (tiêu đề bàn / món của họ màu xanh). Quá giờ thì GIỮ vàng/đỏ của
+  // ageColor: cảnh báo quá giờ quan trọng hơn việc trông đúng theme.
+  const age = ageColor(group.oldest);
+  const oldestColor = age === '#111827' ? '#1565c0' : age;
   const doneLabel = tab === 'PENDING' ? 'Xong tất cả' : 'Đã giao tất cả';
   const doneTo = tab === 'PENDING' ? 'READY' : 'SERVED';
-  const doneColor = tab === 'PENDING' ? '#10b981' : '#0f766e';
+  const doneColor = tab === 'PENDING' ? '#ee3e79' : '#22a04a';
 
   // Nhóm chỉ có ĐÚNG 1 dòng thì tiêu đề khối lặp lại nguyên xi nội dung của dòng đó
   // (cùng tên món, cùng số phần, cùng nút) — chồng hai lớp lên nhau làm danh sách cao
@@ -1327,7 +1368,7 @@ function GroupBlock({
   }
 
   return (
-    <div className={`kds-group ${group.hasPriority ? 'priority' : ''}`}>
+    <div className={`kds-group ${alt ? 'alt' : ''} ${group.hasPriority ? 'priority' : ''}`}>
       <div className="kds-group-head">
         {/* Tổng SỐ PHẦN của khối — con số bếp cần nhất ở chế độ gộp: múc mấy bát. */}
         <span className="kds-group-qty">×{group.qty}</span>
@@ -1404,14 +1445,20 @@ function Card({
   const isNote = !!item.is_note;
   const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
   const meta = STATE_META[item.state] ?? STATE_META.KITCHEN;
-  const doneColor = tab === 'PENDING' ? '#10b981' : '#0f766e';
+  // Hai cột hai màu nút (theme KiotViet): hồng = "xong, đẩy sang cột phải", xanh lá =
+  // "đã giao khách, món rời màn bếp". Bấm nhầm cột thì món nhảy sai chặng, mà ở tốc độ
+  // bếp thì màu là thứ nhận ra trước cả chữ.
+  const doneColor = tab === 'PENDING' ? '#ee3e79' : '#22a04a';
 
   return (
     <div
       className="kds-card"
       style={{
-        // Ghi chú: viền tím + nền tím nhạt để bếp phân biệt ngay với món phải nấu.
-        borderLeft: `5px solid ${isNote ? '#7c3aed' : meta.color}`,
+        // Vạch màu bên trái, thứ tự ưu tiên của thông tin:
+        //   tím  = ghi chú (yêu cầu phục vụ, KHÔNG phải món nấu) — nền tím nhạt luôn
+        //   vàng = ⭐ ưu tiên, khách sắp về
+        //   xanh dương / xanh lá = cột đang đứng (chờ chế biến / đã xong)
+        borderLeft: `5px solid ${isNote ? '#7c3aed' : item.is_priority ? '#f59e0b' : meta.color}`,
         background: isNote ? '#faf5ff' : undefined,
       }}
     >
