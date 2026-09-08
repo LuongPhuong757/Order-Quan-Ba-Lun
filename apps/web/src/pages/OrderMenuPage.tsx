@@ -45,11 +45,44 @@ type Table = {
   kiotviet_locked?: boolean;
 };
 
-/** Chỉ lấy đúng phần cần cho thanh tóm tắt đầu trang — chi tiết đầy đủ là việc của OrderDrawer. */
+/** Đủ trường để VẼ danh sách món đã gọi ngay trên trang. Các thao tác trên món (sửa số lượng,
+ * huỷ, trả món) vẫn là việc của OrderDrawer — ở đây chỉ đọc. */
 type OrderBrief = {
   id: string;
   source?: string;
-  items: Array<{ state: string; qty: number; menu_item_price: number; is_note?: boolean }>;
+  /** Phí ship admin nhập lúc duyệt đơn online — phải cộng vào tổng cần thu, thiếu là thu thiếu. */
+  ship_fee?: number;
+  items: Array<{
+    id: string;
+    menu_item_id: string;
+    menu_item_name: string;
+    menu_item_price: number;
+    qty: number;
+    state: string;
+    note: string | null;
+    /** true = dòng ghi chú cho bếp ('lấy bát cho khách'), không phải món bán. */
+    is_note?: boolean;
+  }>;
+};
+
+// Giữ ĐÚNG nhãn và màu của OrderDrawer — cùng một món, hai chỗ gọi tên khác nhau là nhân viên
+// tưởng hai trạng thái khác nhau.
+const STATE_LABEL: Record<string, string> = {
+  PENDING: 'Đang gọi',
+  KITCHEN: 'Đã báo bếp',
+  COOKING: 'Đang làm',
+  READY: 'Xong, chờ giao',
+  SERVED: 'Đã giao',
+  CANCELLED: 'Đã huỷ',
+};
+
+const STATE_COLOR: Record<string, string> = {
+  PENDING: '#6b7280',
+  KITCHEN: '#f59e0b',
+  COOKING: '#3b82f6',
+  READY: '#10b981',
+  SERVED: '#059669',
+  CANCELLED: '#dc2626',
 };
 
 function fmt(v: number) {
@@ -128,6 +161,15 @@ export function OrderMenuPage() {
     };
   }, [tableId]);
 
+  /* Danh sách món đã gọi nay nằm NGAY trên trang, nên nó phải tự sống: bếp bấm xong một món thì
+     người đứng order phải thấy đổi màu mà không cần rời trang. 5s chứ không phải 2s như drawer
+     cũ — drawer chỉ mở vài giây rồi đóng, còn trang này mở suốt lúc gọi món, nhịp 2s là gấp
+     2,5 lần số request cho cùng một thông tin. */
+  useEffect(() => {
+    const t = setInterval(() => void refreshOrder(), 5_000);
+    return () => clearInterval(t);
+  }, [refreshOrder]);
+
   // Lookup helpers — nhóm động (sau khi import file, quán có tới 30+ nhóm tự tạo)
   const groupMap = new Map(groupList.map((g) => [g.code, g]));
   const labelOf = (code: string): string => {
@@ -196,13 +238,31 @@ export function OrderMenuPage() {
   const total = cartLines.reduce((s, l) => s + l.menu_item.price * l.qty, 0);
   const totalQty = cartLines.reduce((s, l) => s + l.qty, 0);
 
-  // Tóm tắt phần ĐÃ gọi (không tính dòng ghi chú cho bếp và món đã huỷ).
-  const orderedUnits = (order?.items ?? [])
-    .filter((it) => !it.is_note && it.state !== 'CANCELLED')
-    .reduce((s, it) => s + it.qty, 0);
-  const servedTotal = (order?.items ?? [])
+  // ── Phần ĐÃ GỌI, vẽ thẳng trên trang (2026-09-08, chỉ đạo chủ quán: "có món rồi thì hiện
+  // luôn ra chứ ấn Chi tiết bàn nữa làm gì"). Bàn chưa gọi gì thì KHÔNG vẽ khối này. ──
+  const liveItems = (order?.items ?? []).filter((it) => it.state !== 'CANCELLED');
+  const orderedUnits = liveItems.filter((it) => !it.is_note).reduce((s, it) => s + it.qty, 0);
+  const servedTotal = liveItems
     .filter((it) => !it.is_note && it.state === 'SERVED')
     .reduce((s, it) => s + it.menu_item_price * it.qty, 0);
+  // Tổng cần thu = tiền món đã giao + phí ship, đúng công thức `checkout()` ở BE. Hai chỗ lệch
+  // nhau thì thu ngân đọc một số còn hệ thống ghi sổ một số khác.
+  const billTotal = servedTotal + (order?.ship_fee ?? 0);
+
+  /* Gộp dòng: một món gọi nhiều lần nằm ở nhiều dòng. Khoá gộp = món + ghi chú + trạng thái,
+     giống hệt OrderDrawer — gộp cả trạng thái thì "2 phần đang làm, 1 phần đã giao" mới không
+     bị trộn thành một dòng vô nghĩa. Món đã huỷ không vào đây: nó không tính tiền và chỉ làm
+     dài thêm danh sách; xem huỷ gì thì mở Chi tiết bàn. */
+  const orderedGroups = (() => {
+    const map = new Map<string, { key: string; rep: OrderBrief['items'][number]; count: number }>();
+    for (const it of liveItems) {
+      const key = `${it.menu_item_id}|${it.note ?? ''}|${it.state}`;
+      const cur = map.get(key);
+      if (cur) cur.count += it.qty;
+      else map.set(key, { key, rep: it, count: it.qty });
+    }
+    return Array.from(map.values());
+  })();
 
   const submit = async () => {
     if (!order) return;
@@ -339,14 +399,88 @@ export function OrderMenuPage() {
         .omp-title { flex: 1; min-width: 120px; }
         .omp-title .name { font-size: 18px; font-weight: 700; line-height: 1.2; }
         .omp-title .sub { font-size: 12px; color: #6b7280; }
-        .omp-detail-btn {
-          flex: 0 0 auto;
-          background: #0f766e;
-          min-height: 44px;
-          padding: 8px 14px;
-          border-radius: 10px;
+        /* Khối "đã gọi" — nằm ngay dưới thanh tiêu đề, KHÔNG phải bấm gì để thấy.
+           Cao tối đa 30vh rồi cuộn trong: bàn nhậu 20 món mà để nó đẩy hết lưới món xuống thì
+           lại thành phải cuộn mới gọi được món tiếp. */
+        .omp-ordered {
+          background: white;
+          border: 1px solid #e5e7eb;
+          border-radius: 12px;
+          margin-bottom: 12px;
+          overflow: hidden;
+        }
+        .omp-ordered-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          padding: 10px 12px;
+          background: #f0fdfa;
+          border-bottom: 1px solid #ccfbf1;
+        }
+        /* Xếp DỌC (số phần trên, cần thu dưới) chứ không để một dòng dài: trên máy 390px một
+           dòng sẽ đẩy nút Thanh toán xuống hàng riêng, ăn thêm ~50px chiều cao đúng chỗ đang
+           thiếu. 'min-width: 0' cho nhãn co lại thay vì ép nút ra ngoài. */
+        .omp-ordered-head .lbl {
+          display: flex;
+          flex-direction: column;
+          min-width: 0;
           font-weight: 700;
           font-size: 14px;
+          color: #0f766e;
+        }
+        .omp-ordered-head .sum { font-size: 12px; color: #6b7280; font-weight: 400; }
+        .omp-pay {
+          min-height: 40px;
+          padding: 8px 14px;
+          border-radius: 10px;
+          font-size: 14px;
+          font-weight: 700;
+          flex: 0 0 auto;
+        }
+        .omp-ordered-list { max-height: 22vh; overflow-y: auto; }
+        .omp-ordered-row {
+          display: flex;
+          width: 100%;
+          gap: 10px;
+          align-items: center;
+          padding: 8px 12px;
+          background: white;
+          color: #1f2937;
+          border: none;
+          border-top: 1px solid #f3f4f6;
+          border-radius: 0;
+          text-align: left;
+          font-weight: 400;
+          min-height: 44px;
+        }
+        .omp-ordered-row:first-child { border-top: none; }
+        .omp-ordered-row:hover { background: #f9fafb; }
+        .omp-ordered-row .qty {
+          font-weight: 700;
+          color: #0f766e;
+          flex: 0 0 auto;
+          min-width: 30px;
+          font-size: 15px;
+        }
+        .omp-ordered-row .nm {
+          flex: 1;
+          min-width: 0;
+          font-size: 14px;
+          line-height: 1.35;
+          display: flex;          /* 3 span con là inline — không cho xuống dòng thì tên, ghi chú
+                                     và trạng thái dính hết vào một hàng */
+          flex-direction: column;
+        }
+        .omp-ordered-row .nm .t { font-weight: 600; word-break: break-word; overflow-wrap: anywhere; }
+        .omp-ordered-row .nm .note { font-size: 12px; color: #6b7280; font-style: italic; }
+        .omp-ordered-row .nm .st { font-size: 11px; font-weight: 700; }
+        .omp-ordered-row .pr {
+          flex: 0 0 auto;
+          font-size: 13px;
+          font-weight: 600;
+          white-space: nowrap;
+          color: #0f766e;
         }
         .omp-online-note {
           background: #eff6ff;
@@ -724,6 +858,8 @@ export function OrderMenuPage() {
         /* Desktop (≥768px) — đặt CUỐI để thắng source-order: cột giỏ hiện, thanh dưới ẩn. */
         @media (min-width: 768px) {
           .omp-page { padding-bottom: 24px; }
+          /* Màn rộng thì chiều cao mới là thứ dư — cho khối đã gọi thở thêm. */
+          .omp-ordered-list { max-height: 30vh; }
           .omp-cart { display: flex; }
           .omp-bar  { display: none; }
         }
@@ -737,13 +873,52 @@ export function OrderMenuPage() {
           <div className="name">{table.name}</div>
           <div className="sub">
             <code>{table.code}</code>
-            {orderedUnits > 0 ? ` · đã gọi ${orderedUnits} phần · ${fmt(servedTotal)}` : ' · chưa gọi món'}
+            {orderedUnits === 0 && ' · chưa gọi món'}
           </div>
         </div>
-        <button className="omp-detail-btn" onClick={() => setDrawerOpen(true)}>
-          📋 Chi tiết bàn
-        </button>
       </div>
+
+      {/* Món đã gọi — hiện THẲNG ở đây. Bàn chưa gọi gì thì không vẽ gì cả, để trống đúng nghĩa
+          (chỉ đạo chủ quán 2026-09-08). Bấm vào bất kỳ dòng nào là mở Chi tiết bàn, nơi sửa số
+          lượng / huỷ / trả món — chỗ này chỉ để NHÌN. */}
+      {orderedGroups.length > 0 && (
+        <div className="omp-ordered">
+          <div className="omp-ordered-head">
+            <span className="lbl">
+              <span>🧾 Đã gọi · {orderedUnits} phần</span>
+              <span className="sum">Cần thu {fmt(billTotal)}</span>
+            </span>
+            <button className="omp-pay" onClick={() => setDrawerOpen(true)}>
+              💵 Thanh toán
+            </button>
+          </div>
+          <div className="omp-ordered-list">
+            {orderedGroups.map((g) => (
+              <button
+                key={g.key}
+                className="omp-ordered-row"
+                onClick={() => setDrawerOpen(true)}
+                title="Mở chi tiết bàn để sửa số lượng, huỷ hoặc trả món"
+              >
+                <span className="qty">{g.count}×</span>
+                <span className="nm">
+                  <span className="t">
+                    {g.rep.is_note && '📝 '}
+                    {g.rep.menu_item_name}
+                  </span>
+                  {g.rep.note && <span className="note">↳ {g.rep.note}</span>}
+                  <span className="st" style={{ color: STATE_COLOR[g.rep.state] ?? '#6b7280' }}>
+                    ● {STATE_LABEL[g.rep.state] ?? g.rep.state}
+                  </span>
+                </span>
+                <span className="pr">
+                  {g.rep.is_note ? '' : fmt(g.rep.menu_item_price * g.count)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {isOnline && (
         <div className="omp-online-note">
