@@ -460,36 +460,48 @@ body.kds-mode .toast-banner.error {
   box-shadow: 0 6px 18px rgba(15, 118, 110, 0.45);
 }
 
-/* Hàng nút của một món: mặc định ẨN, vuốt phải→trái mới hiện (chủ quán 2026-09-08).
-   Dùng max-height + opacity chứ không phải `display: none`: cách này trượt mở có hoạt ảnh nên
-   người dùng thấy được là mình vừa mở ra cái gì, thay vì món giật một cái cao thêm 44px.
-   `overflow: hidden` cắt phần chưa mở; 60px là trần đủ cho hàng nút cao 36px. */
+/* Hàng nút của một món: mặc định ẨN, mở bằng cú vuốt ngang hoặc nút ⋯ (chủ quán 2026-09-08).
+   TRƯỢT NGANG chứ không đổ dọc: `transform: translateX(-100%) → 0`. Chiều cao vẫn phải mở ra
+   (hàng nút cần chỗ đứng) nhưng KHÔNG cho nó chạy hoạt ảnh — `transition` chỉ liệt kê transform
+   và opacity, nên chiều cao bật ra tức thì còn mắt chỉ bắt được chuyển động ngang.
+   `overflow: hidden` là thứ cắt phần nút còn nằm ngoài lề trái trong lúc trượt. */
 .item-actions {
   display: flex;
   gap: 4px;
   max-height: 0;
-  opacity: 0;
-  overflow: hidden;
   margin-top: 0 !important;
-  transition: max-height 0.18s ease, opacity 0.18s ease, margin-top 0.18s ease;
+  overflow: hidden;
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: transform 0.22s ease, opacity 0.22s ease;
 }
 
 .item-actions.revealed {
   max-height: 60px;
-  opacity: 1;
   margin-top: 8px !important;
+  transform: translateX(0);
+  opacity: 1;
 }
 
-/* Máy có CHUỘT (laptop, máy bàn): hiện thường trực. Chuột không vuốt được, mà admin làm việc
-   trên laptop thì sẽ không còn đường nào bấm vào Đã giao / Sửa SL / Huỷ. */
-@media (hover: hover) and (pointer: fine) {
-  .item-actions {
-    max-height: 60px;
-    opacity: 1;
-    margin-top: 8px !important;
-    overflow: visible;
-  }
+/* Nút ⋯ dưới giá tiền — đường mở hàng nút cho máy dùng chuột (không vuốt được) và cho người
+   chưa biết là thẻ này vuốt được. Nhờ nó mà bỏ được ngoại lệ "desktop hiện thường trực": cả
+   hai loại máy nay dùng chung một cách. */
+.item-more {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  margin-top: 6px;
+  width: 40px;
+  height: 32px;
+  min-width: 40px;
+  min-height: 32px;
 }
+
+.item-more:hover { background: #f3f4f6; opacity: 1; }
 
 @media (min-width: 640px) {
   .modal-overlay {

@@ -1579,12 +1579,13 @@ function ItemRow({
   const isServed = item.state === 'SERVED';
   // Đồng hồ chờ: chỉ hiện khi món đang nằm trong tay bếp (đã báo bếp / đang làm).
   // Món chưa báo bếp thì chưa ai chờ; món đã giao/huỷ thì hết ý nghĩa.
-  /* Vuốt phải→trái để hiện hàng nút (chỉ đạo chủ quán 2026-09-08: "các button của món ẩn đi,
-     vuốt từ phải qua trái thì hiển thị ra"). CHỈ trên máy cảm ứng — trên desktop hàng nút hiện
-     thường trực (media query `hover: hover` trong styles.css), vì chuột không vuốt được và
-     admin làm việc trên laptop thì sẽ không có đường nào bấm.
+  /* Hàng nút của món ẩn đi, mở ra bằng HAI đường: vuốt ngang trên thẻ, hoặc bấm nút ⋯ dưới
+     giá tiền (chỉ đạo chủ quán 2026-09-08).
+     Vuốt ngang là BẬT/TẮT, không phân biệt chiều — vuốt kiểu gì cũng ra, vuốt lại thì cất đi.
      Ngưỡng 40px và điều kiện |dx| > |dy|: dưới ngưỡng đó là chạm run tay, còn dọc nhiều hơn
-     ngang nghĩa là người ta đang CUỘN danh sách chứ không vuốt một dòng. */
+     ngang nghĩa là người ta đang CUỘN danh sách chứ không vuốt một dòng.
+     Nút ⋯ là thứ khiến bỏ được ngoại lệ "desktop hiện thường trực" trước đây: chuột không vuốt
+     được, nhưng bấm ⋯ thì được, nên nay cả hai loại máy dùng chung một cách. */
   const [revealed, setRevealed] = useState(false);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
@@ -1599,7 +1600,7 @@ function ItemRow({
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
     if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
-    setRevealed(dx < 0); // sang trái = hiện, sang phải = giấu lại
+    setRevealed((v) => !v);
   };
 
   const showAge = WAITING_STATES.has(item.state);
@@ -1688,16 +1689,30 @@ function ItemRow({
             </div>
           )}
         </div>
-        <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280' }}>
-          {item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}
+        <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280', flex: '0 0 auto' }}>
+          <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
+          {/* ⋯ NGAY DƯỚI GIÁ — đường mở hàng nút cho ai không vuốt (chuột, hoặc chưa biết là
+              vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi vuốt cũng không lệch nhau. */}
+          {!readonly && (next.length > 0 || cancelAllowed) && (
+            <button
+              type="button"
+              className="item-more"
+              onClick={() => setRevealed((v) => !v)}
+              aria-expanded={revealed}
+              title={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
+              aria-label={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
+            >
+              ⋯
+            </button>
+          )}
         </div>
       </div>
       {/* Hàng nút của một món: ĐÚNG MỘT DÒNG, nhiều nhất 4 nút (Báo bếp/Đã giao · Ưu tiên ·
           Sửa SL · Huỷ). Không `flexWrap`, và mỗi nút `flex: 1 1 0` + `minWidth: 0` — chữ bên
           trong không được đặt sàn bề rộng, nếu không trên máy 360px cái cuối rơi xuống dòng
           thứ hai và mỗi món cao thêm 44px (ảnh chủ quán gửi 2026-09-08).
-          Trên máy CẢM ỨNG hàng này ẩn đi, vuốt phải→trái mới hiện (chỉ đạo chủ quán
-          2026-09-08) — xem `.item-actions` trong styles.css. */}
+          Hàng này ẩn đi, mở bằng cú vuốt ngang hoặc nút ⋯; khi mở thì TRƯỢT NGANG vào chứ
+          không đổ dọc xuống — xem `.item-actions` trong styles.css. */}
       {!readonly && (next.length > 0 || cancelAllowed) && (
         <div
           className={`item-actions${revealed ? ' revealed' : ''}`}
