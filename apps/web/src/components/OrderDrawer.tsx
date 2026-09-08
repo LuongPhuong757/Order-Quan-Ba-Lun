@@ -1,12 +1,10 @@
-// Drawer chi tiết bàn: list món với lifecycle state buttons + chuyển bàn + thanh toán.
-// Mở từ TRANG gọi món (`OrderMenuPage`) bằng nút "Chi tiết bàn" — từ 2026-09-08 sơ đồ bàn
-// không mở thẳng drawer nữa. Việc GỌI MÓN đã tách hẳn ra trang đó, nên ở đây chỉ còn nút
-// đóng drawer để quay lại list món.
+// Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
 import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpButton, HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
 import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
@@ -186,6 +184,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const confirm = useConfirm();
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [fulfillBusy, setFulfillBusy] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -722,13 +721,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 <>
                   {/* Row 1: hành động chính */}
                   <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
-                    {/* Đóng drawer là lộ ra list món nằm ngay dưới (trang gọi món) — không
-                        mở thêm popup nào nữa. */}
                     <button
-                      onClick={onClose}
+                      onClick={() => setShowBulkOrder(true)}
                       style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
                     >
-                      🛒 Gọi thêm món
+                      🛒 Gọi món
                     </button>
                     <button
                       className="secondary"
@@ -960,6 +957,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               </div>
             )}
           </>
+        )}
+
+        {showBulkOrder && order && (
+          <BulkOrderModal
+            orderId={order.id}
+            tableLabel={`${table.code} · ${table.name}`}
+            onClose={() => setShowBulkOrder(false)}
+            onSubmitted={() => {
+              setShowBulkOrder(false);
+              refresh();
+            }}
+          />
         )}
 
         {showNote && order && (
