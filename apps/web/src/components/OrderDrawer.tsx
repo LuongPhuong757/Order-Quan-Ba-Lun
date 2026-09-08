@@ -1,4 +1,5 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
+import type { CSSProperties } from 'react';
 import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useAuth } from '../lib/auth-context.tsx';
@@ -118,6 +119,19 @@ const NEXT_LABEL: Record<string, string> = {
 function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
+
+/** Kiểu chung cho các nút trong hàng thao tác của MỘT món. Cả bốn nút chia đều bề ngang
+ * (`flex: 1 1 0`) và được phép co dưới bề rộng chữ (`minWidth: 0`) — đó là hai thứ giữ chúng
+ * nằm gọn một dòng trên điện thoại. */
+const ROW_BTN: CSSProperties = {
+  padding: '6px 4px',
+  fontSize: 12,
+  minHeight: 36,
+  flex: '1 1 0',
+  minWidth: 0,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+};
 
 // Helper components dùng trong checkout confirm dialog
 function Section({ title, color, subtitle, children }: { title: string; color: string; subtitle?: string; children: React.ReactNode }) {
@@ -282,22 +296,47 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   // Thao tác theo NHÓM: 1 món có thể nằm ở nhiều dòng (gọi nhiều lần), drawer gộp
   // lại "N×" — nút bấm áp cho TẤT CẢ phần trong nhóm.
   const changeStateGroup = async (g: ItemGroup, to: string) => {
-    // Huỷ/trả món → mở modal sửa số lượng với ô nhập đặt sẵn 0 (bỏ hết), nhân viên
-    // có thể kéo lên nếu chỉ muốn bớt vài phần. Áp cho mọi trạng thái trước khi
-    // thanh toán, kể cả SERVED.
-    // Ngoại lệ: PENDING đúng 1 phần vẫn huỷ 1-click (BR-D — chưa báo bếp, huỷ free).
+    /* Huỷ/trả món → CHỈ hỏi xác nhận rồi huỷ cả nhóm (chỉ đạo chủ quán 2026-09-08).
+       Trước đây nút này mở hộp "Sửa số lượng" đặt sẵn 0: bấm Huỷ mà hiện ra ô nhập số là
+       không ai hiểu mình đang phải làm gì, và vẫn phải bấm thêm một nút nữa mới huỷ được.
+       Muốn bớt vài phần thay vì huỷ hết thì đã có đúng nút "Sửa SL" ngay bên cạnh.
+       Không hỏi lý do — BE tự ghi lý do mặc định theo trạng thái món vào nhật ký bàn. */
     if (to === 'CANCELLED') {
-      if (g.rep.state === 'PENDING' && g.count === 1) {
-        try {
-          await api.post('/orders/items/remove', { item_ids: g.ids });
-          toast.push('success', `Đã huỷ ${g.rep.menu_item_name}`);
-          refresh();
-        } catch (e) {
-          toast.push('error', extractError(e).message);
-        }
-        return;
+      const isServedGroup = g.rep.state === 'SERVED';
+      const ok = await confirm({
+        title: isServedGroup ? 'Trả món?' : 'Huỷ món?',
+        variant: 'danger',
+        confirmLabel: isServedGroup ? `↩ Trả ${g.count} phần` : `✕ Huỷ ${g.count} phần`,
+        cancelLabel: 'Không',
+        message: (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <strong>
+                {g.count}× {g.rep.menu_item_name}
+              </strong>{' '}
+              <span style={{ color: '#6b7280' }}>({LABEL[g.rep.state]})</span>
+            </div>
+            {isServedGroup ? (
+              <div style={{ color: '#dc2626' }}>
+                Món đã mang ra bàn — trả lại sẽ bớt{' '}
+                <strong>{fmt(g.rep.menu_item_price * g.count)}</strong> khỏi tiền bàn.
+              </div>
+            ) : (
+              <div style={{ color: '#6b7280' }}>
+                Muốn bớt vài phần thôi thì bấm "Sửa SL" thay vì huỷ cả nhóm.
+              </div>
+            )}
+          </div>
+        ),
+      });
+      if (!ok) return;
+      try {
+        await api.post('/orders/items/remove', { item_ids: g.ids });
+        toast.push('success', `${isServedGroup ? '↩ Đã trả' : '✕ Đã huỷ'} ${g.count}× ${g.rep.menu_item_name}`);
+        refresh();
+      } catch (e) {
+        toast.push('error', extractError(e).message);
       }
-      setEditQty({ group: g, target: 0 });
       return;
     }
     try {
@@ -546,7 +585,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
-        className="modal"
+        className="modal modal-flush"
         style={{
           maxHeight: '95vh',
           overflowY: 'auto',
@@ -719,33 +758,45 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
               {!isOnline && (
                 <>
-                  {/* Row 1: hành động chính */}
-                  <div className="flex" style={{ flexWrap: 'wrap', gap: 8 }}>
+                  {/* DÒNG 1 — ba việc "làm thêm cho bàn". `minWidth: 0` là thứ giữ cả ba
+                      nằm đúng một dòng trên điện thoại: không có nó thì chữ bên trong đặt sàn
+                      bề rộng cho nút và cái thứ ba rơi xuống dòng. Nhãn cũng cắt ngắn vì lý do
+                      đó — nghĩa đầy đủ nằm ở `title`. */}
+                  <div className="flex" style={{ gap: 6 }}>
                     <button
                       onClick={() => setShowBulkOrder(true)}
-                      style={{ flex: 2, minWidth: 140, background: '#0f766e', fontSize: 15, fontWeight: 700 }}
+                      style={{
+                        flex: 1.3,
+                        minWidth: 0,
+                        background: '#0f766e',
+                        fontSize: 14,
+                        fontWeight: 700,
+                        padding: '10px 8px',
+                        whiteSpace: 'nowrap',
+                      }}
                     >
                       🛒 Gọi món
                     </button>
                     <button
                       className="secondary"
                       onClick={() => setShowTransfer(true)}
-                      style={{ flex: 1, minWidth: 110 }}
+                      style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '10px 6px', whiteSpace: 'nowrap' }}
                       disabled={!hasItems}
+                      title="Chuyển toàn bộ món sang bàn khác"
                     >
                       ↪ Chuyển bàn
                     </button>
+                    {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
+                        item nên bếp thấy trên KDS và tick được như món thường. */}
+                    <button
+                      className="secondary"
+                      onClick={() => setShowNote(true)}
+                      style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '10px 6px', whiteSpace: 'nowrap' }}
+                      title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
+                    >
+                      📝 Ghi chú
+                    </button>
                   </div>
-                  {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
-                      item nên bếp thấy trên KDS và tick được như món thường. */}
-                  <button
-                    className="secondary"
-                    onClick={() => setShowNote(true)}
-                    style={{ width: '100%', minHeight: 42, fontSize: 14 }}
-                    title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
-                  >
-                    📝 Ghi chú cho bếp
-                  </button>
                 </>
               )}
 
@@ -768,20 +819,27 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               )}
               {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món. Đơn ship chưa rời quán
                   thì khoá nút (chốt 2026-08-04): hàng đi rồi tiền mới về, BE cũng chặn 409. */}
+              {/* DÒNG 2 — Thanh toán đi cùng Huỷ cả bàn. Thanh toán chiếm phần lớn bề ngang:
+                  hai nút này ngược nghĩa nhau hoàn toàn, để cùng cỡ là mời bấm nhầm vào cái
+                  xoá sạch tiền bàn. */}
+              {(hasItems || (!isOnline && hasAliveItems)) && (
+              <div className="flex" style={{ gap: 6 }}>
               {hasItems && (
                 <button
                   onClick={checkout}
                   disabled={checkoutBlockedByShip}
                   style={{
-                    width: '100%',
+                    flex: 3,
+                    minWidth: 0,
                     background: checkoutBlockedByShip
                       ? '#9ca3af'
                       : checkoutReady
                         ? '#059669'
                         : '#f59e0b',
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: 700,
                     minHeight: 52,
+                    padding: '10px 8px',
                   }}
                   title={
                     checkoutBlockedByShip
@@ -805,24 +863,29 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   )}
                 </button>
               )}
-              {/* Row 3: Huỷ cả bàn — khách gọi rồi không dùng nữa. Chỉ hiện khi còn
-                  món chưa huỷ, nhạt hơn Thanh toán để không bấm nhầm. Đơn online KHÔNG có
-                  nút này — muốn huỷ thì đi đường từ chối/khách huỷ ở màn Đơn hàng online. */}
+              {/* Huỷ cả bàn — khách gọi rồi không dùng nữa. Chỉ hiện khi còn món chưa huỷ,
+                  nhạt hơn Thanh toán để không bấm nhầm. Đơn online KHÔNG có nút này — muốn huỷ
+                  thì đi đường từ chối/khách huỷ ở màn Đơn hàng online. */}
               {!isOnline && hasAliveItems && (
                 <button
                   onClick={cancelWholeTable}
                   className="secondary"
                   style={{
-                    width: '100%',
+                    flex: 1,
+                    minWidth: 0,
                     color: '#dc2626',
                     borderColor: '#fecaca',
-                    fontSize: 14,
-                    minHeight: 42,
+                    fontSize: 13,
+                    minHeight: 52,
+                    padding: '10px 6px',
+                    whiteSpace: 'nowrap',
                   }}
                   title="Khách đã gọi nhưng không dùng nữa — huỷ sạch bàn, về trống"
                 >
-                  🗑 Huỷ cả bàn
+                  🗑 Huỷ bàn
                 </button>
+              )}
+              </div>
               )}
             </div>
 
@@ -846,6 +909,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       color: COLOR[st],
                       textTransform: 'uppercase',
                       letterSpacing: 0.5,
+                      // Drawer bỏ đệm hai bên (`.modal-flush`) để thẻ món và hàng nút lấy đủ
+                      // bề ngang; riêng CHỮ vẫn phải chừa lề, không thì dính mép máy.
+                      padding: '0 12px',
                     }}
                   >
                     {LABEL[st]} ({unitCount})
@@ -883,6 +949,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       color: COLOR[st],
                       textTransform: 'uppercase',
                       letterSpacing: 0.5,
+                      // Drawer bỏ đệm hai bên (`.modal-flush`) để thẻ món và hàng nút lấy đủ
+                      // bề ngang; riêng CHỮ vẫn phải chừa lề, không thì dính mép máy.
+                      padding: '0 12px',
                     }}
                   >
                     {LABEL[st]} ({unitCount})
@@ -1554,6 +1623,7 @@ function ItemRow({
 
   return (
     <div
+      className="item-card"
       style={{
         background: 'white',
         border: `1px solid ${COLOR[item.state]}33`,
@@ -1634,20 +1704,17 @@ function ItemRow({
           {item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}
         </div>
       </div>
+      {/* Hàng nút của một món: ĐÚNG MỘT DÒNG, nhiều nhất 4 nút (Báo bếp/Đã giao · Ưu tiên ·
+          Sửa SL · Huỷ). Không `flexWrap`, và mỗi nút `flex: 1 1 0` + `minWidth: 0` — chữ bên
+          trong không được đặt sàn bề rộng, nếu không trên máy 360px cái cuối rơi xuống dòng
+          thứ hai và mỗi món cao thêm 44px (ảnh chủ quán gửi 2026-09-08). */}
       {!readonly && (next.length > 0 || cancelAllowed) && (
-        <div className="flex" style={{ marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+        <div className="flex" style={{ marginTop: 8, gap: 4 }}>
           {next.map((to) => (
             <button
               key={to}
               onClick={() => onChangeState(to)}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                background: COLOR[to],
-                minHeight: 36,
-                flex: 1,
-                minWidth: 110,
-              }}
+              style={{ ...ROW_BTN, background: COLOR[to] }}
             >
               {NEXT_LABEL[to]}
             </button>
@@ -1657,17 +1724,10 @@ function ItemRow({
           {!readonly && canSetPriority && onTogglePriority && item.state === 'KITCHEN' && (
             <button
               onClick={onTogglePriority}
-              style={{
-                padding: '6px 12px',
-                fontSize: 13,
-                background: item.is_priority ? '#b45309' : '#f59e0b',
-                color: 'white',
-                minHeight: 36,
-                minWidth: 90,
-              }}
+              style={{ ...ROW_BTN, background: item.is_priority ? '#b45309' : '#f59e0b', color: 'white' }}
               title={item.is_priority ? 'Bỏ đánh dấu ưu tiên' : 'Đánh dấu ưu tiên — bếp nấu trước'}
             >
-              {item.is_priority ? '★ Bỏ ưu tiên' : '⭐ Ưu tiên'}
+              {item.is_priority ? '★ Bỏ ƯT' : '⭐ Ưu tiên'}
             </button>
           )}
           {/* Sửa số lượng — hiện ở MỌI trạng thái trước khi thanh toán. Trước đây
@@ -1676,7 +1736,7 @@ function ItemRow({
             <button
               onClick={onEditQty}
               className="secondary"
-              style={{ padding: '6px 12px', fontSize: 13, minHeight: 36, minWidth: 96 }}
+              style={ROW_BTN}
               title={`Đang có ${n} phần — sửa tăng/giảm hoặc bỏ hẳn`}
             >
               ✎ Sửa SL
@@ -1686,7 +1746,7 @@ function ItemRow({
             <button
               onClick={() => onChangeState('CANCELLED')}
               className="danger"
-              style={{ padding: '6px 12px', fontSize: 13, minHeight: 36, minWidth: 70 }}
+              style={ROW_BTN}
               title={
                 isServed
                   ? 'Khách không dùng (hết) — trả lại, bớt khỏi tiền bàn'
