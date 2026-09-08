@@ -383,12 +383,54 @@ body.kds-mode .toast-banner.error {
   animation: slideUp 0.2s ease-out;
 }
 
+/* Hộp thoại KHÔNG đệm hai bên trên điện thoại (2026-09-08, chủ quán: "loại bỏ margin và
+   padding hai bên"). Dùng cho drawer chi tiết bàn: ở đó mỗi món có một hàng 4 nút, và 48px
+   đệm trái+phải chính là thứ quyết định hàng đó nằm gọn một dòng hay tràn xuống hai dòng.
+   Chỉ áp cho modal mang class này — các hộp thoại khác (xác nhận, form) vẫn cần đệm để chữ
+   không dính mép máy. Từ 640px trở lên đệm quay lại: ở đó bề ngang đã dư. */
+.modal-overlay > .modal.modal-flush {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Chữ chạy hết bề ngang thì dính mép màn hình, nên phần TEXT tự chừa lại một chút — trong khi
+   thẻ món và hàng nút vẫn tràn viền để lấy đủ chỗ. */
+.modal-flush > .flex.between,
+.modal-flush > h2,
+.modal-flush > p {
+  padding-left: 12px;
+  padding-right: 12px;
+}
+
+/* Thẻ món khi tràn viền: bỏ bo góc và viền phải, giữ vạch màu trạng thái bên trái. Một cái thẻ
+   bo góc mà viền phải nằm đúng mép máy trông như bị cắt mất; thành DÒNG danh sách thì vừa đúng
+   dáng vừa đỡ rối — đây là màn cuộn dài, mỗi món một khung riêng là quá nhiều đường kẻ. */
+@media (max-width: 639px) {
+  .modal-flush .item-card {
+    border-radius: 0;
+    border-right: none;
+    border-top: none;
+    margin-bottom: 0;
+    border-bottom: 1px solid #e5e7eb;
+  }
+}
+
 @media (min-width: 640px) {
   .modal-overlay {
     align-items: center;
   }
   .modal-overlay > .modal {
     border-radius: 12px;
+  }
+  .modal-overlay > .modal.modal-flush {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .modal-flush > .flex.between,
+  .modal-flush > h2,
+  .modal-flush > p {
+    padding-left: 0;
+    padding-right: 0;
   }
 }
 
@@ -755,7 +797,12 @@ a:hover {
 }
 
 .header {
-  background: white;
+  /* Nền TRONG SUỐT TUYỆT ĐỐI (2026-09-08, chủ quán). Không phải `#f9fafb` cho giống nền trang:
+     trong suốt thật thì header hoà vào bất cứ nền nào phía sau nó, kể cả dải đỏ môi trường dev.
+     ⚠ Header vẫn `position: sticky`, nên khi cuộn, nội dung trang chạy NGAY DƯỚI chữ của
+     header. Đổi lại đúng thứ được yêu cầu; nếu chữ bị chồng khó đọc thì đường sửa là bỏ sticky
+     hoặc thêm `backdrop-filter`, KHÔNG phải trả lại nền trắng. */
+  background: transparent;
   border-bottom: 1px solid #e5e7eb;
   padding: 10px 14px;
   display: flex;
