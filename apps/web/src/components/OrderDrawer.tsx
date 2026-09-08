@@ -903,11 +903,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               if (groups.length === 0) return null;
               const unitCount = groups.reduce((s, g) => s + g.count, 0);
               return (
-/* Mốc phân vùng là CHIP ở tiêu đề, ôm sát chữ — không kẻ khung quanh cả vùng (chủ
-                     quán 2026-09-08). Nhãn ngắn như "Xong, chờ giao (5)" mà kẻ khung hết bề ngang
-                     thì cái khung to hơn thông tin nó mang, và chồng thêm một lớp viền nữa lên
-                     viền của từng thẻ món. */
-                <div key={st} className="item-section">
+/* Mỗi vùng trạng thái là một KHUNG riêng, viền màu của chính trạng thái đó (chủ
+                     quán 2026-09-08). Tiêu đề bên trong là CHIP ôm sát chữ — khung bao cả vùng,
+                     còn chip chỉ ôm cái nhãn; hai thứ khác nhau, đừng gộp. */
+                <div key={st} className="item-section" style={{ borderColor: `${COLOR[st]}55` }}>
                   <h2
                     className="item-section-title"
                     style={{
@@ -946,7 +945,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 <div
                   key={st}
                   className="item-section"
-                  style={{ opacity: st === 'CANCELLED' ? 0.85 : 1 }}
+                  style={{ borderColor: `${COLOR[st]}55`, opacity: st === 'CANCELLED' ? 0.85 : 1 }}
                 >
                   <h2
                     className="item-section-title"
