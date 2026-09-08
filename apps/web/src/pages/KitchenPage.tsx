@@ -1604,6 +1604,7 @@ function GroupBlock({
       <Card
         item={only}
         tab={tab}
+        lead
         menuItem={menuMap.get(only.menu_item_id ?? '')}
         onDone={() => onStateChange(only, tab === 'PENDING' ? 'READY' : 'SERVED')}
         onToggleStock={() => onToggleStock(only)}
@@ -1665,6 +1666,7 @@ function Card({
   menuItem,
   hideName = false,
   hideTable = false,
+  lead = false,
   onDone,
   onToggleStock,
 }: {
@@ -1675,6 +1677,10 @@ function Card({
   hideName?: boolean;
   /** true khi tiêu đề khối gộp đã nói tên bàn. */
   hideTable?: boolean;
+  /** Nền xanh "đầu việc". CHỈ bật ở 2 chế độ gộp, nơi nó tương phản với dòng con nền
+   *  trắng và nhờ vậy mang nghĩa. Ở chế độ "Ưu tiên" mọi dòng đều ngang cấp — tô xanh
+   *  hết thì màu không phân biệt gì nữa, chỉ còn là một bức tường xanh. */
+  lead?: boolean;
   /** Nút duy nhất — tab Chờ chế biến: xong (READY). Tab Đã xong: đã giao (SERVED). */
   onDone: () => void;
   onToggleStock: () => void;
@@ -1710,7 +1716,7 @@ function Card({
 
   return (
     <div
-      className={`kds-card ${inGroup ? '' : 'lead'}`}
+      className={`kds-card ${lead ? 'lead' : ''}`}
       style={{
         // Nền tím của ghi chú đặt inline nên THẮNG cả .lead: "yêu cầu phục vụ" không
         // phải món nấu, nó phải khác mọi thứ khác kể cả nền đầu việc.
