@@ -63,6 +63,19 @@ describe('aggregateByPair', () => {
       expect(rows[0].change_pct).toBe(0);
     });
 
+    // Lùi về lần ĐẦU của kỳ, không phải lần liền trước: chủ quán báo 2026-09-08 "Tôm nhà Sơn
+    // Tôm Ếch không thấy ở màn Biến động giá". Hai lần nhập cuối tình cờ cùng giá thì mốc "liền
+    // trước" bằng đúng giá cuối, ra 0% và cả mặt hàng bị lọc bỏ — dù giá đã tăng 20% trong kỳ.
+    it('250k → 300k → 300k vẫn là tăng 20% trong kỳ, không phải "không đổi giá"', () => {
+      const rows = aggregateByPair([
+        line({ delivery_date: '2026-09-01', unit_price_base: 250_000, prev_unit_price_base: null }),
+        line({ delivery_date: '2026-09-03', unit_price_base: 300_000 }),
+        line({ delivery_date: '2026-09-05', unit_price_base: 300_000 }),
+      ]);
+      expect(rows[0].prev_base).toBe(250_000);
+      expect(rows[0].change_pct).toBe(20);
+    });
+
     it('tiền ảnh hưởng tính theo giá lùi về, không còn là 0', () => {
       const rows = aggregateByPair([
         line({
