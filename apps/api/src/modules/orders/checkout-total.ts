@@ -20,16 +20,24 @@ export type CheckoutTotals = {
 };
 
 /**
- * `items` là TOÀN BỘ dòng của order; hàm tự lọc `SERVED`. Cố ý nhận cả danh sách thay vì nhận sẵn
- * bản đã lọc: quy tắc "chỉ món ĐÃ GIAO mới tính tiền" là một phần của công thức tiền, để nơi gọi
- * tự lọc là mở đường cho một chỗ nào đó lọc thiếu rồi tính tiền cả món đã huỷ.
+ * `items` là TOÀN BỘ dòng của order; hàm tự lọc. Cố ý nhận cả danh sách thay vì nhận sẵn bản đã
+ * lọc: quy tắc tính tiền là một phần của công thức, để nơi gọi tự lọc là mở đường cho một chỗ
+ * nào đó lọc thiếu rồi tính tiền cả món đã huỷ.
+ *
+ * ⚠ ĐỔI LUẬT 2026-09-08 (chủ quán: "đã gọi món là tính tiền luôn chứ không cần mang ra mới
+ * tính"). Trước đây CHỈ `SERVED` vào tiền, món chưa kịp mang ra bị huỷ trắng lúc thanh toán —
+ * tức là quán làm xong mà không thu được đồng nào. Nay MỌI dòng chưa huỷ đều tính tiền; chỉ
+ * `CANCELLED` là không.
+ *
+ * Đổi ở ĐÂY chứ không phải ở nơi gọi: đây là chỗ duy nhất có test cho công thức tiền, và luật
+ * "cái gì được tính tiền" chính là công thức chứ không phải chi tiết của một hàm checkout.
  */
 export function computeCheckoutTotals(
   items: CheckoutPricedItem[],
   shipFee: number | null | undefined,
 ): CheckoutTotals {
   const items_total = items
-    .filter((i) => i.state === 'SERVED')
+    .filter((i) => i.state !== 'CANCELLED')
     .reduce((sum, i) => sum + i.menu_item_price * i.qty, 0);
   // `?? 0`: đơn tại quán không bao giờ có phí ship, và đơn cũ tạo trước khi có cột này đọc ra
   // `null`. Cả hai đều là "không có phí ship", không phải lỗi.

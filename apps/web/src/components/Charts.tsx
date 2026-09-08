@@ -1,8 +1,37 @@
 // Biểu đồ nhẹ, tự vẽ bằng CSS/SVG — không thêm thư viện (giữ bundle nhỏ, hợp mobile).
 // Dùng ở màn Quản lý giao dịch: cột (theo ngày/giờ), thanh xếp hạng, donut tỉ lệ.
-import { ReactNode } from 'react';
+import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 const TEAL = '#0f766e';
+
+/**
+ * Bảng màu phân loại — 8 sắc, dùng THEO THỨ TỰ và không bao giờ quay vòng.
+ *
+ * Đã kiểm bằng máy (không phải bằng mắt) cho nền trắng: cặp màu cạnh nhau cách nhau ≥ 8 ΔE
+ * dưới ba kiểu mù màu phổ biến. Đây là lý do đường thứ 9 phải gộp thành "Khác" thay vì sinh
+ * thêm một màu: màu thứ 9 nào cũng đụng một trong tám màu này với người mù màu, và lúc đó chú
+ * giải nói một đằng biểu đồ vẽ một nẻo.
+ */
+export const SERIES_COLORS = [
+  '#2a78d6', // xanh dương
+  '#eb6834', // cam
+  '#1baf7a', // xanh ngọc
+  '#eda100', // vàng
+  '#e87ba4', // hồng
+  '#008300', // xanh lá
+  '#4a3aa7', // tím
+  '#e34948', // đỏ
+] as const;
+
+/** Màu của đường gộp "Khác" — xám, cố ý KHÔNG nằm trong dãy trên: nó không phải một NCC, nó là
+ *  phần còn lại. Cho nó một sắc màu như các đường kia là mời người đọc so sánh nó với NCC thật. */
+export const OTHER_COLOR = '#9ca3af';
+
+/** Màu của đường thứ `i`. Quá 8 đường thì đó là lỗi ở chỗ gọi (phải gộp "Khác" trước khi tới
+ *  đây), nên trả màu xám thay vì quay vòng — quay vòng tạo ra hai đường TRÙNG màu. */
+export function seriesColor(i: number): string {
+  return SERIES_COLORS[i] ?? OTHER_COLOR;
+}
 
 export function ChartCard({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
   return (
@@ -149,4 +178,264 @@ export function Donut({
 
 function Empty() {
   return <div style={{ padding: 16, textAlign: 'center', color: '#9ca3af', fontSize: 13 }}>Chưa có dữ liệu.</div>;
+}
+
+// ── Biểu đồ đường nhiều chuỗi ───────────────────────────────────────────────
+
+export type LineSeries = {
+  id: string;
+  name: string;
+  color: string;
+  /** Cùng độ dài với `labels`. */
+  values: number[];
+};
+
+/** Mốc trục dọc "tròn": 1 / 2 / 2,5 / 5 × 10^k. Lấy thẳng max thì nhãn ra 1.237.412đ và không
+ *  ai đọc được cái trục đó. */
+function mocTron(max: number): number {
+  if (max <= 0) return 1;
+  const bac = 10 ** Math.floor(Math.log10(max));
+  for (const b of [1, 2, 2.5, 5, 10]) if (max <= b * bac) return b * bac;
+  return 10 * bac;
+}
+
+/**
+ * Biểu đồ đường, mỗi chuỗi một màu, có chú giải bật/tắt được và tooltip theo cột.
+ *
+ * Tự vẽ SVG thay vì kéo thư viện về: cả app chưa có thư viện biểu đồ nào (`BarChart`,
+ * `Donut`, `Sparkline` ở đây đều tự vẽ), thêm recharts là +80KB gzip cho một màn duy nhất.
+ *
+ * Có tooltip là BẮT BUỘC chứ không phải trang trí: chín đường chồng nhau thì nhìn suông không
+ * tách được đường nào là NCC nào ở một ngày cụ thể. Chú giải luôn hiện vì màu không được là
+ * kênh thông tin duy nhất.
+ *
+ * Đo bề ngang thật bằng `ResizeObserver` rồi vẽ theo px, KHÔNG dùng `viewBox` co giãn: co giãn
+ * thì chữ trục bị kéo méo theo và toạ độ chuột lệch khỏi toạ độ vẽ, tooltip chỉ đúng ở đúng
+ * một bề ngang màn hình.
+ */
+export function LineChart({
+  labels,
+  series,
+  height = 260,
+  formatValue = (v) => String(v),
+  ariaLabel,
+}: {
+  labels: string[];
+  series: LineSeries[];
+  height?: number;
+  formatValue?: (v: number) => string;
+  ariaLabel: string;
+}) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(720);
+  const [an, setAn] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [hover, setHover] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    setW(Math.max(280, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+
+  const hien = useMemo(() => series.filter((s) => !an.has(s.id)), [series, an]);
+
+  const padL = 54;
+  const padR = 10;
+  const padT = 10;
+  const padB = 26;
+  const plotW = Math.max(10, w - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+  const n = labels.length;
+
+  const yMax = useMemo(
+    () => mocTron(Math.max(...hien.flatMap((s) => s.values), 0)),
+    [hien],
+  );
+
+  const x = (i: number) => (n <= 1 ? padL + plotW / 2 : padL + (i / (n - 1)) * plotW);
+  const y = (v: number) => padT + plotH - (v / yMax) * plotH;
+
+  if (n === 0 || series.length === 0) return <Empty />;
+
+  // Nhãn trục ngang: nhiều quá thì chữ đè lên nhau, nên chỉ ghi ~7 mốc rải đều. Mốc đầu và
+  // mốc cuối luôn có mặt — thiếu chúng thì không biết biểu đồ bắt đầu và kết thúc ở đâu.
+  const buocNhan = Math.max(1, Math.ceil(n / 7));
+  const chiSoNhan = new Set<number>([0, n - 1]);
+  for (let i = 0; i < n; i += buocNhan) chiSoNhan.add(i);
+
+  const doiHover = (clientX: number) => {
+    const box = boxRef.current?.getBoundingClientRect();
+    if (!box || n === 0) return;
+    const mx = clientX - box.left;
+    const i = n <= 1 ? 0 : Math.round(((mx - padL) / plotW) * (n - 1));
+    setHover(Math.min(n - 1, Math.max(0, i)));
+  };
+
+  // Tooltip bám cột đang trỏ, nhưng không được tràn khỏi khung — sát mép phải thì lật sang trái.
+  const tipLeft = hover === null ? 0 : Math.min(Math.max(8, x(hover) + 12), Math.max(8, w - 208));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div ref={boxRef} style={{ position: 'relative', width: '100%' }}>
+        <svg
+          width={w}
+          height={height}
+          role="img"
+          aria-label={ariaLabel}
+          style={{ display: 'block', touchAction: 'pan-y' }}
+          onMouseMove={(e) => doiHover(e.clientX)}
+          onMouseLeave={() => setHover(null)}
+          onTouchStart={(e) => doiHover(e.touches[0].clientX)}
+          onTouchMove={(e) => doiHover(e.touches[0].clientX)}
+          onTouchEnd={() => setHover(null)}
+        >
+          {/* Lưới ngang + nhãn trục dọc. Xám nhạt, cố ý lùi hẳn về sau: lưới đậm cạnh tranh
+              với chính đường dữ liệu. */}
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+            const gy = padT + plotH - t * plotH;
+            return (
+              <g key={t}>
+                <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="#e5e7eb" strokeWidth={1} />
+                <text x={padL - 6} y={gy + 4} textAnchor="end" fontSize={10} fill="#6b7280">
+                  {formatValue(yMax * t)}
+                </text>
+              </g>
+            );
+          })}
+
+          {labels.map((lb, i) =>
+            chiSoNhan.has(i) ? (
+              <text
+                key={i}
+                x={x(i)}
+                y={height - 8}
+                textAnchor={i === 0 ? 'start' : i === n - 1 ? 'end' : 'middle'}
+                fontSize={10}
+                fill="#6b7280"
+              >
+                {lb}
+              </text>
+            ) : null,
+          )}
+
+          {hover !== null && (
+            <line x1={x(hover)} y1={padT} x2={x(hover)} y2={padT + plotH} stroke="#9ca3af" strokeWidth={1} strokeDasharray="3 3" />
+          )}
+
+          {hien.map((s) => (
+            <polyline
+              key={s.id}
+              points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')}
+              fill="none"
+              stroke={s.color}
+              strokeWidth={2}
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+
+          {/* Kỳ chỉ có MỘT cột thì `polyline` một điểm không vẽ ra gì cả — chấm tròn là thứ duy
+              nhất nhìn thấy được, nên luôn vẽ chấm ở cột đang trỏ và ở kỳ một cột. */}
+          {hien.map((s) =>
+            (hover !== null ? [hover] : n === 1 ? [0] : []).map((i) => (
+              <circle key={`${s.id}-${i}`} cx={x(i)} cy={y(s.values[i])} r={4} fill={s.color} stroke="#fff" strokeWidth={2} />
+            )),
+          )}
+        </svg>
+
+        {hover !== null && (
+          <div
+            role="status"
+            style={{
+              position: 'absolute',
+              left: tipLeft,
+              top: 6,
+              width: 196,
+              background: '#fff',
+              border: '1px solid #e5e7eb',
+              borderRadius: 8,
+              boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
+              padding: 8,
+              fontSize: 12,
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          >
+            <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>{labels[hover]}</div>
+            {hien
+              .map((s) => ({ s, v: s.values[hover] }))
+              .filter((r) => r.v > 0)
+              .sort((a, b) => b.v - a.v)
+              .map(({ s, v }) => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                  <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+                  <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {s.name}
+                  </span>
+                  <strong style={{ color: '#1f2937' }}>{formatValue(v)}</strong>
+                </div>
+              ))}
+            {hien.every((s) => s.values[hover] === 0) && <span style={{ color: '#9ca3af' }}>Không nhập hàng</span>}
+          </div>
+        )}
+      </div>
+
+      {/* Chú giải luôn hiện khi có từ 2 đường trở lên, và bấm được để tắt bớt đường — chín
+          đường cùng lúc thì cách duy nhất để so hai NCC là tắt bảy cái còn lại. Con số tổng
+          đứng cạnh tên bằng chữ MỰC thường, không tô màu chuỗi: màu là của ô vuông. */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+        {series.map((s) => {
+          const tat = an.has(s.id);
+          return (
+            <button
+              key={s.id}
+              type="button"
+              aria-pressed={!tat}
+              onClick={() =>
+                setAn((cu) => {
+                  const moi = new Set(cu);
+                  if (moi.has(s.id)) moi.delete(s.id);
+                  else moi.add(s.id);
+                  return moi;
+                })
+              }
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                minHeight: 32,
+                padding: '0 6px',
+                background: 'transparent',
+                border: 'none',
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 12,
+                color: tat ? '#9ca3af' : '#374151',
+                opacity: tat ? 0.6 : 1,
+              }}
+            >
+              <span
+                style={{
+                  width: 10,
+                  height: 10,
+                  borderRadius: 3,
+                  background: tat ? 'transparent' : s.color,
+                  border: `2px solid ${s.color}`,
+                  flexShrink: 0,
+                }}
+              />
+              <span style={{ textDecoration: tat ? 'line-through' : 'none' }}>{s.name}</span>
+              <strong style={{ color: tat ? '#9ca3af' : '#1f2937' }}>
+                {formatValue(s.values.reduce((a, b) => a + b, 0))}
+              </strong>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }

@@ -17,15 +17,18 @@ import { useEffect, type JSX } from 'react';
 const BANNER_HEIGHT = '26px';
 
 /**
- * `dev.<domain>` là server develop; localhost là máy lập trình.
- * Cắt port trước khi so để `localhost:5174` cũng tính — cùng lý do với `isMenuHost` ở main.tsx.
+ * CHỈ `dev.<domain>` — server develop.
  *
- * Cố ý CHỈ nhìn hai nhãn đầu: `quanbalun.site` và `menu.quanbalun.site` không khớp, nên trang
- * khách thật không bao giờ vô tình hiện dải này.
+ * KHÔNG tính localhost nữa (2026-09-08, chủ quán: "local không cần cái này"). Giữ khớp với
+ * `apps/web/src/components/EnvBanner.tsx`: hai bản này cố ý là bản sao của nhau, lệch nhau thì
+ * một app hiện dải còn app kia không, mà cả hai cùng chạy trên một máy.
+ *
+ * Cắt port trước khi so — cùng lý do với `isMenuHost` ở main.tsx. Cố ý CHỈ nhìn hai nhãn đầu:
+ * `quanbalun.site` và `menu.quanbalun.site` không khớp, nên trang khách thật không bao giờ vô
+ * tình hiện dải này.
  */
 export function isDevEnvHost(hostname: string): boolean {
   const host = hostname.split(':')[0].toLowerCase();
-  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost')) return true;
   const labels = host.split('.');
   return labels[0] === 'dev' || labels[1] === 'dev';
 }

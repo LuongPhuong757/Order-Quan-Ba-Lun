@@ -19,10 +19,9 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
-import { upperUnit } from '../lib/text-case.ts';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
-import { DailySpendPanel } from './DailySpendPanel.tsx';
+import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
 import {
   ItemStatsPanel,
@@ -31,7 +30,7 @@ import {
   PriceMatrixPanel,
 } from './SupplierReports.tsx';
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
-import { SupplierAccountPanel } from './SupplierAccountPanel.tsx';
+import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
 
 type Supplier = {
@@ -57,22 +56,11 @@ type Delivery = {
   total_amount: number;
 };
 
-type SupplierItemRow = {
-  ingredient_id: string;
-  ingredient_name: string;
-  base_unit: string;
-  purchase_unit: string;
-  qty_base_per_unit: string;
-  last_unit_price: number;
-  last_unit_price_base: string;
-  last_delivery_date: string;
-};
-
-type Tab = 'suppliers' | 'daily' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost';
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
-const TABS_CO_LOC: Tab[] = ['daily', 'deliveries', 'prices', 'items'];
+const TABS_CO_LOC: Tab[] = ['stats', 'deliveries', 'prices', 'items'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -147,7 +135,7 @@ export function SuppliersPage() {
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
-    { value: 'daily', label: 'Theo ngày' },
+    { value: 'stats', label: 'Thống kê' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -160,7 +148,7 @@ export function SuppliersPage() {
         <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>
         {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
             MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
-            nên khi thêm tab thứ sáu ("Theo ngày") nó rộng 410px và kéo cả trang tràn ngang ở
+            nên khi thêm tab thứ sáu ("Thống kê") nó rộng 410px và kéo cả trang tràn ngang ở
             390px. `minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng trong flex cha. */}
         <div
           role="tablist"
@@ -269,7 +257,9 @@ export function SuppliersPage() {
         />
       )}
 
-      {tab === 'daily' && <DailySpendPanel supplierId={filterSupplierId || undefined} />}
+      {/* Tab này có bộ lọc thời gian RIÊNG bên trong (2026-09-08). Các tab còn lại vẫn nhìn
+          toàn bộ lịch sử — xem chú thích ở khối bộ lọc phía trên. */}
+      {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
 
       {tab === 'deliveries' && !loading && (
         <DeliveryList
@@ -319,7 +309,6 @@ export function SuppliersPage() {
       {detail && (
         <SupplierDetail
           supplier={detail}
-          deliveries={deliveries.filter((d) => d.supplier_id === detail.id)}
           isAdmin={isAdmin}
           balanceTick={balanceTick}
           onClose={() => setDetail(null)}
@@ -331,7 +320,6 @@ export function SuppliersPage() {
             setBalanceTick((t) => t + 1);
           }}
           onIntake={() => setShowForm({ supplierId: detail.id })}
-          onOpenHistory={(id, name) => setHistory({ id, name })}
           onBalanceChanged={refresh}
         />
       )}
@@ -643,40 +631,45 @@ function DeliveryList({
  *
  * Bảng giá là thứ chủ quán mở ra TRƯỚC KHI gọi điện đặt hàng — nên nó nằm ngay đây, không bắt
  * đi tìm ở màn khác. */
+/** Chi tiết một NCC — MÀN TIỀN, không phải màn hàng hoá (chủ quán 2026-09-08).
+ *
+ * Chỉ còn hai thứ: đang nợ bao nhiêu, và sổ giao dịch làm nên con số đó. "Đã mua kỳ này / Số
+ * phiếu", "Mặt hàng hay giao", "Phiếu trong kỳ" đã bỏ khỏi đây — mở một NCC ra để xem nợ mà phải
+ * cuộn qua ba bảng hàng hoá thì con số cần xem lại là thứ khó thấy nhất màn. Ba bảng đó không mất
+ * đi đâu cả, chúng vẫn là nội dung của các tab Phiếu nhập / Biến động giá / Mặt hàng nhập.
+ *
+ * Toàn bộ nút của màn nằm trên MỘT hàng, do `SupplierBalancePanel` vẽ qua slot — xem docblock của
+ * nó. Riêng "Đóng" ở lại góc trên phải: nó là nút đóng hộp thoại, và nó đang dùng chung dòng với
+ * tên NCC nên không tốn thêm dòng nào.
+ */
 function SupplierDetail({
   supplier,
-  deliveries,
   isAdmin,
   balanceTick,
   onClose,
   onEdit,
   onDeleted,
   onIntake,
-  onOpenHistory,
   onBalanceChanged,
 }: {
   supplier: Supplier;
-  deliveries: Delivery[];
   isAdmin: boolean;
   balanceTick: number;
   onClose: () => void;
   onEdit: () => void;
   onDeleted: () => void;
   onIntake: () => void;
-  onOpenHistory: (ingredientId: string, name: string) => void;
   onBalanceChanged: () => void;
 }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const [items, setItems] = useState<SupplierItemRow[] | null>(null);
+  const [showAccount, setShowAccount] = useState(false);
 
-  useEffect(() => {
-    setItems(null);
-    api
-      .get<{ data: { items: SupplierItemRow[] } }>(`/suppliers/${supplier.id}/items`)
-      .then((r) => setItems(r.data.data.items))
-      .catch(() => setItems([]));
-  }, [supplier.id]);
+  const intake = (
+    <button className="sup-action" onClick={onIntake}>
+      ＋ Nhập hàng
+    </button>
+  );
 
   return (
     <div
@@ -712,131 +705,55 @@ function SupplierDetail({
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: 24, marginTop: 16, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 13, color: C.muted }}>Đã mua kỳ này</div>
-            <div style={{ fontSize: 26, fontWeight: 800 }}>{vnd(supplier.period_amount)}đ</div>
-          </div>
-          <div>
-            <div style={{ fontSize: 13, color: C.muted }}>Số phiếu</div>
-            <div style={{ fontSize: 26, fontWeight: 800 }}>{supplier.period_deliveries}</div>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 16, flexWrap: 'wrap' }}>
-          <button className="sup-action" onClick={onIntake}>
-            ＋ Nhập hàng
-          </button>
-          {isAdmin && (
-            <button className="secondary sup-action" onClick={onEdit}>
-              Sửa thông tin
-            </button>
-          )}
-          {/* Xoá đứng NGAY đây chứ không nằm trong form "Sửa thông tin". Chôn nó sau một lần bấm
-              nữa thì chủ quán không tìm ra — nghỉ mối là việc thường xuyên, không phải thao tác
-              hiếm đến mức phải giấu. Vẫn có hộp xác nhận nên bấm nhầm không mất gì. */}
-          {isAdmin && (
-            <button
-              className="secondary sup-action"
-              style={{ marginLeft: 'auto', color: C.danger }}
-              onClick={async () => {
-                if (await confirmAndDeleteSupplier(supplier, confirm, toast)) onDeleted();
-              }}
-            >
-              Xoá NCC
-            </button>
-          )}
-        </div>
-
-        {isAdmin && <SupplierAccountPanel supplierId={supplier.id} supplierPhone={supplier.phone} />}
-
         {/* Công nợ chỉ admin xem — nhân viên order nhập hàng được nhưng không thấy tiền nợ. */}
-        {isAdmin && (
+        {isAdmin ? (
           <SupplierBalancePanel
             supplierId={supplier.id}
             supplierName={supplier.name}
             refreshKey={balanceTick}
             onChanged={onBalanceChanged}
+            actionsBefore={intake}
+            actionsAfter={
+              <>
+                <button className="secondary sup-action" onClick={onEdit}>
+                  Sửa thông tin
+                </button>
+                <button className="secondary sup-action" onClick={() => setShowAccount(true)}>
+                  Tài khoản NCC
+                </button>
+                {/* Xoá đứng NGAY đây chứ không nằm trong form "Sửa thông tin". Chôn nó sau một
+                    lần bấm nữa thì chủ quán không tìm ra — nghỉ mối là việc thường xuyên, không
+                    phải thao tác hiếm đến mức phải giấu. Vẫn có hộp xác nhận nên bấm nhầm không
+                    mất gì. */}
+                <button
+                  className="secondary sup-action"
+                  style={{ color: C.danger }}
+                  onClick={async () => {
+                    if (await confirmAndDeleteSupplier(supplier, confirm, toast)) onDeleted();
+                  }}
+                >
+                  Xoá NCC
+                </button>
+              </>
+            }
           />
-        )}
-
-        <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Mặt hàng hay giao</h3>
-        {items === null && <p style={{ color: C.muted }}>Đang tải…</p>}
-        {items?.length === 0 && (
-          <p style={{ color: C.muted, fontSize: 14 }}>
-            Chưa có — bảng này tự sinh ra sau phiếu nhập đầu tiên.
-          </p>
-        )}
-        {items && items.length > 0 && (
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-                  <th style={{ padding: 8 }}>Mặt hàng</th>
-                  <th style={{ padding: 8 }}>Bán theo</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Giá gần nhất</th>
-                  <th style={{ padding: 8, textAlign: 'right' }}>Quy về</th>
-                  <th style={{ padding: 8 }}>Ngày</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((it) => (
-                  <tr key={it.ingredient_id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                    <td style={{ padding: 8 }}>
-                      {/* Bấm tên mặt hàng → lịch sử giá đầy đủ của nó qua mọi NCC (mục 4.3).
-                          Đây là đường đi tự nhiên: đang xem giá NCC này thấy lạ thì muốn biết
-                          ngay nơi khác bán bao nhiêu và giá đã trôi thế nào. */}
-                      <button
-                        type="button"
-                        onClick={() => onOpenHistory(it.ingredient_id, it.ingredient_name)}
-                        style={{
-                          border: 'none',
-                          background: 'none',
-                          padding: 0,
-                          minHeight: 0,
-                          textDecoration: 'underline',
-                          cursor: 'pointer',
-                          color: 'inherit',
-                          font: 'inherit',
-                        }}
-                      >
-                        {it.ingredient_name}
-                      </button>
-                    </td>
-                    <td style={{ padding: 8, color: C.mutedOnTint }}>{upperUnit(it.purchase_unit)}</td>
-                    <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
-                      {vnd(it.last_unit_price)}đ
-                    </td>
-                    {/* Cột "Quy về" là con số DUY NHẤT so sánh được qua thời gian và giữa các NCC
-                        (M3.D-36) — giá mỗi thùng không so được khi cỡ thùng đổi. */}
-                    <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
-                      {Number(it.last_unit_price_base).toLocaleString('vi-VN', {
-                        maximumFractionDigits: 3,
-                      })}
-                      đ/{upperUnit(it.base_unit)}
-                    </td>
-                    <td style={{ padding: 8, color: C.muted, whiteSpace: 'nowrap' }}>
-                      {it.last_delivery_date}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Phiếu trong kỳ</h3>
-        {deliveries.length === 0 ? (
-          <p style={{ color: C.muted, fontSize: 14 }}>Không có phiếu nào.</p>
         ) : (
-          <ul style={{ margin: 0, paddingLeft: 18, fontSize: 14 }}>
-            {deliveries.map((d) => (
-              <li key={d.id} style={{ marginBottom: 4 }}>
-                {d.delivery_date} — <strong>{vnd(d.total_amount)}đ</strong>{' '}
-                <span style={{ color: C.muted }}>({d.created_by_name})</span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
+              {intake}
+            </div>
+            <p style={{ color: C.muted, fontSize: 14, marginTop: 16 }}>
+              Màn này chỉ hiện công nợ và giao dịch — cần quyền quản trị mới xem được.
+            </p>
+          </>
+        )}
+
+        {showAccount && (
+          <SupplierAccountDialog
+            supplierId={supplier.id}
+            supplierPhone={supplier.phone}
+            onClose={() => setShowAccount(false)}
+          />
         )}
       </div>
     </div>

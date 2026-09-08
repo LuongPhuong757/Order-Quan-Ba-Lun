@@ -1,15 +1,19 @@
-// Công nợ nhà cung cấp (bước 3 của Milestone 3).
+// Công nợ nhà cung cấp (bước 3 của Milestone 3) + sổ giao dịch của NCC.
+//
+// Từ 2026-09-08 đây là TOÀN BỘ nội dung màn chi tiết NCC: chủ quán mở một NCC ra là để xem tiền,
+// nên màn chỉ còn công nợ và danh sách giao dịch dựng nên nó.
 //
 // Con số "còn phải trả" chỉ đúng khi chủ quán đã nhập số dư đang nợ từng NCC ở thời điểm bắt đầu
 // dùng phần mềm (Q-7 trong spec). Chưa nhập thì nó là "phát sinh từ ngày bắt đầu dùng" — màn
 // hình phải NÓI RÕ điều đó, vì một con số tiền hiển thị không kèm chú thích sẽ được đọc là tổng
 // nợ thật, rồi ai đó mang đi đối chiếu với NCC và mất mặt.
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
+import { upperUnit } from '../lib/text-case.ts';
 
 export type Balance = {
   supplier_id?: string;
@@ -39,23 +43,33 @@ type Payment = {
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const today = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
 
-/** Khối công nợ trong chi tiết NCC: ba số lớn + lịch sử trả tiền + hai nút. */
+/** Khối tài chính trong chi tiết NCC: MỘT hàng nút, thẻ công nợ, rồi sổ giao dịch.
+ *
+ * Chủ quán 2026-09-08: màn chi tiết NCC chỉ để xem TIỀN — đang nợ bao nhiêu, và con số đó gồm
+ * những giao dịch nào. Vì vậy khối này nhận luôn NÚT CỦA MÀN CHA qua slot `actionsBefore` /
+ * `actionsAfter` thay vì để màn cha vẽ một hàng nút riêng phía trên: hai hàng nút cạnh nhau
+ * đúng là thứ vừa bị kêu.
+ */
 export function SupplierBalancePanel({
   supplierId,
   supplierName,
   refreshKey,
   onChanged,
+  actionsBefore,
+  actionsAfter,
 }: {
   supplierId: string;
   supplierName: string;
   /** Đổi giá trị này để nạp lại sau khi phiếu nhập mới được lưu — công nợ phụ thuộc phiếu. */
   refreshKey: number;
   onChanged: () => void;
+  /** Nút của màn cha, xếp cùng hàng với hai nút tiền ở đây. */
+  actionsBefore?: ReactNode;
+  actionsAfter?: ReactNode;
 }) {
   const toast = useToast();
   const confirm = useConfirm();
   const [balance, setBalance] = useState<BalanceDetail | null>(null);
-  const [showBreakdown, setShowBreakdown] = useState(false);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [showPay, setShowPay] = useState(false);
   const [showOpening, setShowOpening] = useState(false);
@@ -95,140 +109,76 @@ export function SupplierBalancePanel({
     }
   };
 
-  if (!balance) return <p style={{ color: C.muted }}>Đang tải công nợ…</p>;
-
-  const owed = balance.balance;
-  // Số phiếu đứng cạnh "Đã mua" để phân biệt hẳn với ô "Đã mua kỳ này" ở đầu màn NCC — hai con
-  // số khác nghĩa (ở đây là TOÀN BỘ, ở trên là kỳ đang lọc) mà cùng một cái tên thì người đọc
-  // thấy chúng lệch nhau là mất tin vào cả hai.
-  const soPhieu = balance.counted_deliveries.length;
+  const owed = balance?.balance ?? 0;
+  // Số phiếu nhập đứng ngay dưới con số nợ: nó nói con số kia gộp từ bao nhiêu dòng, và phải
+  // khớp đúng số dòng "Phiếu nhập" trong sổ bên dưới để hai chỗ soi được vào nhau.
+  const soPhieu = balance?.counted_deliveries.length ?? 0;
 
   return (
     <>
-      <div
-        className="card"
-        style={{ marginTop: 16, background: owed > 0 ? '#fff7ed' : '#f0fdf4' }}
-      >
-        <div style={{ fontSize: 13, color: C.mutedOnTint }}>
-          {owed >= 0 ? 'Còn phải trả' : 'Đã trả dư (quán đang ứng trước)'}
-        </div>
-        <div style={{ fontSize: 34, fontWeight: 800, color: owed > 0 ? '#c2410c' : '#15803d' }}>
-          {vnd(Math.abs(owed))}đ
-        </div>
+      {/* Con số nợ đứng ĐẦU màn, trên cả hàng nút (chủ quán 2026-09-08). Đây là thứ duy nhất
+          người ta mở NCC ra để xem — bắt nó xếp sau một hàng nút là bắt đọc qua thao tác rồi mới
+          tới kết quả.
 
-        {/* BẢNG CỘNG DỌC, không phải ba con số nằm ngang (chủ quán 2026-09-07: "quá nhiều số
-            tiền hơi rối mắt"). Công nợ VỐN là một phép cộng ba số hạng — trình bày nó thành ba
-            ô cạnh nhau thì người đọc phải tự đoán số nào cộng, số nào trừ. Ở đây dấu +/− nằm
-            ngay trước từng dòng, số dóng phải theo `tabular-nums` nên các chữ số thẳng cột và
-            so độ dài bằng mắt được. */}
-        <div style={{ fontSize: 12, color: C.muted, marginTop: 14, letterSpacing: .3 }}>GỒM</div>
-        <table
-          style={{
-            width: '100%',
-            maxWidth: 420,
-            borderCollapse: 'collapse',
-            marginTop: 4,
-            fontSize: 15,
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          <tbody>
-            <LedgerRow
-              sign=""
-              label="Nợ cũ"
-              hint={balance.opening_balance_date ? `đến ${balance.opening_balance_date}` : undefined}
-              amount={balance.opening_balance}
-            />
-            <LedgerRow
-              sign="+"
-              label="Đã mua"
-              hint={`${soPhieu} phiếu`}
-              amount={balance.purchased}
-            />
-            <LedgerRow sign="−" label="Đã trả" amount={balance.paid} />
-          </tbody>
-        </table>
-
-        {/* Hai chú thích dưới đây KHÔNG phải trang trí — xem docblock đầu file. */}
-        {!balance.opening_balance_date && (
-          <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
-            ⚠ Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
-            không phải tổng nợ thật.
+          Phép cộng "GỒM" (nợ cũ + đã mua − đã trả) đã bỏ khỏi thẻ: nó lặp lại đúng những gì sổ
+          giao dịch bên dưới liệt kê chi tiết hơn, và ba con số tiền chồng ngay dưới con số chính
+          làm loãng chính nó. Nợ cũ gồm những gì thì xem ở dòng "Nợ cũ" trong sổ. */}
+      {balance ? (
+        <div className="card" style={{ marginTop: 16, background: owed > 0 ? '#fff7ed' : '#f0fdf4' }}>
+          <div style={{ fontSize: 13, color: C.mutedOnTint }}>
+            {owed >= 0 ? 'Còn phải trả' : 'Đã trả dư (quán đang ứng trước)'}
           </div>
-        )}
-
-        {/* Nợ cũ gồm những gì — chủ quán tự ghi lúc nhập. Không có dòng này thì sáu tháng sau
-            không ai biết con số đó ở đâu ra. */}
-        {balance.opening_balance > 0 && (
-          <div style={{ fontSize: 13, marginTop: 6 }}>
-            {balance.opening_balance_note ? (
-              <span style={{ color: C.mutedOnTint }}>
-                Nợ cũ gồm: <em>{balance.opening_balance_note}</em>
-              </span>
-            ) : (
-              <span style={{ color: '#b45309' }}>
-                ⚠ Nợ cũ chưa ghi rõ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
-              </span>
-            )}
+          <div style={{ fontSize: 34, fontWeight: 800, color: owed > 0 ? '#c2410c' : '#15803d' }}>
+            {vnd(Math.abs(owed))}đ
           </div>
-        )}
+          <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 2 }}>{soPhieu} phiếu nhập</div>
 
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => setShowBreakdown((v) => !v)}
-          style={{ marginTop: 10, minHeight: 36, fontSize: 13, padding: '0 12px' }}
-        >
-          {showBreakdown ? 'Ẩn chi tiết' : 'Con số này ở đâu ra?'}
+          {/* Chú thích này KHÔNG phải trang trí — xem docblock đầu file. Nó cũng là thứ DUY NHẤT
+              còn lại cảnh báo ca chưa khai nợ cũ: chưa khai thì sổ giao dịch không có dòng "Nợ
+              cũ" nào để người đọc tự nhận ra. */}
+          {!balance.opening_balance_date && (
+            <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
+              ⚠ Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
+              không phải tổng nợ thật.
+            </div>
+          )}
+        </div>
+      ) : (
+        <p style={{ color: C.muted, marginTop: 16 }}>Đang tải công nợ…</p>
+      )}
+
+      {/* MỘT hàng nút duy nhất cho cả màn. `.tabstrip` = cuộn ngang thay vì xuống dòng, nên
+          thêm nút thứ sáu cũng không làm màn cao thêm một dòng trên điện thoại. */}
+      <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
+        {actionsBefore}
+        <button className="sup-action" onClick={() => setShowPay(true)} disabled={!balance}>
+          ＋ Ghi nhận thanh toán
         </button>
-
-        {showBreakdown && (
-          <BalanceBreakdown detail={balance} />
-        )}
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          <button onClick={() => setShowPay(true)} style={{ minHeight: 44 }}>
-            ＋ Ghi nhận thanh toán
-          </button>
-          {/* Mọi admin đặt/sửa được (chủ quán chốt 2026-09-07, trước đó chỉ owner). Cả khối
-              công nợ này đã nằm sau `isAdmin` ở màn cha, nên ở đây không cần chặn thêm. */}
-          <button className="secondary" onClick={() => setShowOpening(true)} style={{ minHeight: 44 }}>
-            {balance.opening_balance_date ? 'Sửa nợ cũ' : 'Khai nợ cũ'}
-          </button>
-        </div>
+        {/* Mọi admin đặt/sửa được (chủ quán chốt 2026-09-07, trước đó chỉ owner). Cả khối công
+            nợ này đã nằm sau `isAdmin` ở màn cha, nên ở đây không cần chặn thêm. */}
+        <button
+          className="secondary sup-action"
+          onClick={() => setShowOpening(true)}
+          disabled={!balance}
+        >
+          {balance?.opening_balance_date ? 'Sửa nợ cũ' : 'Khai nợ cũ'}
+        </button>
+        {actionsAfter}
       </div>
 
-      <h3 style={{ margin: '20px 0 8px', fontSize: 16 }}>Lịch sử thanh toán</h3>
-      {payments.length === 0 ? (
-        <p style={{ color: C.muted, fontSize: 14 }}>Chưa ghi nhận lần trả nào.</p>
-      ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <tbody>
-              {payments.map((p) => (
-                <tr key={p.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{p.paid_on}</td>
-                  <td style={{ padding: 8, fontWeight: 700 }}>{vnd(p.amount)}đ</td>
-                  <td style={{ padding: 8, color: C.mutedOnTint }}>
-                    {p.method === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'}
-                    {p.note && ` · ${p.note}`}
-                  </td>
-                  <td style={{ padding: 8, color: C.muted }}>{p.created_by_name}</td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>
-                    <button
-                      className="secondary"
-                      onClick={() => removePayment(p)}
-                      aria-label="Xoá lần trả này"
-                      style={{ minHeight: 36, padding: '0 10px' }}
-                    >
-                      ✕
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+      {balance && (
+        <>
+          {/* Sổ giao dịch THAY LUÔN nút "Con số này ở đâu ra?" và bảng "Lịch sử thanh toán" cũ:
+              cả hai đều là một phần của cùng một danh sách, tách ra thì phải đọc hai chỗ mới ráp
+              lại được một dòng thời gian. */}
+          <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Giao dịch</h3>
+          <TransactionList
+            detail={balance}
+            payments={payments}
+            onRemovePayment={removePayment}
+            onEditOpening={() => setShowOpening(true)}
+          />
+        </>
       )}
 
       {showPay && (
@@ -245,7 +195,7 @@ export function SupplierBalancePanel({
         />
       )}
 
-      {showOpening && (
+      {showOpening && balance && (
         <OpeningBalanceDialog
           supplierId={supplierId}
           supplierName={supplierName}
@@ -262,106 +212,293 @@ export function SupplierBalancePanel({
   );
 }
 
-/** Một dòng của bảng cộng công nợ: dấu · nhãn (+ chú thích mờ) · số tiền dóng phải.
- *
- * Dấu để RIÊNG một cột hẹp chứ không dán vào con số: dán vào thì "−4.000.000" dài hơn các dòng
- * khác một ký tự và cả cột số lệch đi, đúng thứ làm người ta phải đọc lại hai lần. */
-function LedgerRow({
-  sign,
-  label,
-  hint,
-  amount,
-}: {
-  sign: string;
-  label: string;
-  hint?: string;
-  amount: number;
-}) {
-  return (
-    <tr>
-      <td style={{ padding: '5px 6px 5px 0', width: 14, color: C.mutedOnTint }}>{sign}</td>
-      <td style={{ padding: '5px 8px 5px 0', color: C.mutedOnTint }}>
-        {label}
-        {hint && <span style={{ color: C.muted, fontSize: 13 }}> · {hint}</span>}
-      </td>
-      <td style={{ padding: '5px 0', textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>
-        {vnd(amount)}đ
-      </td>
-    </tr>
-  );
-}
+/** Một giao dịch trong sổ. `amount` mang DẤU: nợ tăng thì dương, trả bớt thì âm — nhờ vậy dòng
+ *  nào cũng in bằng đúng một công thức và không có chỗ nào phải nhớ "dòng này thì trừ". */
+type Txn =
+  | { kind: 'opening'; key: string; date: string; amount: number }
+  | { kind: 'delivery'; key: string; id: string; date: string; amount: number; source: string }
+  | { kind: 'payment'; key: string; date: string; amount: number; payment: Payment };
 
-/** "Con số này ở đâu ra" — liệt kê ĐÚNG những dòng đã cộng trừ ra nó.
+/** Sổ giao dịch của NCC — nợ cũ, từng phiếu nhập, từng lần trả, mới nhất lên đầu.
  *
  * Đây là thứ biến công nợ từ một con số phải tin thành một con số kiểm được. Lúc ngồi đối chiếu
  * với NCC, chủ quán đọc từng dòng ở đây; không có nó thì họ quay về sổ tay và tính năng thất bại.
  *
- * Liệt kê TẤT CẢ phiếu và lần trả (từ 2026-09-07 tất cả đều được cộng/trừ). Danh sách này phải
- * khớp đúng với con số tổng — lệch một dòng là người đối chiếu kết luận hệ thống tính sai.
+ * Phiếu lấy từ `counted_deliveries` — ĐÚNG những phiếu đã cộng vào con số phía trên. Không lấy từ
+ * danh sách phiếu của màn ngoài: danh sách đó lọc theo kỳ đang chọn nên sẽ thiếu dòng, mà thiếu
+ * một dòng là người đối chiếu kết luận hệ thống tính sai.
  */
-function BalanceBreakdown({ detail }: { detail: BalanceDetail }) {
-  const rows: Array<{ date: string; label: string; amount: number }> = [
-    ...(detail.opening_balance > 0
-      ? [
-          {
-            date: detail.opening_balance_date ?? '',
-            label: `Nợ cũ${detail.opening_balance_note ? ` — ${detail.opening_balance_note}` : ''}`,
-            amount: detail.opening_balance,
-          },
-        ]
-      : []),
-    ...detail.counted_deliveries.map((d) => ({
-      date: d.date,
-      label: d.source === 'SUPPLIER' ? 'Phiếu nhập (NCC gửi)' : 'Phiếu nhập',
-      amount: d.amount,
-    })),
-    ...detail.counted_payments.map((p) => ({
-      date: p.date,
-      label: p.method === 'CASH' ? 'Trả tiền mặt' : 'Chuyển khoản',
-      amount: -p.amount,
-    })),
-  ].sort((a, b) => b.date.localeCompare(a.date));
+function TransactionList({
+  detail,
+  payments,
+  onRemovePayment,
+  onEditOpening,
+}: {
+  detail: BalanceDetail;
+  payments: Payment[];
+  onRemovePayment: (p: Payment) => void;
+  onEditOpening: () => void;
+}) {
+  // Chỉ MỘT dòng mở tại một thời điểm. Cho mở nhiều dòng thì sổ dài ra rất nhanh và mất luôn cái
+  // lợi chính của màn này là nhìn một phát thấy hết dòng thời gian.
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  const rows = useMemo<Txn[]>(() => {
+    const list: Txn[] = [
+      ...detail.counted_deliveries.map(
+        (d): Txn => ({ kind: 'delivery', key: `d${d.id}`, id: d.id, date: d.date, amount: d.amount, source: d.source }),
+      ),
+      ...payments.map(
+        (p): Txn => ({ kind: 'payment', key: `p${p.id}`, date: p.paid_on, amount: -p.amount, payment: p }),
+      ),
+    ];
+    if (detail.opening_balance > 0) {
+      list.push({
+        kind: 'opening',
+        key: 'opening',
+        date: detail.opening_balance_date ?? '',
+        amount: detail.opening_balance,
+      });
+    }
+    // Cùng ngày thì xếp nhập → trả → nợ cũ. Nợ cũ xuống cuối vì nó là thứ có TRƯỚC mọi giao dịch
+    // trong hệ thống; ngày của nó chỉ là mốc chốt sổ, không phải lúc phát sinh.
+    const rank = (t: Txn) => (t.kind === 'delivery' ? 2 : t.kind === 'payment' ? 1 : 0);
+    return list.sort((a, b) => b.date.localeCompare(a.date) || rank(b) - rank(a));
+  }, [detail, payments]);
+
+  if (rows.length === 0) {
+    return <p style={{ color: C.muted, fontSize: 14 }}>Chưa có giao dịch nào.</p>;
+  }
 
   return (
-    <div style={{ marginTop: 10, background: '#fff', borderRadius: 8, padding: 10 }}>
-      {rows.length === 0 ? (
-        <div style={{ fontSize: 13, color: C.muted }}>Chưa có giao dịch nào.</div>
-      ) : (
+    <div style={{ border: '1px solid #e5e7eb', borderRadius: 10, overflow: 'hidden' }}>
+      {rows.map((t, i) => {
+        const open = openKey === t.key;
+        return (
+          <div key={t.key} style={{ borderTop: i === 0 ? 'none' : '1px solid #e5e7eb' }}>
+            <button
+              type="button"
+              aria-expanded={open}
+              onClick={() => setOpenKey(open ? null : t.key)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 10,
+                width: '100%',
+                minHeight: 52,
+                padding: '8px 12px',
+                border: 'none',
+                borderRadius: 0,
+                background: open ? '#f9fafb' : 'transparent',
+                color: 'inherit',
+                font: 'inherit',
+                textAlign: 'left',
+                cursor: 'pointer',
+              }}
+            >
+              <span style={{ color: C.muted, fontSize: 13, whiteSpace: 'nowrap' }}>{t.date || '—'}</span>
+              <span style={{ flex: 1, minWidth: 0 }}>{txnLabel(t)}</span>
+              <span
+                style={{
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  fontVariantNumeric: 'tabular-nums',
+                  color: t.amount < 0 ? '#15803d' : undefined,
+                }}
+              >
+                {t.amount < 0 ? '−' : '+'}
+                {vnd(Math.abs(t.amount))}đ
+              </span>
+              <span
+                aria-hidden
+                style={{
+                  color: C.muted,
+                  transform: open ? 'rotate(90deg)' : 'none',
+                  transition: 'transform .12s',
+                }}
+              >
+                ›
+              </span>
+            </button>
+
+            {open && (
+              <div style={{ padding: '0 12px 14px', background: '#f9fafb' }}>
+                {t.kind === 'delivery' && <DeliveryTxnDetail deliveryId={t.id} />}
+                {t.kind === 'payment' && (
+                  <PaymentTxnDetail p={t.payment} onRemove={() => onRemovePayment(t.payment)} />
+                )}
+                {t.kind === 'opening' && <OpeningTxnDetail detail={detail} onEdit={onEditOpening} />}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function txnLabel(t: Txn): string {
+  if (t.kind === 'opening') return 'Nợ cũ';
+  if (t.kind === 'delivery') return t.source === 'SUPPLIER' ? 'Phiếu nhập (NCC gửi)' : 'Phiếu nhập';
+  return t.payment.method === 'CASH' ? 'Trả tiền mặt' : 'Chuyển khoản';
+}
+
+const DELIVERY_STATUS_LABEL: Record<string, string> = {
+  PENDING_REVIEW: 'chờ duyệt',
+  PENDING_PRICE: 'chờ báo giá',
+  CONFIRMED: 'đã duyệt',
+  CANCELLED: 'đã huỷ',
+};
+
+/** Phiếu nhập đọc đầy đủ từ `GET /supplier-deliveries/:id`. Chỉ khai những trường màn này dùng. */
+type DeliveryFull = {
+  delivery: {
+    status: string;
+    source: string;
+    created_by_name: string;
+    note: string | null;
+    total_amount: number;
+  };
+  lines: Array<{
+    id: string;
+    ingredient_name_snapshot: string;
+    purchase_unit_snapshot: string;
+    qty_purchase: string;
+    unit_price: number;
+    amount: number;
+  }>;
+};
+
+/** Chi tiết một phiếu nhập, nạp khi bấm mở chứ không nạp sẵn cả sổ: một NCC lâu năm có hàng trăm
+ *  phiếu, tải hết ngay là vài trăm request cho thứ người ta xem một dòng. */
+function DeliveryTxnDetail({ deliveryId }: { deliveryId: string }) {
+  const [data, setData] = useState<DeliveryFull | 'error' | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    api
+      .get<{ data: DeliveryFull }>(`/supplier-deliveries/${deliveryId}`)
+      .then((r) => {
+        if (alive) setData(r.data.data);
+      })
+      .catch(() => {
+        if (alive) setData('error');
+      });
+    return () => {
+      alive = false;
+    };
+  }, [deliveryId]);
+
+  if (data === null) return <p style={{ margin: 0, fontSize: 13, color: C.muted }}>Đang tải phiếu…</p>;
+  if (data === 'error')
+    return <p style={{ margin: 0, fontSize: 13, color: '#b91c1c' }}>Không đọc được phiếu này.</p>;
+
+  const { delivery, lines } = data;
+  return (
+    <div>
+      <Meta label="Nguồn" value={delivery.source === 'SUPPLIER' ? 'Nhà cung cấp gửi' : 'Nhân viên nhập'} />
+      <Meta label="Người nhập" value={delivery.created_by_name || '—'} />
+      {/* Chỉ nói trạng thái khi nó KHÁC "đã duyệt". Phiếu đã duyệt là ca thường, ghi ra chỉ tổ
+          thêm một dòng chữ ai cũng lướt qua. */}
+      {delivery.status !== 'CONFIRMED' && (
+        <Meta label="Trạng thái" value={DELIVERY_STATUS_LABEL[delivery.status] ?? delivery.status} />
+      )}
+      {delivery.note && <Meta label="Ghi chú" value={delivery.note} />}
+
+      <div style={{ overflowX: 'auto', marginTop: 10 }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+              <th style={{ padding: '4px 6px' }}>Mặt hàng</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>Số lượng</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Đơn giá</th>
+              <th style={{ padding: '4px 6px', textAlign: 'right' }}>Thành tiền</th>
+            </tr>
+          </thead>
           <tbody>
-            {rows.map((r, i) => (
-              <tr key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid #f3f4f6' }}>
-                <td style={{ padding: '4px 6px', whiteSpace: 'nowrap', color: C.muted }}>
-                  {r.date || '—'}
+            {lines.map((l) => (
+              <tr key={l.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                <td style={{ padding: '4px 6px' }}>{l.ingredient_name_snapshot}</td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {Number(l.qty_purchase).toLocaleString('vi-VN', { maximumFractionDigits: 3 })}{' '}
+                  {upperUnit(l.purchase_unit_snapshot)}
                 </td>
-                <td style={{ padding: '4px 6px' }}>{r.label}</td>
-                <td
-                  style={{
-                    padding: '4px 6px',
-                    textAlign: 'right',
-                    whiteSpace: 'nowrap',
-                    color: r.amount < 0 ? '#15803d' : undefined,
-                    fontWeight: 600,
-                  }}
-                >
-                  {r.amount < 0 ? '−' : '+'}
-                  {vnd(Math.abs(r.amount))}đ
+                <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {vnd(l.unit_price)}đ
+                </td>
+                <td style={{ padding: '4px 6px', textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                  {vnd(l.amount)}đ
                 </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr style={{ borderTop: '2px solid #d1d5db' }}>
-              <td colSpan={2} style={{ padding: '6px', fontWeight: 700 }}>
-                Còn phải trả
+              <td colSpan={3} style={{ padding: 6, fontWeight: 700 }}>
+                Tổng phiếu
               </td>
-              <td style={{ padding: '6px', textAlign: 'right', fontWeight: 800 }}>
-                {vnd(detail.balance)}đ
+              <td style={{ padding: 6, textAlign: 'right', fontWeight: 800, whiteSpace: 'nowrap' }}>
+                {vnd(delivery.total_amount)}đ
               </td>
             </tr>
           </tfoot>
         </table>
+      </div>
+    </div>
+  );
+}
+
+function PaymentTxnDetail({ p, onRemove }: { p: Payment; onRemove: () => void }) {
+  return (
+    <div>
+      <Meta label="Phương thức" value={p.method === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'} />
+      <Meta label="Người ghi" value={p.created_by_name || '—'} />
+      {p.note && <Meta label="Ghi chú" value={p.note} />}
+      {/* Nút xoá nằm TRONG chi tiết chứ không ở dòng ngoài: xoá một lần trả làm nợ tăng lại,
+          không phải thứ nên bấm trúng lúc đang lướt sổ. */}
+      <button
+        className="secondary"
+        onClick={onRemove}
+        style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13, color: C.danger }}
+      >
+        Xoá lần trả này
+      </button>
+    </div>
+  );
+}
+
+function OpeningTxnDetail({ detail, onEdit }: { detail: BalanceDetail; onEdit: () => void }) {
+  return (
+    <div>
+      <Meta label="Tính đến" value={detail.opening_balance_date ?? 'chưa ghi ngày'} />
+      {detail.opening_balance_note ? (
+        <Meta label="Gồm" value={detail.opening_balance_note} />
+      ) : (
+        <div style={{ fontSize: 13, color: '#b45309', marginTop: 4 }}>
+          ⚠ Chưa ghi rõ nợ cũ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
+        </div>
       )}
+      <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
+        Nợ NGOÀI hệ thống, có trước mọi phiếu ở trên — chủ quán tự khai, hệ thống không kiểm được.
+      </div>
+      <button
+        className="secondary"
+        onClick={onEdit}
+        style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13 }}
+      >
+        Sửa nợ cũ
+      </button>
+    </div>
+  );
+}
+
+/** Một dòng "nhãn · giá trị" trong phần chi tiết của giao dịch. */
+function Meta({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', gap: 8, fontSize: 13, marginTop: 4 }}>
+      <span style={{ color: C.muted, flex: 'none', minWidth: 84 }}>{label}</span>
+      <span style={{ minWidth: 0, wordBreak: 'break-word' }}>{value}</span>
     </div>
   );
 }

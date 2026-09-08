@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
+import { pickAutoItem } from '../lib/auto-items.ts';
 import { useToast } from './Toast.tsx';
 
 type MenuItem = {
@@ -40,11 +41,22 @@ type CartLine = {
 type Props = {
   orderId: string;
   tableLabel: string;
+  /** `dine-in` | `takeaway` | `delivery` — quyết định có gợi khăn lạnh vào giỏ hay không. */
+  tableKind: string;
+  /** Bàn CHƯA gọi món nào. Chỉ bàn mới tinh mới được gợi sẵn khăn lạnh. */
+  isNewTable: boolean;
   onClose: () => void;
   onSubmitted: () => void;
 };
 
-export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Props) {
+export function BulkOrderModal({
+  orderId,
+  tableLabel,
+  tableKind,
+  isNewTable,
+  onClose,
+  onSubmitted,
+}: Props) {
   const toast = useToast();
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [groupList, setGroupList] = useState<MenuGroup[]>([]);
@@ -64,8 +76,23 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
       api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
     ])
       .then(([menuRes, groupRes]) => {
-        setMenu(menuRes.data.data.items);
+        const items = menuRes.data.data.items;
+        setMenu(items);
         setGroupList(groupRes.data.data.items);
+        /* Bàn tại chỗ MỚI TINH → bỏ sẵn khăn lạnh vào giỏ (chủ quán 2026-09-08). Ở GIỎ chứ
+           không thêm thẳng vào đơn: nhân viên còn sửa số lượng hoặc bấm 🗑 bỏ đi trước khi
+           Báo bếp — vào đơn rồi thì muốn bỏ phải đi huỷ món, đụng cả bếp lẫn tiền.
+           Đặt trong `.then` của lần nạp menu, không phải effect riêng: phải có menu mới dò được
+           tên món, và làm đúng một lần lúc mở màn. */
+        const auto = pickAutoItem(tableKind, isNewTable, items);
+        if (auto) {
+          setCart((prev) => {
+            if (prev.has(auto.item.id)) return prev; // không đè lên thứ người ta đã tự chọn
+            const next = new Map(prev);
+            next.set(auto.item.id, { menu_item: auto.item, qty: auto.qty, note: '' });
+            return next;
+          });
+        }
       })
       .catch((err) => toast.push('error', extractError(err).message))
       .finally(() => setLoading(false));
@@ -224,32 +251,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           z-index: 5;
           box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
         }
-        .bulk-mobile-bar .info {
-          flex: 1;
-          background: #f9fafb;
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-          padding: 8px 14px;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          cursor: pointer;
-          min-height: 52px;
-          text-align: left;
-        }
-        .bulk-mobile-bar .info:active { background: #f3f4f6; }
-        .bulk-mobile-bar .info .top {
-          font-size: 12px;
-          color: #6b7280;
-        }
-        .bulk-mobile-bar .info .bottom {
-          font-size: 17px;
-          font-weight: 700;
-          color: #0f766e;
-        }
-        .bulk-mobile-bar .info.empty .bottom { color: #9ca3af; font-size: 14px; }
         .bulk-mobile-bar .submit {
-          flex: 1.2;
+          flex: 1;
           background: #f59e0b;
           color: white;
           font-weight: 700;
@@ -270,7 +273,6 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           color: #9ca3af;
           cursor: not-allowed;
         }
-        .bulk-mobile-bar .submit .icon { font-size: 16px; }
         /* Mobile cart sheet — slide từ dưới lên */
         .bulk-mobile-sheet-overlay {
           position: fixed;
@@ -305,7 +307,14 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           justify-content: space-between;
           align-items: center;
         }
-        .bulk-mobile-sheet-header h2 { margin: 0; font-size: 17px; }
+        .bulk-mobile-sheet-header h2 {
+          margin: 0;
+          font-size: 17px;
+          min-width: 0;      /* cho nhãn co lại thay vì đẩy 'Xoá hết' và ✕ xuống dòng */
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
         .bulk-mobile-sheet-body {
           flex: 1;
           overflow-y: auto;
@@ -582,6 +591,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           border: none;
           cursor: pointer;
           min-height: 28px;
+          white-space: nowrap;   /* 'Xoá hết' gãy thành hai dòng thì cả hàng cao gấp đôi */
+          flex: 0 0 auto;
         }
 
         /* Desktop overrides (≥768px) — đặt CUỐI để đảm bảo source-order win.
@@ -596,7 +607,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
       <div className="bulk-container">
         <div className="bulk-header">
           <h1>
-            🛒 Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
+            Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
           </h1>
           <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>
             ✕
@@ -659,7 +670,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           {/* PANEL PHẢI — GIỎ HÀNG (desktop only, mobile dùng sticky bar + sheet) */}
           <div className="bulk-cart-panel">
             <div className="bulk-cart-header">
-              <span>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</span>
+              <span>{cartLines.length} món · {totalQty} phần</span>
               {cartLines.length > 0 && (
                 <button className="bulk-clear" onClick={() => setCart(new Map())}>
                   Xoá hết
@@ -688,45 +699,25 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                 disabled={submitting || cartLines.length === 0}
               >
                 {submitting && <span className="spinner" />}
-                📢 Báo bếp {totalQty} phần · {fmt(total)}
+                Báo bếp
               </button>
             </div>
           </div>
         </div>
 
-        {/* MOBILE — sticky bar dưới menu */}
+        {/* MOBILE — thanh dưới, ĐÚNG MỘT NÚT (chỉ đạo chủ quán 2026-09-08).
+            Trước đây là hai nút: một ô tóm tắt giỏ và một nút hành động. Hai ô cạnh nhau cùng
+            dẫn tới đúng một chỗ thì ô bên trái chỉ tổ chiếm nửa bề ngang mà không thêm việc gì.
+            Và nút này KHÔNG báo bếp: gửi thẳng từ đây là gửi mà chưa từng nhìn lại giỏ — tap
+            trúng một món hai lần là thành 2 phần mà không hề biết, gửi xong mới phát hiện thì
+            món đã nằm ở bếp. Báo bếp CHỈ còn bên trong giỏ. */}
         <div className="bulk-mobile-bar">
           <button
-            className={`info ${cartLines.length === 0 ? 'empty' : ''}`}
-            onClick={() => cartLines.length > 0 && setMobileCartOpen(true)}
-            disabled={cartLines.length === 0}
-            style={{ cursor: cartLines.length > 0 ? 'pointer' : 'default' }}
-          >
-            {cartLines.length === 0 ? (
-              <>
-                <div className="top">🛒 Giỏ hàng</div>
-                <div className="bottom">Trống — tap món trên menu</div>
-              </>
-            ) : (
-              <>
-                <div className="top">🛒 {totalQty} phần · {cartLines.length} món · tap để xem</div>
-                <div className="bottom">{fmt(total)}</div>
-              </>
-            )}
-          </button>
-          <button
             className="submit"
-            onClick={submit}
-            disabled={submitting || cartLines.length === 0}
+            onClick={() => setMobileCartOpen(true)}
+            disabled={cartLines.length === 0}
           >
-            {submitting ? (
-              <><span className="spinner" />Đang gửi</>
-            ) : (
-              <>
-                <span className="icon">📢</span>
-                <span>Báo bếp</span>
-              </>
-            )}
+            Xem đơn và xác nhận lại
           </button>
         </div>
       </div>
@@ -740,7 +731,10 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           <div className="bulk-mobile-sheet">
             <div className="bulk-sheet-handle" />
             <div className="bulk-mobile-sheet-header">
-              <h2>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</h2>
+              {/* Chỉ con số, KHÔNG icon và KHÔNG chữ 'Giỏ hàng' (chỉ đạo chủ quán
+                  2026-09-08) — đang đứng trong chính cái giỏ thì không cần ai nhắc lại.
+                  Nhãn ngắn lại là ba thứ (số · Xoá hết · ✕) vừa đúng MỘT dòng. */}
+              <h2>{cartLines.length} món · {totalQty} phần</h2>
               <div className="flex" style={{ gap: 8 }}>
                 {cartLines.length > 0 && (
                   <button className="bulk-clear" onClick={() => setCart(new Map())}>
@@ -780,7 +774,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                 disabled={submitting || cartLines.length === 0}
               >
                 {submitting && <span className="spinner" />}
-                📢 Báo bếp {totalQty} phần · {fmt(total)}
+                Báo bếp
               </button>
             </div>
           </div>

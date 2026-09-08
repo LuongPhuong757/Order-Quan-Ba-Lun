@@ -1159,7 +1159,10 @@ function ImportMenuModal({
             group_name: r.group_name || undefined,
             price: r.price,
             unit: r.unit,
-            image_url: r.image_url,
+            // `undefined` chứ KHÔNG phải `null` khi file không có cột ảnh: null từng bị BE hiểu
+            // là "xoá ảnh" và quét sạch ảnh toàn menu (2026-09-07). BE nay cũng đã chặn, đây là
+            // lớp thứ hai — không gửi thì không có gì để hiểu nhầm.
+            image_url: r.image_url || undefined,
           })) },
       );
       const { created, updated, created_groups } = res.data.data;

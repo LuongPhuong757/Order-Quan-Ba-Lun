@@ -1,15 +1,41 @@
-// Kitchen Display System (KDS) — 3-column kanban iPad-first.
-// Mỗi cột 1 state: KITCHEN (đã order) → COOKING (đang nấu) → READY (đã xong).
-// Card có mũi tên → ở mỗi card để bếp tap chuyển sang cột kế tiếp.
-// Khi card vào cột READY → readyNotifier.ingest tự emit notification toàn bộ thành viên.
+// Kitchen Display System (KDS) — FULL-SCREEN, 2 tab, responsive điện thoại / iPad / laptop.
+//
+// Đổi ngày 2026-09-08 sau khi bếp dùng thật và báo "khó dùng":
+//   - Trước: 3 cột KITCHEN / COOKING / READY. Trên điện thoại 3 cột xếp dọc thành 3
+//     khối phải cuộn qua nhau → bếp mất công, và chỉ nhìn thấy vài món một lúc.
+//   - Giờ: 2 tab. "Chờ chế biến" gom KITCHEN + COOKING (món đang nấu mang badge 🔥),
+//     "Đã xong" là READY. Mỗi dòng có 2 nút như KDS của KiotViet: `›` = bắt đầu nấu,
+//     `»` = xong luôn (bỏ qua bước đang nấu). State COOKING trong DB GIỮ NGUYÊN — màn
+//     Order, OrderDrawer và thanh tiến trình đơn online (order-progress.ts) đang đọc nó.
+//   - Header của màn này bị xoá, và App.tsx ẩn cả header global + nav dưới khi ở
+//     `/kitchen`. Mọi nút (← quay lại, lọc nhóm, làm mới, hướng dẫn, thông báo, đăng
+//     xuất) gom về đúng MỘT thanh ở đáy màn → lấy lại ~110px cho danh sách món.
+//   - Màn rộng (≥900px) hiện cả 2 panel cạnh nhau, tab bar thành tiêu đề cột; màn hẹp
+//     thì chỉ panel đang chọn hiện. Cùng một cây DOM, chuyển bằng CSS chứ không phải JS.
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
+import { HelpModal } from '../components/HelpModal.tsx';
+import { NotificationBell } from '../components/NotificationBell.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
+import {
+  addCancelled,
+  describeCancelled,
+  dismissCancelled,
+  pruneCancelled,
+  type CancelledEntry,
+} from '../lib/kds-cancelled.ts';
+import {
+  applyStickyOrder,
+  groupByItem,
+  groupByTable,
+  type GroupOrder,
+  type KdsGroup,
+} from '../lib/kds-group.ts';
 
 type OrderItem = {
   id: string;
@@ -68,10 +94,74 @@ function fmtPortion(n: number): string {
   return n % 1000 === 0 ? `${n / 1000}k` : `${n.toLocaleString('vi-VN')}đ`;
 }
 
+// ─── Tab + chế độ xem ─────────────────────────────────────────────────────────
+// 2 tab, KHÔNG phải 3 state: tab "Chờ chế biến" cố tình trộn KITCHEN với COOKING.
+// Bếp không cần một cột riêng cho "đang nấu" — món đang trên chảo vẫn là việc chưa
+// xong, tách ra chỉ tạo thêm một chỗ phải cuộn tới. Badge 🔥 trên dòng là đủ.
+type TabKey = 'PENDING' | 'DONE';
+
+const TABS: Array<{ key: TabKey; label: string; icon: string; color: string; bg: string }> = [
+  { key: 'PENDING', label: 'Chờ chế biến', icon: '🔥', color: '#d97706', bg: '#fffbeb' },
+  { key: 'DONE', label: 'Đã xong', icon: '🍽', color: '#059669', bg: '#ecfdf5' },
+];
+
+/** State nào vào tab nào. State lạ (PENDING/SERVED/CANCELLED) không thuộc màn bếp. */
+const TAB_OF_STATE: Record<string, TabKey> = {
+  KITCHEN: 'PENDING',
+  COOKING: 'PENDING',
+  READY: 'DONE',
+};
+
+// Bỏ hẳn "đang nấu" khỏi màn bếp (2026-09-08, theo yêu cầu sau khi dùng thật):
+// bếp đứng ngay cạnh chảo nên "món này đang trên bếp" không phải thông tin cần một
+// trạng thái riêng để nhớ — nó chỉ bắt bếp bấm thêm một lần cho MỌI món.
+// COOKING vẫn tồn tại trong DB và màn Order vẫn set được (đơn online đọc nó để vẽ
+// thanh tiến trình cho khách), nhưng ở đây dòng COOKING hiện y hệt dòng chờ làm:
+// cùng màu viền, không badge. Bếp không cần phân biệt, và không có nút nào ở màn
+// này tạo ra COOKING nữa.
+const STATE_META: Record<string, { color: string; label: string }> = {
+  KITCHEN: { color: '#1565c0', label: 'Chờ làm' },
+  COOKING: { color: '#1565c0', label: 'Chờ làm' },
+  READY: { color: '#22a04a', label: 'Đã xong' },
+};
+
+type ViewKey = 'priority' | 'item' | 'table';
+
+const VIEWS: Array<{ key: ViewKey; label: string; hint: string }> = [
+  { key: 'priority', label: 'Ưu tiên', hint: 'Ai gọi trước nấu trước, món ⭐ lên đầu' },
+  { key: 'item', label: 'Theo món', hint: 'Gộp cùng một món của mọi bàn để nấu 1 lượt' },
+  { key: 'table', label: 'Theo phòng/bàn', hint: 'Gom món theo bàn để ra cùng lúc' },
+];
+
 // Filter Bếp: Set<string> các group.code đang chọn. Empty Set = chọn tất cả.
 // Cho phép multi-select: tap nhiều nhóm để xem kết hợp.
 // Selection được lưu vào localStorage → giữ qua reload/login lại.
 const STORAGE_KEY = 'kitchen-group-filters-v1';
+// Tab + chế độ xem cũng lưu: máy bếp gần như không bao giờ đổi thói quen, mà iPad ở
+// quán thì reload/khoá máy suốt — bắt chọn lại mỗi lần là đúng cái "mất công" phải bỏ.
+const TAB_KEY = 'kitchen-tab-v1';
+const VIEW_KEY = 'kitchen-view-v1';
+const SORT_KEY = 'kitchen-group-sort-v1';
+// Thẻ "món vừa bị huỷ" lưu localStorage: bếp reload / khoá máy giữa lúc đông khách là
+// chuyện thường, mà mất thẻ là mất luôn lời giải thích cho món vừa biến mất.
+const CANCELLED_KEY = 'kitchen-cancelled-v1';
+
+function loadCancelled(): CancelledEntry[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(CANCELLED_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    // Lọc bằng chính pruneCancelled để luật hết hạn chỉ nằm ở MỘT chỗ.
+    return pruneCancelled(
+      arr.filter((e) => e && typeof e.item_id === 'string' && typeof e.at === 'number'),
+      Date.now(),
+    );
+  } catch {
+    return [];
+  }
+}
 
 function loadStoredFilters(): Set<string> {
   if (typeof window === 'undefined') return new Set();
@@ -95,57 +185,27 @@ function saveFilters(s: Set<string>) {
   }
 }
 
-const COLUMN_DEFS: Array<{
-  state: string;
-  label: string;
-  icon: string;
-  color: string;
-  bg: string;
-  nextLabel: string;
-  nextIcon: string;
-  toState: string;
-}> = [
-  {
-    state: 'KITCHEN',
-    label: 'Đã order',
-    icon: '📢',
-    color: '#f59e0b',
-    bg: '#fffbeb',
-    nextLabel: 'Bắt đầu nấu',
-    nextIcon: '🔥',
-    toState: 'COOKING',
-  },
-  {
-    state: 'COOKING',
-    label: 'Đang nấu',
-    icon: '🔥',
-    color: '#3b82f6',
-    bg: '#eff6ff',
-    nextLabel: 'Xong, sẵn sàng',
-    nextIcon: '✓',
-    toState: 'READY',
-  },
-  {
-    state: 'READY',
-    label: 'Đã xong',
-    icon: '🍽',
-    color: '#10b981',
-    bg: '#ecfdf5',
-    nextLabel: 'Đã giao',
-    nextIcon: '🚀',
-    toState: 'SERVED',
-  },
-];
+function loadStored<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw && (allowed as readonly string[]).includes(raw)) return raw as T;
+  } catch {
+    // ignore
+  }
+  return fallback;
+}
 
 // 3-tier age threshold (user-spec): đen → vàng đậm → đỏ đậm
-// Áp lên TÊN MÓN + TÊN BÀN (kds-card-name + kds-card-table) ở MỌI cột (kể cả READY)
-// — món xong nhưng để lâu chưa giao cũng cần biết để xử lý.
+// Áp lên TÊN MÓN + TÊN BÀN (kds-card-name + kds-card-table) ở CẢ HAI tab — món xong
+// nhưng để lâu chưa giao cũng cần biết để xử lý.
 // Ngưỡng + màu nằm ở lib/item-age.ts để màn Order dùng CHUNG — hai màn phải khớp
 // nhau, nếu không bồi bàn thấy đỏ mà bếp thấy bình thường.
 
 export function KitchenPage() {
   const toast = useToast();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
@@ -158,45 +218,118 @@ export function KitchenPage() {
   const [groupFilters, setGroupFilters] = useState<Set<string>>(() => loadStoredFilters());
   const [showFilterModal, setShowFilterModal] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [tab, setTab] = useState<TabKey>(() => loadStored(TAB_KEY, ['PENDING', 'DONE'] as const, 'PENDING'));
+  const [view, setView] = useState<ViewKey>(() =>
+    loadStored(VIEW_KEY, ['priority', 'item', 'table'] as const, 'priority'),
+  );
+  // Thứ tự nhóm ở 2 chế độ gộp. MẶC ĐỊNH 'az': tên món / tên bàn không đổi khi bếp
+  // làm xong dòng nào, nên không nhóm nào nhảy chỗ — bếp nhớ được chỗ mình đang làm
+  // như nhớ vị trí trên quyển menu giấy. 'qty' để nấu gộp khối lớn, đổi theo tiến độ
+  // nên phải đi kèm thứ tự đóng băng (applyStickyOrder).
+  const [groupSort, setGroupSort] = useState<GroupOrder>(() =>
+    loadStored(SORT_KEY, ['az', 'qty'] as const, 'az'),
+  );
+  // Bấm "Sắp lại" thì tăng số này → xoá thứ tự đang đóng băng, sắp lại từ đầu.
+  const [resortNonce, setResortNonce] = useState(0);
+  // Món vừa bị huỷ, GIỮ LẠI trên màn cho tới khi bếp bấm "Đã biết" — xem lib/kds-cancelled.ts
+  const [cancelled, setCancelled] = useState<CancelledEntry[]>(() => loadCancelled());
+  /** Thứ tự nhóm ĐANG HIỆN trên màn, theo key. Xem applyStickyOrder: nhóm đã hiện
+   *  phải đứng yên, nếu không thì bấm xong một dòng là cả danh sách trượt đi.
+   *  `sig` là "danh sách này đang nói về cái gì" — đổi chế độ xem / đổi lọc nhóm /
+   *  bấm Sắp lại thì thứ tự cũ vô nghĩa, phải bỏ NGAY trong lần render đó (dùng
+   *  useEffect thì màn còn hiện thứ tự cũ cho tới nhịp poll sau). */
+  const stickyRef = useRef<{ sig: string; keys: Record<TabKey, string[]> }>({
+    sig: '',
+    keys: { PENDING: [], DONE: [] },
+  });
 
-  // Persist filter ra localStorage mỗi khi thay đổi
+  // Persist filter / tab / chế độ xem ra localStorage mỗi khi thay đổi
   useEffect(() => {
     saveFilters(groupFilters);
   }, [groupFilters]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TAB_KEY, tab);
+      localStorage.setItem(VIEW_KEY, view);
+      localStorage.setItem(SORT_KEY, groupSort);
+    } catch {
+      // ignore quota errors
+    }
+  }, [tab, view, groupSort]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(CANCELLED_KEY, JSON.stringify(cancelled));
+    } catch {
+      // ignore quota errors
+    }
+  }, [cancelled]);
+
+  /* Nghe 2 đường huỷ từ readyNotifier (nó tự diff giữa các nhịp poll /orders):
+       - onItemCancelByStaff: nhân viên huỷ hộ khách, hoặc admin huỷ đơn online đã duyệt
+       - onKitchenCancel: chính bếp bấm 🚫 báo hết → auto-huỷ order chưa nấu
+     Cả hai đều làm món BIẾN MẤT khỏi danh sách bếp, nên cả hai đều phải để lại thẻ.
+     addCancelled tự bỏ món còn PENDING (bếp chưa từng thấy) và tự chống trùng. */
+  useEffect(() => {
+    const offStaff = readyNotifier.onItemCancelByStaff((ev) =>
+      setCancelled((l) =>
+        addCancelled(
+          l,
+          {
+            item_id: ev.item_id,
+            table_name: ev.table_name,
+            menu_item_name: ev.menu_item_name,
+            qty: ev.qty,
+            cancelled_by: ev.cancelled_by,
+            reason: ev.reason,
+            prev_state: ev.prev_state,
+          },
+          Date.now(),
+        ),
+      ),
+    );
+    const offKitchen = readyNotifier.onKitchenCancel((ev) =>
+      setCancelled((l) =>
+        addCancelled(
+          l,
+          {
+            item_id: ev.item_id,
+            table_name: ev.table_name,
+            menu_item_name: ev.menu_item_name,
+            qty: ev.qty,
+            // Đường "bếp báo hết" là auto-huỷ của hệ thống, không có người bấm cụ thể.
+            cancelled_by: '',
+            reason: ev.reason,
+            prev_state: ev.prev_state,
+          },
+          Date.now(),
+        ),
+      ),
+    );
+    return () => {
+      offStaff();
+      offKitchen();
+    };
+  }, []);
+
+  // Dọn thẻ quá hạn theo nhịp 'now' (5 phút) — không cần timer riêng.
+  useEffect(() => {
+    setCancelled((l) => {
+      const next = pruneCancelled(l, Date.now());
+      return next.length === l.length ? l : next;
+    });
+  }, [now]);
 
   // Bật chế độ thông báo cỡ lớn CHỈ ở màn bếp (CSS: body.kds-mode .toast-banner).
   // Banner do ToastProvider render ở gốc cây DOM nên không thể target bằng CSS
-  // con của .kds-container — phải đánh dấu ở body.
+  // con của .kds-shell — phải đánh dấu ở body.
   // Lý do cần to hơn: bếp đứng cách iPad cả mét, tay ướt/đeo găng, bếp ồn → chữ
   // 15px như các màn khác thì bỏ lỡ món mới.
+  // Class này cũng khoá cuộn body: màn bếp là một khung cố định cao đúng 100vh, để
+  // body cuộn được nữa thì trên iPad danh sách "nhảy" mỗi lần bếp quẹt lệch.
   useEffect(() => {
     document.body.classList.add('kds-mode');
     return () => document.body.classList.remove('kds-mode');
-  }, []);
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const filterBarRef = useRef<HTMLDivElement>(null);
-
-  // Bar lọc + nav dưới đều position:fixed → board phải chừa đúng tổng chiều cao
-  // của chúng, nếu không card cuối cột bị che. Đo runtime thay vì hardcode px vì:
-  //   - nav-bottom ẩn nav-label ở màn < 380px nên cao thấp khác nhau,
-  //   - nav có padding env(safe-area-inset-bottom) (iPad có home indicator hay không),
-  //   - bar lọc cao thêm khi user zoom trang.
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const nav = document.querySelector<HTMLElement>('.nav-bottom');
-    const sync = () => {
-      const navH = nav?.offsetHeight ?? 60;
-      const barH = filterBarRef.current?.offsetHeight ?? 48;
-      el.style.setProperty('--kds-nav-h', `${navH}px`);
-      el.style.setProperty('--kds-bottom-pad', `${navH + barH + 8}px`);
-    };
-    sync();
-    const ro = new ResizeObserver(sync);
-    if (nav) ro.observe(nav);
-    if (filterBarRef.current) ro.observe(filterBarRef.current);
-    return () => ro.disconnect();
   }, []);
 
   const errorCountRef = useRef(0);
@@ -250,7 +383,7 @@ export function KitchenPage() {
       const threshold = transient ? 10 : 3;
       if (errorCountRef.current >= threshold && pollEnabledRef.current) {
         pollEnabledRef.current = false;
-        toast.push('error', 'Tạm dừng cập nhật tự động — bấm "↻ Làm mới".');
+        toast.push('error', 'Tạm dừng cập nhật tự động — bấm nút ↻ ở thanh dưới.');
       }
     } finally {
       setLoading(false);
@@ -268,35 +401,35 @@ export function KitchenPage() {
     // Poll 2s — sync nhanh Order → Bếp (nhân viên gọi món, bếp nhận ngay)
     const tPoll = setInterval(() => {
       if (pollEnabledRef.current) refresh(false);
-    }, 2_000);
-    const tNow = setInterval(() => setNow(Date.now()), 5 * 60_000);  // 5 phút
+    }, 2000);
+    const tNow = setInterval(() => setNow(Date.now()), 300_000);
     return () => {
       clearInterval(tPoll);
       clearInterval(tNow);
     };
   }, [refresh]);
 
-  // Flatten items vào 3 buckets theo state + filter theo group(s).
+  // Flatten items vào 2 buckets theo tab + filter theo group(s).
   // groupFilters empty → match all; else → match nếu group thuộc set đã chọn.
-  const buckets = useMemo<Record<string, KitchenItem[]>>(() => {
-    const out: Record<string, KitchenItem[]> = { KITCHEN: [], COOKING: [], READY: [] };
+  const buckets = useMemo<Record<TabKey, KitchenItem[]>>(() => {
+    const out: Record<TabKey, KitchenItem[]> = { PENDING: [], DONE: [] };
     const useFilter = groupFilters.size > 0;
     for (const o of orders) {
       for (const it of o.items || []) {
-        if (out[it.state]) {
-          // Ghi chú KHÔNG BAO GIỜ bị filter nhóm loại bỏ: nó không thuộc nhóm món
-          // nào, mà "lấy bát cho khách" biến mất chỉ vì bếp đang lọc "đồ nướng" thì
-          // khách ngồi chờ bát vô thời hạn.
-          const group = it.is_note ? 'note' : menuMap.get(it.menu_item_id ?? '')?.group || 'other';
-          if (useFilter && !it.is_note && !groupFilters.has(group)) continue;
-          const table_name = tableNameById.get(o.table_id) || o.table_code;
-          out[it.state].push({ ...it, table_code: o.table_code, table_name, group });
-        }
+        const bucket = TAB_OF_STATE[it.state];
+        if (!bucket) continue;
+        // Ghi chú KHÔNG BAO GIỜ bị filter nhóm loại bỏ: nó không thuộc nhóm món
+        // nào, mà "lấy bát cho khách" biến mất chỉ vì bếp đang lọc "đồ nướng" thì
+        // khách ngồi chờ bát vô thời hạn.
+        const group = it.is_note ? 'note' : menuMap.get(it.menu_item_id ?? '')?.group || 'other';
+        if (useFilter && !it.is_note && !groupFilters.has(group)) continue;
+        const table_name = tableNameById.get(o.table_id) || o.table_code;
+        out[bucket].push({ ...it, table_code: o.table_code, table_name, group });
       }
     }
-    for (const k of Object.keys(out)) {
+    for (const k of Object.keys(out) as TabKey[]) {
       // Sort:
-      // 1) Priority items lên đầu (chỉ ảnh hưởng cột KITCHEN — auto-clear khi sang COOKING)
+      // 1) Priority items lên đầu (chỉ ảnh hưởng tab PENDING — auto-clear khi sang COOKING)
       // 2) Trong cùng nhóm priority/non-priority: sort theo created_at (khách gọi trước nấu trước)
       out[k].sort((a, b) => {
         const pa = a.is_priority ? 1 : 0;
@@ -308,16 +441,35 @@ export function KitchenPage() {
     return out;
   }, [orders, menuMap, tableNameById, groupFilters, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Nhóm lại theo chế độ xem đang chọn. Tính cho cả 2 tab chứ không riêng tab đang mở:
+  // màn ≥900px hiện cả hai cùng lúc, mà list bếp cỡ trăm dòng nên rẻ.
+  const grouped = useMemo<Record<TabKey, KdsGroup<KitchenItem>[]> | null>(() => {
+    if (view === 'priority') return null;
+    const sig = `${view}|${groupSort}|${[...groupFilters].sort().join(',')}|${resortNonce}`;
+    if (stickyRef.current.sig !== sig) {
+      stickyRef.current = { sig, keys: { PENDING: [], DONE: [] } };
+    }
+    const fn = view === 'item' ? groupByItem : groupByTable;
+    const out = {} as Record<TabKey, KdsGroup<KitchenItem>[]>;
+    for (const k of ['PENDING', 'DONE'] as TabKey[]) {
+      const sorted = fn(buckets[k], groupSort);
+      // 'az' KHÔNG cần đóng băng: thứ tự đã không phụ thuộc tiến độ, mà đóng băng lại
+      // đẩy nhóm mới xuống cuối thay vì về đúng chữ cái của nó — sai hẳn ý A→Z.
+      out[k] = groupSort === 'az' ? sorted : applyStickyOrder(sorted, stickyRef.current.keys[k]);
+      stickyRef.current.keys[k] = out[k].map((g) => g.key);
+    }
+    return out;
+  }, [view, buckets, groupFilters, groupSort, resortNonce]);
+
   const clearGroups = () => setGroupFilters(new Set());
 
   // Đếm số item active (KITCHEN+COOKING+READY) theo từng group — luôn tính từ full data,
   // không phụ thuộc filter hiện tại (để badge count chính xác mọi lúc).
   const countByGroup = useMemo<Record<string, number>>(() => {
     const c: Record<string, number> = {};
-    const KITCHEN_STATES = new Set(['KITCHEN', 'COOKING', 'READY']);
     for (const o of orders) {
       for (const it of o.items || []) {
-        if (!KITCHEN_STATES.has(it.state)) continue;
+        if (!TAB_OF_STATE[it.state]) continue;
         // Ghi chú không thuộc nhóm món nào → không đội số đếm của chip filter lên.
         if (it.is_note) continue;
         const g = menuMap.get(it.menu_item_id ?? '')?.group || 'other';
@@ -332,11 +484,38 @@ export function KitchenPage() {
   const changeState = async (item: KitchenItem, to: string) => {
     try {
       await api.patch(`/orders/items/${item.id}/state`, { to });
-      // Optimistic: refresh ngay (không cần đợi 5s poll)
+      // Optimistic: refresh ngay (không cần đợi 2s poll)
       refresh(false);
     } catch (e) {
       toast.push('error', extractError(e).message);
     }
+  };
+
+  /** Chuyển nhiều dòng một lượt — nút "tất cả" ở đầu mỗi khối gộp.
+   *  Hỏi xác nhận khi >1 dòng: đây là hành động khó undo (phải bấm lùi từng dòng ở
+   *  màn Order), mà nút lại nằm ngay cạnh nút của từng dòng. */
+  const changeStateMany = async (items: KitchenItem[], to: string, label: string) => {
+    if (items.length === 0) return;
+    if (items.length > 1) {
+      const qty = items.reduce((s, i) => s + i.qty, 0);
+      const ok = await confirm({
+        title: `${label} — ${items.length} dòng?`,
+        message: `Tổng ${qty} phần sẽ chuyển sang "${STATE_META[to]?.label ?? 'đã giao'}".`,
+        variant: 'warning',
+        confirmLabel: label,
+      });
+      if (!ok) return;
+    }
+    const res = await Promise.allSettled(
+      items.map((it) => api.patch(`/orders/items/${it.id}/state`, { to })),
+    );
+    const failed = res.filter((r) => r.status === 'rejected').length;
+    if (failed > 0) {
+      // Báo rõ số dòng hỏng thay vì im lặng: bếp bấm "xong tất cả" rồi tưởng xong cả
+      // khối, mà thực tế vài dòng vẫn nằm lại thì món đó không ai mang ra.
+      toast.push('error', `${failed}/${items.length} dòng không chuyển được — thử lại từng dòng.`);
+    }
+    refresh(false);
   };
 
   const toggleStock = async (item: KitchenItem) => {
@@ -401,136 +580,310 @@ export function KitchenPage() {
   };
 
   return (
-    <div className="kds-container" ref={containerRef}>
+    <div className="kds-shell">
       <style>{`
-        /* Layout compact 1-dòng/món: card cao ~46px thay vì ~140px → 1 màn iPad
-           thấy được gấp 3 số món, bếp không phải scroll để nắm tình hình. */
-        .kds-container {
-          /* padding-bottom = nav dưới + bar lọc (cả hai fixed) — đo runtime, xem
-             comment ở useEffect đo chiều cao. Fallback 110px cho lần render đầu. */
-          padding: 8px 12px var(--kds-bottom-pad, 110px);
-          max-width: 100%;
-          margin: 0 auto;
-        }
-        /* Bar lọc dán đáy màn, ngay trên nav-bottom. Bếp đứng nấu nên ngón tay ở
-           nửa dưới iPad — nút lọc ở đáy với tới dễ hơn ở đầu trang, và không bị
-           đẩy khỏi tầm mắt khi cột món dài phải cuộn. */
-        .kds-filter-bar {
+        /* Khung cố định toàn màn: màn bếp không có header/nav (App.tsx ẩn ở /kitchen)
+           nên nó tự lo đủ 100vh và tự chừa safe-area cho iPad có home indicator. */
+        body.kds-mode { overflow: hidden; }
+        /* Bảng màu theo KDS của KiotViet (ảnh tham khảo của chủ quán):
+           - chrome (dải nút trên + thanh nút dưới) navy đậm, chữ trắng
+           - tiêu đề nhóm xanh dương, tên món gần đen
+           - nút hành động HỒNG ở cột "chờ chế biến", XANH LÁ ở cột "đã xong":
+             hai cột phải khác màu nút, không thì bấm nhầm cột là món nhảy sai chặng
+           - khối nhóm kẻ sọc xanh rất nhạt xen kẽ cho dễ dò mắt
+           Khai ở :root của .kds-shell để đổi một chỗ là đổi cả màn. */
+        .kds-shell {
+          --kds-navy: #123f7d;
+          --kds-navy-2: #0e3466;
+          --kds-blue: #1565c0;
+          --kds-pink: #ee3e79;
+          --kds-green: #22a04a;
+          --kds-page: #f4f7fb;
+          /* Nền của một "ĐẦU VIỆC" — tiêu đề khối gộp và card đứng một mình dùng
+             CHUNG biến này. Hai chỗ đó cùng một vai nên phải cùng một màu, nếu khai
+             rời hai nơi thì lần chỉnh sắc độ sau chắc chắn lệch nhau. */
+          --kds-lead: #cfe0f5;
+          --kds-lead-line: #a9c7e8;
+          --kds-line: #dde5ef;
           position: fixed;
+          /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
+             z-index:10000 (styles.css .env-banner) nên nó đè lên tab bar. Tụt xuống
+             đúng chiều cao dải đó; trên production biến này không tồn tại → 0px, trang
+             thật không đổi lấy một pixel. */
+          top: var(--env-banner-h, 0px);
           left: 0;
           right: 0;
-          bottom: var(--kds-nav-h, 60px);
-          z-index: 90; /* dưới nav-bottom (100), dưới modal (9998+) */
-          background: white;
-          border-top: 1px solid #e5e7eb;
-          box-shadow: 0 -2px 8px rgba(0, 0, 0, 0.06);
-          padding: 6px 12px;
+          bottom: 0;
+          display: flex;
+          flex-direction: column;
+          background: var(--kds-navy);
+          overflow: hidden;
+          /* KHÔNG đặt z-index: giữ auto để position:fixed không tạo stacking context,
+             nhờ vậy modal con (z 10000) vẫn nằm trên toast banner ở gốc cây DOM. */
+        }
+
+        /* ─── Nút tab gọn, nằm chung dải với chế độ xem ────────────────────────
+           Thanh tab riêng đã bỏ theo yêu cầu. Màn hẹp: bấm để đổi panel. Màn ≥900px:
+           cả 2 panel đã hiện nên nút chỉ còn là chỗ đọc số phần, bấm không đổi gì. */
+        .kds-tab-pill {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 6px 11px;
+          min-height: 34px;
+          min-width: 0;
+          border-radius: 999px;
+          border: 1.5px solid rgba(255, 255, 255, 0.3);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.72);
+          font-size: 13px;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-tab-pill.active { background: white; border-color: white; color: var(--tab-col); }
+        .kds-tab-pill-n {
+          background: rgba(255, 255, 255, 0.18);
+          color: white;
+          border-radius: 999px;
+          padding: 0 7px;
+          font-size: 13px;
+          font-weight: 800;
+        }
+        .kds-tab-pill.active .kds-tab-pill-n { background: var(--tab-col); color: white; }
+        /* Nhãn chữ chỉ hiện khi còn chỗ — icon + số đủ để bếp biết bấm cái nào. */
+        .kds-tab-pill-label { display: none; }
+        @media (min-width: 620px) {
+          .kds-tab-pill-label { display: inline; }
+        }
+        .kds-views-sep {
+          flex-shrink: 0;
+          width: 1px;
+          align-self: stretch;
+          background: rgba(255, 255, 255, 0.25);
+          margin: 0 3px;
+        }
+
+        /* ─── Dải chế độ xem ──────────────────────────────────────────────────── */
+        .kds-views {
           display: flex;
           align-items: center;
           gap: 6px;
-        }
-        /* CHỈ dải chip cuộn ngang — nút "Lọc nhóm" và "Xoá lọc" ghim 2 đầu để vẫn
-           bấm được khi đang chọn nhiều nhóm (chip trước đây wrap xuống nhiều dòng,
-           đẩy bar cao dần và che mất board). */
-        .kds-filter-bar > button { flex-shrink: 0; }
-        .kds-filter-chips {
-          flex: 1;
-          min-width: 0;
-          display: flex;
-          flex-wrap: nowrap;
-          gap: 4px;
+          flex-shrink: 0;
+          padding: 6px 10px;
+          background: var(--kds-navy);
+          color: white;
           overflow-x: auto;
           overflow-y: hidden;
           -webkit-overflow-scrolling: touch;
-          overscroll-behavior-x: contain;
-          scrollbar-width: thin;
-          padding-bottom: 2px;
         }
-        .kds-filter-chips::-webkit-scrollbar { height: 5px; }
-        .kds-filter-chips::-webkit-scrollbar-thumb {
-          background: #cbd5e1;
+        /* 3 nút chế độ xem. CHƯA chọn = rỗng ruột trên nền navy; ĐANG chọn = nền
+           trắng đặc chữ navy. Chênh lệch phải là NỀN chứ không chỉ màu chữ: bếp đứng
+           cách máy cả mét, chữ 13px đổi từ xám sang navy thì không nhìn ra.
+           min-height/min-width khai lại vì styles.css có rule global cho THE BUTTON
+           (min-height:44px; min-width:44px; padding:12px 16px) cho touch target, mà ở
+           KDS thì 44px làm dải nút cao gấp rưỡi cần thiết, ăn mất chỗ của danh sách. */
+        .kds-view-btn {
+          flex-shrink: 0;
+          padding: 6px 14px;
+          min-height: 34px;
+          min-width: 0;
           border-radius: 999px;
+          border: 1.5px solid rgba(255, 255, 255, 0.4);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.8);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          white-space: nowrap;
         }
-        .kds-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 8px;
-          /* Zoom to → tiêu đề + nhóm nút không đủ 1 hàng, cho phép nút xuống dòng */
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-        .kds-header h1 { margin: 0; font-size: 18px; min-width: 0; }
-        .kds-board {
-          display: grid;
-          gap: 8px;
-          grid-template-columns: 1fr;
-        }
-        @media (min-width: 768px) {
-          .kds-board { grid-template-columns: repeat(3, 1fr); }
-        }
-        .kds-column {
+        .kds-view-btn.active {
           background: white;
-          border-radius: 10px;
+          border-color: white;
+          color: var(--kds-navy);
+          font-weight: 800;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        }
+        /* Nút ⇅ (thứ tự) và ↺ (sắp lại) là CÔNG CỤ, không phải lựa chọn chế độ xem.
+           Cùng hình pill mà khác chất liệu — viền nét đứt, nền mờ — để không bị đếm
+           lẫn thành "chế độ xem thứ 4". Khi thứ tự KHÔNG còn là mặc định A→Z thì nút
+           chuyển sang vàng: trạng thái bất thường phải tự nói ra. */
+        .kds-sort-btn {
+          flex-shrink: 0;
+          padding: 6px 12px;
+          min-height: 34px;
+          min-width: 0;
+          border-radius: 999px;
+          border: 1.5px dashed rgba(255, 255, 255, 0.45);
+          background: rgba(255, 255, 255, 0.12);
+          color: white;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-sort-btn.on {
+          background: #ffd166;
+          border-style: solid;
+          border-color: #ffd166;
+          color: #5c3d00;
+        }
+
+        /* ─── Board 2 panel ───────────────────────────────────────────────────── */
+        .kds-board {
+          flex: 1;
+          min-height: 0;
+          display: flex;
+          /* Rãnh navy giữa 2 panel — thay cho đường kẻ xám, để mắt không lẫn hai cột
+             với nhau khi bấm nhanh (bấm nhầm cột là món nhảy sai chặng). */
+          gap: 4px;
+          background: var(--kds-navy);
+          overflow: hidden;
+        }
+        .kds-panel {
+          flex: 1;
+          min-width: 0;
+          background: var(--kds-page);
+          overflow-y: auto;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-y: contain;
           padding: 8px;
           display: flex;
           flex-direction: column;
-          min-height: 160px;
-          border: 1px solid #e5e7eb;
+          /* 12px giữa 2 khối: nút cao 40px, khoảng trống này đủ để ngón tay lệch vẫn
+             không bấm sang món kế bên (bếp tay ướt / đeo găng). */
+          gap: 12px;
         }
-        .kds-column-header {
-          padding: 5px 9px;
-          margin: -3px -3px 6px;
-          border-radius: 7px;
-          color: white;
-          font-weight: 700;
-          font-size: 14px;
+        /* Panel là flex column có overflow → flex item mặc định co được. Danh sách bếp
+           luôn dài hơn màn nên KHÔNG được co: một khối bị bóp là chữ chồng lên nút. */
+        .kds-panel > * { flex-shrink: 0; }
+        @media (max-width: 899px) {
+          /* Màn hẹp chỉ hiện panel của tab đang chọn — cả chiều cao cho danh sách. */
+          .kds-panel[data-active='false'] { display: none; }
+        }
+        @media (min-width: 900px) {
+          /* Màn rộng hiện cả hai panel, CHIA ĐỀU 50/50 — tên món ở đây dài
+             ("Bạch Tuộc Nướng : 150 / 1 Đĩa") nên cột nào hẹp là cắt ellipsis ngay. */
+          /* Rãnh navy của .kds-board đã tách 2 cột, không cần thêm đường kẻ. */
+          /* Cả 2 panel đang hiện → nút tab không còn là lựa chọn, chỉ là chỗ đọc số. */
+          .kds-tab-pill { border-color: var(--tab-col); color: var(--tab-col); cursor: default; }
+          .kds-tab-pill .kds-tab-pill-n { background: var(--tab-col); color: white; }
+        }
+
+        /* ─── Khối gộp (chế độ Theo món / Theo phòng·bàn) ─────────────────────── */
+        .kds-group {
+          background: white;
+          border: 1px solid var(--kds-line);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+        /* KHÔNG kẻ sọc xen kẽ (bỏ 2026-09-08): hai khối cạnh nhau hai màu nền làm
+           người dùng tưởng hai màu mang nghĩa khác nhau ("món này khác gì món kia?").
+           Tách khối bằng PHÂN CẤP CHỮ thay vì bằng màu nền — xem .kds-group-title. */
+        .kds-group.priority { border-color: #f59e0b; }
+        .kds-group-head {
           display: flex;
-          justify-content: space-between;
           align-items: center;
-          gap: 6px;
+          gap: 8px;
+          padding: 7px 10px;
+          /* Nền xanh ĐẬM RÕ, GIỐNG NHAU ở mọi khối. Phân biệt hai việc khác nhau:
+             - khối này với khối kia thì KHÔNG được khác màu (đã bỏ kẻ sọc: hai màu
+               cạnh nhau làm người dùng tưởng hai màu mang nghĩa khác nhau),
+             - nhưng TIÊU ĐỀ với DÒNG CON thì phải khác rõ, không thì cả khối là một
+               mảng trắng và mắt không thấy đâu là đầu khối.
+             Chữ tiêu đề navy đậm trên nền này vẫn đủ tương phản. */
+          background: var(--kds-lead);
+          border-bottom: 2px solid var(--kds-lead-line);
+          flex-wrap: wrap;
+          row-gap: 6px;
         }
-        /* Tên cột ("📢 Đã order") cắt ellipsis để con số đếm bên phải luôn thấy được
-           — số món đang chờ là thông tin bếp cần nhất, không được bị đẩy ra ngoài. */
-        .kds-column-header > :first-child {
-          min-width: 0;
+        .kds-group-titlewrap { flex: 1 1 150px; min-width: 0; }
+        /* Tên món (hoặc tên bàn) của cả khối — thứ PHẢI đọc được đầu tiên. To hơn và
+           đậm hơn hẳn dòng con: đây là cách phân cấp thay cho việc tô nền khác màu. */
+        .kds-group-title {
+          font-size: 17px;
+          font-weight: 800;
+          letter-spacing: -0.01em;
+          line-height: 1.25;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        .kds-column-header > :last-child { flex-shrink: 0; }
-        .kds-column-body {
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          /* 14px giữa 2 card: nút mũi tên cao 36px, khoảng trống này đủ để ngón
-             tay lệch vẫn không bấm sang món kế bên (bếp tay ướt/đeo găng). */
-          gap: 14px;
-          overflow-y: auto;
-          padding-bottom: 2px;
+        .kds-group-sub {
+          font-size: 11px;
+          color: #6b7280;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
+        .kds-group-qty {
+          flex-shrink: 0;
+          background: var(--kds-blue);
+          color: white;
+          border-radius: 7px;
+          padding: 2px 9px;
+          font-size: 15px;
+          font-weight: 800;
+          white-space: nowrap;
+        }
+        .kds-group-actions {
+          display: flex;
+          gap: 8px;
+          flex-shrink: 0;
+          margin-left: auto;
+        }
+        .kds-bulk-btn {
+          border-radius: 999px;
+          height: 34px;
+          /* Xem ghi chú ở .kds-view-btn — phải đè global 'button' min-height 44px. */
+          min-height: 34px;
+          min-width: 0;
+          padding: 0 11px;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+          border: 1px solid transparent;
+        }
+
+        /* ─── Card 1 dòng/món ─────────────────────────────────────────────────── */
         .kds-card {
           background: white;
           border-radius: 8px;
-          padding: 8px 10px;
-          border: 1px solid #e5e7eb;
+          padding: 7px 10px;
+          border: 1px solid var(--kds-line);
           display: flex;
-          /* 14px giữa nút 🚫 và mũi tên → tránh bấm nhầm "báo hết" khi muốn
-             chuyển trạng thái (2 hành động rất khác nhau, khó undo). */
+          /* 14px giữa nút 🚫 và nút chuyển trạng thái → tránh bấm nhầm "báo hết"
+             (2 hành động rất khác nhau, khó undo). */
           gap: 14px;
           align-items: center;
           /* Cho phép khối nút tụt xuống dòng 2 khi card quá hẹp — xảy ra khi user
-             phóng to trang (zoom thu nhỏ viewport theo CSS px) hoặc màn hẹp. Trước
-             đây không wrap nên nút bị bóp méo / tràn ra ngoài viền card. */
+             phóng to trang (zoom thu nhỏ viewport theo CSS px) hoặc màn hẹp. */
           flex-wrap: wrap;
           row-gap: 8px;
         }
+        /* Card đứng MỘT MÌNH = một đầu việc, cùng vai với tiêu đề khối gộp → cùng nền.
+           Nhờ vậy cả màn đọc theo một luật duy nhất: nền xanh = một việc phải làm,
+           nền trắng = chi tiết của việc ngay trên nó. */
+        .kds-card.lead {
+          background: var(--kds-lead);
+          border-color: var(--kds-lead-line);
+          border-width: 2px;
+        }
+        /* Trong khối gộp thì card là các DÒNG liền nhau — bỏ viền/bo góc riêng, ngăn
+           bằng 1 đường kẻ. min-height 56px để nút của 2 dòng cạnh nhau vẫn cách nhau
+           ~16px theo chiều dọc, đủ cho ngón tay ướt. */
+        .kds-group-rows > .kds-card {
+          border: none;
+          border-radius: 0;
+          border-top: 1px solid var(--kds-line);
+          min-height: 56px;
+        }
+        .kds-group-rows > .kds-card:first-child { border-top: none; }
         /* Khối text của card, xếp dọc 2 dòng: tên món / meta (⏱ phút · 👤 người gọi).
-           - flex-basis 170px (KHÔNG phải 0): đây là điều kiện để khối nút wrap xuống
-             dòng — với basis 0 thì text co vô hạn nên wrap không bao giờ xảy ra.
-             Dưới ngưỡng này thì min-width:0 + ellipsis lo phần cắt chữ.
-           - gap 5px: trước đây là block thuần, 2 dòng dán sát nhau nên liếc nhanh
-             dễ đọc lẫn tên món với meta. */
+           flex-basis 170px (KHÔNG phải 0): đây là điều kiện để khối nút wrap xuống
+           dòng — với basis 0 thì text co vô hạn nên wrap không bao giờ xảy ra. */
         .kds-card-info {
           flex: 1 1 170px;
           min-width: 0;
@@ -538,18 +891,17 @@ export function KitchenPage() {
           flex-direction: column;
           gap: 5px;
         }
-        /* Gom 2 nút vào 1 khối → luôn xuống dòng CÙNG NHAU (trước đây là 2 con trực
-           tiếp của .kds-card nên 🚫 có thể tụt xuống mà mũi tên vẫn ở trên).
+        /* Gom các nút vào 1 khối → luôn xuống dòng CÙNG NHAU.
            margin-left:auto đẩy khối sang phải ở cả 2 trường hợp: cùng dòng và wrap. */
         .kds-card-actions {
           display: flex;
-          gap: 14px;
+          gap: 12px;
           align-items: center;
           flex-shrink: 0;
           margin-left: auto;
         }
-        /* Dòng 1: [badge] tên món · SL · bàn — tất cả trên 1 hàng, tên món cắt
-           bằng ellipsis (title= giữ full text khi hover). */
+        /* Dòng 1: [badge] tên món · SL · bàn — tên món cắt bằng ellipsis
+           (title= giữ full text khi hover). */
         .kds-card-line1 {
           display: flex;
           align-items: baseline;
@@ -570,15 +922,34 @@ export function KitchenPage() {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
+        /* Món đứng MỘT MÌNH là một đầu việc, không phải chi tiết của khối nào → cùng
+           cỡ chữ với tiêu đề khối gộp (.kds-group-title). Nếu để 14px như dòng con thì
+           đọc như thể nó phụ thuộc vào cái gì đó ở trên. */
+        .kds-card-name.strong {
+          font-size: 17px;
+          font-weight: 800;
+          letter-spacing: -0.01em;
+        }
+        /* Laptop / iPad ngang: chữ to hơn một nhịp — bếp đứng cách máy cả mét.
+           .strong thắng rule này nhờ specificity cao hơn, không cần khai lại. */
+        @media (min-width: 1100px) {
+          .kds-card-name { font-size: 15px; }
+        }
         .kds-card-qty {
           font-size: 13px;
           font-weight: 700;
           color: #374151;
           white-space: nowrap;
         }
+        .kds-card-table.primary {
+          font-size: 14px;
+          font-weight: 800;
+          flex: 1;
+          max-width: none;
+        }
         .kds-card-table {
           font-weight: 700;
-          color: #0f766e;
+          color: var(--kds-blue);
           font-size: 13px;
           white-space: nowrap;
           /* Tên bàn dài ("Takeaway 1", bàn đặt tên theo khách) không được đẩy tên
@@ -587,23 +958,19 @@ export function KitchenPage() {
           overflow: hidden;
           text-overflow: ellipsis;
         }
-        /* Dòng 2: meta xám nhỏ — người gọi · đồng hồ · ghi chú · trạng thái hết */
+        /* Dòng 2: meta xám nhỏ — đồng hồ · định lượng · người gọi · ghi chú */
         .kds-card-meta {
           font-size: 11px;
           color: #6b7280;
           display: flex;
           align-items: center;
           /* row-gap 4px / column-gap 14px: ở font 11px thì 6px làm "⏱ 12p" dán vào
-             "👤 Tên NV" khó đọc khi liếc nhanh. Nới riêng chiều ngang, giữ chiều dọc
-             hẹp để card không cao thêm khi meta xuống dòng. */
+             "👤 Tên NV" khó đọc khi liếc nhanh. */
           gap: 4px 14px;
           flex-wrap: wrap;
           line-height: 1.4;
           min-width: 0;
         }
-        /* Tên nhân viên gọi món có thể rất dài → cắt bằng ellipsis thay vì tràn card.
-           Áp cho mọi mục meta: mục nào tự nó dài hơn 1 dòng thì bị cắt, các mục khác
-           không ảnh hưởng (flex-wrap xử lý việc xuống dòng trước khi cần cắt). */
         .kds-card-meta > * {
           min-width: 0;
           overflow: hidden;
@@ -614,8 +981,7 @@ export function KitchenPage() {
         .kds-card-meta > :first-child { flex-shrink: 0; }
         /* Nhãn định lượng. PHẢI khai báo SAU '.kds-card-meta > *' — cùng specificity
            (0,1,0) nên rule sau thắng, cần thế để huỷ ellipsis: "100…" thì bếp không
-           biết múc cỡ nào. Nền vàng nhạt + 12px (meta 11px) để liếc là thấy giữa
-           dãy meta xám. */
+           biết múc cỡ nào. */
         .kds-card-portion {
           font-size: 12px;
           font-weight: 700;
@@ -646,25 +1012,35 @@ export function KitchenPage() {
           font-weight: 700;
           white-space: nowrap;
         }
-        .kds-arrow {
-          background: var(--col, #0f766e);
-          color: white;
-          border: none;
+
+        /* ─── Nút chuyển trạng thái DUY NHẤT trên mỗi dòng ─────────────────────
+           '»' = đẩy dòng sang tab bên kia (chờ chế biến → đã xong → đã giao).
+           Nền đặc, rộng hơn các nút khác: đây là nút bếp bấm nhiều nhất. */
+        .kds-done {
           border-radius: 7px;
-          min-width: 52px;
+          min-width: 48px;
           height: 40px;
-          font-size: 20px;
-          font-weight: 700;
+          min-height: 40px;
+          font-size: 21px;
+          font-weight: 800;
+          line-height: 1;
           cursor: pointer;
           display: flex;
           align-items: center;
           justify-content: center;
-          gap: 3px;
-          padding: 0 6px;
+          padding: 0 8px;
           transition: transform 0.1s ease, opacity 0.15s;
         }
-        .kds-arrow:hover { transform: translateX(2px); }
-        .kds-arrow:active { transform: translateX(4px); opacity: 0.9; }
+        .kds-done {
+          background: var(--col, var(--kds-pink));
+          color: white;
+          border: 2px solid var(--col, var(--kds-pink));
+          min-width: 58px;
+          /* Pill như KiotViet — hình dáng khác hẳn nút 🚫 vuông cạnh nó, tay ướt bấm
+             nhanh vẫn phân biệt được bằng viền ngoài chứ không phải bằng icon. */
+          border-radius: 999px;
+        }
+        .kds-done:active { transform: translateX(3px); opacity: 0.9; }
         .kds-small-btn {
           background: white;
           color: #6b7280;
@@ -672,102 +1048,505 @@ export function KitchenPage() {
           border-radius: 6px;
           padding: 0 10px;
           height: 40px;
+          min-height: 40px;
+          min-width: 0;
           font-size: 15px;
           line-height: 1;
           cursor: pointer;
           flex-shrink: 0;
         }
-        .kds-small-btn:hover { background: #f9fafb; }
         .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
-        .kds-empty {
-          color: #9ca3af;
-          text-align: center;
-          padding: 16px;
+        /* Thẻ huỷ: đỏ đặc, khác hẳn mọi thứ khác trên màn. Nó KHÔNG phải một món để
+           nấu mà là một việc phải dừng lại — nên không dùng chung dáng .kds-card. */
+        .kds-cancel-card {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 10px;
+          border-radius: 8px;
+          background: #fee2e2;
+          border: 2px solid #dc2626;
+          flex-wrap: wrap;
+          row-gap: 8px;
+        }
+        .kds-cancel-info { flex: 1 1 170px; min-width: 0; }
+        .kds-cancel-title {
+          font-size: 14px;
+          font-weight: 800;
+          color: #991b1b;
+          line-height: 1.3;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-cancel-sub {
+          font-size: 11px;
+          color: #b91c1c;
+          margin-top: 2px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .kds-cancel-ok {
+          flex-shrink: 0;
+          margin-left: auto;
+          height: 40px;
+          min-height: 40px;
+          min-width: 0;
+          padding: 0 14px;
+          border-radius: 999px;
+          border: 2px solid #dc2626;
+          background: white;
+          color: #991b1b;
           font-size: 13px;
+          font-weight: 800;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-cancel-ok.all {
+          margin-left: 0;
+          align-self: flex-end;
+          background: #dc2626;
+          color: white;
+          height: 34px;
+          min-height: 34px;
+          font-size: 12px;
+        }
+        .kds-empty {
+          color: #93a3b8;
+          text-align: center;
+          padding: 22px 16px;
+          font-size: 13px;
+        }
+
+        /* ─── Thanh nút duy nhất, dán đáy màn ─────────────────────────────────
+           Gom tất cả: ← quay lại · lọc nhóm · chip nhóm · làm mới · hướng dẫn ·
+           thông báo · đăng xuất. Ở đáy vì bếp đứng nấu nên ngón tay ở nửa dưới máy. */
+        .kds-bar {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          padding: 6px 8px;
+          padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+          background: var(--kds-navy);
+          /* color ở đây để nút 🔔 (NotificationBell tự style color:inherit) ăn theo. */
+          color: white;
+        }
+        .kds-bar-btn {
+          flex-shrink: 0;
+          min-width: 44px;
+          height: 40px;
+          min-height: 40px;
+          padding: 0 10px;
+          border-radius: 8px;
+          border: 1px solid rgba(255, 255, 255, 0.32);
+          background: transparent;
+          color: white;
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+        }
+        .kds-bar-btn.filter-on {
+          background: white;
+          border-color: white;
+          color: var(--kds-navy);
+          font-weight: 700;
+        }
+        .kds-bar-btn-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
+        /* Điện thoại dọc: bỏ chữ, giữ icon — nếu không thì "🔍 Tất cả (24)" đẩy 4 nút
+           bên phải ra khỏi màn. */
+        @media (max-width: 480px) {
+          .kds-bar-btn-label { display: none; }
+        }
+        /* CHỈ dải chip cuộn ngang — các nút ghim 2 đầu để vẫn bấm được khi đang chọn
+           nhiều nhóm (chip trước đây wrap xuống nhiều dòng, đẩy bar cao dần). */
+        .kds-filter-chips {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          flex-wrap: nowrap;
+          gap: 4px;
+          overflow-x: auto;
+          overflow-y: hidden;
+          -webkit-overflow-scrolling: touch;
+          overscroll-behavior-x: contain;
+          /* Ẩn thanh cuộn: vệt xám 5px dưới dải chip là thứ duy nhất trong thanh nút
+             không phải nút bấm, mắt vẫn phải bỏ qua nó mỗi lần liếc. Dải vẫn kéo được
+             bằng ngón tay (touch) và bằng chuột/trackpad — chỉ không vẽ thanh ra. */
+          scrollbar-width: none;
+          -ms-overflow-style: none;
+        }
+        .kds-filter-chips::-webkit-scrollbar { display: none; }
+        .kds-chip {
+          padding: 3px 7px;
+          background: rgba(255, 255, 255, 0.14);
+          border: 1px solid rgba(255, 255, 255, 0.28);
+          color: white;
+          border-radius: 999px;
+          font-size: 11px;
+          white-space: nowrap;
+          flex-shrink: 0;
+        }
+        .kds-bar-tools {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          flex-shrink: 0;
+          margin-left: auto;
         }
       `}</style>
 
-      <div className="kds-header">
-        <h1>👨‍🍳 Bếp — màn nấu</h1>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <HelpButton onClick={() => setHelpOpen(true)} />
-          <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px', minHeight: 34, fontSize: 13 }}>
-            ↻ Làm mới
+      {/* ─── Một dải duy nhất: 2 nút tab (gọn, có số phần) + 3 chế độ xem ─────
+          Thanh tab riêng cao 46px đã bỏ: ở màn rộng nó chỉ là tiêu đề cột cho hai
+          panel đã nhìn thấy sẵn, còn ở màn hẹp thì 2 nút gọn nhét chung dải này là
+          đủ — không tốn thêm một pixel chiều cao nào của danh sách món. */}
+      <div className="kds-views" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            data-key={t.key}
+            aria-selected={tab === t.key}
+            className={`kds-tab-pill ${tab === t.key ? 'active' : ''}`}
+            style={{ ['--tab-col' as string]: t.color }}
+            onClick={() => setTab(t.key)}
+            title={t.label}
+          >
+            <span aria-hidden="true">{t.icon}</span>
+            {/* Đếm SỐ PHẦN, không đếm số dòng: 1 dòng mang cả số lượng của lần gọi
+                (×3), đếm dòng sẽ báo khối lượng việc ít hơn thực tế. */}
+            <span className="kds-tab-pill-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
+            <span className="kds-tab-pill-label">{t.label}</span>
           </button>
+        ))}
+        <span className="kds-views-sep" aria-hidden="true" />
+        {VIEWS.map((v) => (
+          <button
+            key={v.key}
+            type="button"
+            className={`kds-view-btn ${view === v.key ? 'active' : ''}`}
+            onClick={() => setView(v.key)}
+            title={v.hint}
+          >
+            {v.label}
+          </button>
+        ))}
+        {/* Chỉ có nghĩa ở 2 chế độ gộp. Mặc định A→Z vì thứ tự đó không tự đổi. */}
+        {view !== 'priority' && (
+          <>
+            <span className="kds-views-sep" aria-hidden="true" />
+            <button
+              type="button"
+              className={`kds-sort-btn ${groupSort === 'qty' ? 'on' : ''}`}
+              onClick={() => setGroupSort((m) => (m === 'az' ? 'qty' : 'az'))}
+              title={
+                groupSort === 'az'
+                  ? 'Đang sắp A→Z (thứ tự không tự đổi). Bấm để sắp theo nhiều phần nhất trước.'
+                  : 'Đang sắp theo nhiều phần nhất trước. Bấm để về A→Z.'
+              }
+            >
+              {groupSort === 'az' ? '⇅ A→Z' : '⇅ Nhiều nhất'}
+            </button>
+            {/* Ở 'qty' thì thứ tự bị đóng băng để không nhảy dưới ngón tay — nút này
+                là chỗ chủ động yêu cầu sắp lại khi bếp đã làm xong một đợt. */}
+            {groupSort === 'qty' && (
+              <button
+                type="button"
+                className="kds-sort-btn"
+                onClick={() => setResortNonce((n) => n + 1)}
+                title="Sắp lại ngay: nhiều phần nhất lên đầu. Nhóm mới đang xếp ở cuối danh sách."
+              >
+                ↺ Sắp lại
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* ─── Board ───────────────────────────────────────────────────────────── */}
+      <div className="kds-board">
+        {TABS.map((t) => (
+          <div key={t.key} className="kds-panel" data-key={t.key} data-active={tab === t.key}>
+            {/* Thẻ đỏ "món vừa bị huỷ" — CHỈ ở cột chờ chế biến, và luôn ở TRÊN CÙNG.
+                Món bị huỷ rời khỏi state bếp nên biến mất khỏi danh sách ngay; nếu bếp
+                đang nấu nó thì chỉ thấy một dòng tự dưng mất. Thẻ này là lời giải
+                thích, nằm lại tới khi bếp tự tay bấm "Đã biết". */}
+            {t.key === 'PENDING' &&
+              cancelled.map((c) => (
+                <div key={c.item_id} className="kds-cancel-card">
+                  <div className="kds-cancel-info">
+                    <div className="kds-cancel-title" title={`${c.qty}× ${c.menu_item_name}`}>
+                      ✕ ĐÃ HUỶ · {c.qty}× {c.menu_item_name}
+                    </div>
+                    <div className="kds-cancel-sub">
+                      {c.table_name} · {describeCancelled(c)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="kds-cancel-ok"
+                    onClick={() => setCancelled((l) => dismissCancelled(l, c.item_id))}
+                    title="Bỏ thẻ này khỏi màn — đã đọc và đã bỏ món khỏi chảo"
+                  >
+                    Đã biết
+                  </button>
+                </div>
+              ))}
+            {t.key === 'PENDING' && cancelled.length > 1 && (
+              <button
+                type="button"
+                className="kds-cancel-ok all"
+                onClick={() => setCancelled([])}
+                title="Bỏ tất cả thẻ huỷ khỏi màn"
+              >
+                Đã biết tất cả ({cancelled.length})
+              </button>
+            )}
+
+            {loading && (
+              <div className="kds-empty">
+                <span className="spinner" /> Đang tải...
+              </div>
+            )}
+            {!loading && buckets[t.key].length === 0 && (
+              <div className="kds-empty">
+                {t.key === 'PENDING' ? 'Chưa có món nào chờ làm' : 'Chưa có món nào xong'}
+              </div>
+            )}
+
+            {!loading &&
+              view === 'priority' &&
+              buckets[t.key].map((it) => (
+                <Card
+                  key={it.id}
+                  item={it}
+                  tab={t.key}
+                  menuItem={menuMap.get(it.menu_item_id ?? '')}
+                  onDone={() => changeState(it, t.key === 'PENDING' ? 'READY' : 'SERVED')}
+                  onToggleStock={() => toggleStock(it)}
+                />
+              ))}
+
+            {!loading &&
+              grouped &&
+              grouped[t.key].map((g) => (
+                <GroupBlock
+                  key={g.key}
+                  group={g}
+                  tab={t.key}
+                  view={view}
+                  menuMap={menuMap}
+                  onBulk={changeStateMany}
+                  onStateChange={changeState}
+                  onToggleStock={toggleStock}
+                />
+              ))}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── Thanh nút duy nhất ở đáy màn ────────────────────────────────────── */}
+      <div className="kds-bar">
+        {/* Màn bếp không còn nav dưới → đây là đường ra duy nhất. Về màn Order thì
+            thanh điều hướng đầy đủ hiện lại, đi đâu tiếp cũng được. */}
+        <button
+          type="button"
+          className="kds-bar-btn"
+          onClick={() => navigate('/orders')}
+          title="Quay lại màn Order"
+          aria-label="Quay lại màn Order"
+        >
+          ←
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowFilterModal(true)}
+          className={`kds-bar-btn ${groupFilters.size > 0 ? 'filter-on' : ''}`}
+          title="Lọc theo nhóm món"
+        >
+          🔍
+          <span className="kds-bar-btn-label">
+            {groupFilters.size === 0 ? `Tất cả (${totalActiveCount})` : `${groupFilters.size} nhóm`}
+          </span>
+        </button>
+
+        {/* Hiện list nhóm đã chọn như chip nhỏ — cuộn ngang, không wrap */}
+        <div className="kds-filter-chips">
+          {[...groupFilters].map((code) => {
+            const g = groups.find((x) => x.code === code);
+            if (!g) return null;
+            return (
+              <span key={code} className="kds-chip">
+                {g.icon && <span style={{ marginRight: 2 }}>{g.icon}</span>}
+                {g.name} ({countByGroup[g.code] || 0})
+              </span>
+            );
+          })}
+        </div>
+
+        <div className="kds-bar-tools">
+          {groupFilters.size > 0 && (
+            <button
+              type="button"
+              className="kds-bar-btn"
+              onClick={clearGroups}
+              title="Xoá lọc, hiện tất cả nhóm"
+              aria-label="Xoá lọc nhóm"
+            >
+              ✕
+            </button>
+          )}
+          <button
+            type="button"
+            className="kds-bar-btn"
+            onClick={manualRefresh}
+            title="Làm mới danh sách"
+            aria-label="Làm mới danh sách"
+          >
+            ↻
+          </button>
+          <button
+            type="button"
+            className="kds-bar-btn"
+            onClick={() => setHelpOpen(true)}
+            title="Hướng dẫn dùng màn bếp"
+            aria-label="Hướng dẫn dùng màn bếp"
+          >
+            ❓
+          </button>
+          {/* Chuông tự render nút + badge số thông báo chưa đọc — dùng lại nguyên,
+              không bọc thêm để badge đỏ không bị lệch chỗ. */}
+          {/* KHÔNG có nút đăng xuất ở đây (bỏ 2026-09-08): màn bếp mở suốt buổi, một
+              nút tắt-phiên nằm cạnh ↻ và 🔔 là rủi ro thuần — bấm nhầm giữa lúc đông
+              khách thì bếp mất cả màn. Cần đăng xuất thì bấm ← về màn Order, header ở
+              đó có nút đăng xuất như mọi màn khác. */}
+          <NotificationBell />
         </div>
       </div>
 
       <HelpModal title="Hướng dẫn — Màn Bếp" open={helpOpen} onClose={() => setHelpOpen(false)}>
-        <h3 style={{ marginTop: 0, marginBottom: 6 }}>3 cột (tab) — vòng đời 1 món</h3>
-        <p style={{ marginTop: 0, color: '#6b7280' }}>
-          Mỗi món đi qua 3 cột từ trái sang phải. Bấm mũi tên → bên phải card để chuyển sang cột kế tiếp.
+        <h3 style={{ marginTop: 0, marginBottom: 6 }}>2 tab — vòng đời 1 món</h3>
+        <ol style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>
+            <strong>🔥 Chờ chế biến</strong> — mọi món nhân viên đã gọi mà bếp chưa làm xong.
+          </li>
+          <li>
+            <strong>🍽 Đã xong</strong> — món nấu xong, đợi bồi bàn mang ra. Món vào tab này là mọi
+            người nhận được thông báo.
+          </li>
+        </ol>
+        <p style={{ margin: '6px 0 10px', color: '#6b7280', fontStyle: 'italic' }}>
+          Máy màn rộng (iPad ngang / laptop) hiện cả 2 tab cạnh nhau, không cần bấm đổi.
         </p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
+
+        <h3 style={{ marginBottom: 6 }}>1 nút trên mỗi dòng</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong style={{ color: '#f59e0b' }}>📢 Đã order</strong> — món vừa được nhân viên gọi, đang chờ bếp xếp việc. Bấm nút <strong>🔥 →</strong> để vào "Đang nấu".
+            <strong style={{ color: '#10b981' }}>»</strong> — đẩy dòng sang tab bên kia. Ở "Chờ chế
+            biến" nghĩa là <strong>xong</strong>; ở "Đã xong" nghĩa là{' '}
+            <strong>đã giao cho khách</strong> (món rời màn bếp).
           </li>
           <li>
-            <strong style={{ color: '#3b82f6' }}>🔥 Đang nấu</strong> — bếp đang nấu. Khi xong, bấm nút <strong>✓ →</strong> để vào "Đã xong".
-          </li>
-          <li>
-            <strong style={{ color: '#10b981' }}>🍽 Đã xong</strong> — món xong, nhân viên order nhận noti + tiếng beep để ra lấy mang cho khách. Bếp bấm <strong>🚀 →</strong> sau khi nhân viên đã lấy.
+            <strong>Không còn bước "đang nấu"</strong> — bếp bấm một lần là món xong, không phải bấm
+            hai lần cho mỗi món nữa.
           </li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>Màu đồng hồ ⏱ trên card — cảnh báo thời gian chờ</h3>
-        <p style={{ marginTop: 0, color: '#6b7280' }}>
-          Tính từ lúc khách gọi món (created_at), không phải lúc bắt đầu nấu.
-        </p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
-          <li><span style={{ color: '#111827', fontWeight: 700 }}>⏱ Đen</span> — món mới (&lt; 10 phút), bình thường.</li>
-          <li><span style={{ color: '#f59e0b', fontWeight: 700 }}>⏱ Vàng</span> — đã quá 10 phút, cần để ý.</li>
-          <li><span style={{ color: '#dc2626', fontWeight: 700 }}>⚠ ⏱ Đỏ</span> — đã quá 20 phút, ưu tiên làm ngay.</li>
-        </ul>
-
-        <h3 style={{ marginBottom: 6 }}>⭐ Món được ưu tiên</h3>
-        <p style={{ margin: '4px 0' }}>
-          Nhân viên Order có thể đánh dấu món ưu tiên (khi khách sắp về). Card sẽ có nhãn{' '}
-          <span style={{ background: '#fef3c7', color: '#b45309', padding: '2px 6px', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>⭐ ƯU TIÊN</span>{' '}
-          và đứng đầu cột "Đã order". Khi bếp bấm "Bắt đầu nấu", cờ ưu tiên tự mất.
-        </p>
-
-        <h3 style={{ marginBottom: 6 }}>Đánh dấu món hết nguyên liệu</h3>
-        <p style={{ margin: '4px 0' }}>
-          Bấm nút <strong>🚫</strong> trên card (bên trái mũi tên) → menu món đó chuyển đỏ (nhân viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận noti báo khách đổi món.
-        </p>
-
-        <h3 style={{ marginBottom: 6 }}>🔍 Lọc theo nhóm món</h3>
-        <p style={{ marginTop: 0, color: '#6b7280' }}>
-          Khi bếp có nhiều người (vd: 1 người chuyên cháo, 1 người chuyên đồ uống), filter giúp mỗi người chỉ thấy món của mình.
-        </p>
-        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Mở filter:</p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
-          <li>Bấm nút <strong>"🔍 Lọc nhóm"</strong> ở thanh dưới cùng màn hình (ngay trên thanh điều hướng) → mở popup chọn nhóm.</li>
-          <li>Mặc định ban đầu là <strong>"Tất cả"</strong> — hiện toàn bộ món của mọi nhóm.</li>
-        </ul>
-        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Trong popup lọc:</p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
+        <h3 style={{ marginBottom: 6 }}>3 chế độ xem</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            Nhóm chia 2 mục:
-            <ul style={{ paddingLeft: 18, margin: '2px 0' }}>
-              <li><strong>🔥 Bếp nấu</strong> — món cần chế biến (cháo, mỳ, nộm...).</li>
-              <li><strong>🥤 Bếp có sẵn</strong> — món có sẵn không cần nấu (nước đóng chai, hoa quả...).</li>
-            </ul>
+            <strong>Ưu tiên</strong> — danh sách phẳng. Món ⭐ ƯU TIÊN lên đầu, còn lại ai gọi trước
+            nấu trước.
           </li>
-          <li>Tick nhiều nhóm cùng lúc — vd: chọn "Cháo" + "Súp" để xem cả 2.</li>
-          <li>Bên phải mỗi nhóm có <strong>số đếm</strong> — biết nhóm đó đang có bao nhiêu món chờ.</li>
-          <li>Nút <strong>"✓ Tất cả"</strong> tick hết / <strong>"✕ Bỏ chọn"</strong> bỏ hết — nhanh hơn tick từng cái.</li>
-          <li>Ô <strong>🔍 Tìm tên nhóm</strong> — gõ để lọc nhanh khi có nhiều nhóm.</li>
-          <li>Bấm <strong>"Áp dụng"</strong> để lưu lựa chọn.</li>
+          <li>
+            <strong>Theo món</strong> — gộp cùng một món của mọi bàn thành 1 khối (ví dụ NGÔ CHIÊN ×7
+            từ 3 bàn) để nấu 1 lượt. Nút ở đầu khối chuyển cả khối một lần.
+          </li>
+          <li>
+            <strong>Theo phòng/bàn</strong> — gom món theo bàn, để món của một bàn ra cùng lúc.
+          </li>
         </ul>
-        <p style={{ margin: '6px 0 4px', fontWeight: 600 }}>Sau khi áp dụng:</p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
-          <li>Nút "Lọc nhóm" đổi sang nền màu + hiển thị <strong>số nhóm đang chọn</strong>.</li>
-          <li>Bên cạnh hiện <strong>chip nhỏ liệt kê tên các nhóm</strong> đang chọn + số món của nhóm — chọn nhiều nhóm thì <strong>kéo dải chip sang trái/phải</strong> để xem hết.</li>
-          <li>Bấm <strong>"✕ Xoá lọc"</strong> để reset về "Tất cả".</li>
+
+        <h3 style={{ marginBottom: 6 }}>⇅ Thứ tự nhóm — mặc định A→Z</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>
+            <strong>⇅ A→Z</strong> (mặc định) — sắp theo tên món / tên bàn. Tên không đổi khi bếp làm
+            xong dòng nào, nên <strong>không khối nào tự nhảy chỗ</strong>: nhớ được "món này ở khoảng
+            giữa" như nhớ trên quyển menu giấy. Số trong tên so theo giá trị nên "Ship 2" đứng trước
+            "Ship 10", "Ba Chỉ Nướng : 150" trước ": 200".
+          </li>
+          <li>
+            Bấm thành <strong>⇅ Nhiều nhất</strong> khi muốn nấu gộp: khối nhiều phần nhất lên đầu,
+            bằng nhau thì khối chờ lâu nhất trước.
+          </li>
+          <li>
+            Ở chế độ "Nhiều nhất", khối đã hiện <strong>vẫn đứng yên</strong> dù số phần tụt (nếu không
+            thì bấm xong một dòng là cả danh sách trượt đi). Khối mới xuống cuối. Bấm{' '}
+            <strong>↺ Sắp lại</strong> khi làm xong một đợt để sắp lại từ đầu.
+          </li>
+          <li>Khối có món <strong>⭐ ƯU TIÊN</strong> luôn lên đầu ở cả hai chế độ.</li>
         </ul>
-        <p style={{ margin: '6px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
-          💾 Lựa chọn được lưu vào trình duyệt — đăng xuất / reload vẫn giữ nguyên. Mỗi thiết bị giữ filter riêng.
+
+        <h3 style={{ marginBottom: 6 }}>⏱ Đồng hồ + màu chữ</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>Đếm từ lúc <strong>khách gọi món</strong>, không reset khi đổi trạng thái.</li>
+          <li>
+            Đen &lt; 10 phút · <span style={{ color: '#b45309', fontWeight: 700 }}>vàng 10–20 phút</span>{' '}
+            · <span style={{ color: '#b91c1c', fontWeight: 700 }}>đỏ ⚠ trên 20 phút</span>.
+          </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>📝 Yêu cầu phục vụ · ⭐ Ưu tiên</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>
+            Dòng <strong>viền tím 📝 YC PHỤC VỤ</strong> là yêu cầu bồi bàn gửi xuống ("lấy bát cho
+            khách"), không phải món nấu. Nó <strong>không bao giờ bị lọc nhóm ẩn đi</strong>.
+          </li>
+          <li>
+            Badge <strong>⭐ ƯU TIÊN</strong> do nhân viên Order đánh dấu (khách sắp về) — nấu trước.
+          </li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>✕ Thẻ đỏ "ĐÃ HUỶ"</h3>
+        <p style={{ margin: '4px 0', lineHeight: 1.7 }}>
+          Món bị huỷ thì <strong>biến mất khỏi danh sách ngay</strong> — nếu đang nấu thì bếp chỉ thấy
+          một dòng tự dưng mất, không biết vì sao. Nên món vừa huỷ để lại một{' '}
+          <strong style={{ color: '#991b1b' }}>thẻ đỏ ở trên cùng</strong> cột "Chờ chế biến", ghi rõ
+          món đó <strong>đang nấu / chờ nấu / đã nấu xong</strong> lúc bị huỷ, ai huỷ và lý do.
+        </p>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li>Thấy "đang nấu" → <strong>bỏ món khỏi chảo ngay</strong>, đừng nấu tiếp.</li>
+          <li>Bấm <strong>"Đã biết"</strong> để bỏ thẻ. Thẻ KHÔNG tự mất khi reload — chỉ tự hết sau 1 giờ.</li>
+          <li>Món bị huỷ lúc <strong>chưa báo bếp</strong> thì không sinh thẻ: bếp chưa từng thấy nó.</li>
+        </ul>
+
+        <h3 style={{ marginBottom: 6 }}>🚫 Báo hết món</h3>
+        <p style={{ margin: '4px 0', lineHeight: 1.7 }}>
+          Bấm <strong>🚫</strong> trên dòng (bên trái các nút chuyển) → menu món đó chuyển đỏ (nhân
+          viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận
+          thông báo để báo khách đổi món.
+        </p>
+
+        <h3 style={{ marginBottom: 6 }}>Thanh nút dưới cùng</h3>
+        <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
+          <li><strong>←</strong> quay về màn Order (từ đó có lại thanh điều hướng đầy đủ).</li>
+          <li><strong>🔍</strong> lọc theo nhóm món — tích nhiều nhóm được, <strong>✕</strong> xoá lọc.</li>
+          <li><strong>↻</strong> làm mới · <strong>❓</strong> hướng dẫn này · <strong>🔔</strong> thông báo.</li>
+          <li>
+            Muốn <strong>đăng xuất</strong> thì bấm <strong>←</strong> về màn Order — nút đăng xuất nằm
+            ở thanh trên cùng của màn đó. Cố tình không để ở đây: bấm nhầm giữa buổi là bếp mất màn.
+          </li>
+        </ul>
+        <p style={{ margin: '8px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
+          💾 Tab, chế độ xem và lựa chọn lọc nhóm được lưu vào trình duyệt — reload / đăng nhập lại vẫn
+          giữ nguyên. Mỗi thiết bị giữ riêng.
         </p>
       </HelpModal>
 
@@ -784,124 +1563,94 @@ export function KitchenPage() {
           }}
         />
       )}
-
-      {loading && <p style={{ color: '#6b7280', textAlign: 'center' }}>Đang tải...</p>}
-
-      {!loading && (
-        <div className="kds-board">
-          {COLUMN_DEFS.map((col) => (
-            <Column
-              key={col.state}
-              def={col}
-              items={buckets[col.state] || []}
-              menuMap={menuMap}
-              onAdvance={(it) => changeState(it, col.toState)}
-              onToggleStock={toggleStock}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* Filter bar — dán đáy màn (trên nav dưới). 1 nút mở modal chọn nhóm, dải
-          chip liệt kê nhóm đang chọn (kéo ngang khi dài), nút 'Xoá lọc' reset về
-          tất cả. Selection lưu localStorage. */}
-      <div className="kds-filter-bar" ref={filterBarRef}>
-        <button
-          onClick={() => setShowFilterModal(true)}
-          className={groupFilters.size > 0 ? '' : 'secondary'}
-          style={{
-            padding: '7px 12px',
-            fontSize: 13,
-            whiteSpace: 'nowrap',
-            minHeight: 36,
-            fontWeight: groupFilters.size > 0 ? 700 : 400,
-          }}
-        >
-          🔍 Lọc nhóm
-          {groupFilters.size === 0
-            ? ` · Tất cả (${totalActiveCount})`
-            : ` · ${groupFilters.size} nhóm`}
-        </button>
-        {groupFilters.size > 0 && (
-          <>
-            {/* Hiện list nhóm đã chọn như chip nhỏ — cuộn ngang, không wrap */}
-            <div className="kds-filter-chips">
-              {[...groupFilters].map((code) => {
-                const g = groups.find((x) => x.code === code);
-                if (!g) return null;
-                return (
-                  <span
-                    key={code}
-                    style={{
-                      padding: '3px 7px',
-                      background: '#f0fdfa',
-                      border: '1px solid #ccfbf1',
-                      borderRadius: 999,
-                      fontSize: 11,
-                      whiteSpace: 'nowrap',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {g.icon && <span style={{ marginRight: 2 }}>{g.icon}</span>}
-                    {g.name} ({countByGroup[g.code] || 0})
-                  </span>
-                );
-              })}
-            </div>
-            <button
-              onClick={clearGroups}
-              className="secondary"
-              style={{ padding: '6px 12px', fontSize: 12, minHeight: 32, whiteSpace: 'nowrap' }}
-            >
-              ✕ Xoá lọc
-            </button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
 
-function Column({
-  def,
-  items,
+// ─── Khối gộp: tiêu đề (+ nút chuyển cả khối) rồi từng dòng ───────────────────
+function GroupBlock({
+  group,
+  tab,
+  view,
   menuMap,
-  onAdvance,
+  onBulk,
+  onStateChange,
   onToggleStock,
 }: {
-  def: (typeof COLUMN_DEFS)[number];
-  items: KitchenItem[];
+  group: KdsGroup<KitchenItem>;
+  tab: TabKey;
+  view: ViewKey;
   menuMap: Map<string, MenuItem>;
-  onAdvance: (it: KitchenItem) => void;
+  onBulk: (items: KitchenItem[], to: string, label: string) => void;
+  onStateChange: (it: KitchenItem, to: string) => void;
   onToggleStock: (it: KitchenItem) => void;
 }) {
+  // Còn trong giờ → navy đậm (#0b2f66): đậm hơn hẳn chữ xám của dòng con nên mắt
+  // bắt được tên món trước. Quá giờ thì GIỮ vàng/đỏ của ageColor — cảnh báo khách
+  // chờ lâu quan trọng hơn phân cấp chữ.
+  const age = ageColor(group.oldest);
+  const oldestColor = age === '#111827' ? '#0b2f66' : age;
+  const doneLabel = tab === 'PENDING' ? 'Xong tất cả' : 'Đã giao tất cả';
+  const doneTo = tab === 'PENDING' ? 'READY' : 'SERVED';
+  const doneColor = tab === 'PENDING' ? '#ee3e79' : '#22a04a';
+
+  // Nhóm chỉ có ĐÚNG 1 dòng thì tiêu đề khối lặp lại nguyên xi nội dung của dòng đó
+  // (cùng tên món, cùng số phần, cùng nút) — chồng hai lớp lên nhau làm danh sách cao
+  // gấp đôi mà không thêm thông tin nào. Ở menu này phần lớn món là tên riêng theo cỡ
+  // ("Ba Chỉ Nướng : 150" khác ": 200") nên đó là đa số các nhóm. Render thẳng card.
+  if (group.items.length === 1) {
+    const only = group.items[0];
+    return (
+      <Card
+        item={only}
+        tab={tab}
+        menuItem={menuMap.get(only.menu_item_id ?? '')}
+        onDone={() => onStateChange(only, tab === 'PENDING' ? 'READY' : 'SERVED')}
+        onToggleStock={() => onToggleStock(only)}
+      />
+    );
+  }
+
   return (
-    <div className="kds-column" style={{ background: def.bg }}>
-      <div className="kds-column-header" style={{ background: def.color }}>
-        <span>
-          {def.icon} {def.label}
-        </span>
-        {/* Đếm SỐ PHẦN, không đếm số card: 1 card giờ mang cả số lượng của lần gọi
-            (×3), đếm card sẽ báo khối lượng việc ít hơn thực tế. */}
-        <span style={{ background: 'rgba(255,255,255,0.25)', padding: '2px 10px', borderRadius: 999, fontSize: 14 }}>
-          {items.reduce((s, i) => s + i.qty, 0)}
-        </span>
-      </div>
-      <div className="kds-column-body">
-        {items.length === 0 && (
-          <div className="kds-empty">
-            {def.state === 'KITCHEN' && 'Chưa có món nào chờ làm'}
-            {def.state === 'COOKING' && 'Chưa có món nào đang nấu'}
-            {def.state === 'READY' && 'Chưa có món nào xong'}
+    <div className={`kds-group ${group.hasPriority ? 'priority' : ''}`}>
+      <div className="kds-group-head">
+        {/* Tổng SỐ PHẦN của khối — con số bếp cần nhất ở chế độ gộp: múc mấy bát. */}
+        <span className="kds-group-qty">×{group.qty}</span>
+        <div className="kds-group-titlewrap">
+          <div className="kds-group-title" style={{ color: oldestColor }} title={group.title}>
+            {group.hasPriority && '⭐ '}
+            {group.title}
           </div>
-        )}
-        {items.map((it) => (
+          <div className="kds-group-sub" title={group.subtitle}>
+            {group.subtitle}
+          </div>
+        </div>
+        <div className="kds-group-actions">
+          <button
+            type="button"
+            className="kds-bulk-btn"
+            style={{ background: doneColor, color: 'white', borderColor: doneColor }}
+            onClick={() => onBulk(group.items, doneTo, doneLabel)}
+            title={`${doneLabel} — ${group.items.length} dòng`}
+          >
+            » {doneLabel}
+          </button>
+        </div>
+      </div>
+      <div className="kds-group-rows">
+        {group.items.map((it) => (
           <Card
             key={it.id}
             item={it}
-            colDef={def}
+            tab={tab}
+            /* Không lặp lại thứ đã nằm ở tiêu đề khối: chế độ "Theo món" thì tiêu đề
+               đã là tên món nên dòng con chỉ cần BÀN; "Theo phòng/bàn" thì tiêu đề là
+               tên bàn nên dòng con chỉ cần TÊN MÓN. Lặp cả hai là cách nhanh nhất
+               biến danh sách thành một mảng chữ không đọc được. */
+            hideName={view === 'item'}
+            hideTable={view === 'table'}
             menuItem={menuMap.get(it.menu_item_id ?? '')}
-            onAdvance={() => onAdvance(it)}
+            onDone={() => onStateChange(it, tab === 'PENDING' ? 'READY' : 'SERVED')}
             onToggleStock={() => onToggleStock(it)}
           />
         ))}
@@ -912,35 +1661,65 @@ function Column({
 
 function Card({
   item,
-  colDef,
+  tab,
   menuItem,
-  onAdvance,
+  hideName = false,
+  hideTable = false,
+  onDone,
   onToggleStock,
 }: {
   item: KitchenItem;
-  colDef: (typeof COLUMN_DEFS)[number];
+  tab: TabKey;
   menuItem: MenuItem | undefined;
-  onAdvance: () => void;
+  /** true khi tiêu đề khối gộp đã nói tên món — xem GroupBlock. */
+  hideName?: boolean;
+  /** true khi tiêu đề khối gộp đã nói tên bàn. */
+  hideTable?: boolean;
+  /** Nút duy nhất — tab Chờ chế biến: xong (READY). Tab Đã xong: đã giao (SERVED). */
+  onDone: () => void;
   onToggleStock: () => void;
 }) {
-  // BUG FIX: dùng created_at (thời điểm khách gọi món) thay vì updated_at.
-  // updated_at reset mỗi lần đổi state (KITCHEN → COOKING → READY) khiến đồng hồ
-  // bị reset về 0 — không phản ánh đúng thời gian khách đã chờ.
+  // Dùng created_at (thời điểm khách gọi món) thay vì updated_at: updated_at reset
+  // mỗi lần đổi state (KITCHEN → COOKING → READY) khiến đồng hồ về 0 — không phản
+  // ánh đúng thời gian khách đã chờ.
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageTextColor = ageColor(item.created_at);
+  /* Phân cấp chữ chỉ có MỘT luật: dòng nào là "đầu việc" thì đậm, dòng nào là chi tiết
+     của một đầu việc khác thì nhạt.
+       - Dòng đứng MỘT MÌNH (chế độ Ưu tiên, hoặc nhóm chỉ có 1 dòng nên render thẳng
+         thành card) = đầu việc → to + navy đậm, ngang cỡ tiêu đề khối.
+       - Dòng BÊN TRONG khối gộp = chi tiết, vì tiêu đề khối đã nói tên món / tên bàn
+         → chữ xám, nhỏ hơn, để tiêu đề nổi lên.
+     `hideName || hideTable` chính là dấu hiệu "đang nằm trong khối" — GroupBlock chỉ
+     truyền 2 cờ đó cho dòng con của nó. */
+  const inGroup = hideName || hideTable;
+  const isDefaultAge = ageTextColor === '#111827';
+  // Quá giờ thì CẢ HAI cấp vẫn giữ vàng/đỏ của ageColor: cảnh báo khách chờ lâu quan
+  // trọng hơn phân cấp chữ.
+  const rowColor = isDefaultAge && inGroup ? '#475569' : ageTextColor;
+  const nameColor = inGroup ? rowColor : isDefaultAge ? '#0b2f66' : ageTextColor;
   // Ghi chú không phải món trong menu → không có tình trạng hết/còn nguyên liệu.
   const isNote = !!item.is_note;
   const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
+  const meta = STATE_META[item.state] ?? STATE_META.KITCHEN;
+  // Hai cột hai màu nút (theme KiotViet): hồng = "xong, đẩy sang cột phải", xanh lá =
+  // "đã giao khách, món rời màn bếp". Bấm nhầm cột thì món nhảy sai chặng, mà ở tốc độ
+  // bếp thì màu là thứ nhận ra trước cả chữ.
+  const doneColor = tab === 'PENDING' ? '#ee3e79' : '#22a04a';
 
   return (
     <div
-      className="kds-card"
+      className={`kds-card ${inGroup ? '' : 'lead'}`}
       style={{
-        // Ghi chú: viền tím + nền tím nhạt để bếp phân biệt ngay với món phải nấu.
-        borderLeft: `5px solid ${isNote ? '#7c3aed' : colDef.color}`,
+        // Nền tím của ghi chú đặt inline nên THẮNG cả .lead: "yêu cầu phục vụ" không
+        // phải món nấu, nó phải khác mọi thứ khác kể cả nền đầu việc.
+        // Vạch màu bên trái, thứ tự ưu tiên của thông tin:
+        //   tím  = ghi chú (yêu cầu phục vụ, KHÔNG phải món nấu) — nền tím nhạt luôn
+        //   vàng = ⭐ ưu tiên, khách sắp về
+        //   xanh dương / xanh lá = cột đang đứng (chờ chế biến / đã xong)
+        borderLeft: `5px solid ${isNote ? '#7c3aed' : item.is_priority ? '#f59e0b' : meta.color}`,
         background: isNote ? '#faf5ff' : undefined,
-        boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
       }}
     >
       <div className="kds-card-info">
@@ -963,17 +1742,27 @@ function Card({
               ⭐ ƯU TIÊN
             </span>
           )}
-          <div
-            className="kds-card-name"
-            style={{ color: ageTextColor }}
-            title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
-          >
-            {item.menu_item_name}
-          </div>
+          {!hideName && (
+            <div
+              className={`kds-card-name ${inGroup ? '' : 'strong'}`}
+              style={{ color: nameColor }}
+              title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
+            >
+              {item.menu_item_name}
+            </div>
+          )}
           {!isNote && <span className="kds-card-qty">×{item.qty}</span>}
-          <span className="kds-card-table" title={item.table_code} style={{ color: ageTextColor }}>
-            {item.table_name}
-          </span>
+          {!hideTable && (
+            <span
+              /* Ẩn tên món rồi thì tên bàn là thứ duy nhất nhận diện dòng này → nó
+                 lên cỡ chữ của tên món và chiếm phần chỗ còn lại. */
+              className={`kds-card-table ${hideName ? 'primary' : ''}`}
+              title={item.table_code}
+              style={{ color: rowColor }}
+            >
+              {item.table_name}
+            </span>
+          )}
         </div>
         <div className="kds-card-meta">
           <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
@@ -983,8 +1772,6 @@ function Card({
               nhãn cỡ phần (bát 100k khác định lượng bát 130k), không phải tiền
               phải trả: gọi 2× món 100k thì vẫn múc 2 bát cỡ "100k", hiện "200k"
               sẽ khiến bếp múc sai cỡ. Tổng tiền là việc của màn Order + bill.
-              Đặt ở dòng meta (không phải dòng tên món) để tên món dài không phải
-              chia chỗ — cả hai đều nowrap nên cùng dòng sẽ tràn card.
               Ghi chú (giá 0) không hiện: "0k" trên yêu cầu phục vụ chỉ gây nhiễu. */}
           {!isNote && item.menu_item_price > 0 && (
             <span className="kds-card-portion" title="Định lượng — cỡ phần cho MỖI bát/đĩa">
@@ -1001,21 +1788,19 @@ function Card({
               📝 {item.note}
             </span>
           )}
-          {isOutOfStock && (
-            <span style={{ color: '#dc2626', fontWeight: 600 }}>🚫 Menu HẾT</span>
-          )}
+          {isOutOfStock && <span style={{ color: '#dc2626', fontWeight: 600 }}>🚫 Menu HẾT</span>}
         </div>
       </div>
 
-      {/* Khối nút — bọc chung 1 div để khi card hẹp (zoom to) cả 2 nút cùng tụt
-          xuống dòng dưới, không bị tách rời mỗi nút một dòng. */}
+      {/* Khối nút — bọc chung 1 div để khi card hẹp (zoom to) cả nhóm cùng tụt xuống
+          dòng dưới, không bị tách rời mỗi nút một dòng. */}
       <div className="kds-card-actions">
-        {/* Ẩn nút 'Đánh dấu hết' ở cột READY — món đã làm xong, không hợp lý
-            để báo hết nguyên liệu. Cột KITCHEN + COOKING vẫn cho phép.
-            Ghi chú cũng ẩn: không phải món trong menu nên không có gì để báo hết
-            (BE sẽ 404 vì menu_item_id là NULL). */}
-        {colDef.state !== 'READY' && !isNote && (
+        {/* Ẩn nút 'Đánh dấu hết' ở tab Đã xong — món đã làm xong, không hợp lý để báo
+            hết nguyên liệu. Ghi chú cũng ẩn: không phải món trong menu nên không có gì
+            để báo hết (BE sẽ 404 vì menu_item_id là NULL). */}
+        {tab === 'PENDING' && !isNote && (
           <button
+            type="button"
             className={`kds-small-btn ${isOutOfStock ? 'out' : ''}`}
             onClick={onToggleStock}
             title={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
@@ -1025,15 +1810,20 @@ function Card({
           </button>
         )}
 
+        {/* ĐÚNG MỘT nút chuyển trạng thái (2026-09-08): chỉ có 2 tab nên chỉ cần một
+            hành động — đẩy dòng sang tab bên kia. Nút '›' (bắt đầu nấu) đã bỏ: nó
+            thêm một lần bấm cho mọi món mà thông tin "đang trên bếp" thì bếp đứng
+            ngay đó đã biết. State COOKING vẫn còn trong DB, màn Order vẫn set được,
+            và dòng nào đang COOKING vẫn hiện badge 🔥 ở đây. */}
         <button
-          className="kds-arrow"
-          onClick={onAdvance}
-          style={{ ['--col' as string]: colDef.color, background: colDef.color }}
-          title={colDef.nextLabel}
-          aria-label={colDef.nextLabel}
+          type="button"
+          className="kds-done"
+          style={{ ['--col' as string]: doneColor }}
+          onClick={onDone}
+          title={tab === 'PENDING' ? 'Xong, sẵn sàng mang ra' : 'Đã giao cho khách'}
+          aria-label={tab === 'PENDING' ? 'Xong, sẵn sàng mang ra' : 'Đã giao cho khách'}
         >
-          <span style={{ fontSize: 15 }}>{colDef.nextIcon}</span>
-          <span style={{ fontSize: 18, lineHeight: 1 }}>→</span>
+          »
         </button>
       </div>
     </div>

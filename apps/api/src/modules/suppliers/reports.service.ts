@@ -6,7 +6,7 @@
 // xảy ra thật, và cả hai làm `unit_price` mất tính so sánh (M3.D-36, 37).
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, type ObjectLiteral, type SelectQueryBuilder } from 'typeorm';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
@@ -272,8 +272,11 @@ export class ReportsService {
    *
    * CHỈ phiếu đã duyệt (M3.D-41), cùng luật với mọi con số tiền khác của module: phiếu NCC tự
    * khai mà quán chưa kiểm không được làm phồng chi tiêu.
+   *
+   * `from`/`to` là của riêng tab Thống kê (2026-09-08). Thiếu cả hai = toàn bộ lịch sử, giữ
+   * nguyên hành vi cũ — các tab so giá vẫn gọi không tham số.
    */
-  async daily(opts: { supplier_id?: string } = {}): Promise<DailyRow[]> {
+  async daily(opts: { supplier_id?: string; from?: string; to?: string } = {}): Promise<DailyRow[]> {
     const qb = this.deliveryRepo
       .createQueryBuilder('d')
       .innerJoin('suppliers', 's', 's.id = d.supplier_id')
@@ -284,6 +287,8 @@ export class ReportsService {
       .addSelect('COUNT(*)', 'deliveries')
       .where("d.status = 'CONFIRMED'");
     if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
+    if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('d.delivery_date <= :to', { to: opts.to });
     const raw = await qb
       .groupBy('d.delivery_date')
       .addGroupBy('d.supplier_id')
@@ -298,6 +303,83 @@ export class ReportsService {
       deliveries: Number(r.deliveries),
     }));
   }
+
+  /** Từng PHIẾU nhập trong kỳ, kèm tên các mặt hàng có trong phiếu (2026-09-08).
+   *
+   * `daily()` cộng tiền theo ngày nên một ngày ba NCC giao là MỘT con số; bảng "phiếu nhập nào
+   * nhiều nhất" cần đúng mức dưới đó — từng phiếu một, xếp theo giá trị.
+   *
+   * Trả kèm `items` (tên mặt hàng) vì ô tìm kiếm của tab này lọc phiếu THEO MÓN: gõ "cá" phải
+   * ra danh sách phiếu có cá. Không có tên món trong tay thì màn hình phải gọi thêm một lượt
+   * `/supplier-deliveries/:id` cho mỗi phiếu — hàng trăm lượt gọi cho một lần gõ phím.
+   *
+   * Hai truy vấn chứ không GROUP_CONCAT: giới hạn mặc định 1024 byte của MySQL sẽ CẮT CỤT
+   * chuỗi tên ở phiếu nhiều dòng, và cắt cụt thì tìm kiếm im lặng bỏ sót — kiểu lỗi không ai
+   * phát hiện ra. Cũng không dùng `IN (:...ids)`: kỳ "tất cả" cho ra hàng nghìn id, dán hết
+   * vào một câu SQL là tự tạo truy vấn dài chục nghìn ký tự. Lọc lại bằng chính điều kiện của
+   * truy vấn trên rẻ hơn và luôn khớp.
+   */
+  async deliveryStats(opts: {
+    from?: string;
+    to?: string;
+    supplier_id?: string;
+  }): Promise<DeliveryStatRow[]> {
+    const scope = <T extends ObjectLiteral>(qb: SelectQueryBuilder<T>): SelectQueryBuilder<T> => {
+      qb.where("d.status = 'CONFIRMED'");
+      if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
+      if (opts.to) qb.andWhere('d.delivery_date <= :to', { to: opts.to });
+      if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
+      return qb;
+    };
+
+    const heads = await scope(
+      this.deliveryRepo
+        .createQueryBuilder('d')
+        .innerJoin('suppliers', 's', 's.id = d.supplier_id')
+        .select([
+          'd.id AS delivery_id',
+          'd.delivery_date AS delivery_date',
+          'd.supplier_id AS supplier_id',
+          's.name AS supplier_name',
+          'd.total_amount AS amount',
+          'd.note AS note',
+        ]),
+    )
+      .orderBy('d.delivery_date', 'DESC')
+      .addOrderBy('d.created_at', 'DESC')
+      .getRawMany<Record<string, unknown>>();
+
+    if (heads.length === 0) return [];
+
+    const lines = await scope(
+      this.lineRepo
+        .createQueryBuilder('l')
+        .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
+        .select('l.delivery_id', 'delivery_id')
+        .addSelect('l.ingredient_name_snapshot', 'name'),
+    ).getRawMany<{ delivery_id: string; name: string }>();
+
+    const byDelivery = new Map<string, string[]>();
+    for (const l of lines) {
+      const arr = byDelivery.get(l.delivery_id);
+      if (arr) arr.push(l.name);
+      else byDelivery.set(l.delivery_id, [l.name]);
+    }
+
+    return heads.map((r) => {
+      const items = byDelivery.get(String(r.delivery_id)) ?? [];
+      return {
+        delivery_id: String(r.delivery_id),
+        delivery_date: dateStr(r.delivery_date),
+        supplier_id: String(r.supplier_id),
+        supplier_name: String(r.supplier_name),
+        note: r.note === null || r.note === undefined ? null : String(r.note),
+        amount: Number(r.amount),
+        lines: items.length,
+        items,
+      };
+    });
+  }
 }
 
 /** Cột DATE về từ mysql2 lúc là `Date`, lúc là chuỗi tuỳ hàm gộp — ép về 'YYYY-MM-DD' một chỗ. */
@@ -307,6 +389,21 @@ export type DailyRow = {
   supplier_name: string;
   amount: number;
   deliveries: number;
+};
+
+/** Một phiếu nhập đã duyệt trong kỳ (tab Thống kê). */
+export type DeliveryStatRow = {
+  delivery_id: string;
+  delivery_date: string;
+  supplier_id: string;
+  supplier_name: string;
+  note: string | null;
+  /** Tổng tiền của phiếu. */
+  amount: number;
+  /** Số dòng hàng trong phiếu. */
+  lines: number;
+  /** Tên các mặt hàng trong phiếu — nguồn cho ô tìm kiếm theo món. */
+  items: string[];
 };
 
 function dateStr(v: unknown): string {

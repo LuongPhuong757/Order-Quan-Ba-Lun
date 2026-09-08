@@ -383,12 +383,166 @@ body.kds-mode .toast-banner.error {
   animation: slideUp 0.2s ease-out;
 }
 
+/* Hộp thoại KHÔNG đệm hai bên trên điện thoại (2026-09-08, chủ quán: "loại bỏ margin và
+   padding hai bên"). Dùng cho drawer chi tiết bàn: ở đó mỗi món có một hàng 4 nút, và 48px
+   đệm trái+phải chính là thứ quyết định hàng đó nằm gọn một dòng hay tràn xuống hai dòng.
+   Chỉ áp cho modal mang class này — các hộp thoại khác (xác nhận, form) vẫn cần đệm để chữ
+   không dính mép máy. Từ 640px trở lên đệm quay lại: ở đó bề ngang đã dư. */
+/* 8px chứ không phải 0 (chủ quán 2026-09-08: "nên có 1 viền mỏng 2 bên"). Bản trước bỏ sạch
+   đệm nên thẻ món dính đúng mép máy, trông như bị cắt. 8px là VIỀN MỎNG: vẫn trả lại 32px bề
+   ngang so với 24px gốc — thừa sức cho hàng 4 nút của mỗi món nằm một dòng (đo ở máy 390px:
+   hàng nút còn 334px, mỗi nút ~80px) — mà thẻ vẫn ra dáng thẻ. */
+.modal-overlay > .modal.modal-flush {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+/* Menu ⋯ ở header drawer — thả xuống ngay dưới nút, neo mép phải. */
+.drawer-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;                 /* trên lớp phủ bắt click-ra-ngoài (40) */
+  min-width: 190px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-menu button {
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  padding: 12px 14px;
+  min-height: 46px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.drawer-menu button + button { border-top: 1px solid #f3f4f6; }
+.drawer-menu button:hover:not(:disabled) { background: #f9fafb; opacity: 1; }
+.drawer-menu button:disabled { color: #9ca3af; }
+
+/* Nút GỌI MÓN hình tròn, dính đáy khung drawer.
+   Khung bọc cao 0 nên KHÔNG chiếm chỗ trong dòng chảy — nếu nó có chiều cao thì món cuối cùng
+   bị đẩy lên và luôn thừa một khoảng trắng dưới đáy. `pointer-events: none` để dải trong suốt
+   này không nuốt cú chạm vào món nằm dưới nó; riêng cái nút bật lại. */
+.drawer-fab-wrap {
+  position: sticky;
+  bottom: 0;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.drawer-fab {
+  pointer-events: auto;
+  transform: translateY(-68px);
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: #0f766e;
+  color: white;
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(15, 118, 110, 0.45);
+}
+
+/* Hàng nút của một món: mặc định ẨN, mở bằng cú vuốt ngang hoặc nút ⋯ (chủ quán 2026-09-08).
+   TRƯỢT NGANG chứ không đổ dọc: `transform: translateX(-100%) → 0`. Chiều cao vẫn phải mở ra
+   (hàng nút cần chỗ đứng) nhưng KHÔNG cho nó chạy hoạt ảnh — `transition` chỉ liệt kê transform
+   và opacity, nên chiều cao bật ra tức thì còn mắt chỉ bắt được chuyển động ngang.
+   `overflow: hidden` là thứ cắt phần nút còn nằm ngoài lề trái trong lúc trượt. */
+.item-actions {
+  display: flex;
+  gap: 4px;
+  max-height: 0;
+  margin-top: 0 !important;
+  overflow: hidden;
+  transform: translateX(-100%);
+  opacity: 0;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+
+.item-actions.revealed {
+  max-height: 60px;
+  margin-top: 8px !important;
+  transform: translateX(0);
+  opacity: 1;
+}
+
+/* Nút ⋯ dưới giá tiền — đường mở hàng nút cho máy dùng chuột (không vuốt được) và cho người
+   chưa biết là thẻ này vuốt được. Nhờ nó mà bỏ được ngoại lệ "desktop hiện thường trực": cả
+   hai loại máy nay dùng chung một cách. */
+.item-more {
+  background: none;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  color: #6b7280;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0;
+  margin-top: 6px;
+  width: 40px;
+  height: 32px;
+  min-width: 40px;
+  min-height: 32px;
+}
+
+.item-more:hover { background: #f3f4f6; opacity: 1; }
+
+/* Khung bao quanh MỘT vùng trạng thái trong drawer (Đã order / Đã báo bếp / Xong chờ giao /
+   Đã giao / Đã huỷ) — chủ quán 2026-09-08.
+   Viền lấy màu của chính trạng thái nhưng pha rất loãng (alpha 55): đậm bằng chữ thì bốn khung
+   cạnh nhau thành bốn khối màu chóe, mà thứ cần nổi là TÊN MÓN chứ không phải cái khung.
+   Nền trắng + thẻ món bên trong nền trắng nốt, nên khung đọc ra như một tờ phiếu, không phải
+   thêm một lớp hộp nữa. */
+.item-section {
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 10px 8px 4px;
+  margin-bottom: 12px;
+}
+
+/* Tiêu đề vùng: CHIP ôm sát chữ, không phải dải chạy hết bề ngang.
+   `<h2>` là phần tử khối nên mặc định chiếm cả dòng — `inline-block` + `width: auto` là hai
+   thứ kéo nó về đúng bề rộng của chữ bên trong. */
+.item-section-title {
+  display: inline-block;
+  width: auto;
+  margin: 0 0 8px;
+  padding: 4px 12px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.3;
+}
+
 @media (min-width: 640px) {
   .modal-overlay {
     align-items: center;
   }
   .modal-overlay > .modal {
     border-radius: 12px;
+  }
+  .modal-overlay > .modal.modal-flush {
+    padding-left: 24px;
+    padding-right: 24px;
   }
 }
 
@@ -755,7 +909,12 @@ a:hover {
 }
 
 .header {
-  background: white;
+  /* Nền TRONG SUỐT TUYỆT ĐỐI (2026-09-08, chủ quán). Không phải `#f9fafb` cho giống nền trang:
+     trong suốt thật thì header hoà vào bất cứ nền nào phía sau nó, kể cả dải đỏ môi trường dev.
+     ⚠ Header vẫn `position: sticky`, nên khi cuộn, nội dung trang chạy NGAY DƯỚI chữ của
+     header. Đổi lại đúng thứ được yêu cầu; nếu chữ bị chồng khó đọc thì đường sửa là bỏ sticky
+     hoặc thêm `backdrop-filter`, KHÔNG phải trả lại nền trắng. */
+  background: transparent;
   border-bottom: 1px solid #e5e7eb;
   padding: 10px 14px;
   display: flex;

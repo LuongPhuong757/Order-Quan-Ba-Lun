@@ -5,7 +5,6 @@ import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
-import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { openTablesStore } from '../lib/open-tables-badge.ts';
 
@@ -83,7 +82,6 @@ export function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
-  const [helpOpen, setHelpOpen] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -163,22 +161,6 @@ export function OrdersPage() {
     if (ok) unlockTable(t, true);
   }, [confirm, unlockTable]);
 
-  const unlockAll = useCallback(async () => {
-    const ok = await confirm({
-      title: 'Mở khoá tất cả bàn?',
-      message: 'Tất cả bàn KiotViet sẽ trở lại bình thường, có thể gọi món ở hệ thống này.',
-      variant: 'success',
-      confirmLabel: '🔓 Mở tất cả',
-    });
-    if (!ok) return;
-    try {
-      const res = await api.post<{ data: { unlocked: number } }>('/tables/unlock-all', {});
-      toast.push('success', `Đã mở khoá ${res.data.data.unlocked} bàn`);
-      refresh(false);
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    }
-  }, [confirm, toast, refresh]);
 
   useEffect(() => {
     refresh();
@@ -458,85 +440,11 @@ export function OrdersPage() {
 
   return (
     <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16, alignItems: 'center', gap: 8 }}>
-        <h1 className="hide-on-mobile" style={{ margin: 0 }}>Sơ đồ bàn</h1>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <HelpButton onClick={() => setHelpOpen(true)} />
-          <button
-            className="secondary"
-            onClick={unlockAll}
-            style={{ padding: '6px 12px', minHeight: 40, color: '#7c3aed', borderColor: '#ddd6fe' }}
-          >
-            🔓 Mở tất cả
-          </button>
-          <button className="secondary" onClick={manualRefresh} style={{ padding: '6px 12px', minHeight: 40 }}>
-            ↻ Làm mới
-          </button>
-        </div>
-      </div>
+      {/* Cụm nút Hướng dẫn / Mở tất cả / Làm mới đã bỏ (2026-09-08, chủ quán). "Làm mới" vốn
+          thừa — trang đã tự làm mới mỗi 2s. Mở khoá KiotViet nay làm từng bàn: tap thẳng vào
+          thẻ bàn tím, hệ thống hỏi rồi mở. */}
+      <h1 className="hide-on-mobile" style={{ margin: '0 0 16px' }}>Sơ đồ bàn</h1>
 
-      <HelpModal title="Hướng dẫn — Sơ đồ bàn" open={helpOpen} onClose={() => setHelpOpen(false)}>
-        <p style={{ marginTop: 0 }}>
-          Mỗi ô là một bàn. Tap để mở chi tiết, gọi món, đánh dấu đã giao, hoặc thanh toán.
-        </p>
-
-        <h3 style={{ marginBottom: 6 }}>Vòng đời món trên thẻ bàn</h3>
-        <p style={{ marginTop: 0, color: '#6b7280' }}>
-          Khi bàn có món, thẻ hiển thị các chip màu — mỗi chip là 1 trạng thái + số lượng món:
-        </p>
-        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
-          <li>
-            <span style={chipStyle('#6b7280')}>✎ N</span> &nbsp;
-            <strong>Đã gọi</strong> — nhân viên thêm vào giỏ, chưa báo bếp. Trong drawer bấm "📢 Báo bếp" để chuyển.
-          </li>
-          <li>
-            <span style={chipStyle('#f59e0b')}>📢 N</span> &nbsp;
-            <strong>Đã báo bếp</strong> — bếp đã nhận, đang xếp hàng nấu.
-          </li>
-          <li>
-            <span style={chipStyle('#3b82f6')}>🔥 N</span> &nbsp;
-            <strong>Đang nấu</strong> — bếp đang làm.
-          </li>
-          <li>
-            <span style={chipStyle('#10b981')}>✓ N</span> &nbsp;
-            <strong>Đã xong</strong> — bếp xong, chờ nhân viên ra lấy mang cho khách.
-          </li>
-          <li>
-            <span style={chipStyle('#10b981')}>🍽 N đã giao</span> &nbsp;
-            <strong>Đã giao</strong> — món tới tay khách, sẵn sàng tính tiền.
-          </li>
-        </ul>
-
-        <h3 style={{ marginBottom: 6 }}>Màu nền thẻ bàn</h3>
-        <ul style={{ paddingLeft: 22, margin: '4px 0 12px' }}>
-          <li><span style={{ background: 'white', border: '1px solid #e5e7eb', padding: '2px 8px', borderRadius: 6 }}>Trắng</span> — bàn trống, chưa có order.</li>
-          <li><span style={{ background: '#fef3c7', padding: '2px 8px', borderRadius: 6 }}>Vàng nhạt</span> — bàn đang có món chưa giao xong.</li>
-          <li><span style={{ background: '#ecfdf5', border: '2px solid #059669', padding: '2px 8px', borderRadius: 6 }}>Xanh viền đậm</span> — tất cả món đã giao, sẵn sàng thanh toán.</li>
-          <li><span style={{ background: '#fee2e2', border: '2px solid #dc2626', padding: '2px 8px', borderRadius: 6 }}>Đỏ</span> — bàn đã báo bếp ≥ 15 phút nhưng chưa món nào tới khách — cần kiểm tra.</li>
-          <li><span style={{ background: '#f5f3ff', border: '2px solid #7c3aed', padding: '2px 8px', borderRadius: 6 }}>Tím</span> — bàn đang order bằng KiotViet, hệ thống này chặn gọi món.</li>
-        </ul>
-
-        <h3 style={{ marginBottom: 6 }}>Bàn dùng KiotViet 🔒</h3>
-        <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>
-          Trước 12h đêm quán dùng KiotViet, sau đó mới dùng hệ thống này. Để tránh 1 bàn gọi món
-          trên cả 2 nơi: bấm 🔒 ở góc thẻ bàn để đánh dấu bàn đang dùng KiotViet — bàn chuyển tím
-          và không gọi món ở đây được. Khi muốn dùng lại, bấm vào bàn tím rồi chọn
-          <strong>↩ Chuyển về hệ thống</strong>, hoặc <strong>🔓 Mở tất cả</strong> để mở hết một lượt.
-          Lưu ý: bàn còn đơn chưa thanh toán thì phải xử lý xong mới khoá được.
-        </p>
-
-        <h3 style={{ marginBottom: 6 }}>Đồng hồ ở góc phải thẻ</h3>
-        <p style={{ margin: '4px 0 12px', color: '#6b7280' }}>
-          Số phút "N′" là thời gian từ lần đầu báo bếp. Đỏ khi ≥ 15 phút mà chưa giao món nào → cảnh báo bàn chậm.
-        </p>
-
-        <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao</h3>
-        <p style={{ margin: '4px 0' }}>Tap vào thẻ bàn → drawer mở ra. Với mỗi món đang ở trạng thái "Đã xong":</p>
-        <ol style={{ paddingLeft: 22, margin: '4px 0' }}>
-          <li>Bấm nút <strong>🚀 Đã giao</strong> bên phải món → trạng thái chuyển sang "Đã giao", bếp nhận noti.</li>
-          <li>Khi tất cả món đã giao, thẻ bàn chuyển xanh → bấm <strong>💰 Thanh toán</strong> trong drawer.</li>
-        </ol>
-      </HelpModal>
 
       {loading && <p style={{ color: '#6b7280' }}>Đang tải bàn...</p>}
 

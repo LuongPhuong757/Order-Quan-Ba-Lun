@@ -58,9 +58,14 @@ export type ChangeStateDto = z.infer<typeof ChangeStateDto>;
 // không dùng hết). Không phải terminal tuyệt đối nữa — nhân viên phải xoá được
 // khỏi bill khi khách không ăn. Bắt buộc có lý do + ghi nhật ký bàn (event
 // `item_returned`, xem OrdersService.changeItemState).
+// KITCHEN → READY (2026-09-08): màn Bếp giờ có ĐÚNG MỘT nút "xong" trên mỗi dòng —
+// bước COOKING thành tuỳ chọn, không còn bắt buộc đi qua. Bếp bấm một lần là món
+// sang "Đã xong". Không mở transition này thì mọi lần bấm đều trả 409 "Dữ liệu xung
+// đột". COOKING vẫn giữ nguyên (màn Order vẫn set được, đơn online vẫn đọc để vẽ
+// thanh tiến trình) — chỉ là không còn là chặng bắt buộc.
 export const ALLOWED_TRANSITIONS: Record<OrderItemState, OrderItemState[]> = {
   PENDING:   ['KITCHEN', 'SERVED', 'CANCELLED'],
-  KITCHEN:   ['COOKING', 'SERVED', 'CANCELLED'],
+  KITCHEN:   ['COOKING', 'READY', 'SERVED', 'CANCELLED'],
   COOKING:   ['READY',   'SERVED', 'CANCELLED'],
   READY:     ['SERVED',  'CANCELLED'],
   SERVED:    ['CANCELLED'],
