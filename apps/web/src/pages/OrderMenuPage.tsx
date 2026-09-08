@@ -11,11 +11,12 @@
 //
 // Là TRANG nên có URL riêng: nút Back của máy và của trình duyệt đều đưa về sơ đồ bàn, và
 // nhân viên gửi được link thẳng tới bàn đang order.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
+import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
 
 type MenuItem = {
@@ -99,6 +100,7 @@ export function OrderMenuPage() {
   const { tableId = '' } = useParams<{ tableId: string }>();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const [table, setTable] = useState<Table | null>(null);
   const [order, setOrder] = useState<OrderBrief | null>(null);
@@ -114,6 +116,14 @@ export function OrderMenuPage() {
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  /** Thay đổi số lượng của món ĐÃ GỌI mà CHƯA gửi đi. key = khoá gộp nhóm, value = chênh lệch
+   * (dương = gọi thêm, âm = huỷ bớt). Để riêng khỏi `cart` vì hai thứ đi hai đường API khác
+   * nhau lúc gửi: thêm đi `items-bulk`, bớt đi `items/remove`. */
+  const [deltas, setDeltas] = useState<Map<string, number>>(new Map());
+  /** Lý do huỷ gõ trong hộp xác nhận. Ref chứ không phải state: hộp thoại nằm ngoài cây render
+   * của trang (ConfirmProvider giữ nguyên si node trong state của nó), nên giá trị chỉ ra được
+   * bằng đường ref — cùng cách MisaCheckbox làm ở OrderDrawer. */
+  const cancelReasonRef = useRef('');
 
   /** Nạp lại phần tóm tắt đơn (số món đã gọi + tổng) — gọi sau khi báo bếp và sau khi
    * đóng drawer, vì cả hai đều có thể đổi nội dung bàn. */
@@ -165,10 +175,6 @@ export function OrderMenuPage() {
      người đứng order phải thấy đổi màu mà không cần rời trang. 5s chứ không phải 2s như drawer
      cũ — drawer chỉ mở vài giây rồi đóng, còn trang này mở suốt lúc gọi món, nhịp 2s là gấp
      2,5 lần số request cho cùng một thông tin. */
-  useEffect(() => {
-    const t = setInterval(() => void refreshOrder(), 5_000);
-    return () => clearInterval(t);
-  }, [refreshOrder]);
 
   // Lookup helpers — nhóm động (sau khi import file, quán có tới 30+ nhóm tự tạo)
   const groupMap = new Map(groupList.map((g) => [g.code, g]));
@@ -254,45 +260,183 @@ export function OrderMenuPage() {
      bị trộn thành một dòng vô nghĩa. Món đã huỷ không vào đây: nó không tính tiền và chỉ làm
      dài thêm danh sách; xem huỷ gì thì mở Chi tiết bàn. */
   const orderedGroups = (() => {
-    const map = new Map<string, { key: string; rep: OrderBrief['items'][number]; count: number }>();
+    const map = new Map<
+      string,
+      { key: string; rep: OrderBrief['items'][number]; count: number; ids: string[] }
+    >();
     for (const it of liveItems) {
       const key = `${it.menu_item_id}|${it.note ?? ''}|${it.state}`;
       const cur = map.get(key);
-      if (cur) cur.count += it.qty;
-      else map.set(key, { key, rep: it, count: it.qty });
+      if (cur) {
+        cur.count += it.qty;
+        cur.ids.push(it.id);
+      } else {
+        map.set(key, { key, rep: it, count: it.qty, ids: [it.id] });
+      }
     }
     return Array.from(map.values());
   })();
 
+  // Nhóm kèm phần đang sửa dở: `shown` là con số đang hiện trên nút, `delta` là phần sẽ gửi.
+  const orderedRows = orderedGroups.map((g) => {
+    const delta = deltas.get(g.key) ?? 0;
+    return { ...g, delta, shown: g.count + delta };
+  });
+  const increases = orderedRows.filter((r) => r.delta > 0);
+  const decreases = orderedRows.filter((r) => r.delta < 0);
+  /** Có gì để gửi bếp chưa? Nút "Báo bếp" bật/tắt theo đúng cái này — món mới chọn HOẶC
+   * số lượng món đã gọi bị sửa. */
+  const hasChanges = cartLines.length > 0 || increases.length > 0 || decreases.length > 0;
+  const addedUnits = totalQty + increases.reduce((s, r) => s + r.delta, 0);
+  const removedUnits = -decreases.reduce((s, r) => s + r.delta, 0);
+
+  /** Tiền của phần SẼ gửi thêm (món mới + phần tăng) — không gồm phần huỷ, vì huỷ bao nhiêu
+   * tiền còn tuỳ BE chọn huỷ phần đã giao hay chưa giao. */
+  const addTotal = total + increases.reduce((s, r) => s + r.rep.menu_item_price * r.delta, 0);
+
+  /** Nhãn tóm tắt việc sắp gửi, dùng chung cho nút ở cột giỏ, thanh dưới và sheet — ba chỗ nói
+   * ba kiểu thì nhân viên phải đọc lại mới dám bấm. */
+  const changeLabel = [
+    addedUnits > 0 ? `+${addedUnits} phần` : '',
+    removedUnits > 0 ? `−${removedUnits} huỷ` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
+  useEffect(() => {
+    // Đang sửa dở thì DỪNG poll. Số lượng đang sửa neo theo khoá nhóm (món|ghi chú|trạng thái);
+    // bếp đổi trạng thái một món giữa chừng là khoá đổi theo và phần đang gõ biến mất ngay dưới
+    // tay người đang bấm. Gửi xong hoặc bỏ hết thì poll chạy lại.
+    if (hasChanges) return;
+    const t = setInterval(() => void refreshOrder(), 5_000);
+    return () => clearInterval(t);
+  }, [refreshOrder, hasChanges]);
+
+  /** Sửa số lượng một nhóm đã gọi. Chặn dưới 0 và trên 99 (khớp @Max(99) của AddItemDto ở BE).
+   * Dòng ghi chú cho bếp không sửa được ở đây — nó không phải món bán. */
+  const bumpOrdered = (key: string, count: number, step: number) => {
+    setDeltas((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(key) ?? 0;
+      const shown = count + cur + step;
+      if (shown < 0 || shown > 99) return prev;
+      const d = cur + step;
+      if (d === 0) next.delete(key);
+      else next.set(key, d);
+      return next;
+    });
+  };
+
   const submit = async () => {
     if (!order) return;
-    if (cartLines.length === 0) {
-      toast.push('error', 'Giỏ hàng trống');
+    if (!hasChanges) {
+      toast.push('error', 'Chưa có gì để báo bếp');
       return;
     }
+
+    /* Có phần bị BỚT thì hỏi trước. Huỷ món là thứ không lùi lại được: nó đụng vào bill và vào
+       việc bếp đang làm dở. Liệt kê thẳng ra huỷ món gì, mấy phần — chứ không phải một câu
+       "bạn có chắc không" chung chung. Lý do để trống được, đúng như hộp "Sửa số lượng" cũ ở
+       Chi tiết bàn; BE tự ghi lý do mặc định theo trạng thái món. */
+    if (decreases.length > 0) {
+      cancelReasonRef.current = '';
+      const ok = await confirm({
+        title: `Huỷ ${removedUnits} phần?`,
+        variant: 'danger',
+        confirmLabel: `✕ Huỷ ${removedUnits} phần rồi báo bếp`,
+        cancelLabel: 'Quay lại',
+        message: (
+          <div style={{ display: 'grid', gap: 12 }}>
+            <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+              {decreases.map((r) => (
+                <div
+                  key={r.key}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    gap: 12,
+                    padding: '8px 12px',
+                    fontSize: 14,
+                    borderTop: '1px solid #f3f4f6',
+                  }}
+                >
+                  <span>
+                    <strong>{-r.delta}×</strong> {r.rep.menu_item_name}
+                    <span style={{ color: '#6b7280' }}> ({STATE_LABEL[r.rep.state] ?? r.rep.state})</span>
+                  </span>
+                  <span style={{ color: '#6b7280', whiteSpace: 'nowrap' }}>
+                    còn {r.shown} phần
+                  </span>
+                </div>
+              ))}
+            </div>
+            <label style={{ fontSize: 13 }}>
+              Lý do (không bắt buộc)
+              <input
+                placeholder="vd: khách đổi ý, gọi nhầm..."
+                onChange={(e) => {
+                  cancelReasonRef.current = e.target.value;
+                }}
+              />
+            </label>
+          </div>
+        ),
+      });
+      if (!ok) return;
+    }
+
     setSubmitting(true);
     try {
-      await api.post<{ data: { count: number; state: string } }>(`/orders/${order.id}/items-bulk`, {
-        items: cartLines.map((l) => ({
-          menu_item_id: l.menu_item.id,
-          qty: l.qty,
-          note: l.note.trim() || null,
-        })),
-        send_to_kitchen: true, // báo bếp luôn — bếp xử lý ngay
-      });
-      toast.push(
-        'success',
-        `📢 Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`,
-      );
+      /* THÊM TRƯỚC, HUỶ SAU — có chủ đích. Nếu bước thêm hỏng thì chưa có gì bị huỷ, nhân viên
+         bấm lại là xong. Làm ngược lại thì lỗi giữa chừng để bàn ở trạng thái đã mất món mà
+         chưa có món thay thế. */
+      if (cartLines.length > 0) {
+        await api.post(`/orders/${order.id}/items-bulk`, {
+          items: cartLines.map((l) => ({
+            menu_item_id: l.menu_item.id,
+            qty: l.qty,
+            note: l.note.trim() || null,
+          })),
+          send_to_kitchen: true, // báo bếp luôn — bếp xử lý ngay
+        });
+      }
+      for (const r of increases) {
+        // `send_to_kitchen` theo trạng thái nhóm gốc, giống hộp "Sửa số lượng" ở Chi tiết bàn:
+        // nhóm đã qua bếp thì phần gọi thêm cũng phải qua bếp, để PENDING là bắt bấm báo bếp
+        // thêm một lần nữa cho cùng một món.
+        await api.post(`/orders/${order.id}/items-bulk`, {
+          items: [{ menu_item_id: r.rep.menu_item_id, qty: r.delta, note: r.rep.note }],
+          send_to_kitchen: r.rep.state !== 'PENDING',
+        });
+      }
+      for (const r of decreases) {
+        // Đúng endpoint + đúng payload của hộp "Sửa số lượng" cũ — BE giữ nguyên luật chọn phần
+        // nào để huỷ (ưu tiên món đã giao). FE không được tự quyết chỗ này.
+        await api.post('/orders/items/remove', {
+          item_ids: r.ids,
+          units: -r.delta,
+          ...(cancelReasonRef.current.trim() ? { reason: cancelReasonRef.current.trim() } : {}),
+        });
+      }
+
+      const parts: string[] = [];
+      if (addedUnits > 0) parts.push(`📢 báo bếp ${addedUnits} phần (${fmt(addTotal)})`);
+      if (removedUnits > 0) parts.push(`✕ huỷ ${removedUnits} phần`);
+      toast.push('success', `Đã ${parts.join(' · ')}`);
       // KHÔNG push notificationStore — readyNotifier (polling) sẽ tự emit NewOrder cho bếp.
       // Order staff vừa gọi món rồi không cần notification cho chính mình.
       setMobileCartOpen(false);
       setCart(new Map());
+      setDeltas(new Map());
       // Về sơ đồ bàn: gọi món xong thì việc kế tiếp gần như luôn là bàn khác. Ở lại trang này
       // với giỏ trống chỉ khiến nhân viên phải bấm Back thêm một nhịp.
       navigate('/orders');
     } catch (e) {
       toast.push('error', extractError(e).message);
+      // Gửi hỏng giữa chừng: kéo lại đơn từ server để danh sách khớp thực tế, và bỏ phần sửa
+      // dở — giữ lại là nhân viên bấm lần hai và cộng dồn thêm một lần nữa.
+      setDeltas(new Map());
+      void refreshOrder();
     } finally {
       setSubmitting(false);
     }
@@ -455,7 +599,6 @@ export function OrderMenuPage() {
           min-height: 44px;
         }
         .omp-ordered-row:first-child { border-top: none; }
-        .omp-ordered-row:hover { background: #f9fafb; }
         .omp-ordered-row .qty {
           font-weight: 700;
           color: #0f766e;
@@ -475,6 +618,33 @@ export function OrderMenuPage() {
         .omp-ordered-row .nm .t { font-weight: 600; word-break: break-word; overflow-wrap: anywhere; }
         .omp-ordered-row .nm .note { font-size: 12px; color: #6b7280; font-style: italic; }
         .omp-ordered-row .nm .st { font-size: 11px; font-weight: 700; }
+        /* Nhãn phần đang sửa dở, chưa gửi — phải khác hẳn màu trạng thái thật để không ai
+           tưởng bếp đã nhận. */
+        .omp-ordered-row .nm .dl { font-size: 11px; font-weight: 700; }
+        /* Nút bấm không được co lại khi tên món dài. */
+        .omp-ordered-row .omp-qty { flex: 0 0 auto; }
+        /* Khối 'đã gọi' nằm TRONG cột giỏ hàng (desktop): không tự cuộn, để thân giỏ cuộn
+           chung một mạch — hai thanh cuộn lồng nhau là chuột lăn không biết trúng cái nào. */
+        .omp-cart-ordered {
+          border: 1px solid #e5e7eb;
+          border-radius: 10px;
+          overflow: hidden;
+          background: white;
+          margin-bottom: 12px;
+        }
+        /* Tiêu đề nhóm trong giỏ ('Đã gọi' / 'Gọi thêm') */
+        .omp-sec {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.4px;
+          color: #6b7280;
+          margin: 0 2px 6px;
+        }
         .omp-ordered-row .pr {
           flex: 0 0 auto;
           font-size: 13px;
@@ -858,8 +1028,11 @@ export function OrderMenuPage() {
         /* Desktop (≥768px) — đặt CUỐI để thắng source-order: cột giỏ hiện, thanh dưới ẩn. */
         @media (min-width: 768px) {
           .omp-page { padding-bottom: 24px; }
-          /* Màn rộng thì chiều cao mới là thứ dư — cho khối đã gọi thở thêm. */
-          .omp-ordered-list { max-height: 30vh; }
+          /* Màn rộng: món đã gọi nằm hẳn trong cột giỏ hàng, nên khối trên đầu trang phải
+             biến mất — bày hai bản sửa được của cùng một danh sách trên một màn là mời người
+             ta bấm nhầm. Điện thoại thì ngược lại: cột giỏ không hiện, khối trên đầu trang
+             CHÍNH LÀ chỗ sửa. */
+          .omp-ordered { display: none; }
           .omp-cart { display: flex; }
           .omp-bar  { display: none; }
         }
@@ -878,44 +1051,22 @@ export function OrderMenuPage() {
         </div>
       </div>
 
-      {/* Món đã gọi — hiện THẲNG ở đây. Bàn chưa gọi gì thì không vẽ gì cả, để trống đúng nghĩa
-          (chỉ đạo chủ quán 2026-09-08). Bấm vào bất kỳ dòng nào là mở Chi tiết bàn, nơi sửa số
-          lượng / huỷ / trả món — chỗ này chỉ để NHÌN. */}
-      {orderedGroups.length > 0 && (
+      {/* ĐIỆN THOẠI — món đã gọi nằm ngay đây, sửa được ngay tại chỗ. Cột giỏ hàng không hiện
+          ở khổ này nên đây CHÍNH LÀ giỏ hàng phần "đã gọi"; màn rộng thì khối này ẩn (CSS) và
+          tất cả gom vào cột giỏ bên phải. Bàn chưa gọi gì thì không vẽ gì cả. */}
+      {orderedRows.length > 0 && (
         <div className="omp-ordered">
           <div className="omp-ordered-head">
             <span className="lbl">
               <span>🧾 Đã gọi · {orderedUnits} phần</span>
-              <span className="sum">Cần thu {fmt(billTotal)}</span>
+              <span className="sum">Đã giao {fmt(billTotal)}</span>
             </span>
             <button className="omp-pay" onClick={() => setDrawerOpen(true)}>
               💵 Thanh toán
             </button>
           </div>
           <div className="omp-ordered-list">
-            {orderedGroups.map((g) => (
-              <button
-                key={g.key}
-                className="omp-ordered-row"
-                onClick={() => setDrawerOpen(true)}
-                title="Mở chi tiết bàn để sửa số lượng, huỷ hoặc trả món"
-              >
-                <span className="qty">{g.count}×</span>
-                <span className="nm">
-                  <span className="t">
-                    {g.rep.is_note && '📝 '}
-                    {g.rep.menu_item_name}
-                  </span>
-                  {g.rep.note && <span className="note">↳ {g.rep.note}</span>}
-                  <span className="st" style={{ color: STATE_COLOR[g.rep.state] ?? '#6b7280' }}>
-                    ● {STATE_LABEL[g.rep.state] ?? g.rep.state}
-                  </span>
-                </span>
-                <span className="pr">
-                  {g.rep.is_note ? '' : fmt(g.rep.menu_item_price * g.count)}
-                </span>
-              </button>
-            ))}
+            <OrderedLines rows={orderedRows} onBump={bumpOrdered} />
           </div>
         </div>
       )}
@@ -980,14 +1131,40 @@ export function OrderMenuPage() {
         {/* CỘT PHẢI — GIỎ HÀNG (desktop; mobile dùng thanh dưới + sheet) */}
         <div className="omp-cart">
           <div className="omp-cart-header">
-            <span>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</span>
-            {cartLines.length > 0 && (
-              <button className="omp-clear" onClick={() => setCart(new Map())}>
-                Xoá hết
+            <span>
+              🛒 {table.name}
+              {orderedUnits > 0 && ` · đã gọi ${orderedUnits} phần`}
+            </span>
+            {orderedRows.length > 0 && (
+              <button className="omp-pay" onClick={() => setDrawerOpen(true)}>
+                💵 Thanh toán
               </button>
             )}
           </div>
           <div className="omp-cart-body">
+            {/* Món đã gọi nằm TRONG giỏ, sửa được như món mới (chỉ đạo chủ quán 2026-09-08).
+                Giữ hai nhóm tách bạch: phần trên bếp đã biết, phần dưới thì chưa. */}
+            {orderedRows.length > 0 && (
+              <>
+                <div className="omp-sec">
+                  <span>🧾 Đã gọi · {orderedUnits} phần</span>
+                  <span style={{ textTransform: 'none', letterSpacing: 0, fontWeight: 400 }}>
+                    đã giao {fmt(billTotal)}
+                  </span>
+                </div>
+                <div className="omp-cart-ordered">
+                  <OrderedLines rows={orderedRows} onBump={bumpOrdered} />
+                </div>
+              </>
+            )}
+            <div className="omp-sec">
+              <span>🛒 Gọi thêm{cartLines.length > 0 && ` · ${totalQty} phần`}</span>
+              {cartLines.length > 0 && (
+                <button className="omp-clear" onClick={() => setCart(new Map())}>
+                  Xoá hết
+                </button>
+              )}
+            </div>
             <CartLineList
               lines={cartLines}
               editingNote={editingNote}
@@ -1000,16 +1177,14 @@ export function OrderMenuPage() {
           </div>
           <div className="omp-cart-footer">
             <div className="omp-total-row">
-              <span className="omp-total-label">Tổng tạm tính:</span>
-              <span className="omp-total-value">{fmt(total)}</span>
+              <span className="omp-total-label">
+                {removedUnits > 0 ? `Huỷ ${removedUnits} phần · thêm:` : 'Tổng tạm tính:'}
+              </span>
+              <span className="omp-total-value">{fmt(addTotal)}</span>
             </div>
-            <button
-              className="omp-submit"
-              onClick={submit}
-              disabled={submitting || cartLines.length === 0}
-            >
+            <button className="omp-submit" onClick={submit} disabled={submitting || !hasChanges}>
               {submitting && <span className="spinner" />}
-              📢 Báo bếp {totalQty} phần · {fmt(total)}
+              {hasChanges ? `📢 Báo bếp · ${changeLabel}` : '📢 Báo bếp'}
             </button>
           </div>
         </div>
@@ -1023,19 +1198,24 @@ export function OrderMenuPage() {
           disabled={cartLines.length === 0}
           style={{ cursor: cartLines.length > 0 ? 'pointer' : 'default' }}
         >
-          {cartLines.length === 0 ? (
+          {hasChanges ? (
+            <>
+              {/* Phần tăng/giảm trên món ĐÃ GỌI sửa ở khối trên đầu trang, không nằm trong sheet
+                  — nên chỉ mời "tap để xem" khi thật sự có món mới để xem. */}
+              <div className="top">
+                🛒 {changeLabel}
+                {cartLines.length > 0 && ' · tap để xem'}
+              </div>
+              <div className="bottom">{fmt(addTotal)}</div>
+            </>
+          ) : (
             <>
               <div className="top">🛒 Giỏ hàng</div>
               <div className="bottom">Trống — tap món để thêm</div>
             </>
-          ) : (
-            <>
-              <div className="top">🛒 {totalQty} phần · {cartLines.length} món · tap để xem</div>
-              <div className="bottom">{fmt(total)}</div>
-            </>
           )}
         </button>
-        <button className="submit" onClick={submit} disabled={submitting || cartLines.length === 0}>
+        <button className="submit" onClick={submit} disabled={submitting || !hasChanges}>
           {submitting ? (
             <>
               <span className="spinner" />
@@ -1059,7 +1239,7 @@ export function OrderMenuPage() {
           <div className="omp-sheet">
             <div className="omp-sheet-handle" />
             <div className="omp-sheet-header">
-              <h2>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</h2>
+              <h2>🛒 Gọi thêm ({cartLines.length} món · {totalQty} phần)</h2>
               <div className="flex" style={{ gap: 8 }}>
                 {cartLines.length > 0 && (
                   <button className="omp-clear" onClick={() => setCart(new Map())}>
@@ -1088,16 +1268,14 @@ export function OrderMenuPage() {
             </div>
             <div className="omp-sheet-footer">
               <div className="omp-total-row">
-                <span className="omp-total-label">Tổng tạm tính:</span>
-                <span className="omp-total-value">{fmt(total)}</span>
+                <span className="omp-total-label">
+                  {removedUnits > 0 ? `Huỷ ${removedUnits} phần · thêm:` : 'Tổng tạm tính:'}
+                </span>
+                <span className="omp-total-value">{fmt(addTotal)}</span>
               </div>
-              <button
-                className="omp-submit"
-                onClick={submit}
-                disabled={submitting || cartLines.length === 0}
-              >
+              <button className="omp-submit" onClick={submit} disabled={submitting || !hasChanges}>
                 {submitting && <span className="spinner" />}
-                📢 Báo bếp {totalQty} phần · {fmt(total)}
+                {hasChanges ? `📢 Báo bếp · ${changeLabel}` : '📢 Báo bếp'}
               </button>
             </div>
           </div>
@@ -1119,6 +1297,78 @@ export function OrderMenuPage() {
         />
       )}
     </div>
+  );
+}
+
+/** Dòng của một nhóm món ĐÃ GỌI, dùng chung ở hai chỗ: khối trên đầu trang (điện thoại) và
+ * cột giỏ hàng (màn rộng). Một bản dựng duy nhất — hai bản sao thì sớm muộn cũng lệch nhau.
+ *
+ * `shown` là con số đang hiện trên nút = số đã gọi + phần sửa dở; `delta` là phần sẽ gửi đi khi
+ * bấm Báo bếp. Giá cũng nhân theo `shown` để người bấm thấy ngay bàn sẽ thành bao nhiêu tiền. */
+function OrderedLines({
+  rows,
+  onBump,
+}: {
+  rows: Array<{
+    key: string;
+    rep: OrderBrief['items'][number];
+    count: number;
+    delta: number;
+    shown: number;
+  }>;
+  onBump: (key: string, count: number, step: number) => void;
+}) {
+  return (
+    <>
+      {rows.map((r) => {
+        // Dòng ghi chú cho bếp ('lấy thêm bát đũa') không phải món bán: không có giá, không
+        // sửa số lượng. Muốn bỏ thì vào Chi tiết bàn.
+        const editable = !r.rep.is_note;
+        return (
+          <div key={r.key} className="omp-ordered-row">
+            {editable ? (
+              <span className="omp-qty">
+                <button
+                  onClick={() => onBump(r.key, r.count, -1)}
+                  disabled={r.shown <= 0}
+                  aria-label={`Bớt ${r.rep.menu_item_name}`}
+                >
+                  −
+                </button>
+                <span className="qty">{r.shown}</span>
+                <button
+                  onClick={() => onBump(r.key, r.count, +1)}
+                  disabled={r.shown >= 99}
+                  aria-label={`Gọi thêm ${r.rep.menu_item_name}`}
+                >
+                  +
+                </button>
+              </span>
+            ) : (
+              <span className="qty">{r.count}×</span>
+            )}
+            <span className="nm">
+              <span className="t">
+                {r.rep.is_note && '📝 '}
+                {r.rep.menu_item_name}
+              </span>
+              {r.rep.note && <span className="note">↳ {r.rep.note}</span>}
+              <span className="st" style={{ color: STATE_COLOR[r.rep.state] ?? '#6b7280' }}>
+                ● {STATE_LABEL[r.rep.state] ?? r.rep.state}
+              </span>
+              {r.delta !== 0 && (
+                <span className="dl" style={{ color: r.delta > 0 ? '#b45309' : '#dc2626' }}>
+                  {r.delta > 0 ? `+${r.delta} sẽ gọi thêm` : `−${-r.delta} sẽ huỷ`}
+                </span>
+              )}
+            </span>
+            <span className="pr">
+              {r.rep.is_note ? '' : fmt(r.rep.menu_item_price * r.shown)}
+            </span>
+          </div>
+        );
+      })}
+    </>
   );
 }
 
