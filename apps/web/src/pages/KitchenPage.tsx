@@ -508,7 +508,6 @@ export function KitchenPage() {
           --kds-green: #22a04a;
           --kds-page: #f4f7fb;
           --kds-line: #dde5ef;
-          --kds-row-alt: #eef4fb;
           position: fixed;
           /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
              z-index:10000 (styles.css .env-banner) nên nó đè lên tab bar. Tụt xuống
@@ -682,25 +681,29 @@ export function KitchenPage() {
           border-radius: 10px;
           overflow: hidden;
         }
-        /* Kẻ sọc xen kẽ: 40 nhóm cùng một màu trắng thì mắt trượt, không biết dòng nào
-           thuộc khối nào. Nền lệch một nhịp là đủ để dò, không cần thêm viền. */
-        .kds-group.alt { background: var(--kds-row-alt); }
-        .kds-group.alt .kds-card { background: transparent; }
+        /* KHÔNG kẻ sọc xen kẽ (bỏ 2026-09-08): hai khối cạnh nhau hai màu nền làm
+           người dùng tưởng hai màu mang nghĩa khác nhau ("món này khác gì món kia?").
+           Tách khối bằng PHÂN CẤP CHỮ thay vì bằng màu nền — xem .kds-group-title. */
         .kds-group.priority { border-color: #f59e0b; }
         .kds-group-head {
           display: flex;
           align-items: center;
           gap: 8px;
           padding: 7px 10px;
-          background: rgba(21, 101, 192, 0.06);
+          /* Nền TRẮNG như dòng con — cả khối một màu. Ngăn tiêu đề với dòng con bằng
+             đường kẻ + cỡ chữ, không bằng màu nền. */
+          background: transparent;
           border-bottom: 1px solid var(--kds-line);
           flex-wrap: wrap;
           row-gap: 6px;
         }
         .kds-group-titlewrap { flex: 1 1 150px; min-width: 0; }
+        /* Tên món (hoặc tên bàn) của cả khối — thứ PHẢI đọc được đầu tiên. To hơn và
+           đậm hơn hẳn dòng con: đây là cách phân cấp thay cho việc tô nền khác màu. */
         .kds-group-title {
-          font-size: 15px;
+          font-size: 17px;
           font-weight: 800;
+          letter-spacing: -0.01em;
           line-height: 1.25;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -1122,11 +1125,10 @@ export function KitchenPage() {
 
             {!loading &&
               grouped &&
-              grouped[t.key].map((g, i) => (
+              grouped[t.key].map((g) => (
                 <GroupBlock
                   key={g.key}
                   group={g}
-                  alt={i % 2 === 1}
                   tab={t.key}
                   view={view}
                   menuMap={menuMap}
@@ -1345,7 +1347,6 @@ export function KitchenPage() {
 // ─── Khối gộp: tiêu đề (+ nút chuyển cả khối) rồi từng dòng ───────────────────
 function GroupBlock({
   group,
-  alt,
   tab,
   view,
   menuMap,
@@ -1354,8 +1355,6 @@ function GroupBlock({
   onToggleStock,
 }: {
   group: KdsGroup<KitchenItem>;
-  /** Khối ở vị trí lẻ → nền lệch một nhịp, xem .kds-group.alt. */
-  alt: boolean;
   tab: TabKey;
   view: ViewKey;
   menuMap: Map<string, MenuItem>;
@@ -1363,11 +1362,11 @@ function GroupBlock({
   onStateChange: (it: KitchenItem, to: string) => void;
   onToggleStock: (it: KitchenItem) => void;
 }) {
-  // ageColor trả #111827 khi còn trong giờ → đổi sang xanh dương cho khớp theme
-  // KiotViet (tiêu đề bàn / món của họ màu xanh). Quá giờ thì GIỮ vàng/đỏ của
-  // ageColor: cảnh báo quá giờ quan trọng hơn việc trông đúng theme.
+  // Còn trong giờ → navy đậm (#0b2f66): đậm hơn hẳn chữ xám của dòng con nên mắt
+  // bắt được tên món trước. Quá giờ thì GIỮ vàng/đỏ của ageColor — cảnh báo khách
+  // chờ lâu quan trọng hơn phân cấp chữ.
   const age = ageColor(group.oldest);
-  const oldestColor = age === '#111827' ? '#1565c0' : age;
+  const oldestColor = age === '#111827' ? '#0b2f66' : age;
   const doneLabel = tab === 'PENDING' ? 'Xong tất cả' : 'Đã giao tất cả';
   const doneTo = tab === 'PENDING' ? 'READY' : 'SERVED';
   const doneColor = tab === 'PENDING' ? '#ee3e79' : '#22a04a';
@@ -1390,7 +1389,7 @@ function GroupBlock({
   }
 
   return (
-    <div className={`kds-group ${alt ? 'alt' : ''} ${group.hasPriority ? 'priority' : ''}`}>
+    <div className={`kds-group ${group.hasPriority ? 'priority' : ''}`}>
       <div className="kds-group-head">
         {/* Tổng SỐ PHẦN của khối — con số bếp cần nhất ở chế độ gộp: múc mấy bát. */}
         <span className="kds-group-qty">×{group.qty}</span>
@@ -1463,6 +1462,9 @@ function Card({
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageTextColor = ageColor(item.created_at);
+  // Trong khối gộp, dòng con là thông tin PHỤ (tiêu đề khối đã nói tên món / tên bàn)
+  // → chữ xám để tên món ở tiêu đề nổi lên. Quá giờ vẫn giữ vàng/đỏ của ageColor.
+  const rowColor = ageTextColor === '#111827' && (hideName || hideTable) ? '#475569' : ageTextColor;
   // Ghi chú không phải món trong menu → không có tình trạng hết/còn nguyên liệu.
   const isNote = !!item.is_note;
   const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
@@ -1507,7 +1509,7 @@ function Card({
           {!hideName && (
             <div
               className="kds-card-name"
-              style={{ color: ageTextColor }}
+              style={{ color: rowColor }}
               title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
             >
               {item.menu_item_name}
@@ -1520,7 +1522,7 @@ function Card({
                  lên cỡ chữ của tên món và chiếm phần chỗ còn lại. */
               className={`kds-card-table ${hideName ? 'primary' : ''}`}
               title={item.table_code}
-              style={{ color: ageTextColor }}
+              style={{ color: rowColor }}
             >
               {item.table_name}
             </span>
