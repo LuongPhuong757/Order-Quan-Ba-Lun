@@ -24,7 +24,9 @@ describe('computeCheckoutTotals', () => {
     expect(r.total - r.items_total).toBe(15_000);
   });
 
-  it('chỉ tính món ĐÃ GIAO: món huỷ / chưa giao không vào tiền', () => {
+  it('ĐÃ GỌI LÀ TÍNH TIỀN: món chưa giao vẫn vào tiền, chỉ món HUỶ là không', () => {
+    // Đổi luật 2026-09-08 (chủ quán). Trước đây case này ra 50.000 vì chỉ đếm SERVED — nghĩa là
+    // 2 phần đang nấu bị huỷ trắng lúc thanh toán, quán làm xong mà không thu được đồng nào.
     const r = computeCheckoutTotals(
       [
         served(50_000, 1),
@@ -33,8 +35,24 @@ describe('computeCheckoutTotals', () => {
       ],
       0,
     );
-    expect(r.items_total).toBe(50_000);
-    expect(r.total).toBe(50_000);
+    expect(r.items_total).toBe(50_000 + 80_000);
+    expect(r.total).toBe(130_000);
+  });
+
+  it.each([['PENDING'], ['KITCHEN'], ['COOKING'], ['READY'], ['SERVED']])(
+    'món ở trạng thái %s đều tính tiền',
+    (state) => {
+      const r = computeCheckoutTotals([{ menu_item_price: 25_000, qty: 2, state }], 0);
+      expect(r.items_total).toBe(50_000);
+    },
+  );
+
+  it('món ĐÃ HUỶ vẫn tuyệt đối không vào tiền — đây là ranh giới duy nhất còn lại', () => {
+    const r = computeCheckoutTotals(
+      [{ menu_item_price: 999_000, qty: 5, state: 'CANCELLED' }],
+      0,
+    );
+    expect(r.items_total).toBe(0);
   });
 
   it.each([
@@ -48,8 +66,8 @@ describe('computeCheckoutTotals', () => {
     expect(Number.isNaN(r.total)).toBe(false);
   });
 
-  it('đơn 0 món đã giao mà có phí ship → tổng thu vẫn đúng bằng phí ship', () => {
-    // Xảy ra khi mọi món bị huỷ lúc thanh toán nhưng shipper đã đi. Không được ra 0.
+  it('đơn huỷ sạch món mà có phí ship → tổng thu vẫn đúng bằng phí ship', () => {
+    // Xảy ra khi mọi món bị huỷ nhưng shipper đã đi. Không được ra 0.
     const r = computeCheckoutTotals([{ menu_item_price: 50_000, qty: 1, state: 'CANCELLED' }], 20_000);
     expect(r.total).toBe(20_000);
   });
