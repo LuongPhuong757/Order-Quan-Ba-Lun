@@ -582,24 +582,21 @@ export function KitchenPage() {
           overflow-y: hidden;
           -webkit-overflow-scrolling: touch;
         }
+        /* 3 nút chế độ xem. CHƯA chọn = rỗng ruột trên nền navy; ĐANG chọn = nền
+           trắng đặc chữ navy. Chênh lệch phải là NỀN chứ không chỉ màu chữ: bếp đứng
+           cách máy cả mét, chữ 13px đổi từ xám sang navy thì không nhìn ra.
+           min-height/min-width khai lại vì styles.css có rule global cho THE BUTTON
+           (min-height:44px; min-width:44px; padding:12px 16px) cho touch target, mà ở
+           KDS thì 44px làm dải nút cao gấp rưỡi cần thiết, ăn mất chỗ của danh sách. */
         .kds-view-btn {
           flex-shrink: 0;
-          padding: 6px 13px;
-          /* Nút trên nền navy → viền + chữ trắng mờ; đang chọn thì đảo thành nền trắng
-             chữ navy, đúng cách KiotViet làm nổi tab đang mở. */
-          border-color: rgba(255, 255, 255, 0.3);
-          background: transparent;
-          color: rgba(255, 255, 255, 0.85);
-          /* min-height/min-width phải khai LẠI ở mọi nút của màn này: styles.css có
-             'button { min-height:44px; min-width:44px; padding:12px 16px }' cho touch
-             target, mà ở KDS thì 44px làm dải nút cao gấp rưỡi cần thiết và ăn mất chỗ
-             của danh sách món. Nút nào cần to (› » ⏻) thì tự đủ 40px trở lên. */
+          padding: 6px 14px;
           min-height: 34px;
           min-width: 0;
           border-radius: 999px;
-          border: 1px solid #d1d5db;
-          background: white;
-          color: #4b5563;
+          border: 1.5px solid rgba(255, 255, 255, 0.4);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.8);
           font-size: 13px;
           font-weight: 600;
           cursor: pointer;
@@ -610,6 +607,31 @@ export function KitchenPage() {
           border-color: white;
           color: var(--kds-navy);
           font-weight: 800;
+          box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+        }
+        /* Nút ⇅ (thứ tự) và ↺ (sắp lại) là CÔNG CỤ, không phải lựa chọn chế độ xem.
+           Cùng hình pill mà khác chất liệu — viền nét đứt, nền mờ — để không bị đếm
+           lẫn thành "chế độ xem thứ 4". Khi thứ tự KHÔNG còn là mặc định A→Z thì nút
+           chuyển sang vàng: trạng thái bất thường phải tự nói ra. */
+        .kds-sort-btn {
+          flex-shrink: 0;
+          padding: 6px 12px;
+          min-height: 34px;
+          min-width: 0;
+          border-radius: 999px;
+          border: 1.5px dashed rgba(255, 255, 255, 0.45);
+          background: rgba(255, 255, 255, 0.12);
+          color: white;
+          font-size: 12px;
+          font-weight: 700;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-sort-btn.on {
+          background: #ffd166;
+          border-style: solid;
+          border-color: #ffd166;
+          color: #5c3d00;
         }
 
         /* ─── Board 2 panel ───────────────────────────────────────────────────── */
@@ -1044,7 +1066,7 @@ export function KitchenPage() {
             <span className="kds-views-sep" aria-hidden="true" />
             <button
               type="button"
-              className={`kds-view-btn ${groupSort === 'qty' ? 'active' : ''}`}
+              className={`kds-sort-btn ${groupSort === 'qty' ? 'on' : ''}`}
               onClick={() => setGroupSort((m) => (m === 'az' ? 'qty' : 'az'))}
               title={
                 groupSort === 'az'
@@ -1059,7 +1081,7 @@ export function KitchenPage() {
             {groupSort === 'qty' && (
               <button
                 type="button"
-                className="kds-view-btn"
+                className="kds-sort-btn"
                 onClick={() => setResortNonce((n) => n + 1)}
                 title="Sắp lại ngay: nhiều phần nhất lên đầu. Nhóm mới đang xếp ở cuối danh sách."
               >
