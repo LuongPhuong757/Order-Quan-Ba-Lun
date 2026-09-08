@@ -505,9 +505,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const okCheckout = await confirm({
       title: `Thanh toán ${table.name}?`,
       variant: activeItems.length > 0 ? 'warning' : 'success',
-      // Còn món chưa mang ra thì nhãn nút phải NÓI RA điều đó: đây là lúc duy nhất người thu
-      // tiền nhìn thấy quyết định "vẫn tính tiền phần chưa giao" trước khi nó thành sự thật.
-      confirmLabel: activeItems.length > 0 ? `💰 Vẫn tính tiền · thu ${fmt(total)}` : `💰 Thu ${fmt(total)}`,
+      // Chỉ hai chữ (chủ quán 2026-09-08). Số tiền đã nằm to ngay đầu hộp thoại, nhắc lại trên
+      // nút là dài tới mức gãy hai dòng. Còn cảnh báo "vẫn tính tiền phần chưa mang ra" thì
+      // khối "⚠ N MÓN CHƯA MANG RA" ngay trên đó đã nói, kèm liệt kê từng món.
+      confirmLabel: 'Thanh toán',
       message: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Tổng tiền */}
