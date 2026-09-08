@@ -263,10 +263,33 @@ export function BulkOrderModal({
           border: none;
           cursor: pointer;
           display: flex;
-          flex-direction: column;
+          /* NGANG chứ không phải dọc: badge đếm đứng cạnh chữ chứ không đè lên trên đầu chữ.
+             Trước đây là column vì nút từng có hai dòng chữ, giờ chỉ còn một nhãn. */
+          flex-direction: row;
+          gap: 10px;
           align-items: center;
           justify-content: center;
           line-height: 1.1;
+        }
+        /* Badge đếm số phần đang chọn — trắng trên nền cam để đọc được mà không cần nhìn kỹ. */
+        .bulk-mobile-bar .submit .bar-count {
+          background: white;
+          color: #b45309;
+          font-size: 15px;
+          font-weight: 800;
+          min-width: 28px;
+          height: 28px;
+          padding: 0 8px;
+          border-radius: 999px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          animation: bulk-count-pop 0.22s ease-out;
+        }
+        @keyframes bulk-count-pop {
+          0% { transform: scale(0.6); }
+          60% { transform: scale(1.15); }
+          100% { transform: scale(1); }
         }
         .bulk-mobile-bar .submit:disabled {
           background: #d1d5db;
@@ -717,7 +740,18 @@ export function BulkOrderModal({
             onClick={() => setMobileCartOpen(true)}
             disabled={cartLines.length === 0}
           >
-            Xem đơn và xác nhận lại
+            {/* Badge đếm nằm TRONG nút, không phải một ô riêng cạnh nút: thanh dưới vẫn đúng
+                MỘT nút (chỉ đạo chủ quán 2026-09-08), nhưng tap món là thấy số nhảy ngay —
+                trước đây thêm xong không biết đã thêm bao nhiêu, phải mở giỏ ra mới biết.
+                Đếm số PHẦN (totalQty) vì đó là con số tăng theo từng cái tap; số món/phần
+                đầy đủ vẫn có ở tiêu đề giỏ. key={totalQty} để mỗi lần số đổi là badge nhảy
+                một nhịp — chính cái nhịp đó nói "tap của bạn đã được nhận". */}
+            {totalQty > 0 && (
+              <span className="bar-count" key={totalQty}>
+                {totalQty}
+              </span>
+            )}
+            <span>Xem đơn và xác nhận lại</span>
           </button>
         </div>
       </div>
