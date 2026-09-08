@@ -307,9 +307,17 @@ function ProtectedShell() {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
   const roleStyle = role ? ROLE_STYLE[role] : null;
+  /* Màn Bếp (`/kitchen`) chạy FULL-SCREEN: nó tự dựng đúng một thanh nút ở đáy (← quay về
+     Order, lọc nhóm, làm mới, hướng dẫn, thông báo, đăng xuất) nên header + nav dưới ở đây
+     chỉ ăn chỗ của danh sách món. Bếp đứng cách iPad cả mét, mỗi ~60px lấy lại được là thêm
+     một món nhìn thấy — mà bỏ lỡ món mới là việc tốn kém nhất ở màn này.
+     CHỈ áp cho `/kitchen`: mọi màn khác giữ nguyên header + nav. Rời màn bếp là cả hai
+     hiện lại, nên nút ← không phải đường ra một chiều. */
+  const isKds = loc.pathname === '/kitchen';
 
   return (
     <>
+      {!isKds && (
       <header className="header">
         <span className="brand">
           <span className="brand-short">🍴</span>
@@ -350,12 +358,13 @@ function ProtectedShell() {
           </button>
         </div>
       </header>
+      )}
       {/* Bọc quanh `<Outlet/>` chứ không quanh cả `<>...</>`: đổi màn thì header và nav dưới
           PHẢI đứng yên. Bọc ra ngoài là mất luôn thanh nav mỗi lần bấm, nhân viên mất điểm tựa. */}
       <Suspense fallback={<PageFallback />}>
         <Outlet />
       </Suspense>
-      {role === 'admin' && (
+      {!isKds && role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
           {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
@@ -373,7 +382,7 @@ function ProtectedShell() {
           <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon">👥</span><span className="nav-label">N/viên</span></NavLink>
         </nav>
       )}
-      {role === 'order' && (
+      {!isKds && role === 'order' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
           {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
@@ -384,7 +393,7 @@ function ProtectedShell() {
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
-      {role === 'kitchen' && (
+      {!isKds && role === 'kitchen' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon">👨‍🍳</span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
