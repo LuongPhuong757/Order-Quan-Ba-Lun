@@ -1010,7 +1010,7 @@ export class OrdersService {
     order: Order;
     served_items: number;
     cancelled_items: number;
-    auto_cancelled_items: number;
+    auto_served_items: number;
     /** Tiền MÓN đã giao, tách khỏi `total` để màn thu ngân và nhật ký bàn nói rõ tiền nào là
      * tiền nào — gộp một cục thì không ai đối soát được phí ship (M2.D-62). */
     items_total: number;
@@ -1047,17 +1047,23 @@ export class OrdersService {
         }
       }
 
-      // Auto-cancel các items chưa SERVED (PENDING / KITCHEN / COOKING / READY)
+      /* ĐỔI LUẬT 2026-09-08 (chủ quán: "đã gọi món là tính tiền luôn"). Trước đây mọi món chưa
+         kịp mang ra bị HUỶ TRẮNG ở đây — bàn thanh toán lúc bếp còn đang làm dở thì quán mất
+         sạch tiền của phần đang làm đó. Nay chúng được chốt là ĐÃ BÁN.
+    
+         Đánh dấu SERVED chứ không phải để nguyên trạng thái cũ: mọi báo cáo doanh thu và bảng
+         xếp hạng món ở BE đều lọc `state = 'SERVED'` (xem public-top-dishes). Để nguyên thì
+         tiền vào tổng thu mà món KHÔNG vào doanh thu — hai con số lệch nhau và không ai lần ra
+         vì sao. Đổi trạng thái ở đây cũng KHÔNG kích ghi định lượng nguyên liệu: hàm đó treo ở
+         `changeItemState`, còn chỗ này lưu thẳng qua repository. */
       const activeItems = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
-      const reason = 'Khách thanh toán khi món chưa giao xong';
       for (const it of activeItems) {
-        it.state = 'CANCELLED';
-        it.cancelled_reason = reason;
+        it.state = 'SERVED';
         await itemRepo.save(it);
       }
 
       const served = items.filter((i) => i.state === 'SERVED');
-      const cancelled = items.filter((i) => i.state === 'CANCELLED' && i.cancelled_reason !== reason);
+      const cancelled = items.filter((i) => i.state === 'CANCELLED');
       // M2.D-62: **Tổng thu = tiền món + `ship_fee`.** Trước 2026-08-06 chỗ này chỉ cộng tiền
       // món, nên phí ship admin nhập lúc duyệt đơn KHÔNG BAO GIỜ được thu — thu thiếu đúng bằng
       // phí ship, mỗi đơn giao tận nơi. Công thức nay nằm ở `checkout-total.ts` (thuần, có test);
@@ -1090,7 +1096,9 @@ export class OrdersService {
         order,
         served_items: units(served),
         cancelled_items: units(cancelled),
-        auto_cancelled_items: units(activeItems),
+        /** Số phần CHƯA GIAO mà vẫn tính tiền lúc thanh toán. Trước 2026-09-08 đây là số phần
+         *  bị huỷ trắng (`auto_cancelled_items`); nay chúng được chốt là đã bán. */
+        auto_served_items: units(activeItems),
         items_total,
         ship_fee,
         total,
@@ -1114,7 +1122,7 @@ export class OrdersService {
         // Phí ship phải hiện TÁCH RIÊNG trong nhật ký bàn: đối soát cuối ngày mà chỉ thấy một
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
-        `${result.auto_cancelled_items > 0 ? `, huỷ ${result.auto_cancelled_items} món chưa giao` : ''})` +
+        `${result.auto_served_items > 0 ? `, trong đó ${result.auto_served_items} món chưa kịp mang ra vẫn tính tiền` : ''})` +
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });

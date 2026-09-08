@@ -443,7 +443,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const terminalStates: string[] = ['SERVED', 'CANCELLED'];
 
   const servedItems = order?.items?.filter((i) => i.state === 'SERVED') || [];
-  const itemsTotal = servedItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
+  /* ĐÃ GỌI LÀ TÍNH TIỀN (chủ quán 2026-09-08) — mọi dòng chưa huỷ đều vào tiền, không đợi
+     mang ra bàn. Khớp `computeCheckoutTotals` ở BE; hai bên lệch nhau thì thu ngân đọc một số
+     còn hệ thống ghi sổ một số khác. */
+  const billableItems = order?.items?.filter((i) => i.state !== 'CANCELLED') || [];
+  const itemsTotal = billableItems.reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   // M2.D-62 — tổng cần thu = tiền món + phí ship. BE `checkout()` cũng tính đúng công thức này;
   // 2 chỗ lệch nhau thì thu ngân đọc một số, hệ thống ghi sổ một số khác.
   const shipFee = order?.ship_fee ?? 0;
@@ -453,6 +457,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   // qty, đếm số dòng sẽ báo thiếu (gọi 3 phần 1 lần chỉ ra "1 món").
   const unitsOf = (list: OrderItem[]) => list.reduce((s, i) => s + i.qty, 0);
   const servedUnits = unitsOf(servedItems);
+  const billableUnits = unitsOf(billableItems);
   const activeUnits = unitsOf(activeItems);
 
   const hasItems = (order?.items?.length || 0) > 0;
@@ -462,7 +467,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   // Cho phép thanh toán nếu có ít nhất 1 món (kể cả khi còn món chưa giao — sẽ auto-cancel)
   const canCheckout = hasItems;
   // Trạng thái "tốt" sẵn sàng thanh toán (UI highlight): tất cả món đã terminal
-  const checkoutReady = hasItems && activeItems.length === 0 && servedItems.length > 0;
+  /* Nay CÓ MÓN là thu được — không còn khái niệm "chờ giao xong mới thanh toán được", vì món
+     chưa giao cũng đã tính tiền. Giữ biến để màu tiền ở header và nút thanh toán vẫn nói được
+     "bàn này có gì để thu". */
+  const checkoutReady = hasItems && billableItems.length > 0;
 
   const checkout = async () => {
     if (!order) return;
@@ -497,7 +505,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const okCheckout = await confirm({
       title: `Thanh toán ${table.name}?`,
       variant: activeItems.length > 0 ? 'warning' : 'success',
-      confirmLabel: `💰 Thu ${fmt(total)}`,
+      // Còn món chưa mang ra thì nhãn nút phải NÓI RA điều đó: đây là lúc duy nhất người thu
+      // tiền nhìn thấy quyết định "vẫn tính tiền phần chưa giao" trước khi nó thành sự thật.
+      confirmLabel: activeItems.length > 0 ? `💰 Vẫn tính tiền · thu ${fmt(total)}` : `💰 Thu ${fmt(total)}`,
       message: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Tổng tiền */}
@@ -509,7 +519,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
               {shipFee > 0
                 ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
-                : `${servedUnits} món đã giao`}
+                : `${billableUnits} món`}
             </div>
           </div>
 
@@ -524,13 +534,20 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             </Section>
           )}
 
-          {/* Món sẽ bị huỷ (active items) */}
+          {/* Món chưa giao — VẪN TÍNH TIỀN (đổi luật 2026-09-08). Trước đây khối này báo "SẼ
+              HUỶ" và gạch ngang số tiền; nay nó là phần tiền THẬT SỰ được cộng vào, nên phải
+              hiện rõ giá chứ không gạch. Đây chính là cái popup chủ quán yêu cầu: bấm Thanh
+              toán mà bàn còn món chưa mang ra thì hỏi lại một câu trước khi thu. */}
           {activeItems.length > 0 && (
-            <Section title={`⚠ ${activeUnits} món chưa giao xong — SẼ HUỶ`} color="#f59e0b" subtitle="(không tính tiền)">
+            <Section
+              title={`⚠ ${activeUnits} món CHƯA MANG RA`}
+              color="#f59e0b"
+              subtitle="(vẫn tính tiền)"
+            >
               {groupUnits(activeItems).map((g) => (
                 <Row key={g.rep.id}
                   left={<><strong>{g.count}×</strong> {g.rep.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[g.rep.state] || g.rep.state})</span></>}
-                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>} />
+                  right={fmt(g.rep.menu_item_price * g.count)} />
               ))}
             </Section>
           )}
@@ -551,9 +568,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             </Section>
           )}
 
-          {servedItems.length === 0 && (
+          {billableItems.length === 0 && (
             <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-              Chưa có món nào đã giao — thanh toán với tổng = 0đ.
+              Bàn này đã huỷ hết món — thanh toán với tổng = 0đ.
             </div>
           )}
 
@@ -567,12 +584,12 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
     try {
       const res = await api.post<{
-        data: { total: number; served_items: number; auto_cancelled_items: number };
+        data: { total: number; served_items: number; auto_served_items: number };
       }>(`/orders/${order.id}/checkout`, { misa_copied: misaCopiedRef.current });
-      const { total: totalPaid, auto_cancelled_items } = res.data.data;
+      const { total: totalPaid, auto_served_items } = res.data.data;
       let msg = `✓ Đã thanh toán ${table.name} · ${totalPaid.toLocaleString('vi-VN')}đ`;
-      if (auto_cancelled_items > 0) {
-        msg += ` (đã huỷ ${auto_cancelled_items} món chưa giao)`;
+      if (auto_served_items > 0) {
+        msg += ` (${auto_served_items} món chưa mang ra vẫn tính tiền)`;
       }
       if (misaCopiedRef.current) msg += ' · đã đánh dấu Misa';
       toast.push('success', msg);
@@ -862,7 +879,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       ? 'Đơn giao tận nơi chưa rời quán — bấm "Đã đi ship" trước'
                       : checkoutReady
                         ? 'Sẵn sàng thanh toán'
-                        : `Còn ${activeUnits} món chưa giao — sẽ tự huỷ khi thanh toán`
+                        : `Còn ${activeUnits} món chưa mang ra — vẫn tính tiền, sẽ hỏi lại trước khi thu`
                   }
                 >
                   {/* CHỈ chữ, không số tiền, không chú thích (chỉ đạo chủ quán 2026-09-08).
