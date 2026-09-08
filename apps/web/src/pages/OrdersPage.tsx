@@ -1,10 +1,13 @@
-// Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
+// Sơ đồ bàn — grid mobile-first. Bấm bàn → điều hướng thẳng sang TRANG gọi món
+// (`/orders/:tableId/goi-mon`). Trước 2026-09-08 chỗ này mở `OrderDrawer` rồi mới bấm tiếp
+// "Gọi món" ra popup thứ hai; chủ quán chốt bỏ hai lớp popup đó, list món phải ra ngay.
+// Chi tiết bàn / thanh toán vẫn là `OrderDrawer`, nay mở từ trang gọi món.
 import type { CSSProperties } from 'react';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { HelpButton, HelpModal } from '../components/HelpModal.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { openTablesStore } from '../lib/open-tables-badge.ts';
@@ -78,10 +81,10 @@ const chipStyle = (bg: string): CSSProperties => ({
 export function OrdersPage() {
   const toast = useToast();
   const confirm = useConfirm();
+  const navigate = useNavigate();
   const [tables, setTables] = useState<Table[]>([]);
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [active, setActive] = useState<Table | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
   const [helpOpen, setHelpOpen] = useState(false);
   const errorCountRef = useRef(0);
@@ -139,17 +142,17 @@ export function OrdersPage() {
     }
   }, [toast, refresh]);
 
-  // Mở khoá 1 bàn. openAfter=true → mở luôn drawer để gọi món ngay.
+  // Mở khoá 1 bàn. openAfter=true → vào thẳng trang gọi món của bàn đó.
   const unlockTable = useCallback(async (t: Table, openAfter = false) => {
     try {
       await api.patch(`/tables/${t.id}/lock`, { locked: false });
       toast.push('success', `Đã mở khoá ${t.name}`);
       refresh(false);
-      if (openAfter) setActive({ ...t, kiotviet_locked: false });
+      if (openAfter) navigate(`/orders/${t.id}/goi-mon`);
     } catch (err) {
       toast.push('error', extractError(err).message);
     }
-  }, [toast, refresh]);
+  }, [toast, refresh, navigate]);
 
   // Click vào bàn đang khoá → hỏi có chuyển về hệ thống không.
   const onLockedTableClick = useCallback(async (t: Table) => {
@@ -346,7 +349,7 @@ export function OrdersPage() {
     return (
       <div key={t.id} style={{ position: 'relative' }}>
       <button
-        onClick={() => setActive(t)}
+        onClick={() => navigate(`/orders/${t.id}/goi-mon`)}
         style={{
           padding: 14,
           background: bg,
@@ -629,7 +632,6 @@ export function OrdersPage() {
         ))}
       </div>
 
-      {active && <OrderDrawer table={active} onClose={() => setActive(null)} onTransferred={manualRefresh} />}
     </div>
   );
 }
