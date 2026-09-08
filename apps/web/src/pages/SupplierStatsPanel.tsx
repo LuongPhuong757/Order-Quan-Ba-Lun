@@ -16,6 +16,7 @@ import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { ChartCard, LineChart, seriesColor, OTHER_COLOR, type LineSeries } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { Pager } from '../components/Pager.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
 import {
   KHAC_ID,
@@ -32,6 +33,7 @@ import {
   type DeliveryStatRow,
   type ItemStat,
   type PairRow,
+  type TrangKetQua,
 } from '../lib/supplier-stats.ts';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
@@ -200,6 +202,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
           <Bang
             tieuDe="Mặt hàng nhập nhiều nhất"
+            nhan="mặt hàng"
             rong={trangItem.total === 0}
             rongChu={tim.trim() ? 'Không có mặt hàng nào khớp.' : 'Chưa nhập mặt hàng nào trong kỳ.'}
             trang={trangItem}
@@ -241,6 +244,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
           <Bang
             tieuDe="Phiếu nhập lớn nhất"
+            nhan="phiếu"
             rong={trangPhieu.total === 0}
             rongChu={tim.trim() ? 'Không phiếu nào trong kỳ có món khớp.' : 'Chưa có phiếu nhập đã duyệt trong kỳ.'}
             trang={trangPhieu}
@@ -355,10 +359,11 @@ function Th({
   );
 }
 
-function Bang<T>({
+function Bang({
   tieuDe,
   rong,
   rongChu,
+  nhan,
   trang,
   doiTrang,
   dau,
@@ -367,7 +372,9 @@ function Bang<T>({
   tieuDe: string;
   rong: boolean;
   rongChu: string;
-  trang: { page: number; totalPages: number; total: number };
+  /** Tên thứ đang đếm, số ít — chuyển thẳng cho `Pager`. */
+  nhan: string;
+  trang: TrangKetQua<unknown>;
   doiTrang: (n: number) => void;
   dau: ReactNode;
   children: ReactNode;
@@ -388,23 +395,7 @@ function Bang<T>({
               <tbody>{children}</tbody>
             </table>
           </div>
-          {trang.totalPages > 1 && (
-            <div className="flex" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
-              <button className="secondary" onClick={() => doiTrang(Math.max(1, trang.page - 1))} disabled={trang.page === 1}>
-                ← Trước
-              </button>
-              <span style={{ alignSelf: 'center', color: C.mutedOnTint, fontSize: 14 }}>
-                Trang {trang.page} / {trang.totalPages}
-              </span>
-              <button
-                className="secondary"
-                onClick={() => doiTrang(Math.min(trang.totalPages, trang.page + 1))}
-                disabled={trang.page >= trang.totalPages}
-              >
-                Sau →
-              </button>
-            </div>
-          )}
+          <Pager trang={trang} doiTrang={doiTrang} nhan={nhan} />
         </>
       )}
     </section>

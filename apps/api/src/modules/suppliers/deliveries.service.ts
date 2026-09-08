@@ -139,12 +139,18 @@ export class DeliveriesService {
     return new Date(Date.now() + VN_OFFSET_MS).toISOString().slice(0, 10);
   }
 
+  /** Danh sách phiếu nhập, kèm tên các mặt hàng của từng phiếu.
+   *
+   * `items` sinh ra cho ô tìm kiếm ở tab "Phiếu nhập": gõ "cá" phải ra mọi phiếu CÓ CHỨA cá.
+   * Không có sẵn tên món ở đây thì màn hình buộc phải gọi `/supplier-deliveries/:id` cho từng
+   * phiếu — hàng trăm lượt gọi cho một lần gõ phím.
+   */
   async list(opts: {
     supplier_id?: string;
     from?: string;
     to?: string;
     limit?: number;
-  } = {}): Promise<Array<SupplierDelivery & { supplier_name: string }>> {
+  } = {}): Promise<Array<SupplierDelivery & { supplier_name: string; items: string[] }>> {
     const qb = this.deliveryRepo.createQueryBuilder('d');
     if (opts.supplier_id) qb.andWhere('d.supplier_id = :sid', { sid: opts.supplier_id });
     if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
@@ -158,15 +164,44 @@ export class DeliveriesService {
       .getMany();
     if (rows.length === 0) return [];
 
-    const suppliers = await this.supplierRepo.find({
-      where: { id: In([...new Set(rows.map((r) => r.supplier_id))]) },
-    });
+    const [suppliers, itemsOf] = await Promise.all([
+      this.supplierRepo.find({
+        where: { id: In([...new Set(rows.map((r) => r.supplier_id))]) },
+      }),
+      this.itemNamesOf(rows.map((r) => r.id)),
+    ]);
     const names = new Map(suppliers.map((s) => [s.id, s.name]));
     return rows.map((r) => ({
       ...r,
       delivery_date: toDateString(r.delivery_date) ?? '',
       supplier_name: names.get(r.supplier_id) ?? '(đã xoá)',
+      items: itemsOf.get(r.id) ?? [],
     }));
+  }
+
+  /** Tên mặt hàng của một loạt phiếu, gom theo `delivery_id`.
+   *
+   * Đọc `ingredient_name_snapshot` chứ không join sang `ingredients`: tìm kiếm phải khớp đúng
+   * cái tên đã ghi trên phiếu, kể cả khi mặt hàng sau đó đổi tên hoặc bị xoá.
+   *
+   * Cắt id thành từng mẻ: danh sách có thể lên tới cả nghìn phiếu, dán ngần ấy id vào MỘT câu
+   * `IN (...)` là tự tạo truy vấn dài vài chục nghìn ký tự.
+   */
+  private async itemNamesOf(deliveryIds: string[]): Promise<Map<string, string[]>> {
+    const byDelivery = new Map<string, string[]>();
+    const CO_ME = 300;
+    for (let i = 0; i < deliveryIds.length; i += CO_ME) {
+      const lines = await this.lineRepo.find({
+        where: { delivery_id: In(deliveryIds.slice(i, i + CO_ME)) },
+        select: { delivery_id: true, ingredient_name_snapshot: true },
+      });
+      for (const l of lines) {
+        const arr = byDelivery.get(l.delivery_id);
+        if (arr) arr.push(l.ingredient_name_snapshot);
+        else byDelivery.set(l.delivery_id, [l.ingredient_name_snapshot]);
+      }
+    }
+    return byDelivery;
   }
 
   async get(id: string): Promise<{

@@ -118,7 +118,9 @@ export class DeliveriesController {
       supplier_id: q.supplier_id || undefined,
       from: q.from || undefined,
       to: q.to || undefined,
-      limit: q.limit ? Number(q.limit) : undefined,
+      // Kẹp trần 2000: tab "Phiếu nhập" tự phân trang và tìm kiếm ở phía màn hình nên nó xin
+      // cả danh sách một lượt — nhưng `?limit=999999` thì thành một câu quét sạch bảng.
+      limit: q.limit ? Math.min(Math.max(Number(q.limit) || 0, 1), 2000) : undefined,
     });
     return { data: { items } };
   }
