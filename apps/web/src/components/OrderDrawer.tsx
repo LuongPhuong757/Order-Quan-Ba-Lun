@@ -1020,6 +1020,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           <BulkOrderModal
             orderId={order.id}
             tableLabel={table.name}
+            tableKind={table.kind}
+            // Bàn "mới tinh" = chưa có dòng món nào. Tính từ `order.items` chứ không từ
+            // `hasItems` của drawer để khỏi phụ thuộc thứ tự khai biến.
+            isNewTable={(order.items?.length ?? 0) === 0}
             onClose={() => setShowBulkOrder(false)}
             onSubmitted={() => {
               setShowBulkOrder(false);

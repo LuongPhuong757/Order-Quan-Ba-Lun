@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
+import { pickAutoItem } from '../lib/auto-items.ts';
 import { useToast } from './Toast.tsx';
 
 type MenuItem = {
@@ -40,11 +41,22 @@ type CartLine = {
 type Props = {
   orderId: string;
   tableLabel: string;
+  /** `dine-in` | `takeaway` | `delivery` — quyết định có gợi khăn lạnh vào giỏ hay không. */
+  tableKind: string;
+  /** Bàn CHƯA gọi món nào. Chỉ bàn mới tinh mới được gợi sẵn khăn lạnh. */
+  isNewTable: boolean;
   onClose: () => void;
   onSubmitted: () => void;
 };
 
-export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Props) {
+export function BulkOrderModal({
+  orderId,
+  tableLabel,
+  tableKind,
+  isNewTable,
+  onClose,
+  onSubmitted,
+}: Props) {
   const toast = useToast();
   const [menu, setMenu] = useState<MenuItem[]>([]);
   const [groupList, setGroupList] = useState<MenuGroup[]>([]);
@@ -64,8 +76,23 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
       api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
     ])
       .then(([menuRes, groupRes]) => {
-        setMenu(menuRes.data.data.items);
+        const items = menuRes.data.data.items;
+        setMenu(items);
         setGroupList(groupRes.data.data.items);
+        /* Bàn tại chỗ MỚI TINH → bỏ sẵn khăn lạnh vào giỏ (chủ quán 2026-09-08). Ở GIỎ chứ
+           không thêm thẳng vào đơn: nhân viên còn sửa số lượng hoặc bấm 🗑 bỏ đi trước khi
+           Báo bếp — vào đơn rồi thì muốn bỏ phải đi huỷ món, đụng cả bếp lẫn tiền.
+           Đặt trong `.then` của lần nạp menu, không phải effect riêng: phải có menu mới dò được
+           tên món, và làm đúng một lần lúc mở màn. */
+        const auto = pickAutoItem(tableKind, isNewTable, items);
+        if (auto) {
+          setCart((prev) => {
+            if (prev.has(auto.item.id)) return prev; // không đè lên thứ người ta đã tự chọn
+            const next = new Map(prev);
+            next.set(auto.item.id, { menu_item: auto.item, qty: auto.qty, note: '' });
+            return next;
+          });
+        }
       })
       .catch((err) => toast.push('error', extractError(err).message))
       .finally(() => setLoading(false));
