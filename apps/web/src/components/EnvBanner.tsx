@@ -22,15 +22,20 @@ import { useEffect, type JSX } from 'react';
 const BANNER_HEIGHT = '26px';
 
 /**
- * `dev.<domain>` và `admin.dev.<domain>` là server develop; localhost là máy lập trình.
- * Cắt port trước khi so để `localhost:5173` cũng tính — cùng lý do với `isAdminHost` bên API.
+ * CHỈ `dev.<domain>` và `admin.dev.<domain>` — server develop.
  *
- * Cố ý CHỈ nhìn hai nhãn đầu: `quanbalun.site` và `admin.quanbalun.site` không khớp, nên trang
- * thật không bao giờ vô tình hiện dải này.
+ * KHÔNG tính localhost nữa (2026-09-08, chủ quán: "local không cần cái này"). Dải đỏ sinh ra
+ * để phân biệt hai trang TRÔNG GIỐNG HỆT NHAU: dev và production dùng chung bundle, chung màu,
+ * mở hai tab cạnh nhau là không biết đâu là đâu. Trên máy lập trình thì không có nhầm lẫn đó —
+ * `localhost:5173` đã tự nói nó là gì ngay trên thanh địa chỉ, và ở đó KHÔNG có tab production
+ * nào để mà nhầm sang.
+ *
+ * Cắt port trước khi so — cùng lý do với `isAdminHost` bên API. Cố ý CHỈ nhìn hai nhãn đầu:
+ * `quanbalun.site` và `admin.quanbalun.site` không khớp, nên trang thật không bao giờ vô tình
+ * hiện dải này.
  */
 export function isDevEnvHost(hostname: string): boolean {
   const host = hostname.split(':')[0].toLowerCase();
-  if (host === 'localhost' || host === '127.0.0.1' || host.endsWith('.localhost')) return true;
   const labels = host.split('.');
   return labels[0] === 'dev' || labels[1] === 'dev';
 }

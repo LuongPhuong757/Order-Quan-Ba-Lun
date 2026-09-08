@@ -388,31 +388,13 @@ body.kds-mode .toast-banner.error {
    đệm trái+phải chính là thứ quyết định hàng đó nằm gọn một dòng hay tràn xuống hai dòng.
    Chỉ áp cho modal mang class này — các hộp thoại khác (xác nhận, form) vẫn cần đệm để chữ
    không dính mép máy. Từ 640px trở lên đệm quay lại: ở đó bề ngang đã dư. */
+/* 8px chứ không phải 0 (chủ quán 2026-09-08: "nên có 1 viền mỏng 2 bên"). Bản trước bỏ sạch
+   đệm nên thẻ món dính đúng mép máy, trông như bị cắt. 8px là VIỀN MỎNG: vẫn trả lại 32px bề
+   ngang so với 24px gốc — thừa sức cho hàng 4 nút của mỗi món nằm một dòng (đo ở máy 390px:
+   hàng nút còn 334px, mỗi nút ~80px) — mà thẻ vẫn ra dáng thẻ. */
 .modal-overlay > .modal.modal-flush {
-  padding-left: 0;
-  padding-right: 0;
-}
-
-/* Chữ chạy hết bề ngang thì dính mép màn hình, nên phần TEXT tự chừa lại một chút — trong khi
-   thẻ món và hàng nút vẫn tràn viền để lấy đủ chỗ. */
-.modal-flush > .flex.between,
-.modal-flush > h2,
-.modal-flush > p {
-  padding-left: 12px;
-  padding-right: 12px;
-}
-
-/* Thẻ món khi tràn viền: bỏ bo góc và viền phải, giữ vạch màu trạng thái bên trái. Một cái thẻ
-   bo góc mà viền phải nằm đúng mép máy trông như bị cắt mất; thành DÒNG danh sách thì vừa đúng
-   dáng vừa đỡ rối — đây là màn cuộn dài, mỗi món một khung riêng là quá nhiều đường kẻ. */
-@media (max-width: 639px) {
-  .modal-flush .item-card {
-    border-radius: 0;
-    border-right: none;
-    border-top: none;
-    margin-bottom: 0;
-    border-bottom: 1px solid #e5e7eb;
-  }
+  padding-left: 8px;
+  padding-right: 8px;
 }
 
 @media (min-width: 640px) {
@@ -425,12 +407,6 @@ body.kds-mode .toast-banner.error {
   .modal-overlay > .modal.modal-flush {
     padding-left: 24px;
     padding-right: 24px;
-  }
-  .modal-flush > .flex.between,
-  .modal-flush > h2,
-  .modal-flush > p {
-    padding-left: 0;
-    padding-right: 0;
   }
 }
 
