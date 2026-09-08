@@ -909,7 +909,16 @@ export function KitchenPage() {
           text-overflow: ellipsis;
           white-space: nowrap;
         }
-        /* Laptop / iPad ngang: chữ to hơn một nhịp — bếp đứng cách máy cả mét. */
+        /* Món đứng MỘT MÌNH là một đầu việc, không phải chi tiết của khối nào → cùng
+           cỡ chữ với tiêu đề khối gộp (.kds-group-title). Nếu để 14px như dòng con thì
+           đọc như thể nó phụ thuộc vào cái gì đó ở trên. */
+        .kds-card-name.strong {
+          font-size: 17px;
+          font-weight: 800;
+          letter-spacing: -0.01em;
+        }
+        /* Laptop / iPad ngang: chữ to hơn một nhịp — bếp đứng cách máy cả mét.
+           .strong thắng rule này nhờ specificity cao hơn, không cần khai lại. */
         @media (min-width: 1100px) {
           .kds-card-name { font-size: 15px; }
         }
@@ -1663,9 +1672,20 @@ function Card({
   const ageMs = Date.now() - item.created_at;
   const ageMin = Math.floor(ageMs / 60_000);
   const ageTextColor = ageColor(item.created_at);
-  // Trong khối gộp, dòng con là thông tin PHỤ (tiêu đề khối đã nói tên món / tên bàn)
-  // → chữ xám để tên món ở tiêu đề nổi lên. Quá giờ vẫn giữ vàng/đỏ của ageColor.
-  const rowColor = ageTextColor === '#111827' && (hideName || hideTable) ? '#475569' : ageTextColor;
+  /* Phân cấp chữ chỉ có MỘT luật: dòng nào là "đầu việc" thì đậm, dòng nào là chi tiết
+     của một đầu việc khác thì nhạt.
+       - Dòng đứng MỘT MÌNH (chế độ Ưu tiên, hoặc nhóm chỉ có 1 dòng nên render thẳng
+         thành card) = đầu việc → to + navy đậm, ngang cỡ tiêu đề khối.
+       - Dòng BÊN TRONG khối gộp = chi tiết, vì tiêu đề khối đã nói tên món / tên bàn
+         → chữ xám, nhỏ hơn, để tiêu đề nổi lên.
+     `hideName || hideTable` chính là dấu hiệu "đang nằm trong khối" — GroupBlock chỉ
+     truyền 2 cờ đó cho dòng con của nó. */
+  const inGroup = hideName || hideTable;
+  const isDefaultAge = ageTextColor === '#111827';
+  // Quá giờ thì CẢ HAI cấp vẫn giữ vàng/đỏ của ageColor: cảnh báo khách chờ lâu quan
+  // trọng hơn phân cấp chữ.
+  const rowColor = isDefaultAge && inGroup ? '#475569' : ageTextColor;
+  const nameColor = inGroup ? rowColor : isDefaultAge ? '#0b2f66' : ageTextColor;
   // Ghi chú không phải món trong menu → không có tình trạng hết/còn nguyên liệu.
   const isNote = !!item.is_note;
   const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
@@ -1709,8 +1729,8 @@ function Card({
           )}
           {!hideName && (
             <div
-              className="kds-card-name"
-              style={{ color: rowColor }}
+              className={`kds-card-name ${inGroup ? '' : 'strong'}`}
+              style={{ color: nameColor }}
               title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
             >
               {item.menu_item_name}
