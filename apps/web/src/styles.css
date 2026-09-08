@@ -397,6 +397,100 @@ body.kds-mode .toast-banner.error {
   padding-right: 8px;
 }
 
+/* Menu ⋯ ở header drawer — thả xuống ngay dưới nút, neo mép phải. */
+.drawer-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;                 /* trên lớp phủ bắt click-ra-ngoài (40) */
+  min-width: 190px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer-menu button {
+  background: none;
+  border: none;
+  border-radius: 0;
+  text-align: left;
+  padding: 12px 14px;
+  min-height: 46px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1f2937;
+}
+
+.drawer-menu button + button { border-top: 1px solid #f3f4f6; }
+.drawer-menu button:hover:not(:disabled) { background: #f9fafb; opacity: 1; }
+.drawer-menu button:disabled { color: #9ca3af; }
+
+/* Nút GỌI MÓN hình tròn, dính đáy khung drawer.
+   Khung bọc cao 0 nên KHÔNG chiếm chỗ trong dòng chảy — nếu nó có chiều cao thì món cuối cùng
+   bị đẩy lên và luôn thừa một khoảng trắng dưới đáy. `pointer-events: none` để dải trong suốt
+   này không nuốt cú chạm vào món nằm dưới nó; riêng cái nút bật lại. */
+.drawer-fab-wrap {
+  position: sticky;
+  bottom: 0;
+  height: 0;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  z-index: 30;
+}
+
+.drawer-fab {
+  pointer-events: auto;
+  transform: translateY(-68px);
+  width: 56px;
+  height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  padding: 0;
+  border-radius: 50%;
+  background: #0f766e;
+  color: white;
+  font-size: 30px;
+  font-weight: 400;
+  line-height: 1;
+  box-shadow: 0 6px 18px rgba(15, 118, 110, 0.45);
+}
+
+/* Hàng nút của một món: mặc định ẨN, vuốt phải→trái mới hiện (chủ quán 2026-09-08).
+   Dùng max-height + opacity chứ không phải `display: none`: cách này trượt mở có hoạt ảnh nên
+   người dùng thấy được là mình vừa mở ra cái gì, thay vì món giật một cái cao thêm 44px.
+   `overflow: hidden` cắt phần chưa mở; 60px là trần đủ cho hàng nút cao 36px. */
+.item-actions {
+  display: flex;
+  gap: 4px;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  margin-top: 0 !important;
+  transition: max-height 0.18s ease, opacity 0.18s ease, margin-top 0.18s ease;
+}
+
+.item-actions.revealed {
+  max-height: 60px;
+  opacity: 1;
+  margin-top: 8px !important;
+}
+
+/* Máy có CHUỘT (laptop, máy bàn): hiện thường trực. Chuột không vuốt được, mà admin làm việc
+   trên laptop thì sẽ không còn đường nào bấm vào Đã giao / Sửa SL / Huỷ. */
+@media (hover: hover) and (pointer: fine) {
+  .item-actions {
+    max-height: 60px;
+    opacity: 1;
+    margin-top: 8px !important;
+    overflow: visible;
+  }
+}
+
 @media (min-width: 640px) {
   .modal-overlay {
     align-items: center;

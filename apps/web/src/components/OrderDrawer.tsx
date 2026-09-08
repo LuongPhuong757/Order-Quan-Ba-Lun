@@ -1,12 +1,12 @@
 // Drawer chi tiết bàn: list món với lifecycle state buttons + add món + chuyển bàn
 import type { CSSProperties } from 'react';
-import { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
+import React, { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
-import { HelpButton, HelpModal } from './HelpModal.tsx';
+import { HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
 import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
 
@@ -207,6 +207,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [editQty, setEditQty] = useState<{ group: ItemGroup; target: number } | null>(null);
   const [showCustomerInfo, setShowCustomerInfo] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  /** Menu ⋯ ở header — chứa các thao tác thỉnh thoảng mới dùng. */
+  const [menuOpen, setMenuOpen] = useState(false);
   const { user } = useAuth();
   const role = user?.role ?? (user?.is_owner ? 'admin' : null);
   const canSetPriority = role === 'order' || role === 'admin';
@@ -621,16 +623,77 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 </span>
               )}
             </h1>
-            <div style={{ color: '#6b7280', fontSize: 13 }}>
-              <code>{table.code}</code> · {table.kind}
-              {order && <> · mở từ {new Date(order.opened_at).toLocaleTimeString('vi-VN')}</>}
+            {/* TIỀN nằm ngay dưới tên bàn (chỉ đạo chủ quán 2026-09-08). Đây là con số người
+                ta mở bàn ra để xem, nên nó phải ở chỗ mắt nhìn đầu tiên — trước đây phải cuộn
+                hết danh sách món mới thấy. Dòng "mã bàn · loại bàn · mở từ" bỏ hẳn: tên bàn ở
+                ngay trên đã đủ nhận ra bàn nào.
+                CHỈ tính món ĐÃ GIAO + phí ship — đúng công thức `checkout()` ở BE. */}
+            <div
+              style={{ fontSize: 22, fontWeight: 700, color: checkoutReady ? '#059669' : '#0f766e', lineHeight: 1.2 }}
+            >
+              {fmt(total)}
+              {shipFee > 0 && (
+                <span style={{ fontSize: 12, fontWeight: 500, color: '#6b7280', marginLeft: 8 }}>
+                  (món {fmt(itemsTotal)} + ship {fmt(shipFee)})
+                </span>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <HelpButton onClick={() => setHelpOpen(true)} />
+          <div style={{ display: 'flex', gap: 6, position: 'relative' }}>
+            {/* Menu ⋯ thay chỗ nút Hướng dẫn (chỉ đạo chủ quán 2026-09-08). Chuyển bàn / Ghi chú
+                / Huỷ cả bàn là việc THỈNH THOẢNG mới làm — bày thường trực thì chiếm mất chỗ của
+                thứ làm mỗi lượt khách. Hướng dẫn vào đây luôn thay vì bỏ đi. */}
+            <button
+              className="secondary"
+              onClick={() => setMenuOpen((v) => !v)}
+              style={{ padding: '6px 12px', minHeight: 40, fontSize: 18, lineHeight: 1 }}
+              title="Thêm thao tác"
+              aria-label="Thêm thao tác"
+              aria-expanded={menuOpen}
+            >
+              ⋯
+            </button>
             <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', minHeight: 40 }}>
               ✕
             </button>
+            {menuOpen && (
+              <>
+                {/* Lớp trong suốt phủ toàn màn: bấm ra ngoài là đóng menu. Rẻ hơn nhiều so với
+                    nghe sự kiện click trên document rồi phải tự loại trừ chính nút mở. */}
+                <div
+                  onClick={() => setMenuOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+                />
+                <div className="drawer-menu">
+                  {!isOnline && (
+                    <>
+                      <button
+                        onClick={() => { setMenuOpen(false); setShowTransfer(true); }}
+                        disabled={!hasItems}
+                      >
+                        ↪ Chuyển bàn
+                      </button>
+                      {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
+                          item nên bếp thấy trên KDS và tick được như món thường. */}
+                      <button onClick={() => { setMenuOpen(false); setShowNote(true); }}>
+                        📝 Ghi chú cho bếp
+                      </button>
+                      {hasAliveItems && (
+                        <button
+                          onClick={() => { setMenuOpen(false); void cancelWholeTable(); }}
+                          style={{ color: '#dc2626' }}
+                        >
+                          🗑 Huỷ cả bàn
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <button onClick={() => { setMenuOpen(false); setHelpOpen(true); }}>
+                    ❓ Hướng dẫn
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -756,49 +819,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 Gọi món/Chuyển bàn/Ghi chú/Huỷ cả bàn ẩn hết: sửa nội dung đơn online làm ở
                 màn Đơn hàng online, nơi có panel sửa món và nhắc báo lại khách. */}
             <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
-              {!isOnline && (
-                <>
-                  {/* DÒNG 1 — ba việc "làm thêm cho bàn". `minWidth: 0` là thứ giữ cả ba
-                      nằm đúng một dòng trên điện thoại: không có nó thì chữ bên trong đặt sàn
-                      bề rộng cho nút và cái thứ ba rơi xuống dòng. Nhãn cũng cắt ngắn vì lý do
-                      đó — nghĩa đầy đủ nằm ở `title`. */}
-                  <div className="flex" style={{ gap: 6 }}>
-                    <button
-                      onClick={() => setShowBulkOrder(true)}
-                      style={{
-                        flex: 1.3,
-                        minWidth: 0,
-                        background: '#0f766e',
-                        fontSize: 14,
-                        fontWeight: 700,
-                        padding: '10px 8px',
-                        whiteSpace: 'nowrap',
-                      }}
-                    >
-                      🛒 Gọi món
-                    </button>
-                    <button
-                      className="secondary"
-                      onClick={() => setShowTransfer(true)}
-                      style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '10px 6px', whiteSpace: 'nowrap' }}
-                      disabled={!hasItems}
-                      title="Chuyển toàn bộ món sang bàn khác"
-                    >
-                      ↪ Chuyển bàn
-                    </button>
-                    {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
-                        item nên bếp thấy trên KDS và tick được như món thường. */}
-                    <button
-                      className="secondary"
-                      onClick={() => setShowNote(true)}
-                      style={{ flex: 1, minWidth: 0, fontSize: 13, padding: '10px 6px', whiteSpace: 'nowrap' }}
-                      title="Yêu cầu bếp chuẩn bị thêm: bát, đũa thìa, nước mắm..."
-                    >
-                      📝 Ghi chú
-                    </button>
-                  </div>
-                </>
-              )}
 
               {/* Mốc giao của đơn online — bấm được NGAY tại drawer, shipper không phải chạy
                   sang màn Đơn hàng online. Nền xanh dương khớp badge "Đang giao" trên header. */}
@@ -819,18 +839,14 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               )}
               {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món. Đơn ship chưa rời quán
                   thì khoá nút (chốt 2026-08-04): hàng đi rồi tiền mới về, BE cũng chặn 409. */}
-              {/* DÒNG 2 — Thanh toán đi cùng Huỷ cả bàn. Thanh toán chiếm phần lớn bề ngang:
-                  hai nút này ngược nghĩa nhau hoàn toàn, để cùng cỡ là mời bấm nhầm vào cái
-                  xoá sạch tiền bàn. */}
-              {(hasItems || (!isOnline && hasAliveItems)) && (
-              <div className="flex" style={{ gap: 6 }}>
+              {/* Thanh toán chiếm CẢ dòng — Huỷ cả bàn đã chuyển vào menu ⋯, nên đây là hành
+                  động duy nhất còn ở thanh này. */}
               {hasItems && (
                 <button
                   onClick={checkout}
                   disabled={checkoutBlockedByShip}
                   style={{
-                    flex: 3,
-                    minWidth: 0,
+                    width: '100%',
                     background: checkoutBlockedByShip
                       ? '#9ca3af'
                       : checkoutReady
@@ -849,43 +865,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                         : `Còn ${activeUnits} món chưa giao — sẽ tự huỷ khi thanh toán`
                   }
                 >
-                  💰 Thanh toán {total > 0 ? total.toLocaleString('vi-VN') + 'đ' : ''}
-                  {checkoutBlockedByShip ? (
-                    <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
-                      (bấm "Đã đi ship" trước)
-                    </span>
-                  ) : (
-                    activeItems.length > 0 && (
-                      <span style={{ fontSize: 12, fontWeight: 500, marginLeft: 8, opacity: 0.9 }}>
-                        ({activeUnits} món sẽ bị huỷ)
-                      </span>
-                    )
-                  )}
+                  {/* CHỈ chữ, không số tiền, không chú thích (chỉ đạo chủ quán 2026-09-08).
+                      Tiền đã nằm ngay dưới tên bàn ở header; còn "N món sẽ bị huỷ" thì hộp xác
+                      nhận thanh toán liệt kê đầy đủ, đúng lúc người ta cần đọc nó. */}
+                  💰 Thanh toán
                 </button>
-              )}
-              {/* Huỷ cả bàn — khách gọi rồi không dùng nữa. Chỉ hiện khi còn món chưa huỷ,
-                  nhạt hơn Thanh toán để không bấm nhầm. Đơn online KHÔNG có nút này — muốn huỷ
-                  thì đi đường từ chối/khách huỷ ở màn Đơn hàng online. */}
-              {!isOnline && hasAliveItems && (
-                <button
-                  onClick={cancelWholeTable}
-                  className="secondary"
-                  style={{
-                    flex: 1,
-                    minWidth: 0,
-                    color: '#dc2626',
-                    borderColor: '#fecaca',
-                    fontSize: 13,
-                    minHeight: 52,
-                    padding: '10px 6px',
-                    whiteSpace: 'nowrap',
-                  }}
-                  title="Khách đã gọi nhưng không dùng nữa — huỷ sạch bàn, về trống"
-                >
-                  🗑 Huỷ bàn
-                </button>
-              )}
-              </div>
               )}
             </div>
 
@@ -967,44 +951,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               );
             })}
 
-            {/* Total + checkout-ready hint (SERVED items count toward bill per REQ-H) */}
-            {(total > 0 || servedItems.length > 0) && (
-              <div
-                style={{
-                  marginTop: 20,
-                  padding: 14,
-                  background: checkoutReady ? '#ecfdf5' : '#f0fdfa',
-                  borderRadius: 10,
-                  border: checkoutReady ? '2px solid #10b981' : '1px solid #ccfbf1',
-                  textAlign: 'center',
-                }}
-              >
-                {checkoutReady && (
-                  <div style={{ color: '#059669', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                    ✓ SẴN SÀNG THANH TOÁN
-                  </div>
-                )}
-                <div style={{ fontSize: 14, color: '#6b7280' }}>
-                  Tổng tiền (đã giao): {servedUnits} món
-                </div>
-                <div style={{ fontSize: 24, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>
-                  {fmt(total)}
-                </div>
-                {/* Phí ship phải hiện NGAY TRÊN MÀN, không đợi tới lúc bấm Thanh toán mới thấy:
-                    bếp và người đi ship mở bàn ra là phải biết đơn này có tiền thu hộ, và vì sao
-                    tổng lớn hơn tiền món (M2.D-62, chủ dự án báo lệch số 2026-08-06). */}
-                {shipFee > 0 && (
-                  <div style={{ marginTop: 4, fontSize: 13, color: '#6b7280' }}>
-                    Món {fmt(itemsTotal)} + phí ship <strong style={{ color: '#0f766e' }}>{fmt(shipFee)}</strong>
-                  </div>
-                )}
-                {activeItems.length > 0 && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: '#f59e0b' }}>
-                    Còn {activeUnits} món đang xử lý — thanh toán sẽ huỷ các món này
-                  </div>
-                )}
-              </div>
-            )}
+            {/* Khối tổng tiền cuối trang đã bỏ (2026-09-08): con số đó nay nằm ngay dưới
+                tên bàn ở header, hiện cùng phần tách phí ship. Cảnh báo "còn N món chưa giao sẽ
+                bị huỷ" chuyển hẳn vào hộp xác nhận thanh toán — đó mới là lúc người ta cần đọc,
+                và ở đó nó liệt kê từng món chứ không chỉ đếm. */}
             {isCheckedOut && (
               <div
                 style={{
@@ -1020,6 +970,25 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               </div>
             )}
           </>
+        )}
+
+        {/* Nút GỌI MÓN — hình tròn, dính ở góc dưới bên phải khung drawer (chỉ đạo chủ quán
+            2026-09-08). Đây là việc làm nhiều nhất ở màn này nên nó theo ngón tay xuống suốt
+            chiều dài danh sách, thay vì nằm trên đầu rồi trôi mất khi cuộn.
+            `position: sticky` chứ không phải `fixed`: khung cuộn là chính cái `.modal`, nên
+            sticky neo vào đáy KHUNG — fixed sẽ neo vào đáy MÀN HÌNH và trên desktop (drawer
+            nổi giữa màn) nút rơi ra tận góc trình duyệt, cách xa cái nó thuộc về. */}
+        {!isOnline && (
+          <div className="drawer-fab-wrap">
+            <button
+              className="drawer-fab"
+              onClick={() => setShowBulkOrder(true)}
+              title="Gọi món"
+              aria-label="Gọi món"
+            >
+              +
+            </button>
+          </div>
         )}
 
         {showBulkOrder && order && (
@@ -1610,6 +1579,29 @@ function ItemRow({
   const isServed = item.state === 'SERVED';
   // Đồng hồ chờ: chỉ hiện khi món đang nằm trong tay bếp (đã báo bếp / đang làm).
   // Món chưa báo bếp thì chưa ai chờ; món đã giao/huỷ thì hết ý nghĩa.
+  /* Vuốt phải→trái để hiện hàng nút (chỉ đạo chủ quán 2026-09-08: "các button của món ẩn đi,
+     vuốt từ phải qua trái thì hiển thị ra"). CHỈ trên máy cảm ứng — trên desktop hàng nút hiện
+     thường trực (media query `hover: hover` trong styles.css), vì chuột không vuốt được và
+     admin làm việc trên laptop thì sẽ không có đường nào bấm.
+     Ngưỡng 40px và điều kiện |dx| > |dy|: dưới ngưỡng đó là chạm run tay, còn dọc nhiều hơn
+     ngang nghĩa là người ta đang CUỘN danh sách chứ không vuốt một dòng. */
+  const [revealed, setRevealed] = useState(false);
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.touches[0];
+    touchRef.current = { x: t.clientX, y: t.clientY };
+  };
+  const onTouchEnd = (e: React.TouchEvent) => {
+    const start = touchRef.current;
+    touchRef.current = null;
+    if (!start) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
+    setRevealed(dx < 0); // sang trái = hiện, sang phải = giấu lại
+  };
+
   const showAge = WAITING_STATES.has(item.state);
   const ageAt = oldest ?? item.created_at;
   const waitedMin = ageMinutes(ageAt);
@@ -1618,6 +1610,8 @@ function ItemRow({
   return (
     <div
       className="item-card"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
       style={{
         background: 'white',
         border: `1px solid ${COLOR[item.state]}33`,
@@ -1701,9 +1695,14 @@ function ItemRow({
       {/* Hàng nút của một món: ĐÚNG MỘT DÒNG, nhiều nhất 4 nút (Báo bếp/Đã giao · Ưu tiên ·
           Sửa SL · Huỷ). Không `flexWrap`, và mỗi nút `flex: 1 1 0` + `minWidth: 0` — chữ bên
           trong không được đặt sàn bề rộng, nếu không trên máy 360px cái cuối rơi xuống dòng
-          thứ hai và mỗi món cao thêm 44px (ảnh chủ quán gửi 2026-09-08). */}
+          thứ hai và mỗi món cao thêm 44px (ảnh chủ quán gửi 2026-09-08).
+          Trên máy CẢM ỨNG hàng này ẩn đi, vuốt phải→trái mới hiện (chỉ đạo chủ quán
+          2026-09-08) — xem `.item-actions` trong styles.css. */}
       {!readonly && (next.length > 0 || cancelAllowed) && (
-        <div className="flex" style={{ marginTop: 8, gap: 4 }}>
+        <div
+          className={`item-actions${revealed ? ' revealed' : ''}`}
+          style={{ marginTop: 8, gap: 4 }}
+        >
           {next.map((to) => (
             <button
               key={to}
