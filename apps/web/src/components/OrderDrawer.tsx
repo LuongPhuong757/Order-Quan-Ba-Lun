@@ -2,7 +2,6 @@
 import type { CSSProperties } from 'react';
 import React, { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
-import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
@@ -209,9 +208,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   /** Menu ⋯ ở header — chứa các thao tác thỉnh thoảng mới dùng. */
   const [menuOpen, setMenuOpen] = useState(false);
-  const { user } = useAuth();
-  const role = user?.role ?? (user?.is_owner ? 'admin' : null);
-  const canSetPriority = role === 'order' || role === 'admin';
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -926,7 +922,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       onChangeState={(to) => changeStateGroup(g, to)}
                       onEditQty={() => setEditQty({ group: g, target: g.count })}
                       onTogglePriority={() => togglePriorityGroup(g)}
-                      canSetPriority={canSetPriority}
                     />
                   ))}
                 </div>
@@ -1582,7 +1577,6 @@ function ItemRow({
   onChangeState,
   onEditQty,
   onTogglePriority,
-  canSetPriority,
   readonly,
 }: {
   item: OrderItem;
@@ -1592,7 +1586,6 @@ function ItemRow({
   onChangeState: (to: string) => void;
   onEditQty?: () => void;
   onTogglePriority?: () => void;
-  canSetPriority?: boolean;
   readonly?: boolean;
 }) {
   const n = count ?? item.qty;
@@ -1630,8 +1623,10 @@ function ItemRow({
     setRevealed((v) => !v);
   };
 
-  /** Nút Ưu tiên có nghĩa hay không — dùng ở hai chỗ nên tính một lần. */
-  const showPriority = !readonly && !!canSetPriority && !!onTogglePriority && item.state === 'KITCHEN';
+  /** Nút Ưu tiên có nghĩa hay không — dùng ở hai chỗ nên tính một lần.
+   * KHÔNG còn lọc theo role (chủ quán 2026-09-08: "bếp cũng có thể đi order mà") — chỉ còn điều
+   * kiện về TRẠNG THÁI, vì ưu tiên chỉ có nghĩa với món bếp chưa làm xong. */
+  const showPriority = !readonly && !!onTogglePriority && item.state === 'KITCHEN';
 
   const showAge = WAITING_STATES.has(item.state);
   const ageAt = oldest ?? item.created_at;
@@ -1752,8 +1747,9 @@ function ItemRow({
               {NEXT_LABEL[to]}
             </button>
           ))}
-          {/* Ưu tiên chỉ có nghĩa khi món đang nằm ở hàng chờ BẾP (state KITCHEN) và người bấm
-              là Order/Admin — trạng thái khác thì BE từ chối, nên ẩn hẳn cho gọn. */}
+          {/* Ưu tiên chỉ có nghĩa khi món đang nằm ở hàng chờ BẾP (state KITCHEN) — trạng thái
+              khác thì BE từ chối (`PRIORITY_INVALID_STATE`), nên ẩn hẳn cho gọn. Mọi role đều
+              bấm được. */}
           {showPriority && (
             <button
               onClick={onTogglePriority}

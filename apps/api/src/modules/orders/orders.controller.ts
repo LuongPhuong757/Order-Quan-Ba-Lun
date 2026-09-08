@@ -1,7 +1,6 @@
 import {
   Body,
   Controller,
-  ForbiddenException,
   Get,
   HttpCode,
   Param,
@@ -239,17 +238,18 @@ export class OrdersController {
     return { data: result };
   }
 
-  /** PATCH /orders/items/:itemId/priority — Order + Admin set/unset cờ ưu tiên.
-   * Bếp chỉ xem, không sửa được. Kitchen tự auto-clear khi state → COOKING. */
+  /** PATCH /orders/items/:itemId/priority — MỌI role đều set/unset được cờ ưu tiên.
+   *
+   * Bỏ chặn "chỉ Order/Admin" ngày 2026-09-08 (chủ quán: "bếp cũng có thể đi order mà"). Ở quán
+   * này không có ranh giới người-bếp / người-order như giả định ban đầu: cùng một nhân viên lúc
+   * đứng bếp, lúc chạy bàn ghi món, và tài khoản thì chỉ có một. Chặn theo role vì thế không bảo
+   * vệ được gì mà chỉ làm nút biến mất đúng lúc người ta cần bấm.
+   *
+   * Chặn theo TRẠNG THÁI thì GIỮ (`PRIORITY_INVALID_STATE` ở service): ưu tiên chỉ có nghĩa với
+   * món bếp chưa làm xong — đó là giới hạn về ý nghĩa, không phải về quyền.
+   * Kitchen tự auto-clear cờ khi state → COOKING. */
   @Patch('items/:itemId/priority')
-  async setItemPriority(@Param('itemId') itemId: string, @Body() dto: SetPriorityDto, @Req() req: Request) {
-    const role = req.user!.role ?? (req.user!.is_owner ? 'admin' : null);
-    if (role !== 'order' && role !== 'admin') {
-      throw new ForbiddenException({
-        code: 'PRIORITY_ROLE_DENIED',
-        message: 'Chỉ Order/Admin được đánh dấu ưu tiên.',
-      });
-    }
+  async setItemPriority(@Param('itemId') itemId: string, @Body() dto: SetPriorityDto) {
     const item = await this.svc.setItemPriority(itemId, dto.priority);
     return { data: item };
   }
