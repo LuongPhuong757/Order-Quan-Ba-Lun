@@ -39,10 +39,36 @@ export class ReportsController {
     return { data: { from, window_days: windowDays, items: rows } };
   }
 
-  /** Chi tiêu theo ngày. Không truyền gì = toàn bộ lịch sử, cùng luật với `pairs`. */
+  /** Chi tiêu theo ngày × NCC. Không truyền gì = toàn bộ lịch sử, cùng luật với `pairs`.
+   *
+   * Nguồn của biểu đồ đường ở tab Thống kê: trả từng cặp (ngày, NCC) chứ không gộp sẵn, vì mỗi
+   * NCC là một đường riêng trên biểu đồ.
+   */
   @Get('daily')
   async daily(@Query() q: Record<string, string>) {
-    return { data: { items: await this.svc.daily({ supplier_id: q.supplier_id || undefined }) } };
+    const items = await this.svc.daily({
+      supplier_id: q.supplier_id || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+    });
+    return { data: { items } };
+  }
+
+  /** Từng phiếu nhập trong kỳ — bảng "phiếu nhập nào nhiều nhất" của tab Thống kê.
+   *
+   * Đường riêng chứ không dùng lại `GET /supplier-deliveries`: màn danh sách phiếu chỉ lấy 200
+   * phiếu gần nhất và có cả phiếu CHƯA duyệt (nhân viên cần thấy việc tồn). Bảng xếp hạng thì
+   * ngược lại — phải quét HẾT kỳ, và chỉ đếm phiếu đã duyệt, nếu không "phiếu nhiều nhất" có
+   * thể là một phiếu NCC tự khai mà quán chưa kiểm.
+   */
+  @Get('deliveries')
+  async deliveries(@Query() q: Record<string, string>) {
+    const items = await this.svc.deliveryStats({
+      from: q.from || undefined,
+      to: q.to || undefined,
+      supplier_id: q.supplier_id || undefined,
+    });
+    return { data: { items } };
   }
 
   @Get('matrix')
