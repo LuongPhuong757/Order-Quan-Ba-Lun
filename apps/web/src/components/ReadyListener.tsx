@@ -7,7 +7,7 @@
 // 3. Món huỷ (StaffCancel)            → CHỈ Bếp
 // 4. Đánh dấu hết (KitchenOutOfStock) → CẢ Bếp + Order
 // 5. Thanh toán xong (Checkout)       → CHỈ Admin
-// 6. Món đã giao tới khách (Served)   → CHỈ Bếp (kèm tên người giao)
+// 6. Món đã giao tới khách (Served)   → CHỈ Bếp — chỉ ghi vào 🔔, KHÔNG toast/beep
 // 7. Chuyển bàn (TableTransfer)       → CẢ Bếp + Order (gom theo from→to)
 import { useEffect } from 'react';
 import { api, isTransientError } from '../lib/api.ts';
@@ -94,18 +94,24 @@ export function ReadyListener() {
       readyNotifier.playKitchenAlertBeep();
     });
 
-    // ─── Rule 6: ItemServed (món tới tay khách) → CHỈ Bếp ─────────
+    // ─── Rule 6: ItemServed (món tới tay khách) → CHỈ Bếp, chỉ GHI SỔ ─────
+    //
+    // Đổi 2026-09-08 sau khi màn Bếp còn 2 tab: giờ CHÍNH BẾP là người bấm "đã giao"
+    // ở tab "Đã xong", nên cửa "bỏ qua thao tác của chính mình" chặn gần như mọi lần —
+    // bếp không còn thấy bản ghi nào về việc món đã ra khỏi bếp. Bỏ cửa đó: bất kỳ ai
+    // bấm (bếp tự bấm, hay bồi bàn bấm ở màn Order) thì bếp đều có bản ghi.
+    //
+    // CỐ TÌNH không toast và không beep — chỉ đẩy vào danh sách 🔔:
+    // "món đã ra tới khách" là việc để TRA LẠI (bàn này đã ra chưa, ai mang ra), không
+    // phải việc cần cắt ngang người đang nấu. Ở màn bếp banner toast bị phóng rất to
+    // (body.kds-mode) và beep để mức 0.85 cho khu bếp ồn — dùng cho một xác nhận thao
+    // tác vừa bấm thì mỗi lần bấm là một lần che mất danh sách món.
     const offItemServed = readyNotifier.onItemServed((ev) => {
       if (!isKitchen) return;
-      // Self-action skip: bếp tự đánh dấu giao thì không cần notify lại
-      if (ev.served_by === userFullName) return;
-      const msg = `🚀 ${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} đã giao bởi ${ev.served_by}`;
-      toast.push('info', msg, 5000);
       notificationStore.push(
         'ready',
         `${ev.table_name} — ${ev.qty}× ${ev.menu_item_name} giao bởi ${ev.served_by}`,
       );
-      readyNotifier.playReadyBeep();
     });
 
     // ─── Rule 7: TableTransfer (chuyển bàn) → CẢ Bếp + Order ──────
