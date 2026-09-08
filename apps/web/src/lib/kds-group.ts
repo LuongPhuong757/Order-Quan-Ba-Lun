@@ -43,13 +43,19 @@ function tableSummary(items: GroupableItem[]): string {
   return order.map((t) => `${t} ×${byTable.get(t)}`).join(' · ');
 }
 
-/** Thứ tự các nhóm.
- *  - 'qty'    : nhóm nhiều phần nhất lên trước, bằng nhau thì nhóm chờ lâu nhất trước.
- *               Dùng cho "Theo món": mục đích của chế độ này là nấu một lượt cho xong,
- *               nên khối 7 phần đáng làm trước khối 1 phần dù khối 1 phần gọi sớm hơn.
- *  - 'oldest' : nhóm chờ lâu nhất lên trước. Dùng cho "Theo phòng/bàn": bàn nhiều món
- *               không có nghĩa là bàn gấp hơn, ai ngồi chờ lâu hơn mới là gấp. */
-export type GroupOrder = 'qty' | 'oldest';
+/** Thứ tự các nhóm — bếp tự chọn, MẶC ĐỊNH 'az'.
+ *  - 'az'  : theo tên A→Z (so sánh theo tiếng Việt). Đây là thứ tự duy nhất KHÔNG phụ
+ *            thuộc dữ liệu đang chạy: bấm xong một dòng thì tên món / tên bàn không
+ *            đổi, nên không nhóm nào nhảy chỗ. Bếp nhớ được "món này ở khoảng giữa"
+ *            như nhớ vị trí trên một quyển menu giấy.
+ *  - 'qty' : nhiều phần nhất lên trước, bằng nhau thì nhóm chờ lâu nhất trước. Dùng
+ *            khi muốn nấu gộp cho xong khối lớn. Thứ tự này ĐỔI theo tiến độ nên phải
+ *            đi kèm applyStickyOrder, không thì nhóm trượt dưới ngón tay.
+ *
+ *  Nhóm có món ⭐ ƯU TIÊN luôn đứng đầu ở CẢ HAI thứ tự: nhân viên bấm ⭐ khi khách
+ *  sắp về, để nó đúng chỗ theo bảng chữ cái thì trong danh sách 36 nhóm là không ai
+ *  thấy. Đây là một lần nhảy do người bấm, không phải nhảy tự động. */
+export type GroupOrder = 'az' | 'qty';
 
 function build<T extends GroupableItem>(
   items: T[],
@@ -80,18 +86,25 @@ function build<T extends GroupableItem>(
   }
 
   out.sort((a, b) => {
-    // ⭐ ƯU TIÊN vẫn thắng mọi tiêu chí khác: nhân viên bấm nó khi khách SẮP VỀ, để
-    // sau thì món ra lúc khách đã đi.
     if (a.hasPriority !== b.hasPriority) return a.hasPriority ? -1 : 1;
-    if (order === 'qty' && a.qty !== b.qty) return b.qty - a.qty;
+    if (order === 'az') {
+      // localeCompare('vi'): 'Ốc' phải đứng sau 'Nộm' chứ không bị đẩy xuống cuối như
+      // khi so sánh mã ký tự thô. numeric:true để "Bàn 2" đứng trước "Bàn 10".
+      const c = a.title.localeCompare(b.title, 'vi', { numeric: true, sensitivity: 'base' });
+      if (c !== 0) return c;
+      return a.oldest - b.oldest;
+    }
+    if (a.qty !== b.qty) return b.qty - a.qty;
     return a.oldest - b.oldest;
   });
   return out;
 }
 
-/** Gộp theo MÓN: mọi bàn gọi cùng một món dồn về 1 khối để bếp nấu 1 lượt.
- *  Thứ tự: ⭐ ưu tiên → nhiều phần nhất → chờ lâu nhất. */
-export function groupByItem<T extends GroupableItem>(items: T[]): KdsGroup<T>[] {
+/** Gộp theo MÓN: mọi bàn gọi cùng một món dồn về 1 khối để bếp nấu 1 lượt. */
+export function groupByItem<T extends GroupableItem>(
+  items: T[],
+  order: GroupOrder = 'az',
+): KdsGroup<T>[] {
   return build(
     items,
     // Ghi chú không có menu_item_id → gộp theo nội dung: hai bàn cùng xin "lấy bát"
@@ -101,12 +114,15 @@ export function groupByItem<T extends GroupableItem>(items: T[]): KdsGroup<T>[] 
     (it) => (it.is_note ? `note:${it.menu_item_name}` : it.menu_item_id ?? `name:${it.menu_item_name}`),
     (it) => it.menu_item_name,
     tableSummary,
-    'qty',
+    order,
   );
 }
 
 /** Gộp theo PHÒNG/BÀN: thấy hết món của một bàn để ra cùng lúc, khách không ăn lẻ. */
-export function groupByTable<T extends GroupableItem>(items: T[]): KdsGroup<T>[] {
+export function groupByTable<T extends GroupableItem>(
+  items: T[],
+  order: GroupOrder = 'az',
+): KdsGroup<T>[] {
   return build(
     items,
     // table_code là mã bàn (duy nhất), table_name là tên hiển thị (có thể trùng nhau
@@ -114,6 +130,53 @@ export function groupByTable<T extends GroupableItem>(items: T[]): KdsGroup<T>[]
     (it) => it.table_code,
     (it) => it.table_name,
     (arr) => `${arr.length} dòng · ${arr.reduce((s, i) => s + i.qty, 0)} phần`,
-    'oldest',
+    order,
   );
+}
+
+/** Áp thứ tự ĐANG HIỆN lên danh sách nhóm vừa tính lại, để nhóm không tự nhảy chỗ.
+ *
+ *  Vì sao cần: thứ tự nhóm ở "Theo món" phụ thuộc SỐ PHẦN, mà bếp bấm xong một dòng
+ *  là số phần của nhóm đó tụt ngay — nhóm rơi xuống dưới, mọi nhóm khác dịch lên, và
+ *  poll 2 giây một lần nên chuyện đó xảy ra ngay dưới ngón tay đang bấm. Bếp mất dấu
+ *  chỗ mình đang làm và bấm nhầm sang món khác. ("Theo phòng/bàn" cũng vậy khi bàn
+ *  hết món.)
+ *
+ *  Quy tắc:
+ *  - Nhóm đã hiện thì GIỮ NGUYÊN vị trí, kể cả khi số phần đã đổi.
+ *  - Nhóm biến mất (làm xong hết) thì rụng khỏi danh sách.
+ *  - Nhóm MỚI xuất hiện thì xuống CUỐI, theo đúng thứ tự sort — không chen vào giữa
+ *    danh sách bếp đang làm.
+ *  - Trừ nhóm có món ⭐ ƯU TIÊN: nó luôn nổi lên đầu. Nhân viên bấm ⭐ khi khách sắp
+ *    về, để nó nằm cuối là mất luôn ý nghĩa của cái cờ đó.
+ *
+ *  `prevKeys` rỗng (lần đầu, hoặc vừa bấm "Sắp lại") → dùng nguyên thứ tự sort.
+ */
+export function applyStickyOrder<T extends GroupableItem>(
+  sorted: KdsGroup<T>[],
+  prevKeys: readonly string[],
+): KdsGroup<T>[] {
+  if (prevKeys.length === 0) return sorted;
+
+  const byKey = new Map(sorted.map((g) => [g.key, g]));
+  const out: KdsGroup<T>[] = [];
+  const taken = new Set<string>();
+
+  for (const g of sorted) {
+    if (!g.hasPriority) continue;
+    out.push(g);
+    taken.add(g.key);
+  }
+  for (const k of prevKeys) {
+    if (taken.has(k)) continue;
+    const g = byKey.get(k);
+    if (!g) continue; // nhóm đã làm xong hết
+    out.push(g);
+    taken.add(k);
+  }
+  for (const g of sorted) {
+    if (taken.has(g.key)) continue;
+    out.push(g); // nhóm mới → xuống cuối
+  }
+  return out;
 }
