@@ -503,14 +503,14 @@ body.kds-mode .toast-banner.error {
 
 .item-more:hover { background: #f3f4f6; opacity: 1; }
 
-/* Khung của một vùng trạng thái trong drawer (Đã báo bếp / Đã giao / Đã huỷ...).
-   Viền lấy màu của chính trạng thái, pha loãng — đậm bằng chữ thì ba khung cạnh nhau thành
-   ba khối màu chóe, mà thứ cần nổi là TÊN MÓN chứ không phải cái khung. */
+/* Một vùng trạng thái trong drawer (Đã báo bếp / Đã giao / Đã huỷ...).
+   KHÔNG có khung bao ngoài (chủ quán 2026-09-08: "border chỉ bo đến hết text thôi, đừng bo đến
+   cuối"). Bản trước kẻ cả khung quanh vùng LẪN chip quanh tiêu đề — hai lớp viền lồng nhau,
+   cộng thêm viền của từng thẻ món là ba lớp, nhìn rối đúng thứ đang muốn chữa.
+   Mốc phân vùng nay chỉ còn cái chip ở tiêu đề; khoảng trống giữa các vùng làm nốt phần việc
+   ngăn cách. */
 .item-section {
-  border: 1px solid;
-  border-radius: 12px;
-  padding: 10px 8px 4px;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
 }
 
 /* Tiêu đề vùng: CHIP ôm sát chữ, không phải dải chạy hết bề ngang.
