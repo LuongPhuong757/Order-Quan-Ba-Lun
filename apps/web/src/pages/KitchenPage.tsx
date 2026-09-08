@@ -599,6 +599,11 @@ export function KitchenPage() {
           --kds-pink: #ee3e79;
           --kds-green: #22a04a;
           --kds-page: #f4f7fb;
+          /* Nền của một "ĐẦU VIỆC" — tiêu đề khối gộp và card đứng một mình dùng
+             CHUNG biến này. Hai chỗ đó cùng một vai nên phải cùng một màu, nếu khai
+             rời hai nơi thì lần chỉnh sắc độ sau chắc chắn lệch nhau. */
+          --kds-lead: #cfe0f5;
+          --kds-lead-line: #a9c7e8;
           --kds-line: #dde5ef;
           position: fixed;
           /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
@@ -788,8 +793,8 @@ export function KitchenPage() {
              - nhưng TIÊU ĐỀ với DÒNG CON thì phải khác rõ, không thì cả khối là một
                mảng trắng và mắt không thấy đâu là đầu khối.
              Chữ tiêu đề navy đậm trên nền này vẫn đủ tương phản. */
-          background: #cfe0f5;
-          border-bottom: 2px solid #a9c7e8;
+          background: var(--kds-lead);
+          border-bottom: 2px solid var(--kds-lead-line);
           flex-wrap: wrap;
           row-gap: 6px;
         }
@@ -857,6 +862,14 @@ export function KitchenPage() {
              phóng to trang (zoom thu nhỏ viewport theo CSS px) hoặc màn hẹp. */
           flex-wrap: wrap;
           row-gap: 8px;
+        }
+        /* Card đứng MỘT MÌNH = một đầu việc, cùng vai với tiêu đề khối gộp → cùng nền.
+           Nhờ vậy cả màn đọc theo một luật duy nhất: nền xanh = một việc phải làm,
+           nền trắng = chi tiết của việc ngay trên nó. */
+        .kds-card.lead {
+          background: var(--kds-lead);
+          border-color: var(--kds-lead-line);
+          border-width: 2px;
         }
         /* Trong khối gộp thì card là các DÒNG liền nhau — bỏ viền/bo góc riêng, ngăn
            bằng 1 đường kẻ. min-height 56px để nút của 2 dòng cạnh nhau vẫn cách nhau
@@ -1697,8 +1710,10 @@ function Card({
 
   return (
     <div
-      className="kds-card"
+      className={`kds-card ${inGroup ? '' : 'lead'}`}
       style={{
+        // Nền tím của ghi chú đặt inline nên THẮNG cả .lead: "yêu cầu phục vụ" không
+        // phải món nấu, nó phải khác mọi thứ khác kể cả nền đầu việc.
         // Vạch màu bên trái, thứ tự ưu tiên của thông tin:
         //   tím  = ghi chú (yêu cầu phục vụ, KHÔNG phải món nấu) — nền tím nhạt luôn
         //   vàng = ⭐ ưu tiên, khách sắp về
