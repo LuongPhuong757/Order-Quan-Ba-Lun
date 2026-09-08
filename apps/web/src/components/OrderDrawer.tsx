@@ -994,7 +994,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         {showBulkOrder && order && (
           <BulkOrderModal
             orderId={order.id}
-            tableLabel={`${table.code} · ${table.name}`}
+            tableLabel={table.name}
             onClose={() => setShowBulkOrder(false)}
             onSubmitted={() => {
               setShowBulkOrder(false);
@@ -1006,7 +1006,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         {showNote && order && (
           <ServiceNoteModal
             orderId={order.id}
-            tableLabel={`${table.code} · ${table.name}`}
+            tableLabel={table.name}
             onClose={() => setShowNote(false)}
             onDone={() => {
               setShowNote(false);

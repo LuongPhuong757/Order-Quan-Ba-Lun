@@ -280,7 +280,14 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           justify-content: space-between;
           align-items: center;
         }
-        .bulk-mobile-sheet-header h2 { margin: 0; font-size: 17px; }
+        .bulk-mobile-sheet-header h2 {
+          margin: 0;
+          font-size: 17px;
+          min-width: 0;      /* cho nhãn co lại thay vì đẩy 'Xoá hết' và ✕ xuống dòng */
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
         .bulk-mobile-sheet-body {
           flex: 1;
           overflow-y: auto;
@@ -557,6 +564,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           border: none;
           cursor: pointer;
           min-height: 28px;
+          white-space: nowrap;   /* 'Xoá hết' gãy thành hai dòng thì cả hàng cao gấp đôi */
+          flex: 0 0 auto;
         }
 
         /* Desktop overrides (≥768px) — đặt CUỐI để đảm bảo source-order win.
@@ -571,7 +580,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
       <div className="bulk-container">
         <div className="bulk-header">
           <h1>
-            🛒 Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
+            Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
           </h1>
           <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>
             ✕
@@ -634,7 +643,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           {/* PANEL PHẢI — GIỎ HÀNG (desktop only, mobile dùng sticky bar + sheet) */}
           <div className="bulk-cart-panel">
             <div className="bulk-cart-header">
-              <span>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</span>
+              <span>{cartLines.length} món · {totalQty} phần</span>
               {cartLines.length > 0 && (
                 <button className="bulk-clear" onClick={() => setCart(new Map())}>
                   Xoá hết
@@ -663,7 +672,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                 disabled={submitting || cartLines.length === 0}
               >
                 {submitting && <span className="spinner" />}
-                📢 Báo bếp {totalQty} phần · {fmt(total)}
+                Báo bếp
               </button>
             </div>
           </div>
@@ -695,7 +704,10 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           <div className="bulk-mobile-sheet">
             <div className="bulk-sheet-handle" />
             <div className="bulk-mobile-sheet-header">
-              <h2>🛒 Giỏ hàng ({cartLines.length} món · {totalQty} phần)</h2>
+              {/* Chỉ con số, KHÔNG icon và KHÔNG chữ 'Giỏ hàng' (chỉ đạo chủ quán
+                  2026-09-08) — đang đứng trong chính cái giỏ thì không cần ai nhắc lại.
+                  Nhãn ngắn lại là ba thứ (số · Xoá hết · ✕) vừa đúng MỘT dòng. */}
+              <h2>{cartLines.length} món · {totalQty} phần</h2>
               <div className="flex" style={{ gap: 8 }}>
                 {cartLines.length > 0 && (
                   <button className="bulk-clear" onClick={() => setCart(new Map())}>
@@ -735,7 +747,7 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
                 disabled={submitting || cartLines.length === 0}
               >
                 {submitting && <span className="spinner" />}
-                📢 Báo bếp {totalQty} phần · {fmt(total)}
+                Báo bếp
               </button>
             </div>
           </div>
