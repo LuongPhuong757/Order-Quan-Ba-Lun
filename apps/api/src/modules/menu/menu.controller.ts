@@ -242,7 +242,14 @@ export class MenuController {
         old.group = groupNorm;
         old.price = row.price;
         old.unit = row.unit;
-        if (row.image_url !== undefined) old.image_url = row.image_url ?? null;
+        // 2026-09-08 — CHỈ ghi đè ảnh khi dòng import có ảnh THẬT. Trước đây `null` cũng được
+        // coi là lệnh "xoá ảnh", mà FE LUÔN gửi `image_url: null` khi file Excel không có cột
+        // ảnh (MenuManagementPage: `r.image_url || null`). Một lần import lại bảng giá lúc
+        // 2026-09-07 02:12 UTC vì thế đã XOÁ SẠCH ảnh của 304/597 món trên production: file ảnh
+        // vẫn còn nguyên trong uploads/menu, chỉ mất đường dẫn trong DB, và cả 3 trang khách
+        // (apex, menu.<domain>, top món) trắng ảnh cho tới khi có người để ý.
+        // Import bảng giá KHÔNG BAO GIỜ được đụng tới ảnh — muốn gỡ ảnh thì sửa từng món.
+        if (row.image_url) old.image_url = row.image_url;
         old.is_active = true;
         await this.repo.save(old);
         updated++;
