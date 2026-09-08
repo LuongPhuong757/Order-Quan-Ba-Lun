@@ -503,6 +503,33 @@ body.kds-mode .toast-banner.error {
 
 .item-more:hover { background: #f3f4f6; opacity: 1; }
 
+/* Khung của một vùng trạng thái trong drawer (Đã báo bếp / Đã giao / Đã huỷ...).
+   Viền lấy màu của chính trạng thái, pha loãng — đậm bằng chữ thì ba khung cạnh nhau thành
+   ba khối màu chóe, mà thứ cần nổi là TÊN MÓN chứ không phải cái khung. */
+.item-section {
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 10px 8px 4px;
+  margin-bottom: 12px;
+}
+
+/* Tiêu đề vùng: CHIP ôm sát chữ, không phải dải chạy hết bề ngang.
+   `<h2>` là phần tử khối nên mặc định chiếm cả dòng — `inline-block` + `width: auto` là hai
+   thứ kéo nó về đúng bề rộng của chữ bên trong. */
+.item-section-title {
+  display: inline-block;
+  width: auto;
+  margin: 0 0 8px;
+  padding: 4px 12px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.3;
+}
+
 @media (min-width: 640px) {
   .modal-overlay {
     align-items: center;
