@@ -308,7 +308,9 @@ export function OrderMenuPage() {
         .omp-page {
           max-width: 1360px;
           margin: 0 auto;
-          padding: 12px 14px 96px;  /* mobile-first: chừa chỗ cho thanh giỏ + nav dưới */
+          /* mobile-first: 150px = thanh giỏ (~72) + nav dưới (~72). Để 96px thì hai hàng
+             món cuối chui xuống dưới thanh giỏ, tưởng là hết món. */
+          padding: 12px 14px 150px;
         }
         .omp-topbar {
           position: sticky;
@@ -361,6 +363,15 @@ export function OrderMenuPage() {
           gap: 12px;
           align-items: start;
         }
+        /* BẮT BUỘC, không phải trang trí. Ô của grid mặc định 'min-width: auto' = min-content,
+           nên nó KHÔNG co xuống dưới bề rộng nội dung. Hàng tab nhóm món có 'white-space: nowrap'
+           và quán đang có 29 nhóm (import bảng giá tự sinh) → min-content của cột trái ~3500px:
+           cột trái phình ra, lưới món trải theo, và cột giỏ hàng bị đẩy hẳn ra ngoài màn hình.
+           Popup cũ không dính vì panel của nó có 'overflow: hidden' bao ngoài; tách thành trang
+           là mất lớp chặn đó. 'min-width: 0' trả quyền co lại cho ô, khi ấy 'overflow-x: auto'
+           của hàng tab mới thành thanh trượt như thiết kế. */
+        .omp-body > * { min-width: 0; }
+        .omp-menu-col { min-width: 0; }
         @media (min-width: 768px) {
           .omp-body { grid-template-columns: 1.5fr 1fr; }
         }
@@ -376,6 +387,7 @@ export function OrderMenuPage() {
           overflow-x: auto;
           padding-bottom: 2px;
           scrollbar-width: none;
+          min-width: 0;   /* cùng lý do với '.omp-body > *' ở trên */
         }
         .omp-tabs::-webkit-scrollbar { display: none; }
         .omp-tabs button {
@@ -389,6 +401,7 @@ export function OrderMenuPage() {
           display: grid;
           gap: 8px;
           grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          min-width: 0;
         }
         .omp-card {
           background: white;
@@ -741,7 +754,7 @@ export function OrderMenuPage() {
 
       <div className="omp-body">
         {/* CỘT TRÁI — LIST MÓN */}
-        <div>
+        <div className="omp-menu-col">
           <div className="omp-toolbar">
             <input
               placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
