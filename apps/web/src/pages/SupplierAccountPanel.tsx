@@ -1,4 +1,7 @@
-// Tài khoản đăng nhập của NCC — khối trong màn chi tiết nhà cung cấp (bước 4).
+// Tài khoản đăng nhập của NCC (bước 4).
+//
+// Từ 2026-09-08 khối này KHÔNG còn nằm thẳng trong màn chi tiết NCC nữa — màn đó chỉ hiện thông
+// tin tài chính. Lối vào là nút "Tài khoản NCC" trên hàng nút, mở `SupplierAccountDialog`.
 import { useCallback, useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -87,11 +90,11 @@ export function SupplierAccountPanel({
     }
   };
 
-  if (!status) return null;
+  if (!status) return <p style={{ color: C.muted }}>Đang tải tài khoản…</p>;
 
   return (
     <>
-      <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Tài khoản nhà cung cấp</h3>
+      <h3 style={{ margin: '0 0 12px', fontSize: 18 }}>Tài khoản nhà cung cấp</h3>
 
       {/* PIN hiện ĐÚNG MỘT LẦN, ngay sau khi cấp. Không có đường xem lại — xem lại được nghĩa là
           ai vào được màn admin cũng đăng nhập được thay nhà cung cấp. */}
@@ -163,5 +166,45 @@ export function SupplierAccountPanel({
         </div>
       )}
     </>
+  );
+}
+
+/** Cùng khối trên, gói trong hộp thoại riêng. `zIndex` 75 giống các dialog khác của màn NCC: màn
+ *  chi tiết NCC tự nó đã là một stacking context (`zIndex: 9000`) nên hộp này vẫn nổi lên trên. */
+export function SupplierAccountDialog({
+  supplierId,
+  supplierPhone,
+  onClose,
+}: {
+  supplierId: string;
+  supplierPhone: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Tài khoản nhà cung cấp"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,.45)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 16,
+        overflowY: 'auto',
+        zIndex: 75,
+      }}
+    >
+      <div className="card" style={{ maxWidth: 460, width: '100%' }}>
+        <SupplierAccountPanel supplierId={supplierId} supplierPhone={supplierPhone} />
+        <div style={{ display: 'flex', marginTop: 16 }}>
+          <button className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 44 }}>
+            Đóng
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
