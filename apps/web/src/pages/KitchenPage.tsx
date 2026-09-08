@@ -19,7 +19,6 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { HelpModal } from '../components/HelpModal.tsx';
 import { NotificationBell } from '../components/NotificationBell.tsx';
-import { useAuth } from '../lib/auth-context.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
@@ -173,7 +172,6 @@ export function KitchenPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const navigate = useNavigate();
-  const { logout } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
@@ -449,18 +447,6 @@ export function KitchenPage() {
     } catch (e) {
       toast.push('error', extractError(e).message);
     }
-  };
-
-  // Đăng xuất có hỏi lại: nút ⏻ nằm cùng thanh với ↻ và 🔔 mà bếp tay ướt bấm nhanh,
-  // bấm nhầm là màn bếp tắt giữa lúc đông khách.
-  const onLogout = async () => {
-    const ok = await confirm({
-      title: 'Đăng xuất khỏi máy bếp?',
-      message: 'Màn bếp sẽ đóng, phải đăng nhập lại mới xem được món.',
-      variant: 'warning',
-      confirmLabel: 'Đăng xuất',
-    });
-    if (ok) logout();
   };
 
   return (
@@ -902,7 +888,6 @@ export function KitchenPage() {
           color: white;
           font-weight: 700;
         }
-        .kds-bar-btn.danger { color: #dc2626; border-color: #fecaca; }
         .kds-bar-btn-label { font-size: 13px; font-weight: 600; white-space: nowrap; }
         /* Điện thoại dọc: bỏ chữ, giữ icon — nếu không thì "🔍 Tất cả (24)" đẩy 4 nút
            bên phải ra khỏi màn. */
@@ -921,10 +906,13 @@ export function KitchenPage() {
           overflow-y: hidden;
           -webkit-overflow-scrolling: touch;
           overscroll-behavior-x: contain;
-          scrollbar-width: thin;
+          /* Ẩn thanh cuộn: vệt xám 5px dưới dải chip là thứ duy nhất trong thanh nút
+             không phải nút bấm, mắt vẫn phải bỏ qua nó mỗi lần liếc. Dải vẫn kéo được
+             bằng ngón tay (touch) và bằng chuột/trackpad — chỉ không vẽ thanh ra. */
+          scrollbar-width: none;
+          -ms-overflow-style: none;
         }
-        .kds-filter-chips::-webkit-scrollbar { height: 5px; }
-        .kds-filter-chips::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+        .kds-filter-chips::-webkit-scrollbar { display: none; }
         .kds-chip {
           padding: 3px 7px;
           background: #f0fdfa;
@@ -1099,23 +1087,11 @@ export function KitchenPage() {
           </button>
           {/* Chuông tự render nút + badge số thông báo chưa đọc — dùng lại nguyên,
               không bọc thêm để badge đỏ không bị lệch chỗ. */}
+          {/* KHÔNG có nút đăng xuất ở đây (bỏ 2026-09-08): màn bếp mở suốt buổi, một
+              nút tắt-phiên nằm cạnh ↻ và 🔔 là rủi ro thuần — bấm nhầm giữa lúc đông
+              khách thì bếp mất cả màn. Cần đăng xuất thì bấm ← về màn Order, header ở
+              đó có nút đăng xuất như mọi màn khác. */}
           <NotificationBell />
-          <button
-            type="button"
-            className="kds-bar-btn danger"
-            onClick={onLogout}
-            title="Đăng xuất"
-            aria-label="Đăng xuất"
-          >
-            {/* Lucide log-out (mũi tên ra khỏi cửa) — KHÔNG dùng emoji ⏻ U+23FB: máy ở
-                quán không có glyph cho nó nên nút hiện ra một khối trống. App.tsx chọn
-                đúng icon này cho nút đăng xuất ở header, giữ cho khớp. */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-          </button>
         </div>
       </div>
 
@@ -1193,9 +1169,10 @@ export function KitchenPage() {
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li><strong>←</strong> quay về màn Order (từ đó có lại thanh điều hướng đầy đủ).</li>
           <li><strong>🔍</strong> lọc theo nhóm món — tích nhiều nhóm được, <strong>✕</strong> xoá lọc.</li>
+          <li><strong>↻</strong> làm mới · <strong>❓</strong> hướng dẫn này · <strong>🔔</strong> thông báo.</li>
           <li>
-            <strong>↻</strong> làm mới · <strong>❓</strong> hướng dẫn này · <strong>🔔</strong> thông báo ·{' '}
-            <strong>⏻</strong> đăng xuất.
+            Muốn <strong>đăng xuất</strong> thì bấm <strong>←</strong> về màn Order — nút đăng xuất nằm
+            ở thanh trên cùng của màn đó. Cố tình không để ở đây: bấm nhầm giữa buổi là bếp mất màn.
           </li>
         </ul>
         <p style={{ margin: '8px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
