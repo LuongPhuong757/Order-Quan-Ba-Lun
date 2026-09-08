@@ -224,32 +224,8 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           z-index: 5;
           box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
         }
-        .bulk-mobile-bar .info {
-          flex: 1;
-          background: #f9fafb;
-          border: 1px solid #e5e7eb;
-          border-radius: 10px;
-          padding: 8px 14px;
-          display: flex;
-          flex-direction: column;
-          justify-content: center;
-          cursor: pointer;
-          min-height: 52px;
-          text-align: left;
-        }
-        .bulk-mobile-bar .info:active { background: #f3f4f6; }
-        .bulk-mobile-bar .info .top {
-          font-size: 12px;
-          color: #6b7280;
-        }
-        .bulk-mobile-bar .info .bottom {
-          font-size: 17px;
-          font-weight: 700;
-          color: #0f766e;
-        }
-        .bulk-mobile-bar .info.empty .bottom { color: #9ca3af; font-size: 14px; }
         .bulk-mobile-bar .submit {
-          flex: 1.2;
+          flex: 1;
           background: #f59e0b;
           color: white;
           font-weight: 700;
@@ -270,7 +246,6 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           color: #9ca3af;
           cursor: not-allowed;
         }
-        .bulk-mobile-bar .submit .icon { font-size: 16px; }
         /* Mobile cart sheet — slide từ dưới lên */
         .bulk-mobile-sheet-overlay {
           position: fixed;
@@ -694,37 +669,19 @@ export function BulkOrderModal({ orderId, tableLabel, onClose, onSubmitted }: Pr
           </div>
         </div>
 
-        {/* MOBILE — sticky bar dưới menu */}
+        {/* MOBILE — thanh dưới, ĐÚNG MỘT NÚT (chỉ đạo chủ quán 2026-09-08).
+            Trước đây là hai nút: một ô tóm tắt giỏ và một nút hành động. Hai ô cạnh nhau cùng
+            dẫn tới đúng một chỗ thì ô bên trái chỉ tổ chiếm nửa bề ngang mà không thêm việc gì.
+            Và nút này KHÔNG báo bếp: gửi thẳng từ đây là gửi mà chưa từng nhìn lại giỏ — tap
+            trúng một món hai lần là thành 2 phần mà không hề biết, gửi xong mới phát hiện thì
+            món đã nằm ở bếp. Báo bếp CHỈ còn bên trong giỏ. */}
         <div className="bulk-mobile-bar">
-          <button
-            className={`info ${cartLines.length === 0 ? 'empty' : ''}`}
-            onClick={() => cartLines.length > 0 && setMobileCartOpen(true)}
-            disabled={cartLines.length === 0}
-            style={{ cursor: cartLines.length > 0 ? 'pointer' : 'default' }}
-          >
-            {cartLines.length === 0 ? (
-              <>
-                <div className="top">🛒 Giỏ hàng</div>
-                <div className="bottom">Trống — tap món trên menu</div>
-              </>
-            ) : (
-              <>
-                <div className="top">🛒 {totalQty} phần · {cartLines.length} món · tap để xem</div>
-                <div className="bottom">{fmt(total)}</div>
-              </>
-            )}
-          </button>
-          {/* XEM ĐƠN, không phải Báo bếp (chỉ đạo chủ quán 2026-09-08). Báo bếp từ ngoài này
-              là gửi mà chưa từng nhìn lại giỏ: chọn 10 món trên lưới, tap trúng một món hai lần
-              là thành 2 phần mà không hề biết — gửi xong mới phát hiện thì món đã nằm ở bếp.
-              Nay bắt buộc mở giỏ ra đã; nút Báo bếp CHỈ còn trong đó. */}
           <button
             className="submit"
             onClick={() => setMobileCartOpen(true)}
             disabled={cartLines.length === 0}
           >
-            <span className="icon">🧾</span>
-            <span>Xem đơn</span>
+            Xem đơn và xác nhận lại
           </button>
         </div>
       </div>
