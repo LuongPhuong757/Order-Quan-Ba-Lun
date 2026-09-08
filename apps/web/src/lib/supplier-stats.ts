@@ -1,4 +1,8 @@
-// Phép gộp cho tab "Thống kê" của màn Nhà cung cấp (2026-09-08).
+// Phép gộp cho màn Nhà cung cấp (2026-09-08).
+//
+// Ra đời cho riêng tab "Thống kê"; từ 2026-09-08 các tab "Mặt hàng nhập" và "Phiếu nhập" dùng
+// chung `locMon`/`locPhieuTheoMon`/`phanTrang` ở đây — ba tab tự viết lấy luật lọc và luật kẹp
+// trang thì gõ cùng một chữ ở ba tab sẽ ra ba tập kết quả khác nhau.
 //
 // THUẦN, không React, không gọi API — cùng lệ với `spend-buckets`/`kds-group`: phần dễ sai nhất
 // của màn này là số học (gộp bucket, chọn top NCC, phân trang sau khi lọc), và số học thì test
@@ -295,11 +299,30 @@ export function locMon<T extends { ingredient_name: string }>(rows: T[], q: stri
  *
  * Cố ý KHÔNG khớp cả tên NCC: màn đã có ô lọc NCC riêng ở trên, và nếu ô này khớp luôn tên NCC
  * thì gõ một chữ trùng cả hai bên sẽ cho ra tập kết quả không ai giải thích được.
+ *
+ * Nhận mọi hàng có `items` chứ không riêng `DeliveryStatRow`: tab "Phiếu nhập" lọc trên phiếu
+ * đọc từ `/supplier-deliveries` (kiểu khác, có thêm trạng thái và ảnh) nhưng luật khớp phải y
+ * hệt tab Thống kê — hai hàm giống nhau là hai chỗ để lệch.
  */
-export function locPhieuTheoMon(rows: DeliveryStatRow[], q: string): DeliveryStatRow[] {
+export function locPhieuTheoMon<T extends { items: string[] }>(rows: T[], q: string): T[] {
   const k = khongDau(q);
   if (!k) return rows;
   return rows.filter((r) => r.items.some((ten) => khongDau(ten).includes(k)));
+}
+
+// ── Công nợ ─────────────────────────────────────────────────────────────────
+
+/**
+ * Tổng tiền CÒN PHẢI TRẢ cho các NCC — dòng "Tổng nợ" ở đầu màn.
+ *
+ * Chỉ cộng khoản dương, KHÔNG bù trừ khoản đã trả dư. Câu hỏi khi nhìn con số này là "cần chuẩn
+ * bị bao nhiêu tiền để trả hết nợ", mà tiền lỡ trả dư cho NCC A thì không dùng trả nợ NCC B
+ * được — bù trừ vào sẽ cho ra một con số thấp hơn số tiền thật sự phải có.
+ */
+export function tongConPhaiTra(balances: Iterable<{ balance: number }>): number {
+  let tong = 0;
+  for (const b of balances) tong += Math.max(0, b.balance);
+  return tong;
 }
 
 // ── Sắp xếp & phân trang ────────────────────────────────────────────────────
