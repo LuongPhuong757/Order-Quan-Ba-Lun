@@ -43,6 +43,9 @@ const AccountPage = lazy(() =>
 const OrdersPage = lazy(() =>
   import('./pages/OrdersPage.tsx').then((m) => ({ default: m.OrdersPage })),
 );
+const OrderMenuPage = lazy(() =>
+  import('./pages/OrderMenuPage.tsx').then((m) => ({ default: m.OrderMenuPage })),
+);
 const MenuManagementPage = lazy(() =>
   import('./pages/MenuManagementPage.tsx').then((m) => ({ default: m.MenuManagementPage })),
 );
@@ -78,14 +81,20 @@ const NccPortalPage = lazy(() =>
 const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
   admin: [
     () => import('./pages/OrdersPage.tsx'),
+    () => import('./pages/OrderMenuPage.tsx'),
     () => import('./pages/OnlineOrdersPage.tsx'),
     () => import('./pages/KitchenPage.tsx'),
   ],
-  order: [() => import('./pages/OrdersPage.tsx'), () => import('./pages/OnlineOrdersPage.tsx')],
+  order: [
+    () => import('./pages/OrdersPage.tsx'),
+    () => import('./pages/OrderMenuPage.tsx'),
+    () => import('./pages/OnlineOrdersPage.tsx'),
+  ],
   kitchen: [
     () => import('./pages/KitchenPage.tsx'),
     () => import('./pages/OnlineOrdersPage.tsx'),
     () => import('./pages/OrdersPage.tsx'),
+    () => import('./pages/OrderMenuPage.tsx'),
   ],
 };
 
@@ -133,6 +142,9 @@ export function App() {
             {/* Order: admin + order + kitchen (bếp cần xem để biết món nào của bàn nào) */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/orders" element={<OrdersPage />} />
+              {/* Trang gọi món của một bàn (2026-09-08) — thay 2 lớp popup cũ. Cùng gate với
+                  /orders: ai mở được sơ đồ bàn thì bấm vào bàn là vào thẳng đây. */}
+              <Route path="/orders/:tableId/goi-mon" element={<OrderMenuPage />} />
             </Route>
 
             {/* Đơn hàng online: admin + order + kitchen — D-02 ghi đè M2.D-33, ai đang ở máy thì
