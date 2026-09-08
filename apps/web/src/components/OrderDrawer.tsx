@@ -909,9 +909,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       color: COLOR[st],
                       textTransform: 'uppercase',
                       letterSpacing: 0.5,
-                      // Drawer bỏ đệm hai bên (`.modal-flush`) để thẻ món và hàng nút lấy đủ
-                      // bề ngang; riêng CHỮ vẫn phải chừa lề, không thì dính mép máy.
-                      padding: '0 12px',
                     }}
                   >
                     {LABEL[st]} ({unitCount})
@@ -949,9 +946,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       color: COLOR[st],
                       textTransform: 'uppercase',
                       letterSpacing: 0.5,
-                      // Drawer bỏ đệm hai bên (`.modal-flush`) để thẻ món và hàng nút lấy đủ
-                      // bề ngang; riêng CHỮ vẫn phải chừa lề, không thì dính mép máy.
-                      padding: '0 12px',
                     }}
                   >
                     {LABEL[st]} ({unitCount})
