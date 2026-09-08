@@ -43,11 +43,20 @@ function tableSummary(items: GroupableItem[]): string {
   return order.map((t) => `${t} ×${byTable.get(t)}`).join(' · ');
 }
 
+/** Thứ tự các nhóm.
+ *  - 'qty'    : nhóm nhiều phần nhất lên trước, bằng nhau thì nhóm chờ lâu nhất trước.
+ *               Dùng cho "Theo món": mục đích của chế độ này là nấu một lượt cho xong,
+ *               nên khối 7 phần đáng làm trước khối 1 phần dù khối 1 phần gọi sớm hơn.
+ *  - 'oldest' : nhóm chờ lâu nhất lên trước. Dùng cho "Theo phòng/bàn": bàn nhiều món
+ *               không có nghĩa là bàn gấp hơn, ai ngồi chờ lâu hơn mới là gấp. */
+export type GroupOrder = 'qty' | 'oldest';
+
 function build<T extends GroupableItem>(
   items: T[],
   keyOf: (it: T) => string,
   titleOf: (it: T) => string,
   subtitleOf: (items: T[]) => string,
+  order: GroupOrder,
 ): KdsGroup<T>[] {
   const map = new Map<string, T[]>();
   for (const it of items) {
@@ -70,16 +79,18 @@ function build<T extends GroupableItem>(
     });
   }
 
-  // Thứ tự nhóm phải nói cùng một câu với thứ tự dòng ở chế độ "Ưu tiên": nhóm nào
-  // có món ⭐ (khách sắp về) lên trước, còn lại thì ai gọi trước nấu trước.
   out.sort((a, b) => {
+    // ⭐ ƯU TIÊN vẫn thắng mọi tiêu chí khác: nhân viên bấm nó khi khách SẮP VỀ, để
+    // sau thì món ra lúc khách đã đi.
     if (a.hasPriority !== b.hasPriority) return a.hasPriority ? -1 : 1;
+    if (order === 'qty' && a.qty !== b.qty) return b.qty - a.qty;
     return a.oldest - b.oldest;
   });
   return out;
 }
 
-/** Gộp theo MÓN: mọi bàn gọi cùng một món dồn về 1 khối để bếp nấu 1 lượt. */
+/** Gộp theo MÓN: mọi bàn gọi cùng một món dồn về 1 khối để bếp nấu 1 lượt.
+ *  Thứ tự: ⭐ ưu tiên → nhiều phần nhất → chờ lâu nhất. */
 export function groupByItem<T extends GroupableItem>(items: T[]): KdsGroup<T>[] {
   return build(
     items,
@@ -90,6 +101,7 @@ export function groupByItem<T extends GroupableItem>(items: T[]): KdsGroup<T>[] 
     (it) => (it.is_note ? `note:${it.menu_item_name}` : it.menu_item_id ?? `name:${it.menu_item_name}`),
     (it) => it.menu_item_name,
     tableSummary,
+    'qty',
   );
 }
 
@@ -102,5 +114,6 @@ export function groupByTable<T extends GroupableItem>(items: T[]): KdsGroup<T>[]
     (it) => it.table_code,
     (it) => it.table_name,
     (arr) => `${arr.length} dòng · ${arr.reduce((s, i) => s + i.qty, 0)} phần`,
+    'oldest',
   );
 }

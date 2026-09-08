@@ -100,10 +100,17 @@ const TAB_OF_STATE: Record<string, TabKey> = {
   READY: 'DONE',
 };
 
-const STATE_META: Record<string, { color: string; label: string; badge: string | null }> = {
-  KITCHEN: { color: '#f59e0b', label: 'Chờ làm', badge: null },
-  COOKING: { color: '#3b82f6', label: 'Đang nấu', badge: '🔥 ĐANG NẤU' },
-  READY: { color: '#10b981', label: 'Đã xong', badge: null },
+// Bỏ hẳn "đang nấu" khỏi màn bếp (2026-09-08, theo yêu cầu sau khi dùng thật):
+// bếp đứng ngay cạnh chảo nên "món này đang trên bếp" không phải thông tin cần một
+// trạng thái riêng để nhớ — nó chỉ bắt bếp bấm thêm một lần cho MỌI món.
+// COOKING vẫn tồn tại trong DB và màn Order vẫn set được (đơn online đọc nó để vẽ
+// thanh tiến trình cho khách), nhưng ở đây dòng COOKING hiện y hệt dòng chờ làm:
+// cùng màu viền, không badge. Bếp không cần phân biệt, và không có nút nào ở màn
+// này tạo ra COOKING nữa.
+const STATE_META: Record<string, { color: string; label: string }> = {
+  KITCHEN: { color: '#f59e0b', label: 'Chờ làm' },
+  COOKING: { color: '#f59e0b', label: 'Chờ làm' },
+  READY: { color: '#10b981', label: 'Đã xong' },
 };
 
 type ViewKey = 'priority' | 'item' | 'table';
@@ -480,51 +487,48 @@ export function KitchenPage() {
              nhờ vậy modal con (z 10000) vẫn nằm trên toast banner ở gốc cây DOM. */
         }
 
-        /* ─── Tab bar ──────────────────────────────────────────────────────────
-           Màn hẹp: 2 tab bấm để đổi. Màn ≥900px: cùng cái bar này thành 2 tiêu đề
-           cột, cả hai đều sáng, và bấm vào cũng vô hại (panel nào cũng đang hiện). */
-        .kds-tabs {
-          display: flex;
+        /* ─── Nút tab gọn, nằm chung dải với chế độ xem ────────────────────────
+           Thanh tab riêng đã bỏ theo yêu cầu. Màn hẹp: bấm để đổi panel. Màn ≥900px:
+           cả 2 panel đã hiện nên nút chỉ còn là chỗ đọc số phần, bấm không đổi gì. */
+        .kds-tab-pill {
           flex-shrink: 0;
-          background: white;
-          border-bottom: 1px solid #e5e7eb;
-        }
-        .kds-tab {
-          flex: 1;
-          min-width: 0;
-          min-height: 46px;
           display: flex;
           align-items: center;
-          justify-content: center;
-          gap: 7px;
-          padding: 9px 6px;
-          min-height: 46px;
-          border: none;
-          border-bottom: 3px solid transparent;
-          background: transparent;
+          gap: 5px;
+          padding: 6px 11px;
+          min-height: 34px;
+          min-width: 0;
+          border-radius: 999px;
+          border: 1.5px solid #d1d5db;
+          background: white;
           color: #9ca3af;
-          font-size: 15px;
+          font-size: 13px;
           font-weight: 700;
           cursor: pointer;
           white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
         }
-        .kds-tab.active {
-          color: var(--tab-col);
-          background: var(--tab-bg);
-          border-bottom-color: var(--tab-col);
-        }
-        .kds-tab-count {
-          flex-shrink: 0;
+        .kds-tab-pill.active { border-color: var(--tab-col); color: var(--tab-col); }
+        .kds-tab-pill-n {
           background: #e5e7eb;
           color: #4b5563;
           border-radius: 999px;
-          padding: 1px 9px;
-          font-size: 14px;
+          padding: 0 7px;
+          font-size: 13px;
           font-weight: 800;
         }
-        .kds-tab.active .kds-tab-count { background: var(--tab-col); color: white; }
+        .kds-tab-pill.active .kds-tab-pill-n { background: var(--tab-col); color: white; }
+        /* Nhãn chữ chỉ hiện khi còn chỗ — icon + số đủ để bếp biết bấm cái nào. */
+        .kds-tab-pill-label { display: none; }
+        @media (min-width: 620px) {
+          .kds-tab-pill-label { display: inline; }
+        }
+        .kds-views-sep {
+          flex-shrink: 0;
+          width: 1px;
+          align-self: stretch;
+          background: #e5e7eb;
+          margin: 0 3px;
+        }
 
         /* ─── Dải chế độ xem ──────────────────────────────────────────────────── */
         .kds-views {
@@ -595,13 +599,9 @@ export function KitchenPage() {
           /* Màn rộng hiện cả hai panel, CHIA ĐỀU 50/50 — tên món ở đây dài
              ("Bạch Tuộc Nướng : 150 / 1 Đĩa") nên cột nào hẹp là cắt ellipsis ngay. */
           .kds-panel[data-key='PENDING'] { border-right: 1px solid #e5e7eb; }
-          .kds-tab {
-            color: var(--tab-col);
-            background: var(--tab-bg);
-            border-bottom-color: var(--tab-col);
-            cursor: default;
-          }
-          .kds-tab .kds-tab-count { background: var(--tab-col); color: white; }
+          /* Cả 2 panel đang hiện → nút tab không còn là lựa chọn, chỉ là chỗ đọc số. */
+          .kds-tab-pill { border-color: var(--tab-col); color: var(--tab-col); cursor: default; }
+          .kds-tab-pill .kds-tab-pill-n { background: var(--tab-col); color: white; }
         }
 
         /* ─── Khối gộp (chế độ Theo món / Theo phòng·bàn) ─────────────────────── */
@@ -745,6 +745,12 @@ export function KitchenPage() {
           color: #374151;
           white-space: nowrap;
         }
+        .kds-card-table.primary {
+          font-size: 14px;
+          font-weight: 800;
+          flex: 1;
+          max-width: none;
+        }
         .kds-card-table {
           font-weight: 700;
           color: #0f766e;
@@ -811,11 +817,10 @@ export function KitchenPage() {
           white-space: nowrap;
         }
 
-        /* ─── 2 nút chuyển trạng thái trên mỗi dòng ───────────────────────────
-           Nut '›' = tiến 1 bước (chờ làm → đang nấu), viền màu.
-           Nut '»' = xong luôn, nền đặc — đây là nút bếp bấm nhiều nhất nên nó nổi nhất.
-           (không dùng dấu backtick Ở ĐÂY: cả khối này nằm trong template literal.) */
-        .kds-step, .kds-done {
+        /* ─── Nút chuyển trạng thái DUY NHẤT trên mỗi dòng ─────────────────────
+           '»' = đẩy dòng sang tab bên kia (chờ chế biến → đã xong → đã giao).
+           Nền đặc, rộng hơn các nút khác: đây là nút bếp bấm nhiều nhất. */
+        .kds-done {
           border-radius: 7px;
           min-width: 48px;
           height: 40px;
@@ -830,18 +835,13 @@ export function KitchenPage() {
           padding: 0 8px;
           transition: transform 0.1s ease, opacity 0.15s;
         }
-        .kds-step {
-          background: white;
-          color: var(--col, #3b82f6);
-          border: 2px solid var(--col, #3b82f6);
-        }
         .kds-done {
           background: var(--col, #10b981);
           color: white;
           border: 2px solid var(--col, #10b981);
           min-width: 56px;
         }
-        .kds-step:active, .kds-done:active { transform: translateX(3px); opacity: 0.9; }
+        .kds-done:active { transform: translateX(3px); opacity: 0.9; }
         .kds-small-btn {
           background: white;
           color: #6b7280;
@@ -943,34 +943,31 @@ export function KitchenPage() {
         }
       `}</style>
 
-      {/* ─── 2 tab (màn rộng: 2 tiêu đề cột) ─────────────────────────────────── */}
-      <div className="kds-tabs" role="tablist">
-        {TABS.map((t) => {
-          const items = buckets[t.key];
-          return (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              data-key={t.key}
-              aria-selected={tab === t.key}
-              className={`kds-tab ${tab === t.key ? 'active' : ''}`}
-              style={{ ['--tab-col' as string]: t.color, ['--tab-bg' as string]: t.bg }}
-              onClick={() => setTab(t.key)}
-            >
-              <span>
-                {t.icon} {t.label}
-              </span>
-              {/* Đếm SỐ PHẦN, không đếm số dòng: 1 dòng mang cả số lượng của lần gọi
-                  (×3), đếm dòng sẽ báo khối lượng việc ít hơn thực tế. */}
-              <span className="kds-tab-count">{items.reduce((s, i) => s + i.qty, 0)}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ─── Chế độ xem ──────────────────────────────────────────────────────── */}
-      <div className="kds-views">
+      {/* ─── Một dải duy nhất: 2 nút tab (gọn, có số phần) + 3 chế độ xem ─────
+          Thanh tab riêng cao 46px đã bỏ: ở màn rộng nó chỉ là tiêu đề cột cho hai
+          panel đã nhìn thấy sẵn, còn ở màn hẹp thì 2 nút gọn nhét chung dải này là
+          đủ — không tốn thêm một pixel chiều cao nào của danh sách món. */}
+      <div className="kds-views" role="tablist">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            data-key={t.key}
+            aria-selected={tab === t.key}
+            className={`kds-tab-pill ${tab === t.key ? 'active' : ''}`}
+            style={{ ['--tab-col' as string]: t.color }}
+            onClick={() => setTab(t.key)}
+            title={t.label}
+          >
+            <span aria-hidden="true">{t.icon}</span>
+            {/* Đếm SỐ PHẦN, không đếm số dòng: 1 dòng mang cả số lượng của lần gọi
+                (×3), đếm dòng sẽ báo khối lượng việc ít hơn thực tế. */}
+            <span className="kds-tab-pill-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
+            <span className="kds-tab-pill-label">{t.label}</span>
+          </button>
+        ))}
+        <span className="kds-views-sep" aria-hidden="true" />
         {VIEWS.map((v) => (
           <button
             key={v.key}
@@ -1008,7 +1005,6 @@ export function KitchenPage() {
                   tab={t.key}
                   menuItem={menuMap.get(it.menu_item_id ?? '')}
                   onDone={() => changeState(it, t.key === 'PENDING' ? 'READY' : 'SERVED')}
-                  onStartCooking={() => changeState(it, 'COOKING')}
                   onToggleStock={() => toggleStock(it)}
                 />
               ))}
@@ -1020,6 +1016,7 @@ export function KitchenPage() {
                   key={g.key}
                   group={g}
                   tab={t.key}
+                  view={view}
                   menuMap={menuMap}
                   onBulk={changeStateMany}
                   onStateChange={changeState}
@@ -1126,8 +1123,7 @@ export function KitchenPage() {
         <h3 style={{ marginTop: 0, marginBottom: 6 }}>2 tab — vòng đời 1 món</h3>
         <ol style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong>🔥 Chờ chế biến</strong> — món nhân viên vừa gọi. Món đang trên bếp nằm CÙNG tab
-            này, mang badge <strong>🔥 ĐANG NẤU</strong>.
+            <strong>🔥 Chờ chế biến</strong> — mọi món nhân viên đã gọi mà bếp chưa làm xong.
           </li>
           <li>
             <strong>🍽 Đã xong</strong> — món nấu xong, đợi bồi bàn mang ra. Món vào tab này là mọi
@@ -1138,19 +1134,16 @@ export function KitchenPage() {
           Máy màn rộng (iPad ngang / laptop) hiện cả 2 tab cạnh nhau, không cần bấm đổi.
         </p>
 
-        <h3 style={{ marginBottom: 6 }}>2 nút trên mỗi dòng</h3>
+        <h3 style={{ marginBottom: 6 }}>1 nút trên mỗi dòng</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong style={{ color: '#3b82f6' }}>›</strong> — bắt đầu nấu. Món vẫn ở tab "Chờ chế biến"
-            nhưng đổi sang badge 🔥, để biết món nào đã lên bếp.
+            <strong style={{ color: '#10b981' }}>»</strong> — đẩy dòng sang tab bên kia. Ở "Chờ chế
+            biến" nghĩa là <strong>xong</strong>; ở "Đã xong" nghĩa là{' '}
+            <strong>đã giao cho khách</strong> (món rời màn bếp).
           </li>
           <li>
-            <strong style={{ color: '#10b981' }}>»</strong> — xong luôn, nhảy thẳng sang "Đã xong". Món
-            nhanh (nước, đồ có sẵn) thì bấm nút này, khỏi qua bước 🔥.
-          </li>
-          <li>
-            Ở tab "Đã xong", nút <strong>»</strong> nghĩa là <strong>đã giao cho khách</strong> — món rời
-            màn bếp.
+            <strong>Không còn bước "đang nấu"</strong> — bếp bấm một lần là món xong, không phải bấm
+            hai lần cho mỗi món nữa.
           </li>
         </ul>
 
@@ -1232,6 +1225,7 @@ export function KitchenPage() {
 function GroupBlock({
   group,
   tab,
+  view,
   menuMap,
   onBulk,
   onStateChange,
@@ -1239,14 +1233,12 @@ function GroupBlock({
 }: {
   group: KdsGroup<KitchenItem>;
   tab: TabKey;
+  view: ViewKey;
   menuMap: Map<string, MenuItem>;
   onBulk: (items: KitchenItem[], to: string, label: string) => void;
   onStateChange: (it: KitchenItem, to: string) => void;
   onToggleStock: (it: KitchenItem) => void;
 }) {
-  // Nút "› Nấu" chỉ gửi các dòng CHƯA nấu — dòng đang 🔥 mà gửi lại COOKING thì BE
-  // từ chối (transition không hợp lệ) và bếp thấy toast đỏ vô cớ.
-  const notCooking = group.items.filter((i) => i.state === 'KITCHEN');
   const oldestColor = ageColor(group.oldest);
   const doneLabel = tab === 'PENDING' ? 'Xong tất cả' : 'Đã giao tất cả';
   const doneTo = tab === 'PENDING' ? 'READY' : 'SERVED';
@@ -1264,7 +1256,6 @@ function GroupBlock({
         tab={tab}
         menuItem={menuMap.get(only.menu_item_id ?? '')}
         onDone={() => onStateChange(only, tab === 'PENDING' ? 'READY' : 'SERVED')}
-        onStartCooking={() => onStateChange(only, 'COOKING')}
         onToggleStock={() => onToggleStock(only)}
       />
     );
@@ -1285,17 +1276,6 @@ function GroupBlock({
           </div>
         </div>
         <div className="kds-group-actions">
-          {tab === 'PENDING' && notCooking.length > 0 && (
-            <button
-              type="button"
-              className="kds-bulk-btn"
-              style={{ background: 'white', color: '#3b82f6', borderColor: '#3b82f6' }}
-              onClick={() => onBulk(notCooking, 'COOKING', 'Bắt đầu nấu')}
-              title={`Bắt đầu nấu ${notCooking.length} dòng chưa nấu`}
-            >
-              › Nấu ({notCooking.length})
-            </button>
-          )}
           <button
             type="button"
             className="kds-bulk-btn"
@@ -1313,9 +1293,14 @@ function GroupBlock({
             key={it.id}
             item={it}
             tab={tab}
+            /* Không lặp lại thứ đã nằm ở tiêu đề khối: chế độ "Theo món" thì tiêu đề
+               đã là tên món nên dòng con chỉ cần BÀN; "Theo phòng/bàn" thì tiêu đề là
+               tên bàn nên dòng con chỉ cần TÊN MÓN. Lặp cả hai là cách nhanh nhất
+               biến danh sách thành một mảng chữ không đọc được. */
+            hideName={view === 'item'}
+            hideTable={view === 'table'}
             menuItem={menuMap.get(it.menu_item_id ?? '')}
             onDone={() => onStateChange(it, tab === 'PENDING' ? 'READY' : 'SERVED')}
-            onStartCooking={() => onStateChange(it, 'COOKING')}
             onToggleStock={() => onToggleStock(it)}
           />
         ))}
@@ -1328,17 +1313,20 @@ function Card({
   item,
   tab,
   menuItem,
+  hideName = false,
+  hideTable = false,
   onDone,
-  onStartCooking,
   onToggleStock,
 }: {
   item: KitchenItem;
   tab: TabKey;
   menuItem: MenuItem | undefined;
-  /** Nút `»` — tab Chờ chế biến: xong luôn (READY). Tab Đã xong: đã giao (SERVED). */
+  /** true khi tiêu đề khối gộp đã nói tên món — xem GroupBlock. */
+  hideName?: boolean;
+  /** true khi tiêu đề khối gộp đã nói tên bàn. */
+  hideTable?: boolean;
+  /** Nút duy nhất — tab Chờ chế biến: xong (READY). Tab Đã xong: đã giao (SERVED). */
   onDone: () => void;
-  /** Nút `›` — chỉ hiện với dòng còn ở KITCHEN. */
-  onStartCooking: () => void;
   onToggleStock: () => void;
 }) {
   // Dùng created_at (thời điểm khách gọi món) thay vì updated_at: updated_at reset
@@ -1351,7 +1339,6 @@ function Card({
   const isNote = !!item.is_note;
   const isOutOfStock = isNote ? false : menuItem?.is_out_of_stock ?? false;
   const meta = STATE_META[item.state] ?? STATE_META.KITCHEN;
-  const showStep = tab === 'PENDING' && item.state === 'KITCHEN';
   const doneColor = tab === 'PENDING' ? '#10b981' : '#0f766e';
 
   return (
@@ -1383,28 +1370,27 @@ function Card({
               ⭐ ƯU TIÊN
             </span>
           )}
-          {/* Badge 🔥 thay cho cả một cột "Đang nấu" ở bản 3 cột: món đang trên bếp
-              vẫn nằm cùng tab với món chờ, chỉ khác cái nhãn này. */}
-          {meta.badge && (
-            <span
-              className="kds-badge"
-              style={{ background: '#dbeafe', color: '#1d4ed8', border: '1px solid #93c5fd' }}
-              title="Đã bấm bắt đầu nấu — món đang trên bếp"
+          {!hideName && (
+            <div
+              className="kds-card-name"
+              style={{ color: ageTextColor }}
+              title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
             >
-              {meta.badge}
+              {item.menu_item_name}
+            </div>
+          )}
+          {!isNote && <span className="kds-card-qty">×{item.qty}</span>}
+          {!hideTable && (
+            <span
+              /* Ẩn tên món rồi thì tên bàn là thứ duy nhất nhận diện dòng này → nó
+                 lên cỡ chữ của tên món và chiếm phần chỗ còn lại. */
+              className={`kds-card-table ${hideName ? 'primary' : ''}`}
+              title={item.table_code}
+              style={{ color: ageTextColor }}
+            >
+              {item.table_name}
             </span>
           )}
-          <div
-            className="kds-card-name"
-            style={{ color: ageTextColor }}
-            title={isNote ? item.menu_item_name : `${item.qty}× ${item.menu_item_name}`}
-          >
-            {item.menu_item_name}
-          </div>
-          {!isNote && <span className="kds-card-qty">×{item.qty}</span>}
-          <span className="kds-card-table" title={item.table_code} style={{ color: ageTextColor }}>
-            {item.table_name}
-          </span>
         </div>
         <div className="kds-card-meta">
           <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
@@ -1452,19 +1438,11 @@ function Card({
           </button>
         )}
 
-        {showStep && (
-          <button
-            type="button"
-            className="kds-step"
-            style={{ ['--col' as string]: STATE_META.COOKING.color }}
-            onClick={onStartCooking}
-            title="Bắt đầu nấu"
-            aria-label="Bắt đầu nấu"
-          >
-            ›
-          </button>
-        )}
-
+        {/* ĐÚNG MỘT nút chuyển trạng thái (2026-09-08): chỉ có 2 tab nên chỉ cần một
+            hành động — đẩy dòng sang tab bên kia. Nút '›' (bắt đầu nấu) đã bỏ: nó
+            thêm một lần bấm cho mọi món mà thông tin "đang trên bếp" thì bếp đứng
+            ngay đó đã biết. State COOKING vẫn còn trong DB, màn Order vẫn set được,
+            và dòng nào đang COOKING vẫn hiện badge 🔥 ở đây. */}
         <button
           type="button"
           className="kds-done"
