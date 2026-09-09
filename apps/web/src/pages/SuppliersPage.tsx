@@ -16,7 +16,7 @@ import { api, extractError } from '../lib/api.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { useAuth } from '../lib/auth-context.tsx';
+import { useAuth, useCanWrite } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
@@ -77,7 +77,13 @@ const CO_TRANG_PHIEU = 15;
 export function SuppliersPage() {
   const toast = useToast();
   const { user } = useAuth();
+  // Hai câu hỏi KHÁC NHAU, đừng gộp lại (2026-09-09, khi thêm role Báo cáo):
+  //   `isAdmin`     = được GHI (thêm NCC, nhập hàng, duyệt phiếu, trả nợ).
+  //   `canSeeMoney` = được NHÌN công nợ / giá vốn — admin và role `report` đều được.
+  // Trước đây một mình `isAdmin` gánh cả hai, nên role `report` mở màn này ra là công nợ trống
+  // trơn dù nó có quyền xem. order/bếp không vào được màn này (RoleGate ở App.tsx).
   const isAdmin = user?.role === 'admin';
+  const canSeeMoney = isAdmin || user?.role === 'report';
 
   const [tab, setTab] = useState<Tab>('suppliers');
   // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
@@ -120,16 +126,15 @@ export function SuppliersPage() {
     }
 
     // Công nợ lấy MỘT lượt cho cả danh sách, không gọi 30 lần. Tách khỏi `Promise.all` ở trên vì
-    // chỉ admin đọc được (role `order` nhập hàng nhưng không xem tiền nợ) — lỗi 403 ở đây không
-    // được phép làm hỏng cả màn hình của nhân viên order.
-    if (!isAdmin) return;
+    // không phải role nào cũng đọc được — lỗi 403 ở đây không được phép làm hỏng cả màn hình.
+    if (!canSeeMoney) return;
     try {
       const b = await api.get<{ data: { items: Balance[] } }>('/suppliers/balances/all');
       setBalances(new Map(b.data.data.items.map((x) => [x.supplier_id!, x])));
     } catch {
       setBalances(new Map());
     }
-  }, [toast, isAdmin, filterSupplierId]);
+  }, [toast, canSeeMoney, filterSupplierId]);
 
   useEffect(() => {
     refresh();
@@ -204,14 +209,18 @@ export function SuppliersPage() {
             );
           })}
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-          <button className="secondary sup-action" onClick={() => setShowIngredients(true)}>
-            Mặt hàng
-          </button>
-          <button className="sup-action" onClick={() => setShowForm({})}>
-            ＋ Nhập hàng
-          </button>
-        </div>
+        {/* Ẩn với role Báo cáo: "Mặt hàng" mở panel sửa danh mục nguyên liệu, "Nhập hàng" tạo
+            phiếu — cả hai đều là GHI. */}
+        {isAdmin && (
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button className="secondary sup-action" onClick={() => setShowIngredients(true)}>
+              Mặt hàng
+            </button>
+            <button className="sup-action" onClick={() => setShowForm({})}>
+              ＋ Nhập hàng
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Không cắt theo tháng nữa (chủ quán chốt 2026-09-06): mọi tab dưới đây nhìn TOÀN BỘ
@@ -345,6 +354,7 @@ export function SuppliersPage() {
         <SupplierDetail
           supplier={detail}
           isAdmin={isAdmin}
+          canSeeMoney={canSeeMoney}
           balanceTick={balanceTick}
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
@@ -521,6 +531,9 @@ function DeliveryList({
 }) {
   const toast = useToast();
   const confirmDialog = useConfirm();
+  // Lấy thẳng từ context thay vì thêm prop: nút Duyệt/Huỷ/Sửa nằm sâu trong bảng, kéo một prop
+  // qua 3 tầng chỉ để tắt 3 cái nút là thêm chỗ để quên.
+  const canWrite = useCanWrite();
   const [busy, setBusy] = useState<string | null>(null);
   const [photosOf, setPhotosOf] = useState<Delivery | null>(null);
   const [tim, setTim] = useState('');
@@ -647,7 +660,7 @@ function DeliveryList({
                       </button>
                     </td>
                     <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {waiting && (
+                      {waiting && canWrite && (
                         <>
                           <button
                             onClick={() => act(d, 'confirm')}
@@ -669,7 +682,7 @@ function DeliveryList({
                       {/* Sửa phiếu đã nhập (2026-09-07). Hiện cho cả phiếu ĐÃ DUYỆT — đó chính là
                           trường hợp cần sửa: phiếu nhân viên nhập vào là CONFIRMED ngay. Phiếu đã
                           HUỶ thì không: sửa nó là làm sống lại một phiếu ai đó đã bỏ. */}
-                      {d.status !== 'CANCELLED' && (
+                      {d.status !== 'CANCELLED' && canWrite && (
                         <button
                           className="secondary"
                           onClick={() => onEdit(d)}
@@ -719,6 +732,7 @@ function DeliveryList({
 function SupplierDetail({
   supplier,
   isAdmin,
+  canSeeMoney,
   balanceTick,
   onClose,
   onEdit,
@@ -728,6 +742,7 @@ function SupplierDetail({
 }: {
   supplier: Supplier;
   isAdmin: boolean;
+  canSeeMoney: boolean;
   balanceTick: number;
   onClose: () => void;
   onEdit: () => void;
@@ -779,15 +794,17 @@ function SupplierDetail({
           </button>
         </div>
 
-        {/* Công nợ chỉ admin xem — nhân viên order nhập hàng được nhưng không thấy tiền nợ. */}
-        {isAdmin ? (
+        {/* Công nợ: admin và role Báo cáo đều XEM được. Nút thao tác trong hàng nút của khối
+            này thì chỉ admin — role Báo cáo nhìn thấy sổ, không sửa được sổ. */}
+        {canSeeMoney ? (
           <SupplierBalancePanel
             supplierId={supplier.id}
             supplierName={supplier.name}
             refreshKey={balanceTick}
             onChanged={onBalanceChanged}
-            actionsBefore={intake}
+            actionsBefore={isAdmin ? intake : undefined}
             actionsAfter={
+              isAdmin ? (
               <>
                 <button className="secondary sup-action" onClick={onEdit}>
                   Sửa thông tin
@@ -809,12 +826,13 @@ function SupplierDetail({
                   Xoá NCC
                 </button>
               </>
+              ) : undefined
             }
           />
         ) : (
           <>
             <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
-              {intake}
+              {isAdmin && intake}
             </div>
             <p style={{ color: C.muted, fontSize: 14, marginTop: 16 }}>
               Màn này chỉ hiện công nợ và giao dịch — cần quyền quản trị mới xem được.

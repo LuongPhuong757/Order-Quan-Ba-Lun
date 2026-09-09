@@ -179,10 +179,15 @@ function aggregateItems(items: OrderItem[]): ItemGroup[] {
 export function HistoryPage() {
   const toast = useToast();
   const { user } = useAuth();
-  // Chỉ admin thấy doanh thu. Nhân viên order xem được nhật ký bàn (48h) để tự đối
-  // chiếu ca làm, nhưng KHÔNG thấy con số doanh thu. Đây chỉ là phần ẩn UI —
-  // /orders/stats vẫn có AdminGuard nên gọi thẳng API cũng không lấy được.
-  const isAdmin = (user?.role ?? (user?.is_owner ? 'admin' : null)) === 'admin';
+  // Admin + role Báo cáo thấy doanh thu. Nhân viên order/bếp xem được nhật ký bàn (48h) để tự
+  // đối chiếu ca làm, nhưng KHÔNG thấy con số doanh thu. Đây chỉ là phần ẩn UI — /orders/stats
+  // có ReportGuard nên gọi thẳng API bằng tài khoản order/bếp cũng không lấy được.
+  //
+  // Tên biến nói đúng việc nó gác (đổi 2026-09-09, trước là `isAdmin`): quyền XEM số liệu, chứ
+  // không phải quyền admin. Nút GHI trên màn này đi theo `canMarkMisa` — role Báo cáo không có.
+  const canSeeStats = ['admin', 'report'].includes(
+    user?.role ?? (user?.is_owner ? 'admin' : ''),
+  );
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -248,10 +253,10 @@ export function HistoryPage() {
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày VÀ tab đang chọn (2026-09-05): đổi tab
   // thì doanh thu theo ngày, top món, tiêu hao... đổi theo, không chỉ danh sách đơn. Vẫn
   // KHÔNG theo trang: bảng số nói về cả bộ lọc, không phải 20 dòng đang xem.
-  // Bỏ hẳn request với nhân viên order: endpoint có AdminGuard nên gọi chỉ để nhận
+  // Bỏ hẳn request với nhân viên order: endpoint có ReportGuard nên gọi chỉ để nhận
   // 403, vừa vô ích vừa làm rác log server.
   useEffect(() => {
-    if (!isAdmin) {
+    if (!canSeeStats) {
       setStats(null);
       return;
     }
@@ -279,7 +284,7 @@ export function HistoryPage() {
       .get<{ data: { items: ConsumptionRow[] } }>(`/consumption?${cq.toString()}`)
       .then((res) => setConsumption(res.data.data.items))
       .catch(() => setConsumption([]));
-  }, [isAdmin, tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate]);
+  }, [canSeeStats, tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate]);
 
   /** Chọn 1 tab trong dãy pill trên cùng — loại trừ lẫn nhau.
    *
@@ -509,7 +514,7 @@ export function HistoryPage() {
       />
 
       {/* Nhân viên order: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
-      {!isAdmin && (
+      {!canSeeStats && (
         <div
           style={{
             background: '#eff6ff',
@@ -522,7 +527,7 @@ export function HistoryPage() {
           }}
         >
           📜 Bạn xem được nhật ký các bàn trong <strong>48 giờ gần nhất</strong>. Số liệu doanh
-          thu chỉ dành cho admin.
+          thu chỉ dành cho admin và quyền Báo cáo.
         </div>
       )}
 
@@ -530,7 +535,7 @@ export function HistoryPage() {
           Trước đây dãy này có 6 ô, trong đó 2 ô đếm đơn nói 2 con số khác nhau ("Đơn chưa thanh
           toán 0" cạnh "Tổng đơn khớp lọc 30") — người xem không biết tin ô nào.
           Ẩn hoàn toàn với nhân viên order: cả doanh thu lẫn số đơn tổng. */}
-      {isAdmin && (
+      {canSeeStats && (
       <div
         style={{
           display: 'grid',
@@ -559,7 +564,7 @@ export function HistoryPage() {
       )}
 
       {/* Biểu đồ thống kê — doanh thu theo ngày/giờ/thu ngân, chỉ admin. */}
-      {isAdmin && (
+      {canSeeStats && (
       <div style={{ marginBottom: 16 }}>
         <button
           className="secondary"

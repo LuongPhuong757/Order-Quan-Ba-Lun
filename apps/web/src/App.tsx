@@ -87,6 +87,13 @@ const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
     () => import('./pages/OnlineOrdersPage.tsx'),
     () => import('./pages/OrdersPage.tsx'),
   ],
+  // Báo cáo: 3 màn duy nhất role này vào được ngoài Dashboard (màn đầu tiên, đã tải sẵn) và
+  // Tài khoản. KHÔNG kéo OrdersPage/KitchenPage — role này bị chặn ở cửa hai màn đó.
+  report: [
+    () => import('./pages/HistoryPage.tsx'),
+    () => import('./pages/SuppliersPage.tsx'),
+    () => import('./pages/AdminAnalyticsPage.tsx'),
+  ],
 };
 
 /** Vỏ chờ trong lúc chunk của một trang đang về. Dùng lại đúng khung `.container`/`.spinner`
@@ -156,27 +163,35 @@ export function App() {
                 Order và bếp thấy giá món / tổng bill / thông tin thanh toán như nhau;
                 chỉ TỔNG DOANH THU nhiều bàn là riêng admin (/orders/stats có AdminGuard).
                 Giới hạn thực thi ở BE — xem staffHistoryWindowMs ở orders.controller. */}
-            <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
+            <Route element={<RoleGate allow={['admin', 'order', 'kitchen', 'report']} />}>
               <Route path="/history" element={<HistoryPage />} />
             </Route>
 
-            {/* Admin-only: tables, users, audit, dashboard, nhà cung cấp.
-
-                Nhà cung cấp (2026-09-07, thay M3.D-31): trước đây role `order` vào được để nhập
-                phiếu hộ. Chủ quán chốt bỏ — màn này bày GIÁ MUA và công nợ, tức là bày luôn lãi
-                của quán, nhân viên không được nhìn. Bếp vốn đã không vào.
-                Gate ở BE cũng đổi theo (AdminGuard trên cả 3 controller suppliers/deliveries/
-                reports) — sửa một mình chỗ này chỉ giấu nút, gõ thẳng URL vẫn ra dữ liệu. */}
-            <Route element={<RoleGate allow={['admin']} />}>
+            {/* Quyền Báo cáo (2026-09-09): CHỈ ĐỌC số liệu toàn quán. Dùng lại đúng 3 màn admin
+                thay vì dựng màn riêng — số liệu và cách lọc y hệt, tách ra là hai bản phải sửa
+                song song mãi mãi. Nút thao tác trong các màn đó bị ẩn theo `canWrite`.
+                Gate ở đây CHỈ giấu đường đi; hàng rào thật là `read-only-role.ts` ở BE — role
+                này gửi POST/PUT/PATCH/DELETE nào cũng ăn 403, gõ thẳng URL cũng vậy. */}
+            <Route element={<RoleGate allow={['admin', 'report']} />}>
+              <Route path="/suppliers" element={<SuppliersPage />} />
               <Route path="/dashboard" element={<DashboardPage />} />
+              {/* Thống kê truy cập trang khách (2026-08-05). KHÔNG có trong nav dưới: nav admin
+                  đã 7 mục, thêm mục thứ 8 là bóp nhỏ tất cả trên điện thoại. Đường vào là thẻ ở
+                  Dashboard. */}
+              <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+            </Route>
+
+            {/* Admin-only: bàn, nhân viên, nhật ký hệ thống, cài đặt nhận đơn.
+
+                Nhà cung cấp / dashboard / analytics đã chuyển lên block Báo cáo bên trên
+                (2026-09-09) — chúng là màn ĐỌC số liệu, `report` xem được, nhưng nút thao tác
+                bên trong vẫn admin-only.
+                Còn lại ở đây là những màn mà bản thân việc XEM cũng chỉ admin: nhật ký hệ thống
+                (ai làm gì), danh sách nhân viên, và các màn quản trị có thao tác là chính. */}
+            <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
-              <Route path="/suppliers" element={<SuppliersPage />} />
-              {/* Thống kê truy cập trang khách (2026-08-05). Admin-only và KHÔNG có trong
-                  nav dưới: nav admin đã 7 mục, thêm mục thứ 8 là bóp nhỏ tất cả trên điện
-                  thoại. Đường vào là thẻ ở Dashboard. */}
-              <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
               {/* `/admin/settings` cũ đã gộp thành tab của màn Đơn hàng online (2026-08-03).
                   Giữ redirect vì bookmark, link trong Dashboard và ảnh chụp màn hình trong
                   `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. */}
@@ -201,6 +216,7 @@ const ROLE_STYLE: Record<Role, { label: string; bg: string; border: string; text
   admin:   { label: 'Admin', icon: '👑',    bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
   order:   { label: 'Order', icon: '🍽',    bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
   kitchen: { label: 'Bếp',   icon: '👨‍🍳', bg: '#d1fae5', border: '#10b981', text: '#065f46' },
+  report:  { label: 'Báo cáo', icon: '📊', bg: '#ede9fe', border: '#8b5cf6', text: '#5b21b6' },
 };
 
 function ProtectedShell() {
@@ -210,10 +226,11 @@ function ProtectedShell() {
   const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
   // Badge số đơn online đang chờ trên nút "Online" — cả 3 role đều duyệt được (D-02) nên có
   // role là bật. SSE + đếm sống ở shell để đứng ở TRANG NÀO badge cũng nhảy realtime.
-  const waitingCount = useOnlineWaitingCount(role !== null);
+  // `report` không có nút Online (BE cũng chặn) → không bật, tránh 403 lặp mỗi nhịp đếm.
+  const waitingCount = useOnlineWaitingCount(role !== null && role !== 'report');
   // Badge số bàn đang mở trên nút "Order" — cả 3 role đều có nút này ở nav dưới. Cũng phải tính
   // TRƯỚC early-return vì cùng lý do trên.
-  const openTablesCount = useOpenTablesCount(role !== null);
+  const openTablesCount = useOpenTablesCount(role !== null && role !== 'report');
   // Badge số món đang chờ bếp làm trên nút "Bếp" — chỉ admin và role kitchen có nút này ở nav
   // dưới, role `order` không có nên không bật (bật thừa = mỗi máy order thêm 1 request/5s cho một
   // con số không ai nhìn thấy).
@@ -389,6 +406,18 @@ function ProtectedShell() {
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
+        </nav>
+      )}
+      {/* Quyền Báo cáo — 5 mục, KHÔNG có Order/Bếp/Online: role này không thao tác được gì ở
+          những màn đó (BE trả 403 cho mọi POST), bày nút ra chỉ để người ta bấm rồi ăn lỗi.
+          Không có badge đếm vì cũng không có nút nào để gắn badge vào. */}
+      {!isKds && role === 'report' && (
+        <nav className="nav-bottom" aria-label="Điều hướng chính">
+          <NavLink to="/dashboard" title="Trang chính — lối vào các báo cáo"><span className="nav-icon">📊</span><span className="nav-label">B/cáo</span></NavLink>
+          <NavLink to="/history" title="Nhật ký bàn — doanh thu, đơn đã bán"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          <NavLink to="/suppliers" title="Nhà cung cấp — giá nhập, công nợ, giá vốn, món bán"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
+          <NavLink to="/admin/analytics" title="Truy cập & khách hàng"><span className="nav-icon">📈</span><span className="nav-label">T/cập</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}

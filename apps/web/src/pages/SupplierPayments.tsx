@@ -9,6 +9,7 @@
 // nợ thật, rồi ai đó mang đi đối chiếu với NCC và mất mặt.
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { useCanWrite } from '../lib/auth-context.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -69,6 +70,7 @@ export function SupplierBalancePanel({
 }) {
   const toast = useToast();
   const confirm = useConfirm();
+  const canWrite = useCanWrite();
   const [balance, setBalance] = useState<BalanceDetail | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
   const [showPay, setShowPay] = useState(false);
@@ -151,18 +153,23 @@ export function SupplierBalancePanel({
           thêm nút thứ sáu cũng không làm màn cao thêm một dòng trên điện thoại. */}
       <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
         {actionsBefore}
-        <button className="sup-action" onClick={() => setShowPay(true)} disabled={!balance}>
-          ＋ Ghi nhận thanh toán
-        </button>
-        {/* Mọi admin đặt/sửa được (chủ quán chốt 2026-09-07, trước đó chỉ owner). Cả khối công
-            nợ này đã nằm sau `isAdmin` ở màn cha, nên ở đây không cần chặn thêm. */}
-        <button
-          className="secondary sup-action"
-          onClick={() => setShowOpening(true)}
-          disabled={!balance}
-        >
-          {balance?.opening_balance_date ? 'Sửa nợ cũ' : 'Khai nợ cũ'}
-        </button>
+        {/* Mọi admin đặt/sửa được (chủ quán chốt 2026-09-07, trước đó chỉ owner). Từ 2026-09-09
+            khối công nợ này còn mở cho role Báo cáo XEM, nên hai nút ghi phải tự chặn ở đây —
+            không còn dựa được vào `isAdmin` của màn cha như trước. */}
+        {canWrite && (
+          <>
+            <button className="sup-action" onClick={() => setShowPay(true)} disabled={!balance}>
+              ＋ Ghi nhận thanh toán
+            </button>
+            <button
+              className="secondary sup-action"
+              onClick={() => setShowOpening(true)}
+              disabled={!balance}
+            >
+              {balance?.opening_balance_date ? 'Sửa nợ cũ' : 'Khai nợ cũ'}
+            </button>
+          </>
+        )}
         {actionsAfter}
       </div>
 
@@ -450,6 +457,7 @@ function DeliveryTxnDetail({ deliveryId }: { deliveryId: string }) {
 }
 
 function PaymentTxnDetail({ p, onRemove }: { p: Payment; onRemove: () => void }) {
+  const canWrite = useCanWrite();
   return (
     <div>
       <Meta label="Phương thức" value={p.method === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'} />
@@ -457,18 +465,21 @@ function PaymentTxnDetail({ p, onRemove }: { p: Payment; onRemove: () => void })
       {p.note && <Meta label="Ghi chú" value={p.note} />}
       {/* Nút xoá nằm TRONG chi tiết chứ không ở dòng ngoài: xoá một lần trả làm nợ tăng lại,
           không phải thứ nên bấm trúng lúc đang lướt sổ. */}
-      <button
-        className="secondary"
-        onClick={onRemove}
-        style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13, color: C.danger }}
-      >
-        Xoá lần trả này
-      </button>
+      {canWrite && (
+        <button
+          className="secondary"
+          onClick={onRemove}
+          style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13, color: C.danger }}
+        >
+          Xoá lần trả này
+        </button>
+      )}
     </div>
   );
 }
 
 function OpeningTxnDetail({ detail, onEdit }: { detail: BalanceDetail; onEdit: () => void }) {
+  const canWrite = useCanWrite();
   return (
     <div>
       <Meta label="Tính đến" value={detail.opening_balance_date ?? 'chưa ghi ngày'} />
@@ -482,13 +493,15 @@ function OpeningTxnDetail({ detail, onEdit }: { detail: BalanceDetail; onEdit: (
       <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
         Nợ NGOÀI hệ thống, có trước mọi phiếu ở trên — chủ quán tự khai, hệ thống không kiểm được.
       </div>
-      <button
-        className="secondary"
-        onClick={onEdit}
-        style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13 }}
-      >
-        Sửa nợ cũ
-      </button>
+      {canWrite && (
+        <button
+          className="secondary"
+          onClick={onEdit}
+          style={{ marginTop: 10, minHeight: 38, padding: '0 12px', fontSize: 13 }}
+        >
+          Sửa nợ cũ
+        </button>
+      )}
     </div>
   );
 }
