@@ -14,7 +14,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
-import { ChartCard, LineChart, seriesColor, OTHER_COLOR, type LineSeries } from '../components/Charts.tsx';
+import { ChartCard, LineChart, StackedBarChart, seriesColor, OTHER_COLOR, type LineSeries } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { Pager } from '../components/Pager.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
@@ -192,6 +192,33 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               />
             )}
           </ChartCard>
+
+          <div style={{ marginTop: 12 }}>
+            <ChartCard
+              title="Tổng nhập hàng theo thời gian"
+              hint={
+                (chart.bucket === 'day'
+                  ? 'Mỗi cột là một ngày'
+                  : chart.bucket === 'week'
+                    ? 'Kỳ dài nên mỗi cột là một TUẦN (mốc là thứ Hai đầu tuần)'
+                    : 'Kỳ rất dài nên mỗi cột là một THÁNG') +
+                (supplierId
+                  ? '. Cột cao bằng tổng tiền nhập của nhà cung cấp đang lọc.'
+                  : '. Cột cao bằng TỔNG tiền nhập, chia màu theo từng nhà cung cấp — bỏ lọc nhà cung cấp nên mọi NCC dồn vào một cột.')
+              }
+            >
+              {chart.series.length === 0 ? (
+                <p style={{ color: C.muted, margin: 0 }}>Chưa có phiếu nhập đã duyệt trong kỳ này.</p>
+              ) : (
+                <StackedBarChart
+                  labels={chart.labels}
+                  series={series}
+                  formatValue={(v) => `${tienGon(v)}đ`}
+                  ariaLabel={`Tổng tiền nhập hàng theo ${chart.labels.length} mốc thời gian, mỗi cột chia tầng theo ${chart.series.length} nhà cung cấp`}
+                />
+              )}
+            </ChartCard>
+          </div>
 
           {/* MỘT ô tìm kiếm cho cả hai bảng: câu hỏi thật của chủ quán là "món này đang mua thế
               nào" — nó cần thấy cùng lúc tổng của món VÀ những phiếu có món đó. Hai ô riêng thì

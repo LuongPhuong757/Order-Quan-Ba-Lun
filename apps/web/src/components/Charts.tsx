@@ -1,6 +1,7 @@
 // Biểu đồ nhẹ, tự vẽ bằng CSS/SVG — không thêm thư viện (giữ bundle nhỏ, hợp mobile).
 // Dùng ở màn Quản lý giao dịch: cột (theo ngày/giờ), thanh xếp hạng, donut tỉ lệ.
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { tangCuaCot, tongMoiCot } from '../lib/stacked-bars.ts';
 
 const TEAL = '#0f766e';
 
@@ -348,94 +349,329 @@ export function LineChart({
         </svg>
 
         {hover !== null && (
-          <div
-            role="status"
-            style={{
-              position: 'absolute',
-              left: tipLeft,
-              top: 6,
-              width: 196,
-              background: '#fff',
-              border: '1px solid #e5e7eb',
-              borderRadius: 8,
-              boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
-              padding: 8,
-              fontSize: 12,
-              pointerEvents: 'none',
-              zIndex: 2,
-            }}
-          >
-            <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>{labels[hover]}</div>
-            {hien
-              .map((s) => ({ s, v: s.values[hover] }))
-              .filter((r) => r.v > 0)
-              .sort((a, b) => b.v - a.v)
-              .map(({ s, v }) => (
-                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-                  <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {s.name}
-                  </span>
-                  <strong style={{ color: '#1f2937' }}>{formatValue(v)}</strong>
-                </div>
-              ))}
-            {hien.every((s) => s.values[hover] === 0) && <span style={{ color: '#9ca3af' }}>Không nhập hàng</span>}
-          </div>
+          <ChartTip
+            left={tipLeft}
+            title={labels[hover]}
+            rows={hien.map((s) => ({ id: s.id, name: s.name, color: s.color, value: s.values[hover] }))}
+            formatValue={formatValue}
+            empty="Không nhập hàng"
+          />
         )}
       </div>
 
-      {/* Chú giải luôn hiện khi có từ 2 đường trở lên, và bấm được để tắt bớt đường — chín
-          đường cùng lúc thì cách duy nhất để so hai NCC là tắt bảy cái còn lại. Con số tổng
-          đứng cạnh tên bằng chữ MỰC thường, không tô màu chuỗi: màu là của ô vuông. */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
-        {series.map((s) => {
-          const tat = an.has(s.id);
-          return (
-            <button
-              key={s.id}
-              type="button"
-              aria-pressed={!tat}
-              onClick={() =>
-                setAn((cu) => {
-                  const moi = new Set(cu);
-                  if (moi.has(s.id)) moi.delete(s.id);
-                  else moi.add(s.id);
-                  return moi;
-                })
-              }
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                minHeight: 32,
-                padding: '0 6px',
-                background: 'transparent',
-                border: 'none',
-                borderRadius: 6,
-                cursor: 'pointer',
-                fontSize: 12,
-                color: tat ? '#9ca3af' : '#374151',
-                opacity: tat ? 0.6 : 1,
-              }}
-            >
-              <span
-                style={{
-                  width: 10,
-                  height: 10,
-                  borderRadius: 3,
-                  background: tat ? 'transparent' : s.color,
-                  border: `2px solid ${s.color}`,
-                  flexShrink: 0,
-                }}
-              />
-              <span style={{ textDecoration: tat ? 'line-through' : 'none' }}>{s.name}</span>
-              <strong style={{ color: tat ? '#9ca3af' : '#1f2937' }}>
-                {formatValue(s.values.reduce((a, b) => a + b, 0))}
-              </strong>
-            </button>
-          );
-        })}
+      <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />
+    </div>
+  );
+}
+
+// ── Biểu đồ cột xếp tầng ────────────────────────────────────────────────────
+
+/**
+ * Cột dọc, mỗi cột một mốc thời gian, mỗi tầng màu một chuỗi (NCC) — cột cao bằng TỔNG.
+ *
+ * Sinh ra để trả lời câu mà biểu đồ đường không trả lời được: "hôm đó cả quán nhập hết bao
+ * nhiêu". Trên biểu đồ đường, tổng của một ngày là tổng chiều cao của tám đường — không ai
+ * cộng bằng mắt được. Ngược lại, cột xếp tầng lại KHÔNG cho thấy xu hướng của từng NCC (đáy
+ * dày lên thì mọi tầng trên nó bị đẩy lên theo). Hai biểu đồ giữ cả hai, không thay nhau.
+ *
+ * Dùng CHUNG `LineSeries` với `LineChart`: hai biểu đồ trên cùng một màn phải cùng một bảng
+ * màu và cùng thứ tự chuỗi, nếu không thì màu xanh ở biểu đồ này là NCC khác với màu xanh ở
+ * biểu đồ kia.
+ *
+ * Vẽ vừa khít bề ngang (không cuộn ngang) như `LineChart` cùng màn: hai biểu đồ cùng nhãn trục
+ * mà một cái cuộn một cái không thì không so được cột với điểm.
+ */
+export function StackedBarChart({
+  labels,
+  series,
+  height = 220,
+  formatValue = (v) => String(v),
+  ariaLabel,
+}: {
+  labels: string[];
+  series: LineSeries[];
+  height?: number;
+  formatValue?: (v: number) => string;
+  ariaLabel: string;
+}) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(720);
+  const [an, setAn] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [hover, setHover] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    setW(Math.max(280, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+
+  const hien = useMemo(() => series.filter((s) => !an.has(s.id)), [series, an]);
+
+  const padL = 54;
+  const padR = 10;
+  const padT = 10;
+  const padB = 26;
+  const plotW = Math.max(10, w - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+  const n = labels.length;
+
+  const tongCot = useMemo(() => tongMoiCot(hien, n), [hien, n]);
+  const yMax = useMemo(() => mocTron(Math.max(...tongCot, 0)), [tongCot]);
+
+  if (n === 0 || series.length === 0) return <Empty />;
+
+  // Bề ngang một ô cột. Kỳ 2 tháng ≈ 62 cột: trên màn 390px mỗi ô chỉ ~5px nên cột phải mảnh
+  // hơn ô để còn thấy khe hở giữa hai ngày, nhưng không được mảnh dưới 2px (biến mất hẳn).
+  const oCot = plotW / n;
+  const rongCot = Math.max(2, Math.min(30, oCot * 0.72));
+  const cx = (i: number) => padL + (i + 0.5) * oCot;
+  const y = (v: number) => padT + plotH - (v / yMax) * plotH;
+
+  const buocNhan = Math.max(1, Math.ceil(n / 7));
+  const chiSoNhan = new Set<number>([0, n - 1]);
+  for (let i = 0; i < n; i += buocNhan) chiSoNhan.add(i);
+
+  const doiHover = (clientX: number) => {
+    const box = boxRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const i = Math.floor((clientX - box.left - padL) / oCot);
+    setHover(Math.min(n - 1, Math.max(0, i)));
+  };
+
+  const tipLeft = hover === null ? 0 : Math.min(Math.max(8, cx(hover) + 12), Math.max(8, w - 208));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div ref={boxRef} style={{ position: 'relative', width: '100%' }}>
+        <svg
+          width={w}
+          height={height}
+          role="img"
+          aria-label={ariaLabel}
+          style={{ display: 'block', touchAction: 'pan-y' }}
+          onMouseMove={(e) => doiHover(e.clientX)}
+          onMouseLeave={() => setHover(null)}
+          onTouchStart={(e) => doiHover(e.touches[0].clientX)}
+          onTouchMove={(e) => doiHover(e.touches[0].clientX)}
+          onTouchEnd={() => setHover(null)}
+        >
+          {/* Vệt sáng cả ô cột đang trỏ — với cột mảnh 5px thì một đường kẻ dọc như ở biểu đồ
+              đường sẽ trùng luôn vào thân cột và không thấy đang trỏ vào đâu. */}
+          {hover !== null && (
+            <rect x={cx(hover) - oCot / 2} y={padT} width={oCot} height={plotH} fill="#f1f5f9" />
+          )}
+
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+            const gy = padT + plotH - t * plotH;
+            return (
+              <g key={t}>
+                <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="#e5e7eb" strokeWidth={1} />
+                <text x={padL - 6} y={gy + 4} textAnchor="end" fontSize={10} fill="#6b7280">
+                  {formatValue(yMax * t)}
+                </text>
+              </g>
+            );
+          })}
+
+          {labels.map((_, i) =>
+            tangCuaCot(hien, i).map((t) => {
+              const top = y(t.to);
+              return (
+                <rect
+                  key={`${i}-${t.chuoi.id}`}
+                  x={cx(i) - rongCot / 2}
+                  y={top}
+                  width={rongCot}
+                  height={Math.max(1, y(t.from) - top)}
+                  fill={t.chuoi.color}
+                />
+              );
+            }),
+          )}
+
+          {labels.map((lb, i) =>
+            chiSoNhan.has(i) ? (
+              <text key={i} x={cx(i)} y={height - 8} textAnchor="middle" fontSize={10} fill="#6b7280">
+                {lb}
+              </text>
+            ) : null,
+          )}
+        </svg>
+
+        {hover !== null && (
+          <ChartTip
+            left={tipLeft}
+            title={labels[hover]}
+            rows={hien.map((s) => ({ id: s.id, name: s.name, color: s.color, value: s.values[hover] }))}
+            formatValue={formatValue}
+            tong={tongCot[hover]}
+            empty="Không nhập hàng"
+          />
+        )}
       </div>
+
+      {/* Một tầng duy nhất thì chú giải chỉ nhắc lại tiêu đề khối — bỏ đi. Đó là lúc màn đang
+          lọc đúng một NCC, cột chỉ có một màu và không có gì để phân biệt. */}
+      {series.length > 1 && (
+        <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />
+      )}
+    </div>
+  );
+}
+
+// ── Phần dùng chung của hai biểu đồ nhiều chuỗi ─────────────────────────────
+
+/** Bật/tắt một chuỗi trong tập đang ẩn. */
+function bat(setAn: (f: (cu: ReadonlySet<string>) => ReadonlySet<string>) => void) {
+  return (id: string) =>
+    setAn((cu) => {
+      const moi = new Set(cu);
+      if (moi.has(id)) moi.delete(id);
+      else moi.add(id);
+      return moi;
+    });
+}
+
+/**
+ * Khung tooltip theo cột, dùng chung cho `LineChart` và `StackedBarChart`.
+ *
+ * Chỉ liệt kê chuỗi có số > 0 và xếp giảm dần: ở một ngày cụ thể thường chỉ 1–2 NCC có phiếu,
+ * in cả tám dòng trong đó sáu dòng bằng 0 thì phải đọc lướt mới thấy dòng cần xem.
+ */
+function ChartTip({
+  left,
+  title,
+  rows,
+  formatValue,
+  tong,
+  empty,
+}: {
+  left: number;
+  title: string;
+  rows: Array<{ id: string; name: string; color: string; value: number }>;
+  formatValue: (v: number) => string;
+  /** Có truyền thì thêm dòng tổng ở cuối — chỉ có nghĩa với biểu đồ cột xếp tầng, nơi chiều
+   *  cao cột CHÍNH LÀ con số này. */
+  tong?: number;
+  empty: string;
+}) {
+  const co = rows.filter((r) => r.value > 0).sort((a, b) => b.value - a.value);
+  return (
+    <div
+      role="status"
+      style={{
+        position: 'absolute',
+        left,
+        top: 6,
+        width: 196,
+        background: '#fff',
+        border: '1px solid #e5e7eb',
+        borderRadius: 8,
+        boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
+        padding: 8,
+        fontSize: 12,
+        pointerEvents: 'none',
+        zIndex: 2,
+      }}
+    >
+      <div style={{ fontWeight: 700, color: '#1f2937', marginBottom: 4 }}>{title}</div>
+      {co.map((r) => (
+        <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: r.color, flexShrink: 0 }} />
+          <span style={{ color: '#374151', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.name}
+          </span>
+          <strong style={{ color: '#1f2937' }}>{formatValue(r.value)}</strong>
+        </div>
+      ))}
+      {co.length === 0 ? (
+        <span style={{ color: '#9ca3af' }}>{empty}</span>
+      ) : (
+        tong !== undefined &&
+        co.length > 1 && (
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 6,
+              marginTop: 6,
+              paddingTop: 4,
+              borderTop: '1px solid #e5e7eb',
+              color: '#374151',
+            }}
+          >
+            <span>Tổng</span>
+            <strong style={{ color: '#1f2937' }}>{formatValue(tong)}</strong>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+/**
+ * Chú giải bấm được để ẩn/hiện chuỗi.
+ *
+ * Luôn hiện khi có từ 2 chuỗi trở lên vì màu không được là kênh thông tin duy nhất; và bấm
+ * được vì tám chuỗi cùng lúc thì cách duy nhất để so hai NCC là tắt sáu cái còn lại. Con số
+ * tổng đứng cạnh tên bằng chữ MỰC thường, không tô màu chuỗi: màu là của ô vuông.
+ */
+function ChartLegend({
+  series,
+  an,
+  onToggle,
+  formatValue,
+}: {
+  series: LineSeries[];
+  an: ReadonlySet<string>;
+  onToggle: (id: string) => void;
+  formatValue: (v: number) => string;
+}) {
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px' }}>
+      {series.map((s) => {
+        const tat = an.has(s.id);
+        return (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={!tat}
+            onClick={() => onToggle(s.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              minHeight: 32,
+              padding: '0 6px',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer',
+              fontSize: 12,
+              color: tat ? '#9ca3af' : '#374151',
+              opacity: tat ? 0.6 : 1,
+            }}
+          >
+            <span
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 3,
+                background: tat ? 'transparent' : s.color,
+                border: `2px solid ${s.color}`,
+                flexShrink: 0,
+              }}
+            />
+            <span style={{ textDecoration: tat ? 'line-through' : 'none' }}>{s.name}</span>
+            <strong style={{ color: tat ? '#9ca3af' : '#1f2937' }}>
+              {formatValue(s.values.reduce((a, b) => a + b, 0))}
+            </strong>
+          </button>
+        );
+      })}
     </div>
   );
 }
