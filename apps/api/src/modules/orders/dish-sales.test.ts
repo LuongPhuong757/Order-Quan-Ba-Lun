@@ -32,17 +32,14 @@ describe('buildDishSales', () => {
     expect(r.items[1].group_name).toBe('Đồ uống');
   });
 
-  it('món trong menu bán 0 phần vẫn có dòng, và nằm cuối bảng', () => {
+  it('món trong menu chưa bán phần nào KHÔNG có dòng', () => {
+    // Chủ quán bỏ hẳn món 0 phần (2026-09-09): menu ~600 món thì mấy trăm dòng số 0 nhấn chìm
+    // mấy chục dòng đang ra tiền.
     const sold: SoldRow[] = [{ menu_item_id: 'm1', name: 'Phở bò', qty: 1, revenue: 50_000, orders: 1 }];
     const r = buildDishSales(sold, MENU, GROUPS);
 
-    expect(r.unsold_count).toBe(2);
-    expect(r.items).toHaveLength(3);
-    const last = r.items.slice(1);
-    expect(last.every((x) => x.qty === 0 && x.in_menu)).toBe(true);
-    // Món ế vẫn phải có giá và nhóm — đó là thông tin cần để quyết định cắt món hay giảm giá.
-    expect(last.map((x) => x.name).sort()).toEqual(['Chè đỗ đen', 'Trà đá']);
-    expect(last.find((x) => x.name === 'Chè đỗ đen')?.current_price).toBe(15_000);
+    expect(r.items).toHaveLength(1);
+    expect(r.items[0].menu_item_id).toBe('m1');
   });
 
   it('món đổi tên giữa kỳ ra MỘT dòng, mang tên hiện tại', () => {
@@ -69,17 +66,6 @@ describe('buildDishSales', () => {
     expect(gone.revenue).toBe(400_000);
   });
 
-  it('món xoá mềm đã bán vẫn có dòng, nhưng không bị thêm vào nhóm "bán 0 phần"', () => {
-    const menu: MenuRow[] = [
-      ...MENU,
-      { id: 'm9', name: 'Món mùa hè', group: 'food', price: 30_000, is_active: false },
-    ];
-    const r = buildDishSales([], menu, GROUPS);
-
-    expect(r.items.map((x) => x.menu_item_id)).not.toContain('m9');
-    expect(r.unsold_count).toBe(3);
-  });
-
   it('món gõ tay (không có id) gộp theo tên và không tra menu', () => {
     const sold: SoldRow[] = [{ menu_item_id: null, name: 'Món gõ tay', qty: 3, revenue: 60_000, orders: 3 }];
     const r = buildDishSales(sold, [], GROUPS);
@@ -89,9 +75,9 @@ describe('buildDishSales', () => {
     expect(r.items[0].revenue_pct).toBe(100);
   });
 
-  it('kỳ không bán được gì thì tỷ trọng là 0, không phải NaN', () => {
+  it('kỳ không bán được gì thì bảng rỗng, không phải một bảng toàn số 0', () => {
     const r = buildDishSales([], MENU, GROUPS);
     expect(r.total_revenue).toBe(0);
-    expect(r.items.every((x) => x.revenue_pct === 0)).toBe(true);
+    expect(r.items).toEqual([]);
   });
 });
