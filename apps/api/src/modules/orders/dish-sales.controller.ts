@@ -25,6 +25,31 @@ export class DishSalesController {
     const r = await this.svc.report({ from, to });
     return { data: { from: from ?? null, to: to ?? null, ...r } };
   }
+
+  /** GET /dish-sales/orders?menu_item_id=&name=&from=&to=&page=&size=
+   *
+   * Các ĐƠN đã gọi một món — bảng bung ra khi bấm vào tên món ở bảng ngoài. Hệ thống không có
+   * mã đơn, nên mỗi dòng định danh bằng giờ vào + bàn, đúng như màn Lịch sử.
+   *
+   * `menu_item_id` cho món trong menu; `name` chỉ dùng cho món gõ tay (không có id).
+   */
+  @Get('orders')
+  async orders(@Query() q: Record<string, string>) {
+    const page = Math.max(1, Number(q.page) || 1);
+    // Trần 100: bảng này nằm gọn trong MỘT dòng của bảng ngoài — nhiều hơn thế thì vừa không
+    // đọc được vừa đẩy dòng đang xem ra khỏi màn hình.
+    const size = Math.min(Math.max(Number(q.size) || 20, 1), 100);
+    return {
+      data: await this.svc.ordersForDish({
+        menu_item_id: q.menu_item_id || undefined,
+        name: q.name || undefined,
+        from: isDay(q.from) ? q.from : undefined,
+        to: isDay(q.to) ? q.to : undefined,
+        page,
+        size,
+      }),
+    };
+  }
 }
 
 /** Chỉ nhận đúng 'YYYY-MM-DD'. Chuỗi rác thì bỏ qua bộ lọc thay vì ném lỗi 400: người dùng

@@ -15,6 +15,7 @@ import { DishSalesService } from './dish-sales.service.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
+import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 
 /** Tiền tố sentinel RIÊNG của file này — mỗi file integration một tiền tố (xem
  * `stats-tabs.integration.test.ts`). */
@@ -64,24 +65,28 @@ async function insertMenuItem(opts: {
   return id;
 }
 
-/** 1 đơn trong kỳ test + các dòng món. */
+/** 1 đơn trong kỳ test + các dòng món. Trả về id đơn để test đối chiếu. */
 async function insertOrder(
   items: Array<{ menuItemId: string | null; name: string; price: number; qty: number; state: string; isNote?: boolean }>,
-): Promise<void> {
+  opts: { openedAt?: Date; closedAt?: Date | null; isPaid?: boolean } = {},
+): Promise<string> {
   const id = randomUUID();
+  const opened = opts.openedAt ?? TRUA_VN;
+  const closed = opts.closedAt === undefined ? TRUA_VN : opts.closedAt;
   await ds.query(
-    `INSERT INTO orders (id, table_id, table_code, opened_at, closed_at, is_paid, source, ship_fee)
-     VALUES (?, ?, ?, ?, ?, 1, 'STAFF', 0)`,
-    [id, tableId, `${P}a`, TRUA_VN, TRUA_VN],
+    `INSERT INTO orders (id, table_id, table_code, opened_at, closed_at, is_paid, source, ship_fee, checked_out_by_full_name)
+     VALUES (?, ?, ?, ?, ?, ?, 'STAFF', 0, ?)`,
+    [id, tableId, `${P}a`, opened, closed, opts.isPaid === false ? 0 : 1, closed ? 'Chị Thu' : null],
   );
   for (const it of items) {
     await ds.query(
       `INSERT INTO order_items
         (id, order_id, menu_item_id, menu_item_name, qty, menu_item_price, state, is_note, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [randomUUID(), id, it.menuItemId, it.name, it.qty, it.price, it.state, it.isNote ? 1 : 0, TRUA_VN, TRUA_VN],
+      [randomUUID(), id, it.menuItemId, it.name, it.qty, it.price, it.state, it.isNote ? 1 : 0, opened, opened],
     );
   }
+  return id;
 }
 
 const ky = () => svc.report({ from: NGAY, to: NGAY });
@@ -100,6 +105,7 @@ beforeAll(async () => {
     ds.getRepository(OrderItem),
     ds.getRepository(MenuItem),
     ds.getRepository(MenuGroup),
+    ds.getRepository(RestaurantTable),
   );
 }, 20_000);
 
@@ -186,19 +192,14 @@ describe('DishSalesService.report', () => {
     expect(rows[0].revenue).toBe(95_000);
   }, 20_000);
 
-  it('món trong menu bán 0 phần vẫn có dòng, qty = 0', async () => {
+  it('món trong menu bán 0 phần KHÔNG lọt vào bảng', async () => {
     await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'SERVED' }]);
 
     const r = await ky();
-    const e = r.items.find((x) => x.menu_item_id === eId)!;
 
-    expect(e.qty).toBe(0);
-    expect(e.revenue).toBe(0);
-    expect(e.in_menu).toBe(true);
-    expect(e.current_price).toBe(20_000);
-    // Món ế của test nằm trong nhóm "chưa bán phần nào" — cùng với menu thật của DB dev, nên
-    // chỉ khẳng định "có nó", không khẳng định con số tuyệt đối.
-    expect(r.unsold_count).toBeGreaterThanOrEqual(2);
+    expect(r.items.map((x) => x.menu_item_id)).not.toContain(eId);
+    // Và cũng không có dòng 0 phần nào khác lọt vào từ menu thật của DB dev.
+    expect(r.items.every((x) => x.qty > 0)).toBe(true);
   }, 20_000);
 
   it('lọc theo ngày kinh doanh giờ VN — đơn ngoài kỳ không lọt vào', async () => {
@@ -213,5 +214,94 @@ describe('DishSalesService.report', () => {
     // Đúng ngày đó, chọn cả hai đầu bằng nhau: mốc `to` phải GỒM cả ngày, không cắt lúc 00:00.
     const trong = await ky();
     expect(trong.items.find((x) => x.menu_item_id === phoId)?.qty).toBe(1);
+  }, 20_000);
+});
+
+describe('DishSalesService.ordersForDish — bấm vào món ra các đơn đã gọi', () => {
+  const donCua = (menuItemId: string, page = 1, size = 20) =>
+    svc.ordersForDish({ menu_item_id: menuItemId, from: NGAY, to: NGAY, page, size });
+
+  it('mỗi đơn MỘT dòng dù món nằm ở nhiều dòng trong đơn, kèm bàn và thu ngân', async () => {
+    const don = await insertOrder([
+      { menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 2, state: 'SERVED' },
+      // Gọi thêm lượt sau, ghi chú khác → dòng thứ hai cùng món trong CÙNG đơn.
+      { menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'READY' },
+      { menuItemId: traId, name: 'Trà đá', price: 3_000, qty: 4, state: 'SERVED' },
+    ]);
+
+    const r = await donCua(phoId);
+
+    expect(r.total).toBe(1);
+    expect(r.items).toHaveLength(1);
+    const d = r.items[0];
+    expect(d.order_id).toBe(don);
+    // Số phần và tiền là CỦA RIÊNG món phở, không dính 4 cốc trà đá trong cùng đơn.
+    expect(d.qty).toBe(3);
+    expect(d.amount).toBe(150_000);
+    expect(d.table_name).toBe('Bàn thống kê món');
+    expect(d.cashier_name).toBe('Chị Thu');
+    expect(d.status).toBe('paid');
+  }, 20_000);
+
+  it('mới nhất trước, và phân trang không bỏ sót đơn nào', async () => {
+    // 3 đơn cách nhau 1 giờ trong cùng ngày.
+    const ids: string[] = [];
+    for (const h of [3, 5, 7]) {
+      ids.push(
+        await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'SERVED' }], {
+          openedAt: new Date(`2019-01-05T0${h}:00:00Z`),
+          closedAt: new Date(`2019-01-05T0${h}:30:00Z`),
+        }),
+      );
+    }
+
+    const t1 = await donCua(phoId, 1, 2);
+    expect(t1.total).toBe(3);
+    expect(t1.items).toHaveLength(2);
+    // 07:00 UTC là muộn nhất → đứng đầu.
+    expect(t1.items.map((x) => x.order_id)).toEqual([ids[2], ids[1]]);
+
+    const t2 = await donCua(phoId, 2, 2);
+    expect(t2.items.map((x) => x.order_id)).toEqual([ids[0]]);
+  }, 20_000);
+
+  it('đơn chưa kết sổ và đơn huỷ đọc ra đúng trạng thái', async () => {
+    const mo = await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'COOKING' }], {
+      closedAt: null,
+    });
+    const huy = await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'READY' }], {
+      isPaid: false,
+    });
+
+    const r = await donCua(phoId);
+    const byId = new Map(r.items.map((x) => [x.order_id, x]));
+
+    expect(byId.get(mo)?.status).toBe('unpaid');
+    expect(byId.get(mo)?.closed_at).toBeNull();
+    // Đơn kết bằng HUỶ nhưng món đã nấu — nguyên liệu đã vào nồi nên vẫn phải thấy ở đây.
+    expect(byId.get(huy)?.status).toBe('cancelled');
+  }, 20_000);
+
+  it('không lấy đơn của món khác, và không lấy đơn ngoài kỳ', async () => {
+    await insertOrder([{ menuItemId: traId, name: 'Trà đá', price: 3_000, qty: 1, state: 'SERVED' }]);
+    await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'SERVED' }], {
+      openedAt: new Date('2019-01-20T05:00:00Z'),
+      closedAt: new Date('2019-01-20T05:00:00Z'),
+    });
+
+    const r = await donCua(phoId);
+    expect(r.total).toBe(0);
+    expect(r.items).toEqual([]);
+  }, 20_000);
+
+  it('món gõ tay lọc theo TÊN, không vơ nhầm món cùng tên đang có trong menu', async () => {
+    await insertOrder([
+      { menuItemId: null, name: 'Phở bò', price: 40_000, qty: 1, state: 'SERVED' },
+      { menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'SERVED' },
+    ]);
+
+    const goTay = await svc.ordersForDish({ name: 'Phở bò', from: NGAY, to: NGAY, page: 1, size: 20 });
+    expect(goTay.total).toBe(1);
+    expect(goTay.items[0].amount).toBe(40_000); // chỉ dòng gõ tay, không cộng dòng của menu
   }, 20_000);
 });

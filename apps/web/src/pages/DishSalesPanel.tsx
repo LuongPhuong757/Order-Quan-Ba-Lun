@@ -1,8 +1,15 @@
 // Tab "Món đã bán" của màn Nhà cung cấp (2026-09-09, chủ quán yêu cầu).
 //
-// Màn Lịch sử đã có biểu đồ "top 10 món bán chạy", nhưng câu hỏi thật của chủ quán nằm ở nửa
-// kia của bảng: món nào KHÔNG ai gọi. Top 10 theo định nghĩa là chỗ cắt mất đúng nửa đó, nên
-// bảng này liệt kê ĐẦY ĐỦ — kể cả món trong menu bán 0 phần trong kỳ.
+// Màn Lịch sử đã có biểu đồ "top 10 món bán chạy", nhưng quán bán vài trăm món và phần đuôi
+// mới là chỗ có tin — `LIMIT 10` cắt sạch nó. Bảng này liệt kê ĐẦY ĐỦ món đã bán trong kỳ.
+//
+// Món trong menu bán 0 phần thì KHÔNG hiện (chủ quán chốt 2026-09-09). Bản đầu có hiện chúng
+// để trả lời "món nào nên cắt", nhưng menu ~600 món nên 480 dòng số 0 nhấn chìm mấy chục dòng
+// đang thật sự ra tiền.
+//
+// Bấm vào TÊN MÓN thì bung ra các đơn đã gọi món đó. Hệ thống KHÔNG có mã đơn (chỉ UUID), nên
+// mỗi đơn định danh bằng giờ vào + bàn — đúng cách màn Lịch sử đang làm, để người dùng cầm hai
+// thứ đó sang Lịch sử là tìm ra đơn.
 //
 // Đặt ở /suppliers cạnh "Giá vốn món" chứ không ở màn Lịch sử: hai tab này đọc cạnh nhau thì
 // mới trả lời được câu đáng hỏi — món bán nhiều mà biên lãi mỏng thì đang bán hộ ai.
@@ -10,7 +17,7 @@
 // BƯỚC 2 (chưa làm): bung mỗi dòng ra thành các nguyên liệu món đó đã ngốn, đọc từ bản chốt
 // tiêu hao. Vì thế `state` đã đếm ở API là COOKING/READY/SERVED — BẰNG ĐÚNG định nghĩa "đã
 // nấu" của báo cáo tiêu hao, để hai con số đứng cạnh nhau không lệch.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
@@ -38,11 +45,38 @@ type Report = {
   items: DishRow[];
   total_qty: number;
   total_revenue: number;
-  unsold_count: number;
+};
+
+/** Một đơn đã gọi món đang xem. */
+type DishOrder = {
+  order_id: string;
+  opened_at: number;
+  closed_at: number | null;
+  table_name: string;
+  customer_name: string | null;
+  cashier_name: string | null;
+  qty: number;
+  amount: number;
+  status: 'paid' | 'unpaid' | 'cancelled';
 };
 
 const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
 const CO_TRANG = 20;
+/** Số đơn mỗi trang trong dòng bung ra. Nhỏ hơn bảng ngoài: bảng này nằm gọn trong MỘT dòng,
+ *  dài quá thì đẩy chính dòng đang xem ra khỏi màn hình. */
+const CO_TRANG_DON = 10;
+
+const NHAN_TRANG_THAI: Record<DishOrder['status'], { label: string; color: string }> = {
+  paid: { label: 'Đã thu tiền', color: '#15803d' },
+  unpaid: { label: 'Chưa thanh toán', color: '#b45309' },
+  cancelled: { label: 'Đã huỷ', color: '#b91c1c' },
+};
+
+/** Ngày giờ đơn, đủ để sang màn Lịch sử tìm lại — hệ thống không có mã đơn nào ngắn hơn. */
+function fmtLuc(ms: number): string {
+  const d = new Date(ms);
+  return `${d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+}
 
 /** Mặc định 30 ngày, cùng nhịp với tab "Thống kê" của chính màn này — hai tab cạnh nhau mà mở
  *  ra hai kỳ khác nhau thì con số nào cũng phải kiểm lại trước khi tin. */
@@ -67,8 +101,8 @@ export function DishSalesPanel() {
   const [sortKey, setSortKey] = useState<SortKey>('revenue');
   const [chieu, setChieu] = useState<Chieu>('desc');
   const [page, setPage] = useState(1);
-  /** Chỉ hiện món bán 0 phần — lối tắt cho câu "món nào nên cắt". */
-  const [chiMonE, setChiMonE] = useState(false);
+  /** Món đang bung ra xem đơn. Khoá là `menu_item_id`, món gõ tay thì dùng `name:<tên>`. */
+  const [moRong, setMoRong] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setData(null);
@@ -79,7 +113,7 @@ export function DishSalesPanel() {
       .then((r) => setData(r.data.data))
       .catch((err) => {
         toast.push('error', extractError(err).message);
-        setData({ items: [], total_qty: 0, total_revenue: 0, unsold_count: 0 });
+        setData({ items: [], total_qty: 0, total_revenue: 0 });
       });
   }, [range.from, range.to, toast]);
 
@@ -88,7 +122,6 @@ export function DishSalesPanel() {
   const rows = useMemo(() => {
     const k = khongDau(tim);
     const loc = (data?.items ?? []).filter((r) => {
-      if (chiMonE && r.qty > 0) return false;
       if (!k) return true;
       // Khớp cả tên nhóm: gõ "uống" ra cả nhóm đồ uống. Ở đây không có bộ lọc nhóm riêng nào
       // để chọi nhau (khác ô tìm mặt hàng nhập, xem `locMon`), nên gộp vào là tiện chứ không
@@ -96,7 +129,7 @@ export function DishSalesPanel() {
       return khongDau(r.name).includes(k) || khongDau(r.group_name ?? '').includes(k);
     });
     return sapXep(loc, (r) => r[sortKey] ?? (typeof r[sortKey] === 'string' ? '' : 0), chieu);
-  }, [data, tim, chiMonE, sortKey, chieu]);
+  }, [data, tim, sortKey, chieu]);
 
   const trang = phanTrang(rows, page, CO_TRANG);
 
@@ -170,20 +203,8 @@ export function DishSalesPanel() {
               aria-label="Tìm món theo tên"
               style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
             />
-            <button
-              type="button"
-              className={chiMonE ? '' : 'secondary'}
-              aria-pressed={chiMonE}
-              onClick={() => {
-                setChiMonE((v) => !v);
-                setPage(1);
-              }}
-              style={{ minHeight: 44 }}
-            >
-              Chỉ món bán 0 phần ({data.unsold_count})
-            </button>
             <span style={{ fontSize: 13, color: C.mutedOnTint }}>
-              {trang.total} món{tim.trim() || chiMonE ? ' khớp' : ''}
+              {trang.total} món{tim.trim() ? ' khớp' : ''}
             </span>
           </div>
 
@@ -234,23 +255,43 @@ export function DishSalesPanel() {
                     </tr>
                   </thead>
                   <tbody>
-                    {trang.rows.map((r) => (
-                      <tr
-                        key={r.menu_item_id ?? `name:${r.name}`}
-                        style={{
-                          borderTop: '1px solid #e5e7eb',
-                          // Món bán 0 phần làm mờ: nó ở đây để bị nhìn thấy, nhưng không được
-                          // tranh chỗ với món đang ra tiền.
-                          opacity: r.qty === 0 ? 0.6 : 1,
-                        }}
-                      >
-                        <td className="sup-cell-title" style={{ padding: 8 }}>
-                          {r.name}
-                          {!r.in_menu && (
-                            <span style={{ marginLeft: 6, fontSize: 12, color: C.muted }}>
-                              (đã bỏ khỏi menu)
+                    {trang.rows.map((r) => {
+                      const khoa = r.menu_item_id ?? `name:${r.name}`;
+                      const dangMo = moRong === khoa;
+                      return (
+                      <Fragment key={khoa}>
+                      <tr style={{ borderTop: '1px solid #e5e7eb' }}>
+                        <td className="sup-cell-title" style={{ padding: 0 }}>
+                          {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta
+                              hay quét chọn để copy — biến cả hàng thành nút thì quét chữ cũng
+                              bung bảng đơn ra (cùng luật với `ItemStatsPanel`). */}
+                          <button
+                            type="button"
+                            aria-expanded={dangMo}
+                            onClick={() => setMoRong(dangMo ? null : khoa)}
+                            style={{
+                              width: '100%',
+                              minHeight: 36,
+                              padding: 8,
+                              background: 'transparent',
+                              border: 'none',
+                              borderRadius: 0,
+                              textAlign: 'left',
+                              color: C.accent,
+                              fontWeight: 600,
+                              fontSize: 14,
+                            }}
+                          >
+                            <span aria-hidden="true" style={{ color: C.muted }}>
+                              {dangMo ? '▾ ' : '▸ '}
                             </span>
-                          )}
+                            {r.name}
+                            {!r.in_menu && (
+                              <span style={{ marginLeft: 6, fontSize: 12, color: C.muted, fontWeight: 400 }}>
+                                (đã bỏ khỏi menu)
+                              </span>
+                            )}
+                          </button>
                         </td>
                         <td data-label="Nhóm" style={{ padding: 8, color: C.mutedOnTint }}>
                           {r.group_name ?? '—'}
@@ -280,7 +321,16 @@ export function DishSalesPanel() {
                           {r.revenue_pct.toFixed(1)}%
                         </td>
                       </tr>
-                    ))}
+                      {dangMo && (
+                        <tr className="dish-orders-row">
+                          <td colSpan={7} style={{ padding: 0, background: C.panelBg }}>
+                            <DishOrders dish={r} range={range} />
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
+                      );
+                    })}
                   </tbody>
                   {/* Chân bảng cộng TOÀN BỘ kết quả lọc chứ không riêng trang đang xem — nhãn
                       nói rõ điều đó, nếu không người xem trang 2 sẽ tưởng con số này sai. */}
@@ -303,6 +353,114 @@ export function DishSalesPanel() {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * Các đơn đã gọi một món — bảng bung ra bên trong dòng của món đó.
+ *
+ * Tải theo yêu cầu (chỉ khi bấm mở) và phân trang Ở SERVER: món bán chạy nằm trong hàng trăm
+ * đơn, mà bảng ngoài có tới 20 dòng mỗi trang — nạp sẵn đơn cho cả 20 món là tải về hàng nghìn
+ * dòng cho thứ người dùng mở đúng một cái.
+ */
+function DishOrders({ dish, range }: { dish: DishRow; range: DayRange }) {
+  const toast = useToast();
+  const [page, setPage] = useState(1);
+  const [res, setRes] = useState<{ items: DishOrder[]; total: number } | null>(null);
+
+  useEffect(() => {
+    let huy = false;
+    setRes(null);
+    api
+      .get<{ data: { items: DishOrder[]; total: number } }>('/dish-sales/orders', {
+        params: {
+          // Món gõ tay không có id — lọc theo tên, đúng cách bảng ngoài đã gộp nó.
+          menu_item_id: dish.menu_item_id || undefined,
+          name: dish.menu_item_id ? undefined : dish.name,
+          from: range.from || undefined,
+          to: range.to || undefined,
+          page,
+          size: CO_TRANG_DON,
+        },
+      })
+      .then((r) => {
+        // Bấm nhanh sang món khác thì lượt cũ về sau sẽ ghi đè kết quả mới — cờ này chặn đúng
+        // ca đó.
+        if (!huy) setRes(r.data.data);
+      })
+      .catch((err) => {
+        if (huy) return;
+        toast.push('error', extractError(err).message);
+        setRes({ items: [], total: 0 });
+      });
+    return () => {
+      huy = true;
+    };
+  }, [dish.menu_item_id, dish.name, range.from, range.to, page, toast]);
+
+  if (!res) return <p style={{ margin: 0, padding: 12, color: C.muted }}>Đang tải đơn…</p>;
+  if (res.total === 0) {
+    return <p style={{ margin: 0, padding: 12, color: C.muted }}>Không có đơn nào trong kỳ.</p>;
+  }
+
+  const totalPages = Math.max(1, Math.ceil(res.total / CO_TRANG_DON));
+
+  return (
+    <div style={{ padding: 12 }}>
+      <p style={{ margin: '0 0 8px', fontSize: 13, color: C.mutedOnTint }}>
+        {res.total} đơn đã gọi <strong>{dish.name}</strong>. Hệ thống không có mã đơn — tìm lại ở
+        màn Lịch sử bằng ngày giờ và bàn.
+      </p>
+      <div style={{ overflowX: 'auto' }}>
+        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+              <th style={{ padding: 6 }}>Lúc</th>
+              <th style={{ padding: 6 }}>Bàn</th>
+              <th style={{ padding: 6 }}>Thu ngân</th>
+              <th style={{ padding: 6, textAlign: 'right' }}>Số phần</th>
+              <th style={{ padding: 6, textAlign: 'right' }}>Thành tiền</th>
+              <th style={{ padding: 6 }}>Trạng thái</th>
+            </tr>
+          </thead>
+          <tbody>
+            {res.items.map((o) => {
+              const tt = NHAN_TRANG_THAI[o.status];
+              return (
+                <tr key={o.order_id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td className="sup-cell-title" style={{ padding: 6 }}>{fmtLuc(o.opened_at)}</td>
+                  <td data-label="Bàn" style={{ padding: 6 }}>
+                    {o.table_name}
+                    {o.customer_name && (
+                      <span style={{ color: C.muted }}> · 🛵 {o.customer_name}</span>
+                    )}
+                  </td>
+                  <td data-label="Thu ngân" style={{ padding: 6, color: C.mutedOnTint }}>
+                    {o.cashier_name ?? '—'}
+                  </td>
+                  <td data-label="Số phần" style={{ padding: 6, textAlign: 'right', fontWeight: 700 }}>
+                    {o.qty}
+                  </td>
+                  <td data-label="Thành tiền" style={{ padding: 6, textAlign: 'right' }}>
+                    {vnd(o.amount)}đ
+                  </td>
+                  <td data-label="Trạng thái" style={{ padding: 6, color: tt.color, fontWeight: 600 }}>
+                    {tt.label}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      {/* Phân trang ở SERVER nên dựng `TrangKetQua` bằng tay — `phanTrang` cắt trên mảng đã có
+          đủ, ở đây mỗi lượt chỉ cầm 10 dòng. */}
+      <Pager
+        trang={{ rows: res.items, page, totalPages, total: res.total }}
+        doiTrang={setPage}
+        nhan="đơn"
+      />
+    </div>
   );
 }
 
