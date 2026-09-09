@@ -44,7 +44,7 @@ export class IngredientsController {
   constructor(private readonly svc: IngredientsService) {}
 
   @Get()
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async list(@Query() q: Record<string, string>) {
     const items = await this.svc.list({
       q: q.q || undefined,

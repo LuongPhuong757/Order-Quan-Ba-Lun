@@ -1,15 +1,16 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ConsumptionService } from './consumption.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 /** Báo cáo tiêu hao nguyên liệu (2026-09-05).
  *
- * AdminGuard, cùng lệ với `/orders/stats`: đây là số liệu tổng hợp toàn quán (mua bao nhiêu
- * hàng, tốn bao nhiêu) — thuộc nhóm thông tin chỉ chủ quán xem, không phải việc của ca trực.
+ * ReportGuard (admin + report), cùng lệ với `/orders/stats`: đây là số liệu tổng hợp toàn quán
+ * (mua bao nhiêu hàng, tốn bao nhiêu) — thuộc nhóm thông tin chủ quán và người xem báo cáo mới
+ * được nhìn, không phải việc của ca trực.
  */
 @Controller('consumption')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, ReportGuard)
 export class ConsumptionController {
   constructor(private readonly svc: ConsumptionService) {}
 

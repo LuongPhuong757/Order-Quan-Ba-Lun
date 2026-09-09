@@ -2,15 +2,17 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ReportsService } from './reports.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 /** Báo cáo giá & mặt hàng nhập (bước 2).
  *
- * admin + order, cùng phạm vi với màn nhập phiếu: nhân viên nhận hàng cần biết giá lần trước để
- * đối chiếu ngay lúc NCC đứng đó, không phải chờ hỏi chủ quán.
+ * admin + report (2026-09-09). Trước đây AdminGuard: màn này bày GIÁ MUA và công nợ, tức bày
+ * luôn lãi của quán, nhân viên order/bếp không được nhìn — chỗ đó KHÔNG đổi. Role `report` được
+ * thêm vì đó đúng là người chủ quán giao đọc báo cáo, và role đó không ghi được gì
+ * (`read-only-role.ts`).
  */
 @Controller('supplier-reports')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, ReportGuard)
 export class ReportsController {
   constructor(private readonly svc: ReportsService) {}
 

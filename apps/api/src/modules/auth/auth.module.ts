@@ -10,12 +10,13 @@ import { AuthController } from './auth.controller.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 import { OwnerGuard } from './guards/owner.guard.js';
 import { AdminGuard } from './guards/admin.guard.js';
+import { ReportGuard } from './guards/report.guard.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([User, RevokedJti, RecoveryCode])],
   controllers: [AuthController],
-  providers: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard],
-  exports: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard, TypeOrmModule],
+  providers: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard, ReportGuard],
+  exports: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard, ReportGuard, TypeOrmModule],
 })
 export class AuthModule implements OnModuleInit {
   private readonly logger = new Logger(AuthModule.name);
