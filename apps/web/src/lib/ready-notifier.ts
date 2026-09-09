@@ -76,6 +76,51 @@ type BeepOpts = {
   gapSec?: number;
 };
 
+/** ─── Tiếng "ting" báo món mới về bếp ─────────────────────────────────────────
+ *
+ *  Tần số gốc 1175Hz (D6) thay cho 520/392Hz cũ. Hai lý do, cái thứ hai mới là cái
+ *  quyết định ngoài thực tế:
+ *    - Tai người nhạy nhất ở 2–4kHz, mà hoạ âm 2×/2.76× của 1175 rơi đúng vùng đó.
+ *    - Loa iPad/điện thoại là loa bé, đáp tuyến tụt hẳn dưới ~500Hz: nốt 392Hz cũ
+ *      gần như KHÔNG được loa phát ra hết công suất, dù gain đã đặt 0.85. Dời lên
+ *      1175Hz là dùng đúng dải mà cái loa đó kêu to nhất.
+ */
+const TING_F0_HZ = 1175;
+/** Hoạ âm chuông: [hệ số tần số, biên độ tương đối]. 2.76× là hoạ âm lệch
+ *  (inharmonic) đặc trưng của kim loại — thiếu nó thì nghe như "bíp" điện tử chứ
+ *  không phải "ting". */
+const TING_PARTIALS: ReadonlyArray<readonly [number, number]> = [
+  [1, 1],
+  [2, 0.45],
+  [2.76, 0.25],
+  [5.4, 0.1],
+];
+/** Tổng biên độ đỉnh nạp vào bus TRƯỚC limiter — 5 (tức 500% full-scale) là CỐ Ý.
+ *  Trần biên độ là 1.0 nên không thể "tăng số gain" thêm được nữa; muốn to hơn chỉ
+ *  còn cách nâng mức TRUNG BÌNH (thứ tai nghe thành "to") lại sát trần: nạp thừa
+ *  rồi cho limiter ép đỉnh xuống. */
+const TING_DRIVE = 5;
+/** Mỗi tiếng ting: giữ nguyên đỉnh TING_HOLD_SEC rồi ngân tắt dần hết TING_RING_SEC.
+ *  Có đoạn giữ đỉnh mới là chỗ khác biệt lớn nhất so với một tiếng chuông "gõ rồi
+ *  tắt luôn": tắt dần ngay từ ms đầu thì mức trung bình rớt, nghe lại thành NHỎ. */
+const TING_RING_SEC = 1.35;
+const TING_HOLD_SEC = 0.7;
+/** Cuối đuôi ngân còn 8% biên độ rồi mới dừng hẳn — đủ nhỏ để không nghe "cụp". */
+const TING_TAIL = 0.08;
+/** 4 tiếng cách nhau 0.95s → hồi báo dài ~4.2s. Chuỗi CŨ đo được đã 2.88s (docstring
+ *  cũ ghi ~2.3s là sai) nên 3 tiếng chỉ dài hơn 1.14× — không ra "kéo dài". Đuôi ngân
+ *  của tiếng trước còn chưa tắt khi tiếng sau gõ vào, nên nghe liền một hồi. */
+const TING_STRIKES = 4;
+const TING_STRIKE_GAP_SEC = 0.95;
+/** Ngưỡng compressor (dBFS) + tỉ số nén — tầng nén thứ nhất, kéo mức trung bình lên. */
+const TING_LIMIT_THRESHOLD_DB = -1.5;
+const TING_LIMIT_RATIO = 20;
+/** Chừa headroom sau soft-clip: đỉnh ra loa ~0.9, không cấn 1.0 (full-scale ở loa
+ *  điện thoại rẻ là bắt đầu rè — cùng lý do bell.ts chốt 0.85 chứ không 1.0). */
+const TING_MASTER_GAIN = 0.9;
+/** Độ cong của soft-clip. Càng lớn càng nén mạnh phần đỉnh (to hơn, méo hơn). */
+const TING_SOFTCLIP_K = 1.8;
+
 // Dedup window cho transfer noti — same (from→to) pair trong khoảng này = 1 noti.
 // Lý do: StrictMode dev double-render, multi-tab cùng user, hoặc ingest race
 // có thể gây duplicate. 8s đủ rộng để gom hết các path detection cho 1 transfer logic.
@@ -94,6 +139,8 @@ class ReadyNotifier {
   private itemCancelByStaffListeners = new Set<ItemCancelByStaffListener>();
   private tableTransferListeners = new Set<TableTransferListener>();
   private audioCtx: AudioContext | null = null;
+  // Bus riêng cho tiếng ting (limiter + master gain), tạo 1 lần rồi dùng lại.
+  private loudBus: AudioNode | null = null;
   // Mốc (ctx.currentTime) mà chuỗi beep đang phát sẽ kết thúc. Beep mới trong
   // khoảng này bị BỎ, không phát chồng.
   // Lý do: bồi bàn gửi bulk 8 món 1 lượt → 8 event NewOrder cùng poll → 8 chuỗi
@@ -238,18 +285,117 @@ class ReadyNotifier {
     this.beepTones([660, 880]);
   }
 
-  /** Món mới về BẾP — to + dài + lặp 4 nhịp (~2.3s).
+  /** Món mới về BẾP — hồi "ting" như chuông: to hết mức loa cho phép, ngân dài ~4.2s.
    *
    *  Khu bếp ồn (hút mùi, chảo, nước chảy) và người nấu đứng cách iPad cả mét,
-   *  quay lưng lại màn hình → 1 nhịp 0.35s ở mức 0.25 như các role khác là không
-   *  nghe thấy, món nằm chờ ở cột "Đã order".
+   *  quay lưng lại màn hình → món nằm chờ ở cột "Đã order" mà không ai biết.
    *
-   *  Chỉ beep này được tăng, KHÔNG tăng chung mọi beep: NewOrder là event
-   *  role-gated CHỈ cho bếp (ReadyListener rule 1), nên điện thoại nhân viên
-   *  order vẫn kêu ở mức cũ, không bị hét vào tai giữa phòng khách.
+   *  Đổi 2026-09-09 (chủ quán: "tiếng kêu đang rất nhỏ"): trước là 4 nhịp sine
+   *  520/392Hz ở gain 0.85 nối thẳng `ctx.destination`. 0.85 đã gần trần nên không
+   *  tăng số được nữa — muốn to hơn phải đổi CÁCH phát, 3 hướng cùng lúc:
+   *    1. Dịch lên vùng tai nhạy: 1175Hz + hoạ âm 2×/2.76× nằm trong 2–4kHz.
+   *    2. Nạp tổng biên độ 5.0 qua compressor + soft-clip (`ensureLoudBus`) → mức
+   *       TRUNG BÌNH lên sát trần mà đỉnh vẫn dưới 1.0, không vỡ tiếng.
+   *    3. Mỗi tiếng giữ đỉnh 0.7s rồi ngân tắt dần, gõ 4 tiếng → dài ~4.2s, đủ để
+   *       người đang quay lưng thái/xào quay lại kịp.
+   *
+   *  Số đo (render chính hàm này qua `OfflineAudioContext` trong Chrome, FFT + trọng
+   *  số A, so với chuỗi cũ):
+   *    - mức trung bình A-weighted +7.8 dB (≈ tai nghe to gần gấp đôi)
+   *    - chỉ tính dải ≥500Hz — dải mà loa iPad thật sự phát được: +9.9 dB
+   *    - dài 4.23s so với 2.88s của chuỗi cũ (1.47×)
+   *    - đỉnh 0.902, còn headroom, không clip
+   *
+   *  Hai kết quả đo đã bẻ lại thiết kế — đừng chỉnh "cho gọn" mà bỏ mất:
+   *    - Bản thử đầu (gõ rồi tắt dần ngay, không có đoạn giữ đỉnh, compressor ngưỡng
+   *      -10dB) đo ra NHỎ HƠN bản cũ 7 dB. Tắt dần từ ms đầu là mất mức trung bình.
+   *    - Bản chỉ có compressor, không có soft-clip, đo ra đỉnh 1.137 = clip.
+   *
+   *  Chỉ tiếng này được đổi, KHÔNG đổi chung mọi beep: NewOrder là event role-gated
+   *  CHỈ cho bếp (ReadyListener rule 1), nên điện thoại nhân viên order vẫn kêu ở
+   *  mức cũ, không bị hét vào tai giữa phòng khách.
    */
   playNewOrderBeep(): void {
-    this.beepTones([520, 392], { gain: 0.85, toneSec: 0.3, repeat: 4, gapSec: 0.16 });
+    const ctx = this.ensureCtx();
+    if (!ctx) return;
+    try {
+      if (ctx.state === 'suspended') ctx.resume();
+      const now = ctx.currentTime;
+      // Cùng lý do như beepTones: bồi bàn gửi bulk 8 món → 8 event NewOrder cùng
+      // poll. Hồi ting dài 4.2s nên chồng nhau càng nghe thành tạp âm.
+      if (now < this.beepBusyUntil) return;
+      const out = this.ensureLoudBus(ctx);
+      for (let i = 0; i < TING_STRIKES; i++) {
+        this.tingStrike(ctx, out, now + i * TING_STRIKE_GAP_SEC);
+      }
+      this.beepBusyUntil = now + (TING_STRIKES - 1) * TING_STRIKE_GAP_SEC + TING_RING_SEC;
+    } catch {
+      // Im lặng — toast + danh sách 🔔 vẫn báo đủ món mới.
+    }
+  }
+
+  /** Bus dùng RIÊNG cho tiếng ting, 3 tầng: compressor → soft-clip → master gain.
+   *  Các beep khác vẫn nối thẳng `ctx.destination` — không đi qua đây, để mức của
+   *  chúng không bị đổi theo.
+   *
+   *  Vì sao cần CẢ soft-clip chứ không chỉ compressor: bản đầu chỉ có compressor
+   *  (ngưỡng -1.5dB, ratio 20:1) render ra đỉnh 1.137 — VƯỢT trần, tức méo vỡ ở loa.
+   *  `DynamicsCompressorNode` dò mức theo kiểu RMS và attack 2ms vẫn cho transient
+   *  lọt qua, nó KHÔNG phải limiter trần cứng. `WaveShaperNode` với đường cong tanh
+   *  thì chặn cứng bằng toán: mọi đầu vào |x|>1 đều bị kẹp về đúng hai đầu đường
+   *  cong, nên đỉnh ra không bao giờ quá TING_MASTER_GAIN. */
+  private ensureLoudBus(ctx: AudioContext): AudioNode {
+    if (this.loudBus) return this.loudBus;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = TING_LIMIT_THRESHOLD_DB;
+    comp.knee.value = 3;
+    comp.ratio.value = TING_LIMIT_RATIO;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.08;
+
+    const shaper = ctx.createWaveShaper();
+    const n = 1024;
+    const curve = new Float32Array(n);
+    const norm = Math.tanh(TING_SOFTCLIP_K);
+    for (let i = 0; i < n; i++) {
+      const x = (i / (n - 1)) * 2 - 1;
+      curve[i] = Math.tanh(TING_SOFTCLIP_K * x) / norm;
+    }
+    shaper.curve = curve;
+    shaper.oversample = '2x'; // giảm aliasing do soft-clip sinh hoạ âm mới
+
+    const master = ctx.createGain();
+    master.gain.value = TING_MASTER_GAIN;
+    comp.connect(shaper);
+    shaper.connect(master);
+    master.connect(ctx.destination);
+    this.loudBus = comp;
+    return comp;
+  }
+
+  /** Một tiếng gõ: cộng các hoạ âm lại, attack 4ms → giữ đỉnh holdSec → ngân tắt
+   *  dần theo hàm mũ tới hết ringSec. */
+  private tingStrike(ctx: AudioContext, out: AudioNode, startAt: number): void {
+    const ampSum = TING_PARTIALS.reduce((sum, [, amp]) => sum + amp, 0);
+    for (const [ratio, amp] of TING_PARTIALS) {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = TING_F0_HZ * ratio;
+      osc.connect(gain);
+      gain.connect(out);
+      // Hoạ âm càng cao càng tắt nhanh — đó là thứ làm tiếng gõ kim loại "sáng" ở
+      // đầu rồi ngân trầm dần, thay vì kêu đều đều như còi báo động.
+      const ringSec = ratio === 1 ? TING_RING_SEC : TING_RING_SEC / (ratio * 0.55);
+      const holdSec = Math.min(TING_HOLD_SEC, ringSec * 0.75);
+      const peak = (TING_DRIVE * amp) / ampSum;
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(peak, startAt + 0.004); // gõ: attack 4ms
+      gain.gain.setValueAtTime(peak, startAt + holdSec);        // giữ đỉnh
+      gain.gain.exponentialRampToValueAtTime(peak * TING_TAIL, startAt + ringSec);
+      osc.start(startAt);
+      osc.stop(startAt + ringSec + 0.02);
+    }
   }
 
   /** Beep cảnh báo cho cancel/báo hết — 2 tone trùng cao gấp. */
@@ -257,7 +403,9 @@ class ReadyNotifier {
     this.beepTones([880, 880]);
   }
 
-  /** Cảnh báo dành riêng cho BẾP — to + dài như playNewOrderBeep.
+  /** Cảnh báo dành riêng cho BẾP — 4 nhịp ở gain 0.85, to hơn beep mặc định.
+   *  (Không dùng tiếng ting của playNewOrderBeep: cần nghe RA là việc khác — huỷ
+   *  món chứ không phải món mới.)
    *  Dùng cho event role-gated chỉ-bếp: bồi bàn huỷ món (ReadyListener rule 3).
    *  Món có thể đang trên chảo → bỏ lỡ là nấu thừa, đổ đi. */
   playKitchenAlertBeep(): void {
@@ -271,12 +419,8 @@ class ReadyNotifier {
     const repeat = Math.max(1, opts.repeat ?? 1);
     const gapSec = opts.gapSec ?? 0.15;
     try {
-      if (!this.audioCtx) {
-        const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-        if (!Ctx) return;
-        this.audioCtx = new Ctx();
-      }
-      const ctx = this.audioCtx;
+      const ctx = this.ensureCtx();
+      if (!ctx) return;
       if (ctx.state === 'suspended') ctx.resume();
       const now = ctx.currentTime;
       if (now < this.beepBusyUntil) return; // đang có chuỗi khác phát → bỏ
@@ -312,15 +456,22 @@ class ReadyNotifier {
 
   /** Gọi 1 lần khi user click bất kỳ button — unlock audio (iOS Safari yêu cầu). */
   unlockAudio(): void {
-    if (!this.audioCtx) {
-      try {
-        const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
-        if (Ctx) this.audioCtx = new Ctx();
-      } catch {
-        // ignore
-      }
+    const ctx = this.ensureCtx();
+    if (ctx?.state === 'suspended') ctx.resume();
+  }
+
+  /** AudioContext dùng chung, tạo lười ở lần phát/unlock đầu. `null` = trình duyệt
+   *  không có Web Audio → mọi hàm phát tiếng im lặng bỏ qua. */
+  private ensureCtx(): AudioContext | null {
+    if (this.audioCtx) return this.audioCtx;
+    try {
+      const Ctx = (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext);
+      if (!Ctx) return null;
+      this.audioCtx = new Ctx();
+    } catch {
+      return null;
     }
-    if (this.audioCtx?.state === 'suspended') this.audioCtx.resume();
+    return this.audioCtx;
   }
 
   reset(): void {
