@@ -16,6 +16,12 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import {
+  STALE_OPEN_ORDER_MS,
+  isStaleOpenOrder,
+  probeOpenOrder,
+  fmtIdleDuration,
+} from './stale-open-order.js';
 import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
@@ -85,6 +91,26 @@ const HAS_ANY_ITEM_SQL = 'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id
  * bị phân loại sai. */
 const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
 const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
+
+/** Tạo đơn mở mới cho bàn. Tách riêng vì có 2 chỗ gọi: bàn chưa có đơn nào, và bàn treo
+ * dạng "đã gọi rồi huỷ hết" (niêm đơn cũ rồi mở đơn mới). */
+async function createOpenOrder(
+  orderRepo: Repository<Order>,
+  table: RestaurantTable,
+  creator?: OrderCreator,
+): Promise<Order> {
+  const order = orderRepo.create({
+    table_id: table.id,
+    table_code: table.code,
+    first_kitchen_at: null,
+    closed_at: null,
+    is_paid: false,
+    created_by_user_id: creator?.id ?? null,
+    created_by_full_name: creator?.full_name ?? null,
+  });
+  await orderRepo.save(order);
+  return order;
+}
 
 /** Niêm 1 đơn thành "Đã huỷ": kết đơn nhưng không phải thanh toán.
  *
@@ -217,11 +243,22 @@ export class OrdersService {
         order: { opened_at: 'ASC' },
       });
       if (existing.length === 1) {
-        return existing[0];  // happy path: đã có order, không cần lock
+        // Mở chưa quá ngưỡng bàn treo → chắc chắn còn là lượt khách hiện tại, khỏi đo
+        // thêm. Giữ ĐÚNG 1 SELECT cho nhịp polling 2s của /by-table/:id.
+        if (Date.now() - existing[0].opened_at <= STALE_OPEN_ORDER_MS) {
+          return existing[0];  // happy path: đã có order, không cần lock
+        }
+        // Mở lâu hơn ngưỡng → đo thêm 1 câu COUNT (VẪN KHÔNG LOCK). Bàn đang ăn dở /
+        // chưa thu tiền cả buổi rơi vào đây và trả về ngay, không vào nhánh khoá:
+        // giữ nguyên lý do tồn tại của fast path (tránh 500 do lock wait khi nhiều
+        // client cùng poll).
+        if (!isStaleOpenOrder(await probeOpenOrder(this.ds, existing[0]), Date.now())) {
+          return existing[0];
+        }
       }
 
-      // 3) SLOW PATH — cần lock cho create hoặc dedupe
-      const { order: resultOrder, created } = await this.ds.transaction(async (mgr) => {
+      // 3) SLOW PATH — cần lock cho create, dedupe, hoặc reset bàn treo
+      const { order: resultOrder, created, stale } = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
 
         // Re-read với lock (có thể đã đổi giữa fast path và slow path)
@@ -239,26 +276,74 @@ export class OrdersService {
             const cnt = await mgr.getRepository(OrderItem).count({ where: { order_id: o.id } });
             if (cnt > 0) withItems.push(o);
           }
-          if (withItems.length > 0) return { order: withItems[0], created: false };
-          const keep = lockedExisting[0];
-          const toDelete = lockedExisting.slice(1).map((o) => o.id);
-          if (toDelete.length > 0) await orderRepo.delete(toDelete);
-          return { order: keep, created: false };
+          let candidate: Order;
+          if (withItems.length > 0) {
+            candidate = withItems[0];
+          } else {
+            candidate = lockedExisting[0];
+            const toDelete = lockedExisting.slice(1).map((o) => o.id);
+            if (toDelete.length > 0) await orderRepo.delete(toDelete);
+          }
+
+          // BÀN TREO — đo LẠI trong transaction: fast path đo lúc chưa có lock nên nhân
+          // viên khác có thể vừa gọi món xen vào giữa, reset khi đó là xoá giờ vào của
+          // một bàn đang thực sự dùng.
+          const probe = await probeOpenOrder(mgr, candidate);
+          const now = Date.now();
+          if (isStaleOpenOrder(probe, now)) {
+            const idle_ms = now - probe.idle_since;
+            if (probe.total === 0) {
+              // ĐƠN RỖNG (chỉ tap mở drawer rồi thoát): dùng lại CHÍNH dòng này, chỉ tính
+              // lại giờ vào + người mở. KHÔNG xoá rồi tạo dòng mới — nhật ký bàn móc theo
+              // `order_id` và chỉ đọc được qua GET /orders/:id/activity, xoá đơn là mất
+              // hẳn vết (chủ quán chốt phải giữ log). Đơn rỗng không nằm trong lịch sử
+              // (xem `listHistory`) nên đổi `opened_at` không sửa lại số liệu đã chốt nào.
+              candidate.opened_at = now;
+              candidate.first_kitchen_at = null;
+              candidate.created_by_user_id = creator?.id ?? null;
+              candidate.created_by_full_name = creator?.full_name ?? null;
+              await orderRepo.save(candidate);
+              return {
+                order: candidate,
+                created: false,
+                stale: { kind: 'empty' as const, idle_ms, prev: null },
+              };
+            }
+            // ĐÃ GỌI RỒI HUỶ HẾT: niêm "Đã huỷ" để lượt cũ nằm lại lịch sử (vết chống gian
+            // lận, xem HAS_ANY_ITEM_SQL) rồi mở đơn MỚI — không kéo món đã huỷ của lượt
+            // trước sang bill của khách mới.
+            await sealAsCancelled(orderRepo, candidate, creator);
+            const fresh = await createOpenOrder(orderRepo, table, creator);
+            return {
+              order: fresh,
+              created: true,
+              stale: { kind: 'cancelled' as const, idle_ms, prev: candidate },
+            };
+          }
+          return { order: candidate, created: false, stale: null };
         }
 
         // Tạo mới
-        const order = orderRepo.create({
-          table_id,
-          table_code: table.code,
-          first_kitchen_at: null,
-          closed_at: null,
-          is_paid: false,
-          created_by_user_id: creator?.id ?? null,
-          created_by_full_name: creator?.full_name ?? null,
-        });
-        await orderRepo.save(order);
-        return { order, created: true };
+        const order = await createOpenOrder(orderRepo, table, creator);
+        return { order, created: true, stale: null };
       });
+
+      // Nhật ký bàn treo (post-commit, cùng lệ với log "mở đơn": không chặn flow).
+      if (stale?.kind === 'empty') {
+        await this.writeActivity({
+          order: resultOrder,
+          event_kind: 'order_restarted',
+          message: `Bàn để trống ${fmtIdleDuration(stale.idle_ms)} không có món nào — tính là lượt khách mới, giờ vào tính lại từ đây`,
+          actor: creator,
+        });
+      } else if (stale?.kind === 'cancelled' && stale.prev) {
+        await this.writeActivity({
+          order: stale.prev,
+          event_kind: 'order_cancelled',
+          message: `Đơn treo: đã huỷ hết món và để trống ${fmtIdleDuration(stale.idle_ms)} — kết đơn ở trạng thái Đã huỷ để mở lượt khách mới`,
+          actor: creator,
+        });
+      }
 
       // Log "mở đơn" chỉ khi thực sự tạo mới (post-commit, không chặn flow).
       if (created) {
