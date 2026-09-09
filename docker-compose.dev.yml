@@ -111,7 +111,7 @@ services:
     networks:
       - dev_backend
       - dev_frontend
-    # KHÔNG expose port ra host — vào bằng https://dev.<domain> qua Caddy, có basic auth.
+    # KHÔNG expose port ra host — vào bằng https://dev.<domain> qua Caddy.
 
 volumes:
   mysql_dev_data:

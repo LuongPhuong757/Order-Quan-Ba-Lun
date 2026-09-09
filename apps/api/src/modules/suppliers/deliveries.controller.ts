@@ -33,6 +33,7 @@ import type { Request } from 'express';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 class DeliveryLineDto {
   /** Rỗng = mặt hàng chưa có trong danh mục, tạo tại chỗ từ `ingredient_name` + `base_unit`
@@ -108,7 +109,12 @@ const DELIVERY_PHOTO_MIMES = new Set([
 ]);
 
 @Controller('supplier-deliveries')
-@UseGuards(JwtAuthGuard, AdminGuard)
+// Sàn là ReportGuard (admin + report) chứ không phải AdminGuard nữa: role `report` cần ĐỌC danh
+// sách phiếu nhập cho màn báo cáo. Mọi route GHI bên dưới đều được siết lại bằng `AdminGuard`
+// riêng — cố ý làm theo thứ tự "hạ sàn rồi siết lẻ" thay vì "mở lẻ từng GET": quên siết một
+// route ghi thì role `report` vẫn bị `isBlockedWrite` chặn (403 READ_ONLY_ROLE), còn order/bếp
+// vẫn bị sàn chặn. Làm ngược lại thì quên một chỗ là thủng thật.
+@UseGuards(JwtAuthGuard, ReportGuard)
 export class DeliveriesController {
   constructor(private readonly svc: DeliveriesService) {}
 
@@ -138,6 +144,7 @@ export class DeliveriesController {
    * được dịch theo phiếu đó. */
   @Post(':id/confirm')
   @HttpCode(200)
+  @UseGuards(AdminGuard)
   async confirm(@Param('id') id: string, @Req() req: Request) {
     const d = await this.svc.confirm(id, {
       id: req.user!.sub,
@@ -160,6 +167,7 @@ export class DeliveriesController {
    */
   @Post(':id/photos')
   @HttpCode(201)
+  @UseGuards(AdminGuard)
   @UseInterceptors(
     FilesInterceptor('files', DELIVERY_PHOTO_BATCH, {
       storage: memoryStorage(),
@@ -198,17 +206,19 @@ export class DeliveriesController {
   /** Xoá ảnh — đường riêng `photos/:photoId` chứ không lồng dưới `:id` vì màn hình chỉ cầm
    * id của tấm ảnh, và một tấm ảnh chỉ thuộc đúng một phiếu. */
   @Delete('photos/:photoId')
+  @UseGuards(AdminGuard)
   async deletePhoto(@Param('photoId') photoId: string) {
     return { data: await this.svc.deletePhoto(photoId) };
   }
 
   @Post(':id/cancel')
   @HttpCode(200)
+  @UseGuards(AdminGuard)
   async cancel(@Param('id') id: string) {
     return { data: await this.svc.cancel(id) };
   }
 
-  /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07) — admin-only qua `AdminGuard` ở cấp class.
+  /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07) — admin-only qua `AdminGuard` ở cấp method.
    *
    * Hai nhịp y như lúc tạo: nhịp một không kèm `approved_ingredient_ids` thì server trả về
    * `updated: false` + danh sách dòng lệch giá và KHÔNG ghi gì; nhịp hai gửi lại kèm những mặt
@@ -216,6 +226,7 @@ export class DeliveriesController {
    */
   @Put(':id')
   @HttpCode(200)
+  @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() dto: UpdateDeliveryDto, @Req() req: Request) {
     const result = await this.svc.update(
       id,
@@ -232,6 +243,7 @@ export class DeliveriesController {
 
   @Post()
   @HttpCode(200)
+  @UseGuards(AdminGuard)
   async create(@Body() dto: CreateDeliveryDto, @Req() req: Request) {
     const result = await this.svc.create(dto, {
       id: req.user!.sub,

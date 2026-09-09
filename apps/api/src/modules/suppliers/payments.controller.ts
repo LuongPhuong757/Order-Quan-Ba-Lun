@@ -16,6 +16,7 @@ import { PaymentsService } from './payments.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 class CreatePaymentDto {
   /** 'YYYY-MM-DD'. Bỏ trống = hôm nay theo giờ VN. Sửa được để ghi bù lần trả hôm qua. */
@@ -45,20 +46,20 @@ export class PaymentsController {
 
   /** Công nợ mọi NCC — một lượt cho cả danh sách, để màn hình không phải gọi 30 lần. */
   @Get('balances/all')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async balances() {
     const map = await this.svc.balances();
     return { data: { items: [...map.values()] } };
   }
 
   @Get(':id/balance')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async balance(@Param('id') id: string) {
     return { data: await this.svc.balanceOf(id) };
   }
 
   @Get(':id/payments')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async list(@Param('id') id: string) {
     return { data: { items: await this.svc.list(id) } };
   }

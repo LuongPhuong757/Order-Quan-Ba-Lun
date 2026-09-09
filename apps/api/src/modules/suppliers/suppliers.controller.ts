@@ -18,6 +18,7 @@ import type { Request } from 'express';
 import { SupplierAuthService } from './supplier-auth.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 class CreateSupplierDto {
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
@@ -57,7 +58,7 @@ export class SuppliersController {
   ) {}
 
   @Get()
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async list(@Query() q: Record<string, string>) {
     const items = await this.svc.list({
       from: q.from || undefined,
@@ -68,14 +69,14 @@ export class SuppliersController {
   }
 
   @Get(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async get(@Param('id') id: string) {
     return { data: await this.svc.get(id) };
   }
 
   /** Bảng giá mặt hàng NCC này hay giao (mục 3.2) — cũng là nguồn điền sẵn cho màn nhập phiếu. */
   @Get(':id/items')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async items(@Param('id') id: string) {
     return { data: { items: await this.svc.items(id) } };
   }
@@ -103,7 +104,7 @@ export class SuppliersController {
 
   /** Trạng thái tài khoản đăng nhập của NCC. KHÔNG bao giờ trả PIN. */
   @Get(':id/account')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async account(@Param('id') id: string) {
     return { data: await this.auth.accountStatus(id, Date.now()) };
   }

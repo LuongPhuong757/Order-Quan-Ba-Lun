@@ -7,6 +7,10 @@ import { useToast } from '../components/Toast.tsx';
 export function DashboardPage() {
   const { user } = useAuth();
   const isAdmin = !!user?.is_owner || user?.role === 'admin';
+  // Quyền Báo cáo (2026-09-09): Dashboard là màn ĐẦU TIÊN role này thấy sau khi đăng nhập
+  // (`defaultLandingPath`), nên nó phải liệt kê đủ đường vào từng báo cáo — nav dưới chỉ có
+  // icon + 3 chữ, không nói được bên trong có gì.
+  const isReport = user?.role === 'report';
   return (
     <div className="container wide with-bottom-nav">
       <h1>Chào {user?.name}!</h1>
@@ -40,6 +44,24 @@ export function DashboardPage() {
             <Link to="/admin/online-orders?view=settings" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong>⚙ Cài đặt nhận đơn</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giờ mở cửa, giao hàng, SĐT bị chặn</p>
+            </Link>
+          </>
+        )}
+        {isReport && (
+          <>
+            {/* Cùng 3 màn của admin, chỉ khác là mô tả nói theo góc người đọc báo cáo. Nút thao
+                tác bên trong đã bị ẩn (`canWrite`), và BE chặn cứng mọi request ghi. */}
+            <Link to="/history" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>📜 Doanh thu &amp; đơn đã bán</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tổng doanh thu theo kỳ, từng đơn, tiêu hao nguyên liệu</p>
+            </Link>
+            <Link to="/suppliers" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>🚚 Giá vốn &amp; nhà cung cấp</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giá nhập từng mặt hàng, công nợ, food-cost, món bán chạy</p>
+            </Link>
+            <Link to="/admin/analytics" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <strong>📈 Truy cập &amp; khách hàng</strong>
+              <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Lượt vào web, thời gian ở lại, SĐT từng đặt đơn</p>
             </Link>
           </>
         )}

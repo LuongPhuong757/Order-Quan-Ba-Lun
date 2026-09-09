@@ -32,6 +32,7 @@ import {
 import { OrdersService } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
 
 class AddItemDto {
@@ -117,14 +118,18 @@ class UpdateCustomerInfoDto {
 /** Cửa sổ thời gian nhân viên (không phải admin) được soi lịch sử/nhật ký bàn. */
 const STAFF_HISTORY_WINDOW_MS = 48 * 60 * 60 * 1000;
 
-/** Trả về giới hạn tuổi đơn cho user hiện tại: `undefined` = không giới hạn (admin),
+/** Trả về giới hạn tuổi đơn cho user hiện tại: `undefined` = không giới hạn (admin + report),
  * số ms = chỉ xem được trong khoảng đó (order + bếp).
+ *
+ * `report` xem đầy đủ như admin (chốt 2026-09-09): role đó sinh ra để ĐỌC báo cáo, mà báo cáo
+ * doanh thu theo tháng đứng cạnh một nhật ký bàn cụt 48h thì không đối chiếu được số nào.
+ * Cắt 48h là để nhân viên ca trực không soi lại quá khứ — `report` không phải ca trực.
  *
  * Đặt ở controller vì đây là quyết định QUYỀN, không phải nghiệp vụ đơn hàng —
  * service chỉ nhận số và thực thi. */
 function staffHistoryWindowMs(req: Request): number | undefined {
   const role = req.user!.role ?? (req.user!.is_owner ? 'admin' : null);
-  return role === 'admin' ? undefined : STAFF_HISTORY_WINDOW_MS;
+  return role === 'admin' || role === 'report' ? undefined : STAFF_HISTORY_WINDOW_MS;
 }
 
 @Controller('orders')
@@ -300,12 +305,12 @@ export class OrdersController {
 
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
    *
-   * Admin: đầy đủ, không giới hạn thời gian.
+   * Admin + report: đầy đủ, không giới hạn thời gian.
    * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), thấy giá món / tổng bill /
    *   thông tin thanh toán như nhau. Thứ DUY NHẤT chỉ admin có là số tổng doanh thu
    *   nhiều bàn cộng lại — nằm ở /orders/stats, đã có AdminGuard riêng. */
   @Get('history')
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
@@ -324,12 +329,12 @@ export class OrdersController {
     return { data: result };
   }
 
-  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (Admin).
+  /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (admin + report).
    *
    * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05): tab ở màn Lịch sử đổi thì
    * cả bảng số bên dưới đổi theo, không chỉ danh sách đơn. */
   @Get('stats')
-  @UseGuards(AdminGuard)
+  @UseGuards(ReportGuard)
   async stats(@Query() q: Record<string, string>) {
     const data = await this.svc.stats({
       table_id: q.table_id || undefined,
@@ -346,7 +351,7 @@ export class OrdersController {
   /** GET /orders/cashiers — DISTINCT cashier list cho filter dropdown.
    * Chỉ màn Lịch sử/Nhật ký dùng → cùng quyền với /orders/history. */
   @Get('cashiers')
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async cashiers() {
     const items = await this.svc.listCashiers();
     return { data: { items } };
@@ -354,12 +359,12 @@ export class OrdersController {
 
   /** GET /orders/:id/activity — nhật ký hoạt động của 1 đơn.
    *
-   * Admin: xem mọi đơn, không giới hạn thời gian.
+   * Admin + report: xem mọi đơn, không giới hạn thời gian.
    * Order: xem được nhật ký bàn nhưng CHỈ trong 48h gần nhất — đủ để tự đối chiếu
    *   ca làm của mình, không thành công cụ soi lại toàn bộ quá khứ.
    * Bếp: giống nhân viên order — cũng 48h, cũng thấy đủ (kể cả câu log có số tiền). */
   @Get(':id/activity')
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async activity(@Param('id') id: string, @Req() req: Request) {
     const items = await this.svc.listOrderActivity(id, staffHistoryWindowMs(req));
     return { data: { items } };

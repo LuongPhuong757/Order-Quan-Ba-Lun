@@ -2,6 +2,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,6 +12,7 @@ import { Repository } from 'typeorm';
 import { JwtService, JwtPayload } from '../jwt.service.js';
 import { User } from '../entities/user.entity.js';
 import { RevokedJti } from '../entities/revoked-jti.entity.js';
+import { isBlockedWrite } from '../read-only-role.js';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -72,6 +74,18 @@ export class JwtAuthGuard implements CanActivate {
       role: user.role || (user.is_owner ? 'admin' : null),
       jti: payload.jti,
     };
+
+    // Chốt chặn GHI của role chỉ-đọc (`report`). Đặt ở ĐÂY chứ không ở guard riêng vì đây là
+    // điểm MỌI request đã đăng nhập đều đi qua — kể cả route chỉ gắn `AdminGuard`/`ReportGuard`
+    // (hai guard đó tự gọi guard này) và route chỉ gắn `JwtAuthGuard` ở class-level. Gắn ở
+    // APP_GUARD toàn cục thì không dùng được: guard toàn cục chạy TRƯỚC guard của route, lúc đó
+    // `req.user` chưa được gán nên không biết role là gì.
+    if (isBlockedWrite(req.user.role, req.method, req.path)) {
+      throw new ForbiddenException({
+        code: 'READ_ONLY_ROLE',
+        message: 'Quyền Báo cáo chỉ được xem, không thực hiện được thao tác này.',
+      });
+    }
     return true;
   }
 }

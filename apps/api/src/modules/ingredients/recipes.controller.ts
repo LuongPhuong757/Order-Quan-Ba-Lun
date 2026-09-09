@@ -34,7 +34,7 @@ export class RecipesController {
    *
    * PHẢI khai TRƯỚC route ':menuItemId' để Nest không hiểu 'counts' là một id món. */
   @Get('counts')
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async counts(@Query('menu_item_ids') ids: string) {
     const list = (ids || '').split(',').map((s) => s.trim()).filter(Boolean);
     const map = await this.svc.countsForItems(list);
@@ -42,7 +42,7 @@ export class RecipesController {
   }
 
   @Get(':menuItemId')
-  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async list(@Param('menuItemId') menuItemId: string) {
     return { data: { items: await this.svc.listForItem(menuItemId) } };
   }

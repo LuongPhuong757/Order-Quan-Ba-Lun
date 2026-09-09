@@ -23,7 +23,10 @@ import { AuthService } from '../auth/auth.service.js';
 import { IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { randomBytes } from 'crypto';
 
-const ROLE_VALUES = ['admin', 'order', 'kitchen'] as const;
+// `report` (2026-09-09) = quyền CHỈ ĐỌC báo cáo thống kê toàn quán. Không order, không thanh
+// toán, không tạo/sửa/xoá gì — chặn cứng theo HTTP method ở `read-only-role.ts`, không phải
+// bằng cách gate lẻ từng endpoint.
+const ROLE_VALUES = ['admin', 'order', 'kitchen', 'report'] as const;
 type Role = (typeof ROLE_VALUES)[number];
 
 class CreateUserDto {
