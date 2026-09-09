@@ -1,12 +1,12 @@
 // `GET /admin/analytics/*` — số liệu cho màn "Truy cập & khách hàng" ở app quản lý.
 //
-// Chỉ ĐỌC, chỉ admin (AdminGuard), KHÔNG polling: màn admin gọi khi mở trang và khi bấm nút
+// Chỉ ĐỌC, chỉ admin + report (ReportGuard), KHÔNG polling: màn admin gọi khi mở trang và khi bấm nút
 // tải lại. Đừng biến 3 endpoint này thành polling 2s như màn bếp — chúng chạy 8-10 câu gộp
 // mỗi lần gọi, rẻ với bảng vài nghìn dòng nhưng không rẻ khi nhân với nhịp polling.
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
-import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 import {
   CART_FRESH_HOURS,
   activeNow,
@@ -43,7 +43,7 @@ function parseHours(raw: unknown, fallback: number): number {
 }
 
 @Controller('admin/analytics')
-@UseGuards(AdminGuard)
+@UseGuards(ReportGuard)
 export class AdminAnalyticsController {
   constructor(@InjectDataSource() private readonly ds: DataSource) {}
 

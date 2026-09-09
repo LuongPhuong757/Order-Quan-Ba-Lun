@@ -1,15 +1,19 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { DishSalesService } from './dish-sales.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
-import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { ReportGuard } from '../auth/guards/report.guard.js';
 
 /** Thống kê món đã bán (2026-09-09).
  *
- * AdminGuard, cùng lệ với `/orders/stats` và `/consumption`: đây là số liệu tổng hợp toàn quán
- * (bán được bao nhiêu, món nào ế) — việc của chủ quán, không phải của ca trực.
+ * ReportGuard (admin + report), cùng lệ với `/orders/stats` và `/consumption`: đây là số liệu
+ * tổng hợp toàn quán (bán được bao nhiêu, món nào ế) — việc của chủ quán và người được giao xem
+ * báo cáo, không phải của ca trực.
+ *
+ * Đổi guard ở CLASS-level được vì cả controller này chỉ có route GET. Controller nào trộn cả
+ * route ghi thì phải gắn ReportGuard lẻ từng method — xem `suppliers.controller.ts`.
  */
 @Controller('dish-sales')
-@UseGuards(JwtAuthGuard, AdminGuard)
+@UseGuards(JwtAuthGuard, ReportGuard)
 export class DishSalesController {
   constructor(private readonly svc: DishSalesService) {}
 
