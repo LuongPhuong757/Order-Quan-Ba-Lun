@@ -34,6 +34,7 @@ export function AdminUsersPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
+  const [pwdTarget, setPwdTarget] = useState<UserRow | null>(null);
   const [showTemp, setShowTemp] = useState<{ user: string; temp: string } | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
   const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
@@ -53,22 +54,6 @@ export function AdminUsersPage() {
   useEffect(() => {
     refresh();
   }, []);
-
-  const resetPwd = async (u: UserRow) => {
-    const ok = await confirm({
-      title: 'Reset mật khẩu?',
-      message: `Hệ thống sẽ sinh mật khẩu tạm cho ${u.full_name || u.username}.\nNhân viên dùng mật khẩu mới để đăng nhập.`,
-      variant: 'warning',
-      confirmLabel: 'Reset',
-    });
-    if (!ok) return;
-    try {
-      const res = await api.post<{ data: { temp_password: string } }>(`/admin/users/${u.id}/reset-password`);
-      setShowTemp({ user: u.username, temp: res.data.data.temp_password });
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    }
-  };
 
   const suspend = async (u: UserRow) => {
     const ok = await confirm({
@@ -257,7 +242,7 @@ export function AdminUsersPage() {
                     {(close) => (
                       <>
                         <MenuItem onClick={() => { close(); setEditing(u); }}>✏️ Sửa</MenuItem>
-                        <MenuItem onClick={() => { close(); resetPwd(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
+                        <MenuItem onClick={() => { close(); setPwdTarget(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
                         {!u.is_owner && (
                           u.is_active ? (
                             <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}>⏸ Tạm nghỉ</MenuItem>
@@ -284,6 +269,17 @@ export function AdminUsersPage() {
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); refresh(); }}
+        />
+      )}
+      {pwdTarget && (
+        <SetPasswordModal
+          user={pwdTarget}
+          onClose={() => setPwdTarget(null)}
+          onTempGenerated={(temp) => {
+            setShowTemp({ user: pwdTarget.username, temp });
+            setPwdTarget(null);
+          }}
+          onDone={() => setPwdTarget(null)}
         />
       )}
       {showTemp && (
@@ -554,6 +550,125 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   );
 }
 
+/** Đổi mật khẩu hộ nhân viên: admin tự gõ mật khẩu mới, hoặc để hệ thống sinh mật khẩu tạm.
+ *
+ * Hai nút vì hai tình huống khác nhau:
+ *  - "Đổi mật khẩu": admin đã có sẵn mật khẩu muốn đặt (nhân viên đọc qua điện thoại, hoặc
+ *    quán dùng chung một quy ước). Phiên đang đăng nhập của họ KHÔNG bị đá ra.
+ *  - "Sinh ngẫu nhiên": nghi tài khoản bị lộ — server sinh mật khẩu tạm và đá hết phiên cũ.
+ */
+function SetPasswordModal({
+  user,
+  onClose,
+  onTempGenerated,
+  onDone,
+}: {
+  user: UserRow;
+  onClose: () => void;
+  onTempGenerated: (temp: string) => void;
+  onDone: () => void;
+}) {
+  const toast = useToast();
+  const [pwd, setPwd] = useState('');
+  const [submitting, setSubmitting] = useState<'set' | 'random' | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const who = user.full_name || user.username;
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (pwd.length < 8) {
+      setErr('Mật khẩu phải ≥ 8 ký tự');
+      return;
+    }
+    setSubmitting('set');
+    setErr(null);
+    try {
+      await api.post(`/admin/users/${user.id}/reset-password`, { password: pwd });
+      toast.push('success', `Đã đổi mật khẩu cho ${who} ✓`);
+      onDone();
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  const generate = async () => {
+    setSubmitting('random');
+    setErr(null);
+    try {
+      const res = await api.post<{ data: { temp_password: string } }>(
+        `/admin/users/${user.id}/reset-password`,
+      );
+      onTempGenerated(res.data.data.temp_password);
+    } catch (e) {
+      setErr(extractError(e).message);
+    } finally {
+      setSubmitting(null);
+    }
+  };
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <form className="modal" onSubmit={submit}>
+        <h1>Đổi mật khẩu cho {who}</h1>
+        <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
+          Tên đăng nhập <code>{user.username}</code>
+        </p>
+        {user.is_owner && (
+          <p style={{ background: '#fef3c7', padding: 8, borderRadius: 6, fontSize: 12, color: '#92400e' }}>
+            ⚠ Đây là tài khoản chủ quán. Đổi xong nhớ báo lại cho họ, nếu không họ sẽ không đăng
+            nhập được.
+          </p>
+        )}
+        <PasswordInput
+          id="sp-pwd"
+          label="Mật khẩu mới (≥ 8 ký tự)"
+          value={pwd}
+          onChange={(v) => {
+            setPwd(v);
+            setErr(null);
+          }}
+          error={err || undefined}
+          showStrength
+          autoComplete="new-password"
+          ariaDescribedBy="sp-hint"
+        />
+        <p id="sp-hint" style={{ fontSize: 11, color: '#6b7280', marginTop: -4 }}>
+          Bấm 👁 để soi lại trước khi đọc cho nhân viên. Phiên họ đang đăng nhập vẫn giữ nguyên.
+        </p>
+        <div className="flex" style={{ marginTop: 8 }}>
+          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
+            Hủy
+          </button>
+          <button type="submit" disabled={submitting !== null} style={{ flex: 1 }}>
+            {submitting === 'set' && <span className="spinner" />}
+            Đổi mật khẩu
+          </button>
+        </div>
+        <button
+          type="button"
+          className="secondary"
+          onClick={generate}
+          disabled={submitting !== null}
+          style={{ width: '100%', marginTop: 8 }}
+        >
+          {submitting === 'random' && <span className="spinner" />}
+          🎲 Sinh mật khẩu tạm ngẫu nhiên
+        </button>
+        <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4, textAlign: 'center' }}>
+          Cách này đăng xuất họ khỏi mọi thiết bị — dùng khi nghi tài khoản bị lộ.
+        </p>
+      </form>
+    </div>
+  );
+}
+
 function EditUserModal({
   user,
   onClose,
@@ -595,7 +710,7 @@ function EditUserModal({
       <form className="modal" onSubmit={submit}>
         <h1>Sửa thông tin nhân viên</h1>
         <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
-          Tên đăng nhập <code>{user.username}</code> không đổi được. Đổi mật khẩu qua "Reset MK".
+          Tên đăng nhập <code>{user.username}</code> không đổi được. Đổi mật khẩu qua menu "🔑 Đổi Mật Khẩu".
         </p>
         <div className="row">
           <label htmlFor="eu-fname">Họ và tên</label>
