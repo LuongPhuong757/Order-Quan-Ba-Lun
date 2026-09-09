@@ -34,6 +34,7 @@ import {
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
+import { DishSalesPanel } from './DishSalesPanel.tsx';
 
 type Supplier = {
   id: string;
@@ -60,7 +61,7 @@ type Delivery = {
   items: string[];
 };
 
-type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost';
+type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost' | 'dishes';
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
@@ -158,6 +159,8 @@ export function SuppliersPage() {
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
     { value: 'foodcost', label: 'Giá vốn món' },
+    // Ngay cạnh "Giá vốn món": hai tab này là cặp — bán chạy mà lãi mỏng thì đang bán hộ ai.
+    { value: 'dishes', label: 'Món đã bán' },
   ];
 
   return (
@@ -321,6 +324,10 @@ export function SuppliersPage() {
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —
           giá vốn là con số để định giá bán, cắt theo tháng thì nhảy lung tung. */}
       {tab === 'foodcost' && <FoodCostPanel />}
+
+      {/* Bộ lọc thời gian RIÊNG bên trong, cùng lệ với tab "Thống kê" — số món bán ra chỉ có
+          nghĩa khi gắn với một kỳ. */}
+      {tab === 'dishes' && <DishSalesPanel />}
 
       {/* Mở lại ĐÚNG panel đang dùng ở màn Menu (M3.D-32). Danh mục nguyên liệu là MỘT bảng;
           dựng UI thứ hai để sửa cùng bảng đó là nguồn bug và lệch hành vi. */}
