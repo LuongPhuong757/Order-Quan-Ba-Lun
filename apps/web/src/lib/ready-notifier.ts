@@ -100,18 +100,22 @@ const TING_PARTIALS: ReadonlyArray<readonly [number, number]> = [
  *  còn cách nâng mức TRUNG BÌNH (thứ tai nghe thành "to") lại sát trần: nạp thừa
  *  rồi cho limiter ép đỉnh xuống. */
 const TING_DRIVE = 5;
-/** Mỗi tiếng ting: giữ nguyên đỉnh TING_HOLD_SEC rồi ngân tắt dần hết TING_RING_SEC.
+/** Mỗi tiếng ting: giữ nguyên đỉnh TING_HOLD_SEC rồi tắt dần hết TING_RING_SEC.
  *  Có đoạn giữ đỉnh mới là chỗ khác biệt lớn nhất so với một tiếng chuông "gõ rồi
- *  tắt luôn": tắt dần ngay từ ms đầu thì mức trung bình rớt, nghe lại thành NHỎ. */
-const TING_RING_SEC = 1.35;
-const TING_HOLD_SEC = 0.7;
-/** Cuối đuôi ngân còn 8% biên độ rồi mới dừng hẳn — đủ nhỏ để không nghe "cụp". */
-const TING_TAIL = 0.08;
-/** 4 tiếng cách nhau 0.95s → hồi báo dài ~4.2s. Chuỗi CŨ đo được đã 2.88s (docstring
- *  cũ ghi ~2.3s là sai) nên 3 tiếng chỉ dài hơn 1.14× — không ra "kéo dài". Đuôi ngân
- *  của tiếng trước còn chưa tắt khi tiếng sau gõ vào, nên nghe liền một hồi. */
-const TING_STRIKES = 4;
-const TING_STRIKE_GAP_SEC = 0.95;
+ *  tắt luôn": tắt dần ngay từ ms đầu thì mức trung bình rớt, nghe lại thành NHỎ.
+ *  Rút 1.35s/0.7s → 0.45s/0.16s (2026-09-09, xem docstring playNewOrderBeep): vẫn
+ *  còn đoạn giữ đỉnh để mức trung bình sát trần, mà đã đủ ngắn để nghe ra "một
+ *  tiếng" chứ không phải "một hồi ngân". */
+const TING_RING_SEC = 0.45;
+const TING_HOLD_SEC = 0.16;
+/** Cuối đuôi còn 5% biên độ rồi mới dừng hẳn — đủ nhỏ để không nghe "cụp", và thấp
+ *  hơn mức 8% cũ để tiếng cắt gọn thay vì nhoè ra. */
+const TING_TAIL = 0.05;
+/** Cửa sổ chặn tiếng ting kế tiếp — DÀI HƠN HẲN bản thân tiếng ting (0.45s), và đó
+ *  chính là phần "tránh gây khó chịu" của yêu cầu. Trước đây độ dài hồi báo 4.2s tự
+ *  làm luôn việc này; tiếng ngắn rồi thì phải có hằng số riêng, không thì bồi bàn gửi
+ *  bulk 8 món (8 event NewOrder) là bếp nghe thành tiếng liên thanh. */
+const TING_DEDUP_SEC = 1.5;
 /** Ngưỡng compressor (dBFS) + tỉ số nén — tầng nén thứ nhất, kéo mức trung bình lên. */
 const TING_LIMIT_THRESHOLD_DB = -1.5;
 const TING_LIMIT_RATIO = 20;
@@ -285,31 +289,44 @@ class ReadyNotifier {
     this.beepTones([660, 880]);
   }
 
-  /** Món mới về BẾP — hồi "ting" như chuông: to hết mức loa cho phép, ngân dài ~4.2s.
+  /** Món mới về BẾP — ĐÚNG MỘT tiếng "ting", to hết mức loa cho phép, dứt khoát,
+   *  dài ~0.45s rồi tắt.
    *
-   *  Khu bếp ồn (hút mùi, chảo, nước chảy) và người nấu đứng cách iPad cả mét,
-   *  quay lưng lại màn hình → món nằm chờ ở cột "Đã order" mà không ai biết.
+   *  Yêu cầu ở đây là hai thứ cùng lúc và chúng kéo ngược nhau: khu bếp ồn (hút mùi,
+   *  chảo, nước chảy) và người nấu đứng cách iPad cả mét nên tiếng phải TO; nhưng
+   *  bếp nghe nó vài trăm lần mỗi ngày nên nó phải NGẮN — chuông réo mấy giây mỗi
+   *  món là thứ làm người ta muốn tắt chuông, mà chuông bị tắt thì mất hẳn tác dụng.
    *
-   *  Đổi 2026-09-09 (chủ quán: "tiếng kêu đang rất nhỏ"): trước là 4 nhịp sine
-   *  520/392Hz ở gain 0.85 nối thẳng `ctx.destination`. 0.85 đã gần trần nên không
-   *  tăng số được nữa — muốn to hơn phải đổi CÁCH phát, 3 hướng cùng lúc:
-   *    1. Dịch lên vùng tai nhạy: 1175Hz + hoạ âm 2×/2.76× nằm trong 2–4kHz.
-   *    2. Nạp tổng biên độ 5.0 qua compressor + soft-clip (`ensureLoudBus`) → mức
-   *       TRUNG BÌNH lên sát trần mà đỉnh vẫn dưới 1.0, không vỡ tiếng.
-   *    3. Mỗi tiếng giữ đỉnh 0.7s rồi ngân tắt dần, gõ 4 tiếng → dài ~4.2s, đủ để
-   *       người đang quay lưng thái/xào quay lại kịp.
+   *  Hai lần đổi trong ngày 2026-09-09, đọc CẢ HAI trước khi chỉnh tiếp:
+   *    - Lần 1 ("tiếng kêu đang rất nhỏ"): trước đó là 4 nhịp sine 520/392Hz ở gain
+   *      0.85 nối thẳng `ctx.destination`. 0.85 đã gần trần nên không tăng số được
+   *      nữa — phải đổi CÁCH phát: dời lên 1175Hz + hoạ âm 2×/2.76× (vùng tai nhạy
+   *      2–4kHz, cũng là vùng loa iPad kêu to nhất), nạp tổng biên độ 5.0 qua
+   *      compressor + soft-clip (`ensureLoudBus`), mỗi tiếng giữ đỉnh 0.7s rồi ngân
+   *      tắt dần, gõ 4 tiếng → hồi báo dài 4.23s. Đo được +7.8 dB A-weighted so với
+   *      bản sine cũ (chỉ tính dải ≥500Hz mà loa iPad thật sự phát được: +9.9 dB).
+   *    - Lần 2 (yêu cầu này — "ting 1 tiếng thật to, dứt khoát, không kéo dài, tránh
+   *      gây khó chịu cho bếp"): giữ NGUYÊN toàn bộ phần làm-to của lần 1, chỉ cắt
+   *      phần kéo-dài. 4 tiếng → 1, ngân 1.35s → 0.45s, giữ đỉnh 0.7s → 0.16s. Cắt
+   *      được mà không mất decibel vì độ to đến từ dải tần + bus nén, KHÔNG đến từ
+   *      số nhịp hay độ dài.
    *
-   *  Số đo (render chính hàm này qua `OfflineAudioContext` trong Chrome, FFT + trọng
-   *  số A, so với chuỗi cũ):
-   *    - mức trung bình A-weighted +7.8 dB (≈ tai nghe to gần gấp đôi)
-   *    - chỉ tính dải ≥500Hz — dải mà loa iPad thật sự phát được: +9.9 dB
-   *    - dài 4.23s so với 2.88s của chuỗi cũ (1.47×)
-   *    - đỉnh 0.902, còn headroom, không clip
+   *  Số đo bản này (render chính hàm này qua `OfflineAudioContext` trong Edge, FFT +
+   *  trọng số A — cùng cách đo của lần 1):
+   *    - cửa sổ 50ms TO NHẤT, A-weighted: −10.50 dB so với −10.16 dB của bản 4 tiếng,
+   *      tức chênh 0.33 dB — tai không phân biệt được. Đây mới là con số quyết định
+   *      "nghe có to không" của một tiếng gõ đơn, và nó gần như KHÔNG đổi.
+   *    - đỉnh 0.9017, y hệt bản 4 tiếng (0.9019): vẫn còn headroom, không clip.
+   *    - dài 0.48s so với 4.23s — bằng 1/8.8.
+   *    - mức trung bình TÍNH CẢ CHUỖI thì thấp hơn 3.0 dB, nhưng con số này không nói
+   *      lên điều gì ở đây: nó bị chia cho tổng thời lượng, mà rút thời lượng đi 8.8×
+   *      chính là mục đích. Đừng lấy nó làm cớ để kéo dài tiếng ra lại.
    *
-   *  Hai kết quả đo đã bẻ lại thiết kế — đừng chỉnh "cho gọn" mà bỏ mất:
-   *    - Bản thử đầu (gõ rồi tắt dần ngay, không có đoạn giữ đỉnh, compressor ngưỡng
-   *      -10dB) đo ra NHỎ HƠN bản cũ 7 dB. Tắt dần từ ms đầu là mất mức trung bình.
-   *    - Bản chỉ có compressor, không có soft-clip, đo ra đỉnh 1.137 = clip.
+   *  Ba thứ là KẾT QUẢ ĐO, không phải lựa chọn thẩm mỹ — đừng bỏ khi "chỉnh cho gọn":
+   *    1. `ensureLoudBus` (nạp 5.0 → compressor → soft-clip) chính là chỗ tạo độ to.
+   *    2. Đoạn giữ đỉnh: bản thử gõ-rồi-tắt-dần-ngay (không giữ đỉnh) đo ra NHỎ HƠN
+   *       bản sine cũ 7 dB. Rút ngắn được, bỏ hẳn thì không.
+   *    3. Soft-clip: bản chỉ có compressor đo ra đỉnh 1.137 = clip, vỡ tiếng ở loa.
    *
    *  Chỉ tiếng này được đổi, KHÔNG đổi chung mọi beep: NewOrder là event role-gated
    *  CHỈ cho bếp (ReadyListener rule 1), nên điện thoại nhân viên order vẫn kêu ở
@@ -322,13 +339,11 @@ class ReadyNotifier {
       if (ctx.state === 'suspended') ctx.resume();
       const now = ctx.currentTime;
       // Cùng lý do như beepTones: bồi bàn gửi bulk 8 món → 8 event NewOrder cùng
-      // poll. Hồi ting dài 4.2s nên chồng nhau càng nghe thành tạp âm.
+      // poll. Chặn bằng TING_DEDUP_SEC chứ không bằng độ dài tiếng: tiếng chỉ còn
+      // 0.45s nên nếu chặn theo nó thì 8 món ra 8 tiếng liên thanh.
       if (now < this.beepBusyUntil) return;
-      const out = this.ensureLoudBus(ctx);
-      for (let i = 0; i < TING_STRIKES; i++) {
-        this.tingStrike(ctx, out, now + i * TING_STRIKE_GAP_SEC);
-      }
-      this.beepBusyUntil = now + (TING_STRIKES - 1) * TING_STRIKE_GAP_SEC + TING_RING_SEC;
+      this.tingStrike(ctx, this.ensureLoudBus(ctx), now);
+      this.beepBusyUntil = now + TING_DEDUP_SEC;
     } catch {
       // Im lặng — toast + danh sách 🔔 vẫn báo đủ món mới.
     }
