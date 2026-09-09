@@ -54,6 +54,11 @@ class UpdateUserDto {
   @IsOptional() @IsIn(ROLE_VALUES) role?: Role;
 }
 
+/** Body của /reset-password. Bỏ trống `password` = giữ luồng cũ (server sinh mật khẩu tạm). */
+class ResetPasswordDto {
+  @IsOptional() @IsString() @MinLength(8) @MaxLength(128) password?: string;
+}
+
 @Controller('admin/users')
 @UseGuards(AdminGuard)
 export class AdminUsersController {
@@ -120,17 +125,30 @@ export class AdminUsersController {
     };
   }
 
-  /** E-10 POST /admin/users/:id/reset-password */
+  /** E-10 POST /admin/users/:id/reset-password
+   *
+   * Hai chế độ, phân biệt bằng có `password` trong body hay không:
+   *  - CÓ    → admin tự đặt mật khẩu. KHÔNG bump token_version: nhân viên đang order giữa ca
+   *            không bị văng ra, mật khẩu mới chỉ dùng cho lần đăng nhập sau.
+   *  - KHÔNG → sinh mật khẩu tạm ngẫu nhiên như cũ, CÓ bump token_version (đá hết phiên cũ)
+   *            vì luồng này dùng khi nghi tài khoản bị lộ.
+   *
+   * Admin đổi được mật khẩu của MỌI tài khoản, kể cả owner khác (chốt 2026-09-09).
+   */
   @Post(':id/reset-password')
-  async resetPassword(@Param('id') id: string, @Req() req: Request) {
+  async resetPassword(@Param('id') id: string, @Body() dto: ResetPasswordDto) {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
 
-    if (user.is_owner && req.user!.sub !== user.id) {
-      throw new BadRequestException({
-        code: 'ADMIN_REQUIRED',
-        message: 'Cannot reset another owner; use /auth/recover instead',
-      });
+    if (dto.password) {
+      const hash = await AuthService.hashPassword(dto.password);
+      await this.userRepo.update({ id }, { password_hash: hash });
+      return {
+        data: {
+          temp_password: null,
+          message: `Đã đổi mật khẩu cho ${user.full_name || user.username}.`,
+        },
+      };
     }
 
     const tempPassword = generateTempPassword();

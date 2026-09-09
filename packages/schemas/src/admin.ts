@@ -27,7 +27,7 @@ export const UsersListResponse = z.object({
 
 export const ResetPasswordResponse = z.object({
   data: z.object({
-    temp_password: z.string(),
+    temp_password: z.string().nullable(),
     message: z.string(),
   }),
 });
