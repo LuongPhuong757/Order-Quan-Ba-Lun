@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { addDaysIso, matchPreset, presetRange, rangeLabel, vnDayIso } from './date-range.ts';
+import {
+  addDaysIso,
+  matchPreset,
+  presetRange,
+  rangeLabel,
+  vnDayEndMs,
+  vnDayIso,
+  vnDayStartMs,
+} from './date-range.ts';
 
 // 2026-09-07 lúc 06:00 GIỜ VN = 2026-09-06T23:00Z. Mốc này cố ý nằm trong khung 0h–7h sáng:
 // đó đúng là khoảng mà cách tính bằng UTC trả về NGÀY HÔM QUA.
@@ -99,5 +107,37 @@ describe('rangeLabel', () => {
   it('chỉ có một đầu', () => {
     expect(rangeLabel({ from: '2026-09-01', to: '' })).toBe('Từ 01/09/2026');
     expect(rangeLabel({ from: '', to: '2026-09-07' })).toBe('Đến 07/09/2026');
+  });
+});
+
+describe('vnDayStartMs / vnDayEndMs', () => {
+  it('đầu ngày là 00:00 giờ VN = 17:00Z hôm trước', () => {
+    expect(vnDayStartMs('2026-09-09')).toBe(Date.parse('2026-09-08T17:00:00.000Z'));
+  });
+
+  it('cuối ngày là 23:59:59.999 giờ VN', () => {
+    expect(vnDayEndMs('2026-09-09')).toBe(Date.parse('2026-09-09T16:59:59.999Z'));
+  });
+
+  it('hai mốc khớp lại đúng 1 ngày, không hở không lấn', () => {
+    expect(vnDayEndMs('2026-09-09') - vnDayStartMs('2026-09-09')).toBe(24 * 3600 * 1000 - 1);
+    expect(vnDayEndMs('2026-09-09') + 1).toBe(vnDayStartMs('2026-09-10'));
+  });
+
+  it('đi qua ranh giới tháng và năm nhuận', () => {
+    expect(vnDayEndMs('2026-01-31') + 1).toBe(vnDayStartMs('2026-02-01'));
+    expect(vnDayEndMs('2024-02-28') + 1).toBe(vnDayStartMs('2024-02-29'));
+    expect(vnDayEndMs('2026-12-31') + 1).toBe(vnDayStartMs('2027-01-01'));
+  });
+
+  // Chốt đúng lỗi đã sửa: `new Date(iso + 'T00:00:00')` đọc theo múi giờ MÁY nên máy để UTC
+  // sẽ hỏi API lệch 7 tiếng — "Hôm nay" lấy cả 7 tiếng cuối của hôm qua và thiếu 7 tiếng cuối
+  // của hôm nay. Mốc VN phải là hằng số, không phụ thuộc `process.env.TZ`.
+  it('không phụ thuộc múi giờ của máy', () => {
+    // Hai cách viết cùng một mốc, cả hai đều ghi rõ offset → giá trị là HẰNG SỐ. Bản cũ
+    // (`new Date('2026-09-09T00:00:00')`, không offset) thì đổi theo `process.env.TZ` và đó
+    // đúng là chỗ sai: máy để múi giờ khác +7 sẽ hỏi API một ngày khác ngày chip vừa bấm.
+    expect(vnDayStartMs('2026-09-09')).toBe(Date.parse('2026-09-09T00:00:00+07:00'));
+    expect(vnDayStartMs('2026-09-09')).toBe(1788886800000);
   });
 });
