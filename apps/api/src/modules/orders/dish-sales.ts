@@ -2,14 +2,14 @@
 //
 // Khác `top_items` trong `OrdersService.stats()` ở ba điểm, và cả ba đều là chủ ý:
 //
-//  1. KHÔNG cắt top 10. Câu hỏi của chủ quán là "món nào đang không ai gọi" — đúng thứ nằm ở
-//     cuối bảng, tức là chỗ bị `LIMIT 10` cắt mất.
+//  1. KHÔNG cắt top 10. Quán bán vài trăm món và phần đuôi mới là chỗ có tin: món bán đều đều
+//     mà biên lãi mỏng, món chỉ bán cho vài bàn quen. `LIMIT 10` cắt sạch phần đó.
 //  2. Gộp theo `menu_item_id` chứ không theo TÊN đã snapshot. Món đổi tên giữa kỳ mà gộp theo
 //     tên thì ra hai dòng cho một món, và cả hai đều sai. Chỉ những dòng KHÔNG có id (món gõ
 //     tay, món đã bị xoá cứng) mới đành gộp theo tên.
-//  3. Ghép thêm món trong menu BÁN 0 PHẦN. Món không xuất hiện trong đơn nào thì không có dòng
-//     nào trong `order_items` — nếu chỉ đọc đơn hàng thì món ế im lặng biến mất khỏi báo cáo về
-//     chính chuyện ế.
+//  3. CHỈ món đã bán. Bản đầu (2026-09-09) có ghép thêm món trong menu bán 0 phần để trả lời
+//     "món nào nên cắt", nhưng chủ quán bỏ ngay trong ngày: menu có ~600 món và phần lớn là món
+//     mùa / món ít khi gọi, nên 480 dòng số 0 nhấn chìm mấy chục dòng đang thật sự ra tiền.
 
 /** Một dòng gộp từ `order_items` — kết quả của truy vấn trong `DishSalesService`. */
 export type SoldRow = {
@@ -49,7 +49,8 @@ export type DishSalesRow = {
   orders: number;
   /** Tỷ trọng doanh thu trên TOÀN KỲ (không phải trên phần đang lọc ở màn hình). */
   revenue_pct: number;
-  /** Còn bán được không — món đã xoá mềm hoặc xoá hẳn thì `false`. Màn hình làm mờ dòng này. */
+  /** Còn bán được không — món đã xoá mềm hoặc xoá hẳn thì `false`. Màn hình gắn nhãn "đã bỏ
+   *  khỏi menu" cho dòng này: doanh thu của nó có thật nhưng không đặt lại được nữa. */
   in_menu: boolean;
 };
 
@@ -57,16 +58,16 @@ export type DishSalesResult = {
   items: DishSalesRow[];
   total_qty: number;
   total_revenue: number;
-  /** Số món trong menu bán 0 phần trong kỳ — con số đáng nhìn ngay, không phải đếm tay. */
-  unsold_count: number;
 };
 
 /**
  * Ghép số liệu bán ra với menu hiện tại.
  *
- * `sold` là những gì ĐÃ xảy ra (bất biến), `menu` là hiện trạng. Hai tập này lệch nhau theo cả
- * hai chiều và đó là chuyện bình thường: món mới thêm chưa bán phần nào, món cũ đã xoá vẫn có
- * doanh thu trong kỳ. Hàm này giữ cả hai chiều thay vì `INNER JOIN` làm mất một nửa.
+ * `sold` là những gì ĐÃ xảy ra (bất biến), `menu` là hiện trạng. Hai tập lệch nhau là chuyện
+ * bình thường: món cũ đã xoá khỏi menu vẫn có doanh thu trong kỳ, và những dòng đó PHẢI giữ —
+ * `INNER JOIN` với menu sẽ nuốt mất chúng cùng với tiền của chúng.
+ *
+ * Chiều ngược lại (món trong menu chưa bán phần nào) thì KHÔNG trả về — xem điểm 3 ở đầu file.
  */
 export function buildDishSales(
   sold: SoldRow[],
@@ -99,36 +100,13 @@ export function buildDishSales(
     };
   });
 
-  // Món CÒN BÁN mà kỳ này không ai gọi. Món đã xoá mềm không kể vào đây — nó ế là đúng ý chủ
-  // quán, thêm vào chỉ làm dài bảng.
-  const soldIds = new Set(sold.map((r) => r.menu_item_id).filter((x): x is string => !!x));
-  const unsold = menu
-    .filter((m) => m.is_active && !soldIds.has(m.id))
-    .map<DishSalesRow>((m) => {
-      const g = groupByCode.get(m.group);
-      return {
-        menu_item_id: m.id,
-        name: m.name,
-        group_code: m.group,
-        group_name: g ? groupName(g) : m.group,
-        current_price: m.price,
-        qty: 0,
-        revenue: 0,
-        orders: 0,
-        revenue_pct: 0,
-        in_menu: true,
-      };
-    });
-
   return {
-    // Doanh thu giảm dần, đồng hạng thì theo tên. Món 0 phần vì thế tự rơi xuống cuối, không
-    // cần luật sắp xếp riêng cho chúng.
-    items: [...rows, ...unsold].sort(
+    // Doanh thu giảm dần, đồng hạng thì theo tên.
+    items: rows.sort(
       (a, b) => b.revenue - a.revenue || b.qty - a.qty || a.name.localeCompare(b.name, 'vi'),
     ),
     total_qty,
     total_revenue,
-    unsold_count: unsold.length,
   };
 }
 
