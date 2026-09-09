@@ -16,7 +16,15 @@ export type BalanceRow = SupplierBalance & { supplier_id: string };
  * ở đâu ra". */
 export type SupplierBalanceDetail = SupplierBalance & {
   opening_balance_note: string | null;
-  counted_deliveries: Array<{ id: string; date: string; amount: number; source: string }>;
+  /** `balance_after_snapshot`: công nợ đã đóng dấu lúc phiếu vào sổ, NULL với phiếu có trước
+   *  2026-09-09. Xem docblock của cột trong `supplier-delivery.entity.ts`. */
+  counted_deliveries: Array<{
+    id: string;
+    date: string;
+    amount: number;
+    source: string;
+    balance_after_snapshot: number | null;
+  }>;
   counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
 };
 
@@ -124,6 +132,7 @@ export class PaymentsService {
           date: toDateString(d.delivery_date) ?? '',
           amount: d.total_amount,
           source: d.source,
+          balance_after_snapshot: d.balance_after_snapshot,
         })),
       ),
       counted_payments: counted(

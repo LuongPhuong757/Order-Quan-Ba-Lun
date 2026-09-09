@@ -13,6 +13,7 @@ import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
 import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
+import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { IngredientsService } from '../ingredients/ingredients.service.js';
 import { baseUnitsPerUnit } from '../ingredients/ingredient-units.js';
@@ -352,6 +353,13 @@ export class DeliveriesService {
       // Giá tham chiếu chỉ dịch theo phiếu ĐÃ DUYỆT — xem `applyItemReferences`.
       await applyItemReferences(items, input.supplier_id, delivery_date, saved);
 
+      // Đóng dấu công nợ SAU phiếu này. Phải ở đây, sau khi phiếu đã `save`: `balanceNow` cộng
+      // cả phiếu vừa ghi, đúng con số màn hình sẽ báo ngay khi nhân viên bấm lưu xong.
+      delivery.balance_after_snapshot = await this.balanceNow(mgr, input.supplier_id);
+      await deliveries.update(delivery.id, {
+        balance_after_snapshot: delivery.balance_after_snapshot,
+      });
+
       return { created: true, delivery, lines: saved };
     });
   }
@@ -420,6 +428,38 @@ export class DeliveriesService {
     });
   }
 
+  /** Công nợ NCC tại đúng thời điểm này, đọc trong CÙNG transaction đang ghi phiếu.
+   *
+   * Lặp lại đẳng thức của `balance.ts` (nợ cũ + Σ phiếu đã duyệt − Σ đã trả) chứ không gọi
+   * `PaymentsService`: hàm kia đọc ngoài transaction nên sẽ KHÔNG thấy phiếu vừa `save` mấy dòng
+   * trước, và snapshot sẽ thiếu đúng cái phiếu đang tạo. Chạy bằng SUM dưới SQL vì ở đây chỉ cần
+   * một con số, không cần từng dòng.
+   */
+  private async balanceNow(mgr: EntityManager, supplier_id: string): Promise<number> {
+    const sumOf = async (
+      repo: Repository<SupplierDelivery> | Repository<SupplierPayment>,
+      alias: string,
+      col: string,
+      extra?: string,
+    ) => {
+      const qb = repo
+        .createQueryBuilder(alias)
+        .select(`SUM(${alias}.${col})`, 'total')
+        .where(`${alias}.supplier_id = :supplier_id`, { supplier_id });
+      if (extra) qb.andWhere(extra);
+      const row = await qb.getRawOne<{ total: string | null }>();
+      return Number(row?.total ?? 0);
+    };
+
+    const supplier = await mgr.getRepository(Supplier).findOne({ where: { id: supplier_id } });
+    const [purchased, paid] = await Promise.all([
+      // Chỉ phiếu ĐÃ DUYỆT vào công nợ — cùng điều kiện với `PaymentsService.balances()`.
+      sumOf(mgr.getRepository(SupplierDelivery), 'd', 'total_amount', "d.status = 'CONFIRMED'"),
+      sumOf(mgr.getRepository(SupplierPayment), 'p', 'amount'),
+    ]);
+    return Number(supplier?.opening_balance ?? 0) + purchased - paid;
+  }
+
   /** Quán duyệt một phiếu NCC gửi → vào kho và vào công nợ (M3.D-08, 41).
    *
    * Đây là chỗ `supplier_items` mới được dịch mốc giá, và cũng là chỗ đóng dấu ai chịu trách
@@ -449,6 +489,13 @@ export class DeliveriesService {
       d.status = 'CONFIRMED';
       await deliveries.save(d);
       await applyItemReferences(items, d.supplier_id, toDateString(d.delivery_date) ?? '', lines);
+
+      // Phiếu NCC gửi chỉ vào công nợ ở ĐÂY, nên đây mới là "lúc đó" của nó. Chỉ đóng dấu khi
+      // cột còn trống: phiếu bị huỷ rồi duyệt lại vẫn phải giữ dấu vết của lần đầu.
+      if (d.balance_after_snapshot === null) {
+        d.balance_after_snapshot = await this.balanceNow(mgr, d.supplier_id);
+        await deliveries.update(d.id, { balance_after_snapshot: d.balance_after_snapshot });
+      }
       return d;
     });
   }

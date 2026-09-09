@@ -15,6 +15,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
 import { upperUnit } from '../lib/text-case.ts';
+import { buildLedger, snapshotDrift, type LedgerRow } from '../lib/supplier-ledger.ts';
 
 export type Balance = {
   supplier_id?: string;
@@ -28,7 +29,14 @@ export type Balance = {
 /** Công nợ kèm những dòng đã cấu thành nên nó — chỉ có ở endpoint chi tiết một NCC. */
 type BalanceDetail = Balance & {
   opening_balance_note: string | null;
-  counted_deliveries: Array<{ id: string; date: string; amount: number; source: string }>;
+  counted_deliveries: Array<{
+    id: string;
+    date: string;
+    amount: number;
+    source: string;
+    /** Công nợ đã đóng dấu lúc phiếu này vào sổ. NULL = phiếu có trước 2026-09-09. */
+    balance_after_snapshot: number | null;
+  }>;
   counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
 };
 
@@ -178,7 +186,12 @@ export function SupplierBalancePanel({
           {/* Sổ giao dịch THAY LUÔN nút "Con số này ở đâu ra?" và bảng "Lịch sử thanh toán" cũ:
               cả hai đều là một phần của cùng một danh sách, tách ra thì phải đọc hai chỗ mới ráp
               lại được một dòng thời gian. */}
-          <h3 style={{ margin: '24px 0 8px', fontSize: 16 }}>Giao dịch</h3>
+          <h3 style={{ margin: '24px 0 4px', fontSize: 16 }}>Giao dịch</h3>
+          {/* MỘT dòng chú thích cho cả sổ, thay vì lặp chữ "còn nợ" ở từng dòng: chữ lặp lại đó
+              nới cột tiền thêm ~15px, đủ để nhãn "Chuyển khoản" gãy đôi trên điện thoại. */}
+          <p style={{ margin: '0 0 8px', fontSize: 12, color: C.muted }}>
+            Số nhỏ bên dưới mỗi khoản là <strong>còn nợ sau giao dịch đó</strong>.
+          </p>
           <TransactionList
             detail={balance}
             payments={payments}
@@ -219,12 +232,9 @@ export function SupplierBalancePanel({
   );
 }
 
-/** Một giao dịch trong sổ. `amount` mang DẤU: nợ tăng thì dương, trả bớt thì âm — nhờ vậy dòng
- *  nào cũng in bằng đúng một công thức và không có chỗ nào phải nhớ "dòng này thì trừ". */
-type Txn =
-  | { kind: 'opening'; key: string; date: string; amount: number }
-  | { kind: 'delivery'; key: string; id: string; date: string; amount: number; source: string }
-  | { kind: 'payment'; key: string; date: string; amount: number; payment: Payment };
+/** Một giao dịch trong sổ — `LedgerRow` gắn với đúng kiểu `Payment` của màn này, để phần chi
+ *  tiết lần trả vẫn đọc được `method`/`note`/`created_by_name`. */
+type Txn = LedgerRow<Payment>;
 
 /** Sổ giao dịch của NCC — nợ cũ, từng phiếu nhập, từng lần trả, mới nhất lên đầu.
  *
@@ -250,28 +260,17 @@ function TransactionList({
   // lợi chính của màn này là nhìn một phát thấy hết dòng thời gian.
   const [openKey, setOpenKey] = useState<string | null>(null);
 
-  const rows = useMemo<Txn[]>(() => {
-    const list: Txn[] = [
-      ...detail.counted_deliveries.map(
-        (d): Txn => ({ kind: 'delivery', key: `d${d.id}`, id: d.id, date: d.date, amount: d.amount, source: d.source }),
-      ),
-      ...payments.map(
-        (p): Txn => ({ kind: 'payment', key: `p${p.id}`, date: p.paid_on, amount: -p.amount, payment: p }),
-      ),
-    ];
-    if (detail.opening_balance > 0) {
-      list.push({
-        kind: 'opening',
-        key: 'opening',
-        date: detail.opening_balance_date ?? '',
-        amount: detail.opening_balance,
-      });
-    }
-    // Cùng ngày thì xếp nhập → trả → nợ cũ. Nợ cũ xuống cuối vì nó là thứ có TRƯỚC mọi giao dịch
-    // trong hệ thống; ngày của nó chỉ là mốc chốt sổ, không phải lúc phát sinh.
-    const rank = (t: Txn) => (t.kind === 'delivery' ? 2 : t.kind === 'payment' ? 1 : 0);
-    return list.sort((a, b) => b.date.localeCompare(a.date) || rank(b) - rank(a));
-  }, [detail, payments]);
+  const rows = useMemo<Txn[]>(
+    () =>
+      buildLedger<Payment>({
+        opening_balance: detail.opening_balance,
+        opening_balance_date: detail.opening_balance_date,
+        // Phiếu lấy từ `counted_deliveries` — ĐÚNG những phiếu đã cộng vào con số phía trên.
+        deliveries: detail.counted_deliveries,
+        payments,
+      }),
+    [detail, payments],
+  );
 
   if (rows.length === 0) {
     return <p style={{ color: C.muted, fontSize: 14 }}>Chưa có giao dịch nào.</p>;
@@ -304,17 +303,42 @@ function TransactionList({
               }}
             >
               <span style={{ color: C.muted, fontSize: 13, whiteSpace: 'nowrap' }}>{t.date || '—'}</span>
-              <span style={{ flex: 1, minWidth: 0 }}>{txnLabel(t)}</span>
-              <span
-                style={{
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap',
-                  fontVariantNumeric: 'tabular-nums',
-                  color: t.amount < 0 ? '#15803d' : undefined,
-                }}
-              >
-                {t.amount < 0 ? '−' : '+'}
-                {vnd(Math.abs(t.amount))}đ
+              <span style={{ flex: 1, minWidth: 0 }}>
+                {/* ⚠ đứng TRƯỚC nhãn: đứng sau thì nhãn dài đẩy nó rơi xuống một dòng của riêng
+                    nó, trông như lỗi hiển thị. Chỉ mọc ở phiếu CÓ dấu đóng mà số đóng khác số
+                    tính lại; phiếu cũ chưa có dấu đóng thì không có gì để so, im lặng đúng hơn. */}
+                {snapshotDrift(t) !== null && (
+                  <span style={{ color: '#b45309' }} title="Khác với số đã ghi lúc nhập phiếu">
+                    ⚠{' '}
+                  </span>
+                )}
+                {txnLabel(t)}
+              </span>
+              {/* Số dư luỹ kế nằm dưới CỘT TIỀN chứ không dưới nhãn: hai con số cùng đơn vị, căn
+                  phải thẳng hàng thì mắt lướt dọc được cả cột, và nó không ăn vào chỗ của nhãn. */}
+              <span style={{ display: 'grid', gap: 1, justifyItems: 'end', whiteSpace: 'nowrap' }}>
+                <span
+                  style={{
+                    fontWeight: 700,
+                    fontVariantNumeric: 'tabular-nums',
+                    color: t.amount < 0 ? '#15803d' : undefined,
+                  }}
+                >
+                  {t.amount < 0 ? '−' : '+'}
+                  {vnd(Math.abs(t.amount))}đ
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontVariantNumeric: 'tabular-nums',
+                    // Nợ âm = quán đã trả dư. Cùng màu xanh với chỗ khác trong màn để không phải
+                    // học hai quy ước màu cho cùng một ý.
+                    color: t.running < 0 ? '#15803d' : C.muted,
+                  }}
+                >
+                  {t.running < 0 ? '−' : ''}
+                  {vnd(Math.abs(t.running))}đ
+                </span>
               </span>
               <span
                 aria-hidden
@@ -330,7 +354,9 @@ function TransactionList({
 
             {open && (
               <div style={{ padding: '0 12px 14px', background: '#f9fafb' }}>
-                {t.kind === 'delivery' && <DeliveryTxnDetail deliveryId={t.id} />}
+                {t.kind === 'delivery' && (
+                  <DeliveryTxnDetail deliveryId={t.id} snapshot={t.snapshot} running={t.running} />
+                )}
                 {t.kind === 'payment' && (
                   <PaymentTxnDetail p={t.payment} onRemove={() => onRemovePayment(t.payment)} />
                 )}
@@ -378,7 +404,17 @@ type DeliveryFull = {
 
 /** Chi tiết một phiếu nhập, nạp khi bấm mở chứ không nạp sẵn cả sổ: một NCC lâu năm có hàng trăm
  *  phiếu, tải hết ngay là vài trăm request cho thứ người ta xem một dòng. */
-function DeliveryTxnDetail({ deliveryId }: { deliveryId: string }) {
+function DeliveryTxnDetail({
+  deliveryId,
+  snapshot,
+  running,
+}: {
+  deliveryId: string;
+  /** Công nợ đóng dấu lúc nhập phiếu. NULL = phiếu có trước 2026-09-09. */
+  snapshot: number | null;
+  /** Công nợ tính lại từ dữ liệu hôm nay. */
+  running: number;
+}) {
   const [data, setData] = useState<DeliveryFull | 'error' | null>(null);
 
   useEffect(() => {
@@ -404,6 +440,37 @@ function DeliveryTxnDetail({ deliveryId }: { deliveryId: string }) {
   const { delivery, lines } = data;
   return (
     <div>
+      {/* Công nợ lên ĐẦU chi tiết, trên cả nguồn và người nhập: đây là lý do người ta bấm mở
+          dòng này ra. */}
+      {snapshot === null ? (
+        <Meta
+          label="Còn nợ sau phiếu"
+          value={`${vnd(Math.abs(running))}đ${running < 0 ? ' (trả dư)' : ''} — tính lại`}
+        />
+      ) : snapshot === running ? (
+        <Meta
+          label="Còn nợ sau phiếu"
+          value={`${vnd(Math.abs(snapshot))}đ${snapshot < 0 ? ' (trả dư)' : ''} — đúng như ghi lúc nhập`}
+        />
+      ) : (
+        <>
+          <Meta
+            label="Ghi lúc nhập"
+            value={`${vnd(Math.abs(snapshot))}đ${snapshot < 0 ? ' (trả dư)' : ''}`}
+          />
+          <Meta
+            label="Tính lại hôm nay"
+            value={`${vnd(Math.abs(running))}đ${running < 0 ? ' (trả dư)' : ''}`}
+          />
+          {/* Nói thẳng vì sao lệch, chứ không chỉ ném ra hai con số khác nhau: người đọc không tự
+              đoán được nguyên nhân, và sẽ kết luận hệ thống tính sai. */}
+          <p style={{ margin: '6px 0 0', fontSize: 13, color: '#b45309' }}>
+            ⚠ Lệch {vnd(Math.abs(running - snapshot))}đ. Sổ xếp theo <strong>ngày giao hàng</strong>, còn
+            số kia đóng dấu <strong>lúc bấm lưu phiếu</strong> — nhập bù phiếu lùi ngày, sửa/huỷ phiếu,
+            hoặc sửa nợ cũ đều làm hai số tách nhau. Số ghi lúc nhập giữ nguyên để đối chiếu.
+          </p>
+        </>
+      )}
       <Meta label="Nguồn" value={delivery.source === 'SUPPLIER' ? 'Nhà cung cấp gửi' : 'Nhân viên nhập'} />
       <Meta label="Người nhập" value={delivery.created_by_name || '—'} />
       {/* Chỉ nói trạng thái khi nó KHÁC "đã duyệt". Phiếu đã duyệt là ca thường, ghi ra chỉ tổ
