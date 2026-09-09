@@ -2165,3 +2165,334 @@ a:hover {
   font-size: 12px;
   color: #6b7280;
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Bảng thống kê nhập hàng — tab "Thống kê" của màn Nhà cung cấp.
+
+   Trước đây hai bảng này là `<table>` trần đặt thẳng trên nền trang: không khung, không nền
+   tiêu đề, mọi dòng cùng một sắc trắng, và cột tiền là một cột số 7 chữ số phải đọc từng chữ
+   mới biết dòng nào hơn dòng nào. Ba thứ dưới đây sửa đúng ba chỗ đó:
+   - khung thẻ + dải tiêu đề → mắt biết bảng bắt đầu và kết thúc ở đâu;
+   - kẻ sọc + đổi nền khi rê chuột → không lạc dòng khi quét ngang 7 cột;
+   - thanh tỉ trọng dưới cột tiền → thứ hạng đọc được trong một cái liếc.
+
+   Chỉ áp cho `.stat-grid`; các bảng khác trong app giữ nguyên kiểu cũ.
+   ───────────────────────────────────────────────────────────────────────────── */
+.stat-card {
+  margin-top: 20px;
+  background: white;
+  color: #1f2937;
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+
+.stat-card > header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 13px 16px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.stat-card > header h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
+/* Số lượng là con số phụ, không phải một phần của tên bảng — viên tròn xám tách nó ra khỏi
+   tiêu đề, thay cho "(38)" trước đây đọc dính vào chữ. */
+.stat-count {
+  font-size: 12px;
+  font-weight: 700;
+  color: #4b5563;
+  background: #f1f5f9;
+  border-radius: 999px;
+  padding: 2px 9px;
+}
+
+.stat-scroll {
+  overflow-x: auto;
+}
+
+table.stat-grid thead th {
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+/* Ô tiêu đề bấm được: cả ô là vùng bấm (nút phủ kín) chứ không chỉ mấy chữ, để trên máy tính
+   bảng không phải nhắm vào chữ. */
+table.stat-grid thead th.stat-th {
+  padding: 0;
+}
+
+table.stat-grid thead th.stat-th > button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+table.stat-grid thead th.stat-th > button:hover {
+  background: #eef2f6;
+  /* `button:hover` chung đặt `opacity: .9` — trên nút trong suốt nó chỉ làm chữ tiêu đề nhạt
+     đi chứ không báo được là đang trỏ vào đâu. Đổi nền mới là tín hiệu, nên trả opacity lại. */
+  opacity: 1;
+}
+
+table.stat-grid thead th.stat-th.active {
+  color: #0f766e;
+}
+
+/* Mũi tên "↕" mờ trên mọi cột xếp được: không có nó thì chỉ cột ĐANG xếp mới lộ ra là bấm
+   được, năm cột kia trông như chữ chết. Cột đang xếp đổi thành ▲/▼ và đậm lên. */
+.stat-sort {
+  font-size: 10px;
+  opacity: 0.4;
+}
+
+table.stat-grid thead th.stat-th.active .stat-sort {
+  opacity: 1;
+}
+
+table.stat-grid tbody tr:nth-child(even) {
+  background: #fbfcfd;
+}
+
+table.stat-grid tbody tr:hover {
+  background: #f0fdfa;
+}
+
+table.stat-grid td {
+  border-bottom: 1px solid #f1f5f9;
+  vertical-align: middle;
+}
+
+table.stat-grid tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+/* Cột số: căn phải + chữ số đều bề ngang (`tabular-nums`) để hàng nghìn của các dòng thẳng
+   cột với nhau — font mặc định có chữ số so le, "111.000" hẹp hơn hẳn "888.000". */
+table.stat-grid .stat-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Cột tên (mặt hàng / nhà cung cấp) không xuống dòng: "Thực Phẩm Thuý Hưng" gãy làm hai dòng
+   làm mọi dòng cao thấp so le, mắt mất luôn cái mốc để quét dọc. Cột chip mặt hàng nhận hết
+   chỗ trống (`width: 100%` bên dưới) nên cột tên chỉ lấy đúng bề rộng nó cần. */
+table.stat-grid .stat-ten {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+table.stat-grid .stat-chips-col {
+  width: 100%;
+}
+
+table.stat-grid .stat-muted {
+  color: #4b5563;
+}
+
+.stat-rank {
+  width: 1%;
+  padding-right: 4px !important;
+  text-align: right;
+  color: #94a3b8;
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stat-rank-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: #ccfbf1;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stat-ngay {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stat-ngay small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #94a3b8;
+}
+
+/* `block` chứ không phải `inline-block`: khối này phải rộng bằng CẢ Ô thì thanh tỉ trọng bên
+   dưới mới có chung một gốc ở mọi dòng. Bám theo bề rộng con số thì "9.000đ" và "772.225đ" đo
+   trên hai cái thước khác nhau — thanh của dòng bé trông dài hơn thực tế. */
+.stat-tien {
+  display: block;
+  min-width: 96px;
+  text-align: right;
+}
+
+.stat-money {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Thanh tỉ trọng: 3px, nằm ngay dưới con số, dài theo tỉ lệ với dòng lớn nhất của cả danh
+   sách đã lọc. Cố ý mảnh và một màu — nó để SO SÁNH liếc qua, không phải để đọc giá trị
+   (giá trị đã có ngay bên trên). */
+.stat-bar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  border-radius: 2px;
+  background: #e8edf2;
+  overflow: hidden;
+}
+
+.stat-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: #0f766e;
+}
+
+/* Tên món trong phiếu: từng viên thay vì một chuỗi ngăn bởi dấu phẩy — mắt tách được "Trâu
+   Tươi, Kê Gà" thành hai món mà không phải dò dấu phẩy. Món khớp ô tìm kiếm tô xanh. */
+.stat-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.stat-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #475569;
+  font-size: 12px;
+  line-height: 19px;
+  white-space: nowrap;
+}
+
+.stat-chip.hit {
+  background: #ccfbf1;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.stat-chip.more {
+  background: transparent;
+  color: #94a3b8;
+  padding-left: 2px;
+}
+
+/* Thanh chuyển trang nằm TRONG thẻ, trên nền xám nhạt — trước đây nó trôi lơ lửng dưới bảng
+   và trông như thuộc về khối kế tiếp. */
+.stat-foot {
+  padding: 4px 16px 12px;
+  background: #fbfcfd;
+  border-top: 1px solid #f1f5f9;
+}
+
+@media (max-width: 639px) {
+  /* Ở chế độ thẻ (`table.responsive`), mỗi dòng đã tự là một tấm trắng — giữ thêm khung trắng
+     của `.stat-card` bọc ngoài là trắng chồng trắng, mất hết ranh giới. Cùng cách xử lý với
+     `table.responsive.card` ở trên. */
+  .stat-card {
+    background: transparent;
+    box-shadow: none;
+    border-radius: 0;
+    overflow: visible;
+  }
+
+  .stat-card > header {
+    padding: 0 0 8px;
+    border-bottom: 0;
+  }
+
+  .stat-scroll {
+    overflow-x: visible;
+  }
+
+  .stat-foot {
+    padding: 0;
+    background: transparent;
+    border-top: 0;
+  }
+
+  /* Nhãn "Hạng" thừa trên thẻ — số hạng đứng ngay đầu thẻ đã tự nói lên nó là gì. */
+  table.stat-grid td.stat-rank {
+    justify-content: flex-start;
+    padding-bottom: 2px !important;
+    font-size: 13px;
+  }
+
+  table.stat-grid td.stat-rank::before {
+    content: '';
+  }
+
+  /* Bỏ kẻ sọc: ở chế độ thẻ mỗi dòng đã là một tấm riêng có viền và bóng, tô xám xen kẽ nữa
+     thì trông như một nửa số thẻ bị mờ đi (đang tải? bị vô hiệu hoá?). */
+  table.stat-grid tbody tr:nth-child(even) {
+    background: white;
+  }
+
+  /* Ngày và thứ phải đứng LIỀN nhau ở phía giá trị. Ô này là flex `space-between` nên mặc
+     định ba mảnh (nhãn / "05/09" / "T6") bị dàn đều ra ba góc, đọc thành ba thứ rời nhau.
+     Đẩy riêng nhãn về trái là hai mảnh còn lại tự dồn về phải thành một cụm. */
+  table.stat-grid td.stat-ngay {
+    gap: 6px;
+  }
+
+  table.stat-grid td.stat-ngay::before {
+    margin-right: auto;
+  }
+
+  table.stat-grid td.stat-ngay small {
+    display: inline;
+  }
+
+  /* Trên thẻ thì ngược lại: bề ngang chỉ có ~300px nên tên dài PHẢI xuống dòng, cắt "…" ở
+     đây là mất chữ thật vì không có chuột để hover đọc `title`. */
+  table.stat-grid .stat-ten {
+    white-space: normal;
+  }
+
+  /* Chuỗi chip dồn về phía giá trị (bên phải) như mọi ô khác trên thẻ. */
+  .stat-chips {
+    justify-content: flex-end;
+  }
+
+  /* Phần giá trị chiếm hết chỗ trống còn lại → thanh tỉ trọng của mọi thẻ dài bằng nhau nên
+     so sánh được; để nó co theo bề rộng con số thì "9.000đ" có thanh ngắn hơn "750.000đ"
+     ngay cả khi hai dòng bằng nhau. */
+  .stat-tien {
+    flex: 1;
+  }
+}

@@ -22,6 +22,7 @@ import {
   KHAC_ID,
   buildSpendChart,
   gopTheoMon,
+  khongDau,
   locMon,
   locPhieuTheoMon,
   luongGon,
@@ -120,12 +121,23 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     return sapXep(loc, (r) => r[phieuSort], phieuChieu);
   }, [phieu, tim, phieuSort, phieuChieu]);
 
+  // Mốc của thanh tỉ trọng: lấy trên TOÀN danh sách đã lọc chứ không phải trang đang xem — nếu
+  // không, dòng to nhất của trang 3 cũng vẽ thanh đầy như dòng to nhất của trang 1 và hai trang
+  // trông như nhau dù chênh nhau chục lần.
+  const maxItem = useMemo(() => Math.max(0, ...items.map((r) => r.amount)), [items]);
+  const maxPhieu = useMemo(() => Math.max(0, ...phieuLoc.map((r) => r.amount)), [phieuLoc]);
+
   const trangItem = phanTrang(items, itemPage, CO_TRANG);
   const trangPhieu = phanTrang(phieuLoc, phieuPage, CO_TRANG);
 
   const dangTai = daily === null || pairs === null || phieu === null;
   const soPhieu = (phieu ?? []).length;
   const soNcc = new Set((daily ?? []).map((r) => r.supplier_id)).size;
+
+  // Số ở cột "#" chỉ là THỨ HẠNG khi bảng đang xếp theo tiền giảm dần. Xếp theo tên hay theo
+  // ngày thì nó chỉ là số dòng, nên không tô huy hiệu top-3 — tô thì "Bánh mì" đứng đầu bảng
+  // xếp theo A→Z sẽ trông như mặt hàng tốn tiền nhất.
+  const xepHang = (s: string, c: Chieu) => s === 'amount' && c === 'desc';
 
   const doiCotItem = taoDoiCot<ItemSort>(itemSort, itemChieu, setItemSort, setItemChieu, setItemPage, ['ingredient_name']);
   const doiCotPhieu = taoDoiCot<PhieuSort>(phieuSort, phieuChieu, setPhieuSort, setPhieuChieu, setPhieuPage, ['supplier_name']);
@@ -208,17 +220,20 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
             trang={trangItem}
             doiTrang={setItemPage}
             dau={
-              <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+              <tr>
+                <th className="stat-rank" aria-label="Thứ tự">
+                  #
+                </th>
                 <Th k="ingredient_name" now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('ingredient_name')}>
                   Mặt hàng
                 </Th>
                 {/* Khối lượng KHÔNG sắp xếp được: mỗi món một đơn vị gốc (g, ml, cái) nên xếp
                     2.000g trên 30 cái là so hai thứ không cùng thước. Cột tiền mới so được. */}
-                <th style={{ padding: 8, textAlign: 'right' }}>Khối lượng</th>
+                <th className="stat-num">Khối lượng</th>
                 <Th k="deliveries" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('deliveries')}>
                   Lần nhập
                 </Th>
-                <th style={{ padding: 8, textAlign: 'right' }}>NCC</th>
+                <th className="stat-num">NCC</th>
                 <Th k="last_date" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('last_date')}>
                   Gần nhất
                 </Th>
@@ -228,18 +243,32 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               </tr>
             }
           >
-            {trangItem.rows.map((r: ItemStat) => (
-              <tr key={r.ingredient_id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8 }}>{r.ingredient_name}</td>
-                <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint, whiteSpace: 'nowrap' }}>
-                  {luongGon(r.qty_base, r.base_unit)}
-                </td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
-                <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>{r.suppliers}</td>
-                <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint, whiteSpace: 'nowrap' }}>{r.last_date}</td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{vnd(r.amount)}đ</td>
-              </tr>
-            ))}
+            {trangItem.rows.map((r: ItemStat, i: number) => {
+              const hang = (trangItem.page - 1) * CO_TRANG + i + 1;
+              return (
+                <tr key={r.ingredient_id}>
+                  <Hang so={hang} noiBat={xepHang(itemSort, itemChieu)} />
+                  <td data-label="Mặt hàng" className="stat-ten">
+                    {r.ingredient_name}
+                  </td>
+                  <td data-label="Khối lượng" className="stat-num stat-muted">
+                    {luongGon(r.qty_base, r.base_unit)}
+                  </td>
+                  <td data-label="Lần nhập" className="stat-num">
+                    {r.deliveries}
+                  </td>
+                  {/* Số NCC chỉ đáng nhìn khi > 1 — đó là món đang mua rải rác nhiều nơi, tức
+                      là món có thể so giá được. Món một mối thì để chìm. */}
+                  <td data-label="Số NCC" className="stat-num">
+                    {r.suppliers > 1 ? <span className="stat-chip hit">{r.suppliers} nơi</span> : <span className="stat-muted">1</span>}
+                  </td>
+                  <td data-label="Gần nhất" className="stat-num stat-muted">
+                    <span title={r.last_date}>{ngayGon(r.last_date)}</span>
+                  </td>
+                  <TdTien tien={r.amount} max={maxItem} />
+                </tr>
+              );
+            })}
           </Bang>
 
           <Bang
@@ -250,14 +279,17 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
             trang={trangPhieu}
             doiTrang={setPhieuPage}
             dau={
-              <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+              <tr>
+                <th className="stat-rank" aria-label="Thứ tự">
+                  #
+                </th>
                 <Th k="delivery_date" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('delivery_date')}>
                   Ngày
                 </Th>
                 <Th k="supplier_name" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('supplier_name')}>
                   Nhà cung cấp
                 </Th>
-                <th style={{ padding: 8 }}>Mặt hàng</th>
+                <th className="stat-chips-col">Mặt hàng</th>
                 <Th k="lines" right now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('lines')}>
                   Số món
                 </Th>
@@ -267,18 +299,31 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               </tr>
             }
           >
-            {trangPhieu.rows.map((r: DeliveryStatRow) => (
-              <tr key={r.delivery_id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td style={{ padding: 8, whiteSpace: 'nowrap' }}>{r.delivery_date}</td>
-                <td style={{ padding: 8 }}>{r.supplier_name}</td>
-                {/* Liệt kê tên món ngay trên dòng: người dùng vừa gõ tên một món để lọc ra
-                    những phiếu này, nên phải thấy được món đó nằm trong phiếu — nếu không thì
-                    kết quả lọc trông như ngẫu nhiên. */}
-                <td style={{ padding: 8, color: C.mutedOnTint, fontSize: 13 }}>{tomTat(r.items)}</td>
-                <td style={{ padding: 8, textAlign: 'right' }}>{r.lines}</td>
-                <td style={{ padding: 8, textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{vnd(r.amount)}đ</td>
-              </tr>
-            ))}
+            {trangPhieu.rows.map((r: DeliveryStatRow, i: number) => {
+              const hang = (trangPhieu.page - 1) * CO_TRANG + i + 1;
+              return (
+                <tr key={r.delivery_id}>
+                  <Hang so={hang} noiBat={xepHang(phieuSort, phieuChieu)} />
+                  <td data-label="Ngày" className="stat-ngay">
+                    <span title={r.delivery_date}>{ngayGon(r.delivery_date)}</span>
+                    <small>{thuTrongTuan(r.delivery_date)}</small>
+                  </td>
+                  <td data-label="Nhà cung cấp" className="stat-ten">
+                    {r.supplier_name}
+                  </td>
+                  {/* Liệt kê tên món ngay trên dòng: người dùng vừa gõ tên một món để lọc ra
+                      những phiếu này, nên phải thấy được món đó nằm trong phiếu — nếu không thì
+                      kết quả lọc trông như ngẫu nhiên. */}
+                  <td data-label="Mặt hàng" className="stat-chips-col">
+                    <ChipMon items={r.items} tim={tim} />
+                  </td>
+                  <td data-label="Số món" className="stat-num">
+                    {r.lines}
+                  </td>
+                  <TdTien tien={r.amount} max={maxPhieu} />
+                </tr>
+              );
+            })}
           </Bang>
         </>
       )}
@@ -317,6 +362,33 @@ function Con({ nhan, giatri }: { nhan: string; giatri: string }) {
   );
 }
 
+/** Ô số thứ tự. Ba dòng đầu được huy hiệu tròn — chỉ khi bảng thật sự đang xếp hạng (xem
+ *  `xepHang`), còn lại là số chìm để mắt vẫn bám được dòng khi quét ngang bảng rộng. */
+function Hang({ so, noiBat }: { so: number; noiBat: boolean }) {
+  return (
+    <td data-label="Hạng" className="stat-rank">
+      {noiBat && so <= 3 ? <span className="stat-rank-badge">{so}</span> : so}
+    </td>
+  );
+}
+
+/** Ô tiền: số đầy đủ + thanh tỉ trọng so với dòng lớn nhất của cả danh sách đã lọc.
+ *  Thanh này là thứ làm bảng đọc được trong một cái liếc — "772.225" và "750.000" đứng cạnh
+ *  nhau thì mắt phải đọc từng chữ số mới thấy cái nào hơn. */
+function TdTien({ tien, max }: { tien: number; max: number }) {
+  const pct = max > 0 ? Math.max(2, Math.round((tien / max) * 100)) : 0;
+  return (
+    <td data-label="Tổng tiền" className="stat-num">
+      <div className="stat-tien">
+        <span className="stat-money">{vnd(tien)}đ</span>
+        <span className="stat-bar" aria-hidden="true">
+          <i style={{ width: `${pct}%` }} />
+        </span>
+      </div>
+    </td>
+  );
+}
+
 function Th({
   k,
   now,
@@ -334,26 +406,15 @@ function Th({
 }) {
   const active = k === now;
   return (
-    <th style={{ padding: 0, textAlign: right ? 'right' : 'left' }} aria-sort={active ? (chieu === 'asc' ? 'ascending' : 'descending') : 'none'}>
-      <button
-        type="button"
-        onClick={onPick}
-        style={{
-          width: '100%',
-          minHeight: 36,
-          padding: 8,
-          background: 'transparent',
-          border: 'none',
-          borderRadius: 0,
-          textAlign: right ? 'right' : 'left',
-          color: active ? C.accent : C.mutedOnTint,
-          fontWeight: active ? 700 : 500,
-          fontSize: 13,
-          cursor: 'pointer',
-        }}
-      >
+    <th
+      className={`stat-th${right ? ' stat-num' : ''}${active ? ' active' : ''}`}
+      aria-sort={active ? (chieu === 'asc' ? 'ascending' : 'descending') : 'none'}
+    >
+      <button type="button" onClick={onPick} style={{ justifyContent: right ? 'flex-end' : 'flex-start' }}>
         {children}
-        {active && (chieu === 'asc' ? ' ▲' : ' ▼')}
+        <span className="stat-sort" aria-hidden="true">
+          {active ? (chieu === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
       </button>
     </th>
   );
@@ -380,32 +441,79 @@ function Bang({
   children: ReactNode;
 }) {
   return (
-    <section style={{ marginTop: 20 }}>
-      <h3 style={{ margin: '0 0 8px', fontSize: 17 }}>
-        {tieuDe}{' '}
-        <span style={{ fontSize: 14, fontWeight: 400, color: C.mutedOnTint }}>({trang.total})</span>
-      </h3>
+    <section className="stat-card">
+      <header>
+        <h3>{tieuDe}</h3>
+        <span className="stat-count">{trang.total}</span>
+      </header>
       {rong ? (
-        <div className="empty-state card">{rongChu}</div>
+        <div className="empty-state">{rongChu}</div>
       ) : (
         <>
-          <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+          <div className="stat-scroll">
+            <table className="responsive stat-grid">
               <thead>{dau}</thead>
               <tbody>{children}</tbody>
             </table>
           </div>
-          <Pager trang={trang} doiTrang={doiTrang} nhan={nhan} />
+          {/* Bọc `.stat-foot` chỉ dựng khi thật sự có thanh chuyển trang — `Pager` trả `null`
+              khi chỉ một trang, và một cái đáy xám rỗng dưới bảng trông như bảng bị cụt. */}
+          {trang.totalPages > 1 && (
+            <div className="stat-foot">
+              <Pager trang={trang} doiTrang={doiTrang} nhan={nhan} />
+            </div>
+          )}
         </>
       )}
     </section>
   );
 }
 
-/** Tên món trên một dòng bảng. Cắt sau 4 món: phiếu chợ đầu mối có tới hai chục món và một ô
+/** Tên món trong một phiếu, dạng chip.
+ *
+ *  Món KHỚP ô tìm kiếm được đẩy lên đầu và tô đậm. Trước đây cắt cứng sau 4 món đầu tiên, nên
+ *  gõ "cá" ra một phiếu 20 món mà cá đứng thứ 9 thì trên màn không thấy chữ "cá" ở đâu — phiếu
+ *  trông như lọt vào do lỗi. Vẫn cắt sau 4 chip: phiếu chợ đầu mối có tới hai chục món và một ô
  *  bảng dài như vậy đẩy cột tiền ra khỏi màn hình. */
-function tomTat(items: string[]): string {
-  if (items.length === 0) return '—';
-  const dau = items.slice(0, 4).join(', ');
-  return items.length > 4 ? `${dau} +${items.length - 4}` : dau;
+function ChipMon({ items, tim }: { items: string[]; tim: string }) {
+  if (items.length === 0) return <span className="stat-muted">—</span>;
+  const k = khongDau(tim);
+  const khop = (s: string) => k !== '' && khongDau(s).includes(k);
+  // `sort` của JS ổn định nên các món không khớp giữ nguyên thứ tự gốc của phiếu.
+  const xep = k === '' ? items : [...items].sort((a, b) => Number(khop(b)) - Number(khop(a)));
+  const hien = xep.slice(0, 4);
+  const con = xep.length - hien.length;
+  return (
+    <span className="stat-chips">
+      {hien.map((ten, i) => (
+        <span key={`${ten}-${i}`} className={khop(ten) ? 'stat-chip hit' : 'stat-chip'}>
+          {ten}
+        </span>
+      ))}
+      {con > 0 && (
+        <span className="stat-chip more" title={xep.slice(4).join(', ')}>
+          +{con}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** `2026-09-05` → `05/09`. Bỏ năm khi trùng năm hiện tại: cả bảng cùng một năm thì bốn chữ số
+ *  đó lặp lại ở mọi dòng mà không phân biệt được dòng nào với dòng nào. Ngày đầy đủ vẫn còn ở
+ *  `title` của ô. */
+function ngayGon(iso: string): string {
+  const [y, m, d] = iso.split('-');
+  if (!y || !m || !d) return iso;
+  return y === String(new Date().getFullYear()) ? `${d}/${m}` : `${d}/${m}/${y.slice(2)}`;
+}
+
+const THU = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+
+/** Thứ trong tuần của một ngày ISO. Chủ quán đi chợ theo thứ, nên "phiếu to toàn rơi vào T7"
+ *  là thứ đọc được ngay khi thứ nằm ngay dưới ngày. Dựng ở UTC để không lệch một ngày do
+ *  múi giờ. */
+function thuTrongTuan(iso: string): string {
+  const t = new Date(`${iso}T00:00:00Z`);
+  return Number.isNaN(t.getTime()) ? '' : THU[t.getUTCDay()]!;
 }
