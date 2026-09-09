@@ -75,3 +75,23 @@ export function rangeLabel(range: DayRange): string {
   if (range.from === range.to) return `Ngày ${d(range.from)}`;
   return `${d(range.from)} – ${d(range.to)}`;
 }
+
+/**
+ * Mốc ĐẦU / CUỐI của một ngày kinh doanh (giờ VN) dưới dạng epoch ms — để gửi lên
+ * `start_ms` / `end_ms` của API.
+ *
+ * Phải có hàm riêng vì `new Date('2026-09-09T00:00:00')` (không hậu tố múi giờ) được trình
+ * duyệt hiểu theo MÚI GIỜ CỦA MÁY. Máy để múi giờ khác +7 thì "Hôm nay" hỏi API một ngày
+ * khác với ngày chip vừa bấm — cả file này vốn đã chốt mọi thứ theo giờ VN (xem đầu file),
+ * ba chỗ dựng query ở màn Lịch sử lại quên áp.
+ *
+ * `+07:00` viết thẳng vào chuỗi: VN không có DST nên offset là hằng số, không cần thư viện.
+ */
+export function vnDayStartMs(iso: string): number {
+  return Date.parse(`${iso}T00:00:00.000+07:00`);
+}
+
+/** Cuối ngày = 23:59:59.999 giờ VN — bao trọn ngày, không lấn sang ngày sau. */
+export function vnDayEndMs(iso: string): number {
+  return Date.parse(`${iso}T23:59:59.999+07:00`);
+}

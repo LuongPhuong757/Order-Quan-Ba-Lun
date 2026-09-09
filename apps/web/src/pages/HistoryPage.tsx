@@ -8,6 +8,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { vnDayIso } from '../lib/date-range.ts';
+import { historyFilterKey, historyQuery, type HistoryFilters } from '../lib/history-filter.ts';
 
 // Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
 const ITEM_STATE_LABEL: Record<string, string> = {
@@ -19,6 +20,13 @@ const ITEM_STATE_LABEL: Record<string, string> = {
   CANCELLED: 'đã huỷ',
 };
 const stateLabel = (s: string) => ITEM_STATE_LABEL[s] || s;
+
+/** Phanh giữa lúc người dùng còn đang SỬA bộ lọc và lúc gọi API.
+ *
+ * Sửa một ô `<input type="date">` bắn `onChange` nhiều lần (mỗi phần ngày/tháng/năm một lần),
+ * và ba endpoint của màn này đều theo bộ lọc → không phanh thì một lần sửa ngày thành cả chục
+ * request chồng nhau. Ngắn thôi: đây là màn tra cứu, người dùng bấm xong là muốn thấy ngay. */
+const FILTER_DEBOUNCE_MS = 250;
 
 // Rút gọn số tiền cho biểu đồ: 1.200.000 → 1,2tr · 250.000 → 250k
 function fmtShort(v: number): string {
@@ -204,34 +212,35 @@ export function HistoryPage() {
   const [page, setPage] = useState(1);
   const [stats, setStats] = useState<Stats | null>(null);
   const [consumption, setConsumption] = useState<ConsumptionRow[]>([]);
+  /** `true` từ lúc bộ lọc đổi tới lúc số liệu mới về — để ô tổng quan hiện "…" thay vì 0đ. */
+  const [statsLoading, setStatsLoading] = useState(false);
+  /** Số thứ tự của lần tải MỚI NHẤT. Response mang số cũ về muộn thì bỏ.
+   *
+   *  Bug 2026-09-09: một lần sửa ô ngày `<input type="date">` bắn nhiều `onChange`, và bộ lọc
+   *  rộng hơn thì request chậm hơn (`/orders/stats` chạy 6 truy vấn, 3 trong đó `COUNT` cả
+   *  bảng `orders`). Không có chốt này thì response của bộ lọc CŨ về sau cùng và ghi đè —
+   *  danh sách đơn đã đổi theo ngày mới trong khi biểu đồ vẫn là số của cả kỳ. */
+  const listSeqRef = useRef(0);
+  const statsSeqRef = useRef(0);
   // Mặc định ẨN biểu đồ (chốt 2026-09-05): việc thường ngày ở màn này là soi danh sách đơn,
   // biểu đồ đẩy nó xuống dưới màn hình. Ai cần thì bấm "Hiện biểu đồ thống kê".
   const [showCharts, setShowCharts] = useState(false);
   const PAGE_SIZE = 20;
 
-  const refresh = async () => {
-    setLoading(true);
-    try {
-      const q = new URLSearchParams();
-      if (tableFilter) q.set('table_id', tableFilter);
-      if (cashierFilter) q.set('cashier_user_id', cashierFilter);
-      if (statusFilter !== 'all') q.set('status', statusFilter);
-      if (misaFilter) q.set('misa', misaFilter);
-      if (startDate) q.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
-      if (endDate) q.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
-      q.set('page', String(page));
-      q.set('page_size', String(PAGE_SIZE));
-      const res = await api.get<{ data: { items: HistoryOrder[]; total: number } }>(
-        `/orders/history?${q.toString()}`,
-      );
-      setOrders(res.data.data.items);
-      setTotal(res.data.data.total);
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setLoading(false);
-    }
+  /** Bộ lọc hiện tại gom thành MỘT object — cả ba request (danh sách / biểu đồ / tiêu hao) đọc
+   *  cùng nguồn này qua `historyQuery`, thay cho ba khối `URLSearchParams` chép tay đã lệch
+   *  nhau ở khoảng ngày. Xem `lib/history-filter.ts`. */
+  const filters: HistoryFilters = {
+    table_id: tableFilter,
+    cashier_user_id: cashierFilter,
+    status: statusFilter,
+    misa: misaFilter,
+    from: startDate,
+    to: endDate,
   };
+  /** Chuỗi định danh bộ lọc, dùng làm deps của effect: đổi `page` không được bắt biểu đồ tải
+   *  lại (biểu đồ không theo trang), đổi bất cứ trục lọc nào thì phải. */
+  const filterKey = historyFilterKey(filters);
 
   useEffect(() => {
     Promise.all([
@@ -246,9 +255,28 @@ export function HistoryPage() {
   }, [toast]);
 
   useEffect(() => {
-    refresh();
+    const seq = ++listSeqRef.current;
+    setLoading(true);
+    const timer = window.setTimeout(() => {
+      api
+        .get<{ data: { items: HistoryOrder[]; total: number } }>(
+          `/orders/history?${historyQuery(filters, { page: { page, page_size: PAGE_SIZE } })}`,
+        )
+        .then((res) => {
+          if (seq !== listSeqRef.current) return; // response của bộ lọc đã rời → bỏ
+          setOrders(res.data.data.items);
+          setTotal(res.data.data.total);
+          setLoading(false);
+        })
+        .catch((err) => {
+          if (seq !== listSeqRef.current) return;
+          toast.push('error', extractError(err).message);
+          setLoading(false);
+        });
+    }, FILTER_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate, page]);
+  }, [filterKey, page]);
 
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày VÀ tab đang chọn (2026-09-05): đổi tab
   // thì doanh thu theo ngày, top món, tiêu hao... đổi theo, không chỉ danh sách đơn. Vẫn
@@ -258,33 +286,49 @@ export function HistoryPage() {
   useEffect(() => {
     if (!canSeeStats) {
       setStats(null);
+      setConsumption([]);
+      setStatsLoading(false);
       return;
     }
-    const q = new URLSearchParams();
-    if (tableFilter) q.set('table_id', tableFilter);
-    if (cashierFilter) q.set('cashier_user_id', cashierFilter);
-    if (statusFilter !== 'all') q.set('status', statusFilter);
-    if (misaFilter) q.set('misa', misaFilter);
-    if (startDate) q.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
-    if (endDate) q.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
-    api
-      .get<{ data: Stats }>(`/orders/stats?${q.toString()}`)
-      .then((res) => setStats(res.data.data))
-      .catch(() => setStats(null));
+    const seq = ++statsSeqRef.current;
+    // Xoá số của bộ lọc TRƯỚC ngay tại đây, không đợi response. Để nguyên thì suốt lúc chờ,
+    // biểu đồ vẫn vẽ số cũ mà không có dấu hiệu nào — đúng cái làm người xem tin là "sửa
+    // filter thời gian không ăn vào biểu đồ".
+    setStats(null);
+    setConsumption([]);
+    setStatsLoading(true);
+    const timer = window.setTimeout(() => {
+      api
+        .get<{ data: Stats }>(`/orders/stats?${historyQuery(filters)}`)
+        .then((res) => {
+          if (seq !== statsSeqRef.current) return; // response của bộ lọc đã rời → bỏ
+          setStats(res.data.data);
+          setStatsLoading(false);
+        })
+        .catch(() => {
+          if (seq !== statsSeqRef.current) return;
+          setStats(null);
+          setStatsLoading(false);
+        });
 
-    // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn + tab, bỏ `cashier_user_id`: nguyên liệu tốn
-    // theo món khách ăn, không theo ai đứng thu tiền.
-    const cq = new URLSearchParams();
-    if (tableFilter) cq.set('table_id', tableFilter);
-    if (statusFilter !== 'all') cq.set('status', statusFilter);
-    if (misaFilter) cq.set('misa', misaFilter);
-    if (startDate) cq.set('start_ms', String(new Date(startDate + 'T00:00:00').getTime()));
-    if (endDate) cq.set('end_ms', String(new Date(endDate + 'T23:59:59.999').getTime()));
-    api
-      .get<{ data: { items: ConsumptionRow[] } }>(`/consumption?${cq.toString()}`)
-      .then((res) => setConsumption(res.data.data.items))
-      .catch(() => setConsumption([]));
-  }, [canSeeStats, tableFilter, cashierFilter, statusFilter, misaFilter, startDate, endDate]);
+      // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn + tab, bỏ `cashier_user_id`: nguyên liệu
+      // tốn theo món khách ăn, không theo ai đứng thu tiền (`cashier: false`).
+      api
+        .get<{ data: { items: ConsumptionRow[] } }>(
+          `/consumption?${historyQuery(filters, { cashier: false })}`,
+        )
+        .then((res) => {
+          if (seq !== statsSeqRef.current) return;
+          setConsumption(res.data.data.items);
+        })
+        .catch(() => {
+          if (seq !== statsSeqRef.current) return;
+          setConsumption([]);
+        });
+    }, FILTER_DEBOUNCE_MS);
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canSeeStats, filterKey]);
 
   /** Chọn 1 tab trong dãy pill trên cùng — loại trừ lẫn nhau.
    *
@@ -342,7 +386,7 @@ export function HistoryPage() {
 
   /** Tick / bỏ tick "đã gõ sang MISA" ngay trên dòng lịch sử.
    *
-   * Cập nhật tại chỗ thay vì refresh() cả trang: khi đang ở bộ lọc "Misa", refresh sẽ
+   * Cập nhật tại chỗ thay vì tải lại cả danh sách: khi đang ở bộ lọc "Misa", tải lại sẽ
    * làm dòng vừa tick biến mất và cả danh sách nhảy — người đang gõ dở mất chỗ. Dòng ở lại,
    * badge đổi màu; lần lọc sau nó mới rời danh sách. */
   const toggleMisa = async (o: HistoryOrder) => {
@@ -546,7 +590,7 @@ export function HistoryPage() {
       >
         <StatTile
           label={tabView.money}
-          value={fmt(stats?.paid_revenue ?? 0)}
+          value={statsLoading ? '…' : stats ? fmt(stats.paid_revenue) : '—'}
           color={statusFilter === 'cancelled' && !misaFilter ? '#b91c1c' : '#0f766e'}
           bg={statusFilter === 'cancelled' && !misaFilter ? '#fef2f2' : '#f0fdfa'}
           border={statusFilter === 'cancelled' && !misaFilter ? '#fecaca' : '#ccfbf1'}
@@ -555,7 +599,13 @@ export function HistoryPage() {
             còn lại = 0), nên tổng này luôn = số đơn thật của tab — khớp với danh sách bên dưới. */}
         <StatTile
           label={tabView.count}
-          value={String((stats?.paid_count ?? 0) + (stats?.unpaid_count ?? 0) + (stats?.cancelled_count ?? 0))}
+          value={
+            statsLoading
+              ? '…'
+              : stats
+                ? String(stats.paid_count + stats.unpaid_count + stats.cancelled_count)
+                : '—'
+          }
           color="#334155"
           bg="#f8fafc"
           border="#e2e8f0"
@@ -644,7 +694,16 @@ export function HistoryPage() {
             )}
           </div>
         )}
-        {showCharts && !stats && <div style={{ color: '#9ca3af', fontSize: 13 }}>Đang tải số liệu...</div>}
+        {showCharts && statsLoading && (
+          <div style={{ color: '#9ca3af', fontSize: 13 }}>Đang tải số liệu...</div>
+        )}
+        {/* Phân biệt rõ "đang tải" với "tải không được": trước đây cả hai đều ra dòng "Đang tải
+            số liệu..." nên lỗi mạng/403 trông như đang chờ mãi không xong. */}
+        {showCharts && !statsLoading && !stats && (
+          <div style={{ color: '#9ca3af', fontSize: 13 }}>
+            Không tải được số liệu thống kê — thử đổi lại bộ lọc hoặc tải lại trang.
+          </div>
+        )}
       </div>
       )}
 
