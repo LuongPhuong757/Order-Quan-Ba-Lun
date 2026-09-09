@@ -3,13 +3,14 @@
 // Popup lúc nhập phiếu chỉ bắt được cú nhảy đột ngột của MỘT phiếu. Kiểu tăng nguy hiểm hơn là
 // tăng 2%/tháng suốt 6 tháng — không lần nào chạm ngưỡng cảnh báo, cuối năm đắt hơn 13%. Ba bảng
 // ở đây là để nhìn ra đúng thứ đó.
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { Pager } from '../components/Pager.tsx';
 import { C } from '../lib/online-ui.ts';
 import { locMon, phanTrang } from '../lib/supplier-stats.ts';
+import { downloadCsv } from '../lib/csv.ts';
+import { ToolbarSlot } from '../components/ToolbarSlot.tsx';
 
 export type PairReport = {
   supplier_id: string;
@@ -61,34 +62,6 @@ type PricePoint = {
 const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
 const num = (n: number, d = 3) => n.toLocaleString('vi-VN', { maximumFractionDigits: d });
 const pct = (n: number) => `${n > 0 ? '▲' : '▼'} ${Math.abs(n).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%`;
-
-/** Tải file CSV. Thêm BOM để Excel trên Windows đọc đúng tiếng Việt — thiếu nó thì mở ra toàn
- * dấu hỏi, và bảng xuất ra để mang đi đàm phán với NCC thành vô dụng. */
-function downloadCsv(filename: string, rows: string[][]) {
-  const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
-  const csv = '﻿' + rows.map((r) => r.map(esc).join(',')).join('\r\n');
-  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-/** Ném nút lên ô trống cạnh "Tổng mua" ở đầu màn Nhà cung cấp (`#sup-toolbar-slot`).
- *
- * Nút "Xuất Excel" thuộc về panel — chỉ panel biết đang lọc gì, xếp theo cột nào — nhưng chỗ
- * ĐỨNG của nó thì thuộc về đầu màn. Trước đây nó chiếm nguyên một dòng ngay dưới dòng "Tổng
- * mua", tức hai dòng cho hai thứ mỗi thứ có vài chữ.
- *
- * `useLayoutEffect` chứ không `useEffect`: hai cái chạy trước và sau lượt vẽ, dùng cái sau
- * thì có một khung hình nút hiện ở chỗ cũ rồi mới nhảy lên đầu màn. Không tìm thấy ô thì
- * render tại chỗ — panel còn được dùng ở màn khác thì vẫn không mất nút. */
-function ToolbarSlot({ children }: { children: React.ReactNode }) {
-  const [slot, setSlot] = useState<HTMLElement | null>(null);
-  useLayoutEffect(() => setSlot(document.getElementById('sup-toolbar-slot')), []);
-  return slot ? createPortal(children, slot) : <>{children}</>;
-}
 
 /** Đường xu hướng nhỏ trong ô bảng. SVG nội tuyến, không kéo thư viện biểu đồ về cho một hình
  * 90×24 px. */
