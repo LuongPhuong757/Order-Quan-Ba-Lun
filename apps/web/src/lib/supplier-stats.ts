@@ -47,15 +47,24 @@ export type DeliveryStatRow = {
 
 const DAY_MS = 24 * 3600 * 1000;
 
-/** Bỏ dấu + thường hoá, để gõ "ca" tìm được "Cá". Cùng công thức với các màn khác của repo. */
-export function khongDau(s: string): string {
+/** Bỏ dấu + thường hoá, GIỮ NGUYÊN khoảng trắng hai đầu.
+ *
+ * Tách khỏi `khongDau` cho ô tìm kiếm nào coi khoảng trắng là một phần của từ khoá — gõ "ga "
+ * để loại "Ngao" thì đúng cái `.trim()` ở dưới là thứ làm hỏng ý đó (xem `tim-mon.ts`).
+ */
+export function boDau(s: string): string {
   return s
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
     .replace(/đ/g, 'd')
     .replace(/Đ/g, 'd')
-    .toLowerCase()
-    .trim();
+    .toLowerCase();
+}
+
+/** Bỏ dấu + thường hoá + cắt khoảng trắng hai đầu, để gõ "ca" tìm được "Cá". Cùng công thức với
+ *  các màn khác của repo. */
+export function khongDau(s: string): string {
+  return boDau(s).trim();
 }
 
 // ── Biểu đồ chi tiêu theo thời gian ─────────────────────────────────────────

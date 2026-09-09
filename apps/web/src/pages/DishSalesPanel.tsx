@@ -26,7 +26,8 @@ import { ToolbarSlot } from '../components/ToolbarSlot.tsx';
 import { downloadCsv } from '../lib/csv.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, rangeLabel, type DayRange } from '../lib/date-range.ts';
-import { khongDau, phanTrang, sapXep, type Chieu } from '../lib/supplier-stats.ts';
+import { phanTrang, sapXep, type Chieu } from '../lib/supplier-stats.ts';
+import { khopTuKhoa } from '../lib/tim-mon.ts';
 
 type DishRow = {
   menu_item_id: string | null;
@@ -120,14 +121,14 @@ export function DishSalesPanel() {
   useEffect(load, [load]);
 
   const rows = useMemo(() => {
-    const k = khongDau(tim);
-    const loc = (data?.items ?? []).filter((r) => {
-      if (!k) return true;
-      // Khớp cả tên nhóm: gõ "uống" ra cả nhóm đồ uống. Ở đây không có bộ lọc nhóm riêng nào
-      // để chọi nhau (khác ô tìm mặt hàng nhập, xem `locMon`), nên gộp vào là tiện chứ không
-      // gây mơ hồ.
-      return khongDau(r.name).includes(k) || khongDau(r.group_name ?? '').includes(k);
-    });
+    // `khopTuKhoa` chứ không phải `khongDau(...).includes(...)`: khoảng trắng người dùng gõ là
+    // một phần của từ khoá, gõ "ga " thì không ra "Ngao" nữa (xem `tim-mon.ts`).
+    //
+    // Khớp cả tên nhóm: gõ "uống" ra cả nhóm đồ uống. Ở đây không có bộ lọc nhóm riêng nào để
+    // chọi nhau (khác ô tìm mặt hàng nhập, xem `locMon`), nên gộp vào là tiện chứ không mơ hồ.
+    const loc = (data?.items ?? []).filter(
+      (r) => khopTuKhoa(r.name, tim) || khopTuKhoa(r.group_name ?? '', tim),
+    );
     return sapXep(loc, (r) => r[sortKey] ?? (typeof r[sortKey] === 'string' ? '' : 0), chieu);
   }, [data, tim, sortKey, chieu]);
 
@@ -200,13 +201,26 @@ export function DishSalesPanel() {
                 setPage(1);
               }}
               placeholder="Tìm theo tên món, vd: phở"
-              aria-label="Tìm món theo tên"
+              // Nói rõ mẹo khoảng trắng ngay trong nhãn trợ năng và dòng gợi ý bên dưới: đây là
+              // hành vi KHÁC các ô tìm khác của repo, không viết ra thì không ai đoán được.
+              aria-label='Tìm món theo tên. Thêm khoảng trắng cuối, ví dụ "gà ", để không khớp giữa từ'
               style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
             />
             <span style={{ fontSize: 13, color: C.mutedOnTint }}>
               {trang.total} món{tim.trim() ? ' khớp' : ''}
             </span>
           </div>
+
+          {/* Chỉ hiện khi người dùng ĐANG gõ và chưa dùng mẹo — một dòng mách nước đúng lúc,
+              không phải một dòng chữ thường trực chiếm chỗ. */}
+          {tim.trim() !== '' && tim === tim.trim() && (
+            <p style={{ margin: '-4px 0 12px', fontSize: 12, color: C.muted }}>
+              {/* `\u00a0` chứ không phải dấu cách thường: HTML nuốt khoảng trắng cuối trong
+                  thẻ, mà chính khoảng trắng đó mới là thứ dòng này đang mách. */}
+              Mẹo: thêm khoảng trắng cuối — <code>“{tim.trim()}{'\u00a0'}”</code> — để bỏ qua các
+              món chỉ chứa chữ này ở giữa từ.
+            </p>
+          )}
 
           {/* Dưới 640px `thead` bị ẩn (chế độ thẻ) nên mất chỗ bấm đổi cách xếp — dãy nút này
               thay cho hàng tiêu đề, cùng dùng `bamCot` nên hành vi y hệt trên máy tính. */}
