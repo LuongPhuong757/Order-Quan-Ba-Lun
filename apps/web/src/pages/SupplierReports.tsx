@@ -7,7 +7,9 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'reac
 import { createPortal } from 'react-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { Pager } from '../components/Pager.tsx';
 import { C } from '../lib/online-ui.ts';
+import { locMon, phanTrang } from '../lib/supplier-stats.ts';
 
 export type PairReport = {
   supplier_id: string;
@@ -386,6 +388,10 @@ const ITEM_SORTS = {
 
 type ItemSortKey = keyof typeof ITEM_SORTS;
 
+/** Số dòng mỗi trang của bảng "Mặt hàng nhập". Bằng đúng `CO_TRANG` của tab Thống kê — hai bảng
+ *  cùng kiểu mà nhảy trang khác nhịp nhau thì người dùng phải học hai lần. */
+const CO_TRANG_ITEM = 15;
+
 export function ItemStatsPanel({
   supplierId,
   onOpenHistory,
@@ -397,6 +403,8 @@ export function ItemStatsPanel({
   const [rows, setRows] = useState<PairReport[] | null>(null);
   const [sortKey, setSortKey] = useState<ItemSortKey>('amount');
   const [asc, setAsc] = useState(false);
+  const [tim, setTim] = useState('');
+  const [page, setPage] = useState(1);
 
   const load = useCallback(() => {
     setRows(null);
@@ -413,15 +421,24 @@ export function ItemStatsPanel({
 
   useEffect(load, [load]);
 
+  /** Lọc theo tên mặt hàng RỒI mới xếp. `locMon` bỏ dấu hai phía nên gõ "ot" ra "Ớt".
+   *
+   *  Cố ý không khớp tên NCC: ngay phía trên đã có ô lọc NCC riêng, ô này khớp luôn cả tên NCC
+   *  thì một chữ trùng cả hai bên cho ra tập kết quả không ai giải thích được (cùng luật với
+   *  `locPhieuTheoMon`). */
   const sorted = useMemo(() => {
     const get = ITEM_SORTS[sortKey].get;
-    return [...(rows ?? [])].sort((a, b) => {
+    return locMon(rows ?? [], tim).sort((a, b) => {
       const x = get(a);
       const y = get(b);
       const d = typeof x === 'string' ? x.localeCompare(String(y), 'vi') : Number(x) - Number(y);
       return asc ? d : -d;
     });
-  }, [rows, sortKey, asc]);
+  }, [rows, tim, sortKey, asc]);
+
+  // Số ở chân bảng và file Excel tính trên TOÀN BỘ kết quả lọc, không phải trang đang xem: tổng
+  // tiền của một trang 20 dòng ngẫu nhiên không trả lời được câu hỏi nào.
+  const trang = phanTrang(sorted, page, CO_TRANG_ITEM);
 
   /** Bấm cột đang xếp thì ĐẢO chiều; bấm cột khác thì nhảy sang cột đó.
    *
@@ -429,6 +446,9 @@ export function ItemStatsPanel({
    *  "cái nào nhiều nhất"; cột chữ mặc định tăng dần vì bấm "Mặt hàng" mà ra Z→A thì không ai
    *  hiểu là đang sắp xếp. */
   const bamCot = (k: ItemSortKey) => {
+    // Đổi cách xếp thì về trang 1: đang ở trang 4 mà bấm "Tổng tiền" để tìm món đắt nhất, kết
+    // quả lại là trang 4 của bảng vừa xếp lại — đúng thứ cần xem thì nằm ở trang 1.
+    setPage(1);
     if (k === sortKey) setAsc((v) => !v);
     else {
       setSortKey(k);
@@ -438,7 +458,7 @@ export function ItemStatsPanel({
   const total = sorted.reduce((s, r) => s + r.amount, 0);
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
-  if (sorted.length === 0) {
+  if (rows.length === 0) {
     return <div className="empty-state card">Chưa nhập mặt hàng nào.</div>;
   }
 
@@ -467,6 +487,24 @@ export function ItemStatsPanel({
           Xuất Excel
         </button>
       </ToolbarSlot>
+      {/* Ô tìm kiếm đứng TRÊN dãy nút sắp xếp: quán nhập vài trăm mặt hàng thì "tìm đúng món
+          đang cần" là việc thường xuyên hơn hẳn "xếp lại cả bảng". */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
+        <input
+          type="search"
+          value={tim}
+          onChange={(e) => {
+            setTim(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Tìm theo tên mặt hàng, vd: cá"
+          aria-label="Tìm mặt hàng nhập theo tên"
+          style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
+        />
+        <span style={{ fontSize: 13, color: C.mutedOnTint }}>
+          {trang.total} mặt hàng{tim.trim() ? ' khớp' : ''}
+        </span>
+      </div>
       {/* Dưới 640px `thead` bị ẩn (chế độ thẻ) nên MẤT LUÔN chỗ bấm để đổi cách xếp — mà
           "món nào nhập nhiều nhất" chính là câu hỏi của màn này. Dãy nút này thay cho hàng
           tiêu đề bấm được, cùng dùng `bamCot` nên hành vi đảo chiều y hệt trên máy tính. */}
@@ -484,76 +522,85 @@ export function ItemStatsPanel({
           </button>
         ))}
       </div>
-      <div style={{ overflowX: 'auto' }}>
-        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
-              <th style={{ padding: 8 }}>NCC</th>
-              <ThSort k="deliveries" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="qty_base" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="amount" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="avg_unit_price_base" now={sortKey} asc={asc} onPick={bamCot} right />
-              <ThSort k="last_date" now={sortKey} asc={asc} onPick={bamCot} right />
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => (
-              <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
-                <td className="sup-cell-title" style={{ padding: 0 }}>
-                  {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta hay
-                      quét chọn để copy, biến cả hàng thành nút thì quét chữ cũng mở popup. */}
-                  {onOpenHistory ? (
-                    <button
-                      type="button"
-                      onClick={() => onOpenHistory(r.ingredient_id, r.ingredient_name)}
-                      style={{
-                        width: '100%',
-                        minHeight: 36,
-                        padding: 8,
-                        background: 'transparent',
-                        border: 'none',
-                        borderRadius: 0,
-                        textAlign: 'left',
-                        color: C.accent,
-                        fontWeight: 600,
-                        fontSize: 14,
-                        textDecoration: 'underline',
-                        textUnderlineOffset: 3,
-                      }}
-                    >
-                      {r.ingredient_name}
-                    </button>
-                  ) : (
-                    <span style={{ display: 'block', padding: 8 }}>{r.ingredient_name}</span>
-                  )}
-                </td>
-                <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
-                <td data-label="Lần nhập" style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
-                <td data-label="Lượng" style={{ padding: 8, textAlign: 'right' }}>
-                  {num(r.qty_base)} <span style={{ color: C.muted, fontSize: 12 }}>{r.base_unit}</span>
-                </td>
-                <td data-label="Tổng tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
-                {/* Bình quân GIA QUYỀN theo lượng — mua 200kg giá thấp và 5kg giá cao thì con số
-                    này phải nghiêng về giá thấp. */}
-                <td data-label="Bình quân" style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
-                  {num(r.avg_unit_price_base)}
-                </td>
-                <td data-label="Gần nhất" style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
+      {trang.total === 0 ? (
+        <div className="empty-state card">Không có mặt hàng nào khớp “{tim.trim()}”.</div>
+      ) : (
+        <>
+        <div style={{ overflowX: 'auto' }}>
+          <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+                <ThSort k="ingredient_name" now={sortKey} asc={asc} onPick={bamCot} />
+                <th style={{ padding: 8 }}>NCC</th>
+                <ThSort k="deliveries" now={sortKey} asc={asc} onPick={bamCot} right />
+                <ThSort k="qty_base" now={sortKey} asc={asc} onPick={bamCot} right />
+                <ThSort k="amount" now={sortKey} asc={asc} onPick={bamCot} right />
+                <ThSort k="avg_unit_price_base" now={sortKey} asc={asc} onPick={bamCot} right />
+                <ThSort k="last_date" now={sortKey} asc={asc} onPick={bamCot} right />
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ borderTop: '2px solid #d1d5db', fontWeight: 800 }}>
-              <td style={{ padding: 8 }} colSpan={4}>
-                Tổng cộng
-              </td>
-              <td style={{ padding: 8, textAlign: 'right' }}>{vnd(total)}đ</td>
-              <td colSpan={2} />
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {trang.rows.map((r) => (
+                <tr key={`${r.supplier_id}|${r.ingredient_id}`} style={{ borderTop: '1px solid #e5e7eb' }}>
+                  <td className="sup-cell-title" style={{ padding: 0 }}>
+                    {/* Bấm vào TÊN chứ không phải cả hàng: hàng còn có các ô số mà người ta hay
+                        quét chọn để copy, biến cả hàng thành nút thì quét chữ cũng mở popup. */}
+                    {onOpenHistory ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenHistory(r.ingredient_id, r.ingredient_name)}
+                        style={{
+                          width: '100%',
+                          minHeight: 36,
+                          padding: 8,
+                          background: 'transparent',
+                          border: 'none',
+                          borderRadius: 0,
+                          textAlign: 'left',
+                          color: C.accent,
+                          fontWeight: 600,
+                          fontSize: 14,
+                          textDecoration: 'underline',
+                          textUnderlineOffset: 3,
+                        }}
+                      >
+                        {r.ingredient_name}
+                      </button>
+                    ) : (
+                      <span style={{ display: 'block', padding: 8 }}>{r.ingredient_name}</span>
+                    )}
+                  </td>
+                  <td data-label="NCC" style={{ padding: 8, color: C.mutedOnTint }}>{r.supplier_name}</td>
+                  <td data-label="Lần nhập" style={{ padding: 8, textAlign: 'right' }}>{r.deliveries}</td>
+                  <td data-label="Lượng" style={{ padding: 8, textAlign: 'right' }}>
+                    {num(r.qty_base)} <span style={{ color: C.muted, fontSize: 12 }}>{r.base_unit}</span>
+                  </td>
+                  <td data-label="Tổng tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(r.amount)}đ</td>
+                  {/* Bình quân GIA QUYỀN theo lượng — mua 200kg giá thấp và 5kg giá cao thì con số
+                      này phải nghiêng về giá thấp. */}
+                  <td data-label="Bình quân" style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>
+                    {num(r.avg_unit_price_base)}
+                  </td>
+                  <td data-label="Gần nhất" style={{ padding: 8, textAlign: 'right' }}>{num(r.last_base)}</td>
+                </tr>
+              ))}
+            </tbody>
+            {/* Chân bảng cộng TOÀN BỘ kết quả lọc chứ không riêng trang đang xem — nhãn nói rõ
+                điều đó, nếu không thì người xem trang 2 sẽ tưởng con số này sai. */}
+            <tfoot>
+              <tr style={{ borderTop: '2px solid #d1d5db', fontWeight: 800 }}>
+                <td style={{ padding: 8 }} colSpan={4}>
+                  Tổng cộng {trang.totalPages > 1 ? `(cả ${trang.total} mặt hàng)` : ''}
+                </td>
+                <td style={{ padding: 8, textAlign: 'right' }}>{vnd(total)}đ</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+          <Pager trang={trang} doiTrang={setPage} nhan="mặt hàng" />
+        </>
+      )}
     </>
   );
 }

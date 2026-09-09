@@ -23,6 +23,8 @@ import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
+import { Pager } from '../components/Pager.tsx';
+import { locPhieuTheoMon, phanTrang, tongConPhaiTra } from '../lib/supplier-stats.ts';
 import {
   ItemStatsPanel,
   PriceChangesPanel,
@@ -54,6 +56,8 @@ type Delivery = {
   created_by_name: string;
   note: string | null;
   total_amount: number;
+  /** Tên các mặt hàng trong phiếu — nguồn cho ô tìm kiếm "phiếu nào có món này". */
+  items: string[];
 };
 
 type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost';
@@ -64,6 +68,10 @@ const TABS_CO_LOC: Tab[] = ['stats', 'deliveries', 'prices', 'items'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
+
+/** Số phiếu mỗi trang ở tab "Phiếu nhập". Bằng đúng nhịp của tab Thống kê và tab Mặt hàng nhập —
+ *  ba bảng cùng màn mà nhảy trang khác nhau thì người dùng phải học ba lần. */
+const CO_TRANG_PHIEU = 15;
 
 export function SuppliersPage() {
   const toast = useToast();
@@ -96,7 +104,10 @@ export function SuppliersPage() {
       const [s, d] = await Promise.all([
         api.get<{ data: { items: Supplier[] } }>('/suppliers'),
         api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', {
-          params: { supplier_id: filterSupplierId || undefined },
+          // `limit` cao hơn hẳn mặc định 200 của API: tab "Phiếu nhập" tự lọc và phân trang ở
+          // phía màn hình, mà tìm "cá" trong 200 phiếu gần nhất thì phiếu cũ hơn im lặng biến
+          // mất — kiểu bỏ sót không ai phát hiện ra. Trần thật nằm ở API (2000).
+          params: { supplier_id: filterSupplierId || undefined, limit: 2000 },
         }),
       ]);
       setSuppliers(s.data.data.items);
@@ -132,6 +143,13 @@ export function SuppliersPage() {
   }, [suppliers, detail]);
 
   const periodTotal = suppliers.reduce((sum, s) => sum + s.period_amount, 0);
+
+  /** Tổng CÒN PHẢI TRẢ của mọi NCC (chủ quán yêu cầu 2026-09-08) — luật cộng nằm ở
+   *  `tongConPhaiTra`.
+   *
+   *  `balances` chỉ nạp cho admin (role `order` không đọc được công nợ) nên với nhân viên order
+   *  map rỗng → dòng "Tổng nợ" không hiện, đúng như thẻ NCC bên dưới. */
+  const debtTotal = tongConPhaiTra(balances.values());
 
   const tabs: Array<{ value: Tab; label: string }> = [
     { value: 'suppliers', label: 'Nhà cung cấp' },
@@ -241,6 +259,16 @@ export function SuppliersPage() {
           <span>
             Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
           </span>
+          {/* Tổng nợ đứng NGAY CẠNH tổng mua: hai con số này luôn được đọc cùng nhau ("mua ngần
+              này, còn nợ ngần này"). Tô cam khi còn nợ để mắt bắt được ngay giữa dòng chữ xám. */}
+          {balances.size > 0 && (
+            <span>
+              Tổng nợ:{' '}
+              <strong style={{ fontSize: 18, color: debtTotal > 0 ? '#c2410c' : '#15803d' }}>
+                {vnd(debtTotal)}đ
+              </strong>
+            </span>
+          )}
           <span id="sup-toolbar-slot" style={{ display: 'flex', gap: 8 }} />
         </div>
       </div>
@@ -488,6 +516,20 @@ function DeliveryList({
   const confirmDialog = useConfirm();
   const [busy, setBusy] = useState<string | null>(null);
   const [photosOf, setPhotosOf] = useState<Delivery | null>(null);
+  const [tim, setTim] = useState('');
+  const [page, setPage] = useState(1);
+
+  // Đổi NCC ở bộ lọc trên đầu màn = một danh sách khác hẳn → về trang 1. Không reset thì đang ở
+  // trang 6 của NCC A, chọn NCC B chỉ có 2 trang, người dùng nhìn thấy trang cuối của B mà tưởng
+  // đó là toàn bộ.
+  useEffect(() => {
+    setPage(1);
+  }, [deliveries]);
+
+  /** Lọc theo tên MÓN có trong phiếu (chủ quán yêu cầu 2026-09-08): gõ "cá" ra mọi phiếu có cá,
+   *  dù tên NCC hay ngày tháng chẳng liên quan gì tới chữ đó. */
+  const loc = useMemo(() => locPhieuTheoMon(deliveries, tim), [deliveries, tim]);
+  const trang = phanTrang(loc, page, CO_TRANG_PHIEU);
 
   const act = async (d: Delivery, kind: 'confirm' | 'cancel') => {
     if (kind === 'cancel') {
@@ -528,93 +570,118 @@ function DeliveryList({
           </div>
         </div>
       )}
-      {/* `responsive` (styles.css) — dưới 640px bảng 7 cột này bỏ mô hình bảng, mỗi phiếu
-          thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
-          vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
-      <div style={{ overflowX: 'auto' }}>
-        <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <th style={{ padding: 8 }}>Ngày</th>
-              <th style={{ padding: 8 }}>Nhà cung cấp</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
-              <th style={{ padding: 8 }}>Trạng thái</th>
-              <th style={{ padding: 8 }}>Người nhập</th>
-              <th style={{ padding: 8 }}>Ảnh</th>
-              <th style={{ padding: 8 }} />
-            </tr>
-          </thead>
-          <tbody>
-            {deliveries.map((d) => {
-              const st = DELIVERY_STATUS[d.status] ?? { label: d.status, color: C.muted };
-              const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
-              return (
-                <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                  <td data-label="Ngày" style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
-                  <td className="sup-cell-title" style={{ padding: 8 }}>{d.supplier_name}</td>
-                  <td data-label="Số tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
-                  <td data-label="Trạng thái" style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
-                    ● {st.label}
-                  </td>
-                  <td data-label="Người nhập" style={{ padding: 8, color: C.mutedOnTint }}>
-                    {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
-                        nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
-                    {d.source === 'SUPPLIER' ? (
-                      <span style={{ color: C.muted }}>NCC tự gửi</span>
-                    ) : (
-                      d.created_by_name
-                    )}
-                  </td>
-                  <td data-label="Ảnh" style={{ padding: 8 }}>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setPhotosOf(d)}
-                      style={{ minHeight: 36, padding: '0 10px', fontSize: 13 }}
-                    >
-                      Xem ảnh
-                    </button>
-                  </td>
-                  <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    {waiting && (
-                      <>
-                        <button
-                          onClick={() => act(d, 'confirm')}
-                          disabled={busy === d.id}
-                          style={{ minHeight: 36, padding: '0 12px' }}
-                        >
-                          Duyệt
-                        </button>
+      {/* Ô tìm kiếm khớp TÊN MẶT HÀNG, không khớp tên NCC — lọc NCC đã có ô riêng ở đầu màn. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
+        <input
+          type="search"
+          value={tim}
+          onChange={(e) => {
+            setTim(e.target.value);
+            setPage(1);
+          }}
+          placeholder="Tìm phiếu có mặt hàng, vd: cá"
+          aria-label="Tìm phiếu nhập theo tên mặt hàng"
+          style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
+        />
+        <span style={{ fontSize: 13, color: C.mutedOnTint }}>
+          {trang.total} phiếu{tim.trim() ? ' có mặt hàng khớp' : ''}
+        </span>
+      </div>
+
+      {trang.total === 0 ? (
+        <div className="empty-state card">Không có phiếu nào chứa mặt hàng khớp “{tim.trim()}”.</div>
+      ) : (
+        <>
+        {/* `responsive` (styles.css) — dưới 640px bảng 7 cột này bỏ mô hình bảng, mỗi phiếu
+            thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
+            vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
+        <div style={{ overflowX: 'auto' }}>
+          <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
+                <th style={{ padding: 8 }}>Ngày</th>
+                <th style={{ padding: 8 }}>Nhà cung cấp</th>
+                <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
+                <th style={{ padding: 8 }}>Trạng thái</th>
+                <th style={{ padding: 8 }}>Người nhập</th>
+                <th style={{ padding: 8 }}>Ảnh</th>
+                <th style={{ padding: 8 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {trang.rows.map((d) => {
+                const st = DELIVERY_STATUS[d.status] ?? { label: d.status, color: C.muted };
+                const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
+                return (
+                  <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
+                    <td data-label="Ngày" style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
+                    <td className="sup-cell-title" style={{ padding: 8 }}>{d.supplier_name}</td>
+                    <td data-label="Số tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
+                    <td data-label="Trạng thái" style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
+                      ● {st.label}
+                    </td>
+                    <td data-label="Người nhập" style={{ padding: 8, color: C.mutedOnTint }}>
+                      {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
+                          nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
+                      {d.source === 'SUPPLIER' ? (
+                        <span style={{ color: C.muted }}>NCC tự gửi</span>
+                      ) : (
+                        d.created_by_name
+                      )}
+                    </td>
+                    <td data-label="Ảnh" style={{ padding: 8 }}>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => setPhotosOf(d)}
+                        style={{ minHeight: 36, padding: '0 10px', fontSize: 13 }}
+                      >
+                        Xem ảnh
+                      </button>
+                    </td>
+                    <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                      {waiting && (
+                        <>
+                          <button
+                            onClick={() => act(d, 'confirm')}
+                            disabled={busy === d.id}
+                            style={{ minHeight: 36, padding: '0 12px' }}
+                          >
+                            Duyệt
+                          </button>
+                          <button
+                            className="secondary"
+                            onClick={() => act(d, 'cancel')}
+                            disabled={busy === d.id}
+                            style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
+                          >
+                            Huỷ
+                          </button>
+                        </>
+                      )}
+                      {/* Sửa phiếu đã nhập (2026-09-07). Hiện cho cả phiếu ĐÃ DUYỆT — đó chính là
+                          trường hợp cần sửa: phiếu nhân viên nhập vào là CONFIRMED ngay. Phiếu đã
+                          HUỶ thì không: sửa nó là làm sống lại một phiếu ai đó đã bỏ. */}
+                      {d.status !== 'CANCELLED' && (
                         <button
                           className="secondary"
-                          onClick={() => act(d, 'cancel')}
+                          onClick={() => onEdit(d)}
                           disabled={busy === d.id}
                           style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
                         >
-                          Huỷ
+                          Sửa
                         </button>
-                      </>
-                    )}
-                    {/* Sửa phiếu đã nhập (2026-09-07). Hiện cho cả phiếu ĐÃ DUYỆT — đó chính là
-                        trường hợp cần sửa: phiếu nhân viên nhập vào là CONFIRMED ngay. Phiếu đã
-                        HUỶ thì không: sửa nó là làm sống lại một phiếu ai đó đã bỏ. */}
-                    {d.status !== 'CANCELLED' && (
-                      <button
-                        className="secondary"
-                        onClick={() => onEdit(d)}
-                        disabled={busy === d.id}
-                        style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
-                      >
-                        Sửa
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+          <Pager trang={trang} doiTrang={setPage} nhan="phiếu" />
+        </>
+      )}
 
       {photosOf && (
         <DeliveryPhotosDialog

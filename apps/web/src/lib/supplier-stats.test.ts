@@ -13,6 +13,7 @@ import {
   phanTrang,
   sapXep,
   tienGon,
+  tongConPhaiTra,
   type DailyRow,
   type DeliveryStatRow,
   type PairRow,
@@ -204,6 +205,28 @@ describe('tìm kiếm theo món', () => {
   it('chuỗi rỗng = không lọc', () => {
     const rows = [phieu('p1', ['Hành'])];
     expect(locPhieuTheoMon(rows, '  ')).toHaveLength(1);
+  });
+
+  it('nhận cả kiểu phiếu của tab "Phiếu nhập" (chỉ cần có `items`)', () => {
+    const rows = [
+      { id: 'd1', status: 'CONFIRMED', items: ['Cá đù'] },
+      { id: 'd2', status: 'CANCELLED', items: ['Rau muống'] },
+    ];
+    expect(locPhieuTheoMon(rows, 'ca').map((r) => r.id)).toEqual(['d1']);
+  });
+});
+
+describe('tongConPhaiTra', () => {
+  it('cộng các khoản còn nợ', () => {
+    expect(tongConPhaiTra([{ balance: 300_000 }, { balance: 1_200_000 }])).toBe(1_500_000);
+  });
+
+  it('KHÔNG bù trừ khoản đã trả dư — tiền dư ở NCC này không trả nợ NCC kia được', () => {
+    expect(tongConPhaiTra([{ balance: 1_000_000 }, { balance: -400_000 }])).toBe(1_000_000);
+  });
+
+  it('không có NCC nào thì bằng 0', () => {
+    expect(tongConPhaiTra([])).toBe(0);
   });
 });
 
