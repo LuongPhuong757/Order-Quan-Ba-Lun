@@ -1186,7 +1186,7 @@ export class OrdersService {
 
   /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
    * Filter: table_id, date range, cashier_user_id, status.
-   * Sort theo COALESCE(closed_at, opened_at) DESC — hoạt động gần nhất lên trên.
+   * Sort: 'opened' (mặc định) = giờ vào ăn · 'paid' = giờ thanh toán. Xem `opts.sort`.
    * Trả về kèm items để FE expand chi tiết khi cần. */
   async listHistory(opts: {
     table_id?: string;
@@ -1198,6 +1198,13 @@ export class OrdersService {
      * chưa gõ sang AMIS. Cố ý loại đơn huỷ và đơn đang dùng — không có bill thì không có gì
      * để gõ, để lẫn vào là danh sách việc bị nhiễu và nhân viên bỏ qua cả danh sách. */
     misa?: 'pending' | 'copied';
+    /** Trục sắp xếp (2026-09-09). 'opened' = giờ VÀO ĂN (mặc định, giữ nguyên hành vi cũ);
+     * 'paid' = giờ THANH TOÁN — đối soát ca thu ngân đi theo lúc tiền vào két, không theo lúc
+     * khách ngồi xuống: bàn ngồi lâu lệch nhau cả tiếng, còn bàn mở tối hôm trước thu tiền
+     * sáng hôm sau thì xếp theo giờ vào là nó nằm lẫn ở ngày cũ.
+     * Chiều LUÔN là DESC (mới nhất trên cùng) — đây là màn tra cứu, chưa có nhu cầu xem ngược
+     * từ đơn cũ nhất nên không dựng thêm một trục lựa chọn nữa. */
+    sort?: 'opened' | 'paid';
     page?: number;
     page_size?: number;
     /** Giới hạn tuổi đơn được xem (nhân viên order: 48h). Chặn ở server, không
@@ -1244,15 +1251,28 @@ export class OrdersService {
     }
     const whereSql = wheres.length > 0 ? wheres.join(' AND ') : '1=1';
 
-    // Bước 1: phân trang theo ID, sort theo THỜI GIAN VÀO ĂN = opened_at DESC (mới nhất trước).
-    // KHÔNG join items ở bước này → tránh bug TypeORM (join to-many + skip/take + orderBy).
-    // opened_at không bao giờ NULL nên đơn CHƯA thanh toán vẫn hiện đúng ở tab "Tất cả"
-    // (trước đây sort closed_at DESC khiến đơn chưa TT — closed_at NULL — rơi xuống cuối).
-    const idRows = await this.orderRepo
+    // Bước 1: phân trang theo ID. KHÔNG join items ở bước này → tránh bug TypeORM
+    // (join to-many + skip/take + orderBy).
+    const idQb = this.orderRepo
       .createQueryBuilder('o')
       .select('o.id', 'id')
-      .where(whereSql, params)
-      .orderBy('o.opened_at', 'DESC')
+      .where(whereSql, params);
+    if (opts.sort === 'paid') {
+      // Đơn CHƯA thanh toán không có mốc TT — dồn hết xuống cuối thay vì lẫn vào giữa hoặc
+      // chiếm nguyên đầu danh sách. Phải viết tường minh `closed_at IS NULL` (0 trước, 1 sau):
+      // MySQL coi NULL là nhỏ nhất nên `closed_at DESC` một mình sẽ đẩy chúng LÊN ĐẦU.
+      // Trong nhóm cuối đó xếp theo giờ vào, không theo id — id là uuid, không có thứ tự thời gian.
+      idQb
+        .orderBy('o.closed_at IS NULL', 'ASC')
+        .addOrderBy('o.closed_at', 'DESC')
+        .addOrderBy('o.opened_at', 'DESC');
+    } else {
+      // Mặc định: THỜI GIAN VÀO ĂN, mới nhất trước. opened_at không bao giờ NULL nên đơn CHƯA
+      // thanh toán vẫn hiện đúng ở tab "Tất cả" (trước đây sort closed_at DESC khiến đơn chưa
+      // TT — closed_at NULL — rơi xuống cuối).
+      idQb.orderBy('o.opened_at', 'DESC');
+    }
+    const idRows = await idQb
       .addOrderBy('o.id', 'DESC')
       .offset((page - 1) * page_size)
       .limit(page_size)

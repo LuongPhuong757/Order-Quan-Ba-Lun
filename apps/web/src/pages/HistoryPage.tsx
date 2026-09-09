@@ -8,7 +8,16 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { vnDayIso } from '../lib/date-range.ts';
-import { historyFilterKey, historyQuery, type HistoryFilters } from '../lib/history-filter.ts';
+import {
+  historyFilterKey,
+  historyQuery,
+  type HistoryFilters,
+  type HistorySort,
+} from '../lib/history-filter.ts';
+
+/** Khoá nhóm cho đơn CHƯA thanh toán khi đang sắp xếp theo giờ thanh toán: chúng không có ngày
+ *  TT để gom, và BE đã dồn hết xuống cuối nên chúng luôn thành ĐÚNG MỘT nhóm ở cuối trang. */
+const UNPAID_GROUP = 'chua-thanh-toan';
 
 // Nhãn tiếng Việt cho mã trạng thái món (enum kỹ thuật) khi lộ ra UI.
 const ITEM_STATE_LABEL: Record<string, string> = {
@@ -208,6 +217,12 @@ export function HistoryPage() {
   const [misaFilter, setMisaFilter] = useState<'' | 'pending' | 'copied'>('');
   const [startDate, setStartDate] = useState(''); // yyyy-mm-dd
   const [endDate, setEndDate] = useState('');
+  /** Trục sắp xếp (2026-09-09). Mặc định giữ nguyên nếp cũ — giờ VÀO ĂN. Đổi sang giờ THANH
+   *  TOÁN để đối soát ca thu ngân: bàn ngồi từ tối hôm trước, thu tiền sáng hôm sau, xếp theo
+   *  giờ vào là nó nằm lẫn ở ngày cũ.
+   *  KHÔNG phải "bộ lọc": nó không bỏ bớt đơn nào, nên không tính vào `hasActiveFilter` và nút
+   *  "Xoá lọc" cũng không đụng tới. */
+  const [sortBy, setSortBy] = useState<HistorySort>('opened');
   const [expanded, setExpanded] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -260,7 +275,7 @@ export function HistoryPage() {
     const timer = window.setTimeout(() => {
       api
         .get<{ data: { items: HistoryOrder[]; total: number } }>(
-          `/orders/history?${historyQuery(filters, { page: { page, page_size: PAGE_SIZE } })}`,
+          `/orders/history?${historyQuery(filters, { page: { page, page_size: PAGE_SIZE }, sort: sortBy })}`,
         )
         .then((res) => {
           if (seq !== listSeqRef.current) return; // response của bộ lọc đã rời → bỏ
@@ -276,7 +291,7 @@ export function HistoryPage() {
     }, FILTER_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, page]);
+  }, [filterKey, page, sortBy]);
 
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày VÀ tab đang chọn (2026-09-05): đổi tab
   // thì doanh thu theo ngày, top món, tiêu hao... đổi theo, không chỉ danh sách đơn. Vẫn
@@ -343,6 +358,13 @@ export function HistoryPage() {
       setMisaFilter('');
       setStatusFilter(tab);
     }
+    setPage(1);
+  };
+
+  /** Đổi trục sắp xếp → về trang 1. "Trang 3" của thứ tự này không phải "trang 3" của thứ tự
+   *  kia, giữ nguyên số trang là người dùng nhảy vào giữa một danh sách khác hẳn. */
+  const changeSort = (s: HistorySort) => {
+    setSortBy(s);
     setPage(1);
   };
 
@@ -416,16 +438,23 @@ export function HistoryPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Gom đơn của trang hiện tại theo ngày (giờ VN), giữ thứ tự BE trả về.
+  // Gom theo ĐÚNG trục đang sắp xếp — gom theo ngày vào ăn trong khi danh sách xếp theo giờ
+  // thanh toán thì cùng một ngày sẽ hiện thành nhiều dải rời rạc, trông như dữ liệu lỗi.
   const dayGroups = useMemo(() => {
     const groups: Array<{ key: string; orders: HistoryOrder[] }> = [];
     for (const o of orders) {
-      const key = vnDayIso(o.opened_at); // gom theo ngày VÀO ĂN
+      const key =
+        sortBy === 'paid'
+          ? o.closed_at
+            ? vnDayIso(o.closed_at)
+            : UNPAID_GROUP
+          : vnDayIso(o.opened_at);
       const last = groups[groups.length - 1];
       if (last && last.key === key) last.orders.push(o);
       else groups.push({ key, orders: [o] });
     }
     return groups;
-  }, [orders]);
+  }, [orders, sortBy]);
   // Doanh thu THỰC mỗi ngày (từ stats — toàn bộ filter) để hiện ở header ngày.
   const dayRevenue = useMemo(() => {
     const m = new Map<string, number>();
@@ -533,6 +562,21 @@ export function HistoryPage() {
           options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
+
+        {/* Trục sắp xếp. Phải là Ô CHỌN chứ không chỉ là tiêu đề cột bấm được: dưới 640px
+            `table.responsive` ẩn hẳn `thead`, nên trên điện thoại sẽ không còn chỗ nào để bấm.
+            Đứng cạnh bộ lọc phạm vi vì nó cùng nói về "danh sách bên dưới trông thế nào". */}
+        <select
+          className="txn-fsel"
+          aria-label="Sắp xếp danh sách đơn"
+          title="Trục sắp xếp — luôn mới nhất trước"
+          value={sortBy}
+          onChange={(e) => changeSort(e.target.value as HistorySort)}
+          style={{ width: 186, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+        >
+          <option value="opened">↓ Giờ vào ăn</option>
+          <option value="paid">↓ Giờ thanh toán</option>
+        </select>
 
         {hasActiveFilter && (
           <button
@@ -740,10 +784,26 @@ export function HistoryPage() {
                 đẩy cả hàng tiêu đề cao gấp đôi trong khi chữ thì ngắn. */}
             <thead style={{ whiteSpace: 'nowrap' }}>
               <tr>
-                <th>Giờ vào</th>
+                {/* Hai cột thời gian bấm được để đổi trục sắp xếp — lối tắt của ô chọn trên
+                    thanh lọc, và là chỗ DUY NHẤT nói ra danh sách đang xếp theo cột nào.
+                    Không có chiều tăng dần: bấm lại cột đang chọn thì không đổi gì (xem
+                    `sort` ở BE — màn tra cứu chỉ cần mới nhất trước). */}
+                <th
+                  onClick={() => changeSort('opened')}
+                  title="Sắp xếp theo giờ vào ăn, mới nhất trước"
+                  style={{ cursor: 'pointer', color: sortBy === 'opened' ? '#0f766e' : undefined }}
+                >
+                  Giờ vào{sortBy === 'opened' && ' ↓'}
+                </th>
                 <th>Bàn</th>
                 <th>Thu ngân</th>
-                <th>Giờ TT</th>
+                <th
+                  onClick={() => changeSort('paid')}
+                  title="Sắp xếp theo giờ thanh toán, mới nhất trước — đơn chưa thanh toán xuống cuối"
+                  style={{ cursor: 'pointer', color: sortBy === 'paid' ? '#0f766e' : undefined }}
+                >
+                  Giờ TT{sortBy === 'paid' && ' ↓'}
+                </th>
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
                 <th>Trạng thái</th>
@@ -763,8 +823,19 @@ export function HistoryPage() {
                         về dạng dải phân cách (xem styles.css). */}
                     <tr className="txn-day-row">
                       <td className="txn-day" colSpan={8}>
-                        📅 {vnDayLabel(g.key)} · {g.orders.length} đơn
-                        {dayRev != null && <> · doanh thu ngày: <strong>{fmt(dayRev)}</strong></>}
+                        {g.key === UNPAID_GROUP ? (
+                          <>⏳ Chưa thanh toán · {g.orders.length} đơn</>
+                        ) : (
+                          <>
+                            📅 {vnDayLabel(g.key)}
+                            {/* Nói rõ dải này là ngày GÌ khi đang xếp theo giờ TT — nếu không,
+                                bàn mở tối 8/9 thu tiền sáng 9/9 nằm dưới dải "09/09" trông
+                                như số liệu sai. */}
+                            {sortBy === 'paid' && <span style={{ color: '#9ca3af' }}> (ngày TT)</span>}
+                            {' · '}{g.orders.length} đơn
+                            {dayRev != null && <> · doanh thu ngày: <strong>{fmt(dayRev)}</strong></>}
+                          </>
+                        )}
                       </td>
                     </tr>
                     {g.orders.map((o) => {
