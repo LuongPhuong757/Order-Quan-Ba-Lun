@@ -1337,14 +1337,17 @@ a:hover {
     min-width: 118px !important;
   }
 
-  /* Hai ô chọn (bàn / thu ngân) — cùng lý do: bỏ 150/160px cứng, mỗi ô nửa hàng. Nâng chiều
-     cao 34→40px cho gần ngưỡng chạm 44px. */
+  /* Ba ô chọn (bàn / thu ngân / sắp xếp) — cùng lý do: bỏ bề rộng cứng, mỗi ô nửa hàng. Nâng
+     chiều cao 34→40px cho gần ngưỡng chạm 44px. */
   .txn-fsel {
     flex: 1 1 45% !important;
     width: auto !important;
     min-width: 130px !important;
   }
-  .txn-fsel > button {
+  /* `> button` là dropdown tự vẽ (SearchableSelect), `select.txn-fsel` là ô sắp xếp — cùng
+     phải cao 40px, nếu không hai ô cạnh nhau trên một hàng lệch cao thấy rõ. */
+  .txn-fsel > button,
+  select.txn-fsel {
     min-height: 40px !important;
     height: 40px !important;
   }

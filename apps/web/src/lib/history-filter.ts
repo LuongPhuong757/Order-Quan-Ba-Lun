@@ -14,6 +14,9 @@ import { vnDayEndMs, vnDayStartMs } from './date-range.ts';
 
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
 export type HistoryMisa = '' | 'pending' | 'copied';
+/** Trục sắp xếp danh sách đơn — 'opened' = giờ vào ăn (mặc định), 'paid' = giờ thanh toán.
+ *  Cả hai đều mới nhất trước. */
+export type HistorySort = 'opened' | 'paid';
 
 export type HistoryFilters = {
   table_id: string;
@@ -32,6 +35,10 @@ export type HistoryQueryOpts = {
   /** Chỉ `/orders/history` phân trang. Biểu đồ CỐ Ý không theo trang: bảng số nói về cả bộ
    *  lọc, không phải 20 dòng đang xem. */
   page?: { page: number; page_size: number };
+  /** Cũng chỉ `/orders/history`: biểu đồ và bảng tiêu hao là số GỘP, không có thứ tự để đổi.
+   *  Để sort ở đây (opts) chứ không nhét vào `HistoryFilters` là có chủ ý — đổi cách sắp xếp
+   *  KHÔNG được làm biểu đồ tải lại, mà `historyFilterKey` lại dựng từ chính `HistoryFilters`. */
+  sort?: HistorySort;
 };
 
 export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): URLSearchParams {
@@ -42,6 +49,9 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (f.misa) q.set('misa', f.misa);
   if (f.from) q.set('start_ms', String(vnDayStartMs(f.from)));
   if (f.to) q.set('end_ms', String(vnDayEndMs(f.to)));
+  // Mặc định 'opened' KHÔNG gửi lên — cùng lệ với `status: 'all'`: thiếu tham số nghĩa là mặc
+  // định, và query string ngắn thì đọc log dễ hơn.
+  if (opts.sort && opts.sort !== 'opened') q.set('sort', opts.sort);
   if (opts.page) {
     q.set('page', String(opts.page.page));
     q.set('page_size', String(opts.page.page_size));
