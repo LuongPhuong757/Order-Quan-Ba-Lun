@@ -71,6 +71,24 @@ export class SupplierDelivery {
   @Column({ type: 'int', unsigned: true, default: 0 })
   total_amount!: number;
 
+  /** Công nợ NCC NGAY SAU khi phiếu này vào sổ, VND. Đóng dấu một lần lúc phiếu thành
+   * `CONFIRMED`, sau đó không bao giờ đổi (2026-09-09, chủ quán yêu cầu).
+   *
+   * Đây là con số màn hình đã báo lúc nhân viên bấm lưu — thứ người ta nhớ và mang đi đối chiếu
+   * với NCC. Sổ giao dịch còn tự cộng dồn ra một số dư luỹ kế nữa, và hai số đó KHÁC nhiệm vụ:
+   * luỹ kế luôn khớp với hiện tại, cột này khớp với quá khứ. Chúng lệch nhau đúng khi có ai đó
+   * sửa phiếu cũ / nhập bù phiếu lùi ngày / sửa nợ cũ — và chính lúc lệch mới là lúc cột này
+   * đáng giá, nên KHÔNG được cập nhật lại nó ở `update()`.
+   *
+   * `int` CÓ DẤU chứ không `unsigned`: trả trước hoặc ghi dư làm công nợ âm, ép unsigned thì
+   * MySQL cắt về 0 và con số đối chiếu thành sai.
+   *
+   * NULL = phiếu chưa từng vào công nợ (NCC gửi, chờ duyệt / đã huỷ), hoặc phiếu có TRƯỚC
+   * 2026-09-09. Cố tình không backfill phiếu cũ: tính lại từ dữ liệu hôm nay ra đúng con số luỹ
+   * kế, dán vào đây thì thành một dấu vết bịa mà người đọc lại tưởng là thật. */
+  @Column({ type: 'int', nullable: true, default: null })
+  balance_after_snapshot!: number | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 
