@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Deploy STACK DEVELOP lên cùng VPS với production, tách hoàn toàn: checkout riêng
-# (/opt/ordbl-dev), MySQL + volume riêng, container ordbl_dev_*, và một hàng rào
-# basic auth trước mọi request. Xem DEPLOY.md mục 11.
+# (/opt/ordbl-dev), MySQL + volume riêng, container ordbl_dev_*. Xem DEPLOY.md mục 11.
+#
+# Site dev KHÔNG có basic auth (gỡ 2026-09-09 theo yêu cầu) — ai biết địa chỉ là vào
+# được, y như prod. Còn lại đúng hai thứ giới hạn: `/setup` chặn theo SETUP_ALLOWED_IP,
+# và `X-Robots-Tag: noindex` giữ bản test khỏi Google.
 #
 # Credentials SSH dùng chung .env.deploy với deploy.sh (gitignored).
 #
 # Cách dùng:
-#   ./deploy-dev.sh --init              # lần đầu: clone + sinh .env.dev + đặt mật khẩu
+#   ./deploy-dev.sh --init              # lần đầu: clone + sinh .env.dev
 #   ./deploy-dev.sh                     # deploy nhánh mặc định (develop)
 #   ./deploy-dev.sh feat/abc            # deploy một nhánh khác
 #   ./deploy-dev.sh --logs              # 60 dòng log build gần nhất
@@ -14,7 +17,6 @@
 #   ./deploy-dev.sh --api-logs          # log runtime của API dev (OTP in ra ở đây)
 #   ./deploy-dev.sh --allow-setup       # mở /setup cho IP hiện tại của máy này
 #   ./deploy-dev.sh --caddy             # chỉ render lại site block + reload Caddy
-#   ./deploy-dev.sh --passwd            # đổi mật khẩu basic auth
 #   ./deploy-dev.sh --down              # tắt stack dev (giữ nguyên data)
 #   ./deploy-dev.sh --nuke              # XOÁ HẲN stack dev + DB dev + site block
 #
@@ -58,34 +60,8 @@ require_stack() {
     echo "❌ Chưa có stack dev ở $DEV_PATH. Chạy: ./deploy-dev.sh --init"; exit 1; }
 }
 
-# Mật khẩu đi vào remote script bên trong dấu nháy đơn — có ' là vỡ cú pháp.
-# Từ chối thẳng thay vì escape cho khéo rồi sai âm thầm.
-#
-# Đặt sẵn biến môi trường DEV_PASSWORD thì bỏ qua phần hỏi — cần cho lúc chạy script
-# từ chỗ không có terminal (CI, hoặc agent chạy hộ).
-read_password() {
-  if [[ -n "${DEV_PASSWORD:-}" ]]; then
-    PW1="$DEV_PASSWORD"
-  else
-    read -rsp "  Mật khẩu: " PW1; echo
-    read -rsp "  Nhập lại: " PW2; echo
-    [[ "$PW1" == "$PW2" ]] || { echo "❌ Hai lần nhập khác nhau"; exit 1; }
-  fi
-  # Ngưỡng 12 ký tự là MẶC ĐỊNH, không phải luật: site dev nằm ngoài internet và basic auth là
-  # hàng rào duy nhất của nó, nên mật khẩu đoán được là cửa mở. Ai cố ý muốn mật khẩu ngắn
-  # (ví dụ dev/dev cho tiện gõ trên điện thoại) thì phải nói ra bằng ALLOW_WEAK_DEV_PASSWORD=1
-  # — để lựa chọn đó nằm trong lệnh, chứ không nằm trong một dòng if bị sửa lặng lẽ.
-  if [[ ${#PW1} -lt 12 && -z "${ALLOW_WEAK_DEV_PASSWORD:-}" ]]; then
-    echo "❌ Phải ≥ 12 ký tự — đây là hàng rào DUY NHẤT của server dev."
-    echo "   Vẫn muốn dùng mật khẩu ngắn: ALLOW_WEAK_DEV_PASSWORD=1 ./deploy-dev.sh --passwd"
-    exit 1
-  fi
-  [[ ${#PW1} -ge 12 ]] || echo "⚠ Mật khẩu ngắn ($((${#PW1})) ký tự) — chấp nhận vì ALLOW_WEAK_DEV_PASSWORD=1"
-  [[ "$PW1" != *"'"* ]] || { echo "❌ Không dùng dấu nháy đơn ( ' ) trong mật khẩu"; exit 1; }
-}
-
 # ── Render site block dev vào caddy-local của PROD + reload Caddy ────────────
-# Sinh ra một script chạy trên server. Cả deploy lẫn --passwd đều dùng.
+# Sinh ra một script chạy trên server. Cả deploy lẫn --caddy đều dùng.
 # `caddy reload` thất bại thì Caddy GIỮ NGUYÊN config đang chạy — trang quán không
 # sập vì một lỗi cú pháp bên dev.
 render_caddy_script() {
@@ -93,18 +69,14 @@ render_caddy_script() {
 set -euo pipefail
 cd "$DEV_PATH"
 
-# ĐỌC bằng grep, KHÔNG \`source\`. Hash bcrypt có dạng \$2a\$14\$… — \`source\` là bash bung
-# \`\$2a\` và \`\$14\` thành tham số vị trí, và với \`set -u\` thì gãy ngay tại đó
-# ("line 3: \$2: unbound variable"). Đây là env file, không phải script; đừng chạy nó.
+# ĐỌC bằng grep, KHÔNG \`source\`. Đây là env file, không phải script; giá trị trong đó có
+# thể chứa \`\$\` và \`source\` sẽ bung nó ra, với \`set -u\` là gãy ngay tại chỗ.
 # \\x27 / \\x22 = nháy đơn / nháy kép, viết dạng mã để KHÔNG có dấu nháy thật nào trong
 # biểu thức — chuỗi này đi qua hai tầng heredoc trước khi tới server, và tầng escape đó
 # đã một lần biến \\" thành \\\\" làm script gãy ở dòng này.
 envget() { grep -E "^\$1=" .env.dev | head -1 | cut -d= -f2- | sed -e 's/^[\x27\x22]//' -e 's/[\x27\x22]\$//'; }
 DOMAIN="\$(envget DOMAIN)"
-DEV_AUTH_USER="\$(envget DEV_AUTH_USER)"
-DEV_AUTH_HASH="\$(envget DEV_AUTH_HASH)"
 : "\${DOMAIN:?thiếu DOMAIN trong .env.dev}"
-: "\${DEV_AUTH_HASH:?thiếu DEV_AUTH_HASH — server dev không được chạy khi không có basic auth}"
 
 # Chưa có DNS mà đã bật site block là Caddy lao vào xin cert rồi trượt liên tục — mỗi
 # hostname chỉ được 5 lần thẩm định hỏng mỗi giờ. Cert của mỗi tên được xin RIÊNG, nên một
@@ -123,10 +95,7 @@ fi
 
 DEST="$DEPLOY_PATH/caddy-local/dev.caddy"
 mkdir -p "$DEPLOY_PATH/caddy-local"
-sed -e "s|__DOMAIN__|\$DOMAIN|g" \
-    -e "s|__AUTH_USER__|\${DEV_AUTH_USER:-dev}|g" \
-    -e "s|__AUTH_HASH__|\$DEV_AUTH_HASH|g" \
-    Caddyfile.dev > "\$DEST"
+sed -e "s|__DOMAIN__|\$DOMAIN|g" Caddyfile.dev > "\$DEST"
 echo "[dev] ✓ đã ghi caddy-local/dev.caddy"
 
 # Ghi tên network vào danh sách của prod TRƯỚC khi connect: mỗi lần deploy prod tạo
@@ -139,17 +108,11 @@ docker network connect "$DEV_NETWORK" ordbl_caddy 2>/dev/null \
   && echo "[dev] ✓ đã đấu ordbl_caddy vào $DEV_NETWORK" \
   || echo "[dev] = ordbl_caddy đã nằm sẵn trong $DEV_NETWORK"
 
-# \`basic_auth\` là tên directive từ Caddy 2.8; bản cũ hơn gọi là \`basicauth\`.
-# Validate trước, và chỉ khi Caddy chê đúng directive đó mới đổi tên — không đoán mò.
+# Validate TRƯỚC khi reload: dev.caddy nằm trong Caddyfile của prod, nên một lỗi cú pháp
+# ở đây là Caddy không load được config nào cả. Sai thì gỡ file dev ra ngay.
 if ! OUT=\$(docker exec ordbl_caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile 2>&1); then
-  if echo "\$OUT" | grep -q "basic_auth"; then
-    sed -i "s|basic_auth {|basicauth {|" "\$DEST"
-    echo "[dev] ! Caddy đời cũ — đã đổi basic_auth → basicauth"
-    docker exec ordbl_caddy caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
-  else
-    echo "\$OUT"; echo "[dev] ❌ config Caddy không hợp lệ — gỡ dev.caddy để prod không bị ảnh hưởng"
-    rm -f "\$DEST"; exit 1
-  fi
+  echo "\$OUT"; echo "[dev] ❌ config Caddy không hợp lệ — gỡ dev.caddy để prod không bị ảnh hưởng"
+  rm -f "\$DEST"; exit 1
 fi
 
 docker exec ordbl_caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile \
@@ -163,8 +126,7 @@ docker exec ordbl_caddy caddy reload --config /etc/caddy/Caddyfile --adapter cad
 # dev. Sáng 2026-09-07 nó đã xảy ra thật: apex + admin + menu của quán chạy trên backend và
 # database DEV gần một tiếng, mọi request vẫn 200 nên không có gì báo.
 #
-# Không tin cấu hình — hỏi thẳng domain prod xem ai đang trả lời. Prod không có basic auth
-# nên bước này không cần mật khẩu nào.
+# Không tin cấu hình — hỏi thẳng domain prod xem ai đang trả lời.
 if [ -f "$DEPLOY_PATH/scripts/verify-env.sh" ]; then
   ( cd "$DEPLOY_PATH" && WANT_ENV=production bash scripts/verify-env.sh ) || { echo "[dev] ❌ deploy dev đã làm domain PRODUCTION trỏ sai stack — xem phần chẩn đoán ngay trên"; exit 1; }
 else
@@ -187,12 +149,6 @@ case "${1:-deploy}" in
 
   # ── Lần đầu ───────────────────────────────────────────────────────────────
   --init)
-    echo "▶ Đặt mật khẩu basic auth cho server dev (chỉ mình bạn biết)"
-    read_password
-    if [[ -n "${DEV_USERNAME:-}" ]]; then DEV_USER="$DEV_USERNAME"
-    else read -rp "  Username [dev]: " DEV_USER || true; fi
-    DEV_USER="${DEV_USER:-dev}"
-
     echo "▶ Clone + dựng .env.dev trên VPS…"
     rrun "set -euo pipefail
 ORIGIN=\$(git -C $DEPLOY_PATH remote get-url origin)
@@ -210,11 +166,8 @@ if [ -f .env.dev ]; then
 else
   DOM=\$(grep -E '^DOMAIN=' $DEPLOY_PATH/.env.production | head -1 | cut -d= -f2- | tr -d '\"' | tr -d \"'\")
   : \"\${DOM:?không đọc được DOMAIN từ .env.production của prod}\"
-  HASH=\$(docker run --rm caddy:2-alpine caddy hash-password --plaintext '$PW1')
   cat > .env.dev <<ENVEOF
 DOMAIN=\$DOM
-DEV_AUTH_USER=$DEV_USER
-DEV_AUTH_HASH='\$HASH'
 MYSQL_ROOT_PASSWORD=\$(openssl rand -base64 48 | tr -d /=+ | cut -c1-32)
 MYSQL_DATABASE=order_quan_balun_dev
 MYSQL_USER=ordbl_dev
@@ -266,7 +219,7 @@ sed -i 's|^SETUP_ALLOWED_IP=.*|SETUP_ALLOWED_IP=$MYIP,127.0.0.1|' .env.dev
 grep '^SETUP_ALLOWED_IP=' .env.dev
 $DC up -d dev_api
 echo '[dev] ✓ đã restart api với IP mới'"
-    echo "✅ Mở https://admin.dev.<domain>/setup (nhập basic auth trước)"
+    echo "✅ Mở https://admin.dev.<domain>/setup"
     ;;
 
   # ── Chỉ dựng lại phần Caddy (dùng sau khi DNS đã lên) ─────────────────────
@@ -274,21 +227,6 @@ echo '[dev] ✓ đã restart api với IP mới'"
     require_stack
     push_post_script
     rrun "ORDBL_FORCE_CADDY=${ORDBL_FORCE_CADDY:-} bash $POST_SCRIPT"
-    ;;
-
-  # ── Đổi mật khẩu basic auth ───────────────────────────────────────────────
-  --passwd)
-    require_stack
-    echo "▶ Đổi mật khẩu basic auth"
-    read_password
-    rrun "set -euo pipefail
-cd $DEV_PATH
-HASH=\$(docker run --rm caddy:2-alpine caddy hash-password --plaintext '$PW1')
-sed -i \"s|^DEV_AUTH_HASH=.*|DEV_AUTH_HASH='\$HASH'|\" .env.dev
-echo '[dev] ✓ đã đổi hash trong .env.dev'"
-    push_post_script
-    rrun "bash $POST_SCRIPT"
-    echo "✅ Mật khẩu mới có hiệu lực ngay."
     ;;
 
   # ── Tắt / xoá ─────────────────────────────────────────────────────────────
@@ -311,7 +249,7 @@ echo '[dev] ✓ đã dọn sạch'"
     ;;
 
   -*)
-    echo "Dùng: ./deploy-dev.sh [nhánh|--init|--logs|--api-logs|--status|--caddy|--allow-setup|--passwd|--down|--nuke]"
+    echo "Dùng: ./deploy-dev.sh [nhánh|--init|--logs|--api-logs|--status|--caddy|--allow-setup|--down|--nuke]"
     exit 1 ;;
 
   # ── Deploy (mặc định) ─────────────────────────────────────────────────────

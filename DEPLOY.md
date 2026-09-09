@@ -405,7 +405,7 @@ MySQL riêng, volume riêng, container `ordbl_dev_*`. Không có bất cứ đư
 | Database | `order_quan_balun` | `order_quan_balun_dev` |
 | Site khách | `<domain>` | `dev.<domain>` |
 | Site quản lý | `admin.<domain>` | `admin.dev.<domain>` |
-| Ai vào được | cả thế giới | chỉ ai biết basic auth |
+| Ai vào được | cả thế giới | cả thế giới (basic auth đã gỡ 2026-09-09) |
 | Backup | có sidecar hằng ngày | **không** (data vứt đi) |
 | SMS | eSMS thật | `console` — OTP chỉ in ra log |
 
@@ -454,7 +454,7 @@ dig +short A dev.quanbalun.site admin.dev.quanbalun.site
 # 2) Nhánh develop phải có trên GitHub
 git checkout -b develop main && git push -u origin develop
 
-# 3) Clone + sinh .env.dev (secrets random) + đặt mật khẩu basic auth
+# 3) Clone + sinh .env.dev (secrets random)
 ./deploy-dev.sh --init
 
 # 4) Build + chạy
@@ -462,8 +462,13 @@ git checkout -b develop main && git push -u origin develop
 
 # 5) Mở /setup cho IP hiện tại rồi tạo owner của môi trường dev
 ./deploy-dev.sh --allow-setup
-# → https://admin.dev.<domain>/setup   (trình duyệt hỏi basic auth trước)
+# → https://admin.dev.<domain>/setup
 ```
+
+> ⚠️ Site dev **mở cho mọi người** — basic auth đã gỡ ngày 2026-09-09 theo yêu cầu. Hai
+> thứ còn giới hạn: `/setup` chặn theo `SETUP_ALLOWED_IP`, và Caddy trả
+> `X-Robots-Tag: noindex` để bản test không lọt vào Google. Đừng đưa dữ liệu thật của
+> khách vào DB dev.
 
 > ⚠️ Đợi DNS phân giải xong rồi mới chạy bước 4. Let's Encrypt giới hạn 5 cert trùng
 > lặp mỗi tuần cho một domain — build lại nhiều lần lúc DNS chưa xong là tự khoá cả tuần,
@@ -478,7 +483,6 @@ git checkout -b develop main && git push -u origin develop
 ./deploy-dev.sh --api-logs      # log runtime — OTP ở SMS_DRIVER=console in ra đây
 ./deploy-dev.sh --status        # container + network Caddy + site block
 ./deploy-dev.sh --caddy         # render lại site block + reload Caddy (sau khi DNS lên)
-./deploy-dev.sh --passwd        # đổi mật khẩu basic auth (có hiệu lực ngay)
 ./deploy-dev.sh --allow-setup   # nhà đổi IP → mở lại /setup
 ./deploy-dev.sh --down          # tắt, giữ DB
 ./deploy-dev.sh --nuke          # xoá sạch stack dev
@@ -517,8 +521,7 @@ sẽ chỉ lộ ra lúc merge, đúng lúc muộn nhất.
 |---|---|---|
 | `DEPLOY_HOST` `DEPLOY_USER` `DEPLOY_PORT` `DEPLOY_PASS` `DEPLOY_PATH` | ✅ (dùng chung với prod) | SSH vào VPS |
 | Variable `DEPLOY_DEV_PATH` | không (mặc định `/opt/ordbl-dev`) | checkout của stack dev |
-| Variable `DEV_HEALTH_URL` | không | bỏ trống thì bỏ qua bước kiểm tra site |
-| Secret `DEV_BASIC_AUTH` (`user:matkhau`) | không | có thì healthcheck đăng nhập thật và đòi 200; không có thì coi **401** là đạt — 401 chính là bằng chứng Caddy phục vụ đúng site và hàng rào còn nguyên |
+| Variable `DEV_HEALTH_URL` | không | bỏ trống thì bỏ qua bước kiểm tra site; có thì đòi đúng **200** |
 
 CI truyền **commit SHA** chứ không phải tên nhánh cho `deploy-dev.sh`: giữa lúc job xếp hàng có
 thể đã có commit mới hơn, và deploy "nhánh develop" khi đó là đẩy lên một commit mà job này chưa

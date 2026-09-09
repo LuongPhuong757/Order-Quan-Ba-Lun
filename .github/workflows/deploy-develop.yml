@@ -4,9 +4,8 @@
 #   1. Gọi `./deploy-dev.sh` thay vì `./deploy.sh` → stack `ordbl-dev`, DB riêng, checkout riêng.
 #   2. `environment: develop` → lịch sử deploy dev tách khỏi production trong tab Environments,
 #      và muốn bắt duyệt tay thì tick riêng, không dính tới production.
-#   3. Bước kiểm tra site chấp nhận **401** là đạt. Site dev nằm sau basic auth, nên 401 chính là
-#      bằng chứng Caddy đang phục vụ đúng site và hàng rào còn nguyên. Khai secret
-#      `DEV_BASIC_AUTH` (dạng `user:matkhau`) thì bước này đăng nhập thật và đòi 200.
+#   3. Bước kiểm tra site chỉ chạy khi đã khai `DEV_HEALTH_URL`, và đòi đúng **200** — site dev
+#      không còn basic auth (gỡ 2026-09-09) nên nó mở y như prod.
 #
 # Job `ci` dùng chung định nghĩa ở `ci.yml` với đường production — cùng MySQL thật, cùng
 # schema:verify, cùng ngân sách bundle. Nhánh develop KHÔNG được kiểm lỏng hơn main: nếu ở đây
@@ -92,21 +91,14 @@ jobs:
         # DNS `dev.<domain>` chưa trỏ xong.
         env:
           DEV_HEALTH_URL: ${{ vars.DEV_HEALTH_URL }}
-          DEV_BASIC_AUTH: ${{ secrets.DEV_BASIC_AUTH }}
         run: |
           if [ -z "${DEV_HEALTH_URL:-}" ]; then
             echo "⏭  Chưa khai biến DEV_HEALTH_URL — bỏ qua bước kiểm tra site."
             exit 0
           fi
-          if [ -n "${DEV_BASIC_AUTH:-}" ]; then
-            want=200; auth=(-u "$DEV_BASIC_AUTH")
-          else
-            # 401 = Caddy đang phục vụ site dev VÀ hàng rào basic auth còn nguyên. Coi đây là
-            # đạt còn tốt hơn nhét mật khẩu dev vào secret chỉ để healthcheck.
-            want=401; auth=()
-          fi
+          want=200
           for i in 1 2 3 4 5 6; do
-            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "${auth[@]}" "$DEV_HEALTH_URL" || true)"
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$DEV_HEALTH_URL" || true)"
             echo "lần $i: $DEV_HEALTH_URL → $code (mong đợi $want)"
             [ "$code" = "$want" ] && exit 0
             sleep 15

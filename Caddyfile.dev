@@ -1,29 +1,26 @@
 # TEMPLATE site block cho STACK DEVELOP. KHÔNG phải file Caddy chạy trực tiếp —
-# deploy-dev.sh thay 3 placeholder rồi ghi ra `caddy-local/dev.caddy` trong thư mục
+# deploy-dev.sh thay placeholder rồi ghi ra `caddy-local/dev.caddy` trong thư mục
 # checkout PROD trên VPS; Caddyfile của prod đã có sẵn `import /etc/caddy/local/*.caddy`.
 #
 # Vì sao render ra file thay vì thêm block thẳng vào Caddyfile của prod:
-# hash basic auth và domain là cấu hình riêng của server, và quan trọng hơn — một
-# block dev sai cú pháp nằm trong Caddyfile của prod là Caddy không load được config,
-# tức là SẬP CẢ TRANG QUÁN. Ở đây gỡ dev chỉ cần xoá đúng một file.
+# domain là cấu hình riêng của server, và quan trọng hơn — một block dev sai cú pháp
+# nằm trong Caddyfile của prod là Caddy không load được config, tức là SẬP CẢ TRANG
+# QUÁN. Ở đây gỡ dev chỉ cần xoá đúng một file.
 #
-# Placeholder: __DOMAIN__  __AUTH_USER__  __AUTH_HASH__
+# Placeholder: __DOMAIN__
 
 # ─── Server develop: dev.<domain> (khách) + admin.dev.<domain> (quản lý) ─────
 # Cùng vào ordbl_dev_api:3001. main.ts chọn bundle theo tiền tố `admin.` của Host,
 # nên `admin.dev.<domain>` nhận web-dist còn `dev.<domain>` nhận shop-dist — y hệt
 # cách prod phân biệt, không cần cấu hình gì thêm.
+#
+# KHÔNG có basic auth (gỡ 2026-09-09 theo yêu cầu): site dev mở cho mọi người,
+# đúng như prod. Thứ duy nhất còn giới hạn là `/setup` — chặn theo SETUP_ALLOWED_IP
+# trong .env.dev — và `X-Robots-Tag` giữ bản test khỏi Google.
 dev.__DOMAIN__, admin.dev.__DOMAIN__ {
     log {
         output stdout
         format console
-    }
-
-    # Hàng rào DUY NHẤT của server dev. Đặt trước mọi thứ khác nên nó phủ cả API,
-    # cả /uploads, cả /setup — không có đường vòng nào.
-    # Hash sinh bằng: docker run --rm caddy:2-alpine caddy hash-password --plaintext '...'
-    basic_auth {
-        __AUTH_USER__ __AUTH_HASH__
     }
 
     reverse_proxy ordbl_dev_api:3001 {
