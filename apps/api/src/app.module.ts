@@ -2,11 +2,12 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { dataSourceOptions } from './data-source.js';
 import { AuthModule } from './modules/auth/auth.module.js';
+import { ReadOnlyExemptThrottlerGuard } from './common/guards/read-only-throttler.guard.js';
 import { AuditModule } from './modules/audit/audit.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { SetupModule } from './modules/setup/setup.module.js';
@@ -36,6 +37,8 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     // P01.D-26 — in-memory rate limit
     // Global generous: 600 req/min/IP (~10/sec) tránh chặn polling UI
     // Auth strict: override inline ở /auth/login + /auth/recover (5/5min/IP)
+    // Miễn trừ: tài khoản chỉ-đọc (role `report`) không bị đếm — xem
+    // `ReadOnlyExemptThrottlerGuard` ở providers bên dưới.
     ThrottlerModule.forRoot([
       { name: 'default', ttl: 60_000, limit: 600 },
     ]),
@@ -78,7 +81,9 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
   ],
   controllers: [HealthController],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // Không dùng ThrottlerGuard trần: bản kế thừa này miễn rate limit cho tài khoản
+    // chỉ-đọc (role `report`), phần còn lại hành xử y nguyên.
+    { provide: APP_GUARD, useClass: ReadOnlyExemptThrottlerGuard },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })
