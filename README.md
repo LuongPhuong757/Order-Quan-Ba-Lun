@@ -92,7 +92,7 @@ Xong setup → đăng nhập tại `/login`.
 | POST | /setup | IP-allowlist + DB-empty | Tạo owner đầu tiên |
 | POST | /admin/users | OwnerGuard | Tạo nhân viên |
 | GET | /admin/users | OwnerGuard | List nhân viên |
-| POST | /admin/users/:id/reset-password | OwnerGuard | Reset password (tv++) |
+| POST | /admin/users/:id/reset-password | AdminGuard | Đổi mật khẩu hộ. Body `{password}` = admin tự đặt (giữ phiên); không body = sinh mật khẩu tạm (tv++) |
 | POST | /admin/users/:id/disable | OwnerGuard | Vô hiệu hoá (tv++) |
 | GET | /admin/audit | OwnerGuard | Audit log viewer |
 | GET | /admin/audit/export.csv | OwnerGuard | Export CSV |

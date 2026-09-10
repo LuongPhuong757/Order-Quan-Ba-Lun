@@ -35,6 +35,7 @@ export class OrderActivityLog {
   order_opened_at!: number | null;
 
   // 'order_created' | 'items_added' | 'item_cancelled' | 'transfer' | 'checkout' | 'order_cancelled'
+  // | 'order_restarted' (bàn treo rỗng >4h được mở lại thành lượt khách mới — xem stale-open-order.ts)
   @Column({ type: 'varchar', length: 32 })
   event_kind!: string;
 

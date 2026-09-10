@@ -62,6 +62,23 @@ describe('historyQuery', () => {
     expect(q.get('table_id')).toBe('t1');
   });
 
+  it("sort mặc định ('opened') KHÔNG gửi lên — thiếu tham số nghĩa là giờ vào ăn", () => {
+    expect(historyQuery(EMPTY).has('sort')).toBe(false);
+    expect(historyQuery(EMPTY, { sort: 'opened' }).has('sort')).toBe(false);
+  });
+
+  it("sort theo giờ thanh toán gửi sort=paid", () => {
+    expect(historyQuery(EMPTY, { sort: 'paid' }).get('sort')).toBe('paid');
+  });
+
+  it('sort không đụng tới các trục lọc khác', () => {
+    const f: HistoryFilters = { ...EMPTY, table_id: 't1', status: 'paid' };
+    const a = historyQuery(f, { sort: 'paid' });
+    const b = historyQuery(f);
+    expect(a.get('table_id')).toBe(b.get('table_id'));
+    expect(a.get('status')).toBe(b.get('status'));
+  });
+
   it('phân trang chỉ thêm khi được yêu cầu', () => {
     expect(historyQuery(EMPTY).has('page')).toBe(false);
     const q = historyQuery(EMPTY, { page: { page: 3, page_size: 20 } });
@@ -95,6 +112,12 @@ describe('historyFilterKey', () => {
 
   it('khoá KHÔNG chứa phân trang — biểu đồ không được tải lại khi sang trang', () => {
     expect(historyFilterKey(EMPTY)).not.toContain('page');
+  });
+
+  // Sort nằm ở `opts`, không nằm trong `HistoryFilters` — chính là để khoá này không đổi:
+  // đổi cách sắp xếp 20 dòng đang xem không được kéo theo 2 request số liệu.
+  it('khoá KHÔNG chứa trục sắp xếp — biểu đồ không được tải lại khi đổi sort', () => {
+    expect(historyFilterKey(EMPTY)).not.toContain('sort');
   });
 
   it('cùng bộ lọc → cùng khoá', () => {

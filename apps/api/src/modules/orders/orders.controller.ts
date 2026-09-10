@@ -315,6 +315,9 @@ export class OrdersController {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
     const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
+    // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
+    // đổi tập đơn trả về, nên gõ sai query string không đáng ném 400 vào mặt người dùng.
+    const sort = q.sort === 'paid' ? 'paid' : 'opened';
     const result = await this.svc.listHistory({
       table_id: q.table_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
@@ -322,6 +325,7 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       status,
       misa,
+      sort,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
       max_age_ms: staffHistoryWindowMs(req),
