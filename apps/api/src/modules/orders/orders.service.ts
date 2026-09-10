@@ -22,6 +22,7 @@ import {
   probeOpenOrder,
   fmtIdleDuration,
 } from './stale-open-order.js';
+import { transferInMessage } from './transfer-log.js';
 import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
@@ -1602,6 +1603,7 @@ export class OrdersService {
     try {
       let srcTableName = '';
       let movedCount = 0;
+      let srcOpenedAt = 0;
       const dest = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
         const itemRepo = mgr.getRepository(OrderItem);
@@ -1621,6 +1623,9 @@ export class OrdersService {
         // Tên bàn nguồn cho log (fallback mã bàn nếu bàn đã bị xoá).
         const srcTable = await tableRepo.findOne({ where: { id: src.table_id } });
         srcTableName = srcTable?.name || src.table_code;
+        // Giờ vào ăn của lượt khách này — src bị XOÁ ở cuối transaction nên phải giữ ra ngoài
+        // để còn ghi vào câu nhật ký (xem `transfer-log.ts`).
+        srcOpenedAt = src.opened_at;
 
         // Đếm src items TRƯỚC khi move (sanity check sau cùng)
         const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
@@ -1632,6 +1637,15 @@ export class OrdersService {
           dest = orderRepo.create({
             table_id: dest_table_id,
             table_code: destTable.code,
+            // GIỜ VÀO ĂN THEO ĐƠN NGUỒN, không phải giờ bấm chuyển bàn (2026-09-10).
+            // `opened_at` là @CreateDateColumn nên bỏ trống là lấy NOW: đơn chuyển sang bàn
+            // trống lúc 21:27 sẽ hiện "mở 21:27" trùng luôn giờ thanh toán, trong khi nhật ký
+            // (đã dời sang, giữ `created_at` gốc) vẫn ghi 20:28 — hai chỗ nói hai giờ khác
+            // nhau. Nặng hơn phần hiển thị: `HistoryPage` gom nhóm theo `vnDayIso(opened_at)`
+            // và thống kê lọc `COALESCE(closed_at, opened_at)`, nên chuyển bàn qua nửa đêm là
+            // đẩy bill sang NGÀY khác. TypeORM chỉ tự ghi đè create-date trên driver mongodb,
+            // MySQL nhận đúng giá trị truyền vào.
+            opened_at: src.opened_at,
             closed_at: null,
             is_paid: false,
             first_kitchen_at: src.first_kitchen_at,
@@ -1667,11 +1681,17 @@ export class OrdersService {
 
         // Chuyển NHẬT KÝ đơn nguồn sang đơn đích — nếu không, xoá src sẽ làm mồ côi
         // toàn bộ log (gọi món/báo bếp/huỷ/giao...) → nhật ký bàn mới bị mất lịch sử.
+        //
+        // `order_opened_at` là snapshot dùng để tách lịch sử của nhiều lượt khách trên cùng 1
+        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Bàn đích tạo mới thì hai
+        // giá trị đã bằng nhau (xem trên); bàn đích đang có khách (gộp bàn) thì đơn đích giữ
+        // giờ mở của chính nó — cố ý, vì đổi `opened_at` của một đơn đang chạy là xê dịch cả
+        // ngày lên bill của khách đó. Giờ mở bên nguồn khi ấy chỉ còn trong câu log dưới đây.
         await mgr
           .getRepository(OrderActivityLog)
           .createQueryBuilder()
           .update()
-          .set({ order_id: dest.id })
+          .set({ order_id: dest.id, order_opened_at: dest.opened_at })
           .where('order_id = :sid', { sid: src.id })
           .execute();
 
@@ -1693,7 +1713,7 @@ export class OrdersService {
       await this.writeActivity({
         order: dest,
         event_kind: 'transfer',
-        message: `Nhận ${movedCount} món chuyển từ ${srcTableName}`,
+        message: transferInMessage({ movedCount, srcTableName, srcOpenedAt }),
         actor,
       });
       return dest;
