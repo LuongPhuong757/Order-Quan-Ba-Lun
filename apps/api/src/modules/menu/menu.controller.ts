@@ -72,16 +72,18 @@ class BookOrderDto {
   items!: BookOrderRowDto[];
 }
 
+/** Một dòng trong file import. CHỈ `code` bắt buộc — field vắng mặt nghĩa là "giữ nguyên",
+ * không phải "đặt về rỗng"; xem docblock của `bulkImport`. */
 class BulkImportRowDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
-  @IsString() @MinLength(1) @MaxLength(128) name!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string;
   /** Group CODE (≤16 ký tự, slug). FE tự slugify từ tên dài trong file user. */
-  @IsString() @MinLength(1) @MaxLength(16) group!: string;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(16) group?: string;
   /** Tên hiển thị của group — dùng khi BE auto-create MenuGroup mới.
    * Nếu thiếu → BE dùng group code đã capitalize. */
   @IsOptional() @IsString() @MaxLength(64) group_name?: string;
-  @IsInt() @Min(0) @Max(100_000_000) price!: number;
-  @IsString() @MinLength(1) @MaxLength(32) unit!: string;
+  @IsOptional() @IsInt() @Min(0) @Max(100_000_000) price?: number;
+  @IsOptional() @IsString() @MinLength(1) @MaxLength(32) unit?: string;
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
 }
 
@@ -190,24 +192,55 @@ export class MenuController {
     return { data: { url } };
   }
 
-  /** POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).
-   * Mã trùng → ghi đè (name/group/price/unit/image_url). Mã mới → insert.
+  /**
+   * POST /menu/bulk-import — upsert nhiều món bằng mã (CSV/Excel import).
+   *
+   * LUẬT (sửa 2026-09-08): mỗi dòng CHỈ ghi đè những field CÓ MẶT trong file. Field vắng
+   * mặt (`undefined` — cột không có trong file, hoặc cell của dòng đó để trống) nghĩa là
+   * "GIỮ NGUYÊN giá trị đang có", KHÔNG phải "đặt về rỗng". Nhờ vậy chủ quán import một
+   * file chỉ có hai cột `code, price` để cập nhật bảng giá mà tên/nhóm/đvt/ảnh không việc gì.
+   *
+   * Vì sao có luật này: bản cũ luôn ghi cả 5 field, và `image_url` còn coi `null` là lệnh
+   * xoá ảnh. FE thì LUÔN gửi `image_url: null` khi file không có cột ảnh. Một lần import lại
+   * bảng giá lúc 2026-09-07 02:12 UTC vì thế đã XOÁ SẠCH ảnh của 304/597 món trên
+   * production — file ảnh vẫn nguyên trong `uploads/menu`, chỉ mất đường dẫn trong DB, và cả
+   * ba trang khách (apex, `menu.<domain>`, top món) trắng ảnh cho tới khi có người để ý.
+   *
+   * `is_active` CŨNG không còn bị import đụng tới: nó không nằm trong file nên không có
+   * thông tin gì để ghi. Bản cũ set `is_active = true` cho mọi mã trùng, tức là mỗi lần
+   * import bảng giá là hồi sinh im lặng mọi món chủ quán đã xoá.
+   *
+   * Mã CHƯA có trong DB thì không có gì để giữ nguyên: cần tối thiểu `name` + `group` mới
+   * tạo được món (`price` rớt về 0, `unit` rớt về 'phần' như trước). Thiếu thì dòng đó bị
+   * BỎ QUA và mã trả về trong `skipped` để FE nói lại cho chủ quán — thà thiếu một món và
+   * biết, hơn là tạo ra món tên rỗng nằm lẫn trong menu.
+   *
    * Nhóm chưa tồn tại → tự tạo MenuGroup mới với defaults (kitchen_type='cook',
-   * sort_order=999, icon=null, name = group code title-cased). */
+   * sort_order=999, icon=null, name = group_name từ FE hoặc group code title-cased).
+   */
   @Post('bulk-import')
   @HttpCode(201)
   @UseGuards(AdminGuard)
   async bulkImport(@Body() dto: BulkImportMenuDto) {
-    // 1) Auto-create missing groups — preserve group_name (display name) nếu FE truyền lên
+    const groupCodeOf = (row: BulkImportRowDto): string | undefined =>
+      row.group === undefined ? undefined : row.group.toLowerCase().trim();
+
+    // 1) Auto-create missing groups — CHỈ xét những dòng thật sự mang cột nhóm.
     const groupNameByCode = new Map<string, string>();
     for (const row of dto.items) {
-      const code = row.group.toLowerCase().trim();
+      const code = groupCodeOf(row);
+      if (!code) continue;
       if (row.group_name && !groupNameByCode.has(code)) {
         groupNameByCode.set(code, toTitleCase(row.group_name));
       }
     }
-    const groupCodes = Array.from(new Set(dto.items.map((i) => i.group.toLowerCase().trim())));
-    const existingGroups = await this.groupRepo.find({ where: { code: In(groupCodes) } });
+    const groupCodes = Array.from(
+      new Set(dto.items.map(groupCodeOf).filter((c): c is string => !!c)),
+    );
+    // File chỉ có `code, price` thì KHÔNG có mã nhóm nào — `In([])` sinh SQL vô nghĩa nên
+    // phải chặn ở đây thay vì để TypeORM tự xử.
+    const existingGroups =
+      groupCodes.length > 0 ? await this.groupRepo.find({ where: { code: In(groupCodes) } }) : [];
     const existingGroupCodes = new Set(existingGroups.map((g) => g.code));
     const newGroupCodes = groupCodes.filter((c) => !existingGroupCodes.has(c));
     const createdGroups: string[] = [];
@@ -233,33 +266,38 @@ export class MenuController {
     const existingMap = new Map(existing.map((e) => [e.code, e]));
     let created = 0;
     let updated = 0;
+    let unchanged = 0;
+    /** Mã của những dòng là món MỚI nhưng thiếu name/group — không tạo được. */
+    const skipped: string[] = [];
     for (const row of dto.items) {
-      const groupNorm = row.group.toLowerCase().trim();
-      const titledName = toTitleCase(row.name);
       const old = existingMap.get(row.code);
       if (old) {
-        old.name = titledName;
-        old.group = groupNorm;
-        old.price = row.price;
-        old.unit = row.unit;
-        // 2026-09-08 — CHỈ ghi đè ảnh khi dòng import có ảnh THẬT. Trước đây `null` cũng được
-        // coi là lệnh "xoá ảnh", mà FE LUÔN gửi `image_url: null` khi file Excel không có cột
-        // ảnh (MenuManagementPage: `r.image_url || null`). Một lần import lại bảng giá lúc
-        // 2026-09-07 02:12 UTC vì thế đã XOÁ SẠCH ảnh của 304/597 món trên production: file ảnh
-        // vẫn còn nguyên trong uploads/menu, chỉ mất đường dẫn trong DB, và cả 3 trang khách
-        // (apex, menu.<domain>, top món) trắng ảnh cho tới khi có người để ý.
-        // Import bảng giá KHÔNG BAO GIỜ được đụng tới ảnh — muốn gỡ ảnh thì sửa từng món.
-        if (row.image_url) old.image_url = row.image_url;
-        old.is_active = true;
+        // Chỉ những field có mặt trong file. `image_url` rỗng/null vẫn là "giữ nguyên":
+        // muốn gỡ ảnh thì sửa từng món ở màn Menu, không phải qua import.
+        let touched = false;
+        if (row.name !== undefined) { old.name = toTitleCase(row.name); touched = true; }
+        const groupNorm = groupCodeOf(row);
+        if (groupNorm) { old.group = groupNorm; touched = true; }
+        if (row.price !== undefined) { old.price = row.price; touched = true; }
+        if (row.unit !== undefined) { old.unit = row.unit; touched = true; }
+        if (row.image_url) { old.image_url = row.image_url; touched = true; }
+        // Dòng chỉ có mã (không mang field nào) — không ghi gì, tránh một UPDATE vô nghĩa
+        // làm bẩn `updated_at` của cả menu.
+        if (!touched) { unchanged++; continue; }
         await this.repo.save(old);
         updated++;
       } else {
+        const groupNorm = groupCodeOf(row);
+        if (row.name === undefined || !groupNorm) {
+          skipped.push(row.code);
+          continue;
+        }
         const fresh = this.repo.create({
           code: row.code,
-          name: titledName,
+          name: toTitleCase(row.name),
           group: groupNorm,
-          price: row.price,
-          unit: row.unit,
+          price: row.price ?? 0,
+          unit: row.unit ?? 'phần',
           image_url: row.image_url ?? null,
           is_out_of_stock: false,
           is_active: true,
@@ -273,6 +311,8 @@ export class MenuController {
         total: dto.items.length,
         created,
         updated,
+        unchanged,
+        skipped,
         created_groups: createdGroups,
       },
     };
