@@ -148,6 +148,7 @@ const EVENT_ICON: Record<string, string> = {
   transfer: '↔️',
   checkout: '💰',
   order_cancelled: '🗑️',
+  order_restarted: '🔄', // giờ vào ăn được tính lại (bàn mở trống trước đó — xem seated-at.ts)
   misa_copied: '📋', // đánh dấu đã gõ đơn sang amis.misa.vn
 };
 
