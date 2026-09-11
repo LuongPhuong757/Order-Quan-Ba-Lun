@@ -6,7 +6,7 @@ import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
-import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
+import { ageColor, ageMinutes, formatAge, isAgeCritical } from '../lib/item-age.ts';
 import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
 
 type OrderItem = {
@@ -1689,7 +1689,7 @@ function ItemRow({
               title={`Khách gọi lúc ${new Date(ageAt).toLocaleTimeString('vi-VN')} — đã chờ ${waitedMin} phút`}
             >
               <span>
-                {tooLong ? '⚠' : '⏱'} Đã chờ {waitedMin} phút
+                {tooLong ? '⚠' : '⏱'} Đã chờ {formatAge(waitedMin)}
               </span>
               {tooLong && (
                 <span style={{ fontWeight: 600, fontSize: 11 }}>
