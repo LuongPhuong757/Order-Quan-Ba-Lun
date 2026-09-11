@@ -14,6 +14,7 @@ import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.enti
 import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
 import { CustomerOtp } from './modules/public/entities/customer-otp.entity.js';
 import { CustomerSession } from './modules/public/entities/customer-session.entity.js';
+import { DineInCart } from './modules/public/entities/dine-in-cart.entity.js';
 import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
 import { WebVisitSession } from './modules/analytics/entities/web-visit-session.entity.js';
 import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-daily.entity.js';
@@ -68,6 +69,10 @@ export const dataSourceOptions: DataSourceOptions = {
     OnlineOrderRequest,
     CustomerOtp,
     CustomerSession,
+    // Giỏ khách tự chọn tại bàn qua QR (M4, 2026-09-11). Có repository hẳn hoi, nhưng vẫn
+    // phải khai ở ĐÂY — thiếu dòng này thì `synchronize` không tạo bảng `dine_in_carts` và
+    // `tsc` vẫn xanh, đúng cái bẫy mà docblock ngay trên mảng này cảnh báo.
+    DineInCart,
     NotificationOutbox,
     // Thống kê truy cập (2026-08-05). Luồng ghi dùng SQL thô `INSERT ... ON DUPLICATE KEY
     // UPDATE` nên KHÔNG cần repository, nhưng 2 entity này vẫn phải có mặt ở đây: thiếu thì
