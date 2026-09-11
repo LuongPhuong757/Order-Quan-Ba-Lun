@@ -1,8 +1,9 @@
 # Milestone 4 — Khách Tự Gọi Món Tại Bàn Bằng QR
 
-**Trạng thái:** ĐÃ IMPLEMENT cả 5 bước — 30 quyết định. Chưa chạy integration test với MySQL thật
-(worktree không có `.env`) và chưa mở trên trình duyệt thật.
-**Ngày chốt:** 2026-09-10 · **Ngày implement:** 2026-09-11
+**Trạng thái:** ĐÃ IMPLEMENT cả 5 bước — 31 quyết định. **Đã chạy thật ở local**: MySQL thật,
+API + 2 dev server, lái trình duyệt qua cả luồng khách lẫn luồng nhân viên. 108 integration
+test / 14 file đều xanh.
+**Ngày chốt:** 2026-09-10 · **Ngày implement + chạy thật:** 2026-09-11
 **Nguồn:** Phiên thảo luận trực tiếp với chủ quán (5 vòng hỏi–đáp)
 **Nhánh git:** `feat/qr-goi-mon-tai-ban` (worktree riêng — tính năng treo ngoài một thời gian rồi mới vào `develop`)
 **Liên quan:** tái dùng gần như toàn bộ hạ tầng Milestone 2 (`apps/shop`, module `public`) — xem 5.1
@@ -84,6 +85,7 @@ Hệ quả phải chấp nhận: không có cách nào biết giỏ thuộc bàn
 | **M4.D-25** | **BE tự tra giá từ `menu_items`, tuyệt đối không tin giá client gửi lên** — cả lúc sinh mã lẫn lúc xác nhận. | Nguyên tắc đã có từ M2.D-42. Endpoint sinh mã là endpoint công khai, không auth. |
 | **M4.D-26** | Chống lạm dụng: tối đa **5 lần sinh mã / thiết bị / giờ**, đếm trong DB theo **`customer_token` — KHÔNG theo `ip_hash`**; `qty ≤ 99` (đã có `MAX_QTY`). Không OTP, không SĐT. | ⚠ **Sửa lúc implement (2026-09-11).** Bản chốt ban đầu ghi "theo `customer_token` + `ip_hash`" — SAI và sẽ gây sự cố: cả quán dùng chung một wifi nên MỌI khách ra Internet bằng CÙNG MỘT IP công cộng. Hạn mức theo IP là hạn mức cho CẢ QUÁN — quán đông thì bàn thứ sáu trở đi không sinh được mã, và triệu chứng nhìn ra y như lỗi hệ thống. `ip_hash` vẫn được LƯU để truy vết, chỉ không dùng để chặn. Lớp chặn theo IP đã có sẵn và đủ rộng: throttler toàn cục 600 req/phút/IP. |
 | **M4.D-27** | **KHÔNG kiểm công tắc nhận đơn online, KHÔNG kiểm giờ mở cửa** khi khách sinh mã. | Thêm lúc implement. Hai công tắc đó thuộc WEB ĐẶT HÀNG ONLINE: `online_ordering_enabled` là thứ chủ quán tắt khi bếp quá tải đơn ship, `open_hours` là giờ web nhận đơn từ xa. Khách quét QR thì ĐANG NGỒI TRONG QUÁN — quán mở là điều kiện hiển nhiên đã thoả. Gate theo chúng tạo ra đúng một triệu chứng: khách đang ăn bấm sinh mã và nhận lỗi "quán đang đóng", rồi gọi nhân viên — mất trắng mục tiêu của M4. Muốn tắt riêng QR thì phải là công tắc RIÊNG (xem Q-5). |
+| **M4.D-31** | **Một thiết bị chỉ có ĐÚNG MỘT mã còn sống.** Sinh mã mới thì mọi mã còn sống của `customer_token` đó bị huỷ ngay trước khi cấp mã mới. | ⚠ **Phát hiện khi chạy thật trên trình duyệt (2026-09-11).** Từ màn hiện mã, khách bấm icon giỏ ở header quay lại giỏ rồi bấm "Sinh mã" lần nữa → hai mã cùng sống cho cùng một giỏ. Nhân viên gõ mã một: món vào bàn; gõ nốt mã hai: món vào bàn **lần thứ hai**. Đây là "nhân đôi món" mà M4.D-13 sinh ra để chặn, đi vòng qua cửa khác — M4.D-13 không đỡ được vì hai mã KHÁC NHAU, mỗi mã vẫn chỉ dùng một lần. Nút "Sửa lại" (M4.D-07) đã huỷ mã cũ nhưng đó chỉ là đường đi dự kiến; chặn phải nằm ở chỗ mọi đường sinh mã đều đi qua. |
 | **M4.D-28** | **Từ chối** giỏ có cùng `menu_item_id` ở hai dòng (400), không tự gộp. | Thêm lúc implement. Không phải vì sạch dữ liệu mà vì bước `apply`: nhân viên bỏ dòng thì FE gửi `skip_menu_item_ids`. Một `menu_item_id` hai dòng thì "bỏ dòng này" là câu không có nghĩa xác định — sẽ bỏ cả hai hoặc bỏ sai dòng. `cart-store.ts` luôn dựng một dòng một món, nên ca này chỉ đến từ client tự gọi API. |
 
 ---
@@ -275,14 +277,32 @@ gõ cùng lúc chỉ MỘT người thắng.
 `shop/lib/use-api.ts` (`deleteJson` nhận body) · `shop/main.tsx` (3 route) ·
 `web/components/OrderDrawer.tsx` (nút + modal)
 
-### Còn phải làm trước khi merge
+### Đã chạy thật ở local (2026-09-11)
 
-1. **Chạy `dine-in-apply.integration.test.ts` với MySQL thật.** Chưa chạy được vì worktree
-   không có `.env`. Đây là cửa chắn cho hai bất biến quan trọng nhất: mã dùng 1 lần (hai nhân
-   viên gõ đồng thời chỉ một người thắng) và món vào ở `PENDING`.
-2. **Mở trên trình duyệt thật, chụp ảnh kiểm mobile** — 3 màn khách + modal nhân viên.
-3. `pnpm lint` KHÔNG chạy được: `eslint` không được khai trong `package.json` nào và không có
-   trong `node_modules` (cả ở repo chính) — gap sẵn có của repo, không phải do M4.
+MySQL native cổng 3306 (`order_app`/`order_quan_balun`, 597 món thật), API build bằng `tsc` rồi
+`node dist/main.js`, shop 5174 + web 5173, lái Edge headless qua CDP.
+
+| Cửa chắn | Kết quả |
+|---|---|
+| `dine-in-apply.integration.test.ts` | ✅ **19/19** trên MySQL thật — gồm hai nhân viên gõ đồng thời chỉ một người thắng, và món vào ở `PENDING` |
+| Toàn bộ integration test | ✅ 108/108 (14 file) |
+| Unit test api / shop / web | ✅ 755 / 139 / 272 |
+| Luồng khách trên trình duyệt | ✅ menu → giỏ → sinh mã → màn OTP 5 ô |
+| Luồng nhân viên trên trình duyệt | ✅ đăng nhập → mở bàn → nhập mã → preview → thêm vào bàn |
+| Đối chiếu DB sau khi thêm | ✅ 2 dòng `PENDING`, ghi chú "ít cay" giữ nguyên, giỏ đánh dấu đã dùng kèm người + bàn, 2 dòng nhật ký |
+| Đo giao diện mobile 390×844 | ✅ 0 tràn ngang · 0 ô nhập <16px · 0 vùng bấm <36px |
+
+**4 lỗi chỉ chạy thật mới thấy** (đã sửa, xem git log): thiếu `DineInCart` trong `data-source.ts`
+nên `synchronize` không tạo bảng; hai mã cùng sống (M4.D-31); nút "Gõ mã khác" chữ trắng trên
+nền trắng; ô ghi chú 14px làm iOS phóng trang.
+
+### Còn lại
+
+- Chủ quán đọc lại câu chữ tiếng Việt (Q-4).
+- `pnpm lint` KHÔNG chạy được: `eslint` không được khai trong `package.json` nào và không có
+  trong `node_modules` (cả ở repo chính) — gap sẵn có của repo, không phải do M4.
+- `QtyInput` cao 20px (dưới ngưỡng vùng bấm) — component **dùng chung** với giỏ đặt online,
+  sửa là đụng luồng đang chạy nên để riêng, không gộp vào M4.
 
 ---
 
