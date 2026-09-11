@@ -7,7 +7,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
-import { vnDayIso } from '../lib/date-range.ts';
+import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
 import {
   historyFilterKey,
   historyQuery,
@@ -216,8 +216,14 @@ export function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<Status>('all');
   // Đối soát MISA — '' = không lọc, 'pending' = đã thu tiền nhưng chưa gõ sang AMIS.
   const [misaFilter, setMisaFilter] = useState<'' | 'pending' | 'copied'>('');
-  const [startDate, setStartDate] = useState(''); // yyyy-mm-dd
-  const [endDate, setEndDate] = useState('');
+  /** Khoảng thời gian đang xem — MỘT state chứ không phải cặp `startDate`/`endDate` rời:
+   *  khoảng "ca" mang thêm cờ `shift` mà hai ô ngày không diễn tả được, và tách ra thì sẽ có
+   *  lúc cờ bật còn ngày chưa xoá (hoặc ngược lại) — giao diện nói một đằng, query hỏi một nẻo.
+   *
+   *  Mặc định là CA ĐANG CHẠY chứ không phải "Tất cả" như trước (chốt 2026-09-11): việc mở màn
+   *  này nhiều nhất là xem buổi bán đang diễn ra, còn "Tất cả" thì vừa mở đã kéo cả năm đơn về.
+   *  Ai cần toàn bộ vẫn bấm chip "Tất cả" — một cú chạm. */
+  const [range, setRange] = useState<DayRange>(() => presetRange('shift', Date.now()));
   /** Trục sắp xếp (2026-09-09). Mặc định giữ nguyên nếp cũ — giờ VÀO ĂN. Đổi sang giờ THANH
    *  TOÁN để đối soát ca thu ngân: bàn ngồi từ tối hôm trước, thu tiền sáng hôm sau, xếp theo
    *  giờ vào là nó nằm lẫn ở ngày cũ.
@@ -251,8 +257,9 @@ export function HistoryPage() {
     cashier_user_id: cashierFilter,
     status: statusFilter,
     misa: misaFilter,
-    from: startDate,
-    to: endDate,
+    from: range.from,
+    to: range.to,
+    shift: range.shift,
   };
   /** Chuỗi định danh bộ lọc, dùng làm deps của effect: đổi `page` không được bắt biểu đồ tải
    *  lại (biểu đồ không theo trang), đổi bất cứ trục lọc nào thì phải. */
@@ -374,8 +381,10 @@ export function HistoryPage() {
     setCashierFilter('');
     setStatusFilter('all');
     setMisaFilter('');
-    setStartDate('');
-    setEndDate('');
+    // Về MẶC ĐỊNH (ca đang chạy), không phải về "Tất cả thời gian": "Xoá lọc" nghĩa là trả màn
+    // về đúng lúc mới mở lên. Trả về "Tất cả" ở đây thì bấm một nút lại thành kéo về toàn bộ
+    // lịch sử — rộng hơn hẳn thứ người dùng vừa xem, và đó không phải thứ họ định làm.
+    setRange(presetRange('shift', Date.now()));
     setPage(1);
   };
 
@@ -463,8 +472,16 @@ export function HistoryPage() {
     return m;
   }, [stats]);
 
+  /** Có đang lọc khác MẶC ĐỊNH không — quyết định hiện nút "Xoá lọc".
+   *
+   *  Khoảng thời gian tính là "có lọc" khi nó KHÁC ca đang chạy: ca là mặc định, nên đang ở ca
+   *  mà vẫn mời "Xoá lọc" thì nút đó chẳng xoá gì cả. */
   const hasActiveFilter =
-    tableFilter || cashierFilter || statusFilter !== 'all' || misaFilter || startDate || endDate;
+    tableFilter ||
+    cashierFilter ||
+    statusFilter !== 'all' ||
+    misaFilter ||
+    !range.shift;
 
   return (
     <div className="container txn-page with-bottom-nav">
@@ -594,12 +611,15 @@ export function HistoryPage() {
       {/* Khoảng ngày đứng thành HÀNG RIÊNG, không nhồi vào thanh lọc dính phía trên — cùng
           quyết định đã áp cho màn Đơn online: đây là trục lọc khác hẳn (bao nhiêu lâu) so với
           bàn/thu ngân (của ai), và thanh trên đã chật tới mức phải gãy 3 dòng trên điện thoại.
-          Đổi sang `DateRangePicker` nên việc hay làm nhất — xem hôm nay — còn MỘT cú chạm
-          thay vì mở lịch hai lần. */}
+          Đổi sang `DateRangePicker` nên việc hay làm nhất — xem buổi bán đang chạy — còn MỘT
+          cú chạm thay vì mở lịch hai lần, và từ 2026-09-11 thì KHÔNG tốn cú chạm nào: chip
+          "Ca này" là mặc định. Nhãn để ngắn ("Thời gian") vì nhãn nằm ngoài vùng cuộn, dài
+          thêm một chữ là ăn mất một chip trên điện thoại. */}
       <DateRangePicker
-        label="🕒 Khoảng ngày"
-        value={{ from: startDate, to: endDate }}
-        onChange={(r) => { setStartDate(r.from); setEndDate(r.to); setPage(1); }}
+        label="🕒 Thời gian"
+        value={range}
+        shiftChip
+        onChange={(r) => { setRange(r); setPage(1); }}
       />
 
       {/* Nhân viên order: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
