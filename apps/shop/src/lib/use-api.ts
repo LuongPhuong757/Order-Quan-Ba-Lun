@@ -140,12 +140,19 @@ export async function postJson<T>(
  * Không có body: `order_token` nằm trên URL. Dùng chung `sendJson` với `postJson` để `DELETE` đi
  * qua ĐÚNG một đường xử lý lỗi — nhất là `credentials: 'same-origin'` (trình duyệt mới gửi header
  * `Origin`, thứ `CsrfOriginGuard` bắt buộc phải có ở mọi mutation).
+ *
+ * `body` là THAM SỐ TUỲ CHỌN thêm 2026-09-11 cho `DELETE /api/public/dine-in-carts/:code` (nút
+ * "Sửa lại" của khách ngồi bàn, M4.D-07): mã ở đó chỉ 5 chữ số nên không tự làm credential được,
+ * phải kèm `customer_token` để chứng minh đúng thiết bị đã sinh mã. Token đi trong BODY chứ không
+ * phải query string — trên URL là để nó lọt vào access log của nginx. Mọi chỗ gọi cũ không truyền
+ * `body` nên hành vi của chúng không đổi một byte.
  */
 export async function deleteJson<T>(
   path: string,
   schema: ZodType<T>,
+  body?: unknown,
 ): Promise<{ data: T } | { error: ApiError }> {
-  return sendJson('DELETE', path, undefined, schema);
+  return sendJson('DELETE', path, body, schema);
 }
 
 /**
