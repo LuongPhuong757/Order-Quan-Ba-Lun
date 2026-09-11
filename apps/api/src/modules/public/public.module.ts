@@ -17,6 +17,9 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
 import { CustomerOtp } from './entities/customer-otp.entity.js';
+import { DineInCart } from './entities/dine-in-cart.entity.js';
+import { DineInCartsService } from './dine-in-carts.service.js';
+import { PublicDineInCartsController } from './public-dine-in-carts.controller.js';
 import { CustomerSession } from './entities/customer-session.entity.js';
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
@@ -56,6 +59,9 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
       MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem,
       // OTP đăng nhập bằng SĐT (2026-08-04) — xem docblock `otp.ts`.
       CustomerOtp, CustomerSession,
+      // Giỏ khách tự chọn tại bàn qua QR (M4, 2026-09-10) — bảng RIÊNG, không dùng lại
+      // `online_order_requests` (M4.D-24, xem docblock entity).
+      DineInCart,
     ]),
     SettingsModule,
     NotificationsModule,
@@ -75,10 +81,13 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     PublicMenuPhotosController,
     // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
     PublicOtpController,
+    // GET/POST/DELETE /api/public/dine-in-carts (M4) — khách quét QR gọi món tại bàn.
+    PublicDineInCartsController,
   ],
   providers: [
     PublicOrdersService,
     PublicOtpService,
+    DineInCartsService,
     LogOtpSender,
     SmsOtpSender,
     {
