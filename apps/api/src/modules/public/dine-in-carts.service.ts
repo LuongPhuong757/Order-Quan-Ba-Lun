@@ -174,6 +174,39 @@ export class DineInCartsService {
           },
         })) > 0,
 
+      // Huỷ mọi mã còn sống của thiết bị trước khi cấp mã mới (M4.D-31). Điều kiện WHERE
+      // khớp đúng định nghĩa "còn sống" của `dineInCartState`; mã đã dùng KHÔNG bị đụng tới
+      // (đặt lại `cancelled_at` trên một giỏ đã vào bill sẽ làm nhật ký nói dối).
+      /**
+       * Dùng QueryBuilder chứ KHÔNG dùng `repo.update({...})` — và đây là một bất đối xứng của
+       * TypeORM đủ sức làm mất cả buổi:
+       *
+       *   `find`/`count` CÓ chạy `dateToMsTransformer` cho toán tử trong `where`, nên
+       *   `MoreThan(nowMs)` ở `isCodeLive` bên dưới chạy bình thường.
+       *   `repo.update()` thì KHÔNG chạy transformer cho criteria — số ms thô đi thẳng vào
+       *   SQL và MySQL trả `Incorrect datetime value: '1789099989313'`, HTTP 500.
+       *
+       * Và không chữa được bằng `MoreThan(new Date(nowMs))`: cột khai kiểu `number` nên bản
+       * vá đó đỏ ở `tsc`. Nghĩa là ở nhánh này, kiểu TS và hành vi runtime nói hai điều khác
+       * nhau — QueryBuilder là chỗ duy nhất nói thẳng được ý định (tham số WHERE là Date,
+       * giá trị SET vẫn đi qua transformer như thường).
+       *
+       * Lỗi chỉ lộ ra khi chạy thật trên MySQL (phát hiện 2026-09-11); typecheck và unit test
+       * với fake-repository đều xanh.
+       */
+      cancelLiveCartsOfToken: async (customerToken, nowMs) => {
+        const res = await this.cartRepo
+          .createQueryBuilder()
+          .update(DineInCart)
+          .set({ cancelled_at: nowMs })
+          .where('customer_token = :token', { token: customerToken })
+          .andWhere('used_at IS NULL')
+          .andWhere('cancelled_at IS NULL')
+          .andWhere('expires_at > :now', { now: new Date(nowMs) })
+          .execute();
+        return res.affected ?? 0;
+      },
+
       insertCart: async (row) => {
         await this.cartRepo.insert({
           code: row.code,

@@ -53,6 +53,8 @@ export type CreateCartDeps = {
   countRecentByToken(customerToken: string, sinceMs: number): Promise<number>;
   /** Mã này có đang thuộc một giỏ CÒN HIỆU LỰC không (M4.D-14 — unique chỉ trong tập sống). */
   isCodeLive(code: string, nowMs: number): Promise<boolean>;
+  /** Huỷ mọi mã CÒN SỐNG của thiết bị này. Trả về số mã đã huỷ. Xem M4.D-31. */
+  cancelLiveCartsOfToken(customerToken: string, nowMs: number): Promise<number>;
   insertCart(row: DineInCartInsert): Promise<void>;
   /** Bọc salt sẵn (`hashIp` + `resolveIpHashSalt`) — để test không cần env var. */
   hashIpFn(ip: string): string;
@@ -178,6 +180,24 @@ export async function createDineInCart(
       HttpStatus.SERVICE_UNAVAILABLE,
     );
   }
+
+  /**
+   * M4.D-31 — MỘT THIẾT BỊ CHỈ CÓ ĐÚNG MỘT MÃ CÒN SỐNG.
+   *
+   * Phát hiện khi chạy thật trên trình duyệt (2026-09-11): từ màn hiện mã, khách vẫn bấm được
+   * icon giỏ ở header để quay lại giỏ, rồi bấm "Sinh mã" lần nữa. Kết quả là HAI mã cùng sống
+   * cho cùng một giỏ. Nhân viên gõ mã thứ nhất → món vào bàn; lát sau gõ nốt mã thứ hai →
+   * **món vào bàn lần thứ hai**. Đúng cái "nhân đôi món" mà M4.D-13 sinh ra để chặn, chỉ là
+   * đi vòng qua một cửa khác — và M4.D-13 không đỡ được vì đây là hai mã KHÁC NHAU, mỗi mã
+   * vẫn chỉ dùng đúng một lần.
+   *
+   * Nút "Sửa lại" (M4.D-07) đã huỷ mã cũ, nhưng nó chỉ là ĐƯỜNG ĐI DỰ KIẾN. Chặn phải nằm ở
+   * đây, nơi mọi đường sinh mã đều đi qua — kể cả khách gõ thẳng URL hay bấm nút Back.
+   *
+   * Huỷ ngay TRƯỚC khi chèn mã mới, không phải sau: hỏng ở giữa thì thà không có mã nào còn
+   * hơn có hai.
+   */
+  await deps.cancelLiveCartsOfToken(input.customer_token, ctx.nowMs);
 
   const expires_at = ctx.nowMs + DINE_IN_CART_TTL_MS;
   await deps.insertCart({

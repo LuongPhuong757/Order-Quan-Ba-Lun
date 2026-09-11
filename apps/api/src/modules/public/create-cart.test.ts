@@ -33,6 +33,7 @@ function makeDeps(over: Partial<CreateCartDeps> = {}) {
     findMenuItemsByIds: async () => [menuItem()],
     countRecentByToken: async () => 0,
     isCodeLive: async () => false,
+    cancelLiveCartsOfToken: async () => 0,
     insertCart: async (row) => {
       inserted.push(row);
     },
@@ -199,6 +200,56 @@ describe('createDineInCart — hạn mức và mã', () => {
       response: { code: 'DINE_IN_CODE_EXHAUSTED' },
     });
     expect(inserted).toHaveLength(0);
+  });
+});
+
+/**
+ * M4.D-31 — phát hiện khi chạy thật trên trình duyệt (2026-09-11).
+ *
+ * Từ màn hiện mã, khách vẫn bấm được icon giỏ ở header quay lại giỏ rồi bấm "Sinh mã" lần nữa
+ * → HAI mã cùng sống cho cùng một giỏ. Nhân viên gõ mã một: món vào bàn; lát sau gõ nốt mã
+ * hai: món vào bàn LẦN THỨ HAI. M4.D-13 không đỡ được vì đây là hai mã khác nhau, mỗi mã vẫn
+ * chỉ dùng đúng một lần.
+ */
+describe('createDineInCart — một thiết bị chỉ một mã sống (M4.D-31)', () => {
+  it('huỷ mã cũ của cùng thiết bị trước khi cấp mã mới', async () => {
+    const cancelLiveCartsOfToken = vi.fn(async () => 1);
+    const { deps } = makeDeps({ cancelLiveCartsOfToken });
+    await createDineInCart(input(), deps, ctx);
+    expect(cancelLiveCartsOfToken).toHaveBeenCalledWith(TOKEN, NOW);
+  });
+
+  /** Huỷ TRƯỚC khi chèn: hỏng ở giữa thì thà không có mã nào còn hơn có hai mã cùng sống. */
+  it('huỷ chạy TRƯỚC insert, không phải sau', async () => {
+    const order: string[] = [];
+    const { deps } = makeDeps({
+      cancelLiveCartsOfToken: async () => {
+        order.push('cancel');
+        return 1;
+      },
+      insertCart: async () => {
+        order.push('insert');
+      },
+    });
+    await createDineInCart(input(), deps, ctx);
+    expect(order).toEqual(['cancel', 'insert']);
+  });
+
+  it('không huỷ khi giỏ bị từ chối — món hết thì không đụng tới mã đang sống', async () => {
+    const cancelLiveCartsOfToken = vi.fn(async () => 0);
+    const { deps } = makeDeps({
+      cancelLiveCartsOfToken,
+      findMenuItemsByIds: async () => [menuItem({ is_out_of_stock: true })],
+    });
+    await expect(createDineInCart(input(), deps, ctx)).rejects.toThrow();
+    expect(cancelLiveCartsOfToken).not.toHaveBeenCalled();
+  });
+
+  it('không huỷ khi cạn mã — mã cũ vẫn còn dùng được', async () => {
+    const cancelLiveCartsOfToken = vi.fn(async () => 0);
+    const { deps } = makeDeps({ cancelLiveCartsOfToken, isCodeLive: async () => true });
+    await expect(createDineInCart(input(), deps, ctx)).rejects.toThrow();
+    expect(cancelLiveCartsOfToken).not.toHaveBeenCalled();
   });
 });
 
