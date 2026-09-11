@@ -10,7 +10,7 @@
 //
 // Ở đây là hàm THUẦN, không gọi mạng: nó là phần duy nhất của màn đó kiểm được bằng test.
 
-import { vnDayEndMs, vnDayStartMs } from './date-range.ts';
+import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
 export type HistoryMisa = '' | 'pending' | 'copied';
@@ -26,6 +26,9 @@ export type HistoryFilters = {
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
+  /** `true` = lọc theo CA đang chạy (8h sáng → bây giờ) thay vì theo khoảng ngày; khi đó
+   *  `from`/`to` bị bỏ qua. Xem `shiftStartMs` trong `date-range.ts`. */
+  shift?: boolean;
 };
 
 export type HistoryQueryOpts = {
@@ -39,6 +42,8 @@ export type HistoryQueryOpts = {
    *  Để sort ở đây (opts) chứ không nhét vào `HistoryFilters` là có chủ ý — đổi cách sắp xếp
    *  KHÔNG được làm biểu đồ tải lại, mà `historyFilterKey` lại dựng từ chính `HistoryFilters`. */
   sort?: HistorySort;
+  /** Mốc "bây giờ" để tính đầu ca. Chỉ có tác dụng khi `shift` bật; để test bơm giờ cố định. */
+  nowMs?: number;
 };
 
 export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): URLSearchParams {
@@ -47,8 +52,17 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (opts.cashier !== false && f.cashier_user_id) q.set('cashier_user_id', f.cashier_user_id);
   if (f.status !== 'all') q.set('status', f.status);
   if (f.misa) q.set('misa', f.misa);
-  if (f.from) q.set('start_ms', String(vnDayStartMs(f.from)));
-  if (f.to) q.set('end_ms', String(vnDayEndMs(f.to)));
+  if (f.shift) {
+    // Ca đang chạy: CHỈ chặn đầu dưới. Nhãn nói "tới bây giờ" nhưng cố ý không gửi `end_ms` —
+    // chốt cứng `Date.now()` vào query thì đơn thanh toán sau lúc bấm chip sẽ rơi ra ngoài
+    // khoảng cho tới khi bấm lại, mà không có đơn nào nằm ở tương lai để phải chặn. Bỏ trống
+    // đầu trên cũng giữ cho `historyFilterKey` ĐỨNG YÊN giữa các lần render: gắn `Date.now()`
+    // vào khoá là effect tải lại vô tận, vì khoá này chính là deps của nó.
+    q.set('start_ms', String(shiftStartMs(opts.nowMs ?? Date.now())));
+  } else {
+    if (f.from) q.set('start_ms', String(vnDayStartMs(f.from)));
+    if (f.to) q.set('end_ms', String(vnDayEndMs(f.to)));
+  }
   // Mặc định 'opened' KHÔNG gửi lên — cùng lệ với `status: 'all'`: thiếu tham số nghĩa là mặc
   // định, và query string ngắn thì đọc log dễ hơn.
   if (opts.sort && opts.sort !== 'opened') q.set('sort', opts.sort);
@@ -65,6 +79,6 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
  * Dùng làm deps của effect: đổi `page` KHÔNG được bắt biểu đồ tải lại (biểu đồ không theo
  * trang), nhưng đổi bất cứ trục lọc nào thì phải.
  */
-export function historyFilterKey(f: HistoryFilters): string {
-  return historyQuery(f).toString();
+export function historyFilterKey(f: HistoryFilters, nowMs?: number): string {
+  return historyQuery(f, { nowMs }).toString();
 }
