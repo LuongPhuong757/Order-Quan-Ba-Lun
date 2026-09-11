@@ -5,6 +5,7 @@ import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
+import { DineInCodeModal } from './DineInCodeModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, isAgeCritical } from '../lib/item-age.ts';
 import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
@@ -198,6 +199,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [order, setOrder] = useState<Order | null>(null);
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
+  const [showDineInCode, setShowDineInCode] = useState(false);
   const [fulfillBusy, setFulfillBusy] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -834,6 +836,32 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 màn Đơn hàng online, nơi có panel sửa món và nhắc báo lại khách. */}
             <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
 
+              {/* NHẬP MÃ KHÁCH (M4.D-16) — khách quét QR tự chọn món rồi đọc 5 số cho nhân viên.
+                  Đặt ở đây, TRONG drawer của bàn, là có chủ đích: nhân viên đang mở bàn nào thì
+                  món đổ vào bàn đó, không có bước chọn bàn để mà chọn sai. QR là QR chung nên hệ
+                  thống không biết giỏ thuộc bàn nào — đúng bàn hay không hoàn toàn dựa vào việc
+                  nhân viên đang đứng ở đâu.
+
+                  Ẩn với đơn ONLINE cùng lý do như Gọi món/Chuyển bàn (chỉ đạo 2026-08-04): đơn
+                  ship sửa ở màn Đơn hàng online. */}
+              {!isOnline && (
+                <button
+                  onClick={() => setShowDineInCode(true)}
+                  style={{
+                    width: '100%',
+                    background: '#fff',
+                    color: '#1f2937',
+                    border: '1px solid #d1d5db',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    minHeight: 44,
+                  }}
+                  title="Khách quét QR chọn món rồi đọc mã 5 số"
+                >
+                  ⌗ Nhập mã khách
+                </button>
+              )}
+
               {/* Mốc giao của đơn online — bấm được NGAY tại drawer, shipper không phải chạy
                   sang màn Đơn hàng online. Nền xanh dương khớp badge "Đang giao" trên header. */}
               {canMarkShipped && (
@@ -1022,6 +1050,15 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               setShowBulkOrder(false);
               refresh();
             }}
+          />
+        )}
+
+        {showDineInCode && order && (
+          <DineInCodeModal
+            orderId={order.id}
+            tableLabel={table.name}
+            onClose={() => setShowDineInCode(false)}
+            onApplied={() => refresh()}
           />
         )}
 
