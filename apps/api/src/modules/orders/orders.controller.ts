@@ -30,6 +30,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import { OrdersService } from './orders.service.js';
+import { DineInStaffService } from './dine-in-staff.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
@@ -132,10 +133,24 @@ function staffHistoryWindowMs(req: Request): number | undefined {
   return role === 'admin' || role === 'report' ? undefined : STAFF_HISTORY_WINDOW_MS;
 }
 
+/** Body của `POST /orders/:id/dine-in-carts/:code/apply` — các dòng nhân viên chủ động bỏ ở
+ * preview. Món đã hết hàng thì BE tự bỏ dù có nằm trong danh sách này hay không (không tin FE
+ * về chuyện món còn bán được — preview trên tay nhân viên có thể đã cũ vài phút). */
+class ApplyDineInCartDto {
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsUUID('4', { each: true })
+  skip_menu_item_ids?: string[];
+}
+
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private readonly svc: OrdersService) {}
+  constructor(
+    private readonly svc: OrdersService,
+    private readonly dineIn: DineInStaffService,
+  ) {}
 
   /** GET /orders — all open orders (one per active table) */
   @Get()
@@ -389,5 +404,45 @@ export class OrdersController {
   async updateCustomerInfo(@Param('id') id: string, @Body() dto: UpdateCustomerInfoDto) {
     const order = await this.svc.updateCustomerInfo(id, dto);
     return { data: order };
+  }
+
+  /**
+   * GET /orders/dine-in-carts/:code — PREVIEW giỏ khách tự chọn qua QR (M4.D-17).
+   *
+   * CỐ Ý không tiêu mã (xem docblock `DineInStaffService.preview`). Route này là ĐỌC nên nó
+   * không nằm dưới `:id` nào: nhân viên gõ mã trước khi hệ thống biết sẽ đổ vào bàn nào, và
+   * preview phải hiện ra được để họ đối chiếu TRƯỚC khi quyết định.
+   */
+  @Get('dine-in-carts/:code')
+  @UseGuards(RequireRoles('admin', 'order'))
+  async previewDineInCart(@Param('code') code: string) {
+    const preview = await this.dineIn.preview(code, Date.now());
+    return { data: preview };
+  }
+
+  /**
+   * POST /orders/:id/dine-in-carts/:code/apply — đổ giỏ QR vào đơn của bàn (M4.D-18).
+   *
+   * Món vào ở state `PENDING`: đây là bước XÁC NHẬN, KHÔNG phải báo bếp. Báo bếp vẫn là
+   * `POST /orders/:id/send-to-kitchen` như mọi món khác — đúng yêu cầu "xem xong rồi mới báo
+   * bếp" của chủ quán, và không cần state máy mới nào.
+   */
+  @Post(':id/dine-in-carts/:code/apply')
+  @HttpCode(201)
+  @UseGuards(RequireRoles('admin', 'order'))
+  async applyDineInCart(
+    @Param('id') id: string,
+    @Param('code') code: string,
+    @Body() dto: ApplyDineInCartDto,
+    @Req() req: Request,
+  ) {
+    const result = await this.dineIn.apply(
+      id,
+      code,
+      dto.skip_menu_item_ids ?? [],
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      Date.now(),
+    );
+    return { data: result };
   }
 }

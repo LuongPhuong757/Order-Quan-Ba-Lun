@@ -6,7 +6,9 @@ import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
+import { DineInCart } from '../public/entities/dine-in-cart.entity.js';
 import { OrdersService } from './orders.service.js';
+import { DineInStaffService } from './dine-in-staff.service.js';
 import { OrdersController } from './orders.controller.js';
 import { DishSalesService } from './dish-sales.service.js';
 import { DishSalesController } from './dish-sales.controller.js';
@@ -23,6 +25,10 @@ import { IngredientsModule } from '../ingredients/ingredients.module.js';
       // Thống kê món đã bán đọc `menu_groups` để đổi mã nhóm thành tên người đọc được.
       MenuGroup,
       RestaurantTable,
+      // Giỏ khách tự chọn qua QR (M4) — module này CHỈ đọc + chiếm mã; đường ghi khi khách
+      // sinh/huỷ mã nằm ở `PublicModule`. Đăng ký ở đây để `apply` chiếm mã bằng
+      // compare-and-set trên cùng repository, không phải gọi chéo module.
+      DineInCart,
     ]),
     AuthModule,
     // Chốt tiêu hao nguyên liệu khi món vào bếp (2026-09-05) — OrdersService gọi
@@ -30,6 +36,6 @@ import { IngredientsModule } from '../ingredients/ingredients.module.js';
     IngredientsModule,
   ],
   controllers: [OrdersController, DishSalesController],
-  providers: [OrdersService, DishSalesService],
+  providers: [OrdersService, DishSalesService, DineInStaffService],
 })
 export class OrdersModule {}
