@@ -382,6 +382,18 @@ const orderSlot: CSSProperties = {
   flexShrink: 0,
 };
 
+/**
+ * Nút cộng: NỀN HỔ PHÁCH ĐẶC, chữ tối.
+ *
+ * Bản đầu là vòng tròn nền `--menu-chrome` (tối) với dấu + màu hổ phách — đúng tông quyển
+ * menu, và gần như vô hình: nền trang là ảnh gỗ tối nên một vòng tròn tối trên đó không nổi
+ * lên chút nào. Chủ quán mở trang, không nhận ra là gọi món được và hỏi "menu gọi đồ đâu"
+ * (2026-09-11). Nút này là thứ DUY NHẤT nói với khách rằng trang này gọi được món, nên nó
+ * phải là vật sáng nhất trên dòng, không phải vật hoà vào nền.
+ *
+ * Đảo màu (nền sáng, chữ tối) cũng là cách nó khác hẳn tấm ảnh món bên cạnh — hai vùng bấm
+ * trên cùng một dòng mà trông giống nhau thì khách bấm sai.
+ */
 const addBtn: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
@@ -389,11 +401,13 @@ const addBtn: CSSProperties = {
   width: 'var(--tap-min)',
   height: 'var(--tap-min)',
   borderRadius: '50%',
-  border: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
-  color: 'var(--menu-price)',
+  border: 'none',
+  background: 'var(--menu-price)',
+  // Nền hổ phách sáng → chữ TỐI. Chữ trắng/sáng trên nền này là không đọc được.
+  color: '#2b1d08',
   // Dấu + phải to và cân giữa: đây là vùng bấm chính của cả dòng.
   fontSize: 'var(--fs-xl)',
+  fontWeight: 'var(--fw-semibold)',
   lineHeight: 1,
   fontFamily: 'inherit',
   cursor: 'pointer',

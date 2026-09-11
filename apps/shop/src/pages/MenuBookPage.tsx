@@ -1025,18 +1025,34 @@ export function MenuBookPage(): JSX.Element {
       {/* Thanh gọi món dính đáy — CHỈ hiện khi giỏ có món hoặc đang có mã còn hiệu lực.
           Hiện sẵn một thanh rỗng là chiếm mất một dải đáy màn hình của quyển menu, đúng chỗ
           ngón tay đặt để vuốt lật trang. */}
-      {(cart.count > 0 || activeCode !== null) && sheet === 'none' && (
+      {sheet === 'none' && total > 0 && (
         <div style={orderBar}>
           {activeCode !== null && (
             <button type="button" style={codeChip} onClick={() => setSheet('code')}>
               Mã {activeCode.code}
             </button>
           )}
-          {cart.count > 0 && (
+          {cart.count > 0 ? (
             <button type="button" style={cartCta} onClick={() => setSheet('cart')}>
               <span>Xem {cart.count} món</span>
               <span>{formatVnd(cart.subtotal)}</span>
             </button>
+          ) : (
+            activeCode === null && (
+              /**
+               * CÂU HƯỚNG DẪN — thiếu nó thì không có gì nói với khách rằng trang này gọi
+               * được món.
+               *
+               * Chủ quán mở trang, thấy quyển menu đẹp, và hỏi "menu để khách gọi đồ đâu"
+               * (2026-09-11) — dù 77 nút cộng đang hiện ngay trên màn. Một nút tròn không
+               * tự giải thích được chức năng; phải có một câu.
+               *
+               * Nằm ĐÚNG chỗ của thanh giỏ và biến mất ngay khi khách cộng món đầu tiên:
+               * hướng dẫn chỉ cần thiết trước lần bấm đầu, sau đó nó là tiếng ồn. Nhờ dùng
+               * chung một chỗ mà bố cục không đổi khi thanh giỏ thay thế nó.
+               */
+              <p style={orderHint}>Bấm ＋ để gọi món — nhân viên sẽ tới xác nhận</p>
+            )
           )}
         </div>
       )}
@@ -1499,6 +1515,21 @@ const cartCta: CSSProperties = {
   fontWeight: 'var(--fw-semibold)',
   fontFamily: 'inherit',
   cursor: 'pointer',
+};
+
+/** Câu hướng dẫn trước lần cộng món đầu tiên. Có `background` riêng vì nền trang là ảnh gỗ
+ *  tối nhiều chi tiết — chữ đặt thẳng lên đó thì chỗ đọc được chỗ không. */
+const orderHint: CSSProperties = {
+  pointerEvents: 'none',
+  margin: 0,
+  padding: 'var(--sp-2) var(--sp-3)',
+  borderRadius: 999,
+  background: 'rgba(47,43,39,0.92)',
+  border: '1px solid var(--menu-line)',
+  color: 'var(--menu-text)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)',
+  textAlign: 'center',
 };
 
 /** Lối quay lại xem mã đã sinh — khách hay đóng lớp phủ rồi lật menu tiếp trong lúc chờ

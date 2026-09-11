@@ -306,6 +306,10 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
             </div>
 
             <p style={readAloud}>Đọc mã này cho nhân viên</p>
+            {/* Nói thẳng trạng thái đang chờ: khách vừa bấm xong không biết phải làm gì tiếp,
+                và "món chỉ xuống bếp sau khi nhân viên xác nhận" là điều họ cần biết để không
+                ngồi đợi món trong khi chưa ai nhận đơn. */}
+            <p style={waitingText}>Đang chờ nhân viên tới xác nhận — món chỉ xuống bếp sau đó.</p>
             <p style={countdownText}>Còn hiệu lực {fmtRemain(remainMs)}</p>
 
             {error && <p style={errorBox}>{error}</p>}
@@ -595,6 +599,13 @@ const readAloud: CSSProperties = {
   margin: 'var(--sp-3) 0 0',
   fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-semibold)',
+};
+
+const waitingText: CSSProperties = {
+  margin: '6px auto 0',
+  maxWidth: 300,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--menu-text-muted)',
 };
 
 const countdownText: CSSProperties = {
