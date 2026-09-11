@@ -1,6 +1,7 @@
+| **2** | 3 route công khai + gọi món TRÊN quyển menu `/thuc-don` (nút cộng + 2 lớp phủ) | ✅ chạy thật trên trình duyệt |
 # Milestone 4 — Khách Tự Gọi Món Tại Bàn Bằng QR
 
-**Trạng thái:** ĐÃ IMPLEMENT cả 5 bước — 31 quyết định. **Đã chạy thật ở local**: MySQL thật,
+**Trạng thái:** ĐÃ IMPLEMENT cả 5 bước — 35 quyết định. **Đã chạy thật ở local**: MySQL thật,
 API + 2 dev server, lái trình duyệt qua cả luồng khách lẫn luồng nhân viên. 108 integration
 test / 14 file đều xanh.
 **Ngày chốt:** 2026-09-10 · **Ngày implement + chạy thật:** 2026-09-11
@@ -51,8 +52,11 @@ Hệ quả phải chấp nhận: không có cách nào biết giỏ thuộc bàn
 | **M4.D-08** | Mã lưu `localStorage` phía khách — đóng tab mở lại vẫn thấy mã, nếu còn hạn. | Rẻ, hạ tầng đã có (`customer-token.ts`). |
 | **M4.D-09** | **KHÔNG làm màn "giỏ chờ" phía nhân viên.** Khách mất mã → sinh mã mới, hoặc đọc món trực tiếp. | Chủ quán chọn. Với M4.D-03 thì mã sống 15 phút và nhân viên đang đứng tại bàn, ca mất mã gần như không có. Có list còn thêm rủi ro nhân viên chọn sai giỏ. |
 | **M4.D-10** | **Ghi chú từng món BẬT** ("ít cay", "không hành"). | `cart-store.ts` đã hỗ trợ `note` mỗi dòng — không phải làm gì thêm. |
-| **M4.D-29** | Trang QR đọc **endpoint RIÊNG `GET /api/public/dine-in-menu`**, lọc theo ĐÚNG MỘT cờ `is_active` — bỏ qua cả `is_online_hidden` lẫn `is_menu_hidden`. | ⚠ **Phát hiện lúc implement (2026-09-11) — spec ban đầu ghi "dùng lại `/api/public/menu`" và như vậy là SAI.** `/menu` LOẠI HẲN món `is_online_hidden`, mà cờ đó nghĩa là "POS bán bình thường, web ship không bán" — tức đúng tập món **chỉ bán tại chỗ**: lẩu, món cồng kềnh không ship được. Khách đang NGỒI TRONG QUÁN mà không thấy những món đó thì tính năng mất đúng phần giá trị nhất, và khách vẫn phải gọi nhân viên. Khách ngồi bàn gọi món là bán tại chỗ → tập món phải khớp tập món POS bán. |
-| **M4.D-30** | Luồng tại bàn có **giỏ hàng riêng** (`qbl.dinein.cart.v1`, TTL **4 giờ**) và **khung màn riêng** (`DineInShell`), tách hẳn giỏ + `AppShell` của web đặt online. | Thêm lúc implement. Giỏ chung là khách đang có đơn ship dở dang mà quét QR thì hai giỏ đè lên nhau — món tại bàn trộn vào đơn ship. TTL 4 giờ (không phải 24 giờ như giỏ online) vì giỏ tại bàn gắn với MỘT lượt ngồi ăn; quá 4 giờ là lượt khác, và giỏ hôm qua hiện lại lúc khách vừa ngồi xuống là đường ngắn nhất để món lạ lọt vào bill. Khung riêng vì `AppShell` mang nav "Đơn của tôi"/"Bảng xếp hạng", popup "quán tạm ngưng nhận đơn online", và icon giỏ trỏ giỏ ONLINE — cả ba đều sai với người đang ngồi ăn. |
+| **M4.D-32** | **Mã QR trỏ THẲNG `/thuc-don` — quyển menu điện tử ĐÃ CÓ.** Khách quét là ra ngay quyển menu và cộng món được ngay trên dòng món. KHÔNG có màn gọi món riêng. | ⚠ **Chủ quán chốt 2026-09-11 sau khi mở thử ở local — ĐẢO NGƯỢC M4.D-29/30.** Chủ quán mở `/thuc-don` (thứ họ gọi là "màn menu") và không cộng được món, vì trang đó cố ý có 0 nút cộng. Yêu cầu nguyên văn: "khách quét QR ra thẳng menu và có thể cộng luôn". Nên quyển menu nay vừa để ngắm vừa là màn gọi món. Hệ quả đã cân nhắc và chấp nhận: khách mở `menu.<domain>` ở nhà cũng thấy nút cộng và sinh được mã — vô hại, vì mã hết hạn 15 phút và phải có nhân viên gõ tại bàn mới thành đơn. |
+| **M4.D-33** | **Giỏ và màn hiện mã là LỚP PHỦ trong `MenuBookPage`, không phải route.** | Quyển menu được phục vụ ở HAI nơi: `/thuc-don` trên tên miền chính (có router) và toàn bộ `menu.<domain>` (`main.tsx` cố ý KHÔNG dựng `BrowserRouter`). Là route thì luồng gọi món chỉ chạy được ở một trong hai địa chỉ mà QR có thể trỏ tới — và QR in ra rồi thì không sửa lại được. |
+| **M4.D-34** | Nút cộng nằm ở **MÉP NGOÀI dòng món**, không nằm giữa dòng. | Quyển menu lật trang bằng cử chỉ vuốt ngang. Chính `BookCard.tsx` từng dính lỗi này: trước đây cả dòng là một `<button>` nên mỗi cú vuốt hụt lại bung ảnh lớn của một món ngẫu nhiên, phải thu vùng bấm về đúng tấm ảnh. Thêm nút vào giữa dòng là tái diễn, mà lần này hậu quả là **thêm món khách không gọi**. Lớp chặn thứ hai: `onClickCapture` trên khung trang nuốt mọi `click` sinh ra sau một cú kéo thật — đã kiểm bằng cách vuốt 216px từ đúng tâm nút, giỏ không đổi. |
+| **M4.D-35** | `GET /api/public/menu-book` đổi từ `Cache-Control: public, max-age=60` sang **`no-store`**. | Lý do của cache đã mất hiệu lực: docblock cũ ghi rõ "trang này KHÔNG có nút đặt hàng nên giá trễ 1 phút không gây hậu quả gì". Nay trang CÓ nút đặt món — giá trễ một phút nghĩa là khách chọn theo giá cũ rồi bill ra giá khác, đúng loại tranh cãi ở quầy. |
+| **M4.D-30** | Luồng tại bàn có **giỏ hàng riêng** (`qbl.dinein.cart.v1`, TTL **4 giờ**), tách hẳn giỏ của web đặt online. | Giỏ chung là khách đang có đơn ship dở dang mà quét QR ngồi bàn thì hai giỏ đè lên nhau — món của bữa tại bàn trộn vào đơn ship, hoặc ngược lại. TTL 4 giờ (không phải 24 giờ như giỏ online) vì giỏ tại bàn gắn với MỘT lượt ngồi ăn; quá 4 giờ nghĩa là lượt khác, và giỏ hôm qua hiện lại lúc khách vừa ngồi xuống là đường ngắn nhất để món lạ lọt vào bill. |
 | **M4.D-11** | **Món hết hàng: giữ nguyên hành vi hiện tại** — trang khách vẫn thấy, bôi mờ, kèm "Món này hôm nay tạm hết", không thêm được vào giỏ. **KHÔNG ẩn.** | Chủ quán đã cân nhắc việc ẩn và từ chối: ẩn thì khách tưởng quán không bán món đó và vẫn đi hỏi nhân viên — đúng cái việc tính năng này muốn giảm. Giữ nguyên M2.D-31, milestone này **không sửa gì** về món hết. |
 
 ### Vòng đời mã
@@ -93,12 +97,12 @@ Hệ quả phải chấp nhận: không có cách nào biết giỏ thuộc bàn
 ## 3. Luồng khách — `apps/shop`
 
 ```
-Quét QR chung  →  /tai-ban
-  → trang menu (DineInMenuPage)        ← MỚI; tái dùng CardItem + CategoryRail
-  → chọn món, ghi chú từng món         ← tái dùng HÀM THUẦN của cart-store
-  → trang giỏ (/tai-ban/gio)           ← MỚI
-       [ Sinh mã cho nhân viên ]       ← MỚI
-  → màn hiện mã kiểu OTP               ← MỚI
+Quét QR chung  →  /thuc-don   (quyển menu điện tử ĐÃ CÓ)
+  → cộng món ngay trên dòng món        ← MỚI: nút + ở mép ngoài
+  → thanh đáy "Xem N món"              ← MỚI
+  → LỚP PHỦ giỏ                        ← MỚI (không phải route)
+       [ Sinh mã cho nhân viên ]
+  → LỚP PHỦ mã, kiểu ô OTP             ← MỚI
        ┌───────────────────────────┐
        │   MÃ GỌI MÓN CỦA BẠN      │
        │    4   2   7   1   3      │
@@ -198,7 +202,6 @@ vài trăm dòng mỗi ngày — chưa cần job dọn ở phase 1.
 
 | Route | Việc |
 |---|---|
-| `GET /api/public/dine-in-menu` | Menu cho trang QR — lọc theo ĐÚNG `is_active` (M4.D-29). `no-store` |
 | `POST /api/public/dine-in-carts` | Nhận `[{menu_item_id, qty, note}]` + `customer_token`. BE tra giá, kiểm món hết/không active (**KHÔNG** chặn `is_online_hidden` — M4.D-29), kiểm rate-limit, sinh mã. Trả `{code, expires_at}` |
 | `GET /api/public/dine-in-carts/:code` | Khách mở lại tab — trả trạng thái mã (còn hạn / đã dùng / đã huỷ / hết hạn) + hạn còn lại. **Không** trả thông tin bàn hay tên nhân viên |
 | `DELETE /api/public/dine-in-carts/:code` | Nút "Sửa lại". Cần `customer_token` khớp mới huỷ được |
@@ -257,8 +260,8 @@ gõ cùng lúc chỉ MỘT người thắng.
 | Phase | Nội dung | Trạng thái |
 |---|---|---|
 | **1** | Entity `dine_in_carts` + Luhn + `create-cart.ts` | ✅ 32 unit test |
-| **2** | 3 route công khai + `dine-in-menu` + 3 trang `apps/shop` + khung riêng | ✅ typecheck + build |
-| **3** | Route preview + apply (chiếm mã trước) | ✅ 20 unit test; integration test **đã viết, CHƯA chạy** |
+| **2** | 3 route công khai + gọi món TRÊN quyển menu `/thuc-don` (nút cộng ở dòng món + 2 lớp phủ) | ✅ chạy thật trên trình duyệt |
+| **3** | Route preview + apply (chiếm mã trước) | ✅ 20 unit test + 19 integration test trên MySQL thật |
 | **4** | Modal 5 ô OTP + preview trong `OrderDrawer` | ✅ typecheck + build |
 | **5** | Nhật ký + audit theo mục 7 | ✅ |
 
@@ -269,10 +272,10 @@ gõ cùng lúc chỉ MỘT người thắng.
 `public/dine-in-carts.service.ts` · `public/public-dine-in-carts.controller.ts` ·
 `public/public-menu.assemble.ts` · `orders/dine-in-apply.ts` (+test +integration test) ·
 `orders/dine-in-staff.service.ts` · `shop/lib/dine-in-cart-store.ts` ·
-`shop/components/DineInShell.tsx` · `shop/pages/DineIn{Menu,Cart,Code}Page.tsx` ·
+`shop/components/DineInOrderSheets.tsx` ·
 `web/components/DineInCodeModal.tsx`
 
-**Sửa** — `public-menu.controller.ts` (thêm `dine-in-menu`) · `public.module.ts` ·
+**Sửa** — `public-menu.controller.ts` (menu-book → `no-store`) · `BookCard.tsx` (nút cộng) · `MenuBookPage.tsx` (giỏ + 2 lớp phủ) · `public.module.ts` ·
 `orders.module.ts` · `orders.controller.ts` (2 route + DTO) · `schemas/index.ts` ·
 `shop/lib/use-api.ts` (`deleteJson` nhận body) · `shop/main.tsx` (3 route) ·
 `web/components/OrderDrawer.tsx` (nút + modal)

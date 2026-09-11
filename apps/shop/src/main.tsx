@@ -51,23 +51,6 @@ const PhotoUploadPage = lazy(() =>
   import('./pages/PhotoUploadPage.tsx').then((m) => ({ default: m.PhotoUploadPage })),
 );
 
-// Gọi món tại bàn qua QR (M4, 2026-09-11) — 3 trang + khung riêng, TẤT CẢ lazy.
-// Khách đặt online không tải một byte nào của luồng này, và ngược lại: khách quét QR trong
-// quán không tải trang checkout/địa chỉ/OTP của luồng ship. Đây là chỗ ngân sách bundle
-// (`pnpm bundle:budget`, ngưỡng 375 KB) được giữ.
-const DineInShell = lazy(() =>
-  import('./components/DineInShell.tsx').then((m) => ({ default: m.DineInShell })),
-);
-const DineInMenuPage = lazy(() =>
-  import('./pages/DineInMenuPage.tsx').then((m) => ({ default: m.DineInMenuPage })),
-);
-const DineInCartPage = lazy(() =>
-  import('./pages/DineInCartPage.tsx').then((m) => ({ default: m.DineInCartPage })),
-);
-const DineInCodePage = lazy(() =>
-  import('./pages/DineInCodePage.tsx').then((m) => ({ default: m.DineInCodePage })),
-);
-
 const root = document.getElementById('root');
 if (!root) throw new Error('#root không tồn tại trong index.html');
 
@@ -152,31 +135,15 @@ if (isMenuHost) {
                 `quanbalun.site/menu` không bao giờ tới được React — nó trả thẳng 401 JSON.
                 Đã dính đúng lỗi này lúc deploy 2026-09-04. `/thuc-don` không đụng controller
                 nào, và cũng dễ đọc hơn với khách Việt. */}
+            {/* `/thuc-don` cũng là ĐÍCH CỦA MÃ QR gọi món tại bàn (M4, chủ quán chốt
+                2026-09-11). Từ đó trang này vừa là quyển menu để ngắm, vừa là màn gọi món:
+                khách quét QR ra thẳng đây và cộng món ngay trên dòng món.
+
+                Giỏ và màn hiện mã là LỚP PHỦ bên trong `MenuBookPage`, không phải route —
+                trang này còn được phục vụ ở toàn bộ `menu.<domain>`, nơi nhánh trên cố ý
+                KHÔNG dựng `BrowserRouter`. Là route thì luồng gọi món chỉ chạy được ở một
+                trong hai địa chỉ mà QR có thể trỏ tới. */}
             <Route path="/thuc-don" element={<MenuBookPage />} />
-
-            {/* GỌI MÓN TẠI BÀN (M4, 2026-09-11) — đích của mã QR chung dán trong quán.
-                CỐ Ý nằm NGOÀI `<Route element={<AppShell/>}>`: luồng này có khung riêng
-                (`DineInShell`) không mang nav "Đơn của tôi"/"Bảng xếp hạng", không popup
-                "quán tạm ngưng nhận đơn online", và icon giỏ trỏ giỏ TẠI BÀN chứ không phải
-                giỏ online — xem docblock `DineInShell`.
-
-                ⚠ Không đặt tên đường dẫn trùng controller nào của Nest (bài học `/menu` ngày
-                2026-09-04, xem chú thích `/thuc-don` phía trên). `tai-ban` không đụng
-                `@Controller` nào đang có.
-
-                React Router xếp hạng đường dẫn tĩnh cao hơn `*`, nên nhóm route này vẫn thắng
-                catch-all dù đứng sau nó. */}
-            <Route
-              element={
-                <Suspense fallback={null}>
-                  <DineInShell />
-                </Suspense>
-              }
-            >
-              <Route path="/tai-ban" element={<DineInMenuPage />} />
-              <Route path="/tai-ban/gio" element={<DineInCartPage />} />
-              <Route path="/tai-ban/ma/:code" element={<DineInCodePage />} />
-            </Route>
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>

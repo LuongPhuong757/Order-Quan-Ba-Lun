@@ -20,8 +20,19 @@ import { BowlGlyph } from './ImagePlaceholder.tsx';
  * đẹp nhưng cắt mất hai đầu đĩa và nhỏ hơn hẳn ở cùng bề ngang; chủ quán cần nhìn ra MÓN
  * ĂN, không cần một hoạ tiết trang trí. Chi tiết tỉ lệ: xem `photoBtn` cuối file.
  *
- * KHÔNG import gì từ `cart-store.ts` — đó là cách "trang chỉ để xem" được bảo đảm bằng
- * cấu trúc chứ không bằng lời hứa.
+ * ── QUYỂN MENU NAY CŨNG LÀ MÀN GỌI MÓN (M4, 2026-09-11) ──────────────────────────────
+ * Chủ quán chốt: mã QR dán trong quán trỏ THẲNG vào trang này, và khách phải cộng món
+ * được ngay tại đây, không qua màn trung gian nào. Nên dòng món có thêm nút cộng ở MÉP
+ * NGOÀI (phía đối diện tấm ảnh) — chỉ khi chỗ gọi truyền `onAdd`.
+ *
+ * Nút nằm ở mép ngoài chứ không nằm giữa dòng là có lý do, và là lý do cũ của chính file
+ * này: vuốt để lật trang mà ngón tay rơi trúng nút thì mỗi cú vuốt hụt là một lần thêm
+ * món mà khách không hề muốn. Phần chữ ở giữa vẫn phải là vùng vuốt an toàn. Lớp chặn thứ
+ * hai nằm ở `MenuBookPage`: `onClickCapture` trên khung trang nuốt mọi `click` phát sinh
+ * sau một cú kéo thật.
+ *
+ * Không truyền `onAdd` thì dòng món KHÔNG có nút nào ngoài tấm ảnh — quyển menu quay về
+ * đúng trạng thái "chỉ để xem" như trước.
  */
 type Props = {
   item: PublicMenuItem;
@@ -34,6 +45,12 @@ type Props = {
   /** Có chạy hiệu ứng hiện-ra-so-le không. Tắt sau mỗi cú lật (xem `MenuBookPage`). */
   animate?: boolean;
   onOpen: (item: PublicMenuItem, from: DOMRect) => void;
+  /** Số phần món này đang có trong giỏ. Bỏ trống = quyển menu ở chế độ CHỈ XEM. */
+  qtyInCart?: number;
+  /** Thêm món (bước 0 → 1). Không truyền = không vẽ nút cộng nào. */
+  onAdd?: (item: PublicMenuItem) => void;
+  /** Đổi số lượng món đã có trong giỏ. `0` = bỏ khỏi giỏ. */
+  onSetQty?: (item: PublicMenuItem, qty: number) => void;
 };
 
 export function BookCard({
@@ -43,10 +60,19 @@ export function BookCard({
   eager,
   animate = true,
   onOpen,
+  qtyInCart = 0,
+  onAdd,
+  onSetQty,
 }: Props): JSX.Element {
   const image = item.images[0] ?? null;
   const isOut = item.is_out_of_stock;
   const photoRight = index % 2 === 1;
+  // Món hết hàng KHÔNG có nút cộng, kể cả khi đang nằm trong giỏ dưới dạng dòng
+  // `unavailable` (giỏ giữ dòng chứ không im lặng xoá). Cho cộng ở đây là để khách tăng số
+  // lượng một món quán không làm được; việc xử lý dòng đó thuộc màn giỏ, nơi có câu giải
+  // thích và nút bỏ món.
+  const canOrder = !isOut && onAdd !== undefined;
+  const showStepper = canOrder && qtyInCart > 0 && onSetQty !== undefined;
 
   return (
     <div
@@ -119,6 +145,49 @@ export function BookCard({
           )}
         </p>
       </div>
+
+      {/* Khối gọi món — ở MÉP NGOÀI dòng (xem docblock đầu file về vùng vuốt an toàn). */}
+      {canOrder && (
+        <div style={orderSlot}>
+          {showStepper ? (
+            <div
+              role="group"
+              aria-label={`Số lượng ${item.name} trong giỏ`}
+              style={stepper}
+            >
+              <button
+                type="button"
+                onClick={() => onSetQty!(item, qtyInCart - 1)}
+                // Dấu `−` không tự nói được rằng bấm nữa là món rời giỏ — nhãn phải nói.
+                aria-label={qtyInCart === 1 ? `Bỏ ${item.name} khỏi giỏ` : `Giảm số lượng ${item.name}`}
+                style={stepBtn}
+              >
+                −
+              </button>
+              <span aria-hidden="true" style={qtyText}>
+                {qtyInCart}
+              </span>
+              <button
+                type="button"
+                onClick={() => onSetQty!(item, qtyInCart + 1)}
+                aria-label={`Tăng số lượng ${item.name}`}
+                style={stepBtn}
+              >
+                +
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => onAdd!(item)}
+              aria-label={`Thêm ${item.name} vào giỏ`}
+              style={addBtn}
+            >
+              +
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -298,4 +367,71 @@ const outLabel: CSSProperties = {
   fontSize: 'var(--fs-sm)',
   fontWeight: 'var(--fw-semibold)',
   color: 'var(--menu-danger)',
+};
+
+/**
+ * Khối gọi món ở mép ngoài dòng. Dùng bảng màu `--menu-*` (nền TỐI) chứ không phải token
+ * của trang đặt hàng — quyển menu có palette riêng, lấy màu của web đặt hàng vào đây là
+ * một nút sáng chói giữa trang gỗ tối.
+ *
+ * `flexShrink: 0` để tên món dài không bóp nút cộng thành một vạch không bấm được.
+ */
+const orderSlot: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  flexShrink: 0,
+};
+
+const addBtn: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 'var(--tap-min)',
+  height: 'var(--tap-min)',
+  borderRadius: '50%',
+  border: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
+  color: 'var(--menu-price)',
+  // Dấu + phải to và cân giữa: đây là vùng bấm chính của cả dòng.
+  fontSize: 'var(--fs-xl)',
+  lineHeight: 1,
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  padding: 0,
+};
+
+const stepper: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: '2px',
+  padding: '2px',
+  borderRadius: 999,
+  border: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
+};
+
+const stepBtn: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 34,
+  height: 34,
+  borderRadius: '50%',
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--menu-text)',
+  fontSize: 'var(--fs-lg)',
+  lineHeight: 1,
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  padding: 0,
+};
+
+const qtyText: CSSProperties = {
+  minWidth: 18,
+  textAlign: 'center',
+  color: 'var(--menu-price)',
+  fontWeight: 'var(--fw-semibold)',
+  // `tabular-nums`: 1 → 2 → 10 không làm khối stepper nhảy bề ngang.
+  fontVariantNumeric: 'tabular-nums',
 };

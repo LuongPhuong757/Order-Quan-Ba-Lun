@@ -19,6 +19,7 @@ import {
   findPageOfItem,
   groupAccents,
   dragAngle,
+  formatVnd,
   paginateGroups,
   turnAngles,
   turnTravelled,
@@ -29,6 +30,8 @@ import {
 import { playPageTurn } from '../lib/page-turn-sound.ts';
 import { BookCard, BOOK_CARD_CSS } from '../components/BookCard.tsx';
 import { BookDishPreview, BOOK_PREVIEW_CSS } from '../components/BookDishPreview.tsx';
+import { DineInCartSheet, DineInCodeSheet } from '../components/DineInOrderSheets.tsx';
+import { readRememberedCode, useDineInCart } from '../lib/dine-in-cart-store.ts';
 import { Wordmark } from '../components/Wordmark.tsx';
 
 /**
@@ -81,6 +84,52 @@ export function MenuBookPage(): JSX.Element {
   const groups = useMemo(() => menu.data?.groups ?? [], [menu.data]);
 
   const [preview, setPreview] = useState<{ item: PublicMenuItem; from: DOMRect } | null>(null);
+
+  /**
+   * GỌI MÓN TẠI BÀN (M4, 2026-09-11) — mã QR dán trong quán trỏ THẲNG vào trang này.
+   *
+   * Chủ quán chốt: khách quét QR là ra ngay quyển menu và cộng món được tại chỗ, không qua
+   * màn trung gian nào. Nên trang "chỉ để xem" nay có thêm giỏ + hai lớp phủ (giỏ và mã).
+   *
+   * Giỏ là store RIÊNG (`dine-in-cart-store.ts`), KHÔNG dùng chung giỏ của web đặt ship:
+   * khách đang có đơn ship dở dang mà quét QR ngồi bàn thì hai giỏ đè lên nhau, và món tại
+   * bàn trộn vào đơn ship.
+   *
+   * Giỏ + mã là LỚP PHỦ chứ không phải route — trang này còn được phục vụ ở toàn bộ
+   * `menu.<domain>`, nơi `main.tsx` cố ý KHÔNG dựng `BrowserRouter`. Là route thì luồng chỉ
+   * chạy được một nửa số địa chỉ mà QR có thể trỏ tới.
+   */
+  const cart = useDineInCart();
+  const [sheet, setSheet] = useState<'none' | 'cart' | 'code'>('none');
+  const [activeCode, setActiveCode] = useState<{ code: string; expires_at: number } | null>(null);
+
+  // Mã đã sinh ở lượt trước (đóng tab mở lại vẫn đọc được cho nhân viên). Đọc trong effect
+  // chứ không trong initializer: `readRememberedCode` chạm localStorage, và StrictMode dev
+  // gọi initializer hai lần.
+  useEffect(() => {
+    const remembered = readRememberedCode();
+    if (remembered) setActiveCode(remembered);
+  }, []);
+
+  // Đồng bộ giỏ với menu mới ĐÚNG MỘT LẦN mỗi lần dữ liệu menu đổi (không phải mỗi render):
+  // giá đổi thì cập nhật, món hết/bị xoá thì đánh dấu chứ không im lặng bỏ khỏi giỏ.
+  const syncedRef = useRef<PublicMenuGroup[] | null>(null);
+  useEffect(() => {
+    if (!menu.data) return;
+    if (syncedRef.current === menu.data.groups) return;
+    syncedRef.current = menu.data.groups;
+    cart.applyMenuSync(menu.data.groups);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [menu.data]);
+
+  const qtyById = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const line of cart.lines) {
+      if (!line.unavailable) map.set(line.menu_item_id, line.qty);
+    }
+    return map;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart.lines]);
 
   // Trang này dùng chung `index.html` với trang đặt hàng (một bundle, chọn theo tên miền),
   // nên tiêu đề tab phải sửa ở đây — nếu không khách lưu trang lại thấy chữ "Đặt hàng".
@@ -629,6 +678,21 @@ export function MenuBookPage(): JSX.Element {
           eager={eager}
           animate={animate}
           onOpen={(it, from) => setPreview({ item: it, from })}
+          qtyInCart={qtyById.get(item.id) ?? 0}
+          onAdd={(it) =>
+            cart.add(
+              {
+                menu_item_id: it.id,
+                code: it.code,
+                name: it.name,
+                unit_price: it.price,
+                note: null,
+                image: it.images[0] ?? null,
+              },
+              1,
+            )
+          }
+          onSetQty={(it, qty) => cart.setQty(it.id, qty)}
         />
       ))}
     </div>
@@ -955,6 +1019,53 @@ export function MenuBookPage(): JSX.Element {
           item={preview.item}
           from={preview.from}
           onClose={() => setPreview(null)}
+        />
+      )}
+
+      {/* Thanh gọi món dính đáy — CHỈ hiện khi giỏ có món hoặc đang có mã còn hiệu lực.
+          Hiện sẵn một thanh rỗng là chiếm mất một dải đáy màn hình của quyển menu, đúng chỗ
+          ngón tay đặt để vuốt lật trang. */}
+      {(cart.count > 0 || activeCode !== null) && sheet === 'none' && (
+        <div style={orderBar}>
+          {activeCode !== null && (
+            <button type="button" style={codeChip} onClick={() => setSheet('code')}>
+              Mã {activeCode.code}
+            </button>
+          )}
+          {cart.count > 0 && (
+            <button type="button" style={cartCta} onClick={() => setSheet('cart')}>
+              <span>Xem {cart.count} món</span>
+              <span>{formatVnd(cart.subtotal)}</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {sheet === 'cart' && (
+        <DineInCartSheet
+          lines={cart.lines}
+          subtotal={cart.subtotal}
+          count={cart.count}
+          onSetQty={cart.setQty}
+          onSetNote={cart.setNote}
+          onClose={() => setSheet('none')}
+          onCodeCreated={(code, expires_at) => {
+            setActiveCode({ code, expires_at });
+            setSheet('code');
+          }}
+        />
+      )}
+
+      {sheet === 'code' && activeCode !== null && (
+        <DineInCodeSheet
+          code={activeCode.code}
+          expiresAt={activeCode.expires_at}
+          onClose={() => setSheet('none')}
+          onEdit={() => {
+            // Mã đã bị huỷ ở BE — bỏ khỏi màn rồi mở lại giỏ để khách sửa.
+            setActiveCode(null);
+            setSheet('cart');
+          }}
         />
       )}
     </div>
@@ -1346,6 +1457,67 @@ const pageList: CSSProperties = {
   padding: '72px 0 68px',
 };
 
+
+/**
+ * Thanh gọi món, nổi NGAY TRÊN chân trang chứ không thay chỗ nó.
+ *
+ * Chân trang mang hai mũi tên lật trang + logo. Đè lên đó là lấy mất cách lật trang trên
+ * máy tính (nơi không vuốt được), nên thanh này đẩy lên trên một khoảng bằng chiều cao chân
+ * trang. `pointerEvents: 'none'` ở vỏ + `'auto'` ở nút: khoảng trống hai bên thanh vẫn vuốt
+ * lật trang được, chỉ đúng cái nút là bấm.
+ */
+const orderBar: CSSProperties = {
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  bottom: 'calc(var(--safe-bottom) + 56px)',
+  zIndex: 5,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 'var(--sp-2)',
+  padding: '0 var(--gutter)',
+  pointerEvents: 'none',
+};
+
+const cartCta: CSSProperties = {
+  pointerEvents: 'auto',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 'var(--sp-3)',
+  minHeight: 48,
+  maxWidth: 420,
+  flex: 1,
+  padding: '0 var(--sp-4)',
+  borderRadius: 999,
+  border: 'none',
+  background: 'var(--menu-price)',
+  // Nền hổ phách sáng → chữ TỐI. Chữ trắng trên nền này gần như không đọc được.
+  color: '#2b1d08',
+  fontSize: 'var(--fs-md)',
+  fontWeight: 'var(--fw-semibold)',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+};
+
+/** Lối quay lại xem mã đã sinh — khách hay đóng lớp phủ rồi lật menu tiếp trong lúc chờ
+ *  nhân viên tới, và phải tìm lại được mã mà không phải sinh mã mới. */
+const codeChip: CSSProperties = {
+  pointerEvents: 'auto',
+  minHeight: 48,
+  padding: '0 var(--sp-3)',
+  borderRadius: 999,
+  border: '1px solid var(--menu-line)',
+  background: 'var(--menu-chrome)',
+  color: 'var(--menu-text)',
+  fontSize: 'var(--fs-sm)',
+  fontWeight: 'var(--fw-semibold)',
+  fontFamily: 'inherit',
+  fontVariantNumeric: 'tabular-nums',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+};
 
 const footer: CSSProperties = {
   // Nổi trên trang, không chiếm một dải chiều cao riêng — cùng lẽ với `topBar`.

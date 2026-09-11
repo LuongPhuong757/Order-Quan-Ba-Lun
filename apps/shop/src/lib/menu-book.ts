@@ -144,12 +144,19 @@ export function findPageOfItem(pages: BookPage[], itemId: string | null): number
 }
 
 /**
- * Định dạng tiền VND. CỐ Ý chép lại một dòng thay vì import `formatVnd` từ `cart-store.ts`.
+ * Định dạng tiền VND — bản riêng của quyển menu, chép một dòng thay vì import từ
+ * `cart-store.ts`.
  *
- * Không phải để tiết kiệm dung lượng (`main.tsx` vẫn nạp module đó cho tên miền đặt hàng)
- * mà để cây import của quyển menu KHÔNG chạm vào module giỏ hàng ở bất kỳ đâu. Nhờ vậy
- * `grep -r cart-store` trên nhánh menu ra rỗng, và người sửa file này sau ba tháng nữa
- * không vô tình gọi thêm một hàm nữa từ đó chỉ vì "đằng nào cũng import rồi".
+ * ── LÝ DO GỐC ĐÃ HẾT HIỆU LỰC, GHI LẠI CHO RÕ (2026-09-11) ──
+ * Trước đây hàm này tồn tại để giữ một bất biến: cây import của quyển menu KHÔNG chạm vào
+ * module giỏ hàng ở bất kỳ đâu, vì trang này "chỉ để xem". M4 xoá bất biến đó — chủ quán
+ * chốt mã QR trong quán trỏ thẳng vào `/thuc-don` và khách cộng món ngay tại đây, nên
+ * `MenuBookPage` giờ có giỏ thật (`dine-in-cart-store.ts`, và module đó dùng lại các hàm
+ * thuần của `cart-store.ts`).
+ *
+ * Vẫn giữ hàm này chứ không đổi sang import, vì hai lý do còn đúng: trang menu có bảng màu
+ * và cách trình bày riêng nên các helper hiển thị của nó nên nằm cùng chỗ, và đổi bây giờ
+ * là sửa hàng chục chỗ gọi để không được gì.
  */
 export function formatVnd(amount: number): string {
   return `${new Intl.NumberFormat('vi-VN').format(amount)}đ`;

@@ -7,7 +7,6 @@ import type { PublicMenuGroup } from '@order/schemas';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { toPublicMenuGroup, toPublicMenuItem } from './public-menu.mapper.js';
-import { assemblePublicMenu } from './public-menu.assemble.js';
 
 type PublicMenuResponse = { groups: PublicMenuGroup[] };
 
@@ -100,9 +99,12 @@ export class PublicMenuController {
    *    bán cho khách ngồi bàn — tất cả vẫn phải có mặt. Cờ quyết định ở đây là
    *    `is_menu_hidden`, một cờ hoàn toàn riêng.
    * 2. Sắp theo `menu_sort_order` (chủ quán kéo thả), rớt về tên khi cả nhóm còn 0.
-   * 3. `Cache-Control: public, max-age=60` thay vì `no-store`. Trang này KHÔNG có nút đặt
-   *    hàng nên giá trễ 1 phút không gây hậu quả gì, mà quán ~600 món thì payload không
-   *    nhỏ — để khách lật qua lật lại mà tải lại từ đầu là phí băng thông 3G của họ.
+   * 3. ~~`Cache-Control: public, max-age=60`~~ → **`no-store` từ 2026-09-11**. Lý do của
+   *    cache đã mất hiệu lực: trang này nay LÀ màn gọi món tại bàn (M4 — mã QR trong quán
+   *    trỏ thẳng vào `/thuc-don`, khách cộng món ngay trên dòng món). Giá trễ một phút trên
+   *    một trang có nút đặt món nghĩa là khách chọn theo giá cũ rồi bill ra giá khác — đúng
+   *    loại tranh cãi ở quầy mà không ai muốn. Đổi lại quán ~600 món phải tải lại mỗi lần
+   *    vào trang; chấp nhận, vì `/menu` của web đặt hàng cũng `no-store` với cùng lý do.
    *
    * GIỐNG `/api/public/menu` ở chỗ quan trọng nhất: đi qua ĐÚNG mapper whitelist 7 field
    * (`toPublicMenuItem`), nên mọi cột nội bộ thêm vào `menu_items` sau này vẫn không lọt.
@@ -112,7 +114,7 @@ export class PublicMenuController {
    * này giữ nguyên vì lý do của chúng không đổi.
    */
   @Get('menu-book')
-  @Header('Cache-Control', 'public, max-age=60')
+  @Header('Cache-Control', 'no-store')
   async getMenuBook(): Promise<ApiOk<PublicMenuResponse>> {
     const [groups, items] = await Promise.all([
       this.groupRepo.find({
@@ -165,50 +167,5 @@ export class PublicMenuController {
     }
 
     return apiOk<PublicMenuResponse>({ groups: result });
-  }
-
-  /**
-   * GET /api/public/dine-in-menu — menu cho khách quét QR gọi món TẠI BÀN (M4, 2026-09-10).
-   *
-   * ── VÌ SAO KHÔNG DÙNG LẠI `/api/public/menu` ──
-   * `/menu` LOẠI HẲN món `is_online_hidden`. Cờ đó nghĩa là "POS bán bình thường, nhưng web
-   * đặt hàng online không thấy" — tức đúng tập món **chỉ bán tại chỗ**: món cồng kềnh không
-   * ship được, lẩu, món chỉ phục vụ khách ngồi bàn. Khách đang NGỒI TRONG QUÁN mà không thấy
-   * những món đó thì tính năng QR mất đúng phần giá trị nhất, và khách vẫn phải gọi nhân viên
-   * — đúng cái việc M4 sinh ra để giảm.
-   *
-   * Vậy nên endpoint này lọc theo ĐÚNG MỘT cờ: `is_active`. Bỏ qua cả `is_online_hidden` (lý
-   * do trên) lẫn `is_menu_hidden` (cờ của quyển menu ngắm ở `menu.<domain>`, không liên quan
-   * tới việc món có bán được tại bàn hay không). Khách ngồi bàn gọi món là bán tại chỗ — tập
-   * món phải khớp tập món POS bán, không khớp tập món web online bán.
-   *
-   * Món hết hàng VẪN trả về (M4.D-11, giữ nguyên M2.D-31) — FE làm mờ, khách không thêm được
-   * vào giỏ. Chủ quán đã cân nhắc việc ẩn hẳn và từ chối: ẩn thì khách tưởng quán không bán
-   * món đó và vẫn đi hỏi nhân viên.
-   *
-   * `no-store` như `/menu` (KHÔNG cache 60s như `/menu-book`): trang này CÓ nút gọi món, giá
-   * trễ một phút là chênh bill.
-   */
-  @Get('dine-in-menu')
-  @Header('Cache-Control', 'no-store')
-  async getDineInMenu(): Promise<ApiOk<PublicMenuResponse>> {
-    const [groups, items] = await Promise.all([
-      this.groupRepo.find({
-        where: { is_active: true },
-        order: { sort_order: 'ASC', name: 'ASC' },
-      }),
-      this.itemRepo.find({
-        where: { is_active: true },
-        order: { name: 'ASC' },
-      }),
-    ]);
-
-    // Không nhóm nào bị ẩn ở mặt này — nhóm ẩn khỏi web online vẫn bán tại bàn.
-    return apiOk<PublicMenuResponse>({
-      groups: assemblePublicMenu(groups, items, {
-        hiddenGroupCodes: new Set<string>(),
-        makeOrphanGroupId: randomUUID,
-      }),
-    });
   }
 }
