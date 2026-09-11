@@ -2499,3 +2499,383 @@ table.stat-grid .stat-muted {
     flex: 1;
   }
 }
+
+/* ─── Màn "Nguyên liệu món" + bàn phím số (2026-09-11) ──────────────────────
+   Người dùng chính là chủ quán lớn tuổi cầm điện thoại, nên ở khối này mọi cỡ chữ/nút đều
+   PHÓNG TO so với phần còn lại của app: chữ thường 18px (app: 13–14px), nút chạm 56–64px
+   (app: 36–44px). Cố ý không dùng lại các class chung — sửa `.card`/`button` toàn cục cho vừa
+   màn này sẽ phình mọi màn khác, nhất là màn Order vốn đang phải nhét nhiều nút trên một dòng.
+
+   Tất cả gom dưới `.nlm` (Nguyên Liệu Món) để không rò ra ngoài. */
+.nlm {
+  font-size: 18px;
+}
+
+.nlm-h1 {
+  margin: 0 0 12px 0;
+  font-size: 24px;
+}
+
+.nlm-lead {
+  margin: 4px 0 12px;
+  font-size: 16px;
+  color: #4b5563;
+}
+
+.nlm-muted {
+  color: #6b7280;
+  font-size: 17px;
+}
+
+.nlm-empty {
+  font-size: 18px;
+  line-height: 1.5;
+  padding: 20px;
+}
+
+/* Tab cấp 1 — hai tab, mỗi tab chiếm nửa bề ngang và cao 52px: đủ to để bấm bằng ngón cái mà
+   không cần ngắm. Đây là thứ thay cho mục thứ 9 ở nav dưới. */
+.menu-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.menu-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 2px solid #d1d5db;
+  border-radius: 10px;
+  background: #fff;
+  color: #374151;
+  font-size: 17px;
+  font-weight: 600;
+  text-decoration: none;
+  text-align: center;
+}
+
+.menu-tab[aria-current='page'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+}
+
+/* Ô tìm: 56px và chữ 18px. Dưới 16px là iOS tự phóng to cả trang khi focus, trang nhảy một cái
+   làm mất chỗ người dùng đang nhìn. */
+.nlm-search {
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px;
+  border: 2px solid #d1d5db;
+  border-radius: 10px;
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.nlm-filter {
+  width: 100%;
+  min-height: 52px;
+  font-size: 17px;
+  margin-bottom: 16px;
+}
+
+.nlm-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* Một món = một nút cao 72px. Tên bên trái, tình trạng khai báo bên phải — đọc lướt một cột
+   là biết còn món nào chưa khai. */
+.nlm-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  min-height: 72px;
+  padding: 12px 16px;
+  font-size: 19px;
+  text-align: left;
+}
+
+.nlm-item-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.nlm-badge {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.nlm-badge.ok {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.nlm-badge.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.nlm-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.nlm-back {
+  min-height: 52px;
+  padding: 10px 16px;
+  font-size: 17px;
+}
+
+/* Trạng thái lưu — chữ 17px chứ không phải một icon xoay bé tí: "Đã lưu ✓" là câu trả lời cho
+   nỗi lo "tôi bấm xong có mất không". Giữ chỗ sẵn (min-height) để chữ hiện/tắt không làm cả
+   khối bên dưới nhảy lên nhảy xuống. */
+.nlm-save {
+  flex: 1;
+  min-height: 24px;
+  font-size: 17px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.nlm-save-saving {
+  color: #b45309;
+}
+
+.nlm-save-saved {
+  color: #047857;
+}
+
+.nlm-dish {
+  margin: 0;
+  font-size: 22px;
+  color: #0f766e;
+}
+
+.nlm-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nlm-line {
+  padding: 14px;
+}
+
+.nlm-line-name {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.nlm-line-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* −/+ vuông 64px: to hơn cả nút chính của app. Ngón tay run hay bấm trượt thì trượt vào chỗ
+   trống chứ không trúng nút xoá bên cạnh — vì thế nút "Bỏ" nằm HÀNG DƯỚI, không cùng hàng. */
+.nlm-step {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0;
+}
+
+/* `button.nlm-qty` chứ không phải `.nlm-qty`: `button.secondary` ở đầu file có specificity
+   cao hơn một class trần và sẽ kéo màu chữ về #1f2937 — con số mất màu nhấn, trông như nhãn
+   chết chứ không phải nút bấm được. Cùng cái bẫy với danh sách gợi ý ở màn công thức cũ. */
+button.nlm-qty {
+  flex: 1;
+  min-height: 64px;
+  font-size: 24px;
+  font-weight: 700;
+  color: #0f766e;
+  padding: 8px;
+}
+
+/* Cũng phải là `button.nlm-remove` — xem lý do ở `button.nlm-qty` bên trên. Nút xoá mà không
+   đỏ thì trông y hệt hai nút vô hại cạnh nó. */
+button.nlm-remove {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 10px;
+  font-size: 16px;
+  color: #dc2626;
+}
+
+/* Nút thêm là nút XANH duy nhất của màn → mắt tìm ra ngay mà không phải đọc. */
+.nlm-add {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 16px;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.nlm-done {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 10px;
+  font-size: 17px;
+}
+
+.nlm-sheet {
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  max-height: 92vh;
+}
+
+.nlm-sheet-title {
+  font-size: 21px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
+
+.nlm-sheet-scroll {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 120px;
+  margin-bottom: 12px;
+}
+
+.nlm-pick {
+  display: block;
+  width: 100%;
+  min-height: 64px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  font-size: 19px;
+  text-align: left;
+}
+
+.nlm-pick-name {
+  display: block;
+  font-weight: 600;
+}
+
+.nlm-pick-meta {
+  display: block;
+  font-size: 14px;
+  color: #6b7280;
+}
+
+.nlm-create {
+  width: 100%;
+  min-height: 64px;
+  margin-top: 8px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.nlm-unit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.nlm-unit {
+  min-height: 64px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.nlm-unit-other {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
+}
+
+.nlm-action {
+  width: 100%;
+  min-height: 56px;
+  font-size: 18px;
+}
+
+/* ─── Bàn phím số tự vẽ ─────────────────────────────────────────────────── */
+.numpad-sheet {
+  max-width: 420px;
+}
+
+.numpad-head {
+  margin-bottom: 16px;
+}
+
+/* Tên nguyên liệu ở NGAY TRÊN con số — lý do tồn tại của bàn phím tự vẽ: bàn phím hệ thống
+   đẩy phần này khuất khỏi màn hình. */
+.numpad-title {
+  font-size: 19px;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 6px;
+}
+
+.numpad-value {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 12px 16px;
+  border: 2px solid #0f766e;
+  border-radius: 10px;
+  background: #f0fdfa;
+}
+
+/* KHÔNG `flex: 1`: nó đẩy "g" ra tận mép phải, cách con số nửa màn hình — đọc lên không còn
+   ra "150 g" nữa. Số và đơn vị phải dính nhau như khi viết tay. */
+.numpad-number {
+  flex: 0 1 auto;
+  font-size: 34px;
+  font-weight: 700;
+  color: #0f766e;
+  word-break: break-all;
+}
+
+.numpad-unit {
+  font-size: 20px;
+  color: #0f766e;
+}
+
+.numpad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.numpad-key {
+  min-height: 64px;
+  font-size: 26px;
+  font-weight: 600;
+  padding: 0;
+}
+
+.numpad-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.numpad-action {
+  flex: 1;
+  min-height: 60px;
+  font-size: 19px;
+  font-weight: 600;
+}

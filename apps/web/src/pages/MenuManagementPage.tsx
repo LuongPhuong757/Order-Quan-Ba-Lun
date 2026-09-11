@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
-import { RecipePanel } from './RecipePanel.tsx';
 import { Select } from '../components/Select.tsx';
+import { MenuTabs } from '../components/MenuTabs.tsx';
 
 type MenuGroup = {
   id: string;
@@ -45,6 +46,7 @@ export function MenuManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
+  const navigate = useNavigate();
   // Admin & chủ quán đều được quản lý menu (thêm/sửa/xoá/nhóm/import). Bếp chỉ toggle hết/còn.
   const canManage = !!user?.is_owner || user?.role === 'admin';
   const [items, setItems] = useState<MenuItem[]>([]);
@@ -68,8 +70,7 @@ export function MenuManagementPage() {
   // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như 3 màn trên: khai công thức là
   // việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
   const [showIngredients, setShowIngredients] = useState(false);
-  // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
-  const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
+  // Số nguyên liệu mỗi món, để hiện ngay trên nút "Công thức".
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
@@ -211,13 +212,18 @@ export function MenuManagementPage() {
           )}
           {canManage && (
             <button className="secondary" onClick={() => setShowIngredients(true)} style={{ padding: '8px 12px' }}>
-              🥬 Nguyên liệu
+              🥬 Danh mục NL
             </button>
           )}
           </div>
           {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>+ Món</button>}
         </div>
       </div>
+
+      {/* Tab cấp 1 (2026-09-11): màn này là "Món ăn", tab kia là màn khai nguyên liệu cho món.
+          Chỉ hiện cho người quản lý được menu — bếp vào /menu để bật/tắt hết hàng, mà ghi công
+          thức thì BE gác `AdminGuard`, bày tab ra chỉ để họ bấm rồi ăn 403. */}
+      {canManage && <MenuTabs />}
 
       <div className="card mm-filters" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
         {/* Row 1: search + sort */}
@@ -396,7 +402,7 @@ export function MenuManagementPage() {
                         tiêu hao, và đó là thứ chủ quán cần nhìn ra khi soi báo cáo thiếu số. */}
                     <button
                       className="secondary"
-                      onClick={() => setRecipeFor(it)}
+                      onClick={() => navigate(`/menu/nguyen-lieu?mon=${it.id}`)}
                       style={{ padding: '6px 10px', fontSize: 13 }}
                       title="Khai nguyên liệu + định lượng cho món này"
                     >
@@ -490,18 +496,6 @@ export function MenuManagementPage() {
       {/* KHÔNG refresh() khi đóng: panel nguyên liệu không đụng tới bảng `menu_items`, nên tải
           lại lưới món chỉ là một lượt request thừa. */}
       {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
-      {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả lưới món): số nguyên liệu
-          trên nút vừa đổi, còn `menu_items` thì không đụng tới. */}
-      {recipeFor && (
-        <RecipePanel
-          menuItemId={recipeFor.id}
-          menuItemName={recipeFor.name}
-          onClose={() => {
-            setRecipeFor(null);
-            loadRecipeCounts(items.map((i) => i.id));
-          }}
-        />
-      )}
     </div>
   );
 }

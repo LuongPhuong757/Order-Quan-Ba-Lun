@@ -46,6 +46,11 @@ const OrdersPage = lazy(() =>
 const MenuManagementPage = lazy(() =>
   import('./pages/MenuManagementPage.tsx').then((m) => ({ default: m.MenuManagementPage })),
 );
+// Màn "Nguyên liệu món" (2026-09-11) — tab thứ hai của khu Menu, dựng riêng cho người lớn
+// tuổi dùng trên điện thoại. Chunk riêng: nó chỉ dành cho admin, bếp không phải tải kèm.
+const RecipeEditorPage = lazy(() =>
+  import('./pages/RecipeEditorPage.tsx').then((m) => ({ default: m.RecipeEditorPage })),
+);
 const KitchenPage = lazy(() =>
   import('./pages/KitchenPage.tsx').then((m) => ({ default: m.KitchenPage })),
 );
@@ -192,6 +197,10 @@ export function App() {
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
+              {/* Khai nguyên liệu cho món — admin-only vì BE gác `AdminGuard` trên mọi thao tác
+                  ghi công thức; bếp vào chỉ để ăn 403. Không lên nav dưới, đường vào là tab của
+                  màn Menu (xem `components/MenuTabs.tsx`). */}
+              <Route path="/menu/nguyen-lieu" element={<RecipeEditorPage />} />
               {/* `/admin/settings` cũ đã gộp thành tab của màn Đơn hàng online (2026-08-03).
                   Giữ redirect vì bookmark, link trong Dashboard và ảnh chụp màn hình trong
                   `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. */}
