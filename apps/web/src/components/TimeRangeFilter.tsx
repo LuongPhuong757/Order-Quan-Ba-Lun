@@ -141,6 +141,10 @@ const PRESET_CHIPS: ReadonlyArray<TimeRangeOption<RangePreset>> = [
   { value: '30d', label: '30 ngày' },
 ];
 
+/** Chip "ca đang chạy" — đứng NGAY SAU 'Tất cả', trước 'Hôm nay': hai chip này hay bị so với
+ *  nhau nhất ("ca" khác "ngày" chỗ nào), để cạnh nhau thì thấy ngay chúng là hai câu hỏi. */
+const SHIFT_CHIP: TimeRangeOption<RangePreset> = { value: 'shift', label: '🌙 Ca này' };
+
 /**
  * Bộ chọn khoảng ngày đầy đủ: dãy preset + khoảng tự chọn.
  *
@@ -157,6 +161,7 @@ export function DateRangePicker({
   nowMs,
   label,
   ariaLabel = 'Lọc theo khoảng ngày',
+  shiftChip = false,
 }: {
   value: DayRange;
   onChange: (range: DayRange) => void;
@@ -164,8 +169,15 @@ export function DateRangePicker({
   nowMs?: number;
   label?: React.ReactNode;
   ariaLabel?: string;
+  /** Hiện thêm chip "Ca này" (8h sáng ca đang chạy → bây giờ).
+   *
+   *  OPT-IN chứ không mặc định: component này dùng chung với Thống kê món và Thống kê NCC,
+   *  nơi câu hỏi là "kỳ báo cáo" tính theo ngày trọn vẹn — một mốc 8h sáng ở đó chỉ làm bảng
+   *  số lệch so với kỳ mà không ai cần. Ca là khái niệm của người đứng quán, tức màn Lịch sử. */
+  shiftChip?: boolean;
 }) {
   const now = nowMs ?? Date.now();
+  const chips = shiftChip ? [PRESET_CHIPS[0], SHIFT_CHIP, ...PRESET_CHIPS.slice(1)] : PRESET_CHIPS;
   const active = matchPreset(value, now);
   // Ô ngày hiện ra khi đang ở khoảng tự chọn, hoặc khi người dùng chủ động mở. Đóng lại ngay
   // khi bấm một preset — để mở thì nó chiếm một hàng mà không dùng tới.
@@ -179,7 +191,7 @@ export function DateRangePicker({
         ariaLabel={ariaLabel}
         label={label}
         value={active}
-        options={PRESET_CHIPS}
+        options={chips}
         onChange={(p) => {
           setOpenCustom(false);
           onChange(presetRange(p as RangePreset, now));
@@ -209,8 +221,8 @@ export function DateRangePicker({
             from={value.from}
             to={value.to}
             max={today}
-            onFromChange={(from) => onChange({ ...value, from })}
-            onToChange={(to) => onChange({ ...value, to })}
+            onFromChange={(from) => onChange({ ...value, from, shift: false })}
+            onToChange={(to) => onChange({ ...value, to, shift: false })}
           />
           {(value.from || value.to) && (
             <button
@@ -228,7 +240,7 @@ export function DateRangePicker({
       {/* Câu chốt lại "đang xem khoảng nào". Bắt buộc phải có vì ô `<input type="date">` hiển
           thị theo LOCALE CỦA MÁY — máy để tiếng Anh thì mùng 1 tháng 9 hiện ra "09/01/2026",
           đọc thành mùng 9 tháng 1. Đây là chỗ duy nhất nói rõ không nhầm được. */}
-      <p className="time-range-summary">Đang xem: {rangeLabel(value)}</p>
+      <p className="time-range-summary">Đang xem: {rangeLabel(value, now)}</p>
     </div>
   );
 }
