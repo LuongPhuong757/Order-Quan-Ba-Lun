@@ -234,7 +234,9 @@ const outNote: CSSProperties = {
 const noteInput: CSSProperties = {
   width: '100%',
   padding: 'var(--sp-2)',
-  fontSize: 'var(--fs-sm)',
+  // 16px TRỞ LÊN, không dùng --fs-sm (14px): iOS Safari tự phóng to cả trang khi khách
+  // chạm vào ô nhập có cỡ chữ dưới 16px, và sau đó trang nằm lệch cho tới khi họ tự thu lại.
+  fontSize: 16,
   fontFamily: 'inherit',
   color: 'var(--text-strong)',
   background: 'var(--bg-page)',

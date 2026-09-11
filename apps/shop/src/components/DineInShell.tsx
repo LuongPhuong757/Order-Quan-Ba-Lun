@@ -100,6 +100,11 @@ const badge: CSSProperties = {
 const cartLink: CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
+  justifyContent: 'center',
+  // Vùng bấm tối thiểu: icon giỏ cao 24px, bọc nguyên si thì cả vùng chạm chỉ 24px — hụt so
+  // với ngón tay. Đo được bằng script kiểm giao diện (2026-09-11), không nhìn ra bằng mắt.
+  minWidth: 'var(--tap-min)',
+  minHeight: 'var(--tap-min)',
   textDecoration: 'none',
   color: 'inherit',
 };

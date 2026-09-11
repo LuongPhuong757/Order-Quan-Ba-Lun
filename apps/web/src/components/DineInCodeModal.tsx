@@ -338,8 +338,17 @@ const CSS = `
   align-items: center;
 }
 .dic-header h1 { margin: 0; font-size: 17px; }
+/* ⚠ MỌI nút trong modal này PHẢI khai "color" tường minh.
+   styles.css toàn cục đặt: button { background: #0f766e; color: white }. Nút nào chỉ đổi nền
+   sang trắng mà quên đổi màu chữ thì thành CHỮ TRẮNG TRÊN NỀN TRẮNG — nhìn ra một ô trống
+   trơn, không có gì báo lỗi, typecheck xanh. Đã dính đúng vậy ở nút "Gõ mã khác", chỉ phát
+   hiện được khi mở trình duyệt thật và nhìn ảnh chụp (2026-09-11).
+
+   Và KHÔNG được dùng dấu huyền ngược trong khối CSS này: cả khối là một template literal,
+   một dấu huyền ngược lạc vào là đứt chuỗi và cả file thành lỗi cú pháp. */
 .dic-x {
   border: none; background: none; font-size: 18px; cursor: pointer;
+  color: #6b7280;
   min-width: 44px; min-height: 44px;
 }
 .dic-body { padding: 16px 18px; overflow-y: auto; }
@@ -371,7 +380,8 @@ const CSS = `
 .dic-secondary {
   min-height: 48px; padding: 0 14px;
   border: 1px solid #d1d5db; border-radius: 10px;
-  background: #fff; font-size: 14px; cursor: pointer;
+  background: #fff; color: #1f2937; font-size: 14px; cursor: pointer;
+  white-space: nowrap;
 }
 .dic-actions { display: flex; gap: 8px; }
 .dic-actions .dic-primary { flex: 1; }
@@ -408,7 +418,9 @@ const CSS = `
   margin: 4px 0 0 40px;
   border: none; background: none; padding: 6px 0;
   color: #2563eb; font-size: 12px; cursor: pointer;
-  min-height: 32px;
+  /* 36px là mức tối thiểu của script kiểm giao diện. Thấp hơn thì nhân viên bấm trượt sang
+     dòng bên cạnh — và bấm trượt ở đây nghĩa là bỏ nhầm món của khách. */
+  min-height: 36px;
 }
 
 .dic-total {
