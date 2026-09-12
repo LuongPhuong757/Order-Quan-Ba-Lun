@@ -1507,7 +1507,10 @@ export class OrdersService {
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
     revenue_by_cashier: Array<{ name: string; revenue: number; orders: number }>;
-    by_hour: Array<{ hour: number; orders: number; revenue: number }>;
+    /** 48 mốc NỬA TIẾNG trong ngày, `start_min` = 0, 30, 60 … 1410 (phút tính từ 0h giờ VN).
+     *  Nửa tiếng chứ không phải một tiếng: quán đông dồn vào đầu hay cuối giờ là hai việc
+     *  khác nhau, gộp cả tiếng thì cái đỉnh đó bị san phẳng và không còn thấy. */
+    by_half_hour: Array<{ start_min: number; orders: number; revenue: number }>;
     paid_count: number;
     unpaid_count: number;
     cancelled_count: number;
@@ -1572,7 +1575,7 @@ export class OrdersService {
 
     const dayMap = new Map<string, { revenue: number; orders: number }>();
     const cashierMap = new Map<string, { revenue: number; orders: number }>();
-    const hours = Array.from({ length: 24 }, (_, h) => ({ hour: h, orders: 0, revenue: 0 }));
+    const slots = Array.from({ length: 48 }, (_, i) => ({ start_min: i * 30, orders: 0, revenue: 0 }));
     let paidRevenue = 0;
     for (const r of perOrder) {
       const rev = Number(r.revenue) || 0;
@@ -1580,10 +1583,12 @@ export class OrdersService {
       // closed_ms = UNIX_TIMESTAMP(closed_at)*1000 (epoch UTC ms) → +7h ra giờ VN
       const vn = new Date((Number(r.closed_ms) || 0) + VN_OFFSET_MS);
       const day = vn.toISOString().slice(0, 10);
-      const hour = vn.getUTCHours();
+      // Chỉ số mốc nửa tiếng: 8h05 → 16, 8h47 → 17. Dùng `getUTC*` trên mốc đã cộng +7h nên
+      // đây là giờ VN, không phải giờ máy chủ.
+      const slot = vn.getUTCHours() * 2 + (vn.getUTCMinutes() >= 30 ? 1 : 0);
       const d = dayMap.get(day) || { revenue: 0, orders: 0 };
       d.revenue += rev; d.orders += 1; dayMap.set(day, d);
-      hours[hour].orders += 1; hours[hour].revenue += rev;
+      slots[slot].orders += 1; slots[slot].revenue += rev;
       const cname = r.cashier || '(không xác định)';
       const c = cashierMap.get(cname) || { revenue: 0, orders: 0 };
       c.revenue += rev; c.orders += 1; cashierMap.set(cname, c);
@@ -1659,7 +1664,7 @@ export class OrdersService {
       revenue_by_cashier: Array.from(cashierMap.entries())
         .map(([name, v]) => ({ name, revenue: v.revenue, orders: v.orders }))
         .sort((a, b) => b.revenue - a.revenue),
-      by_hour: hours,
+      by_half_hour: slots,
       paid_count,
       unpaid_count,
       cancelled_count,

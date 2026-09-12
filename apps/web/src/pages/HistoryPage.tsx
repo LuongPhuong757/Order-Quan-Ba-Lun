@@ -50,7 +50,7 @@ type Stats = {
   revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
   top_items: Array<{ name: string; qty: number; revenue: number }>;
   revenue_by_cashier: Array<{ name: string; revenue: number; orders: number }>;
-  by_hour: Array<{ hour: number; orders: number; revenue: number }>;
+  by_half_hour: Array<{ start_min: number; orders: number; revenue: number }>;
   paid_count: number;
   unpaid_count: number;
   cancelled_count: number;
@@ -729,7 +729,9 @@ export function HistoryPage() {
               <ChartCard title={`${chiSoView.icon} ${chiSoView.ten} theo ngày`} hint={tabView.hint}>
                 <BarChart
                   ariaLabel={`${chiSoView.ten} theo ngày`}
-                  height={280}
+                  height={200}
+                  tiLeCot={0.58}
+                  rongCotToiDa={28}
                   data={stats.revenue_by_day.map((d) => ({
                     label: vnDayLabel(d.day).slice(0, 5),
                     value: chiSo === 'revenue' ? d.revenue : d.orders,
@@ -746,14 +748,16 @@ export function HistoryPage() {
                   giữ, vì cái hõm nghỉ trưa là thông tin thật. Xem `lib/gio-cao-diem.ts`. */}
               <ChartCard
                 title={`🕐 Giờ cao điểm — ${chiSoView.ten.toLowerCase()}`}
-                hint="Theo giờ thanh toán · đã bỏ khung giờ đầu/cuối không có đơn nào"
+                hint="Theo giờ thanh toán · mốc 30 phút · đã bỏ khung giờ đầu/cuối không có đơn nào"
               >
                 <BarChart
-                  ariaLabel={`${chiSoView.ten} theo khung giờ trong ngày`}
-                  height={280}
+                  ariaLabel={`${chiSoView.ten} theo mốc 30 phút trong ngày`}
+                  height={200}
+                  tiLeCot={0.58}
+                  rongCotToiDa={28}
                   color="#3b82f6"
-                  data={catGioTrongHaiDau(stats.by_hour).map((h) => ({
-                    label: nhanGio(h.hour),
+                  data={catGioTrongHaiDau(stats.by_half_hour).map((h) => ({
+                    label: nhanGio(h.start_min),
                     value: chiSo === 'revenue' ? h.revenue : h.orders,
                     tip: [
                       { id: 'rev', name: 'Doanh thu', color: '#0f766e', value: h.revenue },

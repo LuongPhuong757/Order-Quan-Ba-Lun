@@ -2,7 +2,7 @@
 // Dùng ở màn Quản lý giao dịch: cột (theo ngày/giờ), thanh xếp hạng, donut tỉ lệ.
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { tangCuaCot, tongMoiCot } from '../lib/stacked-bars.ts';
-import { buocNhanTruc } from '../lib/gio-cao-diem.ts';
+import { buocNhanTruc, chiSoGhiNhan } from '../lib/gio-cao-diem.ts';
 
 const TEAL = '#0f766e';
 
@@ -68,6 +68,8 @@ export function BarChart({
   height = 260,
   formatValue = (v) => String(v),
   ariaLabel,
+  tiLeCot = 0.72,
+  rongCotToiDa = 44,
 }: {
   data: Array<{
     label: string;
@@ -82,6 +84,14 @@ export function BarChart({
   height?: number;
   formatValue?: (v: number) => string;
   ariaLabel: string;
+  /** Thân cột chiếm bao nhiêu phần bề ngang ô của nó (0–1). Thấp hơn = cột mảnh, khe rộng.
+   *
+   *  Trục càng nhiều mốc thì càng nên mảnh: ở 32 mốc nửa tiếng, cột béo 0,72 làm hai cột cạnh
+   *  nhau gần như dính liền và mắt đọc ra một khối liền chứ không phải từng mốc. */
+  tiLeCot?: number;
+  /** Chặn trên cho thân cột. Trục chỉ có 2-3 mốc (lọc theo ca thì "theo ngày" đúng 1-2 cột)
+   *  mà không chặn thì mỗi cột phình ra cả trăm pixel, trông như biểu đồ hỏng. */
+  rongCotToiDa?: number;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [w, setW] = useState(720);
@@ -110,15 +120,14 @@ export function BarChart({
   const plotH = Math.max(10, height - padT - padB);
 
   const oCot = plotW / n;
-  const rongCot = Math.max(2, Math.min(44, oCot * 0.72));
+  const rongCot = Math.max(2, Math.min(rongCotToiDa, oCot * tiLeCot));
   const cx = (i: number) => padL + (i + 0.5) * oCot;
   const y = (v: number) => padT + plotH - (v / yMax) * plotH;
 
   // Nhãn trục ngang: ghi được bao nhiêu thì ghi, thưa dần khi hết chỗ — xem `buocNhanTruc`.
   // Cột đầu và cột cuối LUÔN có nhãn, thiếu chúng thì không biết trục bắt đầu/kết thúc ở đâu.
   const buocNhan = buocNhanTruc(data.map((d) => d.label), oCot);
-  const chiSoNhan = new Set<number>([0, n - 1]);
-  for (let i = 0; i < n; i += buocNhan) chiSoNhan.add(i);
+  const chiSoNhan = chiSoGhiNhan(n, buocNhan);
 
   const doiHover = (clientX: number) => {
     const box = boxRef.current?.getBoundingClientRect();
@@ -302,10 +311,18 @@ export type LineSeries = {
 
 /** Mốc trục dọc "tròn": 1 / 2 / 2,5 / 5 × 10^k. Lấy thẳng max thì nhãn ra 1.237.412đ và không
  *  ai đọc được cái trục đó. */
+/**
+ * Mốc trên của trục dọc: số tròn gần nhất KHÔNG nhỏ hơn giá trị lớn nhất.
+ *
+ * Thang có thêm nấc 3 và 4 (2026-09-12). Trước đó nhảy thẳng 2,5 → 5, nên một biểu đồ đỉnh
+ * 3tr bị kéo trục lên 5tr và cột cao nhất chỉ chiếm 60% chiều cao — nửa trên trống trơn, mọi
+ * cột trông lùn hơn thật. Lộ ra khi biểu đồ giờ chuyển sang mốc 30 phút: chia đôi khung giờ
+ * là chia đôi mọi giá trị, và đỉnh rơi đúng vào khoảng hở 2,5–5 của thang cũ.
+ */
 function mocTron(max: number): number {
   if (max <= 0) return 1;
   const bac = 10 ** Math.floor(Math.log10(max));
-  for (const b of [1, 2, 2.5, 5, 10]) if (max <= b * bac) return b * bac;
+  for (const b of [1, 2, 2.5, 3, 4, 5, 10]) if (max <= b * bac) return b * bac;
   return 10 * bac;
 }
 
@@ -335,6 +352,14 @@ export function LineChart({
   height?: number;
   formatValue?: (v: number) => string;
   ariaLabel: string;
+  /** Thân cột chiếm bao nhiêu phần bề ngang ô của nó (0–1). Thấp hơn = cột mảnh, khe rộng.
+   *
+   *  Trục càng nhiều mốc thì càng nên mảnh: ở 32 mốc nửa tiếng, cột béo 0,72 làm hai cột cạnh
+   *  nhau gần như dính liền và mắt đọc ra một khối liền chứ không phải từng mốc. */
+  tiLeCot?: number;
+  /** Chặn trên cho thân cột. Trục chỉ có 2-3 mốc (lọc theo ca thì "theo ngày" đúng 1-2 cột)
+   *  mà không chặn thì mỗi cột phình ra cả trăm pixel, trông như biểu đồ hỏng. */
+  rongCotToiDa?: number;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [w, setW] = useState(720);
@@ -502,6 +527,14 @@ export function StackedBarChart({
   height?: number;
   formatValue?: (v: number) => string;
   ariaLabel: string;
+  /** Thân cột chiếm bao nhiêu phần bề ngang ô của nó (0–1). Thấp hơn = cột mảnh, khe rộng.
+   *
+   *  Trục càng nhiều mốc thì càng nên mảnh: ở 32 mốc nửa tiếng, cột béo 0,72 làm hai cột cạnh
+   *  nhau gần như dính liền và mắt đọc ra một khối liền chứ không phải từng mốc. */
+  tiLeCot?: number;
+  /** Chặn trên cho thân cột. Trục chỉ có 2-3 mốc (lọc theo ca thì "theo ngày" đúng 1-2 cột)
+   *  mà không chặn thì mỗi cột phình ra cả trăm pixel, trông như biểu đồ hỏng. */
+  rongCotToiDa?: number;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [w, setW] = useState(720);
