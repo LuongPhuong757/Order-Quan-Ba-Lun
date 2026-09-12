@@ -6,6 +6,8 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
+import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
+import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
 import {
@@ -247,6 +249,12 @@ export function HistoryPage() {
   // Mặc định ẨN biểu đồ (chốt 2026-09-05): việc thường ngày ở màn này là soi danh sách đơn,
   // biểu đồ đẩy nó xuống dưới màn hình. Ai cần thì bấm "Hiện biểu đồ thống kê".
   const [showCharts, setShowCharts] = useState(false);
+  /** Hai biểu đồ cột vẽ theo TIỀN hay theo SỐ ĐƠN — một chip chung cho cả hai.
+   *
+   *  Chung chứ không mỗi biểu đồ một chip: hai câu hỏi "ngày nào thu nhiều nhất" và "giờ nào
+   *  đông khách nhất" hay được hỏi liền nhau, mà mỗi biểu đồ một chỉ số riêng thì phải nhớ
+   *  đang xem cái nào ở đâu. Dữ liệu BE trả về vốn có sẵn cả hai cho cả ngày lẫn giờ. */
+  const [chiSo, setChiSo] = useState<'revenue' | 'orders'>('revenue');
   const PAGE_SIZE = 20;
 
   /** Bộ lọc hiện tại gom thành MỘT object — cả ba request (danh sách / biểu đồ / tiêu hao) đọc
@@ -472,6 +480,15 @@ export function HistoryPage() {
     return m;
   }, [stats]);
 
+  /** Nhãn + cách định dạng của chỉ số đang xem. Gom một chỗ để tiêu đề thẻ, nhãn trục dọc và
+   *  chip không bao giờ nói ba thứ khác nhau. */
+  const chiSoView =
+    chiSo === 'revenue'
+      ? { ten: 'Doanh thu', icon: '💰', format: fmtShort }
+      : // Số đơn là số ĐẾM, không rút gọn thành "1,2k": ở quán một ngày vài chục đơn, rút gọn
+        // chỉ làm mất con số thật mà chẳng tiết kiệm được ký tự nào.
+        { ten: 'Số đơn', icon: '🧾', format: (v: number) => String(Math.round(v)) };
+
   /** Có đang lọc khác MẶC ĐỊNH không — quyết định hiện nút "Xoá lọc".
    *
    *  Khoảng thời gian tính là "có lọc" khi nó KHÁC ca đang chạy: ca là mặc định, nên đang ở ca
@@ -688,14 +705,65 @@ export function HistoryPage() {
         >
           {showCharts ? '▲ Ẩn biểu đồ' : '▼ Hiện biểu đồ thống kê'}
         </button>
+        {/* Chip đổi chỉ số — chỉ có nghĩa khi biểu đồ đang mở, nên ẩn cùng với chúng. */}
+        {showCharts && (
+          <TimeRangeChips
+            ariaLabel="Chọn chỉ số cho biểu đồ cột"
+            label="📊 Biểu đồ cột theo"
+            value={chiSo}
+            options={[
+              { value: 'revenue' as const, label: '💰 Doanh thu' },
+              { value: 'orders' as const, label: '🧾 Số đơn' },
+            ]}
+            onChange={setChiSo}
+            style={{ marginBottom: 10 }}
+          />
+        )}
         {showCharts && stats && (
           <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))' }}>
-            <ChartCard title="💰 Doanh thu theo ngày" hint={tabView.hint}>
-              <BarChart
-                data={stats.revenue_by_day.map((d) => ({ label: vnDayLabel(d.day).slice(0, 5), value: d.revenue }))}
-                formatValue={fmtShort}
-              />
-            </ChartCard>
+            {/* Hai biểu đồ cột chiếm TRỌN bề ngang (`1 / -1`), không chia ô với ba khối kia:
+                ở lưới `minmax(300px, 1fr)` trên desktop 1360px mỗi ô chỉ ~330px, mà biểu đồ giờ
+                có tới 24 cột. Ba khối còn lại (top món, thu ngân, donut) là danh sách xếp hạng
+                — chúng đọc tốt ở bề ngang hẹp, nên vẫn để chúng chia ô như cũ. */}
+            <div style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <ChartCard title={`${chiSoView.icon} ${chiSoView.ten} theo ngày`} hint={tabView.hint}>
+                <BarChart
+                  ariaLabel={`${chiSoView.ten} theo ngày`}
+                  height={280}
+                  data={stats.revenue_by_day.map((d) => ({
+                    label: vnDayLabel(d.day).slice(0, 5),
+                    value: chiSo === 'revenue' ? d.revenue : d.orders,
+                    tip: [
+                      { id: 'rev', name: 'Doanh thu', color: '#0f766e', value: d.revenue },
+                      { id: 'ord', name: 'Số đơn', color: '#64748b', value: d.orders },
+                    ],
+                  }))}
+                  formatValue={chiSoView.format}
+                />
+              </ChartCard>
+
+              {/* Giờ cao điểm — cắt giờ rỗng ở hai đầu để cột dày lên; giờ trống ở GIỮA thì
+                  giữ, vì cái hõm nghỉ trưa là thông tin thật. Xem `lib/gio-cao-diem.ts`. */}
+              <ChartCard
+                title={`🕐 Giờ cao điểm — ${chiSoView.ten.toLowerCase()}`}
+                hint="Theo giờ thanh toán · đã bỏ khung giờ đầu/cuối không có đơn nào"
+              >
+                <BarChart
+                  ariaLabel={`${chiSoView.ten} theo khung giờ trong ngày`}
+                  height={280}
+                  color="#3b82f6"
+                  data={catGioTrongHaiDau(stats.by_hour).map((h) => ({
+                    label: nhanGio(h.hour),
+                    value: chiSo === 'revenue' ? h.revenue : h.orders,
+                    tip: [
+                      { id: 'rev', name: 'Doanh thu', color: '#0f766e', value: h.revenue },
+                      { id: 'ord', name: 'Số đơn', color: '#64748b', value: h.orders },
+                    ],
+                  }))}
+                  formatValue={chiSoView.format}
+                />
+              </ChartCard>
+            </div>
             <ChartCard title={tabView.top} hint={tabView.hint}>
               <RankBars
                 data={stats.top_items.map((t) => ({ label: t.name, value: t.revenue, sub: `${t.qty} phần` }))}
@@ -707,12 +775,6 @@ export function HistoryPage() {
               <RankBars
                 data={stats.revenue_by_cashier.map((c) => ({ label: c.name, value: c.revenue, sub: `${c.orders} đơn` }))}
                 formatValue={fmtShort}
-              />
-            </ChartCard>
-            <ChartCard title="🕐 Giờ cao điểm" hint="Số đơn theo khung giờ trong ngày">
-              <BarChart
-                data={stats.by_hour.map((h) => ({ label: `${h.hour}h`, value: h.orders }))}
-                color="#3b82f6"
               />
             </ChartCard>
             {/* Tiêu hao nguyên liệu (2026-09-05) — theo ĐÚNG bộ lọc ngày/bàn đang chọn ở trên,
