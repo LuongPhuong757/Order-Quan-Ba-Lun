@@ -20,7 +20,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { HelpModal } from '../components/HelpModal.tsx';
 import { NotificationBell } from '../components/NotificationBell.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
-import { ageColor } from '../lib/item-age.ts';
+import { ageColor, formatAge } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
 import {
   addCancelled,
@@ -1772,7 +1772,7 @@ function Card({
         </div>
         <div className="kds-card-meta">
           <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
-            {ageTextColor === '#b91c1c' && '⚠ '}⏱ {ageMin}p
+            {ageTextColor === '#b91c1c' && '⚠ '}⏱ {formatAge(ageMin)}
           </span>
           {/* Định lượng phần ăn — CỐ TÌNH không nhân với qty. Ở bếp con số này là
               nhãn cỡ phần (bát 100k khác định lượng bát 130k), không phải tiền
