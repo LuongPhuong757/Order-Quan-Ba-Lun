@@ -865,6 +865,21 @@ function LineRow({
               style={{ width: '100%', minHeight: 44, fontSize: 16 }}
             />
           </label>
+
+          {/* Thành tiền của riêng dòng này — dóng thẳng thành một CỘT như bốn ô kia.
+              Trước đây con số này chỉ tồn tại ở bố cục thẻ (≤1000px): CSS ẩn hẳn dòng chân trên
+              desktop kèm ghi chú "desktop đã có cột tiền dóng thẳng", nhưng cột đó chưa bao giờ
+              tồn tại — người nhập trên máy tính phải tự nhân nhẩm 4.220 × 95.000 để soát phiếu.
+              Là ô ĐỌC chứ không phải ô nhập: nó luôn là tích của hai ô bên trái, cho sửa tay thì
+              lập tức có hai nguồn sự thật cho cùng một con số. */}
+          <div className="dl-total-cell">
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Thành tiền
+            </span>
+            <strong className="dl-total-val" aria-live="off">
+              {lineTotal > 0 ? `${vnd(lineTotal)}đ` : '—'}
+            </strong>
+          </div>
         </div>
 
         <button
@@ -877,9 +892,10 @@ function LineRow({
         </button>
       </div>
 
-      {/* Chân dòng: thành tiền của riêng dòng này + giá lần trước. Trên desktop cột tiền đã dóng
-          thẳng nên chỉ cần dòng giá cũ; trên điện thoại thì thành tiền từng dòng là thứ duy nhất
-          giúp soát lại phiếu mà không phải tự nhân nhẩm. */}
+      {/* Chân dòng: giá lần trước, và trên bố cục thẻ (≤1000px) thì cả thành tiền.
+          Desktop KHÔNG lặp lại thành tiền ở đây vì đã có cột riêng — nhưng vẫn phải hiện dòng
+          này, nếu không thì cảnh báo "lần trước mua giá bao nhiêu" biến mất sạch trên máy tính.
+          Đó chính là thứ đã mất cùng với thành tiền khi cả khối bị `display: none`. */}
       {(lineTotal > 0 || prev) && (
         <div className="dl-foot-line">
           {prev && (
