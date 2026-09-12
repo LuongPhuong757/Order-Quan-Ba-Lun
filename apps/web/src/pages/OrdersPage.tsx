@@ -7,6 +7,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { openTablesStore } from '../lib/open-tables-badge.ts';
+import { formatAge } from '../lib/item-age.ts';
 
 type Table = {
   id: string;
@@ -359,9 +360,16 @@ export function OrdersPage() {
                 fontSize: 11,
                 color: slowKitchen ? '#dc2626' : '#6b7280',
                 fontWeight: slowKitchen ? 700 : 400,
+                // Từ khi đồng hồ đổi sang dạng giờ+phút, chữ dài nhất không còn là `99′` (3 ký
+                // tự) mà là `2h35p` (5). Không chặn thì flex bóp nó lại và nó gãy giữa token
+                // thành "2h35" / "p" — một con số cảnh báo mà xuống dòng thì đọc ra số khác.
+                // Thà để TÊN BÀN gãy: tên vẫn đọc được khi gãy, con số thì không.
+                whiteSpace: 'nowrap',
+                flex: 'none',
+                marginLeft: 6,
               }}
             >
-              {minutesSinceKitchen}′
+              {formatAge(minutesSinceKitchen)}
             </div>
           )}
         </div>

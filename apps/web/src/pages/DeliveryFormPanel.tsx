@@ -185,9 +185,13 @@ export function DeliveryFormPanel({
   const [restored] = useState(() => (editingId ? null : readDraft(KEY)));
   const [showRestored, setShowRestored] = useState(!!restored);
   const [supplierId, setSupplierId] = useState(lockedSupplierId ?? restored?.supplierId ?? '');
-  const [date, setDate] = useState(
-    () => restored?.date || new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10),
-  );
+  /** Ngày giao — CỐ Ý để trống lúc mở phiếu mới (chủ quán chốt 2026-09-08).
+   *
+   * Trước đây ô này mặc định hôm nay, và đó là chỗ lọt: nhân viên tối mới ngồi nhập phiếu của
+   * sáng hôm trước, không ai nhìn lại ô ngày, phiếu vào sổ sai ngày trong im lặng — rồi mốc giá
+   * tham chiếu và công nợ theo kỳ lệch theo. Bắt chọn thì mỗi phiếu có một ngày người ta THỰC SỰ
+   * chọn, không phải một ngày hệ thống đoán hộ. */
+  const [date, setDate] = useState(() => restored?.date ?? '');
   const [note, setNote] = useState(restored?.note ?? '');
   const [lines, setLines] = useState<DraftLine[]>(restored?.lines ?? [newLine()]);
   const [catalog, setCatalog] = useState<Ingredient[]>([]);
@@ -353,6 +357,12 @@ export function DeliveryFormPanel({
   };
 
   const submit = async (approved?: string[], allowDuplicate?: boolean) => {
+    // Chặn ở đây nữa dù phần nhập hàng đã bị ẩn khi chưa có ngày: nháp cũ khôi phục về có thể
+    // mang ngày rỗng, và server sẽ lặng lẽ lấy hôm nay nếu `delivery_date` trống.
+    if (!date) {
+      toast.push('error', 'Chọn ngày giao trước đã');
+      return;
+    }
     // Soát dòng dở dang TRƯỚC khi dựng payload: xem `incompleteLines`.
     const thieu = incompleteLines();
     if (thieu.length > 0) {
@@ -506,7 +516,7 @@ export function DeliveryFormPanel({
               onClick={() => {
                 clearDraft(KEY);
                 setSupplierId(lockedSupplierId ?? '');
-                setDate(new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10));
+                setDate('');
                 setNote('');
                 setLines([newLine()]);
                 setShowRestored(false);
@@ -560,52 +570,105 @@ export function DeliveryFormPanel({
           </div>
           <label style={{ display: 'block' }}>
             {/* Ngày GIAO, không phải ngày nhập liệu. Nhân viên bận thì tối mới ngồi nhập phiếu
-                của sáng, và nhập bù phiếu hôm qua là chuyện thường. */}
-            <span className="dl-lab" style={{ color: C.mutedOnTint }}>Ngày giao</span>
+                của sáng, và nhập bù phiếu hôm qua là chuyện thường. Xem docblock state `date`
+                về việc vì sao ô này để trống thay vì mặc định hôm nay. */}
+            <span className="dl-lab" style={{ color: date ? C.mutedOnTint : '#b91c1c' }}>
+              Ngày giao {date ? '' : '*'}
+            </span>
             <input
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              style={{ width: '100%', minHeight: 44 }}
+              // Viền đỏ khi trống: ô này giờ là cửa vào của cả phiếu, phải nhìn ra ngay là chỗ
+              // đang chờ mình — không thì người nhập ngồi tìm xem sao không gõ được mặt hàng.
+              style={{
+                width: '100%',
+                minHeight: 44,
+                border: date ? undefined : '2px solid #b91c1c',
+              }}
             />
+            {/* Hai lối tắt cho hai ca chiếm gần hết số phiếu. Vẫn là một cái bấm CÓ Ý THỨC, khác
+                hẳn với việc hệ thống điền sẵn hôm nay rồi không ai nhìn lại. */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              {([
+                ['Hôm nay', 0],
+                ['Hôm qua', 1],
+              ] as const).map(([label, lui]) => {
+                const v = new Date(Date.now() + 7 * 3600_000 - lui * 86_400_000)
+                  .toISOString()
+                  .slice(0, 10);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    className={date === v ? '' : 'secondary'}
+                    onClick={() => setDate(v)}
+                    style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
           </label>
         </div>
 
-        <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
-          {lines.map((l, idx) => (
-            <LineRow
-              key={l.key}
-              line={l}
-              index={idx}
-              catalog={catalog}
-              known={knownById}
-              onPick={(ing) => pick(l.key, ing)}
-              onPatch={(next) => patch(l.key, next)}
-              onRemove={() => setLines((prev) => (prev.length === 1 ? [newLine()] : prev.filter((x) => x.key !== l.key)))}
-            />
-          ))}
-        </div>
+        {/* Chưa chọn ngày thì KHÔNG mở phần nhập hàng (chủ quán chốt 2026-09-08). Ẩn hẳn chứ
+            không chỉ báo lỗi lúc bấm GỬI: gõ xong 8 dòng mới bị chặn lại là đã quá muộn, và
+            người nhập lúc đó chỉ muốn bấm cho xong. `lines` vẫn nằm nguyên trong state nên chọn
+            ngày xong là hiện lại đúng những gì đã gõ, không mất gì. */}
+        {/* `!isEdit`: phiếu đang SỬA nạp ngày qua `useEffect` nên có một nhịp `date` còn rỗng —
+            nháy dải đỏ "chọn ngày" lên rồi tắt là làm người sửa tưởng phiếu cũ mất ngày. */}
+        {!date && !isEdit ? (
+          <div
+            className="empty-state card"
+            style={{ marginTop: 20, borderColor: '#fecaca', background: '#fef2f2' }}
+          >
+            <strong style={{ color: '#b91c1c' }}>Chọn ngày giao trước đã</strong>
+            <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
+              Ngày giao là ngày NCC đưa hàng tới, không phải ngày ngồi nhập. Chọn xong sẽ mở phần
+              nhập mặt hàng.
+            </div>
+          </div>
+        ) : (
+          <>
+            <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
+              {lines.map((l, idx) => (
+                <LineRow
+                  key={l.key}
+                  line={l}
+                  index={idx}
+                  catalog={catalog}
+                  known={knownById}
+                  onPick={(ing) => pick(l.key, ing)}
+                  onPatch={(next) => patch(l.key, next)}
+                  onRemove={() => setLines((prev) => (prev.length === 1 ? [newLine()] : prev.filter((x) => x.key !== l.key)))}
+                />
+              ))}
+            </div>
 
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => setLines((prev) => [...prev, newLine()])}
-          style={{ marginTop: 12, minHeight: 44 }}
-        >
-          ＋ Thêm dòng
-        </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setLines((prev) => [...prev, newLine()])}
+              style={{ marginTop: 12, minHeight: 44 }}
+            >
+              ＋ Thêm dòng
+            </button>
 
-        <PhotoPicker files={photos} onChange={setPhotos} />
+            <PhotoPicker files={photos} onChange={setPhotos} />
 
-        <label style={{ display: 'block', marginTop: 16 }}>
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={255}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
+            <label style={{ display: 'block', marginTop: 16 }}>
+              <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
+              <input
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={255}
+                style={{ width: '100%', minHeight: 44 }}
+              />
+            </label>
+          </>
+        )}
 
         {/* Ghim đáy trên điện thoại: phiếu 10 mặt hàng dài hơn 2 màn, mà con số tổng và nút GỬI
             là hai thứ người nhập phải với tới bất cứ lúc nào — cuộn xuống đáy mới bấm được là
@@ -615,7 +678,7 @@ export function DeliveryFormPanel({
           <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
             Huỷ
           </button>
-          <button type="submit" disabled={saving} style={{ minHeight: 48, padding: '0 24px' }}>
+          <button type="submit" disabled={saving || !date} style={{ minHeight: 48, padding: '0 24px' }}>
             {saving ? 'Đang lưu…' : isEdit ? 'LƯU SỬA' : 'GỬI'}
           </button>
         </div>
@@ -802,6 +865,21 @@ function LineRow({
               style={{ width: '100%', minHeight: 44, fontSize: 16 }}
             />
           </label>
+
+          {/* Thành tiền của riêng dòng này — dóng thẳng thành một CỘT như bốn ô kia.
+              Trước đây con số này chỉ tồn tại ở bố cục thẻ (≤1000px): CSS ẩn hẳn dòng chân trên
+              desktop kèm ghi chú "desktop đã có cột tiền dóng thẳng", nhưng cột đó chưa bao giờ
+              tồn tại — người nhập trên máy tính phải tự nhân nhẩm 4.220 × 95.000 để soát phiếu.
+              Là ô ĐỌC chứ không phải ô nhập: nó luôn là tích của hai ô bên trái, cho sửa tay thì
+              lập tức có hai nguồn sự thật cho cùng một con số. */}
+          <div className="dl-total-cell">
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Thành tiền
+            </span>
+            <strong className="dl-total-val" aria-live="off">
+              {lineTotal > 0 ? `${vnd(lineTotal)}đ` : '—'}
+            </strong>
+          </div>
         </div>
 
         <button
@@ -814,9 +892,10 @@ function LineRow({
         </button>
       </div>
 
-      {/* Chân dòng: thành tiền của riêng dòng này + giá lần trước. Trên desktop cột tiền đã dóng
-          thẳng nên chỉ cần dòng giá cũ; trên điện thoại thì thành tiền từng dòng là thứ duy nhất
-          giúp soát lại phiếu mà không phải tự nhân nhẩm. */}
+      {/* Chân dòng: giá lần trước, và trên bố cục thẻ (≤1000px) thì cả thành tiền.
+          Desktop KHÔNG lặp lại thành tiền ở đây vì đã có cột riêng — nhưng vẫn phải hiện dòng
+          này, nếu không thì cảnh báo "lần trước mua giá bao nhiêu" biến mất sạch trên máy tính.
+          Đó chính là thứ đã mất cùng với thành tiền khi cả khối bị `display: none`. */}
       {(lineTotal > 0 || prev) && (
         <div className="dl-foot-line">
           {prev && (

@@ -4,6 +4,7 @@ import {
   matchPreset,
   presetRange,
   rangeLabel,
+  shiftStartMs,
   vnDayEndMs,
   vnDayIso,
   vnDayStartMs,
@@ -139,5 +140,65 @@ describe('vnDayStartMs / vnDayEndMs', () => {
     // đúng là chỗ sai: máy để múi giờ khác +7 sẽ hỏi API một ngày khác ngày chip vừa bấm.
     expect(vnDayStartMs('2026-09-09')).toBe(Date.parse('2026-09-09T00:00:00+07:00'));
     expect(vnDayStartMs('2026-09-09')).toBe(1788886800000);
+  });
+});
+
+// ── Ca kinh doanh 8h–8h ────────────────────────────────────────────────────────────────────
+// Ba mốc quanh ranh giới 8h sáng giờ VN của ngày 2026-09-07.
+const TRUOC_8H = Date.parse('2026-09-07T00:30:00Z'); // 07:30 VN — vẫn thuộc ca mở 8h HÔM QUA
+const DUNG_8H = Date.parse('2026-09-07T01:00:00Z'); // 08:00 VN — ca mới bắt đầu ĐÚNG lúc này
+const SAU_8H = Date.parse('2026-09-07T02:00:00Z'); // 09:00 VN — ca hôm nay
+
+const CA_07 = Date.parse('2026-09-07T08:00:00.000+07:00');
+const CA_06 = Date.parse('2026-09-06T08:00:00.000+07:00');
+
+describe('shiftStartMs', () => {
+  it('đã qua 8h sáng → ca bắt đầu 8h sáng HÔM NAY', () => {
+    expect(shiftStartMs(SAU_8H)).toBe(CA_07);
+    expect(shiftStartMs(TOI_VN)).toBe(CA_07);
+  });
+
+  // Lõi của tính năng: 1-2h sáng là lúc người đứng quán chốt ca, và ca đó mở từ hôm qua.
+  it('sau nửa đêm nhưng chưa tới 8h → ca vẫn là ca mở 8h sáng HÔM QUA', () => {
+    expect(shiftStartMs(TRUOC_8H)).toBe(CA_06);
+    // 00:05 VN ngày 07 — ngày lịch vừa đổi, ca thì chưa.
+    expect(shiftStartMs(Date.parse('2026-09-06T17:05:00Z'))).toBe(CA_06);
+  });
+
+  it('đúng 8h:00.000 đã thuộc ca mới, không còn ca cũ', () => {
+    expect(shiftStartMs(DUNG_8H)).toBe(CA_07);
+    expect(shiftStartMs(DUNG_8H - 1)).toBe(CA_06);
+  });
+
+  it('ca dài đúng 24 giờ — không hở, không chồng', () => {
+    expect(CA_07 - CA_06).toBe(24 * 3600 * 1000);
+  });
+
+  it('mốc trả về luôn là 8h sáng giờ VN, bất kể máy đặt múi giờ nào', () => {
+    for (const now of [TRUOC_8H, DUNG_8H, SAU_8H, TOI_VN, SANG_SOM_VN]) {
+      expect(new Date(shiftStartMs(now)).toISOString()).toMatch(/T01:00:00\.000Z$/);
+    }
+  });
+});
+
+describe('preset ca', () => {
+  it("presetRange('shift') là một lá cờ, không phải khoảng ngày", () => {
+    expect(presetRange('shift', SAU_8H)).toEqual({ from: '', to: '', shift: true });
+  });
+
+  // Nếu quên so cờ `shift` thì khoảng ca (from/to rỗng) sẽ khớp nhầm 'all'.
+  it("khoảng ca KHÔNG bị nhận nhầm thành 'all'", () => {
+    expect(matchPreset({ from: '', to: '', shift: true }, SAU_8H)).toBe('shift');
+    expect(matchPreset({ from: '', to: '' }, SAU_8H)).toBe('all');
+  });
+
+  it('gõ tay một ô ngày trong lúc đang ở ca → không còn là preset nào', () => {
+    expect(matchPreset({ from: '2026-09-01', to: '', shift: false }, SAU_8H)).toBe(null);
+  });
+
+  it('nhãn ca nói rõ NGÀY của mốc 8h, không chỉ nói "ca hiện tại"', () => {
+    expect(rangeLabel({ from: '', to: '', shift: true }, SAU_8H)).toContain('07/09/2026');
+    // Lúc 7h30 sáng ngày 07 thì mốc là 8h ngày 06 — chỗ dễ tưởng thiếu mất một ngày nhất.
+    expect(rangeLabel({ from: '', to: '', shift: true }, TRUOC_8H)).toContain('06/09/2026');
   });
 });

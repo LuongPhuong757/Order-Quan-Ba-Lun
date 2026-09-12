@@ -2,6 +2,7 @@
 // Dùng ở màn Quản lý giao dịch: cột (theo ngày/giờ), thanh xếp hạng, donut tỉ lệ.
 import { ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { tangCuaCot, tongMoiCot } from '../lib/stacked-bars.ts';
+import { buocNhanTruc } from '../lib/gio-cao-diem.ts';
 
 const TEAL = '#0f766e';
 
@@ -46,47 +47,155 @@ export function ChartCard({ title, hint, children }: { title: string; hint?: str
   );
 }
 
-/** Biểu đồ cột dọc. Nhiều cột → cuộn ngang. */
+/**
+ * Biểu đồ cột dọc một chuỗi — doanh thu theo ngày, số đơn theo giờ.
+ *
+ * Viết lại 2026-09-12 (chủ quán: "nhìn khá bé"). Bản cũ là `div` xếp flex, cao 160px, mỗi cột
+ * rộng tối thiểu 26px nên 24 khung giờ cần 816px và phải CUỘN NGANG trong một thẻ rộng 330px —
+ * muốn biết giờ nào đông nhất thì phải vuốt qua vuốt lại rồi nhớ bằng đầu. Bản này vẽ SVG theo
+ * bề ngang ĐO ĐƯỢC, nên bao nhiêu cột cũng vừa trong một màn hình.
+ *
+ * Dùng chung khuôn với `StackedBarChart` ngay dưới (ResizeObserver, `mocTron`, `ChartTip`):
+ * hai biểu đồ cột trên hai màn khác nhau mà một cái có lưới một cái không thì người xem phải
+ * học hai lần cách đọc.
+ *
+ * Nhãn giá trị trên đầu cột CỐ Ý bỏ đi: ở 24 cột thì "1,2tr" cạnh nhau chồng lên nhau thành
+ * một vệt xám. Lưới ngang lo phần ước lượng, tooltip lo phần con số chính xác.
+ */
 export function BarChart({
   data,
   color = TEAL,
-  height = 160,
-  formatValue,
+  height = 260,
+  formatValue = (v) => String(v),
+  ariaLabel,
 }: {
-  data: Array<{ label: string; value: number; sub?: string }>;
+  data: Array<{
+    label: string;
+    /** Chiều cao cột. */
+    value: number;
+    /** Các dòng hiện trong tooltip của cột này. Bỏ trống thì tooltip chỉ có `value`.
+     *  Có nó thì một cột nói được cả hai con số — "Doanh thu 1,2tr" VÀ "8 đơn" — mà thân cột
+     *  vẫn chỉ vẽ đúng một chỉ số, không thành hai thang trộn vào nhau. */
+    tip?: Array<{ id: string; name: string; color: string; value: number }>;
+  }>;
   color?: string;
   height?: number;
   formatValue?: (v: number) => string;
+  ariaLabel: string;
 }) {
-  const max = Math.max(1, ...data.map((d) => d.value));
-  if (data.length === 0) return <Empty />;
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(720);
+  const [hover, setHover] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    setW(Math.max(280, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+
+  const n = data.length;
+  const yMax = useMemo(() => mocTron(Math.max(...data.map((d) => d.value), 0)), [data]);
+
+  // Hook phải chạy trước mọi `return` — nên nhánh rỗng nằm ở đây, sau `useMemo`.
+  if (n === 0) return <Empty />;
+
+  const padL = 54;
+  const padR = 10;
+  const padT = 10;
+  const padB = 26;
+  const plotW = Math.max(10, w - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+
+  const oCot = plotW / n;
+  const rongCot = Math.max(2, Math.min(44, oCot * 0.72));
+  const cx = (i: number) => padL + (i + 0.5) * oCot;
+  const y = (v: number) => padT + plotH - (v / yMax) * plotH;
+
+  // Nhãn trục ngang: ghi được bao nhiêu thì ghi, thưa dần khi hết chỗ — xem `buocNhanTruc`.
+  // Cột đầu và cột cuối LUÔN có nhãn, thiếu chúng thì không biết trục bắt đầu/kết thúc ở đâu.
+  const buocNhan = buocNhanTruc(data.map((d) => d.label), oCot);
+  const chiSoNhan = new Set<number>([0, n - 1]);
+  for (let i = 0; i < n; i += buocNhan) chiSoNhan.add(i);
+
+  const doiHover = (clientX: number) => {
+    const box = boxRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const i = Math.floor((clientX - box.left - padL) / oCot);
+    setHover(Math.min(n - 1, Math.max(0, i)));
+  };
+
+  const tipLeft = hover === null ? 0 : Math.min(Math.max(8, cx(hover) + 12), Math.max(8, w - 208));
+
   return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height, minWidth: data.length * 34 }}>
-        {data.map((d, i) => {
-          const h = Math.round((d.value / max) * (height - 26));
+    <div ref={boxRef} style={{ position: 'relative', width: '100%' }}>
+      <svg
+        width={w}
+        height={height}
+        role="img"
+        aria-label={ariaLabel}
+        style={{ display: 'block', touchAction: 'pan-y' }}
+        onMouseMove={(e) => doiHover(e.clientX)}
+        onMouseLeave={() => setHover(null)}
+        onTouchStart={(e) => doiHover(e.touches[0].clientX)}
+        onTouchMove={(e) => doiHover(e.touches[0].clientX)}
+        onTouchEnd={() => setHover(null)}
+      >
+        {/* Vệt sáng cả ô cột đang trỏ — cột có thể mảnh 5px, một đường kẻ dọc sẽ trùng luôn
+            vào thân cột và không thấy đang trỏ vào đâu. */}
+        {hover !== null && (
+          <rect x={cx(hover) - oCot / 2} y={padT} width={oCot} height={plotH} fill="#f1f5f9" />
+        )}
+
+        {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+          const gy = padT + plotH - t * plotH;
           return (
-            <div key={i} style={{ flex: '1 0 26px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-              <div style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>
-                {d.value > 0 ? (formatValue ? formatValue(d.value) : d.value) : ''}
-              </div>
-              <div
-                title={`${d.label}: ${formatValue ? formatValue(d.value) : d.value}`}
-                style={{
-                  width: '100%',
-                  maxWidth: 40,
-                  height: Math.max(2, h),
-                  background: color,
-                  borderRadius: '4px 4px 0 0',
-                  // Không transition height: animate height gây reflow cả hàng cột (detector:
-                  // layout-transition). scaleY thay thế sẽ méo bo góc 4px ở cột thấp → bỏ hiệu ứng.
-                }}
-              />
-              <div style={{ fontSize: 10, color: '#6b7280', whiteSpace: 'nowrap' }}>{d.label}</div>
-            </div>
+            <g key={t}>
+              <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="#e5e7eb" strokeWidth={1} />
+              <text x={padL - 6} y={gy + 4} textAnchor="end" fontSize={11} fill="#6b7280">
+                {formatValue(yMax * t)}
+              </text>
+            </g>
           );
         })}
-      </div>
+
+        {data.map((d, i) => {
+          const top = y(d.value);
+          return (
+            <rect
+              key={i}
+              x={cx(i) - rongCot / 2}
+              y={top}
+              width={rongCot}
+              // Cột giá trị 0 KHÔNG vẽ vạch tối thiểu 1px: ở biểu đồ giờ, "không có đơn nào"
+              // phải nhìn ra là trống hẳn, chứ một vạch mảnh trông như có bán chút ít.
+              height={Math.max(0, padT + plotH - top)}
+              fill={color}
+              rx={2}
+            />
+          );
+        })}
+
+        {data.map((d, i) =>
+          chiSoNhan.has(i) ? (
+            <text key={i} x={cx(i)} y={height - 8} textAnchor="middle" fontSize={11} fill="#6b7280">
+              {d.label}
+            </text>
+          ) : null,
+        )}
+      </svg>
+
+      {hover !== null && (
+        <ChartTip
+          left={tipLeft}
+          title={data[hover].label}
+          rows={data[hover].tip ?? [{ id: 'v', name: 'Giá trị', color, value: data[hover].value }]}
+          formatValue={formatValue}
+          empty="Không có số liệu"
+        />
+      )}
     </div>
   );
 }

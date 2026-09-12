@@ -1727,7 +1727,26 @@ a:hover {
   display: grid;
   gap: 8px;
   align-items: end;
-  grid-template-columns: minmax(220px, 3fr) minmax(96px, 1fr) minmax(96px, 1fr) minmax(110px, 1.2fr) 44px;
+  grid-template-columns:
+    minmax(200px, 3fr) minmax(92px, 1fr) minmax(92px, 1fr) minmax(104px, 1.2fr)
+    minmax(104px, 1.2fr) 44px;
+}
+
+/* Ô thành tiền: ô ĐỌC, nhưng phải đứng ngang hàng với đáy bốn ô nhập bên trái — `align-items:
+   end` dóng theo hộp lề, mà ô này không có `<input>` cao 44px để tự đẩy xuống. */
+.dl-total-cell {
+  min-width: 0;
+}
+
+.dl-total-val {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .dl-units,
@@ -1770,8 +1789,21 @@ a:hover {
   padding: 0;
 }
 
-/* Thành tiền từng dòng: chỉ có nghĩa ở bố cục thẻ — desktop đã có cột tiền dóng thẳng. */
+/* Dòng chân: "lần trước mua giá bao nhiêu" cần thấy ở MỌI bề ngang — đó là thứ chặn gõ nhầm
+   giá trước khi bấm gửi. Trước đây cả khối bị `display: none` trên desktop kèm ghi chú rằng
+   desktop đã có cột tiền riêng; cột đó chưa từng tồn tại, nên trên máy tính mất luôn cả thành
+   tiền lẫn cảnh báo giá. Giờ cột thành tiền có thật, nên ở đây chỉ bỏ phần trùng lặp. */
 .dl-foot-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+  font-size: 13px;
+}
+
+/* Desktop: thành tiền đã nằm ở cột riêng, in lại lần nữa ở chân dòng là thừa. */
+.dl-line-total {
   display: none;
 }
 
@@ -1815,17 +1847,19 @@ a:hover {
     padding: 12px;
   }
 
+  /* Bố cục thẻ: bỏ cột thành tiền, vì ở đây nó đã nằm ở dòng chân — giữ cả hai là in một con
+     số hai lần trên một thẻ cao chưa đầy 200px. */
+  .dl-total-cell {
+    display: none;
+  }
+
   .dl-foot-line {
-    display: flex;
-    align-items: baseline;
     justify-content: space-between;
-    gap: 8px;
-    flex-wrap: wrap;
     margin-top: 8px;
-    font-size: 13px;
   }
 
   .dl-line-total {
+    display: block;
     font-size: 17px;
     font-weight: 800;
     margin-left: auto;

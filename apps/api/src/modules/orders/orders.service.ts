@@ -22,6 +22,8 @@ import {
   probeOpenOrder,
   fmtIdleDuration,
 } from './stale-open-order.js';
+import { transferInMessage } from './transfer-log.js';
+import { shouldLogSeatShift, seatShiftMessage } from './seated-at.js';
 import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
 
 export type OrderCreator = { id: string; full_name: string };
@@ -366,6 +368,75 @@ export class OrdersService {
     }
   }
 
+  /** GIỜ VÀO ĂN — dời `opened_at` về ĐÚNG lúc món đầu tiên được gọi, nếu đơn còn rỗng.
+   *
+   * Gọi TRƯỚC khi chèn dòng item đầu tiên (đếm phải thấy 0). Xem `seated-at.ts` để biết vì sao:
+   * `opened_at` do `getOrCreateOpenOrder` đặt thật ra là giờ ai đó mở drawer, và nhân viên mở
+   * ra xem rồi thoát là chuyện thường ngày.
+   *
+   * Chỉ đơn STAFF: đơn ONLINE tạo order + item trong cùng transaction lúc duyệt
+   * (`admin-online-orders.service.ts`), `opened_at` ở đó là giờ duyệt đơn — đúng rồi, không đụng.
+   *
+   * @returns `opened_at` CŨ nếu có dời, `null` nếu không dời (đơn đã có món, đơn online, đơn đóng).
+   */
+  private async stampSeatedAtOnFirstItem(
+    mgr: {
+      getRepository: ((e: typeof Order) => Repository<Order>) &
+        ((e: typeof OrderItem) => Repository<OrderItem>);
+    },
+    order_id: string,
+    creator?: OrderCreator,
+  ): Promise<number | null> {
+    const orderRepo = mgr.getRepository(Order);
+    const order = await orderRepo.findOne({ where: { id: order_id } });
+    if (!order || order.closed_at || order.source !== 'STAFF') return null;
+    // Đếm CẢ món đã huỷ: đơn từng gọi rồi huỷ hết là lượt khách có thật (vết chống gian lận,
+    // xem HAS_ANY_ITEM_SQL), không phải bàn chưa ai ngồi. Ca đó do ngưỡng bàn treo lo.
+    const existing = await mgr.getRepository(OrderItem).count({ where: { order_id } });
+    if (existing > 0) return null;
+
+    const prev = order.opened_at;
+    order.opened_at = Date.now();
+    // Người mở = người gọi món đầu, không phải người tap nhầm. Header drawer + lịch sử đọc cột này.
+    if (creator) {
+      order.created_by_user_id = creator.id;
+      order.created_by_full_name = creator.full_name;
+    }
+    await orderRepo.save(order);
+    return prev;
+  }
+
+  /** Post-commit của `stampSeatedAtOnFirstItem`: đồng bộ nhật ký với mốc vừa dời.
+   *
+   * `order_activity_logs.order_opened_at` là snapshot dùng để tách nhiều lượt khách trên cùng 1
+   * bàn — để nguyên là các dòng log của đơn này trỏ về một mốc không còn tồn tại. */
+  private async syncActivityAfterSeatShift(
+    order_id: string,
+    prevOpenedAt: number,
+    creator?: OrderCreator,
+  ): Promise<void> {
+    const snap = await this.orderSnapshot(order_id);
+    if (!snap) return;
+    try {
+      await this.activityRepo
+        .createQueryBuilder()
+        .update()
+        .set({ order_opened_at: snap.opened_at })
+        .where('order_id = :id', { id: order_id })
+        .execute();
+    } catch (err) {
+      this.logger.warn(`syncActivityAfterSeatShift failed: ${(err as Error).message}`);
+    }
+    const gap = snap.opened_at - prevOpenedAt;
+    if (!shouldLogSeatShift(gap)) return;
+    await this.writeActivity({
+      order: snap,
+      event_kind: 'order_restarted',
+      message: seatShiftMessage(gap),
+      actor: creator,
+    });
+  }
+
   /** Set order.first_kitchen_at = now nếu chưa có. Idempotent. */
   private async markFirstKitchenIfNull(
     mgr: { getRepository: (e: typeof Order) => Repository<Order> },
@@ -505,6 +576,8 @@ export class OrdersService {
     if (items.length === 0) {
       throw new BadRequestException({ code: 'CONFLICT', message: 'Giỏ hàng trống' });
     }
+    // Mốc `opened_at` cũ nếu lần gọi này là món ĐẦU TIÊN của đơn — dùng cho nhật ký post-commit.
+    let seatShiftFrom: number | null = null;
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
@@ -543,6 +616,10 @@ export class OrdersService {
         });
       }
 
+      // TRƯỚC khi chèn dòng đầu tiên: đơn còn rỗng nghĩa là `opened_at` mới chỉ là giờ mở
+      // drawer, giờ vào ăn thật là ngay đây (xem `seated-at.ts`).
+      seatShiftFrom = await this.stampSeatedAtOnFirstItem(mgr, order_id, creator);
+
       const state = send_to_kitchen ? 'KITCHEN' : 'PENDING';
       const created: OrderItem[] = [];
       // GIỮ NGUYÊN LẦN GỌI: gọi 3 phần trong 1 lần = 1 dòng qty=3, KHÔNG tách thành
@@ -573,6 +650,9 @@ export class OrdersService {
       const count = created.reduce((s, i) => s + i.qty, 0);
       return { items: created, count, state };
     });
+
+    // Nhật ký của lần dời mốc phải đứng TRƯỚC log "gọi món" — nó giải thích cho chính lần gọi này.
+    if (seatShiftFrom != null) await this.syncActivityAfterSeatShift(order_id, seatShiftFrom, creator);
 
     // Log "gọi món" (post-commit, không chặn flow).
     const snap = await this.orderSnapshot(order_id);
@@ -606,6 +686,7 @@ export class OrdersService {
     if (menu.is_out_of_stock) {
       throw new BadRequestException({ code: 'CONFLICT', message: `Món "${menu.name}" đang hết, không thể gọi mới` });
     }
+    const seatShiftFrom = await this.stampSeatedAtOnFirstItem(this.ds.manager, order_id, creator);
     // GIỮ NGUYÊN LẦN GỌI: cả qty phần nằm trong 1 dòng (xem addItemsBulk).
     const saved = await this.itemRepo.save(
       this.itemRepo.create({
@@ -621,8 +702,10 @@ export class OrdersService {
         created_by_full_name: creator?.full_name ?? null,
       }),
     );
+    if (seatShiftFrom != null) await this.syncActivityAfterSeatShift(order_id, seatShiftFrom, creator);
+    // `order` đọc TRƯỚC khi dời mốc → đọc lại snapshot để log mang đúng `order_opened_at`.
     await this.writeActivity({
-      order,
+      order: (await this.orderSnapshot(order_id)) ?? order,
       event_kind: 'items_added',
       message: `Gọi món: ${qty}× ${menu.name}`,
       actor: creator,
@@ -996,6 +1079,9 @@ export class OrdersService {
       throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn đã kết thúc — không thêm được' });
     }
 
+    // Ghi chú cho bếp ("lấy bát", "đũa thìa") cũng là dấu hiệu bàn ĐÃ có người ngồi, nên nó
+    // cũng chốt được giờ vào ăn y như món (xem `seated-at.ts`).
+    const seatShiftFrom = await this.stampSeatedAtOnFirstItem(this.ds.manager, order_id, creator);
     const saved = await this.itemRepo.save(
       this.itemRepo.create({
         order_id,
@@ -1015,8 +1101,9 @@ export class OrdersService {
       await this.markFirstKitchenIfNull(this.ds.manager, order_id);
     }
 
+    if (seatShiftFrom != null) await this.syncActivityAfterSeatShift(order_id, seatShiftFrom, creator);
     await this.writeActivity({
-      order,
+      order: (await this.orderSnapshot(order_id)) ?? order,
       event_kind: 'note_added',
       message: `Ghi chú cho bếp: ${content}${send_to_kitchen ? ' (báo bếp luôn)' : ''}`,
       actor: creator,
@@ -1602,6 +1689,7 @@ export class OrdersService {
     try {
       let srcTableName = '';
       let movedCount = 0;
+      let srcOpenedAt = 0;
       const dest = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
         const itemRepo = mgr.getRepository(OrderItem);
@@ -1621,6 +1709,9 @@ export class OrdersService {
         // Tên bàn nguồn cho log (fallback mã bàn nếu bàn đã bị xoá).
         const srcTable = await tableRepo.findOne({ where: { id: src.table_id } });
         srcTableName = srcTable?.name || src.table_code;
+        // Giờ vào ăn của lượt khách này — src bị XOÁ ở cuối transaction nên phải giữ ra ngoài
+        // để còn ghi vào câu nhật ký (xem `transfer-log.ts`).
+        srcOpenedAt = src.opened_at;
 
         // Đếm src items TRƯỚC khi move (sanity check sau cùng)
         const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
@@ -1632,6 +1723,15 @@ export class OrdersService {
           dest = orderRepo.create({
             table_id: dest_table_id,
             table_code: destTable.code,
+            // GIỜ VÀO ĂN THEO ĐƠN NGUỒN, không phải giờ bấm chuyển bàn (2026-09-10).
+            // `opened_at` là @CreateDateColumn nên bỏ trống là lấy NOW: đơn chuyển sang bàn
+            // trống lúc 21:27 sẽ hiện "mở 21:27" trùng luôn giờ thanh toán, trong khi nhật ký
+            // (đã dời sang, giữ `created_at` gốc) vẫn ghi 20:28 — hai chỗ nói hai giờ khác
+            // nhau. Nặng hơn phần hiển thị: `HistoryPage` gom nhóm theo `vnDayIso(opened_at)`
+            // và thống kê lọc `COALESCE(closed_at, opened_at)`, nên chuyển bàn qua nửa đêm là
+            // đẩy bill sang NGÀY khác. TypeORM chỉ tự ghi đè create-date trên driver mongodb,
+            // MySQL nhận đúng giá trị truyền vào.
+            opened_at: src.opened_at,
             closed_at: null,
             is_paid: false,
             first_kitchen_at: src.first_kitchen_at,
@@ -1667,11 +1767,17 @@ export class OrdersService {
 
         // Chuyển NHẬT KÝ đơn nguồn sang đơn đích — nếu không, xoá src sẽ làm mồ côi
         // toàn bộ log (gọi món/báo bếp/huỷ/giao...) → nhật ký bàn mới bị mất lịch sử.
+        //
+        // `order_opened_at` là snapshot dùng để tách lịch sử của nhiều lượt khách trên cùng 1
+        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Bàn đích tạo mới thì hai
+        // giá trị đã bằng nhau (xem trên); bàn đích đang có khách (gộp bàn) thì đơn đích giữ
+        // giờ mở của chính nó — cố ý, vì đổi `opened_at` của một đơn đang chạy là xê dịch cả
+        // ngày lên bill của khách đó. Giờ mở bên nguồn khi ấy chỉ còn trong câu log dưới đây.
         await mgr
           .getRepository(OrderActivityLog)
           .createQueryBuilder()
           .update()
-          .set({ order_id: dest.id })
+          .set({ order_id: dest.id, order_opened_at: dest.opened_at })
           .where('order_id = :sid', { sid: src.id })
           .execute();
 
@@ -1693,7 +1799,7 @@ export class OrdersService {
       await this.writeActivity({
         order: dest,
         event_kind: 'transfer',
-        message: `Nhận ${movedCount} món chuyển từ ${srcTableName}`,
+        message: transferInMessage({ movedCount, srcTableName, srcOpenedAt }),
         actor,
       });
       return dest;

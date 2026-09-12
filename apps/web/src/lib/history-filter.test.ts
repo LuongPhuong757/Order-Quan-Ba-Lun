@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { historyFilterKey, historyQuery, type HistoryFilters } from './history-filter.ts';
-import { vnDayEndMs, vnDayStartMs } from './date-range.ts';
+import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 
 const EMPTY: HistoryFilters = {
   table_id: '',
@@ -123,5 +123,77 @@ describe('historyFilterKey', () => {
   it('cùng bộ lọc → cùng khoá', () => {
     const f: HistoryFilters = { ...EMPTY, table_id: 't1', to: '2026-09-09' };
     expect(historyFilterKey(f)).toBe(historyFilterKey({ ...f }));
+  });
+});
+
+// ── Lọc theo ca đang chạy ──────────────────────────────────────────────────────────────────
+const SAU_8H = Date.parse('2026-09-07T02:00:00Z'); // 09:00 VN
+const TRUOC_8H = Date.parse('2026-09-07T00:30:00Z'); // 07:30 VN — ca mở từ hôm qua
+
+describe('historyQuery — khoảng ca', () => {
+  it('gửi start_ms đúng mốc đầu ca', () => {
+    const q = historyQuery({ ...EMPTY, shift: true }, { nowMs: SAU_8H });
+    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_8H));
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-07T01:00:00.000Z'));
+  });
+
+  it('trước 8h sáng thì hỏi từ 8h sáng HÔM QUA', () => {
+    const q = historyQuery({ ...EMPTY, shift: true }, { nowMs: TRUOC_8H });
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-06T01:00:00.000Z'));
+  });
+
+  // "Tới bây giờ" cố ý để trống đầu trên — xem ghi chú trong `historyQuery`.
+  it('KHÔNG gửi end_ms — đơn mới thanh toán phải hiện ra ngay, không cần bấm lại chip', () => {
+    expect(historyQuery({ ...EMPTY, shift: true }, { nowMs: SAU_8H }).has('end_ms')).toBe(false);
+  });
+
+  it('cờ ca ĐÈ khoảng ngày — không bao giờ gửi cả hai kiểu mốc cùng lúc', () => {
+    const q = historyQuery(
+      { ...EMPTY, shift: true, from: '2026-01-01', to: '2026-01-31' },
+      { nowMs: SAU_8H },
+    );
+    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_8H));
+    expect(q.has('end_ms')).toBe(false);
+  });
+
+  it('các trục lọc khác vẫn đi cùng khoảng ca', () => {
+    const q = historyQuery({ ...EMPTY, shift: true, table_id: 't1', status: 'paid' }, { nowMs: SAU_8H });
+    expect(q.get('table_id')).toBe('t1');
+    expect(q.get('status')).toBe('paid');
+  });
+
+  it('cả 3 endpoint cùng hỏi một mốc ca', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: true };
+    const list = historyQuery(f, { nowMs: SAU_8H, page: { page: 1, page_size: 20 } });
+    const stats = historyQuery(f, { nowMs: SAU_8H });
+    const cons = historyQuery(f, { nowMs: SAU_8H, cashier: false });
+    expect(stats.get('start_ms')).toBe(list.get('start_ms'));
+    expect(cons.get('start_ms')).toBe(list.get('start_ms'));
+  });
+});
+
+describe('historyFilterKey — khoảng ca', () => {
+  // Khoá này là deps của effect tải dữ liệu. Nếu nó nhúng `Date.now()` thô thì mỗi lần render
+  // ra một khoá mới → effect chạy lại vô tận. Mốc phải snap về đầu ca.
+  it('khoá ĐỨNG YÊN trong suốt một ca, dù giờ hiện tại trôi đi', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: true };
+    const sang = historyFilterKey(f, Date.parse('2026-09-07T02:00:00Z')); // 09:00 VN
+    const trua = historyFilterKey(f, Date.parse('2026-09-07T05:00:00Z')); // 12:00 VN
+    const dem = historyFilterKey(f, Date.parse('2026-09-07T18:00:00Z')); // 01:00 VN hôm sau
+    expect(trua).toBe(sang);
+    expect(dem).toBe(sang);
+  });
+
+  it('qua 8h sáng thì khoá ĐỔI — phải tải lại theo ca mới', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: true };
+    const truoc = historyFilterKey(f, Date.parse('2026-09-07T00:59:59Z'));
+    const sau = historyFilterKey(f, Date.parse('2026-09-07T01:00:00Z'));
+    expect(sau).not.toBe(truoc);
+  });
+
+  it('ca khác hẳn "tất cả thời gian"', () => {
+    expect(historyFilterKey({ ...EMPTY, shift: true }, SAU_8H)).not.toBe(
+      historyFilterKey(EMPTY, SAU_8H),
+    );
   });
 });

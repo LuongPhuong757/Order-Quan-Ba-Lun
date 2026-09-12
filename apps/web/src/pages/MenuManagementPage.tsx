@@ -930,16 +930,20 @@ function loadXlsx(): Promise<typeof import('xlsx')> {
 }
 
 // ─── ImportMenuModal: upload CSV/XLSX → preview → bulk upsert ────────────────
+/** Một dòng đã parse. Chỉ `code` là chắc chắn có: mọi field khác `undefined` nghĩa là FILE
+ * KHÔNG NÓI GÌ về field đó (cột không có, hoặc cell để trống) → BE giữ nguyên giá trị cũ.
+ * Đừng thay `undefined` bằng '' / 0 / null ở bất cứ đâu trong luồng này: `null` từng bị BE
+ * hiểu là "xoá ảnh" và đã quét sạch ảnh của 304 món trên production ngày 2026-09-07. */
 type ImportRow = {
   code: string;
-  name: string;
+  name?: string;
   /** Group CODE đã slugify (≤16 ký tự) — gửi tới BE. */
-  group: string;
+  group?: string;
   /** Group NAME đầy đủ từ file user — dùng để display + BE auto-create với name này. */
-  group_name: string;
-  price: number;
-  unit: string;
-  image_url?: string | null;
+  group_name?: string;
+  price?: number;
+  unit?: string;
+  image_url?: string;
   /** Lỗi parse — nếu có thì row này sẽ bị skip khi submit. */
   error?: string;
   /** Cảnh báo non-blocking — không skip row, chỉ thông báo. */
@@ -981,6 +985,10 @@ function buildGroupSlugMap(originalNames: Iterable<string>): Map<string, string>
   return map;
 }
 
+/** Ô mà file không nói gì tới — BE sẽ giữ nguyên giá trị cũ. Hiện tường minh chứ không để
+ * trống, vì ô trống dễ bị đọc thành "sẽ bị xoá". */
+const keepOld = <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>giữ nguyên</span>;
+
 function ImportMenuModal({
   groups,
   onClose,
@@ -992,7 +1000,8 @@ function ImportMenuModal({
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<ImportRow[] | null>(null);
-  const [rawPrices, setRawPrices] = useState<number[]>([]);  // giữ giá gốc để toggle ×1000
+  // Giá gốc để toggle ×1000. `undefined` = dòng đó file không có giá (giữ giá cũ).
+  const [rawPrices, setRawPrices] = useState<(number | undefined)[]>([]);
   const [fileName, setFileName] = useState<string>('');
   const [multiplyByThousand, setMultiplyByThousand] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -1018,8 +1027,8 @@ function ImportMenuModal({
 
       // Pass 1: extract raw fields + collect all distinct group names
       type RawRow = {
-        code: string; name: string; groupRaw: string;
-        price: number; unit: string; image_url: string;
+        code: string; name?: string; groupRaw?: string;
+        price?: number; unit?: string; image_url?: string;
       };
 
       /** Tìm cell value của 1 trong các tên cột (lowercase match), KHÔNG coerce
@@ -1040,18 +1049,28 @@ function ImportMenuModal({
         return Math.round(Number(cleaned) || 0);
       };
 
+      /** Cell rỗng → `undefined`, KHÔNG phải '' và KHÔNG có giá trị mặc định: đây là chỗ
+       * duy nhất quyết định "file có nói gì về field này hay không". Đặt default ở đây
+       * (như `unit ?? 'phần'` của bản cũ) là ghi đè đvt của mọi món bằng 'phần'. */
+      const pickStr = (r: Record<string, unknown>, keys: string[]): string | undefined => {
+        const v = String(pickRaw(r, keys) ?? '').trim();
+        return v || undefined;
+      };
+
       const rawParsed: RawRow[] = raw.map((r) => {
-        const code = String(pickRaw(r, ['code', 'mã', 'ma']) ?? '').trim();
-        const name = String(pickRaw(r, ['name', 'tên', 'ten']) ?? '').trim();
-        const groupRaw = String(pickRaw(r, ['group', 'nhóm', 'nhom']) ?? '').trim();
-        const price = parsePrice(pickRaw(r, ['price', 'giá', 'gia']));
-        const unit = String(pickRaw(r, ['unit', 'đvt', 'dvt']) ?? 'phần').trim() || 'phần';
-        const image_url = String(pickRaw(r, ['image_url', 'image', 'ảnh', 'anh']) ?? '').trim();
-        return { code, name, groupRaw, price, unit, image_url };
+        const priceRaw = pickRaw(r, ['price', 'giá', 'gia']);
+        return {
+          code: String(pickRaw(r, ['code', 'mã', 'ma']) ?? '').trim(),
+          name: pickStr(r, ['name', 'tên', 'ten']),
+          groupRaw: pickStr(r, ['group', 'nhóm', 'nhom']),
+          price: priceRaw === undefined ? undefined : parsePrice(priceRaw),
+          unit: pickStr(r, ['unit', 'đvt', 'dvt']),
+          image_url: pickStr(r, ['image_url', 'image', 'ảnh', 'anh']),
+        };
       });
 
       // Pass 2: build group name → slug map (handles collisions)
-      const allGroupNames = rawParsed.map((r) => r.groupRaw).filter(Boolean);
+      const allGroupNames = rawParsed.map((r) => r.groupRaw ?? '').filter(Boolean);
       const slugMap = buildGroupSlugMap(allGroupNames);
 
       // Build set of existing group codes (FE-side check) — vẫn match slug nếu trùng
@@ -1059,19 +1078,21 @@ function ImportMenuModal({
 
       // Pass 3: assemble final rows with validation
       const parsed: ImportRow[] = rawParsed.map((r) => {
-        const groupName = r.groupRaw.trim();
-        const groupCode = groupName ? (slugMap.get(groupName) || slugify(groupName)) : '';
+        const groupName = r.groupRaw;
+        const groupCode = groupName ? (slugMap.get(groupName) || slugify(groupName)) : undefined;
 
         let error: string | undefined;
         let warning: string | undefined;
+        // CHỈ `code` là bắt buộc. Thiếu tên/nhóm KHÔNG còn là lỗi (2026-09-08): file bảng
+        // giá chỉ có `code, price` là ca dùng chính, và những cột vắng mặt được BE giữ
+        // nguyên. Mã chưa tồn tại mà thiếu tên/nhóm thì BE trả về trong `skipped`.
         if (!r.code) error = 'Thiếu mã';
         else if (r.code.length > 32) error = 'Mã > 32 ký tự';
-        else if (!r.name) error = 'Thiếu tên';
-        else if (r.name.length > 128) error = 'Tên > 128 ký tự';
-        else if (!groupName) error = 'Thiếu nhóm';
-        else if (r.unit.length > 32) error = 'ĐVT > 32 ký tự';
-        else if (r.price < 0 || r.price > 100_000_000) error = 'Giá không hợp lệ (0 - 100tr)';
-        else if (!validGroupCodes.has(groupCode)) {
+        else if (r.name && r.name.length > 128) error = 'Tên > 128 ký tự';
+        else if (r.unit && r.unit.length > 32) error = 'ĐVT > 32 ký tự';
+        else if (r.price !== undefined && (r.price < 0 || r.price > 100_000_000)) {
+          error = 'Giá không hợp lệ (0 - 100tr)';
+        } else if (groupCode && !validGroupCodes.has(groupCode)) {
           // Non-blocking: BE sẽ tự tạo nhóm mới (BE nhận group_name để hiển thị)
           warning = `Nhóm mới sẽ được tạo: "${groupName}"`;
         }
@@ -1082,14 +1103,16 @@ function ImportMenuModal({
           group_name: groupName,
           price: r.price,
           unit: r.unit,
-          image_url: r.image_url || null,
+          image_url: r.image_url,
           error,
           warning,
         };
       });
       // Lưu giá gốc + auto-detect: nếu ≥80% giá < 1000 → file lưu dạng nghìn VND,
       // tự động tick checkbox ×1000 (200 = 200K = 200,000đ).
-      const prices = parsed.filter((r) => !r.error).map((r) => r.price);
+      const prices = parsed
+        .filter((r) => !r.error && r.price !== undefined)
+        .map((r) => r.price as number);
       const lowPrices = prices.filter((p) => p > 0 && p < 1000).length;
       const autoMultiply = prices.length > 0 && lowPrices / prices.length >= 0.8;
 
@@ -1098,7 +1121,7 @@ function ImportMenuModal({
       // Áp luôn multiplier vào rows để preview hiển thị đúng
       const finalRows = parsed.map((r) => ({
         ...r,
-        price: autoMultiply ? r.price * 1000 : r.price,
+        price: r.price === undefined ? undefined : autoMultiply ? r.price * 1000 : r.price,
       }));
       setRows(finalRows);
     } catch (e) {
@@ -1113,10 +1136,10 @@ function ImportMenuModal({
   const toggleMultiplier = (newValue: boolean) => {
     setMultiplyByThousand(newValue);
     if (!rows) return;
-    setRows(rows.map((r, i) => ({
-      ...r,
-      price: newValue ? rawPrices[i] * 1000 : rawPrices[i],
-    })));
+    setRows(rows.map((r, i) => {
+      const base = rawPrices[i];
+      return { ...r, price: base === undefined ? undefined : newValue ? base * 1000 : base };
+    }));
   };
 
   const downloadTemplate = async () => {
@@ -1149,26 +1172,40 @@ function ImportMenuModal({
     setSubmitting(true);
     try {
       const res = await api.post<{
-        data: { total: number; created: number; updated: number; created_groups: string[] };
+        data: {
+          total: number; created: number; updated: number;
+          unchanged: number; skipped: string[]; created_groups: string[];
+        };
       }>(
         '/menu/bulk-import',
+        // Field `undefined` bị JSON.stringify bỏ hẳn khỏi payload — đúng điều ta muốn: BE
+        // không nhận key nào thì giữ nguyên giá trị cũ. TUYỆT ĐỐI không rớt về '' / 0 / null
+        // ở đây (xem docblock của ImportRow).
         { items: valid.map((r) => ({
             code: r.code,
             name: r.name,
             group: r.group,
-            group_name: r.group_name || undefined,
+            group_name: r.group_name,
             price: r.price,
             unit: r.unit,
-            // `undefined` chứ KHÔNG phải `null` khi file không có cột ảnh: null từng bị BE hiểu
-            // là "xoá ảnh" và quét sạch ảnh toàn menu (2026-09-07). BE nay cũng đã chặn, đây là
-            // lớp thứ hai — không gửi thì không có gì để hiểu nhầm.
-            image_url: r.image_url || undefined,
+            image_url: r.image_url,
           })) },
       );
-      const { created, updated, created_groups } = res.data.data;
+      const { created, updated, unchanged, skipped, created_groups } = res.data.data;
       let msg = `Import OK · ${created} thêm mới, ${updated} cập nhật`;
+      if (unchanged > 0) msg += `, ${unchanged} không đổi`;
       if (created_groups && created_groups.length > 0) {
         msg += ` · tạo ${created_groups.length} nhóm: ${created_groups.join(', ')}`;
+      }
+      if (skipped && skipped.length > 0) {
+        // Món MỚI mà file thiếu tên/nhóm thì BE không tạo được — phải nói rõ mã nào, chứ
+        // "Import OK" mà thiếu món là kiểu lỗi không ai phát hiện ra.
+        toast.push(
+          'error',
+          `${skipped.length} mã mới bị bỏ qua vì thiếu tên hoặc nhóm: ${skipped.slice(0, 5).join(', ')}` +
+            (skipped.length > 5 ? '…' : ''),
+          8000,
+        );
       }
       toast.push('success', msg);
       onImported();
@@ -1190,8 +1227,8 @@ function ImportMenuModal({
     ? Array.from(
         new Map(
           rows
-            .filter((r) => !r.error && r.warning)
-            .map((r) => [r.group, { code: r.group, name: r.group_name }]),
+            .filter((r) => !r.error && r.warning && r.group)
+            .map((r) => [r.group as string, { code: r.group as string, name: r.group_name ?? '' }]),
         ).values(),
       )
     : [];
@@ -1203,8 +1240,11 @@ function ImportMenuModal({
           <div>
             <h1 style={{ margin: 0 }}>📥 Import menu từ file</h1>
             <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
-              Chấp nhận .xlsx hoặc .csv. Cột: <code>code, name, group, price, unit, image_url</code>.
-              Mã trùng sẽ <strong>ghi đè</strong> (giá/tên/ảnh/đvt).
+              Chấp nhận .xlsx hoặc .csv. Bắt buộc cột <code>code</code>; các cột{' '}
+              <code>name, group, price, unit, image_url</code> tuỳ chọn.
+              Mã trùng chỉ <strong>ghi đè những cột có trong file</strong> — cột thiếu (hoặc ô
+              để trống) giữ nguyên giá trị cũ, nên file chỉ có <code>code, price</code> là cập
+              nhật bảng giá mà không đụng tên/nhóm/đvt/ảnh.
             </p>
           </div>
           <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>✕</button>
@@ -1360,15 +1400,21 @@ function ImportMenuModal({
                       }}
                     >
                       <td style={td}><code>{r.code}</code></td>
-                      <td style={td}>{r.name}</td>
+                      <td style={td}>{r.name ?? keepOld}</td>
                       <td style={td}>
-                        <div>{r.group_name}</div>
-                        {r.group_name !== r.group && (
-                          <code style={{ fontSize: 10, opacity: 0.5 }}>{r.group}</code>
-                        )}
+                        {r.group_name ? (
+                          <>
+                            <div>{r.group_name}</div>
+                            {r.group_name !== r.group && (
+                              <code style={{ fontSize: 10, opacity: 0.5 }}>{r.group}</code>
+                            )}
+                          </>
+                        ) : keepOld}
                       </td>
-                      <td style={{ ...td, textAlign: 'right' }}>{r.price.toLocaleString('vi-VN')}đ</td>
-                      <td style={td}>{r.unit}</td>
+                      <td style={{ ...td, textAlign: 'right' }}>
+                        {r.price === undefined ? keepOld : `${r.price.toLocaleString('vi-VN')}đ`}
+                      </td>
+                      <td style={td}>{r.unit ?? keepOld}</td>
                       <td
                         style={{
                           ...td,
