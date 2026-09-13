@@ -1722,6 +1722,34 @@ export class OrdersService {
         const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
 
         let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
+
+        // BÀN ĐÍCH ĐANG CÓ KHÁCH → CHẶN, không gộp nữa (2026-09-13, chủ quán).
+        //
+        // Trước đây dồn thẳng món vào đơn đang chạy của bàn đích: hai nhóm khách thành MỘT bill và
+        // không có đường tách ra (API chỉ chuyển cả đơn, không chuyển lẻ món), nhật ký bàn đích mọc
+        // thêm dòng "Mở đơn mới" của bàn nguồn nên đọc như bàn mở hai lần. Mà danh sách bàn đích
+        // không hề hiện bàn nào đang có khách — bấm nhầm một cái là phải đi sửa tay cả bill.
+        //
+        // Đơn RỖNG không tính là có khách: tap nhầm vào bàn là sinh một đơn mở 0 món, chặn cả
+        // trường hợp đó thì bàn trống hoá ra không chuyển sang được cho tới khi ai đi huỷ đơn.
+        // Dùng LẠI `HAS_ALIVE_ITEMS_SQL` — đúng định nghĩa "bàn đang dùng" của sơ đồ bàn và badge
+        // nav; viết lại điều kiện ở đây là đẻ thêm bản sao thứ ba để ba chỗ trôi khỏi nhau.
+        if (dest) {
+          const rows = (await mgr.query(
+            `SELECT ${HAS_ALIVE_ITEMS_SQL} AS alive FROM orders o WHERE o.id = ?`,
+            [dest.id],
+          )) as Array<{ alive: number | string }>;
+          if (Number(rows[0]?.alive) === 1) {
+            throw new ConflictException({
+              code: 'DEST_TABLE_OCCUPIED',
+              message:
+                `${destTable.name} đang có khách — không chuyển sang được, vì gộp vào là hai bàn ` +
+                `chung một bill và không tách lại được. Thanh toán ${destTable.name} trước, ` +
+                `hoặc chọn bàn trống khác.`,
+            });
+          }
+        }
+
         const destWasNew = !dest;
         if (!dest) {
           // Tạo mới — copy snapshot từ src để giữ context (first_kitchen_at, customer info)
@@ -1748,6 +1776,8 @@ export class OrdersService {
           });
           await orderRepo.save(dest);
         } else if (!dest.first_kitchen_at && src.first_kitchen_at) {
+          // Nhánh này giờ chỉ còn cho đơn đích RỖNG (đơn có món đã bị chặn ở trên) — đơn rỗng
+          // vẫn có thể mang `first_kitchen_at` nếu khách cũ đã huỷ sạch món.
           await orderRepo.update(dest.id, { first_kitchen_at: src.first_kitchen_at });
         }
 
@@ -1774,10 +1804,11 @@ export class OrdersService {
         // toàn bộ log (gọi món/báo bếp/huỷ/giao...) → nhật ký bàn mới bị mất lịch sử.
         //
         // `order_opened_at` là snapshot dùng để tách lịch sử của nhiều lượt khách trên cùng 1
-        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Bàn đích tạo mới thì hai
-        // giá trị đã bằng nhau (xem trên); bàn đích đang có khách (gộp bàn) thì đơn đích giữ
-        // giờ mở của chính nó — cố ý, vì đổi `opened_at` của một đơn đang chạy là xê dịch cả
-        // ngày lên bill của khách đó. Giờ mở bên nguồn khi ấy chỉ còn trong câu log dưới đây.
+        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Bàn đích tạo mới thì hai giá
+        // trị đã bằng nhau (xem trên). Bàn đích có sẵn một đơn RỖNG thì đơn đó giữ giờ mở của
+        // chính nó — không xê dịch, vì nó không mang món nào nên chẳng có bill nào lệch ngày;
+        // giờ mở bên nguồn khi ấy chỉ còn trong câu log dưới đây. (Bàn đích đang có khách thật
+        // đã bị chặn từ đầu transaction, không còn đi tới đây.)
         await mgr
           .getRepository(OrderActivityLog)
           .createQueryBuilder()

@@ -60,12 +60,14 @@ async function insertTable(code: string, name: string): Promise<string> {
   return id;
 }
 
-/** Đơn đang mở với giờ mở LÙI VỀ QUÁ KHỨ + `itemCount` món đã giao. */
+/** Đơn đang mở với giờ mở LÙI VỀ QUÁ KHỨ + `itemCount` món (mặc định đã giao).
+ * `itemState` để dựng bàn đã huỷ sạch món — trông có món nhưng không tính là đang dùng. */
 async function insertOpenOrder(opts: {
   tableId: string;
   tableCode: string;
   openedAgoMs: number;
   itemCount: number;
+  itemState?: string;
 }): Promise<{ id: string; opened_at: number }> {
   const id = randomUUID();
   const opened = new Date(Date.now() - opts.openedAgoMs);
@@ -80,8 +82,8 @@ async function insertOpenOrder(opts: {
     await ds.query(
       `INSERT INTO order_items
         (id, order_id, menu_item_id, menu_item_name, qty, menu_item_price, state, created_at, updated_at)
-       VALUES (?, ?, NULL, 'Món test', 1, 10000, 'SERVED', ?, ?)`,
-      [randomUUID(), id, opened, opened],
+       VALUES (?, ?, NULL, 'Món test', 1, 10000, ?, ?, ?)`,
+      [randomUUID(), id, opts.itemState ?? 'SERVED', opened, opened],
     );
   }
   // Nhật ký của lượt khách: snapshot `order_opened_at` đúng như đường chạy thật.
@@ -143,7 +145,7 @@ beforeEach(async () => {
   await cleanupSentinelRows();
 });
 
-describe('transferTable — giờ vào ăn sau khi chuyển bàn', () => {
+describe('transferTable — giờ vào ăn + chặn bàn đích đang có khách', () => {
   it('bàn đích TRỐNG → đơn mới giữ nguyên giờ mở gốc, không lấy giờ bấm chuyển', async () => {
     const srcCode = `${P}a1`;
     const destCode = `${P}a2`;
@@ -193,7 +195,7 @@ describe('transferTable — giờ vào ăn sau khi chuyển bàn', () => {
     expect(logs[1].actor_name).toBe(NV.full_name);
   }, 20_000);
 
-  it('bàn đích ĐANG CÓ KHÁCH (gộp bàn) → giữ giờ mở của bàn đích, giờ mở bên nguồn nằm lại trong log', async () => {
+  it('bàn đích ĐANG CÓ KHÁCH → CHẶN, không gộp bill, hai bàn còn nguyên', async () => {
     const srcCode = `${P}c1`;
     const destCode = `${P}c2`;
     const srcTableId = await insertTable(srcCode, 'Bàn 48');
@@ -211,18 +213,78 @@ describe('transferTable — giờ vào ăn sau khi chuyển bàn', () => {
       itemCount: 6,
     });
 
+    // Gộp hai nhóm khách vào một bill thì không có đường tách lại — chặn từ đầu.
+    await expect(svc.transferTable(src.id, destTableId)).rejects.toMatchObject({
+      response: { code: 'DEST_TABLE_OCCUPIED' },
+    });
+
+    // Transaction rollback: KHÔNG món nào đi lạc, đơn nguồn không bị xoá.
+    const repo = ds.getRepository(OrderItem);
+    expect(await repo.count({ where: { order_id: dest0.id } })).toBe(2);
+    expect(await repo.count({ where: { order_id: src.id } })).toBe(6);
+    expect(await readOrder(src.id)).not.toBeNull();
+    // Nhật ký bàn đích cũng không mọc thêm dòng nào của bàn nguồn.
+    expect((await activityOf(dest0.id)).map((l) => l.event_kind)).toEqual(['order_created']);
+  }, 20_000);
+
+  it('bàn đích chỉ có đơn RỖNG (tap nhầm) → vẫn chuyển được, dồn vào đúng đơn đó', async () => {
+    const srcCode = `${P}d1`;
+    const destCode = `${P}d2`;
+    const srcTableId = await insertTable(srcCode, 'Bàn 48');
+    const destTableId = await insertTable(destCode, 'Bàn 49');
+    // Nhân viên tap nhầm vào bàn là sinh ra một đơn mở 0 món. Bàn đó trên thực tế vẫn trống,
+    // chặn luôn thì bàn hoá ra không chuyển sang được cho tới khi ai đi huỷ đơn.
+    const dest0 = await insertOpenOrder({
+      tableId: destTableId,
+      tableCode: destCode,
+      openedAgoMs: 2 * H,
+      itemCount: 0,
+    });
+    const src = await insertOpenOrder({
+      tableId: srcTableId,
+      tableCode: srcCode,
+      openedAgoMs: 1 * H,
+      itemCount: 6,
+    });
+
     const dest = await svc.transferTable(src.id, destTableId);
 
-    // Đơn đích đang chạy: đổi `opened_at` của nó là xê dịch cả ngày lên bill của khách đó.
     expect(dest.id).toBe(dest0.id);
+    expect(await ds.getRepository(OrderItem).count({ where: { order_id: dest0.id } })).toBe(6);
+    expect(await readOrder(src.id)).toBeNull();
+    // Đơn rỗng không mang bill nào nên giữ nguyên giờ mở của chính nó; giờ mở bên nguồn đọc
+    // lại được từ câu log chuyển bàn.
     const after = await readOrder(dest0.id);
     expect(after!.opened_at).toBe(dest0.opened_at);
-    const items = await ds.getRepository(OrderItem).count({ where: { order_id: dest0.id } });
-    expect(items).toBe(8);
-    // Giờ mở bên nguồn không còn dòng `orders` nào giữ → phải đọc lại được từ câu log.
     const logs = await activityOf(dest0.id);
     const transfer = logs.find((l) => l.event_kind === 'transfer')!;
     expect(transfer.message).toContain(`(mở ${fmtVnDateTime(src.opened_at)})`);
     for (const l of logs) expect(l.order_opened_at).toBe(dest0.opened_at);
+  }, 20_000);
+
+  it('bàn đích huỷ sạch món → coi như trống, vẫn chuyển được', async () => {
+    const srcCode = `${P}e1`;
+    const destCode = `${P}e2`;
+    const srcTableId = await insertTable(srcCode, 'Bàn 48');
+    const destTableId = await insertTable(destCode, 'Bàn 49');
+    const dest0 = await insertOpenOrder({
+      tableId: destTableId,
+      tableCode: destCode,
+      openedAgoMs: 2 * H,
+      itemCount: 2,
+      itemState: 'CANCELLED',
+    });
+    const src = await insertOpenOrder({
+      tableId: srcTableId,
+      tableCode: srcCode,
+      openedAgoMs: 1 * H,
+      itemCount: 6,
+    });
+
+    // Cùng định nghĩa "bàn đang dùng" với sơ đồ bàn và badge nav: món CANCELLED không tính.
+    const dest = await svc.transferTable(src.id, destTableId);
+
+    expect(dest.id).toBe(dest0.id);
+    expect(await readOrder(src.id)).toBeNull();
   }, 20_000);
 });
