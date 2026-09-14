@@ -312,7 +312,7 @@ export function CheckoutDialog({
           {canCollectTransfer && (
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
-              <div style={{ display: 'flex', gap: 8 }}>
+              <div className="pay-modes">
                 <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
                 <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
                 <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
@@ -563,23 +563,12 @@ function groupUnits(list: ItemLike[]): Array<{ rep: ItemLike; count: number }> {
   return Array.from(m.values());
 }
 
+/** Kiểu dáng nằm trong `styles.css` (`.pay-modes` / `button.pay-mode`) chứ không phải style
+ *  nội tuyến: nút này cần ĐỔI BỐ CỤC theo bề rộng màn hình (ngang trên máy tính, dọc trên điện
+ *  thoại), mà style nội tuyến thì không viết được media query. */
 function ModeButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        flex: 1,
-        minHeight: 48,
-        borderRadius: 10,
-        border: active ? '2px solid #0d9488' : '1px solid #e5e7eb',
-        background: active ? '#f0fdfa' : 'white',
-        color: '#1f2937',
-        fontSize: 14,
-        fontWeight: active ? 700 : 400,
-      }}
-    >
+    <button type="button" className="pay-mode" onClick={onClick} aria-pressed={active}>
       {label}
     </button>
   );
