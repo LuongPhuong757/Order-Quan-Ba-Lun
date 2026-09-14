@@ -59,6 +59,12 @@ const CHECKS: TableCheck[] = [
       'distance_km',
       'ship_fee',
       'payment_method',
+      // Thu bằng chuyển khoản (2026-09-14) — thiếu `transfer_amount` thì mọi đơn CK ghi vào hư
+      // không và báo cáo tiền mặt/chuyển khoản nói sai, im lặng.
+      'transfer_amount',
+      'paid_to_account_id',
+      'payment_qr_label',
+      'transfer_note',
       // 2 mốc chặng giao hàng (2026-08-04). `synchronize: true` tự thêm cột NULL vào bảng có dữ
       // liệu là an toàn, nhưng "an toàn về lý thuyết" không phải bằng chứng — gate này là chỗ
       // duy nhất chứng minh cột có thật trong MySQL.
@@ -126,6 +132,24 @@ const CHECKS: TableCheck[] = [
   {
     table: 'supplier_delivery_photos',
     requiredColumns: ['id', 'delivery_id', 'url', 'created_at'],
+  },
+  // ── Thu tiền bằng chuyển khoản (2026-09-14) ──
+  // Ba mục này là gate thật của cả tính năng: `synchronize` không tạo bảng thì màn cài đặt mã QR
+  // trắng trơn và mọi lần thu chuyển khoản đổ 500, nhưng `tsc` vẫn xanh vì type đến từ file
+  // entity chứ không từ DB.
+  {
+    table: 'payment_qr_accounts',
+    requiredColumns: ['id', 'label', 'kind', 'bank_bin', 'account_no', 'image_url', 'is_active', 'sort_order'],
+  },
+  {
+    table: 'order_payment_photos',
+    requiredColumns: ['id', 'order_id', 'url', 'created_at'],
+  },
+  {
+    table: 'users',
+    // Thiếu cột này thì `JwtAuthGuard` đọc `undefined` → KHÔNG AI thu được chuyển khoản, và
+    // triệu chứng duy nhất là nút biến mất khỏi hộp thoại thu tiền.
+    requiredColumns: ['can_collect_transfer'],
   },
   {
     table: 'supplier_users',

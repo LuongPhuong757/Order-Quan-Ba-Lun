@@ -29,7 +29,12 @@ export default defineConfig({
       '/menu-groups': apiProxy(),
       '/tables':      apiProxy(),
       '/orders':      apiProxy(),
-      '/uploads':     apiProxy(),
+      /* KHÔNG dùng `apiProxy()` ở đây — `bypass()` của nó trả `index.html` cho mọi request có
+         `Accept: text/html`, mà MỞ MỘT TẤM ẢNH Ở TAB MỚI chính là loại request đó. Kết quả: ảnh
+         hiện bình thường trong thẻ <img> (Accept: image/*) nhưng bấm vào để phóng to thì ra màn
+         "không tìm thấy trang". Chỉ xảy ra trên máy dev; production đi qua Caddy nên không thấy.
+         `/uploads` không trùng tên với route React nào, nên nó KHÔNG cần luật bypass đó. */
+      '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
       // Định lượng nguyên liệu (2026-09-05). ⚠ DANH SÁCH NÀY LÀ CỨNG: thêm controller mới ở
       // BE mà quên thêm vào đây thì dev server nuốt request và trả về index.html — axios nhận
       // HTML thay vì JSON và màn hình vỡ, trong khi log API sạch bong vì request chưa từng
@@ -47,6 +52,9 @@ export default defineConfig({
       '/supplier-reports':    apiProxy(),
       // Cổng NCC tự đăng nhập (màn /ncc)
       '/supplier-portal':     apiProxy(),
+      // Mã QR nhận tiền cho màn thu tiền (2026-09-14) — đúng cái bẫy mô tả ở trên: thiếu dòng
+      // này thì hộp thoại thu tiền không thấy mã nào mà log API vẫn sạch bong.
+      '/payment-qr':          apiProxy(),
     },
   },
   build: {

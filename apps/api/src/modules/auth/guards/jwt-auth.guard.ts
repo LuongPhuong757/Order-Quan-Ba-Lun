@@ -10,7 +10,7 @@ import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService, JwtPayload } from '../jwt.service.js';
-import { User } from '../entities/user.entity.js';
+import { User, canCollectTransfer } from '../entities/user.entity.js';
 import { RevokedJti } from '../entities/revoked-jti.entity.js';
 import { isBlockedWrite } from '../read-only-role.js';
 
@@ -72,6 +72,10 @@ export class JwtAuthGuard implements CanActivate {
       full_name: user.full_name || user.username,
       is_owner: user.is_owner,
       role: user.role || (user.is_owner ? 'admin' : null),
+      // Đọc từ DB mỗi request (guard này vốn đã tải user để kiểm `is_active`/`token_version`),
+      // KHÔNG nhét vào token: nhét vào token thì chủ quán tắt công tắc xong nhân viên vẫn thu
+      // được cho tới lúc đăng xuất — thường là hết ca, tức công tắc vô dụng đúng lúc cần nhất.
+      can_collect_transfer: canCollectTransfer(user),
       jti: payload.jti,
     };
 

@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { describePayment } from './payment-describe.js';
 import {
   STALE_OPEN_ORDER_MS,
   isStaleOpenOrder,
@@ -92,6 +93,30 @@ const HAS_ANY_ITEM_SQL = 'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id
  * set closed_at và nó luôn set is_paid = true cùng lúc, nên không có dòng cũ nào
  * bị phân loại sai. */
 const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
+
+/**
+ * Điều kiện SQL lọc theo HÌNH THỨC THU TIỀN (2026-09-14).
+ *
+ * Phải so `transfer_amount` với TỔNG THU, mà tổng thu không được lưu ở cột nào — nó là
+ * `SUM(món SERVED) + ship_fee` (xem `checkout-total.ts`). Nên ở đây là một subquery tương quan
+ * chứ không phải một phép so cột đơn giản. Đổi lại, con số dùng để lọc luôn khớp con số hiển thị
+ * trên badge, kể cả với đơn bị sửa món sau khi thu.
+ *
+ * Dùng chung cho cả danh sách đơn lẫn khối đối soát — hai chỗ đó phải nói về cùng một tập đơn,
+ * nếu không người dùng lọc "Cả hai" rồi thấy tổng đối soát không khớp danh sách bên dưới.
+ */
+const ORDER_TOTAL_SQL =
+  "(SELECT COALESCE(SUM(i.menu_item_price * i.qty), 0) FROM order_items i " +
+  "WHERE i.order_id = o.id AND i.state = 'SERVED') + o.ship_fee";
+
+export type PaymentKindFilter = 'cash' | 'transfer' | 'mixed';
+
+export function paymentKindSql(kind: PaymentKindFilter): string {
+  // Luôn kèm PAID_SQL: đơn chưa thu hoặc đơn huỷ chưa có hình thức thanh toán nào để mà lọc.
+  if (kind === 'cash') return `${PAID_SQL} AND o.transfer_amount = 0`;
+  if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount >= ${ORDER_TOTAL_SQL}`;
+  return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount < ${ORDER_TOTAL_SQL}`;
+}
 const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
 
 /** Tạo đơn mở mới cho bàn. Tách riêng vì có 2 chỗ gọi: bàn chưa có đơn nào, và bàn treo
@@ -1193,7 +1218,18 @@ export class OrdersService {
    *   tiền. KHÔNG chặn thanh toán khi bỏ trống — thu tiền là việc của khách đang đứng đợi,
    *   đối soát kế toán là việc cuối ca; đơn bỏ trống rơi vào bộ lọc "chưa lên MISA".
    */
-  async checkout(order_id: string, cashier?: OrderCreator, misa_copied?: boolean): Promise<{
+  /** `transfer` = phần thu bằng chuyển khoản. Bỏ trống = thu tiền mặt toàn bộ, tức hành vi cũ. */
+  async checkout(
+    order_id: string,
+    cashier?: OrderCreator,
+    misa_copied?: boolean,
+    transfer?: {
+      amount: number;
+      account_id?: string | null;
+      qr_label?: string | null;
+      note?: string | null;
+    },
+  ): Promise<{
     order: Order;
     served_items: number;
     cancelled_items: number;
@@ -1203,6 +1239,9 @@ export class OrdersService {
     items_total: number;
     ship_fee: number;
     total: number;
+    /** Phần thu bằng chuyển khoản; `0` = tiền mặt toàn bộ. Tiền mặt = `total - transfer_amount`. */
+    transfer_amount: number;
+    payment_qr_label: string | null;
   }> {
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
@@ -1264,6 +1303,27 @@ export class OrdersService {
       if (order.source === 'ONLINE' && order.received_at === null) {
         order.received_at = Date.now();
       }
+      /* Phần thu bằng chuyển khoản (2026-09-14). CHẶN khi vượt tổng thu thay vì tự cắt gọn:
+         thu ngân gõ 500.000đ cho một bàn 250.000đ là gõ nhầm, và im lặng sửa con số của người
+         đang đếm tiền thì cuối ca họ đối soát ra một cục lệch không giải thích được. Bàn huỷ sạch
+         món có `total = 0` nên nhánh này tự chặn mọi số dương — đúng ý: không có gì để thu thì
+         không thể có tiền chuyển vào. */
+      if (transfer && transfer.amount > 0) {
+        if (transfer.amount > total) {
+          throw new BadRequestException({
+            // KHÔNG dùng `VALIDATION_FAILED`: `GlobalExceptionFilter` tra dict FRIENDLY_VN và
+            // ghi đè message bằng câu chung, nuốt mất hai con số — xem docblock của code này
+            // trong `errors.ts`.
+            code: 'TRANSFER_EXCEEDS_TOTAL',
+            message: `Tiền chuyển khoản (${OrdersService.fmtVnd(transfer.amount)}) lớn hơn tổng cần thu (${OrdersService.fmtVnd(total)})`,
+          });
+        }
+        order.transfer_amount = Math.round(transfer.amount);
+        order.paid_to_account_id = transfer.account_id ?? null;
+        order.payment_qr_label = transfer.qr_label ?? null;
+        order.transfer_note = transfer.note ?? null;
+      }
+
       order.closed_at = Date.now();
       order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
@@ -1289,6 +1349,8 @@ export class OrdersService {
         items_total,
         ship_fee,
         total,
+        transfer_amount: order.transfer_amount,
+        payment_qr_label: order.payment_qr_label,
       };
     });
 
@@ -1310,6 +1372,7 @@ export class OrdersService {
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
         `${result.auto_served_items > 0 ? `, trong đó ${result.auto_served_items} món chưa kịp mang ra vẫn tính tiền` : ''})` +
+        `${describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
@@ -1376,6 +1439,8 @@ export class OrdersService {
    * Sort: 'opened' (mặc định) = giờ vào ăn · 'paid' = giờ thanh toán. Xem `opts.sort`.
    * Trả về kèm items để FE expand chi tiết khi cần. */
   async listHistory(opts: {
+    /** Lọc theo hình thức thu tiền (2026-09-14). Bỏ trống = mọi hình thức. */
+    payment?: PaymentKindFilter;
     table_id?: string;
     start_ms?: number;
     end_ms?: number;
@@ -1416,6 +1481,7 @@ export class OrdersService {
     // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
     if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
+    if (opts.payment) wheres.push(paymentKindSql(opts.payment));
     // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
     // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
     // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
@@ -1490,6 +1556,118 @@ export class OrdersService {
       table_name: tableNameById.get(o.table_id) || o.table_code,
     }));
     return { items, total, page, page_size };
+  }
+
+  /**
+   * ĐỐI SOÁT CUỐI CA (2026-09-14) — "két phải có bao nhiêu, ngân hàng phải về bao nhiêu".
+   *
+   * Đây là lý do cả tính năng này tồn tại, nên hai con số phải được tính theo đúng cách chúng
+   * được lưu, không phải theo cách tiện viết SQL:
+   *
+   *  - TỔNG THU lấy từ `order_items` (món SERVED) + `ship_fee`, y hệt `computeCheckoutTotals` —
+   *    vì tổng thu của một đơn KHÔNG được lưu ở cột nào cả.
+   *  - CHUYỂN KHOẢN lấy từ `orders.transfer_amount`, con số DUY NHẤT được lưu.
+   *  - TIỀN MẶT là phần còn lại. Không có cột nào cho nó, và cũng không được có: hai con số rời
+   *    là hai con số có ngày không cộng lại bằng tổng.
+   *
+   * `GREATEST(..., 0)`: đơn bị sửa sau khi thu có thể làm tổng tụt xuống dưới phần đã chuyển —
+   * lúc đó tiền mặt là 0, không phải một số âm len vào bảng đối soát.
+   */
+  async paymentSummary(opts: {
+    start_ms?: number;
+    end_ms?: number;
+    cashier_user_id?: string;
+    payment?: PaymentKindFilter;
+  }): Promise<{
+    total: number;
+    cash: number;
+    transfer: number;
+    orders: number;
+    by_account: Array<{ account_id: string | null; label: string; amount: number; orders: number }>;
+  }> {
+    const wheres: string[] = [PAID_SQL];
+    const params: Record<string, unknown> = {};
+    if (opts.start_ms) {
+      wheres.push('o.closed_at >= :s');
+      params.s = new Date(opts.start_ms);
+    }
+    if (opts.end_ms) {
+      wheres.push('o.closed_at <= :e');
+      params.e = new Date(opts.end_ms);
+    }
+    if (opts.cashier_user_id) {
+      wheres.push('o.checked_out_by_user_id = :cid');
+      params.cid = opts.cashier_user_id;
+    }
+    // Khối đối soát ăn theo ĐÚNG bộ lọc đang chọn trên màn (chủ quán yêu cầu 2026-09-14): đổi
+    // khoảng ngày, đổi thu ngân, đổi hình thức thì ba con số phải đổi theo, nếu không người ta
+    // đọc một cặp số không nói về cái danh sách đang nhìn.
+    if (opts.payment) wheres.push(paymentKindSql(opts.payment));
+
+    const rows = await this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoin('o.items', 'i')
+      .select('o.id', 'id')
+      .addSelect('o.ship_fee', 'ship_fee')
+      .addSelect('o.transfer_amount', 'transfer_amount')
+      .addSelect('o.paid_to_account_id', 'account_id')
+      .addSelect('o.payment_qr_label', 'label')
+      .addSelect("SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)", 'items_total')
+      .where(wheres.join(' AND '), params)
+      .groupBy('o.id')
+      .addGroupBy('o.ship_fee')
+      .addGroupBy('o.transfer_amount')
+      .addGroupBy('o.paid_to_account_id')
+      .addGroupBy('o.payment_qr_label')
+      .getRawMany<{
+        id: string;
+        ship_fee: string | number;
+        transfer_amount: string | number;
+        account_id: string | null;
+        label: string | null;
+        items_total: string | number | null;
+      }>();
+
+    let total = 0;
+    let transfer = 0;
+    const byAccount = new Map<string, { account_id: string | null; label: string; amount: number; orders: number }>();
+    for (const r of rows) {
+      const orderTotal = (Number(r.items_total) || 0) + (Number(r.ship_fee) || 0);
+      const tr = Math.min(Number(r.transfer_amount) || 0, orderTotal);
+      total += orderTotal;
+      transfer += tr;
+      if (tr > 0) {
+        // Khoá theo id tài khoản; đơn thu lúc danh sách mã QR tải lỗi sẽ không có id — gom riêng
+        // thành một dòng thay vì bỏ đi, vì tiền đó CÓ THẬT và vẫn phải khớp với sao kê nào đó.
+        const key = r.account_id || '(không rõ mã QR)';
+        /* Nhãn phải NÓI RA rằng nhóm này không gắn được vào mã nào.
+        
+           Không thì màn đối soát hiện hai dòng TRÙNG TÊN — "TK bố – Nam A Bank" hai lần với hai
+           con số khác nhau — và người đọc kết luận là bảng cộng sai, trong khi thực tế là một
+           trong hai nhóm không biết chắc tiền về đâu. Xảy ra khi thu tiền lúc danh sách mã QR
+           tải lỗi: đơn giữ được tên mã nhưng không có id để trỏ. */
+        const e = byAccount.get(key) || {
+          account_id: r.account_id,
+          label: r.account_id
+            ? r.label || '(không rõ mã QR)'
+            : r.label
+              ? `${r.label} — không gắn mã`
+              : '(không rõ mã QR)',
+          amount: 0,
+          orders: 0,
+        };
+        e.amount += tr;
+        e.orders += 1;
+        byAccount.set(key, e);
+      }
+    }
+    return {
+      total,
+      transfer,
+      cash: Math.max(total - transfer, 0),
+      orders: rows.length,
+      by_account: Array.from(byAccount.values()).sort((a, b) => b.amount - a.amount),
+    };
   }
 
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ ở màn Giao dịch.

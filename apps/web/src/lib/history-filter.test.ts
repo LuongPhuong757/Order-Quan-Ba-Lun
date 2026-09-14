@@ -7,6 +7,7 @@ const EMPTY: HistoryFilters = {
   cashier_user_id: '',
   status: 'all',
   misa: '',
+  payment: '',
   from: '',
   to: '',
 };
@@ -194,6 +195,31 @@ describe('historyFilterKey — khoảng ca', () => {
   it('ca khác hẳn "tất cả thời gian"', () => {
     expect(historyFilterKey({ ...EMPTY, shift: true }, SAU_8H)).not.toBe(
       historyFilterKey(EMPTY, SAU_8H),
+    );
+  });
+});
+
+describe('lọc theo hình thức thu tiền (2026-09-14)', () => {
+  it('không chọn → không gửi tham số, để BE trả mọi hình thức', () => {
+    expect(historyQuery(EMPTY).get('payment')).toBeNull();
+  });
+
+  it('mỗi hình thức gửi đúng giá trị BE hiểu', () => {
+    expect(historyQuery({ ...EMPTY, payment: 'cash' }).get('payment')).toBe('cash');
+    expect(historyQuery({ ...EMPTY, payment: 'transfer' }).get('payment')).toBe('transfer');
+    expect(historyQuery({ ...EMPTY, payment: 'mixed' }).get('payment')).toBe('mixed');
+  });
+
+  it('đổi hình thức làm ĐỔI KHOÁ lọc — nếu không, khối đối soát sẽ không tải lại', () => {
+    // Đây chính là thứ khiến "đối soát phải đổi theo bộ lọc" hoạt động: khoá này là deps của
+    // effect tải khối đối soát.
+    expect(historyFilterKey({ ...EMPTY, payment: 'cash' })).not.toBe(historyFilterKey(EMPTY));
+  });
+
+  it('khoá lọc cũng đổi theo thu ngân và khoảng ngày', () => {
+    expect(historyFilterKey({ ...EMPTY, cashier_user_id: 'u1' })).not.toBe(historyFilterKey(EMPTY));
+    expect(historyFilterKey({ ...EMPTY, from: '2026-09-14', to: '2026-09-14' })).not.toBe(
+      historyFilterKey(EMPTY),
     );
   });
 });

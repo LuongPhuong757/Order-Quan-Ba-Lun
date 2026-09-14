@@ -104,8 +104,46 @@ export class Order {
   ship_fee!: number;
 
   // M2.D-58, chỗ ngỏ cho chuyển khoản sau này.
+  //
+  // ⚠ VẪN KHÔNG AI GHI CỘT NÀY, KỂ CẢ SAU KHI CÓ CHUYỂN KHOẢN (2026-09-14) — và đó là quyết định
+  // có chủ ý, không phải quên. Hình thức thanh toán suy ra được từ `transfer_amount` so với tổng
+  // thu: 0 là tiền mặt, bằng tổng là chuyển khoản, ở giữa là trả cả hai. Ghi thêm một cột nữa là
+  // dựng NGUỒN SỰ THẬT THỨ HAI cạnh con số tiền — đúng thứ docblock của 2 mốc giao hàng bên dưới
+  // đã từ chối khi loại bỏ cột `fulfillment_status`. Giữ cột lại vì xoá cột trên bảng có dữ liệu
+  // là việc khác hẳn, không phải vì nó còn dùng.
   @Column({ type: 'varchar', length: 16, default: 'CASH' })
   payment_method!: string;
+
+  /* ── Thu tiền bằng chuyển khoản (2026-09-14) ────────────────────────────────
+   *
+   * CHỈ LƯU PHẦN CHUYỂN KHOẢN, tiền mặt = tổng thu − `transfer_amount` và luôn suy ra.
+   *
+   * Vì sao không lưu cả hai con số: **tổng thu của một đơn KHÔNG được lưu ở đâu cả** — nó được
+   * tính lại mỗi lần từ `order_items` + `ship_fee` (xem `checkout-total.ts`), và mọi báo cáo
+   * doanh thu cộng từ `order_items` chứ không đọc một cột tổng nào. Lưu hai con số rời thì sẽ có
+   * ngày chúng không cộng lại bằng tổng, và không ai lần ra vì sao lệch. Một con số thì bất biến
+   * "tiền mặt + chuyển khoản = tổng thu" đúng theo định nghĩa, không cần ai canh giữ.
+   *
+   * `0` = thu tiền mặt toàn bộ, và đó là giá trị của mọi đơn có từ trước tính năng này.
+   */
+  @Column({ type: 'int', default: 0 })
+  transfer_amount!: number;
+
+  /** Mã QR đã dùng để thu (`payment_qr_accounts.id`). Đây là thứ khiến việc có nhiều mã QR trở
+   *  nên đáng giá: cuối ngày mở sao kê của TỪNG tài khoản thì chỉ phải dò đúng những đơn ghi tài
+   *  khoản đó, thay vì dò chéo tất cả. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  paid_to_account_id!: string | null;
+
+  /** SNAPSHOT tên mã QR lúc thu — cùng lý do `table_code` được snapshot để sống sót qua đổi tên
+   *  bàn. Chủ quán đổi tên hay ngừng dùng một mã thì đơn cũ vẫn đọc được "tiền về TK Thuý – VCB". */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  payment_qr_label!: string | null;
+
+  /** Nội dung chuyển khoản đã in trên QR ("BAN05 LUONG THUY"). Lưu lại vì đây là chuỗi dùng để dò
+   *  sao kê — sinh lại sau này có thể ra kết quả khác (đổi tên nhân viên, đổi mã bàn). */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  transfer_note!: string | null;
 
   /** ── 2 mốc chặng giao hàng (thiết kế 2026-08-04) ──────────────────────────
    *
