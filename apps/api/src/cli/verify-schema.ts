@@ -59,6 +59,12 @@ const CHECKS: TableCheck[] = [
       'distance_km',
       'ship_fee',
       'payment_method',
+      // Thu bằng chuyển khoản (2026-09-14) — thiếu `transfer_amount` thì mọi đơn CK ghi vào hư
+      // không và báo cáo tiền mặt/chuyển khoản nói sai, im lặng.
+      'transfer_amount',
+      'paid_to_account_id',
+      'payment_qr_label',
+      'transfer_note',
       // 2 mốc chặng giao hàng (2026-08-04). `synchronize: true` tự thêm cột NULL vào bảng có dữ
       // liệu là an toàn, nhưng "an toàn về lý thuyết" không phải bằng chứng — gate này là chỗ
       // duy nhất chứng minh cột có thật trong MySQL.

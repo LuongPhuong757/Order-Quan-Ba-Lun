@@ -47,6 +47,9 @@ export default defineConfig({
       '/supplier-reports':    apiProxy(),
       // Cổng NCC tự đăng nhập (màn /ncc)
       '/supplier-portal':     apiProxy(),
+      // Mã QR nhận tiền cho màn thu tiền (2026-09-14) — đúng cái bẫy mô tả ở trên: thiếu dòng
+      // này thì hộp thoại thu tiền không thấy mã nào mà log API vẫn sạch bong.
+      '/payment-qr':          apiProxy(),
     },
   },
   build: {

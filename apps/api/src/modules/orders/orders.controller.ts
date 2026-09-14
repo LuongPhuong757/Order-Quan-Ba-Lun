@@ -65,6 +65,15 @@ class SetPriorityDto {
 class CheckoutDto {
   /** Thu ngân tick "đã gõ sang MISA" ngay trong hộp thoại thu tiền (2026-09-05). */
   @IsOptional() @IsBoolean() misa_copied?: boolean;
+
+  /* ── Thu bằng chuyển khoản (2026-09-14) ──
+   * Bỏ trống cả cụm = thu tiền mặt, tức đúng hành vi trước khi có tính năng này. FE cũ (nếu còn
+   * tab nào chưa tải lại) vẫn gọi checkout được y như trước — cố ý, vì đây là đường thu tiền
+   * duy nhất của quán và không được gãy giữa một lần deploy. */
+  @IsOptional() @IsInt() @Min(0) transfer_amount?: number;
+  @IsOptional() @IsUUID() paid_to_account_id?: string;
+  @IsOptional() @IsString() @MaxLength(128) payment_qr_label?: string;
+  @IsOptional() @IsString() @MaxLength(64) transfer_note?: string;
 }
 
 /** Đánh dấu / bỏ đánh dấu đã sao chép sang AMIS MISA. */
@@ -278,6 +287,14 @@ export class OrdersController {
       id,
       { id: req.user!.sub, full_name: req.user!.full_name },
       body?.misa_copied,
+      body?.transfer_amount
+        ? {
+            amount: body.transfer_amount,
+            account_id: body.paid_to_account_id ?? null,
+            qr_label: body.payment_qr_label ?? null,
+            note: body.transfer_note ?? null,
+          }
+        : undefined,
     );
     return { data: result };
   }
