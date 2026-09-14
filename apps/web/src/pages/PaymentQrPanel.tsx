@@ -318,18 +318,30 @@ export function PaymentQrPanel() {
 
         {form.kind === 'IMAGE' && (
           <div style={{ marginTop: 12 }}>
-            <label htmlFor="qr-file">Ảnh mã QR</label>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Ảnh mã QR</div>
+            {/* Ô `<input type="file">` trần hiện ra thành "Choose Files / No file chosen" — chữ
+                tiếng Anh của trình duyệt, giữa một màn hình tiếng Việt, và trông như một mảnh vỡ
+                lọt vào giao diện. Ẩn nó đi rồi bấm hộ bằng nút của mình: cùng cách đã làm ở hộp
+                thoại Thanh toán. */}
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploading}
+              style={{ minHeight: 44 }}
+            >
+              🖼️ {uploading ? 'Đang tải ảnh lên…' : form.image_url ? 'Chọn ảnh khác' : 'Chọn ảnh mã QR'}
+            </button>
             <input
-              id="qr-file"
               ref={fileRef}
               type="file"
               accept="image/*"
+              hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) uploadImage(f);
               }}
             />
-            {uploading && <p style={{ color: C.muted, fontSize: 13 }}>Đang tải ảnh lên…</p>}
             {form.image_url && (
               <img
                 src={form.image_url}
