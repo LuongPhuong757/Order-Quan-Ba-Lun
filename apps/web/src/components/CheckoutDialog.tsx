@@ -10,7 +10,6 @@
 // là đường sống của quán; mã QR tải lỗi, chưa cấu hình mã nào, hay khách đổi ý trả tiền mặt —
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
 import { useEffect, useMemo, useState } from 'react';
-import QRCode from 'qrcode';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
@@ -134,7 +133,11 @@ export function CheckoutDialog({
         amount: transferAmount,
         note,
       });
-      QRCode.toDataURL(payload, { width: 520, margin: 1, errorCorrectionLevel: 'M' })
+      // Nạp TRỄ thư viện vẽ QR: nó chỉ cần khi có người mở hộp thoại VÀ chọn chuyển khoản, nên
+      // để nó trong bundle tải-lần-đầu là bắt mọi người — kể cả bếp, kể cả màn đăng nhập — tải
+      // thêm một thư viện họ không bao giờ chạm tới.
+      import('qrcode')
+        .then((m) => m.default.toDataURL(payload, { width: 520, margin: 1, errorCorrectionLevel: 'M' }))
         .then((url) => alive && setQrDataUrl(url))
         .catch(() => alive && setQrDataUrl(null));
     } catch {
