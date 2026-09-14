@@ -27,7 +27,12 @@ export default defineConfig({
       // /api/public/* và /api/admin/* nên khai /api là đủ.
       '/api': apiProxy(),
       // Ảnh món lưu đường dẫn tương đối /uploads/menu/<file> (M2.D-66 phần /uploads).
-      '/uploads': apiProxy(),
+      /* KHÔNG dùng `apiProxy()` ở đây — `bypass()` của nó trả `index.html` cho mọi request có
+         `Accept: text/html`, mà MỞ MỘT TẤM ẢNH Ở TAB MỚI chính là loại request đó. Kết quả: ảnh
+         hiện bình thường trong thẻ <img> (Accept: image/*) nhưng bấm vào để phóng to thì ra màn
+         "không tìm thấy trang". Chỉ xảy ra trên máy dev; production đi qua Caddy nên không thấy.
+         `/uploads` không trùng tên với route React nào, nên nó KHÔNG cần luật bypass đó. */
+      '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
     },
   },
   build: {
