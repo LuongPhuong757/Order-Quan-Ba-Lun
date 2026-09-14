@@ -350,6 +350,22 @@ export class OrdersController {
     return { data: result };
   }
 
+  /** GET /orders/payment-summary — đối soát cuối ca: két bao nhiêu, ngân hàng bao nhiêu,
+   *  tách theo từng mã QR.
+   *
+   * Cùng quyền với `/orders/history` trừ `kitchen`: đối soát tiền không phải việc của bếp, mà
+   * con số ở đây là toàn bộ doanh thu một ca — rộng hơn hẳn cái bếp cần biết. */
+  @Get('payment-summary')
+  @UseGuards(RequireRoles('admin', 'order', 'report'))
+  async paymentSummary(@Query() q: Record<string, string>) {
+    const data = await this.svc.paymentSummary({
+      start_ms: q.start_ms ? Number(q.start_ms) : undefined,
+      end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      cashier_user_id: q.cashier_user_id || undefined,
+    });
+    return { data };
+  }
+
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (admin + report).
    *
    * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05): tab ở màn Lịch sử đổi thì

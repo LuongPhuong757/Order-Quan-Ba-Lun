@@ -9,7 +9,7 @@
 // NGUYÊN TẮC KHÔNG ĐƯỢC PHÁ: **nút Thanh toán không bao giờ bị chặn bởi QR hay mạng.** Thu tiền
 // là đường sống của quán; mã QR tải lỗi, chưa cấu hình mã nào, hay khách đổi ý trả tiền mặt —
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
@@ -82,6 +82,12 @@ export function CheckoutDialog({
   const [transferInput, setTransferInput] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [misaCopied, setMisaCopied] = useState(false);
+  /** Ảnh bill đã đẩy lên. Đơn đã có `id` từ lúc mở bàn nên đẩy được NGAY, không phải chờ thu
+   *  tiền xong — và quan trọng hơn: không chặn nút Thu tiền để chờ mạng. */
+  const [photos, setPhotos] = useState<Array<{ id: string; url: string }>>([]);
+  const [uploading, setUploading] = useState(false);
+  const [warnedNoPhoto, setWarnedNoPhoto] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const picked = qrOptions.find((o) => o.id === pickedId) ?? null;
@@ -149,11 +155,49 @@ export function CheckoutDialog({
     };
   }, [picked, transferAmount, note]);
 
+  const addPhotos = async (picked: FileList | null) => {
+    if (!picked?.length) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      for (const f of picked) fd.append('files', f);
+      const res = await api.post<{ data: { items: Array<{ id: string; url: string }> } }>(
+        `/orders/${orderId}/payment-photos`,
+        fd,
+      );
+      setPhotos((prev) => [...prev, ...res.data.data.items]);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setUploading(false);
+      // Xoá value để chọn LẠI đúng tấm vừa bỏ ra cũng bắn `change`.
+      if (fileRef.current) fileRef.current.value = '';
+    }
+  };
+
+  const removePhoto = async (photoId: string) => {
+    try {
+      await api.delete(`/orders/payment-photos/${photoId}`);
+      setPhotos((prev) => prev.filter((p) => p.id !== photoId));
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
   const submit = async () => {
     if (mode !== 'CASH' && transferAmount <= 0) {
       toast.push('error', 'Nhập số tiền khách chuyển khoản');
       return;
     }
+    /* Chưa chụp bill mà đã thu chuyển khoản → NHẮC MỘT LẦN rồi vẫn cho đi tiếp (chủ quán chốt
+       2026-09-14: "tuỳ chọn, có nhắc"). Chặn cứng ở đây là để một cái camera hỏng hoặc mạng yếu
+       khoá luôn đường thu tiền của quán. */
+    if (transferAmount > 0 && photos.length === 0 && !warnedNoPhoto) {
+      setWarnedNoPhoto(true);
+      toast.push('info', 'Chưa có ảnh bill — bấm Thu tiền lần nữa nếu vẫn muốn thu.');
+      return;
+    }
+
     setSubmitting(true);
     try {
       const res = await api.post<{ data: CheckoutResult }>(`/orders/${orderId}/checkout`, {
@@ -348,6 +392,71 @@ export function CheckoutDialog({
                       </div>
                     )}
                   </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {mode !== 'CASH' && (
+            <div>
+              {/* Chụp thẳng trong app: `capture="environment"` mở camera sau của điện thoại, không
+                  phải thoát ra mở app Máy ảnh rồi quay lại. Trên máy tính thuộc tính này bị bỏ
+                  qua và thành hộp chọn file — chấp nhận được, người thu tiền dùng điện thoại. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => fileRef.current?.click()}
+                  disabled={uploading}
+                  style={{ minHeight: 44 }}
+                >
+                  📷 {uploading ? 'Đang tải ảnh…' : 'Chụp bill của khách'}
+                </button>
+                {photos.length > 0 && (
+                  <span style={{ fontSize: 13, color: '#059669' }}>✓ {photos.length} ảnh</span>
+                )}
+              </div>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                multiple
+                hidden
+                onChange={(e) => addPhotos(e.target.files)}
+              />
+
+              {photos.length > 0 && (
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                  {photos.map((p, i) => (
+                    <div key={p.id} style={{ position: 'relative', width: 72, height: 72 }}>
+                      <img
+                        src={p.url}
+                        alt={`Ảnh bill ${i + 1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }}
+                      />
+                      <button
+                        type="button"
+                        aria-label={`Bỏ ảnh ${i + 1}`}
+                        onClick={() => removePhoto(p.id)}
+                        style={{
+                          position: 'absolute',
+                          top: 2,
+                          right: 2,
+                          minWidth: 26,
+                          minHeight: 26,
+                          padding: 0,
+                          borderRadius: 999,
+                          background: 'rgba(0,0,0,.6)',
+                          color: 'white',
+                          border: 'none',
+                          fontSize: 14,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>

@@ -10,6 +10,7 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
   historyQuery,
@@ -115,6 +116,11 @@ type HistoryOrder = {
   misa_copied_at: number | null;
   misa_copied_by_full_name: string | null;
   misa_ref: string | null;
+  /* Thu bằng chuyển khoản (2026-09-14). `transfer_amount = 0` là mọi đơn có từ trước tính năng
+     này, và cũng là đơn thu tiền mặt — tiền mặt luôn suy ra: tổng − phần chuyển khoản. */
+  transfer_amount: number;
+  payment_qr_label: string | null;
+  transfer_note: string | null;
   items: OrderItem[];
 };
 
@@ -846,6 +852,14 @@ export function HistoryPage() {
 
       {!loading && orders.length > 0 && (
         <>
+          {/* Đối soát tiền — đặt TRÊN bảng đơn: cuối ca người ta mở màn này để lấy hai con số
+              mang đi đếm két, không phải để đọc từng đơn. Khối tự ẩn khi khoảng đang xem không
+              có đồng chuyển khoản nào. */}
+          <PaymentSummaryBox
+            query={historyQuery(filters, { cashier: true }).toString()}
+            filterKey={filterKey}
+          />
+
           {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
               ra hoặc gãy xuống dòng, cắt "…" không bao giờ xảy ra.
@@ -975,6 +989,14 @@ export function HistoryPage() {
                               <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
                                 {fmt(total)}
                               </strong>
+                              {/* Hình thức thu nằm NGAY DƯỚI con số, không thành cột riêng: thêm
+                                  cột thứ 9 vào bảng này là ép mọi màn hình hẹp phải cuộn ngang,
+                                  trong khi thứ người đối soát cần là "con số này về đâu". */}
+                              {isPaid && o.transfer_amount > 0 && (
+                                <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>
+                                  {o.transfer_amount >= total ? '🏦 CK' : '💵+🏦'}
+                                </div>
+                              )}
                             </td>
                             {/* nowrap: badge trạng thái không được gãy dòng, nếu không mỗi đơn
                                 cao gần gấp đôi. */}
@@ -1208,6 +1230,19 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
 
   return (
     <div style={{ padding: '12px 14px 16px', background: '#f9fafb', borderTop: '1px solid #e5e7eb' }}>
+      {/* Thu bằng chuyển khoản (2026-09-14) — nội dung CK hiện NGUYÊN VĂN vì đó chính là chuỗi
+          phải dò trong sao kê ngân hàng. */}
+      {order.transfer_amount > 0 && (
+        <div style={{ marginBottom: 12, padding: 10, background: '#e0f2fe', borderRadius: 8, fontSize: 13 }}>
+          <strong>🏦 Chuyển khoản {order.transfer_amount.toLocaleString('vi-VN')}đ</strong>
+          {order.payment_qr_label && <span> → {order.payment_qr_label}</span>}
+          {order.transfer_note && (
+            <div style={{ marginTop: 2, fontFamily: 'monospace' }}>Nội dung: {order.transfer_note}</div>
+          )}
+          <PaymentPhotos orderId={order.id} />
+        </div>
+      )}
+
       {/* Customer info (delivery) */}
       {order.customer_name && (
         <div style={{ marginBottom: 12, padding: 10, background: '#d1fae5', borderRadius: 8, fontSize: 13 }}>
