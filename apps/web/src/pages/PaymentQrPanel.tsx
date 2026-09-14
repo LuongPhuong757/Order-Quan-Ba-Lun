@@ -10,7 +10,7 @@
 //    nội dung, tức mất gần hết cái lợi. Không nói ra thì chủ quán up 5 tấm ảnh rồi thắc mắc vì
 //    sao cuối ngày vẫn không đối soát nổi.
 import { useEffect, useRef, useState, FormEvent } from 'react';
-import { VIETQR_BANKS, VIETQR_BIN_RE } from '@order/schemas';
+import { VIETQR_BANKS, validatePaymentQrDraft } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -116,16 +116,6 @@ export function PaymentQrPanel() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const bin = form.bank_choice === OTHER_BANK ? form.bank_bin.trim() : form.bank_choice;
-    // Kiểm ngay tại chỗ những thứ người dùng sửa được bằng một cú gõ. Luật đầy đủ nằm ở BE
-    // (`validatePaymentQrDraft`) — đây chỉ là để họ không phải chờ một vòng mạng mới biết gõ thiếu số.
-    if (!form.label.trim()) return toast.push('error', 'Đặt tên cho mã QR đã');
-    if (form.kind === 'BANK' && !VIETQR_BIN_RE.test(bin)) {
-      return toast.push('error', 'Mã ngân hàng (BIN) phải là 6 chữ số');
-    }
-    if (form.kind === 'IMAGE' && !form.image_url) {
-      return toast.push('error', 'Chưa tải ảnh QR lên');
-    }
-
     const body = {
       label: form.label.trim(),
       kind: form.kind,
@@ -135,6 +125,17 @@ export function PaymentQrPanel() {
       account_name: form.kind === 'BANK' ? form.account_name.trim() : null,
       image_url: form.kind === 'IMAGE' ? form.image_url : null,
     };
+
+    /* Kiểm bằng ĐÚNG hàm luật của BE (`@order/schemas`), không viết lại bằng tay — đây chính là
+       lý do luật nằm trong package dùng chung.
+    
+       Và ở đây nó còn giải quyết một chuyện nữa: `GlobalExceptionFilter` (P01.D-18) ghi đè mọi
+       message của lỗi `VALIDATION_FAILED` bằng câu chung "Dữ liệu thiếu hoặc sai định dạng", nên
+       câu cụ thể mà BE ném ra ("Số tài khoản không hợp lệ…") KHÔNG BAO GIỜ tới được người dùng.
+       Chạy luật ở đây là cách duy nhất để họ đọc được mình sai ô nào mà không phải sửa hành vi
+       lỗi của toàn bộ app. BE vẫn kiểm lại y hệt — đây là tiện ích, không phải chốt chặn. */
+    const err = validatePaymentQrDraft(body);
+    if (err) return toast.push('error', err);
 
     setSubmitting(true);
     try {
