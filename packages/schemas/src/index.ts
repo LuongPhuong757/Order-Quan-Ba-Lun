@@ -15,3 +15,4 @@ export * from './admin-online-orders.js';
 // nhập thẳng '@order/schemas/vn-address' để 3.321 dòng dữ liệu không lọt vào bundle của app nào
 // không dùng tới; ở đây chỉ để BE lấy chung một chỗ với phần còn lại.
 export * from './vn-address.js';
+export * from './payment-qr.js';
