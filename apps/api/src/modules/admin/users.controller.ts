@@ -178,6 +178,11 @@ export class AdminUsersController {
     if (dto.can_collect_transfer !== undefined) {
       // Owner luôn thu được, cờ không áp cho họ — nhận giá trị rồi lờ đi sẽ là một công tắc bấm
       // được mà không có tác dụng gì, tệ hơn là nói thẳng.
+      //
+      // ⚠ Câu `message` dưới đây KHÔNG tới được người dùng: `GlobalExceptionFilter` tra dict
+      // FRIENDLY_VN theo `code` và thay bằng "Dữ liệu xung đột.". Cố ý không thêm một mã lỗi
+      // riêng cho nó — giao diện hiện chữ "luôn được" thay cho nút bấm ở dòng của owner, nên
+      // đường này chỉ chạm tới được khi gọi thẳng API. Giữ câu ở đây cho người đọc code.
       if (user.is_owner) {
         throw new BadRequestException({
           code: 'CONFLICT',
