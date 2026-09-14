@@ -10,6 +10,9 @@ export type AuthUser = {
   full_name: string;       // họ và tên hiển thị, fallback về username
   is_owner: boolean;
   role: Role | null;       // 'admin' | 'order' | 'kitchen' | 'report' | null (chưa gán)
+  /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Chủ quán bật/tắt cho từng người ở
+   *  /admin/users; owner luôn true. Mặc định của người mới là FALSE. */
+  can_collect_transfer: boolean;
 };
 
 /** Default landing page sau khi login theo role. */

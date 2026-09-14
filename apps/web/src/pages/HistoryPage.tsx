@@ -214,6 +214,10 @@ export function HistoryPage() {
   const canSeeStats = ['admin', 'report'].includes(
     user?.role ?? (user?.is_owner ? 'admin' : ''),
   );
+  /** Khối "Đối soát tiền" hẹp hơn `canSeeStats` một bậc: CHỈ admin, `report` cũng không (chủ quán
+   *  chốt 2026-09-14). `canSeeStats` gác doanh thu BÁN HÀNG; khối kia nói tiền về tài khoản ngân
+   *  hàng nào của nhà chủ — hai thứ khác nhau, nên cố ý là hai biến chứ không nới cái cũ. */
+  const canSeeReconcile = (user?.role ?? (user?.is_owner ? 'admin' : '')) === 'admin';
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -855,10 +859,15 @@ export function HistoryPage() {
           {/* Đối soát tiền — đặt TRÊN bảng đơn: cuối ca người ta mở màn này để lấy hai con số
               mang đi đếm két, không phải để đọc từng đơn. Khối tự ẩn khi khoảng đang xem không
               có đồng chuyển khoản nào. */}
-          <PaymentSummaryBox
-            query={historyQuery(filters, { cashier: true }).toString()}
-            filterKey={filterKey}
-          />
+          {/* CHỈ admin (chủ quán chốt 2026-09-14): đây là doanh thu toàn quán trong ca, không
+              phải phần của riêng người đang xem. BE đã chặn bằng AdminGuard — ẩn ở đây là để
+              nhân viên không thấy một khối luôn báo lỗi. */}
+          {canSeeReconcile && (
+            <PaymentSummaryBox
+              query={historyQuery(filters, { cashier: true }).toString()}
+              filterKey={filterKey}
+            />
+          )}
 
           {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình

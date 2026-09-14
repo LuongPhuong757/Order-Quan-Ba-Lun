@@ -26,6 +26,7 @@ import { Repository } from 'typeorm';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
+import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { saveImage } from '../menu/menu-image.js';
 import { Order } from './entities/order.entity.js';
 import { OrderPaymentPhoto } from './entities/order-payment-photo.entity.js';
@@ -49,11 +50,15 @@ export class PaymentPhotosController {
     @InjectRepository(Order) private readonly orderRepo: Repository<Order>,
   ) {}
 
-  /** Đọc rộng hơn ghi (`report` xem được): đối soát cuối tháng là việc của người làm báo cáo, mà
-   *  ảnh bill chính là thứ họ cần mở khi một dòng sao kê không khớp. */
+  /** Ảnh bill mang TÊN và SỐ TÀI KHOẢN của khách, nên đọc cũng đi theo công tắc "được thu chuyển
+   *  khoản" (chủ quán chốt 2026-09-14) — ai không dính tới việc thu CK thì không có lý do mở.
+   *
+   * Bản đầu tiên ở đây mở cho cả `report` với lý do "người làm báo cáo cần đối soát"; công tắc
+   * theo từng người thay thế lý do đó — muốn cho ai xem thì bật cho đúng người ấy. */
   @Get(':id/payment-photos')
   @UseGuards(RequireRoles('admin', 'order', 'report'))
-  async list(@Param('id') id: string) {
+  async list(@Param('id') id: string, @Req() req: Request) {
+    assertCanCollectTransfer(req);
     const items = await this.repo.find({ where: { order_id: id }, order: { created_at: 'ASC' } });
     return {
       data: {
@@ -80,6 +85,7 @@ export class PaymentPhotosController {
   @UseGuards(RequireRoles('admin', 'order'))
   @UseInterceptors(FilesInterceptor('files', BATCH, { storage: memoryStorage(), limits: { fileSize: MAX_BYTES } }))
   async upload(@Param('id') id: string, @Req() req: Request, @UploadedFiles() files?: Express.Multer.File[]) {
+    assertCanCollectTransfer(req);
     if (!files || files.length === 0) {
       throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Chưa chọn ảnh nào' });
     }
@@ -110,7 +116,8 @@ export class PaymentPhotosController {
   @Delete('payment-photos/:photoId')
   @HttpCode(200)
   @UseGuards(RequireRoles('admin', 'order'))
-  async remove(@Param('photoId') photoId: string) {
+  async remove(@Param('photoId') photoId: string, @Req() req: Request) {
+    assertCanCollectTransfer(req);
     const row = await this.repo.findOne({ where: { id: photoId } });
     if (!row) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ảnh không tồn tại' });
     await this.repo.delete({ id: photoId });

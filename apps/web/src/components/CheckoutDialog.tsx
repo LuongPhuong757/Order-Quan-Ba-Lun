@@ -48,6 +48,8 @@ type Props = {
   orderId: string;
   table: { code: string; name: string };
   cashier: { full_name?: string | null; username?: string | null };
+  /** Người đang đăng nhập có được thu chuyển khoản không. `false` = hộp thoại chỉ còn Tiền mặt. */
+  canCollectTransfer: boolean;
   items: ItemLike[];
   itemsTotal: number;
   shipFee: number;
@@ -67,6 +69,7 @@ export function CheckoutDialog({
   items,
   itemsTotal,
   shipFee,
+  canCollectTransfer,
   onCancel,
   onDone,
 }: Props) {
@@ -285,12 +288,17 @@ export function CheckoutDialog({
             </div>
           </div>
 
-          {/* ── Hình thức thu ── */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
-            <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-            <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="Cả hai" />
-          </div>
+          {/* ── Hình thức thu ──
+              Không được thu chuyển khoản thì ẨN HẲN hai nút kia (chủ quán chọn 2026-09-14), và
+              khi đó cả hàng nút này cũng không còn nghĩa lý gì — còn đúng một lựa chọn thì bày ra
+              một hàng nút chỉ tổ làm người ta bấm thử. */}
+          {canCollectTransfer && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
+              <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
+              <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="Cả hai" />
+            </div>
+          )}
 
           {mode === 'SPLIT' && (
             <div>

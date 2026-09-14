@@ -133,6 +133,24 @@ const CHECKS: TableCheck[] = [
     table: 'supplier_delivery_photos',
     requiredColumns: ['id', 'delivery_id', 'url', 'created_at'],
   },
+  // ── Thu tiền bằng chuyển khoản (2026-09-14) ──
+  // Ba mục này là gate thật của cả tính năng: `synchronize` không tạo bảng thì màn cài đặt mã QR
+  // trắng trơn và mọi lần thu chuyển khoản đổ 500, nhưng `tsc` vẫn xanh vì type đến từ file
+  // entity chứ không từ DB.
+  {
+    table: 'payment_qr_accounts',
+    requiredColumns: ['id', 'label', 'kind', 'bank_bin', 'account_no', 'image_url', 'is_active', 'sort_order'],
+  },
+  {
+    table: 'order_payment_photos',
+    requiredColumns: ['id', 'order_id', 'url', 'created_at'],
+  },
+  {
+    table: 'users',
+    // Thiếu cột này thì `JwtAuthGuard` đọc `undefined` → KHÔNG AI thu được chuyển khoản, và
+    // triệu chứng duy nhất là nút biến mất khỏi hộp thoại thu tiền.
+    requiredColumns: ['can_collect_transfer'],
+  },
   {
     table: 'supplier_users',
     requiredColumns: ['id', 'supplier_id', 'phone', 'pin_hash', 'failed_attempts', 'locked_until', 'is_active'],
