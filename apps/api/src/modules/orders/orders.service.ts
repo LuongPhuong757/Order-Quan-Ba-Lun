@@ -1625,9 +1625,19 @@ export class OrdersService {
         // Khoá theo id tài khoản; đơn thu lúc danh sách mã QR tải lỗi sẽ không có id — gom riêng
         // thành một dòng thay vì bỏ đi, vì tiền đó CÓ THẬT và vẫn phải khớp với sao kê nào đó.
         const key = r.account_id || '(không rõ mã QR)';
+        /* Nhãn phải NÓI RA rằng nhóm này không gắn được vào mã nào.
+        
+           Không thì màn đối soát hiện hai dòng TRÙNG TÊN — "TK bố – Nam A Bank" hai lần với hai
+           con số khác nhau — và người đọc kết luận là bảng cộng sai, trong khi thực tế là một
+           trong hai nhóm không biết chắc tiền về đâu. Xảy ra khi thu tiền lúc danh sách mã QR
+           tải lỗi: đơn giữ được tên mã nhưng không có id để trỏ. */
         const e = byAccount.get(key) || {
           account_id: r.account_id,
-          label: r.label || '(không rõ mã QR)',
+          label: r.account_id
+            ? r.label || '(không rõ mã QR)'
+            : r.label
+              ? `${r.label} — không gắn mã`
+              : '(không rõ mã QR)',
           amount: 0,
           orders: 0,
         };
