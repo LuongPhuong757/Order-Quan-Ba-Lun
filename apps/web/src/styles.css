@@ -231,7 +231,14 @@ h2 {
   top: calc(56px + var(--env-banner-h, 0px));
   left: 0;
   right: 0;
-  z-index: 9000;
+  /* TRÊN MỌI HỘP THOẠI (2026-09-14). Trước là 9000, tức dưới cả `modal-overlay` (9998) lẫn các
+     hộp thoại đặt tay 10010-11000 — nên mọi thông báo bắn ra KHI ĐANG MỞ một hộp thoại đều chìm
+     dưới lớp phủ mờ và gần như không đọc được. Gặp thật ở hộp Thanh toán: bấm nút đang mờ thì
+     câu giải thích ("Vui lòng chọn mã QR…") hiện ra ở nơi người dùng không nhìn thấy.
+     Thông báo là thứ PHẢI đọc được bất kể đang mở gì, nên nó đứng trên cùng — cùng lý do dải
+     cảnh báo môi trường (styles.css ~2068) được đặt trên modal.
+     Bảng lớp hiện tại: overlay 9998, hộp thoại 10000-10010, HelpModal 11000, thông báo 11500. */
+  z-index: 11500;
   pointer-events: none; /* chỉ banner bên trong nhận click (nút ✕) */
 }
 
