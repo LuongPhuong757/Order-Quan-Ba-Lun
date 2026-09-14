@@ -44,6 +44,10 @@ function deriveActionKind(method: string, path: string): string {
   // Orders — quan trọng cho truy cứu trách nhiệm
   if (path === '/orders' && method === 'POST') return 'order.created';
   if (path.match(/^\/orders\/[^/]+\/checkout$/) && method === 'POST') return 'order.checkout';
+  // Ảnh bill chuyển khoản (2026-09-14) — bằng chứng của một khoản tiền, thêm hay xoá đều phải
+  // truy được ai làm.
+  if (path.match(/^\/orders\/[^/]+\/payment-photos$/) && method === 'POST') return 'order.payment_photo_added';
+  if (path.match(/^\/orders\/payment-photos\/[^/]+$/) && method === 'DELETE') return 'order.payment_photo_removed';
   if (path.match(/^\/orders\/[^/]+\/transfer$/) && method === 'POST') return 'order.table_transfer';
   if (path.match(/^\/orders\/[^/]+\/items-bulk$/) && method === 'POST') return 'order.items_added_bulk';
   if (path.match(/^\/orders\/[^/]+\/items$/) && method === 'POST') return 'order.item_added';

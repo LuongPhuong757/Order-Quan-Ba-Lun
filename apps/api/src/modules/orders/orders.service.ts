@@ -1516,6 +1516,99 @@ export class OrdersService {
     return { items, total, page, page_size };
   }
 
+  /**
+   * ĐỐI SOÁT CUỐI CA (2026-09-14) — "két phải có bao nhiêu, ngân hàng phải về bao nhiêu".
+   *
+   * Đây là lý do cả tính năng này tồn tại, nên hai con số phải được tính theo đúng cách chúng
+   * được lưu, không phải theo cách tiện viết SQL:
+   *
+   *  - TỔNG THU lấy từ `order_items` (món SERVED) + `ship_fee`, y hệt `computeCheckoutTotals` —
+   *    vì tổng thu của một đơn KHÔNG được lưu ở cột nào cả.
+   *  - CHUYỂN KHOẢN lấy từ `orders.transfer_amount`, con số DUY NHẤT được lưu.
+   *  - TIỀN MẶT là phần còn lại. Không có cột nào cho nó, và cũng không được có: hai con số rời
+   *    là hai con số có ngày không cộng lại bằng tổng.
+   *
+   * `GREATEST(..., 0)`: đơn bị sửa sau khi thu có thể làm tổng tụt xuống dưới phần đã chuyển —
+   * lúc đó tiền mặt là 0, không phải một số âm len vào bảng đối soát.
+   */
+  async paymentSummary(opts: { start_ms?: number; end_ms?: number; cashier_user_id?: string }): Promise<{
+    total: number;
+    cash: number;
+    transfer: number;
+    orders: number;
+    by_account: Array<{ account_id: string | null; label: string; amount: number; orders: number }>;
+  }> {
+    const wheres: string[] = [PAID_SQL];
+    const params: Record<string, unknown> = {};
+    if (opts.start_ms) {
+      wheres.push('o.closed_at >= :s');
+      params.s = new Date(opts.start_ms);
+    }
+    if (opts.end_ms) {
+      wheres.push('o.closed_at <= :e');
+      params.e = new Date(opts.end_ms);
+    }
+    if (opts.cashier_user_id) {
+      wheres.push('o.checked_out_by_user_id = :cid');
+      params.cid = opts.cashier_user_id;
+    }
+
+    const rows = await this.orderRepo
+      .createQueryBuilder('o')
+      .leftJoin('o.items', 'i')
+      .select('o.id', 'id')
+      .addSelect('o.ship_fee', 'ship_fee')
+      .addSelect('o.transfer_amount', 'transfer_amount')
+      .addSelect('o.paid_to_account_id', 'account_id')
+      .addSelect('o.payment_qr_label', 'label')
+      .addSelect("SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)", 'items_total')
+      .where(wheres.join(' AND '), params)
+      .groupBy('o.id')
+      .addGroupBy('o.ship_fee')
+      .addGroupBy('o.transfer_amount')
+      .addGroupBy('o.paid_to_account_id')
+      .addGroupBy('o.payment_qr_label')
+      .getRawMany<{
+        id: string;
+        ship_fee: string | number;
+        transfer_amount: string | number;
+        account_id: string | null;
+        label: string | null;
+        items_total: string | number | null;
+      }>();
+
+    let total = 0;
+    let transfer = 0;
+    const byAccount = new Map<string, { account_id: string | null; label: string; amount: number; orders: number }>();
+    for (const r of rows) {
+      const orderTotal = (Number(r.items_total) || 0) + (Number(r.ship_fee) || 0);
+      const tr = Math.min(Number(r.transfer_amount) || 0, orderTotal);
+      total += orderTotal;
+      transfer += tr;
+      if (tr > 0) {
+        // Khoá theo id tài khoản; đơn thu lúc danh sách mã QR tải lỗi sẽ không có id — gom riêng
+        // thành một dòng thay vì bỏ đi, vì tiền đó CÓ THẬT và vẫn phải khớp với sao kê nào đó.
+        const key = r.account_id || '(không rõ mã QR)';
+        const e = byAccount.get(key) || {
+          account_id: r.account_id,
+          label: r.label || '(không rõ mã QR)',
+          amount: 0,
+          orders: 0,
+        };
+        e.amount += tr;
+        e.orders += 1;
+        byAccount.set(key, e);
+      }
+    }
+    return {
+      total,
+      transfer,
+      cash: Math.max(total - transfer, 0),
+      orders: rows.length,
+      by_account: Array.from(byAccount.values()).sort((a, b) => b.amount - a.amount),
+    };
+  }
+
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ ở màn Giao dịch.
    *
    * Áp filter bàn/thu ngân/khoảng ngày, VÀ tab đang chọn ở màn Lịch sử (2026-09-05): chủ quán

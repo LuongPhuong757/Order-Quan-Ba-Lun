@@ -9,6 +9,7 @@ import { RestaurantTable } from './modules/tables/entities/restaurant-table.enti
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
 import { OrderActivityLog } from './modules/orders/entities/order-activity-log.entity.js';
+import { OrderPaymentPhoto } from './modules/orders/entities/order-payment-photo.entity.js';
 import { StoreSetting } from './modules/settings/entities/store-settings.entity.js';
 import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.entity.js';
 import { PaymentQrAccount } from './modules/settings/entities/payment-qr-account.entity.js';
@@ -63,10 +64,10 @@ export const dataSourceOptions: DataSourceOptions = {
   // minh bằng truy vấn MySQL thật, không phải typecheck.
   entities: [
     User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order,
-    OrderItem, OrderActivityLog,
+    OrderItem, OrderActivityLog, OrderPaymentPhoto,
     StoreSetting,
     PhoneBlacklist,
-  PaymentQrAccount,
+    PaymentQrAccount,
     OnlineOrderRequest,
     CustomerOtp,
     CustomerSession,
