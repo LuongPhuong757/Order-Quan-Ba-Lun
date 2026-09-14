@@ -11,6 +11,7 @@ import { OrderItem } from './modules/orders/entities/order-item.entity.js';
 import { OrderActivityLog } from './modules/orders/entities/order-activity-log.entity.js';
 import { StoreSetting } from './modules/settings/entities/store-settings.entity.js';
 import { PhoneBlacklist } from './modules/settings/entities/phone-blacklist.entity.js';
+import { PaymentQrAccount } from './modules/settings/entities/payment-qr-account.entity.js';
 import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
 import { CustomerOtp } from './modules/public/entities/customer-otp.entity.js';
 import { CustomerSession } from './modules/public/entities/customer-session.entity.js';
@@ -65,6 +66,7 @@ export const dataSourceOptions: DataSourceOptions = {
     OrderItem, OrderActivityLog,
     StoreSetting,
     PhoneBlacklist,
+  PaymentQrAccount,
     OnlineOrderRequest,
     CustomerOtp,
     CustomerSession,
