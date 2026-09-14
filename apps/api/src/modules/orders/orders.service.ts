@@ -561,6 +561,21 @@ export class OrdersService {
     return Number(rows[0]?.c ?? 0);
   }
 
+  /** `table_id` của mọi bàn còn đơn CHƯA THANH TOÁN — cho màn Chuyển bàn biết bàn nào không nhận.
+   *
+   * KHÔNG dùng chung với `listOpenOrders()`: cái đó lọc bỏ đơn rỗng / huỷ sạch món (đúng cho sơ
+   * đồ bàn), còn `transferTable` chặn theo `closed_at IS NULL` — chỉ bàn TRỐNG HẲN mới nhận
+   * chuyển. Lấy nhầm danh sách kia là màn Chuyển bàn hiện bàn bấm được mà bấm vào thì server
+   * chặn, nhân viên không hiểu vì sao.
+   */
+  async listOpenOrderTableIds(): Promise<string[]> {
+    const rows = await this.orderRepo.find({
+      where: { closed_at: IsNull() },
+      select: ['table_id'],
+    });
+    return [...new Set(rows.map((r) => r.table_id))];
+  }
+
   /** Đếm số MÓN đang nằm ở cột "Đã order" của màn Bếp — cho badge trên nút "Bếp" ở nav dưới.
    *
    * Bếp không ngồi trước màn KDS cả ca: lúc đang ở màn Order/Menu thì không có gì báo rằng vừa
@@ -1900,9 +1915,38 @@ export class OrdersService {
         const srcItemCount = await itemRepo.count({ where: { order_id: src.id } });
 
         let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
-        const destWasNew = !dest;
-        if (!dest) {
-          // Tạo mới — copy snapshot từ src để giữ context (first_kitchen_at, customer info)
+
+        // CHỈ ĐƯỢC CHUYỂN SANG BÀN TRỐNG (2026-09-14, chủ quán). Bàn đích còn BẤT KỲ đơn nào chưa
+        // thanh toán → chặn, không gộp.
+        //
+        // Trước đây dồn thẳng món vào đơn đang chạy của bàn đích: hai nhóm khách thành MỘT bill và
+        // không có đường tách ra (API chỉ chuyển cả đơn, không chuyển lẻ món), nhật ký bàn đích mọc
+        // thêm dòng "Mở đơn mới" của bàn nguồn nên đọc như bàn mở hai lần.
+        //
+        // Ranh giới là `closed_at IS NULL` — đơn chưa kết, KHÔNG phải `HAS_ALIVE_ITEMS_SQL` như bản
+        // đầu. Hai định nghĩa lệch nhau đúng ở đơn rỗng / đã huỷ sạch món, và chủ quán chốt là phải
+        // trống hẳn mới nhận. Câu lỗi tách hai đường vì hai đường xử lý khác hẳn nhau: bàn còn món
+        // thì đi THANH TOÁN, bàn chỉ có đơn rỗng thì chẳng có gì để thu — phải huỷ bàn đó đi, nói
+        // "thanh toán trước" là chỉ nhân viên đi vào ngõ cụt.
+        if (dest) {
+          const rows = (await mgr.query(
+            `SELECT ${HAS_ALIVE_ITEMS_SQL} AS alive FROM orders o WHERE o.id = ?`,
+            [dest.id],
+          )) as Array<{ alive: number | string }>;
+          const hasItems = Number(rows[0]?.alive) === 1;
+          throw new ConflictException({
+            code: 'DEST_TABLE_OCCUPIED',
+            message: hasItems
+              ? `${destTable.name} chưa thanh toán — hãy thanh toán ${destTable.name} trước rồi ` +
+                `mới chuyển bàn sang được. Chỉ chuyển sang bàn trống.`
+              : `${destTable.name} đang có đơn mở (chưa gọi món nào) — huỷ bàn đó trước rồi mới ` +
+                `chuyển sang được. Chỉ chuyển sang bàn trống.`,
+          });
+        }
+
+        // Tới đây bàn đích chắc chắn TRỐNG → luôn tạo đơn mới, copy snapshot từ src để giữ
+        // context (first_kitchen_at, customer info).
+        {
           dest = orderRepo.create({
             table_id: dest_table_id,
             table_code: destTable.code,
@@ -1925,8 +1969,6 @@ export class OrdersService {
             customer_phone: destTable.kind === 'delivery' ? src.customer_phone : null,
           });
           await orderRepo.save(dest);
-        } else if (!dest.first_kitchen_at && src.first_kitchen_at) {
-          await orderRepo.update(dest.id, { first_kitchen_at: src.first_kitchen_at });
         }
 
         // Move items qua UPDATE thuần — bypass relations management
@@ -1952,10 +1994,9 @@ export class OrdersService {
         // toàn bộ log (gọi món/báo bếp/huỷ/giao...) → nhật ký bàn mới bị mất lịch sử.
         //
         // `order_opened_at` là snapshot dùng để tách lịch sử của nhiều lượt khách trên cùng 1
-        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Bàn đích tạo mới thì hai
-        // giá trị đã bằng nhau (xem trên); bàn đích đang có khách (gộp bàn) thì đơn đích giữ
-        // giờ mở của chính nó — cố ý, vì đổi `opened_at` của một đơn đang chạy là xê dịch cả
-        // ngày lên bill của khách đó. Giờ mở bên nguồn khi ấy chỉ còn trong câu log dưới đây.
+        // bàn, nên phải khớp `opened_at` của đơn ĐÍCH sau khi dời. Đơn đích luôn là đơn vừa tạo
+        // và đã mang `opened_at` của đơn nguồn (xem trên), nên hai giá trị bằng nhau — không còn
+        // đường nào để một lượt khách thứ hai lẫn vào nhật ký này.
         await mgr
           .getRepository(OrderActivityLog)
           .createQueryBuilder()
@@ -1971,7 +2012,7 @@ export class OrdersService {
 
         this.logger.log(
           `transferTable: src=${source_order_id} (${srcItemCount} items, deleted) → dest=${dest.id} ` +
-          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}, dest_new=${destWasNew}`,
+          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}`,
         );
 
         const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });

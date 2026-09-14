@@ -58,6 +58,10 @@ export const ErrorCode = z.enum([
   'OTP_INVALID',
   'OTP_TOO_MANY_ATTEMPTS',
   'OTP_SESSION_REQUIRED',
+  // Chuyển bàn vào bàn đang có khách (2026-09-13). Cùng luật Pitfall #6: message nội suy TÊN
+  // bàn đích nên build tại chỗ throw, KHÔNG thêm vào FRIENDLY_VN — thêm vào là nhân viên mất
+  // luôn tên bàn, chỉ còn câu chung chung "Dữ liệu xung đột".
+  'DEST_TABLE_OCCUPIED',
 ]);
 export type ErrorCode = z.infer<typeof ErrorCode>;
 

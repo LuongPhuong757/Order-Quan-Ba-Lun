@@ -163,6 +163,15 @@ export class OrdersController {
     return { data: { count: await this.svc.countOpenOrders() } };
   }
 
+  /** GET /orders/open-table-ids — bàn nào còn đơn CHƯA THANH TOÁN, cho màn Chuyển bàn.
+   *
+   * Cũng phải khai TRƯỚC route có tham số động, cùng lý do với 'open-count'.
+   * Rộng hơn `GET /orders` một chút — kể cả đơn rỗng, đúng ranh giới `transferTable` đang chặn. */
+  @Get('open-table-ids')
+  async openTableIds() {
+    return { data: { items: await this.svc.listOpenOrderTableIds() } };
+  }
+
   /** GET /orders/kitchen-count — số món đang chờ bếp làm (cột "Đã order"), cho badge nav dưới.
    *
    * Cũng phải khai TRƯỚC route có tham số động, cùng lý do với 'open-count'.

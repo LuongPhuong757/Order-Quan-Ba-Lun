@@ -14,6 +14,7 @@ import {
   sapXep,
   tienGon,
   tongConPhaiTra,
+  tongTraTien,
   type DailyRow,
   type DeliveryStatRow,
   type PairRow,
@@ -227,6 +228,23 @@ describe('tongConPhaiTra', () => {
 
   it('không có NCC nào thì bằng 0', () => {
     expect(tongConPhaiTra([])).toBe(0);
+  });
+});
+
+describe('tongTraTien', () => {
+  const tm = (amount: number) => ({ amount, method: 'CASH' as const });
+  const ck = (amount: number) => ({ amount, method: 'TRANSFER' as const });
+
+  it('tách tiền mặt và chuyển khoản, tổng là cộng cả hai', () => {
+    expect(tongTraTien([tm(300_000), ck(1_200_000), tm(50_000)])).toEqual({
+      tong: 1_550_000,
+      tienMat: 350_000,
+      chuyenKhoan: 1_200_000,
+    });
+  });
+
+  it('không có lần trả nào thì cả ba số bằng 0', () => {
+    expect(tongTraTien([])).toEqual({ tong: 0, tienMat: 0, chuyenKhoan: 0 });
   });
 });
 

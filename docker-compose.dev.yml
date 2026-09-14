@@ -7,7 +7,7 @@
 #      Site block dev được deploy-dev.sh render vào caddy-local/dev.caddy trên server;
 #      Caddyfile của prod đã `import /etc/caddy/local/*.caddy` sẵn.
 #   2. KHÔNG có mysql-backup — DB dev là data vứt đi, mất cũng không sao.
-#   3. MySQL cấp ít RAM hơn hẳn (256M thay vì 1G) — prod phải được ưu tiên bộ nhớ.
+#   3. MySQL cấp ít RAM hơn hẳn (96M thay vì 1G) — prod phải được ưu tiên bộ nhớ.
 #   4. Tên service là `dev_api` / `dev_mysql`, KHÔNG trùng `api` / `mysql` của prod.
 #
 # Vì sao điểm 4 quan trọng (sự cố 2026-09-07): trước đây file này cũng đặt tên service là
@@ -44,9 +44,13 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-time-zone=+00:00
-      # 256M — DB dev nhỏ và không có khách thật. Cấp rộng tay ở đây là ăn vào RAM
-      # của MySQL prod trên cùng VPS.
-      - --innodb-buffer-pool-size=256M
+      # 96M (hạ từ 256M ngày 2026-09-14) — DB dev nhỏ và không có khách thật. Cấp rộng tay
+      # ở đây là ăn vào RAM của MySQL prod trên cùng VPS.
+      #
+      # Vì sao hạ: đo ngày 2026-09-14, VPS 3.8GB đã dùng 2.0GB và swap ăn 628MB. Container này
+      # giữ 397MB RSS cho một database vứt đi, trong khi DB prod thật chỉ nặng 27MB. 96M vẫn
+      # thừa sức cache toàn bộ dữ liệu dev; phần tiết kiệm trả về cho prod.
+      - --innodb-buffer-pool-size=96M
       - --max-connections=50
       - --performance-schema=OFF
     volumes:
