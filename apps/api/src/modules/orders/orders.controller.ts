@@ -29,7 +29,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { OrdersService } from './orders.service.js';
+import { OrdersService, type PaymentKindFilter } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -336,6 +336,7 @@ export class OrdersController {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
     const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
+    const payment = parsePaymentFilter(q.payment);
     // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
     // đổi tập đơn trả về, nên gõ sai query string không đáng ném 400 vào mặt người dùng.
     const sort = q.sort === 'paid' ? 'paid' : 'opened';
@@ -346,6 +347,7 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       status,
       misa,
+      payment,
       sort,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
@@ -370,6 +372,7 @@ export class OrdersController {
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
       cashier_user_id: q.cashier_user_id || undefined,
+      payment: parsePaymentFilter(q.payment),
     });
     return { data };
   }
@@ -431,4 +434,10 @@ export class OrdersController {
     const order = await this.svc.updateCustomerInfo(id, dto);
     return { data: order };
   }
+}
+
+/** Giá trị lạ → không lọc, KHÔNG ném 400: cùng lệ với `sort` ở màn Lịch sử — gõ sai query string
+ *  chỉ nên làm bộ lọc rộng ra, không nên ném lỗi vào mặt người đang tra cứu. */
+function parsePaymentFilter(v: string | undefined): PaymentKindFilter | undefined {
+  return v === 'cash' || v === 'transfer' || v === 'mixed' ? v : undefined;
 }

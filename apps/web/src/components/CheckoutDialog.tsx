@@ -197,7 +197,7 @@ export function CheckoutDialog({
        khoá luôn đường thu tiền của quán. */
     if (transferAmount > 0 && photos.length === 0 && !warnedNoPhoto) {
       setWarnedNoPhoto(true);
-      toast.push('info', 'Chưa có ảnh bill — bấm Thu tiền lần nữa nếu vẫn muốn thu.');
+      toast.push('info', 'Chưa có ảnh bill — bấm Thanh toán lần nữa nếu vẫn muốn thu.');
       return;
     }
 
@@ -271,7 +271,7 @@ export function CheckoutDialog({
         >
           <span style={{ fontSize: 26 }}>💰</span>
           <h2 id="pay-title" style={{ margin: 0, fontSize: 17, color: activeItems.length > 0 ? '#92400e' : '#059669' }}>
-            Thu tiền {table.name}
+            Thanh toán {table.name}
           </h2>
         </div>
 
@@ -325,7 +325,7 @@ export function CheckoutDialog({
 
               {qrLoadFailed && (
                 <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-                  Không tải được danh sách mã QR. Vẫn bấm Thu tiền được — ghi nhận là chuyển khoản,
+                  Không tải được danh sách mã QR. Vẫn bấm Thanh toán được — ghi nhận là chuyển khoản,
                   nhưng đơn sẽ không biết tiền về tài khoản nào.
                 </div>
               )}
@@ -515,7 +515,7 @@ export function CheckoutDialog({
             Huỷ
           </button>
           <button type="button" onClick={submit} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
-            {submitting ? 'Đang thu…' : 'Thu tiền'}
+            {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
           </button>
         </div>
       </div>
