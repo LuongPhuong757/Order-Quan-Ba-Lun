@@ -74,6 +74,15 @@ textarea {
   color: #1f2937;
 }
 
+/* Rule `display: block` ngay trên ĐÈ LÊN thuộc tính `hidden` của HTML: user-agent chỉ đặt
+   `[hidden] { display: none }` với cùng độ ưu tiên, mà stylesheet của trang thì luôn thắng.
+   Hệ quả đã gặp thật (2026-09-14): `<input type="file" hidden>` — thứ được bấm hộ bằng một nút
+   đẹp hơn — vẫn hiện nguyên "Choose Files / No file chosen" bằng tiếng Anh giữa màn hình tiếng
+   Việt. Đặt lại luật ở đây, sau rule kia, để `hidden` có nghĩa đúng như tên nó. */
+[hidden] {
+  display: none !important;
+}
+
 /* Ô chọn: bỏ mũi tên mặc định của HĐH (mỗi hệ một kiểu, đều thô) và vẽ lại bằng SVG nền.
    `padding-right` phải chừa chỗ cho mũi tên, không thì chữ dài chạy đè lên nó. */
 select {
@@ -2531,5 +2540,44 @@ table.stat-grid .stat-muted {
      ngay cả khi hai dòng bằng nhau. */
   .stat-tien {
     flex: 1;
+  }
+}
+
+/* ── Ba nút chọn hình thức thanh toán (2026-09-14) ─────────────────────────────
+   Trên điện thoại (~380px) chia ba theo chiều ngang thì mỗi nút còn ~110px, đủ để "Chuyển
+   khoản" gãy làm hai dòng và ba nút cao thấp so le. Mà đây lại là màn thao tác NHIỀU NHẤT trên
+   điện thoại, và người bấm thì đang vội.
+   Xếp dọc: chữ không gãy, mỗi nút một hàng rộng bằng màn hình, ngón tay bấm không trượt. */
+.pay-modes {
+  display: flex;
+  gap: 8px;
+}
+button.pay-mode {
+  flex: 1;
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: white;
+  color: #1f2937;
+  font-size: 14px;
+  line-height: 1.25;
+}
+/* `button.pay-mode` chứ không phải `.pay-mode`: nút dùng chung với `button.secondary` ở nơi khác,
+   và rule chạm tới color/background phải thắng được nó (bài học cũ của repo). */
+button.pay-mode[aria-pressed='true'] {
+  border: 2px solid #0d9488;
+  background: #f0fdfa;
+  font-weight: 700;
+}
+@media (max-width: 560px) {
+  .pay-modes {
+    flex-direction: column;
+  }
+  button.pay-mode {
+    width: 100%;
+    text-align: left;
+    min-height: 52px;
+    font-size: 15px;
   }
 }
