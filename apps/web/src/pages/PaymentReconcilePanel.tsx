@@ -26,8 +26,18 @@ type Summary = {
 export function PaymentSummaryBox({ query, filterKey }: { query: string; filterKey: string }) {
   const [data, setData] = useState<Summary | null>(null);
   const [failed, setFailed] = useState(false);
+  /**
+   * MẶC ĐỊNH ĐÓNG (chủ quán chốt 2026-09-14), cùng nếp với khối biểu đồ thống kê ngay trên.
+   *
+   * Lý do không chỉ là gọn màn hình: đây là con số tiền của cả ca, bày sẵn nghĩa là ai đứng cạnh
+   * liếc qua vai cũng đọc được. Mở ra là một hành động có chủ ý.
+   */
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
+    // Đóng thì KHÔNG gọi API: con số này không hiện ra đâu cả, mà mỗi lần đổi bộ lọc lại nã một
+    // truy vấn quét toàn bộ đơn trong khoảng — trả tiền cho thứ không ai nhìn.
+    if (!open) return;
     let alive = true;
     api
       .get<{ data: Summary }>(`/orders/payment-summary?${query}`)
@@ -37,18 +47,50 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey]);
+  }, [filterKey, open]);
 
-  if (failed || !data) return null;
-  // Chưa có đồng nào chuyển khoản trong khoảng này → khối này không nói thêm được gì so với ô
-  // doanh thu vốn đã có ở trên. Ẩn hẳn thay vì hiện một bảng toàn số 0.
-  if (data.transfer === 0) return null;
+  // Nút bấm LUÔN hiện, kể cả khi chưa tải hay không có dữ liệu — nút biến mất theo dữ liệu thì
+  // người dùng không hiểu vì sao lúc có lúc không, và cũng không còn đường nào để thử mở lại.
+  const toggle = (
+    <button
+      className="secondary"
+      onClick={() => setOpen((v) => !v)}
+      style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13 }}
+    >
+      {open ? '▲ Ẩn đối soát tiền' : '▼ Hiện đối soát tiền'}
+    </button>
+  );
+
+  if (!open) return <div style={{ marginBottom: 16 }}>{toggle}</div>;
+
+  if (failed || !data) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        {toggle}
+        <div style={{ fontSize: 13, color: '#6b7280' }}>
+          {failed ? 'Không tải được số liệu đối soát.' : 'Đang tải…'}
+        </div>
+      </div>
+    );
+  }
+
+  // Chưa có đồng nào chuyển khoản trong khoảng này → bảng chỉ toàn số 0, nói thẳng ra một câu
+  // còn hơn bày một bảng rỗng.
+  if (data.transfer === 0) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        {toggle}
+        <div style={{ fontSize: 13, color: '#6b7280' }}>
+          Khoảng đang xem không có đơn nào thu bằng chuyển khoản.
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div
-      className="card"
-      style={{ padding: 14, marginBottom: 16, borderLeft: '4px solid #0369a1' }}
-    >
+    <div style={{ marginBottom: 16 }}>
+    {toggle}
+    <div className="card" style={{ padding: 14, borderLeft: '4px solid #0369a1' }}>
       <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Đối soát tiền</div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
@@ -84,6 +126,7 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
         xác nhận — app không đọc được sao kê. Dò lại bằng nội dung chuyển khoản và ảnh bill trong
         từng đơn.
       </div>
+    </div>
     </div>
   );
 }
