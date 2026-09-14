@@ -10,6 +10,7 @@ import { In, Repository, type ObjectLiteral, type SelectQueryBuilder } from 'typ
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
+import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -41,6 +42,7 @@ export class ReportsService {
     @InjectRepository(SupplierDeliveryLine) private readonly lineRepo: Repository<SupplierDeliveryLine>,
     @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
+    @InjectRepository(SupplierPayment) private readonly paymentRepo: Repository<SupplierPayment>,
     @InjectRepository(RecipeLine) private readonly recipeRepo: Repository<RecipeLine>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
     @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
@@ -380,7 +382,68 @@ export class ReportsService {
       };
     });
   }
+
+  /** Từng lần TRẢ TIỀN cho NCC trong kỳ — khối "Đã trả cho NCC" của tab Thống kê (2026-09-14).
+   *
+   * Đường riêng chứ không dùng lại `GET /suppliers/:id/payments`: đường kia trả lần trả của MỘT
+   * NCC và không có bộ lọc thời gian, nên để dựng bảng "trong tháng quán đã trả ai bao nhiêu"
+   * màn hình phải gọi nó một lượt cho mỗi NCC rồi tự cắt kỳ — hàng chục lượt gọi cho một câu
+   * hỏi vốn chỉ là một câu SQL.
+   *
+   * Cắt kỳ theo `paid_on` (ngày ĐƯA TIỀN) chứ không theo `created_at`: ghi bù lần trả hôm qua là
+   * chuyện thường ở quán, cắt theo ngày nhập liệu sẽ đẩy khoản đó sang kỳ sau.
+   *
+   * KHÔNG lọc theo `opening_balance_date` — cùng lệ với công nợ: mọi lần trả đều là tiền quán đã
+   * đưa, kể cả lần trả trước mốc số dư đầu kỳ (xem docblock `balance.ts`).
+   */
+  async payments(opts: { from?: string; to?: string; supplier_id?: string }): Promise<PaymentStatRow[]> {
+    const qb = this.paymentRepo
+      .createQueryBuilder('p')
+      .innerJoin('suppliers', 's', 's.id = p.supplier_id')
+      .select([
+        'p.id AS payment_id',
+        'p.paid_on AS paid_on',
+        'p.supplier_id AS supplier_id',
+        's.name AS supplier_name',
+        'p.amount AS amount',
+        'p.method AS method',
+        'p.note AS note',
+        'p.created_by_name AS created_by_name',
+      ]);
+    if (opts.supplier_id) qb.andWhere('p.supplier_id = :sid', { sid: opts.supplier_id });
+    if (opts.from) qb.andWhere('p.paid_on >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('p.paid_on <= :to', { to: opts.to });
+
+    const raw = await qb
+      .orderBy('p.paid_on', 'DESC')
+      .addOrderBy('p.created_at', 'DESC')
+      .getRawMany<Record<string, unknown>>();
+
+    return raw.map((r) => ({
+      payment_id: String(r.payment_id),
+      paid_on: dateStr(r.paid_on),
+      supplier_id: String(r.supplier_id),
+      supplier_name: String(r.supplier_name),
+      amount: Number(r.amount),
+      method: r.method === 'TRANSFER' ? ('TRANSFER' as const) : ('CASH' as const),
+      note: r.note === null || r.note === undefined ? null : String(r.note),
+      created_by_name: String(r.created_by_name ?? ''),
+    }));
+  }
 }
+
+/** Một lần trả tiền cho NCC trong kỳ (tab Thống kê). */
+export type PaymentStatRow = {
+  payment_id: string;
+  paid_on: string;
+  supplier_id: string;
+  supplier_name: string;
+  amount: number;
+  method: 'CASH' | 'TRANSFER';
+  note: string | null;
+  /** Tên người ghi phiếu chi, đã snapshot lúc ghi — nhân viên nghỉ việc vẫn đọc được. */
+  created_by_name: string;
+};
 
 /** Cột DATE về từ mysql2 lúc là `Date`, lúc là chuỗi tuỳ hàm gộp — ép về 'YYYY-MM-DD' một chỗ. */
 export type DailyRow = {
