@@ -20,10 +20,13 @@ import type { Request } from 'express';
  * chối ghi nhận. Người đứng đó cần biết ngay phải làm gì (nhờ quản lý thu hộ), không phải đọc
  * "bạn không có quyền" rồi tự xoay.
  */
-export function assertCanCollectTransfer(req: Request): void {
+export function assertCanCollectTransfer(req: Request, message?: string): void {
   if (req.user?.can_collect_transfer) return;
   throw new ForbiddenException({
     code: 'TRANSFER_NOT_ALLOWED',
-    message: 'Bạn không được thu chuyển khoản. Nhờ quản lý thu hộ bàn này.',
+    // Mặc định là câu của LÚC ĐANG THU TIỀN — trường hợp gấp gáp nhất. Đường nào không phải thu
+    // tiền (xem lại ảnh bill chẳng hạn) thì truyền câu riêng: bảo người ta "nhờ quản lý thu hộ
+    // bàn này" trong lúc họ chỉ đang mở màn Lịch sử là một câu vô nghĩa.
+    message: message ?? 'Bạn không được thu chuyển khoản. Nhờ quản lý thu hộ bàn này.',
   });
 }
