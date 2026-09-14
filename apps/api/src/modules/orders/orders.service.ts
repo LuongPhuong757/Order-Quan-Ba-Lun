@@ -1272,7 +1272,10 @@ export class OrdersService {
       if (transfer && transfer.amount > 0) {
         if (transfer.amount > total) {
           throw new BadRequestException({
-            code: 'VALIDATION_FAILED',
+            // KHÔNG dùng `VALIDATION_FAILED`: `GlobalExceptionFilter` tra dict FRIENDLY_VN và
+            // ghi đè message bằng câu chung, nuốt mất hai con số — xem docblock của code này
+            // trong `errors.ts`.
+            code: 'TRANSFER_EXCEEDS_TOTAL',
             message: `Tiền chuyển khoản (${OrdersService.fmtVnd(transfer.amount)}) lớn hơn tổng cần thu (${OrdersService.fmtVnd(total)})`,
           });
         }
