@@ -16,3 +16,5 @@ export * from './admin-online-orders.js';
 // không dùng tới; ở đây chỉ để BE lấy chung một chỗ với phần còn lại.
 export * from './vn-address.js';
 export * from './payment-qr.js';
+export * from './transfer-note.js';
+export * from './vietqr-payload.js';

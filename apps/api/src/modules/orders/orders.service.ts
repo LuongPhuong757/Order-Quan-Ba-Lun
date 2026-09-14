@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { describePayment } from './payment-describe.js';
 import {
   STALE_OPEN_ORDER_MS,
   isStaleOpenOrder,
@@ -1178,7 +1179,18 @@ export class OrdersService {
    *   tiền. KHÔNG chặn thanh toán khi bỏ trống — thu tiền là việc của khách đang đứng đợi,
    *   đối soát kế toán là việc cuối ca; đơn bỏ trống rơi vào bộ lọc "chưa lên MISA".
    */
-  async checkout(order_id: string, cashier?: OrderCreator, misa_copied?: boolean): Promise<{
+  /** `transfer` = phần thu bằng chuyển khoản. Bỏ trống = thu tiền mặt toàn bộ, tức hành vi cũ. */
+  async checkout(
+    order_id: string,
+    cashier?: OrderCreator,
+    misa_copied?: boolean,
+    transfer?: {
+      amount: number;
+      account_id?: string | null;
+      qr_label?: string | null;
+      note?: string | null;
+    },
+  ): Promise<{
     order: Order;
     served_items: number;
     cancelled_items: number;
@@ -1188,6 +1200,9 @@ export class OrdersService {
     items_total: number;
     ship_fee: number;
     total: number;
+    /** Phần thu bằng chuyển khoản; `0` = tiền mặt toàn bộ. Tiền mặt = `total - transfer_amount`. */
+    transfer_amount: number;
+    payment_qr_label: string | null;
   }> {
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
@@ -1249,6 +1264,24 @@ export class OrdersService {
       if (order.source === 'ONLINE' && order.received_at === null) {
         order.received_at = Date.now();
       }
+      /* Phần thu bằng chuyển khoản (2026-09-14). CHẶN khi vượt tổng thu thay vì tự cắt gọn:
+         thu ngân gõ 500.000đ cho một bàn 250.000đ là gõ nhầm, và im lặng sửa con số của người
+         đang đếm tiền thì cuối ca họ đối soát ra một cục lệch không giải thích được. Bàn huỷ sạch
+         món có `total = 0` nên nhánh này tự chặn mọi số dương — đúng ý: không có gì để thu thì
+         không thể có tiền chuyển vào. */
+      if (transfer && transfer.amount > 0) {
+        if (transfer.amount > total) {
+          throw new BadRequestException({
+            code: 'VALIDATION_FAILED',
+            message: `Tiền chuyển khoản (${OrdersService.fmtVnd(transfer.amount)}) lớn hơn tổng cần thu (${OrdersService.fmtVnd(total)})`,
+          });
+        }
+        order.transfer_amount = Math.round(transfer.amount);
+        order.paid_to_account_id = transfer.account_id ?? null;
+        order.payment_qr_label = transfer.qr_label ?? null;
+        order.transfer_note = transfer.note ?? null;
+      }
+
       order.closed_at = Date.now();
       order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
@@ -1274,6 +1307,8 @@ export class OrdersService {
         items_total,
         ship_fee,
         total,
+        transfer_amount: order.transfer_amount,
+        payment_qr_label: order.payment_qr_label,
       };
     });
 
@@ -1295,6 +1330,7 @@ export class OrdersService {
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
         `${result.auto_served_items > 0 ? `, trong đó ${result.auto_served_items} món chưa kịp mang ra vẫn tính tiền` : ''})` +
+        `${describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
