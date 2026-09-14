@@ -1819,21 +1819,21 @@ function TransferTableModal({
   const toast = useToast();
   const confirm = useConfirm();
   const [tables, setTables] = useState<Table[]>([]);
-  // Bàn đang có khách — BE CHẶN chuyển sang (gộp hai bàn vào một bill là không tách lại được).
-  // Hiện ngay trong danh sách chứ không để nhân viên bấm rồi mới ăn toast lỗi.
+  // Bàn còn đơn chưa thanh toán — BE CHẶN chuyển sang, chỉ bàn TRỐNG mới nhận. Hiện ngay trong
+  // danh sách chứ không để nhân viên bấm rồi mới ăn toast lỗi.
   const [busyTableIds, setBusyTableIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    // `/orders` trả đơn đang mở và ĐÃ lọc đơn rỗng / huỷ sạch món — đúng định nghĩa "bàn đang
-    // dùng" mà BE dùng để chặn, nên hai bên không lệch nhau.
+    // Dùng `/orders/open-table-ids` chứ KHÔNG dùng `/orders`: cái sau lọc bỏ đơn rỗng, nên bàn
+    // chỉ có đơn rỗng sẽ hiện là bấm được trong khi server vẫn chặn — nhân viên không hiểu vì sao.
     Promise.all([
       api.get<{ data: { items: Table[] } }>('/tables'),
-      api.get<{ data: { items: Array<{ table_id: string }> } }>('/orders'),
+      api.get<{ data: { items: string[] } }>('/orders/open-table-ids'),
     ])
-      .then(([tablesRes, ordersRes]) => {
+      .then(([tablesRes, openRes]) => {
         setTables(tablesRes.data.data.items.filter((t) => t.id !== currentTable.id));
-        setBusyTableIds(new Set(ordersRes.data.data.items.map((o) => o.table_id)));
+        setBusyTableIds(new Set(openRes.data.data.items));
       })
       .catch((e) => toast.push('error', extractError(e).message));
   }, [currentTable.id, toast]);
@@ -1867,12 +1867,13 @@ function TransferTableModal({
           </button>
         </div>
         <p style={{ color: '#6b7280' }}>
-          Chọn bàn đích — toàn bộ order sẽ chuyển sang. Bàn đang có khách không chọn được.
+          Chọn bàn đích — toàn bộ order sẽ chuyển sang. Chỉ chuyển được sang bàn TRỐNG: bàn chưa
+          thanh toán phải thanh toán xong mới nhận.
         </p>
         <div style={{ display: 'grid', gap: 6, maxHeight: '50vh', overflowY: 'auto' }}>
           {tables.map((t) => {
             // Bàn bận vẫn HIỆN chứ không lọc khỏi danh sách: nhân viên đang tìm "bàn 15" mà nó
-            // biến mất thì tưởng bàn bị xoá. Thấy dòng mờ ghi "đang có khách" thì biết ngay vì
+            // biến mất thì tưởng bàn bị xoá. Thấy dòng mờ ghi "chưa thanh toán" thì biết ngay vì
             // sao bấm không được. Nút disabled đã có sẵn `opacity: .5` + `cursor: not-allowed`
             // từ `button:disabled` trong styles.css, không cần style riêng.
             const busy = busyTableIds.has(t.id);
@@ -1882,7 +1883,7 @@ function TransferTableModal({
                 disabled={submitting || busy}
                 onClick={() => transfer(t.id, t.code)}
                 className="secondary"
-                title={busy ? `${t.name} đang có khách — thanh toán bàn đó trước` : undefined}
+                title={busy ? `${t.name} chưa thanh toán — thanh toán bàn đó trước` : undefined}
                 style={{
                   textAlign: 'left',
                   padding: 12,
@@ -1895,7 +1896,7 @@ function TransferTableModal({
                   <code>{t.code}</code> {t.name}
                 </span>
                 <span style={{ color: busy ? '#b45309' : '#6b7280', fontSize: 12 }}>
-                  {busy ? '🔴 đang có khách' : t.kind}
+                  {busy ? '🔴 chưa thanh toán' : t.kind}
                 </span>
               </button>
             );
