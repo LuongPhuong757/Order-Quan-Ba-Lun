@@ -342,6 +342,37 @@ df -h                                       # disk usage
 free -h                                     # RAM usage
 ```
 
+### 8.1 Báo cáo sức khoẻ tự động hàng tuần
+
+10h05 sáng thứ 2, VPS tự sinh báo cáo (CPU/RAM 7 ngày, ổ đĩa, container, MySQL, số đơn theo
+ngày, độ trễ HTTP) và gửi qua Telegram — tin tóm tắt + file `.md` đính kèm.
+
+**Cài (chạy trên server, bằng root — PHẢI chạy lại sau mỗi lần VPS bị cài lại):**
+
+```bash
+bash /opt/orderquanbalun/scripts/install-weekly-report.sh
+# rồi điền token vào /etc/ordbl-report.env:
+#   TELEGRAM_BOT_TOKEN=...   (tạo bot: nhắn @BotFather → /newbot)
+#   TELEGRAM_CHAT_ID=...     (nhắn cho bot 1 câu, rồi mở
+#                             https://api.telegram.org/bot<TOKEN>/getUpdates)
+```
+
+Installer tự cài luôn `sysstat` — đây là nguồn DUY NHẤT cho phần CPU/RAM lịch sử. Thiếu nó thì
+chỉ đọc được snapshot tại đúng lúc gõ lệnh, mà lúc gõ thì bao giờ cũng là giờ vắng khách.
+
+**Vận hành:**
+
+```bash
+systemctl list-timers ordbl-report.timer     # lần chạy kế tiếp
+systemctl start ordbl-report                 # chạy thử ngay
+journalctl -u ordbl-report -n 30 --no-pager  # log lần chạy gần nhất
+bash /opt/orderquanbalun/scripts/weekly-report.sh   # chỉ in báo cáo, không gửi
+ls /opt/orderquanbalun/reports/              # các bản đã sinh (giữ 26 bản gần nhất)
+```
+
+Báo cáo so sánh với tuần trước bằng mốc lưu ở `/var/lib/ordbl-weekly-report.state`. Xoá file đó
+là mất mốc, báo cáo kế tiếp quay về chế độ "lần chạy đầu tiên".
+
 ## 9. Trouble-shoot
 
 ### Caddy không cấp cert
