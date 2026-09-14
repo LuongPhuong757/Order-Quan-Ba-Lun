@@ -10,10 +10,11 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
-import { PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
+import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
   historyQuery,
+  type HistoryPayment,
   type HistoryFilters,
   type HistorySort,
 } from '../lib/history-filter.ts';
@@ -228,6 +229,10 @@ export function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<Status>('all');
   // Đối soát MISA — '' = không lọc, 'pending' = đã thu tiền nhưng chưa gõ sang AMIS.
   const [misaFilter, setMisaFilter] = useState<'' | 'pending' | 'copied'>('');
+  /** Lọc theo hình thức thu tiền (2026-09-14). Là Ô CHỌN riêng chứ không nhập vào dãy tab trạng
+   *  thái: nó CHỒNG lên trạng thái chứ không thay thế — "đã thanh toán + chuyển khoản" là câu
+   *  hỏi có thật lúc đối soát, còn dãy tab kia thì chọn cái này là tắt cái kia. */
+  const [paymentFilter, setPaymentFilter] = useState<HistoryPayment>('');
   /** Khoảng thời gian đang xem — MỘT state chứ không phải cặp `startDate`/`endDate` rời:
    *  khoảng "ca" mang thêm cờ `shift` mà hai ô ngày không diễn tả được, và tách ra thì sẽ có
    *  lúc cờ bật còn ngày chưa xoá (hoặc ngược lại) — giao diện nói một đằng, query hỏi một nẻo.
@@ -275,6 +280,7 @@ export function HistoryPage() {
     cashier_user_id: cashierFilter,
     status: statusFilter,
     misa: misaFilter,
+    payment: paymentFilter,
     from: range.from,
     to: range.to,
     shift: range.shift,
@@ -399,6 +405,7 @@ export function HistoryPage() {
     setCashierFilter('');
     setStatusFilter('all');
     setMisaFilter('');
+    setPaymentFilter('');
     // Về MẶC ĐỊNH (ca đang chạy), không phải về "Tất cả thời gian": "Xoá lọc" nghĩa là trả màn
     // về đúng lúc mới mở lên. Trả về "Tất cả" ở đây thì bấm một nút lại thành kéo về toàn bộ
     // lịch sử — rộng hơn hẳn thứ người dùng vừa xem, và đó không phải thứ họ định làm.
@@ -508,6 +515,7 @@ export function HistoryPage() {
     cashierFilter ||
     statusFilter !== 'all' ||
     misaFilter ||
+    paymentFilter ||
     !range.shift;
 
   return (
@@ -607,6 +615,22 @@ export function HistoryPage() {
           options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
+
+        {/* Hình thức thu tiền (2026-09-14). Ba giá trị khớp đúng ba badge trong bảng — lọc và
+            badge phải nói cùng một thứ tiếng. */}
+        <select
+          className="txn-fsel"
+          aria-label="Lọc theo hình thức thu tiền"
+          title="Hình thức thu tiền"
+          value={paymentFilter}
+          onChange={(e) => { setPaymentFilter(e.target.value as HistoryPayment); setPage(1); }}
+          style={{ width: 168, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+        >
+          <option value="">Mọi hình thức</option>
+          <option value="cash">💵 Tiền mặt</option>
+          <option value="transfer">🏦 Chuyển khoản</option>
+          <option value="mixed">💵+🏦 Cả hai</option>
+        </select>
 
         {/* Trục sắp xếp. Phải là Ô CHỌN chứ không chỉ là tiêu đề cột bấm được: dưới 640px
             `table.responsive` ẩn hẳn `thead`, nên trên điện thoại sẽ không còn chỗ nào để bấm.
@@ -1001,9 +1025,9 @@ export function HistoryPage() {
                               {/* Hình thức thu nằm NGAY DƯỚI con số, không thành cột riêng: thêm
                                   cột thứ 9 vào bảng này là ép mọi màn hình hẹp phải cuộn ngang,
                                   trong khi thứ người đối soát cần là "con số này về đâu". */}
-                              {isPaid && o.transfer_amount > 0 && (
-                                <div style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>
-                                  {o.transfer_amount >= total ? '🏦 CK' : '💵+🏦'}
+                              {isPaid && (
+                                <div>
+                                  <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
                                 </div>
                               )}
                             </td>

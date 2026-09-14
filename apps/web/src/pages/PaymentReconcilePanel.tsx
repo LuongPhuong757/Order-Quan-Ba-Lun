@@ -136,3 +136,41 @@ export function PaymentPhotos({ orderId }: { orderId: string }) {
     </div>
   );
 }
+
+/**
+ * Badge hình thức thanh toán của MỘT đơn (2026-09-14, chủ quán: "để rõ hơn").
+ *
+ * Ba lựa chọn thiết kế, đều có lý do:
+ *
+ *  1. MÀU NỀN là tín hiệu chính, emoji chỉ phụ hoạ. Ở cỡ chữ nhỏ trong bảng, 💵 và 🏦 gần như
+ *     không phân biệt được — nhất là trên điện thoại và với người mắt kém, vốn là người dùng
+ *     thật của app này. Ba mảng màu khác hẳn nhau thì liếc là thấy.
+ *  2. CHỮ ĐẦY ĐỦ, không viết tắt "CK". Bản đầu dùng "🏦 CK" cỡ 11px và đó chính là cái bị chê
+ *     không rõ.
+ *  3. Hiện cho MỌI đơn đã thu, kể cả tiền mặt. Bản đầu chỉ hiện khi có chuyển khoản, nghĩa là
+ *     "không có badge" = tiền mặt — một quy ước ngầm mà người đọc bảng phải tự biết. Nói thẳng
+ *     ra thì không phải đoán.
+ *
+ * KHÔNG hiện với đơn chưa thu hoặc đơn huỷ: chúng chưa có hình thức thanh toán nào cả.
+ */
+export function PaymentMethodBadge({ total, transferAmount }: { total: number; transferAmount: number }) {
+  const style = {
+    display: 'inline-block',
+    marginTop: 3,
+    padding: '1px 6px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+    lineHeight: 1.5,
+  };
+  if (!transferAmount || transferAmount <= 0) {
+    return <span style={{ ...style, background: '#d1fae5', color: '#065f46' }}>💵 Tiền mặt</span>;
+  }
+  if (transferAmount >= total) {
+    return <span style={{ ...style, background: '#e0f2fe', color: '#075985' }}>🏦 Chuyển khoản</span>;
+  }
+  // Cam, KHÔNG phải một sắc xanh thứ ba: đây là trường hợp người đếm két phải để ý nhất — chỉ
+  // một phần số tiền nằm trong két — nên nó cần nhảy ra khỏi hai màu kia.
+  return <span style={{ ...style, background: '#ffedd5', color: '#9a3412' }}>💵+🏦 Cả hai</span>;
+}

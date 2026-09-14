@@ -14,6 +14,13 @@ import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
 export type HistoryMisa = '' | 'pending' | 'copied';
+/** Hình thức thu tiền (2026-09-14). '' = không lọc.
+ *  - 'cash'     : thu tiền mặt toàn bộ
+ *  - 'transfer' : chuyển khoản toàn bộ
+ *  - 'mixed'    : trả một phần tiền mặt, một phần chuyển khoản
+ *  Ba giá trị này khớp đúng ba badge trong bảng — lọc và badge phải nói cùng một thứ tiếng, nếu
+ *  không người dùng lọc "Chuyển khoản" rồi thấy đơn gắn badge "Cả hai" và mất lòng tin vào cả hai. */
+export type HistoryPayment = '' | 'cash' | 'transfer' | 'mixed';
 /** Trục sắp xếp danh sách đơn — 'opened' = giờ vào ăn (mặc định), 'paid' = giờ thanh toán.
  *  Cả hai đều mới nhất trước. */
 export type HistorySort = 'opened' | 'paid';
@@ -23,6 +30,7 @@ export type HistoryFilters = {
   cashier_user_id: string;
   status: HistoryStatus;
   misa: HistoryMisa;
+  payment: HistoryPayment;
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
@@ -52,6 +60,7 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (opts.cashier !== false && f.cashier_user_id) q.set('cashier_user_id', f.cashier_user_id);
   if (f.status !== 'all') q.set('status', f.status);
   if (f.misa) q.set('misa', f.misa);
+  if (f.payment) q.set('payment', f.payment);
   if (f.shift) {
     // Ca đang chạy: CHỈ chặn đầu dưới. Nhãn nói "tới bây giờ" nhưng cố ý không gửi `end_ms` —
     // chốt cứng `Date.now()` vào query thì đơn thanh toán sau lúc bấm chip sẽ rơi ra ngoài

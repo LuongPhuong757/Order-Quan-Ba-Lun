@@ -93,6 +93,30 @@ const HAS_ANY_ITEM_SQL = 'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id
  * set closed_at và nó luôn set is_paid = true cùng lúc, nên không có dòng cũ nào
  * bị phân loại sai. */
 const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
+
+/**
+ * Điều kiện SQL lọc theo HÌNH THỨC THU TIỀN (2026-09-14).
+ *
+ * Phải so `transfer_amount` với TỔNG THU, mà tổng thu không được lưu ở cột nào — nó là
+ * `SUM(món SERVED) + ship_fee` (xem `checkout-total.ts`). Nên ở đây là một subquery tương quan
+ * chứ không phải một phép so cột đơn giản. Đổi lại, con số dùng để lọc luôn khớp con số hiển thị
+ * trên badge, kể cả với đơn bị sửa món sau khi thu.
+ *
+ * Dùng chung cho cả danh sách đơn lẫn khối đối soát — hai chỗ đó phải nói về cùng một tập đơn,
+ * nếu không người dùng lọc "Cả hai" rồi thấy tổng đối soát không khớp danh sách bên dưới.
+ */
+const ORDER_TOTAL_SQL =
+  "(SELECT COALESCE(SUM(i.menu_item_price * i.qty), 0) FROM order_items i " +
+  "WHERE i.order_id = o.id AND i.state = 'SERVED') + o.ship_fee";
+
+export type PaymentKindFilter = 'cash' | 'transfer' | 'mixed';
+
+export function paymentKindSql(kind: PaymentKindFilter): string {
+  // Luôn kèm PAID_SQL: đơn chưa thu hoặc đơn huỷ chưa có hình thức thanh toán nào để mà lọc.
+  if (kind === 'cash') return `${PAID_SQL} AND o.transfer_amount = 0`;
+  if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount >= ${ORDER_TOTAL_SQL}`;
+  return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount < ${ORDER_TOTAL_SQL}`;
+}
 const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
 
 /** Tạo đơn mở mới cho bàn. Tách riêng vì có 2 chỗ gọi: bàn chưa có đơn nào, và bàn treo
@@ -1400,6 +1424,8 @@ export class OrdersService {
    * Sort: 'opened' (mặc định) = giờ vào ăn · 'paid' = giờ thanh toán. Xem `opts.sort`.
    * Trả về kèm items để FE expand chi tiết khi cần. */
   async listHistory(opts: {
+    /** Lọc theo hình thức thu tiền (2026-09-14). Bỏ trống = mọi hình thức. */
+    payment?: PaymentKindFilter;
     table_id?: string;
     start_ms?: number;
     end_ms?: number;
@@ -1440,6 +1466,7 @@ export class OrdersService {
     // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
     if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
+    if (opts.payment) wheres.push(paymentKindSql(opts.payment));
     // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
     // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
     // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
@@ -1531,7 +1558,12 @@ export class OrdersService {
    * `GREATEST(..., 0)`: đơn bị sửa sau khi thu có thể làm tổng tụt xuống dưới phần đã chuyển —
    * lúc đó tiền mặt là 0, không phải một số âm len vào bảng đối soát.
    */
-  async paymentSummary(opts: { start_ms?: number; end_ms?: number; cashier_user_id?: string }): Promise<{
+  async paymentSummary(opts: {
+    start_ms?: number;
+    end_ms?: number;
+    cashier_user_id?: string;
+    payment?: PaymentKindFilter;
+  }): Promise<{
     total: number;
     cash: number;
     transfer: number;
@@ -1552,6 +1584,10 @@ export class OrdersService {
       wheres.push('o.checked_out_by_user_id = :cid');
       params.cid = opts.cashier_user_id;
     }
+    // Khối đối soát ăn theo ĐÚNG bộ lọc đang chọn trên màn (chủ quán yêu cầu 2026-09-14): đổi
+    // khoảng ngày, đổi thu ngân, đổi hình thức thì ba con số phải đổi theo, nếu không người ta
+    // đọc một cặp số không nói về cái danh sách đang nhìn.
+    if (opts.payment) wheres.push(paymentKindSql(opts.payment));
 
     const rows = await this.orderRepo
       .createQueryBuilder('o')
