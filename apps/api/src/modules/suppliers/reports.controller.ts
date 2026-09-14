@@ -73,6 +73,24 @@ export class ReportsController {
     return { data: { items } };
   }
 
+  /** Các lần trả tiền cho NCC trong kỳ — khối "Đã trả cho NCC" của tab Thống kê (2026-09-14).
+   *
+   * Cùng guard với cả controller (admin + report): đây là tiền ra khỏi quán, cùng nhóm bí mật
+   * với giá mua và công nợ đã bày ở các đường trên. KHÔNG mở cho role `order`.
+   *
+   * Chỉ ĐỌC. Ghi/xoá lần trả vẫn nằm ở `PaymentsController` (AdminGuard) — tab thống kê là chỗ
+   * nhìn lại, không phải chỗ nhập liệu.
+   */
+  @Get('payments')
+  async payments(@Query() q: Record<string, string>) {
+    const items = await this.svc.payments({
+      from: q.from || undefined,
+      to: q.to || undefined,
+      supplier_id: q.supplier_id || undefined,
+    });
+    return { data: { items } };
+  }
+
   @Get('matrix')
   async matrix() {
     return { data: { items: await this.svc.matrix() } };
