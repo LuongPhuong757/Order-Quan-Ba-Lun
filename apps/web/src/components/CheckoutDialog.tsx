@@ -102,6 +102,15 @@ export function CheckoutDialog({
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
+  /**
+   * Hai bước (chủ quán chốt 2026-09-14): chọn hình thức + mã QR → rồi mới tới chụp bill.
+   *
+   * Chỉ đơn CÓ chuyển khoản mới đi qua bước 'bill'; thu tiền mặt thì không có cái bill nào để
+   * chụp nên vẫn MỘT cú bấm là xong. Chủ quán đã được báo trước rằng bước này thành hai cú bấm
+   * cho đơn chuyển khoản và vẫn chọn — đổi lại, người thu chắc chắn nhìn thấy lời mời chụp bill
+   * đúng lúc khách vừa chuyển xong.
+   */
+  const [step, setStep] = useState<'form' | 'bill'>('form');
 
   const picked = qrOptions.find((o) => o.id === pickedId) ?? null;
   /** Có định thu chuyển khoản không. CHƯA CHỌN (`null`) cũng là KHÔNG — viết `mode !== 'CASH'`
@@ -204,6 +213,19 @@ export function CheckoutDialog({
     }
   };
 
+  /** Nút chính của bước 1. KHÔNG gọi API khi có chuyển khoản — chỉ mở bước chụp bill. */
+  const goNext = () => {
+    if (blockReason) {
+      toast.push('error', blockReason);
+      return;
+    }
+    if (transferAmount > 0) {
+      setStep('bill');
+      return;
+    }
+    submit();
+  };
+
   const submit = async () => {
     if (blockReason) {
       toast.push('error', blockReason);
@@ -284,6 +306,20 @@ export function CheckoutDialog({
         </div>
 
         <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {step === 'bill' ? (
+            <BillStep
+              transferAmount={transferAmount}
+              cashAmount={cashAmount}
+              qrLabel={picked?.label ?? null}
+              note={note}
+              photos={photos}
+              uploading={uploading}
+              fileRef={fileRef}
+              onPick={addPhotos}
+              onRemove={removePhoto}
+            />
+          ) : (
+          <>
           {/* Tổng cần thu — giữ nguyên khối của hộp thoại cũ, kể cả việc tách phí ship: thu ngân
               đọc một con số gộp thì cuối ngày không đối soát được tiền thu hộ shipper (M2.D-62). */}
           <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
@@ -416,86 +452,6 @@ export function CheckoutDialog({
             </div>
           )}
 
-          {/* Nút chụp bill chỉ hiện SAU KHI đã chọn mã QR — cùng thời điểm nút Thanh toán bật
-              lại. Đúng trình tự thật ngoài đời: chìa QR cho khách quét xong thì mới có cái bill
-              để mà chụp. Bày sẵn từ trước là mời người ta chụp một màn hình chưa tồn tại.
-              Ảnh vẫn TUỲ CHỌN — bấm Thanh toán được ngay, không cần chụp. */}
-          {wantsTransfer && picked && (
-            <div>
-              {/* Chụp thẳng trong app: `capture="environment"` mở camera sau của điện thoại, không
-                  phải thoát ra mở app Máy ảnh rồi quay lại. Trên máy tính thuộc tính này bị bỏ
-                  qua và thành hộp chọn file — chấp nhận được, người thu tiền dùng điện thoại. */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => fileRef.current?.click()}
-                  disabled={uploading}
-                  style={{ minHeight: 44 }}
-                >
-                  📷 {uploading ? 'Đang tải ảnh…' : 'Chụp bill của khách'}
-                </button>
-                {photos.length > 0 && (
-                  <span style={{ fontSize: 13, color: '#059669' }}>✓ {photos.length} ảnh</span>
-                )}
-              </div>
-
-              {/* Lời nhắc phải nằm Ở ĐÂY, thấy được TRƯỚC khi bấm — không phải chặn cú bấm đầu.
-                  Bản trước bắt bấm Thanh toán hai lần mỗi khi thu chuyển khoản không kèm ảnh:
-                  một cú bấm thừa ở đúng lúc khách đang đứng đợi, lặp lại mọi lần, để đổi lấy một
-                  câu mà người ta hoàn toàn có thể đọc trước. Ảnh vẫn là TUỲ CHỌN (chủ quán chốt
-                  2026-09-14) — đây là nhắc, không phải cửa chặn. */}
-              {photos.length === 0 && !uploading && (
-                <div style={{ marginTop: 6, fontSize: 13, color: '#92400e' }}>
-                  Chưa có ảnh bill — vẫn thanh toán được, nhưng sau này không có gì đối chiếu.
-                </div>
-              )}
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                multiple
-                hidden
-                onChange={(e) => addPhotos(e.target.files)}
-              />
-
-              {photos.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
-                  {photos.map((p, i) => (
-                    <div key={p.id} style={{ position: 'relative', width: 72, height: 72 }}>
-                      <img
-                        src={p.url}
-                        alt={`Ảnh bill ${i + 1}`}
-                        style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }}
-                      />
-                      <button
-                        type="button"
-                        aria-label={`Bỏ ảnh ${i + 1}`}
-                        onClick={() => removePhoto(p.id)}
-                        style={{
-                          position: 'absolute',
-                          top: 2,
-                          right: 2,
-                          minWidth: 26,
-                          minHeight: 26,
-                          padding: 0,
-                          borderRadius: 999,
-                          background: 'rgba(0,0,0,.6)',
-                          color: 'white',
-                          border: 'none',
-                          fontSize: 14,
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* ── Chi tiết món: giữ nguyên bố cục hộp thoại cũ ── */}
           {servedItems.length > 0 && (
             <Section title="✓ Đã giao (tính tiền)" color="#059669">
@@ -534,31 +490,47 @@ export function CheckoutDialog({
           )}
 
           <MisaCheckbox onChange={setMisaCopied} />
+          </>
+          )}
         </div>
 
         <div style={{ display: 'flex', gap: 10, padding: 14, borderTop: '1px solid #e5e7eb' }}>
-          <button type="button" className="secondary" onClick={onCancel} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
-            Huỷ
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => (step === 'bill' ? setStep('form') : onCancel())}
+            disabled={submitting}
+            style={{ flex: 1, minHeight: 44 }}
+          >
+            {step === 'bill' ? '← Quay lại' : 'Huỷ'}
           </button>
           {/* CỐ Ý không dùng thuộc tính `disabled`: nút `disabled` thì trình duyệt KHÔNG bắn sự
               kiện bấm, nên nó không bao giờ nói được vì sao nó mờ — người dùng bấm vào chỗ chết
               và tự đoán. Ở đây nút vẫn nhận bấm, chỉ là bấm thì nghe lý do.
               `aria-disabled` để trình đọc màn hình vẫn hiểu đúng trạng thái. */}
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting}
-            aria-disabled={!!blockReason}
-            title={blockReason ?? undefined}
-            style={{
-              flex: 1,
-              minHeight: 44,
-              opacity: blockReason ? 0.55 : 1,
-              cursor: blockReason ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
-          </button>
+          {step === 'bill' ? (
+            /* Bước cuối: đây mới là cú bấm GHI TIỀN. Chữ nói rõ điều đó — "Xác nhận" chung chung
+               thì người ta không biết mình đang xác nhận cái gì. */
+            <button type="button" onClick={submit} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
+              {submitting ? 'Đang thanh toán…' : 'Xác nhận thu tiền'}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={submitting}
+              aria-disabled={!!blockReason}
+              title={blockReason ?? undefined}
+              style={{
+                flex: 1,
+                minHeight: 44,
+                opacity: blockReason ? 0.55 : 1,
+                cursor: blockReason ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
+            </button>
+          )}
         </div>
       </div>
     </div>
@@ -585,5 +557,121 @@ function ModeButton({ active, onClick, label }: { active: boolean; onClick: () =
     <button type="button" className="pay-mode" onClick={onClick} aria-pressed={active}>
       {label}
     </button>
+  );
+}
+
+/**
+ * BƯỚC CUỐI — chụp bill (2026-09-14, chủ quán chốt).
+ *
+ * Đặt sau khi đã bấm Thanh toán chứ không bày sẵn từ đầu: đúng trình tự thật ngoài đời — chìa QR,
+ * khách quét, khách đưa màn hình "chuyển thành công", LÚC ĐÓ mới có cái để chụp. Bày nút từ trước
+ * là mời người ta chụp một màn hình chưa tồn tại.
+ *
+ * Ảnh vẫn TUỲ CHỌN: nút "Xác nhận thu tiền" không bao giờ bị khoá vì thiếu ảnh. Một cái camera
+ * hỏng hay mạng yếu không được phép chặn đường thu tiền của quán.
+ *
+ * ⚠ TIỀN CHƯA ĐƯỢC GHI ở bước này — chỉ ghi khi bấm "Xác nhận thu tiền". Đóng hộp thoại giữa
+ * chừng là đơn vẫn còn nguyên, chưa thu.
+ *
+ * `export` vì nó là component THUẦN (không gọi mạng, không đọc context) nên dựng lên kiểm bằng
+ * ảnh hoặc test được mà không phải mở cả hộp thoại rồi bấm qua bước một.
+ */
+export function BillStep({
+  transferAmount,
+  cashAmount,
+  qrLabel,
+  note,
+  photos,
+  uploading,
+  fileRef,
+  onPick,
+  onRemove,
+}: {
+  transferAmount: number;
+  cashAmount: number;
+  qrLabel: string | null;
+  note: string;
+  photos: Array<{ id: string; url: string }>;
+  uploading: boolean;
+  fileRef: React.RefObject<HTMLInputElement | null>;
+  onPick: (files: FileList | null) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <>
+      {/* Nhắc lại con số và mã đã chọn: người thu vừa rời màn QR, và đây là cơ hội cuối để phát
+          hiện mình chọn nhầm tài khoản trước khi tiền được ghi vào sổ. */}
+      <div style={{ background: '#e0f2fe', borderRadius: 10, padding: 14, textAlign: 'center' }}>
+        <div style={{ fontSize: 13, color: '#075985' }}>Khách chuyển khoản</div>
+        <div style={{ fontSize: 26, fontWeight: 700, color: '#075985', marginTop: 2 }}>{fmt(transferAmount)}</div>
+        {qrLabel && <div style={{ fontSize: 14, color: '#0c4a6e', marginTop: 2 }}>→ {qrLabel}</div>}
+        <div style={{ fontSize: 13, color: '#0c4a6e', marginTop: 4 }}>Nội dung: {note}</div>
+        {cashAmount > 0 && (
+          <div style={{ fontSize: 14, color: '#065f46', marginTop: 6 }}>
+            + thu tiền mặt {fmt(cashAmount)}
+          </div>
+        )}
+      </div>
+
+      <div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>Chụp bill của khách</div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
+          Không bắt buộc — bỏ qua vẫn thu tiền được.
+        </div>
+
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          style={{ minHeight: 48, width: '100%' }}
+        >
+          📷 {uploading ? 'Đang tải ảnh…' : photos.length > 0 ? 'Chụp thêm' : 'Chụp bill của khách'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          multiple
+          hidden
+          onChange={(e) => onPick(e.target.files)}
+        />
+
+        {photos.length > 0 && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 10 }}>
+            {photos.map((p, i) => (
+              <div key={p.id} style={{ position: 'relative', width: 84, height: 84 }}>
+                <img
+                  src={p.url}
+                  alt={`Ảnh bill ${i + 1}`}
+                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 8, border: '1px solid #e5e7eb' }}
+                />
+                <button
+                  type="button"
+                  aria-label={`Bỏ ảnh ${i + 1}`}
+                  onClick={() => onRemove(p.id)}
+                  style={{
+                    position: 'absolute',
+                    top: 2,
+                    right: 2,
+                    minWidth: 26,
+                    minHeight: 26,
+                    padding: 0,
+                    borderRadius: 999,
+                    background: 'rgba(0,0,0,.6)',
+                    color: 'white',
+                    border: 'none',
+                    fontSize: 14,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }
