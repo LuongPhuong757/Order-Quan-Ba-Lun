@@ -44,6 +44,8 @@ uploads/
 
 # Dump MySQL do sidecar mysql-backup sinh ra — dữ liệu thật, tuyệt đối không lên git
 backups/
+# Báo cáo hệ thống hàng tuần do scripts/weekly-report-send.sh sinh ra trên VPS.
+reports/
 
 # Cấu hình Caddy của site khác dùng chung VPS — thuộc về server, không thuộc repo này
 caddy-local/

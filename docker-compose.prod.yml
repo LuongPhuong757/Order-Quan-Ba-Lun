@@ -13,6 +13,20 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "3"
 
+# Caddy được cấp hạn mức log RỘNG HƠN HẲN phần còn lại, vì access log của nó là nguồn duy nhất
+# trả lời được "hôm qua giờ cao điểm p95 bao nhiêu ms". Với 10m×3, đo thật ngày 2026-09-13:
+# log chỉ giữ được ~1 TIẾNG (mỗi dòng ~2KB vì format console in đủ header), nên mọi câu hỏi về
+# độ trễ đều rơi đúng vào khung giờ vắng khách — vô dụng.
+#
+# 200m×5 = tối đa 1GB, giữ được ~2 ngày, đủ trùm trọn một buổi tối cao điểm 19–21h.
+# KHÔNG đặt cao hơn: ổ 39GB và bài học cũ vẫn còn nguyên — ổ đầy thì mysqldump ghi ra file cụt,
+# tức mất backup đúng lúc cần nó nhất.
+x-logging-caddy: &caddy-logging
+  driver: json-file
+  options:
+    max-size: "200m"
+    max-file: "5"
+
 services:
   mysql:
     image: mysql:8.0
@@ -30,7 +44,11 @@ services:
       - --default-time-zone=+00:00
       # 4GB RAM VPS → cấp 1GB cho innodb buffer pool (cache toàn bộ menu + orders trong RAM)
       - --innodb-buffer-pool-size=1G
-      - --max-connections=100
+      # 200 (2026-09-14). Đo thực tế: Max_used_connections chạm 51/100 sau 39 ngày —
+      # quá nửa trần, và mỗi lần deploy api mở pool mới chồng lên pool cũ chưa đóng hết
+      # nên đỉnh thật còn cao hơn con số đó. Mỗi connection nhàn rỗi tốn ~256KB, 200 kết
+      # nối ≈ 50MB — rẻ hơn nhiều so với việc chạm trần rồi khách không đặt được món.
+      - --max-connections=200
       - --performance-schema=OFF
     volumes:
       - mysql_data:/var/lib/mysql
@@ -141,7 +159,7 @@ services:
       DOMAIN: ${DOMAIN:-}
     depends_on:
       - api
-    logging: *default-logging
+    logging: *caddy-logging
     networks:
       - frontend
 
