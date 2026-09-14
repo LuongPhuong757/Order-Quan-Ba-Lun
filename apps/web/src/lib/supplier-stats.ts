@@ -45,6 +45,18 @@ export type DeliveryStatRow = {
   items: string[];
 };
 
+/** Một lần trả tiền cho NCC từ `GET /supplier-reports/payments`. */
+export type TraTienRow = {
+  payment_id: string;
+  paid_on: string;
+  supplier_id: string;
+  supplier_name: string;
+  amount: number;
+  method: 'CASH' | 'TRANSFER';
+  note: string | null;
+  created_by_name: string;
+};
+
 const DAY_MS = 24 * 3600 * 1000;
 
 /** Bỏ dấu + thường hoá, GIỮ NGUYÊN khoảng trắng hai đầu.
@@ -332,6 +344,29 @@ export function tongConPhaiTra(balances: Iterable<{ balance: number }>): number 
   let tong = 0;
   for (const b of balances) tong += Math.max(0, b.balance);
   return tong;
+}
+
+/**
+ * Cộng các lần trả trong kỳ, tách theo hình thức.
+ *
+ * Tách tiền mặt / chuyển khoản vì đó là hai cái ví khác nhau của quán: con số chuyển khoản đối
+ * chiếu được với sao kê ngân hàng, còn tiền mặt thì chỉ có sổ này làm chứng.
+ *
+ * KHÔNG liên quan tới "còn nợ": số này cắt theo kỳ đang lọc, còn nợ là luỹ kế toàn thời gian
+ * (xem `tongConPhaiTra`). Đặt hai con số cạnh nhau trên màn thì phải ghi rõ điều đó.
+ */
+export function tongTraTien(rows: Iterable<{ amount: number; method: 'CASH' | 'TRANSFER' }>): {
+  tong: number;
+  tienMat: number;
+  chuyenKhoan: number;
+} {
+  let tienMat = 0;
+  let chuyenKhoan = 0;
+  for (const r of rows) {
+    if (r.method === 'TRANSFER') chuyenKhoan += r.amount;
+    else tienMat += r.amount;
+  }
+  return { tong: tienMat + chuyenKhoan, tienMat, chuyenKhoan };
 }
 
 // ── Sắp xếp & phân trang ────────────────────────────────────────────────────

@@ -29,13 +29,17 @@ import {
   phanTrang,
   sapXep,
   tienGon,
+  tongConPhaiTra,
+  tongTraTien,
   type Chieu,
   type DailyRow,
   type DeliveryStatRow,
   type ItemStat,
   type PairRow,
+  type TraTienRow,
   type TrangKetQua,
 } from '../lib/supplier-stats.ts';
+import type { Balance } from './SupplierPayments.tsx';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const CO_TRANG = 15;
@@ -47,6 +51,7 @@ const KY_MAC_DINH = (): DayRange => presetRange('30d', Date.now());
 
 type ItemSort = 'ingredient_name' | 'deliveries' | 'amount' | 'last_date';
 type PhieuSort = 'delivery_date' | 'supplier_name' | 'lines' | 'amount';
+type TraSort = 'paid_on' | 'supplier_name' | 'amount';
 
 export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   const toast = useToast();
@@ -56,6 +61,10 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   const [daily, setDaily] = useState<DailyRow[] | null>(null);
   const [pairs, setPairs] = useState<PairRow[] | null>(null);
   const [phieu, setPhieu] = useState<DeliveryStatRow[] | null>(null);
+  const [traTien, setTraTien] = useState<TraTienRow[] | null>(null);
+  // Công nợ luỹ kế TOÀN thời gian, không cắt theo kỳ — đọc từ đúng đường mà tab "Nhà cung cấp"
+  // đang dùng, để hai màn không bao giờ hiện hai con số nợ khác nhau.
+  const [noNcc, setNoNcc] = useState<number | null>(null);
 
   const [itemSort, setItemSort] = useState<ItemSort>('amount');
   const [itemChieu, setItemChieu] = useState<Chieu>('desc');
@@ -65,31 +74,48 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   const [phieuChieu, setPhieuChieu] = useState<Chieu>('desc');
   const [phieuPage, setPhieuPage] = useState(1);
 
+  // Mặc định xếp theo NGÀY mới nhất chứ không theo tiền như hai bảng trên: câu hỏi ở đây là
+  // "lần gần nhất trả ai, bao nhiêu", còn "lần trả to nhất" hiếm khi là thứ cần tìm.
+  const [traSort, setTraSort] = useState<TraSort>('paid_on');
+  const [traChieu, setTraChieu] = useState<Chieu>('desc');
+  const [traPage, setTraPage] = useState(1);
+
   const load = useCallback(() => {
     setDaily(null);
     setPairs(null);
     setPhieu(null);
+    setTraTien(null);
+    setNoNcc(null);
     const params = {
       from: range.from || undefined,
       to: range.to || undefined,
       supplier_id: supplierId,
     };
-    // Ba lượt gọi song song: chúng độc lập nhau và chạy nối tiếp thì màn trắng lâu gấp ba.
+    // Năm lượt gọi song song: chúng độc lập nhau và chạy nối tiếp thì màn trắng lâu gấp năm.
+    // `balances/all` KHÔNG nhận `params` — công nợ là số luỹ kế toàn thời gian, truyền kỳ vào
+    // đó sẽ ra một con số "nợ trong tháng" vô nghĩa (memory: nợ cũ là nợ ngoài hệ thống).
     Promise.all([
       api.get<{ data: { items: DailyRow[] } }>('/supplier-reports/daily', { params }),
       api.get<{ data: { items: PairRow[] } }>('/supplier-reports/pairs', { params }),
       api.get<{ data: { items: DeliveryStatRow[] } }>('/supplier-reports/deliveries', { params }),
+      api.get<{ data: { items: TraTienRow[] } }>('/supplier-reports/payments', { params }),
+      api.get<{ data: { items: Balance[] } }>('/suppliers/balances/all'),
     ])
-      .then(([d, p, s]) => {
+      .then(([d, p, s, t, b]) => {
         setDaily(d.data.data.items);
         setPairs(p.data.data.items);
         setPhieu(s.data.data.items);
+        setTraTien(t.data.data.items);
+        const bal = b.data.data.items;
+        setNoNcc(tongConPhaiTra(supplierId ? bal.filter((x) => x.supplier_id === supplierId) : bal));
       })
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setDaily([]);
         setPairs([]);
         setPhieu([]);
+        setTraTien([]);
+        setNoNcc(0);
       });
   }, [range.from, range.to, supplierId, toast]);
 
@@ -121,16 +147,27 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     return sapXep(loc, (r) => r[phieuSort], phieuChieu);
   }, [phieu, tim, phieuSort, phieuChieu]);
 
+  // Ô tìm kiếm của tab này lọc theo tên MÓN, mà lần trả tiền thì không gắn với món nào (xem
+  // docblock `supplier-payment.entity.ts`) — nên bảng này CỐ Ý không nghe ô đó. Header bảng nói
+  // rõ điều này, nếu không thì gõ tìm kiếm xong thấy bảng đứng yên sẽ tưởng là lọc hỏng.
+  const traLoc = useMemo(
+    () => sapXep(traTien ?? [], (r) => r[traSort], traChieu),
+    [traTien, traSort, traChieu],
+  );
+  const tongTra = useMemo(() => tongTraTien(traTien ?? []), [traTien]);
+
   // Mốc của thanh tỉ trọng: lấy trên TOÀN danh sách đã lọc chứ không phải trang đang xem — nếu
   // không, dòng to nhất của trang 3 cũng vẽ thanh đầy như dòng to nhất của trang 1 và hai trang
   // trông như nhau dù chênh nhau chục lần.
   const maxItem = useMemo(() => Math.max(0, ...items.map((r) => r.amount)), [items]);
   const maxPhieu = useMemo(() => Math.max(0, ...phieuLoc.map((r) => r.amount)), [phieuLoc]);
+  const maxTra = useMemo(() => Math.max(0, ...traLoc.map((r) => r.amount)), [traLoc]);
 
   const trangItem = phanTrang(items, itemPage, CO_TRANG);
   const trangPhieu = phanTrang(phieuLoc, phieuPage, CO_TRANG);
+  const trangTra = phanTrang(traLoc, traPage, CO_TRANG);
 
-  const dangTai = daily === null || pairs === null || phieu === null;
+  const dangTai = daily === null || pairs === null || phieu === null || traTien === null;
   const soPhieu = (phieu ?? []).length;
   const soNcc = new Set((daily ?? []).map((r) => r.supplier_id)).size;
 
@@ -141,6 +178,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
   const doiCotItem = taoDoiCot<ItemSort>(itemSort, itemChieu, setItemSort, setItemChieu, setItemPage, ['ingredient_name']);
   const doiCotPhieu = taoDoiCot<PhieuSort>(phieuSort, phieuChieu, setPhieuSort, setPhieuChieu, setPhieuPage, ['supplier_name']);
+  const doiCotTra = taoDoiCot<TraSort>(traSort, traChieu, setTraSort, setTraChieu, setTraPage, ['supplier_name']);
 
   const doiTim = (v: string) => {
     setTim(v);
@@ -156,6 +194,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
           setRange(r);
           setItemPage(1);
           setPhieuPage(1);
+          setTraPage(1);
         }}
         label="🗓 Kỳ thống kê"
         ariaLabel="Lọc thống kê nhập hàng theo khoảng ngày"
@@ -352,6 +391,85 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               );
             })}
           </Bang>
+
+          {/* Khối "Đã trả cho NCC" (2026-09-14, chủ quán yêu cầu). Đặt CUỐI tab chứ không phải
+              đầu: ba khối trên trả lời "tiền đi vào những gì", khối này trả lời "đã đưa ra bao
+              nhiêu" — chỉ có nghĩa khi đã nhìn xong vế mua. */}
+          <div className="card" style={{ margin: '20px 0 8px', display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+            <Con nhan="Đã trả trong kỳ" giatri={`${vnd(tongTra.tong)}đ`} />
+            <Con nhan="Tiền mặt" giatri={`${vnd(tongTra.tienMat)}đ`} />
+            <Con nhan="Chuyển khoản" giatri={`${vnd(tongTra.chuyenKhoan)}đ`} />
+            <Con nhan="Đã mua trong kỳ" giatri={`${vnd(chart.total)}đ`} />
+            <Con nhan="Còn nợ" giatri={noNcc === null ? '…' : `${vnd(noNcc)}đ`} />
+          </div>
+
+          {/* Câu cảnh báo này KHÔNG được bỏ: bốn con số trên cùng một thẻ trông như cùng một
+              thước đo, mà "Còn nợ" là luỹ kế TOÀN thời gian còn ba số kia cắt theo kỳ. Ai đó sẽ
+              trừ "đã mua − đã trả" rồi mang đi đối chiếu với NCC nếu không nói ra. */}
+          <p style={{ margin: '0 0 12px', fontSize: 13, color: C.mutedOnTint }}>
+            “Đã trả”, “Tiền mặt”, “Chuyển khoản”, “Đã mua” tính trong kỳ đang lọc. Riêng{' '}
+            <strong>“Còn nợ” là số luỹ kế toàn thời gian</strong>
+            {supplierId ? ' của nhà cung cấp đang lọc' : ' của tất cả nhà cung cấp'} — gồm cả số dư
+            đầu kỳ, không cắt theo kỳ thống kê.
+          </p>
+
+          <Bang
+            tieuDe="Đã trả cho nhà cung cấp"
+            nhan="lần trả"
+            rong={trangTra.total === 0}
+            rongChu="Chưa ghi lần trả tiền nào trong kỳ này."
+            trang={trangTra}
+            doiTrang={setTraPage}
+            dau={
+              <tr>
+                <th className="stat-rank" aria-label="Thứ tự">
+                  #
+                </th>
+                <Th k="paid_on" now={traSort} chieu={traChieu} onPick={() => doiCotTra('paid_on')}>
+                  Ngày trả
+                </Th>
+                <Th k="supplier_name" now={traSort} chieu={traChieu} onPick={() => doiCotTra('supplier_name')}>
+                  Nhà cung cấp
+                </Th>
+                <th className="stat-num">Hình thức</th>
+                <th>Ghi chú</th>
+                <th>Người ghi</th>
+                <Th k="amount" right now={traSort} chieu={traChieu} onPick={() => doiCotTra('amount')}>
+                  Số tiền
+                </Th>
+              </tr>
+            }
+          >
+            {trangTra.rows.map((r: TraTienRow, i: number) => {
+              const hang = (trangTra.page - 1) * CO_TRANG + i + 1;
+              return (
+                <tr key={r.payment_id}>
+                  <Hang so={hang} noiBat={xepHang(traSort, traChieu)} />
+                  <td data-label="Ngày trả" className="stat-ngay">
+                    <span title={r.paid_on}>{ngayGon(r.paid_on)}</span>
+                    <small>{thuTrongTuan(r.paid_on)}</small>
+                  </td>
+                  <td data-label="Nhà cung cấp" className="stat-ten">
+                    {r.supplier_name}
+                  </td>
+                  {/* Chuyển khoản được tô đậm hơn vì đó là khoản đối chiếu được với sao kê ngân
+                      hàng — tiền mặt thì chỉ có sổ này làm chứng. */}
+                  <td data-label="Hình thức" className="stat-num">
+                    <span className={r.method === 'TRANSFER' ? 'stat-chip hit' : 'stat-chip'}>
+                      {r.method === 'TRANSFER' ? 'Chuyển khoản' : 'Tiền mặt'}
+                    </span>
+                  </td>
+                  <td data-label="Ghi chú" className="stat-ten stat-muted">
+                    {r.note && r.note.trim() !== '' ? r.note : '—'}
+                  </td>
+                  <td data-label="Người ghi" className="stat-muted">
+                    {r.created_by_name !== '' ? r.created_by_name : '—'}
+                  </td>
+                  <TdTien tien={r.amount} max={maxTra} nhan="Số tiền" />
+                </tr>
+              );
+            })}
+          </Bang>
         </>
       )}
     </>
@@ -402,10 +520,12 @@ function Hang({ so, noiBat }: { so: number; noiBat: boolean }) {
 /** Ô tiền: số đầy đủ + thanh tỉ trọng so với dòng lớn nhất của cả danh sách đã lọc.
  *  Thanh này là thứ làm bảng đọc được trong một cái liếc — "772.225" và "750.000" đứng cạnh
  *  nhau thì mắt phải đọc từng chữ số mới thấy cái nào hơn. */
-function TdTien({ tien, max }: { tien: number; max: number }) {
+function TdTien({ tien, max, nhan = 'Tổng tiền' }: { tien: number; max: number; nhan?: string }) {
   const pct = max > 0 ? Math.max(2, Math.round((tien / max) * 100)) : 0;
   return (
-    <td data-label="Tổng tiền" className="stat-num">
+    // `data-label` là thứ table `.responsive` in ra làm nhãn khi xếp dọc trên điện thoại — bảng
+    // trả tiền gọi cột này là "Số tiền", để nguyên "Tổng tiền" thì trên mobile đọc ra sai nghĩa.
+    <td data-label={nhan} className="stat-num">
       <div className="stat-tien">
         <span className="stat-money">{vnd(tien)}đ</span>
         <span className="stat-bar" aria-hidden="true">
