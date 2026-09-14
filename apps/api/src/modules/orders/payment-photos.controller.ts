@@ -58,7 +58,7 @@ export class PaymentPhotosController {
   @Get(':id/payment-photos')
   @UseGuards(RequireRoles('admin', 'order', 'report'))
   async list(@Param('id') id: string, @Req() req: Request) {
-    assertCanCollectTransfer(req);
+    assertCanCollectTransfer(req, 'Bạn không được xem ảnh bill chuyển khoản của khách.');
     const items = await this.repo.find({ where: { order_id: id }, order: { created_at: 'ASC' } });
     return {
       data: {
@@ -117,7 +117,7 @@ export class PaymentPhotosController {
   @HttpCode(200)
   @UseGuards(RequireRoles('admin', 'order'))
   async remove(@Param('photoId') photoId: string, @Req() req: Request) {
-    assertCanCollectTransfer(req);
+    assertCanCollectTransfer(req, 'Bạn không được xoá ảnh bill chuyển khoản.');
     const row = await this.repo.findOne({ where: { id: photoId } });
     if (!row) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ảnh không tồn tại' });
     await this.repo.delete({ id: photoId });
