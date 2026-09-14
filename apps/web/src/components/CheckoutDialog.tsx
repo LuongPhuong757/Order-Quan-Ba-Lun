@@ -57,7 +57,8 @@ type Props = {
   onDone: (res: CheckoutResult) => void;
 };
 
-/** Ba hình thức, tách bạch vì cuối ca người đếm két chỉ khớp được phần tiền mặt. */
+/** Ba hình thức, tách bạch vì cuối ca người đếm két chỉ khớp được phần tiền mặt.
+ *  `null` = CHƯA CHỌN — trạng thái mở hộp thoại, xem `useState` bên dưới. */
 type PayMode = 'CASH' | 'TRANSFER' | 'SPLIT';
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
@@ -76,7 +77,16 @@ export function CheckoutDialog({
   const toast = useToast();
   const total = itemsTotal + shipFee;
 
-  const [mode, setMode] = useState<PayMode>('CASH');
+  /**
+   * KHÔNG chọn sẵn hình thức nào (chủ quán yêu cầu 2026-09-14). Trước đây mặc định là Tiền mặt,
+   * tức chỉ cần bấm Thanh toán theo quán tính là đơn được ghi "tiền mặt" — kể cả khi khách vừa
+   * chuyển khoản xong. Sai kiểu đó không lộ ra ngay: nó lộ lúc đếm két cuối ca, thừa đúng bằng
+   * số tiền đã về ngân hàng, và không ai nhớ bàn nào.
+   *
+   * Ngoại lệ: người KHÔNG được thu chuyển khoản thì chỉ còn đúng một hình thức — bắt họ chọn
+   * giữa một lựa chọn duy nhất (mà hàng nút lại đang ẩn) là khoá luôn nút Thanh toán.
+   */
+  const [mode, setMode] = useState<PayMode | null>(canCollectTransfer ? null : 'CASH');
   const [qrOptions, setQrOptions] = useState<QrOption[]>([]);
   const [qrLoadFailed, setQrLoadFailed] = useState(false);
   // KHÔNG chọn sẵn mã nào (chủ quán chốt 2026-09-14: "luôn hỏi chọn mã nào") — nhưng danh sách
@@ -94,11 +104,14 @@ export function CheckoutDialog({
   const [submitting, setSubmitting] = useState(false);
 
   const picked = qrOptions.find((o) => o.id === pickedId) ?? null;
+  /** Có định thu chuyển khoản không. CHƯA CHỌN (`null`) cũng là KHÔNG — viết `mode !== 'CASH'`
+   *  thì `null` lọt qua và hộp thoại bày sẵn mã QR lẫn nút chụp bill trước cả khi ai chọn gì. */
+  const wantsTransfer = mode === 'TRANSFER' || mode === 'SPLIT';
 
   /** Phần thu bằng chuyển khoản. Tiền mặt luôn là phần còn lại — không có ô nhập riêng cho nó,
    *  vì hai ô rời là hai con số có thể không cộng lại bằng tổng. */
   const transferAmount = useMemo(() => {
-    if (mode === 'CASH') return 0;
+    if (mode === 'CASH' || mode === null) return 0;
     if (mode === 'TRANSFER') return total;
     const digits = transferInput.replace(/\D/g, '');
     return Math.min(Number(digits || 0), total);
@@ -108,7 +121,7 @@ export function CheckoutDialog({
   const note = useMemo(() => buildTransferNote(table, cashier), [table, cashier]);
 
   useEffect(() => {
-    if (mode === 'CASH') return;
+    if (mode === 'CASH' || mode === null) return;
     let alive = true;
     api
       .get<{ data: { items: QrOption[] } }>('/payment-qr')
@@ -188,7 +201,11 @@ export function CheckoutDialog({
   };
 
   const submit = async () => {
-    if (mode !== 'CASH' && transferAmount <= 0) {
+    if (mode === null) {
+      toast.push('error', 'Chọn hình thức thanh toán trước');
+      return;
+    }
+    if (wantsTransfer && transferAmount <= 0) {
       toast.push('error', 'Nhập số tiền khách chuyển khoản');
       return;
     }
@@ -293,10 +310,13 @@ export function CheckoutDialog({
               khi đó cả hàng nút này cũng không còn nghĩa lý gì — còn đúng một lựa chọn thì bày ra
               một hàng nút chỉ tổ làm người ta bấm thử. */}
           {canCollectTransfer && (
-            <div style={{ display: 'flex', gap: 8 }}>
-              <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
-              <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-              <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="Cả hai" />
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
+                <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
+                <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+              </div>
             </div>
           )}
 
@@ -319,7 +339,7 @@ export function CheckoutDialog({
             </div>
           )}
 
-          {mode !== 'CASH' && (
+          {wantsTransfer && (
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chọn mã QR để khách quét</div>
 
@@ -405,7 +425,7 @@ export function CheckoutDialog({
             </div>
           )}
 
-          {mode !== 'CASH' && (
+          {wantsTransfer && (
             <div>
               {/* Chụp thẳng trong app: `capture="environment"` mở camera sau của điện thoại, không
                   phải thoát ra mở app Máy ảnh rồi quay lại. Trên máy tính thuộc tính này bị bỏ
@@ -514,7 +534,15 @@ export function CheckoutDialog({
           <button type="button" className="secondary" onClick={onCancel} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
             Huỷ
           </button>
-          <button type="button" onClick={submit} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
+          {/* Khoá tới khi chọn xong hình thức — `title` nói lý do, vì một nút mờ không tự giải
+              thích được vì sao nó mờ. */}
+          <button
+            type="button"
+            onClick={submit}
+            disabled={submitting || mode === null}
+            title={mode === null ? 'Chọn hình thức thanh toán trước' : undefined}
+            style={{ flex: 1, minHeight: 44 }}
+          >
             {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
           </button>
         </div>
