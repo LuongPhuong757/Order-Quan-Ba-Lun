@@ -21,6 +21,11 @@ export const ErrorCode = z.enum([
   'NOT_FOUND',
   'CONFLICT',
   'INTERNAL_ERROR',
+  // Thu tiền (2026-09-14). CÙNG LUẬT với 9 code bên dưới: KHÔNG được thêm vào dict FRIENDLY_VN
+  // của global-exception.filter.ts — câu lỗi phải chứa số tiền thật ("2.000.000đ lớn hơn tổng cần
+  // thu 1.150.000đ"), mà dict đó là tra tĩnh nên sẽ nuốt mất con số. Người đang đếm tiền trước
+  // mặt khách cần biết mình gõ nhầm cái gì, không phải "dữ liệu sai định dạng".
+  'TRANSFER_EXCEEDS_TOTAL',
   // Public ordering (M2 phase 08)
   // ⚠ 9 code này KHÔNG được thêm vào dict FRIENDLY_VN của global-exception.filter.ts
   // (Pitfall #6, 08-RESEARCH.md) — message cần nội suy off_reason/store_phone động,
