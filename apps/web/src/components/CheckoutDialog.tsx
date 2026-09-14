@@ -99,7 +99,6 @@ export function CheckoutDialog({
    *  tiền xong — và quan trọng hơn: không chặn nút Thu tiền để chờ mạng. */
   const [photos, setPhotos] = useState<Array<{ id: string; url: string }>>([]);
   const [uploading, setUploading] = useState(false);
-  const [warnedNoPhoto, setWarnedNoPhoto] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -209,15 +208,6 @@ export function CheckoutDialog({
       toast.push('error', 'Nhập số tiền khách chuyển khoản');
       return;
     }
-    /* Chưa chụp bill mà đã thu chuyển khoản → NHẮC MỘT LẦN rồi vẫn cho đi tiếp (chủ quán chốt
-       2026-09-14: "tuỳ chọn, có nhắc"). Chặn cứng ở đây là để một cái camera hỏng hoặc mạng yếu
-       khoá luôn đường thu tiền của quán. */
-    if (transferAmount > 0 && photos.length === 0 && !warnedNoPhoto) {
-      setWarnedNoPhoto(true);
-      toast.push('info', 'Chưa có ảnh bill — bấm Thanh toán lần nữa nếu vẫn muốn thu.');
-      return;
-    }
-
     setSubmitting(true);
     try {
       const res = await api.post<{ data: CheckoutResult }>(`/orders/${orderId}/checkout`, {
@@ -444,6 +434,17 @@ export function CheckoutDialog({
                   <span style={{ fontSize: 13, color: '#059669' }}>✓ {photos.length} ảnh</span>
                 )}
               </div>
+
+              {/* Lời nhắc phải nằm Ở ĐÂY, thấy được TRƯỚC khi bấm — không phải chặn cú bấm đầu.
+                  Bản trước bắt bấm Thanh toán hai lần mỗi khi thu chuyển khoản không kèm ảnh:
+                  một cú bấm thừa ở đúng lúc khách đang đứng đợi, lặp lại mọi lần, để đổi lấy một
+                  câu mà người ta hoàn toàn có thể đọc trước. Ảnh vẫn là TUỲ CHỌN (chủ quán chốt
+                  2026-09-14) — đây là nhắc, không phải cửa chặn. */}
+              {photos.length === 0 && !uploading && (
+                <div style={{ marginTop: 6, fontSize: 13, color: '#92400e' }}>
+                  Chưa có ảnh bill — vẫn thanh toán được, nhưng sau này không có gì đối chiếu.
+                </div>
+              )}
               <input
                 ref={fileRef}
                 type="file"
