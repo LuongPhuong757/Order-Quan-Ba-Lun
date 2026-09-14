@@ -11,6 +11,7 @@
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
+import { checkoutBlockReason, type PayMode } from '../lib/checkout-block.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { MisaCheckbox, Row, Section } from './checkout-ui.tsx';
@@ -57,9 +58,9 @@ type Props = {
   onDone: (res: CheckoutResult) => void;
 };
 
-/** Ba hình thức, tách bạch vì cuối ca người đếm két chỉ khớp được phần tiền mặt.
- *  `null` = CHƯA CHỌN — trạng thái mở hộp thoại, xem `useState` bên dưới. */
-type PayMode = 'CASH' | 'TRANSFER' | 'SPLIT';
+/* Ba hình thức thu tiền tách bạch vì cuối ca người đếm két chỉ khớp được phần tiền mặt; `null`
+   = CHƯA CHỌN, trạng thái lúc mở hộp thoại. Kiểu `PayMode` lấy từ `lib/checkout-block.ts` (khai
+   báo ở đầu tệp) để luật và giao diện không lệch nhau. */
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
 
@@ -117,6 +118,10 @@ export function CheckoutDialog({
   }, [mode, transferInput, total]);
 
   const cashAmount = total - transferAmount;
+
+  /** Xem `lib/checkout-block.ts` — luật nằm ngoài vì nó quyết định nút thu tiền có ăn hay không,
+   *  và kiểm bằng mắt thì phải mở hộp thoại thật rồi thử đủ sáu tổ hợp. */
+  const blockReason = checkoutBlockReason({ mode, hasPickedQr: !!picked, transferAmount });
   const note = useMemo(() => buildTransferNote(table, cashier), [table, cashier]);
 
   useEffect(() => {
@@ -200,12 +205,8 @@ export function CheckoutDialog({
   };
 
   const submit = async () => {
-    if (mode === null) {
-      toast.push('error', 'Chọn hình thức thanh toán trước');
-      return;
-    }
-    if (wantsTransfer && transferAmount <= 0) {
-      toast.push('error', 'Nhập số tiền khách chuyển khoản');
+    if (blockReason) {
+      toast.push('error', blockReason);
       return;
     }
     setSubmitting(true);
@@ -415,7 +416,11 @@ export function CheckoutDialog({
             </div>
           )}
 
-          {wantsTransfer && (
+          {/* Nút chụp bill chỉ hiện SAU KHI đã chọn mã QR — cùng thời điểm nút Thanh toán bật
+              lại. Đúng trình tự thật ngoài đời: chìa QR cho khách quét xong thì mới có cái bill
+              để mà chụp. Bày sẵn từ trước là mời người ta chụp một màn hình chưa tồn tại.
+              Ảnh vẫn TUỲ CHỌN — bấm Thanh toán được ngay, không cần chụp. */}
+          {wantsTransfer && picked && (
             <div>
               {/* Chụp thẳng trong app: `capture="environment"` mở camera sau của điện thoại, không
                   phải thoát ra mở app Máy ảnh rồi quay lại. Trên máy tính thuộc tính này bị bỏ
@@ -535,14 +540,22 @@ export function CheckoutDialog({
           <button type="button" className="secondary" onClick={onCancel} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
             Huỷ
           </button>
-          {/* Khoá tới khi chọn xong hình thức — `title` nói lý do, vì một nút mờ không tự giải
-              thích được vì sao nó mờ. */}
+          {/* CỐ Ý không dùng thuộc tính `disabled`: nút `disabled` thì trình duyệt KHÔNG bắn sự
+              kiện bấm, nên nó không bao giờ nói được vì sao nó mờ — người dùng bấm vào chỗ chết
+              và tự đoán. Ở đây nút vẫn nhận bấm, chỉ là bấm thì nghe lý do.
+              `aria-disabled` để trình đọc màn hình vẫn hiểu đúng trạng thái. */}
           <button
             type="button"
             onClick={submit}
-            disabled={submitting || mode === null}
-            title={mode === null ? 'Chọn hình thức thanh toán trước' : undefined}
-            style={{ flex: 1, minHeight: 44 }}
+            disabled={submitting}
+            aria-disabled={!!blockReason}
+            title={blockReason ?? undefined}
+            style={{
+              flex: 1,
+              minHeight: 44,
+              opacity: blockReason ? 0.55 : 1,
+              cursor: blockReason ? 'not-allowed' : 'pointer',
+            }}
           >
             {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
           </button>
