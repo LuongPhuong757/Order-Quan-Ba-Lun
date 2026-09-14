@@ -7,10 +7,12 @@
 // Quyền ở đây là "đã đăng nhập" (JwtAuthGuard), không siết theo role: bếp cũng có thể là người
 // cầm máy lúc đông khách, và thứ lộ ra nhiều nhất chỉ là số tài khoản nhận tiền của quán — vốn
 // được in ra chìa cho người lạ mỗi ngày. Mọi đường GHI vẫn nằm sau `AdminGuard` bên kia.
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { PaymentQrAccount } from './entities/payment-qr-account.entity.js';
 
 @Controller('payment-qr')
@@ -21,7 +23,9 @@ export class PaymentQrActiveController {
   ) {}
 
   @Get()
-  async listActive() {
+  async listActive(@Req() req: Request) {
+    // Không được thu chuyển khoản thì không cần nhìn thấy số tài khoản của nhà chủ.
+    assertCanCollectTransfer(req);
     const items = await this.repo.find({
       where: { is_active: true },
       order: { sort_order: 'ASC', created_at: 'ASC' },

@@ -31,6 +31,7 @@ import {
 } from 'class-validator';
 import { OrdersService } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
@@ -283,6 +284,9 @@ export class OrdersController {
   /** POST /orders/:id/checkout — thanh toán + đóng order */
   @Post(':id/checkout')
   async checkout(@Param('id') id: string, @Body() body: CheckoutDto, @Req() req: Request) {
+    // Chỉ chặn khi đơn THỰC SỰ có tiền chuyển khoản: thu tiền mặt là việc ai cũng làm được, và
+    // công tắc này nói về chuyển khoản chứ không phải về quyền thu tiền nói chung.
+    if (body?.transfer_amount) assertCanCollectTransfer(req);
     const result = await this.svc.checkout(
       id,
       { id: req.user!.sub, full_name: req.user!.full_name },
@@ -356,7 +360,11 @@ export class OrdersController {
    * Cùng quyền với `/orders/history` trừ `kitchen`: đối soát tiền không phải việc của bếp, mà
    * con số ở đây là toàn bộ doanh thu một ca — rộng hơn hẳn cái bếp cần biết. */
   @Get('payment-summary')
-  @UseGuards(RequireRoles('admin', 'order', 'report'))
+  // CHỈ admin (chủ quán chốt 2026-09-14). Đây là doanh thu TOÀN QUÁN trong ca, không phải phần
+  // của riêng người đang xem — nhân viên chạy bàn không có lý do biết tối nay nhà chủ thu bao
+  // nhiêu và tiền về tài khoản nào. Role `report` cũng không thấy: nó là quyền xem báo cáo bán
+  // hàng, không phải quyền xem tiền vào tài khoản cá nhân của chủ.
+  @UseGuards(AdminGuard)
   async paymentSummary(@Query() q: Record<string, string>) {
     const data = await this.svc.paymentSummary({
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,

@@ -63,6 +63,7 @@ export class AuthController {
         full_name: req.user!.full_name,
         is_owner: req.user!.is_owner,
         role: req.user!.role,
+        can_collect_transfer: req.user!.can_collect_transfer,
       },
     };
   }

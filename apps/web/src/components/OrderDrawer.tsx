@@ -459,6 +459,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         orderId={order.id}
         table={{ code: table.code, name: table.name }}
         cashier={{ full_name: user?.full_name, username: user?.name }}
+        canCollectTransfer={!!user?.can_collect_transfer}
         items={order.items || []}
         itemsTotal={itemsTotal}
         shipFee={shipFee}
