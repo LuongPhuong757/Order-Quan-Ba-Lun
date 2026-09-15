@@ -357,6 +357,7 @@ export class OrdersController {
       status,
       misa,
       payment,
+      qr_account_id: parseQrAccountId(q.qr_account_id),
       sort,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
@@ -382,6 +383,7 @@ export class OrdersController {
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
       cashier_user_id: q.cashier_user_id || undefined,
       payment: parsePaymentFilter(q.payment),
+      qr_account_id: parseQrAccountId(q.qr_account_id),
     });
     return { data };
   }
@@ -401,6 +403,7 @@ export class OrdersController {
       status:
         q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
       misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
+      qr_account_id: parseQrAccountId(q.qr_account_id),
     });
     return { data };
   }
@@ -449,4 +452,12 @@ export class OrdersController {
  *  chỉ nên làm bộ lọc rộng ra, không nên ném lỗi vào mặt người đang tra cứu. */
 function parsePaymentFilter(v: string | undefined): PaymentKindFilter | undefined {
   return v === 'cash' || v === 'transfer' || v === 'mixed' ? v : undefined;
+}
+
+/** Id tài khoản nhận tiền (2026-09-15). Cắt ở 36 ký tự = đúng độ dài cột `paid_to_account_id`:
+ *  chuỗi dài hơn không thể khớp hàng nào, nên chặn sớm thay vì ném cả đoạn vào so sánh chuỗi.
+ *  Id lạ vẫn đi tiếp và cho ra danh sách RỖNG — cùng lệ với `sort`/`payment`: gõ sai query string
+ *  không đáng ném 400 vào mặt người đang tra cứu. */
+function parseQrAccountId(v: string | undefined): string | undefined {
+  return v && v.length <= 36 ? v : undefined;
 }

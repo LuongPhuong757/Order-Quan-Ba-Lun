@@ -5,6 +5,7 @@ import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 const EMPTY: HistoryFilters = {
   table_id: '',
   cashier_user_id: '',
+  qr_account_id: '',
   status: 'all',
   misa: '',
   payment: '',
@@ -61,6 +62,23 @@ describe('historyQuery', () => {
     const q = historyQuery({ ...EMPTY, table_id: 't1', cashier_user_id: 'u9' }, { cashier: false });
     expect(q.has('cashier_user_id')).toBe(false);
     expect(q.get('table_id')).toBe('t1');
+  });
+
+  it('lọc theo tài khoản nhận tiền gửi qr_account_id', () => {
+    expect(historyQuery({ ...EMPTY, qr_account_id: 'acc-1' }).get('qr_account_id')).toBe('acc-1');
+    expect(historyQuery(EMPTY).has('qr_account_id')).toBe(false);
+  });
+
+  // Cùng lý do với thu ngân: /consumption nói về nguyên liệu đã dùng, không về tiền về đâu.
+  it("`cashier: false` cũng bỏ luôn tài khoản nhận", () => {
+    const q = historyQuery({ ...EMPTY, qr_account_id: 'acc-1' }, { cashier: false });
+    expect(q.has('qr_account_id')).toBe(false);
+  });
+
+  it('đổi tài khoản nhận thì khoá bộ lọc đổi theo — biểu đồ phải tải lại', () => {
+    expect(historyFilterKey({ ...EMPTY, qr_account_id: 'acc-1' })).not.toBe(
+      historyFilterKey({ ...EMPTY, qr_account_id: 'acc-2' }),
+    );
   });
 
   it("sort mặc định ('opened') KHÔNG gửi lên — thiếu tham số nghĩa là giờ vào ăn", () => {
