@@ -29,6 +29,11 @@ export const ErrorCode = z.enum([
   // Công tắc thu chuyển khoản theo từng nhân viên (2026-09-14). Cũng KHÔNG vào FRIENDLY_VN: câu
   // chữ phải chỉ đường ("nhờ quản lý thu hộ bàn này") vì có thể khách đã chuyển tiền xong rồi.
   'TRANSFER_NOT_ALLOWED',
+  // Ảnh tải lên quá cỡ (2026-09-15). KHÔNG vào FRIENDLY_VN: câu phải nói ra ảnh nặng bao nhiêu và
+  // trần là bao nhiêu, mà dict kia tra tĩnh nên sẽ nuốt mất cả hai con số. Trước khi có mã này,
+  // chụp một tấm ảnh iPhone 48MP là nhận đúng câu "Có lỗi xảy ra, thử lại sau ít phút nhé" —
+  // người dùng thử lại mãi vì không biết vấn đề nằm ở tấm ảnh.
+  'FILE_TOO_LARGE',
   // Public ordering (M2 phase 08)
   // ⚠ 9 code này KHÔNG được thêm vào dict FRIENDLY_VN của global-exception.filter.ts
   // (Pitfall #6, 08-RESEARCH.md) — message cần nội suy off_reason/store_phone động,
