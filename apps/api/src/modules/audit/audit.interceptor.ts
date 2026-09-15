@@ -44,6 +44,10 @@ function deriveActionKind(method: string, path: string): string {
   // Orders — quan trọng cho truy cứu trách nhiệm
   if (path === '/orders' && method === 'POST') return 'order.created';
   if (path.match(/^\/orders\/[^/]+\/checkout$/) && method === 'POST') return 'order.checkout';
+  // Ảnh bill chuyển khoản (2026-09-14) — bằng chứng của một khoản tiền, thêm hay xoá đều phải
+  // truy được ai làm.
+  if (path.match(/^\/orders\/[^/]+\/payment-photos$/) && method === 'POST') return 'order.payment_photo_added';
+  if (path.match(/^\/orders\/payment-photos\/[^/]+$/) && method === 'DELETE') return 'order.payment_photo_removed';
   if (path.match(/^\/orders\/[^/]+\/transfer$/) && method === 'POST') return 'order.table_transfer';
   if (path.match(/^\/orders\/[^/]+\/items-bulk$/) && method === 'POST') return 'order.items_added_bulk';
   if (path.match(/^\/orders\/[^/]+\/items$/) && method === 'POST') return 'order.item_added';
@@ -144,6 +148,14 @@ function deriveActionKind(method: string, path: string): string {
   if (path === '/admin/phone-blacklist' && method === 'POST') return 'phone_blacklist.added';
   if (path.match(/^\/admin\/phone-blacklist\/[^/]+$/) && method === 'DELETE') return 'phone_blacklist.removed';
 
+  // Mã QR nhận tiền (2026-09-14). Sửa được bảng này là chuyển hướng được toàn bộ tiền chuyển
+  // khoản của quán, nên mọi mutation PHẢI để lại dấu vết — kể cả khi quyền có được nới ra sau này.
+  // `upload-image` xếp TRƯỚC nhánh POST gốc vì nó cũng là POST /admin/payment-qr/...
+  if (path === '/admin/payment-qr/upload-image' && method === 'POST') return 'payment_qr.image_uploaded';
+  if (path === '/admin/payment-qr' && method === 'POST') return 'payment_qr.created';
+  if (path.match(/^\/admin\/payment-qr\/[^/]+$/) && method === 'PATCH') return 'payment_qr.updated';
+  if (path.match(/^\/admin\/payment-qr\/[^/]+$/) && method === 'DELETE') return 'payment_qr.deactivated';
+
   return `${method.toLowerCase()}.${path.replace(/[^a-z0-9]/gi, '_')}`;
 }
 
@@ -214,6 +226,7 @@ function extractTargetKind(path: string): string | null {
   if (path.startsWith('/setup')) return 'setup';
   if (path.startsWith('/admin/settings')) return 'settings';
   if (path.startsWith('/admin/phone-blacklist')) return 'phone_blacklist';
+  if (path.startsWith('/admin/payment-qr')) return 'payment_qr';
   // Khớp `target_kind` mà emit thủ công của AdminOnlineOrdersService đang dùng, để 2 nguồn ghi
   // audit của cùng 1 nghiệp vụ lọc ra cùng một chỗ (plan 09-07).
   if (path.startsWith('/admin/online-orders')) return 'online_order_request';

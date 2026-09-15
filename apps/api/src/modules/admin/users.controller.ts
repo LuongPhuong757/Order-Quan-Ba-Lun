@@ -20,7 +20,7 @@ import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { AuthService } from '../auth/auth.service.js';
-import { IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 import { randomBytes } from 'crypto';
 
 // `report` (2026-09-09) = quyền CHỈ ĐỌC báo cáo thống kê toàn quán. Không order, không thanh
@@ -52,6 +52,8 @@ class CreateUserDto {
 class UpdateUserDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) full_name?: string;
   @IsOptional() @IsIn(ROLE_VALUES) role?: Role;
+  /** Công tắc thu chuyển khoản (2026-09-14). Không nhận cho owner — xem `update()`. */
+  @IsOptional() @IsBoolean() can_collect_transfer?: boolean;
 }
 
 /** Body của /reset-password. Bỏ trống `password` = giữ luồng cũ (server sinh mật khẩu tạm). */
@@ -116,6 +118,7 @@ export class AdminUsersController {
           role: u.role,
           is_active: u.is_active,
           is_owner: u.is_owner,
+          can_collect_transfer: u.can_collect_transfer,
           created_at: Number(u.created_at),
         })),
         total,
@@ -172,6 +175,22 @@ export class AdminUsersController {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
     if (dto.full_name !== undefined) user.full_name = dto.full_name.trim();
+    if (dto.can_collect_transfer !== undefined) {
+      // Owner luôn thu được, cờ không áp cho họ — nhận giá trị rồi lờ đi sẽ là một công tắc bấm
+      // được mà không có tác dụng gì, tệ hơn là nói thẳng.
+      //
+      // ⚠ Câu `message` dưới đây KHÔNG tới được người dùng: `GlobalExceptionFilter` tra dict
+      // FRIENDLY_VN theo `code` và thay bằng "Dữ liệu xung đột.". Cố ý không thêm một mã lỗi
+      // riêng cho nó — giao diện hiện chữ "luôn được" thay cho nút bấm ở dòng của owner, nên
+      // đường này chỉ chạm tới được khi gọi thẳng API. Giữ câu ở đây cho người đọc code.
+      if (user.is_owner) {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Chủ quán luôn được thu chuyển khoản, không cần bật tắt',
+        });
+      }
+      user.can_collect_transfer = dto.can_collect_transfer;
+    }
     if (dto.role !== undefined) {
       if (user.is_owner && dto.role !== 'admin') {
         throw new BadRequestException({
@@ -190,6 +209,7 @@ export class AdminUsersController {
         role: user.role,
         is_active: user.is_active,
         is_owner: user.is_owner,
+        can_collect_transfer: user.can_collect_transfer,
         created_at: Number(user.created_at),
       },
     };

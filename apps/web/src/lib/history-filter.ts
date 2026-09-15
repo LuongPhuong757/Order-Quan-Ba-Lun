@@ -14,6 +14,13 @@ import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
 export type HistoryMisa = '' | 'pending' | 'copied';
+/** Hình thức thu tiền (2026-09-14). '' = không lọc.
+ *  - 'cash'     : thu tiền mặt toàn bộ
+ *  - 'transfer' : chuyển khoản toàn bộ
+ *  - 'mixed'    : trả một phần tiền mặt, một phần chuyển khoản
+ *  Ba giá trị này khớp đúng ba badge trong bảng — lọc và badge phải nói cùng một thứ tiếng, nếu
+ *  không người dùng lọc "Chuyển khoản" rồi thấy đơn gắn badge "Cả hai" và mất lòng tin vào cả hai. */
+export type HistoryPayment = '' | 'cash' | 'transfer' | 'mixed';
 /** Trục sắp xếp danh sách đơn — 'opened' = giờ vào ăn (mặc định), 'paid' = giờ thanh toán.
  *  Cả hai đều mới nhất trước. */
 export type HistorySort = 'opened' | 'paid';
@@ -21,8 +28,13 @@ export type HistorySort = 'opened' | 'paid';
 export type HistoryFilters = {
   table_id: string;
   cashier_user_id: string;
+  /** Tài khoản nhận tiền chuyển khoản (`orders.paid_to_account_id`, 2026-09-15). '' = mọi tài
+   *  khoản. Đây là trục lọc của việc dò sao kê: mở sao kê một tài khoản rồi chỉ muốn thấy đúng
+   *  những đơn đã thu về đó. Đơn tiền mặt không có tài khoản nhận nên tự rơi ra ngoài. */
+  qr_account_id: string;
   status: HistoryStatus;
   misa: HistoryMisa;
+  payment: HistoryPayment;
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
@@ -33,7 +45,9 @@ export type HistoryFilters = {
 
 export type HistoryQueryOpts = {
   /** `false` cho `/consumption`: nguyên liệu tốn theo món khách ăn, không theo ai đứng thu
-   *  tiền — endpoint đó không nhận `cashier_user_id`. */
+   *  tiền — endpoint đó không nhận `cashier_user_id`, và cũng không nhận `qr_account_id` (2026-09-15)
+   *  vì lý do y hệt: tiền về tài khoản nào không đổi được lượng thịt đã dùng. Một cờ cho cả hai
+   *  trục "thu tiền" chứ không phải hai cờ — chúng luôn bật/tắt cùng nhau. */
   cashier?: boolean;
   /** Chỉ `/orders/history` phân trang. Biểu đồ CỐ Ý không theo trang: bảng số nói về cả bộ
    *  lọc, không phải 20 dòng đang xem. */
@@ -50,8 +64,10 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   const q = new URLSearchParams();
   if (f.table_id) q.set('table_id', f.table_id);
   if (opts.cashier !== false && f.cashier_user_id) q.set('cashier_user_id', f.cashier_user_id);
+  if (opts.cashier !== false && f.qr_account_id) q.set('qr_account_id', f.qr_account_id);
   if (f.status !== 'all') q.set('status', f.status);
   if (f.misa) q.set('misa', f.misa);
+  if (f.payment) q.set('payment', f.payment);
   if (f.shift) {
     // Ca đang chạy: CHỈ chặn đầu dưới. Nhãn nói "tới bây giờ" nhưng cố ý không gửi `end_ms` —
     // chốt cứng `Date.now()` vào query thì đơn thanh toán sau lúc bấm chip sẽ rơi ra ngoài

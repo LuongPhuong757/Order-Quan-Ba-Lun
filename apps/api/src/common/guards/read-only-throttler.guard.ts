@@ -70,16 +70,37 @@ export class ReadOnlyExemptThrottlerGuard extends ThrottlerGuard {
     return this.isReadOnlyAccount(req as Request);
   }
 
-  private async isReadOnlyAccount(req: Request): Promise<boolean> {
-    const token = (req.cookies as Record<string, string> | undefined)?.[this.jwtSvc.cookieName];
-    if (!token) return false;
+  /** Khoá bộ đếm theo NGƯỜI DÙNG đã đăng nhập, chỉ rơi về IP khi chưa có phiên (2026-09-15).
+   *
+   * Mặc định của throttler là `req.ip`. Caddy ghi IP thật của client vào X-Forwarded-For, mà
+   * mọi điện thoại/tablet trong quán đi ra internet qua MỘT IP public của wifi quán — tức là
+   * cả quán chia nhau đúng một hạn mức 600 request/phút. Đo thật 2026-09-14: máy bếp 132
+   * request/phút, máy order 92 request/phút; từ 5–6 máy là chạm trần và API trả 429 cho cả
+   * nút "báo bếp" lẫn "xong món", không riêng gì poll.
+   *
+   * Token hợp lệ → tracker là `user:<id>`: mỗi nhân viên có hạn mức riêng, thêm máy không
+   * ăn vào phần của người khác. Không cookie hoặc chữ ký sai → vẫn theo IP như cũ, nên
+   * `/auth/login` (chưa có phiên) và kẻ dò mật khẩu không được nới gì cả. Chỉ verify chữ ký,
+   * KHÔNG query DB: đây là quyết định "đếm vào ô nào", phân quyền thật vẫn ở `JwtAuthGuard`. */
+  protected async getTracker(req: Record<string, unknown>): Promise<string> {
+    const sub = this.subFromCookie(req as unknown as Request);
+    return sub ? `user:${sub}` : super.getTracker(req);
+  }
 
-    let sub: string;
+  /** `sub` trong cookie JWT nếu chữ ký còn đúng; null khi không cookie / token sai / hết hạn. */
+  private subFromCookie(req: Request): string | null {
+    const token = (req.cookies as Record<string, string> | undefined)?.[this.jwtSvc.cookieName];
+    if (!token) return null;
     try {
-      sub = this.jwtSvc.verify(token).sub;
+      return this.jwtSvc.verify(token).sub;
     } catch {
-      return false; // token sai/hết hạn → cứ đếm rate limit như khách lạ
+      return null; // token sai/hết hạn → coi như khách lạ
     }
+  }
+
+  private async isReadOnlyAccount(req: Request): Promise<boolean> {
+    const sub = this.subFromCookie(req);
+    if (!sub) return false; // không phiên / token sai → cứ đếm rate limit như khách lạ
 
     const now = Date.now();
     const hit = this.roleCache.get(sub);

@@ -13,6 +13,8 @@ type UserRow = {
   full_name: string | null;
   role: Role | null;
   is_active: boolean;
+  /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Owner luôn được, không bật tắt. */
+  can_collect_transfer: boolean;
   is_owner: boolean;
   created_at: number;
 };
@@ -54,6 +56,26 @@ export function AdminUsersPage() {
   useEffect(() => {
     refresh();
   }, []);
+
+  /** Bật/tắt quyền thu chuyển khoản. Cập nhật LẠC QUAN rồi mới gọi API, và trả về trạng thái cũ
+   *  nếu hỏng: chủ quán bấm một loạt người trong lúc mở quán, chờ mạng từng nhát thì không ai
+   *  dùng nổi. TẮT không hỏi lại — tắt nhầm thì bấm lại một cái là xong, khác hẳn việc xoá. */
+  const toggleTransfer = async (u: UserRow) => {
+    const next = !u.can_collect_transfer;
+    setItems((prev) => prev.map((x) => (x.id === u.id ? { ...x, can_collect_transfer: next } : x)));
+    try {
+      await api.patch(`/admin/users/${u.id}`, { can_collect_transfer: next });
+      toast.push(
+        'success',
+        next
+          ? `${u.full_name || u.username} được thu chuyển khoản ✓`
+          : `${u.full_name || u.username} không còn thu chuyển khoản`,
+      );
+    } catch (err) {
+      setItems((prev) => prev.map((x) => (x.id === u.id ? { ...x, can_collect_transfer: !next } : x)));
+      toast.push('error', extractError(err).message);
+    }
+  };
 
   const suspend = async (u: UserRow) => {
     const ok = await confirm({
@@ -212,6 +234,7 @@ export function AdminUsersPage() {
               <th>Họ và tên</th>
               <th>Tên đăng nhập</th>
               <th>Quyền</th>
+              <th>Thu CK</th>
               <th>Trạng thái</th>
               <th>Tạo lúc</th>
               <th></th>
@@ -227,6 +250,35 @@ export function AdminUsersPage() {
                 <td data-label="Quyền">
                   {u.role ? ROLE_LABEL[u.role] : (
                     <span style={{ color: '#dc2626', fontSize: 12 }}>⚠ Chưa gán (chặn login)</span>
+                  )}
+                </td>
+                {/* Công tắc thu chuyển khoản — bấm thẳng trong bảng, không chôn trong menu Sửa:
+                    chủ quán bật tắt cái này theo ca và theo người, chứ không phải sửa hồ sơ. */}
+                <td data-label="Thu CK">
+                  {u.is_owner ? (
+                    <span style={{ color: '#6b7280', fontSize: 12 }} title="Chủ quán luôn được thu chuyển khoản">
+                      luôn được
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => toggleTransfer(u)}
+                      aria-pressed={u.can_collect_transfer}
+                      title={
+                        u.can_collect_transfer
+                          ? 'Đang được thu chuyển khoản — bấm để tắt'
+                          : 'Không được thu chuyển khoản — bấm để bật'
+                      }
+                      style={{
+                        minHeight: 36,
+                        padding: '4px 10px',
+                        color: u.can_collect_transfer ? '#065f46' : '#6b7280',
+                        background: u.can_collect_transfer ? '#d1fae5' : '#f3f4f6',
+                      }}
+                    >
+                      {u.can_collect_transfer ? '🏦 Được thu' : '✕ Không'}
+                    </button>
                   )}
                 </td>
                 <td data-label="Trạng thái">

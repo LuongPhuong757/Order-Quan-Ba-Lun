@@ -2,7 +2,10 @@
 import type { CSSProperties } from 'react';
 import React, { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
+import { settleAll } from '../lib/settle-all.ts';
 import { useToast } from './Toast.tsx';
+import { CheckoutDialog, type CheckoutResult } from './CheckoutDialog.tsx';
+import { useAuth } from '../lib/auth-context.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
@@ -133,58 +136,6 @@ const ROW_BTN: CSSProperties = {
 };
 
 // Helper components dùng trong checkout confirm dialog
-function Section({ title, color, subtitle, children }: { title: string; color: string; subtitle?: string; children: React.ReactNode }) {
-  return (
-    <div>
-      <div style={{ fontSize: 12, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>
-        {title} {subtitle && <span style={{ fontWeight: 400, textTransform: 'none' }}>{subtitle}</span>}
-      </div>
-      <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>{children}</div>
-    </div>
-  );
-}
-
-function Row({ left, right }: { left: React.ReactNode; right: React.ReactNode }) {
-  return (
-    <div className="dlg-row" style={{ display: 'flex', justifyContent: 'space-between', gap: 12, padding: '8px 12px', fontSize: 14 }}>
-      <div style={{ flex: 1, minWidth: 0 }}>{left}</div>
-      <div style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>{right}</div>
-      <style>{`.dlg-row + .dlg-row { border-top: 1px solid #f3f4f6; }`}</style>
-    </div>
-  );
-}
-
-/** Ô tick "đã gõ sang MISA" trong hộp thoại thu tiền (2026-09-05).
- *
- * TỰ GIỮ STATE và báo ra ngoài qua callback, KHÔNG dùng state của OrderDrawer: `message` truyền
- * vào `confirm()` được ConfirmProvider giữ nguyên si trong state của nó, nên OrderDrawer re-render
- * cũng không vẽ lại nội dung hộp thoại — checkbox điều khiển từ ngoài sẽ không bao giờ đổi hình. */
-function MisaCheckbox({ onChange }: { onChange: (v: boolean) => void }) {
-  const [checked, setChecked] = useState(false);
-  return (
-    <label
-      style={{
-        display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-        border: `1px solid ${checked ? '#0f766e' : '#e5e7eb'}`,
-        background: checked ? '#f0fdfa' : '#fff',
-        borderRadius: 8, cursor: 'pointer', minHeight: 44,
-      }}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(e) => { setChecked(e.target.checked); onChange(e.target.checked); }}
-        style={{ width: 18, height: 18, flexShrink: 0 }}
-      />
-      <span style={{ fontSize: 14 }}>
-        <strong>Misa</strong>
-        <div style={{ fontSize: 12, color: '#6b7280' }}>
-          Bỏ trống cũng thu tiền được — đánh dấu bù sau ở màn Lịch sử.
-        </div>
-      </span>
-    </label>
-  );
-}
 
 type Props = {
   table: Table;
@@ -193,6 +144,7 @@ type Props = {
 };
 
 export function OrderDrawer({ table, onClose, onTransferred }: Props) {
+  const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
   const [order, setOrder] = useState<Order | null>(null);
@@ -337,13 +289,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       }
       return;
     }
-    try {
-      for (const id of g.ids) await api.patch(`/orders/items/${id}/state`, { to });
+    // SONG SONG như màn Bếp, không `for … await`: nhóm 5 dòng là 5 vòng round-trip nối tiếp,
+    // đo 2026-09-14 trên 4G mất ~175 ms/dòng — bồi bàn bấm "Đã giao" rồi đứng chờ gần 1 giây.
+    const res = await settleAll(g.ids.map((id) => () => api.patch(`/orders/items/${id}/state`, { to })));
+    if (res.failed === 0) {
       toast.push('success', `${g.count}× ${g.rep.menu_item_name} → ${LABEL[to]}`);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
+    } else if (res.failed === g.ids.length) {
+      toast.push('error', extractError(res.firstError).message);
+    } else {
+      // Báo rõ số dòng hỏng thay vì im lặng: một phần nhóm đã đổi, phần còn lại vẫn ở chỗ cũ.
+      toast.push('error', `${res.failed}/${g.ids.length} dòng không chuyển được — thử lại.`);
     }
+    refresh();
   };
 
   /** Huỷ cả bàn — khách vào gọi đồ rồi không dùng nữa. Huỷ sạch mọi món (kể cả đã
@@ -406,15 +363,20 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
   const togglePriorityGroup = async (g: ItemGroup) => {
     const next = !g.rep.is_priority;
-    try {
-      for (const id of g.ids) await api.patch(`/orders/items/${id}/priority`, { priority: next });
+    // Song song, cùng lý do với changeStateGroup.
+    const res = await settleAll(
+      g.ids.map((id) => () => api.patch(`/orders/items/${id}/priority`, { priority: next })),
+    );
+    if (res.failed === 0) {
       toast.push('success', next
         ? `⭐ Đã đánh dấu ưu tiên "${g.rep.menu_item_name}"`
         : `Đã bỏ ưu tiên "${g.rep.menu_item_name}"`);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
+    } else if (res.failed === g.ids.length) {
+      toast.push('error', extractError(res.firstError).message);
+    } else {
+      toast.push('error', `${res.failed}/${g.ids.length} dòng không đổi được ưu tiên — thử lại.`);
     }
+    refresh();
   };
 
   // Gộp các dòng theo (món + ghi chú) trong 1 cột trạng thái → hiển thị "N×".
@@ -468,137 +430,54 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
      "bàn này có gì để thu". */
   const checkoutReady = hasItems && billableItems.length > 0;
 
-  const checkout = async () => {
+  const [payOpen, setPayOpen] = useState(false);
+
+  /** Nút 💰 chỉ MỞ hộp thoại Thu tiền; mọi thứ còn lại (hình thức, mã QR, gọi API) nằm trong
+   *  `CheckoutDialog`. Trước 2026-09-14 chỗ này là một hộp `confirm()` khổng lồ dựng bằng JSX
+   *  nội tuyến và tuồn giá trị ra bằng `ref` — không mở rộng thêm được nữa. */
+  const checkout = () => {
     if (!order) return;
     if (!hasItems) {
       toast.push('error', 'Bàn chưa có món nào để thanh toán');
       return;
     }
-    const cancelledItemsList = order?.items?.filter((i) => i.state === 'CANCELLED') || [];
-    // Gộp các dòng cùng món lại "N×" cho gọn khi hiển thị xác nhận thanh toán.
-    const groupUnits = (list: OrderItem[]): Array<{ rep: OrderItem; count: number }> => {
-      const m = new Map<string, { rep: OrderItem; count: number }>();
-      for (const it of list) {
-        const k = `${it.menu_item_id}¦${it.note ?? ''}¦${it.state}`;
-        const e = m.get(k);
-        if (e) e.count += it.qty; else m.set(k, { rep: it, count: it.qty });
-      }
-      return Array.from(m.values());
-    };
-    const stateLabel: Record<string, string> = {
-      PENDING: 'đang gọi',
-      KITCHEN: 'đã báo bếp',
-      COOKING: 'đang nấu',
-      READY: 'xong, chờ giao',
-    };
+    setPayOpen(true);
+  };
 
-    const fmt = (v: number) => v.toLocaleString('vi-VN') + 'đ';
-
-    // Ref chứ không phải state: hộp thoại nằm ngoài cây render của drawer (xem MisaCheckbox),
-    // nên giá trị phải đi ra bằng đường ref rồi đọc lại sau khi confirm() resolve.
-    const misaCopiedRef = { current: false };
-
-    const okCheckout = await confirm({
-      title: `Thanh toán ${table.name}?`,
-      variant: activeItems.length > 0 ? 'warning' : 'success',
-      // Chỉ hai chữ (chủ quán 2026-09-08). Số tiền đã nằm to ngay đầu hộp thoại, nhắc lại trên
-      // nút là dài tới mức gãy hai dòng. Còn cảnh báo "vẫn tính tiền phần chưa mang ra" thì
-      // khối "⚠ N MÓN CHƯA MANG RA" ngay trên đó đã nói, kèm liệt kê từng món.
-      confirmLabel: 'Thanh toán',
-      message: (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {/* Tổng tiền */}
-          <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
-            <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-            {/* Có phí ship thì PHẢI tách dòng: thu ngân đọc một con số gộp sẽ không biết trong đó
-                có tiền thu hộ shipper, và cuối ngày không đối soát được (M2.D-62). */}
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-              {shipFee > 0
-                ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
-                : `${billableUnits} món`}
-            </div>
-          </div>
-
-          {/* Món đã giao */}
-          {servedItems.length > 0 && (
-            <Section title="✓ Đã giao (tính tiền)" color="#059669">
-              {groupUnits(servedItems).map((g) => (
-                <Row key={g.rep.id}
-                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
-                  right={fmt(g.rep.menu_item_price * g.count)} />
-              ))}
-            </Section>
-          )}
-
-          {/* Món chưa giao — VẪN TÍNH TIỀN (đổi luật 2026-09-08). Trước đây khối này báo "SẼ
-              HUỶ" và gạch ngang số tiền; nay nó là phần tiền THẬT SỰ được cộng vào, nên phải
-              hiện rõ giá chứ không gạch. Đây chính là cái popup chủ quán yêu cầu: bấm Thanh
-              toán mà bàn còn món chưa mang ra thì hỏi lại một câu trước khi thu. */}
-          {activeItems.length > 0 && (
-            <Section
-              title={`⚠ ${activeUnits} món CHƯA MANG RA`}
-              color="#f59e0b"
-              subtitle="(vẫn tính tiền)"
-            >
-              {groupUnits(activeItems).map((g) => (
-                <Row key={g.rep.id}
-                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name} <span style={{ color: '#92400e', fontSize: 12 }}>({stateLabel[g.rep.state] || g.rep.state})</span></>}
-                  right={fmt(g.rep.menu_item_price * g.count)} />
-              ))}
-            </Section>
-          )}
-
-          {/* Món đã huỷ từ trước */}
-          {cancelledItemsList.length > 0 && (
-            <Section title={`Đã huỷ (${cancelledItemsList.length})`} color="#6b7280" subtitle="(không tính tiền)">
-              {groupUnits(cancelledItemsList).map((g) => (
-                <Row key={g.rep.id}
-                  left={
-                    <span style={{ color: '#6b7280' }}>
-                      <strong>{g.count}×</strong> {g.rep.menu_item_name}
-                      {g.rep.cancelled_reason && <div style={{ fontSize: 12, fontStyle: 'italic' }}>↳ {g.rep.cancelled_reason}</div>}
-                    </span>
-                  }
-                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>} />
-              ))}
-            </Section>
-          )}
-
-          {billableItems.length === 0 && (
-            <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-              Bàn này đã huỷ hết món — thanh toán với tổng = 0đ.
-            </div>
-          )}
-
-          {/* Đối soát MISA — đặt sát nút thu tiền vì đó là lúc người gõ nhớ rõ nhất mình
-              đã gõ bàn này sang AMIS hay chưa. */}
-          <MisaCheckbox onChange={(v) => { misaCopiedRef.current = v; }} />
-        </div>
-      ),
-    });
-    if (!okCheckout) return;
-
-    try {
-      const res = await api.post<{
-        data: { total: number; served_items: number; auto_served_items: number };
-      }>(`/orders/${order.id}/checkout`, { misa_copied: misaCopiedRef.current });
-      const { total: totalPaid, auto_served_items } = res.data.data;
-      let msg = `✓ Đã thanh toán ${table.name} · ${totalPaid.toLocaleString('vi-VN')}đ`;
-      if (auto_served_items > 0) {
-        msg += ` (${auto_served_items} món chưa mang ra vẫn tính tiền)`;
-      }
-      if (misaCopiedRef.current) msg += ' · đã đánh dấu Misa';
-      toast.push('success', msg);
-      // KHÔNG push notif — Admin checkout poller (ReadyListener) sẽ emit cross-device
-      onTransferred?.();
-      onClose();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
+  /** Hộp thoại đã gọi API xong và thành công — phần còn lại y hệt luồng cũ. */
+  const onPaid = (res: CheckoutResult) => {
+    setPayOpen(false);
+    let msg = `✓ Đã thanh toán ${table.name} · ${res.total.toLocaleString('vi-VN')}đ`;
+    if (res.auto_served_items > 0) msg += ` (${res.auto_served_items} món chưa mang ra vẫn tính tiền)`;
+    if (res.transfer_amount > 0) {
+      msg +=
+        res.transfer_amount >= res.total
+          ? ` · chuyển khoản${res.payment_qr_label ? ` → ${res.payment_qr_label}` : ''}`
+          : ` · tiền mặt ${(res.total - res.transfer_amount).toLocaleString('vi-VN')}đ + CK ${res.transfer_amount.toLocaleString('vi-VN')}đ`;
     }
+    toast.push('success', msg);
+    // KHÔNG push notif — Admin checkout poller (ReadyListener) sẽ emit cross-device
+    onTransferred?.();
+    onClose();
   };
 
   return (
+    <>
+    {/* Hộp thoại Thu tiền nằm NGOÀI cây drawer và phủ lên trên nó: người thu vừa chìa QR cho
+        khách vừa phải nhìn lại danh sách món thì bấm Huỷ là quay về đúng chỗ cũ. */}
+    {payOpen && order && (
+      <CheckoutDialog
+        orderId={order.id}
+        table={{ code: table.code, name: table.name }}
+        cashier={{ full_name: user?.full_name, username: user?.name }}
+        canCollectTransfer={!!user?.can_collect_transfer}
+        items={order.items || []}
+        itemsTotal={itemsTotal}
+        shipFee={shipFee}
+        onCancel={() => setPayOpen(false)}
+        onDone={onPaid}
+      />
+    )}
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
         className="modal modal-flush"
@@ -1076,6 +955,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         )}
       </div>
     </div>
+    </>
   );
 }
 

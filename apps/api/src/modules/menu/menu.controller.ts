@@ -26,6 +26,7 @@ import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsInt, IsOptional, IsSt
 import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
+import { computeMenuVersion } from './menu-version.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { toTitleCase } from '../../common/text.js';
@@ -151,6 +152,27 @@ export class MenuController {
 
     const [items, total] = await qb.getManyAndCount();
     return { data: { items, total, page, page_size } };
+  }
+
+  /**
+   * GET /menu/version — mốc đổi của menu, để màn Bếp biết KHI NÀO mới cần tải lại cả menu.
+   *
+   * Trước 2026-09-15 màn Bếp kéo `/menu?page_size=2000` (597 món, 26 KB nén, 216 KB thật) mỗi
+   * 2 giây trên mỗi máy — 1.800 lần/giờ cho một danh sách chỉ đổi vài lần một ca. Đo trên 4G:
+   * 370 ms mỗi lần, chiếm gần 1/3 chu kỳ poll và làm nút "xong món" phải xếp hàng sau.
+   * Giờ màn Bếp poll mốc này (dưới 100 byte) cùng nhịp 2 giây, chỉ tải menu khi mốc đổi.
+   *
+   * Mốc = `MAX(updated_at):COUNT(*)` trên TOÀN bảng (kể cả món đã ẩn): `updated_at` là
+   * UpdateDateColumn nên bếp bấm "hết món", admin sửa giá/ẩn món đều đẩy mốc lên; COUNT bắt
+   * thêm ca xoá cứng dòng (updated_at không còn để mà tăng). So sánh CHUỖI ở FE, không cần
+   * hiểu định dạng — đổi là tải lại.
+   *
+   * Phải khai TRƯỚC các route `:id` để Nest không hiểu 'version' là id.
+   */
+  @Get('version')
+  @UseGuards(JwtAuthGuard)
+  async version() {
+    return { data: { version: await computeMenuVersion(this.repo) } };
   }
 
   /**

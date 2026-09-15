@@ -10,9 +10,11 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
   historyQuery,
+  type HistoryPayment,
   type HistoryFilters,
   type HistorySort,
 } from '../lib/history-filter.ts';
@@ -115,6 +117,11 @@ type HistoryOrder = {
   misa_copied_at: number | null;
   misa_copied_by_full_name: string | null;
   misa_ref: string | null;
+  /* Thu bằng chuyển khoản (2026-09-14). `transfer_amount = 0` là mọi đơn có từ trước tính năng
+     này, và cũng là đơn thu tiền mặt — tiền mặt luôn suy ra: tổng − phần chuyển khoản. */
+  transfer_amount: number;
+  payment_qr_label: string | null;
+  transfer_note: string | null;
   items: OrderItem[];
 };
 
@@ -128,6 +135,15 @@ type Table = {
 type Cashier = {
   id: string;
   full_name: string;
+};
+
+/** Tài khoản nhận tiền chuyển khoản, cho ô lọc "Tài khoản nhận" (2026-09-15).
+ *  Lấy cả mã ĐÃ NGỪNG DÙNG (`include_inactive=1`): bộ lọc này nhìn về quá khứ, mà đơn cũ vẫn trỏ
+ *  vào mã đã khoá — bỏ chúng đi là đúng những đơn khó đối soát nhất lại không lọc nổi. */
+type QrAccount = {
+  id: string;
+  label: string;
+  is_active: boolean;
 };
 
 type Status = 'all' | 'paid' | 'unpaid' | 'cancelled';
@@ -208,6 +224,10 @@ export function HistoryPage() {
   const canSeeStats = ['admin', 'report'].includes(
     user?.role ?? (user?.is_owner ? 'admin' : ''),
   );
+  /** Khối "Đối soát tiền" hẹp hơn `canSeeStats` một bậc: CHỈ admin, `report` cũng không (chủ quán
+   *  chốt 2026-09-14). `canSeeStats` gác doanh thu BÁN HÀNG; khối kia nói tiền về tài khoản ngân
+   *  hàng nào của nhà chủ — hai thứ khác nhau, nên cố ý là hai biến chứ không nới cái cũ. */
+  const canSeeReconcile = (user?.role ?? (user?.is_owner ? 'admin' : '')) === 'admin';
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -218,6 +238,16 @@ export function HistoryPage() {
   const [statusFilter, setStatusFilter] = useState<Status>('all');
   // Đối soát MISA — '' = không lọc, 'pending' = đã thu tiền nhưng chưa gõ sang AMIS.
   const [misaFilter, setMisaFilter] = useState<'' | 'pending' | 'copied'>('');
+  /** Lọc theo hình thức thu tiền (2026-09-14). Là Ô CHỌN riêng chứ không nhập vào dãy tab trạng
+   *  thái: nó CHỒNG lên trạng thái chứ không thay thế — "đã thanh toán + chuyển khoản" là câu
+   *  hỏi có thật lúc đối soát, còn dãy tab kia thì chọn cái này là tắt cái kia. */
+  const [paymentFilter, setPaymentFilter] = useState<HistoryPayment>('');
+  /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — câu hỏi lúc cầm sao kê của một tài khoản: "đơn
+   *  nào trong app đã thu về đây?". Chồng lên các trục kia y như ô hình thức thu tiền. */
+  const [qrAccountFilter, setQrAccountFilter] = useState<string>('');
+  /** Rỗng cũng có nghĩa là KHÔNG ĐƯỢC XEM: `/payment-qr` trả 403 cho người không được thu chuyển
+   *  khoản. Ô lọc ẩn theo danh sách này thay vì theo role — ẩn đúng cái BE thật sự từ chối. */
+  const [qrAccounts, setQrAccounts] = useState<QrAccount[]>([]);
   /** Khoảng thời gian đang xem — MỘT state chứ không phải cặp `startDate`/`endDate` rời:
    *  khoảng "ca" mang thêm cờ `shift` mà hai ô ngày không diễn tả được, và tách ra thì sẽ có
    *  lúc cờ bật còn ngày chưa xoá (hoặc ngược lại) — giao diện nói một đằng, query hỏi một nẻo.
@@ -263,8 +293,10 @@ export function HistoryPage() {
   const filters: HistoryFilters = {
     table_id: tableFilter,
     cashier_user_id: cashierFilter,
+    qr_account_id: qrAccountFilter,
     status: statusFilter,
     misa: misaFilter,
+    payment: paymentFilter,
     from: range.from,
     to: range.to,
     shift: range.shift,
@@ -284,6 +316,19 @@ export function HistoryPage() {
       })
       .catch((err) => toast.push('error', extractError(err).message));
   }, [toast]);
+
+  /** Danh sách tài khoản nhận tiền — request RIÊNG, không gộp vào `Promise.all` ở trên.
+   *
+   *  Vì nó được phép hỏng: người không có quyền thu chuyển khoản ăn 403 ở đây, và nếu nằm trong
+   *  `Promise.all` thì một 403 sẽ kéo đổ cả danh sách bàn lẫn danh sách thu ngân — mất hai bộ lọc
+   *  đang chạy tốt để đổi lấy một bộ lọc họ vốn không được dùng. Lỗi ở đây nuốt lặng (không toast):
+   *  không có quyền là chuyện bình thường, không phải sự cố cần báo. */
+  useEffect(() => {
+    api
+      .get<{ data: { items: QrAccount[] } }>('/payment-qr?include_inactive=1')
+      .then((res) => setQrAccounts(res.data.data.items))
+      .catch(() => setQrAccounts([]));
+  }, []);
 
   useEffect(() => {
     const seq = ++listSeqRef.current;
@@ -389,6 +434,8 @@ export function HistoryPage() {
     setCashierFilter('');
     setStatusFilter('all');
     setMisaFilter('');
+    setPaymentFilter('');
+    setQrAccountFilter('');
     // Về MẶC ĐỊNH (ca đang chạy), không phải về "Tất cả thời gian": "Xoá lọc" nghĩa là trả màn
     // về đúng lúc mới mở lên. Trả về "Tất cả" ở đây thì bấm một nút lại thành kéo về toàn bộ
     // lịch sử — rộng hơn hẳn thứ người dùng vừa xem, và đó không phải thứ họ định làm.
@@ -498,6 +545,8 @@ export function HistoryPage() {
     cashierFilter ||
     statusFilter !== 'all' ||
     misaFilter ||
+    paymentFilter ||
+    qrAccountFilter ||
     !range.shift;
 
   return (
@@ -597,6 +646,45 @@ export function HistoryPage() {
           options={cashiers.map((c) => ({ value: c.id, label: c.full_name }))}
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
+
+        {/* Hình thức thu tiền (2026-09-14). Ba giá trị khớp đúng ba badge trong bảng — lọc và
+            badge phải nói cùng một thứ tiếng. */}
+        <select
+          className="txn-fsel"
+          aria-label="Lọc theo hình thức thu tiền"
+          title="Hình thức thu tiền"
+          value={paymentFilter}
+          onChange={(e) => { setPaymentFilter(e.target.value as HistoryPayment); setPage(1); }}
+          style={{ width: 168, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+        >
+          <option value="">Mọi hình thức</option>
+          <option value="cash">💵 Tiền mặt</option>
+          <option value="transfer">🏦 Chuyển khoản</option>
+          <option value="mixed">💵+🏦 Cả hai</option>
+        </select>
+
+        {/* Tài khoản nhận tiền (2026-09-15). Đứng NGAY SAU ô hình thức vì hai câu hỏi đi liền
+            nhau lúc đối soát: "đơn nào chuyển khoản" rồi "về tài khoản nào".
+            Ẩn hẳn khi danh sách rỗng — chưa cấu hình mã QR nào, hoặc người đang xem không được
+            phép thấy tài khoản của nhà chủ (BE trả 403). Bày một ô chọn không có gì để chọn chỉ
+            tổ làm người ta bấm thử rồi thắc mắc. */}
+        {qrAccounts.length > 0 && (
+          <select
+            className="txn-fsel"
+            aria-label="Lọc theo tài khoản nhận tiền"
+            title="Tài khoản nhận tiền chuyển khoản"
+            value={qrAccountFilter}
+            onChange={(e) => { setQrAccountFilter(e.target.value); setPage(1); }}
+            style={{ width: 180, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+          >
+            <option value="">Mọi tài khoản nhận</option>
+            {qrAccounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                🏦 {a.label}{a.is_active ? '' : ' (ngừng dùng)'}
+              </option>
+            ))}
+          </select>
+        )}
 
         {/* Trục sắp xếp. Phải là Ô CHỌN chứ không chỉ là tiêu đề cột bấm được: dưới 640px
             `table.responsive` ẩn hẳn `thead`, nên trên điện thoại sẽ không còn chỗ nào để bấm.
@@ -846,6 +934,19 @@ export function HistoryPage() {
 
       {!loading && orders.length > 0 && (
         <>
+          {/* Đối soát tiền — đặt TRÊN bảng đơn: cuối ca người ta mở màn này để lấy hai con số
+              mang đi đếm két, không phải để đọc từng đơn. Khối tự ẩn khi khoảng đang xem không
+              có đồng chuyển khoản nào. */}
+          {/* CHỈ admin (chủ quán chốt 2026-09-14): đây là doanh thu toàn quán trong ca, không
+              phải phần của riêng người đang xem. BE đã chặn bằng AdminGuard — ẩn ở đây là để
+              nhân viên không thấy một khối luôn báo lỗi. */}
+          {canSeeReconcile && (
+            <PaymentSummaryBox
+              query={historyQuery(filters, { cashier: true }).toString()}
+              filterKey={filterKey}
+            />
+          )}
+
           {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
               ra hoặc gãy xuống dòng, cắt "…" không bao giờ xảy ra.
@@ -975,6 +1076,14 @@ export function HistoryPage() {
                               <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
                                 {fmt(total)}
                               </strong>
+                              {/* Hình thức thu nằm NGAY DƯỚI con số, không thành cột riêng: thêm
+                                  cột thứ 9 vào bảng này là ép mọi màn hình hẹp phải cuộn ngang,
+                                  trong khi thứ người đối soát cần là "con số này về đâu". */}
+                              {isPaid && (
+                                <div>
+                                  <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
+                                </div>
+                              )}
                             </td>
                             {/* nowrap: badge trạng thái không được gãy dòng, nếu không mỗi đơn
                                 cao gần gấp đôi. */}
@@ -1208,6 +1317,19 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
 
   return (
     <div style={{ padding: '12px 14px 16px', background: '#f9fafb', borderTop: '1px solid #e5e7eb' }}>
+      {/* Thu bằng chuyển khoản (2026-09-14) — nội dung CK hiện NGUYÊN VĂN vì đó chính là chuỗi
+          phải dò trong sao kê ngân hàng. */}
+      {order.transfer_amount > 0 && (
+        <div style={{ marginBottom: 12, padding: 10, background: '#e0f2fe', borderRadius: 8, fontSize: 13 }}>
+          <strong>🏦 Chuyển khoản {order.transfer_amount.toLocaleString('vi-VN')}đ</strong>
+          {order.payment_qr_label && <span> → {order.payment_qr_label}</span>}
+          {order.transfer_note && (
+            <div style={{ marginTop: 2, fontFamily: 'monospace' }}>Nội dung: {order.transfer_note}</div>
+          )}
+          <PaymentPhotos orderId={order.id} />
+        </div>
+      )}
+
       {/* Customer info (delivery) */}
       {order.customer_name && (
         <div style={{ marginBottom: 12, padding: 10, background: '#d1fae5', borderRadius: 8, fontSize: 13 }}>

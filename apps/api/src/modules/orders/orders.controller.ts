@@ -29,8 +29,9 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { OrdersService } from './orders.service.js';
+import { OrdersService, type PaymentKindFilter } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
@@ -65,6 +66,15 @@ class SetPriorityDto {
 class CheckoutDto {
   /** Thu ngân tick "đã gõ sang MISA" ngay trong hộp thoại thu tiền (2026-09-05). */
   @IsOptional() @IsBoolean() misa_copied?: boolean;
+
+  /* ── Thu bằng chuyển khoản (2026-09-14) ──
+   * Bỏ trống cả cụm = thu tiền mặt, tức đúng hành vi trước khi có tính năng này. FE cũ (nếu còn
+   * tab nào chưa tải lại) vẫn gọi checkout được y như trước — cố ý, vì đây là đường thu tiền
+   * duy nhất của quán và không được gãy giữa một lần deploy. */
+  @IsOptional() @IsInt() @Min(0) transfer_amount?: number;
+  @IsOptional() @IsUUID() paid_to_account_id?: string;
+  @IsOptional() @IsString() @MaxLength(128) payment_qr_label?: string;
+  @IsOptional() @IsString() @MaxLength(64) transfer_note?: string;
 }
 
 /** Đánh dấu / bỏ đánh dấu đã sao chép sang AMIS MISA. */
@@ -283,10 +293,21 @@ export class OrdersController {
   /** POST /orders/:id/checkout — thanh toán + đóng order */
   @Post(':id/checkout')
   async checkout(@Param('id') id: string, @Body() body: CheckoutDto, @Req() req: Request) {
+    // Chỉ chặn khi đơn THỰC SỰ có tiền chuyển khoản: thu tiền mặt là việc ai cũng làm được, và
+    // công tắc này nói về chuyển khoản chứ không phải về quyền thu tiền nói chung.
+    if (body?.transfer_amount) assertCanCollectTransfer(req);
     const result = await this.svc.checkout(
       id,
       { id: req.user!.sub, full_name: req.user!.full_name },
       body?.misa_copied,
+      body?.transfer_amount
+        ? {
+            amount: body.transfer_amount,
+            account_id: body.paid_to_account_id ?? null,
+            qr_label: body.payment_qr_label ?? null,
+            note: body.transfer_note ?? null,
+          }
+        : undefined,
     );
     return { data: result };
   }
@@ -324,6 +345,7 @@ export class OrdersController {
     const status =
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
     const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
+    const payment = parsePaymentFilter(q.payment);
     // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
     // đổi tập đơn trả về, nên gõ sai query string không đáng ném 400 vào mặt người dùng.
     const sort = q.sort === 'paid' ? 'paid' : 'opened';
@@ -334,12 +356,36 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       status,
       misa,
+      payment,
+      qr_account_id: parseQrAccountId(q.qr_account_id),
       sort,
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
       max_age_ms: staffHistoryWindowMs(req),
     });
     return { data: result };
+  }
+
+  /** GET /orders/payment-summary — đối soát cuối ca: két bao nhiêu, ngân hàng bao nhiêu,
+   *  tách theo từng mã QR.
+   *
+   * Cùng quyền với `/orders/history` trừ `kitchen`: đối soát tiền không phải việc của bếp, mà
+   * con số ở đây là toàn bộ doanh thu một ca — rộng hơn hẳn cái bếp cần biết. */
+  @Get('payment-summary')
+  // CHỈ admin (chủ quán chốt 2026-09-14). Đây là doanh thu TOÀN QUÁN trong ca, không phải phần
+  // của riêng người đang xem — nhân viên chạy bàn không có lý do biết tối nay nhà chủ thu bao
+  // nhiêu và tiền về tài khoản nào. Role `report` cũng không thấy: nó là quyền xem báo cáo bán
+  // hàng, không phải quyền xem tiền vào tài khoản cá nhân của chủ.
+  @UseGuards(AdminGuard)
+  async paymentSummary(@Query() q: Record<string, string>) {
+    const data = await this.svc.paymentSummary({
+      start_ms: q.start_ms ? Number(q.start_ms) : undefined,
+      end_ms: q.end_ms ? Number(q.end_ms) : undefined,
+      cashier_user_id: q.cashier_user_id || undefined,
+      payment: parsePaymentFilter(q.payment),
+      qr_account_id: parseQrAccountId(q.qr_account_id),
+    });
+    return { data };
   }
 
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (admin + report).
@@ -357,6 +403,7 @@ export class OrdersController {
       status:
         q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
       misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
+      qr_account_id: parseQrAccountId(q.qr_account_id),
     });
     return { data };
   }
@@ -399,4 +446,18 @@ export class OrdersController {
     const order = await this.svc.updateCustomerInfo(id, dto);
     return { data: order };
   }
+}
+
+/** Giá trị lạ → không lọc, KHÔNG ném 400: cùng lệ với `sort` ở màn Lịch sử — gõ sai query string
+ *  chỉ nên làm bộ lọc rộng ra, không nên ném lỗi vào mặt người đang tra cứu. */
+function parsePaymentFilter(v: string | undefined): PaymentKindFilter | undefined {
+  return v === 'cash' || v === 'transfer' || v === 'mixed' ? v : undefined;
+}
+
+/** Id tài khoản nhận tiền (2026-09-15). Cắt ở 36 ký tự = đúng độ dài cột `paid_to_account_id`:
+ *  chuỗi dài hơn không thể khớp hàng nào, nên chặn sớm thay vì ném cả đoạn vào so sánh chuỗi.
+ *  Id lạ vẫn đi tiếp và cho ra danh sách RỖNG — cùng lệ với `sort`/`payment`: gõ sai query string
+ *  không đáng ném 400 vào mặt người đang tra cứu. */
+function parseQrAccountId(v: string | undefined): string | undefined {
+  return v && v.length <= 36 ? v : undefined;
 }
