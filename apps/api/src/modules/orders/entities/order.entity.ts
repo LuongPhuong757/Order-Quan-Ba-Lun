@@ -13,6 +13,13 @@ import { OrderItem } from './order-item.entity.js';
 
 @Entity('orders')
 @Index('idx_orders_table', ['table_id', 'closed_at'])
+// Đơn ĐANG MỞ (`closed_at IS NULL ORDER BY opened_at`) — chính là câu `/orders` mà màn Order
+// và màn Bếp poll mỗi 2 giây trên mọi máy, cộng `open-count`/`kitchen-count` mỗi 5 giây.
+// `idx_orders_table` bắt đầu bằng table_id nên MySQL không dùng được khi lọc riêng closed_at
+// (EXPLAIN 2026-09-14: type=ALL, quét cả bảng). Bảng orders chỉ TĂNG theo lịch sử, còn kết
+// quả luôn là vài chục đơn đang mở — không có index này thì chi phí poll tăng theo tuổi của
+// quán. Dòng NULL đứng đầu index, nên đọc đúng nhóm NULL và đã sẵn thứ tự opened_at.
+@Index('idx_orders_open', ['closed_at', 'opened_at'])
 export class Order {
   @PrimaryGeneratedColumn('uuid')
   id!: string;

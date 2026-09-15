@@ -10,7 +10,13 @@ import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 
 @Entity('menu_items')
 @Index('idx_menu_code', ['code'], { unique: true })
-@Index('idx_menu_active_group', ['is_active', 'group'])
+// Thêm `name` vào đuôi index cũ `(is_active, group)`: câu mặc định của order picker / màn Bếp là
+// `WHERE is_active ORDER BY group, name` — EXPLAIN 2026-09-14 báo `Using filesort` vì index cũ
+// hết cột ở `group`. Có `name` thì đọc index ra là đã đúng thứ tự, bỏ được bước sắp xếp.
+@Index('idx_menu_active_group_name', ['is_active', 'group', 'name'])
+// Cho `GET /menu/version` (= MAX(updated_at) + COUNT): màn Bếp poll mốc này mỗi 2 giây thay
+// cho cả 597 món. MAX trên cột có index là đọc đúng 1 dòng cuối, không quét bảng.
+@Index('idx_menu_updated', ['updated_at'])
 export class MenuItem {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
