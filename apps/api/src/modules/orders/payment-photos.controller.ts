@@ -26,6 +26,7 @@ import { Repository } from 'typeorm';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
+import { PAYMENT_PHOTO_READ_ROLES, PAYMENT_PHOTO_WRITE_ROLES } from './payment-photo-roles.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { saveImage } from '../menu/menu-image.js';
 import { Order } from './entities/order.entity.js';
@@ -54,9 +55,13 @@ export class PaymentPhotosController {
    *  khoản" (chủ quán chốt 2026-09-14) — ai không dính tới việc thu CK thì không có lý do mở.
    *
    * Bản đầu tiên ở đây mở cho cả `report` với lý do "người làm báo cáo cần đối soát"; công tắc
-   * theo từng người thay thế lý do đó — muốn cho ai xem thì bật cho đúng người ấy. */
+   * theo từng người thay thế lý do đó — muốn cho ai xem thì bật cho đúng người ấy.
+   *
+   * `kitchen` thêm vào 2026-09-15 sau sự cố trên quán thật: bếp cầm máy lúc đông khách vẫn thu
+   * tiền được (`checkout` không gác role) nên phải chụp và xem lại được bill của đơn mình thu.
+   * Xem `payment-photo-roles.ts`. */
   @Get(':id/payment-photos')
-  @UseGuards(RequireRoles('admin', 'order', 'report'))
+  @UseGuards(RequireRoles(...PAYMENT_PHOTO_READ_ROLES))
   async list(@Param('id') id: string, @Req() req: Request) {
     assertCanCollectTransfer(req, 'Bạn không được xem ảnh bill chuyển khoản của khách.');
     const items = await this.repo.find({ where: { order_id: id }, order: { created_at: 'ASC' } });
@@ -82,7 +87,7 @@ export class PaymentPhotosController {
    */
   @Post(':id/payment-photos')
   @HttpCode(201)
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(RequireRoles(...PAYMENT_PHOTO_WRITE_ROLES))
   @UseInterceptors(FilesInterceptor('files', BATCH, { storage: memoryStorage(), limits: { fileSize: MAX_BYTES } }))
   async upload(@Param('id') id: string, @Req() req: Request, @UploadedFiles() files?: Express.Multer.File[]) {
     assertCanCollectTransfer(req);
@@ -115,7 +120,7 @@ export class PaymentPhotosController {
    *  tấm ảnh sai trong hồ sơ đối soát còn tệ hơn là không có ảnh nào. */
   @Delete('payment-photos/:photoId')
   @HttpCode(200)
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(RequireRoles(...PAYMENT_PHOTO_WRITE_ROLES))
   async remove(@Param('photoId') photoId: string, @Req() req: Request) {
     assertCanCollectTransfer(req, 'Bạn không được xoá ảnh bill chuyển khoản.');
     const row = await this.repo.findOne({ where: { id: photoId } });
