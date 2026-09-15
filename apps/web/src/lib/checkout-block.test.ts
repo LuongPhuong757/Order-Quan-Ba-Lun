@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutBlockReason } from './checkout-block.ts';
+import { checkoutBlockReason, stepBlockReason } from './checkout-block.ts';
 
 const S = (mode: 'CASH' | 'TRANSFER' | 'SPLIT' | null, hasPickedQr = false, transferAmount = 0) =>
   ({ mode, hasPickedQr, transferAmount });
@@ -32,5 +32,30 @@ describe('khi nào bấm Thanh toán được', () => {
   it('cả hai mà chưa chọn mã → nói về MÃ QR trước, không nhảy sang chuyện tiền', () => {
     // Thứ tự các nhánh phải theo thứ tự người dùng gặp trên màn hình.
     expect(checkoutBlockReason(S('SPLIT', false, 0))).toBe('Vui lòng chọn mã QR để thanh toán');
+  });
+});
+
+describe('chặn theo TỪNG MÀN (hộp thoại 3 bước)', () => {
+  it('màn 1 chỉ đòi chọn hình thức — không đòi mã QR của màn chưa hiện ra', () => {
+    expect(stepBlockReason('mode', S(null))).toBe('Vui lòng chọn khách trả bằng gì');
+    expect(stepBlockReason('mode', S('TRANSFER', false, 985000))).toBeNull();
+    expect(stepBlockReason('mode', S('SPLIT', false, 0))).toBeNull();
+  });
+
+  it('màn 1 + tiền mặt là cú bấm GHI TIỀN nên kiểm trọn bộ', () => {
+    expect(stepBlockReason('mode', S('CASH'))).toBeNull();
+  });
+
+  it('màn 2 đòi mã QR trước, rồi mới tới số tiền', () => {
+    expect(stepBlockReason('qr', S('SPLIT', false, 0))).toBe('Vui lòng chọn mã QR để thanh toán');
+    expect(stepBlockReason('qr', S('SPLIT', true, 0))).toBe('Nhập số tiền khách chuyển khoản');
+    expect(stepBlockReason('qr', S('SPLIT', true, 500000))).toBeNull();
+    // Chuyển khoản TOÀN BỘ không có gì để nhập — số tiền chính là tổng.
+    expect(stepBlockReason('qr', S('TRANSFER', true, 985000))).toBeNull();
+  });
+
+  it('màn cuối kiểm lại trọn bộ — người dùng lùi lại sửa được, không tin hai màn trước', () => {
+    expect(stepBlockReason('bill', S('TRANSFER', false, 985000))).toBe('Vui lòng chọn mã QR để thanh toán');
+    expect(stepBlockReason('bill', S('TRANSFER', true, 985000))).toBeNull();
   });
 });

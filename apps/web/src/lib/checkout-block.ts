@@ -36,3 +36,37 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
   return null;
 }
+
+/** Ba màn nối tiếp của hộp thoại thu tiền (2026-09-15).
+ *  - 'mode' : "Khách trả bằng gì?" — tổng tiền + ba nút. Tiền mặt XÁC NHẬN LUÔN tại đây.
+ *  - 'qr'   : chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
+ *  - 'bill' : chụp bill + chốt thu tiền.
+ */
+export type CheckoutStep = 'mode' | 'qr' | 'bill';
+
+/**
+ * Vì sao CHƯA đi tiếp được TỪ MÀN ĐANG ĐỨNG — `null` = đi tiếp được (2026-09-15).
+ *
+ * Khác `checkoutBlockReason` ở chỗ nó chỉ hỏi về bước hiện tại. Từ lúc hộp thoại tách thành ba
+ * màn, luật đầy đủ không còn dùng cho nút "Tiếp tục" được nữa: đứng ở màn 1 mà đòi "chọn mã QR"
+ * là chỉ sang một màn người ta CHƯA ĐƯỢC THẤY — nút mờ, câu giải thích nói về thứ không có trên
+ * màn hình, và không còn đường nào bấm.
+ *
+ * Màn cuối ('bill') vẫn gọi luật đầy đủ: đó là cú bấm GHI TIỀN, phải kiểm lại trọn bộ chứ không
+ * tin rằng hai màn trước đã kiểm đủ — người dùng lùi lại sửa được, và state đi cùng họ.
+ */
+export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | null {
+  if (step === 'mode') {
+    // Tiền mặt chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần "đã chọn".
+    if (s.mode === 'CASH') return checkoutBlockReason(s);
+    return s.mode === null ? 'Vui lòng chọn khách trả bằng gì' : null;
+  }
+  if (step === 'qr') {
+    if (!s.hasPickedQr) return 'Vui lòng chọn mã QR để thanh toán';
+    // Hỏi tiền SAU khi đã có mã: số tiền nằm trong chính mã QR, nên thứ tự trên màn hình là chọn
+    // mã rồi mới tới con số.
+    if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
+    return null;
+  }
+  return checkoutBlockReason(s);
+}

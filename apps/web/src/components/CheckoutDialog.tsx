@@ -11,7 +11,7 @@
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
-import { checkoutBlockReason, type PayMode } from '../lib/checkout-block.ts';
+import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkout-block.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
@@ -104,19 +104,23 @@ export function CheckoutDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   /**
-   * Hai bước (chủ quán chốt 2026-09-14): chọn hình thức + mã QR → rồi mới tới chụp bill.
+   * BA MÀN NỐI TIẾP (chủ quán chốt 2026-09-15), thay cho một màn cuộn dài:
    *
-   * Chỉ đơn CÓ chuyển khoản mới đi qua bước 'bill'; thu tiền mặt thì không có cái bill nào để
-   * chụp nên vẫn MỘT cú bấm là xong. Chủ quán đã được báo trước rằng bước này thành hai cú bấm
-   * cho đơn chuyển khoản và vẫn chọn — đổi lại, người thu chắc chắn nhìn thấy lời mời chụp bill
-   * đúng lúc khách vừa chuyển xong.
+   *   'mode' → "Khách trả bằng gì?" — CHỈ tổng tiền + ba nút.
+   *   'qr'   → chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
+   *   'bill' → chụp bill + chốt thu tiền.
+   *
+   * TIỀN MẶT KHÔNG ĐI QUA MÀN NÀO KHÁC: bấm "💵 Tiền mặt" là màn 1 mở thẳng ra phần chi tiết món
+   * + Misa + nút "Xác nhận thu tiền". Đó là đường đi của phần lớn đơn trong quán, và nó phải giữ
+   * đúng tốc độ cũ — thêm một màn vào đây là thêm một cú chạm cho mọi bàn, mỗi ngày.
+   *
+   * Vì sao tách màn thay vì cuộn: bản cũ nhồi tổng tiền, ba nút, ô nhập tiền, danh sách mã, ảnh
+   * QR, chi tiết món và Misa vào cùng một khối cuộn — người thu phải vuốt tìm giữa lúc khách
+   * đứng đợi, và ảnh QR (thứ phải GIƠ RA cho khách) thì nằm lấp giữa chừng.
    */
-  const [step, setStep] = useState<'form' | 'bill'>('form');
+  const [step, setStep] = useState<CheckoutStep>('mode');
 
   const picked = qrOptions.find((o) => o.id === pickedId) ?? null;
-  /** Có định thu chuyển khoản không. CHƯA CHỌN (`null`) cũng là KHÔNG — viết `mode !== 'CASH'`
-   *  thì `null` lọt qua và hộp thoại bày sẵn mã QR lẫn nút chụp bill trước cả khi ai chọn gì. */
-  const wantsTransfer = mode === 'TRANSFER' || mode === 'SPLIT';
 
   /** Phần thu bằng chuyển khoản. Tiền mặt luôn là phần còn lại — không có ô nhập riêng cho nó,
    *  vì hai ô rời là hai con số có thể không cộng lại bằng tổng. */
@@ -131,7 +135,9 @@ export function CheckoutDialog({
 
   /** Xem `lib/checkout-block.ts` — luật nằm ngoài vì nó quyết định nút thu tiền có ăn hay không,
    *  và kiểm bằng mắt thì phải mở hộp thoại thật rồi thử đủ sáu tổ hợp. */
-  const blockReason = checkoutBlockReason({ mode, hasPickedQr: !!picked, transferAmount });
+  //  Hỏi theo MÀN ĐANG ĐỨNG: đứng ở màn 1 mà nút mờ vì "chưa chọn mã QR" là chỉ sang một màn
+  //  người ta chưa được thấy. Màn cuối vẫn kiểm trọn bộ — xem `stepBlockReason`.
+  const blockReason = stepBlockReason(step, { mode, hasPickedQr: !!picked, transferAmount });
   const note = useMemo(() => buildTransferNote(table, cashier), [table, cashier]);
 
   useEffect(() => {
@@ -232,18 +238,43 @@ export function CheckoutDialog({
     }
   };
 
-  /** Nút chính của bước 1. KHÔNG gọi API khi có chuyển khoản — chỉ mở bước chụp bill. */
+  /** Nút chính của màn đang đứng. CHỈ màn cuối gọi API — hai màn trước chỉ đi tiếp.
+   *
+   *  `mode === 'CASH'` chốt luôn tại màn 1: không có mã để chìa, không có bill để chụp, nên mọi
+   *  màn sau đều rỗng. Đi qua chúng chỉ để "cho đủ bước" là bắt cả quán trả thêm một cú chạm
+   *  mỗi bàn. */
   const goNext = () => {
     if (blockReason) {
       toast.push('error', blockReason);
       return;
     }
-    if (transferAmount > 0) {
+    if (step === 'mode') {
+      if (mode === 'CASH') submit();
+      else setStep('qr');
+      return;
+    }
+    if (step === 'qr') {
       setStep('bill');
       return;
     }
     submit();
   };
+
+  /** Nút phụ: lùi một màn, hoặc đóng hộp thoại nếu đang ở màn đầu.
+   *
+   *  Lùi KHÔNG xoá thứ đã chọn (mã QR, số tiền, ảnh bill đã đẩy): người ta lùi để xem lại hoặc
+   *  sửa một thứ, không phải để bắt đầu lại. Ảnh đã đẩy vẫn nằm trên server gắn với đơn — nó
+   *  không phụ thuộc vào việc hộp thoại đang ở màn nào. */
+  const goBack = () => {
+    if (step === 'bill') setStep('qr');
+    else if (step === 'qr') setStep('mode');
+    else onCancel();
+  };
+
+  /** Chữ trên nút chính — nói thẳng việc sắp xảy ra. "Xác nhận" chung chung thì người ta không
+   *  biết mình đang xác nhận cái gì, mà đây là cú bấm ghi tiền vào sổ. */
+  const nextLabel =
+    step === 'bill' || (step === 'mode' && mode === 'CASH') ? 'Xác nhận thu tiền' : 'Tiếp tục →';
 
   const submit = async () => {
     if (blockReason) {
@@ -318,198 +349,127 @@ export function CheckoutDialog({
             borderBottom: '1px solid rgba(0,0,0,.06)',
           }}
         >
-          <span style={{ fontSize: 26 }}>💰</span>
+          <span style={{ fontSize: 26 }}>{step === 'qr' ? '📱' : step === 'bill' ? '🧾' : '💰'}</span>
+          {/* Tiêu đề đổi theo màn — đây là thứ DUY NHẤT nói cho người thu biết họ đang đứng ở
+              đâu trong chuỗi. Cố ý KHÔNG đánh số "bước 1/3": luồng tiền mặt chỉ có đúng một màn,
+              đếm tới 3 ở đó là hứa hai màn không bao giờ tới. */}
           <h2 id="pay-title" style={{ margin: 0, fontSize: 17, color: activeItems.length > 0 ? '#92400e' : '#059669' }}>
-            Thanh toán {table.name}
+            {step === 'qr'
+              ? `Khách quét mã — ${table.name}`
+              : step === 'bill'
+                ? `Xác nhận thu tiền — ${table.name}`
+                : `Thanh toán ${table.name}`}
           </h2>
         </div>
 
         <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {step === 'bill' ? (
-            <BillStep
-              transferAmount={transferAmount}
-              cashAmount={cashAmount}
-              qrLabel={picked?.label ?? null}
-              note={note}
-              photos={photos}
-              uploading={uploading}
-              fileRef={fileRef}
-              onPick={addPhotos}
-              onRemove={removePhoto}
-            />
-          ) : (
-          <>
-          {/* Tổng cần thu — giữ nguyên khối của hộp thoại cũ, kể cả việc tách phí ship: thu ngân
-              đọc một con số gộp thì cuối ngày không đối soát được tiền thu hộ shipper (M2.D-62). */}
-          <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
-            <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-            <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-              {shipFee > 0
-                ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
-                : `${billableUnits} món`}
-            </div>
-          </div>
-
-          {/* ── Hình thức thu ──
-              Không được thu chuyển khoản thì ẨN HẲN hai nút kia (chủ quán chọn 2026-09-14), và
-              khi đó cả hàng nút này cũng không còn nghĩa lý gì — còn đúng một lựa chọn thì bày ra
-              một hàng nút chỉ tổ làm người ta bấm thử. */}
-          {canCollectTransfer && (
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
-              <div className="pay-modes">
-                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
-                <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-                <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
-              </div>
-            </div>
-          )}
-
-          {mode === 'SPLIT' && (
-            <div>
-              <label htmlFor="pay-transfer" style={{ fontSize: 13, fontWeight: 600 }}>
-                Khách chuyển khoản bao nhiêu?
-              </label>
-              <input
-                id="pay-transfer"
-                inputMode="numeric"
-                value={transferInput ? Number(transferInput.replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
-                onChange={(e) => setTransferInput(e.target.value)}
-                placeholder="0"
-                style={{ width: '100%', fontSize: 20, textAlign: 'right', minHeight: 44 }}
+            /* ── MÀN 3: chụp bill rồi chốt ── */
+            <>
+              <BillStep
+                transferAmount={transferAmount}
+                cashAmount={cashAmount}
+                qrLabel={picked?.label ?? null}
+                note={note}
+                photos={photos}
+                uploading={uploading}
+                fileRef={fileRef}
+                onPick={addPhotos}
+                onRemove={removePhoto}
               />
-              <div style={{ fontSize: 14, marginTop: 6, color: '#0f766e', fontWeight: 600 }}>
-                Còn lại thu tiền mặt: {fmt(cashAmount)}
-              </div>
-            </div>
-          )}
-
-          {wantsTransfer && (
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chọn mã QR để khách quét</div>
-
-              {qrLoadFailed && (
-                <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-                  Không tải được danh sách mã QR. Vẫn bấm Thanh toán được — ghi nhận là chuyển khoản,
-                  nhưng đơn sẽ không biết tiền về tài khoản nào.
-                </div>
-              )}
-
-              {!qrLoadFailed && qrOptions.length === 0 && (
-                <div style={{ background: '#f3f4f6', padding: 10, borderRadius: 8, fontSize: 13, color: '#6b7280' }}>
-                  Chưa có mã QR nào. Chủ quán thêm ở Cài đặt → Mã QR nhận tiền.
-                </div>
-              )}
-
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {qrOptions.map((o) => (
-                  <button
-                    key={o.id}
-                    type="button"
-                    onClick={() => setPickedId(o.id)}
-                    aria-pressed={pickedId === o.id}
-                    style={{
-                      padding: '8px 12px',
-                      minHeight: 44,
-                      borderRadius: 999,
-                      border: pickedId === o.id ? '2px solid #0d9488' : '1px solid #e5e7eb',
-                      background: pickedId === o.id ? '#f0fdfa' : 'white',
-                      color: '#1f2937',
-                      fontSize: 14,
-                    }}
-                  >
-                    {o.label}
-                  </button>
-                ))}
-              </div>
-
-              {picked && (
-                <div style={{ marginTop: 12, textAlign: 'center' }}>
-                  {/* QR to hết chiều ngang: màn này được GIƠ RA cho khách quét bằng điện thoại của
-                      họ, không phải để nhân viên đọc. */}
-                  {picked.kind === 'BANK' && qrDataUrl && (
-                    <img
-                      src={qrDataUrl}
-                      alt="Mã QR chuyển khoản"
-                      style={{ width: '100%', maxWidth: 300, aspectRatio: '1', background: 'white' }}
-                    />
-                  )}
-                  {picked.kind === 'IMAGE' && picked.image_url && (
-                    <img
-                      src={picked.image_url}
-                      alt="Mã QR"
-                      style={{ width: '100%', maxWidth: 300, background: 'white' }}
-                    />
-                  )}
-                  {picked.kind === 'BANK' && !qrDataUrl && (
-                    <div style={{ fontSize: 13, color: '#dc2626' }}>
-                      Không dựng được mã QR cho tài khoản này — kiểm lại mã ngân hàng ở Cài đặt.
-                    </div>
-                  )}
-
-                  <div style={{ marginTop: 8, fontSize: 15 }}>
-                    <div style={{ fontWeight: 700, fontSize: 20, color: '#0f766e' }}>{fmt(transferAmount)}</div>
-                    {picked.kind === 'BANK' ? (
-                      <>
-                        <div style={{ color: '#4b5563' }}>
-                          {picked.bank_name} · {picked.account_no}
-                        </div>
-                        <div style={{ color: '#4b5563' }}>{picked.account_name}</div>
-                        {/* Nội dung to và rõ: khách hay gõ tay lại thay vì để app điền sẵn. */}
-                        <div style={{ marginTop: 6, fontWeight: 700, letterSpacing: 0.5 }}>{note}</div>
-                      </>
-                    ) : (
-                      <div style={{ color: '#92400e', fontSize: 13, marginTop: 4 }}>
-                        Mã ảnh không kèm được số tiền — nhắc khách gõ {fmt(transferAmount)} và nội
-                        dung “{note}”.
-                      </div>
-                    )}
+              {/* Chi tiết món + Misa nằm ở MÀN CHỐT chứ không phải màn đầu (chủ quán chốt
+                  2026-09-15): màn đầu hỏi đúng một câu, còn đây mới là chỗ soát lại bill lần cuối
+                  trước khi tiền vào sổ. */}
+              <OrderLines
+                servedItems={servedItems}
+                activeItems={activeItems}
+                cancelledItems={cancelledItems}
+                activeUnits={activeUnits}
+              />
+              <MisaCheckbox onChange={setMisaCopied} />
+            </>
+          ) : step === 'qr' ? (
+            /* ── MÀN 2: chìa mã cho khách quét ── */
+            <>
+              {/* "Cả hai" hỏi số tiền Ở ĐÂY chứ không ở màn trước: con số này nằm TRONG mã QR, nên
+                  nó phải đứng cạnh cái mã mà nó thay đổi — nhập ở màn khác thì người ta không
+                  thấy mã vẽ lại theo. */}
+              {mode === 'SPLIT' && (
+                <div>
+                  <label htmlFor="pay-transfer" style={{ fontSize: 13, fontWeight: 600 }}>
+                    Khách chuyển khoản bao nhiêu?
+                  </label>
+                  <input
+                    id="pay-transfer"
+                    inputMode="numeric"
+                    value={transferInput ? Number(transferInput.replace(/\D/g, '')).toLocaleString('vi-VN') : ''}
+                    onChange={(e) => setTransferInput(e.target.value)}
+                    placeholder="0"
+                    style={{ width: '100%', fontSize: 20, textAlign: 'right', minHeight: 44 }}
+                  />
+                  <div style={{ fontSize: 14, marginTop: 6, color: '#0f766e', fontWeight: 600 }}>
+                    Còn lại thu tiền mặt: {fmt(cashAmount)}
                   </div>
                 </div>
               )}
-            </div>
-          )}
+              <QrStep
+                options={qrOptions}
+                loadFailed={qrLoadFailed}
+                pickedId={pickedId}
+                onPick={setPickedId}
+                picked={picked}
+                qrDataUrl={qrDataUrl}
+                transferAmount={transferAmount}
+                note={note}
+              />
+            </>
+          ) : (
+            /* ── MÀN 1: "Khách trả bằng gì?" ── */
+            <>
+              {/* Tổng cần thu — giữ nguyên khối của hộp thoại cũ, kể cả việc tách phí ship: thu
+                  ngân đọc một con số gộp thì cuối ngày không đối soát được tiền thu hộ shipper
+                  (M2.D-62). */}
+              <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                  {shipFee > 0
+                    ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
+                    : `${billableUnits} món`}
+                </div>
+              </div>
 
-          {/* ── Chi tiết món: giữ nguyên bố cục hộp thoại cũ ── */}
-          {servedItems.length > 0 && (
-            <Section title="✓ Đã giao (tính tiền)" color="#059669">
-              {groupUnits(servedItems).map((g) => (
-                <Row
-                  key={g.rep.id}
-                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
-                  right={fmt(g.rep.menu_item_price * g.count)}
-                />
-              ))}
-            </Section>
-          )}
+              {/* ── Hình thức thu ──
+                  Không được thu chuyển khoản thì ẨN HẲN hai nút kia (chủ quán chọn 2026-09-14), và
+                  khi đó cả hàng nút này cũng không còn nghĩa lý gì — còn đúng một lựa chọn thì bày
+                  ra một hàng nút chỉ tổ làm người ta bấm thử. */}
+              {canCollectTransfer && (
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
+                  <div className="pay-modes">
+                    <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
+                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
+                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+                  </div>
+                </div>
+              )}
 
-          {activeItems.length > 0 && (
-            <Section title={`⚠ ${activeUnits} món CHƯA MANG RA`} color="#f59e0b" subtitle="(vẫn tính tiền)">
-              {groupUnits(activeItems).map((g) => (
-                <Row
-                  key={g.rep.id}
-                  left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
-                  right={fmt(g.rep.menu_item_price * g.count)}
-                />
-              ))}
-            </Section>
-          )}
-
-          {cancelledItems.length > 0 && (
-            <Section title={`Đã huỷ (${cancelledItems.length})`} color="#6b7280" subtitle="(không tính tiền)">
-              {groupUnits(cancelledItems).map((g) => (
-                <Row
-                  key={g.rep.id}
-                  left={<span style={{ color: '#6b7280' }}><strong>{g.count}×</strong> {g.rep.menu_item_name}</span>}
-                  right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>}
-                />
-              ))}
-            </Section>
-          )}
-
-          <MisaCheckbox onChange={setMisaCopied} />
-          </>
+              {/* Chi tiết món + Misa CHỈ hiện khi đã chọn Tiền mặt — lúc đó màn này CHÍNH LÀ màn
+                  chốt, và người thu cần soát lại trước khi tiền vào sổ. Chưa chọn gì, hoặc chọn
+                  chuyển khoản, thì màn này chỉ còn đúng một câu hỏi: hai luồng kia có màn chốt
+                  riêng ở phía sau. */}
+              {mode === 'CASH' && (
+                <>
+                  <OrderLines
+                    servedItems={servedItems}
+                    activeItems={activeItems}
+                    cancelledItems={cancelledItems}
+                    activeUnits={activeUnits}
+                  />
+                  <MisaCheckbox onChange={setMisaCopied} />
+                </>
+              )}
+            </>
           )}
         </div>
 
@@ -517,39 +477,35 @@ export function CheckoutDialog({
           <button
             type="button"
             className="secondary"
-            onClick={() => (step === 'bill' ? setStep('form') : onCancel())}
+            onClick={goBack}
             disabled={submitting}
             style={{ flex: 1, minHeight: 44 }}
           >
-            {step === 'bill' ? '← Quay lại' : 'Huỷ'}
+            {step === 'mode' ? 'Huỷ' : '← Quay lại'}
           </button>
           {/* CỐ Ý không dùng thuộc tính `disabled`: nút `disabled` thì trình duyệt KHÔNG bắn sự
               kiện bấm, nên nó không bao giờ nói được vì sao nó mờ — người dùng bấm vào chỗ chết
               và tự đoán. Ở đây nút vẫn nhận bấm, chỉ là bấm thì nghe lý do.
-              `aria-disabled` để trình đọc màn hình vẫn hiểu đúng trạng thái. */}
-          {step === 'bill' ? (
-            /* Bước cuối: đây mới là cú bấm GHI TIỀN. Chữ nói rõ điều đó — "Xác nhận" chung chung
-               thì người ta không biết mình đang xác nhận cái gì. */
-            <button type="button" onClick={submit} disabled={submitting} style={{ flex: 1, minHeight: 44 }}>
-              {submitting ? 'Đang thanh toán…' : 'Xác nhận thu tiền'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={goNext}
-              disabled={submitting}
-              aria-disabled={!!blockReason}
-              title={blockReason ?? undefined}
-              style={{
-                flex: 1,
-                minHeight: 44,
-                opacity: blockReason ? 0.55 : 1,
-                cursor: blockReason ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {submitting ? 'Đang thanh toán…' : 'Thanh toán'}
-            </button>
-          )}
+              `aria-disabled` để trình đọc màn hình vẫn hiểu đúng trạng thái.
+
+              MỘT nút cho cả ba màn (2026-09-15) thay vì mỗi màn một nhánh JSX: chữ và việc nó
+              làm đều suy ra từ `step` (xem `nextLabel` / `goNext`), nên không có đường nào để hai
+              nhánh lệch nhau — bản cũ đã có hai nút và chỉ một trong hai biết tới `blockReason`. */}
+          <button
+            type="button"
+            onClick={goNext}
+            disabled={submitting}
+            aria-disabled={!!blockReason}
+            title={blockReason ?? undefined}
+            style={{
+              flex: 1,
+              minHeight: 44,
+              opacity: blockReason ? 0.55 : 1,
+              cursor: blockReason ? 'not-allowed' : 'pointer',
+            }}
+          >
+            {submitting ? 'Đang thanh toán…' : nextLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -576,6 +532,177 @@ function ModeButton({ active, onClick, label }: { active: boolean; onClick: () =
     <button type="button" className="pay-mode" onClick={onClick} aria-pressed={active}>
       {label}
     </button>
+  );
+}
+
+/**
+ * MÀN 2 — chìa mã cho khách quét (2026-09-15).
+ *
+ * Tách khỏi thân hộp thoại vì nó là MỘT MÀN TRỌN VẸN chứ không còn là một khối trong trang cuộn:
+ * ảnh QR chiếm gần hết chiều ngang và màn hình này được GIƠ SANG cho khách, không phải để người
+ * thu đọc. Đứng riêng thì không có gì khác chen vào giữa lúc đang chìa ra.
+ *
+ * Component THUẦN (không gọi mạng, không đọc context) — dựng lên chụp ảnh kiểm được mà không phải
+ * mở cả hộp thoại rồi bấm qua màn một, cùng lệ với `BillStep`.
+ */
+export function QrStep({
+  options,
+  loadFailed,
+  pickedId,
+  onPick,
+  picked,
+  qrDataUrl,
+  transferAmount,
+  note,
+}: {
+  options: QrOption[];
+  loadFailed: boolean;
+  pickedId: string | null;
+  onPick: (id: string) => void;
+  picked: QrOption | null;
+  qrDataUrl: string | null;
+  transferAmount: number;
+  note: string;
+}) {
+  return (
+    <div>
+      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Chọn mã QR để khách quét</div>
+
+      {loadFailed && (
+        <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
+          Không tải được danh sách mã QR. Vẫn quay lại chọn Tiền mặt để thu được — hoặc thử lại khi
+          có mạng.
+        </div>
+      )}
+
+      {!loadFailed && options.length === 0 && (
+        <div style={{ background: '#f3f4f6', padding: 10, borderRadius: 8, fontSize: 13, color: '#6b7280' }}>
+          Chưa có mã QR nào. Chủ quán thêm ở Cài đặt → Mã QR nhận tiền.
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {options.map((o) => (
+          <button
+            key={o.id}
+            type="button"
+            onClick={() => onPick(o.id)}
+            aria-pressed={pickedId === o.id}
+            style={{
+              padding: '8px 12px',
+              minHeight: 44,
+              borderRadius: 999,
+              border: pickedId === o.id ? '2px solid #0d9488' : '1px solid #e5e7eb',
+              background: pickedId === o.id ? '#f0fdfa' : 'white',
+              color: '#1f2937',
+              fontSize: 14,
+            }}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+
+      {picked && (
+        <div style={{ marginTop: 12, textAlign: 'center' }}>
+          {/* QR to hết chiều ngang: màn này được GIƠ RA cho khách quét bằng điện thoại của
+              họ, không phải để nhân viên đọc. */}
+          {picked.kind === 'BANK' && qrDataUrl && (
+            <img
+              src={qrDataUrl}
+              alt="Mã QR chuyển khoản"
+              style={{ width: '100%', maxWidth: 300, aspectRatio: '1', background: 'white' }}
+            />
+          )}
+          {picked.kind === 'IMAGE' && picked.image_url && (
+            <img
+              src={picked.image_url}
+              alt="Mã QR"
+              style={{ width: '100%', maxWidth: 300, background: 'white' }}
+            />
+          )}
+          {picked.kind === 'BANK' && !qrDataUrl && (
+            <div style={{ fontSize: 13, color: '#dc2626' }}>
+              Không dựng được mã QR cho tài khoản này — kiểm lại mã ngân hàng ở Cài đặt.
+            </div>
+          )}
+
+          <div style={{ marginTop: 8, fontSize: 15 }}>
+            <div style={{ fontWeight: 700, fontSize: 20, color: '#0f766e' }}>{fmt(transferAmount)}</div>
+            {picked.kind === 'BANK' ? (
+              <>
+                <div style={{ color: '#4b5563' }}>
+                  {picked.bank_name} · {picked.account_no}
+                </div>
+                <div style={{ color: '#4b5563' }}>{picked.account_name}</div>
+                {/* Nội dung to và rõ: khách hay gõ tay lại thay vì để app điền sẵn. */}
+                <div style={{ marginTop: 6, fontWeight: 700, letterSpacing: 0.5 }}>{note}</div>
+              </>
+            ) : (
+              <div style={{ color: '#92400e', fontSize: 13, marginTop: 4 }}>
+                Mã ảnh không kèm được số tiền — nhắc khách gõ {fmt(transferAmount)} và nội
+                dung “{note}”.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Ba nhóm món của bill — giữ nguyên bố cục hộp thoại cũ, chỉ gom lại thành một component vì từ
+ *  2026-09-15 nó xuất hiện ở HAI màn chốt khác nhau (tiền mặt chốt ở màn 1, chuyển khoản chốt ở
+ *  màn bill). Chép đôi thì sẽ có ngày hai bản bill không giống nhau. */
+function OrderLines({
+  servedItems,
+  activeItems,
+  cancelledItems,
+  activeUnits,
+}: {
+  servedItems: ItemLike[];
+  activeItems: ItemLike[];
+  cancelledItems: ItemLike[];
+  activeUnits: number;
+}) {
+  return (
+    <>
+      {servedItems.length > 0 && (
+        <Section title="✓ Đã giao (tính tiền)" color="#059669">
+          {groupUnits(servedItems).map((g) => (
+            <Row
+              key={g.rep.id}
+              left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
+              right={fmt(g.rep.menu_item_price * g.count)}
+            />
+          ))}
+        </Section>
+      )}
+
+      {activeItems.length > 0 && (
+        <Section title={`⚠ ${activeUnits} món CHƯA MANG RA`} color="#f59e0b" subtitle="(vẫn tính tiền)">
+          {groupUnits(activeItems).map((g) => (
+            <Row
+              key={g.rep.id}
+              left={<><strong>{g.count}×</strong> {g.rep.menu_item_name}</>}
+              right={fmt(g.rep.menu_item_price * g.count)}
+            />
+          ))}
+        </Section>
+      )}
+
+      {cancelledItems.length > 0 && (
+        <Section title={`Đã huỷ (${cancelledItems.length})`} color="#6b7280" subtitle="(không tính tiền)">
+          {groupUnits(cancelledItems).map((g) => (
+            <Row
+              key={g.rep.id}
+              left={<span style={{ color: '#6b7280' }}><strong>{g.count}×</strong> {g.rep.menu_item_name}</span>}
+              right={<span style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</span>}
+            />
+          ))}
+        </Section>
+      )}
+    </>
   );
 }
 
