@@ -82,11 +82,11 @@ const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
     () => import('./pages/KitchenPage.tsx'),
   ],
   order: [() => import('./pages/OrdersPage.tsx'), () => import('./pages/OnlineOrdersPage.tsx')],
-  kitchen: [
-    () => import('./pages/KitchenPage.tsx'),
-    () => import('./pages/OnlineOrdersPage.tsx'),
-    () => import('./pages/OrdersPage.tsx'),
-  ],
+  // Bếp: KHÔNG kéo sẵn Đơn online nữa (2026-09-15). Chunk đó 62 KB, gấp 3 lần chính màn Bếp, và
+  // trên 4G nó chiếm đường truyền ~1 giây đúng lúc màn Bếp đang tải dữ liệu lần đầu. Bếp vẫn
+  // vào được Đơn online, chỉ là lần bấm đầu tiên mới tải — việc đó vài lần một ca, không đáng
+  // đổi lấy màn chính chậm ở mọi lần mở app.
+  kitchen: [() => import('./pages/KitchenPage.tsx'), () => import('./pages/OrdersPage.tsx')],
   // Báo cáo: 3 màn duy nhất role này vào được ngoài Dashboard (màn đầu tiên, đã tải sẵn) và
   // Tài khoản. KHÔNG kéo OrdersPage/KitchenPage — role này bị chặn ở cửa hai màn đó.
   report: [
@@ -271,7 +271,15 @@ function ProtectedShell() {
    */
   useEffect(() => {
     if (!role) return;
-    const run = () => PREFETCH_BY_ROLE[role].forEach((load) => void load().catch(() => {}));
+    // TUẦN TỰ từng chunk, không bắn cả loạt: ba chunk cùng lúc trên 4G giành băng thông với
+    // chính dữ liệu của màn đang mở (đo 2026-09-14: lúc màn Bếp mở, các chunk kéo sẵn chiếm
+    // ~1 giây đường truyền). Một chunk hỏng thì bỏ qua và kéo tiếp chunk sau.
+    const run = () => {
+      void PREFETCH_BY_ROLE[role].reduce<Promise<unknown>>(
+        (chain, load) => chain.then(() => load().catch(() => {})),
+        Promise.resolve(),
+      );
+    };
     // `typeof window.requestIdleCallback` chứ KHÔNG dùng `'requestIdleCallback' in window`: lib.dom
     // khai hàm này là luôn có, nên `in` làm TS thu hẹp nhánh dưới thành `never` rồi báo
     // "Property 'setTimeout' does not exist on type 'never'". Kiểm typeof chỉ thu hẹp thuộc tính đó.
