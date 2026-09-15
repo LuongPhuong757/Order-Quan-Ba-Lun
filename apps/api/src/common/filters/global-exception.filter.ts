@@ -34,6 +34,11 @@ const FRIENDLY_VN: Record<string, string> = {
   NOT_FOUND: 'Không tìm thấy.',
   CONFLICT: 'Dữ liệu xung đột.',
   INTERNAL_ERROR: 'Có lỗi xảy ra, thử lại sau ít phút nhé.',
+  // Ảnh/file vượt trần dung lượng. Ở ĐÂY thì được phép nằm trong dict — khác `TRANSFER_EXCEEDS_TOTAL`,
+  // câu này không cần nội suy số liệu gì, mà thứ nó thay thế là câu tiếng Anh "File too large"
+  // do Nest sinh ra. Điều người dùng cần là biết phải làm gì tiếp, chứ không phải con số byte.
+  FILE_TOO_LARGE:
+    'Ảnh quá nặng so với giới hạn cho phép. Chụp lại ở chế độ thường (không phải độ phân giải cao nhất), hoặc chọn ảnh nhỏ hơn.',
 };
 
 @Catch()
@@ -78,16 +83,6 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           );
         }
       }
-    } else if (isMulterLimitError(exception)) {
-      /* Multer ném `MulterError` — KHÔNG phải `HttpException`, nên nếu để rơi xuống nhánh dưới
-         thì nó thành 500 "Có lỗi xảy ra, thử lại sau ít phút nhé". Người dùng chụp một tấm ảnh
-         quá nặng rồi thử đi thử lại mãi, vì câu đó không nói gì về tấm ảnh.
-         Gặp thật 2026-09-15 trên server dev: iPhone chụp 48MP ra file hơn 12MB. */
-      status = HttpStatus.PAYLOAD_TOO_LARGE;
-      code = 'FILE_TOO_LARGE';
-      message =
-        'Ảnh quá nặng so với giới hạn cho phép. Chụp lại ở chế độ thường (không phải độ phân giải cao nhất), hoặc chọn ảnh nhỏ hơn.';
-      this.logger.warn(`Upload bị chặn vì quá cỡ tại ${req.method} ${req.url}`);
     } else if (exception instanceof Error) {
       message = exception.message;
       this.logger.error(exception.stack);
@@ -130,21 +125,15 @@ function mapStatusToCode(status: number): string {
       return 'CONFLICT';
     case 422:
       return 'VALIDATION_FAILED';
+    case 413:
+      // Nest BỌC `MulterError` thành `PayloadTooLargeException` trước khi exception tới filter
+      // này, nên không thể nhận dạng nó bằng `instanceof MulterError` — status là thứ duy nhất
+      // còn lại để nhận ra. Thiếu case này thì ảnh quá nặng rơi vào `default` và người dùng đọc
+      // "Có lỗi xảy ra, thử lại sau ít phút nhé" (gặp thật 2026-09-15 trên server dev).
+      return 'FILE_TOO_LARGE';
     case 429:
       return 'AUTH_RATE_LIMITED';
     default:
       return 'INTERNAL_ERROR';
   }
-}
-
-/** `MulterError` với `code = 'LIMIT_FILE_SIZE'`. Nhận dạng theo hình dạng thay vì `instanceof`:
- *  import kiểu lỗi của multer vào đây là kéo cả thư viện upload vào tầng xử lý lỗi chung, trong
- *  khi thứ cần biết chỉ là hai chữ. */
-function isMulterLimitError(e: unknown): boolean {
-  return (
-    typeof e === 'object' &&
-    e !== null &&
-    (e as { name?: string }).name === 'MulterError' &&
-    (e as { code?: string }).code === 'LIMIT_FILE_SIZE'
-  );
 }
