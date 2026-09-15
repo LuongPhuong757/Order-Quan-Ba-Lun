@@ -3,7 +3,6 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
-import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
 import { Select } from '../components/Select.tsx';
@@ -61,12 +60,10 @@ export function MenuManagementPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showGroupsManager, setShowGroupsManager] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  // Màn "Menu xem" (2026-09-04) — sắp món cho quyển menu ở menu.<domain>. Mở dạng hộp thoại
-  // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
-  // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
-  const [showMenuBook, setShowMenuBook] = useState(false);
-  // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như 3 màn trên: khai công thức là
-  // việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
+  // Màn "Menu xem" (2026-09-04) đã GỠ 2026-09-15 (M4.D-36): quyển menu ở menu.<domain> nay
+  // hiện đúng danh sách + thứ tự POS, không còn gì để cấu hình riêng.
+  // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như "Nhóm"/"Import": khai công thức
+  // là việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
   const [showIngredients, setShowIngredients] = useState(false);
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
@@ -202,11 +199,6 @@ export function MenuManagementPage() {
           {canManage && (
             <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
               📥 Import
-            </button>
-          )}
-          {canManage && (
-            <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
-              📖 Menu xem
             </button>
           )}
           {canManage && (
@@ -474,17 +466,6 @@ export function MenuManagementPage() {
           groups={groups}
           onClose={() => setShowImport(false)}
           onImported={() => { setShowImport(false); refresh({ silent: true }); }}
-        />
-      )}
-      {/* `refresh()` khi đóng: màn Menu xem có sửa `is_menu_hidden`/`menu_sort_order` của
-          món, mà lưới phía sau đang giữ bản cũ trong state — không tải lại thì hai màn nói
-          hai chuyện khác nhau về cùng một món. */}
-      {showMenuBook && (
-        <MenuBookPanel
-          onClose={() => {
-            setShowMenuBook(false);
-            refresh({ silent: true });
-          }}
         />
       )}
       {/* KHÔNG refresh() khi đóng: panel nguyên liệu không đụng tới bảng `menu_items`, nên tải

@@ -90,58 +90,55 @@ export class PublicMenuController {
   }
 
   /**
-   * GET /api/public/menu-book — quyển menu điện tử ở `menu.<domain>` (2026-09-04).
+   * GET /api/public/menu-book — quyển menu điện tử ở `menu.<domain>` và `/thuc-don`, nay cũng
+   * là màn khách tự gọi món tại bàn bằng QR (M4).
    *
-   * KHÁC `/api/public/menu` ở đúng 3 điểm, và cả 3 đều là cố ý:
+   * QUY TẮC DUY NHẤT (M4.D-36, chủ quán chốt 2026-09-15): món nào nhân viên gọi được ở POS
+   * thì khách thấy được ở đây — không hơn, không kém. KHÔNG còn màn cấu hình riêng cho quyển
+   * menu: màn "Menu xem" (2026-09-04) cùng cờ `is_menu_hidden` (món + nhóm) và cột
+   * `menu_sort_order` đã bị gỡ khỏi giao diện lẫn API ghi. Ba cột đó vẫn nằm trong entity
+   * nhưng endpoint này KHÔNG đọc chúng nữa — xem docblock ở entity vì sao chưa xoá cột.
    *
-   * 1. BỎ QUA `is_online_hidden` (cả nhóm lẫn món). Đây là quyển menu để khách NGẮM, không
-   *    phải web đặt hàng: món quán chỉ bán tại chỗ, món cồng kềnh không ship được, món chỉ
-   *    bán cho khách ngồi bàn — tất cả vẫn phải có mặt. Cờ quyết định ở đây là
-   *    `is_menu_hidden`, một cờ hoàn toàn riêng.
-   * 2. Sắp theo `menu_sort_order` (chủ quán kéo thả), rớt về tên khi cả nhóm còn 0.
-   * 3. ~~`Cache-Control: public, max-age=60`~~ → **`no-store` từ 2026-09-11**. Lý do của
-   *    cache đã mất hiệu lực: trang này nay LÀ màn gọi món tại bàn (M4 — mã QR trong quán
-   *    trỏ thẳng vào `/thuc-don`, khách cộng món ngay trên dòng món). Giá trễ một phút trên
-   *    một trang có nút đặt món nghĩa là khách chọn theo giá cũ rồi bill ra giá khác — đúng
-   *    loại tranh cãi ở quầy mà không ai muốn. Đổi lại quán ~600 món phải tải lại mỗi lần
-   *    vào trang; chấp nhận, vì `/menu` của web đặt hàng cũng `no-store` với cùng lý do.
+   * Vì sao bỏ màn cấu hình: khách quét QR mà không thấy món nhân viên vẫn bán được thì khách
+   * đi hỏi nhân viên — đúng cái việc M4 sinh ra để giảm. Một nguồn sự thật (POS) thì không có
+   * ca "màn này nói một đằng, màn kia nói một nẻo". Nhóm không phải đồ ăn (cược tiền, ứng
+   * tiền, mục ngoài quán...) cũng hiện — chủ quán chấp nhận; nhân viên soát ở preview trước
+   * khi đổ vào bàn (M4.D-17) nên dòng lạ không tự vào bill được.
+   *
+   * KHÁC `/api/public/menu` ở hai điểm, đều cố ý:
+   *
+   * 1. BỎ QUA `is_online_hidden` (cả nhóm lẫn món). Đó là cờ của web đặt hàng ship; món chỉ
+   *    bán tại chỗ vẫn phải gọi được tại bàn.
+   * 2. Sắp Y NHƯ màn gọi món của nhân viên (`BulkOrderModal`): nhóm theo `sort_order` (thứ
+   *    tự CHUNG, chủ quán kéo thả ở hộp "Thứ tự nhóm"), món trong nhóm theo tên.
+   *
+   * `Cache-Control: no-store` từ 2026-09-11: trang này có nút đặt món, giá trễ một phút là
+   * khách chọn theo giá cũ rồi bill ra giá khác.
    *
    * GIỐNG `/api/public/menu` ở chỗ quan trọng nhất: đi qua ĐÚNG mapper whitelist 7 field
    * (`toPublicMenuItem`), nên mọi cột nội bộ thêm vào `menu_items` sau này vẫn không lọt.
-   * Endpoint CHỈ ĐỌC — không có nhánh ghi nào, không đụng session/cookie của khách.
-   *
-   * Nhóm rỗng vẫn bị bỏ (không có trang trắng), và món mồ côi vẫn gom vào "Khác" — hai lệ
-   * này giữ nguyên vì lý do của chúng không đổi.
+   * Endpoint CHỈ ĐỌC. Nhóm rỗng vẫn bị bỏ (không có trang trắng), món mồ côi vẫn gom vào
+   * "Khác" — không bao giờ được rơi mất món.
    */
   @Get('menu-book')
   @Header('Cache-Control', 'no-store')
   async getMenuBook(): Promise<ApiOk<PublicMenuResponse>> {
     const [groups, items] = await Promise.all([
       this.groupRepo.find({
-        where: { is_active: true, is_menu_hidden: false },
+        where: { is_active: true },
         order: { sort_order: 'ASC', name: 'ASC' },
       }),
       this.itemRepo.find({
-        where: { is_active: true, is_menu_hidden: false },
-        order: { menu_sort_order: 'ASC', name: 'ASC' },
+        where: { is_active: true },
+        order: { name: 'ASC' },
       }),
     ]);
 
-    // Nhóm bị ẩn khỏi menu xem đã bị loại ngay ở truy vấn trên, nên món của nó KHÔNG được
-    // rơi vào nhánh mồ côi mà hồi sinh trong "Khác" — chặn bằng danh sách mã nhóm còn sống
-    // lấy từ toàn bộ nhóm active (kể cả nhóm đang ẩn), giống hệt cách `/menu` làm.
-    const visibleGroupCodes = new Set(groups.map((g) => g.code));
-    const hiddenGroupCodes = new Set(
-      (await this.groupRepo.find({ where: { is_active: true, is_menu_hidden: true } })).map(
-        (g) => g.code,
-      ),
-    );
-
+    const activeGroupCodes = new Set(groups.map((g) => g.code));
     const itemsByGroupCode = new Map<string, MenuItem[]>();
     const orphanItems: MenuItem[] = [];
     for (const item of items) {
-      if (hiddenGroupCodes.has(item.group)) continue;
-      if (!visibleGroupCodes.has(item.group)) {
+      if (!activeGroupCodes.has(item.group)) {
         orphanItems.push(item);
         continue;
       }

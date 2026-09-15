@@ -44,16 +44,16 @@ export class MenuItem {
   @Column({ type: 'boolean', default: false })
   is_online_hidden!: boolean;
 
-  // Ẩn khỏi TRANG MENU XEM (menu.<domain>, 2026-09-04) — cờ thứ tư, độc lập hoàn toàn
-  // với 3 cờ trên. Trang menu xem là quyển menu điện tử để khách ngắm món, KHÔNG phải
-  // web đặt hàng: món quán chỉ bán tại chỗ (không ship) vẫn phải khoe được ở đó.
-  // Vì vậy `/api/public/menu-book` CỐ Ý bỏ qua `is_online_hidden` và chỉ đọc cờ này.
+  // ⚠ KHÔNG CÒN DÙNG từ 2026-09-15 (M4.D-36). Từng là cờ "ẩn khỏi quyển menu xem"
+  // (2026-09-04); nay quyển menu hiện đúng danh sách POS, không đọc cờ này, và màn "Menu
+  // xem" đã gỡ. CỘT VẪN GIỮ vì `synchronize: true` trên DB dev DÙNG CHUNG giữa các worktree:
+  // bỏ khỏi entity ở nhánh này là DROP cột thật, nhánh khác còn đọc nó sẽ đổ "Unknown
+  // column". Xoá cột là việc riêng, làm sau khi mọi nhánh đều không còn tham chiếu.
   @Column({ type: 'boolean', default: false })
   is_menu_hidden!: boolean;
 
-  // Thứ tự món trong nhóm trên trang menu xem. Chủ quán kéo thả ở tab "Menu xem".
-  // Mặc định 0 cho MỌI món cũ — khi cả nhóm cùng 0 thì truy vấn rơi về sắp theo tên,
-  // tức là menu vẫn có thứ tự hợp lý ngay cả khi chưa ai vào kéo thả lần nào.
+  // ⚠ KHÔNG CÒN DÙNG từ 2026-09-15 (M4.D-36). Từng là thứ tự kéo thả trên quyển menu xem;
+  // nay quyển menu sắp món theo tên y như POS. Giữ cột cùng lý do với `is_menu_hidden` ngay trên.
   @Column({ type: 'int', default: 0 })
   menu_sort_order!: number;
 

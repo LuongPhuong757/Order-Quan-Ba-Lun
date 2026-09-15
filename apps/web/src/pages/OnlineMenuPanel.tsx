@@ -34,9 +34,9 @@ type MenuRow = {
   is_online_hidden: boolean;
 };
 
-// Export (2026-09-04) để màn "Menu xem" (`MenuBookPanel.tsx`) dùng lại `ReorderGroupsModal`
-// bên dưới thay vì dựng thêm một hộp sắp thứ tự nhóm thứ hai: `sort_order` là thứ tự CHUNG
-// (web đặt hàng, quyển menu, dải chip POS đều đọc nó), nên hai hộp riêng là hai chỗ để lệch.
+// Export (2026-09-04) — từng để màn "Menu xem" dùng lại `ReorderGroupsModal`; màn đó đã gỡ
+// 2026-09-15 (M4.D-36) nhưng export giữ nguyên, vô hại. `sort_order` là thứ tự CHUNG: web đặt
+// hàng, quyển menu ở menu.<domain>, dải chip POS đều đọc nó — sửa ở đây là sửa cả ba.
 export type GroupRow = {
   id: string;
   code: string;
@@ -509,9 +509,9 @@ export function OnlineMenuPanel() {
 // `sort_order` là thứ tự CHUNG của nhóm (web khách + dải chip POS đều đọc nó) — đổi ở đây
 // là đổi cả hai, không có thứ tự riêng cho online. Lưu bằng cách đánh lại sort_order
 // tuần tự 0..n-1 và chỉ PATCH những nhóm có giá trị đổi (dữ liệu cũ hay dồn cục 999).
-// Generic theo `T` (2026-09-04): màn "Menu xem" truyền vào nhóm có thêm cờ `is_menu_hidden`,
-// và cần nhận LẠI đúng kiểu đó ở `onSaved` — nếu chốt cứng `GroupRow[]` thì cờ kia rụng mất
-// khỏi kiểu trả về và bên gọi phải đi ghép lại bằng tay theo id.
+// Generic theo `T` (2026-09-04): bên gọi truyền nhóm có thêm field riêng thì nhận LẠI đúng
+// kiểu đó ở `onSaved` — chốt cứng `GroupRow[]` là field kia rụng khỏi kiểu trả về. (Bên gọi
+// đầu tiên là màn "Menu xem", đã gỡ 2026-09-15; generic giữ vì không tốn gì.)
 export function ReorderGroupsModal<T extends GroupRow>({
   groups,
   onClose,

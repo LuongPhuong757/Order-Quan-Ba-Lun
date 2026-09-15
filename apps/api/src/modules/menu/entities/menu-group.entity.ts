@@ -36,10 +36,10 @@ export class MenuGroup {
   @Column({ type: 'boolean', default: false })
   is_online_hidden!: boolean;
 
-  // Ẩn CẢ NHÓM khỏi trang menu xem (2026-09-04). Song song với `is_online_hidden` nhưng
-  // cho một mặt trận khác: nhóm có thể không bán online mà vẫn muốn in trong menu, và
-  // ngược lại (vd nhóm "Combo nhân viên" bán online cho khách quen nhưng không khoe).
-  // Cờ riêng của TỪNG MÓN giữ nguyên khi bật/tắt cờ này — giống hệt lệ của nhóm online.
+  // ⚠ KHÔNG CÒN DÙNG từ 2026-09-15 (M4.D-36). Từng là cờ "ẩn cả nhóm khỏi quyển menu xem"
+  // (2026-09-04); nay quyển menu hiện đúng danh sách nhóm POS. Cột giữ lại vì `synchronize`
+  // trên DB dev dùng chung giữa các worktree — bỏ khỏi entity là DROP cột thật, nhánh khác
+  // đổ "Unknown column". Xem thêm docblock cùng tên ở `MenuItem`.
   @Column({ type: 'boolean', default: false })
   is_menu_hidden!: boolean;
 
