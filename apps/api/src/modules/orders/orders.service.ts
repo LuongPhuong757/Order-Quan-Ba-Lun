@@ -561,19 +561,22 @@ export class OrdersService {
     return Number(rows[0]?.c ?? 0);
   }
 
-  /** `table_id` của mọi bàn còn đơn CHƯA THANH TOÁN — cho màn Chuyển bàn biết bàn nào không nhận.
+  /** `table_id` của mọi bàn ĐANG CÓ KHÁCH — cho màn Chuyển bàn biết bàn nào không nhận.
    *
-   * KHÔNG dùng chung với `listOpenOrders()`: cái đó lọc bỏ đơn rỗng / huỷ sạch món (đúng cho sơ
-   * đồ bàn), còn `transferTable` chặn theo `closed_at IS NULL` — chỉ bàn TRỐNG HẲN mới nhận
-   * chuyển. Lấy nhầm danh sách kia là màn Chuyển bàn hiện bàn bấm được mà bấm vào thì server
-   * chặn, nhân viên không hiểu vì sao.
+   * ĐỊNH NGHĨA PHẢI KHỚP `listOpenOrders()` (sơ đồ bàn) và `transferTable`: cả ba cùng đo bằng
+   * `HAS_ALIVE_ITEMS_SQL`. Bản đầu ở đây lọc rộng hơn (`closed_at IS NULL` trần) để khớp mức
+   * chặn cũ của `transferTable`, và đó chính là đường sinh bug 2026-09-15: tap nhầm vào bàn là
+   * `getOrCreateOpenOrder` tạo đơn RỖNG ngay (xem `seated-at.ts`), mà đơn rỗng KHÔNG BAO GIỜ
+   * được niêm — mốc bàn treo 4 giờ chỉ dời `opened_at` rồi dùng lại chính dòng đó. Bàn vì thế
+   * hiện TRỐNG trên sơ đồ nhưng vĩnh viễn không nhận chuyển bàn, và lối thoát mà câu lỗi chỉ ra
+   * ("huỷ bàn đó trước") thì `cancelWholeTable` lại từ chối vì không có món nào để huỷ.
    */
   async listOpenOrderTableIds(): Promise<string[]> {
-    const rows = await this.orderRepo.find({
-      where: { closed_at: IsNull() },
-      select: ['table_id'],
-    });
-    return [...new Set(rows.map((r) => r.table_id))];
+    const rows: Array<{ table_id: string }> = await this.ds.query(
+      `SELECT DISTINCT o.table_id FROM orders o
+        WHERE o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`,
+    );
+    return rows.map((r) => r.table_id);
   }
 
   /** Đếm số MÓN đang nằm ở cột "Đã order" của màn Bếp — cho badge trên nút "Bếp" ở nav dưới.
@@ -1914,6 +1917,11 @@ export class OrdersService {
       let srcTableName = '';
       let movedCount = 0;
       let srcOpenedAt = 0;
+      // Đơn của bàn đích đã bị niêm "Đã huỷ" để nhường chỗ (nhánh huỷ sạch món) — ghi nhật ký
+      // cho nó sau khi commit, cùng lệ với `getOrCreateOpenOrder`.
+      let sealedDestId: string | null = null;
+      // Bàn đích dùng lại đơn rỗng sẵn có thay vì mở đơn mới — chỉ để ghi log chẩn đoán.
+      let reusedEmptyDest = false;
       const dest = await this.ds.transaction(async (mgr) => {
         const orderRepo = mgr.getRepository(Order);
         const itemRepo = mgr.getRepository(OrderItem);
@@ -1942,37 +1950,79 @@ export class OrdersService {
 
         let dest = await orderRepo.findOne({ where: { table_id: dest_table_id, closed_at: IsNull() } });
 
-        // CHỈ ĐƯỢC CHUYỂN SANG BÀN TRỐNG (2026-09-14, chủ quán). Bàn đích còn BẤT KỲ đơn nào chưa
-        // thanh toán → chặn, không gộp.
+        // CHỈ ĐƯỢC CHUYỂN SANG BÀN TRỐNG (2026-09-14, chủ quán). "Trống" đo bằng
+        // `HAS_ALIVE_ITEMS_SQL` — CÙNG định nghĩa với sơ đồ bàn (`listOpenOrders`), badge nav và
+        // `listOpenOrderTableIds`.
         //
-        // Trước đây dồn thẳng món vào đơn đang chạy của bàn đích: hai nhóm khách thành MỘT bill và
-        // không có đường tách ra (API chỉ chuyển cả đơn, không chuyển lẻ món), nhật ký bàn đích mọc
-        // thêm dòng "Mở đơn mới" của bàn nguồn nên đọc như bàn mở hai lần.
+        // Cái bị chặn là GỘP BILL: trước đây món dồn thẳng vào đơn đang chạy của bàn đích, hai
+        // nhóm khách thành MỘT bill và không có đường tách ra (API chỉ chuyển cả đơn, không
+        // chuyển lẻ món), nhật ký bàn đích lại mọc thêm dòng "Mở đơn mới" của bàn nguồn nên đọc
+        // như bàn mở hai lần.
         //
-        // Ranh giới là `closed_at IS NULL` — đơn chưa kết, KHÔNG phải `HAS_ALIVE_ITEMS_SQL` như bản
-        // đầu. Hai định nghĩa lệch nhau đúng ở đơn rỗng / đã huỷ sạch món, và chủ quán chốt là phải
-        // trống hẳn mới nhận. Câu lỗi tách hai đường vì hai đường xử lý khác hẳn nhau: bàn còn món
-        // thì đi THANH TOÁN, bàn chỉ có đơn rỗng thì chẳng có gì để thu — phải huỷ bàn đó đi, nói
-        // "thanh toán trước" là chỉ nhân viên đi vào ngõ cụt.
+        // Bản 2026-09-14 chặn theo `closed_at IS NULL` trần, rộng hơn hẳn ý định trên, và sinh
+        // bug 2026-09-15: tap nhầm vào bàn là có đơn RỖNG nằm lại vĩnh viễn (xem
+        // `listOpenOrderTableIds`), bàn đó hiện TRỐNG trên sơ đồ mà không bao giờ nhận chuyển
+        // bàn; lối thoát mà câu lỗi chỉ ra ("huỷ bàn đó trước") không tồn tại — `cancelWholeTable`
+        // từ chối đơn không có món. Nay đơn không còn món sống KHÔNG phải là bàn có khách, xử lý
+        // theo 2 đường ngay dưới (chốt chủ quán 2026-09-15).
         if (dest) {
           const rows = (await mgr.query(
             `SELECT ${HAS_ALIVE_ITEMS_SQL} AS alive FROM orders o WHERE o.id = ?`,
             [dest.id],
           )) as Array<{ alive: number | string }>;
-          const hasItems = Number(rows[0]?.alive) === 1;
-          throw new ConflictException({
-            code: 'DEST_TABLE_OCCUPIED',
-            message: hasItems
-              ? `${destTable.name} chưa thanh toán — hãy thanh toán ${destTable.name} trước rồi ` +
-                `mới chuyển bàn sang được. Chỉ chuyển sang bàn trống.`
-              : `${destTable.name} đang có đơn mở (chưa gọi món nào) — huỷ bàn đó trước rồi mới ` +
-                `chuyển sang được. Chỉ chuyển sang bàn trống.`,
-          });
+          if (Number(rows[0]?.alive) === 1) {
+            throw new ConflictException({
+              code: 'DEST_TABLE_OCCUPIED',
+              message:
+                `${destTable.name} chưa thanh toán — hãy thanh toán ${destTable.name} trước rồi ` +
+                `mới chuyển bàn sang được. Chỉ chuyển sang bàn trống.`,
+            });
+          }
+
+          // Đơn ĐÃ GỌI RỒI HUỶ HẾT: niêm "Đã huỷ" rồi mở đơn mới bên dưới — KHÔNG dùng lại dòng
+          // đó. Món đã huỷ của lượt trước là vết chống gian lận (xem HAS_ANY_ITEM_SQL) và phải
+          // nằm lại lịch sử ở đúng lượt của nó, không được trộn vào bill của nhóm khách chuyển
+          // sang. Đây đúng cách `getOrCreateOpenOrder` xử lý bàn treo đã huỷ sạch món.
+          const destItemsEver = await itemRepo.count({ where: { order_id: dest.id } });
+          if (destItemsEver > 0) {
+            await sealAsCancelled(orderRepo, dest, actor);
+            sealedDestId = dest.id;
+            dest = null;
+          }
         }
 
-        // Tới đây bàn đích chắc chắn TRỐNG → luôn tạo đơn mới, copy snapshot từ src để giữ
-        // context (first_kitchen_at, customer info).
-        {
+        if (dest) {
+          // ĐƠN RỖNG (0 món, chỉ là lần tap nhầm mở drawer): DÙNG LẠI chính dòng đó, chỉ nạp lại
+          // context từ đơn nguồn. Không xoá rồi tạo mới vì nhật ký móc theo `order_id` — xoá là
+          // mất vết lần mở đó, mà chủ quán đã chốt phải giữ log (cùng lý do với nhánh bàn treo
+          // rỗng trong `getOrCreateOpenOrder`).
+          //
+          // GIỜ VÀO ĂN lấy của đơn NGUỒN, tức giờ MÓN ĐẦU TIÊN được gọi — `opened_at` của đơn
+          // nguồn đã được `stampSeatedAtOnFirstItem` dời về đúng mốc đó. Giờ tap nhầm bên bàn
+          // đích bị ghi đè, đúng như mọi chỗ khác trong app hiểu "giờ vào ăn".
+          dest.opened_at = src.opened_at;
+          dest.first_kitchen_at = src.first_kitchen_at;
+          dest.created_by_user_id = src.created_by_user_id;
+          dest.created_by_full_name = src.created_by_full_name;
+          dest.customer_name = destTable.kind === 'delivery' ? src.customer_name : null;
+          dest.customer_address = destTable.kind === 'delivery' ? src.customer_address : null;
+          dest.customer_phone = destTable.kind === 'delivery' ? src.customer_phone : null;
+          await orderRepo.save(dest);
+
+          // Nhật ký SẴN CÓ của đơn rỗng (dòng "Mở đơn mới" của lần tap nhầm) phải khớp mốc vừa
+          // dời: `order_opened_at` là snapshot dùng để tách các lượt khách trên cùng một bàn, để
+          // nguyên là các dòng đó trỏ về một mốc không còn tồn tại.
+          await mgr
+            .getRepository(OrderActivityLog)
+            .createQueryBuilder()
+            .update()
+            .set({ order_opened_at: dest.opened_at })
+            .where('order_id = :did', { did: dest.id })
+            .execute();
+          reusedEmptyDest = true;
+        } else {
+          // Bàn đích không có đơn nào (hoặc vừa niêm đơn huỷ sạch món ở trên) → tạo đơn mới, copy
+          // snapshot từ src để giữ context (first_kitchen_at, customer info).
           dest = orderRepo.create({
             table_id: dest_table_id,
             table_code: destTable.code,
@@ -2038,12 +2088,29 @@ export class OrdersService {
 
         this.logger.log(
           `transferTable: src=${source_order_id} (${srcItemCount} items, deleted) → dest=${dest.id} ` +
-          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}`,
+          `(table ${destTable.code}, ${destItemCount} items total), moved=${moved}, ` +
+          `destMode=${reusedEmptyDest ? 'reuse-empty' : sealedDestId ? 'sealed-cancelled+new' : 'new'}`,
         );
 
         const refreshed = await orderRepo.findOne({ where: { id: dest.id }, relations: ['items'] });
         return refreshed!;
       });
+
+      // Đơn cũ của bàn đích (đã gọi rồi huỷ hết) vừa bị niêm để nhường chỗ — nói rõ lý do niêm,
+      // không thì dòng "Đã huỷ" đó trong lịch sử không có ai giải thích.
+      if (sealedDestId) {
+        const sealedSnap = await this.orderSnapshot(sealedDestId);
+        if (sealedSnap) {
+          await this.writeActivity({
+            order: sealedSnap,
+            event_kind: 'order_cancelled',
+            message:
+              `Bàn đã huỷ hết món trước đó — kết đơn ở trạng thái Đã huỷ để nhận chuyển bàn từ ` +
+              `${srcTableName}`,
+            actor,
+          });
+        }
+      }
 
       // Log "chuyển món" trên đơn ĐÍCH (post-commit). Đơn nguồn đã bị xoá.
       await this.writeActivity({
