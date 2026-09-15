@@ -22,6 +22,7 @@ import { NotificationBell } from '../components/NotificationBell.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor, formatAge } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
+import { shouldReloadCatalog, type CatalogPollState } from '../lib/kds-catalog-poll.ts';
 import {
   addCancelled,
   describeCancelled,
@@ -335,15 +336,50 @@ export function KitchenPage() {
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
+  /** Mốc của DANH MỤC (menu + nhóm + bàn) đang hiển thị — xem `shouldReloadCatalog`. */
+  const catalogRef = useRef<CatalogPollState>({ version: null, loadedAt: 0 });
+
+  /** Tải danh mục: menu đầy đủ + nhóm bếp + tên bàn. Trước 2026-09-15 ba request này chạy
+   * CÙNG nhịp 2 giây với `/orders`, tức 1.800 lần/giờ cho một danh sách đổi vài lần một ca
+   * (riêng /menu là 26 KB nén mỗi lần, chiếm ~1/3 chu kỳ poll trên 4G và làm nút "xong món"
+   * phải xếp hàng sau). Giờ chỉ gọi lần đầu, khi `/menu/version` đổi, hoặc quá 60 giây. */
+  const loadCatalog = useCallback(async (version: string | null) => {
+    const [menuRes, groupsRes, tablesRes] = await Promise.all([
+      // page_size=2000 → đủ menu lớn (default 200 không cover 597 món)
+      api.get<{ data: { items: MenuItem[] } }>('/menu?page_size=2000'),
+      api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
+      api.get<{ data: { items: Table[] } }>('/tables'),
+    ]);
+    if (menuRes.data?.data?.items) {
+      const m = new Map<string, MenuItem>();
+      for (const it of menuRes.data.data.items) m.set(it.id, it);
+      setMenuMap(m);
+    }
+    if (groupsRes.data?.data?.items) {
+      setGroups(groupsRes.data.data.items);
+    }
+    if (tablesRes.data?.data?.items) {
+      const map = new Map<string, string>();
+      for (const t of tablesRes.data.data.items) map.set(t.id, t.name);
+      setTableNameById(map);
+    }
+    catalogRef.current = { version, loadedAt: Date.now() };
+  }, []);
+
   const refresh = useCallback(async (showError = true) => {
     try {
-      const [ordersRes, menuRes, groupsRes, tablesRes] = await Promise.all([
+      const [ordersRes, versionRes] = await Promise.all([
         api.get<{ data: { items: Order[] } }>('/orders'),
-        // page_size=2000 → đủ menu lớn (default 200 không cover 597 món)
-        api.get<{ data: { items: MenuItem[] } }>('/menu?page_size=2000'),
-        api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
-        api.get<{ data: { items: Table[] } }>('/tables'),
+        // Mốc đổi của menu (< 100 byte) — bếp máy khác bấm "hết món" thì mốc đổi, máy này tải
+        // lại menu ở đúng nhịp 2 giây kế tiếp, không cần kéo 597 món mỗi nhịp để phòng hờ.
+        api.get<{ data: { version: string } }>('/menu/version'),
       ]);
+      const version = versionRes.data?.data?.version ?? null;
+      // Tải danh mục TRƯỚC khi đặt orders: lần đầu mở màn, thẻ món cần menuMap (định lượng,
+      // nhóm bếp) và tên bàn ngay ở lần vẽ đầu — y hệt hành vi trước khi tách nhịp.
+      if (shouldReloadCatalog(catalogRef.current, version, Date.now())) {
+        await loadCatalog(version);
+      }
       if (ordersRes.data?.data?.items) {
         setOrders(ordersRes.data.data.items);
         // Notify khi item chuyển sang READY / mới vào KITCHEN / bếp báo hết
@@ -360,19 +396,6 @@ export function KitchenPage() {
           ),
         );
       }
-      if (menuRes.data?.data?.items) {
-        const m = new Map<string, MenuItem>();
-        for (const it of menuRes.data.data.items) m.set(it.id, it);
-        setMenuMap(m);
-      }
-      if (groupsRes.data?.data?.items) {
-        setGroups(groupsRes.data.data.items);
-      }
-      if (tablesRes.data?.data?.items) {
-        const map = new Map<string, string>();
-        for (const t of tablesRes.data.data.items) map.set(t.id, t.name);
-        setTableNameById(map);
-      }
       errorCountRef.current = 0;
     } catch (err) {
       const transient = isTransientError(err);
@@ -388,7 +411,7 @@ export function KitchenPage() {
     } finally {
       setLoading(false);
     }
-  }, [toast]);
+  }, [toast, loadCatalog]);
 
   const manualRefresh = useCallback(() => {
     errorCountRef.current = 0;

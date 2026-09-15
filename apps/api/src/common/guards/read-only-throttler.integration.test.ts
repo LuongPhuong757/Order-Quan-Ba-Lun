@@ -1,12 +1,16 @@
 // Integration: dựng một app Nest thật (express + cookie-parser + ThrottlerModule) rồi bắn
 // request qua HTTP. Unit test ở `read-only-throttler.guard.test.ts` chỉ kiểm quyết định
-// `shouldSkip`; test này kiểm cái mà unit test không thấy — throttler có THẬT SỰ tôn trọng
-// quyết định đó không, và cookie có đọc được qua `getRequestResponse()` không.
+// `shouldSkip` / `getTracker`; test này kiểm cái mà unit test không thấy — throttler có THẬT SỰ
+// tôn trọng quyết định đó không, và cookie có đọc được qua `getRequestResponse()` không.
 //
 // Không dùng @nestjs/testing/supertest (repo không có) — `NestFactory.create` + `listen(0)`
 // + `fetch` là đủ và không thêm dependency.
 //
 // Đặt limit 5 thay vì 600 của production để test chỉ cần ~12 request.
+//
+// Thứ tự các `it` CÓ Ý NGHĨA: chúng dùng chung một cửa sổ 60 giây. Test "không cookie" đốt hết
+// quota của IP, các test sau dựa vào đó để chứng minh user đăng nhập KHÔNG ăn vào ô của IP
+// (2026-09-15: bộ đếm khoá theo user, chỉ chưa đăng nhập mới theo IP — xem `getTracker`).
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Controller, Get, Module } from '@nestjs/common';
 import { APP_GUARD, NestFactory } from '@nestjs/core';
@@ -28,12 +32,14 @@ class PingController {
   }
 }
 
-/** Token 'report-token' → user chỉ-đọc; 'order-token' → user ghi được; còn lại = chữ ký sai. */
+/** Token 'report-token' → user chỉ-đọc; 'order-token' / 'kitchen-token' → hai user ghi được
+ *  khác nhau (hai máy trong cùng quán); còn lại = chữ ký sai. */
 const fakeJwt = {
   cookieName: 'ssp_token',
   verify: (token: string) => {
     if (token === 'report-token') return { sub: 'u-report' };
     if (token === 'order-token') return { sub: 'u-order' };
+    if (token === 'kitchen-token') return { sub: 'u-kitchen' };
     throw new Error('invalid signature');
   },
 };
@@ -41,6 +47,7 @@ const fakeJwt = {
 const fakeUsers: Record<string, { id: string; role: string; is_active: boolean }> = {
   'u-report': { id: 'u-report', role: 'report', is_active: true },
   'u-order': { id: 'u-order', role: 'order', is_active: true },
+  'u-kitchen': { id: 'u-kitchen', role: 'kitchen', is_active: true },
 };
 
 const fakeUserRepo = {
@@ -94,20 +101,27 @@ describe('rate limit qua HTTP thật', () => {
     expect(counts[200]).toBe(LIMIT * 2 + 2);
   });
 
-  it('không cookie: vượt limit là 429 — throttler vẫn nguyên vẹn cho mọi người khác', async () => {
+  it('không cookie: vượt limit là 429 — throttler vẫn nguyên vẹn cho khách lạ', async () => {
     const counts = await flood(LIMIT + 3);
     expect(counts[200]).toBe(LIMIT);
     expect(counts[429]).toBe(3);
   });
 
-  it('role ghi được (order): vẫn bị 429 như thường', async () => {
+  it('role ghi được (order): có hạn mức RIÊNG dù IP đã hết quota, và vượt hạn mức đó vẫn 429', async () => {
+    // Test trước đã đốt sạch ô của IP 127.0.0.1. Trước 2026-09-15 user này 429 ngay từ request
+    // đầu — tức là cả quán chung một IP thì một máy poll nhiều là máy khác tê liệt.
     const counts = await flood(LIMIT + 3, 'ssp_token=order-token');
-    // Cửa sổ 60s dùng chung theo IP và test trước đã đốt hết quota → phải 429 hết.
-    expect(counts[200] ?? 0).toBe(0);
-    expect(counts[429]).toBe(LIMIT + 3);
+    expect(counts[200]).toBe(LIMIT);
+    expect(counts[429]).toBe(3);
   });
 
-  it('cookie chữ ký sai: không được miễn', async () => {
+  it('máy thứ hai cùng IP, user khác (kitchen): ô đếm riêng, không ăn vào ô của order', async () => {
+    const counts = await flood(LIMIT, 'ssp_token=kitchen-token');
+    expect(counts[200]).toBe(LIMIT);
+    expect(counts[429]).toBeUndefined();
+  });
+
+  it('cookie chữ ký sai: rơi về ô của IP (đã cạn) → 429, không ai bịa cookie để có hạn mức riêng', async () => {
     const counts = await flood(3, 'ssp_token=forged');
     expect(counts[429]).toBe(3);
   });

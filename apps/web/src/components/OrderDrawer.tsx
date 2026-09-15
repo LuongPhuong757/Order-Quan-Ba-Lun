@@ -2,6 +2,7 @@
 import type { CSSProperties } from 'react';
 import React, { useEffect, useState, useCallback, useRef, FormEvent } from 'react';
 import { api, extractError, isTransientError } from '../lib/api.ts';
+import { settleAll } from '../lib/settle-all.ts';
 import { useToast } from './Toast.tsx';
 import { CheckoutDialog, type CheckoutResult } from './CheckoutDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
@@ -288,13 +289,18 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       }
       return;
     }
-    try {
-      for (const id of g.ids) await api.patch(`/orders/items/${id}/state`, { to });
+    // SONG SONG như màn Bếp, không `for … await`: nhóm 5 dòng là 5 vòng round-trip nối tiếp,
+    // đo 2026-09-14 trên 4G mất ~175 ms/dòng — bồi bàn bấm "Đã giao" rồi đứng chờ gần 1 giây.
+    const res = await settleAll(g.ids.map((id) => () => api.patch(`/orders/items/${id}/state`, { to })));
+    if (res.failed === 0) {
       toast.push('success', `${g.count}× ${g.rep.menu_item_name} → ${LABEL[to]}`);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
+    } else if (res.failed === g.ids.length) {
+      toast.push('error', extractError(res.firstError).message);
+    } else {
+      // Báo rõ số dòng hỏng thay vì im lặng: một phần nhóm đã đổi, phần còn lại vẫn ở chỗ cũ.
+      toast.push('error', `${res.failed}/${g.ids.length} dòng không chuyển được — thử lại.`);
     }
+    refresh();
   };
 
   /** Huỷ cả bàn — khách vào gọi đồ rồi không dùng nữa. Huỷ sạch mọi món (kể cả đã
@@ -357,15 +363,20 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
   const togglePriorityGroup = async (g: ItemGroup) => {
     const next = !g.rep.is_priority;
-    try {
-      for (const id of g.ids) await api.patch(`/orders/items/${id}/priority`, { priority: next });
+    // Song song, cùng lý do với changeStateGroup.
+    const res = await settleAll(
+      g.ids.map((id) => () => api.patch(`/orders/items/${id}/priority`, { priority: next })),
+    );
+    if (res.failed === 0) {
       toast.push('success', next
         ? `⭐ Đã đánh dấu ưu tiên "${g.rep.menu_item_name}"`
         : `Đã bỏ ưu tiên "${g.rep.menu_item_name}"`);
-      refresh();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
+    } else if (res.failed === g.ids.length) {
+      toast.push('error', extractError(res.firstError).message);
+    } else {
+      toast.push('error', `${res.failed}/${g.ids.length} dòng không đổi được ưu tiên — thử lại.`);
     }
+    refresh();
   };
 
   // Gộp các dòng theo (món + ghi chú) trong 1 cột trạng thái → hiển thị "N×".
