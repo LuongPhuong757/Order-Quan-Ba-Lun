@@ -36,3 +36,42 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
   return null;
 }
+
+/** Bốn màn nối tiếp của hộp thoại thu tiền (2026-09-15).
+ *  - 'items': soát bill — tổng tiền + danh sách món. Màn MỞ RA ĐẦU TIÊN.
+ *  - 'mode' : "Khách trả bằng gì?" — ba nút. Tiền mặt XÁC NHẬN LUÔN tại đây.
+ *  - 'qr'   : chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
+ *  - 'bill' : chụp bill + chốt thu tiền.
+ */
+export type CheckoutStep = 'items' | 'mode' | 'qr' | 'bill';
+
+/**
+ * Vì sao CHƯA đi tiếp được TỪ MÀN ĐANG ĐỨNG — `null` = đi tiếp được (2026-09-15).
+ *
+ * Khác `checkoutBlockReason` ở chỗ nó chỉ hỏi về bước hiện tại. Từ lúc hộp thoại tách thành ba
+ * màn, luật đầy đủ không còn dùng cho nút "Tiếp tục" được nữa: đứng ở màn 1 mà đòi "chọn mã QR"
+ * là chỉ sang một màn người ta CHƯA ĐƯỢC THẤY — nút mờ, câu giải thích nói về thứ không có trên
+ * màn hình, và không còn đường nào bấm.
+ *
+ * Màn cuối ('bill') vẫn gọi luật đầy đủ: đó là cú bấm GHI TIỀN, phải kiểm lại trọn bộ chứ không
+ * tin rằng hai màn trước đã kiểm đủ — người dùng lùi lại sửa được, và state đi cùng họ.
+ */
+export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | null {
+  // Màn soát bill không hỏi gì cả nên không chặn gì — TRỪ khi nó cũng là màn chốt: người không
+  // được thu chuyển khoản không đi qua màn "trả bằng gì" (chỉ còn một hình thức), nên nút ở đây
+  // chính là cú bấm ghi tiền và phải kiểm trọn bộ.
+  if (step === 'items') return s.mode === 'CASH' ? checkoutBlockReason(s) : null;
+  if (step === 'mode') {
+    // Tiền mặt chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần "đã chọn".
+    if (s.mode === 'CASH') return checkoutBlockReason(s);
+    return s.mode === null ? 'Vui lòng chọn khách trả bằng gì' : null;
+  }
+  if (step === 'qr') {
+    if (!s.hasPickedQr) return 'Vui lòng chọn mã QR để thanh toán';
+    // Hỏi tiền SAU khi đã có mã: số tiền nằm trong chính mã QR, nên thứ tự trên màn hình là chọn
+    // mã rồi mới tới con số.
+    if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
+    return null;
+  }
+  return checkoutBlockReason(s);
+}
