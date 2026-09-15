@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import { VIETQR_BANKS, validatePaymentQrDraft } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
+import { shrinkImage } from '../lib/shrink-image.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -102,7 +103,7 @@ export function PaymentQrPanel() {
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', await shrinkImage(file));
       const res = await api.post<{ data: { url: string } }>('/admin/payment-qr/upload-image', fd);
       setForm((f) => ({ ...f, image_url: res.data.data.url }));
       toast.push('success', 'Đã tải ảnh QR lên ✓');

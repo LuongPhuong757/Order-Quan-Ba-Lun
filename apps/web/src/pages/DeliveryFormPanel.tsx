@@ -6,6 +6,7 @@
 // khi đưa cho nhà cung cấp.
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { shrinkImage } from '../lib/shrink-image.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
@@ -346,7 +347,11 @@ export function DeliveryFormPanel({
     const BATCH = 20;
     for (let i = 0; i < photos.length; i += BATCH) {
       const fd = new FormData();
-      photos.slice(i, i + BATCH).forEach((f) => fd.append('files', f));
+      // Thu nhỏ trước khi gửi (2026-09-15) — ảnh phiếu nhập dính đúng cái bẫy của ảnh bill: một
+      // tấm iPhone 48MP vượt trần 12MB của server và chỉ nhận về câu "Có lỗi xảy ra". Người nhập
+      // hàng còn chụp cả xấp ảnh một lúc nên đây là chỗ được lợi nhiều nhất.
+      const shrunk = await Promise.all(photos.slice(i, i + BATCH).map((f) => shrinkImage(f)));
+      shrunk.forEach((f) => fd.append('files', f));
       try {
         await api.post(`/supplier-deliveries/${deliveryId}/photos`, fd);
       } catch (err) {

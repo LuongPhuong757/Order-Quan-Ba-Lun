@@ -78,6 +78,16 @@ export class GlobalExceptionFilter implements ExceptionFilter {
           );
         }
       }
+    } else if (isMulterLimitError(exception)) {
+      /* Multer ném `MulterError` — KHÔNG phải `HttpException`, nên nếu để rơi xuống nhánh dưới
+         thì nó thành 500 "Có lỗi xảy ra, thử lại sau ít phút nhé". Người dùng chụp một tấm ảnh
+         quá nặng rồi thử đi thử lại mãi, vì câu đó không nói gì về tấm ảnh.
+         Gặp thật 2026-09-15 trên server dev: iPhone chụp 48MP ra file hơn 12MB. */
+      status = HttpStatus.PAYLOAD_TOO_LARGE;
+      code = 'FILE_TOO_LARGE';
+      message =
+        'Ảnh quá nặng so với giới hạn cho phép. Chụp lại ở chế độ thường (không phải độ phân giải cao nhất), hoặc chọn ảnh nhỏ hơn.';
+      this.logger.warn(`Upload bị chặn vì quá cỡ tại ${req.method} ${req.url}`);
     } else if (exception instanceof Error) {
       message = exception.message;
       this.logger.error(exception.stack);
@@ -125,4 +135,16 @@ function mapStatusToCode(status: number): string {
     default:
       return 'INTERNAL_ERROR';
   }
+}
+
+/** `MulterError` với `code = 'LIMIT_FILE_SIZE'`. Nhận dạng theo hình dạng thay vì `instanceof`:
+ *  import kiểu lỗi của multer vào đây là kéo cả thư viện upload vào tầng xử lý lỗi chung, trong
+ *  khi thứ cần biết chỉ là hai chữ. */
+function isMulterLimitError(e: unknown): boolean {
+  return (
+    typeof e === 'object' &&
+    e !== null &&
+    (e as { name?: string }).name === 'MulterError' &&
+    (e as { code?: string }).code === 'LIMIT_FILE_SIZE'
+  );
 }
