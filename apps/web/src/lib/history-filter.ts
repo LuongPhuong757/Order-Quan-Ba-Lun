@@ -28,6 +28,10 @@ export type HistorySort = 'opened' | 'paid';
 export type HistoryFilters = {
   table_id: string;
   cashier_user_id: string;
+  /** Tài khoản nhận tiền chuyển khoản (`orders.paid_to_account_id`, 2026-09-15). '' = mọi tài
+   *  khoản. Đây là trục lọc của việc dò sao kê: mở sao kê một tài khoản rồi chỉ muốn thấy đúng
+   *  những đơn đã thu về đó. Đơn tiền mặt không có tài khoản nhận nên tự rơi ra ngoài. */
+  qr_account_id: string;
   status: HistoryStatus;
   misa: HistoryMisa;
   payment: HistoryPayment;
@@ -41,7 +45,9 @@ export type HistoryFilters = {
 
 export type HistoryQueryOpts = {
   /** `false` cho `/consumption`: nguyên liệu tốn theo món khách ăn, không theo ai đứng thu
-   *  tiền — endpoint đó không nhận `cashier_user_id`. */
+   *  tiền — endpoint đó không nhận `cashier_user_id`, và cũng không nhận `qr_account_id` (2026-09-15)
+   *  vì lý do y hệt: tiền về tài khoản nào không đổi được lượng thịt đã dùng. Một cờ cho cả hai
+   *  trục "thu tiền" chứ không phải hai cờ — chúng luôn bật/tắt cùng nhau. */
   cashier?: boolean;
   /** Chỉ `/orders/history` phân trang. Biểu đồ CỐ Ý không theo trang: bảng số nói về cả bộ
    *  lọc, không phải 20 dòng đang xem. */
@@ -58,6 +64,7 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   const q = new URLSearchParams();
   if (f.table_id) q.set('table_id', f.table_id);
   if (opts.cashier !== false && f.cashier_user_id) q.set('cashier_user_id', f.cashier_user_id);
+  if (opts.cashier !== false && f.qr_account_id) q.set('qr_account_id', f.qr_account_id);
   if (f.status !== 'all') q.set('status', f.status);
   if (f.misa) q.set('misa', f.misa);
   if (f.payment) q.set('payment', f.payment);

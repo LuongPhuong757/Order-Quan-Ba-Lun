@@ -1441,6 +1441,10 @@ export class OrdersService {
   async listHistory(opts: {
     /** Lọc theo hình thức thu tiền (2026-09-14). Bỏ trống = mọi hình thức. */
     payment?: PaymentKindFilter;
+    /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — `orders.paid_to_account_id`. Đây là bộ lọc
+     *  của việc dò sao kê: mở sao kê của một tài khoản thì chỉ muốn thấy đúng những đơn đã thu
+     *  về tài khoản đó. Đơn tiền mặt không có tài khoản nhận nên tự rơi ra ngoài. */
+    qr_account_id?: string;
     table_id?: string;
     start_ms?: number;
     end_ms?: number;
@@ -1482,6 +1486,10 @@ export class OrdersService {
     if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
+    if (opts.qr_account_id) {
+      wheres.push('o.paid_to_account_id = :qracc');
+      params.qracc = opts.qr_account_id;
+    }
     // Ẩn ĐƠN RỖNG khỏi lịch sử: bàn chỉ được tap mở drawer nhưng chưa gọi món nào.
     // Đó không phải giao dịch nên không được nằm trong lịch sử dưới dạng "chưa thanh
     // toán" (bàn đã trống mà lịch sử vẫn hiện là sai).
@@ -1578,6 +1586,9 @@ export class OrdersService {
     end_ms?: number;
     cashier_user_id?: string;
     payment?: PaymentKindFilter;
+    /** Xem `listHistory`. Lọc ở đây thì bảng "về tài khoản nào" còn đúng MỘT dòng — và đó chính
+     *  là con số mang đi đối chiếu với sao kê của tài khoản đang mở. */
+    qr_account_id?: string;
   }): Promise<{
     total: number;
     cash: number;
@@ -1603,6 +1614,10 @@ export class OrdersService {
     // khoảng ngày, đổi thu ngân, đổi hình thức thì ba con số phải đổi theo, nếu không người ta
     // đọc một cặp số không nói về cái danh sách đang nhìn.
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
+    if (opts.qr_account_id) {
+      wheres.push('o.paid_to_account_id = :qracc');
+      params.qracc = opts.qr_account_id;
+    }
 
     const rows = await this.orderRepo
       .createQueryBuilder('o')
@@ -1696,6 +1711,14 @@ export class OrdersService {
     end_ms?: number;
     status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
     misa?: 'pending' | 'copied';
+    /** Tài khoản nhận tiền (2026-09-15) — nằm CÙNG nhóm với `table_id`/`cashier_user_id`: cả ba
+     *  đều thu hẹp tập đơn, nên biểu đồ và hai ô tổng quan phải đổi theo, nếu không người dùng
+     *  lọc một tài khoản rồi đọc một bảng số nói về cả quán.
+     *
+     *  ⚠ Với đơn trả CẢ HAI hình thức, doanh thu ở đây là TRỌN đơn, không phải riêng phần đã
+     *  chuyển khoản — biểu đồ đếm đơn theo tài khoản, còn con số tiền thật sự về tài khoản thì
+     *  đọc ở khối đối soát (`paymentSummary`). */
+    qr_account_id?: string;
   }): Promise<{
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
@@ -1716,6 +1739,9 @@ export class OrdersService {
       if (opts.table_id) qb.andWhere('o.table_id = :tid', { tid: opts.table_id });
       if (opts.cashier_user_id) {
         qb.andWhere('o.checked_out_by_user_id = :cid', { cid: opts.cashier_user_id });
+      }
+      if (opts.qr_account_id) {
+        qb.andWhere('o.paid_to_account_id = :qracc', { qracc: opts.qr_account_id });
       }
       if (opts.start_ms) {
         qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
