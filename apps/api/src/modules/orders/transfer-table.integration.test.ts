@@ -231,14 +231,14 @@ describe('transferTable — giờ vào ăn + chặn bàn đích đang có khách
     expect((await activityOf(dest0.id)).map((l) => l.event_kind)).toEqual(['order_created']);
   }, 20_000);
 
-  it('bàn đích chỉ có đơn RỖNG (tap nhầm) → vẫn CHẶN, câu lỗi chỉ sang đường huỷ bàn', async () => {
+  it('bàn đích chỉ có đơn RỖNG (tap nhầm) → DÙNG LẠI đơn đó, giờ vào lấy theo đơn nguồn', async () => {
     const srcCode = `${P}d1`;
     const destCode = `${P}d2`;
     const srcTableId = await insertTable(srcCode, 'Bàn 48');
     const destTableId = await insertTable(destCode, 'Bàn 49');
-    // Đơn mở 0 món (nhân viên tap nhầm vào bàn). Chủ quán chốt: bàn phải TRỐNG HẲN mới nhận
-    // chuyển — nhưng bàn kiểu này không có gì để thu, nên câu lỗi phải bảo đi huỷ bàn chứ không
-    // bảo đi thanh toán, kẻo nhân viên đứng tìm nút thanh toán cho một bill 0 đồng.
+    // Đơn mở 0 món = nhân viên tap nhầm vào bàn rồi thoát. Bản 2026-09-14 chặn ca này và bảo
+    // "huỷ bàn đó trước", nhưng `cancelWholeTable` từ chối đơn không có món → ngõ cụt, bàn không
+    // bao giờ nhận chuyển được nữa (bug 2026-09-15). Nay: bàn này là bàn TRỐNG.
     const dest0 = await insertOpenOrder({
       tableId: destTableId,
       tableCode: destCode,
@@ -252,27 +252,34 @@ describe('transferTable — giờ vào ăn + chặn bàn đích đang có khách
       itemCount: 6,
     });
 
-    await expect(svc.transferTable(src.id, destTableId)).rejects.toMatchObject({
-      response: {
-        code: 'DEST_TABLE_OCCUPIED',
-        message: expect.stringContaining('huỷ bàn đó trước'),
-      },
-    });
+    const dest = await svc.transferTable(src.id, destTableId, NV);
 
-    expect(await ds.getRepository(OrderItem).count({ where: { order_id: src.id } })).toBe(6);
-    expect(await readOrder(src.id)).not.toBeNull();
-    expect(await readOrder(dest0.id)).not.toBeNull();
+    // DÙNG LẠI chính dòng đơn rỗng — không xoá rồi tạo mới, nếu không là mất nhật ký lần mở đó.
+    expect(dest.id).toBe(dest0.id);
+    // Giờ vào ăn = giờ MÓN ĐẦU TIÊN được gọi, tức `opened_at` của đơn nguồn. Giờ tap nhầm bên
+    // bàn đích (2 giờ trước) bị ghi đè.
+    expect(dest.opened_at).toBe(src.opened_at);
+    expect(dest.opened_at).not.toBe(dest0.opened_at);
+    expect(await ds.getRepository(OrderItem).count({ where: { order_id: dest.id } })).toBe(6);
+    expect(await readOrder(src.id)).toBeNull();
+
+    // Nhật ký: dòng "Mở đơn mới" của lần tap nhầm GIỮ NGUYÊN, dòng của đơn nguồn dời sang, và cả
+    // hai phải trỏ về đúng mốc `opened_at` mới — `order_opened_at` là khoá tách lượt khách.
+    const logs = await activityOf(dest.id);
+    expect(logs.map((l) => l.event_kind)).toEqual(['order_created', 'order_created', 'transfer']);
+    for (const l of logs) expect(l.order_opened_at).toBe(dest.opened_at);
+    expect(logs[2].message).toBe(`Nhận 6 món chuyển từ Bàn 48 (mở ${fmtVnDateTime(src.opened_at)})`);
   }, 20_000);
 
-  it('bàn đích đã huỷ sạch món nhưng đơn chưa kết → vẫn CHẶN', async () => {
+  it('bàn đích đã huỷ sạch món → niêm đơn cũ "Đã huỷ", mở đơn MỚI, không trộn bill', async () => {
     const srcCode = `${P}e1`;
     const destCode = `${P}e2`;
     const srcTableId = await insertTable(srcCode, 'Bàn 48');
     const destTableId = await insertTable(destCode, 'Bàn 49');
-    // Sơ đồ bàn vẽ bàn này là TRỐNG (`/orders` lọc đơn huỷ sạch món), nhưng `closed_at` vẫn NULL
-    // → theo luật "chỉ nhận bàn trống hẳn" thì chặn. Vì thế màn Chuyển bàn phải đọc
-    // `/orders/open-table-ids` chứ không đọc `/orders`, nếu không nó hiện bàn này bấm được.
-    await insertOpenOrder({
+    // Sơ đồ bàn vẽ bàn này là TRỐNG (`/orders` lọc đơn huỷ sạch món) → chuyển bàn cũng phải coi
+    // là trống, cùng một định nghĩa. Nhưng KHÔNG dùng lại dòng đó: món đã huỷ của lượt trước là
+    // vết chống gian lận, phải nằm lại đúng lượt của nó chứ không trộn vào bill khách chuyển sang.
+    const dest0 = await insertOpenOrder({
       tableId: destTableId,
       tableCode: destCode,
       openedAgoMs: 2 * H,
@@ -286,10 +293,52 @@ describe('transferTable — giờ vào ăn + chặn bàn đích đang có khách
       itemCount: 6,
     });
 
-    await expect(svc.transferTable(src.id, destTableId)).rejects.toMatchObject({
-      response: { code: 'DEST_TABLE_OCCUPIED' },
+    const dest = await svc.transferTable(src.id, destTableId, NV);
+
+    expect(dest.id).not.toBe(dest0.id);
+    expect(dest.opened_at).toBe(src.opened_at);
+    expect(await ds.getRepository(OrderItem).count({ where: { order_id: dest.id } })).toBe(6);
+    expect(await readOrder(src.id)).toBeNull();
+
+    // Đơn cũ: NIÊM ở trạng thái Đã huỷ (closed_at có, is_paid = false) và giữ nguyên 2 món huỷ.
+    const sealed = await readOrder(dest0.id);
+    expect(sealed).not.toBeNull();
+    expect(sealed!.closed_at).not.toBeNull();
+    expect(sealed!.is_paid).toBe(false);
+    expect(await ds.getRepository(OrderItem).count({ where: { order_id: dest0.id } })).toBe(2);
+
+    // Dòng "Đã huỷ" đó phải có câu giải thích vì sao bị niêm, không thì lịch sử đọc không hiểu.
+    const sealedLogs = await activityOf(dest0.id);
+    expect(sealedLogs.map((l) => l.event_kind)).toEqual(['order_created', 'order_cancelled']);
+    expect(sealedLogs[1].message).toContain('nhận chuyển bàn từ Bàn 48');
+  }, 20_000);
+
+  it('bàn chỉ có đơn rỗng KHÔNG nằm trong danh sách bàn bận của màn Chuyển bàn', async () => {
+    const emptyCode = `${P}g1`;
+    const busyCode = `${P}g2`;
+    const cancelledCode = `${P}g3`;
+    const emptyTableId = await insertTable(emptyCode, 'Bàn 50');
+    const busyTableId = await insertTable(busyCode, 'Bàn 51');
+    const cancelledTableId = await insertTable(cancelledCode, 'Bàn 52');
+    // Ba trạng thái mà FE vẽ khác nhau. `listOpenOrderTableIds` phải khớp ĐÚNG mức chặn của
+    // `transferTable`, nếu không màn Chuyển bàn lại hiện bàn bấm được mà server chặn (hoặc
+    // ngược lại: khoá bàn mà server vẫn nhận — đúng bug 2026-09-15).
+    await insertOpenOrder({
+      tableId: emptyTableId, tableCode: emptyCode, openedAgoMs: 1 * H, itemCount: 0,
     });
-    expect(await readOrder(src.id)).not.toBeNull();
+    await insertOpenOrder({
+      tableId: busyTableId, tableCode: busyCode, openedAgoMs: 1 * H, itemCount: 3,
+    });
+    await insertOpenOrder({
+      tableId: cancelledTableId, tableCode: cancelledCode, openedAgoMs: 1 * H,
+      itemCount: 2, itemState: 'CANCELLED',
+    });
+
+    const ids = await svc.listOpenOrderTableIds();
+
+    expect(ids).toContain(busyTableId);
+    expect(ids).not.toContain(emptyTableId);
+    expect(ids).not.toContain(cancelledTableId);
   }, 20_000);
 
   it('bàn đích vừa thanh toán xong (đơn đã kết) → nhận chuyển bình thường', async () => {
