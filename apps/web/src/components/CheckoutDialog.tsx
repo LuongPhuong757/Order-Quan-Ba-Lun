@@ -286,11 +286,13 @@ export function CheckoutDialog({
 
   /** Chữ trên nút chính — nói thẳng việc sắp xảy ra. "Xác nhận" chung chung thì người ta không
    *  biết mình đang xác nhận cái gì, mà đây là cú bấm ghi tiền vào sổ. */
+  //  Màn soát bill LUÔN là "Thanh toán", kể cả với người không được thu chuyển khoản — tức kể cả
+  //  khi nút đó ghi tiền luôn chứ không mở màn nào nữa. Chữ ở đây phải là chữ họ vẫn quen bấm ở
+  //  nút 💰 ngoài màn bàn: người thu không biết (và không cần biết) rằng mình đang bỏ qua một màn
+  //  mà đồng nghiệp có quyền hơn thì phải đi qua.
   const nextLabel =
     step === 'items'
-      ? canCollectTransfer
-        ? '💰 Thanh toán'
-        : 'Xác nhận thu tiền'
+      ? '💰 Thanh toán'
       : step === 'bill' || (step === 'mode' && mode === 'CASH')
         ? 'Xác nhận thu tiền'
         : 'Tiếp tục →';
