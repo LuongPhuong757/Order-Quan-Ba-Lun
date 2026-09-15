@@ -122,3 +122,52 @@ describe('ReadOnlyExemptThrottlerGuard', () => {
     expect(await shouldSkip(guard, ctx)).toBe(true);
   });
 });
+
+/** `getTracker` là protected — gọi qua cast, đây đúng là hành vi cần kiểm. */
+const getTracker = (guard: ReadOnlyExemptThrottlerGuard, req: Record<string, unknown>) =>
+  (guard as unknown as { getTracker(r: Record<string, unknown>): Promise<string> }).getTracker(req);
+
+/** Request tối giản đúng những gì `ThrottlerGuard.getTracker` mặc định đọc: `ips` + `ip`. */
+const reqFrom = (ip: string, cookies?: Record<string, string>) => ({ ip, ips: [], cookies });
+
+describe('getTracker — đếm rate limit theo USER đã đăng nhập, chưa có phiên mới theo IP', () => {
+  // Cả quán đi ra internet qua MỘT IP wifi. Khoá theo IP là mọi máy chia nhau 600 req/phút;
+  // đo 2026-09-14 máy bếp 132 + máy order 92 req/phút → 5–6 máy là 429 cả loạt.
+  it('token hợp lệ → ô đếm là user, không phải IP', async () => {
+    const { guard } = makeGuard({ user: { id: 'u1', role: 'kitchen', is_active: true } });
+    expect(await getTracker(guard, reqFrom('1.2.3.4', { ssp_token: 'good' }))).toBe('user:u1');
+  });
+
+  it('hai máy cùng IP, hai user khác nhau → hai ô đếm khác nhau', async () => {
+    let sub = 'bep';
+    const guard = new ReadOnlyExemptThrottlerGuard(
+      [{ name: 'default', ttl: 60_000, limit: 600 }] as never,
+      {} as never,
+      { getAllAndOverride: () => undefined } as never,
+      { cookieName: 'ssp_token', verify: () => ({ sub }) } as never,
+      { findOne: async () => null } as never,
+    );
+    const a = await getTracker(guard, reqFrom('1.2.3.4', { ssp_token: 'x' }));
+    sub = 'order';
+    const b = await getTracker(guard, reqFrom('1.2.3.4', { ssp_token: 'y' }));
+    expect(a).toBe('user:bep');
+    expect(b).toBe('user:order');
+    expect(a).not.toBe(b);
+  });
+
+  it('không cookie (đường /auth/login) → theo IP như mặc định, không nới gì cho kẻ dò mật khẩu', async () => {
+    const { guard } = makeGuard({});
+    expect(await getTracker(guard, reqFrom('1.2.3.4'))).toBe('1.2.3.4');
+  });
+
+  it('token giả → theo IP — không ai bịa cookie để có hạn mức riêng', async () => {
+    const { guard } = makeGuard({});
+    expect(await getTracker(guard, reqFrom('1.2.3.4', { ssp_token: 'forged' }))).toBe('1.2.3.4');
+  });
+
+  it('không query DB — chỉ verify chữ ký, phân quyền thật vẫn ở JwtAuthGuard', async () => {
+    const { guard, findOne } = makeGuard({ user: { id: 'u1', role: 'order', is_active: true } });
+    await getTracker(guard, reqFrom('1.2.3.4', { ssp_token: 'good' }));
+    expect(findOne).not.toHaveBeenCalled();
+  });
+});

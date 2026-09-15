@@ -58,8 +58,23 @@ async function bootstrap() {
   if (process.env.NODE_ENV === 'production' && (hasWeb || hasShop)) {
     // KHÔNG dùng app.useStaticAssets() ở đây: nó mount cố định 1 thư mục, không chọn
     // được theo Host. Phải tự dispatch sang express.static tương ứng từng request.
-    const webStatic = hasWeb ? express.static(webDist) : null;
-    const shopStatic = hasShop ? express.static(shopDist) : null;
+    // Cache tĩnh (2026-09-15): file trong `/assets/` có hash nội dung trong tên (Vite), đổi nội
+    // dung là đổi tên — nên giữ 1 năm + immutable, trình duyệt không hỏi lại. Trước đây
+    // express.static mặc định `max-age=0`: mỗi lần mở app là 3–4 vòng hỏi 304 NỐI TIẾP
+    // (index.js → chunk màn → auth/me), đo trên 4G ~160 ms/vòng, kể cả khi không có gì mới.
+    // Mọi thứ KHÔNG nằm trong /assets/ (index.html, favicon.svg, apple-touch-icon.png — tên
+    // không có hash) giữ `no-cache`: vẫn hỏi lại mỗi lần, để bản deploy mới có hiệu lực ngay.
+    const staticOpts: Parameters<typeof express.static>[1] = {
+      maxAge: '1y',
+      immutable: true,
+      setHeaders: (res, filePath) => {
+        if (!filePath.replace(/\\/g, '/').includes('/assets/')) {
+          res.setHeader('Cache-Control', 'no-cache');
+        }
+      },
+    };
+    const webStatic = hasWeb ? express.static(webDist, staticOpts) : null;
+    const shopStatic = hasShop ? express.static(shopDist, staticOpts) : null;
     app.use((req: Request, res: Response, next: NextFunction) => {
       const handler = isAdminHost(req.headers.host) ? webStatic : shopStatic;
       if (!handler) return next();
@@ -95,7 +110,8 @@ async function bootstrap() {
       if (!existsSync(dist)) return next();
       // Browser navigation (reload, paste URL) — luôn trả SPA shell, kể cả nếu path
       // trùng tên endpoint BE. React Router sẽ tự match route đúng phía client.
-      res.sendFile(join(dist, 'index.html'));
+      // `no-cache` cùng lý do với staticOpts ở trên: shell không có hash trong tên.
+      res.sendFile(join(dist, 'index.html'), { headers: { 'Cache-Control': 'no-cache' } });
     });
   }
 
