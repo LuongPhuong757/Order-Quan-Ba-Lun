@@ -35,18 +35,26 @@ describe('khi nào bấm Thanh toán được', () => {
   });
 });
 
-describe('chặn theo TỪNG MÀN (hộp thoại 3 bước)', () => {
-  it('màn 1 chỉ đòi chọn hình thức — không đòi mã QR của màn chưa hiện ra', () => {
+describe('chặn theo TỪNG MÀN (hộp thoại 4 bước)', () => {
+  it('màn soát bill không chặn gì — chưa ai hỏi hình thức ở đó', () => {
+    expect(stepBlockReason('items', S(null))).toBeNull();
+  });
+
+  it('màn soát bill LÀ màn chốt khi chỉ thu được tiền mặt → kiểm trọn bộ', () => {
+    expect(stepBlockReason('items', S('CASH'))).toBeNull();
+  });
+
+  it('màn 2 chỉ đòi chọn hình thức — không đòi mã QR của màn chưa hiện ra', () => {
     expect(stepBlockReason('mode', S(null))).toBe('Vui lòng chọn khách trả bằng gì');
     expect(stepBlockReason('mode', S('TRANSFER', false, 985000))).toBeNull();
     expect(stepBlockReason('mode', S('SPLIT', false, 0))).toBeNull();
   });
 
-  it('màn 1 + tiền mặt là cú bấm GHI TIỀN nên kiểm trọn bộ', () => {
+  it('màn 2 + tiền mặt là cú bấm GHI TIỀN nên kiểm trọn bộ', () => {
     expect(stepBlockReason('mode', S('CASH'))).toBeNull();
   });
 
-  it('màn 2 đòi mã QR trước, rồi mới tới số tiền', () => {
+  it('màn 3 đòi mã QR trước, rồi mới tới số tiền', () => {
     expect(stepBlockReason('qr', S('SPLIT', false, 0))).toBe('Vui lòng chọn mã QR để thanh toán');
     expect(stepBlockReason('qr', S('SPLIT', true, 0))).toBe('Nhập số tiền khách chuyển khoản');
     expect(stepBlockReason('qr', S('SPLIT', true, 500000))).toBeNull();

@@ -104,21 +104,27 @@ export function CheckoutDialog({
   const fileRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   /**
-   * BA MÀN NỐI TIẾP (chủ quán chốt 2026-09-15), thay cho một màn cuộn dài:
+   * BỐN MÀN NỐI TIẾP (chủ quán chốt 2026-09-15), thay cho một màn cuộn dài:
    *
-   *   'mode' → "Khách trả bằng gì?" — CHỈ tổng tiền + ba nút.
-   *   'qr'   → chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
-   *   'bill' → chụp bill + chốt thu tiền.
+   *   'items' → soát bill: tổng tiền + danh sách món + Misa. MÀN MỞ RA ĐẦU TIÊN.
+   *   'mode'  → "Khách trả bằng gì?" — ba nút, không gì khác.
+   *   'qr'    → chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
+   *   'bill'  → chụp bill + chốt thu tiền.
    *
-   * TIỀN MẶT KHÔNG ĐI QUA MÀN NÀO KHÁC: bấm "💵 Tiền mặt" là màn 1 mở thẳng ra phần chi tiết món
-   * + Misa + nút "Xác nhận thu tiền". Đó là đường đi của phần lớn đơn trong quán, và nó phải giữ
-   * đúng tốc độ cũ — thêm một màn vào đây là thêm một cú chạm cho mọi bàn, mỗi ngày.
+   * Soát bill đứng TRƯỚC câu hỏi hình thức vì đó là trình tự thật: đọc bill cho khách nghe, khách
+   * gật, LÚC ĐÓ mới hỏi trả bằng gì. Hỏi trước rồi mới bày món ra là bắt người ta trả lời khi
+   * chưa biết mình đang trả cho cái gì.
+   *
+   * TIỀN MẶT DỪNG Ở MÀN 2: bấm "💵 Tiền mặt" là nút chính thành "Xác nhận thu tiền" ngay tại đó.
+   * Đó là đường đi của phần lớn đơn trong quán — mỗi màn thêm vào là một cú chạm cho mọi bàn, mỗi
+   * ngày. Người KHÔNG được thu chuyển khoản còn dừng sớm hơn, ngay ở màn soát bill: chỉ còn một
+   * hình thức thì không có câu hỏi nào để hỏi.
    *
    * Vì sao tách màn thay vì cuộn: bản cũ nhồi tổng tiền, ba nút, ô nhập tiền, danh sách mã, ảnh
    * QR, chi tiết món và Misa vào cùng một khối cuộn — người thu phải vuốt tìm giữa lúc khách
    * đứng đợi, và ảnh QR (thứ phải GIƠ RA cho khách) thì nằm lấp giữa chừng.
    */
-  const [step, setStep] = useState<CheckoutStep>('mode');
+  const [step, setStep] = useState<CheckoutStep>('items');
 
   const picked = qrOptions.find((o) => o.id === pickedId) ?? null;
 
@@ -248,6 +254,12 @@ export function CheckoutDialog({
       toast.push('error', blockReason);
       return;
     }
+    if (step === 'items') {
+      // Không được thu chuyển khoản → không có câu hỏi nào để hỏi, màn này là màn chốt luôn.
+      if (!canCollectTransfer) submit();
+      else setStep('mode');
+      return;
+    }
     if (step === 'mode') {
       if (mode === 'CASH') submit();
       else setStep('qr');
@@ -268,13 +280,20 @@ export function CheckoutDialog({
   const goBack = () => {
     if (step === 'bill') setStep('qr');
     else if (step === 'qr') setStep('mode');
+    else if (step === 'mode') setStep('items');
     else onCancel();
   };
 
   /** Chữ trên nút chính — nói thẳng việc sắp xảy ra. "Xác nhận" chung chung thì người ta không
    *  biết mình đang xác nhận cái gì, mà đây là cú bấm ghi tiền vào sổ. */
   const nextLabel =
-    step === 'bill' || (step === 'mode' && mode === 'CASH') ? 'Xác nhận thu tiền' : 'Tiếp tục →';
+    step === 'items'
+      ? canCollectTransfer
+        ? '💰 Thanh toán'
+        : 'Xác nhận thu tiền'
+      : step === 'bill' || (step === 'mode' && mode === 'CASH')
+        ? 'Xác nhận thu tiền'
+        : 'Tiếp tục →';
 
   const submit = async () => {
     if (blockReason) {
@@ -349,47 +368,70 @@ export function CheckoutDialog({
             borderBottom: '1px solid rgba(0,0,0,.06)',
           }}
         >
-          <span style={{ fontSize: 26 }}>{step === 'qr' ? '📱' : step === 'bill' ? '🧾' : '💰'}</span>
+          <span style={{ fontSize: 26 }}>
+            {step === 'items' ? '🧾' : step === 'mode' ? '💰' : step === 'qr' ? '📱' : '✅'}
+          </span>
           {/* Tiêu đề đổi theo màn — đây là thứ DUY NHẤT nói cho người thu biết họ đang đứng ở
               đâu trong chuỗi. Cố ý KHÔNG đánh số "bước 1/3": luồng tiền mặt chỉ có đúng một màn,
               đếm tới 3 ở đó là hứa hai màn không bao giờ tới. */}
           <h2 id="pay-title" style={{ margin: 0, fontSize: 17, color: activeItems.length > 0 ? '#92400e' : '#059669' }}>
-            {step === 'qr'
-              ? `Khách quét mã — ${table.name}`
-              : step === 'bill'
-                ? `Xác nhận thu tiền — ${table.name}`
-                : `Thanh toán ${table.name}`}
+            {step === 'mode'
+              ? `Khách trả bằng gì? — ${table.name}`
+              : step === 'qr'
+                ? `Khách quét mã — ${table.name}`
+                : step === 'bill'
+                  ? `Xác nhận thu tiền — ${table.name}`
+                  : `Thanh toán ${table.name}`}
           </h2>
         </div>
 
         <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {step === 'bill' ? (
-            /* ── MÀN 3: chụp bill rồi chốt ── */
+          {/* Tổng cần thu đứng đầu ở HAI màn trước khi chọn hình thức — người thu đọc con số này
+              cho khách nghe, rồi mới hỏi trả bằng gì. Hai màn sau không lặp lại nó: ở đó số tiền
+              đã có khối riêng nói về phần chuyển khoản, bày thêm một con số nữa chỉ gây nhầm.
+              Giữ nguyên việc tách phí ship: đọc một con số gộp thì cuối ngày không đối soát được
+              tiền thu hộ shipper (M2.D-62). */}
+          {(step === 'items' || step === 'mode') && (
+            <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
+              <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
+              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                {shipFee > 0
+                  ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
+                  : `${billableUnits} món`}
+              </div>
+            </div>
+          )}
+
+          {step === 'items' ? (
+            /* ── MÀN 1: soát bill ── */
             <>
-              <BillStep
-                transferAmount={transferAmount}
-                cashAmount={cashAmount}
-                qrLabel={picked?.label ?? null}
-                note={note}
-                photos={photos}
-                uploading={uploading}
-                fileRef={fileRef}
-                onPick={addPhotos}
-                onRemove={removePhoto}
-              />
-              {/* Chi tiết món + Misa nằm ở MÀN CHỐT chứ không phải màn đầu (chủ quán chốt
-                  2026-09-15): màn đầu hỏi đúng một câu, còn đây mới là chỗ soát lại bill lần cuối
-                  trước khi tiền vào sổ. */}
               <OrderLines
                 servedItems={servedItems}
                 activeItems={activeItems}
                 cancelledItems={cancelledItems}
                 activeUnits={activeUnits}
               />
+              {/* Misa ở ĐÂY chứ không phải màn chốt: nó nói về việc gõ CHÍNH BILL NÀY sang AMIS,
+                  nên chỗ của nó là cạnh bill. Ở màn chốt thì nó đứng lẫn giữa mã QR và ảnh chụp,
+                  không còn rõ đang tick cho cái gì. */}
               <MisaCheckbox onChange={setMisaCopied} />
             </>
+          ) : step === 'mode' ? (
+            /* ── MÀN 2: "Khách trả bằng gì?" ──
+               Màn này CHỈ có đúng một câu hỏi. Không chi tiết món (đã soát ở màn trước), không mã
+               QR (màn sau), không ô nhập tiền — mỗi thứ thêm vào đây là một thứ phải đọc lướt qua
+               trong lúc khách đang đứng chờ. */
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
+              <div className="pay-modes">
+                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
+                <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
+                <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+              </div>
+            </div>
           ) : step === 'qr' ? (
-            /* ── MÀN 2: chìa mã cho khách quét ── */
+            /* ── MÀN 3: chìa mã cho khách quét ── */
             <>
               {/* "Cả hai" hỏi số tiền Ở ĐÂY chứ không ở màn trước: con số này nằm TRONG mã QR, nên
                   nó phải đứng cạnh cái mã mà nó thay đổi — nhập ở màn khác thì người ta không
@@ -424,52 +466,18 @@ export function CheckoutDialog({
               />
             </>
           ) : (
-            /* ── MÀN 1: "Khách trả bằng gì?" ── */
-            <>
-              {/* Tổng cần thu — giữ nguyên khối của hộp thoại cũ, kể cả việc tách phí ship: thu
-                  ngân đọc một con số gộp thì cuối ngày không đối soát được tiền thu hộ shipper
-                  (M2.D-62). */}
-              <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
-                <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                  {shipFee > 0
-                    ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
-                    : `${billableUnits} món`}
-                </div>
-              </div>
-
-              {/* ── Hình thức thu ──
-                  Không được thu chuyển khoản thì ẨN HẲN hai nút kia (chủ quán chọn 2026-09-14), và
-                  khi đó cả hàng nút này cũng không còn nghĩa lý gì — còn đúng một lựa chọn thì bày
-                  ra một hàng nút chỉ tổ làm người ta bấm thử. */}
-              {canCollectTransfer && (
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
-                  <div className="pay-modes">
-                    <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
-                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
-                  </div>
-                </div>
-              )}
-
-              {/* Chi tiết món + Misa CHỈ hiện khi đã chọn Tiền mặt — lúc đó màn này CHÍNH LÀ màn
-                  chốt, và người thu cần soát lại trước khi tiền vào sổ. Chưa chọn gì, hoặc chọn
-                  chuyển khoản, thì màn này chỉ còn đúng một câu hỏi: hai luồng kia có màn chốt
-                  riêng ở phía sau. */}
-              {mode === 'CASH' && (
-                <>
-                  <OrderLines
-                    servedItems={servedItems}
-                    activeItems={activeItems}
-                    cancelledItems={cancelledItems}
-                    activeUnits={activeUnits}
-                  />
-                  <MisaCheckbox onChange={setMisaCopied} />
-                </>
-              )}
-            </>
+            /* ── MÀN 4: chụp bill rồi chốt ── */
+            <BillStep
+              transferAmount={transferAmount}
+              cashAmount={cashAmount}
+              qrLabel={picked?.label ?? null}
+              note={note}
+              photos={photos}
+              uploading={uploading}
+              fileRef={fileRef}
+              onPick={addPhotos}
+              onRemove={removePhoto}
+            />
           )}
         </div>
 

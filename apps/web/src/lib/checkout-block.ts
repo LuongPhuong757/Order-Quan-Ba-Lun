@@ -37,12 +37,13 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   return null;
 }
 
-/** Ba màn nối tiếp của hộp thoại thu tiền (2026-09-15).
- *  - 'mode' : "Khách trả bằng gì?" — tổng tiền + ba nút. Tiền mặt XÁC NHẬN LUÔN tại đây.
+/** Bốn màn nối tiếp của hộp thoại thu tiền (2026-09-15).
+ *  - 'items': soát bill — tổng tiền + danh sách món. Màn MỞ RA ĐẦU TIÊN.
+ *  - 'mode' : "Khách trả bằng gì?" — ba nút. Tiền mặt XÁC NHẬN LUÔN tại đây.
  *  - 'qr'   : chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
  *  - 'bill' : chụp bill + chốt thu tiền.
  */
-export type CheckoutStep = 'mode' | 'qr' | 'bill';
+export type CheckoutStep = 'items' | 'mode' | 'qr' | 'bill';
 
 /**
  * Vì sao CHƯA đi tiếp được TỪ MÀN ĐANG ĐỨNG — `null` = đi tiếp được (2026-09-15).
@@ -56,6 +57,10 @@ export type CheckoutStep = 'mode' | 'qr' | 'bill';
  * tin rằng hai màn trước đã kiểm đủ — người dùng lùi lại sửa được, và state đi cùng họ.
  */
 export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | null {
+  // Màn soát bill không hỏi gì cả nên không chặn gì — TRỪ khi nó cũng là màn chốt: người không
+  // được thu chuyển khoản không đi qua màn "trả bằng gì" (chỉ còn một hình thức), nên nút ở đây
+  // chính là cú bấm ghi tiền và phải kiểm trọn bộ.
+  if (step === 'items') return s.mode === 'CASH' ? checkoutBlockReason(s) : null;
   if (step === 'mode') {
     // Tiền mặt chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần "đã chọn".
     if (s.mode === 'CASH') return checkoutBlockReason(s);
