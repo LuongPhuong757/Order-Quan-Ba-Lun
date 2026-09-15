@@ -570,8 +570,11 @@ export function QrStep({
 
       {loadFailed && (
         <div style={{ background: '#fef3c7', padding: 10, borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-          Không tải được danh sách mã QR. Vẫn quay lại chọn Tiền mặt để thu được — hoặc thử lại khi
-          có mạng.
+          {/* Câu này phải nói ĐÚNG thứ luật cho phép: không chọn được mã thì KHÔNG ghi chuyển
+              khoản được (xem `checkoutBlockReason`). Bản cũ mời "vẫn bấm Thanh toán được" trong
+              khi nút đó đang bị chính luật kia khoá — người thu bấm vào chỗ chết. */}
+          Không tải được danh sách mã QR. Kiểm mạng rồi thử lại. Nếu khách chưa chuyển thì quay lại
+          chọn Tiền mặt vẫn thu được.
         </div>
       )}
 
