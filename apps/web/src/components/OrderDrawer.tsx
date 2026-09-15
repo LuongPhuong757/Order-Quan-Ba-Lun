@@ -1699,14 +1699,16 @@ function TransferTableModal({
   const toast = useToast();
   const confirm = useConfirm();
   const [tables, setTables] = useState<Table[]>([]);
-  // Bàn còn đơn chưa thanh toán — BE CHẶN chuyển sang, chỉ bàn TRỐNG mới nhận. Hiện ngay trong
+  // Bàn còn món CHƯA THANH TOÁN — BE chặn chuyển sang, chỉ bàn trống mới nhận. Hiện ngay trong
   // danh sách chứ không để nhân viên bấm rồi mới ăn toast lỗi.
   const [busyTableIds, setBusyTableIds] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    // Dùng `/orders/open-table-ids` chứ KHÔNG dùng `/orders`: cái sau lọc bỏ đơn rỗng, nên bàn
-    // chỉ có đơn rỗng sẽ hiện là bấm được trong khi server vẫn chặn — nhân viên không hiểu vì sao.
+    // Dùng `/orders/open-table-ids` chứ KHÔNG đếm từ `/orders`: cùng một định nghĩa "bàn đang có
+    // khách" (còn ≥1 món chưa huỷ) nhưng chỉ tốn 1 mảng id, không kéo cả payload đơn + món.
+    // Bàn chỉ có đơn rỗng do tap nhầm KHÔNG nằm trong danh sách này — chuyển sang được bình
+    // thường, xem `transferTable` (sửa 2026-09-15).
     Promise.all([
       api.get<{ data: { items: Table[] } }>('/tables'),
       api.get<{ data: { items: string[] } }>('/orders/open-table-ids'),
