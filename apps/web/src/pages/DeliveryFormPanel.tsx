@@ -6,7 +6,7 @@
 // khi đưa cho nhà cung cấp.
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
-import { shrinkImage } from '../lib/shrink-image.ts';
+import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
@@ -351,6 +351,12 @@ export function DeliveryFormPanel({
       // tấm iPhone 48MP vượt trần 12MB của server và chỉ nhận về câu "Có lỗi xảy ra". Người nhập
       // hàng còn chụp cả xấp ảnh một lúc nên đây là chỗ được lợi nhiều nhất.
       const shrunk = await Promise.all(photos.slice(i, i + BATCH).map((f) => shrinkImage(f)));
+      // Tấm nào vẫn quá nặng thì DỪNG HẲN và nói rõ, thay vì gửi đi để server đóng kết nối giữa
+      // chừng — lúc đó người nhập hàng chỉ đọc được "Lỗi mạng" và mất cả phiếu vừa gõ.
+      for (const f of shrunk) {
+        const tooBig = rejectIfTooLarge(f);
+        if (tooBig) return tooBig;
+      }
       shrunk.forEach((f) => fd.append('files', f));
       try {
         await api.post(`/supplier-deliveries/${deliveryId}/photos`, fd);

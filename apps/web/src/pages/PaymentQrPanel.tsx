@@ -12,7 +12,7 @@
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import { VIETQR_BANKS, validatePaymentQrDraft } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
-import { shrinkImage } from '../lib/shrink-image.ts';
+import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -102,8 +102,14 @@ export function PaymentQrPanel() {
   const uploadImage = async (file: File) => {
     setUploading(true);
     try {
+      const ready = await shrinkImage(file);
+      const tooBig = rejectIfTooLarge(ready);
+      if (tooBig) {
+        toast.push('error', tooBig);
+        return;
+      }
       const fd = new FormData();
-      fd.append('file', await shrinkImage(file));
+      fd.append('file', ready);
       const res = await api.post<{ data: { url: string } }>('/admin/payment-qr/upload-image', fd);
       setForm((f) => ({ ...f, image_url: res.data.data.url }));
       toast.push('success', 'Đã tải ảnh QR lên ✓');

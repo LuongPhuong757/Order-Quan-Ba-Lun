@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
 import { checkoutBlockReason, type PayMode } from '../lib/checkout-block.ts';
-import { shrinkImage } from '../lib/shrink-image.ts';
+import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { MisaCheckbox, Row, Section } from './checkout-ui.tsx';
@@ -193,7 +193,22 @@ export function CheckoutDialog({
       // Thu nhỏ trước khi gửi: iPhone 48MP ra file 8-15MB, vừa vượt trần của server vừa bắt
       // người thu đứng chờ 4G đẩy hết chỗ đó lên — trong khi server nén xuống còn vài chục KB
       // ngay sau đó. Hàm này không bao giờ ném lỗi: không nén được thì trả lại file gốc.
-      for (const f of picked) fd.append('files', await shrinkImage(f));
+      //
+      // Rồi CHẶN NGAY Ở ĐÂY nếu vẫn quá nặng (ảnh HEIC trình duyệt không giải mã được chẳng hạn).
+      // Để server từ chối thì nó trả 413 và đóng kết nối trong khi máy còn đang đẩy, axios mất
+      // phản hồi và người dùng chỉ đọc được "Lỗi mạng" — xem `rejectIfTooLarge`.
+      let added = 0;
+      for (const f of picked) {
+        const ready = await shrinkImage(f);
+        const tooBig = rejectIfTooLarge(ready);
+        if (tooBig) {
+          toast.push('error', tooBig);
+          continue;
+        }
+        fd.append('files', ready);
+        added += 1;
+      }
+      if (added === 0) return;
       const res = await api.post<{ data: { items: Array<{ id: string; url: string }> } }>(
         `/orders/${orderId}/payment-photos`,
         fd,

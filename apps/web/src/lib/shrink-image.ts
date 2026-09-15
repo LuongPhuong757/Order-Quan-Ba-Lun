@@ -22,6 +22,29 @@ export const SHRINK_MAX_EDGE = 1600;
 
 const QUALITY = 0.85;
 
+/** Trần server chấp nhận (multer). Phải khớp `MAX_BYTES` bên `payment-photos.controller.ts` và
+ *  anh em của nó — lệch xuống thì chặn oan, lệch lên thì lọt qua rồi chết ở server. */
+export const UPLOAD_MAX_BYTES = 12 * 1024 * 1024;
+
+/**
+ * Tấm ảnh này có gửi được không — gọi SAU `shrinkImage`.
+ *
+ * Vì sao phải chặn ở máy người dùng thay vì để server từ chối: khi multer thấy body vượt trần,
+ * server trả 413 NGAY và đóng kết nối, trong khi trình duyệt vẫn đang đẩy nốt hàng chục MB. Kết
+ * nối bị reset nên axios KHÔNG đọc được phản hồi — người dùng nhận "Lỗi mạng, thử lại sau ít
+ * phút nhé" thay vì câu nói rõ ảnh quá nặng, và thử lại mãi. Đã gặp thật trên server dev
+ * 2026-09-15; câu 413 viết đẹp đến mấy cũng không tới nơi.
+ *
+ * Trả `null` = gửi được. Trả chuỗi = câu báo cho người dùng, kèm số MB thật để họ biết mình đang
+ * cầm tấm ảnh nặng cỡ nào.
+ */
+export function rejectIfTooLarge(file: { size: number; name?: string }): string | null {
+  if (file.size <= UPLOAD_MAX_BYTES) return null;
+  const mb = (file.size / 1024 / 1024).toFixed(1);
+  const max = Math.round(UPLOAD_MAX_BYTES / 1024 / 1024);
+  return `Ảnh nặng ${mb}MB, vượt giới hạn ${max}MB. Chụp lại ở chế độ thường (không phải độ phân giải cao nhất) giúp mình.`;
+}
+
 /** Cạnh mới giữ nguyên tỉ lệ; ảnh đã nhỏ hơn giới hạn thì giữ nguyên, không phóng to. */
 export function fitWithin(w: number, h: number, maxEdge = SHRINK_MAX_EDGE): { w: number; h: number } {
   const longest = Math.max(w, h);
