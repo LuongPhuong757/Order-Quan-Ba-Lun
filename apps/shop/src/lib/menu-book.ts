@@ -261,3 +261,44 @@ export function turnTravelled(dir: 1 | -1, angle: number, spread = false): numbe
   const { dragFrom, dragTo } = turnAngles(dir, spread);
   return Math.min(1, Math.abs(angle - dragFrom) / Math.abs(dragTo - dragFrom));
 }
+
+/**
+ * Tách KHẨU PHẦN ra khỏi tên món.
+ *
+ * Tên món trong POS của quán gói luôn khẩu phần vào tên: `"Ba Chỉ Nướng : 150"`,
+ * `"Bạch Tuộc Nướng : 150 / 1 Đĩa"`. Hiện nguyên chuỗi đó ngay trên dòng giá
+ * `150.000đ` là một màn có hai con số 150 với hai nghĩa khác nhau — khách đọc nhầm
+ * khẩu phần thành giá. Chủ quán chốt 2026-09-16: tách bằng CODE, không sửa dữ liệu POS.
+ *
+ * Chỉ cắt ở dấu hai chấm ĐẦU TIÊN, và chỉ khi hai bên đều còn chữ. Tên không có dấu hai
+ * chấm thì trả về nguyên vẹn, khẩu phần rỗng — đó là phần lớn món của các nhóm khác.
+ *
+ * Cố ý KHÔNG đoán đơn vị (thêm "g", đổi "1 Đĩa" thành "đĩa"...): dữ liệu do quán tự gõ,
+ * mỗi nhóm một kiểu, đoán sai còn tệ hơn hiện đúng thứ họ đã gõ.
+ */
+export function splitPortion(rawName: string): { name: string; portion: string | null } {
+  const at = rawName.indexOf(':');
+  if (at <= 0) {
+    /**
+     * Không có dấu hai chấm — thử mẫu thứ hai: đuôi `<số>k`.
+     *
+     * 121 món của quán đặt tên theo bậc giá: `"Set Nướng 300k"`, `"Lẩu Ếch 400k"`,
+     * `"Lẩu Đặc Biệt 800k"`. Chủ quán chốt 2026-09-16: tên chỉ hiện `Set Nướng`, còn
+     * `300k` xuống dòng nhỏ như khẩu phần của mọi món khác.
+     *
+     * ⚠ `300k` ở đây CHÍNH LÀ GIÁ (`Set Nướng 300k` có price = 300000), nên dòng nhỏ sẽ
+     *   lặp lại con số mà dòng giá ngay dưới đã nói. Đó là ý chủ quán, không phải sót.
+     *
+     * Mẫu bắt CHẶT (`\d+k` ở cuối, có khoảng trắng trước) để không cắn vào ba tên có số
+     * nhưng không phải bậc giá, đã kiểm trên cả 552 món: `"Canh Nga0"` (lỗi gõ),
+     * `"247…..lon"`, `"Nước Ngọt C2"`.
+     */
+    const tier = /^(.*\S)\s+(\d+\s*k)$/i.exec(rawName.trim());
+    if (tier) return { name: tier[1].trim(), portion: tier[2].replace(/\s+/g, '') };
+    return { name: rawName.trim(), portion: null };
+  }
+  const name = rawName.slice(0, at).trim();
+  const portion = rawName.slice(at + 1).trim();
+  if (name === '' || portion === '') return { name: rawName.trim(), portion: null };
+  return { name, portion };
+}

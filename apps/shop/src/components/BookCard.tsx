@@ -1,6 +1,6 @@
 import type { CSSProperties, JSX } from 'react';
 import type { PublicMenuItem } from '@order/schemas';
-import { formatVnd } from '../lib/menu-book.ts';
+import { formatVnd, splitPortion } from '../lib/menu-book.ts';
 import { BowlGlyph } from './ImagePlaceholder.tsx';
 
 /**
@@ -64,9 +64,9 @@ export function BookCard({
   onAdd,
   onSetQty,
 }: Props): JSX.Element {
+  const { name: dishName, portion } = splitPortion(item.name);
   const image = item.images[0] ?? null;
   const isOut = item.is_out_of_stock;
-  const photoRight = index % 2 === 1;
   // Món hết hàng KHÔNG có nút cộng, kể cả khi đang nằm trong giỏ dưới dạng dòng
   // `unavailable` (giỏ giữ dòng chứ không im lặng xoá). Cho cộng ở đây là để khách tăng số
   // lượng một món quán không làm được; việc xử lý dòng đó thuộc màn giỏ, nơi có câu giải
@@ -79,7 +79,6 @@ export function BookCard({
       className={animate ? 'book-row book-row-enter' : 'book-row'}
       style={{
         ...row,
-        flexDirection: photoRight ? 'row-reverse' : 'row',
         // So le tối đa 10 dòng rồi thôi: quá số đó thì dòng cuối hiện ra chậm tới mức khách
         // kịp nhận ra mình đang chờ.
         animationDelay: animate ? `${Math.min(index, 10) * 26}ms` : undefined,
@@ -118,7 +117,7 @@ export function BookCard({
         )}
       </button>
 
-      <div style={{ ...body, textAlign: photoRight ? 'right' : 'left' }}>
+      <div style={body}>
         <p
           style={{
             ...name,
@@ -126,68 +125,74 @@ export function BookCard({
             opacity: isOut ? 'var(--opacity-out-of-stock)' : 1,
           }}
         >
-          {item.name}
+          {dishName}
         </p>
-        <p style={{ ...priceRow, justifyContent: photoRight ? 'flex-end' : 'flex-start' }}>
-          {/* Món hết hàng: chữ "Tạm hết" đứng THAY chỗ giá, không phải chỉ làm mờ giá đi.
-              Màu đơn độc không được mang nghĩa (rule color-only-meaning trong tokens.css). */}
-          {isOut ? (
-            <span style={outLabel}>Tạm hết</span>
-          ) : (
-            <>
-              <span style={{ ...price, fontSize: roomy ? 'var(--fs-xl)' : 'var(--fs-md)' }}>
-                {formatVnd(item.price)}
-              </span>
-              {/* "phần" là đơn vị mặc định của gần như mọi món nên in ra chỉ tổ chiếm chỗ.
-                  Đơn vị KHÁC thường (kg, đĩa, chai, con) mới là thông tin thật. */}
-              {item.unit !== 'phần' && <span style={unit}>/ {item.unit}</span>}
-            </>
-          )}
-        </p>
-      </div>
 
-      {/* Khối gọi món — ở MÉP NGOÀI dòng (xem docblock đầu file về vùng vuốt an toàn). */}
-      {canOrder && (
-        <div style={orderSlot}>
-          {showStepper ? (
-            <div
-              role="group"
-              aria-label={`Số lượng ${item.name} trong giỏ`}
-              style={stepper}
-            >
-              <button
-                type="button"
-                onClick={() => onSetQty!(item, qtyInCart - 1)}
-                // Dấu `−` không tự nói được rằng bấm nữa là món rời giỏ — nhãn phải nói.
-                aria-label={qtyInCart === 1 ? `Bỏ ${item.name} khỏi giỏ` : `Giảm số lượng ${item.name}`}
-                style={stepBtn}
-              >
-                −
-              </button>
-              <span aria-hidden="true" style={qtyText}>
-                {qtyInCart}
-              </span>
-              <button
-                type="button"
-                onClick={() => onSetQty!(item, qtyInCart + 1)}
-                aria-label={`Tăng số lượng ${item.name}`}
-                style={stepBtn}
-              >
-                +
-              </button>
+        {/* Khẩu phần là DÒNG RIÊNG, nhạt hơn tên. Xem `splitPortion` trong menu-book.ts:
+            POS gói khẩu phần vào tên ("Ba Chỉ Nướng : 150"), để nguyên thì màn có hai con
+            số 150 cạnh nhau với hai nghĩa khác nhau. */}
+        {portion !== null && <p style={portionLine}>{portion}</p>}
+
+        {/* Hàng dưới cùng của cột chữ: GIÁ bên trái, khối gọi món bên phải.
+            `marginTop: auto` đẩy nó xuống đáy thẻ nên mọi dòng món thẳng một mạch dù tên
+            dài ngắn khác nhau. Trước 2026-09-16 nút gọi món là một CỘT RIÊNG canh giữa
+            theo chiều cao — thẻ cao lênh khênh và hở một khoảng lớn giữa giá với nút. */}
+        <div style={buyRow}>
+          <p style={priceRow}>
+            {/* Món hết hàng: chữ "Tạm hết" đứng THAY chỗ giá, không phải chỉ làm mờ giá đi.
+                Màu đơn độc không được mang nghĩa (rule color-only-meaning trong tokens.css). */}
+            {isOut ? (
+              <span style={outLabel}>Tạm hết</span>
+            ) : (
+              <>
+                <span style={{ ...price, fontSize: roomy ? 'var(--fs-lg)' : 'var(--fs-md)' }}>
+                  {formatVnd(item.price)}
+                </span>
+                {/* "phần" là đơn vị mặc định của gần như mọi món nên in ra chỉ tổ chiếm chỗ.
+                    Đơn vị KHÁC thường (kg, đĩa, chai, con) mới là thông tin thật. */}
+                {item.unit !== 'phần' && <span style={unit}>/ {item.unit}</span>}
+              </>
+            )}
+          </p>
+
+          {canOrder && (
+            <div style={orderSlot}>
+              {showStepper ? (
+                <div role="group" aria-label={`Số lượng ${dishName} trong giỏ`} style={stepper}>
+                  <button
+                    type="button"
+                    onClick={() => onSetQty!(item, qtyInCart - 1)}
+                    aria-label={qtyInCart === 1 ? `Bỏ ${dishName} khỏi giỏ` : `Giảm số lượng ${dishName}`}
+                    style={stepBtn}
+                  >
+                    −
+                  </button>
+                  <span aria-hidden="true" style={qtyText}>
+                    {qtyInCart}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => onSetQty!(item, qtyInCart + 1)}
+                    aria-label={`Tăng số lượng ${dishName}`}
+                    style={stepBtn}
+                  >
+                    +
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => onAdd!(item)}
+                  aria-label={`Thêm ${dishName} vào giỏ`}
+                  style={addBtn}
+                >
+                  +
+                </button>
+              )}
             </div>
-          ) : (
-            <button
-              type="button"
-              onClick={() => onAdd!(item)}
-              aria-label={`Thêm ${item.name} vào giỏ`}
-              style={addBtn}
-            >
-              +
-            </button>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -210,15 +215,10 @@ export const BOOK_CARD_CSS = `
 .book-row-enter {
   animation: book-row-in var(--dur-base) var(--ease-out) both;
 }
-.book-row-enter:nth-child(even) {
-  animation-name: book-row-in-right;
-}
 @keyframes book-row-in {
-  from { opacity: 0; transform: translateX(-14px); }
-  to   { opacity: 1; transform: none; }
-}
-@keyframes book-row-in-right {
-  from { opacity: 0; transform: translateX(14px); }
+  /* Bỏ so le trái/phải cùng lúc bỏ bố cục zigzag (2026-09-16): ảnh giờ neo trái ở mọi dòng
+     nên hai hướng trượt ngược nhau chẳng còn vẽ ra nhịp gì, chỉ còn là nhiễu. */
+  from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: none; }
 }
 /* Máy có chuột: ảnh phóng nhẹ để thấy dòng bấm được. Điện thoại không có :hover nên phản
@@ -228,12 +228,10 @@ export const BOOK_CARD_CSS = `
     /* Nhấc lên thật: đi lên một quãng ngắn VÀ bóng đổ giãn rộng ra. Chỉ phóng to mà bóng
        giữ nguyên thì ra "ảnh to lên", không ra "ảnh nhấc khỏi mặt giấy". Scale nhẹ thôi —
        6% trên một tấm rộng nửa dòng là một cú giật rất to. */
-    transform: translateY(-5px) scale(1.02);
+    transform: translateY(-3px) scale(1.02);
     box-shadow:
-      0 0 0 1px rgb(255 255 255 / 22%),
-      0 3px 7px rgb(0 0 0 / 40%),
-      0 22px 44px rgb(0 0 0 / 58%),
-      0 44px 80px rgb(0 0 0 / 38%);
+      0 2px 4px rgb(42 29 20 / 12%),
+      0 12px 26px rgb(42 29 20 / 16%);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -244,13 +242,35 @@ export const BOOK_CARD_CSS = `
 }
 `;
 
+/**
+ * Dòng món = một THẺ TRẮNG trên nền kem (bảng màu sáng, chủ quán chốt 2026-09-16).
+ *
+ * Bản cũ không nền không viền — hợp lý khi nền là ảnh gỗ tối, vì ảnh món tự nổi lên.
+ * Trên nền kem thì ảnh món và nền gần nhau về độ sáng, không có gì phân tách dòng này với
+ * dòng kia. Thẻ trắng giải chuyện đó mà không cần kẻ ngang.
+ *
+ * Trắng trên kem chỉ chênh 1.11:1 — cố ý. Tách bằng BÓNG MỀM chứ không bằng tương phản
+ * sáng/tối, vì nền kem đã sáng sẵn, đẩy thẻ sáng thêm nữa thì cả màn bạc đi.
+ */
 const row: CSSProperties = {
   display: 'flex',
-  alignItems: 'center',
-  gap: 'var(--sp-4)',
+  // BẮT BUỘC — apps/shop KHÔNG có reset box-sizing toàn cục. Thẻ có `width: 100%` + padding
+  // + viền, thiếu dòng này là thẻ rộng hơn khung đọc và mép phải bị `overflow-x: hidden`
+  // xén mất (đã thấy trên máy thật 2026-09-16). Cùng một bẫy đã gặp ở BannerNotice,
+  // CartPage và lớp phủ giỏ.
+  boxSizing: 'border-box',
+  // `stretch` chứ không `center`: cột chữ phải cao bằng thẻ để `buyRow` (marginTop:auto)
+  // tụt được xuống đáy. Canh giữa thì hàng giá+nút nổi lơ lửng giữa thẻ.
+  alignItems: 'stretch',
+  gap: 'var(--sp-3)',
   width: '100%',
-  padding: 'var(--sp-2) var(--sp-1)',
-  // Không nền, không viền: menu in không có hộp nào, chỉ có ảnh và chữ đặt lên trang.
+  padding: 'var(--sp-3)',
+  background: 'var(--menu-surface)',
+  // Viền mảnh + bo 20px, đúng như bản duyệt. Chỉ bóng thôi thì mép thẻ trắng tan vào nền
+  // kem ở những màn hình chỉnh sáng thấp.
+  border: '1px solid var(--menu-line)',
+  borderRadius: 20,
+  boxShadow: '0 1px 2px rgb(42 29 20 / 5%), 0 6px 16px rgb(42 29 20 / 6%)',
 };
 
 /**
@@ -266,34 +286,29 @@ const row: CSSProperties = {
  * đứng cạnh chữ chứ không nằm trên chữ, 3/2 cho một dải quá dẹt so với khối chữ bên cạnh.
  */
 const photoBtn: CSSProperties = {
-  flex: '0 0 46%',
+  flex: '0 0 auto',
+  /**
+   * 4:3 NGANG, không phải vuông. Ảnh món của quán chụp ngang — khung vuông `object-fit:
+   * cover` cắt mất hai đầu đĩa và cắt luôn chữ "QUÁN BÀ LÙN" ở mép ảnh (đã thấy trên máy
+   * thật 2026-09-16). Bản mockup dùng ô vuông vì đó chỉ là khối placeholder, không phải ảnh
+   * thật. Cạnh ngắn vẫn 104px nên luật thứ bậc "ảnh là khối lớn nhất trong dòng" còn nguyên.
+   */
+  width: 139,
+  height: 104,
+  alignSelf: 'flex-start',
   display: 'block',
   padding: 0,
   border: 'none',
   cursor: 'pointer',
   overflow: 'hidden',
-  aspectRatio: '4 / 3',
-  borderRadius: 'var(--r-category)',
+  borderRadius: 'var(--r-input)',
   background: 'var(--menu-chrome)',
   /**
-   * BÓNG ĐỔ NHIỀU TẦNG để tấm ảnh NỔI HẲN LÊN khỏi mặt trang (chủ quán chốt 2026-09-04).
-   *
-   * Một lớp bóng duy nhất chỉ ra vệt mờ, không ra cảm giác nâng lên. Vật thật nổi trên mặt
-   * phẳng luôn có ba thứ cùng lúc, và đây đúng ba dòng dưới:
-   *   1. viền sáng mảnh   — mép trên bắt ánh sáng, đó là thứ tách ảnh khỏi nền tối;
-   *   2. bóng TIẾP XÚC    — tối, sát mép, gần như không nhoè: nói "vật này chạm mặt bàn";
-   *   3. bóng ĐỔ          — rộng và mờ, lệch xuống dưới: nói "vật này cách mặt bàn một quãng".
-   * Thiếu (2) thì ảnh trông như trôi lơ lửng; thiếu (3) thì trông như dán bẹt.
-   *
-   * `box-shadow` chứ không `filter: drop-shadow`: ảnh là khối chữ nhật bo góc đặc, không có
-   * vùng trong suốt, nên drop-shadow chỉ tốn thêm một lượt vẽ lại mà ra cùng kết quả.
+   * Bóng NHẸ, hợp nền sáng. Bộ bóng cũ (viền sáng trắng + ba tầng đen tới 58% alpha) được
+   * vẽ cho nền gỗ tối; đặt nguyên lên nền kem thì ảnh trông như bị bẩn một quầng xám.
+   * Trên nền sáng, cùng một cảm giác "nhấc lên" chỉ cần bóng rất nhạt ám màu than.
    */
-  boxShadow: [
-    '0 0 0 1px rgb(255 255 255 / 15%)',
-    '0 2px 5px rgb(0 0 0 / 38%)',
-    '0 14px 30px rgb(0 0 0 / 52%)',
-    '0 30px 60px rgb(0 0 0 / 32%)',
-  ].join(', '),
+  boxShadow: '0 1px 2px rgb(42 29 20 / 10%), 0 6px 14px rgb(42 29 20 / 12%)',
   // Bóng cũng phải đổi theo lúc nhấc lên khi rê chuột, không thì ảnh bay lên mà bóng đứng im.
   transition: 'transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out)',
 };
@@ -305,9 +320,11 @@ const noPhoto: CSSProperties = {
   height: '100%',
   display: 'grid',
   placeItems: 'center',
-  background: 'rgb(255 255 255 / 7%)',
+  // Nền kem đậm hơn thẻ một nấc. Bản cũ dùng `rgb(255 255 255 / 7%)` — trắng-mờ trên nền
+  // gỗ tối thì thấy được, trên thẻ TRẮNG thì tàng hình hoàn toàn.
+  background: 'rgb(42 29 20 / 6%)',
   color: 'var(--menu-price)',
-  opacity: 0.55,
+  opacity: 0.65,
 };
 
 const photoImg: CSSProperties = {
@@ -320,9 +337,26 @@ const photoImg: CSSProperties = {
 const body: CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: '2px',
+  gap: '4px',
   minWidth: 0,
-  flex: 1,
+  flex: '1 1 auto',
+};
+
+/** Khẩu phần ("150", "150 / 1 Đĩa") — dòng riêng, nhạt và nhỏ hơn tên. */
+const portionLine: CSSProperties = {
+  margin: 0,
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--menu-text-muted)',
+};
+
+/** Hàng đáy thẻ: giá bên trái, khối gọi món bên phải. */
+const buyRow: CSSProperties = {
+  marginTop: 'auto',
+  paddingTop: 'var(--sp-2)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  gap: 'var(--sp-2)',
 };
 
 const name: CSSProperties = {
@@ -379,34 +413,43 @@ const outLabel: CSSProperties = {
 const orderSlot: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
+  justifyContent: 'flex-end',
   flexShrink: 0,
+  // Nút vẽ 36px, khe này nới thêm 4px mỗi bên → vùng ngón tay gặp vẫn đủ 44px. Mắt gặp
+  // kích thước vẽ, ngón tay gặp vùng chạm; hai cái đó không cần bằng nhau.
+  padding: 4,
 };
 
 /**
- * Nút cộng: NỀN HỔ PHÁCH ĐẶC, chữ tối.
+ * Nút cộng: VÒNG TRÒN VIỀN MẢNH, nhỏ và im.
  *
- * Bản đầu là vòng tròn nền `--menu-chrome` (tối) với dấu + màu hổ phách — đúng tông quyển
- * menu, và gần như vô hình: nền trang là ảnh gỗ tối nên một vòng tròn tối trên đó không nổi
- * lên chút nào. Chủ quán mở trang, không nhận ra là gọi món được và hỏi "menu gọi đồ đâu"
- * (2026-09-11). Nút này là thứ DUY NHẤT nói với khách rằng trang này gọi được món, nên nó
- * phải là vật sáng nhất trên dòng, không phải vật hoà vào nền.
+ * Lịch sử hai lần đổi, đọc kỹ trước khi sửa tiếp — hai yêu cầu này kéo ngược chiều nhau:
  *
- * Đảo màu (nền sáng, chữ tối) cũng là cách nó khác hẳn tấm ảnh món bên cạnh — hai vùng bấm
- * trên cùng một dòng mà trông giống nhau thì khách bấm sai.
+ * 1. (2026-09-11) Bản đầu là vòng tròn TỐI trên nền gỗ tối → gần như vô hình. Chủ quán mở
+ *    trang, không nhận ra gọi món được, hỏi "menu gọi đồ đâu". Đổi thành nền hổ phách đặc.
+ * 2. (2026-09-16) Nền đổi sang kem sáng, và trên nền đó mảng hổ phách đặc 44px lại thành
+ *    vật rực nhất dòng: "món ăn trông quá bé trong khi button + quá to, không biết đâu là
+ *    chủ thể chính". Thu về viền mảnh 36px.
+ *
+ * Nên ranh giới là: nút phải ĐỌC RA ĐƯỢC là bấm được, nhưng không được giành mắt với ảnh
+ * món. Viền đỏ + dấu + đỏ trên thẻ trắng đạt cả hai. Đừng tô đặc lại, cũng đừng làm mờ đi.
  */
 const addBtn: CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-  width: 'var(--tap-min)',
-  height: 'var(--tap-min)',
+  // Vẽ 36px nhưng vùng chạm vẫn đủ 44px nhờ `orderSlot` nới ra bằng padding trong suốt.
+  // Chủ quán 2026-09-16: "button + quá to, không biết đâu là chủ thể chính" — nút phải
+  // nhỏ và im hơn ảnh món, nên bỏ mảng hổ phách đặc, chỉ còn viền mảnh + dấu + màu giá.
+  width: 34,
+  height: 34,
   borderRadius: '50%',
-  border: 'none',
-  background: 'var(--menu-price)',
-  // Nền hổ phách sáng → chữ TỐI. Chữ trắng/sáng trên nền này là không đọc được.
-  color: '#2b1d08',
-  // Dấu + phải to và cân giữa: đây là vùng bấm chính của cả dòng.
-  fontSize: 'var(--fs-xl)',
+  // Viền ĐỎ PHA LOÃNG chứ không đỏ đặc: bản duyệt dùng đỏ ở 45% độ đục. Viền đỏ nguyên
+  // chất làm cái vòng tròn đậm gần bằng giá tiền, lại thành giành mắt với ảnh món.
+  border: '1px solid color-mix(in oklab, var(--menu-price), transparent 55%)',
+  background: 'transparent',
+  color: 'var(--menu-price)',
+  fontSize: 'var(--fs-lg)',
   fontWeight: 'var(--fw-semibold)',
   lineHeight: 1,
   fontFamily: 'inherit',
@@ -421,7 +464,9 @@ const stepper: CSSProperties = {
   padding: '2px',
   borderRadius: 999,
   border: '1px solid var(--menu-line)',
-  background: 'var(--menu-chrome)',
+  // Nền kem rất nhạt, KHÔNG dùng `--menu-chrome` nữa: từ 2026-09-16 token đó là nền màn
+  // (kem), dùng ở đây thì bộ số lượng tan vào nền và mất luôn hình dáng.
+  background: 'rgb(198 55 32 / 5%)',
 };
 
 const stepBtn: CSSProperties = {

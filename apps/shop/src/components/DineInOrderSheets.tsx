@@ -3,9 +3,11 @@ import { z } from 'zod';
 import { DineInCartCreateResult, PublicDineInCartStatus } from '@order/schemas';
 import { deleteJson, postJson, type ApiError } from '../lib/use-api.ts';
 import { formatVnd, MAX_ITEM_NOTE_LEN, type CartLine } from '../lib/cart-store.ts';
+import { splitPortion } from '../lib/menu-book.ts';
 import {
   clearDineInCart,
   clearRememberedCode,
+  saveAcceptedCode,
   saveRememberedCode,
 } from '../lib/dine-in-cart-store.ts';
 import { getOrCreateCustomerToken } from '../lib/customer-token.ts';
@@ -27,6 +29,9 @@ import { getOrCreateCustomerToken } from '../lib/customer-token.ts';
  */
 
 const CancelResult = z.object({ cancelled: z.boolean() });
+
+/** Một dòng trong "món bàn bạn đã gọi" — hình dạng đúng `PublicDineInTableLine` của BE. */
+type TableLine = { name: string; qty: number; unit_price: number; line_total: number };
 
 // ── Lớp phủ GIỎ ───────────────────────────────────────────────────────────────────────
 
@@ -50,6 +55,15 @@ export function DineInCartSheet({
   onClose,
   onCodeCreated,
 }: CartSheetProps): JSX.Element {
+  /**
+   * Món nào đang MỞ ô ghi chú. Chủ quán 2026-09-16: "giao diện món đã chọn khá rối, có cách
+   * nào cho ghi chú bé lại để tiết kiệm diện tích hơn không".
+   *
+   * Trước đây mỗi món có sẵn một ô nhập chiếm trọn một hàng (đo được 338×46px) kể cả khi
+   * khách không ghi gì — hai món là ~20% chiều cao lớp phủ để trống. Giờ mặc định chỉ là
+   * một chip nhỏ nằm cùng hàng với dòng tiền; bấm mới bung ô nhập.
+   */
+  const [noteOpen, setNoteOpen] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
   const hasUnavailable = lines.some((l) => l.unavailable);
@@ -93,6 +107,7 @@ export function DineInCartSheet({
 
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label="Món bạn đã chọn">
+      <style>{SHEET_CSS}</style>
       <div style={sheet}>
         <div style={sheetHead}>
           <p style={sheetTitle}>Món bạn đã chọn</p>
@@ -109,56 +124,98 @@ export function DineInCartSheet({
           </p>
         )}
 
-        <div style={sheetBody}>
-          {lines.map((line) => (
-            <div key={line.menu_item_id} style={line.unavailable ? { ...cartRow, ...rowOut } : cartRow}>
-              <div style={cartRowTop}>
-                <div style={{ minWidth: 0 }}>
-                  <p style={cartName}>{line.name}</p>
-                  {line.unavailable ? (
-                    <p style={outText}>Quán vừa hết món này</p>
+        <div className="dinein-scroll" style={sheetBody}>
+          {lines.map((line) => {
+            const { name: dishName, portion } = splitPortion(line.name);
+            return (
+              <div
+                key={line.menu_item_id}
+                style={line.unavailable ? { ...cartRow, ...rowOut } : cartRow}
+              >
+                {/* HÀNG TRÊN: ảnh · (tên + khẩu phần) · bộ số lượng */}
+                <div style={cartRowTop}>
+                  {line.image ? (
+                    <img src={line.image} alt="" aria-hidden="true" style={cartThumb} />
                   ) : (
-                    <p style={cartPrice}>
-                      {formatVnd(line.unit_price)} × {line.qty} ={' '}
-                      <strong>{formatVnd(line.unit_price * line.qty)}</strong>
-                    </p>
+                    <span aria-hidden="true" style={{ ...cartThumb, ...cartThumbEmpty }} />
                   )}
-                </div>
-                <div style={stepper}>
-                  <button
-                    type="button"
-                    onClick={() => onSetQty(line.menu_item_id, line.qty - 1)}
-                    aria-label={line.qty === 1 ? `Bỏ ${line.name}` : `Giảm ${line.name}`}
-                    style={stepBtn}
-                  >
-                    −
-                  </button>
-                  <span aria-hidden="true" style={qtyText}>
-                    {line.qty}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => onSetQty(line.menu_item_id, line.qty + 1)}
-                    aria-label={`Tăng ${line.name}`}
-                    style={stepBtn}
-                    disabled={line.unavailable}
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
 
-              <input
-                type="text"
-                value={line.note ?? ''}
-                onChange={(e) => onSetNote(line.menu_item_id, e.target.value)}
-                maxLength={MAX_ITEM_NOTE_LEN}
-                placeholder="Ghi chú (ít cay, không hành…)"
-                aria-label={`Ghi chú cho ${line.name}`}
-                style={noteInput}
-              />
-            </div>
-          ))}
+                  <div style={{ minWidth: 0, flex: '1 1 auto' }}>
+                    <p style={cartName}>{dishName}</p>
+                    {portion !== null && <p style={cartPortion}>{portion}</p>}
+                    {line.unavailable && <p style={outText}>Quán vừa hết món này</p>}
+                  </div>
+
+                  <div style={stepper}>
+                    <button
+                      type="button"
+                      onClick={() => onSetQty(line.menu_item_id, line.qty - 1)}
+                      aria-label={line.qty === 1 ? `Bỏ ${dishName}` : `Giảm ${dishName}`}
+                      style={stepBtn}
+                    >
+                      −
+                    </button>
+                    <span aria-hidden="true" style={qtyText}>
+                      {line.qty}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => onSetQty(line.menu_item_id, line.qty + 1)}
+                      aria-label={`Tăng ${dishName}`}
+                      style={stepBtn}
+                      disabled={line.unavailable}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* HÀNG DƯỚI: phép tính tiền bên trái, ghi chú dạt PHẢI.
+                    Hai thứ này chung một hàng chính là chỗ tiết kiệm diện tích — trước đây
+                    ghi chú chiếm trọn một hàng riêng cho mỗi món. */}
+                {!line.unavailable && (
+                  <div style={cartRowBot}>
+                    <p style={cartMoney}>
+                      {formatVnd(line.unit_price)} × {line.qty} ={' '}
+                      <strong style={cartSub}>{formatVnd(line.unit_price * line.qty)}</strong>
+                    </p>
+
+                    <div style={noteSlot}>
+                      {noteOpen === line.menu_item_id ? (
+                        <input
+                          type="text"
+                          value={line.note ?? ''}
+                          onChange={(e) => onSetNote(line.menu_item_id, e.target.value)}
+                          onBlur={() => setNoteOpen(null)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === 'Escape') setNoteOpen(null);
+                          }}
+                          maxLength={MAX_ITEM_NOTE_LEN}
+                          placeholder="Ghi chú (ít cay, không hành…)"
+                          aria-label={`Ghi chú cho ${dishName}`}
+                          autoFocus
+                          style={noteInput}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setNoteOpen(line.menu_item_id)}
+                          aria-label={
+                            line.note
+                              ? `Sửa ghi chú cho ${dishName}`
+                              : `Thêm ghi chú cho ${dishName}`
+                          }
+                          style={line.note ? { ...noteChip, ...noteChipFilled } : noteChip}
+                        >
+                          {line.note ? `✎ ${line.note}` : '＋ ghi chú'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
 
         <div style={sheetFoot}>
@@ -190,14 +247,32 @@ type CodeSheetProps = {
   onClose: () => void;
   /** Khách bấm "Sửa lại" → mã đã huỷ, mở lại lớp phủ giỏ. */
   onEdit: () => void;
+  /**
+   * Mở sẵn ở trạng thái nào. `'USED'` khi khách mở lại lớp phủ từ chip "Món bàn đã gọi" — mã
+   * lúc đó đã quá hạn 15 phút từ lâu, nên nếu bắt đầu ở `'ACTIVE'` thì màn chớp qua "Mã đã hết
+   * hạn" vài giây trước khi nhịp hỏi đầu tiên sửa lại. Khách đọc được cái chớp đó.
+   */
+  initialState?: 'ACTIVE' | 'USED';
+  /** Bắn ĐÚNG MỘT LẦN khi nhân viên vừa nhận mã. Chỗ gọi đổi chip đáy màn từ "Mã 14589" sang
+   * "Món bàn đã gọi" — để nó nguyên là mời khách đọc cho nhân viên một mã đã chết. */
+  onAccepted?: () => void;
 };
 
 /** Nhịp hỏi lại trạng thái mã. 5 giây là đủ để khách thấy "đã nhận" gần như ngay lúc nhân
  * viên bấm, mà cả vòng đời 15 phút của mã cũng chỉ ~180 request bé. */
 const POLL_MS = 5_000;
 
-export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetProps): JSX.Element {
-  const [state, setState] = useState<'ACTIVE' | 'USED' | 'CANCELLED' | 'EXPIRED'>('ACTIVE');
+export function DineInCodeSheet({
+  code,
+  expiresAt,
+  onClose,
+  onEdit,
+  initialState = 'ACTIVE',
+  onAccepted,
+}: CodeSheetProps): JSX.Element {
+  const [state, setState] = useState<'ACTIVE' | 'USED' | 'CANCELLED' | 'EXPIRED'>(initialState);
+  /** Món của BÀN sau khi nhân viên nhận mã. `null` = chưa hỏi được nhịp nào. */
+  const [table, setTable] = useState<{ lines: TableLine[]; subtotal: number } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -207,24 +282,49 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
     return () => window.clearInterval(id);
   }, []);
 
-  // Hỏi lại trạng thái trong lúc mã còn sống. Mã chết rồi thì dừng — không còn gì đổi.
+  /**
+   * Nhịp hỏi trạng thái. Chạy ở HAI trạng thái, vì hai lý do khác nhau:
+   *
+   *  - `ACTIVE` — chờ nhân viên bấm nhận, để màn tự đổi mà khách không phải làm gì.
+   *  - `USED` — làm tươi DANH SÁCH MÓN CỦA BÀN (chủ quán 2026-09-16). Khách gọi thêm bằng
+   *    miệng thì dòng đó hiện lên trong 5 giây, không cần tải lại trang.
+   *
+   * `CANCELLED`/`EXPIRED` thì dừng hẳn — không còn gì đổi được nữa.
+   *
+   * `X-Customer-Token` là thứ mở ra phần `table_items`: mã chỉ 5 chữ số nên BE không trả danh
+   * sách món cho người chỉ biết mã. Header chứ không phải query string — token là credential,
+   * đưa lên URL là để nó nằm trong access log.
+   */
   useEffect(() => {
-    if (state !== 'ACTIVE') return;
+    if (state !== 'ACTIVE' && state !== 'USED') return;
     let stop = false;
     const tick = async (): Promise<void> => {
       try {
         const r = await fetch(`/api/public/dine-in-carts/${code}`, {
-          headers: { Accept: 'application/json' },
+          headers: {
+            Accept: 'application/json',
+            'X-Customer-Token': getOrCreateCustomerToken(),
+          },
         });
         if (!r.ok || stop) return;
         const j: unknown = await r.json();
         const parsed = PublicDineInCartStatus.safeParse((j as { data?: unknown }).data);
-        if (parsed.success && !stop) setState(parsed.data.state);
+        if (!parsed.success || stop) return;
+        setState(parsed.data.state);
+        if (parsed.data.table_items !== null) {
+          setTable({
+            lines: parsed.data.table_items,
+            subtotal: parsed.data.table_subtotal ?? 0,
+          });
+        }
       } catch {
         // Mất mạng một nhịp thì bỏ qua — nhịp sau hỏi lại. Không hiện lỗi cho khách vì mã
         // trên màn vẫn đúng và vẫn đọc được cho nhân viên.
       }
     };
+    // Hỏi NGAY một nhịp rồi mới vào chu kỳ: mở lại lớp phủ từ chip mà phải nhìn màn trống 5
+    // giây trước khi thấy món là cảm giác trang bị hỏng.
+    void tick();
     const id = window.setInterval(() => void tick(), POLL_MS);
     return () => {
       stop = true;
@@ -238,8 +338,16 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
     if (state === 'USED') {
       clearDineInCart();
       clearRememberedCode();
+      // NHỚ mã đã được nhận, ở khoá RIÊNG không hết hạn theo 15 phút của mã: khách đóng lớp
+      // phủ rồi lật tiếp menu vẫn phải quay lại xem được món bàn mình đã gọi, mà bữa ăn thì
+      // dài hơn 15 phút nhiều. Xem `readAcceptedCode`.
+      saveAcceptedCode(code);
+      onAccepted?.();
     }
-  }, [state]);
+    // `onAccepted` CỐ Ý không nằm trong deps: chỗ gọi truyền hàm mũi tên mới mỗi render, để
+    // vào deps là effect chạy lại mỗi render và `clearDineInCart()` bắn liên tục.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, code]);
 
   const remainMs = Math.max(0, expiresAt - now);
   const reallyExpired = state === 'EXPIRED' || (state === 'ACTIVE' && remainMs === 0);
@@ -262,6 +370,7 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
 
   return (
     <div style={overlay} role="dialog" aria-modal="true" aria-label="Mã gọi món">
+      <style>{SHEET_CSS}</style>
       <div style={{ ...sheet, textAlign: 'center' }}>
         <div style={sheetHead}>
           <p style={sheetTitle}>Mã gọi món</p>
@@ -270,19 +379,36 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
           </button>
         </div>
 
+        <div className="dinein-scroll" style={codeBody}>
         {state === 'USED' ? (
-          <div style={{ padding: 'var(--sp-5) var(--sp-4)' }}>
+          <div style={codePane}>
             <p style={doneTitle}>Nhân viên đã nhận món của bạn</p>
+
+            {/* DANH SÁCH MÓN CỦA BÀN (chủ quán 2026-09-16).
+                CỐ Ý là món của cả BÀN chứ không riêng mã này: gồm cả lượt gọi trước và món
+                khách gọi thêm bằng miệng, nên khách tự soát được với thứ sắp ra bàn thay vì
+                đi hỏi nhân viên — đúng việc M4 sinh ra để giảm.
+                `table === null` nghĩa là nhịp hỏi đầu chưa về (hoặc mạng đang chập); KHÔNG
+                hiện lỗi, vì thứ quan trọng nhất — "nhân viên đã nhận" — đã nói ở trên rồi. */}
+            {table === null ? (
+              <p style={doneBody}>Đang tải danh sách món…</p>
+            ) : table.lines.length === 0 ? (
+              <p style={doneBody}>
+                Bàn chưa có món nào trên hệ thống. Bạn hỏi lại nhân viên giúp quán nhé.
+              </p>
+            ) : (
+              <DineInTableItems lines={table.lines} subtotal={table.subtotal} />
+            )}
+
             <p style={doneBody}>
-              Món đang được kiểm lại trước khi chuyển xuống bếp. Cần gọi thêm thì bạn chọn
-              món tiếp rồi tạo mã mới nhé.
+              Cần gọi thêm thì bạn chọn món tiếp rồi tạo mã mới nhé.
             </p>
             <button type="button" onClick={onClose} style={primaryBtn}>
               Xem tiếp menu
             </button>
           </div>
         ) : state === 'CANCELLED' || reallyExpired ? (
-          <div style={{ padding: 'var(--sp-5) var(--sp-4)' }}>
+          <div style={codePane}>
             <p style={doneTitle}>{reallyExpired ? 'Mã đã hết hạn' : 'Mã đã được huỷ'}</p>
             <p style={doneBody}>
               Món bạn chọn vẫn còn trong giỏ. Bạn tạo mã mới giúp quán nhé.
@@ -292,7 +418,7 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
             </button>
           </div>
         ) : (
-          <div style={{ padding: 'var(--sp-5) var(--sp-4)' }}>
+          <div style={codePane}>
             <p style={codeLabel}>MÃ GỌI MÓN CỦA BẠN</p>
 
             {/* 5 ô rời — mã luôn đúng 5 chữ số (số cuối là số kiểm tra Luhn). Ô rời để đọc
@@ -324,10 +450,86 @@ export function DineInCodeSheet({ code, expiresAt, onClose, onEdit }: CodeSheetP
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
 }
+
+/**
+ * MÓN BÀN BẠN ĐÃ GỌI — bảng món cho khách đọc sau khi nhân viên nhận mã.
+ *
+ * Tách THUẦN khỏi `DineInCodeSheet` (không state, không fetch, không effect) để dựng được ảnh
+ * của đúng khối này mà không phải đăng nhập và không phải dựng cả luồng QR — cách duy nhất để
+ * nhìn thấy bố cục thật trước khi giao. Cùng lệ với các component hình học khác của repo.
+ */
+export function DineInTableItems({
+  lines,
+  subtotal,
+}: {
+  lines: TableLine[];
+  subtotal: number;
+}): JSX.Element {
+  return (
+    <>
+      <p style={tableCaption}>MÓN BÀN BẠN ĐÃ GỌI</p>
+      <ul style={tableList}>
+        {lines.map((l) => {
+          const { name: dishName, portion } = splitPortion(l.name);
+          return (
+            <li key={`${l.name}-${l.unit_price}`} style={tableRow}>
+              <span style={tableQty}>{l.qty}×</span>
+              <span style={tableName}>
+                {dishName}
+                {portion !== null && <span style={tablePortion}> {portion}</span>}
+              </span>
+              <span style={tableMoney}>{formatVnd(l.line_total)}</span>
+            </li>
+          );
+        })}
+      </ul>
+      <div style={tableTotal}>
+        <span>Tổng cộng</span>
+        <strong style={tableTotalValue}>{formatVnd(subtotal)}</strong>
+      </div>
+    </>
+  );
+}
+
+/**
+ * Chip ghi chú lúc GẬP — trạng thái mặc định, và là trạng thái của gần như mọi món vì phần
+ * lớn khách không ghi chú gì.
+ *
+ * Vẽ ra chỉ ~26px cao, nhưng vùng chạm phải đủ 44px: `padding` dọc 9px + chiều cao chữ ≈
+ * 44. Mắt gặp kích thước vẽ, ngón tay gặp vùng chạm — hai cái đó không cần bằng nhau.
+ * Viền NÉT ĐỨT để đọc ra là "chỗ thêm vào", không phải một nhãn tĩnh.
+ */
+const noteChip: CSSProperties = {
+  alignSelf: 'flex-start',
+  maxWidth: '100%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  minHeight: 'var(--tap-min)',
+  padding: '9px var(--sp-3)',
+  borderRadius: 999,
+  border: '1px dashed var(--menu-line)',
+  background: 'transparent',
+  color: 'var(--menu-text-muted)',
+  fontSize: 'var(--fs-sm)',
+  fontFamily: 'inherit',
+  cursor: 'pointer',
+  // Ghi chú dài thì cắt bằng "…" chứ không xuống dòng: chip phải giữ được đúng một hàng,
+  // không thì nó lại phình ra thành đúng cái ô 46px vừa bỏ.
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
+/** Đã có ghi chú: viền liền + chữ đậm màu hơn, để phân biệt với chip rỗng. */
+const noteChipFilled: CSSProperties = {
+  border: '1px solid var(--menu-line)',
+  color: 'var(--menu-text)',
+};
 
 /** "2 phút 30 giây" thay vì "02:30" — khách đọc câu tiếng Việt nhanh hơn đọc đồng hồ. */
 function fmtRemain(ms: number): string {
@@ -340,6 +542,28 @@ function fmtRemain(ms: number): string {
 }
 
 // ── Style dùng chung (bảng màu --menu-*, nền tối của quyển menu) ───────────────────────
+
+/**
+ * Thanh cuộn của hai lớp phủ: ẨN HẲN, nhưng VẪN CUỘN được (chủ quán 2026-09-16).
+ *
+ * Thứ nhìn thấy trước đây là thanh cuộn mặc định của macOS/Windows khi người dùng bật "luôn
+ * hiện thanh cuộn": một vệt xám dày nằm đúng mép phải lớp phủ. Trên nền kem của quyển menu nó
+ * đọc ra như một vệt bẩn, không như một thanh cuộn.
+ *
+ * `display: none` trên `::-webkit-scrollbar` CHỈ giấu phần vẽ — vùng vẫn cuộn bằng vuốt, lăn
+ * chuột, phím mũi tên và bàn phím. `scrollbar-width: none` là bản Firefox của cùng một việc.
+ *
+ * Phải là CSS thật, không nhét vào `style` inline được: cả `::-webkit-scrollbar` lẫn
+ * `scrollbar-width` đều không có mặt trong kiểu `CSSProperties` (cái đầu là pseudo-element).
+ *
+ * KHÔNG áp cho `.book-view`: thanh cuộn của quyển menu đã được tạo kiểu riêng (mảnh + ấm) và
+ * ở đó nó là thứ CÓ ÍCH — trang dài, khách cần biết mình đang ở đâu. Trong lớp phủ thì mép
+ * trên/dưới bị cắt ngang giữa một dòng món đã nói đủ rằng còn nội dung.
+ */
+const SHEET_CSS = `
+.dinein-scroll { scrollbar-width: none; }
+.dinein-scroll::-webkit-scrollbar { width: 0; height: 0; display: none; }
+`;
 
 const overlay: CSSProperties = {
   position: 'fixed',
@@ -356,9 +580,16 @@ const overlay: CSSProperties = {
 const sheet: CSSProperties = {
   width: '100%',
   maxWidth: 520,
-  maxHeight: '92vh',
+  // `dvh` chứ không `vh`: trên Safari iOS `vh` tính theo màn lúc thanh địa chỉ đã thu lại, nên
+  // lớp phủ cao hơn chỗ thật sự nhìn thấy và phần đáy nằm khuất dưới mép máy.
+  maxHeight: '92dvh',
   display: 'flex',
   flexDirection: 'column',
+  /* `hidden` là thứ BẮT maxHeight ở trên có hiệu lực thật.
+     Không có nó, phần tử con cao hơn 92dvh vẫn vẽ tràn ra ngoài khung (overflow mặc định là
+     `visible`) — nhìn thì thấy nội dung, nhưng nó nằm ngoài vùng cuộn được của bất cứ ai, và
+     góc bo của lớp phủ cũng không cắt được nội dung bên trong. */
+  overflow: 'hidden',
   background: 'var(--menu-chrome)',
   color: 'var(--menu-text)',
   borderTopLeftRadius: 'var(--r-sheet)',
@@ -370,6 +601,9 @@ const sheet: CSSProperties = {
 };
 
 const sheetHead: CSSProperties = {
+  // Tiêu đề + nút ✕ ĐỨNG YÊN khi phần dưới cuộn: `0 0 auto` để nó không bị flex bóp lại khi
+  // nội dung dài.
+  flex: '0 0 auto',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
@@ -377,6 +611,35 @@ const sheetHead: CSSProperties = {
   padding: 'var(--sp-3) var(--sp-4)',
   borderBottom: '1px solid var(--menu-line)',
 };
+
+/**
+ * Vùng CUỘN của lớp phủ mã — thứ lớp phủ này trước đây không có.
+ *
+ * Lớp phủ giỏ có `sheetBody`; lớp phủ mã thì mỗi nhánh là một `<div>` chỉ có `padding`, không
+ * `overflow` nào. Hồi nó chỉ hiện 5 chữ số thì không ai thấy: nội dung luôn thấp hơn màn. Từ
+ * lúc thêm danh sách "Món bàn bạn đã gọi" (2026-09-16) thì bàn gọi nhiều món là nội dung vượt
+ * `maxHeight` — và vì không có vùng cuộn nào, cú vuốt rơi xuống quyển menu phía sau. Nhìn ra
+ * đúng như chủ quán mô tả: "vuốt lên xuống chỉ ảnh hưởng background phía sau thôi".
+ *
+ * Ba thứ dưới đây phải đi CÙNG NHAU, thiếu một là hỏng:
+ *   - `minHeight: 0` — không có thì flex item không chịu co, không bao giờ tràn, không cuộn.
+ *   - `overflowY: auto` — vùng cuộn thật.
+ *   - `overscrollBehavior: contain` — vuốt hết đáy thì DỪNG, không đẩy tiếp ra nền.
+ */
+const codeBody: CSSProperties = {
+  flex: '1 1 auto',
+  minHeight: 0,
+  overflowY: 'auto',
+  // Trục X tự thành `auto` theo spec khi khai `overflow-y` — khoá lại để một phần tử con lố
+  // vài px không đẻ ra thanh cuộn ngang. Cùng lý do như `sheetBody`.
+  overflowX: 'hidden',
+  overscrollBehavior: 'contain',
+  WebkitOverflowScrolling: 'touch',
+};
+
+/** Đệm trong của từng nhánh (mã / đã nhận / hết hạn). Tách khỏi `codeBody` để đệm cuộn theo
+ *  nội dung, không dính vào mép vùng cuộn. */
+const codePane: CSSProperties = { padding: 'var(--sp-5) var(--sp-4)' };
 
 const sheetTitle: CSSProperties = {
   margin: 0,
@@ -397,12 +660,80 @@ const closeBtn: CSSProperties = {
 };
 
 const sheetBody: CSSProperties = {
+  /* `flex: 1 1 auto` + `minHeight: 0` — CẶP ĐÔI, thiếu `minHeight` là `overflowY` ở dưới
+     không làm gì cả. Mặc định `min-height` của một flex item là `auto`, tức là "không được
+     nhỏ hơn nội dung": phần tử nở đúng bằng nội dung, không bao giờ tràn, nên không bao giờ
+     cuộn — và thứ tràn ra là cả lớp phủ. */
+  flex: '1 1 auto',
+  minHeight: 0,
   overflowY: 'auto',
+  // Cuộn tới đáy rồi mà vuốt tiếp thì DỪNG, không đẩy tiếp sang quyển menu phía sau
+  // (scroll chaining). Đây là thứ gây cảm giác "vuốt trong lớp phủ mà nền chạy".
+  overscrollBehavior: 'contain',
+  WebkitOverflowScrolling: 'touch',
+  // `overflow-y: auto` làm trục X tự thành `auto` theo spec, nên BẤT KỲ phần tử con nào lố ra
+  // vài px cũng đẻ ra thanh cuộn ngang. Giỏ chỉ cuộn dọc — khoá thẳng trục X.
+  overflowX: 'hidden',
   padding: 'var(--sp-3) var(--sp-4)',
   display: 'flex',
   flexDirection: 'column',
   gap: 'var(--sp-3)',
   textAlign: 'left',
+};
+
+/** Ảnh món trong giỏ — 64px, nhỏ hơn hẳn 104px của quyển menu: ở đây tên món và số tiền
+ *  mới là thứ khách rà soát, ảnh chỉ để nhận ra mình đã gọi đúng món. */
+const cartThumb: CSSProperties = {
+  flex: '0 0 auto',
+  width: 64,
+  height: 64,
+  borderRadius: 12,
+  objectFit: 'cover',
+  display: 'block',
+  background: 'rgb(42 29 20 / 6%)',
+};
+
+const cartThumbEmpty: CSSProperties = { border: '1px solid var(--menu-line)' };
+
+/** Khẩu phần tách khỏi tên (xem `splitPortion`) — dòng riêng, nhạt hơn. */
+const cartPortion: CSSProperties = {
+  margin: '2px 0 0',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--menu-text-muted)',
+};
+
+/**
+ * Hàng dưới của một dòng giỏ: phép tính tiền bên trái, ghi chú dạt PHẢI.
+ *
+ * Gộp hai thứ vào một hàng chính là chỗ tiết kiệm diện tích mà chủ quán yêu cầu
+ * (2026-09-16): trước đây ghi chú chiếm trọn một hàng riêng cho MỖI món, đo được 46px,
+ * và phần lớn khách không ghi gì.
+ */
+const cartRowBot: CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 'var(--sp-2)',
+  marginTop: 'var(--sp-2)',
+};
+
+const cartMoney: CSSProperties = {
+  margin: 0,
+  flex: '0 0 auto',
+  whiteSpace: 'nowrap',
+  fontSize: 'var(--fs-sm)',
+  color: 'var(--menu-text-muted)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+/** Thành tiền — đậm và đổi màu, vì đây mới là con số khách rà. */
+const cartSub: CSSProperties = { color: 'var(--menu-text)' };
+
+/** Khe chứa chip ghi chú: co giãn để chip luôn dạt sát mép phải. */
+const noteSlot: CSSProperties = {
+  flex: '1 1 auto',
+  minWidth: 0,
+  display: 'flex',
+  justifyContent: 'flex-end',
 };
 
 const cartRow: CSSProperties = {
@@ -443,7 +774,13 @@ const outText: CSSProperties = {
 };
 
 const noteInput: CSSProperties = {
+  // Bung ra TRONG khe ghi chú (hàng chung với dòng tiền), không còn chiếm hàng riêng.
   width: '100%',
+  maxWidth: 210,
+  // Bắt buộc — apps/shop KHÔNG có reset box-sizing toàn cục, thiếu nó là width 100% + padding
+  // + viền làm ô này rộng hơn giỏ vài px, đủ để `sheetBody` mọc thanh cuộn ngang (bài học cũ ở
+  // BannerNotice/CartPage).
+  boxSizing: 'border-box',
   padding: 'var(--sp-2)',
   // 16px trở lên: iOS Safari tự phóng to cả trang khi chạm vào ô nhập nhỏ hơn thế.
   fontSize: 16,
@@ -509,9 +846,11 @@ const primaryBtn: CSSProperties = {
   width: '100%',
   border: 'none',
   borderRadius: 'var(--r-button)',
-  background: 'var(--menu-price)',
-  // Nền hổ phách sáng → chữ phải TỐI. Để chữ trắng là gần như không đọc được.
-  color: '#2b1d08',
+  background: 'var(--menu-accent)',
+  // Nút chính dùng token riêng chứ không mượn màu giá: từ 2026-09-16 `--menu-price` là ĐỎ
+  // (nền sáng), và chữ than trên nền đỏ chỉ được ~2.7:1. `--menu-accent` đi kèm sẵn màu chữ
+  // đúng của nó.
+  color: 'var(--menu-accent-ink)',
   fontSize: 'var(--fs-md)',
   fontWeight: 'var(--fw-semibold)',
   fontFamily: 'inherit',
@@ -624,4 +963,72 @@ const doneBody: CSSProperties = {
   margin: '0 0 var(--sp-4)',
   fontSize: 'var(--fs-sm)',
   color: 'var(--menu-text-muted)',
+};
+
+
+/* ── "Món bàn bạn đã gọi" ─────────────────────────────────────────────────────────────────
+   Bảng màu `--menu-*` (kem ấm của quyển menu), KHÔNG phải token của trang đặt hàng online —
+   lớp phủ này sống trên quyển menu và đứng cạnh nó suốt. */
+
+const tableCaption: CSSProperties = {
+  margin: 'var(--sp-4) 0 var(--sp-2)',
+  fontSize: 12,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  color: 'var(--menu-text-muted)',
+  textAlign: 'left',
+};
+
+const tableList: CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  textAlign: 'left',
+};
+
+/* `align-items: baseline` để số lượng, tên món và tiền nằm trên cùng một đường chữ kể cả khi
+   tên món dài phải xuống dòng. */
+const tableRow: CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 'var(--sp-2)',
+  padding: '10px 0',
+  borderBottom: '1px solid var(--menu-line)',
+};
+
+const tableQty: CSSProperties = {
+  flex: '0 0 auto',
+  minWidth: 32,
+  fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
+};
+
+/* `overflowWrap: anywhere` — tên món dài phải xuống dòng chứ không đẩy cột tiền ra khỏi khung. */
+const tableName: CSSProperties = { flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere' };
+
+const tablePortion: CSSProperties = { color: 'var(--menu-text-muted)', fontSize: 13 };
+
+const tableMoney: CSSProperties = {
+  flex: '0 0 auto',
+  fontWeight: 600,
+  whiteSpace: 'nowrap',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const tableTotal: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: 'var(--sp-2)',
+  paddingTop: 'var(--sp-3)',
+  // Câu "Cần gọi thêm..." ngay dưới có `margin-top: 0`, nên nếu hàng này không tự chừa khoảng
+  // dưới thì con số tổng và câu chữ dính vào nhau thành một khối.
+  marginBottom: 'var(--sp-4)',
+  fontSize: 15,
+};
+
+const tableTotalValue: CSSProperties = {
+  fontSize: 20,
+  fontWeight: 700,
+  fontVariantNumeric: 'tabular-nums',
 };

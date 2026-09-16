@@ -164,6 +164,59 @@ export function saveRememberedCode(value: RememberedCode): void {
   }
 }
 
+/** Mã ĐÃ ĐƯỢC NHÂN VIÊN NHẬN — khác `DINE_IN_CODE_KEY` ở chỗ nó sống qua hạn 15 phút. */
+export const DINE_IN_ACCEPTED_KEY = 'qbl.dinein.accepted.v1';
+
+export type AcceptedCode = { code: string; accepted_at: number };
+
+/**
+ * Mã đã được nhận, để khách còn mở lại xem "món bàn mình đã gọi" (chủ quán 2026-09-16).
+ *
+ * ── VÌ SAO KHÔNG DÙNG LẠI `DINE_IN_CODE_KEY` ──
+ * Khoá kia tự bỏ mã khi quá `expires_at` (15 phút), và đúng như vậy: mã chết mà còn hiện cho
+ * khách đọc cho nhân viên là tệ hơn không hiện gì. Nhưng sau khi nhân viên NHẬN, mã không còn
+ * là thứ để đọc — nó thành cái chìa tra ra bàn. Bữa ăn dài hơn 15 phút, nên dùng chung khoá là
+ * danh sách món biến mất giữa bữa.
+ *
+ * TTL 4 giờ, CÙNG con số với giỏ: cả hai đều gắn với MỘT lượt ngồi ăn. Quá 4 giờ nghĩa là lượt
+ * khác — và bàn của bữa trưa hiện lại lúc khách vừa ngồi xuống buổi tối là món lạ lọt vào mắt
+ * người không liên quan.
+ */
+export function readAcceptedCode(): AcceptedCode | null {
+  try {
+    const raw = window.localStorage.getItem(DINE_IN_ACCEPTED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<AcceptedCode>;
+    if (typeof parsed.code !== 'string' || typeof parsed.accepted_at !== 'number') return null;
+    if (Date.now() - parsed.accepted_at > DINE_IN_CART_TTL_MS) {
+      clearAcceptedCode();
+      return null;
+    }
+    return { code: parsed.code, accepted_at: parsed.accepted_at };
+  } catch {
+    return null;
+  }
+}
+
+export function saveAcceptedCode(code: string): void {
+  try {
+    window.localStorage.setItem(
+      DINE_IN_ACCEPTED_KEY,
+      JSON.stringify({ code, accepted_at: Date.now() } satisfies AcceptedCode),
+    );
+  } catch {
+    // Bỏ qua — xem `saveRememberedCode`.
+  }
+}
+
+export function clearAcceptedCode(): void {
+  try {
+    window.localStorage.removeItem(DINE_IN_ACCEPTED_KEY);
+  } catch {
+    // Bỏ qua — xem `saveRememberedCode`.
+  }
+}
+
 export function clearRememberedCode(): void {
   try {
     window.localStorage.removeItem(DINE_IN_CODE_KEY);

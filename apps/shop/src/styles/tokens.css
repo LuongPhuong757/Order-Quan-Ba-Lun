@@ -139,18 +139,36 @@
   --cat-dark-6: #40342e; /* gỗ     - trắng: 12.01:1 ✓AAA */
   --cat-dark-7: #402e34; /* mâm    - trắng: 12.66:1 ✓AAA */
 
-  /* Khung quanh trang menu: thanh tiêu đề, dải nhóm, chân trang. Tối hơn nền
-   * trang một chút để trang nổi lên như tờ giấy đặt trên mặt bàn. */
-  --menu-chrome: #2f2b27; /* trắng trên nó: 13.86:1 ✓AAA */
-  --menu-line: #4a433c; /* đường kẻ, viền nút trên nền tối */
+  /* ── QUYỂN MENU: BẢNG MÀU SÁNG "QUÁN NƯỚNG BAN NGÀY" (chủ quán chốt 2026-09-16) ──
+   * Bản cũ là nền gỗ nâu tối #2f2b27 + chữ trắng + giá hổ phách. Chủ quán chê "u tối",
+   * và quán là quán nhậu bia rượu / lẩu / nướng chứ không phải nhà hàng tối đèn — nên
+   * đảo sang nền kem sáng, chữ than, nhấn đỏ lửa và vàng bia.
+   *
+   * ĐỔI LUÔN CẢ NGHĨA CỦA `--menu-text`: trước là TRẮNG (trên nền tối), giờ là THAN
+   * (trên nền sáng). Chỗ nào còn giả định "nền tối" là sai kể từ đây.
+   *
+   * Mọi tỉ lệ dưới đây tính bằng công thức WCAG 2.1, không ước lượng. Hai nền phải xét:
+   * nền màn `--menu-chrome` (kem) và nền thẻ món `--menu-surface` (trắng). */
+  --menu-chrome: #fbf2e2; /* nền màn - kem ấm */
+  --menu-surface: #ffffff; /* nền thẻ món, nổi lên khỏi nền kem (tỉ lệ 1.11 - phân tách
+                            * bằng bóng đổ mềm chứ không bằng tương phản sáng/tối) */
+  --menu-line: #e8dcc4; /* đường kẻ mảnh, viền nút - cùng họ kem, không phải xám lạnh */
 
-  /* Chữ trên nền tối. Chủ quán chốt: tên món màu TRẮNG. */
-  --menu-text: #ffffff; /* tên món, tiêu đề nhóm - thấp nhất 10.79:1 trên 7 nền */
-  --menu-text-muted: #c9bdb2; /* đơn vị, ghi chú - thấp nhất 5.86:1 ✓AA */
-  --menu-price: #e8a33d; /* giá. = --wood-400 (hổ phách đèn lồng) - thấp nhất 5.00:1 ✓AA
-                          * KHÔNG dùng --brand-500/600 ở đây: đỏ ớt trên nền đá phiến tối
-                          * chỉ được ~3:1, không đọc nổi ở cỡ chữ giá. */
-  --menu-danger: #ff9d92; /* "Tạm hết" - thấp nhất 7.71:1 ✓AAA */
+  --menu-text: #2a1d14; /* tên món, tiêu đề - kem 14.72:1 ✓AAA · trắng 16.35:1 ✓AAA */
+  --menu-text-muted: #7a6a58; /* khẩu phần, chữ phụ - kem 4.69:1 ✓AA · trắng 5.21:1 ✓AA */
+  --menu-price: #c63720; /* giá - kem 4.76:1 ✓AA · trắng 5.29:1 ✓AA.
+                          * KHÔNG dùng đúng #ce3b23 của bản duyệt: đỏ đó chỉ được 4.42:1
+                          * trên nền kem, hụt ngưỡng AA. Tối thêm một nấc là đạt cả hai nền
+                          * mà mắt gần như không phân biệt được. */
+  --menu-danger: #a8321c; /* "Tạm hết" - kem 6.02:1 ✓AA · trắng 6.69:1 ✓AA */
+
+  /* Nút chính (Sinh mã cho nhân viên) và thanh giỏ. Chữ trên hai nền này KHÔNG được
+   * để mặc định: nền đỏ cần chữ trắng, nền vàng cần chữ than. */
+  --menu-accent: #ce3b23; /* nền nút chính - chữ trắng trên nó 4.91:1 ✓AA */
+  --menu-accent-ink: #ffffff;
+  --menu-cta: #f0a81e; /* nền thanh giỏ - vàng bia */
+  --menu-cta-ink: #2a1d14; /* chữ trên thanh giỏ - 8.04:1 ✓AAA. Chữ trắng trên vàng này
+                            * chỉ được 2.03:1, gần như không đọc được. */
 
 
   /* ── CHỮ: BỘ FONT ────────────────────────────────────────────────────────
