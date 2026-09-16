@@ -133,15 +133,43 @@ function staffHistoryWindowMs(req: Request): number | undefined {
   return role === 'admin' || role === 'report' ? undefined : STAFF_HISTORY_WINDOW_MS;
 }
 
-/** Body của `POST /orders/:id/dine-in-carts/:code/apply` — các dòng nhân viên chủ động bỏ ở
- * preview. Món đã hết hàng thì BE tự bỏ dù có nằm trong danh sách này hay không (không tin FE
- * về chuyện món còn bán được — preview trên tay nhân viên có thể đã cũ vài phút). */
+/** Một dòng nhân viên chốt ở màn gọi món. KHÔNG có giá: giá luôn tra lại từ menu trong
+ * `addItemsBulk`, FE không đặt được. Cùng giới hạn với `AddItemDto` để hai đường vào đơn không
+ * nhận hai bộ luật khác nhau. */
+class ApplyDineInLineDto {
+  @IsUUID() menu_item_id!: string;
+  @IsInt() @Min(1) @Max(99) qty!: number;
+  @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+}
+
+/**
+ * Body của `POST /orders/:id/dine-in-carts/:code/apply`. Hai dạng, dùng một trong hai:
+ *
+ *  - `items` — danh sách CUỐI CÙNG sau khi nhân viên mở giỏ ở màn gọi món và sửa số lượng /
+ *    bỏ dòng / gọi thêm (chủ quán 2026-09-16). Đây là đường FE đang đi.
+ *  - `skip_menu_item_ids` — đổ nguyên giỏ, chỉ bỏ vài dòng. Đường cũ, giữ lại vì "đổ nguyên
+ *    giỏ" vẫn là một thao tác có nghĩa và rẻ hơn hẳn khi không cần sửa gì.
+ *
+ * Món đã hết hàng thì BE tự bỏ ở CẢ HAI đường, dù FE gửi gì — không tin FE về chuyện món còn
+ * bán được, vì màn trên tay nhân viên có thể đã cũ vài phút.
+ */
 class ApplyDineInCartDto {
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(50)
   @IsUUID('4', { each: true })
   skip_menu_item_ids?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ApplyDineInLineDto)
+  items?: ApplyDineInLineDto[];
+
+  /** `true` = xuống bếp luôn, không dừng ở "Đang gọi". */
+  @IsOptional() @IsBoolean() send_to_kitchen?: boolean;
 }
 
 @Controller('orders')
@@ -423,9 +451,14 @@ export class OrdersController {
   /**
    * POST /orders/:id/dine-in-carts/:code/apply — đổ giỏ QR vào đơn của bàn (M4.D-18).
    *
-   * Món vào ở state `PENDING`: đây là bước XÁC NHẬN, KHÔNG phải báo bếp. Báo bếp vẫn là
-   * `POST /orders/:id/send-to-kitchen` như mọi món khác — đúng yêu cầu "xem xong rồi mới báo
-   * bếp" của chủ quán, và không cần state máy mới nào.
+   * Món vào ở state nào do `send_to_kitchen` quyết định (chủ quán 2026-09-16):
+   *
+   *  - `true` — xuống bếp luôn. Đây là đường FE đi: nhân viên đã soát và sửa từng dòng ở màn
+   *    gọi món trước khi bấm, nên bước "xác nhận" đã xảy ra rồi. Bắt xác nhận lần hai bằng
+   *    cách để món ở `PENDING` chỉ đẻ ra vài chục lần bấm mỗi bàn.
+   *  - `false` (mặc định) — dừng ở `PENDING`, báo bếp sau bằng `POST /orders/:id/send-to-kitchen`.
+   *
+   * Không state máy mới nào ở cả hai đường.
    */
   @Post(':id/dine-in-carts/:code/apply')
   @HttpCode(201)
@@ -439,7 +472,12 @@ export class OrdersController {
     const result = await this.dineIn.apply(
       id,
       code,
-      dto.skip_menu_item_ids ?? [],
+      {
+        ...(dto.items
+          ? { items: dto.items.map((l) => ({ ...l, note: l.note ?? null })) }
+          : { skipMenuItemIds: dto.skip_menu_item_ids ?? [] }),
+        sendToKitchen: dto.send_to_kitchen ?? false,
+      },
       { id: req.user!.sub, full_name: req.user!.full_name },
       Date.now(),
     );

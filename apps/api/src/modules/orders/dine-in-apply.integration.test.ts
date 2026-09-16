@@ -219,7 +219,7 @@ describe('apply — đường đi bình thường', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 2 }]);
 
-    const res = await dineIn.apply(orderId, code, [], NV, Date.now());
+    const res = await dineIn.apply(orderId, code, {}, NV, Date.now());
 
     expect(res.added_count).toBe(2);
     const items = await itemsOf(orderId);
@@ -236,7 +236,7 @@ describe('apply — đường đi bình thường', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { id, code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 }]);
 
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
 
     const row = await cartRow(id);
     expect(row!.used_at).not.toBeNull();
@@ -252,7 +252,7 @@ describe('apply — đường đi bình thường', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 }]);
 
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
 
     const logs = await ds.getRepository(OrderActivityLog).find({ where: { order_id: orderId } });
     const applied = logs.find((l) => l.event_kind === 'dine_in_cart_applied');
@@ -271,7 +271,7 @@ describe('apply — đường đi bình thường', () => {
       { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1, note: 'ít cay' },
     ]);
 
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
     const items = await itemsOf(orderId);
     expect(items[0]!.note).toBe('ít cay');
   });
@@ -285,7 +285,7 @@ describe('apply — đường đi bình thường', () => {
 
     await orders.addItemsBulk(orderId, [{ menu_item_id: pho, qty: 1 }], true, NV);
     const { code } = await insertCart([{ menu_item_id: nem, name: 'Nem cuốn', unit_price: 45_000, qty: 3 }]);
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
 
     const items = await itemsOf(orderId);
     expect(items).toHaveLength(2);
@@ -305,7 +305,7 @@ describe('apply — đường đi bình thường', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 }]);
 
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
 
     const after = await ds.getRepository(Order).findOne({ where: { id: orderId } });
     expect(after!.opened_at).toBeGreaterThan(before!.opened_at);
@@ -320,12 +320,12 @@ describe('apply — mã dùng 1 lần (M4.D-13, điểm chí tử)', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 2 }]);
 
-    await dineIn.apply(orderId, code, [], NV, Date.now());
+    await dineIn.apply(orderId, code, {}, NV, Date.now());
 
-    await expect(dineIn.apply(orderId, code, [], NV2, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, {}, NV2, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CART_USED' },
     });
-    const err = await dineIn.apply(orderId, code, [], NV2, Date.now()).catch((e) => e);
+    const err = await dineIn.apply(orderId, code, {}, NV2, Date.now()).catch((e) => e);
     expect(err.response.message).toContain(NV.full_name);
     expect(err.response.message).toContain(`${P}c1`);
 
@@ -346,8 +346,8 @@ describe('apply — mã dùng 1 lần (M4.D-13, điểm chí tử)', () => {
     const { code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 2 }]);
 
     const results = await Promise.allSettled([
-      dineIn.apply(orderId, code, [], NV, Date.now()),
-      dineIn.apply(orderId, code, [], NV2, Date.now()),
+      dineIn.apply(orderId, code, {}, NV, Date.now()),
+      dineIn.apply(orderId, code, {}, NV2, Date.now()),
     ]);
     const ok = results.filter((r) => r.status === 'fulfilled');
     expect(ok).toHaveLength(1);
@@ -361,7 +361,7 @@ describe('apply — mã không dùng được', () => {
   it('mã sai số kiểm tra bị chặn trước khi đụng DB', async () => {
     const tableId = await insertTable(`${P}d1`);
     const orderId = await insertOpenOrder(tableId, `${P}d1`);
-    await expect(dineIn.apply(orderId, '11111', [], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, '11111', {}, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CODE_INVALID' },
     });
   });
@@ -375,7 +375,7 @@ describe('apply — mã không dùng được', () => {
       { expiresInMs: -1_000 },
     );
 
-    await expect(dineIn.apply(orderId, code, [], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, {}, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CART_EXPIRED' },
     });
     expect(await itemsOf(orderId)).toHaveLength(0);
@@ -390,7 +390,7 @@ describe('apply — mã không dùng được', () => {
       { cancelledAt: Date.now() - 1_000 },
     );
 
-    await expect(dineIn.apply(orderId, code, [], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, {}, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CART_CANCELLED' },
     });
     expect(await itemsOf(orderId)).toHaveLength(0);
@@ -403,7 +403,7 @@ describe('apply — mã không dùng được', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { id, code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 }]);
 
-    await expect(dineIn.apply(orderId, code, [], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, {}, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'CONFLICT' },
     });
     // Mã còn sống để nhân viên gõ vào bàn đúng.
@@ -422,7 +422,7 @@ describe('apply — món hết giữa lúc chờ (M4.D-21)', () => {
       { menu_item_id: rau, name: 'Rau muống xào', unit_price: 30_000, qty: 1 },
     ]);
 
-    const res = await dineIn.apply(orderId, code, [], NV, Date.now());
+    const res = await dineIn.apply(orderId, code, {}, NV, Date.now());
     expect(res.skipped_count).toBe(1);
     expect(res.added_count).toBe(2);
 
@@ -439,7 +439,7 @@ describe('apply — món hết giữa lúc chờ (M4.D-21)', () => {
       { menu_item_id: rau, name: 'Rau muống xào', unit_price: 30_000, qty: 1 },
     ]);
 
-    await expect(dineIn.apply(orderId, code, [], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, {}, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CART_EMPTY' },
     });
     expect((await cartRow(id))!.used_at).toBeNull();
@@ -451,7 +451,7 @@ describe('apply — món hết giữa lúc chờ (M4.D-21)', () => {
     const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
     const { id, code } = await insertCart([{ menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 }]);
 
-    await expect(dineIn.apply(orderId, code, [pho], NV, Date.now())).rejects.toMatchObject({
+    await expect(dineIn.apply(orderId, code, { skipMenuItemIds: [pho] }, NV, Date.now())).rejects.toMatchObject({
       response: { code: 'DINE_IN_CART_EMPTY' },
     });
     expect((await cartRow(id))!.used_at).toBeNull();
@@ -467,7 +467,7 @@ describe('apply — món hết giữa lúc chờ (M4.D-21)', () => {
       { menu_item_id: lau, name: 'Lẩu gà lá é', unit_price: 350_000, qty: 1 },
     ]);
 
-    const res = await dineIn.apply(orderId, code, [], NV, Date.now());
+    const res = await dineIn.apply(orderId, code, {}, NV, Date.now());
     expect(res.added_count).toBe(1);
     expect((await itemsOf(orderId))[0]!.menu_item_name).toBe('Lẩu gà lá é');
   });
@@ -483,7 +483,7 @@ describe('apply — giá chốt lúc xác nhận (M4.D-20)', () => {
     // Chủ quán tăng giá SAU khi khách sinh mã.
     await ds.query('UPDATE menu_items SET price = 55000 WHERE id = ?', [pho]);
 
-    const res = await dineIn.apply(orderId, code, [], NV, Date.now());
+    const res = await dineIn.apply(orderId, code, {}, NV, Date.now());
     expect(res.subtotal_added).toBe(110_000);
     const items = await itemsOf(orderId);
     expect(items[0]!.menu_item_price).toBe(55_000);
@@ -517,5 +517,208 @@ describe('preview — không tiêu mã', () => {
     // Tổng tiền chỉ gồm dòng còn bán được, theo giá mới.
     expect(pv.subtotal).toBe(110_000);
     expect(pv.item_count).toBe(2);
+  });
+});
+
+/* ── NHÂN VIÊN SỬA GIỎ Ở MÀN GỌI MÓN RỒI BÁO BẾP (chủ quán 2026-09-16) ────────────────────
+   Đường đi thật của FE từ 2026-09-16: gõ mã → giỏ đổ vào màn gọi món → nhân viên sửa/xoá/gọi
+   thêm → một nút Báo bếp. Khác đường cũ ở chỗ nguồn sự thật là danh sách nhân viên CHỐT, không
+   phải `items_snapshot` — nên phải chứng minh lại hai thứ: (a) snapshot không còn quyết định
+   gì, và (b) mã VẪN bị tiêu đúng một lần, vì đó là chốt chặn nhân đôi món (M4.D-13). */
+describe('apply — nhân viên đã sửa giỏ ở màn gọi món', () => {
+  it('số lượng nhân viên sửa THẮNG số lượng khách bấm', async () => {
+    const tableId = await insertTable(`${P}s1`);
+    const orderId = await insertOpenOrder(tableId, `${P}s1`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 3 },
+    ]);
+
+    // Khách bấm 3, nhưng tới bàn thì chốt lại còn 2.
+    const res = await dineIn.apply(
+      orderId,
+      code,
+      { items: [{ menu_item_id: pho, qty: 2, note: null }], sendToKitchen: true },
+      NV,
+      Date.now(),
+    );
+
+    expect(res.added_count).toBe(2);
+    const items = await itemsOf(orderId);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.qty).toBe(2);
+    // `sendToKitchen` → KHÔNG dừng ở PENDING nữa. Đây là cả lý do tồn tại của thay đổi này.
+    expect(items[0]!.state).toBe('KITCHEN');
+  });
+
+  it('bỏ hẳn một món khách đã chọn thì món đó KHÔNG vào đơn', async () => {
+    const tableId = await insertTable(`${P}s2`);
+    const orderId = await insertOpenOrder(tableId, `${P}s2`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const rau = await insertMenuItem({ name: 'Rau muống xào', price: 30_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+      { menu_item_id: rau, name: 'Rau muống xào', unit_price: 30_000, qty: 1 },
+    ]);
+
+    await dineIn.apply(
+      orderId,
+      code,
+      { items: [{ menu_item_id: pho, qty: 1, note: null }], sendToKitchen: true },
+      NV,
+      Date.now(),
+    );
+
+    const items = await itemsOf(orderId);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.menu_item_name).toBe('Phở bò');
+  });
+
+  it('gọi thêm món NGOÀI giỏ cũng vào đơn trong cùng lần bấm', async () => {
+    const tableId = await insertTable(`${P}s3`);
+    const orderId = await insertOpenOrder(tableId, `${P}s3`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const bia = await insertMenuItem({ name: 'Bia Tiger', price: 25_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+    ]);
+
+    // `bia` KHÔNG có trong snapshot — khách gọi thêm bằng miệng lúc nhân viên đứng ở bàn.
+    const res = await dineIn.apply(
+      orderId,
+      code,
+      {
+        items: [
+          { menu_item_id: pho, qty: 1, note: null },
+          { menu_item_id: bia, qty: 4, note: null },
+        ],
+        sendToKitchen: true,
+      },
+      NV,
+      Date.now(),
+    );
+
+    expect(res.added_count).toBe(5);
+    const names = (await itemsOf(orderId)).map((i) => i.menu_item_name).sort();
+    expect(names).toEqual(['Bia Tiger', 'Phở bò']);
+  });
+
+  it('KHÔNG tin FE: món vừa hết vẫn bị bỏ dù nhân viên gửi lên', async () => {
+    const tableId = await insertTable(`${P}s4`);
+    const orderId = await insertOpenOrder(tableId, `${P}s4`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const rau = await insertMenuItem({ name: 'Rau muống xào', price: 30_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+      { menu_item_id: rau, name: 'Rau muống xào', unit_price: 30_000, qty: 1 },
+    ]);
+    // Màn gọi món trên tay nhân viên mở từ 3 phút trước, lúc đó rau vẫn còn.
+    await ds.query('UPDATE menu_items SET is_out_of_stock = 1 WHERE id = ?', [rau]);
+
+    const res = await dineIn.apply(
+      orderId,
+      code,
+      {
+        items: [
+          { menu_item_id: pho, qty: 1, note: null },
+          { menu_item_id: rau, qty: 1, note: null },
+        ],
+        sendToKitchen: true,
+      },
+      NV,
+      Date.now(),
+    );
+
+    expect(res.skipped_count).toBe(1);
+    const items = await itemsOf(orderId);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.menu_item_name).toBe('Phở bò');
+  });
+
+  it('giá vào bill là giá MENU HIỆN TẠI, FE không đặt được giá', async () => {
+    const tableId = await insertTable(`${P}s5`);
+    const orderId = await insertOpenOrder(tableId, `${P}s5`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+    ]);
+    await ds.query('UPDATE menu_items SET price = 60000 WHERE id = ?', [pho]);
+
+    await dineIn.apply(
+      orderId,
+      code,
+      { items: [{ menu_item_id: pho, qty: 1, note: null }], sendToKitchen: true },
+      NV,
+      Date.now(),
+    );
+
+    expect((await itemsOf(orderId))[0]!.menu_item_price).toBe(60_000);
+  });
+
+  it('mã VẪN chỉ dùng được một lần — chốt chặn nhân đôi không đổi', async () => {
+    const tableId = await insertTable(`${P}s6`);
+    const orderId = await insertOpenOrder(tableId, `${P}s6`);
+    const table2 = await insertTable(`${P}s7`);
+    const order2 = await insertOpenOrder(table2, `${P}s7`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+    ]);
+    const items = [{ menu_item_id: pho, qty: 1, note: null }];
+
+    await dineIn.apply(orderId, code, { items, sendToKitchen: true }, NV, Date.now());
+
+    await expect(
+      dineIn.apply(order2, code, { items, sendToKitchen: true }, NV2, Date.now()),
+    ).rejects.toMatchObject({ response: { code: 'DINE_IN_CART_USED' } });
+    expect(await itemsOf(order2)).toHaveLength(0);
+  });
+
+  it('nhân viên bỏ sạch giỏ: không đốt mã, báo lỗi rõ', async () => {
+    const tableId = await insertTable(`${P}s8`);
+    const orderId = await insertOpenOrder(tableId, `${P}s8`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const { id, code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 1 },
+    ]);
+
+    await expect(
+      dineIn.apply(orderId, code, { items: [], sendToKitchen: true }, NV, Date.now()),
+    ).rejects.toMatchObject({ response: { code: 'DINE_IN_CART_EMPTY' } });
+    expect((await cartRow(id))!.used_at).toBeNull();
+  });
+
+  it('nhật ký nói rõ nhân viên đã sửa gì so với giỏ khách đọc', async () => {
+    const tableId = await insertTable(`${P}s9`);
+    const orderId = await insertOpenOrder(tableId, `${P}s9`);
+    const pho = await insertMenuItem({ name: 'Phở bò', price: 50_000 });
+    const rau = await insertMenuItem({ name: 'Rau muống xào', price: 30_000 });
+    const bia = await insertMenuItem({ name: 'Bia Tiger', price: 25_000 });
+    const { code } = await insertCart([
+      { menu_item_id: pho, name: 'Phở bò', unit_price: 50_000, qty: 3 },
+      { menu_item_id: rau, name: 'Rau muống xào', unit_price: 30_000, qty: 1 },
+    ]);
+
+    // Sửa SL phở 3→2, bỏ rau, gọi thêm bia.
+    await dineIn.apply(
+      orderId,
+      code,
+      {
+        items: [
+          { menu_item_id: pho, qty: 2, note: null },
+          { menu_item_id: bia, qty: 1, note: null },
+        ],
+        sendToKitchen: true,
+      },
+      NV,
+      Date.now(),
+    );
+
+    const logs = await ds.getRepository(OrderActivityLog).find({ where: { order_id: orderId } });
+    const applied = logs.find((l) => l.event_kind === 'dine_in_cart_applied');
+    expect(applied!.message).toContain(code);
+    expect(applied!.message).toContain('sửa SL 1 món');
+    expect(applied!.message).toContain('bỏ 1 món');
+    expect(applied!.message).toContain('gọi thêm 1 món');
   });
 });

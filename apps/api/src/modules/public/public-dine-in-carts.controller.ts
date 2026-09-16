@@ -9,6 +9,7 @@ import {
   Param,
   Post,
   Req,
+  Headers,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Request } from 'express';
@@ -28,10 +29,10 @@ import { DineInCartsService } from './dine-in-carts.service.js';
  * `CsrfOriginGuard` đã phủ `/api/public/*` (POST + DELETE nằm trong `MUTATION_METHODS`) —
  * endpoint mutation ở đây sống nhờ dependency cứng đó, KHÔNG tự thêm ngoại lệ path nào.
  *
- * `@Throttle` 10/phút/IP giống `POST /api/public/orders`. Lưu ý đây là lớp chặn theo IP nên nó
- * áp cho CẢ QUÁN (chung wifi) — nó chỉ chặn kịch bản bấm loạn, còn hạn mức thật cho mỗi thiết
- * bị là `DINE_IN_MAX_CODES_PER_TOKEN_PER_WINDOW` trong `create-cart.ts`, đếm trong DB theo
- * `customer_token`. Đừng siết con số dưới đây xuống: 10/phút cho cả quán đã là sát.
+ * `@Throttle` 10/phút/IP giống `POST /api/public/orders`. Từ 2026-09-16 đây là lớp chặn spam
+ * DUY NHẤT của endpoint này: hạn mức theo thiết bị (5 mã/giờ) đã gỡ vì nó chặn nhầm khách thật
+ * giữa bữa — xem docblock đầu `create-cart.ts`. Lưu ý nó chặn theo IP nên áp cho CẢ QUÁN
+ * (chung wifi). Đừng siết con số dưới đây xuống: 10/phút cho cả quán đã là sát.
  */
 @Controller('api/public')
 export class PublicDineInCartsController {
@@ -70,17 +71,30 @@ export class PublicDineInCartsController {
   }
 
   /**
-   * Khách mở lại tab thì vẫn thấy mã + hạn còn lại (M4.D-08).
+   * Khách mở lại tab thì vẫn thấy mã + hạn còn lại (M4.D-08), và sau khi nhân viên nhận mã thì
+   * thấy MÓN CỦA BÀN (chủ quán 2026-09-16).
    *
-   * Ranh giới quyền đã cân nhắc: mã 5 số nằm trên URL nên ai dò được mã là xem được giỏ. Chấp
-   * nhận vì thứ lộ ra ở đây gần như không có giá trị — số món và tổng tiền của một giỏ vô danh,
-   * không tên, không SĐT, không bàn (`PublicDineInCartStatus` là whitelist `.strict()`). Thao
-   * tác GHI thì chặt hơn hẳn: `DELETE` bắt `customer_token` khớp.
+   * ── HAI MỨC QUYỀN TRONG CÙNG MỘT RESPONSE ──
+   * Phần cũ (mã, trạng thái, hạn còn lại, số món, tổng tiền của GIỎ) vẫn mở cho ai biết mã.
+   * Ranh giới đó đã cân nhắc từ đầu và không đổi: thứ lộ ra là một giỏ vô danh, không tên,
+   * không SĐT, không bàn.
+   *
+   * Phần MỚI (`table_items`) thì KHÔNG: nó là toàn bộ món của một bàn thật, gồm cả món gọi từ
+   * lượt trước. Mã chỉ 5 chữ số — dò hết không gian mã là chuyện vài giây — nên nếu để mở thì
+   * ngồi một chỗ dò mã là đọc được cả quán đang ăn gì. Vì vậy phần đó đòi `customer_token`,
+   * đúng credential mà `DELETE` đang đòi.
+   *
+   * Token đi trong HEADER chứ không phải query string: cùng lý do `DELETE` đặt nó trong body —
+   * query string lọt vào access log của Caddy, header thì không. `GET` không có body để mà
+   * dùng lại đường kia.
    */
   @Get('dine-in-carts/:code')
   @Header('Cache-Control', 'no-store')
-  async getByCode(@Param('code') code: string): Promise<ApiOk<PublicDineInCartStatus>> {
-    return apiOk(await this.svc.getByCode(code, Date.now()));
+  async getByCode(
+    @Param('code') code: string,
+    @Headers('x-customer-token') customerToken?: string,
+  ): Promise<ApiOk<PublicDineInCartStatus>> {
+    return apiOk(await this.svc.getByCode(code, Date.now(), customerToken));
   }
 
   /**

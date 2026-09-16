@@ -2,8 +2,6 @@ import { describe, expect, it, vi } from 'vitest';
 import type { DineInCartCreate } from '@order/schemas';
 import {
   createDineInCart,
-  DINE_IN_MAX_CODES_PER_TOKEN_PER_WINDOW,
-  DINE_IN_TOKEN_WINDOW_MS,
   type CreateCartDeps,
   type DineInCartInsert,
 } from './create-cart.js';
@@ -31,7 +29,6 @@ function makeDeps(over: Partial<CreateCartDeps> = {}) {
   const inserted: DineInCartInsert[] = [];
   const deps: CreateCartDeps = {
     findMenuItemsByIds: async () => [menuItem()],
-    countRecentByToken: async () => 0,
     isCodeLive: async () => false,
     cancelLiveCartsOfToken: async () => 0,
     insertCart: async (row) => {
@@ -148,37 +145,20 @@ describe('createDineInCart — món không bán được', () => {
 });
 
 describe('createDineInCart — hạn mức và mã', () => {
-  it('chặn 429 khi thiết bị đã sinh đủ hạn mức trong 1 giờ', async () => {
-    const { deps } = makeDeps({
-      countRecentByToken: async () => DINE_IN_MAX_CODES_PER_TOKEN_PER_WINDOW,
-    });
-    await expect(createDineInCart(input(), deps, ctx)).rejects.toMatchObject({
-      response: { code: 'TOO_MANY_REQUESTS' },
-    });
-  });
-
-  it('cửa sổ đếm là 1 giờ trước thời điểm hiện tại', async () => {
-    const countRecentByToken = vi.fn(async () => 0);
-    const { deps } = makeDeps({ countRecentByToken });
-    await createDineInCart(input(), deps, ctx);
-    expect(countRecentByToken).toHaveBeenCalledWith(TOKEN, NOW - DINE_IN_TOKEN_WINDOW_MS);
-    expect(DINE_IN_TOKEN_WINDOW_MS).toBe(3_600_000);
-  });
-
-  /** Hạn mức đếm theo THIẾT BỊ, không theo IP: cả quán chung một wifi nên chặn theo IP là
-   * chặn cả quán. Chốt lại bằng việc `ip` không hề tham gia vào nhánh quyết định nào. */
-  it('không giới hạn theo IP — hai thiết bị cùng IP vẫn sinh mã được', async () => {
-    let calls = 0;
-    const { deps, inserted } = makeDeps({
-      countRecentByToken: async (token) => {
-        calls++;
-        return token === TOKEN ? 4 : 0;
-      },
-    });
-    await createDineInCart(input(), deps, ctx);
-    await createDineInCart(input({ customer_token: 'b'.repeat(32) }), deps, ctx);
-    expect(calls).toBe(2);
-    expect(inserted).toHaveLength(2);
+  /**
+   * KHÔNG CÒN HẠN MỨC SINH MÃ THEO THIẾT BỊ (chủ quán 2026-09-16 — đảo ngược M4.D-26).
+   *
+   * Test này là thứ giữ cho quyết định đó không bị lặng lẽ khôi phục: bản cũ chặn ở mã thứ 6
+   * trong một giờ, và một bàn gọi ba lượt kèm vài lần "Sửa lại món" là chạm trần GIỮA BỮA —
+   * khách nhận đúng câu "Vui lòng gọi nhân viên hỗ trợ", tức là mất trắng mục tiêu của M4.
+   * Chặn spam nay chỉ còn ở tầng IP (`@Throttle` 10/phút ở controller).
+   */
+  it('sinh bao nhiêu mã cũng được — không có trần theo thiết bị', async () => {
+    const { deps, inserted } = makeDeps();
+    for (let i = 0; i < 12; i++) {
+      await createDineInCart(input(), deps, ctx);
+    }
+    expect(inserted).toHaveLength(12);
   });
 
   it('tránh mã đang sống — thử lại tới khi tìm được số trống', async () => {
@@ -267,9 +247,9 @@ describe('createDineInCart — món lặp', () => {
     });
   });
 
-  it('kiểm món lặp TRƯỚC khi tốn query hạn mức', async () => {
-    const countRecentByToken = vi.fn(async () => 0);
-    const { deps } = makeDeps({ countRecentByToken });
+  it('kiểm món lặp TRƯỚC khi tốn query đọc menu', async () => {
+    const findMenuItemsByIds = vi.fn(async () => [menuItem()]);
+    const { deps } = makeDeps({ findMenuItemsByIds });
     await expect(
       createDineInCart(
         input({
@@ -282,6 +262,6 @@ describe('createDineInCart — món lặp', () => {
         ctx,
       ),
     ).rejects.toThrow();
-    expect(countRecentByToken).not.toHaveBeenCalled();
+    expect(findMenuItemsByIds).not.toHaveBeenCalled();
   });
 });

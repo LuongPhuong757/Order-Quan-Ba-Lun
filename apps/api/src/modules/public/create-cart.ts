@@ -17,20 +17,23 @@ import {
 } from './dine-in-code.js';
 
 /**
- * M4.D-26 — tối đa 5 lần sinh mã / THIẾT BỊ / giờ, đếm trong DB (không throttler in-memory:
- * bộ đếm reset khi restart thì vô nghĩa với chống spam).
+ * KHÔNG CÒN HẠN MỨC SINH MÃ THEO THIẾT BỊ (chủ quán 2026-09-16 — ĐẢO NGƯỢC M4.D-26).
  *
- * ── VÌ SAO KHÔNG GIỚI HẠN THEO IP ──
- * Cả quán dùng chung một wifi, nên MỌI khách trong quán ra Internet bằng CÙNG MỘT IP công
- * cộng. Đặt hạn mức theo `ip_hash` là hạn mức cho CẢ QUÁN: quán đông thì bàn thứ sáu trở đi
- * bị chặn không sinh được mã, và triệu chứng nhìn ra y như lỗi hệ thống. `ip_hash` vẫn được
- * LƯU (truy vết khi có sự cố) nhưng KHÔNG dùng để chặn. Đừng "siết thêm cho chắc" ở đây.
+ * Bản cũ chặn 5 mã / thiết bị / giờ, đếm trong DB theo `customer_token`. Con số đó chật hơn
+ * bữa ăn thật: một bàn gọi ba lượt, thêm vài lần bấm "Sửa lại món" (mỗi lần huỷ mã cũ rồi sinh
+ * mã mới, và mã đã huỷ VẪN bị đếm) là chạm trần giữa bữa. Lúc đó khách nhận đúng câu "Vui lòng
+ * gọi nhân viên hỗ trợ" — tức là mất trắng mục tiêu của M4, vì cả tính năng sinh ra để khách
+ * KHÔNG phải gọi nhân viên.
  *
- * Lớp chặn theo IP đã có sẵn và đủ: throttler `default` toàn cục 600 req/phút/IP
- * (`app.module.ts`), rộng hơn nhiều lần nhu cầu thật của một quán.
+ * Cái mất đi nhỏ hơn nhiều so với cái được: giỏ sinh ra là một dòng TRƠ. Nó không vào bill,
+ * không tới bếp, không ai thấy — cho tới khi một nhân viên ĐÃ ĐĂNG NHẬP gõ đúng 5 số đó vào
+ * một bàn đang mở. Bơm bảng `dine_in_carts` chỉ tốn vài dòng có hạn 15 phút.
+ *
+ * Lớp chặn theo IP VẪN CÒN và không đụng tới: `@Throttle` 10 req/phút ở controller, cộng
+ * throttler `default` 600 req/phút toàn cục (`app.module.ts`). Đó là thứ chặn kịch bản bấm
+ * loạn thật sự. Nếu sau này cần siết lại theo thiết bị thì đặt ngưỡng theo BỮA ĂN (vd 30/giờ),
+ * đừng quay lại con số 5.
  */
-export const DINE_IN_MAX_CODES_PER_TOKEN_PER_WINDOW = 5;
-export const DINE_IN_TOKEN_WINDOW_MS = 3_600_000;
 
 export type DineInCartInsert = {
   code: string;
@@ -48,9 +51,6 @@ export type DineInCartInsert = {
  */
 export type CreateCartDeps = {
   findMenuItemsByIds(ids: string[]): Promise<MenuItemLookup[]>;
-  /** Số mã thiết bị này đã sinh từ `sinceMs` tới nay — đếm MỌI mã, kể cả đã dùng/đã huỷ.
-   * Đếm cả mã đã huỷ là có chủ đích: bấm "Sửa lại" liên tục cũng là một cách bơm bảng. */
-  countRecentByToken(customerToken: string, sinceMs: number): Promise<number>;
   /** Mã này có đang thuộc một giỏ CÒN HIỆU LỰC không (M4.D-14 — unique chỉ trong tập sống). */
   isCodeLive(code: string, nowMs: number): Promise<boolean>;
   /** Huỷ mọi mã CÒN SỐNG của thiết bị này. Trả về số mã đã huỷ. Xem M4.D-31. */
@@ -105,20 +105,6 @@ export async function createDineInCart(
       });
     }
     seen.add(it.menu_item_id);
-  }
-
-  const recentCount = await deps.countRecentByToken(
-    input.customer_token,
-    ctx.nowMs - DINE_IN_TOKEN_WINDOW_MS,
-  );
-  if (recentCount >= DINE_IN_MAX_CODES_PER_TOKEN_PER_WINDOW) {
-    throw new HttpException(
-      {
-        code: 'TOO_MANY_REQUESTS',
-        message: 'Bạn đã tạo quá nhiều mã trong một giờ. Vui lòng gọi nhân viên hỗ trợ.',
-      },
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
   }
 
   const menuItems = await deps.findMenuItemsByIds(input.items.map((it) => it.menu_item_id));

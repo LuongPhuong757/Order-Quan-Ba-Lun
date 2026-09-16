@@ -5,9 +5,14 @@ import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nest
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, MoreThan, Repository } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import type { DineInCartCreate, PublicDineInCartStatus } from '@order/schemas';
+import type {
+  DineInCartCreate,
+  PublicDineInCartStatus,
+  PublicDineInTableLine,
+} from '@order/schemas';
 import { PublicDineInCartStatus as PublicDineInCartStatusSchema } from '@order/schemas';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
+import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { DineInCart } from './entities/dine-in-cart.entity.js';
 import { auditIpValue, hashIp, resolveIpHashSalt } from './ip-hash.js';
 import { dineInCartExpiresInMs, dineInCartState, isValidDineInCode } from './dine-in-code.js';
@@ -21,6 +26,7 @@ export class DineInCartsService {
   constructor(
     @InjectRepository(DineInCart) private readonly cartRepo: Repository<DineInCart>,
     @InjectRepository(MenuItem) private readonly menuItemRepo: Repository<MenuItem>,
+    @InjectRepository(OrderItem) private readonly orderItemRepo: Repository<OrderItem>,
     private readonly emitter: EventEmitter2,
   ) {}
 
@@ -56,15 +62,80 @@ export class DineInCartsService {
    * luồng online. Nếu ai đó sau này thêm field vào object dưới đây thì parse THROW thay vì
    * để dữ liệu lọt ra mạng.
    */
-  async getByCode(code: string, nowMs: number): Promise<PublicDineInCartStatus> {
+  async getByCode(
+    code: string,
+    nowMs: number,
+    customerToken?: string,
+  ): Promise<PublicDineInCartStatus> {
     const row = await this.findByCodeOrThrow(code);
+    const state = dineInCartState(row, nowMs);
+
+    /* MÓN CỦA BÀN — chỉ mở ra khi đủ CẢ BA điều kiện (xem docblock schema).
+       `customer_token` là điều kiện không được phép bỏ: mã 5 chữ số dò hết trong vài giây, nên
+       nếu chỉ cần biết mã là đọc được thì người ngồi bàn bên cạnh xem được cả quán đang ăn gì.
+       So khớp thẳng chuỗi như `cancelByCode` — token là ngẫu nhiên 32+ ký tự do máy khách sinh,
+       không phải bí mật dùng chung nào để mà lo rò theo thời gian so sánh. */
+    const canSeeTable = state === 'USED' && row.order_id !== null && !!customerToken
+      && row.customer_token === customerToken;
+    const table = canSeeTable ? await this.readTableItems(row.order_id!) : null;
+
     return PublicDineInCartStatusSchema.strict().parse({
       code: row.code,
-      state: dineInCartState(row, nowMs),
+      state,
       expires_in_ms: dineInCartExpiresInMs(row, nowMs),
       item_count: row.items_snapshot.length,
       subtotal: row.subtotal,
+      table_items: table?.lines ?? null,
+      table_subtotal: table?.subtotal ?? null,
     } satisfies PublicDineInCartStatus);
+  }
+
+  /**
+   * Món đang có trên đơn của bàn, gộp lại cho khách đọc.
+   *
+   * Ba luật:
+   *
+   * 1. **Bỏ dòng `CANCELLED`** — món đã huỷ không vào bill, hiện ra chỉ làm khách tưởng mình
+   *    bị tính tiền món đó.
+   * 2. **Bỏ dòng `is_note`** — đó là yêu cầu phục vụ nhân viên gõ cho bếp ("thêm đá", "ra sau"),
+   *    không phải món ăn, giá luôn 0. Chủ quán hỏi "list món ăn", không phải nhật ký bếp.
+   * 3. **Gộp theo tên + giá**, không theo `menu_item_id`: một món gọi hai lượt là hai dòng
+   *    trong DB, mà khách nhìn phải ra "4 × Bò Mỹ Nướng". Gộp kèm giá vì cùng một món có thể
+   *    đã vào bill ở hai mức giá khác nhau nếu chủ quán sửa giá giữa bữa — cộng chung lại thì
+   *    tổng tiền của dòng đó sai.
+   *
+   * KHÔNG trả state của từng món (đang nấu / đã ra). Khách nhìn thấy "đang nấu" rồi đếm phút là
+   * sinh ra đúng loại câu hỏi mà M4 muốn giảm; và trạng thái bếp là vận hành nội bộ.
+   */
+  private async readTableItems(
+    orderId: string,
+  ): Promise<{ lines: PublicDineInTableLine[]; subtotal: number }> {
+    const rows = await this.orderItemRepo.find({
+      where: { order_id: orderId },
+      select: ['menu_item_name', 'menu_item_price', 'qty', 'state', 'is_note'],
+      order: { created_at: 'ASC' },
+    });
+
+    const acc = new Map<string, PublicDineInTableLine>();
+    let subtotal = 0;
+    for (const r of rows) {
+      if (r.state === 'CANCELLED' || r.is_note) continue;
+      const key = `${r.menu_item_name}¦${r.menu_item_price}`;
+      const line = acc.get(key);
+      if (line) {
+        line.qty += r.qty;
+        line.line_total += r.menu_item_price * r.qty;
+      } else {
+        acc.set(key, {
+          name: r.menu_item_name,
+          qty: r.qty,
+          unit_price: r.menu_item_price,
+          line_total: r.menu_item_price * r.qty,
+        });
+      }
+      subtotal += r.menu_item_price * r.qty;
+    }
+    return { lines: [...acc.values()], subtotal };
   }
 
   /**
@@ -155,11 +226,6 @@ export class DineInCartsService {
           is_online_hidden: m.is_online_hidden,
         }));
       },
-
-      countRecentByToken: (customerToken, sinceMs) =>
-        this.cartRepo.count({
-          where: { customer_token: customerToken, created_at: MoreThan(sinceMs) },
-        }),
 
       // "Còn hiệu lực" = chưa dùng, chưa huỷ, chưa hết hạn — khớp đúng định nghĩa
       // `dineInCartState() === 'ACTIVE'`. Ba điều kiện này phải đi cùng nhau; bỏ một cái là

@@ -24,9 +24,28 @@ import { OrdersService, type OrderCreator } from './orders.service.js';
 import {
   buildDineInPreview,
   dineInApplyMessage,
+  dineInSubmitMessage,
   planDineInApply,
+  planDineInSubmit,
   type DineInMenuNow,
+  type DineInSubmitLine,
 } from './dine-in-apply.js';
+
+/**
+ * Hai cách đổ giỏ, và khác nhau ở NGUỒN SỰ THẬT:
+ *
+ *  - `items` có → nhân viên đã mở giỏ ở MÀN GỌI MÓN, sửa số lượng / bỏ dòng / gọi thêm rồi mới
+ *    bấm. Thứ vào đơn là danh sách họ chốt, `items_snapshot` chỉ còn để đối chiếu cho nhật ký.
+ *  - `items` không có → đổ nguyên giỏ khách đọc, `skipMenuItemIds` là các dòng bỏ tay.
+ *
+ * Cả hai đều CHIẾM MÃ như nhau — đó là thứ không được phép khác nhau giữa hai đường.
+ */
+export type DineInApplyOptions = {
+  items?: DineInSubmitLine[];
+  skipMenuItemIds?: string[];
+  /** `true` = xuống bếp luôn. Xem docblock trong `apply()` cho lý do mặc định vẫn là `false`. */
+  sendToKitchen?: boolean;
+};
 
 @Injectable()
 export class DineInStaffService {
@@ -84,7 +103,7 @@ export class DineInStaffService {
   async apply(
     orderId: string,
     code: string,
-    skipMenuItemIds: string[],
+    opts: DineInApplyOptions,
     actor: OrderCreator,
     nowMs: number,
   ): Promise<DineInCartApplyResult> {
@@ -97,8 +116,14 @@ export class DineInStaffService {
     }
 
     const cart = await this.loadActiveCartOrThrow(code, nowMs);
-    const menuNow = await this.readMenuNow(cart);
-    const plan = planDineInApply(cart.items_snapshot, menuNow, skipMenuItemIds);
+    // Nhân viên gọi thêm món NGOÀI giỏ thì món đó không nằm trong snapshot — phải đọc giá của
+    // nó nữa, không thì `planDineInSubmit` tưởng món không tồn tại và bỏ mất.
+    const menuNow = await this.readMenuNow(cart, opts.items);
+
+    const submitted = opts.items;
+    const plan = submitted
+      ? planDineInSubmit(submitted, menuNow, cart.items_snapshot)
+      : planDineInApply(cart.items_snapshot, menuNow, opts.skipMenuItemIds ?? []);
 
     // Chặn TRƯỚC khi chiếm mã: đổ một giỏ rỗng thì mã bị đốt mà khách chẳng được gì. Ca này
     // xảy ra khi cả giỏ vừa hết hàng, hoặc nhân viên bỏ tay hết mọi dòng.
@@ -117,19 +142,36 @@ export class DineInStaffService {
       throw await this.buildAlreadyUsedError(cart.id);
     }
 
+    /* BÁO BẾP NGAY hay để ở "Đang gọi" — đây là chỗ chủ quán đổi ý 2026-09-16.
+       Trước: LUÔN `false`, món nằm ở PENDING chờ nhân viên bấm "Báo bếp" trên TỪNG món. Lý do
+       cũ là "xem xong rồi mới báo bếp" — nhưng việc xem đó nay đã xảy ra ở màn gọi món, nơi
+       nhân viên vừa sửa từng dòng trước khi bấm. Bắt xem lần thứ hai ở drawer là thừa, và cái
+       giá của nó là mỗi bàn vài chục lần bấm.
+       Vẫn giữ tham số chứ không hardcode `true`: đổ giỏ mà CHƯA muốn xuống bếp vẫn là một ca
+       thật (khách đọc mã trước, đợi bạn tới đủ mới gọi). */
     let result: { count: number };
     try {
-      result = await this.orders.addItemsBulk(orderId, plan.toAdd, false, actor);
+      result = await this.orders.addItemsBulk(
+        orderId,
+        plan.toAdd,
+        opts.sendToKitchen ?? false,
+        actor,
+      );
     } catch (err) {
       await this.releaseClaim(cart.id);
       throw err;
     }
 
-    await this.writeApplyActivity(order, code, plan, actor);
+    const message = submitted
+      ? dineInSubmitMessage(code, plan as ReturnType<typeof planDineInSubmit>)
+      : dineInApplyMessage(code, plan as ReturnType<typeof planDineInApply>);
+    await this.writeApplyActivity(order, message, actor);
 
     return {
       added_count: result.count,
-      skipped_count: plan.skipped_count,
+      skipped_count: submitted
+        ? (plan as ReturnType<typeof planDineInSubmit>).dropped_count
+        : (plan as ReturnType<typeof planDineInApply>).skipped_count,
       subtotal_added: plan.subtotal_added,
     };
   }
@@ -249,9 +291,21 @@ export class DineInStaffService {
     }
   }
 
-  /** Chỉ đọc các món CÓ TRONG GIỎ, không đọc cả menu — giỏ nhiều lắm 50 dòng. */
-  private async readMenuNow(cart: DineInCart): Promise<DineInMenuNow[]> {
-    const ids = cart.items_snapshot.map((l) => l.menu_item_id);
+  /** Chỉ đọc các món CÓ LIÊN QUAN, không đọc cả menu — giỏ nhiều lắm 50 dòng.
+   *
+   * `extra` là danh sách nhân viên chốt ở màn gọi món: nó có thể chứa món KHÔNG nằm trong giỏ
+   * (nhân viên gọi thêm tại bàn). Thiếu chúng ở đây thì `planDineInSubmit` không tra được giá
+   * và bỏ nhầm món vừa gọi. */
+  private async readMenuNow(
+    cart: DineInCart,
+    extra?: DineInSubmitLine[],
+  ): Promise<DineInMenuNow[]> {
+    const ids = [
+      ...new Set([
+        ...cart.items_snapshot.map((l) => l.menu_item_id),
+        ...(extra ?? []).map((l) => l.menu_item_id),
+      ]),
+    ];
     if (ids.length === 0) return [];
     const rows = await this.menuRepo.find({
       where: { id: In(ids) },
@@ -278,8 +332,7 @@ export class DineInStaffService {
    */
   private async writeApplyActivity(
     order: Order,
-    code: string,
-    plan: ReturnType<typeof planDineInApply>,
+    message: string,
     actor: OrderCreator,
   ): Promise<void> {
     try {
@@ -290,7 +343,7 @@ export class DineInStaffService {
         table_code: order.table_code,
         order_opened_at: order.opened_at,
         event_kind: 'dine_in_cart_applied',
-        message: dineInApplyMessage(code, plan),
+        message,
         actor_id: actor.id,
         actor_name: actor.full_name,
       });

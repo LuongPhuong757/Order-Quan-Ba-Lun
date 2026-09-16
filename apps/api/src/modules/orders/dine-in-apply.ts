@@ -163,6 +163,98 @@ export function planDineInApply(
   return { toAdd, skipped_count: skipped, subtotal_added: subtotalAdded };
 }
 
+/** Một dòng nhân viên CHỐT ở màn gọi món, sau khi đã sửa số lượng / bỏ bớt / gọi thêm trên
+ * giỏ khách đọc. Không mang giá: giá luôn tra lại từ menu, FE không đặt được. */
+export type DineInSubmitLine = {
+  menu_item_id: string;
+  qty: number;
+  note: string | null;
+};
+
+export type DineInSubmitPlan = {
+  toAdd: Array<{ menu_item_id: string; qty: number; note: string | null }>;
+  /** Dòng nhân viên chốt nhưng BE vẫn bỏ vì món vừa hết / vừa bị ẩn. */
+  dropped_count: number;
+  subtotal_added: number;
+  /** Nhân viên đã sửa gì so với giỏ khách đọc. CHỈ dùng cho câu nhật ký. */
+  edit: { added: number; removed: number; qty_changed: number };
+};
+
+/**
+ * Kế hoạch đổ giỏ khi nhân viên đã SỬA giỏ ở màn gọi món (chủ quán 2026-09-16).
+ *
+ * Khác `planDineInApply` ở đúng một điểm: nguồn sự thật là danh sách nhân viên CHỐT, không
+ * phải `items_snapshot`. Nhân viên sửa số lượng, bỏ dòng, và gọi thêm món ngoài giỏ đều nằm
+ * trong cùng một lần bấm — nên snapshot không còn mô tả được thứ sẽ vào bill.
+ *
+ * Hai thứ KHÔNG đổi, và đây là lý do hàm này vẫn nhận `menuNow`:
+ *
+ * 1. **Không tin FE về chuyện món còn bán được.** Màn gọi món trên tay nhân viên có thể đã mở
+ *    vài phút; món hết trong lúc đó thì vẫn phải rơi ra ở đây. Cùng luật với `planDineInApply`.
+ * 2. **Không tin FE về giá.** Hàm này chỉ tính `subtotal_added` để ghi nhật ký; giá thật vào
+ *    bill do `addItemsBulk` tra lại trong transaction của nó.
+ *
+ * `snapshot` chỉ dùng để ĐẾM nhân viên đã sửa gì — nó không quyết định dòng nào vào đơn.
+ */
+export function planDineInSubmit(
+  submitted: DineInSubmitLine[],
+  menuNow: DineInMenuNow[],
+  snapshot: DineInSnapshotLine[],
+): DineInSubmitPlan {
+  const byId = new Map(menuNow.map((m) => [m.id, m]));
+  const toAdd: DineInSubmitPlan['toAdd'] = [];
+  let dropped = 0;
+  let subtotalAdded = 0;
+
+  for (const line of submitted) {
+    if (line.qty <= 0) continue;
+    const m = byId.get(line.menu_item_id);
+    if (!m || !m.is_active || m.is_out_of_stock) {
+      dropped++;
+      continue;
+    }
+    toAdd.push({ menu_item_id: line.menu_item_id, qty: line.qty, note: line.note });
+    subtotalAdded += m.price * line.qty;
+  }
+
+  // Gộp theo món trước khi so: một món có thể nằm ở nhiều dòng vì khác ghi chú.
+  const sumBy = (rows: Array<{ menu_item_id: string; qty: number }>): Map<string, number> => {
+    const acc = new Map<string, number>();
+    for (const r of rows) acc.set(r.menu_item_id, (acc.get(r.menu_item_id) ?? 0) + r.qty);
+    return acc;
+  };
+  const before = sumBy(snapshot);
+  const after = sumBy(toAdd);
+
+  let added = 0;
+  let removed = 0;
+  let qtyChanged = 0;
+  for (const [id, qty] of after) {
+    if (!before.has(id)) added++;
+    else if (before.get(id) !== qty) qtyChanged++;
+  }
+  for (const id of before.keys()) if (!after.has(id)) removed++;
+
+  return {
+    toAdd,
+    dropped_count: dropped,
+    subtotal_added: subtotalAdded,
+    edit: { added, removed, qty_changed: qtyChanged },
+  };
+}
+
+/** Câu nhật ký cho lần chốt giỏ đã qua tay nhân viên. Phải nói được HAI thứ mà dòng "Gọi món:
+ * ..." của `addItemsBulk` không có: mã giỏ, và việc nhân viên đã sửa khác đi những gì so với
+ * thứ khách bấm trên điện thoại. */
+export function dineInSubmitMessage(code: string, plan: DineInSubmitPlan): string {
+  const parts: string[] = [`${plan.toAdd.length} dòng`];
+  if (plan.edit.qty_changed > 0) parts.push(`sửa SL ${plan.edit.qty_changed} món`);
+  if (plan.edit.removed > 0) parts.push(`bỏ ${plan.edit.removed} món`);
+  if (plan.edit.added > 0) parts.push(`gọi thêm ${plan.edit.added} món`);
+  if (plan.dropped_count > 0) parts.push(`${plan.dropped_count} dòng hết hàng`);
+  return `Nhận giỏ QR mã ${code}: ${parts.join(', ')}`;
+}
+
 /** Câu nhật ký cho lần đổ giỏ — nói rõ mã nào, mấy dòng vào, mấy dòng bị bỏ. Sáu tháng sau
  * tranh cãi một bill, câu hỏi đầu tiên luôn là "món này ở đâu ra". */
 export function dineInApplyMessage(code: string, plan: DineInApplyPlan): string {

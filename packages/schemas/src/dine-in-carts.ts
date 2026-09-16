@@ -50,6 +50,15 @@ export type DineInCartState = (typeof DINE_IN_CART_STATES)[number];
  * tên nhân viên nào đã nhập mã. Khách không cần biết, và đó là thông tin vận hành nội bộ —
  * cùng lý lẽ với hard gate G-1 của luồng online (`PublicOrderStatus`).
  */
+/** Một dòng trong "món bàn bạn đã gọi" — gộp theo món, KHÔNG mang id nào của hệ thống. */
+export const PublicDineInTableLine = z.object({
+  name: z.string(),
+  qty: z.number().int().min(1),
+  unit_price: z.number().int().min(0),
+  line_total: z.number().int().min(0),
+});
+export type PublicDineInTableLine = z.infer<typeof PublicDineInTableLine>;
+
 export const PublicDineInCartStatus = z.object({
   code: z.string(),
   state: z.enum(DINE_IN_CART_STATES),
@@ -57,6 +66,22 @@ export const PublicDineInCartStatus = z.object({
   expires_in_ms: z.number().int().min(0),
   item_count: z.number().int().min(0),
   subtotal: z.number().int().min(0),
+  /**
+   * MÓN CỦA BÀN sau khi nhân viên đã nhận mã (chủ quán 2026-09-16). Gồm CẢ món của lượt gọi
+   * trước và món nhân viên gọi thêm bằng miệng — nên nó phản ánh luôn việc nhân viên sửa số
+   * lượng hay bỏ món vừa hết.
+   *
+   * `null` ở MỌI trường hợp khác, và ba điều kiện để khác `null` đều bắt buộc:
+   *   1. mã đã ở trạng thái `USED` (chưa nhận thì chưa có bàn nào để mà kể),
+   *   2. người hỏi gửi đúng `customer_token` đã tạo ra giỏ,
+   *   3. giỏ có `order_id` (đơn chưa bị xoá).
+   *
+   * Điều kiện (2) là thứ giữ hard gate: mã chỉ 5 chữ số, dò hết là chuyện vài giây. Không có
+   * nó thì ai ngồi cạnh cũng đọc được bàn khác đang ăn gì. Vẫn TUYỆT ĐỐI không kèm mã bàn,
+   * tên bàn hay tên nhân viên — khách chỉ cần biết món, không cần biết vận hành nội bộ.
+   */
+  table_items: z.array(PublicDineInTableLine).nullable(),
+  table_subtotal: z.number().int().min(0).nullable(),
 });
 export type PublicDineInCartStatus = z.infer<typeof PublicDineInCartStatus>;
 
