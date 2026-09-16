@@ -13,7 +13,7 @@ type UserRow = {
   full_name: string | null;
   role: Role | null;
   is_active: boolean;
-  /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Owner luôn được, không bật tắt. */
+  /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Owner và quản lý luôn được, không bật tắt. */
   can_collect_transfer: boolean;
   is_owner: boolean;
   created_at: number;
@@ -255,8 +255,18 @@ export function AdminUsersPage() {
                 {/* Công tắc thu chuyển khoản — bấm thẳng trong bảng, không chôn trong menu Sửa:
                     chủ quán bật tắt cái này theo ca và theo người, chứ không phải sửa hồ sơ. */}
                 <td data-label="Thu CK">
-                  {u.is_owner ? (
-                    <span style={{ color: '#6b7280', fontSize: 12 }} title="Chủ quán luôn được thu chuyển khoản">
+                  {/* Quản lý (`role === 'admin'`) đứng chung cột với chủ quán: BE không đọc cờ của
+                      họ nữa (xem `canCollectTransfer`), nên bày nút bấm ở đây là bày một cái công
+                      tắc bấm xong không đổi gì — đúng kiểu làm người ta tưởng đã tắt quyền. */}
+                  {u.is_owner || u.role === 'admin' ? (
+                    <span
+                      style={{ color: '#6b7280', fontSize: 12 }}
+                      title={
+                        u.is_owner
+                          ? 'Chủ quán luôn được thu chuyển khoản'
+                          : 'Quản lý luôn được thu chuyển khoản và xem ảnh bill'
+                      }
+                    >
                       luôn được
                     </span>
                   ) : (
