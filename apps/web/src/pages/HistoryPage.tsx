@@ -547,7 +547,10 @@ export function HistoryPage() {
     misaFilter ||
     paymentFilter ||
     qrAccountFilter ||
-    !range.shift;
+    // Mặc định của màn là CA ĐANG CHẠY, nên chỉ nó mới là "không lọc gì". Ca trước là một lựa
+    // chọn có chủ ý và phải tính là đang lọc — nếu không thì nút "Xoá lọc" biến mất đúng lúc
+    // người dùng cần nó nhất để quay về ca hiện tại.
+    range.shift !== 'current';
 
   return (
     <div className="container txn-page with-bottom-nav">

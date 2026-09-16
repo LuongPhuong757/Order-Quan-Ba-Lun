@@ -145,49 +145,89 @@ describe('historyFilterKey', () => {
   });
 });
 
-// ── Lọc theo ca đang chạy ──────────────────────────────────────────────────────────────────
-const SAU_8H = Date.parse('2026-09-07T02:00:00Z'); // 09:00 VN
-const TRUOC_8H = Date.parse('2026-09-07T00:30:00Z'); // 07:30 VN — ca mở từ hôm qua
+// ── Lọc theo ca ───────────────────────────────────────────────────────────────────────────
+// Ca chạy 12h trưa → 12h trưa (12h VN = 05:00Z).
+const SAU_12H = Date.parse('2026-09-07T06:00:00Z'); // 13:00 VN
+const TRUOC_12H = Date.parse('2026-09-07T04:30:00Z'); // 11:30 VN — ca mở từ trưa hôm qua
 
-describe('historyQuery — khoảng ca', () => {
+describe('historyQuery — ca đang chạy', () => {
   it('gửi start_ms đúng mốc đầu ca', () => {
-    const q = historyQuery({ ...EMPTY, shift: true }, { nowMs: SAU_8H });
-    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_8H));
-    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-07T01:00:00.000Z'));
+    const q = historyQuery({ ...EMPTY, shift: 'current' }, { nowMs: SAU_12H });
+    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_12H));
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-07T05:00:00.000Z'));
   });
 
-  it('trước 8h sáng thì hỏi từ 8h sáng HÔM QUA', () => {
-    const q = historyQuery({ ...EMPTY, shift: true }, { nowMs: TRUOC_8H });
-    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-06T01:00:00.000Z'));
+  it('trước 12h trưa thì hỏi từ 12h trưa HÔM QUA', () => {
+    const q = historyQuery({ ...EMPTY, shift: 'current' }, { nowMs: TRUOC_12H });
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-06T05:00:00.000Z'));
   });
 
   // "Tới bây giờ" cố ý để trống đầu trên — xem ghi chú trong `historyQuery`.
   it('KHÔNG gửi end_ms — đơn mới thanh toán phải hiện ra ngay, không cần bấm lại chip', () => {
-    expect(historyQuery({ ...EMPTY, shift: true }, { nowMs: SAU_8H }).has('end_ms')).toBe(false);
+    expect(historyQuery({ ...EMPTY, shift: 'current' }, { nowMs: SAU_12H }).has('end_ms')).toBe(false);
   });
 
   it('cờ ca ĐÈ khoảng ngày — không bao giờ gửi cả hai kiểu mốc cùng lúc', () => {
     const q = historyQuery(
-      { ...EMPTY, shift: true, from: '2026-01-01', to: '2026-01-31' },
-      { nowMs: SAU_8H },
+      { ...EMPTY, shift: 'current', from: '2026-01-01', to: '2026-01-31' },
+      { nowMs: SAU_12H },
     );
-    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_8H));
+    expect(Number(q.get('start_ms'))).toBe(shiftStartMs(SAU_12H));
     expect(q.has('end_ms')).toBe(false);
   });
 
   it('các trục lọc khác vẫn đi cùng khoảng ca', () => {
-    const q = historyQuery({ ...EMPTY, shift: true, table_id: 't1', status: 'paid' }, { nowMs: SAU_8H });
+    const q = historyQuery({ ...EMPTY, shift: 'current', table_id: 't1', status: 'paid' }, { nowMs: SAU_12H });
     expect(q.get('table_id')).toBe('t1');
     expect(q.get('status')).toBe('paid');
   });
 
   it('cả 3 endpoint cùng hỏi một mốc ca', () => {
-    const f: HistoryFilters = { ...EMPTY, shift: true };
-    const list = historyQuery(f, { nowMs: SAU_8H, page: { page: 1, page_size: 20 } });
-    const stats = historyQuery(f, { nowMs: SAU_8H });
-    const cons = historyQuery(f, { nowMs: SAU_8H, cashier: false });
+    const f: HistoryFilters = { ...EMPTY, shift: 'current' };
+    const list = historyQuery(f, { nowMs: SAU_12H, page: { page: 1, page_size: 20 } });
+    const stats = historyQuery(f, { nowMs: SAU_12H });
+    const cons = historyQuery(f, { nowMs: SAU_12H, cashier: false });
     expect(stats.get('start_ms')).toBe(list.get('start_ms'));
     expect(cons.get('start_ms')).toBe(list.get('start_ms'));
+  });
+});
+
+describe('historyQuery — ca trước (2026-09-16)', () => {
+  it('CHẶN CẢ HAI ĐẦU — khác hẳn ca đang chạy', () => {
+    const q = historyQuery({ ...EMPTY, shift: 'prev' }, { nowMs: SAU_12H });
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-06T05:00:00.000Z'));
+    expect(Number(q.get('end_ms'))).toBe(Date.parse('2026-09-07T05:00:00.000Z') - 1);
+  });
+
+  // Nếu end_ms lấy trọn mốc đầu ca này thì một đơn nằm ở CẢ HAI ca, và tổng hai ca cộng lại
+  // vượt thực tế — kiểu sai không ai phát hiện ra bằng mắt.
+  it('không chồng lấn ca đang chạy', () => {
+    const prev = historyQuery({ ...EMPTY, shift: 'prev' }, { nowMs: SAU_12H });
+    const cur = historyQuery({ ...EMPTY, shift: 'current' }, { nowMs: SAU_12H });
+    expect(Number(prev.get('end_ms')) + 1).toBe(Number(cur.get('start_ms')));
+  });
+
+  it('lúc rạng sáng, ca trước lùi hai ngày lịch', () => {
+    const q = historyQuery({ ...EMPTY, shift: 'prev' }, { nowMs: TRUOC_12H });
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-05T05:00:00.000Z'));
+    expect(Number(q.get('end_ms'))).toBe(Date.parse('2026-09-06T05:00:00.000Z') - 1);
+  });
+
+  it('cờ ca trước cũng ĐÈ khoảng ngày', () => {
+    const q = historyQuery(
+      { ...EMPTY, shift: 'prev', from: '2026-01-01', to: '2026-01-31' },
+      { nowMs: SAU_12H },
+    );
+    expect(Number(q.get('start_ms'))).toBe(Date.parse('2026-09-06T05:00:00.000Z'));
+    expect(Number(q.get('end_ms'))).toBe(Date.parse('2026-09-07T05:00:00.000Z') - 1);
+  });
+
+  it('cả 3 endpoint cùng hỏi một khoảng ca trước', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: 'prev' };
+    const list = historyQuery(f, { nowMs: SAU_12H, page: { page: 1, page_size: 20 } });
+    const cons = historyQuery(f, { nowMs: SAU_12H, cashier: false });
+    expect(cons.get('start_ms')).toBe(list.get('start_ms'));
+    expect(cons.get('end_ms')).toBe(list.get('end_ms'));
   });
 });
 
@@ -195,24 +235,39 @@ describe('historyFilterKey — khoảng ca', () => {
   // Khoá này là deps của effect tải dữ liệu. Nếu nó nhúng `Date.now()` thô thì mỗi lần render
   // ra một khoá mới → effect chạy lại vô tận. Mốc phải snap về đầu ca.
   it('khoá ĐỨNG YÊN trong suốt một ca, dù giờ hiện tại trôi đi', () => {
-    const f: HistoryFilters = { ...EMPTY, shift: true };
-    const sang = historyFilterKey(f, Date.parse('2026-09-07T02:00:00Z')); // 09:00 VN
-    const trua = historyFilterKey(f, Date.parse('2026-09-07T05:00:00Z')); // 12:00 VN
+    const f: HistoryFilters = { ...EMPTY, shift: 'current' };
+    const trua = historyFilterKey(f, Date.parse('2026-09-07T06:00:00Z')); // 13:00 VN
+    const toi = historyFilterKey(f, Date.parse('2026-09-07T13:00:00Z')); // 20:00 VN
     const dem = historyFilterKey(f, Date.parse('2026-09-07T18:00:00Z')); // 01:00 VN hôm sau
-    expect(trua).toBe(sang);
-    expect(dem).toBe(sang);
+    const sang = historyFilterKey(f, Date.parse('2026-09-08T04:00:00Z')); // 11:00 VN hôm sau
+    expect(toi).toBe(trua);
+    expect(dem).toBe(trua);
+    expect(sang).toBe(trua);
   });
 
-  it('qua 8h sáng thì khoá ĐỔI — phải tải lại theo ca mới', () => {
-    const f: HistoryFilters = { ...EMPTY, shift: true };
-    const truoc = historyFilterKey(f, Date.parse('2026-09-07T00:59:59Z'));
-    const sau = historyFilterKey(f, Date.parse('2026-09-07T01:00:00Z'));
+  it('ca trước cũng đứng yên trong suốt ca đang chạy', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: 'prev' };
+    const trua = historyFilterKey(f, Date.parse('2026-09-07T06:00:00Z'));
+    const dem = historyFilterKey(f, Date.parse('2026-09-07T18:00:00Z'));
+    expect(dem).toBe(trua);
+  });
+
+  it('qua 12h trưa thì khoá ĐỔI — phải tải lại theo ca mới', () => {
+    const f: HistoryFilters = { ...EMPTY, shift: 'current' };
+    const truoc = historyFilterKey(f, Date.parse('2026-09-07T04:59:59Z'));
+    const sau = historyFilterKey(f, Date.parse('2026-09-07T05:00:00Z'));
     expect(sau).not.toBe(truoc);
   });
 
   it('ca khác hẳn "tất cả thời gian"', () => {
-    expect(historyFilterKey({ ...EMPTY, shift: true }, SAU_8H)).not.toBe(
-      historyFilterKey(EMPTY, SAU_8H),
+    expect(historyFilterKey({ ...EMPTY, shift: 'current' }, SAU_12H)).not.toBe(
+      historyFilterKey(EMPTY, SAU_12H),
+    );
+  });
+
+  it('hai ca là hai câu hỏi khác nhau — khoá phải khác', () => {
+    expect(historyFilterKey({ ...EMPTY, shift: 'current' }, SAU_12H)).not.toBe(
+      historyFilterKey({ ...EMPTY, shift: 'prev' }, SAU_12H),
     );
   });
 });
