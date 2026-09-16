@@ -66,8 +66,10 @@ export class User {
    * chủ quán vào /admin/users bật cho từng người — tối hôm đó quán chỉ thu tiền mặt nếu quên.
    * Đây là hệ quả đã được báo trước và vẫn được chọn, không phải sơ suất.
    *
-   * Owner KHÔNG đọc cờ này (xem `canCollectTransfer` bên dưới): nếu cờ áp cho cả owner thì sau
-   * deploy chính người đi bật công tắc cũng không thu được tiền.
+   * Owner và role `admin` KHÔNG đọc cờ này (xem `canCollectTransfer` bên dưới): nếu cờ áp cho cả
+   * owner thì sau deploy chính người đi bật công tắc cũng không thu được tiền; còn quản lý thì
+   * đối soát là việc của họ, bắt chủ quán bật tay cho từng người mới tạo là chỗ chắc chắn quên.
+   * Cờ này chỉ còn áp cho `order`/`kitchen`/`report`.
    */
   @Column({ type: 'boolean', default: false })
   can_collect_transfer!: boolean;
@@ -80,8 +82,20 @@ export class User {
   created_at!: number;
 }
 
-/** Owner luôn thu được chuyển khoản; những người còn lại theo cờ. Hàm thuần, một chỗ duy nhất
- *  viết ra luật này để không có nơi nào quên phần owner. */
-export function canCollectTransfer(u: { is_owner?: boolean; can_collect_transfer?: boolean }): boolean {
-  return !!u.is_owner || !!u.can_collect_transfer;
+/** Owner và role `admin` luôn thu được chuyển khoản; những người còn lại theo cờ. Hàm thuần, một
+ *  chỗ duy nhất viết ra luật này để không có nơi nào quên phần owner.
+ *
+ *  `admin` thêm vào 2026-09-16 sau khi quản lý ở quán thật báo lỗi: họ mở màn Lịch sử thì không
+ *  xem được ảnh bill và ô lọc "Tài khoản nhận" biến mất hẳn. Cả hai đường đều đi qua hàm này, mà
+ *  quản lý mới tạo thì cờ mặc định `false` — đúng những người có việc đối soát lại là những người
+ *  bị chặn. Công tắc theo từng người vẫn giữ nguyên ý nghĩa ban đầu, chỉ còn áp cho
+ *  `order`/`kitchen`/`report`.
+ *
+ *  Nhận cả `role` nên nơi gọi phải truyền THỰC THỂ user (có cột `role`), đừng nhặt lẻ hai cờ. */
+export function canCollectTransfer(u: {
+  is_owner?: boolean;
+  role?: string | null;
+  can_collect_transfer?: boolean;
+}): boolean {
+  return !!u.is_owner || u.role === 'admin' || !!u.can_collect_transfer;
 }

@@ -176,17 +176,21 @@ export class AdminUsersController {
     if (!user) throw new NotFoundException({ code: 'NOT_FOUND', message: 'User not found' });
     if (dto.full_name !== undefined) user.full_name = dto.full_name.trim();
     if (dto.can_collect_transfer !== undefined) {
-      // Owner luôn thu được, cờ không áp cho họ — nhận giá trị rồi lờ đi sẽ là một công tắc bấm
-      // được mà không có tác dụng gì, tệ hơn là nói thẳng.
+      // Owner và quản lý luôn thu được, cờ không áp cho họ — nhận giá trị rồi lờ đi sẽ là một
+      // công tắc bấm được mà không có tác dụng gì, tệ hơn là nói thẳng.
+      //
+      // Đọc role SAU khi tính cả `dto.role`: một PATCH vừa nâng người ta lên `admin` vừa tắt cờ
+      // thì cái quyết định là role MỚI, không phải role còn trong DB.
       //
       // ⚠ Câu `message` dưới đây KHÔNG tới được người dùng: `GlobalExceptionFilter` tra dict
       // FRIENDLY_VN theo `code` và thay bằng "Dữ liệu xung đột.". Cố ý không thêm một mã lỗi
-      // riêng cho nó — giao diện hiện chữ "luôn được" thay cho nút bấm ở dòng của owner, nên
-      // đường này chỉ chạm tới được khi gọi thẳng API. Giữ câu ở đây cho người đọc code.
-      if (user.is_owner) {
+      // riêng cho nó — giao diện hiện chữ "luôn được" thay cho nút bấm ở dòng của owner và quản
+      // lý, nên đường này chỉ chạm tới được khi gọi thẳng API. Giữ câu ở đây cho người đọc code.
+      const nextRole = dto.role ?? user.role;
+      if (user.is_owner || nextRole === 'admin') {
         throw new BadRequestException({
           code: 'CONFLICT',
-          message: 'Chủ quán luôn được thu chuyển khoản, không cần bật tắt',
+          message: 'Chủ quán và quản lý luôn được thu chuyển khoản, không cần bật tắt',
         });
       }
       user.can_collect_transfer = dto.can_collect_transfer;
