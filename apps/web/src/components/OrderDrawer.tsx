@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback, useRef, FormEvent } from 'reac
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import type { DineInCartPreview } from '@order/schemas';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { DineInCodeModal } from './DineInCodeModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
@@ -200,6 +201,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [loading, setLoading] = useState(true);
   const [showBulkOrder, setShowBulkOrder] = useState(false);
   const [showDineInCode, setShowDineInCode] = useState(false);
+  /** Giỏ QR vừa tra được từ mã 5 số, đang chờ đổ vào màn gọi món. `null` = lần mở màn gọi món
+   * này là gọi tay, không liên quan QR. */
+  const [dineInPreview, setDineInPreview] = useState<DineInCartPreview | null>(null);
   const [fulfillBusy, setFulfillBusy] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [showNote, setShowNote] = useState(false);
@@ -210,6 +214,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [helpOpen, setHelpOpen] = useState(false);
   /** Menu ⋯ ở header — chứa các thao tác thỉnh thoảng mới dùng. */
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Đang gửi lệnh "báo bếp cả bàn" — khoá nút để không bắn hai lần. */
+  const [sendingAll, setSendingAll] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
 
@@ -292,6 +298,40 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const t = setInterval(() => setClockTick((v) => v + 1), 30_000);
     return () => clearInterval(t);
   }, []);
+
+  /** Báo bếp CẢ BÀN bằng MỘT lần bấm (chủ quán 2026-09-16).
+   *
+   * Món nằm ở `PENDING` chủ yếu đến từ giỏ QR của khách: `apply` CỐ Ý không báo bếp để nhân
+   * viên soát lại với khách trước (xem docblock `applyDineInCart` bên API). Nhưng đường duy
+   * nhất để gửi đi lại là nút "Báo bếp" trên TỪNG món — bàn 8 món là 8 lần bấm cho đúng một
+   * việc, và chỉ cần sót một món là bếp không bao giờ nhìn thấy nó.
+   *
+   * `POST /orders/:id/send-to-kitchen` đã có sẵn từ đầu (PENDING → KITCHEN trong MỘT
+   * transaction, kèm `first_kitchen_at`); chỉ là chưa có đường nào bấm tới nó từ giao diện.
+   *
+   * `units` là số PHẦN đang chờ, lấy từ chỗ gọi — một dòng item mang `qty=N`, nên đếm số dòng
+   * `affected` mà BE trả về sẽ báo thiếu. `affected` ở đây chỉ dùng để nhận ra trường hợp
+   * máy khác vừa báo bếp trước mình.
+   */
+  const sendAllToKitchen = async (units: number) => {
+    if (!order || sendingAll) return;
+    setSendingAll(true);
+    try {
+      const res = await api.post<{ data: { affected: number } }>(
+        `/orders/${order.id}/send-to-kitchen`,
+      );
+      const affected = res.data?.data?.affected ?? 0;
+      toast.push(
+        'success',
+        affected > 0 ? `📢 Đã báo bếp ${units} món` : 'Món đã được báo bếp từ trước',
+      );
+      await refresh(false);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSendingAll(false);
+    }
+  };
 
   // Thao tác theo NHÓM: 1 món có thể nằm ở nhiều dòng (gọi nhiều lần), drawer gộp
   // lại "N×" — nút bấm áp cho TẤT CẢ phần trong nhóm.
@@ -719,6 +759,20 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             Mỗi món đi qua các trạng thái: Đã gọi → Đã báo bếp → Đang nấu → Đã xong → <strong>Đã giao</strong>.
           </p>
 
+          <h3 style={{ marginBottom: 6 }}>Báo bếp</h3>
+          <p style={{ margin: '4px 0' }}>
+            Khách gọi bằng mã QR: bấm <strong># Nhập mã khách</strong>, gõ 5 số khách đọc. Món của
+            họ được đổ sẵn vào <strong>màn gọi món</strong> — bạn soát với khách, sửa số lượng, bỏ
+            món hết hàng, gọi thêm ngay tại đó, rồi bấm <strong>Báo bếp</strong> một lần là xong.
+            Không phải bấm từng món.
+          </p>
+          <p style={{ margin: '4px 0', color: '#6b7280' }}>
+            Nếu vì lý do gì đó vẫn còn món nằm ở <strong>Đang gọi</strong>, bấm{' '}
+            <strong>📢 Báo bếp tất cả</strong> ngay đầu vùng đó để gửi cả lượt. Nút{' '}
+            <strong>📢 Báo bếp</strong> trên từng món vẫn còn, dùng khi chỉ muốn đẩy một phần
+            xuống trước (vd: nước uống ra ngay, đồ nướng để sau).
+          </p>
+
           <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao tới khách</h3>
           <p style={{ margin: '4px 0' }}>
             Khi bạn cầm món ra bàn cho khách, bấm nút <strong>🚀 Đã giao</strong> bên phải món. Việc này có thể làm <strong>ở bất kỳ trạng thái nào</strong> — kể cả khi món vẫn còn ở "Đã gọi" hay "Đang nấu":
@@ -941,6 +995,29 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   >
                     {LABEL[st]} ({unitCount})
                   </h2>
+                  {/* BÁO BẾP CẢ BÀN — một nút cho cả vùng "Đang gọi" (chủ quán 2026-09-16:
+                      "tại sao cần báo bếp từng món").
+                      Nút của TỪNG món bên dưới vẫn còn và cố ý giữ lại: có lúc chỉ muốn đẩy
+                      nước xuống trước còn đồ nướng để sau. Nút này chỉ lo cái việc chiếm 99%
+                      số lần bấm — gửi hết những gì khách vừa chốt.
+                      CHỈ vùng PENDING mới có: các vùng còn lại đã ở trong tay bếp rồi. */}
+                  {st === 'PENDING' && !isCheckedOut && (
+                    <button
+                      onClick={() => sendAllToKitchen(unitCount)}
+                      disabled={sendingAll}
+                      title="Gửi TẤT CẢ món đang gọi xuống bếp"
+                      style={{
+                        width: '100%',
+                        background: sendingAll ? '#9ca3af' : COLOR.KITCHEN,
+                        fontSize: 15,
+                        fontWeight: 700,
+                        minHeight: 48,
+                        marginBottom: 10,
+                      }}
+                    >
+                      {sendingAll ? 'Đang báo bếp...' : `📢 Báo bếp tất cả (${unitCount} món)`}
+                    </button>
+                  )}
                   {groups.map((g) => (
                     <ItemRow
                       key={g.key}
@@ -1037,6 +1114,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           </div>
         )}
 
+        {/* MỘT màn gọi món cho CẢ HAI đường vào (chủ quán 2026-09-16).
+            Gọi món tay và nhận giỏ QR đổ về cùng đây: cùng cái giỏ sửa được, cùng nút Báo bếp.
+            `dineIn` khác null là lần mở này đến từ mã của khách — xem `BulkOrderModal`. */}
         {showBulkOrder && order && (
           <BulkOrderModal
             orderId={order.id}
@@ -1045,9 +1125,14 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             // Bàn "mới tinh" = chưa có dòng món nào. Tính từ `order.items` chứ không từ
             // `hasItems` của drawer để khỏi phụ thuộc thứ tự khai biến.
             isNewTable={(order.items?.length ?? 0) === 0}
-            onClose={() => setShowBulkOrder(false)}
+            dineIn={dineInPreview}
+            onClose={() => {
+              setShowBulkOrder(false);
+              setDineInPreview(null);
+            }}
             onSubmitted={() => {
               setShowBulkOrder(false);
+              setDineInPreview(null);
               refresh();
             }}
           />
@@ -1055,10 +1140,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
         {showDineInCode && order && (
           <DineInCodeModal
-            orderId={order.id}
             tableLabel={table.name}
             onClose={() => setShowDineInCode(false)}
-            onApplied={() => refresh()}
+            /* Tra được mã → ĐÓNG bàn phím, mở thẳng màn gọi món với giỏ đã đổ sẵn.
+               KHÔNG có màn xác nhận ở giữa: việc soát lại xảy ra trên chính cái giỏ, nơi nhân
+               viên sửa được số lượng và gọi thêm — thứ màn xác nhận cũ không làm được. */
+            onLoaded={(preview) => {
+              setShowDineInCode(false);
+              setDineInPreview(preview);
+              setShowBulkOrder(true);
+            }}
           />
         )}
 

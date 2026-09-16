@@ -4,6 +4,7 @@
 // Mobile <768px: stack vertical (menu trên, giỏ dưới).
 // Submit 1 lần → BE create N items + auto báo bếp.
 import { useEffect, useState } from 'react';
+import type { DineInCartPreview } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { pickAutoItem } from '../lib/auto-items.ts';
@@ -32,6 +33,17 @@ function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
+function fmtTime(ms: number): string {
+  return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+}
+
+/** "2 phút trước" — mốc tương đối giúp nhận ra giỏ lạ nhanh hơn giờ tuyệt đối. */
+function fmtAgo(ms: number): string {
+  const sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (sec < 60) return 'vừa xong';
+  return `${Math.round(sec / 60)} phút trước`;
+}
+
 type CartLine = {
   menu_item: MenuItem;
   qty: number;
@@ -45,6 +57,17 @@ type Props = {
   tableKind: string;
   /** Bàn CHƯA gọi món nào. Chỉ bàn mới tinh mới được gợi sẵn khăn lạnh. */
   isNewTable: boolean;
+  /**
+   * GIỎ QR CỦA KHÁCH, đã tra xong từ mã 5 số (chủ quán 2026-09-16).
+   *
+   * Có giá trị → màn này mở ra với món của khách ĐÃ NẰM SẴN trong giỏ, và nút "Báo bếp" đi qua
+   * `…/dine-in-carts/:code/apply` thay vì `items-bulk`. Đường đó là chỗ DUY NHẤT chiếm mã
+   * (`used_at`), nên hai nhân viên cùng gõ một mã chỉ một người thành công — bỏ qua nó là mở
+   * lại đúng lỗ "gõ hai lần = nhân đôi món của khách".
+   *
+   * `null`/không truyền → gọi món tay như trước, không liên quan gì tới QR.
+   */
+  dineIn?: DineInCartPreview | null;
   onClose: () => void;
   onSubmitted: () => void;
 };
@@ -54,6 +77,7 @@ export function BulkOrderModal({
   tableLabel,
   tableKind,
   isNewTable,
+  dineIn,
   onClose,
   onSubmitted,
 }: Props) {
@@ -84,6 +108,24 @@ export function BulkOrderModal({
            Báo bếp — vào đơn rồi thì muốn bỏ phải đi huỷ món, đụng cả bếp lẫn tiền.
            Đặt trong `.then` của lần nạp menu, không phải effect riêng: phải có menu mới dò được
            tên món, và làm đúng một lần lúc mở màn. */
+        /* GIỎ QR — đổ món khách đã chọn vào giỏ NGAY khi mở màn (chủ quán 2026-09-16:
+           "dùng luôn màn gọi món cũ và fill hết số món từ mã vào").
+           Dòng `unavailable` CỐ Ý không đổ vào: BE sẽ bỏ nó dù FE gửi gì, để lại trong giỏ chỉ
+           tạo ra một dòng nói dối rồi biến mất sau khi bấm. Dải cảnh báo đầu màn là chỗ nói với
+           nhân viên rằng khách có gọi món đó nhưng quán vừa hết. */
+        if (dineIn) {
+          const byId = new Map(items.map((m) => [m.id, m]));
+          setCart((prev) => {
+            const next = new Map(prev);
+            for (const l of dineIn.lines) {
+              if (l.unavailable) continue;
+              const item = byId.get(l.menu_item_id);
+              if (!item) continue;
+              next.set(item.id, { menu_item: item, qty: l.qty, note: l.note ?? '' });
+            }
+            return next;
+          });
+        }
         const auto = pickAutoItem(tableKind, isNewTable, items);
         if (auto) {
           setCart((prev) => {
@@ -174,17 +216,28 @@ export function BulkOrderModal({
     }
     setSubmitting(true);
     try {
-      await api.post<{ data: { count: number; state: string } }>(
-        `/orders/${orderId}/items-bulk`,
-        {
-          items: cartLines.map((l) => ({
-            menu_item_id: l.menu_item.id,
-            qty: l.qty,
-            note: l.note.trim() || null,
-          })),
-          send_to_kitchen: true, // báo bếp luôn — bếp xử lý ngay
-        },
-      );
+      const items = cartLines.map((l) => ({
+        menu_item_id: l.menu_item.id,
+        qty: l.qty,
+        note: l.note.trim() || null,
+      }));
+      /* HAI ĐƯỜNG VÀO ĐƠN, cùng một nút.
+         Giỏ QR PHẢI đi qua `…/apply`: đó là chỗ duy nhất chiếm mã (`used_at`) bằng
+         compare-and-set, thứ chặn "hai nhân viên cùng gõ một mã = nhân đôi món". Gửi bằng
+         `items-bulk` cho nhanh thì mã không bao giờ bị tiêu và gõ lại lần nữa là ra thêm một
+         bàn nữa cùng số món — đúng lỗi M4.D-13 sinh ra để chặn.
+         `send_to_kitchen: true` ở cả hai: nhân viên vừa soát từng dòng ngay trên màn này. */
+      if (dineIn) {
+        await api.post<{ data: { added_count: number; skipped_count: number } }>(
+          `/orders/${orderId}/dine-in-carts/${dineIn.code}/apply`,
+          { items, send_to_kitchen: true },
+        );
+      } else {
+        await api.post<{ data: { count: number; state: string } }>(
+          `/orders/${orderId}/items-bulk`,
+          { items, send_to_kitchen: true },
+        );
+      }
       toast.push('success', `📢 Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`);
       // KHÔNG push notificationStore — readyNotifier (polling) sẽ tự emit NewOrder cho bếp.
       // Order staff vừa gọi món rồi không cần notification cho chính mình.
@@ -219,6 +272,25 @@ export function BulkOrderModal({
           align-items: center;
         }
         .bulk-header h1 { margin: 0; font-size: 18px; }
+        .bulk-qr {
+          padding: 10px 18px;
+          background: #eff6ff;
+          border-bottom: 1px solid #bfdbfe;
+        }
+        .bulk-qr-row {
+          display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+          font-size: 13px; color: #1e40af;
+        }
+        .bulk-qr-code {
+          font-weight: 700; font-size: 15px;
+          font-variant-numeric: tabular-nums;
+          letter-spacing: 1px;
+        }
+        .bulk-qr-sum { font-weight: 600; }
+        .bulk-qr-warn {
+          margin: 6px 0 0; font-size: 12.5px; font-weight: 600; color: #b45309;
+        }
+        .bulk-qr-hint { margin: 6px 0 0; font-size: 12px; color: #475569; }
         .bulk-body {
           display: grid;
           grid-template-columns: 1fr;
@@ -630,12 +702,53 @@ export function BulkOrderModal({
       <div className="bulk-container">
         <div className="bulk-header">
           <h1>
-            Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
+            {dineIn ? 'Giỏ khách gọi · ' : 'Gọi món · '}
+            <span style={{ color: '#0f766e' }}>{tableLabel}</span>
           </h1>
           <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>
             ✕
           </button>
         </div>
+
+        {/* DẢI NHẬN DẠNG GIỎ — chốt chặn "giỏ của bàn khác" (M4.D-01).
+            QR trong quán là QR CHUNG: hệ thống không biết giỏ thuộc bàn nào, chỉ nhân viên
+            biết. Số kiểm tra Luhn chặn được gõ sai một chữ số, KHÔNG chặn được gõ đúng một mã
+            có thật của bàn bên cạnh. Mã + giờ sinh + số phần + tổng tiền là bốn thứ đủ để nhân
+            viên đang bận nhận ra "giỏ này không phải của bàn mình" TRƯỚC khi bấm Báo bếp.
+            Dải này thay cho màn preview riêng đã bỏ — cùng thông tin, nhưng nằm ngay trên
+            chính đống món vừa được đổ vào giỏ, chỗ người ta đang nhìn. */}
+        {dineIn && (
+          <div className="bulk-qr">
+            <div className="bulk-qr-row">
+              <span className="bulk-qr-code">Mã {dineIn.code}</span>
+              <span>
+                khách sinh lúc {fmtTime(dineIn.created_at)} ({fmtAgo(dineIn.created_at)})
+              </span>
+              <span className="bulk-qr-sum">
+                khách chọn {dineIn.item_count} phần · {fmt(dineIn.subtotal)}
+              </span>
+            </div>
+            {dineIn.has_unavailable && (
+              <p className="bulk-qr-warn">
+                Quán vừa hết:{' '}
+                {dineIn.lines
+                  .filter((l) => l.unavailable)
+                  .map((l) => l.name)
+                  .join(', ')}
+                {' '}— đã bỏ khỏi giỏ, nói với khách trước khi báo bếp.
+              </p>
+            )}
+            {dineIn.has_price_change && (
+              <p className="bulk-qr-warn">
+                Có món đã đổi giá so với lúc khách chọn — bill tính theo giá hiện tại.
+              </p>
+            )}
+            <p className="bulk-qr-hint">
+              Sửa số lượng, bỏ món hoặc gọi thêm ngay trong giỏ, rồi bấm <strong>Báo bếp</strong>{' '}
+              một lần.
+            </p>
+          </div>
+        )}
 
         <div className="bulk-body">
           {/* PANEL TRÁI — MENU */}
