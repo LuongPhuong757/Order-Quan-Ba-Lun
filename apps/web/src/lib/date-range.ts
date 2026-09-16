@@ -21,18 +21,27 @@ export function addDaysIso(iso: string, days: number): string {
   return new Date(base + days * DAY_MS).toISOString().slice(0, 10);
 }
 
-export type RangePreset = 'all' | 'shift' | 'today' | '7d' | '30d';
+export type RangePreset = 'all' | 'shift' | 'prev-shift' | 'today' | '7d' | '30d';
+
+/**
+ * Ca nào đang được chọn. Là chuỗi chứ không phải hai cờ boolean rời: hai ca LOẠI TRỪ nhau, mà
+ * hai cờ thì diễn tả được cả trạng thái "bật cả hai" lẫn "tắt cả hai" — hai trạng thái vô nghĩa
+ * mà mọi nơi đọc nó sẽ phải tự xử lý.
+ */
+export type ShiftSel = 'current' | 'prev';
 
 export type DayRange = {
   from: string;
   to: string;
   /**
-   * `true` = đang lọc theo CA, không phải theo khoảng ngày: từ 8h sáng của ca đang chạy tới
-   * hiện tại. Khi bật thì `from`/`to` bị bỏ qua — mốc được tính lại từ giờ hiện tại mỗi lần
-   * dựng query chứ KHÔNG chốt cứng vào state, để ca tự trôi sang ca mới lúc 8h sáng thay vì
-   * đứng lại ở mốc của lúc người dùng bấm chip.
+   * Đang lọc theo CA, không phải theo khoảng ngày. Khi có giá trị thì `from`/`to` bị bỏ qua —
+   * mốc được tính lại từ giờ hiện tại mỗi lần dựng query chứ KHÔNG chốt cứng vào state, để ca
+   * tự trôi sang ca mới lúc 12h trưa thay vì đứng lại ở mốc của lúc người dùng bấm chip.
+   *
+   * - `'current'`: từ 12h trưa của ca đang chạy tới hiện tại (đầu trên BỎ NGỎ).
+   * - `'prev'`   : trọn 24h của ca liền trước, hai đầu đều chặn.
    */
-  shift?: boolean;
+  shift?: ShiftSel;
 };
 
 /**
@@ -42,8 +51,13 @@ export type DayRange = {
  * 8h tối, nhưng NGÀY LỊCH đã cắt ngang giữa chừng. Nên "hôm nay" của bảng số (00:00–23:59)
  * và "ca này" của người đứng quán là hai câu hỏi khác nhau, và màn Lịch sử phải trả lời được
  * cả hai — xem `shiftStartMs`.
+ *
+ * 12h TRƯA (đổi từ 8h sáng, 2026-09-16 theo yêu cầu chủ quán). Mốc phải nằm giữa ban ngày, lúc
+ * quán vắng nhất: đặt vào lúc còn khách ngồi thì một bàn bị cắt làm đôi, nửa tính ca này nửa
+ * tính ca sau. Đây là hằng số DUY NHẤT của cả hai chip ca — đổi ở đây là "Ca này" và "Ca trước"
+ * trôi theo cùng nhau, không có chỗ thứ hai phải nhớ sửa.
  */
-export const SHIFT_START_HOUR = 8;
+export const SHIFT_START_HOUR = 12;
 
 /** Khoảng ngày ứng với một preset. `all` = không giới hạn hai đầu. */
 export function presetRange(preset: RangePreset, nowMs: number): DayRange {
@@ -51,10 +65,12 @@ export function presetRange(preset: RangePreset, nowMs: number): DayRange {
   switch (preset) {
     case 'all':
       return { from: '', to: '' };
-    // Ca KHÔNG quy được về khoảng ngày — mốc của nó là 8h sáng, nằm giữa ngày. Nên nó chỉ là
+    // Ca KHÔNG quy được về khoảng ngày — mốc của nó là 12h trưa, nằm giữa ngày. Nên nó chỉ là
     // một lá cờ, và `historyQuery` mới là chỗ đổi cờ đó ra epoch ms.
     case 'shift':
-      return { from: '', to: '', shift: true };
+      return { from: '', to: '', shift: 'current' };
+    case 'prev-shift':
+      return { from: '', to: '', shift: 'prev' };
     case 'today':
       return { from: today, to: today };
     // "7 ngày" ĐÃ GỒM hôm nay, nên lùi 6 chứ không phải 7 — lùi 7 là 8 ngày, và con số tổng
@@ -73,12 +89,13 @@ export function presetRange(preset: RangePreset, nowMs: number): DayRange {
  * thì sớm muộn cũng lệch — sửa tay một ô ngày mà chip vẫn sáng là nói dối người dùng.
  */
 export function matchPreset(range: DayRange, nowMs: number): RangePreset | null {
-  const presets: RangePreset[] = ['all', 'shift', 'today', '7d', '30d'];
+  const presets: RangePreset[] = ['all', 'shift', 'prev-shift', 'today', '7d', '30d'];
   for (const p of presets) {
     const r = presetRange(p, nowMs);
-    // Cờ `shift` phải nằm trong phép so, nếu không thì khoảng ca (from/to đều rỗng) sẽ khớp
-    // nhầm 'all' — chip sáng sai một ô so với dữ liệu đang hiện.
-    if (r.from === range.from && r.to === range.to && !!r.shift === !!range.shift) return p;
+    // `shift` phải nằm trong phép so, nếu không thì khoảng ca (from/to đều rỗng) sẽ khớp nhầm
+    // 'all' — chip sáng sai một ô so với dữ liệu đang hiện. So BẰNG GIÁ TRỊ chứ không ép về
+    // boolean: hai ca đều "có shift", ép về boolean là chúng khớp lẫn nhau.
+    if (r.from === range.from && r.to === range.to && r.shift === range.shift) return p;
   }
   return null;
 }
@@ -97,9 +114,18 @@ export function rangeLabel(range: DayRange, nowMs?: number): string {
   };
   // Ca phải nói rõ MỐC NGÀY, không chỉ "ca hiện tại": lúc 2h sáng thì ca đang chạy bắt đầu từ
   // hôm qua, và đó đúng là chỗ người xem dễ tưởng số liệu bị thiếu một ngày.
+  //
+  // Ca trước nói rõ CẢ HAI mốc: nó là khoảng đóng, và "ca trước" một mình thì không phân biệt
+  // được với "hôm kia" trong đầu người đọc — nhất là lúc 1h sáng, khi ca trước đã lùi hai ngày
+  // lịch so với hôm nay.
   if (range.shift) {
     const start = shiftStartMs(nowMs ?? Date.now());
-    return `Ca hiện tại — từ ${SHIFT_START_HOUR}h ngày ${d(vnDayIso(start))} tới bây giờ`;
+    const h = `${SHIFT_START_HOUR}h`;
+    if (range.shift === 'prev') {
+      const prev = start - DAY_MS;
+      return `Ca trước — từ ${h} ngày ${d(vnDayIso(prev))} tới ${h} ngày ${d(vnDayIso(start))}`;
+    }
+    return `Ca hiện tại — từ ${h} ngày ${d(vnDayIso(start))} tới bây giờ`;
   }
   if (!range.from && !range.to) return 'Tất cả thời gian';
   if (range.from && !range.to) return `Từ ${d(range.from)}`;
@@ -131,15 +157,33 @@ export function vnDayEndMs(iso: string): number {
 /**
  * Mốc ĐẦU của ca đang chạy, epoch ms.
  *
- * Đã qua 8h sáng → ca bắt đầu 8h sáng hôm nay. Còn đang ở khoảng sau nửa đêm mà chưa tới 8h
- * → ca vẫn là ca mở từ 8h sáng HÔM QUA: lúc 1h sáng người đứng quán hỏi "ca này bán được bao
- * nhiêu" thì họ hỏi về buổi bán tối qua, chứ không phải về một ngày lịch vừa bắt đầu được
- * một tiếng và chưa có đơn nào.
+ * Đã qua 12h trưa → ca bắt đầu 12h trưa hôm nay. Còn đang ở khoảng từ nửa đêm tới trưa thì ca
+ * vẫn là ca mở từ 12h trưa HÔM QUA: lúc 1h sáng người đứng quán hỏi "ca này bán được bao nhiêu"
+ * thì họ hỏi về buổi bán tối qua, chứ không phải về một ngày lịch vừa bắt đầu được một tiếng và
+ * chưa có đơn nào.
  *
  * Trừ thẳng 24h chứ không lùi ngày qua chuỗi ISO: VN không có DST nên một ngày luôn đúng
- * 24 tiếng, và mốc 8h+07:00 lùi 24h vẫn rơi đúng 8h+07:00.
+ * 24 tiếng, và mốc 12h+07:00 lùi 24h vẫn rơi đúng 12h+07:00.
  */
 export function shiftStartMs(nowMs: number): number {
   const todayShift = vnDayStartMs(vnDayIso(nowMs)) + SHIFT_START_HOUR * 3600 * 1000;
   return nowMs >= todayShift ? todayShift : todayShift - DAY_MS;
+}
+
+/**
+ * Khoảng epoch ms của ca đang chọn — một chỗ duy nhất đổi `ShiftSel` ra hai mốc, để nhãn trên
+ * màn hình và query gửi lên API không thể nói hai khoảng khác nhau.
+ *
+ * `end_ms` chỉ có với ca TRƯỚC. Ca đang chạy cố ý bỏ ngỏ đầu trên: chốt cứng `Date.now()` vào
+ * query thì đơn thanh toán sau lúc bấm chip rơi ra ngoài khoảng cho tới khi bấm lại, mà không
+ * có đơn nào nằm ở tương lai để phải chặn.
+ *
+ * Ca trước hết ở `start − 1` chứ không phải `start`: đúng 12h:00.000 đã thuộc ca MỚI (xem
+ * `shiftStartMs`), lấy trọn mốc đó là một đơn nằm ở cả hai ca và tổng hai ca cộng lại vượt
+ * thực tế.
+ */
+export function shiftRangeMs(nowMs: number, sel: ShiftSel): { start_ms: number; end_ms?: number } {
+  const start = shiftStartMs(nowMs);
+  if (sel === 'prev') return { start_ms: start - DAY_MS, end_ms: start - 1 };
+  return { start_ms: start };
 }

@@ -145,6 +145,14 @@ const PRESET_CHIPS: ReadonlyArray<TimeRangeOption<RangePreset>> = [
  *  nhau nhất ("ca" khác "ngày" chỗ nào), để cạnh nhau thì thấy ngay chúng là hai câu hỏi. */
 const SHIFT_CHIP: TimeRangeOption<RangePreset> = { value: 'shift', label: '🌙 Ca này' };
 
+/** Chip "ca liền trước" (2026-09-16) — dính ngay sau 'Ca này'. Câu hỏi thường ngày lúc mở quán
+ *  là "tối qua bán được bao nhiêu", mà trước đây phải tự gõ hai ô ngày và vẫn ra sai: ca vắt qua
+ *  nửa đêm nên nó KHÔNG phải một ngày lịch nào cả.
+ *
+ *  Emoji khác hẳn 🌙 có chủ ý: hai chip nằm sát nhau, cùng mặt trăng thì trên điện thoại chỉ
+ *  còn chữ để phân biệt, mà chữ thì gần giống nhau. */
+const PREV_SHIFT_CHIP: TimeRangeOption<RangePreset> = { value: 'prev-shift', label: '🌓 Ca trước' };
+
 /**
  * Bộ chọn khoảng ngày đầy đủ: dãy preset + khoảng tự chọn.
  *
@@ -169,15 +177,19 @@ export function DateRangePicker({
   nowMs?: number;
   label?: React.ReactNode;
   ariaLabel?: string;
-  /** Hiện thêm chip "Ca này" (8h sáng ca đang chạy → bây giờ).
+  /** Hiện thêm hai chip ca: "Ca này" (12h trưa ca đang chạy → bây giờ) và "Ca trước" (trọn 24h
+   *  của ca liền trước). Một cờ cho cả hai — chúng luôn có mặt cùng nhau, "ca trước" mà không có
+   *  "ca này" để so thì không trả lời được câu hỏi nào.
    *
    *  OPT-IN chứ không mặc định: component này dùng chung với Thống kê món và Thống kê NCC,
-   *  nơi câu hỏi là "kỳ báo cáo" tính theo ngày trọn vẹn — một mốc 8h sáng ở đó chỉ làm bảng
+   *  nơi câu hỏi là "kỳ báo cáo" tính theo ngày trọn vẹn — một mốc 12h trưa ở đó chỉ làm bảng
    *  số lệch so với kỳ mà không ai cần. Ca là khái niệm của người đứng quán, tức màn Lịch sử. */
   shiftChip?: boolean;
 }) {
   const now = nowMs ?? Date.now();
-  const chips = shiftChip ? [PRESET_CHIPS[0], SHIFT_CHIP, ...PRESET_CHIPS.slice(1)] : PRESET_CHIPS;
+  const chips = shiftChip
+    ? [PRESET_CHIPS[0], SHIFT_CHIP, PREV_SHIFT_CHIP, ...PRESET_CHIPS.slice(1)]
+    : PRESET_CHIPS;
   const active = matchPreset(value, now);
   // Ô ngày hiện ra khi đang ở khoảng tự chọn, hoặc khi người dùng chủ động mở. Đóng lại ngay
   // khi bấm một preset — để mở thì nó chiếm một hàng mà không dùng tới.
@@ -221,8 +233,8 @@ export function DateRangePicker({
             from={value.from}
             to={value.to}
             max={today}
-            onFromChange={(from) => onChange({ ...value, from, shift: false })}
-            onToChange={(to) => onChange({ ...value, to, shift: false })}
+            onFromChange={(from) => onChange({ ...value, from, shift: undefined })}
+            onToChange={(to) => onChange({ ...value, to, shift: undefined })}
           />
           {(value.from || value.to) && (
             <button
