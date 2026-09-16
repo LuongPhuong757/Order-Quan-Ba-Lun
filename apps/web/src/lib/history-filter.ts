@@ -10,7 +10,8 @@
 //
 // Ở đây là hàm THUẦN, không gọi mạng: nó là phần duy nhất của màn đó kiểm được bằng test.
 
-import { shiftStartMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
+import { shiftRangeMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
+import type { ShiftSel } from './date-range.ts';
 
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
 export type HistoryMisa = '' | 'pending' | 'copied';
@@ -38,9 +39,10 @@ export type HistoryFilters = {
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
-  /** `true` = lọc theo CA đang chạy (8h sáng → bây giờ) thay vì theo khoảng ngày; khi đó
-   *  `from`/`to` bị bỏ qua. Xem `shiftStartMs` trong `date-range.ts`. */
-  shift?: boolean;
+  /** Lọc theo CA thay vì theo khoảng ngày; khi có giá trị thì `from`/`to` bị bỏ qua.
+   *  `'current'` = từ 12h trưa ca đang chạy tới bây giờ, `'prev'` = trọn 24h ca liền trước.
+   *  Xem `shiftRangeMs` trong `date-range.ts`. */
+  shift?: ShiftSel;
 };
 
 export type HistoryQueryOpts = {
@@ -69,12 +71,16 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (f.misa) q.set('misa', f.misa);
   if (f.payment) q.set('payment', f.payment);
   if (f.shift) {
-    // Ca đang chạy: CHỈ chặn đầu dưới. Nhãn nói "tới bây giờ" nhưng cố ý không gửi `end_ms` —
-    // chốt cứng `Date.now()` vào query thì đơn thanh toán sau lúc bấm chip sẽ rơi ra ngoài
-    // khoảng cho tới khi bấm lại, mà không có đơn nào nằm ở tương lai để phải chặn. Bỏ trống
-    // đầu trên cũng giữ cho `historyFilterKey` ĐỨNG YÊN giữa các lần render: gắn `Date.now()`
-    // vào khoá là effect tải lại vô tận, vì khoá này chính là deps của nó.
-    q.set('start_ms', String(shiftStartMs(opts.nowMs ?? Date.now())));
+    // Hai mốc do `shiftRangeMs` quyết, không tự tính lại ở đây — nhãn trên màn hình đọc cùng
+    // hàm đó, và hai chỗ tự tính là hai chỗ sẽ lệch nhau.
+    //
+    // Ca đang chạy KHÔNG có `end_ms` (xem `shiftRangeMs`). Cả hai ca đều chỉ phụ thuộc vào
+    // `shiftStartMs`, vốn đứng yên suốt một ca — nên `historyFilterKey` cũng đứng yên giữa các
+    // lần render. Gắn thẳng `Date.now()` vào khoá là effect tải lại vô tận, vì khoá này chính
+    // là deps của nó.
+    const r = shiftRangeMs(opts.nowMs ?? Date.now(), f.shift);
+    q.set('start_ms', String(r.start_ms));
+    if (r.end_ms !== undefined) q.set('end_ms', String(r.end_ms));
   } else {
     if (f.from) q.set('start_ms', String(vnDayStartMs(f.from)));
     if (f.to) q.set('end_ms', String(vnDayEndMs(f.to)));
