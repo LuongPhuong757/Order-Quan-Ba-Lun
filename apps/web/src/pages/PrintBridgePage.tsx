@@ -159,6 +159,26 @@ export function PrintBridgePage() {
   }, [tick, say]);
 
   // ── Nối máy in ────────────────────────────────────────────────────────────
+  /** Khởi động vòng lặp. Tách khỏi nút bấm để phần TỰ ĐỘNG dùng lại được y nguyên — hai đường
+   *  vào mà hai đoạn code riêng là cách chắc chắn để một đường quên mất một bước. */
+  const startLoop = useCallback(
+    async (rawToken: string) => {
+      const t = rawToken.trim();
+      if (!t) {
+        setFatal('Chưa dán token thiết bị.');
+        return;
+      }
+      localStorage.setItem(TOKEN_KEY, t);
+      tokenRef.current = t;
+      setFatal(null);
+      runningRef.current = true;
+      setRunning(true);
+      await keepAwake();
+      void loop();
+    },
+    [keepAwake, loop],
+  );
+
   const attach = useCallback(
     async (device: UsbDevice) => {
       claimedRef.current = await openPrinter(device);
@@ -168,22 +188,67 @@ export function PrintBridgePage() {
     [],
   );
 
-  // Nối lại máy in đã từng được cấp quyền, không cần ai bấm nút. Đây là thứ giữ cho cầu in tự
-  // sống lại sau khi máy POS khởi động lại hay Chrome bị đóng.
+  /** Người dùng đã tự tay bấm Dừng trong phiên này — đừng tự chạy lại sau lưng họ. */
+  const stoppedByUserRef = useRef(false);
+
+  /** Nối máy in rồi TỰ CHẠY luôn nếu đã có token.
+   *
+   *  Đây là thứ biến việc mở trang thành thao tác thủ công DUY NHẤT còn lại mỗi sáng. Chrome
+   *  bắt buộc một cú bấm cho lần `requestDevice()` đầu tiên — luật bảo mật, không lách được —
+   *  nhưng sau đó quyền được nhớ theo tên miền, nên `getDevices()` trả lại máy in mà không cần
+   *  hỏi ai. Còn việc bấm "Bắt đầu" thì chẳng có luật nào bắt cả: nó chỉ là trạng thái của
+   *  trang, và để người ta phải nhớ bấm là mời một buổi sáng không có hoá đơn nào in ra. */
+  const attachAndMaybeStart = useCallback(
+    async (device: UsbDevice, why: string) => {
+      try {
+        await attach(device);
+        const saved = (localStorage.getItem(TOKEN_KEY) ?? '').trim();
+        if (saved && !runningRef.current && !stoppedByUserRef.current) {
+          await startLoop(saved);
+          say(`${why} — cầu in đang chạy`);
+        } else {
+          say(why);
+        }
+      } catch (err) {
+        say(`Không mở được máy in: ${err instanceof Error ? err.message : String(err)}`, true);
+      }
+    },
+    [attach, say, startLoop],
+  );
+
   useEffect(() => {
     if (!usbSupported()) return;
     void (async () => {
       const device = await getGrantedPrinter();
-      if (device) {
-        try {
-          await attach(device);
-          say('Đã tự nối lại máy in đã cấp quyền trước đó');
-        } catch (err) {
-          say(`Không mở được máy in: ${err instanceof Error ? err.message : String(err)}`, true);
-        }
-      }
+      if (device) await attachAndMaybeStart(device, 'Đã tự nối lại máy in');
     })();
-  }, [attach, say]);
+  }, [attachAndMaybeStart]);
+
+  // Máy in bị rút dây / tắt nguồn rồi bật lại. Không có hai lắng nghe này thì sau khi bật lại
+  // máy in buổi sáng, trang vẫn giữ một handle đã chết và mọi hoá đơn đều hỏng — mà ô trạng
+  // thái vẫn xanh, vì vòng lặp hỏi server không hề biết gì về USB.
+  useEffect(() => {
+    const u = (navigator as unknown as {
+      usb?: { addEventListener: (t: string, f: (e: { device: UsbDevice }) => void) => void;
+              removeEventListener: (t: string, f: (e: { device: UsbDevice }) => void) => void };
+    }).usb;
+    if (!u) return;
+    const onConnect = (e: { device: UsbDevice }) => {
+      void attachAndMaybeStart(e.device, 'Máy in vừa được cắm lại');
+    };
+    const onDisconnect = () => {
+      deviceRef.current = null;
+      claimedRef.current = null;
+      setDeviceName(null);
+      say('Máy in bị rút hoặc tắt nguồn', true);
+    };
+    u.addEventListener('connect', onConnect);
+    u.addEventListener('disconnect', onDisconnect);
+    return () => {
+      u.removeEventListener('connect', onConnect);
+      u.removeEventListener('disconnect', onDisconnect);
+    };
+  }, [attachAndMaybeStart, say]);
 
   const pickPrinter = async () => {
     try {
@@ -216,21 +281,15 @@ export function PrintBridgePage() {
     }
   };
 
+
   const start = async () => {
-    if (!token.trim()) {
-      setFatal('Chưa dán token thiết bị.');
-      return;
-    }
-    localStorage.setItem(TOKEN_KEY, token.trim());
-    setFatal(null);
-    runningRef.current = true;
-    setRunning(true);
-    await keepAwake();
+    stoppedByUserRef.current = false;
+    await startLoop(token);
     say('Cầu in bắt đầu chạy');
-    void loop();
   };
 
   const stop = () => {
+    stoppedByUserRef.current = true;
     runningRef.current = false;
     setRunning(false);
     if (timerRef.current) window.clearTimeout(timerRef.current);
@@ -286,6 +345,26 @@ export function PrintBridgePage() {
         {fatal && (
           <div style={{ background: '#991b1b', padding: 14, borderRadius: 10, marginBottom: 16 }}>
             {fatal}
+          </div>
+        )}
+
+        {/* Bẫy đã gặp thật: bấm "In thử tại chỗ" thấy giấy ra rồi bỏ đi, tưởng xong. Nút đó đẩy
+            byte THẲNG sang máy in, không đi qua server, nên nó chạy được cả khi vòng lặp chưa
+            bật — và hoá đơn thật thì không in. Bình thường trang tự chạy, nên dải này chỉ hiện
+            khi ai đó bấm Dừng hoặc chưa có token. */}
+        {deviceName && !running && !fatal && (
+          <div
+            style={{
+              background: '#78350f',
+              border: '1px solid #b45309',
+              padding: 14,
+              borderRadius: 10,
+              marginBottom: 16,
+              lineHeight: 1.5,
+            }}
+          >
+            <strong>Máy in đã nối nhưng cầu in CHƯA CHẠY.</strong> Hoá đơn thanh toán sẽ không tự
+            in ra. {token.trim() ? 'Bấm "Bắt đầu".' : 'Dán token rồi bấm "Bắt đầu".'}
           </div>
         )}
 
