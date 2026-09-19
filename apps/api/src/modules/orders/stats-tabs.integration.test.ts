@@ -20,6 +20,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from './../tables/entities/restaurant-table.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { ConsumptionService } from '../ingredients/consumption.service.js';
+import { noOpPrintingService } from '../printing/printing.test-double.js';
 import { OrderItemIngredientUsage } from '../ingredients/entities/order-item-ingredient-usage.entity.js';
 import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
@@ -105,6 +106,7 @@ beforeAll(async () => {
       ds.getRepository(RecipeLine),
       ds.getRepository(Ingredient),
     ),
+    noOpPrintingService(),
   );
 }, 20_000);
 

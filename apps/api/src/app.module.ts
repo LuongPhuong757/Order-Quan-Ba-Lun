@@ -22,6 +22,7 @@ import { MaintenanceModule } from './modules/maintenance/maintenance.module.js';
 import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { AdminOnlineOrdersModule } from './modules/admin-online-orders/admin-online-orders.module.js';
 import { AnalyticsModule } from './modules/analytics/analytics.module.js';
+import { PrintingModule } from './modules/printing/printing.module.js';
 import { HealthController } from './modules/health/health.controller.js';
 import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
 
@@ -55,6 +56,10 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     SuppliersModule,
     TablesModule,
     OrdersModule,
+    // In hoá đơn ra máy in nhiệt trong LAN quán (2026-09-19) — xem sơ đồ đường đi ở
+    // `printing.module.ts`. Đặt TRƯỚC OrdersModule trong thứ tự đọc thì khó hiểu hơn: module
+    // này là thứ OrdersModule dùng, không phải ngược lại.
+    PrintingModule,
     // Phase 07 — endpoint công khai không auth. HealthController giữ nguyên ở
     // `controllers` bên dưới: `/health` phải giữ đúng shape cũ cho uptime check
     // và POS đang dùng (G-07 không hồi quy).

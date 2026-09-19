@@ -33,6 +33,8 @@ import { SupplierDeliveryPhoto } from './modules/suppliers/entities/supplier-del
 import { SupplierPayment } from './modules/suppliers/entities/supplier-payment.entity.js';
 import { SupplierUser } from './modules/suppliers/entities/supplier-user.entity.js';
 import { SupplierSession } from './modules/suppliers/entities/supplier-session.entity.js';
+import { PrintJob } from './modules/printing/entities/print-job.entity.js';
+import { PrintDevice } from './modules/printing/entities/print-device.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -106,6 +108,10 @@ export const dataSourceOptions: DataSourceOptions = {
     // Tài khoản + phiên đăng nhập của NCC (bước 4).
     SupplierUser,
     SupplierSession,
+    // In hoá đơn (2026-09-19). `print_jobs` là hàng đợi giữa điện thoại thu ngân và máy in
+    // trong LAN quán; `print_devices` là token của từng máy tính bảng làm cầu in.
+    PrintJob,
+    PrintDevice,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

@@ -500,6 +500,36 @@ export function HistoryPage() {
     }
   };
 
+  /** Đơn đang gửi lệnh in — chặn bấm đúp. Kẹt giấy là lúc người ta bấm liên tục, và mỗi cú bấm
+   *  là một tờ giấy thật: khác `toggleMisa` ở chỗ thao tác này KHÔNG tự trung hoà được. */
+  const [reprinting, setReprinting] = useState<Set<string>>(new Set());
+
+  /** In lại hoá đơn của một đơn đã thanh toán.
+   *
+   * Tờ in ra mang dấu "BẢN IN LẠI" kèm giờ (xem `receipt-model.ts` ở BE) — hai tờ giống hệt
+   * nhau trên quầy là đường dẫn thẳng tới thu tiền hai lần. */
+  const reprintReceipt = async (o: HistoryOrder) => {
+    if (reprinting.has(o.id)) return;
+    setReprinting((s) => new Set(s).add(o.id));
+    try {
+      const res = await api.post<{ data: { queued: boolean } }>(`/orders/${o.id}/print`, {});
+      if (res.data.data.queued) {
+        toast.push('success', `Đang in lại hoá đơn — ${o.table_name}`);
+      } else {
+        // Không phải lỗi thao tác: công tắc in đang tắt hoặc chưa khai máy in.
+        toast.push('error', 'Chưa bật in hoá đơn — vào Cài đặt → Máy in để bật');
+      }
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setReprinting((s) => {
+        const n = new Set(s);
+        n.delete(o.id);
+        return n;
+      });
+    }
+  };
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
   // Gom đơn của trang hiện tại theo ngày (giờ VN), giữ thứ tự BE trả về.
@@ -1114,6 +1144,27 @@ export function HistoryPage() {
                                     disabled={!canMarkMisa}
                                     onToggle={() => toggleMisa(o)}
                                   />
+                                )}
+                                {/* In lại: chỉ đơn đã thu tiền mới có hoá đơn để in. Cùng quyền
+                                    với cờ Misa (admin + order) và khớp `RequireRoles` ở BE —
+                                    người đứng quầy phải tự in lại được, chứ đi tìm admin cho
+                                    một tờ giấy kẹt thì tính năng này coi như không có. */}
+                                {isPaid && canMarkMisa && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    title="In lại hoá đơn"
+                                    disabled={reprinting.has(o.id)}
+                                    onClick={(e) => {
+                                      // Cả dòng là nút mở chi tiết — không chặn thì bấm in lại
+                                      // cũng bung luôn khối chi tiết bên dưới.
+                                      e.stopPropagation();
+                                      void reprintReceipt(o);
+                                    }}
+                                    style={{ padding: '2px 8px', fontSize: 13, lineHeight: 1.6 }}
+                                  >
+                                    {reprinting.has(o.id) ? '…' : '🖨'}
+                                  </button>
                                 )}
                                 <span
                                   aria-hidden

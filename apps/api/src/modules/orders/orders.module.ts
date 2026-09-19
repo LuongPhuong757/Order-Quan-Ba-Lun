@@ -14,6 +14,7 @@ import { DishSalesController } from './dish-sales.controller.js';
 import { PaymentPhotosController } from './payment-photos.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { IngredientsModule } from '../ingredients/ingredients.module.js';
+import { PrintingModule } from '../printing/printing.module.js';
 
 @Module({
   imports: [
@@ -31,6 +32,8 @@ import { IngredientsModule } from '../ingredients/ingredients.module.js';
     // Chốt tiêu hao nguyên liệu khi món vào bếp (2026-09-05) — OrdersService gọi
     // ConsumptionService ngay trong transaction đổi trạng thái món.
     IngredientsModule,
+    // In hoá đơn (2026-09-19) — `checkout()` xếp job in ngay sau khi thu tiền xong.
+    PrintingModule,
   ],
   controllers: [OrdersController, DishSalesController, PaymentPhotosController],
   providers: [OrdersService, DishSalesService],
