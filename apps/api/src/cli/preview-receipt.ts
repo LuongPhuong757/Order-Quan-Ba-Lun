@@ -1,6 +1,6 @@
 // Xem thử tờ hoá đơn thành file PNG, KHÔNG cần máy in và KHÔNG cần MySQL.
 //
-//   pnpm --filter @order/api preview:receipt [đường-dẫn.png] [58|80]
+//   pnpm --filter @order/api preview:receipt [đường-dẫn.png] [58|80] [1|2|3]
 //
 // Lý do tồn tại: sửa một dòng chữ trên hoá đơn mà phải deploy rồi chạy ra quầy xem giấy thì
 // mỗi vòng sửa mất nửa tiếng. Ảnh ở đây là ĐÚNG mảng chấm sẽ được bắn xuống máy in (cùng
@@ -13,6 +13,7 @@ import { buildJob, dotsForPaperWidth } from '../modules/printing/escpos.js';
 
 const OUT = process.argv[2] ?? 'receipt-preview.png';
 const PAPER_MM = Number(process.argv[3] ?? 80);
+const DARKNESS = Number(process.argv[4] ?? 2);
 const DOTS = dotsForPaperWidth(PAPER_MM);
 
 // Đơn mẫu cố tình gom mọi trường hợp khó vào một tờ: tên món dài phải xuống dòng, ghi chú của
@@ -52,7 +53,7 @@ const lines = buildReceipt({
   nowMs: Date.now(),
 });
 
-const rendered = await renderReceipt(lines, DOTS);
+const rendered = await renderReceipt(lines, DOTS, DARKNESS);
 const job = buildJob(rendered.mono, rendered.width, rendered.height, { autoCut: true });
 console.log(`giấy ${PAPER_MM}mm · ảnh: ${rendered.width} x ${rendered.height} chấm · job ESC/POS: ${job.length} byte`);
 

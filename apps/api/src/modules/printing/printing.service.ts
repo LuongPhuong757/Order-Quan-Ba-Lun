@@ -260,6 +260,7 @@ export class PrintingService {
       const rendered = await renderReceipt(
         buildTestPage(store, Date.now(), cfg.printer_paper_width_mm, dots),
         dots,
+        cfg.printer_darkness,
       );
       return buildJob(rendered.mono, rendered.width, rendered.height, {
         autoCut: cfg.printer_auto_cut,
@@ -281,7 +282,7 @@ export class PrintingService {
       reprint: job.reason === 'REPRINT',
       nowMs: Date.now(),
     });
-    const rendered = await renderReceipt(lines, dots);
+    const rendered = await renderReceipt(lines, dots, cfg.printer_darkness);
     return buildJob(rendered.mono, rendered.width, rendered.height, {
       autoCut: cfg.printer_auto_cut,
     });

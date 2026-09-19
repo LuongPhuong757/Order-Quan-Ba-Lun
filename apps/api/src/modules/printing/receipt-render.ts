@@ -64,8 +64,12 @@ const S = {
   totalStrong: { size: 25, bold: true },
 } satisfies Record<string, Style>;
 
+/** `forceBold` bật thì MỌI chữ dùng font đậm, kể cả dòng vốn là chữ thường. Đây là cách làm
+ *  chữ đậm lên mà không phá hình chữ — xem `DARKNESS_LEVELS`. */
+let forceBold = false;
+
 function setFont(ctx: SKRSContext2D, s: Style): void {
-  ctx.font = `${s.size}px ${s.bold ? FONT_BOLD : FONT_REGULAR}`;
+  ctx.font = `${s.size}px ${s.bold || forceBold ? FONT_BOLD : FONT_REGULAR}`;
 }
 
 /** Chiều cao một dòng chữ: cỡ font + khoảng thở. Không đọc metrics của font vì cần con số
@@ -213,6 +217,19 @@ export type RenderedReceipt = { mono: Uint8Array; width: number; height: number 
  */
 const THRESHOLD = 176;
 
+/** Ba mức đậm — xem `printer_darkness` ở `settings.defaults.ts` về vì sao đây là cài đặt.
+ *
+ *  Đo bằng cách dựng thử cả năm tổ hợp rồi nhìn ảnh: NGƯỠNG gần như không thay đổi gì thấy
+ *  được (176 và 210 cho ra nét gần hệt nhau), thứ tạo khác biệt thật là DÙNG FONT ĐẬM — nét
+ *  dày lên rõ rệt mà hình chữ vẫn là hình do người thiết kế font vẽ, nên không bị bí.
+ *  Nở nét chỉ để ở mức 3: nó đậm nhất nhưng dấu tiếng Việt bắt đầu dính vào chữ, và giấy nhiệt
+ *  còn loang mực thêm ngoài đời. */
+const DARKNESS_LEVELS: Record<number, { threshold: number; bold: boolean; dilate: boolean }> = {
+  1: { threshold: THRESHOLD, bold: false, dilate: false },
+  2: { threshold: 210, bold: true, dilate: false },
+  3: { threshold: 210, bold: true, dilate: true },
+};
+
 /**
  * Vì sao đọc điểm ảnh qua PNG + `sharp` thay vì `ctx.getImageData()` — cách hiển nhiên hơn:
  *
@@ -231,8 +248,11 @@ const THRESHOLD = 176;
 export async function renderReceipt(
   lines: ReceiptLine[],
   widthDots: number = DOTS_80MM,
+  darkness = 2,
 ): Promise<RenderedReceipt> {
   ensureFontsLoaded();
+  const level = DARKNESS_LEVELS[darkness] ?? DARKNESS_LEVELS[2];
+  forceBold = level.bold;
   const W = widthDots;
   // Canvas 1 chấm chỉ để đo chữ — `measureText` cần một context, nhưng chưa biết chiều cao.
   const probe = createCanvas(W, 1).getContext('2d');
@@ -262,6 +282,16 @@ export async function renderReceipt(
   // trên trắng.
   const grey = await sharp(canvas.toBuffer('image/png')).greyscale().raw().toBuffer();
   const mono = new Uint8Array(W * height);
-  for (let i = 0; i < mono.length; i++) mono[i] = grey[i] < THRESHOLD ? 1 : 0;
+  for (let i = 0; i < mono.length; i++) mono[i] = grey[i] < level.threshold ? 1 : 0;
+
+  if (level.dilate) {
+    // Nở nét sang PHẢI đúng 1 chấm. Đọc từ bản sao chứ không đọc chính `mono`: đọc tại chỗ thì
+    // chấm vừa bật lại làm bật tiếp chấm kế bên, dây chuyền hết cả dòng thành một vệt đen.
+    const src = Uint8Array.from(mono);
+    for (let row = 0; row < height; row++) {
+      const base = row * W;
+      for (let col = 0; col < W - 1; col++) if (src[base + col]) mono[base + col + 1] = 1;
+    }
+  }
   return { mono, width: W, height };
 }
