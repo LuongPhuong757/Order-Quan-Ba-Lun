@@ -52,7 +52,7 @@ const lines = buildReceipt({
   nowMs: Date.now(),
 });
 
-const rendered = renderReceipt(lines, DOTS);
+const rendered = await renderReceipt(lines, DOTS);
 const job = buildJob(rendered.mono, rendered.width, rendered.height, { autoCut: true });
 console.log(`giấy ${PAPER_MM}mm · ảnh: ${rendered.width} x ${rendered.height} chấm · job ESC/POS: ${job.length} byte`);
 

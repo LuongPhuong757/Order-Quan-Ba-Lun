@@ -42,23 +42,23 @@ describe('renderReceipt', () => {
     expect(() => ensureFontsLoaded()).not.toThrow();
   });
 
-  it('mặc định là khổ 80mm — máy để bàn phổ thông', () => {
-    const r = renderReceipt(sampleLines());
+  it('mặc định là khổ 80mm — máy để bàn phổ thông', async () => {
+    const r = await renderReceipt(sampleLines());
     expect(r.width).toBe(DOTS_80MM);
     expect(r.width % 8).toBe(0);
   });
 
-  it('dựng được cả hai khổ giấy, mỗi khổ đúng bề ngang của nó', () => {
+  it('dựng được cả hai khổ giấy, mỗi khổ đúng bề ngang của nó', async () => {
     for (const mm of [58, 80]) {
       const dots = dotsForPaperWidth(mm);
-      const r = renderReceipt(sampleLines(), dots);
+      const r = await renderReceipt(sampleLines(), dots);
       expect(r.width).toBe(dots);
       expect(r.width % 8).toBe(0);
       expect(r.mono.length).toBe(r.width * r.height);
     }
   });
 
-  it('giấy rộng hơn thì tờ hoá đơn NGẮN lại — cùng nội dung, ít dòng gãy hơn', () => {
+  it('giấy rộng hơn thì tờ hoá đơn NGẮN lại — cùng nội dung, ít dòng gãy hơn', async () => {
     // Đây là bằng chứng bố cục thật sự bám theo khổ giấy chứ không chỉ nới canvas rồi vẽ y cũ:
     // vẽ y cũ thì chiều cao hai bên sẽ bằng nhau.
     //
@@ -73,8 +73,8 @@ describe('renderReceipt', () => {
       is_note: false,
       note: null,
     };
-    const narrow = renderReceipt(sampleLines({ items: [long] }), DOTS_58MM);
-    const wide = renderReceipt(sampleLines({ items: [long] }), DOTS_80MM);
+    const narrow = await renderReceipt(sampleLines({ items: [long] }), DOTS_58MM);
+    const wide = await renderReceipt(sampleLines({ items: [long] }), DOTS_80MM);
     expect(wide.height).toBeLessThan(narrow.height);
   });
 
@@ -88,24 +88,24 @@ describe('renderReceipt', () => {
     );
   });
 
-  it('số chấm khớp width × height, đúng thứ cmdRaster đòi hỏi', () => {
-    const r = renderReceipt(sampleLines());
+  it('số chấm khớp width × height, đúng thứ cmdRaster đòi hỏi', async () => {
+    const r = await renderReceipt(sampleLines());
     expect(r.mono.length).toBe(r.width * r.height);
   });
 
-  it('thực sự vẽ ra chữ, không phải tờ giấy trắng', () => {
-    const r = renderReceipt(sampleLines());
+  it('thực sự vẽ ra chữ, không phải tờ giấy trắng', async () => {
+    const r = await renderReceipt(sampleLines());
     expect(blackCount(r.mono)).toBeGreaterThan(500);
   });
 
-  it('chỉ chứa 0 và 1', () => {
-    const r = renderReceipt(sampleLines());
+  it('chỉ chứa 0 và 1', async () => {
+    const r = await renderReceipt(sampleLines());
     expect(r.mono.every((v) => v === 0 || v === 1)).toBe(true);
   });
 
-  it('càng nhiều món thì tờ càng dài', () => {
-    const one = renderReceipt(sampleLines());
-    const many = renderReceipt(
+  it('càng nhiều món thì tờ càng dài', async () => {
+    const one = await renderReceipt(sampleLines());
+    const many = await renderReceipt(
       sampleLines({
         items: Array.from({ length: 10 }, (_, i) => ({
           menu_item_name: `Món số ${i}`,
@@ -120,13 +120,13 @@ describe('renderReceipt', () => {
     expect(many.height).toBeGreaterThan(one.height);
   });
 
-  it('vẽ được tờ in thử mà không ném lỗi', () => {
-    const r = renderReceipt(buildTestPage(STORE, Date.now()));
+  it('vẽ được tờ in thử mà không ném lỗi', async () => {
+    const r = await renderReceipt(buildTestPage(STORE, Date.now()));
     expect(blackCount(r.mono)).toBeGreaterThan(500);
   });
 
-  it('tên món rất dài không làm tờ hoá đơn vỡ', () => {
-    const r = renderReceipt(
+  it('tên món rất dài không làm tờ hoá đơn vỡ', async () => {
+    const r = await renderReceipt(
       sampleLines({
         items: [
           {

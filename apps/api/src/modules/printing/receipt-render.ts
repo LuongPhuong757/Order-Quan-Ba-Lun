@@ -8,6 +8,7 @@
 // ra đúng từng chấm ảnh giống nhau.
 
 import { createCanvas, GlobalFonts, type SKRSContext2D } from '@napi-rs/canvas';
+import sharp from 'sharp';
 import { existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,6 +24,11 @@ export const FONT_REGULAR = 'ReceiptSans';
 export const FONT_BOLD = 'ReceiptSansBold';
 
 let fontsReady = false;
+
+// Tắt cache của libvips. Mỗi tờ hoá đơn là một ảnh khác nhau nên cache không bao giờ trúng,
+// mà vẫn giữ vài chục MB (đo được +63 MB sau 200 lần với cache bật). Trên VPS dùng chung với
+// MySQL và hai stack, đó là RAM cho không.
+sharp.cache(false);
 
 /** Nạp font một lần cho cả tiến trình. Ném lỗi NGAY nếu thiếu file thay vì để canvas lặng lẽ
  *  thay bằng font mặc định — hoá đơn mất dấu tiếng Việt là loại lỗi phải chặn ở lúc khởi động,
@@ -207,7 +213,25 @@ export type RenderedReceipt = { mono: Uint8Array; width: number; height: number 
  */
 const THRESHOLD = 176;
 
-export function renderReceipt(lines: ReceiptLine[], widthDots: number = DOTS_80MM): RenderedReceipt {
+/**
+ * Vì sao đọc điểm ảnh qua PNG + `sharp` thay vì `ctx.getImageData()` — cách hiển nhiên hơn:
+ *
+ * `getImageData()` của `@napi-rs/canvas` 1.0.9 RÒ BỘ NHỚ. Đo được 1,8 MB mất hẳn mỗi lần gọi,
+ * gọi dọn rác cũng không trả lại: 600 tờ hoá đơn đẩy RSS từ 210 MB lên 2513 MB, tăng tuyến
+ * tính, không có dấu hiệu dừng. `canvas.data()` rò y hệt, và 1.0.9 đã là bản mới nhất nên
+ * không có đường nâng cấp. Với một quán in vài trăm tờ mỗi ngày thì đây là VPS chết sau vài
+ * ngày, mà triệu chứng lại là "API tự nhiên chậm rồi bị giết" — không ai lần ra máy in.
+ *
+ * `toBuffer('image/png')` thì KHÔNG rò (đo: +2 MB sau 200 lần), và `sharp` vốn đã là
+ * dependency của dự án. Trọn gói canvas → PNG → raw đo được +4 MB sau 200 lần, tức là phẳng.
+ *
+ * Cái giá là một vòng nén/giải nén PNG cho mỗi tờ. Đáng, đổi lấy việc không phải khởi động lại
+ * API mỗi ngày.
+ */
+export async function renderReceipt(
+  lines: ReceiptLine[],
+  widthDots: number = DOTS_80MM,
+): Promise<RenderedReceipt> {
   ensureFontsLoaded();
   const W = widthDots;
   // Canvas 1 chấm chỉ để đo chữ — `measureText` cần một context, nhưng chưa biết chiều cao.
@@ -233,11 +257,11 @@ export function renderReceipt(lines: ReceiptLine[], widthDots: number = DOTS_80M
     ctx.fillText(op.text, op.x, op.y);
   }
 
-  const img = ctx.getImageData(0, 0, W, height);
+  // `greyscale()` cho ra ĐÚNG 1 byte mỗi điểm ảnh, nên vòng lặp bên dưới không phải nhảy 4 byte
+  // một lần như khi đọc RGBA — và cũng không cần công thức luminance, vì ảnh vốn chỉ có đen
+  // trên trắng.
+  const grey = await sharp(canvas.toBuffer('image/png')).greyscale().raw().toBuffer();
   const mono = new Uint8Array(W * height);
-  for (let i = 0, p = 0; i < mono.length; i++, p += 4) {
-    // Ảnh chỉ có đen trên trắng nên kênh R đủ đại diện độ sáng; không cần công thức luminance.
-    mono[i] = img.data[p] < THRESHOLD ? 1 : 0;
-  }
+  for (let i = 0; i < mono.length; i++) mono[i] = grey[i] < THRESHOLD ? 1 : 0;
   return { mono, width: W, height };
 }
