@@ -34,7 +34,6 @@ import {
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierOverview } from './SupplierOverview.tsx';
-import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
 import { DishSalesPanel } from './DishSalesPanel.tsx';
@@ -268,15 +267,6 @@ export function SuppliersPage() {
         )}
         {/* Tab "Tổng quan" có dải KPI riêng nên KHÔNG lặp lại "Tổng mua"/"Tổng nợ" ở đây —
             cùng một con số hiện hai chỗ trên một màn là mời người đọc đi so xem chỗ nào đúng. */}
-        {tab === 'suppliers' && (
-          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
-            <DateRangePicker
-              value={range}
-              onChange={setRange}
-              ariaLabel="Kỳ xem của màn tổng quan nhà cung cấp"
-            />
-          </div>
-        )}
         {/* "Tổng mua" và nút "Xuất Excel" của tab con NẰM CHUNG một dòng. Nút do panel con
             (SupplierReports) dựng vì chỉ nó biết dữ liệu đang lọc/sắp xếp; nó bắn vào ô
             'sup-toolbar-slot' dưới đây bằng portal thay vì chiếm thêm một dòng riêng —
@@ -319,6 +309,8 @@ export function SuppliersPage() {
           deliveries={deliveries}
           isAdmin={isAdmin}
           canSeeMoney={canSeeMoney}
+          range={range}
+          onRangeChange={setRange}
           onOpen={setDetail}
           onNew={() => setShowEditor('new')}
           onGoTab={setTab}
