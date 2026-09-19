@@ -52,6 +52,7 @@ type PrintSettings = {
   printer_port: number;
   printer_paper_width_mm: number;
   printer_darkness: number;
+  printer_heat: number;
   printer_auto_cut: boolean;
   store_name: string;
 };
@@ -143,6 +144,7 @@ export function PrintersPanel() {
         printer_port: v.printer_port ?? 9100,
         printer_paper_width_mm: v.printer_paper_width_mm ?? 80,
         printer_darkness: v.printer_darkness ?? 2,
+        printer_heat: v.printer_heat ?? 0,
         printer_auto_cut: v.printer_auto_cut,
         store_name: v.store_name ?? '',
       });
@@ -392,6 +394,25 @@ export function PrintersPanel() {
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             Chữ nhạt thì tăng lên. Mức <b>Rất đậm</b> nét dày nhất nhưng dấu tiếng Việt có thể
             hơi bí — bấm <b>In thử</b> rồi nhìn giấy thật để chọn.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          {/* Lever DUY NHẤT làm từng chấm đen hơn thật. Hai ô trên chỉ làm nét DÀY ra. */}
+          <label style={label}>Nhiệt đầu in</label>
+          <select
+            style={{ ...input, maxWidth: 300 }}
+            value={settings.printer_heat}
+            onChange={(e) => setSettings({ ...settings, printer_heat: Number(e.target.value) })}
+          >
+            <option value={0}>Giữ nguyên của máy in</option>
+            <option value={1}>Cao</option>
+            <option value={2}>Rất cao</option>
+          </select>
+          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
+            Chữ vẫn nhạt sau khi đã tăng <b>Độ đậm</b> thì tăng ô này — nó bảo máy in đốt lâu
+            hơn mỗi chấm. Nếu đầu tờ giấy hiện ký tự lạ thì máy in không hiểu lệnh, chọn lại
+            <b> Giữ nguyên</b>.
           </div>
         </div>
 
