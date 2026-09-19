@@ -144,6 +144,13 @@ export function PrintBridgePage() {
       body: JSON.stringify(body ?? {}),
     });
     if (res.status === 401) throw new Error('TOKEN_SAI');
+    // 502/503/504 = Caddy không gọi được API. Gần như luôn là cửa sổ vài chục giây lúc deploy
+    // dựng lại container. Gọi nó là "lỗi server" khiến người đứng quầy tưởng hỏng thật và đi
+    // gọi người sửa, trong khi việc đúng là không làm gì cả — hoá đơn vẫn nằm trong hàng đợi
+    // và sẽ in ngay khi API sống lại.
+    if (res.status === 502 || res.status === 503 || res.status === 504) {
+      throw new Error('SERVER_KHOI_DONG_LAI');
+    }
     if (!res.ok) throw new Error(`Server trả lỗi ${res.status}`);
     return res.json();
   }, []);
@@ -201,7 +208,12 @@ export function PrintBridgePage() {
         setFatal('Token thiết bị sai hoặc đã bị thu hồi. Tạo thiết bị mới ở Cài đặt → Máy in.');
         return;
       }
-      say(`Không hỏi được server: ${message}`, true);
+      if (message === 'SERVER_KHOI_DONG_LAI') {
+        // KHÔNG đánh dấu đỏ: đây là trạng thái bình thường trong lúc cập nhật, không phải sự cố.
+        say('Server đang khởi động lại, sẽ tự nối lại — hoá đơn không mất, vẫn nằm trong hàng đợi');
+      } else {
+        say(`Không hỏi được server: ${message}`, true);
+      }
       timerRef.current = window.setTimeout(loop, POLL_MS);
     }
   }, [tick, say]);
