@@ -264,6 +264,7 @@ export class PrintingService {
       );
       return buildJob(rendered.mono, rendered.width, rendered.height, {
         autoCut: cfg.printer_auto_cut,
+        heat: cfg.printer_heat as 0 | 1 | 2,
       });
     }
 
@@ -285,6 +286,7 @@ export class PrintingService {
     const rendered = await renderReceipt(lines, dots, cfg.printer_darkness);
     return buildJob(rendered.mono, rendered.width, rendered.height, {
       autoCut: cfg.printer_auto_cut,
+      heat: cfg.printer_heat as 0 | 1 | 2,
     });
   }
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  cmdHeat,
   DOTS_58MM,
   DOTS_80MM,
   dotsForPaperWidth,
@@ -145,12 +146,43 @@ describe('describeBlockingStatus', () => {
   });
 });
 
+describe('cmdHeat — chỉnh nhiệt đầu in', () => {
+  it('mức 0 KHÔNG gửi gì — không đụng vào máy in', () => {
+    // Mặc định phải là không đụng: firmware không hiểu lệnh sẽ in ra ký tự rác ở đầu MỌI tờ.
+    expect(cmdHeat(0).length).toBe(0);
+  });
+
+  it('mức càng cao thì thời gian đốt càng lâu', () => {
+    const m1 = cmdHeat(1);
+    const m2 = cmdHeat(2);
+    expect(m1.subarray(0, 3)).toEqual(Buffer.from([0x1b, 0x37, 7]));
+    expect(m2[3]).toBeGreaterThan(m1[3]);
+  });
+
+  it('giữ số chấm và khoảng nghỉ ở mặc định của máy', () => {
+    const m = cmdHeat(2);
+    expect(m[2]).toBe(7); // n1 số chấm tối đa
+    expect(m[4]).toBe(2); // n3 khoảng nghỉ
+  });
+});
+
 describe('buildJob', () => {
   const mono = new Uint8Array(8);
 
   it('luôn mở đầu bằng ESC @ để xoá trạng thái còn sót của job trước', () => {
     const job = buildJob(mono, 8, 1, { autoCut: false });
     expect(job.subarray(0, 2)).toEqual(cmdInit());
+  });
+
+  it('không bật nhiệt thì job không chứa lệnh nhiệt nào', () => {
+    const job = buildJob(mono, 8, 1, { autoCut: false });
+    expect(job.indexOf(Buffer.from([0x1b, 0x37]))).toBe(-1);
+  });
+
+  it('lệnh nhiệt nằm SAU ESC @ — gửi trước là bị chính ESC @ xoá mất', () => {
+    const job = buildJob(mono, 8, 1, { autoCut: false, heat: 2 });
+    expect(job.subarray(0, 2)).toEqual(cmdInit());
+    expect(job.subarray(2, 7)).toEqual(cmdHeat(2));
   });
 
   it('bật cắt thì kết thúc bằng lệnh cắt', () => {
