@@ -136,6 +136,16 @@ export class PrintingService {
 
   // ── Cầu in lấy việc ───────────────────────────────────────────────────────
 
+  /** Trạng thái cấu hình mà cầu in cần biết để tự chẩn đoán. */
+  async bridgeConfig(): Promise<{ printing_enabled: boolean; connection: string; paper_width_mm: number }> {
+    const cfg = await this.settings.readAll();
+    return {
+      printing_enabled: cfg.printing_enabled,
+      connection: cfg.printer_connection,
+      paper_width_mm: cfg.printer_paper_width_mm,
+    };
+  }
+
   /** Tìm thiết bị theo token. `null` nếu sai token hoặc đã bị thu hồi. */
   async findDeviceByToken(token: string): Promise<PrintDevice | null> {
     if (!token) return null;
@@ -159,6 +169,13 @@ export class PrintingService {
    * Nhờ vậy chạy CẢ HAI tablet cùng lúc là an toàn — và đó mới là cách dùng đúng (một máy chết
    * thì máy kia gánh ngay), chứ không phải để một máy dự phòng nguội.
    */
+  /** Vì sao trả về cả trạng thái cấu hình chứ không chỉ job:
+   *
+   *  Trước đây "không có gì để in" và "công tắc in đang TẮT" đều trả về `null`, nên cầu in
+   *  không phân biệt được hai thứ đó. Hậu quả có thật: người lắp máy bấm "In thử tại chỗ" thấy
+   *  giấy ra (nút đó đẩy byte thẳng, không qua server) rồi tưởng đã xong, trong khi công tắc
+   *  trên web vẫn tắt và mọi hoá đơn thật bị chặn ngay từ server — im lặng, không log, không
+   *  dòng nào trong hàng đợi để mà nhìn. Nói thẳng trạng thái ra là biến nó thành hữu hình. */
   async claimNext(device: PrintDevice): Promise<PrintPayload | null> {
     const cfg = await this.settings.readAll();
     if (!cfg.printing_enabled) return null;

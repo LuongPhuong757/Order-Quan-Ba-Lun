@@ -36,6 +36,9 @@ type Job = {
 
 type LogLine = { at: string; text: string; bad?: boolean };
 
+/** Trạng thái cấu hình server gửi kèm mỗi lượt hỏi — để cầu in tự nói ra được vì sao nó im. */
+type BridgeConfig = { printing_enabled: boolean; connection: string; paper_width_mm: number };
+
 const clock = () => new Date().toTimeString().slice(0, 8);
 
 export function PrintBridgePage() {
@@ -46,6 +49,7 @@ export function PrintBridgePage() {
   const [failed, setFailed] = useState(0);
   const [log, setLog] = useState<LogLine[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [config, setConfig] = useState<BridgeConfig | null>(null);
 
   // Giữ trong ref, không trong state: vòng lặp poll phải luôn thấy giá trị MỚI NHẤT. Đọc từ
   // state trong closure của setTimeout là cách kinh điển để cầu in vẫn dùng token cũ sau khi
@@ -104,6 +108,7 @@ export function PrintBridgePage() {
   // ── Một nhịp ──────────────────────────────────────────────────────────────
   const tick = useCallback(async (): Promise<boolean> => {
     const body = await apiPost('/print/next', {});
+    if (body?.config) setConfig(body.config as BridgeConfig);
     const job: Job | null = body?.data ?? null;
     if (!job) return false;
 
@@ -339,12 +344,48 @@ export function PrintBridgePage() {
           </div>
           <div style={{ marginTop: 6, opacity: 0.85 }}>
             Đã in {printed} · Hỏng {failed}
+            {config && ` · giấy ${config.paper_width_mm}mm`}
           </div>
         </div>
 
         {fatal && (
           <div style={{ background: '#991b1b', padding: 14, borderRadius: 10, marginBottom: 16 }}>
             {fatal}
+          </div>
+        )}
+
+        {/* Công tắc in trên web đang TẮT. Không có dải này thì cầu in chạy xanh lè mà mọi hoá
+            đơn bị chặn ở server, và chỗ duy nhất biết sự thật là một màn admin không ai mở. */}
+        {running && config && !config.printing_enabled && (
+          <div
+            style={{
+              background: '#7f1d1d',
+              border: '1px solid #b91c1c',
+              padding: 14,
+              borderRadius: 10,
+              marginBottom: 16,
+              lineHeight: 1.5,
+            }}
+          >
+            <strong>Công tắc "Bật in hoá đơn" trên web đang TẮT.</strong> Cầu in chạy bình thường
+            nhưng server chặn mọi hoá đơn. Vào /admin → Cài đặt → Máy in, bật công tắc rồi bấm Lưu.
+          </div>
+        )}
+
+        {/* Cầu in USB mà server đặt chế độ LAN (hoặc ngược lại) — hoá đơn sẽ không bao giờ tới. */}
+        {running && config && config.connection !== 'USB' && (
+          <div
+            style={{
+              background: '#7f1d1d',
+              border: '1px solid #b91c1c',
+              padding: 14,
+              borderRadius: 10,
+              marginBottom: 16,
+              lineHeight: 1.5,
+            }}
+          >
+            <strong>Server đang đặt chế độ {config.connection}, không phải USB.</strong> Vào
+            /admin → Cài đặt → Máy in, chọn "Dây USB vào máy POS Android" rồi Lưu.
           </div>
         )}
 
