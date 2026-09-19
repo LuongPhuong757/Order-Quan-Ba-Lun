@@ -136,6 +136,7 @@ class UpdateSettingsDto {
    *  thị trường, và một con số tự gõ sẽ sinh ảnh lệch mà không ai biết vì sao. */
   @IsOptional() @IsIn([58, 80]) printer_paper_width_mm?: number;
   @IsOptional() @IsIn([1, 2, 3]) printer_darkness?: number;
+  @IsOptional() @IsIn([0, 1, 2]) printer_heat?: number;
   @IsOptional() printer_auto_cut?: boolean;
   @IsOptional() @IsString() @MaxLength(64) store_name?: string;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
@@ -274,6 +275,7 @@ export class SettingsController {
       'printer_port',
       'printer_paper_width_mm',
       'printer_darkness',
+      'printer_heat',
       'printer_auto_cut',
       'store_name',
     ] as const) {

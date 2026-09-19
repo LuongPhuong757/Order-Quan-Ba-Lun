@@ -55,6 +55,31 @@ export function cmdCut(feedLines = 3): Buffer {
   return Buffer.from([GS, 0x56, 66, n]);
 }
 
+/**
+ * `ESC 7 n1 n2 n3` — chỉnh NHIỆT của đầu in. Đây là lever DUY NHẤT làm chữ đen đậm hơn thật.
+ *
+ * Vì sao cần tới nó: ảnh ta gửi xuống đã là 1-BIT, mỗi chấm chỉ có bật hoặc tắt — không tồn
+ * tại "đen hơn". Chữ nhạt trên giấy nghĩa là máy in đốt mỗi chấm chưa đủ lâu, và chỉ lệnh này
+ * sửa được. Làm nét dày ra (font đậm, nở nét) chỉ khiến chữ TRÔNG đậm hơn chứ không làm từng
+ * chấm đen hơn.
+ *
+ *  n1 = số chấm tối đa mỗi lần đốt — giữ mặc định 7.
+ *  n2 = THỜI GIAN ĐỐT, đơn vị 10µs. Mặc định của máy thường là 80. Tăng lên là đậm lên.
+ *  n3 = khoảng nghỉ giữa hai lần đốt, đơn vị 10µs — giữ 2.
+ *
+ * ⚠ Không phải firmware nào cũng hiểu lệnh này. Máy không hiểu sẽ IN RA MẤY KÝ TỰ RÁC ở đầu tờ
+ * giấy thay vì báo lỗi. Vì vậy mặc định là KHÔNG GỬI GÌ (mức 0): chỉ khi chủ quán tự bật thì ta
+ * mới đụng vào máy in, và thấy rác thì tắt lại là xong.
+ *
+ * Cũng đừng đẩy lên vô hạn: đốt quá lâu làm đầu in nóng, giấy dễ dính và tuổi thọ đầu in giảm.
+ * 150 và 220 là hai mức cao nhưng còn nằm trong khoảng các hãng dùng.
+ */
+export function cmdHeat(level: 0 | 1 | 2): Buffer {
+  if (level === 0) return Buffer.alloc(0);
+  const heatingTime = level === 1 ? 150 : 220;
+  return Buffer.from([ESC, 0x37, 7, heatingTime, 2]);
+}
+
 /** `DLE EOT n` — hỏi trạng thái THỜI GIAN THỰC.
  *
  *  Khác mọi lệnh khác ở chỗ máy in trả lời NGAY cả khi đang bận in, vì firmware xử lý nó ở
@@ -166,10 +191,11 @@ export function buildJob(
   mono: Uint8Array,
   width: number,
   height: number,
-  opts: { autoCut: boolean; feedLines?: number },
+  opts: { autoCut: boolean; feedLines?: number; heat?: 0 | 1 | 2 },
 ): Buffer {
   const feed = opts.feedLines ?? 4;
-  const parts = [cmdInit(), cmdRaster(mono, width, height)];
+  // Lệnh nhiệt phải đi SAU `ESC @`: `ESC @` reset máy về mặc định, nên gửi trước là bị xoá ngay.
+  const parts = [cmdInit(), cmdHeat(opts.heat ?? 0), cmdRaster(mono, width, height)];
   // Không cắt thì vẫn phải đẩy giấy, nếu không mép dưới tờ hoá đơn còn nằm trong máy và
   // người đứng quầy xé vào giữa dòng chữ cuối.
   parts.push(opts.autoCut ? cmdCut(feed) : cmdFeed(feed));

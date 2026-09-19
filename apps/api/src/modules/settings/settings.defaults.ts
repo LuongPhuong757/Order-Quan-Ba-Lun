@@ -149,6 +149,10 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // giấy thật ra sao: giấy nhiệt rẻ tiền loang mực, đầu in cũ thì nhạt. Chủ quán cầm tờ giấy
   // lên là chỉnh được ngay, không phải chờ một lần deploy.
   { key: 'printer_darkness', kind: 'int', default: 2 },
+  // Nhiệt đầu in: 0 không đụng vào máy · 1 cao · 2 rất cao. Xem `cmdHeat()`.
+  // Mặc định 0 vì không phải firmware nào cũng hiểu lệnh, và máy không hiểu sẽ in ra ký tự rác
+  // ở đầu MỌI tờ giấy. Chủ quán tự bật khi thấy chữ nhạt, thấy rác thì tắt lại.
+  { key: 'printer_heat', kind: 'int', default: 0 },
   // Máy 58mm ĐỂ BÀN có dao cắt, máy CẦM TAY thì không. Bật nhầm trên máy không dao thì các tờ
   // hoá đơn dính liền nhau và người đứng quầy tưởng máy hỏng — nên để người cài tự chọn.
   { key: 'printer_auto_cut', kind: 'bool', default: true },
@@ -212,6 +216,8 @@ export type StoreSettingsMap = {
   printer_paper_width_mm: number;
   /** 1 = thường · 2 = đậm · 3 = rất đậm (nở nét, có thể bí dấu tiếng Việt). */
   printer_darkness: number;
+  /** 0 = không đụng vào máy in · 1 = nhiệt cao · 2 = rất cao. */
+  printer_heat: number;
   printer_auto_cut: boolean;
   store_name: string;
 };
