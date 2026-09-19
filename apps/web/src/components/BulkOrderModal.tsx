@@ -3,7 +3,7 @@
 // Panel phải: giỏ hàng (− qty + xoá + note inline).
 // Mobile <768px: stack vertical (menu trên, giỏ dưới).
 // Submit 1 lần → BE create N items + auto báo bếp.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { pickAutoItem } from '../lib/auto-items.ts';
@@ -67,6 +67,9 @@ export function BulkOrderModal({
   const [submitting, setSubmitting] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  /* Con trỏ phải quay lại đúng ô này sau mỗi lần tap món — nếu không, bàn phím điện thoại
+     tụt xuống và nhân viên phải bấm vào ô mới gõ được món kế. */
+  const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     Promise.all([
@@ -128,6 +131,18 @@ export function BulkOrderModal({
       }
       return next;
     });
+    /* Chọn xong thì GIỮ NGUYÊN chữ đang gõ, nhưng BÔI ĐEN sẵn (chủ quán 2026-09-19, sửa lại
+       lần đầu làm xoá trắng). Xoá trắng nghe thì tiện nhưng nó cuốn luôn danh sách đang lọc:
+       gọi 2 phần chân gà chiên mắm là phải gõ lại y hệt từ đầu. Giữ chữ thì thẻ món vẫn nằm
+       đó, tap phát nữa là badge lên 2 — mà vẫn không phải xoá tay, vì chữ đã bôi đen: gõ chữ
+       đầu tiên của món kế là chữ cũ tự bị thay. Muốn xoá hẳn thì có nút ✕ trong ô tìm.
+       focus() giữ bàn phím khỏi tụt sau khi tay chạm vào thẻ món.
+       Chỉ đụng khi đang có chữ: đang chọn theo danh mục thì không có gì để bôi đen, và bật
+       bàn phím lúc đó chỉ tổ che mất danh sách món. */
+    if (search) {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    }
   };
 
   const updateQty = (id: string, delta: number) => {
@@ -200,15 +215,28 @@ export function BulkOrderModal({
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <style>{`
+        /* Điện thoại: hộp cao CỐ ĐỊNH (2026-09-19). Trước đây chỉ có max-height nên hộp co
+           theo số món còn lại — lọc còn 2 món là header với thanh cam nhảy vào giữa màn, gõ
+           thêm một chữ là chúng nhảy tiếp, tap trượt sang món khác.
+           dvh chứ không phải vh: trên Safari iOS, vh tính theo màn hình lúc thanh địa chỉ đã
+           thu lại, nên đáy hộp (thanh cam) bị thanh địa chỉ che. Dòng vh ngay trên giữ làm dự
+           phòng cho máy cũ chưa hiểu dvh — trình duyệt không hiểu sẽ bỏ qua dòng sau.
+           Máy tính vẫn co theo nội dung như cũ (override ở khối desktop cuối file). */
         .bulk-container {
           background: white;
           width: 100%;
           max-width: 1100px;
+          height: 95vh;
+          height: 95dvh;
           max-height: 95vh;
+          max-height: 95dvh;
           border-radius: 12px;
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          /* Mốc neo cho .bulk-mobile-bar (position: absolute). Thiếu dòng này thì thanh cam
+             neo vào VIEWPORT — hộp thấp hơn màn là thanh cam rơi ra ngoài đáy hộp. */
+          position: relative;
         }
         .bulk-header {
           padding: 14px 18px;
@@ -224,6 +252,9 @@ export function BulkOrderModal({
           grid-template-columns: 1fr;
           flex: 1;
           overflow: hidden;
+          /* Mặc định flex/grid item không co nhỏ hơn nội dung: thiếu min-height:0 thì cả cột
+             món đẩy hộp dài ra, vùng cuộn nằm ở đâu không ai biết. */
+          min-height: 0;
         }
         @media (min-width: 768px) {
           .bulk-body { grid-template-columns: 1.4fr 1fr; }
@@ -232,6 +263,7 @@ export function BulkOrderModal({
           display: flex;
           flex-direction: column;
           overflow: hidden;
+          min-height: 0;  /* như .bulk-body — để .bulk-menu-grid mới thực sự là chỗ cuộn */
         }
         @media (min-width: 768px) {
           .bulk-menu-panel { border-right: 1px solid #e5e7eb; }
@@ -357,12 +389,40 @@ export function BulkOrderModal({
           margin: 6px auto 0;
         }
         .bulk-menu-toolbar {
+          flex: 0 0 auto;  /* dính trên: không co lại khi danh sách món dài */
           padding: 10px 12px;
           background: white;
           display: flex;
           flex-direction: column;
           gap: 8px;
           border-bottom: 1px solid #f3f4f6;
+        }
+        .bulk-search-wrap {
+          position: relative;
+          display: flex;
+        }
+        .bulk-search-wrap input {
+          width: 100%;
+          padding-right: 44px;  /* chừa chỗ cho nút ✕, chữ dài không chui xuống dưới nút */
+        }
+        /* Viết button.bulk-search-clear chứ không phải class trần .bulk-search-clear: rule
+           'button' trần trong styles.css có màu nền riêng, class trần thua nó độ ưu tiên.
+           (Không dùng dấu backtick trong khối này — cả khối CSS nằm trong một template
+           literal, một dấu backtick lạc vào là cắt đứt chuỗi, cả file hỏng cú pháp.) */
+        button.bulk-search-clear {
+          position: absolute;
+          right: 4px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 36px;
+          min-height: 36px;
+          padding: 0;
+          border: none;
+          background: transparent;
+          color: #6b7280;
+          font-size: 16px;
+          line-height: 1;
+          cursor: pointer;
         }
         .bulk-menu-tabs {
           display: flex;
@@ -384,6 +444,10 @@ export function BulkOrderModal({
           display: grid;
           gap: 8px;
           grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          /* Hàng grid tự co theo nội dung, KHÔNG chia nhau chỗ trống. Mặc định của grid là
+             stretch: từ lúc hộp cao cố định (2026-09-19), lọc còn 2 món là hai thẻ đó kéo dài
+             hết màn, giá nằm tít dưới đáy. */
+          align-content: start;
         }
         .bulk-menu-card {
           background: white;
@@ -624,6 +688,9 @@ export function BulkOrderModal({
           .bulk-cart-panel { display: flex; }
           .bulk-mobile-bar { display: none; }
           .bulk-menu-grid  { padding-bottom: 10px; }
+          /* Máy tính giữ nguyên như trước: hộp co theo nội dung, ít món thì hộp thấp.
+             Chỉ đạo 2026-09-19 là sửa cho điện thoại. */
+          .bulk-container  { height: auto; }
         }
       `}</style>
 
@@ -641,12 +708,30 @@ export function BulkOrderModal({
           {/* PANEL TRÁI — MENU */}
           <div className="bulk-menu-panel">
             <div className="bulk-menu-toolbar">
-              <input
-                placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ minHeight: 40 }}
-              />
+              <div className="bulk-search-wrap">
+                <input
+                  ref={searchRef}
+                  placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ minHeight: 40 }}
+                />
+                {/* Chữ không tự xoá sau khi chọn món nữa, nên phải có đường xoá bằng MỘT chạm.
+                    Ẩn khi ô trống: nút ✕ trên ô rỗng chỉ làm người ta phân vân nó xoá cái gì. */}
+                {search && (
+                  <button
+                    type="button"
+                    className="bulk-search-clear"
+                    aria-label="Xoá chữ đang tìm"
+                    onClick={() => {
+                      setSearch('');
+                      searchRef.current?.focus();
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="bulk-menu-tabs">
                 {groupCodes.map((g) => (
                   <button
