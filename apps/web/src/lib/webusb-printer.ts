@@ -65,7 +65,16 @@ export async function getGrantedPrinter(): Promise<UsbDevice | null> {
 /** Mở hộp thoại chọn thiết bị. BẮT BUỘC gọi từ một cú bấm thật của người dùng — Chrome từ
  *  chối nếu không có cử chỉ, và lỗi trả về không nói rõ lý do đó. */
 export async function requestPrinter(): Promise<UsbDevice> {
-  return usb().requestDevice({ filters: [{ classCode: USB_CLASS_PRINTER }] });
+  // Lọc thêm lớp 0xFF (vendor-specific): `classCode` trong bộ lọc so với lớp khai ở cấp THIẾT
+  // BỊ, mà rất nhiều máy in để cấp thiết bị = 0 hoặc 0xFF rồi mới khai lớp 7 ở cấp GIAO DIỆN.
+  // Chỉ lọc mỗi lớp 7 thì hộp thoại chọn máy in hiện ra RỖNG, người dùng đành bấm Huỷ, và lỗi
+  // báo về là "không tìm thấy thiết bị" — nghe như máy in hỏng chứ không phải bộ lọc sai.
+  return usb().requestDevice({ filters: [{ classCode: USB_CLASS_PRINTER }, { classCode: 0xff }] });
+}
+
+/** Mở hộp thoại KHÔNG lọc gì — đường lùi khi máy in khai lớp lạ và không hiện trong danh sách. */
+export async function requestAnyUsbDevice(): Promise<UsbDevice> {
+  return usb().requestDevice({ filters: [], acceptAllDevices: true } as never);
 }
 
 function isPrinter(d: UsbDevice): boolean {
@@ -78,6 +87,27 @@ type Claimed = { iface: number; endpointOut: number };
 
 /** Mở thiết bị và chiếm cổng ghi. Idempotent: gọi lại trên thiết bị đã mở vẫn an toàn. */
 export async function openPrinter(device: UsbDevice): Promise<Claimed> {
+  try {
+    return await openPrinterOnce(device);
+  } catch (err) {
+    // Nguyên nhân thường gặp nhất: một TAB CŨ của chính trang này vẫn đang giữ giao diện USB.
+    // Android hay để tab nền sống, nên đóng trang rồi mở lại là gặp ngay. Đóng hẳn thiết bị
+    // rồi mở lại một lần là lấy lại được; không làm thế thì người dùng phải tự tìm và đóng
+    // tab cũ — thứ không ai đoán ra.
+    try {
+      await device.close();
+    } catch {
+      /* thiết bị chưa mở, không sao */
+    }
+    try {
+      return await openPrinterOnce(device);
+    } catch {
+      throw err instanceof Error ? err : new Error(String(err));
+    }
+  }
+}
+
+async function openPrinterOnce(device: UsbDevice): Promise<Claimed> {
   if (!device.opened) await device.open();
   // Thiết bị vừa cắm chưa chọn cấu hình nào; bỏ bước này thì `configuration` là null và
   // không tìm ra endpoint.
@@ -146,4 +176,15 @@ export function buildLocalTestBytes(): Uint8Array {
   out.set(body, head.length);
   out.set(tail, head.length + body.length);
   return out;
+}
+
+/** Nhả thiết bị khi rời trang. Không nhả thì tab vừa đóng vẫn giữ giao diện USB, và lần mở
+ *  trang sau báo "không chiếm được" — đúng lỗi người dùng gặp sau khi thoát rồi vào lại. */
+export async function releasePrinter(device: UsbDevice | null): Promise<void> {
+  if (!device) return;
+  try {
+    await device.close();
+  } catch {
+    /* đã đóng hoặc đã bị rút — không có gì để làm */
+  }
 }
