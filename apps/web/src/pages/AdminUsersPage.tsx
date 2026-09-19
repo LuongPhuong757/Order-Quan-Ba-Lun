@@ -5,7 +5,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { Select } from '../components/Select.tsx';
 
-type Role = 'admin' | 'order' | 'kitchen' | 'report';
+type Role = 'admin' | 'order' | 'kitchen' | 'report' | 'print';
 
 type UserRow = {
   id: string;
@@ -24,10 +24,12 @@ const ROLE_LABEL: Record<Role, string> = {
   order: '🍽 NV Order',
   kitchen: '👨‍🍳 NV Bếp',
   report: '📊 Báo cáo',
+  print: '🖨 Máy in',
 };
 // `report` xếp CUỐI, sau `admin`: đây là quyền hiếm dùng (người xem sổ sách, không phải nhân
 // sự ca trực), để lẫn giữa hai quyền nhân viên là dễ bấm nhầm khi tạo tài khoản hàng loạt.
-const ROLE_OPTIONS: Role[] = ['order', 'kitchen', 'admin', 'report'];
+// `print` đứng cuối: nó không phải một người, chỉ là tài khoản cho chiếc máy POS ở quầy.
+const ROLE_OPTIONS: Role[] = ['order', 'kitchen', 'admin', 'report', 'print'];
 
 export function AdminUsersPage() {
   const toast = useToast();

@@ -74,7 +74,11 @@ export class AuthService {
         .insert({
           jti: current_jti,
           revoked_at_ms: Date.now(),
-          expires_at_ms: Date.now() + 7 * 86_400_000,
+          // Phải bám theo hạn THẬT của token, không ghi cứng. Trước 2026-09-19 chỗ này là
+          // 7 ngày; từ khi phiên đăng nhập thành vĩnh viễn (xem `jwt.service.ts`), ghi cứng
+          // nghĩa là 7 ngày sau cron dọn mất dòng thu hồi trong khi token cũ vẫn còn hạn —
+          // token đã bị thu hồi sống lại.
+          expires_at_ms: Date.now() + this.jwtSvc.lifetimeMs,
         })
         .catch(() => undefined);
     }

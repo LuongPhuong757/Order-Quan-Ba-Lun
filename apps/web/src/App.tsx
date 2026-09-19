@@ -21,6 +21,9 @@ import { useKitchenPendingCount } from './lib/kitchen-pending-badge.ts';
 //
 // Các trang đều `export function` (không phải default) nên phải map `.then` sang `{ default }`.
 const LoginPage = lazy(() => import('./pages/LoginPage.tsx').then((m) => ({ default: m.LoginPage })));
+const PrintBridgePage = lazy(() =>
+  import('./pages/PrintBridgePage.tsx').then((m) => ({ default: m.PrintBridgePage })),
+);
 const SetupPage = lazy(() => import('./pages/SetupPage.tsx').then((m) => ({ default: m.SetupPage })));
 const RecoverPage = lazy(() =>
   import('./pages/RecoverPage.tsx').then((m) => ({ default: m.RecoverPage })),
@@ -87,6 +90,10 @@ const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
   // vào được Đơn online, chỉ là lần bấm đầu tiên mới tải — việc đó vài lần một ca, không đáng
   // đổi lấy màn chính chậm ở mọi lần mở app.
   kitchen: [() => import('./pages/KitchenPage.tsx'), () => import('./pages/OrdersPage.tsx')],
+  // Máy in: KHÔNG kéo sẵn gì. Nó chỉ mở đúng một màn (`/print-bridge`, nằm ngoài
+  // `ProtectedShell`) và bị BE chặn ở mọi đường khác — kéo trước màn nào cũng là tải một chunk
+  // để rồi ăn 403 ở cửa.
+  print: [],
   // Báo cáo: 3 màn duy nhất role này vào được ngoài Dashboard (màn đầu tiên, đã tải sẵn) và
   // Tài khoản. KHÔNG kéo OrdersPage/KitchenPage — role này bị chặn ở cửa hai màn đó.
   report: [
@@ -132,6 +139,13 @@ export function App() {
               không phải nhân viên, không có role, và tự xác thực bằng phiên riêng
               (`x-supplier-token`). Nhét vào trong đó là bắt họ đăng nhập bằng tài khoản nội bộ. */}
           <Route path="/ncc" element={<NccPortalPage />} />
+
+          {/* Cầu in cho máy POS Android nối máy in bằng USB (2026-09-19). NGOÀI `ProtectedShell`
+              vì cùng lý do với `/ncc`: đây là một CHIẾC MÁY đặt ở quầy chạy suốt ngày, không
+              phải một con người. Nó tự xác thực bằng token thiết bị (`x-print-token`). Bắt nó
+              đăng nhập bằng tài khoản nhân viên nghĩa là tài khoản đó mở vĩnh viễn trên một máy
+              ai cũng chạm được, và mọi thao tác của máy mang tên người ấy trong nhật ký. */}
+          <Route path="/print-bridge" element={<PrintBridgePage />} />
 
           <Route element={<ProtectedShell />}>
             <Route path="/" element={<HomeRedirect />} />
@@ -217,6 +231,7 @@ const ROLE_STYLE: Record<Role, { label: string; bg: string; border: string; text
   order:   { label: 'Order', icon: '🍽',    bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
   kitchen: { label: 'Bếp',   icon: '👨‍🍳', bg: '#d1fae5', border: '#10b981', text: '#065f46' },
   report:  { label: 'Báo cáo', icon: '📊', bg: '#ede9fe', border: '#8b5cf6', text: '#5b21b6' },
+  print:   { label: 'Máy in', icon: '🖨',  bg: '#e5e7eb', border: '#6b7280', text: '#374151' },
 };
 
 function ProtectedShell() {

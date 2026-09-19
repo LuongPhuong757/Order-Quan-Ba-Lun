@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { PrintingService } from '../printing/printing.service.js';
 import { describePayment } from './payment-describe.js';
 import {
   STALE_OPEN_ORDER_MS,
@@ -168,6 +169,7 @@ export class OrdersService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly emitter: EventEmitter2,
     private readonly consumption: ConsumptionService,
+    private readonly printing: PrintingService,
   ) {}
 
   // ─── Activity log ───────────────────────────────────────────────────────
@@ -1379,6 +1381,26 @@ export class OrdersService {
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
+
+    // Xếp hoá đơn vào hàng đợi in — SAU commit, và `enqueue()` tự nuốt mọi lỗi.
+    //
+    // Thứ tự này là bắt buộc, không phải tuỳ tiện: tiền đã vào két trước khi máy in được nhắc
+    // tới. Nếu xếp job bên trong transaction thì một trục trặc của bảng `print_jobs` sẽ cuốn
+    // theo cả lần thanh toán — thu ngân nhận màn hình đỏ sau khi đã cầm tiền của khách, và
+    // không có gì tệ hơn thế ở quầy. Giấy không ra thì bấm "In lại"; tiền thì không in lại được.
+    //
+    // Hai trường hợp KHÔNG in, cả hai đều do chủ quán chốt 2026-09-19:
+    //
+    //  1. Bàn huỷ sạch món (`total = 0`). Tờ giấy đó không có gì trên đó ngoài số 0.
+    //  2. Đơn giao tận nơi ĐÃ rời quán. Tờ phiếu giao hàng đã đi cùng shipper lúc bấm "Đã giao
+    //     cho shipper"; lúc shipper mang tiền về thì không còn ai để đưa giấy. Điều kiện là
+    //     `shipped_at`, KHÔNG phải `fulfillment_type`: đơn ship do nhân viên tự mở tại quán
+    //     không đi qua mốc rời quán nào, nên nó vẫn phải in hoá đơn như bình thường — lấy
+    //     `fulfillment_type` làm điều kiện là những đơn đó im lặng không bao giờ ra giấy.
+    const daGuiPhieuGiao = result.order.shipped_at !== null;
+    if (result.total > 0 && !daGuiPhieuGiao) {
+      await this.printing.enqueue(order_id, 'CHECKOUT', cashier);
+    }
     return result;
   }
 

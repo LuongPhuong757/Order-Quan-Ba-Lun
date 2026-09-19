@@ -76,6 +76,11 @@ COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 # Copy built api
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
+# Font của hoá đơn. KHÔNG bỏ được dòng này: `node:20-alpine` không có sẵn font nào, và
+# `receipt-render.ts` nạp thẳng 2 file TTF này thay vì nhờ hệ điều hành tìm font. Thiếu chúng
+# thì API vẫn khởi động bình thường và chỉ chết lúc ai đó thanh toán — xem `ensureFontsLoaded()`.
+COPY --from=builder /app/apps/api/assets ./apps/api/assets
+
 # Copy 2 frontend build. main.ts chọn thư mục theo Host header (M2.D-66):
 #   order.<domain> → shop-dist   |   apex → web-dist
 COPY --from=builder /app/apps/web/dist ./apps/api/web-dist

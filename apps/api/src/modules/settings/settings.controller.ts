@@ -123,6 +123,20 @@ class UpdateSettingsDto {
   @IsOptional() map_admin_enabled?: boolean;
   // Khoá ô tỉnh của khách về Bắc Ninh (2026-08-11) — xem settings.defaults.ts.
   @IsOptional() province_lock_enabled?: boolean;
+  // ── In hoá đơn (2026-09-19) — xem settings.defaults.ts ──
+  @IsOptional() printing_enabled?: boolean;
+  @IsOptional() @IsIn(['LAN', 'USB']) printer_connection?: string;
+  /** CHỈ host, không phải URL. Chặn ở đây vì dán nhầm `http://192.168.1.50:9100` là lỗi tự
+   *  nhiên nhất mà người cài mắc phải, và nếu lọt xuống cầu in thì nó chết ở tầng socket với
+   *  một câu lỗi DNS khó hiểu thay vì báo ngay tại ô nhập. */
+  @IsOptional() @IsString() @MaxLength(64) @Matches(/^[A-Za-z0-9.\-]*$/, { message: 'printer_host chỉ được chứa chữ, số, dấu chấm và gạch ngang (ví dụ 192.168.1.50)' })
+  printer_host?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(65535) printer_port?: number;
+  /** Chỉ 58 hoặc 80 — `@IsIn` chứ không phải khoảng số: khổ giấy khác là không tồn tại trên
+   *  thị trường, và một con số tự gõ sẽ sinh ảnh lệch mà không ai biết vì sao. */
+  @IsOptional() @IsIn([58, 80]) printer_paper_width_mm?: number;
+  @IsOptional() printer_auto_cut?: boolean;
+  @IsOptional() @IsString() @MaxLength(64) store_name?: string;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
   @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
@@ -253,6 +267,13 @@ export class SettingsController {
       'map_checkout_enabled',
       'map_admin_enabled',
       'province_lock_enabled',
+      'printing_enabled',
+      'printer_connection',
+      'printer_host',
+      'printer_port',
+      'printer_paper_width_mm',
+      'printer_auto_cut',
+      'store_name',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

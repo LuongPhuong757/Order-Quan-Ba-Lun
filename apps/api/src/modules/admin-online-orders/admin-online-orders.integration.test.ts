@@ -20,6 +20,7 @@
 import 'dotenv/config';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { noOpPrintingService } from '../printing/printing.test-double.js';
 import { DataSource } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { REJECT_REASON_TEXT } from '@order/schemas';
@@ -485,6 +486,7 @@ describe('Sửa món đơn chờ duyệt — editItems (Task.md 2026-08-04)', ()
       new EventEmitter2(),
       null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[2],
       null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+      noOpPrintingService(),
     );
   }
 
@@ -581,6 +583,7 @@ describe('Huỷ đơn ĐÃ xác nhận — cancelConfirmed (Task.md 2026-08-04)'
         typeof AdminOnlineOrdersService
       >[2],
       null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+      noOpPrintingService(),
     );
   }
 
@@ -681,6 +684,7 @@ describe('Cửa sổ 14h của order/bếp — list() (chỉ đạo chủ dự �
       } as unknown as ConstructorParameters<
         typeof AdminOnlineOrdersService
       >[3],
+      noOpPrintingService(),
     );
   }
 
@@ -786,6 +790,7 @@ describe('Đổi hình thức nhận hàng — switchFulfillment (chỉ đạo c
       {
         readAll: async () => ({ ship_fee_tiers: [] }),
       } as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+      noOpPrintingService(),
     );
   }
 
@@ -911,6 +916,7 @@ describe('Chặn SĐT ngay trong lượt từ chối / huỷ đơn (chỉ đạo
         typeof AdminOnlineOrdersService
       >[2],
       null as unknown as ConstructorParameters<typeof AdminOnlineOrdersService>[3],
+      noOpPrintingService(),
     );
   }
 

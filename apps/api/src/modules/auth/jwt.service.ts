@@ -16,7 +16,31 @@ export type JwtPayload = {
 @Injectable()
 export class JwtService {
   private readonly secret = process.env.JWT_SECRET || 'dev-secret-CHANGE-ME';
-  private readonly lifetimeDays = Number(process.env.JWT_LIFETIME_DAYS) || 7;
+  /**
+   * Phiên đăng nhập VĨNH VIỄN (chủ quán chốt 2026-09-19).
+   *
+   * 10 năm thay vì bỏ hẳn `exp`: một JWT không có `exp` gây khó chịu cho thư viện và proxy, mà
+   * cookie thì vẫn cần một `maxAge` cụ thể để sống qua lần đóng trình duyệt. 3650 ngày là vĩnh
+   * viễn trên thực tế.
+   *
+   * An toàn được vì `JwtAuthGuard` đối chiếu DB ở MỌI request: `is_active`, `token_version` và
+   * danh sách jti đã thu hồi. Dừng hoặc xoá tài khoản là đăng xuất ngay ở request kế tiếp —
+   * không phải chờ token hết hạn.
+   *
+   * ⚠ Hai hệ quả dính liền, đừng tách rời khi sửa con số này:
+   *  1. `revoked_jwt_jti` giờ giữ mỗi dòng 10 năm (cron chỉ xoá dòng đã quá hạn TOKEN). Đó là
+   *     ĐÚNG: xoá sớm hơn nghĩa là token đã thu hồi sống lại. Bảng tăng ~1 dòng mỗi lần đăng
+   *     xuất — vài nghìn dòng một năm, không đáng kể.
+   *  2. Mọi chỗ ghi `expires_at_ms` của dòng thu hồi phải lấy theo con số NÀY. Trước 2026-09-19
+   *     `changePassword()` ghi cứng 7 ngày; giữ nguyên thì đổi mật khẩu xong, 7 ngày sau dòng
+   *     thu hồi bị dọn và token cũ — vốn còn hạn 10 năm — dùng lại được.
+   */
+  private readonly lifetimeDays = Number(process.env.JWT_LIFETIME_DAYS) || 3650;
+
+  /** Hạn của token tính bằng ms — dùng cho `expires_at_ms` của dòng thu hồi. */
+  get lifetimeMs(): number {
+    return this.lifetimeDays * 86_400_000;
+  }
 
   /** Sign new JWT with current token_version from DB */
   sign(user: { id: string; username: string; is_owner: boolean; token_version: number }): {
