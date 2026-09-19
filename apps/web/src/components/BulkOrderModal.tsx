@@ -131,14 +131,17 @@ export function BulkOrderModal({
       }
       return next;
     });
-    /* Chọn xong là XOÁ chữ đang gõ (chủ quán 2026-09-19): gọi món là gõ liên tiếp nhiều món,
-       trước đây phải tự bôi đen xoá chữ cũ mới gõ được món sau. Giữ focus để bàn phím không
-       tụt. Muốn 2 phần cùng một món thì gõ lại tên món, hoặc bấm + trong giỏ.
-       Chỉ đụng khi đang có chữ: đang bấm chọn theo danh mục thì không có gì để xoá, và gọi
-       focus() lúc đó lại làm bàn phím bật lên che mất danh sách món. */
+    /* Chọn xong thì GIỮ NGUYÊN chữ đang gõ, nhưng BÔI ĐEN sẵn (chủ quán 2026-09-19, sửa lại
+       lần đầu làm xoá trắng). Xoá trắng nghe thì tiện nhưng nó cuốn luôn danh sách đang lọc:
+       gọi 2 phần chân gà chiên mắm là phải gõ lại y hệt từ đầu. Giữ chữ thì thẻ món vẫn nằm
+       đó, tap phát nữa là badge lên 2 — mà vẫn không phải xoá tay, vì chữ đã bôi đen: gõ chữ
+       đầu tiên của món kế là chữ cũ tự bị thay. Muốn xoá hẳn thì có nút ✕ trong ô tìm.
+       focus() giữ bàn phím khỏi tụt sau khi tay chạm vào thẻ món.
+       Chỉ đụng khi đang có chữ: đang chọn theo danh mục thì không có gì để bôi đen, và bật
+       bàn phím lúc đó chỉ tổ che mất danh sách món. */
     if (search) {
-      setSearch('');
       searchRef.current?.focus();
+      searchRef.current?.select();
     }
   };
 
@@ -393,6 +396,33 @@ export function BulkOrderModal({
           flex-direction: column;
           gap: 8px;
           border-bottom: 1px solid #f3f4f6;
+        }
+        .bulk-search-wrap {
+          position: relative;
+          display: flex;
+        }
+        .bulk-search-wrap input {
+          width: 100%;
+          padding-right: 44px;  /* chừa chỗ cho nút ✕, chữ dài không chui xuống dưới nút */
+        }
+        /* Viết button.bulk-search-clear chứ không phải class trần .bulk-search-clear: rule
+           'button' trần trong styles.css có màu nền riêng, class trần thua nó độ ưu tiên.
+           (Không dùng dấu backtick trong khối này — cả khối CSS nằm trong một template
+           literal, một dấu backtick lạc vào là cắt đứt chuỗi, cả file hỏng cú pháp.) */
+        button.bulk-search-clear {
+          position: absolute;
+          right: 4px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 36px;
+          min-height: 36px;
+          padding: 0;
+          border: none;
+          background: transparent;
+          color: #6b7280;
+          font-size: 16px;
+          line-height: 1;
+          cursor: pointer;
         }
         .bulk-menu-tabs {
           display: flex;
@@ -678,13 +708,30 @@ export function BulkOrderModal({
           {/* PANEL TRÁI — MENU */}
           <div className="bulk-menu-panel">
             <div className="bulk-menu-toolbar">
-              <input
-                ref={searchRef}
-                placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ minHeight: 40 }}
-              />
+              <div className="bulk-search-wrap">
+                <input
+                  ref={searchRef}
+                  placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  style={{ minHeight: 40 }}
+                />
+                {/* Chữ không tự xoá sau khi chọn món nữa, nên phải có đường xoá bằng MỘT chạm.
+                    Ẩn khi ô trống: nút ✕ trên ô rỗng chỉ làm người ta phân vân nó xoá cái gì. */}
+                {search && (
+                  <button
+                    type="button"
+                    className="bulk-search-clear"
+                    aria-label="Xoá chữ đang tìm"
+                    onClick={() => {
+                      setSearch('');
+                      searchRef.current?.focus();
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               <div className="bulk-menu-tabs">
                 {groupCodes.map((g) => (
                   <button
