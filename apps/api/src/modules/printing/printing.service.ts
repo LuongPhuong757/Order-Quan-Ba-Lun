@@ -257,7 +257,7 @@ export class PrintingService {
     const dots = dotsForPaperWidth(cfg.printer_paper_width_mm);
 
     if (job.kind === 'TEST') {
-      const rendered = renderReceipt(
+      const rendered = await renderReceipt(
         buildTestPage(store, Date.now(), cfg.printer_paper_width_mm, dots),
         dots,
       );
@@ -281,7 +281,7 @@ export class PrintingService {
       reprint: job.reason === 'REPRINT',
       nowMs: Date.now(),
     });
-    const rendered = renderReceipt(lines, dots);
+    const rendered = await renderReceipt(lines, dots);
     return buildJob(rendered.mono, rendered.width, rendered.height, {
       autoCut: cfg.printer_auto_cut,
     });
