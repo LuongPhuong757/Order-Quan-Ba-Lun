@@ -33,6 +33,9 @@ import {
 } from './SupplierReports.tsx';
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
+import { SupplierOverview } from './SupplierOverview.tsx';
+import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { presetRange, type DayRange } from '../lib/date-range.ts';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
 import { DishSalesPanel } from './DishSalesPanel.tsx';
 
@@ -86,6 +89,11 @@ export function SuppliersPage() {
   const canSeeMoney = isAdmin || user?.role === 'report';
 
   const [tab, setTab] = useState<Tab>('suppliers');
+  // Kỳ xem của màn Tổng quan (2026-09-19). Mặc định 30 ngày — cùng nhịp với tab "Thống kê" và
+  // tab "Món đã bán"; ba khu của cùng một màn mà mở ra ba kỳ khác nhau thì con số nào cũng
+  // phải kiểm lại trước khi tin. `/suppliers` nhận `from`/`to` nên đây là bộ lọc THẬT, không
+  // phải lọc ở phía màn hình.
+  const [range, setRange] = useState<DayRange>(() => presetRange('30d', Date.now()));
   // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
   // tiêu của một NCC rồi chuyển tab để nhìn góc khác của CÙNG NCC đó — bắt chọn lại ở mỗi tab là
   // ba lần chọn cho một câu hỏi.
@@ -109,7 +117,9 @@ export function SuppliersPage() {
     setLoading(true);
     try {
       const [s, d] = await Promise.all([
-        api.get<{ data: { items: Supplier[] } }>('/suppliers'),
+        api.get<{ data: { items: Supplier[] } }>('/suppliers', {
+          params: { from: range.from || undefined, to: range.to || undefined },
+        }),
         api.get<{ data: { items: Delivery[] } }>('/supplier-deliveries', {
           // `limit` cao hơn hẳn mặc định 200 của API: tab "Phiếu nhập" tự lọc và phân trang ở
           // phía màn hình, mà tìm "cá" trong 200 phiếu gần nhất thì phiếu cũ hơn im lặng biến
@@ -134,7 +144,7 @@ export function SuppliersPage() {
     } catch {
       setBalances(new Map());
     }
-  }, [toast, canSeeMoney, filterSupplierId]);
+  }, [toast, canSeeMoney, filterSupplierId, range]);
 
   useEffect(() => {
     refresh();
@@ -158,7 +168,9 @@ export function SuppliersPage() {
   const debtTotal = tongConPhaiTra(balances.values());
 
   const tabs: Array<{ value: Tab; label: string }> = [
-    { value: 'suppliers', label: 'Nhà cung cấp' },
+    // Đổi tên từ "Nhà cung cấp" (2026-09-19): tab này không còn là danh sách NCC nữa mà là
+    // màn tổng quan — trùng tên với tiêu đề trang thì không nói lên nó khác gì các tab kia.
+    { value: 'suppliers', label: 'Tổng quan' },
     { value: 'stats', label: 'Thống kê' },
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
@@ -254,6 +266,17 @@ export function SuppliersPage() {
             />
           </div>
         )}
+        {/* Tab "Tổng quan" có dải KPI riêng nên KHÔNG lặp lại "Tổng mua"/"Tổng nợ" ở đây —
+            cùng một con số hiện hai chỗ trên một màn là mời người đọc đi so xem chỗ nào đúng. */}
+        {tab === 'suppliers' && (
+          <div style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <DateRangePicker
+              value={range}
+              onChange={setRange}
+              ariaLabel="Kỳ xem của màn tổng quan nhà cung cấp"
+            />
+          </div>
+        )}
         {/* "Tổng mua" và nút "Xuất Excel" của tab con NẰM CHUNG một dòng. Nút do panel con
             (SupplierReports) dựng vì chỉ nó biết dữ liệu đang lọc/sắp xếp; nó bắn vào ô
             'sup-toolbar-slot' dưới đây bằng portal thay vì chiếm thêm một dòng riêng —
@@ -268,12 +291,14 @@ export function SuppliersPage() {
             gap: 10,
           }}
         >
-          <span>
-            Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
-          </span>
+          {tab !== 'suppliers' && (
+            <span>
+              Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+            </span>
+          )}
           {/* Tổng nợ đứng NGAY CẠNH tổng mua: hai con số này luôn được đọc cùng nhau ("mua ngần
               này, còn nợ ngần này"). Tô cam khi còn nợ để mắt bắt được ngay giữa dòng chữ xám. */}
-          {balances.size > 0 && (
+          {balances.size > 0 && tab !== 'suppliers' && (
             <span>
               Tổng nợ:{' '}
               <strong style={{ fontSize: 18, color: debtTotal > 0 ? '#c2410c' : '#15803d' }}>
@@ -288,12 +313,15 @@ export function SuppliersPage() {
       {loading && <p style={{ color: C.muted }}>Đang tải…</p>}
 
       {tab === 'suppliers' && !loading && (
-        <SupplierList
+        <SupplierOverview
           suppliers={suppliers}
           balances={balances}
+          deliveries={deliveries}
           isAdmin={isAdmin}
+          canSeeMoney={canSeeMoney}
           onOpen={setDetail}
           onNew={() => setShowEditor('new')}
+          onGoTab={setTab}
         />
       )}
 
@@ -428,87 +456,6 @@ async function confirmAndDeleteSupplier(
     toast.push('error', extractError(err).message);
     return false;
   }
-}
-
-function SupplierList({
-  suppliers,
-  balances,
-  isAdmin,
-  onOpen,
-  onNew,
-}: {
-  suppliers: Supplier[];
-  balances: Map<string, Balance>;
-  isAdmin: boolean;
-  onOpen: (s: Supplier) => void;
-  onNew: () => void;
-}) {
-  if (suppliers.length === 0) {
-    return (
-      <div className="empty-state card">
-        Chưa có nhà cung cấp nào.
-        {isAdmin && (
-          <div style={{ marginTop: 12 }}>
-            <button className="sup-action" onClick={onNew}>
-              ＋ Thêm nhà cung cấp
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  }
-  return (
-    <>
-      {isAdmin && (
-        <button className="secondary sup-action" onClick={onNew} style={{ marginBottom: 12 }}>
-          ＋ Thêm nhà cung cấp
-        </button>
-      )}
-      <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-        {suppliers.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            className="card"
-            onClick={() => onOpen(s)}
-            style={{ textAlign: 'left', cursor: 'pointer', display: 'block', width: '100%' }}
-          >
-            <div style={{ fontWeight: 700, fontSize: 17 }}>{s.name}</div>
-            {s.phone && <div style={{ fontSize: 14, color: C.mutedOnTint }}>{s.phone}</div>}
-            {/* Công nợ đặt TO NHẤT và trên cùng — đây là câu hỏi chủ quán mở màn này ra để hỏi.
-                Tổng mua theo kỳ tụt xuống làm dòng phụ. */}
-            {balances.has(s.id) ? (
-              <>
-                <div style={{ fontSize: 13, color: C.muted, marginTop: 8 }}>
-                  {balances.get(s.id)!.balance >= 0 ? 'Còn phải trả' : 'Đã trả dư'}
-                </div>
-                <div
-                  style={{
-                    fontSize: 24,
-                    fontWeight: 800,
-                    color: balances.get(s.id)!.balance > 0 ? '#c2410c' : '#15803d',
-                  }}
-                >
-                  {vnd(Math.abs(balances.get(s.id)!.balance))}đ
-                </div>
-                <div style={{ fontSize: 13, color: C.muted }}>
-                  Đã mua {vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
-                </div>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: 22, fontWeight: 800, marginTop: 8 }}>{vnd(s.period_amount)}đ</div>
-                <div style={{ fontSize: 13, color: C.muted }}>
-                  {s.period_deliveries} phiếu ·{' '}
-                  {s.last_delivery_date ? `giao gần nhất ${s.last_delivery_date}` : 'chưa từng giao'}
-                </div>
-              </>
-            )}
-          </button>
-        ))}
-      </div>
-    </>
-  );
 }
 
 /** Nhãn trạng thái phiếu. Phiếu NCC tự gửi dừng ở `PENDING_*` cho tới khi quán duyệt — nó là ĐỀ

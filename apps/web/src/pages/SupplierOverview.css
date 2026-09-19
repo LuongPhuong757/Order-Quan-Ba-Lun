@@ -1,0 +1,133 @@
+/* Màn Tổng quan của /suppliers — bản dựng lại theo mockup OpenDesign (2026-09-19).
+ *
+ * Tách file riêng, mọi class tiền tố `ncc-`: `styles.css` là file dùng chung cho cả app
+ * (2590 dòng), thêm vào đó thì một luật đặt sai tay làm đổi cả màn Order lẫn màn Bếp. Ở đây
+ * không luật nào chạm tới thẻ trần, nên màn khác không thể bị vạ lây.
+ *
+ * Chiều cao dòng CHỐT CỨNG bằng `height` chứ không `min-height` (chủ quán yêu cầu
+ * 2026-09-19): dòng cao dòng thấp làm danh sách 30 NCC nhìn như bị vỡ. Chữ dài thì CẮT bằng
+ * ellipsis — thà mất mấy chữ cuối còn hơn dòng phình ra.
+ */
+
+.ncc-ov { display: flex; flex-direction: column; gap: 20px; }
+
+/* ---------- Dải KPI ---------- */
+.ncc-kpis {
+  display: grid;
+  grid-template-columns: 1fr;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.ncc-kpi { padding: 16px; border-top: 1px solid #e5e7eb; min-width: 0; }
+.ncc-kpi:first-child { border-top: 0; }
+.ncc-kpi__label {
+  font-size: 12px; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: #4b5563;
+}
+.ncc-kpi__value {
+  font-size: 26px; font-weight: 800; margin-top: 4px;
+  font-variant-numeric: tabular-nums; color: #1f2937;
+}
+.ncc-kpi__value--debt { color: #c2410c; }
+.ncc-kpi__value--ok { color: #15803d; }
+.ncc-kpi__note { font-size: 13px; color: #4b5563; margin-top: 4px; }
+.ncc-kpi__sub { font-size: 17px; font-weight: 700; color: #6b7280; }
+
+/* ---------- Khối "Cần bạn xử lý" ---------- */
+.ncc-h2 { margin: 0; font-size: 19px; }
+.ncc-todo { display: grid; grid-template-columns: 1fr; gap: 12px; }
+.ncc-card {
+  background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; overflow: hidden;
+}
+.ncc-card__head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 14px; border-bottom: 1px solid #e5e7eb;
+}
+.ncc-card__title { margin: 0; font-size: 15px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.ncc-count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 22px; padding: 0 7px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; background: #fef3c7; color: #92400e;
+}
+.ncc-count--calm { background: #f3f4f6; color: #4b5563; }
+
+/* ---------- Dòng danh sách: CAO CỐ ĐỊNH ---------- */
+.ncc-row {
+  display: flex; align-items: center; gap: 12px;
+  width: 100%; height: 68px; padding: 0 14px;
+  border: 0; border-top: 1px solid #e5e7eb;
+  background: #fff; text-align: left; cursor: pointer;
+  overflow: hidden;
+}
+.ncc-row:first-child { border-top: 0; }
+.ncc-row:hover { background: #f3f4f6; }
+.ncc-row--alert { background: #fffbeb; box-shadow: inset 4px 0 0 #b45309; }
+.ncc-row--alert:hover { background: #fef3c7; }
+.ncc-row__main { flex: 1; min-width: 0; }
+.ncc-row__t1 {
+  display: block; font-size: 15px; font-weight: 700; line-height: 20px; color: #1f2937;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-row__t2 {
+  display: block; font-size: 12.5px; line-height: 16px; color: #6b7280; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-row__end {
+  flex: none; display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  max-width: 45%;
+}
+.ncc-money {
+  font-size: 16px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 20px;
+  white-space: nowrap;
+}
+.ncc-money--debt { color: #c2410c; }
+.ncc-money--ok { color: #15803d; }
+.ncc-row__meta { font-size: 12.5px; line-height: 16px; color: #6b7280; white-space: nowrap; }
+.ncc-up { color: #c2410c; font-weight: 700; }
+
+/* ---------- Thanh công cụ danh sách NCC ----------
+ * MỘT hàng, cuộn ngang, KHÔNG xuống dòng (chủ quán chốt 2026-09-19): cho nó wrap thì trên
+ * điện thoại ô tìm / ô sắp xếp / chip / nút thêm rơi thành 4 dòng, đẩy danh sách xuống quá
+ * nửa màn. `min-width: 0` + `contain: inline-size` là phần bắt buộc để nó cuộn TRONG NÓ chứ
+ * không kéo rộng cả trang. */
+.ncc-tools {
+  display: flex; flex-wrap: nowrap; gap: 8px; align-items: center;
+  overflow-x: auto; overscroll-behavior-x: contain;
+  min-width: 0; max-width: 100%; contain: inline-size;
+  /* chừa chỗ cho viền focus + thanh cuộn, bù bằng margin âm để không lệch lề */
+  padding: 3px 3px 7px; margin: -3px -3px -3px;
+}
+.ncc-tools > * { flex: none; }
+.ncc-tools__search { width: 220px; min-height: 44px; }
+.ncc-tools__sort { width: 180px; }
+.ncc-chips { display: flex; flex-wrap: nowrap; gap: 6px; }
+.ncc-chip {
+  flex: none; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid #d1d5db; background: #fff; color: #4b5563;
+  font-size: 14px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.ncc-chip[aria-pressed='true'] { background: #0f766e; border-color: #0f766e; color: #fff; }
+
+.ncc-empty { padding: 28px 16px; text-align: center; color: #6b7280; font-size: 14px; }
+
+/* ---------- Tablet trở lên ---------- */
+@media (min-width: 720px) {
+  /* Rộng rồi thì ô tìm nuốt phần thừa, không giữ 220px cứng rồi bắt cuộn vô cớ. */
+  .ncc-tools__search { width: auto; flex: 1 1 200px; min-width: 0; }
+  .ncc-kpis { grid-template-columns: repeat(3, 1fr); }
+  .ncc-kpi { border-top: 0; border-left: 1px solid #e5e7eb; padding: 18px; }
+  .ncc-kpi:first-child { border-left: 0; }
+  .ncc-kpi__value { font-size: 28px; }
+  .ncc-row { height: 60px; }
+}
+@media (min-width: 1024px) {
+  .ncc-todo { grid-template-columns: 1.15fr 1fr; align-items: start; }
+  .ncc-todo__wide { grid-column: 1 / -1; }
+  .ncc-row { height: 56px; }
+  /* Danh sách NCC đủ chỗ cho 2 cột; đường kẻ dọc chia đôi cho mắt bám được hàng. */
+  .ncc-suplist { display: grid; grid-template-columns: 1fr 1fr; }
+  .ncc-suplist .ncc-row:nth-child(odd) { border-right: 1px solid #e5e7eb; }
+  .ncc-suplist .ncc-row:nth-child(2) { border-top: 0; }
+}
