@@ -51,6 +51,7 @@ type PrintSettings = {
   printer_host: string;
   printer_port: number;
   printer_paper_width_mm: number;
+  printer_darkness: number;
   printer_auto_cut: boolean;
   store_name: string;
 };
@@ -141,6 +142,7 @@ export function PrintersPanel() {
         printer_host: v.printer_host ?? '',
         printer_port: v.printer_port ?? 9100,
         printer_paper_width_mm: v.printer_paper_width_mm ?? 80,
+        printer_darkness: v.printer_darkness ?? 2,
         printer_auto_cut: v.printer_auto_cut,
         store_name: v.store_name ?? '',
       });
@@ -370,6 +372,26 @@ export function PrintersPanel() {
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             Xem đáy máy in, dòng <em>热敏纸宽 / Paper width</em>. Chọn sai thì hoá đơn vẫn in
             nhưng chỉ chiếm nửa tờ giấy.
+          </div>
+        </div>
+
+        <div style={{ marginBottom: 14 }}>
+          {/* Ảnh gửi xuống máy in là 1-bit, không có "đen hơn" — đậm lên nghĩa là nét dày ra.
+              Để thành ô chọn vì chỉ nhìn màn hình thì không đoán được giấy thật: giấy rẻ loang
+              mực, đầu in cũ thì nhạt. */}
+          <label style={label}>Độ đậm chữ</label>
+          <select
+            style={{ ...input, maxWidth: 300 }}
+            value={settings.printer_darkness}
+            onChange={(e) => setSettings({ ...settings, printer_darkness: Number(e.target.value) })}
+          >
+            <option value={1}>Thường</option>
+            <option value={2}>Đậm</option>
+            <option value={3}>Rất đậm</option>
+          </select>
+          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
+            Chữ nhạt thì tăng lên. Mức <b>Rất đậm</b> nét dày nhất nhưng dấu tiếng Việt có thể
+            hơi bí — bấm <b>In thử</b> rồi nhìn giấy thật để chọn.
           </div>
         </div>
 

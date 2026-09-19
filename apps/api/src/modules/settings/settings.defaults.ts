@@ -139,6 +139,16 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // máy vẫn in, chữ vẫn sắc nét, chỉ nằm gọn nửa trái tờ giấy 80mm và không có thông báo nào.
   // Mặc định 80 vì đó là khổ của máy để bàn phổ thông (vd Xprinter XP-D600).
   { key: 'printer_paper_width_mm', kind: 'int', default: 80 },
+  // Độ đậm chữ trên giấy: 1 thường · 2 đậm · 3 rất đậm.
+  //
+  // Ảnh gửi xuống máy in là 1-BIT — mỗi chấm chỉ có đen hoặc trắng, không có "đen hơn". Nên
+  // cách duy nhất làm chữ đậm lên là cho NHIỀU CHẤM thành đen hơn, tức nét dày ra. Ba mức lần
+  // lượt: font thường → font đậm → font đậm + nở nét ngang 1 chấm.
+  //
+  // Để thành cài đặt chứ không phải hằng số vì chỉ nhìn ảnh trên màn hình thì không đoán được
+  // giấy thật ra sao: giấy nhiệt rẻ tiền loang mực, đầu in cũ thì nhạt. Chủ quán cầm tờ giấy
+  // lên là chỉnh được ngay, không phải chờ một lần deploy.
+  { key: 'printer_darkness', kind: 'int', default: 2 },
   // Máy 58mm ĐỂ BÀN có dao cắt, máy CẦM TAY thì không. Bật nhầm trên máy không dao thì các tờ
   // hoá đơn dính liền nhau và người đứng quầy tưởng máy hỏng — nên để người cài tự chọn.
   { key: 'printer_auto_cut', kind: 'bool', default: true },
@@ -200,6 +210,8 @@ export type StoreSettingsMap = {
   printer_port: number;
   /** 58 hoặc 80. Đổi số này là đổi bề ngang ảnh hoá đơn (384 / 576 chấm). */
   printer_paper_width_mm: number;
+  /** 1 = thường · 2 = đậm · 3 = rất đậm (nở nét, có thể bí dấu tiếng Việt). */
+  printer_darkness: number;
   printer_auto_cut: boolean;
   store_name: string;
 };
