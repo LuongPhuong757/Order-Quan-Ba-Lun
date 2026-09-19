@@ -175,12 +175,16 @@ describe('claimNext — giao việc cho cầu in', () => {
     expect(payload?.job_id).toBe(older.id);
   });
 
-  it('job để quá 30 phút thì HẾT HẠN, không in nữa', async () => {
+  it('job để quá 10 phút thì HẾT HẠN, không in nữa', async () => {
     // Cầu in chết tối qua, sáng nay cắm lại — không ai muốn máy in nhả ra hoá đơn của đêm trước.
     const stale = await queueTestJob();
-    await ds.query('UPDATE print_jobs SET created_at = DATE_SUB(NOW(6), INTERVAL 31 MINUTE) WHERE id = ?', [stale.id]);
-    expect(await svc.claimNext(await makeDevice())).toBeNull();
+    await ds.query('UPDATE print_jobs SET created_at = DATE_SUB(NOW(6), INTERVAL 11 MINUTE) WHERE id = ?', [stale.id]);
+    // Gọi thẳng `cleanupTick()` thay vì trông vào `claimNext`: từ 2026-09-19 việc dọn trong
+    // `claimNext` bị hãm còn 1 lần / 30 giây, nên một test chạy trong vài mili giây không thể
+    // dựa vào nó. `cleanupTick()` là cơ chế thật (cron 5 phút gọi đúng hàm này).
+    await svc.cleanupTick();
     expect((await reload(stale.id)).status).toBe('EXPIRED');
+    expect(await svc.claimNext(await makeDevice())).toBeNull();
   });
 
   it('job bị giữ quá lâu được thả lại hàng đợi cho máy khác', async () => {
@@ -188,6 +192,7 @@ describe('claimNext — giao việc cho cầu in', () => {
     const dead = await makeDevice(`${SENTINEL}chet`);
     await svc.claimNext(dead);
     await ds.query('UPDATE print_jobs SET claimed_at = DATE_SUB(NOW(6), INTERVAL 3 MINUTE) WHERE id = ?', [job.id]);
+    await svc.cleanupTick(); // xem ghi chú ở test quá hạn về việc dọn bị hãm
 
     const alive = await makeDevice(`${SENTINEL}song`);
     const payload = await svc.claimNext(alive);

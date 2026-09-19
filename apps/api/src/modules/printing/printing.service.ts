@@ -8,7 +8,7 @@ import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { SettingsService } from '../settings/settings.service.js';
 import { PrintJob } from './entities/print-job.entity.js';
 import { PrintDevice } from './entities/print-device.entity.js';
-import { buildReceipt, buildTestPage } from './receipt-model.js';
+import { buildDeliverySlip, buildReceipt, buildTestPage } from './receipt-model.js';
 import { renderReceipt } from './receipt-render.js';
 import { buildJob, dotsForPaperWidth } from './escpos.js';
 
@@ -17,7 +17,11 @@ import { buildJob, dotsForPaperWidth } from './escpos.js';
 const MAX_ATTEMPTS = 3;
 
 /**
- * Job quá hạn thì KHÔNG in nữa.
+ * Job quá hạn thì KHÔNG in nữa. 10 phút (chủ quán chốt 2026-09-19).
+ *
+ * Con số này KHÔNG ảnh hưởng gì lúc chạy bình thường: cầu in hỏi mỗi 2 giây nên job sống
+ * khoảng hai giây rồi bị lấy đi. Nó chỉ trả lời đúng một câu — "cầu in vừa chết một lúc, giờ
+ * sống lại thì in bù những tờ nào" — và ngoài khoảnh khắc đó ra thì vô nghĩa.
  *
  * Đây là luật quan trọng nhất của hàng đợi này, và nó tồn tại vì một tình huống rất cụ thể:
  * cầu in chết lúc 7 giờ tối, sáng hôm sau 8 giờ ai đó cắm lại điện. Không có mốc quá hạn thì
@@ -27,7 +31,7 @@ const MAX_ATTEMPTS = 3;
  * Hoá đơn là thứ chỉ có giá trị tại quầy, ngay lúc khách trả tiền. Quá nửa tiếng thì việc đúng
  * là im lặng bỏ qua và để người ta bấm "In lại" nếu thực sự cần.
  */
-const JOB_MAX_AGE_MS = 30 * 60_000;
+const JOB_MAX_AGE_MS = 10 * 60_000;
 
 /**
  * Job bị giữ quá lâu thì thả về hàng đợi.
@@ -37,6 +41,9 @@ const JOB_MAX_AGE_MS = 30 * 60_000;
  * vứt đi, còn khách đứng chờ một tờ giấy không bao giờ ra thì phải mở máy tra lại từ đầu.
  */
 const CLAIM_TIMEOUT_MS = 120_000;
+
+/** Khoảng cách tối thiểu giữa hai lần dọn hàng đợi trong `claimNext` — xem chỗ dùng. */
+const CLEANUP_MIN_INTERVAL_MS = 30_000;
 
 export type PrintPayload = {
   job_id: string;
@@ -54,6 +61,7 @@ export type PrintPayload = {
 @Injectable()
 export class PrintingService {
   private readonly logger = new Logger(PrintingService.name);
+  private lastCleanupMs = 0;
 
   constructor(
     @InjectDataSource() private readonly ds: DataSource,
@@ -73,6 +81,7 @@ export class PrintingService {
     orderId: string,
     reason: 'CHECKOUT' | 'REPRINT',
     actor?: { full_name?: string | null },
+    kind: 'RECEIPT' | 'DELIVERY' = 'RECEIPT',
   ): Promise<PrintJob | null> {
     try {
       const cfg = await this.settings.readAll();
@@ -83,13 +92,13 @@ export class PrintingService {
       // lag) vẫn chỉ ra đúng một tờ.
       const dedupe_key =
         reason === 'REPRINT'
-          ? `${orderId}:RECEIPT:REPRINT:${Date.now()}`
-          : `${orderId}:RECEIPT:CHECKOUT`;
+          ? `${orderId}:${kind}:REPRINT:${Date.now()}`
+          : `${orderId}:${kind}:CHECKOUT`;
 
       const repo = this.ds.getRepository(PrintJob);
       const job = repo.create({
         order_id: orderId,
-        kind: 'RECEIPT',
+        kind,
         reason,
         status: 'PENDING',
         dedupe_key,
@@ -190,8 +199,15 @@ export class PrintingService {
     }
 
     const nowMs = Date.now();
-    await this.expireOld(nowMs);
-    await this.requeueStaleClaims(nowMs);
+    // Hãm lại còn tối đa 1 lần / 30 giây. Trước đây chạy ở MỌI lượt hỏi, tức 30 lần mỗi phút
+    // suốt ngày, phần lớn không dọn được dòng nào — trong khi đã có cron làm đúng việc đó mỗi
+    // 5 phút. Giữ lại ở đây (thay vì bỏ hẳn) vì cron 5 phút quá chậm cho việc một cầu in chết
+    // giữa chừng: 30 giây là mức máy còn lại nhận việc thay mà không ai kịp nhận ra.
+    if (nowMs - this.lastCleanupMs > CLEANUP_MIN_INTERVAL_MS) {
+      this.lastCleanupMs = nowMs;
+      await this.expireOld(nowMs);
+      await this.requeueStaleClaims(nowMs);
+    }
 
     const claimed = await this.ds.transaction(async (mgr) => {
       const rows: Array<{ id: string }> = await mgr.query(
@@ -257,7 +273,8 @@ export class PrintingService {
       order: { created_at: 'ASC' },
     });
 
-    const lines = buildReceipt({
+    const build = job.kind === 'DELIVERY' ? buildDeliverySlip : buildReceipt;
+    const lines = build({
       order,
       items,
       store,
@@ -315,7 +332,7 @@ export class PrintingService {
   private async expireOld(nowMs: number): Promise<void> {
     const cutoff = new Date(nowMs - JOB_MAX_AGE_MS);
     await this.ds.query(
-      `UPDATE print_jobs SET status = 'EXPIRED', last_error = 'Quá hạn: không có cầu in nào lấy job trong 30 phút' ` +
+      `UPDATE print_jobs SET status = 'EXPIRED', last_error = 'Quá hạn: không có cầu in nào lấy job trong 10 phút' ` +
         `WHERE status = 'PENDING' AND created_at < ?`,
       [cutoff],
     );

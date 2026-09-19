@@ -8,6 +8,7 @@ import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { NotificationsModule } from '../notifications/notifications.module.js';
 import { SettingsModule } from '../settings/settings.module.js';
+import { PrintingModule } from '../printing/printing.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { AdminOnlineOrdersController } from './admin-online-orders.controller.js';
 import { AdminOnlineOrdersService } from './admin-online-orders.service.js';
@@ -17,6 +18,8 @@ import { AdminOnlineOrdersService } from './admin-online-orders.service.js';
 // app.module.ts) — không khai báo lại ở đây.
 @Module({
   imports: [
+    // In phiếu giao hàng lúc bấm "Đã giao cho shipper" (2026-09-19).
+    PrintingModule,
     TypeOrmModule.forFeature([OnlineOrderRequest, Order, OrderItem, OrderActivityLog, RestaurantTable, MenuItem]),
     NotificationsModule,
     SettingsModule,
