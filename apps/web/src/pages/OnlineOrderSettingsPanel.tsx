@@ -35,6 +35,7 @@ import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PaymentQrPanel } from './PaymentQrPanel.tsx';
+import { PrintersPanel } from './PrintersPanel.tsx';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -338,8 +339,10 @@ export function OnlineOrderSettingsPanel() {
   const [loading, setLoading] = useState(true);
 
   const rawTab = params.get('tab');
-  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' =
-    rawTab === 'blacklist' || rawTab === 'top-dishes' || rawTab === 'payment-qr' ? rawTab : 'ordering';
+  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'printers' =
+    rawTab === 'blacklist' || rawTab === 'top-dishes' || rawTab === 'payment-qr' || rawTab === 'printers'
+      ? rawTab
+      : 'ordering';
   const q = params.get('q') || '';
   const page = Number(params.get('page')) || 1;
 
@@ -389,6 +392,11 @@ export function OnlineOrderSettingsPanel() {
         <TabButton active={tab === 'payment-qr'} onClick={() => updateParam('tab', 'payment-qr')}>
           Mã QR nhận tiền
         </TabButton>
+        {/* Máy in (2026-09-19). Cùng lý do với tab trên: hoá đơn in ra ở quầy cho cả bàn tại
+            quán lẫn đơn ship, nó chỉ mượn chỗ đứng chứ không thuộc về đơn online. */}
+        <TabButton active={tab === 'printers'} onClick={() => updateParam('tab', 'printers')}>
+          Máy in
+        </TabButton>
       </div>
 
       {loading && <p style={{ color: C.muted }}>Đang tải...</p>}
@@ -406,6 +414,7 @@ export function OnlineOrderSettingsPanel() {
       {/* Không gác sau `data`: panel này đọc `/admin/payment-qr` riêng, gác theo `data` của
           `/admin/settings` là để một lỗi tải không liên quan làm trắng cả tab. */}
       {tab === 'payment-qr' && <PaymentQrPanel />}
+      {tab === 'printers' && <PrintersPanel />}
     </div>
   );
 }

@@ -120,6 +120,31 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // xa là việc của `delivery-radius.ts` dựa trên toạ độ thật, và cách đó không loại nhầm người ở
   // rìa tỉnh. Xem thêm ghi chú ở `public-store.ts`.
   { key: 'province_lock_enabled', kind: 'bool', default: false },
+  // ── In hoá đơn (2026-09-19) ──
+  // Máy in nằm trong mạng LAN của quán, VPS không với tới được; người cầm job là "cầu in" chạy
+  // trên máy tính bảng ở quầy. Vì vậy địa chỉ máy in để Ở ĐÂY chứ không cấu hình trên tablet:
+  // đổi máy in hay đổi IP thì sửa một ô ở /admin, không phải trèo vào Termux gõ lại file.
+  { key: 'printing_enabled', kind: 'bool', default: false },
+  // Máy in nối vào cầu in bằng đường nào. Quyết định CẢ hai đầu:
+  //   'LAN' → cầu in là script Node trong Termux, mở socket TCP tới `printer_host`.
+  //   'USB' → cầu in là trang web /print-bridge mở trong Chrome trên máy POS Android, đẩy byte
+  //           qua WebUSB. Không có địa chỉ IP nào cả, nên `printer_host` bị bỏ qua.
+  // Đây KHÔNG phải chi tiết kỹ thuật nhỏ: ở chế độ USB, bắt buộc `printer_host` là chặn đứng
+  // việc in mà không nói lý do — xem `claimNext()`.
+  { key: 'printer_connection', kind: 'string', default: 'LAN' },
+  { key: 'printer_host', kind: 'string', default: '' },
+  // 9100 là cổng in thô (RAW/JetDirect) — mặc định của mọi máy in mạng, Xprinter không ngoại lệ.
+  { key: 'printer_port', kind: 'int', default: 9100 },
+  // Khổ GIẤY tính bằng mm: 58 hoặc 80. Quan trọng hơn vẻ ngoài của nó: đặt sai là lỗi CÂM —
+  // máy vẫn in, chữ vẫn sắc nét, chỉ nằm gọn nửa trái tờ giấy 80mm và không có thông báo nào.
+  // Mặc định 80 vì đó là khổ của máy để bàn phổ thông (vd Xprinter XP-D600).
+  { key: 'printer_paper_width_mm', kind: 'int', default: 80 },
+  // Máy 58mm ĐỂ BÀN có dao cắt, máy CẦM TAY thì không. Bật nhầm trên máy không dao thì các tờ
+  // hoá đơn dính liền nhau và người đứng quầy tưởng máy hỏng — nên để người cài tự chọn.
+  { key: 'printer_auto_cut', kind: 'bool', default: true },
+  // Tên quán in trên đầu hoá đơn. Trước tính năng này tên quán nằm rải rác trong code FE;
+  // tờ giấy đưa cho khách thì phải sửa được mà không cần deploy.
+  { key: 'store_name', kind: 'string', default: 'Quán Bà Lún' },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -164,6 +189,19 @@ export type StoreSettingsMap = {
   /** Khoá ô tỉnh của khách về `DEFAULT_PROVINCE_CODE` (Bắc Ninh). Cờ HIỂN THỊ, không phải luật
    *  nhận đơn — xem ghi chú ở `SETTINGS_DEFAULTS`. */
   province_lock_enabled: boolean;
+  /** Công tắc tổng của việc in. TẮT mặc định: quán chưa dựng cầu in mà bật sẵn thì mỗi lần
+   *  thanh toán lại xếp thêm một job không ai lấy, hàng đợi dài ra vô ích. */
+  printing_enabled: boolean;
+  /** IP máy in trong LAN quán, ví dụ `192.168.1.50`. Rỗng = chưa cấu hình, cầu in sẽ báo lỗi
+   *  rõ ràng thay vì thử kết nối vào hư không. */
+  /** 'LAN' (cầu in Termux, TCP 9100) hoặc 'USB' (cầu in web, WebUSB trên máy POS Android). */
+  printer_connection: string;
+  printer_host: string;
+  printer_port: number;
+  /** 58 hoặc 80. Đổi số này là đổi bề ngang ảnh hoá đơn (384 / 576 chấm). */
+  printer_paper_width_mm: number;
+  printer_auto_cut: boolean;
+  store_name: string;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

@@ -33,6 +33,7 @@ import { OrdersService, type PaymentKindFilter } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { PrintingService } from '../printing/printing.service.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
 
@@ -145,7 +146,10 @@ function staffHistoryWindowMs(req: Request): number | undefined {
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
-  constructor(private readonly svc: OrdersService) {}
+  constructor(
+    private readonly svc: OrdersService,
+    private readonly printing: PrintingService,
+  ) {}
 
   /** GET /orders — all open orders (one per active table) */
   @Get()
@@ -310,6 +314,25 @@ export class OrdersController {
         : undefined,
     );
     return { data: result };
+  }
+
+  /**
+   * POST /orders/:id/print — IN LẠI hoá đơn của một đơn đã thanh toán.
+   *
+   * Cùng quyền với `/orders/history` (admin + order), không cần AdminGuard: người đứng quầy là
+   * người phát hiện tờ hoá đơn bị kẹt giấy, và bắt họ đi tìm admin để in lại một tờ giấy là
+   * cách chắc chắn nhất khiến tính năng này không được dùng.
+   *
+   * Tờ in ra mang dấu "BẢN IN LẠI" kèm giờ — xem `buildReceipt`. Bếp không có quyền ở đây:
+   * hoá đơn là chuyện tiền, không liên quan nghiệp vụ bếp.
+   */
+  @Post(':id/print')
+  @UseGuards(RequireRoles('admin', 'order'))
+  async reprint(@Param('id') id: string, @Req() req: Request) {
+    const job = await this.printing.enqueue(id, 'REPRINT', { full_name: req.user!.full_name });
+    // `queued: false` = công tắc in đang TẮT hoặc chưa cấu hình máy in. Trả 200 kèm cờ thay vì
+    // ném lỗi: đây là chuyện cấu hình của quán, không phải lỗi của thao tác vừa bấm.
+    return { data: { queued: job !== null, job_id: job?.id ?? null } };
   }
 
   /** PATCH /orders/:id/misa — đánh dấu bù "đã sao chép sang MISA" sau khi đã thu tiền.

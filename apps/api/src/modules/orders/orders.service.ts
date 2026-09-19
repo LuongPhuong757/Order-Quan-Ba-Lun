@@ -16,6 +16,7 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { PrintingService } from '../printing/printing.service.js';
 import { describePayment } from './payment-describe.js';
 import {
   STALE_OPEN_ORDER_MS,
@@ -168,6 +169,7 @@ export class OrdersService {
     @InjectDataSource() private readonly ds: DataSource,
     private readonly emitter: EventEmitter2,
     private readonly consumption: ConsumptionService,
+    private readonly printing: PrintingService,
   ) {}
 
   // ─── Activity log ───────────────────────────────────────────────────────
@@ -1379,6 +1381,14 @@ export class OrdersService {
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
+
+    // Xếp hoá đơn vào hàng đợi in — SAU commit, và `enqueue()` tự nuốt mọi lỗi.
+    //
+    // Thứ tự này là bắt buộc, không phải tuỳ tiện: tiền đã vào két trước khi máy in được nhắc
+    // tới. Nếu xếp job bên trong transaction thì một trục trặc của bảng `print_jobs` sẽ cuốn
+    // theo cả lần thanh toán — thu ngân nhận màn hình đỏ sau khi đã cầm tiền của khách, và
+    // không có gì tệ hơn thế ở quầy. Giấy không ra thì bấm "In lại"; tiền thì không in lại được.
+    await this.printing.enqueue(order_id, 'CHECKOUT', cashier);
     return result;
   }
 
