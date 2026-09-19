@@ -44,7 +44,10 @@ export class PrintingController {
     const device = req.printDevice;
     await this.printing.touchDevice(device.id, body?.printer_status ?? null);
     const payload = await this.printing.claimNext(device);
-    return { data: payload };
+    // `config` đi kèm MỌI lượt hỏi, kể cả lượt rỗng: đó là cách duy nhất để cầu in biết mình
+    // đang im lặng vì "không có gì để in" hay vì "công tắc in trên web đang tắt".
+    const config = await this.printing.bridgeConfig();
+    return { data: payload, config };
   }
 
   /** Đã bắn byte xuống máy in xong. */
