@@ -55,6 +55,8 @@ export function PrintBridgePage() {
   const [log, setLog] = useState<LogLine[]>([]);
   const [fatal, setFatal] = useState<string | null>(null);
   const [config, setConfig] = useState<BridgeConfig | null>(null);
+  /** Vì sao chưa tự ghép được. `null` = ghép xong hoặc đã có token sẵn. */
+  const [pairError, setPairError] = useState<string | null>(null);
 
   // Giữ trong ref, không trong state: vòng lặp poll phải luôn thấy giá trị MỚI NHẤT. Đọc từ
   // state trong closure của setTimeout là cách kinh điển để cầu in vẫn dùng token cũ sau khi
@@ -110,7 +112,10 @@ export function PrintBridgePage() {
    */
   const ensureToken = useCallback(async (): Promise<string | null> => {
     const saved = (localStorage.getItem(TOKEN_KEY) ?? '').trim();
-    if (saved) return saved;
+    if (saved) {
+      setPairError(null);
+      return saved;
+    }
     try {
       let pairKey = localStorage.getItem(PAIR_KEY);
       if (!pairKey) {
@@ -122,16 +127,33 @@ export function PrintBridgePage() {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ pair_key: pairKey, name: 'Máy POS' }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Bản đầu trả `null` lặng lẽ ở đây, và đó là một lỗi thiết kế thật: người dùng nhìn vào
+        // chỉ thấy ô token trống, không biết là chưa đăng nhập, hay sai quyền, hay server hỏng.
+        // Ba nguyên nhân khác hẳn nhau mà cùng một biểu hiện.
+        setPairError(
+          res.status === 401
+            ? 'Máy này CHƯA ĐĂNG NHẬP. Mở trang quản lý trên chính máy này, đăng nhập, rồi quay lại và bấm "Thử ghép lại".'
+            : res.status === 403
+              ? 'Tài khoản đang đăng nhập không có quyền ghép máy in. Chỉ tài khoản role "Máy in" hoặc "Admin" mới ghép được.'
+              : `Server từ chối ghép máy (HTTP ${res.status}).`,
+        );
+        return null;
+      }
       const body = await res.json();
       const t: string = body?.data?.token ?? '';
-      if (!t) return null;
+      if (!t) {
+        setPairError('Server trả về token rỗng — báo lại cho người dựng hệ thống.');
+        return null;
+      }
       localStorage.setItem(TOKEN_KEY, t);
       tokenRef.current = t;
       setToken(t);
+      setPairError(null);
       say('Đã tự ghép máy này bằng tài khoản đang đăng nhập');
       return t;
-    } catch {
+    } catch (err) {
+      setPairError(`Không gọi được server để ghép máy: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
   }, [say]);
@@ -500,6 +522,30 @@ export function PrintBridgePage() {
             element, mà #374151 đúng bằng màu nền của trang này khi chưa chạy — nhãn thành chữ
             đen trên nền đen, biến mất hoàn toàn. Style nội tuyến không kế thừa màu của thẻ cha
             nếu một luật element đã đặt màu cho chính thẻ đó. */}
+        {pairError && (
+          <div
+            style={{
+              background: '#78350f',
+              border: '1px solid #b45309',
+              padding: 14,
+              borderRadius: 10,
+              marginBottom: 16,
+              lineHeight: 1.5,
+            }}
+          >
+            <div style={{ marginBottom: 10 }}>
+              <strong>Chưa tự lấy được token.</strong> {pairError}
+            </div>
+            <button
+              type="button"
+              onClick={() => void ensureToken()}
+              style={{ padding: '10px 16px', fontSize: 15 }}
+            >
+              Thử ghép lại
+            </button>
+          </div>
+        )}
+
         <label style={{ display: 'block', marginBottom: 6, color: '#fff', opacity: 0.8, fontSize: 14 }}>
           Token thiết bị (lấy ở Cài đặt → Máy in)
         </label>
