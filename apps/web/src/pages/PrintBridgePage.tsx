@@ -23,6 +23,9 @@ import {
 } from '../lib/webusb-printer.ts';
 
 const TOKEN_KEY = 'ordbl.print-bridge.token';
+/** Khoá nhận dạng CHIẾC MÁY này, sinh một lần rồi giữ mãi. Nhờ nó, tải lại trang không đẻ thêm
+ *  một thiết bị mới trong danh sách ở màn quản lý. */
+const PAIR_KEY = 'ordbl.print-bridge.pair-key';
 const POLL_MS = 2000;
 const MAX_LOG = 20;
 
@@ -92,6 +95,44 @@ export function PrintBridgePage() {
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [keepAwake]);
+
+  /**
+   * Tự lấy token bằng PHIÊN ĐĂNG NHẬP, nếu máy này chưa có.
+   *
+   * Đây là thứ thay cho việc chép tay chuỗi hex: đăng nhập bằng tài khoản role "Máy in" rồi mở
+   * trang, token tự về. Đăng nhập chỉ dùng để CHỨNG MINH đây là máy được phép — thứ chạy 24/7
+   * sau đó là token, vì token không hết hạn còn phiên thì có (xem `jwt.service.ts` ở BE).
+   *
+   * Thất bại thì im lặng trả null: đường dán token bằng tay vẫn còn nguyên cho chế độ LAN và
+   * cho máy không đăng nhập.
+   */
+  const ensureToken = useCallback(async (): Promise<string | null> => {
+    const saved = (localStorage.getItem(TOKEN_KEY) ?? '').trim();
+    if (saved) return saved;
+    try {
+      let pairKey = localStorage.getItem(PAIR_KEY);
+      if (!pairKey) {
+        pairKey = crypto.randomUUID();
+        localStorage.setItem(PAIR_KEY, pairKey);
+      }
+      const res = await fetch('/print-pair', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ pair_key: pairKey, name: 'Máy POS' }),
+      });
+      if (!res.ok) return null;
+      const body = await res.json();
+      const t: string = body?.data?.token ?? '';
+      if (!t) return null;
+      localStorage.setItem(TOKEN_KEY, t);
+      tokenRef.current = t;
+      setToken(t);
+      say('Đã tự ghép máy này bằng tài khoản đang đăng nhập');
+      return t;
+    } catch {
+      return null;
+    }
+  }, [say]);
 
   // ── Gọi server ────────────────────────────────────────────────────────────
   const apiPost = useCallback(async (path: string, body: unknown) => {
@@ -222,12 +263,15 @@ export function PrintBridgePage() {
   );
 
   useEffect(() => {
-    if (!usbSupported()) return;
     void (async () => {
+      // Thứ tự quan trọng: xin token TRƯỚC, vì `attachAndMaybeStart` chỉ tự chạy khi đã có
+      // token trong localStorage. Đảo lại thì lần đầu sau khi đăng nhập vẫn phải bấm tay.
+      await ensureToken();
+      if (!usbSupported()) return;
       const device = await getGrantedPrinter();
       if (device) await attachAndMaybeStart(device, 'Đã tự nối lại máy in');
     })();
-  }, [attachAndMaybeStart]);
+  }, [attachAndMaybeStart, ensureToken]);
 
   // Máy in bị rút dây / tắt nguồn rồi bật lại. Không có hai lắng nghe này thì sau khi bật lại
   // máy in buổi sáng, trang vẫn giữ một handle đã chết và mọi hoá đơn đều hỏng — mà ô trạng

@@ -27,10 +27,11 @@ import { PrintingService } from './printing.service.js';
 import { PrintDeviceGuard } from './print-device.guard.js';
 import { PrintingController } from './printing.controller.js';
 import { PrintingAdminController } from './printing-admin.controller.js';
+import { PrintPairController } from './print-pair.controller.js';
 
 @Module({
   imports: [TypeOrmModule.forFeature([PrintJob, PrintDevice]), SettingsModule, AuthModule],
-  controllers: [PrintingController, PrintingAdminController],
+  controllers: [PrintingController, PrintingAdminController, PrintPairController],
   providers: [PrintingService, PrintDeviceGuard],
   // `OrdersModule` cần service này để xếp job ngay sau khi thu tiền xong.
   exports: [PrintingService],

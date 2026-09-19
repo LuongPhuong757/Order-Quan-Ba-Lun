@@ -13,6 +13,7 @@ import { JwtService, JwtPayload } from '../jwt.service.js';
 import { User, canCollectTransfer } from '../entities/user.entity.js';
 import { RevokedJti } from '../entities/revoked-jti.entity.js';
 import { isBlockedWrite } from '../read-only-role.js';
+import { isBlockedForPrintRole } from '../print-role.js';
 
 @Injectable()
 export class JwtAuthGuard implements CanActivate {
@@ -84,6 +85,17 @@ export class JwtAuthGuard implements CanActivate {
     // (hai guard đó tự gọi guard này) và route chỉ gắn `JwtAuthGuard` ở class-level. Gắn ở
     // APP_GUARD toàn cục thì không dùng được: guard toàn cục chạy TRƯỚC guard của route, lúc đó
     // `req.user` chưa được gán nên không biết role là gì.
+    // Role `print` là MÁY IN ở quầy, không phải một con người. Chặn ở đây vì cùng lý do với
+    // `isBlockedWrite` ngay bên dưới: đây là điểm duy nhất mọi request đã đăng nhập đi qua, kể
+    // cả route chỉ gắn `JwtAuthGuard` ở cấp lớp — mà `POST /orders/:id/checkout` đúng là một
+    // route như vậy. Xem `print-role.ts` về vì sao là danh sách CHO PHÉP chứ không phải CẤM.
+    if (isBlockedForPrintRole(req.user.role, req.path)) {
+      throw new ForbiddenException({
+        code: 'PRINT_ROLE_FORBIDDEN',
+        message: 'Tài khoản Máy in chỉ dùng để in hoá đơn, không làm được thao tác này.',
+      });
+    }
+
     if (isBlockedWrite(req.user.role, req.method, req.path)) {
       throw new ForbiddenException({
         code: 'READ_ONLY_ROLE',

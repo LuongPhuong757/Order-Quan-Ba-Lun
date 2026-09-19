@@ -2,14 +2,14 @@ import { createContext, useContext, useEffect, useState, ReactNode, useCallback 
 import { api } from './api.ts';
 import { notificationStore } from './notification-store.ts';
 
-export type Role = 'admin' | 'order' | 'kitchen' | 'report';
+export type Role = 'admin' | 'order' | 'kitchen' | 'report' | 'print';
 
 export type AuthUser = {
   sub: string;
   name: string;            // username (login name)
   full_name: string;       // họ và tên hiển thị, fallback về username
   is_owner: boolean;
-  role: Role | null;       // 'admin' | 'order' | 'kitchen' | 'report' | null (chưa gán)
+  role: Role | null;       // 'admin' | 'order' | 'kitchen' | 'report' | 'print' | null (chưa gán)
   /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Chủ quán bật/tắt cho từng người ở
    *  /admin/users; owner luôn true. Mặc định của người mới là FALSE. */
   can_collect_transfer: boolean;
@@ -22,6 +22,10 @@ export function defaultLandingPath(role: Role | null): string {
   // Báo cáo: KHÔNG phải `/orders` — role này không order được, mở ra màn order là mở ra một
   // màn toàn nút bấm bấm vào là 403. Dashboard là nơi liệt kê đường vào từng báo cáo.
   if (role === 'report') return '/dashboard';
+  // Tài khoản của MÁY IN, không phải của người: đăng nhập xong đi thẳng vào màn cầu in. Mọi
+  // đường khác đều bị BE chặn (xem `print-role.ts`), nên đưa nó tới bất kỳ đâu khác là đưa tới
+  // một màn hình toàn 403.
+  if (role === 'print') return '/print-bridge';
   return '/orders';  // admin
 }
 
