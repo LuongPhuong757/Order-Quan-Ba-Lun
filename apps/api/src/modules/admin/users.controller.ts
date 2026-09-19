@@ -26,7 +26,9 @@ import { randomBytes } from 'crypto';
 // `report` (2026-09-09) = quyền CHỈ ĐỌC báo cáo thống kê toàn quán. Không order, không thanh
 // toán, không tạo/sửa/xoá gì — chặn cứng theo HTTP method ở `read-only-role.ts`, không phải
 // bằng cách gate lẻ từng endpoint.
-const ROLE_VALUES = ['admin', 'order', 'kitchen', 'report'] as const;
+// `print` = tài khoản của MÁY IN ở quầy, không phải của người. Nó chỉ mở được màn cầu in;
+// mọi đường khác bị chặn ở `JwtAuthGuard` (xem `print-role.ts`).
+const ROLE_VALUES = ['admin', 'order', 'kitchen', 'report', 'print'] as const;
 type Role = (typeof ROLE_VALUES)[number];
 
 class CreateUserDto {

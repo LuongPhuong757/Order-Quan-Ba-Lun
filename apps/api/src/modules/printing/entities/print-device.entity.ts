@@ -26,6 +26,17 @@ export class PrintDevice {
   @Index({ unique: true })
   token!: string;
 
+  /**
+   * Khoá nhận dạng CHIẾC MÁY, do trình duyệt tự sinh và giữ trong localStorage.
+   *
+   * Nhờ nó, một tài khoản "Máy in" dùng chung cho nhiều máy POS mà mỗi máy vẫn có token riêng:
+   * lần ghép đầu tiên server tạo thiết bị mới, những lần sau trả lại đúng thiết bị cũ thay vì
+   * đẻ thêm một dòng mỗi lần tải trang. Null với thiết bị tạo tay ở màn quản lý (chế độ LAN).
+   */
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  @Index()
+  pair_key!: string | null;
+
   /** Lần cuối thiết bị gọi về. Đây là thứ duy nhất trả lời được "cầu in còn sống không" —
    *  tablet chết thì không có ai báo, hàng đợi chỉ lặng lẽ dài ra. */
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })

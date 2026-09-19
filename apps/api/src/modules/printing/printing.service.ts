@@ -347,6 +347,36 @@ export class PrintingService {
     );
   }
 
+  /**
+   * Ghép một máy POS bằng tài khoản role `print`, trả về token dùng lâu dài.
+   *
+   * Vì sao đăng nhập rồi vẫn cấp token thay vì để cầu in chạy thẳng bằng phiên: phiên có hạn
+   * (xem `jwt.service.ts`), mà cầu in phải sống liên tục hàng tháng. Nếu nó bám vào phiên thì
+   * đúng ngày phiên hết hạn — có thể 3 giờ sáng — hoá đơn ngừng in và không ai biết. Đăng nhập
+   * chỉ để CHỨNG MINH đây là máy được phép; thứ chạy 24/7 là token không hết hạn.
+   *
+   * Tìm-hoặc-tạo theo `pair_key`: tải lại trang không đẻ thêm thiết bị mới.
+   */
+  async pairDevice(
+    pairKey: string,
+    name: string,
+    actor?: { full_name?: string | null },
+  ): Promise<PrintDevice> {
+    const repo = this.ds.getRepository(PrintDevice);
+    const existing = await repo.findOne({ where: { pair_key: pairKey } });
+    if (existing && existing.revoked_at === null) return existing;
+    // Thiết bị cũ đã bị thu hồi thì KHÔNG hồi sinh: thu hồi là hành động có chủ đích của chủ
+    // quán, ghép lại phải ra một token mới để token cũ vẫn chết.
+    return repo.save(
+      repo.create({
+        name: name.trim().slice(0, 64) || 'Máy POS',
+        token: randomBytes(24).toString('hex'),
+        pair_key: pairKey,
+        created_by_full_name: actor?.full_name ?? null,
+      }),
+    );
+  }
+
   async revokeDevice(id: string): Promise<void> {
     await this.ds.getRepository(PrintDevice).update(id, { revoked_at: Date.now() });
   }

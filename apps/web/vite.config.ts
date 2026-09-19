@@ -32,6 +32,7 @@ export default defineConfig({
       // Cầu in (2026-09-19). Trang `/print-bridge` gọi `/print/*` TỪ TRÌNH DUYỆT, nên thiếu
       // dòng này là dev server nuốt request và trả index.html — đúng cái bẫy mô tả ở dưới.
       '/print':       apiProxy(),
+      '/print-pair':  apiProxy(),
       /* KHÔNG dùng `apiProxy()` ở đây — `bypass()` của nó trả `index.html` cho mọi request có
          `Accept: text/html`, mà MỞ MỘT TẤM ẢNH Ở TAB MỚI chính là loại request đó. Kết quả: ảnh
          hiện bình thường trong thẻ <img> (Accept: image/*) nhưng bấm vào để phóng to thì ra màn
