@@ -16,6 +16,8 @@ import {
   buildLocalTestBytes,
   getGrantedPrinter,
   openPrinter,
+  releasePrinter,
+  requestAnyUsbDevice,
   requestPrinter,
   sendToPrinter,
   usbSupported,
@@ -299,14 +301,31 @@ export function PrintBridgePage() {
     };
   }, [attachAndMaybeStart, say]);
 
-  const pickPrinter = async () => {
+  /** `pick` là hàm mở hộp thoại — lọc theo lớp máy in, hoặc không lọc gì cả.
+   *
+   *  Hai bước CHỌN và MỞ báo lỗi riêng: gộp chung như bản đầu thì lúc giao diện USB còn bị tab
+   *  cũ chiếm, màn hình vẫn nói "Chưa chọn được máy in" trong khi người dùng đã chọn xong xuôi
+   *  — và họ đi tìm sai chỗ. */
+  const pickPrinter = async (pick: () => Promise<UsbDevice>) => {
+    let device: UsbDevice;
     try {
-      const device = await requestPrinter();
+      device = await pick();
+    } catch (err) {
+      // Bấm Huỷ ở hộp thoại cũng rơi vào đây — không phải sự cố, chỉ ghi nhận.
+      const m = err instanceof Error ? err.message : String(err);
+      say(`Chưa chọn được máy in: ${m}`, true);
+      say('Nếu danh sách trống, thử nút "Hiện mọi thiết bị USB".');
+      return;
+    }
+    try {
       await attach(device);
       say('Đã kết nối máy in');
+      const saved = (localStorage.getItem(TOKEN_KEY) ?? '').trim();
+      if (saved && !runningRef.current) await startLoop(saved);
     } catch (err) {
-      // Người dùng bấm Huỷ ở hộp thoại cũng rơi vào đây — không phải lỗi, chỉ ghi nhận.
-      say(`Chưa chọn được máy in: ${err instanceof Error ? err.message : String(err)}`, true);
+      const m = err instanceof Error ? err.message : String(err);
+      say(`Đã chọn được máy in nhưng KHÔNG mở được: ${m}`, true);
+      say('Thường là một tab cũ của trang này còn giữ máy in. Đóng hết tab khác rồi thử lại.');
     }
   };
 
@@ -347,9 +366,21 @@ export function PrintBridgePage() {
     say('Đã dừng cầu in');
   };
 
-  useEffect(() => () => {
-    runningRef.current = false;
-    if (timerRef.current) window.clearTimeout(timerRef.current);
+  useEffect(() => {
+    // Nhả máy in khi rời trang. Thiếu bước này thì tab vừa đóng vẫn giữ giao diện USB, và lần
+    // mở trang sau báo không chiếm được — đúng lỗi gặp khi thoát trang rồi vào lại.
+    const release = () => {
+      void releasePrinter(deviceRef.current);
+      deviceRef.current = null;
+      claimedRef.current = null;
+    };
+    window.addEventListener('pagehide', release);
+    return () => {
+      window.removeEventListener('pagehide', release);
+      runningRef.current = false;
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+      release();
+    };
   }, []);
 
   const ok = running && deviceName && !fatal;
@@ -479,11 +510,20 @@ export function PrintBridgePage() {
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
           <button
             type="button"
-            onClick={pickPrinter}
+            onClick={() => void pickPrinter(requestPrinter)}
             disabled={!usbSupported()}
             style={{ padding: '14px 20px', fontSize: 17 }}
           >
             {deviceName ? 'Chọn máy in khác' : 'Kết nối máy in'}
+          </button>
+          {/* Đường lùi khi máy in khai lớp USB lạ và không hiện trong danh sách đã lọc. */}
+          <button
+            type="button"
+            onClick={() => void pickPrinter(requestAnyUsbDevice)}
+            disabled={!usbSupported()}
+            style={{ padding: '14px 20px', fontSize: 15, opacity: 0.85 }}
+          >
+            Hiện mọi thiết bị USB
           </button>
           <button
             type="button"
