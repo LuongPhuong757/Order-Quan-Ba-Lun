@@ -74,6 +74,7 @@ import { OrderActivityLog } from '../orders/entities/order-activity-log.entity.j
 import { PhoneBlacklist } from '../settings/entities/phone-blacklist.entity.js';
 import { NotificationOutboxService } from '../notifications/notification-outbox.service.js';
 import { SettingsService } from '../settings/settings.service.js';
+import { PrintingService } from '../printing/printing.service.js';
 
 export type ReviewActor = { id: string; full_name: string };
 
@@ -109,6 +110,7 @@ export class AdminOnlineOrdersService {
     private readonly emitter: EventEmitter2,
     private readonly outbox: NotificationOutboxService,
     private readonly settingsSvc: SettingsService,
+    private readonly printing: PrintingService,
   ) {}
 
   /** Khoá 1 dòng `online_order_requests` (chặn 2 nhân viên cùng thao tác 1 đơn) rồi trả về
@@ -1284,6 +1286,14 @@ export class AdminOnlineOrdersService {
       await this.writeFulfillmentActivity(mgr, order, actor, 'Đã giao cho shipper — đơn rời quán');
 
       this.emitter.emit('online_order.reviewed', { request_id: requestId, at_ms: Date.now() });
+      // Phiếu giao hàng in Ở ĐÂY chứ không ở lúc thanh toán (chủ quán chốt 2026-09-19): shipper
+      // cần địa chỉ và số tiền phải thu KHI RỜI QUÁN, còn lúc tiền về thì không còn ai để đưa
+      // giấy. `checkout()` vì vậy bỏ qua đơn đã có `shipped_at`.
+      //
+      // Nằm trong transaction nhưng `enqueue()` tự nuốt mọi lỗi và không ném ra ngoài, nên một
+      // trục trặc của máy in không thể cuốn theo mốc "đơn đã rời quán" — mốc đó là dữ liệu
+      // thật của đơn, còn tờ giấy thì in lại được.
+      await this.printing.enqueue(order.id, 'CHECKOUT', actor, 'DELIVERY');
       return this.fulfillmentResult(order, request);
     });
   }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildDeliverySlip,
   buildReceipt,
   buildTestPage,
   formatStamp,
@@ -243,5 +244,65 @@ describe('buildTestPage', () => {
     expect(text).toContain('Mỳ Quảng ếch');
     expect(text).toContain('mép trái');
     expect(text).toContain('mép phải');
+  });
+});
+
+
+describe('buildDeliverySlip — phiếu shipper mang theo đường', () => {
+  const ship = (patch: Partial<ReceiptInput> = {}) =>
+    buildDeliverySlip({
+      order: order({
+        fulfillment_type: 'DELIVERY',
+        ship_fee: 15000,
+        customer_name: 'Chị Hoa',
+        customer_phone: '0912345678',
+        customer_address: '55 Lê Lợi, P. Võ Cường, Bắc Ninh',
+      }),
+      items: [item({ menu_item_price: 45000, qty: 2 })],
+      store: STORE,
+      reprint: false,
+      nowMs: Date.UTC(2026, 8, 19, 6, 0),
+      ...patch,
+    });
+
+  it('tiêu đề là PHIẾU GIAO HÀNG, không phải hoá đơn thanh toán', () => {
+    const text = centers(ship()).map((l) => l.text).join(' ');
+    expect(text).toContain('PHIẾU GIAO HÀNG');
+    expect(text).not.toContain('HOÁ ĐƠN THANH TOÁN');
+  });
+
+  it('in tên, số điện thoại và địa chỉ khách — thứ shipper cần giữa đường', () => {
+    const text = centers(ship()).map((l) => l.text).join(' | ');
+    expect(text).toContain('Chị Hoa');
+    expect(text).toContain('0912345678');
+    expect(text).toContain('55 Lê Lợi, P. Võ Cường, Bắc Ninh');
+  });
+
+  it('CẦN THU = tiền món + phí ship, vì lúc rời quán khách chưa trả', () => {
+    const t = totals(ship());
+    expect(t.find((l) => l.label === 'CẦN THU')?.value).toBe('105.000đ');
+  });
+
+  it('khách đã chuyển trước thì trừ ra, shipper không thu hai lần', () => {
+    const t = totals(ship({ order: order({ fulfillment_type: 'DELIVERY', ship_fee: 15000, transfer_amount: 50000 }) }));
+    expect(t.find((l) => l.label === 'Khách đã chuyển')?.value).toBe('50.000đ');
+    expect(t.find((l) => l.label === 'CẦN THU')?.value).toBe('55.000đ');
+  });
+
+  it('trả trước đủ thì ghi ĐÃ THANH TOÁN, không ghi CẦN THU 0đ', () => {
+    const t = totals(ship({ order: order({ fulfillment_type: 'DELIVERY', ship_fee: 0, transfer_amount: 90000 }) }));
+    expect(t.find((l) => l.label === 'CẦN THU')).toBeUndefined();
+    expect(t.find((l) => l.label === 'ĐÃ THANH TOÁN')?.value).toBe('90.000đ');
+  });
+
+  it('không in món đã huỷ', () => {
+    const lines = ship({
+      items: [item({ menu_item_name: 'Bún bò' }), item({ menu_item_name: 'Nem lụi', state: 'CANCELLED' })],
+    });
+    expect(items(lines).map((l) => l.name)).toEqual(['Bún bò']);
+  });
+
+  it('bản in lại có đóng dấu', () => {
+    expect(centers(ship({ reprint: true })).map((l) => l.text).join(' ')).toMatch(/BẢN IN LẠI/);
   });
 });

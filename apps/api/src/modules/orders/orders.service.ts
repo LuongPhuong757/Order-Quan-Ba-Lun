@@ -1388,7 +1388,19 @@ export class OrdersService {
     // tới. Nếu xếp job bên trong transaction thì một trục trặc của bảng `print_jobs` sẽ cuốn
     // theo cả lần thanh toán — thu ngân nhận màn hình đỏ sau khi đã cầm tiền của khách, và
     // không có gì tệ hơn thế ở quầy. Giấy không ra thì bấm "In lại"; tiền thì không in lại được.
-    await this.printing.enqueue(order_id, 'CHECKOUT', cashier);
+    //
+    // Hai trường hợp KHÔNG in, cả hai đều do chủ quán chốt 2026-09-19:
+    //
+    //  1. Bàn huỷ sạch món (`total = 0`). Tờ giấy đó không có gì trên đó ngoài số 0.
+    //  2. Đơn giao tận nơi ĐÃ rời quán. Tờ phiếu giao hàng đã đi cùng shipper lúc bấm "Đã giao
+    //     cho shipper"; lúc shipper mang tiền về thì không còn ai để đưa giấy. Điều kiện là
+    //     `shipped_at`, KHÔNG phải `fulfillment_type`: đơn ship do nhân viên tự mở tại quán
+    //     không đi qua mốc rời quán nào, nên nó vẫn phải in hoá đơn như bình thường — lấy
+    //     `fulfillment_type` làm điều kiện là những đơn đó im lặng không bao giờ ra giấy.
+    const daGuiPhieuGiao = result.order.shipped_at !== null;
+    if (result.total > 0 && !daGuiPhieuGiao) {
+      await this.printing.enqueue(order_id, 'CHECKOUT', cashier);
+    }
     return result;
   }
 

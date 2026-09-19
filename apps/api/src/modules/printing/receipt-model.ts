@@ -218,3 +218,85 @@ export function buildTestPage(
     { kind: 'center', text: 'máy in đã sẵn sàng.' },
   ];
 }
+
+/**
+ * PHIẾU GIAO HÀNG — in lúc bấm "Đã giao cho shipper", KHÔNG phải lúc thanh toán.
+ *
+ * Khác hoá đơn ở một điểm quyết định mọi thứ còn lại: lúc shipper rời quán thì khách CHƯA TRẢ
+ * TIỀN. Nên tờ này không phải "hoá đơn thanh toán" mà là tờ giấy shipper mang theo đường —
+ * thứ họ cần là địa chỉ, số điện thoại, và số tiền phải thu về.
+ *
+ * Địa chỉ in to hơn mọi thứ khác: đó là dòng duy nhất người ta phải đọc khi đang ngồi trên xe.
+ */
+export function buildDeliverySlip(input: ReceiptInput): ReceiptLine[] {
+  const { order, store, items } = input;
+  const tz = input.tzOffsetMinutes ?? 7 * 60;
+  const totals = computeCheckoutTotals(items, order.ship_fee);
+  const lines: ReceiptLine[] = [];
+
+  lines.push({ kind: 'title', text: store.name });
+  if (store.phone) lines.push({ kind: 'sub', text: `ĐT quán: ${store.phone}` });
+  lines.push({ kind: 'gap', px: 6 });
+  lines.push({ kind: 'center', text: 'PHIẾU GIAO HÀNG', strong: true });
+  if (input.reprint) {
+    lines.push({ kind: 'center', text: `(BẢN IN LẠI ${formatStamp(input.nowMs, tz)})` });
+  }
+  lines.push({ kind: 'rule' });
+
+  lines.push({ kind: 'meta', label: 'Mã đơn', value: `#${shortCode(order.id)}` });
+  lines.push({ kind: 'meta', label: 'Giờ rời quán', value: formatStamp(input.nowMs, tz) });
+  lines.push({ kind: 'rule' });
+
+  // Khối KHÁCH lên trước danh sách món: shipper cần địa chỉ, không cần biết có mấy bát phở.
+  if (order.customer_name) {
+    lines.push({ kind: 'center', text: order.customer_name, strong: true });
+  }
+  if (order.customer_phone) {
+    lines.push({ kind: 'center', text: `ĐT: ${order.customer_phone}`, strong: true });
+  }
+  if (order.customer_address) {
+    lines.push({ kind: 'center', text: order.customer_address });
+  }
+  lines.push({ kind: 'rule' });
+
+  for (const it of items) {
+    if (it.state === 'CANCELLED') continue;
+    if (it.is_note) {
+      lines.push({ kind: 'note', text: it.menu_item_name });
+      continue;
+    }
+    lines.push({
+      kind: 'item',
+      name: it.menu_item_name,
+      qty: it.qty,
+      unitPrice: it.menu_item_price,
+      amount: it.menu_item_price * it.qty,
+    });
+    if (it.note) lines.push({ kind: 'note', text: it.note });
+  }
+
+  lines.push({ kind: 'rule' });
+  if (totals.ship_fee > 0) {
+    lines.push({ kind: 'total', label: 'Tiền món', value: formatVnd(totals.items_total) });
+    lines.push({ kind: 'total', label: 'Phí giao hàng', value: formatVnd(totals.ship_fee) });
+  }
+
+  // Phần đã chuyển khoản trước (nếu có) trừ ra khỏi số shipper phải cầm về. Bình thường lúc
+  // rời quán `transfer_amount` = 0, nhưng đơn trả trước thì shipper KHÔNG được thu lần nữa.
+  const paid = Math.max(0, order.transfer_amount ?? 0);
+  const due = Math.max(0, totals.total - paid);
+  if (paid > 0) {
+    lines.push({ kind: 'total', label: 'Tổng đơn', value: formatVnd(totals.total) });
+    lines.push({ kind: 'total', label: 'Khách đã chuyển', value: formatVnd(paid) });
+  }
+  lines.push({
+    kind: 'total',
+    label: due > 0 ? 'CẦN THU' : 'ĐÃ THANH TOÁN',
+    value: due > 0 ? formatVnd(due) : formatVnd(totals.total),
+    strong: true,
+  });
+
+  lines.push({ kind: 'gap', px: 10 });
+  lines.push({ kind: 'center', text: 'Cảm ơn quý khách!' });
+  return lines;
+}
