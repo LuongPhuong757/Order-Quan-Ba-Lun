@@ -20,11 +20,11 @@ import { khongDau, tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { vnDayIso, type DayRange } from '../lib/date-range.ts';
 import type { PairReport } from './SupplierReports.tsx';
 import type { Balance } from './SupplierPayments.tsx';
-import './SupplierOverview.css';
+import {
+  ArrowUp, ChevRight, FilterBar, Plus, SearchIco, ngayDay, ngayGon, pctVN, theoDonViMua, vnd,
+} from './supplier-ui.tsx';
+import './suppliers-ui.css';
 
-const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
-const pct = (n: number) => n.toFixed(1).replace('.', ',');
-const VN_OFFSET_MS = 7 * 3600_000;
 
 /** Ngưỡng "tăng giá mạnh". 10% là mức mà một lần nhập đã đủ ăn hết biên lãi của món dùng nó;
  *  dưới đó là dao động chợ ngày nào cũng có, đưa lên đây chỉ làm nhiễu. */
@@ -59,36 +59,8 @@ type Delivery = {
   total_amount: number;
 };
 
-type Preset = 'all' | 'today' | '7d' | '30d' | 'month' | 'lastmonth' | 'custom';
-const PRESETS: Array<{ v: Preset; label: string }> = [
-  { v: 'all', label: 'Tất cả' },
-  { v: 'today', label: 'Hôm nay' },
-  { v: '7d', label: '7 ngày' },
-  { v: '30d', label: '30 ngày' },
-  { v: 'month', label: 'Tháng này' },
-  { v: 'lastmonth', label: 'Tháng trước' },
-  { v: 'custom', label: 'Tuỳ chọn' },
-];
-
 type SapXep = 'debt' | 'buy' | 'last' | 'name';
 type LocNhanh = 'all' | 'debt' | 'clear';
-
-/* ---------- Biểu tượng: lấy nguyên từ mockup ---------- */
-const Ico = (p: { d: string; w?: number }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={p.w ?? 2}
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d={p.d} />
-  </svg>
-);
-const ChevRight = () => <Ico d="m9 6 6 6-6 6" />;
-const ArrowUp = () => <Ico d="M12 19V5M6 11l6-6 6 6" w={2.4} />;
-const Plus = () => <Ico d="M12 5v14M5 12h14" w={2.4} />;
-const SearchIco = () => (
-  <svg className="search__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2"
-       strokeLinecap="round" aria-hidden="true">
-    <circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" />
-  </svg>
-);
 
 /** Số ngày từ 'YYYY-MM-DD' tới hôm nay theo giờ VN. NULL khi chưa từng giao. */
 function soNgayTu(iso: string | null): number | null {
@@ -97,39 +69,21 @@ function soNgayTu(iso: string | null): number | null {
   const b = Date.parse(`${vnDayIso(Date.now())}T00:00:00Z`);
   return Number.isNaN(a) || Number.isNaN(b) ? null : Math.round((b - a) / 86_400_000);
 }
-/** Giá theo ĐƠN VỊ MUA (kg/lít/thùng) chứ không phải đơn vị gốc.
- *
- *  API trả `*_base` tính trên đơn vị gốc — DB lưu g/ml (xem `purchase-units.ts`), nên in thẳng
- *  ra là "60đ → 75đ/g": đúng về số nhưng không ai đọc giá cá theo gam. Hệ số quy đổi suy ra từ
- *  chính cặp `last_unit_price / last_base` mà API đã trả, khỏi phải gọi thêm. */
-function theoDonViMua(p: PairReport): { truoc: number; sau: number; dv: string } {
-  const heSo = p.last_base > 0 ? p.last_unit_price / p.last_base : 1;
-  return { truoc: (p.prev_base ?? 0) * heSo, sau: p.last_unit_price, dv: p.purchase_unit || p.base_unit };
+/** Chữ cái đầu của hai từ cuối tên NCC — "Vựa cá Ba Lún" → "BL", "Chị Hằng rau sạch" → "HS".
+ *  Lấy từ CUỐI vì phần đầu hay là danh xưng chung (Vựa/Lò/Đại lý/Chị) nên lấy đầu thì cả
+ *  danh sách trùng nhau hết. */
+function chuDau(ten: string): string {
+  const tu = ten.trim().split(/\s+/).filter(Boolean);
+  const lay = tu.slice(-2);
+  return lay.map((t) => t[0]?.toLocaleUpperCase('vi') ?? '').join('') || '?';
 }
 
-const ngayGon = (iso: string) => { const [y, m, d] = iso.split('-'); return y ? `${d}/${m}` : iso; };
-const ngayDay = (iso: string) => { const [y, m, d] = iso.split('-'); return y ? `${d}/${m}/${y}` : iso; };
-
-function khoangCuaPreset(p: Preset, nowMs: number): DayRange {
-  const today = vnDayIso(nowMs);
-  const dd = (back: number) => vnDayIso(nowMs - back * 86_400_000);
-  const [y, m] = today.split('-').map(Number);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  const cuoiThang = (yy: number, mm: number) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
-  switch (p) {
-    case 'all': return { from: '', to: '' };
-    case 'today': return { from: today, to: today };
-    case '7d': return { from: dd(6), to: today };
-    case '30d': return { from: dd(29), to: today };
-    case 'month': return { from: `${y}-${pad(m)}-01`, to: today };
-    case 'lastmonth': {
-      const ly = m === 1 ? y - 1 : y;
-      const lm = m === 1 ? 12 : m - 1;
-      return { from: `${ly}-${pad(lm)}-01`, to: `${ly}-${pad(lm)}-${pad(cuoiThang(ly, lm))}` };
-    }
-    default: return { from: dd(29), to: today };
-  }
+/** 0938221145 → "0938 221 145". Số 10 chữ số đọc liền một mạch thì mắt phải dò từng ký tự. */
+function sdtGon(s: string): string {
+  const d = s.replace(/\D/g, '');
+  return d.length === 10 ? `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}` : s;
 }
+
 
 export function SupplierOverview({
   suppliers, balances, deliveries, isAdmin, canSeeMoney,
@@ -147,7 +101,8 @@ export function SupplierOverview({
   onNew: () => void;
   onGoTab: (tab: 'deliveries' | 'prices') => void;
 }) {
-  const [preset, setPreset] = useState<Preset>('30d');
+  /** Lọc cả màn theo MỘT nhà cung cấp — áp cho ba khối "Cần bạn xử lý" và danh sách bên dưới. */
+  const [locNcc, setLocNcc] = useState('');
   const [tim, setTim] = useState('');
   const [sapXep, setSapXep] = useState<SapXep>('debt');
   const [loc, setLoc] = useState<LocNhanh>('all');
@@ -163,11 +118,6 @@ export function SupplierOverview({
   }, [canSeeMoney]);
   useEffect(loadPairs, [loadPairs]);
 
-  const chonPreset = (p: Preset) => {
-    setPreset(p);
-    if (p !== 'custom') onRangeChange(khoangCuaPreset(p, Date.now()));
-  };
-
   const debtTotal = tongConPhaiTra(balances.values());
   const periodTotal = suppliers.reduce((s, x) => s + x.period_amount, 0);
   const periodPhieu = suppliers.reduce((s, x) => s + x.period_deliveries, 0);
@@ -176,25 +126,30 @@ export function SupplierOverview({
     (a, b) => (!a || balances.get(b.id)!.balance > balances.get(a.id)!.balance ? b : a), null);
 
   const choDuyet = useMemo(
-    () => deliveries.filter((d) => d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE'),
-    [deliveries]);
+    () => deliveries.filter((d) =>
+      (d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE') &&
+      (!locNcc || d.supplier_id === locNcc)),
+    [deliveries, locNcc]);
 
   const tangGia = useMemo(() => (pairs ?? [])
+    .filter((p) => (!locNcc || p.supplier_id === locNcc))
     .filter((p) => p.change_pct !== null && p.change_pct >= NGUONG_TANG_GIA)
     .sort((a, b) => (b.change_pct ?? 0) - (a.change_pct ?? 0))
-    .slice(0, 5), [pairs]);
+    .slice(0, 5), [pairs, locNcc]);
 
   const noLauNgay = useMemo(() => dangNo
+    .filter((s) => !locNcc || s.id === locNcc)
     .map((s) => ({ s, ngay: soNgayTu(s.last_delivery_date) }))
     .filter((x) => x.ngay === null || x.ngay >= NGAY_LAU_CHUA_GIAO)
     .sort((a, b) => (b.ngay ?? 9999) - (a.ngay ?? 9999))
-    .slice(0, 5), [dangNo]);
+    .slice(0, 5), [dangNo, locNcc]);
 
   const soViec = choDuyet.length + tangGia.length + noLauNgay.length;
 
   const danhSach = useMemo(() => {
     const tu = khongDau(tim.trim());
     const rows = suppliers.filter((s) => {
+      if (locNcc && s.id !== locNcc) return false;
       if (tu && !khongDau(`${s.name} ${s.phone}`).includes(tu)) return false;
       const b = balances.get(s.id)?.balance ?? 0;
       if (loc === 'debt') return b > 0;
@@ -207,48 +162,30 @@ export function SupplierOverview({
       if (sapXep === 'last') return (soNgayTu(a.last_delivery_date) ?? 9999) - (soNgayTu(b.last_delivery_date) ?? 9999);
       return (balances.get(b.id)?.balance ?? 0) - (balances.get(a.id)?.balance ?? 0);
     });
-  }, [suppliers, balances, tim, loc, sapXep]);
-
-  const soNgayKy = range.from && range.to
-    ? Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1
-    : null;
+  }, [suppliers, balances, tim, loc, sapXep, locNcc]);
 
   return (
     <div className="ncc-ui">
-      {/* ---------- Bộ lọc kỳ ---------- */}
-      <section className="filterbar" aria-label="Bộ lọc kỳ">
-        <div className="filterbar__scroll">
-          <div className="fgroup" role="group" aria-label="Chọn kỳ xem">
-            {PRESETS.map((p) => (
-              <button key={p.v} className="chip" type="button"
-                      aria-pressed={preset === p.v} onClick={() => chonPreset(p.v)}>
-                {p.label}
-              </button>
-            ))}
-          </div>
-          {preset === 'custom' && (
-            <div className="fgroup filterbar__dates">
-              <div className="field field--date">
-                <label className="field__label" htmlFor="nccFrom">Từ</label>
-                <input className="input" type="date" id="nccFrom" value={range.from}
-                       max={range.to || vnDayIso(Date.now())}
-                       onChange={(e) => onRangeChange({ ...range, from: e.target.value })} />
-              </div>
-              <div className="field field--date">
-                <label className="field__label" htmlFor="nccTo">Đến</label>
-                <input className="input" type="date" id="nccTo" value={range.to}
-                       min={range.from} max={vnDayIso(Date.now())}
-                       onChange={(e) => onRangeChange({ ...range, to: e.target.value })} />
-              </div>
-            </div>
-          )}
+      {/* ---------- Đầu trang ---------- */}
+      <section className="pagehead">
+        <div>
+          <h1 className="pagehead__title">Nhà cung cấp</h1>
+          <p className="pagehead__meta">
+            {suppliers.length} nhà cung cấp đang hoạt động
+          </p>
         </div>
-        <p className="filterbar__note" role="status">
-          {range.from && range.to
-            ? <>Đang xem: <b>{ngayDay(range.from)} → {ngayDay(range.to)}</b>{soNgayKy ? ` · ${soNgayKy} ngày` : ''}</>
-            : <>Đang xem: <b>toàn bộ lịch sử</b></>}
-        </p>
+        {isAdmin && (
+          <button className="btn btn--primary" type="button" onClick={onNew}>
+            <Plus />Thêm nhà cung cấp
+          </button>
+        )}
       </section>
+
+      <FilterBar
+        range={range} onRangeChange={onRangeChange}
+        suppliers={suppliers} supplierId={locNcc} onSupplierChange={setLocNcc}
+        ariaLabel="Bộ lọc kỳ và nhà cung cấp"
+      />
 
       {/* ---------- Dải KPI ---------- */}
       {canSeeMoney && (
@@ -349,7 +286,7 @@ export function SupplierOverview({
                           </span>
                         </span>
                         <span className="rowlink__end">
-                          <span className="delta delta--up"><ArrowUp />{pct(p.change_pct ?? 0)}%</span>
+                          <span className="delta delta--up"><ArrowUp />{pctVN(p.change_pct ?? 0)}%</span>
                           <span className="rowlink__chev"><ChevRight /></span>
                         </span>
                       </button>
@@ -437,12 +374,6 @@ export function SupplierOverview({
                   {label} <span className="chip__n">{n}</span>
                 </button>
               ))}
-              {isAdmin && (
-                <button className="btn btn--primary" type="button" onClick={onNew}
-                        style={{ marginLeft: 'auto', flex: 'none' }}>
-                  <Plus />Thêm nhà cung cấp
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -472,10 +403,14 @@ export function SupplierOverview({
                 const ngay = soNgayTu(s.last_delivery_date);
                 return (
                   <button key={s.id} type="button" className="sup" onClick={() => onOpen(s)}>
+                    <span className="ava" aria-hidden="true">{chuDau(s.name)}</span>
                     <span className="sup__main">
                       <span className="sup__name" title={s.name}>{s.name}</span>
+                      {/* Mockup để "Hải sản · 0938 221 145" (ngành hàng + SĐT) nhưng bảng
+                          `suppliers` không có cột ngành hàng — thay bằng số liệu kỳ, là thứ
+                          chủ quán đằng nào cũng phải mở thẻ ra mới thấy. */}
                       <span className="sup__meta">
-                        {s.phone ? `${s.phone} · ` : ''}{vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
+                        {s.phone ? `${sdtGon(s.phone)} · ` : ''}{vnd(s.period_amount)}đ · {s.period_deliveries} phiếu
                       </span>
                     </span>
                     <span className="sup__end">

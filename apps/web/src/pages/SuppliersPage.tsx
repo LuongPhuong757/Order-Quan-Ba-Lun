@@ -34,6 +34,8 @@ import {
 import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierOverview } from './SupplierOverview.tsx';
+import { SupplierPriceScreen } from './SupplierPriceScreen.tsx';
+import { SupplierDeliveryScreen } from './SupplierDeliveryScreen.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
 import { DishSalesPanel } from './DishSalesPanel.tsx';
@@ -67,7 +69,11 @@ type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
-const TABS_CO_LOC: Tab[] = ['stats', 'deliveries', 'prices', 'items'];
+const TABS_CO_LOC: Tab[] = ['stats', 'items'];
+
+/** Tab đã dựng lại theo mockup — chúng tự vẽ đầu trang (`pagehead`) và thanh lọc riêng, nên
+ *  tiêu đề chung và hàng lọc cũ của màn phải im đi, không thì hiện hai lần. */
+const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -180,9 +186,11 @@ export function SuppliersPage() {
   ];
 
   return (
-    <div className="container wide with-bottom-nav">
+    <div className="container wide ncc-page with-bottom-nav">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>
+        {/* Tab đã dựng theo mockup tự vẽ đầu trang riêng (`pagehead`), nên tiêu đề chung
+            này chỉ còn cho các tab CHƯA port — để cả hai là hai chữ "Nhà cung cấp" chồng nhau. */}
+        {!TAB_TU_VE_DAU_TRANG.includes(tab) && <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>}
         {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
             MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
             nên khi thêm tab thứ sáu ("Thống kê") nó rộng 410px và kéo cả trang tràn ngang ở
@@ -281,14 +289,14 @@ export function SuppliersPage() {
             gap: 10,
           }}
         >
-          {tab !== 'suppliers' && (
+          {!TAB_TU_VE_DAU_TRANG.includes(tab) && (
             <span>
               Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
             </span>
           )}
           {/* Tổng nợ đứng NGAY CẠNH tổng mua: hai con số này luôn được đọc cùng nhau ("mua ngần
               này, còn nợ ngần này"). Tô cam khi còn nợ để mắt bắt được ngay giữa dòng chữ xám. */}
-          {balances.size > 0 && tab !== 'suppliers' && (
+          {balances.size > 0 && !TAB_TU_VE_DAU_TRANG.includes(tab) && (
             <span>
               Tổng nợ:{' '}
               <strong style={{ fontSize: 18, color: debtTotal > 0 ? '#c2410c' : '#15803d' }}>
@@ -322,9 +330,13 @@ export function SuppliersPage() {
       {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
 
       {tab === 'deliveries' && !loading && (
-        <DeliveryList
+        <SupplierDeliveryScreen
           deliveries={deliveries}
+          suppliers={suppliers}
+          range={range}
+          onRangeChange={setRange}
           onEdit={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
+          onNew={() => setShowForm({})}
           onChanged={() => {
             refresh();
             setBalanceTick((t) => t + 1);
@@ -333,14 +345,7 @@ export function SuppliersPage() {
       )}
 
       {tab === 'prices' && (
-        <>
-          <PriceChangesPanel
-            supplierId={filterSupplierId || undefined}
-            onOpenHistory={(id, name) => setHistory({ id, name })}
-          />
-          <h3 style={{ margin: '28px 0 12px', fontSize: 17 }}>So giá giữa các nhà cung cấp</h3>
-          <PriceMatrixPanel />
-        </>
+        <SupplierPriceScreen suppliers={suppliers} range={range} onRangeChange={setRange} />
       )}
 
       {tab === 'items' && (

@@ -1,15 +1,16 @@
-/* Màn Tổng quan của /suppliers — CSS PORT NGUYÊN BẢN từ mockup OpenDesign
- * (~/.od/projects/m-n-nh-cung-c-p-thi-t-k-l-i-079e). File này SINH RA BẰNG SCRIPT: muốn đổi
- * thì sửa mockup rồi port lại, đừng vá tay từng chỗ — hai bên trôi khỏi nhau là hết đối chiếu.
+/* Toàn bộ phần trình bày của module Nhà cung cấp — SINH RA BẰNG SCRIPT từ mockup OpenDesign
+ * (~/.od/projects/m-n-nh-cung-c-p-thi-t-k-l-i-079e): `tokens.css` + khối <style> của CẢ 5 màn.
+ * Muốn đổi thì sửa mockup rồi port lại, đừng vá tay từng chỗ — hai bên trôi khỏi nhau là hết
+ * đối chiếu được với bản thiết kế đã duyệt.
  *
  * Mọi luật bị bọc trong `.ncc-ui`, KỂ CẢ reset thẻ trần (button/input/select/a/svg): thiếu
  * chúng thì `button { background: teal }` toàn cục của app đè lên `.link`/`.chip`/`.sup` và
- * nút "Xem tất cả" biến thành một khối teal đặc. Bọc lại thì chúng không ra khỏi màn này được.
+ * nút "Xem tất cả" biến thành một khối teal đặc. Bọc lại thì chúng không ra khỏi màn này.
  *
- * Chỉ các luật KHUNG TRANG của mockup (html/body/.appbar/.tabbar/.topnav/.brand/.wrap/.page)
- * là bị LOẠI — app thật đã có khung riêng.
+ * Chỉ luật KHUNG TRANG của mockup (html/body/.appbar/.tabbar/.topnav/.brand/.wrap/.page) là bị
+ * LOẠI — app thật đã có khung riêng (thanh trên, thanh dưới, container).
  *
- * Token của mockup (`:root`) gắn lên chính `.ncc-ui` nên chỉ sống trong màn này.
+ * Token của mockup (`:root`) gắn lên chính `.ncc-ui` nên chỉ sống trong module này.
  */
 .ncc-ui {
   --bg:            #f9fafb;
@@ -1004,22 +1005,757 @@
   .ncc-ui .todo-grid__wide { grid-column: 1 / -1;
   }
 }
+.ncc-ui .back {
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: var(--tap); color: var(--muted-tint); font-size: 14px; font-weight: 600;
+}
+.ncc-ui .back:hover { color: var(--accent);
+}
+.ncc-ui .back svg { width: 18px; height: 18px;
+}
+.ncc-ui .sup-head { display: flex; flex-direction: column; gap: 16px; padding: 16px;
+}
+.ncc-ui .sup-head__id { display: flex; align-items: center; gap: 12px;
+}
+.ncc-ui .sup-head__name { font-size: 20px; font-weight: 800; line-height: 1.25;
+}
+.ncc-ui .sup-head__meta { font-size: 13.5px; color: var(--muted); margin-top: 3px;
+}
+.ncc-ui .sup-head__debt {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 16px; flex-wrap: wrap;
+    padding: 14px 16px;
+    background: var(--debt-soft);
+    border: 1px solid #fed7aa;
+    border-radius: var(--r);
+}
+.ncc-ui .sup-head__debtlabel { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #9a3412;
+}
+.ncc-ui .sup-head__debtnote { font-size: 13px; color: var(--muted-tint); margin-top: 6px;
+}
+.ncc-ui .callbtn { flex: none;
+}
+.ncc-ui .actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 8px;
+}
+.ncc-ui .actions .act-wide { grid-column: 1 / -1;
+}
+.ncc-ui .facts { display: grid; grid-template-columns: 1fr;
+}
+.ncc-ui .fact {
+    display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14.5px;
+}
+.ncc-ui .fact:last-child { border-bottom: 0;
+}
+.ncc-ui .fact__k { color: var(--muted); flex: none;
+}
+.ncc-ui .fact__v { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums;
+}
+.ncc-ui .detail-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px;
+}
+.ncc-ui .detail-grid > * { min-width: 0;
+}
+.ncc-ui .card__body > .filterbar { box-shadow: none; background: var(--surface-sub); min-width: 0;
+}
+.ncc-ui .card, .ncc-ui .card__body, .ncc-ui .card__head, .ncc-ui .filterbar > * { min-width: 0;
+}
+.ncc-ui .filterbar__scroll { max-width: 100%;
+}
+.ncc-ui .card__body > .filterbar .chip { background: var(--surface);
+}
+.ncc-ui .card__body > .filterbar .chip:hover { background: #eef2f4;
+}
+.ncc-ui .card__body > .filterbar .chip[aria-pressed="true"] { background: var(--accent);
+}
+.ncc-ui .card__body > .filterbar .chip[aria-pressed="true"]:hover { background: var(--accent-hover);
+}
+.ncc-ui .card__body > .filterbar .filterbar__note { border-top-color: var(--border-strong);
+}
+@media (min-width: 720px) and (max-width: 1023px) {
+  .ncc-ui .table th, .ncc-ui .table td { padding: 10px 5px; font-size: 13px;
+  }
+}
+@media (min-width: 720px) {
+  .ncc-ui .actions { display: flex; flex-wrap: wrap;
+  }
+  .ncc-ui .actions .act-wide { grid-column: auto;
+  }
+}
+@media (max-width: 719px) {
+  .ncc-ui .tl { padding-left: 22px;
+  }
+  .ncc-ui .tl__node { left: -22px; width: 13px; height: 13px; margin-top: -10px;
+  }
+  .ncc-ui .tl__card { padding: 0 11px;
+  }
+  .ncc-ui .r-t2e .delta { font-size: 12.5px; line-height: 16px;
+  }
+  .ncc-ui .r-t2e .delta svg { width: 12px; height: 12px;
+  }
+  .ncc-ui .actions .btn { white-space: normal;
+  }
+}
+@media (min-width: 900px) {
+  .ncc-ui .sup-head { flex-direction: row; align-items: center; justify-content: space-between; padding: 20px;
+  }
+  .ncc-ui .sup-head__debt { flex: none; min-width: 360px;
+  }
+  .ncc-ui .detail-grid { grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); align-items: start;
+  }
+}
+.ncc-ui .notice {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 14px 16px;
+    background: var(--pending-bg);
+    border: 1px solid #fde68a;
+    border-radius: var(--r);
+}
+.ncc-ui .notice__icon { width: 22px; height: 22px; color: var(--pending); flex: none;
+}
+.ncc-ui .notice__t { font-weight: 700; font-size: 15px; color: var(--pending);
+}
+.ncc-ui .notice__s { font-size: 13.5px; color: var(--muted-tint); margin-top: 2px;
+}
+.ncc-ui .notice__main { flex: 1; min-width: 180px;
+}
+.ncc-ui .photo {
+    display: inline-flex; align-items: center; gap: 7px;
+    min-height: var(--tap); padding: 6px 10px 6px 6px;
+    border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+    background: var(--surface); font-size: 13.5px; font-weight: 600; color: var(--muted-tint);
+}
+.ncc-ui .photo:hover { background: var(--accent-soft); border-color: var(--accent); color: #115e59;
+}
+.ncc-ui .photo__box {
+    width: 32px; height: 32px; border-radius: var(--r-xs);
+    background: var(--surface-sub); border: 1px solid var(--border);
+    display: grid; place-items: center; flex: none;
+}
+.ncc-ui .photo__box svg { width: 17px; height: 17px; color: var(--muted);
+}
+.ncc-ui .photo:hover .photo__box svg { color: #115e59;
+}
+.ncc-ui .photo--none { color: var(--muted); border-style: dashed;
+}
+.ncc-ui .photo--none:hover { background: var(--surface-sub); border-color: var(--border-strong); color: var(--muted-tint);
+}
+.ncc-ui .actgroup { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px;
+}
+.ncc-ui .actgroup .btn { padding-left: 8px; padding-right: 8px; font-size: 14px;
+}
+.ncc-ui .table tbody tr.is-pending td { background: var(--pending-bg);
+}
+.ncc-ui .table tbody tr.is-void .cell-strong { text-decoration: line-through; text-decoration-color: var(--muted);
+}
+.ncc-ui .row-hidden { display: none !important;
+}
+.ncc-ui .money--lg {
+    font-family: var(--font-body);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+.ncc-ui .rowmenu__btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 40px; height: 44px; flex: none; padding: 0;
+    border: 1px solid transparent; border-radius: var(--r-sm);
+    background: none; color: var(--muted-tint);
+}
+.ncc-ui .rowmenu__btn svg { width: 20px; height: 20px;
+}
+.ncc-ui .rowmenu__btn:hover { background: #eef2f4; border-color: var(--border-strong); color: var(--fg);
+}
+.ncc-ui .rowmenu__btn[aria-expanded="true"] { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+}
+.ncc-ui .rowpop {
+    position: fixed; z-index: 80;
+    min-width: 196px; padding: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r);
+    box-shadow: var(--shadow-md);
+}
+.ncc-ui .rowpop__head {
+    padding: 6px 10px 8px;
+    font-size: 12.5px; font-weight: 700; color: var(--muted);
+    border-bottom: 1px solid var(--border); margin-bottom: 4px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-ui .rowpop__item {
+    display: flex; align-items: center; gap: 10px;
+    width: 100%; min-height: 44px; padding: 0 10px;
+    border: 0; border-radius: var(--r-sm);
+    background: none; color: var(--fg);
+    font-size: 14.5px; font-weight: 600; text-align: left;
+}
+.ncc-ui .rowpop__item svg { width: 17px; height: 17px; flex: none; color: var(--muted);
+}
+.ncc-ui .rowpop__item:hover { background: #eef2f4;
+}
+.ncc-ui .rowpop__item--ok:hover { background: var(--paid-soft); color: #14532d;
+}
+.ncc-ui .rowpop__item--ok:hover svg { color: #14532d;
+}
+.ncc-ui .rowpop__item--danger:hover { background: var(--danger-soft); color: #991b1b;
+}
+.ncc-ui .rowpop__item--danger:hover svg { color: #991b1b;
+}
+.ncc-ui .rowpop__empty { padding: 12px 10px; font-size: 13.5px; color: var(--muted);
+}
+@media (min-width: 720px) {
+  .ncc-ui .actgroup { display: flex; gap: 6px; justify-content: flex-end;
+  }
+  .ncc-ui .table tbody tr.is-pending td { border-bottom-color: #fde68a;
+  }
+  .ncc-ui .colcode { width: 132px;
+  }
+  .ncc-ui .colamt { width: 132px;
+  }
+  .ncc-ui .colact { width: 232px;
+  }
+}
+.ncc-ui .who-inline, .ncc-ui .photo-inline { display: none;
+}
+@media (min-width: 720px) and (max-width: 1023px) {
+  .ncc-ui .colwho, .ncc-ui .colphoto { display: none;
+  }
+  .ncc-ui .who-inline { display: block;
+  }
+  .ncc-ui .photo-inline { display: inline;
+  }
+  .ncc-ui .table tbody td[data-label="Nhà cung cấp"] .cell-sub:not(.who-inline) { display: none;
+  }
+  .ncc-ui .table th, .ncc-ui .table td { padding: 8px 6px;
+  }
+  .ncc-ui .colcode { width: 92px;
+  }
+  .ncc-ui .colamt { width: 104px;
+  }
+  .ncc-ui .colact { width: 182px;
+  }
+  .ncc-ui .actgroup .btn { padding-left: 6px; padding-right: 6px; font-size: 13.5px;
+  }
+}
+@media (min-width: 1024px) {
+  .ncc-ui .table tbody td[data-label="Nhà cung cấp"] .who-inline { display: none;
+  }
+  .ncc-ui .colcode { width: 152px;
+  }
+}
+@media (min-width: 1200px) {
+  .ncc-ui .table tbody td[data-label="Mã phiếu"] .photo-inline { display: none;
+  }
+}
+@media (min-width: 1024px) and (max-width: 1199px) {
+  .ncc-ui .colphoto { display: none;
+  }
+  .ncc-ui .photo-inline { display: inline;
+  }
+}
+@media (max-width: 719px) {
+  .ncc-ui .table--rows tbody tr {
+      grid-template-columns: minmax(0, 1fr) auto 40px;
+      grid-template-areas:
+        "t1 t1n act"
+        "t2 t2e act";
+  }
+  .ncc-ui .c-act { grid-area: act; justify-self: end; align-self: center; margin-left: 6px;
+  }
+  .ncc-ui .table--rows tbody tr.is-pending {
+      background: var(--pending-bg);
+      border-bottom-color: #fde68a;
+      box-shadow: inset 4px 0 0 var(--pending);
+  }
+  .ncc-ui .table--rows tbody tr.is-pending:hover { background: #fdf3d6;
+  }
+  .ncc-ui .table--rows tbody tr td, .ncc-ui .table--rows tbody tr.is-pending td { background: transparent;
+  }
+  .ncc-ui .table--rows tbody tr.is-void .cell-strong { text-decoration: line-through;
+  }
+  .ncc-ui .table--rows tbody tr.is-void .r-t1n .money { color: var(--muted);
+  }
+  .ncc-ui .r-t1n, .ncc-ui .r-t1n .money, .ncc-ui .r-t1n .money--lg {
+      font-family: var(--font-body);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0;
+  }
+}
+.ncc-ui .sevhead {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap;
+}
+.ncc-ui .sevhead__t { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 700;
+}
+.ncc-ui .sevbar { width: 4px; height: 18px; border-radius: 2px; flex: none;
+}
+.ncc-ui .sev-1 .sevbar { background: var(--danger);
+}
+.ncc-ui .sev-2 .sevbar { background: var(--debt);
+}
+.ncc-ui .sev-3 .sevbar { background: #d1a13a;
+}
+.ncc-ui .sev-4 .sevbar { background: var(--paid);
+}
+.ncc-ui .pricearrow {
+    display: inline-flex; align-items: center; gap: 7px;
+    font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap;
+}
+.ncc-ui .pricearrow .old { color: var(--muted); font-weight: 600; text-decoration: line-through; text-decoration-color: var(--border-strong);
+}
+.ncc-ui .pricearrow svg { width: 15px; height: 15px; color: var(--muted); flex: none;
+}
+.ncc-ui .pricearrow .new-up { color: var(--debt);
+}
+.ncc-ui .pricearrow .new-down { color: var(--paid);
+}
+.ncc-ui .pct {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: var(--r-pill);
+    font-size: 14px; font-weight: 800; font-variant-numeric: tabular-nums;
+    border: 1px solid transparent;
+}
+.ncc-ui .pct svg { width: 13px; height: 13px;
+}
+.ncc-ui .pct--up { background: var(--debt-soft); color: #9a3412; border-color: #fed7aa;
+}
+.ncc-ui .pct--down { background: var(--paid-soft); color: #14532d; border-color: #bbf7d0;
+}
+.ncc-ui .chart { width: 100%;
+}
+.ncc-ui .chart svg { display: block; width: 100%; height: auto;
+}
+.ncc-ui .chart__legend {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 12px;
+}
+.ncc-ui .chart__now { font-size: 13.5px; color: var(--muted-tint);
+}
+.ncc-ui .chart__now b { font-size: 22px; font-family: var(--font-display); font-weight: 800; color: var(--debt); font-variant-numeric: tabular-nums;
+}
+.ncc-ui .cmp-grid { display: grid; grid-template-columns: 1fr; gap: 12px;
+}
+.ncc-ui .cmp { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--surface);
+}
+.ncc-ui .cmp__head {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 10px; flex-wrap: wrap;
+    padding: 12px 14px; background: var(--surface-sub); border-bottom: 1px solid var(--border);
+}
+.ncc-ui .cmp__name { font-size: 15px; font-weight: 700;
+}
+.ncc-ui .cmp__row {
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 12px; padding: 0 14px;
+    height: var(--row-h); overflow: hidden;
+    border-bottom: 1px solid var(--border);
+}
+.ncc-ui .cmp__row:last-child { border-bottom: 0;
+}
+.ncc-ui .cmp__sup {
+    font-size: 14.5px; font-weight: 600; line-height: 20px;
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-ui .cmp__when {
+    font-size: 12.5px; line-height: 16px; color: var(--muted); margin-top: 2px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-ui .cmp__row > div:first-child { min-width: 0;
+}
+.ncc-ui .cmp__price { text-align: right; flex: none;
+}
+.ncc-ui .cmp__price .money { font-size: 16px;
+}
+.ncc-ui .cmp__tag { display: block; margin-top: 4px;
+}
+.ncc-ui .cmp__foot { padding: 10px 14px; font-size: 13px; color: var(--muted); background: var(--surface); border-top: 1px dashed var(--border-strong);
+}
+@media (min-width: 900px) {
+  .ncc-ui .cmp-grid { grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ncc-ui .colitem { width: 30%;
+  }
+  .ncc-ui .colpct { width: 116px;
+  }
+}
+@media (min-width: 720px) and (max-width: 1023px) {
+  .ncc-ui .table { font-size: 13.5px;
+  }
+  .ncc-ui .table th, .ncc-ui .table td { padding: 8px 6px;
+  }
+  .ncc-ui .table tbody td.cell-full .cell-sub { display: none;
+  }
+  .ncc-ui .pricearrow { font-size: 13px;
+  }
+  .ncc-ui .pct { font-size: 13px; padding: 3px 7px;
+  }
+}
+@media (max-width: 719px) {
+  .ncc-ui .r-t2 .pricearrow { display: inline; font-size: 12.5px; font-weight: 700; white-space: normal;
+  }
+  .ncc-ui .r-t2 .pricearrow svg { width: 12px; height: 12px; vertical-align: -1px; margin: 0 1px;
+  }
+  .ncc-ui .r-t2 .pricearrow .old { font-weight: 600;
+  }
+  .ncc-ui .r-t1n .pct { font-size: 13px; padding: 3px 8px;
+  }
+  .ncc-ui .r-t1n .pct svg { width: 12px; height: 12px;
+  }
+  .ncc-ui .cmp-grid { gap: 0;
+  }
+  .ncc-ui .cmp { border: 0; border-bottom: 1px solid var(--border); border-radius: 0; overflow: visible;
+  }
+  .ncc-ui .cmp:last-child { border-bottom: 0;
+  }
+  .ncc-ui .cmp {
+      height: var(--row-h); overflow: hidden;
+      display: flex; flex-direction: column; justify-content: center;
+  }
+  .ncc-ui .cmp__head {
+      padding: 0; background: none; border-bottom: 0;
+      flex-wrap: nowrap; gap: 10px;
+  }
+  .ncc-ui .cmp__name { font-size: 15px; line-height: 20px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ncc-ui .cmp__head .badge { flex: none; font-size: 12.5px; padding: 3px 8px;
+  }
+  .ncc-ui .cmp__row, .ncc-ui .cmp__foot { display: none;
+  }
+  .ncc-ui .cmp__m {
+      padding: 2px 0 0;
+      font-size: 12.5px; line-height: 16px; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ncc-ui .cmp__m b { color: var(--fg); font-weight: 700; font-variant-numeric: tabular-nums;
+  }
+  .ncc-ui .cmp__m .best { color: var(--paid); font-weight: 800;
+  }
+}
+.ncc-ui .table thead th.th-sort { padding: 0 12px;
+}
+.ncc-ui .sortbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: var(--tap);
+    padding: 0;
+    background: none;
+    border: 0;
+    font-family: inherit;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: .07em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+}
+.ncc-ui .th-sort.num .sortbtn { width: 100%; justify-content: flex-end;
+}
+.ncc-ui .sortbtn:hover { color: var(--fg);
+}
+.ncc-ui .sortbtn__ic { width: 13px; height: 13px; flex: none; opacity: .3;
+}
+.ncc-ui .table thead th[aria-sort="ascending"] .sortbtn, .ncc-ui .table thead th[aria-sort="descending"] .sortbtn { color: var(--accent);
+}
+.ncc-ui .table thead th[aria-sort="ascending"] .sortbtn__ic, .ncc-ui .table thead th[aria-sort="descending"] .sortbtn__ic { opacity: 1;
+}
+.ncc-ui .table thead th[aria-sort="ascending"] .sortbtn__ic { transform: rotate(180deg);
+}
+.ncc-ui .dishbtn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    max-width: 100%;
+    margin-left: -6px;
+    padding: 4px 10px 4px 6px;
+    background: none;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    color: var(--fg);
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 700;
+    text-align: left;
+    line-height: 1.3;
+}
+.ncc-ui .dishbtn:hover { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+}
+.ncc-ui .dishbtn[aria-expanded="true"] { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+}
+.ncc-ui .dishbtn__chev { width: 15px; height: 15px; flex: none; color: var(--accent); transition: transform .15s ease;
+}
+.ncc-ui .dishbtn[aria-expanded="true"] .dishbtn__chev { transform: rotate(90deg);
+}
+.ncc-ui .dishbtn__name { min-width: 0;
+}
+.ncc-ui .pctcell { display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+}
+.ncc-ui .pctcell__v { font-variant-numeric: tabular-nums; font-weight: 700; font-size: 13.5px;
+}
+.ncc-ui .pctbar {
+    width: 74px; height: 8px; flex: none;
+    border-radius: var(--r-pill);
+    background: var(--surface-sub);
+    border: 1px solid var(--border);
+    overflow: hidden;
+}
+.ncc-ui .pctbar__fill { display: block; height: 100%; background: var(--accent); border-radius: var(--r-pill);
+}
+.ncc-ui .orderrow > td { background: var(--surface-sub);
+}
+.ncc-ui .orders__head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 12px; flex-wrap: wrap; margin-bottom: 10px;
+}
+.ncc-ui .orders__t { font-size: 14px; font-weight: 700;
+}
+.ncc-ui .orders__list { display: grid; gap: 8px;
+}
+.ncc-ui .order {
+    display: grid;
+    gap: 4px 12px;
+    padding: 10px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "when amt"
+      "who  st"
+      "qty  qty";
+}
+.ncc-ui .order__when {
+    grid-area: when; font-size: 13px; font-weight: 700; line-height: 20px;
+    font-variant-numeric: tabular-nums;
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-ui .order__who {
+    grid-area: who; font-size: 13px; line-height: 16px; color: var(--muted-tint);
+    min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.ncc-ui .order__who b { color: var(--fg);
+}
+.ncc-ui .order__qty { grid-area: qty; font-size: 13px; color: var(--muted-tint); font-variant-numeric: tabular-nums;
+}
+.ncc-ui .order__amt { grid-area: amt; justify-self: end; font-variant-numeric: tabular-nums; font-weight: 700;
+}
+.ncc-ui .order__st { grid-area: st; justify-self: end;
+}
+.ncc-ui .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.ncc-ui .pager__info { font-size: 13.5px; color: var(--muted-tint); font-variant-numeric: tabular-nums;
+}
+.ncc-ui .pager__ctrl { display: flex; gap: 6px;
+}
+.ncc-ui .pager__btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: var(--tap); min-height: var(--tap);
+    padding: 0 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--r-sm);
+    background: var(--surface);
+    color: var(--fg);
+    font-size: 14px; font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+.ncc-ui .pager__btn:hover:not(:disabled) { background: #eef2f4; border-color: #b9c1c7; color: var(--fg);
+}
+.ncc-ui .pager__btn[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #ffffff;
+}
+.ncc-ui .pager__btn[aria-current="page"]:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #ffffff;
+}
+.ncc-ui .pager__btn:disabled { opacity: .45; cursor: default;
+}
+.ncc-ui .pager__btn svg { width: 16px; height: 16px;
+}
+.ncc-ui .toolhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+}
+.ncc-ui .orders { min-width: 0;
+}
+.ncc-ui .offmark {
+    width: 8px; height: 8px; flex: none;
+    border-radius: 50%;
+    background: var(--debt);
+    box-shadow: 0 0 0 2px var(--debt-soft);
+}
+.ncc-ui .tag-full { display: none;
+}
+@media (min-width: 1024px) {
+  .ncc-ui .offmark { display: none;
+  }
+  .ncc-ui .tag-full { display: block;
+  }
+  .ncc-ui .tag-full .badge { line-height: 16px; padding: 0 7px;
+  }
+}
+@media (min-width: 720px) {
+  .ncc-ui #dsSortMobile { display: none;
+  }
+  .ncc-ui .table tbody tr { position: relative;
+  }
+  .ncc-ui .table .dishbtn { min-height: 0; line-height: 20px; padding: 0; margin: 0; border: 0; background: none;
+  }
+  .ncc-ui .table .dishbtn::after { content: ""; position: absolute; inset: 0;
+  }
+  .ncc-ui .table .dishbtn:hover { background: none; border-color: transparent; color: var(--accent);
+  }
+  .ncc-ui .table .dishbtn[aria-expanded="true"] { background: none; border-color: transparent; color: var(--accent);
+  }
+  .ncc-ui .group-inline { line-height: 16px;
+  }
+  .ncc-ui .colprice { width: 106px;
+  }
+  .ncc-ui .colqty { width: 88px;
+  }
+  .ncc-ui .colrev { width: 132px;
+  }
+  .ncc-ui .colpct { width: 146px;
+  }
+  .ncc-ui .colord { width: 88px;
+  }
+  .ncc-ui .order {
+      grid-template-columns: 112px minmax(0, 1fr) 84px 120px 128px;
+      grid-template-areas: "when who qty amt st";
+      align-items: center;
+      height: var(--row-h);
+      overflow: hidden;
+  }
+}
+.ncc-ui .group-inline { display: none;
+}
+@media (min-width: 720px) and (max-width: 1023px) {
+  .ncc-ui .colgroup { display: none;
+  }
+  .ncc-ui .group-inline { display: block;
+  }
+  .ncc-ui .table th, .ncc-ui .table td { padding: 10px 6px;
+  }
+  .ncc-ui .table thead th.th-sort { padding: 0 6px;
+  }
+  .ncc-ui .sortbtn { font-size: 10.5px; letter-spacing: .04em;
+  }
+  .ncc-ui .colprice { width: 92px;
+  }
+  .ncc-ui .colqty { width: 74px;
+  }
+  .ncc-ui .colrev { width: 112px;
+  }
+  .ncc-ui .colpct { width: 118px;
+  }
+  .ncc-ui .colord { width: 70px;
+  }
+  .ncc-ui .pctbar { width: 52px;
+  }
+  .ncc-ui .dishbtn { font-size: 14px;
+  }
+  .ncc-ui .order { grid-template-columns: 100px minmax(0, 1fr) 72px 104px 118px;
+  }
+}
+@media (max-width: 719px) {
+  .ncc-ui .table .dishbtn {
+      display: flex; width: 100%; max-width: 100%;
+      min-height: 0; line-height: 20px; margin: 0; padding: 0;
+      border: 0; background: none; gap: 6px;
+      font-size: 15px;
+  }
+  .ncc-ui .dishbtn__name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ncc-ui .dishbtn::after { content: ""; position: absolute; inset: 0; z-index: 1;
+  }
+  .ncc-ui .dishbtn:hover, .ncc-ui .dishbtn[aria-expanded="true"] { background: none; border-color: transparent; color: var(--accent);
+  }
+  .ncc-ui .table--rows tbody tr.is-open { background: var(--accent-soft);
+  }
+  .ncc-ui .table--rows tbody tr.is-open:hover { background: #b6f3e8;
+  }
+  .ncc-ui .pctcell { gap: 0;
+  }
+  .ncc-ui .pctcell__v { font-size: 12.5px; color: var(--muted-tint);
+  }
+  .ncc-ui .pctbar {
+      position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
+      width: auto; height: 3px;
+      border: 0; border-radius: 0;
+      background: transparent;
+  }
+  .ncc-ui .pctbar__fill { border-radius: 0 var(--r-pill) var(--r-pill) 0;
+  }
+  .ncc-ui .table--rows tbody tr.orderrow {
+      display: block;
+      height: auto;
+      overflow: visible;
+      padding: 0 16px 12px;
+      background: var(--accent-soft);
+      border-bottom: 1px solid var(--border);
+  }
+  .ncc-ui .table--rows tbody tr.orderrow:hover { background: var(--accent-soft);
+  }
+  .ncc-ui .orderrow > td { padding: 0; border: 0; background: transparent;
+  }
+  .ncc-ui .orders {
+      padding: 10px 12px 4px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+  }
+  .ncc-ui .orders__head { margin-bottom: 8px; gap: 2px;
+  }
+  .ncc-ui .orders__t { font-size: 13.5px;
+  }
+  .ncc-ui .orders__list { gap: 0;
+  }
+  .ncc-ui .order {
+      grid-template-columns: minmax(0, 1fr) auto;
+      grid-template-areas:
+        "when amt"
+        "who  st";
+      align-content: center;
+      align-items: center;
+      gap: 2px 10px;
+      height: var(--row-h);
+      overflow: hidden;
+      padding: 0;
+      border: 0;
+      border-bottom: 1px solid var(--border);
+      border-radius: 0;
+      background: none;
+  }
+  .ncc-ui .order:last-child { border-bottom: 0;
+  }
+  .ncc-ui .order__when { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ncc-ui .order__who { font-size: 12.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ncc-ui .order__amt { font-size: 15px;
+  }
+  .ncc-ui .order__st .badge { font-size: 12.5px; line-height: 16px; padding: 1px 7px;
+  }
+}
 
-/* ---- Bù mấy tiện ích khoảng cách của mockup nằm ở luật khung trang đã bị loại ---- */
+/* ---- Bù mấy tiện ích khoảng cách nằm trong luật khung trang đã bị loại ---- */
 .ncc-ui { display: flex; flex-direction: column; gap: 24px; color: var(--fg); }
 .ncc-ui .stack-12 > * + * { margin-top: 12px; }
 .ncc-ui .stack-16 > * + * { margin-top: 16px; }
 .ncc-ui .stack-24 > * + * { margin-top: 24px; }
-/* Dòng danh sách trong app là <button> (điều hướng bằng React, không phải <a href>) nên phải
+/* Dòng danh sách trong app là <button> (điều hướng bằng React chứ không <a href>) nên phải
    nhận đúng phần trình bày mockup viết cho <a>. */
 .ncc-ui button.rowlink,
-.ncc-ui button.sup {
+.ncc-ui button.sup,
+.ncc-ui button.dishbtn {
   width: 100%; text-align: left; font: inherit; color: inherit;
   border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer;
 }
 .ncc-ui button.link { border: 0; background: none; cursor: pointer; }
-/* Mockup viết cho khung 1024px+ nên đầu thẻ luôn đủ chỗ; ở 393px thì "Phiếu nhập chờ duyệt"
-   và "Xem tất cả" cùng xuống dòng, đầu thẻ cao gấp đôi. Ghim "Xem tất cả" lại một dòng và
-   cho tiêu đề co được. */
+/* Mockup vẽ cho khung >=1024px nên đầu thẻ luôn đủ chỗ; ở 393px thì tiêu đề và "Xem tất cả"
+   cùng xuống dòng, đầu thẻ cao gấp đôi. */
 .ncc-ui .card__head .link { white-space: nowrap; flex: none; }
 .ncc-ui .card__title { min-width: 0; }
+
+/* Bảng "Mặt hàng đổi giá": trong app lòng bảng hẹp hơn mockup (~1000px so với 1140px) vì còn
+   khung app bọc ngoài, nên cột giá bị bóp và "→ 75.000đ" bị cắt mất nửa. Ghim bề rộng hai cột
+   ít chữ để phần thừa dồn cho cột giá. */
+@media (min-width: 720px) {
+  .ncc-ui .colprice { width: 208px; }
+  .ncc-ui .coldate  { width: 118px; }
+}
