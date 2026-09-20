@@ -249,13 +249,13 @@ export function SupplierPriceScreen({
                 <span className={`badge ${g.badge}`}>{rows.length} mặt hàng</span>
               </div>
               <div className="card__body">
-                <div className="tablewrap">
-                  <table className="table table--rows bleed">
+                <div className="tablewrap bleed">
+                  <table className="table table--rows">
                     <caption className="sr-only">{g.nhan}</caption>
                     <thead>
                       <tr>
                         <th scope="col" className="colitem">Mặt hàng</th>
-                        <th scope="col" className="colprice">Giá cũ → giá mới</th>
+                        <th scope="col" className="colpricechg">Giá cũ → giá mới</th>
                         <th scope="col" className="colpct">Mức đổi</th>
                         <th scope="col">Nhà cung cấp</th>
                         <th scope="col" className="num coldate">Ngày</th>

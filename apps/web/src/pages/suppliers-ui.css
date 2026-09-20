@@ -1747,15 +1747,33 @@
   border-left: 0; border-right: 0; border-bottom: 0; cursor: pointer;
 }
 .ncc-ui button.link { border: 0; background: none; cursor: pointer; }
+/* App có `button { background: <teal> }` toàn cục, mockup thì không nên nó không viết luật ghi
+   đè. Hệ quả: trong `.ncc-ui`, nút nào KHÔNG tự khai nền (.back, .sortbtn, .dishbtn…) bị tô
+   teal đặc. `.btn`/`.chip`/`.photo` tự khai nền nên không bị luật này đụng tới. */
+.ncc-ui button { background: none; }
+.ncc-ui button.back, .ncc-ui button.sortbtn, .ncc-ui button.dishbtn { border: 0; }
+
+/* Chi tiết NCC là HỘP THOẠI chứ không phải một trang như mockup (route `/suppliers/:id` chưa
+   có), nên nó phải TỰ có nền và lề — thiếu thì các section rơi rời trên nền mờ và nhìn xuyên
+   thấy cả trang phía sau. */
+.ncc-ui--dialog {
+  background: var(--bg);
+  border-radius: var(--r);
+  padding: 20px;
+  box-shadow: var(--shadow-md);
+}
 /* Mockup vẽ cho khung >=1024px nên đầu thẻ luôn đủ chỗ; ở 393px thì tiêu đề và "Xem tất cả"
    cùng xuống dòng, đầu thẻ cao gấp đôi. */
 .ncc-ui .card__head .link { white-space: nowrap; flex: none; }
 .ncc-ui .card__title { min-width: 0; }
 
-/* Bảng "Mặt hàng đổi giá": trong app lòng bảng hẹp hơn mockup (~1000px so với 1140px) vì còn
-   khung app bọc ngoài, nên cột giá bị bóp và "→ 75.000đ" bị cắt mất nửa. Ghim bề rộng hai cột
-   ít chữ để phần thừa dồn cho cột giá. */
+/* Bảng "Mặt hàng đổi giá": cột "giá cũ → giá mới" cần chỗ cho HAI số tiền và một mũi tên, mà
+   chia đều thì nó bị bóp và "→ 75.000đ" cụt mất nửa. Tên riêng `colpricechg` chứ KHÔNG dùng
+   lại `.colprice` — lớp đó là cột "Giá bán" của màn "Món đã bán", ghim chung một bề rộng thì
+   sửa màn này là hỏng màn kia. */
 @media (min-width: 720px) {
-  .ncc-ui .colprice { width: 208px; }
-  .ncc-ui .coldate  { width: 118px; }
+  .ncc-ui .colpricechg { width: 208px; }
+  .ncc-ui .coldate     { width: 118px; }
+  /* "% doanh thu" = số + thanh tỉ lệ nằm chung một ô; hẹp quá thì số bị cắt còn "0,1%". */
+  .ncc-ui .colpct      { width: 132px; }
 }

@@ -16,29 +16,23 @@ import { api, extractError } from '../lib/api.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { useAuth, useCanWrite } from '../lib/auth-context.tsx';
+import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
-import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
-import { Pager } from '../components/Pager.tsx';
-import { locPhieuTheoMon, phanTrang, tongConPhaiTra } from '../lib/supplier-stats.ts';
-import {
-  ItemStatsPanel,
-  PriceChangesPanel,
-  PriceHistoryDialog,
-  PriceMatrixPanel,
-} from './SupplierReports.tsx';
-import { SupplierBalancePanel, type Balance } from './SupplierPayments.tsx';
+import { tongConPhaiTra } from '../lib/supplier-stats.ts';
+import { ItemStatsPanel, PriceHistoryDialog } from './SupplierReports.tsx';
+import type { Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierOverview } from './SupplierOverview.tsx';
 import { SupplierPriceScreen } from './SupplierPriceScreen.tsx';
 import { SupplierDeliveryScreen } from './SupplierDeliveryScreen.tsx';
+import { DishSalesScreen } from './DishSalesScreen.tsx';
+import { SupplierDetailScreen } from './SupplierDetailScreen.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
 import { FoodCostPanel } from './FoodCostPanel.tsx';
-import { DishSalesPanel } from './DishSalesPanel.tsx';
 
 type Supplier = {
   id: string;
@@ -73,7 +67,7 @@ const TABS_CO_LOC: Tab[] = ['stats', 'items'];
 
 /** Tab đã dựng lại theo mockup — chúng tự vẽ đầu trang (`pagehead`) và thanh lọc riêng, nên
  *  tiêu đề chung và hàng lọc cũ của màn phải im đi, không thì hiện hai lần. */
-const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries'];
+const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries', 'dishes'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -361,7 +355,7 @@ export function SuppliersPage() {
 
       {/* Bộ lọc thời gian RIÊNG bên trong, cùng lệ với tab "Thống kê" — số món bán ra chỉ có
           nghĩa khi gắn với một kỳ. */}
-      {tab === 'dishes' && <DishSalesPanel />}
+      {tab === 'dishes' && <DishSalesScreen range={range} onRangeChange={setRange} />}
 
       {/* Mở lại ĐÚNG panel đang dùng ở màn Menu (M3.D-32). Danh mục nguyên liệu là MỘT bảng;
           dựng UI thứ hai để sửa cùng bảng đó là nguồn bug và lệch hành vi. */}
@@ -376,11 +370,13 @@ export function SuppliersPage() {
       )}
 
       {detail && (
-        <SupplierDetail
+        <SupplierDetailScreen
           supplier={detail}
           isAdmin={isAdmin}
           canSeeMoney={canSeeMoney}
-          balanceTick={balanceTick}
+          refreshKey={balanceTick}
+          range={range}
+          onRangeChange={setRange}
           onClose={() => setDetail(null)}
           onEdit={() => setShowEditor(detail)}
           onDeleted={() => {
@@ -390,7 +386,10 @@ export function SuppliersPage() {
             setBalanceTick((t) => t + 1);
           }}
           onIntake={() => setShowForm({ supplierId: detail.id })}
-          onBalanceChanged={refresh}
+          onChanged={() => {
+            refresh();
+            setBalanceTick((t) => t + 1);
+          }}
         />
       )}
 
@@ -453,347 +452,6 @@ async function confirmAndDeleteSupplier(
     toast.push('error', extractError(err).message);
     return false;
   }
-}
-
-/** Nhãn trạng thái phiếu. Phiếu NCC tự gửi dừng ở `PENDING_*` cho tới khi quán duyệt — nó là ĐỀ
- * NGHỊ, chưa vào kho và chưa vào công nợ (M3.D-08, 41). */
-const DELIVERY_STATUS: Record<string, { label: string; color: string }> = {
-  PENDING_REVIEW: { label: 'Chờ kiểm hàng', color: '#b45309' },
-  PENDING_PRICE: { label: 'Chờ duyệt giá', color: '#c2410c' },
-  CONFIRMED: { label: 'Đã duyệt', color: '#15803d' },
-  CANCELLED: { label: 'Đã huỷ', color: '#b91c1c' },
-};
-
-function DeliveryList({
-  deliveries,
-  onEdit,
-  onChanged,
-}: {
-  deliveries: Delivery[];
-  onEdit: (d: Delivery) => void;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const confirmDialog = useConfirm();
-  // Lấy thẳng từ context thay vì thêm prop: nút Duyệt/Huỷ/Sửa nằm sâu trong bảng, kéo một prop
-  // qua 3 tầng chỉ để tắt 3 cái nút là thêm chỗ để quên.
-  const canWrite = useCanWrite();
-  const [busy, setBusy] = useState<string | null>(null);
-  const [photosOf, setPhotosOf] = useState<Delivery | null>(null);
-  const [tim, setTim] = useState('');
-  const [page, setPage] = useState(1);
-
-  // Đổi NCC ở bộ lọc trên đầu màn = một danh sách khác hẳn → về trang 1. Không reset thì đang ở
-  // trang 6 của NCC A, chọn NCC B chỉ có 2 trang, người dùng nhìn thấy trang cuối của B mà tưởng
-  // đó là toàn bộ.
-  useEffect(() => {
-    setPage(1);
-  }, [deliveries]);
-
-  /** Lọc theo tên MÓN có trong phiếu (chủ quán yêu cầu 2026-09-08): gõ "cá" ra mọi phiếu có cá,
-   *  dù tên NCC hay ngày tháng chẳng liên quan gì tới chữ đó. */
-  const loc = useMemo(() => locPhieuTheoMon(deliveries, tim), [deliveries, tim]);
-  const trang = phanTrang(loc, page, CO_TRANG_PHIEU);
-
-  const act = async (d: Delivery, kind: 'confirm' | 'cancel') => {
-    if (kind === 'cancel') {
-      const ok = await confirmDialog({
-        title: 'Huỷ phiếu này?',
-        variant: 'danger',
-        message: `${d.supplier_name} · ${vnd(d.total_amount)}đ. Phiếu vẫn còn trong lịch sử, chỉ không tính vào kho và công nợ.`,
-        confirmLabel: 'Huỷ phiếu',
-      });
-      if (!ok) return;
-    }
-    setBusy(d.id);
-    try {
-      await api.post(`/supplier-deliveries/${d.id}/${kind}`);
-      toast.push('success', kind === 'confirm' ? 'Đã duyệt phiếu' : 'Đã huỷ phiếu');
-      onChanged();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  if (deliveries.length === 0) {
-    return <div className="empty-state card">Chưa có phiếu nhập nào.</div>;
-  }
-
-  const pending = deliveries.filter((d) => d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE');
-
-  return (
-    <>
-      {/* Phiếu NCC gửi mà chưa duyệt là việc TỒN — đưa lên đầu, không để chìm giữa bảng. */}
-      {pending.length > 0 && (
-        <div className="card" style={{ marginBottom: 12, background: '#fffbeb' }}>
-          <strong>{pending.length} phiếu chờ quán duyệt</strong>
-          <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
-            Chưa duyệt thì chưa tính vào kho và công nợ.
-          </div>
-        </div>
-      )}
-      {/* Ô tìm kiếm khớp TÊN MẶT HÀNG, không khớp tên NCC — lọc NCC đã có ô riêng ở đầu màn. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
-        <input
-          type="search"
-          value={tim}
-          onChange={(e) => {
-            setTim(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Tìm phiếu có mặt hàng, vd: cá"
-          aria-label="Tìm phiếu nhập theo tên mặt hàng"
-          style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
-        />
-        <span style={{ fontSize: 13, color: C.mutedOnTint }}>
-          {trang.total} phiếu{tim.trim() ? ' có mặt hàng khớp' : ''}
-        </span>
-      </div>
-
-      {trang.total === 0 ? (
-        <div className="empty-state card">Không có phiếu nào chứa mặt hàng khớp “{tim.trim()}”.</div>
-      ) : (
-        <>
-        {/* `responsive` (styles.css) — dưới 640px bảng 7 cột này bỏ mô hình bảng, mỗi phiếu
-            thành MỘT THẺ "nhãn ─── giá trị". Để nguyên bảng thì ở máy 390px nó vừa tràn ngang
-            vừa bóp cột "Nhà cung cấp" xuống còn một chữ mỗi dòng. */}
-        <div style={{ overflowX: 'auto' }}>
-          <table className="responsive sup-cards" style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-            <thead>
-              <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-                <th style={{ padding: 8 }}>Ngày</th>
-                <th style={{ padding: 8 }}>Nhà cung cấp</th>
-                <th style={{ padding: 8, textAlign: 'right' }}>Số tiền</th>
-                <th style={{ padding: 8 }}>Trạng thái</th>
-                <th style={{ padding: 8 }}>Người nhập</th>
-                <th style={{ padding: 8 }}>Ảnh</th>
-                <th style={{ padding: 8 }} />
-              </tr>
-            </thead>
-            <tbody>
-              {trang.rows.map((d) => {
-                const st = DELIVERY_STATUS[d.status] ?? { label: d.status, color: C.muted };
-                const waiting = d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
-                return (
-                  <tr key={d.id} style={{ borderTop: '1px solid #e5e7eb' }}>
-                    <td data-label="Ngày" style={{ padding: 8, whiteSpace: 'nowrap' }}>{d.delivery_date}</td>
-                    <td className="sup-cell-title" style={{ padding: 8 }}>{d.supplier_name}</td>
-                    <td data-label="Số tiền" style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>{vnd(d.total_amount)}đ</td>
-                    <td data-label="Trạng thái" style={{ padding: 8, color: st.color, fontWeight: waiting ? 700 : 400 }}>
-                      ● {st.label}
-                    </td>
-                    <td data-label="Người nhập" style={{ padding: 8, color: C.mutedOnTint }}>
-                      {/* M3.D-10 — sáu tháng sau tranh cãi một phiếu, câu hỏi đầu tiên luôn là "ai
-                          nhập cái này?". Cột này trả lời mà không phải đào audit log. */}
-                      {d.source === 'SUPPLIER' ? (
-                        <span style={{ color: C.muted }}>NCC tự gửi</span>
-                      ) : (
-                        d.created_by_name
-                      )}
-                    </td>
-                    <td data-label="Ảnh" style={{ padding: 8 }}>
-                      <button
-                        type="button"
-                        className="secondary"
-                        onClick={() => setPhotosOf(d)}
-                        style={{ minHeight: 36, padding: '0 10px', fontSize: 13 }}
-                      >
-                        Xem ảnh
-                      </button>
-                    </td>
-                    <td className="sup-cell-actions" style={{ padding: 8, whiteSpace: 'nowrap', textAlign: 'right' }}>
-                      {waiting && canWrite && (
-                        <>
-                          <button
-                            onClick={() => act(d, 'confirm')}
-                            disabled={busy === d.id}
-                            style={{ minHeight: 36, padding: '0 12px' }}
-                          >
-                            Duyệt
-                          </button>
-                          <button
-                            className="secondary"
-                            onClick={() => act(d, 'cancel')}
-                            disabled={busy === d.id}
-                            style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
-                          >
-                            Huỷ
-                          </button>
-                        </>
-                      )}
-                      {/* Sửa phiếu đã nhập (2026-09-07). Hiện cho cả phiếu ĐÃ DUYỆT — đó chính là
-                          trường hợp cần sửa: phiếu nhân viên nhập vào là CONFIRMED ngay. Phiếu đã
-                          HUỶ thì không: sửa nó là làm sống lại một phiếu ai đó đã bỏ. */}
-                      {d.status !== 'CANCELLED' && canWrite && (
-                        <button
-                          className="secondary"
-                          onClick={() => onEdit(d)}
-                          disabled={busy === d.id}
-                          style={{ minHeight: 36, padding: '0 10px', marginLeft: 6 }}
-                        >
-                          Sửa
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-          <Pager trang={trang} doiTrang={setPage} nhan="phiếu" />
-        </>
-      )}
-
-      {photosOf && (
-        <DeliveryPhotosDialog
-          deliveryId={photosOf.id}
-          title={`${photosOf.supplier_name} · ${photosOf.delivery_date}`}
-          onClose={() => setPhotosOf(null)}
-        />
-      )}
-    </>
-  );
-}
-
-/** Chi tiết một NCC: số liệu kỳ + bảng giá mặt hàng họ hay giao (mục 3.2) + phiếu gần đây.
- *
- * Bảng giá là thứ chủ quán mở ra TRƯỚC KHI gọi điện đặt hàng — nên nó nằm ngay đây, không bắt
- * đi tìm ở màn khác. */
-/** Chi tiết một NCC — MÀN TIỀN, không phải màn hàng hoá (chủ quán 2026-09-08).
- *
- * Chỉ còn hai thứ: đang nợ bao nhiêu, và sổ giao dịch làm nên con số đó. "Đã mua kỳ này / Số
- * phiếu", "Mặt hàng hay giao", "Phiếu trong kỳ" đã bỏ khỏi đây — mở một NCC ra để xem nợ mà phải
- * cuộn qua ba bảng hàng hoá thì con số cần xem lại là thứ khó thấy nhất màn. Ba bảng đó không mất
- * đi đâu cả, chúng vẫn là nội dung của các tab Phiếu nhập / Biến động giá / Mặt hàng nhập.
- *
- * Toàn bộ nút của màn nằm trên MỘT hàng, do `SupplierBalancePanel` vẽ qua slot — xem docblock của
- * nó. Riêng "Đóng" ở lại góc trên phải: nó là nút đóng hộp thoại, và nó đang dùng chung dòng với
- * tên NCC nên không tốn thêm dòng nào.
- */
-function SupplierDetail({
-  supplier,
-  isAdmin,
-  canSeeMoney,
-  balanceTick,
-  onClose,
-  onEdit,
-  onDeleted,
-  onIntake,
-  onBalanceChanged,
-}: {
-  supplier: Supplier;
-  isAdmin: boolean;
-  canSeeMoney: boolean;
-  balanceTick: number;
-  onClose: () => void;
-  onEdit: () => void;
-  onDeleted: () => void;
-  onIntake: () => void;
-  onBalanceChanged: () => void;
-}) {
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [showAccount, setShowAccount] = useState(false);
-
-  const intake = (
-    <button className="sup-action" onClick={onIntake}>
-      ＋ Nhập hàng
-    </button>
-  );
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Chi tiết ${supplier.name}`}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.4)',
-        display: 'flex',
-        justifyContent: 'center',
-        padding: 16,
-        overflowY: 'auto',
-        zIndex: 9000,
-      }}
-    >
-      <div className="card" style={{ maxWidth: 760, width: '100%', margin: 'auto' }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 22 }}>{supplier.name}</h2>
-            {supplier.phone && (
-              <a href={`tel:${supplier.phone}`} style={{ fontSize: 16 }}>
-                {supplier.phone}
-              </a>
-            )}
-            {supplier.note && (
-              <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>{supplier.note}</div>
-            )}
-          </div>
-          <button className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 44 }}>
-            Đóng
-          </button>
-        </div>
-
-        {/* Công nợ: admin và role Báo cáo đều XEM được. Nút thao tác trong hàng nút của khối
-            này thì chỉ admin — role Báo cáo nhìn thấy sổ, không sửa được sổ. */}
-        {canSeeMoney ? (
-          <SupplierBalancePanel
-            supplierId={supplier.id}
-            supplierName={supplier.name}
-            refreshKey={balanceTick}
-            onChanged={onBalanceChanged}
-            actionsBefore={isAdmin ? intake : undefined}
-            actionsAfter={
-              isAdmin ? (
-              <>
-                <button className="secondary sup-action" onClick={onEdit}>
-                  Sửa thông tin
-                </button>
-                <button className="secondary sup-action" onClick={() => setShowAccount(true)}>
-                  Tài khoản NCC
-                </button>
-                {/* Xoá đứng NGAY đây chứ không nằm trong form "Sửa thông tin". Chôn nó sau một
-                    lần bấm nữa thì chủ quán không tìm ra — nghỉ mối là việc thường xuyên, không
-                    phải thao tác hiếm đến mức phải giấu. Vẫn có hộp xác nhận nên bấm nhầm không
-                    mất gì. */}
-                <button
-                  className="secondary sup-action"
-                  style={{ color: C.danger }}
-                  onClick={async () => {
-                    if (await confirmAndDeleteSupplier(supplier, confirm, toast)) onDeleted();
-                  }}
-                >
-                  Xoá NCC
-                </button>
-              </>
-              ) : undefined
-            }
-          />
-        ) : (
-          <>
-            <div className="tabstrip" style={{ gap: 8, marginTop: 16, paddingBottom: 4 }}>
-              {isAdmin && intake}
-            </div>
-            <p style={{ color: C.muted, fontSize: 14, marginTop: 16 }}>
-              Màn này chỉ hiện công nợ và giao dịch — cần quyền quản trị mới xem được.
-            </p>
-          </>
-        )}
-
-        {showAccount && (
-          <SupplierAccountDialog
-            supplierId={supplier.id}
-            supplierPhone={supplier.phone}
-            onClose={() => setShowAccount(false)}
-          />
-        )}
-      </div>
-    </div>
-  );
 }
 
 function SupplierEditor({
