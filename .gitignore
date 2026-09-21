@@ -131,3 +131,7 @@ packages/utils/dist/
 # !README.md
 !.planning/**/*.md
 !docs/**/*.md
+
+# Token CukCuk lấy từ script thử (scripts/cukcuk-spike.mjs)
+scripts/cukcuk-token.json
+scripts/cukcuk.env
