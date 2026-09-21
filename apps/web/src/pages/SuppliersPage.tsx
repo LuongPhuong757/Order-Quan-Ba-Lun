@@ -182,9 +182,9 @@ export function SuppliersPage() {
   return (
     <div className="container wide ncc-page with-bottom-nav">
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
-        {/* Tab đã dựng theo mockup tự vẽ đầu trang riêng (`pagehead`), nên tiêu đề chung
-            này chỉ còn cho các tab CHƯA port — để cả hai là hai chữ "Nhà cung cấp" chồng nhau. */}
-        {!TAB_TU_VE_DAU_TRANG.includes(tab) && <h1 style={{ margin: 0 }}>Nhà cung cấp</h1>}
+        {/* KHÔNG có tiêu đề "Nhà cung cấp" ở đây (chủ quán chốt 2026-09-21). Thanh dưới đáy
+            đã sáng mục "NCC", và các màn đã dựng theo bản thiết kế tự vẽ đầu trang riêng — thêm
+            một dòng tiêu đề nữa chỉ ăn mất một hàng mà không nói thêm điều gì. */}
         {/* `tabstrip` (styles.css) — repo đã có sẵn class này đúng cho ca này: giữ tab trên
             MỘT hàng và cho vuốt ngang thay vì bóp chữ. Hàng tab ở đây viết `display:flex` trần
             nên khi thêm tab thứ sáu ("Thống kê") nó rộng 410px và kéo cả trang tràn ngang ở
