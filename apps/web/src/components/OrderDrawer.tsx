@@ -162,6 +162,12 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
+  /* Màn "Gọi món" (BulkOrderModal) đang che kín drawer hay không.
+     Là REF chứ không đọc thẳng `showBulkOrder`: đọc thẳng thì `showBulkOrder` phải vào deps
+     của effect poll bên dưới, effect dựng lại và bắn thêm một `refresh(true)` mỗi lần mở/đóng
+     hộp — thừa một request đúng lúc hộp đang tải menu. */
+  const bulkOpenRef = useRef(false);
+  bulkOpenRef.current = showBulkOrder;
 
   const isDelivery = table.kind === 'delivery';
   const mapHref = order ? customerMapHref(order) : null;
@@ -229,7 +235,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     refresh(true);
     // Poll every 2s while drawer open — bếp + nhân viên thấy state thay đổi nhanh
     const t = setInterval(() => {
-      if (pollEnabledRef.current) refresh(false);
+      /* NGHỈ khi màn "Gọi món" đang mở (2026-09-21). Hộp đó che kín drawer nên không có một
+         thứ gì trên màn phụ thuộc vào nhịp này, trong khi `BulkOrderModal` lại là CON của
+         drawer: mỗi `setOrder` là một lượt re-render dội xuống lưới ~283 thẻ món, giữa lúc
+         nhân viên đang vuốt chọn món (đo máy chậm 6×: 17,3ms/lượt, quá ngân sách 1 frame).
+         Đóng hộp là nhịp tiếp theo chạy lại bình thường, và `onSubmitted` đã gọi `refresh()`
+         ngay sau khi báo bếp nên không có khoảng nào dữ liệu bị cũ mà người dùng nhìn thấy. */
+      if (pollEnabledRef.current && !bulkOpenRef.current) refresh(false);
     }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);

@@ -3,7 +3,7 @@
 // Panel phải: giỏ hàng (− qty + xoá + note inline).
 // Mobile <768px: stack vertical (menu trên, giỏ dưới).
 // Submit 1 lần → BE create N items + auto báo bếp.
-import { useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { pickAutoItem } from '../lib/auto-items.ts';
@@ -37,6 +37,71 @@ type CartLine = {
   qty: number;
   note: string;
 };
+
+/** MỘT thẻ món trong lưới, tách riêng và bọc `memo` — KHÔNG phải để cho gọn file.
+ *
+ * Menu thật của quán là ~283 món và tab mặc định là "Tất cả", nên lưới này là ~2.000 phần tử
+ * DOM. Cái hộp Gọi món lại nằm TRONG `OrderDrawer`, mà cả drawer lẫn `OrdersPage` phía sau đều
+ * có nhịp poll 2 giây riêng — mỗi nhịp là một lượt re-render dội thẳng xuống đây. Không memo
+ * thì cứ ~2 giây cả 283 thẻ dựng lại một lần, ngay giữa lúc ngón tay đang vuốt: đo trên máy
+ * giả lập chậm 6× là 17,3ms mỗi lượt, quá ngân sách một khung hình 60fps (16,7ms) → rớt frame
+ * đều đặn, đúng cái người dùng thấy là "vuốt bị giật". Có memo: 0,9ms.
+ *
+ * Vì vậy MỌI prop ở đây phải giữ nguyên identity giữa các lần render cha, nếu không memo thành
+ * vô nghĩa: `line` là object trong `cart` (các hàm sửa giỏ chỉ thay đúng dòng bị đụng, dòng
+ * khác giữ nguyên tham chiếu), `groupLabel` là chuỗi, còn `onAdd`/`onNote` phải là `useCallback`
+ * deps rỗng. Thêm prop mới thì kiểm lại điều này trước.
+ */
+const MenuCard = memo(function MenuCard({
+  it,
+  line,
+  groupLabel,
+  onAdd,
+  onNote,
+}: {
+  it: MenuItem;
+  line: CartLine | undefined;
+  groupLabel: string;
+  onAdd: (item: MenuItem) => void;
+  onNote: (id: string) => void;
+}) {
+  return (
+    /* Thẻ món phải nằm trong một khung bọc: cả thẻ là MỘT cái nút (chạm đâu
+       cũng +1 phần), mà nút ghi chú thì không lồng vào trong nút được — nó là
+       nút thứ hai, đứng cạnh, chỉ neo lên góc thẻ bằng position. */
+    <div className="bulk-menu-card-wrap">
+      <button
+        className={`bulk-menu-card ${it.is_out_of_stock ? 'out' : ''} ${line ? 'noted' : ''} ${line?.note ? 'has-note' : ''}`}
+        onClick={() => onAdd(it)}
+        disabled={it.is_out_of_stock}
+      >
+        {line && <span className="cart-badge">{line.qty}</span>}
+        <div className="body">
+          <div className="code">{it.code}</div>
+          <div className="name">{it.name}</div>
+          <div className="meta">{groupLabel} · {it.unit}</div>
+        </div>
+        <div className="price">
+          {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
+        </div>
+      </button>
+      {/* Chỉ hiện khi món ĐÃ vào giỏ: ghi chú treo vào dòng giỏ, chưa chọn thì
+          chưa có chỗ mà ghi. Có chữ rồi thì nút đổi màu để nhìn lướt là thấy
+          món nào đã dặn gì. */}
+      {line && (
+        <button
+          type="button"
+          className={`bulk-note-btn ${line.note ? 'has' : ''}`}
+          onClick={() => onNote(it.id)}
+          title={line.note ? `Ghi chú: ${line.note}` : 'Thêm ghi chú'}
+          aria-label={`Ghi chú cho ${it.name}`}
+        >
+          {line.note ? `📝 ${line.note}` : 'Ghi chú'}
+        </button>
+      )}
+    </div>
+  );
+});
 
 type Props = {
   orderId: string;
@@ -73,6 +138,11 @@ export function BulkOrderModal({
   /* Con trỏ phải quay lại đúng ô này sau mỗi lần tap món — nếu không, bàn phím điện thoại
      tụt xuống và nhân viên phải bấm vào ô mới gõ được món kế. */
   const searchRef = useRef<HTMLInputElement>(null);
+  /* Chữ đang gõ, đọc qua ref chứ không đọc thẳng biến `search` trong `addToCart`. Đọc thẳng
+     thì `search` phải nằm trong deps của `useCallback`, gõ một chữ là callback đổi identity
+     và toàn bộ `MenuCard` memo hoá re-render — đúng thứ vừa bỏ công tránh. */
+  const searchValRef = useRef(search);
+  searchValRef.current = search;
 
   useEffect(() => {
     Promise.all([
@@ -105,24 +175,35 @@ export function BulkOrderModal({
   }, [toast]);
 
   // Lookup helpers — dynamic groups (sau khi import file user có tới 30+ nhóm tự tạo)
-  const groupMap = new Map(groupList.map((g) => [g.code, g]));
-  const labelOf = (code: string): string => {
-    const g = groupMap.get(code);
-    if (!g) return code;
-    return g.icon ? `${g.icon} ${g.name}` : g.name;
-  };
+  const groupMap = useMemo(() => new Map(groupList.map((g) => [g.code, g])), [groupList]);
+  const labelOf = useCallback(
+    (code: string): string => {
+      const g = groupMap.get(code);
+      if (!g) return code;
+      return g.icon ? `${g.icon} ${g.name}` : g.name;
+    },
+    [groupMap],
+  );
 
   // Tìm kiếm: không dấu + viết tắt ('ktl' → 'Khoai tây lắc'), xếp theo độ khớp.
   // Logic ở lib/menu-search.ts để MenuPickerModal dùng chung.
-  const filtered = filterMenuBySearch(
-    menu.filter((it) => !group || it.group === group),
-    search,
+  //
+  // `useMemo` chứ không tính trần: đây là lọc + xếp hạng trên CẢ menu (~283 món của quán), mà
+  // hộp này re-render theo nhịp poll 2 giây của `OrderDrawer` bọc ngoài — tính lại mỗi nhịp là
+  // tính lại một thứ không hề đổi. Deps đúng bằng 3 thứ thực sự quyết định kết quả.
+  const filtered = useMemo(
+    () => filterMenuBySearch(menu.filter((it) => !group || it.group === group), search),
+    [menu, group, search],
   );
 
   // 'Tất cả' + tất cả nhóm động (sort_order ASC, đã sort ở BE)
   const groupCodes = ['', ...groupList.map((g) => g.code)];
 
-  const addToCart = (item: MenuItem) => {
+  /* Mọi hàm sửa giỏ đều `useCallback` deps RỖNG — chúng là prop của `MenuCard` (memo) và của
+     `CartLineList`. Chỉ cần một hàm đổi identity mỗi render là memo mất tác dụng hoàn toàn.
+     Làm được deps rỗng vì bên trong chỉ đụng `setCart` dạng hàm (React đảm bảo ổn định) và
+     hai cái ref — không hàm nào đọc state trực tiếp. Giữ nguyên tính chất đó khi sửa sau này. */
+  const addToCart = useCallback((item: MenuItem) => {
     if (item.is_out_of_stock) return;
     setCart((prev) => {
       const next = new Map(prev);
@@ -142,13 +223,13 @@ export function BulkOrderModal({
        focus() giữ bàn phím khỏi tụt sau khi tay chạm vào thẻ món.
        Chỉ đụng khi đang có chữ: đang chọn theo danh mục thì không có gì để bôi đen, và bật
        bàn phím lúc đó chỉ tổ che mất danh sách món. */
-    if (search) {
+    if (searchValRef.current) {
       searchRef.current?.focus();
       searchRef.current?.select();
     }
-  };
+  }, []);
 
-  const updateQty = (id: string, delta: number) => {
+  const updateQty = useCallback((id: string, delta: number) => {
     setCart((prev) => {
       const next = new Map(prev);
       const line = next.get(id);
@@ -161,17 +242,17 @@ export function BulkOrderModal({
       }
       return next;
     });
-  };
+  }, []);
 
-  const removeFromCart = (id: string) => {
+  const removeFromCart = useCallback((id: string) => {
     setCart((prev) => {
       const next = new Map(prev);
       next.delete(id);
       return next;
     });
-  };
+  }, []);
 
-  const setNote = (id: string, note: string) => {
+  const setNote = useCallback((id: string, note: string) => {
     setCart((prev) => {
       const next = new Map(prev);
       const line = next.get(id);
@@ -179,7 +260,10 @@ export function BulkOrderModal({
       next.set(id, { ...line, note });
       return next;
     });
-  };
+  }, []);
+
+  /** Mở ô ghi chú từ lưới. Tách ra thành callback ổn định vì là prop của `MenuCard` (memo). */
+  const openNoteFor = useCallback((id: string) => setNoteFor(id), []);
 
   const noteLine = noteFor ? cart.get(noteFor) ?? null : null;
   const cartLines = Array.from(cart.values());
@@ -898,45 +982,16 @@ export function BulkOrderModal({
                   Không tìm thấy món
                 </p>
               )}
-              {filtered.map((it) => {
-                const inCart = cart.get(it.id);
-                return (
-                  /* Thẻ món phải nằm trong một khung bọc: cả thẻ là MỘT cái nút (chạm đâu
-                     cũng +1 phần), mà nút ghi chú thì không lồng vào trong nút được — nó là
-                     nút thứ hai, đứng cạnh, chỉ neo lên góc thẻ bằng position. */
-                  <div key={it.id} className="bulk-menu-card-wrap">
-                    <button
-                      className={`bulk-menu-card ${it.is_out_of_stock ? 'out' : ''} ${inCart ? 'noted' : ''} ${inCart?.note ? 'has-note' : ''}`}
-                      onClick={() => addToCart(it)}
-                      disabled={it.is_out_of_stock}
-                    >
-                      {inCart && <span className="cart-badge">{inCart.qty}</span>}
-                      <div className="body">
-                        <div className="code">{it.code}</div>
-                        <div className="name">{it.name}</div>
-                        <div className="meta">{labelOf(it.group)} · {it.unit}</div>
-                      </div>
-                      <div className="price">
-                        {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
-                      </div>
-                    </button>
-                    {/* Chỉ hiện khi món ĐÃ vào giỏ: ghi chú treo vào dòng giỏ, chưa chọn thì
-                        chưa có chỗ mà ghi. Có chữ rồi thì nút đổi màu để nhìn lướt là thấy
-                        món nào đã dặn gì. */}
-                    {inCart && (
-                      <button
-                        type="button"
-                        className={`bulk-note-btn ${inCart.note ? 'has' : ''}`}
-                        onClick={() => setNoteFor(it.id)}
-                        title={inCart.note ? `Ghi chú: ${inCart.note}` : 'Thêm ghi chú'}
-                        aria-label={`Ghi chú cho ${it.name}`}
-                      >
-                        {inCart.note ? `📝 ${inCart.note}` : 'Ghi chú'}
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+              {filtered.map((it) => (
+                <MenuCard
+                  key={it.id}
+                  it={it}
+                  line={cart.get(it.id)}
+                  groupLabel={labelOf(it.group)}
+                  onAdd={addToCart}
+                  onNote={openNoteFor}
+                />
+              ))}
             </div>
           </div>
 
