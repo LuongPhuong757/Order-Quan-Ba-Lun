@@ -561,7 +561,33 @@ export function BulkOrderModal({
           align-content: start;
         }
         /* Khung bọc thẻ món — chỗ neo cho nút ghi chú (thẻ là <button>, không lồng nút vào được). */
-        .bulk-menu-card-wrap { position: relative; display: flex; flex-direction: column; }
+        /* content-visibility KHÔNG phải tinh chỉnh vặt — nó là thứ chữa cú "tap món xong đơ
+           một nhịp" (2026-09-21).
+           Tap một món làm thẻ đó mọc thêm badge số lượng + nút Ghi chú và đổi class 'noted'.
+           Chỉ MỘT thẻ đổi, và React cũng chỉ render đúng một thẻ (đã memo) — nhưng trình duyệt
+           thì tính lại layout cho CẢ lưới 283 thẻ, vì mọi thẻ đều là grid item có kích thước
+           theo nội dung. Đo được (Chrome headless, CPU giả lập chậm 6×): React 4,3ms nhưng
+           layout 48,1ms. Người dùng thấy là "bấm xong khựng một lúc".
+           content-visibility:auto cho trình duyệt BỎ QUA hẳn layout của thẻ đang nằm ngoài tầm
+           nhìn → 48,1ms còn 13,1ms. contain-intrinsic-size giữ chỗ chiều cao thay cho thẻ chưa
+           vẽ (102px là chiều cao thật, đo tại chỗ); có từ khoá 'auto' thì sau lần vẽ đầu trình
+           duyệt nhớ kích thước thật nên thanh cuộn không nhảy.
+           Đã thử và LOẠI: 'contain: layout style' một mình (49→43,6ms, gần như vô ích) và
+           'grid-auto-rows: 102px' (49→42,7ms) — chi phí nằm ở layout TỪNG THẺ chứ không ở việc
+           chia hàng của grid.
+           LƯU Ý: Safari chỉ hiểu từ bản 18. iPhone cũ hơn bỏ qua dòng này — không vỡ gì, nhưng
+           cũng không nhanh lên. Máy cũ mà vẫn khựng thì phải cắt số thẻ render (phân trang /
+           virtualize), CSS không làm được nữa.
+           KHÔNG dùng dấu backtick trong khối chú thích này: cả khối style nằm trong một template
+           literal, một dấu backtick là đóng chuỗi sớm và vỡ build. */
+        .bulk-menu-card-wrap {
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          contain: layout style;
+          content-visibility: auto;
+          contain-intrinsic-size: auto 102px;
+        }
         .bulk-menu-card-wrap > .bulk-menu-card { flex: 1 1 auto; min-width: 0; }
         /* Góc PHẢI DƯỚI thẻ, cùng cạnh phải với badge số lượng ở trên. Chữ thay cho icon để
            người lớn tuổi đọc được ngay là nút làm gì. */
