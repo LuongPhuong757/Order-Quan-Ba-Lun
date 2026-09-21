@@ -6,7 +6,7 @@
 //
 // Món trong menu bán 0 phần thì KHÔNG hiện (chủ quán chốt 2026-09-09): menu ~600 món nên 480
 // dòng số 0 nhấn chìm mấy chục dòng đang thật sự ra tiền.
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { Pager } from '../components/Pager.tsx';
@@ -177,6 +177,28 @@ export function DishSalesScreen({
     ? Math.max(1, Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1)
     : null;
 
+  /** Số cột ĐANG HIỆN của bảng. Không phải hằng số: khoảng 720–1023px cột "Nhóm" bị ẩn cho
+   *  vừa màn, nên lúc đó bảng chỉ còn 6 cột.
+   *
+   *  `colSpan` của dòng bung ra phải khớp con số này. Lệch dù chỉ 1 là trình duyệt đẻ thêm một
+   *  cột rỗng rồi rút bề rộng của các cột thật — đúng cái làm bảng trông như bị vỡ. Đếm bằng
+   *  cách ĐO thay vì suy từ mốc breakpoint: mốc đổi ở CSS mà quên sửa ở đây là lỗi im lặng. */
+  const hangTieuDe = useRef<HTMLTableRowElement>(null);
+  const [soCot, setSoCot] = useState(7);
+  useEffect(() => {
+    const dem = () => {
+      const r = hangTieuDe.current;
+      if (!r) return;
+      const n = [...r.children].filter((c) => c.getBoundingClientRect().width > 0).length;
+      // Dưới 720px `thead` bị giấu khỏi mắt (bảng thành thẻ) nên đo ra 0 — giữ giá trị cũ,
+      // ở chế độ thẻ thì colSpan cũng không còn tác dụng gì.
+      if (n > 0) setSoCot(n);
+    };
+    dem();
+    window.addEventListener('resize', dem);
+    return () => window.removeEventListener('resize', dem);
+  }, [trang.rows.length]);
+
   const COT: Array<{ k: SortKey; nhan: string; cls?: string }> = [
     { k: 'name', nhan: 'Món' },
     { k: 'group', nhan: 'Nhóm', cls: 'colgroup' },
@@ -263,7 +285,7 @@ export function DishSalesScreen({
                     Món đã bán trong kỳ, bấm tên món để xem các đơn đã gọi món đó
                   </caption>
                   <thead>
-                    <tr>
+                    <tr ref={hangTieuDe}>
                       {COT.map((c) => (
                         <th key={c.k} scope="col" className={`th-sort ${c.cls ?? ''}`}
                             aria-sort={sortKey === c.k ? (asc ? 'ascending' : 'descending') : 'none'}>
@@ -321,7 +343,7 @@ export function DishSalesScreen({
                           </tr>
                           {mo && (
                             <tr className="orderrow">
-                              <td colSpan={8}><DonCuaMon dish={d} range={range} /></td>
+                              <td colSpan={soCot}><DonCuaMon dish={d} range={range} /></td>
                             </tr>
                           )}
                         </Fragment>

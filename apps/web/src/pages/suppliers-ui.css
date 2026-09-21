@@ -1756,6 +1756,15 @@
 /* Chi tiết NCC là HỘP THOẠI chứ không phải một trang như mockup (route `/suppliers/:id` chưa
    có), nên nó phải TỰ có nền và lề — thiếu thì các section rơi rời trên nền mờ và nhìn xuyên
    thấy cả trang phía sau. */
+/* `.ncc-ui .table tbody td .cell-sub { display: block }` (0,3,2) của khối ellipsis đè
+   `.group-inline { display: none }` (0,2,0), nên tên nhóm món hiện CẢ ở dòng phụ dưới tên món
+   LẪN ở cột "Nhóm" bên cạnh. Bám đúng cùng đường dẫn để giành lại quyền quyết định. */
+.ncc-ui .table tbody td .group-inline { display: none; }
+@media (min-width: 720px) and (max-width: 1023px) {
+  /* Khoảng này cột "Nhóm" bị ẩn cho vừa màn, nên dòng phụ mới là chỗ duy nhất còn nói nhóm. */
+  .ncc-ui .table tbody td .group-inline { display: block; }
+}
+
 .ncc-ui--dialog {
   background: var(--bg);
   border-radius: var(--r);
@@ -1774,6 +1783,16 @@
 @media (min-width: 720px) {
   .ncc-ui .colpricechg { width: 208px; }
   .ncc-ui .coldate     { width: 118px; }
-  /* "% doanh thu" = số + thanh tỉ lệ nằm chung một ô; hẹp quá thì số bị cắt còn "0,1%". */
-  .ncc-ui .colpct      { width: 132px; }
+  /* "% doanh thu" = CON SỐ + THANH TỈ LỆ nằm chung một ô flex. `.pctcell__v` không khai
+     `flex` nên mặc định co được: ô 132px trừ đệm 24 còn 108, thanh chiếm 74 + khe 10 → chữ chỉ
+     còn 24px và "20,1%" bị cắt cụt thành "1%". Cấm nó co, và nới ô cho đủ cả hai. */
+  .ncc-ui .pctcell__v  { flex: none; }
+  .ncc-ui .colpct      { width: 138px; }
+}
+
+/* PHẢI đứng SAU khối 720px: hai luật cùng độ ưu tiên, ở >=1024px cả hai cùng khớp nên luật
+   viết sau mới thắng. Đặt trước là 138px đè mất 152px và chữ "20,1%" lại bị cắt.
+   Từ 1024px thanh tỉ lệ rộng lại 74px (thay vì 52px) nên ô phải nới theo. */
+@media (min-width: 1024px) {
+  .ncc-ui .colpct { width: 152px; }
 }

@@ -14,7 +14,7 @@
 //
 // Mỗi dòng cao ĐÚNG --row-h ở mọi bề rộng; điện thoại gộp cột phụ xuống dòng 2 và thu nút vào
 // menu `⋯` để không dòng nào cao hơn dòng nào.
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCanWrite } from '../lib/auth-context.tsx';
 import { locPhieuTheoMon, phanTrang } from '../lib/supplier-stats.ts';
 import { Pager } from '../components/Pager.tsx';
@@ -39,6 +39,18 @@ type Delivery = {
 
 const CO_TRANG = 15;
 
+type Khoa = 'ngay' | 'ncc' | 'tien' | 'nguoi';
+/** Cột nào sắp xếp được, và mặc định xếp theo chiều nào khi vừa bấm vào nó.
+ *
+ *  Tiền mặc định CAO → THẤP còn ngày mặc định MỚI → CŨ: câu hỏi đứng sau mỗi cột khác nhau —
+ *  "phiếu nào to nhất" và "gần đây nhập những gì" — bắt bấm hai lần mới ra là bắt đoán. */
+const COT: Array<{ k: Khoa; nhan: string; cls?: string; giamTruoc: boolean }> = [
+  { k: 'ngay', nhan: 'Ngày', cls: 'colcode', giamTruoc: true },
+  { k: 'ncc', nhan: 'Nhà cung cấp', giamTruoc: false },
+  { k: 'tien', nhan: 'Số tiền', cls: 'num colamt', giamTruoc: true },
+  { k: 'nguoi', nhan: 'Người nhập', cls: 'colwho', giamTruoc: false },
+];
+
 export function SupplierDeliveryScreen({
   deliveries, suppliers, range, onRangeChange, onEdit, onNew, onChanged,
 }: {
@@ -54,13 +66,19 @@ export function SupplierDeliveryScreen({
   const [locNcc, setLocNcc] = useState('');
   const [tim, setTim] = useState('');
   const [page, setPage] = useState(1);
+  const [khoa, setKhoa] = useState<Khoa>('ngay');
+  const [giam, setGiam] = useState(true);
   const [anhCua, setAnhCua] = useState<Delivery | null>(null);
   const [xemChiTiet, setXemChiTiet] = useState<Delivery | null>(null);
   const [moMenu, setMoMenu] = useState<string | null>(null);
 
   // Đổi bộ lọc = một danh sách khác hẳn → về trang 1. Không reset thì đang ở trang 6 của NCC A,
   // chọn NCC B chỉ có 2 trang, người dùng nhìn trang cuối của B mà tưởng đó là toàn bộ.
-  useEffect(() => { setPage(1); }, [locNcc, tim, deliveries]);
+  useEffect(() => { setPage(1); }, [locNcc, tim, deliveries, khoa, giam]);
+
+  /** Số cột ĐANG HIỆN — `colSpan` không dùng ở màn này, nhưng giữ cùng một cách đếm với màn
+   *  "Món đã bán" thì sau này thêm dòng bung ra cũng không phải nghĩ lại. */
+  const hangTieuDe = useRef<HTMLTableRowElement>(null);
 
   const trongKy = useMemo(() => deliveries.filter((d) => {
     if (locNcc && d.supplier_id !== locNcc) return false;
@@ -72,7 +90,25 @@ export function SupplierDeliveryScreen({
   /** Ô tìm khớp TÊN MÓN trong phiếu (chủ quán yêu cầu 2026-09-08): gõ "cá" ra mọi phiếu có cá,
    *  dù tên NCC hay ngày tháng chẳng liên quan gì tới chữ đó. Lọc NCC đã có ô riêng. */
   const daLoc = useMemo(() => locPhieuTheoMon(trongKy, tim), [trongKy, tim]);
-  const trang = phanTrang(daLoc, page, CO_TRANG);
+
+  const daXep = useMemo(() => {
+    const dir = giam ? -1 : 1;
+    return [...daLoc].sort((a, b) => {
+      if (khoa === 'tien') return (a.total_amount - b.total_amount) * dir;
+      if (khoa === 'ncc') return a.supplier_name.localeCompare(b.supplier_name, 'vi') * dir;
+      if (khoa === 'nguoi') {
+        const na = a.source === 'SUPPLIER' ? 'NCC tự gửi' : a.created_by_name;
+        const nb = b.source === 'SUPPLIER' ? 'NCC tự gửi' : b.created_by_name;
+        return na.localeCompare(nb, 'vi') * dir;
+      }
+      // Cùng ngày thì phiếu to đứng trước — hai phiếu cùng ngày mà thứ tự nhảy lung tung giữa
+      // các lần tải là thứ khiến người dùng tưởng danh sách đang đổi.
+      const d = a.delivery_date.localeCompare(b.delivery_date) * dir;
+      return d !== 0 ? d : b.total_amount - a.total_amount;
+    });
+  }, [daLoc, khoa, giam]);
+
+  const trang = phanTrang(daXep, page, CO_TRANG);
   const tongTien = daLoc.reduce((s, d) => s + d.total_amount, 0);
 
   return (
@@ -122,11 +158,20 @@ export function SupplierDeliveryScreen({
                 <table className="table table--rows">
                   <caption className="sr-only">Danh sách phiếu nhập hàng</caption>
                   <thead>
-                    <tr>
-                      <th scope="col" className="colcode">Ngày</th>
-                      <th scope="col">Nhà cung cấp</th>
-                      <th scope="col" className="num colamt">Số tiền</th>
-                      <th scope="col" className="colwho">Người nhập</th>
+                    <tr ref={hangTieuDe}>
+                      {COT.map((c) => (
+                        <th key={c.k} scope="col" className={`th-sort ${c.cls ?? ''}`}
+                            aria-sort={khoa === c.k ? (giam ? 'descending' : 'ascending') : 'none'}>
+                          <button className="sortbtn" type="button"
+                                  onClick={() => {
+                                    if (khoa === c.k) setGiam(!giam);
+                                    else { setKhoa(c.k); setGiam(c.giamTruoc); }
+                                  }}>
+                            {c.nhan}
+                            <span aria-hidden="true">{khoa === c.k ? (giam ? ' ↓' : ' ↑') : ''}</span>
+                          </button>
+                        </th>
+                      ))}
                       <th scope="col" className="colphoto">Ảnh phiếu</th>
                       <th scope="col" className="num colact">Thao tác</th>
                     </tr>
