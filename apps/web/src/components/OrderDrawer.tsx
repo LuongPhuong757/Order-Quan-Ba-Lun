@@ -1595,9 +1595,13 @@ function ItemRow({
           )}
         </div>
         <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280', flex: '0 0 auto' }}>
-          <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
-          {/* ⋯ NGAY DƯỚI GIÁ — đường mở hàng nút cho ai không vuốt (chuột, hoặc chưa biết là
-              vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi vuốt cũng không lệch nhau. */}
+          {/* ⋯ NẰM TRÊN, GIÁ NẰM DƯỚI (đổi 2026-09-21) — đường mở hàng nút cho ai không vuốt
+              (chuột, hoặc chưa biết là vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi
+              vuốt cũng không lệch nhau.
+              Thứ tự này KHÔNG phải cho đẹp: nút + tròn (.drawer-fab) dính ở góc dưới phải khung
+              drawer, trên điện thoại nó phủ đúng cột này của thẻ món đang ở đáy. Để ⋯ dưới giá
+              là ngón tay bấm ⋯ lại trúng nút +. Đẩy ⋯ lên trên, phần bị phủ còn lại là CHỮ GIÁ —
+              chữ không bấm được nên bị che cũng không ăn mất thao tác nào. */}
           {!readonly && (onEditQty || cancelAllowed) && (
             <button
               type="button"
@@ -1610,6 +1614,7 @@ function ItemRow({
               ⋯
             </button>
           )}
+          <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
         </div>
       </div>
       {/* HÀNG LUÔN HIỆN — chuyển trạng thái (Đã giao, Báo bếp) và Ưu tiên (chỉ đạo chủ quán
