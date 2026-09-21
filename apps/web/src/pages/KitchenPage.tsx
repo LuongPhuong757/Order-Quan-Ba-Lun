@@ -1905,6 +1905,7 @@ function GroupFilterModal({
       role="dialog"
       aria-modal="true"
       onClick={(e) => e.target === e.currentTarget && onClose()}
+      className="vp-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -1918,12 +1919,12 @@ function GroupFilterModal({
       }}
     >
       <div
+        className="vp-cap-90"
         style={{
           background: 'white',
           borderRadius: 14,
           maxWidth: 560,
           width: '100%',
-          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',

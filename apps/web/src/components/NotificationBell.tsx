@@ -83,6 +83,7 @@ export function NotificationBell() {
           role="dialog"
           aria-modal="true"
           onClick={(e) => e.target === e.currentTarget && setOpen(false)}
+          className="vp-overlay"
           style={{
             position: 'fixed',
             inset: 0,
@@ -96,12 +97,12 @@ export function NotificationBell() {
           }}
         >
           <div
+            className="vp-cap-85"
             style={{
               background: 'white',
               borderRadius: 14,
               maxWidth: 480,
               width: '100%',
-              maxHeight: '85vh',
               display: 'flex',
               flexDirection: 'column',
               overflow: 'hidden',

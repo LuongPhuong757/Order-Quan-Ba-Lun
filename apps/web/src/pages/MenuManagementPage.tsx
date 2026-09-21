@@ -1235,7 +1235,7 @@ function ImportMenuModal({
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 700, maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal vp-cap-90" style={{ maxWidth: 700, display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
             <h1 style={{ margin: 0 }}>📥 Import menu từ file</h1>

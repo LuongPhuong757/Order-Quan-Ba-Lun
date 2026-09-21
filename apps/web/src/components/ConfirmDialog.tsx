@@ -144,9 +144,10 @@ function ConfirmModal({
       aria-modal="true"
       aria-labelledby="confirm-title"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
+      className="vp-overlay"
       style={overlayStyle}
     >
-      <div style={modalStyle}>
+      <div className="vp-cap-90" style={modalStyle}>
         <div style={{ ...iconHeaderStyle, background: c.bg, borderBottom: `1px solid ${c.border}33` }}>
           <span style={{ fontSize: 26 }}>{c.icon}</span>
           <h2 id="confirm-title" style={{ margin: 0, fontSize: 17, color: c.text }}>
@@ -226,9 +227,10 @@ function PromptModal({
       role="dialog"
       aria-modal="true"
       onClick={(e) => e.target === e.currentTarget && onCancel()}
+      className="vp-overlay"
       style={overlayStyle}
     >
-      <form onSubmit={submit} style={modalStyle}>
+      <form onSubmit={submit} className="vp-cap-90" style={modalStyle}>
         <div style={{ ...iconHeaderStyle, background: '#fef3c7', borderBottom: '1px solid #f59e0b33' }}>
           <span style={{ fontSize: 26 }}>✎</span>
           <h2 style={{ margin: 0, fontSize: 17, color: '#92400e' }}>
@@ -325,7 +327,6 @@ const modalStyle: React.CSSProperties = {
   borderRadius: 14,
   maxWidth: 520,
   width: '100%',
-  maxHeight: '90vh',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',

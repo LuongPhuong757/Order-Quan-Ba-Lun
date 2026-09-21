@@ -335,6 +335,7 @@ export function CheckoutDialog({
       aria-modal="true"
       aria-labelledby="pay-title"
       onClick={(e) => e.target === e.currentTarget && !submitting && onCancel()}
+      className="vp-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -348,12 +349,12 @@ export function CheckoutDialog({
       }}
     >
       <div
+        className="vp-cap-90"
         style={{
           background: 'white',
           borderRadius: 14,
           maxWidth: 520,
           width: '100%',
-          maxHeight: '90vh',
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',

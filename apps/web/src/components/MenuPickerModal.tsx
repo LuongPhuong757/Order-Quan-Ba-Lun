@@ -147,7 +147,7 @@ export function MenuPickerModal({ onClose, onPick, hideGroupFilter }: Props) {
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
-      <div className="modal" style={{ maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal vp-cap-92" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12 }}>
           <h1 style={{ margin: 0 }}>Chọn món</h1>
           <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>

@@ -446,6 +446,19 @@ body.kds-mode .toast-banner.error {
   border-bottom: 1px solid #e5e7eb;
 }
 
+/* Trần chiều cao cho hộp thoại, tính theo khung nhìn THẬT (xem chú thích ở .modal-overlay:
+   trên Safari iOS `vh` là khung nhìn lúc thanh địa chỉ đã thu, hộp cao hơn màn thì ĐỈNH hộp
+   trôi lên khuất). Phải là class chứ không đặt style inline được: chỗ này cần HAI dòng —
+   `vh` cho máy cũ chưa hiểu `dvh`, `dvh` cho máy hiểu — mà inline chỉ viết được một. */
+.vp-cap-85 { max-height: 85vh; max-height: 85dvh; }
+.vp-cap-90 { max-height: 90vh; max-height: 90dvh; }
+.vp-cap-92 { max-height: 92vh; max-height: 92dvh; }
+
+/* Lớp phủ TỰ DỰNG (position:fixed + inset:0 viết thẳng trong style inline, không dùng
+   .modal-overlay) — cũng phải cao theo khung nhìn thật, không thì đáy lớp phủ chui xuống
+   dưới thanh công cụ Safari và hộp bên trong bị đẩy lệch theo. */
+.vp-overlay { height: 100vh; height: 100dvh; }
+
 /* Menu ⋯ ở header drawer — thả xuống ngay dưới nút, neo mép phải. */
 .drawer-menu {
   position: absolute;
