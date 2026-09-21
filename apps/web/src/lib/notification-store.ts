@@ -74,7 +74,14 @@ export const notificationStore = {
   unreadCount(): number {
     return cache.filter((e) => !e.read).length;
   },
-  push(kind: NotificationKind, message: string, dedupeKey?: string) {
+  /**
+   * `opts.read` = ghi thẳng vào sổ ở trạng thái ĐÃ ĐỌC (không cộng số đỏ trên chuông).
+   * Dùng cho xác nhận thao tác của chính mình ("Đã lưu", "Đã xoá"): từ 2026-09-21 các
+   * thông báo này không còn hiện banner nữa nên phải ghi sổ để xem lại được, nhưng nếu
+   * tính là chưa đọc thì mỗi lần bấm nút là +1 — chuông sẽ luôn 99+ và che mất thông báo
+   * thật sự cần biết (món xong, món mới về bếp).
+   */
+  push(kind: NotificationKind, message: string, dedupeKey?: string, opts?: { read?: boolean }) {
     // Chống trùng: nếu đã có entry cùng dedupeKey thì bỏ qua (backfill an toàn).
     if (dedupeKey && cache.some((e) => e.dedupeKey === dedupeKey)) return;
     const entry: NotificationEntry = {
@@ -82,7 +89,7 @@ export const notificationStore = {
       kind,
       message,
       ts_ms: Date.now(),
-      read: false,
+      read: opts?.read ?? false,
       dedupeKey,
     };
     // Prune cũ + cap MAX để tránh localStorage bloat

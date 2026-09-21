@@ -21,11 +21,11 @@ export function HelpModal({ title, open, onClose, children }: Props) {
       style={{ zIndex: 11000 }}
     >
       <div
+        className="vp-cap-92"
         style={{
           background: 'white',
           width: '100%',
           maxWidth: 640,
-          maxHeight: '92vh',
           borderRadius: 14,
           overflow: 'hidden',
           display: 'flex',

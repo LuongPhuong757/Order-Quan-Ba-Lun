@@ -380,6 +380,13 @@ body.kds-mode .toast-banner.error {
 .modal-overlay {
   position: fixed;
   inset: 0;
+  /* Safari iOS: `inset: 0` trên phần tử `fixed` tính theo khung nhìn LỚN — khung lúc thanh
+     địa chỉ đã thu lại — nên ĐÁY lớp phủ nằm khuất dưới thanh công cụ. Hộp thoại canh đáy
+     (`align-items: flex-end`) bị đẩy tụt theo, và phần trồi ra là ĐỈNH hộp: thanh header
+     dính vẫn dính, nhưng dính vào một chỗ đã nằm trên vùng nhìn thấy nên coi như biến mất.
+     `dvh` là khung nhìn THẬT lúc này; dòng `vh` ngay trên giữ cho máy cũ chưa hiểu dvh. */
+  height: 100vh;
+  height: 100dvh;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: flex-end;
@@ -395,6 +402,7 @@ body.kds-mode .toast-banner.error {
   border-radius: 12px 12px 0 0;
   padding: 24px;
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
   animation: slideUp 0.2s ease-out;
 }
@@ -409,9 +417,47 @@ body.kds-mode .toast-banner.error {
    ngang so với 24px gốc — thừa sức cho hàng 4 nút của mỗi món nằm một dòng (đo ở máy 390px:
    hàng nút còn 334px, mỗi nút ~80px) — mà thẻ vẫn ra dáng thẻ. */
 .modal-overlay > .modal.modal-flush {
+  /* Chiều cao của drawer chi tiết bàn đặt Ở ĐÂY chứ không phải style inline trong
+     OrderDrawer: inline chỉ viết được MỘT giá trị, mà chỗ này cần hai dòng `vh` rồi `dvh`
+     (máy cũ ăn dòng đầu, máy hiểu dvh ăn dòng sau). Để inline `95vh` là trên iPhone hộp
+     cao hơn khung nhìn thật → đỉnh hộp trôi lên khỏi màn, mất luôn thanh header dính. */
+  max-height: 95vh;
+  max-height: 95dvh;
   padding-left: 8px;
   padding-right: 8px;
+  /* Đệm TRÊN bỏ hẳn: đầu drawer là thanh `sticky`, mà `sticky` neo vào mép trong của khung
+     cuộn — còn đệm là thanh dính hụt xuống đúng bằng ngần ấy, món cuộn lên lòi ra phía trên.
+     Phần đệm đó chuyển vào trong chính thanh (.drawer-sticky-head). */
+  padding-top: 0;
 }
+
+/* Đầu drawer chi tiết bàn (tên bàn · tổng tiền · ⋯ · ✕) ĐỨNG YÊN khi cuộn danh sách món
+   (chủ quán 2026-09-21). Khung cuộn chính là cái `.modal`, nên `sticky` neo vào đỉnh khung
+   — `fixed` sẽ neo vào đỉnh MÀN HÌNH và lệch chỗ trên desktop. Lề âm để nền trắng ăn ra sát
+   mép, che hết phần đệm của `.modal-flush`; thiếu nó thì món cuộn lên sẽ lấp ló hai bên. */
+.drawer-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: white;
+  border-radius: 12px 12px 0 0;
+  margin: 0 -8px 12px;
+  padding: 16px 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+/* Trần chiều cao cho hộp thoại, tính theo khung nhìn THẬT (xem chú thích ở .modal-overlay:
+   trên Safari iOS `vh` là khung nhìn lúc thanh địa chỉ đã thu, hộp cao hơn màn thì ĐỈNH hộp
+   trôi lên khuất). Phải là class chứ không đặt style inline được: chỗ này cần HAI dòng —
+   `vh` cho máy cũ chưa hiểu `dvh`, `dvh` cho máy hiểu — mà inline chỉ viết được một. */
+.vp-cap-85 { max-height: 85vh; max-height: 85dvh; }
+.vp-cap-90 { max-height: 90vh; max-height: 90dvh; }
+.vp-cap-92 { max-height: 92vh; max-height: 92dvh; }
+
+/* Lớp phủ TỰ DỰNG (position:fixed + inset:0 viết thẳng trong style inline, không dùng
+   .modal-overlay) — cũng phải cao theo khung nhìn thật, không thì đáy lớp phủ chui xuống
+   dưới thanh công cụ Safari và hộp bên trong bị đẩy lệch theo. */
+.vp-overlay { height: 100vh; height: 100dvh; }
 
 /* Menu ⋯ ở header drawer — thả xuống ngay dưới nút, neo mép phải. */
 .drawer-menu {
@@ -510,7 +556,8 @@ body.kds-mode .toast-banner.error {
   font-size: 16px;
   line-height: 1;
   padding: 0;
-  margin-top: 6px;
+  /* ⋯ đứng TRÊN giá (xem OrderDrawer) nên khoảng hở nằm ở dưới, không phải ở trên. */
+  margin-bottom: 6px;
   width: 40px;
   height: 32px;
   min-width: 40px;
@@ -560,6 +607,15 @@ body.kds-mode .toast-banner.error {
     padding-left: 24px;
     padding-right: 24px;
   }
+  /* Đệm ngang quay lại 24px thì lề âm của đầu drawer cũng phải theo, không thì nền trắng
+     hụt hai bên. */
+  .drawer-sticky-head {
+    margin-left: -24px;
+    margin-right: -24px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .modal-overlay > .modal.modal-flush { padding-top: 0; }
 }
 
 @keyframes fadeIn {

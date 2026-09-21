@@ -107,7 +107,7 @@ export function RecipePanel({
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 560, width: '100%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+      <div className="modal vp-cap-92" style={{ maxWidth: 560, width: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 4, alignItems: 'flex-start', gap: 8 }}>
           <div style={{ minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: 19 }}>📋 Công thức</h1>

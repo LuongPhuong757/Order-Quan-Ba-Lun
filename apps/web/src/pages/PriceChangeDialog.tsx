@@ -78,6 +78,7 @@ export function PriceChangeDialog({
       role="dialog"
       aria-modal="true"
       aria-label="Xác nhận thay đổi giá"
+      className="vp-overlay"
       style={{
         position: 'fixed',
         inset: 0,
@@ -90,8 +91,8 @@ export function PriceChangeDialog({
       }}
     >
       <div
-        className="card"
-        style={{ maxWidth: 640, width: '100%', maxHeight: '90vh', overflowY: 'auto' }}
+        className="card vp-cap-90"
+        style={{ maxWidth: 640, width: '100%', overflowY: 'auto' }}
       >
         {duplicate && (
           // M3.D-11. Gợi ý chứ không chặn: NCC giao hai chuyến trong ngày là chuyện có thật, nên
