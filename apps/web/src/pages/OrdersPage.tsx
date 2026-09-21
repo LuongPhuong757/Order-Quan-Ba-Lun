@@ -85,6 +85,10 @@ export function OrdersPage() {
   const [filter, setFilter] = useState<FilterKey>('all');
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
+  /* Có đang mở drawer chi tiết bàn hay không. Ref chứ không đọc thẳng `active` để effect poll
+     bên dưới khỏi phải nhận `active` vào deps (mỗi lần mở/đóng bàn lại dựng lại timer). */
+  const drawerOpenRef = useRef(false);
+  drawerOpenRef.current = active !== null;
 
   const refresh = useCallback(async (showError = true) => {
     try {
@@ -163,11 +167,24 @@ export function OrdersPage() {
   }, [confirm, unlockTable]);
 
 
+  /** Đóng drawer → làm mới NGAY. Lưới bàn đã nghỉ poll suốt lúc drawer mở (xem effect dưới),
+   *  nên nếu chỉ chờ nhịp 2s kế tiếp thì có một khoảng bàn vừa gọi món xong vẫn hiện như cũ. */
+  const closeDrawer = useCallback(() => {
+    setActive(null);
+    refresh(false);
+  }, [refresh]);
+
   useEffect(() => {
     refresh();
     // Poll every 2s — sync nhanh giữa Order ↔ Bếp. 10-20 staff, payload nhỏ → server tải nhẹ.
     const t = setInterval(() => {
-      if (pollEnabledRef.current) refresh(false);  // silent retry
+      /* NGHỈ khi drawer chi tiết bàn đang mở (2026-09-21). Drawer phủ kín sơ đồ bàn nên nhịp
+         này không vẽ ra thứ gì người dùng đang nhìn, nhưng nó vẫn `setTables`/`setOpenOrders`
+         → OrdersPage re-render → OrderDrawer re-render → BulkOrderModal (con của drawer)
+         re-render cả lưới ~283 thẻ món, đúng lúc nhân viên đang vuốt chọn món.
+         Badge "Order" ở nav dưới KHÔNG mất: nó chỉ ăn ké `publish()` của nhịp này để hoãn
+         nhịp riêng; ngừng publish thì store tự poll `/orders/open-count` 5s như bình thường. */
+      if (pollEnabledRef.current && !drawerOpenRef.current) refresh(false);  // silent retry
     }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);
@@ -545,7 +562,7 @@ export function OrdersPage() {
         ))}
       </div>
 
-      {active && <OrderDrawer table={active} onClose={() => setActive(null)} onTransferred={manualRefresh} />}
+      {active && <OrderDrawer table={active} onClose={closeDrawer} onTransferred={manualRefresh} />}
     </div>
   );
 }
