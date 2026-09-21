@@ -8,11 +8,21 @@ import {
   useContext,
   ReactNode,
 } from 'react';
+import { notificationStore, type NotificationKind } from '../lib/notification-store.ts';
 
 // 'neworder' = món mới về bếp. Tách riêng khỏi 'info' vì đây là việc bếp PHẢI
 // làm ngay, không phải thông tin tham khảo — cần màu + cỡ chữ khác.
 type ToastKind = 'success' | 'error' | 'info' | 'ready' | 'neworder';
 type ToastData = { id: number; kind: ToastKind; message: string };
+
+// Mỗi loại toast vào sổ 🔔 dưới loại nào (icon + màu trong NotificationBell).
+const STORE_KIND: Record<ToastKind, NotificationKind> = {
+  success: 'info',
+  error: 'error',
+  info: 'info',
+  ready: 'ready',
+  neworder: 'order_open',
+};
 
 const ToastCtx = createContext<{
   push: (kind: ToastKind, message: string, durationMs?: number) => void;
@@ -25,6 +35,10 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   // che giao diện). Hiển thị dạng banner ngang ngay dưới header.
   const [toast, setToast] = useState<ToastData | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Chống lặp khi ghi sổ 🔔: vài màn gọi API theo nhịp (poll) và mỗi lần hỏng lại
+  // push đúng một câu lỗi giống hệt. Trước đây chỉ là banner tự tắt nên không ai thấy,
+  // giờ mỗi lần là một dòng chưa đọc → chuông ngập. Cùng câu trong 10s tính là một.
+  const lastRef = useRef<{ key: string; at: number } | null>(null);
 
   // `useCallback([])` + `useMemo` bên dưới là BẮT BUỘC, không phải tối ưu hoá vặt.
   //
@@ -37,8 +51,24 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   //
   // `push` chỉ đụng ref và setState dạng hàm nên deps rỗng là đúng, không bắt được giá trị cũ.
   const push = useCallback((kind: ToastKind, message: string, durationMs?: number) => {
+    // 2026-09-21 — banner chỉ còn dành cho LỖI.
+    //
+    // Banner nằm ngay dưới header, phủ lên đúng vùng nút của màn Order và màn Bếp;
+    // nhân viên đang bấm order / chuyển món thì banner nhảy ra và ăn mất cú chạm
+    // (hoặc trúng nút ✕ của banner). Nên mọi thông báo giờ đi vào sổ 🔔 để xem lại,
+    // tiếng beep giữ nguyên ở readyNotifier — người dùng vẫn biết có việc mới.
+    //
+    // Ngoại lệ duy nhất: LỖI. Thao tác thất bại mà im lặng thì nhân viên tưởng đã
+    // lưu xong (đã order, đã thanh toán) trong khi thực tế chưa — hậu quả thật.
+    const dupKey = `${kind}|${message}`;
+    const now = Date.now();
+    if (!lastRef.current || lastRef.current.key !== dupKey || now - lastRef.current.at > 10_000) {
+      notificationStore.push(STORE_KIND[kind], message, undefined, { read: kind === 'success' });
+    }
+    lastRef.current = { key: dupKey, at: now };
+    if (kind !== 'error') return;
     const id = nextId++;
-    const dur = durationMs ?? (kind === 'ready' || kind === 'neworder' ? 6000 : 3000);
+    const dur = durationMs ?? 3000;
     if (timerRef.current) clearTimeout(timerRef.current); // huỷ timer của cái trước
     setToast({ id, kind, message }); // ghi đè
     timerRef.current = setTimeout(
