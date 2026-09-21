@@ -488,7 +488,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           width: '100%',
         }}
       >
-        <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start', gap: 8 }}>
+        <div className="flex between drawer-sticky-head" style={{ alignItems: 'flex-start', gap: 8 }}>
           <div>
             <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {table.name}

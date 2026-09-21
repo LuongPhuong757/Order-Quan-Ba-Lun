@@ -67,6 +67,9 @@ export function BulkOrderModal({
   const [submitting, setSubmitting] = useState(false);
   const [editingNote, setEditingNote] = useState<string | null>(null);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
+  /** Món đang mở ô ghi chú NGAY TRÊN LƯỚI (id món). Tách khỏi `editingNote` của giỏ
+      để hai đường sửa ghi chú không giành nhau ô nhập. */
+  const [noteFor, setNoteFor] = useState<string | null>(null);
   /* Con trỏ phải quay lại đúng ô này sau mỗi lần tap món — nếu không, bàn phím điện thoại
      tụt xuống và nhân viên phải bấm vào ô mới gõ được món kế. */
   const searchRef = useRef<HTMLInputElement>(null);
@@ -178,6 +181,7 @@ export function BulkOrderModal({
     });
   };
 
+  const noteLine = noteFor ? cart.get(noteFor) ?? null : null;
   const cartLines = Array.from(cart.values());
   const total = cartLines.reduce((s, l) => s + l.menu_item.price * l.qty, 0);
   const totalQty = cartLines.reduce((s, l) => s + l.qty, 0);
@@ -342,10 +346,15 @@ export function BulkOrderModal({
           from { opacity: 0; }
           to { opacity: 1; }
         }
+        /* Cao BẰNG hộp Gọi món (95dvh) — trước đây 85vh, tấm giỏ thấp hơn nền phía sau nên
+           mỗi lần mở/đóng cả màn nhảy một nấc. dvh vì Safari iOS, vh giữ cho máy cũ. */
         .bulk-mobile-sheet {
           background: white;
           width: 100%;
-          max-height: 85vh;
+          height: 95vh;
+          height: 95dvh;
+          max-height: 95vh;
+          max-height: 95dvh;
           border-radius: 16px 16px 0 0;
           display: flex;
           flex-direction: column;
@@ -355,13 +364,28 @@ export function BulkOrderModal({
           from { transform: translateY(100%); }
           to { transform: translateY(0); }
         }
+        /* Đầu tấm giỏ ĐỨNG YÊN: tên bàn, số món và TỔNG TIỀN. Tiền dọn lên đây vì trước
+           nó nằm ở chân tấm, giỏ dài là phải cuộn hết mới thấy tổng. Hàng nút [+][Báo bếp]
+           thì GIỮ NGUYÊN ở chân tấm (chỉ đạo chủ quán 2026-09-21) — đã thử đưa lên trên
+           cùng tổng tiền và phải trả về. flex:0 0 auto để header không bị danh sách ép co. */
         .bulk-mobile-sheet-header {
           padding: 14px 16px;
           border-bottom: 1px solid #e5e7eb;
           display: flex;
+          flex-direction: column;
+          gap: 10px;
+          flex: 0 0 auto;
+          background: white;
+        }
+        .bulk-sheet-head-top {
+          display: flex;
           justify-content: space-between;
           align-items: center;
+          gap: 8px;
         }
+        .bulk-mobile-sheet-header .bulk-total-row { margin-bottom: 0; }
+        /* Tên bàn cùng màu xanh với đầu hộp Gọi món để đọc lướt là khớp được hai màn. */
+        .bulk-sheet-table { color: #0f766e; font-weight: 700; }
         .bulk-mobile-sheet-header h2 {
           margin: 0;
           font-size: 17px;
@@ -376,10 +400,13 @@ export function BulkOrderModal({
           padding: 12px;
           background: #f9fafb;
         }
+        /* Chân tấm ĐỨNG YÊN ở đáy: [+ gọi thêm] và [Báo bếp] ở nguyên chỗ cũ — ngón cái
+           cầm điện thoại với tới đáy, còn đầu tấm thì để soát bàn và tổng tiền. */
         .bulk-mobile-sheet-footer {
           padding: 12px 14px;
           background: white;
           border-top: 1px solid #e5e7eb;
+          flex: 0 0 auto;
         }
         .bulk-sheet-handle {
           width: 40px;
@@ -448,6 +475,90 @@ export function BulkOrderModal({
              stretch: từ lúc hộp cao cố định (2026-09-19), lọc còn 2 món là hai thẻ đó kéo dài
              hết màn, giá nằm tít dưới đáy. */
           align-content: start;
+        }
+        /* Khung bọc thẻ món — chỗ neo cho nút ghi chú (thẻ là <button>, không lồng nút vào được). */
+        .bulk-menu-card-wrap { position: relative; display: flex; flex-direction: column; }
+        .bulk-menu-card-wrap > .bulk-menu-card { flex: 1 1 auto; min-width: 0; }
+        /* Góc PHẢI DƯỚI thẻ, cùng cạnh phải với badge số lượng ở trên. Chữ thay cho icon để
+           người lớn tuổi đọc được ngay là nút làm gì. */
+        .bulk-note-btn {
+          position: absolute;
+          bottom: 6px;
+          right: 6px;
+          padding: 3px 8px;
+          min-height: 24px;
+          border-radius: 8px;
+          border: 1px solid #cbd5e1;
+          background: white;
+          color: #475569;
+          font-size: 11px;
+          font-weight: 600;
+          line-height: 1.2;
+          white-space: nowrap;
+          cursor: pointer;
+          z-index: 2;
+        }
+        /* Có ghi chú thì CHÍNH nút này hiện nội dung — ấn vào là sửa, không đẻ thêm nút
+           'Sửa'. Chữ ghi chú không in vào trong thân thẻ được: thân thẻ là nút +1 phần, ấn
+           vào để sửa sẽ thành gọi thêm một phần.
+           Lúc này nút BỎ neo góc, xuống hẳn một dòng riêng chiếm cả bề ngang dưới thẻ —
+           đứng cạnh giá thì thẻ hẹp 140px chỉ còn ~48px, ghi chú nào cũng cụt thành '…'. */
+        .bulk-note-btn.has {
+          position: static;
+          width: 100%;
+          margin-top: 4px;
+          border-color: #0f766e;
+          background: #ccfbf1;
+          color: #0f766e;
+          text-align: left;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        /* Nút nằm đè lên hàng giá — chừa chỗ để giá dài (100.000đ) không chui xuống dưới nút. */
+        .bulk-menu-card.noted .price { padding-right: 62px; }
+        /* Có ghi chú: nút đã tự giới hạn bề ngang nên giá không cần chừa chỗ nữa. */
+        .bulk-menu-card.noted.has-note .price { padding-right: 0; }
+        /* Ô ghi chú mở từ lưới. z-index trên cả tấm giỏ (10000) vì mở được từ trong tấm đó. */
+        .bulk-note-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(15, 23, 42, 0.5);
+          z-index: 10050;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 16px;
+        }
+        .bulk-note-box {
+          background: white;
+          border-radius: 14px;
+          padding: 16px;
+          width: 100%;
+          max-width: 380px;
+          box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+        }
+        .bulk-note-box h3 { margin: 0 0 10px; font-size: 16px; }
+        .bulk-note-box input {
+          width: 100%;
+          box-sizing: border-box;
+          /* 16px là mức tối thiểu để Safari iOS không tự phóng to trang khi focus. */
+          font-size: 16px;
+          padding: 10px 12px;
+          border: 1px solid #cbd5e1;
+          border-radius: 10px;
+          min-height: 44px;
+        }
+        .bulk-note-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 12px; }
+        .bulk-note-done {
+          background: #0f766e;
+          color: white;
+          border: none;
+          border-radius: 10px;
+          padding: 10px 22px;
+          min-height: 44px;
+          font-weight: 700;
+          font-size: 15px;
+          cursor: pointer;
         }
         .bulk-menu-card {
           background: white;
@@ -582,9 +693,11 @@ export function BulkOrderModal({
           align-items: flex-start;
           margin-bottom: 6px;
         }
+        /* Tên món + tiền là thứ chủ quán soát lại trước khi Báo bếp, nên to hơn hẳn phần
+           điều khiển. Trước đây tên 14px / giá 13px, còn nút −/+ 32px nhìn lấn át cả dòng. */
         .bulk-cart-line .name {
-          font-size: 14px;
-          font-weight: 600;
+          font-size: 17px;
+          font-weight: 700;
           flex: 1;
           min-width: 0;            /* cho phép flex item co lại + word-break ngắt */
           line-height: 1.3;
@@ -592,7 +705,8 @@ export function BulkOrderModal({
           overflow-wrap: anywhere;
         }
         .bulk-cart-line .price {
-          font-size: 13px;
+          font-size: 16px;
+          font-weight: 700;
           color: #0f766e;
           white-space: nowrap;
           flex-shrink: 0;          /* price không co khi name dài */
@@ -603,22 +717,28 @@ export function BulkOrderModal({
           background: #e5e7eb;
           color: #1f2937;
           border: none;
-          width: 32px;
-          height: 32px;
-          min-height: 32px;
-          min-width: 32px;
+          width: 30px;
+          height: 30px;
+          min-height: 30px;
+          min-width: 30px;
           border-radius: 6px;
-          font-size: 18px;
+          font-size: 16px;
           font-weight: 700;
           cursor: pointer;
           padding: 0;
         }
         .qty-stepper button:hover { background: #d1d5db; }
-        .qty-stepper .qty { font-weight: 700; min-width: 28px; text-align: center; font-size: 15px; }
+        .qty-stepper .qty { font-weight: 700; min-width: 24px; text-align: center; font-size: 16px; }
+        /* Ghi chú đứng cùng hàng với nút Xoá (giữa thanh +/− và Xoá), không xuống dòng riêng:
+           dòng món gọn lại một nấc, danh sách dài bớt phải cuộn. */
         .bulk-cart-note {
-          margin-top: 6px;
           font-size: 12px;
           color: #6b7280;
+          flex: 1 1 auto;
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          padding-left: 8px;
         }
         .bulk-cart-note input {
           font-size: 12px;
@@ -626,6 +746,9 @@ export function BulkOrderModal({
           min-height: 30px;
           border: 1px solid #d1d5db;
           border-radius: 6px;
+          width: 100%;
+          min-width: 0;
+          box-sizing: border-box;
         }
         .bulk-cart-note-btn {
           background: transparent;
@@ -643,7 +766,12 @@ export function BulkOrderModal({
           padding: 3px 8px;
           border-radius: 6px;
           font-size: 11px;
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
+        .bulk-cart-note-btn { flex: 0 0 auto; }
         .bulk-cart-footer {
           padding: 12px 14px;
           background: white;
@@ -657,6 +785,25 @@ export function BulkOrderModal({
         }
         .bulk-total-label { color: #6b7280; font-size: 13px; }
         .bulk-total-value { font-size: 22px; font-weight: 700; color: #0f766e; }
+        /* Hàng nút đáy tấm giỏ trên điện thoại: [+ gọi thêm] [Báo bếp].
+           Trước đây chỉ có "Báo bếp", muốn chọn thêm món phải bấm ✕ đóng giỏ đi đã —
+           mà ✕ đọc ra là "bỏ", không ai đoán nó đưa mình về danh sách món. */
+        .bulk-footer-actions { display: flex; gap: 10px; align-items: stretch; }
+        .bulk-footer-actions .bulk-submit { flex: 1; width: auto; }
+        .bulk-add-more {
+          flex: 0 0 auto;
+          width: 60px;
+          min-height: 52px;
+          padding: 0;
+          border-radius: 10px;
+          border: 2px solid #0f766e;
+          background: white;
+          color: #0f766e;
+          font-size: 30px;
+          font-weight: 400;
+          line-height: 1;
+          cursor: pointer;
+        }
         .bulk-submit {
           width: 100%;
           background: #f59e0b;
@@ -754,22 +901,40 @@ export function BulkOrderModal({
               {filtered.map((it) => {
                 const inCart = cart.get(it.id);
                 return (
-                  <button
-                    key={it.id}
-                    className={`bulk-menu-card ${it.is_out_of_stock ? 'out' : ''}`}
-                    onClick={() => addToCart(it)}
-                    disabled={it.is_out_of_stock}
-                  >
-                    {inCart && <span className="cart-badge">{inCart.qty}</span>}
-                    <div className="body">
-                      <div className="code">{it.code}</div>
-                      <div className="name">{it.name}</div>
-                      <div className="meta">{labelOf(it.group)} · {it.unit}</div>
-                    </div>
-                    <div className="price">
-                      {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
-                    </div>
-                  </button>
+                  /* Thẻ món phải nằm trong một khung bọc: cả thẻ là MỘT cái nút (chạm đâu
+                     cũng +1 phần), mà nút ghi chú thì không lồng vào trong nút được — nó là
+                     nút thứ hai, đứng cạnh, chỉ neo lên góc thẻ bằng position. */
+                  <div key={it.id} className="bulk-menu-card-wrap">
+                    <button
+                      className={`bulk-menu-card ${it.is_out_of_stock ? 'out' : ''} ${inCart ? 'noted' : ''} ${inCart?.note ? 'has-note' : ''}`}
+                      onClick={() => addToCart(it)}
+                      disabled={it.is_out_of_stock}
+                    >
+                      {inCart && <span className="cart-badge">{inCart.qty}</span>}
+                      <div className="body">
+                        <div className="code">{it.code}</div>
+                        <div className="name">{it.name}</div>
+                        <div className="meta">{labelOf(it.group)} · {it.unit}</div>
+                      </div>
+                      <div className="price">
+                        {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
+                      </div>
+                    </button>
+                    {/* Chỉ hiện khi món ĐÃ vào giỏ: ghi chú treo vào dòng giỏ, chưa chọn thì
+                        chưa có chỗ mà ghi. Có chữ rồi thì nút đổi màu để nhìn lướt là thấy
+                        món nào đã dặn gì. */}
+                    {inCart && (
+                      <button
+                        type="button"
+                        className={`bulk-note-btn ${inCart.note ? 'has' : ''}`}
+                        onClick={() => setNoteFor(it.id)}
+                        title={inCart.note ? `Ghi chú: ${inCart.note}` : 'Thêm ghi chú'}
+                        aria-label={`Ghi chú cho ${it.name}`}
+                      >
+                        {inCart.note ? `📝 ${inCart.note}` : 'Ghi chú'}
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -850,23 +1015,32 @@ export function BulkOrderModal({
           <div className="bulk-mobile-sheet">
             <div className="bulk-sheet-handle" />
             <div className="bulk-mobile-sheet-header">
-              {/* Chỉ con số, KHÔNG icon và KHÔNG chữ 'Giỏ hàng' (chỉ đạo chủ quán
-                  2026-09-08) — đang đứng trong chính cái giỏ thì không cần ai nhắc lại.
-                  Nhãn ngắn lại là ba thứ (số · Xoá hết · ✕) vừa đúng MỘT dòng. */}
-              <h2>{cartLines.length} món · {totalQty} phần</h2>
-              <div className="flex" style={{ gap: 8 }}>
-                {cartLines.length > 0 && (
-                  <button className="bulk-clear" onClick={() => setCart(new Map())}>
-                    Xoá hết
+              <div className="bulk-sheet-head-top">
+                {/* KHÔNG icon và KHÔNG chữ 'Giỏ hàng' (chỉ đạo chủ quán 2026-09-08) — đang
+                    đứng trong chính cái giỏ thì không cần ai nhắc lại. Tên bàn thì có: tấm
+                    giỏ che kín màn, không còn thấy đầu hộp Gọi món để biết đang gọi cho bàn
+                    nào. */}
+                <h2>
+                  <span className="bulk-sheet-table">{tableLabel}</span> · {cartLines.length} món · {totalQty} phần
+                </h2>
+                <div className="flex" style={{ gap: 8 }}>
+                  {cartLines.length > 0 && (
+                    <button className="bulk-clear" onClick={() => setCart(new Map())}>
+                      Xoá hết
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    onClick={() => setMobileCartOpen(false)}
+                    style={{ padding: '6px 10px' }}
+                  >
+                    ✕
                   </button>
-                )}
-                <button
-                  className="secondary"
-                  onClick={() => setMobileCartOpen(false)}
-                  style={{ padding: '6px 10px' }}
-                >
-                  ✕
-                </button>
+                </div>
+              </div>
+              <div className="bulk-total-row">
+                <span className="bulk-total-label">Tổng tạm tính:</span>
+                <span className="bulk-total-value">{fmt(total)}</span>
               </div>
             </div>
             <div className="bulk-mobile-sheet-body">
@@ -881,19 +1055,60 @@ export function BulkOrderModal({
               />
             </div>
             <div className="bulk-mobile-sheet-footer">
-              <div className="bulk-total-row">
-                <span className="bulk-total-label">Tổng tạm tính:</span>
-                <span className="bulk-total-value">{fmt(total)}</span>
+              <div className="bulk-footer-actions">
+                {/* Gọi thêm: đóng tấm giỏ để về danh sách món, GIỎ GIỮ NGUYÊN. Cùng việc với
+                    nút ✕ trên đầu tấm, nhưng ✕ đọc ra là "thôi bỏ" nên không ai dám bấm khi
+                    đang muốn gọi tiếp. */}
+                <button
+                  type="button"
+                  className="bulk-add-more"
+                  onClick={() => setMobileCartOpen(false)}
+                  title="Gọi thêm món"
+                  aria-label="Gọi thêm món"
+                >
+                  +
+                </button>
+                <button
+                  className="bulk-submit"
+                  onClick={async () => {
+                    await submit();
+                  }}
+                  disabled={submitting || cartLines.length === 0}
+                >
+                  {submitting && <span className="spinner" />}
+                  Báo bếp
+                </button>
               </div>
-              <button
-                className="bulk-submit"
-                onClick={async () => {
-                  await submit();
-                }}
-                disabled={submitting || cartLines.length === 0}
-              >
-                {submitting && <span className="spinner" />}
-                Báo bếp
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Ô GHI CHÚ mở thẳng từ lưới món — khỏi phải vào giỏ mới ghi được (2026-09-21).
+          Gõ tới đâu ăn vào giỏ tới đó, nên đóng kiểu nào (Xong, Enter, bấm ra ngoài) cũng
+          không mất chữ. */}
+      {noteFor && noteLine && (
+        <div
+          className="bulk-note-overlay"
+          onClick={(e) => e.target === e.currentTarget && setNoteFor(null)}
+        >
+          <div className="bulk-note-box">
+            <h3>📝 {noteLine.menu_item.name}</h3>
+            <input
+              autoFocus
+              value={noteLine.note}
+              onChange={(e) => setNote(noteFor, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') setNoteFor(null); }}
+              placeholder="vd: ít cay, không hành..."
+            />
+            <div className="bulk-note-actions">
+              {noteLine.note && (
+                <button type="button" className="secondary" onClick={() => setNote(noteFor, '')}>
+                  Xoá chữ
+                </button>
+              )}
+              <button type="button" className="bulk-note-done" onClick={() => setNoteFor(null)}>
+                Xong
               </button>
             </div>
           </div>
@@ -944,6 +1159,32 @@ function CartLineList({
               <span className="qty">{line.qty}</span>
               <button onClick={() => onUpdateQty(line.menu_item.id, +1)}>+</button>
             </div>
+            <div className="bulk-cart-note">
+              {editingNote === line.menu_item.id ? (
+                <input
+                  value={line.note}
+                  onChange={(e) => onSetNote(line.menu_item.id, e.target.value)}
+                  onBlur={onStopEditNote}
+                  autoFocus
+                  placeholder="vd: ít cay, không hành..."
+                />
+              ) : line.note ? (
+                <span
+                  className="bulk-cart-note-existing"
+                  onClick={() => onStartEditNote(line.menu_item.id)}
+                  style={{ cursor: 'pointer' }}
+                >
+                  📝 {line.note}
+                </span>
+              ) : (
+                <button
+                  className="bulk-cart-note-btn"
+                  onClick={() => onStartEditNote(line.menu_item.id)}
+                >
+                  + Ghi chú
+                </button>
+              )}
+            </div>
             <button
               className="bulk-clear"
               onClick={() => onRemove(line.menu_item.id)}
@@ -951,32 +1192,6 @@ function CartLineList({
             >
               🗑 Xoá
             </button>
-          </div>
-          <div className="bulk-cart-note">
-            {editingNote === line.menu_item.id ? (
-              <input
-                value={line.note}
-                onChange={(e) => onSetNote(line.menu_item.id, e.target.value)}
-                onBlur={onStopEditNote}
-                autoFocus
-                placeholder="vd: ít cay, không hành..."
-              />
-            ) : line.note ? (
-              <span
-                className="bulk-cart-note-existing"
-                onClick={() => onStartEditNote(line.menu_item.id)}
-                style={{ cursor: 'pointer' }}
-              >
-                📝 {line.note}
-              </span>
-            ) : (
-              <button
-                className="bulk-cart-note-btn"
-                onClick={() => onStartEditNote(line.menu_item.id)}
-              >
-                + Ghi chú
-              </button>
-            )}
           </div>
         </div>
       ))}

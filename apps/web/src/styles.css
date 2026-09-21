@@ -411,6 +411,25 @@ body.kds-mode .toast-banner.error {
 .modal-overlay > .modal.modal-flush {
   padding-left: 8px;
   padding-right: 8px;
+  /* Đệm TRÊN bỏ hẳn: đầu drawer là thanh `sticky`, mà `sticky` neo vào mép trong của khung
+     cuộn — còn đệm là thanh dính hụt xuống đúng bằng ngần ấy, món cuộn lên lòi ra phía trên.
+     Phần đệm đó chuyển vào trong chính thanh (.drawer-sticky-head). */
+  padding-top: 0;
+}
+
+/* Đầu drawer chi tiết bàn (tên bàn · tổng tiền · ⋯ · ✕) ĐỨNG YÊN khi cuộn danh sách món
+   (chủ quán 2026-09-21). Khung cuộn chính là cái `.modal`, nên `sticky` neo vào đỉnh khung
+   — `fixed` sẽ neo vào đỉnh MÀN HÌNH và lệch chỗ trên desktop. Lề âm để nền trắng ăn ra sát
+   mép, che hết phần đệm của `.modal-flush`; thiếu nó thì món cuộn lên sẽ lấp ló hai bên. */
+.drawer-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  background: white;
+  border-radius: 12px 12px 0 0;
+  margin: 0 -8px 12px;
+  padding: 16px 8px 10px;
+  border-bottom: 1px solid #e5e7eb;
 }
 
 /* Menu ⋯ ở header drawer — thả xuống ngay dưới nút, neo mép phải. */
@@ -560,6 +579,15 @@ body.kds-mode .toast-banner.error {
     padding-left: 24px;
     padding-right: 24px;
   }
+  /* Đệm ngang quay lại 24px thì lề âm của đầu drawer cũng phải theo, không thì nền trắng
+     hụt hai bên. */
+  .drawer-sticky-head {
+    margin-left: -24px;
+    margin-right: -24px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .modal-overlay > .modal.modal-flush { padding-top: 0; }
 }
 
 @keyframes fadeIn {
