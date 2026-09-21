@@ -380,6 +380,13 @@ body.kds-mode .toast-banner.error {
 .modal-overlay {
   position: fixed;
   inset: 0;
+  /* Safari iOS: `inset: 0` trên phần tử `fixed` tính theo khung nhìn LỚN — khung lúc thanh
+     địa chỉ đã thu lại — nên ĐÁY lớp phủ nằm khuất dưới thanh công cụ. Hộp thoại canh đáy
+     (`align-items: flex-end`) bị đẩy tụt theo, và phần trồi ra là ĐỈNH hộp: thanh header
+     dính vẫn dính, nhưng dính vào một chỗ đã nằm trên vùng nhìn thấy nên coi như biến mất.
+     `dvh` là khung nhìn THẬT lúc này; dòng `vh` ngay trên giữ cho máy cũ chưa hiểu dvh. */
+  height: 100vh;
+  height: 100dvh;
   background: rgba(0, 0, 0, 0.55);
   display: flex;
   align-items: flex-end;
@@ -395,6 +402,7 @@ body.kds-mode .toast-banner.error {
   border-radius: 12px 12px 0 0;
   padding: 24px;
   max-height: 90vh;
+  max-height: 90dvh;
   overflow-y: auto;
   animation: slideUp 0.2s ease-out;
 }
@@ -409,6 +417,12 @@ body.kds-mode .toast-banner.error {
    ngang so với 24px gốc — thừa sức cho hàng 4 nút của mỗi món nằm một dòng (đo ở máy 390px:
    hàng nút còn 334px, mỗi nút ~80px) — mà thẻ vẫn ra dáng thẻ. */
 .modal-overlay > .modal.modal-flush {
+  /* Chiều cao của drawer chi tiết bàn đặt Ở ĐÂY chứ không phải style inline trong
+     OrderDrawer: inline chỉ viết được MỘT giá trị, mà chỗ này cần hai dòng `vh` rồi `dvh`
+     (máy cũ ăn dòng đầu, máy hiểu dvh ăn dòng sau). Để inline `95vh` là trên iPhone hộp
+     cao hơn khung nhìn thật → đỉnh hộp trôi lên khỏi màn, mất luôn thanh header dính. */
+  max-height: 95vh;
+  max-height: 95dvh;
   padding-left: 8px;
   padding-right: 8px;
   /* Đệm TRÊN bỏ hẳn: đầu drawer là thanh `sticky`, mà `sticky` neo vào mép trong của khung

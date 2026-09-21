@@ -480,9 +480,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     )}
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div
+        /* maxHeight nằm trong CSS (.modal-flush) — cần hai dòng vh/dvh cho Safari iOS, style
+           inline không viết được hai dòng cùng tên. */
         className="modal modal-flush"
         style={{
-          maxHeight: '95vh',
           overflowY: 'auto',
           maxWidth: 640,
           width: '100%',
