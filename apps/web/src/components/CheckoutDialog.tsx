@@ -649,7 +649,10 @@ export function CheckoutDialog({
             className="secondary"
             onClick={goBack}
             disabled={submitting}
-            style={{ flex: 1, minHeight: 44 }}
+            /* Hẹp hơn nút chính (2:1) và KHÔNG xuống dòng: chữ nút chính dài nhất là "Xác nhận thu
+               tiền" — chia đôi đều thì nó gãy làm hai dòng trên điện thoại. Nút lùi chỉ là đường
+               thoát, nhường chỗ cho nút người ta thật sự bấm. */
+            style={{ flex: 1, minHeight: 44, whiteSpace: 'nowrap', padding: '0 8px' }}
           >
             {step === 'mode' ? 'Huỷ' : '← Quay lại'}
           </button>
@@ -668,8 +671,9 @@ export function CheckoutDialog({
             aria-disabled={!!blockReason}
             title={blockReason ?? undefined}
             style={{
-              flex: 1,
+              flex: 2,
               minHeight: 44,
+              whiteSpace: 'nowrap',
               opacity: blockReason ? 0.55 : 1,
               cursor: blockReason ? 'not-allowed' : 'pointer',
             }}
@@ -845,7 +849,7 @@ export function QrStep({
       )}
       {verify === 'paid' && (
         <div style={{ ...verifyLine, background: '#dcfce7', color: '#166534' }}>
-          ✅ Đã thanh toán thành công
+          Đã thanh toán thành công
         </div>
       )}
       {verify === 'timeout' && (
