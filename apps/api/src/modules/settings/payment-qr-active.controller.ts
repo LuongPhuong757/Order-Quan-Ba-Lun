@@ -57,6 +57,11 @@ export class PaymentQrActiveController {
           account_no: r.account_no,
           account_name: r.account_name,
           image_url: r.image_url,
+          // BẮT BUỘC phải có ở đây, không chỉ ở controller quản trị: màn thu tiền dựng nội dung
+          // CK ngay trên trình duyệt từ đúng danh sách này. Thiếu nó thì nội dung ra không có
+          // tiền tố ngân hàng đòi (vd SEVQR) và cổng đối soát KHÔNG THẤY giao dịch — mà màn hình
+          // vẫn hiện QR đẹp đẽ, không báo lỗi gì. Đã sót đúng một lần, 2026-09-22.
+          note_prefix: r.note_prefix,
           // Chỉ có nghĩa với `include_inactive=1`; đường gọi kia luôn nhận `true` nên không ai
           // phải đoán. Ô lọc dùng nó để gắn chữ "(ngừng dùng)" sau nhãn.
           is_active: r.is_active,
