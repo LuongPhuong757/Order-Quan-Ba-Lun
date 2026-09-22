@@ -60,6 +60,7 @@ export class PaymentsService {
       const account = await this.resolveAccount(input.accountId);
       existing.amount = input.amount;
       existing.qr_payload = account ? this.buildQr(account, input.amount, existing.code) : null;
+      existing.note = paymentNote(existing.code, account?.note_prefix);
       await this.intents.save(existing);
     }
     return existing;
@@ -98,6 +99,7 @@ export class PaymentsService {
         target_id: input.targetId,
         amount: input.amount,
         qr_payload: account ? this.buildQr(account, input.amount, code) : null,
+        note: paymentNote(code, account?.note_prefix),
         received_amount: 0,
         paid_at: null,
         needs_review: false,
@@ -139,7 +141,7 @@ export class PaymentsService {
       bankBin: account.bank_bin,
       accountNo: account.account_no,
       amount,
-      note: paymentNote(code),
+      note: paymentNote(code, account.note_prefix),
     });
   }
 

@@ -86,10 +86,10 @@ export function cashierTag(fullName: string | null | undefined, username?: strin
  * hệ thống, còn người thu thì đơn đã ghi `checked_out_by_full_name` rồi — tra ra được. Cắt ngược
  * lại thì dòng sao kê thành vô dụng.
  *
- * `code` (2026-09-22, khi nối webhook SePay) là mã đơn 6 chữ số. Nó đứng NGAY SAU mã bàn chứ không
- * ở cuối, và đó là quyết định của riêng thứ tự cắt: phần bị cắt luôn là phần đuôi, nên mã đặt cuối
- * sẽ là thứ đầu tiên mất khi tên người thu dài. Mã mất thì đối soát tự động mù, còn tên mất thì
- * vẫn tra được từ đơn — nên mã phải đứng trước tên.
+ * `code` (2026-09-22, khi nối webhook SePay) là mã đơn 6 chữ số, `notePrefix` là tiền tố ngân hàng
+ * bắt buộc (vd `SEVQR` của VietinBank). Cả hai đứng ĐẦU chuỗi, trước cả mã bàn — xem thứ tự ưu
+ * tiên trong thân hàm. Trước 2026-09-22 mã đơn nằm sau mã bàn; phải đổi khi phát hiện ngân hàng
+ * đòi tiền tố ở ĐẦU nội dung, và lúc đó giữ mã bàn ở trước mã đơn là đẩy mã đơn vào vùng bị cắt.
  *
  * Bỏ trống `code` là hành vi CŨ y nguyên ("BAN05 LUONG THUY"). Giữ nhánh đó vì đơn thu tay trước
  * khi có tính năng này vẫn phải dựng lại được nội dung y hệt lúc in ra.
@@ -98,11 +98,18 @@ export function buildTransferNote(
   table: { code: string; name?: string | null },
   cashier: { full_name?: string | null; username?: string | null },
   code?: string | null,
+  notePrefix?: string | null,
 ): string {
   const tag = tableTag(table.code, table.name);
   const who = cashierTag(cashier.full_name, cashier.username);
-  const pay = code ? paymentNote(code) : '';
-  const full = [tag, pay, who].filter(Boolean).join(' ').trim();
+  const pay = code ? paymentNote(code, notePrefix) : '';
+  // THỨ TỰ LÀ THỨ TỰ ƯU TIÊN, vì phần bị cắt luôn là đuôi. Xếp theo "mất cái này thì hỏng tới đâu":
+  //   ① tiền tố ngân hàng — thiếu là cổng KHÔNG THẤY giao dịch, hỏng toàn bộ;
+  //   ② mã đơn           — thiếu là không khớp tự động được, phải dò tay;
+  //   ③ mã bàn           — thiếu vẫn tra ra từ đơn, chỉ bất tiện khi đọc sao kê bằng mắt;
+  //   ④ tên người thu    — thiếu vẫn tra được từ `checked_out_by_full_name`.
+  // ① và ② dính liền nhau trong `pay` nên không bao giờ bị tách rời.
+  const full = [pay, tag, who].filter(Boolean).join(' ').trim();
   if (full.length <= TRANSFER_NOTE_MAX) return full;
   return full.slice(0, TRANSFER_NOTE_MAX).trim();
 }

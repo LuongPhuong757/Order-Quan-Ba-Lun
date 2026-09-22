@@ -10,7 +10,7 @@
 //    nội dung, tức mất gần hết cái lợi. Không nói ra thì chủ quán up 5 tấm ảnh rồi thắc mắc vì
 //    sao cuối ngày vẫn không đối soát nổi.
 import { useEffect, useRef, useState, FormEvent } from 'react';
-import { VIETQR_BANKS, validatePaymentQrDraft } from '@order/schemas';
+import { VIETQR_BANKS, suggestedNotePrefix, validatePaymentQrDraft } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { C } from '../lib/online-ui.ts';
@@ -27,6 +27,7 @@ type QrRow = {
   bank_name: string | null;
   account_no: string | null;
   account_name: string | null;
+  note_prefix: string | null;
   image_url: string | null;
   sort_order: number;
   is_active: boolean;
@@ -47,6 +48,7 @@ const EMPTY_FORM = {
   bank_name: '',
   account_no: '',
   account_name: '',
+  note_prefix: '',
   image_url: '',
 };
 
@@ -56,6 +58,8 @@ export function PaymentQrPanel() {
   const [items, setItems] = useState<QrRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  /** BIN đang chọn trong form — dùng để gợi ý tiền tố bắt buộc NGAY LÚC GÕ, không phải chờ lưu. */
+  const binNow = form.bank_choice === OTHER_BANK ? form.bank_bin.trim() : form.bank_choice;
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -93,6 +97,7 @@ export function PaymentQrPanel() {
       bank_name: known ? '' : (row.bank_name ?? ''),
       account_no: row.account_no ?? '',
       account_name: row.account_name ?? '',
+      note_prefix: row.note_prefix ?? '',
       image_url: row.image_url ?? '',
     });
     // Người dùng bấm "Sửa" ở cuối danh sách dài — không kéo lên thì họ tưởng nút không ăn.
@@ -130,6 +135,7 @@ export function PaymentQrPanel() {
       bank_name: form.kind === 'BANK' && form.bank_choice === OTHER_BANK ? form.bank_name.trim() : null,
       account_no: form.kind === 'BANK' ? form.account_no.trim() : null,
       account_name: form.kind === 'BANK' ? form.account_name.trim() : null,
+      note_prefix: form.note_prefix.trim().toUpperCase() || null,
       image_url: form.kind === 'IMAGE' ? form.image_url : null,
     };
 
@@ -304,6 +310,43 @@ export function PaymentQrPanel() {
                 />
                 <small style={{ color: C.muted }}>Khách nhìn tên này để biết chuyển đúng người.</small>
               </div>
+
+              <div>
+                <label htmlFor="qr-note-prefix">Tiền tố nội dung (nếu ngân hàng bắt buộc)</label>
+                <input
+                  id="qr-note-prefix"
+                  value={form.note_prefix}
+                  maxLength={8}
+                  placeholder={suggestedNotePrefix(binNow) ?? 'để trống nếu không bắt buộc'}
+                  onChange={(e) =>
+                    setForm((f) => ({ ...f, note_prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }))
+                  }
+                />
+                {/* Đây KHÔNG phải quy ước của quán mà là điều kiện để cổng đối soát nhìn thấy
+                    giao dịch. Thiếu nó thì tiền vẫn về tài khoản thật, nhưng app không bao giờ
+                    biết — và không có lỗi nào hiện ra ở đâu cả. Đã mất một buổi vì chuyện này. */}
+                {suggestedNotePrefix(binNow) && form.note_prefix !== suggestedNotePrefix(binNow) ? (
+                  <small style={{ color: '#b45309' }}>
+                    Ngân hàng này yêu cầu <strong>{suggestedNotePrefix(binNow)}</strong> ở đầu nội
+                    dung, nếu không SePay sẽ không nhận được báo có.{' '}
+                    <button
+                      type="button"
+                      className="secondary"
+                      style={{ padding: '2px 8px', fontSize: 12 }}
+                      onClick={() =>
+                        setForm((f) => ({ ...f, note_prefix: suggestedNotePrefix(binNow) ?? '' }))
+                      }
+                    >
+                      Điền giúp
+                    </button>
+                  </small>
+                ) : (
+                  <small style={{ color: C.muted }}>
+                    Bỏ trống nếu ngân hàng không đòi. Mỗi ký tự ở đây ăn vào giới hạn 25 ký tự của
+                    nội dung.
+                  </small>
+                )}
+              </div>
             </div>
 
             <div
@@ -476,6 +519,7 @@ function rowToBody(row: QrRow) {
     label: row.label,
     kind: row.kind,
     bank_bin: row.bank_bin,
+    note_prefix: row.note_prefix,
     bank_name: row.bank_name,
     account_no: row.account_no,
     account_name: row.account_name,

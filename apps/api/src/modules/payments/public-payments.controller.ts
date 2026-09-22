@@ -122,7 +122,7 @@ export class PublicPaymentsController {
 function toState(i: PaymentIntent): PublicPaymentState {
   return {
     code: i.code,
-    note: paymentNote(i.code),
+    note: i.note ?? paymentNote(i.code),
     amount: i.amount,
     qr_payload: i.qr_payload,
     expires_at: i.expires_at,

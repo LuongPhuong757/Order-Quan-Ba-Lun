@@ -73,6 +73,7 @@ class CreatePaymentQrDto {
   @IsOptional() @IsString() @MaxLength(32) account_no?: string | null;
   @IsOptional() @IsString() @MaxLength(128) account_name?: string | null;
   @IsOptional() @IsString() @MaxLength(255) image_url?: string | null;
+  @IsOptional() @IsString() @MaxLength(8) note_prefix?: string | null;
   @IsOptional() @IsInt() @Min(0) sort_order?: number;
 }
 
@@ -186,6 +187,9 @@ function normalize(dto: CreatePaymentQrDto) {
     account_no: isBank ? dto.account_no?.trim() || null : null,
     account_name: isBank ? dto.account_name?.trim() || null : null,
     image_url: isBank ? null : dto.image_url?.trim() || null,
+    // Chữ IN luôn: ngân hàng kiểm "nội dung bắt đầu bằng SEVQR" và nội dung CK vốn đã bị ép hoa
+    // ở `toAsciiUpper`. Để người dùng gõ "sevqr" rồi im lặng không khớp là cái bẫy không đáng có.
+    note_prefix: dto.note_prefix?.trim().toUpperCase() || null,
   };
 }
 
@@ -210,6 +214,7 @@ function toPublic(row: PaymentQrAccount) {
     account_no: row.account_no,
     account_name: row.account_name,
     image_url: row.image_url,
+    note_prefix: row.note_prefix,
     sort_order: row.sort_order,
     is_active: row.is_active,
     updated_at: Number(row.updated_at),

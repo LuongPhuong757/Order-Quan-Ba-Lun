@@ -69,6 +69,17 @@ export class PaymentQrAccount {
   @Column({ type: 'varchar', length: 255, nullable: true })
   image_url!: string | null;
 
+  /** Tiền tố BẮT BUỘC ở đầu nội dung chuyển khoản, do NGÂN HÀNG/cổng đòi chứ không phải quy ước
+   *  của quán (2026-09-22).
+   *
+   *  VietinBank cá nhân nối qua SePay: thiếu `SEVQR` ở đầu nội dung thì SePay KHÔNG nhận được
+   *  biến động số dư — tiền về tài khoản thật nhưng app không bao giờ biết, và không có lỗi nào
+   *  hiện ra ở đâu cả. Đã gặp thật khi chạy thử.
+   *
+   *  NULL = ngân hàng không đòi gì. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  note_prefix!: string | null;
+
   /** Thứ tự hiện trong hộp thoại thu tiền. Chủ quán xếp mã hay dùng lên đầu để người thu bấm
    *  một nhát là xong. */
   @Column({ type: 'int', default: 0 })

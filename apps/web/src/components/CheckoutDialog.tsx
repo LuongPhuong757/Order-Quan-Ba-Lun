@@ -26,6 +26,9 @@ type QrOption = {
   account_no: string | null;
   account_name: string | null;
   image_url: string | null;
+  /** Tiền tố ngân hàng đòi ở đầu nội dung CK (vd `SEVQR`). Thiếu nó thì cổng đối soát KHÔNG
+   *  nhìn thấy giao dịch — xem `payment-code.ts`. */
+  note_prefix: string | null;
 };
 
 type ItemLike = {
@@ -153,7 +156,12 @@ export function CheckoutDialog({
    * còn hơn chặn một lần thu tiền — xem nguyên tắc ở đầu tệp.
    */
   const [payCode, setPayCode] = useState<string | null>(null);
-  const note = useMemo(() => buildTransferNote(table, cashier, payCode), [table, cashier, payCode]);
+  // `picked?.note_prefix` nằm trong deps: đổi mã QR là đổi ngân hàng, mà tiền tố bắt buộc thuộc
+  // về ngân hàng — không tính lại thì nội dung mang tiền tố của tài khoản vừa bỏ chọn.
+  const note = useMemo(
+    () => buildTransferNote(table, cashier, payCode, picked?.note_prefix),
+    [table, cashier, payCode, picked?.note_prefix],
+  );
 
   useEffect(() => {
     if (mode === 'CASH' || mode === null) return;

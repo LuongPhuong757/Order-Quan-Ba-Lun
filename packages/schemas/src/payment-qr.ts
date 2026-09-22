@@ -52,7 +52,14 @@ export type PaymentQrDraft = {
   account_no?: string | null;
   account_name?: string | null;
   image_url?: string | null;
+  /** Tiền tố ngân hàng BẮT BUỘC ở đầu nội dung CK (vd `SEVQR` với VietinBank cá nhân qua SePay).
+   *  Rỗng = ngân hàng không đòi gì. Xem `suggestedNotePrefix` ở `payment-code.ts`. */
+  note_prefix?: string | null;
 };
+
+/** Tiền tố chỉ được là CHỮ IN và SỐ: nó nằm trong trường 62.08 vốn chỉ nhận ASCII, và khoảng
+ *  trắng trong tiền tố sẽ làm hỏng phép "bắt đầu bằng" mà ngân hàng kiểm. */
+export const NOTE_PREFIX_RE = /^[A-Z0-9]{1,8}$/;
 
 /**
  * Trả về câu lỗi tiếng Việt đầu tiên, hoặc `null` nếu hợp lệ.
@@ -68,6 +75,10 @@ export type PaymentQrDraft = {
 export function validatePaymentQrDraft(draft: PaymentQrDraft): string | null {
   if (!draft.label || !draft.label.trim()) {
     return 'Phải đặt tên cho mã QR để người thu tiền biết đang chọn cái nào';
+  }
+  const prefix = (draft.note_prefix ?? '').trim();
+  if (prefix && !NOTE_PREFIX_RE.test(prefix.toUpperCase())) {
+    return 'Tiền tố nội dung chỉ gồm chữ và số, tối đa 8 ký tự (vd SEVQR)';
   }
   if (draft.kind === 'BANK') {
     if (!draft.bank_bin || !VIETQR_BIN_RE.test(draft.bank_bin)) {

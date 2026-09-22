@@ -58,13 +58,43 @@ export function extractPaymentCode(content: string): string | null {
   return re.exec(content ?? '')?.[1] ?? null;
 }
 
-/** Ghép mã thành đoạn in lên QR: `DH123456`. Ném nếu mã sai khuôn — thà chết ở chỗ sinh mã còn
- *  hơn in ra một QR mà không webhook nào khớp lại được. */
-export function paymentNote(code: string): string {
+/** Trần độ dài tiền tố bắt buộc của ngân hàng. Mỗi ký tự ở đây ăn vào 25 ký tự của trường 62.08,
+ *  nên tiền tố dài là trực tiếp cắt mất tên người thu. `SEVQR` (dài nhất đang biết) là 5. */
+export const NOTE_PREFIX_MAX = 8;
+
+/**
+ * Tiền tố mà ngân hàng BẮT BUỘC phải có ở ĐẦU nội dung, tra theo mã BIN.
+ *
+ * Đây không phải quy ước của quán mà là điều kiện để cổng trung gian NHÌN THẤY giao dịch. Với
+ * VietinBank cá nhân nối qua API, tài liệu SePay ghi: "bắt buộc mọi giao dịch có nội dung thanh
+ * toán phải bắt đầu bằng từ khóa SEVQR". Thiếu nó thì tiền về tài khoản thật nhưng SePay không
+ * nhận được biến động — app không bao giờ biết, và không có lỗi nào hiện ra ở đâu cả.
+ *
+ * Đã gặp thật 2026-09-22: chuyển 3.000đ vào VietinBank với nội dung "BAN01 DH860224 QUA TEST",
+ * webhook im lặng tuyệt đối.
+ *
+ * Trả `null` = ngân hàng không đòi tiền tố nào. Chủ quán vẫn GÕ ĐÈ được ở màn Cài đặt — bảng tra
+ * này chỉ là gợi ý mặc định, vì danh sách ngân hàng và luật của cổng đều đổi theo thời gian.
+ */
+export function suggestedNotePrefix(bankBin: string | null | undefined): string | null {
+  if (bankBin === '970415') return 'SEVQR'; // VietinBank
+  return null;
+}
+
+/**
+ * Ghép đoạn in lên QR: `DH123456`, hoặc `SEVQR DH123456` khi ngân hàng đòi tiền tố.
+ *
+ * Tiền tố đứng TRƯỚC mã đơn vì ngân hàng đòi nó ở ĐẦU nội dung — không phải đâu đó trong chuỗi.
+ *
+ * Ném nếu mã sai khuôn: thà chết ở chỗ sinh mã còn hơn in ra một QR mà không webhook nào khớp lại
+ * được.
+ */
+export function paymentNote(code: string, prefix?: string | null): string {
   if (!isValidPaymentCode(code)) {
     throw new Error(`Mã thanh toán phải là ${PAYMENT_CODE_DIGITS} chữ số, nhận được "${code}"`);
   }
-  return `${PAYMENT_CODE_PREFIX}${code}`;
+  const head = (prefix ?? '').trim().toUpperCase();
+  return head ? `${head} ${PAYMENT_CODE_PREFIX}${code}` : `${PAYMENT_CODE_PREFIX}${code}`;
 }
 
 export function isValidPaymentCode(code: string): boolean {

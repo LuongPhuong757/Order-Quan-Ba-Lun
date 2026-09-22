@@ -12,6 +12,7 @@ import {
   extractPaymentCode,
   isValidPaymentCode,
   paymentNote,
+  suggestedNotePrefix,
 } from '@order/schemas';
 
 describe('extractPaymentCode', () => {
@@ -80,9 +81,9 @@ describe('isValidPaymentCode', () => {
 describe('buildTransferNote kèm mã đơn', () => {
   const table = { code: 'B05', name: 'Bàn 5' };
 
-  it('mã đứng ngay sau mã bàn, trước tên người thu', () => {
+  it('mã đơn đứng ĐẦU, rồi mới tới mã bàn và tên người thu', () => {
     const note = buildTransferNote(table, { full_name: 'Lương Thị Thuý' }, '123456');
-    expect(note).toBe('BAN05 DH123456 LUONG THUY');
+    expect(note).toBe('DH123456 BAN05 LUONG THUY');
     expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
   });
 
@@ -92,11 +93,44 @@ describe('buildTransferNote kèm mã đơn', () => {
     const note = buildTransferNote(table, { full_name: 'Nguyễn Trần Hoàng Minh Nguyệt' }, '987654');
     expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
     expect(extractPaymentCode(note)).toBe('987654');
-    expect(note.startsWith('BAN05 DH987654')).toBe(true);
+    expect(note.startsWith('DH987654 BAN05')).toBe(true);
   });
 
   it('không truyền mã thì giữ nguyên hành vi cũ', () => {
     // Đơn thu tay trước tính năng này phải dựng lại được nội dung y hệt lúc in ra.
     expect(buildTransferNote(table, { full_name: 'Lương Thị Thuý' })).toBe('BAN05 LUONG THUY');
+  });
+});
+
+describe('tiền tố bắt buộc của ngân hàng', () => {
+  const table = { code: 'B01', name: 'Bàn 1' };
+
+  it('VietinBank đòi SEVQR', () => {
+    // Không phải quy ước của quán: tài liệu SePay ghi rõ mọi giao dịch VietinBank cá nhân phải
+    // bắt đầu bằng SEVQR, nếu không họ KHÔNG nhận được biến động số dư.
+    expect(suggestedNotePrefix('970415')).toBe('SEVQR');
+  });
+
+  it('ngân hàng khác không đòi gì', () => {
+    expect(suggestedNotePrefix('970436')).toBeNull(); // Vietcombank
+    expect(suggestedNotePrefix(null)).toBeNull();
+  });
+
+  it('tiền tố nằm ở ĐẦU chuỗi — ngân hàng kiểm "bắt đầu bằng", không phải "có chứa"', () => {
+    const note = buildTransferNote(table, { full_name: 'Quản Trị' }, '860224', 'SEVQR');
+    expect(note.startsWith('SEVQR ')).toBe(true);
+    expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
+  });
+
+  it('chật chỗ thì hy sinh TÊN, giữ trọn tiền tố và mã đơn', () => {
+    const note = buildTransferNote(table, { full_name: 'Nguyễn Trần Hoàng Minh Nguyệt' }, '860224', 'SEVQR');
+    expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
+    expect(note.startsWith('SEVQR DH860224')).toBe(true);
+    expect(extractPaymentCode(note)).toBe('860224');
+  });
+
+  it('paymentNote ghép tiền tố, và bóc lại vẫn ra đúng mã', () => {
+    expect(paymentNote('860224', 'SEVQR')).toBe('SEVQR DH860224');
+    expect(extractPaymentCode(paymentNote('860224', 'SEVQR'))).toBe('860224');
   });
 });

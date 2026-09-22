@@ -49,6 +49,14 @@ export class PaymentIntent {
   @Column({ type: 'text', nullable: true })
   qr_payload!: string | null;
 
+  /** SNAPSHOT nội dung CK đã in lên QR, vd `SEVQR DH860224`.
+   *
+   *  Lưu chứ không dựng lại từ `code`: nội dung phụ thuộc TIỀN TỐ của tài khoản nhận, mà tiền tố
+   *  đó chủ quán sửa được ở màn Cài đặt. Dựng lại sau khi họ sửa sẽ ra một chuỗi KHÁC với chuỗi
+   *  khách đang cầm trong app ngân hàng — cùng lý do `payment_qr_label` được snapshot ở `orders`. */
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  note!: string | null;
+
   /** Tổng đã nhận, CỘNG DỒN. Khách chuyển thiếu rồi bù là chuyện có thật. */
   @Column({ type: 'int', unsigned: true, default: 0 })
   received_amount!: number;

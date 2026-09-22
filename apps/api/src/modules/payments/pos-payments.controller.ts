@@ -61,6 +61,6 @@ export class PosPaymentsController {
       amount,
       accountId: body?.account_id ?? null,
     });
-    return apiOk({ code: intent.code, note: paymentNote(intent.code) });
+    return apiOk({ code: intent.code, note: intent.note ?? paymentNote(intent.code) });
   }
 }

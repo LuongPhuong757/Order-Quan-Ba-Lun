@@ -75,10 +75,32 @@ không sửa được tiền trên đơn.
 Ngoại lệ **duy nhất**: đơn online trả trước — đủ tiền thì `online_order_requests.paid_at` được ghi,
 vì đó chính là mục đích của luồng đó.
 
+## ⚠ Tiền tố bắt buộc của ngân hàng (SEVQR)
+
+Một số ngân hàng chỉ đẩy biến động số dư sang SePay khi nội dung chuyển khoản **bắt đầu bằng** một
+từ khoá của họ. Tài liệu SePay, mục VietinBank cá nhân:
+
+> *"Để SePay có thể nhận thông báo biến động số dư từ giao dịch của VietinBank, bắt buộc mọi giao
+> dịch có nội dung thanh toán phải bắt đầu bằng từ khóa **SEVQR**."*
+
+Thiếu nó thì **tiền vẫn về tài khoản thật, nhưng SePay không thấy gì** — không webhook, không lỗi,
+không dấu vết ở đâu cả. Đã mất một buổi vì chuyện này khi chạy thử 2026-09-22.
+
+Khai ở **Cài đặt → Mã QR nhận tiền → ô "Tiền tố nội dung"**. Màn này tự gợi ý và có nút *Điền giúp*
+cho ngân hàng đã biết (hiện mới VietinBank — bảng tra ở `suggestedNotePrefix`, thêm ngân hàng mới
+thì sửa đúng một chỗ đó).
+
 ## Nội dung chuyển khoản
 
-`BAN05 DH123456 LUONG THUY` — mã đơn 6 số đứng **ngay sau mã bàn**, trước tên người thu. Trần của
-trường 62.08 (EMVCo) là 25 ký tự và phần bị cắt luôn là đuôi, nên đặt mã ở cuối thì nó mất trước.
+`SEVQR DH123456 BAN05 THUY` — thứ tự **là thứ tự ưu tiên**, vì trần 25 ký tự của trường 62.08
+(EMVCo) cắt từ đuôi:
+
+| Thứ tự | Phần | Mất thì sao |
+|---|---|---|
+| ① | tiền tố ngân hàng | cổng **không thấy** giao dịch — hỏng toàn bộ |
+| ② | mã đơn `DHxxxxxx` | không khớp tự động được, phải dò tay |
+| ③ | mã bàn | vẫn tra ra từ đơn, chỉ bất tiện khi đọc sao kê |
+| ④ | tên người thu | vẫn tra được từ `checked_out_by_full_name` |
 
 Khách **sửa được** nội dung trước khi bấm chuyển. Mã là công cụ trợ giúp, **không phải bằng
 chứng** — mất mã thì đơn rơi về đối soát tay, ảnh bill vẫn còn đó.
@@ -102,4 +124,4 @@ Theo đúng thứ tự này:
 | Mọi webhook bị từ chối, log ghi "thiếu SEPAY_WEBHOOK_KEY" | Chưa khai biến trong container |
 | Tiền về nhưng nằm ở nhóm "tiền lạ" | Khách sửa/xoá nội dung CK — đối soát tay bằng ảnh bill |
 | Giờ giao dịch lệch 7 tiếng | Ai đó bỏ mất `+07:00` trong `parseVnTime` |
-| `bank_transactions` trống dù đã chuyển tiền | Kiểm fail2ban đã ban IP SePay chưa |
+| `bank_transactions` trống dù đã chuyển tiền | ① thiếu tiền tố bắt buộc (SEVQR) ở đầu nội dung — kiểm nhật ký tunnel/webhook xem SePay có gọi tới không; ② fail2ban đã ban IP SePay |
