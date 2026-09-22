@@ -250,9 +250,15 @@ export function CheckoutDialog({
   const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
 
   useEffect(() => {
-    // Chưa xin được mã thì KHÔNG có gì để hỏi — để nút đi tiếp tự do, y như trước khi có tính
-    // năng này. Khoá nút 30 giây vì một mã không tồn tại là phạt người thu vì lỗi của mạng.
-    if (step !== 'qr' || !payCode) return;
+    // BA điều kiện, thiếu một là KHÔNG xoay:
+    //
+    //  · đang ở màn QR;
+    //  · ĐÃ CHỌN MÃ QR — chưa chọn thì chưa có gì để khách quét, nên chưa thể có đồng nào về.
+    //    Xoay lúc đó là bắt người thu nhìn máy "đang xác thực" một giao dịch không tồn tại, và
+    //    tệ hơn: đốt mất trần 30 giây trước khi khách kịp nhìn thấy mã;
+    //  · đã xin được mã đơn — không có mã thì không có gì để hỏi ngân hàng. Khoá nút 30 giây vì
+    //    một mã không tồn tại là phạt người thu vì lỗi của mạng.
+    if (step !== 'qr' || !picked || !payCode) return;
 
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -285,7 +291,10 @@ export function CheckoutDialog({
       clearTimeout(timer);
     };
     // `verify` CỐ Ý không nằm trong deps: nó do chính effect này đặt, thêm vào là vòng lặp vô tận.
-  }, [step, payCode]);
+    //
+    // `picked?.id` thì CÓ: đổi mã QR là đổi tài khoản nhận, tức một lần thu khác — đồng hồ phải
+    // chạy lại từ đầu chứ không tiếp tục đếm phần còn lại của lần trước.
+  }, [step, picked?.id, payCode]);
 
   // Vẽ QR mỗi khi mã hoặc SỐ TIỀN đổi — số tiền nằm trong mã, nên sửa số mà không vẽ lại là chìa
   // cho khách một mã mang con số cũ.
