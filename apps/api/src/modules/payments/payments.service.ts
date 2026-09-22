@@ -25,6 +25,41 @@ export class PaymentsService {
   ) {}
 
   /**
+   * Tìm mã đang có của đơn, hoặc tạo mới — ĐƯỜNG VÀO DUY NHẤT cho cả hai luồng.
+   *
+   * MỘT ĐƠN MỘT MÃ, và mã không bao giờ đổi. Khách F5 trang QR, hoặc người thu quay lại màn QR
+   * lần nữa, mà sinh mã mới thì mã cũ đã nằm trong app ngân hàng của khách trở thành mồ côi: tiền
+   * về mang mã không còn ai nhận.
+   *
+   * Nhưng SỐ TIỀN thì cập nhật, vì người thu sửa được số chuyển khoản sau khi đã mở màn QR. Số
+   * tiền cũ nằm lại thì phép so "đã đủ chưa" chạy trên một con số không còn đúng.
+   *
+   * ĐÃ TRẢ RỒI thì không đụng gì nữa: đổi số tiền của một mã đã thanh toán là viết lại lịch sử,
+   * và `paid_at` vốn là mốc một chiều.
+   */
+  async ensureIntent(input: {
+    targetType: 'ONLINE' | 'POS';
+    targetId: string;
+    amount: number;
+    accountId?: string | null;
+  }): Promise<PaymentIntent> {
+    const existing = await this.intents.findOne({
+      where: { target_type: input.targetType, target_id: input.targetId },
+      order: { created_at: 'DESC' },
+    });
+    if (!existing) return this.createIntent(input);
+    if (existing.paid_at) return existing;
+
+    if (existing.amount !== input.amount) {
+      const account = await this.resolveAccount(input.accountId);
+      existing.amount = input.amount;
+      existing.qr_payload = account ? this.buildQr(account, input.amount, existing.code) : null;
+      await this.intents.save(existing);
+    }
+    return existing;
+  }
+
+  /**
    * Tạo mã thanh toán + chuỗi QR cho một đơn.
    *
    * `amount` do NGƯỜI GỌI Ở PHÍA SERVER tính (từ `order_items`/`subtotal`), không bao giờ nhận từ

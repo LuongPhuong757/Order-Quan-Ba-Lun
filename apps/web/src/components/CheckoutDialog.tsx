@@ -144,7 +144,16 @@ export function CheckoutDialog({
   //  Hỏi theo MÀN ĐANG ĐỨNG: đứng ở màn 1 mà nút mờ vì "chưa chọn mã QR" là chỉ sang một màn
   //  người ta chưa được thấy. Màn cuối vẫn kiểm trọn bộ — xem `stepBlockReason`.
   const blockReason = stepBlockReason(step, { mode, hasPickedQr: !!picked, transferAmount });
-  const note = useMemo(() => buildTransferNote(table, cashier), [table, cashier]);
+
+  /**
+   * Mã đơn 6 số để ngân hàng báo về khớp được đúng lần thu này (2026-09-22).
+   *
+   * `null` = chưa xin được, và đó là trạng thái HỢP LỆ chứ không phải lỗi: nội dung CK lùi về bản
+   * cũ ("BAN05 LUONG THUY") và đơn này phải đối soát bằng tay. Mất đối soát tự động cho một đơn
+   * còn hơn chặn một lần thu tiền — xem nguyên tắc ở đầu tệp.
+   */
+  const [payCode, setPayCode] = useState<string | null>(null);
+  const note = useMemo(() => buildTransferNote(table, cashier, payCode), [table, cashier, payCode]);
 
   useEffect(() => {
     if (mode === 'CASH' || mode === null) return;
@@ -165,6 +174,38 @@ export function CheckoutDialog({
       alive = false;
     };
   }, [mode]);
+
+  /**
+   * Xin mã đơn khi đã chọn chuyển khoản và có số tiền.
+   *
+   * HOÃN 400ms: `transferAmount` đổi theo từng phím người thu gõ, và mỗi lần đổi là một lượt ghi
+   * DB. Hoãn cũng để mã chỉ được xin khi con số đã đứng yên — xin theo từng phím thì bản ghi mang
+   * số dở dang ("25" trên đường tới "250000").
+   *
+   * KHÔNG bao giờ báo lỗi ra màn: hỏng thì `payCode` giữ `null`, nội dung CK lùi về bản cũ, người
+   * thu không cần biết và cũng không làm gì được với thông tin đó giữa lúc khách đứng đợi.
+   */
+  useEffect(() => {
+    if (mode === 'CASH' || mode === null || transferAmount <= 0) {
+      setPayCode(null);
+      return;
+    }
+    let alive = true;
+    const timer = setTimeout(() => {
+      api
+        .post<{ data: { code: string } }>('/payments/intent', {
+          order_id: orderId,
+          amount: transferAmount,
+          account_id: picked?.id ?? null,
+        })
+        .then((res) => alive && setPayCode(res.data.data.code))
+        .catch(() => alive && setPayCode(null));
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [mode, orderId, transferAmount, picked?.id]);
 
   // Vẽ QR mỗi khi mã hoặc SỐ TIỀN đổi — số tiền nằm trong mã, nên sửa số mà không vẽ lại là chìa
   // cho khách một mã mang con số cũ.

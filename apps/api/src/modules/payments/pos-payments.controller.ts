@@ -55,7 +55,7 @@ export class PosPaymentsController {
       });
     }
 
-    const intent = await this.payments.createIntent({
+    const intent = await this.payments.ensureIntent({
       targetType: 'POS',
       targetId: orderId,
       amount,

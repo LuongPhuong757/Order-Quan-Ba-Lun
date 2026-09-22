@@ -75,11 +75,8 @@ export class PublicPaymentsController {
       });
     }
 
-    const existing = await this.findIntent(req.id);
-    if (existing) return apiOk(toState(existing));
-
     const amount = await this.amountToPay(req);
-    const intent = await this.payments.createIntent({
+    const intent = await this.payments.ensureIntent({
       targetType: 'ONLINE',
       targetId: req.id,
       amount,

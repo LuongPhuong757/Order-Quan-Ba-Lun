@@ -10,7 +10,12 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
-import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
+import {
+  BankReconcileBox,
+  PaymentMethodBadge,
+  PaymentPhotos,
+  PaymentSummaryBox,
+} from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
   historyQuery,
@@ -975,6 +980,16 @@ export function HistoryPage() {
               nhân viên không thấy một khối luôn báo lỗi. */}
           {canSeeReconcile && (
             <PaymentSummaryBox
+              query={historyQuery(filters, { cashier: true }).toString()}
+              filterKey={filterKey}
+            />
+          )}
+
+          {/* Đối chiếu với ngân hàng (2026-09-22) — khối duy nhất trên màn này nói bằng dữ liệu
+              từ phía ngân hàng. Đặt NGAY DƯỚI khối trên vì nó trả lời tiếp đúng câu hỏi mà khối
+              trên mở ra: "phải về bấy nhiêu" → "đã về chưa". */}
+          {canSeeReconcile && (
+            <BankReconcileBox
               query={historyQuery(filters, { cashier: true }).toString()}
               filterKey={filterKey}
             />

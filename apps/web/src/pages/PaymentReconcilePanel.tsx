@@ -6,6 +6,7 @@
 //
 // `PaymentPhotos` — ảnh bill khách đưa. Tải TRỄ, chỉ khi người ta mở chi tiết một đơn: kéo ảnh
 // của cả trang danh sách là hàng chục tấm không ai nhìn.
+import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 
@@ -122,9 +123,9 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
       </div>
 
       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10 }}>
-        Số chuyển khoản ở đây là <strong>số nhân viên đã ghi nhận</strong>, không phải số ngân hàng
-        xác nhận — app không đọc được sao kê. Dò lại bằng nội dung chuyển khoản và ảnh bill trong
-        từng đơn.
+        Số chuyển khoản ở đây là <strong>số nhân viên đã ghi nhận</strong>. Ngân hàng có xác nhận
+        hay không nằm ở khối <strong>“Ngân hàng đã báo về”</strong> ngay dưới — và khối đó chỉ biết
+        về tài khoản đã nối với SePay, các tài khoản còn lại vẫn phải dò tay bằng ảnh bill.
       </div>
     </div>
     </div>
@@ -139,6 +140,143 @@ function Tile({ label, value, color }: { label: string; value: string; color: st
     </div>
   );
 }
+
+type Reconcile = {
+  confirmed: number;
+  pending: Array<{ code: string; target_type: string; target_id: string; amount: number; received: number }>;
+  unknown: Array<{ amount: number; content: string; occurred_at: number; account_no: string | null }>;
+};
+
+/**
+ * "Ngân hàng đã báo về chưa" (2026-09-22) — khối DUY NHẤT trên màn này nói bằng dữ liệu từ phía
+ * ngân hàng, mọi con số còn lại đều là thứ người trong quán tự ghi.
+ *
+ * Bày đúng hai danh sách, và thứ tự là cố ý:
+ *  1. **chưa thấy tiền** — câu hỏi khiến chủ quán mở màn này ra;
+ *  2. **tiền lạ** — tiền về mà không mang mã đơn nào (khách xoá nội dung, chuyển nhầm, hoặc tiền
+ *     riêng của chủ vào cùng tài khoản).
+ *
+ * KHÔNG có nút nào sửa đơn ở đây, và đó là chủ ý (chủ quán chốt 2026-09-21: máy chỉ gắn cờ,
+ * người quyết). Khối này trả lời, không hành động.
+ */
+export function BankReconcileBox({ query, filterKey }: { query: string; filterKey: string }) {
+  const [data, setData] = useState<Reconcile | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Mặc định ĐÓNG, cùng nếp với khối đối soát ngay trên: đây là tiền của cả ca.
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    const p = new URLSearchParams(query);
+    const range = new URLSearchParams();
+    // Chỉ lấy đúng hai tham số khoảng thời gian: các bộ lọc khác của màn Lịch sử (bàn, nhân viên)
+    // không có nghĩa với bảng mã thanh toán, gửi kèm chỉ khiến BE phải biết về chúng.
+    if (p.get('from')) range.set('from', p.get('from')!);
+    if (p.get('to')) range.set('to', p.get('to')!);
+    api
+      .get<{ data: Reconcile }>(`/payments/reconcile?${range.toString()}`)
+      .then((res) => alive && (setData(res.data.data), setFailed(false)))
+      .catch(() => alive && setFailed(true));
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterKey, open]);
+
+  const toggle = (
+    <button
+      className="secondary"
+      onClick={() => setOpen((v) => !v)}
+      style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13 }}
+    >
+      {open ? '▲ Ẩn đối chiếu ngân hàng' : '▼ Ngân hàng đã báo về'}
+    </button>
+  );
+
+  if (!open) return <div style={{ marginBottom: 16 }}>{toggle}</div>;
+
+  if (failed || !data) {
+    return (
+      <div style={{ marginBottom: 16 }}>
+        {toggle}
+        <div style={{ fontSize: 13, color: '#6b7280' }}>
+          {failed ? 'Không tải được đối chiếu ngân hàng.' : 'Đang tải…'}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {toggle}
+      <div className="card" style={{ padding: 14, borderLeft: '4px solid #15803d' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ngân hàng đã báo về</div>
+
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+          <Tile label="✅ Đã thấy tiền về" value={String(data.confirmed)} color="#15803d" />
+          <Tile label="🔴 Chưa thấy tiền" value={String(data.pending.length)} color="#b91c1c" />
+          <Tile label="❓ Tiền lạ" value={String(data.unknown.length)} color="#b45309" />
+        </div>
+
+        {data.pending.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>
+              Đã chìa mã QR nhưng chưa thấy tiền
+            </div>
+            {data.pending.map((p) => (
+              <div key={p.code} style={rowStyle}>
+                <span>
+                  <strong>DH{p.code}</strong>{' '}
+                  <span style={{ color: '#9ca3af' }}>
+                    {p.target_type === 'ONLINE' ? 'đơn online' : 'tại quán'}
+                  </span>
+                </span>
+                <strong style={{ color: '#b91c1c' }}>
+                  {p.received > 0 ? `${fmt(p.received)} / ${fmt(p.amount)}` : fmt(p.amount)}
+                </strong>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {data.unknown.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>
+              Tiền về không mang mã đơn
+            </div>
+            {data.unknown.map((u, i) => (
+              <div key={`${u.occurred_at}-${i}`} style={rowStyle}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {new Date(u.occurred_at).toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}{' '}
+                  <span style={{ color: '#9ca3af' }}>{u.content || '(không có nội dung)'}</span>
+                </span>
+                <strong style={{ color: '#b45309' }}>{fmt(u.amount)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10 }}>
+          Chỉ phản ánh tài khoản đã nối với SePay. Máy <strong>không tự sửa đơn</strong> — số tiền
+          trên đơn vẫn là số người thu đã ghi.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const rowStyle: CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  gap: 12,
+  padding: '6px 0',
+  borderBottom: '1px solid #f3f4f6',
+  fontSize: 14,
+};
 
 type Photo = { id: string; url: string; created_at: number; created_by_full_name: string | null };
 

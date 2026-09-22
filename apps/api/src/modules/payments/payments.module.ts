@@ -7,6 +7,7 @@ import { PaymentsApplyService } from './payments-apply.service.js';
 import { PaymentsWebhookController } from './payments-webhook.controller.js';
 import { PublicPaymentsController } from './public-payments.controller.js';
 import { PosPaymentsController } from './pos-payments.controller.js';
+import { AdminReconcileController } from './admin-reconcile.controller.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
@@ -19,7 +20,12 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
  */
 @Module({
   imports: [TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest, PaymentQrAccount])],
-  controllers: [PaymentsWebhookController, PublicPaymentsController, PosPaymentsController],
+  controllers: [
+    PaymentsWebhookController,
+    PublicPaymentsController,
+    PosPaymentsController,
+    AdminReconcileController,
+  ],
   providers: [PaymentsApplyService, PaymentsService],
   exports: [PaymentsApplyService, PaymentsService],
 })
