@@ -54,6 +54,11 @@ export default defineConfig({
       '/suppliers':          apiProxy(),
       '/supplier-deliveries': apiProxy(),
       '/supplier-reports':    apiProxy(),
+      /* Thiếu dòng này từ lúc thêm tab "Món đã bán" (2026-09-09): dev server nuốt request và
+         trả index.html, axios nhận HTML thay vì JSON nên màn rỗng trơn trong khi log API sạch
+         bong — request chưa từng tới nơi. Production không có bẫy này (Caddy proxy tất về
+         api:3001) nên lỗi chỉ thấy khi chạy local. */
+      '/dish-sales':          apiProxy(),
       // Cổng NCC tự đăng nhập (màn /ncc)
       '/supplier-portal':     apiProxy(),
       // Mã QR nhận tiền cho màn thu tiền (2026-09-14) — đúng cái bẫy mô tả ở trên: thiếu dòng

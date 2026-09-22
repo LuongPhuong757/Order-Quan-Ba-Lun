@@ -1083,6 +1083,14 @@ a:hover {
   max-width: 1200px;
 }
 
+/* Màn Nhà cung cấp: bảng phiếu nhập 7 cột + bảng biến động giá 5 cột. Ở 960px của
+   `.container.wide`, lòng bảng chỉ còn 838px nên tên NCC bị cắt còn "Hải sả…" và nhãn trạng
+   thái còn "Chờ b…", trong khi hai bên màn hình desktop bỏ trống hàng trăm px. 1200px khớp với
+   bề rộng bản thiết kế (wrap 1140 + lề). Cùng lý do với `.txn-page` phía trên. */
+.container.ncc-page {
+  max-width: 1200px;
+}
+
 /* Thanh công cụ hàng chờ: DÍNH TRÊN. Nhân viên cuộn tới đơn thứ 15 vẫn phải đổi được tab và
    vẫn phải thấy đèn kết nối — đó là 2 thứ nói "trang này còn sống hay không".
    `top: 56px` = đúng chiều cao `.header` (min-height 56, position:sticky top:0, z-index 200).
