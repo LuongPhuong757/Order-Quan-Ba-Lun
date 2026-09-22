@@ -1,6 +1,6 @@
 # Milestone 5 — Đẩy đơn tự động sang MISA CukCuk
 
-**Trạng thái:** ĐANG THẢO LUẬN — chưa code. Đã thông kết nối tới **tài khoản test** (mục 7). Chờ khai vài món để đẩy thử.
+**Trạng thái:** ĐÃ THỬ THÔNG toàn bộ đường đẩy đơn trên tài khoản test (mục 8). Chưa code.
 **Ngày soạn:** 2026-09-21
 **Nguồn:** Tài liệu https://graphapi.cukcuk.vn/document/ (đọc ngày 2026-09-21) + phiên thảo luận với chủ quán
 **Nhánh git:** chưa cắt. Khi làm thì cắt `feat/cukcuk-sync` từ `origin/develop`.
@@ -43,9 +43,14 @@ Việc còn lại trong CukCuk (bấm nhận / hoàn tất) **chưa biết còn 
 
 ## 3. Hướng đã chốt
 
-**Đẩy lúc thanh toán, qua `order-onlines/create` với `PaymentStatus = 2`.**
+> ⚠️ **ĐÃ LẬT LẠI 2026-09-22 sau khi thử thật — xem mục 8.** Đường đúng là `orders/create`
+> với `Type = 1` (Phục vụ tại nhà hàng), **không phải** `order-onlines/create`.
+> Ba đánh đổi bên dưới **không còn áp dụng**: đơn giữ đúng loại "ăn tại nhà hàng" và giữ được bàn.
+> Đổi lại, mất `PaymentStatus` — thu ngân phải bấm thanh toán bên CukCuk.
 
-Chủ quán đã chấp nhận 3 đánh đổi:
+~~Quyết định cũ (2026-09-21): đẩy lúc thanh toán, qua `order-onlines/create` với `PaymentStatus = 2`.~~
+
+~~Chủ quán đã chấp nhận 3 đánh đổi:~~
 
 | # | Đánh đổi | Vì sao buộc phải chịu |
 |---|---|---|
@@ -165,3 +170,61 @@ Chữ ký đã thông, chạy lại bất cứ lúc nào.
 
 > ⚠️ Mã bảo mật đã đi qua 2 ảnh chụp màn hình và 1 tin nhắn chat ngày 2026-09-21 →
 > **tạo lại mã** sau khi thử xong.
+
+
+---
+
+## 8. Kết quả thử đẩy đơn thật — 2026-09-22
+
+Đã khai 17 món trong tài khoản test và đẩy 3 đơn thử. Kết quả lật lại quyết định ở mục 3.
+
+### 8.1 `order-onlines/create` — đẩy được nhưng đơn BIẾN MẤT
+
+| Bước | Kết quả |
+|---|---|
+| Lần 1 | `ErrorType 400` — checkbox "Cho phép nhận đơn từ bên thứ 3" chưa bật |
+| Lần 2 (sau khi bật) | `Success: true`, mã `DH1205661` |
+| `sainvoices/paging` | **0** — không thành hoá đơn |
+| `orders/paging` | **0** — không nằm ở đây |
+| `GET orders/{id}` | trả object rỗng toàn `0000...`, **vẫn `Success: true`** |
+| Chủ quán tìm trên giao diện | **không thấy ở bất cứ đâu** |
+
+Đơn đi thẳng vào hàng đợi đồng bộ của **bộ cài PC CUKCUK**, không để lại dấu vết trên cloud
+và không có API nào đọc lại được. **Không dùng đường này.**
+
+> Cạm bẫy: `GET orders/{id}` khi không tìm thấy vẫn trả `Success: true` với object rỗng.
+> Đừng kiểm tra tồn tại bằng `Success`, phải kiểm `Data.Id !== '00000000-0000-0000-0000-000000000000'`.
+
+### 8.2 `orders/create` với `Type = 1` — ĐÚNG ĐƯỜNG
+
+| Kiểm tra | Đơn `9.1` (không bàn) | Đơn `9.2` (gán bàn 11) |
+|---|---|---|
+| Tạo | ✅ `Success: true` | ✅ `Success: true` |
+| `orders/paging` đọc lại | ✅ **Total: 1** | ✅ |
+| `TableName` | — | ✅ **"11"** |
+| Tổng tiền | 3.000đ | 51.000đ (2 món) |
+| `Status` | 1 — Đang phục vụ | 1 — Đang phục vụ |
+| Bàn 11 trước/sau | — | `IsAvailable` **true → false**, `Status` **2 → 1** |
+
+**Trạng thái bàn tự đổi sang "đang có khách"** — đơn thực sự chiếm bàn trong CukCuk,
+đúng như thu ngân tự mở bàn gõ tay.
+
+### 8.3 Những thứ chốt được từ lần thử này
+
+| # | Chốt |
+|---|---|
+| K-1 | Dùng `POST api/v1/orders/create`, `Type = 1` (Phục vụ tại nhà hàng). |
+| K-2 | Lấy bàn bằng `GET api/v1/tables/{branchId}` — **branchId nằm trong đường dẫn**, để ở query string thì 404. |
+| K-3 | Ánh xạ bàn: `orders.table_code` của app ↔ `MapObjectID` của CukCuk. Bảng test có đúng 1 bàn tên "11", khu vực "1". |
+| K-4 | `orders/create` **không có trường thanh toán**. Đơn vào ở `Status: 1` (Đang phục vụ); thu ngân bấm thanh toán trong CukCuk. |
+| K-5 | Đổi lại, **đọc lại được** qua `orders/paging` → app tự đối soát được đơn nào đã sang thật, thay vì tin vào mã trả về. Đây là thứ `order-onlines` không có. |
+| K-6 | `OrderDetails[].Status = 1` và `SortOrder` là bắt buộc trong payload thử nghiệm đã chạy thông. |
+
+### 8.4 Việc kế tiếp
+
+| # | Việc |
+|---|---|
+| V-1 | **Dọn 3 đơn thử** trong tài khoản test (`9.1`, `9.2`, `DH1205661`) — bàn 11 đang bị treo trạng thái "có khách". Cổng API không có endpoint huỷ đơn, phải xoá tay. |
+| V-2 | Chốt thời điểm đẩy: lúc **báo bếp** (đơn còn đang ăn, khớp `Status: 1`) hay lúc **thanh toán** (đẩy xong thu ngân bấm thanh toán ngay). Quyết định này đổi hẳn trải nghiệm của thu ngân. |
+| V-3 | Q-1 (sửa/huỷ đơn sau khi đẩy) vẫn treo — đã biết thêm là **không có API huỷ**, nên càng nặng. Có `orders/update-item` để sửa món, chưa thử. |
+| V-4 | Ánh xạ bàn + ánh xạ món giữa app và CukCuk. Menu test đang để **mọi món đơn vị "Đĩa"**, kể cả bia và khăn lạnh — menu thật phải sửa. |
