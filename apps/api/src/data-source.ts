@@ -35,6 +35,8 @@ import { SupplierUser } from './modules/suppliers/entities/supplier-user.entity.
 import { SupplierSession } from './modules/suppliers/entities/supplier-session.entity.js';
 import { PrintJob } from './modules/printing/entities/print-job.entity.js';
 import { PrintDevice } from './modules/printing/entities/print-device.entity.js';
+import { PaymentIntent } from './modules/payments/entities/payment-intent.entity.js';
+import { BankTransaction } from './modules/payments/entities/bank-transaction.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -112,6 +114,11 @@ export const dataSourceOptions: DataSourceOptions = {
     // trong LAN quán; `print_devices` là token của từng máy tính bảng làm cầu in.
     PrintJob,
     PrintDevice,
+    // Đối soát chuyển khoản (2026-09-22). Danh sách này liệt kê CỨNG, không tự quét thư mục:
+    // quên thêm vào đây thì `TypeOrmModule.forFeature` vẫn khởi động bình thường và `synchronize`
+    // im lặng không tạo bảng — app chạy, chỉ đến khi có giao dịch thật mới đổ ở tầng SQL.
+    PaymentIntent,
+    BankTransaction,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

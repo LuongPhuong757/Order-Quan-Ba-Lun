@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from '../auth/auth.module.js';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
@@ -20,7 +21,13 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
  * đi từ phía ngân hàng vào.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest, PaymentQrAccount])],
+  imports: [
+    TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest, PaymentQrAccount]),
+    // `JwtAuthGuard` (dùng ở controller quầy + đối soát) cần `JwtService`, và Nest chỉ tìm nó
+    // trong các module ĐƯỢC IMPORT — không có dòng này thì app chết ngay lúc khởi động với
+    // "Nest can't resolve dependencies of the JwtAuthGuard", chứ không phải 500 lúc gọi API.
+    AuthModule,
+  ],
   controllers: [
     PaymentsWebhookController,
     PublicPaymentsController,
