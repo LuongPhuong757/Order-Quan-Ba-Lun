@@ -27,7 +27,7 @@ export type Balance = {
 };
 
 /** Công nợ kèm những dòng đã cấu thành nên nó — chỉ có ở endpoint chi tiết một NCC. */
-type BalanceDetail = Balance & {
+export type BalanceDetail = Balance & {
   opening_balance_note: string | null;
   counted_deliveries: Array<{
     id: string;
@@ -40,7 +40,7 @@ type BalanceDetail = Balance & {
   counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
 };
 
-type Payment = {
+export type Payment = {
   id: string;
   paid_on: string;
   amount: number;
@@ -584,7 +584,7 @@ function Meta({ label, value }: { label: string; value: string }) {
 }
 
 /** Mục 3.5 — ghi nhận thanh toán. Không gán vào phiếu cụ thể, chỉ trừ vào tổng nợ. */
-function PaymentDialog({
+export function PaymentDialog({
   supplierId,
   supplierName,
   suggested,
@@ -689,7 +689,7 @@ function PaymentDialog({
 
 /** M3.D-40 — số dư đầu kỳ. Mọi admin đặt/sửa được (chốt 2026-09-07), nên màn hình càng phải nói
  *  rõ vì sao con số này nguy hiểm: lớp chặn theo quyền đã bỏ, chỉ còn nhật ký. */
-function OpeningBalanceDialog({
+export function OpeningBalanceDialog({
   supplierId,
   supplierName,
   current,
