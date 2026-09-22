@@ -31,6 +31,10 @@ export default defineConfig({
       '/orders':      apiProxy(),
       // Cầu in (2026-09-19). Trang `/print-bridge` gọi `/print/*` TỪ TRÌNH DUYỆT, nên thiếu
       // dòng này là dev server nuốt request và trả index.html — đúng cái bẫy mô tả ở dưới.
+      // Đối soát chuyển khoản (2026-09-22). `/payments` là nơi màn thu tiền xin mã thanh toán;
+      // `/webhooks` chỉ để `curl` thử tại máy dev — SePay thật gọi thẳng vào API, không qua Vite.
+      '/payments':    apiProxy(),
+      '/webhooks':    apiProxy(),
       '/print':       apiProxy(),
       '/print-pair':  apiProxy(),
       /* KHÔNG dùng `apiProxy()` ở đây — `bypass()` của nó trả `index.html` cho mọi request có

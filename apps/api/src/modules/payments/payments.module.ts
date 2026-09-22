@@ -5,6 +5,10 @@ import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
 import { PaymentsApplyService } from './payments-apply.service.js';
 import { PaymentsWebhookController } from './payments-webhook.controller.js';
+import { PublicPaymentsController } from './public-payments.controller.js';
+import { PosPaymentsController } from './pos-payments.controller.js';
+import { PaymentsService } from './payments.service.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
 /**
  * Đối soát tiền chuyển khoản với ngân hàng qua SePay (2026-09-22).
@@ -14,9 +18,9 @@ import { PaymentsWebhookController } from './payments-webhook.controller.js';
  * đi từ phía ngân hàng vào.
  */
 @Module({
-  imports: [TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest])],
-  controllers: [PaymentsWebhookController],
-  providers: [PaymentsApplyService],
-  exports: [PaymentsApplyService],
+  imports: [TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest, PaymentQrAccount])],
+  controllers: [PaymentsWebhookController, PublicPaymentsController, PosPaymentsController],
+  providers: [PaymentsApplyService, PaymentsService],
+  exports: [PaymentsApplyService, PaymentsService],
 })
 export class PaymentsModule {}
