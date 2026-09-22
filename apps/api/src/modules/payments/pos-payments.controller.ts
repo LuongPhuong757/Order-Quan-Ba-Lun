@@ -77,7 +77,16 @@ export class PosPaymentsController {
   @Post('intent')
   @HttpCode(200)
   async create(
-    @Body() body: { order_id?: string; amount?: number; account_id?: string | null },
+    @Body()
+    body: {
+      order_id?: string;
+      amount?: number;
+      account_id?: string | null;
+      /** Mã bàn, chỉ để lấy hai chữ số nhét vào chính mã thanh toán (`BAN05ABC`). Nhận từ client
+       *  là chấp nhận được: nó chỉ ảnh hưởng phần ĐỌC BẰNG MẮT của mã, còn tính duy nhất do khoá
+       *  `UNIQUE(code, code_day)` ở DB bảo đảm, không phụ thuộc client nói gì. */
+      table_code?: string | null;
+    },
     @Req() req: Request,
   ): Promise<ApiOk<{ code: string; note: string }>> {
     // Cùng cánh cửa với việc thu chuyển khoản: ai không được thu CK thì cũng không có việc gì để
@@ -103,8 +112,15 @@ export class PosPaymentsController {
       targetType: 'POS',
       targetId: orderId,
       amount,
+      tableNo: tableNoFrom(body?.table_code),
       accountId: body?.account_id ?? null,
     });
     return apiOk({ code: intent.code, note: intent.note ?? paymentNote(intent.code) });
   }
+}
+
+/** `B05` → 5 · `ban-12` → 12 · bàn không có số ("Mang về") → `null`, thành `00` trong mã. */
+function tableNoFrom(code: string | null | undefined): number | null {
+  const digits = String(code ?? '').match(/\d+/)?.[0];
+  return digits ? Number(digits) : null;
 }

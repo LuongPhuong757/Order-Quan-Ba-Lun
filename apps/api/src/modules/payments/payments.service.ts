@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { randomInt } from 'node:crypto';
-import { PAYMENT_CODE_DIGITS, buildVietQrPayload, paymentNote } from '@order/schemas';
+import {
+  PAYMENT_CODE_ALPHABET,
+  PAYMENT_CODE_LETTERS,
+  buildPaymentCode,
+  buildVietQrPayload,
+  paymentNote,
+} from '@order/schemas';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
@@ -13,7 +19,17 @@ const INTENT_TTL_MS = 15 * 60 * 1000;
 /** Số lần bốc lại mã khi đụng khoá duy nhất. 900.000 khả năng nên va là cực hiếm, nhưng "cực
  *  hiếm" nhân với mỗi đơn mỗi ngày thì vẫn xảy ra, và lúc đó phải thử lại chứ không được ném lỗi
  *  vào mặt khách đang đứng chờ trả tiền. */
-const CODE_RETRY = 5;
+// Ba chữ số = 1.000 mã/ngày. Một quán làm hết 1.000 đơn chuyển khoản trong một ngày là chuyện
+// khác hẳn quy mô hiện tại, nhưng nếu tới lúc đó thì đây là chỗ báo: hết lượt bốc là ném lỗi chứ
+// không im lặng cấp trùng mã.
+const CODE_RETRY = 12;
+
+/** `YYYY-MM-DD` theo GIỜ VIỆT NAM. Container chạy UTC, nên `toISOString().slice(0,10)` sẽ đẩy mọi
+ *  đơn sau 17h (giờ VN) sang ngày hôm sau — tức "duy nhất theo ngày" nói về một cái ngày không
+ *  phải ngày quán đang bán. */
+function vnDay(ms: number): string {
+  return new Date(ms + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
 
 @Injectable()
 export class PaymentsService {
@@ -41,6 +57,7 @@ export class PaymentsService {
     targetType: 'ONLINE' | 'POS';
     targetId: string;
     amount: number;
+    tableNo?: number | null;
     accountId?: string | null;
   }): Promise<PaymentIntent> {
     const existing = await this.intents.findOne({
@@ -84,6 +101,8 @@ export class PaymentsService {
     targetType: 'ONLINE' | 'POS';
     targetId: string;
     amount: number;
+    /** Số bàn để nhét vào chính mã (`BAN05ABC`). Không có số (bàn "Mang về", đơn online) thì `00`. */
+    tableNo?: number | null;
     /** Mã QR nhận tiền. Bỏ trống thì lấy mã đang bật đầu tiên (luồng đơn online — khách không
      *  chọn tài khoản, quán chọn hộ). */
     accountId?: string | null;
@@ -96,9 +115,10 @@ export class PaymentsService {
     const now = Date.now();
 
     for (let attempt = 0; attempt < CODE_RETRY; attempt++) {
-      const code = this.newCode();
+      const code = this.newCode(input.targetType === 'POS' ? 'BAN' : 'DON', input.tableNo ?? null);
       const intent = this.intents.create({
         code,
+        code_day: vnDay(now),
         target_type: input.targetType,
         target_id: input.targetId,
         amount: input.amount,
@@ -128,9 +148,12 @@ export class PaymentsService {
    * `randomInt` chứ KHÔNG `Math.random`: mã đoán được thì người ngoài dò ra đơn của khách khác
    * (trang trạng thái tra theo mã), và tệ hơn là dựng được QR mang mã của đơn người khác.
    */
-  private newCode(): string {
-    const max = 10 ** PAYMENT_CODE_DIGITS;
-    return String(randomInt(0, max)).padStart(PAYMENT_CODE_DIGITS, '0');
+  private newCode(group: 'BAN' | 'DON', tableNo: number | null): string {
+    let letters = '';
+    for (let i = 0; i < PAYMENT_CODE_LETTERS; i++) {
+      letters += PAYMENT_CODE_ALPHABET[randomInt(0, PAYMENT_CODE_ALPHABET.length)];
+    }
+    return buildPaymentCode(group, tableNo, letters);
   }
 
   /**

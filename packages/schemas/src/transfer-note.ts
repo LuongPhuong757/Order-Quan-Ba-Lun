@@ -82,17 +82,17 @@ export function cashierTag(fullName: string | null | undefined, username?: strin
 /**
  * Ghép nội dung hoàn chỉnh, tự cắt cho vừa trần 25 ký tự.
  *
- * Khi phải cắt thì HY SINH TÊN NGƯỜI THU, giữ trọn mã bàn: mã bàn là thứ định vị được đơn trong
- * hệ thống, còn người thu thì đơn đã ghi `checked_out_by_full_name` rồi — tra ra được. Cắt ngược
- * lại thì dòng sao kê thành vô dụng.
+ * HAI HÌNH DẠNG, tuỳ có mã đơn hay không:
  *
- * `code` (2026-09-22, khi nối webhook SePay) là mã đơn 6 chữ số, `notePrefix` là tiền tố ngân hàng
- * bắt buộc (vd `SEVQR` của VietinBank). Cả hai đứng ĐẦU chuỗi, trước cả mã bàn — xem thứ tự ưu
- * tiên trong thân hàm. Trước 2026-09-22 mã đơn nằm sau mã bàn; phải đổi khi phát hiện ngân hàng
- * đòi tiền tố ở ĐẦU nội dung, và lúc đó giữ mã bàn ở trước mã đơn là đẩy mã đơn vào vùng bị cắt.
+ *   có mã   →  `SEVQR DH123 LUONG THUY`   (tiền tố ngân hàng · mã đơn · người thu)
+ *   không   →  `BAN05 LUONG THUY`          (bản cũ trước 2026-09-22)
  *
- * Bỏ trống `code` là hành vi CŨ y nguyên ("BAN05 LUONG THUY"). Giữ nhánh đó vì đơn thu tay trước
- * khi có tính năng này vẫn phải dựng lại được nội dung y hệt lúc in ra.
+ * Nhánh "không có mã" phải giữ nguyên: đơn thu tay trước khi có tính năng này vẫn phải dựng lại
+ * được nội dung y hệt lúc in ra.
+ *
+ * Khi phải cắt thì hy sinh TÊN NGƯỜI THU, vì đó là thứ duy nhất trong chuỗi mà đơn đã ghi sẵn ở
+ * `checked_out_by_full_name`. Thứ tự các phần chính là thứ tự ưu tiên — xem chú thích trong thân
+ * hàm.
  */
 export function buildTransferNote(
   table: { code: string; name?: string | null },
@@ -109,7 +109,11 @@ export function buildTransferNote(
   //   ③ mã bàn           — thiếu vẫn tra ra từ đơn, chỉ bất tiện khi đọc sao kê bằng mắt;
   //   ④ tên người thu    — thiếu vẫn tra được từ `checked_out_by_full_name`.
   // ① và ② dính liền nhau trong `pay` nên không bao giờ bị tách rời.
-  const full = [pay, tag, who].filter(Boolean).join(' ').trim();
+  // BỎ MÃ BÀN khi đã có mã đơn (2026-09-22): mã đơn tra ra đúng một lần thu, tức ra cả bàn lẫn
+  // người thu — mã bàn chỉ lặp lại thông tin đã có, mà lại ăn 6 ký tự của trần 25 và đẩy tên người
+  // thu vào vùng bị cắt. Nhìn sao kê bằng mắt thì tên người thu nói được nhiều hơn số bàn: biết
+  // hỏi ai. Không có mã đơn thì mã bàn vẫn là thứ duy nhất định vị được, nên giữ nguyên.
+  const full = [pay, pay ? '' : tag, who].filter(Boolean).join(' ').trim();
   if (full.length <= TRANSFER_NOTE_MAX) return full;
   return full.slice(0, TRANSFER_NOTE_MAX).trim();
 }

@@ -18,9 +18,9 @@ import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 import type { IngestInput } from './sepay-payload.js';
 
-// Tiền tố sentinel RIÊNG của file này — mỗi file integration một tiền tố, xem docblock
-// `open-order-lock.integration.test.ts`. Mã đơn 6 số nên sentinel nằm ở dải 99xxxx.
-const SENTINEL_CODE = '990001';
+// Sentinel RIÊNG của file này — mỗi file integration một sentinel, xem docblock
+// `open-order-lock.integration.test.ts`. Bàn 99 không tồn tại trong dữ liệu thật.
+const SENTINEL_CODE = 'BAN99ZZZ';
 const SENTINEL_TXN = 'zz-test-sepay-';
 
 const ds = new DataSource(dataSourceOptions);
@@ -56,6 +56,7 @@ describe('webhook SePay — chống trùng và cộng dồn', () => {
     await cleanup();
     await ds.getRepository(PaymentIntent).save({
       code: SENTINEL_CODE,
+      code_day: new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10),
       target_type: 'POS',
       target_id: 'zz-test-order',
       amount: 250_000,
@@ -74,7 +75,7 @@ describe('webhook SePay — chống trùng và cộng dồn', () => {
 
   it('bắn HAI LẦN cùng một id chỉ ghi MỘT dòng và chỉ cộng tiền MỘT lần', async () => {
     const svc = new PaymentsApplyService(ds);
-    const payload = txn('dup', 250_000, `BAN05 DH${SENTINEL_CODE} LUONG THUY`);
+    const payload = txn('dup', 250_000, `${SENTINEL_CODE} LUONG THUY`);
 
     expect(await svc.ingest(payload)).toBe(true);   // lần đầu: giao dịch mới
     expect(await svc.ingest(payload)).toBe(false);  // lần hai: đã xử lý
@@ -91,7 +92,7 @@ describe('webhook SePay — chống trùng và cộng dồn', () => {
 
   it('chuyển THIẾU thì gắn cờ chứ không đánh dấu đã trả', async () => {
     const svc = new PaymentsApplyService(ds);
-    await svc.ingest(txn('short', 200_000, `DH${SENTINEL_CODE}`));
+    await svc.ingest(txn('short', 200_000, SENTINEL_CODE));
 
     const intent = await ds.getRepository(PaymentIntent).findOneByOrFail({ code: SENTINEL_CODE });
     expect(intent.received_amount).toBe(200_000);
@@ -101,8 +102,8 @@ describe('webhook SePay — chống trùng và cộng dồn', () => {
 
   it('chuyển hai lần cộng dồn thành đủ', async () => {
     const svc = new PaymentsApplyService(ds);
-    await svc.ingest(txn('part1', 200_000, `DH${SENTINEL_CODE}`));
-    await svc.ingest(txn('part2', 50_000, `DH${SENTINEL_CODE}`));
+    await svc.ingest(txn('part1', 200_000, SENTINEL_CODE));
+    await svc.ingest(txn('part2', 50_000, SENTINEL_CODE));
 
     const intent = await ds.getRepository(PaymentIntent).findOneByOrFail({ code: SENTINEL_CODE });
     expect(intent.received_amount).toBe(250_000);

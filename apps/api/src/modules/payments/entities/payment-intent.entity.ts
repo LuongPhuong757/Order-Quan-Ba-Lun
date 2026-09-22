@@ -17,7 +17,15 @@ import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 @Entity('payment_intents')
 // Mã in trên QR. UNIQUE là ràng buộc NGHIỆP VỤ chứ không phải tối ưu tốc độ: hai đơn trùng mã thì
 // webhook về không biết trả tiền cho đơn nào, và không có cách nào chữa sau khi tiền đã vào.
-@Index('uq_pi_code', ['code'], { unique: true })
+// DUY NHẤT THEO NGÀY, không phải vĩnh viễn (chủ quán chốt 2026-09-22).
+//
+// Mã (`BAN05ABC`) chỉ có 3 chữ cái ngẫu nhiên, nên duy nhất vĩnh viễn là bất khả thi — và cũng
+// không cần: mã đã mang sẵn số bàn, nên phạm vi phải duy nhất chỉ là MỘT BÀN trong MỘT NGÀY, tức
+// 2–3 đơn. Khoá này biến "gần như không trùng" thành "không thể trùng".
+//
+// ⚠ BỎ `code_day` KHỎI KHOÁ NÀY LÀ HỎNG NGẦM: mã sẽ phải duy nhất vĩnh viễn với chỉ 13.824 khả
+// năng cho mỗi bàn, và vài tháng sau là đụng mã liên tục.
+@Index('uq_pi_code_day', ['code', 'code_day'], { unique: true })
 @Index('idx_pi_target', ['target_type', 'target_id'])
 @Index('idx_pi_created', ['created_at'])
 export class PaymentIntent {
@@ -25,8 +33,16 @@ export class PaymentIntent {
   id!: string;
 
   /** 6 chữ số, sinh bằng CSPRNG ở `payments.service.ts`. Nội dung CK = `DH` + cột này. */
-  @Column({ type: 'char', length: 6 })
+  @Column({ type: 'char', length: 8 })
   code!: string;
+
+  /** Ngày sinh mã, dạng `YYYY-MM-DD` theo GIỜ VIỆT NAM.
+   *
+   *  Chuỗi chứ không phải cột `date` suy từ `created_at`: container chạy UTC nên một đơn thu lúc
+   *  22h tối sẽ rơi sang ngày hôm sau nếu để MySQL tự cắt ngày — và lúc đó "duy nhất theo ngày"
+   *  nói về một cái ngày không phải ngày mà quán đang bán. */
+  @Column({ type: 'char', length: 10 })
+  code_day!: string;
 
   /** `ONLINE` = `online_order_requests.id` · `POS` = `orders.id`.
    *

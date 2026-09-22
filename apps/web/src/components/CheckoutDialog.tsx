@@ -234,6 +234,8 @@ export function CheckoutDialog({
           order_id: orderId,
           amount: transferAmount,
           account_id: picked?.id ?? null,
+          // Số bàn đi vào chính mã (`BAN05ABC`) — xem `payment-code.ts`.
+          table_code: table.code,
         })
         .then((res) => alive && setPayCode(res.data.data.code))
         .catch(() => alive && setPayCode(null));

@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { DataSource } from 'typeorm';
+import { Between, DataSource } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { extractPaymentCode } from '@order/schemas';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
@@ -57,16 +57,8 @@ export class PaymentsApplyService {
         return true;
       }
 
-      // Khoá hàng intent trước khi đọc `received_amount`: khách chuyển hai lần, hai webhook về
-      // gần như cùng lúc, cả hai đọc số cũ rồi cùng ghi đè → mất một nửa số tiền đã nhận.
-      const intent = await m.findOne(PaymentIntent, {
-        where: { code },
-        lock: { mode: 'pessimistic_write' },
-      });
-      if (!intent) {
-        this.log.warn(`[webhook] mã DH${code} không có trong hệ thống (tiền vẫn được ghi nhận)`);
-        return true;
-      }
+      const intent = await this.pickIntent(m, code, input);
+      if (!intent) return true;
 
       await m.update(BankTransaction, { gateway: input.gateway, gateway_txn_id: input.gatewayTxnId }, {
         applied_intent_id: intent.id,
@@ -94,6 +86,59 @@ export class PaymentsApplyService {
       }
       return true;
     });
+  }
+
+
+  /**
+   * Chọn ĐÚNG lần thu mà dòng tiền này thuộc về — không phải cứ thấy mã là lấy.
+   *
+   * Mã chỉ có 3 chữ số và được TÁI SỬ DỤNG sang ngày hôm sau (chủ quán chốt 2026-09-22, xem
+   * `payment-code.ts`). Trong một ngày thì `UNIQUE(code, code_day)` bảo đảm không trùng, nhưng một
+   * giao dịch về MUỘN QUA NGÀY — webhook lỡ lúc deploy, hoặc job quét bù kéo về giao dịch cũ — sẽ
+   * thấy mã đó tồn tại ở CẢ hôm qua lẫn hôm nay.
+   *
+   * Ba tầng lọc, theo đúng thứ tự tin cậy:
+   *  ① CỬA SỔ THỜI GIAN — chỉ xét mã sinh trước lúc tiền về, trong vòng 36 giờ. Tiền không bao giờ
+   *    về TRƯỚC khi mã được sinh ra, nên mã sinh sau là chắc chắn không phải.
+   *  ② SỐ TIỀN khớp đúng — dấu hiệu mạnh nhất khi có nhiều ứng viên.
+   *  ③ CHƯA TRẢ trước, mới nhất trước.
+   *
+   * Còn mơ hồ thì KHÔNG ĐOÁN: dòng tiền nằm lại nhóm "chưa khớp" ở màn đối soát để người quyết.
+   * Đoán sai ở đây là đánh dấu "đã trả" cho đơn của người khác — sai lặng lẽ, không ai phát hiện.
+   */
+  private async pickIntent(
+    m: EntityManager,
+    code: string,
+    input: IngestInput,
+  ): Promise<PaymentIntent | null> {
+    // +5 phút phòng lệch đồng hồ giữa ngân hàng và máy ta; 36 giờ đủ phủ một đêm deploy hỏng.
+    const from = input.occurredAt - 36 * 60 * 60 * 1000;
+    const to = input.occurredAt + 5 * 60 * 1000;
+
+    // Khoá hàng trước khi đọc `received_amount`: khách chuyển hai lần, hai webhook về gần như cùng
+    // lúc, cả hai đọc số cũ rồi cùng ghi đè → mất một nửa số tiền đã nhận.
+    const rows = await m.find(PaymentIntent, {
+      where: { code, created_at: Between(from, to) },
+      order: { created_at: 'DESC' },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (rows.length === 0) {
+      this.log.warn(`[webhook] mã DH${code} không có lần thu nào khớp cửa sổ thời gian`);
+      return null;
+    }
+    if (rows.length === 1) return rows[0];
+
+    const unpaid = rows.filter((r) => r.paid_at === null);
+    const pool = unpaid.length > 0 ? unpaid : rows;
+    const exact = pool.filter((r) => r.amount === input.amount);
+    if (exact.length === 1) return exact[0];
+    if (exact.length === 0 && pool.length === 1) return pool[0];
+
+    this.log.warn(
+      `[webhook] mã DH${code} khớp ${rows.length} lần thu, KHÔNG đoán — để người đối soát quyết`,
+    );
+    return null;
   }
 
   /**

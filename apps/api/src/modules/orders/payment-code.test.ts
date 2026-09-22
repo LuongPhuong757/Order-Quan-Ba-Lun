@@ -1,13 +1,14 @@
 // Mã đơn trong nội dung chuyển khoản. Thuần, nên test được không cần MySQL lẫn ngân hàng.
 //
 // Những ca dưới đây KHÔNG phải tình huống giả định cho đủ bộ: nội dung CK về tay ta đã qua tay
-// khách (sửa được), qua app ngân hàng của khách (chèn chữ), rồi qua SePay (viết hoa). Mỗi ca là
-// một kiểu bóp méo có thật, và bóc sai thì hậu quả là đánh dấu "đã trả tiền" cho đơn của người
-// khác — sai lặng lẽ, không ai phát hiện ra cho tới lúc đếm két.
+// khách (sửa được), qua app ngân hàng của khách (chèn chữ), rồi qua ngân hàng nhận (bọc kín). Mỗi
+// ca là một kiểu bóp méo có thật, và bóc sai thì hậu quả là đánh dấu "đã trả tiền" cho đơn của
+// người khác — sai lặng lẽ, không ai phát hiện cho tới lúc đếm két.
 import { describe, expect, it } from 'vitest';
 import {
-  PAYMENT_CODE_NOTE_LENGTH,
+  PAYMENT_CODE_ALPHABET,
   TRANSFER_NOTE_MAX,
+  buildPaymentCode,
   buildTransferNote,
   extractPaymentCode,
   isValidPaymentCode,
@@ -15,32 +16,61 @@ import {
   suggestedNotePrefix,
 } from '@order/schemas';
 
+describe('buildPaymentCode', () => {
+  it('ghép nhóm + số bàn + chữ cái', () => {
+    expect(buildPaymentCode('BAN', 5, 'ABC')).toBe('BAN05ABC');
+    expect(buildPaymentCode('BAN', 12, 'XYZ')).toBe('BAN12XYZ');
+  });
+
+  it('bàn không có số và đơn online đều dùng 00 — chuỗi phải giữ đúng một hình dạng', () => {
+    expect(buildPaymentCode('BAN', null, 'ABC')).toBe('BAN00ABC');
+    expect(buildPaymentCode('DON', 0, 'ABC')).toBe('DON00ABC');
+  });
+
+  it('ném khi chữ cái sai khuôn — thà chết ở chỗ sinh mã còn hơn in ra QR không khớp lại được', () => {
+    expect(() => buildPaymentCode('BAN', 5, 'AB')).toThrow();
+    expect(() => buildPaymentCode('BAN', 5, 'A1C')).toThrow();
+  });
+
+  it('bảng chữ cái bỏ I và O — hai chữ lẫn với 1 và 0 ngay cạnh hai chữ số của mã bàn', () => {
+    expect(PAYMENT_CODE_ALPHABET).not.toContain('I');
+    expect(PAYMENT_CODE_ALPHABET).not.toContain('O');
+  });
+});
+
 describe('extractPaymentCode', () => {
   it('bóc được mã trần', () => {
-    expect(extractPaymentCode('DH123456')).toBe('123456');
+    expect(extractPaymentCode('BAN05ABC')).toBe('BAN05ABC');
   });
 
-  it('bóc được khi ngân hàng bọc thêm chữ quanh mã', () => {
-    expect(extractPaymentCode('CHUYEN TIEN DH123456 NGUYEN VAN A')).toBe('123456');
+  it('bóc được từ chuỗi ngân hàng bọc kín — chuỗi THẬT gặp hôm 2026-09-22', () => {
+    const real =
+      'CT DEN:106T2691148BUT55 MBVCB.16177901321.548513.SEVQR BAN02ABC.CT tu 0901000137182 LUONG TUAN PHUONG toi 101888309570';
+    expect(extractPaymentCode(real)).toBe('BAN02ABC');
   });
 
-  it('không phân biệt hoa thường — một số ngân hàng viết hoa toàn bộ, số khác giữ nguyên', () => {
-    expect(extractPaymentCode('chuyen tien dh123456')).toBe('123456');
+  it('không phân biệt hoa thường — một số ngân hàng viết hoa toàn bộ', () => {
+    expect(extractPaymentCode('chuyen tien ban05abc')).toBe('BAN05ABC');
   });
 
-  it('chịu được khoảng trắng app ngân hàng chèn vào giữa tiền tố và số', () => {
-    expect(extractPaymentCode('DH 123456 TT')).toBe('123456');
+  it('bóc được mã đơn online', () => {
+    expect(extractPaymentCode('SEVQR DON00XYZ')).toBe('DON00XYZ');
   });
 
-  it('KHÔNG nhận chuỗi rác chỉ trùng đuôi', () => {
-    // "ABCDH123456" không phải mã của ta. Nhận bừa là khớp tiền sang một đơn ngẫu nhiên.
-    expect(extractPaymentCode('ABCDH123456')).toBeNull();
-    expect(extractPaymentCode('9DH123456')).toBeNull();
+  it('KHÔNG nhận chữ dính liền phía trước', () => {
+    // "VIETINBANK01ABC" mà nhận là mọi chữ "BANK"/"NGAN HANG" trong nội dung ngân hàng đều
+    // thành ứng viên.
+    expect(extractPaymentCode('VIETINBAN01ABC')).toBeNull();
+    expect(extractPaymentCode('9BAN01ABC')).toBeNull();
   });
 
-  it('KHÔNG cắt 6 số đầu của một dãy dài hơn', () => {
-    // "DH1234567" mà nhận thành 123456 là khớp nhầm sang đơn khác — đúng loại sai không cứu được.
-    expect(extractPaymentCode('DH1234567')).toBeNull();
+  it('KHÔNG cắt lấy 8 ký tự đầu của chuỗi dài hơn', () => {
+    expect(extractPaymentCode('BAN01ABCD')).toBeNull();
+    expect(extractPaymentCode('BAN01ABC9')).toBeNull();
+  });
+
+  it('chữ BANK không bị nhận nhầm', () => {
+    expect(extractPaymentCode('CHUYEN KHOAN VIETINBANK')).toBeNull();
   });
 
   it('trả null khi khách xoá sạch nội dung', () => {
@@ -49,51 +79,40 @@ describe('extractPaymentCode', () => {
   });
 });
 
-describe('paymentNote', () => {
-  it('ghép đúng khuôn', () => {
-    expect(paymentNote('123456')).toBe('DH123456');
-    expect(paymentNote('000001')).toBe('DH000001');
-  });
-
-  it('ném khi mã sai khuôn — thà chết ở chỗ sinh mã còn hơn in ra QR không khớp lại được', () => {
-    expect(() => paymentNote('12345')).toThrow();
-    expect(() => paymentNote('abcdef')).toThrow();
-  });
-
-  it('bóc lại được đúng thứ vừa ghép ra', () => {
-    expect(extractPaymentCode(paymentNote('907001'))).toBe('907001');
-  });
-
-  it('PAYMENT_CODE_NOTE_LENGTH khớp độ dài thật', () => {
-    expect(paymentNote('123456')).toHaveLength(PAYMENT_CODE_NOTE_LENGTH);
-  });
-});
-
 describe('isValidPaymentCode', () => {
-  it('chỉ nhận đúng 6 chữ số', () => {
-    expect(isValidPaymentCode('123456')).toBe(true);
-    expect(isValidPaymentCode('12345')).toBe(false);
-    expect(isValidPaymentCode('1234567')).toBe(false);
-    expect(isValidPaymentCode('12345a')).toBe(false);
+  it('chỉ nhận đúng khuôn nhóm + 2 số + 3 chữ', () => {
+    expect(isValidPaymentCode('BAN05ABC')).toBe(true);
+    expect(isValidPaymentCode('DON00XYZ')).toBe(true);
+    expect(isValidPaymentCode('BAN5ABC')).toBe(false);
+    expect(isValidPaymentCode('BAN05AB')).toBe(false);
+    expect(isValidPaymentCode('XXX05ABC')).toBe(false);
   });
 });
 
-describe('buildTransferNote kèm mã đơn', () => {
+describe('buildTransferNote', () => {
   const table = { code: 'B05', name: 'Bàn 5' };
 
-  it('mã đơn đứng ĐẦU, rồi mới tới mã bàn và tên người thu', () => {
-    const note = buildTransferNote(table, { full_name: 'Lương Thị Thuý' }, '123456');
-    expect(note).toBe('DH123456 BAN05 LUONG THUY');
+  it('mã đứng đầu, rồi tới tên người thu — KHÔNG lặp lại mã bàn (mã đã mang sẵn)', () => {
+    const note = buildTransferNote(table, { full_name: 'Lương Thị Thuý' }, 'BAN05ABC');
+    expect(note).toBe('BAN05ABC LUONG THUY');
     expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
   });
 
-  it('tên dài thì CẮT TÊN, mã đơn còn nguyên', () => {
-    // Đây là bất biến quan trọng nhất của hàm này: mã mất là đối soát tự động mù hẳn,
-    // còn tên mất thì vẫn tra ra được từ `checked_out_by_full_name` của đơn.
-    const note = buildTransferNote(table, { full_name: 'Nguyễn Trần Hoàng Minh Nguyệt' }, '987654');
+  it('có tiền tố ngân hàng thì vẫn vừa 25 ký tự với tên thường gặp', () => {
+    const note = buildTransferNote(table, { full_name: 'Lương Thị Thuý' }, 'BAN05ABC', 'SEVQR');
+    expect(note).toBe('SEVQR BAN05ABC LUONG THUY');
+    expect(note.length).toBe(TRANSFER_NOTE_MAX);
+  });
+
+  it('tên rất dài thì CẮT TÊN, mã còn nguyên', () => {
+    const note = buildTransferNote(
+      table,
+      { full_name: 'Nguyễn Trần Hoàng Minh Nguyệt' },
+      'BAN05ABC',
+      'SEVQR',
+    );
     expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
-    expect(extractPaymentCode(note)).toBe('987654');
-    expect(note.startsWith('DH987654 BAN05')).toBe(true);
+    expect(extractPaymentCode(note)).toBe('BAN05ABC');
   });
 
   it('không truyền mã thì giữ nguyên hành vi cũ', () => {
@@ -103,8 +122,6 @@ describe('buildTransferNote kèm mã đơn', () => {
 });
 
 describe('tiền tố bắt buộc của ngân hàng', () => {
-  const table = { code: 'B01', name: 'Bàn 1' };
-
   it('VietinBank đòi SEVQR', () => {
     // Không phải quy ước của quán: tài liệu SePay ghi rõ mọi giao dịch VietinBank cá nhân phải
     // bắt đầu bằng SEVQR, nếu không họ KHÔNG nhận được biến động số dư.
@@ -116,21 +133,9 @@ describe('tiền tố bắt buộc của ngân hàng', () => {
     expect(suggestedNotePrefix(null)).toBeNull();
   });
 
-  it('tiền tố nằm ở ĐẦU chuỗi — ngân hàng kiểm "bắt đầu bằng", không phải "có chứa"', () => {
-    const note = buildTransferNote(table, { full_name: 'Quản Trị' }, '860224', 'SEVQR');
-    expect(note.startsWith('SEVQR ')).toBe(true);
-    expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
-  });
-
-  it('chật chỗ thì hy sinh TÊN, giữ trọn tiền tố và mã đơn', () => {
-    const note = buildTransferNote(table, { full_name: 'Nguyễn Trần Hoàng Minh Nguyệt' }, '860224', 'SEVQR');
-    expect(note.length).toBeLessThanOrEqual(TRANSFER_NOTE_MAX);
-    expect(note.startsWith('SEVQR DH860224')).toBe(true);
-    expect(extractPaymentCode(note)).toBe('860224');
-  });
-
-  it('paymentNote ghép tiền tố, và bóc lại vẫn ra đúng mã', () => {
-    expect(paymentNote('860224', 'SEVQR')).toBe('SEVQR DH860224');
-    expect(extractPaymentCode(paymentNote('860224', 'SEVQR'))).toBe('860224');
+  it('paymentNote đặt tiền tố ở ĐẦU — ngân hàng kiểm "bắt đầu bằng", không phải "có chứa"', () => {
+    expect(paymentNote('BAN05ABC', 'SEVQR')).toBe('SEVQR BAN05ABC');
+    expect(paymentNote('BAN05ABC')).toBe('BAN05ABC');
+    expect(extractPaymentCode(paymentNote('BAN05ABC', 'SEVQR'))).toBe('BAN05ABC');
   });
 });

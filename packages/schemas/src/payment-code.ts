@@ -1,61 +1,97 @@
-// Mã đơn in trong nội dung chuyển khoản — thứ nối MỘT dòng tiền trong sao kê với MỘT đơn cụ thể
+// Mã đơn in trong nội dung chuyển khoản — thứ nối MỘT dòng tiền trong sao kê với MỘT lần thu
 // (2026-09-22, khi nối webhook SePay).
 //
-// VÌ SAO CẦN, KHI ĐÃ CÓ "BAN05 LUONG THUY":
-// chuỗi đó cố ý không có giờ (chủ quán chốt 2026-09-14, xem `transfer-note.ts`), nên bàn 5 có ba
-// lượt khách trong một tối, cùng một người thu, sẽ ra ba dòng sao kê chữ giống hệt nhau. Phân biệt
-// bằng số tiền + giờ giao dịch thì kẹt ngay khi hai lượt tình cờ cùng số tiền — và đó đúng là lúc
-// việc đối soát tự động cần trả lời chính xác nhất. Sáu chữ số phá thế hoà đó.
+// HÌNH DẠNG: `BAN01ABC` — ba chữ cái ngẫu nhiên gắn sau mã bàn.
 //
-// BA RÀNG BUỘC ép mọi quyết định trong file này:
+//   BAN01   ABC
+//   └─┬─┘   └┬┘
+//     │      └── 3 chữ cái ngẫu nhiên, sinh bằng CSPRNG ở server
+//     └───────── bàn 01 (đơn online là `DON00`)
 //
-//  1. **Trần 25 ký tự** của trường 62.08 (EMVCo) — dài hơn là QR KHÔNG DỰNG ĐƯỢC, không phải bị
-//     cắt gọn. Mã ăn 9 ký tự ("DH123456" + một khoảng trắng), phần còn lại mới tới tên người thu.
+// VÌ SAO GẮN MÃ BÀN VÀO CHÍNH MÃ (chủ quán chốt 2026-09-22):
 //
-//  2. Ngân hàng chỉ nhận **chữ không dấu, số và khoảng trắng**. Mã toàn chữ số nên miễn nhiễm với
-//     mọi trò bỏ dấu — đây là lý do không dùng base32 hay chữ cái cho gọn: `0/O` và `1/I` nhìn
-//     giống nhau trên thông báo ngân hàng, mà người đối soát phải đọc được bằng mắt.
+//  1. **Thu hẹp phạm vi trùng xuống từng bàn từng ngày.** Một bàn mỗi ngày chỉ 2–3 đơn, nên trùng
+//     ba chữ cái trong phạm vi đó là gần như không thể. Nếu mã không mang bàn thì phạm vi là CẢ
+//     QUÁN — với ~60 đơn/ngày, ba ký tự ngẫu nhiên trùng nhau tới ~83% (nghịch lý ngày sinh).
+//     Ràng buộc thật vẫn nằm ở DB: `UNIQUE(code, code_day)`, xem `payment-intent.entity.ts`.
 //
-//  3. Khách **SỬA ĐƯỢC** nội dung trước khi bấm chuyển — app ngân hàng nào cũng cho. Mã là công cụ
-//     TRỢ GIÚP đối soát, KHÔNG phải bằng chứng. Mất mã thì rơi về đối soát tay (và ảnh bill vẫn
-//     còn đó), chứ không phải mất tiền.
+//  2. **Đọc sao kê bằng mắt thấy ngay bàn nào**, không phải mở app tra. Bản trước tách mã bàn ra
+//     một từ riêng ("DH123 BAN05 ...") thì tốn thêm một dấu cách và đẩy tên người thu vào vùng bị
+//     cắt của trần 25 ký tự.
+//
+// BA RÀNG BUỘC ép mọi quyết định dưới đây:
+//
+//  1. **Trần 25 ký tự** của trường 62.08 (EMVCo) — dài hơn là QR KHÔNG DỰNG ĐƯỢC. `SEVQR BAN01ABC
+//     LUONG THUY` vừa đúng 25.
+//  2. Ngân hàng chỉ nhận **chữ không dấu, số và khoảng trắng**.
+//  3. Khách **SỬA ĐƯỢC** nội dung trước khi bấm chuyển. Mã là công cụ TRỢ GIÚP đối soát, KHÔNG
+//     phải bằng chứng — mất mã thì rơi về đối soát tay, không phải mất tiền.
 
-/** Tiền tố nội dung CK. ĐỔI LÀ HỎNG mọi đơn đang chờ thanh toán: QR đã in ra tay khách mang tiền
- *  tố cũ, còn bộ khớp thì tìm tiền tố mới. Muốn đổi thì phải nhận cả hai một thời gian. */
-export const PAYMENT_CODE_PREFIX = 'DH';
+/** Nhóm của lần thu, cũng là thứ khiến chuỗi này nhận ra được giữa một rừng số của ngân hàng.
+ *  `BAN` = thu tại bàn · `DON` = đơn online. */
+export const PAYMENT_CODE_GROUPS = ['BAN', 'DON'] as const;
 
-/** Số chữ số của mã.
+/** Số chữ cái ngẫu nhiên. Ba là đủ vì phạm vi duy nhất chỉ là MỘT BÀN trong MỘT NGÀY. */
+export const PAYMENT_CODE_LETTERS = 3;
+
+/** Bảng chữ cái sinh mã — CỐ Ý BỎ `I` và `O`.
  *
- * SÁU, không phải tám: `description` của payOS giới hạn 9 ký tự với tài khoản không liên kết, và
- * tuy hiện đi SePay thì trần đó không áp, giữ 6 để còn đường đổi cổng mà không phải in lại QR.
- * 900.000 khả năng là thừa cho một quán — va mã chỉ cần bắt `ER_DUP_ENTRY` rồi bốc lại. */
-export const PAYMENT_CODE_DIGITS = 6;
+ *  Người đối soát đọc mã này bằng mắt trên thông báo ngân hàng, mà `I` lẫn với `1` và `O` lẫn với
+ *  `0` ngay bên cạnh hai chữ số của mã bàn. Mất 2 chữ cái đổi lấy việc không bao giờ phải đoán —
+ *  vẫn còn 24³ = 13.824 khả năng cho mỗi bàn mỗi ngày. */
+export const PAYMENT_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 
-/** Số ký tự mã chiếm trong nội dung CK (gồm tiền tố). Dùng ở `transfer-note.ts` để tính phần
- *  còn lại cho tên người thu — đừng tự cộng tay số 8 ở chỗ khác. */
-export const PAYMENT_CODE_NOTE_LENGTH = PAYMENT_CODE_PREFIX.length + PAYMENT_CODE_DIGITS;
+/** `^(BAN|DON)\d{2}[A-Z]{3}$` */
+const CODE_RE = new RegExp(`^(?:${PAYMENT_CODE_GROUPS.join('|')})\\d{2}[A-Z]{${PAYMENT_CODE_LETTERS}}$`);
+
+export function isValidPaymentCode(code: string): boolean {
+  return CODE_RE.test(code ?? '');
+}
 
 /**
- * Bóc mã đơn từ nội dung một dòng sao kê.
+ * Ghép mã từ nhóm + số bàn + chữ cái. `('BAN', 5, 'ABC')` → `BAN05ABC`.
  *
- * Nội dung thật về tay ta đã qua nhiều lớp bóp méo, nên mẫu này cố ý lỏng ở ba chỗ:
- *  - **hoa/thường** (`i`): một số ngân hàng viết hoa toàn bộ, số khác giữ nguyên.
- *  - **khoảng trắng giữa tiền tố và số**: app ngân hàng của khách có thể chèn vào.
- *  - **chữ bao quanh**: ngân hàng hay bọc thêm ("CHUYEN TIEN DH123456 NGUYEN VAN A TT").
+ * Bàn không có số (bàn "Mang về", "Giao hàng") và đơn online đều dùng `00`: hai chữ số luôn có mặt
+ * để chuỗi giữ đúng một hình dạng — mẫu dò ở `extractPaymentCode` dựa vào điều đó.
+ */
+export function buildPaymentCode(
+  group: (typeof PAYMENT_CODE_GROUPS)[number],
+  tableNo: number | null | undefined,
+  letters: string,
+): string {
+  const no = String(Math.max(0, Math.min(99, Number(tableNo) || 0))).padStart(2, '0');
+  const code = `${group}${no}${letters.toUpperCase()}`;
+  if (!isValidPaymentCode(code)) {
+    throw new Error(`Mã thanh toán sai khuôn: "${code}"`);
+  }
+  return code;
+}
+
+/**
+ * Bóc mã từ nội dung một dòng sao kê.
  *
- * Nhưng CHẶT ở hai chỗ, và đây là phần quan trọng:
- *  - `(?<![A-Z0-9])` — "ABCDH123456" KHÔNG phải mã của ta, đó là chuỗi rác trùng đuôi.
- *  - `(?!\d)` — "DH1234567" (7 số) KHÔNG được cắt lấy 6 số đầu rồi khớp nhầm sang đơn khác.
+ * Nội dung thật về tay ta đã qua tay khách (sửa được), qua app ngân hàng của khách (chèn chữ), rồi
+ * qua ngân hàng nhận (bọc kín) — chuỗi thật đã gặp:
+ *
+ *   `CT DEN:106T2691148BUT55 MBVCB.16177901321.548513.SEVQR BAN02ABC.CT tu 0901000137182 ...`
+ *
+ * Nên mẫu LỎNG ở chỗ bao quanh (dấu chấm, không có khoảng trắng cũng nhận) nhưng CHẶT ở hai ranh
+ * giới, và đây mới là phần quan trọng:
+ *
+ *  · `(?<![A-Z0-9])` — "VIETINBANK01ABC" không phải mã của ta. Không có nó thì mọi chữ "BANK",
+ *    "NGAN HANG" trong nội dung ngân hàng đều thành ứng viên.
+ *  · `(?![A-Z0-9])`  — "BAN01ABCD" không được cắt lấy 8 ký tự đầu rồi khớp nhầm sang bàn khác.
  *
  * Trả `null` khi không thấy. Người gọi TUYỆT ĐỐI không được suy đoán tiếp theo số tiền: đoán sai
  * là đánh dấu "đã trả" cho đơn của người khác, và không có đường nào phát hiện ra.
  */
 export function extractPaymentCode(content: string): string | null {
   const re = new RegExp(
-    `(?<![A-Z0-9])${PAYMENT_CODE_PREFIX}\\s?(\\d{${PAYMENT_CODE_DIGITS}})(?!\\d)`,
+    `(?<![A-Z0-9])((?:${PAYMENT_CODE_GROUPS.join('|')})\\d{2}[A-Z]{${PAYMENT_CODE_LETTERS}})(?![A-Z0-9])`,
     'i',
   );
-  return re.exec(content ?? '')?.[1] ?? null;
+  const hit = re.exec(content ?? '')?.[1];
+  return hit ? hit.toUpperCase() : null;
 }
 
 /** Trần độ dài tiền tố bắt buộc của ngân hàng. Mỗi ký tự ở đây ăn vào 25 ký tự của trường 62.08,
@@ -70,8 +106,8 @@ export const NOTE_PREFIX_MAX = 8;
  * toán phải bắt đầu bằng từ khóa SEVQR". Thiếu nó thì tiền về tài khoản thật nhưng SePay không
  * nhận được biến động — app không bao giờ biết, và không có lỗi nào hiện ra ở đâu cả.
  *
- * Đã gặp thật 2026-09-22: chuyển 3.000đ vào VietinBank với nội dung "BAN01 DH860224 QUA TEST",
- * webhook im lặng tuyệt đối.
+ * Đã gặp thật 2026-09-22: chuyển 3.000đ vào VietinBank với nội dung không có SEVQR, webhook im
+ * lặng tuyệt đối.
  *
  * Trả `null` = ngân hàng không đòi tiền tố nào. Chủ quán vẫn GÕ ĐÈ được ở màn Cài đặt — bảng tra
  * này chỉ là gợi ý mặc định, vì danh sách ngân hàng và luật của cổng đều đổi theo thời gian.
@@ -82,21 +118,14 @@ export function suggestedNotePrefix(bankBin: string | null | undefined): string 
 }
 
 /**
- * Ghép đoạn in lên QR: `DH123456`, hoặc `SEVQR DH123456` khi ngân hàng đòi tiền tố.
+ * Đoạn in lên QR: `BAN01ABC`, hoặc `SEVQR BAN01ABC` khi ngân hàng đòi tiền tố.
  *
- * Tiền tố đứng TRƯỚC mã đơn vì ngân hàng đòi nó ở ĐẦU nội dung — không phải đâu đó trong chuỗi.
- *
- * Ném nếu mã sai khuôn: thà chết ở chỗ sinh mã còn hơn in ra một QR mà không webhook nào khớp lại
- * được.
+ * Tiền tố đứng TRƯỚC mã vì ngân hàng đòi nó ở ĐẦU nội dung — không phải đâu đó trong chuỗi.
  */
 export function paymentNote(code: string, prefix?: string | null): string {
   if (!isValidPaymentCode(code)) {
-    throw new Error(`Mã thanh toán phải là ${PAYMENT_CODE_DIGITS} chữ số, nhận được "${code}"`);
+    throw new Error(`Mã thanh toán sai khuôn, nhận được "${code}"`);
   }
   const head = (prefix ?? '').trim().toUpperCase();
-  return head ? `${head} ${PAYMENT_CODE_PREFIX}${code}` : `${PAYMENT_CODE_PREFIX}${code}`;
-}
-
-export function isValidPaymentCode(code: string): boolean {
-  return new RegExp(`^\\d{${PAYMENT_CODE_DIGITS}}$`).test(code ?? '');
+  return head ? `${head} ${code}` : code;
 }

@@ -92,15 +92,39 @@ thì sửa đúng một chỗ đó).
 
 ## Nội dung chuyển khoản
 
-`SEVQR DH123456 BAN05 THUY` — thứ tự **là thứ tự ưu tiên**, vì trần 25 ký tự của trường 62.08
-(EMVCo) cắt từ đuôi:
+`SEVQR BAN05ABC LUONG THUY` — vừa đúng 25 ký tự, trần của trường 62.08 (EMVCo).
 
-| Thứ tự | Phần | Mất thì sao |
-|---|---|---|
-| ① | tiền tố ngân hàng | cổng **không thấy** giao dịch — hỏng toàn bộ |
-| ② | mã đơn `DHxxxxxx` | không khớp tự động được, phải dò tay |
-| ③ | mã bàn | vẫn tra ra từ đơn, chỉ bất tiện khi đọc sao kê |
-| ④ | tên người thu | vẫn tra được từ `checked_out_by_full_name` |
+```
+SEVQR   BAN05   ABC     LUONG THUY
+  │       │      │          │
+  │       │      │          └── người thu (bị cắt trước nếu tên quá dài)
+  │       │      └───────────── 3 chữ cái ngẫu nhiên (bỏ I và O cho khỏi lẫn 1 và 0)
+  │       └──────────────────── bàn 05 — đơn online là DON00
+  └──────────────────────────── tiền tố ngân hàng bắt buộc
+```
+
+**Mã bàn nằm TRONG mã** chứ không tách ra một từ riêng. Hai cái lợi: đọc sao kê bằng mắt thấy ngay
+bàn nào, và phạm vi phải duy nhất thu hẹp xuống **một bàn trong một ngày** (2–3 đơn) thay vì cả
+quán — nên ba chữ cái là quá đủ.
+
+Thứ tự là thứ tự ưu tiên, vì trần 25 ký tự cắt từ đuôi: tiền tố (thiếu là cổng không thấy giao
+dịch) → mã (thiếu là không khớp tự động được) → tên người thu (thiếu vẫn tra được từ đơn).
+
+## Duy nhất theo NGÀY, không phải vĩnh viễn
+
+Khoá `UNIQUE(code, code_day)` ở `payment_intents` biến "gần như không trùng" thành "không thể
+trùng" trong phạm vi một ngày. Sang hôm sau mã tái sử dụng.
+
+⚠ **Bỏ `code_day` khỏi khoá đó là hỏng ngầm**: mã sẽ phải duy nhất vĩnh viễn với chỉ 13.824 khả
+năng cho mỗi bàn, và vài tháng sau là đụng mã liên tục.
+
+Đánh đổi đã biết: giao dịch về **muộn qua ngày** có thể rơi vào mã đã tái sử dụng. Bộ khớp chặn
+phần lớn ca đó bằng cửa sổ 36 giờ + so số tiền, và khi còn mơ hồ thì **không đoán** — dòng tiền nằm
+lại nhóm "chưa khớp" ở màn đối soát.
+
+⚠ **Thêm khoá duy nhất lên bảng ĐANG CÓ DỮ LIỆU sẽ làm API chết lúc khởi động** (`Duplicate entry`).
+Gặp thật khi đổi khuôn mã 2026-09-22. Trên production hai bảng này chưa tồn tại nên không vướng;
+nếu về sau đổi khuôn mã lần nữa thì phải dọn dữ liệu cũ trước.
 
 Khách **sửa được** nội dung trước khi bấm chuyển. Mã là công cụ trợ giúp, **không phải bằng
 chứng** — mất mã thì đơn rơi về đối soát tay, ảnh bill vẫn còn đó.
