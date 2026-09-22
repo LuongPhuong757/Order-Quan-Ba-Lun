@@ -10,6 +10,7 @@
 // là đường sống của quán; mã QR tải lỗi, chưa cấu hình mã nào, hay khách đổi ý trả tiền mặt —
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
 import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkout-block.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
@@ -193,7 +194,53 @@ export function CheckoutDialog({
    * KHÔNG bao giờ báo lỗi ra màn: hỏng thì `payCode` giữ `null`, nội dung CK lùi về bản cũ, người
    * thu không cần biết và cũng không làm gì được với thông tin đó giữa lúc khách đứng đợi.
    */
+  /**
+   * Chờ ngân hàng báo về, ngay tại màn QR (chủ quán chốt 2026-09-22).
+   *
+   *   'idle'    — chưa bấm gì
+   *   'waiting' — đang hỏi, nút "Tiếp tục →" TẠM KHOÁ
+   *   'paid'    — tiền đã về: dòng xanh
+   *   'timeout' — hết 10 giây chưa thấy: dòng đỏ, bảo chụp bill của khách
+   *
+   * ⚠ ĐÂY LÀ NGOẠI LỆ DUY NHẤT của nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay
+   * mạng" ghi ở đầu tệp, và nó được phép tồn tại vì có TRẦN CỨNG 10 giây: hết giờ là mở nút, bất
+   * kể mạng ra sao, bất kể API có trả lời hay không. Ai sửa chỗ này phải giữ nguyên tính chất đó
+   * — bỏ trần đi là biến màn thu tiền thành thứ phụ thuộc vào một dịch vụ bên ngoài.
+   *
+   * Đồng hồ chỉ chạy TỪ LÚC NGƯỜI THU BẤM NÚT, không phải từ lúc màn QR hiện ra: khách còn phải
+   * mở app ngân hàng và quét, đếm từ lúc chìa mã thì lần nào cũng hết giờ trước khi khách kịp làm.
+   *
+   * Hết giờ là CHỐT (chủ quán chọn): không hỏi tiếp, đỏ là đỏ. Đổi lại sự dứt khoát — người thu
+   * biết ngay phải chụp bill, không đứng nhìn một dòng chữ có thể tự đổi màu sau lưng.
+   */
+  const VERIFY_TIMEOUT_MS = 10_000;
+  const VERIFY_POLL_MS = 1500;
+  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
+
+  /** Hỏi tới khi thấy tiền hoặc hết giờ. Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian
+   *  của trần 10 giây, và hết trần thì rơi vào 'timeout' như mọi ca không xác thực được. */
+  const waitForBank = async (code: string) => {
+    setVerify('waiting');
+    const deadline = Date.now() + VERIFY_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      try {
+        const res = await api.get<{ data: { paid: boolean } }>(`/payments/intent/${code}`);
+        if (res.data.data.paid) {
+          setVerify('paid');
+          return;
+        }
+      } catch {
+        /* mạng chập chờn ở quán là bình thường — lần sau hỏi lại */
+      }
+      await new Promise((r) => setTimeout(r, VERIFY_POLL_MS));
+    }
+    setVerify('timeout');
+  };
+
   useEffect(() => {
+    // Đổi hình thức hoặc đổi số tiền là một LẦN THU KHÁC. Bỏ kết quả xác thực cũ, nếu không dòng
+    // xanh của số tiền trước còn nằm đó bên cạnh con số mới.
+    setVerify('idle');
     if (mode === 'CASH' || mode === null || transferAmount <= 0) {
       setPayCode(null);
       return;
@@ -315,6 +362,12 @@ export function CheckoutDialog({
       return;
     }
     if (step === 'qr') {
+      // Chưa xin được mã thì KHÔNG có gì để hỏi ngân hàng — đi thẳng, y như trước khi có tính
+      // năng này. Đứng chờ 10 giây cho một mã không tồn tại là phạt người thu vì lỗi của mạng.
+      if (payCode && verify === 'idle') {
+        void waitForBank(payCode);
+        return;
+      }
       setStep('bill');
       return;
     }
@@ -327,6 +380,9 @@ export function CheckoutDialog({
    *  sửa một thứ, không phải để bắt đầu lại. Ảnh đã đẩy vẫn nằm trên server gắn với đơn — nó
    *  không phụ thuộc vào việc hộp thoại đang ở màn nào. */
   const goBack = () => {
+    // Lùi khỏi màn QR là bỏ kết quả xác thực: người ta lùi để đổi số tiền hay đổi mã QR, mà cả
+    // hai đều sinh ra một lần thu KHÁC — giữ lại dòng xanh cũ là dán nhãn "đã trả" lên số mới.
+    if (step === 'qr') setVerify('idle');
     if (step === 'bill') setStep('qr');
     else if (step === 'qr') setStep('mode');
     else if (step === 'mode') setStep('items');
@@ -344,7 +400,14 @@ export function CheckoutDialog({
       ? '💰 Thanh toán'
       : step === 'bill' || (step === 'mode' && mode === 'CASH')
         ? 'Xác nhận thu tiền'
-        : 'Tiếp tục →';
+        : step === 'qr' && verify === 'waiting'
+          ? 'Đang đợi ngân hàng…'
+          : 'Tiếp tục →';
+
+  /** Khoá cứng DUY NHẤT trong cả hộp thoại, và chỉ sống tối đa 10 giây (xem `waitForBank`).
+   *  Khác `blockReason` ở chỗ: `blockReason` để nút vẫn bấm được rồi nói lý do, còn ở đây bấm
+   *  thêm chẳng để làm gì — câu trả lời đang trên đường về. */
+  const waiting = step === 'qr' && verify === 'waiting';
 
   const submit = async () => {
     if (blockReason) {
@@ -515,6 +578,7 @@ export function CheckoutDialog({
                 qrDataUrl={qrDataUrl}
                 transferAmount={transferAmount}
                 note={note}
+                verify={verify}
               />
             </>
           ) : (
@@ -554,14 +618,14 @@ export function CheckoutDialog({
           <button
             type="button"
             onClick={goNext}
-            disabled={submitting}
+            disabled={submitting || waiting}
             aria-disabled={!!blockReason}
             title={blockReason ?? undefined}
             style={{
               flex: 1,
               minHeight: 44,
-              opacity: blockReason ? 0.55 : 1,
-              cursor: blockReason ? 'not-allowed' : 'pointer',
+              opacity: blockReason || waiting ? 0.55 : 1,
+              cursor: blockReason || waiting ? 'not-allowed' : 'pointer',
             }}
           >
             {submitting ? 'Đang thanh toán…' : nextLabel}
@@ -614,6 +678,7 @@ export function QrStep({
   qrDataUrl,
   transferAmount,
   note,
+  verify,
 }: {
   options: QrOption[];
   loadFailed: boolean;
@@ -623,6 +688,8 @@ export function QrStep({
   qrDataUrl: string | null;
   transferAmount: number;
   note: string;
+  /** Kết quả hỏi ngân hàng — xem `waitForBank` ở component cha. */
+  verify: 'idle' | 'waiting' | 'paid' | 'timeout';
 }) {
   return (
     <div>
@@ -710,9 +777,40 @@ export function QrStep({
           </div>
         </div>
       )}
+
+      {/* Kết quả đối chiếu với ngân hàng. Đặt DƯỚI mã QR, ngay trên hàng nút — đây là thứ người
+          thu nhìn cuối cùng trước khi bấm đi tiếp, và là thứ quyết định họ có phải chụp bill hay
+          không. Cả ba dòng đều cao và chữ to: người thu đang đứng, nhìn lướt, tay còn cầm máy. */}
+      {verify === 'waiting' && (
+        <div style={{ ...verifyLine, background: '#f1f5f9', color: '#334155' }}>
+          ⏳ Đang đợi ngân hàng báo về…
+        </div>
+      )}
+      {verify === 'paid' && (
+        <div style={{ ...verifyLine, background: '#dcfce7', color: '#166534' }}>
+          ✅ Đã thanh toán thành công
+        </div>
+      )}
+      {verify === 'timeout' && (
+        /* KHÔNG nói "chuyển tiền thất bại" — ta không biết điều đó. Ta chỉ biết mình CHƯA xác
+           thực được, mà tiền có thể đã về rồi (ngân hàng chậm, hoặc tài khoản này không nối với
+           cổng đối soát). Nói quá lên là đẩy người thu vào thế nghi ngờ khách. */
+        <div style={{ ...verifyLine, background: '#fee2e2', color: '#991b1b' }}>
+          ⚠️ Chưa xác thực được giao dịch — vui lòng chụp lại giao dịch của khách
+        </div>
+      )}
     </div>
   );
 }
+
+const verifyLine: CSSProperties = {
+  marginTop: 12,
+  padding: '10px 12px',
+  borderRadius: 8,
+  fontSize: 15,
+  fontWeight: 700,
+  textAlign: 'center',
+};
 
 /** Ba nhóm món của bill — giữ nguyên bố cục hộp thoại cũ, chỉ gom lại thành một component vì từ
  *  2026-09-15 nó xuất hiện ở HAI màn chốt khác nhau (tiền mặt chốt ở màn 1, chuyển khoản chốt ở

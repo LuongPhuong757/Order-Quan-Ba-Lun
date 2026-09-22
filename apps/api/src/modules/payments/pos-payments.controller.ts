@@ -1,4 +1,20 @@
-import { Body, Controller, ForbiddenException, HttpCode, Logger, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  ForbiddenException,
+  Get,
+  Header,
+  HttpCode,
+  Logger,
+  NotFoundException,
+  Param,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { PaymentIntent } from './entities/payment-intent.entity.js';
 import type { Request } from 'express';
 import { apiOk, type ApiOk } from '@order/utils';
 import { paymentNote } from '@order/schemas';
@@ -28,7 +44,35 @@ import { PaymentsService } from './payments.service.js';
 export class PosPaymentsController {
   private readonly log = new Logger(PosPaymentsController.name);
 
-  constructor(private readonly payments: PaymentsService) {}
+  constructor(
+    private readonly payments: PaymentsService,
+    @InjectRepository(PaymentIntent) private readonly intents: Repository<PaymentIntent>,
+  ) {}
+
+  /**
+   * Màn thu tiền hỏi "ngân hàng báo về chưa" trong lúc khách vừa chuyển xong.
+   *
+   * Nhẹ hết mức có thể — một truy vấn theo khoá duy nhất — vì nó bị gọi vài lần một giây trong
+   * đúng 10 giây người thu đứng đợi trước mặt khách.
+   *
+   * KHÔNG dùng `AdminGuard`: người đứng quầy phải xem được kết quả của chính lần thu họ đang làm.
+   * Thứ lộ ra ở đây chỉ là số tiền của một mã mà họ vừa tự tạo.
+   */
+  @Get('intent/:code')
+  @Header('Cache-Control', 'no-store')
+  async status(
+    @Param('code') code: string,
+  ): Promise<ApiOk<{ paid: boolean; received_amount: number; amount: number }>> {
+    const intent = await this.intents.findOne({ where: { code } });
+    if (!intent) {
+      throw new NotFoundException({ code: 'PAYMENT_CODE_NOT_FOUND', message: 'Không thấy mã thanh toán.' });
+    }
+    return apiOk({
+      paid: intent.paid_at !== null,
+      received_amount: intent.received_amount,
+      amount: intent.amount,
+    });
+  }
 
   @Post('intent')
   @HttpCode(200)
