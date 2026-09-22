@@ -137,6 +137,17 @@ export class OnlineOrderRequest {
   @Column({ type: 'int', default: 0 })
   max_progress_shown!: number;
 
+  // Mốc ngân hàng đã báo tiền về đủ cho đơn này (2026-09-22, webhook SePay). NULL = chưa thấy tiền.
+  //
+  // MỘT MỐC THỜI GIAN, KHÔNG PHẢI GIÁ TRỊ MỚI CỦA `status`: `status` là vòng đời DUYỆT đơn
+  // (WAITING → CONFIRMED/REJECTED), do người quán bấm. Trả tiền là trục khác hẳn và chạy song
+  // song — khách trả trước lúc quán chưa duyệt là bình thường. Nhét vào cùng một cột thì hai
+  // trục đè lên nhau và không còn cách nào diễn tả "đã trả tiền nhưng quán chưa nhận đơn".
+  //
+  // Ai ghi: CHỈ `PaymentsApplyService`. Set rồi không gỡ (xem docblock `payment_intents.paid_at`).
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  paid_at!: number | null;
+
   // HMAC hash của IP (M2.D-56) — 64 hex của HMAC-SHA256. KHÔNG BAO GIỜ lưu IP thô.
   @Column({ type: 'varchar', length: 64 })
   ip_hash!: string;

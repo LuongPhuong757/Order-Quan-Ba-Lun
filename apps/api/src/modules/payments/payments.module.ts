@@ -1,0 +1,22 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { PaymentIntent } from './entities/payment-intent.entity.js';
+import { BankTransaction } from './entities/bank-transaction.entity.js';
+import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
+import { PaymentsApplyService } from './payments-apply.service.js';
+import { PaymentsWebhookController } from './payments-webhook.controller.js';
+
+/**
+ * Đối soát tiền chuyển khoản với ngân hàng qua SePay (2026-09-22).
+ *
+ * Trước module này, con số "chuyển khoản" trong màn đối soát là số NHÂN VIÊN tự ghi nhận, và bằng
+ * chứng duy nhất là ảnh bill do KHÁCH đưa. Module này là đường duy nhất trong hệ thống mà dữ liệu
+ * đi từ phía ngân hàng vào.
+ */
+@Module({
+  imports: [TypeOrmModule.forFeature([PaymentIntent, BankTransaction, OnlineOrderRequest])],
+  controllers: [PaymentsWebhookController],
+  providers: [PaymentsApplyService],
+  exports: [PaymentsApplyService],
+})
+export class PaymentsModule {}
