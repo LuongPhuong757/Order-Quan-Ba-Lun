@@ -8,6 +8,7 @@ import { PaymentsWebhookController } from './payments-webhook.controller.js';
 import { PublicPaymentsController } from './public-payments.controller.js';
 import { PosPaymentsController } from './pos-payments.controller.js';
 import { AdminReconcileController } from './admin-reconcile.controller.js';
+import { SepayBackfillJob } from './sepay-backfill.job.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
@@ -26,7 +27,7 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
     PosPaymentsController,
     AdminReconcileController,
   ],
-  providers: [PaymentsApplyService, PaymentsService],
+  providers: [PaymentsApplyService, PaymentsService, SepayBackfillJob],
   exports: [PaymentsApplyService, PaymentsService],
 })
 export class PaymentsModule {}

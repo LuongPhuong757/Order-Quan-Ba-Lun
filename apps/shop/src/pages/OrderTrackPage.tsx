@@ -6,6 +6,7 @@ import { deleteJson, useApi, type ApiError } from '../lib/use-api.ts';
 import { formatVnd, readCartNote, saveCartNote, useCart } from '../lib/cart-store.ts';
 import { orderItemsToCartLines, startEditSession } from '../lib/order-edit.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
+import { PaymentQrBox } from '../components/PaymentQrBox.tsx';
 import { ErrorToast } from '../components/ErrorToast.tsx';
 import { ImagePlaceholder } from '../components/ImagePlaceholder.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
@@ -300,6 +301,12 @@ export function OrderTrackPage(): JSX.Element {
               {shown.customer_note}
             </p>
           )}
+
+          {/* Trả tiền trước bằng chuyển khoản (2026-09-22).
+              CHỈ đơn đã được quán xác nhận: trước đó phí ship chưa chốt nên số tiền in lên QR sẽ
+              sai, và đơn còn có thể bị từ chối — tiền đã vào thì phải hoàn thủ công.
+              Không ép: khách bỏ qua khối này thì trả khi nhận hàng như trước. */}
+          {shown.status === 'CONFIRMED' && <PaymentQrBox token={shown.order_token} />}
 
           {/* M2.D-62 — phí ship là TIỀN KHÁCH PHẢI TRẢ THÊM, quán chốt khi gọi điện xác nhận.
               Trước 2026-08-06 trang này chỉ hiện tiền món rồi gọi nó là "Tổng cộng", nên khách

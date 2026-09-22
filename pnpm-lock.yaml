@@ -159,6 +159,9 @@ importers:
       leaflet:
         specifier: ^1.9.4
         version: 1.9.4
+      qrcode:
+        specifier: ^1.5.4
+        version: 1.5.4
       react:
         specifier: ^19.0.0
         version: 19.2.6
@@ -175,6 +178,9 @@ importers:
       '@types/leaflet':
         specifier: ^1.9.12
         version: 1.9.22
+      '@types/qrcode':
+        specifier: ^1.5.6
+        version: 1.5.6
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.14
