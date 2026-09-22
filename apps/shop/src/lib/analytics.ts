@@ -24,16 +24,25 @@
  * KHÔNG dùng `use-api.ts` ở đây dù nó là lớp dữ liệu chuẩn của app: `postJson()` cố tình
  * zod-parse response và trả lỗi cho UI xử lý — hai thứ ping này phải KHÔNG làm.
  *
- * Không có thư viện analytics ngoài (GA/Umami/Plausible): thêm 1 script bên thứ ba là thêm
- * ~20-45KB JS + 1 kết nối DNS/TLS tới host khác trên đúng cái đường 3G mà `use-api.ts` đang
- * cố giữ sạch. Số liệu chủ quán cần (lượt vào, thời gian ở lại, trang nào hay xem, SĐT từng
- * đặt đơn) đều đã nằm trong DB của chính mình.
+ * Số liệu chủ quán cần hằng ngày (lượt vào, thời gian ở lại, trang nào hay xem, SĐT từng đặt
+ * đơn) đều đã nằm trong DB của chính mình, nên KHÔNG có thư viện analytics ngoài nào được
+ * thêm vào chỉ để lấy lại mấy số đó: mỗi script bên thứ ba là ~20-45KB JS + 1 kết nối DNS/TLS
+ * tới host khác, trên đúng cái đường 3G mà `use-api.ts` đang cố giữ sạch.
+ *
+ * NGOẠI LỆ DUY NHẤT, từ 2026-09-22: `gtag.ts` (Google Analytics 4). Quán bắt đầu chạy quảng
+ * cáo Google, và có đúng hai việc file này không bao giờ làm được — đọc `gclid` để biết khách
+ * đến từ chiến dịch nào, và trả event `purchase` ngược về Google Ads để thuật toán đấu thầu
+ * học. Không có chúng thì tiền quảng cáo chạy mù. Ngoại lệ đó dừng ở đây: mọi số liệu vận
+ * hành khác vẫn đi qua `/api/public/track`, và GA4 KHÔNG phải nguồn sự thật về doanh thu.
  */
 import { LAST_CUSTOMER_KEY } from './customer-token.ts';
 // `cartPingPayload` chỉ đọc state cấp module của giỏ + cộng vài số, không I/O — xem docblock
 // của nó về 3 tính chất bắt buộc. Import này KHÔNG kéo thêm gì vào bundle tải-lần-đầu:
 // `cart-store.ts` đã nằm trong đó từ trước vì `AppShell` dùng `useCart()`.
 import { cartPingPayload } from './cart-store.ts';
+// GA4 móc vào ĐÂY chứ không có điểm gọi riêng: `trackPageView` đã là chỗ duy nhất cả app báo
+// "khách vừa xem một trang", nên thêm route mới là GA tự có. Xem docblock `gtag.ts`.
+import { gaPageView } from './gtag.ts';
 
 const TRACK_URL = '/api/public/track';
 const SID_KEY = 'qbl.analytics_sid';
@@ -194,6 +203,10 @@ export function trackPageView(path: string): void {
     if (s.lastPath === path && now - s.lastPathMs < 1_000) return;
     s.lastPath = path;
     s.lastPathMs = now;
+
+    // Sau bộ chống-gọi-đúp ở trên, và KHÔNG có `await`: `gaPageView` chỉ đẩy một phần tử vào
+    // mảng `dataLayer` trong RAM. Tự nó im lặng khi GA tắt (dev/local) — xem `gtag.ts`.
+    gaPageView(path);
 
     s.pv += 1;
     writeStorage(window.sessionStorage, PV_KEY, String(s.pv));

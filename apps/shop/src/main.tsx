@@ -8,6 +8,7 @@ import './styles/env-banner.css'; // Dải đỏ báo môi trường dev — ch�
 import { AppShell } from './components/AppShell.tsx';
 import { EnvBanner } from './components/EnvBanner.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+import { startGa } from './lib/gtag.ts';
 import { MenuPage } from './pages/MenuPage.tsx';
 import { MenuBookPage } from './pages/MenuBookPage.tsx';
 
@@ -72,6 +73,15 @@ if (!root) throw new Error('#root không tồn tại trong index.html');
  * menu chờ thêm một vòng mạng 3G.
  */
 const isMenuHost = window.location.hostname.split(':')[0].toLowerCase().startsWith('menu.');
+
+// ─── Google Analytics 4 (đo hiệu quả quảng cáo Google Ads) ───────────────────
+// Đặt TRƯỚC cả hai nhánh mount, không phải trong `AppShell`: nhánh `menu.<domain>` bên dưới
+// cố ý không dựng `BrowserRouter` nên cũng không có `AppShell` — móc vào đó là quyển menu
+// (một đích quảng cáo có thể trỏ tới) không được đo dòng nào.
+//
+// Gọi ở cấp module, đồng bộ, KHÔNG chặn: `startGa` chỉ ghi vào `dataLayer` rồi gắn một thẻ
+// `<script async>`; nó cũng tự im khi không phải host quán thật. Xem `lib/gtag.ts`.
+startGa(window.location.pathname);
 
 if (isMenuHost) {
   // KHÔNG bọc `AppShell` (header có giỏ, giỏ nổi, thanh đơn đang chạy) và KHÔNG cần
