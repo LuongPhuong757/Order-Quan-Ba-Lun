@@ -220,11 +220,31 @@ và không có API nào đọc lại được. **Không dùng đường này.**
 | K-5 | Đổi lại, **đọc lại được** qua `orders/paging` → app tự đối soát được đơn nào đã sang thật, thay vì tin vào mã trả về. Đây là thứ `order-onlines` không có. |
 | K-6 | `OrderDetails[].Status = 1` và `SortOrder` là bắt buộc trong payload thử nghiệm đã chạy thông. |
 
-### 8.4 Việc kế tiếp
+### 8.4 KHÔNG thanh toán được qua API — đã thử, đã chốt
+
+Thử ép trạng thái thanh toán ngay lúc tạo đơn. API nhận hết với `Success: true`
+rồi **lặng lẽ bỏ qua**, không báo lỗi:
+
+| Gửi lên `orders/create` | Đơn | `Status` trả về |
+|---|---|---|
+| `Status: 4` (Đã thanh toán) | 9.3 | **1** — Đang phục vụ |
+| `Status: 3` (Yêu cầu thanh toán) | 9.4 | **1** |
+| `PaymentStatus: 2` + `ReceiveAmount` | 9.5 | **1** |
+
+Cộng với `sainvoices` chỉ có GET và `order-onlines` thì đơn biến mất
+→ **MISA không mở việc thanh toán qua API cho bên thứ ba.** Coi như ràng buộc cứng,
+đừng thử lại.
+
+**Trần của tính năng này:** đơn tự sang CukCuk đủ món + đúng bàn, thu ngân mở bàn lên
+và bấm thanh toán. Bỏ được khâu gõ món — phần nặng nhất — nhưng không bỏ được hết.
+
+Muốn tự động 100% thì phải hỏi MISA về API cấp đối tác, là việc thương lượng chứ không phải việc code.
+
+### 8.5 Việc kế tiếp
 
 | # | Việc |
 |---|---|
-| V-1 | **Dọn 3 đơn thử** trong tài khoản test (`9.1`, `9.2`, `DH1205661`) — bàn 11 đang bị treo trạng thái "có khách". Cổng API không có endpoint huỷ đơn, phải xoá tay. |
+| V-1 | **Dọn 6 đơn thử** trong tài khoản test (`9.1`–`9.5`, `DH1205661`) — bàn 11 đang bị treo trạng thái "có khách". Cổng API không có endpoint huỷ đơn, phải xoá tay. |
 | V-2 | Chốt thời điểm đẩy: lúc **báo bếp** (đơn còn đang ăn, khớp `Status: 1`) hay lúc **thanh toán** (đẩy xong thu ngân bấm thanh toán ngay). Quyết định này đổi hẳn trải nghiệm của thu ngân. |
 | V-3 | Q-1 (sửa/huỷ đơn sau khi đẩy) vẫn treo — đã biết thêm là **không có API huỷ**, nên càng nặng. Có `orders/update-item` để sửa món, chưa thử. |
 | V-4 | Ánh xạ bàn + ánh xạ món giữa app và CukCuk. Menu test đang để **mọi món đơn vị "Đĩa"**, kể cả bia và khăn lạnh — menu thật phải sửa. |
