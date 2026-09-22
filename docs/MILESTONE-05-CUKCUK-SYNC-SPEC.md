@@ -248,3 +248,78 @@ Muốn tự động 100% thì phải hỏi MISA về API cấp đối tác, là 
 | V-2 | Chốt thời điểm đẩy: lúc **báo bếp** (đơn còn đang ăn, khớp `Status: 1`) hay lúc **thanh toán** (đẩy xong thu ngân bấm thanh toán ngay). Quyết định này đổi hẳn trải nghiệm của thu ngân. |
 | V-3 | Q-1 (sửa/huỷ đơn sau khi đẩy) vẫn treo — đã biết thêm là **không có API huỷ**, nên càng nặng. Có `orders/update-item` để sửa món, chưa thử. |
 | V-4 | Ánh xạ bàn + ánh xạ món giữa app và CukCuk. Menu test đang để **mọi món đơn vị "Đĩa"**, kể cả bia và khăn lạnh — menu thật phải sửa. |
+
+---
+
+## 9. Logic đẩy đơn — CHỐT 2026-09-22
+
+### 9.1 Điều kiện kích hoạt
+
+Đẩy sang CukCuk **chỉ khi** đơn được thanh toán qua mã QR của **HKD Nguyễn Thị Huyền**.
+Đơn tiền mặt và đơn trả qua mã QR khác **không đụng tới** — chỉ doanh thu qua HKD mới cần
+lên CukCuk để xuất hoá đơn / kê thuế.
+
+App đã có sẵn thông tin cần thiết, không phải đoán (`order.entity.ts:136-153`):
+
+| Cột | Dùng để |
+|---|---|
+| `transfer_amount` | số tiền chuyển khoản (tiền mặt = tổng thu − cột này, luôn suy ra) |
+| `paid_to_account_id` | trỏ vào `payment_qr_accounts.id` — **đây là điều kiện lọc** |
+| `payment_qr_label` | snapshot tên mã lúc thu |
+
+**Nhận diện mã HKD:** thêm cột `sync_to_cukcuk BOOLEAN DEFAULT false` vào `payment_qr_accounts`,
+kèm ô tick **"Đẩy đơn sang CukCuk"** ở màn cài đặt mã QR.
+
+Vì sao không găm cứng id vào biến môi trường: chủ quán đổi mã QR là phải sửa cấu hình rồi deploy
+lại. Vì sao không dò theo `account_name`: "NGUYEN THI HUYEN" viết hoa/có dấu/thừa khoảng trắng là
+vỡ, mà vỡ im lặng — đơn không đẩy và không ai biết.
+
+```
+if (order.transfer_amount > 0
+    && order.paid_to_account_id != null
+    && qrAccount(order.paid_to_account_id).sync_to_cukcuk === true) {
+  → ghi outbox 'cukcuk_push'
+}
+```
+
+### 9.2 Đơn trả hỗn hợp — ĐẨY CẢ ĐƠN
+
+Khách trả một phần qua QR HKD, phần còn lại tiền mặt → **vẫn đẩy toàn bộ đơn**.
+
+CukCuk không tách đơn được, nên đây là cách duy nhất giữ đơn nguyên vẹn.
+
+> ⚠️ **Hệ quả kế toán phải nói trước với chủ quán:** doanh thu trên CukCuk sẽ **cao hơn** số tiền
+> thực về tài khoản HKD, đúng bằng phần khách trả tiền mặt. Đây là lựa chọn có ý thức, không phải lỗi.
+> Nếu sau này kế toán cần khớp chính xác thì phải quay lại bàn cách khác.
+
+### 9.3 Luồng đầy đủ
+
+1. Thu ngân bấm xác nhận thu tiền → `checkout()` chạy như hiện nay.
+2. Thoả điều kiện 9.1 → ghi một bản ghi outbox `cukcuk_push`.
+   **Trả kết quả cho thu ngân NGAY** — không bao giờ bắt người đứng quầy đợi mạng MISA.
+3. Poller lấy ra **tuần tự** (CukCuk khoá song song — lỗi 102), login nếu cần (401 → login lại).
+4. Gọi `POST api/v1/orders/create`:
+   - `Type = 1` (Phục vụ tại nhà hàng); đơn mang về / ship dùng `2` / `3`
+   - `ListTableID` = bàn tương ứng, tra bảng ánh xạ bàn
+   - `OrderDetails` = toàn bộ món, tra bảng ánh xạ món
+   - `RequestDescription` = mã đơn bên mình, để đối soát ngược
+   - `Id` = GUID **tất định từ `orders.id`** → retry bao nhiêu lần cũng không đẻ đơn thứ hai (lỗi 251/253)
+5. Thành công → `misa_ref` = số đơn CukCuk (vd `9.2`), `misa_copied_at` = giờ đẩy.
+6. Thất bại quá N lần → đơn nằm lại tab **"chưa gõ MISA"** sẵn có, thu ngân tick tay như hôm nay.
+   **Không có đường nào làm mất đơn.**
+
+### 9.4 Đối soát ngược
+
+Mỗi đêm gọi `orders/paging` đọc danh sách đơn bên CukCuk, so với đơn đã đánh dấu bên mình.
+Lệch thì báo.
+
+Đây là thứ `order-onlines/create` không cho làm, và là lý do chọn `orders/create` (mục 8.2).
+
+### 9.5 Vẫn phải giải trước khi code chạy được
+
+| # | Việc | Ghi chú |
+|---|---|---|
+| A-1 | Bảng ánh xạ **món**: `menu_item_id` ↔ `Id`/`Code`/`ItemType`/`UnitID`/`UnitName` của CukCuk | + màn cho chủ quán ghép. Món chưa ghép → **chặn cả đơn**, hiện cảnh báo đỏ liệt kê món thiếu. Đẩy thiếu món thì sai tiền mà không ai phát hiện. |
+| A-2 | Bảng ánh xạ **bàn**: `orders.table_code` ↔ `MapObjectID` | Lấy bàn bằng `GET api/v1/tables/{branchId}` |
+| A-3 | Menu thật bên CukCuk phải khai đủ | Bản test đang để mọi món đơn vị "Đĩa", kể cả bia và khăn lạnh |
+| A-4 | **Sửa / huỷ đơn sau khi đã đẩy** — vẫn treo | Cổng không có API huỷ. Có `orders/update-item` để sửa món, chưa thử. Đây là chỗ vỡ đầu tiên của mọi tích hợp POS. |
