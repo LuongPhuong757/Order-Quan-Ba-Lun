@@ -82,6 +82,19 @@ function enabled(): boolean {
 }
 
 /**
+ * Chỉ bật khi chạy bằng cờ `qbl.ga_force`, tức đang kiểm thử trên dev — KHÔNG BAO GIỜ trên
+ * host quán thật.
+ *
+ * Thiếu nó thì màn **DebugView** của GA4 câm: nó chỉ nhận event từ trang có cờ này (hoặc từ
+ * máy đã cài extension riêng của Google). Mà DebugView là chỗ duy nhất soi được TỪNG THAM SỐ
+ * của `purchase` — báo cáo Thời gian thực chỉ đếm số lần, không cho xem `value` gửi đi là bao
+ * nhiêu, tức không kiểm được đúng cái dễ sai nhất.
+ */
+function debugMode(): boolean {
+  return !PROD_HOSTS.has(window.location.hostname.toLowerCase()) && forced();
+}
+
+/**
  * Đẩy lệnh vào `dataLayer`.
  *
  * Phải push CHÍNH object `arguments` chứ không phải một mảng: gtag.js nhận diện lệnh theo dạng
@@ -122,7 +135,10 @@ export function startGa(path: string): void {
     window.dataLayer = window.dataLayer ?? [];
     window.gtag = gtag;
     gtag('js', new Date());
-    gtag('config', MEASUREMENT_ID, { send_page_view: false });
+    gtag('config', MEASUREMENT_ID, {
+      send_page_view: false,
+      ...(debugMode() ? { debug_mode: true } : {}),
+    });
 
     const script = document.createElement('script');
     script.async = true;
