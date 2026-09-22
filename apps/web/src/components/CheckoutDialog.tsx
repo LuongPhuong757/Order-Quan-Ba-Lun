@@ -234,10 +234,10 @@ export function CheckoutDialog({
    * đếm, và lần chạy thử với tiền thật vấp đúng chỗ đó — 9.000đ vào lúc 15:27:55, webhook về
    * 15:27:58, màn hình vẫn im vì không ai bấm.
    *
-   * ⚠ ĐÂY LÀ NGOẠI LỆ DUY NHẤT của nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay
-   * mạng" ghi ở đầu tệp, và nó chỉ được phép tồn tại vì có TRẦN CỨNG 30 giây: hết giờ là mở nút,
-   * bất kể mạng ra sao, bất kể API có trả lời hay không. Ai sửa chỗ này phải giữ nguyên tính chất
-   * đó — bỏ trần đi là biến màn thu tiền thành thứ phụ thuộc vào một dịch vụ bên ngoài.
+   * KHÔNG khoá nút nào trong lúc chờ (chủ quán chốt 2026-09-22, sau khi thử 30 giây thấy quá
+   * ngắn và quá gò). Nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay mạng" ghi ở đầu
+   * tệp vì vậy giữ nguyên vẹn: người thu đi tiếp lúc nào cũng được, kết quả xác thực chỉ là thông
+   * tin bày ra bên cạnh. Đừng thêm khoá lại — hai phút là quá dài để chặn đường sống của quán.
    *
    * Hết giờ là CHỐT: không hỏi tiếp, đỏ là đỏ. Người thu biết ngay phải chụp bill, không đứng
    * nhìn một dòng chữ có thể tự đổi màu sau lưng.
@@ -245,7 +245,7 @@ export function CheckoutDialog({
    * Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian của trần 30 giây, và hết trần thì
    * rơi vào 'timeout' như mọi ca không xác thực được.
    */
-  const VERIFY_TIMEOUT_MS = 30_000;
+  const VERIFY_TIMEOUT_MS = 120_000;
   const VERIFY_POLL_MS = 1500;
   const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
 
@@ -430,14 +430,7 @@ export function CheckoutDialog({
       ? '💰 Thanh toán'
       : step === 'bill' || (step === 'mode' && mode === 'CASH')
         ? 'Xác nhận thu tiền'
-        : step === 'qr' && verify === 'waiting'
-          ? 'Đang xác thực giao dịch'
-          : 'Tiếp tục →';
-
-  /** Khoá cứng DUY NHẤT trong cả hộp thoại, và chỉ sống tối đa 30 giây (xem effect xác thực).
-   *  Khác `blockReason` ở chỗ: `blockReason` để nút vẫn bấm được rồi nói lý do, còn ở đây bấm
-   *  thêm chẳng để làm gì — câu trả lời đang trên đường về. */
-  const waiting = step === 'qr' && verify === 'waiting';
+        : 'Tiếp tục →';
 
   const submit = async () => {
     if (blockReason) {
@@ -648,27 +641,20 @@ export function CheckoutDialog({
           <button
             type="button"
             onClick={goNext}
-            disabled={submitting || waiting}
+            disabled={submitting}
             aria-disabled={!!blockReason}
             title={blockReason ?? undefined}
             style={{
               flex: 1,
               minHeight: 44,
-              opacity: blockReason || waiting ? 0.55 : 1,
-              cursor: blockReason || waiting ? 'not-allowed' : 'pointer',
+              opacity: blockReason ? 0.55 : 1,
+              cursor: blockReason ? 'not-allowed' : 'pointer',
             }}
           >
-            {/* Vòng xoay dùng `.spinner` có sẵn trong styles.css — người thu đang đứng trước
-                khách cần thấy máy ĐANG LÀM GÌ ĐÓ, chữ đứng im trông như bấm hụt. */}
             {submitting ? (
               <>
                 <span className="spinner" />
                 Đang thanh toán…
-              </>
-            ) : waiting ? (
-              <>
-                <span className="spinner" />
-                {nextLabel}
               </>
             ) : (
               nextLabel
@@ -827,7 +813,11 @@ export function QrStep({
           không. Cả ba dòng đều cao và chữ to: người thu đang đứng, nhìn lướt, tay còn cầm máy. */}
       {verify === 'waiting' && (
         <div style={{ ...verifyLine, background: '#f1f5f9', color: '#334155' }}>
-          ⏳ Đang xác thực giao dịch với ngân hàng…
+          {/* Vòng xoay nằm Ở ĐÂY chứ không trên nút: nút phải luôn bấm được, mà một cái nút vừa
+              xoay vừa bấm được thì trông như đang treo. Viền tối vì nền xám nhạt — `.spinner`
+              mặc định viền trắng, dành cho nút nền đậm. */}
+          <span className="spinner" style={{ borderColor: '#94a3b8', borderTopColor: 'transparent' }} />
+          Đang xác thực giao dịch với ngân hàng…
         </div>
       )}
       {verify === 'paid' && (
