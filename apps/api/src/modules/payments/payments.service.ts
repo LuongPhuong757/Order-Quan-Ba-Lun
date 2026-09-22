@@ -50,13 +50,17 @@ export class PaymentsService {
     if (!existing) return this.createIntent(input);
     if (existing.paid_at) return existing;
 
-    // Dựng lại QR khi số tiền đổi, HOẶC khi mã chưa có QR nào.
+    // Dựng lại QR khi số tiền đổi, HOẶC khi mã chưa có QR/nội dung nào.
     //
     // Nhánh `qr_payload === null` không phải đề phòng suông — đã gặp thật 2026-09-22: người thu mở
     // màn thanh toán TRƯỚC khi quán kịp khai mã QR nhận tiền, nên lúc sinh mã không có tài khoản
     // nào để dựng. Khai xong thì số tiền vẫn y nguyên, và nếu chỉ xét `amount !== amount` thì mã
     // đó vĩnh viễn không bao giờ có QR — khách không có gì để quét, mà màn hình không báo lỗi gì.
-    if (existing.amount !== input.amount || existing.qr_payload === null) {
+    //
+    // Nhánh `note === null` cùng loại: mã sinh trước khi có cột `note` (hoặc trước khi khai tiền
+    // tố) sẽ rơi về `paymentNote(code)` trần ở màn khách — tức MẤT tiền tố ngân hàng, đúng cái
+    // khiến cổng không thấy giao dịch.
+    if (existing.amount !== input.amount || existing.qr_payload === null || existing.note === null) {
       const account = await this.resolveAccount(input.accountId);
       existing.amount = input.amount;
       existing.qr_payload = account ? this.buildQr(account, input.amount, existing.code) : null;
