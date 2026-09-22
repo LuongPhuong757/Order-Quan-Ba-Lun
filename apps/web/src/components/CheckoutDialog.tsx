@@ -194,48 +194,7 @@ export function CheckoutDialog({
    * KHÔNG bao giờ báo lỗi ra màn: hỏng thì `payCode` giữ `null`, nội dung CK lùi về bản cũ, người
    * thu không cần biết và cũng không làm gì được với thông tin đó giữa lúc khách đứng đợi.
    */
-  /**
-   * Chờ ngân hàng báo về, ngay tại màn QR (chủ quán chốt 2026-09-22).
-   *
-   *   'idle'    — chưa bấm gì
-   *   'waiting' — đang hỏi, nút "Tiếp tục →" TẠM KHOÁ
-   *   'paid'    — tiền đã về: dòng xanh
-   *   'timeout' — hết 10 giây chưa thấy: dòng đỏ, bảo chụp bill của khách
-   *
-   * ⚠ ĐÂY LÀ NGOẠI LỆ DUY NHẤT của nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay
-   * mạng" ghi ở đầu tệp, và nó được phép tồn tại vì có TRẦN CỨNG 10 giây: hết giờ là mở nút, bất
-   * kể mạng ra sao, bất kể API có trả lời hay không. Ai sửa chỗ này phải giữ nguyên tính chất đó
-   * — bỏ trần đi là biến màn thu tiền thành thứ phụ thuộc vào một dịch vụ bên ngoài.
-   *
-   * Đồng hồ chỉ chạy TỪ LÚC NGƯỜI THU BẤM NÚT, không phải từ lúc màn QR hiện ra: khách còn phải
-   * mở app ngân hàng và quét, đếm từ lúc chìa mã thì lần nào cũng hết giờ trước khi khách kịp làm.
-   *
-   * Hết giờ là CHỐT (chủ quán chọn): không hỏi tiếp, đỏ là đỏ. Đổi lại sự dứt khoát — người thu
-   * biết ngay phải chụp bill, không đứng nhìn một dòng chữ có thể tự đổi màu sau lưng.
-   */
-  const VERIFY_TIMEOUT_MS = 10_000;
-  const VERIFY_POLL_MS = 1500;
-  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
 
-  /** Hỏi tới khi thấy tiền hoặc hết giờ. Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian
-   *  của trần 10 giây, và hết trần thì rơi vào 'timeout' như mọi ca không xác thực được. */
-  const waitForBank = async (code: string) => {
-    setVerify('waiting');
-    const deadline = Date.now() + VERIFY_TIMEOUT_MS;
-    while (Date.now() < deadline) {
-      try {
-        const res = await api.get<{ data: { paid: boolean } }>(`/payments/intent/${code}`);
-        if (res.data.data.paid) {
-          setVerify('paid');
-          return;
-        }
-      } catch {
-        /* mạng chập chờn ở quán là bình thường — lần sau hỏi lại */
-      }
-      await new Promise((r) => setTimeout(r, VERIFY_POLL_MS));
-    }
-    setVerify('timeout');
-  };
 
   useEffect(() => {
     // Đổi hình thức hoặc đổi số tiền là một LẦN THU KHÁC. Bỏ kết quả xác thực cũ, nếu không dòng
@@ -261,6 +220,72 @@ export function CheckoutDialog({
       clearTimeout(timer);
     };
   }, [mode, orderId, transferAmount, picked?.id]);
+
+  /**
+   * XÁC THỰC GIAO DỊCH — chạy TỰ ĐỘNG ngay khi màn QR mở ra (chủ quán chốt 2026-09-22).
+   *
+   *   'idle'    — chưa có mã, không có gì để hỏi
+   *   'waiting' — đang hỏi ngân hàng, nút "Tiếp tục" KHOÁ và xoay
+   *   'paid'    — tiền đã về: dòng xanh
+   *   'timeout' — hết 30 giây chưa thấy: dòng đỏ, bảo chụp bill của khách
+   *
+   * Đồng hồ chạy từ lúc CHÌA MÃ chứ không phải từ lúc người thu bấm gì: nhịp thật ở quầy là chìa
+   * mã rồi đứng nhìn khách quét, tiền về trước khi có ai kịp bấm. Bản đầu tiên bắt bấm nút mới
+   * đếm, và lần chạy thử với tiền thật vấp đúng chỗ đó — 9.000đ vào lúc 15:27:55, webhook về
+   * 15:27:58, màn hình vẫn im vì không ai bấm.
+   *
+   * ⚠ ĐÂY LÀ NGOẠI LỆ DUY NHẤT của nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay
+   * mạng" ghi ở đầu tệp, và nó chỉ được phép tồn tại vì có TRẦN CỨNG 30 giây: hết giờ là mở nút,
+   * bất kể mạng ra sao, bất kể API có trả lời hay không. Ai sửa chỗ này phải giữ nguyên tính chất
+   * đó — bỏ trần đi là biến màn thu tiền thành thứ phụ thuộc vào một dịch vụ bên ngoài.
+   *
+   * Hết giờ là CHỐT: không hỏi tiếp, đỏ là đỏ. Người thu biết ngay phải chụp bill, không đứng
+   * nhìn một dòng chữ có thể tự đổi màu sau lưng.
+   *
+   * Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian của trần 30 giây, và hết trần thì
+   * rơi vào 'timeout' như mọi ca không xác thực được.
+   */
+  const VERIFY_TIMEOUT_MS = 30_000;
+  const VERIFY_POLL_MS = 1500;
+  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
+
+  useEffect(() => {
+    // Chưa xin được mã thì KHÔNG có gì để hỏi — để nút đi tiếp tự do, y như trước khi có tính
+    // năng này. Khoá nút 30 giây vì một mã không tồn tại là phạt người thu vì lỗi của mạng.
+    if (step !== 'qr' || !payCode) return;
+
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = Date.now() + VERIFY_TIMEOUT_MS;
+    setVerify('waiting');
+
+    const tick = async () => {
+      if (!alive) return;
+      try {
+        const res = await api.get<{ data: { paid: boolean } }>(`/payments/intent/${payCode}`);
+        if (!alive) return;
+        if (res.data.data.paid) {
+          setVerify('paid');
+          return;
+        }
+      } catch {
+        /* mạng chập chờn ở quán là bình thường — lần sau hỏi lại, không báo gì cho người thu */
+      }
+      if (!alive) return;
+      if (Date.now() >= deadline) {
+        setVerify('timeout');
+        return;
+      }
+      timer = setTimeout(tick, VERIFY_POLL_MS);
+    };
+    void tick();
+
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+    // `verify` CỐ Ý không nằm trong deps: nó do chính effect này đặt, thêm vào là vòng lặp vô tận.
+  }, [step, payCode]);
 
   // Vẽ QR mỗi khi mã hoặc SỐ TIỀN đổi — số tiền nằm trong mã, nên sửa số mà không vẽ lại là chìa
   // cho khách một mã mang con số cũ.
@@ -362,12 +387,8 @@ export function CheckoutDialog({
       return;
     }
     if (step === 'qr') {
-      // Chưa xin được mã thì KHÔNG có gì để hỏi ngân hàng — đi thẳng, y như trước khi có tính
-      // năng này. Đứng chờ 10 giây cho một mã không tồn tại là phạt người thu vì lỗi của mạng.
-      if (payCode && verify === 'idle') {
-        void waitForBank(payCode);
-        return;
-      }
+      // Không kiểm `verify` ở đây: lúc đang xác thực thì nút đã bị khoá cứng (`waiting`), nên tới
+      // được dòng này nghĩa là đã có kết luận — xanh, đỏ, hoặc không có mã để mà hỏi.
       setStep('bill');
       return;
     }
@@ -401,10 +422,10 @@ export function CheckoutDialog({
       : step === 'bill' || (step === 'mode' && mode === 'CASH')
         ? 'Xác nhận thu tiền'
         : step === 'qr' && verify === 'waiting'
-          ? 'Đang đợi ngân hàng…'
+          ? 'Đang xác thực giao dịch'
           : 'Tiếp tục →';
 
-  /** Khoá cứng DUY NHẤT trong cả hộp thoại, và chỉ sống tối đa 10 giây (xem `waitForBank`).
+  /** Khoá cứng DUY NHẤT trong cả hộp thoại, và chỉ sống tối đa 30 giây (xem effect xác thực).
    *  Khác `blockReason` ở chỗ: `blockReason` để nút vẫn bấm được rồi nói lý do, còn ở đây bấm
    *  thêm chẳng để làm gì — câu trả lời đang trên đường về. */
   const waiting = step === 'qr' && verify === 'waiting';
@@ -628,7 +649,21 @@ export function CheckoutDialog({
               cursor: blockReason || waiting ? 'not-allowed' : 'pointer',
             }}
           >
-            {submitting ? 'Đang thanh toán…' : nextLabel}
+            {/* Vòng xoay dùng `.spinner` có sẵn trong styles.css — người thu đang đứng trước
+                khách cần thấy máy ĐANG LÀM GÌ ĐÓ, chữ đứng im trông như bấm hụt. */}
+            {submitting ? (
+              <>
+                <span className="spinner" />
+                Đang thanh toán…
+              </>
+            ) : waiting ? (
+              <>
+                <span className="spinner" />
+                {nextLabel}
+              </>
+            ) : (
+              nextLabel
+            )}
           </button>
         </div>
       </div>
@@ -688,7 +723,7 @@ export function QrStep({
   qrDataUrl: string | null;
   transferAmount: number;
   note: string;
-  /** Kết quả hỏi ngân hàng — xem `waitForBank` ở component cha. */
+  /** Kết quả xác thực với ngân hàng — xem effect 'XÁC THỰC GIAO DỊCH' ở component cha. */
   verify: 'idle' | 'waiting' | 'paid' | 'timeout';
 }) {
   return (
@@ -783,7 +818,7 @@ export function QrStep({
           không. Cả ba dòng đều cao và chữ to: người thu đang đứng, nhìn lướt, tay còn cầm máy. */}
       {verify === 'waiting' && (
         <div style={{ ...verifyLine, background: '#f1f5f9', color: '#334155' }}>
-          ⏳ Đang đợi ngân hàng báo về…
+          ⏳ Đang xác thực giao dịch với ngân hàng…
         </div>
       )}
       {verify === 'paid' && (
