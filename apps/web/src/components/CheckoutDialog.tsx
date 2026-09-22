@@ -12,7 +12,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
-import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkout-block.ts';
+import {
+  checkoutBlockReason,
+  stepBlockReason,
+  type CheckoutStep,
+  type PayMode,
+} from '../lib/checkout-block.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
@@ -147,7 +152,6 @@ export function CheckoutDialog({
    *  và kiểm bằng mắt thì phải mở hộp thoại thật rồi thử đủ sáu tổ hợp. */
   //  Hỏi theo MÀN ĐANG ĐỨNG: đứng ở màn 1 mà nút mờ vì "chưa chọn mã QR" là chỉ sang một màn
   //  người ta chưa được thấy. Màn cuối vẫn kiểm trọn bộ — xem `stepBlockReason`.
-  const blockReason = stepBlockReason(step, { mode, hasPickedQr: !!picked, transferAmount });
 
   /**
    * Mã đơn 6 số để ngân hàng báo về khớp được đúng lần thu này (2026-09-22).
@@ -157,6 +161,25 @@ export function CheckoutDialog({
    * còn hơn chặn một lần thu tiền — xem nguyên tắc ở đầu tệp.
    */
   const [payCode, setPayCode] = useState<string | null>(null);
+  /** Kết quả xác thực với ngân hàng. Khai cạnh `payCode` vì cả hai cùng mô tả một lần thu, và
+   *  vì `paidSkipsBill` ngay dưới cần đọc nó trước khi effect xác thực được khai. */
+  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
+
+  /**
+   * Ngân hàng đã xác nhận thì BỎ QUA MÀN CHỤP BILL (chủ quán chốt 2026-09-22).
+   *
+   * Ảnh bill sinh ra để làm bằng chứng cho những lần KHÔNG xác thực được. Khi chính ngân hàng đã
+   * báo tiền về, tấm ảnh do khách đưa không thêm được gì — bắt chụp nữa là bắt cả quán trả thêm
+   * một cú chạm và một lần chờ tải ảnh cho mỗi đơn chuyển khoản trót lọt, tức đường đi PHỔ BIẾN
+   * nhất. Đơn nào không xác thực được thì vẫn đi qua màn chụp bill như cũ.
+   */
+  const paidSkipsBill = step === 'qr' && verify === 'paid';
+
+  /** Xem `lib/checkout-block.ts`. Khi màn QR trở thành màn CHỐT (đã xác thực xong), phải kiểm luật
+   *  TRỌN BỘ chứ không chỉ luật của riêng màn — cùng lý do màn 'bill' vẫn gọi `checkoutBlockReason`
+   *  dù hai màn trước đã kiểm: người dùng lùi lại sửa được, và state đi cùng họ. */
+  const state = { mode, hasPickedQr: !!picked, transferAmount };
+  const blockReason = paidSkipsBill ? checkoutBlockReason(state) : stepBlockReason(step, state);
   // `picked?.note_prefix` nằm trong deps: đổi mã QR là đổi ngân hàng, mà tiền tố bắt buộc thuộc
   // về ngân hàng — không tính lại thì nội dung mang tiền tố của tài khoản vừa bỏ chọn.
   const note = useMemo(
@@ -247,7 +270,6 @@ export function CheckoutDialog({
    */
   const VERIFY_TIMEOUT_MS = 120_000;
   const VERIFY_POLL_MS = 1500;
-  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
 
   useEffect(() => {
     // BA điều kiện, thiếu một là KHÔNG xoay:
@@ -396,9 +418,8 @@ export function CheckoutDialog({
       return;
     }
     if (step === 'qr') {
-      // Không kiểm `verify` ở đây: lúc đang xác thực thì nút đã bị khoá cứng (`waiting`), nên tới
-      // được dòng này nghĩa là đã có kết luận — xanh, đỏ, hoặc không có mã để mà hỏi.
-      setStep('bill');
+      if (paidSkipsBill) submit();
+      else setStep('bill');
       return;
     }
     submit();
@@ -428,7 +449,7 @@ export function CheckoutDialog({
   const nextLabel =
     step === 'items'
       ? '💰 Thanh toán'
-      : step === 'bill' || (step === 'mode' && mode === 'CASH')
+      : step === 'bill' || (step === 'mode' && mode === 'CASH') || paidSkipsBill
         ? 'Xác nhận thu tiền'
         : 'Tiếp tục →';
 
