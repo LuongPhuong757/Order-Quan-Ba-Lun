@@ -9,6 +9,7 @@ import { AppShell } from './components/AppShell.tsx';
 import { EnvBanner } from './components/EnvBanner.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { startGa } from './lib/gtag.ts';
+import { applyPageTitle, MENU_BOOK_TITLE } from './lib/page-title.ts';
 import { MenuPage } from './pages/MenuPage.tsx';
 import { MenuBookPage } from './pages/MenuBookPage.tsx';
 
@@ -81,6 +82,12 @@ const isMenuHost = window.location.hostname.split(':')[0].toLowerCase().startsWi
 //
 // Gọi ở cấp module, đồng bộ, KHÔNG chặn: `startGa` chỉ ghi vào `dataLayer` rồi gắn một thẻ
 // `<script async>`; nó cũng tự im khi không phải host quán thật. Xem `lib/gtag.ts`.
+// Tiêu đề phải đúng TRƯỚC `startGa`: lượt `page_view` đầu tiên bắn ngay trong đó và mang theo
+// `document.title`. Effect của `AppShell` / `MenuBookPage` chạy sau khi React vẽ xong, tức quá
+// muộn cho lượt này — không có dòng dưới thì mọi phiên đều mở đầu bằng một lượt xem gắn nhầm
+// tiêu đề trang chủ.
+if (isMenuHost) document.title = MENU_BOOK_TITLE;
+else applyPageTitle(window.location.pathname);
 startGa(window.location.pathname);
 
 if (isMenuHost) {
