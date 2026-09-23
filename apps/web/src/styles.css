@@ -1551,7 +1551,8 @@ a:hover {
   table.responsive.txn-table tr.txn-row > td:nth-child(5)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(6)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(7)::before,
-  table.responsive.txn-table tr.txn-row > td:nth-child(8)::before {
+  table.responsive.txn-table tr.txn-row > td:nth-child(8)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(9)::before {
     content: none;
   }
 
@@ -1588,7 +1589,11 @@ a:hover {
     margin-right: 4px;
   }
 
-  /* Dòng 3 — trạng thái và thao tác. */
+  /* Dòng 3 — trạng thái và thao tác.
+     ⚠ MỌI `nth-child` ở khối này bám vào THỨ TỰ CỘT của bảng. Thêm hay bớt một cột là phải sửa
+     lại hết ở đây, nếu không ô mới cướp chỗ của ô cũ và ô cuối cùng không còn luật nào đặt chỗ →
+     nó rơi ra ngoài lưới và biến mất trên điện thoại. Đã xảy ra đúng vậy khi thêm cột "Xác thực"
+     (2026-09-23): cột thứ 9 "Thao tác" mất hút. */
   table.responsive.txn-table tr.txn-row > td:nth-child(5) {
     grid-area: 3 / 1;
     font-size: 12px;
@@ -1597,10 +1602,22 @@ a:hover {
   table.responsive.txn-table tr.txn-row > td:nth-child(7) {
     grid-area: 3 / 2;
   }
-  table.responsive.txn-table tr.txn-row > td:nth-child(8) {
+  table.responsive.txn-table tr.txn-row > td:nth-child(9) {
     grid-area: 3 / 3;
     text-align: right;
     overflow: visible;
+  }
+
+  /* Dòng 4 — xác thực ngân hàng. Xuống dòng riêng chứ không chen vào dòng 3: dòng đó đã đủ ba ô,
+     và chữ "Chưa xác thực" dài hơn mọi thứ đang ở đó. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(8) {
+    grid-area: 4 / 1 / auto / span 3;
+    font-size: 12px;
+  }
+
+  /* Đơn tiền mặt không có gì để xác nhận — ẩn hẳn thay vì bày một dòng gạch. */
+  .txn-dash {
+    display: none;
   }
 }
 

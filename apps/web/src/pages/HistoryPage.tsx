@@ -999,14 +999,14 @@ export function HistoryPage() {
                 Trên mobile thead ẩn và td thành block nên colgroup không ảnh hưởng gì. */}
             <colgroup>
               <col style={{ width: 80 }} />
-              <col style={{ width: 160 }} />
+              <col style={{ width: 150 }} />
               <col style={{ width: 160 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 70 }} />
               <col style={{ width: 140 }} />
               <col style={{ width: 150 }} />
               <col style={{ width: 120 }} />
-              <col style={{ width: 130 }} />
+              <col style={{ width: 160 }} />
             </colgroup>
             {/* `nowrap` cho MỌI ô tiêu đề: cột hẹp làm "Giờ vào" / "Thu ngân" gãy làm 2 dòng,
                 đẩy cả hàng tiêu đề cao gấp đôi trong khi chữ thì ngắn. */}
@@ -1054,7 +1054,7 @@ export function HistoryPage() {
                         hàng tiêu đề ngày mà thành thẻ thì nó trông y hệt một đơn hàng. Class này trả nó
                         về dạng dải phân cách (xem styles.css). */}
                     <tr className="txn-day-row">
-                      <td className="txn-day" colSpan={8}>
+                      <td className="txn-day" colSpan={9}>
                         {g.key === UNPAID_GROUP ? (
                           <>⏳ Chưa thanh toán · {g.orders.length} đơn</>
                         ) : (
@@ -1146,7 +1146,11 @@ export function HistoryPage() {
                                 "không có gì để xác nhận ở đây". */}
                             <td data-label="Xác thực" style={{ whiteSpace: 'nowrap' }}>
                               {o.bank_verified === null ? (
-                                <span style={{ color: '#9ca3af' }}>—</span>
+                                /* Trên điện thoại ô này ẩn hẳn (xem `.txn-dash` trong styles.css):
+                                   ở bảng desktop dấu "—" nói "không có gì để xác nhận", nhưng
+                                   trong thẻ dọc của điện thoại nó chỉ là một dòng gạch vô nghĩa
+                                   trên MỌI đơn tiền mặt. */
+                                <span className="txn-dash" style={{ color: '#9ca3af' }}>—</span>
                               ) : o.bank_verified ? (
                                 <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Đã xác thực</span>
                               ) : (
@@ -1202,7 +1206,7 @@ export function HistoryPage() {
                           </tr>
                           {isOpen && (
                             <tr>
-                              <td className="txn-full" colSpan={8}>
+                              <td className="txn-full" colSpan={9}>
                                 <HistoryOrderDetail order={o} />
                               </td>
                             </tr>
