@@ -1003,8 +1003,8 @@ export function HistoryPage() {
               <col style={{ width: 160 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 70 }} />
-              <col style={{ width: 140 }} />
-              <col style={{ width: 150 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 190 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 160 }} />
             </colgroup>
@@ -1120,25 +1120,27 @@ export function HistoryPage() {
                               <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
                                 {fmt(total)}
                               </strong>
-                              {/* Hình thức thu nằm NGAY DƯỚI con số, không thành cột riêng: thêm
-                                  cột thứ 9 vào bảng này là ép mọi màn hình hẹp phải cuộn ngang,
-                                  trong khi thứ người đối soát cần là "con số này về đâu". */}
-                              {isPaid && (
-                                <div>
-                                  <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
-                                </div>
-                              )}
                             </td>
-                            {/* nowrap: badge trạng thái không được gãy dòng, nếu không mỗi đơn
-                                cao gần gấp đôi. */}
-                            <td data-label="Trạng thái" style={{ whiteSpace: 'nowrap' }}>
-                              {isPaid ? (
-                                <span style={paidBadge}>✓ Đã thanh toán</span>
-                              ) : isCancelled ? (
-                                <span style={cancelledBadge}>🗑 Đã huỷ</span>
-                              ) : (
-                                <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
-                              )}
+                            {/* Trạng thái VÀ hình thức thu đứng cạnh nhau (chủ quán chốt
+                                2026-09-23). Trước đây hình thức nằm dưới con số tiền, nên trên
+                                điện thoại "Chuyển khoản" trôi về góc phải một mình còn "Đã thanh
+                                toán" nằm tận dòng dưới — hai mẩu của cùng một câu ("đơn này đã
+                                trả, bằng cách nào") bị tách ra hai chỗ.
+                                `wrap`: trên cột hẹp của máy tính hai badge tự xuống dòng thay vì
+                                đẩy bảng cuộn ngang. */}
+                            <td data-label="Trạng thái">
+                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                                {isPaid ? (
+                                  <span style={paidBadge}>✓ Đã thanh toán</span>
+                                ) : isCancelled ? (
+                                  <span style={cancelledBadge}>🗑 Đã huỷ</span>
+                                ) : (
+                                  <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
+                                )}
+                                {isPaid && (
+                                  <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
+                                )}
+                              </div>
                             </td>
 
                             {/* Ngân hàng đã xác nhận chưa. Ba trạng thái, và dấu "—" cho đơn tiền

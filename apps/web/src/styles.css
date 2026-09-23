@@ -1526,11 +1526,24 @@ a:hover {
    Chỉ áp cho `.txn-table` — các bảng khác giữ nguyên kiểu nhãn/giá trị.
    ════════════════════════════════════════════════════════════════════════════ */
 @media (max-width: 639px) {
+  /* LƯỚI 4 CỘT (sửa 2026-09-23 theo chủ quán). Ba cột không đủ: giờ thanh toán phải đứng NGAY
+     CẠNH số tiền ở dòng đầu, mà dòng đầu đã có giờ vào và tên bàn.
+
+     ⚠ MỌI `nth-child` dưới đây bám vào THỨ TỰ CỘT của bảng. Thêm/bớt một cột là phải sửa lại hết,
+     nếu không ô mới cướp chỗ ô cũ và ô cuối không còn luật nào đặt chỗ → nó rơi khỏi lưới và biến
+     mất trên điện thoại. Đã xảy ra đúng vậy khi thêm cột "Xác thực".
+
+       ┌──────────────────────────────────────────────┐
+       │ 14:27   Bàn 1              14:31     6.000đ  │  ① vào · bàn · thanh toán · tiền
+       │ Thu ngân Quản lý test            ✓ 1         │  ② ai thu · mấy món
+       │ [✓ Đã thanh toán] [🏦 Chuyển khoản]           │  ③ trạng thái + hình thức
+       │ ✓ Đã xác thực                    [⋯ 🖨 ▼]    │  ④ ngân hàng xác nhận · thao tác
+       └──────────────────────────────────────────────┘ */
   table.responsive.txn-table tbody tr.txn-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     column-gap: 8px;
-    row-gap: 3px;
+    row-gap: 4px;
     padding: 10px 12px;
     align-items: baseline;
   }
@@ -1545,9 +1558,11 @@ a:hover {
     text-overflow: ellipsis;
   }
 
-  /* Ô tự nói lên nội dung → bỏ nhãn hẳn. */
+  /* Ô tự nói lên nội dung → bỏ nhãn hẳn. Chỉ còn "Thu ngân" giữ nhãn vì một cái tên trần thì
+     không ai biết đó là ai. */
   table.responsive.txn-table tr.txn-row > td:nth-child(1)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(2)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(4)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(5)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(6)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(7)::before,
@@ -1556,63 +1571,62 @@ a:hover {
     content: none;
   }
 
-  /* Dòng 1 — thứ nhận diện đơn: giờ vào · bàn · tổng tiền. */
+  /* ① Giờ vào · Bàn · Giờ TT · Tổng */
   table.responsive.txn-table tr.txn-row > td:nth-child(1) {
     grid-area: 1 / 1;
-    color: #6b7280;
+    color: #9ca3af;
     font-variant-numeric: tabular-nums;
   }
   table.responsive.txn-table tr.txn-row > td:nth-child(2) {
     grid-area: 1 / 2;
   }
-  table.responsive.txn-table tr.txn-row > td:nth-child(6) {
+  table.responsive.txn-table tr.txn-row > td:nth-child(4) {
     grid-area: 1 / 3;
+    color: #6b7280;
+    font-variant-numeric: tabular-nums;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(6) {
+    grid-area: 1 / 4;
     text-align: right;
   }
 
-  /* Dòng 2 — bối cảnh, chữ nhỏ mờ: ai thu, thu lúc nào. */
+  /* ② Ai thu · mấy món */
   table.responsive.txn-table tr.txn-row > td:nth-child(3) {
-    grid-area: 2 / 1 / auto / span 2;
+    grid-area: 2 / 1 / auto / span 3;
     font-size: 12px;
     color: #6b7280;
   }
-  table.responsive.txn-table tr.txn-row > td:nth-child(4) {
-    grid-area: 2 / 3;
-    font-size: 12px;
-    color: #6b7280;
-    text-align: right;
-  }
-  table.responsive.txn-table tr.txn-row > td:nth-child(3)::before,
-  table.responsive.txn-table tr.txn-row > td:nth-child(4)::before {
+  table.responsive.txn-table tr.txn-row > td:nth-child(3)::before {
     font-size: 11px;
     font-weight: 500;
     margin-right: 4px;
   }
-
-  /* Dòng 3 — trạng thái và thao tác.
-     ⚠ MỌI `nth-child` ở khối này bám vào THỨ TỰ CỘT của bảng. Thêm hay bớt một cột là phải sửa
-     lại hết ở đây, nếu không ô mới cướp chỗ của ô cũ và ô cuối cùng không còn luật nào đặt chỗ →
-     nó rơi ra ngoài lưới và biến mất trên điện thoại. Đã xảy ra đúng vậy khi thêm cột "Xác thực"
-     (2026-09-23): cột thứ 9 "Thao tác" mất hút. */
   table.responsive.txn-table tr.txn-row > td:nth-child(5) {
-    grid-area: 3 / 1;
+    grid-area: 2 / 4;
     font-size: 12px;
     color: #6b7280;
-  }
-  table.responsive.txn-table tr.txn-row > td:nth-child(7) {
-    grid-area: 3 / 2;
-  }
-  table.responsive.txn-table tr.txn-row > td:nth-child(9) {
-    grid-area: 3 / 3;
     text-align: right;
+  }
+
+  /* ③ Trạng thái + hình thức thu — chiếm TRỌN bề ngang.
+     Để nút thao tác chen vào dòng này thì hai badge chỉ còn ~230px và "Đã thanh toán" +
+     "Chuyển khoản" gãy làm hai dòng — đúng thứ chủ quán vừa bảo là rối mắt. Nút xuống dòng cuối
+     cùng với ô xác thực, ở đó nó còn thừa chỗ. */
+  table.responsive.txn-table tr.txn-row > td:nth-child(7) {
+    grid-area: 3 / 1 / auto / span 4;
     overflow: visible;
   }
 
-  /* Dòng 4 — xác thực ngân hàng. Xuống dòng riêng chứ không chen vào dòng 3: dòng đó đã đủ ba ô,
-     và chữ "Chưa xác thực" dài hơn mọi thứ đang ở đó. */
+  /* ④ Ngân hàng xác nhận · thao tác */
   table.responsive.txn-table tr.txn-row > td:nth-child(8) {
     grid-area: 4 / 1 / auto / span 3;
     font-size: 12px;
+    align-self: center;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(9) {
+    grid-area: 4 / 4;
+    text-align: right;
+    overflow: visible;
   }
 
   /* Đơn tiền mặt không có gì để xác nhận — ẩn hẳn thay vì bày một dòng gạch. */
