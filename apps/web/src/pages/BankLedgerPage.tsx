@@ -1,28 +1,33 @@
-// Sổ webhook ngân hàng (2026-09-23) — nhật ký THÔ mọi lần SePay gọi tới.
+// Sổ webhook ngân hàng — bốn cột, hết (chủ quán chốt 2026-09-23).
 //
-// NGUYÊN TẮC: bày đúng thứ webhook gửi sang, không thêm gì. Bản trước có cờ "sai tài khoản",
-// "lệch tiền", "chưa khớp đơn" và chủ quán xem xong nói "thông tin rất loạn" — đúng, vì trộn dữ
-// liệu thô với kết luận của phần mềm thì người đọc không biết dòng nào là sự thật của ngân hàng,
-// dòng nào là ý kiến của hệ thống. Phán xét nằm ở cột "Xác thực" của màn Lịch sử.
+//   ngày giờ · ngân hàng · số tiền · nội dung
 //
-// Đây là chỗ để trả lời "SePay đã gửi cho ta đúng cái gì" — khi cãi nhau với khách, hoặc với
-// chính cổng trung gian.
+// Bản trước có thêm id giao dịch, giờ nhận webhook, số tài khoản và nút xem JSON gốc. Chủ quán:
+// "tôi chỉ muốn xem số tiền, ngày giờ, ngân hàng nào, nội dung là được rồi, còn lại không cần
+// thiết". Dữ liệu vẫn nằm đủ trong DB — bỏ khỏi màn không phải bỏ khỏi hệ thống.
+//
+// Dùng `table.responsive.card` có sẵn: trên máy tính là bảng, dưới 640px tự thành thẻ dọc có nhãn.
+// Không viết lưới riêng như màn Lịch sử — màn đó cần bố cục dày đặc, màn này chỉ có bốn cột.
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties } from 'react';
 import { api, extractError } from '../lib/api.ts';
 
 type Row = {
   gateway_txn_id: string;
-  received_at: number;
   occurred_at: number;
+  bank: string | null;
   amount: number;
   content: string;
-  account_no: string | null;
-  raw: unknown;
 };
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
-const clock = (ms: number) => new Date(ms).toLocaleString('vi-VN', { hour12: false });
+
+/** `23/09 14:31` — bỏ năm và giây: sổ này luôn xem trong khoảng vài ngày, năm chỉ tốn chỗ. */
+function when(ms: number): string {
+  const d = new Date(ms);
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 function dayInput(ms: number): string {
   return new Date(ms + 7 * 3600_000).toISOString().slice(0, 10);
@@ -33,7 +38,6 @@ export function BankLedgerPage() {
   const [to, setTo] = useState(() => dayInput(Date.now()));
   const [rows, setRows] = useState<Row[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [open, setOpen] = useState<string | null>(null);
 
   const load = useCallback(() => {
     const p = new URLSearchParams();
@@ -50,13 +54,11 @@ export function BankLedgerPage() {
 
   useEffect(load, [load]);
 
+  const tong = rows?.reduce((a, b) => a + b.amount, 0) ?? 0;
+
   return (
-    <div style={{ padding: 14, maxWidth: 1000, margin: '0 auto' }}>
-      <h2 style={{ margin: '0 0 4px' }}>Sổ webhook ngân hàng</h2>
-      <p style={{ margin: '0 0 14px', fontSize: 13, color: '#6b7280' }}>
-        Mọi lần cổng SePay gọi về, nguyên văn. Khoản chuyển vào tài khoản <strong>chưa nối</strong>{' '}
-        với cổng sẽ không có ở đây.
-      </p>
+    <div className="container with-bottom-nav" style={{ maxWidth: 900 }}>
+      <h1>🏦 Sổ webhook ngân hàng</h1>
 
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
         <div>
@@ -77,54 +79,47 @@ export function BankLedgerPage() {
       {rows?.length === 0 && (
         <div style={{ fontSize: 14, color: '#6b7280' }}>Không có webhook nào trong khoảng này.</div>
       )}
+
       {rows && rows.length > 0 && (
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>{rows.length} webhook</div>
+        <>
+          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
+            {rows.length} giao dịch · tổng <strong>{fmt(tong)}</strong>
+          </div>
+
+          <table className="responsive card" style={{ padding: 0 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 110, whiteSpace: 'nowrap' }}>Ngày giờ</th>
+                <th style={{ width: 120 }}>Ngân hàng</th>
+                <th style={{ width: 110, textAlign: 'right' }}>Số tiền</th>
+                <th>Nội dung</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.gateway_txn_id}>
+                  <td data-label="Ngày giờ" style={{ whiteSpace: 'nowrap', color: '#6b7280' }}>
+                    {when(r.occurred_at)}
+                  </td>
+                  <td data-label="Ngân hàng" style={{ whiteSpace: 'nowrap' }}>
+                    {r.bank ?? '—'}
+                  </td>
+                  <td data-label="Số tiền" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <strong style={{ color: '#15803d' }}>{fmt(r.amount)}</strong>
+                  </td>
+                  {/* Nội dung NGUYÊN VĂN, không cắt: khi phải giải thích một khoản tiền, chính
+                      chuỗi ngân hàng gửi sang mới là thứ trả lời được. */}
+                  <td data-label="Nội dung" style={{ wordBreak: 'break-word', fontSize: 13 }}>
+                    {r.content || <span style={{ color: '#9ca3af' }}>(trống)</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
-
-      {rows?.map((r) => (
-        <div key={r.gateway_txn_id} className="card" style={card}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, color: '#6b7280' }}>
-              nhận {clock(r.received_at)} · ngân hàng ghi {clock(r.occurred_at)}
-              {r.account_no ? ` · TK ${r.account_no}` : ''}
-            </div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: '#15803d' }}>{fmt(r.amount)}</div>
-          </div>
-
-          {/* Nội dung NGUYÊN VĂN, không cắt: khi phải giải thích một khoản tiền, chính chuỗi ngân
-              hàng gửi sang mới là thứ trả lời được. */}
-          <div style={{ fontSize: 14, marginTop: 6, wordBreak: 'break-word' }}>
-            {r.content || <span style={{ color: '#9ca3af' }}>(nội dung trống)</span>}
-          </div>
-
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setOpen(open === r.gateway_txn_id ? null : r.gateway_txn_id)}
-            style={{ padding: '2px 8px', fontSize: 12, marginTop: 8 }}
-          >
-            {open === r.gateway_txn_id ? 'Ẩn dữ liệu gốc' : `Dữ liệu gốc · id ${r.gateway_txn_id}`}
-          </button>
-
-          {open === r.gateway_txn_id && <pre style={rawBox}>{JSON.stringify(r.raw, null, 2)}</pre>}
-        </div>
-      ))}
     </div>
   );
 }
 
 const lbl: CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 2 };
-
-const card: CSSProperties = { padding: 12, marginBottom: 8 };
-
-const rawBox: CSSProperties = {
-  marginTop: 8,
-  padding: 10,
-  background: '#0f172a',
-  color: '#e2e8f0',
-  borderRadius: 8,
-  fontSize: 12,
-  overflowX: 'auto',
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-all',
-};

@@ -14,16 +14,16 @@ import { BankTransaction } from './entities/bank-transaction.entity.js';
  * luận của hệ thống thì người đọc không biết dòng nào là sự thật của ngân hàng, dòng nào là ý
  * kiến của phần mềm. Phán xét đã có chỗ khác lo (cột "Xác thực" ở màn Lịch sử).
  */
+/** Bốn thứ chủ quán muốn thấy, không hơn (chốt 2026-09-23). */
 export type WebhookRow = {
-  /** Khoá chống trùng — `id` của SePay. */
+  /** Khoá chống trùng của SePay — không hiện ra màn, nhưng React cần một khoá ổn định cho danh sách. */
   gateway_txn_id: string;
-  received_at: number;
+  /** Giờ NGÂN HÀNG ghi có. Không trả giờ nhận webhook nữa: hai cái mốc gần như luôn trùng nhau
+   *  (lệch vài giây), bày cả hai chỉ làm người đọc phải hỏi "vậy cái nào mới đúng". */
   occurred_at: number;
+  bank: string | null;
   amount: number;
   content: string;
-  account_no: string | null;
-  /** Nguyên văn payload. Trả luôn trong danh sách vì đây CHÍNH LÀ nội dung màn này. */
-  raw: unknown;
 };
 
 /**
@@ -60,13 +60,26 @@ export class BankLedgerController {
     return apiOk({
       items: rows.map((r) => ({
         gateway_txn_id: r.gateway_txn_id,
-        received_at: r.created_at,
         occurred_at: r.occurred_at,
+        bank: bankNameOf(r),
         amount: r.amount,
         content: r.content,
-        account_no: r.account_no,
-        raw: r.raw,
       })),
     });
   }
+}
+
+/**
+ * Tên ngân hàng, lấy từ payload gốc.
+ *
+ * Không có cột riêng cho nó: bảng `bank_transactions` cố ý chỉ lưu những trường bộ khớp cần, còn
+ * lại nằm trong `raw`. Tên ngân hàng là thứ để NGƯỜI đọc, không phải để máy khớp, nên bóc lúc đọc
+ * là đủ — thêm một cột nữa chỉ để hiển thị là thêm một chỗ có thể lệch với payload.
+ *
+ * Lùi về số tài khoản khi payload không có `gateway`: thà hiện "…2042" còn hơn một ô trống.
+ */
+function bankNameOf(r: BankTransaction): string | null {
+  const g = (r.raw as { gateway?: unknown } | null)?.gateway;
+  if (typeof g === 'string' && g.trim()) return g.trim();
+  return r.account_no ? `TK ${r.account_no}` : null;
 }
