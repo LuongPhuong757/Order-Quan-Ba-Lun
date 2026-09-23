@@ -67,6 +67,8 @@ export class PaymentsService {
     if (!existing) return this.createIntent(input);
     if (existing.paid_at) return existing;
 
+    const account = await this.resolveAccount(input.accountId);
+
     // Dựng lại QR khi số tiền đổi, HOẶC khi mã chưa có QR/nội dung nào.
     //
     // Nhánh `qr_payload === null` không phải đề phòng suông — đã gặp thật 2026-09-22: người thu mở
@@ -77,8 +79,19 @@ export class PaymentsService {
     // Nhánh `note === null` cùng loại: mã sinh trước khi có cột `note` (hoặc trước khi khai tiền
     // tố) sẽ rơi về `paymentNote(code)` trần ở màn khách — tức MẤT tiền tố ngân hàng, đúng cái
     // khiến cổng không thấy giao dịch.
-    if (existing.amount !== input.amount || existing.qr_payload === null || existing.note === null) {
-      const account = await this.resolveAccount(input.accountId);
+    // ĐỔI TÀI KHOẢN NHẬN cũng phải dựng lại, không chỉ đổi số tiền.
+    //
+    // Gặp thật 2026-09-23: người thu chọn mã QR khác (VietinBank → VPBank) với cùng số tiền.
+    // Trình duyệt dựng nội dung đúng theo tài khoản mới, nhưng server giữ nguyên
+    // `expected_account_no` và `note` của tài khoản CŨ — nên tiền về đúng chỗ mà sổ giao dịch lại
+    // gắn cờ đỏ "Sai tài khoản nhận". Báo oan còn tệ hơn không báo: nó dạy người dùng bỏ qua cờ.
+    const accountChanged = (account?.id ?? null) !== existing.expected_account_id;
+    if (
+      existing.amount !== input.amount ||
+      accountChanged ||
+      existing.qr_payload === null ||
+      existing.note === null
+    ) {
       existing.amount = input.amount;
       existing.qr_payload = account ? this.buildQr(account, input.amount, existing.code) : null;
       existing.note = paymentNote(existing.code, account?.note_prefix);
