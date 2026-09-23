@@ -10,12 +10,7 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
-import {
-  BankReconcileBox,
-  PaymentMethodBadge,
-  PaymentPhotos,
-  PaymentSummaryBox,
-} from './PaymentReconcilePanel.tsx';
+import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
   historyQuery,
@@ -125,6 +120,9 @@ type HistoryOrder = {
   /* Thu bằng chuyển khoản (2026-09-14). `transfer_amount = 0` là mọi đơn có từ trước tính năng
      này, và cũng là đơn thu tiền mặt — tiền mặt luôn suy ra: tổng − phần chuyển khoản. */
   transfer_amount: number;
+  /** Ngân hàng đã xác nhận khoản chuyển khoản này chưa (2026-09-23).
+   *  `null` = đơn tiền mặt, không có gì để xác nhận. */
+  bank_verified: boolean | null;
   payment_qr_label: string | null;
   transfer_note: string | null;
   items: OrderItem[];
@@ -309,9 +307,6 @@ export function HistoryPage() {
   /** Chuỗi định danh bộ lọc, dùng làm deps của effect: đổi `page` không được bắt biểu đồ tải
    *  lại (biểu đồ không theo trang), đổi bất cứ trục lọc nào thì phải. */
   const filterKey = historyFilterKey(filters);
-  /** Id các đơn ngân hàng CHƯA xác nhận, do khối đối soát báo lên. Rỗng cho tới khi khối đó được
-   *  mở — nó chỉ gọi API khi mở, và đó là quyết định cũ có lý do (tiền của cả ca, không bày sẵn). */
-  const [unverified, setUnverified] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -988,16 +983,6 @@ export function HistoryPage() {
             />
           )}
 
-          {/* Đối chiếu với ngân hàng (2026-09-22) — khối duy nhất trên màn này nói bằng dữ liệu
-              từ phía ngân hàng. Đặt NGAY DƯỚI khối trên vì nó trả lời tiếp đúng câu hỏi mà khối
-              trên mở ra: "phải về bấy nhiêu" → "đã về chưa". */}
-          {canSeeReconcile && (
-            <BankReconcileBox
-              query={historyQuery(filters, { cashier: true }).toString()}
-              filterKey={filterKey}
-              onPending={setUnverified}
-            />
-          )}
 
           {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
@@ -1007,18 +992,21 @@ export function HistoryPage() {
             {/* Bề rộng cột CỐ ĐỊNH cho các cột nội dung ngắn (giờ, tiền, trạng thái) — không
                 khai thì bảng chia đều 100% bề ngang và cột nào cũng thừa chỗ, trong khi cột
                 "Trạng thái" lại hẹp đến mức mũi ▼ bị đẩy xuống dòng thứ hai.
-                Cột "Bàn" cố ý để `auto`: nó hứng phần dư và là chỗ duy nhất có chuỗi dài
-                (tên bàn + tên khách ship). Trên mobile thead ẩn và td thành block nên
-                colgroup không ảnh hưởng gì. */}
+                KHÔNG cột nào để `auto` (sửa 2026-09-23). Trước đây cột "Bàn" để auto nên nó
+                hứng TOÀN BỘ phần dư: trên màn 1600px nó rộng gần 500px toàn khoảng trắng, trong
+                khi "Tổng" và "Trạng thái" chật tới mức chữ gãy xuống hai dòng. Khai bề rộng cho
+                mọi cột thì trình duyệt chia phần dư THEO TỶ LỆ, không cột nào nuốt hết.
+                Trên mobile thead ẩn và td thành block nên colgroup không ảnh hưởng gì. */}
             <colgroup>
-              <col style={{ width: 76 }} />
-              <col />
-              <col style={{ width: 130 }} />
-              <col style={{ width: 76 }} />
-              <col style={{ width: 96 }} />
-              <col style={{ width: 116 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 160 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 70 }} />
               <col style={{ width: 140 }} />
               <col style={{ width: 150 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 130 }} />
             </colgroup>
             {/* `nowrap` cho MỌI ô tiêu đề: cột hẹp làm "Giờ vào" / "Thu ngân" gãy làm 2 dòng,
                 đẩy cả hàng tiêu đề cao gấp đôi trong khi chữ thì ngắn. */}
@@ -1047,6 +1035,10 @@ export function HistoryPage() {
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
                 <th>Trạng thái</th>
+                {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
+                    riêng chứ không nhét dưới số tiền: nhét vào đó thì mỗi đơn cao thêm một dòng
+                    và người ta phải đọc mới thấy, còn cột thì liếc dọc là quét được cả trang. */}
+                <th>Xác thực</th>
                 {/* Cột thao tác: những thứ BẤM ĐƯỢC (đánh dấu Misa, mở chi tiết) tách khỏi cột
                     trạng thái — cột kia chỉ để đọc. Trước đây 3 thứ chen chung 1 ô nên không
                     rõ cái nào bấm được, và mũi ▼ hay bị đẩy xuống dòng. */}
@@ -1134,21 +1126,6 @@ export function HistoryPage() {
                               {isPaid && (
                                 <div>
                                   <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
-                                  {/* Dấu "ngân hàng chưa xác nhận" — chỉ hiện sau khi khối đối
-                                      soát được mở (nó là nơi lấy dữ liệu). Đơn tiền mặt không
-                                      bao giờ dính dấu này vì nó không có mã thanh toán nào. */}
-                                  {unverified.has(o.id) && (
-                                    <div
-                                      style={{
-                                        fontSize: 11,
-                                        fontWeight: 700,
-                                        color: '#b45309',
-                                        whiteSpace: 'nowrap',
-                                      }}
-                                    >
-                                      ⚠️ NH chưa xác nhận
-                                    </div>
-                                  )}
                                 </div>
                               )}
                             </td>
@@ -1161,6 +1138,19 @@ export function HistoryPage() {
                                 <span style={cancelledBadge}>🗑 Đã huỷ</span>
                               ) : (
                                 <span style={unpaidBadge}>⏳ Chưa thanh toán</span>
+                              )}
+                            </td>
+
+                            {/* Ngân hàng đã xác nhận chưa. Ba trạng thái, và dấu "—" cho đơn tiền
+                                mặt là CÓ Ý: ô trống trông như dữ liệu bị thiếu, còn "—" nói rõ
+                                "không có gì để xác nhận ở đây". */}
+                            <td data-label="Xác thực" style={{ whiteSpace: 'nowrap' }}>
+                              {o.bank_verified === null ? (
+                                <span style={{ color: '#9ca3af' }}>—</span>
+                              ) : o.bank_verified ? (
+                                <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Đã xác thực</span>
+                              ) : (
+                                <span style={{ color: '#b45309', fontWeight: 600 }}>Chưa xác thực</span>
                               )}
                             </td>
                             {/* Cột thao tác — dồn về phải, cùng chiều cao 1 dòng. */}

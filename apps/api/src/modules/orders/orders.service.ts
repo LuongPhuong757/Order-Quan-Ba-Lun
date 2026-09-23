@@ -10,6 +10,7 @@ import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
+import { PaymentIntent } from '../payments/entities/payment-intent.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -1584,9 +1585,30 @@ export class OrdersService {
       ? []
       : await this.tableRepo.find({ where: { id: In(tableIds) }, select: ['id', 'name'] });
     const tableNameById = new Map(tables.map((t) => [t.id, t.name]));
+    /**
+     * Ngân hàng đã xác nhận khoản chuyển khoản này chưa (2026-09-23) — cột ở màn Lịch sử.
+     *
+     *   null  = đơn không thu chuyển khoản, không có gì để xác nhận
+     *   true  = cổng đối soát đã báo đủ tiền về
+     *   false = chưa thấy tiền về (gồm cả đơn thu tay không qua mã QR nào)
+     *
+     * Một truy vấn cho cả trang, không phải mỗi đơn một lần. Đọc thẳng qua `manager` thay vì tiêm
+     * repository của module khác: đây là một phép tra đúng-một-chiều, không đáng để buộc
+     * `OrdersModule` phụ thuộc vào `PaymentsModule`.
+     */
+    const transferIds = orders.filter((o) => o.transfer_amount > 0).map((o) => o.id);
+    const verified = new Set<string>();
+    if (transferIds.length > 0) {
+      const rows = await this.orderRepo.manager.find(PaymentIntent, {
+        where: { target_type: 'POS', target_id: In(transferIds) },
+      });
+      for (const r of rows) if (r.paid_at !== null) verified.add(r.target_id);
+    }
+
     const items = orders.map((o) => ({
       ...o,
       table_name: tableNameById.get(o.table_id) || o.table_code,
+      bank_verified: o.transfer_amount > 0 ? verified.has(o.id) : null,
     }));
     return { items, total, page, page_size };
   }
