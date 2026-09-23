@@ -13,6 +13,7 @@ import {
 import { z } from 'zod';
 import { PublicMenuGroup, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
+import { MENU_BOOK_TITLE } from '../lib/page-title.ts';
 import {
   computeGrid,
   findFirstPageOfGroup,
@@ -86,7 +87,7 @@ export function MenuBookPage(): JSX.Element {
   // nên tiêu đề tab phải sửa ở đây — nếu không khách lưu trang lại thấy chữ "Đặt hàng".
   useEffect(() => {
     const previous = document.title;
-    document.title = 'Menu — Quán Bà Lùn';
+    document.title = MENU_BOOK_TITLE;
     return () => {
       document.title = previous;
     };

@@ -7,6 +7,7 @@ import { ActiveOrderBar } from './ActiveOrderBar.tsx';
 import { ClosedNotice } from './ClosedNotice.tsx';
 import { useCart } from '../lib/cart-store.ts';
 import { trackPageView } from '../lib/analytics.ts';
+import { applyPageTitle } from '../lib/page-title.ts';
 
 /**
  * Layout chung của apps/shop: `<Header/>` sticky + `<main>` bọc `<Outlet/>` +
@@ -29,6 +30,10 @@ export function AppShell(): JSX.Element {
   // Nằm trong `useEffect` (chạy SAU khi trang đã vẽ) và `trackPageView` không await gì, nên
   // không có nhánh nào của việc đo này chen được vào trước nội dung khách đang chờ.
   useEffect(() => {
+    // Tiêu đề đặt TRƯỚC `trackPageView`, không phải sau: `gaPageView` gửi kèm
+    // `document.title`, nên đảo thứ tự là mỗi lượt xem bị gắn tiêu đề của màn TRƯỚC ĐÓ —
+    // sai lệch một nhịp, khó thấy hơn nhiều so với việc không có tiêu đề.
+    applyPageTitle(pathname);
     trackPageView(pathname);
   }, [pathname]);
 
