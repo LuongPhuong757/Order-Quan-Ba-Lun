@@ -1467,6 +1467,12 @@ export class OrdersService {
   async listHistory(opts: {
     /** Lọc theo hình thức thu tiền (2026-09-14). Bỏ trống = mọi hình thức. */
     payment?: PaymentKindFilter;
+    /** Lọc theo "ngân hàng đã xác nhận chưa" (2026-09-23).
+     *
+     *  Cả hai giá trị đều CHỈ xét đơn thu chuyển khoản: đơn tiền mặt không có gì để xác nhận, để
+     *  nó lọt vào nhóm "chưa xác thực" là biến bộ lọc thành vô dụng — phần lớn đơn của quán là
+     *  tiền mặt và chúng sẽ nhấn chìm đúng mấy đơn cần nhìn. */
+    verified?: 'yes' | 'no';
     /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — `orders.paid_to_account_id`. Đây là bộ lọc
      *  của việc dò sao kê: mở sao kê của một tài khoản thì chỉ muốn thấy đúng những đơn đã thu
      *  về tài khoản đó. Đơn tiền mặt không có tài khoản nhận nên tự rơi ra ngoài. */
@@ -1512,6 +1518,17 @@ export class OrdersService {
     if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
+    // EXISTS trên `payment_intents` chứ không JOIN: một đơn chỉ có một mã thanh toán, nhưng JOIN
+    // thì lần nào thêm mã thứ hai (đổi số tiền → tạo mã mới) là đơn nhân đôi trong danh sách.
+    if (opts.verified === 'yes' || opts.verified === 'no') {
+      const exists = `EXISTS (SELECT 1 FROM payment_intents pi
+        WHERE pi.target_type = 'POS' AND pi.target_id = o.id AND pi.paid_at IS NOT NULL)`;
+      wheres.push(
+        opts.verified === 'yes'
+          ? `o.transfer_amount > 0 AND ${exists}`
+          : `o.transfer_amount > 0 AND NOT ${exists}`,
+      );
+    }
     if (opts.qr_account_id) {
       wheres.push('o.paid_to_account_id = :qracc');
       params.qracc = opts.qr_account_id;

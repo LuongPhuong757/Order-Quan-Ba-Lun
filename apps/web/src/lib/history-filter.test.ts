@@ -9,6 +9,7 @@ const EMPTY: HistoryFilters = {
   status: 'all',
   misa: '',
   payment: '',
+  verified: '',
   from: '',
   to: '',
 };

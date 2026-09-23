@@ -369,6 +369,9 @@ export class OrdersController {
       q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
     const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
     const payment = parsePaymentFilter(q.payment);
+    // Giá trị lạ → bỏ qua bộ lọc, không ném 400: gõ sai query string chỉ nên mất bộ lọc, không
+    // nên làm cả màn Lịch sử trắng xoá.
+    const verified = q.verified === 'yes' || q.verified === 'no' ? q.verified : undefined;
     // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
     // đổi tập đơn trả về, nên gõ sai query string không đáng ném 400 vào mặt người dùng.
     const sort = q.sort === 'paid' ? 'paid' : 'opened';
@@ -377,6 +380,7 @@ export class OrdersController {
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
       cashier_user_id: q.cashier_user_id || undefined,
+      verified,
       status,
       misa,
       payment,

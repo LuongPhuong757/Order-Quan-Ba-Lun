@@ -17,6 +17,7 @@ import {
   type HistoryPayment,
   type HistoryFilters,
   type HistorySort,
+  type HistoryVerified,
 } from '../lib/history-filter.ts';
 
 /** Khoá nhóm cho đơn CHƯA thanh toán khi đang sắp xếp theo giờ thanh toán: chúng không có ngày
@@ -245,6 +246,9 @@ export function HistoryPage() {
    *  thái: nó CHỒNG lên trạng thái chứ không thay thế — "đã thanh toán + chuyển khoản" là câu
    *  hỏi có thật lúc đối soát, còn dãy tab kia thì chọn cái này là tắt cái kia. */
   const [paymentFilter, setPaymentFilter] = useState<HistoryPayment>('');
+  /** Lọc theo "ngân hàng đã xác nhận chưa" (2026-09-23). Chồng lên ô hình thức thu chứ không
+   *  thay thế: nó chỉ có nghĩa với đơn chuyển khoản, và BE đã tự giới hạn ở đó. */
+  const [verifiedFilter, setVerifiedFilter] = useState<HistoryVerified>('');
   /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — câu hỏi lúc cầm sao kê của một tài khoản: "đơn
    *  nào trong app đã thu về đây?". Chồng lên các trục kia y như ô hình thức thu tiền. */
   const [qrAccountFilter, setQrAccountFilter] = useState<string>('');
@@ -300,6 +304,7 @@ export function HistoryPage() {
     status: statusFilter,
     misa: misaFilter,
     payment: paymentFilter,
+    verified: verifiedFilter,
     from: range.from,
     to: range.to,
     shift: range.shift,
@@ -579,6 +584,7 @@ export function HistoryPage() {
     statusFilter !== 'all' ||
     misaFilter ||
     paymentFilter ||
+    verifiedFilter ||
     qrAccountFilter ||
     // Mặc định của màn là CA ĐANG CHẠY, nên chỉ nó mới là "không lọc gì". Ca trước là một lựa
     // chọn có chủ ý và phải tính là đang lọc — nếu không thì nút "Xoá lọc" biến mất đúng lúc
@@ -697,6 +703,23 @@ export function HistoryPage() {
           <option value="cash">💵 Tiền mặt</option>
           <option value="transfer">🏦 Chuyển khoản</option>
           <option value="mixed">💵+🏦 Cả hai</option>
+        </select>
+
+        {/* Ngân hàng đã xác nhận chưa (2026-09-23). Đứng ngay sau ô hình thức vì hai câu hỏi đi
+            liền nhau: "đơn nào chuyển khoản" rồi "cái nào ngân hàng đã báo về".
+            Hai giá trị đều chỉ xét đơn chuyển khoản — nói thẳng trong nhãn để không ai tưởng
+            "Chưa xác thực" gồm cả đơn tiền mặt. */}
+        <select
+          className="txn-fsel"
+          aria-label="Lọc theo xác thực ngân hàng"
+          title="Ngân hàng đã xác nhận chưa (chỉ đơn chuyển khoản)"
+          value={verifiedFilter}
+          onChange={(e) => { setVerifiedFilter(e.target.value as HistoryVerified); setPage(1); }}
+          style={{ width: 186, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+        >
+          <option value="">Mọi xác thực</option>
+          <option value="yes">✓ Đã xác thực (CK)</option>
+          <option value="no">⚠ Chưa xác thực (CK)</option>
         </select>
 
         {/* Tài khoản nhận tiền (2026-09-15). Đứng NGAY SAU ô hình thức vì hai câu hỏi đi liền

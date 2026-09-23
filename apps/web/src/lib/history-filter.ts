@@ -26,6 +26,8 @@ export type HistoryPayment = '' | 'cash' | 'transfer' | 'mixed';
  *  Cả hai đều mới nhất trước. */
 export type HistorySort = 'opened' | 'paid';
 
+export type HistoryVerified = '' | 'yes' | 'no';
+
 export type HistoryFilters = {
   table_id: string;
   cashier_user_id: string;
@@ -36,6 +38,12 @@ export type HistoryFilters = {
   status: HistoryStatus;
   misa: HistoryMisa;
   payment: HistoryPayment;
+  /** Ngân hàng đã xác nhận chưa (2026-09-23). '' = không lọc.
+   *
+   *  Cả 'yes' lẫn 'no' đều CHỈ xét đơn thu chuyển khoản — đơn tiền mặt không có gì để xác nhận,
+   *  để nó lọt vào nhóm "chưa xác thực" là biến bộ lọc thành vô dụng vì phần lớn đơn của quán là
+   *  tiền mặt và chúng sẽ nhấn chìm đúng mấy đơn cần nhìn. */
+  verified: HistoryVerified;
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
@@ -70,6 +78,7 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (f.status !== 'all') q.set('status', f.status);
   if (f.misa) q.set('misa', f.misa);
   if (f.payment) q.set('payment', f.payment);
+  if (f.verified) q.set('verified', f.verified);
   if (f.shift) {
     // Hai mốc do `shiftRangeMs` quyết, không tự tính lại ở đây — nhãn trên màn hình đọc cùng
     // hàm đó, và hai chỗ tự tính là hai chỗ sẽ lệch nhau.
