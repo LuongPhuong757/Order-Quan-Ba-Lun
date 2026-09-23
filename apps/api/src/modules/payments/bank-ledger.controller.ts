@@ -1,6 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import { apiOk, type ApiOk } from '@order/utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -39,23 +39,54 @@ export type WebhookRow = {
 export class BankLedgerController {
   constructor(@InjectRepository(BankTransaction) private readonly txns: Repository<BankTransaction>) {}
 
-  /** `from`/`to` epoch ms; mặc định 7 ngày gần nhất. Trần 300 dòng — quán làm ~60 giao dịch/ngày
-   *  nên nó phủ gần một tuần, mà vẫn chặn được ca mở khoảng một năm rồi kéo cả bảng về điện thoại. */
+  /**
+   * `from`/`to` epoch ms (mặc định 7 ngày gần nhất) · `account` số tài khoản nhận · `q` tìm trong
+   * nội dung · `page`/`page_size`.
+   *
+   * `banks` trả kèm trong CÙNG response chứ không thành endpoint riêng: ô lọc ngân hàng phải liệt
+   * kê đúng những tài khoản CÓ giao dịch trong khoảng đang xem, nên nó vốn đã phụ thuộc vào cùng
+   * bộ lọc ngày — tách ra là hai đường phải nhớ truyền cùng tham số.
+   */
   @Get('transactions')
   async list(
     @Query('from') from?: string,
     @Query('to') to?: string,
-  ): Promise<ApiOk<{ items: WebhookRow[] }>> {
+    @Query('account') account?: string,
+    @Query('q') q?: string,
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+  ): Promise<ApiOk<{
+    items: WebhookRow[];
+    total: number;
+    page: number;
+    page_size: number;
+    banks: Array<{ account_no: string; name: string }>;
+  }>> {
     const fromMs = Number(from) || Date.now() - 7 * 24 * 60 * 60 * 1000;
     const toMs = Number(to) || Date.now();
+    const p = Math.max(1, Number(page) || 1);
+    const size = Math.min(100, Math.max(5, Number(pageSize) || 20));
 
-    const rows = await this.txns.find({
-      // Xếp theo giờ NHẬN chứ không giờ ngân hàng ghi có: đây là nhật ký của việc "SePay gọi ta
-      // lúc nào", và một webhook về bù sau ba ngày phải nằm ở chỗ nó thực sự đến.
-      where: { created_at: Between(fromMs, toMs) },
-      order: { created_at: 'DESC' },
-      take: 300,
-    });
+    const qb = this.txns
+      .createQueryBuilder('t')
+      .where('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) });
+    if (account) qb.andWhere('t.account_no = :acc', { acc: account });
+    if (q && q.trim()) {
+      // Tìm THÔ trong nội dung. Không dựng chỉ mục toàn văn: chuỗi ngân hàng gửi sang là một khối
+      // liền không có cấu trúc, mà thứ người ta gõ vào đây là "BAN01" hay một phần số tài khoản —
+      // đúng kiểu `LIKE %...%` làm tốt. Với vài chục nghìn dòng thì quét bảng vẫn dưới tầm để ý.
+      qb.andWhere('t.content LIKE :q', { q: `%${q.trim()}%` });
+    }
+
+    const total = await qb.getCount();
+    const rows = await qb
+      // MỚI NHẤT LÊN ĐẦU, theo giờ ngân hàng ghi có — cùng cột đang hiện trên màn. Xếp theo giờ
+      // nhận webhook thì thứ tự trông "sai" với chính con số người ta đang đọc.
+      .orderBy('t.occurred_at', 'DESC')
+      .addOrderBy('t.created_at', 'DESC')
+      .skip((p - 1) * size)
+      .take(size)
+      .getMany();
 
     return apiOk({
       items: rows.map((r) => ({
@@ -65,7 +96,40 @@ export class BankLedgerController {
         amount: r.amount,
         content: r.content,
       })),
+      total,
+      page: p,
+      page_size: size,
+      banks: await this.banksInRange(fromMs, toMs),
     });
+  }
+
+  /**
+   * Các tài khoản CÓ giao dịch trong khoảng — để dựng ô lọc ngân hàng.
+   *
+   * Lấy tên từ hàng GẦN NHẤT CÓ TÊN, không phải hàng mới nhất: chỉ cần một webhook thiếu trường
+   * `gateway` (payload lạ, hoặc dòng bơm tay lúc thử) là cả ô lọc tụt về hiện số tài khoản trần.
+   * Quét 20 hàng gần nhất là quá đủ để vượt qua vài dòng như vậy.
+   */
+  private async banksInRange(fromMs: number, toMs: number) {
+    const accs = await this.txns
+      .createQueryBuilder('t')
+      .select('t.account_no', 'account_no')
+      .where('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) })
+      .andWhere('t.account_no IS NOT NULL')
+      .groupBy('t.account_no')
+      .getRawMany<{ account_no: string }>();
+
+    const out: Array<{ account_no: string; name: string }> = [];
+    for (const a of accs) {
+      const recent = await this.txns.find({
+        where: { account_no: a.account_no },
+        order: { occurred_at: 'DESC' },
+        take: 20,
+      });
+      const named = recent.map((r) => gatewayOf(r)).find((n): n is string => !!n);
+      out.push({ account_no: a.account_no, name: named ?? `TK ${a.account_no}` });
+    }
+    return out.sort((x, y) => x.name.localeCompare(y.name, 'vi'));
   }
 }
 
@@ -79,7 +143,12 @@ export class BankLedgerController {
  * Lùi về số tài khoản khi payload không có `gateway`: thà hiện "…2042" còn hơn một ô trống.
  */
 function bankNameOf(r: BankTransaction): string | null {
+  return gatewayOf(r) ?? (r.account_no ? `TK ${r.account_no}` : null);
+}
+
+/** Tên ngân hàng NGUYÊN BẢN trong payload, hoặc `null` nếu payload không có. Tách riêng để ô lọc
+ *  phân biệt được "không có tên" với "đã lùi về số tài khoản". */
+function gatewayOf(r: BankTransaction): string | null {
   const g = (r.raw as { gateway?: unknown } | null)?.gateway;
-  if (typeof g === 'string' && g.trim()) return g.trim();
-  return r.account_no ? `TK ${r.account_no}` : null;
+  return typeof g === 'string' && g.trim() ? g.trim() : null;
 }

@@ -593,7 +593,29 @@ export function HistoryPage() {
 
   return (
     <div className="container txn-page with-bottom-nav">
-      <h1>📊 Quản lý giao dịch</h1>
+      {/* Cửa vào sổ webhook. Đặt ở ĐÂY chứ không thêm mục thứ 9 vào nav: nav đã 8 mục và dưới
+          380px nhãn đã phải tự ẩn, thêm nữa là bóp nhỏ tất cả. Người cần sổ webhook luôn đang
+          đứng ở màn này — họ vừa thấy một đơn "chưa xác thực" và muốn xem ngân hàng báo gì. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        <h1 style={{ margin: 0 }}>📊 Quản lý giao dịch</h1>
+        {canSeeReconcile && (
+          <a
+            href="/admin/bank-ledger"
+            className="secondary"
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              padding: '6px 12px',
+              borderRadius: 8,
+              border: '1px solid #d1d5db',
+              textDecoration: 'none',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            🏦 Sổ webhook ngân hàng
+          </a>
+        )}
+      </div>
 
       {/* Filters — TẤT CẢ trên một dòng (chốt 2026-09-05).
           Trước đây xếp 3 tầng (pill / 2 select / 2 ô ngày) chiếm gần nửa màn hình trước khi
