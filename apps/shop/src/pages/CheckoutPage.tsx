@@ -22,7 +22,7 @@ import { peekGeoReloadDraft, reloadForGeoPermission } from '../lib/geo-permissio
 import { nextOpeningText } from '../lib/open-hours.ts';
 import { useReopenCountdown } from '../lib/use-reopen-countdown.ts';
 import * as CustomerToken from '../lib/customer-token.ts';
-import { gaPurchase } from '../lib/gtag.ts';
+import { gaBeginCheckout, gaItems, gaPurchase } from '../lib/gtag.ts';
 import { DeliveryAddress, type AddressMode } from '../components/DeliveryAddress.tsx';
 import { composeAddress, extractAddressDetail } from '../lib/address.ts';
 import { isValidWardCode } from '@order/schemas/vn-address';
@@ -378,6 +378,22 @@ export function CheckoutPage(): JSX.Element {
     if (cart.count === 0 && !submitting) navigate('/cart');
   }, [cart.count, submitting, navigate]);
 
+  /**
+   * Bước cuối của phễu trước `purchase` (2026-09-23). Bắn ĐÚNG MỘT LẦN lúc vào màn: nó nghĩa là
+   * "khách bắt đầu đặt hàng", không phải "giỏ vừa đổi" — nên deps rỗng, không theo dõi giỏ.
+   *
+   * Hai trường hợp CỐ Ý im lặng, vì cả hai đều không phải khách thật bắt đầu mua, và cả hai đều
+   * đang trên đường bị hai effect NGAY TRÊN đá về `/cart`:
+   *  - giỏ rỗng (gõ tay URL, bấm Back sau khi đặt xong);
+   *  - đang sửa đơn cũ — tiền của nó đã tính ở đơn gốc rồi.
+   */
+  useEffect(() => {
+    if (cart.subtotal <= 0 || readEditSession() !== null) return;
+    gaBeginCheckout({ value: cart.subtotal, items: gaItems(cart.lines) });
+    // Cố ý chạy MỘT lần lúc mount — xem docblock trên.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Mặc định chọn phương thức đang bật; cả 2 bật thì LUÔN là DELIVERY. Chỉ áp 1 lần khi dữ liệu
   // quán vừa tải xong, không ghi đè lựa chọn khách tự đổi sau đó.
   //
@@ -589,6 +605,8 @@ export function CheckoutPage(): JSX.Element {
     gaPurchase({
       value: cart.subtotal + (estimatedShipFee ?? 0),
       shipping: estimatedShipFee ?? 0,
+      items: gaItems(cart.lines),
+      orderToken: result.data.order_token,
     });
     // Điều hướng TRƯỚC, xoá giỏ SAU: thứ tự ngược lại là giỏ về 0 khi còn đứng ở /checkout,
     // effect "giỏ rỗng → về /cart" phía trên sẽ nuốt mất điều hướng sang màn theo dõi.

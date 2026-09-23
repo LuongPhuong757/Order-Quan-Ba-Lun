@@ -4,6 +4,7 @@ import { PublicTopDishes, type PublicTopDish, type TopDishesWindow } from '@orde
 import { useApi } from '../lib/use-api.ts';
 import { useCountUp } from '../lib/use-count-up.ts';
 import { MAX_QTY, formatVnd, useCart } from '../lib/cart-store.ts';
+import { gaAddToCart } from '../lib/gtag.ts';
 import { BannerNotice } from '../components/BannerNotice.tsx';
 import { CartToast } from '../components/CartToast.tsx';
 import { FadeInImage } from '../components/FadeInImage.tsx';
@@ -72,6 +73,8 @@ export function TopDishesPage(): JSX.Element {
       message: `Đã thêm ${dish.name} vào giỏ`,
       nonce: (prev?.nonce ?? 0) + 1,
     }));
+    // CUỐI hàm, sau khi món đã vào giỏ — cùng lý do và cùng cách với `MenuPage.handleAdd`.
+    gaAddToCart({ item_id: dish.id, item_name: dish.name, price: dish.price, quantity: 1 });
   };
 
   /** Đổi số lượng món ĐÃ trong giỏ — cố ý KHÔNG bắn toast, đúng như MenuPage: con số trên stepper
