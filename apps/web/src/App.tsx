@@ -37,6 +37,9 @@ const AdminUsersPage = lazy(() =>
 const AdminAuditPage = lazy(() =>
   import('./pages/AdminAuditPage.tsx').then((m) => ({ default: m.AdminAuditPage })),
 );
+const BankLedgerPage = lazy(() =>
+  import('./pages/BankLedgerPage.tsx').then((m) => ({ default: m.BankLedgerPage })),
+);
 const AdminAnalyticsPage = lazy(() =>
   import('./pages/AdminAnalyticsPage.tsx').then((m) => ({ default: m.AdminAnalyticsPage })),
 );
@@ -202,6 +205,14 @@ export function App() {
                 bên trong vẫn admin-only.
                 Còn lại ở đây là những màn mà bản thân việc XEM cũng chỉ admin: nhật ký hệ thống
                 (ai làm gì), danh sách nhân viên, và các màn quản trị có thao tác là chính. */}
+            {/* Sổ giao dịch ngân hàng (2026-09-23) — CHỈ admin, và KHÔNG có trong nav dưới: nav
+                đã 8 mục, thêm mục thứ 9 là bóp nhỏ tất cả trên điện thoại (cùng lý do đã để
+                Thống kê truy cập ngoài nav). Đường vào là nút ở khối "Ngân hàng đã báo về" của
+                màn Lịch sử — đúng chỗ người ta đang đứng khi thấy một con số đáng ngờ. */}
+            <Route element={<RoleGate allow={['admin']} />}>
+              <Route path="/admin/bank-ledger" element={<BankLedgerPage />} />
+            </Route>
+
             <Route element={<RoleGate allow={['admin']} />}>
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />

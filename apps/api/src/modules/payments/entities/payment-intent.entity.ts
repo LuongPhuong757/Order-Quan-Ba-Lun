@@ -65,7 +65,22 @@ export class PaymentIntent {
   @Column({ type: 'text', nullable: true })
   qr_payload!: string | null;
 
-  /** SNAPSHOT nội dung CK đã in lên QR, vd `SEVQR DH860224`.
+  /** Mã QR đã chìa ra, và SNAPSHOT số tài khoản của nó (2026-09-23).
+   *
+   *  Đây là thứ duy nhất cho phép phát hiện "khách chuyển ĐÚNG MÃ nhưng VÀO TÀI KHOẢN KHÁC" —
+   *  không lưu thì lúc tiền về ta không có gì để so. Snapshot số tài khoản chứ không chỉ id: chủ
+   *  quán sửa hoặc ngừng dùng một mã QR thì đơn cũ vẫn phải đối chiếu được, cùng lý do
+   *  `payment_qr_label` được snapshot ở `orders`.
+   *
+   *  NULL = lúc sinh mã chưa có tài khoản nào (chưa khai mã QR) — lúc đó không so được, và màn sổ
+   *  giao dịch hiện "không rõ" chứ không vu cho khách là chuyển sai. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  expected_account_id!: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  expected_account_no!: string | null;
+
+  /** SNAPSHOT nội dung CK đã in lên QR, vd `SEVQR BAN05ABC`.
    *
    *  Lưu chứ không dựng lại từ `code`: nội dung phụ thuộc TIỀN TỐ của tài khoản nhận, mà tiền tố
    *  đó chủ quán sửa được ở màn Cài đặt. Dựng lại sau khi họ sửa sẽ ra một chuỗi KHÁC với chuỗi

@@ -264,6 +264,15 @@ export function BankReconcileBox({ query, filterKey }: { query: string; filterKe
           Chỉ phản ánh tài khoản đã nối với SePay. Máy <strong>không tự sửa đơn</strong> — số tiền
           trên đơn vẫn là số người thu đã ghi.
         </div>
+
+        {/* Đường vào sổ giao dịch. Đặt Ở ĐÂY chứ không nhét thêm một mục vào nav: người ta cần sổ
+            đúng lúc đang nhìn một con số đáng ngờ trên khối này. */}
+        <a
+          href="/admin/bank-ledger"
+          style={{ display: 'inline-block', marginTop: 10, fontSize: 13, fontWeight: 600 }}
+        >
+          Mở sổ giao dịch ngân hàng →
+        </a>
       </div>
     </div>
   );

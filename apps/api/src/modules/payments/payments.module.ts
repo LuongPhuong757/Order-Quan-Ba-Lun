@@ -10,6 +10,7 @@ import { PublicPaymentsController } from './public-payments.controller.js';
 import { PosPaymentsController } from './pos-payments.controller.js';
 import { AdminReconcileController } from './admin-reconcile.controller.js';
 import { SepayBackfillJob } from './sepay-backfill.job.js';
+import { BankLedgerController } from './bank-ledger.controller.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
@@ -33,6 +34,7 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
     PublicPaymentsController,
     PosPaymentsController,
     AdminReconcileController,
+    BankLedgerController,
   ],
   providers: [PaymentsApplyService, PaymentsService, SepayBackfillJob],
   exports: [PaymentsApplyService, PaymentsService],

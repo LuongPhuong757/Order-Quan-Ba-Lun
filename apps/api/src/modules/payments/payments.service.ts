@@ -82,6 +82,8 @@ export class PaymentsService {
       existing.amount = input.amount;
       existing.qr_payload = account ? this.buildQr(account, input.amount, existing.code) : null;
       existing.note = paymentNote(existing.code, account?.note_prefix);
+      existing.expected_account_id = account?.id ?? null;
+      existing.expected_account_no = account?.account_no ?? null;
       await this.intents.save(existing);
     }
     return existing;
@@ -124,6 +126,8 @@ export class PaymentsService {
         amount: input.amount,
         qr_payload: account ? this.buildQr(account, input.amount, code) : null,
         note: paymentNote(code, account?.note_prefix),
+        expected_account_id: account?.id ?? null,
+        expected_account_no: account?.account_no ?? null,
         received_amount: 0,
         paid_at: null,
         needs_review: false,
