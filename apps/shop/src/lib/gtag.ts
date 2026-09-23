@@ -172,6 +172,105 @@ export function gaPageView(path: string): void {
   }
 }
 
+/** Một dòng món theo đúng chuẩn ecommerce của GA4. */
+export type GaItem = {
+  item_id: string;
+  item_name: string;
+  /** VND, số nguyên — KHÔNG định dạng dấu chấm. GA4 bỏ qua chuỗi. */
+  price: number;
+  quantity: number;
+};
+
+/**
+ * Đổi dòng giỏ hàng sang `items` của GA4.
+ *
+ * Nhận kiểu CẤU TRÚC chứ không import `CartLine`: `gtag.ts` được `main.tsx` nạp ở cấp module,
+ * giữ nó không phụ thuộc vào store của giỏ thì thứ tự khởi tạo không bao giờ thành vấn đề.
+ *
+ * Bỏ dòng `unavailable` — món quán báo hết vẫn còn trong giỏ theo D-07 nhưng KHÔNG được cộng
+ * vào `subtotal`, nên để lại đây là `items` không khớp `value`.
+ */
+export function gaItems(
+  lines: ReadonlyArray<{
+    menu_item_id: string;
+    name: string;
+    unit_price: number;
+    qty: number;
+    unavailable?: boolean;
+  }>,
+): GaItem[] {
+  return lines
+    .filter((l) => !l.unavailable)
+    .map((l) => ({
+      item_id: l.menu_item_id,
+      item_name: l.name,
+      price: l.unit_price,
+      quantity: l.qty,
+    }));
+}
+
+/**
+ * Khách thêm một món MỚI vào giỏ. Cố ý KHÔNG bắn khi khách bấm `+` tăng số lượng món đã có:
+ * một khách mua 10 phần sẽ thành 10 event, làm hỏng chính con số mà phễu cần đo.
+ */
+export function gaAddToCart(item: GaItem): void {
+  try {
+    if (!started) return;
+    gtag('event', 'add_to_cart', {
+      currency: 'VND',
+      value: item.price * item.quantity,
+      items: [item],
+    });
+  } catch {
+    /* im lặng */
+  }
+}
+
+/** Khách vào màn đặt hàng. Bước cuối của phễu trước `purchase`. */
+export function gaBeginCheckout(input: { value: number; items: GaItem[] }): void {
+  try {
+    if (!started) return;
+    gtag('event', 'begin_checkout', {
+      currency: 'VND',
+      value: input.value,
+      items: input.items,
+    });
+  } catch {
+    /* im lặng */
+  }
+}
+
+/**
+ * Băm `order_token` thành mã ngắn để làm `transaction_id`.
+ *
+ * ── VÌ SAO KHÔNG GỬI THẲNG `order_token` ─────────────────────────────────────────────────
+ * Nó là CREDENTIAL, không phải mã số: `randomBytes(32).toString('hex')` sinh ở backend, và ai
+ * cầm chuỗi đó là mở được đơn của khách tại `/o/<token>` — thấy tên, số điện thoại, địa chỉ.
+ * Cả `Referrer-Policy: no-referrer` bên Caddy lẫn `sanitizeLocation()` phía trên đều dựng lên
+ * để giữ nó không rời khỏi hệ thống. Đưa đúng chuỗi ấy sang `transaction_id` thì mọi lớp đó
+ * thành vô nghĩa — nó vẫn đi vào giao diện GA4, bản xuất BigQuery, và cả query string của
+ * chính request `/g/collect`. "Không phải page_location" không làm nó bớt là credential.
+ *
+ * Bản băm thì cố định theo từng đơn nên GA4 khử trùng lặp đúng như thường, mà không mở được
+ * đơn nào. 8 byte đầu (16 ký tự hex) là quá đủ để không đụng nhau ở quy mô một quán ăn.
+ *
+ * Hỏng thì trả `null` và event vẫn đi, chỉ thiếu `transaction_id`: mất một lớp bảo hiểm còn
+ * hơn mất hẳn một lượt chuyển đổi. `crypto.subtle` cần secure context — production là HTTPS
+ * bắt buộc (HSTS), localhost cũng được tính là secure.
+ */
+async function hashOrderToken(token: string): Promise<string | null> {
+  try {
+    const bytes = new TextEncoder().encode(token);
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest))
+      .slice(0, 8)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Đơn đặt thành công — ĐÂY là con số quảng cáo thực sự chạy bằng. Mọi thứ còn lại trong file
  * chỉ là nền cho event này.
@@ -180,20 +279,40 @@ export function gaPageView(path: string): void {
  * `value` là doanh thu và Google Ads import được làm conversion. Đặt tên khác (kiểu
  * `dat_don_thanh_cong`) thì vẫn đếm được số lần nhưng mất sạch phần tiền.
  *
- * CỐ Ý KHÔNG có `transaction_id`, dù chuẩn GA4 khuyên dùng để chống đếm trùng: mã duy nhất
- * app có trong tay lúc này là `order_token` — xem luật (1) ở đầu file. Rủi ro đếm trùng ở đây
- * gần như bằng không vì `CheckoutPage` bắn event TRƯỚC khi `navigate(..., { replace: true })`;
- * khách F5 sau đó là đang đứng ở màn theo dõi đơn, không chạy lại nhánh này.
+ * `transaction_id` là BẢN BĂM của `order_token`, không phải token — xem `hashOrderToken`.
+ *
+ * Nó thuần tuý là lớp bảo hiểm phía GA4, chứ rủi ro đếm trùng ở luồng này vốn đã bằng không:
+ * event bắn trong `handleSubmit` của `CheckoutPage` ngay sau khi backend xác nhận đơn, nên F5
+ * trang `/o/<token>` hay mở lại link đơn từ Zalo đều KHÔNG chạy vào đây, và luồng sửa đơn thì
+ * bị đá về `/cart` trước khi tới được nút gửi. Vì vậy cũng KHÔNG cần cờ chống-bắn-lại trong
+ * localStorage: nó sẽ là code canh một cửa không có ai đi qua.
+ *
+ * Việc băm là bất đồng bộ nên event đi trong một microtask — vẫn không có `await` nào trên
+ * đường render, và điều hướng sau đó là client-side (trang không unload) nên promise chạy
+ * xong bình thường.
  */
-export function gaPurchase(input: { value: number; shipping: number }): void {
+export function gaPurchase(input: {
+  value: number;
+  shipping: number;
+  items: GaItem[];
+  orderToken: string;
+}): void {
   try {
     if (!started) return;
-    gtag('event', 'purchase', {
+    const payload = {
       currency: 'VND',
       value: input.value,
       // Chỉ gửi khi có thật: 0 đồng phí giao của đơn tự đến lấy không phải một thông tin.
       ...(input.shipping > 0 ? { shipping: input.shipping } : {}),
-    });
+      items: input.items,
+    };
+    void hashOrderToken(input.orderToken)
+      .then((id) => {
+        gtag('event', 'purchase', id === null ? payload : { ...payload, transaction_id: id });
+      })
+      .catch(() => {
+        /* im lặng */
+      });
   } catch {
     /* im lặng */
   }
