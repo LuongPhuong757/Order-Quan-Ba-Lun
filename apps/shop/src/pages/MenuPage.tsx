@@ -9,6 +9,7 @@ import {
 } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
 import { consumeCartExpired, useCart } from '../lib/cart-store.ts';
+import { gaAddToCart } from '../lib/gtag.ts';
 import { CardItem, CARD_ITEM_CSS } from '../components/CardItem.tsx';
 import { CategoryRail } from '../components/CategoryRail.tsx';
 import { BannerNotice } from '../components/BannerNotice.tsx';
@@ -144,6 +145,10 @@ export function MenuPage(): JSX.Element {
       message: `Đã thêm ${item.name} vào giỏ`,
       nonce: (prev?.nonce ?? 0) + 1,
     }));
+    // CUỐI hàm, sau khi món đã vào giỏ và toast đã hiện: đây là hot path của khách, việc đo
+    // không bao giờ được đứng trước việc thật. `handleAdd` chỉ chạy khi món LẦN ĐẦU vào giỏ
+    // (bấm `+` tăng số lượng sau đó đi qua `handleSetQty`), nên không cần lọc trùng ở đây.
+    gaAddToCart({ item_id: item.id, item_name: item.name, price: item.price, quantity: 1 });
   };
 
   /**
