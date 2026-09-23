@@ -5,13 +5,27 @@ import { apiOk, type ApiOk } from '@order/utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
+import { OrderPaymentPhoto } from '../orders/entities/order-payment-photo.entity.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 
 export type BankReconcile = {
+  /** Tổng số lần thu chuyển khoản trong kỳ (đã chìa QR). */
+  total: number;
   /** Số mã thanh toán trong kỳ mà ngân hàng ĐÃ báo đủ tiền. */
   confirmed: number;
-  /** Mã đã chìa QR cho khách nhưng chưa thấy đồng nào về — con số chủ quán cần nhất. */
-  pending: Array<{ code: string; target_type: string; target_id: string; amount: number; received: number }>;
+  /** Lần thu đã chìa QR nhưng ngân hàng chưa xác nhận đủ tiền — con số chủ quán cần nhất.
+   *
+   *  `has_photo` là thứ phân biệt hai mức lo khác hẳn nhau: chưa xác thực NHƯNG có ảnh bill thì
+   *  còn bằng chứng để đối chiếu; chưa xác thực VÀ KHÔNG có ảnh thì không còn gì cả — đó mới là
+   *  đơn phải đi hỏi người thu ngay trong ngày, trước khi không ai nhớ nữa. */
+  pending: Array<{
+    code: string;
+    target_type: string;
+    target_id: string;
+    amount: number;
+    received: number;
+    has_photo: boolean;
+  }>;
   /** Tiền về mà không mang mã đơn nào: khách xoá nội dung, chuyển nhầm, hoặc tiền riêng của chủ. */
   unknown: Array<{ amount: number; content: string; occurred_at: number; account_no: string | null }>;
 };
@@ -49,15 +63,30 @@ export class AdminReconcileController {
     });
 
     const confirmed = all.filter((i) => i.paid_at !== null).length;
-    const pending = all
-      .filter((i) => i.paid_at === null)
-      .map((i) => ({
-        code: i.code,
-        target_type: i.target_type,
-        target_id: i.target_id,
-        amount: i.amount,
-        received: i.received_amount,
-      }));
+    const unpaid = all.filter((i) => i.paid_at === null);
+
+    // Một truy vấn cho tất cả, không phải mỗi đơn một lần đếm ảnh.
+    const orderIds = unpaid.filter((i) => i.target_type === 'POS').map((i) => i.target_id);
+    const withPhoto = new Set<string>();
+    if (orderIds.length > 0) {
+      const rows = await this.intents.manager
+        .createQueryBuilder()
+        .select('p.order_id', 'order_id')
+        .from(OrderPaymentPhoto, 'p')
+        .where('p.order_id IN (:...ids)', { ids: orderIds })
+        .groupBy('p.order_id')
+        .getRawMany<{ order_id: string }>();
+      for (const r of rows) withPhoto.add(r.order_id);
+    }
+
+    const pending = unpaid.map((i) => ({
+      code: i.code,
+      target_type: i.target_type,
+      target_id: i.target_id,
+      amount: i.amount,
+      received: i.received_amount,
+      has_photo: withPhoto.has(i.target_id),
+    }));
 
     const unknown = (
       await this.txns.find({
@@ -72,6 +101,6 @@ export class AdminReconcileController {
       account_no: t.account_no,
     }));
 
-    return apiOk({ confirmed, pending, unknown });
+    return apiOk({ total: all.length, confirmed, pending, unknown });
   }
 }

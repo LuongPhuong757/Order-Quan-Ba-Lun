@@ -309,6 +309,9 @@ export function HistoryPage() {
   /** Chuỗi định danh bộ lọc, dùng làm deps của effect: đổi `page` không được bắt biểu đồ tải
    *  lại (biểu đồ không theo trang), đổi bất cứ trục lọc nào thì phải. */
   const filterKey = historyFilterKey(filters);
+  /** Id các đơn ngân hàng CHƯA xác nhận, do khối đối soát báo lên. Rỗng cho tới khi khối đó được
+   *  mở — nó chỉ gọi API khi mở, và đó là quyết định cũ có lý do (tiền của cả ca, không bày sẵn). */
+  const [unverified, setUnverified] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     Promise.all([
@@ -992,6 +995,7 @@ export function HistoryPage() {
             <BankReconcileBox
               query={historyQuery(filters, { cashier: true }).toString()}
               filterKey={filterKey}
+              onPending={setUnverified}
             />
           )}
 
@@ -1130,6 +1134,21 @@ export function HistoryPage() {
                               {isPaid && (
                                 <div>
                                   <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
+                                  {/* Dấu "ngân hàng chưa xác nhận" — chỉ hiện sau khi khối đối
+                                      soát được mở (nó là nơi lấy dữ liệu). Đơn tiền mặt không
+                                      bao giờ dính dấu này vì nó không có mã thanh toán nào. */}
+                                  {unverified.has(o.id) && (
+                                    <div
+                                      style={{
+                                        fontSize: 11,
+                                        fontWeight: 700,
+                                        color: '#b45309',
+                                        whiteSpace: 'nowrap',
+                                      }}
+                                    >
+                                      ⚠️ NH chưa xác nhận
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </td>

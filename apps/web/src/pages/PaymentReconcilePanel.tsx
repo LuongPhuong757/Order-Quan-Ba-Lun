@@ -142,8 +142,16 @@ function Tile({ label, value, color }: { label: string; value: string; color: st
 }
 
 type Reconcile = {
+  total: number;
   confirmed: number;
-  pending: Array<{ code: string; target_type: string; target_id: string; amount: number; received: number }>;
+  pending: Array<{
+    code: string;
+    target_type: string;
+    target_id: string;
+    amount: number;
+    received: number;
+    has_photo: boolean;
+  }>;
   unknown: Array<{ amount: number; content: string; occurred_at: number; account_no: string | null }>;
 };
 
@@ -159,7 +167,18 @@ type Reconcile = {
  * KHÔNG có nút nào sửa đơn ở đây, và đó là chủ ý (chủ quán chốt 2026-09-21: máy chỉ gắn cờ,
  * người quyết). Khối này trả lời, không hành động.
  */
-export function BankReconcileBox({ query, filterKey }: { query: string; filterKey: string }) {
+export function BankReconcileBox({
+  query,
+  filterKey,
+  onPending,
+}: {
+  query: string;
+  filterKey: string;
+  /** Báo ngược lên trang cha danh sách đơn CHƯA xác thực, để bảng đơn gắn dấu ngay trên từng dòng.
+   *  Chỉ có dữ liệu sau khi khối này được MỞ — khối đóng thì không gọi API (xem docblock ở trên),
+   *  nên dấu trên bảng cũng chỉ hiện sau khi mở khối một lần. */
+  onPending?: (ids: Set<string>) => void;
+}) {
   const [data, setData] = useState<Reconcile | null>(null);
   const [failed, setFailed] = useState(false);
   // Mặc định ĐÓNG, cùng nếp với khối đối soát ngay trên: đây là tiền của cả ca.
@@ -176,7 +195,12 @@ export function BankReconcileBox({ query, filterKey }: { query: string; filterKe
     if (p.get('to')) range.set('to', p.get('to')!);
     api
       .get<{ data: Reconcile }>(`/payments/reconcile?${range.toString()}`)
-      .then((res) => alive && (setData(res.data.data), setFailed(false)))
+      .then((res) => {
+        if (!alive) return;
+        setData(res.data.data);
+        setFailed(false);
+        onPending?.(new Set(res.data.data.pending.map((p) => p.target_id)));
+      })
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
@@ -213,30 +237,48 @@ export function BankReconcileBox({ query, filterKey }: { query: string; filterKe
       <div className="card" style={{ padding: 14, borderLeft: '4px solid #15803d' }}>
         <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Ngân hàng đã báo về</div>
 
+        {/* Bốn con số, và con số thứ tư mới là thứ đáng nhìn nhất: đơn đã thu tiền nhưng ngân
+            hàng chưa xác nhận VÀ không có ảnh bill — không còn bằng chứng nào cả. */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <Tile label="✅ Đã thấy tiền về" value={String(data.confirmed)} color="#15803d" />
-          <Tile label="🔴 Chưa thấy tiền" value={String(data.pending.length)} color="#b91c1c" />
-          <Tile label="❓ Tiền lạ" value={String(data.unknown.length)} color="#b45309" />
+          <Tile label="Lần thu chuyển khoản" value={String(data.total)} color="#374151" />
+          <Tile label="✅ Ngân hàng đã xác nhận" value={String(data.confirmed)} color="#15803d" />
+          <Tile label="⚠️ Chưa xác thực" value={String(data.pending.length)} color="#b45309" />
+          <Tile
+            label="🔴 Chưa xác thực & KHÔNG có ảnh"
+            value={String(data.pending.filter((p) => !p.has_photo).length)}
+            color="#b91c1c"
+          />
         </div>
 
         {data.pending.length > 0 && (
           <div style={{ marginTop: 12 }}>
             <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>
-              Đã chìa mã QR nhưng chưa thấy tiền
+              Đã thu nhưng ngân hàng chưa xác nhận — mở đơn xem ảnh bill khách đưa
             </div>
-            {data.pending.map((p) => (
-              <div key={p.code} style={rowStyle}>
-                <span>
-                  <strong>DH{p.code}</strong>{' '}
-                  <span style={{ color: '#9ca3af' }}>
-                    {p.target_type === 'ONLINE' ? 'đơn online' : 'tại quán'}
+            {/* Không có ảnh thì xếp LÊN TRƯỚC: đó là đơn phải đi hỏi người thu ngay trong ngày,
+                trước khi không ai còn nhớ. Đơn có ảnh thì còn bằng chứng, để lại sau cũng được. */}
+            {[...data.pending]
+              .sort((a, b) => Number(a.has_photo) - Number(b.has_photo))
+              .map((p) => (
+                <div key={p.code} style={rowStyle}>
+                  <span>
+                    <strong>{p.code}</strong>{' '}
+                    <span style={{ color: '#9ca3af' }}>
+                      {p.target_type === 'ONLINE' ? 'đơn online' : 'tại quán'}
+                    </span>{' '}
+                    {p.has_photo ? (
+                      <span style={{ color: '#15803d', fontSize: 12 }}>📷 có ảnh bill</span>
+                    ) : (
+                      <span style={{ color: '#b91c1c', fontSize: 12, fontWeight: 700 }}>
+                        KHÔNG có ảnh bill
+                      </span>
+                    )}
                   </span>
-                </span>
-                <strong style={{ color: '#b91c1c' }}>
-                  {p.received > 0 ? `${fmt(p.received)} / ${fmt(p.amount)}` : fmt(p.amount)}
-                </strong>
-              </div>
-            ))}
+                  <strong style={{ color: '#b45309' }}>
+                    {p.received > 0 ? `${fmt(p.received)} / ${fmt(p.amount)}` : fmt(p.amount)}
+                  </strong>
+                </div>
+              ))}
           </div>
         )}
 
