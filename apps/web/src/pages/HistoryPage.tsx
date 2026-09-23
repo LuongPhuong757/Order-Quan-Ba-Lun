@@ -1129,7 +1129,7 @@ export function HistoryPage() {
                                 `wrap`: trên cột hẹp của máy tính hai badge tự xuống dòng thay vì
                                 đẩy bảng cuộn ngang. */}
                             <td data-label="Trạng thái">
-                              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                              <div className="txn-status-wrap" style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                                 {isPaid ? (
                                   <span style={paidBadge}>✓ Đã thanh toán</span>
                                 ) : isCancelled ? (

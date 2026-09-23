@@ -1534,11 +1534,14 @@ a:hover {
      mất trên điện thoại. Đã xảy ra đúng vậy khi thêm cột "Xác thực".
 
        ┌──────────────────────────────────────────────┐
-       │ 14:27   Bàn 1              14:31     6.000đ  │  ① vào · bàn · thanh toán · tiền
-       │ Thu ngân Quản lý test            ✓ 1         │  ② ai thu · mấy món
-       │ [✓ Đã thanh toán] [🏦 Chuyển khoản]           │  ③ trạng thái + hình thức
-       │ ✓ Đã xác thực                    [⋯ 🖨 ▼]    │  ④ ngân hàng xác nhận · thao tác
-       └──────────────────────────────────────────────┘ */
+       │ 14:27   Bàn 1                        6.000đ  │  ① vào · bàn · tiền
+       │ Quản lý test                          14:31  │  ② ai thu · thu lúc nào
+       │ [✓ Đã thanh toán]        [🏦 Chuyển khoản]    │  ③ trạng thái ── hình thức (dạt 2 mép)
+       │ Chưa xác thực                    [⋯ 🖨 ▼]    │  ④ ngân hàng xác nhận · thao tác
+       └──────────────────────────────────────────────┘
+
+     Số món ẩn trên điện thoại (chủ quán chốt 2026-09-23): "✓ 1" không giúp nhận ra đơn nào, mà
+     lại chiếm một ô trong lưới vốn đã chật. Bấm mở đơn là thấy đủ món. */
   table.responsive.txn-table tbody tr.txn-row {
     display: grid;
     grid-template-columns: auto minmax(0, 1fr) auto auto;
@@ -1562,6 +1565,7 @@ a:hover {
      không ai biết đó là ai. */
   table.responsive.txn-table tr.txn-row > td:nth-child(1)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(2)::before,
+  table.responsive.txn-table tr.txn-row > td:nth-child(3)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(4)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(5)::before,
   table.responsive.txn-table tr.txn-row > td:nth-child(6)::before,
@@ -1578,12 +1582,7 @@ a:hover {
     font-variant-numeric: tabular-nums;
   }
   table.responsive.txn-table tr.txn-row > td:nth-child(2) {
-    grid-area: 1 / 2;
-  }
-  table.responsive.txn-table tr.txn-row > td:nth-child(4) {
-    grid-area: 1 / 3;
-    color: #6b7280;
-    font-variant-numeric: tabular-nums;
+    grid-area: 1 / 2 / auto / span 2;
   }
   table.responsive.txn-table tr.txn-row > td:nth-child(6) {
     grid-area: 1 / 4;
@@ -1596,16 +1595,15 @@ a:hover {
     font-size: 12px;
     color: #6b7280;
   }
-  table.responsive.txn-table tr.txn-row > td:nth-child(3)::before {
-    font-size: 11px;
-    font-weight: 500;
-    margin-right: 4px;
-  }
-  table.responsive.txn-table tr.txn-row > td:nth-child(5) {
+  table.responsive.txn-table tr.txn-row > td:nth-child(4) {
     grid-area: 2 / 4;
     font-size: 12px;
     color: #6b7280;
     text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+  table.responsive.txn-table tr.txn-row > td:nth-child(5) {
+    display: none;
   }
 
   /* ③ Trạng thái + hình thức thu — chiếm TRỌN bề ngang.
@@ -1615,6 +1613,12 @@ a:hover {
   table.responsive.txn-table tr.txn-row > td:nth-child(7) {
     grid-area: 3 / 1 / auto / span 4;
     overflow: visible;
+  }
+  /* Trạng thái dạt trái, hình thức thu dạt PHẢI — thẳng hàng với nút thao tác ngay dưới, thay vì
+     hai thứ dính nhau ở giữa dòng. Chỉ trên điện thoại: cột "Trạng thái" của máy tính hẹp, dạt
+     hai mép ở đó chỉ tạo một khoảng trống vô nghĩa. */
+  table.responsive.txn-table tr.txn-row .txn-status-wrap {
+    justify-content: space-between;
   }
 
   /* ④ Ngân hàng xác nhận · thao tác */
