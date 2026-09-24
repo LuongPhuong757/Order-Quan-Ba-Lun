@@ -18,12 +18,29 @@ import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { lineCost, servingsPerPurchaseUnit, summarizeCost } from '../lib/recipe-cost.ts';
+
+type SupplierInfo = {
+  supplier_id: string;
+  supplier_name: string;
+  purchase_unit: string;
+  qty_base_per_unit: number;
+  last_unit_price: number;
+  last_unit_price_base: number;
+  last_delivery_date: string;
+};
 
 type Ingredient = {
   id: string;
   name: string;
   unit: string;
   used_in_items: number;
+  suppliers: SupplierInfo[];
+  /** Đồng / đơn vị gốc, theo lần nhập gần nhất (M6.D-07). `null` = chưa từng nhập. */
+  cost_unit_price_base: number | null;
+  cost_as_of: string | null;
+  cost_purchase_unit: string | null;
+  cost_qty_base_per_unit: number | null;
 };
 
 type RecipeLine = {
@@ -53,6 +70,9 @@ function unitChoices(current: string): string[] {
 function norm(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
 }
+
+const fmtVnd = (v: number) => Math.round(v).toLocaleString('vi-VN') + 'đ';
+const fmtDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 /** Hiển thị định lượng cho người đọc — khớp `formatQty` ở BE. */
 function fmtQty(qty: number, unit: string): string {
@@ -91,10 +111,14 @@ function round2(v: number): number {
 export function RecipePanel({
   menuItemId,
   menuItemName,
+  menuItemPrice,
   onClose,
 }: {
   menuItemId: string;
   menuItemName: string;
+  /** Giá bán một phần — để hiện giá vốn chiếm bao nhiêu phần trăm. Không truyền thì phần trăm
+   * bị ẩn, còn giá vốn vẫn hiện. */
+  menuItemPrice?: number;
   onClose: () => void;
 }) {
   const toast = useToast();
@@ -117,7 +141,9 @@ export function RecipePanel({
     try {
       const [recipeRes, catalogRes] = await Promise.all([
         api.get<{ data: { items: RecipeLine[] } }>(`/recipes/${menuItemId}`),
-        api.get<{ data: { items: Ingredient[] } }>('/ingredients'),
+        // `for_recipe=1` — bỏ gia vị nhỏ khỏi ô gợi ý (M6.D-10). Nước mắm, muối, dầu ăn vẫn
+        // nhập hàng bình thường, chỉ không khai vào công thức.
+        api.get<{ data: { items: Ingredient[] } }>('/ingredients?for_recipe=1'),
       ]);
       setLines(recipeRes.data.data.items);
       setCatalog(catalogRes.data.data.items);
@@ -190,6 +216,20 @@ export function RecipePanel({
     }
   };
 
+  // Tra nguyên liệu theo id để lấy giá + đơn vị mua. `catalog` đã lọc `for_recipe=1`, nên dòng
+  // công thức trỏ tới thứ vừa bị đánh dấu gia vị sẽ KHÔNG có trong map — lúc đó chỉ mất phần
+  // giá, dòng vẫn hiện bình thường và tiêu hao vẫn chạy.
+  const catalogById = new Map(catalog.map((i) => [i.id, i]));
+
+  const costOf = (l: RecipeLine): number | null =>
+    lineCost(catalogById.get(l.ingredient_id), l.qty_per_serving);
+
+  const {
+    total: totalCost,
+    missing: missingCost,
+    asOf: costAsOf,
+  } = summarizeCost(lines.map((l) => ({ qty_per_serving: l.qty_per_serving, cost: catalogById.get(l.ingredient_id) })));
+
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal vp-cap-92 rc-modal">
@@ -200,8 +240,36 @@ export function RecipePanel({
           </div>
           <button className="secondary" onClick={onClose} aria-label="Đóng" style={{ padding: '6px 12px' }}>✕</button>
         </div>
+        {/* Câu quy ước M6.D-13 phải nằm ĐÚNG Ở ĐÂY, chỗ người ta đang gõ (M6.D-14). Rủi ro duy
+            nhất của quy ước "ghi theo nguyên trạng" là người khai lẫn lộn hai cách — món này
+            ghi tôm nguyên con, món kia ghi tôm đã bóc. Không có gì phát hiện được, số liệu chỉ
+            lệch âm thầm. Câu quy ước nằm trong tài liệu thì không ai đọc. */}
+        {/* Nhãn BẮT BUỘC có chữ "nguyên liệu chính" (M6.D-09): con số này không gồm gia vị,
+            dầu mỡ (M6.D-10) nên luôn thấp hơn chi phí thật chừng 3–8%. Ai nhìn nó rồi tính lãi
+            sẽ tính dư — rút gọn thành "giá vốn" là mở đường cho hiểu nhầm đó. */}
+        {!loading && lines.length > 0 && totalCost > 0 && (
+          <div className="rc-cost">
+            <div className="rc-cost-main">
+              <span>Giá vốn nguyên liệu chính</span>
+              <strong>{fmtVnd(totalCost)}</strong>
+            </div>
+            <div className="rc-cost-sub">
+              chưa gồm gia vị, dầu mỡ
+              {costAsOf && ` · theo giá nhập tới ${fmtDay(costAsOf)}`}
+              {menuItemPrice && menuItemPrice > 0 &&
+                ` · chiếm ${Math.round((totalCost / menuItemPrice) * 100)}% giá bán ${fmtVnd(menuItemPrice)}`}
+            </div>
+            {missingCost > 0 && (
+              <div className="rc-cost-warn">
+                Thiếu giá của {missingCost} nguyên liệu — số thật cao hơn con số trên.
+              </div>
+            )}
+          </div>
+        )}
+
         <p className="rc-note">
-          Định lượng cho <strong>một phần</strong>. Tiêu hao được chốt khi bếp bắt đầu nấu.
+          Định lượng cho <strong>một phần</strong>, tính theo nguyên liệu <strong>như lúc mua</strong>{' '}
+          (tôm chưa bóc, cá chưa làm). Tiêu hao được chốt khi bếp bắt đầu nấu.
         </p>
 
         <div className="rc-lines">
@@ -225,7 +293,10 @@ export function RecipePanel({
               /* Cả dòng là một cái nút cao 56px. Bản cũ để tên món là chữ thường và nhét một nút
                  "Bỏ" 12px ở mép phải — vùng chạm duy nhất của dòng lại là thứ phá công thức. */
               <button key={l.id} type="button" className="rc-line" onClick={() => setEditingId(l.id)}>
-                <span className="rc-lname">{l.ingredient_name}</span>
+                <span className="rc-lmain">
+                  <span className="rc-lname">{l.ingredient_name}</span>
+                  <LineFacts line={l} ing={catalogById.get(l.ingredient_id)} cost={costOf(l)} />
+                </span>
                 <span className="rc-lqty">{fmtQty(l.qty_per_serving, l.unit)}</span>
                 <span className="rc-chev" aria-hidden="true">›</span>
               </button>
@@ -261,6 +332,40 @@ export function RecipePanel({
         />
       </div>
     </div>
+  );
+}
+
+/** Dòng phụ dưới tên nguyên liệu: "1 kg ≈ 4 phần · 62.500đ".
+ *
+ * Đây là câu trả lời cho câu hỏi gốc của chủ quán, đặt ngay cạnh con số định lượng vừa gõ — chỗ
+ * duy nhất mà người khai nhận ra mình gõ nhầm đơn vị. Gõ 250 kg thay vì 250 g thì dòng này hiện
+ * "1 kg ≈ 0 phần" và sai lộ ra ngay, không phải đợi tới lúc xem báo cáo.
+ */
+function LineFacts({
+  line,
+  ing,
+  cost,
+}: {
+  line: RecipeLine;
+  ing: Ingredient | undefined;
+  cost: number | null;
+}) {
+  const servings = servingsPerPurchaseUnit(ing?.cost_qty_base_per_unit ?? null, line.qty_per_serving);
+
+  if (!ing || (servings === null && cost === null)) {
+    return <span className="rc-lsub none">chưa có giá nhập</span>;
+  }
+  return (
+    <span className="rc-lsub">
+      {servings !== null && ing.cost_purchase_unit && (
+        <>
+          1 {ing.cost_purchase_unit} ≈{' '}
+          {servings.toLocaleString('vi-VN', { maximumFractionDigits: 1 })} phần
+        </>
+      )}
+      {cost !== null && servings !== null && ' · '}
+      {cost !== null && fmtVnd(cost)}
+    </span>
   );
 }
 
@@ -370,10 +475,10 @@ function AddLineForm({
 
   const q = norm(name);
   const matches = q ? catalog.filter((i) => norm(i.name).includes(q)).slice(0, 6) : catalog.slice(0, 6);
-  // Chỉ mời tạo mới khi KHÔNG có dòng nào trùng khít — gõ đúng "Thịt bò" đang có thì không đề
-  // nghị tạo bản thứ hai.
-  const exactHit = catalog.find((i) => norm(i.name) === q);
-  const canCreate = q.length > 0 && !exactHit;
+  // KHÔNG còn lối tạo nguyên liệu ở đây (M6.D-03). Gõ tên chưa có trong danh mục thì chỉ đường
+  // sang phiếu nhập — nguyên liệu là thứ ĐÃ TỪNG MUA, và chỗ khai nó là phiếu nhập, nơi đã có
+  // sẵn nhà cung cấp, đơn vị mua, hệ số quy đổi và giá.
+  const noMatch = q.length > 0 && matches.length === 0;
 
   const pick = (ing: Ingredient) => {
     setName(ing.name);
@@ -428,22 +533,34 @@ function AddLineForm({
       {/* Panel gợi ý bung NGƯỢC LÊN (`bottom: 100%`), phủ lên danh sách nguyên liệu phía trên
           chứ không phủ lên ô số lượng và nút "+ Thêm" nằm dưới. */}
       <div ref={boxRef} className="rc-combo">
-        {open && (matches.length > 0 || canCreate) && (
+        {open && (matches.length > 0 || noMatch) && (
           <div className="rc-sugg">
             <div className="rc-sugg-scroll">
               {matches.map((i) => (
                 <button key={i.id} type="button" onClick={() => pick(i)} className="rc-sitem">
                   <span className="rc-sname">{i.name}</span>
-                  <span className="rc-smeta">{i.unit} · dùng ở {i.used_in_items} món</span>
+                  {/* Giá hiện theo ĐƠN VỊ MUA ("250.000đ/kg"), không phải đơn vị gốc ("250đ/g"):
+                      đó là con số nhà cung cấp đọc lên qua điện thoại, người khai đối chiếu
+                      được ngay. Đơn vị gốc chỉ để máy so sánh. */}
+                  <span className="rc-smeta">
+                    {i.unit} · dùng ở {i.used_in_items} món
+                    {i.cost_unit_price_base !== null && i.cost_qty_base_per_unit
+                      ? ` · ${fmtVnd(i.cost_unit_price_base * i.cost_qty_base_per_unit)}/${i.cost_purchase_unit}`
+                      : ' · chưa có giá'}
+                  </span>
                 </button>
               ))}
             </div>
             {/* Ghim ở ĐÁY panel, ngoài vùng cuộn: cuộn danh sách gợi ý không được làm mất lối
                 tạo mới, mà cũng không được để nó trôi lên giữa các gợi ý. */}
-            {canCreate && (
-              <button type="button" onClick={() => setOpen(false)} className="rc-screate">
-                + Tạo mới “{name.trim()}”
-              </button>
+            {noMatch && (
+              <div className="rc-nomatch">
+                <strong>Chưa mua “{name.trim()}” bao giờ.</strong>
+                <span>
+                  Nguyên liệu sinh ra từ phiếu nhập hàng — khai mặt hàng này ở màn Nhà cung cấp
+                  trước, rồi quay lại đây chọn.
+                </span>
+              </div>
             )}
           </div>
         )}

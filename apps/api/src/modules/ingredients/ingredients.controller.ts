@@ -10,22 +10,18 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
 import { IngredientsService } from './ingredients.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
 
-class CreateIngredientDto {
-  @IsString() @MinLength(1) @MaxLength(128) name!: string;
-  @IsString() @MinLength(1) @MaxLength(16) unit!: string;
-  @IsOptional() @IsString() @MaxLength(255) note?: string | null;
-}
-
 class UpdateIngredientDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(16) unit?: string;
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+  /** Bật/tắt việc khai thứ này vào công thức (M6.D-10). */
+  @IsOptional() @IsBoolean() track_in_recipe?: boolean;
 }
 
 class MergeIngredientDto {
@@ -49,16 +45,23 @@ export class IngredientsController {
     const items = await this.svc.list({
       q: q.q || undefined,
       include_inactive: q.include_inactive === '1',
+      // `for_recipe=1` → bỏ gia vị nhỏ (M6.D-10). Màn Công thức truyền cờ này; màn Nguyên liệu
+      // thì không, vì ở đó phải thấy cả gia vị mới bật/tắt được chúng.
+      for_recipe: q.for_recipe === '1',
     });
     return { data: { items } };
   }
 
-  @Post()
-  @HttpCode(201)
-  @UseGuards(AdminGuard)
-  async create(@Body() dto: CreateIngredientDto) {
-    return { data: await this.svc.create(dto) };
-  }
+  /* KHÔNG có `POST /ingredients` (M6.D-03, 2026-09-24).
+   *
+   * Nguyên liệu = mặt hàng ĐÃ TỪNG MUA từ một NCC (M6.D-02), nên đường tạo duy nhất là khai
+   * mặt hàng mới trong phiếu nhập — chỗ đó đã tự gọi `findOrCreate` và có sẵn NCC, đơn vị mua,
+   * hệ số quy đổi, giá. Mở thêm một cửa tạo trần ở đây là đẻ ra nguyên liệu không nguồn gốc:
+   * không giá vốn, không biết mua ở đâu, và không có gì chặn rác kiểu "Aaa".
+   *
+   * `IngredientsService.create` vẫn còn và vẫn được luồng nhập hàng dùng — chỉ là không còn
+   * lối vào từ HTTP.
+   */
 
   @Patch(':id')
   @UseGuards(AdminGuard)

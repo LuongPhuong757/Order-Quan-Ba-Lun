@@ -10,6 +10,16 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 
+type SupplierInfo = {
+  supplier_id: string;
+  supplier_name: string;
+  purchase_unit: string;
+  qty_base_per_unit: number;
+  last_unit_price: number;
+  last_unit_price_base: number;
+  last_delivery_date: string;
+};
+
 type Ingredient = {
   id: string;
   name: string;
@@ -18,7 +28,18 @@ type Ingredient = {
   note: string | null;
   is_active: boolean;
   used_in_items: number;
+  /** Có khai vào công thức món không (M6.D-10). `false` = gia vị nhỏ. */
+  track_in_recipe: boolean;
+  /** Các nơi bán, RẺ NHẤT TRƯỚC. Rỗng = chưa từng nhập. */
+  suppliers: SupplierInfo[];
+  cost_unit_price_base: number | null;
+  cost_as_of: string | null;
 };
+
+const fmtVnd = (v: number) => Math.round(v).toLocaleString('vi-VN') + 'đ';
+/** '2026-09-18' → '18/09'. Ngày của giá là bắt buộc hiện (M6.D-08) nhưng không đáng chiếm chỗ
+ * của cả năm — cùng năm thì ngày/tháng là đủ để biết cũ hay mới. */
+const fmtDay = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 /** Đơn vị gợi ý cho ô nhập — khớp danh sách BE nhận (xem `ingredient-units.ts`). Người dùng vẫn
  * gõ được 'kg'/'lít'; BE quy về đơn vị gốc rồi mới lưu. */
@@ -33,7 +54,6 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [editing, setEditing] = useState<Ingredient | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
   // Nguyên liệu đang chờ được gộp vào một dòng khác. Chọn nguồn trước, rồi bấm đích — cách này
   // đỡ nhầm hơn hộp thoại 2 dropdown: người dùng nhìn thẳng vào danh sách thật để chọn.
   const [mergeFrom, setMergeFrom] = useState<Ingredient | null>(null);
@@ -126,13 +146,17 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal vp-cap-92" style={{ maxWidth: 720, width: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start', gap: 8 }}>
-          <div>
+          {/* `minWidth: 0` là phần bắt buộc: thiếu nó thì khối chữ hai dòng bên dưới không co
+              được, đẩy nút ✕ xuống một dòng riêng lệch hẳn sang trái trên máy hẹp. */}
+          <div style={{ flex: 1, minWidth: 0 }}>
             <h1 style={{ margin: 0, fontSize: 20 }}>🥬 Nguyên liệu</h1>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
               Danh mục dùng chung — nhiều món cùng trỏ vào một nguyên liệu.
+              <br />
+              Nguyên liệu sinh ra từ <strong>phiếu nhập hàng</strong>, không tạo tay ở đây (M6.D-03).
             </div>
           </div>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>✕</button>
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px', flex: 'none' }}>✕</button>
         </div>
 
         {mergeFrom && (
@@ -152,16 +176,15 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
             placeholder="Tìm nguyên liệu (gõ không dấu cũng được)"
             style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}
           />
-          <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
-            + Thêm
-          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 120 }}>
           {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
           {!loading && filtered.length === 0 && (
             <div className="empty-state card" style={{ fontSize: 14 }}>
-              {search ? 'Không tìm thấy nguyên liệu nào.' : 'Chưa có nguyên liệu nào — bấm "+ Thêm" để bắt đầu.'}
+              {search
+                ? 'Không tìm thấy nguyên liệu nào.'
+                : 'Chưa có nguyên liệu nào. Nguyên liệu sinh ra từ phiếu nhập hàng — khai mặt hàng ở màn Nhà cung cấp trước.'}
             </div>
           )}
           {filtered.map((ing) => {
@@ -181,6 +204,11 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
                   <div style={{ fontWeight: 600 }}>
                     {ing.name}
                     <span style={{ color: '#6b7280', fontWeight: 400, fontSize: 13 }}> · {ing.unit}</span>
+                    {!ing.track_in_recipe && (
+                      <span className="ing-spice-tag" title="Gia vị — không khai vào công thức món">
+                        gia vị
+                      </span>
+                    )}
                   </div>
                   <div style={{ fontSize: 12, color: ing.used_in_items === 0 ? '#b45309' : '#6b7280' }}>
                     {/* "0 món" tô cam: đó là dấu hiệu nguyên liệu gõ nhầm hoặc trùng nghĩa với
@@ -188,6 +216,28 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
                     {ing.used_in_items === 0 ? 'chưa dùng ở món nào' : `dùng ở ${ing.used_in_items} món`}
                     {ing.note && ` · ${ing.note}`}
                   </div>
+                  {/* Nơi bán + giá. Hiện theo ĐƠN VỊ MUA ("250.000đ/kg") chứ không phải đơn vị
+                      gốc ("250đ/g"): con số theo đơn vị mua là con số NCC đọc lên qua điện
+                      thoại, đối chiếu được ngay. Đơn vị gốc chỉ để máy so sánh. */}
+                  {ing.suppliers.length === 0 ? (
+                    <div className="ing-src none">chưa có phiếu nhập nào — không có giá vốn</div>
+                  ) : (
+                    <div className="ing-src">
+                      {ing.suppliers.length === 1 ? (
+                        <span>
+                          {ing.suppliers[0].supplier_name} ·{' '}
+                          <strong>{fmtVnd(ing.suppliers[0].last_unit_price)}</strong>/
+                          {ing.suppliers[0].purchase_unit} · {fmtDay(ing.suppliers[0].last_delivery_date)}
+                        </span>
+                      ) : (
+                        <span>
+                          {ing.suppliers.length} nơi bán · rẻ nhất{' '}
+                          <strong>{ing.suppliers[0].supplier_name}</strong>{' '}
+                          {fmtVnd(ing.suppliers[0].last_unit_price)}/{ing.suppliers[0].purchase_unit}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {!mergeFrom && (
                   <div className="flex" style={{ gap: 4 }}>
@@ -207,11 +257,11 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
           })}
         </div>
 
-        {(showCreate || editing) && (
+        {editing && (
           <IngredientForm
             editing={editing}
-            onClose={() => { setShowCreate(false); setEditing(null); }}
-            onSaved={() => { setShowCreate(false); setEditing(null); refresh(); }}
+            onClose={() => setEditing(null)}
+            onSaved={() => { setEditing(null); refresh(); }}
           />
         )}
       </div>
@@ -219,19 +269,22 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Sửa một nguyên liệu. KHÔNG còn chế độ tạo mới (M6.D-03): nguyên liệu chỉ sinh ra từ phiếu
+ * nhập hàng, nơi đã có sẵn NCC, đơn vị mua, hệ số quy đổi và giá. */
 function IngredientForm({
   editing,
   onClose,
   onSaved,
 }: {
-  editing: Ingredient | null;
+  editing: Ingredient;
   onClose: () => void;
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const [name, setName] = useState(editing?.name ?? '');
-  const [unit, setUnit] = useState(editing?.unit ?? 'g');
-  const [note, setNote] = useState(editing?.note ?? '');
+  const [name, setName] = useState(editing.name);
+  const [unit, setUnit] = useState(editing.unit);
+  const [note, setNote] = useState(editing.note ?? '');
+  const [trackInRecipe, setTrackInRecipe] = useState(editing.track_in_recipe);
   const [busy, setBusy] = useState(false);
 
   const submit = async (e: FormEvent) => {
@@ -239,13 +292,13 @@ function IngredientForm({
     if (!name.trim()) return;
     setBusy(true);
     try {
-      if (editing) {
-        await api.patch(`/ingredients/${editing.id}`, { name: name.trim(), unit, note });
-        toast.push('success', `Đã lưu "${name.trim()}"`);
-      } else {
-        await api.post('/ingredients', { name: name.trim(), unit, note });
-        toast.push('success', `Đã thêm "${name.trim()}"`);
-      }
+      await api.patch(`/ingredients/${editing.id}`, {
+        name: name.trim(),
+        unit,
+        note,
+        track_in_recipe: trackInRecipe,
+      });
+      toast.push('success', `Đã lưu "${name.trim()}"`);
       onSaved();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -257,7 +310,7 @@ function IngredientForm({
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true" style={{ zIndex: 10020 }} onClick={(e) => e.target === e.currentTarget && onClose()}>
       <form className="modal" onSubmit={submit} style={{ maxWidth: 420, width: '100%' }}>
-        <h2 style={{ marginTop: 0, fontSize: 18 }}>{editing ? 'Sửa nguyên liệu' : 'Thêm nguyên liệu'}</h2>
+        <h2 style={{ marginTop: 0, fontSize: 18 }}>Sửa nguyên liệu</h2>
 
         <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>Tên</label>
         <input
@@ -310,8 +363,27 @@ function IngredientForm({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           placeholder="loại ba chỉ, mua chợ đầu mối..."
-          style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 16, marginBottom: 16 }}
+          style={{ width: '100%', padding: '10px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 16, marginBottom: 12 }}
         />
+
+        {/* Phân loại gia vị nằm ở ĐÂY chứ không phải một nút trên mỗi dòng danh sách (M6.D-10):
+            hàng nút của mỗi dòng vốn đã có Sửa / Gộp / Xoá, thêm cái thứ tư là trên máy 390px
+            cột tên bị bóp còn ba dòng chữ. Phân loại lại một nguyên liệu cũng là việc làm một
+            lần rồi thôi, không đáng chiếm chỗ thường trực. */}
+        <label className="ing-spice-row">
+          <input
+            type="checkbox"
+            checked={!trackInRecipe}
+            onChange={(e) => setTrackInRecipe(!e.target.checked)}
+          />
+          <span>
+            <strong>Là gia vị — không khai vào công thức</strong>
+            <small>
+              Nước mắm, muối, tiêu, dầu ăn. Vẫn nhập hàng và theo dõi giá bình thường, chỉ không
+              hiện ở ô gợi ý màn Công thức. Quy tắc: thứ nào khi nấu không đong đếm thì không khai.
+            </small>
+          </span>
+        </label>
 
         <div className="flex" style={{ gap: 8 }}>
           <button type="button" className="secondary" onClick={onClose} style={{ flex: 1, minHeight: 44 }}>

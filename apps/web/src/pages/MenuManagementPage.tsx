@@ -600,6 +600,7 @@ export function MenuManagementPage() {
         <RecipePanel
           menuItemId={recipeFor.id}
           menuItemName={recipeFor.name}
+          menuItemPrice={recipeFor.price}
           onClose={() => {
             setRecipeFor(null);
             loadRecipeCounts(items.map((i) => i.id));
