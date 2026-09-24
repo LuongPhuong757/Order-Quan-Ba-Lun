@@ -3240,3 +3240,428 @@ button.mm2-tool small {
     display: none;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Công thức món — thiết kế lại 2026-09-24
+   Khai một món lẩu cần 8–12 nguyên liệu, nên mọi thứ ở đây đo bằng "lặp lại mười lần thì thế
+   nào". Ba chỗ sửa: panel gợi ý bung NGƯỢC LÊN (bản cũ bung xuống 220px, đè đúng ô số lượng
+   và nút "+ Thêm" — iPhone bật bàn phím là không còn gì để bấm), form nhập DÍNH ĐÁY hộp thoại,
+   và cả dòng nguyên liệu thành một nút cao 56px mở ô sửa tại chỗ.
+   Viết ở đây chứ không inline trong JSX vì cần `:focus-within`, `::placeholder` và `sticky` —
+   inline style không viết được.
+   ════════════════════════════════════════════════════════════════════════════ */
+.modal-overlay > .modal.rc-modal {
+  max-width: 560px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  /* Đệm ngang hẹp lại: hàng "− [số] + [đơn vị]" cần từng pixel trên máy 390px. */
+  padding: 20px 14px;
+}
+
+.rc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.rc-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.rc-item {
+  font-size: 14px;
+  color: #0f766e;
+  font-weight: 600;
+}
+
+.rc-note {
+  font-size: 12px;
+  color: #6b7280;
+  margin: 0 0 10px;
+}
+
+.rc-lines {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 100px;
+  /* Chỗ cho viền focus của dòng khỏi bị vùng cuộn cắt mất. */
+  padding: 2px;
+  margin: -2px;
+}
+
+.rc-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: center;
+  padding: 22px 16px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  color: #6b7280;
+  font-size: 13.5px;
+}
+
+.rc-empty strong {
+  color: #1f2937;
+  font-size: 15px;
+}
+
+/* ── Một dòng nguyên liệu = một cái nút ──────────────────────────────────── */
+button.rc-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 4px 0 10px;
+  border: 0;
+  border-bottom: 1px solid #f3f4f6;
+  border-radius: 0;
+  background: white;
+  color: #1f2937;
+  text-align: left;
+  font-weight: 400;
+}
+
+button.rc-line:hover {
+  background: #f9fafb;
+}
+
+.rc-lname {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Định lượng trông như một cái ô bấm được, vì nó BẤM ĐƯỢC — chạm vào là mở ô sửa. Bản cũ để
+   nó là chữ teal trần, không ai đoán được là chạm được. */
+.rc-lqty {
+  flex: none;
+  min-width: 74px;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 6px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #0f766e;
+  font-weight: 700;
+  font-size: 13.5px;
+  white-space: nowrap;
+}
+
+.rc-chev {
+  flex: none;
+  width: 18px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 18px;
+}
+
+/* ── Ô sửa định lượng, mở ngay tại chỗ của dòng ──────────────────────────── */
+.rc-editor {
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  background: #f0fdfa;
+  padding: 10px;
+  margin: 2px 0;
+}
+
+.rc-ehead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 15px;
+}
+
+.rc-ehead span {
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+}
+
+.rc-erow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+button.rc-step {
+  flex: none;
+  width: 46px;
+  min-width: 46px;
+  min-height: 46px;
+  padding: 0;
+  font-size: 22px;
+  font-weight: 700;
+  background: white;
+  color: #0f766e;
+  border: 1px solid #99f6e4;
+}
+
+button.rc-step:hover {
+  background: #ccfbf1;
+}
+
+input.rc-eqty {
+  flex: 1;
+  min-width: 0;
+  min-height: 46px;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 700;
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+}
+
+select.rc-eunit {
+  flex: none;
+  width: 78px;
+  min-height: 46px;
+  padding: 0 4px 0 8px;
+  font-size: 15px;
+}
+
+.rc-quick {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+button.rc-qpick {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  white-space: nowrap;
+}
+
+button.rc-qpick:hover {
+  background: #ccfbf1;
+  border-color: #99f6e4;
+}
+
+button.rc-qpick[aria-pressed='true'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+}
+
+.rc-eactions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* "Xoá khỏi công thức" là chữ đỏ trên nền trắng, KHÔNG phải nút đỏ đặc: trong một ô mà nút
+   chính là "Lưu", hai khối màu đặc cạnh nhau thì mắt không biết cái nào là việc chính. */
+button.rc-del {
+  flex: 1;
+  min-height: 46px;
+  padding: 0 8px;
+  font-size: 13.5px;
+  background: white;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+}
+
+button.rc-del:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+button.rc-cancel {
+  flex: none;
+  min-height: 46px;
+  padding: 0 14px;
+  font-size: 13.5px;
+}
+
+button.rc-save {
+  flex: 1;
+  min-height: 46px;
+  font-size: 14.5px;
+}
+
+/* ── Dải "đã thêm N" + Hoàn tác ──────────────────────────────────────────── */
+.rc-undo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 12.5px;
+}
+
+.rc-undo strong {
+  color: white;
+}
+
+.rc-undo button {
+  flex: none;
+  min-height: 32px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: #5eead4;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.rc-undo button:hover {
+  background: #374151;
+}
+
+/* ── Form thêm dòng, dính đáy hộp thoại ──────────────────────────────────── */
+.rc-form {
+  flex: none;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 10px;
+  margin-top: 8px;
+  background: white;
+}
+
+.rc-combo {
+  position: relative;
+  margin-bottom: 8px;
+}
+
+input.rc-nameinput {
+  width: 100%;
+  min-height: 46px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 16px;
+}
+
+/* `bottom: 100%` — ĐÂY là chỗ sửa vấn đề lớn nhất của màn này. Panel mọc LÊN từ mép trên ô
+   nhập, nên nó phủ lên danh sách nguyên liệu (thứ đang không cần nhìn lúc gõ) thay vì phủ lên
+   ô số lượng và nút "+ Thêm" (thứ cần bấm ngay sau đó). */
+.rc-sugg {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  margin-bottom: 4px;
+  background: white;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  box-shadow: 0 -8px 20px rgba(0, 0, 0, 0.12);
+  overflow: hidden;
+}
+
+.rc-sugg-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+button.rc-sitem {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  text-align: left;
+  background: white;
+  /* Nút toàn cục là nền teal CHỮ TRẮNG. Đè nền thành trắng mà quên màu chữ thì tên nguyên liệu
+     thành chữ trắng trên nền trắng — trông như danh sách rỗng. */
+  color: #111827;
+  border: 0;
+  border-bottom: 1px solid #f3f4f6;
+  border-radius: 0;
+  font-weight: 400;
+}
+
+button.rc-sitem:hover {
+  background: #f0fdfa;
+}
+
+.rc-sname {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.rc-smeta {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+button.rc-screate {
+  display: block;
+  width: 100%;
+  min-height: 48px;
+  padding: 8px 12px;
+  text-align: left;
+  background: #f0fdfa;
+  color: #0f766e;
+  border: 0;
+  border-top: 1px solid #99f6e4;
+  border-radius: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+button.rc-screate:hover {
+  background: #ccfbf1;
+}
+
+.rc-addrow {
+  display: flex;
+  gap: 8px;
+}
+
+input.rc-addqty {
+  flex: none;
+  width: 84px;
+  min-height: 46px;
+  padding: 10px 8px;
+  text-align: center;
+  border-radius: 8px;
+  border: 1px solid #d1d5db;
+  font-size: 16px;
+}
+
+select.rc-addunit {
+  flex: none;
+  width: 78px;
+  min-height: 46px;
+  padding: 0 4px 0 8px;
+  font-size: 15px;
+}
+
+button.rc-addbtn {
+  flex: 1;
+  min-height: 46px;
+  font-size: 15px;
+}
+
+.rc-hint {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
