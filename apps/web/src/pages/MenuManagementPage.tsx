@@ -33,6 +33,17 @@ type MenuItem = {
   is_active: boolean;
 };
 
+/** Chữ tắt thay ảnh món: chữ cái đầu của hai từ đầu tên món ("Lẩu gà lá é" → "LG").
+ *
+ * Không dùng mã món: mã quán này sinh theo dãy M0001, M0002… nên hai ký tự đầu của MỌI món
+ * đều là "M0" — một cột 30 ô giống hệt nhau thì không phân biệt được món nào với món nào. */
+function initialsOf(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  const two = words.slice(0, 2).map((w) => w[0]).join('');
+  return two.toUpperCase();
+}
+
 function formatVND(v: number): string {
   return v.toLocaleString('vi-VN') + 'đ';
 }
@@ -71,6 +82,11 @@ export function MenuManagementPage() {
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
+  // Ba sheet của bản thiết kế lại 2026-09-24: lọc & sắp xếp, công cụ menu, và thao tác phụ
+  // của MỘT món (thay hàng 4 nút cũ nằm trong thẻ).
+  const [showFilters, setShowFilters] = useState(false);
+  const [showTools, setShowTools] = useState(false);
+  const [actionFor, setActionFor] = useState<MenuItem | null>(null);
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -182,64 +198,90 @@ export function MenuManagementPage() {
 
   const groupCodes = ['', ...groups.map((g) => g.code)];
 
+  // Số bộ lọc đang bật — hiện thành chấm đếm trên nút ⚙. Không đếm `sort`: sắp xếp không
+  // giấu món nào đi, nên báo nó như một bộ lọc là báo động giả.
+  const activeFilterCount = (groupFilter ? 1 : 0) + (stockFilter ? 1 : 0);
+
+  const clearAll = () => {
+    setSearch('');
+    setGroupFilter('');
+    setStockFilter('');
+  };
+
+  const stockLabel = stockFilter === 'out' ? '🚫 Hết hàng' : stockFilter === 'in' ? '✅ Còn hàng' : '';
+
   return (
-    <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Menu</h1>
-        {/* Dãy nút công cụ — MỘT DÒNG kéo ngang (chỉ đạo chủ quán 2026-09-06). 5 nút cần ~444px
-            mà máy 390px chỉ có 362px, nên trước đây chúng wrap thành 2 hàng ~130px đẩy món đầu
-            tiên xuống tận y=382. Cuộn ngang giữ chúng ở 44px và không phình thêm khi có nút mới.
-            `minWidth: 0` là phần bắt buộc để `overflow-x` của `.tabstrip` có tác dụng.
-            "+ Món" nằm NGOÀI vùng cuộn, neo bên phải: nó là nút dùng nhiều nhất ở màn này, để
-            nó trong dãy cuộn thì lúc dãy đang ở đầu là nó khuất, phải vuốt mới bấm được. */}
-        <div className="flex" style={{ gap: 6, flex: '1 1 auto', minWidth: 0, alignItems: 'center' }}>
-          <div className="tabstrip" style={{ gap: 6, flex: '1 1 auto', minWidth: 0 }}>
-          {canManage && (
+    <div className="container menu-page with-bottom-nav">
+      <div className="flex between" style={{ marginBottom: 12, gap: 8, alignItems: 'center' }}>
+        <h1 style={{ margin: 0, flex: 1, minWidth: 0 }}>
+          Menu{' '}
+          {!loading && (
+            <span style={{ fontSize: 13, fontWeight: 500, color: '#6b7280' }}>{total} món</span>
+          )}
+        </h1>
+        {/* 4 nút công cụ: dưới 1024px gom hết vào `☰` (xem `.mm2-toolbar` trong styles.css),
+            từ 1024px bày đủ chữ. Bản cũ cho chúng cuộn ngang trên một dãy — dãy cuộn không có
+            mép báo hiệu nên nút thứ 3, 4 coi như vô hình với người chưa biết là có. */}
+        {canManage && (
+          <div className="mm2-toolbar">
             <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 12px' }}>
               Nhóm
             </button>
-          )}
-          {canManage && (
             <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
               📥 Import
             </button>
-          )}
-          {canManage && (
             <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
               📖 Menu xem
             </button>
-          )}
-          {canManage && (
             <button className="secondary" onClick={() => setShowIngredients(true)} style={{ padding: '8px 12px' }}>
               🥬 Nguyên liệu
             </button>
-          )}
           </div>
-          {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>+ Món</button>}
-        </div>
+        )}
+        {canManage && (
+          <button
+            className="mm2-iconbtn mm2-toolsbtn"
+            onClick={() => setShowTools(true)}
+            aria-label="Công cụ menu"
+            title="Công cụ menu"
+          >
+            ☰
+          </button>
+        )}
+        {canManage && (
+          <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>
+            + Món
+          </button>
+        )}
       </div>
 
-      <div className="card mm-filters" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Row 1: search + sort */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+      {/* Thanh lọc DÍNH: ô tìm + nút lọc + dãy nhóm. Bản cũ là một thẻ 3 hàng cao ~200px cuộn
+          đi mất cùng trang; ở giữa danh sách 214 món muốn đổi nhóm là phải cuộn ngược lên đầu. */}
+      <div className="mm2-sticky">
+        <div className="mm2-searchrow">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔍 Tìm theo tên hoặc mã món..."
-            style={{
-              flex: '1 1 220px',
-              minWidth: 180,
-              padding: '8px 12px',
-              borderRadius: 8,
-              border: '1px solid #d1d5db',
-              fontSize: 14,
-              minHeight: 40,
-            }}
+            placeholder="🔍 Tìm tên hoặc mã món..."
+            style={{ minHeight: 44, borderRadius: 8 }}
           />
-          {/* Dropdown tự vẽ, không phải `<select>`: danh sách bung ra của `<select>` là chrome
-              hệ điều hành, CSS không với tới — xem `components/Select.tsx`. */}
-          <div style={{ flex: '0 1 auto', minWidth: 0 }}>
+          {/* Từ 1024px hai ô này hiện thẳng ra (xem `.mm2-deskfilters`) và nút ⚙ ẩn đi:
+              desktop thừa bề ngang, bắt mở hộp thoại chỉ để đổi "Còn hàng/Hết hàng" là thêm
+              một cú bấm không đổi lấy gì. Dưới 1024px thì ngược lại — chúng nằm trong sheet. */}
+          <div className="mm2-deskfilters">
+            <Select
+              value={stockFilter}
+              onChange={setStockFilter}
+              ariaLabel="Lọc theo tình trạng"
+              neutralValue=""
+              compact
+              options={[
+                { value: '', label: 'Tất cả tình trạng' },
+                { value: 'in', label: '✅ Còn hàng' },
+                { value: 'out', label: '🚫 Hết hàng' },
+              ]}
+            />
             <Select
               value={sort}
               onChange={setSort}
@@ -253,198 +295,260 @@ export function MenuManagementPage() {
               ]}
             />
           </div>
-          {(search || groupFilter || stockFilter) && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => { setSearch(''); setGroupFilter(''); setStockFilter(''); }}
-              style={{ padding: '6px 10px', fontSize: 12 }}
-            >
-              ✕ Xoá lọc
-            </button>
-          )}
+          <button
+            className="mm2-iconbtn mm2-filterbtn"
+            onClick={() => setShowFilters(true)}
+            aria-label="Lọc và sắp xếp"
+            title="Lọc và sắp xếp"
+          >
+            ⚙
+            {activeFilterCount > 0 && <span className="mm2-badge">{activeFilterCount}</span>}
+          </button>
         </div>
 
-        {/* Row 1b: stock status filter — bếp lọc nhanh món hết / còn để xử lý */}
-        <div className="mm-stock tabstrip" style={{ gap: 8 }}>
-          {([
-            { v: '', label: 'Tất cả tình trạng' },
-            { v: 'in', label: '✅ Còn hàng' },
-            { v: 'out', label: '🚫 Hết hàng' },
-          ] as { v: StockFilter; label: string }[]).map((s) => (
-            <button
-              key={s.v || 'all'}
-              onClick={() => setStockFilter(s.v)}
-              className={stockFilter === s.v ? '' : 'secondary'}
-              style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
-            >
-              {s.label}
-            </button>
-          ))}
+        <div className="mm2-tabsrow">
+          <div className="tabstrip" style={{ gap: 6, flex: '1 1 auto', minWidth: 0 }}>
+            {groupCodes.map((g) => (
+              <button
+                key={g || 'all'}
+                onClick={() => setGroupFilter(g)}
+                className={groupFilter === g ? '' : 'secondary'}
+                style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap', minHeight: 40 }}
+              >
+                {g === '' ? 'Tất cả' : labelOf(g)}
+              </button>
+            ))}
+          </div>
+          <button className="mm2-allgroups" onClick={() => setShowFilters(true)}>
+            {groups.length} nhóm ▾
+          </button>
         </div>
 
-        {/* Row 2: group tabs — class `tabstrip-sm`: wrap trên desktop, cuộn ngang một hàng trên
-            điện thoại (quán có ~25 nhóm, wrap trên máy 390px là bức tường ~1000px trước khi thấy món). */}
-        <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {/* Chip cho từng bộ lọc đang bật: bỏ được từng cái một, và nói rõ vì sao danh sách
+            ngắn đi. Ô tìm tự nó đã nhìn thấy nên không cần chip. */}
+        {(groupFilter || stockFilter) && (
+          <div className="mm2-chips">
+            {groupFilter && (
+              <span className="mm2-chip">
+                {labelOf(groupFilter)}
+                <button className="mm2-chipx" onClick={() => setGroupFilter('')} aria-label="Bỏ lọc nhóm">
+                  ✕
+                </button>
+              </span>
+            )}
+            {stockFilter && (
+              <span className="mm2-chip">
+                {stockLabel}
+                <button className="mm2-chipx" onClick={() => setStockFilter('')} aria-label="Bỏ lọc tình trạng">
+                  ✕
+                </button>
+              </span>
+            )}
+            <button className="mm2-clearall" onClick={clearAll}>
+              Xoá tất cả bộ lọc
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="mm2-layout">
+        {/* Cột nhóm chỉ có từ 1024px — desktop thừa bề ngang, bắt nó vuốt một dãy tab ngang
+            là phí. Dưới 1024px cột này ẩn, dãy tab ở thanh dính làm thay. */}
+        <aside className="mm2-siderail">
+          <p className="mm2-raillabel">Nhóm món</p>
           {groupCodes.map((g) => (
             <button
               key={g || 'all'}
+              className="mm2-railitem"
+              aria-pressed={groupFilter === g}
               onClick={() => setGroupFilter(g)}
-              className={groupFilter === g ? '' : 'secondary'}
-              style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
             >
-              {g === '' ? 'Tất cả' : labelOf(g)}
+              {g === '' ? 'Tất cả nhóm' : labelOf(g)}
             </button>
           ))}
+        </aside>
+
+        <div>
+          {!loading && (
+            <div className="mm2-meta">
+              <span>
+                {total === 0 ? (
+                  'Không tìm thấy món nào.'
+                ) : (
+                  <>
+                    Hiển thị {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} / <strong>{total}</strong> món
+                  </>
+                )}
+              </span>
+              {totalPages > 1 && <span>Trang {page}/{totalPages}</span>}
+            </div>
+          )}
+
+          {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
+          {!loading && items.length === 0 && (
+            <div className="empty-state card">
+              {search || groupFilter || stockFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
+            </div>
+          )}
+
+          {!loading && items.length > 0 && (
+            <div className="mm2-list">
+              {items.map((it) => {
+                const state = it.is_out_of_stock ? 'out' : !it.is_active ? 'hidden' : 'ok';
+                return (
+                  <div key={it.id} className="mm2-row" data-state={state}>
+                    <span className="mm2-rail" />
+                    {/* Chữ tắt LUÔN nằm dưới làm nền, ảnh chồng lên. Món không có ảnh và món
+                        có `image_url` nhưng ảnh hỏng đều rơi về cùng một chỗ — bản cũ ẩn thẻ
+                        <img> khi lỗi và để lại một ô xám trống, nhìn như danh sách đang lỗi. */}
+                    <div className="mm2-thumb">
+                      <span className="mm2-nothumb">{initialsOf(it.name)}</span>
+                      {it.image_url && (
+                        <img
+                          src={it.image_url}
+                          alt={it.name}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+                        />
+                      )}
+                    </div>
+
+                    <div className="mm2-rowmain">
+                      <h3 className="mm2-name">
+                        {it.name}
+                        {state === 'out' && <span className="mm2-pill out" style={{ marginLeft: 6 }}>HẾT</span>}
+                        {state === 'hidden' && <span className="mm2-pill hid" style={{ marginLeft: 6 }}>ĐÃ ẨN</span>}
+                      </h3>
+                      <div className="mm2-sub">
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {it.code} · {labelOf(it.group)} · {it.unit}
+                        </span>
+                        <span className="mm2-price">{formatVND(it.price)}</span>
+                        {canManage && !recipeCounts[it.id] && (
+                          <span className="mm2-norecipe" title="Món chưa khai nguyên liệu — không sinh tiêu hao kho">
+                            Chưa có CT
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Nút trạng thái ghim mép phải MỌI dòng, kích thước cố định: bếp đánh dấu
+                        hết cả loạt món thì ngón tay đi thẳng một cột dọc, không phải dò ngang. */}
+                    <button
+                      className={it.is_out_of_stock ? 'mm2-stock back' : 'mm2-stock'}
+                      onClick={() => toggleStock(it)}
+                      title={it.is_out_of_stock ? 'Đánh dấu có lại' : 'Đánh dấu hết hàng'}
+                    >
+                      {it.is_out_of_stock ? '✓ Có lại' : '🚫 Hết'}
+                    </button>
+
+                    {canManage && (
+                      <>
+                        <div className="mm2-rowbtns">
+                          <button className="mm2-rowbtn" onClick={() => setEditing(it)}>
+                            ✎ Sửa
+                          </button>
+                          <button
+                            className="mm2-rowbtn"
+                            onClick={() => setRecipeFor(it)}
+                            title="Khai nguyên liệu + định lượng cho món này"
+                          >
+                            📋 {recipeCounts[it.id] ? `${recipeCounts[it.id]} NL` : '—'}
+                          </button>
+                          {/* Món đã ẩn thì không xoá được nữa, nhưng ô của nút vẫn phải chiếm
+                              chỗ: bỏ hẳn nút là cả cụm co lại, nút "Hết" của riêng dòng đó
+                              lệch khỏi cột dọc — mà thẳng cột chính là điều làm bếp bấm
+                              nhanh. `visibility` giữ chỗ, `display:none` thì không. */}
+                          <button
+                            className="mm2-rowbtn del"
+                            onClick={() => softDelete(it)}
+                            style={it.is_active ? undefined : { visibility: 'hidden' }}
+                            tabIndex={it.is_active ? undefined : -1}
+                            aria-hidden={it.is_active ? undefined : true}
+                          >
+                            🗑
+                          </button>
+                        </div>
+                        <button
+                          className="mm2-more"
+                          onClick={() => setActionFor(it)}
+                          aria-label={`Thao tác khác cho ${it.name}`}
+                        >
+                          ⋯
+                        </button>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Pagination */}
+          {!loading && totalPages > 1 && (
+            <div className="flex" style={{ marginTop: 16, justifyContent: 'center', gap: 8 }}>
+              <button
+                className="secondary"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page === 1}
+              >
+                ← Trước
+              </button>
+              <span style={{ alignSelf: 'center', color: '#6b7280', fontSize: 14, padding: '0 8px' }}>
+                Trang {page} / {totalPages}
+              </span>
+              <button
+                className="secondary"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Sau →
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Result count */}
-      {!loading && (
-        <div style={{ marginBottom: 12, fontSize: 13, color: '#6b7280' }}>
-          {total === 0 ? 'Không tìm thấy món nào.' : (
-            <>Hiển thị {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} của <strong>{total}</strong> món
-              {totalPages > 1 && ` (trang ${page}/${totalPages})`}</>
-          )}
-        </div>
+      {showFilters && (
+        <MenuFilterSheet
+          groups={groups}
+          groupFilter={groupFilter}
+          stockFilter={stockFilter}
+          sort={sort}
+          total={total}
+          onGroup={setGroupFilter}
+          onStock={setStockFilter}
+          onSort={setSort}
+          onClear={clearAll}
+          onClose={() => setShowFilters(false)}
+        />
       )}
 
-      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
-      {!loading && items.length === 0 && (
-        <div className="empty-state card">
-          {search || groupFilter || stockFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
-        </div>
+      {showTools && (
+        <MenuToolsSheet
+          groupCount={groups.length}
+          onClose={() => setShowTools(false)}
+          onPick={(what) => {
+            setShowTools(false);
+            if (what === 'groups') setShowGroupsManager(true);
+            if (what === 'import') setShowImport(true);
+            if (what === 'book') setShowMenuBook(true);
+            if (what === 'ingredients') setShowIngredients(true);
+          }}
+        />
       )}
 
-      {!loading && items.length > 0 && (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          {items.map((it) => (
-            <div
-              key={it.id}
-              className="card"
-              style={{
-                padding: 14,
-                border: it.is_out_of_stock ? '2px solid #dc2626' : !it.is_active ? '1px dashed #9ca3af' : '1px solid #e5e7eb',
-                opacity: it.is_active ? 1 : 0.6,
-              }}
-            >
-              <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-                {it.image_url && (
-                  <img
-                    src={it.image_url}
-                    alt={it.name}
-                    style={{
-                      width: 72,
-                      height: 72,
-                      objectFit: 'cover',
-                      borderRadius: 8,
-                      flexShrink: 0,
-                      background: '#f3f4f6',
-                    }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                )}
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
-                    <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>
-                    <div style={{ color: '#6b7280', fontSize: 13 }}>{labelOf(it.group)} · {it.unit}</div>
-                  </div>
-                  <strong style={{ color: '#0f766e', whiteSpace: 'nowrap' }}>{formatVND(it.price)}</strong>
-                </div>
-              </div>
-
-              {it.is_out_of_stock && (
-                <div
-                  style={{
-                    background: '#fef2f2',
-                    color: '#dc2626',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    marginBottom: 10,
-                  }}
-                >
-                  🚫 ĐANG HẾT — không cho gọi mới
-                </div>
-              )}
-              {!it.is_active && (
-                <div style={{ color: '#6b7280', fontSize: 13, fontStyle: 'italic', marginBottom: 10 }}>
-                  Đã ẩn khỏi menu
-                </div>
-              )}
-
-              <div className="flex mm-actions" style={{ flexWrap: 'wrap', gap: 6 }}>
-                <button
-                  className={it.is_out_of_stock ? '' : 'secondary'}
-                  onClick={() => toggleStock(it)}
-                  style={{ padding: '6px 10px', fontSize: 13, flex: 1, minWidth: 120 }}
-                >
-                  {it.is_out_of_stock ? '✓ Có lại' : '🚫 Hết'}
-                </button>
-                {canManage && (
-                  <>
-                    <button
-                      className="secondary"
-                      onClick={() => setEditing(it)}
-                      style={{ padding: '6px 10px', fontSize: 13 }}
-                    >
-                      Sửa
-                    </button>
-                    {/* Số nguyên liệu hiện ngay trên nút: món chưa khai công thức thì không sinh
-                        tiêu hao, và đó là thứ chủ quán cần nhìn ra khi soi báo cáo thiếu số. */}
-                    <button
-                      className="secondary"
-                      onClick={() => setRecipeFor(it)}
-                      style={{ padding: '6px 10px', fontSize: 13 }}
-                      title="Khai nguyên liệu + định lượng cho món này"
-                    >
-                      📋 Công thức
-                      {recipeCounts[it.id] ? (
-                        <span style={{ color: '#0f766e', fontWeight: 700 }}> {recipeCounts[it.id]}</span>
-                      ) : (
-                        <span style={{ color: '#b45309' }}> —</span>
-                      )}
-                    </button>
-                    {it.is_active && (
-                      <button
-                        className="danger"
-                        onClick={() => softDelete(it)}
-                        style={{ padding: '6px 10px', fontSize: 13 }}
-                      >
-                        Xoá
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Pagination */}
-      {!loading && totalPages > 1 && (
-        <div className="flex" style={{ marginTop: 16, justifyContent: 'center', gap: 8 }}>
-          <button
-            className="secondary"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            ← Trước
-          </button>
-          <span style={{ alignSelf: 'center', color: '#6b7280', fontSize: 14, padding: '0 8px' }}>
-            Trang {page} / {totalPages}
-          </span>
-          <button
-            className="secondary"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Sau →
-          </button>
-        </div>
+      {/* Thao tác phụ của MỘT món. Dùng sheet chứ không phải popup neo vào nút `⋯`: popup phải
+          tự tính chỗ trong một danh sách đang cuộn, và ở món cuối trang nó bung ra ngoài màn. */}
+      {actionFor && (
+        <MenuRowActionSheet
+          item={actionFor}
+          recipeCount={recipeCounts[actionFor.id] || 0}
+          groupLabel={labelOf(actionFor.group)}
+          onClose={() => setActionFor(null)}
+          onEdit={() => { const it = actionFor; setActionFor(null); setEditing(it); }}
+          onRecipe={() => { const it = actionFor; setActionFor(null); setRecipeFor(it); }}
+          onDelete={() => { const it = actionFor; setActionFor(null); softDelete(it); }}
+        />
       )}
 
       {showCreate && (
@@ -502,6 +606,257 @@ export function MenuManagementPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Sheet "Lọc & sắp xếp" — gộp 2 trong 3 hàng lọc cũ vào đây.
+ *
+ * Vì sao gộp: ba hàng lọc cũ luôn nằm đó chiếm ~200px đầu trang, trong khi hai hàng dưới
+ * (tình trạng + 25 nhóm) chỉ được đụng tới khi người dùng THỰC SỰ muốn lọc. Đổi lấy một cú
+ * bấm, màn hình trả lại 130px cho danh sách món — gần đúng hai món nữa trên iPhone.
+ *
+ * Ở đây bày ĐỦ 25 nhóm thành lưới 2 cột chứ không cuộn ngang: khi người dùng đã chủ động mở
+ * hộp lọc thì thứ họ cần là NHÌN HẾT một lượt để chọn, không phải vuốt tìm.
+ */
+function MenuFilterSheet({
+  groups,
+  groupFilter,
+  stockFilter,
+  sort,
+  total,
+  onGroup,
+  onStock,
+  onSort,
+  onClear,
+  onClose,
+}: {
+  groups: MenuGroup[];
+  groupFilter: string;
+  stockFilter: StockFilter;
+  sort: SortMode;
+  total: number;
+  onGroup: (v: string) => void;
+  onStock: (v: StockFilter) => void;
+  onSort: (v: SortMode) => void;
+  onClear: () => void;
+  onClose: () => void;
+}) {
+  const stocks: { v: StockFilter; label: string }[] = [
+    { v: '', label: 'Tất cả' },
+    { v: 'in', label: '✅ Còn hàng' },
+    { v: 'out', label: '🚫 Hết hàng' },
+  ];
+  const sorts: { v: SortMode; label: string }[] = [
+    { v: 'newest', label: '↓ Mới nhất' },
+    { v: 'name', label: 'A → Z' },
+    { v: 'group', label: 'Theo nhóm' },
+  ];
+
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal">
+        <div className="flex between" style={{ alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Lọc &amp; sắp xếp</h2>
+          <button className="secondary" onClick={onClose} aria-label="Đóng" style={{ padding: '6px 12px' }}>
+            ✕
+          </button>
+        </div>
+
+        <p className="mm2-flabel">Tình trạng</p>
+        <div className="mm2-segs">
+          {stocks.map((s) => (
+            <button
+              key={s.v || 'all'}
+              className="mm2-seg"
+              aria-pressed={stockFilter === s.v}
+              onClick={() => onStock(s.v)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="mm2-flabel">Sắp xếp</p>
+        <div className="mm2-segs">
+          {sorts.map((s) => (
+            <button key={s.v} className="mm2-seg" aria-pressed={sort === s.v} onClick={() => onSort(s.v)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+
+        <p className="mm2-flabel">Nhóm món · {groups.length} nhóm</p>
+        <div className="mm2-gridgroups">
+          <button className="mm2-gg" aria-pressed={groupFilter === ''} onClick={() => onGroup('')}>
+            Tất cả nhóm
+          </button>
+          {groups.map((g) => (
+            <button
+              key={g.code}
+              className="mm2-gg"
+              aria-pressed={groupFilter === g.code}
+              onClick={() => onGroup(g.code)}
+              title={groupLabel(g)}
+            >
+              {groupLabel(g)}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex" style={{ gap: 8, marginTop: 20 }}>
+          <button className="secondary" onClick={onClear} style={{ flex: '0 0 auto' }}>
+            Xoá lọc
+          </button>
+          <button onClick={onClose} style={{ flex: 1 }}>
+            Xem {total} món
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Sheet "Công cụ menu" — 4 việc làm thỉnh thoảng, gom khỏi đầu trang trên màn hẹp.
+ *
+ * Bản cũ để 4 nút này trong một dãy cuộn ngang. Dãy cuộn không có mép báo hiệu nên lúc nó
+ * đang ở đầu, hai nút cuối coi như không tồn tại với ai chưa biết là có. Ở đây mỗi việc là
+ * một dòng có mô tả — đọc được là nó làm gì trước khi bấm.
+ */
+function MenuToolsSheet({
+  groupCount,
+  onPick,
+  onClose,
+}: {
+  groupCount: number;
+  onPick: (what: 'groups' | 'import' | 'book' | 'ingredients') => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal">
+        <div className="flex between" style={{ alignItems: 'center', marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Công cụ menu</h2>
+          <button className="secondary" onClick={onClose} aria-label="Đóng" style={{ padding: '6px 12px' }}>
+            ✕
+          </button>
+        </div>
+
+        <div className="mm2-tools">
+          <button className="mm2-tool" onClick={() => onPick('groups')}>
+            <span className="mm2-toolico">🗂</span>
+            <span>
+              Quản lý nhóm
+              <small>{groupCount} nhóm — đổi tên, sắp thứ tự</small>
+            </span>
+          </button>
+          <button className="mm2-tool" onClick={() => onPick('import')}>
+            <span className="mm2-toolico">📥</span>
+            <span>
+              Import từ Excel
+              <small>Thêm hàng loạt món &amp; giá</small>
+            </span>
+          </button>
+          <button className="mm2-tool" onClick={() => onPick('book')}>
+            <span className="mm2-toolico">📖</span>
+            <span>
+              Menu khách xem
+              <small>Sắp món cho quyển menu ở menu.&lt;tên miền&gt;</small>
+            </span>
+          </button>
+          <button className="mm2-tool" onClick={() => onPick('ingredients')}>
+            <span className="mm2-toolico">🥬</span>
+            <span>
+              Kho nguyên liệu
+              <small>Danh mục nguyên liệu + định lượng</small>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Thao tác phụ của MỘT món: Sửa / Công thức / Xoá.
+ *
+ * Ba nút này trước nằm ngay trong thẻ món, cộng nút trạng thái là 4 nút một hàng — trên máy
+ * 390px chúng wrap thành 2 hàng và mỗi món phình thêm ~50px. Rút vào đây thì dòng món còn
+ * ~70px, mà ba việc kia mỗi ngày chỉ đụng vài lần chứ không phải mỗi lần lướt.
+ */
+function MenuRowActionSheet({
+  item,
+  recipeCount,
+  groupLabel: label,
+  onEdit,
+  onRecipe,
+  onDelete,
+  onClose,
+}: {
+  item: MenuItem;
+  recipeCount: number;
+  groupLabel: string;
+  onEdit: () => void;
+  onRecipe: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="modal">
+        <div style={{ marginBottom: 16 }}>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{item.name}</h2>
+          <div style={{ color: '#6b7280', fontSize: 13, marginTop: 4 }}>
+            {item.code} · {label} · {formatVND(item.price)}
+          </div>
+        </div>
+
+        <div className="mm2-tools">
+          <button className="mm2-tool" onClick={onEdit}>
+            <span className="mm2-toolico">✎</span>
+            <span>
+              Sửa món &amp; giá
+              <small>Tên, giá, nhóm, đơn vị, ảnh</small>
+            </span>
+          </button>
+          <button className="mm2-tool" onClick={onRecipe}>
+            <span className="mm2-toolico">📋</span>
+            <span>
+              Công thức
+              <small>
+                {recipeCount > 0 ? `${recipeCount} nguyên liệu đã khai` : 'Chưa khai — món này không sinh tiêu hao kho'}
+              </small>
+            </span>
+          </button>
+          {item.is_active && (
+            <button className="mm2-tool del" onClick={onDelete}>
+              <span className="mm2-toolico">🗑</span>
+              <span>
+                Xoá món
+                <small>Ẩn khỏi danh sách gọi món, order cũ vẫn giữ</small>
+              </span>
+            </button>
+          )}
+        </div>
+
+        <button className="secondary" onClick={onClose} style={{ width: '100%', marginTop: 16 }}>
+          Đóng
+        </button>
+      </div>
     </div>
   );
 }

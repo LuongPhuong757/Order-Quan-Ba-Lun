@@ -1637,61 +1637,6 @@ a:hover {
   }
 }
 
-/* ════════════════════════════════════════════════════════════════════════════
-   Màn Menu trên điện thoại — thu gọn khối lọc
-   Sửa 2026-09-06 (chỉ đạo chủ quán: "phần filter chiếm quá nhiều diện tích").
-   Đo trên máy 390px: từ mép trên vùng nội dung tới món đầu tiên mất ~470/844px — hơn NỬA màn
-   hình là chrome. Ba chỗ phí, sửa cả ba mà không bỏ điều khiển nào:
-
-   1. Ô sắp xếp bị đẩy xuống dòng riêng. Ô tìm khai `flex: 1 1 220px; min-width: 180px`, cộng
-      ô sắp xếp ~140px là 360 > 338px chỗ thật có → wrap. Cho ô tìm co được (`min-width: 0`)
-      thì hai cái nằm chung một dòng. Tiết kiệm ~62px.
-   2. Ba nút tình trạng ("Tất cả tình trạng / Còn hàng / Hết hàng") tràn thành 2 dòng vì
-      padding 14px + chữ 14px. Bóp padding và chữ → vừa một dòng. Tiết kiệm ~52px.
-   3. Padding và khoảng cách trong thẻ lọc rộng hơn mức cần trên màn hẹp. Tiết kiệm ~14px.
-   ════════════════════════════════════════════════════════════════════════════ */
-@media (max-width: 639px) {
-  .mm-filters {
-    padding: 10px !important;
-    gap: 8px !important;
-  }
-
-  /* Ô tìm kiếm: bỏ sàn 180px để nó nhường chỗ cho ô sắp xếp trên cùng một dòng. */
-  .mm-filters input[type='text'] {
-    flex: 1 1 120px !important;
-    min-width: 0 !important;
-  }
-
-  /* Ô sắp xếp: chữ 16px (chống iOS phóng trang) nhưng padding hẹp lại cho vừa dòng. */
-  .mm-filters select {
-    flex: 0 1 auto;
-    min-width: 0;
-    padding: 8px 6px !important;
-  }
-
-  .mm-stock > button {
-    padding: 7px 9px !important;
-    font-size: 13px !important;
-  }
-}
-
-/* Hàng 4 nút trong thẻ món (Đánh dấu hết / Sửa / Công thức / Xoá) phải nằm MỘT dòng
-   (chỉ đạo chủ quán 2026-09-06). Đo thật: 4 nút cần 364px + 18px gap, thẻ chỉ rộng 332px →
-   "Xoá" rớt xuống dòng hai, mỗi thẻ cao thêm 50px, nhân 30 món là 1500px cuộn thừa.
-   Chữ "Công thức" đã ẩn ở JSX (`hide-on-mobile`), đây là phần còn lại: bóp padding ngang và
-   bỏ sàn 120px của nút đầu để nó co theo chỗ trống thay vì đẩy cả hàng xuống dòng. */
-@media (max-width: 639px) {
-  .mm-actions {
-    flex-wrap: nowrap !important;
-  }
-  .mm-actions > button {
-    padding: 6px 8px !important;
-  }
-  .mm-actions > button:first-child {
-    min-width: 0 !important;
-  }
-}
-
 /* ── Khối cài đặt gập/mở (accordion) ────────────────────────────────────────
    Thêm 2026-09-06. Tiêu đề khối là một cái nút chiếm trọn bề ngang; phần thân chỉ render khi
    mở (xem `Section` trong OnlineOrderSettingsPanel.tsx). Ở đây chỉ là phần tạo dáng: trả nút
@@ -2650,5 +2595,648 @@ button.pay-mode[aria-pressed='true'] {
     text-align: left;
     min-height: 52px;
     font-size: 15px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Màn Quản lý Menu — thiết kế lại 2026-09-24
+   Bản cũ là lưới thẻ `minmax(280px,1fr)`: mỗi món cao ~200px và hàng 4 nút bên trong wrap
+   thành 2 dòng trên máy 390px, nên một màn hình iPhone chỉ thấy 3 món trong khi quán có 214
+   món. Cộng thêm khối lọc 3 hàng (~200px) là hơn nửa màn hình đã hết trước khi thấy món đầu.
+
+   Bản này: mỗi món là MỘT DÒNG cao ~70px (7 món/màn hình), thanh lọc gom còn ~110px và DÍNH
+   trên đầu. Ba nút phụ (Sửa / Công thức / Xoá) rút vào nút `⋯`, chỉ còn nút trạng thái
+   Hết/Có lại ghim cứng mép phải — nó là thao tác bếp bấm nhiều nhất, và xếp thành một cột
+   dọc thẳng hàng thì bấm liên tục không phải di ngón ngang.
+
+   Từ 1024px trở lên thì không giấu gì nữa: 25 nhóm bung thành cột trái, 3 nút phụ hiện đủ
+   chữ trên từng dòng — desktop thừa bề ngang, giấu vào `⋯` chỉ tốn thêm một cú bấm.
+   Viết ở đây (không inline JSX) vì toàn bộ khối này phụ thuộc @media — inline không có
+   breakpoint. Các rule nút viết `button.mm2-*` để thắng `button.secondary` khai ở trên.
+   ════════════════════════════════════════════════════════════════════════════ */
+.container.menu-page {
+  max-width: 1360px;
+}
+
+/* ── Thanh lọc dính ──────────────────────────────────────────────────────── */
+/* `top` bám biến của dải đỏ EnvBanner: trên production biến không tồn tại → 0px. Không có
+   nó thì ở server dev thanh lọc dính NẰM DƯỚI dải đỏ và che mất một hàng tab. */
+.mm2-sticky {
+  position: sticky;
+  top: var(--env-banner-h, 0px);
+  z-index: 20;
+  background: #f9fafb;
+  padding: 8px 0 6px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.mm2-searchrow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.mm2-searchrow input[type='text'] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Nút mở sheet "Lọc & sắp xếp". Chấm đếm số lọc đang bật nằm góc trên phải — không có nó thì
+   người dùng cuộn xuống giữa danh sách không biết mình đang xem bản đã lọc hay toàn bộ. */
+button.mm2-iconbtn {
+  flex: none;
+  position: relative;
+  width: 44px;
+  padding: 0;
+  font-size: 18px;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+}
+
+button.mm2-iconbtn:hover {
+  background: #f3f4f6;
+}
+
+.mm2-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: #0f766e;
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  padding: 0 4px;
+}
+
+.mm2-tabsrow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+/* Nút "N nhóm ▾" GHIM CỐ ĐỊNH mép phải, nằm NGOÀI vùng cuộn ngang. Dãy tab cuộn không có
+   mép báo hiệu nào, nên khi nó đang ở đầu danh sách thì 20 nhóm còn lại là vô hình — chủ
+   quán không biết có thứ gì bên phải để mà vuốt. Nút này là lối vào luôn nhìn thấy. */
+button.mm2-allgroups {
+  flex: none;
+  padding: 0 10px;
+  font-size: 13px;
+  white-space: nowrap;
+  background: white;
+  color: #0f766e;
+  border: 1px solid #d1d5db;
+}
+
+button.mm2-allgroups:hover {
+  background: #f0fdfa;
+}
+
+.mm2-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.mm2-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 4px 0 10px;
+  border-radius: 999px;
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  color: #115e59;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+button.mm2-chipx {
+  min-width: 22px;
+  min-height: 22px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: #115e59;
+  font-size: 14px;
+  line-height: 1;
+}
+
+button.mm2-chipx:hover {
+  background: #99f6e4;
+}
+
+button.mm2-clearall {
+  min-height: 30px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #dc2626;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+button.mm2-clearall:hover {
+  text-decoration: underline;
+  background: transparent;
+}
+
+/* ── Bố cục: cột nhóm bên trái chỉ có từ 1024px ──────────────────────────── */
+.mm2-layout {
+  display: block;
+}
+
+.mm2-siderail {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .mm2-layout {
+    display: grid;
+    grid-template-columns: 236px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  .mm2-siderail {
+    display: block;
+    position: sticky;
+    top: calc(var(--env-banner-h, 0px) + 130px);
+    max-height: calc(100vh - var(--env-banner-h, 0px) - 160px);
+    overflow-y: auto;
+    background: white;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 10px 8px;
+  }
+  /* Dãy tab ngang và nút "N nhóm" là bản thay thế của cột trái trên màn hẹp — bày cả hai
+     cùng lúc là hai bộ điều khiển làm đúng một việc. */
+  .mm2-tabsrow {
+    display: none;
+  }
+}
+
+.mm2-raillabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 2px 8px 8px;
+  margin: 0;
+}
+
+button.mm2-railitem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 38px;
+  padding: 0 8px;
+  margin-bottom: 2px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #1f2937;
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+}
+
+button.mm2-railitem:hover {
+  background: #f3f4f6;
+}
+
+button.mm2-railitem[aria-pressed='true'] {
+  background: #f0fdfa;
+  color: #115e59;
+  font-weight: 700;
+}
+
+/* ── Một món = một dòng ──────────────────────────────────────────────────── */
+.mm2-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #6b7280;
+  padding: 8px 2px 6px;
+}
+
+.mm2-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mm2-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 6px 8px 12px;
+  overflow: hidden;
+}
+
+/* Vạch màu sát mép trái: tín hiệu trạng thái đọc được bằng đuôi mắt khi lướt nhanh, không
+   phải đọc chữ. */
+.mm2-rail {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: #0f766e;
+}
+
+.mm2-thumb {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+
+/* Ảnh CHỒNG lên chữ tắt. Ảnh hỏng (`onError` ẩn thẻ img) thì lộ chữ tắt bên dưới thay vì
+   để lại một ô xám trống. */
+.mm2-thumb img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Món không có ảnh: 2 chữ đầu của mã món trên nền teal nhạt. Ô trống xám làm cả danh sách
+   trông như đang hỏng ảnh. */
+.mm2-nothumb {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f766e;
+  background: #f0fdfa;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mm2-rowmain {
+  flex: 1;
+  min-width: 0;
+}
+
+.mm2-name {
+  margin: 0 0 3px;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mm2-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: #6b7280;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mm2-price {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #0f766e;
+  flex: none;
+}
+
+/* Món chưa khai công thức thì không sinh tiêu hao nguyên liệu — chủ quán cần nhìn ra ngay
+   khi soi báo cáo thiếu số, nên nó là một nhãn cam chứ không phải dấu gạch mờ. */
+.mm2-norecipe {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+
+.mm2-pill {
+  flex: none;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.mm2-pill.out {
+  background: #dc2626;
+  color: white;
+}
+
+.mm2-pill.hid {
+  background: #f1f5f9;
+  color: #475569;
+  border: 1px dashed #94a3b8;
+}
+
+/* Nút trạng thái: 56px ngang × 52px dọc, ghim mép phải mọi dòng để bếp bấm liên tục theo một
+   đường thẳng đứng. */
+button.mm2-stock {
+  flex: none;
+  width: 56px;
+  min-width: 56px;
+  min-height: 52px;
+  padding: 0;
+  border-radius: 6px;
+  background: white;
+  color: #dc2626;
+  border: 1px solid #fecaca;
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+button.mm2-stock:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+button.mm2-stock.back {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+}
+
+button.mm2-stock.back:hover {
+  background: #115e59;
+}
+
+button.mm2-more {
+  flex: none;
+  width: 30px;
+  min-width: 30px;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #6b7280;
+  font-size: 18px;
+}
+
+button.mm2-more:hover {
+  background: #f3f4f6;
+  color: #1f2937;
+}
+
+/* Hai trạng thái phải TÁCH HẲN nhau: bản cũ dùng viền đỏ cho "hết" và viền gạch đứt xám cho
+   "đã ẩn", lướt nhanh trông na ná. Giờ mỗi trạng thái mang ba tín hiệu cùng lúc (vạch màu,
+   nền, nhãn) và "đã ẩn" KHÔNG dùng đỏ ở đâu cả. */
+.mm2-row[data-state='out'] {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.mm2-row[data-state='out'] .mm2-rail {
+  background: #dc2626;
+}
+
+.mm2-row[data-state='hidden'] {
+  border-style: dashed;
+  border-color: #cbd5e1;
+}
+
+.mm2-row[data-state='hidden'] .mm2-rail {
+  background: repeating-linear-gradient(135deg, #94a3b8 0 3px, #cbd5e1 3px 7px);
+}
+
+.mm2-row[data-state='hidden'] .mm2-thumb img {
+  filter: grayscale(1);
+  opacity: 0.75;
+}
+
+.mm2-row[data-state='hidden'] .mm2-name {
+  color: #4b5563;
+}
+
+.mm2-row[data-state='hidden'] .mm2-price {
+  color: #475569;
+}
+
+/* ── Ba nút phụ: `⋯` trên màn hẹp, hiện đủ chữ từ 1024px ─────────────────── */
+.mm2-rowbtns {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .mm2-rowbtns {
+    display: flex;
+    flex: none;
+    gap: 6px;
+  }
+  button.mm2-more {
+    display: none;
+  }
+  .mm2-name {
+    font-size: 15.5px;
+  }
+}
+
+/* Bề ngang CỐ ĐỊNH, không co theo chữ bên trong: nút công thức hiện "12 NL" ở dòng này và
+   "—" ở dòng kia, để nó tự co là mỗi dòng một bề ngang khác nhau và nút "Hết" — thứ bếp bấm
+   liên tục — không còn nằm trên một đường thẳng đứng. */
+button.mm2-rowbtn {
+  width: 84px;
+  min-width: 84px;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 13px;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+}
+
+button.mm2-rowbtn:hover {
+  background: #f3f4f6;
+}
+
+button.mm2-rowbtn.del {
+  width: 48px;
+  min-width: 48px;
+  color: #dc2626;
+  border-color: #fecaca;
+}
+
+button.mm2-rowbtn.del:hover {
+  background: #fef2f2;
+  border-color: #dc2626;
+}
+
+/* ── Sheet: lọc & sắp xếp, công cụ, thao tác một món ─────────────────────── */
+.mm2-flabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #6b7280;
+  margin: 0 0 8px;
+}
+
+.mm2-segs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+
+button.mm2-seg {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 8px;
+  font-size: 13.5px;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+}
+
+button.mm2-seg:hover {
+  background: #f3f4f6;
+}
+
+button.mm2-seg[aria-pressed='true'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+}
+
+.mm2-gridgroups {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+button.mm2-gg {
+  min-height: 44px;
+  padding: 0 10px;
+  font-size: 13.5px;
+  text-align: left;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.mm2-gg:hover {
+  background: #f3f4f6;
+}
+
+button.mm2-gg[aria-pressed='true'] {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: white;
+  font-weight: 700;
+}
+
+.mm2-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+button.mm2-tool {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 12px;
+  font-size: 14.5px;
+  font-weight: 600;
+  text-align: left;
+  background: white;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+}
+
+button.mm2-tool:hover {
+  background: #f0fdfa;
+  border-color: #99f6e4;
+}
+
+button.mm2-tool.del {
+  color: #dc2626;
+}
+
+button.mm2-tool small {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.mm2-toolico {
+  font-size: 19px;
+  width: 24px;
+  text-align: center;
+  flex: none;
+}
+
+/* Dãy 4 nút công cụ trên đầu trang: gom vào `☰` dưới 1024px, bày đủ chữ từ 1024px. */
+.mm2-toolbar {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .mm2-toolbar {
+    display: flex;
+    gap: 6px;
+  }
+  button.mm2-toolsbtn {
+    display: none;
+  }
+}
+
+/* Ô "tình trạng" + "sắp xếp": nằm trong sheet trên màn hẹp, hiện thẳng ra từ 1024px. */
+.mm2-deskfilters {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .mm2-deskfilters {
+    display: flex;
+    flex: none;
+    gap: 8px;
+  }
+  button.mm2-filterbtn {
+    display: none;
   }
 }
