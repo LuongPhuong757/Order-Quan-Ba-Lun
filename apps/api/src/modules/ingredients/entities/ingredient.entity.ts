@@ -55,6 +55,24 @@ export class Ingredient {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   price_alert_threshold_pct!: string | null;
 
+  /** Có khai thứ này vào công thức món không (M6.D-10, 2026-09-24).
+   *
+   * `false` = gia vị nhỏ: nước mắm, muối, tiêu, dầu ăn. Chúng VẪN nhập hàng, vẫn có công nợ,
+   * vẫn được cảnh báo biến động giá — chỉ không hiện ra ở ô gợi ý của màn Công thức.
+   *
+   * Ranh giới (M6.D-12): thứ nào khi nấu KHÔNG ĐONG ĐẾM thì không khai. Nêm nếm theo tay thì
+   * bỏ; cân, đếm, múc theo định lượng thì khai — nên nước dùng xương (múc theo tô) và sả, lá
+   * chanh (đếm cây, đếm lá) vẫn khai dù nghe cũng "nhỏ".
+   *
+   * Mặc định `true` chứ không phải `false` (M6.D-11): thứ quên phân loại thì hiện ra trong công
+   * thức — thấy được, sửa được. Mặc định ẩn thì người khai tìm mãi không thấy tôm đâu mà không
+   * hiểu vì sao.
+   *
+   * Hệ quả bắt buộc: giá vốn tính ra LUÔN thiếu phần gia vị, nên mọi nhãn hiển thị phải nói rõ
+   * "nguyên liệu chính" (M6.D-09) — ai nhìn con số này rồi tính lãi sẽ tính dư. */
+  @Column({ type: 'boolean', default: true })
+  track_in_recipe!: boolean;
+
   /** Xoá mềm, cùng lệ với `menu_items.is_active`.
    *
    * Nguyên liệu bị gộp đi cũng để `false` ở đây (không DELETE): các bản chốt tiêu hao trong quá

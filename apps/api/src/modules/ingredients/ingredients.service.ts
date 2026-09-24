@@ -7,9 +7,63 @@ import { normalizeName, parseUnit } from './ingredient-units.js';
 
 export type Actor = { id: string; full_name: string };
 
+/** Một nơi bán thứ này, đọc từ `supplier_items` (M3.D-18 — dòng tự sinh lần đầu nhập và tự cập
+ * nhật mỗi lần nhập sau, nên ở đây không có gì phải đồng bộ thêm). */
+export type IngredientSupplierInfo = {
+  supplier_id: string;
+  supplier_name: string;
+  /** Đơn vị NCC báo hàng: "kg", "thùng", "bó". */
+  purchase_unit: string;
+  /** 1 đơn vị mua = bao nhiêu đơn vị gốc. "1 kg = 1000 g". */
+  qty_base_per_unit: number;
+  /** Đồng / đơn vị mua — con số NCC đọc lên ("250 nghìn một cân"). */
+  last_unit_price: number;
+  /** Đồng / đơn vị gốc — con số DUY NHẤT so sánh được giữa các NCC, vì đơn vị mua có thể khác
+   * nhau giữa hai nơi (người bán theo kg, người bán theo thùng). */
+  last_unit_price_base: number;
+  last_delivery_date: string;
+};
+
 /** Nguyên liệu kèm số món đang dùng — cột này là cách chủ quán phát hiện nguyên liệu rác:
  * dòng "đang dùng ở 0 món" gần như chắc chắn là gõ nhầm hoặc trùng nghĩa với dòng khác. */
-export type IngredientWithUsage = Ingredient & { used_in_items: number };
+export type IngredientWithUsage = Ingredient & {
+  used_in_items: number;
+  /** Các nơi bán thứ này, RẺ NHẤT TRƯỚC (theo giá quy đổi). Rỗng = chưa từng nhập lần nào. */
+  suppliers: IngredientSupplierInfo[];
+  /** Giá để tính giá vốn: của lần nhập GẦN NHẤT, bất kể NCC nào (M6.D-07).
+   *
+   * Cố ý KHÔNG phải giá rẻ nhất: giá vốn là số tiền thật vừa bỏ ra, còn giá rẻ nhất là thông
+   * tin đi chợ. Hai con số trả riêng để không màn nào phải tự chọn — mỗi màn chọn một kiểu là
+   * hai màn nói hai giá cho cùng một món.
+   *
+   * `null` = chưa từng nhập nên không có giá vốn. Màn hình phải ẩn số đi, KHÔNG hiện "0đ". */
+  cost_unit_price_base: number | null;
+  /** Ngày của phiếu đã cho ra `cost_unit_price_base`. Bắt buộc hiện kèm (M6.D-08): không có mốc
+   * thời gian thì vài tuần sau không ai biết con số đó cũ hay mới. */
+  cost_as_of: string | null;
+  /** Đơn vị mua + hệ số của CHÍNH nguồn giá vốn ở trên — để màn Công thức trả lời "nhập 1 kg
+   * bán được mấy phần" mà không phải tự dò lại xem dòng NCC nào là nguồn giá.
+   *
+   * Hai màn tự dò lấy thì sẽ có ngày chúng dò ra hai dòng khác nhau, và "1 kg ≈ 6 phần" ở màn
+   * này đứng cạnh "250.000đ/kg" của màn kia mà hai con số không cùng một phiếu. */
+  cost_purchase_unit: string | null;
+  cost_qty_base_per_unit: number | null;
+};
+
+/** Chọn dòng NCC cho ra GIÁ VỐN: lần nhập gần nhất, bất kể của ai (M6.D-07).
+ *
+ * Tách khỏi `list()` để test được không cần MySQL — cùng lệ với `ingredient-units.ts`.
+ *
+ * Hai NCC CÙNG NGÀY thì lấy dòng đứng trước, mà `loadSuppliers` đã xếp rẻ-nhất-trước, nên hoà
+ * ngày là lấy giá rẻ hơn. Chọn thế vì đó là phía an toàn: giá vốn thấp hơn thì phần trăm lãi
+ * hiện ra cũng thấp hơn, không ru ngủ người đọc.
+ */
+export function pickCostSource(suppliers: IngredientSupplierInfo[]): IngredientSupplierInfo | null {
+  return suppliers.reduce<IngredientSupplierInfo | null>(
+    (best, s) => (best === null || s.last_delivery_date > best.last_delivery_date ? s : best),
+    null,
+  );
+}
 
 @Injectable()
 export class IngredientsService {
@@ -19,13 +73,21 @@ export class IngredientsService {
     private readonly ds: DataSource,
   ) {}
 
-  /** Danh sách nguyên liệu + số món đang dùng mỗi thứ.
+  /** Danh sách nguyên liệu + số món đang dùng + nơi bán + giá vốn.
    *
-   * Đếm bằng MỘT câu GROUP BY rồi ghép trong bộ nhớ, không đếm từng dòng: danh mục vài trăm
-   * nguyên liệu mà đếm lẻ là vài trăm lượt truy vấn cho một lần mở màn hình. */
-  async list(opts: { q?: string; include_inactive?: boolean } = {}): Promise<IngredientWithUsage[]> {
+   * Ba câu truy vấn cho cả danh mục, không phải ba câu cho MỖI nguyên liệu: đếm lẻ từng dòng là
+   * vài trăm lượt truy vấn cho một lần mở màn hình.
+   *
+   * `for_recipe: true` → chỉ trả thứ được khai vào công thức (M6.D-10), dùng cho ô gợi ý ở màn
+   * Công thức. Màn Nguyên liệu KHÔNG truyền cờ này: ở đó phải thấy cả gia vị thì mới bật/tắt
+   * được chúng.
+   */
+  async list(
+    opts: { q?: string; include_inactive?: boolean; for_recipe?: boolean } = {},
+  ): Promise<IngredientWithUsage[]> {
     const qb = this.repo.createQueryBuilder('i');
     if (!opts.include_inactive) qb.where('i.is_active = 1');
+    if (opts.for_recipe) qb.andWhere('i.track_in_recipe = 1');
     if (opts.q) {
       // Tìm trên `name_key`: gõ "thit bo" không dấu vẫn ra "Thịt bò".
       qb.andWhere('i.name_key LIKE :q', { q: `%${normalizeName(opts.q)}%` });
@@ -33,16 +95,91 @@ export class IngredientsService {
     const items = await qb.orderBy('i.name', 'ASC').getMany();
     if (items.length === 0) return [];
 
+    const ids = items.map((i) => i.id);
+    const [usage, suppliers] = await Promise.all([this.countUsage(ids), this.loadSuppliers(ids)]);
+
+    return items.map((i) => {
+      const sup = suppliers.get(i.id) ?? [];
+      // Mảng `sup` xếp theo GIÁ (rẻ trước), còn giá vốn lấy theo NGÀY — không được lấy phần tử
+      // đầu mảng.
+      const latest = pickCostSource(sup);
+      return {
+        ...i,
+        used_in_items: usage.get(i.id) ?? 0,
+        suppliers: sup,
+        cost_unit_price_base: latest ? latest.last_unit_price_base : null,
+        cost_as_of: latest ? latest.last_delivery_date : null,
+        cost_purchase_unit: latest ? latest.purchase_unit : null,
+        cost_qty_base_per_unit: latest ? latest.qty_base_per_unit : null,
+      };
+    });
+  }
+
+  /** Số MÓN đang dùng mỗi nguyên liệu, một câu GROUP BY cho cả danh mục. */
+  private async countUsage(ids: string[]): Promise<Map<string, number>> {
     const rows = await this.recipeRepo
       .createQueryBuilder('r')
       .select('r.ingredient_id', 'ingredient_id')
       .addSelect('COUNT(DISTINCT r.menu_item_id)', 'c')
-      .where('r.ingredient_id IN (:...ids)', { ids: items.map((i) => i.id) })
+      .where('r.ingredient_id IN (:...ids)', { ids })
       .groupBy('r.ingredient_id')
       .getRawMany<{ ingredient_id: string; c: string }>();
-    const usage = new Map(rows.map((r) => [r.ingredient_id, Number(r.c)]));
+    return new Map(rows.map((r) => [r.ingredient_id, Number(r.c)]));
+  }
 
-    return items.map((i) => ({ ...i, used_in_items: usage.get(i.id) ?? 0 }));
+  /** Nơi bán của từng nguyên liệu, rẻ nhất trước.
+   *
+   * Đọc `supplier_items` bằng SQL thô thay vì repository: entity `SupplierItem` sống ở module
+   * `suppliers`, tiêm repo của nó vào đây là buộc hai module vào nhau chỉ để đọc bốn cột.
+   *
+   * NCC đã xoá mềm thì bỏ: chúng vẫn còn dòng trong `supplier_items` vì phiếu cũ không bị xoá,
+   * nhưng gợi ý "mua ở chỗ này" cho một nơi đã nghỉ bán là gợi ý sai.
+   */
+  private async loadSuppliers(ids: string[]): Promise<Map<string, IngredientSupplierInfo[]>> {
+    const rows = await this.ds.query<
+      {
+        ingredient_id: string;
+        supplier_id: string;
+        supplier_name: string;
+        purchase_unit: string;
+        qty_base_per_unit: string;
+        last_unit_price: number;
+        last_unit_price_base: string;
+        last_delivery_date: string | Date;
+      }[]
+    >(
+      `SELECT si.ingredient_id, si.supplier_id, s.name AS supplier_name,
+              si.purchase_unit, si.qty_base_per_unit, si.last_unit_price,
+              si.last_unit_price_base, si.last_delivery_date
+         FROM supplier_items si
+         JOIN suppliers s ON s.id = si.supplier_id AND s.is_active = 1
+        WHERE si.ingredient_id IN (${ids.map(() => '?').join(',')})
+        ORDER BY si.ingredient_id, CAST(si.last_unit_price_base AS DECIMAL(16,6)) ASC`,
+      ids,
+    );
+
+    const out = new Map<string, IngredientSupplierInfo[]>();
+    for (const r of rows) {
+      const arr = out.get(r.ingredient_id) ?? [];
+      arr.push({
+        supplier_id: r.supplier_id,
+        supplier_name: r.supplier_name,
+        purchase_unit: r.purchase_unit,
+        // Ba cột decimal: mysql2 trả về CHUỖI. Không ép kiểu thì phép so sánh ngày/giá ở trên
+        // thành so chuỗi, và "9" > "10" — sai âm thầm, không lỗi nào nổ ra.
+        qty_base_per_unit: Number(r.qty_base_per_unit),
+        last_unit_price: Number(r.last_unit_price),
+        last_unit_price_base: Number(r.last_unit_price_base),
+        // Cột `date` có driver trả Date, có chỗ trả chuỗi — chuẩn hoá về 'YYYY-MM-DD' để phép
+        // so sánh tìm lần nhập gần nhất luôn chạy trên cùng một kiểu.
+        last_delivery_date:
+          r.last_delivery_date instanceof Date
+            ? r.last_delivery_date.toISOString().slice(0, 10)
+            : String(r.last_delivery_date).slice(0, 10),
+      });
+      out.set(r.ingredient_id, arr);
+    }
+    return out;
   }
 
   /** Tìm nguyên liệu theo tên đã chuẩn hoá. Dùng chung cho `create` và `findOrCreate`. */
@@ -99,7 +236,7 @@ export class IngredientsService {
 
   async update(
     id: string,
-    input: { name?: string; unit?: string; note?: string | null },
+    input: { name?: string; unit?: string; note?: string | null; track_in_recipe?: boolean },
   ): Promise<Ingredient> {
     const ing = await this.repo.findOne({ where: { id } });
     if (!ing) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nguyên liệu không tồn tại' });
@@ -141,6 +278,12 @@ export class IngredientsService {
     }
 
     if (input.note !== undefined) ing.note = input.note?.trim() || null;
+
+    // Bật/tắt "khai vào công thức" (M6.D-10). KHÔNG chặn khi nguyên liệu đang được dùng: tắt cờ
+    // chỉ giấu nó khỏi ô gợi ý, các dòng công thức đã khai vẫn nguyên vẹn và vẫn sinh tiêu hao.
+    // Chặn ở đây là bắt chủ quán xoá công thức chỉ để phân loại lại một thứ — không đáng.
+    if (input.track_in_recipe !== undefined) ing.track_in_recipe = input.track_in_recipe;
+
     return this.repo.save(ing);
   }
 
