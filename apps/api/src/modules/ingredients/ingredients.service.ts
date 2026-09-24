@@ -48,6 +48,9 @@ export type IngredientWithUsage = Ingredient & {
    * này đứng cạnh "250.000đ/kg" của màn kia mà hai con số không cùng một phiếu. */
   cost_purchase_unit: string | null;
   cost_qty_base_per_unit: number | null;
+  /** Tên NCC của chính lần nhập đã cho ra giá vốn. Hiện kèm giá để người khai công thức biết
+   * con số đó của ai — "95.000đ/KG" một mình thì không tra ngược được về phiếu nào. */
+  cost_supplier_name: string | null;
 };
 
 /** Chọn dòng NCC cho ra GIÁ VỐN: lần nhập gần nhất, bất kể của ai (M6.D-07).
@@ -111,6 +114,7 @@ export class IngredientsService {
         cost_as_of: latest ? latest.last_delivery_date : null,
         cost_purchase_unit: latest ? latest.purchase_unit : null,
         cost_qty_base_per_unit: latest ? latest.qty_base_per_unit : null,
+        cost_supplier_name: latest ? latest.supplier_name : null,
       };
     });
   }

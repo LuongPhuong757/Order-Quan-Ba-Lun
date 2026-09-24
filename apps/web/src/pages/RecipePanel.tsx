@@ -41,6 +41,7 @@ type Ingredient = {
   cost_as_of: string | null;
   cost_purchase_unit: string | null;
   cost_qty_base_per_unit: number | null;
+  cost_supplier_name: string | null;
 };
 
 type RecipeLine = {
@@ -542,12 +543,23 @@ function AddLineForm({
                   {/* Giá hiện theo ĐƠN VỊ MUA ("250.000đ/kg"), không phải đơn vị gốc ("250đ/g"):
                       đó là con số nhà cung cấp đọc lên qua điện thoại, người khai đối chiếu
                       được ngay. Đơn vị gốc chỉ để máy so sánh. */}
+                  {/* Hai dòng phụ: dòng trên là thứ NHẬN DẠNG nguyên liệu (đơn vị gốc, đang
+                      dùng ở mấy món), dòng dưới là NGUỒN GỐC (mua của ai, bao nhiêu). Gộp một
+                      dòng thì trên máy 390px nó bị cắt đúng chỗ tên nhà cung cấp. */}
                   <span className="rc-smeta">
                     {i.unit} · dùng ở {i.used_in_items} món
-                    {i.cost_unit_price_base !== null && i.cost_qty_base_per_unit
-                      ? ` · ${fmtVnd(i.cost_unit_price_base * i.cost_qty_base_per_unit)}/${i.cost_purchase_unit}`
-                      : ' · chưa có giá'}
                   </span>
+                  {i.cost_unit_price_base !== null && i.cost_qty_base_per_unit ? (
+                    <span className="rc-ssrc">
+                      {i.cost_supplier_name ?? 'NCC'} ·{' '}
+                      <strong>
+                        {fmtVnd(i.cost_unit_price_base * i.cost_qty_base_per_unit)}/{i.cost_purchase_unit}
+                      </strong>
+                      {i.suppliers.length > 1 && ` · +${i.suppliers.length - 1} nơi khác`}
+                    </span>
+                  ) : (
+                    <span className="rc-ssrc none">chưa có phiếu nhập — không có giá</span>
+                  )}
                 </button>
               ))}
             </div>

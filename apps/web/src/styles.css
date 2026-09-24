@@ -3806,3 +3806,18 @@ button.rc-addbtn {
   margin-top: 3px;
   line-height: 1.45;
 }
+
+/* Dòng nguồn gốc trong ô gợi ý nguyên liệu (màn Công thức): mua của ai, giá bao nhiêu.
+   Màu teal để tách khỏi dòng nhận dạng ở trên — hai dòng cùng xám thì mắt đọc thành một khối. */
+.rc-ssrc {
+  display: block;
+  font-size: 12px;
+  color: #0f766e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rc-ssrc.none {
+  color: #b45309;
+}
