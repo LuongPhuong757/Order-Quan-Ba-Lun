@@ -167,7 +167,7 @@ export function CheckoutDialog({
   /**
    * CÔNG TẮC "xác thực giao dịch tại quầy" (chủ quán 2026-09-25), đọc từ `GET /payment-qr`.
    *
-   * Tắt thì màn này KHÔNG hỏi ngân hàng: không đồng hồ 2 phút, không dải xanh/đỏ, luôn đi qua
+   * Tắt thì màn này KHÔNG hỏi ngân hàng: không đồng hồ 5 phút, không dải xanh/đỏ, luôn đi qua
    * bước chụp bill — y như trước khi có tính năng. Phần còn lại của đối soát chạy nguyên: mã đơn
    * vẫn xin, nội dung CK vẫn mang mã + tiền tố ngân hàng, và cột "Xác thực" ở màn Lịch sử vẫn tự
    * chuyển xanh khi webhook về. Công tắc bỏ việc ĐỨNG ĐỢI, không bỏ việc đối soát.
@@ -267,7 +267,7 @@ export function CheckoutDialog({
    *   'idle'    — chưa có mã, không có gì để hỏi
    *   'waiting' — đang hỏi ngân hàng, nút "Tiếp tục" KHOÁ và xoay
    *   'paid'    — tiền đã về: dòng xanh
-   *   'timeout' — hết 30 giây chưa thấy: dòng đỏ, bảo chụp bill của khách
+   *   'timeout' — hết 5 phút chưa thấy: dòng đỏ, bảo chụp bill của khách
    *
    * Đồng hồ chạy từ lúc CHÌA MÃ chứ không phải từ lúc người thu bấm gì: nhịp thật ở quầy là chìa
    * mã rồi đứng nhìn khách quét, tiền về trước khi có ai kịp bấm. Bản đầu tiên bắt bấm nút mới
@@ -282,10 +282,20 @@ export function CheckoutDialog({
    * Hết giờ là CHỐT: không hỏi tiếp, đỏ là đỏ. Người thu biết ngay phải chụp bill, không đứng
    * nhìn một dòng chữ có thể tự đổi màu sau lưng.
    *
-   * Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian của trần 30 giây, và hết trần thì
+   * Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian của trần 5 phút, và hết trần thì
    * rơi vào 'timeout' như mọi ca không xác thực được.
    */
-  const VERIFY_TIMEOUT_MS = 120_000;
+  /** Trần chờ ngân hàng báo về. 30 giây (2026-09-22) → 2 phút (cùng ngày) → 5 PHÚT (chủ quán
+   *  2026-09-25: "2p quá ngắn").
+   *
+   *  Nhịp hỏi KHÔNG đổi theo trần: vẫn 1,5 giây, tức 40 request/phút cho mỗi màn QR đang mở. Kéo
+   *  trần dài ra chỉ kéo dài KHOẢNG hỏi chứ không làm dày nhịp, nên trần chống spam toàn cục (600
+   *  req/phút/IP) không chịu thêm áp lực nào. Đừng "tối ưu" bằng cách giãn nhịp: tiền thường về
+   *  trong vài giây đầu, giãn nhịp là trả chậm đúng ca phổ biến nhất để tiết kiệm ở ca hiếm.
+   *
+   *  Trần này phải LUÔN NHỎ HƠN `INTENT_TTL_MS` (15 phút, `payments.service.ts`) — hỏi tiếp một mã
+   *  đã hết hạn hiển thị là hỏi về thứ khách không còn quét được. */
+  const VERIFY_TIMEOUT_MS = 300_000;
   const VERIFY_POLL_MS = 1500;
 
   useEffect(() => {
@@ -294,15 +304,14 @@ export function CheckoutDialog({
     //  · đang ở màn QR;
     //  · ĐÃ CHỌN MÃ QR — chưa chọn thì chưa có gì để khách quét, nên chưa thể có đồng nào về.
     //    Xoay lúc đó là bắt người thu nhìn máy "đang xác thực" một giao dịch không tồn tại, và
-    //    tệ hơn: đốt mất trần 30 giây trước khi khách kịp nhìn thấy mã;
-    //  · đã xin được mã đơn — không có mã thì không có gì để hỏi ngân hàng. Khoá nút 30 giây vì
-    //    một mã không tồn tại là phạt người thu vì lỗi của mạng;
+    //    tệ hơn: đốt mất trần 5 phút trước khi khách kịp nhìn thấy mã;
+    //  · đã xin được mã đơn — không có mã thì không có gì để hỏi ngân hàng;
     //  · CÔNG TẮC đang bật (2026-09-25) — chủ quán tắt được vòng hỏi này ở Cài đặt → Mã QR nhận
     //    tiền. Tắt thì màn này im hoàn toàn: `verify` ở 'idle' nên không dải nào hiện, và
     //    `paidSkipsBill` không bao giờ thành true nên vẫn qua bước chụp bill;
     //  · mã đã chọn là TÀI KHOẢN NGÂN HÀNG, không phải ảnh QR (2026-09-23). Mã dạng ảnh (MoMo,
     //    QR in giấy) không có cổng nào đứng sau, nên hỏi bao lâu cũng không có câu trả lời:
-    //    người thu sẽ nhìn "đang xác thực" 2 phút rồi luôn luôn nhận dải đỏ "chưa xác thực
+    //    người thu sẽ nhìn "đang xác thực" 5 phút rồi luôn luôn nhận dải đỏ "chưa xác thực
     //    được" — một lời cảnh báo đúng về mặt chữ nhưng vô nghĩa, và loại cảnh báo luôn đỏ là
     //    loại người ta học cách bỏ qua, kể cả khi nó đỏ thật. Không hỏi thì `verify` ở 'idle',
     //    màn QR trông y như trước khi có tính năng này — đúng thứ mã ảnh vốn vẫn làm.

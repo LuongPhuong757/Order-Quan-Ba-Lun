@@ -207,10 +207,10 @@ dấu vết ở đâu cả (xem mục SEVQR ở trên — đã mất một buổ
 
 1. Mở một đơn test, chọn **Chuyển khoản**, chọn đúng mã QR vừa thêm.
 2. Quét bằng **app ngân hàng thật**, chuyển **10.000đ**, **giữ nguyên nội dung** hệ thống điền sẵn.
-3. Trong vòng 2 phút, màn thu tiền phải hiện dải xanh **"Đã thanh toán thành công"**.
+3. Trong vòng 5 phút, màn thu tiền phải hiện dải xanh **"Đã thanh toán thành công"**.
 4. Vào **Lịch sử → 🏦 Sổ webhook ngân hàng**, lọc đúng ngân hàng đó → phải thấy dòng 10.000đ.
 
-Nếu sau ~2 phút vẫn không thấy gì, dò theo đúng thứ tự này:
+Nếu sau ~5 phút vẫn không thấy gì, dò theo đúng thứ tự này:
 
 | Kiểm | Kết luận và cách chữa |
 |---|---|

@@ -118,7 +118,7 @@ class UpdateSettingsDto {
   @IsOptional() top_dishes_enabled?: boolean;
   // OTP đăng nhập bằng SĐT (2026-08-04) — xem settings.defaults.ts về vì sao mặc định tắt.
   @IsOptional() otp_login_enabled?: boolean;
-  // Vòng hỏi ngân hàng 2 phút ở màn thu tiền (2026-09-25). Tắt CHỈ tắt vòng hỏi đó — mã đơn,
+  // Vòng hỏi ngân hàng 5 phút ở màn thu tiền (2026-09-25). Tắt CHỈ tắt vòng hỏi đó — mã đơn,
   // webhook, bộ khớp và cột "Xác thực" ở màn Lịch sử đều chạy nguyên. Xem settings.defaults.ts.
   @IsOptional() bank_verify_enabled?: boolean;
   // Bản đồ (2026-08-07) — 2 công tắc riêng, xem settings.defaults.ts về vì sao không gộp làm một.

@@ -69,7 +69,7 @@ export function PaymentQrPanel() {
   const [verifySaving, setVerifySaving] = useState(false);
 
   /**
-   * Bật/tắt vòng hỏi ngân hàng 2 phút ở màn thu tiền.
+   * Bật/tắt vòng hỏi ngân hàng 5 phút ở màn thu tiền.
    *
    * Ghi trạng thái mới vào state TRƯỚC khi gọi mạng thì ô công tắc phản hồi tức thì, nhưng hỏng
    * thì phải trả về đúng giá trị cũ — không phải giá trị ngược lại của cái vừa đặt, vì người dùng
@@ -273,7 +273,7 @@ export function PaymentQrPanel() {
                 {verifyOn ? 'có' : 'không'} hỏi ngân hàng
               </strong>
               <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
-                Bật: sau khi chìa mã QR, máy hỏi ngân hàng trong 2 phút. Tiền về là hiện dải xanh
+                Bật: sau khi chìa mã QR, máy hỏi ngân hàng trong 5 phút. Tiền về là hiện dải xanh
                 và bỏ qua bước chụp bill.
               </span>
               <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>

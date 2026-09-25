@@ -12,7 +12,7 @@
 > *"Công tắc này chỉ áp dụng cho logic check giao dịch tự động, nghĩa là khi có giao dịch thì sẽ
 > không chạy 2 phút để check nữa."* — chủ quán, 2026-09-25
 
-Tắt = **màn thu tiền không hỏi ngân hàng nữa**. Không đồng hồ 2 phút, không dải xanh/đỏ, luôn đi
+Tắt = **màn thu tiền không hỏi ngân hàng nữa**. Không đồng hồ 5 phút, không dải xanh/đỏ, luôn đi
 qua bước chụp bill như trước khi có tính năng.
 
 **Phần CHẠY NGẦM y nguyên**: mã đơn vẫn sinh, nội dung CK vẫn mang mã + tiền tố ngân hàng,
@@ -53,7 +53,7 @@ cột hiện ra với đầy đủ dữ liệu của cả quãng đã tắt.
 
 | | BẬT | TẮT |
 |---|---|---|
-| Đồng hồ 2 phút ở màn QR | chạy | **không** |
+| Đồng hồ 5 phút ở màn QR (30 giây → 2 phút → 5 phút, chủ quán 2026-09-25) | chạy | **không** |
 | Dải "Đang xác thực / Đã thanh toán / Chưa xác thực được" | hiện | **không hiện gì** |
 | Ngân hàng báo xanh thì bỏ bước chụp bill | có | **không** — luôn qua bước chụp bill |
 | Sinh mã đơn, nội dung CK mang mã + tiền tố | có | **vẫn có** (CT-09) |

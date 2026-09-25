@@ -99,7 +99,7 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   { key: 'otp_login_enabled', kind: 'bool', default: false },
   // ── Xác thực chuyển khoản TẠI QUẦY (2026-09-25) ──
   //
-  // Tắt ĐÚNG MỘT THỨ: vòng hỏi ngân hàng 2 phút ở màn thu tiền. Mọi thứ khác của tính năng đối
+  // Tắt ĐÚNG MỘT THỨ: vòng hỏi ngân hàng 5 phút ở màn thu tiền. Mọi thứ khác của tính năng đối
   // soát chạy y nguyên — mã đơn vẫn sinh, nội dung CK vẫn mang mã + tiền tố, webhook vẫn ghi sổ,
   // cột "Xác thực" ở màn Lịch sử vẫn tự chuyển xanh. Công tắc không tắt đối soát; nó chuyển đối
   // soát từ ĐỨNG ĐỢI TẠI QUẦY sang SOÁT LẠI SAU.
@@ -212,7 +212,7 @@ export type StoreSettingsMap = {
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
   otp_login_enabled: boolean;
-  /** Vòng hỏi ngân hàng 2 phút ở màn thu tiền. CẤM đọc thẳng — đi qua
+  /** Vòng hỏi ngân hàng 5 phút ở màn thu tiền. CẤM đọc thẳng — đi qua
    *  `SettingsService.isBankVerifyEnabled()`, vì cột có thể ghi `true` mà cầu dao môi trường
    *  đang ép tắt. */
   bank_verify_enabled: boolean;
