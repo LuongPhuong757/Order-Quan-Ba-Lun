@@ -12,8 +12,8 @@ import { useToast } from '../components/Toast.tsx';
 import { Pager } from '../components/Pager.tsx';
 import { phanTrang } from '../lib/supplier-stats.ts';
 import { khopTuKhoa } from '../lib/tim-mon.ts';
-import type { DayRange } from '../lib/date-range.ts';
-import { FilterBar, vnd } from './supplier-ui.tsx';
+import { shiftRangeMs, type DayRange } from '../lib/date-range.ts';
+import { FilterBar, pctVN, vnd } from './supplier-ui.tsx';
 import './suppliers-ui.css';
 
 type DishRow = {
@@ -59,6 +59,14 @@ function fmtLuc(ms: number): string {
 
 type SortKey = 'name' | 'group' | 'price' | 'qty' | 'revenue' | 'pct' | 'orders';
 
+/** Tham số kỳ gửi lên API. Chip ca gửi MỐC MS tính tại lúc gọi (`shiftRangeMs`), khoảng ngày
+ *  gửi `from`/`to` — hai kiểu loại trừ nhau, API lấy mốc ms nếu có (xem `dish-sales.service`).
+ *  Tính lại mỗi lượt gọi chứ không chốt vào state: ca tự trôi sang ca mới lúc 12h trưa. */
+function thamSoKy(range: DayRange): Record<string, string | number | undefined> {
+  if (range.shift) return shiftRangeMs(Date.now(), range.shift);
+  return { from: range.from || undefined, to: range.to || undefined };
+}
+
 function DonCuaMon({ dish, range }: { dish: DishRow; range: DayRange }) {
   const [res, setRes] = useState<{ items: DishOrder[]; total: number } | null>(null);
   const [page, setPage] = useState(1);
@@ -70,13 +78,13 @@ function DonCuaMon({ dish, range }: { dish: DishRow; range: DayRange }) {
         // Món gõ tay không có id — lọc theo tên, đúng cách bảng ngoài đã gộp nó.
         menu_item_id: dish.menu_item_id || undefined,
         name: dish.menu_item_id ? undefined : dish.name,
-        from: range.from || undefined, to: range.to || undefined,
+        ...thamSoKy(range),
         page, size: CO_TRANG_DON,
       },
     }).then((r) => { if (!huy) setRes(r.data.data); })
       .catch(() => { if (!huy) setRes({ items: [], total: 0 }); });
     return () => { huy = true; };
-  }, [dish.menu_item_id, dish.name, range.from, range.to, page]);
+  }, [dish.menu_item_id, dish.name, range.from, range.to, range.shift, page]);
 
   return (
     <div className="orders">
@@ -136,13 +144,13 @@ export function DishSalesScreen({
 
   const load = useCallback(() => {
     setData(null);
-    api.get<{ data: Report }>('/dish-sales', { params: { from: range.from || undefined, to: range.to || undefined } })
+    api.get<{ data: Report }>('/dish-sales', { params: thamSoKy(range) })
       .then((r) => setData(r.data.data))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setData({ items: [], total_qty: 0, total_revenue: 0 });
       });
-  }, [range.from, range.to, toast]);
+  }, [range.from, range.to, range.shift, toast]);
   useEffect(load, [load]);
 
   useEffect(() => { setPage(1); }, [tim, nhom, sortKey, asc, data]);
@@ -172,10 +180,24 @@ export function DishSalesScreen({
 
   const trang = phanTrang(rows, page, CO_TRANG);
   const maxPct = Math.max(1, ...rows.map((r) => r.revenue_pct));
-  const daGo = (data?.items ?? []).filter((r) => !r.in_menu).length;
+  // Ba thẻ tổng cộng trên KẾT QUẢ LỌC chứ không lấy `total_*` của API (chủ quán báo 2026-09-26):
+  // gõ "bia" mà tổng vẫn là cả quán thì thẻ tổng không trả lời câu vừa hỏi. Riêng cột
+  // "% doanh thu" của từng dòng vẫn là tỉ lệ trên CẢ KỲ — đó là chỗ nói "món này gánh bao nhiêu
+  // phần doanh thu quán", lọc xong mà tỉ lệ nhảy lên 100% là mất nghĩa.
+  const tongTien = rows.reduce((s, r) => s + r.revenue, 0);
+  const tongPhan = rows.reduce((s, r) => s + r.qty, 0);
+  const daGo = rows.filter((r) => !r.in_menu).length;
+  const dangLoc = tim.trim() !== '' || nhom !== '';
   const soNgay = range.from && range.to
     ? Math.max(1, Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1)
     : null;
+  const ghiChuPhan = range.shift === 'current'
+    ? 'Ca đang chạy, từ 12h trưa tới giờ'
+    : range.shift === 'prev'
+    ? 'Trọn ca trước, 24 giờ'
+    : soNgay
+    ? `Trung bình ${num(Math.round(tongPhan / soNgay))} phần mỗi ngày`
+    : 'Toàn bộ lịch sử';
 
   /** Số cột ĐANG HIỆN của bảng. Không phải hằng số: khoảng 720–1023px cột "Nhóm" bị ẩn cho
    *  vừa màn, nên lúc đó bảng chỉ còn 6 cột.
@@ -221,7 +243,7 @@ export function DishSalesScreen({
       </section>
 
       <FilterBar
-        range={range} onRangeChange={onRangeChange}
+        range={range} onRangeChange={onRangeChange} shiftChips
         search={{ value: tim, onChange: setTim, placeholder: 'Tên món, vd: bún', label: 'Tìm tên món' }}
         ariaLabel="Bộ lọc món đã bán"
         extra={nhomMon.length > 0 ? (
@@ -240,19 +262,21 @@ export function DishSalesScreen({
       <section className="kpis" aria-label="Chỉ số bán hàng trong kỳ">
         <div className="kpi">
           <div className="kpi__label">Tổng doanh thu</div>
-          <div className="kpi__value">{vnd(data?.total_revenue ?? 0)}đ</div>
-          <div className="kpi__note">Cộng từ các món đã bán trong kỳ đang chọn</div>
-        </div>
-        <div className="kpi">
-          <div className="kpi__label">Tổng số phần</div>
-          <div className="kpi__value">{num(data?.total_qty ?? 0)}</div>
+          <div className="kpi__value">{vnd(tongTien)}đ</div>
           <div className="kpi__note">
-            {soNgay ? `Trung bình ${num(Math.round((data?.total_qty ?? 0) / soNgay))} phần mỗi ngày` : 'Toàn bộ lịch sử'}
+            {dangLoc
+              ? `Chỉ các món đang lọc · ${pctVN(data?.total_revenue ? (tongTien / data.total_revenue) * 100 : 0)}% doanh thu cả kỳ`
+              : 'Cộng từ các món đã bán trong kỳ đang chọn'}
           </div>
         </div>
         <div className="kpi">
-          <div className="kpi__label">Số món có bán</div>
-          <div className="kpi__value">{num(data?.items.length ?? 0)}</div>
+          <div className="kpi__label">Tổng số phần</div>
+          <div className="kpi__value">{num(tongPhan)}</div>
+          <div className="kpi__note">{ghiChuPhan}</div>
+        </div>
+        <div className="kpi">
+          <div className="kpi__label">{dangLoc ? 'Số món khớp lọc' : 'Số món có bán'}</div>
+          <div className="kpi__value">{num(rows.length)}</div>
           <div className="kpi__note">
             {daGo > 0 ? `${daGo} món đã gỡ khỏi menu vẫn phát sinh doanh thu trong kỳ` : 'Tất cả đều còn trong menu'}
           </div>

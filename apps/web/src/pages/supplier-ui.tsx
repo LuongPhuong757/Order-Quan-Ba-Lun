@@ -4,8 +4,8 @@
 // Biến động giá, Món đã bán). Mỗi màn tự vẽ một bản thì sớm muộn có màn thiếu "Tháng trước",
 // có màn để mặc định 7 ngày — mà hai màn cạnh nhau nói về hai kỳ khác nhau là con số nào cũng
 // phải kiểm lại trước khi tin.
-import { type ReactNode } from 'react';
-import { vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { useState, type ReactNode } from 'react';
+import { presetRange, rangeLabel, vnDayIso, type DayRange } from '../lib/date-range.ts';
 import type { PairReport } from './SupplierReports.tsx';
 
 export const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
@@ -41,7 +41,8 @@ export const SearchIco = () => (
   </svg>
 );
 
-export type Preset = 'all' | 'today' | '7d' | '30d' | 'month' | 'lastmonth' | 'custom';
+export type Preset =
+  | 'all' | 'shift' | 'prev-shift' | 'today' | '7d' | '30d' | 'month' | 'lastmonth' | 'custom';
 const PRESETS: Array<{ v: Preset; label: string }> = [
   { v: 'all', label: 'Tất cả' },
   { v: 'today', label: 'Hôm nay' },
@@ -50,6 +51,13 @@ const PRESETS: Array<{ v: Preset; label: string }> = [
   { v: 'month', label: 'Tháng này' },
   { v: 'lastmonth', label: 'Tháng trước' },
   { v: 'custom', label: 'Tuỳ chọn' },
+];
+/** Chip ca (2026-09-26, chủ quán yêu cầu cho tab Món đã bán) — đứng NGAY SAU 'Tất cả', trước
+ *  'Hôm nay', cùng vị trí với màn Lịch sử. Mốc ca (12h trưa) và cách tính lấy nguyên từ
+ *  `date-range.ts`, nên "Ca này" ở đây và ở Lịch sử luôn là cùng một khoảng. */
+const SHIFT_PRESETS: Array<{ v: Preset; label: string }> = [
+  { v: 'shift', label: 'Ca này' },
+  { v: 'prev-shift', label: 'Ca trước' },
 ];
 
 export function khoangCuaPreset(p: Preset, nowMs: number): DayRange {
@@ -60,6 +68,8 @@ export function khoangCuaPreset(p: Preset, nowMs: number): DayRange {
   const cuoiThang = (yy: number, mm: number) => new Date(Date.UTC(yy, mm, 0)).getUTCDate();
   switch (p) {
     case 'all': return { from: '', to: '' };
+    case 'shift': return presetRange('shift', nowMs);
+    case 'prev-shift': return presetRange('prev-shift', nowMs);
     case 'today': return { from: today, to: today };
     case '7d': return { from: dd(6), to: today };
     case '30d': return { from: dd(29), to: today };
@@ -76,6 +86,10 @@ export function khoangCuaPreset(p: Preset, nowMs: number): DayRange {
 /** Suy NGƯỢC preset đang bật từ khoảng ngày, không giữ thêm một state riêng: giữ riêng thì sửa
  *  tay một ô ngày mà chip vẫn sáng — tức là giao diện nói dối. */
 export function presetDangBat(r: DayRange, nowMs: number): Preset {
+  // Ca phải xét TRƯỚC 'all': khoảng ca cũng để trống hai ô ngày (xem `DayRange.shift`), xét sau
+  // là chip "Tất cả" sáng trong khi bảng đang hiện một ca.
+  if (r.shift === 'current') return 'shift';
+  if (r.shift === 'prev') return 'prev-shift';
   if (!r.from && !r.to) return 'all';
   for (const p of ['today', '7d', '30d', 'month', 'lastmonth'] as Preset[]) {
     const k = khoangCuaPreset(p, nowMs);
@@ -88,9 +102,14 @@ export function presetDangBat(r: DayRange, nowMs: number): Preset {
  *  không bao giờ xuống dòng (chủ quán chốt 2026-09-19). */
 export function FilterBar({
   range, onRangeChange, suppliers, supplierId, onSupplierChange, search, ariaLabel, extra,
+  shiftChips = false,
 }: {
   range: DayRange;
   onRangeChange: (r: DayRange) => void;
+  /** Hiện thêm hai chip "Ca này"/"Ca trước". Chỉ bật ở màn mà API nhận `start_ms`/`end_ms`
+   *  (hiện là Món đã bán): các màn NCC khác lọc theo NGÀY, đưa ca vào là chúng hiểu thành
+   *  "toàn bộ lịch sử" — xem `SuppliersPage` cách nó bỏ ca khi đổi tab. */
+  shiftChips?: boolean;
   suppliers?: Array<{ id: string; name: string }>;
   supplierId?: string;
   onSupplierChange?: (id: string) => void;
@@ -100,6 +119,14 @@ export function FilterBar({
 }) {
   const now = Date.now();
   const preset = presetDangBat(range, now);
+  // Nút "Tuỳ chọn" phải có state RIÊNG (2026-09-26): trước đây hai ô ngày chỉ hiện khi khoảng
+  // đang xem không khớp chip nào — mà cách duy nhất để có khoảng như thế lại là gõ vào chính
+  // hai ô đó. Bấm "Tuỳ chọn" vì thế không làm gì cả. Cờ này mở ô ngày ngay khi bấm; bấm một
+  // chip khác thì đóng lại. Vẫn KHÔNG lưu "preset đang chọn" vào state — chip sáng vẫn suy từ
+  // khoảng ngày, chỉ riêng việc ô ngày có mở hay không là do người dùng quyết.
+  const [moTuyChon, setMoTuyChon] = useState(false);
+  const hienONgay = moTuyChon || preset === 'custom';
+  const chips = shiftChips ? [PRESETS[0], ...SHIFT_PRESETS, ...PRESETS.slice(1)] : PRESETS;
   const soNgay = range.from && range.to
     ? Math.round((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1
     : null;
@@ -107,26 +134,32 @@ export function FilterBar({
     <section className="filterbar" aria-label={ariaLabel}>
       <div className="filterbar__scroll">
         <div className="fgroup" role="group" aria-label="Chọn kỳ xem">
-          {PRESETS.map((p) => (
-            <button key={p.v} className="chip" type="button" aria-pressed={preset === p.v}
-                    onClick={() => p.v !== 'custom' && onRangeChange(khoangCuaPreset(p.v, Date.now()))}>
+          {chips.map((p) => (
+            <button key={p.v} className="chip" type="button"
+                    aria-pressed={p.v === 'custom' ? hienONgay : preset === p.v && !moTuyChon}
+                    onClick={() => {
+                      if (p.v === 'custom') { setMoTuyChon(true); return; }
+                      setMoTuyChon(false);
+                      onRangeChange(khoangCuaPreset(p.v, Date.now()));
+                    }}>
               {p.label}
             </button>
           ))}
         </div>
-        {preset === 'custom' && (
+        {hienONgay && (
           <div className="fgroup filterbar__dates">
+            {/* Gõ ngày là bỏ cờ ca: khoảng ca và khoảng ngày loại trừ nhau (xem `DayRange`). */}
             <div className="field field--date">
               <label className="field__label" htmlFor={`${ariaLabel}-from`}>Từ</label>
               <input className="input" type="date" id={`${ariaLabel}-from`} value={range.from}
                      max={range.to || vnDayIso(now)}
-                     onChange={(e) => onRangeChange({ ...range, from: e.target.value })} />
+                     onChange={(e) => onRangeChange({ from: e.target.value, to: range.to })} />
             </div>
             <div className="field field--date">
               <label className="field__label" htmlFor={`${ariaLabel}-to`}>Đến</label>
               <input className="input" type="date" id={`${ariaLabel}-to`} value={range.to}
                      min={range.from} max={vnDayIso(now)}
-                     onChange={(e) => onRangeChange({ ...range, to: e.target.value })} />
+                     onChange={(e) => onRangeChange({ from: range.from, to: e.target.value })} />
             </div>
           </div>
         )}
@@ -158,8 +191,12 @@ export function FilterBar({
         {extra}
       </div>
       <p className="filterbar__note" role="status">
-        {range.from && range.to
+        {range.shift
+          ? <>Đang xem: <b>{rangeLabel(range, now)}</b></>
+          : range.from && range.to
           ? <>Đang xem: <b>{ngayDay(range.from)} → {ngayDay(range.to)}</b>{soNgay ? ` · ${soNgay} ngày` : ''}</>
+          : range.from || range.to
+          ? <>Đang xem: <b>{rangeLabel(range)}</b></>
           : <>Đang xem: <b>toàn bộ lịch sử</b></>}
       </p>
     </section>

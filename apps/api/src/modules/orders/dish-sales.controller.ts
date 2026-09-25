@@ -1,5 +1,5 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
-import { DishSalesService } from './dish-sales.service.js';
+import { DishSalesService, type KyLoc } from './dish-sales.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 
@@ -17,17 +17,17 @@ import { ReportGuard } from '../auth/guards/report.guard.js';
 export class DishSalesController {
   constructor(private readonly svc: DishSalesService) {}
 
-  /** GET /dish-sales?from=YYYY-MM-DD&to=YYYY-MM-DD
+  /** GET /dish-sales?from=YYYY-MM-DD&to=YYYY-MM-DD  hoặc  ?start_ms=&end_ms=
    *
    * Thiếu cả hai = toàn bộ lịch sử. Cùng luật với `/supplier-reports/pairs` để hai màn báo cáo
-   * không cần học hai kiểu tham số.
+   * không cần học hai kiểu tham số. `start_ms`/`end_ms` là mốc ca (2026-09-26), cùng tên với
+   * `/orders/stats` — chip "Ca này"/"Ca trước" của màn Lịch sử dùng lại được y nguyên.
    */
   @Get()
   async report(@Query() q: Record<string, string>) {
-    const from = isDay(q.from) ? q.from : undefined;
-    const to = isDay(q.to) ? q.to : undefined;
-    const r = await this.svc.report({ from, to });
-    return { data: { from: from ?? null, to: to ?? null, ...r } };
+    const ky = docKy(q);
+    const r = await this.svc.report(ky);
+    return { data: { from: ky.from ?? null, to: ky.to ?? null, ...r } };
   }
 
   /** GET /dish-sales/orders?menu_item_id=&name=&from=&to=&page=&size=
@@ -47,8 +47,7 @@ export class DishSalesController {
       data: await this.svc.ordersForDish({
         menu_item_id: q.menu_item_id || undefined,
         name: q.name || undefined,
-        from: isDay(q.from) ? q.from : undefined,
-        to: isDay(q.to) ? q.to : undefined,
+        ...docKy(q),
         page,
         size,
       }),
@@ -61,4 +60,18 @@ export class DishSalesController {
  *  ích hơn một màn báo lỗi đỏ. */
 function isDay(v?: string): v is string {
   return !!v && /^\d{4}-\d{2}-\d{2}$/.test(v);
+}
+
+/** Mốc ms chỉ nhận số nguyên dương; rác thì bỏ qua như `isDay`. */
+function isMs(v?: string): v is string {
+  return !!v && /^\d{1,16}$/.test(v);
+}
+
+function docKy(q: Record<string, string>): KyLoc {
+  return {
+    from: isDay(q.from) ? q.from : undefined,
+    to: isDay(q.to) ? q.to : undefined,
+    start_ms: isMs(q.start_ms) ? Number(q.start_ms) : undefined,
+    end_ms: isMs(q.end_ms) ? Number(q.end_ms) : undefined,
+  };
 }

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, Repository, type SelectQueryBuilder } from 'typeorm';
 import { OrderItem } from './entities/order-item.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
@@ -55,8 +55,12 @@ export class DishSalesService {
    * `from`/`to` là ngày kinh doanh GIỜ VN ('YYYY-MM-DD'), cùng quy ước với `date-range.ts` bên
    * web. Quy đổi ở đây chứ không để màn hình gửi mốc ms: `new Date('2026-09-01T00:00:00')` bên
    * trình duyệt lấy múi giờ CỦA MÁY, nên một cái máy đặt sai giờ sẽ đọc ra một kỳ khác.
+   *
+   * `start_ms`/`end_ms` (2026-09-26) là mốc epoch ms cho chip "Ca này"/"Ca trước": ca mở lúc
+   * 12h trưa nên KHÔNG quy được về ngày, cùng cách `/orders/stats` đang nhận. Có mốc ms thì nó
+   * thắng `from`/`to` — hai kiểu cùng lúc là màn hình gửi sai, xem `mocKy`.
    */
-  async report(opts: { from?: string; to?: string }): Promise<DishSalesResult> {
+  async report(opts: KyLoc): Promise<DishSalesResult> {
     const qb = this.itemRepo
       .createQueryBuilder('i')
       .innerJoin('orders', 'o', 'o.id = i.order_id')
@@ -78,14 +82,7 @@ export class DishSalesService {
 
     // COALESCE giống `ConsumptionService.report`: đơn chưa kết sổ thì lấy mốc mở bàn, nếu không
     // nó rơi khỏi mọi khoảng ngày và biến mất khỏi báo cáo dù bếp đã nấu thật.
-    const fromMs = dayStartMs(opts.from);
-    if (fromMs !== null) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
-    }
-    const toMs = dayEndMs(opts.to);
-    if (toMs !== null) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
-    }
+    apDungKy(qb, opts);
 
     const [raw, menu, groups] = await Promise.all([
       qb.getRawMany<{
@@ -139,11 +136,9 @@ export class DishSalesService {
     menu_item_id?: string;
     /** Chỉ dùng cho món gõ tay (không có `menu_item_id`) — khớp đúng tên đã snapshot. */
     name?: string;
-    from?: string;
-    to?: string;
     page: number;
     size: number;
-  }): Promise<{ items: DishOrderRow[]; total: number; page: number; page_size: number }> {
+  } & KyLoc): Promise<{ items: DishOrderRow[]; total: number; page: number; page_size: number }> {
     const base = () => {
       const qb = this.itemRepo
         .createQueryBuilder('i')
@@ -156,14 +151,7 @@ export class DishSalesService {
       // `IS NULL`, nếu không nó vơ luôn các đơn của món cùng tên đang có trong menu.
       else qb.andWhere('i.menu_item_id IS NULL AND i.menu_item_name = :nm', { nm: opts.name ?? '' });
 
-      const fromMs = dayStartMs(opts.from);
-      if (fromMs !== null) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
-      }
-      const toMs = dayEndMs(opts.to);
-      if (toMs !== null) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
-      }
+      apDungKy(qb, opts);
       return qb;
     };
 
@@ -228,6 +216,30 @@ export class DishSalesService {
       page: opts.page,
       page_size: opts.size,
     };
+  }
+}
+
+/** Kỳ lọc: theo ngày kinh doanh ('YYYY-MM-DD') hoặc theo mốc epoch ms (chip ca). */
+export type KyLoc = { from?: string; to?: string; start_ms?: number; end_ms?: number };
+
+/** Hai đầu kỳ dưới dạng epoch ms. Mốc ms thắng mốc ngày: ca không quy được về ngày, còn màn
+ *  hình thì chỉ gửi một trong hai kiểu — xem `DishSalesScreen`. */
+function mocKy(opts: KyLoc): { fromMs: number | null; toMs: number | null } {
+  return {
+    fromMs: opts.start_ms ?? dayStartMs(opts.from),
+    toMs: opts.end_ms ?? dayEndMs(opts.to),
+  };
+}
+
+/** Gắn điều kiện kỳ vào query — MỘT chỗ cho cả `report()` lẫn `ordersForDish()`, để tổng ở
+ *  bảng ngoài và số đơn bung ra không bao giờ lọc hai kỳ khác nhau. */
+function apDungKy(qb: SelectQueryBuilder<OrderItem>, opts: KyLoc): void {
+  const { fromMs, toMs } = mocKy(opts);
+  if (fromMs !== null) {
+    qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
+  }
+  if (toMs !== null) {
+    qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
   }
 }
 

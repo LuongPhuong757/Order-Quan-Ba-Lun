@@ -215,6 +215,28 @@ describe('DishSalesService.report', () => {
     const trong = await ky();
     expect(trong.items.find((x) => x.menu_item_id === phoId)?.qty).toBe(1);
   }, 20_000);
+
+  it('lọc theo mốc ms (chip ca) — mốc ms thắng mốc ngày, và không cắt nhầm biên', async () => {
+    await insertOrder([{ menuItemId: phoId, name: 'Phở bò', price: 50_000, qty: 1, state: 'SERVED' }]);
+    const luc = TRUA_VN.getTime();
+    const qtyPho = (r: { items: Array<{ menu_item_id: string | null; qty: number }> }) =>
+      r.items.find((x) => x.menu_item_id === phoId)?.qty ?? 0;
+
+    // Ca bao trọn giờ đơn → có; kết thúc đúng 1ms trước giờ đơn → không.
+    expect(qtyPho(await svc.report({ start_ms: luc - 3600_000, end_ms: luc + 3600_000 }))).toBe(1);
+    expect(qtyPho(await svc.report({ start_ms: luc - 3600_000, end_ms: luc - 1 }))).toBe(0);
+    // Ca đang chạy: chỉ có đầu dưới, đầu trên bỏ ngỏ.
+    expect(qtyPho(await svc.report({ start_ms: luc }))).toBe(1);
+    expect(qtyPho(await svc.report({ start_ms: luc + 1 }))).toBe(0);
+    // Gửi cả hai kiểu thì mốc ms thắng: ngày bao trọn nhưng ms loại ra → 0.
+    expect(qtyPho(await svc.report({ from: NGAY, to: NGAY, start_ms: luc + 1 }))).toBe(0);
+
+    // Bảng đơn bung ra dùng CÙNG bộ lọc.
+    const don = await svc.ordersForDish({ menu_item_id: phoId, start_ms: luc - 1, end_ms: luc + 1, page: 1, size: 20 });
+    expect(don.total).toBe(1);
+    const ngoai = await svc.ordersForDish({ menu_item_id: phoId, start_ms: luc + 1, page: 1, size: 20 });
+    expect(ngoai.total).toBe(0);
+  }, 20_000);
 });
 
 describe('DishSalesService.ordersForDish — bấm vào món ra các đơn đã gọi', () => {

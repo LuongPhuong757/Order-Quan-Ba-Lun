@@ -93,6 +93,14 @@ export function SuppliersPage() {
   // phải kiểm lại trước khi tin. `/suppliers` nhận `from`/`to` nên đây là bộ lọc THẬT, không
   // phải lọc ở phía màn hình.
   const [range, setRange] = useState<DayRange>(() => presetRange('30d', Date.now()));
+  /** Đổi tab. Kỳ dùng chung cho cả trang, nhưng khoảng CA (chip "Ca này"/"Ca trước", chỉ có ở
+   *  tab Món đã bán) thì các tab khác không hiểu — API của chúng lọc theo ngày, gặp `from`/`to`
+   *  rỗng là trả toàn bộ lịch sử trong khi chip vẫn đang chỉ một ca. Nên rời tab đó khi đang
+   *  xem ca là về lại 30 ngày, thay vì im lặng đổi nghĩa con số. */
+  const chonTab = (t: Tab) => {
+    if (t !== 'dishes' && range.shift) setRange(presetRange('30d', Date.now()));
+    setTab(t);
+  };
   // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
   // tiêu của một NCC rồi chuyển tab để nhìn góc khác của CÙNG NCC đó — bắt chọn lại ở mỗi tab là
   // ba lần chọn cho một câu hỏi.
@@ -203,7 +211,7 @@ export function SuppliersPage() {
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setTab(t.value)}
+                onClick={() => chonTab(t.value)}
                 style={{
                   minHeight: 44,
                   padding: '0 14px',
@@ -315,7 +323,7 @@ export function SuppliersPage() {
           onRangeChange={setRange}
           onOpen={setDetail}
           onNew={() => setShowEditor('new')}
-          onGoTab={setTab}
+          onGoTab={chonTab}
         />
       )}
 
