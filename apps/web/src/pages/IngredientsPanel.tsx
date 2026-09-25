@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { AddSupplierItemModal } from './AddSupplierItemModal.tsx';
 
 type SupplierInfo = {
   supplier_id: string;
@@ -57,6 +58,9 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   // Nguyên liệu đang chờ được gộp vào một dòng khác. Chọn nguồn trước, rồi bấm đích — cách này
   // đỡ nhầm hơn hộp thoại 2 dropdown: người dùng nhìn thẳng vào danh sách thật để chọn.
   const [mergeFrom, setMergeFrom] = useState<Ingredient | null>(null);
+  /** Hộp thoại khai mặt hàng cho NCC (M6.D-19) — đường tạo nguyên liệu duy nhất còn lại ngoài
+   * phiếu nhập, và nó vẫn giữ bất biến "nguyên liệu phải thuộc một NCC, phải có giá". */
+  const [showAddItem, setShowAddItem] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -176,6 +180,9 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
             placeholder="Tìm nguyên liệu (gõ không dấu cũng được)"
             style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}
           />
+          <button onClick={() => setShowAddItem(true)} style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
+            + Mặt hàng
+          </button>
         </div>
 
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 120 }}>
@@ -257,6 +264,12 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
           })}
         </div>
 
+        {showAddItem && (
+          <AddSupplierItemModal
+            onClose={() => setShowAddItem(false)}
+            onSaved={() => { setShowAddItem(false); refresh(); }}
+          />
+        )}
         {editing && (
           <IngredientForm
             editing={editing}

@@ -22,6 +22,8 @@ function build(deliveryCount: number) {
     {} as never,
     deliveryRepo as never,
     {} as never,
+    // IngredientsService — chỉ `addItem` dùng tới, không phải đường đi của bộ test này.
+    {} as never,
   );
   return { svc, supplier };
 }

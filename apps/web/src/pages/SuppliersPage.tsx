@@ -22,6 +22,7 @@ import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
+import { AddSupplierItemModal } from './AddSupplierItemModal.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { ItemStatsPanel, PriceHistoryDialog } from './SupplierReports.tsx';
 import type { Balance } from './SupplierPayments.tsx';
@@ -107,6 +108,10 @@ export function SuppliersPage() {
   const [showEditor, setShowEditor] = useState<Supplier | 'new' | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
   const [history, setHistory] = useState<{ id: string; name: string } | null>(null);
+  const [addItem, setAddItem] = useState(false);
+  /** Tăng lên sau khi khai mặt hàng mới → `key` của bảng đổi → panel tự tải lại. Rẻ hơn là
+   * luồn một hàm refresh xuyên qua component con chỉ để dùng một lần. */
+  const [itemsVersion, setItemsVersion] = useState(0);
   const [balances, setBalances] = useState<Map<string, Balance>>(new Map());
   // Tăng lên mỗi khi có thứ làm đổi công nợ (phiếu mới, thanh toán, số dư đầu kỳ) — khối công nợ
   // trong chi tiết NCC nạp lại theo giá trị này.
@@ -343,10 +348,28 @@ export function SuppliersPage() {
       )}
 
       {tab === 'items' && (
-        <ItemStatsPanel
-          supplierId={filterSupplierId || undefined}
-          onOpenHistory={(id, name) => setHistory({ id, name })}
-        />
+        <>
+          {/* Khai mặt hàng mới ngay tại tab này (M6.D-19): đây là chỗ chủ quán đang nhìn bảng
+              "NCC nào bán gì giá bao nhiêu", nên cũng là chỗ tự nhiên nhất để thêm một dòng.
+              Không lập phiếu nhập, không cộng công nợ. */}
+          <div className="flex" style={{ justifyContent: 'flex-end', marginBottom: 10 }}>
+            <button onClick={() => setAddItem(true)} style={{ padding: '8px 14px' }}>
+              + Mặt hàng
+            </button>
+          </div>
+          <ItemStatsPanel
+            key={itemsVersion}
+            supplierId={filterSupplierId || undefined}
+            onOpenHistory={(id, name) => setHistory({ id, name })}
+          />
+          {addItem && (
+            <AddSupplierItemModal
+              defaultSupplierId={filterSupplierId || undefined}
+              onClose={() => setAddItem(false)}
+              onSaved={() => { setAddItem(false); setItemsVersion((v) => v + 1); }}
+            />
+          )}
+        </>
       )}
 
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —

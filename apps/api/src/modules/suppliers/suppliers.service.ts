@@ -7,6 +7,8 @@ import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { normalizeName } from '../ingredients/ingredient-units.js';
+import { IngredientsService } from '../ingredients/ingredients.service.js';
+import { computeLineAmounts } from './purchase-units.js';
 
 /** NCC kèm số liệu kỳ đang xem — đúng những cột tab "Nhà cung cấp" hiển thị (mục 3 của spec). */
 export type SupplierWithStats = Supplier & {
@@ -37,6 +39,7 @@ export class SuppliersService {
     @InjectRepository(SupplierItem) private readonly itemRepo: Repository<SupplierItem>,
     @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
+    private readonly ingredients: IngredientsService,
   ) {}
 
   /** Danh sách NCC + số liệu kỳ. `from`/`to` dạng 'YYYY-MM-DD', bao gồm cả hai đầu.
@@ -200,6 +203,88 @@ export class SuppliersService {
    *
    * Đây cũng là nguồn để màn nhập phiếu điền sẵn đơn vị mua + giá lần trước (M3.D-20).
    */
+  /** Khai một mặt hàng cho NCC mà KHÔNG lập phiếu nhập (M6.D-19, 2026-09-25).
+   *
+   * Dùng khi chủ quán muốn đưa một thứ lên menu trước khi thật sự nhập nó: "Chợ Đồng Xuân bán
+   * ngao 45.000đ/kg". Ghi thẳng vào `supplier_items` — nơi giá vốn món và ô gợi ý nguyên liệu
+   * đọc ra. KHÔNG đụng `supplier_deliveries`, nên:
+   *   - không cộng vào công nợ NCC (chưa mua thì chưa nợ),
+   *   - không hiện ở danh sách phiếu nhập,
+   *   - CHƯA hiện ở màn Biến động giá — màn đó đọc lịch sử phiếu, mà mặt hàng này chưa có lần
+   *     nhập nào để mà "biến động". Nó sẽ xuất hiện ngay sau phiếu nhập thật đầu tiên.
+   *
+   * Lần nhập thật sau đó so giá với chính con số khai ở đây, nên khai sai giá sẽ thành một cảnh
+   * báo biến động giá giả. Đó là lý do ô giá bắt buộc và không có giá trị mặc định.
+   */
+  async addItem(
+    supplier_id: string,
+    input: {
+      ingredient_name: string;
+      base_unit: string;
+      purchase_unit: string;
+      qty_base_per_unit: number;
+      unit_price: number;
+      date?: string;
+    },
+  ): Promise<SupplierItemRow> {
+    await this.get(supplier_id);
+
+    const name = input.ingredient_name.trim();
+    if (!name) {
+      throw new BadRequestException({ code: 'BAD_INPUT', message: 'Thiếu tên mặt hàng' });
+    }
+    if (!(input.qty_base_per_unit > 0)) {
+      throw new BadRequestException({
+        code: 'BAD_INPUT',
+        message: `"${input.purchase_unit}" quy ra bao nhiêu ${input.base_unit}? Hệ số phải lớn hơn 0`,
+      });
+    }
+
+    const { ingredient } = await this.ingredients.findOrCreate(name, input.base_unit);
+
+    // Nguyên liệu đã có với đơn vị gốc KHÁC: chặn thay vì im lặng dùng đơn vị cũ. Hệ số người
+    // dùng vừa khai được hiểu theo đơn vị họ đang nghĩ trong đầu; áp nó lên một đơn vị khác là
+    // sai lệch thẳng vào giá vốn mà không có dấu hiệu nào.
+    const wanted = input.base_unit.trim().toLowerCase();
+    if (wanted && ingredient.unit.toLowerCase() !== wanted) {
+      throw new ConflictException({
+        code: 'UNIT_MISMATCH',
+        message:
+          `"${ingredient.name}" đang tính theo ${ingredient.unit}, không phải ${input.base_unit}. ` +
+          'Dùng đúng đơn vị đó, hoặc đổi đơn vị của nguyên liệu ở màn Nguyên liệu trước.',
+      });
+    }
+
+    const amounts = computeLineAmounts({
+      qty_purchase: 1,
+      unit_price: input.unit_price,
+      qty_base_per_unit: input.qty_base_per_unit,
+    });
+    const date = input.date || new Date().toISOString().slice(0, 10);
+
+    const existing = await this.itemRepo.findOne({
+      where: { supplier_id, ingredient_id: ingredient.id },
+    });
+    const row = existing ?? this.itemRepo.create({ supplier_id, ingredient_id: ingredient.id });
+    row.purchase_unit = input.purchase_unit.trim();
+    row.qty_base_per_unit = String(input.qty_base_per_unit);
+    row.last_unit_price = Math.round(input.unit_price);
+    row.last_unit_price_base = String(amounts.unit_price_base);
+    row.last_delivery_date = date;
+    await this.itemRepo.save(row);
+
+    return {
+      ingredient_id: ingredient.id,
+      ingredient_name: ingredient.name,
+      base_unit: ingredient.unit,
+      purchase_unit: row.purchase_unit,
+      qty_base_per_unit: row.qty_base_per_unit,
+      last_unit_price: row.last_unit_price,
+      last_unit_price_base: row.last_unit_price_base,
+      last_delivery_date: row.last_delivery_date,
+    } as SupplierItemRow;
+  }
+
   async items(supplier_id: string): Promise<SupplierItemRow[]> {
     await this.get(supplier_id);
     const items = await this.itemRepo.find({

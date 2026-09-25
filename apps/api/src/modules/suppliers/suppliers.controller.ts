@@ -12,7 +12,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { IsInt, IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 import { SuppliersService } from './suppliers.service.js';
 import type { Request } from 'express';
 import { SupplierAuthService } from './supplier-auth.service.js';
@@ -49,6 +49,20 @@ class UpdateSupplierDto {
  * được danh sách để nhập phiếu hộ, nhưng bảng giá NCC là GIÁ MUA — nhìn được giá mua là nhìn
  * được lãi của quán, nên nhân viên không được vào. Nhập hộ giờ là việc của admin.
  */
+class AddSupplierItemDto {
+  @IsString() @MinLength(1) @MaxLength(128) ingredient_name!: string;
+  /** Đơn vị GỐC — thứ nhỏ nhất dùng khi nấu ("g", "lon", "chai"). */
+  @IsString() @MinLength(1) @MaxLength(16) base_unit!: string;
+  /** Đơn vị NCC báo giá ("KG", "THÙNG"). Chuỗi tự do, cùng lệ với phiếu nhập. */
+  @IsString() @MinLength(1) @MaxLength(32) purchase_unit!: string;
+  /** 1 đơn vị mua = bao nhiêu đơn vị gốc. "1 thùng = 24 lon" → 24. */
+  @IsNumber() @Min(0.001) qty_base_per_unit!: number;
+  /** Đồng / đơn vị mua. Bắt buộc: mặt hàng không giá thì không phục vụ được việc nào ở đây. */
+  @IsInt() @Min(0) unit_price!: number;
+  /** 'YYYY-MM-DD'. Bỏ trống = hôm nay. */
+  @IsOptional() @IsString() @MaxLength(10) date?: string;
+}
+
 @Controller('suppliers')
 @UseGuards(JwtAuthGuard)
 export class SuppliersController {
@@ -79,6 +93,18 @@ export class SuppliersController {
   @UseGuards(ReportGuard)
   async items(@Param('id') id: string) {
     return { data: { items: await this.svc.items(id) } };
+  }
+
+  /** POST /suppliers/:id/items — khai một mặt hàng NCC bán, KHÔNG lập phiếu nhập (M6.D-19).
+   *
+   * Dùng để đưa thứ gì đó lên menu trước khi thật sự nhập nó. Không cộng công nợ, không hiện ở
+   * danh sách phiếu — chỉ có giá để tính giá vốn món và để ô gợi ý nguyên liệu tìm ra.
+   */
+  @Post(':id/items')
+  @HttpCode(201)
+  @UseGuards(AdminGuard)
+  async addItem(@Param('id') id: string, @Body() dto: AddSupplierItemDto) {
+    return { data: await this.svc.addItem(id, dto) };
   }
 
   /** Nợ cũ (`opening_*`) ghi được bởi MỌI admin từ 2026-09-07 — không truyền `is_owner` nữa. */

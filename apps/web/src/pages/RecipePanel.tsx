@@ -20,6 +20,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { lineCost, servingsPerPurchaseUnit, summarizeCost } from '../lib/recipe-cost.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
+import { AddSupplierItemModal } from './AddSupplierItemModal.tsx';
 
 type SupplierInfo = {
   supplier_id: string;
@@ -463,6 +464,8 @@ function AddLineForm({
   const [unit, setUnit] = useState('g');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  /** Tên đang chờ khai thành mặt hàng mới; `null` = hộp thoại đóng. */
+  const [addingName, setAddingName] = useState<string | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
@@ -588,13 +591,14 @@ function AddLineForm({
               </div>
             )}
             {noMatch && (
-              <div className="rc-nomatch">
-                <strong>Chưa mua “{name.trim()}” bao giờ.</strong>
-                <span>
-                  Nguyên liệu sinh ra từ phiếu nhập hàng — khai mặt hàng này ở màn Nhà cung cấp
-                  trước, rồi quay lại đây chọn.
-                </span>
-              </div>
+              /* Trước đây chỗ này chỉ CHỈ ĐƯỜNG sang màn Nhà cung cấp — người khai phải rời màn,
+                 lập phiếu, rồi quay lại gõ tiếp. Giờ mở thẳng hộp thoại khai mặt hàng với tên đã
+                 điền sẵn (M6.D-19). Vẫn giữ bất biến: hộp thoại đó bắt chọn NCC và nhập giá, nên
+                 không đẻ ra nguyên liệu trần không nguồn gốc. */
+              <button type="button" className="rc-nomatch" onClick={() => setAddingName(name.trim())}>
+                <strong>+ Thêm “{name.trim()}” vào kho</strong>
+                <span>Chưa mua thứ này bao giờ — khai nhà cung cấp và giá, không cần lập phiếu nhập.</span>
+              </button>
             )}
           </div>
         )}
@@ -631,6 +635,22 @@ function AddLineForm({
       <div className="rc-hint">
         Nhập kg hay g đều được — hệ thống tự quy về đơn vị gốc của nguyên liệu.
       </div>
+
+      {addingName !== null && (
+        <AddSupplierItemModal
+          defaultName={addingName}
+          onClose={() => setAddingName(null)}
+          onSaved={(created) => {
+            setAddingName(null);
+            setName(created);
+            // Nạp lại danh mục để mặt hàng vừa khai có mặt trong gợi ý, rồi mở lại panel với
+            // tên đã điền — người dùng chỉ còn việc gõ định lượng.
+            onCatalogChanged();
+            setOpen(true);
+            nameRef.current?.focus();
+          }}
+        />
+      )}
     </form>
   );
 }
