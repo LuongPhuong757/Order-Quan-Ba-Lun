@@ -74,3 +74,45 @@ describe('xếp hạng và biên', () => {
     expect(menuSearchScore(MENU[0], 'ktl')).toBeGreaterThan(0);
   });
 });
+
+// ── Ô gợi ý nguyên liệu ở màn Công thức (2026-09-25) ─────────────────────────
+// Ca có thật trên dữ liệu quán: 147 nguyên liệu, gõ "gà" ra 15 kết quả. Bản cũ lọc rồi cắt 6
+// cái đầu theo A→Z nên "Gà" (đứng thứ 8) không bao giờ hiện ra — gõ đúng tên mà không thấy.
+describe('xếp hạng gợi ý nguyên liệu — ca "gà" của quán', () => {
+  const NGUYEN_LIEU = [
+    'Cánh Gà Giữa', 'Cánh Gà Nướng', 'Cánh Gà Xuất', 'Chân Gà Luộc', 'Chân Gà Nướng',
+    'Chân Gà Rút', 'Đùi Gà Nét Việt 1.6', 'Gà', 'Gà Luộc', 'Kê Gà', 'Mề Gà',
+  ].map((name) => ({ name, code: '' }));
+
+  it('gõ "gà" → nguyên liệu tên ĐÚNG "Gà" đứng đầu', () => {
+    const r = filterMenuBySearch(NGUYEN_LIEU, 'gà');
+    expect(r[0].name).toBe('Gà');
+  });
+
+  it('gõ không dấu "ga" cũng ra đúng thứ tự đó', () => {
+    const r = filterMenuBySearch(NGUYEN_LIEU, 'ga');
+    expect(r[0].name).toBe('Gà');
+  });
+
+  it('"Gà" nằm trong 6 kết quả đầu — ngưỡng mà bản cũ cắt mất nó', () => {
+    // Chốt lại đúng con số đã gây lỗi: dù panel có cắt sớm tới đâu, thứ khớp nhất vẫn phải lọt.
+    const top6 = filterMenuBySearch(NGUYEN_LIEU, 'gà').slice(0, 6).map((i) => i.name);
+    expect(top6).toContain('Gà');
+  });
+
+  it('vẫn trả hết các nguyên liệu có chứa "gà", không chỉ cái khớp nhất', () => {
+    const r = filterMenuBySearch(NGUYEN_LIEU, 'gà');
+    expect(r.length).toBe(11);
+    expect(r.map((i) => i.name)).toContain('Chân Gà Rút');
+  });
+
+  it('tên dài hơn xếp sau khi cùng độ khớp', () => {
+    const r = filterMenuBySearch(NGUYEN_LIEU, 'gà').map((i) => i.name);
+    expect(r.indexOf('Gà')).toBeLessThan(r.indexOf('Gà Luộc'));
+  });
+
+  it('gõ tắt cũng chạy: "cgn" → Cánh Gà Nướng', () => {
+    const r = filterMenuBySearch(NGUYEN_LIEU, 'cgn');
+    expect(r[0].name).toBe('Cánh Gà Nướng');
+  });
+});

@@ -19,6 +19,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { lineCost, servingsPerPurchaseUnit, summarizeCost } from '../lib/recipe-cost.ts';
+import { filterMenuBySearch } from '../lib/menu-search.ts';
 
 type SupplierInfo = {
   supplier_id: string;
@@ -475,7 +476,23 @@ function AddLineForm({
   }, []);
 
   const q = norm(name);
-  const matches = q ? catalog.filter((i) => norm(i.name).includes(q)).slice(0, 6) : catalog.slice(0, 6);
+  /* Xếp theo ĐỘ KHỚP, không phải theo bảng chữ cái (sửa 2026-09-25).
+   *
+   * Bản cũ lọc `name.includes(q)` rồi cắt 6 cái đầu theo A→Z. Quán có 147 nguyên liệu, gõ "gà"
+   * ra 15 kết quả và 6 chỗ đầu bị "Cánh Gà Giữa / Cánh Gà Nướng / Cánh Gà Xuất / Chân Gà Luộc /
+   * Chân Gà Nướng / Chân Gà Rút" chiếm hết — nguyên liệu tên ĐÚNG "Gà" đứng thứ 8 nên không bao
+   * giờ hiện ra. Gõ đúng tên mà không thấy là lỗi khó chịu nhất của một ô gợi ý.
+   *
+   * `filterMenuBySearch` là thuật toán màn Gọi món đang dùng: khớp nguyên từ ăn điểm cao hơn
+   * khớp giữa chuỗi, đồng điểm thì tên NGẮN hơn lên trước — nên "Gà" luôn đứng đầu. Kèm theo
+   * được luôn gõ tắt ("cgn" → Cánh Gà Nướng) và gõ không dấu.
+   *
+   * `code: ''` vì nguyên liệu không có mã; hàm chỉ dùng nó như một chỗ khớp phụ. */
+  // KHÔNG cắt danh sách (chủ quán yêu cầu 2026-09-25): hiện hết để chọn được mọi thứ, panel tự
+  // cuộn. Cắt bớt là quay lại đúng lỗi vừa sửa, chỉ khác ở chỗ ngưỡng cao hơn — 147 nguyên liệu
+  // thì ngưỡng nào cũng có ngày chạm. Xếp hạng lo việc đưa thứ khớp nhất lên đầu; cuộn lo phần
+  // còn lại.
+  const matches = filterMenuBySearch(catalog.map((i) => ({ ...i, code: '' })), name);
   // KHÔNG còn lối tạo nguyên liệu ở đây (M6.D-03). Gõ tên chưa có trong danh mục thì chỉ đường
   // sang phiếu nhập — nguyên liệu là thứ ĐÃ TỪNG MUA, và chỗ khai nó là phiếu nhập, nơi đã có
   // sẵn nhà cung cấp, đơn vị mua, hệ số quy đổi và giá.
@@ -565,6 +582,11 @@ function AddLineForm({
             </div>
             {/* Ghim ở ĐÁY panel, ngoài vùng cuộn: cuộn danh sách gợi ý không được làm mất lối
                 tạo mới, mà cũng không được để nó trôi lên giữa các gợi ý. */}
+            {matches.length > 0 && (
+              <div className="rc-more">
+                {matches.length} nguyên liệu{q ? ' khớp' : ' trong kho'} — cuộn để xem hết
+              </div>
+            )}
             {noMatch && (
               <div className="rc-nomatch">
                 <strong>Chưa mua “{name.trim()}” bao giờ.</strong>
