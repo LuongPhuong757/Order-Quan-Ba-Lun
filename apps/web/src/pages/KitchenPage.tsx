@@ -22,6 +22,7 @@ import { NotificationBell } from '../components/NotificationBell.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor, formatAge } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
+import { useOnlineWaitingCount } from '../lib/online-waiting-badge.ts';
 import { shouldReloadCatalog, type CatalogPollState } from '../lib/kds-catalog-poll.ts';
 import {
   addCancelled,
@@ -207,6 +208,13 @@ export function KitchenPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const navigate = useNavigate();
+  // Số đơn online đang CHỜ DUYỆT. Màn bếp chạy full-screen nên `App.tsx` ẩn cả nav dưới —
+  // badge 🛎 ở đó là chỗ DUY NHẤT báo có đơn online, và bếp đứng ở màn này cả ca thì không
+  // bao giờ nhìn thấy nó. Đơn online để quá lâu là mất khách, nên con số phải có mặt NGAY
+  // trên màn bếp. Dùng lại đúng store của badge nav (kênh SSE refcount, không mở thêm kết
+  // nối nào); `true` vì màn này chỉ admin + role kitchen vào được, cả hai đều duyệt được
+  // đơn online (D-02) nên không bao giờ 403.
+  const onlineWaiting = useOnlineWaitingCount(true);
   const [orders, setOrders] = useState<Order[]>([]);
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
@@ -688,12 +696,26 @@ export function KitchenPage() {
           margin: 0 3px;
         }
 
+        /* ─── Thanh trên cùng ─────────────────────────────────────────────────
+           Hàng ngang: dải chế độ xem (co giãn, cuộn ngang được) + nút 🛎 đơn online
+           ghim cứng ở mép PHẢI. Phải là một hàng bọc ngoài chứ không nhét nút vào
+           trong .kds-views: dải đó overflow-x:auto, nhét vào thì trên điện thoại
+           nút trôi ra khỏi vùng nhìn cùng mấy nút chế độ xem — đúng lúc bếp cần liếc
+           nhất thì nó không có ở đó. */
+        .kds-top {
+          display: flex;
+          align-items: stretch;
+          flex-shrink: 0;
+          background: var(--kds-navy);
+        }
+
         /* ─── Dải chế độ xem ──────────────────────────────────────────────────── */
         .kds-views {
           display: flex;
           align-items: center;
           gap: 6px;
-          flex-shrink: 0;
+          flex: 1 1 auto;
+          min-width: 0;
           padding: 6px 10px;
           background: var(--kds-navy);
           color: white;
@@ -701,6 +723,44 @@ export function KitchenPage() {
           overflow-y: hidden;
           -webkit-overflow-scrolling: touch;
         }
+        /* Nút 🛎 đơn online ở góc PHẢI thanh trên. Hai trạng thái khác hẳn nhau về
+           NỀN chứ không chỉ về số: có đơn chờ = nền đỏ đặc (bếp liếc từ xa cả mét vẫn
+           thấy), hết đơn = chìm vào nền navy như một nhãn thông tin. Dùng cùng màu đỏ
+           với badge nav (.nav-badge tone alert) để đơn online ở mọi màn là MỘT màu.
+           min-height/min-width khai lại vì lý do giống .kds-view-btn: rule global cho
+           the button trong styles.css ép 44px, ở đây sẽ đội cao cả thanh. */
+        .kds-online {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          align-self: center;
+          margin-right: 10px;
+          padding: 5px 12px;
+          min-height: 34px;
+          min-width: 0;
+          border-radius: 999px;
+          border: 1.5px solid rgba(255, 255, 255, 0.4);
+          background: transparent;
+          color: rgba(255, 255, 255, 0.85);
+          font-size: 15px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        .kds-online.waiting {
+          background: #dc2626;
+          border-color: #dc2626;
+          color: white;
+          box-shadow: 0 1px 6px rgba(220, 38, 38, 0.5);
+        }
+        .kds-online-n { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+        /* Chữ "Đơn online" chỉ hiện khi còn chỗ — dưới 640px thì icon + số là đủ nghĩa,
+           và mỗi chữ bỏ đi là một nút chế độ xem không bị đẩy ra ngoài mép. */
+        .kds-online-label { display: none; font-size: 13px; font-weight: 700; }
+        @media (min-width: 640px) {
+          .kds-online-label { display: inline; }
+        }
+
         /* 3 nút chế độ xem. CHƯA chọn = rỗng ruột trên nền navy; ĐANG chọn = nền
            trắng đặc chữ navy. Chênh lệch phải là NỀN chứ không chỉ màu chữ: bếp đứng
            cách máy cả mét, chữ 13px đổi từ xám sang navy thì không nhìn ra.
@@ -1228,6 +1288,10 @@ export function KitchenPage() {
           Thanh tab riêng cao 46px đã bỏ: ở màn rộng nó chỉ là tiêu đề cột cho hai
           panel đã nhìn thấy sẵn, còn ở màn hẹp thì 2 nút gọn nhét chung dải này là
           đủ — không tốn thêm một pixel chiều cao nào của danh sách món. */}
+      {/* Bọc ngoài: dải chế độ xem bên trái + nút đơn online ghim mép phải. Ruột của
+          `.kds-views` cố tình GIỮ NGUYÊN mức thụt lề cũ — thụt thêm cả trăm dòng chỉ để
+          khớp một cấp div sẽ nhấn chìm phần sửa thật trong diff. */}
+      <div className="kds-top">
       <div className="kds-views" role="tablist">
         {TABS.map((t) => (
           <button
@@ -1290,7 +1354,31 @@ export function KitchenPage() {
             )}
           </>
         )}
-      </div>
+      </div>{/* /.kds-views */}
+        {/* Đơn online — góc PHẢI thanh trên. Bấm là sang thẳng hàng chờ duyệt: thấy số
+            mà phải tự tìm đường sang thì bếp sẽ gọi người khác, chậm thêm một nhịp.
+            `null` = chưa đếm xong lần đầu (hoặc vừa mất mạng) → hiện '–' chứ KHÔNG hiện
+            0: nói "không có đơn nào" khi chưa biết là lời nói dối tốn khách. */}
+        <button
+          type="button"
+          className={`kds-online ${onlineWaiting ? 'waiting' : ''}`}
+          onClick={() => navigate('/admin/online-orders')}
+          title={
+            onlineWaiting
+              ? `${onlineWaiting} đơn online đang chờ duyệt — bấm để mở hàng chờ`
+              : 'Đơn hàng online — bấm để mở hàng chờ duyệt'
+          }
+          aria-label={
+            onlineWaiting !== null
+              ? `${onlineWaiting} đơn online đang chờ duyệt`
+              : 'Đơn online đang chờ duyệt'
+          }
+        >
+          <span aria-hidden="true">🛎</span>
+          <span className="kds-online-label">Đơn online</span>
+          <span className="kds-online-n">{onlineWaiting ?? '–'}</span>
+        </button>
+      </div>{/* /.kds-top */}
 
       {/* ─── Board ───────────────────────────────────────────────────────────── */}
       <div className="kds-board">
