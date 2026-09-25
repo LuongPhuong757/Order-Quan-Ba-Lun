@@ -128,6 +128,18 @@ services:
       # Link bí mật cập nhật ảnh món (2026-08-16) — ≥16 ký tự thì /anh-mon/<token> hoạt động,
       # bỏ trống = tính năng tắt hẳn. Xem public-menu-photos.controller.ts.
       MENU_PHOTO_TOKEN: ${MENU_PHOTO_TOKEN:-}
+      # ── Đối soát chuyển khoản qua SePay (2026-09-25) ──
+      # Thiếu `SEPAY_WEBHOOK_KEY` thì API TỪ CHỐI MỌI webhook (cấu hình thiếu phải biểu hiện
+      # thành "không nhận được gì", không thành một endpoint mở toang). Khoá phải KHÁC nhau giữa
+      # dev và production — dùng chung là ai có khoá dev bắn giả được vào prod.
+      SEPAY_WEBHOOK_KEY: ${SEPAY_WEBHOOK_KEY:-}
+      # Bật job quét bù giao dịch lỡ webhook. Bỏ trống = chỉ còn webhook.
+      SEPAY_API_TOKEN: ${SEPAY_API_TOKEN:-}
+      SEPAY_API_URL: ${SEPAY_API_URL:-}
+      # CẦU DAO của công tắc "xác thực giao dịch tại quầy": đặt `1` là ép tắt bất kể DB ghi gì.
+      # Dòng này BẮT BUỘC phải có ở đây — compose liệt kê biến tường minh, nên thiếu nó thì đặt
+      # biến trong .env cũng không tới được container, và cầu dao vô dụng đúng lúc cần nhất.
+      BANK_VERIFY_DISABLED: ${BANK_VERIFY_DISABLED:-}
     volumes:
       # Persist menu images (mất container không mất file)
       - ./uploads:/app/apps/api/uploads
