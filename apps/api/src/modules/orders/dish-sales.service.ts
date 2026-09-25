@@ -101,13 +101,24 @@ export class DishSalesService {
       this.groupRepo.find(),
     ]);
 
-    const sold: SoldRow[] = raw.map((r) => ({
-      menu_item_id: r.menu_item_id,
-      name: r.name,
-      qty: Number(r.qty) || 0,
-      revenue: Number(r.revenue) || 0,
-      orders: Number(r.orders) || 0,
-    }));
+    // Tiền nguyên liệu đã tốn, cộng từ bản chốt tiêu hao (M6.D-17). Truy vấn RIÊNG thay vì join
+    // vào câu trên: `order_item_ingredient_usage` có nhiều dòng cho mỗi dòng món (một dòng mỗi
+    // nguyên liệu), join thẳng vào là `SUM(i.qty)` bị nhân lên theo số nguyên liệu — doanh thu
+    // và số phần phình lên im lặng. Hai câu rồi ghép trong bộ nhớ thì không có cách nào sai.
+    const costs = await this.loadCosts(fromMs, toMs);
+
+    const sold: SoldRow[] = raw.map((r) => {
+      const c = r.menu_item_id ? costs.get(r.menu_item_id) : undefined;
+      return {
+        menu_item_id: r.menu_item_id,
+        name: r.name,
+        qty: Number(r.qty) || 0,
+        revenue: Number(r.revenue) || 0,
+        orders: Number(r.orders) || 0,
+        cost: c?.cost ?? 0,
+        cost_missing: c?.missing ?? 0,
+      };
+    });
 
     return buildDishSales(
       sold,
@@ -121,6 +132,44 @@ export class DishSalesService {
       groups.map((g) => ({ code: g.code, name: g.name, icon: g.icon })),
     );
   }
+
+  /** Tiền nguyên liệu đã tốn theo từng món trong kỳ, từ bản chốt tiêu hao.
+   *
+   * Dùng `cost_total` đã chốt lúc bếp nấu (M6.D-15), KHÔNG nhân lại với giá hôm nay: báo cáo
+   * tháng 9 phải đọc lên cùng một con số dù tháng 10 giá tôm đã khác.
+   *
+   * Lọc kỳ theo `COALESCE(o.closed_at, o.opened_at)` — BẰNG ĐÚNG câu truy vấn doanh thu ở trên.
+   * Hai bên lọc theo hai mốc khác nhau thì tiền nguyên liệu và doanh thu nằm cạnh nhau nhưng
+   * thuộc hai kỳ khác nhau, và lãi gộp thành con số vô nghĩa.
+   *
+   * `cost_total` NULL = nguyên liệu chưa có giá lúc chốt; đếm riêng vào `missing` chứ không cộng
+   * như 0đ.
+   */
+  private async loadCosts(
+    fromMs: number | null,
+    toMs: number | null,
+  ): Promise<Map<string, { cost: number; missing: number }>> {
+    const qb = this.itemRepo
+      .createQueryBuilder('i')
+      .innerJoin('order_item_ingredient_usage', 'u', 'u.order_item_id = i.id')
+      .innerJoin('orders', 'o', 'o.id = i.order_id')
+      .select('i.menu_item_id', 'menu_item_id')
+      .addSelect('SUM(COALESCE(u.cost_total, 0))', 'cost')
+      .addSelect('SUM(CASE WHEN u.cost_total IS NULL THEN 1 ELSE 0 END)', 'missing')
+      .where('i.menu_item_id IS NOT NULL')
+      .groupBy('i.menu_item_id');
+    if (fromMs !== null) {
+      qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
+    }
+    if (toMs !== null) {
+      qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
+    }
+    const rows = await qb.getRawMany<{ menu_item_id: string; cost: string; missing: string }>();
+    return new Map(
+      rows.map((r) => [r.menu_item_id, { cost: Number(r.cost) || 0, missing: Number(r.missing) || 0 }]),
+    );
+  }
+
 
   /**
    * Các ĐƠN đã gọi một món cụ thể trong kỳ — bảng bung ra khi bấm vào tên món.

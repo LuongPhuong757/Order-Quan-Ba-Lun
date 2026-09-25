@@ -20,6 +20,12 @@ export type SoldRow = {
   qty: number;
   revenue: number;
   orders: number;
+  /** Tiền nguyên liệu ĐÃ TỐN, cộng từ bản chốt tiêu hao với giá đã chốt lúc bếp nấu (M6.D-15).
+   * 0 = món chưa khai công thức, hoặc bếp chưa nấu phần nào trong kỳ. */
+  cost: number;
+  /** Số dòng tiêu hao KHÔNG có giá lúc chốt (nguyên liệu chưa từng nhập). Phải hiện ra — không
+   * thì `cost` trông như đã đủ. */
+  cost_missing: number;
 };
 
 /** Món trong menu hiện tại. */
@@ -52,12 +58,31 @@ export type DishSalesRow = {
   /** Còn bán được không — món đã xoá mềm hoặc xoá hẳn thì `false`. Màn hình gắn nhãn "đã bỏ
    *  khỏi menu" cho dòng này: doanh thu của nó có thật nhưng không đặt lại được nữa. */
   in_menu: boolean;
+  /** Tiền nguyên liệu đã tốn cho số phần đã nấu trong kỳ (M6.D-17).
+   *
+   * Dùng giá ĐÃ CHỐT lúc bếp nấu, không phải giá hôm nay: báo cáo tháng 9 phải đứng yên khi giá
+   * tôm tháng 10 tăng. Đây cũng là điểm khác với cột "vốn" ở màn Quản lý Menu — bên đó là giá
+   * hôm nay ("nấu bây giờ tốn bao nhiêu"). */
+  cost: number;
+  /** Lãi gộp nguyên liệu = doanh thu − tiền nguyên liệu. Âm được: món bán dưới giá vốn là
+   * chuyện có thật và là thứ đáng nhìn thấy nhất ở màn này. */
+  gross: number;
+  /** % lãi gộp trên doanh thu. NULL khi chưa tính được giá vốn (`cost` = 0 vì chưa khai công
+   * thức) — KHÔNG trả 100%, vì "chưa biết" và "không tốn gì" là hai chuyện khác nhau. */
+  gross_pct: number | null;
+  /** Số dòng tiêu hao thiếu giá. > 0 nghĩa là `cost` thấp hơn thực tế. */
+  cost_missing: number;
 };
 
 export type DishSalesResult = {
   items: DishSalesRow[];
   total_qty: number;
   total_revenue: number;
+  /** Tổng tiền nguyên liệu đã tốn trong kỳ. */
+  total_cost: number;
+  /** Số món chưa khai công thức nên không góp gì vào `total_cost` — bối cảnh bắt buộc cho con
+   * số tổng, nếu không người đọc lấy `total_revenue - total_cost` ra làm lãi. */
+  dishes_without_recipe: number;
 };
 
 /**
@@ -97,6 +122,12 @@ export function buildDishSales(
       orders: r.orders,
       revenue_pct: pct(r.revenue),
       in_menu: !!m && m.is_active,
+      cost: r.cost,
+      gross: r.revenue - r.cost,
+      // `cost` bằng 0 nghĩa là CHƯA BIẾT (món chưa khai công thức), không phải "không tốn gì".
+      // Trả 100% ở đây là nói dối một cách rất thuyết phục.
+      gross_pct: r.cost > 0 && r.revenue > 0 ? ((r.revenue - r.cost) / r.revenue) * 100 : null,
+      cost_missing: r.cost_missing,
     };
   });
 
@@ -107,6 +138,8 @@ export function buildDishSales(
     ),
     total_qty,
     total_revenue,
+    total_cost: sold.reduce((s, r) => s + r.cost, 0),
+    dishes_without_recipe: sold.filter((r) => r.cost === 0).length,
   };
 }
 

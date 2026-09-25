@@ -3821,3 +3821,31 @@ button.rc-addbtn {
 .rc-ssrc.none {
   color: #b45309;
 }
+
+/* Giá vốn nguyên liệu trên dòng món ở màn Quản lý Menu (M6.D-16).
+   Màu cam đất chứ không teal: teal đang là màu của GIÁ BÁN ngay cạnh, hai con số cùng màu đứng
+   sát nhau thì mắt đọc thành một cụm. */
+.mm2-cost {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 2px 5px;
+  white-space: nowrap;
+}
+
+/* Màn "Món đã bán" — cột tiền nguyên liệu và lãi gộp (M6.D-17).
+   Tiền NL màu cam đất, cùng màu với cột "vốn" ở màn Quản lý Menu: hai màn nói về cùng một loại
+   con số thì phải cùng một màu, người dùng mới nối được chúng với nhau. */
+.cost-ink {
+  color: #b45309;
+}
+
+/* Lãi gộp âm: đỏ, và đây là thứ đáng nhìn thấy nhất ở màn này — món đang bán dưới giá vốn. */
+.gross-neg {
+  color: #dc2626;
+  font-weight: 700;
+}

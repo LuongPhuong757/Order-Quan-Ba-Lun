@@ -66,6 +66,25 @@ export class OrderItemIngredientUsage {
   @Column({ type: 'int', unsigned: true })
   qty!: number;
 
+  /** Đơn giá nguyên liệu TẠI THỜI ĐIỂM CHỐT, đồng / đơn vị gốc (M6.D-15, 2026-09-25).
+   *
+   * Chép vào đây theo đúng lệ snapshot của cả bảng này: giá tôm tháng sau tăng 10% thì báo cáo
+   * "tháng 9 tốn bao nhiêu tiền nguyên liệu" vẫn đứng yên. Đọc giá hiện tại lúc xem báo cáo thì
+   * con số đã in ra cho kế toán hôm qua hôm nay đã khác — không ai đối chiếu được.
+   *
+   * `null` = lúc chốt nguyên liệu chưa từng có phiếu nhập nào nên không có giá. Báo cáo phải
+   * đếm riêng những dòng này, KHÔNG được coi như 0đ. */
+  @Column({ type: 'decimal', precision: 16, scale: 6, nullable: true })
+  unit_price_base!: string | null;
+
+  /** = `qty_total` × `unit_price_base`, làm tròn về đồng. `null` khi chưa có giá.
+   *
+   * Lưu sẵn dù suy ra được, cùng lý lẽ với `supplier_delivery_lines.amount`: báo cáo là
+   * `SUM(...) GROUP BY`, mà nhân hai cột decimal rồi mới làm tròn ở tầng ứng dụng thì tổng của
+   * báo cáo và tổng của từng dòng lệch nhau vài đồng — người dùng sẽ tưởng hệ thống tính sai. */
+  @Column({ type: 'int', unsigned: true, nullable: true })
+  cost_total!: number | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 }

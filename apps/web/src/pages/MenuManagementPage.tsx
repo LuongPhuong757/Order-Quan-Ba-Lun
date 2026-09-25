@@ -82,6 +82,9 @@ export function MenuManagementPage() {
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
+  /** Giá vốn nguyên liệu chính mỗi món, theo giá nhập gần nhất (M6.D-16). `missing` = số nguyên
+   * liệu chưa có giá — phải hiện ra, không thì người đọc tưởng tổng đã đủ. */
+  const [recipeCosts, setRecipeCosts] = useState<Record<string, { cost: number; missing: number }>>({});
   // Ba sheet của bản thiết kế lại 2026-09-24: lọc & sắp xếp, công cụ menu, và thao tác phụ
   // của MỘT món (thay hàng 4 nút cũ nằm trong thẻ).
   const [showFilters, setShowFilters] = useState(false);
@@ -115,12 +118,17 @@ export function MenuManagementPage() {
       return;
     }
     try {
-      const res = await api.get<{ data: { counts: Record<string, number> } }>(
-        `/recipes/counts?menu_item_ids=${ids.join(',')}`,
-      );
+      const res = await api.get<{
+        data: {
+          counts: Record<string, number>;
+          costs: Record<string, { cost: number; missing: number }>;
+        };
+      }>(`/recipes/counts?menu_item_ids=${ids.join(',')}`);
       setRecipeCounts(res.data.data.counts);
+      setRecipeCosts(res.data.data.costs ?? {});
     } catch {
       setRecipeCounts({});
+      setRecipeCosts({});
     }
   };
 
@@ -426,6 +434,24 @@ export function MenuManagementPage() {
                         {canManage && !recipeCounts[it.id] && (
                           <span className="mm2-norecipe" title="Món chưa khai nguyên liệu — không sinh tiêu hao kho">
                             Chưa có CT
+                          </span>
+                        )}
+                        {/* Giá vốn ngay cạnh giá bán: nhìn một lượt cả trang là thấy món nào lãi
+                            mỏng, không phải mở từng món ra. Chữ "vốn" là bắt buộc — con số này
+                            chưa gồm gia vị (M6.D-09), gọi trống là "giá" thì đứng cạnh giá bán
+                            sẽ bị đọc nhầm thành hai giá cùng loại. */}
+                        {canManage && recipeCosts[it.id] && recipeCosts[it.id].cost > 0 && (
+                          <span
+                            className="mm2-cost"
+                            title={
+                              recipeCosts[it.id].missing > 0
+                                ? `Thiếu giá của ${recipeCosts[it.id].missing} nguyên liệu — số thật cao hơn`
+                                : 'Giá vốn nguyên liệu chính, chưa gồm gia vị'
+                            }
+                          >
+                            vốn {formatVND(recipeCosts[it.id].cost)}
+                            {it.price > 0 && ` · ${Math.round((recipeCosts[it.id].cost / it.price) * 100)}%`}
+                            {recipeCosts[it.id].missing > 0 && ' ⚠'}
                           </span>
                         )}
                       </div>

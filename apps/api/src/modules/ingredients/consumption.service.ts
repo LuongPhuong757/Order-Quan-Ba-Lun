@@ -58,10 +58,17 @@ export class ConsumptionService {
       .find({ where: { id: In(lines.map((l) => l.ingredient_id)) } });
     const byId = new Map(ings.map((i) => [i.id, i]));
 
+    // Giá nguyên liệu TẠI THỜI ĐIỂM NÀY, để chép vào bản chốt (M6.D-15). Một truy vấn cho cả
+    // món, không hỏi từng nguyên liệu: món lẩu 12 nguyên liệu mà hỏi lẻ là 12 lượt truy vấn nằm
+    // trong transaction đổi trạng thái — chỗ nhạy cảm nhất về thời gian giữ khoá.
+    const priceById = await this.loadPrices(mgr, lines.map((l) => l.ingredient_id));
+
     const rows = lines
       .map((l) => {
         const ing = byId.get(l.ingredient_id);
         if (!ing) return null; // nguyên liệu bị xoá cứng — bỏ qua dòng thay vì ghi tên rỗng
+        const qty_total = Number(l.qty_per_serving) * item.qty;
+        const price = priceById.get(ing.id) ?? null;
         return usageRepo.create({
           order_item_id: item.id,
           order_id: item.order_id,
@@ -69,7 +76,11 @@ export class ConsumptionService {
           ingredient_name: ing.name,
           unit: ing.unit,
           qty: item.qty,
-          qty_total: String(Number(l.qty_per_serving) * item.qty),
+          qty_total: String(qty_total),
+          unit_price_base: price === null ? null : String(price),
+          // Làm tròn về đồng đúng MỘT lần, ở đây. Để báo cáo tự nhân lại rồi tròn thì tổng của
+          // báo cáo và tổng từng dòng lệch nhau vài đồng.
+          cost_total: price === null ? null : Math.round(qty_total * price),
         });
       })
       .filter((r): r is OrderItemIngredientUsage => r !== null);
@@ -77,6 +88,32 @@ export class ConsumptionService {
     if (rows.length === 0) return 0;
     await usageRepo.save(rows);
     return rows.length;
+  }
+
+  /** Đơn giá gần nhất của từng nguyên liệu, đồng / đơn vị gốc.
+   *
+   * Lấy theo lần NHẬP gần nhất bất kể nhà cung cấp nào (M6.D-07) — cùng định nghĩa giá vốn mà
+   * màn Công thức và màn Nguyên liệu đang dùng. Ba màn cùng một định nghĩa thì ba con số đọc
+   * cạnh nhau mới cộng được.
+   *
+   * SQL thô chứ không qua repository: `SupplierItem` sống ở module `suppliers`, tiêm repo của nó
+   * vào đây là buộc hai module vào nhau chỉ để đọc một cột. Và phải chạy trên `EntityManager`
+   * của transaction đang mở, không phải repo riêng của service.
+   */
+  private async loadPrices(mgr: EntityManager, ids: string[]): Promise<Map<string, number>> {
+    if (ids.length === 0) return new Map();
+    const rows = await mgr.query<{ ingredient_id: string; p: string }[]>(
+      `SELECT si.ingredient_id, si.last_unit_price_base AS p
+         FROM supplier_items si
+         JOIN suppliers s ON s.id = si.supplier_id AND s.is_active = 1
+        WHERE si.ingredient_id IN (${ids.map(() => '?').join(',')})
+        ORDER BY si.ingredient_id, si.last_delivery_date ASC`,
+      ids,
+    );
+    // Duyệt theo ngày TĂNG DẦN rồi ghi đè: phần tử cuối của mỗi nguyên liệu là lần nhập mới nhất.
+    const out = new Map<string, number>();
+    for (const r of rows) out.set(r.ingredient_id, Number(r.p));
+    return out;
   }
 
   /** BÁO CÁO TIÊU HAO — "tháng này / bàn này tốn bao nhiêu nguyên liệu".

@@ -37,8 +37,13 @@ export class RecipesController {
   @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async counts(@Query('menu_item_ids') ids: string) {
     const list = (ids || '').split(',').map((s) => s.trim()).filter(Boolean);
-    const map = await this.svc.countsForItems(list);
-    return { data: { counts: Object.fromEntries(map) } };
+    const [map, costs] = await Promise.all([
+      this.svc.countsForItems(list),
+      this.svc.costsForItems(list),
+    ]);
+    // `costs` đi kèm `counts` trong cùng một lượt gọi: màn danh sách món đã gọi endpoint này
+    // rồi, thêm một endpoint nữa là thêm một lượt mạng cho mỗi lần đổi trang.
+    return { data: { counts: Object.fromEntries(map), costs: Object.fromEntries(costs) } };
   }
 
   @Get(':menuItemId')

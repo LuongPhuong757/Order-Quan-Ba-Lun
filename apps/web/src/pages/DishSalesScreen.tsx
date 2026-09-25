@@ -27,8 +27,20 @@ type DishRow = {
   orders: number;
   revenue_pct: number;
   in_menu: boolean;
+  /** Tiền nguyên liệu đã tốn, theo giá đã chốt lúc bếp nấu (M6.D-17). 0 = chưa khai công thức. */
+  cost: number;
+  gross: number;
+  /** NULL khi chưa tính được giá vốn — KHÔNG phải 100%. */
+  gross_pct: number | null;
+  cost_missing: number;
 };
-type Report = { items: DishRow[]; total_qty: number; total_revenue: number };
+type Report = {
+  items: DishRow[];
+  total_qty: number;
+  total_revenue: number;
+  total_cost: number;
+  dishes_without_recipe: number;
+};
 
 type DishOrder = {
   order_id: string;
@@ -57,7 +69,7 @@ function fmtLuc(ms: number): string {
   return `${d.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} ${d.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
 }
 
-type SortKey = 'name' | 'group' | 'price' | 'qty' | 'revenue' | 'pct' | 'orders';
+type SortKey = 'name' | 'group' | 'price' | 'qty' | 'revenue' | 'cost' | 'gross' | 'pct' | 'orders';
 
 function DonCuaMon({ dish, range }: { dish: DishRow; range: DayRange }) {
   const [res, setRes] = useState<{ items: DishOrder[]; total: number } | null>(null);
@@ -140,7 +152,7 @@ export function DishSalesScreen({
       .then((r) => setData(r.data.data))
       .catch((err) => {
         toast.push('error', extractError(err).message);
-        setData({ items: [], total_qty: 0, total_revenue: 0 });
+        setData({ items: [], total_qty: 0, total_revenue: 0, total_cost: 0, dishes_without_recipe: 0 });
       });
   }, [range.from, range.to, toast]);
   useEffect(load, [load]);
@@ -165,6 +177,8 @@ export function DishSalesScreen({
       if (sortKey === 'price') return ((a.current_price ?? 0) - (b.current_price ?? 0)) * dir;
       if (sortKey === 'qty') return (a.qty - b.qty) * dir;
       if (sortKey === 'orders') return (a.orders - b.orders) * dir;
+      if (sortKey === 'cost') return (a.cost - b.cost) * dir;
+      if (sortKey === 'gross') return (a.gross - b.gross) * dir;
       if (sortKey === 'pct') return (a.revenue_pct - b.revenue_pct) * dir;
       return (a.revenue - b.revenue) * dir;
     });
@@ -205,6 +219,10 @@ export function DishSalesScreen({
     { k: 'price', nhan: 'Giá bán', cls: 'num colprice' },
     { k: 'qty', nhan: 'Số phần', cls: 'num colqty' },
     { k: 'revenue', nhan: 'Doanh thu', cls: 'num colrev' },
+    // "Tiền NL" chứ không phải "Giá vốn": con số này chưa gồm gia vị (M6.D-09), và ở một bảng
+    // toàn số tiền thì chữ "giá vốn" sẽ được đọc là chi phí đầy đủ của món.
+    { k: 'cost', nhan: 'Tiền NL', cls: 'num colrev' },
+    { k: 'gross', nhan: 'Lãi gộp', cls: 'num colrev' },
     { k: 'pct', nhan: '% doanh thu', cls: 'num colpct' },
     { k: 'orders', nhan: 'Số đơn', cls: 'num colord' },
   ];
@@ -329,6 +347,30 @@ export function DishSalesScreen({
                             <td data-label="Số phần" className="num m-off">{num(d.qty)}</td>
                             <td data-label="Doanh thu" className="num r-t1n">
                               <span className="money">{vnd(d.revenue)}đ</span>
+                            </td>
+                            <td data-label="Tiền NL" className="num m-off">
+                              {d.cost > 0 ? (
+                                <span className="money cost-ink">
+                                  {vnd(d.cost)}đ
+                                  {d.cost_missing > 0 && (
+                                    <span title={`Thiếu giá của ${d.cost_missing} dòng nguyên liệu — số thật cao hơn`}> ⚠</span>
+                                  )}
+                                </span>
+                              ) : (
+                                /* Gạch ngang chứ không phải "0đ": món chưa khai công thức là CHƯA
+                                   BIẾT tốn bao nhiêu, không phải không tốn gì. */
+                                <span className="cell-sub" title="Món chưa khai công thức">—</span>
+                              )}
+                            </td>
+                            <td data-label="Lãi gộp" className="num m-off">
+                              {d.gross_pct === null ? (
+                                <span className="cell-sub" title="Chưa khai công thức nên chưa tính được">—</span>
+                              ) : (
+                                <span className={d.gross < 0 ? 'money gross-neg' : 'money'}>
+                                  {vnd(d.gross)}đ
+                                  <span className="cell-sub"> {d.gross_pct.toFixed(0)}%</span>
+                                </span>
+                              )}
                             </td>
                             <td data-label="% doanh thu" className="num r-t2e">
                               <span className="pctcell">
