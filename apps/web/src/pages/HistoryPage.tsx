@@ -255,6 +255,15 @@ export function HistoryPage() {
   /** Rỗng cũng có nghĩa là KHÔNG ĐƯỢC XEM: `/payment-qr` trả 403 cho người không được thu chuyển
    *  khoản. Ô lọc ẩn theo danh sách này thay vì theo role — ẩn đúng cái BE thật sự từ chối. */
   const [qrAccounts, setQrAccounts] = useState<QrAccount[]>([]);
+  /**
+   * Công tắc "xác thực giao dịch tại quầy" (chủ quán 2026-09-25). TẮT thì cột "Xác thực" và ô lọc
+   * của nó biến mất khỏi màn này.
+   *
+   * `false` lúc khởi tạo, và đọc hỏng cũng là `false` — cùng lệ "hỏng thì hiểu là TẮT" với
+   * `CheckoutDialog`. Ở màn này còn một lý do riêng: `/payment-qr` trả 403 cho người không được
+   * thu chuyển khoản, mà họ cũng chẳng có việc gì với cột đó.
+   */
+  const [verifyOn, setVerifyOn] = useState(false);
   /** Khoảng thời gian đang xem — MỘT state chứ không phải cặp `startDate`/`endDate` rời:
    *  khoảng "ca" mang thêm cờ `shift` mà hai ô ngày không diễn tả được, và tách ra thì sẽ có
    *  lúc cờ bật còn ngày chưa xoá (hoặc ngược lại) — giao diện nói một đằng, query hỏi một nẻo.
@@ -304,7 +313,10 @@ export function HistoryPage() {
     status: statusFilter,
     misa: misaFilter,
     payment: paymentFilter,
-    verified: verifiedFilter,
+    // Công tắc tắt thì ô lọc biến mất khỏi màn — nhưng giá trị cũ còn nằm trong state, và gửi
+    // tiếp là lọc mất đơn bằng một điều kiện KHÔNG CÒN Ô NÀO hiện ra để gỡ. Ép rỗng ở đây, tại
+    // chỗ dựng query, thay vì đi dọn state: một nguồn sự thật, không phụ thuộc thứ tự effect.
+    verified: verifyOn ? verifiedFilter : '',
     from: range.from,
     to: range.to,
     shift: range.shift,
@@ -333,9 +345,15 @@ export function HistoryPage() {
    *  không có quyền là chuyện bình thường, không phải sự cố cần báo. */
   useEffect(() => {
     api
-      .get<{ data: { items: QrAccount[] } }>('/payment-qr?include_inactive=1')
-      .then((res) => setQrAccounts(res.data.data.items))
-      .catch(() => setQrAccounts([]));
+      .get<{ data: { items: QrAccount[]; verify_enabled?: boolean } }>('/payment-qr?include_inactive=1')
+      .then((res) => {
+        setQrAccounts(res.data.data.items);
+        setVerifyOn(res.data.data.verify_enabled ?? false);
+      })
+      .catch(() => {
+        setQrAccounts([]);
+        setVerifyOn(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -584,7 +602,7 @@ export function HistoryPage() {
     statusFilter !== 'all' ||
     misaFilter ||
     paymentFilter ||
-    verifiedFilter ||
+    (verifyOn && verifiedFilter) ||
     qrAccountFilter ||
     // Mặc định của màn là CA ĐANG CHẠY, nên chỉ nó mới là "không lọc gì". Ca trước là một lựa
     // chọn có chủ ý và phải tính là đang lọc — nếu không thì nút "Xoá lọc" biến mất đúng lúc
@@ -730,7 +748,10 @@ export function HistoryPage() {
         {/* Ngân hàng đã xác nhận chưa (2026-09-23). Đứng ngay sau ô hình thức vì hai câu hỏi đi
             liền nhau: "đơn nào chuyển khoản" rồi "cái nào ngân hàng đã báo về".
             Hai giá trị đều chỉ xét đơn chuyển khoản — nói thẳng trong nhãn để không ai tưởng
-            "Chưa xác thực" gồm cả đơn tiền mặt. */}
+            "Chưa xác thực" gồm cả đơn tiền mặt.
+            ẨN khi công tắc tắt (2026-09-25): không ai đứng đợi xác thực ở quầy nữa thì lọc theo
+            nó chỉ tổ bày ra một câu hỏi không còn nghĩa. */}
+        {verifyOn && (
         <select
           className="txn-fsel"
           aria-label="Lọc theo xác thực ngân hàng"
@@ -743,6 +764,7 @@ export function HistoryPage() {
           <option value="yes">✓ Đã xác thực (CK)</option>
           <option value="no">⚠ Chưa xác thực (CK)</option>
         </select>
+        )}
 
         {/* Tài khoản nhận tiền (2026-09-15). Đứng NGAY SAU ô hình thức vì hai câu hỏi đi liền
             nhau lúc đối soát: "đơn nào chuyển khoản" rồi "về tài khoản nào".
@@ -1033,7 +1055,13 @@ export function HistoryPage() {
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
               ra hoặc gãy xuống dòng, cắt "…" không bao giờ xảy ra.
               Mobile không bị ảnh hưởng: `table.responsive` cho td thành block ở <640px. */}
-          <table className="responsive card txn-table" style={{ padding: 0, tableLayout: 'fixed' }}>
+          {/* `no-verify` khi công tắc tắt: bảng còn 8 cột thay vì 9, và lưới điện thoại trong
+              styles.css bám CỨNG vào `nth-child` nên phải biết mình đang ở dạng nào. Không có
+              class này thì ô "Thao tác" tụt vào chỗ của ô "Xác thực" và nút bấm rơi khỏi lưới. */}
+          <table
+            className={`responsive card txn-table${verifyOn ? '' : ' no-verify'}`}
+            style={{ padding: 0, tableLayout: 'fixed' }}
+          >
             {/* Bề rộng cột CỐ ĐỊNH cho các cột nội dung ngắn (giờ, tiền, trạng thái) — không
                 khai thì bảng chia đều 100% bề ngang và cột nào cũng thừa chỗ, trong khi cột
                 "Trạng thái" lại hẹp đến mức mũi ▼ bị đẩy xuống dòng thứ hai.
@@ -1050,7 +1078,7 @@ export function HistoryPage() {
               <col style={{ width: 70 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 190 }} />
-              <col style={{ width: 120 }} />
+              {verifyOn && <col style={{ width: 120 }} />}
               <col style={{ width: 160 }} />
             </colgroup>
             {/* `nowrap` cho MỌI ô tiêu đề: cột hẹp làm "Giờ vào" / "Thu ngân" gãy làm 2 dòng,
@@ -1083,7 +1111,7 @@ export function HistoryPage() {
                 {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
                     riêng chứ không nhét dưới số tiền: nhét vào đó thì mỗi đơn cao thêm một dòng
                     và người ta phải đọc mới thấy, còn cột thì liếc dọc là quét được cả trang. */}
-                <th>Xác thực</th>
+                {verifyOn && <th>Xác thực</th>}
                 {/* Cột thao tác: những thứ BẤM ĐƯỢC (đánh dấu Misa, mở chi tiết) tách khỏi cột
                     trạng thái — cột kia chỉ để đọc. Trước đây 3 thứ chen chung 1 ô nên không
                     rõ cái nào bấm được, và mũi ▼ hay bị đẩy xuống dòng. */}
@@ -1099,7 +1127,7 @@ export function HistoryPage() {
                         hàng tiêu đề ngày mà thành thẻ thì nó trông y hệt một đơn hàng. Class này trả nó
                         về dạng dải phân cách (xem styles.css). */}
                     <tr className="txn-day-row">
-                      <td className="txn-day" colSpan={9}>
+                      <td className="txn-day" colSpan={verifyOn ? 9 : 8}>
                         {g.key === UNPAID_GROUP ? (
                           <>⏳ Chưa thanh toán · {g.orders.length} đơn</>
                         ) : (
@@ -1190,7 +1218,10 @@ export function HistoryPage() {
 
                             {/* Ngân hàng đã xác nhận chưa. Ba trạng thái, và dấu "—" cho đơn tiền
                                 mặt là CÓ Ý: ô trống trông như dữ liệu bị thiếu, còn "—" nói rõ
-                                "không có gì để xác nhận ở đây". */}
+                                "không có gì để xác nhận ở đây".
+                                Cả ô BIẾN MẤT khi công tắc tắt (2026-09-25) — bảng còn 8 cột, xem
+                                class `no-verify` ở thẻ <table>. */}
+                            {verifyOn && (
                             <td data-label="Xác thực" style={{ whiteSpace: 'nowrap' }}>
                               {o.bank_verified === null ? (
                                 /* Trên điện thoại ô này ẩn hẳn (xem `.txn-dash` trong styles.css):
@@ -1204,6 +1235,7 @@ export function HistoryPage() {
                                 <span style={{ color: '#b45309', fontWeight: 600 }}>Chưa xác thực</span>
                               )}
                             </td>
+                            )}
                             {/* Cột thao tác — dồn về phải, cùng chiều cao 1 dòng. */}
                             <td
                               data-label="Thao tác"
@@ -1253,7 +1285,7 @@ export function HistoryPage() {
                           </tr>
                           {isOpen && (
                             <tr>
-                              <td className="txn-full" colSpan={9}>
+                              <td className="txn-full" colSpan={verifyOn ? 9 : 8}>
                                 <HistoryOrderDetail order={o} />
                               </td>
                             </tr>

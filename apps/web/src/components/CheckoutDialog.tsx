@@ -164,6 +164,19 @@ export function CheckoutDialog({
   /** Kết quả xác thực với ngân hàng. Khai cạnh `payCode` vì cả hai cùng mô tả một lần thu, và
    *  vì `paidSkipsBill` ngay dưới cần đọc nó trước khi effect xác thực được khai. */
   const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
+  /**
+   * CÔNG TẮC "xác thực giao dịch tại quầy" (chủ quán 2026-09-25), đọc từ `GET /payment-qr`.
+   *
+   * Tắt thì màn này KHÔNG hỏi ngân hàng: không đồng hồ 2 phút, không dải xanh/đỏ, luôn đi qua
+   * bước chụp bill — y như trước khi có tính năng. Phần còn lại của đối soát chạy nguyên: mã đơn
+   * vẫn xin, nội dung CK vẫn mang mã + tiền tố ngân hàng, và cột "Xác thực" ở màn Lịch sử vẫn tự
+   * chuyển xanh khi webhook về. Công tắc bỏ việc ĐỨNG ĐỢI, không bỏ việc đối soát.
+   *
+   * KHỞI TẠO `false` là cố ý — hỏng thì hiểu là TẮT. `/payment-qr` trả 403 cho người không được
+   * thu chuyển khoản, và mạng ở quán thì chập chờn. Đoán nhầm sang "bật" là bắt người thu nhìn
+   * dải "đang xác thực" cho một thứ không chạy; đoán nhầm sang "tắt" thì họ chỉ thấy màn cũ.
+   */
+  const [verifyEnabled, setVerifyEnabled] = useState(false);
 
   /**
    * Ngân hàng đã xác nhận thì BỎ QUA MÀN CHỤP BILL (chủ quán chốt 2026-09-22).
@@ -191,10 +204,12 @@ export function CheckoutDialog({
     if (mode === 'CASH' || mode === null) return;
     let alive = true;
     api
-      .get<{ data: { items: QrOption[] } }>('/payment-qr')
+      .get<{ data: { items: QrOption[]; verify_enabled?: boolean } }>('/payment-qr')
       .then((res) => {
         if (!alive) return;
         setQrOptions(res.data.data.items);
+        // `?? false`: server bản cũ chưa có field này. Thiếu field = tắt, cùng lệ với lỗi mạng.
+        setVerifyEnabled(res.data.data.verify_enabled ?? false);
         setQrLoadFailed(false);
       })
       .catch(() => {
@@ -274,15 +289,24 @@ export function CheckoutDialog({
   const VERIFY_POLL_MS = 1500;
 
   useEffect(() => {
-    // BA điều kiện, thiếu một là KHÔNG xoay:
+    // NĂM điều kiện, thiếu một là KHÔNG xoay:
     //
     //  · đang ở màn QR;
     //  · ĐÃ CHỌN MÃ QR — chưa chọn thì chưa có gì để khách quét, nên chưa thể có đồng nào về.
     //    Xoay lúc đó là bắt người thu nhìn máy "đang xác thực" một giao dịch không tồn tại, và
     //    tệ hơn: đốt mất trần 30 giây trước khi khách kịp nhìn thấy mã;
     //  · đã xin được mã đơn — không có mã thì không có gì để hỏi ngân hàng. Khoá nút 30 giây vì
-    //    một mã không tồn tại là phạt người thu vì lỗi của mạng.
-    if (step !== 'qr' || !picked || !payCode) return;
+    //    một mã không tồn tại là phạt người thu vì lỗi của mạng;
+    //  · CÔNG TẮC đang bật (2026-09-25) — chủ quán tắt được vòng hỏi này ở Cài đặt → Mã QR nhận
+    //    tiền. Tắt thì màn này im hoàn toàn: `verify` ở 'idle' nên không dải nào hiện, và
+    //    `paidSkipsBill` không bao giờ thành true nên vẫn qua bước chụp bill;
+    //  · mã đã chọn là TÀI KHOẢN NGÂN HÀNG, không phải ảnh QR (2026-09-23). Mã dạng ảnh (MoMo,
+    //    QR in giấy) không có cổng nào đứng sau, nên hỏi bao lâu cũng không có câu trả lời:
+    //    người thu sẽ nhìn "đang xác thực" 2 phút rồi luôn luôn nhận dải đỏ "chưa xác thực
+    //    được" — một lời cảnh báo đúng về mặt chữ nhưng vô nghĩa, và loại cảnh báo luôn đỏ là
+    //    loại người ta học cách bỏ qua, kể cả khi nó đỏ thật. Không hỏi thì `verify` ở 'idle',
+    //    màn QR trông y như trước khi có tính năng này — đúng thứ mã ảnh vốn vẫn làm.
+    if (!verifyEnabled || step !== 'qr' || !picked || picked.kind !== 'BANK' || !payCode) return;
 
     let alive = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -318,7 +342,7 @@ export function CheckoutDialog({
     //
     // `picked?.id` thì CÓ: đổi mã QR là đổi tài khoản nhận, tức một lần thu khác — đồng hồ phải
     // chạy lại từ đầu chứ không tiếp tục đếm phần còn lại của lần trước.
-  }, [step, picked?.id, payCode]);
+  }, [verifyEnabled, step, picked?.id, payCode]);
 
   // Vẽ QR mỗi khi mã hoặc SỐ TIỀN đổi — số tiền nằm trong mã, nên sửa số mà không vẽ lại là chìa
   // cho khách một mã mang con số cũ.

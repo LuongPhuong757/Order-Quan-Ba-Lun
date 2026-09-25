@@ -1621,14 +1621,27 @@ a:hover {
     justify-content: space-between;
   }
 
-  /* ④ Ngân hàng xác nhận · thao tác */
-  table.responsive.txn-table tr.txn-row > td:nth-child(8) {
+  /* ④ Ngân hàng xác nhận · thao tác
+     HAI DẠNG BẢNG, và phải viết tách bạch (2026-09-25). Khi công tắc "xác thực giao dịch tại
+     quầy" TẮT thì cột "Xác thực" không được render, bảng còn 8 cột — và `nth-child(8)` lúc đó
+     trỏ vào ô THAO TÁC chứ không phải ô xác thực nữa.
+     Để nguyên một bộ luật thì nút thao tác thừa hưởng `grid-area: 4/1/span 3` + `font-size: 12px`
+     của ô xác thực, tức là dạt trái và teo chữ; còn `nth-child(9)` không khớp ai cả. Đây đúng là
+     cái bẫy mà chú thích đầu khối lưới đã cảnh báo, chỉ là lần này nó đến từ hướng BỚT cột. */
+  table.responsive.txn-table:not(.no-verify) tr.txn-row > td:nth-child(8) {
     grid-area: 4 / 1 / auto / span 3;
     font-size: 12px;
     align-self: center;
   }
-  table.responsive.txn-table tr.txn-row > td:nth-child(9) {
+  table.responsive.txn-table:not(.no-verify) tr.txn-row > td:nth-child(9) {
     grid-area: 4 / 4;
+    text-align: right;
+    overflow: visible;
+  }
+  /* 8 cột: ô thứ 8 LÀ thao tác. Cho nó trọn bề ngang dòng 4 và dạt phải — cùng vị trí mắt đã
+     quen, chỉ là không còn gì đứng bên trái nó. */
+  table.responsive.txn-table.no-verify tr.txn-row > td:nth-child(8) {
+    grid-area: 4 / 1 / auto / span 4;
     text-align: right;
     overflow: visible;
   }

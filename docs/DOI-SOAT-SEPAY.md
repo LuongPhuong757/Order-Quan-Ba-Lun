@@ -72,8 +72,9 @@ tiền vẫn là thứ nhân viên ghi; cái thêm vào chỉ là câu trả l�
 Hệ quả có lợi: kể cả khi khoá webhook lộ, kẻ gọi được endpoint cũng chỉ tạo ra một dấu ✅ sai, chứ
 không sửa được tiền trên đơn.
 
-Ngoại lệ **duy nhất**: đơn online trả trước — đủ tiền thì `online_order_requests.paid_at` được ghi,
-vì đó chính là mục đích của luồng đó.
+**Không có ngoại lệ nào** (từ 2026-09-25). Trước đó luồng khách đặt online trả trước có ghi
+`online_order_requests.paid_at`; luồng đó đã gỡ, nên module chỉ còn ghi vào đúng hai bảng của
+chính nó.
 
 ## ⚠ Tiền tố bắt buộc của ngân hàng (SEVQR)
 
@@ -87,8 +88,22 @@ Thiếu nó thì **tiền vẫn về tài khoản thật, nhưng SePay không th
 không dấu vết ở đâu cả. Đã mất một buổi vì chuyện này khi chạy thử 2026-09-22.
 
 Khai ở **Cài đặt → Mã QR nhận tiền → ô "Tiền tố nội dung"**. Màn này tự gợi ý và có nút *Điền giúp*
-cho ngân hàng đã biết (hiện mới VietinBank — bảng tra ở `suggestedNotePrefix`, thêm ngân hàng mới
-thì sửa đúng một chỗ đó).
+cho ngân hàng đã biết (hiện mới VietinBank — bảng tra `NOTE_PREFIX_BY_BIN` ở
+`packages/schemas/src/payment-code.ts`, thêm ngân hàng mới thì sửa đúng một chỗ đó).
+
+Ngân hàng **không** nằm trong bảng đó nghĩa là *chưa ai kiểm*, không phải *đã xác nhận là không
+đòi*. Cách duy nhất để biết là bài thử 10.000đ ở mục **Thêm một tài khoản mới** bên dưới.
+
+## Ai thu tiền chuyển khoản
+
+**Chỉ nhân viên, tại màn thu tiền.** Mở bàn → Thanh toán → Chuyển khoản → chọn mã QR → khách quét.
+
+Đơn ship đi **cùng đường đó**: shipper giao xong, mở đúng bàn của đơn rồi thu như mọi đơn khác.
+Khách đặt online **không** có chỗ nào tự trả trước — khối QR trên trang tra đơn đã gỡ 2026-09-25,
+vì khách chuyển tiền rồi mà đơn bị từ chối thì quán phải hoàn thủ công, việc quán không có quy
+trình nào.
+
+Hệ quả cho người đọc code: mọi `payment_intents` đều là `target_type = 'POS'`.
 
 ## Nội dung chuyển khoản
 
@@ -128,6 +143,96 @@ nếu về sau đổi khuôn mã lần nữa thì phải dọn dữ liệu cũ t
 
 Khách **sửa được** nội dung trước khi bấm chuyển. Mã là công cụ trợ giúp, **không phải bằng
 chứng** — mất mã thì đơn rơi về đối soát tay, ảnh bill vẫn còn đó.
+
+## Thêm một tài khoản mới
+
+Quy trình dưới đây viết khi mở thêm **TPBank**, **Vietcombank hộ kinh doanh** và **MB Bank**
+(2026-09-23), nhưng áp dụng cho mọi tài khoản về sau.
+
+**Không phải sửa code.** BIN của cả ba đã nằm trong `VIETQR_BANKS`, và hệ thống vốn đã nhiều tài
+khoản từ 2026-09-14. Việc còn lại là bốn bước, làm **riêng cho từng tài khoản** — bước 4 là bước
+duy nhất không được bỏ.
+
+### Bước 1 — ở phía ngân hàng
+
+| Tài khoản | Phải làm gì | Chờ bao lâu |
+|---|---|---|
+| **TPBank** cá nhân | Không gì cả. SePay đọc qua API chính thức, chỉ cần đăng nhập internet banking lúc liên kết. | ngay |
+| **MB Bank** cá nhân | Như TPBank. | ngay |
+| **Vietcombank hộ kinh doanh** | **Phải ký hợp đồng OneQR tại quầy.** Mang giấy phép hộ kinh doanh + CCCD chủ hộ. | 3–7 ngày |
+
+⚠ **Vietcombank đứng tên CÁ NHÂN không đi được đường này.** Nếu tài khoản định thêm là VCB cá
+nhân thì chỉ còn đường SMS: có phí hằng tháng, và nội dung chuyển khoản **bị cắt ngắn** nên mã đơn
+có thể rụng mất — tức là tiền về nhưng cột "Xác thực" vẫn trống và phải đối soát tay. Kiểm tên chủ
+tài khoản trên hợp đồng **trước** khi hứa ngày bật.
+
+### Bước 2 — trên my.sepay.vn
+
+1. **Tài khoản ngân hàng → Thêm**, liên kết từng tài khoản một.
+2. **Webhook: KHÔNG cần tạo cái mới cho mỗi tài khoản.** Mở webhook đang có, tick thêm các tài
+   khoản mới vào danh sách tài khoản của nó. Cùng URL, cùng `SEPAY_WEBHOOK_KEY`.
+   Nếu giao diện SePay bắt tạo riêng từng cái thì tạo nhiều webhook **cùng URL, cùng key** cũng
+   chạy đúng: chống trùng nằm ở khoá `(gateway, gateway_txn_id)` dưới DB, nên webhook về hai lần
+   cũng chỉ ra một dòng.
+3. **Job quét bù không phải đụng gì.** Nó gọi `/transactions/list` bằng `SEPAY_API_TOKEN` của cả
+   tài khoản SePay, nên tự kéo về mọi ngân hàng đã liên kết.
+4. **fail2ban**: đã whitelist dải IP của SePay từ lần bật đầu tiên thì không phải làm lại.
+
+### Bước 3 — trong app: Cài đặt → Mã QR nhận tiền → Thêm
+
+| Ô | TPBank | Vietcombank HKD | MB Bank |
+|---|---|---|---|
+| Loại mã | Tài khoản ngân hàng | Tài khoản ngân hàng | Tài khoản ngân hàng |
+| Ngân hàng | TPBank (`970423`) | Vietcombank (`970436`) | MB Bank (`970422`) |
+| Tên gợi nhớ | thứ người thu nhìn để chọn lúc khách đứng đợi — đặt theo người, đừng theo số |
+| Số tài khoản | đúng từng ký tự | đúng từng ký tự | đúng từng ký tự |
+| Tên chủ tài khoản | khách soi tên này trước khi bấm chuyển | | |
+| Tiền tố nội dung | **để trống** | **để trống** | **để trống** |
+| Thứ tự | xem cảnh báo ngay dưới | | |
+
+Để trống ô tiền tố ở cả ba là **có chủ ý**: tài liệu SePay không nhắc từ khoá bắt buộc nào cho ba
+ngân hàng này. Nhưng "tài liệu không nhắc" chưa phải "đã kiểm" — bước 4 mới là chỗ biết chắc.
+
+⚠ **Thứ tự (`sort_order`) quyết định tài khoản nhận tiền của ĐƠN ONLINE.** Khách đặt online không
+được chọn tài khoản; `resolveAccount()` lấy **mã đang bật có `sort_order` nhỏ nhất**. Xếp một mã
+QR dạng ảnh (MoMo) hoặc một tài khoản chưa nối cổng lên đầu là mọi đơn online mất đối soát tự
+động — và không có triệu chứng nào ngoài việc cột "Xác thực" trống mãi. Đặt tài khoản nối cổng
+đáng tin nhất ở vị trí đầu.
+
+### Bước 4 — bài thử bắt buộc, làm RIÊNG cho từng tài khoản
+
+Bỏ bước này thì không có cách nào biết ngân hàng có đòi tiền tố hay không, mà triệu chứng của việc
+thiếu tiền tố là **im lặng tuyệt đối**: tiền về tài khoản thật, không webhook, không lỗi, không
+dấu vết ở đâu cả (xem mục SEVQR ở trên — đã mất một buổi vì đúng chuyện này).
+
+1. Mở một đơn test, chọn **Chuyển khoản**, chọn đúng mã QR vừa thêm.
+2. Quét bằng **app ngân hàng thật**, chuyển **10.000đ**, **giữ nguyên nội dung** hệ thống điền sẵn.
+3. Trong vòng 2 phút, màn thu tiền phải hiện dải xanh **"Đã thanh toán thành công"**.
+4. Vào **Lịch sử → 🏦 Sổ webhook ngân hàng**, lọc đúng ngân hàng đó → phải thấy dòng 10.000đ.
+
+Nếu sau ~2 phút vẫn không thấy gì, dò theo đúng thứ tự này:
+
+| Kiểm | Kết luận và cách chữa |
+|---|---|
+| my.sepay.vn → **Giao dịch**: SePay có thấy khoản 10.000đ không? | **KHÔNG thấy** → ngân hàng không đẩy sang SePay, nhiều khả năng đòi tiền tố. Điền `SEVQR` vào ô "Tiền tố nội dung" của mã đó rồi thử lại 10.000đ. Chạy được thì thêm **một dòng** vào `NOTE_PREFIX_BY_BIN` trong `packages/schemas/src/payment-code.ts` để lần sau màn Cài đặt tự gợi ý — và sửa test `payment-code.test.ts` cho khớp. |
+| SePay thấy nhưng app không có dòng | Webhook không tới nơi. `docker logs ordbl_api \| grep webhook`; kiểm fail2ban đã ban IP SePay chưa; kiểm webhook trên SePay đã tick tài khoản này chưa. |
+| App có dòng nhưng cột "Xác thực" vẫn trống | Nội dung CK bị sửa hoặc bị cắt → mất mã đơn. Đọc nội dung nguyên văn trong sổ webhook để biết rụng ở đâu. |
+
+⚠ Tiền tố ăn vào trần **25 ký tự** của nội dung: thêm `SEVQR ` là cắt mất 6 ký tự ở đuôi, tức cụt
+tên người thu. Đánh đổi đã chấp nhận — thiếu tiền tố thì mất cả giao dịch, còn cụt tên người thu
+thì vẫn tra ngược được từ đơn.
+
+### Sau khi cả ba tài khoản chạy
+
+- Người thu giờ có 4+ nút chọn ở màn QR. Xếp lại thứ tự cho mã hay dùng nhất lên đầu, nhớ cảnh báo
+  `sort_order` ở bước 3.
+- **Mã QR dạng ảnh (MoMo, QR in giấy) không chạy xác thực** (sửa 2026-09-23): không có cổng nào
+  đứng sau chúng, nên hỏi bao lâu cũng không có câu trả lời. Màn thu tiền đi thẳng qua bước chụp
+  bill như trước, không hiện dải xanh lẫn dải đỏ. Đừng chờ dải xanh ở đó.
+- **Khách chuyển đúng mã đơn nhưng vào tài khoản khác trong số 4 cái**: vẫn tính là đã trả — tiền
+  đã về tài khoản thật của quán. Nhưng log ghi cảnh báo và `payment_intents.needs_review` bật, để
+  cuối ngày còn giải thích được vì sao sao kê TPBank thiếu một khoản mà MB lại thừa. Tìm bằng
+  `docker logs ordbl_api | grep "nhưng QR chìa ra"`.
 
 ## Thử sau khi bật
 

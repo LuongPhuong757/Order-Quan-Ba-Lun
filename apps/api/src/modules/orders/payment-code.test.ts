@@ -133,6 +133,22 @@ describe('tiền tố bắt buộc của ngân hàng', () => {
     expect(suggestedNotePrefix(null)).toBeNull();
   });
 
+  it('ba tài khoản mở thêm 2026-09-23 mặc định KHÔNG có tiền tố', () => {
+    // Chốt lại hiện trạng để lần sau ai đó điền tiền tố cho một trong ba ngân hàng này thì test
+    // đỏ lên và buộc họ nói rõ vì sao — tiền tố sai cũng làm cổng mù y như thiếu tiền tố.
+    // Đổi ở đây là phải đổi cả `docs/DOI-SOAT-SEPAY.md`.
+    expect(suggestedNotePrefix('970423')).toBeNull(); // TPBank
+    expect(suggestedNotePrefix('970436')).toBeNull(); // Vietcombank (kể cả hộ kinh doanh/OneQR)
+    expect(suggestedNotePrefix('970422')).toBeNull(); // MB Bank
+  });
+
+  it('BIN lạ không làm hàm nổ', () => {
+    // Chủ quán gõ tay được BIN ở ô "Ngân hàng khác", nên hàm phải nuốt được mọi chuỗi.
+    expect(suggestedNotePrefix('999999')).toBeNull();
+    expect(suggestedNotePrefix('')).toBeNull();
+    expect(suggestedNotePrefix('constructor')).toBeNull();
+  });
+
   it('paymentNote đặt tiền tố ở ĐẦU — ngân hàng kiểm "bắt đầu bằng", không phải "có chứa"', () => {
     expect(paymentNote('BAN05ABC', 'SEVQR')).toBe('SEVQR BAN05ABC');
     expect(paymentNote('BAN05ABC')).toBe('BAN05ABC');

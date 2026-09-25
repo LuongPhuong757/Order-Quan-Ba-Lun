@@ -63,12 +63,59 @@ export function PaymentQrPanel() {
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Công tắc "xác thực giao dịch tại quầy" (2026-09-25). `null` = chưa nạp xong — lúc đó ô công
+   *  tắc chưa vẽ, để không nháy một trạng thái sai rồi tự đổi ngay sau đó. */
+  const [verifyOn, setVerifyOn] = useState<boolean | null>(null);
+  const [verifySaving, setVerifySaving] = useState(false);
+
+  /**
+   * Bật/tắt vòng hỏi ngân hàng 2 phút ở màn thu tiền.
+   *
+   * Ghi trạng thái mới vào state TRƯỚC khi gọi mạng thì ô công tắc phản hồi tức thì, nhưng hỏng
+   * thì phải trả về đúng giá trị cũ — không phải giá trị ngược lại của cái vừa đặt, vì người dùng
+   * có thể đã bấm thêm lần nữa trong lúc chờ.
+   */
+  const toggleVerify = async (next: boolean) => {
+    const prev = verifyOn;
+    setVerifyOn(next);
+    setVerifySaving(true);
+    try {
+      await api.put('/admin/settings', { bank_verify_enabled: next });
+      toast.push(
+        'success',
+        next
+          ? 'Đã BẬT xác thực giao dịch tại quầy'
+          : 'Đã TẮT — màn thu tiền không hỏi ngân hàng nữa',
+      );
+    } catch (err) {
+      setVerifyOn(prev);
+      toast.push('error', extractError(err).message);
+    } finally {
+      setVerifySaving(false);
+    }
+  };
 
   const refresh = async () => {
     setLoading(true);
     try {
       const res = await api.get<{ data: { items: QrRow[] } }>('/admin/payment-qr');
       setItems(res.data.data.items);
+      // Đọc cờ ở đây thay vì một effect riêng: cùng một màn, cùng một lần mở, và hỏng thì đã có
+      // sẵn một chỗ báo lỗi. `catch` riêng vì mất cờ KHÔNG được làm trắng cả danh sách mã QR.
+      //
+      // ⚠ Giá trị nằm ở `data.SETTINGS.<key>`, KHÔNG phải `data.<key>` — response của
+      // `GET /admin/settings` có bốn khoá cấp một (`settings`, `open_hours_input`,
+      // `open_hours_configured`, `ordering_status`). Đọc nhầm một tầng thì cờ luôn `undefined`,
+      // rơi về `false`, và ô công tắc hiện "đang tắt" ngay sau khi vừa bật xong — trong khi màn
+      // thu tiền (đọc đường khác, `GET /payment-qr`) vẫn chạy đúng. Đã sai đúng vậy 2026-09-25.
+      try {
+        const st = await api.get<{ data: { settings: { bank_verify_enabled: boolean } } }>(
+          '/admin/settings',
+        );
+        setVerifyOn(st.data.data.settings.bank_verify_enabled);
+      } catch {
+        setVerifyOn(null);
+      }
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -205,6 +252,40 @@ export function PaymentQrPanel() {
 
   return (
     <div>
+      {/* CÔNG TẮC đứng ĐẦU panel, trên cả form thêm mã (2026-09-25).
+          Nó nói về cách CẢ QUÁN thu tiền, còn phần dưới là từng tài khoản một — thứ bao trùm phải
+          đứng trên thứ bị bao. Đặt ở màn này chứ không phải màn Đơn hàng online vì chủ quán tới
+          đây khi lo chuyện thu tiền qua QR, và tiền tố ngân hàng cũng khai ngay bên dưới. */}
+      {verifyOn !== null && (
+        <div className="st-section">
+          <h2>Xác thực giao dịch tại quầy</h2>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={verifyOn}
+              disabled={verifySaving}
+              onChange={(e) => toggleVerify(e.target.checked)}
+              style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
+            />
+            <span>
+              <strong>
+                {verifyOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — màn thu tiền{' '}
+                {verifyOn ? 'có' : 'không'} hỏi ngân hàng
+              </strong>
+              <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
+                Bật: sau khi chìa mã QR, máy hỏi ngân hàng trong 2 phút. Tiền về là hiện dải xanh
+                và bỏ qua bước chụp bill.
+              </span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
+                Tắt: màn thu tiền như cũ, luôn chụp bill.{' '}
+                <strong>Việc đối soát KHÔNG mất đi</strong> — cột "Xác thực" ở màn Lịch sử vẫn tự
+                chuyển xanh khi ngân hàng báo về, chỉ là không còn đứng đợi ở quầy.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       <form className="st-section" onSubmit={submit}>
         <h2>{form.id ? 'Sửa mã QR' : 'Thêm mã QR nhận tiền'}</h2>
         <p style={{ margin: '6px 0 16px', fontSize: 13, color: C.muted }}>

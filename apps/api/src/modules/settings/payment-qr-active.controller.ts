@@ -12,6 +12,7 @@ import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
+import { SettingsService } from './settings.service.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { PaymentQrAccount } from './entities/payment-qr-account.entity.js';
 
@@ -20,6 +21,7 @@ import { PaymentQrAccount } from './entities/payment-qr-account.entity.js';
 export class PaymentQrActiveController {
   constructor(
     @InjectRepository(PaymentQrAccount) private readonly repo: Repository<PaymentQrAccount>,
+    private readonly settings: SettingsService,
   ) {}
 
   /**
@@ -48,6 +50,18 @@ export class PaymentQrActiveController {
     });
     return {
       data: {
+        /**
+         * Màn thu tiền có hỏi ngân hàng hay không (2026-09-25).
+         *
+         * Đi ké endpoint NÀY chứ không dựng endpoint riêng, và cũng không lấy từ
+         * `GET /admin/settings`: hộp thoại thu tiền đã gọi sẵn đường này để dựng danh sách mã QR,
+         * còn `/admin/settings` nằm sau `AdminGuard` mà người thu tiền phần lớn là role `order`.
+         * Một field đi nhờ một request đã có, thay vì một request nữa cho mỗi lần mở màn.
+         *
+         * Cờ đi qua `isBankVerifyEnabled()` chứ không đọc thẳng cột: cầu dao môi trường
+         * `BANK_VERIFY_DISABLED` phải thắng được cột DB, xem docblock của hàm đó.
+         */
+        verify_enabled: await this.settings.isBankVerifyEnabled(),
         items: items.map((r) => ({
           id: r.id,
           label: r.label,

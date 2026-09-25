@@ -97,6 +97,20 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // bật lên khi chưa có kênh thật = khách không nhận được mã = không ai đặt được đơn.
   // Bật ở /admin (khu Đơn hàng online) sau khi cắm sender thật, hoặc để thử nghiệm.
   { key: 'otp_login_enabled', kind: 'bool', default: false },
+  // ── Xác thực chuyển khoản TẠI QUẦY (2026-09-25) ──
+  //
+  // Tắt ĐÚNG MỘT THỨ: vòng hỏi ngân hàng 2 phút ở màn thu tiền. Mọi thứ khác của tính năng đối
+  // soát chạy y nguyên — mã đơn vẫn sinh, nội dung CK vẫn mang mã + tiền tố, webhook vẫn ghi sổ,
+  // cột "Xác thực" ở màn Lịch sử vẫn tự chuyển xanh. Công tắc không tắt đối soát; nó chuyển đối
+  // soát từ ĐỨNG ĐỢI TẠI QUẦY sang SOÁT LẠI SAU.
+  //
+  // MẶC ĐỊNH TẮT, và fallback này LÀ giá trị có hiệu lực thật cho tới khi chủ quán bấm lưu lần
+  // đầu (cùng bẫy đã ghi ở `max_delivery_km`). Cố ý: tính năng đang thử nghiệm, push lên
+  // production không được đổi gì với người đang dùng.
+  //
+  // Cầu dao `BANK_VERIFY_DISABLED=1` ép tắt bất kể cột này — xem
+  // `SettingsService.isBankVerifyEnabled()`, đường DUY NHẤT được phép đọc cờ này.
+  { key: 'bank_verify_enabled', kind: 'bool', default: false },
   // ── Bản đồ (2026-08-07) — 2 công tắc RIÊNG cho 2 nơi, không phải một ──
   // Chủ quán yêu cầu tắt được "nếu lag ảnh hưởng hệ thống". Hai nơi có rủi ro hoàn toàn khác nhau
   // nên gộp thành một công tắc là buộc họ hi sinh cái không có vấn đề để cứu cái có:
@@ -198,6 +212,10 @@ export type StoreSettingsMap = {
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
   otp_login_enabled: boolean;
+  /** Vòng hỏi ngân hàng 2 phút ở màn thu tiền. CẤM đọc thẳng — đi qua
+   *  `SettingsService.isBankVerifyEnabled()`, vì cột có thể ghi `true` mà cầu dao môi trường
+   *  đang ép tắt. */
+  bank_verify_enabled: boolean;
   map_checkout_enabled: boolean;
   map_admin_enabled: boolean;
   /** Khoá ô tỉnh của khách về `DEFAULT_PROVINCE_CODE` (Bắc Ninh). Cờ HIỂN THỊ, không phải luật

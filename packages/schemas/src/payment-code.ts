@@ -111,10 +111,28 @@ export const NOTE_PREFIX_MAX = 8;
  *
  * Trả `null` = ngân hàng không đòi tiền tố nào. Chủ quán vẫn GÕ ĐÈ được ở màn Cài đặt — bảng tra
  * này chỉ là gợi ý mặc định, vì danh sách ngân hàng và luật của cổng đều đổi theo thời gian.
+ *
+ * ⚠ `null` ở đây nghĩa là "CHƯA BIẾT ngân hàng này đòi gì", KHÔNG phải "đã xác nhận là không
+ * đòi". Cách duy nhất để biết chắc là chuyển thật 10.000đ rồi xem `bank_transactions` có dòng
+ * không — quy trình ở `docs/DOI-SOAT-SEPAY.md`, mục "Thêm một tài khoản mới". Nếu im lặng thì
+ * thêm đúng một dòng vào bảng dưới đây.
  */
+// `Map` chứ KHÔNG phải object literal: BIN là chuỗi do chủ quán GÕ TAY được ở ô "Ngân hàng khác",
+// nên nó tới đây với giá trị bất kỳ. Tra bằng `obj[bin]` thì `bin = 'constructor'` trả về hàm
+// dựng của Object — một giá trị truthy mà TypeScript vẫn tin là `string`, và nó sẽ đi thẳng vào
+// nội dung chuyển khoản. `Map` chỉ trả về thứ đã được đặt vào.
+const NOTE_PREFIX_BY_BIN = new Map<string, string>([
+  // VietinBank cá nhân — đã kiểm bằng tiền thật 2026-09-22, thiếu SEVQR là webhook im tuyệt đối.
+  ['970415', 'SEVQR'],
+  // TPBank (970423), Vietcombank (970436), MB Bank (970422): ba tài khoản mở thêm 2026-09-23.
+  // Cả ba đi API chính thức của SePay và tài liệu KHÔNG nhắc tới từ khoá bắt buộc nào, nên để
+  // trống — nhưng phải chạy bài thử 10.000đ cho TỪNG tài khoản trước khi tin.
+  // Thấy im lặng thì thêm đúng một dòng `['970423', 'SEVQR'],` vào đây, không sửa chỗ nào khác.
+]);
+
 export function suggestedNotePrefix(bankBin: string | null | undefined): string | null {
-  if (bankBin === '970415') return 'SEVQR'; // VietinBank
-  return null;
+  if (!bankBin) return null;
+  return NOTE_PREFIX_BY_BIN.get(bankBin) ?? null;
 }
 
 /**

@@ -102,6 +102,22 @@ export class SettingsService {
     };
   }
 
+  /**
+   * Đường DUY NHẤT để biết màn thu tiền có hỏi ngân hàng hay không (2026-09-25).
+   *
+   * Cấm đọc thẳng `bank_verify_enabled` hay `process.env.BANK_VERIFY_DISABLED` ở bất kỳ đâu khác,
+   * cùng lệ với `getOrderingStatus()`: cột có thể ghi `true` trong khi cầu dao môi trường đang ép
+   * tắt, và lúc đó hai nơi đọc hai kiểu sẽ nói hai chuyện khác nhau.
+   *
+   * Cầu dao THẮNG cột DB, không phải ngược lại. Nó sinh ra cho đúng ca "tính năng đang gây sự cố
+   * mà không ai đăng nhập được để bấm công tắc" — nếu DB ghi đè được nó thì nó vô dụng ở chính
+   * tình huống đó.
+   */
+  async isBankVerifyEnabled(): Promise<boolean> {
+    if (process.env.BANK_VERIFY_DISABLED === '1') return false;
+    return (await this.readAll()).bank_verify_enabled;
+  }
+
   /** Đường DUY NHẤT để suy ra "đang nhận đơn hay không" — mọi nơi khác gọi qua đây. */
   async getOrderingStatus(nowMs: number): Promise<OrderingStatus> {
     const s = await this.readOrderingSettings();

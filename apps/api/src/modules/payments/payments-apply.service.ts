@@ -4,7 +4,6 @@ import type { EntityManager } from 'typeorm';
 import { extractPaymentCode } from '@order/schemas';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
-import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
 import type { IngestInput } from './sepay-payload.js';
 
 /**
@@ -19,6 +18,11 @@ import type { IngestInput } from './sepay-payload.js';
  * 2. **Máy chỉ gắn cờ, không sửa tiền.** Chủ quán chốt 2026-09-21. Không dòng nào ở đây đụng tới
  *    `orders.transfer_amount`, `closed_at` hay `is_paid`. Con số tiền vẫn là thứ nhân viên ghi;
  *    cái ta thêm vào chỉ là câu trả lời cho "ngân hàng đã báo về chưa".
+ *
+ *    Từ 2026-09-25 câu này đúng TUYỆT ĐỐI, không còn ngoại lệ nào. Trước đó luồng khách đặt online
+ *    trả trước có ghi `online_order_requests.paid_at`; luồng đó đã bị gỡ (xem `payments.module.ts`)
+ *    nên service này nay chỉ ghi vào đúng hai bảng của chính nó. Đừng thêm ngoại lệ mới: mỗi cái
+ *    là một nguồn sự thật thứ hai cạnh con số tiền mà nhân viên đã ghi.
  *
  * 3. **Không đoán.** Không có mã đơn trong nội dung thì để nguyên, KHÔNG dò theo số tiền. Hai bàn
  *    cùng trả 250.000đ trong năm phút là chuyện thường; đoán sai ở đây là đánh dấu đã trả cho đơn
@@ -70,14 +74,38 @@ export class PaymentsApplyService {
       // lớn đơn sẽ mắc kẹt ở "chưa đủ" và tính năng thành vô dụng.
       const paidAt = intent.paid_at ?? (enough ? input.occurredAt : null);
 
+      // TIỀN VỀ ĐÚNG MÃ NHƯNG SAI TÀI KHOẢN (2026-09-23).
+      //
+      // `expected_account_no` được snapshot từ ngày đầu nhưng chưa có ai ĐỌC nó — với một tài
+      // khoản duy nhất thì không có gì để lệch. Từ lúc quán chạy bốn tài khoản song song, ca này
+      // thành chuyện thường: người thu chìa QR TPBank, khách lại bấm vào mã MB đã lưu sẵn trong
+      // app từ lần trước, nội dung CK vẫn mang đúng mã đơn nên vẫn khớp.
+      //
+      // KHÔNG chặn, KHÔNG bỏ qua tiền: tiền đã về tài khoản thật của quán, đơn vẫn phải tính là
+      // đã trả. Chỉ ghi nhật ký và bật `needs_review` để cuối ngày còn biết vì sao sao kê của
+      // TPBank thiếu một khoản mà MB lại thừa. So sánh chỉ chạy khi có ĐỦ hai số — thiếu bên nào
+      // thì ta không biết gì, và "không biết" không được phép thành một lời buộc tội.
+      const wrongAccount =
+        intent.expected_account_no !== null &&
+        input.accountNo !== null &&
+        intent.expected_account_no !== input.accountNo;
+      if (wrongAccount) {
+        this.log.warn(
+          `[webhook] ${code} tiền về TK ${input.accountNo} nhưng QR chìa ra là TK ` +
+            `${intent.expected_account_no} — vẫn tính đã trả, cần soát lại sao kê`,
+        );
+      }
+
       await m.update(PaymentIntent, intent.id, {
         received_amount: received,
         paid_at: paidAt,
-        needs_review: !enough || received > intent.amount * PaymentsApplyService.OVERPAY_TOLERANCE,
+        needs_review:
+          !enough ||
+          wrongAccount ||
+          received > intent.amount * PaymentsApplyService.OVERPAY_TOLERANCE,
       });
 
       if (enough && !intent.paid_at) {
-        await this.markTargetPaid(m, intent, paidAt!);
         this.log.log(
           `[webhook] DH${code} (${intent.target_type}) ĐÃ THANH TOÁN ${received}/${intent.amount}`,
         );
@@ -168,15 +196,4 @@ export class PaymentsApplyService {
     return Number((res.raw as { affectedRows?: number })?.affectedRows ?? 0) > 0;
   }
 
-  /**
-   * Ghi mốc đã trả lên đơn đích.
-   *
-   * ĐƠN QUẦY KHÔNG CÓ GÌ ĐỂ GHI, và đó là chủ ý: cờ "ngân hàng đã báo về" sống ở `payment_intents`
-   * và màn đối soát đọc từ đó. Thêm một cột trên `orders` sẽ là nguồn sự thật thứ hai cạnh con số
-   * tiền — đúng thứ mà docblock của `payment_method` trong `order.entity.ts` đã từ chối một lần.
-   */
-  private async markTargetPaid(m: EntityManager, intent: PaymentIntent, paidAt: number): Promise<void> {
-    if (intent.target_type !== 'ONLINE') return;
-    await m.update(OnlineOrderRequest, intent.target_id, { paid_at: paidAt });
-  }
 }

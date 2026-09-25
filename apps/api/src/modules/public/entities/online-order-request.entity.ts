@@ -137,14 +137,19 @@ export class OnlineOrderRequest {
   @Column({ type: 'int', default: 0 })
   max_progress_shown!: number;
 
-  // Mốc ngân hàng đã báo tiền về đủ cho đơn này (2026-09-22, webhook SePay). NULL = chưa thấy tiền.
+  // ⚠ KHÔNG CÒN AI GHI, KHÔNG CÒN AI ĐỌC từ 2026-09-25.
   //
-  // MỘT MỐC THỜI GIAN, KHÔNG PHẢI GIÁ TRỊ MỚI CỦA `status`: `status` là vòng đời DUYỆT đơn
-  // (WAITING → CONFIRMED/REJECTED), do người quán bấm. Trả tiền là trục khác hẳn và chạy song
-  // song — khách trả trước lúc quán chưa duyệt là bình thường. Nhét vào cùng một cột thì hai
-  // trục đè lên nhau và không còn cách nào diễn tả "đã trả tiền nhưng quán chưa nhận đơn".
+  // Từng là mốc "ngân hàng đã báo tiền về đủ cho đơn này" (2026-09-22), do `PaymentsApplyService`
+  // ghi khi khách đặt online tự quét QR trả trước. Chủ quán đã bỏ luồng trả trước đó — đơn ship
+  // nay thu như mọi đơn khác, nhân viên mở bàn và chọn mã QR — nên không đường nào tạo
+  // `payment_intents` với `target_type = 'ONLINE'` nữa, và cột này vĩnh viễn NULL.
   //
-  // Ai ghi: CHỈ `PaymentsApplyService`. Set rồi không gỡ (xem docblock `payment_intents.paid_at`).
+  // CỘT VẪN GIỮ vì `synchronize: true` trên DB dev DÙNG CHUNG giữa các worktree: bỏ khỏi entity ở
+  // nhánh này là DROP cột thật, nhánh khác còn tham chiếu sẽ đổ "Unknown column". Xoá cột là việc
+  // riêng, làm sau khi mọi nhánh đều sạch.
+  //
+  // ĐỪNG nhầm cột này với `paid_at_ms` ở màn Đơn hàng online: cái đó suy từ `orders.closed_at`
+  // (xem `admin-online-orders.service.ts`), không liên quan gì tới đây.
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
   paid_at!: number | null;
 
