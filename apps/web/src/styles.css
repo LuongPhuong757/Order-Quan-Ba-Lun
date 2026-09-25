@@ -3864,3 +3864,10 @@ button.rc-addbtn {
   color: #6b7280;
   font-size: 11.5px;
 }
+
+/* Chú thích dưới nhóm nút sắp xếp theo giá vốn (M6.D-18). */
+.mm2-sorthint {
+  margin: -10px 0 18px;
+  font-size: 11.5px;
+  color: #6b7280;
+}

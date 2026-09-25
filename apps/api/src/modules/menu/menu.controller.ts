@@ -27,6 +27,7 @@ import { Type } from 'class-transformer';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
 import { computeMenuVersion } from './menu-version.js';
+import { recipeCostsByItem } from '../ingredients/recipe-cost-query.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { toTitleCase } from '../../common/text.js';
@@ -131,6 +132,13 @@ export class MenuController {
     // FE truyền page_size=2000 lấy 1 phát hết menu, không cần lazy load.
     const page_size = Math.min(2000, Math.max(1, Number(q.page_size) || 200));
 
+    // Lọc / sắp xếp theo CÔNG THỨC (M6.D-18, 2026-09-25) — phải làm ở SERVER chứ không phải
+    // ở web. Màn Menu phân trang 30 món; lọc hay sắp xếp trong bộ nhớ của web chỉ tác động lên
+    // đúng trang đang xem, nên "món tốn nguyên liệu nhất" hoá ra là tốn nhất TRONG 30 MÓN ĐÓ —
+    // sai một cách rất khó nhận ra, vì bảng vẫn có vẻ được sắp đúng.
+    const recipe = q.recipe === 'has' || q.recipe === 'none' ? q.recipe : null;
+    const byCost = sort === 'cost' || sort === 'cost_pct';
+
     const qb = this.repo.createQueryBuilder('m');
     if (!include_inactive) qb.andWhere('m.is_active = :a', { a: true });
     if (group) qb.andWhere('m.group = :g', { g: group });
@@ -140,6 +148,8 @@ export class MenuController {
       qb.andWhere('(m.name LIKE :s OR m.code LIKE :s)', { s: `%${search}%` });
     }
 
+    // `cost` / `cost_pct` KHÔNG sắp ở đây — chúng cần giá vốn của mọi món khớp bộ lọc, nên đi
+    // đường riêng bên dưới và sắp trong bộ nhớ.
     if (sort === 'newest') {
       qb.orderBy('m.created_at', 'DESC');
     } else if (sort === 'name') {
@@ -148,9 +158,65 @@ export class MenuController {
       qb.orderBy('m.group', 'ASC').addOrderBy('m.name', 'ASC');
     }
 
-    qb.skip((page - 1) * page_size).take(page_size);
+    // Đường THƯỜNG: để MySQL phân trang, không kéo gì thừa về.
+    if (!recipe && !byCost) {
+      qb.skip((page - 1) * page_size).take(page_size);
+      const [items, total] = await qb.getManyAndCount();
+      return { data: { items, total, page, page_size } };
+    }
 
-    const [items, total] = await qb.getManyAndCount();
+    // Đường có dính CÔNG THỨC: phải biết giá vốn của MỌI món khớp bộ lọc trước khi cắt trang.
+    //
+    // Cố ý KHÔNG join bảng công thức vào truy vấn chính: `ORDER BY` trên một subquery join thô
+    // làm TypeORM đi tra metadata của alias và ném "alias was not found", còn viết lại cả câu
+    // bằng SQL thô thì phải nhân bản 5 điều kiện lọc (nhóm, tình trạng, tìm kiếm, ẩn/hiện) —
+    // hai bản sao của cùng một bộ lọc là thứ sớm muộn lệch nhau.
+    //
+    // Quán có ~600 món nên kéo id + giá về rồi sắp trong bộ nhớ là rẻ. Nếu menu lên chục nghìn
+    // món thì mới phải nghĩ lại.
+    const all = await qb.select(['m.id', 'm.price']).getRawMany<{ m_id: string; m_price: number }>();
+    const costs = await recipeCostsByItem(this.ds.manager, all.map((r) => r.m_id));
+
+    let list = all.map((r) => {
+      const c = costs.get(r.m_id);
+      return {
+        id: r.m_id,
+        price: Number(r.m_price) || 0,
+        has: !!c,
+        cost: c ? c.cost : null,
+      };
+    });
+    if (recipe === 'has') list = list.filter((r) => r.has);
+    else if (recipe === 'none') list = list.filter((r) => !r.has);
+
+    if (byCost) {
+      const key = (r: (typeof list)[number]) => {
+        if (r.cost === null) return null;
+        // `cost_pct` chia cho giá bán; món giá 0 (quà tặng, món kèm) thì không có tỉ lệ nào có
+        // nghĩa — cho về null để nó rơi xuống cuối cùng lệ với món chưa khai công thức.
+        if (sort === 'cost_pct') return r.price > 0 ? r.cost / r.price : null;
+        return r.cost;
+      };
+      list.sort((a, b) => {
+        const ka = key(a);
+        const kb = key(b);
+        // null = CHƯA BIẾT, luôn xuống cuối — đây là bảng xếp hạng "tốn nguyên liệu nhất", để
+        // món chưa khai lẫn vào giữa là đọc thành "món này ít tốn".
+        if (ka === null && kb === null) return 0;
+        if (ka === null) return 1;
+        if (kb === null) return -1;
+        return kb - ka;
+      });
+    }
+
+    const total = list.length;
+    const pageIds = list.slice((page - 1) * page_size, page * page_size).map((r) => r.id);
+    if (pageIds.length === 0) return { data: { items: [], total, page, page_size } };
+
+    // `find` trả về theo thứ tự của DB, không theo thứ tự mình vừa sắp — phải xếp lại tay.
+    const rows = await this.repo.find({ where: { id: In(pageIds) } });
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    const items = pageIds.map((id) => byId.get(id)).filter((r): r is MenuItem => !!r);
     return { data: { items, total, page, page_size } };
   }
 

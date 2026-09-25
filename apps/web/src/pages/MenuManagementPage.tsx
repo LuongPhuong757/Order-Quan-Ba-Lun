@@ -48,7 +48,9 @@ function formatVND(v: number): string {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
-type SortMode = 'newest' | 'name' | 'group';
+type SortMode = 'newest' | 'name' | 'group' | 'cost' | 'cost_pct';
+/** Lọc theo việc món đã khai công thức chưa (M6.D-18). '' = không lọc. */
+type RecipeFilter = '' | 'has' | 'none';
 type StockFilter = '' | 'out' | 'in';
 const PAGE_SIZE = 30;
 
@@ -64,6 +66,7 @@ export function MenuManagementPage() {
   const [loading, setLoading] = useState(true);
   const [groupFilter, setGroupFilter] = useState<string>('');
   const [stockFilter, setStockFilter] = useState<StockFilter>('');
+  const [recipeFilter, setRecipeFilter] = useState<RecipeFilter>('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState<SortMode>('newest');
@@ -106,7 +109,7 @@ export function MenuManagementPage() {
   // Reset về page 1 khi filter/search/sort đổi
   useEffect(() => {
     setPage(1);
-  }, [groupFilter, stockFilter, debouncedSearch, sort]);
+  }, [groupFilter, stockFilter, recipeFilter, debouncedSearch, sort]);
 
   /** Số dòng công thức của các món ĐANG HIỆN — một request cho cả trang, không hỏi từng món.
    *
@@ -150,6 +153,7 @@ export function MenuManagementPage() {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
       if (stockFilter) q.set('stock', stockFilter);
+      if (recipeFilter) q.set('recipe', recipeFilter);
       if (debouncedSearch) q.set('q', debouncedSearch);
       q.set('sort', sort);
       q.set('page', String(page));
@@ -173,7 +177,7 @@ export function MenuManagementPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupFilter, stockFilter, debouncedSearch, sort, page]);
+  }, [groupFilter, stockFilter, recipeFilter, debouncedSearch, sort, page]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -208,12 +212,13 @@ export function MenuManagementPage() {
 
   // Số bộ lọc đang bật — hiện thành chấm đếm trên nút ⚙. Không đếm `sort`: sắp xếp không
   // giấu món nào đi, nên báo nó như một bộ lọc là báo động giả.
-  const activeFilterCount = (groupFilter ? 1 : 0) + (stockFilter ? 1 : 0);
+  const activeFilterCount = (groupFilter ? 1 : 0) + (stockFilter ? 1 : 0) + (recipeFilter ? 1 : 0);
 
   const clearAll = () => {
     setSearch('');
     setGroupFilter('');
     setStockFilter('');
+    setRecipeFilter('');
   };
 
   const stockLabel = stockFilter === 'out' ? '🚫 Hết hàng' : stockFilter === 'in' ? '✅ Còn hàng' : '';
@@ -291,6 +296,18 @@ export function MenuManagementPage() {
               ]}
             />
             <Select
+              value={recipeFilter}
+              onChange={setRecipeFilter}
+              ariaLabel="Lọc theo công thức"
+              neutralValue=""
+              compact
+              options={[
+                { value: '', label: 'Tất cả công thức' },
+                { value: 'has', label: '📋 Đã khai CT' },
+                { value: 'none', label: '⚠ Chưa khai CT' },
+              ]}
+            />
+            <Select
               value={sort}
               onChange={setSort}
               ariaLabel="Sắp xếp danh sách món"
@@ -300,6 +317,8 @@ export function MenuManagementPage() {
                 { value: 'newest', label: '↓ Mới nhất' },
                 { value: 'name', label: 'A → Z (tên)' },
                 { value: 'group', label: 'Theo nhóm' },
+                { value: 'cost', label: '💰 Tốn tiền NL nhất' },
+                { value: 'cost_pct', label: '📊 Tỉ lệ vốn cao nhất' },
               ]}
             />
           </div>
@@ -334,7 +353,7 @@ export function MenuManagementPage() {
 
         {/* Chip cho từng bộ lọc đang bật: bỏ được từng cái một, và nói rõ vì sao danh sách
             ngắn đi. Ô tìm tự nó đã nhìn thấy nên không cần chip. */}
-        {(groupFilter || stockFilter) && (
+        {(groupFilter || stockFilter || recipeFilter) && (
           <div className="mm2-chips">
             {groupFilter && (
               <span className="mm2-chip">
@@ -348,6 +367,14 @@ export function MenuManagementPage() {
               <span className="mm2-chip">
                 {stockLabel}
                 <button className="mm2-chipx" onClick={() => setStockFilter('')} aria-label="Bỏ lọc tình trạng">
+                  ✕
+                </button>
+              </span>
+            )}
+            {recipeFilter && (
+              <span className="mm2-chip">
+                {recipeFilter === 'has' ? '📋 Đã khai công thức' : '⚠ Chưa khai công thức'}
+                <button className="mm2-chipx" onClick={() => setRecipeFilter('')} aria-label="Bỏ lọc công thức">
                   ✕
                 </button>
               </span>
@@ -539,10 +566,12 @@ export function MenuManagementPage() {
           groups={groups}
           groupFilter={groupFilter}
           stockFilter={stockFilter}
+          recipeFilter={recipeFilter}
           sort={sort}
           total={total}
           onGroup={setGroupFilter}
           onStock={setStockFilter}
+          onRecipe={setRecipeFilter}
           onSort={setSort}
           onClear={clearAll}
           onClose={() => setShowFilters(false)}
@@ -650,10 +679,12 @@ function MenuFilterSheet({
   groups,
   groupFilter,
   stockFilter,
+  recipeFilter,
   sort,
   total,
   onGroup,
   onStock,
+  onRecipe,
   onSort,
   onClear,
   onClose,
@@ -661,10 +692,12 @@ function MenuFilterSheet({
   groups: MenuGroup[];
   groupFilter: string;
   stockFilter: StockFilter;
+  recipeFilter: RecipeFilter;
   sort: SortMode;
   total: number;
   onGroup: (v: string) => void;
   onStock: (v: StockFilter) => void;
+  onRecipe: (v: RecipeFilter) => void;
   onSort: (v: SortMode) => void;
   onClear: () => void;
   onClose: () => void;
@@ -678,6 +711,22 @@ function MenuFilterSheet({
     { v: 'newest', label: '↓ Mới nhất' },
     { v: 'name', label: 'A → Z' },
     { v: 'group', label: 'Theo nhóm' },
+  ];
+  /* Hai kiểu sắp xếp theo giá vốn tách riêng một hàng (M6.D-18): chúng trả lời câu khác hẳn ba
+     kiểu trên — "món nào ăn nhiều nguyên liệu nhất" chứ không phải "tìm món ở đâu". Tách hàng
+     để không ai chọn nhầm khi đang muốn sắp A→Z.
+
+     Tiền và % là HAI bảng xếp hạng khác nhau, không thay thế nhau được: món 200.000đ tốn
+     100.000đ nguyên liệu đứng đầu bảng TIỀN, còn món 30.000đ tốn 25.000đ mới là món ăn mòn lãi
+     nhất theo %. */
+  const costSorts: { v: SortMode; label: string }[] = [
+    { v: 'cost', label: '💰 Tốn nhiều tiền NL nhất' },
+    { v: 'cost_pct', label: '📊 Tỉ lệ vốn/giá bán cao nhất' },
+  ];
+  const recipes: { v: RecipeFilter; label: string }[] = [
+    { v: '', label: 'Tất cả' },
+    { v: 'has', label: '📋 Đã khai' },
+    { v: 'none', label: '⚠ Chưa khai' },
   ];
 
   return (
@@ -709,6 +758,22 @@ function MenuFilterSheet({
           ))}
         </div>
 
+        {/* Lọc theo công thức: "còn bao nhiêu món chưa khai" là câu chủ quán hỏi nhiều nhất khi
+            mới bắt đầu khai — và đây là cách duy nhất để lần lượt dọn hết chúng. */}
+        <p className="mm2-flabel">Công thức</p>
+        <div className="mm2-segs">
+          {recipes.map((r) => (
+            <button
+              key={r.v || 'all'}
+              className="mm2-seg"
+              aria-pressed={recipeFilter === r.v}
+              onClick={() => onRecipe(r.v)}
+            >
+              {r.label}
+            </button>
+          ))}
+        </div>
+
         <p className="mm2-flabel">Sắp xếp</p>
         <div className="mm2-segs">
           {sorts.map((s) => (
@@ -717,6 +782,18 @@ function MenuFilterSheet({
             </button>
           ))}
         </div>
+        <div className="mm2-segs">
+          {costSorts.map((s) => (
+            <button key={s.v} className="mm2-seg" aria-pressed={sort === s.v} onClick={() => onSort(s.v)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {/* Món chưa khai công thức không có giá vốn, nên không xếp hạng được — chúng rơi xuống
+            cuối. Nói trước để người dùng không tưởng là danh sách bị cắt. */}
+        {(sort === 'cost' || sort === 'cost_pct') && (
+          <p className="mm2-sorthint">Món chưa khai công thức xếp cuối — chúng chưa có giá vốn để so.</p>
+        )}
 
         <p className="mm2-flabel">Nhóm món · {groups.length} nhóm</p>
         <div className="mm2-gridgroups">

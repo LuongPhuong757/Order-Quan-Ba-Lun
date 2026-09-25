@@ -6,6 +6,7 @@ import { RecipeLine } from './entities/recipe-line.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { IngredientsService } from './ingredients.service.js';
 import { toBaseQty } from './ingredient-units.js';
+import { recipeCostsByItem, type RecipeCost } from './recipe-cost-query.js';
 
 /** Một dòng công thức đã ghép sẵn tên + đơn vị nguyên liệu — FE không phải tra bảng lần hai. */
 export type RecipeLineView = {
@@ -64,51 +65,14 @@ export class RecipesService {
     return new Map(rows.map((r) => [r.menu_item_id, Number(r.c)]));
   }
 
-  /** Giá vốn nguyên liệu chính của từng món, cho màn danh sách (M6.D-16, 2026-09-25).
+  /** Giá vốn nguyên liệu chính của từng món, cho màn danh sách (M6.D-16).
    *
-   * = Σ (định lượng một phần × đơn giá nguyên liệu theo lần nhập GẦN NHẤT). Cùng định nghĩa giá
-   * mà màn Công thức và màn Nguyên liệu dùng — ba màn lệch định nghĩa thì ba con số đọc cạnh
-   * nhau không cộng được.
-   *
-   * KHÁC với con số ở màn "Món đã bán": ở đây là giá HÔM NAY ("nấu bây giờ tốn bao nhiêu"), còn
-   * bên kia là giá đã chốt lúc bếp nấu ("hồi đó đã tốn bao nhiêu"). Hai câu hỏi khác nhau nên
-   * cố ý hai con số khác nhau.
-   *
-   * `missing` đếm số nguyên liệu chưa có giá. Món thiếu giá vài thứ vẫn trả tổng của phần còn
-   * lại, nhưng màn hình PHẢI nói ra — nếu không người đọc tưởng đó là giá vốn đủ.
-   *
-   * Một truy vấn cho cả trang 30 món, không phải 30 lượt: `GROUP BY` ngay trong SQL.
+   * Phép tính nằm ở `recipe-cost-query.ts` để dùng chung với `MenuController.list` (lọc và sắp
+   * xếp theo công thức) — hai nơi tự viết SQL thì sớm muộn một bên đổi định nghĩa giá và hai
+   * con số cho cùng một món lệch nhau.
    */
-  async costsForItems(
-    menu_item_ids: string[],
-  ): Promise<Map<string, { cost: number; missing: number }>> {
-    if (menu_item_ids.length === 0) return new Map();
-    const rows = await this.repo.manager.query<
-      { menu_item_id: string; cost: string | null; missing: string }[]
-    >(
-      `SELECT r.menu_item_id,
-              SUM(r.qty_per_serving * p.price) AS cost,
-              SUM(CASE WHEN p.price IS NULL THEN 1 ELSE 0 END) AS missing
-         FROM recipe_lines r
-         LEFT JOIN (
-              SELECT si.ingredient_id,
-                     SUBSTRING_INDEX(
-                       GROUP_CONCAT(si.last_unit_price_base ORDER BY si.last_delivery_date DESC), ',', 1
-                     ) AS price
-                FROM supplier_items si
-                JOIN suppliers s ON s.id = si.supplier_id AND s.is_active = 1
-               GROUP BY si.ingredient_id
-         ) p ON p.ingredient_id = r.ingredient_id
-        WHERE r.menu_item_id IN (${menu_item_ids.map(() => '?').join(',')})
-        GROUP BY r.menu_item_id`,
-      menu_item_ids,
-    );
-    return new Map(
-      rows.map((r) => [
-        r.menu_item_id,
-        { cost: Math.round(Number(r.cost ?? 0)), missing: Number(r.missing) },
-      ]),
-    );
+  async costsForItems(menu_item_ids: string[]): Promise<Map<string, RecipeCost>> {
+    return recipeCostsByItem(this.repo.manager, menu_item_ids);
   }
 
   /** Thêm / sửa một dòng công thức. Nguyên liệu nhận theo TÊN, chưa có thì tự tạo.
