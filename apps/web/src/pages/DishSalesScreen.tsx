@@ -174,7 +174,14 @@ export function DishSalesScreen({
     return [...r].sort((a, b) => {
       if (sortKey === 'name') return a.name.localeCompare(b.name, 'vi') * dir;
       if (sortKey === 'group') return (a.group_name ?? '').localeCompare(b.group_name ?? '', 'vi') * dir;
-      if (sortKey === 'price') return ((a.current_price ?? 0) - (b.current_price ?? 0)) * dir;
+      if (sortKey === 'price') {
+        // Món đã gỡ khỏi menu (`null`) luôn xuống cuối, không coi như giá 0 — chúng KHÔNG CÓ
+        // giá, và xếp chúng lẫn với món rẻ nhất là trộn hai nghĩa khác nhau vào một cột.
+        if (a.current_price === null && b.current_price === null) return 0;
+        if (a.current_price === null) return 1;
+        if (b.current_price === null) return -1;
+        return (a.current_price - b.current_price) * dir;
+      }
       if (sortKey === 'qty') return (a.qty - b.qty) * dir;
       if (sortKey === 'orders') return (a.orders - b.orders) * dir;
       if (sortKey === 'cost') return (a.cost - b.cost) * dir;
@@ -321,7 +328,8 @@ export function DishSalesScreen({
                       const key = d.menu_item_id ?? `name:${d.name}`;
                       const mo = moRong === key;
                       const width = Math.max(6, Math.round((d.revenue_pct / maxPct) * 100));
-                      const meta = `${d.group_name ?? '—'} · ${vnd(d.current_price ?? 0)}đ · ${num(d.qty)} phần · ${num(d.orders)} đơn`;
+                      const giaBan = d.current_price === null ? '—' : `${vnd(d.current_price)}đ`;
+                      const meta = `${d.group_name ?? '—'} · ${giaBan} · ${num(d.qty)} phần · ${num(d.orders)} đơn`;
                       return (
                         <Fragment key={key}>
                           <tr className={mo ? 'is-open' : undefined}>
@@ -342,7 +350,14 @@ export function DishSalesScreen({
                             </td>
                             <td data-label="Nhóm" className="colgroup m-off">{d.group_name ?? '—'}</td>
                             <td data-label="Giá bán" className="num m-off">
-                              <span className="money">{vnd(d.current_price ?? 0)}đ</span>
+                              {/* Món đã gỡ khỏi menu không còn giá niêm yết. Hiện "0đ" thì đọc
+                                  thành "món này miễn phí" — trong một bảng toàn số tiền, đó là
+                                  hiểu nhầm rất dễ xảy ra. Gạch ngang nghĩa là KHÔNG CÓ. */}
+                              {d.current_price === null ? (
+                                <span className="cell-sub" title="Món đã gỡ khỏi menu — không còn giá niêm yết">—</span>
+                              ) : (
+                                <span className="money">{vnd(d.current_price)}đ</span>
+                              )}
                             </td>
                             <td data-label="Số phần" className="num m-off">{num(d.qty)}</td>
                             <td data-label="Doanh thu" className="num r-t1n">
