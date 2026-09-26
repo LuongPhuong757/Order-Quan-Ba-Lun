@@ -11,6 +11,9 @@ import { C } from '../lib/online-ui.ts';
 import { locMon, phanTrang } from '../lib/supplier-stats.ts';
 import { downloadCsv } from '../lib/csv.ts';
 import { ToolbarSlot } from '../components/ToolbarSlot.tsx';
+import type { DayRange } from '../lib/date-range.ts';
+import { FilterBar } from './supplier-ui.tsx';
+import './suppliers-ui.css';
 
 export type PairReport = {
   supplier_id: string;
@@ -367,10 +370,17 @@ const CO_TRANG_ITEM = 15;
 
 export function ItemStatsPanel({
   supplierId,
+  range,
+  onRangeChange,
   onOpenHistory,
   onTong,
 }: {
   supplierId?: string;
+  /** Kỳ xem (2026-09-26, chủ quán yêu cầu có Hôm nay / 7 ngày / 30 ngày / Tuỳ chọn như các
+   *  tab khác). Trước đó tab này cố ý là TOÀN BỘ lịch sử (chốt 2026-09-06) — giờ vẫn xem được
+   *  bằng chip "Tất cả". Dùng chung `range` của cả trang để đổi tab không đổi kỳ. */
+  range: DayRange;
+  onRangeChange: (r: DayRange) => void;
   onOpenHistory?: (ingredientId: string, name: string) => void;
   /** Tổng tiền của các dòng ĐANG LỌC (NCC + ô tìm), `null` khi chưa tải. Cha dùng để dòng
    *  "Tổng mua" trên đầu trang nói cùng con số với chân bảng — chủ quán báo 2026-09-26 gõ tìm
@@ -386,16 +396,18 @@ export function ItemStatsPanel({
 
   const load = useCallback(() => {
     setRows(null);
+    // Đổi kỳ hay NCC là về trang 1: trang 4 của kỳ cũ thường không tồn tại ở kỳ mới.
+    setPage(1);
     api
       .get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs', {
-        params: { supplier_id: supplierId },
+        params: { supplier_id: supplierId, from: range.from || undefined, to: range.to || undefined },
       })
       .then((r) => setRows(r.data.data.items))
       .catch((err) => {
         toast.push('error', extractError(err).message);
         setRows([]);
       });
-  }, [supplierId, toast]);
+  }, [supplierId, range.from, range.to, toast]);
 
   useEffect(load, [load]);
 
@@ -440,13 +452,40 @@ export function ItemStatsPanel({
     return () => onTong?.(null);
   }, [onTong, rows, total]);
 
-  if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
+  // Thanh lọc kỳ dùng chung của module NCC; bọc `.ncc-ui` vì CSS của nó chỉ có hiệu lực trong
+  // lớp đó. Đứng ngoài mọi nhánh tải/rỗng: kỳ này trống thì người dùng phải đổi được kỳ.
+  const thanhLoc = (
+    <div className="ncc-ui">
+      <FilterBar
+        range={range} onRangeChange={onRangeChange}
+        search={{ value: tim, onChange: (v) => { setTim(v); setPage(1); }, placeholder: 'Tên mặt hàng, vd: cá', label: 'Tìm mặt hàng nhập theo tên' }}
+        ariaLabel="Bộ lọc mặt hàng nhập"
+      />
+    </div>
+  );
+
+  if (rows === null) {
+    return (
+      <>
+        {thanhLoc}
+        <p style={{ color: C.muted }}>Đang tải…</p>
+      </>
+    );
+  }
   if (rows.length === 0) {
-    return <div className="empty-state card">Chưa nhập mặt hàng nào.</div>;
+    return (
+      <>
+        {thanhLoc}
+        <div className="empty-state card">
+          {range.from || range.to ? 'Chưa nhập mặt hàng nào trong kỳ đang chọn.' : 'Chưa nhập mặt hàng nào.'}
+        </div>
+      </>
+    );
   }
 
   return (
     <>
+      {thanhLoc}
       <ToolbarSlot>
         <button
           type="button"
@@ -470,20 +509,9 @@ export function ItemStatsPanel({
           Xuất Excel
         </button>
       </ToolbarSlot>
-      {/* Ô tìm kiếm đứng TRÊN dãy nút sắp xếp: quán nhập vài trăm mặt hàng thì "tìm đúng món
-          đang cần" là việc thường xuyên hơn hẳn "xếp lại cả bảng". */}
+      {/* Ô tìm nằm trong thanh lọc ở trên (cùng hàng với chip kỳ, như các tab NCC khác); ở đây
+          chỉ còn dòng đếm kết quả. */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '0 0 12px', flexWrap: 'wrap' }}>
-        <input
-          type="search"
-          value={tim}
-          onChange={(e) => {
-            setTim(e.target.value);
-            setPage(1);
-          }}
-          placeholder="Tìm theo tên mặt hàng, vd: cá"
-          aria-label="Tìm mặt hàng nhập theo tên"
-          style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360, minHeight: 44 }}
-        />
         <span style={{ fontSize: 13, color: C.mutedOnTint }}>
           {trang.total} mặt hàng{tim.trim() ? ' khớp' : ''}
         </span>

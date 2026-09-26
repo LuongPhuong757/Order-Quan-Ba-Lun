@@ -170,9 +170,9 @@ export function SuppliersPage() {
   const periodTotal = suppliers
     .filter((s) => !filterSupplierId || s.id === filterSupplierId)
     .reduce((sum, s) => sum + s.period_amount, 0);
-  /** Tổng của bảng "Mặt hàng nhập" sau khi lọc NCC + gõ tìm, do panel con báo lên. Tab đó
-   *  không có kỳ (toàn bộ lịch sử, chủ quán chốt 2026-09-06) nên `periodTotal` 30 ngày không
-   *  phải con số của bảng đang hiện — hiện nó lên đầu trang là hai số cạnh nhau không khớp. */
+  /** Tổng của bảng "Mặt hàng nhập" sau khi lọc NCC + kỳ + gõ tìm, do panel con báo lên.
+   *  `periodTotal` không nghe ô tìm, nên ở tab đó phải lấy con số của chính bảng đang hiện —
+   *  hai số cạnh nhau mà không khớp là mời người đọc đi so xem chỗ nào đúng. */
   const [tongMatHang, setTongMatHang] = useState<number | null>(null);
 
   /** Tổng CÒN PHẢI TRẢ của mọi NCC (chủ quán yêu cầu 2026-09-08) — luật cộng nằm ở
@@ -364,6 +364,8 @@ export function SuppliersPage() {
       {tab === 'items' && (
         <ItemStatsPanel
           supplierId={filterSupplierId || undefined}
+          range={range}
+          onRangeChange={setRange}
           onOpenHistory={(id, name) => setHistory({ id, name })}
           onTong={setTongMatHang}
         />
