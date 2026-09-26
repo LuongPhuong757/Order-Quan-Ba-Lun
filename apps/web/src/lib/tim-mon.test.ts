@@ -16,6 +16,21 @@ describe('khopTuKhoa', () => {
     expect(khopTuKhoa('Lẩu gà', ' ga ')).toBe(true);
   });
 
+  it('một khoảng trắng ở đầu HOẶC cuối đều là "nguyên từ" — ca dẫn tới luật này: "ốc " ra "ruốc"', () => {
+    expect(khopTuKhoa('Mướp đắng ruốc', 'ốc ')).toBe(false);
+    expect(khopTuKhoa('Mướp đắng ruốc', 'oc ')).toBe(false);
+    expect(khopTuKhoa('Ốc hương', 'ốc ')).toBe(true);
+    expect(khopTuKhoa('Bún ốc', 'ốc ')).toBe(true);
+    expect(khopTuKhoa('Ốc hương xào', ' ốc')).toBe(true);
+    expect(khopTuKhoa('Mướp đắng ruốc', 'ốc')).toBe(true); // không dấu cách: khớp giữa từ như cũ
+    // "ga " cũng không còn ra "Ngải" — biên đầu được chặn dù dấu cách ở cuối.
+    expect(khopTuKhoa('Ngải cứu', 'ga ')).toBe(false);
+    // Cụm nhiều chữ vẫn là nguyên cụm: "chao chim " không ra "cháo chim non"? Có — "chim" là
+    // nguyên từ; nhưng không ra "cháo chimchim".
+    expect(khopTuKhoa('Lẩu cháo chim non', 'chao chim ')).toBe(true);
+    expect(khopTuKhoa('Cháo chimchim', 'chao chim ')).toBe(false);
+  });
+
   it('khoảng trắng ĐẦU loại được món có từ khoá nằm cuối một chữ', () => {
     expect(khopTuKhoa('Gà nướng', ' ga')).toBe(true);
     expect(khopTuKhoa('Ngao hấp', ' ga')).toBe(false);

@@ -6,12 +6,17 @@
 // nhảy vào kết quả (chữ "ga" nằm giữa N-**ga**-o). Menu quán có hàng trăm món nên kiểu khớp
 // giữa-từ này làm ô tìm gần như vô dụng với các âm ngắn: "ga", "ca", "bo", "cua"...
 //
-// Cách chữa: giữ nguyên khoảng trắng của từ khoá, và ĐỆM tên món bằng một khoảng trắng ở hai
-// đầu trước khi so. Nhờ đó:
+// Cách chữa: có khoảng trắng ở ĐẦU hay CUỐI từ khoá là khớp NGUYÊN TỪ — cả hai biên. Tên món
+// được đệm một khoảng trắng ở hai đầu trước khi so, để từ nằm đầu/cuối tên vẫn có biên:
 //
-//     "ga "  khớp "Gà nướng", "Lẩu gà"   — KHÔNG khớp "Ngao hấp"
-//     " ga"  khớp "Gà nướng", "Lẩu gà"   — KHÔNG khớp "Ngao hấp"
-//     "ga"   khớp cả ba                   — không gõ khoảng trắng thì vẫn khớp giữa từ như cũ
+//     "ga "  khớp "Gà nướng", "Lẩu gà"   — KHÔNG khớp "Ngao hấp", KHÔNG khớp "Ngải cứu"
+//     " ga"  y hệt "ga "
+//     "ốc "  khớp "Ốc hương", "Bún ốc"   — KHÔNG khớp "Mướp đắng ruốc"
+//     "ga"   khớp cả Gà lẫn Ngao          — không gõ khoảng trắng thì vẫn khớp giữa từ như cũ
+//
+// Bản đầu (2026-09-09) chỉ chặn đúng biên có khoảng trắng: "ga " chặn biên cuối, " ga" chặn
+// biên đầu. Chủ quán gõ "ốc " vẫn ra "ruốc" (2026-09-26) — không ai gõ " ốc " với dấu cách
+// ở cả hai đầu để nói "nguyên từ", nên một dấu cách ở đầu hoặc cuối đều hiểu là nguyên từ.
 //
 // Đệm hai đầu là phần bắt buộc: thiếu nó thì "ga " không khớp "Lẩu gà" (tên hết ở chữ "gà",
 // không có khoảng trắng nào theo sau) — người dùng gõ để LỌC BỚT chứ không phải để mất luôn
@@ -64,6 +69,9 @@ function gonKhoangTrang(s: string): string {
 export function khopTuKhoa(ten: string, tuKhoa: string): boolean {
   const chuan = coDau(tuKhoa) ? giuDau : boDau;
   const k = gonKhoangTrang(chuan(tuKhoa));
-  if (!k) return true;
-  return ` ${gonKhoangTrang(chuan(ten)).trim()} `.includes(k);
+  const loi = k.trim();
+  if (!loi) return true;
+  const dem = ` ${gonKhoangTrang(chuan(ten)).trim()} `;
+  // Có khoảng trắng ở đầu hoặc cuối → nguyên từ (cụm), cả hai biên.
+  return k === loi ? dem.includes(loi) : dem.includes(` ${loi} `);
 }
