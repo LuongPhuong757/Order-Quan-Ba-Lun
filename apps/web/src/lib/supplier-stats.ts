@@ -1,3 +1,4 @@
+import { boDau, khopTuKhoa } from './tim-mon.ts';
 // Phép gộp cho màn Nhà cung cấp (2026-09-08).
 //
 // Ra đời cho riêng tab "Thống kê"; từ 2026-09-08 các tab "Mặt hàng nhập" và "Phiếu nhập" dùng
@@ -59,22 +60,12 @@ export type TraTienRow = {
 
 const DAY_MS = 24 * 3600 * 1000;
 
-/** Bỏ dấu + thường hoá, GIỮ NGUYÊN khoảng trắng hai đầu.
- *
- * Tách khỏi `khongDau` cho ô tìm kiếm nào coi khoảng trắng là một phần của từ khoá — gõ "ga "
- * để loại "Ngao" thì đúng cái `.trim()` ở dưới là thứ làm hỏng ý đó (xem `tim-mon.ts`).
- */
-export function boDau(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/đ/g, 'd')
-    .replace(/Đ/g, 'd')
-    .toLowerCase();
-}
+// `boDau` chuyển sang `tim-mon.ts` (2026-09-26) để file đó không phải import ngược từ đây;
+// giữ export cho chỗ nào đang import từ file này.
+export { boDau };
 
 /** Bỏ dấu + thường hoá + cắt khoảng trắng hai đầu, để gõ "ca" tìm được "Cá". Cùng công thức với
- *  các màn khác của repo. */
+ *  các màn khác của repo. Ô TÌM thì đừng dùng hàm này — dùng `khopTuKhoa` (xem `tim-mon.ts`). */
 export function khongDau(s: string): string {
   return boDau(s).trim();
 }
@@ -308,9 +299,10 @@ export function gopTheoMon(pairs: PairRow[]): ItemStat[] {
 
 /** Lọc bảng mặt hàng theo tên món (không dấu). Chuỗi rỗng = không lọc. */
 export function locMon<T extends { ingredient_name: string }>(rows: T[], q: string): T[] {
-  const k = khongDau(q);
-  if (!k) return rows;
-  return rows.filter((r) => khongDau(r.ingredient_name).includes(k));
+  // `khopTuKhoa` (2026-09-26): khoảng trắng và dấu người dùng gõ là một phần của từ khoá —
+  // cùng luật với ô tìm ở tab Món đã bán, chủ quán yêu cầu ba tab NCC khớp y nhau.
+  if (!q.trim()) return rows;
+  return rows.filter((r) => khopTuKhoa(r.ingredient_name, q));
 }
 
 // ── Bảng 2: thống kê theo phiếu nhập ────────────────────────────────────────
@@ -326,9 +318,8 @@ export function locMon<T extends { ingredient_name: string }>(rows: T[], q: stri
  * hệt tab Thống kê — hai hàm giống nhau là hai chỗ để lệch.
  */
 export function locPhieuTheoMon<T extends { items: string[] }>(rows: T[], q: string): T[] {
-  const k = khongDau(q);
-  if (!k) return rows;
-  return rows.filter((r) => r.items.some((ten) => khongDau(ten).includes(k)));
+  if (!q.trim()) return rows;
+  return rows.filter((r) => r.items.some((ten) => khopTuKhoa(ten, q)));
 }
 
 // ── Công nợ ─────────────────────────────────────────────────────────────────

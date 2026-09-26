@@ -16,7 +16,38 @@
 // Đệm hai đầu là phần bắt buộc: thiếu nó thì "ga " không khớp "Lẩu gà" (tên hết ở chữ "gà",
 // không có khoảng trắng nào theo sau) — người dùng gõ để LỌC BỚT chứ không phải để mất luôn
 // món mình đang tìm.
-import { boDau } from './supplier-stats.ts';
+//
+// DẤU NGƯỜI DÙNG GÕ CŨNG LÀ MỘT PHẦN CỦA TỪ KHOÁ (2026-09-26, chủ quán báo gõ "gà" ra cả
+// "ngải"). Bỏ dấu cả hai phía là tiện cho ai gõ không dấu, nhưng ai đã mất công gõ "gà" thì
+// "ngải" (n-**gả**-i, bỏ dấu thành n-ga-i) không phải thứ họ tìm. Luật: từ khoá KHÔNG dấu → so
+// bỏ dấu như cũ; từ khoá CÓ dấu → so giữ dấu. Không phải một công tắc riêng: người dùng đã nói
+// ý mình bằng chính cách gõ.
+
+/** Bỏ dấu + thường hoá, GIỮ NGUYÊN khoảng trắng hai đầu.
+ *
+ * Tách khỏi `khongDau` (ở `supplier-stats.ts`) cho ô tìm kiếm nào coi khoảng trắng là một phần
+ * của từ khoá — gõ "ga " để loại "Ngao" thì đúng cái `.trim()` bên đó là thứ làm hỏng ý đó.
+ */
+export function boDau(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'd')
+    .toLowerCase();
+}
+
+/** Thường hoá nhưng GIỮ dấu. `NFC` trước: bàn phím iOS hay gõ ra dạng tách rời (a + dấu huyền),
+ *  tên món trong DB lại là dạng gộp — không chuẩn hoá thì "gà" gõ trên iPhone không khớp "gà"
+ *  trong DB dù nhìn y hệt. */
+function giuDau(s: string): string {
+  return s.normalize('NFC').toLowerCase();
+}
+
+/** Từ khoá có dấu tiếng Việt (hoặc chữ đ) không — tức là bỏ dấu đi thì nó đổi khác. */
+function coDau(tuKhoa: string): boolean {
+  return boDau(tuKhoa) !== giuDau(tuKhoa);
+}
 
 /** Gộp mọi chuỗi khoảng trắng thành một dấu cách. Tên món nhập tay hay có hai dấu cách liền,
  *  và tab/xuống dòng lọt vào khi người dùng dán từ chỗ khác. */
@@ -31,7 +62,8 @@ function gonKhoangTrang(s: string): string {
  * đệm đều chứa một dấu cách, và đó là hành vi đúng: người dùng chưa gõ gì có nghĩa.
  */
 export function khopTuKhoa(ten: string, tuKhoa: string): boolean {
-  const k = gonKhoangTrang(boDau(tuKhoa));
+  const chuan = coDau(tuKhoa) ? giuDau : boDau;
+  const k = gonKhoangTrang(chuan(tuKhoa));
   if (!k) return true;
-  return ` ${gonKhoangTrang(boDau(ten)).trim()} `.includes(k);
+  return ` ${gonKhoangTrang(chuan(ten)).trim()} `.includes(k);
 }

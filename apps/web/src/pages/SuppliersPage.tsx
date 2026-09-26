@@ -165,7 +165,15 @@ export function SuppliersPage() {
     if (fresh && fresh !== detail) setDetail(fresh);
   }, [suppliers, detail]);
 
-  const periodTotal = suppliers.reduce((sum, s) => sum + s.period_amount, 0);
+  // Tổng mua theo NCC ĐANG LỌC (2026-09-26): ô lọc NCC dùng chung cho cả trang, mà con số này
+  // trước đây cộng mọi NCC — chọn một NCC xong tổng vẫn là cả chợ.
+  const periodTotal = suppliers
+    .filter((s) => !filterSupplierId || s.id === filterSupplierId)
+    .reduce((sum, s) => sum + s.period_amount, 0);
+  /** Tổng của bảng "Mặt hàng nhập" sau khi lọc NCC + gõ tìm, do panel con báo lên. Tab đó
+   *  không có kỳ (toàn bộ lịch sử, chủ quán chốt 2026-09-06) nên `periodTotal` 30 ngày không
+   *  phải con số của bảng đang hiện — hiện nó lên đầu trang là hai số cạnh nhau không khớp. */
+  const [tongMatHang, setTongMatHang] = useState<number | null>(null);
 
   /** Tổng CÒN PHẢI TRẢ của mọi NCC (chủ quán yêu cầu 2026-09-08) — luật cộng nằm ở
    *  `tongConPhaiTra`.
@@ -293,7 +301,10 @@ export function SuppliersPage() {
         >
           {!TAB_TU_VE_DAU_TRANG.includes(tab) && (
             <span>
-              Tổng mua: <strong style={{ fontSize: 18 }}>{vnd(periodTotal)}đ</strong>
+              Tổng mua:{' '}
+              <strong style={{ fontSize: 18 }}>
+                {vnd(tab === 'items' && tongMatHang !== null ? tongMatHang : periodTotal)}đ
+              </strong>
             </span>
           )}
           {/* Tổng nợ đứng NGAY CẠNH tổng mua: hai con số này luôn được đọc cùng nhau ("mua ngần
@@ -354,6 +365,7 @@ export function SuppliersPage() {
         <ItemStatsPanel
           supplierId={filterSupplierId || undefined}
           onOpenHistory={(id, name) => setHistory({ id, name })}
+          onTong={setTongMatHang}
         />
       )}
 

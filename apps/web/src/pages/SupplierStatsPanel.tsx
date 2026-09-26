@@ -11,6 +11,7 @@
 // Bộ lọc thời gian CHỈ có ở tab này. Các tab so giá vẫn nhìn toàn bộ lịch sử — giữ nguyên
 // quyết định 2026-09-06: cắt kỳ ở đó làm lọt vụ NCC tăng giá vắt qua ranh giới hai tháng.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { khopTuKhoa } from '../lib/tim-mon.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
@@ -22,7 +23,6 @@ import {
   KHAC_ID,
   buildSpendChart,
   gopTheoMon,
-  khongDau,
   locMon,
   locPhieuTheoMon,
   luongGon,
@@ -624,10 +624,12 @@ function Bang({
  *  bảng dài như vậy đẩy cột tiền ra khỏi màn hình. */
 function ChipMon({ items, tim }: { items: string[]; tim: string }) {
   if (items.length === 0) return <span className="stat-muted">—</span>;
-  const k = khongDau(tim);
-  const khop = (s: string) => k !== '' && khongDau(s).includes(k);
+  // Cùng `khopTuKhoa` với bộ lọc phiếu: chip tô đậm phải là đúng món đã làm phiếu lọt vào,
+  // nếu không gõ "gà " thấy phiếu hiện mà không chip nào đậm.
+  const rong = tim.trim() === '';
+  const khop = (s: string) => !rong && khopTuKhoa(s, tim);
   // `sort` của JS ổn định nên các món không khớp giữ nguyên thứ tự gốc của phiếu.
-  const xep = k === '' ? items : [...items].sort((a, b) => Number(khop(b)) - Number(khop(a)));
+  const xep = rong ? items : [...items].sort((a, b) => Number(khop(b)) - Number(khop(a)));
   const hien = xep.slice(0, 4);
   const con = xep.length - hien.length;
   return (

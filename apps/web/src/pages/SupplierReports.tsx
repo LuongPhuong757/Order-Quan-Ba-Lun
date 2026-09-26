@@ -368,9 +368,14 @@ const CO_TRANG_ITEM = 15;
 export function ItemStatsPanel({
   supplierId,
   onOpenHistory,
+  onTong,
 }: {
   supplierId?: string;
   onOpenHistory?: (ingredientId: string, name: string) => void;
+  /** Tổng tiền của các dòng ĐANG LỌC (NCC + ô tìm), `null` khi chưa tải. Cha dùng để dòng
+   *  "Tổng mua" trên đầu trang nói cùng con số với chân bảng — chủ quán báo 2026-09-26 gõ tìm
+   *  mà tổng trên đầu đứng im. */
+  onTong?: (tong: number | null) => void;
 }) {
   const toast = useToast();
   const [rows, setRows] = useState<PairReport[] | null>(null);
@@ -429,6 +434,11 @@ export function ItemStatsPanel({
     }
   };
   const total = sorted.reduce((s, r) => s + r.amount, 0);
+  useEffect(() => {
+    onTong?.(rows === null ? null : total);
+    // Rời tab thì trả `null` để cha về lại con số của riêng nó.
+    return () => onTong?.(null);
+  }, [onTong, rows, total]);
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
   if (rows.length === 0) {

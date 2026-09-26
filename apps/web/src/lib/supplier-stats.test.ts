@@ -193,6 +193,15 @@ describe('tìm kiếm theo món', () => {
     ]);
   });
 
+  it('khoảng trắng và dấu là một phần của từ khoá — cùng luật với ô tìm Món đã bán', () => {
+    const rows = [{ ingredient_name: 'Gà ta' }, { ingredient_name: 'Ngải cứu' }, { ingredient_name: 'Ngao' }];
+    expect(locMon(rows, 'ga').map((r) => r.ingredient_name)).toEqual(['Gà ta', 'Ngải cứu', 'Ngao']);
+    expect(locMon(rows, 'ga ').map((r) => r.ingredient_name)).toEqual(['Gà ta']);
+    expect(locMon(rows, 'gà').map((r) => r.ingredient_name)).toEqual(['Gà ta']);
+    const phieuRows = [phieu('p1', ['Gà ta']), phieu('p2', ['Ngải cứu'])];
+    expect(locPhieuTheoMon(phieuRows, 'gà').map((r) => r.delivery_id)).toEqual(['p1']);
+  });
+
   it('bảng phiếu: gõ tên món ra đúng những phiếu CÓ món đó', () => {
     const rows = [phieu('p1', ['Cá đù', 'Hành']), phieu('p2', ['Rau muống']), phieu('p3', ['Cá lóc'])];
     expect(locPhieuTheoMon(rows, 'ca').map((r) => r.delivery_id)).toEqual(['p1', 'p3']);

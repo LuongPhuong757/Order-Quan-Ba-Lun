@@ -29,10 +29,29 @@ describe('khopTuKhoa', () => {
     expect(khopTuKhoa('Bạch tuộc', 'tuo')).toBe(true);
   });
 
-  it('bỏ dấu và không phân biệt hoa thường', () => {
-    expect(khopTuKhoa('Gà nướng', 'GÀ ')).toBe(true);
+  it('gõ KHÔNG dấu thì bỏ dấu hai phía, không phân biệt hoa thường', () => {
+    expect(khopTuKhoa('Gà nướng', 'GA ')).toBe(true);
     expect(khopTuKhoa('Đậu phụ', 'dau')).toBe(true);
     expect(khopTuKhoa('Cá kho', 'ca ')).toBe(true);
+  });
+
+  it('gõ CÓ dấu thì so giữ dấu — ca dẫn tới luật này: "gà" không được ra "ngải"', () => {
+    expect(khopTuKhoa('Ngải cứu', 'ga')).toBe(true); // không dấu: vẫn khớp giữa từ như cũ
+    expect(khopTuKhoa('Ngải cứu', 'gà')).toBe(false);
+    expect(khopTuKhoa('Gà nướng', 'gà')).toBe(true);
+    expect(khopTuKhoa('Gà nướng', 'GÀ ')).toBe(true);
+    expect(khopTuKhoa('Lẩu gà', 'gà ')).toBe(true);
+    // Chữ đ cũng là "dấu": gõ "đậu" thì "dâu tây" không lọt.
+    expect(khopTuKhoa('Đậu phụ', 'đậu')).toBe(true);
+    expect(khopTuKhoa('Dâu tây', 'đậu')).toBe(false);
+    // Gõ dấu sai với tên thì không khớp — người dùng thấy ngay để sửa, thay vì được "giúp" âm thầm.
+    expect(khopTuKhoa('Gà nướng', 'gá')).toBe(false);
+  });
+
+  it('bàn phím iPhone gõ dấu dạng tách rời vẫn khớp tên dạng gộp trong DB', () => {
+    const tachRoi = 'ga\u0300'; // a + dấu huyền rời
+    expect(khopTuKhoa('Gà nướng', tachRoi)).toBe(true);
+    expect(khopTuKhoa('Ga\u0300 nướng', 'gà')).toBe(true);
   });
 
   it('khớp được cụm nhiều chữ', () => {
