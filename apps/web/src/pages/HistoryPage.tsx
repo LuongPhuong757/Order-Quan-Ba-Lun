@@ -250,8 +250,8 @@ export function HistoryPage() {
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
-  /** Tăng để tải lại danh sách + số liệu sau một thao tác đổi trạng thái đơn (thu nợ) mà không
-   *  đổi bộ lọc. */
+  /** Tăng để tải lại danh sách + số liệu sau một thao tác đổi trạng thái đơn (thu nợ, chuyển
+   *  sang nợ) mà không đổi bộ lọc. */
   const [reloadTick, setReloadTick] = useState(0);
   const [tableFilter, setTableFilter] = useState<string>('');
   const [cashierFilter, setCashierFilter] = useState<string>('');
@@ -556,6 +556,58 @@ export function HistoryPage() {
 
   /** Đơn đang gửi lệnh in — chặn bấm đúp. Kẹt giấy là lúc người ta bấm liên tục, và mỗi cú bấm
    *  là một tờ giấy thật: khác `toggleMisa` ở chỗ thao tác này KHÔNG tự trung hoà được. */
+  /**
+   * Menu ⋯ của MỘT dòng đơn (2026-09-28, chủ quán: "đưa in hoá đơn và chuyển nợ vào ⋯ để khỏi vỡ
+   * giao diện"). Cột thao tác trước đó có tới 4 thứ (Thu nợ · Misa · 🖨 · → Nợ) nên trên điện thoại
+   * dòng 4 của thẻ đơn tràn. Giữ thường trực chỉ những gì làm MỖI đơn (Misa, Thu nợ); in lại và
+   * chuyển sang nợ là việc thỉnh thoảng — cùng lệ với menu ⋯ ở header drawer bàn.
+   *
+   * Toạ độ FIXED chứ không absolute như `.drawer-menu` gốc: bảng nằm trong khung `overflow-x: auto`,
+   * menu absolute sẽ bị khung đó cắt cụt ở dòng cuối. Neo theo nút vừa bấm, đóng khi cuộn.
+   */
+  const [rowMenu, setRowMenu] = useState<{ id: string; top: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!rowMenu) return;
+    const close = () => setRowMenu(null);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
+  }, [rowMenu]);
+  const rowMenuOrder = rowMenu ? orders.find((o) => o.id === rowMenu.id) ?? null : null;
+
+  /** Admin chuyển đơn ĐÃ THU sang nợ (thu ngân bấm nhầm). Hỏi tên khách bằng `prompt` — thao tác
+   *  hiếm, một hộp thoại riêng cho nó là thừa. */
+  const [markingDebt, setMarkingDebt] = useState<Set<string>>(new Set());
+  const markAsDebt = async (o: HistoryOrder) => {
+    const note = window.prompt(
+      `Chuyển ${o.table_name} (${fmt(orderTotal(o) + (o.ship_fee || 0))}) sang GHI NỢ.\n` +
+        'Khoản này sẽ RÚT khỏi doanh thu và xoá phần chuyển khoản đã ghi.\n\nAi nợ? (tên khách)',
+      o.customer_name ?? '',
+    );
+    if (note === null) return;
+    if (!note.trim()) {
+      toast.push('error', 'Nhập tên khách nợ');
+      return;
+    }
+    setMarkingDebt((s) => new Set(s).add(o.id));
+    try {
+      await api.patch(`/orders/${o.id}/debt`, { debt_note: note.trim() });
+      toast.push('success', `📒 ${o.table_name} → đang nợ (${note.trim()})`);
+      setReloadTick((t) => t + 1);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setMarkingDebt((s) => {
+        const n = new Set(s);
+        n.delete(o.id);
+        return n;
+      });
+    }
+  };
+
   const [reprinting, setReprinting] = useState<Set<string>>(new Set());
 
   /** In lại hoá đơn của một đơn đã thanh toán.
@@ -1331,25 +1383,29 @@ export function HistoryPage() {
                                     onToggle={() => toggleMisa(o)}
                                   />
                                 )}
-                                {/* In lại: chỉ đơn đã thu tiền mới có hoá đơn để in. Cùng quyền
-                                    với cờ Misa (admin + order) và khớp `RequireRoles` ở BE —
-                                    người đứng quầy phải tự in lại được, chứ đi tìm admin cho
-                                    một tờ giấy kẹt thì tính năng này coi như không có. */}
+                                {/* ⋯ gom "In lại hoá đơn" + "Chuyển sang nợ" (xem `rowMenu`). Chỉ đơn
+                                    đã thu mới có gì để làm; quyền hiện từng mục xét trong menu. */}
                                 {isPaid && canMarkMisa && (
                                   <button
                                     type="button"
                                     className="secondary"
-                                    title="In lại hoá đơn"
-                                    disabled={reprinting.has(o.id)}
+                                    title="Thêm thao tác"
+                                    aria-label="Thêm thao tác"
+                                    aria-expanded={rowMenu?.id === o.id}
                                     onClick={(e) => {
-                                      // Cả dòng là nút mở chi tiết — không chặn thì bấm in lại
-                                      // cũng bung luôn khối chi tiết bên dưới.
+                                      // Cả dòng là nút mở chi tiết — không chặn thì bấm ⋯ cũng
+                                      // bung luôn khối chi tiết bên dưới.
                                       e.stopPropagation();
-                                      void reprintReceipt(o);
+                                      if (rowMenu?.id === o.id) {
+                                        setRowMenu(null);
+                                        return;
+                                      }
+                                      const r = e.currentTarget.getBoundingClientRect();
+                                      setRowMenu({ id: o.id, top: r.bottom + 6, right: window.innerWidth - r.right });
                                     }}
-                                    style={{ padding: '2px 8px', fontSize: 13, lineHeight: 1.6 }}
+                                    style={{ padding: '2px 10px', fontSize: 16, lineHeight: 1.3, minHeight: 0 }}
                                   >
-                                    {reprinting.has(o.id) ? '…' : '🖨'}
+                                    {reprinting.has(o.id) || markingDebt.has(o.id) ? '…' : '⋯'}
                                   </button>
                                 )}
                                 <span
@@ -1377,6 +1433,51 @@ export function HistoryPage() {
               })}
             </tbody>
           </table>
+          {/* Menu ⋯ của dòng đơn — vẽ NGOÀI bảng vì bảng cuộn ngang sẽ cắt nó. */}
+          {rowMenu && rowMenuOrder && (
+            <>
+              <div
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setRowMenu(null);
+                }}
+                style={{ position: 'fixed', inset: 0, zIndex: 40 }}
+              />
+              <div
+                className="drawer-menu"
+                style={{ position: 'fixed', top: rowMenu.top, right: rowMenu.right }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* In lại: cùng quyền với cờ Misa (admin + order) và khớp `RequireRoles` ở BE —
+                    người đứng quầy phải tự in lại được. */}
+                <button
+                  type="button"
+                  disabled={reprinting.has(rowMenuOrder.id)}
+                  onClick={() => {
+                    setRowMenu(null);
+                    void reprintReceipt(rowMenuOrder);
+                  }}
+                >
+                  🖨 In lại hoá đơn
+                </button>
+                {/* CHUYỂN SANG NỢ (admin): thu ngân bấm "Tiền mặt" nhầm cho bàn khách đi mà chưa
+                    trả. Rút khoản này khỏi doanh thu đã chốt. */}
+                {canSeeReconcile && (
+                  <button
+                    type="button"
+                    disabled={markingDebt.has(rowMenuOrder.id)}
+                    onClick={() => {
+                      setRowMenu(null);
+                      void markAsDebt(rowMenuOrder);
+                    }}
+                    style={{ color: '#b45309' }}
+                  >
+                    📒 Chuyển sang nợ
+                  </button>
+                )}
+              </div>
+            </>
+          )}
 
           {/* Pagination */}
           {totalPages > 1 && (
