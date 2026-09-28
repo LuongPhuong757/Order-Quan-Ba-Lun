@@ -44,6 +44,14 @@ async function cleanupSentinelRows(): Promise<void> {
     [SENTINEL_LIKE],
   );
   await ds.query('DELETE FROM order_activity_logs WHERE table_code LIKE ?', [SENTINEL_LIKE]);
+  // Mã thanh toán gắn vào đơn sentinel (test lọc `verified`) — xoá TRƯỚC `orders`, vì lọc theo
+  // `target_id` phải còn nhìn thấy đơn.
+  await ds.query(
+    `DELETE pi FROM payment_intents pi
+       JOIN orders o ON o.id = pi.target_id
+      WHERE pi.target_type = 'POS' AND o.table_code LIKE ?`,
+    [SENTINEL_LIKE],
+  );
   await ds.query('DELETE FROM orders WHERE table_code LIKE ?', [SENTINEL_LIKE]);
   await ds.query('DELETE FROM restaurant_tables WHERE code LIKE ?', [SENTINEL_LIKE]);
 }
@@ -55,12 +63,16 @@ async function insertOrder(opts: {
   items: Array<{ state: string; price: number }>;
   shipFee?: number;
   misaCopied?: boolean;
+  /** Phần đã CHUYỂN KHOẢN (mặc định 0 = thu tiền mặt toàn bộ). Hình thức thanh toán không có
+   *  cột riêng mà suy ra từ số này so với tổng đơn — xem `paymentKindSql`. */
+  transferAmount?: number;
 }): Promise<string> {
   const id = randomUUID();
   await ds.query(
     `INSERT INTO orders
-       (id, table_id, table_code, opened_at, closed_at, is_paid, source, ship_fee, misa_copied_at)
-     VALUES (?, ?, ?, NOW(6), ?, ?, 'STAFF', ?, ?)`,
+       (id, table_id, table_code, opened_at, closed_at, is_paid, source, ship_fee, misa_copied_at,
+        transfer_amount)
+     VALUES (?, ?, ?, NOW(6), ?, ?, 'STAFF', ?, ?, ?)`,
     [
       id,
       tableId,
@@ -69,6 +81,7 @@ async function insertOrder(opts: {
       opts.isPaid ? 1 : 0,
       opts.shipFee ?? 0,
       opts.misaCopied ? new Date() : null,
+      opts.transferAmount ?? 0,
     ],
   );
   for (const it of opts.items) {
@@ -133,11 +146,14 @@ beforeEach(async () => {
     misaCopied: true,
     items: [{ state: 'SERVED', price: 100_000 }, { state: 'CANCELLED', price: 999_000 }],
   });
-  // Đã thu tiền, CHƯA gõ Misa: 50k.
+  // Đã thu tiền, CHƯA gõ Misa: 50k — thu CHUYỂN KHOẢN trọn đơn (50k món + 5k ship = 55k).
+  // Đơn 100k ở trên để transfer_amount = 0 → tiền mặt. Hai đơn hai hình thức để bộ lọc
+  // `payment` có gì mà tách.
   await insertOrder({
     closedAt: new Date(),
     isPaid: true,
     shipFee: 5_000,
+    transferAmount: 55_000,
     items: [{ state: 'SERVED', price: 50_000 }],
   });
   // Kết đơn bằng HUỶ: 70k món bị huỷ.
@@ -198,5 +214,91 @@ describe('stats theo tab — mỗi tab một bộ số khác nhau', () => {
     ]);
     const monies = [all.paid_revenue, cancelled.paid_revenue, unpaid.paid_revenue, misa.paid_revenue];
     expect(new Set(monies).size).toBe(4);
+  }, 20_000);
+});
+
+// Bug production 2026-09-28: web gửi `payment`/`verified` lên cả `/orders/history` lẫn
+// `/orders/stats`, nhưng `stats` bỏ qua hai tham số đó — người dùng lọc "Tiền mặt" thấy danh
+// sách đơn đổi mà ô Doanh thu / Tổng đơn và biểu đồ đứng yên. Hai trục này phải cắt tập đơn của
+// `stats` y như `listHistory`, nếu không hai phần của cùng một màn nói về hai tập đơn khác nhau.
+describe('stats theo hình thức thu tiền + ngân hàng đã xác nhận', () => {
+  it('lọc "Tiền mặt": chỉ đơn có transfer_amount = 0', async () => {
+    const s = await svc.stats({ table_id: tableId, payment: 'cash' });
+    expect(s.paid_revenue).toBe(100_000);
+    expect(s.ship_fee_total).toBe(20_000);
+    expect(s.paid_count).toBe(1);
+    // Hình thức thu tiền chỉ có nghĩa với đơn ĐÃ THU — đơn huỷ / đang mở tự rơi ra ngoài,
+    // cùng lệ với `paymentKindSql` ở listHistory.
+    expect(s.cancelled_count).toBe(0);
+    expect(s.unpaid_count).toBe(0);
+    expect(s.top_items.map((t) => t.revenue)).toEqual([100_000]);
+  }, 20_000);
+
+  it('lọc "Chuyển khoản": chỉ đơn chuyển khoản trọn tổng (món + ship)', async () => {
+    const s = await svc.stats({ table_id: tableId, payment: 'transfer' });
+    expect(s.paid_revenue).toBe(50_000);
+    expect(s.ship_fee_total).toBe(5_000);
+    expect(s.paid_count).toBe(1);
+  }, 20_000);
+
+  it('lọc "Cả hai": đơn trả một phần chuyển khoản, một phần tiền mặt', async () => {
+    // Chưa có đơn nào trả lẫn → 0 hết. Thêm một đơn 40k, chuyển 10k → lọt đúng nhóm này.
+    const before = await svc.stats({ table_id: tableId, payment: 'mixed' });
+    expect(before.paid_count).toBe(0);
+    expect(before.paid_revenue).toBe(0);
+
+    await insertOrder({
+      closedAt: new Date(),
+      isPaid: true,
+      transferAmount: 10_000,
+      items: [{ state: 'SERVED', price: 40_000 }],
+    });
+    const after = await svc.stats({ table_id: tableId, payment: 'mixed' });
+    expect(after.paid_count).toBe(1);
+    expect(after.paid_revenue).toBe(40_000);
+    // Hai nhóm kia không bị đơn mới kéo theo.
+    const cash = await svc.stats({ table_id: tableId, payment: 'cash' });
+    expect(cash.paid_count).toBe(1);
+    const transfer = await svc.stats({ table_id: tableId, payment: 'transfer' });
+    expect(transfer.paid_count).toBe(1);
+  }, 20_000);
+
+  it('3 hình thức + "mọi hình thức" là 4 bộ số khác nhau (bắt lỗi "đổi lọc mà số không đổi")', async () => {
+    const [all, cash, transfer, mixed] = await Promise.all([
+      svc.stats({ table_id: tableId }),
+      svc.stats({ table_id: tableId, payment: 'cash' }),
+      svc.stats({ table_id: tableId, payment: 'transfer' }),
+      svc.stats({ table_id: tableId, payment: 'mixed' }),
+    ]);
+    expect(all.paid_revenue).toBe(150_000);
+    expect(new Set([all.paid_revenue, cash.paid_revenue, transfer.paid_revenue, mixed.paid_revenue]).size).toBe(4);
+    expect(cash.paid_count + transfer.paid_count + mixed.paid_count).toBe(all.paid_count);
+  }, 20_000);
+
+  it('lọc "đã xác nhận" / "chưa xác nhận": chỉ xét đơn chuyển khoản, theo mã thanh toán đã paid', async () => {
+    // Chưa có mã thanh toán nào → đơn chuyển khoản 50k nằm ở "chưa xác nhận", đơn tiền mặt
+    // KHÔNG lọt vào đâu cả (không có gì để ngân hàng xác nhận).
+    const noBefore = await svc.stats({ table_id: tableId, verified: 'no' });
+    expect(noBefore.paid_count).toBe(1);
+    expect(noBefore.paid_revenue).toBe(50_000);
+    const yesBefore = await svc.stats({ table_id: tableId, verified: 'yes' });
+    expect(yesBefore.paid_count).toBe(0);
+
+    // Ngân hàng báo có tiền về cho đơn 50k → nó chuyển sang "đã xác nhận".
+    const [{ id: transferOrderId }] = (await ds.query(
+      'SELECT id FROM orders WHERE table_id = ? AND transfer_amount = 55000',
+      [tableId],
+    )) as Array<{ id: string }>;
+    await ds.query(
+      `INSERT INTO payment_intents
+         (id, code, code_day, target_type, target_id, amount, received_amount, paid_at, expires_at, created_at)
+       VALUES (?, 'STT92X01', '2026-09-28', 'POS', ?, 55000, 55000, NOW(6), NOW(6), NOW(6))`,
+      [randomUUID(), transferOrderId],
+    );
+    const yesAfter = await svc.stats({ table_id: tableId, verified: 'yes' });
+    expect(yesAfter.paid_count).toBe(1);
+    expect(yesAfter.paid_revenue).toBe(50_000);
+    const noAfter = await svc.stats({ table_id: tableId, verified: 'no' });
+    expect(noAfter.paid_count).toBe(0);
   }, 20_000);
 });
