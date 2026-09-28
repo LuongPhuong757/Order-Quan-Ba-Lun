@@ -93,6 +93,8 @@ không nhắc. Sắp theo `closed_at` mới nhất như các tab khác.
 
 Khách bùng (huỷ đơn nợ) vẫn nằm ở "Không làm ở nhánh này".
 
-**D-11 — Bỏ nút "→ Nợ" ở màn Lịch sử (2026-09-28).** Chủ quán không cần chuyển đơn đã thu thành
-nợ từ giao diện. Endpoint `PATCH /orders/:id/debt` (AdminGuard) vẫn giữ ở API kèm test tích hợp,
-phòng khi cần gọi tay; không có nút nào gọi nó.
+**D-11 — "Chuyển sang nợ" và "In lại hoá đơn" nằm trong menu ⋯ của dòng đơn (2026-09-28).**
+Lần đầu bày nút "→ Nợ" thường trực thì cột thao tác có 4 thứ và vỡ trên điện thoại; chủ quán bảo
+bỏ, rồi bảo làm lại nhưng gom vào ⋯. Thường trực chỉ còn Misa và "Thu nợ" (việc làm mỗi đơn);
+⋯ hiện với đơn đã thu, mục "Chuyển sang nợ" chỉ admin thấy. Endpoint `PATCH /orders/:id/debt`
+không đổi.
