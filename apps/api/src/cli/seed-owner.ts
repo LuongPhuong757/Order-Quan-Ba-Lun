@@ -1,5 +1,8 @@
 // CLI: seed-owner — manual recovery option (per Q-P01-02 JWT key rotation discussion)
 // Usage: pnpm seed:owner --username admin --password <pass>
+// Nạp .env như `main.ts` (2026-09-28): thiếu dòng này thì `AppDataSource` dùng mật khẩu DB mặc
+// định và script chết "Access denied for user 'order_app'" dù API bên cạnh vẫn chạy bình thường.
+import 'dotenv/config';
 import 'reflect-metadata';
 import { AppDataSource } from '../data-source.js';
 import { User } from '../modules/auth/entities/user.entity.js';
