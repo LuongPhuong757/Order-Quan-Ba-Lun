@@ -119,6 +119,21 @@ export function paymentKindSql(kind: PaymentKindFilter): string {
   if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount >= ${ORDER_TOTAL_SQL}`;
   return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount < ${ORDER_TOTAL_SQL}`;
 }
+
+/** Lọc "ngân hàng đã xác nhận chưa" (2026-09-23). Cả 'yes' lẫn 'no' đều CHỈ xét đơn thu chuyển
+ * khoản — đơn tiền mặt không có gì để xác nhận, để nó lọt vào nhóm "chưa xác thực" là biến bộ lọc
+ * thành vô dụng vì phần lớn đơn của quán là tiền mặt.
+ *
+ * EXISTS trên `payment_intents` chứ không JOIN: một đơn chỉ có một mã thanh toán, nhưng JOIN thì
+ * lần nào thêm mã thứ hai (đổi số tiền → tạo mã mới) là đơn nhân đôi trong danh sách.
+ *
+ * Dùng chung cho `listHistory` và `stats` (2026-09-28) — hai chỗ đó là hai phần của cùng một màn
+ * Lịch sử, phải cắt đúng một tập đơn. */
+export function verifiedSql(v: 'yes' | 'no'): string {
+  const exists = `EXISTS (SELECT 1 FROM payment_intents pi
+    WHERE pi.target_type = 'POS' AND pi.target_id = o.id AND pi.paid_at IS NOT NULL)`;
+  return v === 'yes' ? `o.transfer_amount > 0 AND ${exists}` : `o.transfer_amount > 0 AND NOT ${exists}`;
+}
 const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
 
 /** Tạo đơn mở mới cho bàn. Tách riêng vì có 2 chỗ gọi: bàn chưa có đơn nào, và bàn treo
@@ -1518,17 +1533,7 @@ export class OrdersService {
     if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
-    // EXISTS trên `payment_intents` chứ không JOIN: một đơn chỉ có một mã thanh toán, nhưng JOIN
-    // thì lần nào thêm mã thứ hai (đổi số tiền → tạo mã mới) là đơn nhân đôi trong danh sách.
-    if (opts.verified === 'yes' || opts.verified === 'no') {
-      const exists = `EXISTS (SELECT 1 FROM payment_intents pi
-        WHERE pi.target_type = 'POS' AND pi.target_id = o.id AND pi.paid_at IS NOT NULL)`;
-      wheres.push(
-        opts.verified === 'yes'
-          ? `o.transfer_amount > 0 AND ${exists}`
-          : `o.transfer_amount > 0 AND NOT ${exists}`,
-      );
-    }
+    if (opts.verified) wheres.push(verifiedSql(opts.verified));
     if (opts.qr_account_id) {
       wheres.push('o.paid_to_account_id = :qracc');
       params.qracc = opts.qr_account_id;
@@ -1783,6 +1788,13 @@ export class OrdersService {
      *  chuyển khoản — biểu đồ đếm đơn theo tài khoản, còn con số tiền thật sự về tài khoản thì
      *  đọc ở khối đối soát (`paymentSummary`). */
     qr_account_id?: string;
+    /** Hình thức thu tiền + ngân hàng đã xác nhận chưa (2026-09-28) — CÙNG nghĩa và cùng SQL với
+     *  `listHistory`. Web gửi hai tham số này lên cả `/orders/history` lẫn `/orders/stats`;
+     *  trước đây `stats` bỏ qua, nên người dùng lọc "Tiền mặt" thấy danh sách đơn đổi mà ô Doanh
+     *  thu / Tổng đơn và biểu đồ vẫn nói về cả quán. Cả hai đều kèm điều kiện "đã thu tiền" nên
+     *  bật lên là ô đếm đơn huỷ / đang mở về 0 — cùng hệ quả với `qr_account_id`. */
+    payment?: PaymentKindFilter;
+    verified?: 'yes' | 'no';
   }): Promise<{
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
@@ -1807,6 +1819,8 @@ export class OrdersService {
       if (opts.qr_account_id) {
         qb.andWhere('o.paid_to_account_id = :qracc', { qracc: opts.qr_account_id });
       }
+      if (opts.payment) qb.andWhere(paymentKindSql(opts.payment));
+      if (opts.verified) qb.andWhere(verifiedSql(opts.verified));
       if (opts.start_ms) {
         qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
       }

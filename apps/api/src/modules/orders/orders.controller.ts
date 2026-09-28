@@ -417,8 +417,10 @@ export class OrdersController {
 
   /** GET /orders/stats — số liệu tổng hợp cho biểu đồ (admin + report).
    *
-   * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05): tab ở màn Lịch sử đổi thì
-   * cả bảng số bên dưới đổi theo, không chỉ danh sách đơn. */
+   * CÙNG bộ filter với history, kể cả `status`/`misa` (2026-09-05) và `payment`/`verified`
+   * (2026-09-28): tab hay ô lọc ở màn Lịch sử đổi thì cả bảng số bên dưới đổi theo, không chỉ
+   * danh sách đơn. Web dựng MỘT query string (`historyQuery`) cho cả hai endpoint, nên tham số
+   * nào history đọc mà stats bỏ qua là hai nửa màn hình nói về hai tập đơn khác nhau. */
   @Get('stats')
   @UseGuards(ReportGuard)
   async stats(@Query() q: Record<string, string>) {
@@ -431,6 +433,8 @@ export class OrdersController {
         q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
       misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
       qr_account_id: parseQrAccountId(q.qr_account_id),
+      payment: parsePaymentFilter(q.payment),
+      verified: q.verified === 'yes' || q.verified === 'no' ? q.verified : undefined,
     });
     return { data };
   }
