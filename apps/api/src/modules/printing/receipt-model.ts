@@ -60,6 +60,12 @@ export type ReceiptInput = {
     payment_qr_label: string | null;
     closed_at: number | null;
     opened_at: number;
+    /** Đơn kết bằng GHI NỢ, chưa thu (2026-09-25): `is_paid = 0` + `debt_at` có. Tờ in lúc ghi nợ
+     *  phải nói rõ "chưa thu" — hoá đơn ghi "Tiền mặt 250.000đ" cho một đơn chưa thu đồng nào là
+     *  tờ giấy sai, và khách cầm nó về là bằng chứng họ đã trả. */
+    is_paid: boolean;
+    debt_at: number | null;
+    debt_note: string | null;
     checked_out_by_full_name: string | null;
     customer_name: string | null;
     customer_phone: string | null;
@@ -157,7 +163,12 @@ export function buildReceipt(input: ReceiptInput): ReceiptLine[] {
   // `payment-describe.ts` dùng cho nhật ký bàn. Hai chỗ nói khác nhau về cùng một đồng tiền
   // là thứ khiến người đối soát cuối ca mất niềm tin vào cả hai.
   const transfer = Math.max(0, order.transfer_amount ?? 0);
-  if (transfer <= 0) {
+  const dangNo = !order.is_paid && order.debt_at !== null;
+  if (dangNo) {
+    // Ghi nợ: KHÔNG in dòng "Tiền mặt" nào. Tờ này là giấy ghi nợ, không phải biên nhận.
+    lines.push({ kind: 'center', text: 'GHI NỢ — CHƯA THU TIỀN', strong: true });
+    if (order.debt_note) lines.push({ kind: 'meta', label: 'Khách nợ', value: order.debt_note });
+  } else if (transfer <= 0) {
     lines.push({ kind: 'total', label: 'Tiền mặt', value: formatVnd(totals.total) });
   } else {
     // `>=` chứ không `===`, theo đúng `payment-describe.ts`: đơn bị sửa sau khi thu có thể làm

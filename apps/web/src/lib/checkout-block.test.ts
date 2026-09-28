@@ -67,3 +67,21 @@ describe('chặn theo TỪNG MÀN (hộp thoại 4 bước)', () => {
     expect(stepBlockReason('bill', S('TRANSFER', true, 985000))).toBeNull();
   });
 });
+
+describe('ghi nợ (2026-09-25)', () => {
+  it('ghi nợ mà chưa gõ tên khách → chặn, nói đúng thứ đang thiếu', () => {
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0 })).toBe('Nhập tên khách nợ');
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: '   ' })).toBe(
+      'Nhập tên khách nợ',
+    );
+  });
+
+  it('ghi nợ có tên khách → bấm được, KHÔNG đòi mã QR', () => {
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: 'Anh Tuấn' })).toBeNull();
+  });
+
+  it('màn 2 + ghi nợ là cú bấm GHI SỔ nên kiểm trọn bộ ngay tại đó', () => {
+    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0 })).toBe('Nhập tên khách nợ');
+    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: 'Chị Hoa' })).toBeNull();
+  });
+});
