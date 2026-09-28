@@ -31,6 +31,15 @@ import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.se
 
 export type OrderCreator = { id: string; full_name: string };
 
+/** Phần thu bằng chuyển khoản gửi kèm lúc thu tiền — dùng chung cho `checkout()` và
+ *  `settleDebt()`: thu nợ đi đúng hộp thoại thu tiền nên nhận đúng cùng một cụm dữ liệu. */
+export type CheckoutTransfer = {
+  amount: number;
+  account_id?: string | null;
+  qr_label?: string | null;
+  note?: string | null;
+};
+
 // State machine — must match packages/schemas/orders.ts.
 // 'SERVED' là shortcut: cho phép skip các bước bếp khi món có sẵn (drink, snack
 // lấy ngay từ quầy giao luôn). Không cần đi qua KITCHEN→COOKING→READY.
@@ -119,7 +128,19 @@ export function paymentKindSql(kind: PaymentKindFilter): string {
   if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount >= ${ORDER_TOTAL_SQL}`;
   return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount < ${ORDER_TOTAL_SQL}`;
 }
-const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0';
+/* GHI NỢ (2026-09-25, `docs/GHI-NO-KHACH-SPEC.md`): "kết đơn mà chưa thu" giờ có HAI nghĩa —
+   huỷ và nợ — nên `is_paid = 0` một mình không còn đủ để nói "Đã huỷ". Thiếu `debt_at IS NULL`
+   là mọi bàn khách nợ hiện lên tab "Đã huỷ" và bị đếm vào con số soi gian lận. */
+const CANCELLED_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0 AND o.debt_at IS NULL';
+/** Đang nợ: đã trả bàn, chưa thu tiền, có mốc ghi nợ. Thu xong thì rơi vào PAID_SQL. */
+const DEBT_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0 AND o.debt_at IS NOT NULL';
+/** MỐC TIỀN của một đơn — lúc tiền thật sự vào (D-03). Đơn nợ hôm 20 trả hôm 25 thì doanh thu và
+ *  két/ngân hàng thuộc ngày 25. Mọi bộ lọc ngày nói về TIỀN (lịch sử, đối soát, thống kê) phải
+ *  dùng mốc này chứ không phải `closed_at` — `closed_at` chỉ còn là lúc TRẢ BÀN. */
+const MONEY_AT_SQL = 'COALESCE(o.debt_paid_at, o.closed_at)';
+/** Mốc tiền, và với đơn đang mở thì lấy lúc vào bàn — dùng cho bộ lọc ngày ở lịch sử/thống kê,
+ *  nơi tab "Chưa thanh toán" cũng phải rơi vào đúng ngày. */
+const MONEY_OR_OPENED_AT_SQL = 'COALESCE(o.debt_paid_at, o.closed_at, o.opened_at)';
 
 /** Tạo đơn mở mới cho bàn. Tách riêng vì có 2 chỗ gọi: bàn chưa có đơn nào, và bàn treo
  * dạng "đã gọi rồi huỷ hết" (niêm đơn cũ rồi mở đơn mới). */
@@ -1224,17 +1245,15 @@ export class OrdersService {
    *   tiền. KHÔNG chặn thanh toán khi bỏ trống — thu tiền là việc của khách đang đứng đợi,
    *   đối soát kế toán là việc cuối ca; đơn bỏ trống rơi vào bộ lọc "chưa lên MISA".
    */
-  /** `transfer` = phần thu bằng chuyển khoản. Bỏ trống = thu tiền mặt toàn bộ, tức hành vi cũ. */
+  /** `transfer` = phần thu bằng chuyển khoản. Bỏ trống = thu tiền mặt toàn bộ, tức hành vi cũ.
+   *  `debt` = GHI NỢ (2026-09-25): khách không trả, bàn vẫn trả — `transfer` bị bỏ qua, đơn kết
+   *  với `is_paid = false` + `debt_at`, chưa vào doanh thu cho tới khi `settleDebt()`. */
   async checkout(
     order_id: string,
     cashier?: OrderCreator,
     misa_copied?: boolean,
-    transfer?: {
-      amount: number;
-      account_id?: string | null;
-      qr_label?: string | null;
-      note?: string | null;
-    },
+    transfer?: CheckoutTransfer,
+    debt?: { note: string },
   ): Promise<{
     order: Order;
     served_items: number;
@@ -1248,6 +1267,8 @@ export class OrdersService {
     /** Phần thu bằng chuyển khoản; `0` = tiền mặt toàn bộ. Tiền mặt = `total - transfer_amount`. */
     transfer_amount: number;
     payment_qr_label: string | null;
+    /** `true` = đơn kết bằng GHI NỢ, chưa thu đồng nào. */
+    debt: boolean;
   }> {
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
@@ -1314,32 +1335,30 @@ export class OrdersService {
          đang đếm tiền thì cuối ca họ đối soát ra một cục lệch không giải thích được. Bàn huỷ sạch
          món có `total = 0` nên nhánh này tự chặn mọi số dương — đúng ý: không có gì để thu thì
          không thể có tiền chuyển vào. */
-      if (transfer && transfer.amount > 0) {
-        if (transfer.amount > total) {
-          throw new BadRequestException({
-            // KHÔNG dùng `VALIDATION_FAILED`: `GlobalExceptionFilter` tra dict FRIENDLY_VN và
-            // ghi đè message bằng câu chung, nuốt mất hai con số — xem docblock của code này
-            // trong `errors.ts`.
-            code: 'TRANSFER_EXCEEDS_TOTAL',
-            message: `Tiền chuyển khoản (${OrdersService.fmtVnd(transfer.amount)}) lớn hơn tổng cần thu (${OrdersService.fmtVnd(total)})`,
-          });
-        }
-        order.transfer_amount = Math.round(transfer.amount);
-        order.paid_to_account_id = transfer.account_id ?? null;
-        order.payment_qr_label = transfer.qr_label ?? null;
-        order.transfer_note = transfer.note ?? null;
-      }
-
       order.closed_at = Date.now();
-      order.is_paid = true;
       order.checked_out_by_user_id = cashier?.id ?? null;
       order.checked_out_by_full_name = cashier?.full_name ?? null;
-      // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
-      // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
-      if (misa_copied) {
-        order.misa_copied_at = Date.now();
-        order.misa_copied_by_user_id = cashier?.id ?? null;
-        order.misa_copied_by_full_name = cashier?.full_name ?? null;
+      if (debt) {
+        /* GHI NỢ (D-01, D-03): bàn trả nhưng tiền chưa vào. `is_paid = false` giữ đơn ngoài
+           PAID_SQL — không vào doanh thu, không vào két, không vào bộ lọc MISA — cho tới
+           `settleDebt()`. Phần chuyển khoản gửi kèm (nếu FE cũ gửi) bị bỏ qua có chủ ý: nợ là
+           nợ toàn bộ, không có "đã chuyển một phần" đi cùng. Bàn huỷ sạch món (`total = 0`) thì
+           không có gì để nợ. */
+        if (total <= 0) {
+          throw new BadRequestException({
+            code: 'CONFLICT',
+            message: 'Đơn không có tiền để ghi nợ',
+          });
+        }
+        order.is_paid = false;
+        order.debt_at = Date.now();
+        order.debt_note = debt.note.trim();
+      } else {
+        OrdersService.applyTransfer(order, total, transfer);
+        order.is_paid = true;
+        // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
+        // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
+        if (misa_copied) OrdersService.applyMisa(order, cashier);
       }
       await orderRepo.save(order);
 
@@ -1357,6 +1376,7 @@ export class OrdersService {
         total,
         transfer_amount: order.transfer_amount,
         payment_qr_label: order.payment_qr_label,
+        debt: !!debt,
       };
     });
 
@@ -1367,18 +1387,19 @@ export class OrdersService {
       this.emitter.emit('online_order.reviewed', { request_id: null, at_ms: Date.now() });
     }
 
-    // Log "thanh toán" (post-commit).
+    // Log "thanh toán" (post-commit). Ghi nợ dùng event_kind riêng: đây là câu người đếm két
+    // đọc cuối ca, và "Thanh toán 250.000đ" cho một đơn chưa thu đồng nào là câu sai.
     await this.writeActivity({
       order: result.order,
-      event_kind: 'checkout',
+      event_kind: result.debt ? 'debt' : 'checkout',
       message:
-        `Thanh toán: ${OrdersService.fmtVnd(result.total)} ` +
+        `${result.debt ? `GHI NỢ (${result.order.debt_note}): ` : 'Thanh toán: '}${OrdersService.fmtVnd(result.total)} ` +
         `(${result.served_items} món đã giao` +
         // Phí ship phải hiện TÁCH RIÊNG trong nhật ký bàn: đối soát cuối ngày mà chỉ thấy một
         // con số tổng thì không ai trả lời được "hôm nay thu hộ shipper bao nhiêu".
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
         `${result.auto_served_items > 0 ? `, trong đó ${result.auto_served_items} món chưa kịp mang ra vẫn tính tiền` : ''})` +
-        `${describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
+        `${result.debt ? ' · chưa thu' : describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
         `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
       actor: cashier,
     });
@@ -1403,6 +1424,126 @@ export class OrdersService {
       await this.printing.enqueue(order_id, 'CHECKOUT', cashier);
     }
     return result;
+  }
+
+  /** Ghi phần chuyển khoản lên đơn. CHẶN khi vượt tổng thu thay vì tự cắt gọn: thu ngân gõ
+   *  500.000đ cho một bàn 250.000đ là gõ nhầm, và im lặng sửa con số của người đang đếm tiền thì
+   *  cuối ca họ đối soát ra một cục lệch không giải thích được. Bàn huỷ sạch món có `total = 0`
+   *  nên nhánh này tự chặn mọi số dương — đúng ý: không có gì để thu thì không thể có tiền chuyển
+   *  vào. Dùng chung cho `checkout()` và `settleDebt()`. */
+  private static applyTransfer(order: Order, total: number, transfer?: CheckoutTransfer): void {
+    if (!transfer || transfer.amount <= 0) return;
+    if (transfer.amount > total) {
+      throw new BadRequestException({
+        // KHÔNG dùng `VALIDATION_FAILED`: `GlobalExceptionFilter` tra dict FRIENDLY_VN và ghi đè
+        // message bằng câu chung, nuốt mất hai con số — xem docblock của code này trong `errors.ts`.
+        code: 'TRANSFER_EXCEEDS_TOTAL',
+        message: `Tiền chuyển khoản (${OrdersService.fmtVnd(transfer.amount)}) lớn hơn tổng cần thu (${OrdersService.fmtVnd(total)})`,
+      });
+    }
+    order.transfer_amount = Math.round(transfer.amount);
+    order.paid_to_account_id = transfer.account_id ?? null;
+    order.payment_qr_label = transfer.qr_label ?? null;
+    order.transfer_note = transfer.note ?? null;
+  }
+
+  private static applyMisa(order: Order, actor?: OrderCreator): void {
+    order.misa_copied_at = Date.now();
+    order.misa_copied_by_user_id = actor?.id ?? null;
+    order.misa_copied_by_full_name = actor?.full_name ?? null;
+  }
+
+  /** THU NỢ (2026-09-25, D-04): khách quay lại trả cho đơn đã ghi nợ. Thu MỘT LẦN đủ.
+   *
+   * Không phải `checkout()` lần hai: món đã chốt SERVED, bàn đã trả, hoá đơn đã in từ hôm ghi
+   * nợ. Việc còn lại đúng là phần TIỀN — phần chuyển khoản, mã QR, MISA — nên hàm nhận cùng cụm
+   * dữ liệu với checkout và ghi vào cùng các cột. Khác duy nhất: mốc tiền là `debt_paid_at`, và
+   * người thu ghi vào `debt_paid_by_*` chứ không đè lên `checked_out_by_*` (người trả bàn).
+   */
+  async settleDebt(
+    order_id: string,
+    collector: OrderCreator,
+    misa_copied?: boolean,
+    transfer?: CheckoutTransfer,
+  ): Promise<{ order: Order; total: number; transfer_amount: number; payment_qr_label: string | null }> {
+    const result = await this.ds.transaction(async (mgr) => {
+      const orderRepo = mgr.getRepository(Order);
+      const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (!order.closed_at || order.debt_at === null) {
+        throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn này không phải đơn ghi nợ' });
+      }
+      if (order.is_paid) {
+        throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn này đã thu nợ rồi' });
+      }
+      const { total } = computeCheckoutTotals(order.items || [], order.ship_fee);
+      OrdersService.applyTransfer(order, total, transfer);
+      order.is_paid = true;
+      order.debt_paid_at = Date.now();
+      order.debt_paid_by_user_id = collector.id;
+      order.debt_paid_by_full_name = collector.full_name;
+      if (misa_copied) OrdersService.applyMisa(order, collector);
+      await orderRepo.save(order);
+      return { order, total, transfer_amount: order.transfer_amount, payment_qr_label: order.payment_qr_label };
+    });
+
+    await this.writeActivity({
+      order: result.order,
+      event_kind: 'debt_paid',
+      message:
+        `Thu nợ (${result.order.debt_note}): ${OrdersService.fmtVnd(result.total)}` +
+        `${describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
+        `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
+      actor: collector,
+    });
+    return result;
+  }
+
+  /** CHUYỂN ĐƠN ĐÃ THU THÀNH NỢ (2026-09-25, D-05/D-06) — thu ngân bấm "Tiền mặt" nhầm cho một
+   *  bàn khách đi mà chưa trả. Chỉ admin gọi (guard ở controller).
+   *
+   * Phần chuyển khoản/mã QR đã ghi bị XOÁ: tiền đó không có thật, để lại là khối đối soát cuối
+   * ca bảo ngân hàng phải về một khoản không bao giờ về. `checked_out_by_*` giữ nguyên — đó vẫn
+   * là người trả bàn. Mốc MISA cũng xoá: chưa thu thì chưa có bill để gõ.
+   */
+  async markAsDebt(order_id: string, note: string, actor: OrderCreator): Promise<Order> {
+    const order = await this.orderRepo.findOne({ where: { id: order_id } });
+    if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+    if (!order.closed_at) {
+      throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn chưa thanh toán — chưa có gì để chuyển sang nợ' });
+    }
+    if (!order.is_paid) {
+      throw new BadRequestException({
+        code: 'CONFLICT',
+        message: order.debt_at !== null ? 'Đơn này đang nợ rồi' : 'Đơn đã huỷ, không chuyển sang nợ được',
+      });
+    }
+    const wasTransfer = order.transfer_amount;
+    order.is_paid = false;
+    order.debt_at = Date.now();
+    order.debt_note = note.trim();
+    order.debt_paid_at = null;
+    order.debt_paid_by_user_id = null;
+    order.debt_paid_by_full_name = null;
+    order.transfer_amount = 0;
+    order.paid_to_account_id = null;
+    order.payment_qr_label = null;
+    order.transfer_note = null;
+    order.misa_copied_at = null;
+    order.misa_copied_by_user_id = null;
+    order.misa_copied_by_full_name = null;
+    order.misa_ref = null;
+    await this.orderRepo.save(order);
+
+    await this.writeActivity({
+      order,
+      event_kind: 'debt',
+      message:
+        `Chuyển sang GHI NỢ (${order.debt_note}) — admin sửa lại đơn đã thu` +
+        `${wasTransfer > 0 ? `, bỏ ${OrdersService.fmtVnd(wasTransfer)} chuyển khoản đã ghi` : ''}`,
+      actor,
+    });
+    return order;
   }
 
   /** Đánh dấu / bỏ đánh dấu "đã sao chép sang MISA" cho đơn ĐÃ thanh toán.
@@ -1481,7 +1622,7 @@ export class OrdersService {
     start_ms?: number;
     end_ms?: number;
     cashier_user_id?: string;
-    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt';
     /** Đối soát MISA (2026-09-05). 'pending' = việc cần làm cuối ca: đơn ĐÃ THU TIỀN nhưng
      * chưa gõ sang AMIS. Cố ý loại đơn huỷ và đơn đang dùng — không có bill thì không có gì
      * để gõ, để lẫn vào là danh sách việc bị nhiễu và nhân viên bỏ qua cả danh sách. */
@@ -1510,8 +1651,9 @@ export class OrdersService {
       wheres.push('o.opened_at >= :floor');
       params.floor = new Date(Date.now() - opts.max_age_ms);
     }
-    // 3 trạng thái kết đơn (xem ORDER_STATE_SQL): đã thanh toán / đã huỷ / đang dùng.
+    // 4 trạng thái kết đơn (xem PAID/DEBT/CANCELLED_SQL): đã thanh toán / đang nợ / đã huỷ / đang dùng.
     if (status === 'paid') wheres.push(PAID_SQL);
+    else if (status === 'debt') wheres.push(DEBT_SQL);
     else if (status === 'cancelled') wheres.push(CANCELLED_SQL);
     else if (status === 'unpaid') wheres.push(`o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`);
     // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
@@ -1544,13 +1686,13 @@ export class OrdersService {
       wheres.push('o.checked_out_by_user_id = :cid');
       params.cid = opts.cashier_user_id;
     }
-    // Date filter ưu tiên closed_at, fallback opened_at — dùng MySQL COALESCE.
+    // Date filter theo MỐC TIỀN (thu nợ > trả bàn), đơn đang mở lấy lúc vào bàn — MySQL COALESCE.
     if (opts.start_ms) {
-      wheres.push('COALESCE(o.closed_at, o.opened_at) >= :s');
+      wheres.push(`${MONEY_OR_OPENED_AT_SQL} >= :s`);
       params.s = new Date(opts.start_ms);
     }
     if (opts.end_ms) {
-      wheres.push('COALESCE(o.closed_at, o.opened_at) <= :e');
+      wheres.push(`${MONEY_OR_OPENED_AT_SQL} <= :e`);
       params.e = new Date(opts.end_ms);
     }
     const whereSql = wheres.length > 0 ? wheres.join(' AND ') : '1=1';
@@ -1568,7 +1710,7 @@ export class OrdersService {
       // Trong nhóm cuối đó xếp theo giờ vào, không theo id — id là uuid, không có thứ tự thời gian.
       idQb
         .orderBy('o.closed_at IS NULL', 'ASC')
-        .addOrderBy('o.closed_at', 'DESC')
+        .addOrderBy(MONEY_AT_SQL, 'DESC')
         .addOrderBy('o.opened_at', 'DESC');
     } else {
       // Mặc định: THỜI GIAN VÀO ĂN, mới nhất trước. opened_at không bao giờ NULL nên đơn CHƯA
@@ -1659,15 +1801,20 @@ export class OrdersService {
     transfer: number;
     orders: number;
     by_account: Array<{ account_id: string | null; label: string; amount: number; orders: number }>;
+    /** Đang nợ — MỌI THỜI GIAN, cố ý không ăn theo bộ lọc ngày/thu ngân (D-06): nợ tháng trước
+     *  vẫn là nợ, và câu admin cần trả lời là "quán đang bị nợ bao nhiêu", không phải "hôm nay
+     *  ghi nợ bao nhiêu". */
+    debt_outstanding: { orders: number; amount: number };
   }> {
     const wheres: string[] = [PAID_SQL];
     const params: Record<string, unknown> = {};
+    // Mốc TIỀN, không phải mốc trả bàn: nợ hôm 20 trả hôm 25 thì két/ngân hàng ngày 25 mới có.
     if (opts.start_ms) {
-      wheres.push('o.closed_at >= :s');
+      wheres.push(`${MONEY_AT_SQL} >= :s`);
       params.s = new Date(opts.start_ms);
     }
     if (opts.end_ms) {
-      wheres.push('o.closed_at <= :e');
+      wheres.push(`${MONEY_AT_SQL} <= :e`);
       params.e = new Date(opts.end_ms);
     }
     if (opts.cashier_user_id) {
@@ -1740,12 +1887,24 @@ export class OrdersService {
         byAccount.set(key, e);
       }
     }
+    // Đang nợ, mọi thời gian — số nợ = tổng thu của đơn (D-02: không có cột số nợ).
+    const debtRaw = await this.orderRepo
+      .createQueryBuilder('o')
+      .select('COUNT(*)', 'orders')
+      .addSelect(`COALESCE(SUM(${ORDER_TOTAL_SQL}), 0)`, 'amount')
+      .where(DEBT_SQL)
+      .getRawOne<{ orders: string | number; amount: string | number }>();
+
     return {
       total,
       transfer,
       cash: Math.max(total - transfer, 0),
       orders: rows.length,
       by_account: Array.from(byAccount.values()).sort((a, b) => b.amount - a.amount),
+      debt_outstanding: {
+        orders: Number(debtRaw?.orders) || 0,
+        amount: Number(debtRaw?.amount) || 0,
+      },
     };
   }
 
@@ -1773,7 +1932,7 @@ export class OrdersService {
     cashier_user_id?: string;
     start_ms?: number;
     end_ms?: number;
-    status?: 'all' | 'paid' | 'unpaid' | 'cancelled';
+    status?: 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt';
     misa?: 'pending' | 'copied';
     /** Tài khoản nhận tiền (2026-09-15) — nằm CÙNG nhóm với `table_id`/`cashier_user_id`: cả ba
      *  đều thu hẹp tập đơn, nên biểu đồ và hai ô tổng quan phải đổi theo, nếu không người dùng
@@ -1794,6 +1953,7 @@ export class OrdersService {
     paid_count: number;
     unpaid_count: number;
     cancelled_count: number;
+    debt_count: number;
     paid_revenue: number;
     ship_fee_total: number;
   }> {
@@ -1808,22 +1968,25 @@ export class OrdersService {
         qb.andWhere('o.paid_to_account_id = :qracc', { qracc: opts.qr_account_id });
       }
       if (opts.start_ms) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(opts.start_ms) });
+        qb.andWhere(`${MONEY_OR_OPENED_AT_SQL} >= :s`, { s: new Date(opts.start_ms) });
       }
       if (opts.end_ms) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(opts.end_ms) });
+        qb.andWhere(`${MONEY_OR_OPENED_AT_SQL} <= :e`, { e: new Date(opts.end_ms) });
       }
       return qb;
     };
 
     // Phạm vi đơn của TAB đang chọn (xem doc-comment ở trên).
     const tabActive = (!!opts.status && opts.status !== 'all') || !!opts.misa;
+    //   debt        → đơn đang nợ, món SERVED       = tiền khách còn nợ quán
     let scopeSql =
       opts.status === 'unpaid'
         ? `o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`
         : opts.status === 'cancelled'
           ? CANCELLED_SQL
-          : PAID_SQL;
+          : opts.status === 'debt'
+            ? DEBT_SQL
+            : PAID_SQL;
     // Misa chỉ có nghĩa với đơn đã thu tiền — cùng lệ với listHistory.
     if (opts.misa === 'copied') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NOT NULL`;
     else if (opts.misa === 'pending') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NULL`;
@@ -1843,7 +2006,7 @@ export class OrdersService {
         .leftJoin('o.items', 'i')
         // COALESCE: tab "Chưa thanh toán" chưa có closed_at — thiếu nó thì cả tab rơi vào
         // ngày 1970 và biểu đồ theo ngày/giờ trống trơn.
-        .select('UNIX_TIMESTAMP(COALESCE(o.closed_at, o.opened_at)) * 1000', 'closed_ms')
+        .select(`UNIX_TIMESTAMP(${MONEY_OR_OPENED_AT_SQL}) * 1000`, 'closed_ms')
         .addSelect('o.checked_out_by_full_name', 'cashier')
         .addSelect(
           `SUM(CASE WHEN ${itemStateSql} THEN i.menu_item_price * i.qty ELSE 0 END)`,
@@ -1851,6 +2014,7 @@ export class OrdersService {
         )
         .where(scopeSql)
         .groupBy('o.id')
+        .addGroupBy('o.debt_paid_at')
         .addGroupBy('o.closed_at')
         .addGroupBy('o.opened_at')
         .addGroupBy('o.checked_out_by_full_name'),
@@ -1911,6 +2075,10 @@ export class OrdersService {
     const cancelled_count = await applyFilters(
       scoped(this.orderRepo.createQueryBuilder('o').where(CANCELLED_SQL)),
     ).getCount();
+    // Đơn đang NỢ — cùng lệ cắt theo tab; con số "đang nợ mọi thời gian" nằm ở paymentSummary.
+    const debt_count = await applyFilters(
+      scoped(this.orderRepo.createQueryBuilder('o').where(DEBT_SQL)),
+    ).getCount();
     // Đơn rỗng (tap mở bàn chưa gọi gì / đã huỷ hết) KHÔNG tính là "chưa thanh
     // toán" — nếu tính thì con số này phình theo số lần bấm vào bàn.
     const unpaid_count = await applyFilters(
@@ -1951,6 +2119,7 @@ export class OrdersService {
       paid_count,
       unpaid_count,
       cancelled_count,
+      debt_count,
       paid_revenue: paidRevenue,
       ship_fee_total,
     };

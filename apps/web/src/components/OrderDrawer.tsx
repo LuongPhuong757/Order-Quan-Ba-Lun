@@ -459,9 +459,13 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   /** Hộp thoại đã gọi API xong và thành công — phần còn lại y hệt luồng cũ. */
   const onPaid = (res: CheckoutResult) => {
     setPayOpen(false);
-    let msg = `✓ Đã thanh toán ${table.name} · ${res.total.toLocaleString('vi-VN')}đ`;
+    // Ghi nợ: câu thông báo phải nói "chưa thu" — "Đã thanh toán" cho một bàn khách đi mà chưa trả
+    // là câu sai, và người đọc toast là người đếm két.
+    let msg = res.debt
+      ? `📒 Đã ghi nợ ${table.name} · ${res.total.toLocaleString('vi-VN')}đ · chưa thu, xem ở Lịch sử › Đang nợ`
+      : `✓ Đã thanh toán ${table.name} · ${res.total.toLocaleString('vi-VN')}đ`;
     if (res.auto_served_items > 0) msg += ` (${res.auto_served_items} món chưa mang ra vẫn tính tiền)`;
-    if (res.transfer_amount > 0) {
+    if (!res.debt && res.transfer_amount > 0) {
       msg +=
         res.transfer_amount >= res.total
           ? ` · chuyển khoản${res.payment_qr_label ? ` → ${res.payment_qr_label}` : ''}`
