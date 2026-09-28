@@ -53,6 +53,8 @@ export type CheckoutResult = {
   auto_served_items: number;
   transfer_amount: number;
   payment_qr_label: string | null;
+  /** `true` = đơn kết bằng GHI NỢ, chưa thu đồng nào (2026-09-25). */
+  debt: boolean;
 };
 
 type Props = {
@@ -61,6 +63,9 @@ type Props = {
   cashier: { full_name?: string | null; username?: string | null };
   /** Người đang đăng nhập có được thu chuyển khoản không. `false` = hộp thoại chỉ còn Tiền mặt. */
   canCollectTransfer: boolean;
+  /** THU NỢ (2026-09-25): hộp thoại này mở cho một đơn ĐÃ GHI NỢ — gọi `/settle-debt` thay cho
+   *  `/checkout`, và không có nút "Ghi nợ" (đang thu nợ mà ghi nợ tiếp là vô nghĩa). */
+  settleDebt?: boolean;
   items: ItemLike[];
   itemsTotal: number;
   shipFee: number;
@@ -82,6 +87,7 @@ export function CheckoutDialog({
   itemsTotal,
   shipFee,
   canCollectTransfer,
+  settleDebt = false,
   onCancel,
   onDone,
 }: Props) {
@@ -106,6 +112,8 @@ export function CheckoutDialog({
   const [transferInput, setTransferInput] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [misaCopied, setMisaCopied] = useState(false);
+  /** Tên khách nợ — thứ duy nhất màn ghi nợ hỏi (D-01: nợ toàn bộ, không có số tiền để nhập). */
+  const [debtNote, setDebtNote] = useState('');
   /** Ảnh bill đã đẩy lên. Đơn đã có `id` từ lúc mở bàn nên đẩy được NGAY, không phải chờ thu
    *  tiền xong — và quan trọng hơn: không chặn nút Thu tiền để chờ mạng. */
   const [photos, setPhotos] = useState<Array<{ id: string; url: string }>>([]);
@@ -140,7 +148,7 @@ export function CheckoutDialog({
   /** Phần thu bằng chuyển khoản. Tiền mặt luôn là phần còn lại — không có ô nhập riêng cho nó,
    *  vì hai ô rời là hai con số có thể không cộng lại bằng tổng. */
   const transferAmount = useMemo(() => {
-    if (mode === 'CASH' || mode === null) return 0;
+    if (mode === 'CASH' || mode === 'DEBT' || mode === null) return 0;
     if (mode === 'TRANSFER') return total;
     const digits = transferInput.replace(/\D/g, '');
     return Math.min(Number(digits || 0), total);
@@ -191,7 +199,7 @@ export function CheckoutDialog({
   /** Xem `lib/checkout-block.ts`. Khi màn QR trở thành màn CHỐT (đã xác thực xong), phải kiểm luật
    *  TRỌN BỘ chứ không chỉ luật của riêng màn — cùng lý do màn 'bill' vẫn gọi `checkoutBlockReason`
    *  dù hai màn trước đã kiểm: người dùng lùi lại sửa được, và state đi cùng họ. */
-  const state = { mode, hasPickedQr: !!picked, transferAmount };
+  const state = { mode, hasPickedQr: !!picked, transferAmount, debtNote };
   const blockReason = paidSkipsBill ? checkoutBlockReason(state) : stepBlockReason(step, state);
   // `picked?.note_prefix` nằm trong deps: đổi mã QR là đổi ngân hàng, mà tiền tố bắt buộc thuộc
   // về ngân hàng — không tính lại thì nội dung mang tiền tố của tài khoản vừa bỏ chọn.
@@ -201,7 +209,7 @@ export function CheckoutDialog({
   );
 
   useEffect(() => {
-    if (mode === 'CASH' || mode === null) return;
+    if (mode === 'CASH' || mode === 'DEBT' || mode === null) return;
     let alive = true;
     api
       .get<{ data: { items: QrOption[]; verify_enabled?: boolean } }>('/payment-qr')
@@ -448,7 +456,8 @@ export function CheckoutDialog({
       return;
     }
     if (step === 'mode') {
-      if (mode === 'CASH') submit();
+      // Tiền mặt và ghi nợ chốt luôn tại đây — không có mã để chìa, không có bill để chụp.
+      if (mode === 'CASH' || mode === 'DEBT') submit();
       else setStep('qr');
       return;
     }
@@ -483,10 +492,14 @@ export function CheckoutDialog({
   //  mà đồng nghiệp có quyền hơn thì phải đi qua.
   const nextLabel =
     step === 'items'
-      ? '💰 Thanh toán'
-      : step === 'bill' || (step === 'mode' && mode === 'CASH') || paidSkipsBill
-        ? 'Xác nhận thu tiền'
-        : 'Tiếp tục →';
+      ? settleDebt
+        ? '💰 Thu nợ'
+        : '💰 Thanh toán'
+      : step === 'mode' && mode === 'DEBT'
+        ? '📒 Xác nhận ghi nợ'
+        : step === 'bill' || (step === 'mode' && mode === 'CASH') || paidSkipsBill
+          ? 'Xác nhận thu tiền'
+          : 'Tiếp tục →';
 
   const submit = async () => {
     if (blockReason) {
@@ -495,8 +508,10 @@ export function CheckoutDialog({
     }
     setSubmitting(true);
     try {
-      const res = await api.post<{ data: CheckoutResult }>(`/orders/${orderId}/checkout`, {
+      const res = await api.post<{ data: CheckoutResult }>(`/orders/${orderId}/${settleDebt ? 'settle-debt' : 'checkout'}`, {
         misa_copied: misaCopied,
+        // Ghi nợ: chỉ gửi cờ + tên khách. Không gửi cụm chuyển khoản — BE cũng bỏ qua nó.
+        ...(mode === 'DEBT' ? { debt: true, debt_note: debtNote.trim() } : {}),
         ...(transferAmount > 0
           ? {
               transfer_amount: transferAmount,
@@ -575,7 +590,9 @@ export function CheckoutDialog({
                 ? `Khách quét mã — ${table.name}`
                 : step === 'bill'
                   ? `Xác nhận thu tiền — ${table.name}`
-                  : `Thanh toán ${table.name}`}
+                  : settleDebt
+                    ? `Thu nợ ${table.name}`
+                    : `Thanh toán ${table.name}`}
           </h2>
         </div>
 
@@ -610,6 +627,23 @@ export function CheckoutDialog({
                   nên chỗ của nó là cạnh bill. Ở màn chốt thì nó đứng lẫn giữa mã QR và ảnh chụp,
                   không còn rõ đang tick cho cái gì. */}
               <MisaCheckbox onChange={setMisaCopied} />
+              {/* Người KHÔNG được thu chuyển khoản chốt tiền mặt ngay màn này và không bao giờ
+                  thấy màn "trả bằng gì" — nhưng ghi nợ là quyền của mọi người (D-05). Một đường
+                  phụ nhỏ dẫn thẳng tới màn 2 với nút Ghi nợ đã chọn; đường chính (tiền mặt) vẫn
+                  là một cú bấm như cũ. */}
+              {!canCollectTransfer && !settleDebt && (
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => {
+                    setMode('DEBT');
+                    setStep('mode');
+                  }}
+                  style={{ minHeight: 40, fontSize: 14 }}
+                >
+                  📒 Khách nợ, ghi sổ →
+                </button>
+              )}
             </>
           ) : step === 'mode' ? (
             /* ── MÀN 2: "Khách trả bằng gì?" ──
@@ -620,9 +654,40 @@ export function CheckoutDialog({
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
               <div className="pay-modes">
                 <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
-                <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-                <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+                {/* Hai nút chuyển khoản chỉ hiện cho người có công tắc Thu CK; người không có
+                    vẫn tới được màn này qua đường "Khách nợ" ở màn soát bill. */}
+                {canCollectTransfer && (
+                  <>
+                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
+                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+                  </>
+                )}
+                {/* NÚT THỨ TƯ, không phải ô tích (D-01): nợ là nợ toàn bộ, nên "tiền mặt hay
+                    chuyển khoản" không còn là câu hỏi — ô tích đi kèm ba nút kia sẽ khiến người
+                    thu phải chọn một hình thức cho khoản tiền không tồn tại. */}
+                {!settleDebt && (
+                  <ModeButton active={mode === 'DEBT'} onClick={() => setMode('DEBT')} label="📒 Ghi nợ" />
+                )}
               </div>
+              {mode === 'DEBT' && (
+                <div style={{ marginTop: 12 }}>
+                  <label htmlFor="pay-debt-note" style={{ fontSize: 13, fontWeight: 600 }}>
+                    Ai nợ? (tên khách / ghi chú)
+                  </label>
+                  <input
+                    id="pay-debt-note"
+                    autoFocus
+                    value={debtNote}
+                    onChange={(e) => setDebtNote(e.target.value)}
+                    maxLength={255}
+                    placeholder="VD: Anh Tuấn bàn quen, 0912..."
+                    style={{ width: '100%', fontSize: 17, minHeight: 44 }}
+                  />
+                  <div style={{ fontSize: 13, marginTop: 6, color: '#b45309' }}>
+                    Bàn sẽ trống ngay. Khoản {fmt(total)} CHƯA vào doanh thu cho tới khi bấm "Thu nợ" ở màn Lịch sử.
+                  </div>
+                </div>
+              )}
             </div>
           ) : step === 'qr' ? (
             /* ── MÀN 3: chìa mã cho khách quét ── */

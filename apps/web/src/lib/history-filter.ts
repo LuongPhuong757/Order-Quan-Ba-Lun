@@ -13,7 +13,7 @@
 import { shiftRangeMs, vnDayEndMs, vnDayStartMs } from './date-range.ts';
 import type { ShiftSel } from './date-range.ts';
 
-export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled';
+export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt';
 export type HistoryMisa = '' | 'pending' | 'copied';
 /** Hình thức thu tiền (2026-09-14). '' = không lọc.
  *  - 'cash'     : thu tiền mặt toàn bộ
