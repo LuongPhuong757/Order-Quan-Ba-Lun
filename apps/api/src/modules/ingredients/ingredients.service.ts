@@ -4,7 +4,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { SupplierItem } from '../suppliers/entities/supplier-item.entity.js';
 import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
-import { normalizeName, parseUnit } from './ingredient-units.js';
+import { baseUnitsPerUnit, normalizeName, parseUnit } from './ingredient-units.js';
 
 export type Actor = { id: string; full_name: string };
 
@@ -119,15 +119,24 @@ export class IngredientsService {
         }),
       );
 
-      // `qty_base_per_unit = 1` là mặc định an toàn: một đơn vị mua = một đơn vị gốc. Hệ số thật
-      // được phiếu nhập đầu tiên ghi đè, cùng lúc với giá.
+      /* HỆ SỐ QUY ĐỔI phải tính từ đơn vị mua sang đơn vị gốc, KHÔNG được để 1.
+       *
+       * Mua theo "kg" mà nguyên liệu đo bằng "g" thì 1 đơn vị mua = 1000 đơn vị gốc. Để 1 là
+       * giá mỗi gram bằng đúng giá mỗi ký — sai 1000 lần, và cái sai đó đi thẳng vào giá vốn
+       * món: một món dùng 500g thịt sẽ hiện tiền nguyên liệu bằng 500 ký.
+       * (Đã tự dẫm phải 2026-09-29: món "Bia Hơi Ca" ra 8.000.000đ tiền nguyên liệu.)
+       *
+       * Đơn vị lạ không quy đổi được ("mẹt", "con") thì hệ số 1 là ĐÚNG — chúng tự nó là gốc. */
+      const perUnit = baseUnitsPerUnit(info.purchase_unit.trim(), ingredient.unit) ?? 1;
+
       await em.insert(SupplierItem, {
         supplier_id: info.supplier_id,
         ingredient_id: ingredient.id,
         purchase_unit: info.purchase_unit.trim(),
-        qty_base_per_unit: '1',
+        qty_base_per_unit: String(perUnit),
         last_unit_price: Math.round(info.unit_price),
-        last_unit_price_base: String(info.unit_price),
+        // Giá theo ĐƠN VỊ GỐC = giá mua ÷ số đơn vị gốc trong một đơn vị mua.
+        last_unit_price_base: String(info.unit_price / perUnit),
         // NOT NULL và không có default. Nguyên liệu khai tay chưa có phiếu nhập nào, nên lấy
         // NGÀY KHAI: đó đúng là thời điểm con số giá này được coi là đúng. Phiếu nhập thật đầu
         // tiên sẽ ghi đè cả ngày lẫn giá.

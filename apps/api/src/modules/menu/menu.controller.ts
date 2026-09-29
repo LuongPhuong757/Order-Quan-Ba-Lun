@@ -33,6 +33,7 @@ import { toTitleCase } from '../../common/text.js';
 // Pipeline ảnh tách sang menu-image.ts (2026-08-16) — dùng chung với trang cập nhật ảnh qua
 // link bí mật (public-menu-photos.controller.ts). Sửa luật resize/nén thì sửa Ở ĐÓ.
 import { MENU_IMAGE_ALLOWED_MIMES as ALLOWED_MIMES, MENU_IMAGE_MAX_BYTES as MAX_FILE_BYTES, saveMenuImage } from './menu-image.js';
+import { buildMenuSearch } from './tim-mon.js';
 
 class CreateMenuItemDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
@@ -136,8 +137,10 @@ export class MenuController {
     if (group) qb.andWhere('m.group = :g', { g: group });
     if (stock === 'out') qb.andWhere('m.is_out_of_stock = :oos', { oos: true });
     else if (stock === 'in') qb.andWhere('m.is_out_of_stock = :oos', { oos: false });
-    if (search) {
-      qb.andWhere('(m.name LIKE :s OR m.code LIKE :s)', { s: `%${search}%` });
+    // Tìm theo TỪ, không phải chuỗi con: `LIKE '%óc%'` cộng collation bỏ dấu làm "óc" khớp
+    // "Cốc" / "Luộc" / "Coca". Xem `tim-mon.ts`.
+    for (const c of buildMenuSearch(search)) {
+      qb.andWhere(c.sql, c.params);
     }
 
     /* Sắp xếp phải làm Ở ĐÂY chứ không phải ở trình duyệt: danh sách phân trang 30 món/trang,
