@@ -46,7 +46,7 @@ const FILTER_LABEL: Record<FilterKey, string> = {
   'delivery': '🛵 Giao hàng',
 };
 
-const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'has-pending', 'empty', 'kiotviet', 'dine-in', 'takeaway', 'delivery'];
+const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'takeaway', 'delivery', 'has-pending', 'empty', 'kiotviet', 'dine-in'];
 
 // Món "đã giao xong" = SERVED. CANCELLED không tính (bỏ). Còn lại đều là "chưa giao".
 const TERMINAL_STATES = new Set(['SERVED', 'CANCELLED']);
