@@ -2700,3 +2700,417 @@ button.pay-mode[aria-pressed='true'] {
     font-size: 15px;
   }
 }
+
+/* ─── Màn Quản lý Menu: ảnh món, % nguyên liệu, hàng nút ───────────────────────
+   Ba thứ chủ quán chốt 2026-09-29:
+   1. Trạng thái "hết" và % nguyên liệu KHÔNG được thêm dòng vào thẻ — mỗi dòng
+      thêm là một thẻ cao hơn hàng xóm và lưới trông so le. Dấu hết đè lên ảnh,
+      % xếp dọc dưới giá trong cột phải vốn đang trống.
+   2. Các nút phải ĐỀU nhau. Trước đó nút "Hết" ăn flex:1 còn ba nút kia co theo
+      chữ, nên mỗi nút một cỡ.
+   3. Nút phải có màu riêng để phân biệt được việc chúng làm, không phải một dãy
+      xám như nhau.                                                              */
+
+.mm-thumb {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #f3f4f6;
+}
+.mm-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mm-thumb-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; opacity: 0.32;
+}
+/* Nhãn HẾT đè góc dưới ảnh: đọc được ngay mà không đẩy nội dung nào xuống. */
+.mm-thumb-out {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  background: rgba(220, 38, 38, 0.92);
+  color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 0.04em;
+  text-align: center; padding: 2px 0;
+}
+
+.mm-money { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.mm-money strong { color: #0f766e; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mm-pct {
+  font-size: 12.5px; font-weight: 700; white-space: nowrap;
+  font-variant-numeric: tabular-nums; cursor: help;
+}
+
+/* Ba nút quản lý chia đều tuyệt đối. */
+.mm-btns { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+/* `button.mm-b` chứ không phải `.mm-b`: `button.secondary` trong file này có cùng độ ưu tiên
+   và sẽ đè mất color/background nếu viết trần (đã dẫm phải ở màn khác). */
+button.mm-b {
+  min-height: 42px; padding: 0 4px;
+  border: 1px solid #d1d5db; border-radius: 9px;
+  background: #fff; color: #4b5563;
+  font-size: 13.5px; font-weight: 650; cursor: pointer;
+}
+button.mm-b-out   { border-color: #fbcfa5; background: #fff8f1; color: #b45309; }
+button.mm-b-out:hover   { border-color: #b45309; background: #fdf0e3; }
+button.mm-b-back  { border-color: #a7d9c9; background: #f0fdfa; color: #0f766e; }
+button.mm-b-back:hover  { border-color: #0f766e; background: #ccfbf1; }
+button.mm-b-edit  { border-color: #c7d2e0; background: #f7f9fc; color: #334155; }
+button.mm-b-edit:hover  { border-color: #334155; background: #eef2f7; }
+button.mm-b-del   { border-color: #f0c2c2; background: #fdf5f5; color: #b91c1c; }
+button.mm-b-del:hover   { border-color: #b91c1c; background: #fdeaea; }
+
+/* Nút công thức chiếm hết bề ngang: chữ dài hơn ba nút kia, nhét vào hàng 4 cột
+   thì nó tự xuống dòng và cao hơn hàng xóm. */
+button.mm-recipe {
+  width: 100%; min-height: 42px; margin-top: 6px;
+  border: 1px dashed #cbd5e1; border-radius: 9px;
+  background: #fff; color: #64748b;
+  font-size: 13.5px; font-weight: 650; cursor: pointer;
+}
+button.mm-recipe:hover { border-color: #0f766e; color: #0f766e; background: #f0fdfa; }
+button.mm-recipe.has {
+  border-style: solid; border-color: #99e2d5; background: #f0fdfa; color: #0f766e;
+}
+button.mm-recipe.has:hover { border-color: #0f766e; background: #ccfbf1; }
+
+/* ─── Hộp thoại Công thức món ─────────────────────────────────────────────────
+   Sửa 2026-09-29 sau khi chủ quán chụp lại màn đang vỡ: nút "+ Thêm" tràn ra
+   ngoài mép hộp, ô đơn vị nuốt hết chiều ngang, giữa hộp là một khoảng trắng
+   mênh mông. Nguyên nhân gốc: `input, select { width: 100% }` khai toàn cục ở
+   đầu file này, nên mọi `<select>` đặt trong flex row đều giãn hết chỗ.        */
+
+/* Khối tổng: con số người khai cần thấy, đặt ngay trên danh sách. */
+.rp-sum {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 11px 13px; margin-bottom: 12px;
+  background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 10px;
+}
+.rp-sum-l { font-size: 14px; font-weight: 600; color: #4b5563; }
+.rp-sum-v { font-size: 22px; font-weight: 800; color: #0f766e; font-variant-numeric: tabular-nums; }
+.rp-sum-r { margin-left: auto; font-size: 13.5px; color: #4b5563; font-variant-numeric: tabular-nums; }
+.rp-sum-r b { font-size: 17px; }
+
+/* Hàng nhập: grid cột cố định. Width 100% của từng ô chỉ còn tác dụng TRONG cột
+   của nó, nên không ô nào ăn được chỗ của ô khác. */
+.rp-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 116px;
+  gap: 8px;
+  align-items: stretch;
+}
+.rp-add input {
+  min-height: 48px; font-size: 19px; font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.rp-add select { min-height: 48px; padding-left: 10px; padding-right: 8px; }
+.rp-add button { min-height: 48px; width: 100%; padding: 0; font-size: 16px; }
+
+/* Danh sách nguyên liệu đã khai: hàng thưa vừa phải, không để hộp trống hoác. */
+.rp .empty-state { padding: 18px 14px; margin: 0; }
+
+@media (max-width: 560px) {
+  /* Điện thoại: số lượng và đơn vị một hàng, nút Thêm hàng dưới nguyên chiều ngang. */
+  .rp-add { grid-template-columns: minmax(0, 1fr) 104px; }
+  .rp-add button { grid-column: 1 / -1; }
+  .rp-sum-r { margin-left: 0; width: 100%; }
+}
+/* Hộp Công thức của món chưa khai gì: không để danh sách rỗng chiếm chỗ. */
+.rp .empty-state { text-align: center; color: #6b7280; background: #f9fafb; border: 1px dashed #d1d5db; }
+
+/* Khai nhanh nguyên liệu mới ngay trong hộp Công thức (2026-09-29).
+   Chỉ hiện khi tên vừa gõ chưa có trong danh mục — nguyên liệu đã có thì không hỏi lại,
+   nếu không mỗi lần thêm vào một món mới lại phải gõ lại giá. */
+.rp-new {
+  margin: 10px 0 0;
+  padding: 12px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+}
+.rp-new-h { margin: 0 0 10px; font-size: 13.5px; color: #92400e; line-height: 1.4; }
+.rp-new-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.rp-new-g label { display: block; min-width: 0; }
+.rp-new-g label > span {
+  display: block; margin-bottom: 4px;
+  font-size: 12.5px; font-weight: 700; color: #4b5563;
+}
+/* Ô trong grid: width 100% chỉ có nghĩa trong cột của nó, không ô nào nuốt chỗ ô khác. */
+.rp-new-g input, .rp-new-g select { min-height: 46px; font-size: 16px; }
+.rp-new-g input { font-variant-numeric: tabular-nums; }
+
+@media (max-width: 640px) {
+  .rp-new-g { grid-template-columns: 1fr; }
+}
+
+/* Màn Quản lý Menu — bề ngang, thẻ món, trạng thái hết hàng (2026-09-29) */
+
+/* 960px của `.container.wide` bó lưới thẻ lại: trên màn desktop hai bên bỏ trống hàng trăm px
+   trong khi mỗi thẻ bên trong lại chật. Cùng lý do đã nới `.container.txn-page` lên 1360px. */
+.container.menu-page { max-width: 1560px; }
+
+.mm-card { padding: 14px; border: 1px solid #e5e7eb; }
+.mm-card.is-hidden { border-style: dashed; border-color: #9ca3af; opacity: 0.6; }
+
+/* Tên món MỘT dòng, dài thì cắt "…". Trước đó ghim 2 dòng để lưới thẳng hàng, nhưng phần lớn
+   tên chỉ chiếm một dòng nên dòng thứ hai luôn trống — thẻ cao thêm mà không chứa gì. */
+.mm-card h3 {
+  margin: 2px 0;
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Món đang hết: khoá cả thẻ, chỉ chừa nút bật lại ──────────────────────────
+   Không dùng lớp phủ tuyệt đối che lên thẻ: overlay che luôn nút "Có lại" và người dùng
+   không bấm được thứ duy nhất họ cần bấm. Thay vào đó làm xám từng phần và để nút đó nổi lên. */
+.mm-card.is-out { border: 2px solid #dc2626; background: #f8f9fa; }
+.mm-card.is-out .mm-thumb img { filter: grayscale(1); opacity: 0.55; }
+.mm-card.is-out h3,
+.mm-card.is-out .mm-money strong,
+.mm-card.is-out .mm-pct,
+.mm-card.is-out code,
+.mm-card.is-out .mm-money + *,
+.mm-card.is-out .mi-c { color: #9ca3af !important; }
+.mm-card.is-out .mm-cost-bar { opacity: 0.4; }
+
+/* Nút bị khoá: xám phẳng, con trỏ báo không bấm được. */
+button.mm-b:disabled,
+button.mm-recipe:disabled {
+  background: #eef0f2;
+  border-color: #dfe3e6;
+  color: #a6adb4;
+  cursor: not-allowed;
+  opacity: 1;
+}
+button.mm-b:disabled:hover,
+button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; background: #eef0f2; }
+
+/* "Có lại" là hành động DUY NHẤT còn mở — tô đặc để mắt rơi thẳng vào nó. */
+.mm-card.is-out button.mm-b-back {
+  background: #0f766e;
+  border-color: #0f766e;
+  color: #fff;
+  font-weight: 700;
+}
+.mm-card.is-out button.mm-b-back:hover { background: #115e56; border-color: #115e56; }
+
+/* ── Nhóm món: một cột bên trái trên máy tính, một hàng cuộn ngang trên điện thoại ──
+   32 nhóm dàn thành nút wrap chiếm 5 hàng và đẩy món đầu tiên xuống quá nửa màn hình.
+   Cột dọc đọc được một mạch; trên điện thoại thì cột dọc lại chiếm cả màn nên đổi thành
+   hàng cuộn ngang (cùng cách `.tabstrip` đang làm ở các màn khác). */
+.mm-layout {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.mm-main { min-width: 0; }
+
+.mm-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 6px;
+  position: sticky;
+  top: 8px;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+}
+/* `button.` chứ không phải `.mm-groups button`: quy tắc `button` toàn cục đặt nền teal chữ
+   trắng, và nếu độ ưu tiên không thắng thì tên nhóm thành chữ trắng trên nền trắng. */
+.mm-groups button {
+  min-height: 40px;
+  padding: 0 10px;
+  border: none;
+  border-left: 3px solid transparent;
+  border-radius: 7px;
+  background: none;
+  color: #1f2937;
+  font-size: 14.5px;
+  font-weight: 500;
+  text-align: left;
+  white-space: normal;
+  line-height: 1.25;
+}
+.mm-groups button:hover { background: #f3f4f6; }
+.mm-groups button.on {
+  background: #f0fdfa;
+  border-left-color: #0f766e;
+  color: #0f766e;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .mm-layout { grid-template-columns: 1fr; gap: 10px; }
+  .mm-groups {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: static;
+    max-height: none;
+    padding: 6px;
+    gap: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .mm-groups button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  .mm-groups button.on { border-left: none; border-bottom-color: #0f766e; }
+  /* Thẻ món một cột trên điện thoại: hai cột ở 390px làm tên món cắt "…" gần hết. */
+  .container.menu-page .mm-main > div[style*="grid"] { grid-template-columns: 1fr !important; }
+}
+/* Dòng "nhóm · đơn vị" cũng một dòng: tên nhóm dài ("Mỳ/ Mì Tôm- Cơm Rang") xuống dòng thứ hai
+   làm thẻ đó cao hơn hàng xóm và lưới trông so le. */
+.mm-sub {
+  color: #6b7280;
+  font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ─── Sửa lưới món vỡ (2026-09-29, ảnh chủ quán gửi) ──────────────────────────
+   Ba lỗi cùng lúc:
+
+   1. `minmax(280px, 1fr)` với trang rộng 1560px cho ra 5 cột. Mỗi thẻ chỉ còn ~290px trong khi
+      bên trong là ảnh 72px + tên + giá + 4 nút — không đủ chỗ, mọi thứ bị bóp.
+   2. Cột phải (giá + % nguyên liệu) không khai `flex-shrink: 0`, nên tên món dài ăn hết chỗ và
+      SỐ TIỀN BỊ CẮT — đúng chỗ "100.00…" trong ảnh.
+   3. Thẻ hết hàng dùng `border: 2px` trong khi thẻ thường `1px`, nên nó rộng hơn hàng xóm 2px
+      và nhô ra khỏi ô lưới. Dùng `box-shadow` inset: vẽ được viền dày mà không chiếm chỗ. */
+
+/* Chủ quán chốt: một hàng 3 món là đủ. */
+.mm-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.mm-money { flex-shrink: 0; }
+
+.mm-card.is-out {
+  border: 1px solid #dc2626;
+  box-shadow: inset 0 0 0 1px #dc2626;
+}
+
+/* Cột nhóm rộng ra — tên dài như "Trứng Gà- Trứng Cút Lộn" đang phải xuống hai dòng. */
+.mm-layout { grid-template-columns: 260px minmax(0, 1fr); }
+
+@media (max-width: 1280px) {
+  .mm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 900px) {
+  .mm-layout { grid-template-columns: 1fr; }
+  .mm-grid { grid-template-columns: 1fr; }
+}
+
+/* Hàng công cụ: ô tìm, ô sắp xếp và nút "Xoá lọc" phải CÙNG chiều cao.
+   Trước đó mỗi cái tự đặt padding riêng (input 8px, nút 6px) nên ba thứ cạnh nhau lệch nhau
+   vài px — nhìn như xếp ẩu. Ghim cùng một chiều cao thay vì chỉnh padding từng cái. */
+.mm-toolbar-row { align-items: stretch; }
+.mm-find,
+.mm-clear { min-height: 44px; }
+.mm-find { padding: 0 12px; font-size: 14px; }
+button.mm-clear { padding: 0 14px; font-size: 13px; white-space: nowrap; }
+/* Ô sắp xếp là component `Select` tự vẽ — nút bên trong nó cũng phải theo. */
+.mm-toolbar-row [class*="select"] button,
+.mm-toolbar-row > div > button { min-height: 44px; }
+
+/* Nền ba nút Hết / Sửa / Xoá đậm hơn (chủ quán 2026-09-29): bản trước nhạt gần như trắng nên
+   ba nút chìm vào nền thẻ, phải nhìn kỹ mới thấy ranh giới.
+   Tương phản chữ/nền đã kiểm, đều vượt 4.5:1 — đậm nền thì chữ phải đậm theo, không thì được
+   cái nổi bật mà mất cái đọc được. */
+button.mm-b-out  { background: #fde4c8; border-color: #f0b878; color: #8a4a09; }
+button.mm-b-out:hover  { background: #fbd5a8; border-color: #d9913f; }
+
+button.mm-b-edit { background: #dde5ef; border-color: #b3c2d6; color: #24364f; }
+button.mm-b-edit:hover { background: #cbd8e8; border-color: #8ea4c0; }
+
+button.mm-b-del  { background: #fbd8d8; border-color: #eda8a8; color: #8f1616; }
+button.mm-b-del:hover  { background: #f8c4c4; border-color: #dc7c7c; }
+
+/* Nút khoá vẫn phải TRÔNG khoá: nền đậm hơn dễ nhầm là bấm được. */
+button.mm-b:disabled { background: #e8eaec; border-color: #d3d7da; color: #9aa1a8; }
+button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: #9aa1a8; }
+
+/* Ẩn thanh cuộn của cột nhóm — cùng cách `.tabstrip` phía trên đang làm.
+   Vẫn cuộn được bằng chuột/ngón tay, chỉ không vẽ thanh xám cạnh danh sách. */
+.mm-groups {
+  scrollbar-width: none;      /* Firefox */
+  -ms-overflow-style: none;   /* Edge cũ */
+}
+.mm-groups::-webkit-scrollbar { display: none; }
+
+/* ─── Sửa vỡ ở điện thoại và iPad (2026-09-29) ────────────────────────────────
+
+   Lỗi gốc: `repeat(3, 1fr)`. `1fr` viết đủ là `minmax(auto, 1fr)`, mà `auto` = kích thước
+   NỘI DUNG TỐI THIỂU. Quy tắc `button` toàn cục ở đầu file đặt `min-width: 44px` + `padding:
+   12px 16px`, nên mỗi nút đòi hơn 70px; ba nút + khe không lọt vào thẻ 350px và cả lưới tràn
+   ra ngoài — đúng chỗ nút "Xoá" bị cắt mất trong ảnh.
+   `minmax(0, 1fr)` cho cột co xuống dưới kích thước nội dung; chữ dài thì nút tự cắt. */
+.mm-btns { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mm-btns > button { min-width: 0; padding-left: 2px; padding-right: 2px; }
+.mm-recipe { min-width: 0; }
+
+/* Danh mục thành hàng ngang kéo được TỪ 1024px trở xuống, không phải 900px: iPad ngang là
+   1024px, và ở đó cột dọc 260px ăn mất một phần tư bề ngang mà chỉ còn chỗ cho một cột món. */
+@media (max-width: 1024px) {
+  .mm-layout { grid-template-columns: 1fr; gap: 10px; }
+  .mm-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mm-groups {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    position: static;
+    max-height: none;
+    gap: 6px;
+  }
+  .mm-groups button {
+    flex: 0 0 auto;
+    min-height: 44px;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+    border-radius: 8px;
+    white-space: nowrap;
+  }
+  .mm-groups button.on { border-left: none; border-bottom-color: #0f766e; }
+}
+
+@media (max-width: 720px) {
+  .mm-grid { grid-template-columns: 1fr; }
+  /* Thanh công cụ ở khổ hẹp: ô tìm chiếm cả hàng, ô sắp xếp và Xoá lọc chia đôi hàng dưới.
+     `min-width: 180px` của ô tìm cộng nút sắp xếp dài ("↓ % nguyên liệu cao nhất") vượt quá
+     350px nên trước đó cả hàng tràn. */
+  .mm-toolbar-row { gap: 8px; }
+  .mm-find { flex: 1 1 100% !important; min-width: 0 !important; }
+  .mm-toolbar-row > div { flex: 1 1 auto; min-width: 0; }
+  button.mm-clear { flex: 0 0 auto; }
+}
+
+/* Thanh lọc tình trạng cũng phải cuộn được thay vì tràn. */
+@media (max-width: 720px) {
+  .mm-filters .flex { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .mm-filters .flex::-webkit-scrollbar { display: none; }
+  .mm-filters .flex > button { flex: 0 0 auto; }
+  .mm-filters .mm-toolbar-row { flex-wrap: wrap; overflow: visible; }
+}
+
+/* Cột duy nhất ở khổ hẹp phải là `minmax(0, 1fr)`, KHÔNG phải `1fr`.
+   `1fr` = `minmax(auto, 1fr)`, và `auto` ở đây là bề rộng nội dung tối thiểu. `.mm-groups` chứa
+   33 nút `white-space: nowrap`, nên min-content của nó là tổng chiều dài cả 33 nút — ô lưới
+   phình theo và kéo luôn lưới món tràn khỏi màn hình. `overflow-x: auto` không cứu được vì
+   phần tử vẫn khai min-content lớn; phải cho phép nó co bằng `min-width: 0`. */
+@media (max-width: 1024px) {
+  .mm-layout { grid-template-columns: minmax(0, 1fr); }
+  .mm-groups { min-width: 0; max-width: 100%; }
+}

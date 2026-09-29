@@ -5,6 +5,7 @@ import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { IngredientsService } from './ingredients.service.js';
+import { requireSupplierForNew, type NewIngredientInput } from './recipe-supplier-rule.js';
 import { toBaseQty } from './ingredient-units.js';
 
 /** Một dòng công thức đã ghép sẵn tên + đơn vị nguyên liệu — FE không phải tra bảng lần hai. */
@@ -75,7 +76,15 @@ export class RecipesService {
    */
   async upsertLine(
     menu_item_id: string,
-    input: { ingredient_name: string; qty: number; unit: string },
+    input: {
+      ingredient_name: string;
+      qty: number;
+      unit: string;
+      /** Bắt buộc khi nguyên liệu CHƯA có trong danh mục — xem `recipe-supplier-rule.ts`. */
+      supplier_id?: string;
+      purchase_unit?: string;
+      unit_price?: number;
+    },
   ): Promise<{ line: RecipeLineView; ingredient_created: boolean }> {
     const item = await this.menuRepo.findOne({ where: { id: menu_item_id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
@@ -86,7 +95,26 @@ export class RecipesService {
       throw new BadRequestException({ code: 'BAD_INPUT', message: 'Định lượng phải lớn hơn 0' });
     }
 
-    const { ingredient, created } = await this.ingredients.findOrCreate(name, input.unit);
+    // Hỏi TRƯỚC khi tạo: `findOrCreate` mà chạy rồi thì nguyên liệu trần đã nằm trong DB, và
+    // ném lỗi sau đó chỉ để lại rác. Nên kiểm tên có sẵn chưa, rồi mới quyết định.
+    const already = await this.ingredients.findActiveByName(name);
+    const willCreate = !already;
+    const newInfo: NewIngredientInput | undefined =
+      input.supplier_id !== undefined || input.purchase_unit !== undefined || input.unit_price !== undefined
+        ? {
+            supplier_id: input.supplier_id ?? '',
+            purchase_unit: input.purchase_unit ?? '',
+            unit_price: input.unit_price ?? 0,
+          }
+        : undefined;
+
+    const ruleErr = requireSupplierForNew(willCreate, newInfo);
+    if (ruleErr) throw new BadRequestException(ruleErr);
+
+    const { ingredient, created } =
+      willCreate && newInfo
+        ? await this.ingredients.createWithSupplier(name, input.unit, newInfo)
+        : { ingredient: already!, created: false };
 
     // Quy về đơn vị GỐC của nguyên liệu: nhập 0,2kg cho nguyên liệu đo bằng gram thì lưu 200.
     // Trả null khi lệch nhóm (nhập ml cho thứ đo bằng gram) — chặn tại đây, không ghi vào rồi

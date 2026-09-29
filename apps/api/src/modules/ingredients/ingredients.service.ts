@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
+import { SupplierItem } from '../suppliers/entities/supplier-item.entity.js';
 import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
 import { normalizeName, parseUnit } from './ingredient-units.js';
@@ -91,6 +92,52 @@ export class IngredientsService {
    *
    * Trả kèm `created` để màn công thức nói được "đã thêm «Thịt bò tơ» vào danh mục" — tạo im
    * lặng thì người nhập không biết mình vừa đẻ ra một dòng mới và rác cứ thế tích lại. */
+  /** Tìm nguyên liệu ĐANG DÙNG theo tên, không tạo gì. Dùng để biết trước là sắp tạo mới hay
+   * không — quyết định có bắt khai nhà cung cấp hay không phải có TRƯỚC khi ghi. */
+  async findActiveByName(name: string): Promise<Ingredient | null> {
+    const found = await this.findByName(name);
+    return found && found.is_active ? found : null;
+  }
+
+  /** Tạo nguyên liệu MỚI kèm nhà cung cấp, đơn vị mua và giá — một giao dịch, hoặc cả hai bản
+   * ghi cùng vào hoặc không cái nào.
+   *
+   * Nửa vời là trường hợp tệ nhất ở đây: `Ingredient` vào được mà `SupplierItem` hỏng thì để lại
+   * đúng cái nguyên liệu mồ côi mà ràng buộc này sinh ra để chặn. */
+  async createWithSupplier(
+    name: string,
+    unit: string,
+    info: { supplier_id: string; purchase_unit: string; unit_price: number },
+  ): Promise<{ ingredient: Ingredient; created: boolean }> {
+    return this.repo.manager.transaction(async (em) => {
+      const ingredient = await em.save(
+        em.create(Ingredient, {
+          name: name.trim(),
+          name_key: normalizeName(name),
+          unit: this.resolveUnit(unit),
+          is_active: true,
+        }),
+      );
+
+      // `qty_base_per_unit = 1` là mặc định an toàn: một đơn vị mua = một đơn vị gốc. Hệ số thật
+      // được phiếu nhập đầu tiên ghi đè, cùng lúc với giá.
+      await em.insert(SupplierItem, {
+        supplier_id: info.supplier_id,
+        ingredient_id: ingredient.id,
+        purchase_unit: info.purchase_unit.trim(),
+        qty_base_per_unit: '1',
+        last_unit_price: Math.round(info.unit_price),
+        last_unit_price_base: String(info.unit_price),
+        // NOT NULL và không có default. Nguyên liệu khai tay chưa có phiếu nhập nào, nên lấy
+        // NGÀY KHAI: đó đúng là thời điểm con số giá này được coi là đúng. Phiếu nhập thật đầu
+        // tiên sẽ ghi đè cả ngày lẫn giá.
+        last_delivery_date: new Date().toISOString().slice(0, 10),
+      });
+
+      return { ingredient, created: true };
+    });
+  }
+
   async findOrCreate(name: string, unit: string): Promise<{ ingredient: Ingredient; created: boolean }> {
     const existing = await this.findByName(name);
     if (existing && existing.is_active) return { ingredient: existing, created: false };
