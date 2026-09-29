@@ -47,10 +47,21 @@ Số tài khoản và mã ngân hàng **không** nằm trong env: chúng đọc 
    - Chọn đúng tài khoản ngân hàng, **chỉ tiền vào**
 3. Tạo API token (nếu muốn quét bù) → điền `SEPAY_API_TOKEN`.
 
-### ⚠ Whitelist IP cho fail2ban
+### fail2ban KHÔNG chặn được SePay — không phải whitelist gì
 
-VPS đang bật `fail2ban`. SePay dồn retry sau mỗi lần deploy (container chết ~4 phút rưỡi) rất dễ
-tự ăn ban, và lúc đó **mất giao dịch thật**. Whitelist dải IP của SePay **trước** khi bật webhook.
+Bản trước của tài liệu này bắt whitelist dải IP SePay trước khi bật webhook. **SAI**, và đã kiểm
+trên chính VPS ngày 2026-09-25:
+
+- `fail2ban-client status` → đúng **một** jail: `[sshd]`, đọc `/var/log/auth.log`, `port = 22`.
+- Chuỗi iptables `f2b-sshd` gắn vào `multiport dports 22` — chỉ lọc cổng SSH.
+- Caddy không có `rate_limit`, không có luật chặn theo IP nào.
+- Endpoint webhook mang `@SkipThrottle()`, nên throttler 600 req/phút/IP cũng không đụng tới nó.
+
+SePay nói chuyện HTTPS cổng 443 với Caddy. Nó không bao giờ chạm SSH, không bao giờ xuất hiện
+trong `auth.log`, nên **không có đường nào để bị ban**. Dồn retry sau deploy cũng vô hại.
+
+⚠ Điều này chỉ đúng CHỪNG NÀO fail2ban còn mỗi jail sshd. Ai thêm jail cho Caddy/HTTP về sau thì
+phải quay lại đây: lúc đó SePay mới thành ứng viên bị ban thật, và khi đó whitelist mới có nghĩa.
 
 ## Luồng chạy
 
@@ -176,7 +187,7 @@ tài khoản trên hợp đồng **trước** khi hứa ngày bật.
    cũng chỉ ra một dòng.
 3. **Job quét bù không phải đụng gì.** Nó gọi `/transactions/list` bằng `SEPAY_API_TOKEN` của cả
    tài khoản SePay, nên tự kéo về mọi ngân hàng đã liên kết.
-4. **fail2ban**: đã whitelist dải IP của SePay từ lần bật đầu tiên thì không phải làm lại.
+4. **fail2ban**: không phải làm gì — nó chỉ canh SSH, xem mục trên.
 
 ### Bước 3 — trong app: Cài đặt → Mã QR nhận tiền → Thêm
 
@@ -215,7 +226,7 @@ Nếu sau ~5 phút vẫn không thấy gì, dò theo đúng thứ tự này:
 | Kiểm | Kết luận và cách chữa |
 |---|---|
 | my.sepay.vn → **Giao dịch**: SePay có thấy khoản 10.000đ không? | **KHÔNG thấy** → ngân hàng không đẩy sang SePay, nhiều khả năng đòi tiền tố. Điền `SEVQR` vào ô "Tiền tố nội dung" của mã đó rồi thử lại 10.000đ. Chạy được thì thêm **một dòng** vào `NOTE_PREFIX_BY_BIN` trong `packages/schemas/src/payment-code.ts` để lần sau màn Cài đặt tự gợi ý — và sửa test `payment-code.test.ts` cho khớp. |
-| SePay thấy nhưng app không có dòng | Webhook không tới nơi. `docker logs ordbl_api \| grep webhook`; kiểm fail2ban đã ban IP SePay chưa; kiểm webhook trên SePay đã tick tài khoản này chưa. |
+| SePay thấy nhưng app không có dòng | Webhook không tới nơi. `docker logs ordbl_api \| grep webhook`; kiểm webhook trên SePay đã tick tài khoản này chưa; kiểm URL có đúng host không (dev là `admin.dev.`). |
 | App có dòng nhưng cột "Xác thực" vẫn trống | Nội dung CK bị sửa hoặc bị cắt → mất mã đơn. Đọc nội dung nguyên văn trong sổ webhook để biết rụng ở đâu. |
 
 ⚠ Tiền tố ăn vào trần **25 ký tự** của nội dung: thêm `SEVQR ` là cắt mất 6 ký tự ở đuôi, tức cụt
@@ -253,4 +264,4 @@ Theo đúng thứ tự này:
 | Mọi webhook bị từ chối, log ghi "thiếu SEPAY_WEBHOOK_KEY" | Chưa khai biến trong container |
 | Tiền về nhưng nằm ở nhóm "tiền lạ" | Khách sửa/xoá nội dung CK — đối soát tay bằng ảnh bill |
 | Giờ giao dịch lệch 7 tiếng | Ai đó bỏ mất `+07:00` trong `parseVnTime` |
-| `bank_transactions` trống dù đã chuyển tiền | ① thiếu tiền tố bắt buộc (SEVQR) ở đầu nội dung — kiểm nhật ký tunnel/webhook xem SePay có gọi tới không; ② fail2ban đã ban IP SePay |
+| `bank_transactions` trống dù đã chuyển tiền | ① thiếu tiền tố bắt buộc (SEVQR) ở đầu nội dung — kiểm my.sepay.vn → Giao dịch xem cổng có THẤY giao dịch không; ② webhook trên SePay chưa tick tài khoản đó; ③ sai khoá → log ghi "sepay sai khoá". KHÔNG phải fail2ban, xem mục cấu hình |
