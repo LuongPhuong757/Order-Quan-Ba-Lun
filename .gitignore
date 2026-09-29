@@ -131,3 +131,10 @@ packages/utils/dist/
 # !README.md
 !.planning/**/*.md
 !docs/**/*.md
+# CLAUDE.md PHẢI ở gốc repo — harness Claude Code chỉ nạp bối cảnh dự án từ đúng chỗ đó,
+# nên nó không thể dời vào docs/ để ăn ngoại lệ ở trên. Thiếu dòng này là file bị bỏ qua
+# trong im lặng, đúng cái bẫy mô tả ở mục 2 phía trên.
+!CLAUDE.md
+
+# Báo cáo do lệnh sinh ra (codemap-diff…), không phải source.
+.reports/
