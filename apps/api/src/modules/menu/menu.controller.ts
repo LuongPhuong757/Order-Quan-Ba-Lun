@@ -112,7 +112,7 @@ export class MenuController {
    * - include_inactive=true: include món đã xoá soft (default: false)
    * - stock=out|in: lọc theo tình trạng hàng (out=đang hết, in=còn). Bỏ trống=tất cả
    * - q=<text>: search theo name HOẶC code (LIKE %...%)
-   * - sort=newest|name|group (default 'group' cho order picker, 'newest' cho admin)
+   * - sort=newest|name|group|price_desc|price_asc|cost_desc|pct_desc
    * - page=1, page_size=20 (default 2000 cho order picker — chứa hết menu)
    *
    * Response: { items, total, page, page_size }
@@ -140,10 +140,36 @@ export class MenuController {
       qb.andWhere('(m.name LIKE :s OR m.code LIKE :s)', { s: `%${search}%` });
     }
 
+    /* Sắp xếp phải làm Ở ĐÂY chứ không phải ở trình duyệt: danh sách phân trang 30 món/trang,
+       nên sắp ở FE chỉ sắp được đúng trang đang xem — món đắt nhất nằm ở trang 7 sẽ không bao
+       giờ lên đầu.
+
+       Hai kiểu `cost_*` và `pct_*` cần tiền nguyên liệu, mà nó không phải một cột có sẵn: phải
+       cộng từ công thức × giá mua của nhà cung cấp. Dùng subquery tương quan thay vì JOIN +
+       GROUP BY để không phá `getManyAndCount()` (GROUP BY làm COUNT trả về số nhóm, không phải
+       số món — phân trang sẽ sai số tổng). */
+    const COST_SUB =
+      '(SELECT SUM(rl.qty_per_serving * si.last_unit_price_base)' +
+      ' FROM recipe_lines rl' +
+      ' JOIN supplier_items si ON si.ingredient_id = rl.ingredient_id' +
+      ' WHERE rl.menu_item_id = m.id)';
+
     if (sort === 'newest') {
       qb.orderBy('m.created_at', 'DESC');
     } else if (sort === 'name') {
       qb.orderBy('m.name', 'ASC');
+    } else if (sort === 'price_desc') {
+      qb.orderBy('m.price', 'DESC').addOrderBy('m.name', 'ASC');
+    } else if (sort === 'price_asc') {
+      qb.orderBy('m.price', 'ASC').addOrderBy('m.name', 'ASC');
+    } else if (sort === 'cost_desc') {
+      // Món chưa khai công thức cho NULL. `IS NULL` xếp chúng xuống cuối thay vì lên đầu —
+      // người chọn "tiền nguyên liệu cao nhất" muốn thấy món TỐN nhất, không phải món trống.
+      qb.orderBy(`${COST_SUB} IS NULL`, 'ASC').addOrderBy(COST_SUB, 'DESC').addOrderBy('m.name', 'ASC');
+    } else if (sort === 'pct_desc') {
+      // Giá bán 0 (món "Ứng tiền", "Cược tiền") chia ra vô nghĩa → NULLIF đẩy chúng về NULL.
+      const PCT = `${COST_SUB} / NULLIF(m.price, 0)`;
+      qb.orderBy(`${PCT} IS NULL`, 'ASC').addOrderBy(PCT, 'DESC').addOrderBy('m.name', 'ASC');
     } else {
       qb.orderBy('m.group', 'ASC').addOrderBy('m.name', 'ASC');
     }

@@ -18,6 +18,15 @@ import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 // Một cặp (NCC, mặt hàng) chỉ có ĐÚNG một dòng cấu hình. Hai dòng thì hai giá tham chiếu khác
 // nhau cho cùng một thứ, và cảnh báo giá so vào dòng nào là chuyện hên xui.
 @Index('idx_supplier_item', ['supplier_id', 'ingredient_id'], { unique: true })
+/* Index thường, KHÔNG unique — cố ý.
+ *
+ * Ràng buộc "một nguyên liệu thuộc đúng một NCC" (chủ quán chốt 2026-09-29) được canh ở tầng
+ * service, không phải ở DB. Lý do: DB dev sạch (148/148 nguyên liệu thuộc đúng 1 NCC) nhưng
+ * PRODUCTION có nguyên liệu trùng tên / trùng nguồn, và `synchronize` gặp dữ liệu vi phạm thì
+ * KHÔNG tạo nổi unique index — cả lần deploy sẽ hỏng, không riêng tính năng này.
+ *
+ * Kiểm dev rồi kết luận an toàn cho prod là sai: hai DB không giống nhau. Muốn siết ở DB thì
+ * phải dọn dữ liệu prod trước, rồi mới đổi index trong một lần deploy riêng. */
 @Index('idx_supplier_item_ingredient', ['ingredient_id'])
 export class SupplierItem {
   @PrimaryGeneratedColumn('uuid')

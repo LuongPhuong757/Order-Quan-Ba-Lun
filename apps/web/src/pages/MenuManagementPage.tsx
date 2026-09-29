@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState, FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
-import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
 import { Select } from '../components/Select.tsx';
+
+/** Chỉ những trường màn Menu dùng tới của `/supplier-reports/food-cost`. Bản đầy đủ (kèm
+ * `components`, `missing`, `margin_*`) nằm ở `FoodCostPanel.tsx` — chỗ thật sự cần chúng. */
+type FoodCostLite = {
+  menu_item_id: string;
+  sell_price: number;
+  cost: number;
+  complete: boolean;
+};
 
 type MenuGroup = {
   id: string;
@@ -16,6 +24,22 @@ type MenuGroup = {
   kitchen_type: string;
   sort_order: number;
 };
+
+/** Màu theo % tiền nguyên liệu trên giá bán. Ngưỡng là NGHỊCH ĐẢO của `marginColor` trong
+ * `FoodCostPanel.tsx` (biên < 25% đỏ, < 50% cam) — cùng một món phải ra cùng một màu ở cả hai
+ * màn, nếu không chủ quán sẽ thấy màn này báo động còn màn kia bảo bình thường. */
+function pctColor(pct: number): string {
+  if (pct > 75) return '#b91c1c';
+  if (pct > 50) return '#b45309';
+  return '#15803d';
+}
+
+function pctTitle(fc: { pct: number; cost: number; complete: boolean }): string {
+  const tien = `${Math.round(fc.cost).toLocaleString('vi-VN')}đ nguyên liệu cho một phần`;
+  return fc.complete
+    ? `${tien} — chiếm ${fc.pct}% giá bán`
+    : `${tien} — MỨC TỐI THIỂU: còn nguyên liệu chưa có giá nên số thật cao hơn`;
+}
 
 function groupLabel(g: MenuGroup): string {
   return g.icon ? `${g.icon} ${g.name}` : g.name;
@@ -37,7 +61,7 @@ function formatVND(v: number): string {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
-type SortMode = 'newest' | 'name' | 'group';
+type SortMode = 'newest' | 'name' | 'group' | 'price_desc' | 'price_asc' | 'cost_desc' | 'pct_desc';
 type StockFilter = '' | 'out' | 'in';
 const PAGE_SIZE = 30;
 
@@ -65,12 +89,19 @@ export function MenuManagementPage() {
   // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
   // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
   const [showMenuBook, setShowMenuBook] = useState(false);
-  // Danh mục nguyên liệu (2026-09-05) — cùng lệ hộp thoại như 3 màn trên: khai công thức là
-  // việc làm thỉnh thoảng, không đáng chiếm tab thường trực.
-  const [showIngredients, setShowIngredients] = useState(false);
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
+  /** Giá vốn một phần theo món, để hiện % tiền nguyên liệu ngay trên thẻ.
+   *
+   * Nguồn là `/supplier-reports/food-cost` — CÙNG một endpoint với tab "Giá vốn" ở màn Nhà cung
+   * cấp, nên hai màn không bao giờ nói hai con số khác nhau về cùng một món. Endpoint trả cả
+   * danh sách (không lọc theo id) nên chỉ gọi MỘT lần, không gọi lại mỗi lần đổi trang.
+   *
+   * `complete: false` = món còn nguyên liệu chưa có giá → phần trăm chỉ là MỨC TỐI THIỂU, phải
+   * hiện kèm dấu ≥. Cộng đại rồi hiện như số đủ là kiểu sai nguy hiểm nhất ở đây: nó luôn cho
+   * giá vốn thấp hơn thật, tức món đang lỗ trông vẫn lãi. */
+  const [foodCost, setFoodCost] = useState<Record<string, { pct: number; cost: number; complete: boolean }>>({});
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -108,6 +139,36 @@ export function MenuManagementPage() {
     }
   };
 
+  /** Nạp giá vốn cho MỌI món, một lần. Hỏng thì bỏ qua như `loadRecipeCounts`: thiếu phần trăm
+   * là mất một thông tin phụ, còn hỏng cả lưới món là mất màn hình. */
+  /** Tham chiếu ỔN ĐỊNH để truyền xuống RecipePanel: `refresh` bên đó là `useCallback` có
+   * `onLinesChanged` trong deps, nên truyền một hàm mới mỗi lần render sẽ tạo vòng lặp nạp
+   * lại vô tận. */
+  const reloadCost = useCallback(() => {
+    void loadFoodCost();
+  }, []);
+
+  const loadFoodCost = async () => {
+    try {
+      const res = await api.get<{ data: { items: FoodCostLite[] } }>('/supplier-reports/food-cost');
+      const map: Record<string, { pct: number; cost: number; complete: boolean }> = {};
+      for (const r of res.data.data.items) {
+        if (!(r.sell_price > 0) || !(r.cost > 0)) continue;
+        // Làm tròn có thể ra 0 khi định lượng khai quá nhỏ — dữ liệu thật đang có "Tràng Lợn
+        // Trần 200k" với 75đ nguyên liệu trên giá bán 200.000đ. "0% NL" trông như lỗi hiển thị,
+        // nên chỗ render đổi thành "<1%".
+        map[r.menu_item_id] = {
+          pct: Math.round((r.cost / r.sell_price) * 100),
+          cost: r.cost,
+          complete: r.complete,
+        };
+      }
+      setFoodCost(map);
+    } catch {
+      setFoodCost({});
+    }
+  };
+
   /**
    * `silent: true` = tải lại dữ liệu mà KHÔNG bật cờ `loading`.
    *
@@ -139,6 +200,7 @@ export function MenuManagementPage() {
       setTotal(itemsRes.data.data.total);
       setGroups(groupsRes.data.data.items);
       loadRecipeCounts(itemsRes.data.data.items.map((i) => i.id));
+      loadFoodCost();
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -183,7 +245,7 @@ export function MenuManagementPage() {
   const groupCodes = ['', ...groups.map((g) => g.code)];
 
   return (
-    <div className="container wide with-bottom-nav">
+    <div className="container wide menu-page with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Menu</h1>
         {/* Dãy nút công cụ — MỘT DÒNG kéo ngang (chỉ đạo chủ quán 2026-09-06). 5 nút cần ~444px
@@ -209,28 +271,24 @@ export function MenuManagementPage() {
               📖 Menu xem
             </button>
           )}
-          {canManage && (
-            <button className="secondary" onClick={() => setShowIngredients(true)} style={{ padding: '8px 12px' }}>
-              🥬 Nguyên liệu
-            </button>
-          )}
           </div>
           {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>+ Món</button>}
         </div>
       </div>
 
       <div className="card mm-filters" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Row 1: search + sort */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        {/* Row 1: search + sort. `alignItems: stretch` để ô tìm, ô sắp xếp và nút Xoá lọc cùng
+            chiều cao — mỗi cái tự đặt padding riêng thì chúng lệch nhau vài px. */}
+        <div className="mm-toolbar-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="🔍 Tìm theo tên hoặc mã món..."
+            className="mm-find"
             style={{
               flex: '1 1 220px',
               minWidth: 180,
-              padding: '8px 12px',
               borderRadius: 8,
               border: '1px solid #d1d5db',
               fontSize: 14,
@@ -250,15 +308,18 @@ export function MenuManagementPage() {
                 { value: 'newest', label: '↓ Mới nhất' },
                 { value: 'name', label: 'A → Z (tên)' },
                 { value: 'group', label: 'Theo nhóm' },
+                { value: 'price_desc', label: '↓ Giá bán cao nhất' },
+                { value: 'price_asc', label: '↑ Giá bán thấp nhất' },
+                { value: 'cost_desc', label: '↓ Tiền nguyên liệu cao nhất' },
+                { value: 'pct_desc', label: '↓ % nguyên liệu cao nhất' },
               ]}
             />
           </div>
           {(search || groupFilter || stockFilter) && (
             <button
               type="button"
-              className="secondary"
+              className="secondary mm-clear"
               onClick={() => { setSearch(''); setGroupFilter(''); setStockFilter(''); }}
-              style={{ padding: '6px 10px', fontSize: 12 }}
             >
               ✕ Xoá lọc
             </button>
@@ -285,18 +346,9 @@ export function MenuManagementPage() {
 
         {/* Row 2: group tabs — class `tabstrip-sm`: wrap trên desktop, cuộn ngang một hàng trên
             điện thoại (quán có ~25 nhóm, wrap trên máy 390px là bức tường ~1000px trước khi thấy món). */}
-        <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {groupCodes.map((g) => (
-            <button
-              key={g || 'all'}
-              onClick={() => setGroupFilter(g)}
-              className={groupFilter === g ? '' : 'secondary'}
-              style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
-            >
-              {g === '' ? 'Tất cả' : labelOf(g)}
-            </button>
-          ))}
-        </div>
+        {/* 32 nhóm dàn thành nút wrap chiếm 5 hàng, đẩy món đầu tiên xuống quá nửa màn hình.
+            Gom vào một ô chọn: một dòng, và tên nhóm đọc theo chiều dọc dễ hơn là quét ngang
+            rồi xuống dòng. Số món mỗi nhóm hiện luôn trong ô. */}
       </div>
 
       {/* Result count */}
@@ -309,6 +361,24 @@ export function MenuManagementPage() {
         </div>
       )}
 
+      {/* Nhóm món thành MỘT CỘT bên trái (chủ quán chốt 2026-09-29): 32 nhóm dàn thành nút wrap
+          chiếm 5 hàng và không có thứ tự đọc, quét dọc một mạch dễ hơn nhiều. Trên điện thoại
+          cột này đổi thành một hàng cuộn ngang — xem `.mm-groups` trong styles.css. */}
+      <div className="mm-layout">
+        <nav className="mm-groups" aria-label="Nhóm món">
+          {groupCodes.map((g) => (
+            <button
+              key={g || 'all'}
+              type="button"
+              className={groupFilter === g ? 'on' : ''}
+              onClick={() => setGroupFilter(g)}
+            >
+              {g === '' ? 'Tất cả' : labelOf(g)}
+            </button>
+          ))}
+        </nav>
+
+        <div className="mm-main">
       {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
       {!loading && items.length === 0 && (
         <div className="empty-state card">
@@ -317,101 +387,85 @@ export function MenuManagementPage() {
       )}
 
       {!loading && items.length > 0 && (
-        <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
-          {items.map((it) => (
+        <div className="mm-grid">
+          {items.map((it) => {
+            const fc = foodCost[it.id];
+            return (
             <div
               key={it.id}
-              className="card"
-              style={{
-                padding: 14,
-                border: it.is_out_of_stock ? '2px solid #dc2626' : !it.is_active ? '1px dashed #9ca3af' : '1px solid #e5e7eb',
-                opacity: it.is_active ? 1 : 0.6,
-              }}
+              className={`card mm-card${it.is_out_of_stock ? ' is-out' : ''}${!it.is_active ? ' is-hidden' : ''}`}
             >
               <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-                {it.image_url && (
-                  <img
-                    src={it.image_url}
-                    alt={it.name}
-                    style={{
-                      width: 72,
-                      height: 72,
-                      objectFit: 'cover',
-                      borderRadius: 8,
-                      flexShrink: 0,
-                      background: '#f3f4f6',
-                    }}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                )}
+                {/* Ô ảnh LUÔN chiếm chỗ kể cả khi món chưa có ảnh (294/598 món chưa có): ô trống
+                    giữ mọi thẻ thẳng hàng, còn ẩn hẳn thì lưới so le mỗi khi cuộn qua món không ảnh.
+                    Dấu hết hàng nằm ĐÈ LÊN ảnh — thêm một dòng chữ vào thẻ là đẩy mọi thứ dưới nó
+                    xuống và làm thẻ đó cao hơn hàng xóm (chủ quán: "đừng thêm dòng vỡ giao diện"). */}
+                <div className="mm-thumb">
+                  {it.image_url ? (
+                    <img
+                      src={it.image_url}
+                      alt=""
+                      onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
+                    />
+                  ) : (
+                    <span className="mm-thumb-empty" aria-hidden="true">🍽</span>
+                  )}
+                  {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
+                </div>
                 <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
                     <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>
-                    <div style={{ color: '#6b7280', fontSize: 13 }}>{labelOf(it.group)} · {it.unit}</div>
+                    <div className="mm-sub">{labelOf(it.group)} · {it.unit}</div>
                   </div>
-                  <strong style={{ color: '#0f766e', whiteSpace: 'nowrap' }}>{formatVND(it.price)}</strong>
+                  {/* Giá bán và % tiền nguyên liệu xếp DỌC trong cùng cột phải: cột này vốn
+                      chỉ dùng một dòng, nên % ăn chỗ trống sẵn có thay vì đẻ thêm một hàng. */}
+                  <div className="mm-money">
+                    <strong>{formatVND(it.price)}</strong>
+                    {fc && (
+                      <span className="mm-pct" style={{ color: pctColor(fc.pct) }} title={pctTitle(fc)}>
+                        {fc.complete ? '' : '≥'}{fc.pct < 1 ? '<1' : fc.pct}% NL
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              {it.is_out_of_stock && (
-                <div
-                  style={{
-                    background: '#fef2f2',
-                    color: '#dc2626',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    marginBottom: 10,
-                  }}
-                >
-                  🚫 ĐANG HẾT — không cho gọi mới
-                </div>
-              )}
-              {!it.is_active && (
-                <div style={{ color: '#6b7280', fontSize: 13, fontStyle: 'italic', marginBottom: 10 }}>
-                  Đã ẩn khỏi menu
-                </div>
-              )}
+              {/* Trạng thái "hết" giờ nằm trên ảnh (viền đỏ của thẻ + nhãn HẾT), "đã ẩn" nằm ở
+                  độ mờ của thẻ. Không dòng nào ở đây nữa: mỗi dòng thêm vào là một thẻ cao hơn
+                  hàng xóm, và lưới trông so le. */}
 
-              <div className="flex mm-actions" style={{ flexWrap: 'wrap', gap: 6 }}>
+              {/* Ba nút quản lý CHIA ĐỀU (grid 3 cột bằng nhau), nút công thức xuống hàng riêng.
+                  Trước đây nút "Hết" ăn `flex:1` còn ba nút kia co theo độ dài chữ, nên mỗi nút
+                  một cỡ. Nút công thức không nhét vừa hàng 4 vì chữ dài hơn → tự xuống dòng và
+                  cao hơn hàng xóm, đúng cái đang phải sửa. */}
+              <div className="mm-btns">
                 <button
-                  className={it.is_out_of_stock ? '' : 'secondary'}
+                  type="button"
+                  className={it.is_out_of_stock ? 'mm-b mm-b-back' : 'mm-b mm-b-out'}
                   onClick={() => toggleStock(it)}
-                  style={{ padding: '6px 10px', fontSize: 13, flex: 1, minWidth: 120 }}
                 >
-                  {it.is_out_of_stock ? '✓ Có lại' : '🚫 Hết'}
+                  {it.is_out_of_stock ? 'Có lại' : 'Hết'}
                 </button>
                 {canManage && (
                   <>
+                    {/* Món đang hết thì mọi thao tác khác bị khoá (chủ quán chốt 2026-09-29):
+                        việc duy nhất cần làm với nó là bật lại, và để nguyên các nút kia chỉ
+                        tạo cơ hội sửa nhầm một món đang không bán. */}
                     <button
-                      className="secondary"
+                      type="button"
+                      className="mm-b mm-b-edit"
+                      disabled={it.is_out_of_stock}
                       onClick={() => setEditing(it)}
-                      style={{ padding: '6px 10px', fontSize: 13 }}
                     >
                       Sửa
                     </button>
-                    {/* Số nguyên liệu hiện ngay trên nút: món chưa khai công thức thì không sinh
-                        tiêu hao, và đó là thứ chủ quán cần nhìn ra khi soi báo cáo thiếu số. */}
-                    <button
-                      className="secondary"
-                      onClick={() => setRecipeFor(it)}
-                      style={{ padding: '6px 10px', fontSize: 13 }}
-                      title="Khai nguyên liệu + định lượng cho món này"
-                    >
-                      📋 Công thức
-                      {recipeCounts[it.id] ? (
-                        <span style={{ color: '#0f766e', fontWeight: 700 }}> {recipeCounts[it.id]}</span>
-                      ) : (
-                        <span style={{ color: '#b45309' }}> —</span>
-                      )}
-                    </button>
                     {it.is_active && (
                       <button
-                        className="danger"
+                        type="button"
+                        className="mm-b mm-b-del"
+                        disabled={it.is_out_of_stock}
                         onClick={() => softDelete(it)}
-                        style={{ padding: '6px 10px', fontSize: 13 }}
                       >
                         Xoá
                       </button>
@@ -419,10 +473,31 @@ export function MenuManagementPage() {
                   </>
                 )}
               </div>
+              {canManage && (
+                <button
+                  type="button"
+                  className={recipeCounts[it.id] ? 'mm-recipe has' : 'mm-recipe'}
+                  disabled={it.is_out_of_stock}
+                  onClick={() => setRecipeFor(it)}
+                  title="Khai nguyên liệu + định lượng cho món này"
+                  /* Màn "Nguyên liệu" bị gỡ khỏi đây 2026-09-29: từ khi nguyên liệu bắt buộc
+                     thuộc một nhà cung cấp, sửa/xoá nó ở màn Menu là sai chỗ — nó là mặt hàng
+                     của NCC. Danh mục nguyên liệu vẫn mở được từ màn Nhà cung cấp, kèm chức
+                     năng gộp hai nguyên liệu trùng tên. */
+                >
+                  {recipeCounts[it.id]
+                    ? `Công thức · ${recipeCounts[it.id]} nguyên liệu`
+                    : 'Khai nguyên liệu'}
+                </button>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
+
+        </div>
+      </div>
 
       {/* Pagination */}
       {!loading && totalPages > 1 && (
@@ -487,15 +562,16 @@ export function MenuManagementPage() {
           }}
         />
       )}
-      {/* KHÔNG refresh() khi đóng: panel nguyên liệu không đụng tới bảng `menu_items`, nên tải
-          lại lưới món chỉ là một lượt request thừa. */}
-      {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
       {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả lưới món): số nguyên liệu
           trên nút vừa đổi, còn `menu_items` thì không đụng tới. */}
       {recipeFor && (
         <RecipePanel
           menuItemId={recipeFor.id}
           menuItemName={recipeFor.name}
+          sellPrice={recipeFor.price}
+          cost={foodCost[recipeFor.id]?.cost ?? null}
+          costComplete={foodCost[recipeFor.id]?.complete ?? true}
+          onLinesChanged={reloadCost}
           onClose={() => {
             setRecipeFor(null);
             loadRecipeCounts(items.map((i) => i.id));

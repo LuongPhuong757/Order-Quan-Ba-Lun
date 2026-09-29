@@ -8,7 +8,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsNumber, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
 import { RecipesService } from './recipes.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -19,6 +19,13 @@ class UpsertRecipeLineDto {
   @IsString() @MinLength(1) @MaxLength(128) ingredient_name!: string;
   @IsNumber() @Min(0.001) qty!: number;
   @IsString() @MinLength(1) @MaxLength(16) unit!: string;
+
+  /* Ba trường dưới CHỈ bắt buộc khi nguyên liệu chưa có trong danh mục — service quyết định,
+     không phải validator, vì ở đây chưa biết tên đó đã tồn tại hay chưa. Xem
+     `recipe-supplier-rule.ts`. */
+  @IsOptional() @IsString() @MaxLength(36) supplier_id?: string;
+  @IsOptional() @IsString() @MaxLength(32) purchase_unit?: string;
+  @IsOptional() @IsNumber() @Min(0) unit_price?: number;
 }
 
 /** Công thức món (2026-09-05).
