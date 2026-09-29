@@ -7,7 +7,9 @@
 // MỘT chỗ duy nhất quyết định cả hai việc: nút có mờ không, và câu nói ra khi người ta cố bấm.
 // Tách làm hai nơi thì sẽ có ngày nút mờ mà câu giải thích nói chuyện khác.
 
-export type PayMode = 'CASH' | 'TRANSFER' | 'SPLIT';
+/** `DEBT` = GHI NỢ (2026-09-25): khách không trả, bàn vẫn trả — không có tiền nào để hỏi hình
+ *  thức, chỉ cần biết AI nợ. */
+export type PayMode = 'CASH' | 'TRANSFER' | 'SPLIT' | 'DEBT';
 
 export type CheckoutState = {
   /** `null` = chưa chọn hình thức nào. */
@@ -16,6 +18,8 @@ export type CheckoutState = {
   hasPickedQr: boolean;
   /** Phần tiền chuyển khoản đang nhập. */
   transferAmount: number;
+  /** Tên khách nợ đang gõ. Chỉ có nghĩa khi ghi nợ. */
+  debtNote?: string;
 };
 
 /**
@@ -27,6 +31,8 @@ export type CheckoutState = {
 export function checkoutBlockReason(s: CheckoutState): string | null {
   const wantsTransfer = s.mode === 'TRANSFER' || s.mode === 'SPLIT';
   if (s.mode === null) return 'Vui lòng chọn khách trả bằng gì';
+  // Ghi nợ mà không biết ai nợ thì không đòi được — đây là thứ DUY NHẤT màn ghi nợ hỏi.
+  if (s.mode === 'DEBT') return (s.debtNote ?? '').trim() ? null : 'Nhập tên khách nợ';
   // Mã QR là BẮT BUỘC khi thu chuyển khoản (chủ quán chốt 2026-09-14). Không có mã thì đơn không
   // ghi được tiền về tài khoản nào, và cuối ngày khoản đó nằm trong nhóm "không gắn mã" ở màn
   // đối soát — đúng thứ cả tính năng này sinh ra để tránh.
@@ -62,8 +68,9 @@ export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | 
   // chính là cú bấm ghi tiền và phải kiểm trọn bộ.
   if (step === 'items') return s.mode === 'CASH' ? checkoutBlockReason(s) : null;
   if (step === 'mode') {
-    // Tiền mặt chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần "đã chọn".
-    if (s.mode === 'CASH') return checkoutBlockReason(s);
+    // Tiền mặt và ghi nợ chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần
+    // "đã chọn".
+    if (s.mode === 'CASH' || s.mode === 'DEBT') return checkoutBlockReason(s);
     return s.mode === null ? 'Vui lòng chọn khách trả bằng gì' : null;
   }
   if (step === 'qr') {

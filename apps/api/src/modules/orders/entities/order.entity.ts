@@ -216,6 +216,40 @@ export class Order {
   @Column({ type: 'varchar', length: 64, nullable: true })
   misa_ref!: string | null;
 
+  /** ── GHI NỢ KHÁCH (spec `docs/GHI-NO-KHACH-SPEC.md`, chốt 2026-09-25) ─────────
+   *
+   * Khách rời bàn không trả đồng nào, bàn vẫn phải trống cho lượt sau. Nợ là nợ TOÀN BỘ bill
+   * (D-01) nên KHÔNG có cột số tiền nợ: số nợ = tổng thu của đơn, vốn đã tính từ `order_items`
+   * + `ship_fee` — thêm một cột số là dựng nguồn sự thật thứ hai, cùng lý do `payment_method`
+   * ở trên không được ghi.
+   *
+   * Trạng thái suy ra (D-03): `closed_at` có + `is_paid = 0` + `debt_at` có = ĐANG NỢ, chưa vào
+   * doanh thu. Thu được nợ thì `is_paid = 1` + `debt_paid_at` — doanh thu và đối soát rơi vào
+   * NGÀY THU NỢ (`COALESCE(debt_paid_at, closed_at)`), không phải ngày trả bàn.
+   *
+   * ⚠ `CANCELLED_SQL` phải loại `debt_at IS NOT NULL`, nếu không đơn nợ hiện thành "Đã huỷ".
+   * CHỈ THÊM CỘT (C-SCHEMA-07). */
+
+  /** Lúc ghi nợ. NULL = đơn này chưa từng nợ. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  debt_at!: number | null;
+
+  /** Tên khách / ghi chú nhận diện người nợ — bắt buộc lúc ghi nợ (không biết ai nợ thì không
+   *  đòi được). */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  debt_note!: string | null;
+
+  /** Lúc thu được nợ. NULL + `debt_at` có = đang nợ. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  debt_paid_at!: number | null;
+
+  /** Snapshot ai thu nợ — tách khỏi `checked_out_by_*` (người trả bàn hôm ghi nợ). */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  debt_paid_by_user_id!: string | null;
+
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  debt_paid_by_full_name!: string | null;
+
   @OneToMany(() => OrderItem, (oi) => oi.order)
   items?: Relation<OrderItem[]>;
 }

@@ -17,6 +17,8 @@ type Summary = {
   transfer: number;
   orders: number;
   by_account: Array<{ account_id: string | null; label: string; amount: number; orders: number }>;
+  /** Đang nợ — MỌI THỜI GIAN, không ăn theo bộ lọc (2026-09-25, D-06). */
+  debt_outstanding: { orders: number; amount: number };
 };
 
 /** Nhận NGUYÊN chuỗi query đã dựng bằng `historyQuery` của màn Lịch sử, không tự ghép lại từ
@@ -97,6 +99,14 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
         <Tile label="💵 Tiền mặt (phải có trong két)" value={fmt(data.cash)} color="#0f766e" />
         <Tile label="🏦 Chuyển khoản (phải về ngân hàng)" value={fmt(data.transfer)} color="#0369a1" />
         <Tile label="Tổng thu" value={fmt(data.total)} color="#374151" />
+        {/* Nợ là số MỌI THỜI GIAN, cố ý đứng cùng hàng nhưng khác màu: câu admin cần trả lời là
+            "quán đang bị nợ bao nhiêu", không phải "ca này ghi nợ bao nhiêu". Không cộng vào Tổng
+            thu — chưa thu thì không phải thu. */}
+        <Tile
+          label={`📒 Đang nợ (${data.debt_outstanding?.orders ?? 0} đơn, mọi thời gian)`}
+          value={fmt(data.debt_outstanding?.amount ?? 0)}
+          color="#b45309"
+        />
       </div>
 
       <div style={{ marginTop: 12 }}>

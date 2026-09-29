@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -29,7 +30,7 @@ import {
   MinLength,
   ValidateNested,
 } from 'class-validator';
-import { OrdersService, type PaymentKindFilter } from './orders.service.js';
+import { OrdersService, type CheckoutTransfer, type PaymentKindFilter } from './orders.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -76,6 +77,17 @@ class CheckoutDto {
   @IsOptional() @IsUUID() paid_to_account_id?: string;
   @IsOptional() @IsString() @MaxLength(128) payment_qr_label?: string;
   @IsOptional() @IsString() @MaxLength(64) transfer_note?: string;
+
+  /* ── Ghi nợ (2026-09-25, `docs/GHI-NO-KHACH-SPEC.md`) ──
+   * `debt = true` → khách không trả, bàn vẫn trả; cụm `transfer_*` bị bỏ qua. `debt_note` (tên
+   * khách) BẮT BUỘC khi ghi nợ — kiểm ở handler vì class-validator không có điều kiện chéo gọn. */
+  @IsOptional() @IsBoolean() debt?: boolean;
+  @IsOptional() @IsString() @MaxLength(255) debt_note?: string;
+}
+
+/** Admin chuyển đơn ĐÃ THU thành đang nợ (bấm nhầm). */
+class MarkDebtDto {
+  @IsString() @MinLength(1) @MaxLength(255) debt_note!: string;
 }
 
 /** Đánh dấu / bỏ đánh dấu đã sao chép sang AMIS MISA. */
@@ -299,21 +311,46 @@ export class OrdersController {
   async checkout(@Param('id') id: string, @Body() body: CheckoutDto, @Req() req: Request) {
     // Chỉ chặn khi đơn THỰC SỰ có tiền chuyển khoản: thu tiền mặt là việc ai cũng làm được, và
     // công tắc này nói về chuyển khoản chứ không phải về quyền thu tiền nói chung.
-    if (body?.transfer_amount) assertCanCollectTransfer(req);
+    // Ghi nợ thì không có tiền chuyển khoản nào để mà xin quyền — chỉ kiểm khi KHÔNG ghi nợ.
+    if (!body?.debt && body?.transfer_amount) assertCanCollectTransfer(req);
     const result = await this.svc.checkout(
       id,
       { id: req.user!.sub, full_name: req.user!.full_name },
       body?.misa_copied,
-      body?.transfer_amount
-        ? {
-            amount: body.transfer_amount,
-            account_id: body.paid_to_account_id ?? null,
-            qr_label: body.payment_qr_label ?? null,
-            note: body.transfer_note ?? null,
-          }
-        : undefined,
+      transferFromBody(body),
+      body?.debt ? { note: requireDebtNote(body.debt_note) } : undefined,
     );
     return { data: result };
+  }
+
+  /** POST /orders/:id/settle-debt — THU NỢ cho đơn đã ghi nợ (2026-09-25).
+   *
+   * Body y hệt checkout (phần CK, mã QR, MISA) vì FE dùng lại đúng hộp thoại thu tiền. Cùng
+   * quyền với checkout (mọi người đăng nhập thu được tiền mặt); phần CK vẫn qua công tắc Thu CK. */
+  @Post(':id/settle-debt')
+  async settleDebt(@Param('id') id: string, @Body() body: CheckoutDto, @Req() req: Request) {
+    if (body?.transfer_amount) assertCanCollectTransfer(req);
+    const result = await this.svc.settleDebt(
+      id,
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      body?.misa_copied,
+      transferFromBody(body),
+    );
+    return { data: result };
+  }
+
+  /** PATCH /orders/:id/debt — admin chuyển đơn ĐÃ THU thành đang nợ (thu ngân bấm nhầm).
+   *
+   * AdminGuard vì đây là thao tác RÚT một khoản ra khỏi doanh thu đã chốt — khác hẳn cờ MISA.
+   * Nhật ký bàn ghi ai làm và bỏ bao nhiêu tiền CK đã ghi. */
+  @Patch(':id/debt')
+  @UseGuards(AdminGuard)
+  async markDebt(@Param('id') id: string, @Body() body: MarkDebtDto, @Req() req: Request) {
+    const order = await this.svc.markAsDebt(id, body.debt_note, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data: { id: order.id, debt_at: order.debt_at, debt_note: order.debt_note, is_paid: order.is_paid } };
   }
 
   /**
@@ -365,8 +402,7 @@ export class OrdersController {
   @Get('history')
   @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
-    const status =
-      q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all';
+    const status = parseStatus(q.status);
     const misa = q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined;
     const payment = parsePaymentFilter(q.payment);
     // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
@@ -423,8 +459,7 @@ export class OrdersController {
       cashier_user_id: q.cashier_user_id || undefined,
       start_ms: q.start_ms ? Number(q.start_ms) : undefined,
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
-      status:
-        q.status === 'paid' || q.status === 'unpaid' || q.status === 'cancelled' ? q.status : 'all',
+      status: parseStatus(q.status),
       misa: q.misa === 'pending' || q.misa === 'copied' ? q.misa : undefined,
       qr_account_id: parseQrAccountId(q.qr_account_id),
     });
@@ -475,6 +510,32 @@ export class OrdersController {
  *  chỉ nên làm bộ lọc rộng ra, không nên ném lỗi vào mặt người đang tra cứu. */
 function parsePaymentFilter(v: string | undefined): PaymentKindFilter | undefined {
   return v === 'cash' || v === 'transfer' || v === 'mixed' ? v : undefined;
+}
+
+/** Tab trạng thái ở màn Lịch sử — dùng chung cho `/history` và `/stats` để hai đầu không lệch
+ *  nhau khi thêm tab (2026-09-25 thêm `debt`). Giá trị lạ → 'all', không ném 400. */
+function parseStatus(v: string | undefined): 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt' {
+  return v === 'paid' || v === 'unpaid' || v === 'cancelled' || v === 'debt' ? v : 'all';
+}
+
+/** Cụm chuyển khoản từ body — dùng chung cho checkout và thu nợ. Bỏ trống = tiền mặt toàn bộ. */
+function transferFromBody(body: CheckoutDto | undefined): CheckoutTransfer | undefined {
+  if (!body?.transfer_amount) return undefined;
+  return {
+    amount: body.transfer_amount,
+    account_id: body.paid_to_account_id ?? null,
+    qr_label: body.payment_qr_label ?? null,
+    note: body.transfer_note ?? null,
+  };
+}
+
+/** Ghi nợ mà không ghi ai nợ thì không đòi được — chặn ở đây, không để cột NULL im lặng. */
+function requireDebtNote(note: string | undefined): string {
+  const v = (note ?? '').trim();
+  if (!v) {
+    throw new BadRequestException({ code: 'DEBT_NOTE_REQUIRED', message: 'Nhập tên khách nợ' });
+  }
+  return v;
 }
 
 /** Id tài khoản nhận tiền (2026-09-15). Cắt ở 36 ký tự = đúng độ dài cột `paid_to_account_id`:

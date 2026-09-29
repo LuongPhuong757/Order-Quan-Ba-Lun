@@ -24,6 +24,9 @@ function order(patch: Partial<ReceiptInput['order']> = {}): ReceiptInput['order'
     payment_qr_label: null,
     closed_at: Date.UTC(2026, 8, 19, 5, 42),
     opened_at: Date.UTC(2026, 8, 19, 4, 10),
+    is_paid: true,
+    debt_at: null,
+    debt_note: null,
     checked_out_by_full_name: 'Lương Phương',
     customer_name: null,
     customer_phone: null,
@@ -160,6 +163,19 @@ describe('buildReceipt — tiền', () => {
     const t = totals(build({ items: [item({ menu_item_price: 45000 })] }));
     expect(t.find((l) => l.label === 'Tiền mặt')?.value).toBe('45.000đ');
     expect(t.find((l) => l.label === 'Chuyển khoản')).toBeUndefined();
+  });
+
+  it('ghi nợ → KHÔNG in dòng tiền mặt/chuyển khoản, in "GHI NỢ — CHƯA THU TIỀN" + tên khách', () => {
+    const lines = build({
+      order: order({ is_paid: false, debt_at: Date.UTC(2026, 8, 25, 5, 0), debt_note: 'Anh Tuấn' }),
+      items: [item({ menu_item_price: 45000 })],
+    });
+    const t = lines.filter((l): l is Extract<ReceiptLine, { kind: 'total' }> => l.kind === 'total');
+    expect(t.find((l) => l.label === 'Tiền mặt')).toBeUndefined();
+    expect(t.find((l) => l.label === 'Chuyển khoản')).toBeUndefined();
+    expect(t.find((l) => l.label === 'TỔNG CỘNG')?.value).toBe('45.000đ');
+    expect(lines.some((l) => l.kind === 'center' && l.text === 'GHI NỢ — CHƯA THU TIỀN')).toBe(true);
+    expect(lines.some((l) => l.kind === 'meta' && l.label === 'Khách nợ' && l.value === 'Anh Tuấn')).toBe(true);
   });
 
   it('chuyển khoản toàn bộ → KHÔNG in dòng tiền mặt', () => {

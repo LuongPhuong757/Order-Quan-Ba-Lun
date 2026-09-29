@@ -4,6 +4,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { CheckoutDialog } from '../components/CheckoutDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
@@ -56,6 +57,8 @@ type Stats = {
   paid_count: number;
   unpaid_count: number;
   cancelled_count: number;
+  /** Đơn đang NỢ (2026-09-25) — cùng lệ cắt theo tab với 3 count kia. */
+  debt_count: number;
   paid_revenue: number;
   // M2.D-62 — phí ship là tiền thu hộ, KHÔNG phải doanh thu món. Hiển thị thành ô RIÊNG,
   // không cộng vào `paid_revenue`.
@@ -89,6 +92,7 @@ function fmtHm(ms: number): string {
 
 type OrderItem = {
   id: string;
+  menu_item_id: string;
   menu_item_name: string;
   menu_item_price: number;
   qty: number;
@@ -122,6 +126,13 @@ type HistoryOrder = {
   transfer_amount: number;
   payment_qr_label: string | null;
   transfer_note: string | null;
+  ship_fee: number;
+  /* Ghi nợ (2026-09-25). `debt_at` có + `is_paid = false` = ĐANG NỢ; `debt_paid_at` có = đã thu
+     nợ (lúc đó `is_paid = true`, và đây là mốc tiền thật của đơn). */
+  debt_at: number | null;
+  debt_note: string | null;
+  debt_paid_at: number | null;
+  debt_paid_by_full_name: string | null;
   items: OrderItem[];
 };
 
@@ -146,7 +157,7 @@ type QrAccount = {
   is_active: boolean;
 };
 
-type Status = 'all' | 'paid' | 'unpaid' | 'cancelled';
+type Status = 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt';
 
 type Activity = {
   id: string;
@@ -168,6 +179,8 @@ const EVENT_ICON: Record<string, string> = {
   order_cancelled: '🗑️',
   order_restarted: '🔄', // giờ vào ăn được tính lại (bàn mở trống trước đó — xem seated-at.ts)
   misa_copied: '📋', // đánh dấu đã gõ đơn sang amis.misa.vn
+  debt: '📒', // ghi nợ (lúc thu hoặc admin chuyển bù)
+  debt_paid: '💰', // thu được nợ
 };
 
 function fmt(v: number) {
@@ -233,6 +246,9 @@ export function HistoryPage() {
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  /** Tăng để tải lại danh sách + số liệu sau một thao tác đổi trạng thái đơn (thu nợ, chuyển
+   *  sang nợ) mà không đổi bộ lọc. */
+  const [reloadTick, setReloadTick] = useState(0);
   const [tableFilter, setTableFilter] = useState<string>('');
   const [cashierFilter, setCashierFilter] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<Status>('all');
@@ -352,7 +368,7 @@ export function HistoryPage() {
     }, FILTER_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, page, sortBy]);
+  }, [filterKey, page, sortBy, reloadTick]);
 
   // Số liệu biểu đồ — theo bàn/thu ngân/khoảng ngày VÀ tab đang chọn (2026-09-05): đổi tab
   // thì doanh thu theo ngày, top món, tiêu hao... đổi theo, không chỉ danh sách đơn. Vẫn
@@ -404,7 +420,7 @@ export function HistoryPage() {
     }, FILTER_DEBOUNCE_MS);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canSeeStats, filterKey]);
+  }, [canSeeStats, filterKey, reloadTick]);
 
   /** Chọn 1 tab trong dãy pill trên cùng — loại trừ lẫn nhau.
    *
@@ -449,6 +465,46 @@ export function HistoryPage() {
       .reduce((s, i) => s + i.menu_item_price * i.qty, 0);
   };
 
+  /** Đơn đang nợ được bấm "Thu nợ" — mở lại đúng hộp thoại thu tiền (2026-09-25, D-04). */
+  const [settleTarget, setSettleTarget] = useState<HistoryOrder | null>(null);
+  const onDebtSettled = (o: HistoryOrder) => {
+    setSettleTarget(null);
+    toast.push('success', `✓ Đã thu nợ ${o.table_name}${o.debt_note ? ` · ${o.debt_note}` : ''}`);
+    // Tải lại thay vì sửa tại chỗ: đơn vừa rời tab "Đang nợ", và mốc tiền đổi sang hôm nay nên
+    // nhóm ngày của nó cũng đổi — vá tay từng trường là chắc chắn lệch với BE ở đâu đó.
+    setReloadTick((t) => t + 1);
+  };
+
+  /** Admin chuyển đơn ĐÃ THU sang nợ (thu ngân bấm nhầm). Hỏi tên khách bằng `prompt` — thao tác
+   *  hiếm, một hộp thoại riêng cho nó là thừa. */
+  const [markingDebt, setMarkingDebt] = useState<Set<string>>(new Set());
+  const markAsDebt = async (o: HistoryOrder) => {
+    const note = window.prompt(
+      `Chuyển ${o.table_name} (${fmt(orderTotal(o) + (o.ship_fee || 0))}) sang GHI NỢ.\n` +
+        'Khoản này sẽ RÚT khỏi doanh thu và xoá phần chuyển khoản đã ghi.\n\nAi nợ? (tên khách)',
+      o.customer_name ?? '',
+    );
+    if (note === null) return;
+    if (!note.trim()) {
+      toast.push('error', 'Nhập tên khách nợ');
+      return;
+    }
+    setMarkingDebt((s) => new Set(s).add(o.id));
+    try {
+      await api.patch(`/orders/${o.id}/debt`, { debt_note: note.trim() });
+      toast.push('success', `📒 ${o.table_name} → đang nợ (${note.trim()})`);
+      setReloadTick((t) => t + 1);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setMarkingDebt((s) => {
+        const n = new Set(s);
+        n.delete(o.id);
+        return n;
+      });
+    }
+  };
+
   /** Có đang đứng ở một tab cụ thể không (khác "Tất cả") — số liệu bên dưới cắt theo tab đó. */
   const tabActive = statusFilter !== 'all' || !!misaFilter;
 
@@ -463,6 +519,8 @@ export function HistoryPage() {
         ? { money: 'Tiền đang chờ thu', count: 'Đơn chưa thanh toán', hint: 'Đơn đang mở · món chưa huỷ', top: '🔥 Top món đang chờ thu' }
         : statusFilter === 'cancelled'
           ? { money: 'Giá trị đơn đã huỷ', count: 'Đơn bị huỷ', hint: 'Món bị huỷ ở các đơn kết bằng huỷ', top: '🔥 Top món bị huỷ' }
+          : statusFilter === 'debt'
+            ? { money: 'Khách đang nợ', count: 'Đơn đang nợ', hint: 'Bàn đã trả, tiền chưa thu — CHƯA vào doanh thu', top: '🔥 Top món đang nợ' }
           : statusFilter === 'paid'
             ? { money: 'Doanh thu đã thanh toán', count: 'Đơn đã thanh toán', hint: 'Chỉ tính đơn đã thanh toán', top: '🔥 Top món bán chạy' }
             : { money: 'Doanh thu đã thanh toán', count: 'Tổng đơn khớp lọc', hint: 'Chỉ tính đơn đã thanh toán', top: '🔥 Top món bán chạy' };
@@ -586,6 +644,24 @@ export function HistoryPage() {
     <div className="container txn-page with-bottom-nav">
       <h1>📊 Quản lý giao dịch</h1>
 
+      {/* Thu nợ (2026-09-25): dùng lại NGUYÊN hộp thoại thu tiền — cùng ba hình thức, cùng mã QR,
+          cùng ảnh bill — chỉ khác endpoint. Đơn nợ đã chốt món từ hôm ghi nợ nên khối "soát bill"
+          là để đọc lại cho khách, không sửa được gì. */}
+      {settleTarget && (
+        <CheckoutDialog
+          settleDebt
+          orderId={settleTarget.id}
+          table={{ code: settleTarget.table_code, name: settleTarget.table_name }}
+          cashier={{ full_name: user?.full_name, username: user?.name }}
+          canCollectTransfer={!!user?.can_collect_transfer}
+          items={settleTarget.items || []}
+          itemsTotal={orderTotal(settleTarget)}
+          shipFee={settleTarget.ship_fee || 0}
+          onCancel={() => setSettleTarget(null)}
+          onDone={() => onDebtSettled(settleTarget)}
+        />
+      )}
+
       {/* Filters — TẤT CẢ trên một dòng (chốt 2026-09-05).
           Trước đây xếp 3 tầng (pill / 2 select / 2 ô ngày) chiếm gần nửa màn hình trước khi
           thấy đơn nào. `flexWrap` giữ cho mobile vẫn xuống dòng được thay vì tràn ngang. */}
@@ -639,6 +715,16 @@ export function HistoryPage() {
             onClick={() => selectTab('cancelled')}
           >
             🗑 Đã huỷ
+          </StatusPill>
+          {/* Đang nợ (2026-09-25): bàn đã trả mà chưa thu tiền — tab riêng để admin nhìn ra ngay
+              quán đang bị nợ những đơn nào; thu nợ cũng làm từ đây. */}
+          <StatusPill
+            active={!misaFilter && statusFilter === 'debt'}
+            color="#b45309"
+            bg="#ffedd5"
+            onClick={() => selectTab('debt')}
+          >
+            📒 Đang nợ
           </StatusPill>
 
           {/* Tab Misa (2026-09-05) — các đơn đã tick "Misa" lúc thu tiền hoặc đánh dấu bù. */}
@@ -806,7 +892,7 @@ export function HistoryPage() {
             statsLoading
               ? '…'
               : stats
-                ? String(stats.paid_count + stats.unpaid_count + stats.cancelled_count)
+                ? String(stats.paid_count + stats.unpaid_count + stats.cancelled_count + (stats.debt_count ?? 0))
                 : '—'
           }
           color="#334155"
@@ -940,6 +1026,7 @@ export function HistoryPage() {
                   { label: 'Đã thanh toán', value: stats.paid_count, color: '#10b981' },
                   { label: 'Chưa thanh toán', value: stats.unpaid_count, color: '#f59e0b' },
                   { label: 'Đã huỷ', value: stats.cancelled_count, color: '#dc2626' },
+                  { label: 'Đang nợ', value: stats.debt_count ?? 0, color: '#ea580c' },
                 ]}
               />
             </ChartCard>
@@ -1068,7 +1155,11 @@ export function HistoryPage() {
                       // closed_at = đã kết đơn, is_paid = kết bằng thu tiền hay huỷ.
                       // Đơn huỷ PHẢI hiện rõ để soi được nhân viên huỷ bàn thay vì thu tiền.
                       const isPaid = !!o.closed_at && o.is_paid;
-                      const isCancelled = !!o.closed_at && !o.is_paid;
+                      // Đang NỢ (2026-09-25): kết đơn, chưa thu, có mốc ghi nợ. Phải tách khỏi
+                      // "đã huỷ" — cùng `is_paid = false` nhưng một bên là tiền chưa về, một bên
+                      // là tiền không bao giờ có.
+                      const isDebt = !!o.closed_at && !o.is_paid && o.debt_at != null;
+                      const isCancelled = !!o.closed_at && !o.is_paid && !isDebt;
                       return (
                         <Fragment key={o.id}>
                           <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
@@ -1099,7 +1190,8 @@ export function HistoryPage() {
                               )}
                             </td>
                             <td data-label="Giờ TT" style={{ whiteSpace: 'nowrap' }}>
-                              {o.closed_at ? fmtHm(o.closed_at) : '—'}
+                              {/* Đơn thu nợ: mốc TIỀN là lúc thu nợ, không phải lúc trả bàn. */}
+                              {o.debt_paid_at != null ? fmtHm(o.debt_paid_at) : o.closed_at ? fmtHm(o.closed_at) : '—'}
                             </td>
                             <td data-label="Món" style={{ whiteSpace: 'nowrap' }}>
                               ✓ {servedCount}
@@ -1122,7 +1214,9 @@ export function HistoryPage() {
                                 cao gần gấp đôi. */}
                             <td data-label="Trạng thái" style={{ whiteSpace: 'nowrap' }}>
                               {isPaid ? (
-                                <span style={paidBadge}>✓ Đã thanh toán</span>
+                                <span style={paidBadge}>✓ Đã thanh toán{o.debt_paid_at != null ? ' (thu nợ)' : ''}</span>
+                              ) : isDebt ? (
+                                <span style={debtBadge} title={o.debt_note ?? undefined}>📒 Đang nợ{o.debt_note ? ` · ${o.debt_note}` : ''}</span>
                               ) : isCancelled ? (
                                 <span style={cancelledBadge}>🗑 Đã huỷ</span>
                               ) : (
@@ -1135,6 +1229,38 @@ export function HistoryPage() {
                               style={{ whiteSpace: 'nowrap', textAlign: 'right' }}
                             >
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                {/* THU NỢ (2026-09-25): mở lại đúng hộp thoại thu tiền cho đơn
+                                    đang nợ. Cùng quyền với checkout (admin + order). */}
+                                {isDebt && canMarkMisa && (
+                                  <button
+                                    type="button"
+                                    title={`Thu nợ ${o.debt_note ?? ''}`}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSettleTarget(o);
+                                    }}
+                                    style={{ padding: '2px 10px', fontSize: 13, lineHeight: 1.6, background: '#b45309' }}
+                                  >
+                                    💰 Thu nợ
+                                  </button>
+                                )}
+                                {/* CHUYỂN SANG NỢ (admin): thu ngân bấm "Tiền mặt" nhầm cho bàn
+                                    khách đi mà chưa trả. Rút khoản này khỏi doanh thu đã chốt. */}
+                                {isPaid && canSeeReconcile && (
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    title="Đơn này thực ra khách chưa trả — chuyển sang ghi nợ"
+                                    disabled={markingDebt.has(o.id)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void markAsDebt(o);
+                                    }}
+                                    style={{ padding: '2px 8px', fontSize: 13, lineHeight: 1.6 }}
+                                  >
+                                    📒 → Nợ
+                                  </button>
+                                )}
                                 {/* Cờ Misa chỉ có nghĩa với đơn đã thu tiền — đơn huỷ / đang dùng
                                     không có bill để gõ sang AMIS nên không hiện gì. */}
                                 {isPaid && (
@@ -1305,6 +1431,16 @@ const cancelledBadge: React.CSSProperties = {
   borderRadius: 999,
 };
 
+/** Đang NỢ — cam, không lẫn với đỏ của huỷ (tiền không có) và vàng của đang mở (khách còn ngồi). */
+const debtBadge: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#9a3412',
+  background: '#ffedd5',
+  padding: '2px 8px',
+  borderRadius: 999,
+};
+
 /** Badge đối soát MISA — bấm để tick / bỏ tick ngay trên dòng lịch sử (2026-09-05).
  *
  * `stopPropagation`: dòng lịch sử có onClick mở/đóng chi tiết. Thiếu nó thì mỗi lần tick, bảng
@@ -1381,6 +1517,31 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
             <div style={{ marginTop: 2, fontFamily: 'monospace' }}>Nội dung: {order.transfer_note}</div>
           )}
           <PaymentPhotos orderId={order.id} />
+        </div>
+      )}
+
+      {/* Ghi nợ (2026-09-25): ai nợ, nợ từ lúc nào, và (nếu đã thu) ai thu lúc nào. Mốc thu nợ là
+          mốc TIỀN thật của đơn — khác "Giờ TT" ở cột bảng vốn là lúc trả bàn. */}
+      {order.debt_at != null && (
+        <div
+          style={{
+            marginBottom: 12,
+            padding: 10,
+            background: order.debt_paid_at != null ? '#f0fdf4' : '#ffedd5',
+            borderRadius: 8,
+            fontSize: 13,
+          }}
+        >
+          <strong>📒 Ghi nợ{order.debt_note ? `: ${order.debt_note}` : ''}</strong>
+          <span style={{ color: '#6b7280' }}> · từ {fmtDate(order.debt_at)}</span>
+          {order.debt_paid_at != null ? (
+            <div style={{ marginTop: 2, color: '#166534' }}>
+              ✓ Đã thu nợ {fmtDate(order.debt_paid_at)}
+              {order.debt_paid_by_full_name && <> · {order.debt_paid_by_full_name}</>}
+            </div>
+          ) : (
+            <div style={{ marginTop: 2, color: '#9a3412' }}>Chưa thu — chưa vào doanh thu.</div>
+          )}
         </div>
       )}
 

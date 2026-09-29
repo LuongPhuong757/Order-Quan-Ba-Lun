@@ -21,8 +21,8 @@ export type DishOrderRow = {
   qty: number;
   /** Tiền của riêng món đó trong đơn này. */
   amount: number;
-  /** Trạng thái ĐƠN, cùng định nghĩa với màn Lịch sử. */
-  status: 'paid' | 'unpaid' | 'cancelled';
+  /** Trạng thái ĐƠN, cùng định nghĩa với màn Lịch sử (`debt` = đang nợ, 2026-09-25). */
+  status: 'paid' | 'unpaid' | 'cancelled' | 'debt';
 };
 
 /** Trạng thái món nghĩa là "bếp đã làm ra món này".
@@ -80,11 +80,11 @@ export class DishSalesService {
     // nó rơi khỏi mọi khoảng ngày và biến mất khỏi báo cáo dù bếp đã nấu thật.
     const fromMs = dayStartMs(opts.from);
     if (fromMs !== null) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
+      qb.andWhere('COALESCE(o.debt_paid_at, o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
     }
     const toMs = dayEndMs(opts.to);
     if (toMs !== null) {
-      qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
+      qb.andWhere('COALESCE(o.debt_paid_at, o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
     }
 
     const [raw, menu, groups] = await Promise.all([
@@ -158,11 +158,11 @@ export class DishSalesService {
 
       const fromMs = dayStartMs(opts.from);
       if (fromMs !== null) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
+        qb.andWhere('COALESCE(o.debt_paid_at, o.closed_at, o.opened_at) >= :s', { s: new Date(fromMs) });
       }
       const toMs = dayEndMs(opts.to);
       if (toMs !== null) {
-        qb.andWhere('COALESCE(o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
+        qb.andWhere('COALESCE(o.debt_paid_at, o.closed_at, o.opened_at) <= :e', { e: new Date(toMs) });
       }
       return qb;
     };
@@ -183,6 +183,7 @@ export class DishSalesService {
       .addSelect('UNIX_TIMESTAMP(MAX(o.opened_at)) * 1000', 'opened_ms')
       .addSelect('UNIX_TIMESTAMP(MAX(o.closed_at)) * 1000', 'closed_ms')
       .addSelect('MAX(o.is_paid)', 'is_paid')
+      .addSelect('MAX(o.debt_at) IS NOT NULL', 'is_debt')
       .addSelect('SUM(i.qty)', 'qty')
       .addSelect('SUM(i.menu_item_price * i.qty)', 'amount')
       .groupBy('i.order_id')
@@ -199,6 +200,7 @@ export class DishSalesService {
         opened_ms: string | null;
         closed_ms: string | null;
         is_paid: number;
+        is_debt: number;
         qty: string;
         amount: string;
       }>();
@@ -221,7 +223,14 @@ export class DishSalesService {
           cashier_name: r.cashier_name,
           qty: Number(r.qty) || 0,
           amount: Number(r.amount) || 0,
-          status: closed === null ? 'unpaid' : Number(r.is_paid) === 1 ? 'paid' : 'cancelled',
+          status:
+            closed === null
+              ? 'unpaid'
+              : Number(r.is_paid) === 1
+                ? 'paid'
+                : Number(r.is_debt) === 1
+                  ? 'debt'
+                  : 'cancelled',
         };
       }),
       total,
