@@ -6,12 +6,19 @@
 //
 // Ảnh được giữ TRONG BỘ NHỚ tới khi phiếu lưu xong mới đẩy lên, vì trước đó chưa có id phiếu để
 // gắn vào. Đổi lại phải tự dọn `createObjectURL` — xem `useEffect` bên dưới.
-import { useEffect, useMemo, useRef } from 'react';
+//
+// Kéo-thả + dán ⌘V (2026-09-30, chủ quán yêu cầu): trên MÁY TÍNH ảnh phiếu thường không phải
+// chụp tại chỗ mà là ảnh chụp màn hình / ảnh NCC gửi qua Zalo. Bắt người ta lưu ra file rồi mở
+// hộp chọn file là ba nhịp cho thứ đáng lẽ một nhịp. Hai đường mới đi chung `addFiles` với
+// đường chọn file cũ nên không có nhánh upload thứ hai.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { C } from '../lib/online-ui.ts';
+import { acceptPhotos, isFileDrag, TYPING_SELECTOR } from '../lib/photo-drop.ts';
 
-/** Chặn theo TỪNG TẤM, không chặn tổng số ảnh. Một tấm quá khổ là thứ làm nghẽn RAM của tiến
- *  trình server; còn chụp bao nhiêu tấm là việc của người nhập, không phải việc của code. */
-export const PHOTO_MAX_BYTES = 12 * 1024 * 1024;
+/** Điện thoại không kéo-thả và không có ⌘V, nên câu gợi ý chỉ hiện ở máy có con trỏ chuột —
+ *  bày cho người cầm điện thoại một thao tác họ không làm được chỉ tổ làm khung ảnh rối thêm.
+ *  Đọc một lần lúc nạp module: máy không tự mọc thêm chuột giữa lúc đang nhập phiếu. */
+const HAS_MOUSE = typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches === true;
 
 export function PhotoPicker({
   files,
@@ -21,16 +28,49 @@ export function PhotoPicker({
   onChange: (next: File[]) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  // `dragenter`/`dragleave` bắn lại mỗi lần con trỏ đi qua từng ô ảnh con BÊN TRONG khung, nên
+  // cờ bật/tắt trần sẽ nhấp nháy. Đếm vào - ra, về 0 mới coi là đã rời khung.
+  const dragDepth = useRef(0);
 
   // `createObjectURL` giữ nguyên tấm ảnh trong RAM tới khi được revoke. Vài chục ảnh 8MB là hàng
   // trăm MB treo lại mỗi lần mở popup nếu không dọn — trên điện thoại đủ để trình duyệt giết tab.
   const previews = useMemo(() => files.map((f) => ({ f, url: URL.createObjectURL(f) })), [files]);
   useEffect(() => () => previews.forEach((p) => URL.revokeObjectURL(p.url)), [previews]);
 
+  /** Cửa duy nhất để ảnh vào danh sách — chọn file, kéo-thả và dán đều đi qua đây. */
+  const addFiles = useCallback(
+    (picked: File[]) => {
+      const next = acceptPhotos(picked);
+      if (!next.length) return;
+      onChange([...files, ...next]);
+    },
+    [files, onChange],
+  );
+
+  // Dán ⌘V. Nghe ở cấp `document` chứ không phải trên khung ảnh: trình duyệt chỉ gửi sự kiện dán
+  // tới chỗ đang được focus, nên gắn vào khung thì phải bấm chọn khung trước mới dán được —
+  // một nhịp thừa mà nhìn màn hình không ai đoán ra.
+  //
+  // Đổi lại phải TỰ TRÁNH các ô nhập: đang gõ trong "Ghi chú" hay ô số tiền thì ⌘V là dán CHỮ,
+  // nuốt mất thao tác đó là lỗi nặng hơn hẳn tiện ích này mang lại. Listener chỉ sống trong lúc
+  // form phiếu đang mở, vì component này tháo theo form.
+  useEffect(() => {
+    const onPaste = (e: ClipboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el?.closest?.(TYPING_SELECTOR)) return;
+      const images = [...(e.clipboardData?.files ?? [])].filter((f) => f.type.startsWith('image/'));
+      if (!images.length) return;
+      e.preventDefault();
+      addFiles(images);
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }, [addFiles]);
+
   const add = (picked: FileList | null) => {
     if (!picked?.length) return;
-    const next = [...picked].filter((f) => f.size <= PHOTO_MAX_BYTES);
-    onChange([...files, ...next]);
+    addFiles([...picked]);
     // Xoá value để chọn LẠI đúng tấm ảnh vừa bỏ ra cũng bắn `change`.
     if (inputRef.current) inputRef.current.value = '';
   };
@@ -45,7 +85,48 @@ export function PhotoPicker({
         )}
       </div>
 
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 6 }}>
+      {HAS_MOUSE && (
+        <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>
+          Kéo ảnh thả vào khung dưới, hoặc chụp màn hình rồi bấm ⌘V.
+        </div>
+      )}
+
+      <div
+        onDragEnter={(e) => {
+          if (!isFileDrag(e.dataTransfer?.types)) return;
+          e.preventDefault();
+          dragDepth.current += 1;
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!isFileDrag(e.dataTransfer?.types)) return;
+          // Không chặn `dragover` thì trình duyệt giữ mặc định "không thả được ở đây" và `drop`
+          // không bao giờ bắn — thả ra là trình duyệt MỞ tấm ảnh đè lên cả form đang nhập dở.
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }}
+        onDragLeave={() => {
+          dragDepth.current = Math.max(0, dragDepth.current - 1);
+          if (dragDepth.current === 0) setDragging(false);
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          dragDepth.current = 0;
+          setDragging(false);
+          addFiles([...e.dataTransfer.files]);
+        }}
+        style={{
+          display: 'flex',
+          gap: 8,
+          flexWrap: 'wrap',
+          marginTop: 6,
+          padding: 6,
+          borderRadius: 10,
+          // Viền luôn chiếm chỗ (trong suốt lúc bình thường) để khung không nhảy khi kéo vào.
+          border: `2px dashed ${dragging ? C.accent : 'transparent'}`,
+          background: dragging ? C.accentSoft : 'transparent',
+        }}
+      >
         {previews.map((p, i) => (
           <div
             key={p.url}
