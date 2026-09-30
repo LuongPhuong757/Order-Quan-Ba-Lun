@@ -38,14 +38,31 @@ type DishOrder = {
   cashier_name: string | null;
   qty: number;
   amount: number;
-  status: 'paid' | 'unpaid' | 'cancelled';
+  /** PHẢI khớp `DishOrderRow.status` ở `dish-sales.service.ts`. Thiếu một giá trị ở đây thì
+   *  TypeScript im lặng cho qua, và chỗ tra nhãn bên dưới nổ lúc chạy — đúng chuyện đã xảy ra
+   *  với `debt` (BE thêm 2026-09-25, FE không biết cho tới 2026-09-30). */
+  status: 'paid' | 'unpaid' | 'cancelled' | 'debt';
 };
 
 const NHAN_TT: Record<DishOrder['status'], { nhan: string; badge: string }> = {
   paid: { nhan: 'Đã thu tiền', badge: 'badge--ok' },
   unpaid: { nhan: 'Chưa thanh toán', badge: 'badge--pending' },
   cancelled: { nhan: 'Đã huỷ', badge: 'badge--danger' },
+  // Ghi nợ (BE trả `debt` từ 2026-09-25). Thiếu dòng này suốt từ đó tới 2026-09-30: mở chi tiết
+  // một món đã từng nằm trong đơn ghi nợ là TRẮNG CẢ TRANG
+  // (`Cannot read properties of undefined (reading 'badge')`). Chữ lấy đúng của màn Lịch sử —
+  // cùng một trạng thái mà hai màn gọi hai tên là bắt người đọc tự đoán chúng có phải một không.
+  debt: { nhan: '📒 Đang nợ', badge: 'badge--debt' },
 };
+
+/** Trạng thái lạ KHÔNG được làm trắng trang.
+ *
+ *  Bài học của chính lỗi trên: `NHAN_TT[...]` trả `undefined`, dòng dưới đọc `.badge`, React gỡ
+ *  nguyên màn hình. Một mã trạng thái mới ở BE là chuyện sẽ còn xảy ra, và cái giá đúng của nó là
+ *  một cái nhãn xám đọc hơi lạ, không phải mất cả màn. */
+export function nhanTrangThai(status: string): { nhan: string; badge: string } {
+  return NHAN_TT[status as DishOrder['status']] ?? { nhan: status, badge: 'badge--neutral' };
+}
 
 const num = (n: number) => n.toLocaleString('vi-VN');
 const CO_TRANG = 20;
@@ -102,7 +119,7 @@ function DonCuaMon({ dish, range }: { dish: DishRow; range: DayRange }) {
         <>
           <ul className="orderlist">
             {res.items.map((o) => {
-              const st = NHAN_TT[o.status];
+              const st = nhanTrangThai(o.status);
               const who = `${o.customer_name || 'khách lẻ'} · Thu ngân: ${o.cashier_name || '—'}`;
               return (
                 <li className="order" key={o.order_id}>
