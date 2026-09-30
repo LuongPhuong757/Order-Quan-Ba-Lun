@@ -36,6 +36,9 @@ export default defineConfig({
       '/payments':    apiProxy(),
       '/webhooks':    apiProxy(),
       '/print':       apiProxy(),
+      // Hoá đơn tự do (M6). Thiếu dòng này thì màn In hoá đơn im lặng nhận về index.html
+      // và trông như lỗi code, trong khi API hoàn toàn bình thường.
+      '/custom-receipts': apiProxy(),
       '/print-pair':  apiProxy(),
       /* KHÔNG dùng `apiProxy()` ở đây — `bypass()` của nó trả `index.html` cho mọi request có
          `Accept: text/html`, mà MỞ MỘT TẤM ẢNH Ở TAB MỚI chính là loại request đó. Kết quả: ảnh

@@ -8,6 +8,8 @@ import { OrderItem } from '../orders/entities/order-item.entity.js';
 import { SettingsService } from '../settings/settings.service.js';
 import { PrintJob } from './entities/print-job.entity.js';
 import { PrintDevice } from './entities/print-device.entity.js';
+import { CustomReceipt } from '../custom-receipts/entities/custom-receipt.entity.js';
+import { toReceiptInput } from '../custom-receipts/custom-receipt-model.js';
 import { buildDeliverySlip, buildReceipt, buildTestPage } from './receipt-model.js';
 import { renderReceipt } from './receipt-render.js';
 import { buildJob, dotsForPaperWidth } from './escpos.js';
@@ -143,6 +145,44 @@ export class PrintingService {
     }
   }
 
+  /**
+   * Xếp một tờ HOÁ ĐƠN TỰ DO (M6.D-03).
+   *
+   * `order_id` chứa id của `custom_receipts`, không phải của `orders` — cột này vốn đã là "id của
+   * thứ cần in", và `kind` nói rõ thứ đó là gì. Thêm một cột mới vào bảng đang chạy production
+   * chỉ để có cái tên đẹp hơn là cái giá không đáng trả.
+   *
+   * Không ném lỗi ra ngoài, cùng lý do với `enqueue()`: bản ghi đã tạo xong rồi, và một trục trặc
+   * của máy in không được phép biến thao tác vừa thành công thành màn hình đỏ.
+   */
+  async enqueueCustom(
+    receiptId: string,
+    reason: 'CHECKOUT' | 'REPRINT',
+    actor?: { full_name?: string | null },
+  ): Promise<PrintJob | null> {
+    try {
+      const cfg = await this.settings.readAll();
+      if (!cfg.printing_enabled) return null;
+      const repo = this.ds.getRepository(PrintJob);
+      return await repo.save(
+        repo.create({
+          order_id: receiptId,
+          kind: 'CUSTOM',
+          reason,
+          status: 'PENDING',
+          // Mốc thời gian trong khoá, giống `TEST` và khác `CHECKOUT`: bấm In ba lần phải ra ba
+          // tờ. Tờ tự do không có "bấm đúp lúc mạng lag" để mà chống — người ta chỉ bấm In khi
+          // thực sự cần thêm một tờ giấy nữa.
+          dedupe_key: `CUSTOM:${receiptId}:${Date.now()}:${randomBytes(3).toString('hex')}`,
+          requested_by_full_name: actor?.full_name ?? null,
+        }),
+      );
+    } catch (err) {
+      this.logger.error(`Không xếp được job in hoá đơn tự do ${receiptId}: ${String(err)}`);
+      return null;
+    }
+  }
+
   // ── Cầu in lấy việc ───────────────────────────────────────────────────────
 
   /** Trạng thái cấu hình mà cầu in cần biết để tự chẩn đoán. */
@@ -259,6 +299,32 @@ export class PrintingService {
     if (job.kind === 'TEST') {
       const rendered = await renderReceipt(
         buildTestPage(store, Date.now(), cfg.printer_paper_width_mm, dots),
+        dots,
+        cfg.printer_darkness,
+      );
+      return buildJob(rendered.mono, rendered.width, rendered.height, {
+        autoCut: cfg.printer_auto_cut,
+        heat: cfg.printer_heat as 0 | 1 | 2,
+      });
+    }
+
+    if (job.kind === 'CUSTOM') {
+      // Hoá đơn tự do đi qua ĐÚNG `buildReceipt` của hoá đơn thật — xem `custom-receipt-model.ts`
+      // để biết vì sao không có hàm dựng giấy thứ hai.
+      const receipt = await this.ds
+        .getRepository(CustomReceipt)
+        .findOne({ where: { id: job.order_id } });
+      if (!receipt) throw new Error(`Không tìm thấy hoá đơn tự do ${job.order_id}`);
+      const rendered = await renderReceipt(
+        buildReceipt(
+          toReceiptInput(receipt, store, {
+            reprint: job.reason === 'REPRINT',
+            nowMs: Date.now(),
+            // Không có tên tài khoản nhận: `payment_qr_label` của đơn thật là SNAPSHOT của mã QR
+            // đã dùng để thu, mà tờ tự do không đi qua màn QR nào. In một cái tên tài khoản không
+            // ai vừa chuyển tiền vào còn tệ hơn là không in.
+          }),
+        ),
         dots,
         cfg.printer_darkness,
       );

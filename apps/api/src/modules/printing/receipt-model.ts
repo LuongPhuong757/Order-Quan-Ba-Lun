@@ -53,6 +53,11 @@ export type ReceiptInput = {
   order: {
     id: string;
     table_code: string;
+    /** Nhãn đầu tờ dựng SẴN, thay cho phép suy từ `table_code`/`fulfillment_type`.
+     *
+     *  Chỉ hoá đơn tự do (M6) dùng: ở đó người in gõ tự do ("Bàn 5", "Mang về", tên khách, hoặc
+     *  bỏ trống), và không có bàn nào để suy ra. Đơn thật KHÔNG set trường này. */
+    target_label?: string | null;
     fulfillment_type: string | null;
     source: string;
     ship_fee: number | null;
@@ -84,6 +89,9 @@ export type ReceiptInput = {
 /** Tên loại đơn hiện trên hoá đơn. `table_code` là snapshot nên bàn đổi tên vẫn in đúng tên
  *  lúc khách ngồi. */
 function describeTarget(order: ReceiptInput['order']): string {
+  // Nhãn dựng sẵn thắng mọi phép suy — xem `target_label`. Chuỗi rỗng là một lựa chọn HỢP LỆ
+  // (hoá đơn tự do bỏ trống ô ghi chú): dòng đó còn lại đúng mã đơn ở mép phải.
+  if (order.target_label !== undefined && order.target_label !== null) return order.target_label;
   if (order.fulfillment_type === 'DELIVERY') return 'Giao tận nơi';
   if (order.fulfillment_type === 'PICKUP') return 'Khách tự lấy';
   return `Bàn ${order.table_code}`;

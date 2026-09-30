@@ -103,7 +103,13 @@ const MenuCard = memo(function MenuCard({
   );
 });
 
+/** Món đã chọn, trả ra ngoài ở chế độ `onCollect`. Cố ý KHÔNG trả nguyên `MenuItem`: nơi nhận là
+ *  hoá đơn tự do, nơi tên và giá được CHỤP LẠI và sửa được — trả cả object món sống là mời gọi
+ *  chỗ đó bám ngược vào menu, đúng thứ tính năng này không được phép làm. */
+export type PickedLine = { name: string; qty: number; unit_price: number; note: string };
+
 type Props = {
+  /** Đơn để báo bếp. Bỏ trống khi dùng `onCollect` — lúc đó không có đơn nào cả. */
   orderId: string;
   tableLabel: string;
   /** `dine-in` | `takeaway` | `delivery` — quyết định có gợi khăn lạnh vào giỏ hay không. */
@@ -112,6 +118,16 @@ type Props = {
   isNewTable: boolean;
   onClose: () => void;
   onSubmitted: () => void;
+  /**
+   * Chế độ GOM GIỎ: thay vì gọi API báo bếp, trả danh sách món đã chọn ra ngoài.
+   *
+   * Có để màn Hoá đơn tự do (M6) dùng đúng cái lưới chọn món mà nhân viên đã quen — chọn nhiều
+   * món một lượt, tap tăng số phần, ghi chú ngay trên thẻ. Viết một lưới thứ hai cho giống thì
+   * hai lưới sẽ khác nhau dần, và "giống màn order" là cả yêu cầu của chủ quán.
+   *
+   * Không truyền: mọi thứ chạy y như cũ.
+   */
+  onCollect?: (lines: PickedLine[]) => void;
 };
 
 export function BulkOrderModal({
@@ -121,6 +137,7 @@ export function BulkOrderModal({
   isNewTable,
   onClose,
   onSubmitted,
+  onCollect,
 }: Props) {
   const toast = useToast();
   const [menu, setMenu] = useState<MenuItem[]>([]);
@@ -273,6 +290,19 @@ export function BulkOrderModal({
   const submit = async () => {
     if (cartLines.length === 0) {
       toast.push('error', 'Giỏ hàng trống');
+      return;
+    }
+    // Chế độ gom giỏ: không có đơn nào để báo bếp, chỉ đưa món ra ngoài rồi đóng.
+    if (onCollect) {
+      onCollect(
+        cartLines.map((l) => ({
+          name: l.menu_item.name,
+          qty: l.qty,
+          unit_price: l.menu_item.price,
+          note: l.note.trim(),
+        })),
+      );
+      setMobileCartOpen(false);
       return;
     }
     setSubmitting(true);
@@ -954,7 +984,8 @@ export function BulkOrderModal({
       <div className="bulk-container">
         <div className="bulk-header">
           <h1>
-            Gọi món · <span style={{ color: '#0f766e' }}>{tableLabel}</span>
+            {onCollect ? 'Chọn món' : 'Gọi món'} ·{' '}
+            <span style={{ color: '#0f766e' }}>{tableLabel}</span>
           </h1>
           <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>
             ✕
@@ -1053,7 +1084,7 @@ export function BulkOrderModal({
                 disabled={submitting || cartLines.length === 0}
               >
                 {submitting && <span className="spinner" />}
-                Báo bếp
+                {onCollect ? 'Thêm vào hoá đơn' : 'Báo bếp'}
               </button>
             </div>
           </div>
@@ -1157,7 +1188,7 @@ export function BulkOrderModal({
                   disabled={submitting || cartLines.length === 0}
                 >
                   {submitting && <span className="spinner" />}
-                  Báo bếp
+                  {onCollect ? 'Thêm vào hoá đơn' : 'Báo bếp'}
                 </button>
               </div>
             </div>

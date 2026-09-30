@@ -12,6 +12,7 @@ import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { CustomReceiptsLog } from './CustomReceiptsLog.tsx';
 
 type DeviceRow = {
   id: string;
@@ -585,7 +586,11 @@ export function PrintersPanel() {
                         {clockTime(j.created_at)}
                       </td>
                       <td style={{ padding: '8px' }}>
-                        {j.kind === 'TEST' ? 'In thử' : describeJobTarget(j)}
+                        {j.kind === 'TEST'
+                          ? 'In thử'
+                          : j.kind === 'CUSTOM'
+                            ? 'Hoá đơn tự do'
+                            : describeJobTarget(j)}
                         {j.reason === 'REPRINT' && j.kind !== 'TEST' && (
                           <span style={{ color: C.muted }}> · in lại</span>
                         )}
@@ -618,6 +623,9 @@ export function PrintersPanel() {
           )}
         </div>
       </div>
+
+      {/* ── 4. Hoá đơn tự do đã in (M6.D-06) ── */}
+      <CustomReceiptsLog />
     </div>
   );
 }
