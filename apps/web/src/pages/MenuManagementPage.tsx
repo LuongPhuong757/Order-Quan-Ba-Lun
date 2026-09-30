@@ -412,7 +412,11 @@ export function MenuManagementPage() {
                   )}
                   {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
                 </div>
-                <div style={{ flex: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                {/* `minWidth: 0` BẮT BUỘC: mặc định `min-width` của một flex item là `auto`
+                    = bề rộng nội dung tối thiểu, nên khối này không co được và `text-overflow:
+                    ellipsis` của tên món bên trong không bao giờ có chỗ để cắt — tên dài đẩy
+                    tràn cả thẻ (lỗi chủ quán báo 2026-09-29). */}
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ minWidth: 0 }}>
                     <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
                     <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>

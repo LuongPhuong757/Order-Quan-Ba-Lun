@@ -61,6 +61,9 @@ const TablesManagementPage = lazy(() =>
 const HistoryPage = lazy(() =>
   import('./pages/HistoryPage.tsx').then((m) => ({ default: m.HistoryPage })),
 );
+const CustomReceiptPage = lazy(() =>
+  import('./pages/CustomReceiptPage.tsx').then((m) => ({ default: m.CustomReceiptPage })),
+);
 const OnlineOrdersPage = lazy(() =>
   import('./pages/OnlineOrdersPage.tsx').then((m) => ({ default: m.OnlineOrdersPage })),
 );
@@ -157,6 +160,13 @@ export function App() {
             {/* Order: admin + order + kitchen (bếp cần xem để biết món nào của bàn nào) */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
               <Route path="/orders" element={<OrdersPage />} />
+            </Route>
+
+            {/* Hoá đơn tự do (M6): admin + order + kitchen — chủ quán chốt "ai cũng in được".
+                `report` KHÔNG: tài khoản đó chỉ để xem số, không đứng quầy.
+                Màn này không tạo đơn, không đụng doanh thu — xem docs/MILESTONE-06. */}
+            <Route element={<RoleGate allow={['admin', 'order', 'kitchen']} />}>
+              <Route path="/custom-receipt" element={<CustomReceiptPage />} />
             </Route>
 
             {/* Đơn hàng online: admin + order + kitchen — D-02 ghi đè M2.D-33, ai đang ở máy thì
@@ -406,6 +416,10 @@ function ProtectedShell() {
       {!isKds && role === 'admin' && (
         <nav className="nav-bottom" aria-label="Điều hướng chính">
           <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon">🍽</span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
+          {/* Hoá đơn tự do đứng thứ HAI, không phải cuối: nav admin có 9 mục và thanh này trượt
+              ngang, nên từ mục thứ 7 trở đi nằm ngoài mép phải trên điện thoại — người dùng đầu
+              tiên thử tính năng đã không tìm ra nó (2026-09-30). */}
+          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon">🧾</span><span className="nav-label">H/đơn</span></NavLink>
           {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
               và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
@@ -429,6 +443,7 @@ function ProtectedShell() {
           <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
           {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon">🧾</span><span className="nav-label">H/đơn</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
@@ -440,6 +455,7 @@ function ProtectedShell() {
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
           <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon">📜</span><span className="nav-label">N/ký</span></NavLink>
+          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon">🧾</span><span className="nav-label">H/đơn</span></NavLink>
           <NavLink to="/account" title="Tài khoản"><span className="nav-icon">👤</span><span className="nav-label">T/khoản</span></NavLink>
         </nav>
       )}
