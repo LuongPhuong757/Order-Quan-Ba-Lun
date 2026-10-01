@@ -283,6 +283,7 @@ const CHECKS: TableCheck[] = [
       'order_id',
       'table_code',
       'kind',
+      'note',
       'created_at',
       'acked_at',
       'acked_by_user_id',

@@ -98,6 +98,7 @@ export const TableStateResult = z
         kind: z.enum(['STAFF', 'BILL']),
         created_at: z.number(),
         acked: z.boolean(),
+        note: z.string().nullable(),
       }).strict(),
     ),
     server_now_ms: z.number(),
@@ -114,6 +115,14 @@ export type TableCallKind = z.infer<typeof TableCallKind>;
 export const TableCallInput = z.object({
   guest_token: z.string().length(64),
   kind: TableCallKind,
+  /** Lý do khách gọi, khách tự gõ hoặc chọn từ gợi ý ("thêm bát đũa", "thêm đá"…).
+   *
+   * Mục đích là để nhân viên MANG LUÔN thứ khách cần xuống bàn, khỏi phải xuống hỏi rồi đi
+   * lên lấy. Nên nó chỉ là gợi ý, KHÔNG bắt buộc: bắt gõ mới gọi được là thêm một rào cho
+   * người chỉ muốn vẫy tay gọi nhân viên.
+   *
+   * 120 ký tự: đủ cho một câu dặn, và thẻ trên màn bếp còn đọc được bằng mắt từ xa. */
+  note: z.string().trim().max(120).optional(),
 });
 export type TableCallInput = z.infer<typeof TableCallInput>;
 
@@ -148,6 +157,8 @@ export const PendingCall = z.object({
   table_name: z.string(),
   kind: TableCallKind,
   created_at: z.number(),
+  /** Lý do khách ghi khi bấm gọi. NULL = khách gọi suông, không ghi gì. */
+  note: z.string().nullable(),
 });
 export type PendingCall = z.infer<typeof PendingCall>;
 

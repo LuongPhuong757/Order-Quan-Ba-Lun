@@ -96,7 +96,18 @@ export function TableEntrySheet({
         table_name: data.table_name,
         savedAt: Date.now(),
       };
-      writeTableSession(session);
+      /* ⚠ `setBusy(false)` TRƯỚC khi gọi `onDone`, không phải sau — và tuyệt đối không bỏ.
+       *
+       * Tấm này KHÔNG bị gỡ khỏi cây sau `onDone`: nơi gọi chỉ dựng thêm tấm xác nhận bàn đè
+       * lên trên. Khách bấm "Chọn lại" ở tấm đó là quay về đúng tấm này với `busy` còn true —
+       * nút kẹt ở chữ "Đang kiểm…" và mờ vĩnh viễn, không còn đường nào đi tiếp ngoài tải lại
+       * trang. Đã xảy ra thật khi chạy thử 2026-10-01.
+       *
+       * Và KHÔNG `writeTableSession` ở đây: khách còn phải xác nhận đúng tên bàn đã (M7.R1,
+       * chốt chặn duy nhất chống gõ nhầm bàn). Ghi sớm thì khách bấm "Chọn lại" xong, phiên
+       * của bàn SAI vẫn nằm trong localStorage, và lần mở trang sau họ vào thẳng bàn đó mà
+       * không ai hỏi gì nữa. Nơi ghi phiên là bước xác nhận. */
+      setBusy(false);
       onDone(session);
     } catch (e) {
       const failed = e as Error & { code?: string };
@@ -329,6 +340,16 @@ export function TableCartSheet({
   );
 }
 
+/* Gợi ý lý do gọi. Đây là những thứ khách hay phải gọi nhân viên nhất ở một quán ăn — chọn
+ * sẵn để một cú chạm là xong. Chủ quán đọc lại rồi sửa cho khớp cách nói ở quán mình. */
+const CALL_REASONS = [
+  'Thêm bát đũa',
+  'Thêm đá',
+  'Thêm giấy ăn',
+  'Thêm nước chấm',
+  'Dọn bàn',
+] as const;
+
 /* ── Màn "Món của bàn" ────────────────────────────────────────────────────────────────── */
 
 type StatePayload = {
@@ -344,14 +365,25 @@ export function TableStateSheet({
   session,
   onClose,
   onEnded,
+  onSwitchTable,
 }: {
   session: TableSession;
   onClose: () => void;
   onEnded: () => void;
+  /** Khách tự nhận ra mình khai nhầm bàn và muốn khai lại. */
+  onSwitchTable: () => void;
 }) {
   const [data, setData] = useState<StatePayload | null>(null);
   const [calling, setCalling] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  /* Đổi bàn — hai bước khi bàn ĐÃ có món, một bước khi chưa.
+   *
+   * Chỗ dễ hiểu nhầm nhất của tính năng này: đổi bàn ở đây chỉ đổi BÀN CỦA MÁY NÀY. Món đã
+   * gửi rồi thì nằm ở đơn của bàn cũ, máy khách không có quyền dời nó sang bàn khác — dời đơn
+   * là việc của nhân viên trên màn quản lý. Nếu im lặng cho đổi, khách sẽ tưởng món cũng
+   * theo mình sang bàn mới rồi ngồi chờ một phần ăn không bao giờ tới. Nên khi bàn đã có món,
+   * phải nói thẳng điều đó ra trước khi đổi. */
+  const [confirmSwitch, setConfirmSwitch] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -381,13 +413,33 @@ export function TableStateSheet({
     };
   }, [session, onEnded]);
 
+  /* Lý do gọi — khách chọn một gợi ý hoặc tự gõ.
+   *
+   * Mục đích là nhân viên MANG LUÔN thứ khách cần xuống bàn, khỏi xuống hỏi rồi đi lên lấy.
+   * Nên luôn có đường đi KHÔNG lý do ("Chỉ gọi nhân viên thôi"): bắt gõ mới gọi được là dựng
+   * thêm rào cho người chỉ muốn vẫy tay, và họ sẽ quay lại vẫy tay thật. */
+  const [asking, setAsking] = useState(false);
+  const [reason, setReason] = useState('');
+
   const call = useCallback(
-    async (kind: 'STAFF' | 'BILL') => {
+    async (kind: 'STAFF' | 'BILL', note?: string) => {
       setCalling(kind);
       setMsg(null);
       try {
-        await postJson('/api/public/table/call', { guest_token: session.guest_token, kind });
-        setMsg(kind === 'STAFF' ? 'Đã báo nhân viên.' : 'Đã báo quán tính tiền.');
+        await postJson('/api/public/table/call', {
+          guest_token: session.guest_token,
+          kind,
+          ...(note && note.trim() ? { note: note.trim().slice(0, 120) } : {}),
+        });
+        setAsking(false);
+        setReason('');
+        setMsg(
+          kind === 'BILL'
+            ? 'Đã báo quán tính tiền.'
+            : note && note.trim()
+              ? `Đã báo nhân viên: ${note.trim()}`
+              : 'Đã báo nhân viên.',
+        );
       } catch (e) {
         setMsg((e as Error).message);
       } finally {
@@ -406,6 +458,25 @@ export function TableStateSheet({
         </div>
 
         <div className="dinein-body dinein-scroll">
+          {confirmSwitch ? (
+            <div className="dinein-warn">
+              <b>Bạn ngồi bàn khác?</b>
+              <p>
+                Máy sẽ hỏi lại số bàn. Những món <b>đã gửi</b> thì vẫn nằm ở{' '}
+                <b>{data?.table_name ?? session.table_name}</b> — máy của bạn không tự chuyển
+                được. Nếu bạn gửi nhầm bàn thì báo nhân viên để quán chuyển giúp.
+              </p>
+              <div className="dinein-foot--row">
+                <button type="button" onClick={() => setConfirmSwitch(false)}>
+                  Không, ở lại
+                </button>
+                <button type="button" className="dinein-primary" onClick={onSwitchTable}>
+                  Đổi bàn
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           {/* M7.R10 — mã hiện THƯỜNG TRỰC, không chỉ một lần lúc sinh: localStorage có thể hỏng
               và khách cần đọc lại mã cho người cùng bàn bất cứ lúc nào. */}
           {data?.guest_code ? (
@@ -444,6 +515,25 @@ export function TableStateSheet({
           )}
 
           {msg ? <p className="dinein-ok">{msg}</p> : null}
+
+          {/* Đổi bàn nằm Ở ĐÂY, cuối phần nội dung, chứ không phải trong chân tấm: chân tấm là
+              chỗ của hai nút khách dùng thường xuyên (gọi nhân viên, xin tính tiền). Đổi bàn
+              là việc làm đúng một lần và chỉ khi lỡ khai nhầm — để nó cạnh hai nút kia là mời
+              người ta bấm nhầm vào nó. */}
+          {!confirmSwitch ? (
+            <button
+              type="button"
+              className="dinein-link"
+              onClick={() => {
+                // Bàn chưa có món nào thì không có gì để nhầm lẫn — đổi thẳng, khỏi hỏi.
+                const coMon = (data?.ordered.length ?? 0) > 0 || (data?.waiting.length ?? 0) > 0;
+                if (coMon) setConfirmSwitch(true);
+                else onSwitchTable();
+              }}
+            >
+              Tôi ngồi bàn khác — đổi số bàn
+            </button>
+          ) : null}
         </div>
 
         <div className="dinein-foot">
@@ -451,14 +541,61 @@ export function TableStateSheet({
             <span>Tạm tính</span>
             <b>{vnd(data?.subtotal ?? 0)}</b>
           </div>
-          <div className="dinein-foot--row">
-            <button type="button" disabled={calling !== null} onClick={() => call('STAFF')}>
-              🔔 Gọi nhân viên
-            </button>
-            <button type="button" disabled={calling !== null} onClick={() => call('BILL')}>
-              💵 Xin tính tiền
-            </button>
-          </div>
+          {asking ? (
+            <div className="dinein-ask">
+              <b>Bạn cần gì ạ?</b>
+              {/* Chạm MỘT phát là gửi luôn, không phải gõ rồi bấm thêm nút. Đây là đường đi
+                  của gần hết các lần gọi, nên nó phải ngắn nhất. */}
+              <div className="dinein-chips">
+                {CALL_REASONS.map((r) => (
+                  <button
+                    key={r}
+                    type="button"
+                    disabled={calling !== null}
+                    onClick={() => call('STAFF', r)}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+              <input
+                placeholder="Hoặc gõ điều bạn cần…"
+                value={reason}
+                maxLength={120}
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <div className="dinein-foot--row">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAsking(false);
+                    setReason('');
+                  }}
+                >
+                  ← Quay lại
+                </button>
+                <button
+                  type="button"
+                  className="dinein-primary"
+                  disabled={calling !== null}
+                  onClick={() => call('STAFF', reason)}
+                >
+                  {reason.trim() ? 'Gọi kèm lời nhắn' : 'Chỉ gọi nhân viên thôi'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="dinein-foot--row">
+              <button type="button" disabled={calling !== null} onClick={() => setAsking(true)}>
+                🔔 Gọi nhân viên
+              </button>
+              {/* Xin tính tiền KHÔNG hỏi lý do: lý do đã nằm ngay trong tên nút. Thêm một bước
+                  ở đây là bắt khách trả giá cho tính năng của nút bên cạnh. */}
+              <button type="button" disabled={calling !== null} onClick={() => call('BILL')}>
+                💵 Xin tính tiền
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -564,6 +701,29 @@ export const DINEIN_CSS = `
 }
 .dinein-total{ display:flex; justify-content:space-between; align-items:baseline; font-size:17px; }
 .dinein-total b{ font-size:22px; color:#cf3323; font-variant-numeric:tabular-nums; }
+/* Bước hỏi lý do gọi. Chip to, xuống dòng thoải mái — người lớn tuổi bấm bằng cả ngón cái. */
+.dinein-ask > b{ display:block; margin-bottom:8px; font-size:16px; color:#2a1d14; }
+.dinein-chips{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:10px; }
+.dinein-chips button{
+  min-height:44px; padding:0 14px; border-radius:999px; cursor:pointer;
+  border:1px solid #ddd0bd; background:#fffdfa; color:#2a1d14; font-size:15px;
+}
+.dinein-chips button:disabled{ opacity:.5; cursor:default; }
+.dinein-ask input{
+  width:100%; min-height:48px; margin-bottom:10px; padding:0 12px;
+  border:1px solid #ddd0bd; border-radius:8px; background:#fffdfa;
+  font-size:16px; color:#2a1d14; /* 16px: dưới mức này iOS tự phóng to trang */
+}
+
+/* Hộp cảnh báo trước khi đổi bàn. Vàng chứ không đỏ: đây không phải lỗi, chỉ là một điều
+   khách cần biết trước khi bấm. */
+.dinein-warn{
+  margin-bottom:14px; padding:12px; border-radius:10px;
+  background:#fef6e7; border:1px solid #f0d9a8;
+}
+.dinein-warn > b{ display:block; margin-bottom:6px; font-size:17px; color:#8c5610; }
+.dinein-warn p{ margin:0 0 12px; font-size:15px; line-height:1.5; color:#5c4420; }
+
 .dinein-code-box{
   text-align:center; padding:14px; margin-bottom:14px;
   background:#fef6f3; border:1px solid #fbe4de; border-radius:12px;

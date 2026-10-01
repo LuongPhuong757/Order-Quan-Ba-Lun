@@ -34,6 +34,9 @@ export type PendingCall = {
   table_name: string;
   kind: 'STAFF' | 'BILL';
   created_at: number;
+  /** Lý do khách ghi lúc bấm gọi ("thêm bát đũa"…). NULL = gọi suông.
+   *  Có nó thì nhân viên mang luôn thứ khách cần xuống bàn, khỏi xuống hỏi rồi đi lên lấy. */
+  note: string | null;
 };
 
 export type PendingPayload = { requests: PendingRequest[]; calls: PendingCall[] };

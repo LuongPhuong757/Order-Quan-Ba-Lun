@@ -36,10 +36,17 @@ export function GuestRequestCards({
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
+  /* Thẻ gọi: bấm vào là MỞ RA XEM, không phải "Đã nghe" ngay.
+   *
+   * Từ khi khách ghi được lý do ("thêm bát đũa"), một cú chạm nhầm vào chip sẽ vừa xoá thẻ
+   * vừa xoá luôn thứ duy nhất nói cho nhân viên biết phải mang gì xuống. Nên tách làm hai:
+   * chạm để đọc, rồi mới bấm "Đã nghe". */
+  const [openCallId, setOpenCallId] = useState<string | null>(null);
 
   if (cards.length === 0 && calls.length === 0) return null;
 
   const open = cards.find((c) => c.request_id === openId) ?? null;
+  const openCall = calls.find((c) => c.id === openCallId) ?? null;
 
   return (
     <>
@@ -50,14 +57,20 @@ export function GuestRequestCards({
             type="button"
             className={`kds-guest-chip kds-guest-chip--call${c.kind === 'BILL' ? ' is-bill' : ''}`}
             disabled={busyId === c.id}
-            onClick={() => onAck(c.id)}
-            // Chuông chỉ là lời nhắn, không phải quyết định — bấm một phát là xong, không mở
-            // thêm màn nào.
-            title="Bấm để báo đã nghe"
+            onClick={() => setOpenCallId(c.id)}
+            title={c.note ? `Khách nhắn: ${c.note}` : 'Bấm để xem và báo đã nghe'}
           >
             <span aria-hidden>{c.kind === 'STAFF' ? '🔔' : '💵'}</span>
             <b>{tableSpeechName(c.table_name)}</b>
-            <i>{c.kind === 'STAFF' ? 'gọi thêm đồ' : 'thanh toán'}</i>
+            {/* Có lời nhắn thì in LUÔN trên chip, cắt bớt nếu dài: nhân viên liếc là biết phải
+                mang gì, không phải mở ra mới thấy. Mở ra chỉ để đọc đủ câu dài. */}
+            <i>
+              {c.note
+                ? `💬 ${c.note.length > 22 ? `${c.note.slice(0, 22)}…` : c.note}`
+                : c.kind === 'STAFF'
+                  ? 'gọi thêm đồ'
+                  : 'thanh toán'}
+            </i>
           </button>
         ))}
 
@@ -79,6 +92,44 @@ export function GuestRequestCards({
           </button>
         ))}
       </div>
+
+      {/* Lời nhắn của khách khi bấm gọi. */}
+      {openCall ? (
+        <div className="kds-guest-overlay" onClick={() => setOpenCallId(null)}>
+          <div className="kds-guest-modal kds-call-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="kds-guest-modal-head">
+              <b>
+                {openCall.kind === 'STAFF' ? '🔔' : '💵'} {tableSpeechName(openCall.table_name).toUpperCase()}
+                {' — '}
+                {openCall.kind === 'STAFF' ? 'GỌI NHÂN VIÊN' : 'XIN TÍNH TIỀN'}
+              </b>
+              <button type="button" onClick={() => setOpenCallId(null)} aria-label="Đóng">✕</button>
+            </div>
+
+            <div className="kds-guest-modal-body">
+              {openCall.note ? (
+                <p className="kds-call-note">{openCall.note}</p>
+              ) : (
+                <p className="kds-call-none">Khách không ghi lý do.</p>
+              )}
+            </div>
+
+            <div className="kds-guest-modal-foot">
+              <button
+                type="button"
+                className="kds-guest-approve"
+                disabled={busyId === openCall.id}
+                onClick={() => {
+                  onAck(openCall.id);
+                  setOpenCallId(null);
+                }}
+              >
+                {busyId === openCall.id ? 'Đang gửi…' : '✓ Đã nghe'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Danh sách món + nút duyệt, chỉ hiện khi bấm vào chip. */}
       {open ? (

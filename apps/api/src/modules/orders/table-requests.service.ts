@@ -48,6 +48,7 @@ export class TableRequestsService {
           table_name: nameByCode.get(c.table_code) ?? c.table_code,
           kind: c.kind as 'STAFF' | 'BILL',
           created_at: c.created_at,
+          note: c.note,
         })),
       };
     }
@@ -89,6 +90,7 @@ export class TableRequestsService {
         table_name: nameByCode.get(c.table_code) ?? c.table_code,
         kind: c.kind as 'STAFF' | 'BILL',
         created_at: c.created_at,
+        note: c.note,
       })),
     };
   }

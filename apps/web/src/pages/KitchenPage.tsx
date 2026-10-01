@@ -1255,7 +1255,12 @@ export function KitchenPage() {
         /* margin-left:auto ghim nhóm nút phải vào mép khi dải chip đang ĐÓNG. Khi dải MỞ,
            nó là flex:1 nên ăn hết chỗ trống trước, auto margin còn 0 — không phải viết hai
            nhánh CSS cho hai trạng thái. */
-        .kds-qr { border-color: #ddd6fe; color: #5b21b6; margin-left: auto; }
+        /* ⚠ KHÔNG đặt màu chữ tối ở đây. Nút này nằm trên dải .kds-top nền NAVY (#123f7d).
+           Bản đầu khai color:#5b21b6 (tím sẫm) — độ tương phản với nền chỉ 1.15:1, tức là
+           gần như không đọc được, chữ "Gọi bằng QR" chìm hẳn vào nền trong khi nút "Đơn
+           online" ngay cạnh thì trắng rõ. Giữ nguyên màu chữ thừa kế từ .kds-online; tím chỉ
+           dùng ở VIỀN và ở trạng thái --hot (lúc đó nền tím đặc, chữ đã là trắng). */
+        .kds-qr { border-color: #c4b5fd; margin-left: auto; }
         .kds-qr.kds-online--hot {
           background: #7c3aed; border-color: #7c3aed; color: #fff;
           box-shadow: 0 1px 6px rgba(124, 58, 237, 0.5);
@@ -1285,7 +1290,8 @@ export function KitchenPage() {
         @media (prefers-reduced-motion: reduce) {
           .kds-qr-inline { transition: none; }
         }
-        .kds-qr-empty { font-size: 14px; color: #6b7280; }
+        /* Cùng lý do: câu này nằm trên nền navy, xám #6b7280 đọc không ra. */
+        .kds-qr-empty { font-size: 14px; color: rgba(255, 255, 255, 0.7); }
 
         .kds-guest-rail {
           display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
@@ -1354,6 +1360,12 @@ export function KitchenPage() {
           display: flex; gap: 8px; align-items: center; margin-top: 8px;
           font-size: 15px; color: #7f1d1d;
         }
+        /* Hộp lời nhắn khi khách bấm gọi — viền xanh mòng két để khác hẳn hộp duyệt món
+           (tím): hai hộp mở ra từ hai loại chip khác nhau, không được nhìn giống nhau. */
+        .kds-call-modal { border-color: #0e7490; }
+        .kds-call-modal .kds-guest-modal-head b { color: #155e75; }
+        .kds-call-note { margin: 0; font-size: 26px; font-weight: 700; color: #0f172a; }
+        .kds-call-none { margin: 0; font-size: 18px; color: #64748b; }
         .kds-guest-confirm button {
           min-height: 40px; padding: 0 14px; border-radius: 8px;
           border: 1px solid #fecaca; background: #fff; cursor: pointer; font-size: 15px;
