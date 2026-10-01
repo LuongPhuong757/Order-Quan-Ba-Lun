@@ -10,6 +10,14 @@ import { PublicGeoLogController } from './public-geo-log.controller.js';
 import { PublicMenuPhotosController } from './public-menu-photos.controller.js';
 import { PublicOrdersService } from './public-orders.service.js';
 import { PublicOtpController } from './public-otp.controller.js';
+import { PublicTableController } from './public-table.controller.js';
+import { TableGuestService } from './table-guest.service.js';
+import { TableGuestSession } from './entities/table-guest-session.entity.js';
+import { TableOrderRequest } from './entities/table-order-request.entity.js';
+import { TableOrderRequestItem } from './entities/table-order-request-item.entity.js';
+import { TableCall } from './entities/table-call.entity.js';
+import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
+import { OrdersModule } from '../orders/orders.module.js';
 import { PublicOtpService } from './public-otp.service.js';
 import { LogOtpSender, OTP_SENDER } from './otp-sender.js';
 import { SmsOtpSender } from './sms-otp-sender.js';
@@ -56,11 +64,14 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
       MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem,
       // OTP đăng nhập bằng SĐT (2026-08-04) — xem docblock `otp.ts`.
       CustomerOtp, CustomerSession,
+      // M7 — khách tự gọi món tại bàn (2026-10-01).
+      RestaurantTable, TableGuestSession, TableOrderRequest, TableOrderRequestItem, TableCall,
     ]),
+    OrdersModule,
     SettingsModule,
     NotificationsModule,
   ],
-  controllers: [
+  controllers: [PublicTableController, 
     PublicController,
     PublicStoreController,
     PublicMenuController,
@@ -76,7 +87,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
     // POST /api/public/otp/request + verify (2026-08-04) — đăng nhập bằng OTP.
     PublicOtpController,
   ],
-  providers: [
+  providers: [TableGuestService, 
     PublicOrdersService,
     PublicOtpService,
     LogOtpSender,

@@ -31,6 +31,10 @@ import { BowlGlyph } from './ImagePlaceholder.tsx';
  * lại, không nháy trắng giữa chừng.
  */
 type Props = {
+  /** M7 — khối thêm vào giỏ. Đặt Ở ĐÂY chứ không trên dòng món vì lớp ảnh lớn KHÔNG có cử
+   *  chỉ vuốt lật (`onPointerDown` thoát ngay khi preview mở), nên nút to bao nhiêu cũng an
+   *  toàn. Trên dòng món thì ngón tay hay bắt đầu vuốt từ đúng chỗ có nút → thêm nhầm món. */
+  addSlot?: JSX.Element | null;
   item: PublicMenuItem;
   /** Ô món đang đứng ở đâu trên màn lúc khách bấm — điểm xuất phát của ảnh. */
   from: DOMRect;
@@ -53,7 +57,7 @@ function exitDelayMs(): number {
 /** Kéo overlay xuống quá ngần này thì coi như khách muốn đóng. */
 const SWIPE_CLOSE_PX = 90;
 
-export function BookDishPreview({ item, from, onClose }: Props): JSX.Element {
+export function BookDishPreview({ item, from, onClose, addSlot }: Props): JSX.Element {
   const image = item.images[0] ?? null;
   const figureRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
@@ -222,6 +226,9 @@ export function BookDishPreview({ item, from, onClose }: Props): JSX.Element {
             <span style={unitText}>/ {item.unit}</span>
           </p>
           {item.is_out_of_stock && <p style={outNote}>Món này hôm nay tạm hết</p>}
+          {/* M7 — khối thêm vào giỏ. Món hết hàng thì caller truyền null, nên vẫn giữ nguyên
+              hành vi "thấy nhưng không gọi được" của D-07. */}
+          {addSlot ?? null}
         </div>
       </div>
     </div>

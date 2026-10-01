@@ -250,6 +250,41 @@ export class Order {
   @Column({ type: 'varchar', length: 128, nullable: true })
   debt_paid_by_full_name!: string | null;
 
+  /* ── M7 — khách tự gọi món tại bàn (2026-10-01) ─────────────────────────────────────────
+   * C-SCHEMA-07: `synchronize: true`, không migration — CHỈ THÊM cột, KHÔNG rename về sau.
+   * ⚠ DB dev dùng CHUNG giữa các worktree: worktree khác boot bằng nhánh chưa có 3 cột này sẽ
+   *   DROP chúng. Thấy `schema:verify` đỏ sau khi quay lại worktree này thì đó là lý do.
+   *
+   * ── Vì sao mã bàn nằm ở ĐÂY mà không phải bảng riêng (M7 §3.1) ──
+   * M7.D-06 nói mã sống đúng bằng vòng đời đơn mở, mà `orders` đã có sẵn vòng đời đó
+   * (`closed_at IS NULL`). Bảng riêng sẽ là nguồn sự thật thứ hai phải đồng bộ ở MỌI ngả đóng
+   * đơn. Nằm ở đây thì mọi tra cứu mã đều kèm `closed_at IS NULL`, nên THANH TOÁN XONG là mã
+   * chết tự động — không hook vào `checkout()`, không hook vào `sealAsCancelled`, không cron.
+   *
+   * ⚠ KHÔNG đặt unique index trên `guest_code`. 4 chữ số = 10.000 tổ hợp; unique toàn bảng sẽ
+   *   cạn sau ~200 ngày vì đơn ĐÃ ĐÓNG vẫn giữ mã. Tính duy nhất chỉ cần đúng trong tập đơn
+   *   ĐANG MỞ (vài chục dòng) và được ép ở tầng service trong transaction.
+   */
+
+  /** M7.D-04/D-17 — mã bàn 4 chữ số, sinh ở lần BÁO BẾP ĐẦU TIÊN của bàn (bất kể món do khách
+   * quét QR gọi hay nhân viên gọi hộ). NULL = chưa ai gọi món cho bàn này.
+   *
+   * M7.D-19 — bất biến phải giữ: `guest_code IS NOT NULL` ⟺ `first_kitchen_at IS NOT NULL`.
+   * Hai cột này đặt cùng nhau, xoá cùng nhau (reset bàn treo, huỷ hết món), copy cùng nhau
+   * (chuyển bàn). Xem §3.11 của spec — 8 ca đã rà. */
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  guest_code!: string | null;
+
+  /** Lúc mã được sinh — màn khách dùng để nói "mã này dùng tới khi thanh toán". */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  guest_code_at!: number | null;
+
+  /** Lượt gọi ĐẦU TIÊN do chính khách gửi qua QR. Tách khỏi `guest_code_at` vì mã có thể sinh
+   * ra từ việc NHÂN VIÊN gọi hộ (D-17) — cột này mới trả lời được "bàn này khách có tự gọi
+   * không", thứ báo cáo cần để đo tính năng có được dùng thật hay không. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  first_guest_request_at!: number | null;
+
   @OneToMany(() => OrderItem, (oi) => oi.order)
   items?: Relation<OrderItem[]>;
 }

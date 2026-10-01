@@ -23,6 +23,13 @@ import { readyNotifier } from '../lib/ready-notifier.ts';
 import { ageColor, formatAge } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
 import { useOnlineWaitingCount } from '../lib/online-waiting-badge.ts';
+// M7 — khách tự gọi món tại bàn (2026-10-01).
+import { createBell } from '../lib/bell.ts';
+import { GuestRequestCards } from '../components/GuestRequestCards.tsx';
+import { buildGuestCards, type GuestCard, type PendingCall, type PendingPayload } from '../lib/kds-guest-cards.ts';
+import { buildSpeech } from '../lib/voice-text.ts';
+import { pruneSpoken, shouldSpeak } from '../lib/voice-dedup.ts';
+import { createVoice, isVoiceEnabled, setVoiceEnabled } from '../lib/voice.ts';
 import { shouldReloadCatalog, type CatalogPollState } from '../lib/kds-catalog-poll.ts';
 import {
   addCancelled,
@@ -216,6 +223,19 @@ export function KitchenPage() {
   // đơn online (D-02) nên không bao giờ 403.
   const onlineWaiting = useOnlineWaitingCount(true);
   const [orders, setOrders] = useState<Order[]>([]);
+  // M7 — lượt khách gọi chờ duyệt + chuông gọi nhân viên.
+  const [guestPending, setGuestPending] = useState<PendingPayload | null>(null);
+  const [guestBusyId, setGuestBusyId] = useState<string | null>(null);
+  // Chủ quán chốt 2026-10-01: nút lên THANH TRÊN cạnh "Đơn online", bấm mới xổ dải ngang ra.
+  // Mặc định ĐÓNG — màn bếp phải dành chỗ cho món đang nấu, lượt chờ duyệt chỉ là một con số
+  // cho tới khi có người chủ động mở.
+  const [guestOpen, setGuestOpen] = useState(false);
+  const [voiceOn, setVoiceOn] = useState<boolean>(() => isVoiceEnabled());
+  const voiceRef = useRef<ReturnType<typeof createVoice> | null>(null);
+  if (voiceRef.current === null) voiceRef.current = createVoice();
+  const bellRef = useRef<ReturnType<typeof createBell> | null>(null);
+  if (bellRef.current === null) bellRef.current = createBell();
+
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
   const [groups, setGroups] = useState<MenuGroup[]>([]);
@@ -376,11 +396,15 @@ export function KitchenPage() {
 
   const refresh = useCallback(async (showError = true) => {
     try {
-      const [ordersRes, versionRes] = await Promise.all([
+      const [ordersRes, versionRes, guestRes] = await Promise.all([
         api.get<{ data: { items: Order[] } }>('/orders'),
         // Mốc đổi của menu (< 100 byte) — bếp máy khác bấm "hết món" thì mốc đổi, máy này tải
         // lại menu ở đúng nhịp 2 giây kế tiếp, không cần kéo 597 món mỗi nhịp để phòng hờ.
         api.get<{ data: { version: string } }>('/menu/version'),
+        // M7 — lượt khách gọi đang chờ duyệt. Đi CHUNG nhịp poll 2 giây đã có: không thêm vòng
+        // lặp, không thêm timer, không thêm kênh phải tự lo reconnect/backoff.
+        // `.catch` riêng là bắt buộc — endpoint mới lỗi KHÔNG được làm chết nhịp poll MÓN.
+        api.get<{ data: PendingPayload }>('/table-requests/pending').catch(() => null),
       ]);
       const version = versionRes.data?.data?.version ?? null;
       // Tải danh mục TRƯỚC khi đặt orders: lần đầu mở màn, thẻ món cần menuMap (định lượng,
@@ -388,6 +412,7 @@ export function KitchenPage() {
       if (shouldReloadCatalog(catalogRef.current, version, Date.now())) {
         await loadCatalog(version);
       }
+      setGuestPending(guestRes?.data?.data ?? null);
       if (ordersRes.data?.data?.items) {
         setOrders(ordersRes.data.data.items);
         // Notify khi item chuyển sang READY / mới vào KITCHEN / bếp báo hết
@@ -420,6 +445,81 @@ export function KitchenPage() {
       setLoading(false);
     }
   }, [toast, loadCatalog]);
+
+  /* ── M7 — khách tự gọi món tại bàn ──────────────────────────────────────────────────── */
+
+  const guestCards: GuestCard[] = buildGuestCards(guestPending, Date.now());
+  const guestCalls: PendingCall[] = guestPending?.calls ?? [];
+  // Gộp lượt chờ duyệt + chuông chưa ai nghe: với bếp thì cả hai đều là "có việc của khách".
+  const guestWaitingCount = guestCards.length + guestCalls.length;
+
+  // Đọc tên bàn khi có chuông mới. `shouldSpeak` lo 5 lớp chống lặp — thiếu nó thì nhịp poll
+  // 2 giây sẽ đọc lại cùng một câu 30 lần mỗi phút.
+  useEffect(() => {
+    if (!voiceOn || guestCalls.length === 0) return;
+    const now = Date.now();
+    const fresh = guestCalls.filter((c) => shouldSpeak(c.id, false, now));
+    if (fresh.length === 0) return;
+    // Chuông LUÔN đi trước câu nói — máy không có giọng vi-VN thì vẫn còn tín hiệu nghe được.
+    bellRef.current?.ring();
+    for (const line of buildSpeech(fresh.map((c) => ({ table_name: c.table_name, kind: c.kind })))) {
+      voiceRef.current?.speak(line);
+    }
+  }, [guestCalls, voiceOn]);
+
+  useEffect(() => {
+    pruneSpoken(guestCalls.map((c) => c.id));
+  }, [guestCalls]);
+
+  const approveGuest = useCallback(
+    async (requestId: string) => {
+      setGuestBusyId(requestId);
+      try {
+        await api.post(`/table-requests/${requestId}/approve`, {});
+        await refresh(false);
+      } catch (err) {
+        // 409 ALREADY_DECIDED = người khác vừa duyệt. Câu báo TRUNG TÍNH — đây là hợp tác bình
+        // thường giữa hai nhân viên, không phải sự cố, nên không dùng banner đỏ.
+        const msg = extractError(err).message;
+        toast.push('info', /vừa được người khác/.test(msg) ? msg : 'Không duyệt được, thử lại nhé.');
+        await refresh(false);
+      } finally {
+        setGuestBusyId(null);
+      }
+    },
+    [refresh, toast],
+  );
+
+  const rejectGuest = useCallback(
+    async (requestId: string) => {
+      setGuestBusyId(requestId);
+      try {
+        await api.post(`/table-requests/${requestId}/reject`, {});
+        await refresh(false);
+      } catch (err) {
+        toast.push('error', extractError(err).message);
+      } finally {
+        setGuestBusyId(null);
+      }
+    },
+    [refresh, toast],
+  );
+
+  const ackCall = useCallback(
+    async (callId: string) => {
+      setGuestBusyId(callId);
+      try {
+        await api.post(`/table-calls/${callId}/ack`, {});
+        await refresh(false);
+      } catch (err) {
+        toast.push('error', extractError(err).message);
+      } finally {
+        setGuestBusyId(null);
+      }
+    },
+    [refresh, toast],
+  );
+
 
   const manualRefresh = useCallback(() => {
     errorCountRef.current = 0;
@@ -714,7 +814,11 @@ export function KitchenPage() {
           display: flex;
           align-items: center;
           gap: 6px;
-          flex: 1 1 auto;
+          /* 0 1 auto, KHÔNG phải 1 1 auto: trước đây nó nuốt hết khoảng trống giữa thanh nên
+             dải "Gọi bằng QR" chỉ còn phần thừa sát mép phải và chip cuối bị cắt. Giờ nó chỉ
+             rộng bằng nội dung; chỗ trống thuộc về dải chip. Vẫn giữ 1 ở ô co để màn hẹp
+             bóp lại được và cuộn ngang như cũ. */
+          flex: 0 1 auto;
           min-width: 0;
           padding: 6px 10px;
           background: var(--kds-navy);
@@ -1141,6 +1245,120 @@ export function KitchenPage() {
         .kds-small-btn.out { background: #fef3c7; color: #b45309; border-color: #f59e0b; }
         /* Thẻ huỷ: đỏ đặc, khác hẳn mọi thứ khác trên màn. Nó KHÔNG phải một món để
            nấu mà là một việc phải dừng lại — nên không dùng chung dáng .kds-card. */
+        /* ── M7 — dải chip "khách gọi" + hộp chi tiết ─────────────────────────────────
+         * Chủ quán chốt 2026-10-01: bản thẻ lớn "hiển thị quá to". Mỗi lượt chiếm ~200px nên
+         * hai bàn gọi cùng lúc là đẩy hết món đang nấu khỏi màn. Giờ cả dải cao ~44px bất kể
+         * bao nhiêu bàn; chi tiết nằm sau một cú chạm.
+         * Màu XANH DƯƠNG/TÍM có chủ ý: đỏ đã là "đã huỷ", cam là KITCHEN. */
+        /* Nút "Gọi bằng QR" — dùng LẠI khuôn .kds-online của nút Đơn online (cùng bản chất:
+           một hàng chờ cần người duyệt), chỉ đổi màu nhấn sang tím của app để phân biệt. */
+        /* margin-left:auto ghim nhóm nút phải vào mép khi dải chip đang ĐÓNG. Khi dải MỞ,
+           nó là flex:1 nên ăn hết chỗ trống trước, auto margin còn 0 — không phải viết hai
+           nhánh CSS cho hai trạng thái. */
+        .kds-qr { border-color: #ddd6fe; color: #5b21b6; margin-left: auto; }
+        .kds-qr.kds-online--hot {
+          background: #7c3aed; border-color: #7c3aed; color: #fff;
+          box-shadow: 0 1px 6px rgba(124, 58, 237, 0.5);
+        }
+        /* Nằm TRONG .kds-top và ăn hết khoảng trống giữa. min-width:0 bắt buộc — thiếu nó
+           flex item không co được và dải chip đội nút "Đơn online" ra khỏi mép phải.
+         *
+         * ⚠ ĐÓNG nghĩa là THU VỀ 0 BỀ NGANG, không phải "vẫn hiện mà không bấm được".
+         *   Bản đầu chỉ gắn class is-open ở JSX mà QUÊN viết rule cho nó, nên dải chip
+         *   luôn hiện ở mọi trạng thái. Hai lỗi người dùng thấy đều từ đúng chỗ này:
+         *     1. bấm nút "Gọi bằng QR" không thấy gì xổ ra / thu vào;
+         *     2. bấm vào chip số bàn không mở hộp xác nhận — vì lúc đó wrapper đang mang
+         *        inert (trạng thái đóng) nên nó NUỐT cú chạm, trong khi mắt vẫn thấy chip.
+         *
+         * ⚠ Hoạt ảnh chạy bằng max-width, TUYỆT ĐỐI KHÔNG transform: hộp chi tiết lượt
+         *   gọi là position: fixed và nằm BÊN TRONG chính div này. Một ancestor có
+         *   transform sẽ thành khung chứa của nó → hộp bị ghim lệch theo dải chip và bị
+         *   overflow: hidden ở đây cắt mất. max-width không tạo khung chứa nào. */
+        .kds-qr-inline {
+          flex: 1 1 auto; min-width: 0; max-width: 0;
+          display: flex; align-items: center;
+          margin: 0; opacity: 0; overflow: hidden;
+          transition: max-width 0.26s ease, opacity 0.18s ease, margin 0.26s ease;
+        }
+        .kds-qr-inline.is-open { max-width: 100%; margin: 0 8px; opacity: 1; }
+        /* Máy bếp để chế độ giảm chuyển động thì bỏ hoạt ảnh, giữ nguyên hành vi đóng/mở. */
+        @media (prefers-reduced-motion: reduce) {
+          .kds-qr-inline { transition: none; }
+        }
+        .kds-qr-empty { font-size: 14px; color: #6b7280; }
+
+        .kds-guest-rail {
+          display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+          padding: 0;
+        }
+        .kds-guest-rail::-webkit-scrollbar { display: none; }
+        .kds-guest-chip {
+          flex: none; display: flex; align-items: center; gap: 6px;
+          min-height: 44px; padding: 0 14px; border-radius: 999px; cursor: pointer;
+          border: 2px solid #7c3aed; background: #f5f3ff; color: #5b21b6;
+        }
+        .kds-guest-chip b { font-size: 17px; font-weight: 800; }
+        .kds-guest-chip i { font-size: 13px; font-style: normal; color: #6d28d9; }
+        /* M7.R7 — nhân viên quên duyệt là rủi ro CAO. Sau 3 phút chip nhấp nháy. */
+        .kds-guest-chip.is-late { animation: kdsGuestBlink 1.1s ease-in-out infinite; }
+        @keyframes kdsGuestBlink {
+          0%, 100% { background: #f5f3ff; }
+          50%      { background: #ddd6fe; }
+        }
+        .kds-guest-chip--call { border-color: #0e7490; background: #ecfeff; color: #164e63; }
+        .kds-guest-chip--call i { color: #0e7490; }
+        .kds-guest-chip--call.is-bill { border-color: #a16207; background: #fefce8; color: #713f12; }
+        .kds-guest-chip--call.is-bill i { color: #a16207; }
+        .kds-guest-chip:disabled { opacity: 0.5; cursor: default; }
+
+        .kds-guest-overlay {
+          position: fixed; inset: 0; z-index: 320; background: rgb(15 23 42 / 55%);
+          display: flex; align-items: center; justify-content: center; padding: 16px;
+        }
+        .kds-guest-modal {
+          width: 100%; max-width: 460px; max-height: 85dvh;
+          display: flex; flex-direction: column;
+          background: #fff; border-radius: 14px; border: 2px solid #7c3aed;
+        }
+        .kds-guest-modal-head {
+          flex: none; display: flex; align-items: center; gap: 10px;
+          padding: 14px 16px; border-bottom: 1px solid #ede9fe;
+        }
+        .kds-guest-modal-head b { flex: 1; min-width: 0; font-size: 20px; color: #5b21b6; }
+        .kds-guest-modal-head span { flex: none; font-size: 13px; color: #6d28d9; }
+        .kds-guest-modal-head button {
+          flex: none; min-width: 40px; min-height: 40px;
+          border: none; background: transparent; font-size: 20px; color: #64748b; cursor: pointer;
+        }
+        /* min-height:0 bắt buộc — thiếu nó vùng cuộn không co được và hộp phình quá màn. */
+        .kds-guest-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+        .kds-guest-modal-foot { flex: none; padding: 14px 16px; border-top: 1px solid #ede9fe; }
+        .kds-guest-line { font-size: 18px; color: #1f2937; margin-bottom: 6px; }
+        .kds-guest-line i { color: #6d28d9; font-style: italic; }
+        .kds-guest-line--gone { text-decoration: line-through; opacity: 0.6; }
+        .kds-guest-gone {
+          margin-left: 8px; font-size: 13px; font-weight: 700;
+          color: #b91c1c; text-decoration: none; display: inline-block;
+        }
+        .kds-guest-foot { margin-top: 10px; font-size: 15px; color: #5b21b6; }
+        .kds-guest-approve {
+          width: 100%; min-height: 52px; border: none; border-radius: 8px;
+          background: #0f766e; color: #fff; font-size: 19px; font-weight: 800; cursor: pointer;
+        }
+        .kds-guest-approve:disabled { opacity: 0.6; cursor: default; }
+        .kds-guest-reject {
+          width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid #ddd6fe;
+          border-radius: 8px; background: transparent; color: #6d28d9; font-size: 15px; cursor: pointer;
+        }
+        .kds-guest-confirm {
+          display: flex; gap: 8px; align-items: center; margin-top: 8px;
+          font-size: 15px; color: #7f1d1d;
+        }
+        .kds-guest-confirm button {
+          min-height: 40px; padding: 0 14px; border-radius: 8px;
+          border: 1px solid #fecaca; background: #fff; cursor: pointer; font-size: 15px;
+        }
+
         .kds-cancel-card {
           display: flex;
           align-items: center;
@@ -1293,25 +1511,11 @@ export function KitchenPage() {
           khớp một cấp div sẽ nhấn chìm phần sửa thật trong diff. */}
       <div className="kds-top">
       <div className="kds-views" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            data-key={t.key}
-            aria-selected={tab === t.key}
-            className={`kds-tab-pill ${tab === t.key ? 'active' : ''}`}
-            style={{ ['--tab-col' as string]: t.color }}
-            onClick={() => setTab(t.key)}
-            title={t.label}
-          >
-            <span aria-hidden="true">{t.icon}</span>
-            {/* Đếm SỐ PHẦN, không đếm số dòng: 1 dòng mang cả số lượng của lần gọi
-                (×3), đếm dòng sẽ báo khối lượng việc ít hơn thực tế. */}
-            <span className="kds-tab-pill-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
-            <span className="kds-tab-pill-label">{t.label}</span>
-          </button>
-        ))}
+        {/* Hai nút tab "Chờ chế biến" / "Đã xong" ĐÃ BỎ (chủ quán chốt 2026-10-01).
+            Chúng chỉ là tiêu đề cột ở màn ≥900px — nơi cả hai panel đã hiện sẵn cạnh nhau —
+            nên không điều khiển gì, mà lại chiếm phần lớn bề ngang thanh trên. Chỗ trống đó
+            giờ dành cho dải "Gọi bằng QR" xổ ngang. `tab` vẫn giữ để màn hẹp còn đổi panel
+            được qua các đường khác. */}
         <span className="kds-views-sep" aria-hidden="true" />
         {VIEWS.map((v) => (
           <button
@@ -1359,6 +1563,50 @@ export function KitchenPage() {
             mà phải tự tìm đường sang thì bếp sẽ gọi người khác, chậm thêm một nhịp.
             `null` = chưa đếm xong lần đầu (hoặc vừa mất mạng) → hiện '–' chứ KHÔNG hiện
             0: nói "không có đơn nào" khi chưa biết là lời nói dối tốn khách. */}
+        {/* Dải chip xổ NGANG, lấp đúng khoảng trống giữa thanh trên — không đẩy thêm một
+            hàng xuống dưới (chủ quán: "phải xổ sang ngang chứ", và khoảng giữa đang bỏ trống).
+            `flex:1; min-width:0` để nó co giãn theo chỗ còn lại, tự cuộn ngang khi quá đông. */}
+        {/* Luôn MOUNT, chỉ đổi class: gỡ khỏi cây DOM thì hoạt ảnh ĐÓNG không có gì để chạy
+            (phần tử biến mất ngay khung hình đầu). `aria-hidden` + `inert` để lúc đóng nó
+            không nhận tiêu điểm bàn phím và trình đọc màn hình không đọc nhầm. */}
+        <div
+          className={`kds-qr-inline${guestOpen ? ' is-open' : ''}`}
+          aria-hidden={!guestOpen}
+          {...(!guestOpen ? { inert: true } : {})}
+        >
+          {guestWaitingCount === 0 ? (
+            <span className="kds-qr-empty">Chưa có lượt nào khách gọi bằng QR.</span>
+          ) : (
+            <GuestRequestCards
+              cards={guestCards}
+              calls={guestCalls}
+              busyId={guestBusyId}
+              onApprove={approveGuest}
+              onReject={rejectGuest}
+              onAck={ackCall}
+            />
+          )}
+        </div>
+
+        {/* M7 — GỌI BẰNG QR. Đặt cạnh "Đơn online" vì cùng bản chất: một hàng chờ cần người
+            duyệt. Khác ở chỗ nút kia ĐIỀU HƯỚNG sang màn khác, nút này XỔ dải ngay tại đây —
+            D-10 chốt duyệt NGAY trên màn bếp, chạy sang màn khác là mất mục tiêu đó. */}
+        <button
+          type="button"
+          className={`kds-online kds-qr${guestWaitingCount > 0 ? ' kds-online--hot' : ''}`}
+          onClick={() => setGuestOpen((v) => !v)}
+          title={
+            guestWaitingCount > 0
+              ? `${guestWaitingCount} lượt khách gọi bằng QR đang chờ — bấm để xem`
+              : 'Khách gọi bằng QR — chưa có lượt nào chờ'
+          }
+          aria-expanded={guestOpen}
+        >
+          <span aria-hidden="true">📱</span>
+          <span className="kds-online-label">Gọi bằng QR</span>
+          <span className="kds-online-n">{guestWaitingCount}</span>
+        </button>
+
         <button
           type="button"
           className={`kds-online ${onlineWaiting ? 'waiting' : ''}`}
@@ -1388,6 +1636,9 @@ export function KitchenPage() {
                 Món bị huỷ rời khỏi state bếp nên biến mất khỏi danh sách ngay; nếu bếp
                 đang nấu nó thì chỉ thấy một dòng tự dưng mất. Thẻ này là lời giải
                 thích, nằm lại tới khi bếp tự tay bấm "Đã biết". */}
+            {/* M7 — lượt khách gọi chờ duyệt + chuông gọi nhân viên. Nằm ĐẦU panel Chờ chế
+                biến, cùng khuôn `.kds-cancel-card`: thẻ không-phải-món, ở lại tới khi có người
+                bấm. Không làm badge ở thanh trên vì D-10 chốt "duyệt NGAY tại đây bằng MỘT nút". */}
             {t.key === 'PENDING' &&
               cancelled.map((c) => (
                 <div key={c.item_id} className="kds-cancel-card">
@@ -1538,6 +1789,27 @@ export function KitchenPage() {
               nút tắt-phiên nằm cạnh ↻ và 🔔 là rủi ro thuần — bấm nhầm giữa lúc đông
               khách thì bếp mất cả màn. Cần đăng xuất thì bấm ← về màn Order, header ở
               đó có nút đăng xuất như mọi màn khác. */}
+          {/* M7 — công tắc ĐỌC THÀNH TIẾNG. MẶC ĐỊNH TẮT và lưu theo MÁY: nhiều máy bếp cùng
+              bật là đọc chồng nhau, sẽ bị báo là bug. Chủ quán bật trên đúng một máy.
+              `unlock()` gọi TRONG onClick — trình duyệt chặn phát âm thanh nếu không có cử chỉ
+              người dùng, cùng ngữ nghĩa với nút "Bật chuông" của màn Đơn online. */}
+          <button
+            type="button"
+            className={`kds-bar-btn${voiceOn ? ' filter-on' : ''}`}
+            onClick={() => {
+              const next = !voiceOn;
+              if (next) {
+                voiceRef.current?.unlock();
+                bellRef.current?.unlock({ silent: true });
+              }
+              setVoiceEnabled(next);
+              setVoiceOn(next);
+            }}
+            title={voiceOn ? 'Đang đọc tên bàn khi khách gọi' : 'Bật đọc tên bàn khi khách gọi'}
+          >
+            <span aria-hidden>{voiceOn ? '🔊' : '🔇'}</span>
+            <span className="kds-bar-btn-label">{voiceOn ? 'Đang đọc' : 'Bật đọc'}</span>
+          </button>
           <NotificationBell />
         </div>
       </div>

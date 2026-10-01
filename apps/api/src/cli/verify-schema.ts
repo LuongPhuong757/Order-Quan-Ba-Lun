@@ -49,6 +49,11 @@ const CHECKS: TableCheck[] = [
   {
     table: 'orders',
     requiredColumns: [
+      // M7 — khách tự gọi món tại bàn (2026-10-01). Bất biến D-19: `guest_code` sống ⟺
+      // `first_kitchen_at` khác NULL. Ba cột này phải cùng tồn tại, thiếu một là luồng QR chết.
+      'guest_code',
+      'guest_code_at',
+      'first_guest_request_at',
       'source',
       'fulfillment_type',
       'online_request_id',
@@ -235,6 +240,55 @@ const CHECKS: TableCheck[] = [
       'created_at',
     ],
   },
+  // ── M7 — khách tự gọi món tại bàn (2026-10-01) ──────────────────────────────────────────
+  // ⚠ DB dev dùng CHUNG giữa các worktree. Worktree khác boot bằng nhánh chưa có 4 entity này
+  //   sẽ DROP sạch 4 bảng dưới. Chạy lại `schema:verify` mỗi lần quay lại worktree M7 là cách
+  //   phát hiện — nếu không thì triệu chứng là luồng QR chết câm giữa chừng.
+  {
+    table: 'table_guest_sessions',
+    requiredColumns: [
+      'token',
+      'table_id',
+      'order_id',
+      'expires_at',
+      'last_used_at',
+      'revoked_at',
+      'ip_hash',
+      'created_at',
+    ],
+  },
+  {
+    table: 'table_order_requests',
+    requiredColumns: [
+      'order_id',
+      'guest_session_id',
+      'table_code',
+      'client_request_id',
+      'status',
+      'created_at',
+      'decided_at',
+      'decided_by_user_id',
+      'decided_by_full_name',
+      'decided_reason',
+    ],
+  },
+  {
+    table: 'table_order_request_items',
+    // KHÔNG có cột giá — đó là cách hiện thực M7.D-11 ở tầng schema, không phải thiếu sót.
+    requiredColumns: ['request_id', 'menu_item_id', 'menu_item_name', 'qty', 'note'],
+  },
+  {
+    table: 'table_calls',
+    requiredColumns: [
+      'order_id',
+      'table_code',
+      'kind',
+      'created_at',
+      'acked_at',
+      'acked_by_user_id',
+      'acked_by_full_name',
+    ],
+  }
 ];
 
 type TableResult = { table: string; exists: boolean; missing_columns: string[] };

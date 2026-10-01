@@ -294,6 +294,24 @@ export class OrdersController {
     return { data: item };
   }
 
+  /** POST /orders/:id/guest-code/regenerate — M7.D-19 ca 8: ĐỔI MÃ BÀN.
+   *
+   * Dùng khi mã bị lộ (bàn bên nghe lỏm 4 số). Sinh mã mới và THU HỒI mọi phiên thiết bị đang
+   * gắn đơn — mã cũ rò thì thiết bị dùng mã cũ cũng phải mất quyền, không thì đổi mã vô nghĩa.
+   * Khách thật nhập mã mới là vào lại ngay.
+   */
+  @Post(':id/guest-code/regenerate')
+  async regenerateGuestCode(
+    @Param('id') id: string,
+    @Req() req: Request,
+  ) {
+    const data = await this.svc.regenerateGuestCode(id, {
+      id: req.user!.sub,
+      full_name: req.user!.full_name,
+    });
+    return { data };
+  }
+
   /** POST /orders/:id/cancel-all — HUỶ CẢ BÀN. Khách vào gọi đồ rồi không dùng
    * nữa: huỷ sạch mọi món (kể cả đã giao), bàn về trống, tiền bàn = 0.
    * Ghi 1 dòng nhật ký `order_cancelled`. Lý do optional. */
