@@ -35,6 +35,7 @@ import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PaymentQrPanel } from './PaymentQrPanel.tsx';
+import { MenuQrPanel } from './MenuQrPanel.tsx';
 import { PrintersPanel } from './PrintersPanel.tsx';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
@@ -339,8 +340,12 @@ export function OnlineOrderSettingsPanel() {
   const [loading, setLoading] = useState(true);
 
   const rawTab = params.get('tab');
-  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'printers' =
-    rawTab === 'blacklist' || rawTab === 'top-dishes' || rawTab === 'payment-qr' || rawTab === 'printers'
+  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'menu-qr' | 'printers' =
+    rawTab === 'blacklist' ||
+    rawTab === 'top-dishes' ||
+    rawTab === 'payment-qr' ||
+    rawTab === 'menu-qr' ||
+    rawTab === 'printers'
       ? rawTab
       : 'ordering';
   const q = params.get('q') || '';
@@ -392,6 +397,13 @@ export function OnlineOrderSettingsPanel() {
         <TabButton active={tab === 'payment-qr'} onClick={() => updateParam('tab', 'payment-qr')}>
           Mã QR nhận tiền
         </TabButton>
+        {/* Mã QR gọi món (2026-10-01, M7). Đặt NGAY SAU "Mã QR nhận tiền" vì chủ quán tìm
+            theo chữ "QR" chứ không theo nghiệp vụ — nhà có nhiều mã QR, để hai thứ cùng tên
+            cạnh nhau thì không phải nhớ cái nào nằm đâu. Hai mã này khác hẳn nhau: cái kia để
+            NHẬN TIỀN, cái này để khách VÀO THỰC ĐƠN. */}
+        <TabButton active={tab === 'menu-qr'} onClick={() => updateParam('tab', 'menu-qr')}>
+          Mã QR gọi món
+        </TabButton>
         {/* Máy in (2026-09-19). Cùng lý do với tab trên: hoá đơn in ra ở quầy cho cả bàn tại
             quán lẫn đơn ship, nó chỉ mượn chỗ đứng chứ không thuộc về đơn online. */}
         <TabButton active={tab === 'printers'} onClick={() => updateParam('tab', 'printers')}>
@@ -414,6 +426,9 @@ export function OnlineOrderSettingsPanel() {
       {/* Không gác sau `data`: panel này đọc `/admin/payment-qr` riêng, gác theo `data` của
           `/admin/settings` là để một lỗi tải không liên quan làm trắng cả tab. */}
       {tab === 'payment-qr' && <PaymentQrPanel />}
+      {/* Cũng không gác sau `data`: panel này không đọc `/admin/settings` dòng nào, nó dựng
+          mã QR ngay trong trình duyệt từ địa chỉ đang mở. */}
+      {tab === 'menu-qr' && <MenuQrPanel />}
       {tab === 'printers' && <PrintersPanel />}
     </div>
   );
