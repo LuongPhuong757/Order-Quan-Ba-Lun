@@ -10,6 +10,7 @@ import {
   TableEntrySheet,
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
+import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
   addTableLine,
@@ -89,7 +90,33 @@ export function MenuOrderPage(): JSX.Element {
     document.title = MENU_BOOK_TITLE;
   }, []);
 
+  /* Có BẤT KỲ lớp phủ nào mở thì khoá cuộn trang nền. Gom về MỘT chỗ ở đây thay vì để từng
+   * tấm tự khoá: hai tấm chồng nhau (xác nhận bàn mở đè lên tấm nhập số bàn) sẽ thành hai lần
+   * khoá rồi hai lần mở, mà lần mở thứ nhất đã trả vị trí cuộn trong khi tấm thứ hai còn đang
+   * mở — trang nền nhảy ngay dưới lớp phủ. Một cờ gộp thì không có ca đó. */
+  useBodyScrollLock(sheet !== 'none' || pendingSession !== null || sheetItem !== null);
+
   const sectionRefs = useRef(new Map<string, HTMLElement>());
+
+  /* Chiều cao THẬT của khối dính (header + dải nhóm), đo chứ không khai cứng.
+   *
+   * Bản trước khai tay 56px cho header và 104px cho mép dưới dải nhóm. Không khớp thực tế:
+   * header cao 60px (chip bàn min-height 44 + padding 8+8) và dải nhóm cao 52px (chip 36 +
+   * padding 8+8), tức mép dưới ở 112px. Lệch 4px ở mỗi tầng, và vì tầng dưới có z-index nhỏ
+   * hơn nên lúc cuộn nó chui dần xuống dưới tầng trên rồi bật lại — đúng cảm giác GIẬT GIẬT.
+   *
+   * Đo bằng ResizeObserver thì cỡ chữ hệ thống, bàn phím, hay sau này thêm một nút vào header
+   * đều tự đúng. 112 chỉ là giá trị tạm cho khung hình đầu tiên. */
+  const stickRef = useRef<HTMLDivElement>(null);
+  const [stickH, setStickH] = useState(112);
+  useEffect(() => {
+    const el = stickRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setStickH(Math.round(el.getBoundingClientRect().height)));
+    ro.observe(el);
+    setStickH(Math.round(el.getBoundingClientRect().height));
+    return () => ro.disconnect();
+  }, []);
 
   const filtered = useMemo(() => {
     const needle = fold(q.trim());
@@ -111,20 +138,20 @@ export function MenuOrderPage(): JSX.Element {
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
         if (top) setActiveGroup(top.target.getAttribute('data-group-id'));
       },
-      // Chỉ tính vùng ngay dưới header + dải nhóm (104px) — nhóm "đang xem" là nhóm chạm mép
-      // trên của vùng món, không phải nhóm chiếm nhiều diện tích nhất.
-      { rootMargin: '-104px 0px -70% 0px', threshold: 0 },
+      // Chỉ tính vùng ngay dưới khối dính — nhóm "đang xem" là nhóm chạm mép trên của vùng
+      // món, không phải nhóm chiếm nhiều diện tích nhất.
+      { rootMargin: `-${stickH}px 0px -70% 0px`, threshold: 0 },
     );
     for (const el of els) io.observe(el);
     return () => io.disconnect();
-  }, [filtered]);
+  }, [filtered, stickH]);
 
   const jumpTo = useCallback((groupId: string) => {
     const el = sectionRefs.current.get(groupId);
     if (!el) return;
-    const y = el.getBoundingClientRect().top + window.scrollY - 104;
+    const y = el.getBoundingClientRect().top + window.scrollY - stickH;
     window.scrollTo({ top: y, behavior: 'smooth' });
-  }, []);
+  }, [stickH]);
 
   const openCart = useCallback(() => setSheet(session ? 'cart' : 'entry'), [session]);
 
@@ -133,6 +160,12 @@ export function MenuOrderPage(): JSX.Element {
       <style>{MENU_ORDER_CSS}</style>
       <style>{DINEIN_CSS}</style>
 
+      {/* MỘT khối dính duy nhất cho header + dải nhóm.
+          Trước đây hai thứ này dính RIÊNG, mỗi thứ một mốc top khai tay — mốc sai là chúng
+          trượt lên nhau khi cuộn. Gộp lại thì không còn phép tính nào để sai: chúng dính
+          cùng nhau như một mảng, và phần còn lại của trang chỉ cần biết ĐÚNG MỘT con số
+          (chiều cao của khối này, đã đo ở trên). */}
+      <div className="mo-stick" ref={stickRef}>
       {/* ── Header: MỘT hàng. Logo thay chữ "Quán Bà Lũn", ô tìm và chip bàn gộp vào đây ── */}
       <header className="mo-head">
         {/* Logo THẬT của quán — cùng file `/logo.jpg` mà web đặt hàng đang dùng
@@ -184,6 +217,7 @@ export function MenuOrderPage(): JSX.Element {
           </button>
         ))}
       </nav>
+      </div>
 
       <main className="mo-list">
         {menu.error ? <p className="mo-empty">Không tải được thực đơn. Bạn kéo xuống để thử lại nhé.</p> : null}
@@ -422,11 +456,16 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 .mo-root h2,.mo-root h3,.mo-price{ font-family:'Baloo 2','Be Vietnam Pro',sans-serif; }
 
 /* Header MỘT hàng — nền SÁNG theo Header.tsx của web đặt hàng đang chạy, không phải nền gỗ. */
-.mo-head{
+/* Khối dính: header + dải nhóm đi cùng nhau. Chỉ MỘT phần tử sticky ở đây, nên không còn
+   mốc top nào để khai lệch. Nền phải đặc, nếu không món cuộn qua sẽ lộ sau nó. */
+.mo-stick{
   position:sticky; top:0; z-index:100;
-  /* 56px khớp với top của .mo-rail và .mo-group bên dưới. Đổi padding/chiều cao ở đây thì
-     phải đổi cả hai chỗ kia, không thì dải nhóm chồng lên header khi cuộn. */
-  min-height:56px;
+  background:var(--bg-surface);
+  /* Nhắc trình duyệt tách lớp này ra để cuộn không phải vẽ lại nó mỗi khung hình — máy
+     Android đời thấp thấy rõ nhất. */
+  will-change:transform;
+}
+.mo-head{
   display:flex; align-items:center; gap:10px;
   padding:8px 12px; padding-top:calc(8px + env(safe-area-inset-top,0px));
   background:var(--bg-surface); border-bottom:1px solid var(--border-subtle);
@@ -453,7 +492,6 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 
 /* Dải nhóm — MỘT hàng, lướt trái/phải. Chip cuối cắt hụt ở mép phải để lộ còn nhóm phía sau. */
 .mo-rail{
-  position:sticky; top:calc(56px + env(safe-area-inset-top,0px)); z-index:90;
   display:flex; gap:8px; overflow-x:auto; scrollbar-width:none;
   padding:8px 12px; background:var(--bg-page); border-bottom:1px solid var(--border-subtle);
   max-width:100%; -webkit-overflow-scrolling:touch;
@@ -466,8 +504,11 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 }
 .mo-rail-chip.is-on{ background:var(--brand-500); border-color:var(--brand-500); color:#fff; font-weight:700; }
 
+/* Nhãn nhóm KHÔNG dính nữa (2026-10-01). Ba tầng dính chồng nhau là ba lần trình duyệt
+   phải tính lại vị trí mỗi khung hình, và tầng này z-index thấp nhất nên nó chui xuống dưới
+   hai tầng kia rồi bật ra — nhìn ra đúng là giật. Bỏ đi không mất thông tin: chip nhóm đang
+   sáng trên dải ngay trên kia đã nói nhóm đang xem là nhóm nào. */
 .mo-group{
-  position:sticky; top:calc(104px + env(safe-area-inset-top,0px)); z-index:80;
   margin:0; padding:6px 16px; background:var(--bg-page);
   font-size:14px; font-weight:700; color:var(--text-muted);
 }
