@@ -510,12 +510,11 @@ export function OrdersPage() {
             )}
           </div>
         ) : qrWaiting > 0 ? (
-          /* Bàn chưa có món nào được duyệt nên `/orders` không trả về nó. Không viết đè câu
-             này thì thẻ hiện "Trống" ngay trong lúc khách đang ngồi chờ — đúng tình huống
-             dấu hiệu QR sinh ra để tránh. */
-          <div style={{ color: '#5b21b6', fontSize: 12, fontWeight: 600 }}>
-            Khách đã gọi — bấm để duyệt
-          </div>
+          /* KHÔNG viết chữ gì ở đây (chủ quán chốt 2026-10-01): badge tím "N lượt chờ duyệt"
+             ngay trên kia đã nói đủ, thêm một câu nữa là lặp. Nhưng cũng KHÔNG được rơi về
+             nhánh "Trống — bấm để gọi món" bên dưới: bàn đang có khách ngồi chờ mà thẻ ghi
+             "Trống" là đúng tình huống dấu hiệu QR sinh ra để tránh. */
+          null
         ) : (
           <div style={{ color: '#9ca3af', fontSize: 12 }}>Trống — bấm để gọi món</div>
         )}

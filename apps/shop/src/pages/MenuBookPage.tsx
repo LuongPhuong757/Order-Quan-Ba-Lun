@@ -47,6 +47,7 @@ import {
   readTableSession,
   subscribeTableCart,
   tableCartCount,
+  writeTableSession,
   type TableSession,
 } from '../lib/table-cart-store.ts';
 
@@ -1042,6 +1043,7 @@ export function MenuBookPage(): JSX.Element {
             setSheet('entry');
           }}
           onYes={() => {
+            writeTableSession(pendingSession);
             setSession(pendingSession);
             setPendingSession(null);
             setSheet('cart');
@@ -1061,6 +1063,11 @@ export function MenuBookPage(): JSX.Element {
         <TableStateSheet
           session={session}
           onClose={() => setSheet('none')}
+          onSwitchTable={() => {
+            writeTableSession(null);
+            setSession(null);
+            setSheet('entry');
+          }}
           onEnded={() => {
             // Bàn đã thanh toán / bị chuyển — phiên chết. Không tự đoán bàn mới.
             setSession(null);

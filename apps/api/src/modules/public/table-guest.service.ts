@@ -385,6 +385,7 @@ export class TableGuestService {
         kind: c.kind as 'STAFF' | 'BILL',
         created_at: c.created_at,
         acked: c.acked_at !== null,
+        note: c.note,
       })),
       server_now_ms: now,
     };
@@ -392,7 +393,11 @@ export class TableGuestService {
 
   /* ── Gọi nhân viên / xin tính tiền ────────────────────────────────────────────────── */
 
-  async createCall(token: string, kind: 'STAFF' | 'BILL'): Promise<{ call_id: string; cooldown_until: number }> {
+  async createCall(
+    token: string,
+    kind: 'STAFF' | 'BILL',
+    note?: string,
+  ): Promise<{ call_id: string; cooldown_until: number }> {
     const { order } = await this.requireSession(token);
     if (!order) {
       throw new BadRequestException({
@@ -420,6 +425,9 @@ export class TableGuestService {
         order_id: order.id,
         table_code: order.table_code,
         kind,
+        // Chuỗi rỗng và chuỗi trắng đều quy về NULL: thẻ trên màn bếp chỉ được hiện dòng lý do
+        // khi có lý do THẬT, không thì nó là một dòng trống làm thẻ cao lên mà không nói gì.
+        note: note && note.trim() !== '' ? note.trim() : null,
         acked_at: null,
       }),
     );

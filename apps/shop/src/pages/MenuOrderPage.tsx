@@ -19,6 +19,7 @@ import {
   setTableQty,
   subscribeTableCart,
   tableCartCount,
+  writeTableSession,
   type TableCartLine,
   type TableSession,
 } from '../lib/table-cart-store.ts';
@@ -350,6 +351,8 @@ export function MenuOrderPage(): JSX.Element {
             setSheet('entry');
           }}
           onYes={() => {
+            // Đây mới là lúc phiên được ghi xuống máy: khách đã nhìn tên bàn cỡ lớn và gật.
+            writeTableSession(pendingSession);
             setSession(pendingSession);
             setPendingSession(null);
             // Vào THẲNG thực đơn. Mở tấm giỏ ngay là hiện một hộp rỗng "Chưa chọn món nào" —
@@ -365,6 +368,14 @@ export function MenuOrderPage(): JSX.Element {
         <TableStateSheet
           session={session}
           onClose={() => setSheet('none')}
+          /* Đổi bàn: chỉ gỡ phiên của MÁY NÀY rồi hỏi lại số bàn. Giữ nguyên giỏ đang chọn —
+             khách khai nhầm bàn thì món họ vừa chọn vẫn là món họ muốn, bắt chọn lại từ đầu
+             là phạt nhầm người. */
+          onSwitchTable={() => {
+            writeTableSession(null);
+            setSession(null);
+            setSheet('entry');
+          }}
           onEnded={() => {
             setSession(null);
             // Bàn đã kết thúc → về lại CỔNG, không thả khách ra thực đơn ở trạng thái lửng lơ.

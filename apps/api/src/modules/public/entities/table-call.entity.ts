@@ -34,6 +34,16 @@ export class TableCall {
   @Column({ type: 'varchar', length: 16 })
   kind!: string;
 
+  /** Lý do khách ghi lúc bấm gọi — "thêm bát đũa", "thêm đá"… NULL = gọi suông.
+   *
+   * Có nó thì nhân viên MANG LUÔN thứ khách cần xuống bàn thay vì xuống hỏi rồi đi lên lấy —
+   * đúng việc M7 muốn giảm (số lần nhân viên phải chạy đi chạy lại).
+   *
+   * Cột 255 dù hợp đồng chặn ở 120: nới cột rộng hơn mức đang nhận thì sau này muốn cho khách
+   * ghi dài hơn chỉ phải sửa zod, không phải đụng schema (C-SCHEMA-07 cấm rename/đổi cột). */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  note!: string | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 

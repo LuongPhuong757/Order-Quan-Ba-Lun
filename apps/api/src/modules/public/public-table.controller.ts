@@ -77,6 +77,8 @@ export class PublicTableController {
     if (!parsed.success) {
       throw new BadRequestException({ code: 'VALIDATION_FAILED', message: 'Dữ liệu không hợp lệ.' });
     }
-    return apiOk(await this.svc.createCall(parsed.data.guest_token, parsed.data.kind));
+    return apiOk(
+      await this.svc.createCall(parsed.data.guest_token, parsed.data.kind, parsed.data.note),
+    );
   }
 }
