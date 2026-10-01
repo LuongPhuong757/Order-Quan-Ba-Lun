@@ -24,6 +24,17 @@ const TRACK_PATH = '/api/public/track';
 // nhiều lần mỗi phiên, không phải hành động nghiệp vụ của ai. Xem `public/public-geo-log.controller.ts`.
 const GEO_LOG_PATH = '/api/public/geo-log';
 
+// Cầu in hỏi việc (2026-10-01) — cùng bản chất với hai đường trên, chỉ khác là nó không nằm ở
+// `/api/public` nên lần trước bị bỏ sót. `PrintBridgePage` gọi POST /print/next mỗi 2 giây suốt
+// ca để hỏi "có hoá đơn nào cần in không"; đó là nhịp tim của một cái máy, không phải hành động
+// của ai, không có gì để truy trách nhiệm. Đo trên production 2026-10-01: nó chiếm 275.774 trên
+// 308.211 dòng audit_log (89%) và 75MB `after_json` lặp đi lặp lại đúng một cục config không
+// đổi — tức là vết thật của con người bị chôn dưới 9 lớp tiếng ồn ở trang /admin/audit, và
+// binlog phình to hơn cả database. Nhịp 2 giây nằm ở `POLL_MS` trong `web/src/pages/PrintBridgePage.tsx`.
+// ⚠ CHỈ loại trừ `/print/next`. Các route in còn lại (`/print/jobs/:id/fail`, `/ack`) vẫn phải
+// ghi: chúng là KẾT QUẢ của một hoá đơn cụ thể, không phải tiếng ồn thăm dò.
+const PRINT_NEXT_PATH = '/print/next';
+
 // Action-kind resolver — derives audit action from HTTP method + path
 // Override in controller via @AuditAction decorator if needed (future).
 function deriveActionKind(method: string, path: string): string {
@@ -168,7 +179,9 @@ export class AuditInterceptor implements NestInterceptor {
     const method = req.method;
     const path = req.route?.path || req.path;
 
-    if (path === TRACK_PATH || path === GEO_LOG_PATH) return next.handle();
+    if (path === TRACK_PATH || path === GEO_LOG_PATH || path === PRINT_NEXT_PATH) {
+      return next.handle();
+    }
 
     return next.handle().pipe(
       tap((responseBody) => {
