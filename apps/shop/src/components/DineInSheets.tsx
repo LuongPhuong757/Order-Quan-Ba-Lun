@@ -55,19 +55,19 @@ export function TableEntrySheet({
 }) {
   const [input, setInput] = useState('');
   const [code, setCode] = useState('');
-  // M7.D-05 — bàn đang có người ăn thì phải nhập mã. Chuyển bước chứ không hiện cùng lúc:
-  // người đầu tiên (đa số) không bao giờ phải nhìn thấy ô mã.
+  /* M7.D-05 — MỘT đường đi duy nhất, hai bước, do SERVER quyết định có bước hai hay không:
+   *
+   *    gõ số bàn → bàn trống   → vào gọi món luôn
+   *               → bàn có người → hiện ô mã bàn, nhập mã mới gọi thêm được
+   *
+   * Khách không phải tự biết bàn mình trống hay không, và không phải chọn lối vào nào cả.
+   * `needCode` giữ TÊN BÀN server trả về, nên bước hai nói được "Bàn 05 đang có người" chứ
+   * không nói chung chung.
+   *
+   * ⚠ Bước hai KHÔNG hiện mã bàn ra — nó hiện Ô ĐỂ NHẬP mã. Gõ số bàn mà đọc được mã thì mã
+   *   mất sạch ý nghĩa: ai đi ngang quán cũng xem được bill và gọi món vào bàn người khác
+   *   (spec D-05/D-16). Người quên mã thì hỏi nhân viên — nhân viên đọc mã từ màn quản lý. */
   const [needCode, setNeedCode] = useState<string | null>(null);
-  /* M7.D-18 — lối vào CHỦ ĐỘNG cho người đã cầm sẵn mã bàn.
-   *
-   * Bản đầu chỉ có đúng một ô "Số bàn", và ô mã chỉ xuất hiện SAU khi server trả `NEED_CODE`.
-   * Người đã được bạn cùng bàn đọc cho 4 số thì nhìn màn này không thấy chỗ nào nhập mã, nên
-   * gõ thẳng mã vào ô số bàn — rồi nhận "Không thấy bàn 8386" và đứng lại ở đó. Đã xảy ra
-   * thật khi chạy thử 2026-10-01.
-   *
-   * Spec D-18 nói rõ màn đầu phải kèm một dòng nhỏ "Đã có mã bàn? Nhập mã ở đây"; dòng đó bị
-   * bỏ sót lúc dựng. `manualCode` chính là nó. */
-  const [manualCode, setManualCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -100,14 +100,14 @@ export function TableEntrySheet({
       onDone(session);
     } catch (e) {
       const failed = e as Error & { code?: string };
-      // Gõ đúng 4 chữ số mà không ra bàn nào thì gần như chắc chắn đó là MÃ BÀN bị gõ nhầm ô.
-      // Tự dọn giúp: chuyển sang dạng có ô mã, bê nguyên con số vừa gõ sang đúng ô của nó, và
-      // chỉ còn hỏi số bàn. Thà đoán ở đây còn hơn để khách đứng trước một câu từ chối cụt.
+      // Gõ đúng 4 chữ số mà không ra bàn nào thì gần như chắc chắn khách đang cầm MÃ BÀN và
+      // gõ nhầm vào ô số bàn. Câu từ chối trần ("Không thấy bàn 8386") để khách tắc ở đó,
+      // nên nói thẳng thứ tự đúng thay vì bắt họ tự đoán.
       if (failed.code === 'TABLE_NOT_FOUND' && /^\d{4}$/.test(input.trim())) {
-        setCode(input.trim());
-        setInput('');
-        setManualCode(true);
-        setErr('Số bạn vừa gõ trông giống MÃ BÀN 4 SỐ. Mình đã chuyển nó xuống ô mã — bạn gõ thêm SỐ BÀN đang ngồi nhé.');
+        setErr(
+          'Đây trông như MÃ BÀN 4 SỐ. Ô này điền SỐ BÀN bạn đang ngồi (1, 2, 3…) — ' +
+            'nếu bàn đang có người, bước sau mới hỏi mã.',
+        );
       } else {
         setErr(failed.message);
       }
@@ -119,13 +119,7 @@ export function TableEntrySheet({
     <div className="dinein-scrim" onClick={dismissible ? onClose : undefined}>
       <div className="dinein-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="dinein-head">
-          <b>
-            {needCode
-              ? `${needCode} đã gọi đồ rồi`
-              : manualCode
-                ? 'Bàn bạn đã gọi đồ rồi'
-                : 'Bạn ngồi bàn số mấy?'}
-          </b>
+          <b>{needCode ? `${needCode} đang có người` : 'Bạn ngồi bàn số mấy?'}</b>
           {dismissible ? (
             <button type="button" onClick={onClose} aria-label="Đóng">✕</button>
           ) : null}
@@ -135,15 +129,8 @@ export function TableEntrySheet({
           {needCode ? (
             <>
               <p className="dinein-hint dinein-hint--lead">
-                Bàn này đã có người gọi đồ. Để gọi thêm, bạn <b>nhập mã bàn 4 số</b> vào ô dưới đây.
+                Bàn này đang có người dùng. Vui lòng <b>nhập thêm mã bàn 4 số</b> để gọi thêm món.
               </p>
-              <ul className="dinein-steps">
-                <li>Mã đang hiện trên điện thoại của người đã gọi món ở bàn bạn.</li>
-                <li>
-                  <b>Không nhớ mã?</b> Bạn hỏi nhân viên nhé — nhân viên xem được mã của bàn và
-                  đọc lại cho bạn.
-                </li>
-              </ul>
               <input
                 className="dinein-code"
                 inputMode="numeric"
@@ -153,45 +140,13 @@ export function TableEntrySheet({
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
                 autoFocus
               />
-            </>
-          ) : manualCode ? (
-            <>
-              <p className="dinein-hint dinein-hint--lead">
-                Điền <b>cả hai</b>: số bàn bạn đang ngồi và mã bàn 4 số người cùng bàn đưa cho bạn.
-              </p>
-              <label className="dinein-field">
-                <span>Số bàn</span>
-                <input
-                  className="dinein-num"
-                  inputMode="numeric"
-                  placeholder="Số bàn"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  autoFocus
-                />
-              </label>
-              <label className="dinein-field">
-                <span>Mã bàn 4 số</span>
-                <input
-                  className="dinein-code"
-                  inputMode="numeric"
-                  maxLength={4}
-                  placeholder="● ● ● ●"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                />
-              </label>
-              <button
-                type="button"
-                className="dinein-link"
-                onClick={() => {
-                  setManualCode(false);
-                  setCode('');
-                  setErr(null);
-                }}
-              >
-                ← Bàn tôi chưa gọi gì, quay lại
-              </button>
+              <ul className="dinein-steps">
+                <li>Mã đang hiện trên điện thoại của người đã gọi món ở bàn bạn.</li>
+                <li>
+                  <b>Nếu bạn quên mã bàn, hãy hỏi lại nhân viên</b> — nhân viên xem được mã của
+                  bàn và đọc lại cho bạn.
+                </li>
+              </ul>
             </>
           ) : (
             <>
@@ -203,40 +158,39 @@ export function TableEntrySheet({
                 onChange={(e) => setInput(e.target.value)}
                 autoFocus
               />
-              <p className="dinein-hint">
-                Nhập số dán trên mặt bàn của bạn — số 1, 2, 3… dán trên mặt bàn, <b>không phải</b>
-                {' '}mã bàn 4 số.
+              <p className="dinein-hint">Nhập số dán trên mặt bàn của bạn.</p>
+              <p className="dinein-hint dinein-hint--sm">
+                Bàn đang có người thì bước sau sẽ hỏi thêm <b>mã bàn 4 số</b>.
               </p>
-              {/* M7.D-18 — dòng cho người thứ hai trở đi. Là NÚT thật chứ không phải câu nhắc:
-                  câu nhắc "bước sau sẽ cần mã" không nói cho người đang cầm sẵn mã biết họ phải
-                  bấm vào đâu. */}
-              <button type="button" className="dinein-link" onClick={() => setManualCode(true)}>
-                Đã có <b>mã bàn 4 số</b>? Nhập mã ở đây →
-              </button>
             </>
           )}
           {err ? <p className="dinein-err">{err}</p> : null}
         </div>
 
-        <div className="dinein-foot">
+        {/* Bước nhập mã có HAI nút: quay lại + đi tiếp. Nút quay lại là lối thoát bắt buộc —
+            gõ nhầm sang bàn người khác mà không có nó thì khách kẹt cứng ở một bàn mình không
+            có mã, đóng tấm ra lại bị cổng bắt buộc đẩy vào đúng chỗ cũ. Đặt ở chân tấm, cùng
+            khuôn với tấm xác nhận bàn, chứ không để lẫn thành một dòng chữ trong thân. */}
+        <div className={`dinein-foot${needCode ? ' dinein-foot--row' : ''}`}>
+          {needCode ? (
+            <button
+              type="button"
+              onClick={() => {
+                setNeedCode(null);
+                setCode('');
+                setErr(null);
+              }}
+            >
+              ← Quay lại
+            </button>
+          ) : null}
           <button
             type="button"
             className="dinein-primary"
-            disabled={
-              busy ||
-              (needCode
-                ? code.length !== 4
-                : manualCode
-                  ? input.trim() === '' || code.length !== 4
-                  : input.trim() === '')
-            }
+            disabled={busy || (needCode ? code.length !== 4 : input.trim() === '')}
             onClick={submit}
           >
-            {busy
-              ? 'Đang kiểm…'
-              : needCode || manualCode
-                ? 'Gọi thêm cho bàn này'
-                : 'Tiếp tục'}
+            {busy ? 'Đang kiểm…' : needCode ? 'Gọi thêm cho bàn này' : 'Tiếp tục'}
           </button>
         </div>
       </div>
@@ -552,23 +506,30 @@ export const DINEIN_CSS = `
 .dinein-foot--row{ display:flex; gap:10px; }
 .dinein-foot--row button{ flex:1; min-height:48px; border-radius:8px;
   border:1px solid #ddd0bd; background:#fffdfa; font-size:16px; color:#2a1d14; cursor:pointer; }
+/* ⚠ PHẢI viết button.dinein-primary, không được viết .dinein-primary trần.
+   Rule ngay trên kia là .dinein-foot--row button — một class + một thẻ, nên nó MẠNH HƠN
+   một class trần và sẽ đè mất màu đỏ của nút chính. Đo bằng trình duyệt: nút chính đứng một
+   mình ra rgb(184,42,30), nhưng nằm trong hàng hai nút thì ra rgb(255,253,250) — tức là nút
+   "Đúng rồi" ở tấm xác nhận bàn lâu nay vẫn trắng chứ không đỏ. Cùng cái bẫy đã ghi trong
+   CLAUDE.md về nút secondary. */
+.dinein-foot--row button.dinein-primary{
+  border:none; background:#b82a1e; color:#fff; font-size:18px; font-weight:700;
+}
 .dinein-primary{
   width:100%; min-height:52px; border:none; border-radius:8px;
   background:#b82a1e; color:#fff; font-size:18px; font-weight:700; cursor:pointer;
 }
 .dinein-primary:disabled{ opacity:.5; cursor:default; }
+/* Vuốt hết nội dung trong tấm thì DỪNG, không đẩy tiếp sang thực đơn phía sau. Đây là lớp
+   chặn thứ hai, đi cùng với khoá cuộn body ở lib/body-scroll-lock.ts: khoá body lo trang
+   nền, dòng này lo chính vùng cuộn trong tấm (và cả cú kéo quá đà trên iOS). */
+.dinein-scroll,.dinein-sheet,.dinein-scrim{ overscroll-behavior:contain; }
 .dinein-num,.dinein-code{
   width:100%; min-height:56px; border:1px solid #ddd0bd; border-radius:8px;
   background:#f7efe2; text-align:center; color:#2a1d14;
   font-size:28px; font-weight:700; letter-spacing:.12em;
 }
 .dinein-code{ letter-spacing:.5em; }
-/* Hai ô cạnh nhau ở bước "đã có mã": phải có NHÃN, không thì hai ô số to giống hệt nhau và
-   khách lại gõ nhầm ô — đúng cái lỗi bước này sinh ra để chữa. */
-.dinein-field{ display:block; margin-bottom:12px; }
-.dinein-field span{
-  display:block; margin-bottom:4px; font-size:14px; font-weight:700; color:#6e5c4c;
-}
 /* Nút dạng chữ. Vẫn là <button> thật (bàn phím tab tới được, trình đọc màn hình đọc đúng),
    chỉ bỏ dáng nút. min-height 44px vì đây là ngưỡng chạm, không phải chữ trang trí. */
 .dinein-link{
