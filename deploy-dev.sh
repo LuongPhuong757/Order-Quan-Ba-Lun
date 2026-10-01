@@ -83,7 +83,7 @@ DOMAIN="\$(envget DOMAIN)"
 # tên chưa có DNS không kéo theo tên kia: có tên nào phân giải được thì cứ bật, chỉ cảnh
 # báo tên còn thiếu. Không tên nào phân giải được thì bỏ qua hẳn, chưa có gì để phục vụ.
 MISSING=""; RESOLVED=""
-for H in "dev.\$DOMAIN" "admin.dev.\$DOMAIN"; do
+for H in "dev.\$DOMAIN" "admin.dev.\$DOMAIN" "menu.dev.\$DOMAIN"; do
   if getent hosts "\$H" >/dev/null 2>&1; then RESOLVED="\$RESOLVED \$H"; else MISSING="\$MISSING \$H"; fi
 done
 if [ -z "\$RESOLVED" ] && [ -z "\${ORDBL_FORCE_CADDY:-}" ]; then
