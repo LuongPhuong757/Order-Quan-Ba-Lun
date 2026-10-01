@@ -58,6 +58,16 @@ export function TableEntrySheet({
   // M7.D-05 — bàn đang có người ăn thì phải nhập mã. Chuyển bước chứ không hiện cùng lúc:
   // người đầu tiên (đa số) không bao giờ phải nhìn thấy ô mã.
   const [needCode, setNeedCode] = useState<string | null>(null);
+  /* M7.D-18 — lối vào CHỦ ĐỘNG cho người đã cầm sẵn mã bàn.
+   *
+   * Bản đầu chỉ có đúng một ô "Số bàn", và ô mã chỉ xuất hiện SAU khi server trả `NEED_CODE`.
+   * Người đã được bạn cùng bàn đọc cho 4 số thì nhìn màn này không thấy chỗ nào nhập mã, nên
+   * gõ thẳng mã vào ô số bàn — rồi nhận "Không thấy bàn 8386" và đứng lại ở đó. Đã xảy ra
+   * thật khi chạy thử 2026-10-01.
+   *
+   * Spec D-18 nói rõ màn đầu phải kèm một dòng nhỏ "Đã có mã bàn? Nhập mã ở đây"; dòng đó bị
+   * bỏ sót lúc dựng. `manualCode` chính là nó. */
+  const [manualCode, setManualCode] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -89,7 +99,18 @@ export function TableEntrySheet({
       writeTableSession(session);
       onDone(session);
     } catch (e) {
-      setErr((e as Error).message);
+      const failed = e as Error & { code?: string };
+      // Gõ đúng 4 chữ số mà không ra bàn nào thì gần như chắc chắn đó là MÃ BÀN bị gõ nhầm ô.
+      // Tự dọn giúp: chuyển sang dạng có ô mã, bê nguyên con số vừa gõ sang đúng ô của nó, và
+      // chỉ còn hỏi số bàn. Thà đoán ở đây còn hơn để khách đứng trước một câu từ chối cụt.
+      if (failed.code === 'TABLE_NOT_FOUND' && /^\d{4}$/.test(input.trim())) {
+        setCode(input.trim());
+        setInput('');
+        setManualCode(true);
+        setErr('Số bạn vừa gõ trông giống MÃ BÀN 4 SỐ. Mình đã chuyển nó xuống ô mã — bạn gõ thêm SỐ BÀN đang ngồi nhé.');
+      } else {
+        setErr(failed.message);
+      }
       setBusy(false);
     }
   }, [input, code, onDone]);
@@ -98,7 +119,13 @@ export function TableEntrySheet({
     <div className="dinein-scrim" onClick={dismissible ? onClose : undefined}>
       <div className="dinein-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="dinein-head">
-          <b>{needCode ? `${needCode} đã gọi đồ rồi` : 'Bạn ngồi bàn số mấy?'}</b>
+          <b>
+            {needCode
+              ? `${needCode} đã gọi đồ rồi`
+              : manualCode
+                ? 'Bàn bạn đã gọi đồ rồi'
+                : 'Bạn ngồi bàn số mấy?'}
+          </b>
           {dismissible ? (
             <button type="button" onClick={onClose} aria-label="Đóng">✕</button>
           ) : null}
@@ -127,6 +154,45 @@ export function TableEntrySheet({
                 autoFocus
               />
             </>
+          ) : manualCode ? (
+            <>
+              <p className="dinein-hint dinein-hint--lead">
+                Điền <b>cả hai</b>: số bàn bạn đang ngồi và mã bàn 4 số người cùng bàn đưa cho bạn.
+              </p>
+              <label className="dinein-field">
+                <span>Số bàn</span>
+                <input
+                  className="dinein-num"
+                  inputMode="numeric"
+                  placeholder="Số bàn"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  autoFocus
+                />
+              </label>
+              <label className="dinein-field">
+                <span>Mã bàn 4 số</span>
+                <input
+                  className="dinein-code"
+                  inputMode="numeric"
+                  maxLength={4}
+                  placeholder="● ● ● ●"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                />
+              </label>
+              <button
+                type="button"
+                className="dinein-link"
+                onClick={() => {
+                  setManualCode(false);
+                  setCode('');
+                  setErr(null);
+                }}
+              >
+                ← Bàn tôi chưa gọi gì, quay lại
+              </button>
+            </>
           ) : (
             <>
               <input
@@ -138,11 +204,15 @@ export function TableEntrySheet({
                 autoFocus
               />
               <p className="dinein-hint">
-                Nhập số dán trên mặt bàn của bạn.
+                Nhập số dán trên mặt bàn của bạn — số 1, 2, 3… dán trên mặt bàn, <b>không phải</b>
+                {' '}mã bàn 4 số.
               </p>
-              <p className="dinein-hint dinein-hint--sm">
-                Nếu bàn bạn đã gọi đồ rồi, bước sau sẽ cần <b>mã bàn 4 số</b>.
-              </p>
+              {/* M7.D-18 — dòng cho người thứ hai trở đi. Là NÚT thật chứ không phải câu nhắc:
+                  câu nhắc "bước sau sẽ cần mã" không nói cho người đang cầm sẵn mã biết họ phải
+                  bấm vào đâu. */}
+              <button type="button" className="dinein-link" onClick={() => setManualCode(true)}>
+                Đã có <b>mã bàn 4 số</b>? Nhập mã ở đây →
+              </button>
             </>
           )}
           {err ? <p className="dinein-err">{err}</p> : null}
@@ -152,10 +222,21 @@ export function TableEntrySheet({
           <button
             type="button"
             className="dinein-primary"
-            disabled={busy || (needCode ? code.length !== 4 : input.trim() === '')}
+            disabled={
+              busy ||
+              (needCode
+                ? code.length !== 4
+                : manualCode
+                  ? input.trim() === '' || code.length !== 4
+                  : input.trim() === '')
+            }
             onClick={submit}
           >
-            {busy ? 'Đang kiểm…' : needCode ? 'Gọi thêm cho bàn này' : 'Tiếp tục'}
+            {busy
+              ? 'Đang kiểm…'
+              : needCode || manualCode
+                ? 'Gọi thêm cho bàn này'
+                : 'Tiếp tục'}
           </button>
         </div>
       </div>
@@ -482,6 +563,19 @@ export const DINEIN_CSS = `
   font-size:28px; font-weight:700; letter-spacing:.12em;
 }
 .dinein-code{ letter-spacing:.5em; }
+/* Hai ô cạnh nhau ở bước "đã có mã": phải có NHÃN, không thì hai ô số to giống hệt nhau và
+   khách lại gõ nhầm ô — đúng cái lỗi bước này sinh ra để chữa. */
+.dinein-field{ display:block; margin-bottom:12px; }
+.dinein-field span{
+  display:block; margin-bottom:4px; font-size:14px; font-weight:700; color:#6e5c4c;
+}
+/* Nút dạng chữ. Vẫn là <button> thật (bàn phím tab tới được, trình đọc màn hình đọc đúng),
+   chỉ bỏ dáng nút. min-height 44px vì đây là ngưỡng chạm, không phải chữ trang trí. */
+.dinein-link{
+  display:block; width:100%; min-height:44px; margin-top:12px; padding:0;
+  border:none; background:none; cursor:pointer;
+  font-size:15px; color:#b82a1e; text-align:left; text-decoration:underline;
+}
 .dinein-hint{ margin:10px 0 0; font-size:15px; color:#6e5c4c; }
 .dinein-hint--sm{ font-size:13px; margin:6px 0 10px; }
 .dinein-hint--lead{ font-size:16px; color:var(--text-body,#3a2b1f); margin-bottom:10px; }
