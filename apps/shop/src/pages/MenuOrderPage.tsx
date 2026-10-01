@@ -391,8 +391,14 @@ function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => voi
 const MENU_ORDER_CSS = `
 /* Trang này KHÔNG đi qua AppShell khi phục vụ ở menu.<domain>, nên không có reset nào chạy
    trước. Chặn tràn ngang ngay ở gốc: dải nhóm món rộng hơn màn hình và nó tự cuộn trong lòng
-   nó, không được phép đội bề rộng cả trang (đo ở 390px: card bị cắt mép phải, nút + biến mất). */
-html,body{ margin:0; max-width:100%; overflow-x:hidden; }
+   nó, không được phép đội bề rộng cả trang (đo ở 390px: card bị cắt mép phải, nút + biến mất).
+
+   ⚠ clip chứ KHÔNG PHẢI hidden. Theo chuẩn CSS, một trục để hidden thì trục còn lại
+   dù khai visible cũng bị tính thành auto — tức phần tử THÀNH MỘT KHUNG CUỘN. Mà
+   position: sticky thì dính vào khung cuộn gần nhất, nên header và dải nhóm món dính vào
+   một khung không bao giờ cuộn → cuộn trang là chúng trôi mất tiêu. clip cắt y hệt nhưng
+   KHÔNG tạo khung cuộn, nên sticky lại dính vào khung nhìn như mong đợi. */
+html,body{ margin:0; max-width:100%; overflow-x:clip; }
 *,*::before,*::after{ box-sizing:border-box; }
 :root{
   --brand-500:#cf3323; --brand-600:#b82a1e; --brand-050:#fef6f3;
@@ -407,14 +413,20 @@ html,body{ margin:0; max-width:100%; overflow-x:hidden; }
   padding-bottom:96px;
   /* Dải nhóm món rộng hơn màn hình (4 nhóm đã quá 390px) và nó tự cuộn trong lòng nó. Không
      chặn ở đây thì bề rộng đó đội cả TRANG ra, card bị cắt mép phải và nút + biến mất — đúng
-     triệu chứng đo được ở 390px trước khi sửa. */
-  width:100%; max-width:100vw; overflow-x:hidden;
+     triệu chứng đo được ở 390px trước khi sửa.
+     clip chứ không hidden — cùng lý do ở khối html,body trên kia: hidden biến CHÍNH
+     phần tử này thành khung cuộn, và mọi thứ sticky bên trong nó (header, dải nhóm, nhãn
+     nhóm) dính vào đó thay vì dính vào màn hình, nên cuộn một cái là trôi hết. */
+  width:100%; max-width:100vw; overflow-x:clip;
 }
 .mo-root h2,.mo-root h3,.mo-price{ font-family:'Baloo 2','Be Vietnam Pro',sans-serif; }
 
 /* Header MỘT hàng — nền SÁNG theo Header.tsx của web đặt hàng đang chạy, không phải nền gỗ. */
 .mo-head{
   position:sticky; top:0; z-index:100;
+  /* 56px khớp với top của .mo-rail và .mo-group bên dưới. Đổi padding/chiều cao ở đây thì
+     phải đổi cả hai chỗ kia, không thì dải nhóm chồng lên header khi cuộn. */
+  min-height:56px;
   display:flex; align-items:center; gap:10px;
   padding:8px 12px; padding-top:calc(8px + env(safe-area-inset-top,0px));
   background:var(--bg-surface); border-bottom:1px solid var(--border-subtle);

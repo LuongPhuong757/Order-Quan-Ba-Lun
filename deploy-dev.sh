@@ -176,7 +176,7 @@ JWT_SECRET=\$(openssl rand -base64 64 | tr -d /=+ | cut -c1-64)
 JWT_LIFETIME_DAYS=7
 COOKIE_NAME=ssp_token_dev
 COOKIE_SECURE=true
-ALLOWED_ORIGIN=https://dev.\$DOM,https://admin.dev.\$DOM
+ALLOWED_ORIGIN=https://dev.\$DOM,https://admin.dev.\$DOM,https://menu.dev.\$DOM
 SETUP_ALLOWED_IP=127.0.0.1
 IP_HASH_SALT=\$(openssl rand -base64 32 | tr -d /=+ | cut -c1-32)
 SMS_DRIVER=console
