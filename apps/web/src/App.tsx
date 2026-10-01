@@ -420,13 +420,14 @@ function ProtectedShell() {
               ngang, nên từ mục thứ 7 trở đi nằm ngoài mép phải trên điện thoại — người dùng đầu
               tiên thử tính năng đã không tìm ra nó (2026-09-30). */}
           <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon">🧾</span><span className="nav-label">H/đơn</span></NavLink>
-          {/* Nhãn "Online" chứ không phải "H/chờ": trang nay gồm cả hàng chờ và cài đặt nhận đơn,
-              và "Online" phân biệt rõ với "Order" (đơn tại quán) ngay cạnh nó. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
+          <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
           <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon">👨‍🍳</span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
           <NavLink to="/menu" title="Menu"><span className="nav-icon">📋</span><span className="nav-label">Menu</span></NavLink>
           <NavLink to="/tables" title="Bàn"><span className="nav-icon">🪑</span><span className="nav-label">Bàn</span></NavLink>
-          <NavLink to="/history" title="Lịch sử"><span className="nav-icon">📜</span><span className="nav-label">L/sử</span></NavLink>
+          {/* Nhãn "Online" chứ không phải "H/chờ": trang này gồm cả hàng chờ và cài đặt nhận đơn.
+              Đứng ở mục thứ 7 là theo yêu cầu của chủ quán (đổi chỗ với L/sử) — lưu ý từ mục
+              thứ 7 trở đi phải vuốt ngang mới thấy trên điện thoại, kể cả badge đơn đang chờ. */}
+          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon-wrap"><span className="nav-icon">🛎</span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
           {/* Nhà cung cấp — thành mục thứ 8 (2026-09-06). Trước đây cố tình để ngoài nav vì sợ
               bóp nhỏ các mục khác, nhưng thẻ ở Dashboard là đường vào quá kín: nhập hàng là việc
               LÀM HÀNG NGÀY, không phải màn tra cứu thỉnh thoảng như Thống kê truy cập.
