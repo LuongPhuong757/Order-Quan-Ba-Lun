@@ -25,6 +25,9 @@ type OrderSummary = {
   table_code: string;
   opened_at: number;
   first_kitchen_at: number | null;
+  /** M7 — khác NULL nghĩa là chính KHÁCH đã gửi lượt gọi qua QR cho bàn này. Không dùng
+   *  `guest_code`: mã được cấp ở lần báo bếp đầu tiên kể cả khi nhân viên gọi hộ (D-17). */
+  first_guest_request_at?: number | null;
   items?: Array<{
     id: string;
     menu_item_name: string;
@@ -80,6 +83,13 @@ export function OrdersPage() {
   const confirm = useConfirm();
   const [tables, setTables] = useState<Table[]>([]);
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
+  /* M7 — số lượt khách gọi bằng QR đang CHỜ DUYỆT, khoá theo `table_code`.
+   *
+   * Vì sao không đọc từ `/orders`: bàn mà khách vừa gửi lượt đầu chưa có món nào trong
+   * `order_items`, nên `listOpenOrders` lọc nó đi như một đơn rỗng (phantom). Đúng cái bàn
+   * cần báo động nhất lại là bàn KHÔNG xuất hiện trong danh sách — nên dấu hiệu phải lấy từ
+   * nguồn riêng. Dùng lại endpoint màn bếp đang gọi, không thêm endpoint mới. */
+  const [qrWaitingByCode, setQrWaitingByCode] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
   const [filter, setFilter] = useState<FilterKey>('all');
@@ -92,12 +102,29 @@ export function OrdersPage() {
 
   const refresh = useCallback(async (showError = true) => {
     try {
-      const [t, o] = await Promise.all([
+      const [t, o, qr] = await Promise.all([
         api.get<{ data: { items: Table[] } }>('/tables'),
         api.get<{ data: { items: OrderSummary[] } }>('/orders'),
+        // `.catch` riêng: lượt chờ QR là phần THÊM của sơ đồ bàn. Endpoint này lỗi mà kéo
+        // chết cả nhịp poll thì nhân viên mất luôn sơ đồ bàn — hỏng thứ đang chạy ổn định vì
+        // một thứ phụ.
+        api
+          .get<{ data: { requests: Array<{ table_code: string }> } }>('/table-requests/pending')
+          .catch(() => null),
       ]);
       // Defensive: nếu body trống (vd 304 leak), skip update không throw
       if (t.data?.data?.items) setTables(t.data.data.items);
+      {
+        const reqs = qr?.data?.data?.requests;
+        const next = new Map<string, number>();
+        if (Array.isArray(reqs)) {
+          for (const r of reqs) {
+            if (!r?.table_code) continue;
+            next.set(r.table_code, (next.get(r.table_code) ?? 0) + 1);
+          }
+        }
+        setQrWaitingByCode(next);
+      }
       if (o.data?.data?.items) {
         setOpenOrders(o.data.data.items);
         // Diff vs previous poll → emit notification cho items chuyển sang READY
@@ -324,15 +351,31 @@ export function OrdersPage() {
     const slowKitchen =
       minutesSinceKitchen != null && minutesSinceKitchen >= 15 && servedCount === 0;
 
+    /* M7 — hai dấu hiệu KHÁC NHAU, đừng gộp:
+     *  - `qrWaiting` : khách vừa gửi lượt, CHƯA ai duyệt → việc phải làm NGAY, nên đổi cả
+     *                  viền + nền để liếc từ xa là thấy.
+     *  - `hasQrOrder`: bàn này khách có tự gọi bằng QR trong bữa (đã duyệt rồi) → chỉ một
+     *                  nhãn nhỏ, để nhân viên biết bàn đang dùng điện thoại gọi món.
+     * Bàn chỉ có lượt chờ mà chưa có món nào thì KHÔNG nằm trong `/orders` (đơn rỗng bị lọc),
+     * nên mọi thứ dưới đây phải chạy được cả khi `order` là undefined. */
+    const qrWaiting = qrWaitingByCode.get(t.code) ?? 0;
+    const hasQrOrder = order?.first_guest_request_at != null;
+
     const bg = slowKitchen
       ? '#fee2e2'
+      : qrWaiting > 0
+      ? '#f5f3ff'
       : allServed
       ? '#ecfdf5'
       : hasActive
       ? KIND_BG[t.kind] || '#f3f4f6'
       : 'white';
+    // Bếp chậm vẫn thắng: đó là bàn đã chờ 15 phút không có món nào ra, nặng hơn một lượt
+    // vừa gửi vài giây trước.
     const border = slowKitchen
       ? '2px solid #dc2626'
+      : qrWaiting > 0
+      ? '2px solid #7c3aed'
       : allServed
       ? '2px solid #059669'
       : hasActive
@@ -341,7 +384,9 @@ export function OrdersPage() {
 
     // Cho khoá nhanh bàn trống HOẶC bàn chỉ có đơn rỗng (chưa gọi món) — BE sẽ
     // tự dọn đơn rỗng rồi khoá. Bàn có món thật thì ẩn nút (BE chặn).
-    const canQuickLock = !order || items.length === 0;
+    // M7 — có lượt khách đang chờ duyệt thì ẩn nút khoá nhanh: bàn trông như trống nhưng
+    // thực tế có người ngồi, khoá đi là lượt của khách treo mà không ai biết.
+    const canQuickLock = (!order || items.length === 0) && qrWaiting === 0;
 
     return (
       <div key={t.id} style={{ position: 'relative' }}>
@@ -391,8 +436,42 @@ export function OrdersPage() {
           )}
         </div>
 
+        {qrWaiting > 0 && (
+          /* Chữ đầy đủ, không chỉ một con số: "2" cạnh các badge trạng thái khác thì không
+             ai đoán ra nó là lượt chờ duyệt. */
+          <div
+            style={{
+              background: '#7c3aed',
+              color: 'white',
+              padding: '3px 8px',
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              alignSelf: 'flex-start',
+            }}
+            title="Khách gọi bằng QR, đang chờ nhân viên duyệt"
+          >
+            📱 {qrWaiting} lượt chờ duyệt
+          </div>
+        )}
+
         {hasActive || servedCount > 0 ? (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {hasQrOrder && (
+              <span
+                style={{
+                  background: '#ede9fe',
+                  color: '#5b21b6',
+                  padding: '2px 8px',
+                  borderRadius: 999,
+                  fontSize: 11,
+                  fontWeight: 600,
+                }}
+                title="Bàn này khách tự gọi món bằng QR"
+              >
+                📱 QR
+              </span>
+            )}
             {Object.entries(counts).map(([st, n]) => {
               if (n === 0) return null;
               const b = STATE_BADGE[st];
@@ -429,6 +508,13 @@ export function OrdersPage() {
                 🍽 {servedCount} đã giao
               </span>
             )}
+          </div>
+        ) : qrWaiting > 0 ? (
+          /* Bàn chưa có món nào được duyệt nên `/orders` không trả về nó. Không viết đè câu
+             này thì thẻ hiện "Trống" ngay trong lúc khách đang ngồi chờ — đúng tình huống
+             dấu hiệu QR sinh ra để tránh. */
+          <div style={{ color: '#5b21b6', fontSize: 12, fontWeight: 600 }}>
+            Khách đã gọi — bấm để duyệt
           </div>
         ) : (
           <div style={{ color: '#9ca3af', fontSize: 12 }}>Trống — bấm để gọi món</div>

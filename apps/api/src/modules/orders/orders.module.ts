@@ -8,6 +8,11 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { OrdersService } from './orders.service.js';
+import { TableRequestsController, TableCallsController } from './table-requests.controller.js';
+import { TableRequestsService } from './table-requests.service.js';
+import { TableOrderRequest } from '../public/entities/table-order-request.entity.js';
+import { TableOrderRequestItem } from '../public/entities/table-order-request-item.entity.js';
+import { TableCall } from '../public/entities/table-call.entity.js';
 import { OrdersController } from './orders.controller.js';
 import { DishSalesService } from './dish-sales.service.js';
 import { DishSalesController } from './dish-sales.controller.js';
@@ -19,6 +24,7 @@ import { PrintingModule } from '../printing/printing.module.js';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
+      TableOrderRequest, TableOrderRequestItem, TableCall,
       Order,
       OrderItem,
       OrderActivityLog,
@@ -35,7 +41,10 @@ import { PrintingModule } from '../printing/printing.module.js';
     // In hoá đơn (2026-09-19) — `checkout()` xếp job in ngay sau khi thu tiền xong.
     PrintingModule,
   ],
-  controllers: [OrdersController, DishSalesController, PaymentPhotosController],
-  providers: [OrdersService, DishSalesService],
+  controllers: [TableRequestsController, TableCallsController, OrdersController, DishSalesController, PaymentPhotosController],
+  providers: [TableRequestsService, OrdersService, DishSalesService],
+  // M7 — `TableGuestService` của PublicModule gọi `getOrCreateOpenOrder` và `addItemsBulk`
+  // thay vì tự viết lại logic mở đơn (đã có pessimistic_write + dedupe phantom + retry).
+  exports: [OrdersService],
 })
 export class OrdersModule {}

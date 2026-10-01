@@ -29,6 +29,10 @@ export default defineConfig({
       '/menu-groups': apiProxy(),
       '/tables':      apiProxy(),
       '/orders':      apiProxy(),
+      // M7 — khách tự gọi món tại bàn (2026-10-01). Danh sách này liệt kê CỨNG, không có '/api'
+      // bắt tất như apps/shop — quên thêm vào đây thì màn bếp rỗng mà log API sạch.
+      '/table-requests': apiProxy(),
+      '/table-calls':    apiProxy(),
       // Cầu in (2026-09-19). Trang `/print-bridge` gọi `/print/*` TỪ TRÌNH DUYỆT, nên thiếu
       // dòng này là dev server nuốt request và trả index.html — đúng cái bẫy mô tả ở dưới.
       // Đối soát chuyển khoản (2026-09-22). `/payments` là nơi màn thu tiền xin mã thanh toán;

@@ -31,6 +31,24 @@ import { playPageTurn } from '../lib/page-turn-sound.ts';
 import { BookCard, BOOK_CARD_CSS } from '../components/BookCard.tsx';
 import { BookDishPreview, BOOK_PREVIEW_CSS } from '../components/BookDishPreview.tsx';
 import { Wordmark } from '../components/Wordmark.tsx';
+// M7 — khách tự gọi món tại bàn (2026-10-01). Tất cả là LỚP PHỦ, không route: trang này chạy
+// ở cả `/thuc-don` lẫn `menu.<domain>` mà nhánh thứ hai CỐ Ý không có BrowserRouter, nên route
+// mới sẽ chỉ chạy được ở một trong hai địa chỉ mà QR có thể trỏ tới.
+import {
+  DINEIN_CSS,
+  TableCartSheet,
+  TableConfirmSheet,
+  TableEntrySheet,
+  TableStateSheet,
+} from '../components/DineInSheets.tsx';
+import {
+  addTableLine,
+  readTableCart,
+  readTableSession,
+  subscribeTableCart,
+  tableCartCount,
+  type TableSession,
+} from '../lib/table-cart-store.ts';
 
 /**
  * Quyển menu điện tử của quán — `menu.<domain>` (chủ quán yêu cầu 2026-09-04).
@@ -82,6 +100,13 @@ export function MenuBookPage(): JSX.Element {
   const groups = useMemo(() => menu.data?.groups ?? [], [menu.data]);
 
   const [preview, setPreview] = useState<{ item: PublicMenuItem; from: DOMRect } | null>(null);
+
+  /* ── M7 — gọi món tại bàn ─────────────────────────────────────────────────────────── */
+  const [session, setSession] = useState<TableSession | null>(() => readTableSession());
+  const [pendingSession, setPendingSession] = useState<TableSession | null>(null);
+  const [sheet, setSheet] = useState<'none' | 'entry' | 'cart' | 'state'>('none');
+  const [cartCount, setCartCount] = useState(() => tableCartCount(readTableCart()));
+  useEffect(() => subscribeTableCart(() => setCartCount(tableCartCount(readTableCart()))), []);
 
   // Trang này dùng chung `index.html` với trang đặt hàng (một bundle, chọn theo tên miền),
   // nên tiêu đề tab phải sửa ở đây — nếu không khách lưu trang lại thấy chữ "Đặt hàng".
@@ -821,7 +846,8 @@ export function MenuBookPage(): JSX.Element {
   return (
     <div style={shell} className="book-shell">
       <style>{BOOK_CARD_CSS}</style>
-      <style>{BOOK_PREVIEW_CSS}</style>
+      <style>{BOOK_PREVIEW_CSS}
+            {DINEIN_CSS}</style>
       <style>{BOOK_PAGE_CSS}</style>
 
       {/* Thanh trên NỔI trên quyển sách chứ không đứng thành một dải riêng: trang cuộn
@@ -956,6 +982,90 @@ export function MenuBookPage(): JSX.Element {
           item={preview.item}
           from={preview.from}
           onClose={() => setPreview(null)}
+          addSlot={
+            // M7.D-07 — món hết thì vẫn THẤY, bôi mờ, không gọi được. Không ẩn: ẩn thì khách
+            // tưởng quán không bán và vẫn đi hỏi nhân viên, đúng việc M7 muốn giảm.
+            preview.item.is_out_of_stock ? null : (
+              <button
+                type="button"
+                className="dinein-add"
+                onClick={() => {
+                  addTableLine({
+                    menu_item_id: preview.item.id,
+                    name: preview.item.name,
+                    unit_price: preview.item.price,
+                    note: '',
+                  });
+                  setPreview(null);
+                }}
+              >
+                + Thêm vào giỏ
+              </button>
+            )
+          }
+        />
+      )}
+
+      {/* ── M7 — nút nổi: giỏ đang chọn, hoặc món của bàn ─────────────────────────────── */}
+      {(cartCount > 0 || session) && (
+        <div className="dinein-fab">
+          {session ? (
+            <button type="button" className="dinein-fab-btn" onClick={() => setSheet('state')}>
+              🧾 {session.table_name}
+            </button>
+          ) : null}
+          {cartCount > 0 ? (
+            <button
+              type="button"
+              className="dinein-fab-btn dinein-fab-btn--primary"
+              onClick={() => setSheet(session ? 'cart' : 'entry')}
+            >
+              🛒 {cartCount} món · Gọi món
+            </button>
+          ) : null}
+        </div>
+      )}
+
+      {sheet === 'entry' && (
+        <TableEntrySheet
+          onClose={() => setSheet('none')}
+          // Chưa gán `session` ngay: phải qua bước xác nhận TÊN BÀN cỡ lớn trước (M7.R1).
+          onDone={(s) => setPendingSession(s)}
+        />
+      )}
+
+      {pendingSession && (
+        <TableConfirmSheet
+          tableName={pendingSession.table_name}
+          onNo={() => {
+            setPendingSession(null);
+            setSheet('entry');
+          }}
+          onYes={() => {
+            setSession(pendingSession);
+            setPendingSession(null);
+            setSheet('cart');
+          }}
+        />
+      )}
+
+      {sheet === 'cart' && session && (
+        <TableCartSheet
+          session={session}
+          onClose={() => setSheet('none')}
+          onSent={() => setSheet('state')}
+        />
+      )}
+
+      {sheet === 'state' && session && (
+        <TableStateSheet
+          session={session}
+          onClose={() => setSheet('none')}
+          onEnded={() => {
+            // Bàn đã thanh toán / bị chuyển — phiên chết. Không tự đoán bàn mới.
+            setSession(null);
+            setSheet('none');
+          }}
         />
       )}
     </div>
