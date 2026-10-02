@@ -21,7 +21,12 @@ import { TableOrderRequestItem } from './entities/table-order-request-item.entit
 import { TableCall } from './entities/table-call.entity.js';
 import { matchTableByInput } from './table-input.js';
 import { isGuestSessionAlive } from './table-session.js';
-import { CALL_COOLDOWN_MS, MAX_WAITING_PER_ORDER, callCooldownLeftMs } from './table-limits.js';
+import {
+  CALL_MIN_GAP_MS as MIN_GAP_AFTER_CALL_MS,
+  MAX_UNACKED_CALLS_PER_ORDER,
+  MAX_WAITING_PER_ORDER,
+  callBlockedMs,
+} from './table-limits.js';
 import { OrdersService } from '../orders/orders.service.js';
 
 /** M7.D-19 — phiên thiết bị sống 8 giờ. Dài hơn một bữa ăn rất nhiều; thứ thật sự kết thúc
@@ -32,6 +37,16 @@ const GUEST_SESSION_TTL_MS = 8 * 60 * 60 * 1000;
  *  Vượt trần thì TÁI DÙNG phiên gần nhất chứ KHÔNG trả lỗi: khách thật không được chịu
  *  hậu quả của kẻ phá. */
 const MAX_UNBOUND_SESSIONS_PER_TABLE = 20;
+
+/** "2× Phở bò · 1× Dưa Chua". Cắt ở 400 ký tự — cột `message` là varchar(512) và phần đuôi
+ *  còn phải chừa chỗ cho câu dẫn. Lượt 20 dòng vẫn vừa, dài hơn thì nói rõ là đã cắt. */
+function moTaMon(
+  lines: readonly { menu_item_id: string; qty: number }[],
+  byId: ReadonlyMap<string, { name: string }>,
+): string {
+  const s = lines.map((l) => `${l.qty}× ${byId.get(l.menu_item_id)?.name ?? '?'}`).join(' · ');
+  return s.length <= 400 ? s : `${s.slice(0, 397)}…`;
+}
 
 @Injectable()
 export class TableGuestService {
@@ -292,6 +307,21 @@ export class TableGuestService {
       return req;
     });
 
+    /* Nhật ký bàn — M7. Dòng này là thứ DUY NHẤT ghi lại "khách tự gọi, lúc mấy giờ, gọi gì".
+     *
+     * Món chỉ vào bảng `order_items` lúc nhân viên DUYỆT, nên nếu không ghi ở đây thì một lượt
+     * bị bỏ (hoặc bị bỏ quên) không để lại dấu vết nào — đúng loại lỗi im lặng M7.R7 sinh ra
+     * để tránh. `actor` để trống có chủ ý: người làm việc này là KHÁCH, không phải nhân viên
+     * nào cả, và cột `actor_name` trống chính là cách nhật ký nói ra điều đó.
+     *
+     * `await` chứ không bắn-rồi-quên: `writeActivity` đã tự nuốt lỗi bên trong, nên chờ nó
+     * không thêm rủi ro nào mà lại giữ đúng thứ tự thời gian với các dòng ghi ngay sau. */
+    await this.ordersSvc.logOrderActivity({
+      order,
+      event_kind: 'guest_request',
+      message: `Khách gọi qua QR: ${moTaMon(input.items, byId)}`,
+    });
+
     return this.cartResult(saved.id, order.guest_code, input, byId);
   }
 
@@ -406,17 +436,32 @@ export class TableGuestService {
       });
     }
 
+    // Trần theo KHỐI LƯỢNG VIỆC ĐANG TỒN, không theo đồng hồ: khách thật gọi vài thứ rồi nhân
+    // viên tới bấm "Đã nghe" là bộ đếm về 0, nên họ không bao giờ chạm trần.
+    const unacked = await this.calls.count({ where: { order_id: order.id, acked_at: IsNull() } });
+    if (unacked >= MAX_UNACKED_CALLS_PER_ORDER) {
+      throw new ConflictException({
+        code: 'TOO_MANY_CALLS',
+        message: 'Quán đã nhận lời nhắn của bàn bạn rồi, nhân viên đang tới. Đợi một chút nhé.',
+      });
+    }
+
     const last = await this.calls.findOne({
       where: { order_id: order.id, kind },
       order: { created_at: 'DESC' },
     });
-    const left = callCooldownLeftMs(last?.created_at ?? null, Date.now());
+    const now = Date.now();
+    const left = callBlockedMs(
+      last ? { created_at: last.created_at, note: last.note } : null,
+      note,
+      now,
+    );
     if (left > 0) {
-      // 429 kèm `cooldown_until` để màn khách hiện ĐỒNG HỒ ĐẾM NGƯỢC, không phải lỗi đỏ.
+      // Kèm `cooldown_until` để màn khách hiện ĐỒNG HỒ ĐẾM NGƯỢC, không phải lỗi đỏ.
       throw new ConflictException({
         code: 'CALL_COOLDOWN',
         message: `Bạn vừa gọi rồi. Đợi ${Math.ceil(left / 1000)} giây nữa nhé.`,
-        cooldown_until: (last?.created_at ?? 0) + CALL_COOLDOWN_MS,
+        cooldown_until: now + left,
       });
     }
 
@@ -431,6 +476,6 @@ export class TableGuestService {
         acked_at: null,
       }),
     );
-    return { call_id: call.id, cooldown_until: call.created_at + CALL_COOLDOWN_MS };
+    return { call_id: call.id, cooldown_until: now + MIN_GAP_AFTER_CALL_MS };
   }
 }

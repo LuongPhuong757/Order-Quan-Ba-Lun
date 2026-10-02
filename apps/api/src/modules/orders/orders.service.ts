@@ -214,6 +214,27 @@ export class OrdersService {
   // ─── Activity log ───────────────────────────────────────────────────────
   /** Ghi 1 dòng log hoạt động cho đơn. Append-only, KHÔNG để lỗi log làm hỏng
    * thao tác chính (nuốt lỗi, chỉ warn). Snapshot bàn + giờ mở đơn để unique. */
+  /**
+   * M7 — cửa CÔNG KHAI để module khác ghi vào NHẬT KÝ BÀN.
+   *
+   * Luồng khách quét QR nằm ở `PublicModule` và `TableRequestsService`, nhưng nhật ký bàn thì
+   * chỉ có một quyển: chủ quán mở màn Lịch sử ra phải thấy "khách gọi qua QR" nằm đúng chỗ
+   * giữa các việc khác của bàn, theo thứ tự thời gian. Viết một đường ghi log thứ hai cho
+   * riêng QR là có hai quyển sổ phải đọc chéo khi đi soát một bàn.
+   *
+   * Vẫn đi qua `writeActivity` chứ không insert thẳng: hàm đó nuốt lỗi có chủ đích (ghi log
+   * hỏng KHÔNG được làm hỏng việc đang làm) và chuẩn hoá đủ 5 cột snapshot của bàn.
+   */
+  async logOrderActivity(params: {
+    order: { id: string; table_id: string; table_code: string; opened_at: number };
+    event_kind: string;
+    message: string;
+    actor?: OrderCreator;
+    item_id?: string | null;
+  }): Promise<void> {
+    return this.writeActivity(params);
+  }
+
   private async writeActivity(params: {
     order: { id: string; table_id: string; table_code: string; opened_at: number };
     event_kind: string;

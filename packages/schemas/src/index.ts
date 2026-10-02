@@ -20,3 +20,6 @@ export * from './payment-qr.js';
 export * from './payment-code.js';
 export * from './transfer-note.js';
 export * from './vietqr-payload.js';
+// Món tự thêm (khăn lạnh). Không có zod — ở đây vì đây là package DUY NHẤT mà cả apps/web
+// lẫn apps/api đều đã khai phụ thuộc, xem docblock trong file.
+export * from './auto-items.js';

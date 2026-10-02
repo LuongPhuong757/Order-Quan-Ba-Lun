@@ -97,6 +97,55 @@ export function MenuOrderPage(): JSX.Element {
    * mở — trang nền nhảy ngay dưới lớp phủ. Một cờ gộp thì không có ca đó. */
   useBodyScrollLock(sheet !== 'none' || pendingSession !== null || sheetItem !== null);
 
+  const applyTableName = useCallback((tableName: string) => {
+    setSession((cur) => {
+      if (!cur || cur.table_name === tableName) return cur;
+      const next = { ...cur, table_name: tableName };
+      writeTableSession(next);
+      return next;
+    });
+  }, []);
+
+  /* Đồng bộ MỘT LẦN lúc mở trang, không phải vòng lặp.
+   *
+   * Tên bàn trong máy khách có thể đã cũ từ trước khi trang được mở: nhân viên dời bàn hoặc
+   * thu tiền xong trong lúc khách tắt máy. Không hỏi lại thì chip ở đầu trang in tên bàn cũ
+   * suốt buổi, và khách chỉ phát hiện khi mở màn "Món của bàn" — mà phần lớn thì không mở.
+   *
+   * MỘT request chứ không poll: cả quán đi chung một IP (M7.R6), thêm một nhịp lặp nữa cho
+   * mọi máy khách là đổi một lỗi hiển thị lấy một rủi ro 429 cho nút "Báo bếp" của nhân viên. */
+  useEffect(() => {
+    const token = session?.guest_token;
+    if (!token) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch('/api/public/table/state', { headers: { 'X-Guest-Token': token } });
+        const json = (await res.json()) as {
+          data?: { table_name: string };
+          error?: { code: string };
+        };
+        if (!alive) return;
+        if (json.error?.code === 'SESSION_ENDED') {
+          // Bàn đã thanh toán / bị niêm. Giữ phiên chết lại là chip khoe một bàn không còn
+          // của khách nữa, và mọi thao tác sau đó đều hỏng.
+          writeTableSession(null);
+          setSession(null);
+          setSheet('entry');
+          return;
+        }
+        if (json.data?.table_name) applyTableName(json.data.table_name);
+      } catch {
+        /* mất mạng lúc mở trang — tên cũ vẫn dùng được, nhịp sau người dùng tự mở lại */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+    // Chỉ chạy lại khi ĐỔI phiên, không chạy lại khi tên bàn được cập nhật — nếu không nó tự
+    // gọi lại chính mình.
+  }, [session?.guest_token, applyTableName]);
+
   const sectionRefs = useRef(new Map<string, HTMLElement>());
 
   /* Chiều cao THẬT của khối dính (header + dải nhóm), đo chứ không khai cứng.
@@ -376,6 +425,7 @@ export function MenuOrderPage(): JSX.Element {
             setSession(null);
             setSheet('entry');
           }}
+          onTableRenamed={applyTableName}
           onEnded={() => {
             setSession(null);
             // Bàn đã kết thúc → về lại CỔNG, không thả khách ra thực đơn ở trạng thái lửng lơ.

@@ -1068,6 +1068,14 @@ export function MenuBookPage(): JSX.Element {
             setSession(null);
             setSheet('entry');
           }}
+          onTableRenamed={(tableName) =>
+            setSession((cur) => {
+              if (!cur || cur.table_name === tableName) return cur;
+              const next = { ...cur, table_name: tableName };
+              writeTableSession(next);
+              return next;
+            })
+          }
           onEnded={() => {
             // Bàn đã thanh toán / bị chuyển — phiên chết. Không tự đoán bàn mới.
             setSession(null);
