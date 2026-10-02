@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { GuestCard, PendingCall } from '../lib/kds-guest-cards.js';
-import { describeAge } from '../lib/kds-guest-cards.js';
+import { describeAge, describeGroup, groupCallsByTable } from '../lib/kds-guest-cards.js';
 import { tableSpeechName } from '../lib/voice-text.js';
 
 /**
@@ -32,7 +32,8 @@ export function GuestRequestCards({
   busyId: string | null;
   onApprove: (requestId: string) => void;
   onReject: (requestId: string) => void;
-  onAck: (callId: string) => void;
+  /** Nhận NHIỀU id: một chuyến đi tới bàn giải quyết mọi lời nhắn của bàn đó cùng lúc. */
+  onAck: (callIds: string[]) => void;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
@@ -41,36 +42,46 @@ export function GuestRequestCards({
    * Từ khi khách ghi được lý do ("thêm bát đũa"), một cú chạm nhầm vào chip sẽ vừa xoá thẻ
    * vừa xoá luôn thứ duy nhất nói cho nhân viên biết phải mang gì xuống. Nên tách làm hai:
    * chạm để đọc, rồi mới bấm "Đã nghe". */
-  const [openCallId, setOpenCallId] = useState<string | null>(null);
+  /* Mở theo BÀN, không theo từng lời nhắn: chip giờ là một bàn. */
+  const [openTable, setOpenTable] = useState<string | null>(null);
 
   if (cards.length === 0 && calls.length === 0) return null;
 
   const open = cards.find((c) => c.request_id === openId) ?? null;
-  const openCall = calls.find((c) => c.id === openCallId) ?? null;
+  const groups = groupCallsByTable(calls);
+  const openGroup = groups.find((g) => g.table_code === openTable) ?? null;
 
   return (
     <>
       <div className="kds-guest-rail">
-        {calls.map((c) => (
+        {/* MỘT BÀN MỘT CHIP. Trước đây mỗi lời nhắn một chip, nên một bàn bấm gọi 5 lần là
+            đẩy hết bàn khác ra khỏi dải — đúng lúc những bàn kia cũng đang chờ. */}
+        {groups.map((g) => (
           <button
-            key={c.id}
+            key={g.table_code}
             type="button"
-            className={`kds-guest-chip kds-guest-chip--call${c.kind === 'BILL' ? ' is-bill' : ''}`}
-            disabled={busyId === c.id}
-            onClick={() => setOpenCallId(c.id)}
-            title={c.note ? `Khách nhắn: ${c.note}` : 'Bấm để xem và báo đã nghe'}
+            className={`kds-guest-chip kds-guest-chip--call${
+              !g.has_staff && g.has_bill ? ' is-bill' : ''
+            }`}
+            disabled={g.items.some((i) => busyId === i.id)}
+            onClick={() => setOpenTable(g.table_code)}
+            title={
+              g.items.length > 1
+                ? `${g.items.length} lời nhắn của ${g.table_name} — bấm để xem hết`
+                : g.items[0]!.note
+                  ? `Khách nhắn: ${g.items[0]!.note}`
+                  : 'Bấm để xem và báo đã nghe'
+            }
           >
-            <span aria-hidden>{c.kind === 'STAFF' ? '🔔' : '💵'}</span>
-            <b>{tableSpeechName(c.table_name)}</b>
-            {/* Có lời nhắn thì in LUÔN trên chip, cắt bớt nếu dài: nhân viên liếc là biết phải
-                mang gì, không phải mở ra mới thấy. Mở ra chỉ để đọc đủ câu dài. */}
-            <i>
-              {c.note
-                ? `💬 ${c.note.length > 22 ? `${c.note.slice(0, 22)}…` : c.note}`
-                : c.kind === 'STAFF'
-                  ? 'gọi thêm đồ'
-                  : 'thanh toán'}
-            </i>
+            {/* Bàn vừa gọi nhân viên vừa xin tính tiền thì hiện CẢ HAI biểu tượng: nhân viên
+                phải biết cầm theo máy tính tiền trước khi đi, khỏi đi hai lượt. */}
+            <span aria-hidden>
+              {g.has_staff ? '🔔' : ''}
+              {g.has_bill ? '💵' : ''}
+            </span>
+            <b>{tableSpeechName(g.table_name)}</b>
+            <i>{describeGroup(g)}</i>
+            {g.items.length > 1 ? <span className="kds-guest-n">{g.items.length}</span> : null}
           </button>
         ))}
 
@@ -93,38 +104,64 @@ export function GuestRequestCards({
         ))}
       </div>
 
-      {/* Lời nhắn của khách khi bấm gọi. */}
-      {openCall ? (
-        <div className="kds-guest-overlay" onClick={() => setOpenCallId(null)}>
+      {/* Mọi lời nhắn của MỘT BÀN, cũ trước mới sau. */}
+      {openGroup ? (
+        <div className="kds-guest-overlay" onClick={() => setOpenTable(null)}>
           <div className="kds-guest-modal kds-call-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
               <b>
-                {openCall.kind === 'STAFF' ? '🔔' : '💵'} {tableSpeechName(openCall.table_name).toUpperCase()}
-                {' — '}
-                {openCall.kind === 'STAFF' ? 'GỌI NHÂN VIÊN' : 'XIN TÍNH TIỀN'}
+                {openGroup.has_staff ? '🔔' : ''}
+                {openGroup.has_bill ? '💵' : ''} {tableSpeechName(openGroup.table_name).toUpperCase()}
               </b>
-              <button type="button" onClick={() => setOpenCallId(null)} aria-label="Đóng">✕</button>
+              <span>{openGroup.items.length} lời nhắn</span>
+              <button type="button" onClick={() => setOpenTable(null)} aria-label="Đóng">✕</button>
             </div>
 
             <div className="kds-guest-modal-body">
-              {openCall.note ? (
-                <p className="kds-call-note">{openCall.note}</p>
-              ) : (
-                <p className="kds-call-none">Khách không ghi lý do.</p>
-              )}
+              {openGroup.items.map((c) => (
+                <div key={c.id} className="kds-call-row">
+                  <div className="kds-call-row-main">
+                    <span className="kds-call-kind">
+                      {c.kind === 'STAFF' ? '🔔 Gọi nhân viên' : '💵 Xin tính tiền'}
+                      {' · '}
+                      {describeAge(Math.max(0, Date.now() - c.created_at))}
+                    </span>
+                    {c.note ? (
+                      <p className="kds-call-note">{c.note}</p>
+                    ) : (
+                      <p className="kds-call-none">Khách không ghi lý do.</p>
+                    )}
+                  </div>
+                  {/* Bỏ được TỪNG lời nhắn: bàn nhắn "thêm đá" rồi "tính tiền" thì nhân viên
+                      mang đá xong vẫn còn việc tính tiền, không được xoá sạch một lượt. */}
+                  <button
+                    type="button"
+                    className="kds-call-one"
+                    disabled={busyId === c.id}
+                    onClick={() => {
+                      onAck([c.id]);
+                      if (openGroup.items.length === 1) setOpenTable(null);
+                    }}
+                  >
+                    ✓
+                  </button>
+                </div>
+              ))}
             </div>
 
             <div className="kds-guest-modal-foot">
               <button
                 type="button"
                 className="kds-guest-approve"
-                disabled={busyId === openCall.id}
+                disabled={openGroup.items.some((i) => busyId === i.id)}
                 onClick={() => {
-                  onAck(openCall.id);
-                  setOpenCallId(null);
+                  onAck(openGroup.items.map((i) => i.id));
+                  setOpenTable(null);
                 }}
               >
-                {busyId === openCall.id ? 'Đang gửi…' : '✓ Đã nghe'}
+                {openGroup.items.length > 1
+                  ? `✓ Đã nghe tất cả (${openGroup.items.length})`
+                  : '✓ Đã nghe'}
               </button>
             </div>
           </div>

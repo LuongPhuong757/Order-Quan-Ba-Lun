@@ -26,7 +26,13 @@ import { useOnlineWaitingCount } from '../lib/online-waiting-badge.ts';
 // M7 — khách tự gọi món tại bàn (2026-10-01).
 import { createBell } from '../lib/bell.ts';
 import { GuestRequestCards } from '../components/GuestRequestCards.tsx';
-import { buildGuestCards, type GuestCard, type PendingCall, type PendingPayload } from '../lib/kds-guest-cards.ts';
+import {
+  buildGuestCards,
+  groupCallsByTable,
+  type GuestCard,
+  type PendingCall,
+  type PendingPayload,
+} from '../lib/kds-guest-cards.ts';
 import { buildSpeech } from '../lib/voice-text.ts';
 import { pruneSpoken, shouldSpeak } from '../lib/voice-dedup.ts';
 import { createVoice, isVoiceEnabled, setVoiceEnabled } from '../lib/voice.ts';
@@ -451,7 +457,9 @@ export function KitchenPage() {
   const guestCards: GuestCard[] = buildGuestCards(guestPending, Date.now());
   const guestCalls: PendingCall[] = guestPending?.calls ?? [];
   // Gộp lượt chờ duyệt + chuông chưa ai nghe: với bếp thì cả hai đều là "có việc của khách".
-  const guestWaitingCount = guestCards.length + guestCalls.length;
+  // Đếm theo SỐ BÀN đang gọi, không theo số lời nhắn: con số trên nút phải khớp với số chip
+  // nhìn thấy khi xổ dải ra. Bàn bấm 5 lần vẫn là MỘT việc phải đi.
+  const guestWaitingCount = guestCards.length + groupCallsByTable(guestCalls).length;
   /* Dải chỉ MỞ khi vừa được bấm mở VÀ có thứ để hiện.
    *
    * Tách khỏi `guestOpen` vì hai thứ khác nhau: `guestOpen` là ý định của người bấm, còn cái
@@ -511,14 +519,30 @@ export function KitchenPage() {
     [refresh, toast],
   );
 
+  /** Nhận NHIỀU id vì chip giờ là một BÀN, không phải một lời nhắn: nhân viên đi tới bàn một
+   *  chuyến và giải quyết hết mọi thứ bàn đó nhắn. */
   const ackCall = useCallback(
-    async (callId: string) => {
-      setGuestBusyId(callId);
+    async (callIds: string[]) => {
+      if (callIds.length === 0) return;
+      setGuestBusyId(callIds[0]!);
       try {
-        await api.post(`/table-calls/${callId}/ack`, {});
+        // Tuần tự chứ không `Promise.all`: mỗi lời nhắn là một dòng riêng và người khác có thể
+        // vừa bấm "Đã nghe" một trong số đó. Bắn song song thì một lỗi 409 bình thường (người
+        // khác nghe trước) sẽ nuốt mất những cái còn lại.
+        let failed = 0;
+        for (const id of callIds) {
+          try {
+            await api.post(`/table-calls/${id}/ack`, {});
+          } catch {
+            // 409 = người khác vừa bấm. Đó là hợp tác bình thường, không phải sự cố — đếm lại
+            // rồi đi tiếp, đừng dừng cả loạt.
+            failed++;
+          }
+        }
+        if (failed === callIds.length) {
+          toast.push('info', 'Những lời nhắn này vừa được người khác nghe rồi.');
+        }
         await refresh(false);
-      } catch (err) {
-        toast.push('error', extractError(err).message);
       } finally {
         setGuestBusyId(null);
       }
@@ -1409,8 +1433,27 @@ export function KitchenPage() {
            (tím): hai hộp mở ra từ hai loại chip khác nhau, không được nhìn giống nhau. */
         .kds-call-modal { border-color: #0e7490; }
         .kds-call-modal .kds-guest-modal-head b { color: #155e75; }
-        .kds-call-note { margin: 0; font-size: 26px; font-weight: 700; color: #0f172a; }
-        .kds-call-none { margin: 0; font-size: 18px; color: #64748b; }
+        .kds-call-note { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: #0f172a; }
+        .kds-call-none { margin: 2px 0 0; font-size: 16px; color: #64748b; }
+        /* Số lời nhắn trên chip — chỉ hiện khi nhiều hơn một. */
+        .kds-guest-n {
+          flex: none; min-width: 24px; padding: 1px 7px; border-radius: 999px;
+          background: #0e7490; color: #fff; font-size: 14px; font-weight: 800; text-align: center;
+        }
+        /* Một dòng lời nhắn trong hộp, kèm nút nghe riêng từng dòng. */
+        .kds-call-row {
+          display: flex; align-items: flex-start; gap: 10px;
+          padding: 10px 0; border-bottom: 1px solid #e2e8f0;
+        }
+        .kds-call-row:last-child { border-bottom: none; }
+        .kds-call-row-main { flex: 1; min-width: 0; }
+        .kds-call-kind { font-size: 14px; font-weight: 700; color: #0e7490; }
+        .kds-call-one {
+          flex: none; min-width: 44px; min-height: 44px; border-radius: 8px;
+          border: 1px solid #99f6e4; background: #f0fdfa; color: #0f766e;
+          font-size: 20px; font-weight: 800; cursor: pointer;
+        }
+        .kds-call-one:disabled { opacity: 0.5; cursor: default; }
         /* PHẢI khai color ở đây. styles.css có rule chung cho mọi <button> đặt
            background:#0f766e; color:white. Rule này mạnh hơn nên đè được NỀN về trắng, nhưng
            không đụng tới màu CHỮ — nên chữ vẫn trắng, nằm trên nền trắng, đọc không ra. Người

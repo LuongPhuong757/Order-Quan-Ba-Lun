@@ -119,3 +119,63 @@ export function describeAge(ageMs: number): string {
   if (s < 60) return `${s} giây trước`;
   return `${Math.floor(s / 60)} phút trước`;
 }
+
+/* ── Gộp lời nhắn theo BÀN ──────────────────────────────────────────────────────────────
+ *
+ * Một bàn bấm gọi 5 lần là 5 chip, và dải chip chỉ rộng bằng thanh trên — bàn ồn ào đẩy hết
+ * bàn khác ra khỏi màn, đúng lúc những bàn kia cũng đang chờ. Chủ quán báo 2026-10-02.
+ *
+ * Gộp theo BÀN chứ không theo (bàn, loại): nhân viên đi tới bàn MỘT lần và giải quyết mọi thứ
+ * bàn đó cần, nên một chuyến đi là một chip. Loại nào có thì hiện bằng biểu tượng trong chip.
+ */
+
+export type CallGroup = {
+  table_code: string;
+  table_name: string;
+  /** Lời nhắn cũ nhất của bàn — dùng để xếp thứ tự: bàn chờ lâu nhất đứng đầu dải. */
+  oldest_at: number;
+  has_staff: boolean;
+  has_bill: boolean;
+  /** Mọi lời nhắn của bàn, cũ trước mới sau. */
+  items: PendingCall[];
+};
+
+export function groupCallsByTable(calls: PendingCall[] | undefined | null): CallGroup[] {
+  if (!Array.isArray(calls)) return [];
+  const by = new Map<string, CallGroup>();
+  for (const c of calls) {
+    if (!c || typeof c.id !== 'string') continue;
+    // Khoá theo `table_code` chứ không theo `table_name`: tên bàn đổi được giữa chừng, mã thì
+    // là ảnh chụp lúc khách bấm. Gộp theo tên là hai lời nhắn của cùng một bàn tách làm hai.
+    const key = c.table_code || c.table_name || c.id;
+    const g = by.get(key);
+    if (g) {
+      g.items.push(c);
+      g.oldest_at = Math.min(g.oldest_at, Number(c.created_at ?? g.oldest_at));
+      g.has_staff = g.has_staff || c.kind === 'STAFF';
+      g.has_bill = g.has_bill || c.kind === 'BILL';
+    } else {
+      by.set(key, {
+        table_code: c.table_code,
+        table_name: c.table_name || c.table_code || '',
+        oldest_at: Number(c.created_at ?? 0),
+        has_staff: c.kind === 'STAFF',
+        has_bill: c.kind === 'BILL',
+        items: [c],
+      });
+    }
+  }
+  const out = [...by.values()];
+  for (const g of out) g.items.sort((a, b) => Number(a.created_at) - Number(b.created_at));
+  // Bàn chờ lâu nhất đứng trước: dải cuộn ngang, thứ nằm ngoài tầm mắt phải là thứ mới nhất.
+  out.sort((a, b) => a.oldest_at - b.oldest_at);
+  return out;
+}
+
+/** Câu tóm tắt in trên chip. Một lời nhắn thì in thẳng lời đó; nhiều thì đếm. */
+export function describeGroup(g: CallGroup): string {
+  if (g.items.length > 1) return g.items.length + ' lời nhắn';
+  const one = g.items[0]!;
+  if (one.note) return '💬 ' + (one.note.length > 22 ? one.note.slice(0, 22) + '…' : one.note);
+  return one.kind === 'STAFF' ? 'gọi thêm đồ' : 'thanh toán';
+}
