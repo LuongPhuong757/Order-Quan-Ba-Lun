@@ -7,6 +7,7 @@ import { SupplierPayment, type PaymentMethod } from './entities/supplier-payment
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { toDateString } from './suppliers.service.js';
 import { computeBalance, type SupplierBalance } from './balance.js';
+import { assertNotFutureDate } from './future-date.js';
 
 export type Actor = { id: string; full_name: string; is_owner?: boolean };
 
@@ -172,6 +173,14 @@ export class PaymentsService {
     if (!(input.amount > 0)) {
       throw new BadRequestException({ code: 'BAD_INPUT', message: 'Số tiền phải lớn hơn 0' });
     }
+    // NGÀY TƯƠNG LAI (2026-10-02): cùng luật với ngày giao của phiếu nhập — cả hai ghi lại việc
+    // ĐÃ xảy ra. Một lần trả ghi sang tuần sau sẽ kéo tụt đường công nợ ở màn Thống kê vào một
+    // ngày chưa tới, mà nhìn vào bảng thì con số vẫn hợp lý. Xem `future-date.ts`.
+    assertNotFutureDate(input.paid_on, today, {
+      code: 'PAYMENT_DATE_FUTURE',
+      nhan: 'Ngày trả',
+      viSao: 'Chỉ ghi được khoản tiền ĐÃ đưa cho nhà cung cấp.',
+    });
     return this.paymentRepo.save(
       this.paymentRepo.create({
         supplier_id: input.supplier_id,
