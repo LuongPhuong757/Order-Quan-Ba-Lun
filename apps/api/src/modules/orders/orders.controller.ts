@@ -78,6 +78,12 @@ class CheckoutDto {
   @IsOptional() @IsString() @MaxLength(128) payment_qr_label?: string;
   @IsOptional() @IsString() @MaxLength(64) transfer_note?: string;
 
+  /* ── Không chụp được bill (2026-10-02) ──
+   * Ảnh bill là BẮT BUỘC với đơn chuyển khoản, nhưng camera hỏng / mạng yếu thì vẫn phải thu
+   * được tiền — người thu bấm "Không chụp được" và gõ lý do, lý do đi qua đây. Chỉ có nghĩa khi
+   * `transfer_amount > 0`; gửi kèm cho đơn tiền mặt thì service bỏ qua. */
+  @IsOptional() @IsString() @MaxLength(255) payment_photo_skip_reason?: string;
+
   /* ── Ghi nợ (2026-09-25, `docs/GHI-NO-KHACH-SPEC.md`) ──
    * `debt = true` → khách không trả, bàn vẫn trả; cụm `transfer_*` bị bỏ qua. `debt_note` (tên
    * khách) BẮT BUỘC khi ghi nợ — kiểm ở handler vì class-validator không có điều kiện chéo gọn. */
@@ -408,6 +414,7 @@ export class OrdersController {
     // Giá trị lạ → bỏ qua bộ lọc, không ném 400: gõ sai query string chỉ nên mất bộ lọc, không
     // nên làm cả màn Lịch sử trắng xoá.
     const verified = q.verified === 'yes' || q.verified === 'no' ? q.verified : undefined;
+    const photo = q.photo === 'has' || q.photo === 'missing' ? q.photo : undefined;
     // Giá trị lạ → về mặc định 'opened', không báo lỗi: sort chỉ đổi THỨ TỰ hiển thị, không
     // đổi tập đơn trả về, nên gõ sai query string không đáng ném 400 vào mặt người dùng.
     const sort = q.sort === 'paid' ? 'paid' : 'opened';
@@ -417,6 +424,7 @@ export class OrdersController {
       end_ms: q.end_ms ? Number(q.end_ms) : undefined,
       cashier_user_id: q.cashier_user_id || undefined,
       verified,
+      photo,
       status,
       misa,
       payment,
@@ -470,6 +478,7 @@ export class OrdersController {
       qr_account_id: parseQrAccountId(q.qr_account_id),
       payment: parsePaymentFilter(q.payment),
       verified: q.verified === 'yes' || q.verified === 'no' ? q.verified : undefined,
+      photo: q.photo === 'has' || q.photo === 'missing' ? q.photo : undefined,
     });
     return { data };
   }
@@ -534,6 +543,7 @@ function transferFromBody(body: CheckoutDto | undefined): CheckoutTransfer | und
     account_id: body.paid_to_account_id ?? null,
     qr_label: body.payment_qr_label ?? null,
     note: body.transfer_note ?? null,
+    photo_skip_reason: body.payment_photo_skip_reason ?? null,
   };
 }
 

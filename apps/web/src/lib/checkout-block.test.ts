@@ -1,8 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { checkoutBlockReason, stepBlockReason } from './checkout-block.ts';
 
-const S = (mode: 'CASH' | 'TRANSFER' | 'SPLIT' | null, hasPickedQr = false, transferAmount = 0) =>
-  ({ mode, hasPickedQr, transferAmount });
+/** `photoCount` mặc định 1: phần lớn ca kiểm ở đây nói về hình thức / mã QR / số tiền, và để
+ *  mặc định 0 thì mọi ca chuyển khoản đều dừng ở câu "chụp ảnh bill" — che mất thứ đang kiểm.
+ *  Luật ảnh bill có nhóm riêng ở cuối tệp. */
+const S = (
+  mode: 'CASH' | 'TRANSFER' | 'SPLIT' | null,
+  hasPickedQr = false,
+  transferAmount = 0,
+  photoCount = 1,
+) => ({ mode, hasPickedQr, transferAmount, photoCount });
 
 describe('khi nào bấm Thanh toán được', () => {
   it('chưa chọn hình thức → chặn, và nói đúng bước ĐANG thiếu', () => {
@@ -17,7 +24,7 @@ describe('khi nào bấm Thanh toán được', () => {
     expect(checkoutBlockReason(S('TRANSFER', false, 985000))).toBe('Vui lòng chọn mã QR để thanh toán');
   });
 
-  it('chuyển khoản đã chọn mã → bấm được, KHÔNG đòi ảnh bill (ảnh là tuỳ chọn)', () => {
+  it('chuyển khoản đã chọn mã + đã có ảnh bill → bấm được', () => {
     expect(checkoutBlockReason(S('TRANSFER', true, 985000))).toBeNull();
   });
 
@@ -70,18 +77,50 @@ describe('chặn theo TỪNG MÀN (hộp thoại 4 bước)', () => {
 
 describe('ghi nợ (2026-09-25)', () => {
   it('ghi nợ mà chưa gõ tên khách → chặn, nói đúng thứ đang thiếu', () => {
-    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0 })).toBe('Nhập tên khách nợ');
-    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: '   ' })).toBe(
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0 })).toBe('Nhập tên khách nợ');
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0, debtNote: '   ' })).toBe(
       'Nhập tên khách nợ',
     );
   });
 
   it('ghi nợ có tên khách → bấm được, KHÔNG đòi mã QR', () => {
-    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: 'Anh Tuấn' })).toBeNull();
+    expect(checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0, debtNote: 'Anh Tuấn' })).toBeNull();
   });
 
   it('màn 2 + ghi nợ là cú bấm GHI SỔ nên kiểm trọn bộ ngay tại đó', () => {
-    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0 })).toBe('Nhập tên khách nợ');
-    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0, debtNote: 'Chị Hoa' })).toBeNull();
+    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0 })).toBe('Nhập tên khách nợ');
+    expect(stepBlockReason('mode', { mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0, debtNote: 'Chị Hoa' })).toBeNull();
+  });
+});
+
+describe('ảnh bill BẮT BUỘC với đơn chuyển khoản (2026-10-02)', () => {
+  it('chuyển khoản mà chưa có ảnh → chặn ở bước chụp', () => {
+    expect(checkoutBlockReason(S('TRANSFER', true, 985000, 0))).toBe('Chụp ảnh bill chuyển khoản của khách');
+    expect(checkoutBlockReason(S('SPLIT', true, 500000, 0))).toBe('Chụp ảnh bill chuyển khoản của khách');
+  });
+
+  it('tiền mặt và ghi nợ KHÔNG bị đòi ảnh — hai luồng đó không có bill nào để chụp', () => {
+    expect(checkoutBlockReason(S('CASH', false, 0, 0))).toBeNull();
+    expect(
+      checkoutBlockReason({ mode: 'DEBT', hasPickedQr: false, transferAmount: 0, photoCount: 0, debtNote: 'Anh Tuấn' }),
+    ).toBeNull();
+  });
+
+  it('lý do "không chụp được" mở đường đi tiếp — nhưng khoảng trắng thì không', () => {
+    expect(
+      checkoutBlockReason({ ...S('TRANSFER', true, 985000, 0), photoSkipReason: 'camera hỏng' }),
+    ).toBeNull();
+    expect(
+      checkoutBlockReason({ ...S('TRANSFER', true, 985000, 0), photoSkipReason: '   ' }),
+    ).toBe('Chụp ảnh bill chuyển khoản của khách');
+  });
+
+  it('ảnh hỏi SAU số tiền — thiếu cả hai thì nói về số tiền trước', () => {
+    expect(checkoutBlockReason(S('SPLIT', true, 0, 0))).toBe('Nhập số tiền khách chuyển khoản');
+  });
+
+  it('màn QR KHÔNG đòi ảnh (bước chụp còn chưa hiện ra), màn bill thì có', () => {
+    expect(stepBlockReason('qr', S('TRANSFER', true, 985000, 0))).toBeNull();
+    expect(stepBlockReason('bill', S('TRANSFER', true, 985000, 0))).toBe('Chụp ảnh bill chuyển khoản của khách');
   });
 });
