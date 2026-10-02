@@ -20,6 +20,7 @@ import { baseUnitsPerUnit } from '../ingredients/ingredient-units.js';
 import { toDateString } from './suppliers.service.js';
 import type { AlertLevel } from './purchase-units.js';
 import { replayPrices } from './price-replay.js';
+import { assertNotFutureDate, todayVn } from './future-date.js';
 import type { ReplayDelivery, ReplayPriceChange } from './price-replay.js';
 import {
   alertLevel,
@@ -27,8 +28,6 @@ import {
   packSizeChanged,
   priceChangePct,
 } from './purchase-units.js';
-
-const VN_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 export type Actor = { id: string; full_name: string };
 
@@ -137,7 +136,7 @@ export class DeliveriesService {
    * Không dùng ngày của máy chủ: VPS chạy UTC nên từ 0h đến 7h sáng giờ VN nó vẫn coi là "hôm
    * qua" — phiếu nhập rau lúc 5h sáng sẽ rơi nhầm sang ngày trước và báo cáo kỳ lệch. */
   static today(): string {
-    return new Date(Date.now() + VN_OFFSET_MS).toISOString().slice(0, 10);
+    return todayVn();
   }
 
   /** Danh sách phiếu nhập, kèm tên các mặt hàng của từng phiếu.
@@ -283,6 +282,13 @@ export class DeliveriesService {
       throw new BadRequestException({ code: 'BAD_INPUT', message: 'Phiếu chưa có mặt hàng nào' });
     }
     const delivery_date = input.delivery_date || DeliveriesService.today();
+    // Chặn NGAY, trước mọi lượt đọc DB: phiếu ghi nhầm sang năm sau nằm ngoài mọi kỳ báo cáo
+    // trong khi công nợ đã cộng tiền của nó. Xem `delivery-date.ts`.
+    assertNotFutureDate(delivery_date, DeliveriesService.today(), {
+      code: 'DELIVERY_DATE_FUTURE',
+      nhan: 'Ngày giao',
+      viSao: 'Phiếu nhập chỉ ghi hàng ĐÃ về.',
+    });
 
     const prepared = await this.prepareLines(input.supplier_id, input.lines);
 
@@ -542,6 +548,13 @@ export class DeliveriesService {
     // và mọi giá tham chiếu của cả hai. Muốn vậy thì huỷ phiếu rồi nhập lại ở NCC đúng.
     const supplier_id = existing.supplier_id;
     const delivery_date = input.delivery_date || toDateString(existing.delivery_date) || DeliveriesService.today();
+    // Cùng luật với lúc tạo. Thiếu dòng này thì tạo bị chặn mà sửa lại lọt — và sửa phiếu còn
+    // kéo theo `replayPrices()` phát lại cả chuỗi giá của NCC theo một mốc ngày sai.
+    assertNotFutureDate(delivery_date, DeliveriesService.today(), {
+      code: 'DELIVERY_DATE_FUTURE',
+      nhan: 'Ngày giao',
+      viSao: 'Phiếu nhập chỉ ghi hàng ĐÃ về.',
+    });
 
     const replaced = await this.snapshot(existing);
     const approved = new Set(input.approved_ingredient_ids ?? []);
