@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { emitMascot } from '../lib/mascot-bus.ts';
 import {
   type TableCartLine,
   type TableSession,
@@ -461,6 +462,8 @@ export function TableStateSheet({
         });
         setAsking(false);
         setReason('');
+        // Bé hamster ở thực đơn nói một câu theo loại yêu cầu (chỉ khi gửi THÀNH CÔNG).
+        emitMascot({ type: 'call', kind });
         setMsg({
           ok: true,
           text:

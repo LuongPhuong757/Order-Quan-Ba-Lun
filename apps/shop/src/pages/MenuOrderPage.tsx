@@ -12,6 +12,7 @@ import {
 } from '../components/DineInSheets.tsx';
 import { MenuMascot } from '../components/MenuMascot.tsx';
 import { emitMascot } from '../lib/mascot-bus.ts';
+import { suggestPairing } from '../lib/menu-pairing.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -174,25 +175,14 @@ export function MenuOrderPage(): JSX.Element {
     return () => ro.disconnect();
   }, []);
 
-  /* Đồ uống — cho bé hamster nhắc "ăn vậy không khát hả?". Nhận theo TÊN NHÓM vì thực đơn không
-   * có cờ "là đồ uống"; nhóm thật của quán (2026-10-02): "Giải Khát", "Bia", "Rượu". */
-  const drinks = useMemo(() => {
-    const ids = new Set<string>();
-    let suggestion: string | null = null;
-    for (const g of groups) {
-      if (!DRINK_GROUP_RE.test(g.name)) continue;
-      for (const it of g.items) {
-        ids.add(it.id);
-        // Gợi ý món nước rẻ, ai cũng gọi (tên BẮT ĐẦU bằng "Trà"/"Nước") trước; không có thì lấy món
-        // đầu còn hàng. Phải neo đầu chuỗi: so khớp lỏng thì "Mực chiên nước mắm" thành đồ uống (đo được).
-        if (!it.is_out_of_stock && (!suggestion || (/^(trà|nước)/i.test(it.name) && !/^(trà|nước)/i.test(suggestion)))) {
-          suggestion = it.name;
-        }
-      }
-    }
-    return { ids, suggestion };
-  }, [groups]);
-  const hasDrink = cart.some((l) => drinks.ids.has(l.menu_item_id));
+  /* Món đi kèm — bé hamster BẮT BUỘC gợi ý một món sau mỗi lần khách thêm món (chủ quán chốt
+   * 2026-10-02). Đọc giỏ thẳng từ store chứ không từ state: hamster gọi hàm này lúc món bay tới
+   * tay (~0,6s sau khi bấm), và phải thấy cả món vừa thêm để không gợi ý lại chính nó. */
+  const suggest = useCallback(
+    (itemId: string) =>
+      suggestPairing(itemId, groups, new Set(readTableCart().map((l) => l.menu_item_id))),
+    [groups],
+  );
 
   const filtered = useMemo(() => {
     const needle = fold(q.trim());
@@ -239,7 +229,10 @@ export function MenuOrderPage(): JSX.Element {
     window.scrollTo(0, y);
   }, [stickH]);
 
-  const openCart = useCallback(() => setSheet(session ? 'cart' : 'entry'), [session]);
+  const openCart = useCallback(() => {
+    emitMascot(session ? { type: 'open-cart', count: cartCount } : { type: 'enter-table' });
+    setSheet(session ? 'cart' : 'entry');
+  }, [session, cartCount]);
 
   return (
     <div className="mo-root">
@@ -263,7 +256,11 @@ export function MenuOrderPage(): JSX.Element {
           <span aria-hidden>🔍</span>
           <input
             value={q}
-            onChange={(e) => setQ(e.target.value)}
+            onChange={(e) => {
+              // Bắt đầu gõ (ô đang trống) → bé hamster lên tiếng; gõ tiếp thì im.
+              if (!q && e.target.value) emitMascot({ type: 'search-start' });
+              setQ(e.target.value);
+            }}
             placeholder="Tìm món…"
             aria-label="Tìm món"
           />
@@ -274,7 +271,10 @@ export function MenuOrderPage(): JSX.Element {
         <button
           type="button"
           className="mo-chip"
-          onClick={() => setSheet(session ? 'state' : 'entry')}
+          onClick={() => {
+            emitMascot({ type: session ? 'open-table' : 'enter-table' });
+            setSheet(session ? 'state' : 'entry');
+          }}
         >
           {session ? (
             <>
@@ -297,7 +297,10 @@ export function MenuOrderPage(): JSX.Element {
             key={g.id}
             type="button"
             className={`mo-rail-chip${activeGroup === g.id ? ' is-on' : ''}`}
-            onClick={() => jumpTo(g.id)}
+            onClick={() => {
+              emitMascot({ type: 'category', name: g.name });
+              jumpTo(g.id);
+            }}
           >
             {g.name}
           </button>
@@ -333,7 +336,7 @@ export function MenuOrderPage(): JSX.Element {
                 onClick={() =>
                   it.is_out_of_stock
                     ? emitMascot({ type: 'out-of-stock', name: it.name })
-                    : setSheetItem(it)
+                    : (emitMascot({ type: 'view-item', itemId: it.id, name: it.name }), setSheetItem(it))
                 }
               >
                 <div className="mo-thumb">
@@ -437,8 +440,7 @@ export function MenuOrderPage(): JSX.Element {
           overlayOpen={sheet !== 'none' || pendingSession !== null || sheetItem !== null}
           hasTable={session !== null}
           cartTotal={cartTotal}
-          hasDrink={hasDrink}
-          drinkSuggestion={drinks.suggestion}
+          suggest={suggest}
           searchMiss={q.trim() && groups.length > 0 && filtered.length === 0 ? q.trim() : null}
         /> : null}
 
@@ -455,12 +457,14 @@ export function MenuOrderPage(): JSX.Element {
         <TableConfirmSheet
           tableName={pendingSession.table_name}
           onNo={() => {
+            emitMascot({ type: 'table-wrong' });
             setPendingSession(null);
             setSheet('entry');
           }}
           onYes={() => {
             // Đây mới là lúc phiên được ghi xuống máy: khách đã nhìn tên bàn cỡ lớn và gật.
             writeTableSession(pendingSession);
+            emitMascot({ type: 'table-set', tableName: pendingSession.table_name });
             setSession(pendingSession);
             setPendingSession(null);
             // Vào THẲNG thực đơn. Mở tấm giỏ ngay là hiện một hộp rỗng "Chưa chọn món nào" —
@@ -470,7 +474,10 @@ export function MenuOrderPage(): JSX.Element {
         />
       )}
       {sheet === 'cart' && session && (
-        <TableCartSheet session={session} onClose={() => setSheet('none')} onSent={() => {
+        <TableCartSheet session={session} onClose={() => {
+          emitMascot({ type: 'close-cart' });
+          setSheet('none');
+        }} onSent={() => {
           setSentKey((k) => k + 1);
           setSheet('state');
         }} />
@@ -478,11 +485,15 @@ export function MenuOrderPage(): JSX.Element {
       {sheet === 'state' && session && (
         <TableStateSheet
           session={session}
-          onClose={() => setSheet('none')}
+          onClose={() => {
+            emitMascot({ type: 'close-table' });
+            setSheet('none');
+          }}
           /* Đổi bàn: chỉ gỡ phiên của MÁY NÀY rồi hỏi lại số bàn. Giữ nguyên giỏ đang chọn —
              khách khai nhầm bàn thì món họ vừa chọn vẫn là món họ muốn, bắt chọn lại từ đầu
              là phạt nhầm người. */
           onSwitchTable={() => {
+            emitMascot({ type: 'switch-table' });
             writeTableSession(null);
             setSession(null);
             setSheet('entry');
@@ -498,9 +509,6 @@ export function MenuOrderPage(): JSX.Element {
     </div>
   );
 }
-
-/** Nhóm món tính là đồ uống. */
-const DRINK_GROUP_RE = /giải khát|đồ uống|nước|bia|rượu|trà|cà phê|sinh tố/i;
 
 /** Báo bé hamster: món này vừa được bấm thêm, từ chỗ này (món bay từ ảnh của ô món nếu tìm thấy).
  *  Gọi TRƯỚC khi đổi giỏ — hamster cần biết lượt tăng giỏ sắp tới là do bấm +. */
@@ -519,25 +527,36 @@ function emitAddFrom(el: Element, item: PublicMenuItem): void {
 function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => void }) {
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
+  // Đóng mà KHÔNG thêm (✕ hoặc chạm nền) — khác với đóng sau khi thêm, hamster nói câu khác.
+  const dismiss = () => {
+    emitMascot({ type: 'close-item' });
+    onClose();
+  };
+  const changeQty = (next: number) => {
+    if (next === qty) return;
+    emitMascot({ type: 'item-qty', qty: next, up: next > qty });
+    setQty(next);
+  };
   return (
-    <div className="dinein-scrim" onClick={onClose}>
+    <div className="dinein-scrim" onClick={dismiss}>
       <div className="dinein-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="dinein-head">
           <b>Thêm món</b>
-          <button type="button" onClick={onClose} aria-label="Đóng">✕</button>
+          <button type="button" onClick={dismiss} aria-label="Đóng">✕</button>
         </div>
         <div className="dinein-body dinein-scroll">
           {item.images[0] ? <img className="mo-sheet-img" src={item.images[0]} alt="" /> : null}
           <h3 className="mo-sheet-name">{item.name}</h3>
           <p className="mo-sheet-price">{vnd(item.price)} / {item.unit}</p>
           <div className="dinein-line-ctl">
-            <button type="button" onClick={() => setQty((n) => Math.max(1, n - 1))}>−</button>
+            <button type="button" onClick={() => changeQty(Math.max(1, qty - 1))}>−</button>
             <b>{qty}</b>
-            <button type="button" onClick={() => setQty((n) => Math.min(20, n + 1))}>+</button>
+            <button type="button" onClick={() => changeQty(Math.min(20, qty + 1))}>+</button>
             <input
               placeholder="Ghi chú (ít cay…)"
               value={note}
               onChange={(e) => setNote(e.target.value)}
+              onFocus={() => emitMascot({ type: 'note' })}
             />
           </div>
         </div>

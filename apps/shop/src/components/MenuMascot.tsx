@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react';
 import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } from './Mascot.tsx';
-import { onMascot } from '../lib/mascot-bus.ts';
+import { emitMascot, onMascot, type MascotEvent } from '../lib/mascot-bus.ts';
 import { burstAt, confetti, flyToMascot, reducedMotion } from '../lib/mascot-fx.ts';
 import { playMascotSound, primeSound, setSoundEnabled, soundEnabled } from '../lib/mascot-sound.ts';
+import type { Suggestion } from '../lib/menu-pairing.ts';
+import { addTableLine } from '../lib/table-cart-store.ts';
 
 /**
  * Bé hamster ở thực đơn tại bàn — chủ quán chốt dần trong ngày 2026-10-02.
@@ -15,7 +17,11 @@ import { playMascotSound, primeSound, setSoundEnabled, soundEnabled } from '../l
  *   - bớt món           → nghiêng người + biểu cảm buồn ngẫu nhiên + tiếng "oong" + câu tiếc
  *   - chạm món tạm hết  → nghiêng người + buồn + "Huhu, <món> hôm nay hết mất rồi…"
  *   - gửi món cho quán  → pháo giấy cả màn + xoay vòng + mắt sao + tiếng "ting"
- *   - giỏ ≥3 phần chưa có đồ uống → nhắc gọi nước (một lần mỗi lượt mở trang)
+ *   - MỖI lần thêm món  → BẮT BUỘC gợi ý một món đi kèm (lib/menu-pairing.ts), có nút "＋ Thêm"
+ *                         ngay trong bong bóng (thay cho lời nhắc đồ uống riêng của bản trước)
+ *   - mọi thao tác khác (mở chi tiết món, đổi số phần, ghi chú, chọn nhóm, tìm món, mở/đóng giỏ,
+ *     khai/đổi bàn, gọi nhân viên, xin tính tiền, cuộn tới cuối) → một câu thoại — chủ quán chốt
+ *     "bất kỳ hành động nào của khách cũng cần hội thoại đi kèm"
  *   - tổng giỏ vượt 300k / 500k / 1 triệu → một câu cảm thán
  *   - tìm món không ra  → ngạc nhiên + gợi ý gõ khác
  *   - cuộn danh sách    → nhìn theo chiều cuộn
@@ -52,6 +58,8 @@ const LOOK_DELAY_MS = 1100;
 const LOOK_SETTLE_MS = 600;
 /** Bong bóng đứng bao lâu. Đủ đọc một câu ngắn, không đứng lâu tới mức thành vật cản. */
 const SAY_MS = 2200;
+/** Bong bóng có gợi ý món + nút "＋ Thêm": đọc hai câu và quyết định bấm cần lâu hơn. */
+const OFFER_MS = 6000;
 /** Câu "nói thêm" (nhắc đồ uống, mốc tổng tiền) chờ câu phản ứng chính nói xong đã. */
 const FOLLOW_UP_MS = 2600;
 /** Đợi trang ổn định rồi mới chào, đừng chào chồng lên khung hình đầu tiên. */
@@ -86,7 +94,32 @@ const LINES = {
   dragStart: ['Ê ê, thả tui xuống!', 'Ối, bay rồi bay rồi!'],
   dragEnd: ['Phù… về chỗ cũ!', 'Chóng mặt quá đi…'],
   shake: 'Lắc gì dữ vậy, chóng mặt quá! 😵',
+  view: [
+    (n: string) => `${n} nè! Nhìn là thèm rồi đó!`,
+    (n: string) => `Ồ, ${n} hả? Chuẩn gu ghê!`,
+    (n: string) => `${n} ngon lắm, thêm luôn đi bạn!`,
+  ],
+  viewTop: (n: string) => `${n} là món hot nhất quán đó!`,
+  closeItem: ['Chưa ưng hả? Xem món khác nha!', 'Không sao, còn nhiều món ngon lắm!'],
+  qtyUp: (q: number) => (q >= 3 ? `${q} phần luôn hả? Chơi lớn ghê!` : `${q} phần nha, ăn cho đã!`),
+  qtyDown: 'Bớt chút cho vừa bụng ha!',
+  note: 'Dặn bếp gì cứ ghi vào nha, ít cay nhiều rau đều được!',
+  category: [(g: string) => `Xem ${g} hả? Món nào cũng ngon!`, (g: string) => `${g} nè, chọn đi bạn!`],
+  searchStart: 'Tìm món gì đó? Gõ không dấu cũng ra nha!',
+  openCart: (c: number) => `${c} món rồi đó! Kiểm tra lại rồi gửi cho quán nha!`,
+  closeCart: 'Chọn thêm món nữa nha!',
+  openTable: 'Đây là món bàn mình đã gọi nè!',
+  closeTable: 'Muốn gọi thêm gì cứ chọn nha!',
+  enterTable: 'Nhập số bàn để gọi món nha!',
+  tableSet: (t: string) => `${t} đây rồi! Chọn món thôi nào!`,
+  tableWrong: 'Nhập lại số bàn cho chuẩn nha!',
+  switchTable: 'Đổi bàn hả? Nhập số bàn mới nha!',
+  callStaff: 'Đã gọi nhân viên, tới liền nè!',
+  callBill: 'Để tui báo quán tính tiền nha! Cảm ơn bạn nhiều 💕',
+  listEnd: 'Hết thực đơn rồi đó! Ưng món nào chưa?',
 };
+/** Cuộn tới cuối danh sách: nói tối đa một lần mỗi 30 giây. */
+const LIST_END_COOLDOWN_MS = 30_000;
 
 /** Chào theo giờ máy khách. */
 function greetByHour(): string {
@@ -208,17 +241,18 @@ type Props = {
   overlayOpen: boolean;
   /** Máy này đã khai bàn chưa — đổi câu chào. */
   hasTable: boolean;
-  /** Giỏ đã có đồ uống chưa. */
-  hasDrink: boolean;
-  /** Tên một đồ uống còn hàng để gợi ý; null = quán không có nhóm đồ uống nào nhận ra được. */
-  drinkSuggestion: string | null;
+  /** Món đi kèm cho món vừa thêm (gọi lúc món chạm tay, khi giỏ đã cập nhật). */
+  suggest: (itemId: string) => Suggestion | null;
   /** Từ khoá đang tìm mà KHÔNG ra món nào; null = không tìm hoặc có kết quả. */
   searchMiss: string | null;
 };
 
 export function MenuMascot(props: Props): JSX.Element {
-  const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, hasDrink, drinkSuggestion, searchMiss } =
-    props;
+  const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, suggest, searchMiss } = props;
+  // Hàm gợi ý đổi theo giỏ mỗi lần vẽ; phản ứng chạy trong callback cũ (món bay xong mới gọi)
+  // nên phải đọc qua ref để luôn lấy bản mới nhất.
+  const suggestRef = useRef(suggest);
+  suggestRef.current = suggest;
   const [cue, setCue] = useState<MascotCue | null>(null);
   const [look, setLook] = useState<MascotDirection | null>(null);
   const [asleep, setAsleep] = useState(false);
@@ -264,11 +298,17 @@ export function MenuMascot(props: Props): JSX.Element {
   const myRect = () => moveRef.current?.getBoundingClientRect() ?? null;
 
   /* ── Bong bóng thoại ── câu mới đè câu cũ: bấm + năm lần liền thì chỉ cần nghe câu cuối. */
-  const [bubble, setBubble] = useState<{ text: string; id: number; ms: number; wow: boolean } | null>(null);
+  const [bubble, setBubble] = useState<{
+    text: string;
+    id: number;
+    ms: number;
+    wow: boolean;
+    offer: Suggestion | null;
+  } | null>(null);
   const bubbleIdRef = useRef(0);
-  const say = (text: string, ms = SAY_MS, wow = false) => {
+  const say = (text: string, ms = SAY_MS, wow = false, offer: Suggestion | null = null) => {
     bubbleIdRef.current += 1;
-    setBubble({ text, id: bubbleIdRef.current, ms, wow });
+    setBubble({ text, id: bubbleIdRef.current, ms: offer ? OFFER_MS : ms, wow, offer });
   };
   // Câu nói thêm xếp hàng sau nhau, không đè nhau: mỗi câu hẹn sau câu trước ít nhất FOLLOW_UP_MS.
   const followAtRef = useRef(0);
@@ -336,7 +376,9 @@ export function MenuMascot(props: Props): JSX.Element {
       line = pickFresh([...LINES.happy, ...LINES.wow], lastLine);
       wow = LINES.wow.includes(line);
     }
-    say(line, SAY_MS, wow);
+    // Gợi ý món đi kèm — BẮT BUỘC mỗi lần thêm món (chủ quán chốt). Tăng giỏ không rõ món nào
+    // (stepper trong tấm giỏ) thì không có món gốc để ghép, chỉ khen.
+    say(line, SAY_MS, wow, dish ? suggestRef.current(dish.itemId) : null);
     const r = myRect();
     if (r) burstAt(r, wow);
     playMascotSound(wow ? 'pop' : 'chirp');
@@ -349,14 +391,86 @@ export function MenuMascot(props: Props): JSX.Element {
     playMascotSound('boing');
   };
 
+  /** Câu thoại cho mọi thao tác không phải thêm món. */
+  const react = (e: Exclude<MascotEvent, { type: 'add' }>) => {
+    switch (e.type) {
+      case 'out-of-stock':
+        sadden(`Huhu, ${short(e.name)} hôm nay hết mất rồi…`);
+        return;
+      case 'view-item': {
+        play(pickFresh(['heart', 'sparkle', 'delighted'], lastReaction));
+        const top = topRankRef.current.get(e.itemId) === 0;
+        say(top ? LINES.viewTop(short(e.name)) : pick(LINES.view)(short(e.name)), SAY_MS, top);
+        return;
+      }
+      case 'close-item':
+        play('wink');
+        say(pickFresh(LINES.closeItem, lastLine));
+        return;
+      case 'item-qty':
+        play(e.up ? 'delighted' : 'surprised');
+        say(e.up ? LINES.qtyUp(e.qty) : LINES.qtyDown);
+        return;
+      case 'note':
+        play('wink');
+        say(LINES.note);
+        return;
+      case 'category':
+        move('look-around');
+        say(pick(LINES.category)(short(e.name)));
+        return;
+      case 'search-start':
+        play('sparkle');
+        say(LINES.searchStart);
+        return;
+      case 'open-cart':
+        play('heart');
+        say(LINES.openCart(e.count));
+        return;
+      case 'close-cart':
+        say(LINES.closeCart);
+        return;
+      case 'open-table':
+        play('wink');
+        say(LINES.openTable);
+        return;
+      case 'close-table':
+        say(LINES.closeTable);
+        return;
+      case 'enter-table':
+        say(LINES.enterTable);
+        return;
+      case 'table-set':
+        move(HOP);
+        play('delighted');
+        say(LINES.tableSet(e.tableName), 3000, true);
+        playMascotSound('chirp');
+        return;
+      case 'table-wrong':
+        play('surprised');
+        say(LINES.tableWrong);
+        return;
+      case 'switch-table':
+        play('surprised');
+        say(LINES.switchTable);
+        return;
+      case 'call':
+        move(HOP);
+        play(e.kind === 'BILL' ? 'heart' : 'wink');
+        say(e.kind === 'BILL' ? LINES.callBill : LINES.callStaff, 3000);
+        playMascotSound('ting');
+        return;
+    }
+  };
+
   /* ── Sự kiện từ thực đơn ── */
   const flyingAtRef = useRef(0);
   useEffect(
     () =>
       onMascot((e) => {
         primeSound();
-        if (e.type === 'out-of-stock') {
-          sadden(`Huhu, ${short(e.name)} hôm nay hết mất rồi…`);
+        if (e.type !== 'add') {
+          react(e);
           return;
         }
         // Đánh dấu "lượt tăng giỏ sắp tới đã có người lo" — effect cartCount bên dưới thấy dấu này
@@ -376,7 +490,6 @@ export function MenuMascot(props: Props): JSX.Element {
   // So với lần vẽ TRƯỚC chứ không so với 0: giỏ khôi phục từ localStorage lúc mở trang không
   // được tính là "vừa thêm món".
   const prevCountRef = useRef(cartCount);
-  const drinkRemindedRef = useRef(false);
   useEffect(() => {
     const prev = prevCountRef.current;
     prevCountRef.current = cartCount;
@@ -387,10 +500,6 @@ export function MenuMascot(props: Props): JSX.Element {
       // Bấm + trên thực đơn → món đang bay, phản ứng lúc chạm tay. Tăng từ chỗ khác (stepper
       // trong tấm giỏ) → không có gì bay, phản ứng ngay.
       if (Date.now() - flyingAtRef.current > 400) celebrate(null);
-      if (cartCount >= 3 && !hasDrink && drinkSuggestion && !drinkRemindedRef.current) {
-        drinkRemindedRef.current = true;
-        sayLater(`Ăn vậy không khát hả? Thêm ${short(drinkSuggestion, 18)} nha!`);
-      }
     } else if (cartCount < prev) {
       sadden(pickFresh(LINES.sad, lastLine));
     }
@@ -443,11 +552,18 @@ export function MenuMascot(props: Props): JSX.Element {
     let lastY = window.scrollY;
     let frame = 0;
     let settle = 0;
+    let endSaidAt = 0;
     const onScroll = () => {
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
         frame = 0;
         const y = window.scrollY;
+        // Cuộn xuống tới đáy danh sách → nhắc chọn món (tối đa một lần mỗi 30 giây).
+        const atEnd = y > lastY && window.innerHeight + y >= document.documentElement.scrollHeight - 40;
+        if (atEnd && Date.now() - endSaidAt > LIST_END_COOLDOWN_MS) {
+          endSaidAt = Date.now();
+          say(LINES.listEnd);
+        }
         // Dưới 4px là rung tay / thanh địa chỉ co giãn, không phải khách đang cuộn.
         if (Math.abs(y - lastY) >= 4) setLook(y > lastY ? 'down' : 'up');
         lastY = y;
@@ -566,7 +682,7 @@ export function MenuMascot(props: Props): JSX.Element {
   const swallowClick = useRef(false);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest('.mo-mascot-sound')) return;
+    if ((e.target as HTMLElement).closest('.mo-mascot-sound, .mo-mascot-offer-btn')) return;
     gesture.current = { x0: e.clientX, y0: e.clientY, lastX: e.clientX, dir: 0, rev: 0, dragging: false, used: false };
   };
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -646,9 +762,36 @@ export function MenuMascot(props: Props): JSX.Element {
           cả khi câu mới trùng chữ câu cũ. */}
       <div className="mo-mascot-say" aria-live="polite">
         {bubble ? (
-          <p key={bubble.id} className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}`}>
-            {bubble.text}
-          </p>
+          <div
+            key={bubble.id}
+            className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}${bubble.offer ? ' has-offer' : ''}`}
+          >
+            <p>{bubble.text}</p>
+            {bubble.offer ? (
+              <>
+                <p className="mo-mascot-offer-line">{bubble.offer.line}</p>
+                <button
+                  type="button"
+                  className="mo-mascot-offer-btn"
+                  onClick={(e) => {
+                    // Không để cú bấm lọt xuống lớp bọc (sẽ thành một lần "chạm vào hamster").
+                    e.stopPropagation();
+                    const it = bubble.offer!.item;
+                    emitMascot({
+                      type: 'add',
+                      itemId: it.id,
+                      name: it.name,
+                      image: it.images[0] ?? null,
+                      from: e.currentTarget.getBoundingClientRect(),
+                    });
+                    addTableLine({ menu_item_id: it.id, name: it.name, unit_price: it.price, note: '' });
+                  }}
+                >
+                  ＋ {short(bubble.offer.item.name, 20)} · {Math.round(bubble.offer.item.price / 1000)}k
+                </button>
+              </>
+            ) : null}
+          </div>
         ) : null}
       </div>
       <div ref={moveRef} className="mo-mascot-move">
@@ -715,10 +858,22 @@ const MENU_MASCOT_CSS = `
    sang phải vào miệng. pointer-events:none — bong bóng đè lên danh sách món, ngón tay chạm vào
    chỗ đó phải đi xuyên xuống nút + bên dưới chứ không bị bong bóng nuốt. */
 .mo-mascot-say{
-  position:absolute; right:calc(100% - 6px); top:4px;
-  width:max-content; max-width:min(210px, calc(100vw - 120px));
+  position:absolute; right:calc(100% - 6px); bottom:34px;
+  width:max-content; max-width:min(240px, calc(100vw - 110px));
   pointer-events:none;
 }
+.mo-mascot-bubble p{ margin:0; }
+/* Bong bóng có gợi ý món: bo 24px thay vì hết cỡ — cao 3 dòng mà bo tròn hẳn thì góc cắt vào chữ. */
+.mo-mascot-bubble.has-offer{ border-radius:24px; padding:10px 14px 12px; }
+.mo-mascot-offer-line{ margin-top:4px !important; font-weight:600; font-size:14px; color:#7a4a38; }
+/* Nút "＋ Thêm" là phần DUY NHẤT trong bong bóng nhận chạm (bong bóng vẫn pointer-events:none). */
+.mo-mascot-offer-btn{
+  pointer-events:auto; margin-top:8px; min-height:40px; padding:0 14px;
+  border:1.5px solid #f4b4a4; border-radius:999px; background:#fdeae4; color:#b82a1e;
+  font:700 14px/1 'Baloo 2','Be Vietnam Pro',sans-serif; cursor:pointer; white-space:nowrap;
+  max-width:100%; overflow:hidden; text-overflow:ellipsis;
+}
+.mo-mascot-offer-btn:active{ transform:scale(.96); }
 /* Bong bóng TRÒN cho dễ thương: bo hết cỡ thành viên kẹo, font Baloo 2 nét tròn, viền hồng
    nhạt, đuôi là hai chấm tròn nhỏ dần về phía nhân vật — kiểu bong bóng truyện tranh. Padding
    ngang 18px để hai đầu bán nguyệt không cắt vào chữ khi câu xuống hai dòng. */
@@ -737,13 +892,11 @@ const MENU_MASCOT_CSS = `
 }
 .mo-mascot-bubble::before{ width:12px; height:12px; right:-12px; bottom:4px; }
 .mo-mascot-bubble::after{ width:7px; height:7px; right:-21px; bottom:-3px; }
-/* Câu cảm thán mạnh: chữ to + đỏ thương hiệu, viền đậm hơn, bật ra rồi rung hai nhịp. */
+/* Câu cảm thán mạnh: CÙNG khung hồng nhẹ như mọi câu (chủ quán bỏ khung đỏ đậm 2026-10-02),
+   chỉ khác ở chỗ bật ra rồi rung hai nhịp. */
 .mo-mascot-bubble.is-wow{
-  font-size:17px; color:#cf3323; border-color:#cf3323; background:#fff8e6;
-  box-shadow:0 6px 16px rgb(207 51 35 / 22%), inset 0 -3px 0 #ffe9b8;
   animation:mo-mascot-pop .38s cubic-bezier(.34,1.56,.64,1) both, mo-mascot-wow .5s .38s ease-in-out;
 }
-.mo-mascot-bubble.is-wow::before,.mo-mascot-bubble.is-wow::after{ border-color:#cf3323; background:#fff8e6; }
 @keyframes mo-mascot-wow{
   0%,100%{ transform:rotate(0); } 20%{ transform:rotate(-4deg) scale(1.04); }
   45%{ transform:rotate(3deg) scale(1.04); } 70%{ transform:rotate(-2deg); }
