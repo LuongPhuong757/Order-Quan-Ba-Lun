@@ -525,7 +525,7 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 .mo-root{
   min-height:100dvh; background:var(--bg-page); color:var(--text-body);
   font-family:'Be Vietnam Pro','Segoe UI',sans-serif;
-  /* Chừa chỗ cho nút giỏ nổi (84px) + phần đầu chú hiệp sĩ chìa lên khỏi nút (~40px): món cuối
+  /* Chừa chỗ cho nút giỏ nổi (84px) + phần đầu chú hiệp sĩ chìa lên khỏi nút (~56px): món cuối
      danh sách phải cuộn lên được khỏi cả hai, nút + của nó mới bấm được. */
   padding-bottom:calc(132px + env(safe-area-inset-bottom,0px));
   /* Dải nhóm món rộng hơn màn hình (4 nhóm đã quá 390px) và nó tự cuộn trong lòng nó. Không

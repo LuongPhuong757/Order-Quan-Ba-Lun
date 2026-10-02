@@ -16,11 +16,11 @@ import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } fro
  *
  * Khi giỏ có món, nó NGỒI VẮT lên mép phải nút giỏ nổi thay vì đứng hẳn bên trên. Bản đầu đứng
  * trên nút giỏ: chụp ở 390px thì nó che đúng nút + của món ngay trên (thêm một dải 76px che danh
- * sách, ngoài 84px nút giỏ đã che). Ngồi vắt thì chỉ còn ~40px, và phần nút giỏ bị che là khoảng
+ * sách, ngoài 84px nút giỏ đã che). Ngồi vắt thì chỉ còn ~56px, và phần nút giỏ bị che là khoảng
  * trống bên phải chữ "N món đã chọn" — không mất chữ nào.
  */
 
-/** Hai tấm 576px (ô 192px) = đủ nét cho 72px ở màn 2x, ~105KB cả bộ thay vì ~370KB của bản 1080px. */
+/** Hai tấm 576px (ô 192px) = đủ nét tới 96px ở màn 2x, ~105KB cả bộ thay vì ~370KB của bản 1080px. */
 const DIRECTIONS_SRC = '/mascots/knight-directions.webp';
 const REACTIONS_SRC = '/mascots/knight-reactions.webp';
 
@@ -125,7 +125,7 @@ export function MenuMascot({ cartCount, sentKey, raised }: Props): JSX.Element {
       <Mascot
         directions={DIRECTIONS_SRC}
         reactions={REACTIONS_SRC}
-        size={72}
+        size={88}
         label="chú hiệp sĩ"
         look={look}
         cue={cue}
