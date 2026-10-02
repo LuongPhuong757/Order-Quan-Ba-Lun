@@ -11,6 +11,7 @@ import {
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
 import { MenuMascot } from '../components/MenuMascot.tsx';
+import { emitMascot } from '../lib/mascot-bus.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -20,6 +21,7 @@ import {
   setTableQty,
   subscribeTableCart,
   tableCartCount,
+  tableCartTotal,
   writeTableSession,
   type TableCartLine,
   type TableSession,
@@ -86,6 +88,7 @@ export function MenuOrderPage(): JSX.Element {
   const [cart, setCart] = useState<TableCartLine[]>(() => readTableCart());
   useEffect(() => subscribeTableCart(() => setCart(readTableCart())), []);
   const cartCount = tableCartCount(cart);
+  const cartTotal = tableCartTotal(cart);
   /** Tăng mỗi lần gửi món thành công — để bé hamster ở góc phản ứng. */
   const [sentKey, setSentKey] = useState(0);
   const qtyById = useMemo(() => new Map(cart.map((l) => [l.menu_item_id, l.qty])), [cart]);
@@ -170,6 +173,26 @@ export function MenuOrderPage(): JSX.Element {
     setStickH(Math.round(el.getBoundingClientRect().height));
     return () => ro.disconnect();
   }, []);
+
+  /* Đồ uống — cho bé hamster nhắc "ăn vậy không khát hả?". Nhận theo TÊN NHÓM vì thực đơn không
+   * có cờ "là đồ uống"; nhóm thật của quán (2026-10-02): "Giải Khát", "Bia", "Rượu". */
+  const drinks = useMemo(() => {
+    const ids = new Set<string>();
+    let suggestion: string | null = null;
+    for (const g of groups) {
+      if (!DRINK_GROUP_RE.test(g.name)) continue;
+      for (const it of g.items) {
+        ids.add(it.id);
+        // Gợi ý món nước rẻ, ai cũng gọi (tên BẮT ĐẦU bằng "Trà"/"Nước") trước; không có thì lấy món
+        // đầu còn hàng. Phải neo đầu chuỗi: so khớp lỏng thì "Mực chiên nước mắm" thành đồ uống (đo được).
+        if (!it.is_out_of_stock && (!suggestion || (/^(trà|nước)/i.test(it.name) && !/^(trà|nước)/i.test(suggestion)))) {
+          suggestion = it.name;
+        }
+      }
+    }
+    return { ids, suggestion };
+  }, [groups]);
+  const hasDrink = cart.some((l) => drinks.ids.has(l.menu_item_id));
 
   const filtered = useMemo(() => {
     const needle = fold(q.trim());
@@ -307,7 +330,11 @@ export function MenuOrderPage(): JSX.Element {
                 className={`mo-card${it.is_out_of_stock ? ' is-out' : ''}${
                   (qtyById.get(it.id) ?? 0) > 0 ? ' is-picked' : ''
                 }`}
-                onClick={() => !it.is_out_of_stock && setSheetItem(it)}
+                onClick={() =>
+                  it.is_out_of_stock
+                    ? emitMascot({ type: 'out-of-stock', name: it.name })
+                    : setSheetItem(it)
+                }
               >
                 <div className="mo-thumb">
                   {it.images[0] ? <img src={it.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
@@ -347,7 +374,10 @@ export function MenuOrderPage(): JSX.Element {
                       type="button"
                       aria-label={`Thêm ${it.name}`}
                       disabled={(qtyById.get(it.id) ?? 0) >= TABLE_CART_MAX_QTY}
-                      onClick={() => setTableQty(it.id, (qtyById.get(it.id) ?? 0) + 1)}
+                      onClick={(e) => {
+                        emitAddFrom(e.currentTarget, it);
+                        setTableQty(it.id, (qtyById.get(it.id) ?? 0) + 1);
+                      }}
                     >
                       +
                     </button>
@@ -360,6 +390,7 @@ export function MenuOrderPage(): JSX.Element {
                     onClick={(e) => {
                       // Chặn nổi bọt để bấm nút không mở luôn hộp chi tiết.
                       e.stopPropagation();
+                      emitAddFrom(e.currentTarget, it);
                       addTableLine({
                         menu_item_id: it.id,
                         name: it.name,
@@ -389,7 +420,8 @@ export function MenuOrderPage(): JSX.Element {
           <button type="button" className="mo-fab-btn" onClick={openCart}>
             <span className="mo-fab-icon" aria-hidden>🛒</span>
             <span className="mo-fab-text">
-              <b>{cartCount} món đã chọn</b>
+              {/* key theo số món → mỗi lần đổi số là phần tử mới, hoạt ảnh nảy chạy lại từ đầu. */}
+              <b key={cartCount} className="mo-fab-count">{cartCount} món đã chọn</b>
               <i>Chạm để gửi cho quán</i>
             </span>
           </button>
@@ -404,6 +436,10 @@ export function MenuOrderPage(): JSX.Element {
           raised={cartCount > 0}
           overlayOpen={sheet !== 'none' || pendingSession !== null || sheetItem !== null}
           hasTable={session !== null}
+          cartTotal={cartTotal}
+          hasDrink={hasDrink}
+          drinkSuggestion={drinks.suggestion}
+          searchMiss={q.trim() && groups.length > 0 && filtered.length === 0 ? q.trim() : null}
         /> : null}
 
       {sheet === 'entry' && (
@@ -463,6 +499,22 @@ export function MenuOrderPage(): JSX.Element {
   );
 }
 
+/** Nhóm món tính là đồ uống. */
+const DRINK_GROUP_RE = /giải khát|đồ uống|nước|bia|rượu|trà|cà phê|sinh tố/i;
+
+/** Báo bé hamster: món này vừa được bấm thêm, từ chỗ này (món bay từ ảnh của ô món nếu tìm thấy).
+ *  Gọi TRƯỚC khi đổi giỏ — hamster cần biết lượt tăng giỏ sắp tới là do bấm +. */
+function emitAddFrom(el: Element, item: PublicMenuItem): void {
+  const thumb = el.closest('.mo-card')?.querySelector('.mo-thumb') ?? el;
+  emitMascot({
+    type: 'add',
+    itemId: item.id,
+    name: item.name,
+    image: item.images[0] ?? null,
+    from: thumb.getBoundingClientRect(),
+  });
+}
+
 /** Hộp chi tiết một món — chỗ DUY NHẤT tên món được xuống dòng đầy đủ. */
 function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => void }) {
   const [qty, setQty] = useState(1);
@@ -493,7 +545,10 @@ function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => voi
           <button
             type="button"
             className="dinein-primary"
-            onClick={() => {
+            onClick={(e) => {
+              // Món bay từ ảnh to trong hộp (có ảnh) hoặc từ chính nút bấm.
+              const sheet = e.currentTarget.closest('.dinein-sheet');
+              emitAddFrom(sheet?.querySelector('.mo-sheet-img') ?? e.currentTarget, item);
               addTableLine(
                 { menu_item_id: item.id, name: item.name, unit_price: item.price, note },
                 qty,
@@ -673,5 +728,9 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
    vỡ" ở bản dựng trước. */
 .mo-fab-text{ flex:1; min-width:0; display:flex; flex-direction:column; align-items:flex-start; }
 .mo-fab-text b{ font-size:17px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+/* Số món nảy mỗi lần đổi — khách liếc là biết giỏ vừa nhận món. */
+.mo-fab-count{ display:inline-block; transform-origin:0 60%; animation:mo-count-pop .4s cubic-bezier(.34,1.56,.64,1); }
+@keyframes mo-count-pop{ 0%{ transform:scale(1); } 35%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
+@media (prefers-reduced-motion: reduce){ .mo-fab-count{ animation:none; } }
 .mo-fab-text i{ font-size:12px; font-style:normal; opacity:.85; }
 `;
