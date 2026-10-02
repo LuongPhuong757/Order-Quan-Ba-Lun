@@ -606,6 +606,13 @@ export function PaymentDialog({
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
+    // NGÀY TƯƠNG LAI (2026-10-02). `max` trên ô ngày chỉ chặn bộ chọn lịch — gõ thẳng bằng bàn
+    // phím thì trình duyệt vẫn nhận. Server có luật y hệt (`future-date.ts`); chặn ở đây để
+    // người ghi biết ngay thay vì nhập xong cả khoản tiền rồi mới ăn lỗi từ server.
+    if (paidOn > today()) {
+      toast.push('error', `Ngày trả ${paidOn} nằm ở tương lai — chỉ ghi được tiền ĐÃ đưa`);
+      return;
+    }
     setSaving(true);
     try {
       await api.post(`/suppliers/${supplierId}/payments`, {
@@ -646,6 +653,10 @@ export function PaymentDialog({
             type="date"
             value={paidOn}
             onChange={(e) => setPaidOn(e.target.value)}
+            // Khoá mọi ngày sau hôm nay. `today()` ở đầu tệp lấy theo GIỜ VN chứ không theo máy:
+            // quán bán tới 3h sáng, máy lệch múi giờ thì người ghi lúc 1h sáng không chọn được
+            // chính ngày hôm đó. KHÔNG đặt `min` — ghi bù lần trả hôm qua là chuyện thường.
+            max={today()}
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>

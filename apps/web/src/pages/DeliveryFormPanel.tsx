@@ -15,6 +15,7 @@ import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { upperUnit, titleCaseVi } from '../lib/text-case.ts';
+import { vnDayIso } from '../lib/date-range.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -374,6 +375,14 @@ export function DeliveryFormPanel({
       toast.push('error', 'Chọn ngày giao trước đã');
       return;
     }
+    // NGÀY TƯƠNG LAI (2026-10-02). `max` trên ô ngày ở dưới chỉ chặn mũi tên của bộ chọn lịch —
+    // gõ thẳng bằng bàn phím thì trình duyệt vẫn nhận, và nháp cũ khôi phục về cũng không đi
+    // qua ô đó lần nào. Server có luật y hệt (`delivery-date.ts`); chặn ở đây chỉ để người nhập
+    // biết ngay thay vì gõ xong cả phiếu rồi mới ăn lỗi từ server.
+    if (date > vnDayIso(Date.now())) {
+      toast.push('error', `Ngày giao ${date} nằm ở tương lai — phiếu nhập chỉ ghi hàng ĐÃ về`);
+      return;
+    }
     // Soát dòng dở dang TRƯỚC khi dựng payload: xem `incompleteLines`.
     const thieu = incompleteLines();
     if (thieu.length > 0) {
@@ -590,6 +599,11 @@ export function DeliveryFormPanel({
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
+              // Khoá mọi ngày sau hôm nay trong bộ chọn lịch. Ngày hôm nay lấy theo GIỜ VN chứ
+              // không theo máy: quán bán tới 3h sáng, mà máy đặt lệch múi giờ thì người nhập
+              // lúc 1h sáng sẽ không chọn được chính ngày hôm đó.
+              // KHÔNG đặt `min`: nhập bù phiếu cũ là chuyện thường ngày, luật chỉ chặn một chiều.
+              max={vnDayIso(Date.now())}
               // Viền đỏ khi trống: ô này giờ là cửa vào của cả phiếu, phải nhìn ra ngay là chỗ
               // đang chờ mình — không thì người nhập ngồi tìm xem sao không gõ được mặt hàng.
               style={{
