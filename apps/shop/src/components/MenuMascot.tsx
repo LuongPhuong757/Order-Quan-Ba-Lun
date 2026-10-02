@@ -3,17 +3,17 @@ import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } fro
 
 /**
  * Bé hamster ở thực đơn tại bàn — chủ quán chốt 2026-10-02 (đầu bếp → hiệp sĩ → hamster cùng
- * ngày; thêm bong bóng thoại, chia biểu cảm vui/buồn, động tác 10 giây, nổi trên popup — cũng
- * cùng ngày).
+ * ngày; thêm bong bóng thoại, chia biểu cảm vui/buồn, nổi trên popup — cũng cùng ngày). Từng có
+ * nhịp "10 giây một động tác", chủ quán bỏ cùng ngày: động tác chỉ đi theo thao tác của khách.
  *
  * Khách quét QR bằng điện thoại, không có chuột cho nhân vật nhìn theo, nên nó phản ứng theo
  * VIỆC KHÁCH ĐANG LÀM trên trang:
  *   - mới vào           → chào (chưa khai bàn thì nhắc nhập số bàn)
- *   - thêm món          → nhảy lên + một biểu cảm VUI ngẫu nhiên + câu khen ngẫu nhiên
+ *   - thêm món          → một động tác VUI ngẫu nhiên (nhảy / lắc / xoay / nhún / ngó quanh)
+ *                         + một biểu cảm VUI ngẫu nhiên + câu khen ngẫu nhiên
  *   - bớt món           → nghiêng người + một biểu cảm BUỒN ngẫu nhiên + câu tiếc ngẫu nhiên
  *   - gửi món cho quán  → nhảy lên + mắt sao + báo đã gửi bếp
  *   - cuộn danh sách    → nhìn theo chiều cuộn
- *   - mỗi 10 giây       → một động tác ngẫu nhiên (nhảy, lắc, xoay, nghiêng, ngó quanh…)
  *   - để yên 30 giây    → ngủ gật + hỏi chọn xong chưa; chạm hay cuộn là tỉnh
  *   - chạm vào nó       → chớp mắt (chạm dồn thì chóng mặt) + một câu vui ngẫu nhiên
  *
@@ -38,8 +38,11 @@ const HAPPY: MascotReaction[] = ['delighted', 'heart', 'sparkle', 'wink', 'bashf
 const SAD: MascotReaction[] = ['surprised', 'dizzy', 'sleepy'];
 
 const IDLE_MS = 30_000;
-/** Chủ quán chốt: cứ 10 giây làm một động tác. */
-const MOVE_EVERY_MS = 10_000;
+/** Mỗi bước ngó quanh (trái → trên-trái → trên-phải → phải) đứng bao lâu. */
+const LOOK_STEP_MS = 380;
+/** Ngó quanh bắt đầu SAU khi biểu cảm vui tắt (CUE_MS = 1100 trong Mascot.tsx): biểu cảm đang
+ *  hiện thì tấm hướng nhìn bị ẩn, ngó quanh chạy cùng lúc là khách không thấy gì. */
+const LOOK_DELAY_MS = 1100;
 /** Ngừng cuộn bao lâu thì quay mặt lại nhìn thẳng. */
 const LOOK_SETTLE_MS = 600;
 /** Bong bóng đứng bao lâu. Đủ đọc một câu ngắn, không đứng lâu tới mức thành vật cản. */
@@ -57,10 +60,10 @@ const LINES = {
   boop: ['Hihi, nhột quá!', 'Đói bụng rồi nè!', 'Ăn gì cũng được, miễn ngon!', 'Bạn dễ thương ghê!'],
 };
 
-/* Động tác 10 giây. Chạy bằng Web Animations trên lớp bọc RIÊNG — không đụng lớp `squash` bên
- * trong Mascot, nên nhảy giữa chừng mà khách bấm thêm món thì cú nảy vẫn chạy chồng lên được. */
+/* Động tác. Chạy bằng Web Animations trên lớp bọc RIÊNG — không đụng lớp `squash` bên trong
+ * Mascot, nên hai cú nảy chạy chồng lên nhau được. */
 type Move = { frames: Keyframe[]; ms: number };
-/** Nhảy lên — dùng khi thêm món / gửi món, và cũng là một động tác 10 giây. */
+/** Nhảy lên — một trong các động tác thêm món, và là động tác khi gửi món. */
 const HOP: Move = {
   ms: 700,
   frames: [
@@ -71,7 +74,7 @@ const HOP: Move = {
     { transform: 'translateY(0)' },
   ],
 };
-/** Nghiêng người sang trái — dùng khi bớt món, và cũng là một động tác 10 giây. */
+/** Nghiêng người sang trái — động tác khi bớt món. */
 const LEAN: Move = {
   ms: 1400,
   frames: [
@@ -81,54 +84,40 @@ const LEAN: Move = {
     { transform: 'translateX(0) rotate(0)' },
   ],
 };
-const MOVES: Move[] = [
-  HOP,
-  LEAN,
-  // lắc qua lắc lại
-  {
-    ms: 800,
-    frames: [
-      { transform: 'rotate(0)' },
-      { transform: 'rotate(-12deg)', offset: 0.2 },
-      { transform: 'rotate(10deg)', offset: 0.4 },
-      { transform: 'rotate(-8deg)', offset: 0.6 },
-      { transform: 'rotate(5deg)', offset: 0.8 },
-      { transform: 'rotate(0)' },
-    ],
-  },
-  // xoay một vòng
-  {
-    ms: 900,
-    frames: [
-      { transform: 'rotate(0) scale(1)', easing: 'ease-in-out' },
-      { transform: 'rotate(180deg) scale(.9)', offset: 0.5, easing: 'ease-in-out' },
-      { transform: 'rotate(360deg) scale(1)' },
-    ],
-  },
-  // nhún nhảy hai nhịp
-  {
-    ms: 900,
-    frames: [
-      { transform: 'scale(1,1) translateY(0)' },
-      { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.15 },
-      { transform: 'scale(.95,1.06) translateY(-14px)', offset: 0.35 },
-      { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.55 },
-      { transform: 'scale(.95,1.06) translateY(-10px)', offset: 0.75 },
-      { transform: 'scale(1,1) translateY(0)' },
-    ],
-  },
-];
-/** Đang ngủ thì không nhảy nhót — chỉ phập phồng thở. */
-const BREATHE: Move = {
-  ms: 1600,
+const SHAKE: Move = {
+  ms: 800,
   frames: [
-    { transform: 'scale(1)', easing: 'ease-in-out' },
-    { transform: 'scale(1.04, .97)', offset: 0.5, easing: 'ease-in-out' },
-    { transform: 'scale(1)' },
+    { transform: 'rotate(0)' },
+    { transform: 'rotate(-12deg)', offset: 0.2 },
+    { transform: 'rotate(10deg)', offset: 0.4 },
+    { transform: 'rotate(-8deg)', offset: 0.6 },
+    { transform: 'rotate(5deg)', offset: 0.8 },
+    { transform: 'rotate(0)' },
   ],
 };
-/** Động tác thứ sáu không cần keyframe: ngó quanh bằng chính các ô hướng nhìn. */
+const SPIN: Move = {
+  ms: 900,
+  frames: [
+    { transform: 'rotate(0) scale(1)', easing: 'ease-in-out' },
+    { transform: 'rotate(180deg) scale(.9)', offset: 0.5, easing: 'ease-in-out' },
+    { transform: 'rotate(360deg) scale(1)' },
+  ],
+};
+const BOUNCE: Move = {
+  ms: 900,
+  frames: [
+    { transform: 'scale(1,1) translateY(0)' },
+    { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.15 },
+    { transform: 'scale(.95,1.06) translateY(-14px)', offset: 0.35 },
+    { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.55 },
+    { transform: 'scale(.95,1.06) translateY(-10px)', offset: 0.75 },
+    { transform: 'scale(1,1) translateY(0)' },
+  ],
+};
+/** Ngó quanh không cần keyframe: chạy lần lượt qua chính các ô hướng nhìn của sprite. */
 const LOOK_AROUND: MascotDirection[] = ['left', 'up-left', 'up-right', 'right'];
+/** Chủ quán chốt: thêm món thì bốc ngẫu nhiên MỘT trong năm động tác này. */
+const ADD_MOVES: (Move | 'look-around')[] = [HOP, SHAKE, SPIN, BOUNCE, 'look-around'];
 
 /** Bốc ngẫu nhiên nhưng KHÔNG lặp lại lần ngay trước — bấm thêm hai món liền mà ra hai biểu cảm
  *  giống nhau thì khách tưởng nó không phản ứng lần thứ hai. */
@@ -164,13 +153,26 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
   const moveRef = useRef<HTMLDivElement>(null);
   const lastReaction = useRef<MascotReaction | null>(null);
   const lastLine = useRef<string | null>(null);
-  const lastMove = useRef<number | null>(null);
+  const lastMove = useRef<Move | 'look-around' | null>(null);
+  const lookTimers = useRef<number[]>([]);
+  useEffect(() => () => lookTimers.current.forEach(window.clearTimeout), []);
 
   const play = (reaction: MascotReaction) => {
     cueIdRef.current += 1;
     setCue({ reaction, id: cueIdRef.current });
   };
-  const move = (m: Move) => {
+  const move = (m: Move | 'look-around') => {
+    if (m === 'look-around') {
+      // Đổi ô hướng nhìn, không phải chuyển động — vẫn chạy khi máy bật giảm chuyển động.
+      lookTimers.current.forEach(window.clearTimeout);
+      lookTimers.current = LOOK_AROUND.map((d, i) =>
+        window.setTimeout(() => setLook(d), LOOK_DELAY_MS + i * LOOK_STEP_MS),
+      );
+      lookTimers.current.push(
+        window.setTimeout(() => setLook(null), LOOK_DELAY_MS + LOOK_AROUND.length * LOOK_STEP_MS),
+      );
+      return;
+    }
     if (reducedMotion()) return;
     moveRef.current?.animate(m.frames, { duration: m.ms, easing: 'linear' });
   };
@@ -211,7 +213,7 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
     // chạy cùng một nhịp nên React gộp chung một lần vẽ; effect `sentKey` khai SAU effect này nên
     // chạy sau và đè lên — khách chỉ thấy phản ứng "đã gửi".
     if (cartCount > prev) {
-      move(HOP);
+      move(pickFresh(ADD_MOVES, lastMove));
       play(pickFresh(HAPPY, lastReaction));
       say(pickFresh(LINES.happy, lastLine));
     } else if (cartCount < prev) {
@@ -277,36 +279,6 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
       window.removeEventListener('pointerdown', wake);
       window.removeEventListener('scroll', wake);
       window.removeEventListener('keydown', wake);
-    };
-  }, []);
-
-  // Động tác mỗi 10 giây. Tab bị ẩn thì bỏ nhịp (không ai xem, và trình duyệt cũng hãm timer).
-  const asleepRef = useRef(asleep);
-  asleepRef.current = asleep;
-  useEffect(() => {
-    const timers: number[] = [];
-    const tick = () => {
-      if (document.hidden || reducedMotion()) return;
-      if (asleepRef.current) {
-        moveRef.current?.animate(BREATHE.frames, { duration: BREATHE.ms });
-        return;
-      }
-      // MOVES.length = ngó quanh, các số nhỏ hơn = một bộ keyframe.
-      const n = pickFresh(
-        Array.from({ length: MOVES.length + 1 }, (_, i) => i),
-        lastMove,
-      );
-      if (n === MOVES.length) {
-        LOOK_AROUND.forEach((d, i) => timers.push(window.setTimeout(() => setLook(d), i * 380)));
-        timers.push(window.setTimeout(() => setLook(null), LOOK_AROUND.length * 380));
-        return;
-      }
-      move(MOVES[n]!);
-    };
-    const every = window.setInterval(tick, MOVE_EVERY_MS);
-    return () => {
-      window.clearInterval(every);
-      timers.forEach(window.clearTimeout);
     };
   }, []);
 
