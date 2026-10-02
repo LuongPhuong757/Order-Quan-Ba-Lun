@@ -11,8 +11,8 @@ import { addTableLine } from '../lib/table-cart-store.ts';
  *
  * ── Khách làm gì → hamster làm gì ──
  *   - mới vào           → chào theo giờ (sáng/trưa/chiều/tối/khuya); chưa khai bàn thì nhắc nhập bàn
- *   - bấm + ở một món   → NHÌN về phía món, NHẢY lóc cóc tới cạnh ô món, nhận món rồi ôm nhảy về
- *                         (thêm từ hộp chi tiết / nút gợi ý thì món BAY vào tay), về tới nơi thì:
+ *   - bấm + ở một món   → NHÌN về phía món, món BAY theo đường cong vào tay, chạm tay thì:
+ *                         (từng có kiểu "nhảy tới ô món rồi ôm về" — chủ quán bỏ 2026-10-02)
  *                         động tác vui ngẫu nhiên + biểu cảm vui ngẫu nhiên + tim/sao bắn ra +
  *                         tiếng "chít" + câu thoại (món bán chạy > khen đích danh món > câu khen)
  *   - bớt món           → nghiêng người + biểu cảm buồn ngẫu nhiên + tiếng "oong" + câu tiếc
@@ -219,29 +219,6 @@ const PEEK_EVERY_MS = 15_000;
 const BLINK_MS = 160;
 /** Ngó về chỗ khách chạm trong bao lâu rồi quay lại nhìn thẳng. */
 const TOUCH_LOOK_MS = 900;
-/** Một chiều của chuyến nhảy tới món (3 bước). */
-const HOP_TRIP_MS = 640;
-const HOP_STEPS = 3;
-const HOP_HEIGHT = 26;
-
-/** Đường nhảy lóc cóc từ (x0,y0) tới (x1,y1): HOP_STEPS cú nhảy, mỗi cú vồng lên HOP_HEIGHT,
- *  chạm đất thì bẹp nhẹ cho có cảm giác nặng. */
-function hopFrames(x0: number, y0: number, x1: number, y1: number): Keyframe[] {
-  const frames: Keyframe[] = [];
-  for (let i = 0; i <= HOP_STEPS * 2; i++) {
-    const t = i / (HOP_STEPS * 2);
-    const x = x0 + (x1 - x0) * t;
-    const y = y0 + (y1 - y0) * t - (i % 2 === 1 ? HOP_HEIGHT : 0);
-    const landing = i % 2 === 0 && i > 0 && i < HOP_STEPS * 2;
-    frames.push({
-      transform: `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)${landing ? ' scale(1.06, .92)' : ''}`,
-      offset: t,
-      easing: i % 2 === 0 ? 'ease-out' : 'ease-in',
-    });
-  }
-  return frames;
-}
-
 /** Ngó quanh không cần keyframe: chạy lần lượt qua chính các ô hướng nhìn của sprite. */
 const LOOK_AROUND: MascotDirection[] = ['left', 'up-left', 'up-right', 'right'];
 /** Chủ quán chốt: thêm món thì bốc ngẫu nhiên MỘT trong năm động tác này. */
@@ -534,66 +511,15 @@ export function MenuMascot(props: Props): JSX.Element {
           return;
         }
         setLook(directionTo(e.from, me));
-        if (!hopToDish(e.from, me, e.image, () => celebrate(dish))) {
-          flyToMascot(e.from, me, e.image, () => celebrate(dish));
-        }
+        flyToMascot(e.from, me, e.image, () => celebrate(dish));
       }),
     [],
   );
 
-  /* ── Nhảy tới món ──
-   * Bấm + ở một ô món: hamster nhảy lóc cóc 3 bước tới cạnh ô đó, món bay một quãng ngắn vào tay,
-   * rồi ôm món nhảy 3 bước về góc — về tới nơi mới mừng (`onHome`).
-   * Chạy trên lớp `travel` riêng, không đụng lớp `move` (động tác vui) và lớp bọc ngoài (kéo thả,
-   * ngồi trên popup). Trả false khi không nên nhảy — nơi gọi dùng kiểu "món bay" cũ:
-   *   - đang có popup (thêm từ hộp chi tiết món: hộp sắp đóng, nhảy ra giữa màn là lạc lõng),
-   *   - đang nhảy dở một chuyến khác, đang bị kéo, máy bật giảm chuyển động,
-   *   - chỗ bấm sát ngay hamster (nút "＋" trong bong bóng) — nhảy 20px thì vô nghĩa. */
-  const travelRef = useRef<HTMLDivElement>(null);
-  const hoppingRef = useRef(false);
-  /** Hamster đang rời chỗ (nhảy tới món, trốn xuống mép màn) → ẩn nút loa, không thì nó lơ lửng một mình ở góc. */
-  const [away, setAway] = useState(false);
   const overlayRef = useRef(overlayOpen);
   overlayRef.current = overlayOpen;
-  const hopToDish = (from: DOMRect, me: DOMRect, image: string | null, onHome: () => void): boolean => {
-    const el = travelRef.current;
-    if (!el || reducedMotion() || overlayRef.current || hoppingRef.current || gesture.current) return false;
-    // Đứng ngay bên phải ảnh món, ngang tầm ảnh; kẹp trong màn hình.
-    const left = Math.min(window.innerWidth - me.width - 8, Math.max(8, from.right + 6));
-    const top = Math.min(window.innerHeight - me.height - 8, Math.max(8, from.top + from.height / 2 - me.height / 2));
-    const dx = left - me.left;
-    const dy = top - me.top;
-    if (Math.hypot(dx, dy) < 100) return false;
-    hoppingRef.current = true;
-    setAway(true);
-    const go = el.animate(hopFrames(0, 0, dx, dy), { duration: HOP_TRIP_MS, fill: 'forwards' });
-    go.onfinish = () => {
-      const here = myRect();
-      if (!here) return;
-      flyToMascot(from, here, image, () => {
-        // Món nằm trong tay: gắn vào lớp travel để đi cùng hamster suốt chuyến về.
-        const carry = document.createElement('div');
-        carry.className = 'mo-mascot-carry';
-        if (image) {
-          const img = document.createElement('img');
-          img.src = image;
-          img.alt = '';
-          carry.appendChild(img);
-        } else carry.textContent = '🍜';
-        el.appendChild(carry);
-        setLook(dx > 0 ? 'left' : 'right');
-        const back = el.animate(hopFrames(dx, dy, 0, 0), { duration: HOP_TRIP_MS });
-        go.cancel(); // chuyến về bắt đầu đúng chỗ chuyến đi dừng, huỷ chuyến đi không làm giật.
-        back.onfinish = () => {
-          carry.remove();
-          hoppingRef.current = false;
-          setAway(false);
-          onHome();
-        };
-      });
-    };
-    return true;
-  };
+  /** Hamster đang trốn xuống mép màn → ẩn nút loa, không thì nó lơ lửng một mình ở góc. */
+  const [away, setAway] = useState(false);
 
   // So với lần vẽ TRƯỚC chứ không so với 0: giỏ khôi phục từ localStorage lúc mở trang không
   // được tính là "vừa thêm món".
@@ -752,7 +678,7 @@ export function MenuMascot(props: Props): JSX.Element {
   useEffect(() => {
     let settle = 0;
     const onDown = (e: PointerEvent) => {
-      if (rootRef.current?.contains(e.target as Node) || hoppingRef.current) return;
+      if (rootRef.current?.contains(e.target as Node)) return;
       const me = myRect();
       if (!me) return;
       setLook(directionTo(new DOMRect(e.clientX, e.clientY, 0, 0), me));
@@ -1010,10 +936,9 @@ export function MenuMascot(props: Props): JSX.Element {
           </div>
         ) : null}
       </div>
-      {/* Bốn lớp lồng nhau, mỗi lớp giữ MỘT loại chuyển động để chúng chồng lên nhau được mà không
-          đè transform của nhau: travel (nhảy tới món) › move (động tác vui, ló đầu) › sway (lò xo
-          theo đà cuộn) › breathe (thở liên tục). */}
-      <div ref={travelRef} className="mo-mascot-travel">
+      {/* Ba lớp lồng nhau, mỗi lớp giữ MỘT loại chuyển động để chúng chồng lên nhau được mà không
+          đè transform của nhau: move (động tác vui, ló đầu) › sway (lò xo theo đà cuộn) ›
+          breathe (thở liên tục). */}
         <div ref={moveRef} className="mo-mascot-move">
           <div ref={swayRef} className="mo-mascot-sway">
             <div className="mo-mascot-breathe">
@@ -1030,7 +955,6 @@ export function MenuMascot(props: Props): JSX.Element {
             </div>
           </div>
         </div>
-      </div>
       <button
         type="button"
         className="mo-mascot-sound"
@@ -1073,15 +997,7 @@ const MENU_MASCOT_CSS = `
 /* Thở: phập phồng rất nhẹ, liên tục — nhân vật đứng yên vẫn trông như đang sống. */
 .mo-mascot-breathe{ transform-origin:50% 90%; animation:mo-mascot-breathe 2.6s ease-in-out infinite; }
 @keyframes mo-mascot-breathe{ 0%,100%{ transform:scale(1,1); } 50%{ transform:scale(1.025,.975); } }
-/* Món đang ôm trong tay lúc nhảy về. */
-.mo-mascot-carry{
-  position:absolute; left:50%; bottom:6px; width:30px; height:30px; margin-left:-15px; z-index:1;
-  border-radius:8px; overflow:hidden; background:#f6ecd9; border:2px solid #fff;
-  display:flex; align-items:center; justify-content:center; font-size:18px; pointer-events:none;
-  box-shadow:0 3px 8px rgb(42 29 20 / 25%);
-}
-.mo-mascot-carry img{ width:100%; height:100%; object-fit:cover; }
-.mo-mascot-travel{ position:relative; }
+
 @keyframes mo-mascot-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
 
 /* Nút loa nhỏ ở góc dưới-trái người hamster. 28px hiển thị nhưng vùng chạm nới ra bằng ::before

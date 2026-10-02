@@ -12,7 +12,8 @@ import type { CSSProperties, JSX } from 'react';
  *   - `cue`    — phát một biểu cảm; đổi `id` là phát lại, kể cả cùng biểu cảm.
  *   - `asleep` — ngủ gật khi không có biểu cảm nào đang phát.
  *   - `talking` — mấp máy miệng (ngậm ↔ há) khi không có biểu cảm nào đang phát.
- * Thêm nữa: đổi ảnh mờ dần (FADE_MS) thay vì đổi phụt, và `cue.quiet` cho nhịp phụ như tự chớp mắt.
+ * Thêm nữa: `cue.quiet` cho nhịp phụ như tự chớp mắt. (Đổi ảnh mờ dần từng có, chủ quán bỏ
+ * 2026-10-02 — biểu cảm đổi tức thì như bản gốc.)
  *
  * Mỗi nhân vật là hai tấm 3×3: chín hướng đầu và chín biểu cảm. Chỉ dời `background-position`,
  * không có thư viện hoạt ảnh nào.
@@ -106,9 +107,6 @@ export type MascotCue = { reaction: MascotReaction; id: number; ms?: number; qui
 const TALK_STEP_MS = 140;
 /** Ô "há miệng" khi nói: mắt vẫn mở, miệng chữ o — đổi qua lại với mặt nhìn thẳng (miệng ngậm). */
 const MOUTH_OPEN: MascotReaction = 'surprised';
-/** Đổi ảnh mờ dần chừng này thay vì đổi phụt — biểu cảm chuyển mềm hơn. Ngắn hơn một cú chớp
- *  mắt (160ms), không thì chớp mắt mờ tới mức không thấy. */
-const FADE_MS = 80;
 
 export type MascotProps = {
   /** Tấm 3×3 các hướng đầu. */
@@ -259,11 +257,6 @@ export function Mascot(props: MascotProps): JSX.Element {
   const shown = reaction ?? (asleep ? 'sleepy' : speaking && mouthOpen ? MOUTH_OPEN : null);
   // Đang nói thì nhìn thẳng: mặt nghiêng xen kẽ với ô "há miệng" (nhìn thẳng) trông như giật đầu.
   const facing = speaking ? 'center' : (look ?? direction);
-  // Lớp biểu cảm đang MỜ DẦN đi vẫn phải giữ ô cũ; nhảy về ô mặc định ngay thì trong 80ms mờ dần
-  // khách thấy loé lên một khuôn mặt khác.
-  const lastShownRef = useRef<MascotReaction>('blink');
-  if (shown) lastShownRef.current = shown;
-  const fade = `opacity ${FADE_MS}ms linear`;
 
   // Style inline để file thả vào đâu cũng chạy, không cần CSS chung.
   return (
@@ -299,7 +292,6 @@ export function Mascot(props: MascotProps): JSX.Element {
             backgroundImage: `url(${directions})`,
             ...cell(DIRECTIONS.indexOf(facing)),
             opacity: shown ? 0 : 1,
-            transition: fade,
           }}
         />
         {/* Luôn mount để tấm biểu cảm tải sẵn từ đầu, không đợi tới lần chạm đầu tiên. */}
@@ -307,9 +299,8 @@ export function Mascot(props: MascotProps): JSX.Element {
           style={{
             ...layer,
             backgroundImage: `url(${reactions})`,
-            ...cell(REACTIONS.indexOf(lastShownRef.current)),
+            ...cell(REACTIONS.indexOf(shown ?? 'blink')),
             opacity: shown ? 1 : 0,
-            transition: fade,
           }}
         />
       </span>
