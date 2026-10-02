@@ -1,7 +1,7 @@
 // Lịch sử order — page xem mọi order (đã + chưa thanh toán), filter theo bàn/ngày/cashier/trạng thái.
 // Color-code: xanh lá = đã thanh toán, vàng = chưa thanh toán.
 // Expandable row: bấm vào row để mở chi tiết món + ai gọi.
-import { useEffect, useMemo, useRef, useState, Fragment } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { CheckoutDialog } from '../components/CheckoutDialog.tsx';
@@ -19,6 +19,7 @@ import {
   type HistoryFilters,
   type HistorySort,
   type HistoryVerified,
+  type HistoryPhoto,
 } from '../lib/history-filter.ts';
 
 /** Khoá nhóm cho đơn CHƯA thanh toán khi đang sắp xếp theo giờ thanh toán: chúng không có ngày
@@ -130,6 +131,11 @@ type HistoryOrder = {
   bank_verified: boolean | null;
   payment_qr_label: string | null;
   transfer_note: string | null;
+  /** Vì sao đơn CK này không có ảnh bill (2026-10-02). `null` = bình thường (có ảnh, hoặc đơn
+   *  tiền mặt). Có chữ = người thu đã bấm "Không chụp được" và gõ lý do. */
+  payment_photo_skip_reason: string | null;
+  /** Số ảnh bill đã chụp. `null` = đơn không thu chuyển khoản, không có bill nào để chụp. */
+  payment_photo_count: number | null;
   ship_fee: number;
   /* Ghi nợ (2026-09-25). `debt_at` có + `is_paid = false` = ĐANG NỢ; `debt_paid_at` có = đã thu
      nợ (lúc đó `is_paid = true`, và đây là mốc tiền thật của đơn). */
@@ -270,6 +276,8 @@ export function HistoryPage() {
   /** Lọc theo "ngân hàng đã xác nhận chưa" (2026-09-23). Chồng lên ô hình thức thu chứ không
    *  thay thế: nó chỉ có nghĩa với đơn chuyển khoản, và BE đã tự giới hạn ở đó. */
   const [verifiedFilter, setVerifiedFilter] = useState<HistoryVerified>('');
+  /** Lọc đơn CK theo chuyện có ảnh bill hay không (2026-10-02). */
+  const [photoFilter, setPhotoFilter] = useState<HistoryPhoto>('');
   /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — câu hỏi lúc cầm sao kê của một tài khoản: "đơn
    *  nào trong app đã thu về đây?". Chồng lên các trục kia y như ô hình thức thu tiền. */
   const [qrAccountFilter, setQrAccountFilter] = useState<string>('');
@@ -338,6 +346,7 @@ export function HistoryPage() {
     // tiếp là lọc mất đơn bằng một điều kiện KHÔNG CÒN Ô NÀO hiện ra để gỡ. Ép rỗng ở đây, tại
     // chỗ dựng query, thay vì đi dọn state: một nguồn sự thật, không phụ thuộc thứ tự effect.
     verified: verifyOn ? verifiedFilter : '',
+    photo: photoFilter,
     from: range.from,
     to: range.to,
     shift: range.shift,
@@ -570,7 +579,9 @@ export function HistoryPage() {
    * Toạ độ FIXED chứ không absolute như `.drawer-menu` gốc: bảng nằm trong khung `overflow-x: auto`,
    * menu absolute sẽ bị khung đó cắt cụt ở dòng cuối. Neo theo nút vừa bấm, đóng khi cuộn.
    */
-  const [rowMenu, setRowMenu] = useState<{ id: string; top: number; right: number } | null>(null);
+  const [rowMenu, setRowMenu] = useState<
+    { id: string; anchorTop: number; anchorBottom: number; right: number } | null
+  >(null);
   useEffect(() => {
     if (!rowMenu) return;
     const close = () => setRowMenu(null);
@@ -580,6 +591,43 @@ export function HistoryPage() {
       window.removeEventListener('scroll', close, true);
       window.removeEventListener('resize', close);
     };
+  }, [rowMenu]);
+
+  /**
+   * LẬT MENU LÊN KHI DƯỚI HẾT CHỖ (2026-10-02).
+   *
+   * Bản cũ luôn đặt menu ở `nút.bottom + 6`. Đơn nằm cuối màn hình thì menu đổ xuống vùng của
+   * thanh `.nav-bottom` — mà thanh đó `z-index: 100` còn `.drawer-menu` chỉ `41`, nên mục thứ
+   * hai ("Chuyển sang nợ") BIẾN MẤT dưới thanh nav. Nhìn ra thì tưởng menu chỉ có một mục, chứ
+   * không ai nghĩ là bị che: menu vẫn bo góc, vẫn đổ bóng, trông như đã hiện đủ.
+   *
+   * Phải ĐO menu sau khi nó vào DOM chứ không đoán chiều cao: số mục đổi theo quyền (chỉ admin
+   * mới có "Chuyển sang nợ"), nên một hằng số chiều cao sẽ sai đúng với nửa số người dùng.
+   *
+   * `useLayoutEffect` chứ không `useEffect`: nó chạy TRƯỚC khi trình duyệt vẽ, nên người dùng
+   * không thấy menu nhảy một nhịp từ chỗ sai sang chỗ đúng.
+   */
+  const rowMenuRef = useRef<HTMLDivElement>(null);
+  const [rowMenuTop, setRowMenuTop] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    if (!rowMenu) {
+      setRowMenuTop(null);
+      return;
+    }
+    const el = rowMenuRef.current;
+    if (!el) return;
+    const GAP = 6;
+    const menuH = el.offsetHeight;
+    // Đo thanh nav thật thay vì hằng số: nó cao khác nhau giữa máy có và không có safe-area
+    // (`env(safe-area-inset-bottom)` ở `.nav-bottom`), và ẩn hẳn trên máy tính.
+    const nav = document.querySelector('.nav-bottom');
+    const floor = window.innerHeight - (nav ? nav.getBoundingClientRect().height : 0) - GAP;
+    let top = rowMenu.anchorBottom + GAP;
+    if (top + menuH > floor) top = rowMenu.anchorTop - GAP - menuH; // lật lên trên nút
+    // Lật lên mà vẫn tràn khỏi mép trên (menu dài, màn ngắn) → ép nó nằm trọn trong vùng dùng
+    // được, chấp nhận che mất dòng đơn. Thà đè lên thứ người ta vừa bấm còn hơn cắt cụt menu.
+    if (top < GAP) top = Math.max(GAP, floor - menuH);
+    setRowMenuTop(top);
   }, [rowMenu]);
   const rowMenuOrder = rowMenu ? orders.find((o) => o.id === rowMenu.id) ?? null : null;
 
@@ -688,6 +736,7 @@ export function HistoryPage() {
     misaFilter ||
     paymentFilter ||
     (verifyOn && verifiedFilter) ||
+    photoFilter ||
     qrAccountFilter ||
     // Mặc định của màn là CA ĐANG CHẠY, nên chỉ nó mới là "không lọc gì". Ca trước là một lựa
     // chọn có chủ ý và phải tính là đang lọc — nếu không thì nút "Xoá lọc" biến mất đúng lúc
@@ -875,9 +924,27 @@ export function HistoryPage() {
         >
           <option value="">Mọi xác thực</option>
           <option value="yes">✓ Đã xác thực (CK)</option>
-          <option value="no">⚠ Chưa xác thực (CK)</option>
+          <option value="no">✗ Không thấy GD (CK)</option>
         </select>
         )}
+
+        {/* Ảnh bill (2026-10-02). KHÔNG ẩn theo công tắc xác thực như ô trên: ảnh bill là việc
+            của quán (người thu có chụp hay không), còn xác thực là việc của ngân hàng — tắt
+            cái sau không làm cái trước mất nghĩa.
+            "Thiếu ảnh" gồm cả đơn đã gõ lý do "không chụp được": có lý do không làm tấm ảnh
+            xuất hiện, người đối soát vẫn phải xử lý đúng những đơn đó. */}
+        <select
+          className="txn-fsel"
+          aria-label="Lọc theo ảnh bill chuyển khoản"
+          title="Đơn chuyển khoản có ảnh bill hay không"
+          value={photoFilter}
+          onChange={(e) => { setPhotoFilter(e.target.value as HistoryPhoto); setPage(1); }}
+          style={{ width: 186, minHeight: 34, height: 34, paddingTop: 0, paddingBottom: 0, paddingLeft: 10, fontSize: 13, flexShrink: 0 }}
+        >
+          <option value="">Mọi ảnh bill</option>
+          <option value="has">📷 Có ảnh bill (CK)</option>
+          <option value="missing">⚠ Thiếu ảnh bill (CK)</option>
+        </select>
 
         {/* Tài khoản nhận tiền (2026-09-15). Đứng NGAY SAU ô hình thức vì hai câu hỏi đi liền
             nhau lúc đối soát: "đơn nào chuyển khoản" rồi "về tài khoản nào".
@@ -1192,7 +1259,8 @@ export function HistoryPage() {
               <col style={{ width: 70 }} />
               <col style={{ width: 120 }} />
               <col style={{ width: 190 }} />
-              {verifyOn && <col style={{ width: 120 }} />}
+              {/* 170 chứ không 120: ô này mang CẢ dấu ✓/✗ lẫn cờ ảnh bill từ 2026-10-02. */}
+              {verifyOn && <col style={{ width: 170 }} />}
               <col style={{ width: 160 }} />
             </colgroup>
             {/* `nowrap` cho MỌI ô tiêu đề: cột hẹp làm "Giờ vào" / "Thu ngân" gãy làm 2 dòng,
@@ -1334,6 +1402,18 @@ export function HistoryPage() {
                                 {isPaid && (
                                   <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
                                 )}
+                                {/* Cờ ảnh bill ở ĐÂY chỉ còn là đường lùi (2026-10-02): chỗ chính
+                                    của nó là ô "Xác thực" ngay dưới, đứng ngang dấu ✓/✗ — hai
+                                    thứ đó cùng trả lời một câu "đơn chuyển khoản này có bằng
+                                    chứng gì". Nhưng ô đó BIẾN MẤT khi công tắc xác thực tắt,
+                                    nên khi tắt thì cờ quay về dòng này, cạnh nhãn hình thức
+                                    thu. Hai nhánh loại trừ nhau — không bao giờ vẽ hai lần. */}
+                                {isPaid && !verifyOn && o.payment_photo_count !== null && (
+                                  <PaymentPhotoBadge
+                                    count={o.payment_photo_count}
+                                    skipReason={o.payment_photo_skip_reason}
+                                  />
+                                )}
                               </div>
                             </td>
 
@@ -1344,6 +1424,7 @@ export function HistoryPage() {
                                 class `no-verify` ở thẻ <table>. */}
                             {verifyOn && (
                             <td data-label="Xác thực" style={{ whiteSpace: 'nowrap' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                               {o.bank_verified === null ? (
                                 /* Trên điện thoại ô này ẩn hẳn (xem `.txn-dash` trong styles.css):
                                    ở bảng desktop dấu "—" nói "không có gì để xác nhận", nhưng
@@ -1351,10 +1432,33 @@ export function HistoryPage() {
                                    trên MỌI đơn tiền mặt. */
                                 <span className="txn-dash" style={{ color: '#9ca3af' }}>—</span>
                               ) : o.bank_verified ? (
-                                <span style={{ color: '#15803d', fontWeight: 600 }}>✓ Đã xác thực</span>
+                                /* Dấu to đứng trước chữ (chủ quán 2026-10-02): người đọc màn này
+                                   quét cả cột một lượt để tìm đơn lệch, và một cột toàn chữ thì
+                                   không quét được. Chữ vẫn giữ — phần lớn người dùng quán lớn
+                                   tuổi, bỏ chữ là bắt họ nhớ dấu nào nghĩa gì. */
+                                <span style={{ color: '#15803d', fontWeight: 600 }}>
+                                  <span style={{ fontSize: 18 }}>✓</span> Đã xác thực
+                                </span>
                               ) : (
-                                <span style={{ color: '#b45309', fontWeight: 600 }}>Chưa xác thực</span>
+                                /* CHỈ dấu ✗, không chữ (chủ quán 2026-10-02). Nhãn đi kèm nằm ở
+                                   `data-label` của ô nên thẻ dọc trên điện thoại vẫn đọc được là
+                                   cột "Xác thực"; và ô lọc ngay trên bảng vẫn ghi đủ chữ "Không
+                                   thấy GD" nên dấu này không đứng một mình không ai giải nghĩa.
+                                   Cố ý KHÔNG nói "chuyển tiền thất bại" ở bất cứ đâu — ta chỉ
+                                   biết mình chưa tìm thấy giao dịch, tiền có thể đã về rồi. */
+                                <span style={{ color: '#b91c1c', fontWeight: 700, fontSize: 18 }}>✗</span>
                               )}
+                              {/* Cờ ảnh bill đứng ngang dấu xác thực (chủ quán 2026-10-02): cùng
+                                  một câu hỏi "đơn này có bằng chứng gì", để hai dòng rời thì
+                                  thẻ đơn trên điện thoại cao thêm một dòng cho mỗi đơn CK. */}
+                              {isPaid && o.payment_photo_count !== null && (
+                                <PaymentPhotoBadge
+                                  count={o.payment_photo_count}
+                                  skipReason={o.payment_photo_skip_reason}
+                                  inline
+                                />
+                              )}
+                              </span>
                             </td>
                             )}
                             {/* Cột thao tác — dồn về phải, cùng chiều cao 1 dòng. */}
@@ -1406,7 +1510,14 @@ export function HistoryPage() {
                                         return;
                                       }
                                       const r = e.currentTarget.getBoundingClientRect();
-                                      setRowMenu({ id: o.id, top: r.bottom + 6, right: window.innerWidth - r.right });
+                                      // Giữ CẢ hai mép của nút: chỗ đặt menu còn phụ thuộc chiều
+                                      // cao của chính nó, mà lúc này nó chưa vào DOM để đo.
+                                      setRowMenu({
+                                        id: o.id,
+                                        anchorTop: r.top,
+                                        anchorBottom: r.bottom,
+                                        right: window.innerWidth - r.right,
+                                      });
                                     }}
                                     style={{ padding: '2px 10px', fontSize: 16, lineHeight: 1.3, minHeight: 0 }}
                                   >
@@ -1449,8 +1560,20 @@ export function HistoryPage() {
                 style={{ position: 'fixed', inset: 0, zIndex: 40 }}
               />
               <div
+                ref={rowMenuRef}
                 className="drawer-menu"
-                style={{ position: 'fixed', top: rowMenu.top, right: rowMenu.right }}
+                style={{
+                  position: 'fixed',
+                  top: rowMenuTop ?? rowMenu.anchorBottom + 6,
+                  right: rowMenu.right,
+                  // TRÊN cả `.nav-bottom` (z-index 100). Đặt nội tuyến chứ không sửa `.drawer-menu`
+                  // trong styles.css: class đó còn dùng cho các menu nằm TRONG luồng trang, nâng
+                  // chung là cho chúng quyền đè lên thanh điều hướng mà không ai yêu cầu.
+                  zIndex: 101,
+                  // Lần vẽ đầu chưa đo được chiều cao nên vị trí có thể sai — ẩn đúng một nhịp
+                  // thay vì cho người ta thấy nó nhảy.
+                  visibility: rowMenuTop === null ? 'hidden' : 'visible',
+                }}
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* In lại: cùng quyền với cờ Misa (admin + order) và khớp `RequireRoles` ở BE —
@@ -1651,6 +1774,68 @@ function MisaBadge({
   );
 }
 
+/**
+ * CỜ ẢNH BILL của một đơn chuyển khoản (2026-10-02, chủ quán yêu cầu).
+ *
+ * Chỉ dựng cho đơn CK — đơn tiền mặt không có bill nào để chụp, gắn cờ "thiếu ảnh" lên chúng
+ * là tạo ra một đống cảnh báo sai. Chỗ gọi đã chặn bằng `payment_photo_count !== null`.
+ *
+ * Ba trạng thái, và chúng KHÔNG cùng mức độ gấp:
+ *  - có ảnh  → xám nhạt, kèm số tấm. Đây là đường bình thường, nó không được nhảy ra khỏi
+ *    dòng: tô đậm cái bình thường thì cái bất thường mất chỗ đứng.
+ *  - thiếu ảnh, CÓ lý do → vàng. Người thu đã chủ động khai, quán biết chuyện gì xảy ra.
+ *  - thiếu ảnh, KHÔNG lý do → đỏ. Đơn cũ trước 2026-10-02 (hồi ảnh còn tuỳ chọn) rơi vào đây,
+ *    và đó đúng là tập đơn không có bằng chứng lẫn lời giải thích.
+ *
+ * Số tấm hiện luôn chứ không chỉ một dấu tích: hai tấm và một tấm là khác nhau khi đối soát
+ * một đơn trả làm nhiều lần chuyển.
+ */
+function PaymentPhotoBadge({
+  count,
+  skipReason,
+  inline,
+}: {
+  count: number;
+  skipReason: string | null;
+  /** `true` = đứng NGANG dấu ✓/✗ trong ô "Xác thực" (chỗ mặc định từ 2026-10-02). Bỏ hai lề
+   *  vốn dành cho lúc nó đi sau nhãn hình thức thu ở dòng trạng thái. */
+  inline?: boolean;
+}) {
+  const style = {
+    display: 'inline-block',
+    marginTop: inline ? 0 : 3,
+    marginLeft: inline ? 0 : 6,
+    padding: '1px 6px',
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 600,
+    whiteSpace: 'nowrap' as const,
+    lineHeight: 1.5,
+  };
+  if (count > 0) {
+    return (
+      <span style={{ ...style, background: '#f1f5f9', color: '#475569' }} title={`${count} ảnh bill`}>
+        📷 {count}
+      </span>
+    );
+  }
+  const coLyDo = !!skipReason;
+  return (
+    <span
+      style={
+        coLyDo
+          ? { ...style, background: '#fef3c7', color: '#92400e' }
+          : { ...style, background: '#fee2e2', color: '#991b1b' }
+      }
+      // `title` mang nguyên văn lý do: người đối soát hỏi "vì sao thiếu" ngay tại dòng này,
+      // bắt họ mở rộng đơn mới đọc được là thêm một cú chạm cho mỗi đơn cần soát.
+      title={coLyDo ? `Không chụp được bill: ${skipReason}` : 'Đơn chuyển khoản không có ảnh bill'}
+    >
+      ⚠ Thiếu ảnh
+    </span>
+  );
+}
+
 function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
   const items = order.items || [];
   const grouped = {
@@ -1681,6 +1866,22 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           {order.payment_qr_label && <span> → {order.payment_qr_label}</span>}
           {order.transfer_note && (
             <div style={{ marginTop: 2, fontFamily: 'monospace' }}>Nội dung: {order.transfer_note}</div>
+          )}
+          {/* Đơn CK không có ảnh bill thì PHẢI nói ra ngay trong khối tiền, không giấu dưới nhật
+              ký: đây là đơn duy nhất của ngày mà việc đối soát chỉ còn dựa vào lời kể. */}
+          {order.payment_photo_skip_reason && (
+            <div
+              style={{
+                marginTop: 8,
+                padding: '8px 10px',
+                background: '#fef3c7',
+                border: '1px solid #fde68a',
+                borderRadius: 6,
+                color: '#92400e',
+              }}
+            >
+              ⚠ Không chụp được bill — {order.payment_photo_skip_reason}
+            </div>
           )}
           <PaymentPhotos orderId={order.id} />
         </div>

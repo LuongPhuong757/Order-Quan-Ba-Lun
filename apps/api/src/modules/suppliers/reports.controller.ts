@@ -91,6 +91,25 @@ export class ReportsController {
     return { data: { items } };
   }
 
+  /** Biến động công nợ theo ngày — biểu đồ "nợ mới vs đã trả" + đường dư nợ (2026-10-02).
+   *
+   * Cùng guard với cả controller (admin + report): công nợ là tiền quán đang nợ, cùng nhóm bí
+   * mật với giá mua. KHÔNG mở cho role `order`.
+   *
+   * Một đường riêng chứ không nhồi thêm field vào `daily`/`payments`: hai đường đó trả dữ liệu
+   * THEO NCC cho biểu đồ chi tiêu, còn đường này trả số đã gộp theo ngày kèm điểm gốc luỹ kế.
+   * Gộp vào nhau là buộc mọi màn gọi `daily` phải tải thêm thứ nó không dùng.
+   */
+  @Get('debt-flow')
+  async debtFlow(@Query() q: Record<string, string>) {
+    const data = await this.svc.debtFlow({
+      supplier_id: q.supplier_id || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+    });
+    return { data };
+  }
+
   @Get('matrix')
   async matrix() {
     return { data: { items: await this.svc.matrix() } };

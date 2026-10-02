@@ -20,6 +20,10 @@ export type CheckoutState = {
   transferAmount: number;
   /** Tên khách nợ đang gõ. Chỉ có nghĩa khi ghi nợ. */
   debtNote?: string;
+  /** Số ảnh bill đã đẩy lên. BẮT BUỘC ≥ 1 với đơn chuyển khoản từ 2026-10-02. */
+  photoCount: number;
+  /** Lý do người thu KHÔNG chụp được bill. Có chữ = đường thoát đã dùng, không đòi ảnh nữa. */
+  photoSkipReason?: string;
 };
 
 /**
@@ -40,6 +44,16 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   // Chỉ hỏi số tiền ở thế "Cả hai": "Chuyển khoản" toàn bộ thì số tiền chính là tổng, không có gì
   // để nhập.
   if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
+  // ẢNH BILL LÀ BẮT BUỘC với mọi đơn chuyển khoản (chủ quán chốt 2026-10-02, đảo lại quyết định
+  // 2026-09-14 "ảnh tuỳ chọn"). Lý do đảo: không có ảnh thì khoản không khớp được ở màn đối soát
+  // chỉ còn lời kể của người thu, và đó đúng là loại đơn cần bằng chứng nhất.
+  //
+  // Vẫn CÒN đường đi tiếp khi camera hỏng / mạng yếu — nỗi lo của bản 2026-09-14 là có thật và
+  // không bị bỏ qua: người thu bấm "Không chụp được" và gõ lý do. Khác nhau ở chỗ đường thoát
+  // nay phải CÓ CHỦ Ý và để lại vết (`payment_photo_skip_reason`), thay vì là mặc định im lặng.
+  if (wantsTransfer && s.photoCount <= 0 && !(s.photoSkipReason ?? '').trim()) {
+    return 'Chụp ảnh bill chuyển khoản của khách';
+  }
   return null;
 }
 

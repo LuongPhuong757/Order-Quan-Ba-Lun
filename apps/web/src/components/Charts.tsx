@@ -498,6 +498,170 @@ export function LineChart({
   );
 }
 
+// ── Biểu đồ cột NHÓM ────────────────────────────────────────────────────────
+
+/**
+ * Mỗi mốc thời gian một NHÓM cột đứng cạnh nhau, mỗi màu một chuỗi (2026-10-02).
+ *
+ * Khác `StackedBarChart` ở chỗ các cột KHÔNG chồng lên nhau, và đó là cả lý do nó tồn tại:
+ * sinh ra cho cặp "nợ mới / đã trả", hai con số mà TỔNG của chúng vô nghĩa. Xếp tầng ở đây
+ * sẽ vẽ ra một cột cao bằng "nợ cộng trả" — một đại lượng không tồn tại — và người đọc sẽ
+ * tưởng cột càng cao thì nợ càng nhiều, kể cả những hôm quán trả được rất nhiều tiền.
+ *
+ * Đứng cạnh nhau thì mắt so trực tiếp được hai cột trong cùng một ngày, đúng câu hỏi: hôm
+ * nay mua nhiều hơn hay trả nhiều hơn.
+ *
+ * Dùng CHUNG `LineSeries` với hai biểu đồ kia để màu và thứ tự chuỗi không lệch giữa các
+ * biểu đồ trên cùng một màn.
+ */
+export function GroupedBarChart({
+  labels,
+  series,
+  height = 220,
+  formatValue = (v) => String(v),
+  ariaLabel,
+  tiLeCot = 0.72,
+  rongCotToiDa = 44,
+}: {
+  labels: string[];
+  series: LineSeries[];
+  height?: number;
+  formatValue?: (v: number) => string;
+  ariaLabel: string;
+  /** Cả NHÓM cột chiếm bao nhiêu phần bề ngang ô của nó (0–1). */
+  tiLeCot?: number;
+  /** Chặn trên cho bề ngang cả nhóm — trục ít mốc mà không chặn thì cột phình ra lố bịch. */
+  rongCotToiDa?: number;
+}) {
+  const boxRef = useRef<HTMLDivElement | null>(null);
+  const [w, setW] = useState(720);
+  const [an, setAn] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [hover, setHover] = useState<number | null>(null);
+
+  useEffect(() => {
+    const el = boxRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setW(Math.max(280, e.contentRect.width)));
+    ro.observe(el);
+    setW(Math.max(280, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
+
+  const hien = useMemo(() => series.filter((s) => !an.has(s.id)), [series, an]);
+  // Thang đo bám theo chuỗi ĐANG HIỆN: tắt một chuỗi cao vống đi thì chuỗi còn lại phải nở ra
+  // chiếm hết chiều cao, nếu không việc tắt bớt chẳng giúp nhìn rõ hơn chút nào.
+  const yMax = useMemo(
+    () => mocTron(Math.max(0, ...hien.flatMap((s) => s.values))),
+    [hien],
+  );
+
+  const n = labels.length;
+  if (n === 0) return <Empty />;
+
+  const padL = 54;
+  const padR = 10;
+  const padT = 10;
+  const padB = 26;
+  const plotW = Math.max(10, w - padL - padR);
+  const plotH = Math.max(10, height - padT - padB);
+
+  const oCot = plotW / n;
+  const rongNhom = Math.max(2, Math.min(rongCotToiDa, oCot * tiLeCot));
+  // Chia bề ngang nhóm cho số chuỗi ĐANG HIỆN, không phải tổng số chuỗi: tắt một chuỗi mà cột
+  // còn lại vẫn mảnh như cũ thì nửa nhóm bỏ trống, trông như dữ liệu bị thiếu.
+  const rongCot = Math.max(1, rongNhom / Math.max(1, hien.length));
+  const cx = (i: number) => padL + (i + 0.5) * oCot;
+  const y = (v: number) => padT + plotH - (v / yMax) * plotH;
+
+  const buocNhan = buocNhanTruc(labels, oCot);
+  const chiSoNhan = chiSoGhiNhan(n, buocNhan);
+
+  const doiHover = (clientX: number) => {
+    const box = boxRef.current?.getBoundingClientRect();
+    if (!box) return;
+    const i = Math.floor((clientX - box.left - padL) / oCot);
+    setHover(Math.min(n - 1, Math.max(0, i)));
+  };
+
+  const tipLeft = hover === null ? 0 : Math.min(Math.max(8, cx(hover) + 12), Math.max(8, w - 208));
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div ref={boxRef} style={{ position: 'relative', width: '100%' }}>
+        <svg
+          width={w}
+          height={height}
+          role="img"
+          aria-label={ariaLabel}
+          style={{ display: 'block', touchAction: 'pan-y' }}
+          onMouseMove={(e) => doiHover(e.clientX)}
+          onMouseLeave={() => setHover(null)}
+          onTouchStart={(e) => doiHover(e.touches[0].clientX)}
+          onTouchMove={(e) => doiHover(e.touches[0].clientX)}
+          onTouchEnd={() => setHover(null)}
+        >
+          {hover !== null && (
+            <rect x={cx(hover) - oCot / 2} y={padT} width={oCot} height={plotH} fill="#f1f5f9" />
+          )}
+
+          {[0, 0.25, 0.5, 0.75, 1].map((t) => {
+            const gy = padT + plotH - t * plotH;
+            return (
+              <g key={t}>
+                <line x1={padL} y1={gy} x2={padL + plotW} y2={gy} stroke="#e5e7eb" strokeWidth={1} />
+                <text x={padL - 6} y={gy + 4} textAnchor="end" fontSize={11} fill="#6b7280">
+                  {formatValue(yMax * t)}
+                </text>
+              </g>
+            );
+          })}
+
+          {labels.map((_, i) =>
+            hien.map((s, k) => {
+              const v = s.values[i] ?? 0;
+              const top = y(v);
+              return (
+                <rect
+                  key={`${s.id}-${i}`}
+                  // Nhóm căn giữa ô: cột thứ k lệch khỏi tâm nửa bề ngang nhóm rồi cộng dần.
+                  x={cx(i) - rongNhom / 2 + k * rongCot}
+                  y={top}
+                  width={Math.max(1, rongCot - 1)}
+                  // Giá trị 0 không vẽ vạch tối thiểu — "hôm đó không trả đồng nào" phải nhìn
+                  // ra là trống hẳn, cùng lệ với `BarChart`.
+                  height={Math.max(0, padT + plotH - top)}
+                  fill={s.color}
+                  rx={2}
+                />
+              );
+            }),
+          )}
+
+          {labels.map((lb, i) =>
+            chiSoNhan.has(i) ? (
+              <text key={i} x={cx(i)} y={height - 8} textAnchor="middle" fontSize={11} fill="#6b7280">
+                {lb}
+              </text>
+            ) : null,
+          )}
+        </svg>
+
+        {hover !== null && (
+          <ChartTip
+            left={tipLeft}
+            title={labels[hover]}
+            rows={hien.map((s) => ({ id: s.id, name: s.name, color: s.color, value: s.values[hover] ?? 0 }))}
+            formatValue={formatValue}
+            empty="Không có số liệu"
+          />
+        )}
+      </div>
+
+      <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />
+    </div>
+  );
+}
+
 // ── Biểu đồ cột xếp tầng ────────────────────────────────────────────────────
 
 /**
