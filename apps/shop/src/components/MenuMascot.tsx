@@ -9,7 +9,7 @@ import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } fro
  * VIỆC KHÁCH ĐANG LÀM trên trang:
  *   - mới vào thực đơn  → chào
  *   - thêm món          → vui (luân phiên cười / tim / lấp lánh) + khen
- *   - bớt món           → ngạc nhiên + hỏi lại
+ *   - bớt món           → chóng mặt + hỏi lại
  *   - gửi món cho quán  → mắt sao + báo đã gửi bếp
  *   - cuộn danh sách    → nhìn theo chiều cuộn
  *   - để yên 30 giây    → ngủ gật + hỏi chọn xong chưa; chạm hay cuộn là tỉnh
@@ -124,7 +124,7 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
       say(LINES.add[addTurnRef.current % LINES.add.length]!);
       addTurnRef.current += 1;
     } else if (cartCount < prev) {
-      play('surprised');
+      play('dizzy');
       say(LINES.remove);
     }
   }, [cartCount]);
