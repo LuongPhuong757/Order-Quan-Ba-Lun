@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { z } from 'zod';
 import { PublicMenuGroup, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
@@ -10,7 +10,6 @@ import {
   TableEntrySheet,
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
-import { MenuMascot } from '../components/MenuMascot.tsx';
 import { emitMascot } from '../lib/mascot-bus.ts';
 import { suggestPairing } from '../lib/menu-pairing.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
@@ -55,6 +54,12 @@ import {
  */
 
 const MenuOrderResponse = z.object({ groups: z.array(PublicMenuGroup) });
+
+/* Bé hamster tải RIÊNG (chunk lazy), không nằm trong bundle chung. Trang này dùng chung một entry
+ * với trang đặt ship, và riêng phần hamster (hiệu ứng, âm thanh, cử chỉ) đã đẩy bundle tải lần đầu
+ * lên 133.9KB — sát mức theo dõi 135KB. Tách ra thì khách đặt ship không tải nó, còn khách ở thực
+ * đơn tải nó SAU khi món đã hiện (nó vốn chỉ dựng khi có dữ liệu thực đơn). */
+const MenuMascot = lazy(() => import('../components/MenuMascot.tsx').then((m) => ({ default: m.MenuMascot })));
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 
@@ -433,7 +438,7 @@ export function MenuOrderPage(): JSX.Element {
 
       {/* Bé hamster góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~110KB) không
           được giành băng thông 3G với dữ liệu món lúc mở trang. */}
-      {menu.data ? <MenuMascot
+      {menu.data ? <Suspense fallback={null}><MenuMascot
           cartCount={cartCount}
           sentKey={sentKey}
           raised={cartCount > 0}
@@ -442,7 +447,7 @@ export function MenuOrderPage(): JSX.Element {
           cartTotal={cartTotal}
           suggest={suggest}
           searchMiss={q.trim() && groups.length > 0 && filtered.length === 0 ? q.trim() : null}
-        /> : null}
+        /></Suspense> : null}
 
       {sheet === 'entry' && (
         <TableEntrySheet

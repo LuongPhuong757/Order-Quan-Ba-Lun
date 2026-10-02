@@ -11,6 +11,8 @@ import type { CSSProperties, JSX } from 'react';
  *   - `look`   — ép hướng nhìn (null = trả lại cho con trỏ).
  *   - `cue`    — phát một biểu cảm; đổi `id` là phát lại, kể cả cùng biểu cảm.
  *   - `asleep` — ngủ gật khi không có biểu cảm nào đang phát.
+ *   - `talking` — mấp máy miệng (ngậm ↔ há) khi không có biểu cảm nào đang phát.
+ * Thêm nữa: đổi ảnh mờ dần (FADE_MS) thay vì đổi phụt, và `cue.quiet` cho nhịp phụ như tự chớp mắt.
  *
  * Mỗi nhân vật là hai tấm 3×3: chín hướng đầu và chín biểu cảm. Chỉ dời `background-position`,
  * không có thư viện hoạt ảnh nào.
@@ -93,7 +95,20 @@ const layer: CSSProperties = {
   backgroundRepeat: 'no-repeat',
 };
 
-export type MascotCue = { reaction: MascotReaction; id: number };
+/**
+ * `ms`    — giữ biểu cảm bao lâu (mặc định CUE_MS).
+ * `quiet` — nhịp phụ (vd. tự chớp mắt): không nảy, và BỎ QUA nếu đang có biểu cảm khác hiện —
+ *           chớp mắt giữa lúc đang "tim" là cắt ngang phản ứng chính.
+ */
+export type MascotCue = { reaction: MascotReaction; id: number; ms?: number; quiet?: boolean };
+
+/** Nhịp mấp máy miệng khi nói: đổi ngậm ↔ há mỗi chừng này. */
+const TALK_STEP_MS = 140;
+/** Ô "há miệng" khi nói: mắt vẫn mở, miệng chữ o — đổi qua lại với mặt nhìn thẳng (miệng ngậm). */
+const MOUTH_OPEN: MascotReaction = 'surprised';
+/** Đổi ảnh mờ dần chừng này thay vì đổi phụt — biểu cảm chuyển mềm hơn. Ngắn hơn một cú chớp
+ *  mắt (160ms), không thì chớp mắt mờ tới mức không thấy. */
+const FADE_MS = 80;
 
 export type MascotProps = {
   /** Tấm 3×3 các hướng đầu. */
@@ -108,10 +123,13 @@ export type MascotProps = {
   look?: MascotDirection | null;
   cue?: MascotCue | null;
   asleep?: boolean;
+  /** Đang nói → mấp máy miệng (khi không có biểu cảm nào khác đang hiện). */
+  talking?: boolean;
 };
 
 export function Mascot(props: MascotProps): JSX.Element {
-  const { directions, reactions, size = 140, className, style, label = 'nhân vật', look, cue, asleep } = props;
+  const { directions, reactions, size = 140, className, style, label = 'nhân vật', look, cue, asleep, talking } =
+    props;
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const squashRef = useRef<HTMLSpanElement>(null);
@@ -194,13 +212,27 @@ export function Mascot(props: MascotProps): JSX.Element {
 
   // Trang phát biểu cảm. Chỉ nghe `id` — cùng biểu cảm phát hai lần liền vẫn phải nảy hai lần.
   const cueId = cue?.id;
+  const reactionRef = useRef(reaction);
+  reactionRef.current = reaction;
   useEffect(() => {
     if (!cue) return;
+    if (cue.quiet && reactionRef.current) return;
     resetTimers();
     setReaction(cue.reaction);
-    later(CUE_MS, null);
-    squash();
+    later(cue.ms ?? CUE_MS, null);
+    if (!cue.quiet) squash();
   }, [cueId]);
+
+  // Mấp máy miệng: chỉ chạy khi đang nói; ngừng nói thì ngậm miệng lại ngay.
+  const [mouthOpen, setMouthOpen] = useState(false);
+  useEffect(() => {
+    if (!talking) {
+      setMouthOpen(false);
+      return;
+    }
+    const t = window.setInterval(() => setMouthOpen((o) => !o), TALK_STEP_MS);
+    return () => window.clearInterval(t);
+  }, [talking]);
 
   const boop = () => {
     resetTimers();
@@ -223,8 +255,15 @@ export function Mascot(props: MascotProps): JSX.Element {
     squash();
   };
 
-  const shown = reaction ?? (asleep ? 'sleepy' : null);
-  const facing = look ?? direction;
+  const speaking = Boolean(talking) && !reaction && !asleep;
+  const shown = reaction ?? (asleep ? 'sleepy' : speaking && mouthOpen ? MOUTH_OPEN : null);
+  // Đang nói thì nhìn thẳng: mặt nghiêng xen kẽ với ô "há miệng" (nhìn thẳng) trông như giật đầu.
+  const facing = speaking ? 'center' : (look ?? direction);
+  // Lớp biểu cảm đang MỜ DẦN đi vẫn phải giữ ô cũ; nhảy về ô mặc định ngay thì trong 80ms mờ dần
+  // khách thấy loé lên một khuôn mặt khác.
+  const lastShownRef = useRef<MascotReaction>('blink');
+  if (shown) lastShownRef.current = shown;
+  const fade = `opacity ${FADE_MS}ms linear`;
 
   // Style inline để file thả vào đâu cũng chạy, không cần CSS chung.
   return (
@@ -260,6 +299,7 @@ export function Mascot(props: MascotProps): JSX.Element {
             backgroundImage: `url(${directions})`,
             ...cell(DIRECTIONS.indexOf(facing)),
             opacity: shown ? 0 : 1,
+            transition: fade,
           }}
         />
         {/* Luôn mount để tấm biểu cảm tải sẵn từ đầu, không đợi tới lần chạm đầu tiên. */}
@@ -267,8 +307,9 @@ export function Mascot(props: MascotProps): JSX.Element {
           style={{
             ...layer,
             backgroundImage: `url(${reactions})`,
-            ...cell(REACTIONS.indexOf(shown ?? 'blink')),
+            ...cell(REACTIONS.indexOf(lastShownRef.current)),
             opacity: shown ? 1 : 0,
+            transition: fade,
           }}
         />
       </span>
