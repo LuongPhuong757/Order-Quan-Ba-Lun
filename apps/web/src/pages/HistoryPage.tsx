@@ -1427,13 +1427,13 @@ export function HistoryPage() {
                                    trên MỌI đơn tiền mặt. */
                                 <span className="txn-dash" style={{ color: '#9ca3af' }}>—</span>
                               ) : o.bank_verified ? (
-                                /* Dấu to đứng trước chữ (chủ quán 2026-10-02): người đọc màn này
-                                   quét cả cột một lượt để tìm đơn lệch, và một cột toàn chữ thì
-                                   không quét được. Chữ vẫn giữ — phần lớn người dùng quán lớn
-                                   tuổi, bỏ chữ là bắt họ nhớ dấu nào nghĩa gì. */
-                                <span style={{ color: '#15803d', fontWeight: 600 }}>
-                                  <span style={{ fontSize: 18 }}>✓</span> Đã xác thực
-                                </span>
+                                /* CHỈ dấu ✓, không chữ (chủ quán 2026-10-02) — cân với dấu ✗ ở
+                                   nhánh dưới. Người đọc màn này quét cả cột một lượt để tìm đơn
+                                   lệch, mà một cột toàn chữ thì không quét được.
+                                   Chỗ giải nghĩa hai dấu là ô lọc ngay trên bảng ("✓ Đã xác
+                                   thực (CK)" / "✗ Không thấy GD (CK)") — đừng bỏ chữ ở đó nốt,
+                                   không thì không còn nơi nào nói dấu nào nghĩa gì. */
+                                <span style={{ color: '#15803d', fontWeight: 700, fontSize: 18 }}>✓</span>
                               ) : (
                                 /* CHỈ dấu ✗, không chữ (chủ quán 2026-10-02). Nhãn đi kèm nằm ở
                                    `data-label` của ô nên thẻ dọc trên điện thoại vẫn đọc được là
