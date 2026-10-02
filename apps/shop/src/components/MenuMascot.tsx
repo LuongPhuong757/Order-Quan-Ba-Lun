@@ -54,10 +54,22 @@ const LINES = {
   greet: 'Chào bạn! Chọn món nào ngon nè 🐹',
   greetNoTable: 'Chào bạn! Nhập số bàn để gọi món nha 🐹',
   happy: ['Ngon lắm luôn!', 'Chọn chuẩn đó!', 'Món này đỉnh nha!', 'Thêm nữa đi bạn ơi!', 'Bạn sành ăn ghê!'],
+  // Câu cảm thán MẠNH (chủ quán yêu cầu 2026-10-02) — trộn chung với `happy` lúc thêm món, nhưng
+  // hiện to hơn, chữ đỏ, bong bóng rung (xem .is-wow) để khác hẳn câu thường.
+  wow: [
+    'Vãi chưởng! Ngon xỉu!',
+    'Woa! Chọn đỉnh quá!',
+    'Ái chà! Sành ăn thế!',
+    'Kinh thật! Món này bá cháy!',
+    'Đỉnh của chóp luôn!',
+    'Trời ơi, ngon dữ thần!',
+    'Ối giời ơi, chuẩn bài!',
+  ],
   sad: ['Ơ, không ăn món đó nữa hả?', 'Huhu, tiếc ghê…', 'Món đó ngon lắm mà…', 'Thôi được, chọn món khác nha!'],
   sent: 'Đã báo bếp rồi, chờ xíu nha!',
   idle: 'Zzz… bạn chọn xong chưa?',
   boop: ['Hihi, nhột quá!', 'Đói bụng rồi nè!', 'Ăn gì cũng được, miễn ngon!', 'Bạn dễ thương ghê!'],
+  boopWow: ['Ái chà, chọc gì đó!', 'Woa, nhột xỉu!', 'Kinh thật, tay nhanh ghê!'],
 };
 
 /* Động tác. Chạy bằng Web Animations trên lớp bọc RIÊNG — không đụng lớp `squash` bên trong
@@ -178,11 +190,11 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
   };
 
   /* ── Bong bóng thoại ── câu mới đè câu cũ: bấm + năm lần liền thì chỉ cần nghe câu cuối. */
-  const [bubble, setBubble] = useState<{ text: string; id: number; ms: number } | null>(null);
+  const [bubble, setBubble] = useState<{ text: string; id: number; ms: number; wow: boolean } | null>(null);
   const bubbleIdRef = useRef(0);
-  const say = (text: string, ms = SAY_MS) => {
+  const say = (text: string, ms = SAY_MS, wow = false) => {
     bubbleIdRef.current += 1;
-    setBubble({ text, id: bubbleIdRef.current, ms });
+    setBubble({ text, id: bubbleIdRef.current, ms, wow });
   };
   // Hẹn giờ tắt đi theo TỪNG câu (theo id). Đặt chung effect với chỗ đổi câu thì cleanup huỷ
   // luôn hẹn giờ và bong bóng đứng mãi — lỗi đã đo được ở bản đầu.
@@ -215,7 +227,8 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
     if (cartCount > prev) {
       move(pickFresh(ADD_MOVES, lastMove));
       play(pickFresh(HAPPY, lastReaction));
-      say(pickFresh(LINES.happy, lastLine));
+      const line = pickFresh([...LINES.happy, ...LINES.wow], lastLine);
+      say(line, SAY_MS, LINES.wow.includes(line));
     } else if (cartCount < prev) {
       move(LEAN);
       play(pickFresh(SAD, lastReaction));
@@ -321,14 +334,17 @@ export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }
       className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}`}
       style={perch ? { bottom: perch.bottom, right: perch.right } : undefined}
       // Bắt cú chạm ở lớp bọc: nút bên trong tự lo biểu cảm, ở đây chỉ thêm câu thoại.
-      onClick={() => say(pickFresh(LINES.boop, lastLine))}
+      onClick={() => {
+        const line = pickFresh([...LINES.boop, ...LINES.boopWow], lastLine);
+        say(line, SAY_MS, LINES.boopWow.includes(line));
+      }}
     >
       <style>{MENU_MASCOT_CSS}</style>
       {/* aria-live để trình đọc màn hình đọc câu thoại; key đổi theo id để hiệu ứng hiện chạy lại
           cả khi câu mới trùng chữ câu cũ. */}
       <div className="mo-mascot-say" aria-live="polite">
         {bubble ? (
-          <p key={bubble.id} className="mo-mascot-bubble">
+          <p key={bubble.id} className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}`}>
             {bubble.text}
           </p>
         ) : null}
@@ -392,6 +408,17 @@ const MENU_MASCOT_CSS = `
 }
 .mo-mascot-bubble::before{ width:12px; height:12px; right:-12px; bottom:4px; }
 .mo-mascot-bubble::after{ width:7px; height:7px; right:-21px; bottom:-3px; }
+/* Câu cảm thán mạnh: chữ to + đỏ thương hiệu, viền đậm hơn, bật ra rồi rung hai nhịp. */
+.mo-mascot-bubble.is-wow{
+  font-size:17px; color:#cf3323; border-color:#cf3323; background:#fff8e6;
+  box-shadow:0 6px 16px rgb(207 51 35 / 22%), inset 0 -3px 0 #ffe9b8;
+  animation:mo-mascot-pop .38s cubic-bezier(.34,1.56,.64,1) both, mo-mascot-wow .5s .38s ease-in-out;
+}
+.mo-mascot-bubble.is-wow::before,.mo-mascot-bubble.is-wow::after{ border-color:#cf3323; background:#fff8e6; }
+@keyframes mo-mascot-wow{
+  0%,100%{ transform:rotate(0); } 20%{ transform:rotate(-4deg) scale(1.04); }
+  45%{ transform:rotate(3deg) scale(1.04); } 70%{ transform:rotate(-2deg); }
+}
 @keyframes mo-mascot-pop{
   from{ opacity:0; transform:scale(.4); }
   to{ opacity:1; transform:scale(1); }
