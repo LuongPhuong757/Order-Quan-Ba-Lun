@@ -2,31 +2,44 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } from './Mascot.tsx';
 
 /**
- * Bé hamster ở góc dưới phải thực đơn tại bàn — chủ quán chốt 2026-10-02 (đầu bếp → hiệp sĩ →
- * hamster, cùng ngày; thêm bong bóng thoại cũng cùng ngày).
+ * Bé hamster ở thực đơn tại bàn — chủ quán chốt 2026-10-02 (đầu bếp → hiệp sĩ → hamster cùng
+ * ngày; thêm bong bóng thoại, chia biểu cảm vui/buồn, động tác 10 giây, nổi trên popup — cũng
+ * cùng ngày).
  *
  * Khách quét QR bằng điện thoại, không có chuột cho nhân vật nhìn theo, nên nó phản ứng theo
  * VIỆC KHÁCH ĐANG LÀM trên trang:
- *   - mới vào thực đơn  → chào
- *   - thêm món          → vui (luân phiên cười / tim / lấp lánh) + khen
- *   - bớt món           → chóng mặt + hỏi lại
- *   - gửi món cho quán  → mắt sao + báo đã gửi bếp
+ *   - mới vào           → chào (chưa khai bàn thì nhắc nhập số bàn)
+ *   - thêm món          → nhảy lên + một biểu cảm VUI ngẫu nhiên + câu khen ngẫu nhiên
+ *   - bớt món           → nghiêng người + một biểu cảm BUỒN ngẫu nhiên + câu tiếc ngẫu nhiên
+ *   - gửi món cho quán  → nhảy lên + mắt sao + báo đã gửi bếp
  *   - cuộn danh sách    → nhìn theo chiều cuộn
+ *   - mỗi 10 giây       → một động tác ngẫu nhiên (nhảy, lắc, xoay, nghiêng, ngó quanh…)
  *   - để yên 30 giây    → ngủ gật + hỏi chọn xong chưa; chạm hay cuộn là tỉnh
  *   - chạm vào nó       → chớp mắt (chạm dồn thì chóng mặt) + một câu vui ngẫu nhiên
  *
- * Khi giỏ có món, nó NGỒI VẮT lên mép phải nút giỏ nổi thay vì đứng hẳn bên trên. Bản đầu đứng
- * trên nút giỏ: chụp ở 390px thì nó che đúng nút + của món ngay trên (thêm một dải 76px che danh
- * sách, ngoài 84px nút giỏ đã che). Ngồi vắt thì chỉ còn ~56px, và phần nút giỏ bị che là khoảng
- * trống bên phải chữ "N món đã chọn" — không mất chữ nào.
+ * ── Vị trí ──
+ * Không có popup: góc dưới phải. Giỏ có món thì NGỒI VẮT lên mép phải nút giỏ nổi — đứng hẳn
+ * bên trên thì che đúng nút + của món ngay trên (đo ở 390px).
+ * Có popup (cổng nhập bàn lúc mới vào, giỏ, xác nhận gọi món…): chủ quán muốn nó vẫn NỔI BẬT,
+ * nên nó nhảy lên NGỒI TRÊN MÉP TRÊN của tấm popup đang ở trên cùng, đè lên lớp nền tối. Không
+ * ngồi chỗ cũ ở góc dưới: chân mọi tấm là nút chính ("Gửi cho quán", "Đúng rồi") — đè lên đó là
+ * khách bấm trúng nhân vật thay vì nút. Mép trên thì chỉ đè lên nền tối; tấm cao tối đa 85dvh
+ * nên phía trên luôn còn ≥15% màn hình cho nó ngồi.
  */
 
 /** Hai tấm 576px (ô 192px) = đủ nét tới 96px ở màn 2x, ~110KB cả bộ thay vì ~370KB của bản 1080px. */
 const DIRECTIONS_SRC = '/mascots/hamster-directions.webp';
 const REACTIONS_SRC = '/mascots/hamster-reactions.webp';
+const SIZE = 88;
 
-const ADD_CUES: MascotReaction[] = ['delighted', 'heart', 'sparkle'];
+/* Bộ sprite chỉ có 9 biểu cảm, không có ô khóc. "Buồn" lấy ba ô gần nhất: ngạc nhiên (há
+ * miệng), chóng mặt (mắt xoáy), ngủ gật (mắt nhắm cụp). Muốn buồn thật thì phải vẽ thêm. */
+const HAPPY: MascotReaction[] = ['delighted', 'heart', 'sparkle', 'wink', 'bashful'];
+const SAD: MascotReaction[] = ['surprised', 'dizzy', 'sleepy'];
+
 const IDLE_MS = 30_000;
+/** Chủ quán chốt: cứ 10 giây làm một động tác. */
+const MOVE_EVERY_MS = 10_000;
 /** Ngừng cuộn bao lâu thì quay mặt lại nhìn thẳng. */
 const LOOK_SETTLE_MS = 600;
 /** Bong bóng đứng bao lâu. Đủ đọc một câu ngắn, không đứng lâu tới mức thành vật cản. */
@@ -36,14 +49,99 @@ const GREET_DELAY_MS = 600;
 
 const LINES = {
   greet: 'Chào bạn! Chọn món nào ngon nè 🐹',
-  add: ['Ngon lắm luôn!', 'Chọn chuẩn đó!', 'Món này đỉnh nha!', 'Thêm nữa đi bạn ơi!'],
-  remove: 'Ơ, không ăn món đó nữa hả?',
+  greetNoTable: 'Chào bạn! Nhập số bàn để gọi món nha 🐹',
+  happy: ['Ngon lắm luôn!', 'Chọn chuẩn đó!', 'Món này đỉnh nha!', 'Thêm nữa đi bạn ơi!', 'Bạn sành ăn ghê!'],
+  sad: ['Ơ, không ăn món đó nữa hả?', 'Huhu, tiếc ghê…', 'Món đó ngon lắm mà…', 'Thôi được, chọn món khác nha!'],
   sent: 'Đã báo bếp rồi, chờ xíu nha!',
   idle: 'Zzz… bạn chọn xong chưa?',
   boop: ['Hihi, nhột quá!', 'Đói bụng rồi nè!', 'Ăn gì cũng được, miễn ngon!', 'Bạn dễ thương ghê!'],
 };
 
-type Line = { text: string; ms: number };
+/* Động tác 10 giây. Chạy bằng Web Animations trên lớp bọc RIÊNG — không đụng lớp `squash` bên
+ * trong Mascot, nên nhảy giữa chừng mà khách bấm thêm món thì cú nảy vẫn chạy chồng lên được. */
+type Move = { frames: Keyframe[]; ms: number };
+/** Nhảy lên — dùng khi thêm món / gửi món, và cũng là một động tác 10 giây. */
+const HOP: Move = {
+  ms: 700,
+  frames: [
+    { transform: 'translateY(0)', easing: 'ease-out' },
+    { transform: 'translateY(-22px)', offset: 0.4, easing: 'ease-in' },
+    { transform: 'translateY(0)', offset: 0.75 },
+    { transform: 'translateY(-6px)', offset: 0.87 },
+    { transform: 'translateY(0)' },
+  ],
+};
+/** Nghiêng người sang trái — dùng khi bớt món, và cũng là một động tác 10 giây. */
+const LEAN: Move = {
+  ms: 1400,
+  frames: [
+    { transform: 'translateX(0) rotate(0)', easing: 'ease-out' },
+    { transform: 'translateX(-14px) rotate(-10deg)', offset: 0.25 },
+    { transform: 'translateX(-14px) rotate(-10deg)', offset: 0.7, easing: 'ease-in-out' },
+    { transform: 'translateX(0) rotate(0)' },
+  ],
+};
+const MOVES: Move[] = [
+  HOP,
+  LEAN,
+  // lắc qua lắc lại
+  {
+    ms: 800,
+    frames: [
+      { transform: 'rotate(0)' },
+      { transform: 'rotate(-12deg)', offset: 0.2 },
+      { transform: 'rotate(10deg)', offset: 0.4 },
+      { transform: 'rotate(-8deg)', offset: 0.6 },
+      { transform: 'rotate(5deg)', offset: 0.8 },
+      { transform: 'rotate(0)' },
+    ],
+  },
+  // xoay một vòng
+  {
+    ms: 900,
+    frames: [
+      { transform: 'rotate(0) scale(1)', easing: 'ease-in-out' },
+      { transform: 'rotate(180deg) scale(.9)', offset: 0.5, easing: 'ease-in-out' },
+      { transform: 'rotate(360deg) scale(1)' },
+    ],
+  },
+  // nhún nhảy hai nhịp
+  {
+    ms: 900,
+    frames: [
+      { transform: 'scale(1,1) translateY(0)' },
+      { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.15 },
+      { transform: 'scale(.95,1.06) translateY(-14px)', offset: 0.35 },
+      { transform: 'scale(1.08,.9) translateY(4px)', offset: 0.55 },
+      { transform: 'scale(.95,1.06) translateY(-10px)', offset: 0.75 },
+      { transform: 'scale(1,1) translateY(0)' },
+    ],
+  },
+];
+/** Đang ngủ thì không nhảy nhót — chỉ phập phồng thở. */
+const BREATHE: Move = {
+  ms: 1600,
+  frames: [
+    { transform: 'scale(1)', easing: 'ease-in-out' },
+    { transform: 'scale(1.04, .97)', offset: 0.5, easing: 'ease-in-out' },
+    { transform: 'scale(1)' },
+  ],
+};
+/** Động tác thứ sáu không cần keyframe: ngó quanh bằng chính các ô hướng nhìn. */
+const LOOK_AROUND: MascotDirection[] = ['left', 'up-left', 'up-right', 'right'];
+
+/** Bốc ngẫu nhiên nhưng KHÔNG lặp lại lần ngay trước — bấm thêm hai món liền mà ra hai biểu cảm
+ *  giống nhau thì khách tưởng nó không phản ứng lần thứ hai. */
+function pickFresh<T>(list: readonly T[], last: { current: T | null }): T {
+  const pool = list.length > 1 ? list.filter((x) => x !== last.current) : list;
+  const v = pool[Math.floor(Math.random() * pool.length)]!;
+  last.current = v;
+  return v;
+}
+
+function reducedMotion(): boolean {
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+}
 
 type Props = {
   /** Tổng số phần trong giỏ — tăng là thêm món, giảm là bớt món. */
@@ -52,41 +150,40 @@ type Props = {
   sentKey: number;
   /** Nút giỏ nổi đang hiện → ngồi vắt lên mép phải của nó. */
   raised: boolean;
-  /** Có lớp phủ nào đang mở (nhập bàn, giỏ, chi tiết món…) → giữ câu thoại lại, đóng rồi mới nói.
-   *  Lớp phủ nằm TRÊN nhân vật, nói lúc đó là nói vào khoảng không. */
-  paused: boolean;
+  /** Có popup nào đang mở → đi tìm tấm trên cùng và ngồi lên mép trên của nó. */
+  overlayOpen: boolean;
+  /** Máy này đã khai bàn chưa — đổi câu chào. */
+  hasTable: boolean;
 };
 
-export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.Element {
+export function MenuMascot({ cartCount, sentKey, raised, overlayOpen, hasTable }: Props): JSX.Element {
   const [cue, setCue] = useState<MascotCue | null>(null);
   const [look, setLook] = useState<MascotDirection | null>(null);
   const [asleep, setAsleep] = useState(false);
   const cueIdRef = useRef(0);
-  const addTurnRef = useRef(0);
+  const moveRef = useRef<HTMLDivElement>(null);
+  const lastReaction = useRef<MascotReaction | null>(null);
+  const lastLine = useRef<string | null>(null);
+  const lastMove = useRef<number | null>(null);
 
   const play = (reaction: MascotReaction) => {
     cueIdRef.current += 1;
     setCue({ reaction, id: cueIdRef.current });
   };
+  const move = (m: Move) => {
+    if (reducedMotion()) return;
+    moveRef.current?.animate(m.frames, { duration: m.ms, easing: 'linear' });
+  };
 
-  /* ── Bong bóng thoại ──
-   * Một hàng chờ một chỗ: câu mới đè câu cũ chưa kịp nói. Khách bấm + năm lần liền thì chỉ cần
-   * nghe câu cuối, không phải ngồi đợi năm bong bóng lần lượt. */
-  const [queued, setQueued] = useState<Line | null>(null);
+  /* ── Bong bóng thoại ── câu mới đè câu cũ: bấm + năm lần liền thì chỉ cần nghe câu cuối. */
   const [bubble, setBubble] = useState<{ text: string; id: number; ms: number } | null>(null);
   const bubbleIdRef = useRef(0);
-  const say = (text: string, ms = SAY_MS) => setQueued({ text, ms });
-
-  useEffect(() => {
-    if (paused || !queued) return;
+  const say = (text: string, ms = SAY_MS) => {
     bubbleIdRef.current += 1;
-    setBubble({ text: queued.text, id: bubbleIdRef.current, ms: queued.ms });
-    setQueued(null);
-  }, [paused, queued]);
-
-  // Hẹn giờ tắt đi theo TỪNG câu (theo id), không đặt chung effect với hàng chờ ở trên: đặt
-  // chung thì `setQueued(null)` chạy lại effect đó, cleanup huỷ luôn hẹn giờ, và bong bóng đứng
-  // mãi — đúng lỗi đo được ở bản đầu.
+    setBubble({ text, id: bubbleIdRef.current, ms });
+  };
+  // Hẹn giờ tắt đi theo TỪNG câu (theo id). Đặt chung effect với chỗ đổi câu thì cleanup huỷ
+  // luôn hẹn giờ và bong bóng đứng mãi — lỗi đã đo được ở bản đầu.
   const bubbleId = bubble?.id;
   const bubbleMs = bubble?.ms;
   useEffect(() => {
@@ -95,21 +192,13 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
     return () => window.clearTimeout(t);
   }, [bubbleId, bubbleMs]);
 
-  // Lớp phủ mở ra thì cất bong bóng đang hiện — nó nằm dưới lớp phủ, đóng lại mà còn thì đã cũ.
+  // Chào một lần. Lúc mới vào mà chưa khai bàn thì cổng nhập bàn đang mở — nó ngồi ngay trên
+  // cổng đó, nên câu chào là lời nhắc nhập số bàn.
   useEffect(() => {
-    if (paused) setBubble(null);
-  }, [paused]);
-
-  // Chào một lần, ngay khi trang không còn lớp phủ nào (khách mới vào thì đang ở cổng nhập bàn).
-  const greetedRef = useRef(false);
-  useEffect(() => {
-    if (paused || greetedRef.current) return;
-    const t = window.setTimeout(() => {
-      greetedRef.current = true;
-      say(LINES.greet, 3000);
-    }, GREET_DELAY_MS);
+    const t = window.setTimeout(() => say(hasTable ? LINES.greet : LINES.greetNoTable, 3000), GREET_DELAY_MS);
     return () => window.clearTimeout(t);
-  }, [paused]);
+    // Chỉ chào lúc dựng, không chào lại khi khai bàn xong.
+  }, []);
 
   // So với lần vẽ TRƯỚC chứ không so với 0: giỏ khôi phục từ localStorage lúc mở trang không
   // được tính là "vừa thêm món".
@@ -117,15 +206,18 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
   useEffect(() => {
     const prev = prevCountRef.current;
     prevCountRef.current = cartCount;
-    // Gửi món xong thì giỏ về 0 — đó không phải "bớt món", nhịp `sentKey` bên dưới lo phần đó.
-    if (cartCount === 0 && prev > 0) return;
+    // KHÔNG bỏ qua ca giỏ về 0. Bản trước bỏ qua vì tưởng đó luôn là lúc gửi món — thành ra bớt
+    // MÓN CUỐI CÙNG thì nhân vật im re (đo được). Gửi món thì `clearTableCart()` và `onSent()`
+    // chạy cùng một nhịp nên React gộp chung một lần vẽ; effect `sentKey` khai SAU effect này nên
+    // chạy sau và đè lên — khách chỉ thấy phản ứng "đã gửi".
     if (cartCount > prev) {
-      play(ADD_CUES[addTurnRef.current % ADD_CUES.length]!);
-      say(LINES.add[addTurnRef.current % LINES.add.length]!);
-      addTurnRef.current += 1;
+      move(HOP);
+      play(pickFresh(HAPPY, lastReaction));
+      say(pickFresh(LINES.happy, lastLine));
     } else if (cartCount < prev) {
-      play('dizzy');
-      say(LINES.remove);
+      move(LEAN);
+      play(pickFresh(SAD, lastReaction));
+      say(pickFresh(LINES.sad, lastLine));
     }
   }, [cartCount]);
 
@@ -133,8 +225,8 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
   useEffect(() => {
     if (sentKey === prevSentRef.current) return;
     prevSentRef.current = sentKey;
+    move(HOP);
     play('wink');
-    // Lúc này tấm "Món của bàn" đang mở → câu này nằm chờ, khách đóng tấm là thấy.
     say(LINES.sent, 3000);
   }, [sentKey]);
 
@@ -188,11 +280,76 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
     };
   }, []);
 
+  // Động tác mỗi 10 giây. Tab bị ẩn thì bỏ nhịp (không ai xem, và trình duyệt cũng hãm timer).
+  const asleepRef = useRef(asleep);
+  asleepRef.current = asleep;
+  useEffect(() => {
+    const timers: number[] = [];
+    const tick = () => {
+      if (document.hidden || reducedMotion()) return;
+      if (asleepRef.current) {
+        moveRef.current?.animate(BREATHE.frames, { duration: BREATHE.ms });
+        return;
+      }
+      // MOVES.length = ngó quanh, các số nhỏ hơn = một bộ keyframe.
+      const n = pickFresh(
+        Array.from({ length: MOVES.length + 1 }, (_, i) => i),
+        lastMove,
+      );
+      if (n === MOVES.length) {
+        LOOK_AROUND.forEach((d, i) => timers.push(window.setTimeout(() => setLook(d), i * 380)));
+        timers.push(window.setTimeout(() => setLook(null), LOOK_AROUND.length * 380));
+        return;
+      }
+      move(MOVES[n]!);
+    };
+    const every = window.setInterval(tick, MOVE_EVERY_MS);
+    return () => {
+      window.clearInterval(every);
+      timers.forEach(window.clearTimeout);
+    };
+  }, []);
+
+  /* ── Ngồi trên popup ──
+   * Đo mép trên của tấm popup TRÊN CÙNG (phần tử `.dinein-sheet` cuối cùng trong DOM — hộp xác
+   * nhận chồng lên tấm khác luôn được vẽ sau). Đo mỗi khung hình trong lúc popup mở vì tấm đổi
+   * chiều cao theo nội dung (thêm dòng món, hiện lỗi…); chỉ setState khi lệch quá 1px. */
+  const [perch, setPerch] = useState<{ bottom: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!overlayOpen) {
+      setPerch(null);
+      return;
+    }
+    let frame = 0;
+    let last = { bottom: -1, right: -1 };
+    const measure = () => {
+      const sheets = document.querySelectorAll('.dinein-sheet');
+      const top = sheets[sheets.length - 1];
+      if (top) {
+        const r = top.getBoundingClientRect();
+        // Chìm 10px xuống mép tấm: đáy sprite là phần thân mờ dần, chìm vào thì trông như đang
+        // ngồi trên mép chứ không lơ lửng. 10px không chạm tới nút ✕ (đầu tấm cao 76px).
+        const next = {
+          bottom: Math.round(window.innerHeight - r.top - 10),
+          right: Math.round(Math.max(8, window.innerWidth - r.right + 8)),
+        };
+        if (Math.abs(next.bottom - last.bottom) > 1 || Math.abs(next.right - last.right) > 1) {
+          last = next;
+          setPerch(next);
+        }
+      }
+      frame = window.requestAnimationFrame(measure);
+    };
+    measure();
+    return () => window.cancelAnimationFrame(frame);
+  }, [overlayOpen]);
+
   return (
     <div
-      className={`mo-mascot${raised ? ' is-raised' : ''}`}
+      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}`}
+      style={perch ? { bottom: perch.bottom, right: perch.right } : undefined}
       // Bắt cú chạm ở lớp bọc: nút bên trong tự lo biểu cảm, ở đây chỉ thêm câu thoại.
-      onClick={() => say(LINES.boop[Math.floor(Math.random() * LINES.boop.length)]!)}
+      onClick={() => say(pickFresh(LINES.boop, lastLine))}
     >
       <style>{MENU_MASCOT_CSS}</style>
       {/* aria-live để trình đọc màn hình đọc câu thoại; key đổi theo id để hiệu ứng hiện chạy lại
@@ -204,30 +361,36 @@ export function MenuMascot({ cartCount, sentKey, raised, paused }: Props): JSX.E
           </p>
         ) : null}
       </div>
-      <Mascot
-        directions={DIRECTIONS_SRC}
-        reactions={REACTIONS_SRC}
-        size={88}
-        label="bé hamster"
-        look={look}
-        cue={cue}
-        asleep={asleep}
-      />
+      <div ref={moveRef} className="mo-mascot-move">
+        <Mascot
+          directions={DIRECTIONS_SRC}
+          reactions={REACTIONS_SRC}
+          size={SIZE}
+          label="bé hamster"
+          look={look}
+          cue={cue}
+          asleep={asleep}
+        />
+      </div>
     </div>
   );
 }
 
 const MENU_MASCOT_CSS = `
 .mo-mascot{
-  /* Trên nút giỏ nổi (200) vì nó ngồi vắt lên nút đó; dưới mọi lớp phủ (scrim 310+). */
-  position:fixed; right:8px; z-index:210;
+  /* Trên MỌI lớp phủ (scrim 310, hộp xác nhận chồng 320) — chủ quán muốn nó luôn nổi bật. Không
+     che nút nào vì lúc có popup nó dời lên ngồi trên mép tấm (xem .is-perched). */
+  position:fixed; right:8px; z-index:330;
   bottom:calc(8px + env(safe-area-inset-bottom,0px));
-  transition:bottom .22s ease;
+  transition:bottom .25s ease, right .25s ease;
   animation:mo-mascot-in .3s ease both;
 }
 /* Nút giỏ nổi: lề 12 + nút 60. Đáy nhân vật ở 40px = giữa thân nút, tức nửa dưới chồng lên nút,
    nửa trên (cái đầu) chìa lên khỏi mép nút. */
 .mo-mascot.is-raised{ bottom:calc(40px + env(safe-area-inset-bottom,0px)); }
+/* Đang ngồi trên popup: bottom/right đặt inline theo số đo. Thêm bóng đổ để tách khỏi nền tối. */
+.mo-mascot.is-perched .mo-mascot-move{ filter:drop-shadow(0 4px 10px rgb(0 0 0 / 35%)); }
+.mo-mascot-move{ transform-origin:50% 85%; }
 @keyframes mo-mascot-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
 
 /* Bong bóng nằm bên TRÁI đầu nhân vật (nhân vật sát mép phải, không còn chỗ bên phải), đuôi chỉ

@@ -402,7 +402,8 @@ export function MenuOrderPage(): JSX.Element {
           cartCount={cartCount}
           sentKey={sentKey}
           raised={cartCount > 0}
-          paused={sheet !== 'none' || pendingSession !== null || sheetItem !== null}
+          overlayOpen={sheet !== 'none' || pendingSession !== null || sheetItem !== null}
+          hasTable={session !== null}
         /> : null}
 
       {sheet === 'entry' && (
