@@ -97,20 +97,25 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // bật lên khi chưa có kênh thật = khách không nhận được mã = không ai đặt được đơn.
   // Bật ở /admin (khu Đơn hàng online) sau khi cắm sender thật, hoặc để thử nghiệm.
   { key: 'otp_login_enabled', kind: 'bool', default: false },
-  // ── Xác thực chuyển khoản TẠI QUẦY (2026-09-25) ──
+  // ── Xác thực chuyển khoản với ngân hàng (2026-09-25, viết lại 2026-10-02) ──
   //
-  // Tắt ĐÚNG MỘT THỨ: vòng hỏi ngân hàng 5 phút ở màn thu tiền. Mọi thứ khác của tính năng đối
-  // soát chạy y nguyên — mã đơn vẫn sinh, nội dung CK vẫn mang mã + tiền tố, webhook vẫn ghi sổ,
-  // cột "Xác thực" ở màn Lịch sử vẫn tự chuyển xanh. Công tắc không tắt đối soát; nó chuyển đối
-  // soát từ ĐỨNG ĐỢI TẠI QUẦY sang SOÁT LẠI SAU.
+  // Nay công tắc chỉ còn điều khiển MỘT THỨ: cột "Xác thực" (✓ / ✗) ở màn Lịch sử có hiện hay
+  // không. Vòng hỏi ngân hàng 5 phút ở màn thu tiền ĐÃ BỊ GỠ HẲN (chủ quán 2026-10-02) — màn thu
+  // tiền không còn dải xanh/đỏ nào, và LUÔN đi qua bước chụp bill bất kể ngân hàng đã báo tiền về
+  // hay chưa. Đừng cài lại đường "đã xác thực thì bỏ qua chụp bill": đó chính là thứ vừa bị gỡ.
   //
-  // MẶC ĐỊNH TẮT, và fallback này LÀ giá trị có hiệu lực thật cho tới khi chủ quán bấm lưu lần
-  // đầu (cùng bẫy đã ghi ở `max_delivery_km`). Cố ý: tính năng đang thử nghiệm, push lên
-  // production không được đổi gì với người đang dùng.
+  // Phần đối soát chạy y nguyên và KHÔNG phụ thuộc công tắc này: mã đơn vẫn sinh, nội dung CK vẫn
+  // mang mã + tiền tố, webhook vẫn ghi sổ, `bank_verified` vẫn tính từ `PaymentIntent.paid_at`.
+  // Tắt công tắc chỉ là GIẤU cột đi, không làm mất dữ liệu nào.
+  //
+  // MẶC ĐỊNH BẬT (đổi từ `false` 2026-10-02 theo yêu cầu chủ quán). ⚠ Fallback này chỉ có hiệu
+  // lực khi DB CHƯA có row `bank_verify_enabled`; quán nào đã từng bấm lưu ở /admin thì giá trị
+  // trong DB mới là giá trị thật — đổi dòng này KHÔNG bật hộ họ, phải bật bằng tay ở
+  // Cài đặt → Mã QR nhận tiền.
   //
   // Cầu dao `BANK_VERIFY_DISABLED=1` ép tắt bất kể cột này — xem
   // `SettingsService.isBankVerifyEnabled()`, đường DUY NHẤT được phép đọc cờ này.
-  { key: 'bank_verify_enabled', kind: 'bool', default: false },
+  { key: 'bank_verify_enabled', kind: 'bool', default: true },
   // ── Bản đồ (2026-08-07) — 2 công tắc RIÊNG cho 2 nơi, không phải một ──
   // Chủ quán yêu cầu tắt được "nếu lag ảnh hưởng hệ thống". Hai nơi có rủi ro hoàn toàn khác nhau
   // nên gộp thành một công tắc là buộc họ hi sinh cái không có vấn đề để cứu cái có:
@@ -212,7 +217,7 @@ export type StoreSettingsMap = {
   top_dishes_window: string;
   top_dishes_hidden_ids: string[];
   otp_login_enabled: boolean;
-  /** Vòng hỏi ngân hàng 5 phút ở màn thu tiền. CẤM đọc thẳng — đi qua
+  /** Cột "Xác thực" (✓ / ✗) ở màn Lịch sử có hiện hay không. CẤM đọc thẳng — đi qua
    *  `SettingsService.isBankVerifyEnabled()`, vì cột có thể ghi `true` mà cầu dao môi trường
    *  đang ép tắt. */
   bank_verify_enabled: boolean;
