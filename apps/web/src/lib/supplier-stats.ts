@@ -241,6 +241,110 @@ export function buildSpendChart(
   };
 }
 
+// ── Biến động công nợ ───────────────────────────────────────────────────────
+
+/** Một ngày trong `GET /supplier-reports/debt-flow`. */
+export type DebtFlowRow = {
+  day: string;
+  /** Nợ mới phát sinh — tổng phiếu nhập ĐÃ DUYỆT giao trong ngày. */
+  incurred: number;
+  /** Tiền đã trả cho NCC trong ngày. */
+  paid: number;
+};
+
+export type DebtChart = {
+  bucket: Bucket;
+  labels: string[];
+  /** Nợ mới theo từng mốc trục. */
+  noMoi: number[];
+  /** Tiền đã trả theo từng mốc trục. */
+  daTra: number[];
+  /** Dư nợ còn lại ở CUỐI mỗi mốc — đường luỹ kế. */
+  duNo: number[];
+  tongNoMoi: number;
+  tongDaTra: number;
+  /** Dư nợ ở cuối kỳ. Phải TRÙNG ô "Còn phải trả" của màn — xem docblock dưới. */
+  duNoCuoi: number;
+};
+
+/**
+ * Dựng biểu đồ biến động công nợ từ `debt-flow` (2026-10-02).
+ *
+ * Dùng CHUNG bộ `chonBucket`/`lietKeBucket` với `buildSpendChart`, nên hai biểu đồ trên cùng
+ * màn luôn có cùng mốc trục: kỳ ngắn thì theo ngày, kỳ dài tự gộp tuần/tháng. Tự viết một
+ * cách chia mốc riêng thì sẽ có ngày biểu đồ chi tiêu chia theo tuần còn biểu đồ nợ chia theo
+ * ngày, và không ai đọc chéo được hai cái nữa.
+ *
+ * ── Vì sao `duNo` cộng dồn ở FE chứ không để server trả sẵn ──
+ * Server trả `opening` (dư nợ ngay trước kỳ) và số phát sinh từng ngày; phép cộng dồn phải
+ * chạy SAU khi đã gộp bucket, mà việc gộp bucket là chuyện của màn hình (phụ thuộc bề rộng
+ * kỳ người dùng chọn). Cộng ở server thì server phải biết luật gộp của FE.
+ *
+ * ── Bất biến phải giữ ──
+ * `duNoCuoi` = `opening` + tổng nợ mới − tổng đã trả, và con số đó phải TRÙNG ô "Còn phải
+ * trả" khi kỳ kết thúc ở hôm nay. Trùng được là vì `opening` của server đã gồm cả
+ * `suppliers.opening_balance` (nợ cũ ngoài hệ thống). Đổi một trong hai chỗ mà quên chỗ kia
+ * thì màn hiện hai con số nợ khác nhau — xem `tongConPhaiTra`.
+ */
+export function buildDebtChart(
+  opening: number,
+  rows: DebtFlowRow[],
+  range: { from: string; to: string },
+): DebtChart {
+  const rong: DebtChart = {
+    bucket: 'day',
+    labels: [],
+    noMoi: [],
+    daTra: [],
+    duNo: [],
+    tongNoMoi: 0,
+    tongDaTra: 0,
+    duNoCuoi: opening,
+  };
+  if (rows.length === 0) return rong;
+
+  const ngay = rows.map((r) => r.day).sort();
+  const from = range.from || ngay[0];
+  const to = range.to || ngay[ngay.length - 1];
+  const soNgay = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1;
+  const bucket = chonBucket(Math.max(1, soNgay));
+  const khoas = lietKeBucket(from, to, bucket);
+  const viTri = new Map(khoas.map((k, i) => [k, i]));
+
+  const noMoi = new Array<number>(khoas.length).fill(0);
+  const daTra = new Array<number>(khoas.length).fill(0);
+  for (const r of rows) {
+    const i = viTri.get(khoaBucket(r.day, bucket));
+    if (i === undefined) continue; // ngoài kỳ — server đã lọc, đây chỉ là chốt chặn
+    noMoi[i] += r.incurred;
+    daTra[i] += r.paid;
+  }
+
+  // Dư nợ ở CUỐI mỗi mốc, không phải đầu: con số người ta muốn đọc là "hết ngày hôm đó quán
+  // còn nợ bao nhiêu".
+  const duNo: number[] = [];
+  let con = opening;
+  let congNo = 0;
+  let congTra = 0;
+  for (let i = 0; i < khoas.length; i++) {
+    congNo += noMoi[i];
+    congTra += daTra[i];
+    con = opening + congNo - congTra;
+    duNo.push(con);
+  }
+
+  return {
+    bucket,
+    labels: khoas.map((k) => nhanBucket(k, bucket)),
+    noMoi,
+    daTra,
+    duNo,
+    tongNoMoi: congNo,
+    tongDaTra: congTra,
+    duNoCuoi: con,
+  };
+}
+
 // ── Bảng 1: thống kê theo mặt hàng ──────────────────────────────────────────
 
 export type ItemStat = {

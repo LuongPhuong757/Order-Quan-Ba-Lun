@@ -10,14 +10,8 @@
 // là đường sống của quán; mã QR tải lỗi, chưa cấu hình mã nào, hay khách đổi ý trả tiền mặt —
 // mọi trường hợp đó vẫn phải thu được. Mã QR là tiện ích thêm vào, không phải cửa phải qua.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { CSSProperties } from 'react';
 import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
-import {
-  checkoutBlockReason,
-  stepBlockReason,
-  type CheckoutStep,
-  type PayMode,
-} from '../lib/checkout-block.ts';
+import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkout-block.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
@@ -169,38 +163,41 @@ export function CheckoutDialog({
    * còn hơn chặn một lần thu tiền — xem nguyên tắc ở đầu tệp.
    */
   const [payCode, setPayCode] = useState<string | null>(null);
-  /** Kết quả xác thực với ngân hàng. Khai cạnh `payCode` vì cả hai cùng mô tả một lần thu, và
-   *  vì `paidSkipsBill` ngay dưới cần đọc nó trước khi effect xác thực được khai. */
-  const [verify, setVerify] = useState<'idle' | 'waiting' | 'paid' | 'timeout'>('idle');
   /**
-   * CÔNG TẮC "xác thực giao dịch tại quầy" (chủ quán 2026-09-25), đọc từ `GET /payment-qr`.
+   * Lý do KHÔNG chụp được bill — đường thoát duy nhất khỏi luật "ảnh bill bắt buộc" (2026-10-02).
    *
-   * Tắt thì màn này KHÔNG hỏi ngân hàng: không đồng hồ 5 phút, không dải xanh/đỏ, luôn đi qua
-   * bước chụp bill — y như trước khi có tính năng. Phần còn lại của đối soát chạy nguyên: mã đơn
-   * vẫn xin, nội dung CK vẫn mang mã + tiền tố ngân hàng, và cột "Xác thực" ở màn Lịch sử vẫn tự
-   * chuyển xanh khi webhook về. Công tắc bỏ việc ĐỨNG ĐỢI, không bỏ việc đối soát.
+   * Rỗng = chưa dùng đường thoát. Có chữ = người thu đã bấm "Không chụp được" và gõ lý do, nút
+   * chốt mở ra và lý do đi theo đơn lên server (`payment_photo_skip_reason`).
    *
-   * KHỞI TẠO `false` là cố ý — hỏng thì hiểu là TẮT. `/payment-qr` trả 403 cho người không được
-   * thu chuyển khoản, và mạng ở quán thì chập chờn. Đoán nhầm sang "bật" là bắt người thu nhìn
-   * dải "đang xác thực" cho một thứ không chạy; đoán nhầm sang "tắt" thì họ chỉ thấy màn cũ.
+   * KHÔNG tự xoá khi người ta đẩy ảnh lên sau đó: ảnh có rồi thì luật đã thoả, lý do không còn
+   * được đọc tới — nhưng xoá nó đi là xoá mất thứ người dùng vừa gõ, phòng khi ảnh đẩy hỏng và
+   * họ lùi về đường thoát.
    */
-  const [verifyEnabled, setVerifyEnabled] = useState(false);
+  const [photoSkipReason, setPhotoSkipReason] = useState('');
 
   /**
-   * Ngân hàng đã xác nhận thì BỎ QUA MÀN CHỤP BILL (chủ quán chốt 2026-09-22).
+   * ⚠ ĐÃ GỠ: "ngân hàng xác nhận thì bỏ qua màn chụp bill" (2026-09-22 → gỡ 2026-10-02).
    *
-   * Ảnh bill sinh ra để làm bằng chứng cho những lần KHÔNG xác thực được. Khi chính ngân hàng đã
-   * báo tiền về, tấm ảnh do khách đưa không thêm được gì — bắt chụp nữa là bắt cả quán trả thêm
-   * một cú chạm và một lần chờ tải ảnh cho mỗi đơn chuyển khoản trót lọt, tức đường đi PHỔ BIẾN
-   * nhất. Đơn nào không xác thực được thì vẫn đi qua màn chụp bill như cũ.
+   * Bản cũ cho đơn đã được ngân hàng báo có đi thẳng tới lúc ghi tiền, không qua bước chụp. Chủ
+   * quán chốt lại: MỌI đơn chuyển khoản đều phải qua màn chụp bill, kể cả đơn trót lọt. Lý do là
+   * sự NHẤT QUÁN của thao tác quầy — một luồng thu tiền lúc có lúc không có bước chụp thì người
+   * thu không bao giờ thuộc, và cái bước thỉnh thoảng mới hiện ra là cái bị bấm vội nhất.
+   *
+   * Đừng cài lại dưới dạng "tối ưu một cú chạm": đây là quyết định có chủ ý, không phải sót.
    */
-  const paidSkipsBill = step === 'qr' && verify === 'paid';
 
   /** Xem `lib/checkout-block.ts`. Khi màn QR trở thành màn CHỐT (đã xác thực xong), phải kiểm luật
    *  TRỌN BỘ chứ không chỉ luật của riêng màn — cùng lý do màn 'bill' vẫn gọi `checkoutBlockReason`
    *  dù hai màn trước đã kiểm: người dùng lùi lại sửa được, và state đi cùng họ. */
-  const state = { mode, hasPickedQr: !!picked, transferAmount, debtNote };
-  const blockReason = paidSkipsBill ? checkoutBlockReason(state) : stepBlockReason(step, state);
+  const state = {
+    mode,
+    hasPickedQr: !!picked,
+    transferAmount,
+    debtNote,
+    photoCount: photos.length,
+    photoSkipReason,
+  };
+  const blockReason = stepBlockReason(step, state);
   // `picked?.note_prefix` nằm trong deps: đổi mã QR là đổi ngân hàng, mà tiền tố bắt buộc thuộc
   // về ngân hàng — không tính lại thì nội dung mang tiền tố của tài khoản vừa bỏ chọn.
   const note = useMemo(
@@ -212,12 +209,10 @@ export function CheckoutDialog({
     if (mode === 'CASH' || mode === 'DEBT' || mode === null) return;
     let alive = true;
     api
-      .get<{ data: { items: QrOption[]; verify_enabled?: boolean } }>('/payment-qr')
+      .get<{ data: { items: QrOption[] } }>('/payment-qr')
       .then((res) => {
         if (!alive) return;
         setQrOptions(res.data.data.items);
-        // `?? false`: server bản cũ chưa có field này. Thiếu field = tắt, cùng lệ với lỗi mạng.
-        setVerifyEnabled(res.data.data.verify_enabled ?? false);
         setQrLoadFailed(false);
       })
       .catch(() => {
@@ -243,9 +238,6 @@ export function CheckoutDialog({
 
 
   useEffect(() => {
-    // Đổi hình thức hoặc đổi số tiền là một LẦN THU KHÁC. Bỏ kết quả xác thực cũ, nếu không dòng
-    // xanh của số tiền trước còn nằm đó bên cạnh con số mới.
-    setVerify('idle');
     if (mode === 'CASH' || mode === null || transferAmount <= 0) {
       setPayCode(null);
       return;
@@ -270,96 +262,18 @@ export function CheckoutDialog({
   }, [mode, orderId, transferAmount, picked?.id]);
 
   /**
-   * XÁC THỰC GIAO DỊCH — chạy TỰ ĐỘNG ngay khi màn QR mở ra (chủ quán chốt 2026-09-22).
+   * ⚠ ĐÃ GỠ: vòng hỏi ngân hàng 5 phút ở màn QR (2026-09-22 → gỡ 2026-10-02).
    *
-   *   'idle'    — chưa có mã, không có gì để hỏi
-   *   'waiting' — đang hỏi ngân hàng, nút "Tiếp tục" KHOÁ và xoay
-   *   'paid'    — tiền đã về: dòng xanh
-   *   'timeout' — hết 5 phút chưa thấy: dòng đỏ, bảo chụp bill của khách
+   * Bản cũ hỏi `/payments/intent/:code` mỗi 1,5 giây trong 5 phút và bày kết quả thành ba dải
+   * (xám đang hỏi · xanh tiền đã về · đỏ hết giờ). Chủ quán chốt bỏ cả ba: người thu đứng nhìn
+   * một dải tự đổi màu sau lưng không giúp gì cho thao tác của họ — họ vẫn phải chụp bill, vẫn
+   * phải bấm chốt — mà lại mời đứng đợi giữa lúc khách đang chờ.
    *
-   * Đồng hồ chạy từ lúc CHÌA MÃ chứ không phải từ lúc người thu bấm gì: nhịp thật ở quầy là chìa
-   * mã rồi đứng nhìn khách quét, tiền về trước khi có ai kịp bấm. Bản đầu tiên bắt bấm nút mới
-   * đếm, và lần chạy thử với tiền thật vấp đúng chỗ đó — 9.000đ vào lúc 15:27:55, webhook về
-   * 15:27:58, màn hình vẫn im vì không ai bấm.
-   *
-   * KHÔNG khoá nút nào trong lúc chờ (chủ quán chốt 2026-09-22, sau khi thử 30 giây thấy quá
-   * ngắn và quá gò). Nguyên tắc "nút Thanh toán không bao giờ bị chặn bởi QR hay mạng" ghi ở đầu
-   * tệp vì vậy giữ nguyên vẹn: người thu đi tiếp lúc nào cũng được, kết quả xác thực chỉ là thông
-   * tin bày ra bên cạnh. Đừng thêm khoá lại — hai phút là quá dài để chặn đường sống của quán.
-   *
-   * Hết giờ là CHỐT: không hỏi tiếp, đỏ là đỏ. Người thu biết ngay phải chụp bill, không đứng
-   * nhìn một dòng chữ có thể tự đổi màu sau lưng.
-   *
-   * Lỗi mạng KHÔNG dừng vòng hỏi — nó chỉ tiêu tốn thời gian của trần 5 phút, và hết trần thì
-   * rơi vào 'timeout' như mọi ca không xác thực được.
+   * ĐỐI SOÁT KHÔNG MẤT ĐI, chỉ dời chỗ xem: `POST /payments/intent` ngay trên vẫn sinh mã đơn,
+   * nội dung CK vẫn mang mã, webhook SePay vẫn ghi `PaymentIntent.paid_at`, và kết quả hiện
+   * thành ✓ / ✗ ở cột "Xác thực" màn Lịch sử (`bank_verified`). Không một mắt xích nào của đối
+   * soát đi qua màn này — gỡ vòng hỏi chỉ gỡ phần ĐỨNG ĐỢI TẠI QUẦY.
    */
-  /** Trần chờ ngân hàng báo về. 30 giây (2026-09-22) → 2 phút (cùng ngày) → 5 PHÚT (chủ quán
-   *  2026-09-25: "2p quá ngắn").
-   *
-   *  Nhịp hỏi KHÔNG đổi theo trần: vẫn 1,5 giây, tức 40 request/phút cho mỗi màn QR đang mở. Kéo
-   *  trần dài ra chỉ kéo dài KHOẢNG hỏi chứ không làm dày nhịp, nên trần chống spam toàn cục (600
-   *  req/phút/IP) không chịu thêm áp lực nào. Đừng "tối ưu" bằng cách giãn nhịp: tiền thường về
-   *  trong vài giây đầu, giãn nhịp là trả chậm đúng ca phổ biến nhất để tiết kiệm ở ca hiếm.
-   *
-   *  Trần này phải LUÔN NHỎ HƠN `INTENT_TTL_MS` (15 phút, `payments.service.ts`) — hỏi tiếp một mã
-   *  đã hết hạn hiển thị là hỏi về thứ khách không còn quét được. */
-  const VERIFY_TIMEOUT_MS = 300_000;
-  const VERIFY_POLL_MS = 1500;
-
-  useEffect(() => {
-    // NĂM điều kiện, thiếu một là KHÔNG xoay:
-    //
-    //  · đang ở màn QR;
-    //  · ĐÃ CHỌN MÃ QR — chưa chọn thì chưa có gì để khách quét, nên chưa thể có đồng nào về.
-    //    Xoay lúc đó là bắt người thu nhìn máy "đang xác thực" một giao dịch không tồn tại, và
-    //    tệ hơn: đốt mất trần 5 phút trước khi khách kịp nhìn thấy mã;
-    //  · đã xin được mã đơn — không có mã thì không có gì để hỏi ngân hàng;
-    //  · CÔNG TẮC đang bật (2026-09-25) — chủ quán tắt được vòng hỏi này ở Cài đặt → Mã QR nhận
-    //    tiền. Tắt thì màn này im hoàn toàn: `verify` ở 'idle' nên không dải nào hiện, và
-    //    `paidSkipsBill` không bao giờ thành true nên vẫn qua bước chụp bill;
-    //  · mã đã chọn là TÀI KHOẢN NGÂN HÀNG, không phải ảnh QR (2026-09-23). Mã dạng ảnh (MoMo,
-    //    QR in giấy) không có cổng nào đứng sau, nên hỏi bao lâu cũng không có câu trả lời:
-    //    người thu sẽ nhìn "đang xác thực" 5 phút rồi luôn luôn nhận dải đỏ "chưa xác thực
-    //    được" — một lời cảnh báo đúng về mặt chữ nhưng vô nghĩa, và loại cảnh báo luôn đỏ là
-    //    loại người ta học cách bỏ qua, kể cả khi nó đỏ thật. Không hỏi thì `verify` ở 'idle',
-    //    màn QR trông y như trước khi có tính năng này — đúng thứ mã ảnh vốn vẫn làm.
-    if (!verifyEnabled || step !== 'qr' || !picked || picked.kind !== 'BANK' || !payCode) return;
-
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = Date.now() + VERIFY_TIMEOUT_MS;
-    setVerify('waiting');
-
-    const tick = async () => {
-      if (!alive) return;
-      try {
-        const res = await api.get<{ data: { paid: boolean } }>(`/payments/intent/${payCode}`);
-        if (!alive) return;
-        if (res.data.data.paid) {
-          setVerify('paid');
-          return;
-        }
-      } catch {
-        /* mạng chập chờn ở quán là bình thường — lần sau hỏi lại, không báo gì cho người thu */
-      }
-      if (!alive) return;
-      if (Date.now() >= deadline) {
-        setVerify('timeout');
-        return;
-      }
-      timer = setTimeout(tick, VERIFY_POLL_MS);
-    };
-    void tick();
-
-    return () => {
-      alive = false;
-      clearTimeout(timer);
-    };
-    // `verify` CỐ Ý không nằm trong deps: nó do chính effect này đặt, thêm vào là vòng lặp vô tận.
-    //
-    // `picked?.id` thì CÓ: đổi mã QR là đổi tài khoản nhận, tức một lần thu khác — đồng hồ phải
-    // chạy lại từ đầu chứ không tiếp tục đếm phần còn lại của lần trước.
-  }, [verifyEnabled, step, picked?.id, payCode]);
 
   // Vẽ QR mỗi khi mã hoặc SỐ TIỀN đổi — số tiền nằm trong mã, nên sửa số mà không vẽ lại là chìa
   // cho khách một mã mang con số cũ.
@@ -461,9 +375,10 @@ export function CheckoutDialog({
       else setStep('qr');
       return;
     }
+    // Màn QR LUÔN đi tiếp sang màn chụp bill — không còn đường tắt nào (xem ghi chú
+    // "ĐÃ GỠ: ngân hàng xác nhận thì bỏ qua màn chụp bill" ở trên).
     if (step === 'qr') {
-      if (paidSkipsBill) submit();
-      else setStep('bill');
+      setStep('bill');
       return;
     }
     submit();
@@ -475,9 +390,6 @@ export function CheckoutDialog({
    *  sửa một thứ, không phải để bắt đầu lại. Ảnh đã đẩy vẫn nằm trên server gắn với đơn — nó
    *  không phụ thuộc vào việc hộp thoại đang ở màn nào. */
   const goBack = () => {
-    // Lùi khỏi màn QR là bỏ kết quả xác thực: người ta lùi để đổi số tiền hay đổi mã QR, mà cả
-    // hai đều sinh ra một lần thu KHÁC — giữ lại dòng xanh cũ là dán nhãn "đã trả" lên số mới.
-    if (step === 'qr') setVerify('idle');
     if (step === 'bill') setStep('qr');
     else if (step === 'qr') setStep('mode');
     else if (step === 'mode') setStep('items');
@@ -497,7 +409,7 @@ export function CheckoutDialog({
         : '💰 Thanh toán'
       : step === 'mode' && mode === 'DEBT'
         ? '📒 Xác nhận ghi nợ'
-        : step === 'bill' || (step === 'mode' && mode === 'CASH') || paidSkipsBill
+        : step === 'bill' || (step === 'mode' && mode === 'CASH')
           ? 'Xác nhận thu tiền'
           : 'Tiếp tục →';
 
@@ -518,6 +430,11 @@ export function CheckoutDialog({
               paid_to_account_id: picked?.id,
               payment_qr_label: picked?.label,
               transfer_note: note,
+              // Chỉ gửi khi đơn THẬT SỰ không có ảnh: người thu có thể đã gõ lý do rồi chụp được
+              // sau đó, và lúc đó đơn không có gì bất thường để ghi.
+              ...(photos.length === 0 && photoSkipReason.trim()
+                ? { payment_photo_skip_reason: photoSkipReason.trim() }
+                : {}),
             }
           : {}),
       });
@@ -722,7 +639,6 @@ export function CheckoutDialog({
                 qrDataUrl={qrDataUrl}
                 transferAmount={transferAmount}
                 note={note}
-                verify={verify}
               />
             </>
           ) : (
@@ -737,6 +653,8 @@ export function CheckoutDialog({
               fileRef={fileRef}
               onPick={addPhotos}
               onRemove={removePhoto}
+              skipReason={photoSkipReason}
+              onSkipReason={setPhotoSkipReason}
             />
           )}
         </div>
@@ -833,7 +751,6 @@ export function QrStep({
   qrDataUrl,
   transferAmount,
   note,
-  verify,
 }: {
   options: QrOption[];
   loadFailed: boolean;
@@ -844,7 +761,6 @@ export function QrStep({
   transferAmount: number;
   note: string;
   /** Kết quả xác thực với ngân hàng — xem effect 'XÁC THỰC GIAO DỊCH' ở component cha. */
-  verify: 'idle' | 'waiting' | 'paid' | 'timeout';
 }) {
   return (
     <div>
@@ -933,43 +849,12 @@ export function QrStep({
         </div>
       )}
 
-      {/* Kết quả đối chiếu với ngân hàng. Đặt DƯỚI mã QR, ngay trên hàng nút — đây là thứ người
-          thu nhìn cuối cùng trước khi bấm đi tiếp, và là thứ quyết định họ có phải chụp bill hay
-          không. Cả ba dòng đều cao và chữ to: người thu đang đứng, nhìn lướt, tay còn cầm máy. */}
-      {verify === 'waiting' && (
-        <div style={{ ...verifyLine, background: '#f1f5f9', color: '#334155' }}>
-          {/* Vòng xoay nằm Ở ĐÂY chứ không trên nút: nút phải luôn bấm được, mà một cái nút vừa
-              xoay vừa bấm được thì trông như đang treo. Viền tối vì nền xám nhạt — `.spinner`
-              mặc định viền trắng, dành cho nút nền đậm. */}
-          <span className="spinner" style={{ borderColor: '#94a3b8', borderTopColor: 'transparent' }} />
-          Đang xác thực giao dịch với ngân hàng…
-        </div>
-      )}
-      {verify === 'paid' && (
-        <div style={{ ...verifyLine, background: '#dcfce7', color: '#166534' }}>
-          Đã thanh toán thành công
-        </div>
-      )}
-      {verify === 'timeout' && (
-        /* KHÔNG nói "chuyển tiền thất bại" — ta không biết điều đó. Ta chỉ biết mình CHƯA xác
-           thực được, mà tiền có thể đã về rồi (ngân hàng chậm, hoặc tài khoản này không nối với
-           cổng đối soát). Nói quá lên là đẩy người thu vào thế nghi ngờ khách. */
-        <div style={{ ...verifyLine, background: '#fee2e2', color: '#991b1b' }}>
-          ⚠️ Chưa xác thực được giao dịch — vui lòng chụp lại giao dịch của khách
-        </div>
-      )}
+      {/* ⚠ ĐÃ GỠ (2026-10-02): ba dải trạng thái xác thực — xám "Đang xác thực…", xanh "Đã
+          thanh toán thành công", đỏ "Chưa xác thực được". Màn chìa mã nay im lặng; kết quả đối
+          soát xem ở cột "Xác thực" màn Lịch sử. Xem ghi chú ở `CheckoutDialog`. */}
     </div>
   );
 }
-
-const verifyLine: CSSProperties = {
-  marginTop: 12,
-  padding: '10px 12px',
-  borderRadius: 8,
-  fontSize: 15,
-  fontWeight: 700,
-  textAlign: 'center',
-};
 
 /** Ba nhóm món của bill — giữ nguyên bố cục hộp thoại cũ, chỉ gom lại thành một component vì từ
  *  2026-09-15 nó xuất hiện ở HAI màn chốt khác nhau (tiền mặt chốt ở màn 1, chuyển khoản chốt ở
@@ -1033,8 +918,12 @@ function OrderLines({
  * khách quét, khách đưa màn hình "chuyển thành công", LÚC ĐÓ mới có cái để chụp. Bày nút từ trước
  * là mời người ta chụp một màn hình chưa tồn tại.
  *
- * Ảnh vẫn TUỲ CHỌN: nút "Xác nhận thu tiền" không bao giờ bị khoá vì thiếu ảnh. Một cái camera
- * hỏng hay mạng yếu không được phép chặn đường thu tiền của quán.
+ * Ảnh là BẮT BUỘC từ 2026-10-02 (đảo lại "ảnh tuỳ chọn" của bản 2026-09-14): không có ảnh thì
+ * nút "Xác nhận thu tiền" mờ — xem `checkoutBlockReason`.
+ *
+ * Nỗi lo của bản cũ (camera hỏng, mạng yếu, không được chặn đường thu tiền của quán) KHÔNG bị bỏ
+ * qua, nó chỉ đổi hình: nút "Không chụp được" ngay dưới mở ra một ô lý do, gõ vào là đi tiếp
+ * được. Tiền vẫn luôn thu được; khác là đường vòng nay để lại vết trong đơn thay vì im lặng.
  *
  * ⚠ TIỀN CHƯA ĐƯỢC GHI ở bước này — chỉ ghi khi bấm "Xác nhận thu tiền". Đóng hộp thoại giữa
  * chừng là đơn vẫn còn nguyên, chưa thu.
@@ -1052,6 +941,8 @@ export function BillStep({
   fileRef,
   onPick,
   onRemove,
+  skipReason,
+  onSkipReason,
 }: {
   transferAmount: number;
   cashAmount: number;
@@ -1062,7 +953,13 @@ export function BillStep({
   fileRef: React.RefObject<HTMLInputElement | null>;
   onPick: (files: FileList | null) => void;
   onRemove: (id: string) => void;
+  /** Lý do không chụp được bill. Rỗng = chưa dùng đường thoát. */
+  skipReason: string;
+  onSkipReason: (v: string) => void;
 }) {
+  /* Ô lý do KHÔNG bày sẵn: bày ra là mời bỏ qua, mà mặc định phải là chụp. Nó chỉ mở khi người
+     thu chủ động bấm "Không chụp được" — hoặc khi đã có chữ trong đó (lùi màn rồi quay lại). */
+  const [showSkip, setShowSkip] = useState(skipReason.trim().length > 0);
   return (
     <>
       {/* Nhắc lại con số và mã đã chọn: người thu vừa rời màn QR, và đây là cơ hội cuối để phát
@@ -1080,9 +977,13 @@ export function BillStep({
       </div>
 
       <div>
-        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>Chụp bill của khách</div>
+        <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 2 }}>
+          Chụp bill của khách <span style={{ color: '#b91c1c' }}>*</span>
+        </div>
         <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-          Không bắt buộc — bỏ qua vẫn thu tiền được.
+          {photos.length > 0
+            ? `Đã có ${photos.length} ảnh.`
+            : 'Bắt buộc với đơn chuyển khoản — đây là bằng chứng khi đối soát cuối ngày.'}
         </div>
 
         <button
@@ -1135,6 +1036,52 @@ export function BillStep({
                 </button>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ĐƯỜNG THOÁT — chỉ hiện khi CHƯA có ảnh nào. Có ảnh rồi thì luật đã thoả, bày thêm một
+            nút "không chụp được" ở đó chỉ gây hoang mang. */}
+        {photos.length === 0 && (
+          <div style={{ marginTop: 12 }}>
+            {!showSkip ? (
+              /* Nút chữ nhỏ, KHÔNG phải nút to như nút chụp: hai nút to ngang nhau là hai lựa
+                 chọn ngang nhau, mà ở đây chụp mới là đường chính. */
+              <button
+                type="button"
+                onClick={() => setShowSkip(true)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  padding: '6px 0',
+                  color: '#6b7280',
+                  fontSize: 14,
+                  textDecoration: 'underline',
+                }}
+              >
+                Không chụp được bill?
+              </button>
+            ) : (
+              <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: 12 }}>
+                <label
+                  htmlFor="photo-skip-reason"
+                  style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#92400e', marginBottom: 6 }}
+                >
+                  Vì sao không chụp được?
+                </label>
+                <input
+                  id="photo-skip-reason"
+                  type="text"
+                  value={skipReason}
+                  onChange={(e) => onSkipReason(e.target.value)}
+                  placeholder="VD: camera hỏng, khách đã đi, mạng yếu…"
+                  maxLength={255}
+                  style={{ width: '100%', minHeight: 44, fontSize: 16 }}
+                />
+                <div style={{ fontSize: 13, color: '#92400e', marginTop: 6 }}>
+                  Lý do này lưu vào đơn và hiện ở màn Lịch sử.
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

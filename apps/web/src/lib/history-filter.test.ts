@@ -10,6 +10,7 @@ const EMPTY: HistoryFilters = {
   misa: '',
   payment: '',
   verified: '',
+  photo: '',
   from: '',
   to: '',
 };
@@ -295,5 +296,17 @@ describe('lọc theo hình thức thu tiền (2026-09-14)', () => {
     expect(historyFilterKey({ ...EMPTY, from: '2026-09-14', to: '2026-09-14' })).not.toBe(
       historyFilterKey(EMPTY),
     );
+  });
+});
+
+describe('lọc theo ảnh bill (2026-10-02)', () => {
+  it('rỗng → không gửi tham số, có giá trị → gửi đúng tên `photo`', () => {
+    expect(historyQuery({ ...EMPTY, photo: '' }).toString()).toBe('');
+    expect(historyQuery({ ...EMPTY, photo: 'missing' }).get('photo')).toBe('missing');
+    expect(historyQuery({ ...EMPTY, photo: 'has' }).get('photo')).toBe('has');
+  });
+
+  it('đổi bộ lọc ảnh phải đổi filterKey — nếu không biểu đồ giữ nguyên số của bộ lọc cũ', () => {
+    expect(historyFilterKey({ ...EMPTY, photo: 'missing' })).not.toBe(historyFilterKey(EMPTY));
   });
 });

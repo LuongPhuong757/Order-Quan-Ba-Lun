@@ -255,10 +255,14 @@ export function PaymentQrPanel() {
       {/* CÔNG TẮC đứng ĐẦU panel, trên cả form thêm mã (2026-09-25).
           Nó nói về cách CẢ QUÁN thu tiền, còn phần dưới là từng tài khoản một — thứ bao trùm phải
           đứng trên thứ bị bao. Đặt ở màn này chứ không phải màn Đơn hàng online vì chủ quán tới
-          đây khi lo chuyện thu tiền qua QR, và tiền tố ngân hàng cũng khai ngay bên dưới. */}
+          đây khi lo chuyện thu tiền qua QR, và tiền tố ngân hàng cũng khai ngay bên dưới.
+
+          Từ 2026-10-02 công tắc này KHÔNG còn đụng tới màn thu tiền nữa (vòng hỏi 5 phút và ba
+          dải trạng thái đã gỡ hẳn) — nó chỉ còn bật/tắt cột "Xác thực" ở màn Lịch sử. Câu chữ
+          dưới đây phải nói đúng điều đó, đừng chép lại mô tả cũ. */}
       {verifyOn !== null && (
         <div className="st-section">
-          <h2>Xác thực giao dịch tại quầy</h2>
+          <h2>Xác thực giao dịch với ngân hàng</h2>
           <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
             <input
               type="checkbox"
@@ -269,17 +273,19 @@ export function PaymentQrPanel() {
             />
             <span>
               <strong>
-                {verifyOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — màn thu tiền{' '}
-                {verifyOn ? 'có' : 'không'} hỏi ngân hàng
+                {verifyOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — màn Lịch sử{' '}
+                {verifyOn ? 'có' : 'không'} hiện cột "Xác thực"
               </strong>
               <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
-                Bật: sau khi chìa mã QR, máy hỏi ngân hàng trong 5 phút. Tiền về là hiện dải xanh
-                và bỏ qua bước chụp bill.
+                Bật: mỗi đơn chuyển khoản hiện ✓ (ngân hàng đã báo tiền về) hoặc ✗ (chưa tìm thấy
+                giao dịch), và lọc được theo đó.
               </span>
               <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
-                Tắt: màn thu tiền như cũ, luôn chụp bill.{' '}
-                <strong>Việc đối soát KHÔNG mất đi</strong> — cột "Xác thực" ở màn Lịch sử vẫn tự
-                chuyển xanh khi ngân hàng báo về, chỉ là không còn đứng đợi ở quầy.
+                Tắt: cột và ô lọc ẩn đi. <strong>Dữ liệu KHÔNG mất</strong> — máy vẫn ghi sổ ngân
+                hàng như thường, bật lại là thấy đủ.
+              </span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
+                Màn thu tiền không đổi theo công tắc này: luôn chụp bill, không đứng đợi ngân hàng.
               </span>
             </span>
           </label>

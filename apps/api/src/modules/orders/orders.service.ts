@@ -38,6 +38,10 @@ export type CheckoutTransfer = {
   account_id?: string | null;
   qr_label?: string | null;
   note?: string | null;
+  /** Lý do KHÔNG có ảnh bill (2026-10-02). Đi kèm cụm chuyển khoản chứ không là tham số riêng vì
+   *  nó chỉ có nghĩa khi có tiền chuyển khoản — gắn vào đây là cả `checkout()` lẫn `settleDebt()`
+   *  tự có, không phải nhớ truyền ở hai chỗ. */
+  photo_skip_reason?: string | null;
 };
 
 // State machine — must match packages/schemas/orders.ts.
@@ -141,6 +145,23 @@ export function verifiedSql(v: 'yes' | 'no'): string {
   const exists = `EXISTS (SELECT 1 FROM payment_intents pi
     WHERE pi.target_type = 'POS' AND pi.target_id = o.id AND pi.paid_at IS NOT NULL)`;
   return v === 'yes' ? `o.transfer_amount > 0 AND ${exists}` : `o.transfer_amount > 0 AND NOT ${exists}`;
+}
+/**
+ * Lọc đơn CHUYỂN KHOẢN theo chuyện có ảnh bill hay không (2026-10-02).
+ *
+ * Cùng một luật với `verifiedSql`: CHỈ xét đơn thu chuyển khoản. Đơn tiền mặt không có bill
+ * nào để chụp, thả chúng vào nhóm "thiếu ảnh" là biến bộ lọc thành vô dụng — phần lớn đơn của
+ * quán là tiền mặt và chúng sẽ nhấn chìm đúng mấy đơn cần nhìn.
+ *
+ * 'missing' là câu hỏi thật của cuối ngày: đơn chuyển khoản nào không có bằng chứng ảnh. Nó
+ * gồm CẢ đơn mà người thu đã bấm "Không chụp được" và gõ lý do — có lý do không làm tấm ảnh
+ * xuất hiện, và người đối soát vẫn phải tự xử lý những đơn đó.
+ *
+ * Dùng chung cho `listHistory` và `stats` — hai phần của cùng một màn, phải cắt đúng một tập đơn.
+ */
+export function photoSql(v: 'has' | 'missing'): string {
+  const exists = `EXISTS (SELECT 1 FROM order_payment_photos opp WHERE opp.order_id = o.id)`;
+  return v === 'has' ? `o.transfer_amount > 0 AND ${exists}` : `o.transfer_amount > 0 AND NOT ${exists}`;
 }
 /* GHI NỢ (2026-09-25, `docs/GHI-NO-KHACH-SPEC.md`): "kết đơn mà chưa thu" giờ có HAI nghĩa —
    huỷ và nợ — nên `is_paid = 0` một mình không còn đủ để nói "Đã huỷ". Thiếu `debt_at IS NULL`
@@ -1414,7 +1435,10 @@ export class OrdersService {
         `${result.ship_fee > 0 ? `, tiền món ${OrdersService.fmtVnd(result.items_total)} + phí ship ${OrdersService.fmtVnd(result.ship_fee)}` : ''}` +
         `${result.auto_served_items > 0 ? `, trong đó ${result.auto_served_items} món chưa kịp mang ra vẫn tính tiền` : ''})` +
         `${result.debt ? ' · chưa thu' : describePayment(result.total, result.transfer_amount, result.payment_qr_label)}` +
-        `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}`,
+        `${result.order.misa_copied_at ? ' · đã gõ sang MISA' : ''}` +
+        // Nói thẳng trong nhật ký bàn, không chỉ lưu cột: người đọc nhật ký cuối ca phải thấy
+        // ngay đơn nào thu chuyển khoản mà không có bằng chứng ảnh.
+        `${result.order.payment_photo_skip_reason ? ` · KHÔNG chụp được bill: ${result.order.payment_photo_skip_reason}` : ''}`,
       actor: cashier,
     });
 
@@ -1459,6 +1483,9 @@ export class OrdersService {
     order.paid_to_account_id = transfer.account_id ?? null;
     order.payment_qr_label = transfer.qr_label ?? null;
     order.transfer_note = transfer.note ?? null;
+    // Chuỗi rỗng → NULL: "không có gì bất thường" và "có bất thường nhưng người thu gõ khoảng
+    // trắng" phải nhìn khác nhau ở bộ lọc cuối ngày.
+    order.payment_photo_skip_reason = (transfer.photo_skip_reason ?? '').trim() || null;
   }
 
   private static applyMisa(order: Order, actor?: OrderCreator): void {
@@ -1628,6 +1655,8 @@ export class OrdersService {
      *  nó lọt vào nhóm "chưa xác thực" là biến bộ lọc thành vô dụng — phần lớn đơn của quán là
      *  tiền mặt và chúng sẽ nhấn chìm đúng mấy đơn cần nhìn. */
     verified?: 'yes' | 'no';
+    /** Đơn CK có ảnh bill hay không. Chỉ xét đơn chuyển khoản — xem `photoSql`. */
+    photo?: 'has' | 'missing';
     /** Lọc theo TÀI KHOẢN NHẬN tiền (2026-09-15) — `orders.paid_to_account_id`. Đây là bộ lọc
      *  của việc dò sao kê: mở sao kê của một tài khoản thì chỉ muốn thấy đúng những đơn đã thu
      *  về tài khoản đó. Đơn tiền mặt không có tài khoản nhận nên tự rơi ra ngoài. */
@@ -1675,6 +1704,7 @@ export class OrdersService {
     else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
     if (opts.verified) wheres.push(verifiedSql(opts.verified));
+    if (opts.photo) wheres.push(photoSql(opts.photo));
     if (opts.qr_account_id) {
       wheres.push('o.paid_to_account_id = :qracc');
       params.qracc = opts.qr_account_id;
@@ -1761,17 +1791,40 @@ export class OrdersService {
      */
     const transferIds = orders.filter((o) => o.transfer_amount > 0).map((o) => o.id);
     const verified = new Set<string>();
+    /**
+     * Số ảnh bill của từng đơn CK (2026-10-02) — cờ "có bằng chứng hay không" ở màn Lịch sử.
+     *
+     * ĐẾM chứ không `find` cả bản ghi: màn danh sách chỉ cần biết có hay không (và bao nhiêu
+     * tấm), còn đường dẫn ảnh thì `PaymentPhotos` tự tải khi người ta mở rộng đơn. Kéo cả URL
+     * về đây là làm nặng mọi lần lật trang cho một thứ 20 dòng đều không dùng tới.
+     *
+     * MỘT truy vấn cho cả trang, cùng lệ với `verified` ngay trên.
+     */
+    const photoCount = new Map<string, number>();
     if (transferIds.length > 0) {
-      const rows = await this.orderRepo.manager.find(PaymentIntent, {
-        where: { target_type: 'POS', target_id: In(transferIds) },
-      });
-      for (const r of rows) if (r.paid_at !== null) verified.add(r.target_id);
+      const [intents, photos] = await Promise.all([
+        this.orderRepo.manager.find(PaymentIntent, {
+          where: { target_type: 'POS', target_id: In(transferIds) },
+        }),
+        this.orderRepo.manager
+          .createQueryBuilder()
+          .select('opp.order_id', 'order_id')
+          .addSelect('COUNT(*)', 'n')
+          .from('order_payment_photos', 'opp')
+          .where('opp.order_id IN (:...ids)', { ids: transferIds })
+          .groupBy('opp.order_id')
+          .getRawMany<{ order_id: string; n: unknown }>(),
+      ]);
+      for (const r of intents) if (r.paid_at !== null) verified.add(r.target_id);
+      for (const r of photos) photoCount.set(String(r.order_id), Number(r.n));
     }
 
     const items = orders.map((o) => ({
       ...o,
       table_name: tableNameById.get(o.table_id) || o.table_code,
       bank_verified: o.transfer_amount > 0 ? verified.has(o.id) : null,
+      /** `null` = đơn không thu chuyển khoản, không có bill nào để chụp. */
+      payment_photo_count: o.transfer_amount > 0 ? (photoCount.get(o.id) ?? 0) : null,
     }));
     return { items, total, page, page_size };
   }
@@ -1953,6 +2006,8 @@ export class OrdersService {
      *  bật lên là ô đếm đơn huỷ / đang mở về 0 — cùng hệ quả với `qr_account_id`. */
     payment?: PaymentKindFilter;
     verified?: 'yes' | 'no';
+    /** Đơn CK có ảnh bill hay không. Chỉ xét đơn chuyển khoản — xem `photoSql`. */
+    photo?: 'has' | 'missing';
   }): Promise<{
     revenue_by_day: Array<{ day: string; revenue: number; orders: number }>;
     top_items: Array<{ name: string; qty: number; revenue: number }>;
@@ -1980,6 +2035,7 @@ export class OrdersService {
       }
       if (opts.payment) qb.andWhere(paymentKindSql(opts.payment));
       if (opts.verified) qb.andWhere(verifiedSql(opts.verified));
+      if (opts.photo) qb.andWhere(photoSql(opts.photo));
       if (opts.start_ms) {
         qb.andWhere(`${MONEY_OR_OPENED_AT_SQL} >= :s`, { s: new Date(opts.start_ms) });
       }

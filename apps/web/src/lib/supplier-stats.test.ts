@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   KHAC_ID,
   buildSpendChart,
+  buildDebtChart,
   chonBucket,
   dauTuan,
   gopTheoMon,
@@ -311,5 +312,74 @@ describe('định dạng', () => {
     expect(luongGon(300, 'g')).toBe('300 g');
     // Đơn vị đếm tự nó là gốc (memory: đơn vị tính tuỳ ý) — không được quy đổi.
     expect(luongGon(5000, 'cái')).toBe('5.000 cái');
+  });
+});
+
+describe('buildDebtChart — biến động công nợ', () => {
+  const KY = { from: '2026-09-01', to: '2026-09-03' };
+
+  it('dư nợ cuối mỗi ngày = số đầu kỳ cộng dồn nợ mới trừ đã trả', () => {
+    const c = buildDebtChart(1_000_000, [
+      { day: '2026-09-01', incurred: 500_000, paid: 0 },
+      { day: '2026-09-02', incurred: 0, paid: 300_000 },
+      { day: '2026-09-03', incurred: 200_000, paid: 100_000 },
+    ], KY);
+
+    expect(c.noMoi).toEqual([500_000, 0, 200_000]);
+    expect(c.daTra).toEqual([0, 300_000, 100_000]);
+    expect(c.duNo).toEqual([1_500_000, 1_200_000, 1_300_000]);
+  });
+
+
+  it('dư nợ cuối kỳ = đầu kỳ + tổng nợ mới − tổng đã trả (bất biến khớp ô "Còn phải trả")', () => {
+    const c = buildDebtChart(1_000_000, [
+      { day: '2026-09-01', incurred: 500_000, paid: 0 },
+      { day: '2026-09-03', incurred: 200_000, paid: 100_000 },
+    ], KY);
+
+    expect(c.duNoCuoi).toBe(1_000_000 + c.tongNoMoi - c.tongDaTra);
+    expect(c.duNoCuoi).toBe(1_600_000);
+    expect(c.duNo[c.duNo.length - 1]).toBe(c.duNoCuoi);
+  });
+
+  it('ngày không có giao dịch vẫn giữ chỗ, dư nợ đi ngang chứ không mất mốc', () => {
+    const c = buildDebtChart(0, [{ day: '2026-09-01', incurred: 100_000, paid: 0 }], KY);
+
+    expect(c.labels).toHaveLength(3);
+    expect(c.noMoi).toEqual([100_000, 0, 0]);
+    expect(c.duNo).toEqual([100_000, 100_000, 100_000]);
+  });
+
+  it('kỳ rỗng → dư nợ cuối kỳ CHÍNH LÀ số đầu kỳ, không phải 0', () => {
+    // Quán không mua không trả gì trong kỳ thì nợ cũ vẫn còn nguyên đó.
+    const c = buildDebtChart(7_000_000, [], KY);
+
+    expect(c.labels).toEqual([]);
+    expect(c.duNoCuoi).toBe(7_000_000);
+  });
+
+  it('trả nhiều hơn mua → dư nợ đi xuống', () => {
+    const c = buildDebtChart(5_000_000, [
+      { day: '2026-09-01', incurred: 100_000, paid: 2_000_000 },
+      { day: '2026-09-02', incurred: 0, paid: 1_000_000 },
+      { day: '2026-09-03', incurred: 0, paid: 0 },
+    ], KY);
+
+    expect(c.duNo).toEqual([3_100_000, 2_100_000, 2_100_000]);
+  });
+
+  it('kỳ dài tự gộp bucket — cùng cách chia với biểu đồ chi tiêu cùng màn', () => {
+    const rows = Array.from({ length: 70 }, (_, i) => ({
+      day: new Date(Date.parse('2026-07-01T00:00:00Z') + i * 86_400_000).toISOString().slice(0, 10),
+      incurred: 10_000,
+      paid: 0,
+    }));
+    const c = buildDebtChart(0, rows, { from: '2026-07-01', to: '2026-09-08' });
+
+    expect(c.bucket).not.toBe('day');
+    expect(c.labels.length).toBeLessThan(70);
+    // Gộp bucket KHÔNG được làm mất tiền: tổng phải nguyên vẹn.
+    expect(c.tongNoMoi).toBe(700_000);
+    expect(c.duNoCuoi).toBe(700_000);
   });
 });
