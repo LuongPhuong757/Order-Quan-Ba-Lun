@@ -1284,7 +1284,8 @@ export function HistoryPage() {
                 </th>
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
-                <th>Trạng thái</th>
+                {/* Căn giữa khớp với nội dung ô (xem `.txn-status-wrap` trong styles.css). */}
+                <th style={{ textAlign: 'center' }}>Trạng thái</th>
                 {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
                     riêng chứ không nhét dưới số tiền: nhét vào đó thì mỗi đơn cao thêm một dòng
                     và người ta phải đọc mới thấy, còn cột thì liếc dọc là quét được cả trang. */}

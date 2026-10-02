@@ -3114,3 +3114,15 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
   .mm-layout { grid-template-columns: minmax(0, 1fr); }
   .mm-groups { min-width: 0; max-width: 100%; }
 }
+
+/* Cột "Trạng thái" của bảng Lịch sử — CĂN GIỮA trên máy tính (chủ quán 2026-10-02).
+   Hai badge xếp dọc dạt trái để lại một mảng trống bên phải, mà cột này nằm giữa bảng nên
+   khoảng trống đó cắt đôi hàng.
+
+   Viết ở CSS chứ KHÔNG phải style nội tuyến của `.txn-status-wrap`: trên điện thoại khối này
+   đã được dạt hai mép (`justify-content: space-between` trong khối @media ở trên), mà style
+   nội tuyến thì thắng mọi rule CSS — đặt `center` vào đó là phá luôn bố cục điện thoại đã
+   chốt. Selector dưới đây yếu hơn selector trong @media nên điện thoại giữ nguyên. */
+.txn-status-wrap {
+  justify-content: center;
+}
