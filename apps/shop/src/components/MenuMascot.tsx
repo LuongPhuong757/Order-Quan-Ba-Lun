@@ -373,19 +373,29 @@ const MENU_MASCOT_CSS = `
   width:max-content; max-width:min(210px, calc(100vw - 120px));
   pointer-events:none;
 }
+/* Bong bóng TRÒN cho dễ thương (chủ quán yêu cầu 2026-10-02): bo hết cỡ thành viên kẹo, font
+   Baloo 2 nét tròn (đã nạp sẵn cho tiêu đề món), viền hồng nhạt thay vì đỏ thương hiệu đậm, và
+   đuôi là hai chấm tròn nhỏ dần về phía nhân vật — kiểu bong bóng truyện tranh. Padding ngang
+   18px để hai đầu bán nguyệt không cắt vào chữ khi câu xuống hai dòng. */
 .mo-mascot-bubble{
-  position:relative; margin:0; padding:8px 12px;
-  background:#fffdfa; color:#2a1d14; border:1.5px solid #cf3323; border-radius:14px;
-  font:600 14px/1.35 'Be Vietnam Pro','Segoe UI',sans-serif;
-  box-shadow:0 6px 16px rgb(42 29 20 / 16%);
-  animation:mo-mascot-pop .22s ease-out both;
+  position:relative; margin:0 14px 0 0; padding:9px 18px 8px;
+  background:#fff; color:#5a3a2a; border:2px solid #f4b4a4; border-radius:999px;
+  font:700 15px/1.3 'Baloo 2','Be Vietnam Pro','Segoe UI',sans-serif; text-align:center;
+  box-shadow:0 6px 16px rgb(207 51 35 / 14%), inset 0 -3px 0 #fdeae4;
+  transform-origin:100% 70%;
+  animation:mo-mascot-pop .38s cubic-bezier(.34,1.56,.64,1) both;
 }
+.mo-mascot-bubble::before,
 .mo-mascot-bubble::after{
-  content:''; position:absolute; right:-7px; top:14px; width:12px; height:12px;
-  background:#fffdfa; border-right:1.5px solid #cf3323; border-top:1.5px solid #cf3323;
-  transform:rotate(45deg);
+  content:''; position:absolute; border-radius:50%;
+  background:#fff; border:2px solid #f4b4a4;
 }
-@keyframes mo-mascot-pop{ from{ opacity:0; transform:translateX(6px) scale(.92); } to{ opacity:1; transform:none; } }
+.mo-mascot-bubble::before{ width:12px; height:12px; right:-12px; bottom:4px; }
+.mo-mascot-bubble::after{ width:7px; height:7px; right:-21px; bottom:-3px; }
+@keyframes mo-mascot-pop{
+  from{ opacity:0; transform:scale(.4); }
+  to{ opacity:1; transform:scale(1); }
+}
 @media (prefers-reduced-motion: reduce){
   .mo-mascot, .mo-mascot-bubble{ transition:none; animation:none; }
 }
