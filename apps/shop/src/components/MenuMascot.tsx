@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } from './Mascot.tsx';
 
 /**
- * Chú đầu bếp ở góc dưới phải thực đơn tại bàn — chủ quán chốt 2026-10-02.
+ * Chú hiệp sĩ ở góc dưới phải thực đơn tại bàn — chủ quán chốt 2026-10-02 (đổi từ đầu bếp sang
+ * hiệp sĩ cùng ngày).
  *
  * Khách quét QR bằng điện thoại, không có chuột cho nhân vật nhìn theo, nên nó phản ứng theo
  * VIỆC KHÁCH ĐANG LÀM trên trang:
@@ -19,9 +20,9 @@ import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } fro
  * trống bên phải chữ "N món đã chọn" — không mất chữ nào.
  */
 
-/** Hai tấm 576px (ô 192px) = đủ nét cho 72px ở màn 2x, ~93KB cả bộ thay vì ~320KB của bản 1080px. */
-const DIRECTIONS_SRC = '/mascots/chef-directions.webp';
-const REACTIONS_SRC = '/mascots/chef-reactions.webp';
+/** Hai tấm 576px (ô 192px) = đủ nét cho 72px ở màn 2x, ~105KB cả bộ thay vì ~370KB của bản 1080px. */
+const DIRECTIONS_SRC = '/mascots/knight-directions.webp';
+const REACTIONS_SRC = '/mascots/knight-reactions.webp';
 
 const ADD_CUES: MascotReaction[] = ['delighted', 'heart', 'sparkle'];
 const IDLE_MS = 30_000;
@@ -125,7 +126,7 @@ export function MenuMascot({ cartCount, sentKey, raised }: Props): JSX.Element {
         directions={DIRECTIONS_SRC}
         reactions={REACTIONS_SRC}
         size={72}
-        label="chú đầu bếp"
+        label="chú hiệp sĩ"
         look={look}
         cue={cue}
         asleep={asleep}
