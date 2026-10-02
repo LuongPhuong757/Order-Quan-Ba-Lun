@@ -452,6 +452,12 @@ export function KitchenPage() {
   const guestCalls: PendingCall[] = guestPending?.calls ?? [];
   // Gộp lượt chờ duyệt + chuông chưa ai nghe: với bếp thì cả hai đều là "có việc của khách".
   const guestWaitingCount = guestCards.length + guestCalls.length;
+  /* Dải chỉ MỞ khi vừa được bấm mở VÀ có thứ để hiện.
+   *
+   * Tách khỏi `guestOpen` vì hai thứ khác nhau: `guestOpen` là ý định của người bấm, còn cái
+   * này là trạng thái thật trên màn. Thiếu vế thứ hai thì lượt cuối cùng vừa được duyệt xong
+   * sẽ để lại một dải rỗng mở toang giữa thanh — không ai đóng nó vì nhìn không ra là cái gì. */
+  const railOpen = guestOpen && guestWaitingCount > 0;
 
   // Đọc tên bàn khi có chuông mới. `shouldSpeak` lo 5 lớp chống lặp — thiếu nó thì nhịp poll
   // 2 giây sẽ đọc lại cùng một câu 30 lần mỗi phút.
@@ -1309,19 +1315,23 @@ export function KitchenPage() {
          *   gọi là position: fixed và nằm BÊN TRONG chính div này. Một ancestor có
          *   transform sẽ thành khung chứa của nó → hộp bị ghim lệch theo dải chip và bị
          *   overflow: hidden ở đây cắt mất. max-width không tạo khung chứa nào. */
+        /* flex 0 1 auto: rộng THEO NỘI DUNG, không nuốt hết khoảng trống của thanh. Bản trước
+           để 1 1 auto nên dù chỉ có một chip (hoặc không có gì) nó vẫn căng ra hết bề ngang —
+           nhìn ra là thanh trên tự phình to mà bên trong trống trơn. Đông chip thì max-width
+           chặn lại và nó tự cuộn ngang trong lòng nó. */
         .kds-qr-inline {
-          flex: 1 1 auto; min-width: 0; max-width: 0;
+          flex: 0 1 auto; min-width: 0; max-width: 0;
           display: flex; align-items: center;
           margin: 0; opacity: 0; overflow: hidden;
           transition: max-width 0.26s ease, opacity 0.18s ease, margin 0.26s ease;
         }
         .kds-qr-inline.is-open { max-width: 100%; margin: 0 8px; opacity: 1; }
+        /* Nút không bấm được khi chưa có lượt nào — mờ đi để không ai bấm rồi chờ. */
+        .kds-qr:disabled { opacity: 0.55; cursor: default; }
         /* Máy bếp để chế độ giảm chuyển động thì bỏ hoạt ảnh, giữ nguyên hành vi đóng/mở. */
         @media (prefers-reduced-motion: reduce) {
           .kds-qr-inline { transition: none; }
         }
-        /* Cùng lý do: câu này nằm trên nền navy, xám #6b7280 đọc không ra. */
-        .kds-qr-empty { font-size: 14px; color: rgba(255, 255, 255, 0.7); }
 
         .kds-guest-rail {
           display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
@@ -1401,9 +1411,18 @@ export function KitchenPage() {
         .kds-call-modal .kds-guest-modal-head b { color: #155e75; }
         .kds-call-note { margin: 0; font-size: 26px; font-weight: 700; color: #0f172a; }
         .kds-call-none { margin: 0; font-size: 18px; color: #64748b; }
+        /* PHẢI khai color ở đây. styles.css có rule chung cho mọi <button> đặt
+           background:#0f766e; color:white. Rule này mạnh hơn nên đè được NỀN về trắng, nhưng
+           không đụng tới màu CHỮ — nên chữ vẫn trắng, nằm trên nền trắng, đọc không ra. Người
+           test báo đúng ca này 2026-10-02. Cùng cái bẫy CLAUDE.md đã ghi về nút secondary.
+           Hai nút cũng phải KHÁC MÀU nhau: một bên là huỷ việc đã làm, một bên là thoát ra. */
         .kds-guest-confirm button {
           min-height: 40px; padding: 0 14px; border-radius: 8px;
-          border: 1px solid #fecaca; background: #fff; cursor: pointer; font-size: 15px;
+          border: 1px solid #cbd5e1; background: #fff; color: #334155;
+          cursor: pointer; font-size: 15px; font-weight: 600;
+        }
+        .kds-guest-confirm button.kds-confirm-yes {
+          border-color: #b91c1c; background: #b91c1c; color: #fff; font-weight: 700;
         }
 
         .kds-cancel-card {
@@ -1617,22 +1636,18 @@ export function KitchenPage() {
             (phần tử biến mất ngay khung hình đầu). `aria-hidden` + `inert` để lúc đóng nó
             không nhận tiêu điểm bàn phím và trình đọc màn hình không đọc nhầm. */}
         <div
-          className={`kds-qr-inline${guestOpen ? ' is-open' : ''}`}
-          aria-hidden={!guestOpen}
-          {...(!guestOpen ? { inert: true } : {})}
+          className={`kds-qr-inline${railOpen ? ' is-open' : ''}`}
+          aria-hidden={!railOpen}
+          {...(!railOpen ? { inert: true } : {})}
         >
-          {guestWaitingCount === 0 ? (
-            <span className="kds-qr-empty">Chưa có lượt nào khách gọi bằng QR.</span>
-          ) : (
-            <GuestRequestCards
-              cards={guestCards}
-              calls={guestCalls}
-              busyId={guestBusyId}
-              onApprove={approveGuest}
-              onReject={rejectGuest}
-              onAck={ackCall}
-            />
-          )}
+          <GuestRequestCards
+            cards={guestCards}
+            calls={guestCalls}
+            busyId={guestBusyId}
+            onApprove={approveGuest}
+            onReject={rejectGuest}
+            onAck={ackCall}
+          />
         </div>
 
         {/* M7 — GỌI BẰNG QR. Đặt cạnh "Đơn online" vì cùng bản chất: một hàng chờ cần người
@@ -1641,13 +1656,17 @@ export function KitchenPage() {
         <button
           type="button"
           className={`kds-online kds-qr${guestWaitingCount > 0 ? ' kds-online--hot' : ''}`}
+          // Không có lượt nào thì KHÔNG bấm được. Trước đây vẫn bấm được và nó xổ ra một dải
+          // navy rỗng chiếm hết bề ngang thanh — bấm xong thấy màn hình phình ra mà bên trong
+          // chẳng có gì, trông như vỡ giao diện. Con số 0 ngay trên nút đã nói đủ rồi.
+          disabled={guestWaitingCount === 0}
           onClick={() => setGuestOpen((v) => !v)}
           title={
             guestWaitingCount > 0
               ? `${guestWaitingCount} lượt khách gọi bằng QR đang chờ — bấm để xem`
               : 'Khách gọi bằng QR — chưa có lượt nào chờ'
           }
-          aria-expanded={guestOpen}
+          aria-expanded={guestWaitingCount > 0 ? guestOpen : undefined}
         >
           <span aria-hidden="true">📱</span>
           <span className="kds-online-label">Gọi bằng QR</span>
