@@ -1289,7 +1289,8 @@ export function HistoryPage() {
                 </th>
                 <th>Món</th>
                 <th style={{ textAlign: 'right' }}>Tổng</th>
-                <th>Trạng thái</th>
+                {/* Căn giữa khớp với nội dung ô (xem `.txn-status-wrap` trong styles.css). */}
+                <th style={{ textAlign: 'center' }}>Trạng thái</th>
                 {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
                     riêng chứ không nhét dưới số tiền: nhét vào đó thì mỗi đơn cao thêm một dòng
                     và người ta phải đọc mới thấy, còn cột thì liếc dọc là quét được cả trang. */}
@@ -1432,13 +1433,13 @@ export function HistoryPage() {
                                    trên MỌI đơn tiền mặt. */
                                 <span className="txn-dash" style={{ color: '#9ca3af' }}>—</span>
                               ) : o.bank_verified ? (
-                                /* Dấu to đứng trước chữ (chủ quán 2026-10-02): người đọc màn này
-                                   quét cả cột một lượt để tìm đơn lệch, và một cột toàn chữ thì
-                                   không quét được. Chữ vẫn giữ — phần lớn người dùng quán lớn
-                                   tuổi, bỏ chữ là bắt họ nhớ dấu nào nghĩa gì. */
-                                <span style={{ color: '#15803d', fontWeight: 600 }}>
-                                  <span style={{ fontSize: 18 }}>✓</span> Đã xác thực
-                                </span>
+                                /* CHỈ dấu ✓, không chữ (chủ quán 2026-10-02) — cân với dấu ✗ ở
+                                   nhánh dưới. Người đọc màn này quét cả cột một lượt để tìm đơn
+                                   lệch, mà một cột toàn chữ thì không quét được.
+                                   Chỗ giải nghĩa hai dấu là ô lọc ngay trên bảng ("✓ Đã xác
+                                   thực (CK)" / "✗ Không thấy GD (CK)") — đừng bỏ chữ ở đó nốt,
+                                   không thì không còn nơi nào nói dấu nào nghĩa gì. */
+                                <span style={{ color: '#15803d', fontWeight: 700, fontSize: 18 }}>✓</span>
                               ) : (
                                 /* CHỈ dấu ✗, không chữ (chủ quán 2026-10-02). Nhãn đi kèm nằm ở
                                    `data-label` của ô nên thẻ dọc trên điện thoại vẫn đọc được là
