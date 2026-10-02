@@ -16,6 +16,7 @@ const payload = (over: Partial<PendingPayload> = {}): PendingPayload => ({
       items: [
         { menu_item_id: 'm1', name: 'Phở bò', qty: 2, note: 'ít cay', price_now: 50_000, out_of_stock: false },
       ],
+      auto_items: [],
       total_now: 100_000,
     },
   ],
@@ -24,6 +25,41 @@ const payload = (over: Partial<PendingPayload> = {}): PendingPayload => ({
 });
 
 describe('buildGuestCards — dữ liệu thẻ duyệt', () => {
+  it('khăn quán tự thêm hiện thành MỘT DÒNG RIÊNG có cờ auto, không lẫn vào món khách gọi', () => {
+    const [c] = buildGuestCards(
+      payload({
+        requests: [
+          {
+            id: 'r1',
+            order_id: 'o1',
+            table_code: 'B05',
+            table_name: 'Bàn 5',
+            created_at: NOW,
+            items: [
+              { menu_item_id: 'm1', name: 'Phở bò', qty: 2, note: null, price_now: 50_000, out_of_stock: false },
+            ],
+            auto_items: [{ name: 'Khăn Lạnh', qty: 5, price_now: 3_000 }],
+            total_now: 115_000,
+          },
+        ],
+      }),
+      NOW,
+    );
+    expect(c!.lines).toHaveLength(2);
+    expect(c!.lines[0]!.auto).toBeUndefined();
+    expect(c!.lines[1]).toMatchObject({ name: 'Khăn Lạnh', qty: 5, auto: true });
+    // Tạm tính lấy thẳng `total_now` của server — server đã cộng khăn vào rồi.
+    expect(c!.subtotal).toBe(115_000);
+  });
+
+  it('payload cũ không có auto_items → không ném, chỉ là không có dòng nào', () => {
+    const [c] = buildGuestCards(
+      { requests: [{ ...payload().requests[0]!, auto_items: undefined as never }], calls: [] },
+      NOW,
+    );
+    expect(c!.lines).toHaveLength(1);
+  });
+
   it('dựng đúng tên bàn, tuổi lượt, dòng món', () => {
     const [c] = buildGuestCards(payload(), NOW);
     expect(c!.table_name).toBe('Bàn 5');

@@ -147,6 +147,7 @@ export function GuestRequestCards({
               {open.lines.map((l, i) => (
                 <div key={i} className={`kds-guest-line${l.gone ? ' kds-guest-line--gone' : ''}`}>
                   <b>{l.qty}×</b> {l.name}
+                  {l.auto ? <span className="kds-guest-auto">quán tự thêm</span> : null}
                   {l.note ? <i> — {l.note}</i> : null}
                   {/* Nhãn hiện TRƯỚC khi bấm, để một cú bấm vẫn là quyết định có hiểu biết. */}
                   {l.gone ? <span className="kds-guest-gone">hết — sẽ bỏ</span> : null}

@@ -185,6 +185,11 @@ const EVENT_ICON: Record<string, string> = {
   misa_copied: '📋', // đánh dấu đã gõ đơn sang amis.misa.vn
   debt: '📒', // ghi nợ (lúc thu hoặc admin chuyển bù)
   debt_paid: '💰', // thu được nợ
+  // M7 — khách tự gọi món bằng QR. Ba dòng này cố ý KHÁC biểu tượng nhau: một quyển nhật ký
+  // chỉ có ích nếu liếc qua là phân biệt được "khách gọi" với "nhân viên gật đầu cho vào bill".
+  guest_request: '📱', // khách gửi lượt gọi qua QR (chưa vào bill)
+  guest_request_approved: '✅', // nhân viên duyệt — tên người duyệt nằm ở actor_name
+  guest_request_rejected: '🚫', // nhân viên bỏ lượt
 };
 
 function fmt(v: number) {

@@ -25,6 +25,8 @@ export type PendingRequest = {
   table_name: string;
   created_at: number;
   items: PendingItem[];
+  /** Món QUÁN TỰ THÊM khi duyệt lượt này (khăn lạnh, bàn tại chỗ gọi lần đầu). */
+  auto_items: Array<{ name: string; qty: number; price_now: number }>;
   total_now: number;
 };
 
@@ -41,7 +43,15 @@ export type PendingCall = {
 
 export type PendingPayload = { requests: PendingRequest[]; calls: PendingCall[] };
 
-export type GuestCardLine = { qty: number; name: string; note: string | null; gone: boolean };
+export type GuestCardLine = {
+  qty: number;
+  name: string;
+  note: string | null;
+  gone: boolean;
+  /** Dòng do QUÁN tự thêm, khách không gọi. Thẻ phải nói rõ, không thì nhân viên tưởng khách
+   *  gọi khăn rồi thắc mắc sao tự dưng có. */
+  auto?: boolean;
+};
 
 export type GuestCard = {
   request_id: string;
@@ -71,14 +81,25 @@ export function buildGuestCards(payload: PendingPayload | undefined | null, nowM
           table_name: r.table_name || r.table_code || '',
           ageMs,
           blink: ageMs >= BLINK_AFTER_MS,
-          lines: r.items.map((i) => ({
-            qty: Number(i?.qty ?? 0),
-            name: i?.name ?? '',
-            note: i?.note ?? null,
-            // Hiện gạch ngang + nhãn "hết — sẽ bỏ" TRƯỚC khi bấm, để một cú bấm vẫn là một
-            // quyết định có hiểu biết (M7.R5).
-            gone: Boolean(i?.out_of_stock),
-          })),
+          lines: [
+            ...r.items.map((i) => ({
+              qty: Number(i?.qty ?? 0),
+              name: i?.name ?? '',
+              note: i?.note ?? null,
+              // Hiện gạch ngang + nhãn "hết — sẽ bỏ" TRƯỚC khi bấm, để một cú bấm vẫn là một
+              // quyết định có hiểu biết (M7.R5).
+              gone: Boolean(i?.out_of_stock),
+            })),
+            // Khăn lạnh quán tự thêm. Phải hiện TRƯỚC khi bấm: nó vào bill thật, và con số
+            // tạm tính dưới chân thẻ đã cộng nó rồi.
+            ...(Array.isArray(r.auto_items) ? r.auto_items : []).map((a) => ({
+              qty: Number(a?.qty ?? 0),
+              name: a?.name ?? '',
+              note: null,
+              gone: false,
+              auto: true,
+            })),
+          ],
           // Tổng do BE tính theo giá HIỆN TẠI và đã loại dòng hết hàng (M7.D-11).
           subtotal: Number(r.total_now ?? 0),
         });

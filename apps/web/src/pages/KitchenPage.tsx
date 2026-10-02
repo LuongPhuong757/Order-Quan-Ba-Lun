@@ -928,6 +928,36 @@ export function KitchenPage() {
           background: var(--kds-navy);
           overflow: hidden;
         }
+        /* Tiêu đề cột — dính ở đỉnh cột khi cuộn, vì cột dài hơn màn là chuyện thường và
+           lúc đó mất tên cột là mất đúng thứ nó sinh ra để nói. top: -8px bù padding: 8px
+           của chính cột, nếu không nó dính cách mép 8px và lộ một dải nền phía trên. */
+        .kds-panel-head {
+          position: sticky;
+          top: -8px;
+          z-index: 5;
+          flex: none;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: -8px -8px 0;
+          padding: 10px 12px;
+          background: var(--kds-page);
+          border-bottom: 2px solid var(--tab-col, var(--kds-line));
+          font-size: 17px;
+          color: var(--tab-col, #1f2937);
+        }
+        .kds-panel-head b { flex: 1; min-width: 0; font-weight: 800; }
+        .kds-panel-n {
+          flex: none;
+          min-width: 30px;
+          padding: 2px 10px;
+          border-radius: 999px;
+          background: var(--tab-col, #64748b);
+          color: #fff;
+          font-weight: 800;
+          text-align: center;
+        }
+
         .kds-panel {
           flex: 1;
           min-width: 0;
@@ -1342,6 +1372,11 @@ export function KitchenPage() {
         .kds-guest-line { font-size: 18px; color: #1f2937; margin-bottom: 6px; }
         .kds-guest-line i { color: #6d28d9; font-style: italic; }
         .kds-guest-line--gone { text-decoration: line-through; opacity: 0.6; }
+        /* Dòng quán tự thêm (khăn lạnh): nhãn xanh lá nhạt, khác hẳn nhãn đỏ "hết — sẽ bỏ". */
+        .kds-guest-auto {
+          margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+          font-size: 12px; font-weight: 700; color: #065f46; background: #d1fae5;
+        }
         .kds-guest-gone {
           margin-left: 8px; font-size: 13px; font-weight: 700;
           color: #b91c1c; text-decoration: none; display: inline-block;
@@ -1644,6 +1679,19 @@ export function KitchenPage() {
       <div className="kds-board">
         {TABS.map((t) => (
           <div key={t.key} className="kds-panel" data-key={t.key} data-active={tab === t.key}>
+            {/* Tiêu đề cột. Trước 2026-10-01 vai này do hai nút tab trên thanh navy đảm nhiệm;
+                bỏ hai nút đó đi (chúng chiếm hết bề ngang thanh trên mà ở màn rộng thì không
+                điều khiển gì) thì hai cột mất luôn tên và con số — nhìn vào không biết cột nào
+                là "chờ làm", cột nào là "đã xong".
+                Đặt TRONG cột chứ không trả lại lên thanh trên: ở đây nó dính theo đúng cột nó
+                nói về, và thanh trên để trống cho dải "Gọi bằng QR" xổ ngang.
+                Đếm SỐ PHẦN chứ không đếm dòng: một dòng mang cả số lượng của lần gọi (×3), đếm
+                dòng sẽ báo khối lượng việc ít hơn thực tế. */}
+            <div className="kds-panel-head" style={{ ['--tab-col' as string]: t.color }}>
+              <span aria-hidden="true">{t.icon}</span>
+              <b>{t.label}</b>
+              <span className="kds-panel-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
+            </div>
             {/* Thẻ đỏ "món vừa bị huỷ" — CHỈ ở cột chờ chế biến, và luôn ở TRÊN CÙNG.
                 Món bị huỷ rời khỏi state bếp nên biến mất khỏi danh sách ngay; nếu bếp
                 đang nấu nó thì chỉ thấy một dòng tự dưng mất. Thẻ này là lời giải

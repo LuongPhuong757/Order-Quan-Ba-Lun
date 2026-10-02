@@ -146,6 +146,12 @@ export const PendingRequest = z.object({
   table_name: z.string(),
   created_at: z.number(),
   items: z.array(PendingRequestItem),
+  /** Món QUÁN TỰ THÊM khi duyệt lượt này — khăn lạnh cho bàn ăn tại chỗ gọi lần đầu.
+   *
+   * Phải trả ra để thẻ duyệt in nó thành một dòng riêng và cộng vào tạm tính. Giấu đi thì
+   * nhân viên bấm Duyệt xong thấy bill nhiều hơn con số vừa đọc trên thẻ, và sẽ tưởng máy
+   * tính sai tiền. Rỗng = lượt này không thêm gì. */
+  auto_items: z.array(z.object({ name: z.string(), qty: z.number().int(), price_now: z.number().int() })),
   // KHÔNG cộng dòng out_of_stock — nhân viên phải thấy đúng số tiền sẽ vào bill.
   total_now: z.number().int(),
 });

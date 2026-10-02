@@ -201,7 +201,7 @@ export function TableEntrySheet({
             disabled={busy || (needCode ? code.length !== 4 : input.trim() === '')}
             onClick={submit}
           >
-            {busy ? 'Đang kiểm…' : needCode ? 'Gọi thêm cho bàn này' : 'Tiếp tục'}
+            {busy ? 'Đang kiểm…' : 'Tiếp tục'}
           </button>
         </div>
       </div>
@@ -366,16 +366,23 @@ export function TableStateSheet({
   onClose,
   onEnded,
   onSwitchTable,
+  onTableRenamed,
 }: {
   session: TableSession;
   onClose: () => void;
   onEnded: () => void;
   /** Khách tự nhận ra mình khai nhầm bàn và muốn khai lại. */
   onSwitchTable: () => void;
+  /** Bàn của phiên này nay mang tên khác — nhân viên đã dời khách sang bàn khác trên màn quản
+   *  lý. Nơi gọi phải ghi đè tên đã lưu trong máy, không thì chip ở đầu trang còn in tên cũ. */
+  onTableRenamed: (tableName: string) => void;
 }) {
   const [data, setData] = useState<StatePayload | null>(null);
   const [calling, setCalling] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  /* Kết quả của lần bấm gọi gần nhất. Phải mang theo CÓ PHẢI LỖI KHÔNG: bản đầu nhét cả câu
+   * thành công lẫn câu lỗi vào cùng một ô màu xanh, nên "Đợi 45 giây nữa nhé" hiện ra y như
+   * một lời xác nhận đã gọi được. */
+  const [msg, setMsg] = useState<{ text: string; ok: boolean } | null>(null);
   /* Đổi bàn — hai bước khi bàn ĐÃ có món, một bước khi chưa.
    *
    * Chỗ dễ hiểu nhầm nhất của tính năng này: đổi bàn ở đây chỉ đổi BÀN CỦA MÁY NÀY. Món đã
@@ -399,7 +406,17 @@ export function TableStateSheet({
           onEnded();
           return;
         }
-        if (json.data) setData(json.data);
+        if (json.data) {
+          setData(json.data);
+          /* Tên bàn là thứ DUY NHẤT trong phiên có thể đổi sau lưng máy khách: nhân viên bấm
+           * "chuyển bàn" trên màn quản lý thì đơn sang bàn mới và phiên thiết bị đi theo
+           * (orders.service.ts cập nhật table_id của phiên), nhưng cái tên nằm trong
+           * localStorage của máy khách thì không ai sửa hộ. Hậu quả: màn này in "Bàn 45" đúng
+           * trong khi chip ở đầu trang vẫn in "Bàn 26", và khách không biết tin cái nào. */
+          if (json.data.table_name && json.data.table_name !== session.table_name) {
+            onTableRenamed(json.data.table_name);
+          }
+        }
       } catch {
         /* nhịp sau thử lại — không làm hỏng màn đang mở */
       }
@@ -411,7 +428,7 @@ export function TableStateSheet({
       alive = false;
       clearInterval(t);
     };
-  }, [session, onEnded]);
+  }, [session, onEnded, onTableRenamed]);
 
   /* Lý do gọi — khách chọn một gợi ý hoặc tự gõ.
    *
@@ -433,15 +450,17 @@ export function TableStateSheet({
         });
         setAsking(false);
         setReason('');
-        setMsg(
-          kind === 'BILL'
-            ? 'Đã báo quán tính tiền.'
-            : note && note.trim()
-              ? `Đã báo nhân viên: ${note.trim()}`
-              : 'Đã báo nhân viên.',
-        );
+        setMsg({
+          ok: true,
+          text:
+            kind === 'BILL'
+              ? 'Đã báo quán tính tiền.'
+              : note && note.trim()
+                ? `Đã báo nhân viên: ${note.trim()}`
+                : 'Đã báo nhân viên.',
+        });
       } catch (e) {
-        setMsg((e as Error).message);
+        setMsg({ ok: false, text: (e as Error).message });
       } finally {
         setCalling(null);
       }
@@ -514,8 +533,6 @@ export function TableStateSheet({
             <p className="dinein-hint">Bàn chưa có món nào được quán nhận.</p>
           )}
 
-          {msg ? <p className="dinein-ok">{msg}</p> : null}
-
           {/* Đổi bàn nằm Ở ĐÂY, cuối phần nội dung, chứ không phải trong chân tấm: chân tấm là
               chỗ của hai nút khách dùng thường xuyên (gọi nhân viên, xin tính tiền). Đổi bàn
               là việc làm đúng một lần và chỉ khi lỡ khai nhầm — để nó cạnh hai nút kia là mời
@@ -541,6 +558,11 @@ export function TableStateSheet({
             <span>Tạm tính</span>
             <b>{vnd(data?.subtotal ?? 0)}</b>
           </div>
+
+          {/* Câu trả lời đứng NGAY TRÊN nút vừa bấm. Trước đây nó nằm trong vùng nội dung cuộn
+              phía trên, mà bàn gọi vài món là nó đã trôi khỏi màn — bấm gọi xong không thấy gì
+              phản hồi, nhìn ra đúng là "chức năng gọi nhân viên không hoạt động". */}
+          {msg ? <p className={msg.ok ? 'dinein-ok' : 'dinein-err'}>{msg.text}</p> : null}
           {asking ? (
             <div className="dinein-ask">
               <b>Bạn cần gì ạ?</b>
