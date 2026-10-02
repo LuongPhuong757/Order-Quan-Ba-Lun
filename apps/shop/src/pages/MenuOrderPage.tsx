@@ -398,7 +398,12 @@ export function MenuOrderPage(): JSX.Element {
 
       {/* Bé hamster góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~110KB) không
           được giành băng thông 3G với dữ liệu món lúc mở trang. */}
-      {menu.data ? <MenuMascot cartCount={cartCount} sentKey={sentKey} raised={cartCount > 0} /> : null}
+      {menu.data ? <MenuMascot
+          cartCount={cartCount}
+          sentKey={sentKey}
+          raised={cartCount > 0}
+          paused={sheet !== 'none' || pendingSession !== null || sheetItem !== null}
+        /> : null}
 
       {sheet === 'entry' && (
         <TableEntrySheet
