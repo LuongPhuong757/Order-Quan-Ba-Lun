@@ -10,6 +10,7 @@ import {
   TableEntrySheet,
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
+import { MenuMascot } from '../components/MenuMascot.tsx';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -85,6 +86,8 @@ export function MenuOrderPage(): JSX.Element {
   const [cart, setCart] = useState<TableCartLine[]>(() => readTableCart());
   useEffect(() => subscribeTableCart(() => setCart(readTableCart())), []);
   const cartCount = tableCartCount(cart);
+  /** Tăng mỗi lần gửi món thành công — để chú đầu bếp ở góc phản ứng. */
+  const [sentKey, setSentKey] = useState(0);
   const qtyById = useMemo(() => new Map(cart.map((l) => [l.menu_item_id, l.qty])), [cart]);
 
   useEffect(() => {
@@ -393,6 +396,10 @@ export function MenuOrderPage(): JSX.Element {
         </div>
       ) : null}
 
+      {/* Chú đầu bếp góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~93KB) không
+          được giành băng thông 3G với dữ liệu món lúc mở trang. */}
+      {menu.data ? <MenuMascot cartCount={cartCount} sentKey={sentKey} raised={cartCount > 0} /> : null}
+
       {sheet === 'entry' && (
         <TableEntrySheet
           onClose={() => setSheet('none')}
@@ -421,7 +428,10 @@ export function MenuOrderPage(): JSX.Element {
         />
       )}
       {sheet === 'cart' && session && (
-        <TableCartSheet session={session} onClose={() => setSheet('none')} onSent={() => setSheet('state')} />
+        <TableCartSheet session={session} onClose={() => setSheet('none')} onSent={() => {
+          setSentKey((k) => k + 1);
+          setSheet('state');
+        }} />
       )}
       {sheet === 'state' && session && (
         <TableStateSheet
@@ -515,7 +525,9 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 .mo-root{
   min-height:100dvh; background:var(--bg-page); color:var(--text-body);
   font-family:'Be Vietnam Pro','Segoe UI',sans-serif;
-  padding-bottom:96px;
+  /* Chừa chỗ cho nút giỏ nổi (84px) + phần đầu chú đầu bếp chìa lên khỏi nút (~40px): món cuối
+     danh sách phải cuộn lên được khỏi cả hai, nút + của nó mới bấm được. */
+  padding-bottom:calc(132px + env(safe-area-inset-bottom,0px));
   /* Dải nhóm món rộng hơn màn hình (4 nhóm đã quá 390px) và nó tự cuộn trong lòng nó. Không
      chặn ở đây thì bề rộng đó đội cả TRANG ra, card bị cắt mép phải và nút + biến mất — đúng
      triệu chứng đo được ở 390px trước khi sửa.
