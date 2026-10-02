@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { BLINK_AFTER_MS, buildGuestCards, type PendingPayload } from './kds-guest-cards.js';
+import {
+  BLINK_AFTER_MS,
+  buildGuestCards,
+  describeGroup,
+  groupCallsByTable,
+  type PendingCall,
+  type PendingPayload,
+} from './kds-guest-cards.js';
 
 // M7.R7 — rủi ro CAO: nhân viên QUÊN duyệt thì khách ngồi chờ món không bao giờ xuống bếp.
 // Đồng hồ chờ + nhấp nháy sau 3 phút là chốt chặn duy nhất, nên ngưỡng phải có test.
@@ -120,5 +127,61 @@ describe('buildGuestCards — KHÔNG được ném (nhịp poll không được 
     p.requests.unshift({ id: 'bad' } as never);
     const cards = buildGuestCards(p, NOW);
     expect(cards.some((c) => c.table_name === 'Bàn 5')).toBe(true);
+  });
+});
+
+describe('groupCallsByTable — một bàn một chip, để bàn ồn không đẩy bàn khác khỏi màn', () => {
+  const call = (over: Partial<PendingCall>): PendingCall => ({
+    id: 'c1', table_code: 'B05', table_name: 'Bàn 5', kind: 'STAFF',
+    created_at: NOW, note: null, ...over,
+  });
+
+  it('ba lời nhắn của cùng một bàn gộp thành MỘT nhóm', () => {
+    const g = groupCallsByTable([
+      call({ id: 'c1', note: 'Thêm đá' }),
+      call({ id: 'c2', note: 'Thêm giấy' }),
+      call({ id: 'c3', kind: 'BILL' }),
+    ]);
+    expect(g).toHaveLength(1);
+    expect(g[0]!.items).toHaveLength(3);
+    expect(g[0]!.has_staff).toBe(true);
+    expect(g[0]!.has_bill).toBe(true);
+  });
+
+  it('gộp theo MÃ bàn, không theo tên — tên bàn đổi được giữa chừng', () => {
+    const g = groupCallsByTable([
+      call({ id: 'c1', table_code: 'B05', table_name: 'Bàn 5' }),
+      call({ id: 'c2', table_code: 'B05', table_name: 'Bàn 5 (sân sau)' }),
+    ]);
+    expect(g).toHaveLength(1);
+  });
+
+  it('hai bàn khác nhau vẫn là hai nhóm, bàn chờ LÂU NHẤT đứng trước', () => {
+    const g = groupCallsByTable([
+      call({ id: 'a', table_code: 'B09', table_name: 'Bàn 9', created_at: NOW }),
+      call({ id: 'b', table_code: 'B02', table_name: 'Bàn 2', created_at: NOW - 60_000 }),
+    ]);
+    expect(g.map((x) => x.table_code)).toEqual(['B02', 'B09']);
+  });
+
+  it('trong một nhóm, lời nhắn cũ xếp trước', () => {
+    const g = groupCallsByTable([
+      call({ id: 'moi', created_at: NOW }),
+      call({ id: 'cu', created_at: NOW - 120_000 }),
+    ]);
+    expect(g[0]!.items.map((i) => i.id)).toEqual(['cu', 'moi']);
+    expect(g[0]!.oldest_at).toBe(NOW - 120_000);
+  });
+
+  it('payload rác → mảng rỗng, không ném (vòng poll 2 giây không được chết)', () => {
+    expect(groupCallsByTable(undefined)).toEqual([]);
+    expect(groupCallsByTable(null)).toEqual([]);
+    expect(groupCallsByTable([null as never, undefined as never])).toEqual([]);
+  });
+
+  it('describeGroup: một lời nhắn in thẳng lời đó, nhiều thì đếm', () => {
+    expect(describeGroup(groupCallsByTable([call({ note: 'Thêm đá' })])[0]!)).toBe('💬 Thêm đá');
+    expect(describeGroup(groupCallsByTable([call({})])[0]!)).toBe('gọi thêm đồ');
+    expect(describeGroup(groupCallsByTable([call({ id: 'a' }), call({ id: 'b' })])[0]!)).toBe('2 lời nhắn');
   });
 });
