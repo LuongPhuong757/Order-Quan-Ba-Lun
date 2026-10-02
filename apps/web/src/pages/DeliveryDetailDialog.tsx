@@ -23,7 +23,11 @@ type Line = {
   qty_purchase: string;
   unit_price: number;
 };
-type Photo = { id: string; image_url: string };
+// Tên trường phải khớp cột `url` của bảng `supplier_delivery_photos` — API trả thẳng
+// entity, không đổi tên. Trước 2026-10-02 chỗ này khai `image_url` (tên cột của
+// `menu_items` và `payment_qr`, không phải của bảng này) nên `<img src>` luôn nhận
+// undefined: ảnh không hiện mà cũng KHÔNG có request nào trong log server để lần ra.
+type Photo = { id: string; url: string };
 type Detail = {
   delivery: {
     id: string; supplier_id: string; supplier_name: string; delivery_date: string;
@@ -207,8 +211,8 @@ export function DeliveryDetailDialog({
                 ) : (
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                     {d.photos.map((p) => (
-                      <a key={p.id} href={p.image_url} target="_blank" rel="noreferrer">
-                        <img src={p.image_url} alt="Ảnh phiếu nhập"
+                      <a key={p.id} href={p.url} target="_blank" rel="noreferrer">
+                        <img src={p.url} alt="Ảnh phiếu nhập"
                              style={{ width: 150, height: 150, objectFit: 'cover',
                                       borderRadius: 10, border: '1px solid var(--border)' }} />
                       </a>
