@@ -86,7 +86,7 @@ export function MenuOrderPage(): JSX.Element {
   const [cart, setCart] = useState<TableCartLine[]>(() => readTableCart());
   useEffect(() => subscribeTableCart(() => setCart(readTableCart())), []);
   const cartCount = tableCartCount(cart);
-  /** Tăng mỗi lần gửi món thành công — để chú hiệp sĩ ở góc phản ứng. */
+  /** Tăng mỗi lần gửi món thành công — để bé hamster ở góc phản ứng. */
   const [sentKey, setSentKey] = useState(0);
   const qtyById = useMemo(() => new Map(cart.map((l) => [l.menu_item_id, l.qty])), [cart]);
 
@@ -396,7 +396,7 @@ export function MenuOrderPage(): JSX.Element {
         </div>
       ) : null}
 
-      {/* Chú hiệp sĩ góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~105KB) không
+      {/* Bé hamster góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~110KB) không
           được giành băng thông 3G với dữ liệu món lúc mở trang. */}
       {menu.data ? <MenuMascot cartCount={cartCount} sentKey={sentKey} raised={cartCount > 0} /> : null}
 
@@ -525,7 +525,7 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 .mo-root{
   min-height:100dvh; background:var(--bg-page); color:var(--text-body);
   font-family:'Be Vietnam Pro','Segoe UI',sans-serif;
-  /* Chừa chỗ cho nút giỏ nổi (84px) + phần đầu chú hiệp sĩ chìa lên khỏi nút (~56px): món cuối
+  /* Chừa chỗ cho nút giỏ nổi (84px) + phần đầu bé hamster chìa lên khỏi nút (~56px): món cuối
      danh sách phải cuộn lên được khỏi cả hai, nút + của nó mới bấm được. */
   padding-bottom:calc(132px + env(safe-area-inset-bottom,0px));
   /* Dải nhóm món rộng hơn màn hình (4 nhóm đã quá 390px) và nó tự cuộn trong lòng nó. Không

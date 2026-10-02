@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type JSX } from 'react';
 import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } from './Mascot.tsx';
 
 /**
- * Chú hiệp sĩ ở góc dưới phải thực đơn tại bàn — chủ quán chốt 2026-10-02 (đổi từ đầu bếp sang
- * hiệp sĩ cùng ngày).
+ * Bé hamster ở góc dưới phải thực đơn tại bàn — chủ quán chốt 2026-10-02 (đầu bếp → hiệp sĩ →
+ * hamster, cùng ngày).
  *
  * Khách quét QR bằng điện thoại, không có chuột cho nhân vật nhìn theo, nên nó phản ứng theo
  * VIỆC KHÁCH ĐANG LÀM trên trang:
@@ -20,9 +20,9 @@ import { Mascot, type MascotCue, type MascotDirection, type MascotReaction } fro
  * trống bên phải chữ "N món đã chọn" — không mất chữ nào.
  */
 
-/** Hai tấm 576px (ô 192px) = đủ nét tới 96px ở màn 2x, ~105KB cả bộ thay vì ~370KB của bản 1080px. */
-const DIRECTIONS_SRC = '/mascots/knight-directions.webp';
-const REACTIONS_SRC = '/mascots/knight-reactions.webp';
+/** Hai tấm 576px (ô 192px) = đủ nét tới 96px ở màn 2x, ~110KB cả bộ thay vì ~370KB của bản 1080px. */
+const DIRECTIONS_SRC = '/mascots/hamster-directions.webp';
+const REACTIONS_SRC = '/mascots/hamster-reactions.webp';
 
 const ADD_CUES: MascotReaction[] = ['delighted', 'heart', 'sparkle'];
 const IDLE_MS = 30_000;
@@ -126,7 +126,7 @@ export function MenuMascot({ cartCount, sentKey, raised }: Props): JSX.Element {
         directions={DIRECTIONS_SRC}
         reactions={REACTIONS_SRC}
         size={88}
-        label="chú hiệp sĩ"
+        label="bé hamster"
         look={look}
         cue={cue}
         asleep={asleep}
