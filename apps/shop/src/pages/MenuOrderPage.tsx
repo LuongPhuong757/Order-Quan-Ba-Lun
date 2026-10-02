@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react';
 import { z } from 'zod';
 import { PublicMenuGroup, type PublicMenuItem } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
@@ -333,88 +333,14 @@ export function MenuOrderPage(): JSX.Element {
             <h2 className="mo-group">{g.name}</h2>
 
             {g.items.map((it) => (
-              <article
-                key={it.id}
-                className={`mo-card${it.is_out_of_stock ? ' is-out' : ''}${
-                  (qtyById.get(it.id) ?? 0) > 0 ? ' is-picked' : ''
-                }`}
-                onClick={() =>
-                  it.is_out_of_stock
-                    ? emitMascot({ type: 'out-of-stock', name: it.name })
-                    : (emitMascot({ type: 'view-item', itemId: it.id, name: it.name }), setSheetItem(it))
-                }
-              >
-                <div className="mo-thumb">
-                  {it.images[0] ? <img src={it.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
-                </div>
-                <div className="mo-mid">
-                  {/* Tên món ĐÚNG MỘT DÒNG, cắt bằng dấu ba chấm. Bản cũ để xuống 2 dòng nên
-                      chiều cao card nhảy lung tung và lọt được ít món hơn hẳn. */}
-                  <h3 className="mo-name">{it.name}</h3>
-                  <p className="mo-unit">{it.unit}</p>
-                  <p className="mo-price">{vnd(it.price)}</p>
-                </div>
-                {it.is_out_of_stock ? (
-                  // M7.D-07 — vẫn THẤY, bôi mờ, không gọi được. Ẩn hẳn thì khách tưởng quán
-                  // không bán và vẫn đi hỏi nhân viên, đúng việc M7 muốn giảm.
-                  <span className="mo-out">Hôm nay<br />tạm hết</span>
-                ) : (qtyById.get(it.id) ?? 0) > 0 ? (
-                  // Món ĐÃ trong giỏ: nút `+` biến thành `− N +` ngay tại chỗ. Đây là dấu
-                  // hiệu BỀN — cuộn qua chục món rồi quay lại vẫn thấy mình đã gọi mấy phần,
-                  // không phải mở tấm giỏ ra mới biết.
-                  <div
-                    className="mo-step"
-                    role="group"
-                    aria-label={`Số lượng ${it.name}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      type="button"
-                      aria-label={
-                        (qtyById.get(it.id) ?? 0) === 1 ? `Bỏ ${it.name}` : `Bớt ${it.name}`
-                      }
-                      onClick={() => setTableQty(it.id, (qtyById.get(it.id) ?? 0) - 1)}
-                    >
-                      −
-                    </button>
-                    <b>{qtyById.get(it.id)}</b>
-                    <button
-                      type="button"
-                      aria-label={`Thêm ${it.name}`}
-                      disabled={(qtyById.get(it.id) ?? 0) >= TABLE_CART_MAX_QTY}
-                      onClick={(e) => {
-                        emitAddFrom(e.currentTarget, it);
-                        setTableQty(it.id, (qtyById.get(it.id) ?? 0) + 1);
-                      }}
-                    >
-                      +
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    className="mo-add"
-                    aria-label={`Thêm ${it.name}`}
-                    onClick={(e) => {
-                      // Chặn nổi bọt để bấm nút không mở luôn hộp chi tiết.
-                      e.stopPropagation();
-                      emitAddFrom(e.currentTarget, it);
-                      addTableLine({
-                        menu_item_id: it.id,
-                        name: it.name,
-                        unit_price: it.price,
-                        note: '',
-                      });
-                    }}
-                  >
-                    +
-                  </button>
-                )}
-              </article>
+              <MenuCard key={it.id} it={it} qty={qtyById.get(it.id) ?? 0} onOpen={setSheetItem} />
             ))}
           </section>
         ))}
       </main>
+      {/* Mốc cuối danh sách — bé hamster canh mốc này bằng IntersectionObserver để biết khách đã
+          cuộn hết thực đơn (xem MenuMascot). */}
+      <div className="mo-list-end" aria-hidden />
 
       {/* ── Hộp chi tiết món: ảnh to, số lượng, ghi chú ────────────────────────────────── */}
       {sheetItem ? (
@@ -514,6 +440,103 @@ export function MenuOrderPage(): JSX.Element {
     </div>
   );
 }
+
+/* Một thẻ món, MEMO theo (món, số phần trong giỏ).
+ *
+ * Đo 2026-10-02 (CPU hãm 6 lần, thực đơn thật ~600 món): mỗi lần thêm món trang đơ ~2 giây —
+ * có cả ở bản chưa có bé hamster. Nguyên nhân: giỏ đổi → `MenuOrderPage` vẽ lại → CẢ 600 thẻ
+ * vẽ lại theo, dù chỉ một thẻ đổi số. Memo thì chỉ đúng thẻ vừa đổi số phần vẽ lại.
+ * Giữ memo đúng nghĩa: `it` là object từ dữ liệu thực đơn (không đổi giữa các lần vẽ), `qty` là
+ * số, `onOpen` là setState (ổn định) — đừng truyền thêm callback tạo mới mỗi lần vẽ. */
+const MenuCard = memo(function MenuCard({
+  it,
+  qty,
+  onOpen,
+}: {
+  it: PublicMenuItem;
+  qty: number;
+  onOpen: (it: PublicMenuItem) => void;
+}) {
+  return (
+    <article
+      className={`mo-card${it.is_out_of_stock ? ' is-out' : ''}${
+        qty > 0 ? ' is-picked' : ''
+      }`}
+      onClick={() =>
+        it.is_out_of_stock
+          ? emitMascot({ type: 'out-of-stock', name: it.name })
+          : (emitMascot({ type: 'view-item', itemId: it.id, name: it.name }), onOpen(it))
+      }
+    >
+      <div className="mo-thumb">
+        {it.images[0] ? <img src={it.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
+      </div>
+      <div className="mo-mid">
+        {/* Tên món ĐÚNG MỘT DÒNG, cắt bằng dấu ba chấm. Bản cũ để xuống 2 dòng nên
+            chiều cao card nhảy lung tung và lọt được ít món hơn hẳn. */}
+        <h3 className="mo-name">{it.name}</h3>
+        <p className="mo-unit">{it.unit}</p>
+        <p className="mo-price">{vnd(it.price)}</p>
+      </div>
+      {it.is_out_of_stock ? (
+        // M7.D-07 — vẫn THẤY, bôi mờ, không gọi được. Ẩn hẳn thì khách tưởng quán
+        // không bán và vẫn đi hỏi nhân viên, đúng việc M7 muốn giảm.
+        <span className="mo-out">Hôm nay<br />tạm hết</span>
+      ) : qty > 0 ? (
+        // Món ĐÃ trong giỏ: nút `+` biến thành `− N +` ngay tại chỗ. Đây là dấu
+        // hiệu BỀN — cuộn qua chục món rồi quay lại vẫn thấy mình đã gọi mấy phần,
+        // không phải mở tấm giỏ ra mới biết.
+        <div
+          className="mo-step"
+          role="group"
+          aria-label={`Số lượng ${it.name}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button
+            type="button"
+            aria-label={
+              qty === 1 ? `Bỏ ${it.name}` : `Bớt ${it.name}`
+            }
+            onClick={() => setTableQty(it.id, qty - 1)}
+          >
+            −
+          </button>
+          <b>{qty}</b>
+          <button
+            type="button"
+            aria-label={`Thêm ${it.name}`}
+            disabled={qty >= TABLE_CART_MAX_QTY}
+            onClick={(e) => {
+              emitAddFrom(e.currentTarget, it);
+              setTableQty(it.id, qty + 1);
+            }}
+          >
+            +
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="mo-add"
+          aria-label={`Thêm ${it.name}`}
+          onClick={(e) => {
+            // Chặn nổi bọt để bấm nút không mở luôn hộp chi tiết.
+            e.stopPropagation();
+            emitAddFrom(e.currentTarget, it);
+            addTableLine({
+              menu_item_id: it.id,
+              name: it.name,
+              unit_price: it.price,
+              note: '',
+            });
+          }}
+        >
+          +
+        </button>
+      )}
+    </article>
+  );
+});
 
 /** Báo bé hamster: món này vừa được bấm thêm, từ chỗ này (món bay từ ảnh của ô món nếu tìm thấy).
  *  Gọi TRƯỚC khi đổi giỏ — hamster cần biết lượt tăng giỏ sắp tới là do bấm +. */

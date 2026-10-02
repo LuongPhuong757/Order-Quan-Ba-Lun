@@ -124,6 +124,29 @@ const LINES = {
 /** Cuộn tới cuối danh sách: nói tối đa một lần mỗi 30 giây. */
 const LIST_END_COOLDOWN_MS = 30_000;
 
+/* ── Chế độ nhẹ cho máy yếu ──
+ * Tắt hạt tim/sao, lò xo theo cuộn và nhịp thở; giữ biểu cảm, câu thoại, gợi ý món — phần có
+ * ích. Đo 2026-10-02 (CPU hãm 6 lần): hamster làm khung hình rớt xuống ~30fps lúc thêm món và
+ * tốn thêm CPU cả khi đứng yên; trên máy yếu thật đó là giật và hao pin.
+ * Máy yếu = RAM ≤ 2GB (deviceMemory — Chrome/Android có, Safari không), hoặc Android ≤ 4 nhân.
+ * KHÔNG xét số nhân trên iPhone/iPad: Safari cố ý báo số nhân không thật (chống dò vân tay),
+ * xét vào thì mọi iPhone đều thành "máy yếu".
+ * Ép bật/tắt để kiểm thử: localStorage 'qbl.mascot_lite.v1' = '1' hoặc '0'. */
+function detectLite(): boolean {
+  try {
+    const forced = localStorage.getItem('qbl.mascot_lite.v1');
+    if (forced === '1') return true;
+    if (forced === '0') return false;
+  } catch {
+    /* Safari riêng tư — tự đoán bên dưới */
+  }
+  const nav = navigator as Navigator & { deviceMemory?: number };
+  if (nav.deviceMemory !== undefined && nav.deviceMemory <= 2) return true;
+  const ios = /iPhone|iPad|iPod/.test(nav.userAgent) || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
+  return !ios && (nav.hardwareConcurrency ?? 8) <= 4;
+}
+const LITE = typeof window !== 'undefined' && detectLite();
+
 /** Chào theo giờ máy khách. */
 function greetByHour(): string {
   const h = new Date().getHours();
@@ -408,7 +431,7 @@ export function MenuMascot(props: Props): JSX.Element {
     // (stepper trong tấm giỏ) thì không có món gốc để ghép, chỉ khen.
     say(line, SAY_MS, wow, dish ? suggestRef.current(dish.itemId) : null);
     const r = myRect();
-    if (r) burstAt(r, wow);
+    if (r && !LITE) burstAt(r, wow);
     playMascotSound(wow ? 'pop' : 'chirp');
   };
 
@@ -563,7 +586,7 @@ export function MenuMascot(props: Props): JSX.Element {
     if (sentKey === prevSentRef.current) return;
     prevSentRef.current = sentKey;
     milestonesRef.current.clear();
-    confetti();
+    confetti(LITE ? 16 : 40);
     move(SPIN);
     play('wink');
     say(LINES.sent, 3000);
@@ -587,7 +610,7 @@ export function MenuMascot(props: Props): JSX.Element {
   const swayRef = useRef<HTMLDivElement>(null);
   const swayKick = useRef<(deg: number) => void>(() => {});
   useEffect(() => {
-    if (reducedMotion()) return;
+    if (reducedMotion() || LITE) return;
     let angle = 0;
     let vel = 0;
     let target = 0;
@@ -618,7 +641,6 @@ export function MenuMascot(props: Props): JSX.Element {
     let lastT = performance.now();
     let frame = 0;
     let settle = 0;
-    let endSaidAt = 0;
     const onScroll = () => {
       if (frame) return;
       frame = window.requestAnimationFrame(() => {
@@ -632,12 +654,6 @@ export function MenuMascot(props: Props): JSX.Element {
         const dt = now - lastT > 100 ? 16 : Math.max(1, now - lastT);
         swayKick.current(((y - lastY) / dt) * -8);
         lastT = now;
-        // Cuộn xuống tới đáy danh sách → nhắc chọn món (tối đa một lần mỗi 30 giây).
-        const atEnd = y > lastY && window.innerHeight + y >= document.documentElement.scrollHeight - 40;
-        if (atEnd && Date.now() - endSaidAt > LIST_END_COOLDOWN_MS) {
-          endSaidAt = Date.now();
-          say(LINES.listEnd);
-        }
         // Dưới 4px là rung tay / thanh địa chỉ co giãn, không phải khách đang cuộn.
         if (Math.abs(y - lastY) >= 4) setLook(y > lastY ? 'down' : 'up');
         lastY = y;
@@ -651,6 +667,27 @@ export function MenuMascot(props: Props): JSX.Element {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(settle);
     };
+  }, []);
+
+  /* Cuộn tới cuối thực đơn → nhắc chọn món (tối đa một lần mỗi 30 giây).
+   * Canh bằng IntersectionObserver trên mốc `.mo-list-end` mà trang đặt sau danh sách. Bản trước
+   * đọc `scrollHeight` trong mỗi khung cuộn — mỗi lần đọc buộc trình duyệt tính lại bố cục (đo
+   * được: số lần tính bố cục khi cuộn gấp 4 lần bản không có hamster). IO thì trình duyệt tự báo,
+   * không tốn gì lúc cuộn.
+   * `scrollY > 200`: kết quả tìm kiếm ngắn thì mốc này hiện ngay từ đầu — đó không phải "cuộn
+   * hết thực đơn". */
+  useEffect(() => {
+    const end = document.querySelector('.mo-list-end');
+    if (!end) return;
+    let saidAt = 0;
+    const io = new IntersectionObserver((entries) => {
+      if (!entries.some((e) => e.isIntersecting) || window.scrollY < 200) return;
+      if (Date.now() - saidAt < LIST_END_COOLDOWN_MS) return;
+      saidAt = Date.now();
+      say(LINES.listEnd);
+    });
+    io.observe(end);
+    return () => io.disconnect();
   }, []);
 
   // Tự chớp mắt mỗi 3–6 giây (ngẫu nhiên, để không đều như máy). Nhịp "quiet": đang có biểu cảm
@@ -879,7 +916,7 @@ export function MenuMascot(props: Props): JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}`}
+      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}${LITE ? ' is-lite' : ''}${asleep ? ' is-asleep' : ''}`}
       style={{ ...(perch ? { bottom: perch.bottom, right: perch.right } : null), transform }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -995,7 +1032,15 @@ const MENU_MASCOT_CSS = `
 .mo-mascot-move{ transform-origin:50% 85%; touch-action:none; }
 .mo-mascot-sway{ transform-origin:50% 95%; }
 /* Thở: phập phồng rất nhẹ, liên tục — nhân vật đứng yên vẫn trông như đang sống. */
-.mo-mascot-breathe{ transform-origin:50% 90%; animation:mo-mascot-breathe 2.6s ease-in-out infinite; }
+/* will-change tách lớp thở thành một lớp GPU riêng: trình duyệt chỉ ghép lại lớp đó mỗi khung,
+   không tính lại kiểu cả cây (đo được: bản đầu tính lại kiểu MỖI khung hình kể cả khi đứng yên).
+   Ngủ gật thì ngừng thở (đỡ hao pin lúc khách để máy trên bàn); máy yếu thì không thở. */
+.mo-mascot-breathe{
+  transform-origin:50% 90%; will-change:transform;
+  animation:mo-mascot-breathe 2.6s ease-in-out infinite;
+}
+.mo-mascot.is-asleep .mo-mascot-breathe{ animation-play-state:paused; }
+.mo-mascot.is-lite .mo-mascot-breathe{ animation:none; will-change:auto; }
 @keyframes mo-mascot-breathe{ 0%,100%{ transform:scale(1,1); } 50%{ transform:scale(1.025,.975); } }
 
 @keyframes mo-mascot-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }

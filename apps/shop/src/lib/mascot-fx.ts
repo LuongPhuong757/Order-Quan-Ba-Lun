@@ -68,7 +68,8 @@ export function flyToMascot(from: DOMRect, to: DOMRect, image: string | null, on
 export function burstAt(at: DOMRect, big: boolean): void {
   if (reducedMotion()) return;
   const glyphs = ['❤️', '⭐', '✨', '💖', '🌟'];
-  const n = big ? 12 : 7;
+  // 4–6 hạt (bản đầu 7–12): đo được khung hình rớt ~30fps lúc thêm món khi mọi hiệu ứng chồng lên nhau.
+  const n = big ? 6 : 4;
   const cx = at.left + at.width / 2;
   const cy = at.top + at.height * 0.35;
   for (let i = 0; i < n; i++) {
@@ -91,12 +92,12 @@ export function burstAt(at: DOMRect, big: boolean): void {
 }
 
 /** Pháo giấy rơi khắp màn khi gửi món thành công. */
-export function confetti(): void {
+export function confetti(pieces = 40): void {
   if (reducedMotion()) return;
   const colors = ['#cf3323', '#e8a33d', '#f4b4a4', '#6fbf73', '#4fa3e0', '#f7d046'];
   const w = window.innerWidth;
   const h = window.innerHeight;
-  for (let i = 0; i < 40; i++) {
+  for (let i = 0; i < pieces; i++) {
     const pw = 6 + Math.random() * 6;
     const el = spawn(
       `width:${pw}px;height:${pw * 1.6}px;border-radius:2px;background:${colors[i % colors.length]};`,
