@@ -306,6 +306,109 @@ export class ReportsService {
     }));
   }
 
+  /**
+   * BIẾN ĐỘNG CÔNG NỢ NCC theo ngày (2026-10-02) — nguồn của biểu đồ "nợ mới vs đã trả".
+   *
+   * Trả về ba thứ, và cả ba phải tính CÙNG MỘT CHỖ chứ không để màn hình tự ghép từ
+   * `daily()` + `payments()`: đường dư nợ luỹ kế chỉ đúng khi điểm gốc (`opening`) và các
+   * khoản phát sinh dùng chung một bộ luật về "ngày nào tính vào đâu" và "phiếu nào được
+   * tính". Ghép ở FE thì hai nguồn sẽ lệch nhau vào đúng ngày không ai để ý.
+   *
+   * ── Ngày nào tính vào đâu ──
+   * Một phiếu nhập và lần trả tiền cho nó rơi vào HAI ngày khác nhau, và đó chính là thứ biểu
+   * đồ này sinh ra để cho thấy. `incurred` theo `delivery_date` (ngày GIAO HÀNG, không phải
+   * ngày nhập liệu), `paid` theo `paid_on`. Đừng "đơn giản hoá" bằng cách quy cả hai về một
+   * mốc — làm thế là xoá mất nửa bài toán.
+   *
+   * ── Phiếu nào tính ──
+   * CHỈ `CONFIRMED`, cùng luật với `daily()` và mọi con số tiền khác của module. Hệ quả phải
+   * biết: hàng đã về kho nhưng phiếu còn `PENDING_PRICE` (chưa chốt giá) KHÔNG lên biểu đồ —
+   * đúng về sổ sách (chưa có giá thì chưa biết nợ bao nhiêu), nhưng nghĩa là biểu đồ có thể
+   * thấp hơn lượng hàng thực nhận.
+   *
+   * ── `opening` ──
+   * Dư nợ ngay TRƯỚC `from`, để FE cộng dồn ra đường luỹ kế. Gồm cả `suppliers.opening_balance`
+   * (nợ cũ ngoài hệ thống, khai tay) — nhờ vậy đường luỹ kế TRÙNG với ô "Còn phải trả" đang
+   * hiện trên cùng màn. Bỏ nó ra thì hai con số trên một màn sẽ nói hai chuyện khác nhau, và
+   * đó là loại lệch không ai giải thích nổi cho chủ quán. Xem thêm docblock `balance.ts`:
+   * số dư đầu kỳ KHÔNG có ngày, nên nó luôn nằm trong `opening` bất kể kỳ bắt đầu từ đâu.
+   *
+   * Không có `from` = xem toàn bộ lịch sử → `opening` chỉ còn số dư đầu kỳ.
+   */
+  async debtFlow(opts: { supplier_id?: string; from?: string; to?: string } = {}): Promise<{
+    items: DebtFlowRow[];
+    opening: number;
+  }> {
+    const sid = opts.supplier_id;
+
+    // ── Nợ phát sinh theo ngày giao hàng ──
+    const incurredQb = this.deliveryRepo
+      .createQueryBuilder('d')
+      .select('d.delivery_date', 'day')
+      .addSelect('SUM(d.total_amount)', 'amount')
+      .where("d.status = 'CONFIRMED'");
+    if (sid) incurredQb.andWhere('d.supplier_id = :sid', { sid });
+    if (opts.from) incurredQb.andWhere('d.delivery_date >= :from', { from: opts.from });
+    if (opts.to) incurredQb.andWhere('d.delivery_date <= :to', { to: opts.to });
+    const incurredRaw = await incurredQb
+      .groupBy('d.delivery_date')
+      .getRawMany<Record<string, unknown>>();
+
+    // ── Tiền đã trả theo ngày trả ──
+    const paidQb = this.paymentRepo
+      .createQueryBuilder('p')
+      .select('p.paid_on', 'day')
+      .addSelect('SUM(p.amount)', 'amount');
+    if (sid) paidQb.andWhere('p.supplier_id = :sid', { sid });
+    if (opts.from) paidQb.andWhere('p.paid_on >= :from', { from: opts.from });
+    if (opts.to) paidQb.andWhere('p.paid_on <= :to', { to: opts.to });
+    const paidRaw = await paidQb.groupBy('p.paid_on').getRawMany<Record<string, unknown>>();
+
+    // ── Điểm gốc của đường luỹ kế ──
+    const openingQb = this.deliveryRepo.manager
+      .createQueryBuilder()
+      .select('COALESCE(SUM(s.opening_balance), 0)', 'v')
+      .from('suppliers', 's');
+    if (sid) openingQb.where('s.id = :sid', { sid });
+    const openingBalance = Number((await openingQb.getRawOne<{ v: unknown }>())?.v ?? 0);
+
+    let opening = openingBalance;
+    if (opts.from) {
+      const truocQb = this.deliveryRepo
+        .createQueryBuilder('d')
+        .select('COALESCE(SUM(d.total_amount), 0)', 'v')
+        .where("d.status = 'CONFIRMED'")
+        .andWhere('d.delivery_date < :from', { from: opts.from });
+      if (sid) truocQb.andWhere('d.supplier_id = :sid', { sid });
+
+      const traTruocQb = this.paymentRepo
+        .createQueryBuilder('p')
+        .select('COALESCE(SUM(p.amount), 0)', 'v')
+        .where('p.paid_on < :from', { from: opts.from });
+      if (sid) traTruocQb.andWhere('p.supplier_id = :sid', { sid });
+
+      const [muaTruoc, traTruoc] = await Promise.all([
+        truocQb.getRawOne<{ v: unknown }>(),
+        traTruocQb.getRawOne<{ v: unknown }>(),
+      ]);
+      opening += Number(muaTruoc?.v ?? 0) - Number(traTruoc?.v ?? 0);
+    }
+
+    const byDay = new Map<string, DebtFlowRow>();
+    const cham = (day: string): DebtFlowRow => {
+      let row = byDay.get(day);
+      if (!row) {
+        row = { day, incurred: 0, paid: 0 };
+        byDay.set(day, row);
+      }
+      return row;
+    };
+    for (const r of incurredRaw) cham(dateStr(r.day)).incurred = Number(r.amount);
+    for (const r of paidRaw) cham(dateStr(r.day)).paid = Number(r.amount);
+
+    return { items: layDayNgay(byDay, opts.from, opts.to), opening };
+  }
+
   /** Từng PHIẾU nhập trong kỳ, kèm tên các mặt hàng có trong phiếu (2026-09-08).
    *
    * `daily()` cộng tiền theo ngày nên một ngày ba NCC giao là MỘT con số; bảng "phiếu nhập nào
@@ -468,6 +571,43 @@ export type DeliveryStatRow = {
   /** Tên các mặt hàng trong phiếu — nguồn cho ô tìm kiếm theo món. */
   items: string[];
 };
+
+/** Một ngày trên biểu đồ biến động công nợ. `incurred` = nợ mới, `paid` = tiền đã trả. */
+export type DebtFlowRow = { day: string; incurred: number; paid: number };
+
+/** Số ngày tối đa được ĐIỀN cho đủ dãy liên tục.
+ *
+ *  Dãy liên tục là thứ đường luỹ kế cần: thiếu ngày thì đoạn dốc giữa hai điểm trông như nợ
+ *  tăng từ từ trong khi thực tế nó nhảy một nhát. Nhưng kỳ dài vài năm thì điền đủ ngày là
+ *  hàng nghìn điểm cho một biểu đồ rộng vài trăm pixel — vừa vô ích vừa nặng. Quá ngưỡng thì
+ *  chỉ trả những ngày CÓ số liệu: đường vẫn đi qua đúng các mốc, chỉ là các đoạn nối thẳng
+ *  hơn thực tế. Ở kỳ dài như vậy người ta xem xu hướng chứ không soi từng ngày.
+ */
+const MAX_NGAY_DIEN = 400;
+
+/** Dãy ngày của biểu đồ, cũ → mới, đã điền ngày trống trong `[from, to]`. */
+function layDayNgay(
+  byDay: Map<string, DebtFlowRow>,
+  from?: string,
+  to?: string,
+): DebtFlowRow[] {
+  const coSo = Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));
+  // Thiếu mốc đầu hoặc cuối thì lấy theo dữ liệu — kỳ "toàn bộ lịch sử" không có from/to.
+  const dau = from || coSo[0]?.day;
+  const cuoi = to || coSo[coSo.length - 1]?.day;
+  if (!dau || !cuoi || dau > cuoi) return coSo;
+
+  const MS_NGAY = 86_400_000;
+  const soNgay = Math.round((Date.parse(`${cuoi}T00:00:00Z`) - Date.parse(`${dau}T00:00:00Z`)) / MS_NGAY) + 1;
+  if (!Number.isFinite(soNgay) || soNgay <= 0 || soNgay > MAX_NGAY_DIEN) return coSo;
+
+  const out: DebtFlowRow[] = [];
+  for (let i = 0; i < soNgay; i++) {
+    const day = new Date(Date.parse(`${dau}T00:00:00Z`) + i * MS_NGAY).toISOString().slice(0, 10);
+    out.push(byDay.get(day) ?? { day, incurred: 0, paid: 0 });
+  }
+  return out;
+}
 
 function dateStr(v: unknown): string {
   if (v instanceof Date) return v.toISOString().slice(0, 10);
