@@ -172,8 +172,15 @@ export function GuestRequestCards({
               {confirmReject ? (
                 <div className="kds-guest-confirm">
                   <span>Bỏ cả lượt này?</span>
+                  {/* Nút AN TOÀN đứng trước, nút huỷ đứng sau — cùng thứ tự với mọi hộp xác
+                      nhận khác của app (Chọn lại / Đúng rồi). Bản cũ để "Bỏ thật" bên trái,
+                      tức ngón tay rơi vào đúng nút phá trước. */}
+                  <button type="button" onClick={() => setConfirmReject(false)}>
+                    Không, giữ lại
+                  </button>
                   <button
                     type="button"
+                    className="kds-confirm-yes"
                     onClick={() => {
                       onReject(open.request_id);
                       setOpenId(null);
@@ -181,7 +188,6 @@ export function GuestRequestCards({
                   >
                     Bỏ thật
                   </button>
-                  <button type="button" onClick={() => setConfirmReject(false)}>Không</button>
                 </div>
               ) : (
                 <button type="button" className="kds-guest-reject" onClick={() => setConfirmReject(true)}>

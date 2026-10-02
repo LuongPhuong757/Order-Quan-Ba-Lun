@@ -336,6 +336,7 @@ export function TableCartSheet({
           </button>
         </div>
       </div>
+
     </div>
   );
 }
@@ -437,6 +438,16 @@ export function TableStateSheet({
    * thêm rào cho người chỉ muốn vẫy tay, và họ sẽ quay lại vẫy tay thật. */
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
+  /* Hộp xác nhận TRƯỚC KHI chuông kêu dưới bếp.
+   *
+   * Hai nút này là hai nút duy nhất trên màn khách chạm thẳng vào người thật: bấm xong là
+   * nhân viên bỏ việc đang làm để đi tới bàn. Và không có đường rút lại — khách không bấm huỷ
+   * được, chuông đã kêu rồi. Nút lại nằm ngay dưới ngón cái, cạnh vùng cuộn danh sách món,
+   * nên chạm trượt là chuyện sớm muộn.
+   *
+   * Hộp cũng là chỗ khách ĐỌC LẠI lời nhắn mình sắp gửi — gõ nhầm "thêm đã" thì sửa được
+   * trước khi nhân viên bê nhầm thứ xuống. */
+  const [confirmCall, setConfirmCall] = useState<{ kind: 'STAFF' | 'BILL'; note: string } | null>(null);
 
   const call = useCallback(
     async (kind: 'STAFF' | 'BILL', note?: string) => {
@@ -566,15 +577,21 @@ export function TableStateSheet({
           {asking ? (
             <div className="dinein-ask">
               <b>Bạn cần gì ạ?</b>
-              {/* Chạm MỘT phát là gửi luôn, không phải gõ rồi bấm thêm nút. Đây là đường đi
-                  của gần hết các lần gọi, nên nó phải ngắn nhất. */}
+              {/* Chạm chip chỉ ĐIỀN VÀO Ô, không gửi (chủ quán chốt 2026-10-02).
+                  Bản đầu chạm một phát là gửi luôn cho nhanh, nhưng nhanh ở đây là bẫy: chip
+                  nằm sát ô nhập và nút gửi, chạm trượt một cái là chuông đã kêu dưới bếp và
+                  không rút lại được. Giờ mọi đường đều kết thúc ở ĐÚNG MỘT nút gửi, nên khách
+                  luôn nhìn thấy mình sắp nhắn gì trước khi nhắn.
+                  Chip đang chọn được tô đậm, chạm lần nữa là bỏ chọn — nếu không thì chạm xong
+                  chỉ thấy ô chữ ở xa đổi, cảm giác như bấm hụt. */}
               <div className="dinein-chips">
                 {CALL_REASONS.map((r) => (
                   <button
                     key={r}
                     type="button"
+                    className={reason.trim() === r ? 'is-on' : undefined}
                     disabled={calling !== null}
-                    onClick={() => call('STAFF', r)}
+                    onClick={() => setReason((cur) => (cur.trim() === r ? '' : r))}
                   >
                     {r}
                   </button>
@@ -600,9 +617,9 @@ export function TableStateSheet({
                   type="button"
                   className="dinein-primary"
                   disabled={calling !== null}
-                  onClick={() => call('STAFF', reason)}
+                  onClick={() => setConfirmCall({ kind: 'STAFF', note: reason })}
                 >
-                  {reason.trim() ? 'Gọi kèm lời nhắn' : 'Chỉ gọi nhân viên thôi'}
+                  {reason.trim() ? 'Gọi kèm lời nhắn' : 'Gọi nhân viên'}
                 </button>
               </div>
             </div>
@@ -611,15 +628,65 @@ export function TableStateSheet({
               <button type="button" disabled={calling !== null} onClick={() => setAsking(true)}>
                 🔔 Gọi nhân viên
               </button>
-              {/* Xin tính tiền KHÔNG hỏi lý do: lý do đã nằm ngay trong tên nút. Thêm một bước
-                  ở đây là bắt khách trả giá cho tính năng của nút bên cạnh. */}
-              <button type="button" disabled={calling !== null} onClick={() => call('BILL')}>
+              {/* Xin tính tiền KHÔNG hỏi lý do (lý do đã nằm trong tên nút), nhưng VẪN qua hộp
+                  xác nhận: gọi tính tiền nhầm là nhân viên cầm máy tính tiền đi tới bàn khách
+                  còn đang ăn dở. */}
+              <button
+                type="button"
+                disabled={calling !== null}
+                onClick={() => setConfirmCall({ kind: 'BILL', note: '' })}
+              >
                 💵 Xin tính tiền
               </button>
             </div>
           )}
         </div>
       </div>
+      {/* Hộp xác nhận — lớp phủ RIÊNG đè lên tấm "Món của bàn" (z-index cao hơn một bậc).
+          Không nhét vào trong tấm: nằm trong thì nó là một khối nữa trong vùng cuộn, khách có
+          thể cuộn nó ra khỏi màn rồi tưởng mình đã bấm xong. */}
+      {confirmCall ? (
+        <div className="dinein-scrim dinein-scrim--top" onClick={() => setConfirmCall(null)}>
+          <div className="dinein-sheet dinein-sheet--center" onClick={(e) => e.stopPropagation()}>
+            <div className="dinein-body dinein-confirm">
+              {confirmCall.kind === 'BILL' ? (
+                <>
+                  <p>Bạn muốn</p>
+                  <strong>Gọi tính tiền</strong>
+                  <p className="dinein-hint">Nhân viên sẽ mang hoá đơn ra bàn bạn.</p>
+                </>
+              ) : (
+                <>
+                  <p>Bạn muốn</p>
+                  <strong>Gọi nhân viên</strong>
+                  {confirmCall.note.trim() ? (
+                    <p className="dinein-confirm-note">“{confirmCall.note.trim()}”</p>
+                  ) : (
+                    <p className="dinein-hint">Không kèm lời nhắn nào.</p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="dinein-foot dinein-foot--row">
+              <button type="button" onClick={() => setConfirmCall(null)}>
+                Quay lại
+              </button>
+              <button
+                type="button"
+                className="dinein-primary"
+                disabled={calling !== null}
+                onClick={() => {
+                  const c = confirmCall;
+                  setConfirmCall(null);
+                  void call(c.kind, c.note);
+                }}
+              >
+                {calling !== null ? 'Đang gửi…' : 'Đúng rồi, gọi'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -646,6 +713,13 @@ export const DINEIN_CSS = `
   box-shadow:0 -6px 24px rgb(42 29 20 / 16%);
 }
 .dinein-sheet--center{ align-self:center; border-radius:20px; margin:0 16px; }
+/* Hộp xác nhận chồng lên tấm đang mở — phải cao hơn .dinein-scrim thường đúng một bậc. */
+.dinein-scrim--top{ z-index:320; }
+.dinein-confirm-note{
+  margin:6px 0 0; padding:10px 12px; border-radius:10px;
+  background:#f7efe2; border:1px solid #ddd0bd;
+  font-size:17px; color:#2a1d14; word-break:break-word;
+}
 .dinein-head{
   flex:none; display:flex; align-items:center; justify-content:space-between;
   gap:12px; padding:16px; border-bottom:1px solid #efe6d8; font-size:17px; color:#2a1d14;
@@ -731,6 +805,12 @@ export const DINEIN_CSS = `
   border:1px solid #ddd0bd; background:#fffdfa; color:#2a1d14; font-size:15px;
 }
 .dinein-chips button:disabled{ opacity:.5; cursor:default; }
+/* Chip đang chọn. Phải viết button.is-on chứ không .is-on trần: rule ngay trên là
+   .dinein-chips button (một class + một thẻ) nên mạnh hơn một class trần và sẽ đè mất màu —
+   đúng cái bẫy đã ghi trong CLAUDE.md và vừa dẫm phải ở .dinein-foot--row button. */
+.dinein-chips button.is-on{
+  border-color:#b82a1e; background:#b82a1e; color:#fff; font-weight:700;
+}
 .dinein-ask input{
   width:100%; min-height:48px; margin-bottom:10px; padding:0 12px;
   border:1px solid #ddd0bd; border-radius:8px; background:#fffdfa;

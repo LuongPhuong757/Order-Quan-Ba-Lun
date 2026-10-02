@@ -199,8 +199,18 @@ export function MenuOrderPage(): JSX.Element {
   const jumpTo = useCallback((groupId: string) => {
     const el = sectionRefs.current.get(groupId);
     if (!el) return;
-    const y = el.getBoundingClientRect().top + window.scrollY - stickH;
-    window.scrollTo({ top: y, behavior: 'smooth' });
+    const y = Math.max(0, el.getBoundingClientRect().top + window.scrollY - stickH);
+    /* Nhảy TỨC THÌ, không dùng `behavior: 'smooth'`.
+     *
+     * Người test báo 2026-10-02: bấm chip nhóm món thì `scrollY` vẫn bằng 0, trang không nhúc
+     * nhích. Dựng lại bằng chính CSS của trang và đo: `window.scrollTo(0, y)` chạy đúng (lên
+     * 3440), còn cùng con số đó với `behavior:'smooth'` thì không đi đâu cả. Cuộn mượt là một
+     * HOẠT ẢNH, và hoạt ảnh thì có nhiều thứ làm nó không chạy — trình duyệt cũ, chế độ giảm
+     * chuyển động, hay một lần vẽ lại chen vào giữa. Một cú nhảy thì không có gì để hỏng.
+     *
+     * Mất gì: không còn hiệu ứng trượt. Với màn thực đơn của người lớn tuổi thì nhảy thẳng
+     * tới nhóm còn đỡ chóng mặt hơn là nhìn 600 món chạy vụt qua. */
+    window.scrollTo(0, y);
   }, [stickH]);
 
   const openCart = useCallback(() => setSheet(session ? 'cart' : 'entry'), [session]);
