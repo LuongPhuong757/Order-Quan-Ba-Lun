@@ -15,13 +15,23 @@ import { khopTuKhoa } from '../lib/tim-mon.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
-import { ChartCard, LineChart, StackedBarChart, seriesColor, OTHER_COLOR, type LineSeries } from '../components/Charts.tsx';
+import {
+  ChartCard,
+  LineChart,
+  StackedBarChart,
+  GroupedBarChart,
+  seriesColor,
+  OTHER_COLOR,
+  type LineSeries,
+} from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { Pager } from '../components/Pager.tsx';
 import { presetRange, type DayRange } from '../lib/date-range.ts';
 import {
   KHAC_ID,
   buildSpendChart,
+  buildDebtChart,
+  type DebtFlowRow,
   gopTheoMon,
   locMon,
   locPhieuTheoMon,
@@ -65,6 +75,9 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   // Công nợ luỹ kế TOÀN thời gian, không cắt theo kỳ — đọc từ đúng đường mà tab "Nhà cung cấp"
   // đang dùng, để hai màn không bao giờ hiện hai con số nợ khác nhau.
   const [noNcc, setNoNcc] = useState<number | null>(null);
+  /** Nguồn biểu đồ biến động công nợ (2026-10-02). `opening` = dư nợ ngay TRƯỚC kỳ, do server
+   *  tính — gồm cả số dư đầu kỳ khai tay, nên đường luỹ kế kết thúc đúng bằng `noNcc`. */
+  const [debtFlow, setDebtFlow] = useState<{ items: DebtFlowRow[]; opening: number } | null>(null);
 
   const [itemSort, setItemSort] = useState<ItemSort>('amount');
   const [itemChieu, setItemChieu] = useState<Chieu>('desc');
@@ -86,12 +99,13 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     setPhieu(null);
     setTraTien(null);
     setNoNcc(null);
+    setDebtFlow(null);
     const params = {
       from: range.from || undefined,
       to: range.to || undefined,
       supplier_id: supplierId,
     };
-    // Năm lượt gọi song song: chúng độc lập nhau và chạy nối tiếp thì màn trắng lâu gấp năm.
+    // Sáu lượt gọi song song: chúng độc lập nhau và chạy nối tiếp thì màn trắng lâu gấp sáu.
     // `balances/all` KHÔNG nhận `params` — công nợ là số luỹ kế toàn thời gian, truyền kỳ vào
     // đó sẽ ra một con số "nợ trong tháng" vô nghĩa (memory: nợ cũ là nợ ngoài hệ thống).
     Promise.all([
@@ -100,14 +114,18 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
       api.get<{ data: { items: DeliveryStatRow[] } }>('/supplier-reports/deliveries', { params }),
       api.get<{ data: { items: TraTienRow[] } }>('/supplier-reports/payments', { params }),
       api.get<{ data: { items: Balance[] } }>('/suppliers/balances/all'),
+      // Đường RIÊNG chứ không ghép từ `daily` + `payments` ở đây: điểm gốc của đường luỹ kế
+      // (dư nợ trước kỳ) chỉ server tính được, và nó phải cùng luật với số phát sinh.
+      api.get<{ data: { items: DebtFlowRow[]; opening: number } }>('/supplier-reports/debt-flow', { params }),
     ])
-      .then(([d, p, s, t, b]) => {
+      .then(([d, p, s, t, b, f]) => {
         setDaily(d.data.data.items);
         setPairs(p.data.data.items);
         setPhieu(s.data.data.items);
         setTraTien(t.data.data.items);
         const bal = b.data.data.items;
         setNoNcc(tongConPhaiTra(supplierId ? bal.filter((x) => x.supplier_id === supplierId) : bal));
+        setDebtFlow({ items: f.data.data.items, opening: f.data.data.opening });
       })
       .catch((err) => {
         toast.push('error', extractError(err).message);
@@ -116,12 +134,31 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
         setPhieu([]);
         setTraTien([]);
         setNoNcc(0);
+        setDebtFlow({ items: [], opening: 0 });
       });
   }, [range.from, range.to, supplierId, toast]);
 
   useEffect(load, [load]);
 
   const chart = useMemo(() => buildSpendChart(daily ?? [], range), [daily, range]);
+  const no = useMemo(
+    () => buildDebtChart(debtFlow?.opening ?? 0, debtFlow?.items ?? [], range),
+    [debtFlow, range],
+  );
+  /** Hai cột của biểu đồ nợ. Màu CỐ ĐỊNH chứ không lấy từ `seriesColor`: bảng màu kia xoay theo
+   *  thứ hạng NCC, còn ở đây "nợ" và "trả" là hai nghĩa cố định — đổi màu giữa hai lần xem là
+   *  đọc nhầm. Đỏ = tiền quán đang nợ thêm, xanh = tiền quán trả ra. */
+  const noSeries = useMemo<LineSeries[]>(
+    () => [
+      { id: 'no-moi', name: 'Nợ mới (phiếu nhập)', color: '#dc2626', values: no.noMoi },
+      { id: 'da-tra', name: 'Đã trả', color: '#059669', values: no.daTra },
+    ],
+    [no],
+  );
+  const duNoSeries = useMemo<LineSeries[]>(
+    () => [{ id: 'du-no', name: 'Còn nợ cuối kỳ', color: '#b45309', values: no.duNo }],
+    [no],
+  );
 
   const series = useMemo<LineSeries[]>(
     () =>
@@ -255,6 +292,81 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                   formatValue={(v) => `${tienGon(v)}đ`}
                   ariaLabel={`Tổng tiền nhập hàng theo ${chart.labels.length} mốc thời gian, mỗi cột chia tầng theo ${chart.series.length} nhà cung cấp`}
                 />
+              )}
+            </ChartCard>
+          </div>
+
+          {/* ── BIẾN ĐỘNG CÔNG NỢ (2026-10-02, chủ quán yêu cầu) ──
+              HAI biểu đồ chứ không phải một, và đây là quyết định có chủ đích: dư nợ luỹ kế
+              lớn hơn số phát sinh hàng ngày cả chục lần (nợ vài trăm triệu, mỗi ngày mua vài
+              triệu). Vẽ chung một trục thì hai cột nợ/trả bẹp thành một vạch sát đáy — có vẽ
+              cũng không đọc được gì. Tách ra, mỗi biểu đồ được trọn thang đo của nó.
+              Trục ngang GIỐNG HỆT hai biểu đồ chi tiêu ở trên (cùng `chonBucket`), nên đọc
+              chéo bốn biểu đồ theo cùng một mốc thời gian được. */}
+          <div style={{ marginTop: 12 }}>
+            <ChartCard
+              title="📉 Nợ mới và tiền đã trả"
+              hint={
+                (no.bucket === 'day'
+                  ? 'Mỗi ngày hai cột: đỏ là nợ mới phát sinh, xanh là tiền đã trả'
+                  : no.bucket === 'week'
+                    ? 'Kỳ dài nên gộp theo TUẦN — đỏ là nợ mới, xanh là tiền đã trả'
+                    : 'Kỳ rất dài nên gộp theo THÁNG — đỏ là nợ mới, xanh là tiền đã trả') +
+                '. Cột đỏ cao hơn cột xanh = hôm đó nợ phình thêm. Chỉ tính phiếu ĐÃ DUYỆT.'
+              }
+            >
+              {no.labels.length === 0 ? (
+                <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập hay lần trả tiền nào trong kỳ này.</p>
+              ) : (
+                <GroupedBarChart
+                  labels={no.labels}
+                  series={noSeries}
+                  formatValue={(v) => `${tienGon(v)}đ`}
+                  ariaLabel={`Nợ mới và tiền đã trả qua ${no.labels.length} mốc thời gian`}
+                />
+              )}
+            </ChartCard>
+          </div>
+
+          <div style={{ marginTop: 12 }}>
+            <ChartCard
+              title="🏦 Còn nợ nhà cung cấp"
+              hint={
+                `Tổng tiền quán còn nợ ở cuối mỗi mốc. Đường đi LÊN là nợ đang phình, đi XUỐNG là trả được nhiều hơn mua. ` +
+                `Đã gồm cả số dư đầu kỳ khai tay, nên điểm cuối trùng ô "Còn nợ" ở khối "Đã trả cho NCC".`
+              }
+            >
+              {no.labels.length === 0 ? (
+                <p style={{ color: C.muted, margin: 0 }}>Không có số liệu công nợ trong kỳ này.</p>
+              ) : (
+                <>
+                  <LineChart
+                    labels={no.labels}
+                    series={duNoSeries}
+                    height={200}
+                    formatValue={(v) => `${tienGon(v)}đ`}
+                    ariaLabel={`Dư nợ nhà cung cấp qua ${no.labels.length} mốc thời gian`}
+                  />
+                  {/* Ba con số dưới biểu đồ: đọc xong đường rồi người ta luôn hỏi "vậy rốt cuộc
+                      trong kỳ nợ thêm hay bớt bao nhiêu" — bắt họ trừ hai số trong đầu là thừa. */}
+                  <div
+                    style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 10, fontSize: 13 }}
+                  >
+                    <span style={{ color: C.muted }}>
+                      Nợ mới trong kỳ: <strong style={{ color: '#dc2626' }}>{vnd(no.tongNoMoi)}đ</strong>
+                    </span>
+                    <span style={{ color: C.muted }}>
+                      Đã trả trong kỳ: <strong style={{ color: '#059669' }}>{vnd(no.tongDaTra)}đ</strong>
+                    </span>
+                    <span style={{ color: C.muted }}>
+                      Thay đổi:{' '}
+                      <strong style={{ color: no.tongNoMoi >= no.tongDaTra ? '#dc2626' : '#059669' }}>
+                        {no.tongNoMoi >= no.tongDaTra ? '+' : '−'}
+                        {vnd(Math.abs(no.tongNoMoi - no.tongDaTra))}đ
+                      </strong>
+                    </span>
+                  </div>
+                </>
               )}
             </ChartCard>
           </div>

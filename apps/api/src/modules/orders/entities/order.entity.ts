@@ -152,6 +152,19 @@ export class Order {
   @Column({ type: 'varchar', length: 64, nullable: true })
   transfer_note!: string | null;
 
+  /** Vì sao đơn chuyển khoản này KHÔNG có ảnh bill (2026-10-02).
+   *
+   * Từ 2026-10-02 ảnh bill là BẮT BUỘC với mọi đơn thu chuyển khoản. Nhưng camera hỏng và mạng
+   * quán yếu là chuyện có thật, nên vẫn còn một đường đi tiếp: người thu bấm "Không chụp được"
+   * và gõ lý do. Lý do đó lưu ở đây chứ không chỉ nằm trong nhật ký bàn, vì nó là thứ chủ quán
+   * cần LỌC RA cuối ngày — "những đơn CK không có bằng chứng ảnh" — và nhật ký thì không lọc
+   * được.
+   *
+   * NULL = không có gì bất thường: hoặc đơn có ảnh, hoặc đơn không thu chuyển khoản. Cả hai đều
+   * không cần giải thích, nên đừng ghi chuỗi rỗng vào đây để "cho đủ cột". */
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  payment_photo_skip_reason!: string | null;
+
   /** ── 2 mốc chặng giao hàng (thiết kế 2026-08-04) ──────────────────────────
    *
    * CHỌN MỐC THỜI GIAN, KHÔNG CHỌN CỘT STATUS. Lý do:

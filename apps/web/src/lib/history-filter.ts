@@ -28,6 +28,13 @@ export type HistorySort = 'opened' | 'paid';
 
 export type HistoryVerified = '' | 'yes' | 'no';
 
+/** Đơn chuyển khoản có ảnh bill hay không (2026-10-02). '' = không lọc.
+ *
+ *  Cùng luật với `HistoryVerified`: CHỈ xét đơn thu chuyển khoản. 'missing' gồm cả đơn người
+ *  thu đã bấm "Không chụp được" và gõ lý do — có lý do không làm tấm ảnh xuất hiện, và người
+ *  đối soát cuối ngày vẫn phải tự xử lý đúng những đơn đó. */
+export type HistoryPhoto = '' | 'has' | 'missing';
+
 export type HistoryFilters = {
   table_id: string;
   cashier_user_id: string;
@@ -44,6 +51,7 @@ export type HistoryFilters = {
    *  để nó lọt vào nhóm "chưa xác thực" là biến bộ lọc thành vô dụng vì phần lớn đơn của quán là
    *  tiền mặt và chúng sẽ nhấn chìm đúng mấy đơn cần nhìn. */
   verified: HistoryVerified;
+  photo: HistoryPhoto;
   /** Khoảng ngày 'YYYY-MM-DD' theo giờ VN. Chuỗi rỗng = không chặn đầu đó. */
   from: string;
   to: string;
@@ -79,6 +87,7 @@ export function historyQuery(f: HistoryFilters, opts: HistoryQueryOpts = {}): UR
   if (f.misa) q.set('misa', f.misa);
   if (f.payment) q.set('payment', f.payment);
   if (f.verified) q.set('verified', f.verified);
+  if (f.photo) q.set('photo', f.photo);
   if (f.shift) {
     // Hai mốc do `shiftRangeMs` quyết, không tự tính lại ở đây — nhãn trên màn hình đọc cùng
     // hàm đó, và hai chỗ tự tính là hai chỗ sẽ lệch nhau.
