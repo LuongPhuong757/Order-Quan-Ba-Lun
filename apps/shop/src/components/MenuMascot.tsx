@@ -55,22 +55,27 @@ const SIZE = 88;
  *
  * `mouth`: ô "há miệng" để mấp máy khi nói. Thỏ, gấu đỏ, gấu: ô "ngạc nhiên" vẽ thân to hơn ô
  * nhìn thẳng 5–7px hiển thị (đo được) → mấp máy là giật thân, nên để null = gật gù khi nói.
- * `outline`: con lông nhạt gần trùng màu nền thực đơn (thỏ) → thêm viền mờ cho nổi. */
+ * `outline`: con lông nhạt gần trùng màu nền thực đơn (thỏ) → thêm viền mờ cho nổi.
+ * `scale`: mỗi tấm gốc vẽ con vật to nhỏ khác nhau trong ô. Đo diện tích phần vẽ ở ô nhìn thẳng
+ *   (2026-10-03, so với hamster = 100%): mèo 86%, thỏ 71%, gấu đỏ 74%, gấu 83%, chuột 107% —
+ *   chủ quán thấy thỏ, mèo "hơi bé". Phóng theo căn bậc hai diện tích, làm tròn xuống một chút để
+ *   không vượt quá độ nét của ô 192px (tối đa ~101px). */
 type Character = {
   id: string;
   name: string;
   emoji: string;
   mouth: MascotReaction | null;
   outline?: boolean;
+  scale?: number;
   /** Câu riêng, trộn vào câu khi khách chạm vào nhân vật. */
   quirks: string[];
 };
 const CHARACTERS: Character[] = [
   { id: 'hamster', name: 'Bé Hamster', emoji: '🐹', mouth: 'surprised', quirks: ['Hạt hướng dương có không ta?', 'Tui nhét má đầy đồ ăn rồi nè!'] },
-  { id: 'cat', name: 'Mèo Mun', emoji: '🐱', mouth: 'surprised', quirks: ['Có cá không? Meo~', 'Gãi cằm tui đi, meo~', 'Meo meo, đói quá à!'] },
-  { id: 'bunny', name: 'Thỏ Bông', emoji: '🐰', mouth: null, outline: true, quirks: ['Bông thích rau lắm á!', 'Có cà rốt không ta?', 'Bông nhảy tưng tưng nè!'] },
-  { id: 'redpanda', name: 'Gấu Đỏ', emoji: '🦊', mouth: null, quirks: ['Tui là gấu trúc đỏ, không phải cáo đâu nha!', 'Đuôi tui xù không?'] },
-  { id: 'bear', name: 'Gấu Nâu', emoji: '🐻', mouth: null, quirks: ['Gấu thích mật ong lắm á!', 'Ôm Gấu một cái nè!'] },
+  { id: 'cat', name: 'Mèo Mun', emoji: '🐱', mouth: 'surprised', scale: 1.1, quirks: ['Có cá không? Meo~', 'Gãi cằm tui đi, meo~', 'Meo meo, đói quá à!'] },
+  { id: 'bunny', name: 'Thỏ Bông', emoji: '🐰', mouth: null, outline: true, scale: 1.15, quirks: ['Bông thích rau lắm á!', 'Có cà rốt không ta?', 'Bông nhảy tưng tưng nè!'] },
+  { id: 'redpanda', name: 'Gấu Đỏ', emoji: '🦊', mouth: null, scale: 1.12, quirks: ['Tui là gấu trúc đỏ, không phải cáo đâu nha!', 'Đuôi tui xù không?'] },
+  { id: 'bear', name: 'Gấu Nâu', emoji: '🐻', mouth: null, scale: 1.06, quirks: ['Gấu thích mật ong lắm á!', 'Ôm Gấu một cái nè!'] },
   { id: 'mouse', name: 'Chuột Nhắt', emoji: '🐭', mouth: 'surprised', quirks: ['Chít chít! Có phô mai không?', 'Tui nhỏ mà ăn khoẻ lắm nha, chít!'] },
 ];
 const PICK_KEY = 'qbl.mascot_pick.v1';
@@ -1035,7 +1040,7 @@ export function MenuMascot(props: Props): JSX.Element {
               <Mascot
                 directions={`/mascots/${me.id}-directions.webp`}
                 reactions={`/mascots/${me.id}-reactions.webp`}
-                size={SIZE}
+                size={Math.round(SIZE * (me.scale ?? 1))}
                 label={me.name}
                 look={look}
                 cue={cue}
