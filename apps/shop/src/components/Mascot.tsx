@@ -105,8 +105,6 @@ export type MascotCue = { reaction: MascotReaction; id: number; ms?: number; qui
 
 /** Nhịp mấp máy miệng khi nói: đổi ngậm ↔ há mỗi chừng này. */
 const TALK_STEP_MS = 140;
-/** Ô "há miệng" khi nói: mắt vẫn mở, miệng chữ o — đổi qua lại với mặt nhìn thẳng (miệng ngậm). */
-const MOUTH_OPEN: MascotReaction = 'surprised';
 
 export type MascotProps = {
   /** Tấm 3×3 các hướng đầu. */
@@ -123,11 +121,26 @@ export type MascotProps = {
   asleep?: boolean;
   /** Đang nói → mấp máy miệng (khi không có biểu cảm nào khác đang hiện). */
   talking?: boolean;
+  /** Ô "há miệng" để mấp máy khi nói, đổi qua lại với mặt nhìn thẳng (miệng ngậm). Mặc định
+   *  'surprised' (mắt mở, miệng chữ o). null = nhân vật không có ô nào khớp thân với ô nhìn
+   *  thẳng (đổi qua lại sẽ giật thân) → nói bằng cách GẬT GÙ nhẹ thay vì mấp máy miệng. */
+  mouthCell?: MascotReaction | null;
 };
 
 export function Mascot(props: MascotProps): JSX.Element {
-  const { directions, reactions, size = 140, className, style, label = 'nhân vật', look, cue, asleep, talking } =
-    props;
+  const {
+    directions,
+    reactions,
+    size = 140,
+    className,
+    style,
+    label = 'nhân vật',
+    look,
+    cue,
+    asleep,
+    talking,
+    mouthCell = 'surprised',
+  } = props;
 
   const buttonRef = useRef<HTMLButtonElement>(null);
   const squashRef = useRef<HTMLSpanElement>(null);
@@ -254,7 +267,9 @@ export function Mascot(props: MascotProps): JSX.Element {
   };
 
   const speaking = Boolean(talking) && !reaction && !asleep;
-  const shown = reaction ?? (asleep ? 'sleepy' : speaking && mouthOpen ? MOUTH_OPEN : null);
+  const shown = reaction ?? (asleep ? 'sleepy' : speaking && mouthOpen && mouthCell ? mouthCell : null);
+  // Không có ô há miệng → gật gù: nhích đầu lên và nghiêng nhẹ theo nhịp nói.
+  const nod = speaking && !mouthCell && mouthOpen;
   // Đang nói thì nhìn thẳng: mặt nghiêng xen kẽ với ô "há miệng" (nhìn thẳng) trông như giật đầu.
   const facing = speaking ? 'center' : (look ?? direction);
 
@@ -284,7 +299,15 @@ export function Mascot(props: MascotProps): JSX.Element {
     >
       <span
         ref={squashRef}
-        style={{ position: 'relative', display: 'block', width: '100%', height: '100%', transformOrigin: '50% 78%' }}
+        style={{
+          position: 'relative',
+          display: 'block',
+          width: '100%',
+          height: '100%',
+          transformOrigin: '50% 78%',
+          transform: nod ? 'translateY(-2px) rotate(-2deg)' : undefined,
+          transition: 'transform 120ms ease-out',
+        }}
       >
         <span
           style={{

@@ -7,7 +7,8 @@ import type { Suggestion } from '../lib/menu-pairing.ts';
 import { addTableLine } from '../lib/table-cart-store.ts';
 
 /**
- * Bé hamster ở thực đơn tại bàn — chủ quán chốt dần trong ngày 2026-10-02.
+ * Nhân vật đồng hành ở thực đơn tại bàn (ban đầu chỉ bé hamster, từ 2026-10-03 random 6 con mỗi
+ * lượt truy cập — xem CHARACTERS) — chủ quán chốt dần trong ngày 2026-10-02.
  *
  * ── Khách làm gì → hamster làm gì ──
  *   - mới vào           → chào theo giờ (sáng/trưa/chiều/tối/khuya); chưa khai bàn thì nhắc nhập bàn
@@ -41,10 +42,60 @@ import { addTableLine } from '../lib/table-cart-store.ts';
  * lớp nền tối — chân tấm là nút chính, ngồi đó là khách bấm trúng nhân vật thay vì nút.
  */
 
-/** Hai tấm 576px (ô 192px) = đủ nét tới 96px ở màn 2x, ~110KB cả bộ thay vì ~370KB của bản 1080px. */
-const DIRECTIONS_SRC = '/mascots/hamster-directions.webp';
-const REACTIONS_SRC = '/mascots/hamster-reactions.webp';
 const SIZE = 88;
+
+/* ── Nhân vật — random MỖI LƯỢT TRUY CẬP thực đơn (chủ quán chốt 2026-10-03) ──
+ * Một con đi cùng khách suốt lượt đó, không đổi giữa các thao tác. "Lượt" = tab trình duyệt:
+ * lưu trong sessionStorage, nên tải lại trang giữa bữa vẫn là con cũ; đóng tab mở lại mới bốc
+ * con khác. Thêm `?mascot=<id>` vào địa chỉ để xem trước một con cụ thể.
+ *
+ * Mỗi con hai tấm 576px (ô 192px, đủ nét tới 96px ở màn 2x), ~80–120KB, chỉ tải tấm của con
+ * được chọn. Tấm biểu cảm đã được CĂN LẠI từng ô cho mép trên đầu + tâm ngang khớp ô "nhìn
+ * thẳng" của tấm hướng nhìn (bản gốc của mèo lệch ~4px hiển thị — đổi ô nào cũng giật đầu).
+ *
+ * `mouth`: ô "há miệng" để mấp máy khi nói. Thỏ, gấu đỏ, gấu: ô "ngạc nhiên" vẽ thân to hơn ô
+ * nhìn thẳng 5–7px hiển thị (đo được) → mấp máy là giật thân, nên để null = gật gù khi nói.
+ * `outline`: con lông nhạt gần trùng màu nền thực đơn (thỏ) → thêm viền mờ cho nổi. */
+type Character = {
+  id: string;
+  name: string;
+  emoji: string;
+  mouth: MascotReaction | null;
+  outline?: boolean;
+  /** Câu riêng, trộn vào câu khi khách chạm vào nhân vật. */
+  quirks: string[];
+};
+const CHARACTERS: Character[] = [
+  { id: 'hamster', name: 'Bé Hamster', emoji: '🐹', mouth: 'surprised', quirks: ['Hạt hướng dương có không ta?', 'Tui nhét má đầy đồ ăn rồi nè!'] },
+  { id: 'cat', name: 'Mèo Mun', emoji: '🐱', mouth: 'surprised', quirks: ['Có cá không? Meo~', 'Gãi cằm tui đi, meo~', 'Meo meo, đói quá à!'] },
+  { id: 'bunny', name: 'Thỏ Bông', emoji: '🐰', mouth: null, outline: true, quirks: ['Bông thích rau lắm á!', 'Có cà rốt không ta?', 'Bông nhảy tưng tưng nè!'] },
+  { id: 'redpanda', name: 'Gấu Đỏ', emoji: '🦊', mouth: null, quirks: ['Tui là gấu trúc đỏ, không phải cáo đâu nha!', 'Đuôi tui xù không?'] },
+  { id: 'bear', name: 'Gấu Nâu', emoji: '🐻', mouth: null, quirks: ['Gấu thích mật ong lắm á!', 'Ôm Gấu một cái nè!'] },
+  { id: 'mouse', name: 'Chuột Nhắt', emoji: '🐭', mouth: 'surprised', quirks: ['Chít chít! Có phô mai không?', 'Tui nhỏ mà ăn khoẻ lắm nha, chít!'] },
+];
+const PICK_KEY = 'qbl.mascot_pick.v1';
+
+function pickCharacter(): Character {
+  const byId = (id: string | null) => CHARACTERS.find((c) => c.id === id);
+  try {
+    const forced = byId(new URLSearchParams(window.location.search).get('mascot'));
+    if (forced) {
+      sessionStorage.setItem(PICK_KEY, forced.id);
+      return forced;
+    }
+    const kept = byId(sessionStorage.getItem(PICK_KEY));
+    if (kept) return kept;
+  } catch {
+    /* Safari riêng tư — bốc mới, chỉ mất tính "giữ nguyên khi tải lại" */
+  }
+  const c = CHARACTERS[Math.floor(Math.random() * CHARACTERS.length)]!;
+  try {
+    sessionStorage.setItem(PICK_KEY, c.id);
+  } catch {
+    /* như trên */
+  }
+  return c;
+}
 
 /* Bộ sprite chỉ có 9 biểu cảm, không có ô khóc. "Buồn" lấy ba ô gần nhất: ngạc nhiên (há
  * miệng), chóng mặt (mắt xoáy), ngủ gật (mắt nhắm cụp). Muốn buồn thật thì phải vẽ thêm. */
@@ -76,7 +127,7 @@ const PET_REVERSALS = 4;
 const TOTAL_MILESTONES = [300_000, 500_000, 1_000_000];
 
 const LINES = {
-  greetNoTable: 'Chào bạn! Nhập số bàn để gọi món nha 🐹',
+  greetNoTable: (e: string) => `Chào bạn! Nhập số bàn để gọi món nha ${e}`,
   happy: ['Ngon lắm luôn!', 'Chọn chuẩn đó!', 'Món này đỉnh nha!', 'Thêm nữa đi bạn ơi!', 'Bạn sành ăn ghê!'],
   // Câu cảm thán MẠNH — cùng khung hồng nhẹ, chỉ thêm hiệu ứng rung (xem .is-wow).
   wow: [
@@ -148,13 +199,13 @@ function detectLite(): boolean {
 const LITE = typeof window !== 'undefined' && detectLite();
 
 /** Chào theo giờ máy khách. */
-function greetByHour(): string {
+function greetByHour(e: string): string {
   const h = new Date().getHours();
-  if (h >= 5 && h < 10) return 'Chào buổi sáng! Ăn sáng gì nè? 🐹';
-  if (h >= 10 && h < 14) return 'Trưa rồi, ăn gì cho no nè? 🐹';
-  if (h >= 14 && h < 17) return 'Chiều rồi, làm chút gì nhâm nhi không? 🐹';
-  if (h >= 17 && h < 22) return 'Tối rồi, lai rai chút nha! 🐹';
-  return 'Khuya rồi, làm tô mì nóng không? 🐹';
+  if (h >= 5 && h < 10) return `Chào buổi sáng! Ăn sáng gì nè? ${e}`;
+  if (h >= 10 && h < 14) return `Trưa rồi, ăn gì cho no nè? ${e}`;
+  if (h >= 14 && h < 17) return `Chiều rồi, làm chút gì nhâm nhi không? ${e}`;
+  if (h >= 17 && h < 22) return `Tối rồi, lai rai chút nha! ${e}`;
+  return `Khuya rồi, làm tô mì nóng không? ${e}`;
 }
 
 /** Cắt tên món / từ khoá dài để bong bóng không phình quá hai dòng. */
@@ -291,6 +342,8 @@ type Props = {
 };
 
 export function MenuMascot(props: Props): JSX.Element {
+  // Bốc MỘT lần khi dựng; cả lượt truy cập dùng con này.
+  const [me] = useState(pickCharacter);
   const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, suggest, searchMiss } = props;
   // Hàm gợi ý đổi theo giỏ mỗi lần vẽ; phản ứng chạy trong callback cũ (món bay xong mới gọi)
   // nên phải đọc qua ref để luôn lấy bản mới nhất.
@@ -401,7 +454,7 @@ export function MenuMascot(props: Props): JSX.Element {
   // Chào một lần. Chưa khai bàn thì cổng nhập bàn đang mở — nó ngồi ngay trên cổng, nên câu chào
   // là lời nhắc nhập số bàn.
   useEffect(() => {
-    const t = window.setTimeout(() => say(hasTable ? greetByHour() : LINES.greetNoTable, 3000), GREET_DELAY_MS);
+    const t = window.setTimeout(() => say(hasTable ? greetByHour(me.emoji) : LINES.greetNoTable(me.emoji), 3000), GREET_DELAY_MS);
     return () => window.clearTimeout(t);
     // Chỉ chào lúc dựng, không chào lại khi khai bàn xong.
   }, []);
@@ -916,7 +969,7 @@ export function MenuMascot(props: Props): JSX.Element {
   return (
     <div
       ref={rootRef}
-      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}${LITE ? ' is-lite' : ''}${asleep ? ' is-asleep' : ''}`}
+      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}${LITE ? ' is-lite' : ''}${asleep ? ' is-asleep' : ''}${me.outline ? ' is-outlined' : ''}`}
       style={{ ...(perch ? { bottom: perch.bottom, right: perch.right } : null), transform }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -932,7 +985,7 @@ export function MenuMascot(props: Props): JSX.Element {
       // Bắt cú chạm ở lớp bọc: nút bên trong tự lo biểu cảm, ở đây chỉ thêm câu thoại.
       onClick={() => {
         primeSound();
-        const line = pickFresh([...LINES.boop, ...LINES.boopWow], lastLine);
+        const line = pickFresh([...LINES.boop, ...LINES.boopWow, ...me.quirks], lastLine);
         say(line, SAY_MS, LINES.boopWow.includes(line));
       }}
     >
@@ -980,14 +1033,15 @@ export function MenuMascot(props: Props): JSX.Element {
           <div ref={swayRef} className="mo-mascot-sway">
             <div className="mo-mascot-breathe">
               <Mascot
-                directions={DIRECTIONS_SRC}
-                reactions={REACTIONS_SRC}
+                directions={`/mascots/${me.id}-directions.webp`}
+                reactions={`/mascots/${me.id}-reactions.webp`}
                 size={SIZE}
-                label="bé hamster"
+                label={me.name}
                 look={look}
                 cue={cue}
                 asleep={asleep && !peeking}
                 talking={talking}
+                mouthCell={me.mouth}
               />
             </div>
           </div>
@@ -995,7 +1049,7 @@ export function MenuMascot(props: Props): JSX.Element {
       <button
         type="button"
         className="mo-mascot-sound"
-        aria-label={soundOn ? 'Tắt tiếng bé hamster' : 'Bật tiếng bé hamster'}
+        aria-label={soundOn ? `Tắt tiếng ${me.name}` : `Bật tiếng ${me.name}`}
         onClick={(e) => {
           e.stopPropagation();
           const next = !soundOn;
@@ -1041,6 +1095,10 @@ const MENU_MASCOT_CSS = `
 }
 .mo-mascot.is-asleep .mo-mascot-breathe{ animation-play-state:paused; }
 .mo-mascot.is-lite .mo-mascot-breathe{ animation:none; will-change:auto; }
+/* Con lông nhạt (thỏ) gần trùng màu nền kem của thực đơn: viền nâu mờ + bóng nhẹ cho nổi. */
+.mo-mascot.is-outlined .mo-mascot-sway{
+  filter:drop-shadow(0 0 1.2px rgb(90 58 42 / 60%)) drop-shadow(0 3px 6px rgb(42 29 20 / 18%));
+}
 @keyframes mo-mascot-breathe{ 0%,100%{ transform:scale(1,1); } 50%{ transform:scale(1.025,.975); } }
 
 @keyframes mo-mascot-in{ from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
