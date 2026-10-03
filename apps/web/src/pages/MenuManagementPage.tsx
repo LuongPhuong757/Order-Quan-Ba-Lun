@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
+import { MenuComboPanel } from './MenuComboPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
 import { Select } from '../components/Select.tsx';
 
@@ -89,6 +90,7 @@ export function MenuManagementPage() {
   // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
   // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
   const [showMenuBook, setShowMenuBook] = useState(false);
+  const [showCombos, setShowCombos] = useState(false);
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
@@ -269,6 +271,11 @@ export function MenuManagementPage() {
           {canManage && (
             <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
               📖 Menu xem
+            </button>
+          )}
+          {canManage && (
+            <button className="secondary" onClick={() => setShowCombos(true)} style={{ padding: '8px 12px' }}>
+              🎯 Combo gợi ý
             </button>
           )}
           </div>
@@ -566,6 +573,7 @@ export function MenuManagementPage() {
           }}
         />
       )}
+      {showCombos && <MenuComboPanel onClose={() => setShowCombos(false)} />}
       {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả lưới món): số nguyên liệu
           trên nút vừa đổi, còn `menu_items` thì không đụng tới. */}
       {recipeFor && (

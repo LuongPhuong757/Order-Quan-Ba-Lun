@@ -3,8 +3,11 @@ import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { MenuItem } from './entities/menu-item.entity.js';
 import { MenuGroup } from './entities/menu-group.entity.js';
+import { MenuCombo } from './entities/menu-combo.entity.js';
+import { MenuFeaturedItem } from './entities/menu-featured-item.entity.js';
 import { MenuController } from './menu.controller.js';
 import { MenuGroupsController } from './menu-groups.controller.js';
+import { MenuCombosController } from './menu-combos.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 
 // Seed default 4 nhóm khi module init lần đầu
@@ -16,8 +19,8 @@ const DEFAULT_GROUPS = [
 ];
 
 @Module({
-  imports: [TypeOrmModule.forFeature([MenuItem, MenuGroup]), AuthModule],
-  controllers: [MenuController, MenuGroupsController],
+  imports: [TypeOrmModule.forFeature([MenuItem, MenuGroup, MenuCombo, MenuFeaturedItem]), AuthModule],
+  controllers: [MenuController, MenuGroupsController, MenuCombosController],
   exports: [TypeOrmModule],
 })
 export class MenuModule implements OnModuleInit {

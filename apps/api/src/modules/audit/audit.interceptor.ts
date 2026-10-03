@@ -84,6 +84,12 @@ function deriveActionKind(method: string, path: string): string {
   if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'PATCH') return 'menu_group.updated';
   if (path.match(/^\/menu-groups\/[^/]+$/) && method === 'DELETE') return 'menu_group.deleted';
 
+  // Combo gợi ý món (2026-10-03)
+  if (path === '/menu-combos' && method === 'POST') return 'menu_combo.created';
+  if (path === '/menu-combos/featured' && method === 'PUT') return 'menu_combo.featured_updated';
+  if (path.match(/^\/menu-combos\/[^/]+$/) && method === 'PATCH') return 'menu_combo.updated';
+  if (path.match(/^\/menu-combos\/[^/]+$/) && method === 'DELETE') return 'menu_combo.deleted';
+
   // Nhà cung cấp & nhập hàng (2026-09-05, Milestone 3). Đây là các hành động ĐỘNG TỚI TIỀN, nên
   // đặt tên tường minh thay vì để fallback ở cuối hàm sinh chuỗi rác kiểu
   // `put._suppliers__id_opening_balance` — trang /admin/audit lọc theo action_kind, tên rác thì

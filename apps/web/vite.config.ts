@@ -27,6 +27,7 @@ export default defineConfig({
       '/health':      apiProxy(),
       '/menu':        apiProxy(),
       '/menu-groups': apiProxy(),
+      '/menu-combos': apiProxy(),
       '/tables':      apiProxy(),
       '/orders':      apiProxy(),
       // M7 — khách tự gọi món tại bàn (2026-10-01). Danh sách này liệt kê CỨNG, không có '/api'
