@@ -1,68 +1,64 @@
 import { describe, expect, it } from 'vitest';
-import { suggestPairing, type PairingGroup } from './menu-pairing.ts';
+import { suggestOnAdd, type PairingCombo, type PairingGroup } from './menu-pairing.ts';
 
 let n = 0;
-const item = (name: string, price = 30_000, out = false) => ({
-  id: `id-${++n}`,
-  name,
-  price,
-  images: [],
-  is_out_of_stock: out,
-});
+const item = (name: string, price = 30_000, out = false) => ({ id: `id-${++n}`, name, price, images: [], is_out_of_stock: out });
 
-// Lát cắt thu nhỏ của thực đơn thật (2026-10-02) — đủ cho mọi nhánh quy tắc.
 const MENU: PairingGroup[] = [
-  { name: 'Bia', items: [item('Bia Hơi Cốc', 10_000), item('Bia Tiger', 25_000), item('Bia Hơi Ca', 35_000)] },
-  { name: 'Rượu', items: [item('Rượu Men Lá'), item('Rượu Táo Mèo')] },
-  { name: 'Set Lẩu', items: [item('Lẩu Thái 300k', 300_000), item('Lẩu Riêu Cua 300k', 300_000)] },
-  { name: 'Đồ Nhúng Lẩu', items: [item('Rau Lẩu', 40_000), item('Mỳ/ Mì Tôm', 5_000)] },
-  { name: 'Món Nhậu Khô', items: [item('Lạc Rang Đĩa'), item('Đậu Tẩm Hành', 40_000)] },
-  { name: 'Giải Khát', items: [item('Trà Đá', 5_000), item('Khăn Lạnh 5 Cái', 15_000), item('Coca Cola', 15_000)] },
-  { name: 'Các Món Gà', items: [item('Gà Rang Muối', 150_000)] },
-  { name: 'Mỳ/ Mì Tôm- Cơm Rang', items: [item('Cơm Trắng 20k', 20_000)] },
-  { name: 'Thuốc Lá', items: [item('Vina', 25_000)] },
+  { name: 'Gà', items: [item('Gà Rang Muối', 150_000), item('Gà Luộc', 150_000)] },
+  { name: 'Rau', items: [item('Rau Muống Xào', 40_000)] },
+  { name: 'Bia', items: [item('Bia Tiger', 25_000), item('Bia Hơi Ca', 35_000, true)] },
+  { name: 'Khác', items: [item('Đậu Tẩm Hành', 40_000), item('Nem Chua Rán', 50_000), item('Lạc', 20_000)] },
 ];
-const byName = (name: string) => MENU.flatMap((g) => g.items).find((i) => i.name === name)!;
-const first = () => 0; // rand cố định → luôn lấy lựa chọn đầu còn dùng được
+const id = (name: string) => MENU.flatMap((g) => g.items).find((i) => i.name === name)!.id;
+const first = () => 0;
 
-describe('suggestPairing', () => {
-  it('bia → đồ nhắm (lạc rang)', () => {
-    expect(suggestPairing(byName('Bia Tiger').id, MENU, new Set(), first)?.item.name).toBe('Lạc Rang Đĩa');
-  });
+const BUA_COM: PairingCombo = { id: 'c1', name: 'Bữa cơm', emoji: '🍗', item_ids: [id('Gà Rang Muối'), id('Rau Muống Xào'), id('Bia Tiger')] };
+const NHAU: PairingCombo = { id: 'c2', name: 'Nhậu', emoji: '🍺', item_ids: [id('Bia Tiger'), id('Nem Chua Rán')] };
+const FEATURED = [id('Nem Chua Rán'), id('Gà Rang Muối'), id('Bia Hơi Ca')];
 
-  it('rượu ↔ lẩu: gọi rượu mời lẩu, gọi lẩu mời rượu', () => {
-    expect(suggestPairing(byName('Rượu Men Lá').id, MENU, new Set(), first)?.item.name).toBe('Lẩu Thái 300k');
-    expect(suggestPairing(byName('Lẩu Thái 300k').id, MENU, new Set(), first)?.item.name).toBe('Rượu Men Lá');
-  });
-
-  it('bỏ qua món đã có trong giỏ và món hết hàng', () => {
-    const inCart = new Set([byName('Lạc Rang Đĩa').id]);
-    expect(suggestPairing(byName('Bia Tiger').id, MENU, inCart, first)?.item.name).toBe('Đậu Tẩm Hành');
-  });
-
-  it('món ăn cơm → cơm trắng', () => {
-    expect(suggestPairing(byName('Gà Rang Muối').id, MENU, new Set(), first)?.item.name).toBe('Cơm Trắng 20k');
-  });
-
-  it('BẮT BUỘC có gợi ý: hết món theo quy tắc thì rơi về dự phòng', () => {
-    const inCart = new Set([byName('Lạc Rang Đĩa').id, byName('Đậu Tẩm Hành').id]);
-    const s = suggestPairing(byName('Bia Tiger').id, MENU, inCart, first);
-    expect(s?.item.name).toBe('Khăn Lạnh 5 Cái');
-  });
-
-  it('món không có quy tắc (thuốc lá) vẫn được gợi ý, nhưng KHÔNG BAO GIỜ gợi ý thuốc lá', () => {
-    const s = suggestPairing(byName('Vina').id, MENU, new Set(), first);
-    expect(s).not.toBeNull();
-    // "Th-UỐC Lá" từng khớp nhầm quy tắc /ốc/ và ra câu "Ốc thì làm cốc bia hơi…" (đo trên menu thật).
-    expect(s?.line).not.toMatch(/ốc/i);
-    for (let i = 0; i < 20; i++) {
-      const r = suggestPairing(byName('Bia Tiger').id, MENU, new Set(), Math.random);
-      expect(r?.item.name).not.toBe('Vina');
+describe('suggestOnAdd', () => {
+  it('món trong combo → CHỈ mời món của combo đó', () => {
+    for (let i = 0; i < 30; i++) {
+      const r = suggestOnAdd(id('Gà Rang Muối'), MENU, new Set([id('Gà Rang Muối')]), [BUA_COM], FEATURED);
+      expect(['Rau Muống Xào', 'Bia Tiger']).toContain(r.offer?.item.name);
+      expect(r.offer?.combo?.name).toBe('Bữa cơm');
     }
   });
 
-  it('chỉ trả null khi không còn món nào dùng được', () => {
-    const all = new Set(MENU.flatMap((g) => g.items.map((i) => i.id)));
-    expect(suggestPairing(byName('Bia Tiger').id, MENU, all, first)).toBeNull();
+  it('món thuộc nhiều combo → gộp món của tất cả các combo đó', () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 60; i++) {
+      const r = suggestOnAdd(id('Bia Tiger'), MENU, new Set([id('Bia Tiger')]), [BUA_COM, NHAU], FEATURED);
+      seen.add(r.offer!.item.name);
+    }
+    expect([...seen].sort()).toEqual(['Gà Rang Muối', 'Nem Chua Rán', 'Rau Muống Xào']);
+  });
+
+  it('món ngoài combo → mời từ món đề xuất (bỏ món hết hàng)', () => {
+    for (let i = 0; i < 30; i++) {
+      const r = suggestOnAdd(id('Lạc'), MENU, new Set([id('Lạc')]), [BUA_COM], FEATURED);
+      expect(['Nem Chua Rán', 'Gà Rang Muối']).toContain(r.offer?.item.name);
+      expect(r.offer?.combo).toBeUndefined();
+    }
+  });
+
+  it('đủ bộ combo → báo completed rồi quay về món đề xuất', () => {
+    const cart = new Set(BUA_COM.item_ids);
+    const r = suggestOnAdd(id('Bia Tiger'), MENU, cart, [BUA_COM], FEATURED, new Set(), first);
+    expect(r.completed?.id).toBe('c1');
+    expect(r.offer?.item.name).toBe('Nem Chua Rán');
+  });
+
+  it('hết cả combo lẫn món đề xuất → không mời gì (không mời món linh tinh)', () => {
+    const cart = new Set([...BUA_COM.item_ids, id('Nem Chua Rán')]);
+    const r = suggestOnAdd(id('Lạc'), MENU, new Set([...cart, id('Lạc')]), [BUA_COM], FEATURED);
+    expect(r.offer).toBeNull();
+  });
+
+  it('bỏ qua món khách đã lờ đi và id không còn trong thực đơn', () => {
+    const ghost: PairingCombo = { id: 'g', name: 'Ma', emoji: null, item_ids: [id('Gà Luộc'), 'khong-co', id('Đậu Tẩm Hành')] };
+    const r = suggestOnAdd(id('Gà Luộc'), MENU, new Set([id('Gà Luộc')]), [ghost], [], new Set([id('Đậu Tẩm Hành')]));
+    expect(r.offer).toBeNull();
   });
 });

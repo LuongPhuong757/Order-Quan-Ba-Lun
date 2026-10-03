@@ -19,6 +19,8 @@ export type MascotEvent =
       image: string | null;
       /** Toạ độ chỗ khách bấm, điểm xuất phát của món bay. */
       from: DOMRect;
+      /** Khách bấm "＋ Thêm" ngay trong lời mời của nhân vật — nhân vật cảm ơn thay vì khen. */
+      fromOffer?: boolean;
     }
   /** Khách chạm vào món tạm hết. */
   | { type: 'out-of-stock'; name: string }

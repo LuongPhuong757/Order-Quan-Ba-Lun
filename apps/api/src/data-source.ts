@@ -5,6 +5,8 @@ import { RevokedJti } from './modules/auth/entities/revoked-jti.entity.js';
 import { RecoveryCode } from './modules/auth/entities/recovery-code.entity.js';
 import { MenuItem } from './modules/menu/entities/menu-item.entity.js';
 import { MenuGroup } from './modules/menu/entities/menu-group.entity.js';
+import { MenuCombo } from './modules/menu/entities/menu-combo.entity.js';
+import { MenuFeaturedItem } from './modules/menu/entities/menu-featured-item.entity.js';
 import { RestaurantTable } from './modules/tables/entities/restaurant-table.entity.js';
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
@@ -74,6 +76,8 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: [
     User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order,
     OrderItem, OrderActivityLog, OrderPaymentPhoto,
+    // Combo gợi ý + món đề xuất cho nhân vật ở thực đơn tại bàn (2026-10-03).
+    MenuCombo, MenuFeaturedItem,
     StoreSetting,
     PhoneBlacklist,
     PaymentQrAccount,

@@ -23,6 +23,8 @@ import { LogOtpSender, OTP_SENDER } from './otp-sender.js';
 import { SmsOtpSender } from './sms-otp-sender.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
+import { MenuCombo } from '../menu/entities/menu-combo.entity.js';
+import { MenuFeaturedItem } from '../menu/entities/menu-featured-item.entity.js';
 import { OnlineOrderRequest } from './entities/online-order-request.entity.js';
 import { CustomerOtp } from './entities/customer-otp.entity.js';
 import { CustomerSession } from './entities/customer-session.entity.js';
@@ -61,7 +63,7 @@ import { NotificationsModule } from '../notifications/notifications.module.js';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      MenuItem, MenuGroup, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem,
+      MenuItem, MenuGroup, MenuCombo, MenuFeaturedItem, OnlineOrderRequest, PhoneBlacklist, Order, OrderItem,
       // OTP đăng nhập bằng SĐT (2026-08-04) — xem docblock `otp.ts`.
       CustomerOtp, CustomerSession,
       // M7 — khách tự gọi món tại bàn (2026-10-01).
