@@ -257,6 +257,8 @@ export function TableCartSheet({
   // Sinh MỘT lần khi mở tấm giỏ: bấm lại vì mạng lỗi phải dùng đúng id cũ, nếu không BE sẽ
   // coi là lượt mới và bàn nhận món hai lần.
   const [requestId] = useState(() => newClientRequestId());
+  /** Đang hỏi lại "xoá hết?" — xoá cả giỏ không hoàn tác được, một cú chạm nhầm là mất cả bàn món. */
+  const [askClear, setAskClear] = useState(false);
 
   useEffect(() => subscribeTableCart(() => setLines(readTableCart())), []);
 
@@ -302,6 +304,15 @@ export function TableCartSheet({
                 <div className="dinein-line-top">
                   <span className="dinein-line-name">{l.name}</span>
                   <span className="dinein-line-price">{vnd(l.unit_price * l.qty)}</span>
+                  {/* Bỏ hẳn món một chạm, khỏi bấm "−" từng phần (chủ quán yêu cầu 2026-10-03). */}
+                  <button
+                    type="button"
+                    className="dinein-line-del"
+                    aria-label={`Xoá ${l.name}`}
+                    onClick={() => setTableQty(l.menu_item_id, 0)}
+                  >
+                    🗑
+                  </button>
                 </div>
                 <div className="dinein-line-ctl">
                   <button type="button" onClick={() => setTableQty(l.menu_item_id, l.qty - 1)}>−</button>
@@ -317,6 +328,28 @@ export function TableCartSheet({
             ))
           )}
           {err ? <p className="dinein-err">{err}</p> : null}
+          {lines.length > 0 ? (
+            askClear ? (
+              <div className="dinein-clear-ask">
+                <span>Xoá hết {lines.length} món đã chọn?</span>
+                <button type="button" onClick={() => setAskClear(false)}>Không</button>
+                <button
+                  type="button"
+                  className="dinein-clear-yes"
+                  onClick={() => {
+                    clearTableCart();
+                    setAskClear(false);
+                  }}
+                >
+                  Xoá hết
+                </button>
+              </div>
+            ) : (
+              <button type="button" className="dinein-clear" onClick={() => setAskClear(true)}>
+                🗑 Xoá hết món
+              </button>
+            )
+          ) : null}
         </div>
 
         <div className="dinein-foot">
@@ -788,6 +821,28 @@ export const DINEIN_CSS = `
 .dinein-line-price{ flex:none; font-size:17px; font-weight:700; color:#cf3323; white-space:nowrap;
   font-variant-numeric:tabular-nums; }
 .dinein-line-ctl{ display:flex; align-items:center; gap:8px; margin-top:8px; }
+/* Nút xoá món: 40px vuông, cạnh giá tiền — đủ to cho ngón cái, nhạt màu để không lấn át giá. */
+button.dinein-line-del{
+  flex:none; width:40px; height:40px; align-self:center; padding:0;
+  border:1px solid #ecd9d4; border-radius:8px; background:#fff7f5; font-size:18px; cursor:pointer;
+}
+/* Xoá cả giỏ: nút chữ ở cuối danh sách, KHÔNG đặt cạnh "Gửi cho quán" — đứng sát nút chính thì
+   bấm nhầm là mất cả giỏ. Bấm xong còn phải xác nhận lần nữa. */
+button.dinein-clear{
+  display:block; margin:14px auto 4px; min-height:44px; padding:0 16px;
+  border:1px solid #ecd9d4; border-radius:8px; background:#fff7f5; color:#b82a1e;
+  font-size:16px; cursor:pointer;
+}
+.dinein-clear-ask{
+  display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:14px 0 4px;
+  padding:10px 12px; border-radius:10px; background:#fff1ee; border:1px solid #f3c7bd;
+}
+.dinein-clear-ask span{ flex:1 1 100%; font-size:16px; font-weight:700; color:#8f1d14; }
+.dinein-clear-ask button{
+  flex:1; min-height:44px; border-radius:8px; font-size:16px; cursor:pointer;
+  border:1px solid #ddd0bd; background:#fffdfa; color:#2a1d14;
+}
+.dinein-clear-ask button.dinein-clear-yes{ border-color:#b82a1e; background:#b82a1e; color:#fff; font-weight:700; }
 .dinein-line-ctl button{
   flex:none; min-width:44px; min-height:44px; border:1px solid #ddd0bd; border-radius:8px;
   background:#fffdfa; font-size:20px; color:#2a1d14; cursor:pointer;

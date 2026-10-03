@@ -10,8 +10,8 @@ import {
   TableEntrySheet,
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
-import { emitMascot } from '../lib/mascot-bus.ts';
-import { suggestPairing } from '../lib/menu-pairing.ts';
+import { emitMascot, onMascot } from '../lib/mascot-bus.ts';
+import { suggestOnAdd } from '../lib/menu-pairing.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -54,12 +54,52 @@ import {
  */
 
 const MenuOrderResponse = z.object({ groups: z.array(PublicMenuGroup) });
+/** Combo gợi ý + món đề xuất chủ quán chọn ở admin (2026-10-03) — xem `suggestOnAdd`. */
+const ComboResponse = z.object({
+  combos: z.array(
+    z.object({ id: z.string(), name: z.string(), emoji: z.string().nullable(), item_ids: z.array(z.string()) }),
+  ),
+  featured: z.array(z.string()),
+});
+
+/* Khách tắt nhân vật (chủ quán chốt 2026-10-03: ẩn là ẩn HẲN, kể cả lời mời món). Nhớ trên máy
+ * khách (localStorage, không theo lượt) — người đã thấy phiền thì quét QR lần sau cũng không muốn
+ * gặp lại. Safari riêng tư không ghi được thì chỉ ẩn trong lượt này. */
+const MASCOT_HIDDEN_KEY = 'qbl.mascot_hidden.v1';
+/** Mảng rỗng CỐ ĐỊNH — `?? []` tạo mảng mới mỗi lần vẽ, làm hàm gợi ý đổi danh tính liên tục. */
+const NO_COMBOS: never[] = [];
+function readMascotHidden(): boolean {
+  try {
+    return localStorage.getItem(MASCOT_HIDDEN_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
 
 /* Bé hamster tải RIÊNG (chunk lazy), không nằm trong bundle chung. Trang này dùng chung một entry
  * với trang đặt ship, và riêng phần hamster (hiệu ứng, âm thanh, cử chỉ) đã đẩy bundle tải lần đầu
  * lên 133.9KB — sát mức theo dõi 135KB. Tách ra thì khách đặt ship không tải nó, còn khách ở thực
  * đơn tải nó SAU khi món đã hiện (nó vốn chỉ dựng khi có dữ liệu thực đơn). */
 const MenuMascot = lazy(() => import('../components/MenuMascot.tsx').then((m) => ({ default: m.MenuMascot })));
+
+/** Phần trạng thái bàn cần cho việc "đừng mời món đã gọi". */
+type TableStateNames = {
+  table_name: string;
+  waiting?: { items: { name: string }[] }[];
+  ordered?: { name: string }[];
+};
+function orderedNames(d: TableStateNames): Set<string> {
+  const names = new Set<string>();
+  for (const w of d.waiting ?? []) for (const it of w.items) names.add(it.name);
+  for (const o of d.ordered ?? []) names.add(o.name);
+  return names;
+}
+/** Id mọi món bàn đã CÓ: trong giỏ trên máy + đã gọi (so theo tên với thực đơn). */
+function haveIds(groups: readonly PublicMenuGroup[], ordered: ReadonlySet<string>): Set<string> {
+  const ids = new Set(readTableCart().map((l) => l.menu_item_id));
+  if (ordered.size) for (const g of groups) for (const it of g.items) if (ordered.has(it.name)) ids.add(it.id);
+  return ids;
+}
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 
@@ -70,6 +110,36 @@ const fold = (s: string) =>
 export function MenuOrderPage(): JSX.Element {
   const menu = useApi('/api/public/menu-book', MenuOrderResponse);
   const groups = menu.data?.groups ?? [];
+  const [mascotHidden, setMascotHidden] = useState(readMascotHidden);
+  const toggleMascot = (hidden: boolean) => {
+    setMascotHidden(hidden);
+    try {
+      localStorage.setItem(MASCOT_HIDDEN_KEY, hidden ? '1' : '0');
+    } catch {
+      /* Safari riêng tư — chỉ ẩn trong lượt này */
+    }
+  };
+  // Nhân vật ẩn thì không có ai mời món → khỏi tải combo. Lỗi mạng → không combo, lời mời rơi về
+  // bảng quy tắc trong code.
+  const comboRes = useApi('/api/public/menu-combos', ComboResponse, { skip: mascotHidden });
+  /* Lấy lại combo khi khách quay lại tab và mỗi 2 phút: trang mở suốt bữa, chủ quán sửa combo giữa
+   * chừng thì khách vẫn mời theo combo đã xoá (chủ quán gặp 2026-10-03: thêm Bia Hơi Ca không ra lời
+   * mời vì trang còn giữ combo cũ). 2 phút × ~20 máy chung một IP vẫn xa trần 600 lượt/phút. */
+  const reloadCombos = comboRes.reload;
+  useEffect(() => {
+    if (mascotHidden) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') reloadCombos();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    const t = window.setInterval(onVisible, 120_000);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(t);
+    };
+  }, [mascotHidden, reloadCombos]);
+  const combos = comboRes.data?.combos ?? NO_COMBOS;
+  const featured = comboRes.data?.featured ?? NO_COMBOS;
 
   const [q, setQ] = useState('');
   const [activeGroup, setActiveGroup] = useState<string | null>(null);
@@ -134,7 +204,7 @@ export function MenuOrderPage(): JSX.Element {
       try {
         const res = await fetch('/api/public/table/state', { headers: { 'X-Guest-Token': token } });
         const json = (await res.json()) as {
-          data?: { table_name: string };
+          data?: TableStateNames;
           error?: { code: string };
         };
         if (!alive) return;
@@ -147,6 +217,7 @@ export function MenuOrderPage(): JSX.Element {
           return;
         }
         if (json.data?.table_name) applyTableName(json.data.table_name);
+        if (json.data) orderedNamesRef.current = orderedNames(json.data);
       } catch {
         /* mất mạng lúc mở trang — tên cũ vẫn dùng được, nhịp sau người dùng tự mở lại */
       }
@@ -157,6 +228,30 @@ export function MenuOrderPage(): JSX.Element {
     // Chỉ chạy lại khi ĐỔI phiên, không chạy lại khi tên bàn được cập nhật — nếu không nó tự
     // gọi lại chính mình.
   }, [session?.guest_token, applyTableName]);
+
+  /* Tên các món bàn ĐÃ GỌI (đang chờ bếp nhận + đã vào đơn, kể cả món nhân viên gọi hộ ở quầy).
+   * Chủ quán chốt 2026-10-03: món đã có thì không mời nữa. Giỏ trên máy được dọn sạch sau khi
+   * gửi, nên chỉ nhìn giỏ là món vừa gửi lại bị mời ngay lượt sau. API trạng thái bàn chỉ trả
+   * TÊN món (không có id) → so theo tên. Đọc lúc mở trang (effect ở trên) và sau mỗi lần gửi —
+   * không poll, cùng lý do một-IP-cả-quán như trên. */
+  const orderedNamesRef = useRef(new Set<string>());
+  useEffect(() => {
+    const token = session?.guest_token;
+    if (!token || sentKey === 0) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch('/api/public/table/state', { headers: { 'X-Guest-Token': token } });
+        const json = (await res.json()) as { data?: TableStateNames };
+        if (alive && json.data) orderedNamesRef.current = orderedNames(json.data);
+      } catch {
+        /* mất mạng — tệ nhất là mời lại một món bàn đã gọi */
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [sentKey, session?.guest_token]);
 
   const sectionRefs = useRef(new Map<string, HTMLElement>());
 
@@ -184,9 +279,9 @@ export function MenuOrderPage(): JSX.Element {
    * 2026-10-02). Đọc giỏ thẳng từ store chứ không từ state: hamster gọi hàm này lúc món bay tới
    * tay (~0,6s sau khi bấm), và phải thấy cả món vừa thêm để không gợi ý lại chính nó. */
   const suggest = useCallback(
-    (itemId: string) =>
-      suggestPairing(itemId, groups, new Set(readTableCart().map((l) => l.menu_item_id))),
-    [groups],
+    (itemId: string, avoid: ReadonlySet<string>) =>
+      suggestOnAdd(itemId, groups, haveIds(groups, orderedNamesRef.current), combos, featured, avoid),
+    [groups, combos, featured],
   );
 
   const filtered = useMemo(() => {
@@ -233,6 +328,54 @@ export function MenuOrderPage(): JSX.Element {
      * tới nhóm còn đỡ chóng mặt hơn là nhìn 600 món chạy vụt qua. */
     window.scrollTo(0, y);
   }, [stickH]);
+
+  /* ── Xoá ô tìm (chủ quán chốt 2026-10-03) ──
+   * Bấm chip nhóm hoặc thêm món xong thì xoá chữ đang tìm. Danh sách lúc đó đang là kết quả lọc;
+   * xoá chữ xong nó thành cả thực đơn, nên phải nhảy SAU lần vẽ đó — tới nhóm vừa bấm, hoặc tới
+   * đúng món vừa thêm (không thì khách bị ném về một chỗ lạ giữa 600 món). */
+  const pendingJumpRef = useRef<{ group?: string; item?: string } | null>(null);
+  const clearSearchThen = useCallback((jump: { group?: string; item?: string }) => {
+    pendingJumpRef.current = jump;
+    setQ('');
+    // Cất bàn phím đi: khách đã chọn xong, bàn phím đang che nửa thực đơn.
+    if (document.activeElement instanceof HTMLInputElement) document.activeElement.blur();
+  }, []);
+  useEffect(() => {
+    const jump = pendingJumpRef.current;
+    if (!jump || q) return;
+    pendingJumpRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      if (jump.group) {
+        jumpTo(jump.group);
+        return;
+      }
+      const card = document.querySelector(`[data-item-id="${jump.item}"]`);
+      if (card) {
+        const r = card.getBoundingClientRect();
+        // Đặt thẻ món ngay dưới khối dính, chừa một khoảng để thấy món phía trên.
+        window.scrollTo(0, Math.max(0, r.top + window.scrollY - stickH - 80));
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [filtered, q, jumpTo, stickH]);
+  // Mọi đường thêm món (nút +, bộ đếm, hộp chi tiết, lời mời của nhân vật) đều phát 'add' lên kênh
+  // này — nghe một chỗ thay vì sửa từng nút. Đang không tìm thì không làm gì.
+  const qRef = useRef(q);
+  qRef.current = q;
+  useEffect(
+    () =>
+      onMascot((e) => {
+        if (e.type === 'add' && qRef.current) clearSearchThen({ item: e.itemId });
+      }),
+    [clearSearchThen],
+  );
+
+  /** Món đề xuất tra ra món thật, đúng thứ tự chủ quán xếp; món đã xoá/ẩn khỏi thực đơn thì bỏ. */
+  const featuredItems = useMemo(() => {
+    const byId = new Map(groups.flatMap((g) => g.items).map((i) => [i.id, i]));
+    return featured.map((id) => byId.get(id)).filter((it): it is PublicMenuItem => !!it);
+  }, [groups, featured]);
+  const inCartIds = useMemo(() => new Set(cart.map((l) => l.menu_item_id)), [cart]);
 
   const openCart = useCallback(() => {
     emitMascot(session ? { type: 'open-cart', count: cartCount } : { type: 'enter-table' });
@@ -296,15 +439,18 @@ export function MenuOrderPage(): JSX.Element {
       </header>
 
       {/* ── Dải nhóm món: MỘT hàng, lướt trái/phải ─────────────────────────────────────── */}
+      {/* Luôn hiện ĐỦ nhóm, kể cả lúc đang tìm (chủ quán chốt 2026-10-03) — trước đây dải này lọc
+          theo kết quả tìm, gõ vài chữ là các nhóm biến mất. */}
       <nav className="mo-rail" aria-label="Nhóm món">
-        {filtered.map((g) => (
+        {groups.map((g) => (
           <button
             key={g.id}
             type="button"
             className={`mo-rail-chip${activeGroup === g.id ? ' is-on' : ''}`}
             onClick={() => {
               emitMascot({ type: 'category', name: g.name });
-              jumpTo(g.id);
+              if (q) clearSearchThen({ group: g.id });
+              else jumpTo(g.id);
             }}
           >
             {g.name}
@@ -364,7 +510,7 @@ export function MenuOrderPage(): JSX.Element {
 
       {/* Bé hamster góc dưới phải. Chỉ dựng sau khi thực đơn về: hai tấm sprite (~110KB) không
           được giành băng thông 3G với dữ liệu món lúc mở trang. */}
-      {menu.data ? <Suspense fallback={null}><MenuMascot
+      {menu.data && !mascotHidden ? <Suspense fallback={null}><MenuMascot
           cartCount={cartCount}
           sentKey={sentKey}
           raised={cartCount > 0}
@@ -373,7 +519,22 @@ export function MenuOrderPage(): JSX.Element {
           cartTotal={cartTotal}
           suggest={suggest}
           searchMiss={q.trim() && groups.length > 0 && filtered.length === 0 ? q.trim() : null}
+          onHide={() => toggleMascot(true)}
+          featuredItems={featuredItems}
+          inCartIds={inCartIds}
         /></Suspense> : null}
+      {/* Nhân vật đã ẩn: chỉ còn chấm tròn nhỏ ở góc để gọi lại — đủ nhỏ để người đã thấy phiền
+          không bị làm phiền thêm. Có giỏ thì đứng trên nút giỏ. */}
+      {menu.data && mascotHidden ? (
+        <button
+          type="button"
+          className={`mo-mascot-restore${cartCount > 0 ? ' is-raised' : ''}`}
+          aria-label="Hiện lại bạn nhỏ đồng hành"
+          onClick={() => toggleMascot(false)}
+        >
+          🐾
+        </button>
+      ) : null}
 
       {sheet === 'entry' && (
         <TableEntrySheet
@@ -459,6 +620,7 @@ const MenuCard = memo(function MenuCard({
 }) {
   return (
     <article
+      data-item-id={it.id}
       className={`mo-card${it.is_out_of_stock ? ' is-out' : ''}${
         qty > 0 ? ' is-picked' : ''
       }`}
@@ -780,4 +942,14 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 @keyframes mo-count-pop{ 0%{ transform:scale(1); } 35%{ transform:scale(1.25); } 100%{ transform:scale(1); } }
 @media (prefers-reduced-motion: reduce){ .mo-fab-count{ animation:none; } }
 .mo-fab-text i{ font-size:12px; font-style:normal; opacity:.85; }
+
+/* Chấm gọi lại nhân vật đã ẩn. 40px + mờ nhẹ: thấy được nếu tìm, không đập vào mắt nếu không.
+   Góc TRÁI: bên phải là cột nút + của thẻ món — đặt ở đó là che nút (đo 2026-10-03). */
+.mo-mascot-restore{
+  position:fixed; left:12px; z-index:190; bottom:calc(12px + env(safe-area-inset-bottom,0px));
+  width:40px; height:40px; padding:0; border-radius:50%;
+  border:1.5px solid #f4b4a4; background:#fff; font-size:18px; line-height:1; cursor:pointer;
+  opacity:.8; box-shadow:0 2px 8px rgb(42 29 20 / 16%);
+}
+.mo-mascot-restore.is-raised{ bottom:calc(84px + env(safe-area-inset-bottom,0px)); }
 `;
