@@ -176,6 +176,36 @@ const CHARACTERS: Character[] = [
 const EXCLAIMS = ['Đỉnh nóc kịch trần!', '10 điểm không có nhưng!', 'Hết nước chấm!', 'Thề, ngon xỉu!'];
 /** Cảm thán khi BẤT NGỜ / hờn dỗi (bớt món, món hết, tìm không ra) — khen món mà "Uả alo" là lệch. */
 const HUH = ['Uả alo?', 'Gì vậy trời?'];
+/* ── Vòng quay xổ số của nút ⭐ (chủ quán chốt 2026-10-03) ──
+ * Tên món chạy trong bong bóng ~2 giây, chậm dần rồi dừng ở món được chọn. Món được chọn bốc
+ * TRƯỚC khi quay — vòng quay chỉ là màn trình diễn, không phải cách chọn. Khoảng cách giữa hai
+ * lần đổi tên tăng dần 45ms → ~300ms (bình phương): nhanh lúc đầu, rề rà về cuối cho hồi hộp. */
+const SPIN_TOTAL_MS = 2000;
+function spinDelays(): number[] {
+  const out: number[] = [];
+  let sum = 0;
+  for (let k = 0; sum < SPIN_TOTAL_MS; k++) {
+    const d = Math.round(45 + 255 * Math.min(1, k / 18) ** 2);
+    out.push(d);
+    sum += d;
+  }
+  return out;
+}
+/** Lắc lư hồi hộp trong lúc quay — đúng bằng thời gian quay. */
+const SPIN_WOBBLE: Move = {
+  ms: SPIN_TOTAL_MS,
+  frames: [
+    { transform: 'rotate(0)' },
+    { transform: 'rotate(-7deg)', offset: 0.1 },
+    { transform: 'rotate(7deg)', offset: 0.25 },
+    { transform: 'rotate(-6deg)', offset: 0.4 },
+    { transform: 'rotate(6deg)', offset: 0.55 },
+    { transform: 'rotate(-4deg)', offset: 0.7 },
+    { transform: 'rotate(3deg)', offset: 0.85 },
+    { transform: 'rotate(0)' },
+  ],
+};
+
 /** Chào tạm biệt bao lâu rồi mới ẩn hẳn: đủ đọc một câu ngắn, không bắt khách chờ lâu. */
 const BYE_MS = 1800;
 /** Khách lờ lời mời một món bấy nhiêu lần thì thôi không mời món đó nữa trong lượt. */
@@ -468,6 +498,9 @@ export function MenuMascot(props: Props): JSX.Element {
   const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, suggest, searchMiss, onHide, featuredItems, inCartIds } = props;
   /** Món đề xuất mời gần nhất qua nút ⭐ — bấm liền hai lần không ra y một món. */
   const lastStarPick = useRef<PairingItem | null>(null);
+  /** Ô quay đang hiện: ba tên (trên / giữa / dưới) + `key` đổi mỗi nhịp để chạy lại hiệu ứng trượt. */
+  const [spin, setSpin] = useState<{ prev: string; cur: string; next: string; key: number; done: boolean } | null>(null);
+  const spinningRef = useRef(false);
   // Hàm gợi ý đổi theo giỏ mỗi lần vẽ; phản ứng chạy trong callback cũ (món bay xong mới gọi)
   // nên phải đọc qua ref để luôn lấy bản mới nhất.
   const suggestRef = useRef(suggest);
@@ -1177,7 +1210,16 @@ export function MenuMascot(props: Props): JSX.Element {
       {/* aria-live để trình đọc màn hình đọc câu thoại; key đổi theo id để hiệu ứng hiện chạy lại
           cả khi câu mới trùng chữ câu cũ. */}
       <div className="mo-mascot-say" aria-live="polite">
-        {bubble ? (
+        {spin ? (
+          <div className={`mo-mascot-bubble mo-mascot-spin${spin.done ? ' is-done' : ''}`}>
+            <p className="mo-mascot-spin-title">{spin.done ? '🎉 Trúng rồi!' : '🎰 Đang quay…'}</p>
+            <div className="mo-mascot-spin-reel">
+              <span className="mo-mascot-spin-side">{spin.prev}</span>
+              <span key={spin.key} className="mo-mascot-spin-cur">{spin.cur}</span>
+              <span className="mo-mascot-spin-side">{spin.next}</span>
+            </div>
+          </div>
+        ) : bubble ? (
           <div
             key={bubble.id}
             className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}${bubble.offer ? ' has-offer' : ''}`}
@@ -1253,6 +1295,7 @@ export function MenuMascot(props: Props): JSX.Element {
         onClick={(e) => {
           e.stopPropagation();
           if (leaving) return;
+          setSpin(null);
           // Chào tạm biệt + mặt buồn rồi mới biến mất — tắt cái rụp trông như bị lỗi.
           setLeaving(true);
           move(LEAN);
@@ -1271,7 +1314,7 @@ export function MenuMascot(props: Props): JSX.Element {
           aria-label="Gợi ý một món quán đề xuất"
           onClick={(e) => {
             e.stopPropagation();
-            if (leaving) return;
+            if (leaving || spinningRef.current) return;
             primeSound();
             // Mời MỘT món ngẫu nhiên trong "món đề xuất" (chủ quán chốt 2026-10-03: không bày cả
             // danh sách). Bỏ món đã có trong giỏ / tạm hết; bấm lại là ra món khác.
@@ -1282,11 +1325,41 @@ export function MenuMascot(props: Props): JSX.Element {
               playMascotSound('ting');
               return;
             }
+            if (spinningRef.current) return; // đang quay — bấm thêm không quay chồng
+            spinningRef.current = true;
             const it = pickFresh(pool, lastStarPick);
-            move(HOP);
-            play('sparkle');
-            say(pick(LINES.starIntro), SAY_MS, false, { item: it, line: pick(me.featured)(short(it.name)) });
-            playMascotSound('sparkle');
+            // Cuộn tên: đủ món đề xuất (kể cả món đã có trong giỏ) cho cuộn dài và đa dạng, xáo
+            // ngẫu nhiên, lặp vòng; ô CUỐI là món đã chọn.
+            const names = featuredItems.map((x) => short(x.name)).sort(() => Math.random() - 0.5);
+            const delays = spinDelays();
+            const at = (k: number) => names[(k + names.length * 8) % names.length]!;
+            const target = short(it.name);
+            setBubble(null);
+            move(SPIN_WOBBLE);
+            play('surprised');
+            playMascotSound('sparkle'); // tiếng mở màn trước tràng tích tắc
+            let t = 0;
+            delays.forEach((d, k) => {
+              t += d;
+              const last = k === delays.length - 1;
+              later(t, () => {
+                const cur = last ? target : at(k);
+                setSpin({ prev: last ? at(k - 1) : at(k - 1), cur, next: at(k + 1), key: k, done: last });
+                playMascotSound(last ? 'jackpot' : 'tick');
+              });
+            });
+            // Dừng: nhảy lên vui, giữ ô trúng một nhịp cho khách kịp nhìn, rồi chuyển thành lời mời.
+            later(t + 50, () => {
+              move(HOP);
+              play('delighted');
+              const r = myRect();
+              if (r && !LITE) burstAt(r, true);
+            });
+            later(t + 700, () => {
+              setSpin(null);
+              spinningRef.current = false;
+              say(pick(LINES.starIntro), SAY_MS, true, { item: it, line: pick(me.featured)(target) });
+            });
           }}
         >
           ⭐
@@ -1417,6 +1490,22 @@ const MENU_MASCOT_CSS = `
   0%,100%{ transform:rotate(0); } 20%{ transform:rotate(-4deg) scale(1.04); }
   45%{ transform:rotate(3deg) scale(1.04); } 70%{ transform:rotate(-2deg); }
 }
+/* Ô quay xổ số trong bong bóng: ba dòng, dòng giữa to + đậm + có vạch hai bên như cửa sổ máy quay
+   số; mỗi lần đổi tên dòng giữa trượt từ trên xuống. Trúng thì viền đậm hơn và nảy một cái. */
+.mo-mascot-spin{ border-radius:22px; padding:8px 16px 10px; min-width:190px; }
+.mo-mascot-spin-title{ font-size:13px !important; color:#9a6a58; }
+.mo-mascot-spin-reel{ display:flex; flex-direction:column; align-items:center; margin-top:4px; }
+.mo-mascot-spin-side{ font-size:12px; line-height:1.3; color:#c9a596; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+.mo-mascot-spin-cur{
+  display:block; width:100%; margin:2px 0; padding:4px 10px; border-radius:10px;
+  background:#fdeae4; border-left:3px solid #f4b4a4; border-right:3px solid #f4b4a4;
+  font-size:17px; line-height:1.3; color:#b82a1e; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  animation:mo-mascot-reel .09s ease-out;
+}
+.mo-mascot-spin.is-done{ border-color:#e8846f; }
+.mo-mascot-spin.is-done .mo-mascot-spin-cur{ background:#b82a1e; color:#fff; border-color:#b82a1e; animation:mo-mascot-win .45s cubic-bezier(.34,1.56,.64,1); }
+@keyframes mo-mascot-reel{ from{ transform:translateY(-60%); opacity:.3; } to{ transform:none; opacity:1; } }
+@keyframes mo-mascot-win{ 0%{ transform:scale(.8); } 60%{ transform:scale(1.12); } 100%{ transform:scale(1); } }
 @keyframes mo-mascot-pop{
   from{ opacity:0; transform:scale(.4); }
   to{ opacity:1; transform:scale(1); }
