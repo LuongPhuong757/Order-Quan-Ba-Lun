@@ -173,6 +173,19 @@ const BANK = {
     () => { tone({ from: N.C6, to: N.A5, ms: 220 }); tone({ from: N.A5, to: N.E5, ms: 360, at: 260, vib: [7, 0.02] }); },
     () => notes([N.G6, N.E6, N.C6], 160, 180, { type: 'triangle', vib: [6, 0.015] }),
   ],
+  /** Vòng quay ⭐ — "tích" mỗi lần đổi tên. Rất ngắn, đổi cao độ ngẫu nhiên trong ngũ cung cho
+   *  nghe như bánh xe lách cách chứ không đều như máy. */
+  tick: [
+    () => tone({ from: N.G6, to: N.A6, ms: 28, vol: 0.55 }),
+    () => tone({ from: N.E6, to: N.G6, ms: 28, vol: 0.55 }),
+    () => tone({ from: N.A6, to: N.C7, ms: 28, vol: 0.55 }),
+    () => tone({ from: N.D6, to: N.E6, ms: 28, vol: 0.55 }),
+  ],
+  /** Vòng quay dừng — "ting ting" trúng thưởng. */
+  jackpot: [
+    () => { notes([N.C7, N.E7], 90, 70); tone({ from: N.G6 * 2, ms: 420, at: 150, vib: [8, 0.01] }); },
+    () => { notes([N.G6, N.C7, N.E7], 80, 60); tone({ from: N.C7 * 1.5, ms: 380, at: 190, vib: [9, 0.012] }); },
+  ],
   /** Mở món / chọn nhóm — chạm rất khẽ, không lấn tiếng chính. */
   blip: [
     () => tone({ from: N.E6, to: N.G6, ms: 60, vol: 0.55 }),
