@@ -18,7 +18,8 @@ import {
 // mất khỏi menu mà trang vẫn trông hoàn toàn bình thường.
 
 function item(id: string, name: string, code = id): PublicMenuItem {
-  return { id, code, name, price: 50_000, unit: 'phần', images: [], is_out_of_stock: false };
+  // description/serves: null — hai cột thêm 2026-10-05, test này không quan tâm tới chúng.
+  return { id, code, name, price: 50_000, unit: 'phần', images: [], is_out_of_stock: false, description: null, serves: null };
 }
 
 function group(code: string, name: string, items: PublicMenuItem[]): PublicMenuGroup {

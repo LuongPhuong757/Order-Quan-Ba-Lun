@@ -75,6 +75,42 @@ export class MenuCombosController {
     return { data: { item_ids: ids } };
   }
 
+  /* ── Bật/tắt MỘT món, cho nút ⭐ trên từng thẻ ở màn Thực đơn (chủ quán chốt 2026-10-05) ──
+   *
+   * Vì sao KHÔNG dùng lại PUT featured cho nút đó: nút trên thẻ phải "bấm là lưu ngay", mà PUT
+   * thay CẢ danh sách. Bật thêm một món bằng PUT thì màn phải đọc cả danh sách, chèn id vào, rồi
+   * ghi đè lại — hai người cùng sửa (chủ quán ở quầy, nhân viên trên điện thoại) là bản ghi sau
+   * xoá sạch món của bản ghi trước, và không ai thấy gì bất thường cả.
+   *
+   * PUT vẫn giữ: nó là đường của màn sắp thứ tự, nơi gửi cả danh sách mới là đúng ý định.
+   *
+   * Cả hai IDEMPOTENT — bấm hai lần hoặc mạng gửi lại đều ra đúng một kết quả. */
+
+  @Post('featured/:itemId')
+  @HttpCode(200)
+  async addFeatured(@Param('itemId') itemId: string) {
+    const [ok] = await this.clean([itemId]);
+    if (!ok) {
+      // Mã ngoài FRIENDLY_VN để câu tiếng Việt đi thẳng tới người dùng (CLAUDE.md §5).
+      throw new NotFoundException({
+        code: 'MENU_ITEM_NOT_FOUND',
+        message: 'Món này không còn trong thực đơn — bạn tải lại trang nhé.',
+      });
+    }
+    // Đẩy xuống CUỐI: món bật sau nằm sau, giữ nguyên thứ tự chủ quán đã sắp từ trước.
+    const max = await this.featuredRepo.maximum('sort_order');
+    await this.featuredRepo.upsert({ menu_item_id: ok, sort_order: (max ?? -1) + 1 }, ['menu_item_id']);
+    return { data: { menu_item_id: ok, featured: true } };
+  }
+
+  @Delete('featured/:itemId')
+  async removeFeatured(@Param('itemId') itemId: string) {
+    // KHÔNG kiểm món có còn trong thực đơn không: bỏ một món đã bị xoá vẫn phải chạy được, không
+    // thì dòng rác nằm lại vĩnh viễn mà không có đường nào gỡ.
+    await this.featuredRepo.delete({ menu_item_id: itemId });
+    return { data: { menu_item_id: itemId, featured: false } };
+  }
+
   @Post()
   @HttpCode(201)
   async create(@Body() dto: CreateComboDto) {

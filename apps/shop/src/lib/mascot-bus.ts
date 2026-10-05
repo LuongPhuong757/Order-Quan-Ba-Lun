@@ -49,7 +49,16 @@ export type MascotEvent =
   | { type: 'table-wrong' }
   | { type: 'switch-table' }
   /** Gọi nhân viên / xin tính tiền đã gửi thành công. */
-  | { type: 'call'; kind: 'STAFF' | 'BILL' };
+  | { type: 'call'; kind: 'STAFF' | 'BILL' }
+  /** Bếp đã DUYỆT lượt khách gửi (2026-10-05).
+   *
+   * Khoảnh khắc cảm xúc mạnh nhất của cả luồng mà trước đây linh vật hoàn toàn im lặng: khách
+   * gửi món đi, hồi hộp chờ quán xác nhận, rồi không có gì xảy ra cả. Dữ liệu vốn đã có — màn
+   * Món của bàn poll `/table/state` — chỉ là chưa ai báo cho nhân vật. */
+  | { type: 'order-approved'; count: number }
+  /** Lượt bị bỏ (món hết sạch, hoặc nhân viên bấm "Bỏ lượt"). Phải báo, không thì khách ngồi
+   *  chờ một món không bao giờ tới mà màn hình không nói gì — đúng loại lỗi im lặng M7.R7 tránh. */
+  | { type: 'order-rejected' };
 
 const listeners = new Set<(e: MascotEvent) => void>();
 

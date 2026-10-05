@@ -8,10 +8,12 @@ import {
   TableCartSheet,
   TableConfirmSheet,
   TableEntrySheet,
+  TableCallSheet,
   TableStateSheet,
 } from '../components/DineInSheets.tsx';
 import { emitMascot, onMascot } from '../lib/mascot-bus.ts';
-import { suggestOnAdd } from '../lib/menu-pairing.ts';
+import { suggestManyForItem, suggestOnAdd, type PairingItem } from '../lib/menu-pairing.ts';
+import { pickDrinks } from '../lib/drink-groups.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -88,6 +90,19 @@ type TableStateNames = {
   waiting?: { items: { name: string }[] }[];
   ordered?: { name: string }[];
 };
+/** Thêm hai thứ cần để nhận ra quán đã duyệt lượt: id lượt chờ và tạm tính. Khai rời khỏi
+ *  `TableStateNames` để rõ hai việc khác nhau đang đọc chung một payload. */
+type ApprovalWatch = {
+  table_name: string;
+  waiting: { request_id: string; items: { name: string }[] }[];
+  ordered: { name: string }[];
+  subtotal: number;
+};
+
+/** Nhịp hỏi "quán nhận chưa". 8 giây: bếp bấm Duyệt là việc của người, không ai đo bằng giây;
+ *  nhanh hơn chỉ tốn request chứ không làm khách vui hơn. */
+const POLL_MS = 8000;
+
 function orderedNames(d: TableStateNames): Set<string> {
   const names = new Set<string>();
   for (const w of d.waiting ?? []) for (const it of w.items) names.add(it.name);
@@ -150,7 +165,7 @@ export function MenuOrderPage(): JSX.Element {
   const [pendingSession, setPendingSession] = useState<TableSession | null>(null);
   // Chủ quán chốt 2026-10-01: vào thực đơn là PHẢI khai bàn trước, chưa khai thì không thao
   // tác tiếp được. Nên trạng thái ban đầu là 'entry' khi chưa có phiên — không phải 'none'.
-  const [sheet, setSheet] = useState<'none' | 'entry' | 'cart' | 'state'>(() =>
+  const [sheet, setSheet] = useState<'none' | 'entry' | 'cart' | 'state' | 'call'>(() =>
     readTableSession() ? 'none' : 'entry',
   );
   /* Giữ CẢ GIỎ chứ không chỉ con số tổng.
@@ -239,17 +254,59 @@ export function MenuOrderPage(): JSX.Element {
     const token = session?.guest_token;
     if (!token || sentKey === 0) return;
     let alive = true;
-    void (async () => {
+    let timer = 0;
+    /* Ảnh chụp lần poll trước, để nhận ra lượt chờ đã biến đi đâu. */
+    let prevWaiting: string[] | null = null;
+    let prevSubtotal = 0;
+
+    const tick = async () => {
+      if (!alive) return;
+      // Tab bị ẩn thì KHÔNG gọi mạng: khách chuyển sang Zalo một lúc không có lý do gì tốn request,
+      // và nhân vật có ăn mừng lúc đó cũng chẳng ai thấy. Vẫn hẹn lại để bắt tiếp khi quay về.
+      if (document.visibilityState !== 'visible') return again(POLL_MS);
       try {
         const res = await fetch('/api/public/table/state', { headers: { 'X-Guest-Token': token } });
-        const json = (await res.json()) as { data?: TableStateNames };
-        if (alive && json.data) orderedNamesRef.current = orderedNames(json.data);
+        const json = (await res.json()) as { data?: ApprovalWatch };
+        const d = json.data;
+        if (!alive || !d) return again(POLL_MS);
+
+        orderedNamesRef.current = orderedNames(d);
+        const waiting = d.waiting.map((w) => w.request_id);
+        const subtotal = d.subtotal;
+
+        if (prevWaiting !== null) {
+          const gone = prevWaiting.filter((id) => !waiting.includes(id));
+          if (gone.length > 0) {
+            /* Lượt biến khỏi hàng chờ = quán đã QUYẾT. Phân biệt duyệt với bỏ bằng TIỀN, không
+             * bằng số dòng: lượt được duyệt mà vài món hết hàng thì số dòng vào bill ít hơn số
+             * dòng đã gửi, nhưng tạm tính thì chắc chắn tăng. Lượt bị bỏ thì tiền đứng yên. */
+            if (subtotal > prevSubtotal) {
+              emitMascot({ type: 'order-approved', count: gone.length });
+            } else {
+              emitMascot({ type: 'order-rejected' });
+            }
+          }
+        }
+        prevWaiting = waiting;
+        prevSubtotal = subtotal;
+
+        // Hết lượt chờ thì DỪNG HẲN. Đây là thứ giữ cho tính năng này gần như không tốn gì:
+        // chỉ poll trong lúc thật sự đang đợi quán gật đầu, không phải suốt bữa ăn. Quan trọng
+        // vì cả quán đi chung một IP (M7.R6) và chốt chặn `guest:<token>` tới nay vẫn chưa làm.
+        if (waiting.length === 0) return;
       } catch {
-        /* mất mạng — tệ nhất là mời lại một món bàn đã gọi */
+        /* mất mạng — thử lại ở nhịp sau; tệ nhất là lỡ một lần ăn mừng */
       }
-    })();
+      again(POLL_MS);
+    };
+    const again = (ms: number) => {
+      if (alive) timer = window.setTimeout(() => void tick(), ms);
+    };
+
+    void tick();
     return () => {
       alive = false;
+      window.clearTimeout(timer);
     };
   }, [sentKey, session?.guest_token]);
 
@@ -282,6 +339,24 @@ export function MenuOrderPage(): JSX.Element {
     (itemId: string, avoid: ReadonlySet<string>) =>
       suggestOnAdd(itemId, groups, haveIds(groups, orderedNamesRef.current), combos, featured, avoid),
     [groups, combos, featured],
+  );
+
+  /* Món đi kèm cho dải trong hộp chi tiết. Khác `suggest` ngay trên: trả NHIỀU món và KHÔNG
+   * ngẫu nhiên — xem docblock `suggestManyForItem`.
+   *
+   * Đọc giỏ từ `qtyById` (state) chứ không từ store như `suggest`: dải này vẽ ĐỒNG THỜI với hộp,
+   * nên nó phải khớp với đúng cái màn hình đang hiện, không phải với giỏ của 0,6 giây sau. */
+  const pairsFor = useCallback(
+    (itemId: string) =>
+      suggestManyForItem(itemId, groups, new Set(qtyById.keys()), combos, featured),
+    [groups, qtyById, combos, featured],
+  );
+
+  /* Đồ uống để mời gọi thêm ở màn Món của bàn. Nhận diện theo TÊN NHÓM — xem `drink-groups.ts`,
+   * kể cả cái bẫy "Trần- Hấp" chứa chuỗi "tra". */
+  const drinks = useMemo(
+    () => pickDrinks(groups, new Set(qtyById.keys())),
+    [groups, qtyById],
   );
 
   const filtered = useMemo(() => {
@@ -490,7 +565,7 @@ export function MenuOrderPage(): JSX.Element {
 
       {/* ── Hộp chi tiết món: ảnh to, số lượng, ghi chú ────────────────────────────────── */}
       {sheetItem ? (
-        <ItemSheet item={sheetItem} onClose={() => setSheetItem(null)} />
+        <ItemSheet item={sheetItem} pairs={pairsFor(sheetItem.id)} onClose={() => setSheetItem(null)} />
       ) : null}
 
       {/* ── Nút giỏ nổi. Bỏ chữ "Xem giỏ" theo yêu cầu chủ quán; số tiền là phần tử riêng
@@ -520,6 +595,19 @@ export function MenuOrderPage(): JSX.Element {
           suggest={suggest}
           searchMiss={q.trim() && groups.length > 0 && filtered.length === 0 ? q.trim() : null}
           onHide={() => toggleMascot(true)}
+          /* Chưa khai bàn thì chưa gọi nhân viên được (API cần `guest_token`) — đưa khách về
+             cổng nhập số bàn thay vì để nút bấm vào không ra gì. */
+          /* Nút 🔔 mở tấm RIÊNG, không tái dùng tấm "Món của bàn" (chủ quán chốt 2026-10-05):
+             tấm đó còn khoe mã bàn, liệt kê món và tạm tính — mở ra chỉ để xin thêm bát đũa là
+             phải lướt qua cả cái bill mới tới chỗ cần. */
+          onCallStaff={() => {
+            if (!session) {
+              emitMascot({ type: 'enter-table' });
+              setSheet('entry');
+              return;
+            }
+            setSheet('call');
+          }}
           featuredItems={featuredItems}
           inCartIds={inCartIds}
         /></Suspense> : null}
@@ -574,6 +662,10 @@ export function MenuOrderPage(): JSX.Element {
           setSheet('state');
         }} />
       )}
+      {sheet === 'call' && session ? (
+        <TableCallSheet session={session} onClose={() => setSheet('none')} />
+      ) : null}
+
       {sheet === 'state' && session && (
         <TableStateSheet
           session={session}
@@ -584,6 +676,17 @@ export function MenuOrderPage(): JSX.Element {
           /* Đổi bàn: chỉ gỡ phiên của MÁY NÀY rồi hỏi lại số bàn. Giữ nguyên giỏ đang chọn —
              khách khai nhầm bàn thì món họ vừa chọn vẫn là món họ muốn, bắt chọn lại từ đầu
              là phạt nhầm người. */
+          drinks={drinks}
+          /* Mở tấm giỏ từ trong màn Món của bàn. `setSheet` chứ không mở chồng tấm: hai tấm
+             chồng nhau thì nút ✕ của tấm trên đóng nhầm cả hai, và khoá cuộn nền tính sai. */
+          onOpenCart={() => setSheet('cart')}
+          /* Gọi lại / gọi thêm đồ uống: thêm thẳng vào giỏ rồi để nhân vật phản ứng như mọi lần
+             thêm món khác — khách không phân biệt được "thêm từ thực đơn" với "thêm từ màn món
+             của bàn", nên hai chỗ phải cho cùng một cảm giác. */
+          onReorder={(it, from) => {
+            emitAddFrom(from, { id: it.id, name: it.name, images: [] });
+            addTableLine({ menu_item_id: it.id, name: it.name, unit_price: it.price, note: '' });
+          }}
           onSwitchTable={() => {
             emitMascot({ type: 'switch-table' });
             writeTableSession(null);
@@ -702,7 +805,9 @@ const MenuCard = memo(function MenuCard({
 
 /** Báo bé hamster: món này vừa được bấm thêm, từ chỗ này (món bay từ ảnh của ô món nếu tìm thấy).
  *  Gọi TRƯỚC khi đổi giỏ — hamster cần biết lượt tăng giỏ sắp tới là do bấm +. */
-function emitAddFrom(el: Element, item: PublicMenuItem): void {
+/** Nhận bất cứ thứ gì có đủ ba trường nó ĐỌC, không đòi nguyên `PublicMenuItem`: dải món ăn
+ *  kèm truyền vào `PairingItem` (không có `code`/`unit`) và nó chạy đúng y hệt. */
+function emitAddFrom(el: Element, item: { id: string; name: string; images: string[] }): void {
   const thumb = el.closest('.mo-card')?.querySelector('.mo-thumb') ?? el;
   emitMascot({
     type: 'add',
@@ -714,9 +819,24 @@ function emitAddFrom(el: Element, item: PublicMenuItem): void {
 }
 
 /** Hộp chi tiết một món — chỗ DUY NHẤT tên món được xuống dòng đầy đủ. */
-function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => void }) {
+function ItemSheet({
+  item,
+  pairs,
+  onClose,
+}: {
+  item: PublicMenuItem;
+  /** Món đi kèm (xem `suggestManyForItem`). Rỗng = ẩn hẳn dải, KHÔNG vẽ khung trống.
+   *  `PairingItem` chứ không `PublicMenuItem`: dải chỉ cần ảnh/tên/giá, ép kiểu rộng hơn thì
+   *  phải bịa ra `code`/`unit` mà không chỗ nào dùng tới. */
+  pairs: PairingItem[];
+  onClose: () => void;
+}) {
   const [qty, setQty] = useState(1);
   const [note, setNote] = useState('');
+  /* Món trong dải gợi ý đã bấm thêm. Giữ ở state cục bộ chứ không đọc lại giỏ: dải phải ĐỨNG
+   * YÊN sau khi bấm — nếu món tự biến mất khỏi dải thì ngón tay đang ở đó sẽ bấm trượt sang món
+   * kế bên. Chỉ đổi nhãn nút thành dấu ✓. */
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   // Đóng mà KHÔNG thêm (✕ hoặc chạm nền) — khác với đóng sau khi thêm, hamster nói câu khác.
   const dismiss = () => {
     emitMascot({ type: 'close-item' });
@@ -738,6 +858,13 @@ function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => voi
           {item.images[0] ? <img className="mo-sheet-img" src={item.images[0]} alt="" /> : null}
           <h3 className="mo-sheet-name">{item.name}</h3>
           <p className="mo-sheet-price">{vnd(item.price)} / {item.unit}</p>
+          {/* Mô tả + mấy người ăn (2026-10-05) — chỉ hiện khi chủ quán ĐÃ viết. Chưa viết thì
+              không vẽ gì cả: 598 món còn lâu mới viết hết, và một dòng trống ở đây làm hộp cao
+              lên mà không nói gì. Đây là thứ giúp khách dám gọi món lạ thay vì gọi lại món quen. */}
+          {item.serves != null ? (
+            <p className="mo-sheet-serves">👥 Khoảng {item.serves} người ăn</p>
+          ) : null}
+          {item.description ? <p className="mo-sheet-desc">{item.description}</p> : null}
           <div className="dinein-line-ctl">
             <button type="button" onClick={() => changeQty(Math.max(1, qty - 1))}>−</button>
             <b>{qty}</b>
@@ -750,6 +877,43 @@ function ItemSheet({ item, onClose }: { item: PublicMenuItem; onClose: () => voi
             />
           </div>
         </div>
+        {/* ── Dải món đi kèm ───────────────────────────────────────────────────────────────
+            Đặt NGAY TRÊN nút Thêm, trong lòng hộp, vì đây là khoảnh khắc khách dễ gọi thêm nhất:
+            đang nhìn món, tay đã ở trên nút. Nhân vật cũng mời món, nhưng mời SAU khi đã bấm
+            Thêm, bằng bong bóng ở góc màn và tự tắt sau vài giây — hai chỗ không thay nhau được.
+
+            Bấm ＋ ở đây KHÔNG đóng hộp: khách còn đang chọn số lượng cho món chính, đóng hộp là
+            mất cả thao tác đang làm dở. */}
+        {pairs.length > 0 ? (
+          <div className="mo-pairs">
+            <p className="mo-pairs-title">Ăn kèm hợp lắm</p>
+            <div className="mo-pairs-row">
+              {pairs.map((p) => {
+                const done = added.has(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    className={`mo-pair${done ? ' is-added' : ''}`}
+                    disabled={done}
+                    onClick={(e) => {
+                      emitAddFrom(e.currentTarget, p);
+                      addTableLine({ menu_item_id: p.id, name: p.name, unit_price: p.price, note: '' });
+                      setAdded((s) => new Set(s).add(p.id));
+                    }}
+                  >
+                    <span className="mo-pair-thumb">
+                      {p.images[0] ? <img src={p.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
+                    </span>
+                    <span className="mo-pair-name">{p.name}</span>
+                    <span className="mo-pair-price">{done ? '✓ Đã thêm' : vnd(p.price)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ) : null}
+
         <div className="dinein-foot">
           <button
             type="button"
@@ -891,6 +1055,40 @@ html,body{ margin:0; max-width:100%; overflow-x:clip; }
 .mo-unit{ margin:2px 0 0; font-size:13px; color:var(--text-muted);
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .mo-price{ margin:4px 0 0; font-size:17px; font-weight:800; color:var(--brand-500); }
+/* ── Dải món ăn kèm trong hộp chi tiết (2026-10-05) ──
+   Cuộn NGANG, không wrap: dải wrap thành hai hàng là đẩy nút "Thêm N phần" xuống dưới mép màn
+   trên điện thoại nhỏ, và nút chính không được phép rời khỏi tầm mắt. */
+/* Mô tả món + mấy người ăn trong hộp chi tiết (2026-10-05). */
+.mo-sheet-serves{
+  margin:6px 0 0; font-size:14px; font-weight:700; color:var(--wood-700,#8c5610);
+}
+.mo-sheet-desc{
+  margin:6px 0 0; font-size:14.5px; line-height:1.5; color:#5a4a42;
+}
+
+.mo-pairs{ padding:0 16px 4px; }
+.mo-pairs-title{ margin:0 0 8px; font-size:14px; font-weight:700; color:var(--wood-700,#8c5610); }
+.mo-pairs-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; -webkit-overflow-scrolling:touch; }
+.mo-pair{
+  flex:0 0 auto; width:104px; padding:8px; border:1.5px solid var(--brand-050,#fef6f3);
+  border-radius:12px; background:#fff; cursor:pointer; text-align:left;
+  display:flex; flex-direction:column; gap:4px;
+}
+.mo-pair-thumb{
+  display:block; width:100%; aspect-ratio:1; border-radius:8px; overflow:hidden;
+  background:var(--brand-050,#fef6f3); display:grid; place-items:center; font-size:26px;
+}
+.mo-pair-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+/* Tên món HAI dòng rồi cắt: một dòng thì "Chân Gà Chiên Giòn Rút Xương" chỉ còn "Chân Gà…",
+   khách không biết đang được mời món gì. Khoá chiều cao để các thẻ bằng nhau. */
+.mo-pair-name{
+  font-size:13px; font-weight:600; line-height:1.3; height:2.6em; overflow:hidden;
+  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.mo-pair-price{ font-size:13px; font-weight:800; color:var(--brand-600,#b82a1e); }
+.mo-pair.is-added{ border-color:var(--brand-500,#cf3323); background:var(--brand-050,#fef6f3); opacity:.85; }
+.mo-pair:disabled{ cursor:default; }
+
 .mo-add{
   flex:none; width:44px; height:44px; border-radius:10px; border:none; cursor:pointer;
   background:var(--brand-600); color:#fff; font-size:26px; line-height:1;

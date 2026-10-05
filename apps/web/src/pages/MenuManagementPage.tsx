@@ -54,6 +54,9 @@ type MenuItem = {
   price: number;
   unit: string;
   image_url: string | null;
+  /** Mô tả ngắn + mấy người ăn (2026-10-05). NULL = chưa viết; trang khách tự ẩn dòng đó. */
+  description: string | null;
+  serves: number | null;
   is_out_of_stock: boolean;
   /** Bếp/phục vụ bật khi món ế — món nổi lên dải "nên mời khách" ở màn Gọi món. */
   is_push_sale: boolean;
@@ -65,7 +68,11 @@ function formatVND(v: number): string {
 }
 
 type SortMode = 'newest' | 'name' | 'group' | 'price_desc' | 'price_asc' | 'cost_desc' | 'pct_desc';
-type StockFilter = '' | 'out' | 'in' | 'push';
+/* Một ô trạng thái duy nhất cho CẢ hàng chip lọc, dù chúng đi lên server bằng hai tham số khác
+ * nhau (`stock` và `photo`). Lý do: với chủ quán đây là MỘT hàng "đang xem nhóm món nào", chọn
+ * cái này là bỏ cái kia. Tách thành hai ô trạng thái thì phải nghĩ xem "đang hết hàng" cộng
+ * "chưa có ảnh" nghĩa là gì, mà không ai cần câu trả lời đó. */
+type StockFilter = '' | 'out' | 'in' | 'push' | 'nophoto';
 const PAGE_SIZE = 30;
 
 export function MenuManagementPage() {
@@ -93,6 +100,16 @@ export function MenuManagementPage() {
   // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
   const [showMenuBook, setShowMenuBook] = useState(false);
   const [showCombos, setShowCombos] = useState(false);
+  /* "Món đề xuất" — danh sách món nhân vật ở thực đơn tại bàn mời khách khi món vừa thêm nằm
+   * ngoài mọi combo (xem apps/shop/src/lib/menu-pairing.ts).
+   *
+   * Chọn NGAY TẠI ĐÂY, trên từng thẻ món (chủ quán chốt 2026-10-05, chuyển khỏi panel "Combo
+   * gợi ý"): ở panel thì phải gõ TÌM LẠI TÊN món mình vừa nhìn thấy trên chính lưới này — đúng
+   * chỗ bất tiện chủ quán nêu. Lưới này đã có sẵn ô tìm, bộ lọc nhóm và ảnh món.
+   *
+   * Giữ danh sách id rời chứ KHÔNG gắn cờ vào `MenuItem`: cờ sẽ phải đi qua `GET /menu` và mọi
+   * nơi khác đọc menu, trong khi đây là một bảng rời mà chỉ màn này cần. */
+  const [featuredIds, setFeaturedIds] = useState<Set<string>>(new Set());
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
@@ -190,19 +207,26 @@ export function MenuManagementPage() {
     try {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
-      if (stockFilter) q.set('stock', stockFilter);
+      // 'nophoto' đi bằng tham số RIÊNG `photo`, không phải `stock` — nó không nói gì về tồn kho.
+      if (stockFilter === 'nophoto') q.set('photo', 'no');
+      else if (stockFilter) q.set('stock', stockFilter);
       if (debouncedSearch) q.set('q', debouncedSearch);
       q.set('sort', sort);
       q.set('page', String(page));
       q.set('page_size', String(PAGE_SIZE));
       q.set('include_inactive', 'true');
-      const [itemsRes, groupsRes] = await Promise.all([
+      /* Món đề xuất tải CÙNG nhịp với lưới, không phải một effect riêng chạy một lần lúc vào
+         màn: đổi trang / đổi bộ lọc là lưới vẽ lại, và nếu danh sách đề xuất không được đọc lại
+         cùng lúc thì nút ⭐ của trang mới hiện theo dữ liệu cũ. */
+      const [itemsRes, groupsRes, featRes] = await Promise.all([
         api.get<{ data: { items: MenuItem[]; total: number } }>(`/menu?${q.toString()}`),
         api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
+        api.get<{ data: { item_ids: string[] } }>('/menu-combos/featured'),
       ]);
       setItems(itemsRes.data.data.items);
       setTotal(itemsRes.data.data.total);
       setGroups(groupsRes.data.data.items);
+      setFeaturedIds(new Set(featRes.data.data.item_ids));
       loadRecipeCounts(itemsRes.data.data.items.map((i) => i.id));
       loadFoodCost();
     } catch (err) {
@@ -225,6 +249,35 @@ export function MenuManagementPage() {
       toast.push('success', `${it.name} → ${it.is_out_of_stock ? 'Có lại' : 'Hết'}`);
       refresh({ silent: true });
     } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  /** Bật/tắt "món đề xuất" — BẤM LÀ LƯU NGAY, không có nút Lưu, không mở gì cả.
+   *
+   * Cùng lệ với `togglePushSale` ngay dưới: không hỏi xác nhận, vì đúng cú bấm đó đảo ngược được.
+   *
+   * Vì sao gọi `POST`/`DELETE` một món chứ không `PUT` cả danh sách: `PUT` thay TOÀN BỘ, nên để
+   * bật thêm một món thì màn phải gửi lại cả danh sách nó đang giữ trong tay — mà danh sách đó
+   * có thể đã cũ (người khác vừa sửa ở máy khác), và khi ấy cú bấm này lặng lẽ xoá món của họ.
+   *
+   * Cập nhật `featuredIds` tại chỗ thay vì `refresh()`: nút phải đổi màu NGAY, còn `refresh` kéo
+   * lại cả lưới + công thức + giá vốn, chậm hơn nhiều so với một cú bấm bật/tắt. Hỏng thì trả
+   * nguyên trạng thái cũ về, không để nút nói dối. */
+  const toggleFeatured = async (it: MenuItem) => {
+    const on = featuredIds.has(it.id);
+    const next = new Set(featuredIds);
+    if (on) next.delete(it.id);
+    else next.add(it.id);
+    setFeaturedIds(next);
+    try {
+      if (on) await api.delete(`/menu-combos/featured/${it.id}`);
+      else await api.post(`/menu-combos/featured/${it.id}`);
+      toast.push('success', on
+        ? `${it.name} → thôi đề xuất`
+        : `${it.name} → đang đề xuất, nhân vật ở thực đơn tại bàn sẽ mời khách món này`);
+    } catch (err) {
+      setFeaturedIds(featuredIds);
       toast.push('error', extractError(err).message);
     }
   };
@@ -358,6 +411,11 @@ export function MenuManagementPage() {
             /* Lọc này là cách DUY NHẤT tìm lại món mình đã bật đẩy bán để tắt đi — không có
                nó thì phải cuộn cả 600 món tìm thẻ có nhãn 🔥. */
             { v: 'push', label: '🔥 Đang đẩy bán' },
+            /* Đo trên DB thật 2026-10-05: 294/598 món chưa có ảnh. Trên menu giấy món không ảnh
+               vẫn được đọc, nhưng trên điện thoại một thẻ trống trông như lỗi tải trang và gần
+               như không ai gọi. Lọc này là danh sách việc "còn phải chụp những món nào" — cuộn
+               598 thẻ tìm bằng mắt thì không ai làm nổi. */
+            { v: 'nophoto', label: '📷 Chưa có ảnh' },
           ] as { v: StockFilter; label: string }[]).map((s) => (
             <button
               key={s.v || 'all'}
@@ -437,10 +495,16 @@ export function MenuManagementPage() {
                     <span className="mm-thumb-empty" aria-hidden="true">🍽</span>
                   )}
                   {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
-                  {/* Nhãn ĐẨY BÁN nằm ở MÉP TRÊN còn nhãn HẾT ở mép dưới: hai cờ loại trừ nhau
-                      nên không bao giờ chồng nhau, nhưng tách hai mép thì đọc lướt vẫn phân biệt
-                      được ngay cả khi nhìn nhanh qua lưới. */}
-                  {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món">🔥 ĐẨY BÁN</span>}
+                  {/* Nhãn ĐẨY BÁN và ĐỀ XUẤT xếp CHỒNG DỌC ở mép trên, nhãn HẾT ở mép dưới.
+                      ĐẨY BÁN với HẾT loại trừ nhau nên không bao giờ gặp nhau, nhưng ĐỀ XUẤT thì
+                      cộng được với CẢ HAI — một món vừa ế vừa muốn mời, hoặc đang đề xuất mà hôm
+                      nay hết hàng, đều là ca có thật. Nên không tranh chỗ bằng cách đè lên nhau
+                      mà xếp thành hàng dọc: cờ nào bật thì chiếm một dải, không bật thì không
+                      chiếm chỗ nào. */}
+                  <div className="mm-thumb-tags">
+                    {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món">🔥 ĐẨY BÁN</span>}
+                    {featuredIds.has(it.id) && <span className="mm-thumb-star" title="Đang đề xuất — nhân vật ở thực đơn tại bàn sẽ mời khách món này">⭐ ĐỀ XUẤT</span>}
+                  </div>
                 </div>
                 {/* `minWidth: 0` BẮT BUỘC: mặc định `min-width` của một flex item là `auto`
                     = bề rộng nội dung tối thiểu, nên khối này không co được và `text-overflow:
@@ -546,6 +610,27 @@ export function MenuManagementPage() {
                 </button>
                 )}
               </div>
+              {/* Nút ⭐ ở HÀNG RIÊNG, trọn bề ngang, không chen vào hàng trên: hàng trên đã hai
+                  nút, thành ba thì mỗi nút còn ~115px trên điện thoại 390px và chữ phải co —
+                  mà người dùng thật phần lớn lớn tuổi (cùng lý do đã tách hàng này từ trước). */}
+              {canManage && (
+              <div className="mm-row2 one">
+                <button
+                  type="button"
+                  className={featuredIds.has(it.id) ? 'mm-star on' : 'mm-star'}
+                  /* CỐ Ý không khoá khi món hết hàng, khác nút Đẩy bán ngay trên: "đề xuất" là ý
+                     định dài hạn của chủ quán, còn hết hàng là chuyện của hôm nay. Nhân vật ở
+                     thực đơn tự bỏ qua món đang hết (menu-pairing.ts), nên bật sẵn không gây hại
+                     gì — mà khoá lại thì hôm nào hết hàng là không khai báo được. */
+                  onClick={() => toggleFeatured(it)}
+                  title={featuredIds.has(it.id)
+                    ? 'Nhân vật ở thực đơn tại bàn đang mời khách món này — bấm để bỏ'
+                    : 'Muốn khách thử món này? Bật để nhân vật ở thực đơn tại bàn mời khách'}
+                >
+                  {featuredIds.has(it.id) ? '⭐ Đang đề xuất' : '⭐ Đề xuất'}
+                </button>
+              </div>
+              )}
             </div>
             );
           })}
@@ -796,6 +881,10 @@ function MenuFormModal({
   const [group, setGroup] = useState(existing?.group || groups[0]?.code || 'food');
   const [price, setPrice] = useState(existing?.price || 0);
   const [unit, setUnit] = useState(existing?.unit || 'phần');
+  const [description, setDescription] = useState(existing?.description ?? '');
+  /* Giữ ở dạng CHUỖI chứ không number: ô để trống là "chưa khai" (NULL), mà `useState(0)` thì
+     không phân biệt được "chưa khai" với "0 người ăn". */
+  const [serves, setServes] = useState(existing?.serves != null ? String(existing.serves) : '');
   const [imageUrl, setImageUrl] = useState(existing?.image_url || '');
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -850,6 +939,9 @@ function MenuFormModal({
         price,
         unit,
         image_url: imageUrl.trim() ? imageUrl : null,
+        // Ô trống → NULL, không phải chuỗi rỗng / số 0: trang khách dựa vào NULL để ẩn hẳn dòng.
+        description: description.trim() || null,
+        serves: serves.trim() ? Number(serves) : null,
       };
       if (existing) {
         await api.patch(`/menu/${existing.id}`, body);
@@ -948,6 +1040,36 @@ function MenuFormModal({
             <label htmlFor="m-unit">ĐVT</label>
             <input id="m-unit" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="phần / cốc..." />
           </div>
+        </div>
+        {/* ── Mô tả + mấy người ăn (2026-10-05) ──
+            Thực đơn tại bàn trước giờ chỉ có tên + giá + ảnh, nên khách không dám gọi món lạ và
+            cứ gọi lại món đã quen. Hai ô này KHÔNG bắt buộc: 598 món thì còn lâu mới viết hết,
+            viết được 30 món chủ lực đã ăn thua rồi. */}
+        <div className="row">
+          <label htmlFor="m-desc">Mô tả ngắn (không bắt buộc)</label>
+          <input
+            id="m-desc"
+            value={description}
+            maxLength={160}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="Cay vừa, ăn kèm bánh mì…"
+          />
+          <small style={{ color: '#6b7280' }}>
+            Khách đọc câu này trong thực đơn tại bàn. {description.length}/160
+          </small>
+        </div>
+        <div className="row">
+          <label htmlFor="m-serves">Mấy người ăn (không bắt buộc)</label>
+          <input
+            id="m-serves"
+            type="number"
+            inputMode="numeric"
+            min={1}
+            max={20}
+            value={serves}
+            onChange={(e) => setServes(e.target.value)}
+            placeholder="vd 3"
+          />
         </div>
         <div className="row">
           <label>Ảnh món (không bắt buộc)</label>

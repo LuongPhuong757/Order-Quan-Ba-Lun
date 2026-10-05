@@ -39,6 +39,29 @@ export class MenuItem {
   @Column({ type: 'varchar', length: 512, nullable: true })
   image_url!: string | null;
 
+  /* ── Mô tả món + mấy người ăn (2026-10-05) ──
+   *
+   * Thực đơn tại bàn trước giờ chỉ có TÊN + GIÁ + ẢNH. Khách nhìn "Ếch Xào Măng" không biết cay
+   * không, có xương không, mấy người ăn hết — nên gọi lại món đã quen, và đó là trần của giá trị
+   * một đơn. Hai cột này là thứ rẻ nhất phá cái trần đó.
+   *
+   * ⚠ CHỈ THÊM, KHÔNG đổi tên cột nào (M7.R8): DB dev dùng chung giữa các worktree và
+   * `synchronize` sẽ DROP cột mà nhánh khác không khai. Thêm thì an toàn; đổi tên thì mất dữ
+   * liệu của nhánh khác mà không báo gì cả.
+   *
+   * NULL = chủ quán chưa viết. Trang khách phải TỰ ẨN dòng đó, KHÔNG vẽ khung trống — 598 món
+   * thì còn rất lâu mới viết hết, và phần lớn thời gian nó là NULL.
+   *
+   * 160 ký tự: đủ một câu dặn ("Cay vừa, ăn kèm bánh mì"), vẫn vừa hộp chi tiết món trên điện
+   * thoại mà không phải cuộn. */
+  @Column({ type: 'varchar', length: 160, nullable: true })
+  description!: string | null;
+
+  /** Mấy người ăn vừa. NULL = chưa khai. Số nguyên vì chủ quán nghĩ theo "2 người", "4 người",
+   *  không ai khai 2,5 người. */
+  @Column({ type: 'smallint', nullable: true })
+  serves!: number | null;
+
   @Column({ type: 'boolean', default: false })
   is_out_of_stock!: boolean;
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { suggestOnAdd, type PairingCombo, type PairingGroup } from './menu-pairing.ts';
+import { suggestManyForItem, suggestOnAdd, type PairingCombo, type PairingGroup } from './menu-pairing.ts';
 
 let n = 0;
 const item = (name: string, price = 30_000, out = false) => ({ id: `id-${++n}`, name, price, images: [], is_out_of_stock: out });
@@ -60,5 +60,52 @@ describe('suggestOnAdd', () => {
     const ghost: PairingCombo = { id: 'g', name: 'Ma', emoji: null, item_ids: [id('Gà Luộc'), 'khong-co', id('Đậu Tẩm Hành')] };
     const r = suggestOnAdd(id('Gà Luộc'), MENU, new Set([id('Gà Luộc')]), [ghost], [], new Set([id('Đậu Tẩm Hành')]));
     expect(r.offer).toBeNull();
+  });
+});
+
+/* ── Dải gợi ý trong hộp chi tiết (2026-10-05) ────────────────────────────────────────────
+ * Khác `suggestOnAdd` ở hai điểm phải khoá lại bằng test: trả NHIỀU món, và KHÔNG ngẫu nhiên.
+ */
+describe('suggestManyForItem — dải món đi kèm trong hộp chi tiết', () => {
+  const groups: PairingGroup[] = [
+    {
+      name: 'Nhậu',
+      items: [
+        { id: 'oc', name: 'Ốc Mít', price: 120_000, images: [], is_out_of_stock: false },
+        { id: 'nem', name: 'Nem Chua Rán', price: 60_000, images: [], is_out_of_stock: false },
+        { id: 'bia', name: 'Bia Tiger', price: 25_000, images: [], is_out_of_stock: false },
+        { id: 'het', name: 'Hàu Nướng', price: 90_000, images: [], is_out_of_stock: true },
+        { id: 'dx', name: 'Gà Rang Muối', price: 150_000, images: [], is_out_of_stock: false },
+      ],
+    },
+  ];
+  const combos: PairingCombo[] = [
+    { id: 'c1', name: 'Nhậu đêm', emoji: '🍺', item_ids: ['oc', 'nem', 'bia', 'het'] },
+  ];
+
+  it('ưu tiên món cùng combo, bỏ món hết hàng và món đã có trong giỏ', () => {
+    const out = suggestManyForItem('oc', groups, new Set(['nem']), combos, []);
+    // 'oc' là chính nó, 'nem' đã trong giỏ, 'het' hết hàng → chỉ còn 'bia'.
+    expect(out.map((i) => i.id)).toEqual(['bia']);
+  });
+
+  it('hết món combo thì lấy tiếp món đề xuất, và tôn trọng limit', () => {
+    const out = suggestManyForItem('oc', groups, new Set(), combos, ['dx'], 2);
+    expect(out.map((i) => i.id)).toEqual(['nem', 'bia']);
+  });
+
+  it('món ngoài mọi combo thì chỉ còn món đề xuất', () => {
+    const out = suggestManyForItem('dx', groups, new Set(), combos, ['bia', 'nem']);
+    expect(out.map((i) => i.id)).toEqual(['bia', 'nem']);
+  });
+
+  it('KHÔNG ngẫu nhiên — gọi hai lần ra đúng một kết quả', () => {
+    const a = suggestManyForItem('oc', groups, new Set(), combos, ['dx']);
+    const b = suggestManyForItem('oc', groups, new Set(), combos, ['dx']);
+    expect(a.map((i) => i.id)).toEqual(b.map((i) => i.id));
+  });
+
+  it('không có combo lẫn món đề xuất thì trả mảng RỖNG, để phía gọi ẩn cả dải', () => {
+    expect(suggestManyForItem('oc', groups, new Set(), [], [])).toEqual([]);
   });
 });

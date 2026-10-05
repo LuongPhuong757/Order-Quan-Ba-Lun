@@ -86,6 +86,13 @@ export const TableStateResult = z
     ),
     ordered: z.array(
       z.object({
+        /* Để khách bấm "Gọi lại" đúng món đó (2026-10-05). An toàn với M7.R7: id này VỐN ĐÃ
+         * công khai ở `/api/public/menu` — nó không phải PII và không phải credential của ai.
+         * Thứ R7 cấm là `order_token`, tên nhân viên, nhật ký bàn; không phải cái này.
+         *
+         * NULL khi món đã bị gỡ khỏi thực đơn: dòng cũ vẫn phải hiện trong bill (nó đã được
+         * phục vụ và đang tính tiền), chỉ là không gọi lại được nữa. */
+        menu_item_id: z.string().nullable(),
         name: z.string(),
         qty: z.number().int(),
         unit_price: z.number().int(),

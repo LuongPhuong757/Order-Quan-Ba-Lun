@@ -1062,6 +1062,12 @@ export function MenuBookPage(): JSX.Element {
       {sheet === 'state' && session && (
         <TableStateSheet
           session={session}
+          /* File này KHÔNG còn được mount ở đâu (xem main.tsx) — giữ lại chỉ để đối chiếu thiết
+             kế cũ. Hai prop dưới là STUB cho `tsc` xanh, không phải tính năng bị bỏ quên: "Gọi
+             lại" và dải đồ uống chỉ sống ở `MenuOrderPage`, tức màn khách thật. */
+          drinks={[]}
+          onReorder={() => {}}
+          onOpenCart={() => {}}
           onClose={() => setSheet('none')}
           onSwitchTable={() => {
             writeTableSession(null);

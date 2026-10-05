@@ -42,6 +42,55 @@ import { addTableLine } from '../lib/table-cart-store.ts';
  * lớp nền tối — chân tấm là nút chính, ngồi đó là khách bấm trúng nhân vật thay vì nút.
  */
 
+
+/* ── Chỗ khách tự đặt linh vật (hướng B, chủ quán chốt 2026-10-05) ──
+ *
+ * Trước đây kéo được nhưng thả ra là NẢY VỀ chỗ cũ (cố ý, có cả câu thoại "Phù… về chỗ cũ!").
+ * Nay thả đâu nằm đó.
+ *
+ * Lưu theo TỈ LỆ khung nhìn, không lưu pixel: khách xoay ngang máy, hoặc bàn phím bật lên làm
+ * khung nhìn thấp đi, thì toạ độ pixel cũ trỏ ra ngoài màn và linh vật BIẾN MẤT — khách tưởng
+ * nó hỏng chứ không nghĩ là nó đang nằm ngoài rìa. Tỉ lệ thì co giãn theo.
+ *
+ * sessionStorage chứ không localStorage, cùng lệ với việc bốc nhân vật: một "lượt" là một bữa
+ * ăn. Khách sau quét QR trên máy mình không thừa hưởng chỗ lạ do người trước đặt.
+ *
+ * ⚠ Safari riêng tư NÉM LỖI cả khi ĐỌC storage — bọc try/catch mọi ngả, hỏng thì coi như chưa
+ * từng đặt và rơi về góc mặc định.
+ */
+const HOME_KEY = 'qbl.mascot_home.v1';
+type MascotHome = { fx: number; fy: number };
+
+function readHome(): MascotHome | null {
+  try {
+    const raw = sessionStorage.getItem(HOME_KEY);
+    if (!raw) return null;
+    const v = JSON.parse(raw) as Partial<MascotHome>;
+    if (typeof v.fx !== 'number' || typeof v.fy !== 'number') return null;
+    return { fx: v.fx, fy: v.fy };
+  } catch {
+    return null;
+  }
+}
+
+function writeHome(v: MascotHome | null): void {
+  try {
+    if (v) sessionStorage.setItem(HOME_KEY, JSON.stringify(v));
+    else sessionStorage.removeItem(HOME_KEY);
+  } catch {
+    /* im lặng — vị trí chỉ là tiện nghi, không đáng làm vỡ trang */
+  }
+}
+
+/** Kẹp vào trong khung nhìn, chừa mép để không bao giờ cầm hụt. */
+function clampHome(v: MascotHome): MascotHome {
+  const edge = 0.02;
+  return {
+    fx: Math.min(1 - edge, Math.max(edge, v.fx)),
+    fy: Math.min(1 - edge, Math.max(edge, v.fy)),
+  };
+}
+
 const SIZE = 88;
 
 /* ── Nhân vật — random MỖI LƯỢT TRUY CẬP thực đơn (chủ quán chốt 2026-10-03) ──
@@ -90,85 +139,308 @@ const CHARACTERS: Character[] = [
   {
     id: 'hamster', name: 'Bé Hamster', emoji: '🐹', mouth: 'surprised',
     voice: 1.15,
-    quirks: ['Hạt hướng dương có không ta?', 'Tui nhét má đầy đồ ăn rồi nè!'],
-    exclaims: ['Woa woa! Ngon xỉu!', 'Thề, nhìn là đói luôn!'],
+    /* ── Kho câu: mỗi rổ 6–8 câu, bốc theo TÚI (xem drawFromBag) ──
+     * Chủ quán báo 2026-10-05: "các câu nói chuyện lặp lại quá nhiều". Hai nguyên nhân, chữa cả
+     * hai: rổ chỉ có 2 câu, và chỗ bốc dùng `pick` thuần ngẫu nhiên (50% trùng câu vừa nói).
+     * Rổ 6–8 câu + túi ⇒ phải nghe hết cả rổ mới gặp lại một câu.
+     *
+     * ⚠ Giữ câu NGẮN: khung bong bóng 300px vừa ~34 ký tự một dòng, quá 64 ký tự là xuống ba
+     *   dòng. Câu có tên món phải chừa thêm ~16 ký tự cho cái tên.
+     * ⚠ Giữ ĐÚNG giọng con này — Hamster là em nhỏ tham ăn, xưng "tui", hay khoe cái má phồng.
+     * ⚠ SAU DẤU HAI CHẤM thì VIẾT HOA chữ đầu (chủ quán chốt 2026-10-05):
+     *     ĐÚNG  "Anh Gấu bảo: Phải thử Gà Rang Muối!"
+     *     SAI   "Anh Gấu bảo: phải thử Gà Rang Muối!"
+     *   Chỗ dễ sót: câu mà ngay sau dấu hai chấm là ${i} thì KHỎI lo — tên món trong thực đơn
+     *   vốn đã viết hoa đầu từ. Chỉ phải để ý những câu tự gõ chữ sau dấu hai chấm. */
+    quirks: [
+      'Hạt hướng dương có không ta?',
+      'Tui nhét má đầy đồ ăn rồi nè!',
+      'Má tui phồng chưa? Phồng chưa?',
+      'Tui bé xíu mà ăn khoẻ lắm nha!',
+      'Chít chít! Đừng cù tui mà~',
+      'Tui giấu đồ ăn trong má đó!',
+    ],
+    exclaims: [
+      'Woa woa! Ngon xỉu!',
+      'Thề, nhìn là đói luôn!',
+      'Trời ơi, thơm nức mũi!',
+      'Chít chít! Mê quá đi mất!',
+      'Bụng tui kêu rồi nè!',
+      'Ui cha, nhìn là muốn cắn!',
+    ],
     offer: [
       (i) => `Thiếu ${i} là má Hamster chưa căng đâu!`,
       (i, c) => `Có ${i} nữa là ${c} đủ vị luôn!`,
+      (i) => `Gọi ${i} nữa cho tròn mâm nha!`,
+      (i, c) => `${c} mà thiếu ${i} là phí lắm á!`,
+      (i) => `Còn ${i} nữa thôi là đủ bộ rồi!`,
+      (i, c) => `Thêm ${i} đi, ${c} ngon gấp đôi!`,
     ],
     done: (c) => `WOA! Đủ bộ ${c} rồi! Bàn mình đỉnh nhất quán!`,
-    featured: [(i) => `Hamster mê ${i} lắm, thử đi mà!`, (i) => `Nhét thêm ${i} vào má không? Ngon xỉu!`],
-    thanks: ['Yayyy! Nghe Hamster là chuẩn rồi!', 'Hihi, bàn mình hợp gu Hamster ghê!'],
+    featured: [
+      (i) => `Hamster mê ${i} lắm, thử đi mà!`,
+      (i) => `Nhét thêm ${i} vào má không? Ngon xỉu!`,
+      (i) => `Quán đề xuất ${i} đó, gọi thử nha!`,
+      (i) => `Ai tới đây cũng gọi ${i} hết á!`,
+      (i) => `Mách nhỏ nè: ${i} ngon lắm luôn!`,
+      (i) => `Chít chít! ${i} là món tui mê nhất!`,
+      (i) => `Chưa thử ${i} là tiếc lắm nha!`,
+      (i) => `${i} đi! Tui đảm bảo không phí đâu!`,
+    ],
+    thanks: [
+      'Yayyy! Nghe Hamster là chuẩn rồi!',
+      'Hihi, bàn mình hợp gu Hamster ghê!',
+      'Chít chít! Tui vui quá đi!',
+      'Thấy chưa, tui chọn khéo mà!',
+      'Hoan hô! Bàn mình chịu chơi ghê!',
+      'Má tui phồng lên vì vui luôn nè!',
+    ],
     bye: ['Huhu, Hamster đi trốn đây… Cần thì gọi nha!', 'Tạm biệt nha, ăn ngon miệng nhé! 🥺'],
   },
   {
     id: 'cat', name: 'Mèo Mun', emoji: '🐱', mouth: 'surprised', scale: 1.1,
     voice: 1.05,
-    quirks: ['Có cá không? Meo~', 'Gãi cằm tui đi, meo~', 'Meo meo, đói quá à!'],
-    exclaims: ['Gì vậy trời, gu xịn thế?', 'Hừm, được đấy~'],
+    /* Mèo Mun: sang chảnh, hơi lạnh, thích chấm điểm. Đuôi câu "~" là dấu nhận dạng của con này. */
+    quirks: [
+      'Có cá không? Meo~',
+      'Gãi cằm tui đi, meo~',
+      'Meo meo, đói quá à!',
+      'Đừng đụng râu tui nha~',
+      'Tui vừa ngủ dậy đó, meo~',
+      'Nhìn gì? Đẹp trai hả~',
+    ],
+    exclaims: [
+      'Gì vậy trời, gu xịn thế?',
+      'Hừm, được đấy~',
+      'Chấm 10 điểm, meo~',
+      'Khá lắm, tui công nhận~',
+      'Ồ… bạn sành đó nha~',
+      'Meo~ đúng bài rồi!',
+    ],
     offer: [
       (i) => `Người sành sẽ gọi thêm ${i} đó~`,
       (i, c) => `${c} mà thiếu ${i} là chưa tới đâu~`,
+      (i) => `Gọi ${i} cho đủ bộ nha~`,
+      (i, c) => `Có ${i} thì ${c} mới đúng điệu~`,
+      (i) => `Meo~ thêm ${i} đi, hợp lắm!`,
+      (i, c) => `Còn ${i} nữa là ${c} trọn vẹn~`,
     ],
     done: (c) => `${c} đủ bộ! 10 điểm không có nhưng~`,
-    featured: [(i) => `Dân sành ở đây ai cũng gọi ${i}~`, (i) => `${i} hả? Mèo chấm 10 điểm đó~`],
-    thanks: ['Thấy chưa, gu tốt ghê~', 'Meo~ biết ngay là bạn sành mà!'],
+    featured: [
+      (i) => `Dân sành ở đây ai cũng gọi ${i}~`,
+      (i) => `${i} hả? Mèo chấm 10 điểm đó~`,
+      (i) => `Thử ${i} đi, tui không chê đâu~`,
+      (i) => `${i} là gu của tui đó nha~`,
+      (i) => `Chưa ăn ${i} thì phí lắm~`,
+      (i) => `Meo~ gọi ${i} một phần nhé?`,
+      (i) => `${i} ngon có tiếng ở đây đó~`,
+      (i) => `Tui gợi ý ${i}, tin tui đi~`,
+    ],
+    thanks: [
+      'Thấy chưa, gu tốt ghê~',
+      'Meo~ biết ngay là bạn sành mà!',
+      'Hừm, chọn chuẩn đó~',
+      'Tui ưng cái bụng rồi~',
+      'Vậy mới đáng chứ, meo~',
+      'Điểm cộng cho bàn mình~',
+    ],
     bye: ['Hừm… đuổi Mèo hả? Thôi, Mèo đi ngủ đây~', 'Meo… tạm biệt nha, chạm 🐾 là Mèo về~'],
   },
   {
     id: 'bunny', name: 'Thỏ Bông', emoji: '🐰', mouth: null, outline: true, scale: 1.15,
     voice: 1.1,
-    quirks: ['Bông thích rau lắm á!', 'Có cà rốt không ta?', 'Bông nhảy tưng tưng nè!'],
-    exclaims: ['Ối, xinh quá!', 'Dạ chuẩn luôn ạ!'],
+    /* Thỏ Bông: lễ phép, xưng tên, hay "ạ". Giữ nguyên giọng này — nó là con dịu nhất trong sáu
+     * con và hợp với khách lớn tuổi. */
+    quirks: [
+      'Bông thích rau lắm á!',
+      'Có cà rốt không ta?',
+      'Bông nhảy tưng tưng nè!',
+      'Tai Bông dài ghê không ạ?',
+      'Bông ngoan lắm nha!',
+      'Dạ Bông đợi cả nhà nè!',
+    ],
+    exclaims: [
+      'Ối, xinh quá!',
+      'Dạ chuẩn luôn ạ!',
+      'Oa, cả nhà chọn khéo ghê!',
+      'Bông thích món này lắm ạ!',
+      'Dạ nhìn ngon quá trời!',
+      'Hay quá hay quá ạ!',
+    ],
     offer: [
       (i) => `Thêm ${i} cho cân bằng vị nha cả nhà!`,
       (i, c) => `${c} có thêm ${i} là chu đáo lắm ạ!`,
+      (i) => `Bông xin thêm ${i} nhé ạ?`,
+      (i, c) => `Dạ ${c} cần thêm ${i} nữa ạ!`,
+      (i) => `Cả nhà gọi ${i} cho vui ạ!`,
+      (i, c) => `Có ${i} là ${c} tròn vị ạ!`,
     ],
     done: (c) => `Đủ bộ ${c} rồi ạ, bàn mình chu đáo quá!`,
-    featured: [(i) => `Cả nhà thử ${i} nha, quán làm ngon lắm ạ!`, (i) => `Bông gợi ý ${i} ạ, khách khen nhiều lắm!`],
-    thanks: ['Dạ cảm ơn cả nhà ạ!', 'Thích ghê á, Bông nhảy tưng tưng nè!'],
+    featured: [
+      (i) => `Cả nhà thử ${i} nha, ngon lắm ạ!`,
+      (i) => `Bông gợi ý ${i} ạ, khách khen nhiều!`,
+      (i) => `Dạ ${i} quán làm khéo lắm ạ!`,
+      (i) => `Bông mời cả nhà món ${i} ạ!`,
+      (i) => `${i} nha ạ, Bông thích món này!`,
+      (i) => `Cả nhà gọi thêm ${i} nhé ạ?`,
+      (i) => `Dạ chưa thử ${i} là tiếc đó ạ!`,
+      (i) => `Bông để ý ai cũng gọi ${i} ạ!`,
+    ],
+    thanks: [
+      'Dạ cảm ơn cả nhà ạ!',
+      'Thích ghê á, Bông nhảy tưng tưng nè!',
+      'Dạ cả nhà chọn khéo quá!',
+      'Bông vui lắm luôn ạ!',
+      'Dạ vậy là đúng ý Bông rồi!',
+      'Hihi, cả nhà dễ thương ghê ạ!',
+    ],
     bye: ['Dạ, Bông xin phép lui ạ… Ăn ngon nha cả nhà!', 'Bông đi đây ạ, cần gì cứ chạm 🐾 nha! 🥺'],
   },
   {
     id: 'redpanda', name: 'Gấu Đỏ', emoji: '🦊', mouth: null, scale: 1.12,
     voice: 1,
-    quirks: ['Tui là gấu trúc đỏ, không phải cáo đâu nha!', 'Đuôi tui xù không?'],
-    exclaims: ['Uả alo, đỉnh vậy?!', 'Quá đã luôn!'],
+    /* Gấu Đỏ: giọng trẻ bắt trend, nói to, hay "uả alo". */
+    quirks: [
+      'Tui là gấu trúc đỏ, không phải cáo nha!',
+      'Đuôi tui xù không?',
+      'Uả alo, nhìn tui nè!',
+      'Tui leo cây giỏi lắm đó!',
+      'Trời ơi tui đói muốn xỉu!',
+      'Chụp tui một tấm đi!',
+    ],
+    exclaims: [
+      'Uả alo, đỉnh vậy?!',
+      'Quá đã luôn!',
+      'Đỉnh nóc kịch trần nha!',
+      'Trời ơi, chuẩn bài!',
+      'Cái này là auto ngon rồi!',
+      'Ét ô ét, thèm quá!',
+    ],
     offer: [
       (i) => `Thiếu ${i} là phí của giời luôn á!`,
       (i, c) => `${c} mà không có ${i} thì chưa đã đâu!`,
+      (i) => `Quất thêm ${i} cho xôm nào!`,
+      (i, c) => `Thêm ${i} là ${c} full combo!`,
+      (i) => `${i} nữa thôi, chốt luôn đi!`,
+      (i, c) => `Uả, ${c} mà bỏ qua ${i} à?`,
     ],
     done: (c) => `Uả alo, đủ bộ ${c} luôn! Quá đã!`,
-    featured: [(i) => `Chưa thử ${i} là chưa tới quán nha!`, (i) => `${i} đỉnh nóc kịch trần, làm phát đi!`],
-    thanks: ['Quá đã! Bàn này chơi được nha!', 'Chuẩn bài! Lên luôn!'],
+    featured: [
+      (i) => `Chưa thử ${i} là chưa tới quán nha!`,
+      (i) => `${i} đỉnh nóc kịch trần, làm phát đi!`,
+      (i) => `Uả alo, chưa gọi ${i} à?`,
+      (i) => `${i} đi! Tui cân hết cho!`,
+      (i) => `Trời ơi ${i} ngon xỉu luôn!`,
+      (i) => `Làm thêm ${i} cho xôm nào!`,
+      (i) => `${i} là món tui mê nhất đó!`,
+      (i) => `Gọi ${i} đi, không hối hận đâu!`,
+    ],
+    thanks: [
+      'Quá đã! Bàn này chơi được nha!',
+      'Chuẩn bài! Lên luôn!',
+      'Uả alo, gu đỉnh vậy!',
+      'Ét ô ét, tui mê bàn này rồi!',
+      'Chốt đơn! Ngon nghẻ!',
+      'Trời ơi chọn gì mà hay vậy!',
+    ],
     bye: ['Uả alo, đuổi thật hả? Thôi Gấu Đỏ té đây…', 'Buồn ghê… quẩy vui nha, nhớ gọi tui!'],
   },
   {
     id: 'bear', name: 'Gấu Nâu', emoji: '🐻', mouth: null, scale: 1.06,
     voice: 0.82,
-    quirks: ['Gấu thích mật ong lắm á!', 'Ôm Gấu một cái nè!'],
-    exclaims: ['Chuẩn không cần chỉnh!', 'Kinh thật, ra dáng dân chơi!'],
+    /* Anh Gấu: giọng đàn anh bàn nhậu, xưng "anh", gọi khách là "anh em". Trầm và chắc. */
+    quirks: [
+      'Gấu thích mật ong lắm á!',
+      'Ôm Gấu một cái nè!',
+      'Anh to con nhưng hiền lắm!',
+      'Anh ngủ đông vừa dậy đó!',
+      'Vai anh rộng, tựa thoải mái!',
+      'Anh em cứ tự nhiên nha!',
+    ],
+    exclaims: [
+      'Chuẩn không cần chỉnh!',
+      'Kinh thật, ra dáng dân chơi!',
+      'Được! Anh thích cái nết này!',
+      'Mâm này là ra dáng rồi đó!',
+      'Anh em biết chọn ghê!',
+      'Ngon! Vậy mới đúng bài!',
+    ],
     offer: [
-      (i) => `Món này phải đi với ${i}, anh Gấu bảo đảm!`,
+      (i) => `Món này phải đi với ${i}, anh bảo đảm!`,
       (i) => `Làm thêm ${i} cho mâm đầy đủ nào!`,
+      (i, c) => `Mâm ${c} mà thiếu ${i} là chưa đủ!`,
+      (i) => `Gọi ${i} nữa đi, anh thấy hợp!`,
+      (i, c) => `Có ${i} thì ${c} mới ra chất!`,
+      (i) => `Thêm đĩa ${i} nữa cho xôm!`,
     ],
     done: (c) => `Đủ bộ ${c}! Mâm này nhậu tới sáng được!`,
-    featured: [(i) => `Anh Gấu bảo: phải thử ${i}!`, (i) => `Gọi thêm ${i} đi, đảm bảo không phí!`],
-    thanks: ['Phải thế chứ! Anh em mình hợp nhau đấy!', 'Được! Mâm này ra dáng rồi!'],
+    featured: [
+      (i) => `Anh Gấu bảo: Phải thử ${i}!`,
+      (i) => `Gọi thêm ${i} đi, đảm bảo không phí!`,
+      (i) => `Anh gợi ý ${i}, cứ tin anh!`,
+      (i) => `Mâm nhậu thiếu ${i} là thiếu vị!`,
+      (i) => `${i} nhé? Anh ăn suốt đó!`,
+      (i) => `Làm đĩa ${i} cho ra chất nào!`,
+      (i) => `Anh em thử ${i} một lần đi!`,
+      (i) => `${i} — món này anh bảo đảm!`,
+    ],
+    thanks: [
+      'Phải thế chứ! Anh em mình hợp nhau đấy!',
+      'Được! Mâm này ra dáng rồi!',
+      'Anh ưng cái bụng luôn!',
+      'Chuẩn! Anh em biết ăn đấy!',
+      'Hay! Vậy mới gọi là nhậu!',
+      'Tốt! Anh thích cách chọn này!',
+    ],
     bye: ['Thôi anh Gấu về đây, anh em ăn ngon nhé!', 'Gấu đi nhé… cần thì chạm 🐾 là anh tới!'],
   },
   {
     id: 'mouse', name: 'Chuột Nhắt', emoji: '🐭', mouth: 'surprised',
     voice: 1.22,
-    quirks: ['Chít chít! Có phô mai không?', 'Tui nhỏ mà ăn khoẻ lắm nha, chít!'],
-    exclaims: ['Thề, hời vãi!', 'Ting ting! Chuẩn deal!'],
+    /* Chuột Nhắt: lanh lợi, nói về giá và "hời", hay "chít" và "ting ting". */
+    quirks: [
+      'Chít chít! Có phô mai không?',
+      'Tui nhỏ mà ăn khoẻ lắm nha, chít!',
+      'Tui luồn đâu cũng lọt đó!',
+      'Chít! Đừng giẫm đuôi tui nha!',
+      'Tui biết hết món hời trong quán!',
+      'Suỵt… tui đang rình đồ ăn!',
+    ],
+    exclaims: [
+      'Thề, hời vãi!',
+      'Ting ting! Chuẩn deal!',
+      'Chít! Lời quá đi mất!',
+      'Món này đáng từng đồng đó!',
+      'Tui tính rồi, hời thật!',
+      'Ting! Chọn khôn ghê nha!',
+    ],
     offer: [
       (i, c) => `Thêm ${i} là đủ bộ ${c}, hời lắm nha!`,
       (i) => `Suỵt… ${i} đi kèm là chuẩn deal đó!`,
+      (i) => `Gọi ${i} nữa, tui tính lời mà!`,
+      (i, c) => `Chít! ${c} thiếu ${i} là phí đó!`,
+      (i) => `Ting ting! Thêm ${i} là chuẩn!`,
+      (i, c) => `${i} nữa là ${c} trọn vẹn nha!`,
     ],
     done: (c) => `Ting ting! Đủ combo ${c}, chuẩn bài!`,
-    featured: [(i) => `Mách nhỏ: ${i} đáng tiền lắm nha!`, (i) => `Suỵt… ${i} là món hời nhất quán đó!`],
-    thanks: ['Ting ting! Deal hời đã về túi!', 'Chít! Chọn khôn ghê!'],
+    featured: [
+      (i) => `Mách nhỏ: ${i} đáng tiền lắm nha!`,
+      (i) => `Suỵt… ${i} là món hời nhất quán đó!`,
+      (i) => `Chít! Gọi ${i} là lời to đó!`,
+      (i) => `Tui tính rồi, ${i} rất đáng!`,
+      (i) => `${i} ngon mà giá mềm lắm nha!`,
+      (i) => `Bỏ qua ${i} là tiếc đứt ruột!`,
+      (i) => `Ting ting! ${i} đang hời nè!`,
+      (i) => `Thêm ${i} đi, tui bao ngon!`,
+    ],
+    thanks: [
+      'Ting ting! Deal hời đã về túi!',
+      'Chít! Chọn khôn ghê!',
+      'Tui tính không sai mà!',
+      'Chít chít! Lời to rồi nha!',
+      'Bàn mình tinh ghê đó!',
+      'Ting! Vậy là đáng tiền rồi!',
+    ],
     bye: ['Chít… Chuột chui vào hang đây, tạm biệt nha!', 'Huhu, deal hời để dành lần sau vậy… Bye bye!'],
   },
 ];
@@ -240,6 +512,19 @@ const HAPPY: MascotReaction[] = ['delighted', 'heart', 'sparkle', 'wink', 'bashf
 const SAD: MascotReaction[] = ['surprised', 'dizzy', 'sleepy'];
 
 const IDLE_MS = 30_000;
+
+/* ── Khuya thì nhân vật cũng buồn ngủ (chủ quán chốt 2026-10-05) ──
+ * Quán đỉnh 19–23h và bán tới 3h sáng, nên quá nửa đêm là ca THƯỜNG chứ không phải ngoại lệ.
+ * Nhân vật ngáp theo thì đồng điệu với bàn đang ngồi khuya.
+ *
+ * ⚠ CHỈ đổi điệu bộ và câu chữ. KHÔNG đụng `TYPE_MS` — chủ quán dặn rõ "tốc độ ra chữ vẫn phải
+ * nhanh": khách buồn ngủ càng không có kiên nhẫn chờ chữ bò ra từng con. */
+function isLateNight(d = new Date()): boolean {
+  const h = d.getHours();
+  return h >= 23 || h < 5;
+}
+/** Khuya rồi thì ngáp mỗi chừng này. Thưa thôi — ngáp liên tục là trông như bị treo. */
+const YAWN_EVERY_MS = 95_000;
 /** Mỗi bước ngó quanh (trái → trên-trái → trên-phải → phải) đứng bao lâu. */
 const LOOK_STEP_MS = 380;
 /** Ngó quanh bắt đầu SAU khi biểu cảm vui tắt (CUE_MS = 1100 trong Mascot.tsx): biểu cảm đang
@@ -253,6 +538,22 @@ const SAY_MS = 2200;
 const OFFER_MS = 6000;
 /** Câu "nói thêm" (nhắc đồ uống, mốc tổng tiền) chờ câu phản ứng chính nói xong đã. */
 const FOLLOW_UP_MS = 2600;
+
+/* ── Gõ từng chữ ──
+ * Chữ hiện NGUYÊN KHỐI một lúc trong khi miệng nhân vật đang mấp máy là chỗ gượng nhất của
+ * cả màn: miệng nói mà câu thì đã nằm sẵn đó từ trước. Cho chữ chảy ra thì hai thứ khớp nhau.
+ *
+ * 22ms/ký tự ≈ 45 ký tự/giây — nhanh hơn tốc độ đọc nên không ai phải CHỜ chữ, nhưng vẫn đủ
+ * chậm để mắt bắt được là nó đang chảy. Câu dài nhất (~60 ký tự) gõ hết 1,3 giây. */
+const TYPE_MS = 22;
+/** Bong bóng phải đứng đủ lâu để đọc HẾT câu, không chỉ đủ lâu cho câu ngắn mặc định.
+ *  60ms/ký tự ≈ 17 ký tự/giây — tốc độ đọc lướt của người lớn tuổi trên điện thoại. */
+function readMs(text: string): number {
+  return Math.min(4500, Math.max(1800, Math.round(text.length * 60)));
+}
+/** Dài hơn ngần này thì gần như chắc chắn xuống 3 dòng ở khung 300px (~34 ký tự/dòng) — khi đó
+ *  bỏ dáng viên kẹo, vì bo tròn hết cỡ ở hộp cao 3 dòng là hai đầu bán nguyệt cắn vào chữ. */
+const LONG_LINE_CHARS = 64;
 /** Đợi trang ổn định rồi mới chào, đừng chào chồng lên khung hình đầu tiên. */
 const GREET_DELAY_MS = 600;
 /** Gõ xong bao lâu mà vẫn không ra món nào thì mới lên tiếng — đang gõ dở thì im. */
@@ -283,7 +584,15 @@ const LINES = {
   boopWow: ['Ái chà, chọc gì đó!', 'Woa, nhột xỉu!', 'Kinh thật, tay nhanh ghê!'],
   pet: ['Hihi, thích ghê~', 'Xoa nữa đi mà~', 'Ngại quá à 🙈'],
   dragStart: ['Ê ê, thả tui xuống!', 'Ối, bay rồi bay rồi!'],
-  dragEnd: ['Phù… về chỗ cũ!', 'Chóng mặt quá đi…'],
+  /* Đổi 2026-10-05: trước đây thả ra là nhân vật NẢY VỀ góc cũ nên câu "Phù… về chỗ cũ!" đúng.
+   * Nay thả đâu nằm đó (hướng B), câu đó thành nói sai sự thật ngay trước mắt khách. */
+  dragEnd: [
+    'Phù… chỗ này ngồi cũng được nè!',
+    'Chóng mặt quá đi…',
+    'Oke, tui ngồi đây nha!',
+    'Thả nhẹ thôi mà~',
+    'Chít! Chỗ mới thích ghê!',
+  ],
   shake: 'Lắc gì dữ vậy, chóng mặt quá! 😵',
   view: [
     (n: string) => `${n} nè! Nhìn là thèm rồi đó!`,
@@ -308,6 +617,36 @@ const LINES = {
   callStaff: 'Đã gọi nhân viên, tới liền nè!',
   callBill: 'Để tui báo quán tính tiền nha! Cảm ơn bạn nhiều 💕',
   listEnd: 'Hết thực đơn rồi đó! Ưng món nào chưa?',
+  /* Bếp đã nhận lượt gọi (2026-10-05). Nói rõ "BẾP NHẬN RỒI" chứ không chỉ "ok": khách vừa trải
+   * qua một quãng chờ không biết chuyện gì đang xảy ra, câu này là câu trả lời cho đúng nỗi lo đó. */
+  approved: [
+    'Bếp nhận rồi nha! Món đang nấu đó!',
+    'Quán gật đầu rồi! Chờ tí thôi!',
+    'Yesss! Bếp bắt tay vào làm rồi!',
+    'Đơn vào bếp rồi, thơm tới nơi!',
+    'Xong! Món mình đang lên chảo đó!',
+  ],
+  /* Lượt bị bỏ. Tiếc nuối, KHÔNG đổ lỗi cho quán — nhân viên bỏ lượt thường vì món hết thật, và
+   * khách đang ngồi ngay trong quán nên một câu trách móc là trách vào mặt người phục vụ họ. */
+  rejected: [
+    'Huhu, lượt vừa rồi quán chưa nhận được…',
+    'Tiếc ghê, mình chọn món khác nha?',
+    'Ui, lượt đó không vào được rồi…',
+  ],
+  /* Khách gọi LẠI một món đã gọi trong bữa (B3). Chỉ bung ở lần thứ hai — xem chỗ dùng. */
+  again: [
+    (n: string) => `Lại ${n} nữa hả? Mê thật rồi!`,
+    (n: string) => `${n} lần hai nè! Ngon tới mức đó cơ à?`,
+    (n: string) => `Thấy chưa, ${n} đỉnh mà!`,
+    (n: string) => `Thêm ${n} nữa! Bàn mình khoái món này ghê!`,
+  ],
+  /* Câu ngáp lúc khuya. Ngắn, vì nửa đêm mà bắt đọc một câu dài là phản tác dụng. */
+  yawn: [
+    'Hoaaaam… khuya rồi nhỉ…',
+    'Mắt tui díp lại rồi nè…',
+    'Khuya vầy mà vẫn vui ghê…',
+    'Hoaaam… mình ăn tiếp nha…',
+  ],
   starIntro: ['Để tui gợi ý nè!', 'Món này quán đề xuất nha!', 'Ting! Có món ngon nè!', 'Thử món này xem!'],
 };
 /** Cuộn tới cuối danh sách: nói tối đa một lần mỗi 30 giây. */
@@ -465,6 +804,43 @@ function pick<T>(list: readonly T[]): T {
   return list[Math.floor(Math.random() * list.length)]!;
 }
 
+/* ── Bốc theo TÚI, dùng cho mọi kho CÂU THOẠI ──
+ *
+ * Vì sao không dùng `pick` hay `pickFresh` cho câu nói (chủ quán báo 2026-10-05: "các câu nói
+ * chuyện lặp lại quá nhiều"):
+ *   - `pick` thuần ngẫu nhiên: rổ 2 câu thì 50% lần nào cũng trùng câu vừa nói. Đây đúng là
+ *     cái đang xảy ra với câu mời món đề xuất ("Hamster mê … lắm").
+ *   - `pickFresh` chỉ nhớ MỘT câu trước: rổ 2 câu thành A, B, A, B đều tăm tắp — còn lộ hơn cả
+ *     ngẫu nhiên, vì tai người bắt quy luật nhanh hơn bắt trùng lặp.
+ *
+ * Túi: xáo cả rổ rồi rút lần lượt, RÚT HẾT mới xáo lại. Rổ 8 câu ⇒ phải nghe đủ 8 câu khác nhau
+ * mới gặp lại câu đầu. Xáo lại còn tráo chỗ nếu câu đầu túi mới trùng câu cuối túi cũ — không
+ * thì vẫn hở đúng một chỗ lặp ngay chỗ nối hai túi.
+ *
+ * Khoá theo TÊN chứ không theo biến ref riêng: nhiều kho câu dựng tại chỗ (ghép nhiều mảng),
+ * mỗi lần render là một mảng mới, nên không thể so sánh bằng danh tính mảng được. */
+type Bag<T> = { order: T[]; i: number; last: T | null };
+
+function drawFromBag<T>(bags: Map<string, Bag<unknown>>, key: string, list: readonly T[]): T {
+  let bag = bags.get(key) as Bag<T> | undefined;
+  // Rổ đổi kích thước (quán sửa thực đơn, đổi nhân vật) thì bỏ túi cũ, xáo lại từ đầu.
+  if (!bag || bag.i >= bag.order.length || bag.order.length !== list.length) {
+    const order = [...list];
+    for (let k = order.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [order[k], order[j]] = [order[j]!, order[k]!];
+    }
+    const prevLast = bag?.last ?? null;
+    if (order.length > 1 && order[0] === prevLast) [order[0], order[1]] = [order[1]!, order[0]!];
+    bag = { order, i: 0, last: prevLast };
+    bags.set(key, bag as Bag<unknown>);
+  }
+  const v = bag.order[bag.i]!;
+  bag.i += 1;
+  bag.last = v;
+  return v;
+}
+
 type Props = {
   /** Tổng số phần trong giỏ — tăng là thêm món, giảm là bớt món. */
   cartCount: number;
@@ -485,6 +861,10 @@ type Props = {
   searchMiss: string | null;
   /** Khách bấm nút ẩn — trang gỡ hẳn nhân vật (kể cả lời mời món). */
   onHide: () => void;
+  /** Nút 🔔 trong cụm công cụ. Linh vật KHÔNG tự gọi API: luồng gọi nhân viên đã có cooldown 60s,
+   *  trần 3 lượt chưa nghe và câu lỗi riêng ở màn Món của bàn — viết lại ở đây là dựng bản sao
+   *  thứ hai của cùng một luật, và hai bản sẽ lệch nhau ngay lần sửa đầu tiên. */
+  onCallStaff: () => void;
   /** "Món đề xuất" chủ quán chọn, đã tra ra món thật — nút ⭐ mở danh sách này. Rỗng = ẩn nút. */
   featuredItems: PairingItem[];
   /** Id các món đang có trong giỏ — đánh dấu "đã chọn" trong danh sách đề xuất. */
@@ -493,9 +873,20 @@ type Props = {
 
 export function MenuMascot(props: Props): JSX.Element {
   // Bốc MỘT lần khi dựng; cả lượt truy cập dùng con này.
-  const [me] = useState(pickCharacter);
+  const [me, setMe] = useState(pickCharacter);
+  /* Đổi bạn đồng hành (chủ quán chốt 2026-10-05). Ghi vào ĐÚNG khoá mà `pickCharacter` đọc, nên
+   * tải lại trang giữa bữa vẫn là con khách đã chọn — không phải thêm khoá thứ hai rồi hai nguồn
+   * sự thật đánh nhau. Vẫn là sessionStorage: khách sau quét QR trên máy mình bốc lại từ đầu. */
+  const chooseCharacter = (c: Character) => {
+    try {
+      sessionStorage.setItem(PICK_KEY, c.id);
+    } catch {
+      /* im lặng — Safari riêng tư ném lỗi cả khi ghi; đổi trong phiên vẫn chạy */
+    }
+    setMe(c);
+  };
   useEffect(() => setVoice(me.voice), [me]);
-  const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, suggest, searchMiss, onHide, featuredItems, inCartIds } = props;
+  const { cartCount, cartTotal, sentKey, raised, overlayOpen, hasTable, suggest, searchMiss, onHide, onCallStaff, featuredItems, inCartIds } = props;
   /** Món đề xuất mời gần nhất qua nút ⭐ — bấm liền hai lần không ra y một món. */
   const lastStarPick = useRef<PairingItem | null>(null);
   /** Ô quay đang hiện: ba tên (trên / giữa / dưới) + `key` đổi mỗi nhịp để chạy lại hiệu ứng trượt. */
@@ -508,12 +899,26 @@ export function MenuMascot(props: Props): JSX.Element {
   const [cue, setCue] = useState<MascotCue | null>(null);
   const [look, setLook] = useState<MascotDirection | null>(null);
   const [asleep, setAsleep] = useState(false);
+  /* Ngáp định kỳ khi đã khuya. Bỏ qua lúc đang ngủ gật (đã có điệu bộ riêng), lúc có popup
+   * (đang bận việc khác), và lúc tab bị ẩn (ngáp cho không ai xem). */
+  useEffect(() => {
+    if (!isLateNight() || LITE || reducedMotion()) return;
+    const t = window.setInterval(() => {
+      if (asleepRef.current || overlayRef.current || document.hidden) return;
+      play('sleepy');
+      say(bag('yawn', LINES.yawn), 2600);
+    }, YAWN_EVERY_MS);
+    return () => window.clearInterval(t);
+  }, []);
   const [soundOn, setSoundOn] = useState(() => soundEnabled());
   const cueIdRef = useRef(0);
   const moveRef = useRef<HTMLDivElement>(null);
   const lastReaction = useRef<MascotReaction | null>(null);
-  const lastLine = useRef<string | null>(null);
   const lastMove = useRef<Move | 'look-around' | null>(null);
+  /* Túi bốc câu thoại, một túi cho mỗi kho (xem `drawFromBag`). Sống suốt lượt truy cập, nên
+   * khách phải nghe HẾT một kho mới gặp lại câu cũ — chứ không phải nghe lại ngay câu vừa rồi. */
+  const bags = useRef(new Map<string, Bag<unknown>>());
+  const bag = <T,>(key: string, list: readonly T[]): T => drawFromBag(bags.current, key, list);
   const timers = useRef<number[]>([]);
   const lookTimers = useRef<number[]>([]);
   useEffect(
@@ -579,7 +984,11 @@ export function MenuMascot(props: Props): JSX.Element {
     closeOffer();
     openOfferRef.current = offer?.item.id ?? null;
     bubbleIdRef.current += 1;
-    setBubble({ text, id: bubbleIdRef.current, ms: offer ? OFFER_MS : ms, wow, offer });
+    // Câu dài thì GIỮ LÂU HƠN, không bao giờ ngắn hơn cái caller xin: `SAY_MS` cố định được đặt
+    // hồi câu còn ngắn, nay câu mời món dài gấp đôi mà vẫn tắt sau 2,2 giây là đọc không kịp —
+    // lại còn phải trừ thời gian gõ chữ. `Math.max` chứ không ghi đè: chỗ nào cố ý xin lâu hơn
+    // (lời chào, câu mốc tiền) vẫn giữ nguyên ý định đó.
+    setBubble({ text, id: bubbleIdRef.current, ms: offer ? OFFER_MS : Math.max(ms, readMs(text)), wow, offer });
     const words = text + (offer ? ` ${offer.line}` : '');
     window.clearTimeout(talkTimer.current);
     setTalking(true);
@@ -600,6 +1009,37 @@ export function MenuMascot(props: Props): JSX.Element {
   // luôn hẹn giờ và bong bóng đứng mãi — lỗi đã đo được ở bản đầu.
   const bubbleId = bubble?.id;
   const bubbleMs = bubble?.ms;
+
+  /* ── Gõ từng chữ ──
+   * Số ký tự ĐÃ hiện; phần còn lại vẫn được vẽ nhưng `visibility:hidden`.
+   *
+   * ⚠ Vì sao phải vẽ cả phần chưa gõ thay vì chỉ cắt chuỗi: cắt chuỗi thì bong bóng PHÌNH DẦN
+   *   theo từng ký tự — nó nằm sát mép phải và tự bo tròn theo chiều cao, nên mỗi ký tự thêm vào
+   *   là một lần cả hộp nhảy. Giữ phần đuôi vô hình thì hộp có kích thước CUỐI ngay từ khung hình
+   *   đầu, chữ chỉ việc sáng dần lên trong đó.
+   *
+   * Câu mới đè câu cũ giữa chừng là chuyện thường (khách bấm + liên tục): `bubbleId` đổi →
+   * effect chạy lại → cleanup xoá hẹn giờ cũ, đếm lại từ 0. Không có hàng đợi, không có câu
+   * gõ dở nào sống sót.
+   *
+   * Người bật "giảm chuyển động" thì hiện thẳng cả câu — gõ chữ cũng là chuyển động. */
+  const [typedLen, setTypedLen] = useState(0);
+  const bubbleText = bubble?.text;
+  useEffect(() => {
+    if (bubbleText === undefined) return;
+    if (reducedMotion() || LITE) {
+      setTypedLen(bubbleText.length);
+      return;
+    }
+    setTypedLen(0);
+    let i = 0;
+    const t = window.setInterval(() => {
+      i += 1;
+      setTypedLen(i);
+      if (i >= bubbleText.length) window.clearInterval(t);
+    }, TYPE_MS);
+    return () => window.clearInterval(t);
+  }, [bubbleId, bubbleText]);
   useEffect(() => {
     if (bubbleId === undefined) return;
     const t = window.setTimeout(() => {
@@ -639,7 +1079,6 @@ export function MenuMascot(props: Props): JSX.Element {
 
   /** Combo đã khen "đủ bộ" trong lượt gọi này (gửi món xong thì đếm lại). */
   const doneCombosRef = useRef(new Set<string>());
-  const lastOfferLine = useRef<Character['offer'][number] | null>(null);
 
   /** Phản ứng vui khi một món tới tay. */
   const celebrate = (dish: { itemId: string; name: string; fromOffer?: boolean } | null) => {
@@ -649,6 +1088,16 @@ export function MenuMascot(props: Props): JSX.Element {
     let line: string;
     let wow: boolean;
     const rank = dish ? topRankRef.current.get(dish.itemId) : undefined;
+    /* Lần thứ mấy khách gọi món này trong bữa. Đếm TRƯỚC khi chọn câu, vì chính con số đó quyết
+     * định có dùng câu "lại món này nữa" hay không. */
+    let again = false;
+    if (dish) {
+      const n = (addCountRef.current.get(dish.itemId) ?? 0) + 1;
+      addCountRef.current.set(dish.itemId, n);
+      // Chỉ lần thứ HAI mới reo lên. Lần ba trở đi nói lại y hệt là thành nhàm, mà đó đúng là
+      // thứ chủ quán vừa bắt sửa ở kho câu.
+      again = n === 2;
+    }
     const res = dish ? suggestRef.current(dish.itemId, avoidRef.current) : null;
     const done = res?.completed && !doneCombosRef.current.has(res.completed.id) ? res.completed : null;
     if (done) {
@@ -657,8 +1106,14 @@ export function MenuMascot(props: Props): JSX.Element {
       line = me.done(comboLabel(done));
       wow = true;
       confetti(LITE ? 12 : 28);
+    } else if (again) {
+      /* B3 — khách gọi LẠI món đã gọi trong bữa này (chủ quán chốt 2026-10-05). Đặt TRƯỚC nhánh
+       * khen chung vì nó cụ thể hơn: "lại Ốc Mít nữa hả" cho cảm giác nhân vật nhớ mình, còn
+       * "ngon đấy!" thì lần nào cũng thế. Sau nhánh combo đủ bộ vì cái đó to hơn. */
+      line = bag('again', LINES.again)(short(dish!.name));
+      wow = false;
     } else if (dish?.fromOffer) {
-      line = pickFresh(me.thanks, lastLine);
+      line = bag('thanks', me.thanks);
       wow = false;
     } else if (dish && rank !== undefined) {
       line =
@@ -667,11 +1122,11 @@ export function MenuMascot(props: Props): JSX.Element {
           : `Ái chà! ${short(dish.name)} nằm top bán chạy luôn!`;
       wow = true;
     } else if (dish && Math.random() < DISH_LINE_CHANCE) {
-      line = pick(DISH_LINES)(short(dish.name));
+      line = bag('dish', DISH_LINES)(short(dish.name));
       wow = false;
     } else {
       const strong = [...LINES.wow, ...EXCLAIMS, ...me.exclaims];
-      line = pickFresh([...LINES.happy, ...strong], lastLine);
+      line = bag('happy', [...LINES.happy, ...strong]);
       wow = strong.includes(line);
     }
     // Mời món sau mỗi lần thêm — chỉ món chủ quán chọn (combo / món đề xuất), hết thì thôi không
@@ -680,9 +1135,9 @@ export function MenuMascot(props: Props): JSX.Element {
     let offer = res?.offer ?? null;
     if (offer?.combo) {
       const c = comboLabel(offer.combo);
-      offer = { ...offer, line: pickFresh(me.offer, lastOfferLine)(short(offer.item.name), c) };
+      offer = { ...offer, line: bag('offer', me.offer)(short(offer.item.name), c) };
     } else if (offer) {
-      offer = { ...offer, line: pick(me.featured)(short(offer.item.name)) };
+      offer = { ...offer, line: bag('featured', me.featured)(short(offer.item.name)) };
     }
     say(line, SAY_MS, wow, offer);
     const r = myRect();
@@ -702,21 +1157,40 @@ export function MenuMascot(props: Props): JSX.Element {
   };
 
   /** Câu thoại cho mọi thao tác không phải thêm món. */
+  /* B3 — đếm số lần khách gọi TỪNG món trong bữa này. Chỉ sống trong RAM của trang: đây là
+   * chuyện của một bữa ăn, không đáng ghi xuống đâu cả. */
+  const addCountRef = useRef(new Map<string, number>());
+
   const react = (e: Exclude<MascotEvent, { type: 'add' }>) => {
     switch (e.type) {
+      /* ── Bếp đã nhận món (2026-10-05) ──
+       * Khoảnh khắc vui nhất của cả luồng: khách gửi món đi, hồi hộp chờ, rồi quán gật đầu.
+       * Ăn mừng to như lúc gửi — pháo giấy + xoay + mắt sao. */
+      case 'order-approved':
+        move(SPIN);
+        play('sparkle');
+        say(bag('approved', LINES.approved), 3600, true);
+        confetti(LITE ? 14 : 30);
+        playMascotSound('yay');
+        return;
+      /* Lượt bị bỏ. Phải báo chứ không im: khách đang đợi một món không bao giờ tới. Giọng tiếc
+       * nuối, KHÔNG đổ lỗi cho quán — nhân viên bỏ lượt thường vì món đã hết thật. */
+      case 'order-rejected':
+        sadden(bag('rejected', LINES.rejected));
+        return;
       case 'out-of-stock':
-        sadden(`${pick(HUH)} ${short(e.name)} hôm nay hết mất rồi…`);
+        sadden(`${bag('huh', HUH)} ${short(e.name)} hôm nay hết mất rồi…`);
         return;
       case 'view-item': {
         play(pickFresh(['heart', 'sparkle', 'delighted'], lastReaction));
         const top = topRankRef.current.get(e.itemId) === 0;
-        say(top ? LINES.viewTop(short(e.name)) : pick(LINES.view)(short(e.name)), SAY_MS, top);
+        say(top ? LINES.viewTop(short(e.name)) : bag('view', LINES.view)(short(e.name)), SAY_MS, top);
         playMascotSound('blip');
         return;
       }
       case 'close-item':
         play('wink');
-        say(pickFresh(LINES.closeItem, lastLine));
+        say(bag('closeItem', LINES.closeItem));
         return;
       case 'item-qty':
         play(e.up ? 'delighted' : 'surprised');
@@ -728,7 +1202,7 @@ export function MenuMascot(props: Props): JSX.Element {
         return;
       case 'category':
         move('look-around');
-        say(pick(LINES.category)(short(e.name)));
+        say(bag('category', LINES.category)(short(e.name)));
         playMascotSound('blip');
         return;
       case 'search-start':
@@ -821,8 +1295,8 @@ export function MenuMascot(props: Props): JSX.Element {
       if (Date.now() - flyingAtRef.current > 400) celebrate(null);
     } else if (cartCount < prev) {
       // Một nửa số lần thốt "Uả alo?" trước câu tiếc — đủ bất ngờ mà không lần nào cũng y một kiểu.
-      const sad = pickFresh(LINES.sad, lastLine);
-      sadden(Math.random() < 0.5 ? `${pick(HUH)} ${sad}` : sad);
+      const sad = bag('sad', LINES.sad);
+      sadden(Math.random() < 0.5 ? `${bag('huh', HUH)} ${sad}` : sad);
     }
   }, [cartCount]);
 
@@ -863,7 +1337,7 @@ export function MenuMascot(props: Props): JSX.Element {
     if (!searchMiss) return;
     const t = window.setTimeout(() => {
       play('surprised');
-      say(`${pick(HUH)} Hông thấy "${short(searchMiss, 16)}" á, thử gõ khác xem!`);
+      say(`${bag('huh', HUH)} Hông thấy "${short(searchMiss, 16)}" á, thử gõ khác xem!`);
     }, SEARCH_MISS_MS);
     return () => window.clearTimeout(t);
   }, [searchMiss]);
@@ -1123,6 +1597,53 @@ export function MenuMascot(props: Props): JSX.Element {
   const gesture = useRef<{ x0: number; y0: number; lastX: number; dir: number; rev: number; dragging: boolean; used: boolean } | null>(null);
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null);
   const swallowClick = useRef(false);
+  /* Chỗ khách tự đặt. `null` = chưa đặt → rơi về góc dưới phải như cũ. */
+  const [home, setHome] = useState<MascotHome | null>(readHome);
+  /* ── Cụm công cụ quanh linh vật: MẶC ĐỊNH ẨN ──
+   * Chủ quán 2026-10-05: "lướt chọn món mà hình linh vật kèm 3 nút trông rất cồng kềnh" — nay
+   * là 5 nút nên càng đúng.
+   *
+   * Luật: HIỆN khi khách đang để ý tới nhân vật (rê chuột vào, hoặc chạm vào nó), ẨN khi khách
+   * quay sang làm việc khác (rê chuột ra, hoặc chạm vào bất cứ đâu ngoài nó).
+   *
+   * Bản đầu dùng hẹn giờ 10 giây rồi tự ẩn. Bỏ vì nó sai ở cả hai đầu: đang đọc dở bảng chọn
+   * nhân vật thì nó biến mất, còn khách chỉ muốn lướt thực đơn thì vẫn phải chờ hết 10 giây.
+   * Cử chỉ của khách nói rõ ý định hơn đồng hồ. */
+  const [toolsOpen, setToolsOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const showTools = () => setToolsOpen(true);
+  const hideTools = () => {
+    setToolsOpen(false);
+    setPickerOpen(false);
+  };
+  /* Chạm/bấm RA NGOÀI nhân vật = khách quay sang chọn món → ẩn. Nghe ở `pointerdown` chứ không
+   * `click`: cuộn danh sách món bằng ngón tay cũng bắt đầu bằng pointerdown, mà cuộn đúng là
+   * "đang làm việc khác". Nút bên trong nhân vật nằm trong `rootRef` nên không tính là ngoài. */
+  useEffect(() => {
+    if (!toolsOpen) return;
+    const onDownOutside = (e: PointerEvent) => {
+      const root = rootRef.current;
+      if (root && !root.contains(e.target as Node)) hideTools();
+    };
+    document.addEventListener('pointerdown', onDownOutside);
+    return () => document.removeEventListener('pointerdown', onDownOutside);
+  }, [toolsOpen]);
+  /* Xoay máy / bàn phím bật lên → kẹp lại. Không kẹp thì chỗ đã đặt có thể nằm ngoài khung nhìn
+   * mới và linh vật biến mất, khách tưởng hỏng. */
+  useEffect(() => {
+    if (!home) return;
+    const onResize = () => {
+      setHome((h) => {
+        if (!h) return h;
+        const next = clampHome(h);
+        if (next.fx === h.fx && next.fy === h.fy) return h;
+        writeHome(next);
+        return next;
+      });
+    };
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, [home]);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest('.mo-mascot-sound, .mo-mascot-hide, .mo-mascot-offer-btn, .mo-mascot-star')) return;
@@ -1140,7 +1661,7 @@ export function MenuMascot(props: Props): JSX.Element {
       // bọc thay vì nút bên trong — chạm thường mất luôn cú nảy chớp mắt của Mascot.
       e.currentTarget.setPointerCapture(e.pointerId);
       play('surprised');
-      say(pick(LINES.dragStart));
+      say(bag('dragStart', LINES.dragStart));
     }
     if (g.dragging) {
       setDrag({ x: dx, y: dy });
@@ -1155,7 +1676,7 @@ export function MenuMascot(props: Props): JSX.Element {
         g.rev = 0;
         g.used = true;
         play('bashful');
-        say(pickFresh(LINES.pet, lastLine));
+        say(bag('pet', LINES.pet));
         playMascotSound('giggle');
       }
     }
@@ -1168,10 +1689,25 @@ export function MenuMascot(props: Props): JSX.Element {
     if (!g) return;
     swallowClick.current = g.used;
     if (g.dragging) {
+      /* THẢ ĐÂU NẰM ĐÓ. Đọc vị trí THẬT trên màn (`getBoundingClientRect`) thay vì cộng dồn
+       * `dx/dy`: lúc kéo nhân vật có thể đang `.is-perched` (ngồi trên mép popup) nên điểm xuất
+       * phát không phải góc mặc định, cộng dồn sẽ lệch đúng bằng khoảng đã né. */
+      const r = rootRef.current?.getBoundingClientRect();
+      if (r && window.innerWidth > 0 && window.innerHeight > 0) {
+        setHome(() => {
+          const next = clampHome({
+            fx: (r.left + r.width / 2) / window.innerWidth,
+            fy: (r.top + r.height / 2) / window.innerHeight,
+          });
+          writeHome(next);
+          return next;
+        });
+      }
       setDrag(null);
       later(450, () => {
         play('dizzy');
-        say(pick(LINES.dragEnd));
+        // Câu thoại cũ nói "về chỗ cũ" — sai hẳn nghĩa từ khi thả đâu nằm đó (xem LINES.dragEnd).
+        say(bag('dragEnd', LINES.dragEnd));
         playMascotSound('dizzy');
       });
     }
@@ -1179,11 +1715,62 @@ export function MenuMascot(props: Props): JSX.Element {
 
   const transform = drag ? `translate(${drag.x}px, ${drag.y}px)` : undefined;
 
+  /* Bong bóng thoại neo CỨNG bên trái đầu nhân vật (`.mo-mascot-say { right: calc(100% - 6px) }`)
+   * vì xưa nay nó luôn sát mép phải. Kéo sang nửa trái màn là bong bóng bay ra ngoài khung nhìn —
+   * mất hẳn câu thoại mà không báo lỗi gì. `is-left` lật nó (và cả cái đuôi hai chấm) sang phải. */
+  const atLeft = !perch && home !== null && home.fx < 0.5;
+
+  /* Đường VỀ: chạm đúp là linh vật chạy về góc mặc định. Cần có vì khách lớn tuổi lỡ kéo nó vào
+   * chỗ vướng (sát mép dưới, chỗ bàn phím che) thì cầm lại rất khó. Không thêm nút nào lên màn —
+   * `.mo-mascot-hide` cạnh đó là ẩn HẲN, việc khác. */
+  const lastTapRef = useRef(0);
+  const goHomeOnDoubleTap = (): boolean => {
+    const now = Date.now();
+    const isDouble = now - lastTapRef.current < 350;
+    lastTapRef.current = now;
+    if (!isDouble || !home) return false;
+    lastTapRef.current = 0;
+    setHome(null);
+    writeHome(null);
+    play('surprised');
+    say('Ủa, để tui về chỗ cũ nhé!');
+    return true;
+  };
+
   return (
     <div
       ref={rootRef}
-      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}${LITE ? ' is-lite' : ''}${asleep ? ' is-asleep' : ''}${me.outline ? ' is-outlined' : ''}${leaving ? ' is-leaving' : ''}`}
-      style={{ ...(perch ? { bottom: perch.bottom, right: perch.right } : null), transform }}
+      className={`mo-mascot${raised ? ' is-raised' : ''}${perch ? ' is-perched' : ''}${drag ? ' is-dragging' : ''}${away ? ' is-away' : ''}${LITE ? ' is-lite' : ''}${asleep ? ' is-asleep' : ''}${me.outline ? ' is-outlined' : ''}${leaving ? ' is-leaving' : ''}${atLeft ? ' is-left' : ''}${toolsOpen ? ' has-tools' : ''}`}
+      /* Thứ tự ưu tiên CÓ CHỦ Ý — đây là toàn bộ "hướng B":
+       *   1. `perch` (đang có popup) thắng tất cả. Linh vật có z-index 330, cao hơn mọi lớp phủ,
+       *      nên nếu nó đứng yên ở chỗ khách thả thì sẽ ĐÈ LÊN tấm popup — có thể đè đúng nút
+       *      "Gửi cho quán". Né lên mép tấm là bắt buộc, không phải tuỳ chọn.
+       *   2. `home` (chỗ khách thả) dùng khi không có popup. Đặt `right/bottom: auto` để huỷ neo
+       *      góc dưới phải của CSS gốc, nếu không hai bên đánh nhau và nhân vật bị kéo giãn.
+       *   3. Chưa thả bao giờ → không có style nào, CSS gốc lo (góc dưới phải).
+       * Đóng popup là `perch` về null và nhân vật TỰ QUAY LẠI chỗ khách thả. */
+      style={{
+        ...(perch
+          ? { bottom: perch.bottom, right: perch.right }
+          : home
+            ? {
+                /* Lùi nửa kích thước bằng calc() chứ KHÔNG bằng translate(-50%,-50%): thuộc tính
+                 * `transform` ở đây đã có chủ khác — hoạt ảnh vào trang (fill backwards) và cú
+                 * kéo tay đều ghi vào nó. Chen thêm một phép dời vào cùng thuộc tính là lúc mới
+                 * mở trang nhân vật nhảy lệch nửa thân, mà chỉ thấy được trên máy thật. */
+                left: `calc(${home.fx * 100}% - ${SIZE / 2}px)`,
+                top: `calc(${home.fy * 100}% - ${SIZE / 2}px)`,
+                right: 'auto',
+                bottom: 'auto',
+              }
+            : null),
+        transform,
+      }}
+      /* Rê chuột vào/ra — chỉ máy có CHUỘT thật. Lọc theo `pointerType` vì trên điện thoại một
+         cú chạm cũng bắn `pointerenter`/`pointerleave`, mà ở đó luật đã là chạm-vào / chạm-ra-ngoài;
+         để lọt thì chạm một cái là cụm nút vừa hiện vừa ẩn ngay trong cùng cử chỉ. */
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') showTools(); }}
+      onPointerLeave={(e) => { if (e.pointerType === 'mouse' && !drag) hideTools(); }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -1198,8 +1785,14 @@ export function MenuMascot(props: Props): JSX.Element {
       // Bắt cú chạm ở lớp bọc: nút bên trong tự lo biểu cảm, ở đây chỉ thêm câu thoại.
       onClick={() => {
         if (leaving) return; // đang chào tạm biệt — đừng nói đè
+        // Chạm ĐÚP (khi đã kéo đi chỗ khác) = đưa về góc. Kiểm trước câu thoại chạm thường, không
+        // thì cú chạm thứ hai vừa đưa về góc vừa nói một câu khác đè lên câu "để tui về chỗ cũ".
+        if (goHomeOnDoubleTap()) return;
+        // Chạm = mở cụm công cụ (và gia hạn nếu đang mở). Cử chỉ tự nhiên nhất khi khách muốn
+        // nhờ gì đó, nên không bắt học thêm thao tác mới nào.
+        showTools();
         primeSound();
-        const line = pickFresh([...LINES.boop, ...LINES.boopWow, ...me.quirks], lastLine);
+        const line = bag('boop', [...LINES.boop, ...LINES.boopWow, ...me.quirks]);
         const wow = LINES.boopWow.includes(line);
         say(line, SAY_MS, wow);
         // Chạm thì phải có tiếng (chủ quán hỏi 2026-10-03): câu cảm thán kêu 'pop', câu thường 'boop'.
@@ -1222,9 +1815,17 @@ export function MenuMascot(props: Props): JSX.Element {
         ) : bubble ? (
           <div
             key={bubble.id}
-            className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}${bubble.offer ? ' has-offer' : ''}`}
+            className={`mo-mascot-bubble${bubble.wow ? ' is-wow' : ''}${bubble.offer ? ' has-offer' : ''}${
+              bubble.text.length > LONG_LINE_CHARS ? ' is-long' : ''
+            }`}
           >
-            <p>{bubble.text}</p>
+            {/* Phần đuôi CHƯA gõ vẫn được vẽ, chỉ `visibility:hidden` — nó giữ chỗ để bong bóng
+                có kích thước cuối ngay từ đầu, không phình dần theo từng ký tự. `aria-hidden`
+                để trình đọc màn hình không đọc hai lần phần chữ vô hình đó. */}
+            <p>
+              {bubble.text.slice(0, typedLen)}
+              <span className="mo-mascot-untyped" aria-hidden="true">{bubble.text.slice(typedLen)}</span>
+            </p>
             {bubble.offer ? (
               <>
                 <p className="mo-mascot-offer-line">{bubble.offer.line}</p>
@@ -1274,12 +1875,74 @@ export function MenuMascot(props: Props): JSX.Element {
             </div>
           </div>
         </div>
+      {/* ── Bảng chọn bạn đồng hành (chủ quán chốt 2026-10-05) ──
+          Vẽ bằng CHÍNH tấm sprite của từng con, cắt ô "nhìn thẳng" (index 4 của lưới 3×3 →
+          background-position 50% 50%, background-size 300% — cùng công thức `cell()` trong
+          Mascot.tsx). Không dựng 6 component Mascot: mỗi con có HAI tấm (hướng nhìn + biểu cảm)
+          nên sẽ tải 12 ảnh, phá vỡ đúng quyết định "chỉ tải tấm của con được chọn".
+          Chỉ tấm `-directions` và chỉ khi khách mở bảng này. */}
+      {pickerOpen ? (
+        <div className="mo-mascot-pick" onClick={(e) => e.stopPropagation()}>
+          <p className="mo-mascot-pick-title">Chọn bạn đồng hành</p>
+          <div className="mo-mascot-pick-row">
+            {CHARACTERS.map((c) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`mo-mascot-pick-one${c.id === me.id ? ' is-on' : ''}`}
+                aria-label={`Chọn ${c.name}`}
+                onClick={() => {
+                  showTools();
+                  if (c.id === me.id) { setPickerOpen(false); return; }
+                  chooseCharacter(c);
+                  setPickerOpen(false);
+                  play('delighted');
+                  playMascotSound('ting');
+                  // Câu chào của con MỚI — `me` trong closure này vẫn là con cũ, nên đọc từ `c`.
+                  say(`${c.emoji} ${c.name} tới đây! Mình chọn món tiếp nha!`, 3000, true);
+                }}
+              >
+                <span
+                  className="mo-mascot-pick-face"
+                  style={{ backgroundImage: `url(/mascots/${c.id}-directions.webp)` }}
+                />
+                <span className="mo-mascot-pick-name">{c.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      <button
+        type="button"
+        className="mo-mascot-bell"
+        aria-label="Gọi nhân viên"
+        onClick={(e) => {
+          e.stopPropagation();
+          showTools();
+          onCallStaff();
+        }}
+      >
+        🔔
+      </button>
+      <button
+        type="button"
+        className="mo-mascot-swap"
+        aria-label="Đổi bạn đồng hành"
+        onClick={(e) => {
+          e.stopPropagation();
+          showTools();
+          setPickerOpen((v) => !v);
+        }}
+      >
+        🙂
+      </button>
       <button
         type="button"
         className="mo-mascot-sound"
         aria-label={soundOn ? `Tắt tiếng ${me.name}` : `Bật tiếng ${me.name}`}
         onClick={(e) => {
           e.stopPropagation();
+          showTools();
           const next = !soundOn;
           setSoundEnabled(next);
           setSoundOn(next);
@@ -1314,6 +1977,7 @@ export function MenuMascot(props: Props): JSX.Element {
           aria-label="Gợi ý một món quán đề xuất"
           onClick={(e) => {
             e.stopPropagation();
+            showTools();
             if (leaving || spinningRef.current) return;
             primeSound();
             // Mời MỘT món ngẫu nhiên trong "món đề xuất" (chủ quán chốt 2026-10-03: không bày cả
@@ -1358,7 +2022,7 @@ export function MenuMascot(props: Props): JSX.Element {
             later(t + 700, () => {
               setSpin(null);
               spinningRef.current = false;
-              say(pick(LINES.starIntro), SAY_MS, true, { item: it, line: pick(me.featured)(target) });
+              say(bag('starIntro', LINES.starIntro), SAY_MS, true, { item: it, line: bag('featured', me.featured)(target) });
             });
           }}
         >
@@ -1381,6 +2045,19 @@ const MENU_MASCOT_CSS = `
      CSS thắng style inline — kéo thả sẽ không nhúc nhích. */
   animation:mo-mascot-in .3s ease backwards;
 }
+
+/* ── Linh vật đã bị kéo sang nửa TRÁI: lật bong bóng sang phải (2026-10-05) ──
+   Bong bóng neo cứng bên trái đầu nhân vật vì xưa nay nó luôn sát mép phải. Không lật thì kéo
+   sang trái là bong bóng nằm ngoài khung nhìn — câu thoại biến mất, không báo lỗi gì.
+   Lật cả cái ĐUÔI (hai chấm tròn nhỏ dần), không thì đuôi chỉ ra ngoài không trung. */
+.mo-mascot.is-left .mo-mascot-say{ right:auto; left:calc(100% - 6px); }
+.mo-mascot.is-left .mo-mascot-bubble{ margin:0 0 0 14px; transform-origin:0 70%; }
+.mo-mascot.is-left .mo-mascot-bubble::before{ right:auto; left:-12px; }
+.mo-mascot.is-left .mo-mascot-bubble::after{ right:auto; left:-21px; }
+/* Thêm left/top vào transition để lúc né popup rồi quay về chỗ khách thả thì nó TRƯỢT chứ không
+   nhảy cóc. (Nhắc lại cái bẫy đã dẫm hai lần: khối CSS này là template literal — một dấu nháy
+   ngược trong comment là đóng chuỗi giữa chừng và cả file hỏng cú pháp.) */
+.mo-mascot{ transition:bottom .25s ease, right .25s ease, left .25s ease, top .25s ease, transform .45s cubic-bezier(.34,1.56,.64,1); }
 .mo-mascot.is-dragging{ transition:none; cursor:grabbing; }
 /* Nút giỏ nổi: lề 12 + nút 60. Đáy nhân vật ở 40px = giữa thân nút, tức nửa dưới chồng lên nút,
    nửa trên (cái đầu) chìa lên khỏi mép nút. */
@@ -1388,7 +2065,21 @@ const MENU_MASCOT_CSS = `
 /* Đang ngồi trên popup: bottom/right đặt inline theo số đo. Thêm bóng đổ để tách khỏi nền tối. */
 .mo-mascot.is-perched .mo-mascot-move{ filter:drop-shadow(0 4px 10px rgb(0 0 0 / 35%)); }
 /* touch-action:none chỉ trên THÂN nhân vật: kéo bắt đầu từ đó thì trình duyệt không cuộn trang. */
-.mo-mascot-move{ transform-origin:50% 85%; touch-action:none; }
+/* ── Thân nhân vật so với cụm nút ──
+   Thân phải nằm TRÊN lúc nút đang nấp, để nút thật sự khuất sau lưng chứ không chỉ co nhỏ trước
+   mặt. NHƯNG nếu cứ để nguyên thì thân phủ lên cả vùng nút và KHÔNG BẤM ĐƯỢC NÚT NÀO — nút chỉ
+   thò ra khỏi khung 4px, phần lớn thân 30px của nó nằm chồng lên thân nhân vật.
+   (Đúng lỗi chủ quán báo 2026-10-05 ngay sau khi thêm hoạt ảnh.)
+
+   Cách xử: nút ra xong thì thân LÙI XUỐNG dưới. z-index không nội suy được nhưng vẫn nhận
+   transition dạng bước nhảy, nên hoãn 0,22s — vừa đúng lúc nút trượt xong. Trình duyệt nào bỏ
+   qua phần hoãn thì thân lùi xuống NGAY, hoạt ảnh bớt đẹp một chút nhưng nút vẫn bấm được:
+   hỏng về phía an toàn. Lúc đóng thì không hoãn, thân lên trên ngay để nút tuồn ra sau lưng. */
+.mo-mascot-move{
+  transform-origin:50% 85%; touch-action:none; position:relative;
+  z-index:2; transition:z-index 0s linear 0s;
+}
+.mo-mascot.has-tools .mo-mascot-move{ z-index:0; transition:z-index 0s linear .22s; }
 .mo-mascot-sway{ transform-origin:50% 95%; }
 /* Thở: phập phồng rất nhẹ, liên tục — nhân vật đứng yên vẫn trông như đang sống. */
 /* will-change tách lớp thở thành một lớp GPU riêng: trình duyệt chỉ ghép lại lớp đó mỗi khung,
@@ -1410,6 +2101,112 @@ const MENU_MASCOT_CSS = `
 
 /* Nút loa nhỏ ở góc dưới-trái người hamster. 28px hiển thị nhưng vùng chạm nới ra bằng ::before
    cho đủ ~40px. */
+/* ── CỤM CÔNG CỤ: mặc định ẨN, chạm vào nhân vật mới hiện 10 giây ──
+   Chủ quán 2026-10-05: "lướt chọn món mà hình linh vật kèm 3 nút trông rất cồng kềnh". Nay là 5
+   nút nên càng đúng. Ẩn hết, chạm vào nhân vật thì hiện.
+
+   :not(...) khai tường minh thay vì dựa vào thứ tự dòng: ba trạng thái is-dragging / is-away /
+   is-leaving cũng ẩn các nút này, và chúng nằm rải rác phía dưới. Nếu dựa vào "dòng sau thắng"
+   thì chỉ cần ai đó dời một khối CSS là nút lại hiện lúc đang kéo, mà không ai nhận ra.
+
+   Năm vị trí, không đè nhau trên khung 88px: ✕ trên-trái · 🙂 trên-giữa · ⭐ trên-phải ·
+   🔊 dưới-trái · 🔔 dưới-phải. */
+.mo-mascot-sound,
+.mo-mascot-hide,
+.mo-mascot-star,
+.mo-mascot-bell,
+.mo-mascot-swap{
+  opacity:0; pointer-events:none; z-index:1;
+  /* ── Cất sau lưng / lấy ra từ sau lưng (chủ quán chốt 2026-10-05) ──
+     Lúc ẩn, mỗi nút co lại và DỒN VỀ TÂM nhân vật rồi nấp sau thân nó; lúc hiện thì bung ra
+     đúng góc của mình. Cộng với z-index thấp hơn thân (xem .mo-mascot-move) thành ra cảm giác
+     nhân vật giấu đồ sau lưng rồi lôi ra.
+     Đường cong vượt quá 1 để nút nảy nhẹ lúc bung — thu về thì dùng đường cong thường, vì cất
+     đồ đi mà cũng nảy thì trông như bị bật ra chứ không như được cất. */
+  transition:transform .26s cubic-bezier(.4,0,.6,1), opacity .16s ease;
+  will-change:transform;
+}
+/* Dồn về tâm khung 88px: nút ở góc trên lùi xuống ~34px, nút ở góc dưới nhô lên ~26px. */
+.mo-mascot-hide{ transform:translate(34px, 34px) scale(.25); }
+.mo-mascot-star{ transform:translate(-34px, 34px) scale(.25); }
+.mo-mascot-sound{ transform:translate(34px, -26px) scale(.25); }
+.mo-mascot-bell{ transform:translate(-34px, -26px) scale(.25); }
+/* Nút trên-giữa đã có translateX(-50%) làm mốc, phải giữ lại trong MỌI khung hình. */
+.mo-mascot-swap{ transform:translate(-50%, 46px) scale(.25); }
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-sound,
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-hide,
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-star,
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-bell,
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-swap{
+  opacity:1; pointer-events:auto;
+  transform:none;
+  transition:transform .3s cubic-bezier(.34,1.56,.64,1), opacity .18s ease;
+}
+/* Giữ lại mốc translateX(-50%) cho nút trên-giữa — transform:none ở trên sẽ xoá mất nó. */
+.mo-mascot.has-tools:not(.is-dragging):not(.is-away):not(.is-leaving) .mo-mascot-swap{
+  transform:translateX(-50%);
+}
+/* Bung ra lần lượt chứ không cùng lúc: mắt đọc được là "lấy ra từng cái", chứ bung một phát
+   thì chỉ thấy loé lên. 40ms/nút — tổng 160ms, vẫn dưới ngưỡng thấy chậm. */
+.mo-mascot.has-tools .mo-mascot-hide{ transition-delay:0s; }
+.mo-mascot.has-tools .mo-mascot-swap{ transition-delay:.04s; }
+.mo-mascot.has-tools .mo-mascot-star{ transition-delay:.08s; }
+.mo-mascot.has-tools .mo-mascot-sound{ transition-delay:.12s; }
+.mo-mascot.has-tools .mo-mascot-bell{ transition-delay:.16s; }
+/* Giảm chuyển động: hiện/ẩn thẳng, không trượt không nảy. */
+@media (prefers-reduced-motion: reduce){
+  .mo-mascot-sound, .mo-mascot-hide, .mo-mascot-star, .mo-mascot-bell, .mo-mascot-swap{
+    transition:opacity .15s ease; transform:none;
+  }
+  .mo-mascot-swap{ transform:translateX(-50%); }
+  .mo-mascot.has-tools .mo-mascot-hide, .mo-mascot.has-tools .mo-mascot-swap,
+  .mo-mascot.has-tools .mo-mascot-star, .mo-mascot.has-tools .mo-mascot-sound,
+  .mo-mascot.has-tools .mo-mascot-bell{ transition-delay:0s; }
+}
+/* Cùng khuôn với ba nút cũ: tròn 30px, viền hồng nhạt, vùng chạm nới thêm 6px mỗi phía. */
+.mo-mascot-bell,
+.mo-mascot-swap{
+  position:absolute; width:30px; height:30px; padding:0;
+  border-radius:50%; border:1.5px solid #f4b4a4; background:#fff; cursor:pointer;
+  font-size:14px; line-height:1; box-shadow:0 2px 6px rgb(42 29 20 / 18%); transition:opacity .2s;
+}
+.mo-mascot-bell::before,
+.mo-mascot-swap::before{ content:''; position:absolute; inset:-6px; }
+.mo-mascot-bell{ right:-4px; bottom:4px; }
+.mo-mascot-swap{ left:50%; top:-18px; transform:translateX(-50%); }
+
+/* ── Bảng chọn bạn đồng hành ──
+   Nằm cùng phía với bong bóng thoại (bên trái nhân vật), lật sang phải theo is-left vì cùng
+   lý do: kéo nhân vật sang mép trái thì bảng neo bên trái sẽ ra ngoài khung nhìn. */
+.mo-mascot-pick{
+  position:absolute; right:calc(100% - 6px); bottom:34px;
+  width:max-content; max-width:min(300px, calc(100vw - 96px));
+  padding:10px 12px; border-radius:16px;
+  background:#fff; border:2px solid #f4b4a4; box-shadow:0 6px 16px rgb(207 51 35 / 14%);
+  pointer-events:auto;
+}
+.mo-mascot.is-left .mo-mascot-pick{ right:auto; left:calc(100% - 6px); }
+.mo-mascot-pick-title{
+  margin:0 0 8px; font:700 13px/1 'Baloo 2','Be Vietnam Pro',sans-serif; color:#8c5610;
+}
+/* Cuộn NGANG: sáu con mà wrap thành hai hàng là bảng cao gần nửa màn, đè mất danh sách món. */
+.mo-mascot-pick-row{ display:flex; gap:6px; overflow-x:auto; padding-bottom:2px; }
+.mo-mascot-pick-one{
+  flex:0 0 auto; width:62px; padding:4px; border:1.5px solid transparent; border-radius:12px;
+  background:transparent; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:2px;
+}
+.mo-mascot-pick-one.is-on{ border-color:#cf3323; background:#fef6f3; }
+/* background-size 300% + position 50% 50% = ô "nhìn thẳng" (index 4) của lưới 3×3 — CÙNG công
+   thức với cell() trong Mascot.tsx. Đổi lưới ở đó thì phải đổi cả ở đây. */
+.mo-mascot-pick-face{
+  display:block; width:48px; height:48px;
+  background-size:300%; background-position:50% 50%; background-repeat:no-repeat;
+}
+.mo-mascot-pick-name{
+  font:600 10.5px/1.2 'Be Vietnam Pro',sans-serif; color:#5a3a2a; text-align:center;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;
+}
+
 .mo-mascot-sound{
   position:absolute; left:-4px; bottom:4px; width:30px; height:30px; padding:0;
   border-radius:50%; border:1.5px solid #f4b4a4; background:#fff; cursor:pointer;
@@ -1417,7 +2214,12 @@ const MENU_MASCOT_CSS = `
 }
 .mo-mascot-sound::before{ content:''; position:absolute; inset:-6px; }
 .mo-mascot-sound{ transition:opacity .2s; }
-.mo-mascot.is-away .mo-mascot-sound{ opacity:0; pointer-events:none; }
+/* Ba nút quanh nhân vật (loa, ẩn, quay xổ số) PHẢI ẩn/hiện CÙNG NHAU ở cả ba trạng thái
+   is-away / is-dragging / is-leaving. Bản trước sót đúng một ô: lúc kéo thì ⭐ và ✕ biến mất
+   còn 🔊 ở lại, nên nhân vật đang bay theo ngón tay mà vẫn kéo theo một nút lủng lẳng — chủ
+   quán nhìn ra ngay (2026-10-05). Thêm trạng thái mới thì nhớ khai đủ cả ba nút. */
+.mo-mascot.is-away .mo-mascot-sound,
+.mo-mascot.is-dragging .mo-mascot-sound{ opacity:0; pointer-events:none; }
 /* Nút ẩn nhân vật (khách thấy phiền thì tắt — chủ quán chốt 2026-10-03). Góc TRÊN-trái, đối xứng
    nút loa ở góc dưới. Ba nút quanh nhân vật CÙNG cỡ 30px (chủ quán chốt 2026-10-03). */
 .mo-mascot-hide{
@@ -1448,10 +2250,23 @@ const MENU_MASCOT_CSS = `
    chỗ đó phải đi xuyên xuống nút + bên dưới chứ không bị bong bóng nuốt. */
 .mo-mascot-say{
   position:absolute; right:calc(100% - 6px); bottom:34px;
-  width:max-content; max-width:min(240px, calc(100vw - 110px));
+  /* 240px cũ chỉ vừa ~25 ký tự một dòng (Baloo 2 đậm 15px, trừ 36px đệm), nên câu mời món
+     dài 50–55 ký tự xuống tận BA dòng — đó là thứ làm nhân vật đọc như đọc khẩu hiệu chứ không
+     như nói. 300px đưa về ~34 ký tự/dòng, phần lớn câu còn hai dòng.
+     Trừ 96px chứ không 110px: nhân vật rộng 88px, chừa 8px mép là đủ. */
+  width:max-content; max-width:min(300px, calc(100vw - 96px));
   pointer-events:none;
 }
-.mo-mascot-bubble p{ margin:0; }
+/* text-wrap:balance chia đều chữ cho các dòng — hết cảnh dòng cuối trơ đúng một chữ ("nhé!"),
+   thứ làm câu nhìn vỡ vụn. Trình duyệt chưa hỗ trợ thì bỏ qua, xuống dòng như cũ. */
+.mo-mascot-bubble p{ margin:0; text-wrap:balance; }
+/* Phần chữ chưa gõ tới: GIỮ CHỖ nhưng không nhìn thấy — visibility chứ KHÔNG display:none,
+   display:none thì mất tác dụng giữ chỗ và bong bóng lại phình dần theo từng ký tự. */
+.mo-mascot-untyped{ visibility:hidden; }
+/* Câu dài: bỏ dáng viên kẹo. Bo 999px ở hộp cao ba dòng thì bán kính bằng nửa chiều cao (~28px),
+   lớn hơn đệm ngang 18px, nên đường cong cắn vào ký tự đầu và cuối của dòng trên cùng/dưới cùng.
+   Cùng lý do .has-offer đã hạ xuống 24px từ trước. */
+.mo-mascot-bubble.is-long{ border-radius:24px; padding:10px 16px 11px; }
 /* Bong bóng có gợi ý món: bo 24px thay vì hết cỡ — cao 3 dòng mà bo tròn hẳn thì góc cắt vào chữ. */
 .mo-mascot-bubble.has-offer{ border-radius:24px; padding:10px 14px 12px; }
 .mo-mascot-offer-line{ margin-top:4px !important; font-weight:600; font-size:14px; color:#7a4a38; }
@@ -1492,10 +2307,24 @@ const MENU_MASCOT_CSS = `
 }
 /* Ô quay xổ số trong bong bóng: ba dòng, dòng giữa to + đậm + có vạch hai bên như cửa sổ máy quay
    số; mỗi lần đổi tên dòng giữa trượt từ trên xuống. Trúng thì viền đậm hơn và nảy một cái. */
-.mo-mascot-spin{ border-radius:22px; padding:8px 16px 10px; min-width:190px; }
+/* ⚠ KHÔNG dùng dấu nháy ngược trong khối CSS này — cả khối là một template literal, một dấu
+   nháy ngược là đóng chuỗi giữa chừng và cả file hỏng cú pháp.
+
+   ⚠ BỀ RỘNG PHẢI CỨNG, KHÔNG được để min-width. Cha .mo-mascot-say là width:max-content, nên ô
+   quay chỉ có SÀN thì khung đo lại theo tên món đang hiện — mà ba dòng đổi tên ~20 lần trong 2
+   giây, thành ra cả hộp giật ngang suốt tràng quay và xô luôn nhân vật bên cạnh.
+   box-sizing khai tường minh: 220px phải là bề rộng NGOÀI, không thì đệm 16px cộng thêm vào.
+   Tên dài không làm phình hộp nữa mà bị cắt bằng dấu ba chấm — ba dòng đều đã nowrap +
+   text-overflow. calc(100vw - 118px) là lối thoát cho màn hẹp hơn 338px (nhân vật 88px +
+   chừa mép). */
+.mo-mascot-spin{
+  border-radius:22px; padding:8px 16px 10px;
+  box-sizing:border-box; width:min(220px, calc(100vw - 118px));
+}
 .mo-mascot-spin-title{ font-size:13px !important; color:#9a6a58; }
 .mo-mascot-spin-reel{ display:flex; flex-direction:column; align-items:center; margin-top:4px; }
-.mo-mascot-spin-side{ font-size:12px; line-height:1.3; color:#c9a596; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
+/* min-height để một dòng rỗng (quán chỉ đề xuất 1–2 món) không co lại làm hộp nhảy chiều cao. */
+.mo-mascot-spin-side{ font-size:12px; line-height:1.3; min-height:1.3em; color:#c9a596; white-space:nowrap; max-width:100%; overflow:hidden; text-overflow:ellipsis; }
 .mo-mascot-spin-cur{
   display:block; width:100%; margin:2px 0; padding:4px 10px; border-radius:10px;
   background:#fdeae4; border-left:3px solid #f4b4a4; border-right:3px solid #f4b4a4;

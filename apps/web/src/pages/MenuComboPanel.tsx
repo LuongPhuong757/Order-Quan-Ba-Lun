@@ -40,9 +40,6 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
   const confirm = useConfirm();
   const [items, setItems] = useState<MenuRow[]>([]);
   const [combos, setCombos] = useState<Combo[]>([]);
-  /** Món đề xuất đã lưu, và bản nháp đang sửa (`null` = chưa đụng vào). */
-  const [featured, setFeatured] = useState<string[]>([]);
-  const [featuredDraft, setFeaturedDraft] = useState<string[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
@@ -51,15 +48,12 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
 
   const load = async () => {
     try {
-      const [menuRes, comboRes, featRes] = await Promise.all([
+      const [menuRes, comboRes] = await Promise.all([
         api.get<{ data: { items: MenuRow[] } }>('/menu?page_size=2000'),
         api.get<{ data: { items: Combo[] } }>('/menu-combos'),
-        api.get<{ data: { item_ids: string[] } }>('/menu-combos/featured'),
       ]);
       setItems(menuRes.data.data.items.filter((it) => it.is_active));
       setCombos(comboRes.data.data.items);
-      setFeatured(featRes.data.data.item_ids);
-      setFeaturedDraft(null);
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -145,23 +139,6 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const saveFeatured = async () => {
-    if (!featuredDraft) return;
-    setBusy(true);
-    try {
-      const res = await api.put<{ data: { item_ids: string[] } }>('/menu-combos/featured', { item_ids: featuredDraft });
-      setFeatured(res.data.data.item_ids);
-      setFeaturedDraft(null);
-      toast.push('success', 'Đã lưu món đề xuất');
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const featuredList = featuredDraft ?? featured;
-  const featuredDirty = featuredDraft !== null && featuredDraft.join() !== featured.join();
 
   return (
     <div className="modal-overlay" role="dialog" aria-modal="true">
@@ -171,7 +148,7 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
           <button
             className="secondary"
             onClick={() => {
-              if ((draft || featuredDirty) && !window.confirm('Có thay đổi chưa lưu. Đóng và bỏ thay đổi?')) return;
+              if (draft && !window.confirm('Có thay đổi chưa lưu. Đóng và bỏ thay đổi?')) return;
               onClose();
             }}
             style={{ padding: '6px 10px' }}
@@ -222,20 +199,14 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
               combo đó</strong>. Món ngoài combo, hoặc combo đã gọi hết → mời ngẫu nhiên từ{' '}
               <strong>Món đề xuất</strong>. Hết cả hai thì thôi không mời.
             </p>
-
-            {/* ── Món đề xuất ─────────────────────────────────────────────────────── */}
-            <div className="card" style={{ padding: 12, marginBottom: 14 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                <strong style={{ fontSize: 17, flex: 1, minWidth: 160 }}>⭐ Món đề xuất ({featuredList.length})</strong>
-                <button onClick={() => void saveFeatured()} disabled={!featuredDirty || busy} style={{ padding: '8px 14px', fontSize: 14 }}>
-                  {featuredDirty ? 'Lưu món đề xuất' : 'Đã lưu'}
-                </button>
-              </div>
-              <p style={{ margin: '0 0 8px', fontSize: 13, color: C.muted }}>
-                Những món quán muốn khách thử — nên chọn khoảng 20 món.
-              </p>
-              <ItemPicker ids={featuredList} onChange={setFeaturedDraft} items={items} byId={byId} />
-            </div>
+            {/* Mục "Món đề xuất" đã CHUYỂN khỏi đây (chủ quán chốt 2026-10-05) sang nút ⭐ trên
+                từng thẻ món ở màn Thực đơn. Lý do: chọn ở đây phải gõ TÌM LẠI TÊN món vừa nhìn
+                thấy trên lưới thực đơn, trong khi lưới đó đã có sẵn ô tìm, bộ lọc nhóm và ảnh.
+                Để lại một dòng chỉ đường, vì câu giải thích ngay trên vẫn nhắc tới nó. */}
+            <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.muted, lineHeight: 1.5 }}>
+              ⭐ Chọn <strong>Món đề xuất</strong> ngay trên màn <strong>Thực đơn</strong> — mỗi thẻ
+              món có nút “⭐ Đề xuất”, bấm phát là xong.
+            </p>
 
             {/* ── Combo ──────────────────────────────────────────────────────────── */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -294,7 +265,8 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** Danh sách món có nút ✕ bỏ món + ô gõ tìm món để thêm. Dùng cho cả combo lẫn món đề xuất. */
+/** Danh sách món có nút ✕ bỏ món + ô gõ tìm món để thêm. Chỉ còn combo dùng — món đề xuất đã
+ *  chuyển sang nút ⭐ trên từng thẻ ở màn Thực đơn (2026-10-05). */
 function ItemPicker({
   ids,
   onChange,
