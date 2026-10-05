@@ -2774,6 +2774,57 @@ button.mm-recipe.has {
 }
 button.mm-recipe.has:hover { border-color: #0f766e; background: #ccfbf1; }
 
+/* ─── "Đẩy bán" (2026-10-05) ───────────────────────────────────────────────────
+   Hàng thứ hai của thẻ món: [🔥 Đẩy bán] [Công thức]. `margin-top` chuyển lên
+   hàng này nên nút công thức bên trong phải bỏ margin của chính nó, nếu không
+   hai nút cùng hàng lệch nhau 6px. */
+/* `minmax(0, 1fr)` chứ KHÔNG phải `1fr`: `1fr` = `minmax(auto, 1fr)`, mà `auto` là kích
+   thước nội dung tối thiểu — cộng với `min-width: 44px` + padding ngang 16px mà quy tắc
+   `button` toàn cục áp cho mọi nút, hai cột đòi hơn bề ngang thẻ ở khổ điện thoại và tràn
+   ra ngoài. Đây đúng là lỗi đã sửa cho `.mm-btns` ngày 2026-09-29, lặp lại ở hàng này. */
+.mm-row2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; margin-top: 6px; }
+.mm-row2.one { grid-template-columns: minmax(0, 1fr); }
+.mm-row2 > button { min-width: 0; padding-left: 4px; padding-right: 4px; }
+.mm-row2 button.mm-recipe { margin-top: 0; }
+/* Chữ dài KHÔNG được gãy dòng: một nút cao hai dòng là cả thẻ cao hơn hàng xóm và lưới
+   trông so le (chủ quán đã báo đúng lỗi này 2026-09-29). Cắt bằng ellipsis, tooltip giữ
+   nguyên câu đầy đủ. */
+.mm-row2 button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* `button.mm-push` chứ không viết trần: `button.secondary` cùng độ ưu tiên sẽ đè mất
+   color/background (bẫy đã dẫm ở màn khác). */
+button.mm-push {
+  width: 100%; min-height: 42px; padding: 0 4px;
+  border: 1px dashed #fbbf24; border-radius: 9px;
+  background: #fff; color: #b45309;
+  font-size: 13.5px; font-weight: 650; cursor: pointer;
+}
+button.mm-push:hover { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
+/* Đang đẩy = tô ĐẶC. Nút "Hết" ngay trên cũng tông cam nhưng luôn nhạt, nên trạng
+   thái bật/tắt của nút này phân biệt được bằng độ đặc chứ không phải bằng sắc màu —
+   nhìn lướt qua lưới vẫn thấy ngay thẻ nào đang đẩy. */
+button.mm-push.on {
+  border-style: solid; border-color: #ea580c;
+  background: #ea580c; color: #fff; font-weight: 700;
+}
+button.mm-push.on:hover { background: #c2410c; border-color: #c2410c; color: #fff; }
+button.mm-push:disabled,
+button.mm-push:disabled:hover {
+  background: #eef0f2; border-color: #dfe3e6; border-style: solid;
+  color: #a6adb4; cursor: not-allowed; opacity: 1;
+}
+
+/* Nhãn trên ảnh — mép TRÊN (nhãn HẾT giữ mép dưới). */
+.mm-thumb-push {
+  position: absolute; left: 0; right: 0; top: 0;
+  background: rgba(234, 88, 12, 0.94);
+  color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.03em;
+  text-align: center; padding: 2px 0;
+}
+/* Viền thẻ đổi màu như `.is-out` làm với món hết: tìm thẻ đang đẩy giữa lưới
+   không cần đọc chữ. */
+.mm-card.is-push { border: 2px solid #fdba74; }
+
 /* ─── Hộp thoại Công thức món ─────────────────────────────────────────────────
    Sửa 2026-09-29 sau khi chủ quán chụp lại màn đang vỡ: nút "+ Thêm" tràn ra
    ngoài mép hộp, ô đơn vị nuốt hết chiều ngang, giữa hộp là một khoảng trắng
@@ -3011,7 +3062,11 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
 }
 @media (max-width: 900px) {
   .mm-layout { grid-template-columns: 1fr; }
-  .mm-grid { grid-template-columns: 1fr; }
+  /* `minmax(0, 1fr)` chứ không phải `1fr`: `1fr` = `minmax(auto, 1fr)` nên cột KHÔNG được
+     phép hẹp hơn nội dung tối thiểu của thẻ (~475px vì mấy con bên trong có min-width
+     cứng) — thẻ phình rộng hơn màn hình điện thoại và cột nút bên phải bị cắt. Cùng
+     một bản vá đã dùng cho `.mm-btns` và các breakpoint 2 cột ở trên. */
+  .mm-grid { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* Hàng công cụ: ô tìm, ô sắp xếp và nút "Xoá lọc" phải CÙNG chiều cao.
@@ -3087,7 +3142,11 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
 }
 
 @media (max-width: 720px) {
-  .mm-grid { grid-template-columns: 1fr; }
+  /* `minmax(0, 1fr)` chứ không phải `1fr`: `1fr` = `minmax(auto, 1fr)` nên cột KHÔNG được
+     phép hẹp hơn nội dung tối thiểu của thẻ (~475px vì mấy con bên trong có min-width
+     cứng) — thẻ phình rộng hơn màn hình điện thoại và cột nút bên phải bị cắt. Cùng
+     một bản vá đã dùng cho `.mm-btns` và các breakpoint 2 cột ở trên. */
+  .mm-grid { grid-template-columns: minmax(0, 1fr); }
   /* Thanh công cụ ở khổ hẹp: ô tìm chiếm cả hàng, ô sắp xếp và Xoá lọc chia đôi hàng dưới.
      `min-width: 180px` của ô tìm cộng nút sắp xếp dài ("↓ % nguyên liệu cao nhất") vượt quá
      350px nên trước đó cả hàng tràn. */

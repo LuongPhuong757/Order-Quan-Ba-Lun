@@ -55,6 +55,8 @@ type MenuItem = {
   unit: string;
   image_url: string | null;
   is_out_of_stock: boolean;
+  /** Bếp/phục vụ bật khi món ế — món nổi lên dải "nên mời khách" ở màn Gọi món. */
+  is_push_sale: boolean;
   is_active: boolean;
 };
 
@@ -63,7 +65,7 @@ function formatVND(v: number): string {
 }
 
 type SortMode = 'newest' | 'name' | 'group' | 'price_desc' | 'price_asc' | 'cost_desc' | 'pct_desc';
-type StockFilter = '' | 'out' | 'in';
+type StockFilter = '' | 'out' | 'in' | 'push';
 const PAGE_SIZE = 30;
 
 export function MenuManagementPage() {
@@ -227,6 +229,20 @@ export function MenuManagementPage() {
     }
   };
 
+  /** Bật/tắt "đang đẩy bán". Không hỏi xác nhận: thao tác đảo ngược được bằng đúng cú bấm đó,
+   *  và bếp bấm nó giữa lúc đang nấu. */
+  const togglePushSale = async (it: MenuItem) => {
+    try {
+      await api.post(`/menu/${it.id}/toggle-push-sale`);
+      toast.push('success', it.is_push_sale
+        ? `${it.name} → thôi đẩy bán`
+        : `${it.name} → đang đẩy bán, nhân viên order sẽ thấy để mời khách`);
+      refresh({ silent: true });
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
   const softDelete = async (it: MenuItem) => {
     const ok = await confirm({
       title: 'Xoá món?',
@@ -339,6 +355,9 @@ export function MenuManagementPage() {
             { v: '', label: 'Tất cả tình trạng' },
             { v: 'in', label: '✅ Còn hàng' },
             { v: 'out', label: '🚫 Hết hàng' },
+            /* Lọc này là cách DUY NHẤT tìm lại món mình đã bật đẩy bán để tắt đi — không có
+               nó thì phải cuộn cả 600 món tìm thẻ có nhãn 🔥. */
+            { v: 'push', label: '🔥 Đang đẩy bán' },
           ] as { v: StockFilter; label: string }[]).map((s) => (
             <button
               key={s.v || 'all'}
@@ -400,7 +419,7 @@ export function MenuManagementPage() {
             return (
             <div
               key={it.id}
-              className={`card mm-card${it.is_out_of_stock ? ' is-out' : ''}${!it.is_active ? ' is-hidden' : ''}`}
+              className={`card mm-card${it.is_out_of_stock ? ' is-out' : ''}${it.is_push_sale ? ' is-push' : ''}${!it.is_active ? ' is-hidden' : ''}`}
             >
               <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
                 {/* Ô ảnh LUÔN chiếm chỗ kể cả khi món chưa có ảnh (294/598 món chưa có): ô trống
@@ -418,6 +437,10 @@ export function MenuManagementPage() {
                     <span className="mm-thumb-empty" aria-hidden="true">🍽</span>
                   )}
                   {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
+                  {/* Nhãn ĐẨY BÁN nằm ở MÉP TRÊN còn nhãn HẾT ở mép dưới: hai cờ loại trừ nhau
+                      nên không bao giờ chồng nhau, nhưng tách hai mép thì đọc lướt vẫn phân biệt
+                      được ngay cả khi nhìn nhanh qua lưới. */}
+                  {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món">🔥 ĐẨY BÁN</span>}
                 </div>
                 {/* `minWidth: 0` BẮT BUỘC: mặc định `min-width` của một flex item là `auto`
                     = bề rộng nội dung tối thiểu, nên khối này không co được và `text-overflow:
@@ -484,7 +507,25 @@ export function MenuManagementPage() {
                   </>
                 )}
               </div>
-              {canManage && (
+              {/* Hàng dưới chia đôi với nút Công thức thay vì thành nút thứ 4 ở hàng trên: 4 nút
+                  chia đều một hàng trên điện thoại 390px còn ~85px mỗi nút, chữ phải co lại —
+                  mà người dùng thật phần lớn lớn tuổi. Ai không có quyền sửa menu thì hàng này
+                  chỉ còn nút đẩy bán, cho nó chiếm trọn bề ngang (class `one`). */}
+              <div className={`mm-row2${canManage ? '' : ' one'}`}>
+                <button
+                  type="button"
+                  className={it.is_push_sale ? 'mm-push on' : 'mm-push'}
+                  /* Món đang hết không đẩy bán được — BE cũng chặn, nhưng nút khoá sẵn thì
+                     người bấm biết ngay thay vì ăn một toast đỏ. */
+                  disabled={it.is_out_of_stock}
+                  onClick={() => togglePushSale(it)}
+                  title={it.is_push_sale
+                    ? 'Đang nằm ở dải "NÊN MỜI KHÁCH" đầu màn Gọi món — bấm để bỏ'
+                    : 'Món ế? Bật để nhân viên order thấy ở đầu màn Gọi món mà mời khách'}
+                >
+                  {it.is_push_sale ? '🔥 Đang đẩy' : '🔥 Đẩy bán'}
+                </button>
+                {canManage && (
                 <button
                   type="button"
                   className={recipeCounts[it.id] ? 'mm-recipe has' : 'mm-recipe'}
@@ -496,11 +537,15 @@ export function MenuManagementPage() {
                      của NCC. Danh mục nguyên liệu vẫn mở được từ màn Nhà cung cấp, kèm chức
                      năng gộp hai nguyên liệu trùng tên. */
                 >
+                  {/* Nhãn bỏ chữ "Công thức ·" (2026-10-05): từ khi nút này chia đôi hàng với
+                      nút Đẩy bán, chữ cũ dài quá nửa thẻ và gãy xuống hai dòng, làm thẻ cao
+                      hơn hàng xóm. Việc nút làm gì vẫn rõ nhờ chữ "nguyên liệu" + tooltip. */}
                   {recipeCounts[it.id]
-                    ? `Công thức · ${recipeCounts[it.id]} nguyên liệu`
+                    ? `${recipeCounts[it.id]} nguyên liệu`
                     : 'Khai nguyên liệu'}
                 </button>
-              )}
+                )}
+              </div>
             </div>
             );
           })}

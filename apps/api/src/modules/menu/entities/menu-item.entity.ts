@@ -42,6 +42,17 @@ export class MenuItem {
   @Column({ type: 'boolean', default: false })
   is_out_of_stock!: boolean;
 
+  // "Đang đẩy bán" (2026-10-05) — bếp/phục vụ bật ở màn Quản lý menu khi món ế: còn nhiều
+  // nguyên liệu, nấu sẵn rồi, hoặc sắp hỏng nếu không bán hết ca. Món bật cờ này nổi lên một
+  // dải ghim đầu màn Gọi món để nhân viên order mời khách trước.
+  // KHÁC hẳn is_out_of_stock dù hai cờ đứng cạnh nhau: cờ kia CHẶN bán, cờ này THÚC bán.
+  // Hai cờ loại trừ nhau — bật "hết món" thì toggle-stock tự tắt cờ này (mời khách món
+  // không nấu được là tệ hơn không mời).
+  // CỐ Ý không hiện cho khách (trang online + thực đơn QR tại bàn): khách đọc "món nên gọi"
+  // thành "món ế" thì phản tác dụng. Mời món là việc của người phục vụ.
+  @Column({ type: 'boolean', default: false })
+  is_push_sale!: boolean;
+
   // Ẩn khỏi WEB ĐẶT HÀNG ONLINE (2026-08-04) — khác 2 cờ kia:
   // - is_active=false: xoá mềm, biến mất MỌI NƠI (cả POS).
   // - is_out_of_stock=true: hết hàng tạm, trang khách VẪN THẤY (làm mờ), POS vẫn thấy.

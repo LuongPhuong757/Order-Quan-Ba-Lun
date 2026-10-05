@@ -1182,11 +1182,23 @@ export function KitchenPage() {
         @media (min-width: 1100px) {
           .kds-card-name { font-size: 15px; }
         }
+        /* SỐ PHẦN đứng TRƯỚC tên món và cùng cỡ chữ với tên món (sửa 2026-10-05 theo
+           phản ánh của bếp: 13px xám đứng sau tên là con số bị nuốt mất, bếp múc 1 bát
+           cho dòng ×3). Nó là con số quyết định tay bếp làm gì, phải đọc được cùng lúc
+           với tên món chứ không phải sau đó.
+           Cỡ chữ bám theo tên món ở mọi ngữ cảnh: dòng con trong khối gộp 14px, món đứng
+           một mình 17px (rule .lead bên dưới), laptop 15px — xem .kds-card-name. */
         .kds-card-qty {
-          font-size: 13px;
-          font-weight: 700;
-          color: #374151;
+          flex-shrink: 0;
+          font-size: 14px;
+          font-weight: 800;
+          color: #0b2f66;
           white-space: nowrap;
+          font-variant-numeric: tabular-nums;
+        }
+        .kds-card-qty.strong { font-size: 17px; }
+        @media (min-width: 1100px) {
+          .kds-card-qty { font-size: 15px; }
         }
         .kds-card-table.primary {
           font-size: 14px;
@@ -2253,6 +2265,9 @@ function Card({
               ⭐ ƯU TIÊN
             </span>
           )}
+          {/* SỐ PHẦN đi TRƯỚC tên món: tên món dài bị cắt bằng ellipsis, nên khi nó đứng
+              trước thì con số bị đẩy ra rìa phải — đúng chỗ mắt đọc sau cùng. */}
+          {!isNote && <span className={`kds-card-qty ${inGroup ? '' : 'strong'}`}>×{item.qty}</span>}
           {!hideName && (
             <div
               className={`kds-card-name ${inGroup ? '' : 'strong'}`}
@@ -2262,7 +2277,6 @@ function Card({
               {item.menu_item_name}
             </div>
           )}
-          {!isNote && <span className="kds-card-qty">×{item.qty}</span>}
           {!hideTable && (
             <span
               /* Ẩn tên món rồi thì tên bàn là thứ duy nhất nhận diện dòng này → nó
