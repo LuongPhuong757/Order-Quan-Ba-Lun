@@ -473,6 +473,10 @@ export class MenuController {
 
       const wasOutOfStock = item.is_out_of_stock;
       item.is_out_of_stock = !item.is_out_of_stock;
+      // Hết món thì thôi đẩy bán: để nguyên cờ kia là nhân viên order vẫn thấy món nằm
+      // trong dải "nên mời khách" và mời hụt một món bếp vừa báo không làm được.
+      // Bật "Có lại" KHÔNG tự bật lại đẩy bán — món hết rồi thì không còn ế nữa.
+      if (item.is_out_of_stock) item.is_push_sale = false;
       await menuRepo.save(item);
 
       // Chỉ auto-cancel khi mới chuyển sang HẾT (false → true)
@@ -526,6 +530,31 @@ export class MenuController {
 
       return { data: { ...item, auto_cancelled_count: 0, cancelled_items: [] } };
     });
+  }
+
+  /** POST /menu/:id/toggle-push-sale — bật/tắt "đang đẩy bán" (2026-10-05).
+   *
+   * Quyền: mọi staff đăng nhập được, giống `toggle-stock` và CỐ Ý không dùng AdminGuard —
+   * người biết món nào đang ế là bếp và phục vụ đang đứng trong ca, không phải chủ quán.
+   *
+   * Không đụng tới order items: cờ này chỉ đổi cách màn Gọi món sắp xếp món, không chặn
+   * và không huỷ gì cả. Món đang HẾT thì không bật được — mời khách món không nấu được
+   * là lỗi nặng hơn là không mời.
+   */
+  @Post(':id/toggle-push-sale')
+  @UseGuards(JwtAuthGuard)
+  async togglePushSale(@Param('id') id: string) {
+    const item = await this.repo.findOne({ where: { id } });
+    if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
+    if (!item.is_push_sale && item.is_out_of_stock) {
+      throw new BadRequestException({
+        code: 'MENU_ITEM_OUT_OF_STOCK',
+        message: `"${item.name}" đang báo hết — bấm "Có lại" trước khi đẩy bán`,
+      });
+    }
+    item.is_push_sale = !item.is_push_sale;
+    await this.repo.save(item);
+    return { data: item };
   }
 
   /** DELETE /menu/:id — soft delete (set is_active=false) — owner only */
