@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { emitMascot } from '../lib/mascot-bus.ts';
+import type { DrinkCandidate } from '../lib/drink-groups.ts';
 import {
   type TableCartLine,
   type TableSession,
@@ -385,13 +386,167 @@ const CALL_REASONS = [
   'Dọn bàn',
 ] as const;
 
+
+/* ── Tấm "Gọi nhân viên" riêng (chủ quán chốt 2026-10-05) ──────────────────────────────────
+ *
+ * Vì sao KHÔNG tái dùng tấm "Món của bàn": tấm đó đang làm ba việc một lúc — khoe mã bàn, liệt
+ * kê món đã gọi kèm tạm tính, và gọi nhân viên. Mở nó ra chỉ để xin thêm bát đũa là khách phải
+ * lướt qua cả cái bill mới tới được chỗ cần. Nút 🔔 của linh vật phải đi thẳng vào việc.
+ *
+ * Luồng gọi (cooldown 60 giây mỗi cặp bàn×loại, trần 3 lượt chưa ai nghe, câu lỗi riêng) nằm ở
+ * SERVER — tấm này chỉ hiển thị kết quả, không tự chế thêm luật nào.
+ */
+export function TableCallSheet({
+  session,
+  onClose,
+}: {
+  session: TableSession;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState('');
+  const [calling, setCalling] = useState<string | null>(null);
+  /* CẢ HAI loại gọi đều qua một bước xác nhận (chủ quán chốt 2026-10-05), giữ nguyên luật đã có
+   * ở tấm Món của bàn. Cái giá phải trả của một cú bấm nhầm là một CON NGƯỜI đi tới bàn:
+   *   - nhầm "gọi nhân viên" → họ bỏ việc đang làm, đi tới, rồi không ai cần gì;
+   *   - nhầm "xin tính tiền" → họ cầm bill tới bàn khách còn đang ăn dở.
+   * Cả hai đều không rút lại được bằng một cú bấm, nên đều đáng hỏi lại một câu. */
+  const [confirmCall, setConfirmCall] = useState<{ kind: 'STAFF' | 'BILL'; note: string } | null>(null);
+  /* Kết quả lần gọi gần nhất. Mang theo CÓ PHẢI LỖI KHÔNG: nhét câu thành công và câu lỗi vào
+   * cùng một ô màu xanh thì "Đợi 45 giây nữa nhé" hiện ra y như một lời xác nhận đã gọi được. */
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const call = async (kind: 'STAFF' | 'BILL', note?: string) => {
+    setCalling(kind);
+    setMsg(null);
+    try {
+      await postJson('/api/public/table/call', {
+        guest_token: session.guest_token,
+        kind,
+        ...(note && note.trim() ? { note: note.trim().slice(0, 120) } : {}),
+      });
+      setReason('');
+      setConfirmCall(null);
+      emitMascot({ type: 'call', kind });
+      setMsg({
+        ok: true,
+        text:
+          kind === 'BILL'
+            ? 'Đã báo quán tính tiền.'
+            : note && note.trim()
+              ? `Đã báo nhân viên: ${note.trim()}`
+              : 'Đã báo nhân viên.',
+      });
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setCalling(null);
+    }
+  };
+
+  return (
+    <div className="dinein-scrim" onClick={onClose}>
+      <div className="dinein-sheet" onClick={(e) => e.stopPropagation()}>
+        <div className="dinein-head">
+          <b>Gọi nhân viên</b>
+          <button type="button" onClick={onClose} aria-label="Đóng">✕</button>
+        </div>
+
+        <div className="dinein-body">
+          {/* Bọc `.dinein-ask` KHÔNG phải để trang trí: kiểu của ô nhập nằm ở luật hậu duệ
+              `.dinein-ask input`, bỏ lớp bọc là ô nhập trần trụi không theo tông nào. Cũng vậy,
+              chip phải là thẻ <button> TRẦN trong `.dinein-chips` — kiểu nằm ở `.dinein-chips
+              button`, gắn class riêng lên nó là mất sạch. (Lỗi tôi vừa mắc 2026-10-05.) */}
+          <div className="dinein-ask">
+            <b>Bạn cần gì ạ?</b>
+            {/* Chip chỉ ĐIỀN VÀO Ô chứ không gửi luôn — khách hay ghép hai thứ ("thêm đá" rồi
+                gõ thêm "với bát nhỏ"), và bấm nhầm một chip là một lượt gọi oan. */}
+            <div className="dinein-chips">
+              {CALL_REASONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setReason((v) => (v.trim() ? `${v.trim()}, ${r.toLowerCase()}` : r))}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+            <input
+              value={reason}
+              maxLength={120}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Hoặc gõ thứ bạn cần…"
+              aria-label="Bạn cần gì"
+            />
+          </div>
+          <p className="dinein-hint">
+            Ghi rõ thì nhân viên mang xuống luôn, khỏi phải chạy đi chạy lại hỏi.
+          </p>
+        </div>
+
+        <div className="dinein-foot">
+          {msg ? <p className={msg.ok ? 'dinein-ok' : 'dinein-err'}>{msg.text}</p> : null}
+
+          {confirmCall ? (
+            <>
+              <p className="dinein-hint">
+                {confirmCall.kind === 'BILL'
+                  ? 'Báo quán mang bill ra tính tiền nhé?'
+                  : confirmCall.note.trim()
+                    ? `Gọi nhân viên xuống bàn, kèm lời nhắn “${confirmCall.note.trim()}” nhé?`
+                    : 'Gọi nhân viên xuống bàn nhé?'}
+              </p>
+              <div className="dinein-foot--row">
+                <button type="button" onClick={() => setConfirmCall(null)}>← Chưa đâu</button>
+                {/* Viết button.dinein-primary chứ KHÔNG .dinein-primary trần: luật
+                    .dinein-foot--row button là một-class-một-thẻ nên mạnh hơn một class trần và
+                    sẽ đè mất màu đỏ. Bẫy này đã ghi sẵn ngay tại chỗ khai luật đó. */}
+                <button
+                  type="button"
+                  className="dinein-primary"
+                  disabled={calling !== null}
+                  onClick={() => void call(confirmCall.kind, confirmCall.note)}
+                >
+                  {calling !== null ? 'Đang báo…' : 'Đúng rồi'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="dinein-primary"
+                disabled={calling !== null}
+                onClick={() => setConfirmCall({ kind: 'STAFF', note: reason })}
+              >
+                🔔 Gọi nhân viên
+              </button>
+              {/* Nằm trong .dinein-foot--row nên nút này flex:1 — trải hết bề ngang thay vì co
+                  lại bằng chữ. Để nhạt hơn nút chính vì nó KẾT THÚC bữa ăn. */}
+              <div className="dinein-foot--row" style={{ marginTop: 10 }}>
+                <button
+                  type="button"
+                  disabled={calling !== null}
+                  onClick={() => setConfirmCall({ kind: 'BILL', note: '' })}
+                >
+                  💵 Xin tính tiền
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── Màn "Món của bàn" ────────────────────────────────────────────────────────────────── */
 
 type StatePayload = {
   table_name: string;
   guest_code: string | null;
   waiting: Array<{ request_id: string; created_at: number; items: Array<{ name: string; qty: number; note: string | null }> }>;
-  ordered: Array<{ name: string; qty: number; unit_price: number; line_total: number }>;
+  ordered: Array<{ menu_item_id: string | null; name: string; qty: number; unit_price: number; line_total: number }>;
   subtotal: number;
   calls: Array<{ kind: 'STAFF' | 'BILL'; created_at: number; acked: boolean }>;
 };
@@ -402,10 +557,22 @@ export function TableStateSheet({
   onEnded,
   onSwitchTable,
   onTableRenamed,
+  drinks,
+  onReorder,
+  onOpenCart,
 }: {
   session: TableSession;
   onClose: () => void;
   onEnded: () => void;
+  /** Đồ uống để mời gọi thêm (xem `pickDrinks`). Rỗng = ẩn hẳn dải, không vẽ khung trống. */
+  drinks: DrinkCandidate[];
+  /** Thêm thẳng một món vào giỏ. Màn này KHÔNG tự gọi `addTableLine`: trang chứa nó còn phải
+   *  chạy hiệu ứng món bay về phía nhân vật, và nó giữ sẵn hàm làm việc đó.
+   *  `from` là nút vừa bấm — mốc để món bay đi từ đúng chỗ ngón tay chạm. */
+  onReorder: (item: { id: string; name: string; price: number }, from: Element) => void;
+  /** Mở tấm giỏ để gửi cho quán. Tấm này CHE KÍN màn nên nút giỏ nổi ở dưới không bấm được —
+   *  thiếu đường này thì khách thêm món xong phải đóng tấm, tìm nút giỏ, rồi mới gửi được. */
+  onOpenCart: () => void;
   /** Khách tự nhận ra mình khai nhầm bàn và muốn khai lại. */
   onSwitchTable: () => void;
   /** Bàn của phiên này nay mang tên khác — nhân viên đã dời khách sang bàn khác trên màn quản
@@ -413,6 +580,27 @@ export function TableStateSheet({
   onTableRenamed: (tableName: string) => void;
 }) {
   const [data, setData] = useState<StatePayload | null>(null);
+  /* Giỏ CHƯA GỬI — đọc thẳng từ store và nghe thay đổi, vì tấm này che kín màn nên khách không
+   * còn thấy nút giỏ nổi của trang. Không có nó thì bấm ＋ xong màn hình đứng im, và khách
+   * không biết món đã vào giỏ hay chưa (chủ quán báo đúng việc này 2026-10-05). */
+  const [cart, setCart] = useState<TableCartLine[]>(() => readTableCart());
+  useEffect(() => subscribeTableCart(() => setCart(readTableCart())), []);
+  /* Món vừa bấm ＋ trong ~1,2 giây gần nhất: nút đổi thành ✓. Phản hồi NGAY TẠI NGÓN TAY, bổ
+   * sung cho thanh giỏ ở chân tấm — ngón tay đang che nửa dưới màn thì thanh ở chân có đổi
+   * cũng không ai thấy. */
+  const [justAdded, setJustAdded] = useState<ReadonlySet<string>>(new Set());
+  const addTimers = useRef(new Map<string, number>());
+  useEffect(() => {
+    const timers = addTimers.current;
+    return () => { for (const t of timers.values()) window.clearTimeout(t); };
+  }, []);
+  const flashAdded = (id: string) => {
+    setJustAdded((s) => new Set(s).add(id));
+    window.clearTimeout(addTimers.current.get(id));
+    addTimers.current.set(id, window.setTimeout(() => {
+      setJustAdded((s) => { const n = new Set(s); n.delete(id); return n; });
+    }, 1200));
+  };
   const [calling, setCalling] = useState<string | null>(null);
   /* Kết quả của lần bấm gọi gần nhất. Phải mang theo CÓ PHẢI LỖI KHÔNG: bản đầu nhét cả câu
    * thành công lẫn câu lỗi vào cùng một ô màu xanh, nên "Đợi 45 giây nữa nhé" hiện ra y như
@@ -573,12 +761,56 @@ export function TableStateSheet({
             data.ordered.map((o, i) => (
               <div key={i} className="dinein-line-top">
                 <span className="dinein-line-name">{o.qty}× {o.name}</span>
+                {/* "Gọi lại" ngay trên dòng món — đây là màn khách mở nhiều nhất GIỮA bữa (để
+                    xem hết bao nhiêu tiền), nên cũng là chỗ tự nhiên nhất để gọi vòng hai. Không
+                    có nó thì muốn thêm một chai bia phải quay lại thực đơn 598 món mà tìm.
+                    Món đã bị gỡ khỏi thực đơn (`menu_item_id` NULL) vẫn hiện trong bill nhưng
+                    không có nút — gọi lại một món không còn bán chỉ tổ sinh lỗi ở bước gửi. */}
+                {o.menu_item_id ? (
+                  <button
+                    type="button"
+                    className={`dinein-again${justAdded.has(o.menu_item_id) ? ' is-added' : ''}`}
+                    aria-label={`Gọi thêm ${o.name}`}
+                    onClick={(e) => {
+                      onReorder({ id: o.menu_item_id!, name: o.name, price: o.unit_price }, e.currentTarget);
+                      flashAdded(o.menu_item_id!);
+                    }}
+                  >
+                    {justAdded.has(o.menu_item_id) ? '✓' : '+'}
+                  </button>
+                ) : null}
                 <span className="dinein-line-price">{vnd(o.line_total)}</span>
               </div>
             ))
           ) : (
             <p className="dinein-hint">Bàn chưa có món nào được quán nhận.</p>
           )}
+
+          {/* Dải đồ uống — quán bán tới 3h sáng, một bàn ngồi 2–3 tiếng gọi bia nhiều vòng. Đặt
+              ngay dưới danh sách món đã gọi vì đó là lúc khách vừa nhìn thấy "bia đã hết". */}
+          {drinks.length > 0 ? (
+            <div className="dinein-drinks">
+              <p className="dinein-drinks-title">Gọi thêm đồ uống</p>
+              <div className="dinein-drinks-row">
+                {drinks.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className={`dinein-drink${justAdded.has(d.id) ? ' is-added' : ''}`}
+                    onClick={(e) => {
+                      onReorder({ id: d.id, name: d.name, price: d.price }, e.currentTarget);
+                      flashAdded(d.id);
+                    }}
+                  >
+                    <span className="dinein-drink-name">{d.name}</span>
+                    <span className="dinein-drink-price">
+                      {justAdded.has(d.id) ? '✓ Đã thêm' : vnd(d.price)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {/* Đổi bàn nằm Ở ĐÂY, cuối phần nội dung, chứ không phải trong chân tấm: chân tấm là
               chỗ của hai nút khách dùng thường xuyên (gọi nhân viên, xin tính tiền). Đổi bàn
@@ -601,6 +833,24 @@ export function TableStateSheet({
         </div>
 
         <div className="dinein-foot">
+          {/* ── Giỏ CHƯA GỬI ──
+              Đặt TRÊN "Tạm tính" và tô màu thương hiệu vì nó là việc đang dang dở: khách bấm ＋
+              vài món rồi tưởng xong, trong khi bếp chưa nhận gì cả.
+
+              Hai con số, hai nghĩa khác hẳn nhau nên phải gọi tên rõ:
+                • "Giỏ chưa gửi" = món vừa bấm ＋, quán CHƯA biết.
+                • "Tạm tính"     = món quán đã nhận, đang tính tiền.
+              Gộp hoặc đặt cạnh nhau mà không ghi nhãn là khách đọc nhầm thành bill. */}
+          {cart.length > 0 ? (
+            <button type="button" className="dinein-cartbar" onClick={onOpenCart}>
+              <span className="dinein-cartbar-left">
+                🛒 Giỏ chưa gửi
+                <b>{cart.reduce((t, l) => t + l.qty, 0)} món · {vnd(tableCartTotal(cart))}</b>
+              </span>
+              <span className="dinein-cartbar-cta">Gửi cho quán →</span>
+            </button>
+          ) : null}
+
           <div className="dinein-total">
             <span>Tạm tính</span>
             <b>{vnd(data?.subtotal ?? 0)}</b>
@@ -737,6 +987,52 @@ export function TableStateSheet({
  * ⚠ Ô nhập chữ tối thiểu 16px, nếu không iOS tự phóng to cả trang khi bấm vào.
  */
 export const DINEIN_CSS = `
+/* ── Gọi lại / Gọi thêm đồ uống ở màn Món của bàn (2026-10-05) ──
+   Nút "Gọi lại" nằm GIỮA tên món và giá, cùng một hàng — thêm một hàng riêng cho mỗi món là
+   danh sách dài gấp đôi, mà bàn gọi chục món là phải cuộn mới thấy tạm tính. */
+/* Nút ＋ tròn thay cho chữ "Gọi lại" (chủ quán chốt 2026-10-05): chữ chiếm gần một phần ba bề
+   ngang hàng, đẩy tên món dài phải cắt sớm. Dấu ＋ ai cũng hiểu và khớp với nút ＋ trên thẻ món
+   ở thực đơn — cùng một hành động thì nên cùng một hình.
+   40px: dưới 40px là ngưỡng bấm trượt trên điện thoại, mà người dùng thật phần lớn lớn tuổi. */
+.dinein-again{
+  flex:none; margin:0 10px; width:40px; height:40px; padding:0;
+  border:1.5px solid #f4b4a4; border-radius:999px; background:#fff; color:#b82a1e;
+  font-size:24px; line-height:1; font-weight:700; cursor:pointer;
+  display:grid; place-items:center;
+}
+.dinein-again:active{ transform:scale(.92); }
+/* Vừa bấm xong: tô đặc + dấu ✓ trong ~1,2 giây. Phản hồi ngay dưới ngón tay, vì ngón tay đang
+   che nửa dưới màn nên thanh giỏ ở chân tấm có đổi cũng chưa chắc nhìn thấy. */
+.dinein-again.is-added{
+  background:#157f3d; border-color:#157f3d; color:#fff; font-size:20px;
+}
+.dinein-drink.is-added{ border-color:#157f3d; background:#f0faf3; }
+.dinein-drink.is-added .dinein-drink-price{ color:#157f3d; }
+
+/* Thanh giỏ chưa gửi — xem docblock ở chỗ render. */
+.dinein-cartbar{
+  width:100%; margin:0 0 10px; padding:10px 14px; min-height:52px;
+  display:flex; align-items:center; justify-content:space-between; gap:10px;
+  border:none; border-radius:12px; background:#b82a1e; color:#fff; cursor:pointer;
+  font-family:inherit; text-align:left;
+}
+.dinein-cartbar:active{ transform:scale(.99); }
+.dinein-cartbar-left{ display:flex; flex-direction:column; gap:1px; font-size:12.5px; opacity:.92; }
+.dinein-cartbar-left b{ font-size:15px; font-weight:800; opacity:1; }
+.dinein-cartbar-cta{ flex:none; font-size:14px; font-weight:800; white-space:nowrap; }
+.dinein-drinks{ margin-top:14px; padding-top:12px; border-top:1px dashed #e9d9cf; }
+.dinein-drinks-title{ margin:0 0 8px; font-size:14px; font-weight:700; color:#8c5610; }
+/* Cuộn ngang, không wrap: wrap thành nhiều hàng là đẩy phần tạm tính và hai nút gọi nhân viên
+   xuống dưới mép màn. */
+.dinein-drinks-row{ display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; }
+.dinein-drink{
+  flex:0 0 auto; padding:8px 12px; border:1.5px solid #f4b4a4; border-radius:12px;
+  background:#fff; cursor:pointer; display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+}
+.dinein-drink-name{ font-size:13.5px; font-weight:600; color:#5a3a2a; white-space:nowrap; }
+.dinein-drink-price{ font-size:13px; font-weight:800; color:#b82a1e; }
+.dinein-drink:active{ transform:scale(.97); }
+
 .dinein-scrim{
   position:fixed; inset:0; z-index:310; background:rgb(42 29 20 / 55%);
   display:flex; align-items:flex-end; justify-content:center;

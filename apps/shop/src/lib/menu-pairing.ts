@@ -83,3 +83,54 @@ export function suggestOnAdd(
   // Bước 3: hết món để mời.
   return { offer: null, completed };
 }
+
+/**
+ * NHIỀU món đi kèm, cho dải gợi ý trong hộp chi tiết món (2026-10-05).
+ *
+ * ── Vì sao cần hàm này cạnh `suggestOnAdd` ──
+ * `suggestOnAdd` trả ĐÚNG MỘT món, để nhân vật nói một câu SAU khi khách đã bấm Thêm. Nhưng
+ * khoảnh khắc khách dễ gọi thêm nhất là lúc đang NHÌN hộp chi tiết, tay còn đặt trên nút — còn
+ * bong bóng thoại thì nằm ở góc màn và tự tắt sau vài giây. Hai chỗ, hai nhu cầu khác nhau: chỗ
+ * kia cần một câu, chỗ này cần một dải chọn được.
+ *
+ * Cùng THỨ TỰ ƯU TIÊN với `suggestOnAdd`, để khách không thấy hai nơi mời theo hai kiểu:
+ *   1. món của (mọi) combo chứa món đang xem,
+ *   2. rồi tới "món đề xuất" chủ quán chọn ở admin,
+ *   3. hết thì trả mảng RỖNG — phía gọi phải tự ẩn cả dải, đừng vẽ một khung trống.
+ *
+ * KHÔNG ngẫu nhiên, khác `suggestOnAdd`: dải này nằm yên trước mắt khách chứ không phải một câu
+ * nói lướt qua. Xáo lại mỗi lần vẽ thì mở cùng một món hai lần ra hai bộ gợi ý khác nhau, trông
+ * như lỗi chứ không như gợi ý.
+ *
+ * `inCart` có chứa sẵn món đang xem hay không đều được — `usable` đã loại `itemId` ra.
+ */
+export function suggestManyForItem(
+  itemId: string,
+  groups: readonly PairingGroup[],
+  inCart: ReadonlySet<string>,
+  combos: readonly PairingCombo[],
+  featured: readonly string[],
+  limit = 3,
+): PairingItem[] {
+  const byId = new Map<string, PairingItem>();
+  for (const g of groups) for (const it of g.items) byId.set(it.id, it);
+  const usable = (id: string) => {
+    const it = byId.get(id);
+    return it && !it.is_out_of_stock && !inCart.has(id) && id !== itemId ? it : null;
+  };
+
+  const out: PairingItem[] = [];
+  const seen = new Set<string>();
+  const push = (it: PairingItem | null) => {
+    if (!it || seen.has(it.id) || out.length >= limit) return;
+    seen.add(it.id);
+    out.push(it);
+  };
+
+  for (const c of combos) {
+    if (!c.item_ids.includes(itemId)) continue;
+    for (const id of c.item_ids) push(usable(id));
+  }
+  for (const id of featured) push(usable(id));
+  return out;
+}
