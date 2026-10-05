@@ -18,6 +18,8 @@ type MenuItem = {
   unit: string;
   image_url: string | null;
   is_out_of_stock: boolean;
+  /** Bếp bật ở màn Quản lý menu khi món ế — món lên dải "NÊN MỜI KHÁCH" đầu lưới. */
+  is_push_sale?: boolean;
 };
 
 type MenuGroup = {
@@ -27,6 +29,11 @@ type MenuGroup = {
   icon: string | null;
   sort_order: number;
 };
+
+/** Mã tab giả cho "Nên mời" — không phải mã nhóm món thật nên lấy một chuỗi không thể trùng
+ *  mã nhóm do chủ quán đặt. Nó sống chung ô state với mã nhóm để tab này loại trừ các tab kia:
+ *  đang xem "Nên mời" rồi bấm "Món nướng" là chuyển hẳn, không phải lọc chồng. */
+const PUSH_TAB = '__push_sale__';
 
 function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
@@ -209,12 +216,33 @@ export function BulkOrderModal({
   // hộp này re-render theo nhịp poll 2 giây của `OrderDrawer` bọc ngoài — tính lại mỗi nhịp là
   // tính lại một thứ không hề đổi. Deps đúng bằng 3 thứ thực sự quyết định kết quả.
   const filtered = useMemo(
-    () => filterMenuBySearch(menu.filter((it) => !group || it.group === group), search),
+    () => filterMenuBySearch(
+      menu.filter((it) => {
+        if (group === PUSH_TAB) return !!it.is_push_sale && !it.is_out_of_stock;
+        return !group || it.group === group;
+      }),
+      search,
+    ),
     [menu, group, search],
   );
 
-  // 'Tất cả' + tất cả nhóm động (sort_order ASC, đã sort ở BE)
-  const groupCodes = ['', ...groupList.map((g) => g.code)];
+  /* Đếm món bếp đang đẩy bán — quyết định tab "Nên mời" có hiện hay không, và hiện số mấy.
+     Món vừa bị báo hết thì BE đã tự tắt cờ, nhưng lọc thêm `is_out_of_stock` ở đây để một
+     nhịp poll chậm không khiến ai mời hụt một món bếp vừa báo không làm được. */
+  const pushCount = useMemo(
+    () => menu.filter((it) => it.is_push_sale && !it.is_out_of_stock).length,
+    [menu],
+  );
+
+  /* 'Tất cả' + tab "Nên mời" (chỉ khi bếp đang đẩy món nào) + tất cả nhóm động
+     (sort_order ASC, đã sort ở BE).
+     Tab "Nên mời" đứng NGAY SAU 'Tất cả' chứ không xếp cuối: quán có ~25 nhóm, hàng tab cuộn
+     ngang, nhét cuối là nó nằm ngoài màn hình và không ai biết nó tồn tại. */
+  const groupCodes = [
+    '',
+    ...(pushCount > 0 ? [PUSH_TAB] : []),
+    ...groupList.map((g) => g.code),
+  ];
 
   /* Mọi hàm sửa giỏ đều `useCallback` deps RỖNG — chúng là prop của `MenuCard` (memo) và của
      `CartLineList`. Chỉ cần một hàm đổi identity mỗi render là memo mất tác dụng hoàn toàn.
@@ -577,6 +605,23 @@ export function BulkOrderModal({
           white-space: nowrap;
           min-height: 36px;
           flex: 0 0 auto;
+        }
+        /* ─── Tab "Nên mời" ──────────────────────────────────────────────────
+           Tab của món bếp đang đẩy bán. Tô CAM ở cả hai trạng thái chọn/không chọn —
+           các tab nhóm khác đều xanh-xám như nhau, nên màu khác là thứ duy nhất kéo
+           được mắt nhân viên sang nó giữa một hàng 25 tab cuộn ngang.
+           Viết button.bulk-tab-push chứ không viết trần: .secondary trong styles.css có
+           cùng độ ưu tiên và sẽ đè mất màu nền của tab chưa chọn. */
+        button.bulk-tab-push {
+          background: #ea580c;
+          border-color: #ea580c;
+          color: #fff;
+          font-weight: 700;
+        }
+        button.bulk-tab-push.secondary {
+          background: #fff7ed;
+          border-color: #fdba74;
+          color: #9a3412;
         }
         .bulk-menu-grid {
           flex: 1;
@@ -1025,9 +1070,11 @@ export function BulkOrderModal({
                   <button
                     key={g || 'all'}
                     onClick={() => setGroup(g)}
-                    className={group === g ? '' : 'secondary'}
+                    className={`${group === g ? '' : 'secondary'} ${g === PUSH_TAB ? 'bulk-tab-push' : ''}`}
                   >
-                    {g === '' ? `Tất cả (${menu.length})` : labelOf(g)}
+                    {g === '' && `Tất cả (${menu.length})`}
+                    {g === PUSH_TAB && `🔥 Nên mời (${pushCount})`}
+                    {g !== '' && g !== PUSH_TAB && labelOf(g)}
                   </button>
                 ))}
               </div>
