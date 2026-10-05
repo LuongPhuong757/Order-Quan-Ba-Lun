@@ -376,15 +376,28 @@ export class TableGuestService {
 
     // Gộp theo TÊN + GIÁ (hai lần gọi cùng món khác giá là hai dòng). Bỏ dòng đã huỷ và dòng
     // ghi chú cho bếp — khách không cần thấy trao đổi nội bộ.
-    const grouped = new Map<string, { name: string; qty: number; unit_price: number }>();
+    const grouped = new Map<
+      string,
+      { menu_item_id: string | null; name: string; qty: number; unit_price: number }
+    >();
     for (const l of lines) {
       if (l.state === 'CANCELLED' || l.is_note) continue;
       const key = `${l.menu_item_name}__${l.menu_item_price}`;
       const cur = grouped.get(key);
       if (cur) cur.qty += l.qty;
-      else grouped.set(key, { name: l.menu_item_name, qty: l.qty, unit_price: l.menu_item_price });
+      else
+        grouped.set(key, {
+          // Dòng ĐẦU TIÊN của nhóm quyết định id. Khoá gộp là tên+giá, nên về lý thuyết hai món
+          // khác nhau trùng cả tên lẫn giá sẽ chung một dòng — khi đó "Gọi lại" ra một trong
+          // hai, mà với khách thì chúng y hệt nhau. Không đáng tách khoá gộp vì chuyện đó.
+          menu_item_id: l.menu_item_id ?? null,
+          name: l.menu_item_name,
+          qty: l.qty,
+          unit_price: l.menu_item_price,
+        });
     }
     const ordered = [...grouped.values()].map((g) => ({
+      menu_item_id: g.menu_item_id,
       name: g.name,
       qty: g.qty,
       unit_price: g.unit_price,
