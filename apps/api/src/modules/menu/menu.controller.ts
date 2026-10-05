@@ -35,6 +35,13 @@ import { toTitleCase } from '../../common/text.js';
 import { MENU_IMAGE_ALLOWED_MIMES as ALLOWED_MIMES, MENU_IMAGE_MAX_BYTES as MAX_FILE_BYTES, saveMenuImage } from './menu-image.js';
 import { buildMenuSearch } from './tim-mon.js';
 
+/** Mô tả món: cắt khoảng trắng thừa, rỗng thì về NULL. Dùng chung cho cả tạo mới lẫn sửa, để
+ *  hai đường không bao giờ lưu khác nhau cho cùng một ô nhập. */
+function moTaSach(v: string | null | undefined): string | null {
+  const t = (v ?? '').trim();
+  return t === '' ? null : t;
+}
+
 class CreateMenuItemDto {
   @IsString() @MinLength(1) @MaxLength(32) code!: string;
   @IsString() @MinLength(1) @MaxLength(128) name!: string;
@@ -42,6 +49,9 @@ class CreateMenuItemDto {
   @IsInt() @Min(0) @Max(100_000_000) price!: number;
   @IsString() @MinLength(1) @MaxLength(32) unit!: string;
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
+  // Mô tả + mấy người ăn (2026-10-05) — xem docblock hai cột này ở `menu-item.entity.ts`.
+  @IsOptional() @IsString() @MaxLength(160) description?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(20) serves?: number | null;
 }
 
 class UpdateMenuItemDto {
@@ -50,6 +60,10 @@ class UpdateMenuItemDto {
   @IsOptional() @IsInt() @Min(0) @Max(100_000_000) price?: number;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(32) unit?: string;
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
+  /* Mô tả + mấy người ăn. Cho phép gửi NULL để XOÁ: chủ quán viết nhầm rồi muốn bỏ trắng thì
+     phải có đường làm, không thì mô tả sai nằm đó vĩnh viễn. */
+  @IsOptional() @IsString() @MaxLength(160) description?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(20) serves?: number | null;
   @IsOptional() @IsBoolean() is_out_of_stock?: boolean;
   @IsOptional() @IsBoolean() is_active?: boolean;
   // Tab "Món online" của màn Đơn hàng online (2026-08-04) toggle cờ này qua PATCH.
@@ -112,6 +126,7 @@ export class MenuController {
    * - group=<code>: filter theo nhóm
    * - include_inactive=true: include món đã xoá soft (default: false)
    * - stock=out|in: lọc theo tình trạng hàng (out=đang hết, in=còn). Bỏ trống=tất cả
+   * - photo=no|yes: lọc theo đã có ảnh hay chưa. Bỏ trống=tất cả
    * - q=<text>: search theo name HOẶC code (LIKE %...%)
    * - sort=newest|name|group|price_desc|price_asc|cost_desc|pct_desc
    * - page=1, page_size=20 (default 2000 cho order picker — chứa hết menu)
@@ -125,6 +140,14 @@ export class MenuController {
     const include_inactive = q.include_inactive === 'true';
     // stock=out → chỉ món đang hết; stock=in → chỉ món còn; khác → tất cả
     const stock = q.stock;
+    /* photo=no → chỉ món CHƯA có ảnh (2026-10-05).
+     *
+     * Vì sao đáng một bộ lọc riêng: đo trên DB thật, 69/283 món hiện cho khách không có ảnh.
+     * Trên menu giấy món không ảnh vẫn được đọc, nhưng trên điện thoại một thẻ trống trông như
+     * LỖI TẢI TRANG — gần 1/4 thực đơn đang ở trạng thái đó và gần như không ai gọi. Chủ quán
+     * cần một danh sách "còn phải chụp những món nào" để dọn dần, chứ cuộn 283 thẻ tìm bằng mắt
+     * thì không ai làm. */
+    const photo = q.photo;
     const search = (q.q || '').trim();
     const sort = q.sort || 'group';
     const page = Math.max(1, Number(q.page) || 1);
@@ -137,6 +160,15 @@ export class MenuController {
     if (group) qb.andWhere('m.group = :g', { g: group });
     if (stock === 'out') qb.andWhere('m.is_out_of_stock = :oos', { oos: true });
     else if (stock === 'in') qb.andWhere('m.is_out_of_stock = :oos', { oos: false });
+    /* stock=push — SỬA 2026-10-05. FE đã gửi giá trị này từ lúc thêm nút "🔥 Đang đẩy bán",
+     * nhưng ở đây không có nhánh nào bắt nó, nên câu truy vấn chạy KHÔNG điều kiện và bộ lọc trả
+     * về đủ 598 món. Không báo lỗi gì cả — nhìn y hệt "quán đang đẩy bán mọi món".
+     * Đo lúc phát hiện: stock=push → 598, bằng đúng tổng số món. */
+    else if (stock === 'push') qb.andWhere('m.is_push_sale = :ps', { ps: true });
+    // Phải tính CẢ chuỗi rỗng, không chỉ NULL: ô ảnh ở form admin gửi '' khi chủ quán xoá link,
+    // và `image_url = ''` thì trang khách cũng không hiện được ảnh nào — cùng một trạng thái.
+    if (photo === 'no') qb.andWhere("(m.image_url IS NULL OR m.image_url = '')");
+    else if (photo === 'yes') qb.andWhere("(m.image_url IS NOT NULL AND m.image_url <> '')");
     // Tìm theo TỪ, không phải chuỗi con: `LIKE '%óc%'` cộng collation bỏ dấu làm "óc" khớp
     // "Cốc" / "Luộc" / "Coca". Xem `tim-mon.ts`.
     for (const c of buildMenuSearch(search)) {
@@ -383,6 +415,8 @@ export class MenuController {
       price: dto.price,
       unit: dto.unit,
       image_url: dto.image_url ?? null,
+      description: moTaSach(dto.description),
+      serves: dto.serves ?? null,
       is_out_of_stock: false,
       is_active: true,
     });
@@ -397,7 +431,10 @@ export class MenuController {
     const item = await this.repo.findOne({ where: { id } });
     if (!item) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Món không tồn tại' });
     // Title case cho name (nếu update)
-    const patched = dto.name !== undefined ? { ...dto, name: toTitleCase(dto.name) } : dto;
+    const patched = dto.name !== undefined ? { ...dto, name: toTitleCase(dto.name) } : { ...dto };
+    // Ô mô tả ở form admin gửi chuỗi RỖNG khi chủ quán xoá trắng nó. Để nguyên '' thì món bị coi
+    // là "đã có mô tả" và trang khách vẽ ra một dòng trống — quy về NULL ngay tại cửa.
+    if (patched.description !== undefined) patched.description = moTaSach(patched.description);
     Object.assign(item, patched);
     await this.repo.save(item);
     return { data: item };

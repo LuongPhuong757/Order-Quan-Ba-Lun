@@ -2814,13 +2814,42 @@ button.mm-push:disabled:hover {
   color: #a6adb4; cursor: not-allowed; opacity: 1;
 }
 
-/* Nhãn trên ảnh — mép TRÊN (nhãn HẾT giữ mép dưới). */
-.mm-thumb-push {
+/* Nhãn trên ảnh — mép TRÊN, XẾP CHỒNG DỌC (nhãn HẾT giữ mép dưới).
+   Khung dọc chứ không để mỗi nhãn tự neo `top: 0`: ĐỀ XUẤT cộng được với ĐẨY BÁN (và với cả
+   HẾT), nên hai nhãn cùng neo mép trên là chúng nằm đè lên nhau. Xếp dọc thì cờ nào bật chiếm
+   một dải, cờ không bật không chiếm chỗ nào, và thứ tự luôn cố định. */
+.mm-thumb-tags {
   position: absolute; left: 0; right: 0; top: 0;
-  background: rgba(234, 88, 12, 0.94);
+  display: flex; flex-direction: column;
+}
+.mm-thumb-push,
+.mm-thumb-star {
   color: #fff; font-size: 10px; font-weight: 800; letter-spacing: 0.03em;
   text-align: center; padding: 2px 0;
+  /* Ô ảnh chỉ rộng 72px: nhãn dài hơn phải CẮT chứ không được xuống dòng — hai dòng là dải cao
+     gấp đôi, nuốt gần hết ảnh và làm thẻ so le với hàng xóm. */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+.mm-thumb-push { background: rgba(234, 88, 12, 0.94); }
+/* Tím chứ không vàng: vàng/cam là của ĐẨY BÁN nằm ngay trên nó, hai dải cùng tông thì nhìn lướt
+   qua lưới không phân biệt được cờ nào đang bật. */
+.mm-thumb-star { background: rgba(124, 58, 237, 0.94); }
+
+/* `button.mm-star` chứ không viết trần — cùng bẫy đã ghi ở `button.mm-push` ngay trên:
+   `button.secondary` cùng độ ưu tiên sẽ đè mất color/background. */
+button.mm-star {
+  width: 100%; min-height: 42px; padding: 0 4px;
+  border: 1px dashed #c4b5fd; border-radius: 9px;
+  background: #fff; color: #6d28d9;
+  font-size: 13.5px; font-weight: 650; cursor: pointer;
+}
+button.mm-star:hover { border-color: #7c3aed; background: #f5f3ff; color: #5b21b6; }
+/* Đang đề xuất = tô ĐẶC, cùng quy ước bật/tắt với nút Đẩy bán ngay trên. */
+button.mm-star.on {
+  border-style: solid; border-color: #7c3aed;
+  background: #7c3aed; color: #fff; font-weight: 700;
+}
+button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #fff; }
 /* Viền thẻ đổi màu như `.is-out` làm với món hết: tìm thẻ đang đẩy giữa lưới
    không cần đọc chữ. */
 .mm-card.is-push { border: 2px solid #fdba74; }
