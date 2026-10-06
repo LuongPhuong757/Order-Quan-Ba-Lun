@@ -18,7 +18,11 @@ const DOTS = dotsForPaperWidth(PAPER_MM);
 
 // Đơn mẫu cố tình gom mọi trường hợp khó vào một tờ: tên món dài phải xuống dòng, ghi chú của
 // món, dòng ghi chú rời, món đã huỷ (không được in), và trả nửa tiền mặt nửa chuyển khoản.
+//
+// Khăn để ở ĐẦU mảng đúng như màn gọi món của nhân viên bỏ nó vào giỏ rỗng — nhìn ảnh ra phải
+// thấy nó đã tụt xuống giữa tờ (`sapXepKhanXuongGiua`).
 const items = [
+  { menu_item_name: 'Khăn Lạnh', menu_item_price: 3000, qty: 5, state: 'SERVED', is_note: false, note: null },
   { menu_item_name: 'Bún bò Huế đặc biệt', menu_item_price: 45000, qty: 2, state: 'SERVED', is_note: false, note: 'Không hành, ít cay' },
   { menu_item_name: 'Mỳ Quảng ếch', menu_item_price: 55000, qty: 1, state: 'SERVED', is_note: false, note: null },
   { menu_item_name: 'Trà đá', menu_item_price: 3000, qty: 4, state: 'KITCHEN', is_note: false, note: null },
