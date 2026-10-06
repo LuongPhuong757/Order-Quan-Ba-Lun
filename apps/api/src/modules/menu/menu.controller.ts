@@ -137,6 +137,11 @@ export class MenuController {
     if (group) qb.andWhere('m.group = :g', { g: group });
     if (stock === 'out') qb.andWhere('m.is_out_of_stock = :oos', { oos: true });
     else if (stock === 'in') qb.andWhere('m.is_out_of_stock = :oos', { oos: false });
+    /* stock=push — SỬA 2026-10-05. FE đã gửi giá trị này từ lúc thêm nút "🔥 Đang đẩy bán",
+     * nhưng ở đây không có nhánh nào bắt nó, nên câu truy vấn chạy KHÔNG điều kiện và bộ lọc trả
+     * về đủ 598 món. Không báo lỗi gì cả — nhìn y hệt "quán đang đẩy bán mọi món".
+     * Đo lúc phát hiện: stock=push → 598, bằng đúng tổng số món. */
+    else if (stock === 'push') qb.andWhere('m.is_push_sale = :ps', { ps: true });
     // Tìm theo TỪ, không phải chuỗi con: `LIKE '%óc%'` cộng collation bỏ dấu làm "óc" khớp
     // "Cốc" / "Luộc" / "Coca". Xem `tim-mon.ts`.
     for (const c of buildMenuSearch(search)) {
