@@ -6,6 +6,8 @@
 // đổi theo yêu cầu của quán; "vẽ thế nào" là kỹ thuật đồ hoạ. Gộp chung thì mỗi lần đổi chữ
 // trên hoá đơn lại phải đọc code tính toạ độ pixel.
 
+import { toAsciiUpper } from '@order/schemas';
+
 import { computeCheckoutTotals, type CheckoutPricedItem } from '../orders/checkout-total.js';
 
 /** Tự nhóm hàng nghìn bằng dấu chấm thay vì `toLocaleString('vi-VN')`.
@@ -97,6 +99,70 @@ function describeTarget(order: ReceiptInput['order']): string {
   return `Bàn ${order.table_code}`;
 }
 
+/** Đơn ăn tại bàn — `fulfillment_type` null (xem `order.entity.ts`).
+ *
+ *  Hoá đơn tự do (M6, có `target_label`) KHÔNG tính là đơn tại bàn dù không có kiểu phục vụ:
+ *  mọi dòng ở đó do người in tự gõ theo đúng thứ tự họ muốn, phần mềm sắp lại là sửa tay người
+ *  khác. */
+function laDonTaiBan(order: ReceiptInput['order']): boolean {
+  if (order.target_label !== undefined && order.target_label !== null) return false;
+  return order.fulfillment_type !== 'DELIVERY' && order.fulfillment_type !== 'PICKUP';
+}
+
+/** Tên món khăn cần dò, dạng ĐÃ BỎ DẤU VIẾT HOA (`toAsciiUpper`).
+ *
+ * ⚠ Đây là BẢN SAO THỨ HAI của danh sách trong `apps/web/src/lib/auto-items.ts` — bản gốc là
+ * luật quán tự thêm khăn vào giỏ. Nhân bản vì `apps/api` không import được từ `apps/web`, mà
+ * tờ hoá đơn thì do server dựng. Quán đổi tên món trong bảng giá thì phải sửa CẢ HAI chỗ.
+ *
+ * Chủ quán gọi món này là "khăn ướt", bảng giá thật ghi "Khăn Lạnh" (SP001137) — giữ cả hai. */
+const TEN_MON_KHAN = ['KHAN UOT', 'KHAN LANH'];
+
+/** Dò dòng khăn theo TÊN chứ không theo cờ trong DB: đơn CŨ không có cờ nào để dò, mà hoá đơn
+ *  in lại của đơn cũ vẫn phải nằm đúng chỗ như đơn mới.
+ *
+ *  Dùng `toAsciiUpper` của `@order/schemas` (bảng tra tay, `đ → d`) thay vì tự viết hàm bỏ dấu
+ *  thứ hai — `normalize('NFD')` không tách được chữ `đ`. */
+function laDongKhan(name: string): boolean {
+  const k = toAsciiUpper(name);
+  return TEN_MON_KHAN.some((key) => k.includes(key));
+}
+
+/**
+ * Đẩy dòng khăn xuống GIỮA danh sách món của tờ hoá đơn (2026-10-06, chủ quán).
+ *
+ * Khăn là món quán TỰ THÊM (`pickAutoItem`), và hai luồng thêm nó ở hai đầu đối nhau: màn gọi
+ * món của nhân viên bỏ khăn vào giỏ lúc giỏ còn rỗng nên nó ra dòng ĐẦU, còn lượt khách quét QR
+ * nối khăn vào cuối nên nó ra dòng CUỐI. Tờ in xếp món theo `created_at` nên giữ nguyên cả hai.
+ * Đầu và cuối lại đúng là hai chỗ mắt người đọc trước nhất, nên một món khách không gọi lại là
+ * thứ đập vào mắt đầu tiên lúc họ cầm hoá đơn.
+ *
+ * Chỉ đổi THỨ TỰ IN. Giỏ hàng, màn bếp và nhật ký bàn giữ nguyên chỗ cũ — nhân viên cần thấy
+ * khăn ở chỗ quen thuộc để còn sửa số lượng hoặc bỏ ra trước khi báo bếp.
+ *
+ * Vị trí chèn `floor(n/2)` tính trên danh sách ĐÃ BỎ khăn ra, tối thiểu là 1:
+ *  - 1 món thật  → khăn xuống dưới món đó (không còn chỗ nào khác).
+ *  - từ 2 món    → `floor(n/2)` luôn nằm trong khoảng 1..n-1, tức không bao giờ là dòng đầu
+ *                  hay dòng cuối.
+ * Nếu chỗ chèn rơi trúng một dòng ghi chú thì đẩy tiếp xuống: ghi chú thuộc về món NGAY TRÊN
+ * nó, chen khăn vào giữa là tách câu ghi chú khỏi món nó nói tới.
+ *
+ * Một tờ chỉ dời đúng MỘT dòng khăn — dòng đầu tiên tìm thấy. Quán có bán cả "Khăn Lạnh 5 Cái"
+ * nên trên lý thuyết một đơn có thể có hai dòng cùng trúng tên; dời hết thì chúng dồn vào giữa
+ * thành một cụm còn nổi hơn cả lúc đầu.
+ */
+export function sapXepKhanXuongGiua<T extends { menu_item_name: string; is_note: boolean }>(
+  items: readonly T[],
+): T[] {
+  const idx = items.findIndex((it) => !it.is_note && laDongKhan(it.menu_item_name));
+  if (idx < 0) return [...items];
+  const conLai = items.filter((_, i) => i !== idx);
+  if (conLai.length === 0) return [...items];
+  let at = Math.max(1, Math.floor(conLai.length / 2));
+  while (at < conLai.length && conLai[at]!.is_note) at += 1;
+  return [...conLai.slice(0, at), items[idx]!, ...conLai.slice(at)];
+}
+
 /**
  * Dựng danh sách dòng của tờ hoá đơn.
  *
@@ -107,6 +173,8 @@ function describeTarget(order: ReceiptInput['order']): string {
  *    tiền tính theo `computeCheckoutTotals`, ở đây chỉ hiển thị cho khớp.
  *  - Dòng ghi chú (`is_note`, giá 0): in thụt vào dưới, KHÔNG in cột tiền. In "0đ" cạnh một
  *    câu ghi chú trông hệt như một món được tặng, và đã đủ gây tranh cãi ở quầy.
+ *
+ * Riêng đơn ăn tại bàn còn được sắp lại một dòng trước khi in — xem `sapXepKhanXuongGiua`.
  */
 export function buildReceipt(input: ReceiptInput): ReceiptLine[] {
   const { order, store, items } = input;
@@ -142,8 +210,12 @@ export function buildReceipt(input: ReceiptInput): ReceiptLine[] {
   }
   lines.push({ kind: 'rule' });
 
-  for (const it of items) {
-    if (it.state === 'CANCELLED') continue;
+  // Lọc món huỷ TRƯỚC khi sắp lại: "giữa tờ giấy" phải tính trên những dòng thật sự in ra, chứ
+  // một bàn huỷ 4 món thì giữa của danh sách gốc có thể rơi hẳn ra ngoài phần nhìn thấy.
+  const inRaGiay = items.filter((it) => it.state !== 'CANCELLED');
+  const theoThuTuIn = laDonTaiBan(order) ? sapXepKhanXuongGiua(inRaGiay) : inRaGiay;
+
+  for (const it of theoThuTuIn) {
     if (it.is_note) {
       lines.push({ kind: 'note', text: it.menu_item_name });
       continue;

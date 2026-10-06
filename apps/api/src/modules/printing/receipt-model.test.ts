@@ -5,6 +5,7 @@ import {
   buildTestPage,
   formatStamp,
   formatVnd,
+  sapXepKhanXuongGiua,
   shortCode,
   type ReceiptInput,
   type ReceiptItemInput,
@@ -320,5 +321,135 @@ describe('buildDeliverySlip — phiếu shipper mang theo đường', () => {
 
   it('bản in lại có đóng dấu', () => {
     expect(centers(ship({ reprint: true })).map((l) => l.text).join(' ')).toMatch(/BẢN IN LẠI/);
+  });
+});
+
+describe('sapXepKhanXuongGiua — dời dòng khăn xuống giữa', () => {
+  const mon = (name: string, patch: Partial<ReceiptItemInput> = {}) =>
+    item({ menu_item_name: name, ...patch });
+  const ten = (xs: readonly ReceiptItemInput[]) => xs.map((x) => x.menu_item_name);
+
+  it('khăn ở đầu (nhân viên bỏ vào giỏ rỗng) thì xuống giữa', () => {
+    const xs = [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia'), mon('Rau'), mon('Cơm')];
+    expect(ten(sapXepKhanXuongGiua(xs))).toEqual(['Lẩu gà', 'Bia', 'Khăn Lạnh', 'Rau', 'Cơm']);
+  });
+
+  it('khăn ở cuối (lượt khách quét QR) thì lên giữa', () => {
+    const xs = [mon('Lẩu gà'), mon('Bia'), mon('Rau'), mon('Cơm'), mon('Khăn Lạnh')];
+    expect(ten(sapXepKhanXuongGiua(xs))).toEqual(['Lẩu gà', 'Bia', 'Khăn Lạnh', 'Rau', 'Cơm']);
+  });
+
+  it('từ 2 món thật trở lên, khăn không bao giờ là dòng đầu hay dòng cuối', () => {
+    for (let n = 2; n <= 9; n += 1) {
+      const xs = [mon('Khăn Lạnh'), ...Array.from({ length: n }, (_, i) => mon(`Món ${i}`))];
+      const at = ten(sapXepKhanXuongGiua(xs)).indexOf('Khăn Lạnh');
+      expect(at, `n=${n}`).toBeGreaterThan(0);
+      expect(at, `n=${n}`).toBeLessThan(n);
+    }
+  });
+
+  it('chỉ có một món thật thì khăn xuống dưới món đó', () => {
+    expect(ten(sapXepKhanXuongGiua([mon('Khăn Lạnh'), mon('Lẩu gà')]))).toEqual([
+      'Lẩu gà',
+      'Khăn Lạnh',
+    ]);
+  });
+
+  it('tờ chỉ có mỗi khăn thì giữ nguyên', () => {
+    expect(ten(sapXepKhanXuongGiua([mon('Khăn Lạnh')]))).toEqual(['Khăn Lạnh']);
+  });
+
+  it('không có dòng khăn nào thì giữ nguyên thứ tự', () => {
+    const xs = [mon('Lẩu gà'), mon('Bia'), mon('Cơm')];
+    expect(ten(sapXepKhanXuongGiua(xs))).toEqual(['Lẩu gà', 'Bia', 'Cơm']);
+  });
+
+  it('dò được cả tên viết hoa, không dấu và "khăn ướt"', () => {
+    for (const name of ['KHĂN LẠNH', 'khan lanh', 'Khăn ướt', 'Khăn Lạnh 5 Cái']) {
+      const xs = [mon(name), mon('Lẩu gà'), mon('Bia')];
+      expect(ten(sapXepKhanXuongGiua(xs)), name).toEqual(['Lẩu gà', name, 'Bia']);
+    }
+  });
+
+  it('không chen vào giữa một món và dòng ghi chú của nó', () => {
+    const xs = [
+      mon('Khăn Lạnh'),
+      mon('Lẩu gà'),
+      mon('Không cay', { is_note: true, menu_item_price: 0 }),
+      mon('Bia'),
+    ];
+    expect(ten(sapXepKhanXuongGiua(xs))).toEqual(['Lẩu gà', 'Không cay', 'Khăn Lạnh', 'Bia']);
+  });
+
+  it('hai dòng cùng trúng tên thì chỉ dời dòng đầu tiên', () => {
+    const xs = [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia'), mon('Khăn Lạnh 5 Cái')];
+    expect(ten(sapXepKhanXuongGiua(xs))).toEqual([
+      'Lẩu gà',
+      'Khăn Lạnh',
+      'Bia',
+      'Khăn Lạnh 5 Cái',
+    ]);
+  });
+
+  it('không sửa mảng gốc', () => {
+    const xs = [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia')];
+    sapXepKhanXuongGiua(xs);
+    expect(ten(xs)).toEqual(['Khăn Lạnh', 'Lẩu gà', 'Bia']);
+  });
+});
+
+describe('buildReceipt — vị trí dòng khăn trên giấy', () => {
+  const mon = (name: string, patch: Partial<ReceiptItemInput> = {}) =>
+    item({ menu_item_name: name, ...patch });
+  const tenMon = (lines: ReceiptLine[]) => items(lines).map((l) => l.name);
+
+  it('đơn ăn tại bàn: khăn in ở giữa chứ không phải dòng đầu', () => {
+    const lines = build({
+      items: [mon('Khăn Lạnh', { qty: 5 }), mon('Lẩu gà'), mon('Bia'), mon('Cơm')],
+    });
+    expect(tenMon(lines)).toEqual(['Lẩu gà', 'Khăn Lạnh', 'Bia', 'Cơm']);
+  });
+
+  it('món huỷ không được tính vào "giữa" vì nó không in ra', () => {
+    const lines = build({
+      items: [
+        mon('Khăn Lạnh'),
+        mon('Gỏi', { state: 'CANCELLED' }),
+        mon('Mì xào', { state: 'CANCELLED' }),
+        mon('Lẩu gà'),
+        mon('Bia'),
+      ],
+    });
+    expect(tenMon(lines)).toEqual(['Lẩu gà', 'Khăn Lạnh', 'Bia']);
+  });
+
+  it('đơn giao tận nơi giữ nguyên thứ tự — khăn ở đó là món khách tự gọi', () => {
+    const lines = build({
+      order: order({ fulfillment_type: 'DELIVERY' }),
+      items: [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia')],
+    });
+    expect(tenMon(lines)).toEqual(['Khăn Lạnh', 'Lẩu gà', 'Bia']);
+  });
+
+  it('đơn khách tự lấy giữ nguyên thứ tự', () => {
+    const lines = build({
+      order: order({ fulfillment_type: 'PICKUP' }),
+      items: [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia')],
+    });
+    expect(tenMon(lines)).toEqual(['Khăn Lạnh', 'Lẩu gà', 'Bia']);
+  });
+
+  it('hoá đơn tự do giữ nguyên thứ tự người in đã gõ', () => {
+    const lines = build({
+      order: order({ target_label: 'Mang về' }),
+      items: [mon('Khăn Lạnh'), mon('Lẩu gà'), mon('Bia')],
+    });
+    expect(tenMon(lines)).toEqual(['Khăn Lạnh', 'Lẩu gà', 'Bia']);
+  });
+
+  it('tiền không đổi khi dời chỗ', () => {
+    const xs = [mon('Khăn Lạnh', { menu_item_price: 3000, qty: 5 }), mon('Lẩu gà'), mon('Bia')];
+    const tong = totals(build({ items: xs })).find((l) => l.label === 'TỔNG CỘNG');
+    expect(tong?.value).toBe(formatVnd(3000 * 5 + 45000 * 2));
   });
 });
