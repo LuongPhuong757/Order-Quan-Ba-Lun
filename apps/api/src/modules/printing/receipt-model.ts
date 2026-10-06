@@ -6,7 +6,7 @@
 // đổi theo yêu cầu của quán; "vẽ thế nào" là kỹ thuật đồ hoạ. Gộp chung thì mỗi lần đổi chữ
 // trên hoá đơn lại phải đọc code tính toạ độ pixel.
 
-import { toAsciiUpper } from '@order/schemas';
+import { AUTO_ITEM_NAME_KEYS, khongDau } from '@order/schemas';
 
 import { computeCheckoutTotals, type CheckoutPricedItem } from '../orders/checkout-total.js';
 
@@ -109,23 +109,14 @@ function laDonTaiBan(order: ReceiptInput['order']): boolean {
   return order.fulfillment_type !== 'DELIVERY' && order.fulfillment_type !== 'PICKUP';
 }
 
-/** Tên món khăn cần dò, dạng ĐÃ BỎ DẤU VIẾT HOA (`toAsciiUpper`).
+/** Dò dòng khăn theo TÊN, dùng chung ĐÚNG bộ tên với luật quán tự thêm khăn (`@order/schemas`)
+ *  — không khai lại danh sách ở đây, để quán đổi tên món trong bảng giá thì chỉ phải sửa một chỗ.
  *
- * ⚠ Đây là BẢN SAO THỨ HAI của danh sách trong `apps/web/src/lib/auto-items.ts` — bản gốc là
- * luật quán tự thêm khăn vào giỏ. Nhân bản vì `apps/api` không import được từ `apps/web`, mà
- * tờ hoá đơn thì do server dựng. Quán đổi tên món trong bảng giá thì phải sửa CẢ HAI chỗ.
- *
- * Chủ quán gọi món này là "khăn ướt", bảng giá thật ghi "Khăn Lạnh" (SP001137) — giữ cả hai. */
-const TEN_MON_KHAN = ['KHAN UOT', 'KHAN LANH'];
-
-/** Dò dòng khăn theo TÊN chứ không theo cờ trong DB: đơn CŨ không có cờ nào để dò, mà hoá đơn
- *  in lại của đơn cũ vẫn phải nằm đúng chỗ như đơn mới.
- *
- *  Dùng `toAsciiUpper` của `@order/schemas` (bảng tra tay, `đ → d`) thay vì tự viết hàm bỏ dấu
- *  thứ hai — `normalize('NFD')` không tách được chữ `đ`. */
+ *  Dò theo tên chứ không theo cờ trong DB vì đơn CŨ không có cờ nào để dò, mà hoá đơn in lại của
+ *  đơn cũ vẫn phải nằm đúng chỗ như đơn mới. */
 function laDongKhan(name: string): boolean {
-  const k = toAsciiUpper(name);
-  return TEN_MON_KHAN.some((key) => k.includes(key));
+  const k = khongDau(name);
+  return AUTO_ITEM_NAME_KEYS.some((key) => k.includes(key));
 }
 
 /**
