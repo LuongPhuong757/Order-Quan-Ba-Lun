@@ -2,7 +2,8 @@ import { Column, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 
 /**
- * Một dòng tiền VỀ tài khoản, do cổng trung gian (SePay) báo (2026-09-22).
+ * Một dòng tiền VÀO hoặc RA tài khoản, do cổng trung gian (SePay) báo (2026-09-22; thêm tiền ra
+ * 2026-10-10 — xem cột `direction`).
  *
  * Đây là bản ghi THÔ và BẤT BIẾN: nó là thứ ngân hàng nói, không phải thứ ta suy ra. Mọi kết
  * luận ("đơn này đã trả") sống ở `payment_intents`, ở đây chỉ lưu nguyên văn để còn đối chiếu
@@ -35,7 +36,17 @@ export class BankTransaction {
   @Column({ type: 'varchar', length: 64 })
   gateway_txn_id!: string;
 
-  /** Luôn > 0: bảng này CHỈ ghi tiền vào. Tiền ra bị lọc từ tầng controller. */
+  /** `in` tiền vào · `out` tiền ra (2026-10-10).
+   *
+   *  Trước ngày này bảng chỉ có tiền vào, tiền ra bị vứt ở tầng chuẩn hoá. Chủ quán cần sổ webhook
+   *  hiện đủ hai chiều để soi với app ngân hàng — CHỈ ĐỂ XEM. Tiền ra không bao giờ đi qua bộ khớp
+   *  đơn, không vào nhóm "tiền lạ" ở màn đối soát; mọi chỗ cộng/khớp tiền vào PHẢI lọc `in`.
+   *
+   *  Mặc định `in` để `synchronize` điền đúng cho mọi dòng cũ — chúng vốn đều là tiền vào. */
+  @Column({ type: 'varchar', length: 3, default: 'in' })
+  direction!: 'in' | 'out';
+
+  /** Luôn > 0, kể cả tiền ra: chiều nằm ở `direction`, không nằm ở dấu. */
   @Column({ type: 'int', unsigned: true })
   amount!: number;
 

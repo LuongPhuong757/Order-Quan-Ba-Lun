@@ -53,6 +53,11 @@ export class PaymentsApplyService {
         return false;
       }
 
+      // Tiền RA chỉ ghi sổ (2026-10-10). Nội dung CK đi có thể chứa chuỗi trông như mã đơn (chủ
+      // quán hoàn tiền cho khách và ghi lại mã) — cho qua bộ khớp là CỘNG tiền hoàn vào
+      // `received_amount` và đánh dấu đơn đã trả.
+      if (input.direction === 'out') return true;
+
       const code = extractPaymentCode(input.content);
       if (!code) {
         // Khách xoá nội dung, hoặc tiền riêng vào cùng tài khoản. Dòng vẫn nằm trong bảng và hiện
@@ -184,6 +189,7 @@ export class PaymentsApplyService {
       .values({
         gateway: input.gateway,
         gateway_txn_id: input.gatewayTxnId,
+        direction: input.direction,
         amount: input.amount,
         content: input.content,
         account_no: input.accountNo,

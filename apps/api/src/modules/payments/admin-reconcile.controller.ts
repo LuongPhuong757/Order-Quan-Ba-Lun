@@ -90,7 +90,8 @@ export class AdminReconcileController {
 
     const unknown = (
       await this.txns.find({
-        where: { applied_intent_id: IsNull(), occurred_at: Between(fromMs, toMs) },
+        // `direction: 'in'`: tiền ra cũng để `applied_intent_id` NULL nhưng không phải "tiền lạ".
+        where: { applied_intent_id: IsNull(), direction: 'in', occurred_at: Between(fromMs, toMs) },
         order: { occurred_at: 'DESC' },
         take: 50,
       })
