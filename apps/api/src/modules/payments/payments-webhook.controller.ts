@@ -61,7 +61,7 @@ export class PaymentsWebhookController {
 
     const input = normalizeSepayPayload(req.body);
     if (!input) {
-      // Tiền ra, hoặc payload không dùng được. `success: true` là CỐ Ý: với SePay thì ta đã xử lý
+      // Payload không dùng được (tiền ra thì VẪN đi tiếp, chỉ để ghi sổ). `success: true` là CỐ Ý: với SePay thì ta đã xử lý
       // xong: trả false ở đây chỉ khiến nó gửi lại mãi một payload mà lần nào ta cũng từ chối.
       return { success: true };
     }

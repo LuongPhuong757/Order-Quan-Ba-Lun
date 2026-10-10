@@ -22,6 +22,7 @@ describe('fromApiRow', () => {
   it('đọc đúng tên trường của API (amount_in / transaction_content)', () => {
     expect(fromApiRow(row)).toMatchObject({
       gateway: 'sepay',
+      direction: 'in',
       gatewayTxnId: '49051',
       amount: 250000,
       content: 'BAN05 DH123456 LUONG THUY',
@@ -29,8 +30,15 @@ describe('fromApiRow', () => {
     });
   });
 
-  it('bỏ qua hàng tiền RA', () => {
-    expect(fromApiRow({ ...row, amount_in: '0.00', amount_out: '90000.00' })).toBeNull();
+  it('đọc hàng tiền RA từ amount_out', () => {
+    expect(fromApiRow({ ...row, amount_in: '0.00', amount_out: '90000.00' })).toMatchObject({
+      direction: 'out',
+      amount: 90000,
+    });
+  });
+
+  it('bỏ qua hàng cả hai chiều đều 0', () => {
+    expect(fromApiRow({ ...row, amount_in: '0.00', amount_out: '0.00' })).toBeNull();
   });
 
   it('không nổ với hàng rác', () => {

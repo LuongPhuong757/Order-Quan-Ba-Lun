@@ -44,8 +44,20 @@ Số tài khoản và mã ngân hàng **không** nằm trong env: chúng đọc 
 2. Tạo webhook:
    - URL: `https://<domain>/webhooks/sepay`
    - Kiểu xác thực: **API Key**, header `Authorization: Apikey <SEPAY_WEBHOOK_KEY>`
-   - Chọn đúng tài khoản ngân hàng, **chỉ tiền vào**
+   - Chọn đúng tài khoản ngân hàng, sự kiện **cả tiền vào lẫn tiền ra** (từ 2026-10-10)
 3. Tạo API token (nếu muốn quét bù) → điền `SEPAY_API_TOKEN`.
+
+### Tiền ra (2026-10-10)
+
+Từ bản này webhook và job quét bù nhận cả tiền ra, ghi vào `bank_transactions` với
+`direction = 'out'` (số tiền vẫn dương). **Chỉ để xem** ở màn Sổ webhook ngân hàng (ô lọc
+"Chiều", số đỏ có dấu trừ). Tiền ra **không** đi qua bộ khớp đơn và **không** hiện thành "tiền lạ"
+ở màn đối soát. Thêm truy vấn nào cộng/khớp trên bảng này thì phải lọc `direction = 'in'`.
+
+Cột `direction` do `synchronize` tự thêm lúc API khởi động, mặc định `in` cho mọi dòng cũ.
+
+Chỉ có dữ liệu tiền ra **từ lúc deploy bản này trở đi** — tiền ra trước đó đã bị vứt và cố ý
+không kéo lại (chủ quán chốt 2026-10-10).
 
 ### ⚠ Whitelist IP cho fail2ban
 

@@ -95,13 +95,21 @@ export function fromApiRow(row: unknown): IngestInput | null {
   if (!row || typeof row !== 'object') return null;
   const r = row as Record<string, unknown>;
 
-  const amount = Number(r.amount_in ?? 0);
-  if (!Number.isFinite(amount) || amount <= 0) return null; // tiền ra hoặc hàng rỗng
+  // Mỗi hàng có ĐỦ hai ô, ô của chiều kia là "0.00". Tiền ra nhận từ 2026-10-10, chỉ để ghi sổ.
+  const amountIn = Number(r.amount_in ?? 0);
+  const amountOut = Number(r.amount_out ?? 0);
+  const direction: 'in' | 'out' | null =
+    Number.isFinite(amountIn) && amountIn > 0 ? 'in'
+    : Number.isFinite(amountOut) && amountOut > 0 ? 'out'
+    : null;
+  if (!direction) return null; // hàng rỗng
+  const amount = direction === 'in' ? amountIn : amountOut;
   const id = r.id;
   if (id === null || id === undefined || String(id).trim() === '') return null;
 
   return {
     gateway: 'sepay',
+    direction,
     gatewayTxnId: String(id),
     amount: Math.round(amount),
     content: String(r.transaction_content ?? '').slice(0, 255),

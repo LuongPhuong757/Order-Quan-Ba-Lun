@@ -14,7 +14,7 @@ import { BankTransaction } from './entities/bank-transaction.entity.js';
  * luận của hệ thống thì người đọc không biết dòng nào là sự thật của ngân hàng, dòng nào là ý
  * kiến của phần mềm. Phán xét đã có chỗ khác lo (cột "Xác thực" ở màn Lịch sử).
  */
-/** Bốn thứ chủ quán muốn thấy, không hơn (chốt 2026-09-23). */
+/** Bốn thứ chủ quán muốn thấy, không hơn (chốt 2026-09-23) — cộng chiều tiền (2026-10-10). */
 export type WebhookRow = {
   /** Khoá chống trùng của SePay — không hiện ra màn, nhưng React cần một khoá ổn định cho danh sách. */
   gateway_txn_id: string;
@@ -22,6 +22,8 @@ export type WebhookRow = {
    *  (lệch vài giây), bày cả hai chỉ làm người đọc phải hỏi "vậy cái nào mới đúng". */
   occurred_at: number;
   bank: string | null;
+  /** `out` = tiền ra. `amount` luôn dương; màn tự thêm dấu trừ. */
+  direction: 'in' | 'out';
   amount: number;
   content: string;
 };
@@ -41,7 +43,7 @@ export class BankLedgerController {
 
   /**
    * `from`/`to` epoch ms (mặc định 7 ngày gần nhất) · `account` số tài khoản nhận · `q` tìm trong
-   * nội dung · `page`/`page_size`.
+   * nội dung · `direction` `in`/`out` (bỏ trống = cả hai) · `page`/`page_size`.
    *
    * `banks` trả kèm trong CÙNG response chứ không thành endpoint riêng: ô lọc ngân hàng phải liệt
    * kê đúng những tài khoản CÓ giao dịch trong khoảng đang xem, nên nó vốn đã phụ thuộc vào cùng
@@ -53,6 +55,7 @@ export class BankLedgerController {
     @Query('to') to?: string,
     @Query('account') account?: string,
     @Query('q') q?: string,
+    @Query('direction') direction?: string,
     @Query('page') page?: string,
     @Query('page_size') pageSize?: string,
   ): Promise<ApiOk<{
@@ -71,6 +74,7 @@ export class BankLedgerController {
       .createQueryBuilder('t')
       .where('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) });
     if (account) qb.andWhere('t.account_no = :acc', { acc: account });
+    if (direction === 'in' || direction === 'out') qb.andWhere('t.direction = :dir', { dir: direction });
     if (q && q.trim()) {
       // Tìm THÔ trong nội dung. Không dựng chỉ mục toàn văn: chuỗi ngân hàng gửi sang là một khối
       // liền không có cấu trúc, mà thứ người ta gõ vào đây là "BAN01" hay một phần số tài khoản —
@@ -93,6 +97,7 @@ export class BankLedgerController {
         gateway_txn_id: r.gateway_txn_id,
         occurred_at: r.occurred_at,
         bank: bankNameOf(r),
+        direction: r.direction,
         amount: r.amount,
         content: r.content,
       })),
