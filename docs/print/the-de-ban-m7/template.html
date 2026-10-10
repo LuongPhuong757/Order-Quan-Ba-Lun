@@ -63,45 +63,52 @@
   /* ─── MẶT SAU — 4 bước, mỗi bước kèm ảnh chụp màn hình thật ──────────── */
   .back { padding: 12.5mm 12mm 11.5mm; }
   .back-head { text-align: center; }
-  .back-head h2 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 7.6mm; color: var(--brand-600); line-height: 1.1; }
-  .back-head p { font-size: 3.4mm; color: var(--ink-soft); margin-top: 0.6mm; }
+  .back-head h2 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 6.6mm; color: var(--brand-600); line-height: 1.1; }
+  .back-head p { font-size: 3.1mm; color: var(--ink-soft); margin-top: 0.6mm; }
 
-  .steps { list-style: none; width: 100%; margin-top: 3.6mm; display: flex; flex-direction: column; gap: 2.8mm; }
-  .steps li { display: grid; grid-template-columns: 8mm 1fr 42mm; column-gap: 2.6mm; align-items: start; }
-  .steps li.noimg { grid-template-columns: 8mm 1fr; }
+  .steps { list-style: none; width: 100%; margin-top: 5mm; display: flex; flex-direction: column; gap: 3.6mm; }
+  .steps li { display: grid; grid-template-columns: 7mm 1fr 36mm; column-gap: 3mm; align-items: start; }
+  .steps li.noimg { grid-template-columns: 7mm 1fr; }
   /* print-color-adjust: nền đỏ phải ăn mực, không thì in ra số trắng trên giấy trắng. */
-  .num { width: 8mm; height: 8mm; border-radius: 50%; background: var(--brand-600);
-         color: #fff; font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.8mm;
+  .num { width: 7mm; height: 7mm; border-radius: 50%; background: var(--brand-600);
+         color: #fff; font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.2mm;
          display: flex; align-items: center; justify-content: center; line-height: 1;
          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .step-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 5.1mm; color: var(--ink); line-height: 1.2; }
-  .step-d { font-size: 3.5mm; color: var(--ink-soft); line-height: 1.45; margin-top: 0.6mm; }
+  .step-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.4mm; color: var(--ink); line-height: 1.2; }
+  .step-d { font-size: 3.1mm; color: var(--ink-soft); line-height: 1.5; margin-top: 0.8mm; }
   .step-d b { color: var(--brand-700); font-weight: 600; }
   .key { display: inline-block; background: #fff; border: 0.25mm solid var(--brand-600); border-radius: 1.2mm;
          padding: 0 1.2mm; color: var(--brand-700); font-weight: 600; white-space: nowrap; line-height: 1.35; }
-  .tip { margin-top: 1.4mm; background: #fff6e6; border: 0.25mm solid #e6cf9d; border-radius: 1.6mm;
-         padding: 1.3mm 2.2mm; font-size: 3.35mm; line-height: 1.45; color: var(--ink-soft); }
+  .tip { margin-top: 1.2mm; padding-left: 2.2mm; border-left: 0.5mm solid var(--gold);
+         font-size: 2.85mm; line-height: 1.5; color: var(--ink-soft); }
   .tip b { color: var(--brand-700); font-weight: 600; }
 
   .shots { display: flex; flex-direction: column; gap: 1.4mm; }
   .shots img { display: block; width: 100%; border-radius: 1.8mm; border: 0.25mm solid #e2d6c8; background: #fff; }
 
-  .help { width: 100%; margin-top: 3.2mm; background: #fff; border: 0.35mm solid var(--brand-600);
-          border-radius: 2.5mm; padding: 2.6mm 3.4mm; display: grid; grid-template-columns: 1fr 44mm;
-          column-gap: 3mm; align-items: center; }
-  .help h3 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.4mm; color: var(--brand-600); line-height: 1.2; }
-  .help p { font-size: 3.5mm; line-height: 1.45; color: var(--ink-soft); margin-top: 0.6mm; }
+  .help { width: 100%; margin-top: 3mm; background: var(--brand-100); border-radius: 2mm;
+          padding: 1.8mm 3mm; display: flex; align-items: center; gap: 3mm;
+          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .help p { flex: 1; font-size: 3mm; line-height: 1.5; color: var(--ink-soft); }
   .help p b { color: var(--brand-700); font-weight: 600; }
-  .help .shots img { border-radius: 1.4mm; }
-  .help .chip { width: 26mm; align-self: center; }
+  /* Gọi trên nhiều máy: máy 1 đọc mã → máy 2 nhập mã. */
+  .share { width: 100%; margin-top: 4mm; border: 0.35mm solid var(--brand-600); border-radius: 2.5mm;
+           padding: 2.2mm 3.2mm 2.6mm; background: #fff; }
+  .share h3 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.2mm; color: var(--brand-600); line-height: 1.2; }
+  .share-sub { font-size: 2.85mm; color: var(--ink-soft); margin-top: 0.4mm; }
+  .share-row { display: grid; grid-template-columns: 1fr 1fr; column-gap: 5mm; align-items: end; margin-top: 1.6mm; }
+  .share-cap { font-size: 3mm; line-height: 1.45; color: var(--ink-soft); margin-bottom: 1.2mm; }
+  .share-cap b { color: var(--brand-700); font-weight: 600; }
+  .share img { display: block; width: 40mm; border-radius: 1.4mm; border: 0.25mm solid #e2d6c8; }
+  .help img { flex: 0 0 auto; width: 22mm; display: block; border-radius: 1.2mm; }
 
   .foot { width: 100%; margin-top: auto; padding-top: 2.6mm; border-top: 0.25mm dashed var(--gold);
           display: flex; align-items: center; gap: 3.2mm; }
-  .foot svg { flex: 0 0 auto; width: 15mm; height: 15mm; background: #fff; padding: 0.8mm;
+  .foot svg { flex: 0 0 auto; width: 13mm; height: 13mm; background: #fff; padding: 0.8mm;
               border: 0.25mm solid #d8cbbb; border-radius: 1mm; }
-  .foot-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 3.9mm; color: var(--ink); line-height: 1.2; }
+  .foot-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 3.5mm; color: var(--ink); line-height: 1.2; }
   .foot-t em { font-style: normal; color: var(--brand-600); }
-  .foot-d { font-size: 3.1mm; color: var(--ink-soft); margin-top: 0.6mm; line-height: 1.4; }
+  .foot-d { font-size: 2.9mm; color: var(--ink-soft); margin-top: 0.6mm; line-height: 1.4; }
   .foot-d b { color: var(--brand-700); font-weight: 600; }
 
   @media print {
@@ -160,7 +167,7 @@
       <div class="num">1</div>
       <div>
         <div class="step-t">Quét mã QR ở mặt trước</div>
-        <div class="step-d">Mở camera, đưa vào mã. Thực đơn của quán mở ngay, <b>không cần tải ứng dụng</b>.</div>
+        <div class="step-d">Mở camera, đưa vào mã. Thực đơn mở ngay, <b>không cần tải ứng dụng</b>.</div>
       </div>
     </li>
     <li>
@@ -168,7 +175,7 @@
       <div>
         <div class="step-t">Nhập số bàn</div>
         <div class="step-d">Gõ <b>số dán trên bàn</b>, bấm <span class="key">Tiếp tục</span>. Đúng bàn thì bấm <span class="key">Đúng rồi</span>.</div>
-        <div class="tip">Máy hỏi <b>mã bàn 4 số</b>? Xem trên máy người cùng bàn (mục <b>Xem món đã gọi</b>) hoặc hỏi nhân viên.</div>
+        <div class="tip">Máy hỏi <b>mã bàn 4 số</b>? Xem mục bên dưới.</div>
       </div>
       <div class="shots">
         <img src="{{IMG:b2-dung-roi}}" alt="Hộp xác nhận bàn, nút Đúng rồi" />
@@ -187,7 +194,7 @@
       <div>
         <div class="step-t">Mở giỏ &rarr; Gửi cho quán</div>
         <div class="step-d">Bấm thanh <b>&ldquo;... món đã chọn&rdquo;</b> ở cuối màn hình, xem lại rồi bấm <span class="key">Gửi cho quán</span>.</div>
-        <div class="tip">Quán <b>xác nhận</b> rồi món mới vào bếp. Giá trên máy là <b>tạm tính</b>.</div>
+        <div class="tip">Quán <b>xác nhận</b> rồi món mới vào bếp &middot; giá <b>tạm tính</b>.</div>
       </div>
       <div class="shots">
         <img src="{{IMG:b4-gio}}" alt="Thanh giỏ món đã chọn" />
@@ -196,16 +203,24 @@
     </li>
   </ol>
 
-  <div class="help">
-    <div>
-      <h3>&#128276; Cần gì thêm?</h3>
-      <p>Bấm ô <b>Bàn của bạn</b> ở góc trên để xem món đã gọi, <b>gọi thêm món</b>, gọi nhân viên (thêm đá, bát đũa, dọn bàn&hellip;) hoặc <b>xin tính tiền</b>.</p>
-    </div>
-    <div class="shots">
-      <img class="chip" src="{{IMG:b5-chip}}" alt="Ô Bàn của bạn, Xem món đã gọi" />
-      <img src="{{IMG:b5-nut}}" alt="Nút Gọi nhân viên và Xin tính tiền" />
+  <div class="share">
+    <h3>&#128101; Cả bàn cùng gọi trên nhiều điện thoại</h3>
+    <div class="share-sub">Chỉ cần mã khi quán đã nhận món của bàn &middot; Quên mã thì hỏi nhân viên.</div>
+    <div class="share-row">
+      <div>
+        <div class="share-cap"><b>Máy đã gọi:</b> bấm ô <b>Bàn của bạn</b>, đọc <b>mã bàn</b> cho bạn.</div>
+        <img src="{{IMG:b6-ma-ban}}" alt="Ô Mã bàn của bạn trên máy người đã gọi món" />
+      </div>
+      <div>
+        <div class="share-cap"><b>Máy kia:</b> quét mã, nhập số bàn rồi <b>nhập mã</b> đó.</div>
+        <img src="{{IMG:b6-nhap-ma}}" alt="Ô nhập mã bàn trên máy thứ hai" />
+      </div>
     </div>
   </div>
+
+  <div class="help">
+    <p><b>&#128276; Cần gì thêm?</b> Bấm ô <b>Bàn của bạn</b> ở góc trên để gọi thêm món, gọi nhân viên hoặc xin tính tiền.</p>
+    </div>
 
   <div class="foot">
     {{QR_WEB}}
