@@ -6,6 +6,9 @@
 // "tôi chỉ muốn xem số tiền, ngày giờ, ngân hàng nào, nội dung là được rồi". Dữ liệu vẫn nằm đủ
 // trong DB — bỏ khỏi màn không phải bỏ khỏi hệ thống.
 //
+// TIỀN RA (2026-10-10): hiện chung bảng, số âm màu đỏ, có ô lọc Vào/Ra. Chỉ để xem — tiền ra
+// không đi vào khớp đơn hay đối soát ở đâu cả.
+//
 // BỐ CỤC: `table.responsive.card` có sẵn → máy tính ra bảng, dưới 640px tự thành thẻ dọc có nhãn.
 // Không viết lưới riêng như màn Lịch sử: màn đó cần bố cục dày đặc, màn này chỉ có bốn cột.
 import { useCallback, useEffect, useState } from 'react';
@@ -16,6 +19,7 @@ type Row = {
   gateway_txn_id: string;
   occurred_at: number;
   bank: string | null;
+  direction: 'in' | 'out';
   amount: number;
   content: string;
 };
@@ -41,6 +45,7 @@ export function BankLedgerPage() {
   const [from, setFrom] = useState(() => dayInput(Date.now() - 7 * 86400_000));
   const [to, setTo] = useState(() => dayInput(Date.now()));
   const [account, setAccount] = useState('');
+  const [direction, setDirection] = useState<'' | 'in' | 'out'>('');
   /** Ô gõ và chuỗi ĐANG TÌM tách làm hai: gõ tới đâu gọi API tới đó là nã một truy vấn LIKE cho
    *  mỗi phím. Chuỗi thật chỉ đổi sau khi người ta ngừng gõ 400ms. */
   const [typed, setTyped] = useState('');
@@ -66,6 +71,7 @@ export function BankLedgerPage() {
     p.set('from', String(Date.parse(`${from}T00:00:00+07:00`)));
     p.set('to', String(Date.parse(`${to}T23:59:59+07:00`)));
     if (account) p.set('account', account);
+    if (direction) p.set('direction', direction);
     if (q.trim()) p.set('q', q.trim());
     p.set('page', String(page));
     p.set('page_size', String(PAGE_SIZE));
@@ -81,12 +87,14 @@ export function BankLedgerPage() {
         setBanks(res.data.data.banks);
       })
       .catch((e) => setErr(extractError(e).message));
-  }, [from, to, account, q, page]);
+  }, [from, to, account, direction, q, page]);
 
   useEffect(load, [load]);
 
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const tong = rows?.reduce((a, b) => a + b.amount, 0) ?? 0;
+  // Cộng RIÊNG hai chiều: gộp thành một số ròng thì người đọc không biết bao nhiêu vào, bao nhiêu ra.
+  const tongVao = rows?.reduce((a, b) => a + (b.direction === 'out' ? 0 : b.amount), 0) ?? 0;
+  const tongRa = rows?.reduce((a, b) => a + (b.direction === 'out' ? b.amount : 0), 0) ?? 0;
 
   return (
     <div className="container with-bottom-nav" style={{ maxWidth: 900 }}>
@@ -117,6 +125,19 @@ export function BankLedgerPage() {
             {banks.map((b) => (
               <option key={b.account_no} value={b.account_no}>{b.name}</option>
             ))}
+          </select>
+        </div>
+        <div style={{ flex: '1 1 110px' }}>
+          <label htmlFor="bl-dir" style={lbl}>Chiều</label>
+          <select
+            id="bl-dir"
+            value={direction}
+            onChange={(e) => { setDirection(e.target.value as '' | 'in' | 'out'); setPage(1); }}
+            style={{ width: '100%', minHeight: 38 }}
+          >
+            <option value="">Tất cả</option>
+            <option value="in">Tiền vào</option>
+            <option value="out">Tiền ra</option>
           </select>
         </div>
         <div style={{ flex: '1 1 130px' }}>
@@ -150,8 +171,9 @@ export function BankLedgerPage() {
       {rows && rows.length > 0 && (
         <>
           <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-            {total} giao dịch{pages > 1 ? ` · trang ${page}/${pages}` : ''} · trang này{' '}
-            <strong>{fmt(tong)}</strong>
+            {total} giao dịch{pages > 1 ? ` · trang ${page}/${pages}` : ''} · trang này
+            {tongVao > 0 && <> vào <strong style={{ color: '#15803d' }}>{fmt(tongVao)}</strong></>}
+            {tongRa > 0 && <> · ra <strong style={{ color: '#b91c1c' }}>−{fmt(tongRa)}</strong></>}
           </div>
 
           <table className="responsive card" style={{ padding: 0 }}>
@@ -171,7 +193,11 @@ export function BankLedgerPage() {
                   </td>
                   <td data-label="Ngân hàng" style={{ whiteSpace: 'nowrap' }}>{r.bank ?? '—'}</td>
                   <td data-label="Số tiền" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <strong style={{ color: '#15803d' }}>{fmt(r.amount)}</strong>
+                    {r.direction === 'out' ? (
+                      <strong style={{ color: '#b91c1c' }}>−{fmt(r.amount)}</strong>
+                    ) : (
+                      <strong style={{ color: '#15803d' }}>{fmt(r.amount)}</strong>
+                    )}
                   </td>
                   {/* Nội dung NGUYÊN VĂN, không cắt: khi phải giải thích một khoản tiền, chính
                       chuỗi ngân hàng gửi sang mới là thứ trả lời được. */}

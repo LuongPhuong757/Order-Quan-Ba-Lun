@@ -13,6 +13,8 @@
  *  nối sau thì dựng cùng khuôn này, phần khớp không phải sửa dòng nào. */
 export type IngestInput = {
   gateway: string;
+  /** `out` chỉ được GHI SỔ, không bao giờ được khớp vào đơn — xem `PaymentsApplyService.ingest()`. */
+  direction: 'in' | 'out';
   gatewayTxnId: string;
   amount: number;
   content: string;
@@ -40,8 +42,8 @@ export function parseVnTime(s: string): number {
  * Trả `null` khi payload KHÔNG phải thứ ta quan tâm — và người gọi phải coi `null` là "đã xử lý
  * xong, trả 200", không phải lỗi:
  *
- *  - `transferType !== 'in'`: tiền RA khỏi tài khoản. SePay bắn cả hai chiều; ghi tiền ra vào
- *    bảng "tiền về" là làm hỏng mọi phép cộng sau này.
+ *  - `transferType` không phải `in`/`out`: không biết tiền đi chiều nào thì không ghi. (Tiền RA
+ *    được nhận từ 2026-10-10, nhưng chỉ để ghi sổ — xem cột `direction` của `BankTransaction`.)
  *  - thiếu `id` hoặc số tiền không dương: không có gì để chống trùng, hoặc không có tiền.
  *
  * Không ném lỗi ở mấy ca này: ném là SePay nhận thất bại rồi gửi lại mãi một payload mà lần nào
@@ -52,7 +54,9 @@ export function normalizeSepayPayload(body: unknown): IngestInput | null {
   const b = body as Record<string, unknown>;
 
   const transferType = String(b.transferType ?? '').toLowerCase();
-  if (transferType !== 'in') return null;
+  // Giá trị lạ thì bỏ: đoán chiều sai là đảo dấu một khoản tiền.
+  if (transferType !== 'in' && transferType !== 'out') return null;
+  const direction: 'in' | 'out' = transferType;
 
   const id = b.id;
   if (id === null || id === undefined || String(id).trim() === '') return null;
@@ -69,6 +73,7 @@ export function normalizeSepayPayload(body: unknown): IngestInput | null {
 
   return {
     gateway: 'sepay',
+    direction,
     gatewayTxnId: String(id),
     amount: Math.round(amount),
     content,

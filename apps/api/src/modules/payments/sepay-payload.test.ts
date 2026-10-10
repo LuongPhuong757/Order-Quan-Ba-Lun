@@ -33,6 +33,7 @@ describe('normalizeSepayPayload', () => {
     const got = normalizeSepayPayload(incoming);
     expect(got).toMatchObject({
       gateway: 'sepay',
+      direction: 'in',
       gatewayTxnId: '92704',
       amount: 250000,
       content: 'BAN05 DH123456 LUONG THUY',
@@ -40,8 +41,16 @@ describe('normalizeSepayPayload', () => {
     });
   });
 
-  it('BỎ QUA tiền ra — ghi vào bảng tiền về là làm hỏng mọi phép cộng sau này', () => {
-    expect(normalizeSepayPayload({ ...incoming, transferType: 'out' })).toBeNull();
+  it('nhận tiền ra, số tiền vẫn dương và chiều nằm ở direction', () => {
+    expect(normalizeSepayPayload({ ...incoming, transferType: 'out', transferAmount: 90000 })).toMatchObject({
+      direction: 'out',
+      amount: 90000,
+    });
+  });
+
+  it('bỏ qua chiều lạ — đoán sai chiều là đảo dấu một khoản tiền', () => {
+    expect(normalizeSepayPayload({ ...incoming, transferType: 'abc' })).toBeNull();
+    expect(normalizeSepayPayload({ ...incoming, transferType: undefined })).toBeNull();
   });
 
   it('bỏ qua payload không có id (không có gì để chống trùng)', () => {

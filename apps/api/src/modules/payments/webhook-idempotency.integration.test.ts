@@ -38,9 +38,10 @@ async function cleanup() {
     .delete().where('code = :c', { c: SENTINEL_CODE }).execute();
 }
 
-function txn(id: string, amount: number, content: string): IngestInput {
+function txn(id: string, amount: number, content: string, direction: 'in' | 'out' = 'in'): IngestInput {
   return {
     gateway: 'sepay',
+    direction,
     gatewayTxnId: `${SENTINEL_TXN}${id}`,
     amount,
     content,
@@ -118,6 +119,22 @@ describe('webhook SePay — chống trùng và cộng dồn', () => {
     const row = await ds.getRepository(BankTransaction).findOneByOrFail({
       gateway_txn_id: `${SENTINEL_TXN}nocode`,
     });
+    expect(row.applied_intent_id).toBeNull();
+
+    const intent = await ds.getRepository(PaymentIntent).findOneByOrFail({ code: SENTINEL_CODE });
+    expect(intent.received_amount).toBe(0);
+    expect(intent.paid_at).toBeNull();
+  });
+
+  it('tiền RA mang đúng mã đơn vẫn chỉ ghi sổ, KHÔNG cộng vào đơn', async () => {
+    // Chủ quán hoàn tiền cho khách và ghi lại mã đơn — cộng vào là đơn bỗng thành "đã trả".
+    const svc = new PaymentsApplyService(ds);
+    expect(await svc.ingest(txn('refund', 250_000, SENTINEL_CODE, 'out'))).toBe(true);
+
+    const row = await ds.getRepository(BankTransaction).findOneByOrFail({
+      gateway_txn_id: `${SENTINEL_TXN}refund`,
+    });
+    expect(row.direction).toBe('out');
     expect(row.applied_intent_id).toBeNull();
 
     const intent = await ds.getRepository(PaymentIntent).findOneByOrFail({ code: SENTINEL_CODE });
