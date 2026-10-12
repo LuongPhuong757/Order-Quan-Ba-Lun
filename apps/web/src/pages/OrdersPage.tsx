@@ -1,6 +1,7 @@
 // Sơ đồ bàn — grid mobile-first. Click bàn → OrderDrawer.
 import type { CSSProperties } from 'react';
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api, extractError, isTransientError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -82,6 +83,7 @@ export function OrdersPage() {
   const [openOrders, setOpenOrders] = useState<OrderSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState<Table | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [filter, setFilter] = useState<FilterKey>('all');
   const errorCountRef = useRef(0);
   const pollEnabledRef = useRef(true);
@@ -188,6 +190,21 @@ export function OrdersPage() {
     }, 2_000);
     return () => clearInterval(t);
   }, [refresh]);
+
+  /* `/orders?table=<id>` → mở thẳng drawer của bàn đó (2026-10-12). Lối vào là dải đỏ "bàn ngồi
+     quá lâu chưa thanh toán" (StaleTableBanner): bấm tên bàn trên dải là tới đúng bàn, không bắt
+     người lớn tuổi dò tìm trên sơ đồ. Chờ `tables` tải xong mới khớp được id.
+     Xoá tham số ngay sau khi mở (replace, không thêm lịch sử): để lại thì đóng drawer rồi nhịp
+     poll kế tiếp lại mở bung nó ra, và nút Back của điện thoại quay về đúng chỗ cũ. */
+  const tableParam = searchParams.get('table');
+  useEffect(() => {
+    if (!tableParam || tables.length === 0) return;
+    const t = tables.find((x) => x.id === tableParam);
+    if (t) setActive(t);
+    const next = new URLSearchParams(searchParams);
+    next.delete('table');
+    setSearchParams(next, { replace: true });
+  }, [tableParam, tables, searchParams, setSearchParams]);
 
   const orderByTable = useCallback(
     (table_id: string) => openOrders.find((o) => o.table_id === table_id),

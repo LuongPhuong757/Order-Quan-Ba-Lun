@@ -142,6 +142,9 @@ class UpdateSettingsDto {
   @IsOptional() @IsIn([0, 1, 2]) printer_heat?: number;
   @IsOptional() printer_auto_cut?: boolean;
   @IsOptional() @IsString() @MaxLength(64) store_name?: string;
+  /** Báo bàn ngồi quá lâu chưa thanh toán (2026-10-12). `0` = tắt. Trần 24 giờ: bàn mở quá một
+   *  ngày thì đằng nào cũng đã quá mọi ngưỡng hợp lý, số lớn hơn chỉ có thể là gõ nhầm. */
+  @IsOptional() @IsInt() @Min(0) @Max(1440) stale_unpaid_alert_min?: number;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
   @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
@@ -282,6 +285,7 @@ export class SettingsController {
       'printer_heat',
       'printer_auto_cut',
       'store_name',
+      'stale_unpaid_alert_min',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

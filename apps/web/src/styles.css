@@ -228,7 +228,7 @@ h2 {
    cao 56px). Chỉ 1 cái tại 1 thời điểm — cái mới ghi đè cái cũ. */
 .toast-banner-wrap {
   position: fixed;
-  top: calc(56px + var(--env-banner-h, 0px));
+  top: calc(56px + var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
   left: 0;
   right: 0;
   /* TRÊN MỌI HỘP THOẠI (2026-09-14). Trước là 9000, tức dưới cả `modal-overlay` (9998) lẫn các
@@ -997,7 +997,8 @@ a:hover {
   /* Sticky để banner thông báo (fixed top:56px) luôn nằm ngay dưới header
      kể cả khi cuộn trang. z-index dưới modal (9998+). */
   position: sticky;
-  top: var(--env-banner-h, 0px);
+  /* `--stale-banner-h` = dải đỏ "bàn ngồi quá lâu" (StaleTableBanner) đang dính phía trên. */
+  top: calc(var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
   z-index: 200;
   box-sizing: border-box;
 }
@@ -3184,4 +3185,49 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
    chốt. Selector dưới đây yếu hơn selector trong @media nên điện thoại giữ nguyên. */
 .txn-status-wrap {
   justify-content: center;
+}
+
+/* ── Dải đỏ "bàn ngồi quá lâu chưa thanh toán" (2026-10-12) — xem StaleTableBanner.tsx ──
+   Chữ + nút TO (người dùng lớn tuổi, điện thoại). Màu phẳng đỏ đậm chứ không sọc chéo như
+   `.env-banner`: hai dải cùng đỏ thì phải khác hình, không ai được nhầm "đây là dải môi trường dev". */
+.stale-banner {
+  position: sticky;
+  top: var(--env-banner-h, 0px);
+  z-index: 201;
+  background: #b91c1c;
+  color: #fff;
+  padding: 8px 12px 10px;
+  box-sizing: border-box;
+}
+.stale-banner-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 6px;
+}
+.stale-banner-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+/* `button.` phía trước: `button.secondary` và rule nút chung đè color/background của class trần. */
+.stale-banner-chip,
+button.stale-banner-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  border: 2px solid #fff;
+  background: #fff;
+  color: #991b1b;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+button.stale-banner-chip { cursor: pointer; }
+.stale-banner-more {
+  font-size: 16px;
+  font-weight: 600;
 }
