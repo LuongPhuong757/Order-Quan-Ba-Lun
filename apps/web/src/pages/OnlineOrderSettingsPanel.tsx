@@ -1769,9 +1769,9 @@ function StaleAlertTab({ data, onRefresh }: { data: SettingsResponse; onRefresh:
       title="Báo bàn ngồi quá lâu chưa thanh toán"
       hint={
         <>
-          Bàn mở quá mốc này mà <strong>chưa thu tiền</strong> thì <strong>mọi tài khoản</strong> thấy một dải đỏ
-          trên đầu màn hình, ghi tên bàn và đã ngồi bao lâu. Bấm vào tên bàn là mở thẳng bàn đó. Dải tự mất khi bàn
-          đã thanh toán, đóng hoặc ghi nợ.
+          Bàn mở quá mốc này mà <strong>chưa thu tiền</strong> thì màn <strong>Order</strong> và màn{' '}
+          <strong>Bếp</strong> hiện một dòng đỏ trên đầu, ghi tên bàn và đã ngồi bao lâu. Bấm vào tên bàn là mở thẳng
+          bàn đó. Dòng tự mất khi bàn đã thanh toán, đóng hoặc ghi nợ.
         </>
       }
       dirty={minutes !== saved}

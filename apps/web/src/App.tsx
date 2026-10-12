@@ -273,11 +273,11 @@ function ProtectedShell() {
   // dưới, role `order` không có nên không bật (bật thừa = mỗi máy order thêm 1 request/5s cho một
   // con số không ai nhìn thấy).
   const kitchenPendingCount = useKitchenPendingCount(role === 'admin' || role === 'kitchen');
-  // Dải đỏ "bàn ngồi quá lâu chưa thanh toán" (2026-10-12) — MỌI role người dùng đều thấy (chủ
-  // quán chốt). Trừ `print`: đó là tài khoản của MÁY IN, BE chặn nó khỏi mọi đường ngoài `/print`
-  // (xem `print-role.ts`) và nó không bao giờ đứng ở shell này. `report` thấy nhưng không bấm
-  // được vào bàn, vì nó không vào được màn Order.
-  const staleUnpaid = useStaleUnpaid(role !== null && role !== 'print');
+  // Dải "bàn ngồi quá lâu chưa thanh toán" (2026-10-12) — CHỈ ở màn Order và Bếp (chủ quán sửa:
+  // hiện ở mọi màn là quá nhiều). Poll cũng chỉ chạy khi đứng ở hai màn này. Hai màn đó chỉ
+  // admin/order/kitchen vào được (RoleGate) nên không cần gác role riêng.
+  const onStaleBannerScreen = loc.pathname === '/orders' || loc.pathname === '/kitchen';
+  const staleUnpaid = useStaleUnpaid(role !== null && onStaleBannerScreen);
 
   /**
    * Số đơn chờ duyệt lên TIÊU ĐỀ TAB (2026-08-06): `(3) Đơn mới · …`.
@@ -373,10 +373,7 @@ function ProtectedShell() {
 
   return (
     <>
-      <StaleTableBanner
-        data={staleUnpaid}
-        canOpenTable={role === 'admin' || role === 'order' || role === 'kitchen'}
-      />
+      {onStaleBannerScreen && <StaleTableBanner data={staleUnpaid} />}
       {!isKds && (
       <header className="header">
         <span className="brand">
