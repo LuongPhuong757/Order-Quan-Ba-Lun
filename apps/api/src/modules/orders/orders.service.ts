@@ -28,6 +28,7 @@ import {
   probeOpenOrder,
   fmtIdleDuration,
 } from './stale-open-order.js';
+import { pickStaleUnpaid, type StaleUnpaidItem, type StaleUnpaidRow } from './stale-unpaid.js';
 import { transferInMessage } from './transfer-log.js';
 import { shouldLogSeatShift, seatShiftMessage } from './seated-at.js';
 import { ConsumptionService, COOKED_STATES } from '../ingredients/consumption.service.js';
@@ -806,6 +807,28 @@ export class OrdersService {
         WHERE o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`,
     );
     return Number(rows[0]?.c ?? 0);
+  }
+
+  /** Đơn đang mở, CÒN MÓN, CHƯA THU TIỀN — nguyên liệu cho dải đỏ "bàn ngồi quá lâu" (2026-10-12).
+   *
+   * Lọc ngưỡng ở `pickStaleUnpaid` chứ không ở SQL: tập đơn đang mở của một quán chỉ vài chục
+   * dòng, còn để ngưỡng ở hàm thuần thì test được mà không cần DB.
+   *
+   * ĐỊNH NGHĨA "đang mở" dùng LẠI `HAS_ALIVE_ITEMS_SQL` như `countOpenOrders`: đơn rỗng (tap mở
+   * bàn rồi thoát) không phải khách đang ngồi, báo nó là dải đỏ chỉ vào một bàn trông trống trên
+   * sơ đồ. `is_paid = 0` loại đơn đã thu tiền mà chưa bấm đóng — chủ quán chốt không báo ca đó.
+   */
+  async listStaleUnpaid(thresholdMin: number, nowMs: number): Promise<StaleUnpaidItem[]> {
+    // Tắt cảnh báo thì khỏi chạm DB — endpoint này bị MỌI máy hỏi đều đặn.
+    if (!(thresholdMin > 0)) return [];
+    const rows: StaleUnpaidRow[] = await this.ds.query(
+      `SELECT o.id, o.table_id, o.table_code, t.name AS table_name, o.source, o.customer_name,
+              UNIX_TIMESTAMP(o.opened_at) * 1000 AS opened_ms
+         FROM orders o
+         LEFT JOIN restaurant_tables t ON t.id = o.table_id
+        WHERE o.closed_at IS NULL AND o.is_paid = 0 AND ${HAS_ALIVE_ITEMS_SQL}`,
+    );
+    return pickStaleUnpaid(rows, nowMs, thresholdMin);
   }
 
   /** `table_id` của mọi bàn ĐANG CÓ KHÁCH — cho màn Chuyển bàn biết bàn nào không nhận.

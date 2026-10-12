@@ -178,6 +178,12 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // Tên quán in trên đầu hoá đơn. Trước tính năng này tên quán nằm rải rác trong code FE;
   // tờ giấy đưa cho khách thì phải sửa được mà không cần deploy.
   { key: 'store_name', kind: 'string', default: 'Quán Bà Lún' },
+  // ── Báo bàn ngồi quá lâu chưa thanh toán (2026-10-12) ──
+  // Số PHÚT tính từ lúc mở bàn; quá mốc này mà đơn còn món và chưa thu tiền thì MỌI tài khoản
+  // thấy dải đỏ trên đầu màn hình — xem `orders/stale-unpaid.ts`. `0` = tắt cảnh báo.
+  // 180 = 3 tiếng (chủ quán chốt): quán đêm khách ngồi lai rai 2 tiếng là thường, quá 3 tiếng mà
+  // chưa trả thì đáng nhìn lại.
+  { key: 'stale_unpaid_alert_min', kind: 'int', default: 180 },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -243,6 +249,8 @@ export type StoreSettingsMap = {
   printer_heat: number;
   printer_auto_cut: boolean;
   store_name: string;
+  /** Phút kể từ lúc mở bàn mới báo "ngồi quá lâu chưa thanh toán". `0` = tắt. */
+  stale_unpaid_alert_min: number;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

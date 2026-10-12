@@ -770,8 +770,10 @@ export function KitchenPage() {
           /* KHÔNG dùng inset:0 — dải đỏ "MÔI TRƯỜNG DEV" là position:fixed top:0
              z-index:10000 (styles.css .env-banner) nên nó đè lên tab bar. Tụt xuống
              đúng chiều cao dải đó; trên production biến này không tồn tại → 0px, trang
-             thật không đổi lấy một pixel. */
-          top: var(--env-banner-h, 0px);
+             thật không đổi lấy một pixel.
+             --stale-banner-h cùng lẽ đó: dải đỏ "bàn ngồi quá lâu chưa thanh toán"
+             (StaleTableBanner, 2026-10-12) dính ở đỉnh, khung bếp phải tụt xuống dưới nó. */
+          top: calc(var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
           left: 0;
           right: 0;
           bottom: 0;

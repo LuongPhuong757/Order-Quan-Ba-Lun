@@ -37,6 +37,7 @@ import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { PrintingService } from '../printing/printing.service.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
+import { SettingsService } from '../settings/settings.service.js';
 
 class AddItemDto {
   @IsUUID() menu_item_id!: string;
@@ -167,6 +168,7 @@ export class OrdersController {
   constructor(
     private readonly svc: OrdersService,
     private readonly printing: PrintingService,
+    private readonly settings: SettingsService,
   ) {}
 
   /** GET /orders — all open orders (one per active table) */
@@ -192,6 +194,19 @@ export class OrdersController {
   @Get('open-table-ids')
   async openTableIds() {
     return { data: { items: await this.svc.listOpenOrderTableIds() } };
+  }
+
+  /** GET /orders/stale-unpaid — bàn ngồi quá lâu chưa thanh toán, cho dải đỏ trên đầu mọi màn.
+   *
+   * Cũng phải khai TRƯỚC route có tham số động, cùng lý do với 'open-count'.
+   * MỌI role đăng nhập đều gọi được, kể cả `report`/`print` — chủ quán chốt "tất cả tài khoản
+   * đều thấy". Chỉ lộ tên bàn + giờ mở, không có tiền hay món, nên không cần gác thêm.
+   * Trả kèm `threshold_min` để dải đỏ ghi đúng "quá 3 tiếng" theo số chủ quán đang đặt. */
+  @Get('stale-unpaid')
+  async staleUnpaid() {
+    const { stale_unpaid_alert_min } = await this.settings.readAll();
+    const items = await this.svc.listStaleUnpaid(stale_unpaid_alert_min, Date.now());
+    return { data: { threshold_min: stale_unpaid_alert_min, items } };
   }
 
   /** GET /orders/kitchen-count — số món đang chờ bếp làm (cột "Đã order"), cho badge nav dưới.
