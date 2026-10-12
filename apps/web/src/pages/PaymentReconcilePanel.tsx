@@ -77,14 +77,18 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
     );
   }
 
-  // Chưa có đồng nào chuyển khoản trong khoảng này → bảng chỉ toàn số 0, nói thẳng ra một câu
-  // còn hơn bày một bảng rỗng.
-  if (data.transfer === 0) {
+  // Chưa thu đồng nào trong khoảng/bộ lọc này → bảng chỉ toàn số 0, nói thẳng ra một câu còn hơn
+  // bày một bảng rỗng.
+  //
+  // Xét `total`, KHÔNG xét `transfer` (2026-10-12): lọc "Tiền mặt" giờ cố ý trả về CK = 0 (chỉ
+  // phần tiền mặt, kể cả của đơn Cả hai) — xét `transfer` là giấu mất đúng con số két người ta
+  // đang hỏi.
+  if (data.total === 0) {
     return (
       <div style={{ marginBottom: 16 }}>
         {toggle}
         <div style={{ fontSize: 13, color: '#6b7280' }}>
-          Khoảng đang xem không có đơn nào thu bằng chuyển khoản.
+          Khoảng đang xem không có khoản thu nào.
         </div>
       </div>
     );
@@ -110,6 +114,9 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
         />
       </div>
 
+      {/* Không có khoản CK nào (vd đang lọc "Tiền mặt") → bỏ hẳn mục này, tiêu đề đứng trơ không
+          có dòng nào bên dưới trông như bảng tải lỗi. */}
+      {data.by_account.length > 0 && (
       <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>Tiền về từng tài khoản</div>
         {data.by_account.map((a) => (
@@ -131,6 +138,7 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
           </div>
         ))}
       </div>
+      )}
 
       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10 }}>
         Số chuyển khoản ở đây là <strong>số nhân viên đã ghi nhận</strong>. Ngân hàng có xác nhận
