@@ -90,6 +90,9 @@ type StoreSettingsMap = {
   map_checkout_enabled: boolean;
   province_lock_enabled: boolean;
   map_admin_enabled: boolean;
+  /** Phút kể từ lúc mở bàn mới hiện dải đỏ "bàn ngồi quá lâu chưa thanh toán" (2026-10-12).
+   *  `0` = tắt. */
+  stale_unpaid_alert_min: number;
 };
 
 type OrderingStatus = {
@@ -339,8 +342,9 @@ export function OnlineOrderSettingsPanel() {
   const [loading, setLoading] = useState(true);
 
   const rawTab = params.get('tab');
-  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'printers' =
-    rawTab === 'blacklist' || rawTab === 'top-dishes' || rawTab === 'payment-qr' || rawTab === 'printers'
+  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'printers' | 'stale-alert' =
+    rawTab === 'blacklist' || rawTab === 'top-dishes' || rawTab === 'payment-qr' || rawTab === 'printers' ||
+    rawTab === 'stale-alert'
       ? rawTab
       : 'ordering';
   const q = params.get('q') || '';
@@ -397,6 +401,10 @@ export function OnlineOrderSettingsPanel() {
         <TabButton active={tab === 'printers'} onClick={() => updateParam('tab', 'printers')}>
           Máy in
         </TabButton>
+        {/* Báo bàn ngồi quá lâu chưa thanh toán (2026-10-12). Cùng lý do mượn chỗ với 2 tab trên. */}
+        <TabButton active={tab === 'stale-alert'} onClick={() => updateParam('tab', 'stale-alert')}>
+          Cảnh báo bàn
+        </TabButton>
       </div>
 
       {loading && <p style={{ color: C.muted }}>Đang tải...</p>}
@@ -415,6 +423,7 @@ export function OnlineOrderSettingsPanel() {
           `/admin/settings` là để một lỗi tải không liên quan làm trắng cả tab. */}
       {tab === 'payment-qr' && <PaymentQrPanel />}
       {tab === 'printers' && <PrintersPanel />}
+      {!loading && data && tab === 'stale-alert' && <StaleAlertTab data={data} onRefresh={refresh} />}
     </div>
   );
 }
@@ -1711,6 +1720,82 @@ const TOP_WINDOW_OPTIONS: Array<{ value: string; label: string }> = [
   { value: '7d', label: '7 ngày gần nhất' },
   { value: 'today', label: 'Chỉ hôm nay' },
 ];
+
+/** Các mốc chọn sẵn (phút). Ô CHỌN chứ không phải ô gõ số: người chỉnh là chủ quán lớn tuổi
+ *  trên điện thoại, gõ "180" để nói "3 tiếng" là bắt họ tự nhân 60. */
+const STALE_ALERT_CHOICES: Array<{ min: number; label: string }> = [
+  { min: 0, label: 'Tắt — không báo' },
+  { min: 60, label: '1 tiếng' },
+  { min: 90, label: '1 tiếng rưỡi' },
+  { min: 120, label: '2 tiếng' },
+  { min: 150, label: '2 tiếng rưỡi' },
+  { min: 180, label: '3 tiếng' },
+  { min: 240, label: '4 tiếng' },
+  { min: 300, label: '5 tiếng' },
+  { min: 360, label: '6 tiếng' },
+];
+
+function StaleAlertTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: () => Promise<void> }) {
+  const toast = useToast();
+  const saved = data.settings.stale_unpaid_alert_min;
+  const [minutes, setMinutes] = useState(saved);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setMinutes(saved);
+  }, [saved]);
+
+  // Giá trị đang lưu không nằm trong danh sách (vá tay vào DB) thì vẫn phải hiện đúng nó, không
+  // được để ô chọn nhảy sang mốc khác rồi lỡ tay lưu đè.
+  const choices = STALE_ALERT_CHOICES.some((c) => c.min === saved)
+    ? STALE_ALERT_CHOICES
+    : [...STALE_ALERT_CHOICES, { min: saved, label: `${saved} phút` }].sort((a, b) => a.min - b.min);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put('/admin/settings', { stale_unpaid_alert_min: minutes });
+      toast.push('success', minutes === 0 ? 'Đã tắt cảnh báo bàn ✓' : 'Đã lưu mốc cảnh báo bàn ✓');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section
+      title="Báo bàn ngồi quá lâu chưa thanh toán"
+      hint={
+        <>
+          Bàn mở quá mốc này mà <strong>chưa thu tiền</strong> thì màn <strong>Order</strong> và màn{' '}
+          <strong>Bếp</strong> hiện một dòng đỏ trên đầu, ghi tên bàn và đã ngồi bao lâu. Bấm vào tên bàn là mở thẳng
+          bàn đó. Dòng tự mất khi bàn đã thanh toán, đóng hoặc ghi nợ.
+        </>
+      }
+      dirty={minutes !== saved}
+      saving={saving}
+      saveLabel="Lưu mốc cảnh báo"
+      onSave={() => void save()}
+    >
+      <label style={{ display: 'grid', gap: 6, maxWidth: 320 }}>
+        <span style={{ fontSize: 16 }}>Báo khi bàn đã mở quá</span>
+        <select
+          value={minutes}
+          onChange={(e) => setMinutes(Number(e.target.value))}
+          style={{ fontSize: 17, minHeight: 48 }}
+        >
+          {choices.map((c) => (
+            <option key={c.min} value={c.min}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+      </label>
+    </Section>
+  );
+}
 
 function TopDishesTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: () => Promise<void> }) {
   const toast = useToast();

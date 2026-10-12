@@ -9,6 +9,8 @@ import { NotificationBell } from './components/NotificationBell.tsx';
 import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
 import { useOpenTablesCount } from './lib/open-tables-badge.ts';
 import { useKitchenPendingCount } from './lib/kitchen-pending-badge.ts';
+import { useStaleUnpaid } from './lib/stale-unpaid.ts';
+import { StaleTableBanner } from './components/StaleTableBanner.tsx';
 
 // ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
 // Trước đây 14 trang nằm trong MỘT file .js 1.095 KB. Nghĩa là anh bếp mở màn Bếp trên điện
@@ -271,6 +273,11 @@ function ProtectedShell() {
   // dưới, role `order` không có nên không bật (bật thừa = mỗi máy order thêm 1 request/5s cho một
   // con số không ai nhìn thấy).
   const kitchenPendingCount = useKitchenPendingCount(role === 'admin' || role === 'kitchen');
+  // Dải "bàn ngồi quá lâu chưa thanh toán" (2026-10-12) — CHỈ ở màn Order và Bếp (chủ quán sửa:
+  // hiện ở mọi màn là quá nhiều). Poll cũng chỉ chạy khi đứng ở hai màn này. Hai màn đó chỉ
+  // admin/order/kitchen vào được (RoleGate) nên không cần gác role riêng.
+  const onStaleBannerScreen = loc.pathname === '/orders' || loc.pathname === '/kitchen';
+  const staleUnpaid = useStaleUnpaid(role !== null && onStaleBannerScreen);
 
   /**
    * Số đơn chờ duyệt lên TIÊU ĐỀ TAB (2026-08-06): `(3) Đơn mới · …`.
@@ -366,6 +373,7 @@ function ProtectedShell() {
 
   return (
     <>
+      {onStaleBannerScreen && <StaleTableBanner data={staleUnpaid} />}
       {!isKds && (
       <header className="header">
         <span className="brand">

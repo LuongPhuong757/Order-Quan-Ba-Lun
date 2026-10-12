@@ -228,7 +228,7 @@ h2 {
    cao 56px). Chỉ 1 cái tại 1 thời điểm — cái mới ghi đè cái cũ. */
 .toast-banner-wrap {
   position: fixed;
-  top: calc(56px + var(--env-banner-h, 0px));
+  top: calc(56px + var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
   left: 0;
   right: 0;
   /* TRÊN MỌI HỘP THOẠI (2026-09-14). Trước là 9000, tức dưới cả `modal-overlay` (9998) lẫn các
@@ -997,7 +997,8 @@ a:hover {
   /* Sticky để banner thông báo (fixed top:56px) luôn nằm ngay dưới header
      kể cả khi cuộn trang. z-index dưới modal (9998+). */
   position: sticky;
-  top: var(--env-banner-h, 0px);
+  /* `--stale-banner-h` = dải đỏ "bàn ngồi quá lâu" (StaleTableBanner) đang dính phía trên. */
+  top: calc(var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
   z-index: 200;
   box-sizing: border-box;
 }
@@ -3184,4 +3185,58 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
    chốt. Selector dưới đây yếu hơn selector trong @media nên điện thoại giữ nguyên. */
 .txn-status-wrap {
   justify-content: center;
+}
+
+/* ── Dải "bàn ngồi quá lâu chưa thanh toán" (2026-10-12) — xem StaleTableBanner.tsx ──
+   MỘT DÒNG MỎNG, chỉ ở màn Order + Bếp (chủ quán: bản đầu "quá to"). Nhãn đứng yên bên trái,
+   hàng bàn vuốt ngang bên phải. Nền đỏ NHẠT chữ đỏ đậm: đủ nổi để thấy, không gào như dải
+   môi trường dev (`.env-banner`, đỏ đặc sọc chéo) — hai dải không được trông giống nhau. */
+.stale-banner {
+  position: sticky;
+  top: var(--env-banner-h, 0px);
+  z-index: 201;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 4px 10px;
+  background: #fee2e2;
+  border-bottom: 1px solid #fca5a5;
+  color: #991b1b;
+  box-sizing: border-box;
+}
+.stale-banner-title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.stale-banner-list {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  /* Vuốt bằng ngón tay trên điện thoại / iPad; thanh cuộn chỉ chiếm chỗ của một dòng vốn đã mỏng. */
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding-right: 10px;
+}
+.stale-banner-list::-webkit-scrollbar { display: none; }
+/* `button.` phía trước: `button.secondary` và rule nút chung đè color/background của class trần. */
+button.stale-banner-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #f87171;
+  background: #fff;
+  color: #991b1b;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
 }
