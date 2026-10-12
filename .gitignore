@@ -86,7 +86,9 @@ apps/api/shop-dist/
 .claude/gsd-migration-journal/
 .claude/get-shit-done/
 .claude/package.json
-.claude/agents/
+# `agents/*` chứ không phải `agents/` — ignore cả thư mục thì git không nhìn vào trong nữa,
+# và dòng `!.claude/agents/qbl-*.md` ở cuối file (đội AI riêng của dự án) vô tác dụng.
+.claude/agents/*
 .claude/commands/gsd/
 # Installer bản hiện tại giải nén runtime vào .claude/gsd-core/ — harness, không phải source.
 # LƯU Ý: KHÔNG ignore .claude/commands/gsd-*.md — nghi ngờ file bị gitignore thì
@@ -135,6 +137,10 @@ packages/utils/dist/
 # nên nó không thể dời vào docs/ để ăn ngoại lệ ở trên. Thiếu dòng này là file bị bỏ qua
 # trong im lặng, đúng cái bẫy mô tả ở mục 2 phía trên.
 !CLAUDE.md
+# Đội AI riêng của dự án (docs/DOI-NHOM-AI.md) — PHẢI theo repo để có ở cả máy Windows lẫn Mac
+# và ở mọi worktree. Đặt SAU dòng `*.md` vì luật khớp sau cùng thắng.
+!.claude/agents/qbl-*.md
+!.claude/commands/doi-dev.md
 
 # Báo cáo do lệnh sinh ra (codemap-diff…), không phải source.
 .reports/

@@ -170,6 +170,7 @@ lỏng hơn production.**
 | Quy trình deploy | [DEPLOY.md](DEPLOY.md) |
 | Nợ kỹ thuật đã biết | [OVERRIDE-DEBT.md](OVERRIDE-DEBT.md) |
 | Stack, kiến trúc tổng | [README.md](README.md) |
+| Đội AI (`/doi-dev`, agent `qbl-*`) | [docs/DOI-NHOM-AI.md](docs/DOI-NHOM-AI.md) |
 
 Code trong repo này **comment rất dày bằng tiếng Việt, và comment giải thích VÌ SAO**. Trước khi
 sửa một chỗ trông lạ, đọc comment quanh nó — phần lớn "chỗ lạ" là quyết định có chủ đích đã ghi lý do.
