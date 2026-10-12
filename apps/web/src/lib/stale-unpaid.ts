@@ -1,4 +1,4 @@
-// Dải đỏ "BÀN NGỒI QUÁ LÂU CHƯA THANH TOÁN" (chủ quán chốt 2026-10-12) — phần lấy dữ liệu.
+// Dải "BÀN NGỒI QUÁ LÂU CHƯA THANH TOÁN" (chủ quán chốt 2026-10-12) — phần lấy dữ liệu.
 //
 // Danh sách do BE quyết (`GET /orders/stale-unpaid`, xem `orders/stale-unpaid.ts` phía API):
 // đơn còn mở, còn món, chưa thu tiền, mở lâu hơn ngưỡng chủ quán đặt ở Cài đặt. FE chỉ vẽ.
@@ -22,7 +22,7 @@ export type StaleUnpaid = { threshold_min: number; items: StaleUnpaidItem[] };
 
 const STALE_UNPAID_POLL_MS = 60_000;
 
-/** `enabled=false` → trả `null` và KHÔNG mở timer nào (role không được hỏi endpoint này). */
+/** `enabled=false` → trả `null` và KHÔNG mở timer nào (không đứng ở màn Order / Bếp). */
 export function useStaleUnpaid(enabled: boolean): StaleUnpaid | null {
   const [data, setData] = useState<StaleUnpaid | null>(null);
 
@@ -55,14 +55,4 @@ export function useStaleUnpaid(enabled: boolean): StaleUnpaid | null {
   }, [enabled]);
 
   return data;
-}
-
-/** "3 tiếng 20 phút" — viết đủ chữ, không viết tắt "3h20p": người đọc dải này lớn tuổi. */
-export function fmtDurationVi(ms: number): string {
-  const mins = Math.max(0, Math.floor(ms / 60_000));
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m} phút`;
-  if (m === 0) return `${h} tiếng`;
-  return `${h} tiếng ${m} phút`;
 }
