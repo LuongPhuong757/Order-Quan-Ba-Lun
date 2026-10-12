@@ -22,6 +22,7 @@ import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
 import { PrintingService } from '../printing/printing.service.js';
 import { describePayment } from './payment-describe.js';
+import { moneyPart, moneyPortion } from './payment-portion.js';
 import {
   STALE_OPEN_ORDER_MS,
   isStaleOpenOrder,
@@ -130,10 +131,18 @@ const ORDER_TOTAL_SQL =
 
 export type PaymentKindFilter = 'cash' | 'transfer' | 'mixed';
 
+/**
+ * 'cash' / 'transfer' = đơn CÓ phần tiền mặt / CÓ phần chuyển khoản — tức GỒM CẢ đơn "Cả hai"
+ * (chủ quán chốt 2026-10-12). Trước đó hai lựa chọn này chỉ lấy đơn thuần một hình thức, nên đơn
+ * Cả hai rơi khỏi cả hai: lọc "Tiền mặt" thì két có tiền mà màn hình thiếu. Lọc đơn chỉ là một
+ * nửa — con số tiền phải đi kèm cắt đúng phần, xem `moneyPortion` / `moneyPart`.
+ * 'mixed' vẫn là đúng nhóm trả một phần mỗi bên.
+ */
 export function paymentKindSql(kind: PaymentKindFilter): string {
   // Luôn kèm PAID_SQL: đơn chưa thu hoặc đơn huỷ chưa có hình thức thanh toán nào để mà lọc.
-  if (kind === 'cash') return `${PAID_SQL} AND o.transfer_amount = 0`;
-  if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount >= ${ORDER_TOTAL_SQL}`;
+  // `= 0` đứng riêng: đơn tiền mặt 0đ (khuyến mãi trọn đơn) không lọt được vế `<` vì 0 < 0 sai.
+  if (kind === 'cash') return `${PAID_SQL} AND (o.transfer_amount = 0 OR o.transfer_amount < ${ORDER_TOTAL_SQL})`;
+  if (kind === 'transfer') return `${PAID_SQL} AND o.transfer_amount > 0`;
   return `${PAID_SQL} AND o.transfer_amount > 0 AND o.transfer_amount < ${ORDER_TOTAL_SQL}`;
 }
 /** Lọc "ngân hàng đã xác nhận chưa" (2026-09-23). Cả 'yes' lẫn 'no' đều CHỈ xét đơn thu chuyển
@@ -2127,13 +2136,17 @@ export class OrdersService {
         items_total: string | number | null;
       }>();
 
+    // Cộng đúng PHẦN TIỀN bộ lọc hỏi tới (2026-10-12), không phải trọn đơn: lọc tài khoản A thì
+    // "Tổng thu" là tiền về A, ô Tiền mặt = 0 — phần tiền mặt của đơn Cả hai nằm trong két, không
+    // phải trong sao kê A. Lọc "Tiền mặt" thì ngược lại: ô Chuyển khoản và bảng tài khoản trống.
+    const portion = moneyPortion(opts);
     let total = 0;
     let transfer = 0;
     const byAccount = new Map<string, { account_id: string | null; label: string; amount: number; orders: number }>();
     for (const r of rows) {
       const orderTotal = (Number(r.items_total) || 0) + (Number(r.ship_fee) || 0);
-      const tr = Math.min(Number(r.transfer_amount) || 0, orderTotal);
-      total += orderTotal;
+      const tr = portion === 'cash' ? 0 : Math.min(Number(r.transfer_amount) || 0, orderTotal);
+      total += moneyPart(portion, orderTotal, orderTotal, Number(r.transfer_amount) || 0);
       transfer += tr;
       if (tr > 0) {
         // Khoá theo id tài khoản; đơn thu lúc danh sách mã QR tải lỗi sẽ không có id — gom riêng
@@ -2211,9 +2224,9 @@ export class OrdersService {
      *  đều thu hẹp tập đơn, nên biểu đồ và hai ô tổng quan phải đổi theo, nếu không người dùng
      *  lọc một tài khoản rồi đọc một bảng số nói về cả quán.
      *
-     *  ⚠ Với đơn trả CẢ HAI hình thức, doanh thu ở đây là TRỌN đơn, không phải riêng phần đã
-     *  chuyển khoản — biểu đồ đếm đơn theo tài khoản, còn con số tiền thật sự về tài khoản thì
-     *  đọc ở khối đối soát (`paymentSummary`). */
+     *  Với đơn trả CẢ HAI hình thức, doanh thu chỉ cộng PHẦN CHUYỂN KHOẢN (2026-10-12) — trước
+     *  đó cộng trọn đơn, tức cộng cả tiền mặt vào số "tiền về tài khoản A". Số ĐƠN thì vẫn đếm
+     *  trọn 1 đơn. Xem `moneyPortion`. */
     qr_account_id?: string;
     /** Hình thức thu tiền + ngân hàng đã xác nhận chưa (2026-09-28) — CÙNG nghĩa và cùng SQL với
      *  `listHistory`. Web gửi hai tham số này lên cả `/orders/history` lẫn `/orders/stats`;
@@ -2297,21 +2310,43 @@ export class OrdersService {
           `SUM(CASE WHEN ${itemStateSql} THEN i.menu_item_price * i.qty ELSE 0 END)`,
           'revenue',
         )
+        // Ba cột để tách phần tiền mặt / chuyển khoản của đơn Cả hai — tổng thu luôn là món
+        // SERVED + ship (y như `paymentSummary`), bất kể tab đang tính món nào.
+        .addSelect("SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END)", 'served_total')
+        .addSelect('o.ship_fee', 'ship_fee')
+        .addSelect('o.transfer_amount', 'transfer_amount')
         .where(scopeSql)
         .groupBy('o.id')
         .addGroupBy('o.debt_paid_at')
         .addGroupBy('o.closed_at')
         .addGroupBy('o.opened_at')
-        .addGroupBy('o.checked_out_by_full_name'),
-    ).getRawMany<{ closed_ms: string | number; cashier: string | null; revenue: string | number }>();
+        .addGroupBy('o.checked_out_by_full_name')
+        .addGroupBy('o.ship_fee')
+        .addGroupBy('o.transfer_amount'),
+    ).getRawMany<{
+      closed_ms: string | number;
+      cashier: string | null;
+      revenue: string | number;
+      served_total: string | number | null;
+      ship_fee: string | number;
+      transfer_amount: string | number;
+    }>();
 
+    // Bộ lọc hỏi về tiền mặt / chuyển khoản thì mỗi đơn chỉ góp PHẦN đó vào doanh thu, biểu đồ và
+    // phí ship (2026-10-12) — xem `moneyPortion`. Số ĐƠN vẫn đếm trọn: đơn Cả hai vẫn là 1 đơn.
+    const portion = moneyPortion(opts);
     const dayMap = new Map<string, { revenue: number; orders: number }>();
     const cashierMap = new Map<string, { revenue: number; orders: number }>();
     const slots = Array.from({ length: 48 }, (_, i) => ({ start_min: i * 30, orders: 0, revenue: 0 }));
     let paidRevenue = 0;
+    let shipFeeTotal = 0;
     for (const r of perOrder) {
-      const rev = Number(r.revenue) || 0;
+      const ship = Number(r.ship_fee) || 0;
+      const orderTotal = (Number(r.served_total) || 0) + ship;
+      const transferAmount = Number(r.transfer_amount) || 0;
+      const rev = moneyPart(portion, Number(r.revenue) || 0, orderTotal, transferAmount);
       paidRevenue += rev;
+      shipFeeTotal += moneyPart(portion, ship, orderTotal, transferAmount);
       // closed_ms = UNIX_TIMESTAMP(closed_at)*1000 (epoch UTC ms) → +7h ra giờ VN
       const vn = new Date((Number(r.closed_ms) || 0) + VN_OFFSET_MS);
       const day = vn.toISOString().slice(0, 10);
@@ -2376,17 +2411,14 @@ export class OrdersService {
     ).getCount();
 
     // 4) Phí ship thu hộ — M2.D-62: `ship_fee` là tiền THU HỘ khách trả cho việc giao hàng,
-    //    KHÔNG phải doanh thu món. Truy vấn TÁCH HẲN, cố ý không nhập vào `perOrder`/`paidRevenue`
-    //    (2 chỗ đó tính từ `order_items.menu_item_price` nên `ship_fee` vốn đã không lọt vào).
-    //    Báo cáo hiển thị 2 dòng riêng biệt — AI CỘNG 2 SỐ NÀY VÀO NHAU rồi gọi là doanh thu là
-    //    làm sai quyết định đã chốt.
-    const shipFeeRaw = await applyFilters(
-      this.orderRepo
-        .createQueryBuilder('o')
-        .select('COALESCE(SUM(o.ship_fee), 0)', 'total')
-        .where(scopeSql),
-    ).getRawOne<{ total: string | number }>();
-    const ship_fee_total = Number(shipFeeRaw?.total) || 0;
+    //    KHÔNG phải doanh thu món. Cộng vào biến RIÊNG `shipFeeTotal`, cố ý không nhập vào
+    //    `paidRevenue` (số đó tính từ `order_items.menu_item_price` nên `ship_fee` vốn không lọt
+    //    vào). Báo cáo hiển thị 2 dòng riêng biệt — AI CỘNG 2 SỐ NÀY VÀO NHAU rồi gọi là doanh thu
+    //    là làm sai quyết định đã chốt.
+    //
+    //    Trước 2026-10-12 đây là một truy vấn SUM riêng (cùng filter + scope với `perOrder`). Gộp
+    //    vào vòng `perOrder` vì phí ship của đơn Cả hai cũng phải tách phần như tiền món.
+    const ship_fee_total = shipFeeTotal;
 
     return {
       revenue_by_day: Array.from(dayMap.entries())
