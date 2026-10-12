@@ -16,11 +16,14 @@ import type { ShiftSel } from './date-range.ts';
 export type HistoryStatus = 'all' | 'paid' | 'unpaid' | 'cancelled' | 'debt';
 export type HistoryMisa = '' | 'pending' | 'copied';
 /** Hình thức thu tiền (2026-09-14). '' = không lọc.
- *  - 'cash'     : thu tiền mặt toàn bộ
- *  - 'transfer' : chuyển khoản toàn bộ
- *  - 'mixed'    : trả một phần tiền mặt, một phần chuyển khoản
- *  Ba giá trị này khớp đúng ba badge trong bảng — lọc và badge phải nói cùng một thứ tiếng, nếu
- *  không người dùng lọc "Chuyển khoản" rồi thấy đơn gắn badge "Cả hai" và mất lòng tin vào cả hai. */
+ *  - 'cash'     : đơn CÓ phần tiền mặt — tiền mặt toàn bộ + đơn "Cả hai"
+ *  - 'transfer' : đơn CÓ phần chuyển khoản — CK toàn bộ + đơn "Cả hai"
+ *  - 'mixed'    : chỉ đơn trả một phần tiền mặt, một phần chuyển khoản
+ *
+ *  Đổi 2026-10-12 (chủ quán chốt): trước đó 'cash'/'transfer' chỉ lấy đơn thuần một hình thức,
+ *  nên phần tiền mặt / CK của đơn "Cả hai" rơi khỏi con số tổng — két có tiền mà màn hình thiếu.
+ *  Giờ đơn Cả hai hiện trong cả hai bộ lọc (vẫn mang badge "Cả hai"), còn các ô tiền chỉ cộng
+ *  ĐÚNG PHẦN của hình thức đang lọc — xem `payment-portion.ts` ở API. */
 export type HistoryPayment = '' | 'cash' | 'transfer' | 'mixed';
 /** Trục sắp xếp danh sách đơn — 'opened' = giờ vào ăn (mặc định), 'paid' = giờ thanh toán.
  *  Cả hai đều mới nhất trước. */

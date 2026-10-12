@@ -66,13 +66,15 @@ async function insertOrder(opts: {
   /** Phần đã CHUYỂN KHOẢN (mặc định 0 = thu tiền mặt toàn bộ). Hình thức thanh toán không có
    *  cột riêng mà suy ra từ số này so với tổng đơn — xem `paymentKindSql`. */
   transferAmount?: number;
+  /** Tài khoản nhận phần chuyển khoản (`paid_to_account_id`). */
+  accountId?: string;
 }): Promise<string> {
   const id = randomUUID();
   await ds.query(
     `INSERT INTO orders
        (id, table_id, table_code, opened_at, closed_at, is_paid, source, ship_fee, misa_copied_at,
-        transfer_amount)
-     VALUES (?, ?, ?, NOW(6), ?, ?, 'STAFF', ?, ?, ?)`,
+        transfer_amount, paid_to_account_id)
+     VALUES (?, ?, ?, NOW(6), ?, ?, 'STAFF', ?, ?, ?, ?)`,
     [
       id,
       tableId,
@@ -82,6 +84,7 @@ async function insertOrder(opts: {
       opts.shipFee ?? 0,
       opts.misaCopied ? new Date() : null,
       opts.transferAmount ?? 0,
+      opts.accountId ?? null,
     ],
   );
   for (const it of opts.items) {
@@ -222,7 +225,7 @@ describe('stats theo tab — mỗi tab một bộ số khác nhau', () => {
 // sách đơn đổi mà ô Doanh thu / Tổng đơn và biểu đồ đứng yên. Hai trục này phải cắt tập đơn của
 // `stats` y như `listHistory`, nếu không hai phần của cùng một màn nói về hai tập đơn khác nhau.
 describe('stats theo hình thức thu tiền + ngân hàng đã xác nhận', () => {
-  it('lọc "Tiền mặt": chỉ đơn có transfer_amount = 0', async () => {
+  it('lọc "Tiền mặt": chưa có đơn Cả hai → chỉ đơn có transfer_amount = 0', async () => {
     const s = await svc.stats({ table_id: tableId, payment: 'cash' });
     expect(s.paid_revenue).toBe(100_000);
     expect(s.ship_fee_total).toBe(20_000);
@@ -256,11 +259,90 @@ describe('stats theo hình thức thu tiền + ngân hàng đã xác nhận', ()
     const after = await svc.stats({ table_id: tableId, payment: 'mixed' });
     expect(after.paid_count).toBe(1);
     expect(after.paid_revenue).toBe(40_000);
-    // Hai nhóm kia không bị đơn mới kéo theo.
+    // 2026-10-12: đơn Cả hai lọt vào CẢ "Tiền mặt" lẫn "Chuyển khoản", nhưng mỗi bên chỉ cộng
+    // đúng phần của mình — 30k tiền mặt, 10k CK. Trước đó nó rơi khỏi cả hai nên két thừa 30k
+    // so với màn hình.
     const cash = await svc.stats({ table_id: tableId, payment: 'cash' });
-    expect(cash.paid_count).toBe(1);
+    expect(cash.paid_count).toBe(2);
+    expect(cash.paid_revenue).toBe(100_000 + 30_000);
     const transfer = await svc.stats({ table_id: tableId, payment: 'transfer' });
-    expect(transfer.paid_count).toBe(1);
+    expect(transfer.paid_count).toBe(2);
+    expect(transfer.paid_revenue).toBe(50_000 + 10_000);
+    // Hai phần cộng lại đúng doanh thu cả quán — không mất, không đếm trùng đồng nào.
+    const all = await svc.stats({ table_id: tableId });
+    expect(cash.paid_revenue + transfer.paid_revenue).toBe(all.paid_revenue);
+  }, 20_000);
+
+  it('lọc TÀI KHOẢN NHẬN: chỉ cộng phần CK về đúng tài khoản đó, không cộng tiền mặt', async () => {
+    const accA = randomUUID();
+    const accB = randomUUID();
+    // Cả hai: 100k món, CK 40k về A, 60k tiền mặt.
+    await insertOrder({
+      closedAt: new Date(),
+      isPaid: true,
+      transferAmount: 40_000,
+      accountId: accA,
+      items: [{ state: 'SERVED', price: 100_000 }],
+    });
+    // CK trọn đơn 25k về A.
+    await insertOrder({
+      closedAt: new Date(),
+      isPaid: true,
+      transferAmount: 25_000,
+      accountId: accA,
+      items: [{ state: 'SERVED', price: 25_000 }],
+    });
+    // Đơn về tài khoản B — không được lọt vào A.
+    await insertOrder({
+      closedAt: new Date(),
+      isPaid: true,
+      transferAmount: 70_000,
+      accountId: accB,
+      items: [{ state: 'SERVED', price: 70_000 }],
+    });
+
+    const a = await svc.stats({ table_id: tableId, qr_account_id: accA });
+    expect(a.paid_count).toBe(2);
+    expect(a.paid_revenue).toBe(40_000 + 25_000);
+    expect(a.revenue_by_cashier.reduce((s, c) => s + c.revenue, 0)).toBe(65_000);
+    expect(a.revenue_by_day.reduce((s, d) => s + d.revenue, 0)).toBe(65_000);
+
+    // Khối đối soát: Tổng thu = tiền về A, ô Tiền mặt = 0, bảng tài khoản đúng 1 dòng.
+    const sumA = await svc.paymentSummary({ qr_account_id: accA });
+    expect(sumA.total).toBe(65_000);
+    expect(sumA.transfer).toBe(65_000);
+    expect(sumA.cash).toBe(0);
+    expect(sumA.orders).toBe(2);
+    expect(sumA.by_account).toHaveLength(1);
+    expect(sumA.by_account[0].amount).toBe(65_000);
+
+    // Tài khoản A + "Tiền mặt": đơn Cả hai về A, chỉ cộng phần tiền mặt của nó.
+    const aCash = await svc.stats({ table_id: tableId, qr_account_id: accA, payment: 'cash' });
+    expect(aCash.paid_count).toBe(1);
+    expect(aCash.paid_revenue).toBe(60_000);
+    const sumACash = await svc.paymentSummary({ qr_account_id: accA, payment: 'cash' });
+    expect(sumACash.total).toBe(60_000);
+    expect(sumACash.cash).toBe(60_000);
+    expect(sumACash.transfer).toBe(0);
+    expect(sumACash.by_account).toHaveLength(0);
+  }, 20_000);
+
+  it('đơn Cả hai có phí ship: tiền món và ship chia theo tỉ lệ CK / tổng thu', async () => {
+    const acc = randomUUID();
+    // 80k món + 20k ship = 100k, CK 50k → một nửa mỗi mảnh.
+    await insertOrder({
+      closedAt: new Date(),
+      isPaid: true,
+      shipFee: 20_000,
+      transferAmount: 50_000,
+      accountId: acc,
+      items: [{ state: 'SERVED', price: 80_000 }],
+    });
+    const s = await svc.stats({ table_id: tableId, qr_account_id: acc });
+    expect(s.paid_revenue).toBe(40_000);
+    expect(s.ship_fee_total).toBe(10_000);
+    const sum = await svc.paymentSummary({ qr_account_id: acc });
+    expect(sum.total).toBe(50_000);
   }, 20_000);
 
   it('3 hình thức + "mọi hình thức" là 4 bộ số khác nhau (bắt lỗi "đổi lọc mà số không đổi")', async () => {
