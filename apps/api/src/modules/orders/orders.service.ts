@@ -92,6 +92,12 @@ const CANCEL_TABLE_DEFAULT_REASON = 'Huỷ cả bàn — khách không dùng n�
 const HAS_ALIVE_ITEMS_SQL =
   "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.state <> 'CANCELLED')";
 
+/** SQL: lúc món cuối của đơn `o` XONG (ms) — NULL nếu còn món chưa xong (Chờ/Báo bếp/Đang làm).
+ * Món huỷ không tính. Dùng cho dải đỏ nhắc mang về / ship (xem `listStaleUnpaid`). */
+const DONE_MS_SQL = `(SELECT IF(SUM(oi.state IN ('PENDING','KITCHEN','COOKING')) > 0, NULL,
+                                MAX(UNIX_TIMESTAMP(oi.updated_at)) * 1000)
+                        FROM order_items oi WHERE oi.order_id = o.id AND oi.state <> 'CANCELLED')`;
+
 /** SQL: đơn từng gọi ít nhất 1 món (kể cả đã huỷ hết).
  *
  * Đây là ranh giới của LỊCH SỬ, khác hẳn HAS_ALIVE_ITEMS_SQL:
@@ -827,12 +833,18 @@ export class OrdersService {
    * bàn rồi thoát) không phải khách đang ngồi, báo nó là dải đỏ chỉ vào một bàn trông trống trên
    * sơ đồ. `is_paid = 0` loại đơn đã thu tiền mà chưa bấm đóng — chủ quán chốt không báo ca đó.
    */
+  // `done_ms` (2026-10-13, mang về / ship nhắc sau 1 tiếng): lúc món cuối xong, NULL nếu còn món
+  // chưa xong. Không có cột `ready_at` riêng nên lấy `updated_at` mới nhất của các món còn sống —
+  // khi mọi món đã READY/SERVED thì lần sửa cuối chính là lúc bấm xong / bấm giao. Bấm "đã giao"
+  // sau "xong" thì đồng hồ tính lại từ lúc giao, lệch muộn chứ không báo sớm — chấp nhận được,
+  // thêm cột mới là phải sync schema DB dùng chung cho một sai số vài phút.
   async listStaleUnpaid(thresholdMin: number, nowMs: number): Promise<StaleUnpaidItem[]> {
     // Tắt cảnh báo thì khỏi chạm DB — endpoint này bị MỌI máy hỏi đều đặn.
     if (!(thresholdMin > 0)) return [];
     const rows: StaleUnpaidRow[] = await this.ds.query(
       `SELECT o.id, o.table_id, o.table_code, t.name AS table_name, o.source, o.customer_name,
-              UNIX_TIMESTAMP(o.opened_at) * 1000 AS opened_ms
+              UNIX_TIMESTAMP(o.opened_at) * 1000 AS opened_ms, t.kind AS table_kind,
+              ${DONE_MS_SQL} AS done_ms
          FROM orders o
          LEFT JOIN restaurant_tables t ON t.id = o.table_id
         WHERE o.closed_at IS NULL AND o.is_paid = 0 AND ${HAS_ALIVE_ITEMS_SQL}`,

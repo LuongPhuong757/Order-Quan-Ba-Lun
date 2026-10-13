@@ -10,6 +10,10 @@
 //
 // Bấm vào một bàn → mở thẳng bàn đó ở màn Order (`/orders?table=…`).
 //
+// Từ 2026-10-13 dải còn chứa đơn MANG VỀ / SHIP đã xong món quá 1 tiếng (luật riêng, BE quyết),
+// nên tiêu đề không ghi ngưỡng nữa — ghi ">3 giờ" mà chip bên cạnh là "xong 1 giờ" là đọc nhầm.
+// Chip của luật mới ghi "xong …" để người nhìn biết đồng hồ tính từ lúc nào.
+//
 // STICKY + đẩy header / khung Bếp xuống bằng biến CSS `--stale-banner-h` (cùng khuôn
 // `--env-banner-h` của `EnvBanner`): header vốn `position: sticky`, khung Bếp `position: fixed`,
 // không khai chiều cao cho nhau thì chúng đè lên dải. Đo bằng ResizeObserver chứ không ghi cứng
@@ -50,7 +54,7 @@ export function StaleTableBanner({ data }: Props) {
     <div ref={ref} className="stale-banner" role="alert">
       {/* Nhãn đứng yên, chỉ hàng bàn trượt — vuốt tới đâu vẫn biết dải này nói về chuyện gì. */}
       <span className="stale-banner-title">
-        ⚠ {items.length} bàn &gt;{formatAge(data.threshold_min)} chưa trả
+        ⚠ {items.length} bàn chưa trả
       </span>
       <div className="stale-banner-list">
         {/* Thứ tự BE đã sắp: bàn ngồi lâu nhất đứng đầu, nhìn thấy mà không cần vuốt. */}
@@ -62,7 +66,11 @@ export function StaleTableBanner({ data }: Props) {
             onClick={() => navigate(`/orders?table=${encodeURIComponent(it.table_id)}`)}
           >
             <strong>{it.label}</strong>
-            <span>{formatAge(it.open_ms / 60_000)}</span>
+            <span>
+              {it.reason === 'done' && it.done_age_ms !== null
+                ? `xong ${formatAge(it.done_age_ms / 60_000)}`
+                : formatAge(it.open_ms / 60_000)}
+            </span>
           </button>
         ))}
       </div>
