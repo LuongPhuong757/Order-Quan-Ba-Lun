@@ -184,6 +184,11 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // 180 = 3 tiếng (chủ quán chốt): quán đêm khách ngồi lai rai 2 tiếng là thường, quá 3 tiếng mà
   // chưa trả thì đáng nhìn lại.
   { key: 'stale_unpaid_alert_min', kind: 'int', default: 180 },
+  // ── M7.D-15 — công tắc khách tự gọi món tại bàn (2026-10-13) ──
+  // MẶC ĐỊNH TẮT: deploy lên prod không được tự bật một tính năng chưa ai thử trên quán thật.
+  // Tắt = cửa vào bàn (`/api/public/table/open`) và gửi món (`/table/cart`) trả TABLE_ORDERING_OFF;
+  // khách vẫn XEM thực đơn bình thường. Key mới chưa có row trong DB nên fallback này CÓ hiệu lực.
+  { key: 'table_ordering_enabled', kind: 'bool', default: false },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -251,6 +256,8 @@ export type StoreSettingsMap = {
   store_name: string;
   /** Phút kể từ lúc mở bàn mới báo "ngồi quá lâu chưa thanh toán". `0` = tắt. */
   stale_unpaid_alert_min: number;
+  /** M7.D-15 — cho khách quét QR tự gọi món tại bàn. Mặc định TẮT. */
+  table_ordering_enabled: boolean;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

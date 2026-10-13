@@ -979,6 +979,25 @@ export function KitchenPage() {
           color: var(--tab-col, #1f2937);
         }
         .kds-panel-head b { flex: 1; min-width: 0; font-weight: 800; }
+        /* Màn rộng hiện sẵn cả 2 cột → nút sang cột kia vô nghĩa, ẩn. Màn hẹp thì hiện, xem JSX. */
+        .kds-panel-switch { display: none; }
+        @media (max-width: 899px) {
+          button.kds-panel-switch {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex: none;
+            min-height: 40px;
+            padding: 6px 12px;
+            border: 2px solid var(--tab-col);
+            border-radius: 999px;
+            background: white;
+            color: var(--tab-col);
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+          }
+        }
         .kds-panel-n {
           flex: none;
           min-width: 30px;
@@ -1767,6 +1786,20 @@ export function KitchenPage() {
               <span aria-hidden="true">{t.icon}</span>
               <b>{t.label}</b>
               <span className="kds-panel-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
+              {/* Nút sang cột kia — CHỈ hiện ở màn hẹp (<900px, xem CSS). Hai nút tab trên thanh
+                  trên đã bỏ (2026-10-01) nên đây là đường DUY NHẤT để đổi panel trên điện thoại /
+                  iPad dọc; thiếu nó thì máy kẹt ở cột đã lưu, kẹt ở "Đã xong" là không thấy món mới. */}
+              {TABS.filter((o) => o.key !== t.key).map((o) => (
+                <button
+                  key={o.key}
+                  type="button"
+                  className="kds-panel-switch"
+                  style={{ ['--tab-col' as string]: o.color }}
+                  onClick={() => setTab(o.key)}
+                >
+                  → <span aria-hidden="true">{o.icon}</span> {o.label} ({buckets[o.key].reduce((n, i) => n + i.qty, 0)})
+                </button>
+              ))}
             </div>
             {/* Thẻ đỏ "món vừa bị huỷ" — CHỈ ở cột chờ chế biến, và luôn ở TRÊN CÙNG.
                 Món bị huỷ rời khỏi state bếp nên biến mất khỏi danh sách ngay; nếu bếp
