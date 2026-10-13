@@ -12,6 +12,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { C } from '../lib/online-ui.ts';
 import { menuUrlFromHost } from '../lib/menu-qr-url.ts';
 import { useToast } from '../components/Toast.tsx';
+import { api, extractError } from '../lib/api.ts';
 
 /** 720px: tấm QR in ra giấy A5 vẫn nét. Màn hình chỉ cần ~320 nhưng ảnh tải về và bản in
  *  dùng chung một data URL, nên lấy theo nhu cầu LỚN hơn. */
@@ -31,6 +32,42 @@ export function MenuQrPanel() {
   const [qr, setQr] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const frameRef = useRef<HTMLIFrameElement>(null);
+
+  /** M7.D-15 — công tắc tổng "khách tự gọi món tại bàn", mặc định TẮT. `null` = chưa nạp xong
+   *  (hoặc nạp hỏng) — lúc đó chưa vẽ ô công tắc, để không nháy một trạng thái sai. */
+  const [orderingOn, setOrderingOn] = useState<boolean | null>(null);
+  const [orderingSaving, setOrderingSaving] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    // ⚠ Cờ nằm ở `data.SETTINGS.<key>` — xem cảnh báo ở PaymentQrPanel.tsx, đã từng đọc nhầm tầng.
+    api
+      .get<{ data: { settings: { table_ordering_enabled: boolean } } }>('/admin/settings')
+      .then((res) => alive && setOrderingOn(res.data.data.settings.table_ordering_enabled))
+      .catch(() => alive && setOrderingOn(null));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  /** Lạc quan rồi trả về giá trị CŨ nếu hỏng — cùng khuôn `toggleVerify` ở PaymentQrPanel. */
+  const toggleOrdering = async (next: boolean) => {
+    const prev = orderingOn;
+    setOrderingOn(next);
+    setOrderingSaving(true);
+    try {
+      await api.put('/admin/settings', { table_ordering_enabled: next });
+      toast.push(
+        'success',
+        next ? 'Đã BẬT — khách quét QR gọi món được' : 'Đã TẮT — khách chỉ xem thực đơn',
+      );
+    } catch (e) {
+      setOrderingOn(prev);
+      toast.push('error', extractError(e).message);
+    } finally {
+      setOrderingSaving(false);
+    }
+  };
 
   useEffect(() => {
     const value = url.trim();
@@ -134,6 +171,33 @@ export function MenuQrPanel() {
 
   return (
     <div>
+      {/* Công tắc đứng ĐẦU màn: nó quyết định tấm QR bên dưới có gọi món được hay chỉ để xem. */}
+      {orderingOn !== null && (
+        <div className="card" style={{ padding: 16, marginBottom: 16 }}>
+          <label style={{ display: 'flex', gap: 12, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={orderingOn}
+              disabled={orderingSaving}
+              onChange={(e) => toggleOrdering(e.target.checked)}
+              style={{ width: 24, height: 24, marginTop: 2, flexShrink: 0 }}
+            />
+            <span style={{ fontSize: 16, lineHeight: 1.5 }}>
+              <strong style={{ color: orderingOn ? '#15803d' : '#b91c1c' }}>
+                {orderingOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — khách gọi món qua điện thoại
+              </strong>
+              <span style={{ display: 'block', marginTop: 6, fontSize: 14, color: C.muted }}>
+                Bật: khách quét QR, gõ số bàn rồi gửi món — món chờ nhân viên duyệt ở màn bếp.
+              </span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 14, color: C.muted }}>
+                Tắt: khách vẫn xem thực đơn bình thường, nhưng bấm gửi món sẽ được nhắc gọi nhân
+                viên. Hôm đông khách muốn gọi tay cho chắc thì tắt ở đây, không phải gỡ QR.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       <div className="card" style={{ padding: 16, marginBottom: 16 }}>
         <h2 style={{ margin: '0 0 6px', fontSize: 20 }}>Mã QR để khách tự gọi món</h2>
         <p style={{ margin: 0, color: C.muted, fontSize: 15, lineHeight: 1.6 }}>

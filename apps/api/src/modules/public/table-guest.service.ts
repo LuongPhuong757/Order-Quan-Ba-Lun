@@ -28,6 +28,7 @@ import {
   callBlockedMs,
 } from './table-limits.js';
 import { OrdersService } from '../orders/orders.service.js';
+import { SettingsService } from '../settings/settings.service.js';
 
 /** M7.D-19 — phiên thiết bị sống 8 giờ. Dài hơn một bữa ăn rất nhiều; thứ thật sự kết thúc
  *  phiên là đơn của bàn được đóng, không phải đồng hồ. */
@@ -61,7 +62,20 @@ export class TableGuestService {
     @InjectRepository(TableOrderRequest) private readonly requests: Repository<TableOrderRequest>,
     @InjectRepository(TableOrderRequestItem) private readonly reqItems: Repository<TableOrderRequestItem>,
     @InjectRepository(TableCall) private readonly calls: Repository<TableCall>,
+    private readonly settingsSvc: SettingsService,
   ) {}
+
+  /** M7.D-15 — công tắc tổng, mặc định TẮT. Chặn đúng 2 cửa TẠO việc cho quán: vào bàn và gửi
+   *  món. KHÔNG chặn `getState`/`createCall`: khách đã vào trước khi chủ quán tắt vẫn xem được
+   *  bill và bấm gọi nhân viên — tắt là để nhân viên gọi tay, không phải bỏ mặc bàn đang ăn.
+   *  Mã lỗi riêng, NGOÀI `FRIENDLY_VN`, để filter không đè câu này bằng câu chung chung. */
+  private async assertTableOrderingOn(): Promise<void> {
+    if ((await this.settingsSvc.readAll()).table_ordering_enabled) return;
+    throw new ForbiddenException({
+      code: 'TABLE_ORDERING_OFF',
+      message: 'Quán chưa mở gọi món qua điện thoại. Bạn gọi nhân viên giúp nhé.',
+    });
+  }
 
   /* ── Vào bàn ──────────────────────────────────────────────────────────────────────── */
 
@@ -73,6 +87,7 @@ export class TableGuestService {
     input: { table_input: string; code?: string; guest_token?: string },
     ipHash: string | null,
   ): Promise<TableOpenResult> {
+    await this.assertTableOrderingOn();
     const all = await this.tables.find();
     const match = matchTableByInput(input.table_input, all);
 
@@ -216,6 +231,7 @@ export class TableGuestService {
   /* ── Khách gửi lượt gọi ───────────────────────────────────────────────────────────── */
 
   async submitCart(input: TableCartInput, ipHash: string | null): Promise<TableCartResult> {
+    await this.assertTableOrderingOn();
     const { session } = await this.requireSession(input.guest_token);
 
     // Chống đua điểm 1 — hai người cùng gõ số bàn. KHÔNG tự viết logic mở đơn: hàm này đã có

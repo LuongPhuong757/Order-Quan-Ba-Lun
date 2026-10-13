@@ -217,11 +217,15 @@ export function MenuManagementPage() {
       q.set('include_inactive', 'true');
       /* Món đề xuất tải CÙNG nhịp với lưới, không phải một effect riêng chạy một lần lúc vào
          màn: đổi trang / đổi bộ lọc là lưới vẽ lại, và nếu danh sách đề xuất không được đọc lại
-         cùng lúc thì nút ⭐ của trang mới hiện theo dữ liệu cũ. */
+         cùng lúc thì nút ⭐ của trang mới hiện theo dữ liệu cũ.
+         ⚠ PHẢI có `.catch` riêng: `/menu-combos` gác bằng AdminGuard, mà màn này mở cả cho role
+         bếp (bấm hết/còn món). Gộp trần vào Promise.all thì bếp nhận 403 ở đây là cả lưới món
+         RỖNG — đúng luồng báo hết món chạy hằng ngày. Lỗi thì coi như chưa đề xuất món nào. */
       const [itemsRes, groupsRes, featRes] = await Promise.all([
         api.get<{ data: { items: MenuItem[]; total: number } }>(`/menu?${q.toString()}`),
         api.get<{ data: { items: MenuGroup[] } }>('/menu-groups'),
-        api.get<{ data: { item_ids: string[] } }>('/menu-combos/featured'),
+        api.get<{ data: { item_ids: string[] } }>('/menu-combos/featured')
+          .catch(() => ({ data: { data: { item_ids: [] as string[] } } })),
       ]);
       setItems(itemsRes.data.data.items);
       setTotal(itemsRes.data.data.total);
