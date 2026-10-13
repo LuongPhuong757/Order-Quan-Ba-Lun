@@ -72,6 +72,13 @@ export class SupplierItem {
   @Column({ type: 'date' })
   last_delivery_date!: string;
 
+  /** Bỏ mặt hàng này khỏi mẫu hoá đơn in cho NCC (2026-10-13).
+   *
+   * Lưu "món BỎ" chứ không lưu "món lấy": mặt hàng NCC mới giao lần đầu tự có mặt trên mẫu,
+   * chủ quán không phải nhớ vào bật. Đặt ở đây được vì một nguyên liệu chỉ thuộc một NCC. */
+  @Column({ type: 'boolean', default: false })
+  hidden_on_template!: boolean;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 
