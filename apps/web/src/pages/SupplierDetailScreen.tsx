@@ -20,6 +20,7 @@ import {
   OpeningBalanceDialog, PaymentDialog, type BalanceDetail, type Payment,
 } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
+import { SupplierInvoiceTemplate } from './SupplierInvoiceTemplate.tsx';
 import { FilterBar, Ico, Plus, ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
 import './suppliers-ui.css';
 
@@ -75,6 +76,7 @@ export function SupplierDetailScreen({
   const [traTien, setTraTien] = useState(false);
   const [suaDauKy, setSuaDauKy] = useState(false);
   const [taiKhoan, setTaiKhoan] = useState(false);
+  const [mauHd, setMauHd] = useState(false);
 
   const load = useCallback(() => {
     if (!canSeeMoney) return;
@@ -209,6 +211,9 @@ export function SupplierDetailScreen({
             </button>
             <button className="btn" type="button" onClick={onEdit}>
               <Ico d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" />Sửa thông tin
+            </button>
+            <button className="btn" type="button" onClick={() => setMauHd(true)}>
+              <Ico d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6" />Mẫu hoá đơn
             </button>
             <button className="btn" type="button" onClick={() => setTaiKhoan(true)}>
               <Ico d="M12 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM4.5 20a7.5 7.5 0 0 1 15 0" />Tài khoản NCC
@@ -387,6 +392,10 @@ export function SupplierDetailScreen({
       {taiKhoan && (
         <SupplierAccountDialog supplierId={supplier.id} supplierPhone={supplier.phone}
                                onClose={() => setTaiKhoan(false)} />
+      )}
+      {mauHd && (
+        <SupplierInvoiceTemplate supplierId={supplier.id} supplierName={supplier.name}
+                                 onClose={() => setMauHd(false)} />
       )}
     </div>
   );

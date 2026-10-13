@@ -71,6 +71,13 @@ export class Supplier {
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 
+  /** Lần cuối chủ quán bấm Lưu ở màn "Mẫu hoá đơn" (2026-10-13). NULL = chưa cấu hình lần nào.
+   *
+   * Chỉ dùng để gắn nhãn MỚI: mặt hàng nào sinh ra SAU mốc này là thứ chủ quán chưa từng thấy
+   * trên mẫu. Chưa lưu lần nào thì không gắn nhãn cho món nào — mới hết thì nhãn vô nghĩa. */
+  @Column({ type: 'datetime', precision: 6, nullable: true, default: null })
+  template_saved_at!: Date | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 
