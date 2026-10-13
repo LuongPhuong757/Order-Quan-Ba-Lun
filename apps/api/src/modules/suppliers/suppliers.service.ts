@@ -5,6 +5,9 @@ import { In, Repository } from 'typeorm';
 import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
+import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
+import { todayVn } from './future-date.js';
+import { sortTemplateRows, windowStart, TEMPLATE_WINDOW_DAYS, type TemplateRow } from './invoice-template.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { normalizeName } from '../ingredients/ingredient-units.js';
 
@@ -232,6 +235,76 @@ export class SuppliersService {
         };
       })
       .filter((r): r is SupplierItemRow => r !== null);
+  }
+
+  /** Danh sách mặt hàng cho màn "Mẫu hoá đơn": đã xếp theo số lần nhập 90 ngày, kèm cờ bỏ/mới.
+   *
+   * Chỉ đếm phiếu CONFIRMED (M3.D-41): phiếu NCC tự gửi mà quán chưa kiểm thì chưa chắc là hàng
+   * thật đã giao, và phiếu huỷ thì càng không.
+   */
+  async invoiceTemplate(supplier_id: string): Promise<{
+    window_days: number;
+    saved_at: number | null;
+    items: TemplateRow[];
+  }> {
+    const supplier = await this.get(supplier_id);
+    const items = await this.itemRepo.find({ where: { supplier_id } });
+    const savedAt = supplier.template_saved_at ? new Date(supplier.template_saved_at).getTime() : null;
+    if (items.length === 0) return { window_days: TEMPLATE_WINDOW_DAYS, saved_at: savedAt, items: [] };
+
+    const ingredients = await this.ingredientRepo.find({
+      where: { id: In(items.map((i) => i.ingredient_id)) },
+    });
+    const byId = new Map(ingredients.map((i) => [i.id, i]));
+
+    const counts = await this.deliveryRepo
+      .createQueryBuilder('d')
+      .innerJoin(SupplierDeliveryLine, 'l', 'l.delivery_id = d.id')
+      .select('l.ingredient_id', 'ingredient_id')
+      .addSelect('COUNT(DISTINCT d.id)', 'times')
+      .where('d.supplier_id = :supplier_id', { supplier_id })
+      .andWhere("d.status = 'CONFIRMED'")
+      .andWhere('d.delivery_date >= :from', { from: windowStart(todayVn()) })
+      .groupBy('l.ingredient_id')
+      .getRawMany<{ ingredient_id: string; times: string | number }>();
+    const timesById = new Map(counts.map((c) => [c.ingredient_id, Number(c.times)]));
+
+    const rows: TemplateRow[] = [];
+    for (const it of items) {
+      const ing = byId.get(it.ingredient_id);
+      // Cùng luật với `items()`: nguyên liệu bị gộp/xoá thì không đưa lên mẫu in.
+      if (!ing || !ing.is_active) continue;
+      rows.push({
+        ingredient_id: it.ingredient_id,
+        ingredient_name: ing.name,
+        purchase_unit: it.purchase_unit,
+        times: timesById.get(it.ingredient_id) ?? 0,
+        last_delivery_date: toDateString(it.last_delivery_date) ?? '',
+        hidden: it.hidden_on_template,
+        is_new: savedAt !== null && it.created_at > savedAt,
+      });
+    }
+    return { window_days: TEMPLATE_WINDOW_DAYS, saved_at: savedAt, items: sortTemplateRows(rows) };
+  }
+
+  /** Lưu danh sách món BỎ khỏi mẫu. Ghi đè toàn bộ: id nào không nằm trong `hidden` là bật lại.
+   *
+   * `where supplier_id` ở cả hai lệnh là chốt chặn: gửi id mặt hàng của NCC khác lên cũng
+   * không đụng được dòng của NCC đó.
+   */
+  async saveInvoiceTemplate(supplier_id: string, hidden: string[]): Promise<void> {
+    await this.get(supplier_id);
+    await this.repo.manager.transaction(async (m) => {
+      await m.update(SupplierItem, { supplier_id }, { hidden_on_template: false });
+      if (hidden.length > 0) {
+        await m.update(
+          SupplierItem,
+          { supplier_id, ingredient_id: In(hidden) },
+          { hidden_on_template: true },
+        );
+      }
+      await m.update(Supplier, { id: supplier_id }, { template_saved_at: new Date() });
+    });
   }
 }
 

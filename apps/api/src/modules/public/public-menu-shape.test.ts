@@ -41,12 +41,28 @@ function fakeMenuGroup(overrides: Partial<MenuGroup> = {}): MenuGroup {
   } as MenuGroup;
 }
 
-describe('toPublicMenuItem — chỉ đúng 7 field', () => {
-  it('output có đúng 7 key, không hơn không kém', () => {
+/* 7 → 9 field (2026-10-05): THÊM `description` + `serves`, có chủ ý, để khách đọc được món lạ
+ * là món gì và mấy người ăn. Đây là lần nới hợp đồng công khai, không phải test bị sửa cho
+ * xanh — nếu ai đó thấy test này đỏ mà không nhớ đã thêm cột nào thì tức là một cột NỘI BỘ vừa
+ * lọt ra ngoài, và việc phải làm là sửa mapper chứ không phải sửa danh sách dưới đây. */
+describe('toPublicMenuItem — chỉ đúng 9 field', () => {
+  it('output có đúng 9 key, không hơn không kém', () => {
     const result = toPublicMenuItem(fakeMenuItem());
     expect(Object.keys(result).sort()).toEqual(
-      ['code', 'id', 'images', 'is_out_of_stock', 'name', 'price', 'unit'].sort(),
+      ['code', 'description', 'id', 'images', 'is_out_of_stock', 'name', 'price', 'serves', 'unit'].sort(),
     );
+  });
+
+  it('chủ quán chưa viết mô tả thì trả NULL, không phải chuỗi rỗng — trang khách dựa vào đó để ẩn dòng', () => {
+    const result = toPublicMenuItem(fakeMenuItem({ description: null, serves: null }));
+    expect(result.description).toBeNull();
+    expect(result.serves).toBeNull();
+  });
+
+  it('có mô tả thì đi thẳng ra ngoài', () => {
+    const result = toPublicMenuItem(fakeMenuItem({ description: 'Cay vừa, ăn kèm bánh mì', serves: 3 }));
+    expect(result.description).toBe('Cay vừa, ăn kèm bánh mì');
+    expect(result.serves).toBe(3);
   });
 
   it('image_url có giá trị → images = [image_url] (D-09)', () => {

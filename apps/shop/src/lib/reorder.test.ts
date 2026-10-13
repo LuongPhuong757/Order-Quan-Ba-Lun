@@ -19,7 +19,7 @@ const MENU: PublicMenuGroup[] = [
         price: 180_000, // giá HÔM NAY, đơn cũ mua 150.000
         unit: 'nồi',
         images: ['/uploads/lau.webp'],
-        is_out_of_stock: false,
+        is_out_of_stock: false, description: null, serves: null,
       },
       {
         id: 'mi-tra-da',
@@ -28,7 +28,7 @@ const MENU: PublicMenuGroup[] = [
         price: 5_000,
         unit: 'ly',
         images: [],
-        is_out_of_stock: true,
+        is_out_of_stock: true, description: null, serves: null,
       },
     ],
   },

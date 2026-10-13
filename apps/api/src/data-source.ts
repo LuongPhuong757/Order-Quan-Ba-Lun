@@ -5,6 +5,8 @@ import { RevokedJti } from './modules/auth/entities/revoked-jti.entity.js';
 import { RecoveryCode } from './modules/auth/entities/recovery-code.entity.js';
 import { MenuItem } from './modules/menu/entities/menu-item.entity.js';
 import { MenuGroup } from './modules/menu/entities/menu-group.entity.js';
+import { MenuCombo } from './modules/menu/entities/menu-combo.entity.js';
+import { MenuFeaturedItem } from './modules/menu/entities/menu-featured-item.entity.js';
 import { RestaurantTable } from './modules/tables/entities/restaurant-table.entity.js';
 import { Order } from './modules/orders/entities/order.entity.js';
 import { OrderItem } from './modules/orders/entities/order-item.entity.js';
@@ -16,6 +18,10 @@ import { PaymentQrAccount } from './modules/settings/entities/payment-qr-account
 import { OnlineOrderRequest } from './modules/public/entities/online-order-request.entity.js';
 import { CustomerOtp } from './modules/public/entities/customer-otp.entity.js';
 import { CustomerSession } from './modules/public/entities/customer-session.entity.js';
+import { TableGuestSession } from './modules/public/entities/table-guest-session.entity.js';
+import { TableOrderRequest } from './modules/public/entities/table-order-request.entity.js';
+import { TableOrderRequestItem } from './modules/public/entities/table-order-request-item.entity.js';
+import { TableCall } from './modules/public/entities/table-call.entity.js';
 import { NotificationOutbox } from './modules/notifications/entities/notification-outbox.entity.js';
 import { WebVisitSession } from './modules/analytics/entities/web-visit-session.entity.js';
 import { WebPageViewDaily } from './modules/analytics/entities/web-page-view-daily.entity.js';
@@ -70,12 +76,17 @@ export const dataSourceOptions: DataSourceOptions = {
   entities: [
     User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order,
     OrderItem, OrderActivityLog, OrderPaymentPhoto,
+    // Combo gợi ý + món đề xuất cho nhân vật ở thực đơn tại bàn (2026-10-03).
+    MenuCombo, MenuFeaturedItem,
     StoreSetting,
     PhoneBlacklist,
     PaymentQrAccount,
     OnlineOrderRequest,
     CustomerOtp,
     CustomerSession,
+    // M7 — khách tự gọi món tại bàn (2026-10-01). Thiếu ở mảng này thì `synchronize` bỏ qua
+    // hoàn toàn 4 bảng dưới mà `tsc` vẫn xanh — chứng minh bằng `schema:verify`, không bằng typecheck.
+    TableGuestSession, TableOrderRequest, TableOrderRequestItem, TableCall,
     NotificationOutbox,
     // Thống kê truy cập (2026-08-05). Luồng ghi dùng SQL thô `INSERT ... ON DUPLICATE KEY
     // UPDATE` nên KHÔNG cần repository, nhưng 2 entity này vẫn phải có mặt ở đây: thiếu thì

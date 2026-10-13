@@ -11,7 +11,11 @@ import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import { startGa } from './lib/gtag.ts';
 import { applyPageTitle, MENU_BOOK_TITLE } from './lib/page-title.ts';
 import { MenuPage } from './pages/MenuPage.tsx';
-import { MenuBookPage } from './pages/MenuBookPage.tsx';
+// M7 (2026-10-01) — THỰC ĐƠN mới thay quyển menu lật trang 3D. Chủ quán chốt: kiểu lật trang
+// quá chật (chỉ thấy 1,5 món trên màn 844px) và cử chỉ vuốt-lật xung đột với nút thêm món.
+// `MenuBookPage.tsx` giữ lại tạm để đối chiếu, KHÔNG còn được mount ở đâu — xoá được sau khi
+// chủ quán xác nhận bản mới chạy ổn.
+import { MenuOrderPage } from './pages/MenuOrderPage.tsx';
 
 // Router thật của apps/shop (REQ-I..K, phase 08). 6 route + catch-all render
 // lại MenuPage (khách gõ sai URL thì về menu, không thấy trang trắng).
@@ -104,7 +108,7 @@ if (isMenuHost) {
       {/* Bọc cả nhánh này chứ không riêng nhánh đặt hàng: quyển menu cũng nạp chunk CSS
           riêng và cũng chết trắng y hệt khi bản cũ gặp một lần deploy. */}
       <ErrorBoundary>
-        <MenuBookPage />
+        <MenuOrderPage />
       </ErrorBoundary>
     </StrictMode>,
   );
@@ -152,7 +156,7 @@ if (isMenuHost) {
                 `quanbalun.site/menu` không bao giờ tới được React — nó trả thẳng 401 JSON.
                 Đã dính đúng lỗi này lúc deploy 2026-09-04. `/thuc-don` không đụng controller
                 nào, và cũng dễ đọc hơn với khách Việt. */}
-            <Route path="/thuc-don" element={<MenuBookPage />} />
+            <Route path="/thuc-don" element={<MenuOrderPage />} />
           </Routes>
         </BrowserRouter>
       </ErrorBoundary>

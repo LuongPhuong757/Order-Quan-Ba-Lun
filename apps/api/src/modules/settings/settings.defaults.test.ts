@@ -44,4 +44,10 @@ describe('Mặc định có HẬU QUẢ TRỰC TIẾP với khách — đổi l�
   it('open_hours rỗng nghĩa là không giới hạn giờ', () => {
     expect(SETTINGS_DEFAULTS_MAP.open_hours).toEqual([]);
   });
+
+  /** M7.D-15 — khách tự gọi món tại bàn mặc định TẮT: deploy lên prod không được tự bật một
+   *  tính năng chưa ai thử trên quán thật. Bật lên là người lạ gõ số bàn trống gửi món được. */
+  it('table_ordering_enabled = false', () => {
+    expect(SETTINGS_DEFAULTS_MAP.table_ordering_enabled).toBe(false);
+  });
 });

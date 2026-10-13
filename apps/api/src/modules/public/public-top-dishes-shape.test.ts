@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { PublicTopDish } from '@order/schemas';
-import { normalizeWindow, toPublicTopDish, windowStartMs } from './public-top-dishes.mapper.js';
+import { isAutoAddedDish, normalizeWindow, toPublicTopDish, windowStartMs } from './public-top-dishes.mapper.js';
 
 // Khoá hình dạng response công khai của GET /api/public/top-dishes — cùng vai trò với
 // `public-menu-shape.test.ts` (T-08-33): field nội bộ lọt thêm vào row là test đỏ ngay.
@@ -77,5 +77,30 @@ describe('windowStartMs — mốc bắt đầu đếm', () => {
   it("'today' → 00:00 giờ Việt Nam (UTC+7), không phải 00:00 UTC", () => {
     // 00:00 04/08 giờ VN = 2026-08-03T17:00:00Z
     expect(windowStartMs('today', NOW)).toBe(Date.UTC(2026, 7, 3, 17, 0));
+  });
+});
+
+/* ── Lọc món quán tự thêm khỏi bảng xếp hạng (2026-10-05) ─────────────────────────────────
+ * Khăn Lạnh đứng #1 với 195 suất trong khi món thật thứ hai chỉ 23 — vì `pickAutoItem` tự bỏ
+ * vào mọi bàn, không phải vì khách chọn. Test khoá luật nhận diện, đặc biệt là ca BỎ DẤU và ca
+ * KHÔNG được bắt nhầm món thật.
+ */
+describe('isAutoAddedDish — món quán tự thêm không vào bảng xếp hạng', () => {
+  it('bắt đúng tên khăn trong bảng giá thật, bất kể dấu và hoa thường', () => {
+    expect(isAutoAddedDish('Khăn Lạnh')).toBe(true);
+    expect(isAutoAddedDish('KHĂN LẠNH')).toBe(true);
+    expect(isAutoAddedDish('khan lanh')).toBe(true);
+    // Quán có cả gói 5 cái — cũng là món tự thêm, cũng phải loại.
+    expect(isAutoAddedDish('Khăn Lạnh 5 Cái')).toBe(true);
+    // Tên chủ quán quen dùng, giữ trong AUTO_ITEM_NAME_KEYS phòng khi đổi bảng giá.
+    expect(isAutoAddedDish('Khăn Ướt')).toBe(true);
+  });
+
+  it('KHÔNG bắt nhầm món ăn thật', () => {
+    expect(isAutoAddedDish('Ốc Mít Xào Sả')).toBe(false);
+    expect(isAutoAddedDish('Bia Tiger')).toBe(false);
+    expect(isAutoAddedDish('Gà Rang Muối')).toBe(false);
+    // "lạnh" một mình không phải khăn — bia lạnh, trà đá lạnh vẫn là món khách chọn.
+    expect(isAutoAddedDish('Trà Đá Lạnh')).toBe(false);
   });
 });

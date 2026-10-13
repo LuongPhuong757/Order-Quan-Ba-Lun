@@ -1,4 +1,34 @@
-import { PublicTopDish, TOP_DISHES_WINDOWS, type TopDishesWindow } from '@order/schemas';
+import {
+  AUTO_ITEM_NAME_KEYS,
+  khongDau,
+  PublicTopDish,
+  TOP_DISHES_WINDOWS,
+  type TopDishesWindow,
+} from '@order/schemas';
+
+/**
+ * Món QUÁN TỰ THÊM (khăn lạnh) — phải LOẠI khỏi bảng xếp hạng "món bán chạy".
+ *
+ * Đo trên DB thật 2026-10-05: Khăn Lạnh **195 suất**, món đứng thứ hai (Bia Tiger) **23 suất**.
+ * Nó thắng gấp 8 lần không phải vì khách thích, mà vì `pickAutoItem` tự bỏ 5 cái vào MỌI bàn ăn
+ * tại chỗ lúc báo bếp lần đầu. Nó không phải món ai CHỌN, nên nó không trả lời được câu hỏi mà
+ * bảng xếp hạng sinh ra để trả lời: "quán này món nào ngon?".
+ *
+ * Hai chỗ hỏng vì nó, cả hai đều im lặng:
+ *   - Trang khách: ô số 1 của bảng xếp hạng là cái khăn.
+ *   - Nhân vật ở thực đơn tại bàn lấy top-5 để khen "món hot nhất quán" (MenuMascot) — nên có
+ *     lúc nó khen cái khăn lạnh.
+ *
+ * Dùng LẠI `AUTO_ITEM_NAME_KEYS` + `khongDau` chứ không gõ lại tên: đó đúng là lý do luật nằm ở
+ * `@order/schemas` (xem docblock auto-items.ts). Quán đổi tên món trong bảng giá thì sửa một
+ * chỗ, và chỗ THÊM khăn với chỗ LỌC khăn không bao giờ lệch nhau.
+ *
+ * KHÔNG lọc bia/nước: bia bán chạy là sự thật, và là món khách tự chọn.
+ */
+export function isAutoAddedDish(name: string): boolean {
+  const k = khongDau(name);
+  return AUTO_ITEM_NAME_KEYS.some((key) => k.includes(key));
+}
 
 // Hàng rào giữa row SQL thô (GROUP BY trên order_items × menu_items) và hợp đồng
 // công khai `PublicTopDish` — cùng kỹ thuật với `public-menu.mapper.ts` (T-08-33):

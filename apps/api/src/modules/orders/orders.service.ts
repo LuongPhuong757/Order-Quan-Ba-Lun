@@ -8,8 +8,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, In, IsNull, Not, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 import { Order } from './entities/order.entity.js';
+import { pickGuestCode } from '../public/guest-code.js';
+import { TableGuestSession } from '../public/entities/table-guest-session.entity.js';
+import { randomInt } from 'node:crypto';
 import { PaymentIntent } from '../payments/entities/payment-intent.entity.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
@@ -88,6 +91,12 @@ const CANCEL_TABLE_DEFAULT_REASON = 'Huỷ cả bàn — khách không dùng n�
  * Dùng cho "bàn đang mở" và đếm "chưa thanh toán". */
 const HAS_ALIVE_ITEMS_SQL =
   "EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id = o.id AND oi.state <> 'CANCELLED')";
+
+/** SQL: lúc món cuối của đơn `o` XONG (ms) — NULL nếu còn món chưa xong (Chờ/Báo bếp/Đang làm).
+ * Món huỷ không tính. Dùng cho dải đỏ nhắc mang về / ship (xem `listStaleUnpaid`). */
+const DONE_MS_SQL = `(SELECT IF(SUM(oi.state IN ('PENDING','KITCHEN','COOKING')) > 0, NULL,
+                                MAX(UNIX_TIMESTAMP(oi.updated_at)) * 1000)
+                        FROM order_items oi WHERE oi.order_id = o.id AND oi.state <> 'CANCELLED')`;
 
 /** SQL: đơn từng gọi ít nhất 1 món (kể cả đã huỷ hết).
  *
@@ -242,6 +251,27 @@ export class OrdersService {
   // ─── Activity log ───────────────────────────────────────────────────────
   /** Ghi 1 dòng log hoạt động cho đơn. Append-only, KHÔNG để lỗi log làm hỏng
    * thao tác chính (nuốt lỗi, chỉ warn). Snapshot bàn + giờ mở đơn để unique. */
+  /**
+   * M7 — cửa CÔNG KHAI để module khác ghi vào NHẬT KÝ BÀN.
+   *
+   * Luồng khách quét QR nằm ở `PublicModule` và `TableRequestsService`, nhưng nhật ký bàn thì
+   * chỉ có một quyển: chủ quán mở màn Lịch sử ra phải thấy "khách gọi qua QR" nằm đúng chỗ
+   * giữa các việc khác của bàn, theo thứ tự thời gian. Viết một đường ghi log thứ hai cho
+   * riêng QR là có hai quyển sổ phải đọc chéo khi đi soát một bàn.
+   *
+   * Vẫn đi qua `writeActivity` chứ không insert thẳng: hàm đó nuốt lỗi có chủ đích (ghi log
+   * hỏng KHÔNG được làm hỏng việc đang làm) và chuẩn hoá đủ 5 cột snapshot của bàn.
+   */
+  async logOrderActivity(params: {
+    order: { id: string; table_id: string; table_code: string; opened_at: number };
+    event_kind: string;
+    message: string;
+    actor?: OrderCreator;
+    item_id?: string | null;
+  }): Promise<void> {
+    return this.writeActivity(params);
+  }
+
   private async writeActivity(params: {
     order: { id: string; table_id: string; table_code: string; opened_at: number };
     event_kind: string;
@@ -396,6 +426,12 @@ export class OrdersService {
               // (xem `listHistory`) nên đổi `opened_at` không sửa lại số liệu đã chốt nào.
               candidate.opened_at = now;
               candidate.first_kitchen_at = null;
+              // M7.D-19 ca 5 — nhánh này DÙNG LẠI chính dòng đơn cũ và GIỮ `closed_at` NULL,
+              // nên mã bàn sẽ sống sót qua reset nếu không xoá tay ở đây. Phải nằm ngay cạnh
+              // `first_kitchen_at = null` để không ai sửa một dòng mà quên dòng kia.
+              candidate.guest_code = null;
+              candidate.guest_code_at = null;
+              candidate.first_guest_request_at = null;
               candidate.created_by_user_id = creator?.id ?? null;
               candidate.created_by_full_name = creator?.full_name ?? null;
               await orderRepo.save(candidate);
@@ -531,7 +567,126 @@ export class OrdersService {
     });
   }
 
-  /** Set order.first_kitchen_at = now nếu chưa có. Idempotent. */
+  /**
+   * M7.D-19 ca 8 — ĐỔI MÃ BÀN.
+   *
+   * Mã là bí mật chia sẻ miệng: khách bàn bên nghe lỏm được 4 số là đọc được bill và gọi món
+   * vào bàn này. Không có nút này thì cách duy nhất để cắt là đóng đơn — tức bắt khách thanh
+   * toán giữa bữa.
+   *
+   * Sinh mã mới VÀ thu hồi mọi phiên thiết bị đang gắn đơn: mã cũ rò ra ngoài thì thiết bị đã
+   * dùng mã cũ cũng phải mất quyền, không thì đổi mã chẳng chặn được ai. Khách thật nhập mã
+   * mới là vào lại được ngay.
+   */
+  async regenerateGuestCode(order_id: string, actor?: OrderCreator): Promise<{ guest_code: string }> {
+    return this.ds.transaction(async (mgr) => {
+      const orderRepo = mgr.getRepository(Order);
+      const o = await orderRepo.findOne({ where: { id: order_id } });
+      if (!o) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không thấy đơn.' });
+      if (o.closed_at !== null) {
+        throw new BadRequestException({ code: 'CONFLICT', message: 'Đơn đã đóng.' });
+      }
+      // Bàn CHƯA có mã vẫn gọi được hàm này — khi đó nó là "CẤP mã" chứ không phải "đổi mã".
+      // Vì sao cần: một đơn có thể rơi vào trạng thái đã-báo-bếp-mà-không-có-mã (đã xảy ra thật
+      // do `transferTable` nhánh bàn-đích-trống quên copy mã). Món đã nằm ở KITCHEN rồi thì
+      // không còn sự kiện báo bếp nào chạy qua `markFirstKitchenIfNull` để tự lành, nên nếu
+      // chặn ở đây thì nhân viên KHÔNG CÒN đường nào cấp mã cho bàn đó — khách ngồi ăn mà
+      // không ai gọi thêm được bằng QR. Chỉ chặn khi bàn thật sự chưa có món nào xuống bếp.
+      if (o.guest_code === null && o.first_kitchen_at === null) {
+        throw new BadRequestException({
+          code: 'NO_GUEST_CODE',
+          message: 'Bàn này chưa gọi món nào — mã chỉ có khi đã báo bếp lần đầu.',
+        });
+      }
+      const isNew = o.guest_code === null;
+
+      const live = await orderRepo.find({
+        where: { closed_at: IsNull(), guest_code: Not(IsNull()) },
+        select: { guest_code: true },
+      });
+      const taken = new Set(live.map((x) => x.guest_code!).filter(Boolean));
+      const code = pickGuestCode(taken, () => randomInt(10_000));
+      if (code === null) {
+        throw new ConflictException({
+          code: 'GUEST_CODE_EXHAUSTED',
+          message: 'Không cấp được mã mới lúc này. Thử lại sau ít phút.',
+        });
+      }
+
+      o.guest_code = code;
+      o.guest_code_at = Date.now();
+      await orderRepo.save(o);
+
+      // Thu hồi phiên cũ — mã rò thì thiết bị dùng mã rò cũng phải mất quyền. CHỈ khi ĐỔI:
+      // lúc cấp mã lần đầu, đá văng phiên đang dùng là phạt nhầm khách đang ăn.
+      if (!isNew) {
+        await mgr
+          .getRepository(TableGuestSession)
+          .update({ order_id: o.id, revoked_at: IsNull() }, { revoked_at: Date.now() });
+      }
+
+      // Nhật ký bàn: đổi mã là thao tác có hệ quả (mọi thiết bị của bàn bị đẩy ra), phải có vết.
+      await this.writeActivity({
+        order: o,
+        event_kind: isNew ? 'guest_code_issued' : 'guest_code_rotated',
+        message: isNew ? `Cấp mã bàn ${code}` : `Đổi mã bàn — mã mới ${code}`,
+        actor,
+      });
+
+      return { guest_code: code };
+    });
+  }
+
+  /**
+   * M7.D-19 ca 4 + 7 — bàn hết sạch món sống thì MÃ BÀN phải chết theo.
+   *
+   * Bất biến: `guest_code IS NOT NULL` ⟺ `first_kitchen_at IS NOT NULL` ⟺ bàn đang có món
+   * thật. Huỷ từng món tới khi đơn trống (nhân viên bấm, hoặc bếp báo hết hàng) thì đơn VẪN
+   * MỞ — `closed_at` còn NULL — nên mã không tự chết như ca thanh toán. Phải xoá tay ở đây.
+   *
+   * Không xoá thì mã vẫn sống trên một bàn đã trống: khách sau ngồi vào gõ số bàn sẽ bị hỏi
+   * mã, mà mã đó không ai biết. Lỗi im lặng, không báo gì cả.
+   *
+   * Idempotent và rẻ: thoát ngay nếu đơn vốn chưa có mã.
+   */
+  private async clearGuestCodeIfNoAliveItems(
+    mgr: EntityManager,
+    order_id: string,
+  ): Promise<void> {
+    const orderRepo = mgr.getRepository(Order);
+    const o = await orderRepo.findOne({ where: { id: order_id } });
+    if (!o || o.guest_code === null) return;
+
+    const alive = await mgr
+      .getRepository(OrderItem)
+      .count({ where: { order_id, state: Not('CANCELLED') } });
+    if (alive > 0) return;
+
+    o.guest_code = null;
+    o.guest_code_at = null;
+    // `first_kitchen_at` xoá cùng để giữ bất biến — bàn không còn món nào thì nó cũng chưa
+    // từng báo bếp cho lượt khách tiếp theo.
+    o.first_kitchen_at = null;
+    await orderRepo.save(o);
+  }
+
+  /** Set order.first_kitchen_at = now nếu chưa có. Idempotent.
+   *
+   * ── M7.D-17 — ĐÂY cũng là nơi sinh MÃ BÀN ──
+   * Mã bàn sinh ở lần BÁO BẾP ĐẦU TIÊN, bất kể món do khách quét QR gọi hay nhân viên gọi hộ.
+   * Chọn đúng hàm này vì nó đã idempotent và đã nằm trên CẢ BỐN đường đẩy món sang bếp — sinh
+   * mã ở đây thì không đường nào lọt, không phải sửa 4 chỗ.
+   *
+   * Vì sao gắn mã vào mốc này mà không phải lúc khách gửi lượt đầu: phương án cũ để hở một
+   * trạng thái không ai nghĩ tới — bàn có đơn do NHÂN VIÊN mở nhưng chưa có mã, khi đó ai gõ
+   * số bàn cũng vào được, đọc bill và gọi món vào bàn người khác. Gắn vào "đã báo bếp" thì
+   * mọi bàn đang có người ăn đều có mã, không ngoại lệ, và luật cửa vào rút về một dòng:
+   * `guest_code IS NULL` = chưa ai gọi món = vào tự do.
+   *
+   * M7.D-19 — bất biến: `guest_code IS NOT NULL` ⟺ `first_kitchen_at IS NOT NULL`. Hai cột
+   * này đặt cùng nhau ở đây, và phải XOÁ cùng nhau ở `:367` (reset bàn treo) + đường huỷ món,
+   * COPY cùng nhau ở `transferTable`. Xem §3.11 của spec — 8 ca đã rà.
+   */
   private async markFirstKitchenIfNull(
     mgr: { getRepository: (e: typeof Order) => Repository<Order> },
     order_id: string,
@@ -539,9 +694,44 @@ export class OrdersService {
     const repo = mgr.getRepository(Order);
     const o = await repo.findOne({ where: { id: order_id } });
     if (!o) return;
-    if (o.first_kitchen_at != null) return;
-    o.first_kitchen_at = Date.now();
-    await repo.save(o);
+
+    // ⚠ Hai việc TÁCH RỜI, không gộp vào một lần `return` sớm.
+    // Bản đầu viết `if (first_kitchen_at != null) return;` ngay trên cùng, nên bất kỳ đơn nào
+    // có `first_kitchen_at` do một đường KHÁC đặt vào sẽ không bao giờ được cấp mã nữa — đúng
+    // ca đã xảy ra thật: `transferTable` nhánh "bàn đích trống" copy `first_kitchen_at` mà
+    // quên `guest_code`, để lại bàn đã báo bếp mà không có mã, và không gì chữa được.
+    // Giờ mỗi cột tự kiểm điều kiện của nó, nên bất biến D-19 TỰ LÀNH ở lần báo bếp kế tiếp
+    // dù đường nào làm hỏng.
+    let dirty = false;
+
+    if (o.first_kitchen_at == null) {
+      o.first_kitchen_at = Date.now();
+      dirty = true;
+    }
+
+    if (o.guest_code === null) {
+      dirty = true;
+      // Duy nhất trong TẬP ĐƠN ĐANG MỞ (vài chục dòng), không phải toàn bảng: đơn đã đóng vẫn
+      // giữ mã, unique toàn bảng sẽ cạn 10.000 tổ hợp sau ~200 ngày.
+      const live = await repo.find({
+        where: { closed_at: IsNull(), guest_code: Not(IsNull()) },
+        select: { guest_code: true },
+      });
+      const taken = new Set(live.map((x) => x.guest_code!).filter(Boolean));
+      const code = pickGuestCode(taken, () => randomInt(10_000));
+      if (code !== null) {
+        o.guest_code = code;
+        o.guest_code_at = Date.now();
+      } else {
+        // Cạn mã thật là dấu hiệu bị lạm dụng. KHÔNG tự nới độ dài mã — mã đang hiện trên màn
+        // của những bàn khác. Báo vào log, bàn này chạy không có mã (khách phải nhờ nhân viên).
+        this.logger.error(
+          `Không tìm được mã bàn trống cho order ${order_id} — ${taken.size} mã đang sống`,
+        );
+      }
+    }
+
+    if (dirty) await repo.save(o);
   }
 
   /** Slim list cho OrdersPage (sơ đồ bàn) + KitchenPage (KDS).
@@ -568,6 +758,10 @@ export class OrdersService {
         'o.table_code',
         'o.opened_at',
         'o.first_kitchen_at',
+        // M7 — sơ đồ bàn cần biết bàn nào khách TỰ gọi bằng QR mà không phải mở drawer ra
+        // mới thấy. `guest_code` KHÔNG trả lời được câu đó: nó được cấp ở lần báo bếp đầu
+        // tiên kể cả khi nhân viên gọi hộ (D-17). Cột dưới mới là dấu của chính khách.
+        'o.first_guest_request_at',
         'o.created_by_full_name',
         'o.customer_name',
         'o.customer_phone',
@@ -639,12 +833,18 @@ export class OrdersService {
    * bàn rồi thoát) không phải khách đang ngồi, báo nó là dải đỏ chỉ vào một bàn trông trống trên
    * sơ đồ. `is_paid = 0` loại đơn đã thu tiền mà chưa bấm đóng — chủ quán chốt không báo ca đó.
    */
+  // `done_ms` (2026-10-13, mang về / ship nhắc sau 1 tiếng): lúc món cuối xong, NULL nếu còn món
+  // chưa xong. Không có cột `ready_at` riêng nên lấy `updated_at` mới nhất của các món còn sống —
+  // khi mọi món đã READY/SERVED thì lần sửa cuối chính là lúc bấm xong / bấm giao. Bấm "đã giao"
+  // sau "xong" thì đồng hồ tính lại từ lúc giao, lệch muộn chứ không báo sớm — chấp nhận được,
+  // thêm cột mới là phải sync schema DB dùng chung cho một sai số vài phút.
   async listStaleUnpaid(thresholdMin: number, nowMs: number): Promise<StaleUnpaidItem[]> {
     // Tắt cảnh báo thì khỏi chạm DB — endpoint này bị MỌI máy hỏi đều đặn.
     if (!(thresholdMin > 0)) return [];
     const rows: StaleUnpaidRow[] = await this.ds.query(
       `SELECT o.id, o.table_id, o.table_code, t.name AS table_name, o.source, o.customer_name,
-              UNIX_TIMESTAMP(o.opened_at) * 1000 AS opened_ms
+              UNIX_TIMESTAMP(o.opened_at) * 1000 AS opened_ms, t.kind AS table_kind,
+              ${DONE_MS_SQL} AS done_ms
          FROM orders o
          LEFT JOIN restaurant_tables t ON t.id = o.table_id
         WHERE o.closed_at IS NULL AND o.is_paid = 0 AND ${HAS_ALIVE_ITEMS_SQL}`,
@@ -902,6 +1102,11 @@ export class OrdersService {
       await itemRepo.save(item);
       if (to === 'KITCHEN') {
         await this.markFirstKitchenIfNull(mgr, item.order_id);
+      }
+      // M7.D-19 ca 4 + 7 — huỷ món (nhân viên bấm, hoặc bếp báo hết hàng) tới khi đơn trống thì
+      // mã bàn phải chết theo. Đơn VẪN MỞ nên nó không tự chết như ca thanh toán.
+      if (to === 'CANCELLED') {
+        await this.clearGuestCodeIfNoAliveItems(mgr, item.order_id);
       }
       // CHỐT TIÊU HAO NGUYÊN LIỆU (2026-09-05) — điểm duy nhất trong cả hệ thống món đi vào
       // trạng thái đã-nấu, nên cũng là điểm duy nhất chốt. Trong CÙNG transaction: đổi state
@@ -2356,6 +2561,11 @@ export class OrdersService {
           // đích bị ghi đè, đúng như mọi chỗ khác trong app hiểu "giờ vào ăn".
           dest.opened_at = src.opened_at;
           dest.first_kitchen_at = src.first_kitchen_at;
+          // M7.D-19 ca 6 — mã đi theo ĐƠN, không theo bàn: cùng một nhóm khách chỉ đổi chỗ
+          // ngồi. Không copy thì khách đang ăn dở mất mã ngay giữa bữa.
+          dest.guest_code = src.guest_code;
+          dest.guest_code_at = src.guest_code_at;
+          dest.first_guest_request_at = src.first_guest_request_at;
           dest.created_by_user_id = src.created_by_user_id;
           dest.created_by_full_name = src.created_by_full_name;
           dest.customer_name = destTable.kind === 'delivery' ? src.customer_name : null;
@@ -2392,6 +2602,12 @@ export class OrdersService {
             closed_at: null,
             is_paid: false,
             first_kitchen_at: src.first_kitchen_at,
+            // M7.D-19 ca 6 — mã đi theo ĐƠN, không theo bàn: cùng một nhóm khách chỉ đổi chỗ
+            // ngồi. Nhánh này chạy khi bàn đích TRỐNG, và quên ở đây thì khách đang ăn dở mất
+            // mã ngay giữa bữa (bản đầu tôi chỉ sửa nhánh bàn-đích-có-đơn, chạy thật mới lộ).
+            guest_code: src.guest_code,
+            guest_code_at: src.guest_code_at,
+            first_guest_request_at: src.first_guest_request_at,
             created_by_user_id: src.created_by_user_id,
             created_by_full_name: src.created_by_full_name,
             customer_name: destTable.kind === 'delivery' ? src.customer_name : null,
@@ -2400,6 +2616,13 @@ export class OrdersService {
           });
           await orderRepo.save(dest);
         }
+
+        // M7.D-19 ca 6 — phiên thiết bị của khách phải trỏ sang đơn đích. Đặt Ở ĐÂY, sau khi
+        // `dest` đã chốt, để chạy cho CẢ HAI nhánh (bàn đích trống và bàn đích đã có đơn rỗng).
+        // Thiếu bước này thì khách nhận 410 "bàn đã kết thúc" dù chỉ vừa được dời chỗ ngồi.
+        await mgr
+          .getRepository(TableGuestSession)
+          .update({ order_id: src.id }, { order_id: dest.id, table_id: dest.table_id });
 
         // Move items qua UPDATE thuần — bypass relations management
         const moveResult = await itemRepo

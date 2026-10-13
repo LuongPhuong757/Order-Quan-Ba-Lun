@@ -16,6 +16,10 @@ export const PublicMenuItem = z.object({
   // Chừa chỗ cho nhiều ảnh/món sau này mà không phải đổi shape.
   images: z.array(z.string()).max(1),
   is_out_of_stock: z.boolean(),
+  /* Mô tả món + mấy người ăn (2026-10-05). NULL = chủ quán chưa viết → trang khách ẩn hẳn dòng
+   * đó, KHÔNG vẽ khung trống. Xem docblock hai cột ở `menu-item.entity.ts`. */
+  description: z.string().nullable(),
+  serves: z.number().int().nullable(),
 });
 export type PublicMenuItem = z.infer<typeof PublicMenuItem>;
 

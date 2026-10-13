@@ -25,6 +25,9 @@ function makeGroup(items: Array<Partial<CartLine> & { menu_item_id: string; pric
       items: items.map((it) => ({
         id: it.menu_item_id,
         code: it.menu_item_id,
+        // description/serves: null — hai cột thêm 2026-10-05, test này không quan tâm tới chúng.
+        description: null,
+        serves: null,
         name: it.name ?? 'Món',
         price: it.price,
         unit: 'phần',

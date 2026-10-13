@@ -7,7 +7,24 @@ import { Order } from '../orders/entities/order.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
 import { SettingsService } from '../settings/settings.service.js';
-import { normalizeWindow, toPublicTopDish, windowStartMs, type TopDishRawRow } from './public-top-dishes.mapper.js';
+import {
+  isAutoAddedDish,
+  normalizeWindow,
+  toPublicTopDish,
+  windowStartMs,
+  type TopDishRawRow,
+} from './public-top-dishes.mapper.js';
+
+/* Lấy DƯ bao nhiêu dòng trước khi lọc món quán tự thêm (khăn lạnh).
+ *
+ * Lọc phải làm ở JS chứ không ở SQL: luật nhận diện là `khongDau` + `AUTO_ITEM_NAME_KEYS`, dùng
+ * chung với chỗ THÊM khăn, mà MySQL không có hàm bỏ dấu nào khớp đúng luật đó. Viết một điều
+ * kiện LIKE riêng trong SQL là dựng bản sao thứ hai của luật — đúng thứ docblock auto-items.ts
+ * đã cấm. Nhưng LIMIT thì chạy ở SQL, nên lọc sau mà không lấy dư là bảng bị hụt dòng.
+ *
+ * 5 là thừa thãi có chủ ý: quán hiện có 2 dòng khăn ("Khăn Lạnh", "Khăn Lạnh 5 Cái"), chừa chỗ
+ * cho vài dòng nữa chủ quán thêm sau mà không ai nhớ ra phải sửa số này. */
+const AUTO_ITEM_OVERFETCH = 5;
 
 // Trùng chữ với PAID_SQL của orders.service.ts (module-private bên đó) — "đơn đã
 // thanh toán" phải là CÙNG MỘT định nghĩa với báo cáo admin, nếu không số trang khách
@@ -93,18 +110,24 @@ export class PublicTopDishesController {
       .orderBy('qty', 'DESC')
       // Tie-break theo tên để 2 món bằng suất không đổi chỗ nhau giữa 2 lần poll.
       .addOrderBy('m.name', 'ASC')
-      .limit(limit);
+      .limit(limit + AUTO_ITEM_OVERFETCH);
 
     if (startMs !== null) qb.andWhere('o.closed_at >= :start', { start: new Date(startMs) });
     if (hidden.length > 0) qb.andWhere('m.id NOT IN (:...hidden)', { hidden });
 
     const rows = await qb.getRawMany<TopDishRawRow>();
 
+    // Bỏ món quán tự thêm (khăn lạnh) RỒI mới cắt về đúng `limit` — xem `isAutoAddedDish`.
+    const items = rows
+      .filter((r) => !isAutoAddedDish(r.name))
+      .slice(0, limit)
+      .map(toPublicTopDish);
+
     return apiOk(
       PublicTopDishes.strict().parse({
         enabled: true,
         window,
-        items: rows.map(toPublicTopDish),
+        items,
       }),
     );
   }

@@ -9,15 +9,25 @@
 #
 # Placeholder: __DOMAIN__
 
-# ─── Server develop: dev.<domain> (khách) + admin.dev.<domain> (quản lý) ─────
+# ─── Server develop: ba host, soi gương đúng ba host của prod ────────────────
+#   dev.<domain>        ↔ <domain>            trang đặt hàng của khách
+#   admin.dev.<domain>  ↔ admin.<domain>      trang quản lý
+#   menu.dev.<domain>   ↔ menu.<domain>       quyển thực đơn / gọi món tại bàn
+#
 # Cùng vào ordbl_dev_api:3001. main.ts chọn bundle theo tiền tố `admin.` của Host,
-# nên `admin.dev.<domain>` nhận web-dist còn `dev.<domain>` nhận shop-dist — y hệt
+# nên `admin.dev.<domain>` nhận web-dist còn hai host kia nhận shop-dist — y hệt
 # cách prod phân biệt, không cần cấu hình gì thêm.
+#
+# `menu.dev.<domain>` thêm 2026-10-01 cho M7 (khách quét QR gọi món tại bàn). Nó phải
+# giữ ĐÚNG tiền tố `menu.`: `apps/shop/src/main.tsx` nhận ra quyển thực đơn bằng
+# `hostname.startsWith('menu.')` chứ không bằng đường dẫn, và nhánh đó CỐ Ý không dựng
+# BrowserRouter. Đặt tên khác đi là mở ra màn đặt hàng chứ không phải thực đơn, mà
+# triệu chứng thì chỉ là "vào nhầm trang" — không có lỗi nào để lần ra.
 #
 # KHÔNG có basic auth (gỡ 2026-09-09 theo yêu cầu): site dev mở cho mọi người,
 # đúng như prod. Thứ duy nhất còn giới hạn là `/setup` — chặn theo SETUP_ALLOWED_IP
 # trong .env.dev — và `X-Robots-Tag` giữ bản test khỏi Google.
-dev.__DOMAIN__, admin.dev.__DOMAIN__ {
+dev.__DOMAIN__, admin.dev.__DOMAIN__, menu.dev.__DOMAIN__ {
     log {
         output stdout
         format console

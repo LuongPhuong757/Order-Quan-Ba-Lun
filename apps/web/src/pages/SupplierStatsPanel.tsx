@@ -26,12 +26,13 @@ import {
 } from '../components/Charts.tsx';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { Pager } from '../components/Pager.tsx';
-import { presetRange, type DayRange } from '../lib/date-range.ts';
+import { presetRange, vnDayEndMs, vnDayStartMs, type DayRange } from '../lib/date-range.ts';
 import {
   KHAC_ID,
   buildSpendChart,
   buildDebtChart,
   type DebtFlowRow,
+  type RevenueDayRow,
   gopTheoMon,
   locMon,
   locPhieuTheoMon,
@@ -78,6 +79,9 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   /** Nguồn biểu đồ biến động công nợ (2026-10-02). `opening` = dư nợ ngay TRƯỚC kỳ, do server
    *  tính — gồm cả số dư đầu kỳ khai tay, nên đường luỹ kế kết thúc đúng bằng `noNcc`. */
   const [debtFlow, setDebtFlow] = useState<{ items: DebtFlowRow[]; opening: number } | null>(null);
+  /** Doanh thu bán hàng TOÀN QUÁN theo ngày (2026-10-13, chủ quán yêu cầu) — đường thứ ba của
+   *  biểu đồ "Nợ mới và tiền đã trả", để so tiền bán vào với tiền nhập/trả NCC. */
+  const [doanhThuNgay, setDoanhThuNgay] = useState<RevenueDayRow[]>([]);
 
   const [itemSort, setItemSort] = useState<ItemSort>('amount');
   const [itemChieu, setItemChieu] = useState<Chieu>('desc');
@@ -136,14 +140,29 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
         setNoNcc(0);
         setDebtFlow({ items: [], opening: 0 });
       });
+    // Doanh thu đi lượt RIÊNG, không nhét vào Promise.all trên: nó là số phụ để so sánh, hỏng
+    // (mất mạng, đổi quyền) thì biểu đồ nợ vẫn phải hiện chứ không trắng cả tab. Lấy từ
+    // `/orders/stats` — CÙNG nguồn với biểu đồ doanh thu màn Lịch sử, để hai màn không bao giờ
+    // hiện hai con số doanh thu khác nhau cho cùng một ngày. Cùng quyền `ReportGuard` với
+    // `/supplier-reports/*` nên ai xem được tab này thì gọi được.
+    setDoanhThuNgay([]);
+    api
+      .get<{ data: { revenue_by_day: RevenueDayRow[] } }>('/orders/stats', {
+        params: {
+          start_ms: range.from ? vnDayStartMs(range.from) : undefined,
+          end_ms: range.to ? vnDayEndMs(range.to) : undefined,
+        },
+      })
+      .then((r) => setDoanhThuNgay(r.data.data.revenue_by_day ?? []))
+      .catch(() => setDoanhThuNgay([]));
   }, [range.from, range.to, supplierId, toast]);
 
   useEffect(load, [load]);
 
   const chart = useMemo(() => buildSpendChart(daily ?? [], range), [daily, range]);
   const no = useMemo(
-    () => buildDebtChart(debtFlow?.opening ?? 0, debtFlow?.items ?? [], range),
-    [debtFlow, range],
+    () => buildDebtChart(debtFlow?.opening ?? 0, debtFlow?.items ?? [], range, doanhThuNgay),
+    [debtFlow, range, doanhThuNgay],
   );
   /** Hai cột của biểu đồ nợ. Màu CỐ ĐỊNH chứ không lấy từ `seriesColor`: bảng màu kia xoay theo
    *  thứ hạng NCC, còn ở đây "nợ" và "trả" là hai nghĩa cố định — đổi màu giữa hai lần xem là
@@ -152,6 +171,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     () => [
       { id: 'no-moi', name: 'Nợ mới (phiếu nhập)', color: '#dc2626', values: no.noMoi },
       { id: 'da-tra', name: 'Đã trả', color: '#059669', values: no.daTra },
+      { id: 'doanh-thu', name: 'Doanh thu bán hàng', color: '#2563eb', values: no.doanhThu },
     ],
     [no],
   );
@@ -312,18 +332,24 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                   : no.bucket === 'week'
                     ? 'Kỳ dài nên gộp theo TUẦN — đỏ là nợ mới, xanh là tiền đã trả'
                     : 'Kỳ rất dài nên gộp theo THÁNG — đỏ là nợ mới, xanh là tiền đã trả') +
-                '. Cột đỏ cao hơn cột xanh = hôm đó nợ phình thêm. Chỉ tính phiếu ĐÃ DUYỆT.'
+                '. Cột đỏ cao hơn cột xanh = hôm đó nợ phình thêm. Chỉ tính phiếu ĐÃ DUYỆT. ' +
+                'Cột xanh dương là doanh thu bán hàng của CẢ QUÁN (cùng số màn Lịch sử).'
               }
             >
               {no.labels.length === 0 ? (
-                <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập hay lần trả tiền nào trong kỳ này.</p>
+                <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập, lần trả tiền hay doanh thu nào trong kỳ này.</p>
               ) : (
-                <GroupedBarChart
-                  labels={no.labels}
-                  series={noSeries}
-                  formatValue={(v) => `${tienGon(v)}đ`}
-                  ariaLabel={`Nợ mới và tiền đã trả qua ${no.labels.length} mốc thời gian`}
-                />
+                <>
+                  <GroupedBarChart
+                    labels={no.labels}
+                    series={noSeries}
+                    formatValue={(v) => `${tienGon(v)}đ`}
+                    ariaLabel={`Nợ mới, tiền đã trả và doanh thu qua ${no.labels.length} mốc thời gian`}
+                  />
+                  <div style={{ marginTop: 10, fontSize: 13, color: C.muted }}>
+                    Doanh thu trong kỳ: <strong style={{ color: '#2563eb' }}>{vnd(no.tongDoanhThu)}đ</strong>
+                  </div>
+                </>
               )}
             </ChartCard>
           </div>

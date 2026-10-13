@@ -12,7 +12,9 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
-import { IsInt, IsOptional, IsString, MaxLength, Min, MinLength } from 'class-validator';
+import {
+  ArrayMaxSize, IsArray, IsInt, IsOptional, IsString, IsUUID, MaxLength, Min, MinLength,
+} from 'class-validator';
 import { SuppliersService } from './suppliers.service.js';
 import type { Request } from 'express';
 import { SupplierAuthService } from './supplier-auth.service.js';
@@ -41,6 +43,11 @@ class UpdateSupplierDto {
   @IsOptional() @IsString() @MinLength(1) @MaxLength(128) name?: string;
   @IsOptional() @IsString() @MaxLength(32) phone?: string;
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+}
+
+class SaveInvoiceTemplateDto {
+  /** Mặt hàng BỎ khỏi mẫu. 500 là trần thừa sức — NCC nhiều nhất hiện có vài chục mặt hàng. */
+  @IsArray() @ArrayMaxSize(500) @IsUUID('all', { each: true }) hidden_ingredient_ids!: string[];
 }
 
 /** Nhà cung cấp (2026-09-05).
@@ -79,6 +86,20 @@ export class SuppliersController {
   @UseGuards(ReportGuard)
   async items(@Param('id') id: string) {
     return { data: { items: await this.svc.items(id) } };
+  }
+
+  /** Mẫu hoá đơn in cho NCC (2026-10-13) — mặt hàng đã xếp theo số lần nhập + cờ bỏ/mới. */
+  @Get(':id/invoice-template')
+  @UseGuards(ReportGuard)
+  async invoiceTemplate(@Param('id') id: string) {
+    return { data: await this.svc.invoiceTemplate(id) };
+  }
+
+  @Put(':id/invoice-template')
+  @UseGuards(AdminGuard)
+  async saveInvoiceTemplate(@Param('id') id: string, @Body() dto: SaveInvoiceTemplateDto) {
+    await this.svc.saveInvoiceTemplate(id, dto.hidden_ingredient_ids);
+    return { data: await this.svc.invoiceTemplate(id) };
   }
 
   /** Nợ cũ (`opening_*`) ghi được bởi MỌI admin từ 2026-09-07 — không truyền `is_owner` nữa. */

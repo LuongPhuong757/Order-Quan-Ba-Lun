@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8" />
+<title>Thẻ để bàn A5 — Quán Bà Lùn</title>
+<style>
+  /* Font thương hiệu nhúng base64 (lấy từ tấm A5 cũ): mở offline, gửi hàng in không rớt dấu. */
+  {{FONTS}}
+
+  :root {
+    --brand-600: #b82a1e;   /* = tokens.css của apps/shop — thẻ in và trang khách cùng một đỏ */
+    --brand-700: #8f1d14;
+    --brand-100: #fbe4de;
+    --paper:     #fdf7ef;
+    --ink:       #2b1a15;
+    --ink-soft:  #6b504a;
+    --gold:      #c08a2e;
+    --ring:      #f2b01e;   /* = màu vòng khoanh trên ảnh chụp màn hình */
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #d9d4cd; font-family: 'Be Vietnam Pro', system-ui, sans-serif; color: var(--ink); }
+
+  /* Bảng hướng dẫn in — chỉ hiện trên màn hình, không bao giờ lên giấy. */
+  .howto { max-width: 148mm; margin: 24px auto; padding: 18px 20px; background: #fff;
+           border: 1px solid #c9c2b9; border-radius: 10px; font-size: 13px; line-height: 1.65; color: #3b3b3b; }
+  .howto h1 { font-family: 'Baloo 2', sans-serif; font-size: 17px; color: var(--brand-700); margin-bottom: 8px; }
+  .howto ol { margin: 6px 0 0 18px; }
+  .howto b { color: var(--brand-700); }
+
+  .sheet { width: 148mm; height: 210mm; margin: 24px auto; background: var(--paper);
+           position: relative; overflow: hidden; box-shadow: 0 2px 14px rgb(0 0 0 / 22%);
+           display: flex; flex-direction: column; align-items: center; }
+  /* Khung viền kép: mép trong đỏ dày, mép ngoài vàng mảnh — nhìn ra ngay là thẻ của quán. */
+  .sheet::before { content: ''; position: absolute; inset: 7mm; border: 0.5mm solid var(--brand-600);
+                   border-radius: 3mm; pointer-events: none; }
+  .sheet::after { content: ''; position: absolute; inset: 8.6mm; border: 0.2mm solid var(--gold);
+                  border-radius: 2.2mm; pointer-events: none; }
+
+  /* ─── MẶT TRƯỚC — chỉ MỘT mã QR, để khách không quét nhầm ───────────── */
+  .front { padding: 15mm 14mm 12mm; justify-content: space-between; text-align: center; }
+  .logo { width: 25mm; height: 25mm; border-radius: 50%; object-fit: cover;
+          border: 0.8mm solid var(--brand-600); box-shadow: 0 0 0 0.5mm var(--paper), 0 0 0 0.9mm var(--gold); }
+  .brand { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 12.5mm; line-height: 1.05;
+           color: var(--brand-600); letter-spacing: -0.2mm; margin-top: 3.5mm; }
+  .rule { display: flex; align-items: center; gap: 2mm; margin-top: 3mm; width: 62mm; }
+  .rule i { flex: 1; height: 0.25mm; background: linear-gradient(90deg, transparent, var(--gold), transparent); }
+  .rule b { color: var(--gold); font-size: 3.4mm; }
+
+  .call { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 7.4mm; color: var(--ink); line-height: 1.2; }
+  .call em { font-style: normal; color: var(--brand-600); }
+
+  .qr-box { background: #fff; border: 0.6mm solid var(--brand-600); border-radius: 3mm;
+            padding: 4.5mm; box-shadow: 0 1mm 3mm rgb(184 42 30 / 12%); display: inline-block; }
+  .qr-box svg { display: block; width: 60mm; height: 60mm; }
+  .qr-cap { font-size: 3.6mm; color: var(--ink-soft); margin-top: 2.6mm; }
+
+  .addr { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.8mm; color: var(--brand-700);
+          background: var(--brand-100); border-radius: 2mm; padding: 1.6mm 5mm; display: inline-block; }
+  .addr-note { font-size: 3.3mm; color: var(--ink-soft); margin-top: 1.8mm; }
+  .turn { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.2mm; color: var(--gold); margin-top: 3mm; }
+
+  /* ─── MẶT SAU — 4 bước, mỗi bước kèm ảnh chụp màn hình thật ──────────── */
+  .back { padding: 12.5mm 12mm 11.5mm; }
+  .back-head { text-align: center; }
+  .back-head h2 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 6.6mm; color: var(--brand-600); line-height: 1.1; }
+  .back-head p { font-size: 3.1mm; color: var(--ink-soft); margin-top: 0.6mm; }
+
+  .steps { list-style: none; width: 100%; margin-top: 5mm; display: flex; flex-direction: column; gap: 3.6mm; }
+  .steps li { display: grid; grid-template-columns: 7mm 1fr 36mm; column-gap: 3mm; align-items: start; }
+  .steps li.noimg { grid-template-columns: 7mm 1fr; }
+  /* print-color-adjust: nền đỏ phải ăn mực, không thì in ra số trắng trên giấy trắng. */
+  .num { width: 7mm; height: 7mm; border-radius: 50%; background: var(--brand-600);
+         color: #fff; font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.2mm;
+         display: flex; align-items: center; justify-content: center; line-height: 1;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .step-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.4mm; color: var(--ink); line-height: 1.2; }
+  .step-d { font-size: 3.1mm; color: var(--ink-soft); line-height: 1.5; margin-top: 0.8mm; }
+  .step-d b { color: var(--brand-700); font-weight: 600; }
+  .key { display: inline-block; background: #fff; border: 0.25mm solid var(--brand-600); border-radius: 1.2mm;
+         padding: 0 1.2mm; color: var(--brand-700); font-weight: 600; white-space: nowrap; line-height: 1.35; }
+  .tip { margin-top: 1.2mm; padding-left: 2.2mm; border-left: 0.5mm solid var(--gold);
+         font-size: 2.85mm; line-height: 1.5; color: var(--ink-soft); }
+  .tip b { color: var(--brand-700); font-weight: 600; }
+
+  .shots { display: flex; flex-direction: column; gap: 1.4mm; }
+  .shots img { display: block; width: 100%; border-radius: 1.8mm; border: 0.25mm solid #e2d6c8; background: #fff; }
+
+  .help { width: 100%; margin-top: 3mm; background: var(--brand-100); border-radius: 2mm;
+          padding: 1.8mm 3mm; display: flex; align-items: center; gap: 3mm;
+          -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .help p { flex: 1; font-size: 3mm; line-height: 1.5; color: var(--ink-soft); }
+  .help p b { color: var(--brand-700); font-weight: 600; }
+  /* Gọi trên nhiều máy: máy 1 đọc mã → máy 2 nhập mã. */
+  .share { width: 100%; margin-top: 4mm; border: 0.35mm solid var(--brand-600); border-radius: 2.5mm;
+           padding: 2.2mm 3.2mm 2.6mm; background: #fff; }
+  .share h3 { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 4.2mm; color: var(--brand-600); line-height: 1.2; }
+  .share-sub { font-size: 2.85mm; color: var(--ink-soft); margin-top: 0.4mm; }
+  .share-row { display: grid; grid-template-columns: 1fr 1fr; column-gap: 5mm; align-items: end; margin-top: 1.6mm; }
+  .share-cap { font-size: 3mm; line-height: 1.45; color: var(--ink-soft); margin-bottom: 1.2mm; }
+  .share-cap b { color: var(--brand-700); font-weight: 600; }
+  .share img { display: block; width: 40mm; border-radius: 1.4mm; border: 0.25mm solid #e2d6c8; }
+  .help img { flex: 0 0 auto; width: 22mm; display: block; border-radius: 1.2mm; }
+
+  .foot { width: 100%; margin-top: auto; padding-top: 2.6mm; border-top: 0.25mm dashed var(--gold);
+          display: flex; align-items: center; gap: 3.2mm; }
+  .foot svg { flex: 0 0 auto; width: 13mm; height: 13mm; background: #fff; padding: 0.8mm;
+              border: 0.25mm solid #d8cbbb; border-radius: 1mm; }
+  .foot-t { font-family: 'Baloo 2', sans-serif; font-weight: 800; font-size: 3.5mm; color: var(--ink); line-height: 1.2; }
+  .foot-t em { font-style: normal; color: var(--brand-600); }
+  .foot-d { font-size: 2.9mm; color: var(--ink-soft); margin-top: 0.6mm; line-height: 1.4; }
+  .foot-d b { color: var(--brand-700); font-weight: 600; }
+
+  @media print {
+    @page { size: A5; margin: 0; }
+    body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .howto { display: none; }
+    .sheet { margin: 0; box-shadow: none; page-break-after: always; break-after: page; }
+    .sheet:last-of-type { page-break-after: auto; break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<div class="howto">
+  <h1>Cách in tấm này</h1>
+  <ol>
+    <li>Nhấn <b>Ctrl + P</b> (Chrome hoặc Edge).</li>
+    <li>Khổ giấy <b>A5</b> &middot; Lề <b>None / Không</b> &middot; bật <b>Background graphics</b> (In nền &amp; hình).</li>
+    <li>Hai mặt: <b>In hai mặt &mdash; lật theo cạnh dài</b>. Máy chỉ in một mặt thì in trang 1, lật giấy, in trang 2.</li>
+    <li>Giấy khuyên dùng: <b>couché 250&ndash;300gsm</b> cán mờ. Cắm giá mica A5 để trên bàn.</li>
+  </ol>
+  <p style="margin-top:8px">Bảng này chỉ hiện trên màn hình &mdash; không in ra giấy. Chỉ in sau khi tính năng gọi món tại bàn (M7) đã lên production.</p>
+</div>
+
+<!-- ════ MẶT TRƯỚC — logo + tên quán + MỘT mã QR gọi món ════ -->
+<section class="sheet front">
+  <div style="display:flex;flex-direction:column;align-items:center">
+    <img class="logo" src="{{LOGO}}" alt="Logo Quán Bà Lùn" />
+    <div class="brand">Quán Bà Lùn</div>
+    <div class="rule"><i></i><b>&#10022;</b><i></i></div>
+  </div>
+
+  <div class="call">Quét mã để<br /><em>xem menu &amp; gọi món</em></div>
+
+  <div>
+    <div class="qr-box">{{QR_MENU}}</div>
+    <div class="qr-cap">Mở camera điện thoại &amp; đưa vào khung</div>
+  </div>
+
+  <div>
+    <div class="addr">menu.quanbalun.site</div>
+    <div class="addr-note">Không cần tải ứng dụng &middot; Không cần đăng nhập</div>
+    <div class="turn">Hướng dẫn từng bước ở mặt sau &#8635;</div>
+  </div>
+</section>
+
+<!-- ════ MẶT SAU — hướng dẫn 4 bước ════ -->
+<section class="sheet back">
+  <div class="back-head">
+    <h2>Cách gọi món bằng điện thoại</h2>
+    <p>Bốn bước &mdash; chưa tới một phút</p>
+  </div>
+
+  <ol class="steps">
+    <li class="noimg">
+      <div class="num">1</div>
+      <div>
+        <div class="step-t">Quét mã QR ở mặt trước</div>
+        <div class="step-d">Mở camera, đưa vào mã. Thực đơn mở ngay, <b>không cần tải ứng dụng</b>.</div>
+      </div>
+    </li>
+    <li>
+      <div class="num">2</div>
+      <div>
+        <div class="step-t">Nhập số bàn</div>
+        <div class="step-d">Gõ <b>số dán trên bàn</b>, bấm <span class="key">Tiếp tục</span>. Đúng bàn thì bấm <span class="key">Đúng rồi</span>.</div>
+        <div class="tip">Máy hỏi <b>mã bàn 4 số</b>? Xem mục bên dưới.</div>
+      </div>
+      <div class="shots">
+        <img src="{{IMG:b2-dung-roi}}" alt="Hộp xác nhận bàn, nút Đúng rồi" />
+      </div>
+    </li>
+    <li>
+      <div class="num">3</div>
+      <div>
+        <div class="step-t">Bấm <span class="key">+</span> để chọn món</div>
+        <div class="step-d">Bấm thêm để tăng phần. Chạm vào món để <b>ghi chú</b> (&ldquo;ít cay&rdquo;, &ldquo;không hành&rdquo;).</div>
+      </div>
+      <div class="shots"><img src="{{IMG:b3-chon-mon}}" alt="Danh sách món với nút cộng" /></div>
+    </li>
+    <li>
+      <div class="num">4</div>
+      <div>
+        <div class="step-t">Mở giỏ &rarr; Gửi cho quán</div>
+        <div class="step-d">Bấm thanh <b>&ldquo;... món đã chọn&rdquo;</b> ở cuối màn hình, xem lại rồi bấm <span class="key">Gửi cho quán</span>.</div>
+        <div class="tip">Quán <b>xác nhận</b> rồi món mới vào bếp &middot; giá <b>tạm tính</b>.</div>
+      </div>
+      <div class="shots">
+        <img src="{{IMG:b4-gio}}" alt="Thanh giỏ món đã chọn" />
+        <img src="{{IMG:b4-gui}}" alt="Nút Gửi cho quán" />
+      </div>
+    </li>
+  </ol>
+
+  <div class="share">
+    <h3>&#128101; Cả bàn cùng gọi trên nhiều điện thoại</h3>
+    <div class="share-sub">Chỉ cần mã khi quán đã nhận món của bàn &middot; Quên mã thì hỏi nhân viên.</div>
+    <div class="share-row">
+      <div>
+        <div class="share-cap"><b>Máy đã gọi:</b> bấm ô <b>Bàn của bạn</b>, đọc <b>mã bàn</b> cho bạn.</div>
+        <img src="{{IMG:b6-ma-ban}}" alt="Ô Mã bàn của bạn trên máy người đã gọi món" />
+      </div>
+      <div>
+        <div class="share-cap"><b>Máy kia:</b> quét mã, nhập số bàn rồi <b>nhập mã</b> đó.</div>
+        <img src="{{IMG:b6-nhap-ma}}" alt="Ô nhập mã bàn trên máy thứ hai" />
+      </div>
+    </div>
+  </div>
+
+  <div class="help">
+    <p><b>&#128276; Cần gì thêm?</b> Bấm ô <b>Bàn của bạn</b> ở góc trên để gọi thêm món, gọi nhân viên hoặc xin tính tiền.</p>
+    </div>
+
+  <div class="foot">
+    {{QR_WEB}}
+    <div>
+      <div class="foot-t">Đặt món <em>giao tận nhà</em>: quanbalun.site</div>
+      <div class="foot-d">Fanpage <b>facebook.com/quanbalun</b> &middot; Hotline/Zalo <b>0338 865 217</b></div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

@@ -6,9 +6,12 @@ import { apiOk, type ApiOk } from '@order/utils';
 import type { PublicMenuGroup } from '@order/schemas';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { MenuGroup } from '../menu/entities/menu-group.entity.js';
+import { MenuCombo } from '../menu/entities/menu-combo.entity.js';
+import { MenuFeaturedItem } from '../menu/entities/menu-featured-item.entity.js';
 import { toPublicMenuGroup, toPublicMenuItem } from './public-menu.mapper.js';
 
 type PublicMenuResponse = { groups: PublicMenuGroup[] };
+type PublicCombo = { id: string; name: string; emoji: string | null; item_ids: string[] };
 
 /**
  * GET /api/public/menu — trang khách tải 1 lần toàn bộ menu (D-03: không phân trang, không
@@ -29,7 +32,29 @@ export class PublicMenuController {
   constructor(
     @InjectRepository(MenuItem) private readonly itemRepo: Repository<MenuItem>,
     @InjectRepository(MenuGroup) private readonly groupRepo: Repository<MenuGroup>,
+    @InjectRepository(MenuCombo) private readonly comboRepo: Repository<MenuCombo>,
+    @InjectRepository(MenuFeaturedItem) private readonly featuredRepo: Repository<MenuFeaturedItem>,
   ) {}
+
+  /**
+   * GET /api/public/menu-combos — combo gợi ý món chủ quán đang BẬT + danh sách "món đề xuất"
+   * (2026-10-03), cho nhân vật ở thực đơn tại bàn mời món. id món là id thật, trang khách tra tên,
+   * giá, còn hàng từ thực đơn nó đã tải — món bị ẩn/xoá không có trong thực đơn thì tự bị bỏ qua.
+   * `no-store`: chủ quán sửa combo xong mở thực đơn thử ngay — bản trước để `max-age=60` và trang
+   * khách cứ mời theo combo đã xoá (đo 2026-10-03). Truy vấn hai bảng nhỏ, không đáng cache.
+   */
+  @Get('menu-combos')
+  @Header('Cache-Control', 'no-store')
+  async getCombos(): Promise<ApiOk<{ combos: PublicCombo[]; featured: string[] }>> {
+    const [rows, featured] = await Promise.all([
+      this.comboRepo.find({ where: { is_active: true }, order: { sort_order: 'ASC', created_at: 'ASC' } }),
+      this.featuredRepo.find({ order: { sort_order: 'ASC' } }),
+    ]);
+    return apiOk({
+      combos: rows.map((c) => ({ id: c.id, name: c.name, emoji: c.emoji, item_ids: c.item_ids })),
+      featured: featured.map((f) => f.menu_item_id),
+    });
+  }
 
   @Get('menu')
   @Header('Cache-Control', 'no-store')

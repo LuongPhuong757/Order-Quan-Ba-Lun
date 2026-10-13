@@ -20,6 +20,9 @@ export function toPublicMenuItem(m: MenuItem): PublicMenuItem {
     unit: m.unit,
     images: m.image_url ? [m.image_url] : [],
     is_out_of_stock: m.is_out_of_stock,
+    // Mô tả + mấy người ăn (2026-10-05). Hai cột này CỐ Ý công khai: chúng sinh ra để khách đọc.
+    description: m.description ?? null,
+    serves: m.serves ?? null,
   };
   return PublicMenuItem.strict().parse(out);
 }
