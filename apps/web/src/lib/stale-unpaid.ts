@@ -16,6 +16,9 @@ export type StaleUnpaidItem = {
   label: string;
   opened_at: number;
   open_ms: number;
+  /** `open` = mở quá ngưỡng chung; `done` = mang về / ship bếp xong quá 1 tiếng (2026-10-13). */
+  reason: 'open' | 'done';
+  done_age_ms: number | null;
 };
 
 export type StaleUnpaid = { threshold_min: number; items: StaleUnpaidItem[] };

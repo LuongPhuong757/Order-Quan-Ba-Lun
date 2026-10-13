@@ -60,3 +60,58 @@ describe('pickStaleUnpaid — chữ trên dải đỏ', () => {
     expect(out[0].label).toBe('Bàn 1 · Chị Hoa');
   });
 });
+
+// Chủ quán chốt 2026-10-13: đơn MANG VỀ / SHIP thì khách không ngồi lại, đồ xong là khách cầm
+// đi — nên nhắc sau 1 TIẾNG kể từ lúc bếp làm xong món cuối, không đợi tới ngưỡng tính từ lúc mở.
+describe('pickStaleUnpaid — mang về / ship nhắc sau 1 tiếng khi món đã xong', () => {
+  const doneAgo = (min: number) => NOW - min * MIN;
+
+  it('mang về xong được 60 phút → báo dù mở chưa tới ngưỡng', () => {
+    const out = pickStaleUnpaid(
+      [row('1', 70, { table_kind: 'takeaway', done_ms: doneAgo(60) })],
+      NOW,
+      180,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0].reason).toBe('done');
+    expect(out[0].done_age_ms).toBe(60 * MIN);
+  });
+
+  it('ship xong mới 59 phút → chưa báo', () => {
+    const out = pickStaleUnpaid(
+      [row('1', 70, { table_kind: 'delivery', done_ms: doneAgo(59) })],
+      NOW,
+      180,
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('mang về còn món chưa xong (done_ms null) → không báo theo luật 1 tiếng', () => {
+    const out = pickStaleUnpaid([row('1', 90, { table_kind: 'takeaway', done_ms: null })], NOW, 180);
+    expect(out).toEqual([]);
+  });
+
+  it('mang về chưa xong nhưng đã mở quá ngưỡng chung → vẫn báo (lưới an toàn)', () => {
+    const out = pickStaleUnpaid([row('1', 200, { table_kind: 'takeaway', done_ms: null })], NOW, 180);
+    expect(out[0].reason).toBe('open');
+  });
+
+  it('bàn TẠI CHỖ món xong 2 tiếng vẫn KHÔNG báo — khách còn ngồi, giữ luật cũ', () => {
+    const out = pickStaleUnpaid([row('1', 150, { table_kind: 'dine-in', done_ms: doneAgo(120) })], NOW, 180);
+    expect(out).toEqual([]);
+  });
+
+  it('chủ quán tắt cảnh báo (ngưỡng 0) thì mang về cũng không báo', () => {
+    const out = pickStaleUnpaid([row('1', 90, { table_kind: 'takeaway', done_ms: doneAgo(80) })], NOW, 0);
+    expect(out).toEqual([]);
+  });
+
+  it('done_ms dạng STRING từ mysql2 vẫn tính đúng', () => {
+    const out = pickStaleUnpaid(
+      [row('1', 90, { table_kind: 'takeaway', done_ms: String(doneAgo(61)) })],
+      NOW,
+      180,
+    );
+    expect(out[0].done_age_ms).toBe(61 * MIN);
+  });
+});
