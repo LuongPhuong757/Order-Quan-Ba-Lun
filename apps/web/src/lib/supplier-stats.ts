@@ -252,6 +252,9 @@ export type DebtFlowRow = {
   paid: number;
 };
 
+/** Một ngày doanh thu bán hàng — lấy từ `revenue_by_day` của `GET /orders/stats`. */
+export type RevenueDayRow = { day: string; revenue: number };
+
 export type DebtChart = {
   bucket: Bucket;
   labels: string[];
@@ -261,8 +264,11 @@ export type DebtChart = {
   daTra: number[];
   /** Dư nợ còn lại ở CUỐI mỗi mốc — đường luỹ kế. */
   duNo: number[];
+  /** Doanh thu bán hàng theo từng mốc trục (2026-10-13) — để so tiền vào với tiền ra NCC. */
+  doanhThu: number[];
   tongNoMoi: number;
   tongDaTra: number;
+  tongDoanhThu: number;
   /** Dư nợ ở cuối kỳ. Phải TRÙNG ô "Còn phải trả" của màn — xem docblock dưới. */
   duNoCuoi: number;
 };
@@ -285,11 +291,17 @@ export type DebtChart = {
  * trả" khi kỳ kết thúc ở hôm nay. Trùng được là vì `opening` của server đã gồm cả
  * `suppliers.opening_balance` (nợ cũ ngoài hệ thống). Đổi một trong hai chỗ mà quên chỗ kia
  * thì màn hiện hai con số nợ khác nhau — xem `tongConPhaiTra`.
+ *
+ * ── Doanh thu (2026-10-13, chủ quán yêu cầu) ──
+ * `revenue` là doanh thu bán hàng TOÀN QUÁN theo ngày (cùng số với màn Lịch sử), gộp vào CÙNG
+ * mốc trục để đọc chéo "hôm đó bán được bao nhiêu, nhập nợ bao nhiêu, trả NCC bao nhiêu". Nó
+ * KHÔNG đụng tới `duNo` — doanh thu không trả nợ NCC tự động.
  */
 export function buildDebtChart(
   opening: number,
   rows: DebtFlowRow[],
   range: { from: string; to: string },
+  revenue: RevenueDayRow[] = [],
 ): DebtChart {
   const rong: DebtChart = {
     bucket: 'day',
@@ -297,13 +309,17 @@ export function buildDebtChart(
     noMoi: [],
     daTra: [],
     duNo: [],
+    doanhThu: [],
     tongNoMoi: 0,
     tongDaTra: 0,
+    tongDoanhThu: 0,
     duNoCuoi: opening,
   };
-  if (rows.length === 0) return rong;
+  if (rows.length === 0 && revenue.length === 0) return rong;
 
-  const ngay = rows.map((r) => r.day).sort();
+  // Trục phủ cả ngày có nợ LẪN ngày có doanh thu: kỳ "Tất cả" (from/to rỗng) mà chỉ lấy ngày
+  // của nợ thì doanh thu những ngày chưa nhập hàng bị cắt mất.
+  const ngay = [...rows.map((r) => r.day), ...revenue.map((r) => r.day)].sort();
   const from = range.from || ngay[0];
   const to = range.to || ngay[ngay.length - 1];
   const soNgay = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS) + 1;
@@ -318,6 +334,14 @@ export function buildDebtChart(
     if (i === undefined) continue; // ngoài kỳ — server đã lọc, đây chỉ là chốt chặn
     noMoi[i] += r.incurred;
     daTra[i] += r.paid;
+  }
+  const doanhThu = new Array<number>(khoas.length).fill(0);
+  let tongDoanhThu = 0;
+  for (const r of revenue) {
+    const i = viTri.get(khoaBucket(r.day, bucket));
+    if (i === undefined) continue;
+    doanhThu[i] += r.revenue;
+    tongDoanhThu += r.revenue;
   }
 
   // Dư nợ ở CUỐI mỗi mốc, không phải đầu: con số người ta muốn đọc là "hết ngày hôm đó quán
@@ -339,8 +363,10 @@ export function buildDebtChart(
     noMoi,
     daTra,
     duNo,
+    doanhThu,
     tongNoMoi: congNo,
     tongDaTra: congTra,
+    tongDoanhThu,
     duNoCuoi: con,
   };
 }

@@ -383,3 +383,37 @@ describe('buildDebtChart — biến động công nợ', () => {
     expect(c.duNoCuoi).toBe(700_000);
   });
 });
+
+// Chủ quán yêu cầu 2026-10-13: thêm doanh thu bán hàng theo ngày vào biểu đồ "Nợ mới và tiền
+// đã trả" để so tiền vào (bán) với tiền ra (nhập/trả NCC) trên cùng trục.
+describe('buildDebtChart — đường doanh thu', () => {
+  const range = { from: '2026-10-01', to: '2026-10-03' };
+
+  it('doanh thu rơi đúng mốc ngày, cộng tổng trong kỳ', () => {
+    const c = buildDebtChart(
+      0,
+      [{ day: '2026-10-01', incurred: 100, paid: 0 }],
+      range,
+      [
+        { day: '2026-10-01', revenue: 500 },
+        { day: '2026-10-03', revenue: 700 },
+      ],
+    );
+    expect(c.doanhThu).toEqual([500, 0, 700]);
+    expect(c.tongDoanhThu).toBe(1200);
+  });
+
+  it('kỳ chỉ có doanh thu, chưa có phiếu nhập → vẫn dựng trục', () => {
+    const c = buildDebtChart(0, [], range, [{ day: '2026-10-02', revenue: 300 }]);
+    expect(c.labels).toHaveLength(3);
+    expect(c.doanhThu).toEqual([0, 300, 0]);
+    expect(c.noMoi).toEqual([0, 0, 0]);
+  });
+
+  it('không truyền doanh thu → đường doanh thu toàn 0, không đổi gì phần nợ', () => {
+    const c = buildDebtChart(10, [{ day: '2026-10-02', incurred: 5, paid: 1 }], range);
+    expect(c.doanhThu).toEqual([0, 0, 0]);
+    expect(c.tongDoanhThu).toBe(0);
+    expect(c.duNoCuoi).toBe(14);
+  });
+});
