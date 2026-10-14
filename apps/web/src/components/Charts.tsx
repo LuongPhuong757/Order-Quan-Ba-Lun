@@ -522,6 +522,7 @@ export function GroupedBarChart({
   ariaLabel,
   tiLeCot = 0.72,
   rongCotToiDa = 44,
+  chuGiai = true,
 }: {
   labels: string[];
   series: LineSeries[];
@@ -532,6 +533,9 @@ export function GroupedBarChart({
   tiLeCot?: number;
   /** Chặn trên cho bề ngang cả nhóm — trục ít mốc mà không chặn thì cột phình ra lố bịch. */
   rongCotToiDa?: number;
+  /** `false` = màn gọi tự vẽ nút bật/tắt chuỗi (to hơn, đặt trên biểu đồ) và tự lọc `series`
+   *  trước khi truyền vào. Để thêm chú giải nhỏ ở đây là hai bộ nút làm cùng một việc. */
+  chuGiai?: boolean;
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [w, setW] = useState(720);
@@ -657,7 +661,7 @@ export function GroupedBarChart({
         )}
       </div>
 
-      <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />
+      {chuGiai && <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />}
     </div>
   );
 }
