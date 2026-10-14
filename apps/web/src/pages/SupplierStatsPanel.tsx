@@ -82,6 +82,10 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
   /** Doanh thu bán hàng TOÀN QUÁN theo ngày (2026-10-13, chủ quán yêu cầu) — đường thứ ba của
    *  biểu đồ "Nợ mới và tiền đã trả", để so tiền bán vào với tiền nhập/trả NCC. */
   const [doanhThuNgay, setDoanhThuNgay] = useState<RevenueDayRow[]>([]);
+  /** Các cột đang TẮT ở biểu đồ "Nợ mới và tiền đã trả" (2026-10-14, chủ quán yêu cầu). Mặc định
+   *  bật cả ba; không nhớ qua lần mở sau — chủ quán chọn vậy. Nút bật/tắt cũ của biểu đồ là chú
+   *  giải chữ 12px nằm dưới đáy, không ai biết bấm được, nên chuyển thành ba nút to phía trên. */
+  const [noTat, setNoTat] = useState<ReadonlySet<string>>(() => new Set<string>());
 
   const [itemSort, setItemSort] = useState<ItemSort>('amount');
   const [itemChieu, setItemChieu] = useState<Chieu>('desc');
@@ -175,6 +179,14 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     ],
     [no],
   );
+  const noSeriesHien = useMemo(() => noSeries.filter((x) => !noTat.has(x.id)), [noSeries, noTat]);
+  const batTatNo = (id: string) =>
+    setNoTat((cu) => {
+      const moi = new Set(cu);
+      if (moi.has(id)) moi.delete(id);
+      else moi.add(id);
+      return moi;
+    });
   const duNoSeries = useMemo<LineSeries[]>(
     () => [{ id: 'du-no', name: 'Còn nợ cuối kỳ', color: '#b45309', values: no.duNo }],
     [no],
@@ -340,12 +352,69 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                 <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập, lần trả tiền hay doanh thu nào trong kỳ này.</p>
               ) : (
                 <>
-                  <GroupedBarChart
-                    labels={no.labels}
-                    series={noSeries}
-                    formatValue={(v) => `${tienGon(v)}đ`}
-                    ariaLabel={`Nợ mới, tiền đã trả và doanh thu qua ${no.labels.length} mốc thời gian`}
-                  />
+                  <div style={{ fontSize: 13, color: C.muted, marginBottom: 6 }}>Bấm để ẩn/hiện từng loại cột:</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                    {noSeries.map((x) => {
+                      const bat = !noTat.has(x.id);
+                      return (
+                        <button
+                          key={x.id}
+                          type="button"
+                          aria-pressed={bat}
+                          onClick={() => batTatNo(x.id)}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            minHeight: 44,
+                            padding: '0 14px',
+                            borderRadius: 10,
+                            border: `2px solid ${bat ? x.color : '#d1d5db'}`,
+                            background: bat ? `${x.color}14` : '#fff',
+                            color: bat ? '#1f2937' : '#9ca3af',
+                            fontSize: 15,
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn "✓" hiểu ngay là đang bật. */}
+                          <span
+                            style={{
+                              width: 20,
+                              height: 20,
+                              borderRadius: 5,
+                              border: `2px solid ${bat ? x.color : '#d1d5db'}`,
+                              background: bat ? x.color : '#fff',
+                              color: '#fff',
+                              fontSize: 14,
+                              lineHeight: '16px',
+                              textAlign: 'center',
+                              flexShrink: 0,
+                            }}
+                          >
+                            {bat ? '✓' : ''}
+                          </span>
+                          <span>{x.name}</span>
+                          <strong style={{ color: bat ? '#1f2937' : '#9ca3af' }}>
+                            {tienGon(x.values.reduce((a, b) => a + b, 0))}đ
+                          </strong>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {noSeriesHien.length === 0 ? (
+                    <p style={{ color: C.muted, margin: '20px 0', textAlign: 'center' }}>
+                      Đang ẩn hết. Bấm một nút ở trên để hiện lại.
+                    </p>
+                  ) : (
+                    <GroupedBarChart
+                      labels={no.labels}
+                      series={noSeriesHien}
+                      chuGiai={false}
+                      formatValue={(v) => `${tienGon(v)}đ`}
+                      ariaLabel={`${noSeriesHien.map((x) => x.name).join(', ')} qua ${no.labels.length} mốc thời gian`}
+                    />
+                  )}
                   <div style={{ marginTop: 10, fontSize: 13, color: C.muted }}>
                     Doanh thu trong kỳ: <strong style={{ color: '#2563eb' }}>{vnd(no.tongDoanhThu)}đ</strong>
                   </div>
