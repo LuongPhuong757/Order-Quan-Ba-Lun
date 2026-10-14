@@ -66,15 +66,19 @@ const ComboResponse = z.object({
 
 /* Khách tắt nhân vật (chủ quán chốt 2026-10-03: ẩn là ẩn HẲN, kể cả lời mời món). Nhớ trên máy
  * khách (localStorage, không theo lượt) — người đã thấy phiền thì quét QR lần sau cũng không muốn
- * gặp lại. Safari riêng tư không ghi được thì chỉ ẩn trong lượt này. */
+ * gặp lại. Safari riêng tư không ghi được thì chỉ ẩn trong lượt này.
+ *
+ * MẶC ĐỊNH ẨN (chủ quán chốt 2026-10-14): máy chưa từng bấm gì → ẩn, chỉ còn nút 🐾 để gọi ra.
+ * Máy đã bấm HIỆN thì đã lưu '0' → vẫn hiện, tôn trọng lựa chọn cũ. Vì vậy phải so `!== '0'`
+ * chứ không phải `=== '1'`; và KHÔNG đổi tên key, đổi là xoá luôn lựa chọn của khách cũ. */
 const MASCOT_HIDDEN_KEY = 'qbl.mascot_hidden.v1';
 /** Mảng rỗng CỐ ĐỊNH — `?? []` tạo mảng mới mỗi lần vẽ, làm hàm gợi ý đổi danh tính liên tục. */
 const NO_COMBOS: never[] = [];
 function readMascotHidden(): boolean {
   try {
-    return localStorage.getItem(MASCOT_HIDDEN_KEY) === '1';
+    return localStorage.getItem(MASCOT_HIDDEN_KEY) !== '0';
   } catch {
-    return false;
+    return true;
   }
 }
 
