@@ -3,12 +3,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../auth/auth.module.js';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
+import { BankTxnAssignment } from './entities/bank-txn-assignment.entity.js';
+import { Order } from '../orders/entities/order.entity.js';
+import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { PaymentsApplyService } from './payments-apply.service.js';
 import { PaymentsWebhookController } from './payments-webhook.controller.js';
 import { PosPaymentsController } from './pos-payments.controller.js';
 import { AdminReconcileController } from './admin-reconcile.controller.js';
 import { SepayBackfillJob } from './sepay-backfill.job.js';
 import { BankLedgerController } from './bank-ledger.controller.js';
+import { BankLedgerLinkService } from './bank-ledger-link.service.js';
 import { PaymentsService } from './payments.service.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 
@@ -29,7 +33,15 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
  */
 @Module({
   imports: [
-    TypeOrmModule.forFeature([PaymentIntent, BankTransaction, PaymentQrAccount]),
+    TypeOrmModule.forFeature([
+      PaymentIntent,
+      BankTransaction,
+      PaymentQrAccount,
+      // Sổ webhook nối tiền về với bàn/đơn (2026-10-15) — chỉ ĐỌC hai bảng của module khác.
+      BankTxnAssignment,
+      Order,
+      RestaurantTable,
+    ]),
     // `JwtAuthGuard` (dùng ở controller quầy + đối soát) cần `JwtService`, và Nest chỉ tìm nó
     // trong các module ĐƯỢC IMPORT — không có dòng này thì app chết ngay lúc khởi động với
     // "Nest can't resolve dependencies of the JwtAuthGuard", chứ không phải 500 lúc gọi API.
@@ -41,7 +53,7 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
     AdminReconcileController,
     BankLedgerController,
   ],
-  providers: [PaymentsApplyService, PaymentsService, SepayBackfillJob],
+  providers: [PaymentsApplyService, PaymentsService, SepayBackfillJob, BankLedgerLinkService],
   exports: [PaymentsApplyService, PaymentsService],
 })
 export class PaymentsModule {}

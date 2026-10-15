@@ -1,6 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, IsNull, Repository } from 'typeorm';
+import { Between, Repository } from 'typeorm';
 import { apiOk, type ApiOk } from '@order/utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -89,12 +89,17 @@ export class AdminReconcileController {
     }));
 
     const unknown = (
-      await this.txns.find({
+      await this.txns
+        .createQueryBuilder('t')
+        .where('t.applied_intent_id IS NULL')
         // `direction: 'in'`: tiền ra cũng để `applied_intent_id` NULL nhưng không phải "tiền lạ".
-        where: { applied_intent_id: IsNull(), direction: 'in', occurred_at: Between(fromMs, toMs) },
-        order: { occurred_at: 'DESC' },
-        take: 50,
-      })
+        .andWhere("t.direction = 'in'")
+        .andWhere('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) })
+        // Đã gán tay ở sổ webhook (2026-10-15) thì không còn là tiền lạ.
+        .andWhere('NOT EXISTS (SELECT 1 FROM bank_txn_assignments bta WHERE bta.bank_txn_id = t.id)')
+        .orderBy('t.occurred_at', 'DESC')
+        .take(50)
+        .getMany()
     ).map((t) => ({
       amount: t.amount,
       content: t.content,

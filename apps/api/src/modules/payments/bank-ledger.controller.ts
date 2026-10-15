@@ -1,10 +1,12 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { apiOk, type ApiOk } from '@order/utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
+import { BankLedgerLinkService, type Candidate, type TxnLink } from './bank-ledger-link.service.js';
 
 /**
  * Một webhook SePay đã gửi về, BÀY ĐÚNG THỨ HỌ GỬI.
@@ -13,9 +15,16 @@ import { BankTransaction } from './entities/bank-transaction.entity.js';
  * — chủ quán xem xong nói "thông tin rất loạn" (2026-09-23), và đúng: trộn dữ liệu thô với kết
  * luận của hệ thống thì người đọc không biết dòng nào là sự thật của ngân hàng, dòng nào là ý
  * kiến của phần mềm. Phán xét đã có chỗ khác lo (cột "Xác thực" ở màn Lịch sử).
+ *
+ * NGOẠI LỆ DUY NHẤT (chủ quán chốt 2026-10-15): trường `link` — khoản tiền này thuộc BÀN nào và
+ * bàn đó đang ra sao. Lý do: khách chuyển khoản xong mà nhân viên không bấm thanh toán thì bàn cứ
+ * mở mãi, và sổ này là chỗ duy nhất tiền thật đi vào. Bốn trường thô ở trên giữ nguyên; `link` nằm
+ * ở MỘT cột riêng trên màn để người đọc vẫn tách được "ngân hàng nói" với "phần mềm hiểu".
  */
 /** Bốn thứ chủ quán muốn thấy, không hơn (chốt 2026-09-23) — cộng chiều tiền (2026-10-10). */
 export type WebhookRow = {
+  /** `bank_transactions.id` — khoá để gán/gỡ tay. */
+  id: string;
   /** Khoá chống trùng của SePay — không hiện ra màn, nhưng React cần một khoá ổn định cho danh sách. */
   gateway_txn_id: string;
   /** Giờ NGÂN HÀNG ghi có. Không trả giờ nhận webhook nữa: hai cái mốc gần như luôn trùng nhau
@@ -26,12 +35,14 @@ export type WebhookRow = {
   direction: 'in' | 'out';
   amount: number;
   content: string;
+  /** `null` với tiền ra — tiền ra không thuộc bàn nào. */
+  link: TxnLink | null;
 };
 
 /**
  * Sổ webhook ngân hàng (2026-09-23) — nhật ký thô mọi lần SePay gọi tới.
  *
- * CHỈ ADMIN. CHỈ ĐỌC. Không cờ, không khớp đơn, không diễn giải.
+ * CHỈ ADMIN. Đọc thô + nối bàn (2026-10-15) + gán/gỡ tay tiền lạ vào đơn (xem `BankLedgerLinkService`).
  *
  * ⚠ Chỉ thấy tài khoản đã nối với cổng. Khách chuyển sang tài khoản chưa nối hoặc sang người lạ
  * thì KHÔNG có dòng nào ở đây — ca đó lộ ra ở cột "Xác thực" của màn Lịch sử.
@@ -39,7 +50,10 @@ export type WebhookRow = {
 @Controller('payments')
 @UseGuards(JwtAuthGuard, AdminGuard)
 export class BankLedgerController {
-  constructor(@InjectRepository(BankTransaction) private readonly txns: Repository<BankTransaction>) {}
+  constructor(
+    @InjectRepository(BankTransaction) private readonly txns: Repository<BankTransaction>,
+    private readonly links: BankLedgerLinkService,
+  ) {}
 
   /**
    * `from`/`to` epoch ms (mặc định 7 ngày gần nhất) · `account` số tài khoản nhận · `q` tìm trong
@@ -92,20 +106,50 @@ export class BankLedgerController {
       .take(size)
       .getMany();
 
+    const links = await this.links.linksFor(rows);
     return apiOk({
       items: rows.map((r) => ({
+        id: r.id,
         gateway_txn_id: r.gateway_txn_id,
         occurred_at: r.occurred_at,
         bank: bankNameOf(r),
         direction: r.direction,
         amount: r.amount,
         content: r.content,
+        link: links.get(r.id) ?? null,
       })),
       total,
       page: p,
       page_size: size,
       banks: await this.banksInRange(fromMs, toMs),
     });
+  }
+
+  /** Đơn có thể nhận khoản tiền lạ `id` — đã thu, có CK, chưa ✓, đóng trong ±24 giờ quanh giờ
+   *  tiền về; đúng số tiền lên đầu. */
+  @Get('transactions/:id/candidates')
+  async candidates(@Param('id') id: string): Promise<ApiOk<{ items: Candidate[] }>> {
+    return apiOk({ items: await this.links.candidates(id) });
+  }
+
+  /** Gán tay khoản tiền lạ `id` vào một đơn. Ai gán ghi ở `audit_log` (`bank_txn.assigned`). */
+  @Post('transactions/:id/assign')
+  @HttpCode(200)
+  async assign(
+    @Param('id') id: string,
+    @Body() body: { order_id?: unknown },
+    @Req() req: Request,
+  ): Promise<ApiOk<{ bank_txn_id: string; order_id: string; amount: number; table: string }>> {
+    const orderId = typeof body?.order_id === 'string' ? body.order_id.trim() : '';
+    return apiOk(
+      await this.links.assign(id, orderId, { id: req.user?.sub ?? null, name: req.user?.full_name ?? null }),
+    );
+  }
+
+  /** Gỡ gán — khoản tiền quay về "Chưa khớp". Vết ở `audit_log` (`bank_txn.unassigned`). */
+  @Delete('transactions/:id/assign')
+  async unassign(@Param('id') id: string): Promise<ApiOk<{ bank_txn_id: string; order_id: string }>> {
+    return apiOk(await this.links.unassign(id));
   }
 
   /**
