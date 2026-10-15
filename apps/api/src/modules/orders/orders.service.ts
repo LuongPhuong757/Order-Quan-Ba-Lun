@@ -15,6 +15,8 @@ import { TableGuestSession } from '../public/entities/table-guest-session.entity
 import { randomInt } from 'node:crypto';
 import { PaymentIntent } from '../payments/entities/payment-intent.entity.js';
 import { BankTxnAssignment } from '../payments/entities/bank-txn-assignment.entity.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
+import { HKD_SQL } from './hkd-sql.js';
 import { BANK_VERIFIED_EXISTS_SQL } from '../payments/bank-verified-sql.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
@@ -1851,6 +1853,14 @@ export class OrdersService {
       });
     }
     const was = order.misa_copied_at != null;
+    // Chỉ đơn thu qua mã HKD mới được TICK (2026-10-15). Bỏ tick thì luôn cho: đơn cũ đã lỡ tick
+    // trước khi có luật này vẫn phải gỡ ra được.
+    if (copied && !was && !(await this.isHkdOrder(order))) {
+      throw new BadRequestException({
+        code: 'NOT_HKD_ORDER',
+        message: 'Đơn này không thu qua mã QR HKD — không cần gõ sang MISA',
+      });
+    }
     if (copied) {
       // Giữ nguyên mốc cũ khi tick lại lần nữa: mốc đầu tiên mới là lúc gõ thật.
       if (!was) {
@@ -1879,6 +1889,14 @@ export class OrdersService {
       });
     }
     return order;
+  }
+
+  /** Đơn có thu qua mã QR mang cờ HKD không — bản một-đơn của `HKD_SQL`. */
+  private async isHkdOrder(order: Order): Promise<boolean> {
+    if (order.transfer_amount <= 0 || !order.paid_to_account_id) return false;
+    return this.orderRepo.manager.exists(PaymentQrAccount, {
+      where: { id: order.paid_to_account_id, is_hkd: true },
+    });
   }
 
   /** Lịch sử order — bao gồm cả paid (closed) + unpaid (open).
@@ -1938,9 +1956,11 @@ export class OrdersService {
     else if (status === 'debt') wheres.push(DEBT_SQL);
     else if (status === 'cancelled') wheres.push(CANCELLED_SQL);
     else if (status === 'unpaid') wheres.push(`o.closed_at IS NULL AND ${HAS_ALIVE_ITEMS_SQL}`);
-    // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS.
-    if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NULL`);
-    else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND o.misa_copied_at IS NOT NULL`);
+    // Đối soát MISA — luôn kèm PAID_SQL: chỉ đơn đã thu tiền mới có bill để gõ sang AMIS. Và chỉ
+    // đơn thu qua mã HKD (2026-10-15): đơn tiền mặt / mã người nhà không phải kê, để lẫn vào là
+    // danh sách việc đầy đơn không ai cần làm.
+    if (opts.misa === 'pending') wheres.push(`${PAID_SQL} AND ${HKD_SQL} AND o.misa_copied_at IS NULL`);
+    else if (opts.misa === 'copied') wheres.push(`${PAID_SQL} AND ${HKD_SQL} AND o.misa_copied_at IS NOT NULL`);
     if (opts.payment) wheres.push(paymentKindSql(opts.payment));
     if (opts.verified) wheres.push(verifiedSql(opts.verified));
     if (opts.photo) wheres.push(photoSql(opts.photo));
@@ -2064,9 +2084,26 @@ export class OrdersService {
       for (const r of photos) photoCount.set(String(r.order_id), Number(r.n));
     }
 
+    /** Mã QR nào là của HKD (2026-10-15) — FE chỉ hiện nút Misa cho đơn thu qua mã này. Một
+     *  truy vấn cho cả trang: bảng mã QR chỉ vài dòng. */
+    const accountIds = Array.from(
+      new Set(orders.map((o) => o.paid_to_account_id).filter((id): id is string => !!id)),
+    );
+    const hkdAccounts = new Set(
+      accountIds.length === 0
+        ? []
+        : (
+            await this.orderRepo.manager.find(PaymentQrAccount, {
+              where: { id: In(accountIds), is_hkd: true },
+              select: ['id'],
+            })
+          ).map((a) => a.id),
+    );
+
     const items = orders.map((o) => ({
       ...o,
       table_name: tableNameById.get(o.table_id) || o.table_code,
+      is_hkd: o.transfer_amount > 0 && !!o.paid_to_account_id && hkdAccounts.has(o.paid_to_account_id),
       bank_verified: o.transfer_amount > 0 ? verified.has(o.id) : null,
       /** `null` = đơn không thu chuyển khoản, không có bill nào để chụp. */
       payment_photo_count: o.transfer_amount > 0 ? (photoCount.get(o.id) ?? 0) : null,
@@ -2306,8 +2343,8 @@ export class OrdersService {
             ? DEBT_SQL
             : PAID_SQL;
     // Misa chỉ có nghĩa với đơn đã thu tiền — cùng lệ với listHistory.
-    if (opts.misa === 'copied') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NOT NULL`;
-    else if (opts.misa === 'pending') scopeSql = `${PAID_SQL} AND o.misa_copied_at IS NULL`;
+    if (opts.misa === 'copied') scopeSql = `${PAID_SQL} AND ${HKD_SQL} AND o.misa_copied_at IS NOT NULL`;
+    else if (opts.misa === 'pending') scopeSql = `${PAID_SQL} AND ${HKD_SQL} AND o.misa_copied_at IS NULL`;
 
     const itemStateSql =
       opts.status === 'cancelled'

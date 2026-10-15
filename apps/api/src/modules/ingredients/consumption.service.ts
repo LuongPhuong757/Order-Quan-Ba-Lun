@@ -4,6 +4,7 @@ import { EntityManager, In, Repository } from 'typeorm';
 import { Ingredient } from './entities/ingredient.entity.js';
 import { RecipeLine } from './entities/recipe-line.entity.js';
 import { OrderItemIngredientUsage } from './entities/order-item-ingredient-usage.entity.js';
+import { HKD_SQL } from '../orders/hkd-sql.js';
 
 /** Các trạng thái nghĩa là "bếp đã đụng vào món này".
  *
@@ -120,11 +121,11 @@ export class ConsumptionService {
     if (opts.status === 'paid') qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1');
     else if (opts.status === 'cancelled') qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 0');
     else if (opts.status === 'unpaid') qb.andWhere('o.closed_at IS NULL');
-    // Misa chỉ gắn với đơn đã thu tiền.
+    // Misa chỉ gắn với đơn đã thu tiền, và chỉ đơn thu qua mã QR HKD (2026-10-15).
     if (opts.misa === 'copied') {
-      qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1 AND o.misa_copied_at IS NOT NULL');
+      qb.andWhere(`o.closed_at IS NOT NULL AND o.is_paid = 1 AND ${HKD_SQL} AND o.misa_copied_at IS NOT NULL`);
     } else if (opts.misa === 'pending') {
-      qb.andWhere('o.closed_at IS NOT NULL AND o.is_paid = 1 AND o.misa_copied_at IS NULL');
+      qb.andWhere(`o.closed_at IS NOT NULL AND o.is_paid = 1 AND ${HKD_SQL} AND o.misa_copied_at IS NULL`);
     }
     // COALESCE giống `listHistory`: đơn chưa kết thì lấy mốc mở bàn, nếu không nó rơi khỏi mọi
     // khoảng ngày và biến mất khỏi báo cáo dù nguyên liệu đã dùng thật.
