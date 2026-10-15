@@ -54,6 +54,26 @@ async function cleanupSentinelRows(): Promise<void> {
   );
   await ds.query('DELETE FROM orders WHERE table_code LIKE ?', [SENTINEL_LIKE]);
   await ds.query('DELETE FROM restaurant_tables WHERE code LIKE ?', [SENTINEL_LIKE]);
+  await ds.query('DELETE FROM payment_qr_accounts WHERE label LIKE ?', [SENTINEL_LIKE]);
+}
+
+/** Mã QR mang cờ HKD (2026-10-15) + 1 đơn CK trọn 80k về mã đó, ĐÃ gõ sang Misa. Tab Misa chỉ
+ *  tính đơn thu qua mã HKD — đơn Misa tiền mặt ở `beforeEach` phải bị loại. */
+async function insertHkdMisaOrder(): Promise<void> {
+  const accId = randomUUID();
+  await ds.query(
+    `INSERT INTO payment_qr_accounts (id, label, kind, is_active, is_hkd, sort_order)
+     VALUES (?, ?, 'IMAGE', 1, 1, 0)`,
+    [accId, `${SENTINEL_TABLE_PREFIX}hkd`],
+  );
+  await insertOrder({
+    closedAt: new Date(),
+    isPaid: true,
+    misaCopied: true,
+    transferAmount: 80_000,
+    accountId: accId,
+    items: [{ state: 'SERVED', price: 80_000 }],
+  });
 }
 
 /** 1 đơn + các món. `price` × 1 phần mỗi món để số kỳ vọng đọc thẳng ra được. */
@@ -201,14 +221,21 @@ describe('stats theo tab — mỗi tab một bộ số khác nhau', () => {
     expect(s.revenue_by_day[0].day).not.toMatch(/^19/);
   }, 20_000);
 
-  it('tab "Misa": chỉ đơn đã thu tiền VÀ đã gõ sang Misa', async () => {
+  it('tab "Misa": chỉ đơn đã thu tiền, thu qua mã HKD VÀ đã gõ sang Misa', async () => {
+    // Đơn Misa ở beforeEach là TIỀN MẶT → không thuộc HKD → tab trống.
+    const before = await svc.stats({ table_id: tableId, misa: 'copied' });
+    expect(before.paid_count).toBe(0);
+    expect(before.paid_revenue).toBe(0);
+
+    await insertHkdMisaOrder();
     const s = await svc.stats({ table_id: tableId, misa: 'copied' });
-    expect(s.paid_revenue).toBe(100_000);
-    expect(s.ship_fee_total).toBe(20_000);
+    expect(s.paid_revenue).toBe(80_000);
+    expect(s.ship_fee_total).toBe(0);
     expect(s.paid_count).toBe(1);
   }, 20_000);
 
   it('4 tab cho 4 con số tiền KHÁC nhau (bắt lỗi "đổi tab mà số không đổi")', async () => {
+    await insertHkdMisaOrder();
     const [all, cancelled, unpaid, misa] = await Promise.all([
       svc.stats({ table_id: tableId, status: 'all' }),
       svc.stats({ table_id: tableId, status: 'cancelled' }),
