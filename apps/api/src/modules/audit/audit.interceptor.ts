@@ -126,6 +126,12 @@ function deriveActionKind(method: string, path: string): string {
   // (M3.D-21). `after_json` giữ nguyên `created` nên phân biệt được hai nhịp.
   if (path === '/supplier-deliveries' && method === 'POST') return 'supplier.delivery_submitted';
 
+  // Gán / gỡ tay tiền lạ vào đơn ở sổ webhook (2026-10-15). Làm một đơn thành ✓ "ngân hàng đã xác
+  // nhận" — ĐỘNG TỚI TIỀN, nên phải truy được ai gán khoản nào vào đơn nào. `after_json` giữ
+  // `bank_txn_id` + `order_id`; với gỡ gán thì đó là dấu vết duy nhất còn lại.
+  if (path.match(/^\/payments\/transactions\/[^/]+\/assign$/) && method === 'POST') return 'bank_txn.assigned';
+  if (path.match(/^\/payments\/transactions\/[^/]+\/assign$/) && method === 'DELETE') return 'bank_txn.unassigned';
+
   // Tables
   if (path === '/tables' && method === 'POST') return 'table.created';
   if (path === '/tables/bulk' && method === 'POST') return 'table.bulk_created';
