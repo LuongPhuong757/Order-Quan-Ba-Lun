@@ -31,6 +31,8 @@ type QrRow = {
   image_url: string | null;
   sort_order: number;
   is_active: boolean;
+  /** Mã của hộ kinh doanh — đơn thu qua mã này mới hiện nút Misa ở màn Lịch sử (2026-10-15). */
+  is_hkd: boolean;
   updated_at: number;
   updated_by_full_name: string | null;
 };
@@ -50,6 +52,7 @@ const EMPTY_FORM = {
   account_name: '',
   note_prefix: '',
   image_url: '',
+  is_hkd: false,
 };
 
 export function PaymentQrPanel() {
@@ -146,6 +149,7 @@ export function PaymentQrPanel() {
       account_name: row.account_name ?? '',
       note_prefix: row.note_prefix ?? '',
       image_url: row.image_url ?? '',
+      is_hkd: row.is_hkd,
     });
     // Người dùng bấm "Sửa" ở cuối danh sách dài — không kéo lên thì họ tưởng nút không ăn.
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -184,6 +188,7 @@ export function PaymentQrPanel() {
       account_name: form.kind === 'BANK' ? form.account_name.trim() : null,
       note_prefix: form.note_prefix.trim().toUpperCase() || null,
       image_url: form.kind === 'IMAGE' ? form.image_url : null,
+      is_hkd: form.is_hkd,
     };
 
     /* Kiểm bằng ĐÚNG hàm luật của BE (`@order/schemas`), không viết lại bằng tay — đây chính là
@@ -512,6 +517,36 @@ export function PaymentQrPanel() {
           </div>
         )}
 
+        {/* Ô HKD đứng cuối form, chung cho cả 2 loại mã (2026-10-15). Nó quyết định đơn nào phải
+            gõ sang MISA — tick sai là tab "chưa lên Misa" ở màn Lịch sử thiếu đơn hoặc thừa đơn,
+            nên câu chữ phải nói thẳng hệ quả chứ không chỉ ghi "HKD". */}
+        <label
+          style={{
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-start',
+            cursor: 'pointer',
+            marginTop: 14,
+            padding: '10px 12px',
+            borderRadius: 8,
+            border: `1px solid ${C.borderSoft}`,
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={form.is_hkd}
+            onChange={(e) => setForm((f) => ({ ...f, is_hkd: e.target.checked }))}
+            style={{ width: 22, height: 22, marginTop: 2, flexShrink: 0 }}
+          />
+          <span>
+            <strong>Đây là mã QR của HKD (hộ kinh doanh)</strong>
+            <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
+              Đơn thu qua mã này mới hiện nút <strong>Misa</strong> ở màn Lịch sử. Đơn tiền mặt và
+              đơn về mã khác không cần gõ sang Misa.
+            </span>
+          </span>
+        </label>
+
         <div className="st-foot">
           <button type="submit" disabled={submitting || uploading}>
             {form.id ? 'Lưu thay đổi' : 'Thêm mã QR'}
@@ -560,6 +595,21 @@ export function PaymentQrPanel() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>
                   {row.label}
+                  {row.is_hkd && (
+                    <span
+                      style={{
+                        marginLeft: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: '#1d4ed8',
+                        background: '#dbeafe',
+                        borderRadius: 6,
+                        padding: '1px 6px',
+                      }}
+                    >
+                      HKD · Misa
+                    </span>
+                  )}
                   {!row.is_active && (
                     <span style={{ fontSize: 12, color: C.muted, fontWeight: 400 }}> · đã ngừng dùng</span>
                   )}
@@ -611,6 +661,7 @@ function rowToBody(row: QrRow) {
     account_no: row.account_no,
     account_name: row.account_name,
     image_url: row.image_url,
+    is_hkd: row.is_hkd,
   };
 }
 

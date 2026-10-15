@@ -75,6 +75,8 @@ class CreatePaymentQrDto {
   @IsOptional() @IsString() @MaxLength(255) image_url?: string | null;
   @IsOptional() @IsString() @MaxLength(8) note_prefix?: string | null;
   @IsOptional() @IsInt() @Min(0) sort_order?: number;
+  /** Mã QR của HKD — đơn thu qua mã này mới cần gõ sang MISA (2026-10-15). */
+  @IsOptional() @IsBoolean() is_hkd?: boolean;
 }
 
 class UpdatePaymentQrDto extends CreatePaymentQrDto {
@@ -109,6 +111,7 @@ export class PaymentQrController {
       bank_name: resolveBankName(draft.kind, dto.bank_bin, dto.bank_name),
       sort_order: dto.sort_order ?? (await this.nextSortOrder()),
       is_active: true,
+      is_hkd: dto.is_hkd ?? false,
       created_by_user_id: req.user!.sub,
       created_by_full_name: req.user!.full_name,
       updated_by_user_id: req.user!.sub,
@@ -131,6 +134,7 @@ export class PaymentQrController {
       bank_name: resolveBankName(draft.kind, dto.bank_bin, dto.bank_name),
       sort_order: dto.sort_order ?? row.sort_order,
       is_active: dto.is_active ?? row.is_active,
+      is_hkd: dto.is_hkd ?? row.is_hkd,
       updated_by_user_id: req.user!.sub,
       updated_by_full_name: req.user!.full_name,
     });
@@ -217,6 +221,7 @@ function toPublic(row: PaymentQrAccount) {
     note_prefix: row.note_prefix,
     sort_order: row.sort_order,
     is_active: row.is_active,
+    is_hkd: row.is_hkd,
     updated_at: Number(row.updated_at),
     updated_by_full_name: row.updated_by_full_name,
   };

@@ -85,6 +85,17 @@ export class PaymentQrAccount {
   @Column({ type: 'int', default: 0 })
   sort_order!: number;
 
+  /** Mã QR của HỘ KINH DOANH (HKD) — tiền về mã này là doanh thu phải lên MISA (2026-10-15).
+   *
+   *  Chỉ đơn có thu qua mã mang cờ này mới hiện nút "đã gõ sang Misa" ở màn Lịch sử: đơn tiền mặt
+   *  và đơn về tài khoản người nhà không phải kê, để nút đó ở đấy thì nhân viên tick nhầm và tab
+   *  "chưa lên Misa" đầy đơn không ai cần làm.
+   *
+   *  Là ô tick ở màn quản lý mã QR, không găm id vào env hay dò theo tên chủ tài khoản: đổi mã thì
+   *  chủ quán tự tick lại, và tên viết hoa/có dấu/thừa khoảng trắng là vỡ im lặng. */
+  @Column({ type: 'boolean', default: false })
+  is_hkd!: boolean;
+
   /** `false` = ngừng dùng, KHÔNG hiện lúc thu tiền nữa, nhưng đơn cũ vẫn trỏ vào được. */
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
