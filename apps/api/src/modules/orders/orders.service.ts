@@ -14,6 +14,8 @@ import { pickGuestCode } from '../public/guest-code.js';
 import { TableGuestSession } from '../public/entities/table-guest-session.entity.js';
 import { randomInt } from 'node:crypto';
 import { PaymentIntent } from '../payments/entities/payment-intent.entity.js';
+import { BankTxnAssignment } from '../payments/entities/bank-txn-assignment.entity.js';
+import { BANK_VERIFIED_EXISTS_SQL } from '../payments/bank-verified-sql.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -161,8 +163,8 @@ export function paymentKindSql(kind: PaymentKindFilter): string {
  * Dùng chung cho `listHistory` và `stats` (2026-09-28) — hai chỗ đó là hai phần của cùng một màn
  * Lịch sử, phải cắt đúng một tập đơn. */
 export function verifiedSql(v: 'yes' | 'no'): string {
-  const exists = `EXISTS (SELECT 1 FROM payment_intents pi
-    WHERE pi.target_type = 'POS' AND pi.target_id = o.id AND pi.paid_at IS NOT NULL)`;
+  // Từ 2026-10-15 gồm cả đơn chủ quán gán tay tiền lạ ở sổ webhook — xem `bank-verified-sql.ts`.
+  const exists = BANK_VERIFIED_EXISTS_SQL;
   return v === 'yes' ? `o.transfer_amount > 0 AND ${exists}` : `o.transfer_amount > 0 AND NOT ${exists}`;
 }
 /**
@@ -2039,9 +2041,14 @@ export class OrdersService {
      */
     const photoCount = new Map<string, number>();
     if (transferIds.length > 0) {
-      const [intents, photos] = await Promise.all([
+      const [intents, manual, photos] = await Promise.all([
         this.orderRepo.manager.find(PaymentIntent, {
           where: { target_type: 'POS', target_id: In(transferIds) },
+        }),
+        // Gán tay ở sổ webhook (2026-10-15) — cùng luật với `verifiedSql`.
+        this.orderRepo.manager.find(BankTxnAssignment, {
+          where: { order_id: In(transferIds) },
+          select: ['order_id'],
         }),
         this.orderRepo.manager
           .createQueryBuilder()
@@ -2053,6 +2060,7 @@ export class OrdersService {
           .getRawMany<{ order_id: string; n: unknown }>(),
       ]);
       for (const r of intents) if (r.paid_at !== null) verified.add(r.target_id);
+      for (const r of manual) verified.add(r.order_id);
       for (const r of photos) photoCount.set(String(r.order_id), Number(r.n));
     }
 

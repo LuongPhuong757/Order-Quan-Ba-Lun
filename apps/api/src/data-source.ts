@@ -44,6 +44,7 @@ import { PrintDevice } from './modules/printing/entities/print-device.entity.js'
 import { CustomReceipt } from './modules/custom-receipts/entities/custom-receipt.entity.js';
 import { PaymentIntent } from './modules/payments/entities/payment-intent.entity.js';
 import { BankTransaction } from './modules/payments/entities/bank-transaction.entity.js';
+import { BankTxnAssignment } from './modules/payments/entities/bank-txn-assignment.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -133,6 +134,8 @@ export const dataSourceOptions: DataSourceOptions = {
     // im lặng không tạo bảng — app chạy, chỉ đến khi có giao dịch thật mới đổ ở tầng SQL.
     PaymentIntent,
     BankTransaction,
+    // Gán tay tiền lạ vào đơn ở màn sổ webhook (2026-10-15).
+    BankTxnAssignment,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.
