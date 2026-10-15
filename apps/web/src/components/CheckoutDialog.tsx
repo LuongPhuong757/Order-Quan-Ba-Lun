@@ -15,7 +15,7 @@ import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkou
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
-import { MisaCheckbox, Row, Section } from './checkout-ui.tsx';
+import { Row, Section } from './checkout-ui.tsx';
 
 type QrOption = {
   id: string;
@@ -105,7 +105,6 @@ export function CheckoutDialog({
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [transferInput, setTransferInput] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
-  const [misaCopied, setMisaCopied] = useState(false);
   /** Tên khách nợ — thứ duy nhất màn ghi nợ hỏi (D-01: nợ toàn bộ, không có số tiền để nhập). */
   const [debtNote, setDebtNote] = useState('');
   /** Ảnh bill đã đẩy lên. Đơn đã có `id` từ lúc mở bàn nên đẩy được NGAY, không phải chờ thu
@@ -117,7 +116,7 @@ export function CheckoutDialog({
   /**
    * BỐN MÀN NỐI TIẾP (chủ quán chốt 2026-09-15), thay cho một màn cuộn dài:
    *
-   *   'items' → soát bill: tổng tiền + danh sách món + Misa. MÀN MỞ RA ĐẦU TIÊN.
+   *   'items' → soát bill: tổng tiền + danh sách món. MÀN MỞ RA ĐẦU TIÊN.
    *   'mode'  → "Khách trả bằng gì?" — ba nút, không gì khác.
    *   'qr'    → chìa mã cho khách quét (chỉ luồng chuyển khoản / cả hai).
    *   'bill'  → chụp bill + chốt thu tiền.
@@ -421,7 +420,6 @@ export function CheckoutDialog({
     setSubmitting(true);
     try {
       const res = await api.post<{ data: CheckoutResult }>(`/orders/${orderId}/${settleDebt ? 'settle-debt' : 'checkout'}`, {
-        misa_copied: misaCopied,
         // Ghi nợ: chỉ gửi cờ + tên khách. Không gửi cụm chuyển khoản — BE cũng bỏ qua nó.
         ...(mode === 'DEBT' ? { debt: true, debt_note: debtNote.trim() } : {}),
         ...(transferAmount > 0
@@ -540,10 +538,9 @@ export function CheckoutDialog({
                 cancelledItems={cancelledItems}
                 activeUnits={activeUnits}
               />
-              {/* Misa ở ĐÂY chứ không phải màn chốt: nó nói về việc gõ CHÍNH BILL NÀY sang AMIS,
-                  nên chỗ của nó là cạnh bill. Ở màn chốt thì nó đứng lẫn giữa mã QR và ảnh chụp,
-                  không còn rõ đang tick cho cái gì. */}
-              <MisaCheckbox onChange={setMisaCopied} />
+              {/* Ô tick Misa ĐÃ BỎ khỏi hộp thoại thu tiền (2026-10-15): chỉ đơn thu qua mã QR
+                  HKD mới phải gõ sang MISA, mà màn này chưa biết khách trả qua mã nào. Đánh dấu
+                  ở màn Lịch sử — nút ở đó chỉ hiện với đơn HKD. */}
               {/* Người KHÔNG được thu chuyển khoản chốt tiền mặt ngay màn này và không bao giờ
                   thấy màn "trả bằng gì" — nhưng ghi nợ là quyền của mọi người (D-05). Một đường
                   phụ nhỏ dẫn thẳng tới màn 2 với nút Ghi nợ đã chọn; đường chính (tiền mặt) vẫn

@@ -123,6 +123,8 @@ type HistoryOrder = {
   misa_copied_at: number | null;
   misa_copied_by_full_name: string | null;
   misa_ref: string | null;
+  /** Đơn có thu qua mã QR HKD (2026-10-15) — server tính. Chỉ đơn này mới phải gõ sang MISA. */
+  is_hkd: boolean;
   /* Thu bằng chuyển khoản (2026-09-14). `transfer_amount = 0` là mọi đơn có từ trước tính năng
      này, và cũng là đơn thu tiền mặt — tiền mặt luôn suy ra: tổng − phần chuyển khoản. */
   transfer_amount: number;
@@ -852,7 +854,8 @@ export function HistoryPage() {
             📒 Đang nợ
           </StatusPill>
 
-          {/* Tab Misa (2026-09-05) — các đơn đã tick "Misa" lúc thu tiền hoặc đánh dấu bù. */}
+          {/* Tab Misa (2026-09-05) — các đơn đã đánh dấu "Misa". Từ 2026-10-15 chỉ tính đơn thu qua
+              mã QR HKD (server lọc). */}
           <StatusPill
             active={misaFilter === 'copied'}
             color="#7c3aed"
@@ -1484,8 +1487,11 @@ export function HistoryPage() {
                                   </button>
                                 )}
                                 {/* Cờ Misa chỉ có nghĩa với đơn đã thu tiền — đơn huỷ / đang dùng
-                                    không có bill để gõ sang AMIS nên không hiện gì. */}
-                                {isPaid && (
+                                    không có bill để gõ sang AMIS nên không hiện gì.
+                                    Và chỉ đơn thu qua mã QR HKD (2026-10-15): đơn tiền mặt / mã
+                                    người nhà không phải kê. Đơn cũ đã lỡ tick trước luật này vẫn
+                                    hiện để còn gỡ ra được. */}
+                                {isPaid && (o.is_hkd || o.misa_copied_at != null) && (
                                   <MisaBadge
                                     copied={o.misa_copied_at != null}
                                     by={o.misa_copied_by_full_name}

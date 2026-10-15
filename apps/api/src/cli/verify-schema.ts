@@ -144,7 +144,7 @@ const CHECKS: TableCheck[] = [
   // entity chứ không từ DB.
   {
     table: 'payment_qr_accounts',
-    requiredColumns: ['id', 'label', 'kind', 'bank_bin', 'account_no', 'image_url', 'is_active', 'sort_order'],
+    requiredColumns: ['id', 'label', 'kind', 'bank_bin', 'account_no', 'image_url', 'is_active', 'sort_order', 'is_hkd'],
   },
   {
     table: 'order_payment_photos',
