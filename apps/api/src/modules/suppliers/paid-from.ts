@@ -36,10 +36,14 @@ export function resolvePaidFrom(
   if (giuNguyen && giuNguyen.paid_from_account_id === accountId) {
     return { paid_from_account_id: accountId, paid_from_label: account?.label ?? giuNguyen.paid_from_label };
   }
-  if (!account || !account.is_active) {
+  /* KHÔNG đòi `is_active` (2026-10-16, chủ quán chốt). "Ngừng dùng" ở Cài đặt → Mã QR nghĩa là
+     ngừng NHẬN TIỀN KHÁCH: tài khoản vẫn là tiền thật của quán, vẫn chuyển ra trả NCC được.
+     Ca thật: VCB …4VCB thôi in QR cho khách nhưng quán vẫn trả nhà cung cấp từ đó. Mã QR không
+     bao giờ bị xoá cứng (xem entity) nên "không tìm thấy" chỉ còn là id sai. */
+  if (!account) {
     throw new BadRequestException({
       code: 'PAID_FROM_INVALID',
-      message: 'Tài khoản đã chọn không còn dùng. Chọn lại tài khoản khác.',
+      message: 'Không tìm thấy tài khoản đã chọn. Chọn lại tài khoản khác.',
     });
   }
   return { paid_from_account_id: account.id, paid_from_label: account.label };
