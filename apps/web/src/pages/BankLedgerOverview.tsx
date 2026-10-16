@@ -72,9 +72,11 @@ export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: 
                   aria-pressed={on}
                   onClick={() => onAccount(on ? '' : a.account_no)}
                 >
-                  <p className="sx-bank">
+                  {/* Tên MỘT dòng, dài thì cắt "…" (chủ quán 2026-10-16) — thẻ nào xuống hai dòng
+                      là cả hàng thẻ lệch nhau. */}
+                  <p className="sx-bank" title={a.label ?? a.bank ?? undefined}>
                     <span className="sx-dot" style={{ background: accountDot(a.account_no) }} />
-                    {a.label ?? a.bank ?? 'Tài khoản'}
+                    <span className="sx-ellipsis">{a.label ?? a.bank ?? 'Tài khoản'}</span>
                   </p>
                   <p className="sx-no">
                     {tail4(a.account_no)}

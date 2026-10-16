@@ -136,9 +136,11 @@ export function BankLedgerPage() {
   const today = vnDayIso(Date.now());
   const groups = useMemo(() => groupByDay(rows ?? [], (r) => vnDayIso(r.occurred_at)), [rows]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  /** Chỉ TÊN, không số tài khoản (chủ quán 2026-10-16) — bộ lọc chỉ cần nhận ra tài khoản, số
+   *  đã có trên thẻ "Theo tài khoản". Tài khoản chưa đặt tên mã QR thì mới lùi về 4 số cuối. */
   const accName = (no: string) => {
     const a = summary?.by_account.find((x) => x.account_no === no);
-    return `${a?.label ?? a?.bank ?? 'TK'} ${tail4(no)}`;
+    return a?.label ?? (a?.bank ? `${a.bank} ${tail4(no)}` : tail4(no));
   };
   const presetText = (PRESETS.find(([v]) => v === preset)?.[1] ?? '').replace('…', '');
 
@@ -195,7 +197,9 @@ export function BankLedgerPage() {
         {summary && summary.by_account.length > 0 && (
           <div className="sx-fgroup">
             <span className="sx-lg">Tài khoản</span>
-            <div className="sx-opts">
+            {/* MỘT dòng, vuốt ngang khi nhiều — tên tài khoản thật dài ("Lương Tuấn Phương -
+                Vietinbank") làm nút xuống dòng thành hai tầng lộn xộn. */}
+            <div className="sx-opts sx-opts-scroll">
               <button type="button" className="sx-opt" aria-pressed={account === ''} onClick={() => { setAccount(''); setPage(1); }}>
                 Tất cả
               </button>
@@ -252,7 +256,7 @@ export function BankLedgerPage() {
             <span>Giờ</span>
             <span>Số tiền</span>
             <span>Tài khoản quán</span>
-            <span>Nội dung CK (nguyên văn)</span>
+            <span>Nội dung</span>
             <span>Bàn / Đơn — phần mềm hiểu</span>
           </div>
           {groups.map((g) => {

@@ -1,11 +1,14 @@
 // Một dòng của Sổ webhook (thiết kế lại 2026-10-16 theo kiểu app ngân hàng).
 //
-// Ba tầng tách nhau về thị giác — đúng lý do cột "Bàn / Đơn" được thêm hồi 2026-10-15:
+// Ba phần tách nhau về thị giác — đúng lý do cột "Bàn / Đơn" được thêm hồi 2026-10-15:
 //   1. dữ liệu NGÂN HÀNG: giờ, số tiền, tài khoản quán
-//   2. nội dung CK NGUYÊN VĂN (hộp xám, chữ đơn cách) — không cắt, đó là thứ trả lời được "tiền gì"
+//   2. nội dung CK NGUYÊN VĂN — THU VÀO một nút icon, bấm mới xổ ra ngay dưới dòng (chủ quán
+//      2026-10-16: hộp nội dung luôn mở "nhìn quá rối mắt"; chuỗi SePay thật dài 4–5 dòng). Xổ ra
+//      thì hiện ĐỦ, không cắt — đó vẫn là thứ trả lời được "tiền gì".
 //   3. ô "Bàn / Đơn" — phần PHẦN MỀM HIỂU, có màu riêng để không lẫn với lời ngân hàng
 //
-// Điện thoại: thẻ dọc. ≥1100px: lưới 5 cột (xem `so-tien.css`, khối `.sx-tx`).
+// Điện thoại và máy tính đều là lưới có tên vùng (xem `so-tien.css`, khối `.sx-tx`).
+import { useState } from 'react';
 import { accountDot, tail4, vnd } from '../lib/so-tien.ts';
 
 type OrderState = 'open' | 'paid' | 'cash' | 'debt' | 'cancelled';
@@ -65,37 +68,52 @@ type Props = { row: LedgerRow; onAssign: () => void; onUnassign: () => void };
 
 export function BankLedgerRow({ row, onAssign, onUnassign }: Props) {
   const out = row.direction === 'out';
+  const [open, setOpen] = useState(false);
   return (
     <div className="sx-tx">
-      <div className="sx-tx-top">
-        <span className="sx-tx-time sx-num">{hhmm(row.occurred_at)}</span>
-        <span className={`sx-tx-amt sx-num ${out ? 'sx-m' : 'sx-p'}`}>
-          {out ? '−' : '+'}
-          {vnd(row.amount)}
-        </span>
-      </div>
+      <span className="sx-tx-time sx-num">{hhmm(row.occurred_at)}</span>
+      <span className={`sx-tx-amt sx-num ${out ? 'sx-m' : 'sx-p'}`}>
+        {out ? '−' : '+'}
+        {vnd(row.amount)}
+      </span>
       <div className="sx-tx-acc">
         <AccountText row={row} />
       </div>
-      <div className="sx-memo">
-        <span className="sx-ml">Nội dung CK</span>
-        <div className="sx-mv">{row.content || <span style={{ color: '#9ca3af' }}>(trống)</span>}</div>
+      <button
+        type="button"
+        className="sx-memo-btn"
+        aria-expanded={open}
+        aria-label={open ? 'Ẩn nội dung chuyển khoản' : 'Xem nội dung chuyển khoản'}
+        onClick={() => setOpen((v) => !v)}
+      >
+        💬
+      </button>
+      <div className="sx-tx-link">
+        <LinkCell row={row} onAssign={onAssign} onUnassign={onUnassign} />
       </div>
-      <LinkCell row={row} onAssign={onAssign} onUnassign={onUnassign} />
+      {open && (
+        <div className="sx-memo">
+          <span className="sx-ml">Nội dung CK</span>
+          <div className="sx-mv">{row.content || <span style={{ color: '#9ca3af' }}>(trống)</span>}</div>
+        </div>
+      )}
     </div>
   );
 }
 
-/** "TPBank HKD · …8888" + tên ngân hàng. Tên mã QR và bốn số cuối KHÔNG được tách dòng giữa
- *  chừng — bản vẽ đầu từng để "…" và "8888" rơi xuống hai dòng, mất đúng thứ để đối chiếu sao kê. */
+/** "TPBank HKD · …8888" + tên ngân hàng — MỘT dòng. Tên dài thì cắt "…" ở TÊN, còn bốn số cuối
+ *  luôn hiện đủ (chủ quán 2026-10-16): đó là thứ để đối chiếu sao kê, tên thì đã có màu chấm. */
 function AccountText({ row }: { row: LedgerRow }) {
   if (!row.account_no) return <span className="sx-bn">{row.bank ?? '—'}</span>;
   return (
     <>
-      <span className="sx-nowrap">
-        <span className="sx-dot" style={{ background: accountDot(row.account_no), marginRight: 7 }} />
-        {row.account_label ? `${row.account_label} · ` : ''}
-        {tail4(row.account_no)}
+      <span className="sx-acc-line" title={row.account_label ?? undefined}>
+        <span className="sx-dot" style={{ background: accountDot(row.account_no) }} />
+        {row.account_label && <span className="sx-acc-name">{row.account_label}</span>}
+        <span className="sx-acc-tail">
+          {row.account_label ? '· ' : ''}
+          {tail4(row.account_no)}
+        </span>
       </span>
       {row.bank && <span className="sx-bn">{row.bank}</span>}
     </>

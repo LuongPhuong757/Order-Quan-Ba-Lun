@@ -81,7 +81,7 @@ button.sx-acc {
 }
 button.sx-acc:hover { background: var(--sx-teal-50); }
 button.sx-acc[aria-pressed='true'] { border-color: var(--sx-teal); background: var(--sx-teal-50); box-shadow: 0 0 0 2px var(--sx-teal-100); }
-.sx-acc .sx-bank { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.sx-acc .sx-bank { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; min-width: 0; }
 .sx-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
 .sx-acc .sx-no { margin: 2px 0 10px; font-size: 15px; color: var(--sx-muted); }
 .sx-acc .sx-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 15px; padding: 2px 0; color: #4b5563; }
@@ -126,6 +126,10 @@ button.sx-filter-toggle { width: 100%; margin-top: 18px; min-height: 50px; font-
 .sx-fgroup { margin-bottom: 14px; min-width: 0; }
 .sx-fgroup > .sx-lg { display: block; font-size: 15px; font-weight: 700; color: #374151; margin: 0 0 8px; }
 .sx-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Một dòng, vuốt ngang (tên tài khoản dài làm nút xuống dòng lộn xộn — chủ quán 2026-10-16). */
+.sx-opts.sx-opts-scroll { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 6px; scroll-snap-type: x proximity; }
+.sx-opts.sx-opts-scroll > button { flex: none; scroll-snap-align: start; }
+.sx-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 button.sx-opt {
   min-height: 46px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--sx-border);
   background: #fff; color: #374151; font-size: 16px; font-weight: 600; white-space: nowrap;
@@ -167,14 +171,30 @@ button.sx-ghost.sx-danger { color: var(--sx-out); border-color: var(--sx-out-br)
 .sx-rows { display: grid; gap: 10px; }
 .sx-ov-grid { display: grid; gap: 14px; }
 
-/* Dòng giao dịch webhook */
-.sx-tx { background: #fff; border: 1px solid var(--sx-border); border-radius: var(--sx-r); box-shadow: var(--sx-shadow); padding: 14px 15px; min-width: 0; }
-.sx-tx-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
-.sx-tx-time { font-size: 16px; font-weight: 700; color: #374151; flex: none; }
-.sx-tx-amt { font-size: 24px; font-weight: 800; text-align: right; line-height: 1.2; white-space: nowrap; }
-.sx-tx-acc { margin: 8px 0 0; font-size: 16px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.sx-tx-acc .sx-nowrap { white-space: nowrap; }
-.sx-tx-acc .sx-bn { color: var(--sx-muted); font-weight: 500; }
+/* Dòng giao dịch webhook — lưới có TÊN VÙNG ở cả hai khổ. Nội dung CK thu vào nút 💬 (vùng
+ * `memo`), xổ ra ở vùng `det` chiếm trọn bề ngang dưới dòng (chủ quán 2026-10-16: "rối mắt"). */
+.sx-tx {
+  background: #fff; border: 1px solid var(--sx-border); border-radius: var(--sx-r); box-shadow: var(--sx-shadow);
+  padding: 14px 15px; min-width: 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px 12px;
+  grid-template-areas: 'time amt' 'acc memo' 'link link' 'det det';
+}
+.sx-tx-time { grid-area: time; font-size: 16px; font-weight: 700; color: #374151; }
+.sx-tx-amt { grid-area: amt; font-size: 24px; font-weight: 800; text-align: right; line-height: 1.2; white-space: nowrap; }
+.sx-tx-acc { grid-area: acc; min-width: 0; font-size: 16px; font-weight: 600; color: #374151; }
+.sx-acc-line { display: flex; align-items: center; gap: 7px; min-width: 0; white-space: nowrap; }
+.sx-acc-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sx-acc-tail { flex: none; }
+.sx-tx-acc .sx-bn { display: block; margin-top: 2px; font-size: 14px; color: var(--sx-muted); font-weight: 500; }
+button.sx-memo-btn {
+  grid-area: memo; justify-self: end; width: 52px; min-height: 46px; padding: 0; border-radius: 10px;
+  background: #fff; border: 1px solid var(--sx-border); font-size: 21px; color: inherit;
+}
+button.sx-memo-btn:hover { background: #f3f4f6; }
+button.sx-memo-btn[aria-expanded='true'] { background: var(--sx-teal-50); border-color: var(--sx-teal); }
+.sx-tx-link { grid-area: link; min-width: 0; }
+.sx-tx-link .sx-link { margin: 0; }
+.sx-tx > .sx-memo { grid-area: det; margin: 0; }
 .sx-memo { margin: 10px 0 0; background: #f9fafb; border: 1px solid var(--sx-border); border-radius: 9px; padding: 9px 11px; min-width: 0; }
 .sx-memo .sx-ml, .sx-link .sx-ll {
   display: block; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 3px;
@@ -264,15 +284,16 @@ button.sx-more { width: 48px; min-height: 48px; padding: 0; border-radius: 10px;
   .sx-filters.sx-card, .sx-filters.sx-card.sx-closed { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 18px; }
   .sx-tot .sx-val { font-size: clamp(26px, 2.2vw, 32px); }
   .sx-list-head {
-    display: grid; grid-template-columns: 64px 150px 200px minmax(0, 1fr) 280px; gap: 14px;
+    display: grid; grid-template-columns: 64px 150px minmax(0, 1fr) 88px 300px; gap: 14px;
     padding: 0 18px 10px; font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #9ca3af;
   }
-  .sx-tx { display: grid; grid-template-columns: 64px 150px 200px minmax(0, 1fr) 280px; gap: 14px; align-items: start; padding: 16px 18px; }
-  .sx-tx-top { display: contents; }
+  .sx-tx {
+    grid-template-columns: 64px 150px minmax(0, 1fr) 88px 300px; gap: 10px 14px; align-items: start; padding: 16px 18px;
+    grid-template-areas: 'time amt acc memo link' 'det det det det det';
+  }
   .sx-tx-time { font-size: 17px; padding-top: 2px; }
-  .sx-tx-amt { font-size: 20px; padding-top: 1px; }
-  .sx-tx-acc { margin: 0; display: block; font-size: 15px; }
-  .sx-tx-acc .sx-bn { display: block; margin-top: 2px; font-size: 14px; }
-  .sx-memo, .sx-link { margin: 0; }
+  .sx-tx-amt { font-size: 20px; padding-top: 1px; text-align: left; }
+  .sx-tx-acc { font-size: 15px; }
+  button.sx-memo-btn { justify-self: start; }
   .sx-ov-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
 }
