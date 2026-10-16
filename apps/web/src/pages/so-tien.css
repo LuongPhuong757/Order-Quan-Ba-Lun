@@ -1,0 +1,278 @@
+/* Hai màn "sổ tiền" thiết kế lại theo kiểu app ngân hàng (2026-10-16, bản vẽ OpenDesign):
+ * Sổ webhook (`BankLedgerPage`) và Trả tiền NCC (`SupplierTransfersPanel`).
+ *
+ * MỌI class mang tiền tố `sx-`. Không phải thói quen: bản vẽ gốc dùng `.tx` cho cả dòng giao dịch
+ * lẫn phần chữ trong thẻ cảnh báo, và thẻ cảnh báo ăn nhầm cả lưới 5 cột của dòng giao dịch.
+ * `styles.css` có hàng trăm class trần — trùng tên ở đây là vỡ bố cục mà computed CSS trông vẫn đúng.
+ *
+ * Nút: `button` toàn cục có nền xanh + chữ trắng + padding 12/16, nên mọi rule đụng nút viết
+ * `button.sx-…` (xem CLAUDE.md §5 — `button.secondary` cũng đè class trần như vậy).
+ *
+ * Mốc: điện thoại trước; ≥720px thẻ tài khoản thành lưới; ≥1100px danh sách thành bảng-thẻ có cột. */
+
+.sx {
+  --sx-teal: #0f766e; --sx-teal-900: #134e4a;
+  --sx-teal-50: #f0fdfa; --sx-teal-100: #ccfbf1;
+  --sx-fg: #1f2937; --sx-muted: #6b7280; --sx-border: #e5e7eb;
+  --sx-in: #15803d; --sx-in-bg: #f0fdf4; --sx-in-br: #bbf7d0;
+  --sx-out: #b91c1c; --sx-out-bg: #fef2f2; --sx-out-br: #fecaca;
+  --sx-warn: #c2410c; --sx-warn-bg: #fff7ed; --sx-warn-br: #fdba74;
+  --sx-shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .05);
+  --sx-r: 12px;
+  color: var(--sx-fg);
+}
+.sx .sx-num { font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
+.sx .sx-p { color: var(--sx-in); }
+.sx .sx-m { color: var(--sx-out); }
+
+/* ── Thanh đầu màn ───────────────────────────────────────────────────────── */
+.sx-appbar {
+  background: var(--sx-teal); color: #fff; border-radius: var(--sx-r);
+  padding: 14px 16px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  box-shadow: 0 2px 10px rgba(15, 118, 110, .22);
+}
+.sx-appbar h1, .sx-appbar h2 { margin: 0; font-size: 22px; font-weight: 800; color: #fff; }
+.sx-appbar .sx-sub { margin: 2px 0 0; font-size: 15px; color: #ccfbf1; }
+.sx-appbar .sx-grow { flex: 1 1 auto; min-width: 180px; }
+button.sx-btn-main {
+  min-height: 52px; padding: 0 20px; border-radius: 10px; background: #fff; color: var(--sx-teal-900);
+  font-size: 17px; font-weight: 800; flex: 1 1 100%;
+}
+button.sx-btn-main:hover { background: var(--sx-teal-50); }
+
+/* ── Tiêu đề khối ────────────────────────────────────────────────────────── */
+.sx-sec-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 22px 2px 10px; }
+.sx-sec-h h3 { margin: 0; font-size: 17px; font-weight: 800; text-transform: uppercase; color: #374151; }
+.sx-sec-h .sx-hint { font-size: 14px; color: var(--sx-muted); }
+
+.sx-card {
+  background: #fff; border: 1px solid var(--sx-border); border-radius: var(--sx-r);
+  box-shadow: var(--sx-shadow); padding: 16px;
+}
+
+/* ── Tổng vào / ra ───────────────────────────────────────────────────────── */
+.sx-totals { display: grid; gap: 12px; }
+.sx-tot { padding: 14px 16px; border-radius: 10px; border: 1px solid var(--sx-border); min-width: 0; }
+.sx-tot.sx-in { background: var(--sx-in-bg); border-color: var(--sx-in-br); }
+.sx-tot.sx-out { background: var(--sx-out-bg); border-color: var(--sx-out-br); }
+.sx-tot.sx-neutral { background: #fafafa; }
+.sx-tot.sx-warn { background: var(--sx-warn-bg); border-color: var(--sx-warn-br); }
+.sx-tot .sx-lab { margin: 0 0 4px; font-size: 15px; font-weight: 700; color: #4b5563; }
+.sx-tot.sx-in .sx-lab { color: #166534; }
+.sx-tot.sx-out .sx-lab { color: #991b1b; }
+.sx-tot.sx-warn .sx-lab { color: #9a3412; }
+.sx-tot .sx-val { margin: 0; font-size: 30px; font-weight: 800; line-height: 1.15; }
+.sx-tot.sx-warn .sx-val { color: #7c2d12; }
+.sx-tot .sx-cnt { margin: 4px 0 0; font-size: 15px; color: #4b5563; }
+.sx-split { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.sx-split > div { border: 1px solid var(--sx-border); border-radius: 10px; padding: 10px 12px; background: #fff; min-width: 0; }
+.sx-split b { display: block; font-size: 19px; font-weight: 800; }
+.sx-split small { font-size: 14px; color: var(--sx-muted); }
+
+/* ── Thẻ tài khoản (vuốt ngang trên điện thoại) ──────────────────────────── */
+.sx-acc-scroll {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 78%; gap: 12px;
+  overflow-x: auto; padding: 2px 2px 10px; scroll-snap-type: x mandatory;
+}
+button.sx-acc {
+  scroll-snap-align: start; text-align: left; display: block; width: 100%; min-width: 0;
+  background: #fff; color: var(--sx-fg); border: 1px solid var(--sx-border); border-radius: var(--sx-r);
+  box-shadow: var(--sx-shadow); padding: 14px 15px;
+}
+button.sx-acc:hover { background: var(--sx-teal-50); }
+button.sx-acc[aria-pressed='true'] { border-color: var(--sx-teal); background: var(--sx-teal-50); box-shadow: 0 0 0 2px var(--sx-teal-100); }
+.sx-acc .sx-bank { margin: 0; font-size: 17px; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+.sx-dot { width: 10px; height: 10px; border-radius: 3px; flex: none; display: inline-block; }
+.sx-acc .sx-no { margin: 2px 0 10px; font-size: 15px; color: var(--sx-muted); }
+.sx-acc .sx-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 15px; padding: 2px 0; color: #4b5563; }
+.sx-acc .sx-row b { font-size: 18px; font-weight: 800; white-space: nowrap; }
+.sx-acc .sx-big { font-size: 22px; font-weight: 800; margin: 0; white-space: nowrap; }
+.sx-acc .sx-tap { margin: 8px 0 0; font-size: 14px; font-weight: 600; color: var(--sx-teal); }
+
+/* ── Thẻ cảnh báo ────────────────────────────────────────────────────────── */
+.sx-alerts { display: grid; gap: 12px; margin-top: 12px; }
+button.sx-alert {
+  display: flex; align-items: center; gap: 14px; text-align: left; width: 100%; min-width: 0;
+  background: var(--sx-warn-bg); color: var(--sx-fg); border: 1px solid var(--sx-warn-br);
+  border-radius: var(--sx-r); padding: 14px 16px; min-height: 72px; box-shadow: var(--sx-shadow);
+}
+button.sx-alert:hover { background: #ffedd5; }
+button.sx-alert[aria-pressed='true'] { box-shadow: 0 0 0 3px var(--sx-warn-br); }
+button.sx-alert.sx-calm { background: #fff; border-color: var(--sx-border); }
+.sx-alert .sx-ic {
+  flex: none; width: 44px; height: 44px; border-radius: 10px; background: #fff; border: 1px solid var(--sx-warn-br);
+  display: grid; place-items: center; font-size: 22px; font-weight: 800; color: var(--sx-warn);
+}
+.sx-alert.sx-calm .sx-ic { border-color: var(--sx-border); color: var(--sx-in); }
+.sx-alert .sx-atx { flex: 1 1 auto; min-width: 0; }
+.sx-alert .sx-t1 { display: block; font-size: 17px; font-weight: 700; color: #7c2d12; }
+.sx-alert.sx-calm .sx-t1 { color: #374151; }
+.sx-alert .sx-t2 { display: block; margin-top: 2px; font-size: 15px; color: #9a3412; }
+.sx-alert.sx-calm .sx-t2 { color: var(--sx-muted); }
+.sx-alert .sx-go { flex: none; font-size: 15px; font-weight: 700; color: var(--sx-warn); white-space: nowrap; }
+
+/* ── Thanh xếp hạng (top NCC) ────────────────────────────────────────────── */
+.sx-rank { display: grid; gap: 12px; }
+.sx-rank-row { display: flex; justify-content: space-between; gap: 10px; font-size: 16px; }
+.sx-rank-row b { white-space: nowrap; }
+.sx-bar { height: 8px; border-radius: 99px; background: #f1f5f9; margin-top: 6px; overflow: hidden; }
+.sx-bar > i { display: block; height: 100%; border-radius: 99px; background: var(--sx-teal); }
+
+/* ── Bộ lọc ──────────────────────────────────────────────────────────────── */
+/* Điện thoại: gập sau nút "⚙ Lọc" (nút tự ghi các lọc đang bật). Máy tính: luôn mở, không có nút. */
+.sx-filters { margin-top: 10px; }
+.sx-filters.sx-closed { display: none; }
+button.sx-filter-toggle { width: 100%; margin-top: 18px; min-height: 50px; font-size: 16px; text-align: left; }
+.sx-fgroup { margin-bottom: 14px; min-width: 0; }
+.sx-fgroup > .sx-lg { display: block; font-size: 15px; font-weight: 700; color: #374151; margin: 0 0 8px; }
+.sx-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+button.sx-opt {
+  min-height: 46px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--sx-border);
+  background: #fff; color: #374151; font-size: 16px; font-weight: 600; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 7px;
+}
+button.sx-opt:hover { background: #f3f4f6; }
+button.sx-opt[aria-pressed='true'] { background: var(--sx-teal); border-color: var(--sx-teal); color: #fff; }
+.sx-seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 1px solid var(--sx-border); border-radius: 10px; overflow: hidden; }
+button.sx-seg-btn {
+  min-height: 50px; border-radius: 0; background: #fff; color: #374151; padding: 0 6px;
+  border-right: 1px solid var(--sx-border); font-size: 16px; font-weight: 700;
+}
+button.sx-seg-btn:last-child { border-right: 0; }
+button.sx-seg-btn[aria-pressed='true'] { background: var(--sx-teal); color: #fff; }
+.sx-dates { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+.sx-dates input { flex: 1 1 140px; min-height: 46px; border: 1px solid var(--sx-border); border-radius: 10px; padding: 0 10px; }
+.sx-srch input, .sx-fgroup select {
+  width: 100%; min-height: 48px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--sx-border);
+  font-size: 16px; background: #fff;
+}
+.sx-srch input:focus { border-color: var(--sx-teal); outline: 3px solid var(--sx-teal-100); outline-offset: 0; }
+.sx-active {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 12px; padding: 10px 14px;
+  background: var(--sx-warn-bg); border: 1px solid var(--sx-warn-br); border-radius: 10px; font-weight: 700; color: #7c2d12;
+}
+button.sx-ghost {
+  min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--sx-border);
+  background: #fff; color: #374151; font-size: 15px; font-weight: 700;
+}
+button.sx-ghost:hover { background: #f3f4f6; }
+button.sx-ghost.sx-danger { color: var(--sx-out); border-color: var(--sx-out-br); }
+
+/* ── Danh sách nhóm theo ngày ────────────────────────────────────────────── */
+.sx-list-head { display: none; }
+.sx-day { margin-top: 18px; }
+.sx-daybar { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 0 4px 8px; }
+.sx-daybar .sx-d { font-size: 16px; font-weight: 800; color: #374151; }
+.sx-daybar .sx-s { font-size: 15px; color: var(--sx-muted); font-variant-numeric: tabular-nums; }
+.sx-rows { display: grid; gap: 10px; }
+.sx-ov-grid { display: grid; gap: 14px; }
+
+/* Dòng giao dịch webhook */
+.sx-tx { background: #fff; border: 1px solid var(--sx-border); border-radius: var(--sx-r); box-shadow: var(--sx-shadow); padding: 14px 15px; min-width: 0; }
+.sx-tx-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.sx-tx-time { font-size: 16px; font-weight: 700; color: #374151; flex: none; }
+.sx-tx-amt { font-size: 24px; font-weight: 800; text-align: right; line-height: 1.2; white-space: nowrap; }
+.sx-tx-acc { margin: 8px 0 0; font-size: 16px; font-weight: 600; color: #374151; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sx-tx-acc .sx-nowrap { white-space: nowrap; }
+.sx-tx-acc .sx-bn { color: var(--sx-muted); font-weight: 500; }
+.sx-memo { margin: 10px 0 0; background: #f9fafb; border: 1px solid var(--sx-border); border-radius: 9px; padding: 9px 11px; min-width: 0; }
+.sx-memo .sx-ml, .sx-link .sx-ll {
+  display: block; font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 3px;
+}
+.sx-memo .sx-ml { color: #9ca3af; }
+.sx-memo .sx-mv { font-size: 16px; color: #374151; word-break: break-word; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; line-height: 1.45; }
+
+/* Ô Bàn/Đơn — phần phần mềm hiểu, tách hẳn khỏi dữ liệu ngân hàng */
+.sx-link { margin: 10px 0 0; border-radius: 10px; padding: 10px 12px; border: 1px solid; min-width: 0; }
+.sx-link .sx-lv { font-size: 17px; font-weight: 700; line-height: 1.35; }
+.sx-link .sx-lm { font-size: 15px; margin-top: 2px; }
+.sx-link.sx-ok { background: var(--sx-teal-50); border-color: #99f6e4; }
+.sx-link.sx-ok .sx-ll, .sx-link.sx-ok .sx-lm { color: var(--sx-teal); }
+.sx-link.sx-ok .sx-lv { color: var(--sx-teal-900); }
+.sx-link.sx-warnl { background: var(--sx-warn-bg); border-color: var(--sx-warn-br); box-shadow: 0 0 0 2px #ffedd5; }
+.sx-link.sx-warnl .sx-ll, .sx-link.sx-warnl .sx-lm { color: #9a3412; }
+.sx-link.sx-warnl .sx-lv { color: #7c2d12; }
+.sx-link.sx-none { background: #fff; border-color: var(--sx-border); border-style: dashed; }
+.sx-link.sx-none .sx-ll { color: #9ca3af; }
+.sx-link.sx-none .sx-lv { color: #4b5563; }
+.sx-link.sx-outn { background: #f9fafb; border-color: var(--sx-border); }
+.sx-link.sx-outn .sx-ll { color: #9ca3af; }
+.sx-link.sx-outn .sx-lv { color: var(--sx-muted); font-weight: 600; }
+.sx-link-act { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+button.sx-btn-assign { min-height: 48px; padding: 0 16px; border-radius: 10px; background: var(--sx-warn); color: #fff; font-size: 16px; font-weight: 700; }
+button.sx-btn-assign:hover { background: #9a3412; }
+.sx-flag { display: inline-block; margin-top: 8px; font-size: 14px; font-weight: 700; padding: 5px 10px; border-radius: 7px; border: 1px solid; }
+.sx-flag.sx-less { background: #fffbeb; border-color: #fde68a; color: #92400e; }
+.sx-flag.sx-more { background: #eff6ff; border-color: #bfdbfe; color: #1e40af; }
+.sx-flag.sx-wrong { background: var(--sx-out-bg); border-color: var(--sx-out-br); color: #991b1b; }
+
+/* Dòng trả NCC — MỘT dòng gọn (chủ quán 2026-10-15 chê thẻ nhiều tầng "cồng kềnh") */
+.sx-pay {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 48px;
+  grid-template-areas: 'ncc tien more' 'src src more';
+  align-items: center; gap: 4px 10px;
+  background: #fff; border: 1px solid var(--sx-border); border-radius: var(--sx-r); box-shadow: var(--sx-shadow); padding: 10px 8px 10px 14px;
+}
+.sx-pay .sx-pay-ncc { grid-area: ncc; font-size: 17px; font-weight: 700; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sx-pay .sx-pay-tien { grid-area: tien; font-size: 19px; font-weight: 800; color: var(--sx-out); white-space: nowrap; }
+.sx-pay .sx-pay-src { grid-area: src; min-width: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; color: var(--sx-muted); }
+.sx-pay .sx-pay-more { grid-area: more; }
+.sx-pay .sx-pay-acts { display: none; }
+.sx-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 14px; font-weight: 600;
+  border: 1px solid #99f6e4; background: var(--sx-teal-50); color: var(--sx-teal-900); white-space: nowrap;
+}
+.sx-chip.sx-cash { border-color: #fde68a; background: #fffbeb; color: #92400e; }
+.sx-chip.sx-old { border-color: var(--sx-border); background: #f9fafb; color: var(--sx-muted); }
+button.sx-more { width: 48px; min-height: 48px; padding: 0; border-radius: 10px; background: #fff; color: #374151; border: 1px solid var(--sx-border); font-size: 20px; font-weight: 800; }
+
+/* Bảng hành động "⋯" (điện thoại). `dvh` chứ không `vh` — hộp dùng vh trôi mất đỉnh trên iPhone. */
+.sx-sheet-bg { position: fixed; inset: 0; z-index: 1000; background: rgba(15, 23, 42, .45); display: flex; flex-direction: row; align-items: flex-end; }
+.sx-sheet { width: 100%; background: #fff; border-radius: 16px 16px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); max-height: 80dvh; overflow-y: auto; }
+.sx-sheet h3 { margin: 0 0 4px; font-size: 18px; }
+.sx-sheet p { margin: 0 0 14px; color: var(--sx-muted); }
+.sx-sheet button { width: 100%; min-height: 52px; margin-top: 8px; font-size: 17px; }
+
+/* Phân trang */
+.sx-pager { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 18px; padding: 8px; }
+.sx-pager .sx-pos { font-size: 16px; font-weight: 700; color: #374151; text-align: center; }
+
+.sx-empty { margin-top: 14px; border: 1px dashed #d1d5db; border-radius: var(--sx-r); padding: 32px 18px; text-align: center; background: #fff; }
+.sx-empty h3 { margin: 0 0 4px; font-size: 19px; }
+.sx-empty p { margin: 0; color: var(--sx-muted); }
+.sx-foot { margin-top: 22px; background: var(--sx-teal-50); border: 1px solid #99f6e4; border-radius: var(--sx-r); padding: 12px 16px; color: #115e56; font-size: 15px; }
+
+/* ================= ≥720px ================= */
+@media (min-width: 720px) {
+  .sx-acc-scroll { grid-auto-flow: row; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+  .sx-alerts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .sx-totals.sx-three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  button.sx-btn-main { flex: none; }
+  /* Dòng trả NCC: một hàng ngang, nút Sửa/Xoá hiện thẳng — không ẩn sau "⋯" */
+  .sx-pay {
+    grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto auto;
+    grid-template-areas: 'ncc src tien acts';
+  }
+  .sx-pay .sx-pay-more { display: none; }
+  .sx-pay .sx-pay-acts { grid-area: acts; display: flex; gap: 6px; }
+}
+
+/* ================= ≥1100px ================= */
+@media (min-width: 1100px) {
+  .sx-acc-scroll { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  button.sx-filter-toggle { display: none; }
+  .sx-filters.sx-card, .sx-filters.sx-card.sx-closed { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; margin-top: 18px; }
+  .sx-tot .sx-val { font-size: clamp(26px, 2.2vw, 32px); }
+  .sx-list-head {
+    display: grid; grid-template-columns: 64px 150px 200px minmax(0, 1fr) 280px; gap: 14px;
+    padding: 0 18px 10px; font-size: 13px; font-weight: 800; letter-spacing: .05em; text-transform: uppercase; color: #9ca3af;
+  }
+  .sx-tx { display: grid; grid-template-columns: 64px 150px 200px minmax(0, 1fr) 280px; gap: 14px; align-items: start; padding: 16px 18px; }
+  .sx-tx-top { display: contents; }
+  .sx-tx-time { font-size: 17px; padding-top: 2px; }
+  .sx-tx-amt { font-size: 20px; padding-top: 1px; }
+  .sx-tx-acc { margin: 0; display: block; font-size: 15px; }
+  .sx-tx-acc .sx-bn { display: block; margin-top: 2px; font-size: 14px; }
+  .sx-memo, .sx-link { margin: 0; }
+  .sx-ov-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+}

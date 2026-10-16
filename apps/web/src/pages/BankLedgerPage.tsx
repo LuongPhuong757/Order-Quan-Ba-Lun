@@ -1,92 +1,69 @@
-// Sổ webhook ngân hàng — bốn cột thô (chủ quán chốt 2026-09-23) + một cột "Bàn / Đơn" (2026-10-15).
+// Sổ webhook ngân hàng — thiết kế lại theo kiểu APP NGÂN HÀNG (2026-10-16, bản vẽ OpenDesign).
 //
-//   ngày giờ · ngân hàng · số tiền · nội dung
+// Chủ quán chọn (2026-10-16): bố cục kiểu MB/TPBank — khối tổng quan trên cùng, giao dịch nhóm
+// theo ngày, +tiền xanh / −tiền đỏ — nhưng giữ màu xanh ngọc của app quản lý. Ba chỗ dở của bản
+// cũ: khó đọc trên điện thoại, không thấy tổng quan, trông sơ sài.
 //
-// Bản trước có thêm id giao dịch, giờ nhận webhook, số tài khoản và nút xem JSON gốc. Chủ quán:
-// "tôi chỉ muốn xem số tiền, ngày giờ, ngân hàng nào, nội dung là được rồi". Dữ liệu vẫn nằm đủ
-// trong DB — bỏ khỏi màn không phải bỏ khỏi hệ thống.
-//
-// TIỀN RA (2026-10-10): hiện chung bảng, số âm màu đỏ, có ô lọc Vào/Ra. Chỉ để xem — tiền ra
-// không đi vào khớp đơn hay đối soát ở đâu cả.
-//
-// CỘT "BÀN / ĐƠN" (chủ quán chốt 2026-10-15): khách chuyển khoản xong mà nhân viên không bấm
-// thanh toán thì bàn cứ mở mãi. Mỗi dòng tiền vào giờ nói nó thuộc bàn nào và bàn đó ra sao; tiền
-// không mang mã bàn thì gán tay ngay tại đây (`BankAssignDialog`). Bốn cột thô vẫn nguyên — phần
-// "phần mềm hiểu" nằm gọn ở MỘT cột riêng, không trộn vào dữ liệu của ngân hàng.
-//
-// BỐ CỤC: `table.responsive.card` có sẵn → máy tính ra bảng, dưới 640px tự thành thẻ dọc có nhãn.
-// Không viết lưới riêng như màn Lịch sử: màn đó cần bố cục dày đặc, màn này chỉ có bốn cột.
-import { useCallback, useEffect, useState } from 'react';
-import type { CSSProperties } from 'react';
+// Những quyết định CŨ vẫn giữ nguyên:
+//  - Nội dung CK hiện NGUYÊN VĂN (chủ quán 2026-09-23: "tôi chỉ muốn xem số tiền, ngày giờ, ngân
+//    hàng nào, nội dung là được rồi"). Không thêm id giao dịch, giờ nhận webhook, JSON gốc.
+//  - Tiền RA hiện chung, số âm đỏ, chỉ để xem (2026-10-10).
+//  - Ô "Bàn / Đơn" là phần phần mềm hiểu, tách riêng khỏi dữ liệu ngân hàng; gán tay tiền lạ ngay
+//    tại đây (2026-10-15, `BankAssignDialog`).
+//  - Cột "TK quán" (2026-10-16): tên mã QR + 4 số cuối. Tài khoản BÊN KIA thì SePay không gửi,
+//    nên không có chỗ nào cho nó.
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { BankAssignDialog } from '../components/BankAssignDialog.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useToast } from '../components/Toast.tsx';
-
-type OrderState = 'open' | 'paid' | 'cash' | 'debt' | 'cancelled';
-
-type LinkedOrder = {
-  id: string;
-  table: string;
-  opened_at: number;
-  closed_at: number | null;
-  transfer_amount: number;
-  state: OrderState;
-  cashier: string | null;
-};
-
-type Link = {
-  via: 'auto' | 'manual' | 'none' | 'other';
-  order: LinkedOrder | null;
-  review: 'thieu' | 'thua' | 'sai_tk' | null;
-  manual_by: string | null;
-  manual_at: number | null;
-};
-
-type Row = {
-  id: string;
-  gateway_txn_id: string;
-  occurred_at: number;
-  bank: string | null;
-  direction: 'in' | 'out';
-  amount: number;
-  content: string;
-  link: Link | null;
-};
-
-type Bank = { account_no: string; name: string };
+import { addDaysIso, vnDayIso } from '../lib/date-range.ts';
+import { dayHeading, groupByDay, monthRange, tail4, vnd } from '../lib/so-tien.ts';
+import { BankLedgerRow, type LedgerRow } from './BankLedgerRow.tsx';
+import { BankLedgerOverview, type LedgerStatus, type LedgerSummary } from './BankLedgerOverview.tsx';
+import './so-tien.css';
 
 const PAGE_SIZE = 20;
 
-const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
+type Preset = 'today' | '7d' | 'month' | 'custom';
+const PRESETS: Array<[Preset, string]> = [
+  ['today', 'Hôm nay'],
+  ['7d', '7 ngày'],
+  ['month', 'Tháng này'],
+  ['custom', 'Tự chọn…'],
+];
+const DIRS: Array<['' | 'in' | 'out', string]> = [
+  ['', 'Tất cả'],
+  ['in', 'Tiền vào'],
+  ['out', 'Tiền ra'],
+];
 
-/** `23/09 14:31` — bỏ năm và giây: sổ này luôn xem trong khoảng vài ngày, năm chỉ tốn chỗ. */
-function when(ms: number): string {
-  const d = new Date(ms);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
-}
-
-function dayInput(ms: number): string {
-  return new Date(ms + 7 * 3600_000).toISOString().slice(0, 10);
+function presetDays(p: Exclude<Preset, 'custom'>, now: number): { from: string; to: string } {
+  const today = vnDayIso(now);
+  if (p === 'today') return { from: today, to: today };
+  if (p === 'month') return monthRange(now);
+  return { from: addDaysIso(today, -6), to: today };
 }
 
 export function BankLedgerPage() {
-  const [from, setFrom] = useState(() => dayInput(Date.now() - 7 * 86400_000));
-  const [to, setTo] = useState(() => dayInput(Date.now()));
+  const [preset, setPreset] = useState<Preset>('7d');
+  const [range, setRange] = useState(() => presetDays('7d', Date.now()));
   const [account, setAccount] = useState('');
   const [direction, setDirection] = useState<'' | 'in' | 'out'>('');
+  const [status, setStatus] = useState<LedgerStatus>('');
   /** Ô gõ và chuỗi ĐANG TÌM tách làm hai: gõ tới đâu gọi API tới đó là nã một truy vấn LIKE cho
    *  mỗi phím. Chuỗi thật chỉ đổi sau khi người ta ngừng gõ 400ms. */
   const [typed, setTyped] = useState('');
   const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
+  /** Điện thoại: bộ lọc gập sau một nút, để khối tổng quan và danh sách lên trước mắt. */
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [banks, setBanks] = useState<Bank[]>([]);
+  const [rows, setRows] = useState<LedgerRow[] | null>(null);
+  const [summary, setSummary] = useState<LedgerSummary | null>(null);
   const [total, setTotal] = useState(0);
   const [err, setErr] = useState<string | null>(null);
-  const [assigning, setAssigning] = useState<Row | null>(null);
+  const [assigning, setAssigning] = useState<LedgerRow | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -101,33 +78,34 @@ export function BankLedgerPage() {
   const load = useCallback(() => {
     const p = new URLSearchParams();
     // +07 → epoch. `to` lấy hết ngày, nếu không chọn "hôm nay" sẽ ra bảng rỗng.
-    p.set('from', String(Date.parse(`${from}T00:00:00+07:00`)));
-    p.set('to', String(Date.parse(`${to}T23:59:59+07:00`)));
+    p.set('from', String(Date.parse(`${range.from}T00:00:00+07:00`)));
+    p.set('to', String(Date.parse(`${range.to}T23:59:59+07:00`)));
     if (account) p.set('account', account);
     if (direction) p.set('direction', direction);
+    if (status) p.set('status', status);
     if (q.trim()) p.set('q', q.trim());
     p.set('page', String(page));
     p.set('page_size', String(PAGE_SIZE));
     setRows(null);
     setErr(null);
     api
-      .get<{ data: { items: Row[]; total: number; banks: Bank[] } }>(
+      .get<{ data: { items: LedgerRow[]; total: number; summary: LedgerSummary } }>(
         `/payments/transactions?${p.toString()}`,
       )
       .then((res) => {
         setRows(res.data.data.items);
         setTotal(res.data.data.total);
-        setBanks(res.data.data.banks);
+        setSummary(res.data.data.summary);
       })
       .catch((e) => setErr(extractError(e).message));
-  }, [from, to, account, direction, q, page]);
+  }, [range.from, range.to, account, direction, status, q, page]);
 
   useEffect(load, [load]);
 
-  const unassign = async (r: Row) => {
+  const unassign = async (r: LedgerRow) => {
     const table = r.link?.order?.table ?? 'đơn';
     const ok = await confirm({
-      title: `Gỡ ${fmt(r.amount)} khỏi ${table}?`,
+      title: `Gỡ ${vnd(r.amount)} khỏi ${table}?`,
       message: 'Khoản tiền quay về "Chưa khớp", đơn đó quay về ✗ chưa xác thực.',
       variant: 'warning',
       confirmLabel: 'Gỡ gán',
@@ -142,153 +120,188 @@ export function BankLedgerPage() {
     }
   };
 
+  const choosePreset = (p: Preset) => {
+    setPreset(p);
+    if (p !== 'custom') setRange(presetDays(p, Date.now()));
+    setPage(1);
+  };
+  const resetFilters = () => {
+    choosePreset('7d');
+    setAccount('');
+    setDirection('');
+    setStatus('');
+    setTyped('');
+  };
+
+  const today = vnDayIso(Date.now());
+  const groups = useMemo(() => groupByDay(rows ?? [], (r) => vnDayIso(r.occurred_at)), [rows]);
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  // Cộng RIÊNG hai chiều: gộp thành một số ròng thì người đọc không biết bao nhiêu vào, bao nhiêu ra.
-  const tongVao = rows?.reduce((a, b) => a + (b.direction === 'out' ? 0 : b.amount), 0) ?? 0;
-  const tongRa = rows?.reduce((a, b) => a + (b.direction === 'out' ? b.amount : 0), 0) ?? 0;
+  const accName = (no: string) => {
+    const a = summary?.by_account.find((x) => x.account_no === no);
+    return `${a?.label ?? a?.bank ?? 'TK'} ${tail4(no)}`;
+  };
+  const presetText = (PRESETS.find(([v]) => v === preset)?.[1] ?? '').replace('…', '');
 
   return (
-    <div className="container with-bottom-nav" style={{ maxWidth: 1060 }}>
-      <h1>🏦 Sổ webhook ngân hàng</h1>
+    <div className="container with-bottom-nav sx" style={{ maxWidth: 1240 }}>
+      <header className="sx-appbar">
+        <div className="sx-grow">
+          <h1>🏦 Sổ webhook ngân hàng</h1>
+          <p className="sx-sub">Mọi giao dịch SePay báo về · {presetText}</p>
+        </div>
+      </header>
 
-      {/* Bộ lọc xếp DỌC ĐƯỢC trên điện thoại (`flexWrap`), mỗi ô tự giãn. Ô tìm kiếm đứng đầu và
-          rộng nhất: đó là thứ người ta dùng nhiều nhất khi đi tìm một khoản cụ thể. */}
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
-        <div style={{ flex: '2 1 200px' }}>
-          <label htmlFor="bl-q" style={lbl}>Tìm trong nội dung</label>
-          <input
-            id="bl-q"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder="VD: BAN01 hoặc số tài khoản"
-            style={{ width: '100%', minHeight: 38 }}
-          />
-        </div>
-        <div style={{ flex: '1 1 150px' }}>
-          <label htmlFor="bl-bank" style={lbl}>Ngân hàng</label>
-          <select
-            id="bl-bank"
-            value={account}
-            onChange={(e) => { setAccount(e.target.value); setPage(1); }}
-            style={{ width: '100%', minHeight: 38 }}
-          >
-            <option value="">Tất cả</option>
-            {banks.map((b) => (
-              <option key={b.account_no} value={b.account_no}>{b.name}</option>
+      {summary && (
+        <BankLedgerOverview
+          s={summary}
+          account={account}
+          status={status}
+          onAccount={(no) => { setAccount(no); setPage(1); }}
+          onStatus={(st) => { setStatus(st); setPage(1); }}
+        />
+      )}
+
+      <button
+        type="button"
+        className="sx-ghost sx-filter-toggle"
+        aria-expanded={filtersOpen}
+        onClick={() => setFiltersOpen((v) => !v)}
+      >
+        ⚙ Lọc: {presetText}
+        {account ? ` · ${accName(account)}` : ''}
+        {direction ? ` · ${direction === 'in' ? 'Tiền vào' : 'Tiền ra'}` : ''}
+        {q ? ` · "${q}"` : ''} {filtersOpen ? '▴' : '▾'}
+      </button>
+
+      <div className={`sx-filters sx-card${filtersOpen ? '' : ' sx-closed'}`}>
+        <div className="sx-fgroup">
+          <span className="sx-lg">Khoảng ngày</span>
+          <div className="sx-opts">
+            {PRESETS.map(([v, t]) => (
+              <button key={v} type="button" className="sx-opt" aria-pressed={preset === v} onClick={() => choosePreset(v)}>
+                {t}
+              </button>
             ))}
-          </select>
+          </div>
+          {preset === 'custom' && (
+            <div className="sx-dates">
+              <input type="date" aria-label="Từ ngày" value={range.from}
+                onChange={(e) => { setRange((r) => ({ ...r, from: e.target.value })); setPage(1); }} />
+              <input type="date" aria-label="Đến ngày" value={range.to}
+                onChange={(e) => { setRange((r) => ({ ...r, to: e.target.value })); setPage(1); }} />
+            </div>
+          )}
         </div>
-        <div style={{ flex: '1 1 110px' }}>
-          <label htmlFor="bl-dir" style={lbl}>Chiều</label>
-          <select
-            id="bl-dir"
-            value={direction}
-            onChange={(e) => { setDirection(e.target.value as '' | 'in' | 'out'); setPage(1); }}
-            style={{ width: '100%', minHeight: 38 }}
-          >
-            <option value="">Tất cả</option>
-            <option value="in">Tiền vào</option>
-            <option value="out">Tiền ra</option>
-          </select>
+        {summary && summary.by_account.length > 0 && (
+          <div className="sx-fgroup">
+            <span className="sx-lg">Tài khoản</span>
+            <div className="sx-opts">
+              <button type="button" className="sx-opt" aria-pressed={account === ''} onClick={() => { setAccount(''); setPage(1); }}>
+                Tất cả
+              </button>
+              {summary.by_account.map((a) => (
+                <button key={a.account_no} type="button" className="sx-opt" aria-pressed={account === a.account_no}
+                  onClick={() => { setAccount(a.account_no); setPage(1); }}>
+                  {accName(a.account_no)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="sx-fgroup">
+          <span className="sx-lg">Chiều tiền</span>
+          <div className="sx-seg">
+            {DIRS.map(([v, t]) => (
+              <button key={v} type="button" className="sx-seg-btn" aria-pressed={direction === v}
+                onClick={() => { setDirection(v); setPage(1); }}>
+                {t}
+              </button>
+            ))}
+          </div>
         </div>
-        <div style={{ flex: '1 1 130px' }}>
-          <label htmlFor="bl-from" style={lbl}>Từ ngày</label>
-          <input
-            id="bl-from"
-            type="date"
-            value={from}
-            onChange={(e) => { setFrom(e.target.value); setPage(1); }}
-            style={{ width: '100%', minHeight: 38 }}
-          />
+        <div className="sx-fgroup sx-srch">
+          <label className="sx-lg" htmlFor="sx-q">Tìm trong nội dung CK</label>
+          <input id="sx-q" value={typed} onChange={(e) => setTyped(e.target.value)} placeholder="VD: BAN05, tên khách…" />
         </div>
-        <div style={{ flex: '1 1 130px' }}>
-          <label htmlFor="bl-to" style={lbl}>Đến ngày</label>
-          <input
-            id="bl-to"
-            type="date"
-            value={to}
-            onChange={(e) => { setTo(e.target.value); setPage(1); }}
-            style={{ width: '100%', minHeight: 38 }}
-          />
+        <div className="sx-fgroup">
+          <button type="button" className="sx-ghost" onClick={resetFilters}>Xoá hết bộ lọc</button>
         </div>
       </div>
 
-      {err && <div style={{ color: '#b91c1c', fontSize: 14 }}>{err}</div>}
-      {!err && rows === null && <div style={{ fontSize: 14, color: '#6b7280' }}>Đang tải…</div>}
-      {rows?.length === 0 && (
-        <div style={{ fontSize: 14, color: '#6b7280' }}>Không có webhook nào khớp bộ lọc.</div>
+      {status && (
+        <div className="sx-active">
+          Đang xem: {status === 'unmatched' ? 'Tiền lạ chưa khớp' : 'Bàn đã CK nhưng còn mở'}
+          <button type="button" className="sx-ghost" onClick={() => { setStatus(''); setPage(1); }}>
+            Bỏ lọc ✕
+          </button>
+        </div>
+      )}
+
+      {err && <p style={{ color: '#b91c1c' }}>Lỗi: {err}</p>}
+      {rows === null && !err && <p style={{ color: '#6b7280' }}>Đang tải…</p>}
+      {rows && rows.length === 0 && (
+        <div className="sx-empty">
+          <h3>Chưa có giao dịch nào trong kỳ này</h3>
+          <p>Thử chọn kỳ dài hơn, hoặc bỏ bớt bộ lọc.</p>
+        </div>
       )}
 
       {rows && rows.length > 0 && (
         <>
-          <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 8 }}>
-            {total} giao dịch{pages > 1 ? ` · trang ${page}/${pages}` : ''} · trang này
-            {tongVao > 0 && <> vào <strong style={{ color: '#15803d' }}>{fmt(tongVao)}</strong></>}
-            {tongRa > 0 && <> · ra <strong style={{ color: '#b91c1c' }}>−{fmt(tongRa)}</strong></>}
+          <div className="sx-list-head" style={{ marginTop: 18 }}>
+            <span>Giờ</span>
+            <span>Số tiền</span>
+            <span>Tài khoản quán</span>
+            <span>Nội dung CK (nguyên văn)</span>
+            <span>Bàn / Đơn — phần mềm hiểu</span>
           </div>
-
-          <table className="responsive card" style={{ padding: 0 }}>
-            <thead>
-              <tr>
-                <th style={{ width: 104, whiteSpace: 'nowrap' }}>Ngày giờ</th>
-                <th style={{ width: 116 }}>Ngân hàng</th>
-                <th style={{ width: 106, textAlign: 'right' }}>Số tiền</th>
-                <th>Nội dung</th>
-                <th style={{ width: 210 }}>Bàn / Đơn</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.gateway_txn_id}>
-                  <td data-label="Ngày giờ" style={{ whiteSpace: 'nowrap', color: '#6b7280' }}>
-                    {when(r.occurred_at)}
-                  </td>
-                  <td data-label="Ngân hàng" style={{ whiteSpace: 'nowrap' }}>{r.bank ?? '—'}</td>
-                  <td data-label="Số tiền" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    {r.direction === 'out' ? (
-                      <strong style={{ color: '#b91c1c' }}>−{fmt(r.amount)}</strong>
-                    ) : (
-                      <strong style={{ color: '#15803d' }}>{fmt(r.amount)}</strong>
-                    )}
-                  </td>
-                  {/* Nội dung NGUYÊN VĂN, không cắt: khi phải giải thích một khoản tiền, chính
-                      chuỗi ngân hàng gửi sang mới là thứ trả lời được. */}
-                  <td data-label="Nội dung" style={{ wordBreak: 'break-word', fontSize: 13 }}>
-                    {r.content || <span style={{ color: '#9ca3af' }}>(trống)</span>}
-                  </td>
-                  <td data-label="Bàn / Đơn">
-                    <LinkCell row={r} onAssign={() => setAssigning(r)} onUnassign={() => unassign(r)} />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {groups.map((g) => {
+            const vao = g.rows.reduce((a, r) => a + (r.direction === 'in' ? r.amount : 0), 0);
+            const ra = g.rows.reduce((a, r) => a + (r.direction === 'out' ? r.amount : 0), 0);
+            return (
+              <section key={g.day} className="sx-day">
+                <div className="sx-daybar">
+                  <span className="sx-d">{dayHeading(g.day, today)}</span>
+                  {/* Cộng RIÊNG hai chiều, và chỉ trên TRANG này — ngày bị cắt ngang trang thì số
+                      chỉ là phần đang thấy. Tổng cả kỳ nằm ở khối tổng quan. */}
+                  <span className="sx-s">
+                    {vao > 0 && <span className="sx-p">+{vnd(vao)}</span>}
+                    {vao > 0 && ra > 0 && ' / '}
+                    {ra > 0 && <span className="sx-m">−{vnd(ra)}</span>}
+                  </span>
+                </div>
+                <div className="sx-rows">
+                  {g.rows.map((r) => (
+                    <BankLedgerRow key={r.gateway_txn_id} row={r} onAssign={() => setAssigning(r)} onUnassign={() => void unassign(r)} />
+                  ))}
+                </div>
+              </section>
+            );
+          })}
 
           {pages > 1 && (
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'center', alignItems: 'center', marginTop: 12 }}>
-              <button
-                type="button"
-                className="secondary"
-                disabled={page <= 1}
-                onClick={() => setPage((v) => Math.max(1, v - 1))}
-                style={{ minHeight: 40, minWidth: 90 }}
-              >
+            <div className="sx-pager sx-card">
+              <button type="button" className="sx-ghost" disabled={page <= 1} onClick={() => setPage((v) => Math.max(1, v - 1))}>
                 ← Trước
               </button>
-              <span style={{ fontSize: 14, color: '#6b7280' }}>{page}/{pages}</span>
-              <button
-                type="button"
-                className="secondary"
-                disabled={page >= pages}
-                onClick={() => setPage((v) => Math.min(pages, v + 1))}
-                style={{ minHeight: 40, minWidth: 90 }}
-              >
+              <span className="sx-pos">
+                {page}/{pages}
+                <br />
+                <small style={{ fontWeight: 500, color: '#6b7280' }}>{total} giao dịch</small>
+              </span>
+              <button type="button" className="sx-ghost" disabled={page >= pages} onClick={() => setPage((v) => Math.min(pages, v + 1))}>
                 Sau →
               </button>
             </div>
           )}
         </>
       )}
+
+      <p className="sx-foot">
+        ℹ️ Chỉ thấy tài khoản đã nối SePay. Khách chuyển nhầm sang tài khoản khác sẽ không hiện ở đây — xem
+        cột Xác thực ở màn Lịch sử. SePay không gửi số tài khoản của người chuyển, nên sổ chỉ biết tiền
+        vào/ra ở tài khoản nào của quán.
+      </p>
 
       {assigning && (
         <BankAssignDialog
@@ -306,72 +319,3 @@ export function BankLedgerPage() {
     </div>
   );
 }
-
-/** Nhãn trạng thái đơn — màu theo mức phải lo: đỏ là phải đi xử lý ngay trong ca. */
-const STATE_TEXT: Record<OrderState, { text: string; color: string }> = {
-  open: { text: '🔴 CHƯA bấm thanh toán', color: '#b91c1c' },
-  paid: { text: '✓ Đã thanh toán', color: '#15803d' },
-  // Ngân hàng báo CK về đúng mã bàn mà đơn lại ghi tiền mặt: két sẽ thiếu đúng khoản này.
-  cash: { text: '🔴 Đóng là TIỀN MẶT — kiểm lại', color: '#b91c1c' },
-  debt: { text: '⚠ Đang ghi nợ', color: '#b45309' },
-  cancelled: { text: '🔴 Đơn đã HUỶ', color: '#b91c1c' },
-};
-
-const REVIEW_TEXT: Record<'thieu' | 'thua' | 'sai_tk', string> = {
-  thieu: '⚠ Khách chuyển THIẾU',
-  thua: '⚠ Khách chuyển THỪA',
-  sai_tk: '⚠ Về SAI tài khoản QR',
-};
-
-type LinkCellProps = { row: Row; onAssign: () => void; onUnassign: () => void };
-
-function LinkCell({ row, onAssign, onUnassign }: LinkCellProps) {
-  const link = row.link;
-  // Tiền ra không thuộc bàn nào.
-  if (!link) return <span style={{ color: '#9ca3af' }}>—</span>;
-
-  if (link.via === 'none') {
-    return (
-      <div>
-        <div style={{ color: '#6b7280', fontSize: 14 }}>❓ Chưa khớp bàn nào</div>
-        <button type="button" onClick={onAssign} style={{ minHeight: 40, marginTop: 4, fontSize: 15 }}>
-          Gán vào đơn
-        </button>
-      </div>
-    );
-  }
-  const manualTag = link.via === 'manual' && (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-      <span style={{ color: '#6b7280' }}>Gán tay{link.manual_by ? ` · ${link.manual_by}` : ''}</span>
-      <button type="button" className="secondary" onClick={onUnassign} style={{ minHeight: 36, fontSize: 14 }}>
-        Gỡ gán
-      </button>
-    </div>
-  );
-  if (!link.order) {
-    // Đơn đã bị xoá: vẫn phải gỡ được gán tay, không thì khoản tiền kẹt mãi ở trạng thái này.
-    return (
-      <div style={{ fontSize: 14 }}>
-        <span style={{ color: '#6b7280' }}>Không thấy đơn tại bàn</span>
-        {manualTag}
-      </div>
-    );
-  }
-
-  const o = link.order;
-  const st = STATE_TEXT[o.state];
-  return (
-    <div style={{ fontSize: 14, lineHeight: 1.5 }}>
-      <strong style={{ fontSize: 16 }}>{o.table}</strong>
-      <div style={{ color: st.color, fontWeight: 700 }}>{st.text}</div>
-      <div style={{ color: '#6b7280' }}>
-        {o.closed_at === null ? `Mở lúc ${when(o.opened_at)}` : `Đóng ${when(o.closed_at)}`}
-        {o.cashier ? ` · ${o.cashier}` : ''}
-      </div>
-      {link.review && <div style={{ color: '#b45309', fontWeight: 700 }}>{REVIEW_TEXT[link.review]}</div>}
-      {manualTag}
-    </div>
-  );
-}
-
-const lbl: CSSProperties = { display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 2 };

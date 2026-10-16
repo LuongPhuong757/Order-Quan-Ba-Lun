@@ -347,7 +347,7 @@ export function SuppliersPage() {
           toàn bộ lịch sử — xem chú thích ở khối bộ lọc phía trên. */}
       {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
 
-      {tab === 'transfers' && isAdmin && <SupplierTransfersPanel suppliers={suppliers} onChanged={() => void refresh()} />}
+      {tab === 'transfers' && isAdmin && <SupplierTransfersPanel suppliers={suppliers} balances={balances} onChanged={() => void refresh()} />}
 
       {tab === 'deliveries' && !loading && (
         <SupplierDeliveryScreen
