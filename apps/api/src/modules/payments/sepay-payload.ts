@@ -6,8 +6,26 @@
 // được bằng payload chép từ tài liệu của họ.
 //
 // Hình dạng payload (tài liệu SePay, đã kiểm 2026-09-21):
-//   { id, gateway, transactionDate, accountNumber, code, content,
+//   { id, gateway, transactionDate, accountNumber, subAccount, code, content,
 //     transferType: 'in'|'out', transferAmount, accumulated, referenceCode }
+
+/**
+ * Số tài khoản CỦA QUÁN cho một giao dịch: số VA (`subAccount`) nếu có, không thì tài khoản chính.
+ *
+ * TÀI KHOẢN ẢO (VA) — 2026-10-16. Với VA, SePay để số VA ở `subAccount` còn `accountNumber` là
+ * tài khoản CHÍNH. BIDV qua SePay BẮT BUỘC dùng VA (không theo dõi được tài khoản chính), và mã QR
+ * BIDV trong app khai bằng SỐ VA — vì đó là số khách chuyển vào. Đọc mỗi `accountNumber` thì mọi
+ * khoản BIDV lệch với tài khoản trên QR: cờ "Về sai tài khoản QR" bật OAN, và Sổ webhook không
+ * tra ra tên mã QR (chỉ hiện "…3899" trơn). Ưu tiên VA là đúng với cả hai chỗ.
+ *
+ * Chuỗi rỗng / chỉ khoảng trắng coi như không có: SePay gửi `subAccount: ""` cho tài khoản thường.
+ */
+export function pickAccountNo(main: unknown, sub: unknown): string | null {
+  const s = sub === null || sub === undefined ? '' : String(sub).trim();
+  if (s) return s.slice(0, 32);
+  const m = main === null || main === undefined ? '' : String(main).trim();
+  return m ? m.slice(0, 32) : null;
+}
 
 /** Đầu vào đã chuẩn hoá mà `PaymentsApplyService.ingest()` nhận. Cổng khác (payOS, Casso) nếu
  *  nối sau thì dựng cùng khuôn này, phần khớp không phải sửa dòng nào. */
@@ -77,7 +95,7 @@ export function normalizeSepayPayload(body: unknown): IngestInput | null {
     gatewayTxnId: String(id),
     amount: Math.round(amount),
     content,
-    accountNo: b.accountNumber ? String(b.accountNumber).slice(0, 32) : null,
+    accountNo: pickAccountNo(b.accountNumber, b.subAccount),
     occurredAt: parseVnTime(String(b.transactionDate ?? '')),
     raw: b,
   };

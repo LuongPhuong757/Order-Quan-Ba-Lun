@@ -4,7 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { PaymentsApplyService } from './payments-apply.service.js';
-import { parseVnTime, type IngestInput } from './sepay-payload.js';
+import { parseVnTime, pickAccountNo, type IngestInput } from './sepay-payload.js';
 
 /**
  * Quét bù giao dịch bị lỡ webhook (2026-09-22).
@@ -113,7 +113,8 @@ export function fromApiRow(row: unknown): IngestInput | null {
     gatewayTxnId: String(id),
     amount: Math.round(amount),
     content: String(r.transaction_content ?? '').slice(0, 255),
-    accountNo: r.account_number ? String(r.account_number).slice(0, 32) : null,
+    // API dùng `sub_account` (webhook là `subAccount`) — cùng luật VA, xem `pickAccountNo`.
+    accountNo: pickAccountNo(r.account_number, r.sub_account),
     occurredAt: parseVnTime(String(r.transaction_date ?? '')),
     raw: r,
   };

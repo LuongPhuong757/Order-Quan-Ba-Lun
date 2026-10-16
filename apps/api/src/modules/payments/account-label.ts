@@ -1,6 +1,7 @@
 // Tên mã QR cho cột "TK quán" ở Sổ webhook (2026-10-16).
 //
-// SePay chỉ gửi số tài khoản CỦA QUÁN (`accountNumber`) — tài khoản bên kia (khách chuyển vào,
+// SePay chỉ gửi số tài khoản CỦA QUÁN (số VA nếu có, không thì `accountNumber` — xem
+// `pickAccountNo`) — tài khoản bên kia (khách chuyển vào,
 // NCC nhận tiền ra) thì KHÔNG có trường nào, kể cả ở API quét bù. Nên cột này chỉ nói được
 // "tiền vào/ra ở tài khoản nào của quán", và tên lấy từ chính danh sách mã QR chủ quán đặt để
 // người đọc nhận ra ngay ("TPBank HKD") thay vì phải nhớ số.
