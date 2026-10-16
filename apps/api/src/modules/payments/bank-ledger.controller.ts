@@ -34,7 +34,8 @@ export type WebhookRow = {
    *  (lệch vài giây), bày cả hai chỉ làm người đọc phải hỏi "vậy cái nào mới đúng". */
   occurred_at: number;
   bank: string | null;
-  /** Số tài khoản CỦA QUÁN mà tiền vào/ra — `accountNumber` SePay gửi, nguyên văn (2026-10-16).
+  /** Số tài khoản CỦA QUÁN mà tiền vào/ra (2026-10-16) — số VA nếu tiền về qua tài khoản ảo
+   *  (BIDV), không thì `accountNumber`; xem `pickAccountNo` ở `sepay-payload.ts`.
    *  Tài khoản BÊN KIA (người chuyển / người nhận) thì SePay không gửi, nên không có trường nào. */
   account_no: string | null;
   /** Tên mã QR chủ quán đặt cho số tài khoản trên, tra từ `payment_qr_accounts`. `null` khi số đó
