@@ -4,7 +4,7 @@
 //  - VÀO = tiền khách chuyển khoản vào mã QR đó (cùng số màn Lịch sử); đơn nợ trả sau tính ngày
 //    trả nợ. RA = các lần trả NCC bằng CK đã chọn tài khoản đó. KHÔNG phải sao kê ngân hàng —
 //    xem đầu `apps/api/src/modules/suppliers/account-flow.ts`.
-//  - Xem MỘT tài khoản một lúc, chọn bằng nút to. Chỉ mã QR đang bật và có số tài khoản.
+//  - Xem MỘT tài khoản một lúc, chọn bằng nút to. Mọi mã QR có số tài khoản, kể cả mã đã ngừng nhận tiền khách.
 //  - Cột vào/ra theo NGÀY LỊCH + ba ô tổng. Dùng CHUNG kỳ với cả tab.
 import { useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
@@ -75,7 +75,7 @@ export function SupplierAccountFlowCard({ range }: { range: DayRange }) {
         <p style={{ color: C.muted, margin: 0 }}>Đang tải…</p>
       ) : data.accounts.length === 0 ? (
         <p style={{ color: C.muted, margin: 0 }}>
-          Chưa có mã QR nào đang bật mà có số tài khoản. Thêm ở Cài đặt → QR thanh toán.
+          Chưa có mã QR nào có số tài khoản. Thêm ở Cài đặt → QR thanh toán.
         </p>
       ) : (
         <>

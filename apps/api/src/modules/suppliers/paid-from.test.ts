@@ -21,9 +21,17 @@ describe('resolvePaidFrom', () => {
     expect(() => resolvePaidFrom('TRANSFER', '', null)).toThrow(/phải chọn/);
   });
 
-  it('tài khoản không tồn tại hoặc đã tắt thì từ chối', () => {
-    expect(() => resolvePaidFrom('TRANSFER', 'khong-co', null)).toThrow(/không còn dùng/);
-    expect(() => resolvePaidFrom('TRANSFER', 'acc-cu', TAT)).toThrow(/không còn dùng/);
+  it('tài khoản không tồn tại thì từ chối', () => {
+    expect(() => resolvePaidFrom('TRANSFER', 'khong-co', null)).toThrow(/không tìm thấy/i);
+  });
+
+  // 2026-10-16 chủ quán chốt: "Ngừng dùng" ở Cài đặt = ngừng NHẬN TIỀN KHÁCH. Tài khoản đó vẫn
+  // là tiền thật của quán, vẫn chuyển ra trả NCC được.
+  it('tài khoản đã ngừng nhận tiền khách vẫn dùng trả NCC được', () => {
+    expect(resolvePaidFrom('TRANSFER', 'acc-cu', TAT)).toEqual({
+      paid_from_account_id: 'acc-cu',
+      paid_from_label: 'TK cũ',
+    });
   });
 
   it('sửa mà giữ nguyên tài khoản cũ đã tắt/xoá thì vẫn cho, giữ nhãn cũ', () => {
@@ -32,8 +40,12 @@ describe('resolvePaidFrom', () => {
     expect(resolvePaidFrom('TRANSFER', 'acc-cu', TAT, cu)).toEqual(cu);
   });
 
-  it('sửa sang tài khoản KHÁC thì tài khoản mới phải đang bật', () => {
+  it('sửa sang tài khoản KHÁC thì tài khoản mới phải tồn tại', () => {
     const cu = { paid_from_account_id: 'acc-vcb', paid_from_label: 'VCB Quán' };
-    expect(() => resolvePaidFrom('TRANSFER', 'acc-cu', TAT, cu)).toThrow(/không còn dùng/);
+    expect(() => resolvePaidFrom('TRANSFER', 'khong-co', null, cu)).toThrow(/không tìm thấy/i);
+    expect(resolvePaidFrom('TRANSFER', 'acc-cu', TAT, cu)).toEqual({
+      paid_from_account_id: 'acc-cu',
+      paid_from_label: 'TK cũ',
+    });
   });
 });

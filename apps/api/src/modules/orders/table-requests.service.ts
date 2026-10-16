@@ -61,13 +61,30 @@ export class TableRequestsService {
     return { id: picked.item.id, name: picked.item.name, price: picked.item.price, qty: picked.qty };
   }
 
+  /* Tên bàn theo mã — nhớ tạm cho `pending()` (2026-10-16). Endpoint đó bị gọi mỗi 2 giây từ
+     màn Order, màn Bếp và drawer của TỪNG máy, mỗi lượt lại `tables.find()` cả bảng chỉ để lấy
+     tên — trong khi danh sách bàn gần như không bao giờ đổi giữa ca. Chỉ dùng để HIỂN THỊ tên
+     trên thẻ duyệt / chuông gọi, nên đổi tên bàn chậm tối đa 60 giây là chấp nhận được; mọi
+     chỗ cần đúng tuyệt đối (khăn tự thêm ở `autoItemFor`, duyệt món) vẫn đọc DB trực tiếp. */
+  private tableNamesCache: { at: number; byCode: Map<string, string> } | null = null;
+  private static readonly TABLE_NAMES_TTL_MS = 60_000;
+
+  private async tableNamesByCode(): Promise<Map<string, string>> {
+    const now = Date.now();
+    const c = this.tableNamesCache;
+    if (c && now - c.at < TableRequestsService.TABLE_NAMES_TTL_MS) return c.byCode;
+    const tables = await this.tables.find({ select: { code: true, name: true } });
+    const byCode = new Map(tables.map((t) => [t.code, t.name]));
+    this.tableNamesCache = { at: now, byCode };
+    return byCode;
+  }
+
   /** Màn bếp gọi trong CHÍNH vòng poll 2 giây đã có — không thêm timer, không thêm kênh. */
   async pending(): Promise<PendingResult> {
     const reqs = await this.requests.find({ where: { status: 'WAITING' }, order: { created_at: 'ASC' } });
     const calls = await this.calls.find({ where: { acked_at: IsNull() }, order: { created_at: 'ASC' } });
 
-    const tables = await this.tables.find();
-    const nameByCode = new Map(tables.map((t) => [t.code, t.name]));
+    const nameByCode = await this.tableNamesByCode();
 
     if (reqs.length === 0) {
       return {
