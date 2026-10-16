@@ -48,6 +48,8 @@ type Row = {
   gateway_txn_id: string;
   occurred_at: number;
   bank: string | null;
+  account_no: string | null;
+  account_label: string | null;
   direction: 'in' | 'out';
   amount: number;
   content: string;
@@ -65,6 +67,15 @@ function when(ms: number): string {
   const d = new Date(ms);
   const p = (n: number) => String(n).padStart(2, '0');
   return `${p(d.getDate())}/${p(d.getMonth() + 1)} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/** `TPBank HKD · …8888` — tên mã QR chủ quán đặt + 4 số cuối để còn đối chiếu với sao kê. Số chưa
+ *  khai làm mã QR nào thì chỉ còn mấy số cuối. Đây là tài khoản CỦA QUÁN; tài khoản bên kia SePay
+ *  không gửi nên không có cột nào cho nó. */
+function tkQuan(r: Row): string {
+  if (!r.account_no) return '—';
+  const tail = `…${r.account_no.slice(-4)}`;
+  return r.account_label ? `${r.account_label} · ${tail}` : tail;
 }
 
 function dayInput(ms: number): string {
@@ -232,6 +243,7 @@ export function BankLedgerPage() {
               <tr>
                 <th style={{ width: 104, whiteSpace: 'nowrap' }}>Ngày giờ</th>
                 <th style={{ width: 116 }}>Ngân hàng</th>
+                <th style={{ width: 150 }}>TK quán</th>
                 <th style={{ width: 106, textAlign: 'right' }}>Số tiền</th>
                 <th>Nội dung</th>
                 <th style={{ width: 210 }}>Bàn / Đơn</th>
@@ -244,6 +256,7 @@ export function BankLedgerPage() {
                     {when(r.occurred_at)}
                   </td>
                   <td data-label="Ngân hàng" style={{ whiteSpace: 'nowrap' }}>{r.bank ?? '—'}</td>
+                  <td data-label="TK quán" style={{ wordBreak: 'break-word' }}>{tkQuan(r)}</td>
                   <td data-label="Số tiền" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                     {r.direction === 'out' ? (
                       <strong style={{ color: '#b91c1c' }}>−{fmt(r.amount)}</strong>

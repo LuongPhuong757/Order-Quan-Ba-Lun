@@ -6,6 +6,8 @@ import { apiOk, type ApiOk } from '@order/utils';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
+import { accountLabelMap } from './account-label.js';
 import { BankLedgerLinkService, type Candidate, type TxnLink } from './bank-ledger-link.service.js';
 
 /**
@@ -31,6 +33,12 @@ export type WebhookRow = {
    *  (lệch vài giây), bày cả hai chỉ làm người đọc phải hỏi "vậy cái nào mới đúng". */
   occurred_at: number;
   bank: string | null;
+  /** Số tài khoản CỦA QUÁN mà tiền vào/ra — `accountNumber` SePay gửi, nguyên văn (2026-10-16).
+   *  Tài khoản BÊN KIA (người chuyển / người nhận) thì SePay không gửi, nên không có trường nào. */
+  account_no: string | null;
+  /** Tên mã QR chủ quán đặt cho số tài khoản trên, tra từ `payment_qr_accounts`. `null` khi số đó
+   *  chưa khai làm mã QR nào — màn tự lùi về mấy số cuối. */
+  account_label: string | null;
   /** `out` = tiền ra. `amount` luôn dương; màn tự thêm dấu trừ. */
   direction: 'in' | 'out';
   amount: number;
@@ -52,6 +60,7 @@ export type WebhookRow = {
 export class BankLedgerController {
   constructor(
     @InjectRepository(BankTransaction) private readonly txns: Repository<BankTransaction>,
+    @InjectRepository(PaymentQrAccount) private readonly qrAccounts: Repository<PaymentQrAccount>,
     private readonly links: BankLedgerLinkService,
   ) {}
 
@@ -107,12 +116,16 @@ export class BankLedgerController {
       .getMany();
 
     const links = await this.links.linksFor(rows);
+    // Cả bảng mã QR chỉ vài hàng — đọc hết rồi tra trong bộ nhớ, khỏi JOIN theo cột không đánh chỉ mục.
+    const labels = accountLabelMap(await this.qrAccounts.find());
     return apiOk({
       items: rows.map((r) => ({
         id: r.id,
         gateway_txn_id: r.gateway_txn_id,
         occurred_at: r.occurred_at,
         bank: bankNameOf(r),
+        account_no: r.account_no,
+        account_label: r.account_no ? labels.get(r.account_no.trim()) ?? null : null,
         direction: r.direction,
         amount: r.amount,
         content: r.content,
