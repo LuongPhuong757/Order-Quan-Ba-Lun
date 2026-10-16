@@ -51,6 +51,7 @@ import {
   type TrangKetQua,
 } from '../lib/supplier-stats.ts';
 import type { Balance } from './SupplierPayments.tsx';
+import { SupplierAccountFlowCard } from './SupplierAccountFlowCard.tsx';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const CO_TRANG = 15;
@@ -464,6 +465,13 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                 </>
               )}
             </ChartCard>
+          </div>
+
+          {/* TIỀN VÀO / RA THEO TÀI KHOẢN (2026-10-15, chủ quán yêu cầu). Thẻ tự tải số liệu, chỉ
+              ăn theo KỲ chung của tab — không theo bộ lọc NCC: tiền khách chuyển vào tài khoản
+              không thuộc nhà cung cấp nào. */}
+          <div style={{ marginTop: 12 }}>
+            <SupplierAccountFlowCard range={range} />
           </div>
 
           {/* MỘT ô tìm kiếm cho cả hai bảng: câu hỏi thật của chủ quán là "món này đang mua thế

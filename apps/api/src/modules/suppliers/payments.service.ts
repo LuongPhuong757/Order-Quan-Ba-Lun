@@ -8,6 +8,8 @@ import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
 import { toDateString } from './suppliers.service.js';
 import { computeBalance, type SupplierBalance } from './balance.js';
 import { assertNotFutureDate } from './future-date.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
+import { resolvePaidFrom } from './paid-from.js';
 
 export type Actor = { id: string; full_name: string; is_owner?: boolean };
 
@@ -35,7 +37,14 @@ export class PaymentsService {
     @InjectRepository(Supplier) private readonly supplierRepo: Repository<Supplier>,
     @InjectRepository(SupplierPayment) private readonly paymentRepo: Repository<SupplierPayment>,
     @InjectRepository(SupplierDelivery) private readonly deliveryRepo: Repository<SupplierDelivery>,
+    @InjectRepository(PaymentQrAccount) private readonly qrRepo: Repository<PaymentQrAccount>,
   ) {}
+
+  /** Đọc mã QR theo id rồi để `resolvePaidFrom` quyết. Không có id thì khỏi gọi DB. */
+  private async findQr(id: string | null | undefined): Promise<PaymentQrAccount | null> {
+    if (!id) return null;
+    return this.qrRepo.findOne({ where: { id } });
+  }
 
   /** Công nợ của MỌI nhà cung cấp đang hoạt động.
    *
@@ -161,6 +170,8 @@ export class PaymentsService {
       paid_on?: string;
       amount: number;
       method?: PaymentMethod;
+      /** Bắt buộc khi `method = 'TRANSFER'` — xem `paid-from.ts`. */
+      paid_from_account_id?: string | null;
       note?: string | null;
     },
     actor: Actor,
@@ -181,17 +192,84 @@ export class PaymentsService {
       nhan: 'Ngày trả',
       viSao: 'Chỉ ghi được khoản tiền ĐÃ đưa cho nhà cung cấp.',
     });
+    // Bỏ trống `method` vẫn là TIỀN MẶT ở phía server — giữ cho mọi màn/script cũ không đột nhiên
+    // bị đòi tài khoản. Mặc định "Chuyển khoản" (2026-10-15) là việc của Ô NHẬP trên màn hình.
+    const method = input.method ?? 'CASH';
+    const paidFrom = resolvePaidFrom(
+      method,
+      input.paid_from_account_id,
+      await this.findQr(method === 'TRANSFER' ? input.paid_from_account_id : null),
+    );
     return this.paymentRepo.save(
       this.paymentRepo.create({
         supplier_id: input.supplier_id,
         paid_on: input.paid_on || today,
         amount: Math.round(input.amount),
-        method: input.method ?? 'CASH',
+        method,
+        ...paidFrom,
         note: input.note?.trim() || null,
         created_by_user_id: actor.id,
         created_by_name: actor.full_name,
       }),
     );
+  }
+
+  /** SỬA một lần trả (2026-10-15, chủ quán yêu cầu — trước đó chỉ có xoá rồi ghi lại).
+   *
+   * Sửa được cả NCC, ngày, số tiền, hình thức, tài khoản, ghi chú. Công nợ không lưu ở đâu cả
+   * (luôn cộng lại từ bảng này) nên sửa xong là mọi con số tự đúng, không có gì phải "tính lại".
+   * Dấu vết ai sửa nằm ở nhật ký audit (`supplier.payment_updated`), giống xoá.
+   *
+   * `created_by_*` GIỮ NGUYÊN: đó là người đã đưa tiền/ghi sổ, không phải người sửa chính tả.
+   */
+  async update(
+    id: string,
+    input: {
+      supplier_id: string;
+      paid_on: string;
+      amount: number;
+      method: PaymentMethod;
+      paid_from_account_id?: string | null;
+      note?: string | null;
+    },
+    today: string,
+  ): Promise<SupplierPayment> {
+    const p = await this.paymentRepo.findOne({ where: { id } });
+    if (!p) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Không tìm thấy lần thanh toán' });
+
+    if (input.supplier_id !== p.supplier_id) {
+      // Chuyển sang NCC khác thì NCC đó phải còn hoạt động — cùng luật với ghi mới. Giữ NCC cũ
+      // (kể cả NCC đã ngừng) thì cho sửa: ghi chú sai một dòng cũ không nên bị chặn.
+      const s = await this.supplierRepo.findOne({ where: { id: input.supplier_id } });
+      if (!s || !s.is_active) {
+        throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nhà cung cấp không tồn tại' });
+      }
+    }
+    if (!(input.amount > 0)) {
+      throw new BadRequestException({ code: 'BAD_INPUT', message: 'Số tiền phải lớn hơn 0' });
+    }
+    assertNotFutureDate(input.paid_on, today, {
+      code: 'PAYMENT_DATE_FUTURE',
+      nhan: 'Ngày trả',
+      viSao: 'Chỉ ghi được khoản tiền ĐÃ đưa cho nhà cung cấp.',
+    });
+    const paidFrom = resolvePaidFrom(
+      input.method,
+      input.paid_from_account_id,
+      await this.findQr(input.method === 'TRANSFER' ? input.paid_from_account_id : null),
+      { paid_from_account_id: p.paid_from_account_id, paid_from_label: p.paid_from_label },
+    );
+
+    const saved = await this.paymentRepo.save({
+      ...p,
+      supplier_id: input.supplier_id,
+      paid_on: input.paid_on,
+      amount: Math.round(input.amount),
+      method: input.method,
+      ...paidFrom,
+      note: input.note?.trim() || null,
+    });
+    return { ...saved, paid_on: toDateString(saved.paid_on) ?? '' };
   }
 
   /** Xoá một lần trả tiền ghi nhầm. Xoá hẳn chứ không xoá mềm: dòng tiền ghi nhầm để lại trong

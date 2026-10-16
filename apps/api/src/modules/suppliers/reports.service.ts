@@ -14,6 +14,8 @@ import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { RecipeLine } from '../ingredients/entities/recipe-line.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
+import { gopDongTien, vnDayEnd, vnDayStart, type AccountFlowDay } from './account-flow.js';
 import { computeFoodCost, ingredientPrices, type FoodCostRow } from './food-cost.js';
 import {
   aggregateByPair,
@@ -46,6 +48,7 @@ export class ReportsService {
     @InjectRepository(RecipeLine) private readonly recipeRepo: Repository<RecipeLine>,
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
     @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
+    @InjectRepository(PaymentQrAccount) private readonly qrRepo: Repository<PaymentQrAccount>,
   ) {}
 
   /** Giá vốn từng món theo giá nguyên liệu đang mua (bước 5).
@@ -499,7 +502,15 @@ export class ReportsService {
    * KHÔNG lọc theo `opening_balance_date` — cùng lệ với công nợ: mọi lần trả đều là tiền quán đã
    * đưa, kể cả lần trả trước mốc số dư đầu kỳ (xem docblock `balance.ts`).
    */
-  async payments(opts: { from?: string; to?: string; supplier_id?: string }): Promise<PaymentStatRow[]> {
+  async payments(opts: {
+    from?: string;
+    to?: string;
+    supplier_id?: string;
+    /** Màn "Chuyển khoản NCC" (2026-10-15): 3 nút CK / Tiền mặt / Tất cả. */
+    method?: 'CASH' | 'TRANSFER';
+    /** Lọc theo tài khoản nguồn (`paid_from_account_id`). */
+    account_id?: string;
+  }): Promise<PaymentStatRow[]> {
     const qb = this.paymentRepo
       .createQueryBuilder('p')
       .innerJoin('suppliers', 's', 's.id = p.supplier_id')
@@ -510,12 +521,16 @@ export class ReportsService {
         's.name AS supplier_name',
         'p.amount AS amount',
         'p.method AS method',
+        'p.paid_from_account_id AS paid_from_account_id',
+        'p.paid_from_label AS paid_from_label',
         'p.note AS note',
         'p.created_by_name AS created_by_name',
       ]);
     if (opts.supplier_id) qb.andWhere('p.supplier_id = :sid', { sid: opts.supplier_id });
     if (opts.from) qb.andWhere('p.paid_on >= :from', { from: opts.from });
     if (opts.to) qb.andWhere('p.paid_on <= :to', { to: opts.to });
+    if (opts.method) qb.andWhere('p.method = :method', { method: opts.method });
+    if (opts.account_id) qb.andWhere('p.paid_from_account_id = :acc', { acc: opts.account_id });
 
     const raw = await qb
       .orderBy('p.paid_on', 'DESC')
@@ -529,9 +544,87 @@ export class ReportsService {
       supplier_name: String(r.supplier_name),
       amount: Number(r.amount),
       method: r.method === 'TRANSFER' ? ('TRANSFER' as const) : ('CASH' as const),
+      paid_from_account_id: r.paid_from_account_id ? String(r.paid_from_account_id) : null,
+      paid_from_label: r.paid_from_label ? String(r.paid_from_label) : null,
       note: r.note === null || r.note === undefined ? null : String(r.note),
       created_by_name: String(r.created_by_name ?? ''),
     }));
+  }
+
+  /** Tiền VÀO / RA của một tài khoản theo ngày — biểu đồ tab Thống kê (2026-10-15).
+   *
+   * Nguồn số và vì sao không dùng SePay: xem đầu `account-flow.ts`.
+   *
+   * Trả kèm DANH SÁCH tài khoản để chọn, thay vì để màn gọi `/admin/payment-qr`: đường đó là
+   * `AdminGuard`, còn tab Thống kê mở cho cả role `report`. Chỉ mã QR ĐANG BẬT và CÓ số tài khoản
+   * (mã chỉ là ảnh thì không nói được tiền về tài khoản nào để mà so).
+   *
+   * `account_id` bỏ trống = tài khoản đầu tiên theo thứ tự ở Cài đặt.
+   */
+  async accountFlow(opts: { account_id?: string; from?: string; to?: string }): Promise<{
+    accounts: Array<{ id: string; label: string; bank_name: string | null; account_no: string | null; is_hkd: boolean }>;
+    account_id: string | null;
+    items: AccountFlowDay[];
+  }> {
+    const all = await this.qrRepo.find({
+      where: { is_active: true },
+      order: { sort_order: 'ASC', created_at: 'ASC' },
+    });
+    const accounts = all
+      .filter((a) => (a.account_no ?? '').trim() !== '')
+      .map((a) => ({ id: a.id, label: a.label, bank_name: a.bank_name, account_no: a.account_no, is_hkd: a.is_hkd }));
+    const accountId = opts.account_id && accounts.some((a) => a.id === opts.account_id) ? opts.account_id : accounts[0]?.id;
+    if (!accountId) return { accounts, account_id: null, items: [] };
+
+    // ── VÀO: cùng điều kiện "đã thu" (`PAID_SQL`) và mốc tiền (`MONEY_AT_SQL`) với orders.service;
+    // tổng đơn = món SERVED + ship, y hệt `paymentSummary`. Viết SQL tay ở đây thay vì gọi sang
+    // OrdersService: module NCC không phụ thuộc module đơn, và kéo cả OrdersModule vào chỉ để
+    // đọc ba cột là đổi một vòng import lấy vài dòng SQL.
+    const where: string[] = [
+      'o.closed_at IS NOT NULL',
+      'o.is_paid = 1',
+      'o.transfer_amount > 0',
+      'o.paid_to_account_id = ?',
+    ];
+    const params: unknown[] = [accountId];
+    if (opts.from) {
+      where.push('COALESCE(o.debt_paid_at, o.closed_at) >= ?');
+      params.push(new Date(vnDayStart(opts.from)));
+    }
+    if (opts.to) {
+      where.push('COALESCE(o.debt_paid_at, o.closed_at) <= ?');
+      params.push(new Date(vnDayEnd(opts.to)));
+    }
+    const vaoRaw: Array<{ money_at: Date | string; transfer_amount: string | number; ship_fee: string | number; items_total: string | number | null }> =
+      await this.paymentRepo.manager.query(
+        `SELECT COALESCE(o.debt_paid_at, o.closed_at) AS money_at, o.transfer_amount, o.ship_fee,
+                SUM(CASE WHEN i.state = 'SERVED' THEN i.menu_item_price * i.qty ELSE 0 END) AS items_total
+           FROM orders o
+           LEFT JOIN order_items i ON i.order_id = o.id
+          WHERE ${where.join(' AND ')}
+          GROUP BY o.id, money_at, o.transfer_amount, o.ship_fee`,
+        params,
+      );
+
+    // ── RA: lần trả NCC bằng CK đã chọn tài khoản này. Cắt kỳ theo `paid_on` như mọi nơi khác.
+    const raQb = this.paymentRepo
+      .createQueryBuilder('p')
+      .select(['p.paid_on AS paid_on', 'p.amount AS amount'])
+      .where("p.method = 'TRANSFER'")
+      .andWhere('p.paid_from_account_id = :acc', { acc: accountId });
+    if (opts.from) raQb.andWhere('p.paid_on >= :from', { from: opts.from });
+    if (opts.to) raQb.andWhere('p.paid_on <= :to', { to: opts.to });
+    const raRaw = await raQb.getRawMany<{ paid_on: unknown; amount: string | number }>();
+
+    const items = gopDongTien(
+      vaoRaw.map((r) => ({
+        money_at: new Date(r.money_at).getTime(),
+        transfer_amount: Number(r.transfer_amount) || 0,
+        order_total: (Number(r.items_total) || 0) + (Number(r.ship_fee) || 0),
+      })),
+      raRaw.map((r) => ({ paid_on: dateStr(r.paid_on), amount: Number(r.amount) || 0 })),
+    );
+    return { accounts, account_id: accountId, items };
   }
 }
 
@@ -543,6 +636,9 @@ export type PaymentStatRow = {
   supplier_name: string;
   amount: number;
   method: 'CASH' | 'TRANSFER';
+  /** Tài khoản nguồn (2026-10-15). NULL với tiền mặt và với lần CK ghi trước ngày này. */
+  paid_from_account_id: string | null;
+  paid_from_label: string | null;
   note: string | null;
   /** Tên người ghi phiếu chi, đã snapshot lúc ghi — nhân viên nghỉ việc vẫn đọc được. */
   created_by_name: string;
