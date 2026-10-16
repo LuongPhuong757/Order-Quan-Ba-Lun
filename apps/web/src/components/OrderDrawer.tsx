@@ -252,14 +252,26 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   >([]);
   const [guestBusyId, setGuestBusyId] = useState<string | null>(null);
 
+  /* Deps là `order.id`, KHÔNG phải cả `order` (2026-10-16). `refresh()` 2 giây một lần thay
+     `order` bằng object mới dù không gì đổi → effect cũ dựng lại timer + bắn thêm một lượt gọi
+     ngay mỗi 2 giây, tức nhịp "3 giây" thực chất là 2 giây cộng dồn. Chỉ id đổi (chuyển bàn,
+     thanh toán xong mở đơn mới) mới cần nạp lại. */
+  const guestOrderId = order?.id ?? null;
   useEffect(() => {
-    if (!order) return;
+    if (!guestOrderId) return;
     let alive = true;
     const load = async () => {
+      /* NGHỈ khi màn "Gọi món" đang che drawer — cùng lý do với nhịp 2 giây bên dưới: mỗi
+         `setGuestReqs` là một lượt re-render dội xuống lưới ~283 thẻ món giữa lúc nhân viên
+         vuốt chọn món. Lượt khách mới vẫn hiện ngay ở màn Bếp; ở đây nó hiện ở nhịp đầu tiên
+         sau khi đóng hộp. */
+      if (bulkOpenRef.current) return;
       try {
         const res = await api.get<{ data: { requests: typeof guestReqs } }>('/table-requests/pending');
         if (!alive) return;
-        setGuestReqs((res.data?.data?.requests ?? []).filter((r) => r.order_id === order.id));
+        const next = (res.data?.data?.requests ?? []).filter((r) => r.order_id === guestOrderId);
+        // API trả mảng MỚI mọi lần kể cả khi không có gì — so nội dung để khỏi re-render vô cớ.
+        setGuestReqs((prev) => (JSON.stringify(prev) === JSON.stringify(next) ? prev : next));
       } catch {
         // Endpoint mới lỗi KHÔNG được làm hỏng drawer — đây là phần thêm, không phải phần lõi.
       }
@@ -270,7 +282,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       alive = false;
       clearInterval(t);
     };
-  }, [order]);
+  }, [guestOrderId]);
 
   const decideGuest = useCallback(
     async (requestId: string, action: 'approve' | 'reject') => {
