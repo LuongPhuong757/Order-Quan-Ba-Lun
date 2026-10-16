@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeSepayPayload, parseVnTime } from './sepay-payload.js';
+import { normalizeSepayPayload, parseVnTime, pickAccountNo } from './sepay-payload.js';
 
 /** Payload chép từ tài liệu SePay, chỉ đổi nội dung cho giống đơn của quán. */
 const incoming = {
@@ -75,5 +75,23 @@ describe('normalizeSepayPayload', () => {
 
   it('giữ nguyên payload gốc trong raw để còn đối chiếu khi hai bên lệch nhau', () => {
     expect(normalizeSepayPayload(incoming)?.raw).toBe(incoming);
+  });
+});
+
+describe('tài khoản ảo (VA) — 2026-10-16', () => {
+  it('có subAccount thì lấy số VA, không lấy tài khoản chính (BIDV bắt buộc VA)', () => {
+    const got = normalizeSepayPayload({ ...incoming, accountNumber: '8800123899', subAccount: '96247QBL01' });
+    expect(got?.accountNo).toBe('96247QBL01');
+  });
+
+  it('subAccount rỗng (tài khoản thường) thì lùi về accountNumber', () => {
+    expect(normalizeSepayPayload({ ...incoming, subAccount: '' })?.accountNo).toBe('1017588888');
+    expect(normalizeSepayPayload({ ...incoming, subAccount: null })?.accountNo).toBe('1017588888');
+  });
+
+  it('pickAccountNo bỏ khoảng trắng và cắt 32 ký tự', () => {
+    expect(pickAccountNo(' 123 ', '  ')).toBe('123');
+    expect(pickAccountNo(null, undefined)).toBeNull();
+    expect(pickAccountNo('1', 'x'.repeat(40))).toHaveLength(32);
   });
 });

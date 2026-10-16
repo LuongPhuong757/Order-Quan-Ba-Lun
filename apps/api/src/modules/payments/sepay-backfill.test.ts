@@ -50,3 +50,12 @@ describe('fromApiRow', () => {
     expect(fromApiRow(row)?.occurredAt).toBe(Date.UTC(2026, 8, 22, 12, 42, 10));
   });
 });
+
+describe('fromApiRow — tài khoản ảo (VA)', () => {
+  it('API dùng sub_account; có thì lấy số VA', () => {
+    expect(fromApiRow({ ...row, sub_account: '96247QBL01' })?.accountNo).toBe('96247QBL01');
+  });
+  it('sub_account null thì lấy account_number', () => {
+    expect(fromApiRow({ ...row, sub_account: null })?.accountNo).toBe(String(row.account_number));
+  });
+});
