@@ -40,6 +40,22 @@ export class SupplierPayment {
   @Column({ type: 'varchar', length: 16, default: 'CASH' })
   method!: PaymentMethod;
 
+  /** Tài khoản của QUÁN mà tiền đi ra (`payment_qr_accounts.id`) — 2026-10-15, chủ quán yêu cầu.
+   *
+   * Chỉ có nghĩa khi `method = 'TRANSFER'`; tiền mặt luôn NULL. Lần trả ghi trước ngày này cũng
+   * NULL và màn hình hiện "—" — không đoán bù: quán có nhiều tài khoản, gán bừa vào một cái là
+   * làm sai số "tài khoản này đã chi bao nhiêu" mà không ai biết.
+   *
+   * Không đặt khoá ngoại: mã QR bị xoá thì dòng tiền cũ vẫn phải còn, đọc tên qua
+   * `paid_from_label` bên dưới. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  paid_from_account_id!: string | null;
+
+  /** Snapshot tên mã QR lúc ghi — cùng lệ với `orders.payment_qr_label`: đổi tên hay xoá mã QR
+   *  ở Cài đặt sau này thì dòng cũ vẫn đọc được là tiền đi từ đâu. */
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  paid_from_label!: string | null;
+
   @Column({ type: 'varchar', length: 255, nullable: true })
   note!: string | null;
 

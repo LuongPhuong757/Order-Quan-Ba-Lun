@@ -23,6 +23,7 @@ import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
+import { SupplierTransfersPanel } from './SupplierTransfersPanel.tsx';
 import { ItemStatsPanel } from './SupplierReports.tsx';
 import { PriceHistoryDialog } from './SupplierPriceHistory.tsx';
 import type { Balance } from './SupplierPayments.tsx';
@@ -60,7 +61,7 @@ type Delivery = {
   items: string[];
 };
 
-type Tab = 'suppliers' | 'stats' | 'deliveries' | 'prices' | 'items' | 'foodcost' | 'dishes';
+type Tab = 'suppliers' | 'stats' | 'transfers' | 'deliveries' | 'prices' | 'items' | 'foodcost' | 'dishes';
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
@@ -68,7 +69,7 @@ const TABS_CO_LOC: Tab[] = ['stats', 'items'];
 
 /** Tab đã dựng lại theo mockup — chúng tự vẽ đầu trang (`pagehead`) và thanh lọc riêng, nên
  *  tiêu đề chung và hàng lọc cũ của màn phải im đi, không thì hiện hai lần. */
-const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries', 'dishes'];
+const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries', 'dishes', 'transfers'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -188,6 +189,9 @@ export function SuppliersPage() {
     // màn tổng quan — trùng tên với tiêu đề trang thì không nói lên nó khác gì các tab kia.
     { value: 'suppliers', label: 'Tổng quan' },
     { value: 'stats', label: 'Thống kê' },
+    // "Chuyển khoản NCC" (2026-10-15): CHỈ admin — đây là chỗ GHI/SỬA/XOÁ tiền trả NCC, mà role
+    // `report` không ghi được gì. Ngay cạnh Thống kê vì hai tab cùng nói về tiền đã chi.
+    ...(isAdmin ? [{ value: 'transfers' as const, label: 'Chuyển khoản NCC' }] : []),
     { value: 'deliveries', label: 'Phiếu nhập' },
     { value: 'prices', label: 'Biến động giá' },
     { value: 'items', label: 'Mặt hàng nhập' },
@@ -342,6 +346,8 @@ export function SuppliersPage() {
       {/* Tab này có bộ lọc thời gian RIÊNG bên trong (2026-09-08). Các tab còn lại vẫn nhìn
           toàn bộ lịch sử — xem chú thích ở khối bộ lọc phía trên. */}
       {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
+
+      {tab === 'transfers' && isAdmin && <SupplierTransfersPanel suppliers={suppliers} onChanged={() => void refresh()} />}
 
       {tab === 'deliveries' && !loading && (
         <SupplierDeliveryScreen

@@ -102,6 +102,8 @@ function deriveActionKind(method: string, path: string): string {
   }
   if (path.match(/^\/suppliers\/[^/]+\/payments$/) && method === 'POST') return 'supplier.payment_recorded';
   if (path.match(/^\/suppliers\/payments\/[^/]+$/) && method === 'DELETE') return 'supplier.payment_deleted';
+  // Sửa lần trả (2026-10-15): đổi số tiền/NCC là đổi thẳng công nợ, nên phải có vết như xoá.
+  if (path.match(/^\/suppliers\/payments\/[^/]+$/) && method === 'PUT') return 'supplier.payment_updated';
   // Cấp / đặt lại PIN cho NCC (M3.D-03). Người cầm PIN gửi được phiếu nhập vào hệ thống, nên
   // "ai phát mã cho ai, lúc nào" phải có vết. `after_json` bị `sanitize` cắt trường nhạy cảm —
   // xem hàm đó — nên PIN không nằm lại trong audit log.

@@ -54,6 +54,9 @@ export type TraTienRow = {
   supplier_name: string;
   amount: number;
   method: 'CASH' | 'TRANSFER';
+  /** Tài khoản nguồn khi chuyển khoản (2026-10-15). NULL với tiền mặt và lần CK ghi trước đó. */
+  paid_from_account_id: string | null;
+  paid_from_label: string | null;
   note: string | null;
   created_by_name: string;
 };

@@ -8,6 +8,7 @@ import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity
 import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { SupplierUser } from './entities/supplier-user.entity.js';
 import { SupplierSession } from './entities/supplier-session.entity.js';
+import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { SuppliersController } from './suppliers.controller.js';
 import { SuppliersService } from './suppliers.service.js';
 import { DeliveriesController } from './deliveries.controller.js';
@@ -40,6 +41,9 @@ import { MenuModule } from '../menu/menu.module.js';
       SupplierPayment,
       SupplierUser,
       SupplierSession,
+      // Mã QR thanh toán — CHỈ ĐỌC (2026-10-15): lần trả CK cho NCC ghi tiền đi từ tài khoản nào,
+      // và biểu đồ vào/ra theo tài khoản ở tab Thống kê. Ghi/sửa mã QR vẫn chỉ ở Cài đặt.
+      PaymentQrAccount,
     ]),
     AuthModule,
     IngredientsModule,
