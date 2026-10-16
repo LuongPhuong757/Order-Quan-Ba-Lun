@@ -23,6 +23,19 @@ class CreatePaymentDto {
   @IsOptional() @IsString() @MaxLength(10) paid_on?: string;
   @IsInt() @Min(1) amount!: number;
   @IsOptional() @IsIn(['CASH', 'TRANSFER']) method?: 'CASH' | 'TRANSFER';
+  /** `payment_qr_accounts.id` — bắt buộc khi chuyển khoản (2026-10-15), xem `paid-from.ts`. */
+  @IsOptional() @IsString() @MaxLength(36) paid_from_account_id?: string | null;
+  @IsOptional() @IsString() @MaxLength(255) note?: string | null;
+}
+
+/** Sửa một lần trả — gửi ĐỦ mọi trường, không vá từng phần: màn sửa luôn có sẵn cả dòng, và
+ *  một PUT trọn vẹn thì không có ca "đổi hình thức sang tiền mặt nhưng quên gửi tài khoản". */
+class UpdatePaymentDto {
+  @IsString() @MaxLength(36) supplier_id!: string;
+  @IsString() @MaxLength(10) paid_on!: string;
+  @IsInt() @Min(1) amount!: number;
+  @IsIn(['CASH', 'TRANSFER']) method!: 'CASH' | 'TRANSFER';
+  @IsOptional() @IsString() @MaxLength(36) paid_from_account_id?: string | null;
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
 }
 
@@ -74,6 +87,17 @@ export class PaymentsController {
       DeliveriesService.today(),
     );
     return { data: payment };
+  }
+
+  /** Sửa một lần trả (2026-10-15). Cùng quyền với ghi/xoá; audit ghi `supplier.payment_updated`.
+   *
+   * Cùng hai đoạn với `PUT /suppliers/:id/opening-balance`, `:id/account`, `:id/invoice-template`
+   * nhưng không đụng nhau: các đường kia kết thúc bằng một chữ CỐ ĐỊNH, còn ở đây đoạn đầu cố
+   * định là `payments` và đoạn sau là uuid — không id nào trùng mấy chữ đó. */
+  @Put('payments/:paymentId')
+  @UseGuards(AdminGuard)
+  async update(@Param('paymentId') paymentId: string, @Body() dto: UpdatePaymentDto) {
+    return { data: await this.svc.update(paymentId, dto, DeliveriesService.today()) };
   }
 
   @Delete('payments/:paymentId')

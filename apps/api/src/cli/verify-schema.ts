@@ -172,6 +172,8 @@ const CHECKS: TableCheck[] = [
       'paid_on',
       'amount',
       'method',
+      'paid_from_account_id',
+      'paid_from_label',
       'created_by_user_id',
       'created_by_name',
     ],

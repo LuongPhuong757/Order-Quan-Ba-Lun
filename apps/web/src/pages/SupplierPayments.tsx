@@ -16,6 +16,10 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
 import { upperUnit } from '../lib/text-case.ts';
 import { buildLedger, snapshotDrift, type LedgerRow } from '../lib/supplier-ledger.ts';
+import { Modal, PaymentDialog } from './SupplierPaymentDialog.tsx';
+
+// Hộp ghi/sửa lần trả đã tách sang file riêng (2026-10-15) — export lại để chỗ cũ vẫn import ở đây.
+export { PaymentDialog };
 
 export type Balance = {
   supplier_id?: string;
@@ -45,6 +49,9 @@ export type Payment = {
   paid_on: string;
   amount: number;
   method: 'CASH' | 'TRANSFER';
+  /** Tài khoản nguồn khi chuyển khoản (2026-10-15). NULL với tiền mặt và lần CK ghi trước đó. */
+  paid_from_account_id: string | null;
+  paid_from_label: string | null;
   note: string | null;
   created_by_name: string;
 };
@@ -528,6 +535,7 @@ function PaymentTxnDetail({ p, onRemove }: { p: Payment; onRemove: () => void })
   return (
     <div>
       <Meta label="Phương thức" value={p.method === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'} />
+      {p.method === 'TRANSFER' && <Meta label="Từ tài khoản" value={p.paid_from_label || '—'} />}
       <Meta label="Người ghi" value={p.created_by_name || '—'} />
       {p.note && <Meta label="Ghi chú" value={p.note} />}
       {/* Nút xoá nằm TRONG chi tiết chứ không ở dòng ngoài: xoá một lần trả làm nợ tăng lại,
@@ -580,121 +588,6 @@ function Meta({ label, value }: { label: string; value: string }) {
       <span style={{ color: C.muted, flex: 'none', minWidth: 84 }}>{label}</span>
       <span style={{ minWidth: 0, wordBreak: 'break-word' }}>{value}</span>
     </div>
-  );
-}
-
-/** Mục 3.5 — ghi nhận thanh toán. Không gán vào phiếu cụ thể, chỉ trừ vào tổng nợ. */
-export function PaymentDialog({
-  supplierId,
-  supplierName,
-  suggested,
-  onClose,
-  onSaved,
-}: {
-  supplierId: string;
-  supplierName: string;
-  suggested: number;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const toast = useToast();
-  const [paidOn, setPaidOn] = useState(today());
-  const [amount, setAmount] = useState(suggested > 0 ? formatMoneyInput(String(suggested)) : '');
-  const [method, setMethod] = useState<'CASH' | 'TRANSFER'>('CASH');
-  const [note, setNote] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  const save = async (e: FormEvent) => {
-    e.preventDefault();
-    // NGÀY TƯƠNG LAI (2026-10-02). `max` trên ô ngày chỉ chặn bộ chọn lịch — gõ thẳng bằng bàn
-    // phím thì trình duyệt vẫn nhận. Server có luật y hệt (`future-date.ts`); chặn ở đây để
-    // người ghi biết ngay thay vì nhập xong cả khoản tiền rồi mới ăn lỗi từ server.
-    if (paidOn > today()) {
-      toast.push('error', `Ngày trả ${paidOn} nằm ở tương lai — chỉ ghi được tiền ĐÃ đưa`);
-      return;
-    }
-    setSaving(true);
-    try {
-      await api.post(`/suppliers/${supplierId}/payments`, {
-        paid_on: paidOn,
-        amount: Number(digitsOnly(amount)),
-        method,
-        note: note.trim() || undefined,
-      });
-      toast.push('success', `Đã ghi trả ${vnd(Number(digitsOnly(amount)))}đ cho ${supplierName}`);
-      onSaved();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Modal label={`Ghi nhận thanh toán ${supplierName}`}>
-      <form className="card" onSubmit={save} style={{ maxWidth: 420, width: '100%' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>Ghi nhận thanh toán</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>
-
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Số tiền *</span>
-          <input
-            inputMode="numeric"
-            required
-            value={amount}
-            onChange={(e) => setAmount(formatMoneyInput(e.target.value))}
-            style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
-          />
-        </label>
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          {/* Ngày TRẢ TIỀN, sửa được: đưa tiền hôm qua mà tối nay mới ngồi ghi là chuyện thường. */}
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ngày trả</span>
-          <input
-            type="date"
-            value={paidOn}
-            onChange={(e) => setPaidOn(e.target.value)}
-            // Khoá mọi ngày sau hôm nay. `today()` ở đầu tệp lấy theo GIỜ VN chứ không theo máy:
-            // quán bán tới 3h sáng, máy lệch múi giờ thì người ghi lúc 1h sáng không chọn được
-            // chính ngày hôm đó. KHÔNG đặt `min` — ghi bù lần trả hôm qua là chuyện thường.
-            max={today()}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          {([
-            ['CASH', 'Tiền mặt'],
-            ['TRANSFER', 'Chuyển khoản'],
-          ] as const).map(([v, label]) => (
-            <button
-              key={v}
-              type="button"
-              className={method === v ? '' : 'secondary'}
-              onClick={() => setMethod(v)}
-              style={{ flex: 1, minHeight: 44 }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label style={{ display: 'block', marginBottom: 16 }}>
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ghi chú</span>
-          <input
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            maxLength={255}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={saving} style={{ minHeight: 48, padding: '0 24px' }}>
-            {saving ? 'Đang lưu…' : 'Lưu'}
-          </button>
-        </div>
-      </form>
-    </Modal>
   );
 }
 
@@ -827,28 +720,5 @@ export function OpeningBalanceDialog({
         </div>
       </form>
     </Modal>
-  );
-}
-
-function Modal({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={label}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        overflowY: 'auto',
-        zIndex: 75,
-      }}
-    >
-      {children}
-    </div>
   );
 }

@@ -87,8 +87,27 @@ export class ReportsController {
       from: q.from || undefined,
       to: q.to || undefined,
       supplier_id: q.supplier_id || undefined,
+      // Màn "Chuyển khoản NCC" (2026-10-15). Giá trị lạ thì bỏ qua = không lọc, không ném lỗi:
+      // đây là màn ĐỌC, lọc hụt chỉ là hiện nhiều hơn.
+      method: q.method === 'CASH' || q.method === 'TRANSFER' ? q.method : undefined,
+      account_id: q.account_id || undefined,
     });
     return { data: { items } };
+  }
+
+  /** Tiền vào / ra của MỘT tài khoản theo ngày — biểu đồ tab Thống kê (2026-10-15).
+   *
+   * Cùng guard với cả controller (admin + report): tiền về tài khoản quán là doanh thu, cùng
+   * nhóm bí mật với giá mua và công nợ. Kèm danh sách tài khoản để chọn — xem service.
+   */
+  @Get('account-flow')
+  async accountFlow(@Query() q: Record<string, string>) {
+    const data = await this.svc.accountFlow({
+      account_id: q.account_id || undefined,
+      from: q.from || undefined,
+      to: q.to || undefined,
+    });
+    return { data };
   }
 
   /** Biến động công nợ theo ngày — biểu đồ "nợ mới vs đã trả" + đường dư nợ (2026-10-02).
