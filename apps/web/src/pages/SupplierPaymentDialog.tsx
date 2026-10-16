@@ -42,7 +42,12 @@ export type PaymentEditable = {
   note: string | null;
 };
 
-/** Mã QR ĐANG BẬT, đúng thứ tự ở Cài đặt (server đã sắp). `null` = đang tải. */
+/** MỌI mã QR để chọn làm tài khoản nguồn: mã đang bật trước (đúng thứ tự ở Cài đặt — server đã
+ *  sắp), mã đã "ngừng dùng" xuống cuối. `null` = đang tải.
+ *
+ *  KHÔNG lọc `is_active` (2026-10-16, chủ quán chốt): "Ngừng dùng" ở Cài đặt = ngừng NHẬN TIỀN
+ *  KHÁCH, tài khoản vẫn là tiền thật của quán và vẫn chuyển ra trả NCC. Ca thật: VCB …4VCB thôi
+ *  in QR cho khách nhưng quán vẫn trả nhà cung cấp từ đó — lọc đi thì hộp thiếu một tài khoản. */
 export function useQrNguon(): QrNguon[] | null {
   const toast = useToast();
   const [ds, setDs] = useState<QrNguon[] | null>(null);
@@ -51,7 +56,8 @@ export function useQrNguon(): QrNguon[] | null {
     api
       .get<{ data: { items: QrNguon[] } }>('/admin/payment-qr')
       .then((r) => {
-        if (!huy) setDs(r.data.data.items.filter((q) => q.is_active));
+        const items = r.data.data.items;
+        if (!huy) setDs([...items.filter((q) => q.is_active), ...items.filter((q) => !q.is_active)]);
       })
       .catch((err) => {
         if (huy) return;
@@ -102,12 +108,14 @@ export function PaymentDialog({
     if (qr && qr.length === 1 && !taiKhoan) setTaiKhoan(qr[0].id);
   }, [qr, taiKhoan]);
 
-  // Tài khoản cũ của lần trả đang sửa có thể đã bị TẮT ở Cài đặt — vẫn phải hiện nó trong danh
-  // sách (server cho giữ nguyên), không thì nút đang chọn biến mất và người sửa tưởng mất dữ liệu.
+  // Mã đã "ngừng dùng" vẫn hiện (xem `useQrNguon`) kèm chữ nhỏ để người chọn biết vì sao nó không
+  // còn ở màn thu tiền khách — tránh tưởng nhầm là lỗi.
+  // Nhánh `push` dưới là lưới an toàn cho id không còn trong danh sách nữa (mã QR không bao giờ xoá
+  // cứng nên hiếm), không thì nút đang chọn biến mất và người sửa tưởng mất dữ liệu.
   const dsTaiKhoan: Array<{ id: string; label: string; phu: string; hkd: boolean }> = (qr ?? []).map((q) => ({
     id: q.id,
     label: q.label,
-    phu: [q.bank_name, q.account_no].filter(Boolean).join(' · '),
+    phu: [q.bank_name, q.account_no, q.is_active ? null : 'không nhận tiền khách'].filter(Boolean).join(' · '),
     hkd: q.is_hkd,
   }));
   if (editing?.paid_from_account_id && qr && !qr.some((q) => q.id === editing.paid_from_account_id)) {

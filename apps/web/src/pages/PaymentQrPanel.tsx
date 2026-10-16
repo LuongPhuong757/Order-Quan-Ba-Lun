@@ -225,7 +225,8 @@ export function PaymentQrPanel() {
       const ok = await confirm({
         title: `Ngừng dùng "${row.label}"?`,
         message:
-          'Mã này sẽ không hiện ra lúc thu tiền nữa. Các đơn đã thu bằng mã này vẫn giữ nguyên lịch sử, và bật lại được bất cứ lúc nào.',
+          // "Ngừng dùng" = ngừng NHẬN TIỀN KHÁCH (2026-10-16) — tài khoản vẫn dùng trả NCC được.
+          'Khách sẽ không thấy mã này lúc thanh toán nữa. Vẫn chọn được tài khoản này khi ghi trả tiền NCC. Các đơn đã thu vẫn giữ nguyên lịch sử, và bật lại được bất cứ lúc nào.',
         variant: 'warning',
         confirmLabel: 'Ngừng dùng',
       });

@@ -556,7 +556,8 @@ export class ReportsService {
    * Nguồn số và vì sao không dùng SePay: xem đầu `account-flow.ts`.
    *
    * Trả kèm DANH SÁCH tài khoản để chọn, thay vì để màn gọi `/admin/payment-qr`: đường đó là
-   * `AdminGuard`, còn tab Thống kê mở cho cả role `report`. Chỉ mã QR ĐANG BẬT và CÓ số tài khoản
+   * `AdminGuard`, còn tab Thống kê mở cho cả role `report`. Mọi mã QR CÓ số tài khoản, kể cả mã đã
+   * "ngừng dùng" (vẫn trả NCC được — 2026-10-16)
    * (mã chỉ là ảnh thì không nói được tiền về tài khoản nào để mà so).
    *
    * `account_id` bỏ trống = tài khoản đầu tiên theo thứ tự ở Cài đặt.
@@ -566,11 +567,11 @@ export class ReportsService {
     account_id: string | null;
     items: AccountFlowDay[];
   }> {
-    const all = await this.qrRepo.find({
-      where: { is_active: true },
-      order: { sort_order: 'ASC', created_at: 'ASC' },
-    });
-    const accounts = all
+    /* Lấy CẢ mã đã "ngừng dùng" (2026-10-16): ngừng dùng = ngừng nhận tiền khách, tài khoản vẫn
+       chuyển ra trả NCC nên vẫn có tiền ra để vẽ. Mã đang bật đứng trước để `accounts[0]` (mặc
+       định khi mở thẻ) vẫn là tài khoản chính như cũ. */
+    const all = await this.qrRepo.find({ order: { sort_order: 'ASC', created_at: 'ASC' } });
+    const accounts = [...all.filter((a) => a.is_active), ...all.filter((a) => !a.is_active)]
       .filter((a) => (a.account_no ?? '').trim() !== '')
       .map((a) => ({ id: a.id, label: a.label, bank_name: a.bank_name, account_no: a.account_no, is_hkd: a.is_hkd }));
     const accountId = opts.account_id && accounts.some((a) => a.id === opts.account_id) ? opts.account_id : accounts[0]?.id;
