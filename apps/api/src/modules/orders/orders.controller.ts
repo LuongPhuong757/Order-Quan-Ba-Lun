@@ -411,6 +411,20 @@ export class OrdersController {
     return { data: { queued: job !== null, job_id: job?.id ?? null } };
   }
 
+  /**
+   * POST /orders/:id/print-tam-tinh — in PHIẾU TẠM TÍNH cho đơn chưa thanh toán (2026-10-17).
+   *
+   * Cùng quyền với in lại hoá đơn (admin + order): người giữ quán lúc chủ vắng dùng tài khoản
+   * gọi món. Không đổi gì trên đơn — bàn vẫn mở, gọi thêm được, in bao nhiêu lần cũng được
+   * (reason REPRINT → khoá chống trùng có mốc thời gian, lần bấm nào cũng ra giấy).
+   */
+  @Post(':id/print-tam-tinh')
+  @UseGuards(RequireRoles('admin', 'order'))
+  async printTamTinh(@Param('id') id: string, @Req() req: Request) {
+    const job = await this.printing.enqueue(id, 'REPRINT', { full_name: req.user!.full_name }, 'TAM_TINH');
+    return { data: { queued: job !== null, job_id: job?.id ?? null } };
+  }
+
   /** PATCH /orders/:id/misa — đánh dấu bù "đã sao chép sang MISA" sau khi đã thu tiền.
    *
    * Cùng quyền với /orders/history: ai đối soát được cuối ca thì tick được. Đây là cờ ghi
