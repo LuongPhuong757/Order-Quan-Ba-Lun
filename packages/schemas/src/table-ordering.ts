@@ -10,26 +10,17 @@ export const TableOpenInput = z.object({
   // Chuỗi THÔ khách gõ: "5", "05", "bàn 5", "B05". Chuẩn hoá ở BE (`table-input.ts`),
   // KHÔNG bắt FE tự đoán — FE đoán sai là món vào bàn người khác (M7.R1).
   table_input: z.string().min(1).max(16),
-  // Chỉ gửi khi lần trước BE trả NEED_CODE (M7.D-05).
-  code: z.string().regex(/^\d{4}$/).optional(),
-  // M7.D-16 — FE LUÔN gửi kèm nếu localStorage còn: máy cũ quay lại thì không phải nhập mã.
+  // 2026-10-17 — bỏ mã bàn 4 số: gõ đúng số bàn là vào, không còn trường `code`.
+  // M7.D-16 — FE LUÔN gửi kèm nếu localStorage còn: máy cũ quay lại thì dùng lại phiên cũ.
   guest_token: z.string().length(64).optional(),
 });
 export type TableOpenInput = z.infer<typeof TableOpenInput>;
 
-export const TableOpenResult = z.union([
-  z.object({
-    state: z.literal('OPENED'),
-    guest_token: z.string().length(64),
-    table_name: z.string(),
-    // Mã của bàn — chỉ có khi bàn đã báo bếp ít nhất một lần (M7.D-17).
-    guest_code: z.string().regex(/^\d{4}$/).nullable(),
-  }),
-  z.object({
-    state: z.literal('NEED_CODE'),
-    table_name: z.string(),
-  }),
-]);
+export const TableOpenResult = z.object({
+  state: z.literal('OPENED'),
+  guest_token: z.string().length(64),
+  table_name: z.string(),
+});
 export type TableOpenResult = z.infer<typeof TableOpenResult>;
 
 /* ── Khách gửi lượt gọi ───────────────────────────────────────────────────────────────── */
@@ -54,8 +45,6 @@ export type TableCartInput = z.infer<typeof TableCartInput>;
 export const TableCartResult = z.object({
   request_id: z.string(),
   status: z.literal('WAITING'),
-  // null khi bàn chưa từng báo bếp — màn khách hiện "đang chờ quán xác nhận" (M7.D-17).
-  guest_code: z.string().regex(/^\d{4}$/).nullable(),
   items_preview: z.array(
     z.object({
       name: z.string(),
@@ -74,7 +63,6 @@ export type TableCartResult = z.infer<typeof TableCartResult>;
 export const TableStateResult = z
   .object({
     table_name: z.string(),
-    guest_code: z.string().regex(/^\d{4}$/).nullable(),
     waiting: z.array(
       z.object({
         request_id: z.string(),

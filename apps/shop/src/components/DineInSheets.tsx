@@ -56,20 +56,10 @@ export function TableEntrySheet({
   dismissible?: boolean;
 }) {
   const [input, setInput] = useState('');
-  const [code, setCode] = useState('');
-  /* M7.D-05 — MỘT đường đi duy nhất, hai bước, do SERVER quyết định có bước hai hay không:
-   *
-   *    gõ số bàn → bàn trống   → vào gọi món luôn
-   *               → bàn có người → hiện ô mã bàn, nhập mã mới gọi thêm được
-   *
-   * Khách không phải tự biết bàn mình trống hay không, và không phải chọn lối vào nào cả.
-   * `needCode` giữ TÊN BÀN server trả về, nên bước hai nói được "Bàn 05 đang có người" chứ
-   * không nói chung chung.
-   *
-   * ⚠ Bước hai KHÔNG hiện mã bàn ra — nó hiện Ô ĐỂ NHẬP mã. Gõ số bàn mà đọc được mã thì mã
-   *   mất sạch ý nghĩa: ai đi ngang quán cũng xem được bill và gọi món vào bàn người khác
-   *   (spec D-05/D-16). Người quên mã thì hỏi nhân viên — nhân viên đọc mã từ màn quản lý. */
-  const [needCode, setNeedCode] = useState<string | null>(null);
+  /* Gõ số bàn → vào gọi món luôn, bàn có người hay chưa cũng vậy.
+   * 2026-10-17 — chủ quán chốt BỎ mã bàn 4 số (M7.D-05 cũ hỏi mã khi bàn có người): khách lớn
+   * tuổi tắc ở bước mã. Món khách gửi vẫn phải nhân viên duyệt nên gõ nhầm/gõ bừa không thành
+   * món thật. Bước xác nhận đúng tên bàn (M7.R1) vẫn giữ. */
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -79,20 +69,14 @@ export function TableEntrySheet({
     try {
       const prev = (() => { try { return localStorage.getItem('qbl.table_session.v1'); } catch { return null; } })();
       const token = prev ? (JSON.parse(prev) as TableSession).guest_token : undefined;
-      const data = await postJson<
-        | { state: 'OPENED'; guest_token: string; table_name: string; guest_code: string | null }
-        | { state: 'NEED_CODE'; table_name: string }
-      >('/api/public/table/open', {
-        table_input: input,
-        ...(code ? { code } : {}),
-        ...(token ? { guest_token: token } : {}),
-      });
+      const data = await postJson<{ state: 'OPENED'; guest_token: string; table_name: string }>(
+        '/api/public/table/open',
+        {
+          table_input: input,
+          ...(token ? { guest_token: token } : {}),
+        },
+      );
 
-      if (data.state === 'NEED_CODE') {
-        setNeedCode(data.table_name);
-        setBusy(false);
-        return;
-      }
       const session: TableSession = {
         guest_token: data.guest_token,
         table_name: data.table_name,
@@ -112,95 +96,39 @@ export function TableEntrySheet({
       setBusy(false);
       onDone(session);
     } catch (e) {
-      const failed = e as Error & { code?: string };
-      // Gõ đúng 4 chữ số mà không ra bàn nào thì gần như chắc chắn khách đang cầm MÃ BÀN và
-      // gõ nhầm vào ô số bàn. Câu từ chối trần ("Không thấy bàn 8386") để khách tắc ở đó,
-      // nên nói thẳng thứ tự đúng thay vì bắt họ tự đoán.
-      if (failed.code === 'TABLE_NOT_FOUND' && /^\d{4}$/.test(input.trim())) {
-        setErr(
-          'Đây trông như MÃ BÀN 4 SỐ. Ô này điền SỐ BÀN bạn đang ngồi (1, 2, 3…) — ' +
-            'nếu bàn đang có người, bước sau mới hỏi mã.',
-        );
-      } else {
-        setErr(failed.message);
-      }
+      setErr((e as Error).message);
       setBusy(false);
     }
-  }, [input, code, onDone]);
+  }, [input, onDone]);
 
   return (
     <div className="dinein-scrim" onClick={dismissible ? onClose : undefined}>
       <div className="dinein-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="dinein-head">
-          <b>{needCode ? `${needCode} đang có người` : 'Bạn ngồi bàn số mấy?'}</b>
+          <b>Bạn ngồi bàn số mấy?</b>
           {dismissible ? (
             <button type="button" onClick={onClose} aria-label="Đóng">✕</button>
           ) : null}
         </div>
 
         <div className="dinein-body">
-          {needCode ? (
-            <>
-              <p className="dinein-hint dinein-hint--lead">
-                Bàn này đang có người dùng. Vui lòng <b>nhập thêm mã bàn 4 số</b> để gọi thêm món.
-              </p>
-              <input
-                className="dinein-code"
-                inputMode="numeric"
-                maxLength={4}
-                placeholder="● ● ● ●"
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                autoFocus
-              />
-              <ul className="dinein-steps">
-                <li>Mã đang hiện trên điện thoại của người đã gọi món ở bàn bạn.</li>
-                <li>
-                  <b>Nếu bạn quên mã bàn, hãy hỏi lại nhân viên</b> — nhân viên xem được mã của
-                  bàn và đọc lại cho bạn.
-                </li>
-              </ul>
-            </>
-          ) : (
-            <>
-              <input
-                className="dinein-num"
-                inputMode="numeric"
-                placeholder="Số bàn"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                autoFocus
-              />
-              <p className="dinein-hint">Nhập số dán trên mặt bàn của bạn.</p>
-              <p className="dinein-hint dinein-hint--sm">
-                Bàn đang có người thì bước sau sẽ hỏi thêm <b>mã bàn 4 số</b>.
-              </p>
-            </>
-          )}
+          <input
+            className="dinein-num"
+            inputMode="numeric"
+            placeholder="Số bàn"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            autoFocus
+          />
+          <p className="dinein-hint">Nhập số dán trên mặt bàn của bạn.</p>
           {err ? <p className="dinein-err">{err}</p> : null}
         </div>
 
-        {/* Bước nhập mã có HAI nút: quay lại + đi tiếp. Nút quay lại là lối thoát bắt buộc —
-            gõ nhầm sang bàn người khác mà không có nó thì khách kẹt cứng ở một bàn mình không
-            có mã, đóng tấm ra lại bị cổng bắt buộc đẩy vào đúng chỗ cũ. Đặt ở chân tấm, cùng
-            khuôn với tấm xác nhận bàn, chứ không để lẫn thành một dòng chữ trong thân. */}
-        <div className={`dinein-foot${needCode ? ' dinein-foot--row' : ''}`}>
-          {needCode ? (
-            <button
-              type="button"
-              onClick={() => {
-                setNeedCode(null);
-                setCode('');
-                setErr(null);
-              }}
-            >
-              ← Quay lại
-            </button>
-          ) : null}
+        <div className="dinein-foot">
           <button
             type="button"
             className="dinein-primary"
-            disabled={busy || (needCode ? code.length !== 4 : input.trim() === '')}
+            disabled={busy || input.trim() === ''}
             onClick={submit}
           >
             {busy ? 'Đang kiểm…' : 'Tiếp tục'}
@@ -250,7 +178,7 @@ export function TableCartSheet({
 }: {
   session: TableSession;
   onClose: () => void;
-  onSent: (guestCode: string | null) => void;
+  onSent: () => void;
 }) {
   const [lines, setLines] = useState<TableCartLine[]>(() => readTableCart());
   const [busy, setBusy] = useState(false);
@@ -267,7 +195,7 @@ export function TableCartSheet({
     setBusy(true);
     setErr(null);
     try {
-      const data = await postJson<{ guest_code: string | null }>('/api/public/table/cart', {
+      await postJson<unknown>('/api/public/table/cart', {
         guest_token: session.guest_token,
         client_request_id: requestId,
         items: lines.map((l) => ({
@@ -277,7 +205,7 @@ export function TableCartSheet({
         })),
       });
       clearTableCart();
-      onSent(data.guest_code);
+      onSent();
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);
@@ -544,7 +472,6 @@ export function TableCallSheet({
 
 type StatePayload = {
   table_name: string;
-  guest_code: string | null;
   waiting: Array<{ request_id: string; created_at: number; items: Array<{ name: string; qty: number; note: string | null }> }>;
   ordered: Array<{ menu_item_id: string | null; name: string; qty: number; unit_price: number; line_total: number }>;
   subtotal: number;
@@ -728,16 +655,6 @@ export function TableStateSheet({
                   Đổi bàn
                 </button>
               </div>
-            </div>
-          ) : null}
-
-          {/* M7.R10 — mã hiện THƯỜNG TRỰC, không chỉ một lần lúc sinh: localStorage có thể hỏng
-              và khách cần đọc lại mã cho người cùng bàn bất cứ lúc nào. */}
-          {data?.guest_code ? (
-            <div className="dinein-code-box">
-              <span>Mã bàn của bạn</span>
-              <strong>{data.guest_code}</strong>
-              <p>Người cùng bàn muốn gọi thêm thì đưa mã này cho họ.</p>
             </div>
           ) : null}
 
@@ -1089,12 +1006,11 @@ export const DINEIN_CSS = `
    chặn thứ hai, đi cùng với khoá cuộn body ở lib/body-scroll-lock.ts: khoá body lo trang
    nền, dòng này lo chính vùng cuộn trong tấm (và cả cú kéo quá đà trên iOS). */
 .dinein-scroll,.dinein-sheet,.dinein-scrim{ overscroll-behavior:contain; }
-.dinein-num,.dinein-code{
+.dinein-num{
   width:100%; min-height:56px; border:1px solid #ddd0bd; border-radius:8px;
   background:#f7efe2; text-align:center; color:#2a1d14;
   font-size:28px; font-weight:700; letter-spacing:.12em;
 }
-.dinein-code{ letter-spacing:.5em; }
 /* Nút dạng chữ. Vẫn là <button> thật (bàn phím tab tới được, trình đọc màn hình đọc đúng),
    chỉ bỏ dáng nút. min-height 44px vì đây là ngưỡng chạm, không phải chữ trang trí. */
 .dinein-link{
@@ -1180,13 +1096,6 @@ button.dinein-clear{
 .dinein-warn > b{ display:block; margin-bottom:6px; font-size:17px; color:#8c5610; }
 .dinein-warn p{ margin:0 0 12px; font-size:15px; line-height:1.5; color:#5c4420; }
 
-.dinein-code-box{
-  text-align:center; padding:14px; margin-bottom:14px;
-  background:#fef6f3; border:1px solid #fbe4de; border-radius:12px;
-}
-.dinein-code-box span{ font-size:14px; color:#6e5c4c; }
-.dinein-code-box strong{ display:block; font-size:40px; letter-spacing:.2em; color:#8f1d14; margin:4px 0; }
-.dinein-code-box p{ margin:0; font-size:13px; color:#6e5c4c; }
 .dinein-waiting{
   padding:12px; margin-bottom:12px; border-radius:10px;
   background:#f6ecd9; border:1px solid #e8a33d;

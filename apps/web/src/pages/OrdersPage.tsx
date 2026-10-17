@@ -26,8 +26,7 @@ type OrderSummary = {
   table_code: string;
   opened_at: number;
   first_kitchen_at: number | null;
-  /** M7 — khác NULL nghĩa là chính KHÁCH đã gửi lượt gọi qua QR cho bàn này. Không dùng
-   *  `guest_code`: mã được cấp ở lần báo bếp đầu tiên kể cả khi nhân viên gọi hộ (D-17). */
+  /** M7 — khác NULL nghĩa là chính KHÁCH đã gửi lượt gọi qua QR cho bàn này. */
   first_guest_request_at?: number | null;
   items?: Array<{
     id: string;
