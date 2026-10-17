@@ -547,6 +547,23 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   /** Nút 💰 chỉ MỞ hộp thoại Thu tiền; mọi thứ còn lại (hình thức, mã QR, gọi API) nằm trong
    *  `CheckoutDialog`. Trước 2026-09-14 chỗ này là một hộp `confirm()` khổng lồ dựng bằng JSX
    *  nội tuyến và tuồn giá trị ra bằng `ref` — không mở rộng thêm được nữa. */
+  // Phiếu tạm tính (2026-10-17): in cho khách khi CHƯA thanh toán — người giữ quán lúc chủ
+  // vắng không biết thu tiền trên app, đưa tờ này cho khách rồi ghi tay món gọi thêm.
+  const [tamTinhBusy, setTamTinhBusy] = useState(false);
+  const printTamTinh = async () => {
+    if (!order || tamTinhBusy) return;
+    setTamTinhBusy(true);
+    try {
+      const res = await api.post<{ data: { queued: boolean } }>(`/orders/${order.id}/print-tam-tinh`, {});
+      if (res.data.data.queued) toast.push('success', 'Đang in phiếu tạm tính…');
+      else toast.push('error', 'Chưa bật in hoá đơn — vào Cài đặt → Máy in để bật.');
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setTamTinhBusy(false);
+    }
+  };
+
   const checkout = () => {
     if (!order) return;
     if (!hasItems) {
@@ -794,6 +811,16 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                         </button>
                       )}
                     </>
+                  )}
+                  {/* In phiếu tạm tính (2026-10-17) — KHÔNG đổi gì trên đơn, in bao nhiêu lần cũng
+                      được. Nằm trong ⋯ theo chỉ đạo chủ quán: thanh hành động chỉ giữ Thanh toán. */}
+                  {hasItems && (
+                    <button
+                      disabled={tamTinhBusy}
+                      onClick={() => { setMenuOpen(false); void printTamTinh(); }}
+                    >
+                      🖨 In phiếu tạm tính
+                    </button>
                   )}
                   <button onClick={() => { setMenuOpen(false); setHelpOpen(true); }}>
                     ❓ Hướng dẫn
