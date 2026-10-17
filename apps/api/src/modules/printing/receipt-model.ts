@@ -43,7 +43,9 @@ export type ReceiptLine =
   | { kind: 'note'; text: string }
   | { kind: 'total'; label: string; value: string; strong?: boolean }
   | { kind: 'center'; text: string; strong?: boolean }
-  | { kind: 'gap'; px: number };
+  | { kind: 'gap'; px: number }
+  /** Dòng kẻ chấm CHỪA CHỖ để ghi tay — cao hơn `rule` nhiều để bút bi viết vừa một dòng chữ. */
+  | { kind: 'writeLine' };
 
 export type ReceiptItemInput = CheckoutPricedItem & {
   menu_item_name: string;
@@ -260,6 +262,80 @@ export function buildReceipt(input: ReceiptInput): ReceiptLine[] {
   lines.push({ kind: 'gap', px: 10 });
   lines.push({ kind: 'center', text: 'Cảm ơn quý khách!' });
   lines.push({ kind: 'center', text: 'Hẹn gặp lại' });
+  return lines;
+}
+
+/** Số dòng kẻ để trống cho người giữ quán ghi tay món gọi thêm (chủ quán chốt 2026-10-17). */
+export const TAM_TINH_SO_DONG_GHI_TAY = 6;
+
+/**
+ * PHIẾU TẠM TÍNH — in cho đơn CHƯA thanh toán (chủ quán chốt 2026-10-17).
+ *
+ * Vì sao có tờ này: lúc chủ quán vắng, người giữ quán là người lớn tuổi không biết thao tác
+ * thanh toán trên app. Họ in tờ này đưa khách, khách gọi thêm thì ghi tay vào phần trống bên
+ * dưới rồi cộng tay — chủ quán về mới thanh toán trên máy như bình thường.
+ *
+ * Khác hoá đơn ở chỗ quyết định: tờ này KHÔNG được trông như biên nhận đã trả tiền.
+ *  - Tiêu đề "PHIẾU TẠM TÍNH" + dòng "CHƯA THANH TOÁN" thay cho "HOÁ ĐƠN THANH TOÁN".
+ *  - Số tiền in ghi "Tạm tính", không ghi "TỔNG CỘNG" — tổng thật là số cộng tay ở cuối tờ.
+ *  - Không có dòng Tiền mặt / Chuyển khoản / Thu ngân — chưa ai thu đồng nào.
+ *  - Không in QR chuyển khoản: tiền vào tài khoản mà không ai trên máy ghi nhận là đối soát hỏng.
+ * Luật món giữ y như `buildReceipt` (bỏ món huỷ, món chưa ra vẫn tính, khăn xuống giữa) để số
+ * tạm tính khớp đúng số lúc thanh toán thật.
+ */
+export function buildTamTinh(input: ReceiptInput): ReceiptLine[] {
+  const { order, store, items } = input;
+  const tz = input.tzOffsetMinutes ?? 7 * 60;
+  const totals = computeCheckoutTotals(items, order.ship_fee);
+  const lines: ReceiptLine[] = [];
+
+  lines.push({ kind: 'title', text: store.name });
+  if (store.address) lines.push({ kind: 'sub', text: store.address });
+  if (store.phone) lines.push({ kind: 'sub', text: `ĐT: ${store.phone}` });
+  lines.push({ kind: 'gap', px: 6 });
+  lines.push({ kind: 'center', text: 'PHIẾU TẠM TÍNH', strong: true });
+  lines.push({ kind: 'center', text: 'CHƯA THANH TOÁN', strong: true });
+  lines.push({ kind: 'rule' });
+
+  lines.push({ kind: 'meta', label: describeTarget(order), value: `#${shortCode(order.id)}` });
+  // Giờ IN chứ không phải giờ mở bàn: in nhiều lần trong một bữa thì tờ mới nhất phải nhận ra
+  // được, vì món trên đó nhiều hơn tờ trước.
+  lines.push({ kind: 'meta', label: 'Giờ in', value: formatStamp(input.nowMs, tz) });
+  lines.push({ kind: 'rule' });
+
+  const inRaGiay = items.filter((it) => it.state !== 'CANCELLED');
+  const theoThuTuIn = laDonTaiBan(order) ? sapXepKhanXuongGiua(inRaGiay) : inRaGiay;
+  for (const it of theoThuTuIn) {
+    if (it.is_note) {
+      lines.push({ kind: 'note', text: it.menu_item_name });
+      continue;
+    }
+    lines.push({
+      kind: 'item',
+      name: it.menu_item_name,
+      qty: it.qty,
+      unitPrice: it.menu_item_price,
+      amount: it.menu_item_price * it.qty,
+    });
+    if (it.note) lines.push({ kind: 'note', text: it.note });
+  }
+
+  lines.push({ kind: 'rule' });
+  if (totals.ship_fee > 0) {
+    lines.push({ kind: 'total', label: 'Tiền món', value: formatVnd(totals.items_total) });
+    lines.push({ kind: 'total', label: 'Phí giao hàng', value: formatVnd(totals.ship_fee) });
+  }
+  lines.push({ kind: 'total', label: 'Tạm tính', value: formatVnd(totals.total), strong: true });
+
+  // Phần ghi tay: chữ dẫn + dòng kẻ chấm + ô tổng cuối cùng để cộng tay.
+  lines.push({ kind: 'gap', px: 14 });
+  lines.push({ kind: 'meta', label: 'Món gọi thêm:', value: '' });
+  for (let i = 0; i < TAM_TINH_SO_DONG_GHI_TAY; i++) lines.push({ kind: 'writeLine' });
+  lines.push({ kind: 'gap', px: 26 });
+  lines.push({ kind: 'total', label: 'TỔNG CỘNG:', value: '______________', strong: true });
+
+  lines.push({ kind: 'gap', px: 14 });
+  lines.push({ kind: 'center', text: 'Cảm ơn quý khách!' });
   return lines;
 }
 

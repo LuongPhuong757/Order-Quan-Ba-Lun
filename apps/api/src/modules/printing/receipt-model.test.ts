@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildDeliverySlip,
   buildReceipt,
+  buildTamTinh,
+  TAM_TINH_SO_DONG_GHI_TAY,
   buildTestPage,
   formatStamp,
   formatVnd,
@@ -451,5 +453,41 @@ describe('buildReceipt — vị trí dòng khăn trên giấy', () => {
     const xs = [mon('Khăn Lạnh', { menu_item_price: 3000, qty: 5 }), mon('Lẩu gà'), mon('Bia')];
     const tong = totals(build({ items: xs })).find((l) => l.label === 'TỔNG CỘNG');
     expect(tong?.value).toBe(formatVnd(3000 * 5 + 45000 * 2));
+  });
+});
+
+describe('buildTamTinh — phiếu cho đơn chưa thanh toán', () => {
+  const tamTinh = (items: ReceiptItemInput[]) =>
+    buildTamTinh({
+      order: order({ closed_at: null, is_paid: false, checked_out_by_full_name: null }),
+      items,
+      store: STORE,
+      reprint: true,
+      nowMs: Date.UTC(2026, 9, 17, 12, 0),
+    });
+  const texts = (lines: ReceiptLine[]) => lines.map((l) => ('text' in l ? l.text : 'label' in l ? l.label : ''));
+
+  it('ghi rõ PHIẾU TẠM TÍNH + CHƯA THANH TOÁN, không phải hoá đơn thanh toán, không dấu in lại', () => {
+    const t = texts(tamTinh([item()]));
+    expect(t).toContain('PHIẾU TẠM TÍNH');
+    expect(t).toContain('CHƯA THANH TOÁN');
+    expect(t).not.toContain('HOÁ ĐƠN THANH TOÁN');
+    expect(t.some((x) => x.startsWith('(BẢN IN LẠI'))).toBe(false);
+  });
+
+  it('số tiền ghi "Tạm tính", không có dòng Tiền mặt / Chuyển khoản / Thu ngân', () => {
+    const lines = tamTinh([item({ qty: 2 }), item({ state: 'CANCELLED' }), item({ state: 'PENDING' })]);
+    expect(lines).toContainEqual({ kind: 'total', label: 'Tạm tính', value: formatVnd(135000), strong: true });
+    const t = texts(lines);
+    expect(t).not.toContain('Tiền mặt');
+    expect(t).not.toContain('Chuyển khoản');
+    expect(t).not.toContain('Thu ngân');
+  });
+
+  it('chừa dòng kẻ để ghi tay + ô TỔNG CỘNG trống ở cuối', () => {
+    const lines = tamTinh([item()]);
+    expect(lines.filter((l) => l.kind === 'writeLine')).toHaveLength(TAM_TINH_SO_DONG_GHI_TAY);
+    const tong = lines.find((l) => l.kind === 'total' && l.label === 'TỔNG CỘNG:');
+    expect(tong && 'value' in tong && /^_+$/.test(tong.value)).toBe(true);
   });
 });

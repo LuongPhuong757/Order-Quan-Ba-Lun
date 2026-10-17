@@ -590,8 +590,10 @@ export function PrintersPanel() {
                           ? 'In thử'
                           : j.kind === 'CUSTOM'
                             ? 'Hoá đơn tự do'
-                            : describeJobTarget(j)}
-                        {j.reason === 'REPRINT' && j.kind !== 'TEST' && (
+                            : j.kind === 'TAM_TINH'
+                              ? `Tạm tính · ${describeJobTarget(j)}`
+                              : describeJobTarget(j)}
+                        {j.reason === 'REPRINT' && j.kind !== 'TEST' && j.kind !== 'TAM_TINH' && (
                           <span style={{ color: C.muted }}> · in lại</span>
                         )}
                         {j.requested_by_full_name && (

@@ -10,7 +10,7 @@ import { PrintJob } from './entities/print-job.entity.js';
 import { PrintDevice } from './entities/print-device.entity.js';
 import { CustomReceipt } from '../custom-receipts/entities/custom-receipt.entity.js';
 import { toReceiptInput } from '../custom-receipts/custom-receipt-model.js';
-import { buildDeliverySlip, buildReceipt, buildTestPage } from './receipt-model.js';
+import { buildDeliverySlip, buildReceipt, buildTamTinh, buildTestPage } from './receipt-model.js';
 import { renderReceipt } from './receipt-render.js';
 import { buildJob, dotsForPaperWidth } from './escpos.js';
 
@@ -83,7 +83,7 @@ export class PrintingService {
     orderId: string,
     reason: 'CHECKOUT' | 'REPRINT',
     actor?: { full_name?: string | null },
-    kind: 'RECEIPT' | 'DELIVERY' = 'RECEIPT',
+    kind: 'RECEIPT' | 'DELIVERY' | 'TAM_TINH' = 'RECEIPT',
   ): Promise<PrintJob | null> {
     try {
       const cfg = await this.settings.readAll();
@@ -341,7 +341,8 @@ export class PrintingService {
       order: { created_at: 'ASC' },
     });
 
-    const build = job.kind === 'DELIVERY' ? buildDeliverySlip : buildReceipt;
+    const build =
+      job.kind === 'DELIVERY' ? buildDeliverySlip : job.kind === 'TAM_TINH' ? buildTamTinh : buildReceipt;
     const lines = build({
       order,
       items,

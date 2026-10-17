@@ -157,6 +157,12 @@ function planOps(
         ops.push({ t: 'rule', y });
         y += 8;
         break;
+      case 'writeLine':
+        // Cao ~34 chấm (~4mm) trên dòng kẻ: vừa một dòng chữ viết tay bằng bút bi.
+        y += 34;
+        ops.push({ t: 'rule', y });
+        y += 4;
+        break;
       case 'note':
         // Thụt vào 14 chấm để mắt nhận ra ngay đây là chú thích của món phía trên chứ không
         // phải một món mới bị thiếu giá.
