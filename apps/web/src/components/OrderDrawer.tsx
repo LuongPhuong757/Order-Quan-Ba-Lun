@@ -38,10 +38,6 @@ type ItemGroup = { key: string; rep: OrderItem; count: number; ids: string[]; ol
 type Order = {
   id: string;
   table_id: string;
-  /** M7 — mã bàn 4 số của khách tự gọi món. NULL khi bàn chưa báo bếp lần nào (D-17).
-   *  BE trả nguyên entity `orders` ở `GET /orders/by-table/:id` nên dữ liệu đã có sẵn.
-   *  Nhân viên cần đọc được mã để đưa lại cho khách mất máy / mất localStorage (R10). */
-  guest_code?: string | null;
   first_kitchen_at?: number | null;
   table_code: string;
   opened_at: number;
@@ -303,33 +299,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     },
     [refresh, toast],
   );
-
-  /* ── M7.D-19 ca 8 — đổi mã bàn khi mã bị lộ ─────────────────────────────────────────── */
-  const [rotatingCode, setRotatingCode] = useState(false);
-  const rotateGuestCode = useCallback(async () => {
-    if (!order) return;
-    // Xác nhận vì thao tác này ĐẨY MỌI THIẾT BỊ của bàn ra — khách đang mở màn "Món của bàn"
-    // sẽ bị văng và phải nhập lại mã mới.
-    const isNew = !order.guest_code;
-    const ok = await confirm({
-      title: isNew ? 'Cấp mã bàn?' : 'Đổi mã bàn?',
-      message: isNew
-        ? 'Bàn này chưa có mã. Cấp mã để khách gọi thêm bằng điện thoại.'
-        : 'Mã cũ sẽ hết hiệu lực ngay. Mọi máy của khách bàn này phải nhập lại mã mới.',
-      confirmLabel: isNew ? 'Cấp mã' : 'Đổi mã',
-    });
-    if (!ok) return;
-    setRotatingCode(true);
-    try {
-      await api.post(`/orders/${order.id}/guest-code/regenerate`, {});
-      await refresh(false);
-      toast.push('success', isNew ? 'Đã cấp mã bàn. Đọc mã cho khách nhé.' : 'Đã đổi mã bàn. Đọc mã mới cho khách nhé.');
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setRotatingCode(false);
-    }
-  }, [order, confirm, refresh, toast]);
 
   useEffect(() => {
     refresh(true);
@@ -626,28 +595,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           <div>
             <h1 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               {table.name}
-              {/* M7 — MÃ BÀN của khách tự gọi món. Chỉ 4 số nhỏ cạnh tên bàn (chủ quán chốt
-                  2026-10-01): bản trước để nguyên một dòng riêng kèm nút "Đổi mã", xô cả bố
-                  cục đầu drawer. Nhân viên chỉ cần ĐỌC được mã khi khách hỏi; việc đổi mã hiếm
-                  nên đẩy vào menu ⋯. */}
-              {order?.guest_code ? (
-                <span
-                  title="Mã bàn của khách gọi bằng QR"
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    letterSpacing: '0.1em',
-                    borderRadius: 999,
-                    padding: '2px 10px',
-                    whiteSpace: 'nowrap',
-                    background: '#f5f3ff',
-                    border: '1px solid #ddd6fe',
-                    color: '#5b21b6',
-                  }}
-                >
-                  {order.guest_code}
-                </span>
-              ) : null}
               {/* Badge chặng giao của đơn ONLINE — shipper mở drawer là biết đơn đã rời quán
                   chưa mà không phải chạy sang màn Đơn hàng online (chỉ đạo 2026-08-04).
                   Bấm mốc ship/nhận vẫn ở màn đơn online; ở đây CHỈ ĐỌC. */}
@@ -791,17 +738,6 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       <button onClick={() => { setMenuOpen(false); setShowNote(true); }}>
                         📝 Ghi chú cho bếp
                       </button>
-                      {/* M7.D-19 ca 8 — đổi mã khi mã bị lộ (bàn bên nghe lỏm 4 số). Việc hiếm
-                          nên nằm trong menu ⋯ chứ không chiếm chỗ ở đầu drawer. Chỉ hiện khi
-                          bàn THỰC SỰ có mã — bàn chưa báo bếp lần nào thì chưa có gì để đổi. */}
-                      {order?.first_kitchen_at ? (
-                        <button
-                          disabled={rotatingCode}
-                          onClick={() => { setMenuOpen(false); void rotateGuestCode(); }}
-                        >
-                          {order.guest_code ? `🔁 Đổi mã bàn (${order.guest_code})` : '🔑 Cấp mã bàn'}
-                        </button>
-                      ) : null}
                       {hasAliveItems && (
                         <button
                           onClick={() => { setMenuOpen(false); void cancelWholeTable(); }}

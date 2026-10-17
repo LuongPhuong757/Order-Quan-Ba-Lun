@@ -82,9 +82,13 @@ export class TableGuestService {
   /**
    * M7.R1 — **KHÔNG tạo dòng `orders` nào ở đây.** Quét QR rồi gõ bừa cả 30 số bàn chỉ sinh ra
    * phiên thiết bị, không làm bẩn sơ đồ bàn của quán. Đơn chỉ ra đời ở `submitCart`.
+   *
+   * 2026-10-17 — BỎ MÃ BÀN 4 SỐ (chủ quán chốt). Gõ đúng số bàn là vào, bàn có người hay chưa
+   * cũng vậy. Rủi ro đã chấp nhận: ai biết số bàn cũng xem được bill và gửi món vào bàn đó —
+   * chặn bằng việc mọi lượt khách gửi vẫn phải nhân viên DUYỆT mới thành món thật.
    */
   async open(
-    input: { table_input: string; code?: string; guest_token?: string },
+    input: { table_input: string; guest_token?: string },
     ipHash: string | null,
   ): Promise<TableOpenResult> {
     await this.assertTableOrderingOn();
@@ -124,7 +128,7 @@ export class TableGuestService {
     }
 
     // M7.D-16 — máy cũ quay lại: token còn sống và trỏ đúng đơn đang mở của CHÍNH bàn này thì
-    // vào thẳng, không hỏi mã. Đóng tab / hết pin rồi mở lại là ca thường xuyên nhất.
+    // dùng lại phiên cũ, khỏi cấp token mới. Đóng tab / hết pin rồi mở lại là ca thường xuyên nhất.
     if (input.guest_token) {
       const prev = await this.sessions.findOne({ where: { token: input.guest_token } });
       if (prev && prev.table_id === table.id) {
@@ -136,37 +140,19 @@ export class TableGuestService {
             state: 'OPENED',
             guest_token: prev.token,
             table_name: table.name,
-            guest_code: open?.guest_code ?? null,
           };
         }
       }
     }
 
-    // M7.D-17 — bàn CÓ mã ⟺ bàn đã báo bếp ít nhất một lần ⟺ đang có người ăn. Khi đó máy lạ
-    // bắt buộc phải có mã. Không còn tồn tại trạng thái "có người ăn mà chưa có mã".
-    if (open?.guest_code) {
-      if (!input.code) {
-        return { state: 'NEED_CODE', table_name: table.name };
-      }
-      if (input.code !== open.guest_code) {
-        throw new ForbiddenException({
-          code: 'TABLE_CODE_WRONG',
-          message:
-            'Mã bàn không đúng. Mã đang hiện trên điện thoại của người đã gọi món ở bàn bạn. ' +
-            'Không nhớ mã thì bạn hỏi nhân viên nhé.',
-        });
-      }
-    }
-
     // Gắn phiên vào đơn đang mở NGAY nếu bàn đã có đơn. Không vi phạm M7.R1 ("tạo đơn lười"):
     // R1 cấm TẠO đơn mới ở đây, còn gắn vào đơn ĐÃ CÓ là bắt buộc — thiếu bước này thì người
-    // thứ hai nhập đúng mã vẫn thấy màn "Món của bàn" RỖNG, vì phiên chưa trỏ vào đơn nào.
+    // thứ hai vào bàn vẫn thấy màn "Món của bàn" RỖNG, vì phiên chưa trỏ vào đơn nào.
     const session = await this.issueSession(table.id, ipHash, open?.id ?? null);
     return {
       state: 'OPENED',
       guest_token: session.token,
       table_name: table.name,
-      guest_code: open?.guest_code ?? null,
     };
   }
 
@@ -294,7 +280,7 @@ export class TableGuestService {
       where: { order_id: order.id, client_request_id: input.client_request_id },
     });
     if (existing) {
-      return this.cartResult(existing.id, order.guest_code, input, byId);
+      return this.cartResult(existing.id, input, byId);
     }
 
     const saved = await this.ds.transaction(async (mgr) => {
@@ -338,19 +324,17 @@ export class TableGuestService {
       message: `Khách gọi qua QR: ${moTaMon(input.items, byId)}`,
     });
 
-    return this.cartResult(saved.id, order.guest_code, input, byId);
+    return this.cartResult(saved.id, input, byId);
   }
 
   private cartResult(
     requestId: string,
-    guestCode: string | null,
     input: TableCartInput,
     byId: ReadonlyMap<string, MenuItem>,
   ): TableCartResult {
     return {
       request_id: requestId,
       status: 'WAITING',
-      guest_code: guestCode,
       items_preview: input.items.map((l) => ({
         name: byId.get(l.menu_item_id)?.name ?? '',
         qty: l.qty,
@@ -371,7 +355,6 @@ export class TableGuestService {
       // Đã vào bàn nhưng chưa gửi lượt nào — chưa có đơn, nên chưa có gì để xem.
       return {
         table_name: table?.name ?? '',
-        guest_code: null,
         waiting: [],
         ordered: [],
         subtotal: 0,
@@ -430,7 +413,6 @@ export class TableGuestService {
     // lạ HUỶ ĐƯỢC ĐƠN của khách khác (M7.R9).
     return {
       table_name: table?.name ?? '',
-      guest_code: order.guest_code,
       waiting: waitingReqs.map((r) => ({
         request_id: r.id,
         created_at: r.created_at,
