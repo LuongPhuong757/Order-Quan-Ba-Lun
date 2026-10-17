@@ -279,22 +279,18 @@ export class Order {
    *   ĐANG MỞ (vài chục dòng) và được ép ở tầng service trong transaction.
    */
 
-  /** M7.D-04/D-17 — mã bàn 4 chữ số, sinh ở lần BÁO BẾP ĐẦU TIÊN của bàn (bất kể món do khách
-   * quét QR gọi hay nhân viên gọi hộ). NULL = chưa ai gọi món cho bàn này.
-   *
-   * M7.D-19 — bất biến phải giữ: `guest_code IS NOT NULL` ⟺ `first_kitchen_at IS NOT NULL`.
-   * Hai cột này đặt cùng nhau, xoá cùng nhau (reset bàn treo, huỷ hết món), copy cùng nhau
-   * (chuyển bàn). Xem §3.11 của spec — 8 ca đã rà. */
+  /** M7 — mã bàn 4 chữ số. ⚠ ĐÃ BỎ 2026-10-17: khách chỉ gõ số bàn, không còn chỗ nào sinh
+   * hay đọc cột này. GIỮ cột (không xoá khỏi entity) vì `synchronize` sẽ DROP cột trên DB
+   * production và DB dev dùng chung giữa các worktree — xoá cột là việc riêng, làm sau. */
   @Column({ type: 'varchar', length: 8, nullable: true })
   guest_code!: string | null;
 
-  /** Lúc mã được sinh — màn khách dùng để nói "mã này dùng tới khi thanh toán". */
+  /** Lúc mã được sinh. ĐÃ BỎ cùng `guest_code` — xem ghi chú ở trên. */
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
   guest_code_at!: number | null;
 
-  /** Lượt gọi ĐẦU TIÊN do chính khách gửi qua QR. Tách khỏi `guest_code_at` vì mã có thể sinh
-   * ra từ việc NHÂN VIÊN gọi hộ (D-17) — cột này mới trả lời được "bàn này khách có tự gọi
-   * không", thứ báo cáo cần để đo tính năng có được dùng thật hay không. */
+  /** Lượt gọi ĐẦU TIÊN do chính khách gửi qua QR — trả lời "bàn này khách có tự gọi không",
+   * thứ báo cáo cần để đo tính năng có được dùng thật hay không. */
   @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
   first_guest_request_at!: number | null;
 
