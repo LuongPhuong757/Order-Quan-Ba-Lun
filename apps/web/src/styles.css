@@ -7,14 +7,21 @@
 html,
 body {
   margin: 0;
-  /* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
-     Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào. */
-  padding: var(--env-banner-h, 0px) 0 0 0;
+  padding: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 16px; /* iOS no-zoom baseline */
   line-height: 1.5;
   color: #1f2937;
   background: #f9fafb;
+}
+
+/* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
+   Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào.
+   CHỈ ở `body`, không ở `html` (sửa 2026-10-19): trước đây rule này nằm chung khối `html, body`
+   nên bị cộng HAI LẦN — dải "khách gọi QR" / "chưa trả" ở màn Bếp tụt xuống thừa đúng 26px và
+   che mất hàng nút "Ưu tiên / Theo món" (màn Bếp khoá cuộn nên không tự hết). */
+body {
+  padding-top: var(--env-banner-h, 0px);
 }
 
 #root {
@@ -3296,25 +3303,6 @@ button.stale-banner-chip {
   padding: 0;
 }
 .kds-guest-rail::-webkit-scrollbar { display: none; }
-.kds-guest-chip {
-  flex: none; display: flex; align-items: center; gap: 6px;
-  min-height: 44px; padding: 0 14px; border-radius: 999px; cursor: pointer;
-  border: 2px solid #7c3aed; background: #f5f3ff; color: #5b21b6;
-}
-.kds-guest-chip b { font-size: 17px; font-weight: 800; }
-.kds-guest-chip i { font-size: 13px; font-style: normal; color: #6d28d9; }
-/* M7.R7 — nhân viên quên duyệt là rủi ro CAO. Sau 3 phút chip nhấp nháy. */
-.kds-guest-chip.is-late { animation: kdsGuestBlink 1.1s ease-in-out infinite; }
-@keyframes kdsGuestBlink {
-  0%, 100% { background: #f5f3ff; }
-  50%      { background: #ddd6fe; }
-}
-.kds-guest-chip--call { border-color: #0e7490; background: #ecfeff; color: #164e63; }
-.kds-guest-chip--call i { color: #0e7490; }
-.kds-guest-chip--call.is-bill { border-color: #a16207; background: #fefce8; color: #713f12; }
-.kds-guest-chip--call.is-bill i { color: #a16207; }
-.kds-guest-chip:disabled { opacity: 0.5; cursor: default; }
-
 .kds-guest-overlay {
   position: fixed; inset: 0; z-index: 320; background: rgb(15 23 42 / 55%);
   display: flex; align-items: center; justify-content: center; padding: 16px;
@@ -3369,11 +3357,6 @@ button.stale-banner-chip {
 .kds-call-modal .kds-guest-modal-head b { color: #155e75; }
 .kds-call-note { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: #0f172a; }
 .kds-call-none { margin: 2px 0 0; font-size: 16px; color: #64748b; }
-/* Số lời nhắn trên chip — chỉ hiện khi nhiều hơn một. */
-.kds-guest-n {
-  flex: none; min-width: 24px; padding: 1px 7px; border-radius: 999px;
-  background: #0e7490; color: #fff; font-size: 14px; font-weight: 800; text-align: center;
-}
 /* Một dòng lời nhắn trong hộp, kèm nút nghe riêng từng dòng. */
 .kds-call-row {
   display: flex; align-items: flex-start; gap: 10px;
@@ -3429,14 +3412,40 @@ button.stale-banner-chip {
   flex: 1;
   min-width: 0;
 }
-/* Chip trong dải mỏng: thấp hơn chip 44px cũ một chút để dải không phình, vẫn đủ to cho ngón tay. */
+/* Chip GIỐNG HỆT `button.stale-banner-chip` (cỡ, khoảng cách, chữ) — chủ quán chốt chỉ khác MÀU.
+   Sửa một bên thì sửa cả bên kia. `button.` phía trước vì rule nút chung đè color/background. */
 .qr-banner .kds-guest-rail { gap: 6px; padding-right: 10px; -webkit-overflow-scrolling: touch; }
-/* Chip chỉ có biểu tượng + số bàn: hẹp, số TO để liếc là đọc được, min-width giữ cho chip số
-   một chữ số không bé quá đầu ngón tay. */
-.qr-banner .kds-guest-chip {
-  min-height: 36px; min-width: 52px; padding: 0 10px; gap: 4px; justify-content: center;
+button.qr-banner-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #a78bfa;
+  background: #fff;
+  color: #5b21b6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
 }
-.qr-banner .kds-guest-chip b { font-size: 18px; }
+/* Gọi nhân viên: xanh mòng két; xin tính tiền: vàng — cùng bộ màu với hộp chi tiết. */
+button.qr-banner-chip--call { border-color: #0e7490; color: #164e63; }
+button.qr-banner-chip--call.is-bill { border-color: #a16207; color: #713f12; }
+button.qr-banner-chip:disabled { opacity: 0.5; cursor: default; }
+/* M7.R7 — quá 3 phút chưa duyệt thì nhấp nháy: quên duyệt là khách đứng chờ mãi. */
+button.qr-banner-chip.is-late { animation: qrChipBlink 1.1s ease-in-out infinite; }
+@keyframes qrChipBlink {
+  0%, 100% { background: #fff; }
+  50%      { background: #ddd6fe; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.qr-banner-chip.is-late { animation: none; background: #ddd6fe; }
+}
 /* Màn Bếp: thay chỗ 2 nút Duyệt / Bỏ — chữ to, đọc được từ xa, KHÔNG phải nút. */
 .kds-guest-tell {
   margin: 0;
