@@ -251,29 +251,46 @@ export class IngredientsService {
       }
 
       const lines = await recipes.find({ where: { ingredient_id: from_id } });
-      // Món đã có sẵn nguyên liệu đích thì KHÔNG chuyển (sẽ vỡ UNIQUE món+nguyên liệu) mà bỏ
-      // dòng nguồn đi: món đó vốn đã khai đúng nguyên liệu, dòng kia là bản trùng.
+
+      /* NCC của dòng chuyển sang: giữ khi NCC đó cũng bán nguyên liệu đích, không thì về `null`
+         (chưa chọn NCC, giá vốn bình quân). Giữ nguyên một `supplier_id` mà NCC đó không bán
+         nguyên liệu đích là trỏ vào cặp không có giá — món trông rẻ hơn thật. */
+      const toSuppliers = new Set(
+        (await mgr.getRepository(SupplierItem).find({ where: { ingredient_id: to_id }, select: ['supplier_id'] })).map(
+          (i) => i.supplier_id,
+        ),
+      );
+      const targetSupplier = (l: RecipeLine) => (l.supplier_id && toSuppliers.has(l.supplier_id) ? l.supplier_id : null);
+
+      // Món đã có sẵn nguyên liệu đích VỚI CÙNG NCC thì KHÔNG chuyển (sẽ trùng dòng) mà bỏ dòng
+      // nguồn đi: món đó vốn đã khai đúng nguyên liệu, dòng kia là bản trùng. Khoá so gồm cả NCC
+      // từ 2026-10-19 — "Thịt bò · NCC A" và "· NCC B" là hai dòng hợp lệ của cùng một món.
       // `In([])` sinh ra `IN ()` — cú pháp SQL không hợp lệ, nên chặn trước khi truy vấn.
-      const dstItemIds = new Set(
+      const keyOf = (menu_item_id: string, supplier_id: string | null) => `${menu_item_id}|${supplier_id ?? ''}`;
+      const dstKeys = new Set(
         lines.length === 0
           ? []
           : (
               await recipes.find({
                 where: { ingredient_id: to_id, menu_item_id: In(lines.map((l) => l.menu_item_id)) },
-                select: ['menu_item_id'],
+                select: ['menu_item_id', 'supplier_id'],
               })
-            ).map((l) => l.menu_item_id),
+            ).map((l) => keyOf(l.menu_item_id, l.supplier_id)),
       );
 
       let moved = 0;
       let dropped = 0;
       for (const line of lines) {
-        if (dstItemIds.has(line.menu_item_id)) {
+        const sup = targetSupplier(line);
+        const key = keyOf(line.menu_item_id, sup);
+        if (dstKeys.has(key)) {
           await recipes.delete(line.id);
           dropped++;
         } else {
           line.ingredient_id = to_id;
+          line.supplier_id = sup;
           await recipes.save(line);
+          dstKeys.add(key);
           moved++;
         }
       }

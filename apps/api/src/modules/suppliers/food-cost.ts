@@ -18,6 +18,10 @@ export type RecipeLineInput = {
   base_unit: string;
   /** Định lượng cho MỘT phần, theo đơn vị gốc của nguyên liệu. */
   qty_per_serving: number;
+  /** NCC của dòng công thức (2026-10-19). `null`/thiếu = chưa chọn NCC → giá bình quân của
+   * nguyên liệu như trước. */
+  supplier_id?: string | null;
+  supplier_name?: string | null;
 };
 
 export type MenuItemInput = {
@@ -36,9 +40,19 @@ export type IngredientPrice = {
   source: 'avg' | 'last';
 };
 
+/** Giá lần nhập gần nhất của MỘT NCC cho MỘT nguyên liệu, đồng / đơn vị gốc
+ * (`supplier_items.last_unit_price_base`). Dòng công thức đã chọn NCC lấy giá này. */
+export type SupplierPrice = {
+  ingredient_id: string;
+  supplier_id: string;
+  unit_price_base: number;
+};
+
 export type CostComponent = {
   ingredient_id: string;
   ingredient_name: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
   base_unit: string;
   qty_per_serving: number;
   unit_price_base: number | null;
@@ -73,8 +87,21 @@ export function computeFoodCost(
   items: MenuItemInput[],
   recipeLines: RecipeLineInput[],
   prices: IngredientPrice[],
+  supplierPrices: SupplierPrice[] = [],
 ): FoodCostRow[] {
   const priceOf = new Map(prices.map((p) => [p.ingredient_id, p.unit_price_base]));
+  const supplierPriceOf = new Map(
+    supplierPrices.filter((p) => p.unit_price_base > 0).map((p) => [`${p.ingredient_id}|${p.supplier_id}`, p.unit_price_base]),
+  );
+  /* Dòng đã chọn NCC → giá lần nhập gần nhất của ĐÚNG NCC đó (chủ quán chốt 2026-10-19: "Thịt
+     bò · NCC A" 250k và "· NCC B" 300k phải ra hai giá vốn khác nhau, không bình quân chung).
+     NCC đó chưa có giá thì rơi về giá chung của nguyên liệu — vẫn hơn báo "chưa có giá" khi quán
+     thật sự biết giá. Dòng chưa chọn NCC giữ cách tính cũ. */
+  const unitPriceOf = (l: RecipeLineInput): number | null =>
+    (l.supplier_id ? supplierPriceOf.get(`${l.ingredient_id}|${l.supplier_id}`) : undefined) ??
+    priceOf.get(l.ingredient_id) ??
+    null;
+  const labelOf = (l: RecipeLineInput) => (l.supplier_name ? `${l.ingredient_name} · ${l.supplier_name}` : l.ingredient_name);
   const byItem = new Map<string, RecipeLineInput[]>();
   for (const l of recipeLines) {
     const g = byItem.get(l.menu_item_id);
@@ -88,10 +115,14 @@ export function computeFoodCost(
     if (!lines || lines.length === 0) continue;
 
     const components: CostComponent[] = lines.map((l) => {
-      const unit_price_base = priceOf.get(l.ingredient_id) ?? null;
+      const unit_price_base = unitPriceOf(l);
       return {
         ingredient_id: l.ingredient_id,
-        ingredient_name: l.ingredient_name,
+        // Gắn tên NCC vào tên hiển thị: một món có thể có hai dòng "Thịt bò", phải phân biệt được
+        // ở bảng chi tiết lẫn trong danh sách `missing`.
+        ingredient_name: labelOf(l),
+        supplier_id: l.supplier_id ?? null,
+        supplier_name: l.supplier_name ?? null,
         base_unit: l.base_unit,
         qty_per_serving: l.qty_per_serving,
         unit_price_base,

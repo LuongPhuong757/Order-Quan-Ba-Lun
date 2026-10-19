@@ -11,10 +11,14 @@ import {
 import { dateToMsTransformer } from '../../auth/entities/user.entity.js';
 
 @Entity('recipe_lines')
-// UNIQUE (món, nguyên liệu): một món không thể có 2 dòng cùng một nguyên liệu — nếu có thì
-// người nhập đang định SỬA định lượng chứ không phải thêm dòng, và hai dòng rời sẽ âm thầm
-// cộng dồn thành tiêu hao gấp đôi.
-@Index('idx_recipe_item_ingredient', ['menu_item_id', 'ingredient_id'], { unique: true })
+// UNIQUE (món, nguyên liệu, NCC): cùng một cặp nguyên liệu + NCC mà thêm lần nữa là người nhập
+// đang SỬA định lượng chứ không phải thêm dòng.
+//
+// Có `supplier_id` trong khoá (chủ quán chốt 2026-10-19): "Thịt bò" của NCC A và của NCC B là
+// HAI dòng riêng, một món được dùng cả hai — trước đó chúng bị gộp làm một và giá vốn lấy bình
+// quân của mọi NCC. MySQL coi các NULL là KHÁC nhau trong UNIQUE, nên hai dòng "chưa chọn NCC"
+// cùng nguyên liệu không bị DB chặn — `RecipesService.upsertLine` tự tra `IsNull()` để chặn.
+@Index('idx_recipe_item_ingredient_ncc', ['menu_item_id', 'ingredient_id', 'supplier_id'], { unique: true })
 @Index('idx_recipe_ingredient', ['ingredient_id'])
 export class RecipeLine {
   @PrimaryGeneratedColumn('uuid')
@@ -25,6 +29,17 @@ export class RecipeLine {
 
   @Column({ type: 'varchar', length: 36 })
   ingredient_id!: string;
+
+  /** NCC của nguyên liệu này TRONG MÓN NÀY — giá vốn lấy giá lần nhập gần nhất của đúng NCC
+   * đó (`supplier_items.last_unit_price_base`).
+   *
+   * `null` = chưa chọn NCC: dòng khai trước 2026-10-19 của nguyên liệu mua từ nhiều NCC. Dòng
+   * đó giữ cách tính cũ (bình quân mọi NCC) và màn Công thức hiện nhãn "chưa chọn NCC". Nguyên
+   * liệu chỉ có MỘT NCC thì `IngredientsModule.onModuleInit` tự gắn, không bắt ai chọn lại.
+   *
+   * KHÔNG dùng cho tồn kho / tiêu hao: kho vẫn tính theo nguyên liệu, gộp mọi NCC. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  supplier_id!: string | null;
 
   /** Định lượng cho MỘT phần, tính bằng đơn vị gốc của nguyên liệu (`ingredients.unit`).
    *

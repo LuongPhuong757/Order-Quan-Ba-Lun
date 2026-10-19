@@ -101,7 +101,8 @@ const CHECKS: TableCheck[] = [
   },
   {
     table: 'recipe_lines',
-    requiredColumns: ['id', 'menu_item_id', 'ingredient_id', 'qty_per_serving'],
+    // `supplier_id` (2026-10-19): nguyên liệu trùng tên tách theo NCC trong công thức món.
+    requiredColumns: ['id', 'menu_item_id', 'ingredient_id', 'supplier_id', 'qty_per_serving'],
   },
   {
     table: 'order_item_ingredient_usage',

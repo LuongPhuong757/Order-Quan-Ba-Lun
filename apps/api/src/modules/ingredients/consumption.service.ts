@@ -59,9 +59,18 @@ export class ConsumptionService {
       .find({ where: { id: In(lines.map((l) => l.ingredient_id)) } });
     const byId = new Map(ings.map((i) => [i.id, i]));
 
-    const rows = lines
-      .map((l) => {
-        const ing = byId.get(l.ingredient_id);
+    /* Cộng dồn theo NGUYÊN LIỆU trước khi ghi. Từ 2026-10-19 một món có thể có hai dòng cùng
+       nguyên liệu khác NCC ("Thịt bò · NCC A" 100g + "Thịt bò · NCC B" 50g), mà kho không tách theo
+       NCC và `order_item_ingredient_usage` UNIQUE (món gọi, nguyên liệu) — ghi thẳng từng dòng là
+       vỡ khoá ngay lúc bếp bấm nấu. */
+    const perServing = new Map<string, number>();
+    for (const l of lines) {
+      perServing.set(l.ingredient_id, (perServing.get(l.ingredient_id) ?? 0) + Number(l.qty_per_serving));
+    }
+
+    const rows = [...perServing]
+      .map(([ingredient_id, qtyPerServing]) => {
+        const ing = byId.get(ingredient_id);
         if (!ing) return null; // nguyên liệu bị xoá cứng — bỏ qua dòng thay vì ghi tên rỗng
         return usageRepo.create({
           order_item_id: item.id,
@@ -70,7 +79,7 @@ export class ConsumptionService {
           ingredient_name: ing.name,
           unit: ing.unit,
           qty: item.qty,
-          qty_total: String(Number(l.qty_per_serving) * item.qty),
+          qty_total: String(qtyPerServing * item.qty),
         });
       })
       .filter((r): r is OrderItemIngredientUsage => r !== null);
