@@ -1,7 +1,9 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { GuestCard, PendingCall } from '../lib/kds-guest-cards.js';
 import { describeAge, describeGroup, groupCallsByTable } from '../lib/kds-guest-cards.js';
 import { tableSpeechName } from '../lib/voice-text.js';
+import { formatAge } from '../lib/item-age.ts';
 
 /**
  * M7.D-10 — lượt khách gọi chờ duyệt, hiển thị trên màn bếp.
@@ -15,14 +17,35 @@ import { tableSpeechName } from '../lib/voice-text.js';
  * Giờ: một dải ngang chỉ hiện TÊN BÀN + số món + đồng hồ chờ, cao ~44px cho mọi số lượng bàn.
  * Chạm vào chip mới mở danh sách món và nút duyệt. Thông tin không mất đi, chỉ đổi chỗ — và
  * tên bàn vẫn là thứ to nhất (M7.R1: chốt chặn duy nhất chống khách gõ nhầm bàn).
+ *
+ * 2026-10-19 — dải chuyển ra App (`GuestQrBanner`), hiện ở CẢ màn Order lẫn màn Bếp. Chủ quán
+ * chốt: CHỈ màn Order được duyệt / bỏ lượt (người ra bàn xác nhận là nhân viên order). Màn Bếp
+ * mở hộp vẫn xem được món, nhưng chỗ 2 nút là một câu nhắc báo nhân viên — `canApprove=false`.
+ * Chuông gọi nhân viên thì KHÔNG gác: ai nghe trước bấm "Đã nghe" trước, ở màn nào cũng được.
  */
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
+
+/**
+ * Chip GIỐNG HỆT chip dải "chưa trả" (chủ quán 2026-10-19): tên bàn + số phút chờ, cùng cỡ, cùng
+ * format (`formatAge`: 3p, 1h5p), KHÔNG biểu tượng — chỉ khác MÀU. Hai bản trước (thẻ đầy đủ rồi
+ * "👤 28") đều bị chê: bản đầu chỉ thấy được một bàn, bản sau không biết khách chờ bao lâu.
+ * Loại yêu cầu đọc qua màu viền (tím = gọi món, xanh = gọi nhân viên, vàng = xin tính tiền);
+ * chi tiết đầy đủ vẫn nằm trong hộp mở ra khi bấm chip.
+ *
+ * Tên bàn để NGUYÊN như quán đặt ("Bàn 01"), không qua `tableSpeechName` — hàm đó đổi "01" thành
+ * "Bàn 1" cho giọng đọc, còn dải đỏ ngay bên dưới hiện "Bàn 01": hai dải phải viết giống nhau.
+ */
+function chipLabel(tableName: string): string {
+  const t = (tableName ?? '').trim();
+  return /^bàn\s/i.test(t) || !/^\d+$/.test(t) ? t : `Bàn ${t}`;
+}
 
 export function GuestRequestCards({
   cards,
   calls,
   busyId,
+  canApprove,
   onApprove,
   onReject,
   onAck,
@@ -30,6 +53,8 @@ export function GuestRequestCards({
   cards: GuestCard[];
   calls: PendingCall[];
   busyId: string | null;
+  /** `false` = màn Bếp: xem món được, không duyệt / bỏ được. */
+  canApprove: boolean;
   onApprove: (requestId: string) => void;
   onReject: (requestId: string) => void;
   /** Nhận NHIỀU id: một chuyến đi tới bàn giải quyết mọi lời nhắn của bàn đó cùng lúc. */
@@ -60,11 +85,12 @@ export function GuestRequestCards({
           <button
             key={g.table_code}
             type="button"
-            className={`kds-guest-chip kds-guest-chip--call${
+            className={`qr-banner-chip qr-banner-chip--call${
               !g.has_staff && g.has_bill ? ' is-bill' : ''
             }`}
             disabled={g.items.some((i) => busyId === i.id)}
             onClick={() => setOpenTable(g.table_code)}
+            aria-label={`${tableSpeechName(g.table_name)}: ${describeGroup(g)}`}
             title={
               g.items.length > 1
                 ? `${g.items.length} lời nhắn của ${g.table_name} — bấm để xem hết`
@@ -73,15 +99,9 @@ export function GuestRequestCards({
                   : 'Bấm để xem và báo đã nghe'
             }
           >
-            {/* Bàn vừa gọi nhân viên vừa xin tính tiền thì hiện CẢ HAI biểu tượng: nhân viên
-                phải biết cầm theo máy tính tiền trước khi đi, khỏi đi hai lượt. */}
-            <span aria-hidden>
-              {g.has_staff ? '🔔' : ''}
-              {g.has_bill ? '💵' : ''}
-            </span>
-            <b>{tableSpeechName(g.table_name)}</b>
-            <i>{describeGroup(g)}</i>
-            {g.items.length > 1 ? <span className="kds-guest-n">{g.items.length}</span> : null}
+            <strong>{chipLabel(g.table_name)}</strong>
+            {/* Từ lời nhắn CŨ NHẤT chưa ai nghe: khách đã đứng chờ từ lúc đó. */}
+            <span>{formatAge((Date.now() - Math.min(...g.items.map((i) => i.created_at))) / 60_000)}</span>
           </button>
         ))}
 
@@ -89,23 +109,21 @@ export function GuestRequestCards({
           <button
             key={c.request_id}
             type="button"
-            className={`kds-guest-chip${c.blink ? ' is-late' : ''}`}
+            className={`qr-banner-chip${c.blink ? ' is-late' : ''}`}
+            aria-label={`${tableSpeechName(c.table_name)} gọi ${c.lines.reduce((t, l) => t + l.qty, 0)} món, chờ ${describeAge(c.ageMs)}`}
             onClick={() => {
               setConfirmReject(false);
               setOpenId(c.request_id);
             }}
           >
-            <span aria-hidden>👤</span>
-            <b>{tableSpeechName(c.table_name)}</b>
-            <i>
-              {c.lines.reduce((t, l) => t + l.qty, 0)} món · {describeAge(c.ageMs)}
-            </i>
+            <strong>{chipLabel(c.table_name)}</strong>
+            <span>{formatAge(c.ageMs / 60_000)}</span>
           </button>
         ))}
       </div>
 
       {/* Mọi lời nhắn của MỘT BÀN, cũ trước mới sau. */}
-      {openGroup ? (
+      {openGroup ? createPortal(
         <div className="kds-guest-overlay" onClick={() => setOpenTable(null)}>
           <div className="kds-guest-modal kds-call-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
@@ -165,11 +183,12 @@ export function GuestRequestCards({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
       {/* Danh sách món + nút duyệt, chỉ hiện khi bấm vào chip. */}
-      {open ? (
+      {open ? createPortal(
         <div className="kds-guest-overlay" onClick={() => setOpenId(null)}>
           <div className="kds-guest-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
@@ -193,6 +212,13 @@ export function GuestRequestCards({
               <div className="kds-guest-foot">Tạm tính theo giá hiện tại: {vnd(open.subtotal)}</div>
             </div>
 
+            {!canApprove ? (
+              <div className="kds-guest-modal-foot">
+                {/* Chữ TO, không phải nút: bếp không có việc gì để bấm ở đây. Có nút "Đóng" ở
+                    góc + chạm ra ngoài là đủ đường thoát. */}
+                <p className="kds-guest-tell">📢 Báo nhân viên order ra bàn xác nhận</p>
+              </div>
+            ) : (
             <div className="kds-guest-modal-foot">
               <button
                 type="button"
@@ -232,8 +258,10 @@ export function GuestRequestCards({
                 </button>
               )}
             </div>
+            )}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );

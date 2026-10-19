@@ -7,14 +7,21 @@
 html,
 body {
   margin: 0;
-  /* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
-     Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào. */
-  padding: var(--env-banner-h, 0px) 0 0 0;
+  padding: 0;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 16px; /* iOS no-zoom baseline */
   line-height: 1.5;
   color: #1f2937;
   background: #f9fafb;
+}
+
+/* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
+   Trên production biến này không tồn tại → 0px → trang thật không đổi một pixel nào.
+   CHỈ ở `body`, không ở `html` (sửa 2026-10-19): trước đây rule này nằm chung khối `html, body`
+   nên bị cộng HAI LẦN — dải "khách gọi QR" / "chưa trả" ở màn Bếp tụt xuống thừa đúng 26px và
+   che mất hàng nút "Ưu tiên / Theo món" (màn Bếp khoá cuộn nên không tự hết). */
+body {
+  padding-top: var(--env-banner-h, 0px);
 }
 
 #root {
@@ -228,7 +235,7 @@ h2 {
    cao 56px). Chỉ 1 cái tại 1 thời điểm — cái mới ghi đè cái cũ. */
 .toast-banner-wrap {
   position: fixed;
-  top: calc(56px + var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
+  top: calc(56px + var(--env-banner-h, 0px) + var(--qr-banner-h, 0px) + var(--stale-banner-h, 0px));
   left: 0;
   right: 0;
   /* TRÊN MỌI HỘP THOẠI (2026-09-14). Trước là 9000, tức dưới cả `modal-overlay` (9998) lẫn các
@@ -997,8 +1004,9 @@ a:hover {
   /* Sticky để banner thông báo (fixed top:56px) luôn nằm ngay dưới header
      kể cả khi cuộn trang. z-index dưới modal (9998+). */
   position: sticky;
-  /* `--stale-banner-h` = dải đỏ "bàn ngồi quá lâu" (StaleTableBanner) đang dính phía trên. */
-  top: calc(var(--env-banner-h, 0px) + var(--stale-banner-h, 0px));
+  /* `--stale-banner-h` = dải đỏ "bàn ngồi quá lâu" (StaleTableBanner) đang dính phía trên.
+     `--qr-banner-h` = dải "khách gọi QR" (GuestQrBanner) nằm trên cả dải đỏ. */
+  top: calc(var(--env-banner-h, 0px) + var(--qr-banner-h, 0px) + var(--stale-banner-h, 0px));
   z-index: 200;
   box-sizing: border-box;
 }
@@ -3222,7 +3230,8 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
    môi trường dev (`.env-banner`, đỏ đặc sọc chéo) — hai dải không được trông giống nhau. */
 .stale-banner {
   position: sticky;
-  top: var(--env-banner-h, 0px);
+  /* Dải QR (GuestQrBanner) đứng TRÊN dải này — tụt xuống đúng chiều cao của nó. */
+  top: calc(var(--env-banner-h, 0px) + var(--qr-banner-h, 0px));
   z-index: 201;
   display: flex;
   align-items: center;
@@ -3268,4 +3277,170 @@ button.stale-banner-chip {
   line-height: 1.2;
   white-space: nowrap;
   cursor: pointer;
+}
+
+/* ── M7 — dải chip "khách gọi" + hộp chi tiết ─────────────────────────────────
+ * Chủ quán chốt 2026-10-01: bản thẻ lớn "hiển thị quá to". Mỗi lượt chiếm ~200px nên
+ * hai bàn gọi cùng lúc là đẩy hết món đang nấu khỏi màn. Giờ cả dải cao ~44px bất kể
+ * bao nhiêu bàn; chi tiết nằm sau một cú chạm.
+ * Màu XANH DƯƠNG/TÍM có chủ ý: đỏ đã là "đã huỷ", cam là KITCHEN. */
+
+.kds-guest-rail {
+  display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
+  padding: 0;
+}
+.kds-guest-rail::-webkit-scrollbar { display: none; }
+.kds-guest-overlay {
+  position: fixed; inset: 0; z-index: 320; background: rgb(15 23 42 / 55%);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.kds-guest-modal {
+  width: 100%; max-width: 460px; max-height: 85dvh;
+  display: flex; flex-direction: column;
+  background: #fff; border-radius: 14px; border: 2px solid #7c3aed;
+}
+.kds-guest-modal-head {
+  flex: none; display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; border-bottom: 1px solid #ede9fe;
+}
+.kds-guest-modal-head b { flex: 1; min-width: 0; font-size: 20px; color: #5b21b6; }
+.kds-guest-modal-head span { flex: none; font-size: 13px; color: #6d28d9; }
+.kds-guest-modal-head button {
+  flex: none; min-width: 40px; min-height: 40px;
+  border: none; background: transparent; font-size: 20px; color: #64748b; cursor: pointer;
+}
+/* min-height:0 bắt buộc — thiếu nó vùng cuộn không co được và hộp phình quá màn. */
+.kds-guest-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
+.kds-guest-modal-foot { flex: none; padding: 14px 16px; border-top: 1px solid #ede9fe; }
+.kds-guest-line { font-size: 18px; color: #1f2937; margin-bottom: 6px; }
+.kds-guest-line i { color: #6d28d9; font-style: italic; }
+.kds-guest-line--gone { text-decoration: line-through; opacity: 0.6; }
+/* Dòng quán tự thêm (khăn lạnh): nhãn xanh lá nhạt, khác hẳn nhãn đỏ "hết — sẽ bỏ". */
+.kds-guest-auto {
+  margin-left: 8px; padding: 1px 7px; border-radius: 999px;
+  font-size: 12px; font-weight: 700; color: #065f46; background: #d1fae5;
+}
+.kds-guest-gone {
+  margin-left: 8px; font-size: 13px; font-weight: 700;
+  color: #b91c1c; text-decoration: none; display: inline-block;
+}
+.kds-guest-foot { margin-top: 10px; font-size: 15px; color: #5b21b6; }
+.kds-guest-approve {
+  width: 100%; min-height: 52px; border: none; border-radius: 8px;
+  background: #0f766e; color: #fff; font-size: 19px; font-weight: 800; cursor: pointer;
+}
+.kds-guest-approve:disabled { opacity: 0.6; cursor: default; }
+.kds-guest-reject {
+  width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid #ddd6fe;
+  border-radius: 8px; background: transparent; color: #6d28d9; font-size: 15px; cursor: pointer;
+}
+.kds-guest-confirm {
+  display: flex; gap: 8px; align-items: center; margin-top: 8px;
+  font-size: 15px; color: #7f1d1d;
+}
+/* Hộp lời nhắn khi khách bấm gọi — viền xanh mòng két để khác hẳn hộp duyệt món
+   (tím): hai hộp mở ra từ hai loại chip khác nhau, không được nhìn giống nhau. */
+.kds-call-modal { border-color: #0e7490; }
+.kds-call-modal .kds-guest-modal-head b { color: #155e75; }
+.kds-call-note { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: #0f172a; }
+.kds-call-none { margin: 2px 0 0; font-size: 16px; color: #64748b; }
+/* Một dòng lời nhắn trong hộp, kèm nút nghe riêng từng dòng. */
+.kds-call-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid #e2e8f0;
+}
+.kds-call-row:last-child { border-bottom: none; }
+.kds-call-row-main { flex: 1; min-width: 0; }
+.kds-call-kind { font-size: 14px; font-weight: 700; color: #0e7490; }
+.kds-call-one {
+  flex: none; min-width: 44px; min-height: 44px; border-radius: 8px;
+  border: 1px solid #99f6e4; background: #f0fdfa; color: #0f766e;
+  font-size: 20px; font-weight: 800; cursor: pointer;
+}
+.kds-call-one:disabled { opacity: 0.5; cursor: default; }
+/* PHẢI khai color ở đây. styles.css có rule chung cho mọi <button> đặt
+   background:#0f766e; color:white. Rule này mạnh hơn nên đè được NỀN về trắng, nhưng
+   không đụng tới màu CHỮ — nên chữ vẫn trắng, nằm trên nền trắng, đọc không ra. Người
+   test báo đúng ca này 2026-10-02. Cùng cái bẫy CLAUDE.md đã ghi về nút secondary.
+   Hai nút cũng phải KHÁC MÀU nhau: một bên là huỷ việc đã làm, một bên là thoát ra. */
+.kds-guest-confirm button {
+  min-height: 40px; padding: 0 14px; border-radius: 8px;
+  border: 1px solid #cbd5e1; background: #fff; color: #334155;
+  cursor: pointer; font-size: 15px; font-weight: 600;
+}
+.kds-guest-confirm button.kds-confirm-yes {
+  border-color: #b91c1c; background: #b91c1c; color: #fff; font-weight: 700;
+}
+
+/* ── Dải "khách gọi bằng QR" (2026-10-19) — xem GuestQrBanner.tsx ──
+   Cùng dáng dải đỏ "chưa trả" (MỘT DÒNG MỎNG, nhãn đứng yên, chip vuốt ngang) nhưng màu TÍM của
+   M7 để hai dải không bao giờ đọc nhầm ra nhau: tím = khách đang chờ mình ra, đỏ = bàn chưa trả.
+   Ở màn Order và màn Bếp. Nằm TRÊN dải đỏ (z-index cao hơn 1). */
+.qr-banner {
+  position: sticky;
+  top: var(--env-banner-h, 0px);
+  z-index: 202;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0 4px 10px;
+  background: #ede9fe;
+  border-bottom: 1px solid #c4b5fd;
+  color: #5b21b6;
+  box-sizing: border-box;
+}
+.qr-banner-title {
+  flex: none;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.qr-banner-list {
+  flex: 1;
+  min-width: 0;
+}
+/* Chip GIỐNG HỆT `button.stale-banner-chip` (cỡ, khoảng cách, chữ) — chủ quán chốt chỉ khác MÀU.
+   Sửa một bên thì sửa cả bên kia. `button.` phía trước vì rule nút chung đè color/background. */
+.qr-banner .kds-guest-rail { gap: 6px; padding-right: 10px; -webkit-overflow-scrolling: touch; }
+button.qr-banner-chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 30px;
+  min-width: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  border: 1px solid #a78bfa;
+  background: #fff;
+  color: #5b21b6;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* Gọi nhân viên: xanh mòng két; xin tính tiền: vàng — cùng bộ màu với hộp chi tiết. */
+button.qr-banner-chip--call { border-color: #0e7490; color: #164e63; }
+button.qr-banner-chip--call.is-bill { border-color: #a16207; color: #713f12; }
+button.qr-banner-chip:disabled { opacity: 0.5; cursor: default; }
+/* M7.R7 — quá 3 phút chưa duyệt thì nhấp nháy: quên duyệt là khách đứng chờ mãi. */
+button.qr-banner-chip.is-late { animation: qrChipBlink 1.1s ease-in-out infinite; }
+@keyframes qrChipBlink {
+  0%, 100% { background: #fff; }
+  50%      { background: #ddd6fe; }
+}
+@media (prefers-reduced-motion: reduce) {
+  button.qr-banner-chip.is-late { animation: none; background: #ddd6fe; }
+}
+/* Màn Bếp: thay chỗ 2 nút Duyệt / Bỏ — chữ to, đọc được từ xa, KHÔNG phải nút. */
+.kds-guest-tell {
+  margin: 0;
+  padding: 12px 8px;
+  border-radius: 8px;
+  background: #fef3c7;
+  color: #92400e;
+  font-size: 19px;
+  font-weight: 800;
+  text-align: center;
 }

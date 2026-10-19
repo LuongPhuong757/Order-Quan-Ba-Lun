@@ -11,6 +11,8 @@ import { useOpenTablesCount } from './lib/open-tables-badge.ts';
 import { useKitchenPendingCount } from './lib/kitchen-pending-badge.ts';
 import { useStaleUnpaid } from './lib/stale-unpaid.ts';
 import { StaleTableBanner } from './components/StaleTableBanner.tsx';
+import { useGuestPending } from './lib/guest-pending.ts';
+import { GuestQrBanner } from './components/GuestQrBanner.tsx';
 
 // ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
 // Trước đây 14 trang nằm trong MỘT file .js 1.095 KB. Nghĩa là anh bếp mở màn Bếp trên điện
@@ -300,6 +302,10 @@ function ProtectedShell() {
   // admin/order/kitchen vào được (RoleGate) nên không cần gác role riêng.
   const onStaleBannerScreen = loc.pathname === '/orders' || loc.pathname === '/kitchen';
   const staleUnpaid = useStaleUnpaid(role !== null && onStaleBannerScreen);
+  // Dải "khách gọi QR" (2026-10-19) — cùng hai màn với dải trên. Màn Order tự poll; màn Bếp thì
+  // KitchenPage đã kéo cùng endpoint trong nhịp 2 giây của nó và publish vào store, nên ở đó hook
+  // chỉ đọc (`poll=false`) — không gọi trùng.
+  const guestPending = useGuestPending(role !== null && loc.pathname === '/orders');
 
   /**
    * Số đơn chờ duyệt lên TIÊU ĐỀ TAB (2026-08-06): `(3) Đơn mới · …`.
@@ -395,6 +401,10 @@ function ProtectedShell() {
 
   return (
     <>
+      {/* QR TRƯỚC dải đỏ: khách đang đứng chờ là việc phải làm NGAY. Chỉ màn Order duyệt được. */}
+      {onStaleBannerScreen && (
+        <GuestQrBanner data={guestPending} canApprove={loc.pathname === '/orders'} />
+      )}
       {onStaleBannerScreen && <StaleTableBanner data={staleUnpaid} />}
       {!isKds && (
       <header className="header">
