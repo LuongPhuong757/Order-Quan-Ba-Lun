@@ -2911,6 +2911,19 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
   border-radius: 10px;
 }
 .rp-new-h { margin: 0 0 10px; font-size: 13.5px; color: #92400e; line-height: 1.4; }
+
+/* Nguyên liệu tách theo NCC (2026-10-19). Dòng công thức cũ của nguyên liệu nhiều NCC chưa biết
+   lấy giá NCC nào → nút cam to, bấm là điền sẵn ô thêm dòng để chọn NCC. Viết `button.` để nút
+   toàn cục (nền xanh chữ trắng) không đè màu. Chữ 14px, đệm dày: người dùng lớn tuổi, điện thoại. */
+button.rp-chon-ncc {
+  margin-top: 4px; padding: 6px 10px; min-height: 36px;
+  background: #fff7ed; color: #b45309; border: 1px solid #fdba74; border-radius: 8px;
+  font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
+}
+.rp-can-ncc {
+  margin-top: 8px; padding: 10px 12px; border-radius: 8px;
+  background: #fff7ed; border: 1px solid #fdba74; color: #92400e; font-size: 14px; line-height: 1.4;
+}
 .rp-new-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .rp-new-g label { display: block; min-width: 0; }
 .rp-new-g label > span {

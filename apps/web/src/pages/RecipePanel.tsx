@@ -5,16 +5,26 @@
 // động tạo như chủ quán yêu cầu, nhưng KHÔNG âm thầm — người nhập nhìn thấy cái đang có trước
 // khi đẻ thêm cái mới, và đó là lớp chặn trùng lặp đầu tiên (hai lớp còn lại: name_key ở DB và
 // chức năng gộp ở màn Nguyên liệu).
+//
+// TÁCH THEO NCC (chủ quán chốt 2026-10-19): mỗi cặp nguyên liệu × NCC là MỘT dòng gợi ý — "Thịt
+// bò · NCC A" và "Thịt bò · NCC B" — trước đó hai NCC bị gộp làm một "Thịt bò" và giá vốn lấy
+// bình quân. Một món được dùng cả hai; giá vốn mỗi dòng theo giá lần nhập gần nhất của NCC đó.
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { parseQty, formatQtyPreview } from '../lib/dinh-luong.ts';
 
-type Ingredient = {
-  id: string;
-  name: string;
+/** Một dòng gợi ý = một cặp nguyên liệu × NCC (`GET /recipes/options`). `supplier_id: null` =
+ * nguyên liệu chưa có NCC nào đang bán. */
+type Option = {
+  ingredient_id: string;
+  ingredient_name: string;
   unit: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  purchase_unit: string | null;
+  last_unit_price: number | null;
   used_in_items: number;
 };
 
@@ -24,7 +34,16 @@ type RecipeLine = {
   ingredient_name: string;
   unit: string;
   qty_per_serving: number;
+  /** `null` = dòng khai trước 2026-10-19 của nguyên liệu nhiều NCC, chưa chọn NCC. */
+  supplier_id: string | null;
+  supplier_name: string | null;
 };
+
+/** Điền sẵn ô thêm dòng — bấm "Chọn NCC" ở một dòng chưa chọn NCC. `n` đổi mỗi lần bấm để bấm
+ * lại cùng dòng vẫn điền lại. */
+type Prefill = { name: string; qty: string; unit: string; n: number };
+
+const optKey = (o: { ingredient_id: string; supplier_id: string | null }) => `${o.ingredient_id}|${o.supplier_id ?? ''}`;
 
 /** Cùng ngưỡng với `pctColor` ở MenuManagementPage và `marginColor` ở FoodCostPanel — một món
  * phải ra một màu ở mọi màn. */
@@ -89,15 +108,16 @@ export function RecipePanel({
   const toast = useToast();
   const confirm = useConfirm();
   const [lines, setLines] = useState<RecipeLine[]>([]);
-  const [catalog, setCatalog] = useState<Ingredient[]>([]);
+  const [catalog, setCatalog] = useState<Option[]>([]);
   const [loading, setLoading] = useState(true);
+  const [prefill, setPrefill] = useState<Prefill | null>(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const [recipeRes, catalogRes] = await Promise.all([
         api.get<{ data: { items: RecipeLine[] } }>(`/recipes/${menuItemId}`),
-        api.get<{ data: { items: Ingredient[] } }>('/ingredients'),
+        api.get<{ data: { items: Option[] } }>('/recipes/options'),
       ]);
       setLines(recipeRes.data.data.items);
       setCatalog(catalogRes.data.data.items);
@@ -172,7 +192,28 @@ export function RecipePanel({
           )}
           {lines.map((l) => (
             <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: '1px solid #f3f4f6' }}>
-              <div style={{ flex: 1, minWidth: 0, fontWeight: 600 }}>{l.ingredient_name}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600 }}>{l.ingredient_name}</div>
+                {/* NCC ở dòng riêng, chữ đủ to: hai dòng "Thịt bò" chỉ khác nhau ở đây. */}
+                {l.supplier_name ? (
+                  <div style={{ fontSize: 13, color: '#0f766e' }}>NCC: {l.supplier_name}</div>
+                ) : (
+                  <button
+                    type="button"
+                    className="rp-chon-ncc"
+                    onClick={() =>
+                      setPrefill((cur) => ({
+                        name: l.ingredient_name,
+                        qty: String(l.qty_per_serving),
+                        unit: l.unit,
+                        n: (cur?.n ?? 0) + 1,
+                      }))
+                    }
+                  >
+                    Chưa chọn NCC — bấm để chọn
+                  </button>
+                )}
+              </div>
               <div style={{ whiteSpace: 'nowrap', color: '#0f766e', fontWeight: 700 }}>
                 {fmtQty(l.qty_per_serving, l.unit)}
               </div>
@@ -186,6 +227,7 @@ export function RecipePanel({
         <AddLineForm
           menuItemId={menuItemId}
           catalog={catalog}
+          prefill={prefill}
           onAdded={refresh}
         />
       </div>
@@ -196,10 +238,12 @@ export function RecipePanel({
 function AddLineForm({
   menuItemId,
   catalog,
+  prefill,
   onAdded,
 }: {
   menuItemId: string;
-  catalog: Ingredient[];
+  catalog: Option[];
+  prefill: Prefill | null;
   onAdded: () => void;
 }) {
   const toast = useToast();
@@ -208,7 +252,22 @@ function AddLineForm({
   const [unit, setUnit] = useState('g');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
+  /** Dòng gợi ý đã bấm chọn — mang theo NCC. Gõ sửa tên thì bỏ chọn (xem `picked` bên dưới). */
+  const [pickedOpt, setPickedOpt] = useState<Option | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // "Chưa chọn NCC — bấm để chọn" ở một dòng: điền sẵn tên + định lượng, mở danh sách NCC.
+  useEffect(() => {
+    if (!prefill) return;
+    setName(prefill.name);
+    setQty(prefill.qty);
+    setUnit(prefill.unit);
+    setPickedOpt(null);
+    setOpen(true);
+    inputRef.current?.focus();
+    inputRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  }, [prefill]);
 
   /* Khai nhanh nguyên liệu MỚI ngay tại đây (chủ quán chốt 2026-09-29).
      BE từ chối nguyên liệu không có nhà cung cấp, nên nếu chỗ này không hỏi thì người dùng gõ
@@ -247,17 +306,20 @@ function AddLineForm({
    * "Bắp Cải Mực"; nguyên liệu bắt đầu bằng chuỗi vừa gõ là thứ người ta định tìm. */
   const matches = (() => {
     if (!q) return catalog;
-    const hit = catalog.filter((i) => norm(i.name).includes(q));
+    const hit = catalog.filter((i) => norm(i.ingredient_name).includes(q));
     return hit.sort((a, b) => {
-      const ai = norm(a.name).indexOf(q);
-      const bi = norm(b.name).indexOf(q);
+      const ai = norm(a.ingredient_name).indexOf(q);
+      const bi = norm(b.ingredient_name).indexOf(q);
       if (ai !== bi) return ai - bi;
-      return a.name.localeCompare(b.name, 'vi');
+      return (
+        a.ingredient_name.localeCompare(b.ingredient_name, 'vi') ||
+        (a.supplier_name ?? '').localeCompare(b.supplier_name ?? '', 'vi')
+      );
     });
   })();
   // Chỉ mời tạo mới khi KHÔNG có dòng nào trùng khít — gõ đúng "Thịt bò" đang có thì không đề
   // nghị tạo bản thứ hai.
-  const exactHit = catalog.find((i) => norm(i.name) === q);
+  const exactHit = catalog.find((i) => norm(i.ingredient_name) === q);
   const canCreate = q.length > 0 && !exactHit;
   /* "Tên này chưa có trong danh mục" — dùng để quyết định có bắt khai NCC hay không.
      Cùng phép so sánh với BE (`findActiveByName` trên tên đã chuẩn hoá), nếu lệch thì FE hiện
@@ -266,9 +328,18 @@ function AddLineForm({
   const newOk =
     !isNewName || (supplierId !== '' && purchaseUnit.trim() !== '' && Number(price.replace(/[^\d]/g, '')) > 0);
 
-  const pick = (ing: Ingredient) => {
-    setName(ing.name);
-    setUnit(ing.unit); // dùng luôn đơn vị của nguyên liệu → khỏi lệch nhóm rồi bị BE từ chối
+  /* Lựa chọn đang có hiệu lực: chỉ khi tên trong ô vẫn đúng tên đã bấm chọn. Gõ sửa tên sau khi
+     chọn thì coi như chưa chọn — không thì gửi đi NCC của một nguyên liệu khác. */
+  const picked = pickedOpt && norm(pickedOpt.ingredient_name) === q ? pickedOpt : null;
+  /* Gõ đúng tên một nguyên liệu nhiều NCC mà chưa bấm chọn dòng nào → bắt chọn. Để BE tự quyết
+     thì dòng ra "chưa chọn NCC" và giá vốn lại bình quân — đúng cái lỗi đang sửa. */
+  const nccChoices = exactHit ? catalog.filter((o) => o.ingredient_id === exactHit.ingredient_id) : [];
+  const needPickNcc = !isNewName && !picked && nccChoices.filter((o) => o.supplier_id).length > 1;
+
+  const pick = (opt: Option) => {
+    setName(opt.ingredient_name);
+    setUnit(opt.unit); // dùng luôn đơn vị của nguyên liệu → khỏi lệch nhóm rồi bị BE từ chối
+    setPickedOpt(opt);
     setOpen(false);
   };
 
@@ -293,7 +364,9 @@ function AddLineForm({
                 purchase_unit: purchaseUnit.trim(),
                 unit_price: Number(price.replace(/[^\d]/g, '')) || 0,
               }
-            : {}),
+            : picked?.supplier_id
+              ? { supplier_id: picked.supplier_id } // NCC của dòng đã chọn — giá vốn theo NCC này
+              : {}),
         },
       );
       const { ingredient_created, line } = res.data.data;
@@ -305,6 +378,7 @@ function AddLineForm({
       );
       setName('');
       setQty('');
+      setPickedOpt(null);
       setSupplierId('');
       setPrice('');
       onAdded();
@@ -319,6 +393,7 @@ function AddLineForm({
     <form onSubmit={submit} style={{ borderTop: '1px solid #e5e7eb', paddingTop: 12, marginTop: 8 }}>
       <div ref={boxRef} style={{ position: 'relative', marginBottom: 8 }}>
         <input
+          ref={inputRef}
           type="text"
           value={name}
           onChange={(e) => { setName(e.target.value); setOpen(true); }}
@@ -336,7 +411,7 @@ function AddLineForm({
           >
             {matches.map((i) => (
               <button
-                key={i.id}
+                key={optKey(i)}
                 type="button"
                 onClick={() => pick(i)}
                 style={{
@@ -348,8 +423,18 @@ function AddLineForm({
                   fontSize: 14, cursor: 'pointer',
                 }}
               >
-                {i.name}
-                <span style={{ color: '#6b7280', fontSize: 12 }}> · {i.unit} · dùng ở {i.used_in_items} món</span>
+                <b>{i.ingredient_name}</b>
+                {i.supplier_name ? (
+                  <span style={{ color: '#0f766e', fontWeight: 600 }}> · {i.supplier_name}</span>
+                ) : (
+                  <span style={{ color: '#b45309' }}> · chưa có NCC</span>
+                )}
+                <span style={{ display: 'block', color: '#6b7280', fontSize: 12 }}>
+                  {i.last_unit_price !== null && i.purchase_unit
+                    ? `${i.last_unit_price.toLocaleString('vi-VN')}đ/${i.purchase_unit} · `
+                    : ''}
+                  dùng ở {i.used_in_items} món
+                </span>
               </button>
             ))}
             {canCreate && (
@@ -424,10 +509,20 @@ function AddLineForm({
             <option key={u} value={u}>{u}</option>
           ))}
         </select>
-        <button type="submit" disabled={busy || !name.trim() || parseQty(qty) === null || !newOk}>
+        <button type="submit" disabled={busy || !name.trim() || parseQty(qty) === null || !newOk || needPickNcc}>
           {busy ? 'Đang thêm…' : 'Thêm'}
         </button>
       </div>
+      {needPickNcc && (
+        <div className="rp-can-ncc" role="alert">
+          <b>{exactHit?.ingredient_name}</b> mua từ {nccChoices.length} NCC — bấm vào ô tên rồi chọn đúng NCC.
+        </div>
+      )}
+      {picked?.supplier_name && (
+        <div style={{ fontSize: 14, color: '#0f766e', marginTop: 6, fontWeight: 600 }}>
+          NCC: {picked.supplier_name}
+        </div>
+      )}
       <div style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
         Nhập kg hay g đều được — hệ thống tự quy về đơn vị gốc của nguyên liệu.
         {' '}Gõ được phân số: <b>1/24</b> cho món dùng 1 lon trong thùng 24 lon.

@@ -23,6 +23,8 @@ class UpsertRecipeLineDto {
   /* Ba trường dưới CHỈ bắt buộc khi nguyên liệu chưa có trong danh mục — service quyết định,
      không phải validator, vì ở đây chưa biết tên đó đã tồn tại hay chưa. Xem
      `recipe-supplier-rule.ts`. */
+  // `supplier_id` còn có nghĩa thứ hai với nguyên liệu ĐÃ CÓ: chọn NCC cho dòng công thức này
+  // (2026-10-19) — "Thịt bò · NCC A" khác "Thịt bò · NCC B".
   @IsOptional() @IsString() @MaxLength(36) supplier_id?: string;
   @IsOptional() @IsString() @MaxLength(32) purchase_unit?: string;
   @IsOptional() @IsNumber() @Min(0) unit_price?: number;
@@ -46,6 +48,15 @@ export class RecipesController {
     const list = (ids || '').split(',').map((s) => s.trim()).filter(Boolean);
     const map = await this.svc.countsForItems(list);
     return { data: { counts: Object.fromEntries(map) } };
+  }
+
+  /** GET /recipes/options — ô gợi ý của màn Công thức: mỗi cặp nguyên liệu × NCC một dòng.
+   *
+   * Cũng PHẢI khai trước ':menuItemId', cùng lý do với 'counts'. */
+  @Get('options')
+  @UseGuards(AdminGuard)
+  async options() {
+    return { data: { items: await this.svc.options() } };
   }
 
   @Get(':menuItemId')
