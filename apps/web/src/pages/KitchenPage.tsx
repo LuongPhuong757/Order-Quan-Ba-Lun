@@ -24,14 +24,11 @@ import { ageColor, formatAge } from '../lib/item-age.ts';
 import { kitchenPendingStore } from '../lib/kitchen-pending-badge.ts';
 import { useOnlineWaitingCount } from '../lib/online-waiting-badge.ts';
 // M7 — khách tự gọi món tại bàn (2026-10-01).
-import { createBell } from '../lib/bell.ts';
 // Dải chip + hộp duyệt đã ra App (`GuestQrBanner`, 2026-10-19). Ở đây chỉ còn đẩy dữ liệu vào
 // store cho dải đọc, và giọng đọc / chuông gọi nhân viên của bếp.
 import { guestPendingStore } from '../lib/guest-pending.ts';
-import { type PendingCall, type PendingPayload } from '../lib/kds-guest-cards.ts';
-import { buildSpeech } from '../lib/voice-text.ts';
-import { pruneSpoken, shouldSpeak } from '../lib/voice-dedup.ts';
-import { createVoice, isVoiceEnabled, setVoiceEnabled } from '../lib/voice.ts';
+import { type PendingPayload } from '../lib/kds-guest-cards.ts';
+import { useAuth } from '../lib/auth-context.tsx';
 import { shouldReloadCatalog, type CatalogPollState } from '../lib/kds-catalog-poll.ts';
 import {
   addCancelled,
@@ -227,11 +224,13 @@ export function KitchenPage() {
   const [orders, setOrders] = useState<Order[]>([]);
   // M7 — lượt khách gọi chờ duyệt + chuông gọi nhân viên.
   const [guestPending, setGuestPending] = useState<PendingPayload | null>(null);
-  const [voiceOn, setVoiceOn] = useState<boolean>(() => isVoiceEnabled());
-  const voiceRef = useRef<ReturnType<typeof createVoice> | null>(null);
-  if (voiceRef.current === null) voiceRef.current = createVoice();
-  const bellRef = useRef<ReturnType<typeof createBell> | null>(null);
-  if (bellRef.current === null) bellRef.current = createBell();
+  // Tiếng "ting" (món mới, khách gọi QR) CHỈ phát cho tài khoản role Bếp — cùng luật với
+  // ReadyListener. Admin mở màn bếp thì im, và cũng không cần dải "chạm để bật âm thanh".
+  const { user } = useAuth();
+  const isKitchenRole = user?.role === 'kitchen';
+  /* Trình duyệt còn chặn tiếng không — `true` thì hiện dải vàng "Chạm để bật âm thanh". Khởi tạo
+   * theo trạng thái thật: đi từ màn khác sang (đã chạm rồi, ctx đang chạy) thì không hiện. */
+  const [audioLocked, setAudioLocked] = useState<boolean>(() => !readyNotifier.isAudioReady());
 
   const [menuMap, setMenuMap] = useState<Map<string, MenuItem>>(new Map());
   const [tableNameById, setTableNameById] = useState<Map<string, string>>(new Map());
@@ -448,27 +447,53 @@ export function KitchenPage() {
 
   /* ── M7 — khách tự gọi món tại bàn ──────────────────────────────────────────────────── */
 
-  const guestCalls: PendingCall[] = guestPending?.calls ?? [];
+  /* Lượt QR đã "ting" rồi — mỗi lượt kêu đúng MỘT lần (chủ quán chốt 2026-10-19). */
+  const tingedIdsRef = useRef<Set<string>>(new Set());
 
-  // Đọc tên bàn khi có chuông mới. `shouldSpeak` lo 5 lớp chống lặp — thiếu nó thì nhịp poll
-  // 2 giây sẽ đọc lại cùng một câu 30 lần mỗi phút.
+  /* Khách gửi món QR / bấm gọi nhân viên / xin tính tiền → "TING" giống hệt món mới vào bếp.
+   *
+   * Chủ quán chốt 2026-10-19: BỎ HẲN giọng đọc tên bàn (cả nút 🔊). Trước đây lượt gọi món QR
+   * không có tiếng gì ở bếp — hồi M7 bếp tự duyệt trên màn nên không cần, giờ chỉ màn Order duyệt
+   * mà bếp lại im. Kêu NGAY khi khách gửi (lúc còn chờ duyệt) để bếp nhắc order ra bàn; duyệt xong
+   * món vào bếp thì `ReadyListener` "ting" thêm lần nữa như món thường.
+   * Chỉ role Bếp, 1 lần mỗi lượt. `playNewOrderBeep` tự gộp tiếng trong cùng nhịp — 3 bàn gửi cùng
+   * lúc là một tiếng, không phải ba. */
   useEffect(() => {
-    if (!voiceOn || guestCalls.length === 0) return;
-    const now = Date.now();
-    const fresh = guestCalls.filter((c) => shouldSpeak(c.id, false, now));
-    if (fresh.length === 0) return;
-    // Chuông LUÔN đi trước câu nói — máy không có giọng vi-VN thì vẫn còn tín hiệu nghe được.
-    bellRef.current?.ring();
-    for (const line of buildSpeech(fresh.map((c) => ({ table_name: c.table_name, kind: c.kind })))) {
-      voiceRef.current?.speak(line);
-    }
-  }, [guestCalls, voiceOn]);
+    const ids = [
+      ...(guestPending?.requests ?? []).map((r) => r.id),
+      ...(guestPending?.calls ?? []).map((c) => c.id),
+    ];
+    const tinged = tingedIdsRef.current;
+    const fresh = ids.filter((id) => !tinged.has(id));
+    for (const id of fresh) tinged.add(id);
+    // Dọn lượt đã xong để bộ nhớ không phình qua nhiều ca.
+    const keep = new Set(ids);
+    for (const id of tinged) if (!keep.has(id)) tinged.delete(id);
+    if (fresh.length > 0 && isKitchenRole) readyNotifier.playNewOrderBeep();
+  }, [guestPending, isKitchenRole]);
 
+  /* Mở khoá âm thanh ở CÚ CHẠM ĐẦU TIÊN (2026-10-19).
+   *
+   * iPad chặn mọi tiếng tới khi có người chạm vào trang. Máy bếp tự tải lại trang (mất mạng, bản
+   * cập nhật mới — hôm 19/10 có 3 lần) là câm luôn "ting" cho tới khi ai đó chạm; chủ quán báo
+   * "giờ có món mới không có ting như trước nữa", chạm xong thì kêu lại. Không code nào vượt qua
+   * được luật này, nên: dải vàng to nhắc chạm + chạm BẤT CỨ ĐÂU là mở khoá rồi dải tự biến mất.
+   * Gắn một lần rồi gỡ — mở khoá xong thì các cú chạm sau không cần làm gì. */
   useEffect(() => {
-    pruneSpoken(guestCalls.map((c) => c.id));
-  }, [guestCalls]);
-
-
+    if (!audioLocked) return;
+    const unlock = () => {
+      readyNotifier.unlockAudio();
+      setAudioLocked(false);
+      detach();
+    };
+    const detach = () => {
+      window.removeEventListener('pointerdown', unlock, true);
+      window.removeEventListener('keydown', unlock, true);
+    };
+    window.addEventListener('pointerdown', unlock, true);
+    window.addEventListener('keydown', unlock, true);
+    return detach;
+  }, [audioLocked]);
 
   const manualRefresh = useCallback(() => {
     errorCountRef.current = 0;
@@ -785,6 +810,20 @@ export function KitchenPage() {
            với badge nav (.nav-badge tone alert) để đơn online ở mọi màn là MỘT màu.
            min-height/min-width khai lại vì lý do giống .kds-view-btn: rule global cho
            the button trong styles.css ép 44px, ở đây sẽ đội cao cả thanh. */
+        /* Dải vàng "Chạm để bật âm thanh" (2026-10-19). Vàng ĐẶC chữ đen: phải nổi hẳn trên nền
+           navy, đứng cách cả mét vẫn thấy. Cao 52px — đủ to cho một cú chạm vội. */
+        button.kds-audio-lock {
+          flex-shrink: 0;
+          width: 100%;
+          min-height: 52px;
+          border: none;
+          border-radius: 0;
+          background: #facc15;
+          color: #1f2937;
+          font-size: 19px;
+          font-weight: 800;
+          cursor: pointer;
+        }
         .kds-online {
           flex-shrink: 0;
           display: flex;
@@ -1413,6 +1452,14 @@ export function KitchenPage() {
       {/* Bọc ngoài: dải chế độ xem bên trái + nút đơn online ghim mép phải. Ruột của
           `.kds-views` cố tình GIỮ NGUYÊN mức thụt lề cũ — thụt thêm cả trăm dòng chỉ để
           khớp một cấp div sẽ nhấn chìm phần sửa thật trong diff. */}
+      {/* Dải nhắc mở âm thanh — chỉ role Bếp (người duy nhất nghe "ting"), chỉ khi trình duyệt
+          còn chặn tiếng. Là <button> to: bấm vào nó cũng là một cú chạm, và người lớn tuổi
+          thấy nút thì bấm, thấy chữ thì có khi chỉ đọc. Chạm BẤT CỨ ĐÂU cũng mở khoá được. */}
+      {isKitchenRole && audioLocked && (
+        <button type="button" className="kds-audio-lock">
+          🔇 Chạm vào màn hình để bật âm thanh báo món
+        </button>
+      )}
       <div className="kds-top">
       <div className="kds-views" role="tablist">
         {/* Hai nút tab "Chờ chế biến" / "Đã xong" ĐÃ BỎ (chủ quán chốt 2026-10-01).
@@ -1679,27 +1726,8 @@ export function KitchenPage() {
               nút tắt-phiên nằm cạnh ↻ và 🔔 là rủi ro thuần — bấm nhầm giữa lúc đông
               khách thì bếp mất cả màn. Cần đăng xuất thì bấm ← về màn Order, header ở
               đó có nút đăng xuất như mọi màn khác. */}
-          {/* M7 — công tắc ĐỌC THÀNH TIẾNG. MẶC ĐỊNH TẮT và lưu theo MÁY: nhiều máy bếp cùng
-              bật là đọc chồng nhau, sẽ bị báo là bug. Chủ quán bật trên đúng một máy.
-              `unlock()` gọi TRONG onClick — trình duyệt chặn phát âm thanh nếu không có cử chỉ
-              người dùng, cùng ngữ nghĩa với nút "Bật chuông" của màn Đơn online. */}
-          <button
-            type="button"
-            className={`kds-bar-btn${voiceOn ? ' filter-on' : ''}`}
-            onClick={() => {
-              const next = !voiceOn;
-              if (next) {
-                voiceRef.current?.unlock();
-                bellRef.current?.unlock({ silent: true });
-              }
-              setVoiceEnabled(next);
-              setVoiceOn(next);
-            }}
-            title={voiceOn ? 'Đang đọc tên bàn khi khách gọi' : 'Bật đọc tên bàn khi khách gọi'}
-          >
-            <span aria-hidden>{voiceOn ? '🔊' : '🔇'}</span>
-            <span className="kds-bar-btn-label">{voiceOn ? 'Đang đọc' : 'Bật đọc'}</span>
-          </button>
+          {/* Nút 🔊 "Bật đọc" ĐÃ BỎ (chủ quán 2026-10-19): bỏ giọng đọc tên bàn, lượt QR giờ
+              chỉ "ting" như món mới. */}
           <NotificationBell />
         </div>
       </div>
