@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { GuestCard, PendingCall } from '../lib/kds-guest-cards.js';
 import { describeAge, describeGroup, groupCallsByTable } from '../lib/kds-guest-cards.js';
 import { tableSpeechName } from '../lib/voice-text.js';
+import { formatAge } from '../lib/item-age.ts';
 
 /**
  * M7.D-10 — lượt khách gọi chờ duyệt, hiển thị trên màn bếp.
@@ -26,13 +27,18 @@ import { tableSpeechName } from '../lib/voice-text.js';
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 
 /**
- * Chip chỉ còn BIỂU TƯỢNG + SỐ BÀN (chủ quán 2026-10-19): bản có "3 món · 2 phút" thì điện thoại
- * chỉ thấy được một bàn, trong khi việc của dải là theo dõi NHIỀU bàn cùng lúc. Số món, giờ chờ,
- * lời nhắn vẫn còn đủ trong hộp mở ra khi bấm chip. Bỏ chữ "Bàn" vì cả dải đã ghi "bàn gọi QR";
- * tên không có số (vd "VIP") thì giữ nguyên tên.
+ * Chip GIỐNG HỆT chip dải "chưa trả" (chủ quán 2026-10-19): tên bàn + số phút chờ, cùng cỡ, cùng
+ * format (`formatAge`: 3p, 1h5p), KHÔNG biểu tượng — chỉ khác MÀU. Hai bản trước (thẻ đầy đủ rồi
+ * "👤 28") đều bị chê: bản đầu chỉ thấy được một bàn, bản sau không biết khách chờ bao lâu.
+ * Loại yêu cầu đọc qua màu viền (tím = gọi món, xanh = gọi nhân viên, vàng = xin tính tiền);
+ * chi tiết đầy đủ vẫn nằm trong hộp mở ra khi bấm chip.
+ *
+ * Tên bàn để NGUYÊN như quán đặt ("Bàn 01"), không qua `tableSpeechName` — hàm đó đổi "01" thành
+ * "Bàn 1" cho giọng đọc, còn dải đỏ ngay bên dưới hiện "Bàn 01": hai dải phải viết giống nhau.
  */
-function chipNumber(tableName: string): string {
-  return tableSpeechName(tableName).replace(/^bàn\s+/i, '');
+function chipLabel(tableName: string): string {
+  const t = (tableName ?? '').trim();
+  return /^bàn\s/i.test(t) || !/^\d+$/.test(t) ? t : `Bàn ${t}`;
 }
 
 export function GuestRequestCards({
@@ -79,7 +85,7 @@ export function GuestRequestCards({
           <button
             key={g.table_code}
             type="button"
-            className={`kds-guest-chip kds-guest-chip--call${
+            className={`qr-banner-chip qr-banner-chip--call${
               !g.has_staff && g.has_bill ? ' is-bill' : ''
             }`}
             disabled={g.items.some((i) => busyId === i.id)}
@@ -93,13 +99,9 @@ export function GuestRequestCards({
                   : 'Bấm để xem và báo đã nghe'
             }
           >
-            {/* Bàn vừa gọi nhân viên vừa xin tính tiền thì hiện CẢ HAI biểu tượng: nhân viên
-                phải biết cầm theo máy tính tiền trước khi đi, khỏi đi hai lượt. */}
-            <span aria-hidden>
-              {g.has_staff ? '🔔' : ''}
-              {g.has_bill ? '💵' : ''}
-            </span>
-            <b>{chipNumber(g.table_name)}</b>
+            <strong>{chipLabel(g.table_name)}</strong>
+            {/* Từ lời nhắn CŨ NHẤT chưa ai nghe: khách đã đứng chờ từ lúc đó. */}
+            <span>{formatAge((Date.now() - Math.min(...g.items.map((i) => i.created_at))) / 60_000)}</span>
           </button>
         ))}
 
@@ -107,15 +109,15 @@ export function GuestRequestCards({
           <button
             key={c.request_id}
             type="button"
-            className={`kds-guest-chip${c.blink ? ' is-late' : ''}`}
+            className={`qr-banner-chip${c.blink ? ' is-late' : ''}`}
             aria-label={`${tableSpeechName(c.table_name)} gọi ${c.lines.reduce((t, l) => t + l.qty, 0)} món, chờ ${describeAge(c.ageMs)}`}
             onClick={() => {
               setConfirmReject(false);
               setOpenId(c.request_id);
             }}
           >
-            <span aria-hidden>👤</span>
-            <b>{chipNumber(c.table_name)}</b>
+            <strong>{chipLabel(c.table_name)}</strong>
+            <span>{formatAge(c.ageMs / 60_000)}</span>
           </button>
         ))}
       </div>
