@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { GuestCard, PendingCall } from '../lib/kds-guest-cards.js';
 import { describeAge, describeGroup, groupCallsByTable } from '../lib/kds-guest-cards.js';
 import { tableSpeechName } from '../lib/voice-text.js';
@@ -15,6 +16,11 @@ import { tableSpeechName } from '../lib/voice-text.js';
  * Giờ: một dải ngang chỉ hiện TÊN BÀN + số món + đồng hồ chờ, cao ~44px cho mọi số lượng bàn.
  * Chạm vào chip mới mở danh sách món và nút duyệt. Thông tin không mất đi, chỉ đổi chỗ — và
  * tên bàn vẫn là thứ to nhất (M7.R1: chốt chặn duy nhất chống khách gõ nhầm bàn).
+ *
+ * 2026-10-19 — dải chuyển ra App (`GuestQrBanner`), hiện ở CẢ màn Order lẫn màn Bếp. Chủ quán
+ * chốt: CHỈ màn Order được duyệt / bỏ lượt (người ra bàn xác nhận là nhân viên order). Màn Bếp
+ * mở hộp vẫn xem được món, nhưng chỗ 2 nút là một câu nhắc báo nhân viên — `canApprove=false`.
+ * Chuông gọi nhân viên thì KHÔNG gác: ai nghe trước bấm "Đã nghe" trước, ở màn nào cũng được.
  */
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
@@ -23,6 +29,7 @@ export function GuestRequestCards({
   cards,
   calls,
   busyId,
+  canApprove,
   onApprove,
   onReject,
   onAck,
@@ -30,6 +37,8 @@ export function GuestRequestCards({
   cards: GuestCard[];
   calls: PendingCall[];
   busyId: string | null;
+  /** `false` = màn Bếp: xem món được, không duyệt / bỏ được. */
+  canApprove: boolean;
   onApprove: (requestId: string) => void;
   onReject: (requestId: string) => void;
   /** Nhận NHIỀU id: một chuyến đi tới bàn giải quyết mọi lời nhắn của bàn đó cùng lúc. */
@@ -105,7 +114,7 @@ export function GuestRequestCards({
       </div>
 
       {/* Mọi lời nhắn của MỘT BÀN, cũ trước mới sau. */}
-      {openGroup ? (
+      {openGroup ? createPortal(
         <div className="kds-guest-overlay" onClick={() => setOpenTable(null)}>
           <div className="kds-guest-modal kds-call-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
@@ -165,11 +174,12 @@ export function GuestRequestCards({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
 
       {/* Danh sách món + nút duyệt, chỉ hiện khi bấm vào chip. */}
-      {open ? (
+      {open ? createPortal(
         <div className="kds-guest-overlay" onClick={() => setOpenId(null)}>
           <div className="kds-guest-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
@@ -193,6 +203,13 @@ export function GuestRequestCards({
               <div className="kds-guest-foot">Tạm tính theo giá hiện tại: {vnd(open.subtotal)}</div>
             </div>
 
+            {!canApprove ? (
+              <div className="kds-guest-modal-foot">
+                {/* Chữ TO, không phải nút: bếp không có việc gì để bấm ở đây. Có nút "Đóng" ở
+                    góc + chạm ra ngoài là đủ đường thoát. */}
+                <p className="kds-guest-tell">📢 Báo nhân viên order ra bàn xác nhận</p>
+              </div>
+            ) : (
             <div className="kds-guest-modal-foot">
               <button
                 type="button"
@@ -232,8 +249,10 @@ export function GuestRequestCards({
                 </button>
               )}
             </div>
+            )}
           </div>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </>
   );
