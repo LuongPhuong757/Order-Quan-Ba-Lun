@@ -3430,9 +3430,13 @@ button.stale-banner-chip {
   min-width: 0;
 }
 /* Chip trong dải mỏng: thấp hơn chip 44px cũ một chút để dải không phình, vẫn đủ to cho ngón tay. */
-.qr-banner .kds-guest-rail { padding-right: 10px; -webkit-overflow-scrolling: touch; }
-.qr-banner .kds-guest-chip { min-height: 36px; padding: 0 12px; }
-.qr-banner .kds-guest-chip b { font-size: 16px; }
+.qr-banner .kds-guest-rail { gap: 6px; padding-right: 10px; -webkit-overflow-scrolling: touch; }
+/* Chip chỉ có biểu tượng + số bàn: hẹp, số TO để liếc là đọc được, min-width giữ cho chip số
+   một chữ số không bé quá đầu ngón tay. */
+.qr-banner .kds-guest-chip {
+  min-height: 36px; min-width: 52px; padding: 0 10px; gap: 4px; justify-content: center;
+}
+.qr-banner .kds-guest-chip b { font-size: 18px; }
 /* Màn Bếp: thay chỗ 2 nút Duyệt / Bỏ — chữ to, đọc được từ xa, KHÔNG phải nút. */
 .kds-guest-tell {
   margin: 0;
