@@ -25,6 +25,16 @@ import { tableSpeechName } from '../lib/voice-text.js';
 
 const vnd = (n: number) => `${n.toLocaleString('vi-VN')}đ`;
 
+/**
+ * Chip chỉ còn BIỂU TƯỢNG + SỐ BÀN (chủ quán 2026-10-19): bản có "3 món · 2 phút" thì điện thoại
+ * chỉ thấy được một bàn, trong khi việc của dải là theo dõi NHIỀU bàn cùng lúc. Số món, giờ chờ,
+ * lời nhắn vẫn còn đủ trong hộp mở ra khi bấm chip. Bỏ chữ "Bàn" vì cả dải đã ghi "bàn gọi QR";
+ * tên không có số (vd "VIP") thì giữ nguyên tên.
+ */
+function chipNumber(tableName: string): string {
+  return tableSpeechName(tableName).replace(/^bàn\s+/i, '');
+}
+
 export function GuestRequestCards({
   cards,
   calls,
@@ -74,6 +84,7 @@ export function GuestRequestCards({
             }`}
             disabled={g.items.some((i) => busyId === i.id)}
             onClick={() => setOpenTable(g.table_code)}
+            aria-label={`${tableSpeechName(g.table_name)}: ${describeGroup(g)}`}
             title={
               g.items.length > 1
                 ? `${g.items.length} lời nhắn của ${g.table_name} — bấm để xem hết`
@@ -88,9 +99,7 @@ export function GuestRequestCards({
               {g.has_staff ? '🔔' : ''}
               {g.has_bill ? '💵' : ''}
             </span>
-            <b>{tableSpeechName(g.table_name)}</b>
-            <i>{describeGroup(g)}</i>
-            {g.items.length > 1 ? <span className="kds-guest-n">{g.items.length}</span> : null}
+            <b>{chipNumber(g.table_name)}</b>
           </button>
         ))}
 
@@ -99,16 +108,14 @@ export function GuestRequestCards({
             key={c.request_id}
             type="button"
             className={`kds-guest-chip${c.blink ? ' is-late' : ''}`}
+            aria-label={`${tableSpeechName(c.table_name)} gọi ${c.lines.reduce((t, l) => t + l.qty, 0)} món, chờ ${describeAge(c.ageMs)}`}
             onClick={() => {
               setConfirmReject(false);
               setOpenId(c.request_id);
             }}
           >
             <span aria-hidden>👤</span>
-            <b>{tableSpeechName(c.table_name)}</b>
-            <i>
-              {c.lines.reduce((t, l) => t + l.qty, 0)} món · {describeAge(c.ageMs)}
-            </i>
+            <b>{chipNumber(c.table_name)}</b>
           </button>
         ))}
       </div>

@@ -161,7 +161,8 @@ export function GuestQrBanner({ data, canApprove }: Props) {
   return (
     <div ref={ref} className={`qr-banner${canApprove ? '' : ' qr-banner--kds'}`} role="alert">
       {/* Nhãn đứng yên, chỉ hàng chip trượt — vuốt tới đâu vẫn biết dải này nói chuyện gì. */}
-      <span className="qr-banner-title">📱 {tableCount} bàn gọi QR</span>
+      {/* Ngắn nhất có thể: chỗ trên dải là để dành cho chip số bàn. */}
+      <span className="qr-banner-title">📱 {tableCount} bàn QR</span>
       <div className="qr-banner-list">
         <GuestRequestCards
           cards={cards}
