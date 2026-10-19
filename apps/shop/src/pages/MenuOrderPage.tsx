@@ -14,6 +14,7 @@ import {
 import { emitMascot, onMascot } from '../lib/mascot-bus.ts';
 import { suggestManyForItem, suggestOnAdd, type PairingItem } from '../lib/menu-pairing.ts';
 import { pickDrinks } from '../lib/drink-groups.ts';
+import { inStockGroups } from '../lib/in-stock.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
 import {
   TABLE_CART_MAX_QTY,
@@ -128,7 +129,9 @@ const fold = (s: string) =>
 
 export function MenuOrderPage(): JSX.Element {
   const menu = useApi('/api/public/menu-book', MenuOrderResponse);
-  const groups = menu.data?.groups ?? [];
+  // Món tạm hết ẨN HẲN (chủ quán 2026-10-19), nhóm hết sạch thì mất luôn chip nhóm — xem
+  // `lib/in-stock.ts`. Giỏ gọi tại bàn giữ dòng riêng của nó, không đọc lại từ đây.
+  const groups = useMemo(() => inStockGroups(menu.data?.groups ?? []), [menu.data]);
   const [mascotHidden, setMascotHidden] = useState(readMascotHidden);
   const toggleMascot = (hidden: boolean) => {
     setMascotHidden(hidden);

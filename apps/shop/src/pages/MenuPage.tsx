@@ -8,6 +8,7 @@ import {
   type PublicMenuItem,
 } from '@order/schemas';
 import { useApi } from '../lib/use-api.ts';
+import { inStockGroups } from '../lib/in-stock.ts';
 import { consumeCartExpired, useCart } from '../lib/cart-store.ts';
 import { gaAddToCart } from '../lib/gtag.ts';
 import { CardItem, CARD_ITEM_CSS } from '../components/CardItem.tsx';
@@ -59,7 +60,9 @@ export function MenuPage(): JSX.Element {
   const menu = useApi('/api/public/menu', MenuResponse);
   const cart = useCart();
 
-  const groups = menu.data?.groups ?? [];
+  // Món tạm hết ẨN HẲN (chủ quán 2026-10-19) — lưới, tìm kiếm, thanh nhóm đều đọc từ đây. Đồng bộ
+  // giỏ bên dưới vẫn dùng `menu.data.groups` ĐẦY ĐỦ, xem `lib/in-stock.ts`.
+  const groups = useMemo(() => inStockGroups(menu.data?.groups ?? []), [menu.data]);
 
   // D-07: đồng bộ giỏ với menu mới đúng một lần cho mỗi lần dữ liệu menu đổi
   // (không phải mỗi lần render) — theo dõi tham chiếu mảng đã đồng bộ gần nhất.
@@ -205,7 +208,10 @@ export function MenuPage(): JSX.Element {
     window.scrollTo({ top, behavior: reduceMotion ? 'auto' : 'smooth' });
   };
 
-  const visibleGroups = activeCode ? groups.filter((g) => g.code === activeCode) : groups;
+  // Nhóm đang chọn có thể BIẾN MẤT khi menu tải lại (vừa hết sạch món, 2026-10-19) — lọc theo nó
+  // là ra danh sách rỗng. Khi đó coi như đang xem "Tất cả" thay vì để khách nhìn một màn trắng.
+  const activeExists = activeCode !== null && groups.some((g) => g.code === activeCode);
+  const visibleGroups = activeExists ? groups.filter((g) => g.code === activeCode) : groups;
   const loading = (menu.loading || store.loading) && !menu.data;
 
   return (
@@ -222,7 +228,7 @@ export function MenuPage(): JSX.Element {
       <div ref={railAnchorRef} aria-hidden="true" />
 
       {groups.length > 0 && (
-        <CategoryRail groups={groups} activeCode={activeCode} onSelect={handleSelectCategory} />
+        <CategoryRail groups={groups} activeCode={activeExists ? activeCode : null} onSelect={handleSelectCategory} />
       )}
 
       <div style={bannerStack}>
