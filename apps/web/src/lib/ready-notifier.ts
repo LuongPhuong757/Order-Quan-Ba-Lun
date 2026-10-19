@@ -469,10 +469,32 @@ class ReadyNotifier {
     osc.stop(startAt + duration);
   }
 
-  /** Gọi 1 lần khi user click bất kỳ button — unlock audio (iOS Safari yêu cầu). */
+  /**
+   * Mở khoá âm thanh — PHẢI gọi trong handler của một cú chạm. `ReadyListener` gọi ở cú chạm đầu
+   * tiên của MỌI màn; màn bếp gọi thêm từ dải vàng "Chạm để bật âm thanh" (2026-10-19).
+   *
+   * iPad / iPhone (Safari) chặn mọi tiếng tới khi người dùng chạm vào trang, và chỉ cho `resume()`
+   * TRONG chính cú chạm đó. Máy bếp tự tải lại trang (mất mạng, bản cập nhật mới) là câm luôn tiếng
+   * "ting" cho tới khi có người chạm — chủ quán báo "giờ có món mới không có ting như trước nữa".
+   * Phát thêm một buffer rỗng: mẹo cũ cho Safari, `resume()` một mình có lúc vẫn để ctx `suspended`.
+   */
   unlockAudio(): void {
     const ctx = this.ensureCtx();
-    if (ctx?.state === 'suspended') ctx.resume();
+    if (!ctx) return;
+    try {
+      if (ctx.state !== 'running') void ctx.resume();
+      const src = ctx.createBufferSource();
+      src.buffer = ctx.createBuffer(1, 1, 22050);
+      src.connect(ctx.destination);
+      src.start(0);
+    } catch {
+      /* không mở được thì thôi — danh sách 🔔 vẫn báo đủ */
+    }
+  }
+
+  /** `true` = đã phát được tiếng (ctx đang chạy). Chưa tạo ctx hoặc còn bị chặn → `false`. */
+  isAudioReady(): boolean {
+    return this.audioCtx?.state === 'running';
   }
 
   /** AudioContext dùng chung, tạo lười ở lần phát/unlock đầu. `null` = trình duyệt
