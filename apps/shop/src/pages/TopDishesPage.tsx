@@ -85,7 +85,9 @@ export function TopDishesPage(): JSX.Element {
 
   const [shown, setShown] = useState<PublicTopDishes | null>(null);
   useEffect(() => {
-    if (data) setShown(data);
+    // Món tạm hết ẨN HẲN khỏi bảng (chủ quán 2026-10-19), hạng tự dồn lên — trước đây hiện mờ +
+    // "Hết hàng". Cùng luật với menu chính, xem `lib/in-stock.ts`.
+    if (data) setShown({ ...data, items: data.items.filter((d) => !d.is_out_of_stock) });
   }, [data]);
 
   useEffect(() => {

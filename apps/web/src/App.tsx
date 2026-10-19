@@ -113,6 +113,28 @@ const PREFETCH_BY_ROLE: Record<Role, Array<() => Promise<unknown>>> = {
   ],
 };
 
+/** Màn L/sử (Nhật ký bàn) của role Order + Bếp đang TẠM ĐÓNG theo yêu cầu chủ quán
+ * (2026-10-18) — vẫn để nút N/ký ở nav dưới, bấm vào thì báo bảo trì thay vì giấu nút, để
+ * nhân viên biết màn này còn đó chứ không phải app lỗi mất nút.
+ *
+ * CHỈ chặn giao diện: API `/orders` lịch sử vẫn trả dữ liệu như cũ (chủ quán chọn vậy).
+ * Rẽ nhánh TRƯỚC khi render `HistoryPage` nên máy Order/Bếp không tải chunk của màn này.
+ * Mở lại: bỏ component này, trả route về `<HistoryPage />`. */
+function HistoryRoute() {
+  const { user } = useAuth();
+  const role = (user?.role ?? (user?.is_owner ? 'admin' : null)) as Role | null;
+  if (role === 'order' || role === 'kitchen') {
+    return (
+      <div className="container" role="status" style={{ textAlign: 'center', paddingTop: 48 }}>
+        <div style={{ fontSize: 56 }} aria-hidden="true">🛠</div>
+        <p style={{ fontSize: 22, fontWeight: 700, margin: '12px 0 8px' }}>Trang này đang bảo trì</p>
+        <p style={{ fontSize: 17, color: '#6b7280', margin: 0 }}>Vui lòng quay lại sau.</p>
+      </div>
+    );
+  }
+  return <HistoryPage />;
+}
+
 /** Vỏ chờ trong lúc chunk của một trang đang về. Dùng lại đúng khung `.container`/`.spinner`
  * của màn "Đang xác thực..." để không xuất hiện một kiểu loading thứ hai trong cùng app.
  * `.spinner` global có viền trắng (dựng cho nút màu) → phải đổi sang xám, không thì trên nền
@@ -195,7 +217,7 @@ export function App() {
                 chỉ TỔNG DOANH THU nhiều bàn là riêng admin (/orders/stats có AdminGuard).
                 Giới hạn thực thi ở BE — xem staffHistoryWindowMs ở orders.controller. */}
             <Route element={<RoleGate allow={['admin', 'order', 'kitchen', 'report']} />}>
-              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/history" element={<HistoryRoute />} />
             </Route>
 
             {/* Quyền Báo cáo (2026-09-09): CHỈ ĐỌC số liệu toàn quán. Dùng lại đúng 3 màn admin
