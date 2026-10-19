@@ -182,11 +182,19 @@ export class MenuController {
        Hai kiểu `cost_*` và `pct_*` cần tiền nguyên liệu, mà nó không phải một cột có sẵn: phải
        cộng từ công thức × giá mua của nhà cung cấp. Dùng subquery tương quan thay vì JOIN +
        GROUP BY để không phá `getManyAndCount()` (GROUP BY làm COUNT trả về số nhóm, không phải
-       số món — phân trang sẽ sai số tổng). */
+       số món — phân trang sẽ sai số tổng).
+
+       Giá mỗi dòng: dòng đã chọn NCC lấy giá của đúng NCC đó, dòng chưa chọn lấy giá rẻ nhất
+       đang biết (chỉ để SẮP XẾP, gần đúng là đủ — số hiện trên thẻ vẫn lấy từ `computeFoodCost`).
+       Bản cũ JOIN thẳng `supplier_items` theo nguyên liệu nên nguyên liệu mua từ hai NCC bị cộng
+       HAI lần.
+    */
     const COST_SUB =
-      '(SELECT SUM(rl.qty_per_serving * si.last_unit_price_base)' +
+      '(SELECT SUM(rl.qty_per_serving * COALESCE(' +
+      '(SELECT si.last_unit_price_base FROM supplier_items si' +
+      ' WHERE si.ingredient_id = rl.ingredient_id AND si.supplier_id = rl.supplier_id),' +
+      '(SELECT MIN(si2.last_unit_price_base) FROM supplier_items si2 WHERE si2.ingredient_id = rl.ingredient_id)))' +
       ' FROM recipe_lines rl' +
-      ' JOIN supplier_items si ON si.ingredient_id = rl.ingredient_id' +
       ' WHERE rl.menu_item_id = m.id)';
 
     if (sort === 'newest') {

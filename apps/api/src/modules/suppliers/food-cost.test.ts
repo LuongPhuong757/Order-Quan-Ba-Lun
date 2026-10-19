@@ -100,3 +100,59 @@ describe('ingredientPrices — bình quân gia quyền theo lượng', () => {
     expect(out).toHaveLength(0);
   });
 });
+
+// Chủ quán chốt 2026-10-19: "Thịt bò" của hai NCC là hai dòng riêng trong công thức, mỗi dòng
+// lấy giá lần nhập gần nhất của đúng NCC đó — không gộp, không bình quân chung.
+describe('computeFoodCost — nguyên liệu tách theo NCC', () => {
+  const PHO = { id: 'm2', name: 'Phở bò', price: 60_000 };
+  const bo = { menu_item_id: 'm2', ingredient_id: 'bo', ingredient_name: 'Thịt bò', base_unit: 'g' };
+  // Bình quân chung của "Thịt bò" (cách tính cũ) = 275đ/g.
+  const avg = [{ ingredient_id: 'bo', unit_price_base: 275, source: 'avg' as const }];
+  const supplierPrices = [
+    { ingredient_id: 'bo', supplier_id: 'A', unit_price_base: 250 },
+    { ingredient_id: 'bo', supplier_id: 'B', unit_price_base: 300 },
+  ];
+
+  it('dòng đã chọn NCC lấy giá của đúng NCC đó', () => {
+    const [row] = computeFoodCost(
+      [PHO],
+      [{ ...bo, qty_per_serving: 100, supplier_id: 'B', supplier_name: 'Chợ Bến Thành' }],
+      avg,
+      supplierPrices,
+    );
+    expect(row.cost).toBe(30_000);
+    expect(row.components[0].ingredient_name).toBe('Thịt bò · Chợ Bến Thành');
+  });
+
+  it('một món dùng cả hai NCC: hai dòng, mỗi dòng một giá', () => {
+    const [row] = computeFoodCost(
+      [PHO],
+      [
+        { ...bo, qty_per_serving: 100, supplier_id: 'A', supplier_name: 'NCC A' },
+        { ...bo, qty_per_serving: 50, supplier_id: 'B', supplier_name: 'NCC B' },
+      ],
+      avg,
+      supplierPrices,
+    );
+    // 100×250 + 50×300 = 25.000 + 15.000
+    expect(row.cost).toBe(40_000);
+    expect(row.components).toHaveLength(2);
+  });
+
+  it('dòng chưa chọn NCC giữ giá bình quân như cũ', () => {
+    const [row] = computeFoodCost([PHO], [{ ...bo, qty_per_serving: 100, supplier_id: null }], avg, supplierPrices);
+    expect(row.cost).toBe(27_500);
+    expect(row.components[0].ingredient_name).toBe('Thịt bò');
+  });
+
+  it('NCC đã chọn chưa có giá thì rơi về giá chung, không báo thiếu giá', () => {
+    const [row] = computeFoodCost(
+      [PHO],
+      [{ ...bo, qty_per_serving: 100, supplier_id: 'C', supplier_name: 'NCC C' }],
+      avg,
+      supplierPrices,
+    );
+    expect(row.cost).toBe(27_500);
+    expect(row.complete).toBe(true);
+  });
+});

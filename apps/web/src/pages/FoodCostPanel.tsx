@@ -10,6 +10,7 @@ import { C } from '../lib/online-ui.ts';
 type Component = {
   ingredient_id: string;
   ingredient_name: string;
+  supplier_id: string | null;
   base_unit: string;
   qty_per_serving: number;
   unit_price_base: number | null;
@@ -159,7 +160,9 @@ export function FoodCostPanel() {
                           {[...r.components]
                             .sort((a, b) => (b.cost ?? -1) - (a.cost ?? -1))
                             .map((c) => (
-                              <tr key={c.ingredient_id}>
+                              /* Khoá gồm NCC: từ 2026-10-19 một món có thể có hai dòng cùng nguyên liệu
+                                 khác NCC ("Thịt bò · NCC A", "· NCC B"). Tên hiển thị BE đã ghép sẵn NCC. */
+                              <tr key={`${c.ingredient_id}|${c.supplier_id ?? ''}`}>
                                 <td style={{ padding: '4px 8px' }}>{c.ingredient_name}</td>
                                 <td style={{ padding: '4px 8px', textAlign: 'right', color: C.mutedOnTint }}>
                                   {num(c.qty_per_serving)} {c.base_unit}

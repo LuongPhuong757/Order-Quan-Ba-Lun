@@ -82,6 +82,17 @@ export class ReportsService {
         .groupBy('si.ingredient_id')
         .getRawMany<{ ingredient_id: string; unit_price_base: string }>(),
     ]);
+    // Giá lần nhập gần nhất theo TỪNG cặp nguyên liệu × NCC, kèm tên NCC — cho dòng công thức đã
+    // chọn NCC (2026-10-19). Bảng `supplier_items` cỡ vài trăm dòng, đọc hết rẻ hơn lọc.
+    const supplierItems = await this.itemRepo
+      .createQueryBuilder('si')
+      .leftJoin('suppliers', 's', 's.id = si.supplier_id')
+      .select('si.ingredient_id', 'ingredient_id')
+      .addSelect('si.supplier_id', 'supplier_id')
+      .addSelect('si.last_unit_price_base', 'unit_price_base')
+      .addSelect('s.name', 'supplier_name')
+      .getRawMany<{ ingredient_id: string; supplier_id: string; unit_price_base: string; supplier_name: string | null }>();
+    const supName = new Map(supplierItems.map((r) => [r.supplier_id, r.supplier_name]));
 
     if (recipeLines.length === 0) return { from, rows: [] };
 
@@ -118,8 +129,15 @@ export class ReportsService {
           ingredient_name: ingById.get(r.ingredient_id)!.name,
           base_unit: ingById.get(r.ingredient_id)!.unit,
           qty_per_serving: Number(r.qty_per_serving),
+          supplier_id: r.supplier_id,
+          supplier_name: r.supplier_id ? (supName.get(r.supplier_id) ?? null) : null,
         })),
       prices,
+      supplierItems.map((r) => ({
+        ingredient_id: r.ingredient_id,
+        supplier_id: r.supplier_id,
+        unit_price_base: Number(r.unit_price_base),
+      })),
     );
 
     return { from, rows };
