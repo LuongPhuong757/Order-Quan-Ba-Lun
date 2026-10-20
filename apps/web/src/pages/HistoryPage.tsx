@@ -11,6 +11,7 @@ import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { anTien } from '../lib/an-tien.ts';
 import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
   historyFilterKey,
@@ -258,6 +259,13 @@ export function HistoryPage() {
    *  chốt 2026-09-14). `canSeeStats` gác doanh thu BÁN HÀNG; khối kia nói tiền về tài khoản ngân
    *  hàng nào của nhà chủ — hai thứ khác nhau, nên cố ý là hai biến chứ không nới cái cũ. */
   const canSeeReconcile = (user?.role ?? (user?.is_owner ? 'admin' : '')) === 'admin';
+  /** Order/Bếp KHÔNG thấy một con số tiền nào trên màn này (chủ quán chốt 2026-10-20): không
+   *  tổng bill, không giá món, không số trong câu nhật ký. Trước đó chỉ ẩn ô tổng doanh thu, nhưng
+   *  tổng từng bàn vẫn hiện nên nhân viên tự cộng tay ra doanh thu ca. Giờ họ chỉ thấy HOẠT ĐỘNG:
+   *  món gì, mấy phần, ai gọi / huỷ / giao / trả bàn, lúc nào.
+   *  CHỈ che giao diện — API vẫn trả số (chủ quán chọn: ở quán không ai mở công cụ trình duyệt).
+   *  Cùng tập người với `canSeeStats`, tách tên để chỗ dùng nói đúng việc nó gác. */
+  const canSeeMoney = canSeeStats;
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -817,14 +825,18 @@ export function HistoryPage() {
           <StatusPill active={!misaFilter && statusFilter === 'all'} onClick={() => selectTab('all')}>
             Tất cả
           </StatusPill>
-          <StatusPill
-            active={!misaFilter && statusFilter === 'paid'}
-            color="#059669"
-            bg="#d1fae5"
-            onClick={() => selectTab('paid')}
-          >
-            ✓ Đã thanh toán
-          </StatusPill>
+          {/* Order/Bếp không có tab này (2026-10-20): server đã bỏ hẳn đơn đã thu khỏi nhật ký của
+              họ (`exclude_paid`), bấm vào chỉ ra danh sách rỗng. */}
+          {canSeeMoney && (
+            <StatusPill
+              active={!misaFilter && statusFilter === 'paid'}
+              color="#059669"
+              bg="#d1fae5"
+              onClick={() => selectTab('paid')}
+            >
+              ✓ Đã thanh toán
+            </StatusPill>
+          )}
           <StatusPill
             active={!misaFilter && statusFilter === 'unpaid'}
             color="#b45309"
@@ -844,26 +856,33 @@ export function HistoryPage() {
             🗑 Đã huỷ
           </StatusPill>
           {/* Đang nợ (2026-09-25): bàn đã trả mà chưa thu tiền — tab riêng để admin nhìn ra ngay
-              quán đang bị nợ những đơn nào; thu nợ cũng làm từ đây. */}
-          <StatusPill
-            active={!misaFilter && statusFilter === 'debt'}
-            color="#b45309"
-            bg="#ffedd5"
-            onClick={() => selectTab('debt')}
-          >
-            📒 Đang nợ
-          </StatusPill>
+              quán đang bị nợ những đơn nào; thu nợ cũng làm từ đây.
+              Order/Bếp không có tab này (chủ quán chốt 2026-10-20): chỉ admin thu nợ, và thu nợ
+              thì buộc phải nhìn số tiền. */}
+          {canSeeMoney && (
+            <StatusPill
+              active={!misaFilter && statusFilter === 'debt'}
+              color="#b45309"
+              bg="#ffedd5"
+              onClick={() => selectTab('debt')}
+            >
+              📒 Đang nợ
+            </StatusPill>
+          )}
 
           {/* Tab Misa (2026-09-05) — các đơn đã đánh dấu "Misa". Từ 2026-10-15 chỉ tính đơn thu qua
               mã QR HKD (server lọc). */}
-          <StatusPill
-            active={misaFilter === 'copied'}
-            color="#7c3aed"
-            bg="#ede9fe"
-            onClick={() => selectTab('misa')}
-          >
-            📋 Misa
-          </StatusPill>
+          {/* Đơn Misa luôn là đơn đã thu → Order/Bếp không có gì trong tab này (2026-10-20). */}
+          {canSeeMoney && (
+            <StatusPill
+              active={misaFilter === 'copied'}
+              color="#7c3aed"
+              bg="#ede9fe"
+              onClick={() => selectTab('misa')}
+            >
+              📋 Misa
+            </StatusPill>
+          )}
         </div>
 
         {/* Vạch ngăn: bên trái là TAB (đơn nào), bên phải là bộ lọc phạm vi (bàn/người/ngày). */}
@@ -894,6 +913,10 @@ export function HistoryPage() {
           onChange={(v) => { setCashierFilter(v); setPage(1); }}
         />
 
+        {/* Bốn ô lọc dưới (hình thức thu, xác thực, ảnh bill, tài khoản nhận) chỉ có nghĩa với đơn
+            ĐÃ THU — Order/Bếp không còn thấy đơn đã thu (2026-10-20) nên ẩn cả cụm. */}
+        {canSeeMoney && (
+        <>
         {/* Hình thức thu tiền (2026-09-14). Ba giá trị khớp đúng ba badge trong bảng — lọc và
             badge phải nói cùng một thứ tiếng. */}
         <select
@@ -971,6 +994,8 @@ export function HistoryPage() {
             ))}
           </select>
         )}
+        </>
+        )}
 
         {/* Trục sắp xếp. Phải là Ô CHỌN chứ không chỉ là tiêu đề cột bấm được: dưới 640px
             `table.responsive` ẩn hẳn `thead`, nên trên điện thoại sẽ không còn chỗ nào để bấm.
@@ -1026,8 +1051,9 @@ export function HistoryPage() {
             color: '#1e40af',
           }}
         >
-          📜 Bạn xem được nhật ký các bàn trong <strong>48 giờ gần nhất</strong>. Số liệu doanh
-          thu chỉ dành cho admin và quyền Báo cáo.
+          📜 Bạn xem được nhật ký các bàn <strong>chưa thanh toán</strong> trong <strong>48 giờ
+          gần nhất</strong>: món gì, mấy phần, ai gọi, ai huỷ. Đơn đã thanh toán và số tiền chỉ
+          dành cho admin và quyền Báo cáo.
         </div>
       )}
 
@@ -1291,7 +1317,9 @@ export function HistoryPage() {
                   Giờ TT{sortBy === 'paid' && ' ↓'}
                 </th>
                 <th>Món</th>
-                <th style={{ textAlign: 'right' }}>Tổng</th>
+                {/* Ô tiêu đề GIỮ LẠI (để trống) với Order/Bếp chứ không bỏ cột: lưới thẻ điện thoại
+                    trong styles.css bám `nth-child` theo thứ tự cột, bớt một cột là lệch hết. */}
+                <th style={{ textAlign: 'right' }}>{canSeeMoney ? 'Tổng' : ''}</th>
                 {/* Căn giữa khớp với nội dung ô (xem `.txn-status-wrap` trong styles.css). */}
                 <th style={{ textAlign: 'center' }}>Trạng thái</th>
                 {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
@@ -1381,9 +1409,11 @@ export function HistoryPage() {
                               {cancelledCount > 0 && <span style={{ color: '#dc2626' }}> · huỷ {cancelledCount}</span>}
                             </td>
                             <td data-label="Tổng" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
-                                {fmt(total)}
-                              </strong>
+                              {canSeeMoney && (
+                                <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
+                                  {fmt(total)}
+                                </strong>
+                              )}
                             </td>
                             {/* Trạng thái VÀ hình thức thu đứng cạnh nhau (chủ quán chốt
                                 2026-09-23). Trước đây hình thức nằm dưới con số tiền, nên trên
@@ -1472,8 +1502,9 @@ export function HistoryPage() {
                             >
                               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                                 {/* THU NỢ (2026-09-25): mở lại đúng hộp thoại thu tiền cho đơn
-                                    đang nợ. Cùng quyền với checkout (admin + order). */}
-                                {isDebt && canMarkMisa && (
+                                    đang nợ. Từ 2026-10-20 chỉ admin: hộp thu nợ phải hiện số tiền,
+                                    mà Order/Bếp không được thấy tiền trên màn này. */}
+                                {isDebt && canMarkMisa && canSeeMoney && (
                                   <button
                                     type="button"
                                     title={`Thu nợ ${o.debt_note ?? ''}`}
@@ -1500,8 +1531,10 @@ export function HistoryPage() {
                                   />
                                 )}
                                 {/* ⋯ gom "In lại hoá đơn" + "Chuyển sang nợ" (xem `rowMenu`). Chỉ đơn
-                                    đã thu mới có gì để làm; quyền hiện từng mục xét trong menu. */}
-                                {isPaid && canMarkMisa && (
+                                    đã thu mới có gì để làm; quyền hiện từng mục xét trong menu.
+                                    Ẩn với Order/Bếp từ 2026-10-20: hoá đơn in lại có tổng tiền, và
+                                    "Chuyển sang nợ" là việc của admin (người duy nhất thu nợ). */}
+                                {isPaid && canMarkMisa && canSeeMoney && (
                                   <button
                                     type="button"
                                     className="secondary"
@@ -1544,7 +1577,7 @@ export function HistoryPage() {
                           {isOpen && (
                             <tr>
                               <td className="txn-full" colSpan={verifyOn ? 9 : 8}>
-                                <HistoryOrderDetail order={o} />
+                                <HistoryOrderDetail order={o} showMoney={canSeeMoney} />
                               </td>
                             </tr>
                           )}
@@ -1843,7 +1876,9 @@ function PaymentPhotoBadge({
   );
 }
 
-function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
+/** `showMoney = false` (Order/Bếp, 2026-10-20): giữ nguyên mọi HOẠT ĐỘNG — món, số phần, ai gọi /
+ *  giao / huỷ, ghi nợ, nhật ký — chỉ bỏ con số tiền. Xem `canSeeMoney` ở `HistoryPage`. */
+function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMoney: boolean }) {
   const items = order.items || [];
   const grouped = {
     SERVED: items.filter((i) => i.state === 'SERVED'),
@@ -1869,7 +1904,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
           phải dò trong sao kê ngân hàng. */}
       {order.transfer_amount > 0 && (
         <div style={{ marginBottom: 12, padding: 10, background: '#e0f2fe', borderRadius: 8, fontSize: 13 }}>
-          <strong>🏦 Chuyển khoản {order.transfer_amount.toLocaleString('vi-VN')}đ</strong>
+          <strong>🏦 Chuyển khoản{showMoney && ` ${order.transfer_amount.toLocaleString('vi-VN')}đ`}</strong>
           {order.payment_qr_label && <span> → {order.payment_qr_label}</span>}
           {order.transfer_note && (
             <div style={{ marginTop: 2, fontFamily: 'monospace' }}>Nội dung: {order.transfer_note}</div>
@@ -1890,7 +1925,8 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
               ⚠ Không chụp được bill — {order.payment_photo_skip_reason}
             </div>
           )}
-          <PaymentPhotos orderId={order.id} />
+          {/* Ảnh bill chuyển khoản in rõ số tiền — Order/Bếp không xem (2026-10-20). */}
+          {showMoney && <PaymentPhotos orderId={order.id} />}
         </div>
       )}
 
@@ -1914,7 +1950,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
               {order.debt_paid_by_full_name && <> · {order.debt_paid_by_full_name}</>}
             </div>
           ) : (
-            <div style={{ marginTop: 2, color: '#9a3412' }}>Chưa thu — chưa vào doanh thu.</div>
+            <div style={{ marginTop: 2, color: '#9a3412' }}>Chưa thu{showMoney && ' — chưa vào doanh thu'}.</div>
           )}
         </div>
       )}
@@ -1943,7 +1979,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
                 )}
                 {g.rep.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {g.rep.note}</div>}
               </div>
-              <div style={{ fontWeight: 600, color: '#9ca3af' }}>{fmt(g.rep.menu_item_price * g.count)}</div>
+              {showMoney && <div style={{ fontWeight: 600, color: '#9ca3af' }}>{fmt(g.rep.menu_item_price * g.count)}</div>}
             </div>
           ))}
         </div>
@@ -1967,7 +2003,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
                 )}
                 {g.rep.note && <div style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>📝 {g.rep.note}</div>}
               </div>
-              <div style={{ fontWeight: 600 }}>{fmt(g.rep.menu_item_price * g.count)}</div>
+              {showMoney && <div style={{ fontWeight: 600 }}>{fmt(g.rep.menu_item_price * g.count)}</div>}
             </div>
           ))}
         </div>
@@ -1988,7 +2024,7 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
                   <div style={{ fontSize: 11, color: '#6b7280' }}>👤 NV: {g.rep.created_by_full_name}</div>
                 )}
               </div>
-              <div style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</div>
+              {showMoney && <div style={{ color: '#9ca3af', textDecoration: 'line-through' }}>{fmt(g.rep.menu_item_price * g.count)}</div>}
             </div>
           ))}
         </div>
@@ -2013,7 +2049,8 @@ function HistoryOrderDetail({ order }: { order: HistoryOrder }) {
               <div key={a.id} style={{ display: 'flex', gap: 8, fontSize: 13, alignItems: 'baseline' }}>
                 <span style={{ fontSize: 14, flexShrink: 0 }}>{EVENT_ICON[a.event_kind] || '•'}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <span>{a.message}</span>
+                  {/* Câu nhật ký do BE viết sẵn, câu thanh toán có tiền nằm giữa — che đi. */}
+                  <span>{showMoney ? a.message : anTien(a.message)}</span>
                   {a.actor_name && <span style={{ color: '#0f766e' }}> · 👤 {a.actor_name}</span>}
                 </div>
                 <span style={{ fontSize: 11, color: '#9ca3af', flexShrink: 0, whiteSpace: 'nowrap' }}>

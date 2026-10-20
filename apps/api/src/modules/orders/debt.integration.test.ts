@@ -167,6 +167,28 @@ describe('ghi nợ lúc thanh toán', () => {
   }, 20_000);
 });
 
+describe('nhật ký bàn của nhân viên — exclude_paid (2026-10-20)', () => {
+  it('bỏ đơn đã thu; đơn đang dùng / đang nợ vẫn còn, đơn nợ thu xong thì biến mất', async () => {
+    const paid = await insertOpenOrder([50_000]);
+    await svc.checkout(paid, CASHIER, false);
+    const debt = await insertOpenOrder([70_000]);
+    await svc.checkout(debt, CASHIER, false, undefined, { note: 'Anh Tuấn' });
+    const open = await insertOpenOrder([30_000]);
+
+    const staff = await svc.listHistory({ table_id: tableId, exclude_paid: true });
+    expect(staff.items.map((o) => o.id).sort()).toEqual([debt, open].sort());
+    expect(staff.total).toBe(2);
+    // Chồng lên tab: chọn "Đã thanh toán" mà cờ bật thì rỗng, không lách được qua status.
+    expect((await svc.listHistory({ table_id: tableId, status: 'paid', exclude_paid: true })).total).toBe(0);
+    // Admin (không bật cờ) vẫn thấy đủ cả ba.
+    expect((await svc.listHistory({ table_id: tableId })).total).toBe(3);
+
+    await svc.settleDebt(debt, ADMIN, false);
+    const after = await svc.listHistory({ table_id: tableId, exclude_paid: true });
+    expect(after.items.map((o) => o.id)).toEqual([open]);
+  }, 20_000);
+});
+
 describe('thu nợ', () => {
   it('đưa đơn vào doanh thu, đối soát rơi vào NGÀY THU NỢ, ghi người thu riêng', async () => {
     const id = await insertOpenOrder([120_000]);

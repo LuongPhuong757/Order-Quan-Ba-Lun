@@ -112,6 +112,8 @@ export function CheckoutDialog({
   const [photos, setPhotos] = useState<Array<{ id: string; url: string }>>([]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Ô chọn ảnh CÓ SẴN trong máy (2026-10-20) — ô kia có `capture` nên chỉ mở được camera. */
+  const galleryRef = useRef<HTMLInputElement>(null);
   const [submitting, setSubmitting] = useState(false);
   /**
    * BỐN MÀN NỐI TIẾP (chủ quán chốt 2026-09-15), thay cho một màn cuộn dài:
@@ -340,6 +342,7 @@ export function CheckoutDialog({
       setUploading(false);
       // Xoá value để chọn LẠI đúng tấm vừa bỏ ra cũng bắn `change`.
       if (fileRef.current) fileRef.current.value = '';
+      if (galleryRef.current) galleryRef.current.value = '';
     }
   };
 
@@ -648,6 +651,7 @@ export function CheckoutDialog({
               photos={photos}
               uploading={uploading}
               fileRef={fileRef}
+              galleryRef={galleryRef}
               onPick={addPhotos}
               onRemove={removePhoto}
               skipReason={photoSkipReason}
@@ -936,6 +940,7 @@ export function BillStep({
   photos,
   uploading,
   fileRef,
+  galleryRef,
   onPick,
   onRemove,
   skipReason,
@@ -948,6 +953,7 @@ export function BillStep({
   photos: Array<{ id: string; url: string }>;
   uploading: boolean;
   fileRef: React.RefObject<HTMLInputElement | null>;
+  galleryRef: React.RefObject<HTMLInputElement | null>;
   onPick: (files: FileList | null) => void;
   onRemove: (id: string) => void;
   /** Lý do không chụp được bill. Rỗng = chưa dùng đường thoát. */
@@ -997,6 +1003,28 @@ export function BillStep({
           type="file"
           accept="image/*"
           capture="environment"
+          multiple
+          hidden
+          onChange={(e) => onPick(e.target.files)}
+        />
+
+        {/* Chọn ảnh CÓ SẴN (chủ quán 2026-10-20): khách gửi ảnh chụp màn hình chuyển khoản qua
+            Zalo, hoặc người thu lỡ chụp bằng camera ngoài app — nút trên có `capture` nên điện
+            thoại chỉ mở camera, không vào được thư viện ảnh. Ô này KHÔNG có `capture`, còn lại
+            đi chung đường `onPick` (nén, chặn ảnh quá nặng, đẩy lên đơn). */}
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => galleryRef.current?.click()}
+          disabled={uploading}
+          style={{ minHeight: 48, width: '100%', marginTop: 8 }}
+        >
+          🖼 Chọn ảnh có sẵn
+        </button>
+        <input
+          ref={galleryRef}
+          type="file"
+          accept="image/*"
           multiple
           hidden
           onChange={(e) => onPick(e.target.files)}
