@@ -162,6 +162,12 @@ function staffHistoryWindowMs(req: Request): number | undefined {
   return role === 'admin' || role === 'report' ? undefined : STAFF_HISTORY_WINDOW_MS;
 }
 
+/** Order + bếp KHÔNG thấy đơn đã thanh toán ở nhật ký bàn (chủ quán chốt 2026-10-20) — cùng
+ *  tập người với giới hạn 48h ở trên. Xem `exclude_paid` ở `listHistory`. */
+function staffHidesPaidOrders(req: Request): boolean {
+  return staffHistoryWindowMs(req) !== undefined;
+}
+
 @Controller('orders')
 @UseGuards(JwtAuthGuard)
 export class OrdersController {
@@ -431,9 +437,9 @@ export class OrdersController {
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
    *
    * Admin + report: đầy đủ, không giới hạn thời gian.
-   * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), thấy giá món / tổng bill /
-   *   thông tin thanh toán như nhau. Thứ DUY NHẤT chỉ admin có là số tổng doanh thu
-   *   nhiều bàn cộng lại — nằm ở /orders/stats, đã có AdminGuard riêng. */
+   * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), và KHÔNG có đơn đã thanh toán
+   *   (staffHidesPaidOrders, 2026-10-20). Số tiền của những đơn còn lại vẫn có trong JSON —
+   *   FE tự che (chủ quán chọn che giao diện là đủ, xem `canSeeMoney` ở HistoryPage). */
   @Get('history')
   @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
@@ -462,6 +468,7 @@ export class OrdersController {
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
       max_age_ms: staffHistoryWindowMs(req),
+      exclude_paid: staffHidesPaidOrders(req),
     });
     return { data: result };
   }
