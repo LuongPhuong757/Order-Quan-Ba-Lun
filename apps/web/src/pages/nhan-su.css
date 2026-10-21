@@ -1,0 +1,429 @@
+/* Màn Quản lý nhân sự — dạng THẺ thay cho bảng (2026-10-20, chủ quán chê bảng 7 cột "quá xấu,
+   khó nhìn"). Bản vẽ duyệt qua OpenDesign: project `qbl-quan-ly-nhan-su-v2`.
+
+   Mọi selector gắn dưới `.nv-ui`: `styles.css` đã có `.card`, `.chip`… dùng chung cả app, đặt tên
+   trần là đè sang màn khác. Nút viết `button.nv-*` vì luật `button { background: #0f766e }` toàn
+   cục sẽ thắng một class trần đứng một mình ở chỗ cùng độ ưu tiên. */
+
+.nv-ui {
+  --nv-teal: #0f766e;
+  --nv-green: #059669;
+  --nv-green-soft: #d1fae5;
+  --nv-amber: #b45309;
+  --nv-amber-soft: #fef3c7;
+  --nv-border: #e5e7eb;
+  --nv-muted: #6b7280;
+}
+
+.nv-ui .nv-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.nv-ui .nv-toolbar h1 {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 800;
+}
+.nv-ui button.nv-add {
+  background: var(--nv-teal);
+  color: #fff;
+  font-size: 17px;
+  font-weight: 700;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+/* ── Chip lọc: một hàng, điện thoại vuốt ngang ─────────────────────────── */
+.nv-ui .nv-chips {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+@media (max-width: 640px) {
+  .nv-ui .nv-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    margin: 0 -16px 18px;
+    padding: 0 16px 6px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .nv-ui .nv-chips::-webkit-scrollbar {
+    display: none;
+  }
+}
+.nv-ui button.nv-chip {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 44px;
+  padding: 0 16px;
+  border-radius: 999px;
+  border: 1px solid var(--nv-border);
+  background: #fff;
+  color: #111827;
+  font-size: 15.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nv-ui button.nv-chip .nv-cnt {
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: var(--nv-muted);
+  font-size: 13.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nv-ui button.nv-chip.active {
+  background: var(--nv-teal);
+  border-color: var(--nv-teal);
+  color: #fff;
+}
+.nv-ui button.nv-chip.active .nv-cnt {
+  background: rgba(255, 255, 255, 0.25);
+  color: #fff;
+}
+
+/* ── Lưới thẻ ──────────────────────────────────────────────────────────── */
+.nv-ui .nv-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+  /* Hai thẻ cùng hàng CAO BẰNG NHAU (mặc định `stretch`): để thẻ cao theo nội dung thì thẻ thấp
+     chừa một khoảng hở bên dưới, khoảng cách giữa các hàng nhìn lệch nhau (chủ quán báo
+     2026-10-20). Phần thừa do dải chân thẻ nuốt — xem `.nv-ck`/`.nv-ck-note` ở dưới. */
+}
+@media (min-width: 900px) {
+  .nv-ui .nv-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.nv-ui .nv-card {
+  background: #fff;
+  border: 1px solid var(--nv-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+  display: flex;
+  flex-direction: column;
+  /* KHÔNG `overflow: hidden`: menu ⋯ thả xuống phải tràn ra ngoài thẻ được. */
+}
+.nv-ui .nv-card.off {
+  opacity: 0.75;
+}
+.nv-ui .nv-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 16px 14px;
+}
+.nv-ui .nv-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+}
+.nv-ui .nv-person {
+  flex: 1;
+  min-width: 0;
+}
+.nv-ui .nv-name {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.nv-ui .nv-name.noname {
+  color: #9ca3af;
+  font-weight: 700;
+}
+.nv-ui .nv-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 7px;
+}
+.nv-ui .nv-username {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 14px;
+  color: var(--nv-muted);
+  background: #f3f4f6;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.nv-ui .nv-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 11px 3px 9px;
+}
+.nv-ui .nv-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.nv-ui .nv-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nv-ui .nv-status i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.nv-ui .nv-status.on {
+  color: var(--nv-green);
+}
+.nv-ui .nv-status.on i {
+  background: var(--nv-green);
+  box-shadow: 0 0 0 3px var(--nv-green-soft);
+}
+.nv-ui .nv-status.off {
+  color: var(--nv-amber);
+}
+.nv-ui .nv-status.off i {
+  background: var(--nv-amber);
+  box-shadow: 0 0 0 3px var(--nv-amber-soft);
+}
+
+/* ── Dải "Thu chuyển khoản" ở chân thẻ ─────────────────────────────────── */
+.nv-ui .nv-ck {
+  border-top: 1px solid var(--nv-border);
+  background: #fcfcfd;
+  border-radius: 0 0 12px 12px;
+  padding: 4px 16px;
+  /* Giãn kín phần thẻ còn thừa khi thẻ bên cạnh cao hơn: nền xám chạy tới đáy thay vì để lại
+     một dải trắng lửng dưới chân. */
+  flex: 1;
+}
+.nv-ui .nv-ck-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 0;
+}
+.nv-ui .nv-ck-row + .nv-ck-row {
+  border-top: 1px dashed var(--nv-border);
+}
+.nv-ui .nv-ck-label {
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #374151;
+}
+.nv-ui .nv-ck-note {
+  border-top: 1px solid var(--nv-border);
+  background: #fcfcfd;
+  border-radius: 0 0 12px 12px;
+  padding: 14px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--nv-muted);
+  flex: 1;
+  /* Căn giữa dọc để dòng này thẳng hàng với "Thu chuyển khoản" của thẻ bên cạnh. */
+  display: flex;
+  align-items: center;
+}
+
+/* Công tắc — `button role="switch"` chứ không phải checkbox ẩn: một phần tử, bấm cả cụm.
+   Dùng ở cả thẻ lẫn hộp chọn mã QR (hộp này render ngoài `.nv-ui`). */
+.nv-ui button.nv-switch,
+.nv-qr-sheet button.nv-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 11px;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  min-height: 44px;
+  color: inherit;
+}
+.nv-switch .nv-track {
+  position: relative;
+  width: 56px;
+  height: 32px;
+  border-radius: 999px;
+  background: #d1d5db;
+  flex: 0 0 auto;
+  transition: background 0.16s;
+}
+.nv-switch .nv-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.16s;
+}
+.nv-switch[aria-checked='true'] .nv-track {
+  background: #059669;
+}
+.nv-switch[aria-checked='true'] .nv-track::after {
+  transform: translateX(24px);
+}
+.nv-switch .nv-switch-txt {
+  min-width: 64px;
+  text-align: right;
+  font-size: 15px;
+  font-weight: 700;
+  color: #6b7280;
+}
+.nv-switch[aria-checked='true'] .nv-switch-txt {
+  color: #059669;
+}
+
+.nv-ui button.nv-qr-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 15px;
+  border-radius: 10px;
+  border: 1px solid var(--nv-border);
+  background: #f3f4f6;
+  color: #374151;
+  font-size: 15px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+.nv-ui button.nv-qr-btn.some-hidden {
+  background: var(--nv-amber-soft);
+  border-color: #fde68a;
+  color: var(--nv-amber);
+}
+
+/* ── Hộp chọn mã QR (bottom sheet trên điện thoại) ─────────────────────── */
+.modal-overlay > .modal.nv-qr-sheet {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.nv-qr-sheet .nv-sheet-head {
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.nv-qr-sheet .nv-sheet-head h2 {
+  margin: 0 0 6px;
+  font-size: 20px;
+  font-weight: 800;
+}
+.nv-qr-sheet .nv-sheet-head p {
+  margin: 0;
+  font-size: 15px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.nv-qr-sheet .nv-sheet-body {
+  padding: 8px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+.nv-qr-sheet .nv-qr-item {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 68px;
+  padding: 12px 4px;
+}
+.nv-qr-sheet .nv-qr-item + .nv-qr-item {
+  border-top: 1px solid #e5e7eb;
+}
+.nv-qr-sheet .nv-qr-item.dim .nv-qr-ic,
+.nv-qr-sheet .nv-qr-item.dim .nv-qr-info {
+  opacity: 0.45;
+}
+.nv-qr-sheet .nv-qr-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: #f1f5f9;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+.nv-qr-sheet .nv-qr-info {
+  flex: 1;
+  min-width: 0;
+}
+.nv-qr-sheet .nv-qr-name {
+  font-size: 16.5px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+.nv-qr-sheet .nv-qr-sub {
+  margin-top: 3px;
+  font-size: 13.5px;
+  color: #6b7280;
+  font-family: ui-monospace, Menlo, monospace;
+}
+.nv-qr-sheet .nv-sheet-msg {
+  margin: 8px 16px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 14.5px;
+}
+.nv-qr-sheet .nv-sheet-msg.warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+.nv-qr-sheet .nv-sheet-msg.err {
+  background: #fee2e2;
+  color: #991b1b;
+}
+.nv-qr-sheet .nv-sheet-foot {
+  display: flex;
+  gap: 12px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
+  border-top: 1px solid #e5e7eb;
+}
+.nv-qr-sheet button.nv-cancel {
+  flex: 1;
+  height: 52px;
+  font-size: 17px;
+  font-weight: 700;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  color: #374151;
+}
+.nv-qr-sheet button.nv-save {
+  flex: 2;
+  height: 52px;
+  font-size: 17px;
+  font-weight: 700;
+  background: #0f766e;
+  color: #fff;
+}

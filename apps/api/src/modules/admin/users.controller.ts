@@ -20,7 +20,17 @@ import { Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { AuthService } from '../auth/auth.service.js';
-import { IsBoolean, IsIn, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
+import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
+  IsIn,
+  IsOptional,
+  IsString,
+  IsUUID,
+  MinLength,
+  MaxLength,
+} from 'class-validator';
 import { randomBytes } from 'crypto';
 
 // `report` (2026-09-09) = quyền CHỈ ĐỌC báo cáo thống kê toàn quán. Không order, không thanh
@@ -56,6 +66,13 @@ class UpdateUserDto {
   @IsOptional() @IsIn(ROLE_VALUES) role?: Role;
   /** Công tắc thu chuyển khoản (2026-09-14). Không nhận cho owner — xem `update()`. */
   @IsOptional() @IsBoolean() can_collect_transfer?: boolean;
+  /** Mã QR ẩn với người này (2026-10-20). Gửi CẢ danh sách mới, không phải thêm/bớt lẻ — hai
+   *  máy cùng sửa thì người bấm sau thắng, dễ hiểu hơn là cộng dồn. `[]` = hiện hết. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsUUID('all', { each: true })
+  hidden_payment_qr_ids?: string[];
 }
 
 /** Body của /reset-password. Bỏ trống `password` = giữ luồng cũ (server sinh mật khẩu tạm). */
@@ -121,6 +138,7 @@ export class AdminUsersController {
           is_active: u.is_active,
           is_owner: u.is_owner,
           can_collect_transfer: u.can_collect_transfer,
+          hidden_payment_qr_ids: u.hidden_payment_qr_ids ?? [],
           created_at: Number(u.created_at),
         })),
         total,
@@ -197,6 +215,20 @@ export class AdminUsersController {
       }
       user.can_collect_transfer = dto.can_collect_transfer;
     }
+    if (dto.hidden_payment_qr_ids !== undefined) {
+      // Cùng lệ với công tắc thu chuyển khoản ngay trên: owner/quản lý luôn thấy hết mã (xem
+      // `qrHiddenFor`), nhận rồi lờ đi là một nút bấm được mà không có tác dụng.
+      const nextRole = dto.role ?? user.role;
+      if (user.is_owner || nextRole === 'admin') {
+        throw new BadRequestException({
+          code: 'CONFLICT',
+          message: 'Chủ quán và quản lý luôn thấy mọi mã QR, không cần ẩn hiện',
+        });
+      }
+      // Rỗng thì lưu NULL — một trạng thái "không ẩn gì" duy nhất trong DB thay vì hai.
+      const ids = [...new Set(dto.hidden_payment_qr_ids)];
+      user.hidden_payment_qr_ids = ids.length > 0 ? ids : null;
+    }
     if (dto.role !== undefined) {
       if (user.is_owner && dto.role !== 'admin') {
         throw new BadRequestException({
@@ -216,6 +248,7 @@ export class AdminUsersController {
         is_active: user.is_active,
         is_owner: user.is_owner,
         can_collect_transfer: user.can_collect_transfer,
+        hidden_payment_qr_ids: user.hidden_payment_qr_ids ?? [],
         created_at: Number(user.created_at),
       },
     };

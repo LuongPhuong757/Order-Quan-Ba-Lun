@@ -74,6 +74,27 @@ export class User {
   @Column({ type: 'boolean', default: false })
   can_collect_transfer!: boolean;
 
+  /**
+   * Mã QR nhận tiền BỊ ẨN với người này (2026-10-20, chủ quán: "ẩn hiện QR với từng người thanh
+   * toán"). Mảng id của `payment_qr_accounts`.
+   *
+   * Lưu danh sách ẨN chứ không lưu danh sách ĐƯỢC DÙNG — chủ quán chốt "mặc định thấy hết": thêm
+   * mã mới thì ai cũng thấy ngay, thêm nhân viên mới cũng thấy hết, không ai bị mất QR bất ngờ
+   * giữa ca. Lưu danh sách được dùng thì mỗi lần thêm mã là phải đi tick lại cho từng người, và
+   * người bị quên sẽ đứng trước khách với hộp thoại trống.
+   *
+   * Cột JSON trên `users` chứ không phải bảng nối: chỉ có MỘT đường đọc (hộp thoại thu tiền của
+   * chính người đó) và guard vốn đã tải hàng `users` mỗi request — đọc ké, không thêm truy vấn.
+   * Id của mã đã ngừng dùng còn sót trong mảng thì vô hại: mã đó đằng nào cũng không hiện.
+   *
+   * Owner và `admin` KHÔNG đọc cột này (xem `visibleQrFor`): họ là người đối soát, ẩn mã với họ
+   * là tự bịt mắt mình.
+   *
+   * NULL = không ẩn gì.
+   */
+  @Column({ type: 'json', nullable: true })
+  hidden_payment_qr_ids!: string[] | null;
+
   // P01.D-08 — token_version. BIGINT per Q-P01-03 (overflow-safe).
   @Column({ type: 'bigint', default: 0, transformer: bigIntTransformer })
   token_version!: number;
