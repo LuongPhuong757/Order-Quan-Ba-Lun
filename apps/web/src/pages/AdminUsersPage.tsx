@@ -3,7 +3,8 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
-import { Select } from '../components/Select.tsx';
+import { QrVisibilityDialog } from '../components/QrVisibilityDialog.tsx';
+import './nhan-su.css';
 
 type Role = 'admin' | 'order' | 'kitchen' | 'report' | 'print';
 
@@ -15,6 +16,8 @@ type UserRow = {
   is_active: boolean;
   /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Owner và quản lý luôn được, không bật tắt. */
   can_collect_transfer: boolean;
+  /** Mã QR bị ẩn với người này (2026-10-20). Rỗng = thấy hết. */
+  hidden_payment_qr_ids: string[];
   is_owner: boolean;
   created_at: number;
 };
@@ -31,6 +34,22 @@ const ROLE_LABEL: Record<Role, string> = {
 // `print` đứng cuối: nó không phải một người, chỉ là tài khoản cho chiếc máy POS ở quầy.
 const ROLE_OPTIONS: Role[] = ['order', 'kitchen', 'admin', 'report', 'print'];
 
+/** Màu theo quyền cho avatar + chip quyền trên thẻ (2026-10-20). Mỗi quyền một màu để chủ quán
+ *  liếc là phân biệt được người bếp với người order, không phải đọc chữ. */
+const ROLE_TONE: Record<Role, { avatar: string; chipBg: string; chipFg: string }> = {
+  admin: { avatar: '#0f766e', chipBg: '#ccfbf1', chipFg: '#0f766e' },
+  order: { avatar: '#2563eb', chipBg: '#dbeafe', chipFg: '#1d4ed8' },
+  kitchen: { avatar: '#b45309', chipBg: '#fef3c7', chipFg: '#b45309' },
+  report: { avatar: '#7c3aed', chipBg: '#ede9fe', chipFg: '#6d28d9' },
+  print: { avatar: '#64748b', chipBg: '#f1f5f9', chipFg: '#475569' },
+};
+const NO_ROLE_TONE = { avatar: '#9ca3af', chipBg: '#fee2e2', chipFg: '#b91c1c' };
+
+/** Bộ lọc là MỘT hàng chip chọn một (2026-10-20) thay cho 2 dropdown: trạng thái và quyền gộp
+ *  chung, vì quán vài người thì không ai cần lọc "Bếp mà đang tạm nghỉ" — còn bấm một chip thì
+ *  nhanh hơn mở dropdown hai lần. */
+type Filter = 'all' | 'active' | 'suspended' | Role;
+
 export function AdminUsersPage() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -39,9 +58,13 @@ export function AdminUsersPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [pwdTarget, setPwdTarget] = useState<UserRow | null>(null);
+  const [qrTarget, setQrTarget] = useState<UserRow | null>(null);
   const [showTemp, setShowTemp] = useState<{ user: string; temp: string } | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'suspended'>('all');
-  const [roleFilter, setRoleFilter] = useState<'all' | Role>('all');
+  const [filter, setFilter] = useState<Filter>('all');
+  /** Id các mã QR ĐANG DÙNG — để nút trên thẻ nói được "Ẩn 1/3 mã" chứ không chỉ "Ẩn 1 mã", và
+   *  để không đếm id của mã đã ngừng dùng còn sót trong danh sách ẩn. `null` = chưa tải/hỏng,
+   *  khi đó nút rơi về cách nói không cần tổng. */
+  const [activeQrIds, setActiveQrIds] = useState<string[] | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -57,6 +80,10 @@ export function AdminUsersPage() {
 
   useEffect(() => {
     refresh();
+    api
+      .get<{ data: { items: { id: string }[] } }>('/payment-qr')
+      .then((res) => setActiveQrIds(res.data.data.items.map((q) => q.id)))
+      .catch(() => setActiveQrIds(null));
   }, []);
 
   /** Bật/tắt quyền thu chuyển khoản. Cập nhật LẠC QUAN rồi mới gọi API, và trả về trạng thái cũ
@@ -141,10 +168,10 @@ export function AdminUsersPage() {
   const roleCount = (r: Role) => items.filter((u) => u.role === r).length;
   const filtered = items
     .filter((u) => {
-      if (statusFilter === 'active' && !u.is_active) return false;
-      if (statusFilter === 'suspended' && u.is_active) return false;
-      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
-      return true;
+      if (filter === 'all') return true;
+      if (filter === 'active') return u.is_active;
+      if (filter === 'suspended') return !u.is_active;
+      return u.role === filter;
     })
     // Đang làm lên trước, rồi theo tên — dễ quản lý
     .sort(
@@ -153,69 +180,42 @@ export function AdminUsersPage() {
         (a.full_name || a.username).localeCompare(b.full_name || b.username),
     );
 
+  // Chip quyền chỉ hiện khi có ít nhất một người — chip "Máy in 0" chỉ là thêm một thứ để đọc.
+  // Ba chip trạng thái thì luôn hiện, kể cả "Tạm nghỉ 0": đó là câu trả lời chủ quán cần biết.
+  const chips: { key: Filter; label: string; count: number }[] = [
+    { key: 'all', label: 'Tất cả', count: items.length },
+    { key: 'active', label: 'Đang làm', count: activeCount },
+    { key: 'suspended', label: 'Tạm nghỉ', count: suspendedCount },
+    ...(['admin', 'order', 'kitchen', 'report', 'print'] as Role[])
+      .map((r) => ({ key: r as Filter, label: ROLE_LABEL[r], count: roleCount(r) }))
+      .filter((c) => c.count > 0),
+  ];
+
   return (
-    <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>👥 Quản lý nhân sự</h1>
-        <button onClick={() => setShowCreate(true)}>+ Thêm</button>
+    <div className="container wide with-bottom-nav nv-ui">
+      <div className="nv-toolbar">
+        <h1>👥 Nhân sự</h1>
+        <button type="button" className="nv-add" onClick={() => setShowCreate(true)}>
+          + Thêm
+        </button>
       </div>
 
-      {/* Tổng quan — MỘT hàng chip, không phải lưới 4 thẻ.
-          Lưới cũ `minmax(130px, 1fr)` trên máy 390px thành 2×2 cao ~200px, tức là gần một phần
-          tư màn hình chỉ để nói 4 con số mà quán 4 nhân viên thì liếc danh sách là biết. Chip
-          một dòng nói đúng chừng ấy trong ~35px (chủ quán báo 2026-09-06). */}
+      {/* Một hàng chip thay cho 4 ô thống kê + 2 dropdown (2026-10-20): chip vừa NÓI con số vừa
+          là nút LỌC, nên không còn hai khối nói cùng một chuyện. Điện thoại vuốt ngang. */}
       {!loading && items.length > 0 && (
-        <div className="usr-stats" style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
-          <UserStat label="Tổng nhân sự" value={items.length} color="#334155" bg="#f8fafc" border="#e2e8f0" />
-          <UserStat label="Đang làm" value={activeCount} color="#059669" bg="#ecfdf5" border="#d1fae5" />
-          <UserStat label="Tạm nghỉ" value={suspendedCount} color="#b45309" bg="#fffbeb" border="#fde68a" />
-          <UserStat
-            label="Theo quyền"
-            valueNode={
-              <span style={{ fontWeight: 600 }}>
-                👑 {roleCount('admin')} · 🍽 {roleCount('order')} · 👨‍🍳 {roleCount('kitchen')} · 📊{' '}
-                {roleCount('report')}
-              </span>
-            }
-            color="#334155"
-            bg="#f8fafc"
-            border="#e2e8f0"
-          />
-        </div>
-      )}
-
-      {/* Bộ lọc — 2 dropdown thay cho 2 hàng viên thuốc (chỉ đạo chủ quán 2026-09-06).
-          7 viên thuốc wrap thành 3-4 hàng, cao ~110px và còn phình thêm mỗi lần thêm một quyền
-          mới; 2 dropdown thì cao 44px và không đổi dù có bao nhiêu lựa chọn. */}
-      {!loading && items.length > 0 && (
-        <div className="card" style={{ padding: 10, marginBottom: 14, display: 'flex', gap: 8 }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Select
-              value={statusFilter}
-              onChange={setStatusFilter}
-              ariaLabel="Lọc theo trạng thái"
-              neutralValue="all"
-              full
-              options={[
-                { value: 'all', label: 'Tất cả trạng thái' },
-                { value: 'active', label: '● Đang làm' },
-                { value: 'suspended', label: '⏸ Tạm nghỉ' },
-              ]}
-            />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <Select
-              value={roleFilter}
-              onChange={setRoleFilter}
-              ariaLabel="Lọc theo quyền"
-              neutralValue="all"
-              full
-              options={[
-                { value: 'all', label: 'Tất cả quyền' },
-                ...ROLE_OPTIONS.map((r) => ({ value: r, label: ROLE_LABEL[r] })),
-              ]}
-            />
-          </div>
+        <div className="nv-chips" role="tablist" aria-label="Lọc nhân sự">
+          {chips.map((c) => (
+            <button
+              key={c.key}
+              type="button"
+              role="tab"
+              aria-selected={filter === c.key}
+              className={`nv-chip${filter === c.key ? ' active' : ''}`}
+              onClick={() => setFilter(c.key)}
+            >
+              {c.label} <span className="nv-cnt">{c.count}</span>
+            </button>
+          ))}
         </div>
       )}
 
@@ -230,101 +230,37 @@ export function AdminUsersPage() {
         <div className="empty-state card">Không có nhân sự khớp bộ lọc.</div>
       )}
       {filtered.length > 0 && (
-        <table className="responsive card" style={{ padding: 0 }}>
-          <thead>
-            <tr>
-              <th>Họ và tên</th>
-              <th>Tên đăng nhập</th>
-              <th>Quyền</th>
-              <th>Thu CK</th>
-              <th>Trạng thái</th>
-              <th>Tạo lúc</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((u) => (
-              <tr key={u.id} style={{ opacity: u.is_active ? 1 : 0.72 }}>
-                <td data-label="Họ và tên">
-                  <strong>{u.full_name || <span style={{ color: '#9ca3af', fontWeight: 400 }}>—</span>}</strong>
-                </td>
-                <td data-label="Tên đăng nhập"><code>{u.username}</code></td>
-                <td data-label="Quyền">
-                  {u.role ? ROLE_LABEL[u.role] : (
-                    <span style={{ color: '#dc2626', fontSize: 12 }}>⚠ Chưa gán (chặn login)</span>
+        <div className="nv-grid">
+          {filtered.map((u) => (
+            <UserCard
+              key={u.id}
+              u={u}
+              onToggleTransfer={() => toggleTransfer(u)}
+              onOpenQr={() => setQrTarget(u)}
+              activeQrIds={activeQrIds}
+              menu={
+                <ActionsMenu>
+                  {(close) => (
+                    <>
+                      <MenuItem onClick={() => { close(); setEditing(u); }}>✏️ Sửa</MenuItem>
+                      <MenuItem onClick={() => { close(); setPwdTarget(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
+                      {!u.is_owner && (
+                        u.is_active ? (
+                          <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}>⏸ Tạm nghỉ</MenuItem>
+                        ) : (
+                          <MenuItem color="#059669" onClick={() => { close(); reactivate(u); }}>▶ Cho làm lại</MenuItem>
+                        )
+                      )}
+                      {!u.is_owner && (
+                        <MenuItem color="#dc2626" onClick={() => { close(); hardDelete(u); }}>🗑 Xoá vĩnh viễn</MenuItem>
+                      )}
+                    </>
                   )}
-                </td>
-                {/* Công tắc thu chuyển khoản — bấm thẳng trong bảng, không chôn trong menu Sửa:
-                    chủ quán bật tắt cái này theo ca và theo người, chứ không phải sửa hồ sơ. */}
-                <td data-label="Thu CK">
-                  {/* Quản lý (`role === 'admin'`) đứng chung cột với chủ quán: BE không đọc cờ của
-                      họ nữa (xem `canCollectTransfer`), nên bày nút bấm ở đây là bày một cái công
-                      tắc bấm xong không đổi gì — đúng kiểu làm người ta tưởng đã tắt quyền. */}
-                  {u.is_owner || u.role === 'admin' ? (
-                    <span
-                      style={{ color: '#6b7280', fontSize: 12 }}
-                      title={
-                        u.is_owner
-                          ? 'Chủ quán luôn được thu chuyển khoản'
-                          : 'Quản lý luôn được thu chuyển khoản và xem ảnh bill'
-                      }
-                    >
-                      luôn được
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => toggleTransfer(u)}
-                      aria-pressed={u.can_collect_transfer}
-                      title={
-                        u.can_collect_transfer
-                          ? 'Đang được thu chuyển khoản — bấm để tắt'
-                          : 'Không được thu chuyển khoản — bấm để bật'
-                      }
-                      style={{
-                        minHeight: 36,
-                        padding: '4px 10px',
-                        color: u.can_collect_transfer ? '#065f46' : '#6b7280',
-                        background: u.can_collect_transfer ? '#d1fae5' : '#f3f4f6',
-                      }}
-                    >
-                      {u.can_collect_transfer ? '🏦 Được thu' : '✕ Không'}
-                    </button>
-                  )}
-                </td>
-                <td data-label="Trạng thái">
-                  {u.is_active ? (
-                    <span style={{ color: '#059669', fontWeight: 600 }}>● Đang làm</span>
-                  ) : (
-                    <span style={{ color: '#b45309', fontWeight: 600 }}>⏸ Tạm nghỉ</span>
-                  )}
-                </td>
-                <td data-label="Tạo lúc">{new Date(u.created_at).toLocaleString('vi-VN')}</td>
-                <td data-label="Hành động">
-                  <ActionsMenu>
-                    {(close) => (
-                      <>
-                        <MenuItem onClick={() => { close(); setEditing(u); }}>✏️ Sửa</MenuItem>
-                        <MenuItem onClick={() => { close(); setPwdTarget(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
-                        {!u.is_owner && (
-                          u.is_active ? (
-                            <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}>⏸ Tạm nghỉ</MenuItem>
-                          ) : (
-                            <MenuItem color="#059669" onClick={() => { close(); reactivate(u); }}>▶ Cho làm lại</MenuItem>
-                          )
-                        )}
-                        {!u.is_owner && (
-                          <MenuItem color="#dc2626" onClick={() => { close(); hardDelete(u); }}>🗑 Xoá vĩnh viễn</MenuItem>
-                        )}
-                      </>
-                    )}
-                  </ActionsMenu>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </ActionsMenu>
+              }
+            />
+          ))}
+        </div>
       )}
 
       {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={() => { setShowCreate(false); refresh(); }} />}
@@ -333,6 +269,19 @@ export function AdminUsersPage() {
           user={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); refresh(); }}
+        />
+      )}
+      {qrTarget && (
+        <QrVisibilityDialog
+          userId={qrTarget.id}
+          userName={qrTarget.full_name || qrTarget.username}
+          hiddenIds={qrTarget.hidden_payment_qr_ids}
+          onClose={() => setQrTarget(null)}
+          onSaved={(hidden) => {
+            const id = qrTarget.id;
+            setItems((prev) => prev.map((x) => (x.id === id ? { ...x, hidden_payment_qr_ids: hidden } : x)));
+            setQrTarget(null);
+          }}
         />
       )}
       {pwdTarget && (
@@ -358,6 +307,96 @@ export function AdminUsersPage() {
             </p>
             <button onClick={() => setShowTemp(null)} style={{ width: '100%' }}>Đã chép, đóng</button>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Thẻ một nhân viên (2026-10-20) — thay cho một dòng bảng 7 cột.
+ *
+ *  Dải "Thu chuyển khoản" ở chân thẻ chỉ có cho người mà công tắc CÓ tác dụng:
+ *  - Chủ quán/quản lý: BE không đọc cờ của họ (xem `canCollectTransfer`, `qrHiddenFor`), nên thay
+ *    bằng một dòng chữ — bày công tắc ra là bày thứ bấm được mà không đổi gì.
+ *  - Máy in: không phải một người, không bao giờ thu tiền.
+ *  Hàng "Mã QR được dùng" chỉ hiện khi đang bật thu: không được thu thì đằng nào cũng không thấy mã. */
+function UserCard({
+  u,
+  onToggleTransfer,
+  onOpenQr,
+  activeQrIds,
+  menu,
+}: {
+  u: UserRow;
+  onToggleTransfer: () => void;
+  onOpenQr: () => void;
+  activeQrIds: string[] | null;
+  menu: ReactNode;
+}) {
+  const tone = u.role ? ROLE_TONE[u.role] : NO_ROLE_TONE;
+  const displayName = u.full_name || u.username;
+  const isBoss = u.is_owner || u.role === 'admin';
+  const hiddenQr = activeQrIds
+    ? u.hidden_payment_qr_ids.filter((id) => activeQrIds.includes(id)).length
+    : u.hidden_payment_qr_ids.length;
+  const qrLabel = !activeQrIds
+    ? hiddenQr > 0 ? `Ẩn ${hiddenQr} mã` : 'Thấy mọi mã'
+    : hiddenQr > 0 ? `Ẩn ${hiddenQr}/${activeQrIds.length} mã` : `Tất cả ${activeQrIds.length} mã`;
+
+  return (
+    <div className={`nv-card${u.is_active ? '' : ' off'}`}>
+      <div className="nv-top">
+        <div className="nv-avatar" style={{ background: tone.avatar }} aria-hidden>
+          {displayName.trim().charAt(0).toUpperCase()}
+        </div>
+        <div className="nv-person">
+          <div className={`nv-name${u.full_name ? '' : ' noname'}`}>{u.full_name || '— chưa đặt tên'}</div>
+          <div className="nv-meta">
+            <span className="nv-username">{u.username}</span>
+            <span className="nv-role" style={{ background: tone.chipBg, color: tone.chipFg }}>
+              {u.role ? ROLE_LABEL[u.role] : '⚠ Chưa gán quyền (chặn đăng nhập)'}
+            </span>
+          </div>
+        </div>
+        <div className="nv-side">
+          {u.is_active ? (
+            <span className="nv-status on"><i />Đang làm</span>
+          ) : (
+            <span className="nv-status off"><i />Tạm nghỉ</span>
+          )}
+          {menu}
+        </div>
+      </div>
+
+      {isBoss ? (
+        <div className="nv-ck-note">🔒 Luôn được thu và thấy mọi mã QR</div>
+      ) : u.role !== 'print' && (
+        <div className="nv-ck">
+          <div className="nv-ck-row">
+            <span className="nv-ck-label">Thu chuyển khoản</span>
+            <button
+              type="button"
+              className="nv-switch"
+              role="switch"
+              aria-checked={u.can_collect_transfer}
+              onClick={onToggleTransfer}
+            >
+              <span className="nv-track" />
+              <span className="nv-switch-txt">{u.can_collect_transfer ? 'Được thu' : 'Không'}</span>
+            </button>
+          </div>
+          {u.can_collect_transfer && (
+            <div className="nv-ck-row">
+              <span className="nv-ck-label">Mã QR được dùng</span>
+              <button
+                type="button"
+                className={`nv-qr-btn${hiddenQr > 0 ? ' some-hidden' : ''}`}
+                onClick={onOpenQr}
+              >
+                {qrLabel} ›
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -390,7 +429,16 @@ function ActionsMenu({ children }: { children: (close: () => void) => ReactNode 
         onClick={() => setOpen((v) => !v)}
         aria-label="Hành động"
         aria-expanded={open}
-        style={{ padding: '6px 12px', fontWeight: 700, lineHeight: 1 }}
+        style={{
+          width: 44,
+          height: 44,
+          padding: 0,
+          fontSize: 20,
+          fontWeight: 700,
+          lineHeight: 1,
+          border: '1px solid #e5e7eb',
+          borderRadius: 10,
+        }}
       >
         ⋯
       </button>
@@ -451,43 +499,6 @@ function MenuItem({
   );
 }
 
-function UserStat({
-  label,
-  value,
-  valueNode,
-  color,
-  bg,
-  border,
-}: {
-  label: string;
-  value?: number;
-  valueNode?: ReactNode;
-  color: string;
-  bg: string;
-  border: string;
-}) {
-  return (
-    // Chip MỘT DÒNG: nhãn và số nằm cạnh nhau chứ không xếp chồng. Xếp chồng làm mỗi ô cao
-    // ~55px, bốn ô thành 2 hàng ~200px; nằm ngang thì cả bốn vừa 1-2 hàng ~35-70px mà vẫn đọc
-    // được đủ chữ. `flex: 1 1 auto` để chúng tự dàn cho kín hàng thay vì để lại khe trống.
-    <div
-      className="card"
-      style={{
-        flex: '1 1 auto',
-        display: 'flex',
-        alignItems: 'baseline',
-        gap: 6,
-        padding: '7px 11px',
-        background: bg,
-        border: `1px solid ${border}`,
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <span style={{ fontSize: 12, color: '#6b7280' }}>{label}</span>
-      <span style={{ fontSize: 16, fontWeight: 700, color }}>{valueNode ?? value}</span>
-    </div>
-  );
-}
 
 function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const toast = useToast();

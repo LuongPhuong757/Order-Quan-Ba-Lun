@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { SettingsService } from './settings.service.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { PaymentQrAccount } from './entities/payment-qr-account.entity.js';
+import { visibleQrFor } from './qr-visibility.js';
 
 @Controller('payment-qr')
 @UseGuards(JwtAuthGuard)
@@ -44,10 +45,14 @@ export class PaymentQrActiveController {
       req,
       all ? 'Bạn không được xem danh sách tài khoản nhận tiền của quán.' : undefined,
     );
-    const items = await this.repo.find({
+    const rows = await this.repo.find({
       where: all ? {} : { is_active: true },
       order: { sort_order: 'ASC', created_at: 'ASC' },
     });
+    // Ẩn mã theo từng người (2026-10-20) — CHỈ ở đường thu tiền. Ô lọc Lịch sử
+    // (`include_inactive=1`) nhìn về quá khứ để đối soát: đơn cũ đã về mã đó thì vẫn phải lọc
+    // ra được, chủ quán chốt không ẩn ở đây.
+    const items = all ? rows : visibleQrFor(rows, req.user?.hidden_payment_qr_ids ?? []);
     return {
       data: {
         /**

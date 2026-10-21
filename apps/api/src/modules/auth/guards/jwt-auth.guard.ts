@@ -12,6 +12,7 @@ import { Repository } from 'typeorm';
 import { JwtService, JwtPayload } from '../jwt.service.js';
 import { User, canCollectTransfer } from '../entities/user.entity.js';
 import { RevokedJti } from '../entities/revoked-jti.entity.js';
+import { qrHiddenFor } from '../../settings/qr-visibility.js';
 import { isBlockedWrite } from '../read-only-role.js';
 import { isBlockedForPrintRole } from '../print-role.js';
 
@@ -77,6 +78,9 @@ export class JwtAuthGuard implements CanActivate {
       // KHÔNG nhét vào token: nhét vào token thì chủ quán tắt công tắc xong nhân viên vẫn thu
       // được cho tới lúc đăng xuất — thường là hết ca, tức công tắc vô dụng đúng lúc cần nhất.
       can_collect_transfer: canCollectTransfer(user),
+      // Cùng lý do đọc từ DB mỗi request như dòng trên: chủ quán ẩn một mã thì lần mở hộp thoại
+      // thu tiền kế tiếp đã không còn thấy, không phải đợi đăng xuất.
+      hidden_payment_qr_ids: qrHiddenFor(user),
       jti: payload.jti,
     };
 

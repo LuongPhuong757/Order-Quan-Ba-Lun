@@ -779,7 +779,11 @@ export function QrStep({
 
       {!loadFailed && options.length === 0 && (
         <div style={{ background: '#f3f4f6', padding: 10, borderRadius: 8, fontSize: 13, color: '#6b7280' }}>
-          Chưa có mã QR nào. Chủ quán thêm ở Cài đặt → Mã QR nhận tiền.
+          {/* Rỗng có hai nguồn (2026-10-20): quán chưa có mã nào, HOẶC chủ quán đã ẩn hết mã với
+              người đang thu (màn Nhân viên). Server không nói là nguồn nào — câu phải chỉ cả hai
+              đường để người thu nhờ đúng việc. */}
+          Không có mã QR nào cho bạn. Nhờ chủ quán thêm mã ở Cài đặt → Mã QR nhận tiền, hoặc bật mã
+          cho bạn ở màn Nhân viên.
         </div>
       )}
 

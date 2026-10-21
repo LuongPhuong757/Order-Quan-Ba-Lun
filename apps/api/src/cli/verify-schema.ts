@@ -155,7 +155,7 @@ const CHECKS: TableCheck[] = [
     table: 'users',
     // Thiếu cột này thì `JwtAuthGuard` đọc `undefined` → KHÔNG AI thu được chuyển khoản, và
     // triệu chứng duy nhất là nút biến mất khỏi hộp thoại thu tiền.
-    requiredColumns: ['can_collect_transfer'],
+    requiredColumns: ['can_collect_transfer', 'hidden_payment_qr_ids'],
   },
   {
     table: 'supplier_users',
