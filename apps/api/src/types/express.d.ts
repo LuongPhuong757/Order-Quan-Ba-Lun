@@ -15,6 +15,9 @@ declare global {
         /** Được thu chuyển khoản + xem ảnh bill (2026-09-14). Owner luôn true — xem
          *  `canCollectTransfer()` ở user.entity.ts. */
         can_collect_transfer: boolean;
+        /** Id mã QR bị chủ quán ẩn với người này (2026-10-20). Owner/admin luôn `[]` — xem
+         *  `qrHiddenFor()` ở qr-visibility.ts. */
+        hidden_payment_qr_ids: string[];
         jti: string;
       };
     }
