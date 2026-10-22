@@ -162,10 +162,11 @@ function staffHistoryWindowMs(req: Request): number | undefined {
   return role === 'admin' || role === 'report' ? undefined : STAFF_HISTORY_WINDOW_MS;
 }
 
-/** Order + bếp KHÔNG thấy đơn đã thanh toán ở nhật ký bàn (chủ quán chốt 2026-10-20) — cùng
- *  tập người với giới hạn 48h ở trên. Xem `exclude_paid` ở `listHistory`. */
-function staffHidesPaidOrders(req: Request): boolean {
-  return staffHistoryWindowMs(req) !== undefined;
+/** Order + bếp chỉ thấy đơn đã thanh toán do CHÍNH MÌNH thu (2026-10-20 ẩn hết, 2026-10-22 nới
+ *  cho đơn của mình) — cùng tập người với giới hạn 48h ở trên. Trả id người cần lọc, `undefined`
+ *  = không lọc (admin + report). Xem `paid_only_by_user_id` ở `listHistory`. */
+function staffPaidOnlyByUserId(req: Request): string | undefined {
+  return staffHistoryWindowMs(req) !== undefined ? req.user!.sub : undefined;
 }
 
 @Controller('orders')
@@ -387,11 +388,12 @@ export class OrdersController {
    * người phát hiện tờ hoá đơn bị kẹt giấy, và bắt họ đi tìm admin để in lại một tờ giấy là
    * cách chắc chắn nhất khiến tính năng này không được dùng.
    *
-   * Tờ in ra mang dấu "BẢN IN LẠI" kèm giờ — xem `buildReceipt`. Bếp không có quyền ở đây:
-   * hoá đơn là chuyện tiền, không liên quan nghiệp vụ bếp.
+   * Tờ in ra mang dấu "BẢN IN LẠI" kèm giờ — xem `buildReceipt`. Bếp thêm vào 2026-10-22: bếp
+   * cầm máy lúc đông khách vẫn thu tiền được, và nhật ký giờ cho bếp thấy đơn mình thu kèm nút
+   * in lại (xem `staffPaidOnlyByUserId`).
    */
   @Post(':id/print')
-  @UseGuards(RequireRoles('admin', 'order'))
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
   async reprint(@Param('id') id: string, @Req() req: Request) {
     const job = await this.printing.enqueue(id, 'REPRINT', { full_name: req.user!.full_name });
     // `queued: false` = công tắc in đang TẮT hoặc chưa cấu hình máy in. Trả 200 kèm cờ thay vì
@@ -437,9 +439,9 @@ export class OrdersController {
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
    *
    * Admin + report: đầy đủ, không giới hạn thời gian.
-   * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), và KHÔNG có đơn đã thanh toán
-   *   (staffHidesPaidOrders, 2026-10-20). Số tiền của những đơn còn lại vẫn có trong JSON —
-   *   FE tự che (chủ quán chọn che giao diện là đủ, xem `canSeeMoney` ở HistoryPage). */
+   * Order + bếp: 48h gần nhất (xem staffHistoryWindowMs), và đơn đã thanh toán chỉ có đơn
+   *   chính họ thu (staffPaidOnlyByUserId, 2026-10-22). Số tiền của những đơn còn lại vẫn có
+   *   trong JSON — FE tự che (chủ quán chọn che giao diện là đủ, xem `canSeeMoney` ở HistoryPage). */
   @Get('history')
   @UseGuards(RequireRoles('admin', 'order', 'kitchen', 'report'))
   async history(@Query() q: Record<string, string>, @Req() req: Request) {
@@ -468,7 +470,7 @@ export class OrdersController {
       page: q.page ? Number(q.page) : 1,
       page_size: q.page_size ? Number(q.page_size) : 20,
       max_age_ms: staffHistoryWindowMs(req),
-      exclude_paid: staffHidesPaidOrders(req),
+      paid_only_by_user_id: staffPaidOnlyByUserId(req),
     });
     return { data: result };
   }

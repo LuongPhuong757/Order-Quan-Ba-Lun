@@ -1808,11 +1808,14 @@ export class OrdersService {
     /** Giới hạn tuổi đơn được xem (nhân viên order: 48h). Chặn ở server, không
      * chỉ ẩn ở UI — sửa query string trên URL cũng không lùi xa hơn được. */
     max_age_ms?: number;
-    /** Bỏ hẳn đơn ĐÃ THANH TOÁN (nhân viên order + bếp, chủ quán chốt 2026-10-20): họ chỉ cần
-     *  theo dõi bàn đang chạy / đã huỷ / đang nợ, còn đơn đã thu là chuyện tiền của chủ. Lọc ở
-     *  SQL chứ không lọc ở FE: lọc sau khi đã cắt trang thì trang toàn đơn đã thu thành trang
-     *  trắng và `total` đếm sai. Chồng lên `status` — chọn 'paid' mà cờ này bật thì ra rỗng. */
-    exclude_paid?: boolean;
+    /** Đơn ĐÃ THANH TOÁN chỉ giữ những đơn CHÍNH người này thu (nhân viên order + bếp).
+     *  2026-10-20 chủ quán chốt bỏ hẳn đơn đã thu khỏi nhật ký của họ; 2026-10-22 nới ra: đơn
+     *  mình tự thu thì vẫn thấy (kèm tiền, ảnh bill, in lại) để tự đối chiếu ca — đơn người khác
+     *  thu vẫn ẩn. "Người thu" = người thu nợ nếu đơn từng nợ, không thì người trả bàn: đơn nợ do
+     *  admin thu thì tiền vào tay admin, nhân viên ghi nợ không được thấy nó thành "của mình".
+     *  Lọc ở SQL chứ không lọc ở FE: lọc sau khi đã cắt trang thì trang toàn đơn đã thu thành
+     *  trang trắng và `total` đếm sai. Chồng lên `status` — tab 'paid' chỉ ra đơn của mình. */
+    paid_only_by_user_id?: string;
   }): Promise<{ items: Array<Order & { table_name: string }>; total: number; page: number; page_size: number }> {
     const page = Math.max(1, opts.page || 1);
     const page_size = Math.min(100, Math.max(1, opts.page_size || 20));
@@ -1825,7 +1828,10 @@ export class OrdersService {
       wheres.push('o.opened_at >= :floor');
       params.floor = new Date(Date.now() - opts.max_age_ms);
     }
-    if (opts.exclude_paid) wheres.push(`NOT (${PAID_SQL})`);
+    if (opts.paid_only_by_user_id) {
+      wheres.push(`(NOT (${PAID_SQL}) OR COALESCE(o.debt_paid_by_user_id, o.checked_out_by_user_id) = :paidby)`);
+      params.paidby = opts.paid_only_by_user_id;
+    }
     // 4 trạng thái kết đơn (xem PAID/DEBT/CANCELLED_SQL): đã thanh toán / đang nợ / đã huỷ / đang dùng.
     if (status === 'paid') wheres.push(PAID_SQL);
     else if (status === 'debt') wheres.push(DEBT_SQL);
