@@ -167,25 +167,30 @@ describe('ghi nợ lúc thanh toán', () => {
   }, 20_000);
 });
 
-describe('nhật ký bàn của nhân viên — exclude_paid (2026-10-20)', () => {
-  it('bỏ đơn đã thu; đơn đang dùng / đang nợ vẫn còn, đơn nợ thu xong thì biến mất', async () => {
-    const paid = await insertOpenOrder([50_000]);
-    await svc.checkout(paid, CASHIER, false);
+describe('nhật ký bàn của nhân viên — paid_only_by_user_id (2026-10-22)', () => {
+  it('đơn đã thu chỉ giữ đơn CHÍNH MÌNH thu; đang dùng / đang nợ vẫn còn; nợ admin thu thì biến mất', async () => {
+    const OTHER = { id: randomUUID(), full_name: 'Thu ngân khác' };
+    const mine = await insertOpenOrder([50_000]);
+    await svc.checkout(mine, CASHIER, false);
+    const others = await insertOpenOrder([40_000]);
+    await svc.checkout(others, OTHER, false);
     const debt = await insertOpenOrder([70_000]);
     await svc.checkout(debt, CASHIER, false, undefined, { note: 'Anh Tuấn' });
     const open = await insertOpenOrder([30_000]);
 
-    const staff = await svc.listHistory({ table_id: tableId, exclude_paid: true });
-    expect(staff.items.map((o) => o.id).sort()).toEqual([debt, open].sort());
-    expect(staff.total).toBe(2);
-    // Chồng lên tab: chọn "Đã thanh toán" mà cờ bật thì rỗng, không lách được qua status.
-    expect((await svc.listHistory({ table_id: tableId, status: 'paid', exclude_paid: true })).total).toBe(0);
-    // Admin (không bật cờ) vẫn thấy đủ cả ba.
-    expect((await svc.listHistory({ table_id: tableId })).total).toBe(3);
+    const staff = await svc.listHistory({ table_id: tableId, paid_only_by_user_id: CASHIER.id });
+    expect(staff.items.map((o) => o.id).sort()).toEqual([mine, debt, open].sort());
+    expect(staff.total).toBe(3);
+    // Tab "Đã thanh toán": chỉ đơn của mình, không lách được qua status để thấy đơn người khác.
+    const paidTab = await svc.listHistory({ table_id: tableId, status: 'paid', paid_only_by_user_id: CASHIER.id });
+    expect(paidTab.items.map((o) => o.id)).toEqual([mine]);
+    // Admin (không lọc) vẫn thấy đủ cả bốn.
+    expect((await svc.listHistory({ table_id: tableId })).total).toBe(4);
 
+    // Nợ do ADMIN thu → tiền vào tay admin, không thành đơn "của mình" với người ghi nợ.
     await svc.settleDebt(debt, ADMIN, false);
-    const after = await svc.listHistory({ table_id: tableId, exclude_paid: true });
-    expect(after.items.map((o) => o.id)).toEqual([open]);
+    const after = await svc.listHistory({ table_id: tableId, paid_only_by_user_id: CASHIER.id });
+    expect(after.items.map((o) => o.id).sort()).toEqual([mine, open].sort());
   }, 20_000);
 });
 
