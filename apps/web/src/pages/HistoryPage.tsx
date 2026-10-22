@@ -266,6 +266,11 @@ export function HistoryPage() {
    *  CHỈ che giao diện — API vẫn trả số (chủ quán chọn: ở quán không ai mở công cụ trình duyệt).
    *  Cùng tập người với `canSeeStats`, tách tên để chỗ dùng nói đúng việc nó gác. */
   const canSeeMoney = canSeeStats;
+  /** Ngoại lệ của `canSeeMoney` (chủ quán 2026-10-22): đơn ĐÃ THANH TOÁN thì Order/Bếp thấy đủ
+   *  tiền, ảnh bill, nút in lại. An toàn vì server chỉ trả cho họ đơn đã thu do CHÍNH HỌ thu
+   *  (`paid_only_by_user_id` ở BE) — đơn người khác thu không bao giờ tới FE. Đơn đang dùng / huỷ /
+   *  nợ vẫn che như cũ. */
+  const canSeeOrderMoney = (o: HistoryOrder) => canSeeMoney || (!!o.closed_at && o.is_paid);
   const [tables, setTables] = useState<Table[]>([]);
   const [cashiers, setCashiers] = useState<Cashier[]>([]);
   const [orders, setOrders] = useState<HistoryOrder[]>([]);
@@ -548,6 +553,9 @@ export function HistoryPage() {
   // Bếp xem được lịch sử nhưng không đối soát kế toán → chỉ thấy badge, không bấm được.
   // BE cũng chặn bằng RequireRoles('admin','order'); đây chỉ là lớp UX.
   const canMarkMisa = ['admin', 'order'].includes(user?.role ?? (user?.is_owner ? 'admin' : ''));
+  /** In lại hoá đơn: thêm bếp so với `canMarkMisa` (2026-10-22) — bếp cũng thu tiền được và giờ
+   *  thấy đơn mình thu. Khớp `RequireRoles` của `POST /orders/:id/print`. */
+  const canReprint = ['admin', 'order', 'kitchen'].includes(user?.role ?? (user?.is_owner ? 'admin' : ''));
 
   /** Tick / bỏ tick "đã gõ sang MISA" ngay trên dòng lịch sử.
    *
@@ -825,18 +833,16 @@ export function HistoryPage() {
           <StatusPill active={!misaFilter && statusFilter === 'all'} onClick={() => selectTab('all')}>
             Tất cả
           </StatusPill>
-          {/* Order/Bếp không có tab này (2026-10-20): server đã bỏ hẳn đơn đã thu khỏi nhật ký của
-              họ (`exclude_paid`), bấm vào chỉ ra danh sách rỗng. */}
-          {canSeeMoney && (
-            <StatusPill
-              active={!misaFilter && statusFilter === 'paid'}
-              color="#059669"
-              bg="#d1fae5"
-              onClick={() => selectTab('paid')}
-            >
-              ✓ Đã thanh toán
-            </StatusPill>
-          )}
+          {/* Order/Bếp có lại tab này từ 2026-10-22 — server chỉ trả đơn chính họ thu
+              (`paid_only_by_user_id`), nên với họ tab này là "đơn tôi đã thu". */}
+          <StatusPill
+            active={!misaFilter && statusFilter === 'paid'}
+            color="#059669"
+            bg="#d1fae5"
+            onClick={() => selectTab('paid')}
+          >
+            ✓ Đã thanh toán
+          </StatusPill>
           <StatusPill
             active={!misaFilter && statusFilter === 'unpaid'}
             color="#b45309"
@@ -914,7 +920,8 @@ export function HistoryPage() {
         />
 
         {/* Bốn ô lọc dưới (hình thức thu, xác thực, ảnh bill, tài khoản nhận) chỉ có nghĩa với đơn
-            ĐÃ THU — Order/Bếp không còn thấy đơn đã thu (2026-10-20) nên ẩn cả cụm. */}
+            ĐÃ THU — Order/Bếp chỉ thấy đơn chính họ thu (2026-10-22), ít đơn không đáng thêm bốn ô,
+            và ô tài khoản nhận sẽ lộ tên mã QR bị ẩn với họ → vẫn ẩn cả cụm. */}
         {canSeeMoney && (
         <>
         {/* Hình thức thu tiền (2026-09-14). Ba giá trị khớp đúng ba badge trong bảng — lọc và
@@ -1319,7 +1326,7 @@ export function HistoryPage() {
                 <th>Món</th>
                 {/* Ô tiêu đề GIỮ LẠI (để trống) với Order/Bếp chứ không bỏ cột: lưới thẻ điện thoại
                     trong styles.css bám `nth-child` theo thứ tự cột, bớt một cột là lệch hết. */}
-                <th style={{ textAlign: 'right' }}>{canSeeMoney ? 'Tổng' : ''}</th>
+                <th style={{ textAlign: 'right' }}>Tổng</th>
                 {/* Căn giữa khớp với nội dung ô (xem `.txn-status-wrap` trong styles.css). */}
                 <th style={{ textAlign: 'center' }}>Trạng thái</th>
                 {/* Ngân hàng đã xác nhận chưa (2026-09-23) — thay cho khối đối soát đã gỡ. Cột
@@ -1371,6 +1378,7 @@ export function HistoryPage() {
                       // là tiền không bao giờ có.
                       const isDebt = !!o.closed_at && !o.is_paid && o.debt_at != null;
                       const isCancelled = !!o.closed_at && !o.is_paid && !isDebt;
+                      const showMoney = canSeeOrderMoney(o);
                       return (
                         <Fragment key={o.id}>
                           <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
@@ -1409,7 +1417,7 @@ export function HistoryPage() {
                               {cancelledCount > 0 && <span style={{ color: '#dc2626' }}> · huỷ {cancelledCount}</span>}
                             </td>
                             <td data-label="Tổng" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                              {canSeeMoney && (
+                              {showMoney && (
                                 <strong style={{ color: isPaid ? '#0f766e' : isCancelled ? '#dc2626' : '#b45309' }}>
                                   {fmt(total)}
                                 </strong>
@@ -1532,9 +1540,10 @@ export function HistoryPage() {
                                 )}
                                 {/* ⋯ gom "In lại hoá đơn" + "Chuyển sang nợ" (xem `rowMenu`). Chỉ đơn
                                     đã thu mới có gì để làm; quyền hiện từng mục xét trong menu.
-                                    Ẩn với Order/Bếp từ 2026-10-20: hoá đơn in lại có tổng tiền, và
-                                    "Chuyển sang nợ" là việc của admin (người duy nhất thu nợ). */}
-                                {isPaid && canMarkMisa && canSeeMoney && (
+                                    Order/Bếp: chỉ đơn chính họ thu mới tới đây (xem `canSeeOrderMoney`),
+                                    và trong menu họ chỉ có "In lại" — "Chuyển sang nợ" vẫn là việc
+                                    của admin (người duy nhất thu nợ). */}
+                                {isPaid && canReprint && (
                                   <button
                                     type="button"
                                     className="secondary"
@@ -1577,7 +1586,7 @@ export function HistoryPage() {
                           {isOpen && (
                             <tr>
                               <td className="txn-full" colSpan={verifyOn ? 9 : 8}>
-                                <HistoryOrderDetail order={o} showMoney={canSeeMoney} />
+                                <HistoryOrderDetail order={o} showMoney={showMoney} />
                               </td>
                             </tr>
                           )}
@@ -1616,8 +1625,8 @@ export function HistoryPage() {
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                {/* In lại: cùng quyền với cờ Misa (admin + order) và khớp `RequireRoles` ở BE —
-                    người đứng quầy phải tự in lại được. */}
+                {/* In lại: admin + order + bếp, khớp `RequireRoles` ở BE — người đứng quầy phải tự
+                    in lại được. */}
                 <button
                   type="button"
                   disabled={reprinting.has(rowMenuOrder.id)}
@@ -1877,7 +1886,8 @@ function PaymentPhotoBadge({
 }
 
 /** `showMoney = false` (Order/Bếp, 2026-10-20): giữ nguyên mọi HOẠT ĐỘNG — món, số phần, ai gọi /
- *  giao / huỷ, ghi nợ, nhật ký — chỉ bỏ con số tiền. Xem `canSeeMoney` ở `HistoryPage`. */
+ *  giao / huỷ, ghi nợ, nhật ký — chỉ bỏ con số tiền. Từ 2026-10-22 đơn đã thanh toán (chỉ đơn
+ *  chính họ thu) thì `true`. Xem `canSeeOrderMoney` ở `HistoryPage`. */
 function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMoney: boolean }) {
   const items = order.items || [];
   const grouped = {
