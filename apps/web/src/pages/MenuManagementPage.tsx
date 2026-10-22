@@ -113,6 +113,8 @@ export function MenuManagementPage() {
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
+  // Món đang xem ảnh toàn màn hình — ô ảnh trên thẻ chỉ ~72px, không soi được món trông ra sao.
+  const [zoomItem, setZoomItem] = useState<MenuItem | null>(null);
   /** Giá vốn một phần theo món, để hiện % tiền nguyên liệu ngay trên thẻ.
    *
    * Nguồn là `/supplier-reports/food-cost` — CÙNG một endpoint với tab "Giá vốn" ở màn Nhà cung
@@ -488,7 +490,12 @@ export function MenuManagementPage() {
                     giữ mọi thẻ thẳng hàng, còn ẩn hẳn thì lưới so le mỗi khi cuộn qua món không ảnh.
                     Dấu hết hàng nằm ĐÈ LÊN ảnh — thêm một dòng chữ vào thẻ là đẩy mọi thứ dưới nó
                     xuống và làm thẻ đó cao hơn hàng xóm (chủ quán: "đừng thêm dòng vỡ giao diện"). */}
-                <div className="mm-thumb">
+                {/* Chạm ô ảnh = xem ảnh toàn màn hình. Chỉ món CÓ ảnh mới bấm được: ô trống mà
+                    bấm ra một màn đen trơn thì người dùng tưởng app lỗi. */}
+                <div
+                  className={`mm-thumb${it.image_url ? ' is-zoomable' : ''}`}
+                  onClick={it.image_url ? () => setZoomItem(it) : undefined}
+                >
                   {it.image_url ? (
                     <img
                       src={it.image_url}
@@ -723,6 +730,21 @@ export function MenuManagementPage() {
             loadRecipeCounts(items.map((i) => i.id));
           }}
         />
+      )}
+      {/* Xem ảnh toàn màn hình: chạm BẤT KỲ đâu (cả ảnh) là đóng — người lớn tuổi không phải
+          dò tìm nút. Nút ✕ to vẫn để đó cho ai quen tìm nút đóng. Cùng kiểu với ảnh phiếu
+          giao hàng (DeliveryPhotosDialog) để hai chỗ xem ảnh trong app cư xử như nhau. */}
+      {zoomItem?.image_url && (
+        <div
+          className="mm-zoom"
+          onClick={() => setZoomItem(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Ảnh món ${zoomItem.name}`}
+        >
+          <img src={zoomItem.image_url} alt={zoomItem.name} />
+          <button type="button" className="mm-zoom-close" aria-label="Đóng">✕</button>
+        </div>
       )}
     </div>
   );
