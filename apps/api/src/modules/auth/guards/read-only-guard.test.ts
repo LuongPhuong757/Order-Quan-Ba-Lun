@@ -70,7 +70,7 @@ describe('JwtAuthGuard — chặn ghi cho role Báo cáo', () => {
     for (const [method, path] of [
       ['POST', '/orders/o1/items'],
       ['POST', '/orders/o1/checkout'],
-      ['PUT', '/supplier-deliveries/d1'],
+      ['POST', '/supplier-deliveries/d1/confirm'],
       ['PATCH', '/menu/m1'],
       ['DELETE', '/suppliers/s1'],
     ] as const) {

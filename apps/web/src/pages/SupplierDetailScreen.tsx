@@ -14,6 +14,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { useAuth } from '../lib/auth-context.tsx';
+import { laNguoiLapNhap } from '../lib/delivery-draft.ts';
 import type { DayRange } from '../lib/date-range.ts';
 import type { PairReport } from './SupplierReports.tsx';
 import {
@@ -68,6 +70,7 @@ export function SupplierDetailScreen({
   onChanged: () => void;
 }) {
   const toast = useToast();
+  const lapNhap = laNguoiLapNhap(useAuth().user);
   const confirm = useConfirm();
   const [detail, setDetail] = useState<BalanceDetail | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -201,6 +204,15 @@ export function SupplierDetailScreen({
         </section>
 
         {/* ---------- Hàng nút ---------- */}
+        {/* Role Báo cáo chỉ có MỘT việc ghi ở đây: lập phiếu nháp (2026-10-23). Không trả tiền,
+            không sửa NCC — những nút đó vẫn chỉ của admin. */}
+        {!isAdmin && lapNhap && (
+          <section className="actions" aria-label="Thao tác với nhà cung cấp">
+            <button className="btn btn--primary act-wide" type="button" onClick={onIntake}>
+              <Plus />Lập phiếu nháp
+            </button>
+          </section>
+        )}
         {isAdmin && (
           <section className="actions" aria-label="Thao tác với nhà cung cấp">
             <button className="btn btn--primary act-wide" type="button" onClick={onIntake}>

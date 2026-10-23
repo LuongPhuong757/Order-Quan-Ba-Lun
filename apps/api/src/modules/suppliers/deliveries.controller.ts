@@ -31,6 +31,7 @@ import {
 import { Type } from 'class-transformer';
 import type { Request } from 'express';
 import { DeliveriesService } from './deliveries.service.js';
+import type { Actor } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
@@ -108,12 +109,22 @@ const DELIVERY_PHOTO_MIMES = new Set([
   'image/heif',
 ]);
 
+/** Người đang thao tác, KÈM role — `DeliveriesService` dựa vào role để biết đây là phiếu nháp
+ * (role Báo cáo) hay phiếu thật (admin). Xem `chiLapNhap`. */
+function actorOf(req: Request): Actor {
+  return { id: req.user!.sub, full_name: req.user!.full_name, role: req.user!.role };
+}
+
 @Controller('supplier-deliveries')
 // Sàn là ReportGuard (admin + report) chứ không phải AdminGuard nữa: role `report` cần ĐỌC danh
 // sách phiếu nhập cho màn báo cáo. Mọi route GHI bên dưới đều được siết lại bằng `AdminGuard`
 // riêng — cố ý làm theo thứ tự "hạ sàn rồi siết lẻ" thay vì "mở lẻ từng GET": quên siết một
 // route ghi thì role `report` vẫn bị `isBlockedWrite` chặn (403 READ_ONLY_ROLE), còn order/bếp
 // vẫn bị sàn chặn. Làm ngược lại thì quên một chỗ là thủng thật.
+//
+// NGOẠI LỆ (2026-10-23): tạo / sửa / huỷ phiếu và thêm/xoá ảnh KHÔNG gắn `AdminGuard` nữa — role
+// `report` được lập phiếu NHÁP. Ba luật chặn nằm ở service (`chiLapNhap`, `assertNhapCuaMinh`,
+// `assertKhongHangMoi`), cổng mở ở `DRAFT_WRITE_PATTERNS`. `/confirm` vẫn admin-only.
 @UseGuards(JwtAuthGuard, ReportGuard)
 export class DeliveriesController {
   constructor(private readonly svc: DeliveriesService) {}
@@ -129,6 +140,13 @@ export class DeliveriesController {
       limit: q.limit ? Math.min(Math.max(Number(q.limit) || 0, 1), 2000) : undefined,
     });
     return { data: { items } };
+  }
+
+  /** Badge đỏ trên mục NCC ở nav admin. Khai TRƯỚC `:id` — Nest khớp route theo thứ tự khai,
+   * để sau thì "pending-count" bị hiểu là một id phiếu. */
+  @Get('pending-count')
+  async pendingCount() {
+    return { data: { count: await this.svc.pendingCount() } };
   }
 
   @Get(':id')
@@ -167,7 +185,6 @@ export class DeliveriesController {
    */
   @Post(':id/photos')
   @HttpCode(201)
-  @UseGuards(AdminGuard)
   @UseInterceptors(
     FilesInterceptor('files', DELIVERY_PHOTO_BATCH, {
       storage: memoryStorage(),
@@ -187,7 +204,13 @@ export class DeliveriesController {
       },
     }),
   )
-  async addPhotos(@Param('id') id: string, @UploadedFiles() files: Express.Multer.File[]) {
+  async addPhotos(
+    @Param('id') id: string,
+    @UploadedFiles() files: Express.Multer.File[],
+    @Req() req: Request,
+  ) {
+    // Soát quyền TRƯỚC `saveImage` — xem `assertDuocSua`.
+    await this.svc.assertDuocSua(id, actorOf(req));
     if (!files?.length) {
       throw new BadRequestException({ code: 'BAD_REQUEST', message: 'Chưa chọn ảnh nào' });
     }
@@ -206,19 +229,18 @@ export class DeliveriesController {
   /** Xoá ảnh — đường riêng `photos/:photoId` chứ không lồng dưới `:id` vì màn hình chỉ cầm
    * id của tấm ảnh, và một tấm ảnh chỉ thuộc đúng một phiếu. */
   @Delete('photos/:photoId')
-  @UseGuards(AdminGuard)
-  async deletePhoto(@Param('photoId') photoId: string) {
-    return { data: await this.svc.deletePhoto(photoId) };
+  async deletePhoto(@Param('photoId') photoId: string, @Req() req: Request) {
+    return { data: await this.svc.deletePhoto(photoId, actorOf(req)) };
   }
 
   @Post(':id/cancel')
   @HttpCode(200)
-  @UseGuards(AdminGuard)
-  async cancel(@Param('id') id: string) {
-    return { data: await this.svc.cancel(id) };
+  async cancel(@Param('id') id: string, @Req() req: Request) {
+    return { data: await this.svc.cancel(id, actorOf(req)) };
   }
 
-  /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07) — admin-only qua `AdminGuard` ở cấp method.
+  /** Sửa phiếu đã nhập (chủ quán yêu cầu 2026-09-07). Admin sửa mọi phiếu; role Báo cáo chỉ sửa
+   * phiếu NHÁP của chính mình (2026-10-23) — luật nằm ở service.
    *
    * Hai nhịp y như lúc tạo: nhịp một không kèm `approved_ingredient_ids` thì server trả về
    * `updated: false` + danh sách dòng lệch giá và KHÔNG ghi gì; nhịp hai gửi lại kèm những mặt
@@ -226,7 +248,6 @@ export class DeliveriesController {
    */
   @Put(':id')
   @HttpCode(200)
-  @UseGuards(AdminGuard)
   async update(@Param('id') id: string, @Body() dto: UpdateDeliveryDto, @Req() req: Request) {
     const result = await this.svc.update(
       id,
@@ -236,19 +257,15 @@ export class DeliveriesController {
         lines: dto.lines,
         approved_ingredient_ids: dto.approved_ingredient_ids,
       },
-      { id: req.user!.sub, full_name: req.user!.full_name },
+      actorOf(req),
     );
     return { data: result };
   }
 
   @Post()
   @HttpCode(200)
-  @UseGuards(AdminGuard)
   async create(@Body() dto: CreateDeliveryDto, @Req() req: Request) {
-    const result = await this.svc.create(dto, {
-      id: req.user!.sub,
-      full_name: req.user!.full_name,
-    });
+    const result = await this.svc.create(dto, actorOf(req));
     return { data: result };
   }
 }
