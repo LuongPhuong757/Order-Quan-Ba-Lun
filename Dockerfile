@@ -1,9 +1,15 @@
 # Multi-stage build: pnpm install monorepo → build web + api → minimal runtime image.
+#
+# Node ghi CỨNG tới bản vá (24.22.1), không để tag trần `node:24-alpine`: deploy chạy
+# `docker compose up --build` KHÔNG có `--pull`, nên tag trần sẽ dùng mãi image đã tải lần đầu —
+# `node:20-alpine` từng nằm im 6 tháng trên VPS mà không nhận bản vá nào. Đổi số ở đây là cách
+# duy nhất buộc VPS kéo image mới. 24.22.1 = bản vá bảo mật Node 21/10/2026 (10 CVE).
+# Đổi bản Node thì đổi cả 3 dòng FROM + `node-version` trong .github/workflows/ci.yml.
 
 # ─────────────────────────────────────────────────────────────
 # Stage 1: deps — install all deps using pnpm
 # ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:24.22.1-alpine AS deps
 WORKDIR /app
 
 # Enable pnpm via corepack
@@ -25,7 +31,7 @@ RUN pnpm install --frozen-lockfile
 # ─────────────────────────────────────────────────────────────
 # Stage 2: builder — compile TypeScript + bundle Vite
 # ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:24.22.1-alpine AS builder
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -52,7 +58,7 @@ RUN pnpm --filter @order/api build \
 # ─────────────────────────────────────────────────────────────
 # Stage 3: runtime — minimal image with prod deps + built artifacts
 # ─────────────────────────────────────────────────────────────
-FROM node:20-alpine AS runtime
+FROM node:24.22.1-alpine AS runtime
 WORKDIR /app
 
 RUN corepack enable && corepack prepare pnpm@latest --activate
@@ -76,7 +82,7 @@ COPY --from=builder /app/packages/utils/dist ./packages/utils/dist
 # Copy built api
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
 
-# Font của hoá đơn. KHÔNG bỏ được dòng này: `node:20-alpine` không có sẵn font nào, và
+# Font của hoá đơn. KHÔNG bỏ được dòng này: `node:*-alpine` không có sẵn font nào, và
 # `receipt-render.ts` nạp thẳng 2 file TTF này thay vì nhờ hệ điều hành tìm font. Thiếu chúng
 # thì API vẫn khởi động bình thường và chỉ chết lúc ai đó thanh toán — xem `ensureFontsLoaded()`.
 COPY --from=builder /app/apps/api/assets ./apps/api/assets
