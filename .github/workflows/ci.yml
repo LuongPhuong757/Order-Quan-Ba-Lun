@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 24  # khớp Dockerfile — CI phải chạy đúng Node của prod
+          node-version: '24.22.1'  # ghi cứng khớp Dockerfile — để '24' thì setup-node lấy bản trong cache (từng ra 24.21.0)
           cache: pnpm
 
       - name: Cài dependency
