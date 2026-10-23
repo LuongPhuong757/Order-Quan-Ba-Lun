@@ -20,6 +20,8 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { C } from '../lib/online-ui.ts';
 import { IngredientsPanel } from './IngredientsPanel.tsx';
 import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
+import { pendingDeliveriesStore } from '../lib/pending-deliveries-badge.ts';
+import { MyDraftsBlock } from './MyDraftsBlock.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Select } from '../components/Select.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
@@ -54,7 +56,9 @@ type Delivery = {
   delivery_date: string;
   status: string;
   source: 'STAFF' | 'SUPPLIER';
+  created_by_user_id: string | null;
   created_by_name: string;
+  updated_at: number;
   note: string | null;
   total_amount: number;
   /** Tên các mặt hàng trong phiếu — nguồn cho ô tìm kiếm "phiếu nào có món này". */
@@ -99,8 +103,15 @@ export function SuppliersPage() {
    *  tab Món đã bán) thì các tab khác không hiểu — API của chúng lọc theo ngày, gặp `from`/`to`
    *  rỗng là trả toàn bộ lịch sử trong khi chip vẫn đang chỉ một ca. Nên rời tab đó khi đang
    *  xem ca là về lại 30 ngày, thay vì im lặng đổi nghĩa con số. */
-  const chonTab = (t: Tab) => {
+  /** Tab Phiếu nhập mở với bộ lọc "Chờ duyệt" bật sẵn — chỉ khi đi từ nút "Xem tất cả" của khối
+   *  phiếu chờ duyệt. Mọi lối vào khác (bấm tab) vẫn mở danh sách đầy đủ. */
+  const [moChiCho, setMoChiCho] = useState(false);
+  /** Phiếu nháp vừa gửi — khối "Phiếu nháp của bạn" tô nổi nó (chỉ role Báo cáo). */
+  const [vuaGui, setVuaGui] = useState<string | null>(null);
+  const laBaoCao = user?.role === 'report';
+  const chonTab = (t: Tab, opts?: { chiCho?: boolean }) => {
     if (t !== 'dishes' && range.shift) setRange(presetRange('30d', Date.now()));
+    setMoChiCho(!!opts?.chiCho);
     setTab(t);
   };
   // MỘT bộ lọc NCC dùng chung cho cả trang, không phải mỗi tab một cái: chủ quán đang xem chi
@@ -138,6 +149,9 @@ export function SuppliersPage() {
       ]);
       setSuppliers(s.data.data.items);
       setDeliveries(d.data.data.items);
+      // Danh sách vừa tải là nguồn mới nhất — badge "chờ duyệt" ở nav khớp ngay sau khi duyệt /
+      // huỷ / lập phiếu nháp, không phải đợi nhịp poll 60s.
+      pendingDeliveriesStore.refetch();
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -202,6 +216,17 @@ export function SuppliersPage() {
 
   return (
     <div className="container wide ncc-page with-bottom-nav">
+      {/* Khối ĐẦU TRANG, trên cả hàng tab: người lập nháp mở mục NCC là thấy ngay phiếu của mình
+          đang ở đâu, không phải biết nó nằm trong tab nào (2026-10-23). */}
+      {laBaoCao && !loading && (
+        <MyDraftsBlock
+          deliveries={deliveries}
+          highlightId={vuaGui}
+          onEdit={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
+          onChanged={() => refresh()}
+        />
+      )}
+
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
         {/* KHÔNG có tiêu đề "Nhà cung cấp" ở đây (chủ quán chốt 2026-09-21). Thanh dưới đáy
             đã sáng mục "NCC", và các màn đã dựng theo bản thiết kế tự vẽ đầu trang riêng — thêm
@@ -340,6 +365,11 @@ export function SuppliersPage() {
           onOpen={setDetail}
           onNew={() => setShowEditor('new')}
           onGoTab={chonTab}
+          onEditDelivery={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
+          onDeliveryChanged={() => {
+            refresh();
+            setBalanceTick((t) => t + 1);
+          }}
         />
       )}
 
@@ -357,6 +387,7 @@ export function SuppliersPage() {
           onRangeChange={setRange}
           onEdit={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
           onNew={() => setShowForm({})}
+          moChiCho={moChiCho}
           onChanged={() => {
             refresh();
             setBalanceTick((t) => t + 1);
@@ -428,8 +459,14 @@ export function SuppliersPage() {
           lockedSupplierId={showForm.supplierId}
           editingId={showForm.editingId}
           onClose={() => setShowForm(null)}
-          onSaved={() => {
+          onSaved={(id) => {
             refresh();
+            // Người lập nháp: đóng màn NCC đang mở (nếu lập từ đó) để lộ khối "Phiếu nháp của
+            // bạn" ở đầu trang, tô nổi phiếu vừa gửi — họ thấy ngay nó đã nằm trong hàng chờ.
+            if (laBaoCao && id) {
+              setDetail(null);
+              setVuaGui(id);
+            }
             // Phiếu mới làm tăng nợ — khối công nợ đang mở phải tính lại, không thì con số ở đó
             // đứng im và lệch với thẻ ngoài danh sách.
             setBalanceTick((t) => t + 1);

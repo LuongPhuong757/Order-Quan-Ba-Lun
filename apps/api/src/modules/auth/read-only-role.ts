@@ -20,6 +20,25 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
  * thì role `report` đăng nhập vào rồi không thoát ra được. */
 const WRITE_ALLOWLIST = new Set(['POST /auth/logout', 'POST /auth/change-password']);
 
+/** Ngoại lệ thứ hai (chủ quán chốt 2026-10-23): role Báo cáo được lập PHIẾU NHẬP NHÁP.
+ *
+ * Người cầm hàng từ NCC về không phải lúc nào cũng là admin, nhưng chủ quán vẫn không muốn ai
+ * ngoài admin đẩy được con số vào kho và công nợ. Nên mở đúng đường "nháp": phiếu role này tạo
+ * ra luôn nằm ở CHỜ DUYỆT — chưa cộng kho, chưa cộng nợ — cho tới khi admin bấm Duyệt.
+ *
+ * Mở ở đây CHỈ là cho request đi qua cổng. Ba luật còn lại nằm ở `DeliveriesService` và mới là
+ * hàng rào thật: phiếu tạo ra bị ép về chờ duyệt, chỉ đụng được phiếu nháp CỦA CHÍNH MÌNH, và
+ * không được tạo mặt hàng mới. Cố ý KHÔNG có `/confirm` trong danh sách — duyệt là việc của admin.
+ *
+ * Viết thành regex chứ không phải chuỗi vì có `:id` ở giữa đường dẫn; mỗi mẫu neo `^…$` để
+ * `/supplier-deliveries/x/confirm` không lọt qua mẫu của `/supplier-deliveries/:id`. */
+const DRAFT_WRITE_PATTERNS: RegExp[] = [
+  /^POST \/supplier-deliveries$/,
+  /^PUT \/supplier-deliveries\/[^/]+$/,
+  /^POST \/supplier-deliveries\/[^/]+\/(cancel|photos)$/,
+  /^DELETE \/supplier-deliveries\/photos\/[^/]+$/,
+];
+
 /** Bỏ query string và dấu `/` thừa ở cuối để so khớp allowlist cho ổn định.
  * `/auth/logout/?x=1` và `/auth/logout` phải ra cùng một chuỗi. */
 function normalizePath(path: string): string {
@@ -38,5 +57,7 @@ export function isBlockedWrite(
   if (!role || !READ_ONLY_ROLES.has(role)) return false;
   const verb = method.toUpperCase();
   if (SAFE_METHODS.has(verb)) return false;
-  return !WRITE_ALLOWLIST.has(`${verb} ${normalizePath(path)}`);
+  const route = `${verb} ${normalizePath(path)}`;
+  if (WRITE_ALLOWLIST.has(route)) return false;
+  return !DRAFT_WRITE_PATTERNS.some((p) => p.test(route));
 }

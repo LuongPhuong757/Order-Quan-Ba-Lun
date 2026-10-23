@@ -16,6 +16,8 @@ import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { upperUnit, titleCaseVi } from '../lib/text-case.ts';
 import { vnDayIso } from '../lib/date-range.ts';
+import { useAuth } from '../lib/auth-context.tsx';
+import { laNguoiLapNhap } from '../lib/delivery-draft.ts';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -177,10 +179,14 @@ export function DeliveryFormPanel({
    * mời người dùng nhập lại nguyên một phiếu đã có trong sổ. */
   editingId?: string;
   onClose: () => void;
-  onSaved: () => void;
+  /** `deliveryId` = phiếu vừa lưu — trang cha dùng để tô nổi nó (phiếu nháp của role Báo cáo). */
+  onSaved: (deliveryId?: string) => void;
 }) {
   const toast = useToast();
   const isEdit = !!editingId;
+  // Role Báo cáo lập phiếu NHÁP (2026-10-23): cùng màn này, khác ba chỗ — tiêu đề, dải nhắc
+  // "chờ admin duyệt", và không được tạo mặt hàng mới (BE chặn thật ở `assertKhongHangMoi`).
+  const lapNhap = laNguoiLapNhap(useAuth().user);
   const KEY = draftKey(lockedSupplierId);
   // Đọc nháp MỘT lần lúc dựng component (không phải trong useEffect): đặt giá trị ban đầu ngay
   // từ đây thì màn không chớp một lượt rỗng rồi mới nhảy sang nội dung cũ.
@@ -392,6 +398,18 @@ export function DeliveryFormPanel({
       );
       return;
     }
+    if (lapNhap) {
+      const hangMoi = lines
+        .filter((l) => !l.ingredient_id && l.ingredient_name.trim())
+        .map((l) => l.ingredient_name.trim());
+      if (hangMoi.length > 0) {
+        toast.push(
+          'error',
+          `${hangMoi.join(', ')} chưa có trong danh mục — chọn hàng có sẵn trong danh sách gợi ý, hàng lạ thì xoá dòng và ghi vào ô Ghi chú`,
+        );
+        return;
+      }
+    }
     const body = payloadLines();
     if (body.length === 0) {
       toast.push('error', 'Chưa có dòng hàng nào hợp lệ');
@@ -439,13 +457,15 @@ export function DeliveryFormPanel({
       // giữ lại nháp lúc đó chỉ khiến lần mở màn sau bị mời nhập lại một phiếu đã lưu.
       if (!isEdit) clearDraft(KEY);
       const anhHong = await uploadPhotos(data.delivery.id);
-      const viec = isEdit ? 'Đã sửa phiếu' : 'Đã lưu phiếu';
+      const viec = lapNhap
+        ? (isEdit ? 'Đã sửa phiếu nháp' : 'Đã gửi phiếu nháp')
+        : (isEdit ? 'Đã sửa phiếu' : 'Đã lưu phiếu');
       if (anhHong) {
         toast.push('error', `${viec} ${vnd(total)}đ nhưng ${anhHong} — mở lại phiếu để thêm ảnh`);
       } else {
-        toast.push('success', `${viec} ${vnd(total)}đ`);
+        toast.push('success', `${viec} ${vnd(total)}đ${lapNhap ? ' — chờ admin duyệt' : ''}`);
       }
-      onSaved();
+      onSaved(data.delivery.id);
       onClose();
     } catch (err) {
       // Nói rõ là KHÔNG mất phiếu. Người nhập vừa gõ 10 dòng mà chỉ thấy một dòng lỗi đỏ thì
@@ -485,11 +505,35 @@ export function DeliveryFormPanel({
       {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
           bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
       <form className="card dl-sheet" onSubmit={onSubmit}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>{isEdit ? 'Sửa phiếu nhập' : 'Nhập hàng'}</h2>
+        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>
+          {lapNhap
+            ? (isEdit ? 'Sửa phiếu nháp' : 'Lập phiếu nháp')
+            : (isEdit ? 'Sửa phiếu nhập' : 'Nhập hàng')}
+        </h2>
+
+        {/* Người lập nháp phải biết NGAY từ đầu là phiếu này chưa tính — không thì họ tưởng
+            mình đã nhập kho xong và không ai nhắc admin duyệt. */}
+        {lapNhap && (
+          <div
+            role="status"
+            style={{
+              background: '#eff6ff',
+              border: '1px solid #bfdbfe',
+              borderRadius: 8,
+              padding: 12,
+              fontSize: 16,
+              marginBottom: 16,
+            }}
+          >
+            Đây là <strong>phiếu nháp</strong>: chưa cộng vào kho và công nợ cho tới khi{' '}
+            <strong>admin duyệt</strong>. Mặt hàng chưa có trong danh sách thì ghi vào ô{' '}
+            <strong>Ghi chú</strong>.
+          </div>
+        )}
 
         {/* Nói trước những gì lưu xong sẽ tự thay đổi. Người sửa phiếu đang nghĩ về một con số
             gõ sai, không nghĩ tới việc bảng giá và cảnh báo biến động giá cũng dịch theo. */}
-        {isEdit && (
+        {isEdit && !lapNhap && (
           <div
             role="status"
             style={{
@@ -665,6 +709,7 @@ export function DeliveryFormPanel({
                   index={idx}
                   catalog={catalog}
                   known={knownById}
+                  lapNhap={lapNhap}
                   onPick={(ing) => pick(l.key, ing)}
                   onPatch={(next) => patch(l.key, next)}
                   onRemove={() => setLines((prev) => (prev.length === 1 ? [newLine()] : prev.filter((x) => x.key !== l.key)))}
@@ -734,6 +779,7 @@ function LineRow({
   index,
   catalog,
   known,
+  lapNhap,
   onPick,
   onPatch,
   onRemove,
@@ -742,6 +788,8 @@ function LineRow({
   index: number;
   catalog: Ingredient[];
   known: Map<string, SupplierItemRow>;
+  /** Người lập nháp không tạo được mặt hàng mới — lời nhắc cuối danh sách gợi ý đổi theo. */
+  lapNhap: boolean;
   onPick: (ing: Ingredient) => void;
   onPatch: (next: Partial<DraftLine>) => void;
   onRemove: () => void;
@@ -814,7 +862,11 @@ function LineRow({
             // nhanh lại đẻ một dòng trùng vào danh mục dùng chung.
             footer={(q, hasExact) =>
               q && !hasExact ? (
-                <AcFooter>Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới</AcFooter>
+                <AcFooter>
+                  {lapNhap
+                    ? 'Không có trong danh mục → ghi vào ô Ghi chú, admin sẽ thêm'
+                    : 'Không có trong danh mục → khai đơn vị tính bên cạnh để tạo mới'}
+                </AcFooter>
               ) : null
             }
           />

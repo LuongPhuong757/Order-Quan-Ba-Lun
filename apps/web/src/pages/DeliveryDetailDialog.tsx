@@ -10,7 +10,8 @@ import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { useCanWrite } from '../lib/auth-context.tsx';
+import { useAuth } from '../lib/auth-context.tsx';
+import { dangChoDuyet, quyenPhieu } from '../lib/delivery-draft.ts';
 import { Ico, ngayDay, vnd } from './supplier-ui.tsx';
 import './suppliers-ui.css';
 
@@ -32,13 +33,12 @@ type Detail = {
   delivery: {
     id: string; supplier_id: string; supplier_name: string; delivery_date: string;
     status: string; source: 'STAFF' | 'SUPPLIER'; note: string | null;
-    total_amount: number; created_by_name: string | null;
+    total_amount: number; created_by_user_id: string | null; created_by_name: string | null;
   };
   lines: Line[];
   photos: Photo[];
 };
 
-const dangCho = (s: string) => s === 'PENDING_REVIEW' || s === 'PENDING_PRICE';
 const num = (s: string | number) => Number(s).toLocaleString('vi-VN', { maximumFractionDigits: 3 });
 
 export function DeliveryDetailDialog({
@@ -51,7 +51,7 @@ export function DeliveryDetailDialog({
 }) {
   const toast = useToast();
   const confirm = useConfirm();
-  const canWrite = useCanWrite();
+  const { user } = useAuth();
   const [d, setD] = useState<Detail | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -87,8 +87,11 @@ export function DeliveryDetailDialog({
     }
   };
 
-  const cho = d ? dangCho(d.delivery.status) : false;
+  const cho = d ? dangChoDuyet(d.delivery.status) : false;
   const huy = d?.delivery.status === 'CANCELLED';
+  // Nút nào hiện phụ thuộc TỪNG PHIẾU từ khi role Báo cáo lập phiếu nháp (2026-10-23): người lập
+  // sửa/huỷ được phiếu nháp của mình nhưng không bao giờ thấy nút Duyệt. Xem `delivery-draft.ts`.
+  const q = d ? quyenPhieu(user, d.delivery) : { sua: false, huy: false, duyet: false };
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Chi tiết phiếu nhập"
@@ -121,7 +124,7 @@ export function DeliveryDetailDialog({
                     {/* Chỉ nói trạng thái khi nó CÒN nghĩa: phiếu chưa duyệt thì chưa vào công
                         nợ, phiếu đã huỷ thì không tính. Phiếu bình thường không cần nhãn nào. */}
                     <div className="sup-head__debtnote">
-                      {cho ? 'Chưa duyệt — chưa cộng vào công nợ nhà cung cấp'
+                      {cho ? 'Chờ admin duyệt — chưa cộng vào kho và công nợ nhà cung cấp'
                            : huy ? 'Phiếu đã huỷ — không tính vào kho và công nợ'
                            : `${d.lines.length} mặt hàng`}
                     </div>
@@ -130,21 +133,21 @@ export function DeliveryDetailDialog({
               </div>
             </section>
 
-            {canWrite && (
+            {(q.sua || q.huy || q.duyet) && (
               <section className="actions" aria-label="Thao tác với phiếu nhập">
-                {cho && (
-                  <>
-                    <button className="btn btn--primary act-wide" type="button" disabled={busy}
-                            onClick={() => act('confirm')}>
-                      <Ico d="m5 13 4 4L19 7" w={2.4} />Duyệt phiếu
-                    </button>
-                    <button className="btn btn--danger act-wide" type="button" disabled={busy}
-                            onClick={() => act('cancel')}>
-                      <Ico d="M6 6l12 12M18 6 6 18" w={2.4} />Huỷ phiếu
-                    </button>
-                  </>
+                {q.duyet && (
+                  <button className="btn btn--primary act-wide" type="button" disabled={busy}
+                          onClick={() => act('confirm')}>
+                    <Ico d="m5 13 4 4L19 7" w={2.4} />Duyệt phiếu
+                  </button>
                 )}
-                {!huy && (
+                {q.huy && (
+                  <button className="btn btn--danger act-wide" type="button" disabled={busy}
+                          onClick={() => act('cancel')}>
+                    <Ico d="M6 6l12 12M18 6 6 18" w={2.4} />Huỷ phiếu
+                  </button>
+                )}
+                {q.sua && (
                   <button className="btn" type="button" onClick={onEdit}>
                     <Ico d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" />Sửa phiếu
                   </button>
