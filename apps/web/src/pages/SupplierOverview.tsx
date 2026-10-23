@@ -20,6 +20,7 @@ import { khongDau, tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { vnDayIso, type DayRange } from '../lib/date-range.ts';
 import type { PairReport } from './SupplierReports.tsx';
 import type { Balance } from './SupplierPayments.tsx';
+import { DeliveryDetailDialog } from './DeliveryDetailDialog.tsx';
 import {
   ArrowUp, ChevRight, FilterBar, Plus, SearchIco, ngayDay, ngayGon, pctVN, theoDonViMua, vnd,
 } from './supplier-ui.tsx';
@@ -87,7 +88,7 @@ function sdtGon(s: string): string {
 
 export function SupplierOverview({
   suppliers, balances, deliveries, isAdmin, canSeeMoney,
-  range, onRangeChange, onOpen, onNew, onGoTab,
+  range, onRangeChange, onOpen, onNew, onGoTab, onEditDelivery, onDeliveryChanged,
 }: {
   suppliers: Supplier[];
   balances: Map<string, Balance>;
@@ -99,7 +100,12 @@ export function SupplierOverview({
   onRangeChange: (r: DayRange) => void;
   onOpen: (s: Supplier) => void;
   onNew: () => void;
-  onGoTab: (tab: 'deliveries' | 'prices') => void;
+  /** `chiCho` = sang tab Phiếu nhập với bộ lọc "Chờ duyệt" bật sẵn. */
+  onGoTab: (tab: 'deliveries' | 'prices', opts?: { chiCho?: boolean }) => void;
+  /** Sửa một phiếu chờ duyệt — mở form sửa ở trang cha (form nằm ở đó, không nhân bản ở đây). */
+  onEditDelivery: (d: Delivery) => void;
+  /** Phiếu vừa được duyệt / huỷ — trang cha tải lại danh sách và công nợ. */
+  onDeliveryChanged: () => void;
 }) {
   /** Lọc cả màn theo MỘT nhà cung cấp — áp cho ba khối "Cần bạn xử lý" và danh sách bên dưới. */
   const [locNcc, setLocNcc] = useState('');
@@ -107,6 +113,10 @@ export function SupplierOverview({
   const [sapXep, setSapXep] = useState<SapXep>('debt');
   const [loc, setLoc] = useState<LocNhanh>('all');
   const [pairs, setPairs] = useState<PairReport[] | null>(null);
+  /** Phiếu chờ duyệt đang mở xem. Bấm một dòng ở "Cần bạn xử lý" là mở THẲNG phiếu đó (chủ quán
+   *  chốt 2026-10-23) — trước đây nó chỉ đẩy sang tab Phiếu nhập, nơi phiếu chờ lẫn giữa hàng
+   *  trăm phiếu đã vào sổ và người ta phải tự dò lại xem mình vừa bấm cái nào. */
+  const [xemPhieu, setXemPhieu] = useState<Delivery | null>(null);
 
   // Biến động giá nạp RIÊNG và NUỐT lỗi: nó chỉ là một khối gợi ý, 403/500 ở đây không được
   // phép làm trắng cả màn tổng quan.
@@ -240,15 +250,15 @@ export function SupplierOverview({
                 <div className="card">
                   <div className="card__head">
                     <h3 className="card__title">
-                      Phiếu nhập chờ duyệt
+                      Phiếu nháp – chờ duyệt
                       <span className="badge badge--pending"><span className="dot" />{choDuyet.length}</span>
                     </h3>
-                    <button className="link" type="button" onClick={() => onGoTab('deliveries')}>Xem tất cả</button>
+                    <button className="link" type="button" onClick={() => onGoTab('deliveries', { chiCho: true })}>Xem tất cả</button>
                   </div>
                   <div className="rowlist" style={{ borderTop: 0 }}>
                     {choDuyet.slice(0, 4).map((d) => (
                       <button key={d.id} type="button" className="rowlink rowlink--alert"
-                              onClick={() => onGoTab('deliveries')}>
+                              onClick={() => setXemPhieu(d)}>
                         <span className="rowlink__main">
                           <span className="rowlink__title" title={d.supplier_name}>{d.supplier_name}</span>
                           <span className="rowlink__sub">
@@ -432,6 +442,15 @@ export function SupplierOverview({
           )}
         </div>
       </section>
+
+      {xemPhieu && (
+        <DeliveryDetailDialog
+          deliveryId={xemPhieu.id}
+          onClose={() => setXemPhieu(null)}
+          onEdit={() => { const d = xemPhieu; setXemPhieu(null); onEditDelivery(d); }}
+          onChanged={onDeliveryChanged}
+        />
+      )}
     </div>
   );
 }

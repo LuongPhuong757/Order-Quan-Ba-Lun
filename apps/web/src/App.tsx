@@ -7,6 +7,7 @@ import { ReLoginModal } from './components/ReLoginModal.tsx';
 import { ReadyListener } from './components/ReadyListener.tsx';
 import { NotificationBell } from './components/NotificationBell.tsx';
 import { useOnlineWaitingCount } from './lib/online-waiting-badge.ts';
+import { usePendingDeliveriesCount } from './lib/pending-deliveries-badge.ts';
 import { useOpenTablesCount } from './lib/open-tables-badge.ts';
 import { useKitchenPendingCount } from './lib/kitchen-pending-badge.ts';
 import { useStaleUnpaid } from './lib/stale-unpaid.ts';
@@ -272,6 +273,8 @@ function ProtectedShell() {
   // Badge số bàn đang mở trên nút "Order" — cả 3 role đều có nút này ở nav dưới. Cũng phải tính
   // TRƯỚC early-return vì cùng lý do trên.
   const openTablesCount = useOpenTablesCount(role !== null && role !== 'report');
+  // Phiếu nhập chờ duyệt (2026-10-23) — chỉ admin duyệt được nên chỉ admin đếm.
+  const pendingDeliveriesCount = usePendingDeliveriesCount(role === 'admin');
   // Badge số món đang chờ bếp làm trên nút "Bếp" — chỉ admin và role kitchen có nút này ở nav
   // dưới, role `order` không có nên không bật (bật thừa = mỗi máy order thêm 1 request/5s cho một
   // con số không ai nhìn thấy).
@@ -451,7 +454,7 @@ function ProtectedShell() {
               bóp nhỏ các mục khác, nhưng thẻ ở Dashboard là đường vào quá kín: nhập hàng là việc
               LÀM HÀNG NGÀY, không phải màn tra cứu thỉnh thoảng như Thống kê truy cập.
               8 mục vẫn vừa: dưới 380px nhãn đã tự ẩn, chỉ còn icon 20px. */}
-          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng, công nợ"><span className="nav-icon">🚚</span><span className="nav-label">NCC</span></NavLink>
+          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng, công nợ"><span className="nav-icon-wrap"><span className="nav-icon">🚚</span><NavBadge count={pendingDeliveriesCount} label="phiếu nhập đang chờ duyệt" /></span><span className="nav-label">NCC</span></NavLink>
           <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon">👥</span><span className="nav-label">N/viên</span></NavLink>
         </nav>
       )}

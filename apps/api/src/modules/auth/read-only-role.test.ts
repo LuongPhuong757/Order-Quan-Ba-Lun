@@ -27,7 +27,6 @@ describe('isBlockedWrite — chặn ghi cho role Báo cáo', () => {
     expect(isBlockedWrite('report', 'POST', '/menu')).toBe(true);
     expect(isBlockedWrite('report', 'POST', '/tables')).toBe(true);
     expect(isBlockedWrite('report', 'POST', '/suppliers')).toBe(true);
-    expect(isBlockedWrite('report', 'POST', '/supplier-deliveries')).toBe(true);
     expect(isBlockedWrite('report', 'POST', '/admin/users')).toBe(true);
     // sửa / xoá
     expect(isBlockedWrite('report', 'PATCH', '/menu/xyz')).toBe(true);
@@ -53,6 +52,22 @@ describe('isBlockedWrite — chặn ghi cho role Báo cáo', () => {
     expect(isBlockedWrite('report', 'POST', '/auth/logout/all')).toBe(true);
     // và đổi mật khẩu NGƯỜI KHÁC là đường của admin, không phải ngoại lệ này
     expect(isBlockedWrite('report', 'POST', '/admin/users/abc/password')).toBe(true);
+  });
+
+  it('role report: mở đúng đường phiếu nhập NHÁP (2026-10-23), không mở lây sang duyệt', () => {
+    expect(isBlockedWrite('report', 'POST', '/supplier-deliveries')).toBe(false);
+    expect(isBlockedWrite('report', 'PUT', '/supplier-deliveries/d1')).toBe(false);
+    expect(isBlockedWrite('report', 'POST', '/supplier-deliveries/d1/cancel')).toBe(false);
+    expect(isBlockedWrite('report', 'POST', '/supplier-deliveries/d1/photos')).toBe(false);
+    expect(isBlockedWrite('report', 'DELETE', '/supplier-deliveries/photos/p1')).toBe(false);
+    // Duyệt = đẩy số vào kho + công nợ — tuyệt đối không phải việc của role này.
+    expect(isBlockedWrite('report', 'POST', '/supplier-deliveries/d1/confirm')).toBe(true);
+    // Mẫu `:id` không được nuốt thêm một tầng đường dẫn.
+    expect(isBlockedWrite('report', 'PUT', '/supplier-deliveries/d1/confirm')).toBe(true);
+    expect(isBlockedWrite('report', 'DELETE', '/supplier-deliveries/d1')).toBe(true);
+    // Trả tiền NCC, sửa NCC vẫn cấm.
+    expect(isBlockedWrite('report', 'POST', '/supplier-payments')).toBe(true);
+    expect(isBlockedWrite('report', 'PATCH', '/suppliers/s1')).toBe(true);
   });
 
   it('role khác không bị đụng tới', () => {

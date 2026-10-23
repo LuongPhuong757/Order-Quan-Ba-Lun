@@ -4,13 +4,19 @@
 // ghi gì; người dùng xem popup rồi bấm đồng ý; nhịp hai gửi lại kèm danh sách đã duyệt thì mới
 // ghi. Server TÍNH LẠI TOÀN BỘ ở cả hai nhịp — không tin con số nào từ client, kể cả những con
 // số chính nó vừa trả về ở nhịp một.
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, Repository } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { Supplier } from './entities/supplier.entity.js';
 import { SupplierItem } from './entities/supplier-item.entity.js';
 import { SupplierDelivery } from './entities/supplier-delivery.entity.js';
+import type { DeliverySource } from './entities/supplier-delivery.entity.js';
 import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.js';
 import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { SupplierPayment } from './entities/supplier-payment.entity.js';
@@ -29,7 +35,64 @@ import {
   priceChangePct,
 } from './purchase-units.js';
 
-export type Actor = { id: string; full_name: string };
+/** `role` chỉ cần ở những đường mà role Báo cáo cũng đi qua (tạo/sửa/huỷ phiếu nháp, ảnh). Bỏ
+ * trống = coi như admin — đúng với mọi caller cũ, vốn đều đã qua `AdminGuard`. */
+export type Actor = { id: string; full_name: string; role?: string | null };
+
+/** Role chỉ được lập PHIẾU NHÁP (chủ quán chốt 2026-10-23) — xem `DRAFT_WRITE_PATTERNS` ở
+ * `read-only-role.ts`. Phiếu của role này luôn dừng ở chờ duyệt, admin duyệt mới vào sổ. */
+export function chiLapNhap(actor: Actor): boolean {
+  return actor.role === 'report';
+}
+
+/** Phiếu còn đang chờ duyệt — chưa vào kho, chưa vào công nợ. */
+export function dangChoDuyet(d: Pick<SupplierDelivery, 'status'>): boolean {
+  return d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE';
+}
+
+/** Người lập nháp chỉ được đụng vào phiếu NHÁP của CHÍNH MÌNH.
+ *
+ * Hai điều kiện, thiếu cái nào cũng thủng:
+ * - "của mình": hai người cùng role Báo cáo không sửa/huỷ phiếu của nhau (chủ quán chốt).
+ * - "còn chờ duyệt": phiếu đã duyệt đã nằm trong kho và công nợ — từ đó chỉ admin sửa được,
+ *   như mọi phiếu khác. Không chặn ở đây thì người lập nháp sửa ngược được số đã vào sổ.
+ *
+ * Mã lỗi cố ý nằm NGOÀI `FRIENDLY_VN` để câu giải thích tới được người dùng nguyên văn. */
+export function assertNhapCuaMinh(
+  d: Pick<SupplierDelivery, 'status' | 'created_by_user_id'>,
+  actor: Actor,
+): void {
+  if (!chiLapNhap(actor)) return;
+  if (d.created_by_user_id !== actor.id) {
+    throw new ForbiddenException({
+      code: 'DRAFT_NOT_OWNER',
+      message: 'Phiếu này do người khác lập — bạn chỉ sửa được phiếu nháp của chính mình.',
+    });
+  }
+  if (!dangChoDuyet(d)) {
+    throw new ForbiddenException({
+      code: 'DRAFT_LOCKED',
+      message:
+        d.status === 'CANCELLED'
+          ? 'Phiếu này đã huỷ.'
+          : 'Phiếu đã được duyệt vào sổ — muốn sửa thì nhờ admin.',
+    });
+  }
+}
+
+/** Người lập nháp không được tạo mặt hàng mới (chủ quán chốt 2026-10-23): danh mục nguyên liệu
+ * là bảng DÙNG CHUNG cho công thức, giá vốn, tồn kho — gõ lệch một chữ là đẻ ra nguyên liệu trùng.
+ * Hàng lạ thì ghi vào ghi chú, admin thêm vào danh mục lúc duyệt. */
+export function assertKhongHangMoi(lines: DeliveryLineInput[], actor: Actor): void {
+  if (!chiLapNhap(actor)) return;
+  const moi = lines.filter((l) => !l.ingredient_id).map((l) => (l.ingredient_name ?? '').trim());
+  if (moi.length === 0) return;
+  const ten = moi.filter(Boolean).join('", "');
+  throw new BadRequestException({
+    code: 'DRAFT_NEW_ITEM',
+    message: `${ten ? `"${ten}"` : 'Mặt hàng mới'} chưa có trong danh mục — chọn hàng có sẵn, hàng lạ thì ghi vào ô Ghi chú để admin thêm.`,
+  });
+}
 
 /** Một dòng người dùng gõ vào màn nhập.
  *
@@ -179,6 +242,16 @@ export class DeliveriesService {
     }));
   }
 
+  /** Số phiếu đang chờ duyệt — con số đỏ trên mục NCC ở nav admin (2026-10-23).
+   *
+   * Một câu COUNT chứ không bắt màn hình kéo cả danh sách phiếu: badge sống ở mọi trang và poll
+   * đều đặn, cùng lý do với `/orders/open-count`. */
+  async pendingCount(): Promise<number> {
+    return this.deliveryRepo.count({
+      where: { status: In(['PENDING_REVIEW', 'PENDING_PRICE']) },
+    });
+  }
+
   /** Tên mặt hàng của một loạt phiếu, gom theo `delivery_id`.
    *
    * Đọc `ingredient_name_snapshot` chứ không join sang `ingredients`: tìm kiếm phải khớp đúng
@@ -240,6 +313,14 @@ export class DeliveriesService {
     return this.photoRepo.save(rows);
   }
 
+  /** Soát quyền của người lập nháp với một phiếu. Controller gọi TRƯỚC khi ghi ảnh ra đĩa: soát
+   * sau thì ảnh của một request bị từ chối vẫn nằm lại trên đĩa mà không phiếu nào trỏ tới. */
+  async assertDuocSua(deliveryId: string, actor: Actor): Promise<void> {
+    const d = await this.deliveryRepo.findOne({ where: { id: deliveryId } });
+    if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    assertNhapCuaMinh(d, actor);
+  }
+
   async listPhotos(deliveryId: string): Promise<SupplierDeliveryPhoto[]> {
     return this.photoRepo.find({ where: { delivery_id: deliveryId }, order: { created_at: 'ASC' } });
   }
@@ -249,9 +330,10 @@ export class DeliveriesService {
    * CHỈ xoá dòng trong DB, KHÔNG xoá file trên đĩa. Cố ý: một tấm ảnh vài chục KB không đáng để
    * đánh đổi lấy rủi ro xoá nhầm file mà một phiếu khác đang trỏ tới, và ảnh mồ côi thì dọn được
    * bằng tay bất cứ lúc nào — ngược lại thì không. */
-  async deletePhoto(photoId: string): Promise<{ deleted: true }> {
+  async deletePhoto(photoId: string, actor: Actor): Promise<{ deleted: true }> {
     const ph = await this.photoRepo.findOne({ where: { id: photoId } });
     if (!ph) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Ảnh không tồn tại' });
+    await this.assertDuocSua(ph.delivery_id, actor);
     await this.photoRepo.delete({ id: photoId });
     return { deleted: true };
   }
@@ -289,6 +371,8 @@ export class DeliveriesService {
       nhan: 'Ngày giao',
       viSao: 'Phiếu nhập chỉ ghi hàng ĐÃ về.',
     });
+
+    if (chiLapNhap(actor)) return this.createDraft({ ...input, delivery_date }, actor);
 
     const prepared = await this.prepareLines(input.supplier_id, input.lines);
 
@@ -370,6 +454,43 @@ export class DeliveriesService {
     });
   }
 
+  /** Phiếu NHÁP của role Báo cáo (chủ quán chốt 2026-10-23) — vào `PENDING_*`, admin duyệt mới
+   * vào kho và công nợ.
+   *
+   * Khác đường admin ở hai chỗ:
+   * 1. Không có popup duyệt giá: người lập nháp không được tự quyết giá mới, cùng lý lẽ với NCC
+   *    tự gửi (M3.D-26). Lệch giá thì phiếu dừng ở `PENDING_PRICE`, admin xem lúc duyệt.
+   * 2. Không tạo được mặt hàng mới — xem `assertKhongHangMoi`.
+   *
+   * Vẫn GIỮ cảnh báo trùng phiếu (M3.D-11): người lập nháp cũng có thể nhập đôi, và báo ngay lúc
+   * nhập rẻ hơn hẳn để admin tự phát hiện lúc duyệt.
+   *
+   * Ngày giao chọn được (khác NCC tự gửi): người nhận hàng hay tối mới ngồi nhập phiếu của sáng. */
+  private async createDraft(
+    input: {
+      supplier_id: string;
+      delivery_date: string;
+      note?: string | null;
+      lines: DeliveryLineInput[];
+      allow_duplicate?: boolean;
+    },
+    actor: Actor,
+  ): Promise<CreateResult> {
+    assertKhongHangMoi(input.lines, actor);
+    const duplicate = input.allow_duplicate
+      ? null
+      : await this.findDuplicate(input.supplier_id, input.delivery_date);
+    if (duplicate) return { created: false, price_changes: [], duplicate };
+
+    const { delivery, lines } = await this.insertPending(
+      input.supplier_id,
+      input.delivery_date,
+      input,
+      { source: 'STAFF', actor },
+    );
+    return { created: true, delivery, lines };
+  }
+
   /** NCC tự gửi phiếu (bước 4). KHÔNG vào kho ngay — nó là ĐỀ NGHỊ (M3.D-08).
    *
    * Khác đường nhân viên nhập hộ ở ba chỗ, và cả ba đều cố ý:
@@ -382,10 +503,29 @@ export class DeliveriesService {
     supplier_id: string,
     input: { note?: string | null; lines: DeliveryLineInput[] },
   ): Promise<{ delivery: SupplierDelivery; lines: SupplierDeliveryLine[] }> {
+    return this.insertPending(supplier_id, DeliveriesService.today(), input, {
+      source: 'SUPPLIER',
+      actor: null,
+    });
+  }
+
+  /** Ghi một phiếu CHỜ DUYỆT — chung cho NCC tự gửi và phiếu nháp của role Báo cáo.
+   *
+   * Hai đường đó giống nhau ở đúng những chỗ quan trọng: không popup duyệt giá (lệch giá thì dừng
+   * ở `PENDING_PRICE` cho admin xử lý), không dịch `supplier_items`, không đóng dấu công nợ. Một
+   * chỗ ghi duy nhất thì không có đường cho hai luồng "chờ duyệt" lệch nhau.
+   *
+   * Vẫn lưu `prev_*` / `price_change_pct` lúc ghi: admin mở phiếu ra duyệt cần thấy dòng nào lệch
+   * bao nhiêu so với lần trước — đó chính là lý do có bước duyệt. */
+  private async insertPending(
+    supplier_id: string,
+    delivery_date: string,
+    input: { note?: string | null; lines: DeliveryLineInput[] },
+    nguon: { source: DeliverySource; actor: Actor | null },
+  ): Promise<{ delivery: SupplierDelivery; lines: SupplierDeliveryLine[] }> {
     if (!input.lines?.length) {
       throw new BadRequestException({ code: 'BAD_INPUT', message: 'Phiếu chưa có mặt hàng nào' });
     }
-    const delivery_date = DeliveriesService.today();
     const prepared = await this.prepareLines(supplier_id, input.lines);
     const flagged = prepared.some((p) => p.level !== 'none');
 
@@ -398,41 +538,84 @@ export class DeliveriesService {
           supplier_id,
           delivery_date,
           status: flagged ? 'PENDING_PRICE' : 'PENDING_REVIEW',
-          source: 'SUPPLIER',
-          created_by_user_id: null,
-          created_by_name: '',
+          source: nguon.source,
+          created_by_user_id: nguon.actor?.id ?? null,
+          created_by_name: nguon.actor?.full_name ?? '',
           note: input.note?.trim() || null,
           total_amount: prepared.reduce((sum, p) => sum + p.amounts.amount, 0),
         }),
       );
 
-      const saved: SupplierDeliveryLine[] = [];
-      for (const p of prepared) {
-        saved.push(
-          await lines.save(
-            lines.create({
-              delivery_id: delivery.id,
-              ingredient_id: p.ingredient.id,
-              ingredient_name_snapshot: p.ingredient.name,
-              unit_snapshot: p.ingredient.unit,
-              purchase_unit_snapshot: p.purchase_unit,
-              qty_base_per_unit_snapshot: String(p.qty_base_per_unit),
-              qty_purchase: String(p.qty_purchase),
-              unit_price: p.unit_price,
-              amount: p.amounts.amount,
-              qty_base: String(p.amounts.qty_base),
-              unit_price_base: String(p.amounts.unit_price_base),
-              prev_unit_price_base: p.prev?.last_unit_price_base ?? null,
-              price_change_pct: p.pct === null ? null : String(p.pct),
-              prev_qty_base_per_unit: p.prev?.qty_base_per_unit ?? null,
-              price_approved_by_user_id: null,
-            }),
-          ),
-        );
-      }
-      return { delivery, lines: saved };
+      return { delivery, lines: await this.savePendingLines(lines, delivery.id, prepared) };
     });
   }
+
+  /** Ghi dòng của một phiếu CHỜ DUYỆT. `price_approved_by_user_id` để trống — người duyệt được
+   * đóng dấu ở `confirm()`, không phải lúc ghi. */
+  private async savePendingLines(
+    lines: Repository<SupplierDeliveryLine>,
+    delivery_id: string,
+    prepared: Awaited<ReturnType<DeliveriesService['prepareLines']>>,
+  ): Promise<SupplierDeliveryLine[]> {
+    const saved: SupplierDeliveryLine[] = [];
+    for (const p of prepared) {
+      saved.push(
+        await lines.save(
+          lines.create({
+            delivery_id,
+            ingredient_id: p.ingredient.id,
+            ingredient_name_snapshot: p.ingredient.name,
+            unit_snapshot: p.ingredient.unit,
+            purchase_unit_snapshot: p.purchase_unit,
+            qty_base_per_unit_snapshot: String(p.qty_base_per_unit),
+            qty_purchase: String(p.qty_purchase),
+            unit_price: p.unit_price,
+            amount: p.amounts.amount,
+            qty_base: String(p.amounts.qty_base),
+            unit_price_base: String(p.amounts.unit_price_base),
+            prev_unit_price_base: p.prev?.last_unit_price_base ?? null,
+            price_change_pct: p.pct === null ? null : String(p.pct),
+            prev_qty_base_per_unit: p.prev?.qty_base_per_unit ?? null,
+            price_approved_by_user_id: null,
+          }),
+        ),
+      );
+    }
+    return saved;
+  }
+
+  /** Sửa một phiếu CÒN CHỜ DUYỆT (2026-10-23) — người lập nháp sửa phiếu của mình, hoặc admin
+   * chỉnh số trước khi bấm Duyệt.
+   *
+   * Khác hẳn `update()` của phiếu đã vào sổ: phiếu chờ duyệt không nằm trong chuỗi giá (chuỗi chỉ
+   * gồm phiếu `CONFIRMED`), nên không phát lại gì và không có nhịp hỏi giá — so với lần trước
+   * bằng bảng giá hiện tại là đúng, y như lúc nó được tạo. Trạng thái tính lại theo bản mới:
+   * sửa hết dòng lệch giá thì phiếu về `PENDING_REVIEW`, thêm dòng lệch thì sang `PENDING_PRICE`. */
+  private async updatePending(
+    existing: SupplierDelivery,
+    input: { delivery_date: string; note?: string | null; lines: DeliveryLineInput[] },
+  ): Promise<UpdateResult> {
+    const replaced = await this.snapshot(existing);
+    const prepared = await this.prepareLines(existing.supplier_id, input.lines);
+    const flagged = prepared.some((p) => p.level !== 'none');
+
+    return this.ds.transaction(async (mgr) => {
+      const deliveries = mgr.getRepository(SupplierDelivery);
+      const lineRepo = mgr.getRepository(SupplierDeliveryLine);
+
+      await lineRepo.delete({ delivery_id: existing.id });
+      await deliveries.update(existing.id, {
+        delivery_date: input.delivery_date,
+        note: input.note?.trim() || null,
+        total_amount: prepared.reduce((sum, p) => sum + p.amounts.amount, 0),
+        status: flagged ? 'PENDING_PRICE' : 'PENDING_REVIEW',
+      });
+      const lines = await this.savePendingLines(lineRepo, existing.id, prepared);
+      const delivery = (await deliveries.findOne({ where: { id: existing.id } }))!;
+      return { updated: true as const, delivery, lines, replaced };
+    });
+  }
+
 
   /** Công nợ NCC tại đúng thời điểm này, đọc trong CÙNG transaction đang ghi phiếu.
    *
@@ -520,6 +703,8 @@ export class DeliveriesService {
    *
    * Trạng thái phiếu KHÔNG đổi: phiếu `CONFIRMED` sửa xong vẫn `CONFIRMED`. Đưa nó về chờ duyệt
    * lại là làm công nợ tụt xuống một cách vô hình cho tới khi có ai bấm duyệt.
+   *
+   * Phiếu CÒN CHỜ DUYỆT thì không đi ba bước trên mà rẽ sang `updatePending` (2026-10-23).
    */
   async update(
     id: string,
@@ -544,6 +729,8 @@ export class DeliveriesService {
     if (!input.lines?.length) {
       throw new BadRequestException({ code: 'BAD_INPUT', message: 'Phiếu chưa có mặt hàng nào' });
     }
+    assertNhapCuaMinh(existing, actor);
+    assertKhongHangMoi(input.lines, actor);
     // NCC KHÔNG đổi được: chuyển phiếu sang NCC khác là viết lại công nợ của hai bên cùng lúc,
     // và mọi giá tham chiếu của cả hai. Muốn vậy thì huỷ phiếu rồi nhập lại ở NCC đúng.
     const supplier_id = existing.supplier_id;
@@ -555,6 +742,10 @@ export class DeliveriesService {
       nhan: 'Ngày giao',
       viSao: 'Phiếu nhập chỉ ghi hàng ĐÃ về.',
     });
+
+    if (dangChoDuyet(existing)) {
+      return this.updatePending(existing, { ...input, delivery_date });
+    }
 
     const replaced = await this.snapshot(existing);
     const approved = new Set(input.approved_ingredient_ids ?? []);
@@ -720,9 +911,10 @@ export class DeliveriesService {
 
   /** Huỷ phiếu. Giữ lại để truy vết chứ không xoá — phiếu biến mất là câu hỏi không ai trả lời
    * được ở lần đối chiếu sau. */
-  async cancel(id: string): Promise<SupplierDelivery> {
+  async cancel(id: string, actor: Actor): Promise<SupplierDelivery> {
     const d = await this.deliveryRepo.findOne({ where: { id } });
     if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    assertNhapCuaMinh(d, actor);
     if (d.status === 'CONFIRMED') {
       throw new BadRequestException({
         code: 'BAD_STATE',
