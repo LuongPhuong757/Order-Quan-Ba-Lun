@@ -173,7 +173,7 @@ export function PaymentDialog({
 
   return (
     <Modal label={editing ? `Sửa lần trả ${tenNcc}` : `Ghi nhận thanh toán ${tenNcc}`}>
-      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%' }}>
+      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%', margin: 'auto' }}>
         <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>{editing ? 'Sửa lần trả tiền' : 'Ghi nhận thanh toán'}</h2>
         {supplierId && <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>}
 
@@ -325,6 +325,9 @@ export function PaymentDialog({
   );
 }
 
+/** Hộp con PHẢI có `margin: 'auto'` để căn giữa. KHÔNG dùng `alignItems: 'center'` (sửa 2026-10-24):
+ *  hộp cao hơn màn hình (nhiều tài khoản CK) thì phần đầu tràn lên trên mép, cuộn không tới —
+ *  mất tiêu đề, ô Số tiền. `margin: auto` co về 0 khi tràn nên hộp bắt đầu từ đỉnh và cuộn được. */
 export function Modal({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div
@@ -336,7 +339,6 @@ export function Modal({ label, children }: { label: string; children: ReactNode 
         inset: 0,
         background: 'rgba(0,0,0,.45)',
         display: 'flex',
-        alignItems: 'center',
         justifyContent: 'center',
         padding: 16,
         overflowY: 'auto',
