@@ -632,7 +632,7 @@ export function OpeningBalanceDialog({
 
   return (
     <Modal label={`Nợ cũ ${supplierName}`}>
-      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%' }}>
+      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%', margin: 'auto' }}>
         <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>Nợ cũ (số dư đầu kỳ)</h2>
         <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>
 
