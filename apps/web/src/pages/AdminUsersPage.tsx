@@ -319,6 +319,8 @@ export function AdminUsersPage() {
  *  - Chủ quán/quản lý: BE không đọc cờ của họ (xem `canCollectTransfer`, `qrHiddenFor`), nên thay
  *    bằng một dòng chữ — bày công tắc ra là bày thứ bấm được mà không đổi gì.
  *  - Máy in: không phải một người, không bao giờ thu tiền.
+ *  - Báo cáo (hotfix 2026-10-26): role chỉ đọc, không thu được tiền, và BE cho XEM ảnh bill không
+ *    cần cờ (xem `xemAnhBillKhongCanCongTac` ở api) — công tắc không còn đổi gì nên thay bằng chữ.
  *  Hàng "Mã QR được dùng" chỉ hiện khi đang bật thu: không được thu thì đằng nào cũng không thấy mã. */
 function UserCard({
   u,
@@ -370,6 +372,8 @@ function UserCard({
 
       {isBoss ? (
         <div className="nv-ck-note">🔒 Luôn được thu và thấy mọi mã QR</div>
+      ) : u.role === 'report' ? (
+        <div className="nv-ck-note">📷 Luôn xem được ảnh bill chuyển khoản</div>
       ) : u.role !== 'print' && (
         <div className="nv-ck">
           <div className="nv-ck-row">
