@@ -38,6 +38,16 @@ export type DuplicateHint = {
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 
+/** Nút "Duyệt" chưa bấm: `secondary` trần là nền trắng viền xám, nằm trên thẻ trắng thì gần như
+ * chìm (chủ quán chê khó nhìn 2026-10-26). Nền xanh nhạt + viền đậm vẫn khác hẳn nút đã duyệt
+ * (nền xanh đặc) mà không lẫn vào nền. Inline style thắng `button.secondary` nên không cần đổi CSS. */
+const NUT_DUYET = {
+  background: C.accentSoft,
+  color: C.accent,
+  border: `2px solid ${C.accent}`,
+  fontWeight: 700,
+} as const;
+
 /** Giá quy đổi hay là số lẻ (7,5 đ/g) — cắt bớt số 0 thừa để bảng đọc được, nhưng KHÔNG làm
  * tròn về số nguyên: 7,5 → 8 là sai 6% ngay trên màn hình đang nói về chuyện sai vài %. */
 const baseprice = (v: string) => {
@@ -194,7 +204,7 @@ export function PriceChangeDialog({
                           type="button"
                           className={ok ? '' : 'secondary'}
                           onClick={() => toggle(c.ingredient_id)}
-                          style={{ marginTop: 8, minHeight: 40, padding: '0 18px' }}
+                          style={{ marginTop: 8, minHeight: 40, padding: '0 18px', ...(ok ? {} : NUT_DUYET) }}
                         >
                           {ok ? '✓ Đã duyệt' : 'Duyệt'}
                         </button>
@@ -216,7 +226,7 @@ export function PriceChangeDialog({
               type="button"
               className="secondary"
               onClick={() => setApproved(new Set(changes.map((c) => c.ingredient_id)))}
-              style={{ minHeight: 48 }}
+              style={{ minHeight: 48, ...NUT_DUYET }}
             >
               Duyệt tất cả
             </button>
