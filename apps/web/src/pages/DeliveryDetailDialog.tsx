@@ -13,6 +13,7 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { dangChoDuyet, quyenPhieu } from '../lib/delivery-draft.ts';
 import { Ico, ngayDay, vnd } from './supplier-ui.tsx';
+import { PriceChangeDialog, type PriceChange } from './PriceChangeDialog.tsx';
 import './suppliers-ui.css';
 
 type Line = {
@@ -23,7 +24,25 @@ type Line = {
   qty_base_per_unit_snapshot: string;
   qty_purchase: string;
   unit_price: number;
+  /** % so với lần nhập trước. Phiếu CHỜ DUYỆT thì server tính lại theo bảng giá hiện tại (đúng
+   * số nút Duyệt sẽ hỏi), phiếu đã duyệt là số chốt lúc duyệt. `null` = lần đầu nhập món này. */
+  price_change_pct: string | null;
 };
+
+/** Biến động giá của một dòng (chủ quán yêu cầu 2026-10-26): trước đây duyệt phiếu nháp xong
+ * không biết giá tăng hay giảm. Hiện MỌI mức lệch khác 0 — popup lúc Duyệt mới lọc theo ngưỡng;
+ * ở đây người xem cần thấy cả mấy % nhỏ để tự nắm xu hướng. Mũi tên + chữ, không chỉ màu. */
+function BienDongGia({ pct }: { pct: string | null }) {
+  if (pct === null) return <span className="cell-sub">Lần đầu nhập</span>;
+  const n = Number(pct);
+  if (!n) return <span className="cell-sub">Giá như lần trước</span>;
+  const tang = n > 0;
+  return (
+    <span style={{ display: 'block', fontWeight: 700, color: tang ? 'var(--danger)' : 'var(--paid)' }}>
+      {tang ? '▲ Tăng' : '▼ Giảm'} {Math.abs(n).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}%
+    </span>
+  );
+}
 // Tên trường phải khớp cột `url` của bảng `supplier_delivery_photos` — API trả thẳng
 // entity, không đổi tên. Trước 2026-10-02 chỗ này khai `image_url` (tên cột của
 // `menu_items` và `payment_qr`, không phải của bảng này) nên `<img src>` luôn nhận
@@ -54,6 +73,7 @@ export function DeliveryDetailDialog({
   const { user } = useAuth();
   const [d, setD] = useState<Detail | null>(null);
   const [busy, setBusy] = useState(false);
+  const [giaLech, setGiaLech] = useState<PriceChange[] | null>(null);
 
   useEffect(() => {
     let huy = false;
@@ -63,7 +83,9 @@ export function DeliveryDetailDialog({
     return () => { huy = true; };
   }, [deliveryId, toast, onClose]);
 
-  const act = async (kind: 'confirm' | 'cancel') => {
+  // `approved` chỉ dùng cho Duyệt: nhịp một gửi rỗng, server trả `confirmed: false` kèm dòng lệch
+  // giá thì mở popup; nhịp hai gửi lại những mặt hàng đã bấm đồng ý (y như form Nhập hàng).
+  const act = async (kind: 'confirm' | 'cancel', approved: string[] = []) => {
     if (!d) return;
     if (kind === 'cancel') {
       const ok = await confirm({
@@ -76,7 +98,14 @@ export function DeliveryDetailDialog({
     }
     setBusy(true);
     try {
-      await api.post(`/supplier-deliveries/${deliveryId}/${kind}`);
+      const r = await api.post<{ data: { confirmed?: boolean; price_changes?: PriceChange[] } }>(
+        `/supplier-deliveries/${deliveryId}/${kind}`,
+        kind === 'confirm' ? { approved_ingredient_ids: approved } : undefined,
+      );
+      if (r.data.data.confirmed === false) {
+        setGiaLech(r.data.data.price_changes ?? []);
+        return;
+      }
       toast.push('success', kind === 'confirm' ? 'Đã duyệt phiếu' : 'Đã huỷ phiếu');
       onChanged();
       onClose();
@@ -184,6 +213,7 @@ export function DeliveryDetailDialog({
                           </td>
                           <td data-label="Đơn giá" className="num r-t2e">
                             {vnd(l.unit_price)}đ
+                            <BienDongGia pct={l.price_change_pct} />
                           </td>
                           <td data-label="Thành tiền" className="num r-t1n">
                             <span className="money">{vnd(Number(l.qty_purchase) * l.unit_price)}đ</span>
@@ -227,6 +257,19 @@ export function DeliveryDetailDialog({
           </>
         )}
       </div>
+      {giaLech && (
+        <PriceChangeDialog
+          changes={giaLech}
+          duplicate={null}
+          onCancel={() => setGiaLech(null)}
+          cancelLabel="Quay lại"
+          confirmLabel="Xác nhận & duyệt phiếu"
+          onConfirm={(ids) => {
+            setGiaLech(null);
+            void act('confirm', ids);
+          }}
+        />
+      )}
     </div>
   );
 }
