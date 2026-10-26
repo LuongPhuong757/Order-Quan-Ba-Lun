@@ -26,7 +26,11 @@ import { Repository } from 'typeorm';
 import type { Request } from 'express';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
-import { PAYMENT_PHOTO_READ_ROLES, PAYMENT_PHOTO_WRITE_ROLES } from './payment-photo-roles.js';
+import {
+  PAYMENT_PHOTO_READ_ROLES,
+  PAYMENT_PHOTO_WRITE_ROLES,
+  xemAnhBillKhongCanCongTac,
+} from './payment-photo-roles.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { saveImage } from '../menu/menu-image.js';
 import { Order } from './entities/order.entity.js';
@@ -59,11 +63,16 @@ export class PaymentPhotosController {
    *
    * `kitchen` thêm vào 2026-09-15 sau sự cố trên quán thật: bếp cầm máy lúc đông khách vẫn thu
    * tiền được (`checkout` không gác role) nên phải chụp và xem lại được bill của đơn mình thu.
-   * Xem `payment-photo-roles.ts`. */
+   * Xem `payment-photo-roles.ts`.
+   *
+   * `report` thì KHÔNG đi qua công tắc (hotfix 2026-10-26): role chỉ đọc, việc của nó là đối soát
+   * — xem `xemAnhBillKhongCanCongTac`. */
   @Get(':id/payment-photos')
   @UseGuards(RequireRoles(...PAYMENT_PHOTO_READ_ROLES))
   async list(@Param('id') id: string, @Req() req: Request) {
-    assertCanCollectTransfer(req, 'Bạn không được xem ảnh bill chuyển khoản của khách.');
+    if (!xemAnhBillKhongCanCongTac(req.user?.role)) {
+      assertCanCollectTransfer(req, 'Bạn không được xem ảnh bill chuyển khoản của khách.');
+    }
     const items = await this.repo.find({ where: { order_id: id }, order: { created_at: 'ASC' } });
     return {
       data: {
