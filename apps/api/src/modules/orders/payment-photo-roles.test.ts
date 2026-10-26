@@ -10,7 +10,11 @@
 // tách thành hằng số để kiểm được ở đây — chốt quyền THẬT vẫn là công tắc `can_collect_transfer`
 // theo từng người (xem `assertCanCollectTransfer`), danh sách này chỉ là lớp thô bên ngoài.
 import { describe, expect, it } from 'vitest';
-import { PAYMENT_PHOTO_READ_ROLES, PAYMENT_PHOTO_WRITE_ROLES } from './payment-photo-roles.js';
+import {
+  PAYMENT_PHOTO_READ_ROLES,
+  PAYMENT_PHOTO_WRITE_ROLES,
+  xemAnhBillKhongCanCongTac,
+} from './payment-photo-roles.js';
 
 /** Role thu được tiền qua `POST /orders/:id/checkout` — endpoint đó không có `RequireRoles` nào,
  *  nên đây là mọi role ghi được của app. `report` KHÔNG nằm đây: nó là role chỉ đọc. */
@@ -27,6 +31,21 @@ describe('quyền chạm vào ảnh bill', () => {
 
   it('role chỉ-đọc `report` xem được (để đối soát) nhưng KHÔNG ghi', () => {
     expect(PAYMENT_PHOTO_READ_ROLES).toContain('report');
+    expect(PAYMENT_PHOTO_WRITE_ROLES).not.toContain('report');
+  });
+
+  // Hotfix 2026-10-26 (chủ quán chốt): role Báo cáo LUÔN xem được ảnh bill, không cần bật công
+  // tắc "Thu chuyển khoản" — trước đó thẻ Báo cáo mặc định tắt nên mở rộng đơn ở Lịch sử ra dòng
+  // đỏ "Không tải được ảnh bill". Nhân viên thu tiền thì vẫn đi theo công tắc như cũ.
+  it('`report` xem ảnh bill KHÔNG cần công tắc thu chuyển khoản', () => {
+    expect(xemAnhBillKhongCanCongTac('report')).toBe(true);
+  });
+
+  it.each(['order', 'kitchen', null, undefined])('role %s vẫn phải qua công tắc khi xem', (role) => {
+    expect(xemAnhBillKhongCanCongTac(role)).toBe(false);
+  });
+
+  it('miễn công tắc chỉ cho ĐỌC — `report` vẫn không ghi được ảnh', () => {
     expect(PAYMENT_PHOTO_WRITE_ROLES).not.toContain('report');
   });
 
