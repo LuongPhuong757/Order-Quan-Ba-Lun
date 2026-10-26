@@ -140,6 +140,39 @@ export type CreateResult =
   | { created: false; price_changes: PriceChange[]; duplicate: DuplicateHint | null }
   | { created: true; delivery: SupplierDelivery; lines: SupplierDeliveryLine[] };
 
+/** Duyệt phiếu CHỜ DUYỆT (2026-10-26) — hai nhịp y như `CreateResult`: nhịp một trả các dòng
+ * lệch giá chưa được đồng ý và KHÔNG ghi gì, nhịp hai gửi kèm những mặt hàng đã bấm đồng ý. */
+export type ConfirmResult =
+  | { confirmed: false; price_changes: PriceChange[] }
+  | { confirmed: true; delivery: SupplierDelivery };
+
+/** Dòng phiếu đã lưu → đầu vào của `prepareLines`, để so lại với bảng giá HIỆN TẠI.
+ *
+ * Phiếu nháp lập sáng, chiều có phiếu khác của cùng NCC được duyệt thì `prev_*` lưu lúc lập đã
+ * cũ: so theo nó là báo "tăng 12%" trong khi so với lần nhập gần nhất thật ra không đổi đồng
+ * nào (chủ quán chốt 2026-10-26: tính lại lúc duyệt). */
+export function dongThanhInput(
+  l: Pick<
+    SupplierDeliveryLine,
+    'ingredient_id' | 'purchase_unit_snapshot' | 'qty_base_per_unit_snapshot' | 'qty_purchase' | 'unit_price'
+  >,
+): DeliveryLineInput {
+  return {
+    ingredient_id: l.ingredient_id,
+    purchase_unit: l.purchase_unit_snapshot,
+    qty_base_per_unit: Number(l.qty_base_per_unit_snapshot),
+    qty_purchase: Number(l.qty_purchase),
+    unit_price: l.unit_price,
+  };
+}
+
+/** Dòng vượt ngưỡng mà người duyệt CHƯA bấm đồng ý — cùng luật với `create()`: so từng mặt
+ * hàng, không tin một cờ "đã xác nhận". */
+export function chuaDongYGia(changes: PriceChange[], approved_ingredient_ids: string[] = []): PriceChange[] {
+  const approved = new Set(approved_ingredient_ids);
+  return changes.filter((c) => c.level !== 'none' && !approved.has(c.ingredient_id));
+}
+
 /** Ảnh phiếu TRƯỚC khi sửa, gói vào response để nhật ký giữ được cả hai bản.
  *
  * `audit.interceptor` chỉ lưu `after_json` = response body; nó không có móc nào để chụp trạng
@@ -295,9 +328,27 @@ export class DeliveriesService {
         delivery_date: toDateString(d.delivery_date) ?? '',
         supplier_name: supplier?.name ?? '(đã xoá)',
       },
-      lines,
+      lines: dangChoDuyet(d) ? await this.soGiaHienTai(d.supplier_id, lines) : lines,
       photos,
     };
+  }
+
+  /** Phiếu CHỜ DUYỆT: thay `prev_*` / `price_change_pct` lưu lúc lập bằng số so với bảng giá
+   * hiện tại — đúng con số mà `confirm()` sẽ hỏi. Màn chi tiết hiện một đằng, bấm Duyệt hỏi
+   * một nẻo thì người duyệt hết tin cả hai. Không ghi gì xuống DB.
+   *
+   * Tính lại hỏng (mặt hàng đã bị xoá…) thì trả số đã lưu: màn chi tiết là màn ĐỌC, không được
+   * vì một dòng mà mở không lên. */
+  private async soGiaHienTai(
+    supplier_id: string,
+    lines: SupplierDeliveryLine[],
+  ): Promise<SupplierDeliveryLine[]> {
+    try {
+      const prepared = await this.prepareLines(supplier_id, lines.map(dongThanhInput));
+      return lines.map((l, i) => ({ ...l, ...giaSoSanh(prepared[i]) }));
+    } catch {
+      return lines;
+    }
   }
 
   /** Gắn ảnh vào phiếu. Ảnh đã được resize/nén và ghi đĩa trước khi vào đây — tham số là URL
@@ -654,7 +705,25 @@ export class DeliveriesService {
    * Đây là chỗ `supplier_items` mới được dịch mốc giá, và cũng là chỗ đóng dấu ai chịu trách
    * nhiệm cho mức giá lệch.
    */
-  async confirm(id: string, actor: Actor): Promise<SupplierDelivery> {
+  /** Duyệt phiếu chờ → vào kho và công nợ.
+   *
+   * Trước 2026-10-26 nút Duyệt duyệt thẳng, không nói gì về giá: phiếu nháp của role Báo cáo và
+   * phiếu NCC tự gửi đều KHÔNG có popup đổi giá lúc lập (người lập không được tự quyết giá), nên
+   * giá tăng/giảm lọt vào sổ mà không ai nhìn thấy. Giờ đi hai nhịp y như `create()`, và so với
+   * bảng giá LÚC DUYỆT chứ không phải lúc lập — xem `dongThanhInput`. */
+  async confirm(id: string, actor: Actor, approved_ingredient_ids: string[] = []): Promise<ConfirmResult> {
+    const existing = await this.deliveryRepo.findOne({ where: { id } });
+    if (!existing) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
+    if (existing.status === 'CONFIRMED') return { confirmed: true, delivery: existing };
+    if (existing.status === 'CANCELLED') {
+      throw new BadRequestException({ code: 'BAD_STATE', message: 'Phiếu đã huỷ, không duyệt được' });
+    }
+
+    const stored = await this.lineRepo.find({ where: { delivery_id: id } });
+    const prepared = await this.prepareLines(existing.supplier_id, stored.map(dongThanhInput));
+    const unapproved = chuaDongYGia(prepared.map((p) => p.change), approved_ingredient_ids);
+    if (unapproved.length > 0) return { confirmed: false, price_changes: unapproved };
+
     return this.ds.transaction(async (mgr) => {
       const deliveries = mgr.getRepository(SupplierDelivery);
       const lineRepo = mgr.getRepository(SupplierDeliveryLine);
@@ -662,17 +731,24 @@ export class DeliveriesService {
 
       const d = await deliveries.findOne({ where: { id } });
       if (!d) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Phiếu nhập không tồn tại' });
-      if (d.status === 'CONFIRMED') return d;
+      if (d.status === 'CONFIRMED') return { confirmed: true as const, delivery: d };
       if (d.status === 'CANCELLED') {
         throw new BadRequestException({ code: 'BAD_STATE', message: 'Phiếu đã huỷ, không duyệt được' });
       }
 
       const lines = await lineRepo.find({ where: { delivery_id: id } });
-      // Đóng dấu người duyệt lên đúng những dòng lệch giá — cùng lý lẽ với luồng nhân viên nhập.
+      // Khớp theo mặt hàng chứ không theo thứ tự: dòng lưu cùng một giây thì `created_at` hoà
+      // nhau và hai lượt đọc có thể ra hai thứ tự khác. Một mặt hàng chỉ có một dòng/phiếu.
+      const theoHang = new Map(prepared.map((p) => [p.ingredient.id, p]));
+      // Ghi lại mốc so sánh LÚC DUYỆT (thay số lưu lúc lập), và đóng dấu người duyệt lên đúng
+      // những dòng vượt ngưỡng — cùng lý lẽ với `create()`.
       for (const l of lines) {
-        if (l.price_change_pct !== null && l.price_approved_by_user_id === null) {
-          await lineRepo.update(l.id, { price_approved_by_user_id: actor.id });
-        }
+        const p = theoHang.get(l.ingredient_id);
+        if (!p) continue;
+        await lineRepo.update(l.id, {
+          ...giaSoSanh(p),
+          price_approved_by_user_id: p.level === 'none' ? null : actor.id,
+        });
       }
 
       d.status = 'CONFIRMED';
@@ -685,7 +761,7 @@ export class DeliveriesService {
         d.balance_after_snapshot = await this.balanceNow(mgr, d.supplier_id);
         await deliveries.update(d.id, { balance_after_snapshot: d.balance_after_snapshot });
       }
-      return d;
+      return { confirmed: true as const, delivery: d };
     });
   }
 
@@ -1069,6 +1145,18 @@ export class DeliveriesService {
       created_by_name: d.created_by_name,
     };
   }
+}
+
+/** Ba cột "so với lần trước" của một dòng, tính từ kết quả `prepareLines`. */
+function giaSoSanh(p: {
+  prev: SupplierItem | null;
+  pct: number | null;
+}): Pick<SupplierDeliveryLine, 'prev_unit_price_base' | 'price_change_pct' | 'prev_qty_base_per_unit'> {
+  return {
+    prev_unit_price_base: p.prev?.last_unit_price_base ?? null,
+    price_change_pct: p.pct === null ? null : String(p.pct),
+    prev_qty_base_per_unit: p.prev?.qty_base_per_unit ?? null,
+  };
 }
 
 /** Cập nhật bảng giá tham chiếu `supplier_items` từ các dòng của một phiếu (M3.D-18, 20).

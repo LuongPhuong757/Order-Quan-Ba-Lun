@@ -50,11 +50,17 @@ export function PriceChangeDialog({
   duplicate,
   onCancel,
   onConfirm,
+  cancelLabel = 'Quay lại sửa',
+  confirmLabel = 'Xác nhận & lưu phiếu',
 }: {
   changes: PriceChange[];
   duplicate: DuplicateHint | null;
   onCancel: () => void;
   onConfirm: (approvedIngredientIds: string[], allowDuplicate: boolean) => void;
+  /** Màn chi tiết phiếu dùng lại popup này lúc bấm Duyệt (2026-10-26) — ở đó không có gì để
+   * "lưu" hay "sửa", nên nhãn nút phải nói đúng việc đang làm. */
+  cancelLabel?: string;
+  confirmLabel?: string;
 }) {
   const [approved, setApproved] = useState<Set<string>>(new Set());
   const strict = useMemo(() => changes.filter((c) => c.level === 'strict'), [changes]);
@@ -203,7 +209,7 @@ export function PriceChangeDialog({
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, flexWrap: 'wrap' }}>
           <button type="button" className="secondary" onClick={onCancel} style={{ minHeight: 48 }}>
-            Quay lại sửa
+            {cancelLabel}
           </button>
           {canBulk && !allApproved && (
             <button
@@ -221,7 +227,7 @@ export function PriceChangeDialog({
             onClick={() => onConfirm([...approved], true)}
             style={{ minHeight: 48, marginLeft: 'auto', padding: '0 24px' }}
           >
-            {changes.length === 0 ? 'Vẫn tạo phiếu' : 'Xác nhận & lưu phiếu'}
+            {changes.length === 0 ? 'Vẫn tạo phiếu' : confirmLabel}
           </button>
         </div>
 

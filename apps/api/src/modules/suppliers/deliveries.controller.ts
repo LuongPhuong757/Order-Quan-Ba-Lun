@@ -84,6 +84,11 @@ class UpdateDeliveryDto {
   @IsOptional() @IsArray() @IsUUID('all', { each: true }) approved_ingredient_ids?: string[];
 }
 
+/** Duyệt phiếu chờ (2026-10-26). Body rỗng = nhịp một. */
+class ConfirmDeliveryDto {
+  @IsOptional() @IsArray() @IsUUID('all', { each: true }) approved_ingredient_ids?: string[];
+}
+
 /** Phiếu nhập hàng (2026-09-05).
  *
  * admin + order: nhân viên order là người nhận hàng tại quán, họ phải nhập được phiếu. Đây là
@@ -159,16 +164,20 @@ export class DeliveriesController {
    * màn hình vào nhánh xử lý lỗi và hiện toast đỏ, trong khi việc cần làm là mở popup xác nhận.
    */
   /** Duyệt phiếu NCC gửi → vào kho và vào công nợ (M3.D-08). Đây cũng là chỗ giá tham chiếu mới
-   * được dịch theo phiếu đó. */
+   * được dịch theo phiếu đó.
+   *
+   * Hai nhịp như tạo phiếu (2026-10-26): có dòng lệch giá chưa đồng ý thì trả `confirmed: false`
+   * + danh sách dòng, vẫn 200 — lý do xem docblock ngay trên. */
   @Post(':id/confirm')
   @HttpCode(200)
   @UseGuards(AdminGuard)
-  async confirm(@Param('id') id: string, @Req() req: Request) {
-    const d = await this.svc.confirm(id, {
-      id: req.user!.sub,
-      full_name: req.user!.full_name,
-    });
-    return { data: d };
+  async confirm(@Param('id') id: string, @Body() dto: ConfirmDeliveryDto, @Req() req: Request) {
+    const result = await this.svc.confirm(
+      id,
+      { id: req.user!.sub, full_name: req.user!.full_name },
+      dto?.approved_ingredient_ids,
+    );
+    return { data: result };
   }
 
   /** Ảnh đính kèm phiếu (2026-09-06).
