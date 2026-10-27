@@ -1,0 +1,84 @@
+// Cấu hình Grafana Alloy cho VPS quán (2026-10-27). Chạy trong container ordbl_alloy —
+// xem service `alloy` trong docker-compose.prod.yml.
+//
+// Đích: Grafana Cloud RIÊNG của quán (stack goldtaco812), KHÔNG phải Grafana của Printik.
+// Hai dự án cố ý tách hẳn — đừng trỏ remote_write về 100.119.228.18.
+//
+// Mọi nguồn ở đây đều CHỈ ĐỌC. Alloy không ghi gì vào MySQL, Caddy hay ổ đĩa của máy
+// (ngoài WAL của chính nó trong volume alloy_data).
+//
+// Lấy số mỗi 60 giây chứ không phải 15s mặc định: gói Free tính theo số điểm dữ liệu/phút,
+// và quán không cần độ mịn dưới 1 phút để biết "tối qua có chậm không".
+
+// ─── Gửi lên Grafana Cloud ──────────────────────────────────────────────────
+// 3 biến lấy từ .env.monitoring trên VPS (chmod 600, không nằm trong git).
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GC_PROM_URL")
+
+    basic_auth {
+      username = sys.env("GC_PROM_USER")
+      password = sys.env("GC_PROM_TOKEN")
+    }
+  }
+
+  // Mọi chuỗi số liệu đều mang nhãn này — dashboard lọc theo nó.
+  external_labels = {
+    host = "quanbalun",
+  }
+}
+
+// ─── 1. Máy VPS: CPU, RAM, swap, ổ cứng, mạng ───────────────────────────────
+// /proc, /sys, / của máy thật được mount :ro vào /host/* (xem compose).
+prometheus.exporter.unix "vps" {
+  procfs_path = "/host/proc"
+  sysfs_path  = "/host/sys"
+  rootfs_path = "/host/root"
+
+  // Bỏ các mount ảo của Docker/containerd: mỗi container tạo vài mount overlay, giữ lại thì
+  // ổ cứng hiện hàng chục dòng trùng nhau và ăn hạn mức số chuỗi của gói Free.
+  filesystem {
+    mount_points_exclude = "^/(dev|proc|run|sys|var/lib/docker/.+|var/lib/containerd/.+)($|/)"
+    fs_types_exclude     = "^(autofs|binfmt_misc|cgroup2?|devpts|devtmpfs|fusectl|mqueue|nsfs|overlay|proc|pstore|securityfs|squashfs|sysfs|tmpfs|tracefs)$"
+  }
+}
+
+prometheus.scrape "vps" {
+  targets         = prometheus.exporter.unix.vps.targets
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// ─── 2. Caddy: số request, thời gian trả lời, mã lỗi ────────────────────────
+// Cổng 9180 do Caddyfile mở riêng cho việc này, không publish ra ngoài.
+prometheus.scrape "caddy" {
+  targets         = [{"__address__" = "ordbl_caddy:9180", "job" = "caddy"}]
+  scrape_interval = "60s"
+  forward_to      = [prometheus.relabel.caddy.receiver]
+}
+
+// Chỉ giữ đúng thứ cần: đếm request + histogram thời gian trả lời. Caddy còn xuất histogram
+// kích thước request/response — mỗi cái nhân theo host × mã lỗi × bucket, bỏ đi tiết kiệm
+// vài nghìn chuỗi mà không mất câu hỏi nào chủ quán quan tâm.
+prometheus.relabel "caddy" {
+  rule {
+    source_labels = ["__name__"]
+    regex         = "caddy_http_(requests_total|request_duration_seconds_(bucket|sum|count)|requests_in_flight|request_errors_total)"
+    action        = "keep"
+  }
+
+  forward_to = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+// ─── 3. MySQL prod: kết nối, truy vấn/giây, truy vấn chậm, bộ đệm InnoDB ────
+// User `exporter` chỉ có PROCESS + REPLICATION CLIENT, giới hạn 3 kết nối — đọc được trạng
+// thái server nhưng KHÔNG đọc được một dòng dữ liệu đơn hàng/khách nào.
+prometheus.exporter.mysql "prod" {
+  data_source_name = "exporter:" + sys.env("MYSQL_EXPORTER_PASSWORD") + "@(ordbl_mysql:3306)/"
+}
+
+prometheus.scrape "mysql" {
+  targets         = prometheus.exporter.mysql.prod.targets
+  scrape_interval = "60s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}

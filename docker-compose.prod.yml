@@ -190,10 +190,54 @@ services:
     networks:
       - frontend
 
+  # Gom số liệu (2026-10-27) → Grafana Cloud RIÊNG của quán, KHÔNG phải Grafana của Printik.
+  # Đọc 3 nguồn, tất cả chỉ ĐỌC: máy VPS (/proc, /sys, / mount :ro), Caddy (:9180/metrics)
+  # và MySQL (user `exporter` chỉ có PROCESS + REPLICATION CLIENT — không đọc được dữ liệu
+  # đơn hàng). Cấu hình: monitoring/config.alloy.
+  #
+  # Cố ý KHÔNG mount /var/run/docker.sock để lấy RAM từng container: socket đó dù gắn :ro
+  # vẫn cho toàn quyền điều khiển Docker, trái với nguyên tắc "giám sát chỉ đọc".
+  #
+  # Token + mật khẩu exporter nằm ở .env.monitoring trên VPS (không trong git, chmod 600).
+  # `required: false` để máy dev / CI thiếu file vẫn `docker compose config` được; trên prod
+  # thiếu file thì Alloy chỉ báo lỗi gửi số liệu, các service khác không bị ảnh hưởng.
+  alloy:
+    image: grafana/alloy:v1.21.1
+    container_name: ordbl_alloy
+    restart: unless-stopped
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy/data
+      # Không gửi thống kê sử dụng ẩn danh về Grafana Labs.
+      - --disable-reporting
+    env_file:
+      - path: .env.monitoring
+        required: false
+    volumes:
+      - ./monitoring/config.alloy:/etc/alloy/config.alloy:ro
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro,rslave
+      - alloy_data:/var/lib/alloy/data
+    # Trần cứng: máy 4GB đang dùng swap, Alloy KHÔNG ĐƯỢC tranh RAM với MySQL giờ cao điểm.
+    # Chạm trần thì chỉ Alloy bị kill + tự dựng lại, quán không ảnh hưởng.
+    mem_limit: 200m
+    cpus: 0.5
+    depends_on:
+      - mysql
+      - caddy
+    logging: *default-logging
+    networks:
+      - backend
+      - frontend
+    # KHÔNG expose port — Alloy chủ động ĐẨY số liệu ra ngoài, không ai cần gọi vào nó.
+
 volumes:
   mysql_data:
   caddy_data:
   caddy_config:
+  alloy_data:
 
 networks:
   backend:
