@@ -82,3 +82,150 @@ prometheus.scrape "mysql" {
   scrape_interval = "60s"
   forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
 }
+
+// ═══ LOG (2026-10-27) ═══════════════════════════════════════════════════════
+// Đọc thẳng file json-file của Docker qua mount / :ro — KHÔNG dùng docker.sock (xem compose).
+// Mỗi dòng mang `attrs.tag` = tên container nhờ `tag: "{{.Name}}"` trong compose; container
+// không gắn tag (mysql, dev_*, …) bị bỏ ở bước đầu.
+//
+// Gói Free: 50GB/tháng, giữ 14 ngày. Quán ~20–30MB/ngày — không cần cắt bớt gì vì dung lượng.
+
+// Địa chỉ + user không phải bí mật (đọc từ datasource grafanacloud-logs của stack). Token dùng
+// chung với metrics — access policy `quan-alloy-write` có cả metrics:write và logs:write.
+loki.write "grafana_cloud" {
+  endpoint {
+    url = "https://logs-prod-020.grafana.net/loki/api/v1/push"
+
+    basic_auth {
+      username = "1851691"
+      password = sys.env("GC_PROM_TOKEN")
+    }
+  }
+
+  external_labels = {
+    host = "quanbalun",
+  }
+}
+
+local.file_match "docker" {
+  path_targets = [{"__path__" = "/host/root/var/lib/docker/containers/*/*-json.log", "job" = "docker"}]
+  sync_period  = "30s"
+}
+
+loki.source.file "docker" {
+  targets    = local.file_match.docker.targets
+  forward_to = [loki.process.docker.receiver]
+  // Lần đầu chạy KHÔNG đẩy cả đống log cũ lên — chỉ từ lúc Alloy bật trở đi.
+  tail_from_end = true
+}
+
+loki.process "docker" {
+  stage.json {
+    expressions = {
+      container = "attrs.tag",
+      stream    = "stream",
+      output    = "log",
+      time      = "time",
+    }
+  }
+
+  stage.labels {
+    values = {
+      container = "",
+      stream    = "",
+    }
+  }
+
+  // `job="docker"` chỉ để selector có một matcher không-rỗng (luật của LogQL).
+  stage.match {
+    selector = "{job=\"docker\", container!~\"ordbl_api|ordbl_caddy\"}"
+    action   = "drop"
+  }
+
+  stage.timestamp {
+    source = "time"
+    format = "RFC3339Nano"
+  }
+
+  // Thay dòng json bọc ngoài bằng đúng nội dung app in ra, rồi gỡ mã màu ANSI của Nest/Caddy.
+  stage.output {
+    source = "output"
+  }
+
+  stage.replace {
+    expression = "(\\x1b\\[[0-9;]*m)"
+    replace    = ""
+  }
+
+  // ── API (NestJS) ──
+  stage.match {
+    selector = "{container=\"ordbl_api\"}"
+
+    // OTP_CHANNEL=log in MÃ OTP + SỐ ĐIỆN THOẠI ra log (otp-sender.ts). Không bao giờ gửi
+    // dòng đó ra khỏi VPS.
+    stage.drop {
+      expression = "\\[OTP MOCK\\]"
+    }
+
+    // Stack trace của lỗi là nhiều dòng; gộp về một bản ghi với dòng [Nest] đứng trước nó,
+    // không thì trên Grafana mỗi dòng "at ..." thành một bản ghi rời không biết của lỗi nào.
+    stage.multiline {
+      firstline     = "^(\\[Nest\\]|▸)"
+      max_wait_time = "3s"
+    }
+
+    stage.regex {
+      expression = "^\\[Nest\\] \\d+\\s+-\\s+\\S+, \\S+ \\S+\\s+(?P<nest_level>[A-Z]+) \\[(?P<context>[^\\]]+)\\]"
+    }
+
+    // Nest gọi mức thường là LOG; đổi về info cho khớp Caddy để lọc chung một nhãn.
+    stage.template {
+      source   = "level"
+      template = "{{ if not .nest_level }}info{{ else if eq .nest_level \"LOG\" }}info{{ else }}{{ ToLower .nest_level }}{{ end }}"
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  // ── Caddy (log truy cập) ──
+  stage.match {
+    selector = "{container=\"ordbl_caddy\"}"
+
+    // Health check của deploy + giám sát gọi liên tục — chỉ là nhiễu khi đi tìm lỗi.
+    stage.drop {
+      expression = "\"uri\": \"/api/public/health\""
+    }
+
+    stage.regex {
+      expression = "^\\S+ \\S+\\s+(?P<caddy_level>[A-Z]+)\\s"
+    }
+
+    stage.regex {
+      expression = "\"status\": (?P<status_class>\\d)\\d\\d"
+    }
+
+    // 5xx = lỗi phía quán (error), 4xx = khách gọi sai / hết phiên (warn), còn lại theo mức
+    // Caddy tự ghi (lỗi TLS, upstream chết… là ERROR dù không có status).
+    stage.template {
+      source   = "level"
+      template = "{{ if .status_class }}{{ if eq .status_class \"5\" }}error{{ else if eq .status_class \"4\" }}warn{{ else }}info{{ end }}{{ else if .caddy_level }}{{ ToLower .caddy_level }}{{ else }}info{{ end }}"
+    }
+
+    stage.labels {
+      values = {
+        level = "",
+      }
+    }
+  }
+
+  // Tên file chứa ID container — đổi mỗi lần deploy, giữ làm nhãn là mỗi deploy đẻ luồng log mới.
+  stage.label_drop {
+    values = ["filename"]
+  }
+
+  forward_to = [loki.write.grafana_cloud.receiver]
+}

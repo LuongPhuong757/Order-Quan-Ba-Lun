@@ -26,6 +26,19 @@ x-logging-caddy: &caddy-logging
   options:
     max-size: "200m"
     max-file: "5"
+    # Ghi tên container vào từng dòng log (`attrs.tag`), để Alloy đọc file log json biết dòng
+    # nào của ai mà KHÔNG cần docker.sock (xem monitoring/config.alloy, 2026-10-27).
+    tag: "{{.Name}}"
+
+# Như default-logging + gắn tên container cho Alloy. Tách anchor riêng thay vì sửa
+# default-logging: đổi cấu hình log của mysql là compose DỰNG LẠI container mysql khi deploy,
+# tức DB tắt vài chục giây giữa ngày — không đáng cho một container gần như không có log.
+x-logging-tagged: &tagged-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+    tag: "{{.Name}}"
 
 services:
   mysql:
@@ -161,7 +174,7 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
-    logging: *default-logging
+    logging: *tagged-logging
     networks:
       - backend
       - frontend
@@ -194,6 +207,7 @@ services:
   # Đọc 3 nguồn, tất cả chỉ ĐỌC: máy VPS (/proc, /sys, / mount :ro), Caddy (:9180/metrics)
   # và MySQL (user `exporter` chỉ có PROCESS + REPLICATION CLIENT — không đọc được dữ liệu
   # đơn hàng). Cấu hình: monitoring/config.alloy.
+  # Log của api + caddy đọc từ file json của Docker qua chính mount / :ro đó.
   #
   # Cố ý KHÔNG mount /var/run/docker.sock để lấy RAM từng container: socket đó dù gắn :ro
   # vẫn cho toàn quyền điều khiển Docker, trái với nguyên tắc "giám sát chỉ đọc".
@@ -222,7 +236,8 @@ services:
       - alloy_data:/var/lib/alloy/data
     # Trần cứng: máy 4GB đang dùng swap, Alloy KHÔNG ĐƯỢC tranh RAM với MySQL giờ cao điểm.
     # Chạm trần thì chỉ Alloy bị kill + tự dựng lại, quán không ảnh hưởng.
-    mem_limit: 200m
+    # 200m → 256m khi thêm đọc log (2026-10-27): chỉ số liệu đo thật 118MB, đọc log thêm ~30–60MB.
+    mem_limit: 256m
     cpus: 0.5
     depends_on:
       - mysql
