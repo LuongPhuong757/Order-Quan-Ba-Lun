@@ -1866,61 +1866,20 @@ a:hover {
   align-items: end;
   grid-template-columns:
     minmax(200px, 3fr) minmax(92px, 1fr) minmax(92px, 1fr) minmax(104px, 1.2fr)
-    minmax(104px, 1.2fr) 56px 44px;
+    minmax(104px, 1.2fr) 116px 44px;
 }
 
-/* Cột "Phụ" (2026-10-22) — ô tick nguyên liệu phụ, nằm giữa Thành tiền và nút ✕. Desktop: chỉ
-   ô tick, căn giữa dưới nhãn cột "Phụ" (chữ trong nhãn bấm được giấu đi, nhãn cột đã nói đủ).
-   Cao 44px cho ngang đáy với các ô nhập bên trái (`align-items: end`). */
+/* Cột "Nhóm" (2026-10-28 — thay ô tick "Phụ" của 2026-10-22): ô chọn Chính / Phụ / Bán nguyên,
+   nằm giữa Thành tiền và nút ✕. 116px vừa chữ "Bán nguyên" + mũi tên ở cỡ chữ 15px. Cao 44px
+   cho ngang đáy với các ô nhập bên trái (`align-items: end`). */
 .dl-phu-cell {
   min-width: 0;
-  text-align: center;
 }
-/* Cả ô 44px là vùng bấm (ngón tay người lớn tuổi), nhưng KHÔNG vẽ khung quanh nó — khung ngoài +
-   ô tick gốc của trình duyệt bên trong thành hai lớp hộp, chủ quán chê "thô". Chỉ còn một ô tick
-   tự vẽ 26px. `margin-bottom: 0` vì <label> mang sẵn 6px → ô bị đẩy cao hơn các ô nhập. */
-.dl-phu-cell .ing-phu {
-  display: flex;
-  justify-content: center;
+.dl-phu-cell .ing-kind {
   width: 100%;
   height: 44px;
-  min-height: 0;
-  margin-bottom: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
-.dl-phu-cell .ing-phu > span {
-  display: none;
-}
-/* Ô tick tự vẽ: tắt hình gốc (mỗi trình duyệt một kiểu, trên Mac viền dày + bóng), tắt thì viền
-   xám mảnh, tick thì nền cam đặc + dấu ✓ trắng. Dấu ✓ là SVG nền vì Safari không vẽ ::after
-   trên <input>. */
-.dl-phu-cell .ing-phu input[type='checkbox'] {
-  appearance: none;
-  -webkit-appearance: none;
-  flex: none;
-  width: 26px;
-  height: 26px;
-  margin: 0;
-  border: 2px solid #cbd5e1;
-  border-radius: 7px;
-  background: #fff center / 18px 18px no-repeat;
-  transition: background-color 0.12s, border-color 0.12s;
-}
-.dl-phu-cell .ing-phu:hover input[type='checkbox'] {
-  border-color: #fb923c;
-}
-.dl-phu-cell .ing-phu input[type='checkbox']:checked {
-  border-color: #ea580c;
-  background-color: #ea580c;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12.5l4.5 4.5L19 7.5'/%3E%3C/svg%3E");
-}
-.dl-phu-cell .ing-phu input[type='checkbox']:focus-visible {
-  outline: 3px solid #fed7aa;
-  outline-offset: 2px;
-}
-/* Người lập nháp (role Báo cáo) không có ô "Phụ" — bỏ luôn cột 56px, không thì nút ✕ trượt sang
+/* Người lập nháp (role Báo cáo) không có ô "Nhóm" — bỏ luôn cột 116px, không thì nút ✕ trượt sang
    cột đó và chừa một khoảng trống ở mép phải. Bố cục thẻ là flex nên không cần gì thêm. */
 .dl-line.dl-khong-phu {
   grid-template-columns:
@@ -2049,31 +2008,14 @@ a:hover {
     display: none;
   }
 
-  /* Bố cục thẻ: ô "Phụ" thành một hàng riêng trải hết bề ngang thẻ, có chữ "Nguyên liệu phụ" —
-     ở đây không có nhãn cột nào đứng trên để giải thích ô tick là gì. */
+  /* Bố cục thẻ: ô "Nhóm" thành một hàng riêng, nhãn hiện lại ở mọi thẻ như các ô khác — ở đây
+     không có nhãn cột nào đứng trên để giải thích ô chọn là gì. */
   .dl-phu-cell {
     grid-column: 1 / -1;
-    text-align: left;
   }
-  .dl-phu-cell .dl-lab {
-    display: none !important;
-  }
-  .dl-phu-cell .ing-phu {
-    display: inline-flex;
-    gap: 10px;
-    justify-content: flex-start;
+  .dl-phu-cell .ing-kind {
     width: auto;
-    padding: 0 14px 0 10px;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 10px;
-    background: #fff;
-  }
-  .dl-phu-cell .ing-phu.is-on {
-    border-color: #fdba74;
-    background: #fff7ed;
-  }
-  .dl-phu-cell .ing-phu > span {
-    display: inline;
+    min-width: 160px;
   }
 
   .dl-foot-line {
@@ -3009,11 +2951,14 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
 .rp-sum-v { font-size: 22px; font-weight: 800; color: #0f766e; text-align: right; }
 .rp-sum-tong .rp-sum-p { font-size: 18px; font-weight: 800; }
 .rp-sum-gia { font-size: 13px; color: #6b7280; text-align: right; margin-top: 2px; }
-/* Nhãn "Phụ" trên dòng công thức — cùng tông cam với `.ing-phu-tag` ở danh mục nguyên liệu. */
+/* Nhãn "Phụ" trên dòng công thức — cùng tông cam với `.ing-kind-tag` ở danh mục nguyên liệu. */
 .rp-phu-tag {
   display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
   background: #fff7ed; color: #c2410c; font-size: 12px; font-weight: 700; vertical-align: 2px;
 }
+.rp-phu-tag.is-ban { background: #f5f3ff; color: #6d28d9; }
+/* Ghi chú nhỏ dưới nhãn dòng giá vốn, vd "không cộng % phụ" ở món toàn hàng bán nguyên. */
+.rp-sum-ghi { display: block; font-size: 12.5px; font-weight: 500; color: #6d28d9; }
 
 /* Hàng nhập: grid cột cố định. Width 100% của từng ô chỉ còn tác dụng TRONG cột
    của nó, nên không ô nào ăn được chỗ của ô khác. */
@@ -3593,43 +3538,55 @@ button.qr-banner-chip.is-late { animation: qrChipBlink 1.1s ease-in-out infinite
   text-align: center;
 }
 
-/* Ô tick "Phụ" — `IngredientKindToggle` (2026-10-22). Cả nhãn là vùng bấm (cao 40px) chứ không
-   chỉ ô 24px: ngón tay người lớn tuổi khó trúng một ô nhỏ. Viền + nền cam khi đã tick để quét mắt
-   dọc một cột là thấy ngay dòng nào là phụ. */
-.ing-phu {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+/* Ô chọn nhóm nguyên liệu — `IngredientKindSelect` (2026-10-28). Cao 40px cho ngón tay người lớn
+   tuổi; Chính để trắng (mặc định, đa số dòng), Phụ cam, Bán nguyên tím — quét mắt dọc một cột là
+   thấy ngay dòng nào khác thường. Mũi tên vẽ lại bằng SVG nền vì `appearance: none` để nền màu
+   ăn đều trên Safari. */
+select.ing-kind {
+  appearance: none;
+  -webkit-appearance: none;
   min-height: 40px;
-  padding: 0 10px 0 8px;
+  padding: 0 30px 0 12px;
   border: 1.5px solid #d1d5db;
   border-radius: 10px;
-  background: #fff;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 9px center / 16px 16px no-repeat;
   color: #374151;
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
-  user-select: none;
-  white-space: nowrap;
 }
-.ing-phu input[type='checkbox'] {
-  width: 24px;
-  height: 24px;
-  accent-color: #ea580c;
-  cursor: pointer;
-}
-.ing-phu.is-on {
+select.ing-kind.is-phu {
   border-color: #fdba74;
-  background: #fff7ed;
+  background-color: #fff7ed;
   color: #c2410c;
 }
-/* Chỉ xem (không phải owner/admin): chữ "Phụ" trơn, không có ô tick. */
-.ing-phu-tag {
+select.ing-kind.is-ban {
+  border-color: #c4b5fd;
+  background-color: #f5f3ff;
+  color: #6d28d9;
+}
+select.ing-kind:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 1px;
+}
+select.ing-kind:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+/* Chỉ xem (không phải owner/admin): chữ trơn, không có ô chọn; Chính thì không hiện gì. */
+.ing-kind-tag {
   display: inline-block;
   padding: 2px 10px;
   border-radius: 999px;
-  background: #fff7ed;
-  color: #c2410c;
   font-size: 13px;
   font-weight: 700;
+  white-space: nowrap;
+}
+.ing-kind-tag.is-phu {
+  background: #fff7ed;
+  color: #c2410c;
+}
+.ing-kind-tag.is-ban {
+  background: #f5f3ff;
+  color: #6d28d9;
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
+import { kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
@@ -17,13 +18,15 @@ type FoodCostLite = {
   /** Tách giá vốn (2026-10-28): hộp Công thức hiện riêng NL chính / NL phụ / tổng. */
   cost_main: number;
   overhead_amount: number;
-  components: Array<{ ingredient_id: string; is_secondary: boolean }>;
+  /** Tiền hàng bán nguyên (2026-10-28) — `?` vì bản API cũ chưa có. */
+  cost_resale?: number;
+  components: Array<{ ingredient_id: string; is_secondary: boolean; is_resale?: boolean }>;
   complete: boolean;
 };
 
 /** Một món trong bản đồ giá vốn của màn Menu. `cost` là giá vốn ĐẦY ĐỦ (chính + % phụ) — thẻ món
  *  và hộp Công thức dùng chung, nên % trên thẻ luôn bằng % ở dòng "Giá vốn" trong hộp. */
-type FoodCostEntry = { pct: number; cost: number; costMain: number; overhead: number; complete: boolean };
+type FoodCostEntry = { pct: number; cost: number; costMain: number; costResale: number; overhead: number; complete: boolean };
 
 type MenuGroup = {
   id: string;
@@ -133,10 +136,10 @@ export function MenuManagementPage() {
    * hiện kèm dấu ≥. Cộng đại rồi hiện như số đủ là kiểu sai nguy hiểm nhất ở đây: nó luôn cho
    * giá vốn thấp hơn thật, tức món đang lỗ trông vẫn lãi. */
   const [foodCost, setFoodCost] = useState<Record<string, FoodCostEntry>>({});
-  /** % phụ đang áp và các nguyên liệu đang là Phụ — hộp Công thức cần để hiện dòng NL phụ và
-   *  gắn nhãn "Phụ" cho dòng công thức. Cùng một lần gọi `/supplier-reports/food-cost`. */
+  /** % phụ đang áp và nhóm của các nguyên liệu KHÔNG phải Chính — hộp Công thức cần để hiện dòng
+   *  NL phụ / Bán nguyên và gắn nhãn cho dòng công thức. Cùng một lần gọi `/supplier-reports/food-cost`. */
   const [overheadPct, setOverheadPct] = useState(0);
-  const [secondaryIds, setSecondaryIds] = useState<ReadonlySet<string>>(new Set());
+  const [kindById, setKindById] = useState<ReadonlyMap<string, IngredientKind>>(new Map());
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -187,11 +190,14 @@ export function MenuManagementPage() {
     try {
       const res = await api.get<{ data: { items: FoodCostLite[]; overhead_pct?: number } }>('/supplier-reports/food-cost');
       const map: Record<string, FoodCostEntry> = {};
-      const phu = new Set<string>();
+      const nhom = new Map<string, IngredientKind>();
       for (const r of res.data.data.items) {
-        // Gom cờ Phụ TRƯỚC bộ lọc dưới: món chỉ toàn nguyên liệu phụ có giá vốn 0 nhưng dòng
+        // Gom nhóm TRƯỚC bộ lọc dưới: món chỉ toàn nguyên liệu phụ có giá vốn 0 nhưng dòng
         // công thức của nó vẫn phải mang nhãn "Phụ".
-        for (const c of r.components ?? []) if (c.is_secondary) phu.add(c.ingredient_id);
+        for (const c of r.components ?? []) {
+          const k = kindOf(c);
+          if (k !== 'MAIN') nhom.set(c.ingredient_id, k);
+        }
         if (!(r.sell_price > 0) || !(r.cost > 0)) continue;
         // Làm tròn có thể ra 0 khi định lượng khai quá nhỏ — dữ liệu thật đang có "Tràng Lợn
         // Trần 200k" với 75đ nguyên liệu trên giá bán 200.000đ. "0% NL" trông như lỗi hiển thị,
@@ -200,13 +206,14 @@ export function MenuManagementPage() {
           pct: Math.round((r.cost / r.sell_price) * 100),
           cost: r.cost,
           costMain: r.cost_main ?? r.cost,
+          costResale: r.cost_resale ?? 0,
           overhead: r.overhead_amount ?? 0,
           complete: r.complete,
         };
       }
       setFoodCost(map);
       setOverheadPct(Number(res.data.data.overhead_pct) || 0);
-      setSecondaryIds(phu);
+      setKindById(nhom);
     } catch {
       setFoodCost({});
     }
@@ -744,9 +751,10 @@ export function MenuManagementPage() {
           sellPrice={recipeFor.price}
           cost={foodCost[recipeFor.id]?.cost ?? null}
           costMain={foodCost[recipeFor.id]?.costMain ?? null}
+          costResale={foodCost[recipeFor.id]?.costResale ?? 0}
           overhead={foodCost[recipeFor.id]?.overhead ?? 0}
           overheadPct={overheadPct}
-          secondaryIds={secondaryIds}
+          kindById={kindById}
           costComplete={foodCost[recipeFor.id]?.complete ?? true}
           onLinesChanged={reloadCost}
           onClose={() => {

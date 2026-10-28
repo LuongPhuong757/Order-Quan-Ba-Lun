@@ -71,6 +71,12 @@ export class Ingredient {
   @Column({ type: 'boolean', default: false })
   is_secondary!: boolean;
 
+  /** Hàng BÁN NGUYÊN (2026-10-28) — bia, nước, thuốc mua về bán luôn. Giá vốn = đúng giá nhập,
+   * KHÔNG cộng % chi phí phụ và không nằm trong mẫu số của % phụ thực tế. Loại trừ với
+   * `is_secondary` — xem `ingredient-kind.ts`. */
+  @Column({ type: 'boolean', default: false })
+  is_resale!: boolean;
+
   /** Xoá mềm, cùng lệ với `menu_items.is_active`.
    *
    * Nguyên liệu bị gộp đi cũng để `false` ở đây (không DELETE): các bản chốt tiêu hao trong quá

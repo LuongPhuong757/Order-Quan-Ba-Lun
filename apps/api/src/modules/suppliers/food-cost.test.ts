@@ -205,11 +205,67 @@ describe('computeFoodCost — nguyên liệu phụ và % phụ', () => {
   });
 });
 
+describe('computeFoodCost — hàng bán nguyên (2026-10-28)', () => {
+  const BIA = { id: 'm2', name: 'Bia Tiger lon', price: 20_000 };
+  const COMBO = { id: 'm3', name: 'Rượu dừa + lạc', price: 150_000 };
+  const lines = [
+    { menu_item_id: 'm2', ingredient_id: 'bia', ingredient_name: 'Bia Tiger', base_unit: 'lon', qty_per_serving: 1, is_resale: true },
+    { menu_item_id: 'm3', ingredient_id: 'ruou', ingredient_name: 'Rượu dừa', base_unit: 'quả', qty_per_serving: 1, is_resale: true },
+    { menu_item_id: 'm3', ingredient_id: 'lac', ingredient_name: 'Lạc', base_unit: 'g', qty_per_serving: 100 },
+  ];
+  const giá = [
+    { ingredient_id: 'bia', unit_price_base: 13_800, source: 'avg' as const },
+    { ingredient_id: 'ruou', unit_price_base: 35_000, source: 'avg' as const },
+    { ingredient_id: 'lac', unit_price_base: 400, source: 'avg' as const },
+  ];
+
+  it('món chỉ toàn hàng bán nguyên: giá vốn = giá nhập, KHÔNG cộng % phụ', () => {
+    const [row] = computeFoodCost([BIA], lines, giá, [], 10);
+    expect(row.cost_main).toBe(0);
+    expect(row.cost_resale).toBe(13_800);
+    expect(row.overhead_amount).toBe(0);
+    expect(row.cost).toBe(13_800);
+  });
+
+  it('món trộn: % phụ chỉ nhân trên phần nguyên liệu chính', () => {
+    // Lạc 100g × 400 = 40.000 chính; rượu 35.000 bán nguyên; 10% × 40.000 = 4.000.
+    const [row] = computeFoodCost([COMBO], lines, giá, [], 10);
+    expect(row.cost_main).toBe(40_000);
+    expect(row.cost_resale).toBe(35_000);
+    expect(row.overhead_amount).toBe(4_000);
+    expect(row.cost).toBe(79_000);
+  });
+
+  it('hàng bán nguyên thiếu giá thì giá vốn CHƯA đầy đủ (tiền nó cộng thẳng vào)', () => {
+    const [row] = computeFoodCost([BIA], lines, [], [], 0);
+    expect(row.complete).toBe(false);
+    expect(row.missing).toEqual(['Bia Tiger']);
+  });
+
+  it('dòng lỡ mang cả hai cờ thì coi là PHỤ — không cộng hai lần', () => {
+    const both = [{ ...lines[0], is_secondary: true }];
+    const [row] = computeFoodCost([BIA], both, giá, [], 0);
+    expect(row.cost).toBe(0);
+    expect(row.components[0].is_resale).toBe(false);
+  });
+});
+
 describe('overheadReferencePct', () => {
   it('= tiền phụ ÷ tiền chính', () => {
     expect(
       overheadReferencePct([
         { amount: 1_000_000, is_secondary: false },
+        { amount: 74_000, is_secondary: true },
+      ]),
+    ).toBe(7.4);
+  });
+
+  it('hàng bán nguyên KHÔNG nằm trong mẫu số', () => {
+    // 74k phụ ÷ 1tr chính = 7,4% — 500k bia không được kéo con số xuống 4,9%.
+    expect(
+      overheadReferencePct([
+        { amount: 1_000_000, is_secondary: false },
+        { amount: 500_000, is_secondary: false, is_resale: true },
         { amount: 74_000, is_secondary: true },
       ]),
     ).toBe(7.4);
