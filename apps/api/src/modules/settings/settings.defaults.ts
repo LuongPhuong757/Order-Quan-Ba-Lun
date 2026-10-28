@@ -189,6 +189,11 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // Tắt = cửa vào bàn (`/api/public/table/open`) và gửi món (`/table/cart`) trả TABLE_ORDERING_OFF;
   // khách vẫn XEM thực đơn bình thường. Key mới chưa có row trong DB nên fallback này CÓ hiệu lực.
   { key: 'table_ordering_enabled', kind: 'bool', default: false },
+  // ── % chi phí nguyên liệu PHỤ cộng vào giá vốn món (2026-10-22) ──
+  // Tính trên TIỀN NGUYÊN LIỆU CHÍNH của món: giá vốn đầy đủ = chính × (1 + % / 100). Một con số
+  // chung cho mọi món, owner/admin tự nhập ở tab Giá vốn — hệ thống chỉ GỢI Ý số thực tế, không
+  // tự điền (chủ quán chốt). `0` = chưa đặt: mọi màn giữ nguyên như trước khi có tính năng.
+  { key: 'overhead_cost_pct', kind: 'float', default: 0 },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -258,6 +263,8 @@ export type StoreSettingsMap = {
   stale_unpaid_alert_min: number;
   /** M7.D-15 — cho khách quét QR tự gọi món tại bàn. Mặc định TẮT. */
   table_ordering_enabled: boolean;
+  /** % cộng vào giá vốn món cho nguyên liệu phụ, tính trên tiền nguyên liệu chính. `0` = chưa đặt. */
+  overhead_cost_pct: number;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(

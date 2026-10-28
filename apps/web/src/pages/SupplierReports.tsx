@@ -11,6 +11,7 @@ import { C } from '../lib/online-ui.ts';
 import { locMon, phanTrang } from '../lib/supplier-stats.ts';
 import { downloadCsv } from '../lib/csv.ts';
 import { ToolbarSlot } from '../components/ToolbarSlot.tsx';
+import { IngredientKindToggle } from '../components/IngredientKindToggle.tsx';
 import type { DayRange } from '../lib/date-range.ts';
 import { FilterBar, theoDonViMua, pctVN } from './supplier-ui.tsx';
 import './suppliers-ui.css';
@@ -20,6 +21,8 @@ export type PairReport = {
   supplier_name: string;
   ingredient_id: string;
   ingredient_name: string;
+  /** Nguyên liệu phụ (2026-10-22) — giá trị HIỆN TẠI của nguyên liệu, không phải lúc nhập. */
+  is_secondary: boolean;
   base_unit: string;
   purchase_unit: string;
   deliveries: number;
@@ -382,6 +385,9 @@ export function ItemStatsPanel({
   const [sortKey, setSortKey] = useState<ItemSortKey>('amount');
   const [asc, setAsc] = useState(false);
   const [tim, setTim] = useState('');
+  // Lọc Chính/Phụ (2026-10-28, chủ quán yêu cầu): xem riêng tiền nhập NL phụ trong kỳ, và soát
+  // lại dòng nào chưa đánh dấu. Lọc ở client như ô tìm — cờ đã có sẵn trên từng dòng.
+  const [kind, setKind] = useState<'all' | 'chinh' | 'phu'>('all');
   const [page, setPage] = useState(1);
 
   const load = useCallback(() => {
@@ -408,13 +414,14 @@ export function ItemStatsPanel({
    *  `locPhieuTheoMon`). */
   const sorted = useMemo(() => {
     const get = ITEM_SORTS[sortKey].get;
-    return locMon(rows ?? [], tim).sort((a, b) => {
+    const theoNhom = (rows ?? []).filter((r) => kind === 'all' || r.is_secondary === (kind === 'phu'));
+    return locMon(theoNhom, tim).sort((a, b) => {
       const x = get(a);
       const y = get(b);
       const d = typeof x === 'string' ? x.localeCompare(String(y), 'vi') : Number(x) - Number(y);
       return asc ? d : -d;
     });
-  }, [rows, tim, sortKey, asc]);
+  }, [rows, tim, kind, sortKey, asc]);
 
   // Số ở chân bảng và file Excel tính trên TOÀN BỘ kết quả lọc, không phải trang đang xem: tổng
   // tiền của một trang 20 dòng ngẫu nhiên không trả lời được câu hỏi nào.
@@ -450,6 +457,22 @@ export function ItemStatsPanel({
       range={range} onRangeChange={onRangeChange}
       search={{ value: tim, onChange: (v) => { setTim(v); setPage(1); }, placeholder: 'Tên mặt hàng, vd: cá', label: 'Tìm mặt hàng nhập theo tên' }}
       ariaLabel="Bộ lọc mặt hàng nhập"
+      extra={
+        <div className="fgroup" role="group" aria-label="Lọc theo nhóm nguyên liệu">
+          {(
+            [
+              ['all', 'Tất cả NL'],
+              ['chinh', `Chính (${(rows ?? []).filter((r) => !r.is_secondary).length})`],
+              ['phu', `Phụ (${(rows ?? []).filter((r) => r.is_secondary).length})`],
+            ] as const
+          ).map(([v, label]) => (
+            <button key={v} className="chip" type="button" aria-pressed={kind === v}
+                    onClick={() => { setKind(v); setPage(1); }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      }
     />
   );
 
@@ -522,7 +545,7 @@ export function ItemStatsPanel({
           <div className="card__head">
             <h2 className="card__title">Mặt hàng đã nhập</h2>
             <span className="badge badge--neutral">
-              {trang.total} mặt hàng{tim2 ? ' khớp' : ''} · {vnd(total)}đ
+              {trang.total} mặt hàng{kind === 'phu' ? ' phụ' : kind === 'chinh' ? ' chính' : ''}{tim2 ? ' khớp' : ''} · {vnd(total)}đ
             </span>
           </div>
           <div className="card__body">
@@ -540,8 +563,12 @@ export function ItemStatsPanel({
             {trang.total === 0 ? (
               <div className="emptyfilter">
                 <p className="emptyfilter__t">Không có mặt hàng nào khớp</p>
-                <p className="emptyfilter__s">Không mặt hàng nào có tên chứa “{tim2}” trong kỳ đang xem.</p>
-                <button className="btn btn--accent-ghost" type="button" onClick={() => { setTim(''); setPage(1); }}>Xoá từ khoá</button>
+                <p className="emptyfilter__s">
+                  {tim2
+                    ? `Không mặt hàng${kind === 'phu' ? ' phụ' : kind === 'chinh' ? ' chính' : ''} nào có tên chứa “${tim2}” trong kỳ đang xem.`
+                    : `Kỳ đang xem không nhập mặt hàng ${kind === 'phu' ? 'phụ' : 'chính'} nào.`}
+                </p>
+                <button className="btn btn--accent-ghost" type="button" onClick={() => { setTim(''); setKind('all'); setPage(1); }}>Xoá bộ lọc</button>
               </div>
             ) : (
               <>
@@ -551,6 +578,7 @@ export function ItemStatsPanel({
                     <thead>
                       <tr>
                         {th('ingredient_name')}
+                        <th scope="col" className="colitphu">NL phụ</th>
                         <th scope="col" className="colitsup">Nhà cung cấp</th>
                         {th('deliveries', 'colitn', true)}
                         {th('qty_base', 'colitqty', true)}
@@ -591,6 +619,23 @@ export function ItemStatsPanel({
                                 <span className="cell-strong">{r.ingredient_name}</span>
                               )}
                               <span className="cell-sub m-off">{r.deliveries} lần nhập</span>
+                            </td>
+                            {/* Ô tick "Phụ" — cột RIÊNG (chủ quán chốt 2026-10-22: nhét dưới tên thì
+                                rối, cột riêng quét dọc một lượt là thấy hết). Một nguyên liệu có thể
+                                nằm ở nhiều dòng (mỗi NCC một dòng) — tick một dòng thì cập nhật mọi
+                                dòng cùng nguyên liệu, vì nhóm thuộc về nguyên liệu chứ không về NCC.
+                                Dưới 720px ô rơi vào cột `act` bên phải thẻ (xem `.colitphu`). */}
+                            <td data-label="NL phụ" className="colitphu c-act">
+                              <IngredientKindToggle
+                                ingredientId={r.ingredient_id}
+                                ingredientName={r.ingredient_name}
+                                isSecondary={r.is_secondary}
+                                onChanged={(v) =>
+                                  setRows((prev) =>
+                                    prev && prev.map((x) => (x.ingredient_id === r.ingredient_id ? { ...x, is_secondary: v } : x)),
+                                  )
+                                }
+                              />
                             </td>
                             <td data-label="Nhà cung cấp" className="colitsup r-t2" title={r.supplier_name}>
                               <span className="cell-strong m-off">{r.supplier_name}</span>

@@ -107,6 +107,8 @@ export type DeliveryLineInput = {
   qty_base_per_unit: number;
   qty_purchase: number;
   unit_price: number;
+  /** Ô tick "Phụ" ở màn nhập phiếu (2026-10-22). Thiếu = không đụng tới nhóm của nguyên liệu. */
+  is_secondary?: boolean;
 };
 
 /** Một dòng lệch giá, đúng những gì popup cần hiện (M3.D-21). */
@@ -446,6 +448,7 @@ export class DeliveriesService {
       const lines = mgr.getRepository(SupplierDeliveryLine);
       const items = mgr.getRepository(SupplierItem);
 
+      await this.applySecondaryFlags(mgr, input.lines, prepared);
       const total_amount = prepared.reduce((sum, p) => sum + p.amounts.amount, 0);
       const delivery = await deliveries.save(
         deliveries.create({
@@ -834,6 +837,7 @@ export class DeliveriesService {
         // trạng thái cuối chuỗi, ghi thêm ở đây là hai chỗ cùng viết một bảng.
 
         const prepared = await this.prepareLines(supplier_id, input.lines);
+        await this.applySecondaryFlags(mgr, input.lines, prepared);
 
         // Xoá hết dòng cũ rồi ghi lại: dòng bị bỏ khỏi phiếu phải biến mất khỏi tồn kho, mà
         // so từng dòng để biết cái nào bị bỏ thì phức tạp hơn mà không được gì.
@@ -1006,6 +1010,30 @@ export class DeliveriesService {
    * Tách riêng vì chạy ở CẢ HAI nhịp của luồng tạo phiếu — nhịp một để dựng popup, nhịp hai để
    * ghi. Một chỗ tính duy nhất thì không có đường cho hai nhịp lệch nhau.
    */
+  /** Ghi ô tick "Phụ" của từng dòng vào nguyên liệu (2026-10-22, chủ quán chốt "lưu khi bấm GỬI").
+   *
+   * Gọi TRONG transaction lưu phiếu, không phải ở `prepareLines`: lượt đầu của `create` chỉ dò
+   * lệch giá rồi trả popup về, người dùng bấm Huỷ ở popup thì nhóm nguyên liệu không được đổi.
+   * Với `update`, phiếu bị cuộn ngược vì lệch giá thì cờ này cuộn ngược theo.
+   *
+   * `prepared[i]` ứng đúng `inputs[i]` — `prepareLines` ném lỗi chứ không bỏ dòng nào.
+   * Chỉ hai đường của AdminGuard (tạo + sửa phiếu) gọi hàm này; cổng NCC tự nhập không đi qua đây
+   * nên NCC không đổi được nhóm nguyên liệu của quán. */
+  private async applySecondaryFlags(
+    mgr: EntityManager,
+    inputs: DeliveryLineInput[],
+    prepared: Array<{ ingredient: Ingredient }>,
+  ): Promise<void> {
+    const repo = mgr.getRepository(Ingredient);
+    for (let i = 0; i < inputs.length; i++) {
+      const want = inputs[i].is_secondary;
+      const ing = prepared[i]?.ingredient;
+      if (typeof want !== 'boolean' || !ing || ing.is_secondary === want) continue;
+      await repo.update(ing.id, { is_secondary: want });
+      ing.is_secondary = want;
+    }
+  }
+
   private async prepareLines(supplier_id: string, inputs: DeliveryLineInput[]) {
     const prepared = [];
     // Mặt hàng trùng trong cùng một phiếu: hai dòng "rau muống" thì dòng sau ghi đè bảng giá của
