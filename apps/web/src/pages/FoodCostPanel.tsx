@@ -7,6 +7,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { useAuth } from '../lib/auth-context.tsx';
+import { OverheadPctEditor } from '../components/OverheadPctEditor.tsx';
 
 type Component = {
   ingredient_id: string;
@@ -32,6 +33,8 @@ type FoodCostRow = {
   cost_main: number;
   /** Tiền hàng bán nguyên một phần (2026-10-28). `?` vì bản API cũ chưa có. */
   cost_resale?: number;
+  /** % phụ của RIÊNG món (2026-10-28) — `null` = món không tính phụ. */
+  overhead_pct: number | null;
   overhead_amount: number;
   missing: string[];
   complete: boolean;
@@ -55,24 +58,22 @@ function marginColor(pct: number | null): string {
 export function FoodCostPanel() {
   const toast = useToast();
   const { user } = useAuth();
-  // Owner cũng mang role admin. Role `report` chỉ xem: thấy % đang áp nhưng không có ô sửa.
+  // Owner cũng mang role admin. Role `report` chỉ xem: thấy % của từng món nhưng không có ô sửa.
   const canEdit = user?.role === 'admin';
   const [rows, setRows] = useState<FoodCostRow[] | null>(null);
   const [from, setFrom] = useState('');
   const [open, setOpen] = useState<string | null>(null);
-  const [overheadPct, setOverheadPct] = useState(0);
   const [referencePct, setReferencePct] = useState<number | null>(null);
 
   const load = useCallback(() => {
     setRows(null);
     api
       .get<{
-        data: { from: string; items: FoodCostRow[]; overhead_pct: number; overhead_reference_pct: number | null };
+        data: { from: string; items: FoodCostRow[]; overhead_reference_pct: number | null };
       }>('/supplier-reports/food-cost')
       .then((r) => {
         setRows(r.data.data.items);
         setFrom(r.data.data.from);
-        setOverheadPct(r.data.data.overhead_pct ?? 0);
         setReferencePct(r.data.data.overhead_reference_pct ?? null);
       })
       .catch((err) => {
@@ -95,8 +96,12 @@ export function FoodCostPanel() {
   );
 
   const incomplete = sorted.filter((r) => !r.complete);
-  // % = 0 nghĩa là "chưa đặt": bảng giữ đúng hình dạng cũ, không thêm cột (chủ quán chốt 2026-10-22).
-  const showMain = overheadPct > 0;
+  // Chưa món nào có phần phụ thì bảng giữ đúng hình dạng cũ — cột "Tiền NL" chỉ nói khác cột Giá
+  // vốn khi có món đã cộng phụ.
+  const showMain = (rows ?? []).some((r) => r.overhead_amount > 0);
+
+  /** Lưu % ở một dòng xong → nạp lại cả bảng: giá vốn, lãi và thứ tự xếp đều đổi theo. */
+  const daLuu = load;
 
   if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
   if (rows.length === 0) {
@@ -114,12 +119,23 @@ export function FoodCostPanel() {
         nhập cuối, để một đợt mua lẻ đắt đỏ không kéo lệch cả bảng.
       </p>
 
-      <OverheadPctBox
-        pct={overheadPct}
-        referencePct={referencePct}
-        canEdit={canEdit}
-        onSaved={load}
-      />
+      {/* % phụ đặt cho TỪNG món (2026-10-28 — bỏ % chung tự áp cho mọi món): ở cột "% phụ" dưới
+          đây hoặc trong hộp Công thức của món. Số thực tế chỉ để tham khảo, không tự điền — tháng
+          nào mua dồn bình gas thì nó vọt lên. */}
+      <div className="card" style={{ marginBottom: 12 }}>
+        <div style={{ fontWeight: 700, fontSize: 16 }}>Chi phí nguyên liệu phụ</div>
+        <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
+          Gas, hành lá, đá… không cân vào từng món. Món nào cần tính thì nhập % ở cột <strong>% phụ</strong>{' '}
+          (tính trên tiền nguyên liệu chính của món); để trống là không tính. Hàng bán nguyên không
+          bị cộng.
+        </div>
+        {referencePct !== null && (
+          <div style={{ fontSize: 15, marginTop: 8 }}>
+            Thực tế 90 ngày qua: <strong>{referencePct.toLocaleString('vi-VN')}%</strong>{' '}
+            <span style={{ color: C.mutedOnTint, fontSize: 13 }}>(tiền nhập NL phụ ÷ NL chính, không tính hàng bán nguyên)</span>
+          </div>
+        )}
+      </div>
 
       {incomplete.length > 0 && (
         // Nói thẳng ra, không giấu: giá vốn thiếu nguyên liệu luôn THẤP hơn thật, tức biên lợi
@@ -139,6 +155,7 @@ export function FoodCostPanel() {
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Món</th>
               <th style={{ padding: 8, textAlign: 'right' }}>Giá bán</th>
+              <th style={{ padding: 8, textAlign: 'right' }}>% phụ</th>
               {showMain && <th style={{ padding: 8, textAlign: 'right' }}>Tiền NL</th>}
               <th style={{ padding: 8, textAlign: 'right' }}>{showMain ? 'Giá vốn đủ' : 'Giá vốn'}</th>
               <th style={{ padding: 8, textAlign: 'right' }}>Lãi/phần</th>
@@ -163,6 +180,17 @@ export function FoodCostPanel() {
                     )}
                   </td>
                   <td style={{ padding: 8, textAlign: 'right' }}>{vnd(r.sell_price)}đ</td>
+                  <td style={{ padding: 8, textAlign: 'right' }}>
+                    <OverheadPctEditor
+                      variant="cell"
+                      menuItemId={r.menu_item_id}
+                      menuItemName={r.menu_item_name}
+                      pct={r.overhead_pct}
+                      referencePct={referencePct}
+                      canEdit={canEdit}
+                      onSaved={daLuu}
+                    />
+                  </td>
                   {showMain && (
                     // Chính + bán nguyên = mọi thứ trước % phụ. Chỉ để `cost_main` thì lon bia hiện
                     // "0đ" ở cột này — trông như món chưa có giá.
@@ -187,7 +215,7 @@ export function FoodCostPanel() {
                 </tr>
                 {open === r.menu_item_id && (
                   <tr key={`${r.menu_item_id}-d`}>
-                    <td colSpan={showMain ? 6 : 5} style={{ padding: '0 8px 12px', background: '#f9fafb' }}>
+                    <td colSpan={showMain ? 7 : 6} style={{ padding: '0 8px 12px', background: '#f9fafb' }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <tbody>
                           {/* Sắp theo phần đóng góp giảm dần — nguyên liệu đáng đàm phán nằm trên. */}
@@ -243,7 +271,7 @@ export function FoodCostPanel() {
                           {r.overhead_amount > 0 && (
                             <tr style={{ borderTop: '1px dashed #d1d5db' }}>
                               <td style={{ padding: '4px 8px' }} colSpan={3}>
-                                Nguyên liệu phụ ({overheadPct.toLocaleString('vi-VN')}% của {vnd(r.cost_main)}đ)
+                                Nguyên liệu phụ ({(r.overhead_pct ?? 0).toLocaleString('vi-VN')}% của {vnd(r.cost_main)}đ)
                               </td>
                               <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>
                                 +{vnd(r.overhead_amount)}đ
@@ -262,89 +290,5 @@ export function FoodCostPanel() {
         </table>
       </div>
     </>
-  );
-}
-
-/** Ô % chi phí nguyên liệu phụ (2026-10-22).
- *
- * Số thực tế (tiền mua đồ phụ ÷ tiền mua nguyên liệu chính, cùng cửa sổ 90 ngày) chỉ hiện để
- * THAM KHẢO — chủ quán chốt không tự điền: tháng nào mua dồn bình gas thì số thực tế vọt lên,
- * tự điền theo là giá vốn cả bảng nhảy theo từng lần đổi bình.
- */
-function OverheadPctBox({
-  pct,
-  referencePct,
-  canEdit,
-  onSaved,
-}: {
-  pct: number;
-  referencePct: number | null;
-  canEdit: boolean;
-  onSaved: () => void;
-}) {
-  const toast = useToast();
-  const [draft, setDraft] = useState(String(pct));
-  const [saving, setSaving] = useState(false);
-  useEffect(() => setDraft(String(pct)), [pct]);
-
-  const parsed = Number(draft.replace(',', '.'));
-  const valid = draft.trim() !== '' && Number.isFinite(parsed) && parsed >= 0 && parsed <= 100;
-  const changed = valid && Math.round(parsed * 10) / 10 !== pct;
-
-  const save = async () => {
-    if (!changed) return;
-    setSaving(true);
-    try {
-      await api.put('/supplier-reports/overhead-pct', { pct: Math.round(parsed * 10) / 10 });
-      toast.push('success', 'Đã lưu % chi phí phụ');
-      onSaved();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="card" style={{ marginBottom: 12 }}>
-      <div style={{ fontWeight: 700, fontSize: 16 }}>Chi phí nguyên liệu phụ</div>
-      <div style={{ fontSize: 14, color: C.mutedOnTint, margin: '4px 0 10px' }}>
-        Gas, hành lá, đá… không cân vào từng món. Cộng thêm bấy nhiêu % trên tiền nguyên liệu chính
-        của mọi món. Hàng bán nguyên (bia, nước, thuốc) không bị cộng.
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        {canEdit ? (
-          <>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              aria-label="% chi phí nguyên liệu phụ"
-              style={{ width: 90, fontSize: 20, fontWeight: 700, padding: '8px 10px', textAlign: 'right' }}
-            />
-            <span style={{ fontSize: 20, fontWeight: 700 }}>%</span>
-            <button type="button" onClick={save} disabled={!changed || saving} style={{ minHeight: 44 }}>
-              {saving ? 'Đang lưu…' : 'Lưu'}
-            </button>
-          </>
-        ) : (
-          <span style={{ fontSize: 20, fontWeight: 700 }}>{pct.toLocaleString('vi-VN')}%</span>
-        )}
-        {referencePct !== null && (
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>
-            Thực tế 90 ngày qua: <strong>{referencePct.toLocaleString('vi-VN')}%</strong> (không tính hàng bán nguyên)
-          </span>
-        )}
-      </div>
-      {canEdit && draft.trim() !== '' && !valid && (
-        <div style={{ fontSize: 13, color: '#b91c1c', marginTop: 6 }}>Nhập số từ 0 đến 100.</div>
-      )}
-      {pct === 0 && (
-        <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
-          Đang là 0% — giá vốn chưa tính phần nguyên liệu phụ.
-        </div>
-      )}
-    </div>
   );
 }

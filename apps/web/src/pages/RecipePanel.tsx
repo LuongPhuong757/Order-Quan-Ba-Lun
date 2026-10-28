@@ -9,6 +9,7 @@
 // TÁCH THEO NCC (chủ quán chốt 2026-10-19): mỗi cặp nguyên liệu × NCC là MỘT dòng gợi ý — "Thịt
 // bò · NCC A" và "Thịt bò · NCC B" — trước đó hai NCC bị gộp làm một "Thịt bò" và giá vốn lấy
 // bình quân. Một món được dùng cả hai; giá vốn mỗi dòng theo giá lần nhập gần nhất của NCC đó.
+import { OverheadPctEditor } from '../components/OverheadPctEditor.tsx';
 import type { IngredientKind } from '../lib/ingredient-kind.ts';
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
@@ -105,6 +106,8 @@ export function RecipePanel({
   costResale,
   overhead,
   overheadPct,
+  referencePct,
+  canEditOverhead,
   kindById,
   costComplete,
   onLinesChanged,
@@ -123,7 +126,12 @@ export function RecipePanel({
   costMain: number | null;
   costResale: number;
   overhead: number;
-  overheadPct: number;
+  /** % phụ của RIÊNG món này (2026-10-28) — `null` = món không tính phụ. */
+  overheadPct: number | null;
+  /** % thực tế 90 ngày — gợi ý khi bật công tắc. */
+  referencePct: number | null;
+  /** Owner/admin — người khác chỉ thấy % đang đặt. */
+  canEditOverhead: boolean;
   /** Nhóm của các nguyên liệu KHÔNG phải Chính. Dòng Phụ mang nhãn "Phụ" vì tiền của nó KHÔNG
    *  cộng thẳng vào giá vốn (đã nằm trong % phụ) — không có nhãn thì người khai cộng tay từng
    *  dòng sẽ thấy tổng không khớp. Dòng Bán nguyên mang nhãn tím. */
@@ -209,6 +217,19 @@ export function RecipePanel({
             Dòng Bán nguyên chỉ hiện khi món có hàng đó. Món TOÀN hàng bán nguyên (lon bia) thì bỏ
             dòng Chính và dòng Phụ — "Nguyên liệu chính 0đ" và câu nhắc đặt % chỉ làm rối, vì món
             này không bao giờ gánh % phụ. */}
+        {/* Công tắc + % phụ của món (2026-10-28). Món chỉ toàn hàng bán nguyên thì không có gì để
+            nhân % — giấu luôn cho đỡ một câu hỏi thừa. */}
+        {cost !== null && !chiBanNguyen && (
+          <OverheadPctEditor
+            variant="full"
+            menuItemId={menuItemId}
+            menuItemName={menuItemName}
+            pct={overheadPct}
+            referencePct={referencePct}
+            canEdit={canEditOverhead}
+            onSaved={() => onLinesChanged?.()}
+          />
+        )}
         {cost !== null && sellPrice > 0 && (
           <div className="rp-sum">
             {!(chiBanNguyen) && (
@@ -228,20 +249,14 @@ export function RecipePanel({
                 <span className="rp-sum-p">{phanTram(costResale, sellPrice, costComplete)}</span>
               </div>
             )}
-            {!chiBanNguyen && (
-            <div className="rp-sum-row">
-              <span className="rp-sum-l">
-                Nguyên liệu phụ{overheadPct > 0 ? ` (${overheadPct.toLocaleString('vi-VN')}%)` : ''}
-              </span>
-              {overheadPct > 0 ? (
-                <>
-                  <span className="rp-sum-n">+{tien(overhead, costComplete)}</span>
-                  <span className="rp-sum-p">{phanTram(overhead, sellPrice, costComplete)}</span>
-                </>
-              ) : (
-                <span className="rp-sum-nhac">Chưa đặt % — vào Nhà cung cấp → Giá vốn để nhập</span>
-              )}
-            </div>
+            {/* Dòng phụ chỉ khi món ĐÃ bật % (2026-10-28): món không tính phụ thì công tắc ở trên đã
+                nói đủ, thêm một dòng "0đ" chỉ làm rối. */}
+            {!chiBanNguyen && overheadPct !== null && (
+              <div className="rp-sum-row">
+                <span className="rp-sum-l">Nguyên liệu phụ ({overheadPct.toLocaleString('vi-VN')}%)</span>
+                <span className="rp-sum-n">+{tien(overhead, costComplete)}</span>
+                <span className="rp-sum-p">{phanTram(overhead, sellPrice, costComplete)}</span>
+              </div>
             )}
             <div className="rp-sum-row rp-sum-tong">
               <span className="rp-sum-l">Giá vốn một phần</span>
