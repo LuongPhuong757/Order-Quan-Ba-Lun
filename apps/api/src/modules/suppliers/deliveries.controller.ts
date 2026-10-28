@@ -20,6 +20,7 @@ import { saveImage } from '../menu/menu-image.js';
 import {
   IsArray,
   IsBoolean,
+  IsIn,
   IsNumber,
   IsOptional,
   IsString,
@@ -31,6 +32,7 @@ import {
 import { Type } from 'class-transformer';
 import type { Request } from 'express';
 import { DeliveriesService } from './deliveries.service.js';
+import { INGREDIENT_KINDS, type IngredientKind } from '../ingredients/ingredient-kind.js';
 import type { Actor } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -49,6 +51,8 @@ class DeliveryLineDto {
   @IsNumber() @Min(0) unit_price!: number;
   /** Ô tick "Phụ" (2026-10-22) — ghi vào nguyên liệu khi phiếu được lưu. Thiếu = không đổi. */
   @IsOptional() @IsBoolean() is_secondary?: boolean;
+  /** Ô chọn "Nhóm" Chính / Phụ / Bán nguyên (2026-10-28). Có thì thắng `is_secondary`. */
+  @IsOptional() @IsIn(INGREDIENT_KINDS) kind?: IngredientKind;
 }
 
 class CreateDeliveryDto {

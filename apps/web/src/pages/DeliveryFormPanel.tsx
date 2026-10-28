@@ -18,6 +18,8 @@ import { upperUnit, titleCaseVi } from '../lib/text-case.ts';
 import { vnDayIso } from '../lib/date-range.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { laNguoiLapNhap } from '../lib/delivery-draft.ts';
+import { kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
+import { KindSelect } from '../components/IngredientKindSelect.tsx';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -32,7 +34,7 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Ingredient = { id: string; name: string; unit: string; is_secondary?: boolean };
+type Ingredient = { id: string; name: string; unit: string; is_secondary?: boolean; is_resale?: boolean };
 
 /** Một dòng phiếu về từ `GET /supplier-deliveries/:id` — dùng để điền sẵn lúc SỬA phiếu.
  *  Toàn bộ là ẢNH CHỤP lúc nhập (`*_snapshot`), không phải giá trị hiện tại của nguyên liệu. */
@@ -58,11 +60,12 @@ type DraftLine = {
   qty_base_per_unit: string;
   qty_purchase: string;
   unit_price: string;
-  /** Ô tick "Phụ" (2026-10-22). `null`/thiếu = CHƯA chạm vào → hiện theo danh mục và KHÔNG gửi
-   *  lên server; chỉ khi người nhập tick/bỏ tick mới thành `true`/`false` và được ghi lúc GỬI.
-   *  Gửi luôn giá trị đang hiện thì sai đúng lúc danh mục chưa tải xong: mặt hàng đang là phụ sẽ
-   *  bị gửi thành chính. Bản nháp cũ trong localStorage không có trường này — `??` đọc ra null. */
-  is_secondary?: boolean | null;
+  /** Ô chọn "Nhóm" Chính / Phụ / Bán nguyên (2026-10-28, thay ô tick "Phụ" 2026-10-22).
+   *  `null`/thiếu = CHƯA chạm vào → hiện theo danh mục và KHÔNG gửi lên server; chỉ khi người
+   *  nhập chọn mới có giá trị và được ghi lúc GỬI. Gửi luôn giá trị đang hiện thì sai đúng lúc
+   *  danh mục chưa tải xong: mặt hàng đang là phụ sẽ bị gửi thành chính. Bản nháp cũ trong
+   *  localStorage không có trường này — `??` đọc ra null. */
+  kind?: IngredientKind | null;
 };
 
 const UNIT_SUGGESTIONS = ['KG', 'G', 'L', 'ML', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'HỘP', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
@@ -166,7 +169,7 @@ const newLine = (): DraftLine => ({
   qty_base_per_unit: '1',
   qty_purchase: '',
   unit_price: '',
-  is_secondary: null,
+  kind: null,
 });
 
 export function DeliveryFormPanel({
@@ -300,8 +303,8 @@ export function DeliveryFormPanel({
       purchase_unit: k?.purchase_unit ?? ing.unit,
       qty_base_per_unit: k?.qty_base_per_unit ? String(Number(k.qty_base_per_unit)) : '1',
       unit_price: k ? formatMoneyInput(String(k.last_unit_price)) : '',
-      // Chọn mặt hàng khác = bỏ tick đã đặt cho mặt hàng trước, quay về theo danh mục.
-      is_secondary: null,
+      // Chọn mặt hàng khác = bỏ nhóm đã chọn cho mặt hàng trước, quay về theo danh mục.
+      kind: null,
     });
   };
 
@@ -348,8 +351,8 @@ export function DeliveryFormPanel({
         qty_purchase: Number(l.qty_purchase),
         // Ô đơn giá giữ CHUỖI đã chấm nghìn ("100.000") — bóc về số ngay trước khi gửi.
         unit_price: Number(digitsOnly(l.unit_price)) || 0,
-        // Chỉ gửi khi người nhập đã chạm vào ô tick — xem docblock `DraftLine.is_secondary`.
-        ...(typeof l.is_secondary === 'boolean' ? { is_secondary: l.is_secondary } : {}),
+        // Chỉ gửi khi người nhập đã chạm vào ô chọn — xem docblock `DraftLine.kind`.
+        ...(l.kind ? { kind: l.kind } : {}),
       }));
 
   /** Gửi phiếu. Nhịp một để trống `approved_ingredient_ids` — server trả về danh sách dòng lệch
@@ -810,10 +813,8 @@ function LineRow({
   // KHÔNG ẩn theo `lockedSupplierId`: form này chỉ mở từ màn NCC của quán (cổng NCC tự nhập là
   // `NccPortalPage`, form riêng), và `lockedSupplierId` có mặt khi chủ quán bấm "Nhập hàng" từ
   // trang một NCC — ẩn theo nó là giấu ô tick khỏi đúng chủ quán (dính 2026-10-22).
-  const catalogSecondary = line.ingredient_id
-    ? catalog.find((c) => c.id === line.ingredient_id)?.is_secondary === true
-    : false;
-  const isSecondary = line.is_secondary ?? catalogSecondary;
+  const catalogEntry = line.ingredient_id ? catalog.find((c) => c.id === line.ingredient_id) : undefined;
+  const kind: IngredientKind = line.kind ?? (catalogEntry ? kindOf(catalogEntry) : 'MAIN');
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
   // Danh sách gợi ý mặt hàng CHỈ gồm hàng của NCC đang chọn (chủ quán chốt 2026-09-08): một
   // NCC bán vài chục thứ, đổ cả danh mục vài trăm nguyên liệu ra là mỗi lần gõ lại phải soi xem
@@ -978,26 +979,22 @@ function LineRow({
             </strong>
           </div>
 
-          {/* Cột "Phụ" (2026-10-22, chủ quán chốt: cột riêng cạnh Thành tiền, lưu khi bấm GỬI).
-              Ô tick ở đây là NHÁP như mọi ô khác của phiếu — Huỷ phiếu thì không đổi gì; khác với
-              ô tick ở Danh mục / Mặt hàng nhập là lưu ngay. Server ghi nó trong cùng transaction
-              lưu phiếu (`applySecondaryFlags`).
-              Ẩn với người lập NHÁP (role Báo cáo): server bỏ qua cờ này ở đường nháp và lúc admin
-              duyệt cũng không lưu — để ô tick hiện ra là cho họ tick vào chỗ không ghi đi đâu. */}
+          {/* Cột "Nhóm" (2026-10-22 là ô tick "Phụ"; 2026-10-28 thành ô chọn Chính / Phụ / Bán
+              nguyên). Cột riêng cạnh Thành tiền, lưu khi bấm GỬI: ô ở đây là NHÁP như mọi ô khác
+              của phiếu — Huỷ phiếu thì không đổi gì; khác với ô ở Danh mục / Mặt hàng nhập là lưu
+              ngay. Server ghi nó trong cùng transaction lưu phiếu (`applyKindFlags`).
+              Ẩn với người lập NHÁP (role Báo cáo): server bỏ qua nhóm ở đường nháp và lúc admin
+              duyệt cũng không lưu — để ô hiện ra là cho họ chọn vào chỗ không ghi đi đâu. */}
           {!lapNhap && (
           <div className="dl-phu-cell">
             <span className="dl-lab" style={{ color: C.mutedOnTint }}>
-              Phụ
+              Nhóm
             </span>
-            <label className={`ing-phu${isSecondary ? ' is-on' : ''}`}>
-              <input
-                type="checkbox"
-                checked={isSecondary}
-                onChange={(e) => onPatch({ is_secondary: e.target.checked })}
-                aria-label={`Mặt hàng ${index + 1} là nguyên liệu phụ`}
-              />
-              <span>Nguyên liệu phụ</span>
-            </label>
+            <KindSelect
+              value={kind}
+              onChange={(k) => onPatch({ kind: k })}
+              ariaLabel={`Nhóm của mặt hàng ${index + 1}`}
+            />
           </div>
           )}
         </div>

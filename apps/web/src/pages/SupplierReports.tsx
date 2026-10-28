@@ -11,7 +11,8 @@ import { C } from '../lib/online-ui.ts';
 import { locMon, phanTrang } from '../lib/supplier-stats.ts';
 import { downloadCsv } from '../lib/csv.ts';
 import { ToolbarSlot } from '../components/ToolbarSlot.tsx';
-import { IngredientKindToggle } from '../components/IngredientKindToggle.tsx';
+import { IngredientKindSelect } from '../components/IngredientKindSelect.tsx';
+import { KIND_LABEL, KINDS, kindFlags, kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 import type { DayRange } from '../lib/date-range.ts';
 import { FilterBar, theoDonViMua, pctVN } from './supplier-ui.tsx';
 import './suppliers-ui.css';
@@ -23,6 +24,8 @@ export type PairReport = {
   ingredient_name: string;
   /** Nguyên liệu phụ (2026-10-22) — giá trị HIỆN TẠI của nguyên liệu, không phải lúc nhập. */
   is_secondary: boolean;
+  /** Hàng bán nguyên (2026-10-28) — cùng luật "giá trị HIỆN TẠI" như `is_secondary`. */
+  is_resale: boolean;
   base_unit: string;
   purchase_unit: string;
   deliveries: number;
@@ -387,7 +390,7 @@ export function ItemStatsPanel({
   const [tim, setTim] = useState('');
   // Lọc Chính/Phụ (2026-10-28, chủ quán yêu cầu): xem riêng tiền nhập NL phụ trong kỳ, và soát
   // lại dòng nào chưa đánh dấu. Lọc ở client như ô tìm — cờ đã có sẵn trên từng dòng.
-  const [kind, setKind] = useState<'all' | 'chinh' | 'phu'>('all');
+  const [kind, setKind] = useState<'all' | IngredientKind>('all');
   const [page, setPage] = useState(1);
 
   const load = useCallback(() => {
@@ -414,7 +417,7 @@ export function ItemStatsPanel({
    *  `locPhieuTheoMon`). */
   const sorted = useMemo(() => {
     const get = ITEM_SORTS[sortKey].get;
-    const theoNhom = (rows ?? []).filter((r) => kind === 'all' || r.is_secondary === (kind === 'phu'));
+    const theoNhom = (rows ?? []).filter((r) => kind === 'all' || kindOf(r) === kind);
     return locMon(theoNhom, tim).sort((a, b) => {
       const x = get(a);
       const y = get(b);
@@ -462,8 +465,7 @@ export function ItemStatsPanel({
           {(
             [
               ['all', 'Tất cả NL'],
-              ['chinh', `Chính (${(rows ?? []).filter((r) => !r.is_secondary).length})`],
-              ['phu', `Phụ (${(rows ?? []).filter((r) => r.is_secondary).length})`],
+              ...KINDS.map((k) => [k, `${KIND_LABEL[k]} (${(rows ?? []).filter((r) => kindOf(r) === k).length})`] as const),
             ] as const
           ).map(([v, label]) => (
             <button key={v} className="chip" type="button" aria-pressed={kind === v}
@@ -485,9 +487,10 @@ export function ItemStatsPanel({
         className="secondary sup-action"
         onClick={() =>
           downloadCsv('mat-hang-nhap.csv', [
-            ['Mặt hàng', 'NCC', 'Số lần nhập', 'Lượng nhập', 'Đơn vị', 'Tổng tiền', 'Giá bình quân', 'Giá gần nhất'],
+            ['Mặt hàng', 'Nhóm', 'NCC', 'Số lần nhập', 'Lượng nhập', 'Đơn vị', 'Tổng tiền', 'Giá bình quân', 'Giá gần nhất'],
             ...sorted.map((r) => [
               r.ingredient_name,
+              KIND_LABEL[kindOf(r)],
               r.supplier_name,
               String(r.deliveries),
               num(r.qty_base),
@@ -524,6 +527,8 @@ export function ItemStatsPanel({
   );
 
   const tim2 = tim.trim();
+  /** " phụ" / " bán nguyên"… chèn sau chữ "mặt hàng" khi đang lọc theo nhóm. */
+  const nhomChu = kind === 'all' ? '' : ` ${KIND_LABEL[kind].toLowerCase()}`;
   // `.ncc-ui` tự có `gap: 24px` giữa các khối con (cùng nhịp với các tab NCC khác), không
   // chồng thêm `stack-*`.
   return (
@@ -545,7 +550,7 @@ export function ItemStatsPanel({
           <div className="card__head">
             <h2 className="card__title">Mặt hàng đã nhập</h2>
             <span className="badge badge--neutral">
-              {trang.total} mặt hàng{kind === 'phu' ? ' phụ' : kind === 'chinh' ? ' chính' : ''}{tim2 ? ' khớp' : ''} · {vnd(total)}đ
+              {trang.total} mặt hàng{nhomChu}{tim2 ? ' khớp' : ''} · {vnd(total)}đ
             </span>
           </div>
           <div className="card__body">
@@ -565,8 +570,8 @@ export function ItemStatsPanel({
                 <p className="emptyfilter__t">Không có mặt hàng nào khớp</p>
                 <p className="emptyfilter__s">
                   {tim2
-                    ? `Không mặt hàng${kind === 'phu' ? ' phụ' : kind === 'chinh' ? ' chính' : ''} nào có tên chứa “${tim2}” trong kỳ đang xem.`
-                    : `Kỳ đang xem không nhập mặt hàng ${kind === 'phu' ? 'phụ' : 'chính'} nào.`}
+                    ? `Không mặt hàng${nhomChu} nào có tên chứa “${tim2}” trong kỳ đang xem.`
+                    : `Kỳ đang xem không nhập mặt hàng${nhomChu} nào.`}
                 </p>
                 <button className="btn btn--accent-ghost" type="button" onClick={() => { setTim(''); setKind('all'); setPage(1); }}>Xoá bộ lọc</button>
               </div>
@@ -578,7 +583,7 @@ export function ItemStatsPanel({
                     <thead>
                       <tr>
                         {th('ingredient_name')}
-                        <th scope="col" className="colitphu">NL phụ</th>
+                        <th scope="col" className="colitkind">Nhóm</th>
                         <th scope="col" className="colitsup">Nhà cung cấp</th>
                         {th('deliveries', 'colitn', true)}
                         {th('qty_base', 'colitqty', true)}
@@ -620,19 +625,20 @@ export function ItemStatsPanel({
                               )}
                               <span className="cell-sub m-off">{r.deliveries} lần nhập</span>
                             </td>
-                            {/* Ô tick "Phụ" — cột RIÊNG (chủ quán chốt 2026-10-22: nhét dưới tên thì
-                                rối, cột riêng quét dọc một lượt là thấy hết). Một nguyên liệu có thể
-                                nằm ở nhiều dòng (mỗi NCC một dòng) — tick một dòng thì cập nhật mọi
-                                dòng cùng nguyên liệu, vì nhóm thuộc về nguyên liệu chứ không về NCC.
-                                Dưới 720px ô rơi vào cột `act` bên phải thẻ (xem `.colitphu`). */}
-                            <td data-label="NL phụ" className="colitphu c-act">
-                              <IngredientKindToggle
+                            {/* Ô chọn "Nhóm" — cột RIÊNG (chủ quán chốt 2026-10-22: nhét dưới tên thì
+                                rối, cột riêng quét dọc một lượt là thấy hết; 2026-10-28 từ ô tick
+                                "Phụ" thành ô chọn 3 nhóm). Một nguyên liệu có thể nằm ở nhiều dòng
+                                (mỗi NCC một dòng) — đổi một dòng thì cập nhật mọi dòng cùng nguyên
+                                liệu, vì nhóm thuộc về nguyên liệu chứ không về NCC.
+                                Dưới 720px ô xuống một hàng riêng dưới thẻ (xem `.colitkind`). */}
+                            <td data-label="Nhóm" className="colitkind">
+                              <IngredientKindSelect
                                 ingredientId={r.ingredient_id}
                                 ingredientName={r.ingredient_name}
-                                isSecondary={r.is_secondary}
-                                onChanged={(v) =>
+                                kind={kindOf(r)}
+                                onChanged={(k) =>
                                   setRows((prev) =>
-                                    prev && prev.map((x) => (x.ingredient_id === r.ingredient_id ? { ...x, is_secondary: v } : x)),
+                                    prev && prev.map((x) => (x.ingredient_id === r.ingredient_id ? { ...x, ...kindFlags(k) } : x)),
                                   )
                                 }
                               />

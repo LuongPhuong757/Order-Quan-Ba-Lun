@@ -25,6 +25,9 @@ export type RecipeLineInput = {
   /** Nguyên liệu PHỤ (2026-10-22) — xem `Ingredient.is_secondary`. Không cộng vào giá vốn trực
    * tiếp: phần phụ vào giá vốn qua `overheadPct`, cộng cả hai là tính hai lần. */
   is_secondary?: boolean;
+  /** Hàng BÁN NGUYÊN (2026-10-28) — bia, nước, thuốc mua về bán luôn. Cộng thẳng vào giá vốn
+   * theo giá nhập nhưng KHÔNG làm gốc tính % phụ: một lon bia không tốn gas hay hành. */
+  is_resale?: boolean;
 };
 
 export type MenuItemInput = {
@@ -66,18 +69,23 @@ export type CostComponent = {
   /** Nguyên liệu phụ: vẫn hiện trong bảng chi tiết (kèm `cost` để tham khảo) nhưng KHÔNG nằm
    * trong `cost_main` của món và không bị kể vào `missing`. */
   is_secondary: boolean;
+  /** Hàng bán nguyên: nằm trong `cost_resale` (không trong `cost_main`), thiếu giá vẫn kể vào
+   * `missing` vì tiền của nó cộng thẳng vào giá vốn. */
+  is_resale: boolean;
 };
 
 export type FoodCostRow = {
   menu_item_id: string;
   menu_item_name: string;
   sell_price: number;
-  /** Tổng giá vốn ĐẦY ĐỦ một phần, VND = `cost_main` + `overhead_amount`. Khi chưa đặt % phụ
+  /** Tổng giá vốn ĐẦY ĐỦ một phần, VND = `cost_main` + `cost_resale` + `overhead_amount`. Khi chưa đặt % phụ
    * thì bằng đúng `cost_main` — mọi màn đang đọc `cost` (Menu, Công thức) giữ nguyên như cũ, và
    * khi đã đặt thì tự đổi theo số đầy đủ (chủ quán chốt 2026-10-22). */
   cost: number;
   /** Tiền nguyên liệu CHÍNH một phần. Chỉ cộng những nguyên liệu chính CÓ giá. */
   cost_main: number;
+  /** Tiền hàng BÁN NGUYÊN một phần (2026-10-28). Không bị cộng % phụ. */
+  cost_resale: number;
   /** Phần nguyên liệu phụ phân bổ vào món = `cost_main` × `overheadPct` / 100. */
   overhead_amount: number;
   /** Tên các nguyên liệu chưa có giá. Rỗng = giá vốn đầy đủ. */
@@ -143,23 +151,28 @@ export function computeFoodCost(
         unit_price_base,
         cost: unit_price_base === null ? null : round(l.qty_per_serving * unit_price_base, 2),
         share_pct: null,
+        // Hai cờ loại trừ nhau ở tầng ghi (`applyIngredientKind`); dữ liệu lỡ mang cả hai thì
+        // coi là PHỤ — bỏ khỏi giá vốn là phía an toàn hơn cộng hai lần.
         is_secondary: l.is_secondary === true,
+        is_resale: l.is_resale === true && l.is_secondary !== true,
       };
     });
 
-    const main = components.filter((c) => !c.is_secondary);
-    // Nguyên liệu phụ thiếu giá KHÔNG làm giá vốn "chưa đầy đủ": nó không được cộng vào đây nữa,
-    // thiếu hay đủ giá thì `cost_main` cũng như nhau.
-    const missing = main.filter((c) => c.cost === null).map((c) => c.ingredient_name);
-    const cost_main = round(
-      main.reduce((s, c) => s + (c.cost ?? 0), 0),
-      0,
-    );
-    for (const c of main) {
-      c.share_pct = c.cost === null || cost_main <= 0 ? null : round((c.cost / cost_main) * 100, 1);
+    // Dòng CỘNG THẲNG vào giá vốn = chính + bán nguyên. Nguyên liệu phụ thiếu giá KHÔNG làm giá
+    // vốn "chưa đầy đủ": nó không được cộng vào đây, thiếu hay đủ giá thì giá vốn cũng như nhau.
+    const counted = components.filter((c) => !c.is_secondary);
+    const missing = counted.filter((c) => c.cost === null).map((c) => c.ingredient_name);
+    const sum = (cs: CostComponent[]) => round(cs.reduce((s, c) => s + (c.cost ?? 0), 0), 0);
+    const cost_main = sum(counted.filter((c) => !c.is_resale));
+    const cost_resale = sum(counted.filter((c) => c.is_resale));
+    const base = cost_main + cost_resale;
+    for (const c of counted) {
+      c.share_pct = c.cost === null || base <= 0 ? null : round((c.cost / base) * 100, 1);
     }
+    // % phụ CHỈ nhân trên tiền nguyên liệu chính (2026-10-28, phương án B): bia nước mua về bán
+    // luôn mà cũng gánh % gas/hành thì món bếp bị nhẹ đi đúng phần đồ uống gánh hộ.
     const overhead_amount = round((cost_main * pct) / 100, 0);
-    const cost = cost_main + overhead_amount;
+    const cost = base + overhead_amount;
 
     const complete = missing.length === 0;
     out.push({
@@ -168,6 +181,7 @@ export function computeFoodCost(
       sell_price: item.price,
       cost,
       cost_main,
+      cost_resale,
       overhead_amount,
       missing,
       complete,
@@ -183,17 +197,21 @@ export function computeFoodCost(
 
 /** % chi phí phụ THỰC TẾ = tiền mua nguyên liệu phụ ÷ tiền mua nguyên liệu chính × 100.
  *
+ * Hàng BÁN NGUYÊN không nằm ở tử lẫn mẫu (2026-10-28): để nó trong mẫu thì quán bán càng nhiều
+ * bia/thuốc, % gợi ý càng thấp so với chi phí phụ thật của món bếp.
+ *
  * Cùng gốc với `overheadPct` (tính trên tiền nguyên liệu CHÍNH) để chủ quán đặt số cạnh số mà so.
  * Chỉ để GỢI Ý cạnh ô nhập — chủ quán chốt không tự điền. `null` khi kỳ chưa mua nguyên liệu
  * chính nào: chia cho 0 thì không có con số nào đáng hiện.
  */
 export function overheadReferencePct(
-  purchases: Array<{ amount: number; is_secondary: boolean }>,
+  purchases: Array<{ amount: number; is_secondary: boolean; is_resale?: boolean }>,
 ): number | null {
   let main = 0;
   let secondary = 0;
   for (const p of purchases) {
     if (p.is_secondary) secondary += p.amount;
+    else if (p.is_resale) continue;
     else main += p.amount;
   }
   return main > 0 ? round((secondary / main) * 100, 1) : null;
