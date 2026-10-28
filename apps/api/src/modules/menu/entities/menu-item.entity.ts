@@ -100,6 +100,14 @@ export class MenuItem {
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 
+  /** % chi phí nguyên liệu PHỤ của RIÊNG món này (2026-10-28, thay % chung 2026-10-22). Tính trên
+   * tiền nguyên liệu CHÍNH của món. `NULL` = món không tính phụ — mặc định cho mọi món, chủ quán
+   * tự bật ở hộp Công thức / bảng Giá vốn (chốt: không tự áp cho món nào).
+   *
+   * DECIMAL trả về chuỗi qua mysql2 — đọc bằng `Number()`. */
+  @Column({ type: 'decimal', precision: 4, scale: 1, nullable: true, default: null })
+  overhead_pct!: string | null;
+
   @CreateDateColumn({ type: 'datetime', precision: 6, transformer: dateToMsTransformer })
   created_at!: number;
 

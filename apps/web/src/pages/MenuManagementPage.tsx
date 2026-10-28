@@ -20,6 +20,8 @@ type FoodCostLite = {
   overhead_amount: number;
   /** Tiền hàng bán nguyên (2026-10-28) — `?` vì bản API cũ chưa có. */
   cost_resale?: number;
+  /** % phụ của riêng món (2026-10-28). `null` = không tính phụ. */
+  overhead_pct?: number | null;
   components: Array<{ ingredient_id: string; is_secondary: boolean; is_resale?: boolean }>;
   complete: boolean;
 };
@@ -136,9 +138,11 @@ export function MenuManagementPage() {
    * hiện kèm dấu ≥. Cộng đại rồi hiện như số đủ là kiểu sai nguy hiểm nhất ở đây: nó luôn cho
    * giá vốn thấp hơn thật, tức món đang lỗ trông vẫn lãi. */
   const [foodCost, setFoodCost] = useState<Record<string, FoodCostEntry>>({});
-  /** % phụ đang áp và nhóm của các nguyên liệu KHÔNG phải Chính — hộp Công thức cần để hiện dòng
-   *  NL phụ / Bán nguyên và gắn nhãn cho dòng công thức. Cùng một lần gọi `/supplier-reports/food-cost`. */
-  const [overheadPct, setOverheadPct] = useState(0);
+  /** % phụ của từng món (2026-10-28), số % thực tế để gợi ý, và nhóm của các nguyên liệu KHÔNG phải
+   *  Chính — hộp Công thức cần để bật/nhập % phụ, hiện dòng NL phụ / Bán nguyên và gắn nhãn cho dòng
+   *  công thức. Cùng một lần gọi `/supplier-reports/food-cost`. */
+  const [pctById, setPctById] = useState<Record<string, number | null>>({});
+  const [referencePct, setReferencePct] = useState<number | null>(null);
   const [kindById, setKindById] = useState<ReadonlyMap<string, IngredientKind>>(new Map());
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
@@ -188,12 +192,17 @@ export function MenuManagementPage() {
 
   const loadFoodCost = async () => {
     try {
-      const res = await api.get<{ data: { items: FoodCostLite[]; overhead_pct?: number } }>('/supplier-reports/food-cost');
+      const res = await api.get<{ data: { items: FoodCostLite[]; overhead_reference_pct?: number | null } }>(
+        '/supplier-reports/food-cost',
+      );
+      const pct: Record<string, number | null> = {};
       const map: Record<string, FoodCostEntry> = {};
       const nhom = new Map<string, IngredientKind>();
       for (const r of res.data.data.items) {
         // Gom nhóm TRƯỚC bộ lọc dưới: món chỉ toàn nguyên liệu phụ có giá vốn 0 nhưng dòng
         // công thức của nó vẫn phải mang nhãn "Phụ".
+        // Ghi % TRƯỚC bộ lọc dưới: món giá vốn 0 vẫn mở hộp Công thức và phải thấy đúng công tắc.
+        pct[r.menu_item_id] = r.overhead_pct ?? null;
         for (const c of r.components ?? []) {
           const k = kindOf(c);
           if (k !== 'MAIN') nhom.set(c.ingredient_id, k);
@@ -212,7 +221,8 @@ export function MenuManagementPage() {
         };
       }
       setFoodCost(map);
-      setOverheadPct(Number(res.data.data.overhead_pct) || 0);
+      setPctById(pct);
+      setReferencePct(res.data.data.overhead_reference_pct ?? null);
       setKindById(nhom);
     } catch {
       setFoodCost({});
@@ -753,7 +763,9 @@ export function MenuManagementPage() {
           costMain={foodCost[recipeFor.id]?.costMain ?? null}
           costResale={foodCost[recipeFor.id]?.costResale ?? 0}
           overhead={foodCost[recipeFor.id]?.overhead ?? 0}
-          overheadPct={overheadPct}
+          overheadPct={pctById[recipeFor.id] ?? null}
+          referencePct={referencePct}
+          canEditOverhead={user?.role === 'admin'}
           kindById={kindById}
           costComplete={foodCost[recipeFor.id]?.complete ?? true}
           onLinesChanged={reloadCost}

@@ -2945,7 +2945,6 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
 .rp-sum-l { font-size: 14px; font-weight: 600; color: #4b5563; }
 .rp-sum-n { font-size: 16px; font-weight: 700; color: #374151; text-align: right; }
 .rp-sum-p { font-size: 14px; font-weight: 600; color: #6b7280; text-align: right; }
-.rp-sum-nhac { grid-column: 2 / -1; font-size: 13px; color: #9a3412; text-align: right; }
 .rp-sum-tong { margin-top: 4px; padding-top: 8px; border-top: 1px dashed #99f6e4; }
 .rp-sum-tong .rp-sum-l { color: #134e4a; font-size: 15px; }
 .rp-sum-v { font-size: 22px; font-weight: 800; color: #0f766e; text-align: right; }
@@ -2982,7 +2981,6 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
   /* Điện thoại: số lượng và đơn vị một hàng, nút Thêm hàng dưới nguyên chiều ngang. */
   .rp-add { grid-template-columns: minmax(0, 1fr) 104px; }
   .rp-add button { grid-column: 1 / -1; }
-  .rp-sum-nhac { grid-column: 1 / -1; text-align: left; }
 }
 /* Hộp Công thức của món chưa khai gì: không để danh sách rỗng chiếm chỗ. */
 .rp .empty-state { text-align: center; color: #6b7280; background: #f9fafb; border: 1px dashed #d1d5db; }
@@ -3590,3 +3588,30 @@ select.ing-kind:disabled {
   background: #f5f3ff;
   color: #6d28d9;
 }
+
+/* % nguyên liệu phụ của MỘT món — `OverheadPctEditor` (2026-10-28).
+   `full` ở hộp Công thức: một hàng công tắc + ô % + Lưu + gợi ý, chữ to cho người lớn tuổi; nền cam
+   nhạt khi đã bật để thấy ngay món này có cộng phụ. `cell` ở bảng Giá vốn: chỉ ô % gọn. */
+.ohp { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.ohp--full {
+  margin-bottom: 10px; padding: 8px 12px;
+  border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; font-size: 15px;
+}
+.ohp--full.is-on { border-color: #fdba74; background: #fff7ed; }
+.ohp-toggle {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  min-height: 40px; font-weight: 700; cursor: pointer; user-select: none;
+}
+.ohp-toggle input { width: 22px; height: 22px; accent-color: #ea580c; cursor: pointer; }
+.ohp-input { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
+.ohp-input input {
+  width: 72px; min-height: 40px; padding: 4px 8px; text-align: right;
+  font-size: 18px; font-weight: 700; border: 1.5px solid #d1d5db; border-radius: 8px;
+}
+.ohp-input input[aria-invalid='true'] { border-color: #dc2626; }
+button.ohp-save { min-height: 40px; padding: 0 16px; }
+.ohp-hint { font-size: 13px; color: #6b7280; }
+.ohp-err { font-size: 13px; color: #b91c1c; }
+.ohp--cell { display: inline-flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
+.ohp--cell .ohp-input input { width: 56px; min-height: 36px; font-size: 15px; }
+.ohp--cell button.ohp-save { min-height: 36px; padding: 0 10px; font-size: 14px; }

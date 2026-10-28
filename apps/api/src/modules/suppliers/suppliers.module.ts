@@ -22,7 +22,6 @@ import { SupplierPortalController } from './supplier-portal.controller.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { IngredientsModule } from '../ingredients/ingredients.module.js';
 import { MenuModule } from '../menu/menu.module.js';
-import { SettingsModule } from '../settings/settings.module.js';
 
 @Module({
   // IngredientsModule để dùng `IngredientsService.findOrCreate` (tạo mặt hàng tại chỗ lúc nhập
@@ -51,8 +50,6 @@ import { SettingsModule } from '../settings/settings.module.js';
     // MenuModule cho repository `MenuItem` — giá vốn món cần tên + giá bán (bước 5). Nó đã
     // `exports: [TypeOrmModule]` sẵn.
     MenuModule,
-    // SettingsModule cho `overhead_cost_pct` — % chi phí phụ cộng vào giá vốn món (2026-10-22).
-    SettingsModule,
   ],
   // `PaymentsController` dùng chung tiền tố `suppliers` với `SuppliersController`. Không xung
   // đột route: các đường của nó đều có thêm một đoạn (`:id/payments`, `:id/balance`,
