@@ -22,6 +22,9 @@ export type RecipeLineInput = {
    * nguyên liệu như trước. */
   supplier_id?: string | null;
   supplier_name?: string | null;
+  /** Nguyên liệu PHỤ (2026-10-22) — xem `Ingredient.is_secondary`. Không cộng vào giá vốn trực
+   * tiếp: phần phụ vào giá vốn qua `overheadPct`, cộng cả hai là tính hai lần. */
+  is_secondary?: boolean;
 };
 
 export type MenuItemInput = {
@@ -60,14 +63,23 @@ export type CostComponent = {
   cost: number | null;
   /** % đóng góp vào giá vốn của món — để biết nên đàm phán nguyên liệu nào trước. */
   share_pct: number | null;
+  /** Nguyên liệu phụ: vẫn hiện trong bảng chi tiết (kèm `cost` để tham khảo) nhưng KHÔNG nằm
+   * trong `cost_main` của món và không bị kể vào `missing`. */
+  is_secondary: boolean;
 };
 
 export type FoodCostRow = {
   menu_item_id: string;
   menu_item_name: string;
   sell_price: number;
-  /** Tổng giá vốn một phần, VND. Chỉ cộng những nguyên liệu CÓ giá. */
+  /** Tổng giá vốn ĐẦY ĐỦ một phần, VND = `cost_main` + `overhead_amount`. Khi chưa đặt % phụ
+   * thì bằng đúng `cost_main` — mọi màn đang đọc `cost` (Menu, Công thức) giữ nguyên như cũ, và
+   * khi đã đặt thì tự đổi theo số đầy đủ (chủ quán chốt 2026-10-22). */
   cost: number;
+  /** Tiền nguyên liệu CHÍNH một phần. Chỉ cộng những nguyên liệu chính CÓ giá. */
+  cost_main: number;
+  /** Phần nguyên liệu phụ phân bổ vào món = `cost_main` × `overheadPct` / 100. */
+  overhead_amount: number;
   /** Tên các nguyên liệu chưa có giá. Rỗng = giá vốn đầy đủ. */
   missing: string[];
   /** `true` khi mọi nguyên liệu đều có giá. Chỉ khi đó `cost`, `margin_*` mới đáng tin. */
@@ -88,7 +100,10 @@ export function computeFoodCost(
   recipeLines: RecipeLineInput[],
   prices: IngredientPrice[],
   supplierPrices: SupplierPrice[] = [],
+  /** % chi phí phụ cộng thêm, tính trên tiền nguyên liệu chính (`overhead_cost_pct`). */
+  overheadPct = 0,
 ): FoodCostRow[] {
+  const pct = Number.isFinite(overheadPct) && overheadPct > 0 ? overheadPct : 0;
   const priceOf = new Map(prices.map((p) => [p.ingredient_id, p.unit_price_base]));
   const supplierPriceOf = new Map(
     supplierPrices.filter((p) => p.unit_price_base > 0).map((p) => [`${p.ingredient_id}|${p.supplier_id}`, p.unit_price_base]),
@@ -128,17 +143,23 @@ export function computeFoodCost(
         unit_price_base,
         cost: unit_price_base === null ? null : round(l.qty_per_serving * unit_price_base, 2),
         share_pct: null,
+        is_secondary: l.is_secondary === true,
       };
     });
 
-    const missing = components.filter((c) => c.cost === null).map((c) => c.ingredient_name);
-    const cost = round(
-      components.reduce((s, c) => s + (c.cost ?? 0), 0),
+    const main = components.filter((c) => !c.is_secondary);
+    // Nguyên liệu phụ thiếu giá KHÔNG làm giá vốn "chưa đầy đủ": nó không được cộng vào đây nữa,
+    // thiếu hay đủ giá thì `cost_main` cũng như nhau.
+    const missing = main.filter((c) => c.cost === null).map((c) => c.ingredient_name);
+    const cost_main = round(
+      main.reduce((s, c) => s + (c.cost ?? 0), 0),
       0,
     );
-    for (const c of components) {
-      c.share_pct = c.cost === null || cost <= 0 ? null : round((c.cost / cost) * 100, 1);
+    for (const c of main) {
+      c.share_pct = c.cost === null || cost_main <= 0 ? null : round((c.cost / cost_main) * 100, 1);
     }
+    const overhead_amount = round((cost_main * pct) / 100, 0);
+    const cost = cost_main + overhead_amount;
 
     const complete = missing.length === 0;
     out.push({
@@ -146,6 +167,8 @@ export function computeFoodCost(
       menu_item_name: item.name,
       sell_price: item.price,
       cost,
+      cost_main,
+      overhead_amount,
       missing,
       complete,
       // Biên lợi nhuận chỉ có nghĩa khi giá vốn đầy đủ. Tính bừa trên giá vốn thiếu là bịa ra một
@@ -156,6 +179,24 @@ export function computeFoodCost(
     });
   }
   return out;
+}
+
+/** % chi phí phụ THỰC TẾ = tiền mua nguyên liệu phụ ÷ tiền mua nguyên liệu chính × 100.
+ *
+ * Cùng gốc với `overheadPct` (tính trên tiền nguyên liệu CHÍNH) để chủ quán đặt số cạnh số mà so.
+ * Chỉ để GỢI Ý cạnh ô nhập — chủ quán chốt không tự điền. `null` khi kỳ chưa mua nguyên liệu
+ * chính nào: chia cho 0 thì không có con số nào đáng hiện.
+ */
+export function overheadReferencePct(
+  purchases: Array<{ amount: number; is_secondary: boolean }>,
+): number | null {
+  let main = 0;
+  let secondary = 0;
+  for (const p of purchases) {
+    if (p.is_secondary) secondary += p.amount;
+    else main += p.amount;
+  }
+  return main > 0 ? round((secondary / main) * 100, 1) : null;
 }
 
 /** Bình quân GIA QUYỀN theo lượng cho từng nguyên liệu, từ các dòng phiếu trong kỳ.

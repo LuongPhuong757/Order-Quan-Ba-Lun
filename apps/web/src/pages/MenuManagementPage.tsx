@@ -14,8 +14,16 @@ type FoodCostLite = {
   menu_item_id: string;
   sell_price: number;
   cost: number;
+  /** Tách giá vốn (2026-10-28): hộp Công thức hiện riêng NL chính / NL phụ / tổng. */
+  cost_main: number;
+  overhead_amount: number;
+  components: Array<{ ingredient_id: string; is_secondary: boolean }>;
   complete: boolean;
 };
+
+/** Một món trong bản đồ giá vốn của màn Menu. `cost` là giá vốn ĐẦY ĐỦ (chính + % phụ) — thẻ món
+ *  và hộp Công thức dùng chung, nên % trên thẻ luôn bằng % ở dòng "Giá vốn" trong hộp. */
+type FoodCostEntry = { pct: number; cost: number; costMain: number; overhead: number; complete: boolean };
 
 type MenuGroup = {
   id: string;
@@ -124,7 +132,11 @@ export function MenuManagementPage() {
    * `complete: false` = món còn nguyên liệu chưa có giá → phần trăm chỉ là MỨC TỐI THIỂU, phải
    * hiện kèm dấu ≥. Cộng đại rồi hiện như số đủ là kiểu sai nguy hiểm nhất ở đây: nó luôn cho
    * giá vốn thấp hơn thật, tức món đang lỗ trông vẫn lãi. */
-  const [foodCost, setFoodCost] = useState<Record<string, { pct: number; cost: number; complete: boolean }>>({});
+  const [foodCost, setFoodCost] = useState<Record<string, FoodCostEntry>>({});
+  /** % phụ đang áp và các nguyên liệu đang là Phụ — hộp Công thức cần để hiện dòng NL phụ và
+   *  gắn nhãn "Phụ" cho dòng công thức. Cùng một lần gọi `/supplier-reports/food-cost`. */
+  const [overheadPct, setOverheadPct] = useState(0);
+  const [secondaryIds, setSecondaryIds] = useState<ReadonlySet<string>>(new Set());
 
   const groupMap = new Map(groups.map((g) => [g.code, g]));
   const labelOf = (code: string) => {
@@ -173,9 +185,13 @@ export function MenuManagementPage() {
 
   const loadFoodCost = async () => {
     try {
-      const res = await api.get<{ data: { items: FoodCostLite[] } }>('/supplier-reports/food-cost');
-      const map: Record<string, { pct: number; cost: number; complete: boolean }> = {};
+      const res = await api.get<{ data: { items: FoodCostLite[]; overhead_pct?: number } }>('/supplier-reports/food-cost');
+      const map: Record<string, FoodCostEntry> = {};
+      const phu = new Set<string>();
       for (const r of res.data.data.items) {
+        // Gom cờ Phụ TRƯỚC bộ lọc dưới: món chỉ toàn nguyên liệu phụ có giá vốn 0 nhưng dòng
+        // công thức của nó vẫn phải mang nhãn "Phụ".
+        for (const c of r.components ?? []) if (c.is_secondary) phu.add(c.ingredient_id);
         if (!(r.sell_price > 0) || !(r.cost > 0)) continue;
         // Làm tròn có thể ra 0 khi định lượng khai quá nhỏ — dữ liệu thật đang có "Tràng Lợn
         // Trần 200k" với 75đ nguyên liệu trên giá bán 200.000đ. "0% NL" trông như lỗi hiển thị,
@@ -183,10 +199,14 @@ export function MenuManagementPage() {
         map[r.menu_item_id] = {
           pct: Math.round((r.cost / r.sell_price) * 100),
           cost: r.cost,
+          costMain: r.cost_main ?? r.cost,
+          overhead: r.overhead_amount ?? 0,
           complete: r.complete,
         };
       }
       setFoodCost(map);
+      setOverheadPct(Number(res.data.data.overhead_pct) || 0);
+      setSecondaryIds(phu);
     } catch {
       setFoodCost({});
     }
@@ -723,6 +743,10 @@ export function MenuManagementPage() {
           menuItemName={recipeFor.name}
           sellPrice={recipeFor.price}
           cost={foodCost[recipeFor.id]?.cost ?? null}
+          costMain={foodCost[recipeFor.id]?.costMain ?? null}
+          overhead={foodCost[recipeFor.id]?.overhead ?? 0}
+          overheadPct={overheadPct}
+          secondaryIds={secondaryIds}
           costComplete={foodCost[recipeFor.id]?.complete ?? true}
           onLinesChanged={reloadCost}
           onClose={() => {

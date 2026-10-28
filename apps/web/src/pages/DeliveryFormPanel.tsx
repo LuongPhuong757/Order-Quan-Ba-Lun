@@ -32,7 +32,7 @@ type SupplierItemRow = {
   last_delivery_date: string;
 };
 
-type Ingredient = { id: string; name: string; unit: string };
+type Ingredient = { id: string; name: string; unit: string; is_secondary?: boolean };
 
 /** Một dòng phiếu về từ `GET /supplier-deliveries/:id` — dùng để điền sẵn lúc SỬA phiếu.
  *  Toàn bộ là ẢNH CHỤP lúc nhập (`*_snapshot`), không phải giá trị hiện tại của nguyên liệu. */
@@ -58,6 +58,11 @@ type DraftLine = {
   qty_base_per_unit: string;
   qty_purchase: string;
   unit_price: string;
+  /** Ô tick "Phụ" (2026-10-22). `null`/thiếu = CHƯA chạm vào → hiện theo danh mục và KHÔNG gửi
+   *  lên server; chỉ khi người nhập tick/bỏ tick mới thành `true`/`false` và được ghi lúc GỬI.
+   *  Gửi luôn giá trị đang hiện thì sai đúng lúc danh mục chưa tải xong: mặt hàng đang là phụ sẽ
+   *  bị gửi thành chính. Bản nháp cũ trong localStorage không có trường này — `??` đọc ra null. */
+  is_secondary?: boolean | null;
 };
 
 const UNIT_SUGGESTIONS = ['KG', 'G', 'L', 'ML', 'QUẢ', 'LÁ', 'CỦ', 'BÓ', 'GÓI', 'HỘP', 'LÁT', 'CON', 'MIẾNG', 'CÁI'];
@@ -161,6 +166,7 @@ const newLine = (): DraftLine => ({
   qty_base_per_unit: '1',
   qty_purchase: '',
   unit_price: '',
+  is_secondary: null,
 });
 
 export function DeliveryFormPanel({
@@ -294,6 +300,8 @@ export function DeliveryFormPanel({
       purchase_unit: k?.purchase_unit ?? ing.unit,
       qty_base_per_unit: k?.qty_base_per_unit ? String(Number(k.qty_base_per_unit)) : '1',
       unit_price: k ? formatMoneyInput(String(k.last_unit_price)) : '',
+      // Chọn mặt hàng khác = bỏ tick đã đặt cho mặt hàng trước, quay về theo danh mục.
+      is_secondary: null,
     });
   };
 
@@ -340,6 +348,8 @@ export function DeliveryFormPanel({
         qty_purchase: Number(l.qty_purchase),
         // Ô đơn giá giữ CHUỖI đã chấm nghìn ("100.000") — bóc về số ngay trước khi gửi.
         unit_price: Number(digitsOnly(l.unit_price)) || 0,
+        // Chỉ gửi khi người nhập đã chạm vào ô tick — xem docblock `DraftLine.is_secondary`.
+        ...(typeof l.is_secondary === 'boolean' ? { is_secondary: l.is_secondary } : {}),
       }));
 
   /** Gửi phiếu. Nhịp một để trống `approved_ingredient_ids` — server trả về danh sách dòng lệch
@@ -794,6 +804,16 @@ function LineRow({
   onPatch: (next: Partial<DraftLine>) => void;
   onRemove: () => void;
 }) {
+  // Ô tick "Phụ": người nhập đã chạm thì theo họ, chưa thì theo danh mục. Mặt hàng mới gõ tại chỗ
+  // chưa có trong danh mục → mặc định chính.
+  //
+  // KHÔNG ẩn theo `lockedSupplierId`: form này chỉ mở từ màn NCC của quán (cổng NCC tự nhập là
+  // `NccPortalPage`, form riêng), và `lockedSupplierId` có mặt khi chủ quán bấm "Nhập hàng" từ
+  // trang một NCC — ẩn theo nó là giấu ô tick khỏi đúng chủ quán (dính 2026-10-22).
+  const catalogSecondary = line.ingredient_id
+    ? catalog.find((c) => c.id === line.ingredient_id)?.is_secondary === true
+    : false;
+  const isSecondary = line.is_secondary ?? catalogSecondary;
   const prev = line.ingredient_id ? known.get(line.ingredient_id) : undefined;
   // Danh sách gợi ý mặt hàng CHỈ gồm hàng của NCC đang chọn (chủ quán chốt 2026-09-08): một
   // NCC bán vài chục thứ, đổ cả danh mục vài trăm nguyên liệu ra là mỗi lần gõ lại phải soi xem
@@ -834,7 +854,7 @@ function LineRow({
 
   return (
     <div className="dl-item">
-      <div className={`dl-line${index > 0 ? ' dl-rest' : ''}`}>
+      <div className={`dl-line${index > 0 ? ' dl-rest' : ''}${lapNhap ? ' dl-khong-phu' : ''}`}>
         <div className="dl-name" style={{ minWidth: 0 }}>
           <span className="dl-lab" style={{ color: C.mutedOnTint }}>
             Mặt hàng
@@ -957,6 +977,29 @@ function LineRow({
               {lineTotal > 0 ? `${vnd(lineTotal)}đ` : '—'}
             </strong>
           </div>
+
+          {/* Cột "Phụ" (2026-10-22, chủ quán chốt: cột riêng cạnh Thành tiền, lưu khi bấm GỬI).
+              Ô tick ở đây là NHÁP như mọi ô khác của phiếu — Huỷ phiếu thì không đổi gì; khác với
+              ô tick ở Danh mục / Mặt hàng nhập là lưu ngay. Server ghi nó trong cùng transaction
+              lưu phiếu (`applySecondaryFlags`).
+              Ẩn với người lập NHÁP (role Báo cáo): server bỏ qua cờ này ở đường nháp và lúc admin
+              duyệt cũng không lưu — để ô tick hiện ra là cho họ tick vào chỗ không ghi đi đâu. */}
+          {!lapNhap && (
+          <div className="dl-phu-cell">
+            <span className="dl-lab" style={{ color: C.mutedOnTint }}>
+              Phụ
+            </span>
+            <label className={`ing-phu${isSecondary ? ' is-on' : ''}`}>
+              <input
+                type="checkbox"
+                checked={isSecondary}
+                onChange={(e) => onPatch({ is_secondary: e.target.checked })}
+                aria-label={`Mặt hàng ${index + 1} là nguyên liệu phụ`}
+              />
+              <span>Nguyên liệu phụ</span>
+            </label>
+          </div>
+          )}
         </div>
 
         <button
