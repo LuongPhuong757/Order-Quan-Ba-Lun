@@ -18,7 +18,6 @@ import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity
 import { gopDongTien, vnDayEnd, vnDayStart, type AccountFlowDay } from './account-flow.js';
 import { kindOf } from '../ingredients/ingredient-kind.js';
 import { computeFoodCost, ingredientPrices, overheadReferencePct, type FoodCostRow } from './food-cost.js';
-import { SettingsService } from '../settings/settings.service.js';
 import {
   aggregateByPair,
   buildPriceMatrix,
@@ -67,7 +66,6 @@ export class ReportsService {
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
     @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
     @InjectRepository(PaymentQrAccount) private readonly qrRepo: Repository<PaymentQrAccount>,
-    private readonly settings: SettingsService,
   ) {}
 
   /** Giá vốn từng món theo giá nguyên liệu đang mua (bước 5).
@@ -78,8 +76,6 @@ export class ReportsService {
   async foodCost(windowDays = 90): Promise<{
     from: string;
     rows: FoodCostRow[];
-    /** % phụ đang áp (`overhead_cost_pct`). */
-    overhead_pct: number;
     /** % phụ THỰC TẾ trong cửa sổ — chỉ để gợi ý cạnh ô nhập. */
     overhead_reference_pct: number | null;
   }> {
@@ -120,10 +116,8 @@ export class ReportsService {
       .getRawMany<{ ingredient_id: string; supplier_id: string; unit_price_base: string; supplier_name: string | null }>();
     const supName = new Map(supplierItems.map((r) => [r.supplier_id, r.supplier_name]));
 
-    // % phụ đang áp + số thực tế để gợi ý (2026-10-22). Số thực tế lấy CÙNG cửa sổ với bình quân
-    // giá ở trên — chung một kỳ thì hai con số mới so được với nhau.
-    const { overhead_cost_pct } = await this.settings.readAll();
-    const overhead_pct = Number(overhead_cost_pct) || 0;
+    // Số % phụ thực tế để GỢI Ý khi chủ quán đặt % cho từng món (2026-10-22). Lấy CÙNG cửa sổ với
+    // bình quân giá ở trên — chung một kỳ thì hai con số mới so được với nhau.
     const purchasedIds = purchases.map((p) => p.ingredient_id);
     const kindById = new Map(
       purchasedIds.length === 0
@@ -143,7 +137,7 @@ export class ReportsService {
       })),
     );
 
-    if (recipeLines.length === 0) return { from, rows: [], overhead_pct, overhead_reference_pct };
+    if (recipeLines.length === 0) return { from, rows: [], overhead_reference_pct };
 
     const ingIds = [...new Set(recipeLines.map((r) => r.ingredient_id))];
     const itemIds = [...new Set(recipeLines.map((r) => r.menu_item_id))];
@@ -169,7 +163,12 @@ export class ReportsService {
       menuItems
         // Món đã xoá mềm thì không còn bán — để lại chỉ làm bảng dài ra.
         .filter((m) => m.is_active)
-        .map((m) => ({ id: m.id, name: m.name, price: m.price })),
+        .map((m) => ({
+          id: m.id,
+          name: m.name,
+          price: m.price,
+          overhead_pct: m.overhead_pct === null ? null : Number(m.overhead_pct),
+        })),
       recipeLines
         .filter((r) => ingById.has(r.ingredient_id))
         .map((r) => ({
@@ -189,10 +188,15 @@ export class ReportsService {
         supplier_id: r.supplier_id,
         unit_price_base: Number(r.unit_price_base),
       })),
-      overhead_pct,
     );
 
-    return { from, rows, overhead_pct, overhead_reference_pct };
+    return { from, rows, overhead_reference_pct };
+  }
+
+  /** Bật / đổi / tắt % phụ của MỘT món (2026-10-28). `null` = tắt. Trả `false` khi không có món. */
+  async setItemOverheadPct(menuItemId: string, pct: number | null): Promise<boolean> {
+    const r = await this.menuRepo.update({ id: menuItemId }, { overhead_pct: pct === null ? null : pct.toFixed(1) });
+    return (r.affected ?? 0) > 0;
   }
 
   /** Tiền nhập theo nhóm CHÍNH / PHỤ + doanh thu cùng kỳ (2026-10-22).

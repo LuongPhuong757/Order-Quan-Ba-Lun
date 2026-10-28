@@ -182,25 +182,42 @@ describe('computeFoodCost — nguyên liệu phụ và % phụ', () => {
     expect(row.missing).toEqual([]);
   });
 
-  it('% phụ tính trên tiền nguyên liệu chính, và biên lãi theo giá vốn đầy đủ', () => {
+  it('% phụ của món tính trên tiền nguyên liệu chính, và biên lãi theo giá vốn đầy đủ', () => {
     // 24.600 × 10% = 2.460 → đầy đủ 27.060; lãi 40.000 − 27.060 = 12.940.
-    const [row] = computeFoodCost([BUN_CHA], withHanh, prices, [], 10);
+    const [row] = computeFoodCost([{ ...BUN_CHA, overhead_pct: 10 }], withHanh, prices);
+    expect(row.overhead_pct).toBe(10);
     expect(row.cost_main).toBe(24_600);
     expect(row.overhead_amount).toBe(2_460);
     expect(row.cost).toBe(27_060);
     expect(row.margin_amount).toBe(12_940);
   });
 
-  it('chưa đặt % (0) thì giá vốn y hệt trước khi có tính năng', () => {
-    const [row] = computeFoodCost([BUN_CHA], recipe, prices, [], 0);
+  it('món chưa bật % phụ (null) thì giá vốn y hệt trước khi có tính năng', () => {
+    const [row] = computeFoodCost([{ ...BUN_CHA, overhead_pct: null }], recipe, prices);
+    expect(row.overhead_pct).toBeNull();
     expect(row.overhead_amount).toBe(0);
     expect(row.cost).toBe(row.cost_main);
   });
 
-  it('% âm hoặc rác bị coi như 0', () => {
-    const [row] = computeFoodCost([BUN_CHA], recipe, prices, [], Number.NaN);
+  it('% là của TỪNG món — món khác không bị cộng theo', () => {
+    const KHAC = { id: 'm9', name: 'Bún chả 2', price: 40_000, overhead_pct: null };
+    const lines = [...recipe, ...recipe.map((l) => ({ ...l, menu_item_id: 'm9' }))];
+    const [a, b] = computeFoodCost([{ ...BUN_CHA, overhead_pct: 10 }, KHAC], lines, prices);
+    expect(a.overhead_amount).toBe(2_460);
+    expect(b.overhead_amount).toBe(0);
+  });
+
+  it('bật 0% vẫn là "đã bật" (khác null) nhưng không cộng gì', () => {
+    const [row] = computeFoodCost([{ ...BUN_CHA, overhead_pct: 0 }], recipe, prices);
+    expect(row.overhead_pct).toBe(0);
     expect(row.cost).toBe(24_600);
-    const [neg] = computeFoodCost([BUN_CHA], recipe, prices, [], -5);
+  });
+
+  it('% âm hoặc rác bị coi như tắt', () => {
+    const [row] = computeFoodCost([{ ...BUN_CHA, overhead_pct: Number.NaN }], recipe, prices);
+    expect(row.cost).toBe(24_600);
+    expect(row.overhead_pct).toBeNull();
+    const [neg] = computeFoodCost([{ ...BUN_CHA, overhead_pct: -5 }], recipe, prices);
     expect(neg.cost).toBe(24_600);
   });
 });
@@ -220,7 +237,7 @@ describe('computeFoodCost — hàng bán nguyên (2026-10-28)', () => {
   ];
 
   it('món chỉ toàn hàng bán nguyên: giá vốn = giá nhập, KHÔNG cộng % phụ', () => {
-    const [row] = computeFoodCost([BIA], lines, giá, [], 10);
+    const [row] = computeFoodCost([{ ...BIA, overhead_pct: 10 }], lines, giá);
     expect(row.cost_main).toBe(0);
     expect(row.cost_resale).toBe(13_800);
     expect(row.overhead_amount).toBe(0);
@@ -229,7 +246,7 @@ describe('computeFoodCost — hàng bán nguyên (2026-10-28)', () => {
 
   it('món trộn: % phụ chỉ nhân trên phần nguyên liệu chính', () => {
     // Lạc 100g × 400 = 40.000 chính; rượu 35.000 bán nguyên; 10% × 40.000 = 4.000.
-    const [row] = computeFoodCost([COMBO], lines, giá, [], 10);
+    const [row] = computeFoodCost([{ ...COMBO, overhead_pct: 10 }], lines, giá);
     expect(row.cost_main).toBe(40_000);
     expect(row.cost_resale).toBe(35_000);
     expect(row.overhead_amount).toBe(4_000);
@@ -237,14 +254,14 @@ describe('computeFoodCost — hàng bán nguyên (2026-10-28)', () => {
   });
 
   it('hàng bán nguyên thiếu giá thì giá vốn CHƯA đầy đủ (tiền nó cộng thẳng vào)', () => {
-    const [row] = computeFoodCost([BIA], lines, [], [], 0);
+    const [row] = computeFoodCost([BIA], lines, []);
     expect(row.complete).toBe(false);
     expect(row.missing).toEqual(['Bia Tiger']);
   });
 
   it('dòng lỡ mang cả hai cờ thì coi là PHỤ — không cộng hai lần', () => {
     const both = [{ ...lines[0], is_secondary: true }];
-    const [row] = computeFoodCost([BIA], both, giá, [], 0);
+    const [row] = computeFoodCost([BIA], both, giá);
     expect(row.cost).toBe(0);
     expect(row.components[0].is_resale).toBe(false);
   });

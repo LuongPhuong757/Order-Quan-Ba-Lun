@@ -35,6 +35,8 @@ export type MenuItemInput = {
   name: string;
   /** Giá bán, VND. */
   price: number;
+  /** % phụ của RIÊNG món (2026-10-28). `null`/thiếu = món không tính phụ. */
+  overhead_pct?: number | null;
 };
 
 /** Đơn giá nguyên liệu để tính giá vốn, đồng / đơn vị gốc. */
@@ -78,15 +80,16 @@ export type FoodCostRow = {
   menu_item_id: string;
   menu_item_name: string;
   sell_price: number;
-  /** Tổng giá vốn ĐẦY ĐỦ một phần, VND = `cost_main` + `cost_resale` + `overhead_amount`. Khi chưa đặt % phụ
-   * thì bằng đúng `cost_main` — mọi màn đang đọc `cost` (Menu, Công thức) giữ nguyên như cũ, và
-   * khi đã đặt thì tự đổi theo số đầy đủ (chủ quán chốt 2026-10-22). */
+  /** Tổng giá vốn ĐẦY ĐỦ một phần, VND = `cost_main` + `cost_resale` + `overhead_amount`. Món chưa
+   * bật % phụ thì phần phụ là 0 — mọi màn đang đọc `cost` (Menu, Công thức) giữ nguyên như cũ. */
   cost: number;
   /** Tiền nguyên liệu CHÍNH một phần. Chỉ cộng những nguyên liệu chính CÓ giá. */
   cost_main: number;
   /** Tiền hàng BÁN NGUYÊN một phần (2026-10-28). Không bị cộng % phụ. */
   cost_resale: number;
-  /** Phần nguyên liệu phụ phân bổ vào món = `cost_main` × `overheadPct` / 100. */
+  /** % phụ của món — `null` = món không tính phụ. */
+  overhead_pct: number | null;
+  /** Phần nguyên liệu phụ phân bổ vào món = `cost_main` × `overhead_pct` / 100. */
   overhead_amount: number;
   /** Tên các nguyên liệu chưa có giá. Rỗng = giá vốn đầy đủ. */
   missing: string[];
@@ -108,10 +111,7 @@ export function computeFoodCost(
   recipeLines: RecipeLineInput[],
   prices: IngredientPrice[],
   supplierPrices: SupplierPrice[] = [],
-  /** % chi phí phụ cộng thêm, tính trên tiền nguyên liệu chính (`overhead_cost_pct`). */
-  overheadPct = 0,
 ): FoodCostRow[] {
-  const pct = Number.isFinite(overheadPct) && overheadPct > 0 ? overheadPct : 0;
   const priceOf = new Map(prices.map((p) => [p.ingredient_id, p.unit_price_base]));
   const supplierPriceOf = new Map(
     supplierPrices.filter((p) => p.unit_price_base > 0).map((p) => [`${p.ingredient_id}|${p.supplier_id}`, p.unit_price_base]),
@@ -169,9 +169,11 @@ export function computeFoodCost(
     for (const c of counted) {
       c.share_pct = c.cost === null || base <= 0 ? null : round((c.cost / base) * 100, 1);
     }
-    // % phụ CHỈ nhân trên tiền nguyên liệu chính (2026-10-28, phương án B): bia nước mua về bán
-    // luôn mà cũng gánh % gas/hành thì món bếp bị nhẹ đi đúng phần đồ uống gánh hộ.
-    const overhead_amount = round((cost_main * pct) / 100, 0);
+    // % phụ là của TỪNG MÓN (2026-10-28 — chủ quán chốt bỏ % chung tự áp cho mọi món), và CHỈ
+    // nhân trên tiền nguyên liệu chính: bia nước mua về bán luôn không gánh % gas/hành.
+    const raw = item.overhead_pct;
+    const overhead_pct = raw !== null && raw !== undefined && Number.isFinite(raw) && raw >= 0 ? raw : null;
+    const overhead_amount = round((cost_main * (overhead_pct ?? 0)) / 100, 0);
     const cost = base + overhead_amount;
 
     const complete = missing.length === 0;
@@ -182,6 +184,7 @@ export function computeFoodCost(
       cost,
       cost_main,
       cost_resale,
+      overhead_pct,
       overhead_amount,
       missing,
       complete,
