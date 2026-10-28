@@ -47,6 +47,8 @@ class DeliveryLineDto {
   @IsNumber() @Min(0.001) qty_base_per_unit!: number;
   @IsNumber() @Min(0.001) qty_purchase!: number;
   @IsNumber() @Min(0) unit_price!: number;
+  /** Ô tick "Phụ" (2026-10-22) — ghi vào nguyên liệu khi phiếu được lưu. Thiếu = không đổi. */
+  @IsOptional() @IsBoolean() is_secondary?: boolean;
 }
 
 class CreateDeliveryDto {

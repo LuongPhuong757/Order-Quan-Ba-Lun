@@ -9,6 +9,7 @@ import { useCallback, useEffect, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { IngredientKindToggle } from '../components/IngredientKindToggle.tsx';
 
 type Ingredient = {
   id: string;
@@ -17,6 +18,8 @@ type Ingredient = {
   unit: string;
   note: string | null;
   is_active: boolean;
+  /** Nguyên liệu phụ (gas, hành lá…) — 2026-10-22. */
+  is_secondary: boolean;
   used_in_items: number;
 };
 
@@ -32,6 +35,9 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   const [items, setItems] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  // Lọc theo nhóm (2026-10-22): mọi nguyên liệu mặc định là Chính, chủ quán dò dần để đánh dấu
+  // Phụ — cần xem riêng nhóm Phụ để soát lại đã đánh dấu đủ chưa.
+  const [kind, setKind] = useState<'all' | 'chinh' | 'phu'>('all');
   const [editing, setEditing] = useState<Ingredient | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Nguyên liệu đang chờ được gộp vào một dòng khác. Chọn nguồn trước, rồi bấm đích — cách này
@@ -58,9 +64,13 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   // trăm dòng — tải một lần rồi lọc trong bộ nhớ nhanh hơn và không nhấp nháy khi gõ.
   const norm = (s: string) =>
     s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
-  const filtered = search.trim()
-    ? items.filter((i) => norm(i.name).includes(norm(search)))
-    : items;
+  const filtered = items.filter(
+    (i) =>
+      (kind === 'all' || i.is_secondary === (kind === 'phu')) &&
+      (!search.trim() || norm(i.name).includes(norm(search))),
+  );
+  const setSecondary = (id: string, is_secondary: boolean) =>
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, is_secondary } : i)));
 
   const onDelete = async (ing: Ingredient) => {
     if (ing.used_in_items > 0) {
@@ -157,11 +167,32 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
+        <div className="flex" style={{ gap: 6, marginBottom: 10 }} role="group" aria-label="Lọc theo nhóm nguyên liệu">
+          {(
+            [
+              ['all', `Tất cả (${items.length})`],
+              ['chinh', `Chính (${items.filter((i) => !i.is_secondary).length})`],
+              ['phu', `Phụ (${items.filter((i) => i.is_secondary).length})`],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              className={kind === v ? undefined : 'secondary'}
+              aria-pressed={kind === v}
+              onClick={() => setKind(v)}
+              style={{ padding: '6px 12px', fontSize: 14 }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         <div style={{ flex: 1, overflowY: 'auto', minHeight: 120 }}>
           {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
           {!loading && filtered.length === 0 && (
             <div className="empty-state card" style={{ fontSize: 14 }}>
-              {search ? 'Không tìm thấy nguyên liệu nào.' : 'Chưa có nguyên liệu nào — bấm "+ Thêm" để bắt đầu.'}
+              {search || kind !== 'all' ? 'Không tìm thấy nguyên liệu nào.' : 'Chưa có nguyên liệu nào — bấm "+ Thêm" để bắt đầu.'}
             </div>
           )}
           {filtered.map((ing) => {
@@ -189,6 +220,14 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
                     {ing.note && ` · ${ing.note}`}
                   </div>
                 </div>
+                {!mergeFrom && (
+                  <IngredientKindToggle
+                    ingredientId={ing.id}
+                    ingredientName={ing.name}
+                    isSecondary={ing.is_secondary}
+                    onChanged={(v) => setSecondary(ing.id, v)}
+                  />
+                )}
                 {!mergeFrom && (
                   <div className="flex" style={{ gap: 4 }}>
                     <button className="secondary" onClick={() => setEditing(ing)} style={{ padding: '4px 10px', fontSize: 12 }}>

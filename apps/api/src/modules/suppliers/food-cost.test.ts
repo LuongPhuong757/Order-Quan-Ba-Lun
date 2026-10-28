@@ -1,6 +1,6 @@
 // Test THUẦN, không cần MySQL.
 import { describe, expect, it } from 'vitest';
-import { computeFoodCost, ingredientPrices } from './food-cost.js';
+import { computeFoodCost, ingredientPrices, overheadReferencePct } from './food-cost.js';
 
 const BUN_CHA = { id: 'm1', name: 'Bún chả', price: 40_000 };
 
@@ -154,5 +154,69 @@ describe('computeFoodCost — nguyên liệu tách theo NCC', () => {
     );
     expect(row.cost).toBe(27_500);
     expect(row.complete).toBe(true);
+  });
+});
+
+// Nguyên liệu chính / phụ + % phụ cộng vào giá vốn (2026-10-22).
+describe('computeFoodCost — nguyên liệu phụ và % phụ', () => {
+  // Hành lá 5g/bát, đánh dấu PHỤ: vẫn nằm trong công thức để trừ kho, nhưng tiền của nó đi vào
+  // giá vốn qua % chung — cộng cả hai là tính hai lần.
+  const withHanh = [
+    ...recipe,
+    { menu_item_id: 'm1', ingredient_id: 'hanh', ingredient_name: 'Hành lá', base_unit: 'g', qty_per_serving: 5, is_secondary: true },
+  ];
+
+  it('nguyên liệu phụ KHÔNG cộng vào giá vốn trực tiếp', () => {
+    const [row] = computeFoodCost([BUN_CHA], withHanh, [...prices, { ingredient_id: 'hanh', unit_price_base: 40, source: 'avg' }]);
+    expect(row.cost_main).toBe(24_600);
+    expect(row.cost).toBe(24_600);
+    const hanh = row.components.find((c) => c.ingredient_id === 'hanh')!;
+    expect(hanh.is_secondary).toBe(true);
+    expect(hanh.cost).toBe(200); // vẫn hiện để tham khảo
+    expect(hanh.share_pct).toBeNull();
+  });
+
+  it('nguyên liệu phụ thiếu giá không làm giá vốn "chưa đầy đủ"', () => {
+    const [row] = computeFoodCost([BUN_CHA], withHanh, prices);
+    expect(row.complete).toBe(true);
+    expect(row.missing).toEqual([]);
+  });
+
+  it('% phụ tính trên tiền nguyên liệu chính, và biên lãi theo giá vốn đầy đủ', () => {
+    // 24.600 × 10% = 2.460 → đầy đủ 27.060; lãi 40.000 − 27.060 = 12.940.
+    const [row] = computeFoodCost([BUN_CHA], withHanh, prices, [], 10);
+    expect(row.cost_main).toBe(24_600);
+    expect(row.overhead_amount).toBe(2_460);
+    expect(row.cost).toBe(27_060);
+    expect(row.margin_amount).toBe(12_940);
+  });
+
+  it('chưa đặt % (0) thì giá vốn y hệt trước khi có tính năng', () => {
+    const [row] = computeFoodCost([BUN_CHA], recipe, prices, [], 0);
+    expect(row.overhead_amount).toBe(0);
+    expect(row.cost).toBe(row.cost_main);
+  });
+
+  it('% âm hoặc rác bị coi như 0', () => {
+    const [row] = computeFoodCost([BUN_CHA], recipe, prices, [], Number.NaN);
+    expect(row.cost).toBe(24_600);
+    const [neg] = computeFoodCost([BUN_CHA], recipe, prices, [], -5);
+    expect(neg.cost).toBe(24_600);
+  });
+});
+
+describe('overheadReferencePct', () => {
+  it('= tiền phụ ÷ tiền chính', () => {
+    expect(
+      overheadReferencePct([
+        { amount: 1_000_000, is_secondary: false },
+        { amount: 74_000, is_secondary: true },
+      ]),
+    ).toBe(7.4);
+  });
+
+  it('kỳ chưa mua nguyên liệu chính thì không có số', () => {
+    expect(overheadReferencePct([{ amount: 50_000, is_secondary: true }])).toBeNull();
+    expect(overheadReferencePct([])).toBeNull();
   });
 });

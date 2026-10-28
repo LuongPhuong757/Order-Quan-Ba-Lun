@@ -1833,7 +1833,14 @@
     border: 0; border-radius: 0; background: transparent;
   }
 }
+/* Cột ô tick "NL phụ" ở bảng Mặt hàng nhập (2026-10-22). Dưới 720px bảng thành thẻ, ô tick ngồi
+   vào cột `act` 40px bên phải (`.c-act`) — chỉ vừa cái ô, nên giấu chữ "Phụ" và viền nhãn đi. */
+@media (max-width: 719px) {
+  .ncc-ui .colitphu .ing-phu { min-height: 40px; padding: 0; border: 0; background: transparent; }
+  .ncc-ui .colitphu .ing-phu span { display: none; }
+}
 @media (min-width: 720px) {
+  .ncc-ui .colitphu  { width: 104px; }
   .ncc-ui .colitn    { width: 72px; }
   .ncc-ui .colitqty  { width: 118px; }
   .ncc-ui .colitamt  { width: 168px; }

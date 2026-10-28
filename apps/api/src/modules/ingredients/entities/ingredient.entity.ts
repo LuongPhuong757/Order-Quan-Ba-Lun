@@ -55,6 +55,22 @@ export class Ingredient {
   @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
   price_alert_threshold_pct!: string | null;
 
+  /** Nguyên liệu PHỤ — thứ quán mua để bổ trợ chứ không cân đong vào từng món: gas, hành lá,
+   * đá, túi… (chủ quán chốt 2026-10-22). `false` = nguyên liệu CHÍNH.
+   *
+   * Mặc định `false` cho cả dòng cũ lẫn dòng mới, và KHÔNG có logic tự đoán theo công thức — chủ
+   * quán từ chối rõ: "để nguyên đó, khi nào nhập nguyên liệu tôi sẽ sửa sau". Đoán theo "có trong
+   * công thức hay không" sẽ xếp nhầm mọi nguyên liệu chính chưa kịp khai công thức vào nhóm phụ.
+   *
+   * Hệ quả lên giá vốn (`food-cost.ts`): dòng công thức của nguyên liệu phụ KHÔNG cộng vào giá vốn
+   * trực tiếp — phần phụ đi vào giá vốn qua một % chung (`overhead_cost_pct`), cộng thẳng thì tính
+   * hai lần. Tồn kho / tiêu hao thì vẫn trừ như thường.
+   *
+   * Không snapshot vào phiếu nhập: đổi loại thì báo cáo các kỳ cũ cũng đổi theo — đây là nhãn để
+   * nhìn, không phải số tiền đã chốt. */
+  @Column({ type: 'boolean', default: false })
+  is_secondary!: boolean;
+
   /** Xoá mềm, cùng lệ với `menu_items.is_active`.
    *
    * Nguyên liệu bị gộp đi cũng để `false` ở đây (không DELETE): các bản chốt tiêu hao trong quá
