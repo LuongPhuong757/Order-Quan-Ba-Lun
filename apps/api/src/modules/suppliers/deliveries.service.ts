@@ -21,6 +21,7 @@ import { SupplierDeliveryLine } from './entities/supplier-delivery-line.entity.j
 import { SupplierDeliveryPhoto } from './entities/supplier-delivery-photo.entity.js';
 import { SupplierPayment } from './entities/supplier-payment.entity.js';
 import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
+import { kindOf, kindPatch, requestedKind, type IngredientKind } from '../ingredients/ingredient-kind.js';
 import { IngredientsService } from '../ingredients/ingredients.service.js';
 import { baseUnitsPerUnit } from '../ingredients/ingredient-units.js';
 import { toDateString } from './suppliers.service.js';
@@ -109,6 +110,8 @@ export type DeliveryLineInput = {
   unit_price: number;
   /** Ô tick "Phụ" ở màn nhập phiếu (2026-10-22). Thiếu = không đụng tới nhóm của nguyên liệu. */
   is_secondary?: boolean;
+  /** Ô chọn "Nhóm" (2026-10-28) — Chính / Phụ / Bán nguyên. Có thì thắng `is_secondary`. */
+  kind?: IngredientKind;
 };
 
 /** Một dòng lệch giá, đúng những gì popup cần hiện (M3.D-21). */
@@ -448,7 +451,7 @@ export class DeliveriesService {
       const lines = mgr.getRepository(SupplierDeliveryLine);
       const items = mgr.getRepository(SupplierItem);
 
-      await this.applySecondaryFlags(mgr, input.lines, prepared);
+      await this.applyKindFlags(mgr, input.lines, prepared);
       const total_amount = prepared.reduce((sum, p) => sum + p.amounts.amount, 0);
       const delivery = await deliveries.save(
         deliveries.create({
@@ -837,7 +840,7 @@ export class DeliveriesService {
         // trạng thái cuối chuỗi, ghi thêm ở đây là hai chỗ cùng viết một bảng.
 
         const prepared = await this.prepareLines(supplier_id, input.lines);
-        await this.applySecondaryFlags(mgr, input.lines, prepared);
+        await this.applyKindFlags(mgr, input.lines, prepared);
 
         // Xoá hết dòng cũ rồi ghi lại: dòng bị bỏ khỏi phiếu phải biến mất khỏi tồn kho, mà
         // so từng dòng để biết cái nào bị bỏ thì phức tạp hơn mà không được gì.
@@ -1019,18 +1022,21 @@ export class DeliveriesService {
    * `prepared[i]` ứng đúng `inputs[i]` — `prepareLines` ném lỗi chứ không bỏ dòng nào.
    * Chỉ hai đường của AdminGuard (tạo + sửa phiếu) gọi hàm này; cổng NCC tự nhập không đi qua đây
    * nên NCC không đổi được nhóm nguyên liệu của quán. */
-  private async applySecondaryFlags(
+  private async applyKindFlags(
     mgr: EntityManager,
     inputs: DeliveryLineInput[],
     prepared: Array<{ ingredient: Ingredient }>,
   ): Promise<void> {
     const repo = mgr.getRepository(Ingredient);
     for (let i = 0; i < inputs.length; i++) {
-      const want = inputs[i].is_secondary;
       const ing = prepared[i]?.ingredient;
-      if (typeof want !== 'boolean' || !ing || ing.is_secondary === want) continue;
-      await repo.update(ing.id, { is_secondary: want });
-      ing.is_secondary = want;
+      if (!ing) continue;
+      const now = kindOf(ing);
+      const want = requestedKind(now, inputs[i]);
+      if (!want || want === now) continue;
+      const patch = kindPatch(want);
+      await repo.update(ing.id, patch);
+      Object.assign(ing, patch);
     }
   }
 

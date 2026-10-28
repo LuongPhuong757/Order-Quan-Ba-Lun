@@ -19,6 +19,8 @@ type Component = {
   share_pct: number | null;
   /** Nguyên liệu phụ (2026-10-22) — không cộng vào giá vốn trực tiếp, đi qua % phụ. */
   is_secondary: boolean;
+  /** Hàng bán nguyên (2026-10-28) — cộng thẳng theo giá nhập, không gánh % phụ. */
+  is_resale?: boolean;
 };
 
 type FoodCostRow = {
@@ -28,6 +30,8 @@ type FoodCostRow = {
   /** Giá vốn ĐẦY ĐỦ = `cost_main` + `overhead_amount`. */
   cost: number;
   cost_main: number;
+  /** Tiền hàng bán nguyên một phần (2026-10-28). `?` vì bản API cũ chưa có. */
+  cost_resale?: number;
   overhead_amount: number;
   missing: string[];
   complete: boolean;
@@ -135,7 +139,7 @@ export function FoodCostPanel() {
             <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
               <th style={{ padding: 8 }}>Món</th>
               <th style={{ padding: 8, textAlign: 'right' }}>Giá bán</th>
-              {showMain && <th style={{ padding: 8, textAlign: 'right' }}>NL chính</th>}
+              {showMain && <th style={{ padding: 8, textAlign: 'right' }}>Tiền NL</th>}
               <th style={{ padding: 8, textAlign: 'right' }}>{showMain ? 'Giá vốn đủ' : 'Giá vốn'}</th>
               <th style={{ padding: 8, textAlign: 'right' }}>Lãi/phần</th>
               <th style={{ padding: 8, textAlign: 'right' }}>Biên LN</th>
@@ -160,7 +164,9 @@ export function FoodCostPanel() {
                   </td>
                   <td style={{ padding: 8, textAlign: 'right' }}>{vnd(r.sell_price)}đ</td>
                   {showMain && (
-                    <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>{vnd(r.cost_main)}đ</td>
+                    // Chính + bán nguyên = mọi thứ trước % phụ. Chỉ để `cost_main` thì lon bia hiện
+                    // "0đ" ở cột này — trông như món chưa có giá.
+                    <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>{vnd(r.cost_main + (r.cost_resale ?? 0))}đ</td>
                   )}
                   <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
                     {vnd(r.cost)}đ{!r.complete && <span style={{ color: '#b45309' }}> +?</span>}
@@ -201,6 +207,11 @@ export function FoodCostPanel() {
                                   {c.is_secondary && (
                                     <span style={{ marginLeft: 6, fontSize: 12, color: C.muted }}>
                                       (phụ — tính qua %)
+                                    </span>
+                                  )}
+                                  {c.is_resale && (
+                                    <span style={{ marginLeft: 6, fontSize: 12, color: '#6d28d9' }}>
+                                      (bán nguyên — không cộng %)
                                     </span>
                                   )}
                                 </td>
@@ -299,7 +310,7 @@ function OverheadPctBox({
       <div style={{ fontWeight: 700, fontSize: 16 }}>Chi phí nguyên liệu phụ</div>
       <div style={{ fontSize: 14, color: C.mutedOnTint, margin: '4px 0 10px' }}>
         Gas, hành lá, đá… không cân vào từng món. Cộng thêm bấy nhiêu % trên tiền nguyên liệu chính
-        của mọi món.
+        của mọi món. Hàng bán nguyên (bia, nước, thuốc) không bị cộng.
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         {canEdit ? (
@@ -322,7 +333,7 @@ function OverheadPctBox({
         )}
         {referencePct !== null && (
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>
-            Thực tế 90 ngày qua: <strong>{referencePct.toLocaleString('vi-VN')}%</strong>
+            Thực tế 90 ngày qua: <strong>{referencePct.toLocaleString('vi-VN')}%</strong> (không tính hàng bán nguyên)
           </span>
         )}
       </div>

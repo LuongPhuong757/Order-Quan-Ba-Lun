@@ -10,7 +10,8 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { IsBoolean, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength } from 'class-validator';
+import { INGREDIENT_KINDS, type IngredientKind } from './ingredient-kind.js';
 import { IngredientsService } from './ingredients.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
@@ -28,6 +29,8 @@ class UpdateIngredientDto {
   @IsOptional() @IsString() @MaxLength(255) note?: string | null;
   /** Chính / phụ (2026-10-22). Cùng AdminGuard với mọi ô khác — owner cũng mang role admin. */
   @IsOptional() @IsBoolean() is_secondary?: boolean;
+  /** Chính / Phụ / Bán nguyên (2026-10-28). Có thì thắng `is_secondary`. */
+  @IsOptional() @IsIn(INGREDIENT_KINDS) kind?: IngredientKind;
 }
 
 class MergeIngredientDto {

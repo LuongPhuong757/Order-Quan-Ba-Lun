@@ -9,7 +9,8 @@ import { useCallback, useEffect, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { IngredientKindToggle } from '../components/IngredientKindToggle.tsx';
+import { IngredientKindSelect } from '../components/IngredientKindSelect.tsx';
+import { KIND_LABEL, KINDS, kindFlags, kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 
 type Ingredient = {
   id: string;
@@ -20,6 +21,8 @@ type Ingredient = {
   is_active: boolean;
   /** Nguyên liệu phụ (gas, hành lá…) — 2026-10-22. */
   is_secondary: boolean;
+  /** Hàng bán nguyên (bia, nước, thuốc mua về bán luôn) — 2026-10-28. */
+  is_resale: boolean;
   used_in_items: number;
 };
 
@@ -36,8 +39,8 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   // Lọc theo nhóm (2026-10-22): mọi nguyên liệu mặc định là Chính, chủ quán dò dần để đánh dấu
-  // Phụ — cần xem riêng nhóm Phụ để soát lại đã đánh dấu đủ chưa.
-  const [kind, setKind] = useState<'all' | 'chinh' | 'phu'>('all');
+  // Phụ / Bán nguyên — cần xem riêng từng nhóm để soát lại đã đánh dấu đủ chưa.
+  const [kind, setKind] = useState<'all' | IngredientKind>('all');
   const [editing, setEditing] = useState<Ingredient | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   // Nguyên liệu đang chờ được gộp vào một dòng khác. Chọn nguồn trước, rồi bấm đích — cách này
@@ -66,11 +69,11 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
     s.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd').toLowerCase().trim();
   const filtered = items.filter(
     (i) =>
-      (kind === 'all' || i.is_secondary === (kind === 'phu')) &&
+      (kind === 'all' || kindOf(i) === kind) &&
       (!search.trim() || norm(i.name).includes(norm(search))),
   );
-  const setSecondary = (id: string, is_secondary: boolean) =>
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, is_secondary } : i)));
+  const setKindOf = (id: string, k: IngredientKind) =>
+    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...kindFlags(k) } : i)));
 
   const onDelete = async (ing: Ingredient) => {
     if (ing.used_in_items > 0) {
@@ -167,12 +170,11 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="flex" style={{ gap: 6, marginBottom: 10 }} role="group" aria-label="Lọc theo nhóm nguyên liệu">
+        <div className="flex" style={{ gap: 6, marginBottom: 10, flexWrap: 'wrap' }} role="group" aria-label="Lọc theo nhóm nguyên liệu">
           {(
             [
               ['all', `Tất cả (${items.length})`],
-              ['chinh', `Chính (${items.filter((i) => !i.is_secondary).length})`],
-              ['phu', `Phụ (${items.filter((i) => i.is_secondary).length})`],
+              ...KINDS.map((k) => [k, `${KIND_LABEL[k]} (${items.filter((i) => kindOf(i) === k).length})`] as const),
             ] as const
           ).map(([v, label]) => (
             <button
@@ -221,11 +223,11 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
                 {!mergeFrom && (
-                  <IngredientKindToggle
+                  <IngredientKindSelect
                     ingredientId={ing.id}
                     ingredientName={ing.name}
-                    isSecondary={ing.is_secondary}
-                    onChanged={(v) => setSecondary(ing.id, v)}
+                    kind={kindOf(ing)}
+                    onChanged={(k) => setKindOf(ing.id, k)}
                   />
                 )}
                 {!mergeFrom && (

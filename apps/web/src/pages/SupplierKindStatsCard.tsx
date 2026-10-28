@@ -18,9 +18,11 @@ import type { DayRange } from '../lib/date-range.ts';
 import { buildSpendChart, luongGon, tienGon } from '../lib/supplier-stats.ts';
 
 type ByKind = {
-  daily: Array<{ delivery_date: string; main: number; secondary: number }>;
+  daily: Array<{ delivery_date: string; main: number; secondary: number; resale?: number }>;
   total_main: number;
   total_secondary: number;
+  /** Hàng bán nguyên (2026-10-28). `?` vì bản API cũ chưa trả trường này. */
+  total_resale?: number;
   revenue: number;
   secondary_pct_of_revenue: number | null;
   top_secondary: Array<{ ingredient_id: string; ingredient_name: string; unit: string; qty_base: number; amount: number }>;
@@ -31,6 +33,7 @@ const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
 // biết cột nào trên biểu đồ.
 const MAU_CHINH = '#059669';
 const MAU_PHU = '#ea580c';
+const MAU_BAN = '#7c3aed';
 
 export function SupplierKindStatsCard({ range }: { range: DayRange }) {
   const toast = useToast();
@@ -47,7 +50,7 @@ export function SupplierKindStatsCard({ range }: { range: DayRange }) {
       .catch((err) => {
         if (huy) return;
         toast.push('error', extractError(err).message);
-        setData({ daily: [], total_main: 0, total_secondary: 0, revenue: 0, secondary_pct_of_revenue: null, top_secondary: [] });
+        setData({ daily: [], total_main: 0, total_secondary: 0, total_resale: 0, revenue: 0, secondary_pct_of_revenue: null, top_secondary: [] });
       });
     return () => {
       huy = true;
@@ -60,18 +63,22 @@ export function SupplierKindStatsCard({ range }: { range: DayRange }) {
     const rows = (data?.daily ?? []).flatMap((d) => [
       { delivery_date: d.delivery_date, supplier_id: 'chinh', supplier_name: 'Nguyên liệu chính', amount: d.main, deliveries: 0 },
       { delivery_date: d.delivery_date, supplier_id: 'phu', supplier_name: 'Nguyên liệu phụ', amount: d.secondary, deliveries: 0 },
+      { delivery_date: d.delivery_date, supplier_id: 'ban', supplier_name: 'Hàng bán nguyên', amount: d.resale ?? 0, deliveries: 0 },
     ]);
     return buildSpendChart(rows, { from: range.from, to: range.to });
   }, [data, range.from, range.to]);
 
   const series: LineSeries[] = useMemo(
     () =>
-      // Chính nằm dưới, phụ chồng lên trên — phần phụ là thứ đang được hỏi nên để ở đỉnh cột.
-      ['chinh', 'phu'].flatMap((id) => {
+      // Chính nằm dưới, bán nguyên giữa, phụ chồng trên cùng — phần phụ là thứ đang được hỏi nên
+      // để ở đỉnh cột. Kỳ không nhập hàng bán nguyên nào thì bỏ chuỗi đó, khỏi chú thích thừa.
+      (['chinh', 'ban', 'phu'] as const).flatMap((id) => {
         const s = chart.series.find((x) => x.supplier_id === id);
-        return s ? [{ id, name: s.supplier_name, color: id === 'phu' ? MAU_PHU : MAU_CHINH, values: s.values }] : [];
+        if (!s || (id === 'ban' && !(data?.total_resale ?? 0))) return [];
+        const color = id === 'phu' ? MAU_PHU : id === 'ban' ? MAU_BAN : MAU_CHINH;
+        return [{ id, name: s.supplier_name, color, values: s.values }];
       }),
-    [chart],
+    [chart, data],
   );
 
   if (data === null) return <p style={{ color: C.muted, marginTop: 12 }}>Đang tải nguyên liệu chính / phụ…</p>;
@@ -81,11 +88,12 @@ export function SupplierKindStatsCard({ range }: { range: DayRange }) {
   return (
     <div style={{ marginTop: 12 }}>
       <ChartCard
-        title="🧂 Nguyên liệu chính / phụ"
+        title="🧂 Nguyên liệu chính / bán nguyên / phụ"
         hint="Tính cho CẢ QUÁN, không theo nhà cung cấp đang lọc. Doanh thu = tiền món đã bán của đơn đã thu, không gồm phí ship."
       >
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>
           <So nhan="Nguyên liệu chính" giatri={`${vnd(data.total_main)}đ`} mau={MAU_CHINH} />
+          <So nhan="Hàng bán nguyên" giatri={`${vnd(data.total_resale ?? 0)}đ`} mau={MAU_BAN} />
           <So nhan="Nguyên liệu phụ" giatri={`${vnd(data.total_secondary)}đ`} mau={MAU_PHU} />
           <So
             nhan="Phụ / doanh thu"
@@ -108,7 +116,7 @@ export function SupplierKindStatsCard({ range }: { range: DayRange }) {
             labels={chart.labels}
             series={series}
             formatValue={(v) => `${tienGon(v)}đ`}
-            ariaLabel={`Tiền nhập nguyên liệu chính và phụ theo ${chart.labels.length} mốc thời gian`}
+            ariaLabel={`Tiền nhập nguyên liệu chính, bán nguyên và phụ theo ${chart.labels.length} mốc thời gian`}
           />
         )}
 
