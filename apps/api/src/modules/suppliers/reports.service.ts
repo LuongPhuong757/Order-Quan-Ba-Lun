@@ -16,6 +16,7 @@ import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { gopDongTien, vnDayEnd, vnDayStart, type AccountFlowDay } from './account-flow.js';
+import { kindOf } from '../ingredients/ingredient-kind.js';
 import { computeFoodCost, ingredientPrices, overheadReferencePct, type FoodCostRow } from './food-cost.js';
 import { SettingsService } from '../settings/settings.service.js';
 import {
@@ -42,9 +43,11 @@ export type PricePoint = {
 /** Tiền nhập theo nhóm nguyên liệu chính / phụ (2026-10-22) — khối "Chính / phụ" ở tab Thống kê. */
 export type ByKindReport = {
   /** Mỗi ngày giao hàng một dòng, tiền tách hai nhóm — nguồn của biểu đồ theo thời gian. */
-  daily: Array<{ delivery_date: string; main: number; secondary: number }>;
+  daily: Array<{ delivery_date: string; main: number; secondary: number; resale: number }>;
   total_main: number;
   total_secondary: number;
+  /** Tiền nhập hàng BÁN NGUYÊN (2026-10-28) — tách khỏi `total_main`. */
+  total_resale: number;
   /** Doanh thu cùng kỳ: món SERVED của đơn đã thu, KHÔNG gồm phí ship. */
   revenue: number;
   /** = total_secondary ÷ revenue × 100. `null` khi kỳ chưa có doanh thu. */
@@ -122,15 +125,22 @@ export class ReportsService {
     const { overhead_cost_pct } = await this.settings.readAll();
     const overhead_pct = Number(overhead_cost_pct) || 0;
     const purchasedIds = purchases.map((p) => p.ingredient_id);
-    const secondaryIds = new Set(
+    const kindById = new Map(
       purchasedIds.length === 0
         ? []
         : (
-            await this.ingredientRepo.find({ select: { id: true }, where: { id: In(purchasedIds), is_secondary: true } })
-          ).map((i) => i.id),
+            await this.ingredientRepo.find({
+              select: { id: true, is_secondary: true, is_resale: true },
+              where: { id: In(purchasedIds) },
+            })
+          ).map((i) => [i.id, kindOf(i)] as const),
     );
     const overhead_reference_pct = overheadReferencePct(
-      purchases.map((p) => ({ amount: Number(p.amount), is_secondary: secondaryIds.has(p.ingredient_id) })),
+      purchases.map((p) => ({
+        amount: Number(p.amount),
+        is_secondary: kindById.get(p.ingredient_id) === 'SECONDARY',
+        is_resale: kindById.get(p.ingredient_id) === 'RESALE',
+      })),
     );
 
     if (recipeLines.length === 0) return { from, rows: [], overhead_pct, overhead_reference_pct };
@@ -171,6 +181,7 @@ export class ReportsService {
           supplier_id: r.supplier_id,
           supplier_name: r.supplier_id ? (supName.get(r.supplier_id) ?? null) : null,
           is_secondary: ingById.get(r.ingredient_id)!.is_secondary,
+          is_resale: ingById.get(r.ingredient_id)!.is_resale,
         })),
       prices,
       supplierItems.map((r) => ({
@@ -207,6 +218,7 @@ export class ReportsService {
       .addSelect('i.name', 'ingredient_name')
       .addSelect('i.unit', 'unit')
       .addSelect('i.is_secondary', 'is_secondary')
+      .addSelect('i.is_resale', 'is_resale')
       .addSelect('SUM(l.amount)', 'amount')
       .addSelect('SUM(l.qty_base)', 'qty_base')
       .where("d.status = 'CONFIRMED'");
@@ -218,19 +230,25 @@ export class ReportsService {
       .addGroupBy('i.name')
       .addGroupBy('i.unit')
       .addGroupBy('i.is_secondary')
+      .addGroupBy('i.is_resale')
       .getRawMany<Record<string, unknown>>();
 
-    const days = new Map<string, { main: number; secondary: number }>();
+    const days = new Map<string, { main: number; secondary: number; resale: number }>();
     const top = new Map<string, ByKindReport['top_secondary'][number]>();
     let total_main = 0;
     let total_secondary = 0;
+    let total_resale = 0;
     for (const r of raw) {
       const day = dateStr(r.delivery_date);
       const amount = Number(r.amount) || 0;
       // mysql2 trả boolean dạng 0/1 (TINYINT) — so bằng Number, đừng so `=== true`.
       const secondary = Number(r.is_secondary) === 1;
-      const d = days.get(day) ?? { main: 0, secondary: 0 };
-      if (secondary) {
+      const resale = !secondary && Number(r.is_resale) === 1;
+      const d = days.get(day) ?? { main: 0, secondary: 0, resale: 0 };
+      if (resale) {
+        d.resale += amount;
+        total_resale += amount;
+      } else if (secondary) {
         d.secondary += amount;
         total_secondary += amount;
         const id = String(r.ingredient_id);
@@ -276,6 +294,7 @@ export class ReportsService {
         .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date)),
       total_main,
       total_secondary,
+      total_resale,
       revenue,
       secondary_pct_of_revenue: revenue > 0 ? Math.round((total_secondary / revenue) * 1000) / 10 : null,
       top_secondary: [...top.values()].sort((a, b) => b.amount - a.amount).slice(0, 10),
@@ -291,7 +310,7 @@ export class ReportsService {
    */
   async pairs(
     opts: { from?: string; to?: string; supplier_id?: string },
-  ): Promise<Array<PairReport & { is_secondary: boolean }>> {
+  ): Promise<Array<PairReport & { is_secondary: boolean; is_resale: boolean }>> {
     const qb = this.lineRepo
       .createQueryBuilder('l')
       .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
@@ -342,14 +361,21 @@ export class ReportsService {
     // Nhóm chính / phụ (2026-10-22) — cho nút đổi nhóm ở tab Mặt hàng nhập. Gắn SAU khi gộp, đọc
     // giá trị HIỆN TẠI của nguyên liệu: `aggregateByPair` là hàm thuần chỉ biết dòng phiếu.
     const ids = [...new Set(pairs.map((p) => p.ingredient_id))];
-    const secondary = new Set(
+    const kind = new Map(
       ids.length === 0
         ? []
-        : (await this.ingredientRepo.find({ select: { id: true }, where: { id: In(ids), is_secondary: true } })).map(
-            (i) => i.id,
-          ),
+        : (
+            await this.ingredientRepo.find({
+              select: { id: true, is_secondary: true, is_resale: true },
+              where: { id: In(ids) },
+            })
+          ).map((i) => [i.id, kindOf(i)] as const),
     );
-    return pairs.map((p) => ({ ...p, is_secondary: secondary.has(p.ingredient_id) }));
+    return pairs.map((p) => ({
+      ...p,
+      is_secondary: kind.get(p.ingredient_id) === 'SECONDARY',
+      is_resale: kind.get(p.ingredient_id) === 'RESALE',
+    }));
   }
 
   /** Ma trận so giá giữa các NCC (mục 4.2).

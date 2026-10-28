@@ -9,6 +9,7 @@
 // TÁCH THEO NCC (chủ quán chốt 2026-10-19): mỗi cặp nguyên liệu × NCC là MỘT dòng gợi ý — "Thịt
 // bò · NCC A" và "Thịt bò · NCC B" — trước đó hai NCC bị gộp làm một "Thịt bò" và giá vốn lấy
 // bình quân. Một món được dùng cả hai; giá vốn mỗi dòng theo giá lần nhập gần nhất của NCC đó.
+import type { IngredientKind } from '../lib/ingredient-kind.ts';
 import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -101,9 +102,10 @@ export function RecipePanel({
   sellPrice,
   cost,
   costMain,
+  costResale,
   overhead,
   overheadPct,
-  secondaryIds,
+  kindById,
   costComplete,
   onLinesChanged,
   onClose,
@@ -116,14 +118,16 @@ export function RecipePanel({
    * `null` = món chưa khai gì, hoặc chưa có nguyên liệu nào có giá. */
   cost: number | null;
   /** Tách giá vốn (2026-10-28, chủ quán yêu cầu "tách đâu là phụ đâu là chính"): `cost` =
-   *  `costMain` + `overhead`; `overhead` = `costMain` × `overheadPct`%. */
+   *  `costMain` + `costResale` + `overhead`; `overhead` = `costMain` × `overheadPct`% — hàng bán
+   *  nguyên (2026-10-28) không gánh % phụ. */
   costMain: number | null;
+  costResale: number;
   overhead: number;
   overheadPct: number;
-  /** Nguyên liệu đang là Phụ — dòng công thức của chúng mang nhãn "Phụ", vì tiền của chúng
-   *  KHÔNG cộng thẳng vào giá vốn (đã nằm trong % phụ). Không có nhãn thì người khai cộng tay
-   *  từng dòng sẽ thấy tổng không khớp. */
-  secondaryIds: ReadonlySet<string>;
+  /** Nhóm của các nguyên liệu KHÔNG phải Chính. Dòng Phụ mang nhãn "Phụ" vì tiền của nó KHÔNG
+   *  cộng thẳng vào giá vốn (đã nằm trong % phụ) — không có nhãn thì người khai cộng tay từng
+   *  dòng sẽ thấy tổng không khớp. Dòng Bán nguyên mang nhãn tím. */
+  kindById: ReadonlyMap<string, IngredientKind>;
   /** `false` = còn nguyên liệu chưa có giá → con số chỉ là MỨC TỐI THIỂU. */
   costComplete: boolean;
   /** Gọi sau MỖI lần thêm/bỏ một dòng công thức. Màn Menu dùng nó để nạp lại giá vốn —
@@ -134,6 +138,8 @@ export function RecipePanel({
 }) {
   const toast = useToast();
   const confirm = useConfirm();
+  /** Món chỉ toàn hàng bán nguyên (lon bia, chai nước): không có phần nào gánh % phụ. */
+  const chiBanNguyen = costResale > 0 && (costMain ?? 0) === 0;
   const [lines, setLines] = useState<RecipeLine[]>([]);
   const [catalog, setCatalog] = useState<Option[]>([]);
   const [loading, setLoading] = useState(true);
@@ -196,17 +202,33 @@ export function RecipePanel({
         {/* Tiền nguyên liệu + phần trăm giá bán, ngay tại màn đang khai: người nhập thấy con số
             đổi theo việc mình vừa làm, khỏi phải sang màn khác kiểm. Số lấy từ màn Menu (đã nạp
             `/supplier-reports/food-cost`) nên hai màn không bao giờ lệch nhau. */}
-        {/* Ba dòng (2026-10-28): NL chính / NL phụ / Giá vốn. % ở cả ba dòng đều là % GIÁ BÁN để
-            cộng dọc được (chính + phụ = giá vốn); % phụ chủ quán nhập (tính trên tiền NL chính)
-            chỉ hiện trong ngoặc ở nhãn. Màu đỏ/cam/xanh chỉ tô dòng Giá vốn — đó mới là con số
-            quyết định món lãi hay lỗ. */}
+        {/* Các dòng (2026-10-28): NL chính / Hàng bán nguyên / NL phụ / Giá vốn. % ở mọi dòng
+            đều là % GIÁ BÁN để cộng dọc được; % phụ chủ quán nhập (tính trên tiền NL chính) chỉ
+            hiện trong ngoặc ở nhãn. Màu đỏ/cam/xanh chỉ tô dòng Giá vốn — đó mới là con số quyết
+            định món lãi hay lỗ.
+            Dòng Bán nguyên chỉ hiện khi món có hàng đó. Món TOÀN hàng bán nguyên (lon bia) thì bỏ
+            dòng Chính và dòng Phụ — "Nguyên liệu chính 0đ" và câu nhắc đặt % chỉ làm rối, vì món
+            này không bao giờ gánh % phụ. */}
         {cost !== null && sellPrice > 0 && (
           <div className="rp-sum">
-            <div className="rp-sum-row">
-              <span className="rp-sum-l">Nguyên liệu chính</span>
-              <span className="rp-sum-n">{tien(costMain ?? cost, costComplete)}</span>
-              <span className="rp-sum-p">{phanTram(costMain ?? cost, sellPrice, costComplete)}</span>
-            </div>
+            {!(chiBanNguyen) && (
+              <div className="rp-sum-row">
+                <span className="rp-sum-l">Nguyên liệu chính</span>
+                <span className="rp-sum-n">{tien(costMain ?? cost, costComplete)}</span>
+                <span className="rp-sum-p">{phanTram(costMain ?? cost, sellPrice, costComplete)}</span>
+              </div>
+            )}
+            {costResale > 0 && (
+              <div className="rp-sum-row">
+                <span className="rp-sum-l">
+                  Hàng bán nguyên
+                  {chiBanNguyen && <span className="rp-sum-ghi">không cộng % phụ</span>}
+                </span>
+                <span className="rp-sum-n">{chiBanNguyen ? '' : '+'}{tien(costResale, costComplete)}</span>
+                <span className="rp-sum-p">{phanTram(costResale, sellPrice, costComplete)}</span>
+              </div>
+            )}
+            {!chiBanNguyen && (
             <div className="rp-sum-row">
               <span className="rp-sum-l">
                 Nguyên liệu phụ{overheadPct > 0 ? ` (${overheadPct.toLocaleString('vi-VN')}%)` : ''}
@@ -220,6 +242,7 @@ export function RecipePanel({
                 <span className="rp-sum-nhac">Chưa đặt % — vào Nhà cung cấp → Giá vốn để nhập</span>
               )}
             </div>
+            )}
             <div className="rp-sum-row rp-sum-tong">
               <span className="rp-sum-l">Giá vốn một phần</span>
               <b className="rp-sum-v">{tien(cost, costComplete)}</b>
@@ -245,10 +268,14 @@ export function RecipePanel({
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontWeight: 600 }}>
                   {l.ingredient_name}
-                  {secondaryIds.has(l.ingredient_id) && <span className="rp-phu-tag">Phụ</span>}
+                  {kindById.get(l.ingredient_id) === 'SECONDARY' && <span className="rp-phu-tag">Phụ</span>}
+                  {kindById.get(l.ingredient_id) === 'RESALE' && <span className="rp-phu-tag is-ban">Bán nguyên</span>}
                 </div>
-                {secondaryIds.has(l.ingredient_id) && (
+                {kindById.get(l.ingredient_id) === 'SECONDARY' && (
                   <div style={{ fontSize: 13, color: '#9a3412' }}>Không cộng vào giá vốn — đã tính trong % phụ</div>
+                )}
+                {kindById.get(l.ingredient_id) === 'RESALE' && (
+                  <div style={{ fontSize: 13, color: '#6d28d9' }}>Tính đúng giá nhập, không cộng % phụ</div>
                 )}
                 {/* NCC ở dòng riêng, chữ đủ to: hai dòng "Thịt bò" chỉ khác nhau ở đây. */}
                 {l.supplier_name ? (
