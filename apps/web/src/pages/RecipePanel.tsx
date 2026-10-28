@@ -81,11 +81,29 @@ function fmtQty(qty: number, unit: string): string {
   return `${n(qty)} ${unit}`;
 }
 
+/** Tiền hiện trong khung giá vốn. Còn nguyên liệu chưa có giá thì mọi con số chỉ là mức tối
+ *  thiểu → kèm "≥". */
+function tien(v: number, complete: boolean): string {
+  return `${complete ? '' : '≥ '}${Math.round(v).toLocaleString('vi-VN')}đ`;
+}
+
+/** % giá bán, một chữ số lẻ khi dưới 10% (phần phụ thường chỉ vài %, làm tròn về số nguyên thì
+ *  6,4% và 5,6% cùng ra "6%"). Không bao giờ hiện 0% cho số dương — trông như lỗi. */
+function phanTram(v: number, sellPrice: number, complete: boolean): string {
+  const p = (v / sellPrice) * 100;
+  const s = p < 10 ? Math.max(0.1, Math.round(p * 10) / 10).toLocaleString('vi-VN') : String(Math.round(p));
+  return `${complete ? '' : '≥'}${s}%`;
+}
+
 export function RecipePanel({
   menuItemId,
   menuItemName,
   sellPrice,
   cost,
+  costMain,
+  overhead,
+  overheadPct,
+  secondaryIds,
   costComplete,
   onLinesChanged,
   onClose,
@@ -97,6 +115,15 @@ export function RecipePanel({
   /** Tiền nguyên liệu một phần, do màn Menu nạp sẵn từ `/supplier-reports/food-cost`.
    * `null` = món chưa khai gì, hoặc chưa có nguyên liệu nào có giá. */
   cost: number | null;
+  /** Tách giá vốn (2026-10-28, chủ quán yêu cầu "tách đâu là phụ đâu là chính"): `cost` =
+   *  `costMain` + `overhead`; `overhead` = `costMain` × `overheadPct`%. */
+  costMain: number | null;
+  overhead: number;
+  overheadPct: number;
+  /** Nguyên liệu đang là Phụ — dòng công thức của chúng mang nhãn "Phụ", vì tiền của chúng
+   *  KHÔNG cộng thẳng vào giá vốn (đã nằm trong % phụ). Không có nhãn thì người khai cộng tay
+   *  từng dòng sẽ thấy tổng không khớp. */
+  secondaryIds: ReadonlySet<string>;
   /** `false` = còn nguyên liệu chưa có giá → con số chỉ là MỨC TỐI THIỂU. */
   costComplete: boolean;
   /** Gọi sau MỖI lần thêm/bỏ một dòng công thức. Màn Menu dùng nó để nạp lại giá vốn —
@@ -169,15 +196,38 @@ export function RecipePanel({
         {/* Tiền nguyên liệu + phần trăm giá bán, ngay tại màn đang khai: người nhập thấy con số
             đổi theo việc mình vừa làm, khỏi phải sang màn khác kiểm. Số lấy từ màn Menu (đã nạp
             `/supplier-reports/food-cost`) nên hai màn không bao giờ lệch nhau. */}
+        {/* Ba dòng (2026-10-28): NL chính / NL phụ / Giá vốn. % ở cả ba dòng đều là % GIÁ BÁN để
+            cộng dọc được (chính + phụ = giá vốn); % phụ chủ quán nhập (tính trên tiền NL chính)
+            chỉ hiện trong ngoặc ở nhãn. Màu đỏ/cam/xanh chỉ tô dòng Giá vốn — đó mới là con số
+            quyết định món lãi hay lỗ. */}
         {cost !== null && sellPrice > 0 && (
           <div className="rp-sum">
-            <span className="rp-sum-l">Tiền nguyên liệu một phần</span>
-            <b className="rp-sum-v">{costComplete ? '' : '≥ '}{Math.round(cost).toLocaleString('vi-VN')}đ</b>
-            <span className="rp-sum-r">
-              = <b style={{ color: pctColor(Math.round((cost / sellPrice) * 100)) }}>
-                {costComplete ? '' : '≥'}{Math.max(1, Math.round((cost / sellPrice) * 100))}%
-              </b> giá bán {sellPrice.toLocaleString('vi-VN')}đ
-            </span>
+            <div className="rp-sum-row">
+              <span className="rp-sum-l">Nguyên liệu chính</span>
+              <span className="rp-sum-n">{tien(costMain ?? cost, costComplete)}</span>
+              <span className="rp-sum-p">{phanTram(costMain ?? cost, sellPrice, costComplete)}</span>
+            </div>
+            <div className="rp-sum-row">
+              <span className="rp-sum-l">
+                Nguyên liệu phụ{overheadPct > 0 ? ` (${overheadPct.toLocaleString('vi-VN')}%)` : ''}
+              </span>
+              {overheadPct > 0 ? (
+                <>
+                  <span className="rp-sum-n">+{tien(overhead, costComplete)}</span>
+                  <span className="rp-sum-p">{phanTram(overhead, sellPrice, costComplete)}</span>
+                </>
+              ) : (
+                <span className="rp-sum-nhac">Chưa đặt % — vào Nhà cung cấp → Giá vốn để nhập</span>
+              )}
+            </div>
+            <div className="rp-sum-row rp-sum-tong">
+              <span className="rp-sum-l">Giá vốn một phần</span>
+              <b className="rp-sum-v">{tien(cost, costComplete)}</b>
+              <b className="rp-sum-p" style={{ color: pctColor(Math.round((cost / sellPrice) * 100)) }}>
+                {phanTram(cost, sellPrice, costComplete)}
+              </b>
+            </div>
+            <div className="rp-sum-gia">giá bán {sellPrice.toLocaleString('vi-VN')}đ</div>
           </div>
         )}
 
@@ -193,7 +243,13 @@ export function RecipePanel({
           {lines.map((l) => (
             <div key={l.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 4px', borderBottom: '1px solid #f3f4f6' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>{l.ingredient_name}</div>
+                <div style={{ fontWeight: 600 }}>
+                  {l.ingredient_name}
+                  {secondaryIds.has(l.ingredient_id) && <span className="rp-phu-tag">Phụ</span>}
+                </div>
+                {secondaryIds.has(l.ingredient_id) && (
+                  <div style={{ fontSize: 13, color: '#9a3412' }}>Không cộng vào giá vốn — đã tính trong % phụ</div>
+                )}
                 {/* NCC ở dòng riêng, chữ đủ to: hai dòng "Thịt bò" chỉ khác nhau ở đây. */}
                 {l.supplier_name ? (
                   <div style={{ fontSize: 13, color: '#0f766e' }}>NCC: {l.supplier_name}</div>

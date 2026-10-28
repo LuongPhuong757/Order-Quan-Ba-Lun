@@ -52,6 +52,7 @@ import {
 } from '../lib/supplier-stats.ts';
 import type { Balance } from './SupplierPayments.tsx';
 import { SupplierAccountFlowCard } from './SupplierAccountFlowCard.tsx';
+import { SupplierKindStatsCard } from './SupplierKindStatsCard.tsx';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const CO_TRANG = 15;
@@ -328,6 +329,10 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               )}
             </ChartCard>
           </div>
+
+          {/* Nguyên liệu chính / phụ (2026-10-22) — ngay dưới "Tổng nhập": cùng một số tiền, nhìn
+              theo cách chia khác. Tự nạp dữ liệu riêng, xem docblock file đó. */}
+          <SupplierKindStatsCard range={range} />
 
           {/* ── BIẾN ĐỘNG CÔNG NỢ (2026-10-02, chủ quán yêu cầu) ──
               HAI biểu đồ chứ không phải một, và đây là quyết định có chủ đích: dư nợ luỹ kế

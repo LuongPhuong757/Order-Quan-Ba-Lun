@@ -1,8 +1,18 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Put, Query, Req, UseGuards } from '@nestjs/common';
+import type { Request } from 'express';
+import { IsNumber, Max, Min } from 'class-validator';
 import { ReportsService } from './reports.service.js';
 import { DeliveriesService } from './deliveries.service.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
+import { AdminGuard } from '../auth/guards/admin.guard.js';
+import { SettingsService } from '../settings/settings.service.js';
+
+class OverheadPctDto {
+  /** % cộng vào giá vốn, tính trên tiền nguyên liệu chính. Trần 100%: phụ đắt hơn cả nguyên liệu
+   * chính là gần như chắc gõ nhầm (thừa một số 0), chặn còn hơn để cả bảng giá vốn vọt lên. */
+  @IsNumber({ maxDecimalPlaces: 1 }) @Min(0) @Max(100) pct!: number;
+}
 
 /** Báo cáo giá & mặt hàng nhập (bước 2).
  *
@@ -14,7 +24,10 @@ import { ReportGuard } from '../auth/guards/report.guard.js';
 @Controller('supplier-reports')
 @UseGuards(JwtAuthGuard, ReportGuard)
 export class ReportsController {
-  constructor(private readonly svc: ReportsService) {}
+  constructor(
+    private readonly svc: ReportsService,
+    private readonly settings: SettingsService,
+  ) {}
 
   /** Số liệu theo cặp (NCC, mặt hàng) trong kỳ — nguồn của CẢ mục 4.1 và 3.3.
    *
@@ -37,8 +50,32 @@ export class ReportsController {
   @Get('food-cost')
   async foodCost(@Query() q: Record<string, string>) {
     const windowDays = Math.min(Math.max(Number(q.window_days) || 90, 7), 365);
-    const { from, rows } = await this.svc.foodCost(windowDays);
-    return { data: { from, window_days: windowDays, items: rows } };
+    const { from, rows, overhead_pct, overhead_reference_pct } = await this.svc.foodCost(windowDays);
+    return { data: { from, window_days: windowDays, items: rows, overhead_pct, overhead_reference_pct } };
+  }
+
+  /** PUT /supplier-reports/overhead-pct — % chi phí nguyên liệu phụ cộng vào giá vốn (2026-10-22).
+   *
+   * Đường riêng chứ không đi qua `PUT /admin/settings`: ô nhập nằm ngay ở tab Giá vốn, và form
+   * Cài đặt chung có danh sách key tường minh (round-trip 3 chỗ) — thêm vào đó chỉ để một ô của
+   * màn khác dùng là kéo dài danh sách vô ích. AdminGuard = owner + admin; role `report` chỉ xem.
+   */
+  @Put('overhead-pct')
+  @UseGuards(AdminGuard)
+  async setOverheadPct(@Body() dto: OverheadPctDto, @Req() req: Request) {
+    const u = req.user!;
+    const s = await this.settings.updateMany(
+      { overhead_cost_pct: dto.pct },
+      { user_id: u.sub, full_name: u.full_name },
+    );
+    return { data: { overhead_pct: s.overhead_cost_pct } };
+  }
+
+  /** Tiền nhập theo nhóm chính / phụ + doanh thu cùng kỳ — khối "Chính / phụ" của tab Thống kê.
+   * Không truyền `from`/`to` = toàn bộ lịch sử, cùng luật với `daily`. */
+  @Get('by-kind')
+  async byKind(@Query() q: Record<string, string>) {
+    return { data: await this.svc.byKind({ from: q.from || undefined, to: q.to || undefined }) };
   }
 
   /** Chi tiêu theo ngày × NCC. Không truyền gì = toàn bộ lịch sử, cùng luật với `pairs`.

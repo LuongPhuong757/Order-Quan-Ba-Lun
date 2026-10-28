@@ -155,7 +155,7 @@ export class IngredientsService {
 
   async update(
     id: string,
-    input: { name?: string; unit?: string; note?: string | null },
+    input: { name?: string; unit?: string; note?: string | null; is_secondary?: boolean },
   ): Promise<Ingredient> {
     const ing = await this.repo.findOne({ where: { id } });
     if (!ing) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nguyên liệu không tồn tại' });
@@ -197,6 +197,7 @@ export class IngredientsService {
     }
 
     if (input.note !== undefined) ing.note = input.note?.trim() || null;
+    if (input.is_secondary !== undefined) ing.is_secondary = input.is_secondary;
     return this.repo.save(ing);
   }
 

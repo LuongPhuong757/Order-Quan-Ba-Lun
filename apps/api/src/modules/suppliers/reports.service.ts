@@ -16,7 +16,8 @@ import { Ingredient } from '../ingredients/entities/ingredient.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { gopDongTien, vnDayEnd, vnDayStart, type AccountFlowDay } from './account-flow.js';
-import { computeFoodCost, ingredientPrices, type FoodCostRow } from './food-cost.js';
+import { computeFoodCost, ingredientPrices, overheadReferencePct, type FoodCostRow } from './food-cost.js';
+import { SettingsService } from '../settings/settings.service.js';
 import {
   aggregateByPair,
   buildPriceMatrix,
@@ -38,6 +39,20 @@ export type PricePoint = {
   created_by_name: string;
 };
 
+/** Tiền nhập theo nhóm nguyên liệu chính / phụ (2026-10-22) — khối "Chính / phụ" ở tab Thống kê. */
+export type ByKindReport = {
+  /** Mỗi ngày giao hàng một dòng, tiền tách hai nhóm — nguồn của biểu đồ theo thời gian. */
+  daily: Array<{ delivery_date: string; main: number; secondary: number }>;
+  total_main: number;
+  total_secondary: number;
+  /** Doanh thu cùng kỳ: món SERVED của đơn đã thu, KHÔNG gồm phí ship. */
+  revenue: number;
+  /** = total_secondary ÷ revenue × 100. `null` khi kỳ chưa có doanh thu. */
+  secondary_pct_of_revenue: number | null;
+  /** Mặt hàng phụ tốn tiền nhất kỳ, nhiều → ít. */
+  top_secondary: Array<{ ingredient_id: string; ingredient_name: string; unit: string; qty_base: number; amount: number }>;
+};
+
 @Injectable()
 export class ReportsService {
   constructor(
@@ -49,6 +64,7 @@ export class ReportsService {
     @InjectRepository(Ingredient) private readonly ingredientRepo: Repository<Ingredient>,
     @InjectRepository(MenuItem) private readonly menuRepo: Repository<MenuItem>,
     @InjectRepository(PaymentQrAccount) private readonly qrRepo: Repository<PaymentQrAccount>,
+    private readonly settings: SettingsService,
   ) {}
 
   /** Giá vốn từng món theo giá nguyên liệu đang mua (bước 5).
@@ -56,7 +72,14 @@ export class ReportsService {
    * `windowDays` là cửa sổ lấy bình quân giá — mặc định 90 ngày. Ngắn quá thì một đợt hàng đắt
    * kéo lệch cả bảng; dài quá thì giá vốn phản ánh chuyện của quý trước.
    */
-  async foodCost(windowDays = 90): Promise<{ from: string; rows: FoodCostRow[] }> {
+  async foodCost(windowDays = 90): Promise<{
+    from: string;
+    rows: FoodCostRow[];
+    /** % phụ đang áp (`overhead_cost_pct`). */
+    overhead_pct: number;
+    /** % phụ THỰC TẾ trong cửa sổ — chỉ để gợi ý cạnh ô nhập. */
+    overhead_reference_pct: number | null;
+  }> {
     const from = new Date(Date.now() - windowDays * 86_400_000).toISOString().slice(0, 10);
 
     const [recipeLines, purchases, fallback] = await Promise.all([
@@ -94,7 +117,23 @@ export class ReportsService {
       .getRawMany<{ ingredient_id: string; supplier_id: string; unit_price_base: string; supplier_name: string | null }>();
     const supName = new Map(supplierItems.map((r) => [r.supplier_id, r.supplier_name]));
 
-    if (recipeLines.length === 0) return { from, rows: [] };
+    // % phụ đang áp + số thực tế để gợi ý (2026-10-22). Số thực tế lấy CÙNG cửa sổ với bình quân
+    // giá ở trên — chung một kỳ thì hai con số mới so được với nhau.
+    const { overhead_cost_pct } = await this.settings.readAll();
+    const overhead_pct = Number(overhead_cost_pct) || 0;
+    const purchasedIds = purchases.map((p) => p.ingredient_id);
+    const secondaryIds = new Set(
+      purchasedIds.length === 0
+        ? []
+        : (
+            await this.ingredientRepo.find({ select: { id: true }, where: { id: In(purchasedIds), is_secondary: true } })
+          ).map((i) => i.id),
+    );
+    const overhead_reference_pct = overheadReferencePct(
+      purchases.map((p) => ({ amount: Number(p.amount), is_secondary: secondaryIds.has(p.ingredient_id) })),
+    );
+
+    if (recipeLines.length === 0) return { from, rows: [], overhead_pct, overhead_reference_pct };
 
     const ingIds = [...new Set(recipeLines.map((r) => r.ingredient_id))];
     const itemIds = [...new Set(recipeLines.map((r) => r.menu_item_id))];
@@ -131,6 +170,7 @@ export class ReportsService {
           qty_per_serving: Number(r.qty_per_serving),
           supplier_id: r.supplier_id,
           supplier_name: r.supplier_id ? (supName.get(r.supplier_id) ?? null) : null,
+          is_secondary: ingById.get(r.ingredient_id)!.is_secondary,
         })),
       prices,
       supplierItems.map((r) => ({
@@ -138,9 +178,108 @@ export class ReportsService {
         supplier_id: r.supplier_id,
         unit_price_base: Number(r.unit_price_base),
       })),
+      overhead_pct,
     );
 
-    return { from, rows };
+    return { from, rows, overhead_pct, overhead_reference_pct };
+  }
+
+  /** Tiền nhập theo nhóm CHÍNH / PHỤ + doanh thu cùng kỳ (2026-10-22).
+   *
+   * Cộng trên `supplier_delivery_lines.amount` chứ không phải `supplier_deliveries.total_amount`:
+   * một phiếu có cả hàng chính lẫn hàng phụ, phải tách tới từng dòng mới chia nhóm được. Chỉ phiếu
+   * ĐÃ DUYỆT, cùng luật với mọi bảng tiền khác của tab Thống kê.
+   *
+   * Nhóm đọc từ `ingredients.is_secondary` HIỆN TẠI, không snapshot — xem docblock cột đó.
+   *
+   * Doanh thu viết SQL tay, cùng luật "đã thu" (`closed_at` + `is_paid`) và mốc tiền
+   * `COALESCE(debt_paid_at, closed_at)` với orders.service — lý do không gọi sang OrdersService ở
+   * docblock `accountFlow`. Không cộng phí ship: ship là tiền thu hộ đường đi, không phải tiền bán
+   * món, đem chia chi phí bếp cho nó là làm % phụ đẹp hơn thật.
+   */
+  async byKind(opts: { from?: string; to?: string } = {}): Promise<ByKindReport> {
+    const qb = this.lineRepo
+      .createQueryBuilder('l')
+      .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
+      .innerJoin('ingredients', 'i', 'i.id = l.ingredient_id')
+      .select('d.delivery_date', 'delivery_date')
+      .addSelect('l.ingredient_id', 'ingredient_id')
+      .addSelect('i.name', 'ingredient_name')
+      .addSelect('i.unit', 'unit')
+      .addSelect('i.is_secondary', 'is_secondary')
+      .addSelect('SUM(l.amount)', 'amount')
+      .addSelect('SUM(l.qty_base)', 'qty_base')
+      .where("d.status = 'CONFIRMED'");
+    if (opts.from) qb.andWhere('d.delivery_date >= :from', { from: opts.from });
+    if (opts.to) qb.andWhere('d.delivery_date <= :to', { to: opts.to });
+    const raw = await qb
+      .groupBy('d.delivery_date')
+      .addGroupBy('l.ingredient_id')
+      .addGroupBy('i.name')
+      .addGroupBy('i.unit')
+      .addGroupBy('i.is_secondary')
+      .getRawMany<Record<string, unknown>>();
+
+    const days = new Map<string, { main: number; secondary: number }>();
+    const top = new Map<string, ByKindReport['top_secondary'][number]>();
+    let total_main = 0;
+    let total_secondary = 0;
+    for (const r of raw) {
+      const day = dateStr(r.delivery_date);
+      const amount = Number(r.amount) || 0;
+      // mysql2 trả boolean dạng 0/1 (TINYINT) — so bằng Number, đừng so `=== true`.
+      const secondary = Number(r.is_secondary) === 1;
+      const d = days.get(day) ?? { main: 0, secondary: 0 };
+      if (secondary) {
+        d.secondary += amount;
+        total_secondary += amount;
+        const id = String(r.ingredient_id);
+        const t = top.get(id) ?? {
+          ingredient_id: id,
+          ingredient_name: String(r.ingredient_name),
+          unit: String(r.unit),
+          qty_base: 0,
+          amount: 0,
+        };
+        t.amount += amount;
+        t.qty_base += Number(r.qty_base) || 0;
+        top.set(id, t);
+      } else {
+        d.main += amount;
+        total_main += amount;
+      }
+      days.set(day, d);
+    }
+
+    const where: string[] = ['o.closed_at IS NOT NULL', 'o.is_paid = 1', "i.state = 'SERVED'"];
+    const params: unknown[] = [];
+    if (opts.from) {
+      where.push('COALESCE(o.debt_paid_at, o.closed_at) >= ?');
+      params.push(new Date(vnDayStart(opts.from)));
+    }
+    if (opts.to) {
+      where.push('COALESCE(o.debt_paid_at, o.closed_at) <= ?');
+      params.push(new Date(vnDayEnd(opts.to)));
+    }
+    const [rev]: Array<{ revenue: string | number | null }> = await this.lineRepo.manager.query(
+      `SELECT SUM(i.menu_item_price * i.qty) AS revenue
+         FROM orders o
+         JOIN order_items i ON i.order_id = o.id
+        WHERE ${where.join(' AND ')}`,
+      params,
+    );
+    const revenue = Number(rev?.revenue) || 0;
+
+    return {
+      daily: [...days.entries()]
+        .map(([delivery_date, v]) => ({ delivery_date, ...v }))
+        .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date)),
+      total_main,
+      total_secondary,
+      revenue,
+      secondary_pct_of_revenue: revenue > 0 ? Math.round((total_secondary / revenue) * 1000) / 10 : null,
+      top_secondary: [...top.values()].sort((a, b) => b.amount - a.amount).slice(0, 10),
+    };
   }
 
   /** Số liệu theo cặp (NCC, mặt hàng) trong kỳ — nguồn chung của mục 4.1 và 3.3.
@@ -150,7 +289,9 @@ export class ReportsService {
    * không viết window function. Quy mô ở đây là một quán ăn — vài trăm tới vài nghìn dòng mỗi
    * tháng, gộp trong RAM rẻ hơn nhiều so với một câu SQL không ai đọc nổi.
    */
-  async pairs(opts: { from?: string; to?: string; supplier_id?: string }): Promise<PairReport[]> {
+  async pairs(
+    opts: { from?: string; to?: string; supplier_id?: string },
+  ): Promise<Array<PairReport & { is_secondary: boolean }>> {
     const qb = this.lineRepo
       .createQueryBuilder('l')
       .innerJoin('supplier_deliveries', 'd', 'd.id = l.delivery_id')
@@ -197,7 +338,18 @@ export class ReportsService {
           ? null
           : Number(r.prev_unit_price_base),
     }));
-    return aggregateByPair(lines);
+    const pairs = aggregateByPair(lines);
+    // Nhóm chính / phụ (2026-10-22) — cho nút đổi nhóm ở tab Mặt hàng nhập. Gắn SAU khi gộp, đọc
+    // giá trị HIỆN TẠI của nguyên liệu: `aggregateByPair` là hàm thuần chỉ biết dòng phiếu.
+    const ids = [...new Set(pairs.map((p) => p.ingredient_id))];
+    const secondary = new Set(
+      ids.length === 0
+        ? []
+        : (await this.ingredientRepo.find({ select: { id: true }, where: { id: In(ids), is_secondary: true } })).map(
+            (i) => i.id,
+          ),
+    );
+    return pairs.map((p) => ({ ...p, is_secondary: secondary.has(p.ingredient_id) }));
   }
 
   /** Ma trận so giá giữa các NCC (mục 4.2).
