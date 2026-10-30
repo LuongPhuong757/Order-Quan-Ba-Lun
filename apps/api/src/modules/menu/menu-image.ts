@@ -11,7 +11,7 @@
 //  - `.webp()` không copy EXIF/GPS → toạ độ chụp bị loại bỏ;
 //  - tên file sinh 100% ở server (`randomBytes`) — lớp chặn path traversal.
 import { BadRequestException } from '@nestjs/common';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { mkdirSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
@@ -47,7 +47,36 @@ export async function saveImage(
   return `/${opts.dir}/${name}`;
 }
 
+/** Thư mục thumbnail — CÙNG TÊN FILE với ảnh gốc, chỉ khác thư mục. Trang khách suy ra URL
+ *  thumbnail từ URL gốc (`apps/shop/src/lib/menu-thumb.ts`), nên KHÔNG cần thêm cột DB hay đổi
+ *  schema API. Thiếu thumbnail (ảnh cũ chưa chạy backfill) → trang khách tự lùi về ảnh gốc. */
+export const MENU_THUMB_DIR = `${MENU_UPLOAD_DIR}/thumb`;
+/** 400px q70 ≈ 20–30KB, so với 85–100KB của bản 800px. Đủ nét cho ô lưới 2 cột trên điện
+ *  thoại; bản 800px giữ nguyên cho chỗ xem ảnh lớn. Đo 2026-10-30: trang chủ tải ~60 ảnh gốc
+ *  = 3,6MB, khách công nhân đi 4G chờ 15–30s rồi thoát. */
+export const MENU_THUMB_WIDTH = 400;
+export const MENU_THUMB_QUALITY = 70;
+
+/** Sinh thumbnail cho một ảnh món. Không bao giờ ghi đè ảnh gốc (khác thư mục). Dùng chung cho
+ *  đường upload và script backfill (`cli/backfill-menu-thumbs.ts`). */
+export async function writeMenuThumb(input: Buffer | string, fileName: string): Promise<void> {
+  mkdirSync(MENU_THUMB_DIR, { recursive: true });
+  await sharp(input)
+    .rotate()
+    .resize({ width: MENU_THUMB_WIDTH, withoutEnlargement: true })
+    .webp({ quality: MENU_THUMB_QUALITY })
+    .toFile(join(MENU_THUMB_DIR, fileName));
+}
+
 /** Ảnh món — 800px là đủ cho thẻ món trên trang khách, và khách 3G không phải tải ảnh gốc. */
 export async function saveMenuImage(buffer: Buffer): Promise<string> {
-  return saveImage(buffer, { dir: MENU_UPLOAD_DIR, width: 800 });
+  const url = await saveImage(buffer, { dir: MENU_UPLOAD_DIR, width: 800 });
+  // Thumbnail hỏng KHÔNG được làm hỏng lượt upload: ảnh gốc đã ghi xong, trang khách tự lùi
+  // về ảnh gốc khi thiếu thumbnail. Chỉ ghi log để biết mà chạy backfill.
+  try {
+    await writeMenuThumb(buffer, basename(url));
+  } catch (err) {
+    console.warn(`[menu-thumb] không sinh được thumbnail cho ${url}:`, err);
+  }
+  return url;
 }

@@ -324,13 +324,14 @@ export function MenuPage(): JSX.Element {
                   qtyInCart={qtyById.get(item.id) ?? 0}
                   onSetQty={handleSetQty}
                   index={i}
+                  priority={i < ABOVE_FOLD_CARDS}
                 />
               ))}
             </div>
           )}
         </section>
       ) : (
-        visibleGroups.map((group) => (
+        visibleGroups.map((group, gi) => (
           <section key={group.id} style={groupSection}>
             <h2 style={groupHeading}>{group.name}</h2>
             <div style={grid} data-testid="menu-grid">
@@ -342,6 +343,7 @@ export function MenuPage(): JSX.Element {
                   qtyInCart={qtyById.get(item.id) ?? 0}
                   onSetQty={handleSetQty}
                   index={i}
+                  priority={gi === 0 && i < ABOVE_FOLD_CARDS}
                 />
               ))}
             </div>
@@ -429,6 +431,10 @@ const grid: CSSProperties = {
   gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
   gap: 'var(--sp-5)',
 };
+
+/** Số ô đầu lưới tải ảnh NGAY với fetchpriority cao: lưới 2 cột trên điện thoại thì 4 ô = 2 hàng
+ *  đầu, đúng phần khách thấy khi vừa mở. Phần còn lại chờ lazy — xem `FadeInImage`. */
+const ABOVE_FOLD_CARDS = 4;
 
 const groupSection: CSSProperties = {
   padding: 'var(--sp-6) 0 0',
