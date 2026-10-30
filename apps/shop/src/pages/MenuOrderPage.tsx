@@ -480,7 +480,7 @@ export function MenuOrderPage(): JSX.Element {
         {/* Logo THẬT của quán — cùng file `/logo.jpg` mà web đặt hàng đang dùng
             (`Wordmark.tsx`, chủ quán xác nhận 2026-07-30). Bỏ chữ "Quán Bà Lũn" theo yêu cầu:
             một hàng header chỉ còn logo + ô tìm + chip bàn. */}
-        <img className="mo-logo" src="/logo.jpg" alt="Quán Bà Lùn" width={36} height={36} />
+        <img className="mo-logo" src="/logo-144.webp" alt="Quán Bà Lùn" width={36} height={36} />
 
         <label className="mo-search">
           <span aria-hidden>🔍</span>
