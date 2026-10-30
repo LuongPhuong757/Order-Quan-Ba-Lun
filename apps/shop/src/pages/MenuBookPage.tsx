@@ -546,24 +546,12 @@ export function MenuBookPage(): JSX.Element {
    * một trang một nhịp. Ép tải ngay là ba trang ảnh cùng chen nhau trên đường truyền 3G,
    * trang khách đang nhìn về đích sau cùng.
    *
-   * `requestIdleCallback` không có trên Safari iOS nên có nhánh `setTimeout`.
+   * `requestIdleCallback` không có trên Safari iOS nên có nhánh `setTimeout` — cùng cách
+   * `main.tsx` nạp trước đường đi mua hàng.
    */
   const [neighboursReady, setNeighboursReady] = useState(false);
-  // CHỈ sau cú chạm/vuốt/phím đầu tiên (2026-10-30). Trước đó trang bên cạnh tải ngay khi máy
-  // rảnh lúc vừa mở → 3 trang ảnh trong lần tải đầu, trong khi màn hình điện thoại chỉ thấy
-  // một trang. Người quét QR chỉ liếc trang đầu không phải trả băng thông cho 2 trang kia;
-  // người lật thì cú chạm đầu tiên (bắt đầu vuốt) đã kéo thumbnail ~20KB về kịp lúc lật xong.
-  const [interacted, setInteracted] = useState(false);
-  useEffect(() => {
-    if (interacted) return;
-    const events = ['pointerdown', 'touchstart', 'keydown', 'wheel'] as const;
-    const onFirst = () => setInteracted(true);
-    events.forEach((e) => window.addEventListener(e, onFirst, { once: true, passive: true }));
-    return () => events.forEach((e) => window.removeEventListener(e, onFirst));
-  }, [interacted]);
   useEffect(() => {
     setNeighboursReady(false);
-    if (!interacted) return;
     let idle: number | undefined;
     let timer: number | undefined;
     const arm = () => setNeighboursReady(true);
@@ -578,7 +566,7 @@ export function MenuBookPage(): JSX.Element {
       }
       if (timer !== undefined) window.clearTimeout(timer);
     };
-  }, [index, interacted]);
+  }, [index]);
 
   // ── Vẽ ─────────────────────────────────────────────────────────────────────────────
   /**

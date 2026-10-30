@@ -16,6 +16,7 @@ import { suggestManyForItem, suggestOnAdd, type PairingItem } from '../lib/menu-
 import { pickDrinks } from '../lib/drink-groups.ts';
 import { inStockGroups } from '../lib/in-stock.ts';
 import { useBodyScrollLock } from '../lib/body-scroll-lock.ts';
+import { FadeInImage } from '../components/FadeInImage.tsx';
 import {
   TABLE_CART_MAX_QTY,
   addTableLine,
@@ -741,7 +742,7 @@ const MenuCard = memo(function MenuCard({
       }
     >
       <div className="mo-thumb">
-        {it.images[0] ? <img src={it.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
+        {it.images[0] ? <FadeInImage src={it.images[0]} alt="" fade={false} /> : <span aria-hidden>🍜</span>}
       </div>
       <div className="mo-mid">
         {/* Tên món ĐÚNG MỘT DÒNG, cắt bằng dấu ba chấm. Bản cũ để xuống 2 dòng nên
@@ -910,7 +911,7 @@ function ItemSheet({
                     }}
                   >
                     <span className="mo-pair-thumb">
-                      {p.images[0] ? <img src={p.images[0]} alt="" loading="lazy" /> : <span aria-hidden>🍜</span>}
+                      {p.images[0] ? <FadeInImage src={p.images[0]} alt="" fade={false} /> : <span aria-hidden>🍜</span>}
                     </span>
                     <span className="mo-pair-name">{p.name}</span>
                     <span className="mo-pair-price">{done ? '✓ Đã thêm' : vnd(p.price)}</span>
