@@ -164,30 +164,8 @@ if (isMenuHost) {
   );
 }
 
-// ─── Nạp trước đường đi mua hàng khi máy rảnh ────────────────────────────────
-// Tách chunk giúp lần tải đầu nhẹ, nhưng đổi lại lần đầu bấm vào giỏ là một vòng request
-// mới. Giỏ → Đặt hàng là luồng KIẾM TIỀN, không được phép có nhịp chờ nào.
-//
-// Nên: sau khi menu đã vẽ xong và máy rảnh, âm thầm kéo sẵn 2 chunk đó về cache. Khách bấm
-// giỏ thì nó đã nằm sẵn trong máy — nhanh như hồi còn gộp một bundle, mà lần tải đầu vẫn nhẹ.
-//
-// `requestIdleCallback` để việc này KHÔNG giành băng thông/CPU với ảnh món đang tải: Safari iOS
-// chưa hỗ trợ nên fallback `setTimeout` 2 giây (qua lúc trang tải xong là chắc chắn).
-// Lỗi thì bỏ qua có chủ ý — đây chỉ là nạp trước, lát nữa `React.lazy` sẽ tự thử lại thật.
-const prefetchBuyingPath = () => {
-  void import('./pages/CartPage.tsx').catch(() => {});
-  void import('./pages/CheckoutPage.tsx').catch(() => {});
-};
-
-// Kiểm bằng `typeof window.requestIdleCallback` chứ KHÔNG dùng `'requestIdleCallback' in window`:
-// lib.dom khai hàm này là luôn có, nên `in` làm TS thu hẹp nhánh else thành `never` rồi báo
-// "Property 'setTimeout' does not exist on type 'never'". Kiểm typeof chỉ thu hẹp thuộc tính đó.
-// `!isMenuHost`: khách vào quyển menu không có đường nào dẫn tới giỏ hay trang đặt hàng,
-// kéo sẵn 2 chunk đó về máy họ chỉ là tốn băng thông 3G cho thứ không bao giờ mở tới.
-if (!isMenuHost) {
-  if (typeof window.requestIdleCallback === 'function') {
-    window.requestIdleCallback(prefetchBuyingPath, { timeout: 3000 });
-  } else {
-    window.setTimeout(prefetchBuyingPath, 2000);
-  }
-}
+// ─── Nạp trước đường đi mua hàng ─────────────────────────────────────────────
+// Trước 2026-10-30 chỗ này kéo sẵn chunk Giỏ + Đặt hàng ngay khi máy rảnh sau lúc mở trang.
+// Đã dời sang lúc giỏ có món (AppShell → `lib/prefetch-buying-path.ts`): người chỉ xem menu
+// không phải tải ~9 request cho trang họ không mở. Quyển menu (`menu.`) không bọc AppShell nên
+// tự nhiên không bao giờ kéo — giữ đúng ý `!isMenuHost` cũ.

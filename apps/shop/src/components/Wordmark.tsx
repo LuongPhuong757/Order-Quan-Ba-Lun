@@ -22,7 +22,11 @@ import { useState, type CSSProperties, type JSX } from 'react';
  */
 
 /** Đổi tên/đuôi file ở đây nếu thay logo bằng .png/.svg. */
-const LOGO_SRC = '/logo.jpg';
+// Bản thu nhỏ 144px webp (~6KB) của `logo.jpg` (1633×1920, 85KB). Logo chỉ hiện ~40px, ×3 màn
+// sắc nét = 120px là đủ — tải ảnh gốc là 85KB cho một chấm tròn, nặng hơn 4 ảnh món cộng lại
+// (đo 2026-10-30). `logo.jpg` vẫn giữ: favicon.svg và ảnh chia sẻ sinh ra từ nó.
+// Đổi logo thì sinh lại: sharp logo.jpg → resize width 144 → webp q82.
+const LOGO_SRC = '/logo-144.webp';
 
 type Props = {
   /** `plaque` = biển gỗ đậm (dùng ở header). `bare` = chữ trần trên nền sáng. */
