@@ -19,7 +19,8 @@
     "cron:audit-retention": "node --import @swc-node/register/esm-register src/cli/cron-audit-retention.ts",
     "cron:jti-cleanup": "node --import @swc-node/register/esm-register src/cli/cron-jti-cleanup.ts",
     "schema:verify": "node --import @swc-node/register/esm-register src/cli/verify-schema.ts",
-    "preview:receipt": "node --import @swc-node/register/esm-register src/cli/preview-receipt.ts"
+    "preview:receipt": "node --import @swc-node/register/esm-register src/cli/preview-receipt.ts",
+    "thumbs:backfill": "node --import @swc-node/register/esm-register src/cli/backfill-menu-thumbs.ts"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.9",
