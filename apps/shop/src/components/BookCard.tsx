@@ -1,6 +1,7 @@
-import type { CSSProperties, JSX } from 'react';
+import { useEffect, useState, type CSSProperties, type JSX } from 'react';
 import type { PublicMenuItem } from '@order/schemas';
 import { formatVnd } from '../lib/menu-book.ts';
+import { menuThumbUrl } from '../lib/menu-thumb.ts';
 import { BowlGlyph } from './ImagePlaceholder.tsx';
 
 /**
@@ -48,6 +49,21 @@ export function BookCard({
   const isOut = item.is_out_of_stock;
   const photoRight = index % 2 === 1;
 
+  // ── TẢI NHẸ (2026-10-30) ──────────────────────────────────────────────────────────
+  // Đo prod: mở quyển menu tải 19 ảnh gốc (1,4MB), Slow 4G 31 ảnh (2,3MB), load 20s. Hai lý do:
+  //  1. Trang bên cạnh nằm CHỒNG ngay sau trang đang đọc → với Chrome nó "trong khung nhìn",
+  //     `loading="lazy"` không chặn được gì. Nên giờ ảnh chưa `eager` thì KHÔNG có `src`.
+  //     Đã tải một lần thì giữ (`armed`) — không thì lật trang xong ảnh trang cũ biến mất
+  //     giữa hiệu ứng, vì `eager` của trang bên cạnh tắt lại mỗi lần đổi trang.
+  //  2. Ô ảnh chỉ rộng gần nửa dòng → thumbnail 400px (~20KB) thay bản 800px. Thiếu thumbnail
+  //     thì lùi về ảnh gốc. Ảnh lớn khi bấm vào món (`BookDishPreview`) vẫn là bản gốc.
+  const [armed, setArmed] = useState(eager);
+  useEffect(() => {
+    if (eager) setArmed(true);
+  }, [eager]);
+  const [thumbFailed, setThumbFailed] = useState(false);
+  const photoSrc = image && !thumbFailed ? menuThumbUrl(image) : image;
+
   return (
     <div
       className={animate ? 'book-row book-row-enter' : 'book-row'}
@@ -75,11 +91,14 @@ export function BookCard({
       >
         {image ? (
           <img
-            src={image}
+            src={armed && photoSrc ? photoSrc : undefined}
             alt=""
             aria-hidden="true"
             loading={eager ? 'eager' : 'lazy'}
             decoding="async"
+            onError={() => {
+              if (photoSrc !== image) setThumbFailed(true);
+            }}
             style={photoImg}
           />
         ) : (
