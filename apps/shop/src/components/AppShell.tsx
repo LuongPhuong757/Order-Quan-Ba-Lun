@@ -8,6 +8,7 @@ import { ClosedNotice } from './ClosedNotice.tsx';
 import { useCart } from '../lib/cart-store.ts';
 import { trackPageView } from '../lib/analytics.ts';
 import { applyPageTitle } from '../lib/page-title.ts';
+import { prefetchBuyingPath } from '../lib/prefetch-buying-path.ts';
 
 /**
  * Layout chung của apps/shop: `<Header/>` sticky + `<main>` bọc `<Outlet/>` +
@@ -36,6 +37,13 @@ export function AppShell(): JSX.Element {
     applyPageTitle(pathname);
     trackPageView(pathname);
   }, [pathname]);
+
+  // Giỏ có món → kéo sẵn chunk Giỏ + Đặt hàng. Lý do không kéo ngay lúc mở trang: xem
+  // `prefetch-buying-path.ts`.
+  const hasCartItems = count > 0;
+  useEffect(() => {
+    if (hasCartItems) prefetchBuyingPath();
+  }, [hasCartItems]);
 
   return (
     <div style={shell}>

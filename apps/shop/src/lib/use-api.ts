@@ -39,6 +39,10 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
   } catch {
     return { code: 'INTERNAL_ERROR', message: NETWORK_ERROR_MESSAGE, kind: 'network' };
   }
+  return parseErrorJson(json);
+}
+
+function parseErrorJson(json: unknown): ApiError {
   const parsed = ErrorEnvelope.safeParse(json);
   if (!parsed.success) {
     return { code: 'INTERNAL_ERROR', message: SCHEMA_ERROR_MESSAGE, kind: 'schema' };
@@ -50,6 +54,38 @@ async function parseErrorResponse(res: Response): Promise<ApiError> {
     kind: 'http',
     field_errors: parsed.data.error.field_errors,
   };
+}
+
+/**
+ * GET đang bay, gom theo `path` — mấy component cùng mount và cùng hỏi một đường dẫn thì chung
+ * MỘT request. Đo prod 2026-10-30: trang chủ gọi `/api/public/store` 3 lần cùng lúc (MenuPage,
+ * Footer, ClosedNotice), mỗi lần là một vòng 4G của khách công nhân.
+ *
+ * KHÔNG phải cache (D-01 vẫn giữ): request xong là xoá khỏi bảng, lần gọi sau — kể cả `reload()`
+ * — lại hỏi server thật. Chỉ gộp những lần gọi CHỒNG NHAU về thời gian.
+ *
+ * Request chung không gắn `AbortController` của ai cả: một component unmount không được phép
+ * huỷ request mà component khác đang chờ. Component đã unmount chỉ bỏ qua kết quả (xem `useApi`).
+ * `json === undefined` = thân response không phải JSON đọc được.
+ */
+type SharedGetResult = { ok: boolean; json: unknown };
+const inflightGets = new Map<string, Promise<SharedGetResult>>();
+
+export function sharedGet(path: string): Promise<SharedGetResult> {
+  const pending = inflightGets.get(path);
+  if (pending) return pending;
+  const request = (async () => {
+    const res = await fetch(path, { headers: { Accept: 'application/json' } });
+    let json: unknown;
+    try {
+      json = await res.json();
+    } catch {
+      json = undefined;
+    }
+    return { ok: res.ok, json };
+  })().finally(() => inflightGets.delete(path));
+  inflightGets.set(path, request);
+  return request;
 }
 
 export type UseApiResult<T> = {
@@ -79,23 +115,26 @@ export function useApi<T>(
       setLoading(false);
       return;
     }
+    // Cờ thay cho `AbortController`: request giờ có thể dùng chung (xem `sharedGet`), nên chỉ
+    // bỏ qua kết quả khi `path` đổi / unmount chứ không huỷ request của component khác.
     const controller = new AbortController();
     setLoading(true);
     setError(null);
 
     (async () => {
       try {
-        const res = await fetch(path, {
-          headers: { Accept: 'application/json' },
-          signal: controller.signal,
-        });
-        if (!res.ok) {
-          const apiErr = await parseErrorResponse(res);
-          setError(apiErr);
+        const { ok, json } = await sharedGet(path);
+        if (controller.signal.aborted) return;
+        if (!ok) {
+          setError(
+            json === undefined
+              ? { code: 'INTERNAL_ERROR', message: NETWORK_ERROR_MESSAGE, kind: 'network' }
+              : parseErrorJson(json),
+          );
           setData(null);
           return;
         }
-        const json: unknown = await res.json();
+        if (json === undefined) throw new Error('response không phải JSON');
         const envelope = (json as { data?: unknown } | null) ?? {};
         const parsed = schema.safeParse(envelope.data);
         if (!parsed.success) {
