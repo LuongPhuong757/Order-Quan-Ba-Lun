@@ -42,6 +42,8 @@ type Props = {
    * `CARD_ITEM_CSS`). Không truyền thì card hiện ra ngay, không so le.
    */
   index?: number;
+  /** Ô nằm ở màn hình đầu → ảnh tải ngay với ưu tiên cao, không chờ lazy. Xem `FadeInImage`. */
+  priority?: boolean;
 };
 
 /** Số card đầu tiên được so le. Xem lý do ở `CARD_ITEM_CSS`. */
@@ -54,6 +56,7 @@ export function CardItem({
   qtyInCart = 0,
   onSetQty,
   index = 0,
+  priority = false,
 }: Props): JSX.Element {
   const isOut = item.is_out_of_stock;
   const image = item.images[0] ?? null;
@@ -74,7 +77,7 @@ export function CardItem({
       <div style={imageWrap}>
         <div style={isOut ? { ...imageInner, ...dimmed } : imageInner}>
           {image ? (
-            <FadeInImage src={image} alt={item.name} style={img} />
+            <FadeInImage src={image} alt={item.name} style={img} priority={priority} />
           ) : (
             <ImagePlaceholder name={item.name} />
           )}
