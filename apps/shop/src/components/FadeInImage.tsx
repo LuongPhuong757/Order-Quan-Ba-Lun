@@ -40,6 +40,9 @@ type Props = {
   priority?: boolean;
   /** Tắt để dùng nguyên ảnh 800px. Mặc định bật — mọi chỗ dùng hiện tại là ô ảnh nhỏ. */
   useThumb?: boolean;
+  /** Tắt hiệu ứng hiện dần, chỉ lấy phần tải nhẹ (lazy + thumbnail). Dùng ở màn gọi món tại bàn
+   *  (`MenuOrderPage`) — màn đó vốn hiện ảnh thẳng, thêm fade là đổi giao diện. */
+  fade?: boolean;
 };
 
 /** Bắt đầu tải khi ảnh còn cách mép khung nhìn chừng nửa màn hình điện thoại — đủ sớm để
@@ -54,6 +57,7 @@ export function FadeInImage({
   decoding = 'async',
   priority = false,
   useThumb = true,
+  fade = true,
 }: Props): JSX.Element {
   const ref = useRef<HTMLImageElement>(null);
   const [shown, setShown] = useState(false);
@@ -116,11 +120,15 @@ export function FadeInImage({
         // ẩn, trong khi để trình duyệt vẽ khung `alt` thì khách còn đọc được tên món.
         setShown(true);
       }}
-      style={{
-        ...style,
-        opacity: shown ? target : 0,
-        transition: 'opacity var(--dur-base) var(--ease-out)',
-      }}
+      style={
+        fade
+          ? {
+              ...style,
+              opacity: shown ? target : 0,
+              transition: 'opacity var(--dur-base) var(--ease-out)',
+            }
+          : style
+      }
     />
   );
 }
