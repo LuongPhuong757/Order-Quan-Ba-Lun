@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addDaysIso,
+  isPrevShiftCarryover,
   matchPreset,
   presetRange,
   rangeLabel,
@@ -249,5 +250,45 @@ describe('preset ca', () => {
     expect(l).toContain('Ca trước');
     expect(l).toContain('06/09/2026');
     expect(l).toContain('07/09/2026');
+  });
+});
+
+describe('isPrevShiftCarryover', () => {
+  const vn = (s: string) => Date.parse(`${s}+07:00`);
+  const don = (vao: string, thu: string, extra: Partial<{ is_paid: boolean; debt_at: number | null }> = {}) => ({
+    opened_at: vn(vao),
+    closed_at: vn(thu),
+    is_paid: true,
+    debt_at: null,
+    ...extra,
+  });
+
+  it('vào 23h, thu 13h hôm sau → ca trước', () => {
+    expect(isPrevShiftCarryover(don('2026-09-06T23:00:00', '2026-09-07T13:00:00'))).toBe(true);
+  });
+
+  // Chủ quán chốt: không có ngưỡng giờ ngồi, cứ vắt qua 12h trưa là gắn.
+  it('vào 9h sáng, thu 12h30 → ca trước dù mới ngồi 3,5 tiếng', () => {
+    expect(isPrevShiftCarryover(don('2026-09-07T09:00:00', '2026-09-07T12:30:00'))).toBe(true);
+  });
+
+  it('ngồi lâu trong CÙNG ca (14h → 21h) → không gắn', () => {
+    expect(isPrevShiftCarryover(don('2026-09-07T14:00:00', '2026-09-07T21:00:00'))).toBe(false);
+  });
+
+  // Bàn tối thu lúc 2h sáng vẫn là cùng ca mở từ trưa hôm trước.
+  it('vào 20h, thu 2h sáng → cùng ca, không gắn', () => {
+    expect(isPrevShiftCarryover(don('2026-09-06T20:00:00', '2026-09-07T02:00:00'))).toBe(false);
+  });
+
+  it('vào đúng 12h:00 → đã là ca mới, không gắn', () => {
+    expect(isPrevShiftCarryover(don('2026-09-07T12:00:00', '2026-09-07T13:00:00'))).toBe(false);
+  });
+
+  it('đơn nợ / đơn huỷ / đơn đang mở → không gắn', () => {
+    const qua12h = ['2026-09-06T23:00:00', '2026-09-07T13:00:00'] as const;
+    expect(isPrevShiftCarryover(don(...qua12h, { debt_at: vn('2026-09-07T01:00:00') }))).toBe(false);
+    expect(isPrevShiftCarryover(don(...qua12h, { is_paid: false }))).toBe(false);
+    expect(isPrevShiftCarryover({ ...don(...qua12h), closed_at: null })).toBe(false);
   });
 });

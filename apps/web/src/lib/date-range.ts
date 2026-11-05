@@ -171,6 +171,31 @@ export function shiftStartMs(nowMs: number): number {
 }
 
 /**
+ * Đơn này là bàn CA TRƯỚC quên thu, sang ca sau mới thu tiền — nhãn "🌓 Ca trước" ở Lịch sử
+ * (2026-11-05).
+ *
+ * Doanh thu vẫn cố ý tính vào ca THU TIỀN (chủ quán chốt): tiền mặt của bàn đó nằm trong két ca
+ * sau, đổi sang ca vào bàn thì két ca sau dư mà màn hình không giải thích được. Nhãn chỉ để người
+ * xem biết vì sao ca này "nhiều" hơn thực tế bán.
+ *
+ * Luật đúng một điều: vào bàn TRƯỚC mốc 12h trưa của ca chứa giờ thu. Không có ngưỡng giờ ngồi —
+ * bàn 9h sáng thu 12h30 cũng tính (chủ quán chốt), còn bàn ngồi 14h→21h trong cùng ca thì không.
+ * `opened_at` là giờ vào ăn thật (dời về lúc gọi món đầu — xem `seated-at.ts` phía API).
+ *
+ * Đơn ghi NỢ không bao giờ có nhãn, kể cả khi thu nợ ở ca sau: nợ là cố ý, không phải quên thu,
+ * và đã có dấu "(thu nợ)" riêng.
+ */
+export function isPrevShiftCarryover(o: {
+  opened_at: number;
+  closed_at: number | null;
+  is_paid: boolean;
+  debt_at: number | null;
+}): boolean {
+  if (!o.closed_at || !o.is_paid || o.debt_at != null) return false;
+  return o.opened_at < shiftStartMs(o.closed_at);
+}
+
+/**
  * Khoảng epoch ms của ca đang chọn — một chỗ duy nhất đổi `ShiftSel` ra hai mốc, để nhãn trên
  * màn hình và query gửi lên API không thể nói hai khoảng khác nhau.
  *
