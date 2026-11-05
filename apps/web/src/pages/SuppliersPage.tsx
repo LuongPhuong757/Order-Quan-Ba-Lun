@@ -122,6 +122,11 @@ export function SuppliersPage() {
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Đã có danh sách phiếu ít nhất một lần (2026-11-05). Từ đó tab Phiếu nhập KHÔNG gỡ ra khi tải
+   *  lại: gỡ ra là mất sạch bộ lọc NCC / "Chờ duyệt" / ô tìm (state nằm trong màn con), nên duyệt
+   *  3 phiếu của một NCC là phải lọc lại 3 lần (chủ quán báo). Tải lại thì danh sách cũ đứng yên
+   *  vài trăm ms rồi tự thay bằng số mới. */
+  const [daTaiPhieu, setDaTaiPhieu] = useState(false);
   const [detail, setDetail] = useState<Supplier | null>(null);
   // `editingId` = đang SỬA phiếu đó (2026-09-07) thay vì nhập phiếu mới.
   const [showForm, setShowForm] = useState<{ supplierId?: string; editingId?: string } | null>(null);
@@ -149,6 +154,7 @@ export function SuppliersPage() {
       ]);
       setSuppliers(s.data.data.items);
       setDeliveries(d.data.data.items);
+      setDaTaiPhieu(true);
       // Danh sách vừa tải là nguồn mới nhất — badge "chờ duyệt" ở nav khớp ngay sau khi duyệt /
       // huỷ / lập phiếu nháp, không phải đợi nhịp poll 60s.
       pendingDeliveriesStore.refetch();
@@ -351,7 +357,9 @@ export function SuppliersPage() {
         </div>
       </div>
 
-      {loading && <p style={{ color: C.muted }}>Đang tải…</p>}
+      {/* Tab Phiếu nhập đang giữ danh sách cũ trong lúc tải lại (xem `daTaiPhieu`) — chen thêm dòng
+          này lên trên là cả bảng nhảy xuống rồi nhảy lên mỗi lần duyệt một phiếu. */}
+      {loading && !(tab === 'deliveries' && daTaiPhieu) && <p style={{ color: C.muted }}>Đang tải…</p>}
 
       {tab === 'suppliers' && !loading && (
         <SupplierOverview
@@ -379,7 +387,7 @@ export function SuppliersPage() {
 
       {tab === 'transfers' && isAdmin && <SupplierTransfersPanel suppliers={suppliers} balances={balances} onChanged={() => void refresh()} />}
 
-      {tab === 'deliveries' && !loading && (
+      {tab === 'deliveries' && (!loading || daTaiPhieu) && (
         <SupplierDeliveryScreen
           deliveries={deliveries}
           suppliers={suppliers}
