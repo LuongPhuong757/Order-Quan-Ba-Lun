@@ -10,7 +10,7 @@ import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
 import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
-import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { isPrevShiftCarryover, presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
 import { anTien } from '../lib/an-tien.ts';
 import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
 import {
@@ -1444,6 +1444,10 @@ export function HistoryPage() {
                                 {isPaid && (
                                   <PaymentMethodBadge total={total} transferAmount={o.transfer_amount} />
                                 )}
+                                {/* Bàn ca trước quên thu, ca này mới thu (2026-11-05). Tiền vẫn cộng vào ca
+                                    thu cho khớp két — nhãn chỉ để giải thích vì sao ca này "nhiều"
+                                    hơn thực bán. Luật ở `isPrevShiftCarryover`. */}
+                                {isPrevShiftCarryover(o) && <span style={prevShiftBadge}>🌓 Ca trước</span>}
                                 {/* Cờ ảnh bill ở ĐÂY chỉ còn là đường lùi (2026-10-02): chỗ chính
                                     của nó là ô "Xác thực" ngay dưới, đứng ngang dấu ✓/✗ — hai
                                     thứ đó cùng trả lời một câu "đơn chuyển khoản này có bằng
@@ -1755,6 +1759,17 @@ const unpaidBadge: React.CSSProperties = {
   fontWeight: 700,
   color: '#b45309',
   background: '#fef3c7',
+  padding: '2px 8px',
+  borderRadius: 999,
+};
+
+/** Bàn ca trước sang ca này mới thu — tím nhạt, không lẫn với vàng "chưa
+ *  thanh toán" hay cam "đang nợ": đơn này ĐÃ thu đủ, nhãn chỉ nói nó thuộc buổi bán nào. */
+const prevShiftBadge: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  color: '#6d28d9',
+  background: '#ede9fe',
   padding: '2px 8px',
   borderRadius: 999,
 };
