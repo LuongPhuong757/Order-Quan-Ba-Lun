@@ -131,6 +131,10 @@ type HistoryOrder = {
   misa_copied_at: number | null;
   misa_copied_by_full_name: string | null;
   misa_ref: string | null;
+  /** Tự phát hành hoá đơn qua meInvoice. NULL = đơn không thuộc luồng tự động. Phát hành xong
+   *  thì `misa_copied_at` + `misa_ref` (số hoá đơn) được điền như một lần tick Misa. */
+  einvoice_status: 'PENDING' | 'ISSUED' | 'FAILED' | null;
+  einvoice_error: string | null;
   /** Đơn có thu qua mã QR HKD (2026-10-15) — server tính. Chỉ đơn này mới phải gõ sang MISA. */
   is_hkd: boolean;
   /* Thu bằng chuyển khoản (2026-09-14). `transfer_amount = 0` là mọi đơn có từ trước tính năng
@@ -218,6 +222,7 @@ const EVENT_ICON: Record<string, IconName | { text: string }> = {
   order_cancelled: 'xoa',
   order_restarted: 'lam-moi', // giờ vào ăn được tính lại (bàn mở trống trước đó — xem seated-at.ts)
   misa_copied: 'chep', // đánh dấu đã gõ đơn sang amis.misa.vn
+  einvoice: 'hoa-don', // tự phát hành hoá đơn qua meInvoice: thành công / lỗi / bấm phát hành lại
   debt: 'ghi-no', // ghi nợ (lúc thu hoặc admin chuyển bù)
   debt_paid: 'thanh-toan', // thu được nợ
   // M7 — khách tự gọi món bằng QR. Ba dòng này cố ý KHÁC biểu tượng nhau: một quyển nhật ký
@@ -614,24 +619,37 @@ export function HistoryPage() {
   const toggleMisa = async (o: HistoryOrder) => {
     const next = o.misa_copied_at == null;
     try {
-      const res = await api.patch<{
-        data: { misa_copied_at: number | null; misa_copied_by_full_name: string | null };
-      }>(`/orders/${o.id}/misa`, { copied: next });
-      const d = res.data.data;
-      setOrders((cur) =>
-        cur.map((x) =>
-          x.id === o.id
-            ? {
-                ...x,
-                misa_copied_at: d.misa_copied_at,
-                misa_copied_by_full_name: d.misa_copied_by_full_name,
-              }
-            : x,
-        ),
-      );
+      const res = await api.patch<{ data: MisaView }>(`/orders/${o.id}/misa`, { copied: next });
+      applyMisaView(res.data.data);
       toast.push('success', next ? `${o.table_name} — đã đánh dấu lên Misa` : `Đã bỏ đánh dấu Misa — ${o.table_name}`);
     } catch (err) {
       toast.push('error', extractError(err).message);
+    }
+  };
+
+  /** Ghi phần Misa/hoá đơn BE trả về vào đúng dòng — dùng chung cho tick tay và phát hành lại. */
+  const applyMisaView = (d: MisaView) =>
+    setOrders((cur) => cur.map((x) => (x.id === d.id ? { ...x, ...d } : x)));
+
+  /** Đơn đang bấm "Phát hành lại" — chặn bấm đúp (BE cũng chặn bằng UPDATE có điều kiện). */
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+
+  /** Nút "Phát hành lại" của đơn xuất hoá đơn LỖI: gọi MISA lại ngay, đợi kết quả. An toàn — MISA
+   *  chặn trùng theo RefID = id đơn, nên kể cả lần trước thực ra đã ra hoá đơn cũng không ra thêm. */
+  const retryEinvoice = async (o: HistoryOrder) => {
+    if (retryingId) return;
+    setRetryingId(o.id);
+    try {
+      const res = await api.post<{ data: MisaView }>(`/orders/${o.id}/einvoice/retry`);
+      applyMisaView(res.data.data);
+      const st = res.data.data.einvoice_status;
+      if (st === 'ISSUED') toast.push('success', `✓ ${o.table_name} — đã phát hành hoá đơn số ${res.data.data.misa_ref ?? ''}`);
+      else if (st === 'FAILED') toast.push('error', `Vẫn lỗi: ${res.data.data.einvoice_error ?? ''}`);
+      else toast.push('success', `${o.table_name} — máy đang kiểm tra với MISA, xem lại sau ít phút`);
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -1677,11 +1695,29 @@ export function HistoryPage() {
                                     Và chỉ đơn thu qua mã QR HKD (2026-10-15): đơn tiền mặt / mã
                                     người nhà không phải kê. Đơn cũ đã lỡ tick trước luật này vẫn
                                     hiện để còn gỡ ra được. */}
-                                {isPaid && (o.is_hkd || o.misa_copied_at != null) && (
+                                {/* Hoá đơn tự động: LỖI → nút Phát hành lại kèm lý do; đang chạy → chữ báo. */}
+                                {isPaid && o.einvoice_status === 'FAILED' && (
+                                  <EinvoiceRetry
+                                    error={o.einvoice_error}
+                                    busy={retryingId === o.id}
+                                    disabled={!canMarkMisa}
+                                    onRetry={() => retryEinvoice(o)}
+                                  />
+                                )}
+                                {isPaid && o.einvoice_status === 'PENDING' && (
+                                  <span style={{ fontSize: 11, fontWeight: 700, color: '#0f766e' }}>
+                                    <Icon name="hoa-don" size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />Đang phát hành…
+                                  </span>
+                                )}
+                                {/* Ô Misa tay: đơn tự động ĐÃ phát hành thì khoá (bỏ tick là mất vết
+                                    hoá đơn), đang phát hành thì ẩn; đơn LỖI thì người thu tick "đã
+                                    xuất tay" được (2026-11-09, khớp BE `setMisaCopied`). */}
+                                {isPaid && o.einvoice_status !== 'PENDING' && (o.is_hkd || o.misa_copied_at != null) && (
                                   <MisaBadge
                                     copied={o.misa_copied_at != null}
                                     by={o.misa_copied_by_full_name}
-                                    disabled={!canMarkMisa}
+                                    invoiceNo={o.einvoice_status === 'ISSUED' ? o.misa_ref : null}
+                                    disabled={!canMarkMisa || o.einvoice_status === 'ISSUED'}
                                     onToggle={() => toggleMisa(o)}
                                   />
                                 )}
@@ -1937,22 +1973,69 @@ const debtBadge: React.CSSProperties = {
  *
  * `stopPropagation`: dòng lịch sử có onClick mở/đóng chi tiết. Thiếu nó thì mỗi lần tick, bảng
  * lại bung ra một khối chi tiết — người đối soát 30 đơn cuối ca sẽ phải cuộn lại từ đầu. */
+/** Phần Misa/hoá đơn của một đơn mà BE trả về sau khi tick tay hoặc phát hành lại. */
+type MisaView = Pick<
+  HistoryOrder,
+  'id' | 'misa_copied_at' | 'misa_copied_by_full_name' | 'misa_ref' | 'einvoice_status' | 'einvoice_error'
+>;
+
+/** Nút "Phát hành lại" cho đơn xuất hoá đơn LỖI — đỏ, kèm lý do ngay bên dưới để người đứng quầy
+ *  biết bấm lại có ích không (vd "chưa cài kết nối" thì bấm bao lần cũng vậy). */
+function EinvoiceRetry({
+  error,
+  busy,
+  disabled,
+  onRetry,
+}: {
+  error: string | null;
+  busy: boolean;
+  disabled: boolean;
+  onRetry: () => void;
+}) {
+  return (
+    <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2, maxWidth: 260 }}>
+      <button
+        type="button"
+        disabled={disabled || busy}
+        onClick={(e) => { e.stopPropagation(); onRetry(); }}
+        style={{ padding: '2px 10px', fontSize: 13, lineHeight: 1.6, background: '#b91c1c' }}
+      >
+        {busy ? 'Đang gửi…' : <><Icon name="hoa-don" size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />Phát hành lại hoá đơn</>}
+      </button>
+      {error && <span style={{ fontSize: 11, color: '#b91c1c' }}>❌ {error}</span>}
+    </span>
+  );
+}
+
 function MisaBadge({
   copied,
   by,
+  invoiceNo,
   disabled,
   onToggle,
 }: {
   copied: boolean;
   by: string | null;
+  /** Số hoá đơn khi máy tự phát hành — hiện ngay trên nhãn để đối chiếu với meInvoice. */
+  invoiceNo?: string | null;
   disabled: boolean;
   onToggle: () => void;
 }) {
-  const label = copied ? (
-    <><Icon name="chep" size={14} />Misa<Icon name="xong" size={14} /></>
-  ) : (
-    <><Icon name="chep" size={14} />Chưa Misa</>
-  );
+  // Số hoá đơn xuống DÒNG THỨ HAI trong nhãn, không nối đuôi "· HĐ 00003310": ô Thao tác là
+  // `nowrap`, nhãn dài thêm 15 ký tự là đẩy cả cột (nút ⋯ + ▾) tràn ra ngoài khung bảng — đã vỡ
+  // đúng vậy lần thử thật đầu tiên 2026-11-09.
+  const misaXong = <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="chep" size={14} />Misa<Icon name="xong" size={14} /></span>;
+  const label =
+    copied && invoiceNo ? (
+      <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'center', lineHeight: 1.25 }}>
+        {misaXong}
+        <span style={{ fontSize: 10, fontWeight: 600 }}>HĐ {invoiceNo}</span>
+      </span>
+    ) : copied ? (
+      misaXong
+    ) : (
+      <><Icon name="chep" size={14} />Chưa Misa</>
+    );
   const title = copied
     ? `Đã sao chép sang Misa${by ? ` · ${by}` : ''}${disabled ? '' : ' — bấm để bỏ đánh dấu'}`
     : disabled
@@ -1962,7 +2045,8 @@ function MisaBadge({
     fontSize: 11,
     fontWeight: 700,
     padding: '2px 8px',
-    borderRadius: 999,
+    // Nhãn hai dòng (có số hoá đơn) mà bo 999 thì thành hình viên thuốc méo — bo vừa phải.
+    borderRadius: copied && invoiceNo ? 8 : 999,
     border: 'none',
     color: copied ? '#6d28d9' : '#9ca3af',
     background: copied ? '#ede9fe' : '#f3f4f6',

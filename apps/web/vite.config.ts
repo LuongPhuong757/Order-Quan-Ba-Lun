@@ -5,7 +5,12 @@ import react from '@vitejs/plugin-react';
 // Vd: GET /orders với Accept: text/html → user reload màn /orders trên browser
 //     → trả index.html (SPA fallback) thay vì proxy sang BE (BE trả JSON gây bug).
 // Còn fetch/axios mặc định gửi Accept: application/json → vẫn proxy bình thường.
-const apiProxy = (target = 'http://localhost:3001'): ProxyOptions => ({
+// `API_PROXY_TARGET` (chỉ máy dev): nhiều worktree chạy song song thì cổng 3001 thường đã bị
+// API của worktree khác chiếm — web vẫn chạy nhưng gọi nhầm sang API/DB của nhánh kia mà không
+// báo gì. Đặt biến này để trỏ đúng API của worktree mình, vd `API_PROXY_TARGET=http://localhost:3012`.
+const API_TARGET = process.env.API_PROXY_TARGET || 'http://localhost:3001';
+
+const apiProxy = (target = API_TARGET): ProxyOptions => ({
   target,
   changeOrigin: true,
   bypass(req) {
@@ -50,7 +55,7 @@ export default defineConfig({
          hiện bình thường trong thẻ <img> (Accept: image/*) nhưng bấm vào để phóng to thì ra màn
          "không tìm thấy trang". Chỉ xảy ra trên máy dev; production đi qua Caddy nên không thấy.
          `/uploads` không trùng tên với route React nào, nên nó KHÔNG cần luật bypass đó. */
-      '/uploads': { target: 'http://localhost:3001', changeOrigin: true },
+      '/uploads': { target: API_TARGET, changeOrigin: true },
       // Định lượng nguyên liệu (2026-09-05). ⚠ DANH SÁCH NÀY LÀ CỨNG: thêm controller mới ở
       // BE mà quên thêm vào đây thì dev server nuốt request và trả về index.html — axios nhận
       // HTML thay vì JSON và màn hình vỡ, trong khi log API sạch bong vì request chưa từng

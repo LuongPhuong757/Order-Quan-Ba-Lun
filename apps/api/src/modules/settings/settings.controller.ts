@@ -121,6 +121,8 @@ class UpdateSettingsDto {
   // Vòng hỏi ngân hàng 5 phút ở màn thu tiền (2026-09-25). Tắt CHỈ tắt vòng hỏi đó — mã đơn,
   // webhook, bộ khớp và cột "Xác thực" ở màn Lịch sử đều chạy nguyên. Xem settings.defaults.ts.
   @IsOptional() bank_verify_enabled?: boolean;
+  // Tự phát hành hoá đơn HKD qua meInvoice — chủ quán hoặc admin (AdminGuard class-level).
+  @IsOptional() hkd_einvoice_enabled?: boolean;
   // Bản đồ (2026-08-07) — 2 công tắc riêng, xem settings.defaults.ts về vì sao không gộp làm một.
   @IsOptional() map_checkout_enabled?: boolean;
   @IsOptional() map_admin_enabled?: boolean;
@@ -275,6 +277,7 @@ export class SettingsController {
       'top_dishes_hidden_ids',
       'otp_login_enabled',
       'bank_verify_enabled',
+      'hkd_einvoice_enabled',
       'map_checkout_enabled',
       'map_admin_enabled',
       'province_lock_enabled',

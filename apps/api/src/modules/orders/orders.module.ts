@@ -21,6 +21,7 @@ import { AuthModule } from '../auth/auth.module.js';
 import { IngredientsModule } from '../ingredients/ingredients.module.js';
 import { PrintingModule } from '../printing/printing.module.js';
 import { SettingsModule } from '../settings/settings.module.js';
+import { EInvoiceService, einvoiceProviderBinding } from './einvoice/einvoice.service.js';
 
 @Module({
   imports: [
@@ -45,7 +46,8 @@ import { SettingsModule } from '../settings/settings.module.js';
     SettingsModule,
   ],
   controllers: [TableRequestsController, TableCallsController, OrdersController, DishSalesController, PaymentPhotosController],
-  providers: [TableRequestsService, OrdersService, DishSalesService],
+  // Tự phát hành hoá đơn qua meInvoice — phát hành ngay từ hộp thanh toán + poller nền dự phòng.
+  providers: [TableRequestsService, OrdersService, DishSalesService, EInvoiceService, einvoiceProviderBinding],
   // M7 — `TableGuestService` của PublicModule gọi `getOrCreateOpenOrder` và `addItemsBulk`
   // thay vì tự viết lại logic mở đơn (đã có pessimistic_write + dedupe phantom + retry).
   exports: [OrdersService],
