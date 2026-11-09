@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkoutBlockReason, stepBlockReason } from './checkout-block.ts';
+import { HKD_SPLIT_BLOCK, checkoutBlockReason, stepBlockReason } from './checkout-block.ts';
 
 /** `photoCount` mặc định 1: phần lớn ca kiểm ở đây nói về hình thức / mã QR / số tiền, và để
  *  mặc định 0 thì mọi ca chuyển khoản đều dừng ở câu "chụp ảnh bill" — che mất thứ đang kiểm.
@@ -122,5 +122,22 @@ describe('ảnh bill BẮT BUỘC với đơn chuyển khoản (2026-10-02)', ()
   it('màn QR KHÔNG đòi ảnh (bước chụp còn chưa hiện ra), màn bill thì có', () => {
     expect(stepBlockReason('qr', S('TRANSFER', true, 985000, 0))).toBeNull();
     expect(stepBlockReason('bill', S('TRANSFER', true, 985000, 0))).toBe('Chụp ảnh bill chuyển khoản của khách');
+  });
+});
+
+describe('mã QR hộ kinh doanh cấm trả hỗn hợp (2026-11-09)', () => {
+  const split = { mode: 'SPLIT' as const, hasPickedQr: true, transferAmount: 100_000, photoCount: 1 };
+
+  it('chặn "Cả hai" khi mã đang chọn là HKD — ngay ở màn QR, trước khi gõ số tiền', () => {
+    expect(stepBlockReason('qr', { ...split, transferAmount: 0, pickedIsHkd: true })).toBe(HKD_SPLIT_BLOCK);
+    expect(checkoutBlockReason({ ...split, pickedIsHkd: true })).toBe(HKD_SPLIT_BLOCK);
+  });
+
+  it('"Chuyển khoản" toàn bộ vào mã HKD thì cho qua', () => {
+    expect(checkoutBlockReason({ ...split, mode: 'TRANSFER', pickedIsHkd: true })).toBeNull();
+  });
+
+  it('"Cả hai" với mã QR thường vẫn như cũ', () => {
+    expect(checkoutBlockReason({ ...split, pickedIsHkd: false })).toBeNull();
   });
 });

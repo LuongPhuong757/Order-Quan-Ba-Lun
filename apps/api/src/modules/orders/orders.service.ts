@@ -5,6 +5,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -22,6 +23,13 @@ import { MenuItem } from '../menu/entities/menu-item.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
 import { runWithRetry } from '../../common/run-with-retry.js';
 import { computeCheckoutTotals } from './checkout-total.js';
+import { SettingsService } from '../settings/settings.service.js';
+import {
+  EINVOICE_UNCERTAIN_PREFIX,
+  einvoiceLockReason,
+  hkdMixedPaymentError,
+  initialEInvoiceStatus,
+} from './einvoice/einvoice-rules.js';
 import { PrintingService } from '../printing/printing.service.js';
 import { describePayment } from './payment-describe.js';
 import { moneyPart, moneyPortion } from './payment-portion.js';
@@ -248,7 +256,47 @@ export class OrdersService {
     private readonly emitter: EventEmitter2,
     private readonly consumption: ConsumptionService,
     private readonly printing: PrintingService,
+    // `@Optional` + đứng CUỐI: các test tích hợp dựng `new OrdersService(...)` bằng tay với đúng 9
+    // tham số cũ — thiếu settings thì coi công tắc hoá đơn HKD là TẮT, hành vi cũ y nguyên.
+    @Optional() private readonly settings?: SettingsService,
   ) {}
+
+  /** Công tắc tự phát hành hoá đơn HKD. Đọc TRƯỚC transaction rồi truyền vào — `readAll()` gọi
+   *  bên trong `ds.transaction` xin thêm connection, đã từng treo process (xem
+   *  `notification-outbox.service.ts`). */
+  private async isHkdEInvoiceEnabled(): Promise<boolean> {
+    return (await this.settings?.readAll())?.hkd_einvoice_enabled ?? false;
+  }
+
+  /** Mã QR nhận tiền có phải tài khoản hộ kinh doanh không — và CHẶN trả hỗn hợp nếu có. Luật áp
+   *  dụng LUÔN, không phụ thuộc công tắc (chủ quán chốt 2026-11-09: hoá đơn phải đúng bằng tiền về
+   *  TK hộ kinh doanh; trước đó production vẫn cho trả hỗn hợp và kê cả đơn). Dùng chung cho
+   *  `checkout()` và `settleDebt()`. */
+  private static async resolveHkdTransfer(
+    mgr: EntityManager,
+    total: number,
+    transfer?: CheckoutTransfer,
+  ): Promise<boolean> {
+    if (!transfer || transfer.amount <= 0 || !transfer.account_id) return false;
+    const qr = await mgr.getRepository(PaymentQrAccount).findOne({ where: { id: transfer.account_id } });
+    const isHkd = qr?.is_hkd ?? false;
+    const err = hkdMixedPaymentError(isHkd, Math.round(transfer.amount), total);
+    // Mã riêng, không dùng VALIDATION_FAILED: GlobalExceptionFilter sẽ ghi đè câu giải thích.
+    if (err) throw new BadRequestException({ code: 'HKD_TRANSFER_NOT_FULL', message: err });
+    return isHkd;
+  }
+
+  /** Ghi trạng thái hoá đơn ban đầu sau khi thu tiền xong. */
+  private static applyEInvoice(order: Order, isHkd: boolean, enabled: boolean, misaCopied: boolean): void {
+    order.einvoice_status = initialEInvoiceStatus({
+      isHkd,
+      enabled,
+      transferAmount: order.transfer_amount,
+      misaCopied,
+    });
+    order.einvoice_attempts = 0;
+    order.einvoice_error = null;
+  }
 
   // ─── Activity log ───────────────────────────────────────────────────────
   /** Ghi 1 dòng log hoạt động cho đơn. Append-only, KHÔNG để lỗi log làm hỏng
@@ -1415,6 +1463,7 @@ export class OrdersService {
     /** `true` = đơn kết bằng GHI NỢ, chưa thu đồng nào. */
     debt: boolean;
   }> {
+    const hkdEInvoiceEnabled = await this.isHkdEInvoiceEnabled();
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
@@ -1500,10 +1549,14 @@ export class OrdersService {
         order.debt_note = debt.note.trim();
       } else {
         OrdersService.applyTransfer(order, total, transfer);
+        const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer);
         order.is_paid = true;
         // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
         // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
         if (misa_copied) OrdersService.applyMisa(order, cashier);
+        // Hoá đơn: chỉ ĐẶT trạng thái PENDING trong transaction này; gọi meInvoice là việc của
+        // `EInvoiceService` (hộp thanh toán gọi phát hành ngay + poller nền dự phòng).
+        OrdersService.applyEInvoice(order, isHkd, hkdEInvoiceEnabled, !!misa_copied);
       }
       await orderRepo.save(order);
 
@@ -1617,6 +1670,7 @@ export class OrdersService {
     misa_copied?: boolean,
     transfer?: CheckoutTransfer,
   ): Promise<{ order: Order; total: number; transfer_amount: number; payment_qr_label: string | null }> {
+    const hkdEInvoiceEnabled = await this.isHkdEInvoiceEnabled();
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
@@ -1629,11 +1683,14 @@ export class OrdersService {
       }
       const { total } = computeCheckoutTotals(order.items || [], order.ship_fee);
       OrdersService.applyTransfer(order, total, transfer);
+      const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer);
       order.is_paid = true;
       order.debt_paid_at = Date.now();
       order.debt_paid_by_user_id = collector.id;
       order.debt_paid_by_full_name = collector.full_name;
       if (misa_copied) OrdersService.applyMisa(order, collector);
+      // Trả nợ bằng QR HKD cũng tự phát hành (chủ quán chốt 2026-10-13): đây mới là lúc tiền về TK HKD.
+      OrdersService.applyEInvoice(order, isHkd, hkdEInvoiceEnabled, !!misa_copied);
       await orderRepo.save(order);
       return { order, total, transfer_amount: order.transfer_amount, payment_qr_label: order.payment_qr_label };
     });
@@ -1669,6 +1726,19 @@ export class OrdersService {
         message: order.debt_at !== null ? 'Đơn này đang nợ rồi' : 'Đơn đã huỷ, không chuyển sang nợ được',
       });
     }
+    // Đơn đã/đang ra hoá đơn: chặn (chủ quán chốt 2026-10-13) — hoá đơn đã nằm bên thuế, rút tiền
+    // ra khỏi app mà hoá đơn vẫn còn là hai bên lệch nhau. Phải huỷ/điều chỉnh trên meInvoice trước.
+    const locked = einvoiceLockReason(order.einvoice_status, order.misa_ref);
+    if (locked) throw new BadRequestException({ code: 'EINVOICE_LOCKED', message: locked });
+    // Lỗi CHƯA XÁC MINH = hoá đơn có thể ĐÃ ra bên MISA. Chuyển sang nợ lúc này là xoá sạch dấu vết
+    // của một hoá đơn thật cho bữa ăn chưa thu tiền (review 2026-11-09). Bắt phát hành lại để biết
+    // chắc trước — an toàn, MISA chặn trùng theo RefID.
+    if (order.einvoice_status === 'FAILED' && order.einvoice_error?.startsWith(EINVOICE_UNCERTAIN_PREFIX)) {
+      throw new BadRequestException({
+        code: 'EINVOICE_LOCKED',
+        message: 'Chưa biết hoá đơn đã ra hay chưa — bấm "Phát hành lại hoá đơn" ở màn Lịch sử trước rồi mới chuyển sang nợ',
+      });
+    }
     const wasTransfer = order.transfer_amount;
     order.is_paid = false;
     order.debt_at = Date.now();
@@ -1684,6 +1754,10 @@ export class OrdersService {
     order.misa_copied_by_user_id = null;
     order.misa_copied_by_full_name = null;
     order.misa_ref = null;
+    // Chỉ còn `FAILED` / NULL lọt tới đây (đã chặn ở trên) — chưa có hoá đơn nào để giữ vết.
+    order.einvoice_status = null;
+    order.einvoice_attempts = 0;
+    order.einvoice_error = null;
     await this.orderRepo.save(order);
 
     await this.writeActivity({
@@ -1720,6 +1794,33 @@ export class OrdersService {
         code: 'CONFLICT',
         message: 'Đơn chưa thanh toán — chưa có bill để sao chép sang MISA',
       });
+    }
+    // ── Đơn thuộc luồng tự phát hành hoá đơn ──
+    // ISSUED/PENDING: máy đang giữ cờ này — tick/bỏ tick tay là ra hai hoá đơn hoặc mất vết hoá
+    // đơn đã phát hành. FAILED: người thu (admin/order — quyền của endpoint) tick "Đã xuất tay"
+    // sau khi tự xuất trên meInvoice/CukCuk (chủ quán chốt 2026-11-09 — đó là phương án hộp thanh
+    // toán đưa ra khi xuất lỗi). An toàn: FAILED thì poller không đụng nữa, nên tick tay không đua
+    // với máy ra hoá đơn thứ hai. Tick xong thì đơn rời luồng tự động.
+    const locked = einvoiceLockReason(order.einvoice_status, order.misa_ref);
+    if (locked) throw new BadRequestException({ code: 'EINVOICE_LOCKED', message: locked });
+    if (order.einvoice_status === 'FAILED' && copied) {
+      // UPDATE có điều kiện, không chỉ đổi trong bộ nhớ rồi `save()`: người khác có thể vừa bấm
+      // "Phát hành lại" (FAILED→PENDING, đang gọi MISA). `save()` sẽ đè PENDING thành NULL, hoá đơn
+      // máy vừa ra mất chỗ ghi — và hai bên cùng xuất (review 2026-11-09).
+      const res = await this.orderRepo
+        .createQueryBuilder()
+        .update(Order)
+        .set({ einvoice_status: null, einvoice_error: null })
+        .where('id = :id AND einvoice_status = :st', { id: order.id, st: 'FAILED' })
+        .execute();
+      if (!res.affected) {
+        throw new BadRequestException({
+          code: 'EINVOICE_LOCKED',
+          message: 'Đơn đang được phát hành lại hoá đơn — đợi kết quả rồi thử lại',
+        });
+      }
+      order.einvoice_status = null;
+      order.einvoice_error = null;
     }
     const was = order.misa_copied_at != null;
     // Chỉ đơn thu qua mã HKD mới được TICK (2026-10-15). Bỏ tick thì luôn cho: đơn cũ đã lỡ tick
