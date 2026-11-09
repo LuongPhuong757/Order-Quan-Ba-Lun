@@ -42,7 +42,6 @@ function deriveActionKind(method: string, path: string): string {
   if (path === '/auth/login' && method === 'POST') return 'auth.login_success';
   if (path === '/auth/logout' && method === 'POST') return 'auth.logout';
   if (path === '/auth/change-password' && method === 'POST') return 'auth.password_changed';
-  if (path === '/auth/recover' && method === 'POST') return 'auth.recovered';
   if (path === '/setup' && method === 'POST') return 'setup.completed';
 
   // Admin / users

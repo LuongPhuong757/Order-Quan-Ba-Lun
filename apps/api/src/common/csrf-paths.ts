@@ -23,12 +23,13 @@ export function pathRequiresCheck(rawPath: string): boolean {
   // nên `POST /API/public/orders` vẫn tới đúng controller. Nếu so khớp ở đây phân biệt
   // hoa/thường thì viết hoa 1 chữ là né được toàn bộ Origin check. Hạ về chữ thường trước.
   const path = rawPath.toLowerCase();
-  // Mutations on /admin/* and /auth/* (except login + recover which need to work pre-auth)
+  // Mutations on /admin/* and /auth/* (except login, which needs to work pre-auth)
   if (path.startsWith('/admin/')) return true;
   if (path.startsWith('/auth/')) {
-    // /auth/login + /auth/recover are public + rate-limited; CSRF not applicable
-    // (no cookie yet at login; recover uses code in body not cookie)
-    if (path === '/auth/login' || path === '/auth/recover') return false;
+    // /auth/login is public + rate-limited; CSRF not applicable (no cookie yet at login).
+    // `/auth/recover` từng là ngoại lệ thứ hai — đã bỏ endpoint 2026-11-09 nên bỏ luôn ngoại lệ:
+    // để lại là một đường /auth/* POST không bị kiểm Origin mà không ai dùng.
+    if (path === '/auth/login') return false;
     return true;
   }
   // T-08-32 — mutations tới /api/public/* (vd POST /api/public/orders) phải bị kiểm Origin

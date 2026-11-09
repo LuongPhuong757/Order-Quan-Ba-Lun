@@ -12,7 +12,7 @@ import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { JwtService } from './jwt.service.js';
-import { LoginDto, ChangePasswordDto, RecoverDto } from './dto/auth.dto.js';
+import { LoginDto, ChangePasswordDto } from './dto/auth.dto.js';
 import { JwtAuthGuard } from './guards/jwt-auth.guard.js';
 
 @Controller('auth')
@@ -88,12 +88,7 @@ export class AuthController {
     return { data: { message: 'Password changed successfully' } };
   }
 
-  /** E-05 POST /auth/recover */
-  @Post('recover')
-  @HttpCode(200)
-  @Throttle({ default: { limit: 5, ttl: 300_000 } })
-  async recover(@Body() dto: RecoverDto) {
-    await this.svc.recover(dto.code, dto.new_password);
-    return { data: { message: 'Password reset via recovery code. Please login.' } };
-  }
+  // `POST /auth/recover` (đổi mật khẩu bằng mã khôi phục) ĐÃ BỎ 2026-11-09 theo chủ quán: bớt một
+  // cửa công khai có thể bị dò mã. Nhân viên quên mật khẩu → admin đặt lại ở /admin/users;
+  // chủ quán quên → chạy script đặt mật khẩu trong container API (xem memory/DEPLOY).
 }

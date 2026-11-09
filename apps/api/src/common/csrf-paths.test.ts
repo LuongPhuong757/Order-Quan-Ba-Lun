@@ -17,8 +17,8 @@ describe('pathRequiresCheck — hành vi cũ không hồi quy', () => {
     expect(pathRequiresCheck('/auth/login')).toBe(false);
   });
 
-  it('/auth/recover là ngoại lệ pre-auth — KHÔNG kiểm Origin', () => {
-    expect(pathRequiresCheck('/auth/recover')).toBe(false);
+  it('/auth/recover (đã bỏ 2026-11-09) không còn là ngoại lệ — kiểm Origin như mọi /auth/*', () => {
+    expect(pathRequiresCheck('/auth/recover')).toBe(true);
   });
 
   it('/health không bị siết oan', () => {

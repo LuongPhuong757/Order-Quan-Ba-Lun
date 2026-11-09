@@ -26,7 +26,6 @@ const FRIENDLY_VN: Record<string, string> = {
   AUTH_INACTIVE_USER: 'Tài khoản đã bị vô hiệu hoá. Liên hệ chủ quán nhé.',
   OWN_PASSWORD_WRONG: 'Mật khẩu cũ không đúng. Thử lại nhé!',
   ADMIN_REQUIRED: 'Chỉ chủ quán mới làm được việc này.',
-  RECOVERY_CODE_INVALID: 'Mã khôi phục không đúng hoặc đã dùng rồi.',
   SETUP_ALREADY_DONE: 'Hệ thống đã được khởi tạo. Hãy đăng nhập.',
   SETUP_IP_BLOCKED: 'Setup chỉ truy cập được từ IP đã được phép.',
   VALIDATION_FAILED: 'Dữ liệu thiếu hoặc sai định dạng, bạn kiểm tra lại nhé.',

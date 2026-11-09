@@ -74,11 +74,20 @@ export class JwtService {
     return process.env.COOKIE_NAME || 'ssp_token';
   }
 
+  /**
+   * `sameSite: 'lax'` (đổi từ 'strict' 2026-11-09, chủ quán báo Safari "mất đăng nhập" ở tab khác).
+   * Strict KHÔNG gửi cookie khi trang được mở từ một trang khác (link trong Zalo web, Google,
+   * tin nhắn) → mở ra là màn đăng nhập dù vừa đăng nhập ở tab bên cạnh.
+   *
+   * Lax vẫn chặn đúng thứ cần chặn: cookie không đi kèm POST/PATCH/DELETE từ trang lạ, chỉ đi
+   * kèm khi BẤM LINK mở trang (GET). Và mọi request ghi còn có lớp kiểm `Origin` riêng
+   * (`common/csrf-paths.ts`) — nên bỏ Strict không mở lỗ CSRF nào.
+   */
   get cookieOptions() {
     return {
       httpOnly: true,
       secure: process.env.COOKIE_SECURE === 'true',
-      sameSite: 'strict' as const,
+      sameSite: 'lax' as const,
       maxAge: this.lifetimeDays * 86_400_000,
       path: '/',
     };

@@ -31,9 +31,6 @@ const PrintBridgePage = lazy(() =>
   import('./pages/PrintBridgePage.tsx').then((m) => ({ default: m.PrintBridgePage })),
 );
 const SetupPage = lazy(() => import('./pages/SetupPage.tsx').then((m) => ({ default: m.SetupPage })));
-const RecoverPage = lazy(() =>
-  import('./pages/RecoverPage.tsx').then((m) => ({ default: m.RecoverPage })),
-);
 const DashboardPage = lazy(() =>
   import('./pages/DashboardPage.tsx').then((m) => ({ default: m.DashboardPage })),
 );
@@ -142,7 +139,7 @@ export function App() {
        <ConfirmProvider>
         <ReadyListener />
         <ReLoginModal />
-        {/* `Suspense` NGOÀI này chỉ phục vụ 3 route công khai (setup/login/recover) và 404 —
+        {/* `Suspense` NGOÀI này chỉ phục vụ 2 route công khai (setup/login) và 404 —
             lúc đó chưa có header/nav nên hiện vỏ chờ toàn trang là đúng.
             Route đã đăng nhập có `Suspense` RIÊNG bên trong `ProtectedShell`, bọc `<Outlet/>`,
             nên header và nav dưới đứng nguyên khi đổi màn. React lấy boundary GẦN NHẤT, nên cái
@@ -151,7 +148,7 @@ export function App() {
         <Routes>
           <Route path="/setup" element={<SetupPage />} />
           <Route path="/login" element={<LoginPage />} />
-          <Route path="/recover" element={<RecoverPage />} />
+          {/* `/recover` (mã khôi phục) đã BỎ 2026-11-09 — link cũ rơi vào trang 404 bên dưới. */}
           {/* Cổng nhà cung cấp (2026-09-05, bước 4). NGOÀI `ProtectedShell` một cách cố ý: NCC
               không phải nhân viên, không có role, và tự xác thực bằng phiên riêng
               (`x-supplier-token`). Nhét vào trong đó là bắt họ đăng nhập bằng tài khoản nội bộ. */}

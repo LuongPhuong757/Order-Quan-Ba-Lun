@@ -86,7 +86,10 @@ services:
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_LIFETIME_DAYS: ${JWT_LIFETIME_DAYS:-7}
+      # Phiên đăng nhập VĨNH VIỄN (chủ quán chốt 2026-09-19, sửa ở đây 2026-11-09): mặc định cũ 7
+      # ngày đè lên mặc định 3650 trong jwt.service.ts nên thực tế cứ 7 ngày phải đăng nhập lại.
+      # .env trên VPS mà có ghi JWT_LIFETIME_DAYS thì số đó vẫn thắng — xoá dòng đó đi.
+      JWT_LIFETIME_DAYS: ${JWT_LIFETIME_DAYS:-3650}
       # Tên cookie khác prod → đăng nhập dev không đá văng phiên đăng nhập prod
       # khi mở hai tab cạnh nhau.
       COOKIE_NAME: ${COOKIE_NAME:-ssp_token_dev}

@@ -14,9 +14,7 @@ import {
 import type { Request } from 'express';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import { randomBytes } from 'crypto';
 import { User } from '../auth/entities/user.entity.js';
-import { RecoveryCode } from '../auth/entities/recovery-code.entity.js';
 import { AuthService } from '../auth/auth.service.js';
 import { SetupDto } from '../auth/dto/auth.dto.js';
 
@@ -32,7 +30,6 @@ function ipAllowed(ip: string): boolean {
 export class SetupController {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
-    @InjectRepository(RecoveryCode) private readonly recoveryRepo: Repository<RecoveryCode>,
     @InjectDataSource() private readonly ds: DataSource,
   ) {}
 
@@ -65,7 +62,6 @@ export class SetupController {
 
     return await this.ds.transaction(async (mgr) => {
       const userRepo = mgr.getRepository(User);
-      const recoveryRepo = mgr.getRepository(RecoveryCode);
 
       // Atomic check: count owners with row lock (MySQL InnoDB will serialize via UNIQUE constraint later, but pre-check first)
       const ownerCount = await userRepo.count({ where: { is_owner: true } });
@@ -85,30 +81,9 @@ export class SetupController {
       });
       await userRepo.save(user);
 
-      // Generate 1-time recovery code (16 chars)
-      const recoveryCode = generateRecoveryCode();
-      const codeHash = await AuthService.hashPassword(recoveryCode);
-      await recoveryRepo.save(recoveryRepo.create({
-        user_id: user.id,
-        code_hash: codeHash,
-        used_at: null as unknown as undefined,
-      }));
-
-      return {
-        data: {
-          user_id: user.id,
-          recovery_code: recoveryCode,
-          warning: '⚠ Lưu mã khôi phục này NGAY. Nó sẽ KHÔNG hiển thị lại. Nếu mất, bạn không thể reset password owner.',
-        },
-      };
+      // Không còn sinh mã khôi phục (bỏ 2026-11-09 cùng `POST /auth/recover`). Chủ quán quên
+      // mật khẩu thì đặt lại bằng script trong container API.
+      return { data: { user_id: user.id } };
     });
   }
-}
-
-function generateRecoveryCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous (I, 1, O, 0)
-  const bytes = randomBytes(16);
-  let out = '';
-  for (let i = 0; i < 16; i++) out += alphabet[bytes[i] % alphabet.length];
-  return out;
 }

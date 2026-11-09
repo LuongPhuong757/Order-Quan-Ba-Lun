@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
-import { Icon } from '../components/ui/Icon.tsx';
 
 export function SetupPage() {
   const toast = useToast();
@@ -15,7 +14,7 @@ export function SetupPage() {
   const [password, setPassword] = useState('');
   const [errP, setErrP] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<{ user_id: string; recovery_code: string } | null>(null);
+  const [result, setResult] = useState<{ user_id: string } | null>(null);
 
   useEffect(() => {
     api.get('/setup')
@@ -46,7 +45,7 @@ export function SetupPage() {
     }
     setSubmitting(true);
     try {
-      const res = await api.post<{ data: { user_id: string; recovery_code: string } }>('/setup', {
+      const res = await api.post<{ data: { user_id: string } }>('/setup', {
         full_name: fullName.trim(),
         username,
         password,
@@ -77,14 +76,9 @@ export function SetupPage() {
       <div className="container">
         <div className="card">
           <h1>Setup thành công</h1>
-          <p>Tài khoản chủ quán đã được tạo. Đây là <strong>mã khôi phục 1 lần</strong>:</p>
-          <pre style={{ background: '#fef3c7', padding: 16, borderRadius: 8, fontSize: 18, textAlign: 'center', wordBreak: 'break-all' }}>
-            {result.recovery_code}
-          </pre>
-          <p style={{ color: '#dc2626', fontWeight: 600 }}>
-            <Icon name="canh-bao" size={18} style={{ verticalAlign: '-3px', marginRight: 6 }} />Lưu mã này ngay (chụp màn hình / in giấy / cất chỗ an toàn).
-            Mã này KHÔNG hiển thị lại. Nếu mất, owner KHÔNG thể reset password được.
-          </p>
+          {/* Không còn mã khôi phục (bỏ 2026-11-09): quên mật khẩu owner thì đặt lại bằng script
+              trong container API. */}
+          <p>Tài khoản chủ quán đã được tạo. Hãy ghi nhớ tên đăng nhập và mật khẩu vừa đặt.</p>
           <button onClick={() => navigate('/login')} style={{ width: '100%', marginTop: 16 }}>
             Đăng nhập ngay
           </button>

@@ -3,7 +3,6 @@ import { InjectRepository, TypeOrmModule } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 import { User } from './entities/user.entity.js';
 import { RevokedJti } from './entities/revoked-jti.entity.js';
-import { RecoveryCode } from './entities/recovery-code.entity.js';
 import { AuthService } from './auth.service.js';
 import { JwtService } from './jwt.service.js';
 import { AuthController } from './auth.controller.js';
@@ -13,7 +12,7 @@ import { AdminGuard } from './guards/admin.guard.js';
 import { ReportGuard } from './guards/report.guard.js';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User, RevokedJti, RecoveryCode])],
+  imports: [TypeOrmModule.forFeature([User, RevokedJti])],
   controllers: [AuthController],
   providers: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard, ReportGuard],
   exports: [AuthService, JwtService, JwtAuthGuard, OwnerGuard, AdminGuard, ReportGuard, TypeOrmModule],

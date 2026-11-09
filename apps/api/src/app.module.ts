@@ -39,7 +39,7 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor.js';
     ScheduleModule.forRoot(),
     // P01.D-26 — in-memory rate limit
     // Global generous: 600 req/min/IP (~10/sec) tránh chặn polling UI
-    // Auth strict: override inline ở /auth/login + /auth/recover (5/5min/IP)
+    // Auth strict: override inline ở /auth/login (5/5min/IP)
     // Miễn trừ: tài khoản chỉ-đọc (role `report`) không bị đếm — xem
     // `ReadOnlyExemptThrottlerGuard` ở providers bên dưới.
     ThrottlerModule.forRoot([

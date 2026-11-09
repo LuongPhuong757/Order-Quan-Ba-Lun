@@ -74,6 +74,8 @@ export const dataSourceOptions: DataSourceOptions = {
   // hoàn toàn bảng của nó mà `tsc` vẫn xanh (type đến từ file entity, không từ DB). Mỗi entity
   // mới phải thêm ở 2 chỗ: file entity + mảng dưới đây. Xem Task 3 (schema:verify) — chứng
   // minh bằng truy vấn MySQL thật, không phải typecheck.
+  // `RecoveryCode`: chức năng mã khôi phục đã BỎ 2026-11-09 nhưng entity giữ lại để bảng
+  // `recovery_codes` cũ vẫn nằm yên — không code nào đọc/ghi nó nữa.
   entities: [
     User, AuditLog, RevokedJti, RecoveryCode, MenuItem, MenuGroup, RestaurantTable, Order,
     OrderItem, OrderActivityLog, OrderPaymentPhoto,

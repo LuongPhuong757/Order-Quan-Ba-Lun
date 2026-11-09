@@ -4,11 +4,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsNull, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 import bcrypt from 'bcrypt';
 import { User } from './entities/user.entity.js';
 import { RevokedJti } from './entities/revoked-jti.entity.js';
-import { RecoveryCode } from './entities/recovery-code.entity.js';
 import { JwtService } from './jwt.service.js';
 
 const BCRYPT_COST = Number(process.env.BCRYPT_COST) || 10;
@@ -18,7 +17,6 @@ export class AuthService {
   constructor(
     @InjectRepository(User) private readonly userRepo: Repository<User>,
     @InjectRepository(RevokedJti) private readonly jtiRepo: Repository<RevokedJti>,
-    @InjectRepository(RecoveryCode) private readonly recoveryRepo: Repository<RecoveryCode>,
     private readonly jwtSvc: JwtService,
   ) {}
 
@@ -83,33 +81,6 @@ export class AuthService {
         .catch(() => undefined);
     }
     return await this.userRepo.findOneOrFail({ where: { id: user_id } });
-  }
-
-  /** Recovery code redemption: bump token_version + mark code used */
-  async recover(code: string, newPwd: string) {
-    // Find any user with unused recovery code matching this code
-    const candidates = await this.recoveryRepo.find({ where: { used_at: IsNull() } });
-    let matched: RecoveryCode | undefined;
-    for (const rc of candidates) {
-      if (await bcrypt.compare(code, rc.code_hash)) {
-        matched = rc;
-        break;
-      }
-    }
-    if (!matched) {
-      throw new UnauthorizedException({ code: 'RECOVERY_CODE_INVALID', message: 'Code invalid or used' });
-    }
-    const user = await this.userRepo.findOne({ where: { id: matched.user_id } });
-    if (!user) {
-      throw new UnauthorizedException({ code: 'AUTH_INVALID_CRED', message: 'User missing' });
-    }
-    const newHash = await bcrypt.hash(newPwd, BCRYPT_COST);
-    await this.userRepo.update(
-      { id: user.id },
-      { password_hash: newHash, token_version: () => 'token_version + 1' as never },
-    );
-    await this.recoveryRepo.update({ id: matched.id }, { used_at: Date.now() });
-    return user;
   }
 
   static async hashPassword(plain: string): Promise<string> {
