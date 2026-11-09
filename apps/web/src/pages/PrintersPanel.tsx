@@ -13,6 +13,7 @@ import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { CustomReceiptsLog } from './CustomReceiptsLog.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
 
 type DeviceRow = {
   id: string;
@@ -176,7 +177,7 @@ export function PrintersPanel() {
     setSaving(true);
     try {
       await api.put('/admin/settings', settings);
-      toast.push('success', 'Đã lưu cấu hình máy in ✓');
+      toast.push('success', 'Đã lưu cấu hình máy in');
       await loadOverview();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -293,15 +294,20 @@ export function PrintersPanel() {
         </label>
 
         <div style={{ marginBottom: 14 }}>
-          <label style={label}>Máy in nối vào đâu</label>
-          <select
-            style={{ ...input, maxWidth: 300 }}
-            value={settings.printer_connection}
-            onChange={(e) => setSettings({ ...settings, printer_connection: e.target.value })}
-          >
-            <option value="LAN">Dây mạng (LAN)</option>
-            <option value="USB">Dây USB vào máy POS Android</option>
-          </select>
+          {/* Đợt 0: 4 ô chọn của khối này dùng `Dropdown` chung thay `<select>` hệ điều hành;
+              nhãn chữ do Dropdown vẽ trên ô. Giá trị số đổi qua lại chuỗi ngay tại chỗ gọi. */}
+          <div style={{ maxWidth: 300 }}>
+            <Dropdown
+              label="Máy in nối vào đâu"
+              value={settings.printer_connection}
+              options={[
+                { value: 'LAN', label: 'Dây mạng (LAN)' },
+                { value: 'USB', label: 'Dây USB vào máy POS Android' },
+              ]}
+              onChange={(v) => setSettings({ ...settings, printer_connection: v })}
+              full
+            />
+          </div>
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             {settings.printer_connection === 'USB'
               ? 'Cầu in là một trang web mở sẵn trong Chrome trên máy POS.'
@@ -361,17 +367,18 @@ export function PrintersPanel() {
           {/* Khổ giấy là thứ SAI MÀ KHÔNG BÁO LỖI: đặt 58 trên máy 80mm thì hoá đơn vẫn ra,
               chữ vẫn sắc, chỉ chiếm nửa trái tờ giấy. Nên để nó thành ô chọn nằm ngay cạnh IP
               chứ không giấu dưới mục nâng cao. */}
-          <label style={label}>Khổ giấy</label>
-          <select
-            style={{ ...input, maxWidth: 260 }}
-            value={settings.printer_paper_width_mm}
-            onChange={(e) =>
-              setSettings({ ...settings, printer_paper_width_mm: Number(e.target.value) })
-            }
-          >
-            <option value={80}>80mm — máy để bàn (vd XP-D600)</option>
-            <option value={58}>58mm — máy nhỏ / cầm tay</option>
-          </select>
+          <div style={{ maxWidth: 300 }}>
+            <Dropdown
+              label="Khổ giấy"
+              value={String(settings.printer_paper_width_mm)}
+              options={[
+                { value: '80', label: '80mm — máy để bàn (vd XP-D600)' },
+                { value: '58', label: '58mm — máy nhỏ / cầm tay' },
+              ]}
+              onChange={(v) => setSettings({ ...settings, printer_paper_width_mm: Number(v) })}
+              full
+            />
+          </div>
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             Xem đáy máy in, dòng <em>热敏纸宽 / Paper width</em>. Chọn sai thì hoá đơn vẫn in
             nhưng chỉ chiếm nửa tờ giấy.
@@ -382,16 +389,19 @@ export function PrintersPanel() {
           {/* Ảnh gửi xuống máy in là 1-bit, không có "đen hơn" — đậm lên nghĩa là nét dày ra.
               Để thành ô chọn vì chỉ nhìn màn hình thì không đoán được giấy thật: giấy rẻ loang
               mực, đầu in cũ thì nhạt. */}
-          <label style={label}>Độ đậm chữ</label>
-          <select
-            style={{ ...input, maxWidth: 300 }}
-            value={settings.printer_darkness}
-            onChange={(e) => setSettings({ ...settings, printer_darkness: Number(e.target.value) })}
-          >
-            <option value={1}>Thường</option>
-            <option value={2}>Đậm</option>
-            <option value={3}>Rất đậm</option>
-          </select>
+          <div style={{ maxWidth: 300 }}>
+            <Dropdown
+              label="Độ đậm chữ"
+              value={String(settings.printer_darkness)}
+              options={[
+                { value: '1', label: 'Thường' },
+                { value: '2', label: 'Đậm' },
+                { value: '3', label: 'Rất đậm' },
+              ]}
+              onChange={(v) => setSettings({ ...settings, printer_darkness: Number(v) })}
+              full
+            />
+          </div>
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             Chữ nhạt thì tăng lên. Mức <b>Rất đậm</b> nét dày nhất nhưng dấu tiếng Việt có thể
             hơi bí — bấm <b>In thử</b> rồi nhìn giấy thật để chọn.
@@ -400,16 +410,19 @@ export function PrintersPanel() {
 
         <div style={{ marginBottom: 14 }}>
           {/* Lever DUY NHẤT làm từng chấm đen hơn thật. Hai ô trên chỉ làm nét DÀY ra. */}
-          <label style={label}>Nhiệt đầu in</label>
-          <select
-            style={{ ...input, maxWidth: 300 }}
-            value={settings.printer_heat}
-            onChange={(e) => setSettings({ ...settings, printer_heat: Number(e.target.value) })}
-          >
-            <option value={0}>Giữ nguyên của máy in</option>
-            <option value={1}>Cao</option>
-            <option value={2}>Rất cao</option>
-          </select>
+          <div style={{ maxWidth: 300 }}>
+            <Dropdown
+              label="Nhiệt đầu in"
+              value={String(settings.printer_heat)}
+              options={[
+                { value: '0', label: 'Giữ nguyên của máy in' },
+                { value: '1', label: 'Cao' },
+                { value: '2', label: 'Rất cao' },
+              ]}
+              onChange={(v) => setSettings({ ...settings, printer_heat: Number(v) })}
+              full
+            />
+          </div>
           <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
             Chữ vẫn nhạt sau khi đã tăng <b>Độ đậm</b> thì tăng ô này — nó bảo máy in đốt lâu
             hơn mỗi chấm. Nếu đầu tờ giấy hiện ký tự lạ thì máy in không hiểu lệnh, chọn lại

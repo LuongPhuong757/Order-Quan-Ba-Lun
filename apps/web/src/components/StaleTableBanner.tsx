@@ -22,6 +22,7 @@ import { useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatAge } from '../lib/item-age.ts';
 import type { StaleUnpaid } from '../lib/stale-unpaid.ts';
+import { Icon } from './ui/Icon.tsx';
 
 type Props = { data: StaleUnpaid | null };
 
@@ -53,8 +54,8 @@ export function StaleTableBanner({ data }: Props) {
   return (
     <div ref={ref} className="stale-banner" role="alert">
       {/* Nhãn đứng yên, chỉ hàng bàn trượt — vuốt tới đâu vẫn biết dải này nói về chuyện gì. */}
-      <span className="stale-banner-title">
-        ⚠ {items.length} bàn chưa trả
+      <span className="stale-banner-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="canh-bao" size={16} />{items.length} bàn chưa trả
       </span>
       <div className="stale-banner-list">
         {/* Thứ tự BE đã sắp: bàn ngồi lâu nhất đứng đầu, nhìn thấy mà không cần vuốt. */}

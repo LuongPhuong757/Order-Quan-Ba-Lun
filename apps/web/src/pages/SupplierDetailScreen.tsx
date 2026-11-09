@@ -23,7 +23,8 @@ import {
 } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierInvoiceTemplate } from './SupplierInvoiceTemplate.tsx';
-import { FilterBar, Ico, Plus, ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
+import { FilterBar, Plus, ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import './suppliers-ui.css';
 
 type Supplier = {
@@ -164,7 +165,7 @@ export function SupplierDetailScreen({
                   justifyContent: 'center', padding: 16, overflowY: 'auto', zIndex: 9000 }}>
       <div className="ncc-ui ncc-ui--dialog" style={{ maxWidth: 1100, width: "100%", margin: "auto" }}>
         <button className="back" type="button" onClick={onClose}>
-          <Ico d="m15 6-6 6 6 6" />Tất cả nhà cung cấp
+          <Icon name="mui-ten-trai" />Tất cả nhà cung cấp
         </button>
 
         {/* ---------- Đầu: tên + số nợ to nhất màn ---------- */}
@@ -194,7 +195,7 @@ export function SupplierDetailScreen({
                 </div>
                 {supplier.phone && (
                   <a className="btn btn--accent-ghost callbtn" href={`tel:${supplier.phone}`}>
-                    <Ico d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a1 1 0 0 1-1 1A16 16 0 0 1 4 5a1 1 0 0 1 1-1Z" />
+                    <Icon name="goi-dien" />
                     Gọi {sdtGon(supplier.phone)}
                   </a>
                 )}
@@ -219,19 +220,19 @@ export function SupplierDetailScreen({
               <Plus />Nhập hàng
             </button>
             <button className="btn btn--accent-ghost act-wide" type="button" onClick={() => setTraTien(true)}>
-              <Ico d="M3 7h18v10H3zM12 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" />Trả tiền
+              <Icon name="thanh-toan" />Trả tiền
             </button>
             <button className="btn" type="button" onClick={onEdit}>
-              <Ico d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" />Sửa thông tin
+              <Icon name="sua" />Sửa thông tin
             </button>
             <button className="btn" type="button" onClick={() => setMauHd(true)}>
-              <Ico d="M7 3h7l5 5v13H7zM14 3v5h5M10 13h6M10 17h6" />Mẫu hoá đơn
+              <Icon name="tai-lieu" />Mẫu hoá đơn
             </button>
             <button className="btn" type="button" onClick={() => setTaiKhoan(true)}>
-              <Ico d="M12 4.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7ZM4.5 20a7.5 7.5 0 0 1 15 0" />Tài khoản NCC
+              <Icon name="tai-khoan" />Tài khoản NCC
             </button>
             <button className="btn btn--danger" type="button" onClick={xoaNcc}>
-              <Ico d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13" />Xoá
+              <Icon name="xoa" />Xoá
             </button>
           </section>
         )}

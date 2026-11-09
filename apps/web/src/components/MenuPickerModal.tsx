@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from './Toast.tsx';
+import { Icon } from './ui/Icon.tsx';
 
 type MenuItem = {
   id: string;
@@ -15,11 +16,13 @@ type MenuItem = {
   is_active: boolean;
 };
 
+// Chỉ chữ: nhãn này vừa là chip lọc vừa chen giữa dòng "Chính · phần" — chữ đã đủ nghĩa, bộ
+// icon chung không có hình riêng cho "đồ uống"/"món phụ" nên bỏ emoji thay vì mượn icon ý khác.
 const GROUP_LABEL: Record<string, string> = {
-  food: '🍜 Chính',
-  drink: '🥤 Uống',
-  side: '🥗 Phụ',
-  other: '📦 Khác',
+  food: 'Chính',
+  drink: 'Uống',
+  side: 'Phụ',
+  other: 'Khác',
 };
 
 function fmt(v: number) {
@@ -150,8 +153,8 @@ export function MenuPickerModal({ onClose, onPick, hideGroupFilter }: Props) {
       <div className="modal vp-cap-92" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12 }}>
           <h1 style={{ margin: 0 }}>Chọn món</h1>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 

@@ -7,6 +7,7 @@
 //  - Xem MỘT tài khoản một lúc, chọn bằng nút to. Mọi mã QR có số tài khoản, kể cả mã đã ngừng nhận tiền khách.
 //  - Cột vào/ra theo NGÀY LỊCH + ba ô tổng. Dùng CHUNG kỳ với cả tab.
 import { useEffect, useMemo, useState } from 'react';
+import { Icon } from '../components/ui/Icon.tsx';
 import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { ChartCard, GroupedBarChart, type LineSeries } from '../components/Charts.tsx';
@@ -62,7 +63,7 @@ export function SupplierAccountFlowCard({ range }: { range: DayRange }) {
 
   return (
     <ChartCard
-      title="🏧 Tiền vào / tiền ra theo tài khoản"
+      title="Tiền vào / tiền ra theo tài khoản"
       hint={
         'Xanh: tiền khách chuyển khoản vào mã QR này (cùng số màn Lịch sử). Đỏ: tiền trả nhà cung cấp ' +
         'bằng chuyển khoản từ tài khoản này. KHÔNG gồm các khoản chi khác (lương, điện…).' +
@@ -100,7 +101,7 @@ export function SupplierAccountFlowCard({ range }: { range: DayRange }) {
                   }}
                 >
                   <span style={{ display: 'block', fontSize: 16, fontWeight: 700 }}>
-                    {bat && '✓ '}
+                    {bat && <Icon name="chon" size={16} style={{ verticalAlign: '-2px', marginRight: 4 }} />}
                     {a.label}
                     {a.is_hkd && <span style={{ marginLeft: 6, fontSize: 12, color: C.muted }}>(HKD)</span>}
                   </span>

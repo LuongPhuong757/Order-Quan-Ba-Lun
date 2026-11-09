@@ -4,6 +4,9 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App.tsx';
 import { EnvBanner } from './components/EnvBanner.tsx';
 import { ErrorBoundary } from './components/ErrorBoundary.tsx';
+// Thứ tự nạp: nền móng dùng chung → màu trang quản lý → styles.css (dùng var() của hai file trên).
+import '../../../packages/ui-tokens/foundation.css';
+import './styles/tokens.css';
 import './styles.css';
 
 const root = document.getElementById('root');

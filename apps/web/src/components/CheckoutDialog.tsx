@@ -15,6 +15,8 @@ import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkou
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
+import { useConfirm } from './ConfirmDialog.tsx';
+import { Icon, type IconName } from './ui/Icon.tsx';
 import { Row, Section } from './checkout-ui.tsx';
 
 type QrOption = {
@@ -86,6 +88,7 @@ export function CheckoutDialog({
   onDone,
 }: Props) {
   const toast = useToast();
+  const confirm = useConfirm();
   const total = itemsTotal + shipFee;
 
   /**
@@ -347,6 +350,16 @@ export function CheckoutDialog({
   };
 
   const removePhoto = async (photoId: string) => {
+    // Hỏi lại trước khi xoá (đã duyệt, Đợt 0 2026-11-09): nút × nằm sát góc ảnh 84px, chạm nhầm
+    // là mất bằng chứng chuyển khoản trên server — phải chụp lại trong lúc khách đang đứng chờ.
+    const ok = await confirm({
+      title: 'Xoá ảnh bill?',
+      message: 'Ảnh này sẽ bị bỏ khỏi đơn. Muốn giữ lại thì bấm "Không".',
+      variant: 'danger',
+      confirmLabel: 'Xoá ảnh',
+      cancelLabel: 'Không',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/orders/payment-photos/${photoId}`);
       setPhotos((prev) => prev.filter((p) => p.id !== photoId));
@@ -407,10 +420,10 @@ export function CheckoutDialog({
   const nextLabel =
     step === 'items'
       ? settleDebt
-        ? '💰 Thu nợ'
-        : '💰 Thanh toán'
+        ? withIcon('thanh-toan', 'Thu nợ')
+        : withIcon('thanh-toan', 'Thanh toán')
       : step === 'mode' && mode === 'DEBT'
-        ? '📒 Xác nhận ghi nợ'
+        ? withIcon('ghi-no', 'Xác nhận ghi nợ')
         : step === 'bill' || (step === 'mode' && mode === 'CASH')
           ? 'Xác nhận thu tiền'
           : 'Tiếp tục →';
@@ -495,9 +508,12 @@ export function CheckoutDialog({
             borderBottom: '1px solid rgba(0,0,0,.06)',
           }}
         >
-          <span style={{ fontSize: 26 }}>
-            {step === 'items' ? '🧾' : step === 'mode' ? '💰' : step === 'qr' ? '📱' : '✅'}
-          </span>
+          {/* Icon trang trí theo màn — tiêu đề h2 bên cạnh mới là thứ nói nghĩa. */}
+          <Icon
+            name={step === 'items' ? 'hoa-don' : step === 'mode' ? 'thanh-toan' : step === 'qr' ? 'qr' : 'xong'}
+            size={26}
+            style={{ color: activeItems.length > 0 ? '#92400e' : '#059669' }}
+          />
           {/* Tiêu đề đổi theo màn — đây là thứ DUY NHẤT nói cho người thu biết họ đang đứng ở
               đâu trong chuỗi. Cố ý KHÔNG đánh số "bước 1/3": luồng tiền mặt chỉ có đúng một màn,
               đếm tới 3 ở đó là hứa hai màn không bao giờ tới. */}
@@ -558,7 +574,7 @@ export function CheckoutDialog({
                   }}
                   style={{ minHeight: 40, fontSize: 14 }}
                 >
-                  📒 Khách nợ, ghi sổ →
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-no" size={18} />Khách nợ, ghi sổ →</span>
                 </button>
               )}
             </>
@@ -570,20 +586,27 @@ export function CheckoutDialog({
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
               <div className="pay-modes">
-                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label="💵 Tiền mặt" />
+                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label={withIcon('tien-mat', 'Tiền mặt')} />
                 {/* Hai nút chuyển khoản chỉ hiện cho người có công tắc Thu CK; người không có
                     vẫn tới được màn này qua đường "Khách nợ" ở màn soát bill. */}
                 {canCollectTransfer && (
                   <>
-                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label="🏦 Chuyển khoản" />
-                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label="💵+🏦 Cả hai" />
+                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label={withIcon('chuyen-khoan', 'Chuyển khoản')} />
+                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label={
+                      // "Cả hai" = tiền mặt + chuyển khoản: hai icon đứng cạnh nhau, như cặp 💵+🏦 cũ.
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="tien-mat" size={18} />
+                        <Icon name="chuyen-khoan" size={18} />
+                        Cả hai
+                      </span>
+                    } />
                   </>
                 )}
                 {/* NÚT THỨ TƯ, không phải ô tích (D-01): nợ là nợ toàn bộ, nên "tiền mặt hay
                     chuyển khoản" không còn là câu hỏi — ô tích đi kèm ba nút kia sẽ khiến người
                     thu phải chọn một hình thức cho khoản tiền không tồn tại. */}
                 {!settleDebt && (
-                  <ModeButton active={mode === 'DEBT'} onClick={() => setMode('DEBT')} label="📒 Ghi nợ" />
+                  <ModeButton active={mode === 'DEBT'} onClick={() => setMode('DEBT')} label={withIcon('ghi-no', 'Ghi nợ')} />
                 )}
               </div>
               {mode === 'DEBT' && (
@@ -722,10 +745,21 @@ function groupUnits(list: ItemLike[]): Array<{ rep: ItemLike; count: number }> {
   return Array.from(m.values());
 }
 
+/** Icon + chữ trên một hàng, dùng cho nút hình thức thu và nút chính. Trả ReactNode vì chuỗi
+ *  thuần không chứa được icon (trước đây là emoji 💵 🏦 📒 💰 ghép thẳng vào chữ). */
+function withIcon(name: IconName, text: string) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon name={name} size={18} />
+      {text}
+    </span>
+  );
+}
+
 /** Kiểu dáng nằm trong `styles.css` (`.pay-modes` / `button.pay-mode`) chứ không phải style
  *  nội tuyến: nút này cần ĐỔI BỐ CỤC theo bề rộng màn hình (ngang trên máy tính, dọc trên điện
  *  thoại), mà style nội tuyến thì không viết được media query. */
-function ModeButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: string }) {
+function ModeButton({ active, onClick, label }: { active: boolean; onClick: () => void; label: React.ReactNode }) {
   return (
     <button type="button" className="pay-mode" onClick={onClick} aria-pressed={active}>
       {label}
@@ -878,7 +912,7 @@ function OrderLines({
   return (
     <>
       {servedItems.length > 0 && (
-        <Section title="✓ Đã giao (tính tiền)" color="#059669">
+        <Section title={<><Icon name="xong" size={16} />Đã giao (tính tiền)</>} color="#059669">
           {groupUnits(servedItems).map((g) => (
             <Row
               key={g.rep.id}
@@ -890,7 +924,7 @@ function OrderLines({
       )}
 
       {activeItems.length > 0 && (
-        <Section title={`⚠ ${activeUnits} món CHƯA MANG RA`} color="#f59e0b" subtitle="(vẫn tính tiền)">
+        <Section title={<><Icon name="canh-bao" size={16} />{activeUnits} món CHƯA MANG RA</>} color="#f59e0b" subtitle="(vẫn tính tiền)">
           {groupUnits(activeItems).map((g) => (
             <Row
               key={g.rep.id}
@@ -1000,7 +1034,10 @@ export function BillStep({
           disabled={uploading}
           style={{ minHeight: 48, width: '100%' }}
         >
-          📷 {uploading ? 'Đang tải ảnh…' : photos.length > 0 ? 'Chụp thêm' : 'Chụp bill của khách'}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="anh" size={20} />
+            {uploading ? 'Đang tải ảnh…' : photos.length > 0 ? 'Chụp thêm' : 'Chụp bill của khách'}
+          </span>
         </button>
         <input
           ref={fileRef}
@@ -1023,7 +1060,7 @@ export function BillStep({
           disabled={uploading}
           style={{ minHeight: 48, width: '100%', marginTop: 8 }}
         >
-          🖼 Chọn ảnh có sẵn
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="hinh-anh" size={20} />Chọn ảnh có sẵn</span>
         </button>
         <input
           ref={galleryRef}
@@ -1059,9 +1096,12 @@ export function BillStep({
                     color: 'white',
                     border: 'none',
                     fontSize: 14,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
-                  ×
+                  <Icon name="dong" size={16} />
                 </button>
               </div>
             ))}

@@ -16,6 +16,8 @@ import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 type QrKind = 'BANK' | 'IMAGE';
 
@@ -168,7 +170,7 @@ export function PaymentQrPanel() {
       fd.append('file', ready);
       const res = await api.post<{ data: { url: string } }>('/admin/payment-qr/upload-image', fd);
       setForm((f) => ({ ...f, image_url: res.data.data.url }));
-      toast.push('success', 'Đã tải ảnh QR lên ✓');
+      toast.push('success', 'Đã tải ảnh QR lên');
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -206,10 +208,10 @@ export function PaymentQrPanel() {
     try {
       if (form.id) {
         await api.patch(`/admin/payment-qr/${form.id}`, body);
-        toast.push('success', 'Đã lưu thay đổi ✓');
+        toast.push('success', 'Đã lưu thay đổi');
       } else {
         await api.post('/admin/payment-qr', body);
-        toast.push('success', 'Đã thêm mã QR ✓');
+        toast.push('success', 'Đã thêm mã QR');
       }
       resetForm();
       refresh();
@@ -283,8 +285,10 @@ export function PaymentQrPanel() {
                 {verifyOn ? 'có' : 'không'} hiện cột "Xác thực"
               </strong>
               <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
-                Bật: mỗi đơn chuyển khoản hiện ✓ (ngân hàng đã báo tiền về) hoặc ✗ (chưa tìm thấy
-                giao dịch), và lọc được theo đó.
+                Bật: mỗi đơn chuyển khoản hiện{' '}
+                <Icon name="xong" size={16} style={{ verticalAlign: '-3px' }} /> (ngân hàng đã báo tiền
+                về) hoặc <Icon name="da-huy" size={16} style={{ verticalAlign: '-3px' }} /> (chưa tìm
+                thấy giao dịch), và lọc được theo đó.
               </span>
               <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
                 Tắt: cột và ô lọc ẩn đi. <strong>Dữ liệu KHÔNG mất</strong> — máy vẫn ghi sổ ngân
@@ -339,19 +343,18 @@ export function PaymentQrPanel() {
           <>
             <div className="st-grid cols-2" style={{ marginTop: 12 }}>
               <div>
-                <label htmlFor="qr-bank">Ngân hàng</label>
-                <select
-                  id="qr-bank"
+                {/* Đợt 0: Dropdown chung thay `<select>`. ~22 ngân hàng nên tự có ô tìm; tên đầy
+                    đủ làm dòng phụ để gõ "ngoai thuong" cũng ra Vietcombank. */}
+                <Dropdown
+                  label="Ngân hàng"
                   value={form.bank_choice}
-                  onChange={(e) => setForm((f) => ({ ...f, bank_choice: e.target.value }))}
-                >
-                  {VIETQR_BANKS.map((b) => (
-                    <option key={b.bin} value={b.bin}>
-                      {b.short_name}
-                    </option>
-                  ))}
-                  <option value={OTHER_BANK}>Ngân hàng khác (nhập mã BIN)</option>
-                </select>
+                  options={[
+                    ...VIETQR_BANKS.map((b) => ({ value: b.bin, label: b.short_name, hint: b.full_name })),
+                    { value: OTHER_BANK, label: 'Ngân hàng khác (nhập mã BIN)' },
+                  ]}
+                  onChange={(v) => setForm((f) => ({ ...f, bank_choice: v }))}
+                  full
+                />
               </div>
               <div>
                 <label htmlFor="qr-account-no">Số tài khoản</label>
@@ -471,9 +474,10 @@ export function PaymentQrPanel() {
               className="secondary"
               onClick={() => fileRef.current?.click()}
               disabled={uploading}
-              style={{ minHeight: 44 }}
+              style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              🖼️ {uploading ? 'Đang tải ảnh lên…' : form.image_url ? 'Chọn ảnh khác' : 'Chọn ảnh mã QR'}
+              <Icon name="hinh-anh" size={20} />
+              {uploading ? 'Đang tải ảnh lên…' : form.image_url ? 'Chọn ảnh khác' : 'Chọn ảnh mã QR'}
             </button>
             <input
               ref={fileRef}
@@ -590,7 +594,9 @@ export function PaymentQrPanel() {
                   style={{ width: 56, height: 56, objectFit: 'contain', background: 'white', borderRadius: 6 }}
                 />
               ) : (
-                <div style={{ fontSize: 28, width: 56, textAlign: 'center' }}>🏦</div>
+                <div style={{ width: 56, display: 'flex', justifyContent: 'center', color: C.muted }}>
+                  <Icon name="chuyen-khoan" size={28} />
+                </div>
               )}
 
               <div style={{ flex: 1, minWidth: 0 }}>
@@ -624,7 +630,7 @@ export function PaymentQrPanel() {
 
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 <button type="button" className="secondary" disabled={idx === 0} onClick={() => move(row, -1)} aria-label="Lên trên">
-                  ▲
+                  <Icon name="mui-ten-len" size={20} />
                 </button>
                 <button
                   type="button"
@@ -633,7 +639,7 @@ export function PaymentQrPanel() {
                   onClick={() => move(row, 1)}
                   aria-label="Xuống dưới"
                 >
-                  ▼
+                  <Icon name="mui-ten-xuong" size={20} />
                 </button>
                 <button type="button" className="secondary" onClick={() => startEdit(row)}>
                   Sửa

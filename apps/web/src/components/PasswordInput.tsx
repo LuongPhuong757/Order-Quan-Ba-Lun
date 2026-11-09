@@ -1,5 +1,6 @@
 // P01.D-19 — show/hide toggle + caps-lock warning + optional zxcvbn strength meter
 import { useState, KeyboardEvent } from 'react';
+import { Icon } from './ui/Icon.tsx';
 
 type Props = {
   id: string;
@@ -68,14 +69,19 @@ export function PasswordInput({
         onClick={() => setShow((s) => !s)}
         aria-label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
       >
-        {show ? '🙈' : '👁'}
+        {/* Đang hiện chữ → icon "ẩn" (bấm để che lại), và ngược lại — giữ đúng nghĩa cặp 🙈/👁 cũ. */}
+        <Icon name={show ? 'an' : 'hien'} size={20} label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} />
       </button>
       {error && (
         <div className="field-error" id={`${id}-err`}>
           {error}
         </div>
       )}
-      {capsOn && <div className="field-error">⚠ Caps Lock đang bật</div>}
+      {capsOn && (
+        <div className="field-error" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="canh-bao" size={16} />Caps Lock đang bật
+        </div>
+      )}
       {showStrength && value && (
         <>
           <div className="strength-meter" aria-hidden="true">

@@ -11,6 +11,7 @@
 // Vì sao mọi thứ hiển thị to và thô: không ai ngồi đọc trang này. Nó nằm úp ở góc quầy và chỉ
 // được liếc qua khi hoá đơn không ra. Câu trả lời "còn sống hay không" phải đọc được từ xa.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Icon } from '../components/ui/Icon.tsx';
 import {
   base64ToBytes,
   buildLocalTestBytes,
@@ -446,7 +447,17 @@ export function PrintBridgePage() {
           }}
         >
           <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.2 }}>
-            {fatal ? '✕ Có lỗi' : ok ? '● Đang chạy' : '○ Chưa chạy'}
+            {/* ✕ → icon nét (Đợt 0). ● ○ là chấm trạng thái chữ thường, không phải emoji — giữ. */}
+            {fatal ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                <Icon name="da-huy" size={34} />
+                Có lỗi
+              </span>
+            ) : ok ? (
+              '● Đang chạy'
+            ) : (
+              '○ Chưa chạy'
+            )}
           </div>
           <div style={{ marginTop: 6, opacity: 0.85 }}>
             {deviceName ? `Máy in: ${deviceName}` : 'Chưa kết nối máy in'}

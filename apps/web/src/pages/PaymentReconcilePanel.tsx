@@ -9,6 +9,7 @@
 import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
 
@@ -58,9 +59,10 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
     <button
       className="secondary"
       onClick={() => setOpen((v) => !v)}
-      style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13 }}
+      style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
     >
-      {open ? '▲ Ẩn đối soát tiền' : '▼ Hiện đối soát tiền'}
+      <Icon name={open ? 'mui-ten-len' : 'mui-ten-xuong'} size={16} />
+      {open ? 'Ẩn đối soát tiền' : 'Hiện đối soát tiền'}
     </button>
   );
 
@@ -101,14 +103,15 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
       <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Đối soát tiền</div>
 
       <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Tile label="💵 Tiền mặt (phải có trong két)" value={fmt(data.cash)} color="#0f766e" />
-        <Tile label="🏦 Chuyển khoản (phải về ngân hàng)" value={fmt(data.transfer)} color="#0369a1" />
+        <Tile icon="tien-mat" label="Tiền mặt (phải có trong két)" value={fmt(data.cash)} color="#0f766e" />
+        <Tile icon="chuyen-khoan" label="Chuyển khoản (phải về ngân hàng)" value={fmt(data.transfer)} color="#0369a1" />
         <Tile label="Tổng thu" value={fmt(data.total)} color="#374151" />
         {/* Nợ là số MỌI THỜI GIAN, cố ý đứng cùng hàng nhưng khác màu: câu admin cần trả lời là
             "quán đang bị nợ bao nhiêu", không phải "ca này ghi nợ bao nhiêu". Không cộng vào Tổng
             thu — chưa thu thì không phải thu. */}
         <Tile
-          label={`📒 Đang nợ (${data.debt_outstanding?.orders ?? 0} đơn, mọi thời gian)`}
+          icon="ghi-no"
+          label={`Đang nợ (${data.debt_outstanding?.orders ?? 0} đơn, mọi thời gian)`}
           value={fmt(data.debt_outstanding?.amount ?? 0)}
           color="#b45309"
         />
@@ -150,10 +153,13 @@ export function PaymentSummaryBox({ query, filterKey }: { query: string; filterK
   );
 }
 
-function Tile({ label, value, color }: { label: string; value: string; color: string }) {
+function Tile({ label, value, color, icon }: { label: string; value: string; color: string; icon?: IconName }) {
   return (
     <div style={{ flex: '1 1 160px', background: '#f9fafb', borderRadius: 8, padding: 10 }}>
-      <div style={{ fontSize: 12, color: '#6b7280' }}>{label}</div>
+      <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}>
+        {icon && <Icon name={icon} size={16} />}
+        {label}
+      </div>
       <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{value}</div>
     </div>
   );
@@ -204,7 +210,7 @@ export function PaymentPhotos({ orderId }: { orderId: string }) {
  *
  * Ba lựa chọn thiết kế, đều có lý do:
  *
- *  1. MÀU NỀN là tín hiệu chính, emoji chỉ phụ hoạ. Ở cỡ chữ nhỏ trong bảng, 💵 và 🏦 gần như
+ *  1. MÀU NỀN là tín hiệu chính, icon chỉ phụ hoạ. Ở cỡ chữ nhỏ trong bảng, 💵 và 🏦 gần như
  *     không phân biệt được — nhất là trên điện thoại và với người mắt kém, vốn là người dùng
  *     thật của app này. Ba mảng màu khác hẳn nhau thì liếc là thấy.
  *  2. CHỮ ĐẦY ĐỦ, không viết tắt "CK". Bản đầu dùng "🏦 CK" cỡ 11px và đó chính là cái bị chê
@@ -216,8 +222,11 @@ export function PaymentPhotos({ orderId }: { orderId: string }) {
  * KHÔNG hiện với đơn chưa thu hoặc đơn huỷ: chúng chưa có hình thức thanh toán nào cả.
  */
 export function PaymentMethodBadge({ total, transferAmount }: { total: number; transferAmount: number }) {
+  // inline-flex (trước là inline-block) để icon nét (Đợt 0, thay 💵 🏦) thẳng hàng với chữ.
   const style = {
-    display: 'inline-block',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 3,
     marginTop: 3,
     padding: '1px 6px',
     borderRadius: 999,
@@ -227,12 +236,27 @@ export function PaymentMethodBadge({ total, transferAmount }: { total: number; t
     lineHeight: 1.5,
   };
   if (!transferAmount || transferAmount <= 0) {
-    return <span style={{ ...style, background: '#d1fae5', color: '#065f46' }}>💵 Tiền mặt</span>;
+    return (
+      <span style={{ ...style, background: '#d1fae5', color: '#065f46' }}>
+        <Icon name="tien-mat" size={14} />
+        Tiền mặt
+      </span>
+    );
   }
   if (transferAmount >= total) {
-    return <span style={{ ...style, background: '#e0f2fe', color: '#075985' }}>🏦 Chuyển khoản</span>;
+    return (
+      <span style={{ ...style, background: '#e0f2fe', color: '#075985' }}>
+        <Icon name="chuyen-khoan" size={14} />
+        Chuyển khoản
+      </span>
+    );
   }
   // Cam, KHÔNG phải một sắc xanh thứ ba: đây là trường hợp người đếm két phải để ý nhất — chỉ
   // một phần số tiền nằm trong két — nên nó cần nhảy ra khỏi hai màu kia.
-  return <span style={{ ...style, background: '#ffedd5', color: '#9a3412' }}>💵+🏦 Cả hai</span>;
+  return (
+    <span style={{ ...style, background: '#ffedd5', color: '#9a3412' }}>
+      <Icon name="tien-mat" size={14} />+<Icon name="chuyen-khoan" size={14} />
+      Cả hai
+    </span>
+  );
 }

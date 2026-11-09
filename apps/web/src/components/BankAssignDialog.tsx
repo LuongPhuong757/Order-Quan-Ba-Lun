@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useConfirm } from './ConfirmDialog.tsx';
+import { Icon } from './ui/Icon.tsx';
 
 export type AssignCandidate = {
   id: string;
@@ -57,10 +58,11 @@ export function BankAssignDialog({ txnId, amount, occurredAt, onClose, onDone }:
       title: `Gán ${fmt(amount)} vào ${c.table}?`,
       message: (
         <div style={{ lineHeight: 1.6 }}>
-          Đơn {c.table} sẽ thành <strong>✓ đã xác thực</strong> ở màn Lịch sử.
+          Đơn {c.table} sẽ thành <strong style={{ whiteSpace: 'nowrap' }}><Icon name="xong" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />đã xác thực</strong> ở màn Lịch sử.
           {!c.exact && (
             <div style={{ color: '#b45309', marginTop: 6 }}>
-              ⚠ Số tiền KHÁC nhau: đơn ghi CK {fmt(c.transfer_amount)}, tiền về {fmt(amount)}.
+              <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+              Số tiền KHÁC nhau: đơn ghi CK {fmt(c.transfer_amount)}, tiền về {fmt(amount)}.
             </div>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { isChunkLoadError, shouldAutoReload } from '../lib/chunk-error.ts';
+import { Icon } from './ui/Icon.tsx';
 
 /**
  * Lưới an toàn cuối cùng của app quản lý. Không có nó thì MỘT lỗi render ở BẤT KỲ đâu là
@@ -105,7 +106,9 @@ export class ErrorBoundary extends Component<Props, State> {
     return (
       <div className="container">
         <div className="card" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 40, lineHeight: 1 }}>{stale ? '🔄' : '⚠️'}</div>
+          <div style={{ fontSize: 40, lineHeight: 1, color: stale ? '#0f766e' : '#dc2626' }}>
+            <Icon name={stale ? 'lam-moi' : 'canh-bao'} size={40} />
+          </div>
           <h2 style={{ marginTop: 12 }}>{stale ? 'Có bản cập nhật mới' : 'Màn hình gặp lỗi'}</h2>
           <p style={{ color: '#6b7280' }}>
             {stale

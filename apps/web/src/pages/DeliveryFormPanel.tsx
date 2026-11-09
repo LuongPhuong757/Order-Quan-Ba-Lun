@@ -10,7 +10,9 @@ import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
 import { PriceChangeDialog, type DuplicateHint, type PriceChange } from './PriceChangeDialog.tsx';
-import { Select } from '../components/Select.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { DateField } from '../components/ui/Calendar.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { AcFooter, Autocomplete } from '../components/Autocomplete.tsx';
 import { PhotoPicker } from './DeliveryPhotoPicker.tsx';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
@@ -407,7 +409,7 @@ export function DeliveryFormPanel({
     if (thieu.length > 0) {
       toast.push(
         'error',
-        `Chưa đủ thông tin: ${thieu.join(', ')} — mỗi dòng phải có cả mặt hàng và số lượng (hoặc bấm ✕ để xoá dòng)`,
+        `Chưa đủ thông tin: ${thieu.join(', ')} — mỗi dòng phải có cả mặt hàng và số lượng (hoặc bấm nút xoá để bỏ dòng)`,
       );
       return;
     }
@@ -630,11 +632,12 @@ export function DeliveryFormPanel({
                 {suppliers.find((x) => x.id === lockedSupplierId)?.name ?? '—'}
               </div>
             ) : (
-              <Select
+              <Dropdown
                 full
                 value={supplierId}
                 neutralValue=""
                 placeholder="— chọn —"
+                sheetTitle="Chọn nhà cung cấp"
                 ariaLabel="Nhà cung cấp"
                 onChange={setSupplierId}
                 options={suppliers.map((x) => ({
@@ -645,54 +648,34 @@ export function DeliveryFormPanel({
               />
             )}
           </div>
-          <label style={{ display: 'block' }}>
-            {/* Ngày GIAO, không phải ngày nhập liệu. Nhân viên bận thì tối mới ngồi nhập phiếu
-                của sáng, và nhập bù phiếu hôm qua là chuyện thường. Xem docblock state `date`
-                về việc vì sao ô này để trống thay vì mặc định hôm nay. */}
-            <span className="dl-lab" style={{ color: date ? C.mutedOnTint : '#b91c1c' }}>
-              Ngày giao {date ? '' : '*'}
-            </span>
-            <input
-              type="date"
+          {/* Ngày GIAO, không phải ngày nhập liệu. Nhân viên bận thì tối mới ngồi nhập phiếu
+              của sáng, và nhập bù phiếu hôm qua là chuyện thường. Xem docblock state `date`
+              về việc vì sao ô này để trống thay vì mặc định hôm nay.
+              - `max`: khoá mọi ngày sau hôm nay. Ngày hôm nay lấy theo GIỜ VN chứ không theo máy:
+                quán bán tới 3h sáng, mà máy đặt lệch múi giờ thì người nhập lúc 1h sáng sẽ không
+                chọn được chính ngày hôm đó. KHÔNG đặt `min`: nhập bù phiếu cũ là chuyện thường
+                ngày, luật chỉ chặn một chiều.
+              - `quick`: hai lối tắt Hôm nay / Hôm qua cho hai ca chiếm gần hết số phiếu. Vẫn là một
+                cái bấm CÓ Ý THỨC, khác hẳn với việc hệ thống điền sẵn hôm nay rồi không ai nhìn lại.
+              - Viền đỏ khi trống: ô này là cửa vào của cả phiếu, phải nhìn ra ngay là chỗ đang chờ
+                mình — không thì người nhập ngồi tìm xem sao không gõ được mặt hàng. `DateField`
+                không có trạng thái lỗi riêng nên viền vẽ ở khung bao ngoài. */}
+          <div
+            style={
+              date
+                ? undefined
+                : { outline: '2px solid #b91c1c', outlineOffset: 3, borderRadius: 8 }
+            }
+          >
+            <DateField
+              label={date ? 'Ngày giao' : 'Ngày giao *'}
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              // Khoá mọi ngày sau hôm nay trong bộ chọn lịch. Ngày hôm nay lấy theo GIỜ VN chứ
-              // không theo máy: quán bán tới 3h sáng, mà máy đặt lệch múi giờ thì người nhập
-              // lúc 1h sáng sẽ không chọn được chính ngày hôm đó.
-              // KHÔNG đặt `min`: nhập bù phiếu cũ là chuyện thường ngày, luật chỉ chặn một chiều.
+              onChange={setDate}
               max={vnDayIso(Date.now())}
-              // Viền đỏ khi trống: ô này giờ là cửa vào của cả phiếu, phải nhìn ra ngay là chỗ
-              // đang chờ mình — không thì người nhập ngồi tìm xem sao không gõ được mặt hàng.
-              style={{
-                width: '100%',
-                minHeight: 44,
-                border: date ? undefined : '2px solid #b91c1c',
-              }}
+              quick
+              full
             />
-            {/* Hai lối tắt cho hai ca chiếm gần hết số phiếu. Vẫn là một cái bấm CÓ Ý THỨC, khác
-                hẳn với việc hệ thống điền sẵn hôm nay rồi không ai nhìn lại. */}
-            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-              {([
-                ['Hôm nay', 0],
-                ['Hôm qua', 1],
-              ] as const).map(([label, lui]) => {
-                const v = new Date(Date.now() + 7 * 3600_000 - lui * 86_400_000)
-                  .toISOString()
-                  .slice(0, 10);
-                return (
-                  <button
-                    key={label}
-                    type="button"
-                    className={date === v ? '' : 'secondary'}
-                    onClick={() => setDate(v)}
-                    style={{ minHeight: 36, padding: '0 12px', fontSize: 14 }}
-                  >
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-          </label>
+          </div>
         </div>
 
         {/* Chưa chọn ngày thì KHÔNG mở phần nhập hàng (chủ quán chốt 2026-09-08). Ẩn hẳn chứ
@@ -736,7 +719,7 @@ export function DeliveryFormPanel({
               onClick={() => setLines((prev) => [...prev, newLine()])}
               style={{ marginTop: 12, minHeight: 44 }}
             >
-              ＋ Thêm dòng
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="them" size={18} />Thêm dòng</span>
             </button>
 
             <PhotoPicker files={photos} onChange={setPhotos} />
@@ -1005,7 +988,7 @@ function LineRow({
           onClick={onRemove}
           aria-label={`Xoá mặt hàng ${index + 1}`}
         >
-          ✕
+          <Icon name="xoa" size={22} />
         </button>
       </div>
 

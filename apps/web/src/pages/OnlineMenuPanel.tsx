@@ -20,6 +20,17 @@ import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { useToast } from '../components/Toast.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
+
+/** Icon nét mảnh + chữ trên cùng một hàng (thay emoji nhiều màu — Đợt 0 đồng bộ giao diện). */
+function IconText({ name, size = 16, children }: { name: IconName; size?: number; children: React.ReactNode }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon name={name} size={size} />
+      {children}
+    </span>
+  );
+}
 
 type MenuRow = {
   id: string;
@@ -115,7 +126,7 @@ export function OnlineMenuPanel() {
     void withPending(`item:${row.id}`, async () => {
       await api.patch(`/menu/${row.id}`, { is_online_hidden: next });
       setItems((list) => list.map((it) => (it.id === row.id ? { ...it, is_online_hidden: next } : it)));
-      toast.push('success', next ? `Đã ẩn "${row.name}" khỏi web online ✓` : `"${row.name}" đã bán online trở lại ✓`);
+      toast.push('success', next ? `Đã ẩn "${row.name}" khỏi web online` : `"${row.name}" đã bán online trở lại`);
     });
   };
 
@@ -127,7 +138,7 @@ export function OnlineMenuPanel() {
       toast.push(
         'success',
         next
-          ? `Đã ẩn cả nhóm "${g.name}" khỏi web online ✓`
+          ? `Đã ẩn cả nhóm "${g.name}" khỏi web online`
           : `Nhóm "${g.name}" đã hiện lại — món bị ẩn lẻ trong nhóm vẫn giữ ẩn`,
       );
     });
@@ -153,7 +164,7 @@ export function OnlineMenuPanel() {
       const url = res.data.data.url;
       await api.patch(`/menu/${target.id}`, { image_url: url });
       setItems((list) => list.map((it) => (it.id === target.id ? { ...it, image_url: url } : it)));
-      toast.push('success', `Đã cập nhật ảnh "${target.name}" ✓`);
+      toast.push('success', `Đã cập nhật ảnh "${target.name}"`);
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -204,15 +215,15 @@ export function OnlineMenuPanel() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔍 Tìm món... (gõ không dấu, viết tắt đều được)"
+            placeholder="Tìm món... (gõ không dấu, viết tắt đều được)"
             style={{
               flex: '1 1 220px',
               minWidth: 180,
               padding: '8px 12px',
               borderRadius: 8,
               border: '1px solid #d1d5db',
-              fontSize: 14,
-              minHeight: 40,
+              fontSize: 16,
+              minHeight: 44,
             }}
           />
           {(search || groupFilter || stateFilter) && (
@@ -226,7 +237,7 @@ export function OnlineMenuPanel() {
               }}
               style={{ padding: '6px 10px', fontSize: 12 }}
             >
-              ✕ Xoá lọc
+              <IconText name="dong" size={14}>Xoá lọc</IconText>
             </button>
           )}
         </div>
@@ -235,22 +246,22 @@ export function OnlineMenuPanel() {
         <div className="tabstrip-sm" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {([
             { v: '', label: 'Tất cả tình trạng' },
-            { v: 'visible', label: '✅ Đang bán online' },
-            { v: 'hidden', label: `🚫 Đã ẩn${hiddenCount > 0 ? ` (${hiddenCount})` : ''}` },
-          ] as { v: StateFilter; label: string }[]).map((s) => (
+            { v: 'visible', label: 'Đang bán online', icon: 'hien' },
+            { v: 'hidden', label: `Đã ẩn${hiddenCount > 0 ? ` (${hiddenCount})` : ''}`, icon: 'an' },
+          ] as { v: StateFilter; label: string; icon?: IconName }[]).map((s) => (
             <button
               key={s.v || 'all'}
               onClick={() => setStateFilter(s.v)}
               className={stateFilter === s.v ? '' : 'secondary'}
               style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
             >
-              {s.label}
+              {s.icon ? <IconText name={s.icon}>{s.label}</IconText> : s.label}
             </button>
           ))}
         </div>
 
-        {/* Hàng chip nhóm — nhóm đang ẩn cả nhóm có 🚫 ngay trên chip để nhìn phát biết ngay.
-            Thứ tự chip = đúng thứ tự khách thấy trên web (sort_order) — sửa bằng nút ↕. */}
+        {/* Hàng chip nhóm — nhóm đang ẩn cả nhóm có icon ẩn ngay trên chip để nhìn phát biết ngay.
+            Thứ tự chip = đúng thứ tự khách thấy trên web (sort_order) — sửa bằng nút "Sắp xếp nhóm". */}
         {/* Dãy nhóm — khai cùng lúc flexWrap:wrap VÀ overflowX:auto thì WRAP THẮNG, nên đây vẫn
             là bức tường ~25 nhóm cao cả nghìn px trên điện thoại. Class tabstrip-sm ép một hàng
             cuộn ngang dưới 640px, desktop vẫn wrap để thấy hết một lượt (chốt 2026-09-06). */}
@@ -268,7 +279,7 @@ export function OnlineMenuPanel() {
             title="Đổi thứ tự nhóm hiển thị trên web khách"
             style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
           >
-            ↕ Sắp xếp nhóm
+            <IconText name="sap-xep">Sắp xếp nhóm</IconText>
           </button>
           {groups.map((g) => (
             <button
@@ -283,7 +294,9 @@ export function OnlineMenuPanel() {
               }}
               title={g.is_online_hidden ? 'Cả nhóm đang ẩn khỏi web khách' : undefined}
             >
-              {g.is_online_hidden ? '🚫 ' : ''}
+              {g.is_online_hidden && (
+                <Icon name="an" size={14} label="Đang ẩn" style={{ verticalAlign: '-2px', marginRight: 4 }} />
+              )}
               {labelOf(g.code)}
             </button>
           ))}
@@ -293,7 +306,7 @@ export function OnlineMenuPanel() {
               className={groupFilter === ORPHAN ? '' : 'secondary'}
               style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
             >
-              📦 Khác ({orphanCount})
+              <IconText name="dong-goi">Khác ({orphanCount})</IconText>
             </button>
           )}
         </div>
@@ -332,8 +345,8 @@ export function OnlineMenuPanel() {
             {pending.has(`group:${selectedGroup.id}`)
               ? 'Đang lưu...'
               : selectedGroup.is_online_hidden
-                ? '✓ Hiện lại cả nhóm'
-                : '🚫 Ẩn cả nhóm'}
+                ? <IconText name="hien">Hiện lại cả nhóm</IconText>
+                : <IconText name="an">Ẩn cả nhóm</IconText>}
           </button>
         </div>
       )}
@@ -419,7 +432,7 @@ export function OnlineMenuPanel() {
                         padding: 0,
                       }}
                     >
-                      <span style={{ fontSize: 18 }}>📷</span>
+                      <Icon name="anh" size={20} />
                       {uploadingId === it.id ? 'Đang tải...' : 'Thêm ảnh'}
                     </button>
                   )}
@@ -447,12 +460,14 @@ export function OnlineMenuPanel() {
                       marginBottom: 10,
                     }}
                   >
-                    🚫 {groupHidden ? (it.is_online_hidden ? 'Ẩn (món + cả nhóm)' : 'Ẩn theo nhóm — khách không thấy') : 'Đã ẩn khỏi web khách'}
+                    <IconText name="an">
+                      {groupHidden ? (it.is_online_hidden ? 'Ẩn (món + cả nhóm)' : 'Ẩn theo nhóm — khách không thấy') : 'Đã ẩn khỏi web khách'}
+                    </IconText>
                   </div>
                 )}
                 {it.is_out_of_stock && (
                   <div style={{ color: C.warnText, fontSize: 13, fontWeight: 600, marginBottom: 10 }}>
-                    ⚠ Đang hết hàng (khách thấy nhưng bị làm mờ)
+                    <IconText name="canh-bao">Đang hết hàng (khách thấy nhưng bị làm mờ)</IconText>
                   </div>
                 )}
 
@@ -465,7 +480,13 @@ export function OnlineMenuPanel() {
                     onClick={() => toggleItem(it)}
                     style={{ padding: '6px 10px', fontSize: 13, flex: 1, minWidth: 140 }}
                   >
-                    {itemPending ? 'Đang lưu...' : it.is_online_hidden ? '✓ Bán online lại' : '🚫 Ẩn khỏi web'}
+                    {itemPending ? (
+                      'Đang lưu...'
+                    ) : it.is_online_hidden ? (
+                      <IconText name="hien">Bán online lại</IconText>
+                    ) : (
+                      <IconText name="an">Ẩn khỏi web</IconText>
+                    )}
                   </button>
                   <button
                     className="secondary"
@@ -473,7 +494,11 @@ export function OnlineMenuPanel() {
                     onClick={() => pickImage(it)}
                     style={{ padding: '6px 10px', fontSize: 13 }}
                   >
-                    {uploadingId === it.id ? 'Đang tải ảnh...' : it.image_url ? '📷 Đổi ảnh' : '📷 Thêm ảnh'}
+                    {uploadingId === it.id ? (
+                      'Đang tải ảnh...'
+                    ) : (
+                      <IconText name="anh">{it.image_url ? 'Đổi ảnh' : 'Thêm ảnh'}</IconText>
+                    )}
                   </button>
                 </div>
               </div>
@@ -554,7 +579,7 @@ export function ReorderGroupsModal<T extends GroupRow>({
       for (const [i, g] of ordered.entries()) {
         if (g.sort_order !== i) await api.patch(`/menu-groups/${g.id}`, { sort_order: i });
       }
-      toast.push('success', 'Đã lưu thứ tự nhóm ✓');
+      toast.push('success', 'Đã lưu thứ tự nhóm');
       onSaved(ordered.map((g, i) => ({ ...g, sort_order: i })));
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -572,8 +597,8 @@ export function ReorderGroupsModal<T extends GroupRow>({
       <div className="modal" style={{ maxWidth: 480 }}>
         <div className="flex between" style={{ marginBottom: 4 }}>
           <h2 style={{ margin: 0, fontSize: 18 }}>Sắp xếp thứ tự nhóm</h2>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}>
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
         <p style={{ margin: '4px 0 12px', fontSize: 13, color: C.muted }}>
@@ -611,7 +636,7 @@ export function ReorderGroupsModal<T extends GroupRow>({
               }}
             >
               <span aria-hidden="true" style={{ color: C.muted, fontSize: 15, flexShrink: 0, cursor: 'grab' }}>
-                ⠿
+                <Icon name="keo-tha" size={20} />
               </span>
               <span style={{ color: C.muted, fontSize: 13, width: 22, textAlign: 'right', flexShrink: 0 }}>
                 {i + 1}.

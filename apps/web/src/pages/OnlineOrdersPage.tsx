@@ -69,7 +69,9 @@ import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { MenuPickerModal } from '../components/MenuPickerModal.tsx';
-import { TimeRangeChips, type TimeRangeOption } from '../components/TimeRangeFilter.tsx';
+import { TimePresetChips } from '../components/ui/TimeFilter.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import { ONLINE_SCREEN, presetToHours, type TimePreset } from '../lib/time-presets.ts';
 import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
 import { OnlineMenuPanel } from './OnlineMenuPanel.tsx';
 import { AdminAnalyticsPanel } from './AdminAnalyticsPage.tsx';
@@ -101,15 +103,10 @@ const QUEUE_FALLBACK_POLL_MS = 15_000;
  * `STAFF_ONLINE_WINDOW_HOURS` giờ dù FE có gửi gì đi nữa, nên với họ hàng chip này là nút
  * bấm không có tác dụng — thay bằng một dòng nói rõ cửa sổ đang áp dụng.
  *
- * `null` = không giới hạn. Mặc định của admin là `null` ("admin thì xem được hết"), các mốc
- * còn lại là để thu hẹp khi cần soi một ca cụ thể. */
-const RANGE_FILTERS: ReadonlyArray<TimeRangeOption<number | null>> = [
-  { value: null, label: 'Tất cả' },
-  { value: 14, label: '14 giờ' },
-  { value: 24, label: '24 giờ' },
-  { value: 24 * 7, label: '7 ngày' },
-  { value: 24 * 30, label: '30 ngày' },
-];
+ * Đợt 0 đồng bộ giao diện (2026-11-09): bỏ bộ mốc riêng "14 giờ / 24 giờ / 7 ngày / 30 ngày",
+ * dùng bộ nút chung `ONLINE_SCREEN` (Hôm nay / 7 ngày / 30 ngày / Tháng này / Tất cả) để mọi
+ * màn cùng một bộ chữ. Mặc định của admin vẫn là "Tất cả" ("admin thì xem được hết"). API vẫn
+ * chỉ nhận `?hours=` — quy đổi bằng `presetToHours` LÚC dựng URL (xem `loadQueue`). */
 
 /** Câu mô tả cửa sổ đang áp dụng, cho dòng thông báo của order/bếp. */
 function windowLabel(hours: number): string {
@@ -146,11 +143,11 @@ const STATUS_TABS: AdminOnlineOrderStatusFilter[] = [
  * PICKUP không bao giờ rơi vào 'SHIPPED' (không có chặng ship) — chip đó chỉ đếm DELIVERY.
  * KHÔNG có chip "Đã nhận" (bỏ 2026-08-04): với chủ dự án, nhận hàng xong chỉ còn chờ thu
  * tiền → đơn đó sang tab "Thành công" khi checkout; chặng RECEIVED xem ở "Tất cả" là đủ. */
-const STEP_FILTERS: Array<{ value: FulfillmentStep | 'ALL'; label: string }> = [
+const STEP_FILTERS: Array<{ value: FulfillmentStep | 'ALL'; label: string; icon?: IconName }> = [
   { value: 'ALL', label: 'Tất cả' },
-  { value: 'KITCHEN', label: '🍳 Đang chuẩn bị' },
-  { value: 'READY', label: '📦 Xong, chờ giao' },
-  { value: 'SHIPPED', label: '🛵 Đang giao' },
+  { value: 'KITCHEN', label: 'Đang chuẩn bị', icon: 'dang-nau' },
+  { value: 'READY', label: 'Xong, chờ giao', icon: 'dong-goi' },
+  { value: 'SHIPPED', label: 'Đang giao', icon: 'giao-hang' },
 ];
 
 const REASON_ORDER: RejectReasonCode[] = [
@@ -186,11 +183,11 @@ function fmtClock(ms: number): string {
  * phải một mục nav riêng vì nav admin đã 7 mục, và vì `/dashboard` (đường vào cũ qua thẻ) không
  * có link nào trong nav — xem đầu `AdminAnalyticsPage.tsx`. */
 const VIEW_TABS = [
-  { value: 'queue', label: '🛎 Hàng chờ', adminOnly: false },
-  { value: 'menu', label: '🍜 Món online', adminOnly: true },
-  { value: 'stats', label: '📈 Thống kê', adminOnly: true },
-  { value: 'settings', label: '⚙ Cài đặt', adminOnly: true },
-] as const;
+  { value: 'queue', label: 'Hàng chờ', icon: 'online', adminOnly: false },
+  { value: 'menu', label: 'Món online', icon: 'menu', adminOnly: true },
+  { value: 'stats', label: 'Thống kê', icon: 'thong-ke', adminOnly: true },
+  { value: 'settings', label: 'Cài đặt', icon: 'cai-dat', adminOnly: true },
+] as const satisfies ReadonlyArray<{ value: string; label: string; icon: IconName; adminOnly: boolean }>;
 
 type ViewTab = (typeof VIEW_TABS)[number]['value'];
 
@@ -278,6 +275,7 @@ export function OnlineOrdersPage() {
                   fontWeight: active ? 700 : 500,
                 }}
               >
+                <Icon name={t.icon} size={18} />
                 {t.label}
                 {/* Badge trên TAB, không trên h1 — để admin đang ở tab Cài đặt vẫn thấy đơn
                     mới dồn vào. Đây là bù trừ cho việc tab Hàng chờ bị ẩn. */}
@@ -371,7 +369,9 @@ function QueueView({
   // Bộ lọc thời gian của admin (`null` = tất cả). Order/bếp không có hàng chip này; BE vẫn ghim
   // họ ở 14h nên state ở đây luôn `null` với họ và KHÔNG được gửi `hours` lên — gửi đi chỉ làm
   // URL trông như thể nhân viên tự chọn được.
-  const [rangeHours, setRangeHours] = useState<number | null>(null);
+  // Lưu TÊN NÚT chứ không lưu số giờ: "Hôm nay" mở từ 23h tới sáng hôm sau phải ra số giờ khác
+  // nhau — số giờ tính lúc dựng URL (`presetToHours(…, Date.now())`), không chốt cứng lúc bấm.
+  const [rangePreset, setRangePreset] = useState<TimePreset>('all');
   /** Cửa sổ BE THẬT SỰ áp dụng (`null` = không giới hạn). Dùng để nói với nhân viên vì sao
    * danh sách thiếu đơn cũ — không tự suy từ role ở FE. */
   const [windowHours, setWindowHours] = useState<number | null>(null);
@@ -382,8 +382,8 @@ function QueueView({
   statusRef.current = status;
   // Cùng lý do với `statusRef`: đổi khoảng thời gian xong, event SSE kế tiếp phải tải lại theo
   // khoảng MỚI, không phải khoảng lúc handler được tạo.
-  const rangeRef = useRef(rangeHours);
-  rangeRef.current = rangeHours;
+  const rangeRef = useRef(rangePreset);
+  rangeRef.current = rangePreset;
 
   // Chuông: `audioReady=false` → banner chiếm chỗ. Giữ instance trong ref để `setInterval` lặp
   // chuông không bị đóng băng bởi closure của render cũ.
@@ -409,7 +409,7 @@ function QueueView({
     triggersRef.current?.noteFresh();
     try {
       const res = await api.get<{ data: AdminOnlineOrderList }>(
-        queueUrl(forStatus, rangeRef.current),
+        queueUrl(forStatus, presetToHours(rangeRef.current, Date.now())),
       );
       const payload = res.data.data;
       // Sắp ở FE chứ không tin thứ tự BE trả về — nhưng chiều sắp phụ thuộc tab:
@@ -453,9 +453,9 @@ function QueueView({
     // quay lại sẽ thấy danh sách bị lọc sẵn theo lựa chọn cũ mà không nhớ vì sao thiếu đơn.
     setStepFilter('ALL');
     void loadQueue();
-    // `rangeHours` cũng nằm trong deps: đổi khoảng thời gian là đổi TẬP đơn, phải tải lại và
+    // `rangePreset` cũng nằm trong deps: đổi khoảng thời gian là đổi TẬP đơn, phải tải lại và
     // xoá danh sách cũ y hệt đổi tab (giữ danh sách cũ = hiện đơn ngoài khoảng vừa chọn).
-  }, [status, rangeHours, loadQueue]);
+  }, [status, rangePreset, loadQueue]);
 
   // ── Đồng hồ đếm giây: MỘT interval dùng chung cho cả trang (không 1 interval mỗi đơn) ──
   useEffect(() => {
@@ -738,7 +738,8 @@ function QueueView({
               whiteSpace: 'nowrap',
             }}
           >
-            ⏰ {overdueCount} đơn quá {escalateAfterS}s
+            <Icon name="gio" size={16} />
+            {overdueCount} đơn quá {escalateAfterS}s
           </span>
         )}
 
@@ -776,9 +777,13 @@ function QueueView({
               color: C.alertText,
               borderColor: C.alertBorder,
               whiteSpace: 'nowrap',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
             }}
           >
-            🔕 Bật chuông
+            <Icon name="thong-bao" size={16} />
+            Bật chuông
           </button>,
           bellSlot,
         )}
@@ -792,7 +797,7 @@ function QueueView({
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="🔍 Tìm theo tên khách, SĐT, món hoặc xã…"
+          placeholder="Tìm theo tên khách, SĐT, món hoặc xã…"
           aria-label="Tìm đơn theo tên khách, số điện thoại hoặc món trong đơn"
           style={{
             width: '100%',
@@ -825,9 +830,12 @@ function QueueView({
               color: C.muted,
               fontSize: 16,
               cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            ✕
+            <Icon name="dong" size={20} />
           </button>
         )}
       </div>
@@ -839,22 +847,21 @@ function QueueView({
           Đây là trục lọc thứ 3 (sau trạng thái và chặng) nên đứng thành hàng riêng, không nhồi
           vào toolbar dính vốn đã chật trên điện thoại. */}
       {isAdmin ? (
-        /* Nhãn nằm NGOÀI vùng cuộn (do `TimeRangeChips` lo): nó chiếm ~130px trong 332px của
-           máy 390px, để nó cuộn cùng thì vuốt sang là mất luôn câu giải thích các nút đang lọc
-           theo cái gì. Dãy nút cuộn ngang chứ không `flexWrap` (chỉ đạo chủ quán 2026-09-06) —
-           trước đây 5 nút gãy thành 2 hàng. */
-        <TimeRangeChips
-          ariaLabel="Lọc đơn theo thời gian đặt"
-          label="🕒 Khách đặt trong"
-          value={rangeHours}
-          options={RANGE_FILTERS}
-          onChange={setRangeHours}
-          style={{ marginBottom: 16 }}
-        />
+        /* Bộ nút chung `TimePresetChips` (Đợt 0) — nhãn chữ nằm trên hàng nút, không còn emoji
+           🕒 trong nhãn. Bọc div chỉ để giữ khoảng cách dưới như cũ (component không nhận style). */
+        <div style={{ marginBottom: 16 }}>
+          <TimePresetChips
+            ariaLabel="Lọc đơn theo thời gian đặt"
+            label="Khách đặt trong"
+            value={rangePreset}
+            presets={ONLINE_SCREEN}
+            onChange={setRangePreset}
+          />
+        </div>
       ) : (
         windowHours !== null && (
           <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
-            🕒 Chỉ hiện đơn khách đặt trong {windowLabel(windowHours)} gần nhất. Cần xem đơn cũ
+            Chỉ hiện đơn khách đặt trong {windowLabel(windowHours)} gần nhất. Cần xem đơn cũ
             hơn, nhờ chủ quán mở màn này.
           </p>
         )
@@ -874,7 +881,7 @@ function QueueView({
           className="tabstrip"
           style={{ gap: 8, marginBottom: 16 }}
         >
-          {STEP_FILTERS.map(({ value, label }) => {
+          {STEP_FILTERS.map(({ value, label, icon }) => {
             const active = stepFilter === value;
             const count = value === 'ALL' ? searchedItems.length : stepCounts[value];
             return (
@@ -893,8 +900,12 @@ function QueueView({
                   background: active ? C.accent : C.cardBg,
                   color: active ? C.cardBg : count === 0 ? C.muted : C.text,
                   border: `1px solid ${active ? C.accent : C.border}`,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
                 }}
               >
+                {icon && <Icon name={icon} size={16} />}
                 {label}
                 {count > 0 ? ` · ${count}` : ''}
               </button>
@@ -916,7 +927,10 @@ function QueueView({
             aria-expanded={showMap}
             onClick={() => setShowMap((v) => !v)}
           >
-            {showMap ? '▲ Ẩn bản đồ' : `🗺 Xem bản đồ${mappableCount > 0 ? ` · ${mappableCount} đơn` : ''}`}
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name={showMap ? 'mui-ten-len' : 'vi-tri'} size={18} />
+              {showMap ? 'Ẩn bản đồ' : `Xem bản đồ${mappableCount > 0 ? ` · ${mappableCount} đơn` : ''}`}
+            </span>
           </button>
 
           {showMap && (
@@ -979,7 +993,14 @@ function QueueView({
       )}
 
       {connState === 'dead' && (
-        <AlertBanner title="⚠ Mất kết nối" body="Đang thử nối lại — đơn mới có thể chưa hiện ngay." />
+        <AlertBanner
+          title={
+            <>
+              <Icon name="canh-bao" size={18} />
+              Mất kết nối
+            </>
+          }
+          body="Đang thử nối lại — đơn mới có thể chưa hiện ngay." />
       )}
 
       {loadError && (
@@ -1026,7 +1047,7 @@ function QueueView({
         <div className="card" style={{ textAlign: 'center', padding: 32 }}>
           <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.text }}>
             {isQueue
-              ? 'Không có đơn nào đang chờ 🎉'
+              ? 'Không có đơn nào đang chờ'
               : status === 'CONFIRMED'
                 ? 'Chưa có đơn nào được xác nhận'
                 : status === 'COMPLETED'
@@ -1091,7 +1112,7 @@ function AlertBanner({
   body,
   action,
 }: {
-  title: string;
+  title: React.ReactNode;
   body: string;
   action?: React.ReactNode;
 }) {
@@ -1113,7 +1134,7 @@ function AlertBanner({
       }}
     >
       <div style={{ flex: 1, minWidth: 200 }}>
-        <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>{title}</p>
+        <p style={{ margin: 0, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>{title}</p>
         <p style={{ margin: '4px 0 0', fontSize: 13 }}>{body}</p>
       </div>
       {action}
@@ -1155,7 +1176,8 @@ function FulfillmentChip({ delivery }: { delivery: boolean }) {
         whiteSpace: 'nowrap',
       }}
     >
-      {delivery ? '🛵 Giao tận nơi' : '🏠 Khách tự lấy'}
+      <Icon name={delivery ? 'giao-hang' : 'mang-ve'} size={16} />
+      {delivery ? 'Giao tận nơi' : 'Khách tự lấy'}
     </span>
   );
 }
@@ -1196,7 +1218,8 @@ function DistanceChip({ row }: { row: AdminOnlineOrderRow }) {
         color: tone.text,
       }}
     >
-      🛵 {row.distance_km} km
+      <Icon name="giao-hang" size={16} />
+      {row.distance_km} km
       {fee === 0 ? ' · miễn phí ship' : fee !== null ? ` · +${fmtVnd(fee)}` : ''}
     </span>
   );
@@ -1236,7 +1259,8 @@ function AddressSourceChip({ shared }: { shared: boolean }) {
         color: tone.text,
       }}
     >
-      {shared ? '📍 Khách chia sẻ vị trí' : '✍️ Địa chỉ nhập tay'}
+      <Icon name={shared ? 'vi-tri' : 'sua'} size={16} />
+      {shared ? 'Khách chia sẻ vị trí' : 'Địa chỉ nhập tay'}
     </span>
   );
 }
@@ -1629,7 +1653,7 @@ function OrderCard({
           }}
           style={{ fontSize: 13 }}
         >
-          🔄 Chuyển sang {FULFILLMENT_LABEL[switchTarget]}
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chuyen-ban" size={16} />Chuyển sang {FULFILLMENT_LABEL[switchTarget]}</span>
         </button>
       )}
     </div>
@@ -1659,7 +1683,8 @@ function OrderCard({
               whiteSpace: 'nowrap',
             }}
           >
-            {tone.icon} {tone.label}
+            <Icon name={tone.icon} size={16} />
+            {tone.label}
           </span>
         ) : (
           <span aria-label={`Thứ tự chờ ${position}`} style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
@@ -1687,14 +1712,16 @@ function OrderCard({
               color: readOnly ? C.muted : overdue ? C.alertText : C.text,
             }}
           >
-            {!readOnly && overdue ? '⏰ ' : ''}
+            {!readOnly && overdue && (
+              <Icon name="gio" size={22} style={{ marginRight: 6, verticalAlign: '-3px' }} />
+            )}
             {formatWait(waited)}
             {readOnly ? ' chờ' : ''}
           </span>
         )}
         {readOnly && (
           <span aria-hidden="true" style={{ fontSize: 13, color: C.muted, width: 16, textAlign: 'center' }}>
-            {open ? '▲' : '▼'}
+            <Icon name={open ? 'mui-ten-len' : 'mui-ten-xuong'} size={16} />
           </span>
         )}
       </div>
@@ -1717,8 +1744,9 @@ function OrderCard({
               còn chờ ship là đúng cái tra-cứu-chậm mà dòng tự-đủ-nghĩa này sinh ra để tránh.
               TÊN đầy đủ ("Ship 03"), không phải mã `ship-03` — chỉ đạo 2026-08-04. */}
           {(row.table_name ?? row.table_code) && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>
-              🍽 {row.table_name ?? row.table_code}
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.text, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="ban" size={16} />
+              {row.table_name ?? row.table_code}
             </span>
           )}
           {fv && (
@@ -1910,9 +1938,10 @@ function OrderCard({
                 setRejectOpen(false);
                 setEditOpen(true);
               }}
-              style={{ fontSize: 13, marginTop: 8 }}
+              style={{ fontSize: 13, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             >
-              ✏️ Sửa số lượng / bỏ món
+              <Icon name="sua" size={16} />
+              Sửa số lượng / bỏ món
             </button>
           )}
         </div>
@@ -1944,8 +1973,9 @@ function OrderCard({
               padding: '12px 16px',
             }}
           >
-            <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
-              {tone.icon} {tone.label}
+            <p style={{ margin: 0, fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name={tone.icon} size={18} />
+              {tone.label}
             </p>
             <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500 }}>
               {row.reviewed_at_ms ? fmtClock(row.reviewed_at_ms) : '—'}
@@ -1978,8 +2008,9 @@ function OrderCard({
                   {/* `table_name` đã là tên đủ ("Bàn 05" / "Ship 03") — KHÔNG thêm chữ "Bàn"
                       đằng trước, sẽ thành "Bàn Ship 03". Fallback mã code khi thiếu tên. */}
                   {(row.table_name ?? row.table_code) && (
-                    <span style={{ fontSize: 16, fontWeight: 700 }}>
-                      🍽 {row.table_name ?? row.table_code}
+                    <span style={{ fontSize: 16, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="ban" size={18} />
+                      {row.table_name ?? row.table_code}
                     </span>
                   )}
                   {fv.validCount !== null && (
@@ -1995,16 +2026,41 @@ function OrderCard({
                 {(row.shipped_at_ms !== null ||
                   row.received_at_ms !== null ||
                   row.paid_at_ms !== null) && (
-                  <p style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>
-                    {[
-                      row.shipped_at_ms !== null ? `🛵 Rời quán ${fmtClock(row.shipped_at_ms)}` : null,
-                      row.received_at_ms !== null
-                        ? `✓ ${isDelivery ? 'Khách nhận' : 'Khách lấy'} ${fmtClock(row.received_at_ms)}`
-                        : null,
-                      row.paid_at_ms !== null ? `💰 Thu tiền ${fmtClock(row.paid_at_ms)}` : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' · ')}
+                  <p
+                    style={{
+                      margin: 0,
+                      fontSize: 13,
+                      fontWeight: 500,
+                      display: 'flex',
+                      alignItems: 'center',
+                      flexWrap: 'wrap',
+                      gap: 6,
+                    }}
+                  >
+                    {/* Trước là chuỗi nối " · " có emoji 🛵 ✓ 💰; giờ icon là phần tử nên dựng
+                        mảng JSX, dấu " · " chèn giữa các mốc như cũ. */}
+                    {(
+                      [
+                        row.shipped_at_ms !== null
+                          ? { icon: 'giao-hang', text: `Rời quán ${fmtClock(row.shipped_at_ms)}` }
+                          : null,
+                        row.received_at_ms !== null
+                          ? {
+                              icon: 'xong',
+                              text: `${isDelivery ? 'Khách nhận' : 'Khách lấy'} ${fmtClock(row.received_at_ms)}`,
+                            }
+                          : null,
+                        row.paid_at_ms !== null
+                          ? { icon: 'thanh-toan', text: `Thu tiền ${fmtClock(row.paid_at_ms)}` }
+                          : null,
+                      ].filter(Boolean) as Array<{ icon: IconName; text: string }>
+                    ).map((m, i) => (
+                      <span key={m.icon} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {i > 0 && <span aria-hidden="true">·</span>}
+                        <Icon name={m.icon} size={16} />
+                        {m.text}
+                      </span>
+                    ))}
                   </p>
                 )}
 
@@ -2017,9 +2073,16 @@ function OrderCard({
                         type="button"
                         disabled={busy}
                         onClick={() => void markFulfillment(fv.action as FulfillmentAction)}
-                        style={{ minWidth: 220 }}
+                        style={{ minWidth: 220, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
                       >
-                        {busy ? 'Đang xử lý...' : `🛵 ${fv.actionLabel}`}
+                        {busy ? (
+                          'Đang xử lý...'
+                        ) : (
+                          <>
+                            <Icon name="giao-hang" size={20} />
+                            {fv.actionLabel}
+                          </>
+                        )}
                       </button>
                     )}
                     <span style={{ flex: 1 }} />
@@ -2087,8 +2150,9 @@ function OrderCard({
               padding: '12px 16px',
             }}
           >
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>
-              ⚠ {row.out_of_stock_count} món đã hết hàng
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="canh-bao" size={16} />
+              {row.out_of_stock_count} món đã hết hàng
             </p>
             {row.items
               .filter((i) => i.is_out_of_stock)
@@ -2240,7 +2304,7 @@ function SwitchFulfillmentPanel({
       }}
     >
       <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
-        🔄 Chuyển sang {FULFILLMENT_LABEL[target]}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chuyen-ban" size={18} />Chuyển sang {FULFILLMENT_LABEL[target]}</span>
       </p>
       <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: C.muted, lineHeight: 1.5 }}>
         {toDelivery
@@ -2536,9 +2600,9 @@ function EditItemsPanel({
                   aria-label={`Bỏ ${it.name} khỏi đơn`}
                   disabled={busy}
                   onClick={() => removeItem(it.menu_item_id)}
-                  style={{ ...stepBtn, color: C.danger }}
+                  style={{ ...stepBtn, color: C.danger, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                 >
-                  ✕
+                  <Icon name="xoa" size={18} />
                 </button>
               </>
             )}
@@ -2611,9 +2675,9 @@ function EditItemsPanel({
             aria-label={`Bỏ ${a.name} khỏi đơn`}
             disabled={busy}
             onClick={() => setAdded((cur) => cur.filter((x) => x.menu_item_id !== a.menu_item_id))}
-            style={{ ...stepBtn, color: C.danger }}
+            style={{ ...stepBtn, color: C.danger, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            ✕
+            <Icon name="xoa" size={18} />
           </button>
         </div>
       ))}
@@ -2798,9 +2862,10 @@ function RejectPanel({
       >
         <label
           htmlFor="internal-note"
-          style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+          style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
         >
-          🔒 Ghi chú nội bộ — khách KHÔNG thấy
+          <Icon name="khoa" size={16} />
+          Ghi chú nội bộ — khách KHÔNG thấy
         </label>
         <textarea
           id="internal-note"
@@ -2850,7 +2915,7 @@ function RejectPanel({
         />
         <span>
           <span style={{ fontSize: 16, fontWeight: 500, color: blacklist ? C.alertText : C.text }}>
-            🚫 Chặn số {phone} khỏi đặt online
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chan" size={18} />Chặn số {phone} khỏi đặt online</span>
           </span>
           <span style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: C.muted }}>
             Dành cho khách cố tình phá đám. Chặn VĨNH VIỄN — muốn gỡ thì vào Cài đặt ▸ Chặn số

@@ -1,0 +1,127 @@
+/* ============================================================================
+ * NỀN MÓNG GIAO DIỆN DÙNG CHUNG — apps/web (quản lý) + apps/shop (khách)
+ * ============================================================================
+ * Đợt 0 của lộ trình đồng bộ giao diện (docs/UI-UX-AUDIT.md, chốt 2026-11-09).
+ *
+ * Ở ĐÂY CHỈ CÓ THỨ KHÔNG PHỤ THUỘC THƯƠNG HIỆU: cỡ chữ, độ đậm, giãn dòng, khoảng cách,
+ * bo góc, vùng bấm, chuyển động. MÀU nằm riêng ở mỗi app vì hai app cố ý khác màu chính
+ * (quản lý xanh ngọc, khách đỏ ớt + kem) — xem apps/web/src/styles/tokens.css và
+ * apps/shop/src/styles/tokens.css.
+ *
+ * VÌ SAO KHÔNG LÀ GÓI npm (@order/ui-tokens): thêm gói workspace mới thì Dockerfile phải copy
+ * thêm package.json của nó ở stage deps, quên là `pnpm install --frozen-lockfile` vỡ ngay trên
+ * VPS (bẫy đã dính với @order/utils). File CSS thuần không cần build, nên hai app import bằng
+ * đường dẫn tương đối; Dockerfile đã `COPY . .` toàn bộ mã nguồn trước khi build.
+ *
+ * GIÁ TRỊ LẤY NGUYÊN từ apps/shop/src/styles/tokens.css (trang khách đã dùng ổn định từ
+ * 2026-07-30). Chuyển sang đây là để trang quản lý dùng CÙNG thang — trang khách không đổi pixel.
+ *
+ * ⚠ TÊN BIẾN: trang quản lý đang có 4 bộ token cục bộ (.ncc-ui, .sx, .nv-ui, --kds-*) dùng các
+ * tên --r, --r-sm, --r-lg, --r-pill, --tap, --border, --surface, --muted… Mọi tên ở file này
+ * cố ý KHÁC những tên đó: khai trùng ở :root là chỗ nào lỡ dùng var() ngoài phạm vi cục bộ
+ * sẽ đổi giao diện ngầm. Thêm token mới thì grep `var(--<tên>` trong apps/web trước.
+ *
+ * MỐC MÀN HÌNH (CSS không cho dùng biến trong @media, nên chỉ ghi ở đây làm chuẩn):
+ *   < 768px điện thoại · 768–1279px iPad · ≥ 1280px máy tính.
+ * ========================================================================= */
+
+:root {
+  /* ── CHỮ: CỠ ─────────────────────────────────────────────────────────────
+   * Thang nhảy rõ (×1.2–1.25) để có phân cấp thật.
+   * Input LUÔN ≥ 16px — dưới 16px thì Safari iOS tự zoom khi bấm vào ô.
+   * --fs-caption 12px CHỈ trang khách dùng cho meta phụ; trang quản lý (người lớn tuổi) sàn
+   * chữ phụ là --fs-sm. */
+  --fs-caption: 0.75rem; /* 12px */
+  --fs-sm: 0.875rem; /* 14px */
+  --fs-base: 1rem; /* 16px — body, input (BẮT BUỘC cho input) */
+  --fs-md: 1.125rem; /* 18px */
+  --fs-lg: 1.25rem; /* 20px */
+  --fs-xl: 1.5rem; /* 24px */
+  --fs-2xl: 1.875rem; /* 30px */
+  --fs-3xl: 2.25rem; /* 36px */
+
+  /* ── CHỮ: ĐỘ ĐẬM & GIÃN DÒNG ─────────────────────────────────────────── */
+  --fw-normal: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --fw-heavy: 800;
+
+  --lh-tight: 1.2; /* Tiêu đề, giá. Không xuống dưới 1.15 */
+  --lh-snug: 1.35;
+  --lh-normal: 1.55;
+
+  --ls-tight: -0.01em;
+  --ls-normal: 0;
+  --ls-wide: 0.06em; /* Nhãn IN HOA */
+
+  /* ── KHOẢNG CÁCH: thang 4px ───────────────────────────────────────────── */
+  --sp-1: 0.25rem; /* 4px */
+  --sp-2: 0.5rem; /* 8px */
+  --sp-3: 0.75rem; /* 12px */
+  --sp-4: 1rem; /* 16px */
+  --sp-5: 1.25rem; /* 20px */
+  --sp-6: 1.5rem; /* 24px */
+  --sp-8: 2rem; /* 32px */
+  --sp-10: 2.5rem; /* 40px */
+  --sp-12: 3rem; /* 48px */
+  --sp-16: 4rem; /* 64px */
+
+  /* ── BO GÓC ─────────────────────────────────────────────────────────────
+   * Tên `--radius-*` chứ không `--r-*`: `--r`, `--r-sm`, `--r-lg`, `--r-pill` đã bị bộ token
+   * cục bộ của màn NCC chiếm (suppliers-ui.css). */
+  --radius-sm: 8px; /* nút, ô nhập */
+  --radius-md: 12px; /* thẻ */
+  --radius-lg: 16px; /* khối lớn, ảnh danh mục */
+  --radius-xl: 20px; /* đỉnh bottom sheet */
+  --radius-pill: 999px;
+
+  /* ── VÙNG BẤM ───────────────────────────────────────────────────────────
+   * 44px = sàn Apple HIG, đang là min-height của mọi `button` ở trang quản lý.
+   * 48/56 dành cho bộ nút chung của Đợt 1 (nút thường / nút chính). */
+  --tap-min: 44px;
+  --ctl-h: 44px; /* chiều cao ô nhập, ô chọn, ô lọc */
+  --btn-h: 48px;
+  --btn-h-lg: 56px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-top: env(safe-area-inset-top, 0px);
+
+  /* ── CHUYỂN ĐỘNG ─────────────────────────────────────────────────────────
+   * Không easing nảy/đàn hồi. Chỉ animate transform + opacity. */
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 320ms;
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Màn hình hẹp: chỉ các bậc chữ TO co lại; --fs-base/--fs-sm/--fs-caption giữ nguyên vì đã ở
+ * sàn (hạ --fs-base là iOS tự zoom ô nhập). Chủ quán soi trên điện thoại 2026-08-05: thang chữ
+ * dựng cho máy tính đọc trên máy 375px to quá mức. */
+@media (max-width: 767px) {
+  :root {
+    --fs-md: 1.0625rem; /* 17px ← 18px */
+    --fs-lg: 1.125rem; /* 18px ← 20px */
+    --fs-xl: 1.25rem; /* 20px ← 24px */
+    --fs-2xl: 1.5rem; /* 24px ← 30px */
+    --fs-3xl: 1.75rem; /* 28px ← 36px */
+  }
+}
+
+/* Người dùng bật "giảm chuyển động" → tôn trọng. Gần 0 chứ không 0 để transitionend vẫn chạy. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0.01ms;
+    --dur-base: 0.01ms;
+    --dur-slow: 0.01ms;
+  }
+}
+
+/* Lưới an toàn cho ô nhập (Đợt 0, 2026-11-09 — bỏ `maximum-scale=1` ở cả 2 app). iPhone tự phóng
+ * trang khi chạm vào ô có chữ < 16px; trước đây khoá phóng to để chặn việc đó, nhưng khoá luôn cả
+ * việc người lớn tuổi chụm 2 ngón phóng to trên Android. Giờ chống bằng cỡ chữ: ô nào KHÔNG tự đặt
+ * cỡ thì rơi về mặc định 13px của trình duyệt → luật này nâng lên ≥ 16px. `:where()` = độ ưu tiên 0:
+ * ô đã tự đặt cỡ (vd ô tiền 20px) giữ nguyên, không bị ép. */
+:where(input, select, textarea) {
+  font-size: max(16px, 1em);
+}

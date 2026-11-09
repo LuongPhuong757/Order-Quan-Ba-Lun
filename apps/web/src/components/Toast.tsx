@@ -9,6 +9,7 @@ import {
   ReactNode,
 } from 'react';
 import { notificationStore, type NotificationKind } from '../lib/notification-store.ts';
+import { Icon } from './ui/Icon.tsx';
 
 // 'neworder' = món mới về bếp. Tách riêng khỏi 'info' vì đây là việc bếp PHẢI
 // làm ngay, không phải thông tin tham khảo — cần màu + cỡ chữ khác.
@@ -104,7 +105,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               onClick={dismiss}
               aria-label="Đóng thông báo"
             >
-              ✕
+              <Icon name="dong" size={22} />
             </button>
           </div>
         </div>

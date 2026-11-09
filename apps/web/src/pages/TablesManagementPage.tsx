@@ -5,6 +5,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 
 type RestaurantTable = {
   id: string;
@@ -17,10 +18,28 @@ type RestaurantTable = {
 };
 
 const KIND_LABEL: Record<string, string> = {
-  'dine-in': '🪑 Ăn tại quán',
-  takeaway: '🥡 Mang về',
-  delivery: '🛵 Giao hàng',
+  'dine-in': 'Ăn tại quán',
+  takeaway: 'Mang về',
+  delivery: 'Giao hàng',
 };
+
+// Icon từng loại bàn tách khỏi nhãn: nhãn còn đi vào chuỗi thuần (thông báo "Chưa có bàn loại …")
+// nên không chứa được icon (Đợt 0 đồng bộ giao diện, 2026-11-09).
+const KIND_ICON: Record<string, IconName> = {
+  'dine-in': 'ban',
+  takeaway: 'mang-ve',
+  delivery: 'giao-hang',
+};
+
+function KindLabel({ kind, text, size = 16 }: { kind: string; text?: string; size?: number }) {
+  const icon = KIND_ICON[kind];
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      {icon && <Icon name={icon} size={size} />}
+      {text ?? KIND_LABEL[kind]}
+    </span>
+  );
+}
 
 const KIND_COLOR: Record<string, string> = {
   'dine-in': '#fef3c7',
@@ -110,7 +129,7 @@ export function TablesManagementPage() {
             className={kindFilter === k ? '' : 'secondary'}
             style={{ padding: '8px 14px', fontSize: 14, flex: '1 1 auto', minWidth: 110 }}
           >
-            {k === '' ? `Tất cả (${items.length})` : `${KIND_LABEL[k]} (${counts[k] || 0})`}
+            {k === '' ? `Tất cả (${items.length})` : <KindLabel kind={k} text={`${KIND_LABEL[k]} (${counts[k] || 0})`} />}
           </button>
         ))}
       </div>
@@ -148,7 +167,7 @@ export function TablesManagementPage() {
                   color: '#374151',
                   whiteSpace: 'nowrap',
                 }}>
-                  {KIND_LABEL[t.kind]}
+                  <KindLabel kind={t.kind} size={14} />
                 </span>
               </div>
               <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 10 }}>
@@ -202,9 +221,9 @@ export function TablesManagementPage() {
 
 // Mapping kind → format code/name preview ở FE (sync với BE KIND_FORMAT)
 const KIND_FORMAT_FE: Record<string, { codePrefix: string; namePrefix: string; label: string }> = {
-  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn',     label: '🪑 Tại quán' },
-  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về', label: '🥡 Mang về' },
-  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship',    label: '🛵 Giao hàng' },
+  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn',     label: 'Tại quán' },
+  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về', label: 'Mang về' },
+  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship',    label: 'Giao hàng' },
 };
 
 function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -293,7 +312,7 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
                   lineHeight: 1.2,
                 }}
               >
-                {KIND_FORMAT_FE[k].label}
+                <KindLabel kind={k} text={KIND_FORMAT_FE[k].label} />
               </button>
             ))}
           </div>
@@ -340,7 +359,10 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
             marginBottom: 12,
           }}
         >
-          <div style={{ fontWeight: 600 }}>{preview.ok ? '✓ ' : '⚠ '}{preview.msg}</div>
+          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Icon name={preview.ok ? 'xong' : 'canh-bao'} size={16} />
+            {preview.msg}
+          </div>
           {preview.ok && preview.samples.length > 0 && (
             <div style={{ marginTop: 6, fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>
               {preview.samples.map((s, i) => <div key={i}>{s}</div>)}
@@ -393,11 +415,11 @@ function TableFormModal({
       const body: Record<string, unknown> = { name, kind, x, y };
       if (existing) {
         await api.patch(`/tables/${existing.id}`, body);
-        toast.push('success', `Cập nhật ${code} thành công ✓`);
+        toast.push('success', `Cập nhật ${code} thành công`);
       } else {
         body.code = code;
         await api.post('/tables', body);
-        toast.push('success', `Tạo bàn ${code} thành công ✓`);
+        toast.push('success', `Tạo bàn ${code} thành công`);
       }
       onSaved();
     } catch (e) {
@@ -458,7 +480,7 @@ function TableFormModal({
                   lineHeight: 1.2,
                 }}
               >
-                {KIND_LABEL[k]}
+                <KindLabel kind={k} />
               </button>
             ))}
           </div>

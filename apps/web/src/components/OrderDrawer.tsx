@@ -7,6 +7,7 @@ import { useToast } from './Toast.tsx';
 import { CheckoutDialog, type CheckoutResult } from './CheckoutDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import { Icon, type IconName } from './ui/Icon.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
 import { ageColor, ageMinutes, formatAge, isAgeCritical } from '../lib/item-age.ts';
@@ -111,12 +112,13 @@ const COLOR: Record<string, string> = {
   CANCELLED: '#dc2626',
 };
 
-const NEXT_LABEL: Record<string, string> = {
-  KITCHEN: '📢 Báo bếp',
-  COOKING: '🔥 Bắt đầu nấu',
-  READY: '✓ Xong',
-  SERVED: '🍽 Đã giao',
-  CANCELLED: '✕ Huỷ',
+// Nút chuyển trạng thái món: icon + chữ (Đợt 0 đồng bộ giao diện — thay emoji 📢 🔥 ✓ 🍽 ✕).
+const NEXT_LABEL: Record<string, { icon: IconName; text: string }> = {
+  KITCHEN: { icon: 'gui', text: 'Báo bếp' },
+  COOKING: { icon: 'dang-nau', text: 'Bắt đầu nấu' },
+  READY: { icon: 'xong', text: 'Xong' },
+  SERVED: { icon: 'xong', text: 'Đã giao' },
+  CANCELLED: { icon: 'xoa', text: 'Huỷ' },
 };
 
 function fmt(v: number) {
@@ -337,7 +339,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       const ok = await confirm({
         title: isServedGroup ? 'Trả món?' : 'Huỷ món?',
         variant: 'danger',
-        confirmLabel: isServedGroup ? `↩ Trả ${g.count} phần` : `✕ Huỷ ${g.count} phần`,
+        confirmLabel: isServedGroup ? `Trả ${g.count} phần` : `Huỷ ${g.count} phần`,
         cancelLabel: 'Không',
         message: (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -363,7 +365,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
       if (!ok) return;
       try {
         await api.post('/orders/items/remove', { item_ids: g.ids });
-        toast.push('success', `${isServedGroup ? '↩ Đã trả' : '✕ Đã huỷ'} ${g.count}× ${g.rep.menu_item_name}`);
+        toast.push('success', `${isServedGroup ? 'Đã trả' : 'Đã huỷ'} ${g.count}× ${g.rep.menu_item_name}`);
         refresh();
       } catch (e) {
         toast.push('error', extractError(e).message);
@@ -401,7 +403,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     const ok = await confirm({
       title: `Huỷ cả ${table.name}?`,
       variant: 'danger',
-      confirmLabel: `🗑 Huỷ cả bàn (${aliveUnits} món)`,
+      confirmLabel: `Huỷ cả bàn (${aliveUnits} món)`,
       message: (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
@@ -434,7 +436,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
     try {
       await api.post(`/orders/${order.id}/cancel-all`);
-      toast.push('success', `🗑 Đã huỷ cả ${table.name} (${aliveUnits} món)`);
+      toast.push('success', `Đã huỷ cả ${table.name} (${aliveUnits} món)`);
       onTransferred?.(); // refresh sơ đồ bàn ở trang cha
       onClose();
     } catch (e) {
@@ -450,7 +452,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     );
     if (res.failed === 0) {
       toast.push('success', next
-        ? `⭐ Đã đánh dấu ưu tiên "${g.rep.menu_item_name}"`
+        ? `Đã đánh dấu ưu tiên "${g.rep.menu_item_name}"`
         : `Đã bỏ ưu tiên "${g.rep.menu_item_name}"`);
     } else if (res.failed === g.ids.length) {
       toast.push('error', extractError(res.firstError).message);
@@ -548,8 +550,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     // Ghi nợ: câu thông báo phải nói "chưa thu" — "Đã thanh toán" cho một bàn khách đi mà chưa trả
     // là câu sai, và người đọc toast là người đếm két.
     let msg = res.debt
-      ? `📒 Đã ghi nợ ${table.name} · ${res.total.toLocaleString('vi-VN')}đ · chưa thu, xem ở Lịch sử › Đang nợ`
-      : `✓ Đã thanh toán ${table.name} · ${res.total.toLocaleString('vi-VN')}đ`;
+      ? `Đã ghi nợ ${table.name} · ${res.total.toLocaleString('vi-VN')}đ · chưa thu, xem ở Lịch sử › Đang nợ`
+      : `Đã thanh toán ${table.name} · ${res.total.toLocaleString('vi-VN')}đ`;
     if (res.auto_served_items > 0) msg += ` (${res.auto_served_items} món chưa mang ra vẫn tính tiền)`;
     if (!res.debt && res.transfer_amount > 0) {
       msg +=
@@ -612,10 +614,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   }}
                 >
                   {order.received_at
-                    ? '✓ Khách đã nhận'
+                    ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="xong" size={14} />Khách đã nhận</span>
                     : order.shipped_at
-                      ? '🛵 Đang giao'
-                      : '🌐 Đơn online'}
+                      ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="giao-hang" size={14} />Đang giao</span>
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="web" size={14} />Đơn online</span>}
                 </span>
               )}
             </h1>
@@ -635,7 +637,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 }}
               >
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#5b21b6', marginBottom: 6 }}>
-                  👤 Khách vừa gọi · {r.items.reduce((t, i) => t + i.qty, 0)} món
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="tai-khoan" size={18} />Khách vừa gọi · {r.items.reduce((t, i) => t + i.qty, 0)} món</span>
                 </div>
                 {r.items.map((i, k) => (
                   <div
@@ -670,7 +672,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       cursor: 'pointer',
                     }}
                   >
-                    {guestBusyId === r.id ? 'Đang gửi…' : '✓ Nhận món'}
+                    {guestBusyId === r.id ? 'Đang gửi…' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="xong" size={20} />Nhận món</span>}
                   </button>
                   <button
                     type="button"
@@ -682,7 +684,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       background: '#fff', color: '#6b7280', fontSize: 15, cursor: 'pointer',
                     }}
                   >
-                    ✕ Bỏ
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="da-huy" size={18} />Bỏ</span>
                   </button>
                 </div>
               </div>
@@ -711,10 +713,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
               aria-label="Thêm thao tác"
               aria-expanded={menuOpen}
             >
-              ⋯
+              <Icon name="them-thao-tac" size={22} label="Thêm thao tác" />
             </button>
-            <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', minHeight: 40 }}>
-              ✕
+            <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', minHeight: 40 }} aria-label="Đóng">
+              <Icon name="dong" size={22} label="Đóng" />
             </button>
             {menuOpen && (
               <>
@@ -731,19 +733,19 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                         onClick={() => { setMenuOpen(false); setShowTransfer(true); }}
                         disabled={!hasItems}
                       >
-                        ↪ Chuyển bàn
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chuyen-ban" size={18} />Chuyển bàn</span>
                       </button>
                       {/* Ghi chú cho bếp — "lấy bát", "đũa thìa", "nước mắm". Lưu như 1 dòng
                           item nên bếp thấy trên KDS và tick được như món thường. */}
                       <button onClick={() => { setMenuOpen(false); setShowNote(true); }}>
-                        📝 Ghi chú cho bếp
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-chu" size={18} />Ghi chú cho bếp</span>
                       </button>
                       {hasAliveItems && (
                         <button
                           onClick={() => { setMenuOpen(false); void cancelWholeTable(); }}
                           style={{ color: '#dc2626' }}
                         >
-                          🗑 Huỷ cả bàn
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="xoa" size={18} />Huỷ cả bàn</span>
                         </button>
                       )}
                     </>
@@ -755,11 +757,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       disabled={tamTinhBusy}
                       onClick={() => { setMenuOpen(false); void printTamTinh(); }}
                     >
-                      🖨 In phiếu tạm tính
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="in" size={18} />In phiếu tạm tính</span>
                     </button>
                   )}
                   <button onClick={() => { setMenuOpen(false); setHelpOpen(true); }}>
-                    ❓ Hướng dẫn
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="tro-giup" size={18} />Hướng dẫn</span>
                   </button>
                 </div>
               </>
@@ -775,29 +777,29 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
 
           <h3 style={{ marginBottom: 6 }}>Đánh dấu món đã giao tới khách</h3>
           <p style={{ margin: '4px 0' }}>
-            Khi bạn cầm món ra bàn cho khách, bấm nút <strong>🚀 Đã giao</strong> bên phải món. Việc này có thể làm <strong>ở bất kỳ trạng thái nào</strong> — kể cả khi món vẫn còn ở "Đã gọi" hay "Đang nấu":
+            Khi bạn cầm món ra bàn cho khách, bấm nút <strong>Đã giao</strong> bên phải món. Việc này có thể làm <strong>ở bất kỳ trạng thái nào</strong> — kể cả khi món vẫn còn ở "Đã gọi" hay "Đang nấu":
           </p>
           <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
-            <li>Với món <strong>"Đã xong"</strong> — cách thường gặp: bếp đã làm xong, bạn ra lấy + tap "🚀 Đã giao".</li>
-            <li>Với món <strong>không cần nấu</strong> (vd: nước đóng chai có sẵn) — tap "🚀 Đã giao" luôn ở trạng thái "Đã gọi".</li>
+            <li>Với món <strong>"Đã xong"</strong> — cách thường gặp: bếp đã làm xong, bạn ra lấy + tap "Đã giao".</li>
+            <li>Với món <strong>không cần nấu</strong> (vd: nước đóng chai có sẵn) — tap "Đã giao" luôn ở trạng thái "Đã gọi".</li>
           </ul>
           <p style={{ margin: '4px 0' }}>
-            Sau khi đã giao, bếp nhận noti biết món đã ra. Khi <strong>tất cả</strong> món đã giao, thẻ bàn ở sơ đồ chuyển xanh → bấm "💰 Thanh toán".
+            Sau khi đã giao, bếp nhận noti biết món đã ra. Khi <strong>tất cả</strong> món đã giao, thẻ bàn ở sơ đồ chuyển xanh → bấm "Thanh toán".
           </p>
 
-          <h3 style={{ marginBottom: 6 }}>⭐ Ưu tiên món</h3>
+          <h3 style={{ marginBottom: 6 }}>Ưu tiên món</h3>
           <p style={{ margin: '4px 0' }}>
-            Khi khách sắp về (vd: yêu cầu nhanh), bấm nút <strong>⭐ Ưu tiên</strong> trên món ở trạng thái "Đã báo bếp". Tại màn Bếp, món sẽ:
+            Khi khách sắp về (vd: yêu cầu nhanh), bấm nút <strong>Ưu tiên</strong> trên món ở trạng thái "Đã báo bếp". Tại màn Bếp, món sẽ:
           </p>
           <ul style={{ paddingLeft: 22, margin: '4px 0' }}>
             <li>Đứng đầu cột "Đã order"</li>
-            <li>Có nhãn ⭐ ƯU TIÊN CẦN NẤU TRƯỚC</li>
+            <li>Có nhãn ƯU TIÊN CẦN NẤU TRƯỚC</li>
             <li>Tự bỏ ưu tiên khi bếp bấm "Bắt đầu nấu"</li>
           </ul>
 
           <h3 style={{ marginBottom: 6 }}>Huỷ món</h3>
           <p style={{ margin: '4px 0 0' }}>
-            Bấm "✕ Huỷ" trên món. Nếu món đã báo bếp, bạn cần nhập lý do — bếp nhận noti tự động.
+            Bấm "Huỷ" trên món. Nếu món đã báo bếp, bạn cần nhập lý do — bếp nhận noti tự động.
           </p>
         </HelpModal>
 
@@ -819,14 +821,15 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                 <div className="flex between" style={{ alignItems: 'flex-start', gap: 8 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 12, color: '#6b7280', fontWeight: 600, marginBottom: 4 }}>
-                      🛵 KHÁCH GIAO HÀNG
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="giao-hang" size={14} />KHÁCH GIAO HÀNG</span>
                     </div>
                     {order.customer_name ? (
                       <div style={{ fontSize: 14, lineHeight: 1.5 }}>
                         <div><strong>{order.customer_name}</strong> · <a href={`tel:${order.customer_phone}`} style={{ color: '#0f766e' }}>{order.customer_phone}</a></div>
                         {order.customer_address && (
                           <div style={{ color: '#374151', wordBreak: 'break-word' }}>
-                            📍 {order.customer_address}
+                            <Icon name="vi-tri" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />
+                            {order.customer_address}
                             {order.distance_km ? ` · ${order.distance_km} km` : ''}
                           </div>
                         )}
@@ -838,8 +841,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                         {(order.customer_address || hasSharedLocation(order)) && (
                           <div style={{ fontSize: 12, fontWeight: 600, marginTop: 2, color: hasSharedLocation(order) ? '#047857' : '#6b7280' }}>
                             {hasSharedLocation(order)
-                              ? '📍 Khách chia sẻ vị trí — ghim bản đồ đúng chỗ nhà khách'
-                              : '✍️ Địa chỉ nhập tay — chưa có ghim bản đồ, tìm nhà theo dòng địa chỉ'}
+                              ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="vi-tri" size={14} />Khách chia sẻ vị trí — ghim bản đồ đúng chỗ nhà khách</span>
+                              : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="sua" size={14} />Địa chỉ nhập tay — chưa có ghim bản đồ, tìm nhà theo dòng địa chỉ</span>}
                           </div>
                         )}
                         {/* Nút mở bản đồ cho người đi ship — dùng chung `customerMapHref` với màn
@@ -863,7 +866,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                                 textDecoration: 'none',
                               }}
                             >
-                              🗺 Mở bản đồ chỉ đường
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="vi-tri" size={16} />Mở bản đồ chỉ đường</span>
                             </a>
                           </div>
                         )}
@@ -904,7 +907,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                     minHeight: 48,
                   }}
                 >
-                  {fulfillBusy ? 'Đang xử lý...' : '🛵 Đã đi ship'}
+                  {fulfillBusy ? 'Đang xử lý...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="giao-hang" size={20} />Đã đi ship</span>}
                 </button>
               )}
               {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món. Đơn ship chưa rời quán
@@ -938,7 +941,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   {/* CHỈ chữ, không số tiền, không chú thích (chỉ đạo chủ quán 2026-09-08).
                       Tiền đã nằm ngay dưới tên bàn ở header; còn "N món sẽ bị huỷ" thì hộp xác
                       nhận thanh toán liệt kê đầy đủ, đúng lúc người ta cần đọc nó. */}
-                  💰 Thanh toán
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="thanh-toan" size={20} />Thanh toán</span>
                 </button>
               )}
             </div>
@@ -1040,7 +1043,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   color: '#6b7280',
                 }}
               >
-                ✓ Đã thanh toán lúc {new Date(order!.closed_at!).toLocaleTimeString('vi-VN')}
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="xong" size={18} />Đã thanh toán lúc {new Date(order!.closed_at!).toLocaleTimeString('vi-VN')}</span>
               </div>
             )}
           </>
@@ -1168,7 +1171,7 @@ function DeliveryInfoModal({
         address: address.trim(),
         phone: phone.trim(),
       });
-      toast.push('success', 'Đã lưu thông tin khách ✓');
+      toast.push('success', 'Đã lưu thông tin khách');
       onSaved();
     } catch (e) {
       setErr(extractError(e).message);
@@ -1189,13 +1192,13 @@ function DeliveryInfoModal({
       <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
-            <h1 style={{ margin: 0 }}>🛵 Thông tin khách giao hàng</h1>
+            <h1 style={{ margin: 0 }}>Thông tin khách giao hàng</h1>
             <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
               Không bắt buộc — điền phần nào biết, để trống phần chưa có
             </div>
           </div>
-          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -1299,7 +1302,7 @@ function ServiceNoteModal({
     setErr(null);
     try {
       await api.post(`/orders/${orderId}/notes`, { text: content, send_to_kitchen: toKitchen });
-      toast.push('success', `📝 Đã gửi ghi chú: ${content}`);
+      toast.push('success', `Đã gửi ghi chú: ${content}`);
       onDone();
     } catch (e) {
       setErr(extractError(e).message);
@@ -1320,11 +1323,11 @@ function ServiceNoteModal({
       <form className="modal" onSubmit={submit} style={{ maxWidth: 460 }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 20 }}>📝 Ghi chú cho bếp</h1>
+            <h1 style={{ margin: 0, fontSize: 20 }}>Ghi chú cho bếp</h1>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{tableLabel}</div>
           </div>
-          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -1373,7 +1376,7 @@ function ServiceNoteModal({
             Thôi
           </button>
           <button type="submit" disabled={submitting} style={{ flex: 2, minHeight: 46, fontWeight: 700 }}>
-            {submitting ? 'Đang gửi...' : '📝 Gửi ghi chú'}
+            {submitting ? 'Đang gửi...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-chu" size={20} />Gửi ghi chú</span>}
           </button>
         </div>
       </form>
@@ -1448,7 +1451,7 @@ function EditQtyModal({
         });
         toast.push(
           'success',
-          `${isServed ? '↩' : '✕'} Đã bớt ${-delta}× ${group.rep.menu_item_name}` +
+          `Đã bớt ${-delta}× ${group.rep.menu_item_name}` +
             (billDelta < 0 ? ` — bớt ${fmt(-billDelta)}` : ''),
         );
       } else {
@@ -1458,7 +1461,7 @@ function EditQtyModal({
           items: [{ menu_item_id: group.rep.menu_item_id, qty: delta, note: group.rep.note }],
           send_to_kitchen: group.rep.state !== 'PENDING',
         });
-        toast.push('success', `➕ Đã gọi thêm ${delta}× ${group.rep.menu_item_name}`);
+        toast.push('success', `Đã gọi thêm ${delta}× ${group.rep.menu_item_name}`);
       }
       onDone();
     } catch (e) {
@@ -1481,9 +1484,9 @@ function EditQtyModal({
     >
       <form className="modal" onSubmit={submit} style={{ maxWidth: 440 }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
-          <h1 style={{ margin: 0, fontSize: 20 }}>✎ Sửa số lượng</h1>
-          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <h1 style={{ margin: 0, fontSize: 20 }}>Sửa số lượng</h1>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -1502,7 +1505,7 @@ function EditQtyModal({
           </div>
           {group.rep.note && (
             <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic', marginTop: 2 }}>
-              📝 {group.rep.note}
+              <Icon name="ghi-chu" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{group.rep.note}
             </div>
           )}
         </div>
@@ -1721,13 +1724,15 @@ function ItemRow({
                 marginBottom: 4,
               }}
             >
-              ⭐ ƯU TIÊN
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uu-tien" size={12} />ƯU TIÊN</span>
             </div>
           )}
           {/* Ghi chú: không hiện "N ×" và không hiện giá — nó là yêu cầu phục vụ,
               không phải hàng bán. Icon 📝 để phân biệt ngay khi liếc. */}
           <div style={{ fontWeight: 600 }}>
-            {item.is_note ? `📝 ${item.menu_item_name}` : `${n} × ${item.menu_item_name}`}
+            {item.is_note ? (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-chu" size={16} />{item.menu_item_name}</span>
+            ) : `${n} × ${item.menu_item_name}`}
           </div>
           {/* Đồng hồ chờ — bồi bàn liếc là biết món nào đã lâu để ưu tiên hoặc báo
               khách. Cùng ngưỡng màu với màn Bếp: đen <10p, vàng >10p, đỏ >20p. */}
@@ -1745,8 +1750,8 @@ function ItemRow({
               }}
               title={`Khách gọi lúc ${new Date(ageAt).toLocaleTimeString('vi-VN')} — đã chờ ${waitedMin} phút`}
             >
-              <span>
-                {tooLong ? '⚠' : '⏱'} Đã chờ {formatAge(waitedMin)}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name={tooLong ? 'canh-bao' : 'gio'} size={14} />Đã chờ {formatAge(waitedMin)}
               </span>
               {tooLong && (
                 <span style={{ fontWeight: 600, fontSize: 11 }}>
@@ -1757,17 +1762,17 @@ function ItemRow({
           )}
           {item.created_by_full_name && (
             <div style={{ fontSize: 11, color: '#0f766e', marginTop: 2 }}>
-              👤 NV gọi: {item.created_by_full_name}
+              <Icon name="tai-khoan" size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} />NV gọi: {item.created_by_full_name}
             </div>
           )}
           {item.note && (
             <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>
-              📝 {item.note}
+              <Icon name="ghi-chu" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.note}
             </div>
           )}
           {item.cancelled_reason && (
             <div style={{ fontSize: 12, color: '#dc2626' }}>
-              ❌ {item.cancelled_reason}
+              <Icon name="da-huy" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.cancelled_reason}
             </div>
           )}
         </div>
@@ -1788,7 +1793,7 @@ function ItemRow({
               title={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
               aria-label={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
             >
-              ⋯
+              <Icon name="them-thao-tac" size={20} label={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'} />
             </button>
           )}
           <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
@@ -1806,7 +1811,7 @@ function ItemRow({
               onClick={() => onChangeState(to)}
               style={{ ...ROW_BTN, background: COLOR[to] }}
             >
-              {NEXT_LABEL[to]}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name={NEXT_LABEL[to].icon} size={14} />{NEXT_LABEL[to].text}</span>
             </button>
           ))}
           {/* Ưu tiên chỉ có nghĩa khi món đang nằm ở hàng chờ BẾP (state KITCHEN) — trạng thái
@@ -1818,7 +1823,7 @@ function ItemRow({
               style={{ ...ROW_BTN, background: item.is_priority ? '#b45309' : '#f59e0b', color: 'white' }}
               title={item.is_priority ? 'Bỏ đánh dấu ưu tiên' : 'Đánh dấu ưu tiên — bếp nấu trước'}
             >
-              {item.is_priority ? '★ Bỏ ƯT' : '⭐ Ưu tiên'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uu-tien" size={14} />{item.is_priority ? 'Bỏ ƯT' : 'Ưu tiên'}</span>
             </button>
           )}
         </div>
@@ -1842,7 +1847,7 @@ function ItemRow({
               style={ROW_BTN}
               title={`Đang có ${n} phần — sửa tăng/giảm hoặc bỏ hẳn`}
             >
-              ✎ Sửa SL
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="sua" size={14} />Sửa SL</span>
             </button>
           )}
           {cancelAllowed && (
@@ -1858,7 +1863,12 @@ function ItemRow({
                     : 'Huỷ'
               }
             >
-              {isServed ? '↩ Trả món' : CANCEL_CONFIRM[item.state] ? '⚠ Huỷ' : '✕ Huỷ'}
+              {/* Trước là "⚠ Huỷ" (cần xác nhận) / "✕ Huỷ": nay cùng icon xoá — phân biệt "cần xác
+                  nhận" vẫn nằm ở `title` và hộp xác nhận bật ra khi bấm. */}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <Icon name={isServed ? 'hoan-tac' : 'xoa'} size={14} />
+                {isServed ? 'Trả món' : 'Huỷ'}
+              </span>
             </button>
           )}
         </div>
@@ -1926,8 +1936,8 @@ function TransferTableModal({
       <div className="modal">
         <div className="flex between" style={{ marginBottom: 12 }}>
           <h1 style={{ margin: 0 }}>Chuyển bàn</h1>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
         <p style={{ color: '#6b7280' }}>
@@ -1960,7 +1970,7 @@ function TransferTableModal({
                   <code>{t.code}</code> {t.name}
                 </span>
                 <span style={{ color: busy ? '#b45309' : '#6b7280', fontSize: 12 }}>
-                  {busy ? '🔴 chưa thanh toán' : t.kind}
+                  {busy ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="dang-cho" size={14} />chưa thanh toán</span> : t.kind}
                 </span>
               </button>
             );

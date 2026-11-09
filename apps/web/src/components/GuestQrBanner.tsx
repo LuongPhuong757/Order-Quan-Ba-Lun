@@ -21,6 +21,7 @@ import { guestPendingStore } from '../lib/guest-pending.ts';
 import { buildGuestCards, groupCallsByTable, type PendingPayload } from '../lib/kds-guest-cards.ts';
 import { GuestRequestCards } from './GuestRequestCards.tsx';
 import { useToast } from './Toast.tsx';
+import { Icon } from './ui/Icon.tsx';
 
 type Props = {
   data: PendingPayload | null;
@@ -162,7 +163,7 @@ export function GuestQrBanner({ data, canApprove }: Props) {
     <div ref={ref} className={`qr-banner${canApprove ? '' : ' qr-banner--kds'}`} role="alert">
       {/* Nhãn đứng yên, chỉ hàng chip trượt — vuốt tới đâu vẫn biết dải này nói chuyện gì. */}
       {/* Ngắn nhất có thể: chỗ trên dải là để dành cho chip số bàn. */}
-      <span className="qr-banner-title">📱 {tableCount} bàn QR</span>
+      <span className="qr-banner-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="qr" size={16} />{tableCount} bàn QR</span>
       <div className="qr-banner-list">
         <GuestRequestCards
           cards={cards}

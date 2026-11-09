@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 export function SetupPage() {
   const toast = useToast();
@@ -75,13 +76,13 @@ export function SetupPage() {
     return (
       <div className="container">
         <div className="card">
-          <h1>✅ Setup thành công</h1>
+          <h1>Setup thành công</h1>
           <p>Tài khoản chủ quán đã được tạo. Đây là <strong>mã khôi phục 1 lần</strong>:</p>
           <pre style={{ background: '#fef3c7', padding: 16, borderRadius: 8, fontSize: 18, textAlign: 'center', wordBreak: 'break-all' }}>
             {result.recovery_code}
           </pre>
           <p style={{ color: '#dc2626', fontWeight: 600 }}>
-            ⚠ Lưu mã này ngay (chụp màn hình / in giấy / cất chỗ an toàn).
+            <Icon name="canh-bao" size={18} style={{ verticalAlign: '-3px', marginRight: 6 }} />Lưu mã này ngay (chụp màn hình / in giấy / cất chỗ an toàn).
             Mã này KHÔNG hiển thị lại. Nếu mất, owner KHÔNG thể reset password được.
           </p>
           <button onClick={() => navigate('/login')} style={{ width: '100%', marginTop: 16 }}>

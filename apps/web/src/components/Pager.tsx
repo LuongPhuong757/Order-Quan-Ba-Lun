@@ -1,13 +1,12 @@
-// Thanh chuyển trang dùng chung cho các bảng của màn Nhà cung cấp.
+// Thanh chuyển trang của các bảng cắt trang Ở CLIENT (màn Nhà cung cấp, Món bán…) — nhận thẳng
+// `TrangKetQua` của `phanTrang()` cho gọn chỗ gọi.
 //
-// Tách khỏi `SupplierStatsPanel` (nơi nó ra đời) khi tab "Mặt hàng nhập" và tab "Phiếu nhập"
-// cũng cần phân trang: ba bản sao của cùng một cặp nút thì sớm muộn ba chỗ lệch nhau về chỗ
-// kẹp trang hoặc về việc có ẩn khi chỉ có một trang hay không.
+// Từ 2026-11-09 chỉ còn là lớp bọc mỏng của `ui/Pagination` (thanh chung toàn hệ thống: dãy số +
+// lưới chọn trang). Giữ lại tên cũ để 6 chỗ gọi không phải sửa.
 //
-// Ẩn hẳn khi chỉ có MỘT trang: quán mới mở chỉ có dăm dòng, hiện "Trang 1 / 1" kèm hai nút mờ
-// là thêm nhiễu cho một thứ không dùng được.
-import { C } from '../lib/online-ui.ts';
+// Ẩn hẳn khi chỉ có MỘT trang — `Pagination` tự lo.
 import type { TrangKetQua } from '../lib/supplier-stats.ts';
+import { Pagination } from './ui/Pagination.tsx';
 
 export function Pager<T>({
   trang,
@@ -16,33 +15,16 @@ export function Pager<T>({
 }: {
   trang: TrangKetQua<T>;
   doiTrang: (n: number) => void;
-  /** Tên thứ đang đếm, số ít — "phiếu", "mặt hàng". Dùng cho nhãn trợ năng của hai nút. */
+  /** Tên thứ đang đếm, số ít — "phiếu", "mặt hàng". Hiện ở dòng "Trang 2 / 5 · 93 phiếu". */
   nhan: string;
 }) {
-  if (trang.totalPages <= 1) return null;
   return (
-    <div className="flex" style={{ marginTop: 12, justifyContent: 'center', gap: 8 }}>
-      <button
-        className="secondary"
-        onClick={() => doiTrang(Math.max(1, trang.page - 1))}
-        disabled={trang.page === 1}
-        aria-label={`Trang ${nhan} trước`}
-        style={{ minHeight: 44 }}
-      >
-        ← Trước
-      </button>
-      <span style={{ alignSelf: 'center', color: C.mutedOnTint, fontSize: 14 }}>
-        Trang {trang.page} / {trang.totalPages}
-      </span>
-      <button
-        className="secondary"
-        onClick={() => doiTrang(Math.min(trang.totalPages, trang.page + 1))}
-        disabled={trang.page >= trang.totalPages}
-        aria-label={`Trang ${nhan} sau`}
-        style={{ minHeight: 44 }}
-      >
-        Sau →
-      </button>
-    </div>
+    <Pagination
+      page={trang.page}
+      totalPages={trang.totalPages}
+      onChange={doiTrang}
+      total={trang.total}
+      donVi={nhan}
+    />
   );
 }

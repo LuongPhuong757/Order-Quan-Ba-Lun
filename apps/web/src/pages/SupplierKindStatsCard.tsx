@@ -88,7 +88,7 @@ export function SupplierKindStatsCard({ range }: { range: DayRange }) {
   return (
     <div style={{ marginTop: 12 }}>
       <ChartCard
-        title="🧂 Nguyên liệu chính / bán nguyên / phụ"
+        title="Nguyên liệu chính / bán nguyên / phụ"
         hint="Tính cho CẢ QUÁN, không theo nhà cung cấp đang lọc. Doanh thu = tiền món đã bán của đơn đã thu, không gồm phí ship."
       >
         <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginBottom: 12 }}>

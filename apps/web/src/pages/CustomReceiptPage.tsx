@@ -8,6 +8,7 @@ import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { CustomReceiptsLog } from './CustomReceiptsLog.tsx';
 import { BulkOrderModal } from '../components/BulkOrderModal.tsx';
 import { blankLine, receiptTotals, toCreatePayload, type DraftLine } from '../lib/custom-receipt.ts';
@@ -29,7 +30,10 @@ const input: React.CSSProperties = {
   padding: '8px 10px',
   border: `1px solid ${C.border}`,
   borderRadius: 6,
-  fontSize: 15,
+  // 16px/44px (Đợt 0, 2026-11-09): 15px làm iPhone tự phóng khi chạm vào ô (giờ đã bỏ khoá phóng
+  // to `maximum-scale=1`). Trên điện thoại trước đây được luật chung ép 16px, iPad thì không.
+  fontSize: 16,
+  minHeight: 44,
   boxSizing: 'border-box',
 };
 
@@ -101,7 +105,10 @@ function ReceiptLineCard({
           </div>
           <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmt(line.unit_price)} / phần</div>
           {line.note && (
-            <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic' }}>📝 {line.note}</div>
+            <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="ghi-chu" size={14} />
+              {line.note}
+            </div>
           )}
         </div>
         <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
@@ -113,7 +120,7 @@ function ReceiptLineCard({
             aria-label={editing ? 'Đóng phần sửa' : 'Sửa tên, giá, ghi chú'}
             title={editing ? 'Đóng phần sửa' : 'Sửa tên, giá, ghi chú'}
           >
-            ⋯
+            <Icon name="them-thao-tac" size={22} />
           </button>
           <div style={{ fontWeight: 600 }}>{fmt(lineAmount(line))}</div>
         </div>
@@ -187,7 +194,9 @@ function ReceiptLineCard({
             onClick={onRemove}
             title={`Bỏ ${line.name || 'dòng này'} khỏi hoá đơn`}
           >
-            ✕ Bỏ dòng này
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="xoa" size={16} />Bỏ dòng này
+            </span>
           </button>
         </div>
       )}
@@ -266,7 +275,7 @@ export function CustomReceiptPage() {
           margin: '12px 0 4px',
         }}
       >
-        <h1 style={{ margin: 0 }}>🧾 Hoá đơn tự do</h1>
+        <h1 style={{ margin: 0 }}>Hoá đơn tự do</h1>
         {canSeeLog && (
           <button
             type="button"
@@ -274,7 +283,13 @@ export function CustomReceiptPage() {
             style={{ padding: '8px 14px', fontSize: 13, flex: '0 0 auto' }}
             onClick={() => setShowLog((v) => !v)}
           >
-            {showLog ? '← Soạn hoá đơn' : '🕘 Đã in'}
+            {showLog ? (
+              '← Soạn hoá đơn'
+            ) : (
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="lich-su" size={16} />Đã in
+              </span>
+            )}
           </button>
         )}
       </div>
@@ -396,7 +411,13 @@ export function CustomReceiptPage() {
           disabled={printing || lines.length === 0}
           style={{ marginTop: 14, padding: '12px 20px', width: '100%', fontSize: 16 }}
         >
-          {printing ? 'Đang gửi…' : '🖨 In hoá đơn'}
+          {printing ? (
+            'Đang gửi…'
+          ) : (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="in" size={20} />In hoá đơn
+            </span>
+          )}
         </button>
       </div>
 

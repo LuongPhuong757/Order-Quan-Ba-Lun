@@ -14,6 +14,8 @@ import { phanTrang } from '../lib/supplier-stats.ts';
 import { khopTuKhoa } from '../lib/tim-mon.ts';
 import { shiftRangeMs, type DayRange } from '../lib/date-range.ts';
 import { FilterBar, pctVN, vnd } from './supplier-ui.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 import './suppliers-ui.css';
 
 type DishRow = {
@@ -44,7 +46,9 @@ type DishOrder = {
   status: 'paid' | 'unpaid' | 'cancelled' | 'debt';
 };
 
-const NHAN_TT: Record<DishOrder['status'], { nhan: string; badge: string }> = {
+// `icon` thay emoji từng gắn thẳng vào chữ (📒 Đang nợ) — Đợt 0, 2026-11-09: emoji nhiều màu và
+// vẽ khác nhau giữa Android/iPhone, nên nhãn chỉ còn chữ, icon nét vẽ riêng ở chỗ hiển thị.
+const NHAN_TT: Record<DishOrder['status'], { nhan: string; badge: string; icon?: IconName }> = {
   paid: { nhan: 'Đã thu tiền', badge: 'badge--ok' },
   unpaid: { nhan: 'Chưa thanh toán', badge: 'badge--pending' },
   cancelled: { nhan: 'Đã huỷ', badge: 'badge--danger' },
@@ -52,7 +56,7 @@ const NHAN_TT: Record<DishOrder['status'], { nhan: string; badge: string }> = {
   // một món đã từng nằm trong đơn ghi nợ là TRẮNG CẢ TRANG
   // (`Cannot read properties of undefined (reading 'badge')`). Chữ lấy đúng của màn Lịch sử —
   // cùng một trạng thái mà hai màn gọi hai tên là bắt người đọc tự đoán chúng có phải một không.
-  debt: { nhan: '📒 Đang nợ', badge: 'badge--debt' },
+  debt: { nhan: 'Đang nợ', badge: 'badge--debt', icon: 'ghi-no' },
 };
 
 /** Trạng thái lạ KHÔNG được làm trắng trang.
@@ -60,7 +64,7 @@ const NHAN_TT: Record<DishOrder['status'], { nhan: string; badge: string }> = {
  *  Bài học của chính lỗi trên: `NHAN_TT[...]` trả `undefined`, dòng dưới đọc `.badge`, React gỡ
  *  nguyên màn hình. Một mã trạng thái mới ở BE là chuyện sẽ còn xảy ra, và cái giá đúng của nó là
  *  một cái nhãn xám đọc hơi lạ, không phải mất cả màn. */
-export function nhanTrangThai(status: string): { nhan: string; badge: string } {
+export function nhanTrangThai(status: string): { nhan: string; badge: string; icon?: IconName } {
   return NHAN_TT[status as DishOrder['status']] ?? { nhan: status, badge: 'badge--neutral' };
 }
 
@@ -132,7 +136,7 @@ function DonCuaMon({ dish, range }: { dish: DishRow; range: DayRange }) {
                   </span>
                   <span className="order__qty m-off">{o.qty} phần</span>
                   <span className="order__amt">{vnd(o.amount)}đ</span>
-                  <span className="order__st"><span className={`badge ${st.badge}`}>{st.nhan}</span></span>
+                  <span className="order__st"><span className={`badge ${st.badge}`} style={st.icon ? { display: 'inline-flex', alignItems: 'center', gap: 6 } : undefined}>{st.icon && <Icon name={st.icon} size={16} />}{st.nhan}</span></span>
                 </li>
               );
             })}
@@ -264,14 +268,16 @@ export function DishSalesScreen({
         search={{ value: tim, onChange: setTim, placeholder: 'Tên món, vd: bún', label: 'Tìm tên món' }}
         ariaLabel="Bộ lọc món đã bán"
         extra={nhomMon.length > 0 ? (
-          <div className="fgroup">
-            <div className="field field--select">
-              <label className="sr-only" htmlFor="dsGroup">Lọc theo nhóm món</label>
-              <select className="select" id="dsGroup" value={nhom} onChange={(e) => setNhom(e.target.value)}>
-                <option value="">Tất cả nhóm món</option>
-                {nhomMon.map((g) => <option key={g} value={g}>{g}</option>)}
-              </select>
-            </div>
+          <div className="filterbar__sup">
+            <Dropdown
+              full
+              ariaLabel="Lọc theo nhóm món"
+              sheetTitle="Chọn nhóm món"
+              value={nhom}
+              neutralValue=""
+              onChange={setNhom}
+              options={[{ value: '', label: 'Tất cả nhóm món' }, ...nhomMon.map((g) => ({ value: g, label: g }))]}
+            />
           </div>
         ) : undefined}
       />

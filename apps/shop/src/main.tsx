@@ -2,6 +2,8 @@ import { StrictMode, Suspense, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/fonts.css'; // @font-face phải khai báo TRƯỚC khi token dùng tên font
+// Nền móng dùng chung với trang quản lý (cỡ chữ, khoảng cách, bo góc…) — phải nạp TRƯỚC tokens.css.
+import '../../../packages/ui-tokens/foundation.css';
 import './styles/tokens.css';
 import './styles/motion.css'; // Dùng var(--dur-*)/var(--ease-*) nên phải nạp SAU tokens
 import './styles/env-banner.css'; // Dải đỏ báo môi trường dev — chỉ hiện trên host dev

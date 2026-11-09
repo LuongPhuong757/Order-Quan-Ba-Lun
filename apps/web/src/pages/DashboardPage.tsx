@@ -3,6 +3,11 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/auth-context.tsx';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+
+// Tiêu đề thẻ truy cập nhanh: icon nét mảnh đứng trước chữ (thay emoji nhiều màu, Đợt 0 đồng bộ
+// giao diện 2026-11-09).
+const CARD_TITLE = { display: 'inline-flex', alignItems: 'center', gap: 6 } as const;
 
 export function DashboardPage() {
   const { user } = useAuth();
@@ -22,27 +27,27 @@ export function DashboardPage() {
         {isAdmin && (
           <>
             <Link to="/admin/users" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>👥 Nhân viên</strong>
+              <strong style={CARD_TITLE}><Icon name="nhan-vien" size={18} />Nhân viên</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tạo / đổi mật khẩu / tạm nghỉ</p>
             </Link>
             <Link to="/admin/analytics" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>📈 Truy cập &amp; khách hàng</strong>
+              <strong style={CARD_TITLE}><Icon name="thong-ke" size={18} />Truy cập &amp; khách hàng</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Lượt vào web, thời gian ở lại, SĐT từng đặt đơn</p>
             </Link>
-            {/* Nhà cung cấp (2026-09-05). Từ 2026-09-06 đã có thêm nút 🚚 ở nav dưới — thẻ này
+            {/* Nhà cung cấp (2026-09-05). Từ 2026-09-06 đã có thêm nút Nhà cung cấp ở nav dưới — thẻ này
                 giữ lại vì nó mô tả được nội dung bên trong, còn nav chỉ có icon + 3 chữ. */}
             <Link to="/suppliers" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>🚚 Nhà cung cấp</strong>
+              <strong style={CARD_TITLE}><Icon name="ncc" size={18} />Nhà cung cấp</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Nhập hàng, giá từng mặt hàng, tổng mua theo tháng</p>
             </Link>
             <Link to="/admin/audit" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>📋 Nhật ký hệ thống</strong>
+              <strong style={CARD_TITLE}><Icon name="tai-lieu" size={18} />Nhật ký hệ thống</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>
             </Link>
             {/* Cài đặt nhận đơn nay là tab của màn Đơn hàng online (2026-08-03) — link đi thẳng
                 vào tab đó, không qua redirect, để không tốn 1 nhịp điều hướng. */}
             <Link to="/admin/online-orders?view=settings" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>⚙ Cài đặt nhận đơn</strong>
+              <strong style={CARD_TITLE}><Icon name="cai-dat" size={18} />Cài đặt nhận đơn</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giờ mở cửa, giao hàng, SĐT bị chặn</p>
             </Link>
           </>
@@ -52,21 +57,21 @@ export function DashboardPage() {
             {/* Cùng 3 màn của admin, chỉ khác là mô tả nói theo góc người đọc báo cáo. Nút thao
                 tác bên trong đã bị ẩn (`canWrite`), và BE chặn cứng mọi request ghi. */}
             <Link to="/history" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>📜 Doanh thu &amp; đơn đã bán</strong>
+              <strong style={CARD_TITLE}><Icon name="lich-su" size={18} />Doanh thu &amp; đơn đã bán</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tổng doanh thu theo kỳ, từng đơn, tiêu hao nguyên liệu</p>
             </Link>
             <Link to="/suppliers" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>🚚 Giá vốn &amp; nhà cung cấp</strong>
+              <strong style={CARD_TITLE}><Icon name="ncc" size={18} />Giá vốn &amp; nhà cung cấp</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giá nhập từng mặt hàng, công nợ, food-cost, món bán chạy</p>
             </Link>
             <Link to="/admin/analytics" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <strong>📈 Truy cập &amp; khách hàng</strong>
+              <strong style={CARD_TITLE}><Icon name="thong-ke" size={18} />Truy cập &amp; khách hàng</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Lượt vào web, thời gian ở lại, SĐT từng đặt đơn</p>
             </Link>
           </>
         )}
         <Link to="/account" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
-          <strong>⚙ Đổi mật khẩu</strong>
+          <strong style={CARD_TITLE}><Icon name="khoa" size={18} />Đổi mật khẩu</strong>
           <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Tài khoản của bạn</p>
         </Link>
       </div>
@@ -118,7 +123,7 @@ function OrderingWidget() {
       const res = await api.put<{ data: SettingsSnippet }>('/admin/settings', body);
       setStatus(res.data.data.ordering_status);
       setOffReason(res.data.data.settings.online_ordering_off_reason);
-      toast.push('success', turningOff ? 'Đã tạm ngưng nhận đơn ✓' : 'Đã bật lại nhận đơn ✓');
+      toast.push('success', turningOff ? 'Đã tạm ngưng nhận đơn' : 'Đã bật lại nhận đơn');
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -143,7 +148,7 @@ function OrderingWidget() {
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <strong>🔌 Nhận đơn online</strong>
+      <strong style={CARD_TITLE}><Icon name="online" size={18} />Nhận đơn online</strong>
       {loadErr && (
         <div style={{ marginTop: 8 }}>
           <p style={{ color: '#6b7280', fontSize: 14 }}>Không đọc được trạng thái nhận đơn</p>

@@ -24,7 +24,9 @@ import {
   OTHER_COLOR,
   type LineSeries,
 } from '../components/Charts.tsx';
-import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { TimeFilter } from '../components/ui/TimeFilter.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { DAY_SCREEN } from '../lib/time-presets.ts';
 import { Pager } from '../components/Pager.tsx';
 import { presetRange, vnDayEndMs, vnDayStartMs, type DayRange } from '../lib/date-range.ts';
 import {
@@ -259,7 +261,9 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
   return (
     <>
-      <DateRangePicker
+      {/* Bộ nút thời gian CHUNG (Đợt 0, 2026-11-09) — cùng bộ với các tab NCC khác, nên giờ tab
+          này cũng có "Tháng này / Tháng trước". Không có ca: API thống kê lọc theo ngày. */}
+      <TimeFilter
         value={range}
         onChange={(r) => {
           setRange(r);
@@ -267,7 +271,8 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
           setPhieuPage(1);
           setTraPage(1);
         }}
-        label="🗓 Kỳ thống kê"
+        presets={DAY_SCREEN}
+        label="Kỳ thống kê"
         ariaLabel="Lọc thống kê nhập hàng theo khoảng ngày"
       />
 
@@ -343,7 +348,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
               chéo bốn biểu đồ theo cùng một mốc thời gian được. */}
           <div style={{ marginTop: 12 }}>
             <ChartCard
-              title="📉 Nợ mới và tiền đã trả"
+              title="Nợ mới và tiền đã trả"
               hint={
                 (no.bucket === 'day'
                   ? 'Mỗi ngày hai cột: đỏ là nợ mới phát sinh, xanh là tiền đã trả'
@@ -383,7 +388,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                             cursor: 'pointer',
                           }}
                         >
-                          {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn "✓" hiểu ngay là đang bật. */}
+                          {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn dấu tích hiểu ngay là đang bật. */}
                           <span
                             style={{
                               width: 20,
@@ -392,13 +397,13 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
                               border: `2px solid ${bat ? x.color : '#d1d5db'}`,
                               background: bat ? x.color : '#fff',
                               color: '#fff',
-                              fontSize: 14,
-                              lineHeight: '16px',
-                              textAlign: 'center',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
                               flexShrink: 0,
                             }}
                           >
-                            {bat ? '✓' : ''}
+                            {bat && <Icon name="chon" size={14} />}
                           </span>
                           <span>{x.name}</span>
                           <strong style={{ color: bat ? '#1f2937' : '#9ca3af' }}>
@@ -431,7 +436,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
           <div style={{ marginTop: 12 }}>
             <ChartCard
-              title="🏦 Còn nợ nhà cung cấp"
+              title="Còn nợ nhà cung cấp"
               hint={
                 `Tổng tiền quán còn nợ ở cuối mỗi mốc. Đường đi LÊN là nợ đang phình, đi XUỐNG là trả được nhiều hơn mua. ` +
                 `Đã gồm cả số dư đầu kỳ khai tay, nên điểm cuối trùng ô "Còn nợ" ở khối "Đã trả cho NCC".`
@@ -780,7 +785,7 @@ function Th({
       <button type="button" onClick={onPick} style={{ justifyContent: right ? 'flex-end' : 'flex-start' }}>
         {children}
         <span className="stat-sort" aria-hidden="true">
-          {active ? (chieu === 'asc' ? '▲' : '▼') : '↕'}
+          <Icon name={active ? (chieu === 'asc' ? 'mui-ten-len' : 'mui-ten-xuong') : 'sap-xep'} size={14} />
         </span>
       </button>
     </th>

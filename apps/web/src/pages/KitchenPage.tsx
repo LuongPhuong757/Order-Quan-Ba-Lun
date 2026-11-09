@@ -44,6 +44,16 @@ import {
   type GroupOrder,
   type KdsGroup,
 } from '../lib/kds-group.ts';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
+
+/** Icon nằm GIỮA dòng chữ (hướng dẫn, tiêu đề khối có ellipsis): svg mặc định ngồi trên
+ *  đường chân chữ nên trông bị nhấc lên — hạ xuống một chút cho thẳng hàng với chữ. */
+function InlineIcon({ name, size = 18 }: { name: IconName; size?: number }) {
+  return <Icon name={name} size={size} style={{ verticalAlign: '-0.2em' }} />;
+}
+
+/** Nút chỉ-icon: svg inline lệch chân chữ, căn giữa bằng flex. */
+const ICON_BTN: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
 
 type OrderItem = {
   id: string;
@@ -108,9 +118,11 @@ function fmtPortion(n: number): string {
 // xong, tách ra chỉ tạo thêm một chỗ phải cuộn tới. Badge 🔥 trên dòng là đủ.
 type TabKey = 'PENDING' | 'DONE';
 
-const TABS: Array<{ key: TabKey; label: string; icon: string; color: string; bg: string }> = [
-  { key: 'PENDING', label: 'Chờ chế biến', icon: '🔥', color: '#d97706', bg: '#fffbeb' },
-  { key: 'DONE', label: 'Đã xong', icon: '🍽', color: '#059669', bg: '#ecfdf5' },
+// Icon theo TÊN Ý NGHĨA (Đợt 0, 2026-11-09): 🔥 → đang nấu, 🍽 → xong. Màu cột GIỮ NGUYÊN —
+// bếp nhận cột từ xa bằng màu, icon chỉ đi kèm.
+const TABS: Array<{ key: TabKey; label: string; icon: IconName; color: string; bg: string }> = [
+  { key: 'PENDING', label: 'Chờ chế biến', icon: 'dang-nau', color: '#d97706', bg: '#fffbeb' },
+  { key: 'DONE', label: 'Đã xong', icon: 'xong', color: '#059669', bg: '#ecfdf5' },
 ];
 
 /** State nào vào tab nào. State lạ (PENDING/SERVED/CANCELLED) không thuộc màn bếp. */
@@ -136,7 +148,7 @@ const STATE_META: Record<string, { color: string; label: string }> = {
 type ViewKey = 'priority' | 'item' | 'table';
 
 const VIEWS: Array<{ key: ViewKey; label: string; hint: string }> = [
-  { key: 'priority', label: 'Ưu tiên', hint: 'Ai gọi trước nấu trước, món ⭐ lên đầu' },
+  { key: 'priority', label: 'Ưu tiên', hint: 'Ai gọi trước nấu trước, món ưu tiên lên đầu' },
   { key: 'item', label: 'Theo món', hint: 'Gộp cùng một món của mọi bàn để nấu 1 lượt' },
   { key: 'table', label: 'Theo phòng/bàn', hint: 'Gom món theo bàn để ra cùng lúc' },
 ];
@@ -438,7 +450,7 @@ export function KitchenPage() {
       const threshold = transient ? 10 : 3;
       if (errorCountRef.current >= threshold && pollEnabledRef.current) {
         pollEnabledRef.current = false;
-        toast.push('error', 'Tạm dừng cập nhật tự động — bấm nút ↻ ở thanh dưới.');
+        toast.push('error', 'Tạm dừng cập nhật tự động — bấm nút làm mới ở thanh dưới.');
       }
     } finally {
       setLoading(false);
@@ -1457,7 +1469,7 @@ export function KitchenPage() {
           thấy nút thì bấm, thấy chữ thì có khi chỉ đọc. Chạm BẤT CỨ ĐÂU cũng mở khoá được. */}
       {isKitchenRole && audioLocked && (
         <button type="button" className="kds-audio-lock">
-          🔇 Chạm vào màn hình để bật âm thanh báo món
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="tat-tieng" size={22} />Chạm vào màn hình để bật âm thanh báo món</span>
         </button>
       )}
       <div className="kds-top">
@@ -1493,7 +1505,10 @@ export function KitchenPage() {
                   : 'Đang sắp theo nhiều phần nhất trước. Bấm để về A→Z.'
               }
             >
-              {groupSort === 'az' ? '⇅ A→Z' : '⇅ Nhiều nhất'}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="sap-xep" size={18} />
+                {groupSort === 'az' ? 'A→Z' : 'Nhiều nhất'}
+              </span>
             </button>
             {/* Ở 'qty' thì thứ tự bị đóng băng để không nhảy dưới ngón tay — nút này
                 là chỗ chủ động yêu cầu sắp lại khi bếp đã làm xong một đợt. */}
@@ -1504,7 +1519,10 @@ export function KitchenPage() {
                 onClick={() => setResortNonce((n) => n + 1)}
                 title="Sắp lại ngay: nhiều phần nhất lên đầu. Nhóm mới đang xếp ở cuối danh sách."
               >
-                ↺ Sắp lại
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="lam-moi" size={18} />
+                  Sắp lại
+                </span>
               </button>
             )}
           </>
@@ -1532,7 +1550,9 @@ export function KitchenPage() {
               : 'Đơn online đang chờ duyệt'
           }
         >
-          <span aria-hidden="true">🛎</span>
+          {/* Điện thoại: chữ "Đơn online" bị ẩn (CSS ở trên), chỉ còn icon + số → icon phải
+              tự mang tên để trình đọc màn hình vẫn đọc được. */}
+          <Icon name="online" size={22} label="Đơn online" />
           <span className="kds-online-label">Đơn online</span>
           <span className="kds-online-n">{onlineWaiting ?? '–'}</span>
         </button>
@@ -1551,7 +1571,7 @@ export function KitchenPage() {
                 Đếm SỐ PHẦN chứ không đếm dòng: một dòng mang cả số lượng của lần gọi (×3), đếm
                 dòng sẽ báo khối lượng việc ít hơn thực tế. */}
             <div className="kds-panel-head" style={{ ['--tab-col' as string]: t.color }}>
-              <span aria-hidden="true">{t.icon}</span>
+              <Icon name={t.icon} size={24} />
               <b>{t.label}</b>
               <span className="kds-panel-n">{buckets[t.key].reduce((n, i) => n + i.qty, 0)}</span>
               {/* Nút sang cột kia — CHỈ hiện ở màn hẹp (<900px, xem CSS). Hai nút tab trên thanh
@@ -1565,7 +1585,7 @@ export function KitchenPage() {
                   style={{ ['--tab-col' as string]: o.color }}
                   onClick={() => setTab(o.key)}
                 >
-                  → <span aria-hidden="true">{o.icon}</span> {o.label} ({buckets[o.key].reduce((n, i) => n + i.qty, 0)})
+                  → <Icon name={o.icon} size={20} /> {o.label} ({buckets[o.key].reduce((n, i) => n + i.qty, 0)})
                 </button>
               ))}
             </div>
@@ -1581,7 +1601,7 @@ export function KitchenPage() {
                 <div key={c.item_id} className="kds-cancel-card">
                   <div className="kds-cancel-info">
                     <div className="kds-cancel-title" title={`${c.qty}× ${c.menu_item_name}`}>
-                      ✕ ĐÃ HUỶ · {c.qty}× {c.menu_item_name}
+                      <InlineIcon name="da-huy" /> ĐÃ HUỶ · {c.qty}× {c.menu_item_name}
                     </div>
                     <div className="kds-cancel-sub">
                       {c.table_name} · {describeCancelled(c)}
@@ -1661,7 +1681,7 @@ export function KitchenPage() {
           title="Quay lại màn Order"
           aria-label="Quay lại màn Order"
         >
-          ←
+          <Icon name="quay-lai" size={24} label="Quay lại màn Order" />
         </button>
 
         <button
@@ -1670,7 +1690,8 @@ export function KitchenPage() {
           className={`kds-bar-btn ${groupFilters.size > 0 ? 'filter-on' : ''}`}
           title="Lọc theo nhóm món"
         >
-          🔍
+          {/* Điện thoại dọc ẩn chữ bên cạnh → icon tự mang tên. */}
+          <Icon name="loc" size={24} label="Lọc theo nhóm món" />
           <span className="kds-bar-btn-label">
             {groupFilters.size === 0 ? `Tất cả (${totalActiveCount})` : `${groupFilters.size} nhóm`}
           </span>
@@ -1699,7 +1720,7 @@ export function KitchenPage() {
               title="Xoá lọc, hiện tất cả nhóm"
               aria-label="Xoá lọc nhóm"
             >
-              ✕
+              <Icon name="dong" size={24} label="Xoá lọc nhóm" />
             </button>
           )}
           <button
@@ -1709,7 +1730,7 @@ export function KitchenPage() {
             title="Làm mới danh sách"
             aria-label="Làm mới danh sách"
           >
-            ↻
+            <Icon name="lam-moi" size={24} label="Làm mới danh sách" />
           </button>
           <button
             type="button"
@@ -1718,7 +1739,7 @@ export function KitchenPage() {
             title="Hướng dẫn dùng màn bếp"
             aria-label="Hướng dẫn dùng màn bếp"
           >
-            ❓
+            <Icon name="tro-giup" size={24} label="Hướng dẫn dùng màn bếp" />
           </button>
           {/* Chuông tự render nút + badge số thông báo chưa đọc — dùng lại nguyên,
               không bọc thêm để badge đỏ không bị lệch chỗ. */}
@@ -1736,10 +1757,10 @@ export function KitchenPage() {
         <h3 style={{ marginTop: 0, marginBottom: 6 }}>2 tab — vòng đời 1 món</h3>
         <ol style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong>🔥 Chờ chế biến</strong> — mọi món nhân viên đã gọi mà bếp chưa làm xong.
+            <strong><InlineIcon name="dang-nau" /> Chờ chế biến</strong> — mọi món nhân viên đã gọi mà bếp chưa làm xong.
           </li>
           <li>
-            <strong>🍽 Đã xong</strong> — món nấu xong, đợi bồi bàn mang ra. Món vào tab này là mọi
+            <strong><InlineIcon name="xong" /> Đã xong</strong> — món nấu xong, đợi bồi bàn mang ra. Món vào tab này là mọi
             người nhận được thông báo.
           </li>
         </ol>
@@ -1763,7 +1784,7 @@ export function KitchenPage() {
         <h3 style={{ marginBottom: 6 }}>3 chế độ xem</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong>Ưu tiên</strong> — danh sách phẳng. Món ⭐ ƯU TIÊN lên đầu, còn lại ai gọi trước
+            <strong>Ưu tiên</strong> — danh sách phẳng. Món <InlineIcon name="uu-tien" /> ƯU TIÊN lên đầu, còn lại ai gọi trước
             nấu trước.
           </li>
           <li>
@@ -1775,47 +1796,47 @@ export function KitchenPage() {
           </li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>⇅ Thứ tự nhóm — mặc định A→Z</h3>
+        <h3 style={{ marginBottom: 6 }}>Thứ tự nhóm — mặc định A→Z</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            <strong>⇅ A→Z</strong> (mặc định) — sắp theo tên món / tên bàn. Tên không đổi khi bếp làm
+            <strong><InlineIcon name="sap-xep" /> A→Z</strong> (mặc định) — sắp theo tên món / tên bàn. Tên không đổi khi bếp làm
             xong dòng nào, nên <strong>không khối nào tự nhảy chỗ</strong>: nhớ được "món này ở khoảng
             giữa" như nhớ trên quyển menu giấy. Số trong tên so theo giá trị nên "Ship 2" đứng trước
             "Ship 10", "Ba Chỉ Nướng : 150" trước ": 200".
           </li>
           <li>
-            Bấm thành <strong>⇅ Nhiều nhất</strong> khi muốn nấu gộp: khối nhiều phần nhất lên đầu,
+            Bấm thành <strong><InlineIcon name="sap-xep" /> Nhiều nhất</strong> khi muốn nấu gộp: khối nhiều phần nhất lên đầu,
             bằng nhau thì khối chờ lâu nhất trước.
           </li>
           <li>
             Ở chế độ "Nhiều nhất", khối đã hiện <strong>vẫn đứng yên</strong> dù số phần tụt (nếu không
             thì bấm xong một dòng là cả danh sách trượt đi). Khối mới xuống cuối. Bấm{' '}
-            <strong>↺ Sắp lại</strong> khi làm xong một đợt để sắp lại từ đầu.
+            <strong><InlineIcon name="lam-moi" /> Sắp lại</strong> khi làm xong một đợt để sắp lại từ đầu.
           </li>
-          <li>Khối có món <strong>⭐ ƯU TIÊN</strong> luôn lên đầu ở cả hai chế độ.</li>
+          <li>Khối có món <strong><InlineIcon name="uu-tien" /> ƯU TIÊN</strong> luôn lên đầu ở cả hai chế độ.</li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>⏱ Đồng hồ + màu chữ</h3>
+        <h3 style={{ marginBottom: 6 }}>Đồng hồ + màu chữ</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>Đếm từ lúc <strong>khách gọi món</strong>, không reset khi đổi trạng thái.</li>
           <li>
             Đen &lt; 10 phút · <span style={{ color: '#b45309', fontWeight: 700 }}>vàng 10–20 phút</span>{' '}
-            · <span style={{ color: '#b91c1c', fontWeight: 700 }}>đỏ ⚠ trên 20 phút</span>.
+            · <span style={{ color: '#b91c1c', fontWeight: 700 }}>đỏ <InlineIcon name="canh-bao" /> trên 20 phút</span>.
           </li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>📝 Yêu cầu phục vụ · ⭐ Ưu tiên</h3>
+        <h3 style={{ marginBottom: 6 }}>Yêu cầu phục vụ · Ưu tiên</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
           <li>
-            Dòng <strong>viền tím 📝 YC PHỤC VỤ</strong> là yêu cầu bồi bàn gửi xuống ("lấy bát cho
+            Dòng <strong>viền tím <InlineIcon name="ghi-chu" /> YC PHỤC VỤ</strong> là yêu cầu bồi bàn gửi xuống ("lấy bát cho
             khách"), không phải món nấu. Nó <strong>không bao giờ bị lọc nhóm ẩn đi</strong>.
           </li>
           <li>
-            Badge <strong>⭐ ƯU TIÊN</strong> do nhân viên Order đánh dấu (khách sắp về) — nấu trước.
+            Badge <strong><InlineIcon name="uu-tien" /> ƯU TIÊN</strong> do nhân viên Order đánh dấu (khách sắp về) — nấu trước.
           </li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>✕ Thẻ đỏ "ĐÃ HUỶ"</h3>
+        <h3 style={{ marginBottom: 6 }}>Thẻ đỏ "ĐÃ HUỶ"</h3>
         <p style={{ margin: '4px 0', lineHeight: 1.7 }}>
           Món bị huỷ thì <strong>biến mất khỏi danh sách ngay</strong> — nếu đang nấu thì bếp chỉ thấy
           một dòng tự dưng mất, không biết vì sao. Nên món vừa huỷ để lại một{' '}
@@ -1828,25 +1849,25 @@ export function KitchenPage() {
           <li>Món bị huỷ lúc <strong>chưa báo bếp</strong> thì không sinh thẻ: bếp chưa từng thấy nó.</li>
         </ul>
 
-        <h3 style={{ marginBottom: 6 }}>🚫 Báo hết món</h3>
+        <h3 style={{ marginBottom: 6 }}>Báo hết món</h3>
         <p style={{ margin: '4px 0', lineHeight: 1.7 }}>
-          Bấm <strong>🚫</strong> trên dòng (bên trái các nút chuyển) → menu món đó chuyển đỏ (nhân
+          Bấm <strong><InlineIcon name="het-mon" /></strong> trên dòng (bên trái các nút chuyển) → menu món đó chuyển đỏ (nhân
           viên không gọi được), order chưa nấu của món đó <strong>tự huỷ</strong>, nhân viên order nhận
           thông báo để báo khách đổi món.
         </p>
 
         <h3 style={{ marginBottom: 6 }}>Thanh nút dưới cùng</h3>
         <ul style={{ paddingLeft: 22, margin: '4px 0', lineHeight: 1.7 }}>
-          <li><strong>←</strong> quay về màn Order (từ đó có lại thanh điều hướng đầy đủ).</li>
-          <li><strong>🔍</strong> lọc theo nhóm món — tích nhiều nhóm được, <strong>✕</strong> xoá lọc.</li>
-          <li><strong>↻</strong> làm mới · <strong>❓</strong> hướng dẫn này · <strong>🔔</strong> thông báo.</li>
+          <li><strong><InlineIcon name="quay-lai" /></strong> quay về màn Order (từ đó có lại thanh điều hướng đầy đủ).</li>
+          <li><strong><InlineIcon name="loc" /></strong> lọc theo nhóm món — tích nhiều nhóm được, <strong><InlineIcon name="dong" /></strong> xoá lọc.</li>
+          <li><strong><InlineIcon name="lam-moi" /></strong> làm mới · <strong><InlineIcon name="tro-giup" /></strong> hướng dẫn này · <strong><InlineIcon name="thong-bao" /></strong> thông báo.</li>
           <li>
-            Muốn <strong>đăng xuất</strong> thì bấm <strong>←</strong> về màn Order — nút đăng xuất nằm
+            Muốn <strong>đăng xuất</strong> thì bấm <strong><InlineIcon name="quay-lai" /></strong> về màn Order — nút đăng xuất nằm
             ở thanh trên cùng của màn đó. Cố tình không để ở đây: bấm nhầm giữa buổi là bếp mất màn.
           </li>
         </ul>
         <p style={{ margin: '8px 0 0', fontStyle: 'italic', color: '#6b7280' }}>
-          💾 Tab, chế độ xem và lựa chọn lọc nhóm được lưu vào trình duyệt — reload / đăng nhập lại vẫn
+          Tab, chế độ xem và lựa chọn lọc nhóm được lưu vào trình duyệt — reload / đăng nhập lại vẫn
           giữ nguyên. Mỗi thiết bị giữ riêng.
         </p>
       </HelpModal>
@@ -1920,7 +1941,7 @@ function GroupBlock({
         <span className="kds-group-qty">×{group.qty}</span>
         <div className="kds-group-titlewrap">
           <div className="kds-group-title" style={{ color: oldestColor }} title={group.title}>
-            {group.hasPriority && '⭐ '}
+            {group.hasPriority && <><InlineIcon name="uu-tien" size={18} />{' '}</>}
             {group.title}
           </div>
           <div className="kds-group-sub" title={group.subtitle}>
@@ -2037,7 +2058,9 @@ function Card({
               style={{ background: '#ede9fe', color: '#6d28d9', border: '1px solid #a78bfa' }}
               title="Yêu cầu phục vụ từ bồi bàn — không phải món nấu"
             >
-              📝 YC PHỤC VỤ
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <Icon name="ghi-chu" size={14} />YC PHỤC VỤ
+              </span>
             </span>
           )}
           {item.is_priority && (
@@ -2046,7 +2069,9 @@ function Card({
               style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #f59e0b' }}
               title="Nhân viên Order đánh dấu — khách sắp về, ưu tiên nấu trước"
             >
-              ⭐ ƯU TIÊN
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                <Icon name="uu-tien" size={14} />ƯU TIÊN
+              </span>
             </span>
           )}
           {/* SỐ PHẦN đi TRƯỚC tên món: tên món dài bị cắt bằng ellipsis, nên khi nó đứng
@@ -2074,8 +2099,19 @@ function Card({
           )}
         </div>
         <div className="kds-card-meta">
-          <span style={{ color: ageTextColor, fontWeight: ageTextColor === '#111827' ? 400 : 700 }}>
-            {ageTextColor === '#b91c1c' && '⚠ '}⏱ {formatAge(ageMin)}
+          {/* Quá 20 phút (chữ đỏ) thì icon đồng hồ ĐỔI thành tam giác cảnh báo — giữ luật cũ
+              "⚠ ⏱": màu + hình cùng đổi, bếp liếc thấy dòng nào chờ quá lâu. */}
+          <span
+            style={{
+              color: ageTextColor,
+              fontWeight: ageTextColor === '#111827' ? 400 : 700,
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 3,
+            }}
+          >
+            <Icon name={ageTextColor === '#b91c1c' ? 'canh-bao' : 'gio'} size={14} />
+            {formatAge(ageMin)}
           </span>
           {/* Định lượng phần ăn — CỐ TÌNH không nhân với qty. Ở bếp con số này là
               nhãn cỡ phần (bát 100k khác định lượng bát 130k), không phải tiền
@@ -2089,15 +2125,19 @@ function Card({
           )}
           {item.created_by_full_name && (
             <span style={{ color: '#0f766e' }} title="Nhân viên gọi món — hỏi người này nếu có vấn đề">
-              👤 {item.created_by_full_name}
+              <InlineIcon name="tai-khoan" size={13} /> {item.created_by_full_name}
             </span>
           )}
           {item.note && (
             <span className="kds-card-note" title={item.note}>
-              📝 {item.note}
+              <InlineIcon name="ghi-chu" size={13} /> {item.note}
             </span>
           )}
-          {isOutOfStock && <span style={{ color: '#dc2626', fontWeight: 600 }}>🚫 Menu HẾT</span>}
+          {isOutOfStock && (
+            <span style={{ color: '#dc2626', fontWeight: 600 }}>
+              <InlineIcon name="het-mon" size={13} /> Menu HẾT
+            </span>
+          )}
         </div>
       </div>
 
@@ -2114,8 +2154,13 @@ function Card({
             onClick={onToggleStock}
             title={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
             aria-label={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+            style={ICON_BTN}
           >
-            {isOutOfStock ? '✓' : '🚫'}
+            <Icon
+              name={isOutOfStock ? 'xong' : 'het-mon'}
+              size={22}
+              label={isOutOfStock ? 'Đánh dấu món có lại' : 'Đánh dấu món hết nguyên liệu'}
+            />
           </button>
         )}
 
@@ -2223,13 +2268,20 @@ function GroupFilterModal({
           }}
         >
           <div>
-            <h2 style={{ margin: 0, fontSize: 17 }}>🔍 Lọc nhóm món</h2>
+            <h2 style={{ margin: 0, fontSize: 17 }}>Lọc nhóm món</h2>
             <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
               Tích chọn để chỉ hiện món thuộc nhóm đó.
             </div>
           </div>
-          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>
-            ✕
+          <button
+            type="button"
+            className="secondary"
+            onClick={onClose}
+            aria-label="Đóng"
+            title="Đóng"
+            style={{ ...ICON_BTN, padding: '6px 10px' }}
+          >
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -2239,22 +2291,25 @@ function GroupFilterModal({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔍 Tìm tên nhóm..."
+            placeholder="Tìm tên nhóm..."
             style={{
               flex: 1,
               minWidth: 180,
               padding: '8px 12px',
               borderRadius: 8,
               border: '1px solid #d1d5db',
-              fontSize: 14,
-              minHeight: 40,
+              // 16px: dưới 16 thì Safari iPhone tự phóng to cả trang khi chạm vào ô.
+              fontSize: 16,
+              minHeight: 44,
             }}
           />
-          <button type="button" className="secondary" onClick={selectAll} style={{ padding: '6px 10px', fontSize: 12 }}>
-            ✓ Tất cả
+          <button type="button" className="secondary" onClick={selectAll} style={{ padding: '6px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="chon" size={16} />
+            Tất cả
           </button>
-          <button type="button" className="secondary" onClick={selectNone} style={{ padding: '6px 10px', fontSize: 12 }}>
-            ✕ Bỏ chọn
+          <button type="button" className="secondary" onClick={selectNone} style={{ padding: '6px 10px', fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon name="dong" size={16} />
+            Bỏ chọn
           </button>
         </div>
 
@@ -2268,7 +2323,10 @@ function GroupFilterModal({
 
           {cookGroups.length > 0 && (
             <>
-              <div style={sectionHeader}>🔥 Bếp nấu</div>
+              <div style={{ ...sectionHeader, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Icon name="dang-nau" size={16} />
+                Bếp nấu
+              </div>
               {cookGroups.map((g) => (
                 <FilterRow key={g.code} group={g} count={countByGroup[g.code] || 0} checked={selected.has(g.code)} onToggle={() => toggle(g.code)} />
               ))}
@@ -2277,7 +2335,7 @@ function GroupFilterModal({
 
           {readyGroups.length > 0 && (
             <>
-              <div style={sectionHeader}>🥤 Bếp có sẵn</div>
+              <div style={sectionHeader}><span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="co-san" size={22} />Bếp có sẵn</span></div>
               {readyGroups.map((g) => (
                 <FilterRow key={g.code} group={g} count={countByGroup[g.code] || 0} checked={selected.has(g.code)} onToggle={() => toggle(g.code)} />
               ))}

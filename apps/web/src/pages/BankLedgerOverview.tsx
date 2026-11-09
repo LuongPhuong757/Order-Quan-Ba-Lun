@@ -5,6 +5,7 @@
 // thẻ tài khoản và hai thẻ cảnh báo đồng thời là NÚT LỌC, nên số trên đó không được đổi theo
 // chính bộ lọc mà nó bật.
 import { accountDot, tail4, vnd } from '../lib/so-tien.ts';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 
 export type LedgerSummary = {
   in_total: number;
@@ -102,7 +103,7 @@ export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: 
         <AlertCard
           on={status === 'unmatched'}
           n={s.unmatched}
-          icon="?"
+          icon="tro-giup"
           title={`Tiền lạ chưa khớp: ${s.unmatched} khoản`}
           sub="Tiền đã về nhưng chưa biết của bàn nào — cần gán tay"
           calm="Không có tiền lạ — mọi khoản đã khớp bàn"
@@ -111,7 +112,7 @@ export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: 
         <AlertCard
           on={status === 'open'}
           n={s.open_tables}
-          icon="!"
+          icon="canh-bao"
           title={`Bàn đã CK nhưng chưa bấm thanh toán: ${s.open_tables} bàn`}
           sub="Tiền đã về mà bàn vẫn đang mở"
           calm="Không có bàn nào đã CK mà còn mở"
@@ -125,20 +126,20 @@ export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: 
 type AlertProps = {
   on: boolean;
   n: number;
-  icon: string;
+  icon: IconName;
   title: string;
   sub: string;
   calm: string;
   onClick: () => void;
 };
 
-/** Bằng 0 thì thẻ chuyển sang dạng "yên" (nền trắng, dấu ✓) chứ không biến mất: chỗ trống làm
+/** Bằng 0 thì thẻ chuyển sang dạng "yên" (nền trắng, dấu tích) chứ không biến mất: chỗ trống làm
  *  người ta tưởng màn chưa tải xong, còn "không có gì" là một câu trả lời đáng được thấy. */
 function AlertCard({ on, n, icon, title, sub, calm, onClick }: AlertProps) {
   if (n === 0 && !on) {
     return (
       <button type="button" className="sx-alert sx-calm" disabled>
-        <span className="sx-ic">✓</span>
+        <span className="sx-ic"><Icon name="xong" size={24} /></span>
         <span className="sx-atx">
           <span className="sx-t1">{calm}</span>
         </span>
@@ -147,12 +148,14 @@ function AlertCard({ on, n, icon, title, sub, calm, onClick }: AlertProps) {
   }
   return (
     <button type="button" className="sx-alert" aria-pressed={on} onClick={onClick}>
-      <span className="sx-ic">{icon}</span>
+      <span className="sx-ic"><Icon name={icon} size={24} /></span>
       <span className="sx-atx">
         <span className="sx-t1">{title}</span>
         <span className="sx-t2">{sub}</span>
       </span>
-      <span className="sx-go">{on ? 'Bỏ lọc ✕' : 'Xem →'}</span>
+      <span className="sx-go" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        {on ? <>Bỏ lọc<Icon name="dong" size={18} /></> : 'Xem →'}
+      </span>
     </button>
   );
 }

@@ -24,6 +24,7 @@ import { DeliveryDetailDialog } from './DeliveryDetailDialog.tsx';
 import {
   ArrowUp, ChevRight, FilterBar, Plus, SearchIco, ngayDay, ngayGon, pctVN, theoDonViMua, vnd,
 } from './supplier-ui.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
 import './suppliers-ui.css';
 
 
@@ -359,14 +360,18 @@ export function SupplierOverview({
                      value={tim} onChange={(e) => setTim(e.target.value)} />
             </div>
             <div className="sortwrap">
-              <label className="sr-only" htmlFor="nccSort">Sắp xếp danh sách</label>
-              <select className="select" id="nccSort" value={sapXep}
-                      onChange={(e) => setSapXep(e.target.value as SapXep)}>
-                <option value="debt">Nợ nhiều nhất</option>
-                <option value="buy">Mua nhiều nhất</option>
-                <option value="last">Nhập gần đây</option>
-                <option value="name">Tên A → Z</option>
-              </select>
+              <Dropdown<SapXep>
+                full
+                ariaLabel="Sắp xếp danh sách"
+                value={sapXep}
+                onChange={setSapXep}
+                options={[
+                  { value: 'debt', label: 'Nợ nhiều nhất' },
+                  { value: 'buy', label: 'Mua nhiều nhất' },
+                  { value: 'last', label: 'Nhập gần đây' },
+                  { value: 'name', label: 'Tên A → Z' },
+                ]}
+              />
             </div>
           </div>
           {/* Mockup còn 4 chip ngành hàng (Rau củ / Hải sản / Thịt tươi / Khác). CHƯA dựng:

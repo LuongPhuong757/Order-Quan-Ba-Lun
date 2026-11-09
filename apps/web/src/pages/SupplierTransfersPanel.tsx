@@ -18,7 +18,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { DateRangePicker } from '../components/TimeRangeFilter.tsx';
+import { TimeFilter } from '../components/ui/TimeFilter.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import { DAY_SCREEN } from '../lib/time-presets.ts';
 import { Pager } from '../components/Pager.tsx';
 import { presetRange, vnDayIso, type DayRange } from '../lib/date-range.ts';
 import { phanTrang, tongConPhaiTra, type TraTienRow } from '../lib/supplier-stats.ts';
@@ -32,11 +35,14 @@ const CO_TRANG = 20;
 
 type LocHinhThuc = PayMethod | 'ALL';
 
-const NUT_HINH_THUC: Array<[LocHinhThuc, string]> = [
-  ['TRANSFER', '🏦 Chuyển khoản'],
-  ['CASH', '💵 Tiền mặt'],
-  ['ALL', 'Tất cả'],
+// Icon thay emoji 🏦/💵 đứng đầu chữ (Đợt 0, 2026-11-09) — nút "Tất cả" không có icon.
+const NUT_HINH_THUC: Array<[LocHinhThuc, string, IconName | null]> = [
+  ['TRANSFER', 'Chuyển khoản', 'chuyen-khoan'],
+  ['CASH', 'Tiền mặt', 'tien-mat'],
+  ['ALL', 'Tất cả', null],
 ];
+
+const NHAN_ICON = { display: 'inline-flex', alignItems: 'center', gap: 6 } as const;
 
 const khopHinhThuc = (r: TraTienRow, h: LocHinhThuc) => h === 'ALL' || r.method === h;
 const khopTk = (r: TraTienRow, tkId: string | null) =>
@@ -134,16 +140,17 @@ export function SupplierTransfersPanel({
     <section className="sx" style={{ marginTop: 8 }}>
       <header className="sx-appbar">
         <div className="sx-grow">
-          <h2>💳 Trả tiền NCC</h2>
+          <h2>Trả tiền NCC</h2>
           <p className="sx-sub">Sổ chi cho nhà cung cấp — quán tự ghi</p>
         </div>
         <button type="button" className="sx-btn-main" onClick={() => setGhiMoi(true)}>
-          ＋ Ghi trả NCC
+          <span style={NHAN_ICON}><Icon name="them" size={20} />Ghi trả NCC</span>
         </button>
       </header>
 
       <div style={{ marginTop: 14 }}>
-        <DateRangePicker value={range} onChange={setRange} />
+        {/* Bộ nút thời gian CHUNG (Đợt 0) — cùng bộ với các tab NCC khác. Mặc định 30 ngày. */}
+        <TimeFilter value={range} onChange={setRange} presets={DAY_SCREEN} ariaLabel="Lọc lần trả theo khoảng ngày" />
       </div>
 
       {rows === null ? (
@@ -168,7 +175,7 @@ export function SupplierTransfersPanel({
           </div>
           <div className="sx-card">
             <div className="sx-seg" role="group" aria-label="Hình thức trả">
-              {NUT_HINH_THUC.map(([v, nhan]) => (
+              {NUT_HINH_THUC.map(([v, nhan, icon]) => (
                 <button
                   key={v}
                   type="button"
@@ -179,34 +186,39 @@ export function SupplierTransfersPanel({
                     if (v === 'CASH') setTkId(null); // tiền mặt không có tài khoản để lọc
                   }}
                 >
-                  {nhan}
+                  {icon ? <span style={NHAN_ICON}><Icon name={icon} size={18} />{nhan}</span> : nhan}
                 </button>
               ))}
             </div>
             <div className="sx-totals" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', marginTop: 12 }}>
-              <label className="sx-fgroup" style={{ margin: 0 }}>
-                <span className="sx-lg">Nhà cung cấp</span>
-                <select value={nccId ?? ''} onChange={(e) => setNccId(e.target.value || null)}>
-                  <option value="">Tất cả nhà cung cấp</option>
-                  {dsNcc.map((n) => (
-                    <option key={n.key} value={n.key}>{n.ten}</option>
-                  ))}
-                </select>
-              </label>
+              <div style={{ minWidth: 0 }}>
+                <Dropdown
+                  full
+                  label="Nhà cung cấp"
+                  value={nccId ?? ''}
+                  neutralValue=""
+                  onChange={(v) => setNccId(v || null)}
+                  options={[
+                    { value: '', label: 'Tất cả nhà cung cấp' },
+                    ...dsNcc.map((n) => ({ value: n.key, label: n.ten })),
+                  ]}
+                />
+              </div>
               {hinhThuc !== 'CASH' && (
-                <label className="sx-fgroup" style={{ margin: 0 }}>
-                  <span className="sx-lg">Tài khoản nguồn</span>
-                  <select
-                    // `''` là nhóm "chưa ghi tài khoản" (CK cũ) — nên "Tất cả" dùng giá trị riêng.
+                <div style={{ minWidth: 0 }}>
+                  {/* `''` là nhóm "chưa ghi tài khoản" (CK cũ) — nên "Tất cả" dùng giá trị riêng. */}
+                  <Dropdown
+                    full
+                    label="Tài khoản nguồn"
                     value={tkId ?? '*'}
-                    onChange={(e) => setTkId(e.target.value === '*' ? null : e.target.value)}
-                  >
-                    <option value="*">Tất cả tài khoản</option>
-                    {dsTk.map((n) => (
-                      <option key={n.key} value={n.key}>{n.ten}</option>
-                    ))}
-                  </select>
-                </label>
+                    neutralValue="*"
+                    onChange={(v) => setTkId(v === '*' ? null : v)}
+                    options={[
+                      { value: '*', label: 'Tất cả tài khoản' },
+                      ...dsTk.map((n) => ({ value: n.key, label: n.ten })),
+                    ]}
+                  />
+                </div>
               )}
             </div>
           </div>
@@ -254,10 +266,10 @@ export function SupplierTransfersPanel({
               {menu.note ? ` · ${menu.note}` : ''} · {menu.created_by_name} ghi
             </p>
             <button type="button" className="sx-ghost" onClick={() => { setDangSua(menu); setMenu(null); }}>
-              ✏️ Sửa lần trả
+              <span style={NHAN_ICON}><Icon name="sua" size={20} />Sửa lần trả</span>
             </button>
             <button type="button" className="sx-ghost sx-danger" onClick={() => void xoa(menu)}>
-              🗑 Xoá lần trả
+              <span style={NHAN_ICON}><Icon name="xoa" size={20} />Xoá lần trả</span>
             </button>
             <button type="button" className="sx-ghost" onClick={() => setMenu(null)}>
               Đóng
@@ -345,12 +357,12 @@ function TongQuan({
             </div>
             <div className="sx-split">
               <div>
-                <small>🏦 Chuyển khoản</small>
+                <small style={NHAN_ICON}><Icon name="chuyen-khoan" size={16} />Chuyển khoản</small>
                 <b className="sx-num">{vnd(tongCk)}</b>
                 <small>{ck.length} lần</small>
               </div>
               <div>
-                <small>💵 Tiền mặt</small>
+                <small style={NHAN_ICON}><Icon name="tien-mat" size={16} />Tiền mặt</small>
                 <b className="sx-num">{vnd(tong - tongCk)}</b>
                 <small>{tm.length} lần</small>
               </div>
@@ -421,7 +433,7 @@ function TongQuan({
 
 /** Một lần trả = MỘT dòng (chủ quán 2026-10-15: thẻ nhiều tầng "quá cồng kềnh").
  *
- * Điện thoại: NCC + số tiền trên, chip nguồn tiền dưới, nút "⋯" mở bảng Sửa/Xoá. ≥720px: một hàng
+ * Điện thoại: NCC + số tiền trên, chip nguồn tiền dưới, nút ⋯ mở bảng Sửa/Xoá. ≥720px: một hàng
  * ngang, hai nút hiện thẳng (không ẩn sau hover). Ghi chú + người ghi nằm trong bảng "⋯" / hộp Sửa. */
 function DongTra({ r, onSua, onXoa, onMenu }: { r: TraTienRow; onSua: () => void; onXoa: () => void; onMenu: () => void }) {
   const ck = r.method === 'TRANSFER';
@@ -430,7 +442,7 @@ function DongTra({ r, onSua, onXoa, onMenu }: { r: TraTienRow; onSua: () => void
       <span className="sx-pay-ncc">{r.supplier_name}</span>
       <span className="sx-pay-src">
         {!ck ? (
-          <span className="sx-chip sx-cash">💵 Tiền mặt</span>
+          <span className="sx-chip sx-cash"><Icon name="tien-mat" size={16} />Tiền mặt</span>
         ) : r.paid_from_label ? (
           <span className="sx-chip">
             <span className="sx-dot" style={{ background: accountDot(r.paid_from_account_id ?? '') }} />
@@ -444,7 +456,7 @@ function DongTra({ r, onSua, onXoa, onMenu }: { r: TraTienRow; onSua: () => void
       <span className="sx-pay-tien sx-num">−{vnd(r.amount)}</span>
       <span className="sx-pay-more">
         <button type="button" className="sx-more" onClick={onMenu} aria-label={`Thao tác với lần trả ${r.supplier_name}`}>
-          ⋯
+          <Icon name="them-thao-tac" size={22} />
         </button>
       </span>
       <span className="sx-pay-acts">

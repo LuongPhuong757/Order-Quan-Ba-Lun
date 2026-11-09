@@ -13,6 +13,7 @@
 // đường chọn file cũ nên không có nhánh upload thứ hai.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { C } from '../lib/online-ui.ts';
+import { Icon } from '../components/ui/Icon.tsx';
 import { acceptPhotos, isFileDrag, TYPING_SELECTOR } from '../lib/photo-drop.ts';
 
 /** Điện thoại không kéo-thả và không có ⌘V, nên câu gợi ý chỉ hiện ở máy có con trỏ chuột —
@@ -159,11 +160,12 @@ export function PhotoPicker({
                 borderRadius: 999,
                 background: 'rgba(0,0,0,.6)',
                 color: 'white',
-                fontSize: 15,
-                lineHeight: 1,
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
               }}
             >
-              ✕
+              <Icon name="dong" size={16} />
             </button>
           </div>
         ))}
@@ -187,7 +189,7 @@ export function PhotoPicker({
             fontWeight: 400,
           }}
         >
-          <span style={{ fontSize: 22 }}>＋</span>
+          <Icon name="them" size={22} />
           Thêm ảnh
         </button>
       </div>

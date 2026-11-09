@@ -7,7 +7,19 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { MenuComboPanel } from './MenuComboPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
-import { Select } from '../components/Select.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Pagination } from '../components/ui/Pagination.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
+
+/** Icon nét mảnh + chữ trên cùng một hàng (thay emoji nhiều màu — Đợt 0 đồng bộ giao diện). */
+function IconText({ name, size = 16, children }: { name: IconName; size?: number; children: React.ReactNode }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon name={name} size={size} />
+      {children}
+    </span>
+  );
+}
 
 /** Chỉ những trường màn Menu dùng tới của `/supplier-reports/food-cost`. Bản đầy đủ (kèm
  * `components`, `missing`, `margin_*`) nằm ở `FoodCostPanel.tsx` — chỗ thật sự cần chúng. */
@@ -377,17 +389,17 @@ export function MenuManagementPage() {
           )}
           {canManage && (
             <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
-              📥 Import
+              <IconText name="tai-len">Import</IconText>
             </button>
           )}
           {canManage && (
             <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
-              📖 Menu xem
+              <IconText name="menu">Menu xem</IconText>
             </button>
           )}
           {canManage && (
             <button className="secondary" onClick={() => setShowCombos(true)} style={{ padding: '8px 12px' }}>
-              🎯 Combo gợi ý
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="combo" size={18} />Combo gợi ý</span>
             </button>
           )}
           </div>
@@ -403,26 +415,28 @@ export function MenuManagementPage() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="🔍 Tìm theo tên hoặc mã món..."
+            placeholder="Tìm theo tên hoặc mã món..."
             className="mm-find"
             style={{
               flex: '1 1 220px',
               minWidth: 180,
               borderRadius: 8,
               border: '1px solid #d1d5db',
-              fontSize: 14,
-              minHeight: 40,
+              fontSize: 16,
+              minHeight: 44,
+              // Ô Sắp xếp bên cạnh có nhãn chữ nằm trên → hàng cao hơn 44. Bám đáy để ô tìm vẫn
+              // cao 44 và thẳng hàng với ô chọn thay vì bị kéo giãn theo `align-items: stretch`.
+              alignSelf: 'flex-end',
             }}
           />
           {/* Dropdown tự vẽ, không phải `<select>`: danh sách bung ra của `<select>` là chrome
-              hệ điều hành, CSS không với tới — xem `components/Select.tsx`. */}
+              hệ điều hành, CSS không với tới — xem `components/ui/Dropdown.tsx`. */}
           <div style={{ flex: '0 1 auto', minWidth: 0 }}>
-            <Select
+            <Dropdown
               value={sort}
               onChange={setSort}
-              ariaLabel="Sắp xếp danh sách món"
+              label="Sắp xếp"
               neutralValue="newest"
-              compact
               options={[
                 { value: 'newest', label: '↓ Mới nhất' },
                 { value: 'name', label: 'A → Z (tên)' },
@@ -438,9 +452,10 @@ export function MenuManagementPage() {
             <button
               type="button"
               className="secondary mm-clear"
+              style={{ alignSelf: 'flex-end' }}
               onClick={() => { setSearch(''); setGroupFilter(''); setStockFilter(''); }}
             >
-              ✕ Xoá lọc
+              <IconText name="dong" size={14}>Xoá lọc</IconText>
             </button>
           )}
         </div>
@@ -449,33 +464,33 @@ export function MenuManagementPage() {
         <div className="mm-stock tabstrip" style={{ gap: 8 }}>
           {([
             { v: '', label: 'Tất cả tình trạng' },
-            { v: 'in', label: '✅ Còn hàng' },
-            { v: 'out', label: '🚫 Hết hàng' },
+            { v: 'in', label: 'Còn hàng', icon: 'xong' },
+            { v: 'out', label: 'Hết hàng', icon: 'het-mon' },
             /* Lọc này là cách DUY NHẤT tìm lại món mình đã bật đẩy bán để tắt đi — không có
-               nó thì phải cuộn cả 600 món tìm thẻ có nhãn 🔥. */
-            { v: 'push', label: '🔥 Đang đẩy bán' },
+               nó thì phải cuộn cả 600 món tìm thẻ có nhãn ĐẨY BÁN. */
+            { v: 'push', label: 'Đang đẩy bán', icon: 'day-ban' },
             /* Đo trên DB thật 2026-10-05: 294/598 món chưa có ảnh. Trên menu giấy món không ảnh
                vẫn được đọc, nhưng trên điện thoại một thẻ trống trông như lỗi tải trang và gần
                như không ai gọi. Lọc này là danh sách việc "còn phải chụp những món nào" — cuộn
                598 thẻ tìm bằng mắt thì không ai làm nổi. */
-            { v: 'nophoto', label: '📷 Chưa có ảnh' },
-          ] as { v: StockFilter; label: string }[]).map((s) => (
+            { v: 'nophoto', label: 'Chưa có ảnh', icon: 'anh' },
+          ] as { v: StockFilter; label: string; icon?: IconName }[]).map((s) => (
             <button
               key={s.v || 'all'}
               onClick={() => setStockFilter(s.v)}
               className={stockFilter === s.v ? '' : 'secondary'}
               style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
             >
-              {s.label}
+              {s.icon ? <IconText name={s.icon}>{s.label}</IconText> : s.label}
             </button>
           ))}
         </div>
 
         {/* Row 2: group tabs — class `tabstrip-sm`: wrap trên desktop, cuộn ngang một hàng trên
             điện thoại (quán có ~25 nhóm, wrap trên máy 390px là bức tường ~1000px trước khi thấy món). */}
-        {/* 32 nhóm dàn thành nút wrap chiếm 5 hàng, đẩy món đầu tiên xuống quá nửa màn hình.
-            Gom vào một ô chọn: một dòng, và tên nhóm đọc theo chiều dọc dễ hơn là quét ngang
-            rồi xuống dòng. Số món mỗi nhóm hiện luôn trong ô. */}
+        {/* Lọc theo NHÓM không nằm trong khối này: từ 2026-09-29 nó là cột nút `.mm-groups` bên
+            trái danh sách món (xem dưới) — 32 nhóm dàn thành nút wrap ở đây chiếm 5 hàng, đẩy món
+            đầu tiên xuống quá nửa màn hình. */}
       </div>
 
       {/* Result count */}
@@ -540,7 +555,7 @@ export function MenuManagementPage() {
                       onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
                     />
                   ) : (
-                    <span className="mm-thumb-empty" aria-hidden="true">🍽</span>
+                    <span className="mm-thumb-empty" aria-hidden="true"><Icon name="order" size={28} /></span>
                   )}
                   {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
                   {/* Nhãn ĐẨY BÁN và ĐỀ XUẤT xếp CHỒNG DỌC ở mép trên, nhãn HẾT ở mép dưới.
@@ -550,8 +565,8 @@ export function MenuManagementPage() {
                       mà xếp thành hàng dọc: cờ nào bật thì chiếm một dải, không bật thì không
                       chiếm chỗ nào. */}
                   <div className="mm-thumb-tags">
-                    {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món">🔥 ĐẨY BÁN</span>}
-                    {featuredIds.has(it.id) && <span className="mm-thumb-star" title="Đang đề xuất — nhân vật ở thực đơn tại bàn sẽ mời khách món này">⭐ ĐỀ XUẤT</span>}
+                    {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món"><Icon name="day-ban" size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />ĐẨY BÁN</span>}
+                    {featuredIds.has(it.id) && <span className="mm-thumb-star" title="Đang đề xuất — nhân vật ở thực đơn tại bàn sẽ mời khách món này"><Icon name="de-xuat" size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />ĐỀ XUẤT</span>}
                   </div>
                 </div>
                 {/* `minWidth: 0` BẮT BUỘC: mặc định `min-width` của một flex item là `auto`
@@ -635,7 +650,7 @@ export function MenuManagementPage() {
                     ? 'Đang nằm ở dải "NÊN MỜI KHÁCH" đầu màn Gọi món — bấm để bỏ'
                     : 'Món ế? Bật để nhân viên order thấy ở đầu màn Gọi món mà mời khách'}
                 >
-                  {it.is_push_sale ? '🔥 Đang đẩy' : '🔥 Đẩy bán'}
+                  <IconText name="day-ban">{it.is_push_sale ? 'Đang đẩy' : 'Đẩy bán'}</IconText>
                 </button>
                 {canManage && (
                 <button
@@ -658,7 +673,7 @@ export function MenuManagementPage() {
                 </button>
                 )}
               </div>
-              {/* Nút ⭐ ở HÀNG RIÊNG, trọn bề ngang, không chen vào hàng trên: hàng trên đã hai
+              {/* Nút Đề xuất ở HÀNG RIÊNG, trọn bề ngang, không chen vào hàng trên: hàng trên đã hai
                   nút, thành ba thì mỗi nút còn ~115px trên điện thoại 390px và chữ phải co —
                   mà người dùng thật phần lớn lớn tuổi (cùng lý do đã tách hàng này từ trước). */}
               {canManage && (
@@ -675,7 +690,7 @@ export function MenuManagementPage() {
                     ? 'Nhân vật ở thực đơn tại bàn đang mời khách món này — bấm để bỏ'
                     : 'Muốn khách thử món này? Bật để nhân vật ở thực đơn tại bàn mời khách'}
                 >
-                  {featuredIds.has(it.id) ? '⭐ Đang đề xuất' : '⭐ Đề xuất'}
+                  <IconText name="de-xuat">{featuredIds.has(it.id) ? 'Đang đề xuất' : 'Đề xuất'}</IconText>
                 </button>
               </div>
               )}
@@ -688,27 +703,9 @@ export function MenuManagementPage() {
         </div>
       </div>
 
-      {/* Pagination */}
-      {!loading && totalPages > 1 && (
-        <div className="flex" style={{ marginTop: 16, justifyContent: 'center', gap: 8 }}>
-          <button
-            className="secondary"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-          >
-            ← Trước
-          </button>
-          <span style={{ alignSelf: 'center', color: '#6b7280', fontSize: 14, padding: '0 8px' }}>
-            Trang {page} / {totalPages}
-          </span>
-          <button
-            className="secondary"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Sau →
-          </button>
-        </div>
+      {/* Thanh chuyển trang chung — dãy số + lưới chọn trang (docs/UI-UX/phan-trang.md). */}
+      {!loading && (
+        <Pagination page={page} totalPages={totalPages} onChange={setPage} total={total} pageSize={PAGE_SIZE} donVi="món" />
       )}
 
       {showCreate && (
@@ -776,7 +773,7 @@ export function MenuManagementPage() {
         />
       )}
       {/* Xem ảnh toàn màn hình: chạm BẤT KỲ đâu (cả ảnh) là đóng — người lớn tuổi không phải
-          dò tìm nút. Nút ✕ to vẫn để đó cho ai quen tìm nút đóng. Cùng kiểu với ảnh phiếu
+          dò tìm nút. Nút đóng to vẫn để đó cho ai quen tìm nút đóng. Cùng kiểu với ảnh phiếu
           giao hàng (DeliveryPhotosDialog) để hai chỗ xem ảnh trong app cư xử như nhau. */}
       {zoomItem?.image_url && (
         <div
@@ -787,7 +784,9 @@ export function MenuManagementPage() {
           aria-label={`Ảnh món ${zoomItem.name}`}
         >
           <img src={zoomItem.image_url} alt={zoomItem.name} />
-          <button type="button" className="mm-zoom-close" aria-label="Đóng">✕</button>
+          <button type="button" className="mm-zoom-close" aria-label="Đóng" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Icon name="dong" size={28} />
+          </button>
         </div>
       )}
     </div>
@@ -829,7 +828,9 @@ function GroupsManagerModal({
       <div className="modal" style={{ maxWidth: 520 }}>
         <div className="flex between" style={{ marginBottom: 12 }}>
           <h1 style={{ margin: 0 }}>Quản lý nhóm món</h1>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>✕</button>
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}>
+            <Icon name="dong" size={22} label="Đóng" />
+          </button>
         </div>
         <p style={{ color: '#6b7280', fontSize: 13, marginTop: -4 }}>
           Nhóm phân loại món + xác định loại bếp (nấu / có sẵn).
@@ -843,7 +844,10 @@ function GroupsManagerModal({
                   {g.name}
                 </div>
                 <div style={{ fontSize: 11, color: '#6b7280' }}>
-                  <code>{g.code}</code> · {g.kitchen_type === 'cook' ? '🔥 Bếp nấu' : '🥤 Có sẵn'}
+                  <code>{g.code}</code> ·{' '}
+                  <IconText name={g.kitchen_type === 'cook' ? 'bep' : 'co-san'} size={12}>
+                    {g.kitchen_type === 'cook' ? 'Bếp nấu' : 'Có sẵn'}
+                  </IconText>
                 </div>
               </div>
               <button className="danger" onClick={() => remove(g)} style={{ padding: '6px 10px', fontSize: 13 }}>
@@ -918,10 +922,10 @@ function NewGroupForm({ onClose, onSaved }: { onClose: () => void; onSaved: () =
         <label>Loại bếp xử lý</label>
         <div style={{ display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr' }}>
           <button type="button" onClick={() => setKitchenType('cook')} className={kitchenType === 'cook' ? '' : 'secondary'}>
-            🔥 Bếp nấu
+            <IconText name="bep">Bếp nấu</IconText>
           </button>
           <button type="button" onClick={() => setKitchenType('ready-made')} className={kitchenType === 'ready-made' ? '' : 'secondary'}>
-            🥤 Có sẵn
+            <IconText name="co-san">Có sẵn</IconText>
           </button>
         </div>
       </div>
@@ -981,7 +985,7 @@ function MenuFormModal({
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       setImageUrl(res.data.data.url);
-      toast.push('success', 'Tải ảnh lên thành công ✓');
+      toast.push('success', 'Tải ảnh lên thành công');
     } catch (e) {
       setErr(extractError(e).message);
     } finally {
@@ -1015,11 +1019,11 @@ function MenuFormModal({
       };
       if (existing) {
         await api.patch(`/menu/${existing.id}`, body);
-        toast.push('success', `Cập nhật ${name} thành công ✓`);
+        toast.push('success', `Cập nhật ${name} thành công`);
       } else {
         body.code = code;
         await api.post('/menu', body);
-        toast.push('success', `Tạo món ${name} thành công ✓`);
+        toast.push('success', `Tạo món ${name} thành công`);
       }
       onSaved();
     } catch (e) {
@@ -1049,49 +1053,17 @@ function MenuFormModal({
           <input id="m-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
         </div>
         <div className="row">
-          <label htmlFor="m-group">Nhóm</label>
-          {/* Mobile select fix: explicit appearance:none + custom arrow + 16px font + min-height
-              Tránh: zoom on focus (iOS), arrow native xấu, overflow text */}
-          <div style={{ position: 'relative' }}>
-            <select
-              id="m-group"
-              value={group}
-              onChange={(e) => setGroup(e.target.value)}
-              style={{
-                width: '100%',
-                minHeight: 48,
-                padding: '12px 40px 12px 14px',
-                borderRadius: 8,
-                border: '1px solid #d1d5db',
-                fontSize: 16,
-                background: 'white',
-                WebkitAppearance: 'none',
-                MozAppearance: 'none',
-                appearance: 'none',
-                cursor: 'pointer',
-                fontFamily: 'inherit',
-              }}
-            >
-              {groups.map((g) => (
-                <option key={g.code} value={g.code}>
-                  {g.icon ? `${g.icon} ${g.name}` : g.name}
-                </option>
-              ))}
-            </select>
-            <span
-              style={{
-                position: 'absolute',
-                right: 14,
-                top: '50%',
-                transform: 'translateY(-50%)',
-                pointerEvents: 'none',
-                color: '#6b7280',
-                fontSize: 14,
-              }}
-            >
-              ▼
-            </span>
-          </div>
+          <label>Nhóm</label>
+          {/* ~30 nhóm → Dropdown chung tự có ô tìm (gõ không dấu). Thay `<select>` gốc: danh sách
+              bung ra của hệ điều hành không tìm được, phải cuộn cả 30 dòng. Emoji nhóm là dữ liệu
+              chủ quán tự đặt nên giữ trong nhãn. */}
+          <Dropdown
+            ariaLabel="Nhóm"
+            value={group}
+            onChange={setGroup}
+            options={groups.map((g) => ({ value: g.code, label: g.icon ? `${g.icon} ${g.name}` : g.name }))}
+            full
+          />
         </div>
         <div className="flex">
           <div className="row" style={{ flex: 2 }}>
@@ -1176,9 +1148,12 @@ function MenuFormModal({
                   fontSize: 14,
                   lineHeight: 1,
                   cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
                 }}
               >
-                ✕
+                <Icon name="dong" size={16} label="Xoá ảnh" />
               </button>
             </div>
           ) : (
@@ -1197,7 +1172,7 @@ function MenuFormModal({
                   disabled={uploading}
                   style={{ flex: 1, minWidth: 140, padding: '12px 14px' }}
                 >
-                  {uploading ? <span className="spinner" /> : '📷 Tải ảnh lên'}
+                  {uploading ? <span className="spinner" /> : <IconText name="anh" size={20}>Tải ảnh lên</IconText>}
                 </button>
                 <button
                   type="button"
@@ -1563,7 +1538,7 @@ function ImportMenuModal({
       <div className="modal vp-cap-90" style={{ maxWidth: 700, display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start' }}>
           <div>
-            <h1 style={{ margin: 0 }}>📥 Import menu từ file</h1>
+            <h1 style={{ margin: 0 }}>Import menu từ file</h1>
             <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 0' }}>
               Chấp nhận .xlsx hoặc .csv. Bắt buộc cột <code>code</code>; các cột{' '}
               <code>name, group, price, unit, image_url</code> tuỳ chọn.
@@ -1572,7 +1547,9 @@ function ImportMenuModal({
               nhật bảng giá mà không đụng tên/nhóm/đvt/ảnh.
             </p>
           </div>
-          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px' }}>✕</button>
+          <button type="button" className="secondary" onClick={onClose} style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}>
+            <Icon name="dong" size={22} label="Đóng" />
+          </button>
         </div>
 
         {!rows ? (
@@ -1596,7 +1573,9 @@ function ImportMenuModal({
                 marginBottom: 12,
               }}
             >
-              <div style={{ fontSize: 48 }}>{loadingXlsx && fileName ? '⏳' : '📄'}</div>
+              <div style={{ color: '#6b7280' }}>
+                <Icon name={loadingXlsx && fileName ? 'dang-cho' : 'tai-lieu'} size={48} />
+              </div>
               <div style={{ fontWeight: 600, marginTop: 8 }}>
                 {loadingXlsx && fileName ? `Đang đọc ${fileName}…` : 'Bấm để chọn file'}
               </div>
@@ -1611,7 +1590,11 @@ function ImportMenuModal({
               disabled={loadingXlsx}
               style={{ width: '100%' }}
             >
-              {loadingXlsx ? '⏳ Đang chuẩn bị…' : '⬇ Tải template Excel mẫu'}
+              {loadingXlsx ? (
+                <IconText name="dang-cho">Đang chuẩn bị…</IconText>
+              ) : (
+                <IconText name="tai-xuong" size={20}>Tải template Excel mẫu</IconText>
+              )}
             </button>
           </>
         ) : (
@@ -1631,7 +1614,7 @@ function ImportMenuModal({
               }}
             >
               <div>
-                <strong>📄 {fileName}</strong> · {rows.length} dòng ·
+                <strong><IconText name="tai-lieu" size={14}>{fileName}</IconText></strong> · {rows.length} dòng ·
                 {' '}<span style={{ color: '#059669' }}>{validCount} OK</span>
                 {errorCount > 0 && <> · <span style={{ color: '#dc2626' }}>{errorCount} lỗi (sẽ bỏ qua)</span></>}
               </div>
@@ -1663,7 +1646,8 @@ function ImportMenuModal({
               />
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600 }}>
-                  💴 Giá trong file là <strong>nghìn VND</strong> (×1000)
+                  <Icon name="tien-mat" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
+                  Giá trong file là <strong>nghìn VND</strong> (×1000)
                 </div>
                 <div style={{ color: '#6b7280', marginTop: 2, fontSize: 12 }}>
                   Tích nếu file lưu giá dạng <code>200</code> = 200,000đ, <code>15</code> = 15,000đ.
@@ -1685,7 +1669,10 @@ function ImportMenuModal({
                   marginBottom: 12,
                 }}
               >
-                <strong style={{ color: '#0284c7' }}>ℹ️ Tự tạo {newGroups.length} nhóm mới:</strong>
+                <strong style={{ color: '#0284c7' }}>
+                  <Icon name="thong-tin" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
+                  Tự tạo {newGroups.length} nhóm mới:
+                </strong>
                 <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {newGroups.map((g) => (
                     <span

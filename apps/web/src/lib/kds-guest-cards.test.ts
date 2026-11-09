@@ -180,7 +180,7 @@ describe('groupCallsByTable — một bàn một chip, để bàn ồn không đ
   });
 
   it('describeGroup: một lời nhắn in thẳng lời đó, nhiều thì đếm', () => {
-    expect(describeGroup(groupCallsByTable([call({ note: 'Thêm đá' })])[0]!)).toBe('💬 Thêm đá');
+    expect(describeGroup(groupCallsByTable([call({ note: 'Thêm đá' })])[0]!)).toBe('Thêm đá');
     expect(describeGroup(groupCallsByTable([call({})])[0]!)).toBe('gọi thêm đồ');
     expect(describeGroup(groupCallsByTable([call({ id: 'a' }), call({ id: 'b' })])[0]!)).toBe('2 lời nhắn');
   });

@@ -4,6 +4,7 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { QrVisibilityDialog } from '../components/QrVisibilityDialog.tsx';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 import './nhan-su.css';
 
 type Role = 'admin' | 'order' | 'kitchen' | 'report' | 'print';
@@ -23,12 +24,34 @@ type UserRow = {
 };
 
 const ROLE_LABEL: Record<Role, string> = {
-  admin: '👑 Admin',
-  order: '🍽 NV Order',
-  kitchen: '👨‍🍳 NV Bếp',
-  report: '📊 Báo cáo',
-  print: '🖨 Máy in',
+  admin: 'Admin',
+  order: 'NV Order',
+  kitchen: 'NV Bếp',
+  report: 'Báo cáo',
+  print: 'Máy in',
 };
+// Icon quyền tách khỏi nhãn: nhãn còn đi vào chuỗi thuần (toast "Tạo nhân viên … (NV Order)")
+// nên không chứa được icon (Đợt 0 đồng bộ giao diện, 2026-11-09).
+const ROLE_ICON: Record<Role, IconName> = {
+  admin: 'quan-tri',
+  order: 'order',
+  kitchen: 'bep',
+  report: 'bao-cao',
+  print: 'in',
+};
+
+function IconText({ name, size = 16, children }: { name: IconName; size?: number; children: ReactNode }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <Icon name={name} size={size} />
+      {children}
+    </span>
+  );
+}
+
+function RoleLabel({ role }: { role: Role }) {
+  return <IconText name={ROLE_ICON[role]}>{ROLE_LABEL[role]}</IconText>;
+}
 // `report` xếp CUỐI, sau `admin`: đây là quyền hiếm dùng (người xem sổ sách, không phải nhân
 // sự ca trực), để lẫn giữa hai quyền nhân viên là dễ bấm nhầm khi tạo tài khoản hàng loạt.
 // `print` đứng cuối: nó không phải một người, chỉ là tài khoản cho chiếc máy POS ở quầy.
@@ -97,7 +120,7 @@ export function AdminUsersPage() {
       toast.push(
         'success',
         next
-          ? `${u.full_name || u.username} được thu chuyển khoản ✓`
+          ? `${u.full_name || u.username} được thu chuyển khoản`
           : `${u.full_name || u.username} không còn thu chuyển khoản`,
       );
     } catch (err) {
@@ -182,19 +205,19 @@ export function AdminUsersPage() {
 
   // Chip quyền chỉ hiện khi có ít nhất một người — chip "Máy in 0" chỉ là thêm một thứ để đọc.
   // Ba chip trạng thái thì luôn hiện, kể cả "Tạm nghỉ 0": đó là câu trả lời chủ quán cần biết.
-  const chips: { key: Filter; label: string; count: number }[] = [
+  const chips: { key: Filter; label: string; count: number; role?: Role }[] = [
     { key: 'all', label: 'Tất cả', count: items.length },
     { key: 'active', label: 'Đang làm', count: activeCount },
     { key: 'suspended', label: 'Tạm nghỉ', count: suspendedCount },
     ...(['admin', 'order', 'kitchen', 'report', 'print'] as Role[])
-      .map((r) => ({ key: r as Filter, label: ROLE_LABEL[r], count: roleCount(r) }))
+      .map((r) => ({ key: r as Filter, label: ROLE_LABEL[r], count: roleCount(r), role: r }))
       .filter((c) => c.count > 0),
   ];
 
   return (
     <div className="container wide with-bottom-nav nv-ui">
       <div className="nv-toolbar">
-        <h1>👥 Nhân sự</h1>
+        <h1>Nhân sự</h1>
         <button type="button" className="nv-add" onClick={() => setShowCreate(true)}>
           + Thêm
         </button>
@@ -213,7 +236,7 @@ export function AdminUsersPage() {
               className={`nv-chip${filter === c.key ? ' active' : ''}`}
               onClick={() => setFilter(c.key)}
             >
-              {c.label} <span className="nv-cnt">{c.count}</span>
+              {c.role ? <RoleLabel role={c.role} /> : c.label} <span className="nv-cnt">{c.count}</span>
             </button>
           ))}
         </div>
@@ -242,17 +265,17 @@ export function AdminUsersPage() {
                 <ActionsMenu>
                   {(close) => (
                     <>
-                      <MenuItem onClick={() => { close(); setEditing(u); }}>✏️ Sửa</MenuItem>
-                      <MenuItem onClick={() => { close(); setPwdTarget(u); }}>🔑 Đổi Mật Khẩu</MenuItem>
+                      <MenuItem onClick={() => { close(); setEditing(u); }}><IconText name="sua">Sửa</IconText></MenuItem>
+                      <MenuItem onClick={() => { close(); setPwdTarget(u); }}><IconText name="khoa">Đổi Mật Khẩu</IconText></MenuItem>
                       {!u.is_owner && (
                         u.is_active ? (
-                          <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}>⏸ Tạm nghỉ</MenuItem>
+                          <MenuItem color="#b45309" onClick={() => { close(); suspend(u); }}><IconText name="tam-nghi">Tạm nghỉ</IconText></MenuItem>
                         ) : (
-                          <MenuItem color="#059669" onClick={() => { close(); reactivate(u); }}>▶ Cho làm lại</MenuItem>
+                          <MenuItem color="#059669" onClick={() => { close(); reactivate(u); }}><IconText name="lam-lai">Cho làm lại</IconText></MenuItem>
                         )
                       )}
                       {!u.is_owner && (
-                        <MenuItem color="#dc2626" onClick={() => { close(); hardDelete(u); }}>🗑 Xoá vĩnh viễn</MenuItem>
+                        <MenuItem color="#dc2626" onClick={() => { close(); hardDelete(u); }}><IconText name="xoa">Xoá vĩnh viễn</IconText></MenuItem>
                       )}
                     </>
                   )}
@@ -356,7 +379,7 @@ function UserCard({
           <div className="nv-meta">
             <span className="nv-username">{u.username}</span>
             <span className="nv-role" style={{ background: tone.chipBg, color: tone.chipFg }}>
-              {u.role ? ROLE_LABEL[u.role] : '⚠ Chưa gán quyền (chặn đăng nhập)'}
+              {u.role ? <RoleLabel role={u.role} /> : <IconText name="canh-bao" size={14}>Chưa gán quyền (chặn đăng nhập)</IconText>}
             </span>
           </div>
         </div>
@@ -371,9 +394,9 @@ function UserCard({
       </div>
 
       {isBoss ? (
-        <div className="nv-ck-note">🔒 Luôn được thu và thấy mọi mã QR</div>
+        <div className="nv-ck-note"><IconText name="khoa">Luôn được thu và thấy mọi mã QR</IconText></div>
       ) : u.role === 'report' ? (
-        <div className="nv-ck-note">📷 Luôn xem được ảnh bill chuyển khoản</div>
+        <div className="nv-ck-note"><IconText name="anh">Luôn xem được ảnh bill chuyển khoản</IconText></div>
       ) : u.role !== 'print' && (
         <div className="nv-ck">
           <div className="nv-ck-row">
@@ -407,7 +430,7 @@ function UserCard({
   );
 }
 
-/** Menu hành động "⋯" — bấm mới hiện danh sách, gọn khi có nhiều action. */
+/** Menu hành động (nút ba chấm) — bấm mới hiện danh sách, gọn khi có nhiều action. */
 function ActionsMenu({ children }: { children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -442,9 +465,12 @@ function ActionsMenu({ children }: { children: (close: () => void) => ReactNode 
           lineHeight: 1,
           border: '1px solid #e5e7eb',
           borderRadius: 10,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
         }}
       >
-        ⋯
+        <Icon name="them-thao-tac" size={22} />
       </button>
       {open && (
         <div
@@ -535,7 +561,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         password: pwd,
         role,
       });
-      toast.push('success', `Tạo nhân viên ${fullName} (${ROLE_LABEL[role]}) thành công ✓`);
+      toast.push('success', `Tạo nhân viên ${fullName} (${ROLE_LABEL[role]}) thành công`);
       onCreated();
     } catch (e) {
       setErr(extractError(e).message);
@@ -606,13 +632,13 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
                   lineHeight: 1.2,
                 }}
               >
-                {ROLE_LABEL[r]}
+                <RoleLabel role={r} />
               </button>
             ))}
           </div>
           <p style={{ fontSize: 11, color: '#6b7280', marginTop: 6 }}>
-            👑 Admin: toàn quyền · 🍽 NV Order: chỉ màn Order (điện thoại) ·
-            👨‍🍳 NV Bếp: chỉ màn Bếp (iPad)
+            Admin: toàn quyền · NV Order: chỉ màn Order (điện thoại) ·
+            NV Bếp: chỉ màn Bếp (iPad)
           </p>
         </div>
         <div className="flex" style={{ marginTop: 8 }}>
@@ -663,7 +689,7 @@ function SetPasswordModal({
     setErr(null);
     try {
       await api.post(`/admin/users/${user.id}/reset-password`, { password: pwd });
-      toast.push('success', `Đã đổi mật khẩu cho ${who} ✓`);
+      toast.push('success', `Đã đổi mật khẩu cho ${who}`);
       onDone();
     } catch (e) {
       setErr(extractError(e).message);
@@ -701,7 +727,8 @@ function SetPasswordModal({
         </p>
         {user.is_owner && (
           <p style={{ background: '#fef3c7', padding: 8, borderRadius: 6, fontSize: 12, color: '#92400e' }}>
-            ⚠ Đây là tài khoản chủ quán. Đổi xong nhớ báo lại cho họ, nếu không họ sẽ không đăng
+            <Icon name="canh-bao" size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />
+            Đây là tài khoản chủ quán. Đổi xong nhớ báo lại cho họ, nếu không họ sẽ không đăng
             nhập được.
           </p>
         )}
@@ -719,7 +746,7 @@ function SetPasswordModal({
           ariaDescribedBy="sp-hint"
         />
         <p id="sp-hint" style={{ fontSize: 11, color: '#6b7280', marginTop: -4 }}>
-          Bấm 👁 để soi lại trước khi đọc cho nhân viên. Phiên họ đang đăng nhập vẫn giữ nguyên.
+          Bấm <Icon name="hien" size={14} label="nút hình con mắt" style={{ verticalAlign: '-2px' }} /> để soi lại trước khi đọc cho nhân viên. Phiên họ đang đăng nhập vẫn giữ nguyên.
         </p>
         <div className="flex" style={{ marginTop: 8 }}>
           <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
@@ -738,7 +765,7 @@ function SetPasswordModal({
           style={{ width: '100%', marginTop: 8 }}
         >
           {submitting === 'random' && <span className="spinner" />}
-          🎲 Sinh mật khẩu tạm ngẫu nhiên
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ngau-nhien" size={18} />Sinh mật khẩu tạm ngẫu nhiên</span>
         </button>
         <p style={{ fontSize: 11, color: '#6b7280', marginTop: 4, textAlign: 'center' }}>
           Cách này đăng xuất họ khỏi mọi thiết bị — dùng khi nghi tài khoản bị lộ.
@@ -775,7 +802,7 @@ function EditUserModal({
       const body: Record<string, unknown> = { full_name: fullName.trim() };
       if (!user.is_owner) body.role = role;  // không đổi role owner
       await api.patch(`/admin/users/${user.id}`, body);
-      toast.push('success', `Cập nhật ${fullName} thành công ✓`);
+      toast.push('success', `Cập nhật ${fullName} thành công`);
       onSaved();
     } catch (e) {
       setErr(extractError(e).message);
@@ -789,7 +816,7 @@ function EditUserModal({
       <form className="modal" onSubmit={submit}>
         <h1>Sửa thông tin nhân viên</h1>
         <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
-          Tên đăng nhập <code>{user.username}</code> không đổi được. Đổi mật khẩu qua menu "🔑 Đổi Mật Khẩu".
+          Tên đăng nhập <code>{user.username}</code> không đổi được. Đổi mật khẩu qua menu "Đổi Mật Khẩu".
         </p>
         <div className="row">
           <label htmlFor="eu-fname">Họ và tên</label>
@@ -822,7 +849,7 @@ function EditUserModal({
                     cursor: 'pointer',
                   }}
                 >
-                  {ROLE_LABEL[r]}
+                  <RoleLabel role={r} />
                 </button>
               ))}
             </div>
@@ -830,7 +857,7 @@ function EditUserModal({
         )}
         {user.is_owner && (
           <p style={{ background: '#fef3c7', padding: 8, borderRadius: 6, fontSize: 12, color: '#92400e' }}>
-            Owner luôn có role <strong>👑 Admin</strong>. Không thể đổi.
+            Owner luôn có role <strong><RoleLabel role="admin" /></strong>. Không thể đổi.
           </p>
         )}
         {err && <div className="field-error">{err}</div>}

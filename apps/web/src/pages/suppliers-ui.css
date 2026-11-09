@@ -13,27 +13,27 @@
  * Token của mockup (`:root`) gắn lên chính `.ncc-ui` nên chỉ sống trong module này.
  */
 .ncc-ui {
-  --bg:            #f9fafb;
+  --bg:            var(--gray-50);
   --surface:       #ffffff;
-  --surface-sub:   #f3f4f6;
-  --border:        #e5e7eb;
-  --border-strong: #d1d5db;
-  --fg:            #1f2937;
-  --muted:         #6b7280;
-  --muted-tint:    #4b5563; 
-  --accent:        #0f766e;
-  --accent-soft:   #ccfbf1;
-  --accent-hover:  #115e59;
-  --accent-press:  #134e4a;
+  --surface-sub:   var(--gray-100);
+  --border:        var(--gray-200);
+  --border-strong: var(--gray-300);
+  --fg:            var(--gray-800);
+  --muted:         var(--gray-500);
+  --muted-tint:    var(--gray-600); 
+  --accent:        var(--teal-700);
+  --accent-soft:   var(--teal-100);
+  --accent-hover:  var(--teal-800);
+  --accent-press:  var(--teal-900);
   --accent-ring:   rgba(15, 118, 110, .32);
-  --debt:          #c2410c; 
-  --debt-soft:     #ffedd5;
-  --paid:          #15803d; 
-  --paid-soft:     #dcfce7;
-  --danger:        #dc2626;
-  --danger-soft:   #fee2e2;
-  --pending:       #b45309; 
-  --pending-bg:    #fffbeb;
+  --debt:          var(--orange-700); 
+  --debt-soft:     var(--orange-100);
+  --paid:          var(--green-700); 
+  --paid-soft:     var(--green-100);
+  --danger:        var(--red-600);
+  --danger-soft:   var(--red-100);
+  --pending:       var(--amber-700); 
+  --pending-bg:    var(--amber-50);
   --r-xs: 6px;
   --r-sm: 8px;
   --r:    12px;
@@ -56,7 +56,11 @@
 }
 .ncc-ui [hidden] { display: none !important;
 }
-.ncc-ui button, .ncc-ui input, .ncc-ui select, .ncc-ui textarea { font: inherit; color: inherit;
+/* `:where(:not([class*="ds-"]))` (Đợt 0, 2026-11-09): reset này cùng độ ưu tiên (0,1,1) với
+   `button.ds-chip`/`button.ds-trigger` của bộ component chung (components/ui/ui.css) → file nào
+   nạp sau thắng, nút "Chọn ngày"/ô chọn NCC mất màu chữ, cỡ chữ. Loại các nút `ds-*` ra bằng
+   `:where` để KHÔNG tăng độ ưu tiên — luật `.ncc-ui .chip` (0,2,0) vẫn đè được như cũ. */
+.ncc-ui button:where(:not([class*="ds-"])), .ncc-ui input, .ncc-ui select, .ncc-ui textarea { font: inherit; color: inherit;
 }
 .ncc-ui button { cursor: pointer;
 }
@@ -244,7 +248,7 @@
 }
 .ncc-ui .btn--ok { color: var(--paid); border-color: var(--paid); background: var(--surface);
 }
-.ncc-ui .btn--ok:hover { background: var(--paid-soft); color: #14532d; border-color: #14532d;
+.ncc-ui .btn--ok:hover { background: var(--paid-soft); color: var(--green-900); border-color: var(--green-900);
 }
 .ncc-ui .btn--sm { min-height: var(--tap); padding: 8px 12px; font-size: 14px;
 }
@@ -311,7 +315,8 @@
   border-radius: var(--r-sm);
   background: var(--surface);
   color: var(--fg);
-  font-size: 15px;
+  /* 16px chứ không 15: iPhone tự PHÓNG TO trang khi chạm ô chữ < 16px (Đợt 0, 2026-11-09). */
+  font-size: 16px;
 }
 .ncc-ui .input::placeholder { color: var(--muted);
 }
@@ -409,6 +414,16 @@
 }
 .ncc-ui .filterbar__dates .input { min-width: 0; padding-left: 10px; padding-right: 10px;
 }
+/* Hàng dưới của thanh lọc (chọn NCC, ô tìm, nút phụ) — XUỐNG DÒNG chứ không cuộn ngang:
+   `Dropdown` bung danh sách ngay dưới ô, khung `overflow-x: auto` sẽ cắt mất danh sách đó. */
+.ncc-ui .filterbar__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; min-width: 0;
+}
+.ncc-ui .filterbar__sup { flex: 1 1 200px; min-width: 0; max-width: 320px;
+}
+.ncc-ui .filterbar__row .field--search { flex: 1 1 220px; min-width: 0;
+}
+.ncc-ui .filterbar__row > .fgroup { max-width: 100%; overflow-x: auto; scrollbar-width: none;
+}
 .ncc-ui .filterbar__note {
   font-size: 13px;
   color: var(--muted-tint);
@@ -463,17 +478,17 @@
   white-space: nowrap;
   border: 1px solid transparent;
 }
-.ncc-ui .badge--pending { background: var(--pending-bg); color: var(--pending); border-color: #fde68a;
+.ncc-ui .badge--pending { background: var(--pending-bg); color: var(--pending); border-color: var(--amber-200);
 }
-.ncc-ui .badge--ok { background: var(--paid-soft); color: #14532d; border-color: #bbf7d0;
+.ncc-ui .badge--ok { background: var(--paid-soft); color: var(--green-900); border-color: var(--green-200);
 }
-.ncc-ui .badge--debt { background: var(--debt-soft); color: #9a3412; border-color: #fed7aa;
+.ncc-ui .badge--debt { background: var(--debt-soft); color: var(--orange-800); border-color: var(--orange-200);
 }
-.ncc-ui .badge--danger { background: var(--danger-soft); color: #991b1b; border-color: #fecaca;
+.ncc-ui .badge--danger { background: var(--danger-soft); color: var(--red-800); border-color: var(--red-200);
 }
 .ncc-ui .badge--neutral { background: var(--surface-sub); color: var(--muted-tint); border-color: var(--border);
 }
-.ncc-ui .badge--accent { background: var(--accent-soft); color: #115e59; border-color: #99f6e4;
+.ncc-ui .badge--accent { background: var(--accent-soft); color: var(--teal-800); border-color: var(--teal-200);
 }
 .ncc-ui .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none;
 }
@@ -540,12 +555,12 @@
   display: grid;
   place-items: center;
   background: var(--accent-soft);
-  color: #115e59;
+  color: var(--teal-800);
   font-family: var(--font-display);
   font-weight: 800;
   font-size: 15px;
   letter-spacing: -.02em;
-  border: 1px solid #99f6e4;
+  border: 1px solid var(--teal-200);
 }
 .ncc-ui .tablewrap { width: 100%; overflow-x: auto; position: relative;
 }
@@ -799,7 +814,7 @@
 }
 .ncc-ui .tl__item--wait .tl__card {
   background: var(--pending-bg);
-  border-color: #fde68a;
+  border-color: var(--amber-200);
   box-shadow: inset 4px 0 0 var(--pending);
 }
 .ncc-ui .tl__t1 {
@@ -869,7 +884,7 @@
   }
   .ncc-ui .topnav__item:hover { background: var(--surface-sub); color: var(--fg);
   }
-  .ncc-ui .topnav__item[aria-current="page"] { background: var(--accent-soft); color: #115e59;
+  .ncc-ui .topnav__item[aria-current="page"] { background: var(--accent-soft); color: var(--teal-800);
   }
   .ncc-ui .appbar__in { min-height: 64px;
   }
@@ -1026,10 +1041,10 @@
     gap: 16px; flex-wrap: wrap;
     padding: 14px 16px;
     background: var(--debt-soft);
-    border: 1px solid #fed7aa;
+    border: 1px solid var(--orange-200);
     border-radius: var(--r);
 }
-.ncc-ui .sup-head__debtlabel { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #9a3412;
+.ncc-ui .sup-head__debtlabel { font-size: 12px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--orange-800);
 }
 .ncc-ui .sup-head__debtnote { font-size: 13px; color: var(--muted-tint); margin-top: 6px;
 }
@@ -1107,7 +1122,7 @@
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 14px 16px;
     background: var(--pending-bg);
-    border: 1px solid #fde68a;
+    border: 1px solid var(--amber-200);
     border-radius: var(--r);
 }
 .ncc-ui .notice__icon { width: 22px; height: 22px; color: var(--pending); flex: none;
@@ -1124,7 +1139,7 @@
     border: 1px solid var(--border-strong); border-radius: var(--r-sm);
     background: var(--surface); font-size: 13.5px; font-weight: 600; color: var(--muted-tint);
 }
-.ncc-ui .photo:hover { background: var(--accent-soft); border-color: var(--accent); color: #115e59;
+.ncc-ui .photo:hover { background: var(--accent-soft); border-color: var(--accent); color: var(--teal-800);
 }
 .ncc-ui .photo__box {
     width: 32px; height: 32px; border-radius: var(--r-xs);
@@ -1133,7 +1148,7 @@
 }
 .ncc-ui .photo__box svg { width: 17px; height: 17px; color: var(--muted);
 }
-.ncc-ui .photo:hover .photo__box svg { color: #115e59;
+.ncc-ui .photo:hover .photo__box svg { color: var(--teal-800);
 }
 .ncc-ui .photo--none { color: var(--muted); border-style: dashed;
 }
@@ -1165,7 +1180,7 @@
 }
 .ncc-ui .rowmenu__btn:hover { background: #eef2f4; border-color: var(--border-strong); color: var(--fg);
 }
-.ncc-ui .rowmenu__btn[aria-expanded="true"] { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+.ncc-ui .rowmenu__btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--teal-200); color: var(--teal-800);
 }
 .ncc-ui .rowpop {
     position: fixed; z-index: 80;
@@ -1192,20 +1207,20 @@
 }
 .ncc-ui .rowpop__item:hover { background: #eef2f4;
 }
-.ncc-ui .rowpop__item--ok:hover { background: var(--paid-soft); color: #14532d;
+.ncc-ui .rowpop__item--ok:hover { background: var(--paid-soft); color: var(--green-900);
 }
-.ncc-ui .rowpop__item--ok:hover svg { color: #14532d;
+.ncc-ui .rowpop__item--ok:hover svg { color: var(--green-900);
 }
-.ncc-ui .rowpop__item--danger:hover { background: var(--danger-soft); color: #991b1b;
+.ncc-ui .rowpop__item--danger:hover { background: var(--danger-soft); color: var(--red-800);
 }
-.ncc-ui .rowpop__item--danger:hover svg { color: #991b1b;
+.ncc-ui .rowpop__item--danger:hover svg { color: var(--red-800);
 }
 .ncc-ui .rowpop__empty { padding: 12px 10px; font-size: 13.5px; color: var(--muted);
 }
 @media (min-width: 720px) {
   .ncc-ui .actgroup { display: flex; gap: 6px; justify-content: flex-end;
   }
-  .ncc-ui .table tbody tr.is-pending td { border-bottom-color: #fde68a;
+  .ncc-ui .table tbody tr.is-pending td { border-bottom-color: var(--amber-200);
   }
   .ncc-ui .colcode { width: 132px;
   }
@@ -1263,7 +1278,7 @@
   }
   .ncc-ui .table--rows tbody tr.is-pending {
       background: var(--pending-bg);
-      border-bottom-color: #fde68a;
+      border-bottom-color: var(--amber-200);
       box-shadow: inset 4px 0 0 var(--pending);
   }
   .ncc-ui .table--rows tbody tr.is-pending:hover { background: #fdf3d6;
@@ -1317,9 +1332,9 @@
 }
 .ncc-ui .pct svg { width: 13px; height: 13px;
 }
-.ncc-ui .pct--up { background: var(--debt-soft); color: #9a3412; border-color: #fed7aa;
+.ncc-ui .pct--up { background: var(--debt-soft); color: var(--orange-800); border-color: var(--orange-200);
 }
-.ncc-ui .pct--down { background: var(--paid-soft); color: #14532d; border-color: #bbf7d0;
+.ncc-ui .pct--down { background: var(--paid-soft); color: var(--green-900); border-color: var(--green-200);
 }
 .ncc-ui .chart { width: 100%;
 }
@@ -1479,9 +1494,9 @@
     text-align: left;
     line-height: 1.3;
 }
-.ncc-ui .dishbtn:hover { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+.ncc-ui .dishbtn:hover { background: var(--accent-soft); border-color: var(--teal-200); color: var(--teal-800);
 }
-.ncc-ui .dishbtn[aria-expanded="true"] { background: var(--accent-soft); border-color: #99f6e4; color: #115e59;
+.ncc-ui .dishbtn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--teal-200); color: var(--teal-800);
 }
 .ncc-ui .dishbtn__chev { width: 15px; height: 15px; flex: none; color: var(--accent); transition: transform .15s ease;
 }
@@ -1750,7 +1765,7 @@
 /* App có `button { background: <teal> }` toàn cục, mockup thì không nên nó không viết luật ghi
    đè. Hệ quả: trong `.ncc-ui`, nút nào KHÔNG tự khai nền (.back, .sortbtn, .dishbtn…) bị tô
    teal đặc. `.btn`/`.chip`/`.photo` tự khai nền nên không bị luật này đụng tới. */
-.ncc-ui button { background: none; }
+.ncc-ui button:where(:not([class*="ds-"])) { background: none; }
 .ncc-ui button.back, .ncc-ui button.sortbtn, .ncc-ui button.dishbtn { border: 0; }
 
 /* Chi tiết NCC là HỘP THOẠI chứ không phải một trang như mockup (route `/suppliers/:id` chưa

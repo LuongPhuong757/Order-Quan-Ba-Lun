@@ -10,6 +10,7 @@ import {
   ReactNode,
   FormEvent,
 } from 'react';
+import { Icon, type IconName } from './ui/Icon.tsx';
 
 export type ConfirmVariant = 'default' | 'danger' | 'warning' | 'success' | 'info';
 
@@ -47,12 +48,12 @@ type InternalState =
   | { kind: 'prompt'; opts: PromptOptions; resolve: (v: string | null) => void }
   | null;
 
-const VARIANT_COLORS: Record<ConfirmVariant, { bg: string; border: string; text: string; icon: string }> = {
-  default: { bg: '#f0f9ff', border: '#0f766e', text: '#0f766e', icon: '❓' },
-  danger:  { bg: '#fef2f2', border: '#dc2626', text: '#dc2626', icon: '⚠️' },
-  warning: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e', icon: '⚠️' },
-  success: { bg: '#ecfdf5', border: '#059669', text: '#059669', icon: '✓' },
-  info:    { bg: '#f0f9ff', border: '#0284c7', text: '#0284c7', icon: 'ℹ️' },
+const VARIANT_COLORS: Record<ConfirmVariant, { bg: string; border: string; text: string; icon: IconName }> = {
+  default: { bg: '#f0f9ff', border: '#0f766e', text: '#0f766e', icon: 'tro-giup' },
+  danger:  { bg: '#fef2f2', border: '#dc2626', text: '#dc2626', icon: 'canh-bao' },
+  warning: { bg: '#fef3c7', border: '#f59e0b', text: '#92400e', icon: 'canh-bao' },
+  success: { bg: '#ecfdf5', border: '#059669', text: '#059669', icon: 'xong' },
+  info:    { bg: '#f0f9ff', border: '#0284c7', text: '#0284c7', icon: 'thong-tin' },
 };
 
 export function ConfirmProvider({ children }: { children: ReactNode }) {
@@ -149,7 +150,8 @@ function ConfirmModal({
     >
       <div className="vp-cap-90" style={modalStyle}>
         <div style={{ ...iconHeaderStyle, background: c.bg, borderBottom: `1px solid ${c.border}33` }}>
-          <span style={{ fontSize: 26 }}>{c.icon}</span>
+          {/* Icon nét một màu theo màu chữ của loại hộp thoại — tiêu đề h2 bên cạnh đã nói nghĩa. */}
+          <Icon name={c.icon} size={26} style={{ color: c.text }} />
           <h2 id="confirm-title" style={{ margin: 0, fontSize: 17, color: c.text }}>
             {opts.title || 'Xác nhận'}
           </h2>
@@ -232,7 +234,7 @@ function PromptModal({
     >
       <form onSubmit={submit} className="vp-cap-90" style={modalStyle}>
         <div style={{ ...iconHeaderStyle, background: '#fef3c7', borderBottom: '1px solid #f59e0b33' }}>
-          <span style={{ fontSize: 26 }}>✎</span>
+          <Icon name="sua" size={26} style={{ color: '#92400e' }} />
           <h2 style={{ margin: 0, fontSize: 17, color: '#92400e' }}>
             {opts.title || 'Nhập thông tin'}
           </h2>

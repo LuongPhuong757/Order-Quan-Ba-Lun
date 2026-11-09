@@ -11,8 +11,8 @@ body {
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   font-size: 16px; /* iOS no-zoom baseline */
   line-height: 1.5;
-  color: #1f2937;
-  background: #f9fafb;
+  color: var(--gray-800);
+  background: var(--gray-50);
 }
 
 /* Chừa chỗ cho dải đỏ báo môi trường dev (fixed, top:0 — xem components/EnvBanner.tsx).
@@ -43,7 +43,7 @@ button {
   border: none;
   border-radius: 8px;
   padding: 12px 16px;
-  background: #0f766e;
+  background: var(--teal-700);
   color: white;
   font-weight: 600;
   transition: opacity 0.15s ease;
@@ -60,12 +60,12 @@ button:disabled {
 
 button.secondary {
   background: white;
-  color: #1f2937;
-  border: 1px solid #d1d5db;
+  color: var(--gray-800);
+  border: 1px solid var(--gray-300);
 }
 
 button.danger {
-  background: #dc2626;
+  background: var(--red-600);
 }
 
 input,
@@ -75,10 +75,10 @@ textarea {
   width: 100%;
   min-height: 44px;
   padding: 10px 14px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--gray-300);
   border-radius: 8px;
   background: white;
-  color: #1f2937;
+  color: var(--gray-800);
 }
 
 /* Rule `display: block` ngay trên ĐÈ LÊN thuộc tính `hidden` của HTML: user-agent chỉ đặt
@@ -102,9 +102,9 @@ select {
 }
 
 select:focus {
-  outline: 2px solid #0f766e;
+  outline: 2px solid var(--teal-700);
   outline-offset: -2px;
-  border-color: #0f766e;
+  border-color: var(--teal-700);
 }
 
 /* Ô ngày: Chromium vẽ nút lịch to và đậm hơn hẳn phần còn lại của form. Kéo nó về đúng cỡ
@@ -138,7 +138,7 @@ input[type='checkbox'] {
   margin: 0;
   border-radius: 4px;
   flex: none;
-  accent-color: #0f766e;
+  accent-color: var(--teal-700);
 }
 
 input[type='radio'] {
@@ -147,24 +147,24 @@ input[type='radio'] {
 
 input:focus,
 textarea:focus {
-  outline: 2px solid #0f766e;
+  outline: 2px solid var(--teal-700);
   outline-offset: -2px;
-  border-color: #0f766e;
+  border-color: var(--teal-700);
 }
 
 input[aria-invalid="true"] {
-  border-color: #dc2626;
+  border-color: var(--red-600);
 }
 
 label {
   display: block;
   margin-bottom: 6px;
   font-weight: 500;
-  color: #374151;
+  color: var(--gray-700);
 }
 
 .field-error {
-  color: #dc2626;
+  color: var(--red-600);
   font-size: 14px;
   margin-top: 4px;
 }
@@ -191,7 +191,7 @@ label {
   /* Bắt buộc, không phải trang trí: thẻ này được dùng cả trên <button> và <a>, mà `button`
      ở trên đặt `color: white`. Không khai màu ở đây thì mọi dòng chữ trong thẻ KHÔNG tự đặt
      màu sẽ là trắng trên nền trắng — đúng vụ tên nhà cung cấp biến mất ở màn /suppliers. */
-  color: #1f2937;
+  color: var(--gray-800);
   border-radius: 12px;
   padding: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -224,7 +224,7 @@ h2 {
   right: 4px;
   top: 28px;
   background: transparent;
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 14px;
   min-height: 36px;
   min-width: 36px;
@@ -254,7 +254,7 @@ h2 {
   display: flex;
   align-items: center;
   gap: 12px;
-  background: #1f2937;
+  background: var(--gray-800);
   color: white;
   padding: 12px 16px;
   font-size: 15px;
@@ -290,27 +290,27 @@ h2 {
 }
 
 .toast-banner.error {
-  background: #dc2626;
+  background: var(--red-600);
 }
 
 .toast-banner.success {
-  background: #059669;
+  background: var(--emerald-600);
 }
 
 /* 'ready' = món bếp xong cần lên lấy — nổi bật nhất */
 .toast-banner.ready {
-  background: linear-gradient(135deg, #059669, #10b981);
+  background: linear-gradient(135deg, var(--emerald-600), var(--emerald-500));
   font-size: 16px;
   font-weight: 600;
-  border-bottom: 2px solid #fbbf24;
+  border-bottom: 2px solid var(--amber-400);
 }
 
 /* 'neworder' = món mới về bếp. Cam đậm khớp màu cột "📢 Đã order" trên KDS —
    bếp nhìn banner là biết ngay việc mới nằm ở cột nào. */
 .toast-banner.neworder {
-  background: linear-gradient(135deg, #d97706, #f59e0b);
+  background: linear-gradient(135deg, var(--amber-600), var(--amber-500));
   font-weight: 700;
-  border-bottom: 3px solid #7c2d12;
+  border-bottom: 3px solid var(--orange-900);
 }
 
 /* ─── Thông báo cỡ lớn ở màn Bếp ────────────────────────────────────────────
@@ -450,7 +450,7 @@ body.kds-mode .toast-banner.error {
   border-radius: 12px 12px 0 0;
   margin: 0 -8px 12px;
   padding: 16px 8px 10px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
 }
 
 /* Trần chiều cao cho hộp thoại, tính theo khung nhìn THẬT (xem chú thích ở .modal-overlay:
@@ -474,7 +474,7 @@ body.kds-mode .toast-banner.error {
   z-index: 41;                 /* trên lớp phủ bắt click-ra-ngoài (40) */
   min-width: 190px;
   background: white;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
   overflow: hidden;
@@ -491,12 +491,12 @@ body.kds-mode .toast-banner.error {
   min-height: 46px;
   font-size: 14px;
   font-weight: 500;
-  color: #1f2937;
+  color: var(--gray-800);
 }
 
-.drawer-menu button + button { border-top: 1px solid #f3f4f6; }
-.drawer-menu button:hover:not(:disabled) { background: #f9fafb; opacity: 1; }
-.drawer-menu button:disabled { color: #9ca3af; }
+.drawer-menu button + button { border-top: 1px solid var(--gray-100); }
+.drawer-menu button:hover:not(:disabled) { background: var(--gray-50); opacity: 1; }
+.drawer-menu button:disabled { color: var(--gray-400); }
 
 /* Nút GỌI MÓN hình tròn, dính đáy khung drawer.
    Khung bọc cao 0 nên KHÔNG chiếm chỗ trong dòng chảy — nếu nó có chiều cao thì món cuối cùng
@@ -521,7 +521,7 @@ body.kds-mode .toast-banner.error {
   min-height: 56px;
   padding: 0;
   border-radius: 50%;
-  background: #0f766e;
+  background: var(--teal-700);
   color: white;
   font-size: 30px;
   font-weight: 400;
@@ -557,9 +557,9 @@ body.kds-mode .toast-banner.error {
    hai loại máy nay dùng chung một cách. */
 .item-more {
   background: none;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 8px;
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 16px;
   line-height: 1;
   padding: 0;
@@ -571,7 +571,7 @@ body.kds-mode .toast-banner.error {
   min-height: 32px;
 }
 
-.item-more:hover { background: #f3f4f6; opacity: 1; }
+.item-more:hover { background: var(--gray-100); opacity: 1; }
 
 /* Khung bao quanh MỘT vùng trạng thái trong drawer (Đã order / Đã báo bếp / Xong chờ giao /
    Đã giao / Đã huỷ) — chủ quán 2026-09-08.
@@ -640,13 +640,13 @@ th,
 td {
   padding: 10px 12px;
   text-align: left;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
 }
 
 th {
   font-weight: 600;
-  color: #6b7280;
-  background: #f9fafb;
+  color: var(--gray-500);
+  background: var(--gray-50);
 }
 
 @media (max-width: 639px) {
@@ -690,7 +690,7 @@ th {
     padding: 12px;
     margin-bottom: 12px;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--gray-200);
   }
 
   /* Mỗi ô = MỘT DÒNG "nhãn ─── giá trị", nhãn trái / giá trị phải.
@@ -715,13 +715,13 @@ th {
   /* Gạch mờ ngăn từng dòng trong thẻ — không có nó, 6-8 dòng nhãn/giá trị dính thành một khối
      chữ. Dòng cuối không kẻ để không thành viền đôi với viền thẻ. */
   table.responsive tbody tr > td + td {
-    border-top: 1px dashed #f1f5f9;
+    border-top: 1px dashed var(--slate-100);
   }
 
   table.responsive td::before {
     content: attr(data-label);
     font-weight: 600;
-    color: #6b7280;
+    color: var(--gray-500);
     font-size: 13px;
     /* `flex: none` + không min-width: nhãn chỉ chiếm đúng bề rộng chữ, phần dư nhường hết cho
        giá trị (địa chỉ, tên khách ship là chuỗi dài nhất trên thẻ). */
@@ -784,26 +784,26 @@ th {
 /* Bảng giao dịch: dòng đơn bấm được, header ngày, hover trên desktop */
 tr.txn-row { cursor: pointer; }
 @media (min-width: 640px) {
-  tr.txn-row:hover td { background: #f0fdfa; }
+  tr.txn-row:hover td { background: var(--teal-50); }
 }
 td.txn-day {
-  background: #f1f5f9;
+  background: var(--slate-100);
   font-weight: 700;
-  color: #334155;
+  color: var(--slate-700);
   font-size: 13px;
 }
 
 .empty-state {
   text-align: center;
   padding: 48px 20px;
-  color: #6b7280;
+  color: var(--gray-500);
 }
 
 .strength-meter {
   height: 6px;
   margin-top: 6px;
   border-radius: 3px;
-  background: #e5e7eb;
+  background: var(--gray-200);
   overflow: hidden;
 }
 
@@ -817,7 +817,7 @@ td.txn-day {
 
 .strength-text {
   font-size: 13px;
-  color: #6b7280;
+  color: var(--gray-500);
   margin-top: 4px;
 }
 
@@ -848,7 +848,7 @@ td.txn-day {
 }
 
 a {
-  color: #0f766e;
+  color: var(--teal-700);
   text-decoration: none;
 }
 
@@ -863,7 +863,7 @@ a:hover {
   right: 0;
   display: flex;
   background: white;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--gray-200);
   padding: 6px 0 max(6px, env(safe-area-inset-bottom));
   z-index: 100;
 }
@@ -872,7 +872,7 @@ a:hover {
   flex: 1;
   text-align: center;
   padding: 8px 4px;
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 13px;
   display: flex;
   flex-direction: column;
@@ -887,7 +887,11 @@ a:hover {
 .nav-bottom a .nav-icon {
   font-size: 20px;
   line-height: 1;
+  /* Icon nét (components/ui/Icon.tsx, Đợt 0 2026-11-09) thay emoji: SVG lấy màu chữ của ô nav
+     (xám / xanh khi đang mở), cỡ đặt ở đây theo mốc màn hình chứ không cứng trong JSX. */
+  display: inline-flex;
 }
+.nav-bottom a .nav-icon svg { width: 22px; height: 22px; }
 /* Neo của badge đếm (`.nav-badge`): bọc RIÊNG cái icon, không phải cả ô nav.
    Neo vào ô nav thì từ 640px trở lên ô xếp ngang (icon | chữ) nên "giữa ô" rơi vào khoảng
    giữa icon và chữ — con số trôi lên mép trên, đè vạch xanh của mục đang mở. */
@@ -962,6 +966,7 @@ a:hover {
     white-space: nowrap;
   }
   .nav-bottom a .nav-icon { font-size: 16px; }
+  .nav-bottom a .nav-icon svg { width: 18px; height: 18px; }
   .nav-bottom a .nav-label { font-size: 13px; }
   /* Ở đây icon và chữ nằm CÙNG hàng, mà badge thò ra bên phải icon — không chừa chỗ thì con số
      2 chữ số ("12") bò đè lên chữ đầu của nhãn. Chỉ mục CÓ badge mới bọc `.nav-icon-wrap`,
@@ -970,9 +975,9 @@ a:hover {
 }
 
 .nav-bottom a[aria-current="page"] {
-  color: #0f766e;
+  color: var(--teal-700);
   font-weight: 700;
-  background: #ccfbf1;
+  background: var(--teal-100);
   border-radius: 10px;
   position: relative;
 }
@@ -983,7 +988,7 @@ a:hover {
   left: 25%;
   right: 25%;
   height: 3px;
-  background: #0f766e;
+  background: var(--teal-700);
   border-radius: 0 0 3px 3px;
 }
 
@@ -994,7 +999,7 @@ a:hover {
      header. Đổi lại đúng thứ được yêu cầu; nếu chữ bị chồng khó đọc thì đường sửa là bỏ sticky
      hoặc thêm `backdrop-filter`, KHÔNG phải trả lại nền trắng. */
   background: transparent;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
   padding: 10px 14px;
   display: flex;
   justify-content: space-between;
@@ -1013,7 +1018,7 @@ a:hover {
 
 .header .brand {
   font-weight: 700;
-  color: #0f766e;
+  color: var(--teal-700);
   font-size: 16px;
   min-width: 0;
   flex: 1;
@@ -1033,12 +1038,17 @@ a:hover {
   .header .brand .brand-short { display: none; }
 }
 
+.header .user-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .header .user-chip {
+  /* inline-flex để icon vai trò (SVG) thẳng hàng với tên — emoji cũ tự nằm trên dòng chữ. */
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--gray-500);
   font-weight: 400;
   padding: 2px 8px;
-  background: #f3f4f6;
+  background: var(--gray-100);
   border-radius: 999px;
   white-space: nowrap;
   max-width: 140px;
@@ -1116,8 +1126,8 @@ a:hover {
   flex-wrap: wrap;
   margin-bottom: 16px;
   padding: 8px 0;
-  background: #f9fafb;
-  border-bottom: 1px solid #e5e7eb;
+  background: var(--gray-50);
+  border-bottom: 1px solid var(--gray-200);
 }
 
 .oo-tabs {
@@ -1218,7 +1228,7 @@ a:hover {
 /* ── Cài đặt ─────────────────────────────────────────────────────────────── */
 .st-section {
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 12px;
   padding: 20px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
@@ -1240,14 +1250,14 @@ a:hover {
   flex-wrap: wrap;
   margin-top: 16px;
   padding-top: 16px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--gray-200);
 }
 
 /* Mỗi hình thức nhận hàng là MỘT fieldset chứa luôn ETA của chính nó. Trước đây 2 checkbox
    nằm một chỗ và 4 ô ETA nằm chỗ khác, cách nhau 2 hàng — tắt "khách tự lấy" mà ô "ETA đến lấy"
    vẫn sáng bên dưới, không ai biết nó còn tác dụng hay không. */
 .st-fieldset {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 10px;
   padding: 14px 16px;
   margin: 0;
@@ -1256,13 +1266,13 @@ a:hover {
 .st-fieldset > legend {
   padding: 0 6px;
   font-weight: 600;
-  color: #374151;
+  color: var(--gray-700);
 }
 
 /* Hình thức đang TẮT: xám cả khối + chữ mờ. Không dùng `display:none` — ẩn hẳn thì chủ quán
    không biết là có cấu hình ETA nào đang nằm chờ ở đó. */
 .st-fieldset[data-off='true'] {
-  background: #f9fafb;
+  background: var(--gray-50);
 }
 
 .st-fieldset[data-off='true'] > *:not(legend) {
@@ -1301,7 +1311,7 @@ a:hover {
 .st-inline > select {
   min-height: 44px;
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--gray-300);
   border-radius: 8px;
   background: #fff;
 }
@@ -1313,7 +1323,7 @@ a:hover {
   line-height: 1.45;
   padding: 7px 10px;
   border-radius: 8px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--gray-300);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.18);
   white-space: normal;
   max-width: 240px;
@@ -1587,7 +1597,7 @@ a:hover {
   /* ① Giờ vào · Bàn · Giờ TT · Tổng */
   table.responsive.txn-table tr.txn-row > td:nth-child(1) {
     grid-area: 1 / 1;
-    color: #9ca3af;
+    color: var(--gray-400);
     font-variant-numeric: tabular-nums;
   }
   table.responsive.txn-table tr.txn-row > td:nth-child(2) {
@@ -1602,12 +1612,12 @@ a:hover {
   table.responsive.txn-table tr.txn-row > td:nth-child(3) {
     grid-area: 2 / 1 / auto / span 3;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--gray-500);
   }
   table.responsive.txn-table tr.txn-row > td:nth-child(4) {
     grid-area: 2 / 4;
     font-size: 12px;
-    color: #6b7280;
+    color: var(--gray-500);
     text-align: right;
     font-variant-numeric: tabular-nums;
   }
@@ -1780,7 +1790,7 @@ a:hover {
 
 .st-head-caret {
   flex: none;
-  color: #6b7280;
+  color: var(--gray-500);
   transition: transform 0.15s ease;
 }
 
@@ -1933,7 +1943,7 @@ a:hover {
 }
 
 .dl-item {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 8px;
   padding: 10px 12px;
 }
@@ -2049,7 +2059,7 @@ a:hover {
     margin: 16px -14px 0;
     padding: 12px 14px calc(12px + env(safe-area-inset-bottom));
     background: white;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--gray-200);
     box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
   }
 }
@@ -2078,7 +2088,7 @@ a:hover {
   .dl-bar {
     margin-top: 20px;
     padding-top: 16px;
-    border-top: 1px solid #e5e7eb;
+    border-top: 1px solid var(--gray-200);
   }
 }
 
@@ -2173,7 +2183,7 @@ a:hover {
     justify-content: space-between;
     gap: 12px;
     background: white;
-    border: 1px solid #e5e7eb;
+    border: 1px solid var(--gray-200);
     border-radius: 10px;
     padding: 12px;
   }
@@ -2196,7 +2206,7 @@ a:hover {
   table.responsive.sup-cards td.sup-cell-title { order: -1; }
   /* Gạch ngăn tính lại theo THỨ TỰ NHÌN THẤY: luật chung dùng `td + td` (thứ tự trong DOM),
      sau khi đảo chỗ thì nó bỏ sót đúng dòng ngay dưới tiêu đề. */
-  table.responsive.sup-cards tbody tr > td { border-top: 1px dashed #f1f5f9; }
+  table.responsive.sup-cards tbody tr > td { border-top: 1px dashed var(--slate-100); }
   table.responsive.sup-cards tbody tr > td.sup-cell-title { border-top: 0; }
 }
 
@@ -2230,8 +2240,8 @@ a:hover {
      một dải đỏ trơn dễ bị mắt xếp chung vào nhóm đó. Sọc thì không nhầm với gì được. */
   background: repeating-linear-gradient(
     -45deg,
-    #dc2626 0 12px,
-    #b91c1c 12px 24px
+    var(--red-600) 0 12px,
+    var(--red-700) 12px 24px
   );
   color: #fff;
   font-size: 11px;
@@ -2270,7 +2280,7 @@ a:hover {
 
 .time-filter-label {
   font-size: 13px;
-  color: #4b5563;
+  color: var(--gray-600);
   white-space: nowrap;
   flex: none;
 }
@@ -2281,9 +2291,9 @@ a:hover {
   min-height: 34px;
   padding: 0 14px;
   border-radius: 999px;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--gray-300);
   background: #fff;
-  color: #374151;
+  color: var(--gray-700);
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
@@ -2293,21 +2303,21 @@ a:hover {
 }
 
 .time-chip:hover:not([aria-pressed='true']) {
-  border-color: #0f766e;
-  color: #0f766e;
-  background: #f0fdfa;
+  border-color: var(--teal-700);
+  color: var(--teal-700);
+  background: var(--teal-50);
 }
 
 .time-chip[aria-pressed='true'] {
-  background: #0f766e;
-  border-color: #0f766e;
+  background: var(--teal-700);
+  border-color: var(--teal-700);
   color: #fff;
   font-weight: 700;
 }
 
 /* Vòng focus phải thấy được cả khi chip đang bật (nền teal đậm) — dùng offset ra ngoài viền. */
 .time-chip:focus-visible {
-  outline: 2px solid #0f766e;
+  outline: 2px solid var(--teal-700);
   outline-offset: 2px;
 }
 
@@ -2320,24 +2330,24 @@ a:hover {
   margin: 0;
   font-size: 13px;
   font-weight: 400;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--gray-300);
   border-radius: 8px;
-  color: #374151;
+  color: var(--gray-700);
   background: #fff;
 }
 
 .time-date:hover {
-  border-color: #0f766e;
+  border-color: var(--teal-700);
 }
 
 .time-date:focus-visible {
-  outline: 2px solid #0f766e;
+  outline: 2px solid var(--teal-700);
   outline-offset: -1px;
-  border-color: #0f766e;
+  border-color: var(--teal-700);
 }
 
 .time-date-sep {
-  color: #9ca3af;
+  color: var(--gray-400);
   font-size: 13px;
   flex: none;
 }
@@ -2365,7 +2375,7 @@ a:hover {
 .time-range-summary {
   margin: 6px 0 0;
   font-size: 12px;
-  color: #6b7280;
+  color: var(--gray-500);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -2383,7 +2393,7 @@ a:hover {
 .stat-card {
   margin-top: 20px;
   background: white;
-  color: #1f2937;
+  color: var(--gray-800);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
   overflow: hidden;
@@ -2394,7 +2404,7 @@ a:hover {
   align-items: center;
   gap: 8px;
   padding: 13px 16px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
 }
 
 .stat-card > header h3 {
@@ -2407,8 +2417,8 @@ a:hover {
 .stat-count {
   font-size: 12px;
   font-weight: 700;
-  color: #4b5563;
-  background: #f1f5f9;
+  color: var(--gray-600);
+  background: var(--slate-100);
   border-radius: 999px;
   padding: 2px 9px;
 }
@@ -2418,9 +2428,9 @@ a:hover {
 }
 
 table.stat-grid thead th {
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
-  color: #4b5563;
+  background: var(--slate-50);
+  border-bottom: 1px solid var(--slate-200);
+  color: var(--gray-600);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -2459,7 +2469,7 @@ table.stat-grid thead th.stat-th > button:hover {
 }
 
 table.stat-grid thead th.stat-th.active {
-  color: #0f766e;
+  color: var(--teal-700);
 }
 
 /* Mũi tên "↕" mờ trên mọi cột xếp được: không có nó thì chỉ cột ĐANG xếp mới lộ ra là bấm
@@ -2478,11 +2488,11 @@ table.stat-grid tbody tr:nth-child(even) {
 }
 
 table.stat-grid tbody tr:hover {
-  background: #f0fdfa;
+  background: var(--teal-50);
 }
 
 table.stat-grid td {
-  border-bottom: 1px solid #f1f5f9;
+  border-bottom: 1px solid var(--slate-100);
   vertical-align: middle;
 }
 
@@ -2511,14 +2521,14 @@ table.stat-grid .stat-chips-col {
 }
 
 table.stat-grid .stat-muted {
-  color: #4b5563;
+  color: var(--gray-600);
 }
 
 .stat-rank {
   width: 1%;
   padding-right: 4px !important;
   text-align: right;
-  color: #94a3b8;
+  color: var(--slate-400);
   font-size: 12px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -2531,8 +2541,8 @@ table.stat-grid .stat-muted {
   min-width: 22px;
   height: 22px;
   border-radius: 999px;
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--teal-100);
+  color: var(--teal-700);
   font-size: 12px;
   font-weight: 700;
 }
@@ -2547,7 +2557,7 @@ table.stat-grid .stat-muted {
   display: block;
   font-size: 11px;
   font-weight: 500;
-  color: #94a3b8;
+  color: var(--slate-400);
 }
 
 /* `block` chứ không phải `inline-block`: khối này phải rộng bằng CẢ Ô thì thanh tỉ trọng bên
@@ -2581,7 +2591,7 @@ table.stat-grid .stat-muted {
   display: block;
   height: 100%;
   border-radius: 2px;
-  background: #0f766e;
+  background: var(--teal-700);
 }
 
 /* Tên món trong phiếu: từng viên thay vì một chuỗi ngăn bởi dấu phẩy — mắt tách được "Trâu
@@ -2595,22 +2605,22 @@ table.stat-grid .stat-muted {
 .stat-chip {
   padding: 1px 8px;
   border-radius: 999px;
-  background: #f1f5f9;
-  color: #475569;
+  background: var(--slate-100);
+  color: var(--slate-600);
   font-size: 12px;
   line-height: 19px;
   white-space: nowrap;
 }
 
 .stat-chip.hit {
-  background: #ccfbf1;
-  color: #0f766e;
+  background: var(--teal-100);
+  color: var(--teal-700);
   font-weight: 600;
 }
 
 .stat-chip.more {
   background: transparent;
-  color: #94a3b8;
+  color: var(--slate-400);
   padding-left: 2px;
 }
 
@@ -2619,7 +2629,7 @@ table.stat-grid .stat-muted {
 .stat-foot {
   padding: 4px 16px 12px;
   background: #fbfcfd;
-  border-top: 1px solid #f1f5f9;
+  border-top: 1px solid var(--slate-100);
 }
 
 @media (max-width: 639px) {
@@ -2712,18 +2722,18 @@ button.pay-mode {
   flex: 1;
   min-height: 48px;
   padding: 8px 10px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 10px;
   background: white;
-  color: #1f2937;
+  color: var(--gray-800);
   font-size: 14px;
   line-height: 1.25;
 }
 /* `button.pay-mode` chứ không phải `.pay-mode`: nút dùng chung với `button.secondary` ở nơi khác,
    và rule chạm tới color/background phải thắng được nó (bài học cũ của repo). */
 button.pay-mode[aria-pressed='true'] {
-  border: 2px solid #0d9488;
-  background: #f0fdfa;
+  border: 2px solid var(--teal-600);
+  background: var(--teal-50);
   font-weight: 700;
 }
 @media (max-width: 560px) {
@@ -2755,7 +2765,7 @@ button.pay-mode[aria-pressed='true'] {
   flex-shrink: 0;
   border-radius: 8px;
   overflow: hidden;
-  background: #f3f4f6;
+  background: var(--gray-100);
 }
 .mm-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .mm-thumb.is-zoomable { cursor: zoom-in; }
@@ -2805,7 +2815,7 @@ button.mm-zoom-close {
 }
 
 .mm-money { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
-.mm-money strong { color: #0f766e; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mm-money strong { color: var(--teal-700); white-space: nowrap; font-variant-numeric: tabular-nums; }
 .mm-pct {
   font-size: 12.5px; font-weight: 700; white-space: nowrap;
   font-variant-numeric: tabular-nums; cursor: help;
@@ -2817,32 +2827,32 @@ button.mm-zoom-close {
    và sẽ đè mất color/background nếu viết trần (đã dẫm phải ở màn khác). */
 button.mm-b {
   min-height: 42px; padding: 0 4px;
-  border: 1px solid #d1d5db; border-radius: 9px;
-  background: #fff; color: #4b5563;
+  border: 1px solid var(--gray-300); border-radius: 9px;
+  background: #fff; color: var(--gray-600);
   font-size: 13.5px; font-weight: 650; cursor: pointer;
 }
-button.mm-b-out   { border-color: #fbcfa5; background: #fff8f1; color: #b45309; }
-button.mm-b-out:hover   { border-color: #b45309; background: #fdf0e3; }
-button.mm-b-back  { border-color: #a7d9c9; background: #f0fdfa; color: #0f766e; }
-button.mm-b-back:hover  { border-color: #0f766e; background: #ccfbf1; }
-button.mm-b-edit  { border-color: #c7d2e0; background: #f7f9fc; color: #334155; }
-button.mm-b-edit:hover  { border-color: #334155; background: #eef2f7; }
-button.mm-b-del   { border-color: #f0c2c2; background: #fdf5f5; color: #b91c1c; }
-button.mm-b-del:hover   { border-color: #b91c1c; background: #fdeaea; }
+button.mm-b-out   { border-color: #fbcfa5; background: #fff8f1; color: var(--amber-700); }
+button.mm-b-out:hover   { border-color: var(--amber-700); background: #fdf0e3; }
+button.mm-b-back  { border-color: #a7d9c9; background: var(--teal-50); color: var(--teal-700); }
+button.mm-b-back:hover  { border-color: var(--teal-700); background: var(--teal-100); }
+button.mm-b-edit  { border-color: #c7d2e0; background: #f7f9fc; color: var(--slate-700); }
+button.mm-b-edit:hover  { border-color: var(--slate-700); background: #eef2f7; }
+button.mm-b-del   { border-color: #f0c2c2; background: #fdf5f5; color: var(--red-700); }
+button.mm-b-del:hover   { border-color: var(--red-700); background: #fdeaea; }
 
 /* Nút công thức chiếm hết bề ngang: chữ dài hơn ba nút kia, nhét vào hàng 4 cột
    thì nó tự xuống dòng và cao hơn hàng xóm. */
 button.mm-recipe {
   width: 100%; min-height: 42px; margin-top: 6px;
-  border: 1px dashed #cbd5e1; border-radius: 9px;
-  background: #fff; color: #64748b;
+  border: 1px dashed var(--slate-300); border-radius: 9px;
+  background: #fff; color: var(--slate-500);
   font-size: 13.5px; font-weight: 650; cursor: pointer;
 }
-button.mm-recipe:hover { border-color: #0f766e; color: #0f766e; background: #f0fdfa; }
+button.mm-recipe:hover { border-color: var(--teal-700); color: var(--teal-700); background: var(--teal-50); }
 button.mm-recipe.has {
-  border-style: solid; border-color: #99e2d5; background: #f0fdfa; color: #0f766e;
+  border-style: solid; border-color: #99e2d5; background: var(--teal-50); color: var(--teal-700);
 }
-button.mm-recipe.has:hover { border-color: #0f766e; background: #ccfbf1; }
+button.mm-recipe.has:hover { border-color: var(--teal-700); background: var(--teal-100); }
 
 /* ─── "Đẩy bán" (2026-10-05) ───────────────────────────────────────────────────
    Hàng thứ hai của thẻ món: [🔥 Đẩy bán] [Công thức]. `margin-top` chuyển lên
@@ -2865,19 +2875,19 @@ button.mm-recipe.has:hover { border-color: #0f766e; background: #ccfbf1; }
    color/background (bẫy đã dẫm ở màn khác). */
 button.mm-push {
   width: 100%; min-height: 42px; padding: 0 4px;
-  border: 1px dashed #fbbf24; border-radius: 9px;
-  background: #fff; color: #b45309;
+  border: 1px dashed var(--amber-400); border-radius: 9px;
+  background: #fff; color: var(--amber-700);
   font-size: 13.5px; font-weight: 650; cursor: pointer;
 }
-button.mm-push:hover { border-color: #ea580c; background: #fff7ed; color: #9a3412; }
+button.mm-push:hover { border-color: var(--orange-600); background: var(--orange-50); color: var(--orange-800); }
 /* Đang đẩy = tô ĐẶC. Nút "Hết" ngay trên cũng tông cam nhưng luôn nhạt, nên trạng
    thái bật/tắt của nút này phân biệt được bằng độ đặc chứ không phải bằng sắc màu —
    nhìn lướt qua lưới vẫn thấy ngay thẻ nào đang đẩy. */
 button.mm-push.on {
-  border-style: solid; border-color: #ea580c;
-  background: #ea580c; color: #fff; font-weight: 700;
+  border-style: solid; border-color: var(--orange-600);
+  background: var(--orange-600); color: #fff; font-weight: 700;
 }
-button.mm-push.on:hover { background: #c2410c; border-color: #c2410c; color: #fff; }
+button.mm-push.on:hover { background: var(--orange-700); border-color: var(--orange-700); color: #fff; }
 button.mm-push:disabled,
 button.mm-push:disabled:hover {
   background: #eef0f2; border-color: #dfe3e6; border-style: solid;
@@ -2909,20 +2919,20 @@ button.mm-push:disabled:hover {
    `button.secondary` cùng độ ưu tiên sẽ đè mất color/background. */
 button.mm-star {
   width: 100%; min-height: 42px; padding: 0 4px;
-  border: 1px dashed #c4b5fd; border-radius: 9px;
-  background: #fff; color: #6d28d9;
+  border: 1px dashed var(--violet-300); border-radius: 9px;
+  background: #fff; color: var(--violet-700);
   font-size: 13.5px; font-weight: 650; cursor: pointer;
 }
-button.mm-star:hover { border-color: #7c3aed; background: #f5f3ff; color: #5b21b6; }
+button.mm-star:hover { border-color: var(--violet-600); background: var(--violet-50); color: var(--violet-800); }
 /* Đang đề xuất = tô ĐẶC, cùng quy ước bật/tắt với nút Đẩy bán ngay trên. */
 button.mm-star.on {
-  border-style: solid; border-color: #7c3aed;
-  background: #7c3aed; color: #fff; font-weight: 700;
+  border-style: solid; border-color: var(--violet-600);
+  background: var(--violet-600); color: #fff; font-weight: 700;
 }
-button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #fff; }
+button.mm-star.on:hover { background: var(--violet-700); border-color: var(--violet-700); color: #fff; }
 /* Viền thẻ đổi màu như `.is-out` làm với món hết: tìm thẻ đang đẩy giữa lưới
    không cần đọc chữ. */
-.mm-card.is-push { border: 2px solid #fdba74; }
+.mm-card.is-push { border: 2px solid var(--orange-300); }
 
 /* ─── Hộp thoại Công thức món ─────────────────────────────────────────────────
    Sửa 2026-09-29 sau khi chủ quán chụp lại màn đang vỡ: nút "+ Thêm" tràn ra
@@ -2935,29 +2945,29 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
    mắt cộng dọc được "chính + phụ = giá vốn"; dòng tổng ngăn bằng một vạch và chữ to hơn. */
 .rp-sum {
   padding: 10px 14px; margin-bottom: 12px;
-  background: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 10px;
+  background: var(--teal-50); border: 1px solid var(--teal-100); border-radius: 10px;
   font-variant-numeric: tabular-nums;
 }
 .rp-sum-row {
   display: grid; grid-template-columns: minmax(0, 1fr) auto 64px;
   align-items: baseline; gap: 12px; padding: 3px 0;
 }
-.rp-sum-l { font-size: 14px; font-weight: 600; color: #4b5563; }
-.rp-sum-n { font-size: 16px; font-weight: 700; color: #374151; text-align: right; }
-.rp-sum-p { font-size: 14px; font-weight: 600; color: #6b7280; text-align: right; }
-.rp-sum-tong { margin-top: 4px; padding-top: 8px; border-top: 1px dashed #99f6e4; }
-.rp-sum-tong .rp-sum-l { color: #134e4a; font-size: 15px; }
-.rp-sum-v { font-size: 22px; font-weight: 800; color: #0f766e; text-align: right; }
+.rp-sum-l { font-size: 14px; font-weight: 600; color: var(--gray-600); }
+.rp-sum-n { font-size: 16px; font-weight: 700; color: var(--gray-700); text-align: right; }
+.rp-sum-p { font-size: 14px; font-weight: 600; color: var(--gray-500); text-align: right; }
+.rp-sum-tong { margin-top: 4px; padding-top: 8px; border-top: 1px dashed var(--teal-200); }
+.rp-sum-tong .rp-sum-l { color: var(--teal-900); font-size: 15px; }
+.rp-sum-v { font-size: 22px; font-weight: 800; color: var(--teal-700); text-align: right; }
 .rp-sum-tong .rp-sum-p { font-size: 18px; font-weight: 800; }
-.rp-sum-gia { font-size: 13px; color: #6b7280; text-align: right; margin-top: 2px; }
+.rp-sum-gia { font-size: 13px; color: var(--gray-500); text-align: right; margin-top: 2px; }
 /* Nhãn "Phụ" trên dòng công thức — cùng tông cam với `.ing-kind-tag` ở danh mục nguyên liệu. */
 .rp-phu-tag {
   display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px;
-  background: #fff7ed; color: #c2410c; font-size: 12px; font-weight: 700; vertical-align: 2px;
+  background: var(--orange-50); color: var(--orange-700); font-size: 12px; font-weight: 700; vertical-align: 2px;
 }
-.rp-phu-tag.is-ban { background: #f5f3ff; color: #6d28d9; }
+.rp-phu-tag.is-ban { background: var(--violet-50); color: var(--violet-700); }
 /* Ghi chú nhỏ dưới nhãn dòng giá vốn, vd "không cộng % phụ" ở món toàn hàng bán nguyên. */
-.rp-sum-ghi { display: block; font-size: 12.5px; font-weight: 500; color: #6d28d9; }
+.rp-sum-ghi { display: block; font-size: 12.5px; font-weight: 500; color: var(--violet-700); }
 
 /* Hàng nhập: grid cột cố định. Width 100% của từng ô chỉ còn tác dụng TRONG cột
    của nó, nên không ô nào ăn được chỗ của ô khác. */
@@ -2967,12 +2977,14 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
   gap: 8px;
   align-items: stretch;
 }
-.rp-add input {
+/* `>`: chỉ ô định lượng + nút Thêm nằm TRỰC TIẾP trong hàng. Không có `>` thì luật trúng cả ô tìm
+   và nút bên trong Dropdown đơn vị (Đợt 0, 2026-11-09) → ô tìm ra chữ 19px đậm căn phải. */
+.rp-add > input {
   min-height: 48px; font-size: 19px; font-weight: 700; text-align: right;
   font-variant-numeric: tabular-nums;
 }
 .rp-add select { min-height: 48px; padding-left: 10px; padding-right: 8px; }
-.rp-add button { min-height: 48px; width: 100%; padding: 0; font-size: 16px; }
+.rp-add > button { min-height: 48px; width: 100%; padding: 0; font-size: 16px; }
 
 /* Danh sách nguyên liệu đã khai: hàng thưa vừa phải, không để hộp trống hoác. */
 .rp .empty-state { padding: 18px 14px; margin: 0; }
@@ -2980,10 +2992,10 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
 @media (max-width: 560px) {
   /* Điện thoại: số lượng và đơn vị một hàng, nút Thêm hàng dưới nguyên chiều ngang. */
   .rp-add { grid-template-columns: minmax(0, 1fr) 104px; }
-  .rp-add button { grid-column: 1 / -1; }
+  .rp-add > button { grid-column: 1 / -1; }
 }
 /* Hộp Công thức của món chưa khai gì: không để danh sách rỗng chiếm chỗ. */
-.rp .empty-state { text-align: center; color: #6b7280; background: #f9fafb; border: 1px dashed #d1d5db; }
+.rp .empty-state { text-align: center; color: var(--gray-500); background: var(--gray-50); border: 1px dashed var(--gray-300); }
 
 /* Khai nhanh nguyên liệu mới ngay trong hộp Công thức (2026-09-29).
    Chỉ hiện khi tên vừa gõ chưa có trong danh mục — nguyên liệu đã có thì không hỏi lại,
@@ -2991,29 +3003,29 @@ button.mm-star.on:hover { background: #6d28d9; border-color: #6d28d9; color: #ff
 .rp-new {
   margin: 10px 0 0;
   padding: 12px;
-  background: #fffbeb;
-  border: 1px solid #fde68a;
+  background: var(--amber-50);
+  border: 1px solid var(--amber-200);
   border-radius: 10px;
 }
-.rp-new-h { margin: 0 0 10px; font-size: 13.5px; color: #92400e; line-height: 1.4; }
+.rp-new-h { margin: 0 0 10px; font-size: 13.5px; color: var(--amber-800); line-height: 1.4; }
 
 /* Nguyên liệu tách theo NCC (2026-10-19). Dòng công thức cũ của nguyên liệu nhiều NCC chưa biết
    lấy giá NCC nào → nút cam to, bấm là điền sẵn ô thêm dòng để chọn NCC. Viết `button.` để nút
    toàn cục (nền xanh chữ trắng) không đè màu. Chữ 14px, đệm dày: người dùng lớn tuổi, điện thoại. */
 button.rp-chon-ncc {
   margin-top: 4px; padding: 6px 10px; min-height: 36px;
-  background: #fff7ed; color: #b45309; border: 1px solid #fdba74; border-radius: 8px;
+  background: var(--orange-50); color: var(--amber-700); border: 1px solid var(--orange-300); border-radius: 8px;
   font-size: 14px; font-weight: 600; text-align: left; cursor: pointer;
 }
 .rp-can-ncc {
   margin-top: 8px; padding: 10px 12px; border-radius: 8px;
-  background: #fff7ed; border: 1px solid #fdba74; color: #92400e; font-size: 14px; line-height: 1.4;
+  background: var(--orange-50); border: 1px solid var(--orange-300); color: var(--amber-800); font-size: 14px; line-height: 1.4;
 }
 .rp-new-g { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
 .rp-new-g label { display: block; min-width: 0; }
 .rp-new-g label > span {
   display: block; margin-bottom: 4px;
-  font-size: 12.5px; font-weight: 700; color: #4b5563;
+  font-size: 12.5px; font-weight: 700; color: var(--gray-600);
 }
 /* Ô trong grid: width 100% chỉ có nghĩa trong cột của nó, không ô nào nuốt chỗ ô khác. */
 .rp-new-g input, .rp-new-g select { min-height: 46px; font-size: 16px; }
@@ -3029,8 +3041,8 @@ button.rp-chon-ncc {
    trong khi mỗi thẻ bên trong lại chật. Cùng lý do đã nới `.container.txn-page` lên 1360px. */
 .container.menu-page { max-width: 1560px; }
 
-.mm-card { padding: 14px; border: 1px solid #e5e7eb; }
-.mm-card.is-hidden { border-style: dashed; border-color: #9ca3af; opacity: 0.6; }
+.mm-card { padding: 14px; border: 1px solid var(--gray-200); }
+.mm-card.is-hidden { border-style: dashed; border-color: var(--gray-400); opacity: 0.6; }
 
 /* Tên món MỘT dòng, dài thì cắt "…". Trước đó ghim 2 dòng để lưới thẳng hàng, nhưng phần lớn
    tên chỉ chiếm một dòng nên dòng thứ hai luôn trống — thẻ cao thêm mà không chứa gì. */
@@ -3045,14 +3057,14 @@ button.rp-chon-ncc {
 /* ── Món đang hết: khoá cả thẻ, chỉ chừa nút bật lại ──────────────────────────
    Không dùng lớp phủ tuyệt đối che lên thẻ: overlay che luôn nút "Có lại" và người dùng
    không bấm được thứ duy nhất họ cần bấm. Thay vào đó làm xám từng phần và để nút đó nổi lên. */
-.mm-card.is-out { border: 2px solid #dc2626; background: #f8f9fa; }
+.mm-card.is-out { border: 2px solid var(--red-600); background: #f8f9fa; }
 .mm-card.is-out .mm-thumb img { filter: grayscale(1); opacity: 0.55; }
 .mm-card.is-out h3,
 .mm-card.is-out .mm-money strong,
 .mm-card.is-out .mm-pct,
 .mm-card.is-out code,
 .mm-card.is-out .mm-money + *,
-.mm-card.is-out .mi-c { color: #9ca3af !important; }
+.mm-card.is-out .mi-c { color: var(--gray-400) !important; }
 .mm-card.is-out .mm-cost-bar { opacity: 0.4; }
 
 /* Nút bị khoá: xám phẳng, con trỏ báo không bấm được. */
@@ -3069,8 +3081,8 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
 
 /* "Có lại" là hành động DUY NHẤT còn mở — tô đặc để mắt rơi thẳng vào nó. */
 .mm-card.is-out button.mm-b-back {
-  background: #0f766e;
-  border-color: #0f766e;
+  background: var(--teal-700);
+  border-color: var(--teal-700);
   color: #fff;
   font-weight: 700;
 }
@@ -3093,7 +3105,7 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
   flex-direction: column;
   gap: 2px;
   background: #fff;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--gray-200);
   border-radius: 12px;
   padding: 6px;
   position: sticky;
@@ -3110,18 +3122,18 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
   border-left: 3px solid transparent;
   border-radius: 7px;
   background: none;
-  color: #1f2937;
+  color: var(--gray-800);
   font-size: 14.5px;
   font-weight: 500;
   text-align: left;
   white-space: normal;
   line-height: 1.25;
 }
-.mm-groups button:hover { background: #f3f4f6; }
+.mm-groups button:hover { background: var(--gray-100); }
 .mm-groups button.on {
-  background: #f0fdfa;
-  border-left-color: #0f766e;
-  color: #0f766e;
+  background: var(--teal-50);
+  border-left-color: var(--teal-700);
+  color: var(--teal-700);
   font-weight: 700;
 }
 
@@ -3145,14 +3157,14 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
     border-radius: 8px;
     white-space: nowrap;
   }
-  .mm-groups button.on { border-left: none; border-bottom-color: #0f766e; }
+  .mm-groups button.on { border-left: none; border-bottom-color: var(--teal-700); }
   /* Thẻ món một cột trên điện thoại: hai cột ở 390px làm tên món cắt "…" gần hết. */
   .container.menu-page .mm-main > div[style*="grid"] { grid-template-columns: 1fr !important; }
 }
 /* Dòng "nhóm · đơn vị" cũng một dòng: tên nhóm dài ("Mỳ/ Mì Tôm- Cơm Rang") xuống dòng thứ hai
    làm thẻ đó cao hơn hàng xóm và lưới trông so le. */
 .mm-sub {
-  color: #6b7280;
+  color: var(--gray-500);
   font-size: 13px;
   white-space: nowrap;
   overflow: hidden;
@@ -3179,8 +3191,8 @@ button.mm-recipe:disabled:hover { border-color: #dfe3e6; color: #a6adb4; backgro
 .mm-money { flex-shrink: 0; }
 
 .mm-card.is-out {
-  border: 1px solid #dc2626;
-  box-shadow: inset 0 0 0 1px #dc2626;
+  border: 1px solid var(--red-600);
+  box-shadow: inset 0 0 0 1px var(--red-600);
 }
 
 /* Cột nhóm rộng ra — tên dài như "Trứng Gà- Trứng Cút Lộn" đang phải xuống hai dòng. */
@@ -3267,7 +3279,7 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
     border-radius: 8px;
     white-space: nowrap;
   }
-  .mm-groups button.on { border-left: none; border-bottom-color: #0f766e; }
+  .mm-groups button.on { border-left: none; border-bottom-color: var(--teal-700); }
 }
 
 @media (max-width: 720px) {
@@ -3328,9 +3340,9 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
   align-items: center;
   gap: 8px;
   padding: 4px 0 4px 10px;
-  background: #fee2e2;
-  border-bottom: 1px solid #fca5a5;
-  color: #991b1b;
+  background: var(--red-100);
+  border-bottom: 1px solid var(--red-300);
+  color: var(--red-800);
   box-sizing: border-box;
 }
 .stale-banner-title {
@@ -3360,9 +3372,9 @@ button.stale-banner-chip {
   min-height: 30px;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid #f87171;
+  border: 1px solid var(--red-400);
   background: #fff;
-  color: #991b1b;
+  color: var(--red-800);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.2;
@@ -3388,64 +3400,64 @@ button.stale-banner-chip {
 .kds-guest-modal {
   width: 100%; max-width: 460px; max-height: 85dvh;
   display: flex; flex-direction: column;
-  background: #fff; border-radius: 14px; border: 2px solid #7c3aed;
+  background: #fff; border-radius: 14px; border: 2px solid var(--violet-600);
 }
 .kds-guest-modal-head {
   flex: none; display: flex; align-items: center; gap: 10px;
-  padding: 14px 16px; border-bottom: 1px solid #ede9fe;
+  padding: 14px 16px; border-bottom: 1px solid var(--violet-100);
 }
-.kds-guest-modal-head b { flex: 1; min-width: 0; font-size: 20px; color: #5b21b6; }
-.kds-guest-modal-head span { flex: none; font-size: 13px; color: #6d28d9; }
+.kds-guest-modal-head b { flex: 1; min-width: 0; font-size: 20px; color: var(--violet-800); }
+.kds-guest-modal-head span { flex: none; font-size: 13px; color: var(--violet-700); }
 .kds-guest-modal-head button {
   flex: none; min-width: 40px; min-height: 40px;
-  border: none; background: transparent; font-size: 20px; color: #64748b; cursor: pointer;
+  border: none; background: transparent; font-size: 20px; color: var(--slate-500); cursor: pointer;
 }
 /* min-height:0 bắt buộc — thiếu nó vùng cuộn không co được và hộp phình quá màn. */
 .kds-guest-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; }
-.kds-guest-modal-foot { flex: none; padding: 14px 16px; border-top: 1px solid #ede9fe; }
-.kds-guest-line { font-size: 18px; color: #1f2937; margin-bottom: 6px; }
-.kds-guest-line i { color: #6d28d9; font-style: italic; }
+.kds-guest-modal-foot { flex: none; padding: 14px 16px; border-top: 1px solid var(--violet-100); }
+.kds-guest-line { font-size: 18px; color: var(--gray-800); margin-bottom: 6px; }
+.kds-guest-line i { color: var(--violet-700); font-style: italic; }
 .kds-guest-line--gone { text-decoration: line-through; opacity: 0.6; }
 /* Dòng quán tự thêm (khăn lạnh): nhãn xanh lá nhạt, khác hẳn nhãn đỏ "hết — sẽ bỏ". */
 .kds-guest-auto {
   margin-left: 8px; padding: 1px 7px; border-radius: 999px;
-  font-size: 12px; font-weight: 700; color: #065f46; background: #d1fae5;
+  font-size: 12px; font-weight: 700; color: var(--emerald-800); background: var(--emerald-100);
 }
 .kds-guest-gone {
   margin-left: 8px; font-size: 13px; font-weight: 700;
-  color: #b91c1c; text-decoration: none; display: inline-block;
+  color: var(--red-700); text-decoration: none; display: inline-block;
 }
-.kds-guest-foot { margin-top: 10px; font-size: 15px; color: #5b21b6; }
+.kds-guest-foot { margin-top: 10px; font-size: 15px; color: var(--violet-800); }
 .kds-guest-approve {
   width: 100%; min-height: 52px; border: none; border-radius: 8px;
-  background: #0f766e; color: #fff; font-size: 19px; font-weight: 800; cursor: pointer;
+  background: var(--teal-700); color: #fff; font-size: 19px; font-weight: 800; cursor: pointer;
 }
 .kds-guest-approve:disabled { opacity: 0.6; cursor: default; }
 .kds-guest-reject {
-  width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid #ddd6fe;
-  border-radius: 8px; background: transparent; color: #6d28d9; font-size: 15px; cursor: pointer;
+  width: 100%; min-height: 40px; margin-top: 8px; border: 1px solid var(--violet-200);
+  border-radius: 8px; background: transparent; color: var(--violet-700); font-size: 15px; cursor: pointer;
 }
 .kds-guest-confirm {
   display: flex; gap: 8px; align-items: center; margin-top: 8px;
-  font-size: 15px; color: #7f1d1d;
+  font-size: 15px; color: var(--red-900);
 }
 /* Hộp lời nhắn khi khách bấm gọi — viền xanh mòng két để khác hẳn hộp duyệt món
    (tím): hai hộp mở ra từ hai loại chip khác nhau, không được nhìn giống nhau. */
-.kds-call-modal { border-color: #0e7490; }
-.kds-call-modal .kds-guest-modal-head b { color: #155e75; }
-.kds-call-note { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: #0f172a; }
-.kds-call-none { margin: 2px 0 0; font-size: 16px; color: #64748b; }
+.kds-call-modal { border-color: var(--cyan-700); }
+.kds-call-modal .kds-guest-modal-head b { color: var(--cyan-800); }
+.kds-call-note { margin: 2px 0 0; font-size: 22px; font-weight: 700; color: var(--slate-900); }
+.kds-call-none { margin: 2px 0 0; font-size: 16px; color: var(--slate-500); }
 /* Một dòng lời nhắn trong hộp, kèm nút nghe riêng từng dòng. */
 .kds-call-row {
   display: flex; align-items: flex-start; gap: 10px;
-  padding: 10px 0; border-bottom: 1px solid #e2e8f0;
+  padding: 10px 0; border-bottom: 1px solid var(--slate-200);
 }
 .kds-call-row:last-child { border-bottom: none; }
 .kds-call-row-main { flex: 1; min-width: 0; }
-.kds-call-kind { font-size: 14px; font-weight: 700; color: #0e7490; }
+.kds-call-kind { font-size: 14px; font-weight: 700; color: var(--cyan-700); }
 .kds-call-one {
   flex: none; min-width: 44px; min-height: 44px; border-radius: 8px;
-  border: 1px solid #99f6e4; background: #f0fdfa; color: #0f766e;
+  border: 1px solid var(--teal-200); background: var(--teal-50); color: var(--teal-700);
   font-size: 20px; font-weight: 800; cursor: pointer;
 }
 .kds-call-one:disabled { opacity: 0.5; cursor: default; }
@@ -3456,11 +3468,11 @@ button.stale-banner-chip {
    Hai nút cũng phải KHÁC MÀU nhau: một bên là huỷ việc đã làm, một bên là thoát ra. */
 .kds-guest-confirm button {
   min-height: 40px; padding: 0 14px; border-radius: 8px;
-  border: 1px solid #cbd5e1; background: #fff; color: #334155;
+  border: 1px solid var(--slate-300); background: #fff; color: var(--slate-700);
   cursor: pointer; font-size: 15px; font-weight: 600;
 }
 .kds-guest-confirm button.kds-confirm-yes {
-  border-color: #b91c1c; background: #b91c1c; color: #fff; font-weight: 700;
+  border-color: var(--red-700); background: var(--red-700); color: #fff; font-weight: 700;
 }
 
 /* ── Dải "khách gọi bằng QR" (2026-10-19) — xem GuestQrBanner.tsx ──
@@ -3475,9 +3487,9 @@ button.stale-banner-chip {
   align-items: center;
   gap: 8px;
   padding: 4px 0 4px 10px;
-  background: #ede9fe;
-  border-bottom: 1px solid #c4b5fd;
-  color: #5b21b6;
+  background: var(--violet-100);
+  border-bottom: 1px solid var(--violet-300);
+  color: var(--violet-800);
   box-sizing: border-box;
 }
 .qr-banner-title {
@@ -3502,9 +3514,9 @@ button.qr-banner-chip {
   min-width: 0;
   padding: 2px 10px;
   border-radius: 999px;
-  border: 1px solid #a78bfa;
+  border: 1px solid var(--violet-400);
   background: #fff;
-  color: #5b21b6;
+  color: var(--violet-800);
   font-size: 14px;
   font-weight: 500;
   line-height: 1.2;
@@ -3512,25 +3524,25 @@ button.qr-banner-chip {
   cursor: pointer;
 }
 /* Gọi nhân viên: xanh mòng két; xin tính tiền: vàng — cùng bộ màu với hộp chi tiết. */
-button.qr-banner-chip--call { border-color: #0e7490; color: #164e63; }
-button.qr-banner-chip--call.is-bill { border-color: #a16207; color: #713f12; }
+button.qr-banner-chip--call { border-color: var(--cyan-700); color: var(--cyan-900); }
+button.qr-banner-chip--call.is-bill { border-color: var(--yellow-700); color: var(--yellow-900); }
 button.qr-banner-chip:disabled { opacity: 0.5; cursor: default; }
 /* M7.R7 — quá 3 phút chưa duyệt thì nhấp nháy: quên duyệt là khách đứng chờ mãi. */
 button.qr-banner-chip.is-late { animation: qrChipBlink 1.1s ease-in-out infinite; }
 @keyframes qrChipBlink {
   0%, 100% { background: #fff; }
-  50%      { background: #ddd6fe; }
+  50%      { background: var(--violet-200); }
 }
 @media (prefers-reduced-motion: reduce) {
-  button.qr-banner-chip.is-late { animation: none; background: #ddd6fe; }
+  button.qr-banner-chip.is-late { animation: none; background: var(--violet-200); }
 }
 /* Màn Bếp: thay chỗ 2 nút Duyệt / Bỏ — chữ to, đọc được từ xa, KHÔNG phải nút. */
 .kds-guest-tell {
   margin: 0;
   padding: 12px 8px;
   border-radius: 8px;
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--amber-100);
+  color: var(--amber-800);
   font-size: 19px;
   font-weight: 800;
   text-align: center;
@@ -3543,28 +3555,31 @@ button.qr-banner-chip.is-late { animation: qrChipBlink 1.1s ease-in-out infinite
 select.ing-kind {
   appearance: none;
   -webkit-appearance: none;
-  min-height: 40px;
+  /* Khung theo kiểu ô chọn chung (Đợt 0, 2026-11-09): cao 44 = --ctl-h, bo 8, chữ 16 (dưới 16
+     iPhone tự phóng khi chạm). GIỮ nền tô màu theo nhóm (Phụ cam, Bán nguyên tím) — chủ quán chốt
+     2026-10-28, nhìn màu là biết nhóm. Vẫn là <select> gốc: chỉ 3 lựa chọn, nằm trong bảng chật. */
+  min-height: var(--ctl-h);
   padding: 0 30px 0 12px;
-  border: 1.5px solid #d1d5db;
-  border-radius: 10px;
+  border: 1.5px solid var(--gray-300);
+  border-radius: var(--radius-sm);
   background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") right 9px center / 16px 16px no-repeat;
-  color: #374151;
-  font-size: 15px;
+  color: var(--gray-700);
+  font-size: 16px;
   font-weight: 600;
   cursor: pointer;
 }
 select.ing-kind.is-phu {
-  border-color: #fdba74;
-  background-color: #fff7ed;
-  color: #c2410c;
+  border-color: var(--orange-300);
+  background-color: var(--orange-50);
+  color: var(--orange-700);
 }
 select.ing-kind.is-ban {
-  border-color: #c4b5fd;
-  background-color: #f5f3ff;
-  color: #6d28d9;
+  border-color: var(--violet-300);
+  background-color: var(--violet-50);
+  color: var(--violet-700);
 }
 select.ing-kind:focus-visible {
-  outline: 3px solid #bfdbfe;
+  outline: 3px solid var(--blue-200);
   outline-offset: 1px;
 }
 select.ing-kind:disabled {
@@ -3581,12 +3596,12 @@ select.ing-kind:disabled {
   white-space: nowrap;
 }
 .ing-kind-tag.is-phu {
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--orange-50);
+  color: var(--orange-700);
 }
 .ing-kind-tag.is-ban {
-  background: #f5f3ff;
-  color: #6d28d9;
+  background: var(--violet-50);
+  color: var(--violet-700);
 }
 
 /* % nguyên liệu phụ của MỘT món — `OverheadPctEditor` (2026-10-28).
@@ -3595,23 +3610,24 @@ select.ing-kind:disabled {
 .ohp { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .ohp--full {
   margin-bottom: 10px; padding: 8px 12px;
-  border: 1px solid #e5e7eb; border-radius: 10px; background: #fff; font-size: 15px;
+  border: 1px solid var(--gray-200); border-radius: 10px; background: #fff; font-size: 15px;
 }
-.ohp--full.is-on { border-color: #fdba74; background: #fff7ed; }
+.ohp--full.is-on { border-color: var(--orange-300); background: var(--orange-50); }
 .ohp-toggle {
   display: inline-flex; align-items: center; gap: 8px; margin: 0;
   min-height: 40px; font-weight: 700; cursor: pointer; user-select: none;
 }
-.ohp-toggle input { width: 22px; height: 22px; accent-color: #ea580c; cursor: pointer; }
+.ohp-toggle input { width: 22px; height: 22px; accent-color: var(--orange-600); cursor: pointer; }
 .ohp-input { display: inline-flex; align-items: center; gap: 4px; font-weight: 700; }
 .ohp-input input {
   width: 72px; min-height: 40px; padding: 4px 8px; text-align: right;
-  font-size: 18px; font-weight: 700; border: 1.5px solid #d1d5db; border-radius: 8px;
+  font-size: 18px; font-weight: 700; border: 1.5px solid var(--gray-300); border-radius: 8px;
 }
-.ohp-input input[aria-invalid='true'] { border-color: #dc2626; }
+.ohp-input input[aria-invalid='true'] { border-color: var(--red-600); }
 button.ohp-save { min-height: 40px; padding: 0 16px; }
-.ohp-hint { font-size: 13px; color: #6b7280; }
-.ohp-err { font-size: 13px; color: #b91c1c; }
+.ohp-hint { font-size: 13px; color: var(--gray-500); }
+.ohp-err { font-size: 13px; color: var(--red-700); }
 .ohp--cell { display: inline-flex; flex-wrap: nowrap; gap: 6px; justify-content: flex-end; }
-.ohp--cell .ohp-input input { width: 56px; min-height: 36px; font-size: 15px; }
+/* 16px/44px (Đợt 0): dưới 16 iPhone tự phóng khi chạm vào ô; 56px vẫn đủ cho 2 chữ số giờ. */
+.ohp--cell .ohp-input input { width: 56px; min-height: 44px; font-size: 16px; }
 .ohp--cell button.ohp-save { min-height: 36px; padding: 0 10px; font-size: 14px; }

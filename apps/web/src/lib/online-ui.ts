@@ -12,6 +12,8 @@
 //   4.08:1 → KHÔNG đạt. Chữ phụ đặt trên nền tint phải dùng `mutedOnTint` (#4b5563 = 6.37:1).
 // - `itemsBg` khác trắng 1.19:1 — vừa đủ thấy ranh giới khối món / khối khách.
 
+import type { IconName } from '../components/ui/Icon.tsx';
+
 export const C = {
   pageBg: '#f9fafb',
   cardBg: '#ffffff',
@@ -60,7 +62,9 @@ export const C = {
  * lệch màu nhau. `edge` là dải màu 4px bên trái card — thứ duy nhất đọc được khi quét từ xa. */
 export type Tone = {
   label: string;
-  icon: string;
+  /** Tên icon theo ý nghĩa (components/ui/Icon.tsx) — trước là emoji ⏳ ✓ ✕ ⊘ 💰, nhiều màu và
+   * mỗi máy vẽ một kiểu (Đợt 0 đồng bộ giao diện). Màu vẫn do `text` quyết, icon ăn currentColor. */
+  icon: IconName;
   bg: string;
   border: string;
   text: string;
@@ -79,7 +83,7 @@ export const STATUS_TONE: Record<
 > = {
   WAITING: {
     label: 'Chờ duyệt',
-    icon: '⏳',
+    icon: 'dang-cho',
     bg: C.warnBg,
     border: C.warnBorder,
     text: C.warnText,
@@ -87,7 +91,7 @@ export const STATUS_TONE: Record<
   },
   CONFIRMED: {
     label: 'Đã xác nhận',
-    icon: '✓',
+    icon: 'xong',
     bg: C.okBg,
     border: C.okBorder,
     text: C.okText,
@@ -95,7 +99,7 @@ export const STATUS_TONE: Record<
   },
   REJECTED: {
     label: 'Đã từ chối',
-    icon: '✕',
+    icon: 'da-huy',
     bg: C.alertBg,
     border: C.alertBorder,
     text: C.alertText,
@@ -103,7 +107,7 @@ export const STATUS_TONE: Record<
   },
   CANCELLED_BY_CUSTOMER: {
     label: 'Khách đã huỷ',
-    icon: '⊘',
+    icon: 'da-huy',
     bg: C.panelBg,
     border: C.border,
     text: C.mutedOnTint,
@@ -111,7 +115,7 @@ export const STATUS_TONE: Record<
   },
   COMPLETED: {
     label: 'Thành công',
-    icon: '💰',
+    icon: 'thanh-toan',
     bg: C.accentSoft,
     border: '#99f6e4',
     text: '#115e59',

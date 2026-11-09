@@ -176,6 +176,7 @@ export function groupCallsByTable(calls: PendingCall[] | undefined | null): Call
 export function describeGroup(g: CallGroup): string {
   if (g.items.length > 1) return g.items.length + ' lời nhắn';
   const one = g.items[0]!;
-  if (one.note) return '💬 ' + (one.note.length > 22 ? one.note.slice(0, 22) + '…' : one.note);
+  // Không còn tiền tố emoji 💬: chuỗi này chỉ vào aria-label (text thuần, Đợt 0 bỏ emoji khỏi text).
+  if (one.note) return (one.note.length > 22 ? one.note.slice(0, 22) + '…' : one.note);
   return one.kind === 'STAFF' ? 'gọi thêm đồ' : 'thanh toán';
 }

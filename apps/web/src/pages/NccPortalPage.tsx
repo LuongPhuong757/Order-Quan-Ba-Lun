@@ -12,6 +12,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { api, extractError } from '../lib/api.ts';
 import { upperUnit } from '../lib/text-case.ts';
+import { Icon } from '../components/ui/Icon.tsx';
 
 const TOKEN_KEY = 'ncc_token';
 
@@ -233,7 +234,7 @@ function PortalHome({ token, name, onLogout }: { token: string; name: string; on
         onClick={() => setComposing(true)}
         style={{ width: '100%', minHeight: 64, fontSize: 22, marginTop: 20 }}
       >
-        ＋ GIAO HÀNG HÔM NAY
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}><Icon name="them" size={24} />GIAO HÀNG HÔM NAY</span>
       </button>
 
       <h2 style={{ fontSize: 18, marginTop: 28 }}>Phiếu đã gửi</h2>
@@ -317,7 +318,7 @@ function ComposeScreen({
   if (sent) {
     return (
       <div style={{ maxWidth: 380, margin: '0 auto', padding: 40, textAlign: 'center' }}>
-        <div style={{ fontSize: 64 }}>✅</div>
+        <div style={{ color: '#15803d' }}><Icon name="xong" size={64} label="Đã gửi" /></div>
         <h1 style={{ fontSize: 24 }}>Đã gửi!</h1>
         <p style={{ fontSize: 17, color: '#4b5563' }}>Quán sẽ kiểm hàng và báo lại.</p>
         <button onClick={onDone} style={{ width: '100%', minHeight: 56, fontSize: 19, marginTop: 20 }}>
@@ -370,9 +371,9 @@ function ComposeScreen({
                 className="secondary"
                 aria-label={`Bớt ${l.item.ingredient_name}`}
                 onClick={() => setQty(l.key, l.qty - 1)}
-                style={{ minWidth: 56, minHeight: 56, fontSize: 26 }}
+                style={{ minWidth: 56, minHeight: 56, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                −
+                <Icon name="bot" size={26} />
               </button>
               <input
                 value={l.qty || ''}
@@ -386,9 +387,9 @@ function ComposeScreen({
                 className="secondary"
                 aria-label={`Thêm ${l.item.ingredient_name}`}
                 onClick={() => setQty(l.key, l.qty + 1)}
-                style={{ minWidth: 56, minHeight: 56, fontSize: 26 }}
+                style={{ minWidth: 56, minHeight: 56, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
               >
-                ＋
+                <Icon name="them" size={26} />
               </button>
               <span style={{ fontSize: 16, minWidth: 48, color: '#4b5563' }}>{upperUnit(l.item.purchase_unit)}</span>
             </div>

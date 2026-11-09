@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 type AuditRow = {
   id: string;
@@ -67,7 +68,9 @@ export function AdminAuditPage() {
     <div className="container wide with-bottom-nav">
       <div className="flex between" style={{ marginBottom: 16 }}>
         <h1 style={{ margin: 0 }}>Nhật ký hệ thống</h1>
-        <button onClick={exportCsv} disabled={!total}>📥 CSV</button>
+        <button onClick={exportCsv} disabled={!total} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="tai-xuong" size={20} />CSV
+        </button>
       </div>
 
       <div className="card" style={{ marginBottom: 16 }}>

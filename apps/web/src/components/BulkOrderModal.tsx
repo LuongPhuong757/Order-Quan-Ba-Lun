@@ -8,6 +8,7 @@ import { api, extractError } from '../lib/api.ts';
 import { filterMenuBySearch } from '../lib/menu-search.ts';
 import { pickAutoItem } from '../lib/auto-items.ts';
 import { useToast } from './Toast.tsx';
+import { Icon } from './ui/Icon.tsx';
 
 type MenuItem = {
   id: string;
@@ -89,7 +90,7 @@ const MenuCard = memo(function MenuCard({
           <div className="meta">{groupLabel} · {it.unit}</div>
         </div>
         <div className="price">
-          {it.is_out_of_stock ? '🚫 HẾT' : fmt(it.price)}
+          {it.is_out_of_stock ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="het-mon" size={14} />HẾT</span> : fmt(it.price)}
         </div>
       </button>
       {/* Chỉ hiện khi món ĐÃ vào giỏ: ghi chú treo vào dòng giỏ, chưa chọn thì
@@ -103,7 +104,7 @@ const MenuCard = memo(function MenuCard({
           title={line.note ? `Ghi chú: ${line.note}` : 'Thêm ghi chú'}
           aria-label={`Ghi chú cho ${it.name}`}
         >
-          {line.note ? `📝 ${line.note}` : 'Ghi chú'}
+          {line.note ? <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="ghi-chu" size={14} />{line.note}</span> : 'Ghi chú'}
         </button>
       )}
     </div>
@@ -346,7 +347,7 @@ export function BulkOrderModal({
           send_to_kitchen: true, // báo bếp luôn — bếp xử lý ngay
         },
       );
-      toast.push('success', `📢 Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`);
+      toast.push('success', `Đã báo bếp ${cartLines.length} món (${totalQty} phần) — ${fmt(total)}`);
       // KHÔNG push notificationStore — readyNotifier (polling) sẽ tự emit NewOrder cho bếp.
       // Order staff vừa gọi món rồi không cần notification cho chính mình.
       setMobileCartOpen(false);
@@ -1032,8 +1033,8 @@ export function BulkOrderModal({
             {onCollect ? 'Chọn món' : 'Gọi món'} ·{' '}
             <span style={{ color: '#0f766e' }}>{tableLabel}</span>
           </h1>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>
-            ✕
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }} aria-label="Đóng">
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -1044,10 +1045,11 @@ export function BulkOrderModal({
               <div className="bulk-search-wrap">
                 <input
                   ref={searchRef}
-                  placeholder="🔍 Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
+                  placeholder="Tên, mã hoặc viết tắt (vd: ktl = khoai tây lắc)"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={{ minHeight: 40 }}
+                  // 16px: dưới 16 iPhone tự phóng to trang khi chạm vào ô; 44px: cỡ chạm tối thiểu.
+                  style={{ minHeight: 44, fontSize: 16 }}
                 />
                 {/* Chữ không tự xoá sau khi chọn món nữa, nên phải có đường xoá bằng MỘT chạm.
                     Ẩn khi ô trống: nút ✕ trên ô rỗng chỉ làm người ta phân vân nó xoá cái gì. */}
@@ -1061,7 +1063,7 @@ export function BulkOrderModal({
                       searchRef.current?.focus();
                     }}
                   >
-                    ✕
+                    <Icon name="dong" size={20} label="Xoá chữ đang tìm" />
                   </button>
                 )}
               </div>
@@ -1073,7 +1075,7 @@ export function BulkOrderModal({
                     className={`${group === g ? '' : 'secondary'} ${g === PUSH_TAB ? 'bulk-tab-push' : ''}`}
                   >
                     {g === '' && `Tất cả (${menu.length})`}
-                    {g === PUSH_TAB && `🔥 Nên mời (${pushCount})`}
+                    {g === PUSH_TAB && <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="de-xuat" size={16} />Nên mời ({pushCount})</span>}
                     {g !== '' && g !== PUSH_TAB && labelOf(g)}
                   </button>
                 ))}
@@ -1192,8 +1194,9 @@ export function BulkOrderModal({
                     className="secondary"
                     onClick={() => setMobileCartOpen(false)}
                     style={{ padding: '6px 10px' }}
+                    aria-label="Đóng giỏ"
                   >
-                    ✕
+                    <Icon name="dong" size={22} label="Đóng giỏ" />
                   </button>
                 </div>
               </div>
@@ -1252,7 +1255,7 @@ export function BulkOrderModal({
           onClick={(e) => e.target === e.currentTarget && setNoteFor(null)}
         >
           <div className="bulk-note-box">
-            <h3>📝 {noteLine.menu_item.name}</h3>
+            <h3>{noteLine.menu_item.name}</h3>
             <input
               autoFocus
               value={noteLine.note}
@@ -1333,7 +1336,7 @@ function CartLineList({
                   onClick={() => onStartEditNote(line.menu_item.id)}
                   style={{ cursor: 'pointer' }}
                 >
-                  📝 {line.note}
+                  <Icon name="ghi-chu" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{line.note}
                 </span>
               ) : (
                 <button
@@ -1349,7 +1352,7 @@ function CartLineList({
               onClick={() => onRemove(line.menu_item.id)}
               title="Xoá khỏi giỏ"
             >
-              🗑 Xoá
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="xoa" size={16} />Xoá</span>
             </button>
           </div>
         </div>

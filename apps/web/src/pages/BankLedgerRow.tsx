@@ -10,6 +10,7 @@
 // Điện thoại và máy tính đều là lưới có tên vùng (xem `so-tien.css`, khối `.sx-tx`).
 import { useState } from 'react';
 import { accountDot, tail4, vnd } from '../lib/so-tien.ts';
+import { Icon } from '../components/ui/Icon.tsx';
 
 type OrderState = 'open' | 'paid' | 'cash' | 'debt' | 'cancelled';
 
@@ -51,7 +52,7 @@ export function hhmm(ms: number): string {
 /** Trạng thái đơn → (kiểu ô, câu chính). Màu theo mức phải lo: cam là phải đi xử lý trong ca. */
 const STATE: Record<OrderState, { tone: 'ok' | 'warn'; text: string }> = {
   open: { tone: 'warn', text: 'Bàn còn mở — chưa bấm thanh toán' },
-  paid: { tone: 'ok', text: 'Đã thanh toán ✓' },
+  paid: { tone: 'ok', text: 'Đã thanh toán' },
   // Ngân hàng báo CK về đúng mã bàn mà đơn lại ghi tiền mặt: két sẽ thiếu đúng khoản này.
   cash: { tone: 'warn', text: 'Đóng là TIỀN MẶT — kiểm lại' },
   debt: { tone: 'warn', text: 'Đang ghi nợ' },
@@ -86,7 +87,7 @@ export function BankLedgerRow({ row, onAssign, onUnassign }: Props) {
         aria-label={open ? 'Ẩn nội dung chuyển khoản' : 'Xem nội dung chuyển khoản'}
         onClick={() => setOpen((v) => !v)}
       >
-        💬
+        <Icon name="ghi-chu" size={22} />
       </button>
       <div className="sx-tx-link">
         <LinkCell row={row} onAssign={onAssign} onUnassign={onUnassign} />

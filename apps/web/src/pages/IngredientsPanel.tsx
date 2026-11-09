@@ -10,6 +10,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { IngredientKindSelect } from '../components/IngredientKindSelect.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { KIND_LABEL, KINDS, kindFlags, kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 
 type Ingredient = {
@@ -140,12 +141,14 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
       <div className="modal vp-cap-92" style={{ maxWidth: 720, width: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 12, alignItems: 'flex-start', gap: 8 }}>
           <div>
-            <h1 style={{ margin: 0, fontSize: 20 }}>🥬 Nguyên liệu</h1>
+            <h1 style={{ margin: 0, fontSize: 20 }}>Nguyên liệu</h1>
             <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>
               Danh mục dùng chung — nhiều món cùng trỏ vào một nguyên liệu.
             </div>
           </div>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>✕</button>
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}>
+            <Icon name="dong" size={22} label="Đóng" />
+          </button>
         </div>
 
         {mergeFrom && (
@@ -163,7 +166,7 @@ export function IngredientsPanel({ onClose }: { onClose: () => void }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm nguyên liệu (gõ không dấu cũng được)"
-            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 14 }}
+            style={{ flex: 1, padding: '8px 12px', borderRadius: 8, border: '1px solid #d1d5db', fontSize: 16, minHeight: 44 }}
           />
           <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px', whiteSpace: 'nowrap' }}>
             + Thêm

@@ -2,7 +2,10 @@
 <html lang="vi">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+    <!-- Không còn maximum-scale=1 (Đợt 0 đồng bộ giao diện, 2026-11-09): nó chặn người lớn tuổi
+         chụm 2 ngón phóng to trên Android. iPhone tự zoom khi chạm ô nhập dưới 16px — chống bằng
+         cách mọi ô nhập đều ≥ 16px (--fs-base), không bằng cách khoá phóng to. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0f766e" />
     <!-- Icon trang QUẢN TRỊ: CÙNG ảnh logo quán như trang khách, chỉ khác KHUNG NGOÀI —
          tròn + viền xanh mòng, so với vuông bo góc + viền hổ phách bên apps/shop. Nhân

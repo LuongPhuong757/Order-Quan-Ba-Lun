@@ -17,37 +17,39 @@ import { api, extractError } from '../lib/api.ts';
 import { BankAssignDialog } from '../components/BankAssignDialog.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useToast } from '../components/Toast.tsx';
-import { addDaysIso, vnDayIso } from '../lib/date-range.ts';
-import { dayHeading, groupByDay, monthRange, tail4, vnd } from '../lib/so-tien.ts';
+import { presetRange, rangeLabel, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { DAY_SCREEN, PRESET_LABEL, detectPreset } from '../lib/time-presets.ts';
+import { dayHeading, groupByDay, tail4, vnd } from '../lib/so-tien.ts';
+import { TimeFilter } from '../components/ui/TimeFilter.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Pagination } from '../components/ui/Pagination.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { BankLedgerRow, type LedgerRow } from './BankLedgerRow.tsx';
 import { BankLedgerOverview, type LedgerStatus, type LedgerSummary } from './BankLedgerOverview.tsx';
 import './so-tien.css';
 
 const PAGE_SIZE = 20;
 
-type Preset = 'today' | '7d' | 'month' | 'custom';
-const PRESETS: Array<[Preset, string]> = [
-  ['today', 'Hôm nay'],
-  ['7d', '7 ngày'],
-  ['month', 'Tháng này'],
-  ['custom', 'Tự chọn…'],
-];
+/**
+ * Bộ nút thời gian CHUNG (Đợt 0, 2026-11-09) thay cho hàng chip tự vẽ "Hôm nay / 7 ngày / Tháng
+ * này / Tự chọn…". ẨN "Tất cả": API `/payments/transactions` thiếu `from` là tự lùi về 7 ngày
+ * (bank-ledger.controller.ts), nên nút "Tất cả" sẽ nói một đằng, bảng hiện một nẻo.
+ */
+const NUT_THOI_GIAN = DAY_SCREEN.filter((p) => p !== 'all');
+/** Mặc định 30 ngày (chủ quán chốt 2026-11-09, trước là 7 ngày) — cùng nhịp các màn khác. */
+const KY_MAC_DINH = (): DayRange => presetRange('30d', Date.now());
+/** Từ 5 lựa chọn trở lên (gồm "Tất cả") thì hàng nút tài khoản thành ô chọn — quy tắc chung:
+ *  2–4 lựa chọn bấm thường xuyên mới giữ hàng nút. */
+const NUT_TK_TOI_DA = 4;
 const DIRS: Array<['' | 'in' | 'out', string]> = [
   ['', 'Tất cả'],
   ['in', 'Tiền vào'],
   ['out', 'Tiền ra'],
 ];
 
-function presetDays(p: Exclude<Preset, 'custom'>, now: number): { from: string; to: string } {
-  const today = vnDayIso(now);
-  if (p === 'today') return { from: today, to: today };
-  if (p === 'month') return monthRange(now);
-  return { from: addDaysIso(today, -6), to: today };
-}
-
 export function BankLedgerPage() {
-  const [preset, setPreset] = useState<Preset>('7d');
-  const [range, setRange] = useState(() => presetDays('7d', Date.now()));
+  // Không giữ state "preset" riêng nữa: nút nào sáng suy NGƯỢC từ khoảng ngày (`detectPreset`).
+  const [range, setRange] = useState<DayRange>(KY_MAC_DINH);
   const [account, setAccount] = useState('');
   const [direction, setDirection] = useState<'' | 'in' | 'out'>('');
   const [status, setStatus] = useState<LedgerStatus>('');
@@ -106,7 +108,7 @@ export function BankLedgerPage() {
     const table = r.link?.order?.table ?? 'đơn';
     const ok = await confirm({
       title: `Gỡ ${vnd(r.amount)} khỏi ${table}?`,
-      message: 'Khoản tiền quay về "Chưa khớp", đơn đó quay về ✗ chưa xác thực.',
+      message: 'Khoản tiền quay về "Chưa khớp", đơn đó quay về "chưa xác thực".',
       variant: 'warning',
       confirmLabel: 'Gỡ gán',
     });
@@ -120,13 +122,12 @@ export function BankLedgerPage() {
     }
   };
 
-  const choosePreset = (p: Preset) => {
-    setPreset(p);
-    if (p !== 'custom') setRange(presetDays(p, Date.now()));
+  const chooseRange = (r: DayRange) => {
+    setRange(r);
     setPage(1);
   };
   const resetFilters = () => {
-    choosePreset('7d');
+    chooseRange(KY_MAC_DINH());
     setAccount('');
     setDirection('');
     setStatus('');
@@ -142,13 +143,18 @@ export function BankLedgerPage() {
     const a = summary?.by_account.find((x) => x.account_no === no);
     return a?.label ?? (a?.bank ? `${a.bank} ${tail4(no)}` : tail4(no));
   };
-  const presetText = (PRESETS.find(([v]) => v === preset)?.[1] ?? '').replace('…', '');
+  const dangBat = detectPreset(range, Date.now(), NUT_THOI_GIAN);
+  const presetText = dangBat === 'custom' ? rangeLabel(range) : PRESET_LABEL[dangBat];
+  const tkOptions = [
+    { value: '', label: 'Tất cả' },
+    ...(summary?.by_account ?? []).map((a) => ({ value: a.account_no, label: accName(a.account_no) })),
+  ];
 
   return (
     <div className="container with-bottom-nav sx" style={{ maxWidth: 1240 }}>
       <header className="sx-appbar">
         <div className="sx-grow">
-          <h1>🏦 Sổ webhook ngân hàng</h1>
+          <h1>Sổ webhook ngân hàng</h1>
           <p className="sx-sub">Mọi giao dịch SePay báo về · {presetText}</p>
         </div>
       </header>
@@ -169,32 +175,35 @@ export function BankLedgerPage() {
         aria-expanded={filtersOpen}
         onClick={() => setFiltersOpen((v) => !v)}
       >
-        ⚙ Lọc: {presetText}
-        {account ? ` · ${accName(account)}` : ''}
-        {direction ? ` · ${direction === 'in' ? 'Tiền vào' : 'Tiền ra'}` : ''}
-        {q ? ` · "${q}"` : ''} {filtersOpen ? '▴' : '▾'}
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="loc" size={18} />
+          <span>
+            Lọc: {presetText}
+            {account ? ` · ${accName(account)}` : ''}
+            {direction ? ` · ${direction === 'in' ? 'Tiền vào' : 'Tiền ra'}` : ''}
+            {q ? ` · "${q}"` : ''}
+          </span>
+          <Icon name={filtersOpen ? 'mui-ten-len' : 'mui-ten-xuong'} size={18} />
+        </span>
       </button>
 
       <div className={`sx-filters sx-card${filtersOpen ? '' : ' sx-closed'}`}>
         <div className="sx-fgroup">
-          <span className="sx-lg">Khoảng ngày</span>
-          <div className="sx-opts">
-            {PRESETS.map(([v, t]) => (
-              <button key={v} type="button" className="sx-opt" aria-pressed={preset === v} onClick={() => choosePreset(v)}>
-                {t}
-              </button>
-            ))}
-          </div>
-          {preset === 'custom' && (
-            <div className="sx-dates">
-              <input type="date" aria-label="Từ ngày" value={range.from}
-                onChange={(e) => { setRange((r) => ({ ...r, from: e.target.value })); setPage(1); }} />
-              <input type="date" aria-label="Đến ngày" value={range.to}
-                onChange={(e) => { setRange((r) => ({ ...r, to: e.target.value })); setPage(1); }} />
-            </div>
-          )}
+          <TimeFilter label="Khoảng ngày" value={range} onChange={chooseRange} presets={NUT_THOI_GIAN} />
         </div>
         {summary && summary.by_account.length > 0 && (
+          tkOptions.length > NUT_TK_TOI_DA ? (
+            <div className="sx-fgroup">
+              <Dropdown
+                full
+                label="Tài khoản"
+                value={account}
+                neutralValue=""
+                onChange={(v) => { setAccount(v); setPage(1); }}
+                options={tkOptions}
+              />
+            </div>
+          ) : (
           <div className="sx-fgroup">
             <span className="sx-lg">Tài khoản</span>
             {/* MỘT dòng, vuốt ngang khi nhiều — tên tài khoản thật dài ("Lương Tuấn Phương -
@@ -211,6 +220,7 @@ export function BankLedgerPage() {
               ))}
             </div>
           </div>
+          )
         )}
         <div className="sx-fgroup">
           <span className="sx-lg">Chiều tiền</span>
@@ -236,7 +246,7 @@ export function BankLedgerPage() {
         <div className="sx-active">
           Đang xem: {status === 'unmatched' ? 'Tiền lạ chưa khớp' : 'Bàn đã CK nhưng còn mở'}
           <button type="button" className="sx-ghost" onClick={() => { setStatus(''); setPage(1); }}>
-            Bỏ lọc ✕
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>Bỏ lọc<Icon name="dong" size={18} /></span>
           </button>
         </div>
       )}
@@ -283,26 +293,14 @@ export function BankLedgerPage() {
             );
           })}
 
-          {pages > 1 && (
-            <div className="sx-pager sx-card">
-              <button type="button" className="sx-ghost" disabled={page <= 1} onClick={() => setPage((v) => Math.max(1, v - 1))}>
-                ← Trước
-              </button>
-              <span className="sx-pos">
-                {page}/{pages}
-                <br />
-                <small style={{ fontWeight: 500, color: '#6b7280' }}>{total} giao dịch</small>
-              </span>
-              <button type="button" className="sx-ghost" disabled={page >= pages} onClick={() => setPage((v) => Math.min(pages, v + 1))}>
-                Sau →
-              </button>
-            </div>
-          )}
+          {/* Thanh chuyển trang chung — thay `.sx-pager` riêng (docs/UI-UX/phan-trang.md). */}
+          <Pagination page={page} totalPages={pages} onChange={setPage} total={total} pageSize={PAGE_SIZE} donVi="giao dịch" />
         </>
       )}
 
       <p className="sx-foot">
-        ℹ️ Chỉ thấy tài khoản đã nối SePay. Khách chuyển nhầm sang tài khoản khác sẽ không hiện ở đây — xem
+        <Icon name="thong-tin" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+        Chỉ thấy tài khoản đã nối SePay. Khách chuyển nhầm sang tài khoản khác sẽ không hiện ở đây — xem
         cột Xác thực ở màn Lịch sử. SePay không gửi số tài khoản của người chuyển, nên sổ chỉ biết tiền
         vào/ra ở tài khoản nào của quán.
       </p>

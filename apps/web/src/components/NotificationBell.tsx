@@ -1,14 +1,16 @@
 // Bell icon trong header + modal liệt kê thông báo. Dùng notificationStore.
+import { Icon, type IconName } from './ui/Icon.tsx';
 import { useEffect, useState } from 'react';
 import { notificationStore, formatTime, type NotificationEntry, type NotificationKind } from '../lib/notification-store.ts';
 
-const KIND_ICON: Record<NotificationKind, string> = {
-  ready: '🍽',
-  order_open: '🪑',
-  order_cancel: '✕',
-  order_checkout: '💰',
-  info: 'ℹ️',
-  error: '⚠️',
+// Icon nét một màu (màu lấy từ KIND_COLOR ở thẻ bao) — dòng chữ bên cạnh đã nói nghĩa.
+const KIND_ICON: Record<NotificationKind, IconName> = {
+  ready: 'xong',
+  order_open: 'ban',
+  order_cancel: 'da-huy',
+  order_checkout: 'thanh-toan',
+  info: 'thong-tin',
+  error: 'canh-bao',
 };
 
 const KIND_COLOR: Record<NotificationKind, string> = {
@@ -46,14 +48,14 @@ export function NotificationBell() {
           color: 'inherit',
           border: 'none',
           padding: '6px 8px',
-          minHeight: 36,
-          minWidth: 36,
+          minHeight: 44,
+          minWidth: 44,
           cursor: 'pointer',
           fontSize: 20,
           lineHeight: 1,
         }}
       >
-        🔔
+        <Icon name="thong-bao" size={22} />
         {unread > 0 && (
           <span
             style={{
@@ -118,9 +120,9 @@ export function NotificationBell() {
                 alignItems: 'center',
               }}
             >
-              <h2 style={{ margin: 0, fontSize: 17 }}>🔔 Thông báo</h2>
-              <button type="button" className="secondary" onClick={() => setOpen(false)} style={{ padding: '6px 10px' }}>
-                ✕
+              <h2 style={{ margin: 0, fontSize: 17 }}>Thông báo</h2>
+              <button type="button" className="secondary" onClick={() => setOpen(false)} style={{ padding: '6px 10px' }} aria-label="Đóng">
+                <Icon name="dong" size={22} label="Đóng" />
               </button>
             </div>
 
@@ -142,7 +144,7 @@ export function NotificationBell() {
                     }}
                   >
                     <div style={{ fontSize: 20, color: KIND_COLOR[e.kind] }}>
-                      {KIND_ICON[e.kind]}
+                      <Icon name={KIND_ICON[e.kind]} size={20} />
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: '#1f2937', wordBreak: 'break-word' }}>
@@ -177,7 +179,7 @@ export function NotificationBell() {
                   onClick={() => notificationStore.clear()}
                   style={{ padding: '4px 10px', fontSize: 12 }}
                 >
-                  🗑 Xoá hết
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="xoa" size={16} />Xoá hết</span>
                 </button>
               </div>
             )}

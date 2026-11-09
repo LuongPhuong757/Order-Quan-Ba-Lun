@@ -1,0 +1,190 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   BỘ COMPONENT CHUNG (Đợt 0 đồng bộ giao diện, 2026-11-09) — tiền tố `ds-`
+   Dropdown, tấm trượt đáy (sheet), lịch chọn ngày, hàng nút lọc thời gian.
+
+   - Chỉ dùng token (packages/ui-tokens/foundation.css + styles/tokens.css), không mã màu cứng.
+   - Mọi class có tiền tố `ds-`, không có selector thẻ trần → không đụng màn cũ.
+   - Nút viết `button.ds-…`: luật `button` toàn cục trong styles.css tô nền teal + chữ trắng +
+     padding 12/16 cho MỌI nút; class trần thua độ ưu tiên của nó ở vài thuộc tính.
+   - Sàn: chữ ≥ 16px cho thứ bấm được, vùng bấm ≥ 44px (người dùng lớn tuổi, điện thoại).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Nhãn + ô (dùng chung cho dropdown và ô ngày) ─────────────────────────── */
+.ds-field { display: flex; flex-direction: column; gap: var(--sp-1); min-width: 0; position: relative; }
+.ds-field--full { width: 100%; }
+.ds-label { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--gray-600); line-height: var(--lh-snug); }
+
+button.ds-trigger {
+  display: flex; align-items: center; gap: var(--sp-2);
+  width: 100%; min-width: 0; height: var(--ctl-h); min-height: var(--ctl-h);
+  padding: 0 var(--sp-3);
+  background: #fff; color: var(--gray-800);
+  border: 1px solid var(--gray-300); border-radius: var(--radius-sm);
+  font: inherit; font-size: var(--fs-base); font-weight: var(--fw-normal); text-align: left;
+  cursor: pointer; transition: border-color var(--dur-fast) var(--ease-out);
+}
+button.ds-trigger:hover { opacity: 1; border-color: var(--gray-400); }
+button.ds-trigger:focus-visible { outline: 3px solid var(--teal-100); outline-offset: 0; border-color: var(--brand); }
+/* Đang lọc thật (khác giá trị "chưa lọc") — liếc là biết ô nào đang có tác dụng. */
+button.ds-trigger.is-active { border: 1.5px solid var(--brand); font-weight: var(--fw-semibold); }
+button.ds-trigger:disabled { background: var(--gray-50); color: var(--gray-400); cursor: not-allowed; }
+.ds-trigger__text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: var(--sp-2); }
+.ds-trigger__text.is-placeholder { color: var(--gray-400); }
+.ds-trigger__chev { color: var(--gray-500); transition: transform var(--dur-fast) var(--ease-out); }
+.ds-trigger[aria-expanded='true'] .ds-trigger__chev { transform: rotate(180deg); }
+
+/* ── Danh sách lựa chọn ─────────────────────────────────────────────────── */
+.ds-pop {
+  position: absolute; left: 0; z-index: 1000;
+  min-width: max(100%, 220px); max-width: min(420px, 92vw);
+  background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius-md);
+  box-shadow: 0 12px 32px rgba(17, 24, 39, 0.16);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ds-pop--down { top: calc(100% + 6px); }
+.ds-pop--up { bottom: calc(100% + 6px); }
+.ds-list { overflow-y: auto; overscroll-behavior: contain; max-height: 320px; padding: var(--sp-1) 0; }
+.ds-sheet .ds-list { max-height: none; flex: 1; }
+.ds-search { display: flex; align-items: center; gap: var(--sp-2); margin: var(--sp-2); padding: 0 var(--sp-3); height: var(--ctl-h); border: 1px solid var(--gray-300); border-radius: var(--radius-sm); color: var(--gray-500); background: #fff; flex: none; }
+.ds-search:focus-within { border-color: var(--brand); outline: 3px solid var(--teal-100); }
+.ds-search input { all: unset; flex: 1; min-width: 0; font-size: var(--fs-base); color: var(--gray-800); height: 100%; }
+.ds-group { padding: var(--sp-3) var(--sp-4) var(--sp-1); font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--gray-500); letter-spacing: 0.02em; }
+.ds-opt { display: flex; align-items: center; gap: var(--sp-3); min-height: 48px; padding: var(--sp-2) var(--sp-4); cursor: pointer; font-size: var(--fs-base); color: var(--gray-800); }
+.ds-opt.is-cursor { background: var(--teal-50); }
+.ds-opt.is-selected { color: var(--brand-strong); font-weight: var(--fw-semibold); background: var(--teal-50); }
+.ds-opt__main { flex: 1; min-width: 0; }
+.ds-opt__hint { display: block; font-size: var(--fs-sm); font-weight: var(--fw-normal); color: var(--gray-500); }
+.ds-opt__check { color: var(--brand); }
+.ds-empty { padding: var(--sp-4); color: var(--gray-500); font-size: var(--fs-base); text-align: center; }
+
+/* ── Tấm trượt từ đáy (điện thoại) ──────────────────────────────────────── */
+/* z 10500: TRÊN hộp thoại (10000–10010) vì dropdown/lịch có thể nằm trong hộp thoại; DƯỚI
+   HelpModal (11000) và thông báo (11500) — bảng lớp ở styles.css ~dòng 247. */
+.ds-sheet-bg {
+  position: fixed; inset: 0; z-index: 10500;
+  background: rgba(17, 24, 39, 0.5);
+  display: flex; flex-direction: row; align-items: flex-end; justify-content: center;
+  animation: ds-fade var(--dur-base) var(--ease-out);
+}
+.ds-sheet {
+  width: 100%; max-width: 560px;
+  /* dvh: vh tính theo khung nhìn LỚN trên iPhone → đỉnh tấm trôi khỏi màn (CLAUDE.md §5). */
+  max-height: 88vh; max-height: 88dvh;
+  background: #fff; border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+  display: flex; flex-direction: column;
+  padding-bottom: var(--safe-bottom);
+  animation: ds-up var(--dur-slow) var(--ease-out);
+}
+.ds-sheet__grab { width: 40px; height: 5px; border-radius: 3px; background: var(--gray-300); margin: var(--sp-2) auto var(--sp-1); flex: none; }
+.ds-sheet__head { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-1) var(--sp-2) var(--sp-1) var(--sp-4); flex: none; }
+.ds-sheet__title { flex: 1; min-width: 0; font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--gray-900); }
+button.ds-iconbtn {
+  width: var(--tap-min); height: var(--tap-min); min-width: var(--tap-min); padding: 0;
+  display: grid; place-items: center;
+  background: transparent; color: var(--gray-600); border: none; border-radius: var(--radius-sm);
+}
+button.ds-iconbtn:hover { background: var(--gray-100); opacity: 1; }
+button.ds-iconbtn:disabled { opacity: 0.35; background: transparent; }
+@keyframes ds-fade { from { opacity: 0; } }
+@keyframes ds-up { from { transform: translateY(24px); opacity: 0.6; } }
+
+/* ── Hàng nút lọc thời gian ─────────────────────────────────────────────── */
+.ds-time { display: flex; flex-direction: column; gap: var(--sp-2); min-width: 0; position: relative; }
+/* Một hàng, dài thì VUỐT NGANG (không xuống dòng): hàng chip gãy thành 2–3 dòng trên điện thoại
+   trông như bảng và đẩy nội dung xuống (quy ước .tabstrip, styles.css). `min-width: 0` bắt buộc
+   để overflow-x có tác dụng trong flex cha. */
+.ds-chips { display: flex; gap: var(--sp-2); overflow-x: auto; scrollbar-width: none; min-width: 0; padding-bottom: 2px; scroll-snap-type: x proximity; }
+.ds-chips::-webkit-scrollbar { display: none; }
+button.ds-chip {
+  flex: none; height: var(--ctl-h); min-height: var(--ctl-h); padding: 0 var(--sp-4);
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  background: #fff; color: var(--gray-700); border: 1px solid var(--gray-300); border-radius: var(--radius-pill);
+  font: inherit; font-size: var(--fs-base); font-weight: var(--fw-semibold); white-space: nowrap; scroll-snap-align: start;
+}
+button.ds-chip:hover { opacity: 1; border-color: var(--gray-400); }
+button.ds-chip.is-on { background: var(--brand); border-color: var(--brand); color: #fff; }
+button.ds-chip--pick { border-style: dashed; }
+button.ds-chip--pick.is-on { border-style: solid; }
+.ds-seeing { font-size: var(--fs-sm); color: var(--gray-600); line-height: var(--lh-snug); }
+.ds-seeing b { color: var(--gray-800); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+
+/* ── Lịch ───────────────────────────────────────────────────────────────── */
+.ds-cal-pop { position: absolute; top: calc(100% + 6px); left: 0; z-index: 1000; background: #fff; border: 1px solid var(--gray-200); border-radius: var(--radius-md); box-shadow: 0 12px 32px rgba(17, 24, 39, 0.16); display: flex; flex-direction: column; max-width: calc(100vw - 32px); }
+.ds-cal-pop--right { left: auto; right: 0; }
+.ds-cal-head { display: flex; align-items: center; padding: var(--sp-3) var(--sp-2) var(--sp-1) var(--sp-4); }
+.ds-ends { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); padding: var(--sp-1) var(--sp-4) var(--sp-3); }
+.ds-cal-pop .ds-ends { grid-template-columns: 200px 200px; justify-content: start; }
+button.ds-end { display: flex; flex-direction: column; align-items: flex-start; gap: 0; padding: var(--sp-1) var(--sp-3); min-height: 56px; background: #fff; color: var(--gray-800); border: 1.5px solid var(--gray-300); border-radius: var(--radius-sm); font: inherit; text-align: left; }
+button.ds-end:hover { opacity: 1; }
+button.ds-end small { font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--gray-500); }
+button.ds-end b { font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
+button.ds-end.is-on { border-color: var(--brand); box-shadow: 0 0 0 3px var(--teal-100); }
+button.ds-end.is-empty b { color: var(--gray-400); font-weight: var(--fw-normal); }
+.ds-cal { padding: 0 var(--sp-3); }
+.ds-cal__nav { display: flex; align-items: center; gap: var(--sp-2); }
+.ds-cal__title { flex: 1; text-align: center; font-weight: var(--fw-bold); font-size: var(--fs-base); color: var(--gray-900); }
+.ds-cal__months { display: flex; gap: var(--sp-6); }
+.ds-cal__month { flex: 1; min-width: 0; }
+.ds-cal__cap { text-align: center; font-weight: var(--fw-bold); font-size: var(--fs-base); color: var(--gray-900); margin: var(--sp-2) 0 var(--sp-1); }
+.ds-cal__wd, .ds-cal__days { display: grid; grid-template-columns: repeat(7, minmax(40px, 1fr)); }
+.ds-cal__wd span { text-align: center; font-size: var(--fs-sm); font-weight: var(--fw-semibold); color: var(--gray-500); padding: var(--sp-1) 0; }
+.ds-cal__wd span.is-cn { color: var(--red-700); }
+button.ds-day { position: relative; height: 46px; min-height: 46px; min-width: 0; padding: 0; background: none; border: none; border-radius: 0; color: var(--gray-800); font: inherit; font-size: 17px; font-weight: var(--fw-normal); font-variant-numeric: tabular-nums; }
+button.ds-day:hover { opacity: 1; }
+button.ds-day > span { position: relative; z-index: 1; display: grid; place-items: center; width: 42px; height: 42px; margin: 0 auto; border-radius: var(--radius-pill); }
+button.ds-day.is-cn { color: var(--red-700); }
+button.ds-day.is-today > span { box-shadow: inset 0 0 0 2px var(--brand); font-weight: var(--fw-bold); }
+button.ds-day.is-in::before { content: ''; position: absolute; inset: 2px 0; background: var(--teal-100); }
+button.ds-day.is-start::before { left: 50%; }
+button.ds-day.is-end::before { right: 50%; }
+button.ds-day.is-start.is-end::before { display: none; }
+button.ds-day.is-start > span, button.ds-day.is-end > span { background: var(--brand); color: #fff; font-weight: var(--fw-bold); box-shadow: none; }
+button.ds-day:not(:disabled):not(.is-start):not(.is-end):hover > span { background: var(--teal-50); }
+button.ds-day:disabled { color: var(--gray-300); background: none; cursor: not-allowed; opacity: 1; }
+.ds-cal__blank { height: 46px; }
+.ds-cal-hint { font-size: var(--fs-sm); color: var(--gray-600); padding: var(--sp-2) var(--sp-4) 0; min-height: 28px; }
+.ds-foot { display: flex; gap: var(--sp-3); align-items: center; padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--gray-200); margin-top: var(--sp-2); }
+button.ds-btn { height: var(--btn-h); min-height: var(--btn-h); padding: 0 var(--sp-5); display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-2); background: #fff; color: var(--gray-800); border: 1px solid var(--gray-300); border-radius: var(--radius-sm); font: inherit; font-size: var(--fs-base); font-weight: var(--fw-semibold); }
+button.ds-btn:hover { opacity: 1; background: var(--gray-50); }
+button.ds-btn--primary { background: var(--brand); color: #fff; border-color: var(--brand); height: var(--btn-h-lg); font-size: var(--fs-md); }
+button.ds-btn--primary:hover { background: var(--brand-strong); }
+button.ds-btn--primary:disabled { background: var(--gray-400); border-color: var(--gray-400); opacity: 1; }
+.ds-foot .ds-btn--primary { flex: 1; }
+.ds-cal-pop .ds-foot .ds-btn--primary { flex: 0 0 220px; margin-left: auto; }
+
+/* ── Ô nhập một ngày ────────────────────────────────────────────────────── */
+.ds-quick { display: flex; gap: var(--sp-2); margin-top: var(--sp-1); }
+.ds-quick button.ds-chip { height: 40px; min-height: 40px; font-size: var(--fs-sm); padding: 0 var(--sp-3); }
+.ds-cal-pop--single { width: 340px; padding-bottom: var(--sp-2); }
+.ds-trigger__ico { color: var(--gray-500); }
+
+/* Tấm thành hộp giữa màn khi rộng (prop `giuaKhiRong` của Sheet). */
+@media (min-width: 768px) {
+  .ds-sheet-bg--giua { align-items: center; }
+  .ds-sheet-bg--giua .ds-sheet { max-width: 440px; border-radius: var(--radius-lg); padding-bottom: 0; }
+  .ds-sheet-bg--giua .ds-sheet__grab { display: none; }
+}
+
+/* ── Thanh chuyển trang (Pagination.tsx) ──────────────────────────────────
+   Nút 44px = --tap-min; điện thoại tối đa 7 ô (‹ + 5 + ›) = 7×44 + 6×6 = 344px, vừa 390px. */
+.ds-pg { display: flex; flex-direction: column; align-items: center; gap: var(--sp-1); margin-top: var(--sp-4); }
+.ds-pg__bar { display: flex; align-items: center; gap: 6px; }
+button.ds-pg__o {
+  min-width: var(--tap-min); height: var(--tap-min); min-height: var(--tap-min); padding: 0 var(--sp-2);
+  border: 1px solid var(--gray-200); border-radius: var(--radius-sm); background: #fff; color: var(--gray-800);
+  font-size: var(--fs-base); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums;
+}
+button.ds-pg__o.is-on { background: var(--brand); border-color: var(--brand); color: #fff; }
+button.ds-pg__o--nhay { border-style: dashed; color: var(--brand); font-weight: var(--fw-heavy); letter-spacing: 0.1em; }
+button.ds-pg__o:disabled { opacity: 0.4; }
+button.ds-pg__info {
+  min-height: 32px; padding: 0 var(--sp-2); background: none; border: none; color: var(--gray-600);
+  font-size: var(--fs-sm); text-decoration: underline dotted; text-underline-offset: 4px; font-variant-numeric: tabular-nums;
+}
+.ds-pg__info b { color: var(--gray-900); }
+.ds-pg-pick { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4) var(--sp-4); overflow: hidden; flex: 1; min-height: 0; }
+.ds-pg-pick__dau { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-2); flex: none; }
+.ds-pg-pick__dau button { height: 48px; min-height: 48px; border-radius: var(--radius-sm); border: 1px solid var(--teal-200); background: var(--teal-50); color: var(--brand-strong); font-weight: var(--fw-bold); font-size: var(--fs-base); }
+.ds-pg-pick__luoi { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sp-2); overflow-y: auto; overscroll-behavior: contain; }
+.ds-pg-pick__luoi button { height: 48px; min-height: 48px; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); background: #fff; color: var(--gray-800); font-size: var(--fs-md); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
+.ds-pg-pick__luoi button.is-on { background: var(--brand); border-color: var(--brand); color: #fff; }

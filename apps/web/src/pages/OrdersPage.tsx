@@ -9,6 +9,7 @@ import { OrderDrawer } from '../components/OrderDrawer.tsx';
 import { readyNotifier } from '../lib/ready-notifier.ts';
 import { openTablesStore } from '../lib/open-tables-badge.ts';
 import { formatAge } from '../lib/item-age.ts';
+import { Icon, type IconName } from '../components/ui/Icon.tsx';
 
 type Table = {
   id: string;
@@ -40,13 +41,26 @@ type FilterKey = 'all' | 'in-use' | 'has-pending' | 'empty' | 'kiotviet' | 'dine
 
 const FILTER_LABEL: Record<FilterKey, string> = {
   'all': 'Tất cả',
-  'in-use': '🔥 Đang dùng',
-  'has-pending': '🍽 Còn món chưa giao',
-  'empty': '⚪ Trống',
-  'kiotviet': '🔒 KiotViet',
-  'dine-in': '🪑 Tại quán',
-  'takeaway': '🥡 Mang về',
-  'delivery': '🛵 Giao hàng',
+  'in-use': 'Đang dùng',
+  'has-pending': 'Còn món chưa giao',
+  'empty': 'Trống',
+  'kiotviet': 'KiotViet',
+  'dine-in': 'Tại quán',
+  'takeaway': 'Mang về',
+  'delivery': 'Giao hàng',
+};
+
+// Icon đứng trước chữ của từng nút lọc (thay emoji cũ, Đợt 0 đồng bộ giao diện). Tách khỏi
+// FILTER_LABEL vì nhãn còn được chèn vào câu chữ thuần ("Không có bàn khớp filter …").
+const FILTER_ICON: Record<FilterKey, IconName | null> = {
+  'all': null,
+  'in-use': 'dang-nau',
+  'has-pending': 'dang-cho',
+  'empty': 'ban',
+  'kiotviet': 'khoa',
+  'dine-in': 'cua-hang',
+  'takeaway': 'mang-ve',
+  'delivery': 'giao-hang',
 };
 
 const FILTER_ORDER: FilterKey[] = ['all', 'in-use', 'takeaway', 'delivery', 'has-pending', 'empty', 'kiotviet', 'dine-in'];
@@ -61,11 +75,11 @@ const KIND_BG: Record<string, string> = {
 };
 
 // Active states (1 row trên card khi bàn có món đang ở state đó)
-const STATE_BADGE: Record<string, { label: string; color: string; icon: string }> = {
-  PENDING: { label: 'gọi', color: '#6b7280', icon: '✎' },
-  KITCHEN: { label: 'báo bếp', color: '#f59e0b', icon: '📢' },
-  COOKING: { label: 'đang làm', color: '#3b82f6', icon: '🔥' },
-  READY: { label: 'xong', color: '#10b981', icon: '✓' },
+const STATE_BADGE: Record<string, { label: string; color: string; icon: IconName }> = {
+  PENDING: { label: 'gọi', color: '#6b7280', icon: 'sua' },
+  KITCHEN: { label: 'báo bếp', color: '#f59e0b', icon: 'gui' },
+  COOKING: { label: 'đang làm', color: '#3b82f6', icon: 'dang-nau' },
+  READY: { label: 'xong', color: '#10b981', icon: 'xong' },
 };
 
 const chipStyle = (bg: string): CSSProperties => ({
@@ -188,7 +202,7 @@ export function OrdersPage() {
       title: 'Bàn đang dùng KiotViet',
       message: `${t.name} đang được order bằng KiotViet.\nMuốn chuyển về hệ thống này để gọi món không?`,
       variant: 'warning',
-      confirmLabel: '↩ Chuyển về hệ thống',
+      confirmLabel: 'Chuyển về hệ thống',
       cancelLabel: 'Đóng',
     });
     if (ok) unlockTable(t, true);
@@ -338,9 +352,12 @@ export function OrdersPage() {
                 fontSize: 11,
                 fontWeight: 600,
                 alignSelf: 'flex-start',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 4,
               }}
             >
-              🔒 KiotViet
+              <Icon name="khoa" size={14} />KiotViet
             </span>
           </button>
         </div>
@@ -467,7 +484,7 @@ export function OrdersPage() {
             }}
             title="Khách gọi bằng QR, đang chờ nhân viên duyệt"
           >
-            📱 {qrWaiting} lượt chờ duyệt
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="qr" size={16} />{qrWaiting} lượt chờ duyệt</span>
           </div>
         )}
 
@@ -485,7 +502,7 @@ export function OrdersPage() {
                 }}
                 title="Bàn này khách tự gọi món bằng QR"
               >
-                📱 QR
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="qr" size={14} />QR</span>
               </span>
             )}
             {Object.entries(counts).map(([st, n]) => {
@@ -501,9 +518,14 @@ export function OrdersPage() {
                     borderRadius: 999,
                     fontSize: 11,
                     fontWeight: 600,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
                   }}
+                  title={b.label}
                 >
-                  {b.icon} {n}
+                  {/* Badge chỉ có icon + số: icon PHẢI có label, không thì mất nghĩa "mấy món ở trạng thái nào". */}
+                  <Icon name={b.icon} size={14} label={b.label} />{n}
                 </span>
               );
             })}
@@ -521,7 +543,7 @@ export function OrdersPage() {
                 }}
                 title="Đã giao tới khách"
               >
-                🍽 {servedCount} đã giao
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="xong" size={14} />{servedCount} đã giao</span>
               </span>
             )}
           </div>
@@ -556,8 +578,9 @@ export function OrdersPage() {
             cursor: 'pointer',
             opacity: 0.85,
           }}
+          aria-label="Đánh dấu bàn dùng KiotViet"
         >
-          🔒
+          <Icon name="khoa" size={16} label="Đánh dấu bàn dùng KiotViet" style={{ verticalAlign: 'middle' }} />
         </button>
       )}
       </div>
@@ -609,7 +632,14 @@ export function OrdersPage() {
                   minWidth: 130,
                 }}
               >
-                {FILTER_LABEL[k]} ({filterCounts[k]})
+                {FILTER_ICON[k] ? (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name={FILTER_ICON[k]!} size={16} />
+                    {FILTER_LABEL[k]} ({filterCounts[k]})
+                  </span>
+                ) : (
+                  <>{FILTER_LABEL[k]} ({filterCounts[k]})</>
+                )}
               </button>
             ))}
           </div>
@@ -658,7 +688,7 @@ export function OrdersPage() {
                 marginRight: 4,
               }}
             />
-            {b.icon} {b.label}
+            <Icon name={b.icon} size={14} style={{ verticalAlign: 'middle', marginRight: 2 }} /> {b.label}
           </span>
         ))}
       </div>

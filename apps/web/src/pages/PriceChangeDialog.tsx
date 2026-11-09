@@ -9,6 +9,7 @@
 // - `strict` (>30%): KHÔNG có đường duyệt hàng loạt, phải bấm từng dòng. 30% không còn là biến
 //   động mùa vụ; buộc dừng lại nhìn từng cái là có chủ đích.
 import { useMemo, useState } from 'react';
+import { Icon } from '../components/ui/Icon.tsx';
 import { C } from '../lib/online-ui.ts';
 
 import { upperUnit } from '../lib/text-case.ts';
@@ -133,7 +134,7 @@ export function PriceChangeDialog({
         {changes.length > 0 && (
           <>
             <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>
-              ⚠ {changes.length} mặt hàng đổi giá
+              {changes.length} mặt hàng đổi giá
             </h2>
             <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>
               Những dòng còn lại giữ nguyên giá, không cần xem.
@@ -206,7 +207,11 @@ export function PriceChangeDialog({
                           onClick={() => toggle(c.ingredient_id)}
                           style={{ marginTop: 8, minHeight: 40, padding: '0 18px', ...(ok ? {} : NUT_DUYET) }}
                         >
-                          {ok ? '✓ Đã duyệt' : 'Duyệt'}
+                          {ok ? (
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                              <Icon name="xong" size={18} />Đã duyệt
+                            </span>
+                          ) : 'Duyệt'}
                         </button>
                       </div>
                     </div>

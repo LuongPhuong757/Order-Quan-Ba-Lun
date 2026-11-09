@@ -6,13 +6,13 @@
    cục sẽ thắng một class trần đứng một mình ở chỗ cùng độ ưu tiên. */
 
 .nv-ui {
-  --nv-teal: #0f766e;
-  --nv-green: #059669;
-  --nv-green-soft: #d1fae5;
-  --nv-amber: #b45309;
-  --nv-amber-soft: #fef3c7;
-  --nv-border: #e5e7eb;
-  --nv-muted: #6b7280;
+  --nv-teal: var(--teal-700);
+  --nv-green: var(--emerald-600);
+  --nv-green-soft: var(--emerald-100);
+  --nv-amber: var(--amber-700);
+  --nv-amber-soft: var(--amber-100);
+  --nv-border: var(--gray-200);
+  --nv-muted: var(--gray-500);
 }
 
 .nv-ui .nv-toolbar {
@@ -68,7 +68,7 @@
   border-radius: 999px;
   border: 1px solid var(--nv-border);
   background: #fff;
-  color: #111827;
+  color: var(--gray-900);
   font-size: 15.5px;
   font-weight: 700;
   white-space: nowrap;
@@ -78,7 +78,7 @@
   height: 24px;
   padding: 0 7px;
   border-radius: 999px;
-  background: #f1f5f9;
+  background: var(--slate-100);
   color: var(--nv-muted);
   font-size: 13.5px;
   font-weight: 800;
@@ -151,7 +151,7 @@
   overflow-wrap: anywhere;
 }
 .nv-ui .nv-name.noname {
-  color: #9ca3af;
+  color: var(--gray-400);
   font-weight: 700;
 }
 .nv-ui .nv-meta {
@@ -165,7 +165,7 @@
   font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   font-size: 14px;
   color: var(--nv-muted);
-  background: #f3f4f6;
+  background: var(--gray-100);
   border-radius: 6px;
   padding: 2px 8px;
 }
@@ -237,7 +237,7 @@
 .nv-ui .nv-ck-label {
   font-size: 15.5px;
   font-weight: 700;
-  color: #374151;
+  color: var(--gray-700);
 }
 .nv-ui .nv-ck-note {
   border-top: 1px solid var(--nv-border);
@@ -271,7 +271,7 @@
   width: 56px;
   height: 32px;
   border-radius: 999px;
-  background: #d1d5db;
+  background: var(--gray-300);
   flex: 0 0 auto;
   transition: background 0.16s;
 }
@@ -288,7 +288,7 @@
   transition: transform 0.16s;
 }
 .nv-switch[aria-checked='true'] .nv-track {
-  background: #059669;
+  background: var(--emerald-600);
 }
 .nv-switch[aria-checked='true'] .nv-track::after {
   transform: translateX(24px);
@@ -298,10 +298,10 @@
   text-align: right;
   font-size: 15px;
   font-weight: 700;
-  color: #6b7280;
+  color: var(--gray-500);
 }
 .nv-switch[aria-checked='true'] .nv-switch-txt {
-  color: #059669;
+  color: var(--emerald-600);
 }
 
 .nv-ui button.nv-qr-btn {
@@ -312,15 +312,15 @@
   padding: 0 15px;
   border-radius: 10px;
   border: 1px solid var(--nv-border);
-  background: #f3f4f6;
-  color: #374151;
+  background: var(--gray-100);
+  color: var(--gray-700);
   font-size: 15px;
   font-weight: 700;
   white-space: nowrap;
 }
 .nv-ui button.nv-qr-btn.some-hidden {
   background: var(--nv-amber-soft);
-  border-color: #fde68a;
+  border-color: var(--amber-200);
   color: var(--nv-amber);
 }
 
@@ -332,7 +332,7 @@
 }
 .nv-qr-sheet .nv-sheet-head {
   padding: 20px 20px 14px;
-  border-bottom: 1px solid #e5e7eb;
+  border-bottom: 1px solid var(--gray-200);
 }
 .nv-qr-sheet .nv-sheet-head h2 {
   margin: 0 0 6px;
@@ -342,7 +342,7 @@
 .nv-qr-sheet .nv-sheet-head p {
   margin: 0;
   font-size: 15px;
-  color: #6b7280;
+  color: var(--gray-500);
   line-height: 1.4;
 }
 .nv-qr-sheet .nv-sheet-body {
@@ -358,7 +358,7 @@
   padding: 12px 4px;
 }
 .nv-qr-sheet .nv-qr-item + .nv-qr-item {
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--gray-200);
 }
 .nv-qr-sheet .nv-qr-item.dim .nv-qr-ic,
 .nv-qr-sheet .nv-qr-item.dim .nv-qr-info {
@@ -368,7 +368,7 @@
   width: 44px;
   height: 44px;
   border-radius: 10px;
-  background: #f1f5f9;
+  background: var(--slate-100);
   flex: 0 0 auto;
   display: flex;
   align-items: center;
@@ -387,7 +387,7 @@
 .nv-qr-sheet .nv-qr-sub {
   margin-top: 3px;
   font-size: 13.5px;
-  color: #6b7280;
+  color: var(--gray-500);
   font-family: ui-monospace, Menlo, monospace;
 }
 .nv-qr-sheet .nv-sheet-msg {
@@ -397,18 +397,18 @@
   font-size: 14.5px;
 }
 .nv-qr-sheet .nv-sheet-msg.warn {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--amber-100);
+  color: var(--amber-800);
 }
 .nv-qr-sheet .nv-sheet-msg.err {
-  background: #fee2e2;
-  color: #991b1b;
+  background: var(--red-100);
+  color: var(--red-800);
 }
 .nv-qr-sheet .nv-sheet-foot {
   display: flex;
   gap: 12px;
   padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--gray-200);
 }
 .nv-qr-sheet button.nv-cancel {
   flex: 1;
@@ -416,14 +416,14 @@
   font-size: 17px;
   font-weight: 700;
   background: #fff;
-  border: 1px solid #e5e7eb;
-  color: #374151;
+  border: 1px solid var(--gray-200);
+  color: var(--gray-700);
 }
 .nv-qr-sheet button.nv-save {
   flex: 2;
   height: 52px;
   font-size: 17px;
   font-weight: 700;
-  background: #0f766e;
+  background: var(--teal-700);
   color: #fff;
 }

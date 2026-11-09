@@ -23,7 +23,8 @@ import { DeliveryFormPanel } from './DeliveryFormPanel.tsx';
 import { pendingDeliveriesStore } from '../lib/pending-deliveries-badge.ts';
 import { MyDraftsBlock } from './MyDraftsBlock.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
-import { Select } from '../components/Select.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { SupplierTransfersPanel } from './SupplierTransfersPanel.tsx';
 import { ItemStatsPanel } from './SupplierReports.tsx';
@@ -282,7 +283,7 @@ export function SuppliersPage() {
               Mặt hàng
             </button>
             <button className="sup-action" onClick={() => setShowForm({})}>
-              ＋ Nhập hàng
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="them" size={18} />Nhập hàng</span>
             </button>
           </div>
         )}
@@ -305,12 +306,13 @@ export function SuppliersPage() {
           // `minWidth: 220` cứng thì ở 390px nó cộng với dòng "Tổng mua" thành 412px và cả
           // trang bị kéo ngang.
           <div style={{ flex: '1 1 220px', minWidth: 0 }}>
-            <Select
+            <Dropdown
               full
               value={filterSupplierId}
               neutralValue=""
               placeholder="Tất cả nhà cung cấp"
               ariaLabel="Lọc theo nhà cung cấp"
+              sheetTitle="Chọn nhà cung cấp"
               onChange={setFilterSupplierId}
               options={[
                 { value: '', label: 'Tất cả nhà cung cấp' },

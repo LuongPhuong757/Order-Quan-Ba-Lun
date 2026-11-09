@@ -1,6 +1,7 @@
 // Modal hướng dẫn dùng chung cho KitchenPage / OrdersPage / OrderDrawer.
 // Mở qua state ở parent, đóng qua nút ✕ hoặc click overlay.
 import type { ReactNode } from 'react';
+import { Icon } from './ui/Icon.tsx';
 
 type Props = {
   title: string;
@@ -44,7 +45,7 @@ export function HelpModal({ title, open, onClose, children }: Props) {
           }}
         >
           <h2 id="help-modal-title" style={{ margin: 0, fontSize: 17 }}>
-            ❓ {title}
+            {title}
           </h2>
           <button
             type="button"
@@ -53,7 +54,7 @@ export function HelpModal({ title, open, onClose, children }: Props) {
             style={{ padding: '6px 10px' }}
             aria-label="Đóng"
           >
-            ✕
+            <Icon name="dong" size={22} />
           </button>
         </div>
         <div
@@ -91,7 +92,7 @@ export function HelpButton({ onClick }: { onClick: () => void }) {
       title="Mở hướng dẫn sử dụng"
       aria-label="Mở hướng dẫn sử dụng"
     >
-      <span style={{ fontSize: 16 }}>❓</span>
+      <Icon name="tro-giup" size={18} />
       <span className="hide-on-mobile">Hướng dẫn</span>
     </button>
   );

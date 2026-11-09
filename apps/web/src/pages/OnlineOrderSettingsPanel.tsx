@@ -37,6 +37,8 @@ import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { PaymentQrPanel } from './PaymentQrPanel.tsx';
 import { MenuQrPanel } from './MenuQrPanel.tsx';
 import { PrintersPanel } from './PrintersPanel.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -183,6 +185,11 @@ function timeOptionLabel(hhmm: string): string {
   return `${hhmm} → ${next} hôm sau`;
 }
 
+/**
+ * Đợt 0 đồng bộ giao diện (2026-11-09): `<select>` của hệ điều hành → `Dropdown` chung. Vẫn là
+ * Ô CHỌN, không phải ô gõ (lý do ở khối "Ô chọn giờ 24h" phía trên). 48 mốc giờ nên Dropdown tự
+ * bật ô tìm — gõ "19" là ra 19:00 / 19:30, khỏi vuốt cả danh sách.
+ */
 function TimeSelect({
   value,
   onChange,
@@ -193,13 +200,12 @@ function TimeSelect({
   endOfDay?: boolean;
 }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)}>
-      {timeOptions(value, endOfDay).map((t) => (
-        <option key={t} value={t}>
-          {timeOptionLabel(t)}
-        </option>
-      ))}
-    </select>
+    <Dropdown
+      ariaLabel={endOfDay ? 'Giờ đóng' : 'Giờ mở'}
+      value={value}
+      options={timeOptions(value, endOfDay).map((t) => ({ value: t, label: timeOptionLabel(t) }))}
+      onChange={onChange}
+    />
   );
 }
 
@@ -765,7 +771,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setTogglingOrdering(true);
     try {
       await api.put('/admin/settings', { online_ordering_enabled: true });
-      toast.push('success', 'Đã bật lại nhận đơn online ✓');
+      toast.push('success', 'Đã bật lại nhận đơn online');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -782,7 +788,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         online_ordering_off_mode: offMode,
         online_ordering_off_reason: offReason,
       });
-      toast.push('success', 'Đã chuyển sang Đóng cửa ✓');
+      toast.push('success', 'Đã chuyển sang Đóng cửa');
       setShowOffPicker(false);
       await onRefresh();
     } catch (err) {
@@ -886,7 +892,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setSavingHours(true);
     try {
       await api.put('/admin/settings', { open_hours_input: { default: hoursDefault, exceptions } });
-      toast.push('success', 'Đã lưu giờ mở cửa ✓');
+      toast.push('success', 'Đã lưu giờ mở cửa');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -907,7 +913,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         closed_banner_text: closedBannerText,
         closed_submit_confirm_text: closedConfirmText,
       });
-      toast.push('success', 'Đã lưu câu chữ lúc Đóng cửa ✓');
+      toast.push('success', 'Đã lưu câu chữ lúc Đóng cửa');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -930,7 +936,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         distance_factor: distanceFactor,
         max_delivery_km: parseMaxDeliveryKm(maxDeliveryKm),
       });
-      toast.push('success', 'Đã lưu hình thức nhận hàng ✓');
+      toast.push('success', 'Đã lưu hình thức nhận hàng');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -943,7 +949,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setSavingOtp(true);
     try {
       await api.put('/admin/settings', { otp_login_enabled: otpEnabled });
-      toast.push('success', otpEnabled ? 'Đã bật xác minh OTP ✓' : 'Đã tắt xác minh OTP ✓');
+      toast.push('success', otpEnabled ? 'Đã bật xác minh OTP' : 'Đã tắt xác minh OTP');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -958,7 +964,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       await api.put('/admin/settings', { province_lock_enabled: provinceLock });
       toast.push(
         'success',
-        provinceLock ? 'Đã khoá địa chỉ khách về Bắc Ninh ✓' : 'Đã mở cho khách chọn mọi tỉnh ✓',
+        provinceLock ? 'Đã khoá địa chỉ khách về Bắc Ninh' : 'Đã mở cho khách chọn mọi tỉnh',
       );
       await onRefresh();
     } catch (err) {
@@ -975,7 +981,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         map_checkout_enabled: mapCheckout,
         map_admin_enabled: mapAdmin,
       });
-      toast.push('success', 'Đã lưu cài đặt bản đồ ✓');
+      toast.push('success', 'Đã lưu cài đặt bản đồ');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -996,7 +1002,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         ...(lat !== '' ? { store_lat: lat } : {}),
         ...(lng !== '' ? { store_lng: lng } : {}),
       });
-      toast.push('success', 'Đã lưu thông tin quán ✓');
+      toast.push('success', 'Đã lưu thông tin quán');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -1175,16 +1181,16 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               {exceptions.map((ex, i) => (
                 <div key={i} style={{ display: 'grid', gap: 6 }}>
                   <div className="st-inline">
-                    <select
-                      value={ex.dow}
-                      onChange={(e) => setExceptionDow(i, Number(e.target.value) as OpenHoursDow)}
-                    >
-                      {DOW_VALUES.filter((d) => d === ex.dow || !usedDows.has(d)).map((d) => (
-                        <option key={d} value={d}>
-                          {DOW_LABELS[d]}
-                        </option>
-                      ))}
-                    </select>
+                    {/* Dropdown chỉ nhận giá trị chuỗi → đổi số thứ qua lại ở đây. */}
+                    <Dropdown
+                      ariaLabel="Ngày áp dụng ngoại lệ"
+                      value={String(ex.dow)}
+                      options={DOW_VALUES.filter((d) => d === ex.dow || !usedDows.has(d)).map((d) => ({
+                        value: String(d),
+                        label: DOW_LABELS[d],
+                      }))}
+                      onChange={(v) => setExceptionDow(i, Number(v) as OpenHoursDow)}
+                    />
                     <button
                       type="button"
                       className="secondary"
@@ -1233,7 +1239,8 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
             <legend>
               <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center', marginBottom: 0 }}>
                 <input type="checkbox" checked={pickupEnabled} onChange={(e) => setPickupEnabled(e.target.checked)} />
-                🏠 Khách đến lấy
+                <Icon name="mang-ve" size={18} />
+                Khách đến lấy
               </label>
             </legend>
             <label style={{ fontSize: 13 }}>Bao lâu thì có hàng (phút)</label>
@@ -1266,7 +1273,8 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
                   checked={deliveryEnabled}
                   onChange={(e) => setDeliveryEnabled(e.target.checked)}
                 />
-                🛵 Giao tận nơi
+                <Icon name="giao-hang" size={18} />
+                Giao tận nơi
               </label>
             </legend>
             <label style={{ fontSize: 13 }}>Bao lâu thì tới (phút)</label>
@@ -1333,7 +1341,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
             </p>
             {parseMaxDeliveryKm(maxDeliveryKm) > 0 && (lat === '' || lng === '') && (
               <p style={{ fontSize: 12, color: C.warnText, margin: '6px 0 0' }}>
-                ⚠ Quán chưa có toạ độ ở khối “Thông tin quán” nên chưa đo được khoảng cách — bán
+                <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Quán chưa có toạ độ ở khối “Thông tin quán” nên chưa đo được khoảng cách — bán
                 kính này sẽ <strong>chưa chặn được đơn nào</strong>.
               </p>
             )}
@@ -1525,7 +1533,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
           Yêu cầu OTP khi đặt đơn và tra cứu lịch sử
         </label>
         <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
-          ⚠ Kênh gửi tin nhắn thật chưa được cài — hiện mã OTP chỉ ghi ra log server (chế độ thử
+          <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Kênh gửi tin nhắn thật chưa được cài — hiện mã OTP chỉ ghi ra log server (chế độ thử
           nghiệm). Chỉ bật khi thử nghiệm hoặc sau khi đã đăng ký Zalo ZNS / SMS brandname; bật
           khi chưa có kênh thật thì khách sẽ không nhận được mã và không đặt được đơn.
         </p>
@@ -1563,7 +1571,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         </p>
         {provinceLock && (
           <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
-            ⚠ Khách ở tỉnh khác sẽ không tự điền được địa chỉ của họ nữa. Nếu quán vẫn nhận vài đơn
+            <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Khách ở tỉnh khác sẽ không tự điền được địa chỉ của họ nữa. Nếu quán vẫn nhận vài đơn
             Hà Nội thì để tắt.
           </p>
         )}
@@ -1609,7 +1617,7 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         </p>
         {(settings.store_lat === null || settings.store_lng === null) && mapAdmin && (
           <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
-            ⚠ Chưa có toạ độ quán ở khối “Thông tin quán” bên dưới — bản đồ chưa biết lấy đâu làm
+            <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Chưa có toạ độ quán ở khối “Thông tin quán” bên dưới — bản đồ chưa biết lấy đâu làm
             tâm nên sẽ căn theo các đơn hiện có, và không vẽ được ghim quán.
           </p>
         )}
@@ -1770,7 +1778,7 @@ function StaleAlertTab({ data, onRefresh }: { data: SettingsResponse; onRefresh:
     setSaving(true);
     try {
       await api.put('/admin/settings', { stale_unpaid_alert_min: minutes });
-      toast.push('success', minutes === 0 ? 'Đã tắt cảnh báo bàn ✓' : 'Đã lưu mốc cảnh báo bàn ✓');
+      toast.push('success', minutes === 0 ? 'Đã tắt cảnh báo bàn' : 'Đã lưu mốc cảnh báo bàn');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -1794,20 +1802,17 @@ function StaleAlertTab({ data, onRefresh }: { data: SettingsResponse; onRefresh:
       saveLabel="Lưu mốc cảnh báo"
       onSave={() => void save()}
     >
-      <label style={{ display: 'grid', gap: 6, maxWidth: 320 }}>
-        <span style={{ fontSize: 16 }}>Báo khi bàn đã mở quá</span>
-        <select
-          value={minutes}
-          onChange={(e) => setMinutes(Number(e.target.value))}
-          style={{ fontSize: 17, minHeight: 48 }}
-        >
-          {choices.map((c) => (
-            <option key={c.min} value={c.min}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-      </label>
+      {/* `div` chứ không `<label>` bọc ngoài nữa: Dropdown là một nút bấm, label bọc nút thì chạm
+          vào chữ nhãn cũng bấm nút → mở/đóng 2 lần. Nhãn chữ do Dropdown tự vẽ trên ô. */}
+      <div style={{ maxWidth: 320 }}>
+        <Dropdown
+          label="Báo khi bàn đã mở quá"
+          value={String(minutes)}
+          options={choices.map((c) => ({ value: String(c.min), label: c.label }))}
+          onChange={(v) => setMinutes(Number(v))}
+          full
+        />
+      </div>
     </Section>
   );
 }
@@ -1866,7 +1871,7 @@ function TopDishesTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: 
         top_dishes_window: windowValue,
         top_dishes_hidden_ids: hiddenIds,
       });
-      toast.push('success', 'Đã lưu cài đặt Top món ✓');
+      toast.push('success', 'Đã lưu cài đặt Top món');
       await onRefresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -1913,19 +1918,14 @@ function TopDishesTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: 
             />
           </div>
           <div>
-            <label htmlFor="td-window">Đếm số suất</label>
-            <select
-              id="td-window"
+            <Dropdown
+              label="Đếm số suất"
               disabled={!enabled}
               value={windowValue}
-              onChange={(e) => setWindowValue(e.target.value)}
-            >
-              {TOP_WINDOW_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
+              options={TOP_WINDOW_OPTIONS}
+              onChange={setWindowValue}
+              full
+            />
           </div>
         </div>
 
@@ -1939,6 +1939,8 @@ function TopDishesTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: 
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Tìm món để ẩn/hiện... (gõ không dấu cũng được)"
             disabled={!enabled}
+            // 16px để iPhone không tự phóng to trang khi chạm vào ô tìm; 44px cho ngón tay.
+            style={{ fontSize: 16, minHeight: 44 }}
           />
           {menuLoading && <p style={{ fontSize: 13, color: C.muted, margin: '8px 0 0' }}>Đang tải menu...</p>}
           {!menuLoading && (
@@ -2046,7 +2048,7 @@ function BlacklistTab({ q, page, onUpdateParam }: BlacklistTabProps) {
     setSubmitting(true);
     try {
       await api.post('/admin/phone-blacklist', { phone: phoneInput.trim(), reason: reasonInput.trim() });
-      toast.push('success', `Đã thêm ${phoneInput.trim()} vào danh sách ✓`);
+      toast.push('success', `Đã thêm ${phoneInput.trim()} vào danh sách`);
       setPhoneInput('');
       setReasonInput('');
       refresh();
@@ -2067,7 +2069,7 @@ function BlacklistTab({ q, page, onUpdateParam }: BlacklistTabProps) {
     if (!ok) return;
     try {
       await api.delete(`/admin/phone-blacklist/${encodeURIComponent(row.phone)}`);
-      toast.push('success', `Đã xoá ${row.phone} khỏi danh sách ✓`);
+      toast.push('success', `Đã xoá ${row.phone} khỏi danh sách`);
       refresh();
     } catch (err) {
       toast.push('error', extractError(err).message);

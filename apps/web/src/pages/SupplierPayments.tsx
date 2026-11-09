@@ -14,6 +14,8 @@ import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { C } from '../lib/online-ui.ts';
+import { Icon } from '../components/ui/Icon.tsx';
+import { DateField } from '../components/ui/Calendar.tsx';
 import { upperUnit } from '../lib/text-case.ts';
 import { buildLedger, snapshotDrift, type LedgerRow } from '../lib/supplier-ledger.ts';
 import { Modal, PaymentDialog } from './SupplierPaymentDialog.tsx';
@@ -155,7 +157,8 @@ export function SupplierBalancePanel({
               cũ" nào để người đọc tự nhận ra. */}
           {!balance.opening_balance_date && (
             <div style={{ fontSize: 13, color: '#b45309', marginTop: 10 }}>
-              ⚠ Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
+              <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+              Chưa khai nợ cũ — con số trên chỉ là <strong>phát sinh từ khi bắt đầu dùng phần mềm</strong>,
               không phải tổng nợ thật.
             </div>
           )}
@@ -174,7 +177,7 @@ export function SupplierBalancePanel({
         {canWrite && (
           <>
             <button className="sup-action" onClick={() => setShowPay(true)} disabled={!balance}>
-              ＋ Ghi nhận thanh toán
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="them" size={18} />Ghi nhận thanh toán</span>
             </button>
             <button
               className="secondary sup-action"
@@ -311,12 +314,13 @@ function TransactionList({
             >
               <span style={{ color: C.muted, fontSize: 13, whiteSpace: 'nowrap' }}>{t.date || '—'}</span>
               <span style={{ flex: 1, minWidth: 0 }}>
-                {/* ⚠ đứng TRƯỚC nhãn: đứng sau thì nhãn dài đẩy nó rơi xuống một dòng của riêng
+                {/* Dấu cảnh báo đứng TRƯỚC nhãn: đứng sau thì nhãn dài đẩy nó rơi xuống một dòng của riêng
                     nó, trông như lỗi hiển thị. Chỉ mọc ở phiếu CÓ dấu đóng mà số đóng khác số
                     tính lại; phiếu cũ chưa có dấu đóng thì không có gì để so, im lặng đúng hơn. */}
                 {snapshotDrift(t) !== null && (
                   <span style={{ color: '#b45309' }} title="Khác với số đã ghi lúc nhập phiếu">
-                    ⚠{' '}
+                    <Icon name="canh-bao" size={16} label="Khác với số đã ghi lúc nhập phiếu"
+                          style={{ verticalAlign: '-3px', marginRight: 4 }} />
                   </span>
                 )}
                 {txnLabel(t)}
@@ -472,7 +476,8 @@ function DeliveryTxnDetail({
           {/* Nói thẳng vì sao lệch, chứ không chỉ ném ra hai con số khác nhau: người đọc không tự
               đoán được nguyên nhân, và sẽ kết luận hệ thống tính sai. */}
           <p style={{ margin: '6px 0 0', fontSize: 13, color: '#b45309' }}>
-            ⚠ Lệch {vnd(Math.abs(running - snapshot))}đ. Sổ xếp theo <strong>ngày giao hàng</strong>, còn
+            <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+            Lệch {vnd(Math.abs(running - snapshot))}đ. Sổ xếp theo <strong>ngày giao hàng</strong>, còn
             số kia đóng dấu <strong>lúc bấm lưu phiếu</strong> — nhập bù phiếu lùi ngày, sửa/huỷ phiếu,
             hoặc sửa nợ cũ đều làm hai số tách nhau. Số ghi lúc nhập giữ nguyên để đối chiếu.
           </p>
@@ -562,7 +567,8 @@ function OpeningTxnDetail({ detail, onEdit }: { detail: BalanceDetail; onEdit: (
         <Meta label="Gồm" value={detail.opening_balance_note} />
       ) : (
         <div style={{ fontSize: 13, color: '#b45309', marginTop: 4 }}>
-          ⚠ Chưa ghi rõ nợ cũ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
+          <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+          Chưa ghi rõ nợ cũ gồm những gì — lần đối chiếu sau sẽ không có gì để bám.
         </div>
       )}
       <div style={{ fontSize: 13, color: C.muted, marginTop: 6 }}>
@@ -687,16 +693,11 @@ export function OpeningBalanceDialog({
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Nợ cũ tính đến ngày</span>
-          <input
-            type="date"
-            required
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
+        {/* Ô ngày chung (lịch tiếng Việt). Không bỏ trống được: mở hộp đã có sẵn ngày (hôm nay hoặc
+            ngày đã khai), và lịch chỉ cho CHỌN chứ không cho xoá — thay cho `required` của ô cũ. */}
+        <div style={{ marginBottom: 12 }}>
+          <DateField label="Nợ cũ tính đến ngày" value={date} onChange={setDate} full />
+        </div>
         {/* Con số kia không truy ngược được từ dữ liệu — dòng này là thứ DUY NHẤT giải thích nó
             cho lần đối chiếu sau. */}
         <label style={{ display: 'block', marginBottom: 16 }}>

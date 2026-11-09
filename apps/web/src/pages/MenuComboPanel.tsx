@@ -11,6 +11,7 @@ import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 type MenuRow = { id: string; name: string; price: number; is_active: boolean; is_out_of_stock: boolean };
 type Combo = { id: string; name: string; emoji: string | null; item_ids: string[]; is_active: boolean; sort_order: number };
@@ -144,16 +145,16 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal" style={{ maxWidth: 720, width: '100%', minWidth: 0 }}>
         <div className="flex between" style={{ marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>🎯 {draft ? (draft.id ? 'Sửa combo' : 'Combo mới') : 'Combo gợi ý'}</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>{draft ? (draft.id ? 'Sửa combo' : 'Combo mới') : 'Combo gợi ý'}</h2>
           <button
             className="secondary"
             onClick={() => {
               if (draft && !window.confirm('Có thay đổi chưa lưu. Đóng và bỏ thay đổi?')) return;
               onClose();
             }}
-            style={{ padding: '6px 10px' }}
+            style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}
           >
-            ✕
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -204,8 +205,9 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
                 thấy trên lưới thực đơn, trong khi lưới đó đã có sẵn ô tìm, bộ lọc nhóm và ảnh.
                 Để lại một dòng chỉ đường, vì câu giải thích ngay trên vẫn nhắc tới nó. */}
             <p style={{ margin: '0 0 14px', fontSize: 13.5, color: C.muted, lineHeight: 1.5 }}>
-              ⭐ Chọn <strong>Món đề xuất</strong> ngay trên màn <strong>Thực đơn</strong> — mỗi thẻ
-              món có nút “⭐ Đề xuất”, bấm phát là xong.
+              <Icon name="de-xuat" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />
+              Chọn <strong>Món đề xuất</strong> ngay trên màn <strong>Thực đơn</strong> — mỗi thẻ
+              món có nút “<Icon name="de-xuat" size={14} style={{ verticalAlign: '-2px', marginRight: 2 }} />Đề xuất”, bấm phát là xong.
             </p>
 
             {/* ── Combo ──────────────────────────────────────────────────────────── */}
@@ -218,7 +220,7 @@ export function MenuComboPanel({ onClose }: { onClose: () => void }) {
               </button>
               {combos.length === 0 && (
                 <button className="secondary" disabled={busy} onClick={() => void createSamples()} style={{ padding: '10px 14px', fontSize: 15 }}>
-                  ✨ Tạo 6 combo mẫu
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="tao-mau" size={18} />Tạo 6 combo mẫu</span>
                 </button>
               )}
             </div>
@@ -334,9 +336,9 @@ function ItemPicker({
                 className="secondary"
                 onClick={() => onChange(ids.filter((x) => x !== id))}
                 aria-label={`Bỏ ${it?.name ?? 'món'}`}
-                style={{ padding: '2px 8px', borderRadius: 999, flex: 'none' }}
+                style={{ padding: '2px 8px', borderRadius: 999, flex: 'none', display: 'inline-flex', alignItems: 'center' }}
               >
-                ✕
+                <Icon name="dong" size={16} />
               </button>
             </span>
           );

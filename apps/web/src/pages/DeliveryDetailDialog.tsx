@@ -12,7 +12,8 @@ import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { dangChoDuyet, quyenPhieu } from '../lib/delivery-draft.ts';
-import { Ico, ngayDay, vnd } from './supplier-ui.tsx';
+import { ngayDay, vnd } from './supplier-ui.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import { PriceChangeDialog, type PriceChange } from './PriceChangeDialog.tsx';
 import './suppliers-ui.css';
 
@@ -128,7 +129,7 @@ export function DeliveryDetailDialog({
                   justifyContent: 'center', padding: 16, overflowY: 'auto', zIndex: 9010 }}>
       <div className="ncc-ui ncc-ui--dialog" style={{ maxWidth: 820, width: '100%', margin: 'auto' }}>
         <button className="back" type="button" onClick={onClose}>
-          <Ico d="m15 6-6 6 6 6" />Đóng
+          <Icon name="mui-ten-trai" />Đóng
         </button>
 
         {d === null ? (
@@ -167,18 +168,18 @@ export function DeliveryDetailDialog({
                 {q.duyet && (
                   <button className="btn btn--primary act-wide" type="button" disabled={busy}
                           onClick={() => act('confirm')}>
-                    <Ico d="m5 13 4 4L19 7" w={2.4} />Duyệt phiếu
+                    <Icon name="xong" />Duyệt phiếu
                   </button>
                 )}
                 {q.huy && (
                   <button className="btn btn--danger act-wide" type="button" disabled={busy}
                           onClick={() => act('cancel')}>
-                    <Ico d="M6 6l12 12M18 6 6 18" w={2.4} />Huỷ phiếu
+                    <Icon name="xoa" />Huỷ phiếu
                   </button>
                 )}
                 {q.sua && (
                   <button className="btn" type="button" onClick={onEdit}>
-                    <Ico d="M4 20h4L19 9a2.5 2.5 0 0 0-3.5-3.5L4.5 16.5 4 20Z" />Sửa phiếu
+                    <Icon name="sua" />Sửa phiếu
                   </button>
                 )}
               </section>

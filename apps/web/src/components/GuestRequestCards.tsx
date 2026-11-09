@@ -4,6 +4,10 @@ import type { GuestCard, PendingCall } from '../lib/kds-guest-cards.js';
 import { describeAge, describeGroup, groupCallsByTable } from '../lib/kds-guest-cards.js';
 import { tableSpeechName } from '../lib/voice-text.js';
 import { formatAge } from '../lib/item-age.ts';
+import { Icon } from './ui/Icon.tsx';
+
+/** Nút chỉ-icon (✕ đóng): svg là phần tử inline nên lệch đường chân chữ — căn giữa bằng flex. */
+const CENTER: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center' };
 
 /**
  * M7.D-10 — lượt khách gọi chờ duyệt, hiển thị trên màn bếp.
@@ -127,20 +131,27 @@ export function GuestRequestCards({
         <div className="kds-guest-overlay" onClick={() => setOpenTable(null)}>
           <div className="kds-guest-modal kds-call-modal" onClick={(e) => e.stopPropagation()}>
             <div className="kds-guest-modal-head">
-              <b>
-                {openGroup.has_staff ? '🔔' : ''}
-                {openGroup.has_bill ? '💵' : ''} {tableSpeechName(openGroup.table_name).toUpperCase()}
+              {/* Icon đầu thẻ là thứ DUY NHẤT phân biệt "gọi nhân viên" với "xin tính tiền" — nên
+                  luôn kèm chữ ngắn, không để icon đứng trơ. Đặt flex thẳng trên <b> chứ không bọc
+                  <span>: rule `.kds-guest-modal-head span` (cỡ 13px) sẽ ăn vào span con. */}
+              <b style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                {openGroup.has_staff ? <><Icon name="goi-nhan-vien" size={22} />Gọi NV</> : null}
+                {openGroup.has_bill ? <><Icon name="thanh-toan" size={22} />Tính tiền</> : null}
+                {' '}{tableSpeechName(openGroup.table_name).toUpperCase()}
               </b>
               <span>{openGroup.items.length} lời nhắn</span>
-              <button type="button" onClick={() => setOpenTable(null)} aria-label="Đóng">✕</button>
+              <button type="button" onClick={() => setOpenTable(null)} aria-label="Đóng" style={CENTER}>
+                <Icon name="dong" size={22} label="Đóng" />
+              </button>
             </div>
 
             <div className="kds-guest-modal-body">
               {openGroup.items.map((c) => (
                 <div key={c.id} className="kds-call-row">
                   <div className="kds-call-row-main">
-                    <span className="kds-call-kind">
-                      {c.kind === 'STAFF' ? '🔔 Gọi nhân viên' : '💵 Xin tính tiền'}
+                    <span className="kds-call-kind" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name={c.kind === 'STAFF' ? 'goi-nhan-vien' : 'thanh-toan'} size={18} />
+                      {c.kind === 'STAFF' ? 'Gọi nhân viên' : 'Xin tính tiền'}
                       {' · '}
                       {describeAge(Math.max(0, Date.now() - c.created_at))}
                     </span>
@@ -160,8 +171,11 @@ export function GuestRequestCards({
                       onAck([c.id]);
                       if (openGroup.items.length === 1) setOpenTable(null);
                     }}
+                    aria-label="Đã nghe"
+                    title="Đã nghe"
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                   >
-                    ✓
+                    <Icon name="xong" size={22} label="Đã nghe" />
                   </button>
                 </div>
               ))}
@@ -176,10 +190,12 @@ export function GuestRequestCards({
                   onAck(openGroup.items.map((i) => i.id));
                   setOpenTable(null);
                 }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               >
+                <Icon name="xong" size={22} />
                 {openGroup.items.length > 1
-                  ? `✓ Đã nghe tất cả (${openGroup.items.length})`
-                  : '✓ Đã nghe'}
+                  ? `Đã nghe tất cả (${openGroup.items.length})`
+                  : 'Đã nghe'}
               </button>
             </div>
           </div>
@@ -194,9 +210,14 @@ export function GuestRequestCards({
             <div className="kds-guest-modal-head">
               {/* M7.R1 — tên bàn to nhất màn: khách gõ nhầm số bàn không phát hiện tự động được,
                   nhân viên liếc thấy tên bàn là chốt chặn cuối cùng. */}
-              <b>👤 KHÁCH {tableSpeechName(open.table_name).toUpperCase()} GỌI</b>
+              <b style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="tai-khoan" size={22} />
+                KHÁCH {tableSpeechName(open.table_name).toUpperCase()} GỌI
+              </b>
               <span>{describeAge(open.ageMs)}</span>
-              <button type="button" onClick={() => setOpenId(null)} aria-label="Đóng">✕</button>
+              <button type="button" onClick={() => setOpenId(null)} aria-label="Đóng" style={CENTER}>
+                <Icon name="dong" size={22} label="Đóng" />
+              </button>
             </div>
 
             <div className="kds-guest-modal-body">
@@ -216,7 +237,12 @@ export function GuestRequestCards({
               <div className="kds-guest-modal-foot">
                 {/* Chữ TO, không phải nút: bếp không có việc gì để bấm ở đây. Có nút "Đóng" ở
                     góc + chạm ra ngoài là đủ đường thoát. */}
-                <p className="kds-guest-tell">📢 Báo nhân viên order ra bàn xác nhận</p>
+                <p className="kds-guest-tell">
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <Icon name="thong-bao" size={22} />
+                    Báo nhân viên order ra bàn xác nhận
+                  </span>
+                </p>
               </div>
             ) : (
             <div className="kds-guest-modal-foot">
@@ -228,8 +254,9 @@ export function GuestRequestCards({
                   onApprove(open.request_id);
                   setOpenId(null);
                 }}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
               >
-                {busyId === open.request_id ? 'Đang gửi…' : '✓ Duyệt cả lượt'}
+                {busyId === open.request_id ? 'Đang gửi…' : <><Icon name="xong" size={22} />Duyệt cả lượt</>}
               </button>
 
               {confirmReject ? (
@@ -253,8 +280,14 @@ export function GuestRequestCards({
                   </button>
                 </div>
               ) : (
-                <button type="button" className="kds-guest-reject" onClick={() => setConfirmReject(true)}>
-                  ✕ Bỏ lượt
+                <button
+                  type="button"
+                  className="kds-guest-reject"
+                  onClick={() => setConfirmReject(true)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                >
+                  <Icon name="xoa" size={18} />
+                  Bỏ lượt
                 </button>
               )}
             </div>

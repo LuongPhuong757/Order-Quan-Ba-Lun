@@ -1,0 +1,106 @@
+/* ============================================================================
+ * MÀU trang quản lý (apps/web) — Đợt 0 đồng bộ giao diện, 2026-11-09
+ * ============================================================================
+ * Trước đây styles.css + 3 file CSS màn (suppliers-ui, so-tien, nhan-su) viết thẳng mã màu,
+ * không có :root nào. Các mã đó HOÁ RA đều nằm trong bảng màu Tailwind (gray, teal, red…), nên
+ * Đợt 0 chỉ ĐẶT TÊN cho chúng theo đúng tên Tailwind và thay mã → var(). GIÁ TRỊ GIỮ NGUYÊN,
+ * màn hình không đổi pixel (đã so tự động: thay ngược tên → mã ra đúng file cũ từng ký tự).
+ *
+ * Chỉ khai các bậc ĐANG DÙNG. 50 mã lẻ ngoài bảng (#eef0f2, #dfe3e6…) còn để nguyên trong CSS —
+ * Đợt 1 sẽ gộp vào bậc gần nhất, kèm bản xem thử vì đó là thay đổi nhìn thấy được.
+ *
+ * HAI TẦNG:
+ *   1. Bảng màu (--gray-500…) — tên theo GIÁ TRỊ. CSS cũ trỏ vào tầng này.
+ *   2. Tên theo VAI TRÒ (--brand…) — code MỚI dùng tầng này, để đổi màu thương hiệu ở 1 chỗ.
+ *      Đợt 1 (bộ component chung) sẽ bổ sung đủ vai trò chữ/viền/nền/trạng thái.
+ *
+ * ⚠ Không đặt tên trùng các token cục bộ đang có: --accent, --border, --surface, --muted, --fg,
+ * --danger, --debt, --paid, --pending (.ncc-ui / .sx / .nv-ui). Thêm tên mới → grep trước.
+ * Nền móng không phải màu (cỡ chữ, khoảng cách…) ở packages/ui-tokens/foundation.css.
+ * ========================================================================= */
+
+:root {
+  /* ── Bảng màu ── */
+    --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-400: #9ca3af;
+  --gray-500: #6b7280;
+  --gray-600: #4b5563;
+  --gray-700: #374151;
+  --gray-800: #1f2937;
+  --gray-900: #111827;
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-900: #0f172a;
+  --teal-50: #f0fdfa;
+  --teal-100: #ccfbf1;
+  --teal-200: #99f6e4;
+  --teal-600: #0d9488;
+  --teal-700: #0f766e;
+  --teal-800: #115e59;
+  --teal-900: #134e4a;
+  --red-50: #fef2f2;
+  --red-100: #fee2e2;
+  --red-200: #fecaca;
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-800: #991b1b;
+  --red-900: #7f1d1d;
+  --orange-50: #fff7ed;
+  --orange-100: #ffedd5;
+  --orange-200: #fed7aa;
+  --orange-300: #fdba74;
+  --orange-600: #ea580c;
+  --orange-700: #c2410c;
+  --orange-800: #9a3412;
+  --orange-900: #7c2d12;
+  --amber-50: #fffbeb;
+  --amber-100: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-400: #fbbf24;
+  --amber-500: #f59e0b;
+  --amber-600: #d97706;
+  --amber-700: #b45309;
+  --amber-800: #92400e;
+  --yellow-700: #a16207;
+  --yellow-900: #713f12;
+  --green-50: #f0fdf4;
+  --green-100: #dcfce7;
+  --green-200: #bbf7d0;
+  --green-700: #15803d;
+  --green-800: #166534;
+  --green-900: #14532d;
+  --emerald-100: #d1fae5;
+  --emerald-500: #10b981;
+  --emerald-600: #059669;
+  --emerald-800: #065f46;
+  --violet-50: #f5f3ff;
+  --violet-100: #ede9fe;
+  --violet-200: #ddd6fe;
+  --violet-300: #c4b5fd;
+  --violet-400: #a78bfa;
+  --violet-600: #7c3aed;
+  --violet-700: #6d28d9;
+  --violet-800: #5b21b6;
+  --blue-50: #eff6ff;
+  --blue-200: #bfdbfe;
+  --blue-800: #1e40af;
+  --cyan-700: #0e7490;
+  --cyan-800: #155e75;
+  --cyan-900: #164e63;
+
+  /* ── Vai trò ── xanh ngọc là màu chính trang quản lý (chủ quán chốt; trang khách là đỏ ớt). */
+  --brand: var(--teal-700);
+  --brand-strong: var(--teal-800);
+  --brand-soft: var(--teal-50);
+}

@@ -18,6 +18,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { ReorderGroupsModal, type GroupRow as BaseGroupRow } from './OnlineMenuPanel.tsx';
 
 type MenuRow = {
@@ -175,7 +177,7 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
         ),
       );
       setDraft(null);
-      toast.push('success', 'Đã lưu thứ tự món ✓');
+      toast.push('success', 'Đã lưu thứ tự món');
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
@@ -252,16 +254,16 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
     <div className="modal-overlay" role="dialog" aria-modal="true">
       <div className="modal" style={{ maxWidth: 720, width: '100%' }}>
         <div className="flex between" style={{ marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 18 }}>📖 Menu xem</h2>
+          <h2 style={{ margin: 0, fontSize: 18 }}>Menu xem</h2>
           <button
             className="secondary"
             onClick={() => {
               if (dirty && !window.confirm('Thứ tự vừa sắp chưa lưu. Đóng và bỏ thay đổi?')) return;
               onClose();
             }}
-            style={{ padding: '6px 10px' }}
+            style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}
           >
-            ✕
+            <Icon name="dong" size={22} label="Đóng" />
           </button>
         </div>
 
@@ -290,7 +292,9 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                     }}
                     title={g.is_menu_hidden ? 'Cả nhóm đang bị ẩn khỏi menu xem' : undefined}
                   >
-                    {g.is_menu_hidden ? '🚫 ' : ''}
+                    {g.is_menu_hidden && (
+                      <Icon name="an" size={14} label="Đang ẩn" style={{ verticalAlign: '-2px', marginRight: 4 }} />
+                    )}
                     {g.icon ? `${g.icon} ` : ''}
                     {g.name}
                   </button>
@@ -312,7 +316,9 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                 style={{ padding: '6px 10px', fontSize: 13 }}
                 title="Nhóm trên cùng là trang đầu tiên của quyển menu"
               >
-                ↕ Thứ tự nhóm
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="sap-xep" size={16} />Thứ tự nhóm
+                </span>
               </button>
             </div>
 
@@ -328,22 +334,12 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                 alignItems: 'center',
               }}
             >
-              <label style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
-                Xem trước theo:
-                <select
-                  value={pageSizeKey}
-                  onChange={(e) =>
-                    setPageSizeKey(e.target.value as (typeof PAGE_SIZES)[number]['key'])
-                  }
-                  style={{ padding: '4px 8px', borderRadius: 6, border: `1px solid ${C.border}` }}
-                >
-                  {PAGE_SIZES.map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {p.label} — {p.perPage} món/trang
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <Dropdown
+                label="Xem trước theo"
+                value={pageSizeKey}
+                onChange={setPageSizeKey}
+                options={PAGE_SIZES.map((p) => ({ value: p.key, label: `${p.label} — ${p.perPage} món/trang` }))}
+              />
 
               <span style={{ fontSize: 13, color: C.muted }}>
                 {visibleCount} món hiện · {totalPages} trang
@@ -445,7 +441,7 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                       }}
                     >
                       <span aria-hidden="true" style={{ color: C.muted, flexShrink: 0 }}>
-                        ⠿
+                        <Icon name="keo-tha" size={20} />
                       </span>
 
                       {row.image_url ? (
@@ -471,7 +467,7 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                           }}
                           title="Món chưa có ảnh — quyển menu sẽ vẽ khung hoạ tiết thay ảnh"
                         >
-                          🍽
+                          <Icon name="order" size={18} label="Chưa có ảnh" />
                         </span>
                       )}
 
@@ -506,7 +502,10 @@ export function MenuBookPanel({ onClose }: { onClose: () => void }) {
                             : 'Đang hiện trong quyển menu — bấm để ẩn'
                         }
                       >
-                        {row.is_menu_hidden ? '🚫 Ẩn' : '👁 Hiện'}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                          <Icon name={row.is_menu_hidden ? 'an' : 'hien'} size={14} />
+                          {row.is_menu_hidden ? 'Ẩn' : 'Hiện'}
+                        </span>
                       </button>
 
                       <span style={{ display: 'flex', gap: 2, flexShrink: 0 }}>

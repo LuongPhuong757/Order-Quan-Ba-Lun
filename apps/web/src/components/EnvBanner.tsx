@@ -1,4 +1,5 @@
 import { useEffect, type JSX } from 'react';
+import { Icon } from './ui/Icon.tsx';
 
 /**
  * Dải đỏ báo "đây KHÔNG phải trang thật" (2026-09-07).
@@ -58,7 +59,9 @@ export function EnvBanner(): JSX.Element | null {
 
   return (
     <div className="env-banner" role="note" aria-label="Môi trường thử nghiệm">
-      ⚠ MÔI TRƯỜNG DEV — dữ liệu thử, không phải dữ liệu quán
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+        <Icon name="canh-bao" size={16} />MÔI TRƯỜNG DEV — dữ liệu thử, không phải dữ liệu quán
+      </span>
     </div>
   );
 }

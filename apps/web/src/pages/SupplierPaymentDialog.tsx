@@ -13,6 +13,9 @@ import { api, extractError } from '../lib/api.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useToast } from '../components/Toast.tsx';
 import { C } from '../lib/online-ui.ts';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { DateField } from '../components/ui/Calendar.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 /** Hôm nay theo GIỜ VN, không theo máy — xem ghi chú ô ngày bên dưới. */
@@ -178,22 +181,17 @@ export function PaymentDialog({
         {supplierId && <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>}
 
         {!supplierId && (
-          <label style={{ display: 'block', margin: '12px 0' }}>
-            <span style={{ fontSize: 14, color: C.mutedOnTint }}>Nhà cung cấp *</span>
-            <select
-              required
+          // Bỏ trống thì `save` tự chặn ("Chọn nhà cung cấp trước đã") — thay cho `required`.
+          <div style={{ margin: '12px 0' }}>
+            <Dropdown
+              full
+              label="Nhà cung cấp *"
+              placeholder="Chọn nhà cung cấp"
               value={nccId}
-              onChange={(e) => setNccId(e.target.value)}
-              style={{ width: '100%', minHeight: 48, fontSize: 16 }}
-            >
-              <option value="">— Chọn nhà cung cấp —</option>
-              {(suppliers ?? []).map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={setNccId}
+              options={(suppliers ?? []).map((s) => ({ value: s.id, label: s.name }))}
+            />
+          </div>
         )}
 
         <label style={{ display: 'block', marginBottom: 12 }}>
@@ -206,20 +204,13 @@ export function PaymentDialog({
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>
-        <label style={{ display: 'block', marginBottom: 12 }}>
-          {/* Ngày TRẢ TIỀN, sửa được: đưa tiền hôm qua mà tối nay mới ngồi ghi là chuyện thường. */}
-          <span style={{ fontSize: 14, color: C.mutedOnTint }}>Ngày trả</span>
-          <input
-            type="date"
-            value={paidOn}
-            onChange={(e) => setPaidOn(e.target.value)}
-            // Khoá mọi ngày sau hôm nay. `todayVn()` lấy theo GIỜ VN chứ không theo máy: quán bán
-            // tới 3h sáng, máy lệch múi giờ thì người ghi lúc 1h sáng không chọn được chính ngày
-            // hôm đó. KHÔNG đặt `min` — ghi bù lần trả hôm qua là chuyện thường.
-            max={todayVn()}
-            style={{ width: '100%', minHeight: 44 }}
-          />
-        </label>
+        {/* Ngày TRẢ TIỀN, sửa được: đưa tiền hôm qua mà tối nay mới ngồi ghi là chuyện thường.
+            Khoá mọi ngày sau hôm nay. `todayVn()` lấy theo GIỜ VN chứ không theo máy: quán bán
+            tới 3h sáng, máy lệch múi giờ thì người ghi lúc 1h sáng không chọn được chính ngày
+            hôm đó. KHÔNG đặt `min` — ghi bù lần trả hôm qua là chuyện thường. */}
+        <div style={{ marginBottom: 12 }}>
+          <DateField label="Ngày trả" value={paidOn} onChange={setPaidOn} max={todayVn()} full />
+        </div>
         <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
           {/* CK đứng TRƯỚC vì là mặc định (2026-10-15). */}
           {([
@@ -271,7 +262,7 @@ export function PaymentDialog({
                         cursor: 'pointer',
                       }}
                     >
-                      {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn "✓" hiểu ngay là đang chọn. */}
+                      {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn dấu tích hiểu ngay là đang chọn. */}
                       <span
                         style={{
                           width: 22,
@@ -280,13 +271,13 @@ export function PaymentDialog({
                           border: `2px solid ${chon ? C.accent : '#9ca3af'}`,
                           background: chon ? C.accent : '#fff',
                           color: '#fff',
-                          fontSize: 14,
-                          lineHeight: '18px',
-                          textAlign: 'center',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
                           flexShrink: 0,
                         }}
                       >
-                        {chon ? '✓' : ''}
+                        {chon && <Icon name="chon" size={14} />}
                       </span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 16, fontWeight: 700 }}>

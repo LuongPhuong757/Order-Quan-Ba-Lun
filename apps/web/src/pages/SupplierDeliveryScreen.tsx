@@ -24,7 +24,8 @@ import { Pager } from '../components/Pager.tsx';
 import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import { DeliveryDetailDialog } from './DeliveryDetailDialog.tsx';
 import type { DayRange } from '../lib/date-range.ts';
-import { FilterBar, Ico, Plus, ngayDay, vnd } from './supplier-ui.tsx';
+import { FilterBar, Plus, ngayDay, vnd } from './supplier-ui.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 import './suppliers-ui.css';
 
 type Delivery = {
@@ -301,7 +302,7 @@ export function SupplierDeliveryScreen({
                                       aria-expanded={moMenu === d.id}
                                       aria-label={`Thao tác với phiếu ${ngayDay(d.delivery_date)} của ${d.supplier_name}`}
                                       onClick={(e) => { e.stopPropagation(); setMoMenu(moMenu === d.id ? null : d.id); }}>
-                                <Ico d="M12 5h.01M12 12h.01M12 19h.01" w={3} />
+                                <Icon name="them-thao-tac" size={22} />
                               </button>
                               {moMenu === d.id && (
                                 <div className="rowpop" role="menu">

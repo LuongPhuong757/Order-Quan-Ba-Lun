@@ -10,6 +10,7 @@
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
+import { Icon } from './ui/Icon.tsx';
 import '../pages/nhan-su.css';
 
 type QrItem = { id: string; label: string; kind: string; bank_name: string | null; account_no: string | null };
@@ -62,7 +63,7 @@ export function QrVisibilityDialog({
     setSaving(true);
     try {
       await api.patch(`/admin/users/${userId}`, { hidden_payment_qr_ids: next });
-      toast.push('success', `Đã lưu mã QR cho ${userName} ✓`);
+      toast.push('success', `Đã lưu mã QR cho ${userName}`);
       onSaved(next);
     } catch (e) {
       toast.push('error', extractError(e).message);
@@ -94,7 +95,8 @@ export function QrVisibilityDialog({
             return (
               <div key={q.id} className={`nv-qr-item${shown ? '' : ' dim'}`}>
                 <div className="nv-qr-ic" aria-hidden>
-                  {q.kind === 'BANK' ? '🏦' : '📱'}
+                  {/* Ngân hàng vs ảnh QR: dòng phụ bên cạnh đã ghi rõ (tên NH · số TK / "Ảnh QR") nên icon chỉ để liếc. */}
+                  <Icon name={q.kind === 'BANK' ? 'chuyen-khoan' : 'qr'} size={22} />
                 </div>
                 <div className="nv-qr-info">
                   <div className="nv-qr-name">{q.label}</div>

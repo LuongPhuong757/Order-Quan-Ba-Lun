@@ -1,7 +1,7 @@
 // Màn "Truy cập & khách hàng" (2026-08-05, Task.md: "Màn quản lý traffic vào trang web, user,
 // số điện thoại các thứ").
 //
-// ĐƯỜNG VÀO CHÍNH là tab "📈 Thống kê" của màn Đơn hàng online (`?view=stats`) — vì "Online" là
+// ĐƯỜNG VÀO CHÍNH là tab "Thống kê" của màn Đơn hàng online (`?view=stats`) — vì "Online" là
 // mục CÓ trong nav dưới, còn `/dashboard` thì KHÔNG: nav admin có 7 mục và không mục nào trỏ về
 // dashboard, link duy nhất tới nó nằm trong trang 404. Bản đầu của màn này chỉ có thẻ ở Dashboard
 // làm đường vào, nghĩa là không bấm tới được — chỉ gõ tay URL mới vào. Đừng bỏ tab đó đi.
@@ -21,7 +21,9 @@
 import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
-import { TimeRangeChips, type TimeRangeOption } from '../components/TimeRangeFilter.tsx';
+import { TimePresetChips } from '../components/ui/TimeFilter.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { countDays, presetToRange, type TimePreset } from '../lib/time-presets.ts';
 
 type TrafficData = {
   range: { days: number; from_day: string; to_day: string };
@@ -116,18 +118,26 @@ const INK = '#374151';
 const INK_MUTED = '#6b7280';
 const GRID = '#e5e7eb';
 
-const RANGES: ReadonlyArray<TimeRangeOption<number>> = [
-  { value: 1, label: 'Hôm nay' },
-  { value: 7, label: '7 ngày' },
-  { value: 30, label: '30 ngày' },
-  { value: 90, label: '90 ngày' },
-];
+/**
+ * Bộ nút chung (Đợt 0 đồng bộ giao diện, 2026-11-09): thay "Hôm nay / 7 / 30 / 90 ngày" riêng
+ * của màn này. API chỉ nhận `?days=N` (N ngày tính lùi, gồm hôm nay) nên chỉ giữ các nút có
+ * ĐẦU CUỐI là hôm nay — "Hôm qua"/"Tháng trước" kết thúc trước hôm nay, quy ra `days` sẽ sai.
+ * Bỏ "90 ngày" theo bộ chung đã chốt.
+ */
+const RANGE_PRESETS: readonly TimePreset[] = ['today', '7d', '30d', 'month'];
 
+/** Nút → số ngày gửi API. Tính LÚC tải (không chốt lúc bấm) để "Tháng này" qua nửa đêm vẫn đúng. */
+function presetDays(p: TimePreset): number {
+  const r = presetToRange(p, Date.now());
+  return countDays(r.from, r.to);
+}
+
+// Bỏ emoji 📱 📟 💻 🤖 (Đợt 0): chữ đã đủ nghĩa, bộ Icon chung chưa có hình máy tính / bot.
 const DEVICE_LABEL: Record<string, string> = {
-  mobile: '📱 Điện thoại',
-  tablet: '📟 Tablet',
-  desktop: '💻 Máy tính',
-  bot: '🤖 Bot / máy quét',
+  mobile: 'Điện thoại',
+  tablet: 'Tablet',
+  desktop: 'Máy tính',
+  bot: 'Bot / máy quét',
 };
 
 /**
@@ -182,19 +192,21 @@ export function AdminAnalyticsPage() {
 
 export function AdminAnalyticsPanel() {
   const toast = useToast();
-  const [days, setDays] = useState(7);
+  // Mặc định 30 ngày (Đợt 0 chốt cho mọi màn không ca; trước là 7 ngày).
+  const [preset, setPreset] = useState<TimePreset>('30d');
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [customers, setCustomers] = useState<CustomerData | null>(null);
   const [carts, setCarts] = useState<CartData | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(
-    async (d: number) => {
+    async (p: TimePreset) => {
+      const d = presetDays(p);
       setLoading(true);
       try {
         // 3 endpoint độc lập → gọi song song, đừng để người dùng chờ cộng dồn.
         // `carts` KHÔNG nhận `days` (ảnh chụp hiện tại) nhưng vẫn tải lại cùng nhịp: người
-        // bấm "↻" muốn mọi con số trên màn tươi lại, không phải hai phần lệch tuổi nhau.
+        // bấm "Tải lại" muốn mọi con số trên màn tươi lại, không phải hai phần lệch tuổi nhau.
         const [t, c, k] = await Promise.all([
           api.get<{ data: TrafficData }>(`/admin/analytics/traffic?days=${d}`),
           api.get<{ data: CustomerData }>(`/admin/analytics/customers?days=${d}`),
@@ -213,8 +225,8 @@ export function AdminAnalyticsPanel() {
   );
 
   useEffect(() => {
-    load(days);
-  }, [days, load]);
+    load(preset);
+  }, [preset, load]);
 
   return (
     <>
@@ -223,25 +235,35 @@ export function AdminAnalyticsPanel() {
       {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06).
           Dùng `TimeRangeChips` chung với Đơn online: trước đây chỗ này là nút primary/secondary
           VUÔNG cao 44px, cùng một câu hỏi "xem khoảng nào" mà nhìn khác hẳn màn kia. */}
-      <TimeRangeChips
-        ariaLabel="Chọn khoảng thời gian xem thống kê"
-        value={days}
-        options={RANGES}
-        onChange={setDays}
-        style={{ marginBottom: 12 }}
-        trailing={
-          <button
-            type="button"
-            className="time-chip"
-            onClick={() => load(days)}
-            title="Tải lại số liệu"
-            aria-label="Tải lại số liệu"
-            style={{ flex: 'none' }}
-          >
-            ↻
-          </button>
-        }
-      />
+      {/* Đợt 0: bộ nút chung `TimePresetChips`. Nút tải lại trước nằm cuối dãy chip (`trailing`);
+          component chung không có khe đó nên đặt cạnh, căn đáy cho thẳng hàng với dãy nút. */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <TimePresetChips
+            ariaLabel="Chọn khoảng thời gian xem thống kê"
+            value={preset}
+            presets={RANGE_PRESETS}
+            onChange={setPreset}
+          />
+        </div>
+        <button
+          type="button"
+          className="secondary"
+          onClick={() => load(preset)}
+          aria-label="Tải lại số liệu"
+          style={{
+            flex: 'none',
+            minHeight: 44,
+            minWidth: 44,
+            padding: 0,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <Icon name="lam-moi" size={22} label="Tải lại số liệu" />
+        </button>
+      </div>
 
       {traffic && (
         <p style={{ color: INK_MUTED, fontSize: 13, margin: '0 0 12px' }}>
@@ -250,11 +272,34 @@ export function AdminAnalyticsPanel() {
             : `Từ ${traffic.range.from_day} đến ${traffic.range.to_day}`}
           {' · '}
           <strong style={{ color: traffic.active_now > 0 ? '#059669' : INK_MUTED }}>
-            {traffic.active_now > 0
-              ? `🟢 ${traffic.active_now} khách đang xem web`
-              : 'Chưa có ai đang xem web'}
+            {traffic.active_now > 0 ? (
+              <>
+                {/* Chấm xanh thay 🟢: chấm tròn CSS ăn đúng màu chữ, không phụ thuộc bộ emoji máy. */}
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: 'inline-block',
+                    width: 8,
+                    height: 8,
+                    borderRadius: 999,
+                    background: 'currentColor',
+                    marginRight: 6,
+                    verticalAlign: 'middle',
+                  }}
+                />
+                {traffic.active_now} khách đang xem web
+              </>
+            ) : (
+              'Chưa có ai đang xem web'
+            )}
           </strong>
-          {!traffic.collecting && ' · ⚠ Đang TẮT thu thập (ANALYTICS_ENABLED=false)'}
+          {!traffic.collecting && (
+            <>
+              {' · '}
+              <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px' }} /> Đang TẮT thu thập
+              (ANALYTICS_ENABLED=false)
+            </>
+          )}
         </p>
       )}
 
@@ -404,7 +449,7 @@ export function AdminAnalyticsPanel() {
                                 )}
                                 {!f.secure && (
                                   <div style={{ color: '#dc2626', fontSize: 11, marginTop: 2 }}>
-                                    ⚠ Trang mở KHÔNG qua HTTPS — trình duyệt chặn định vị
+                                    <Icon name="canh-bao" size={14} style={{ verticalAlign: '-2px' }} /> Trang mở KHÔNG qua HTTPS — trình duyệt chặn định vị
                                   </div>
                                 )}
                               </td>

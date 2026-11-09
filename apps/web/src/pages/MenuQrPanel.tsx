@@ -13,6 +13,7 @@ import { C } from '../lib/online-ui.ts';
 import { menuUrlFromHost } from '../lib/menu-qr-url.ts';
 import { useToast } from '../components/Toast.tsx';
 import { api, extractError } from '../lib/api.ts';
+import { Icon } from '../components/ui/Icon.tsx';
 
 /** 720px: tấm QR in ra giấy A5 vẫn nét. Màn hình chỉ cần ~320 nhưng ảnh tải về và bản in
  *  dùng chung một data URL, nên lấy theo nhu cầu LỚN hơn. */
@@ -115,7 +116,7 @@ export function MenuQrPanel() {
   const copy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(url.trim());
-      toast.push('success', 'Đã chép địa chỉ ✓');
+      toast.push('success', 'Đã chép địa chỉ');
     } catch {
       // Safari chặn clipboard khi trang không ở ngữ cảnh an toàn. Không có gì để sửa ở đây,
       // chỉ cần nói ra để người dùng tự bôi đen ô địa chỉ.
@@ -258,14 +259,14 @@ export function MenuQrPanel() {
               {url.trim()}
             </p>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
-              <button type="button" onClick={print} style={{ fontSize: 17, padding: '12px 22px' }}>
-                🖨 In mã QR
+              <button type="button" onClick={print} style={{ fontSize: 17, padding: '12px 22px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="in" size={20} />In mã QR
               </button>
-              <button type="button" onClick={download} style={{ fontSize: 17, padding: '12px 22px' }}>
-                ⬇ Tải ảnh
+              <button type="button" onClick={download} style={{ fontSize: 17, padding: '12px 22px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="tai-xuong" size={20} />Tải ảnh
               </button>
-              <button type="button" onClick={copy} style={{ fontSize: 17, padding: '12px 22px' }}>
-                📋 Chép địa chỉ
+              <button type="button" onClick={copy} style={{ fontSize: 17, padding: '12px 22px', display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                <Icon name="chep" size={20} />Chép địa chỉ
               </button>
             </div>
             <p style={{ margin: '14px 0 0', color: C.muted, fontSize: 14 }}>

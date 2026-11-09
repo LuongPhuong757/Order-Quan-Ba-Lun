@@ -15,6 +15,8 @@ import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { parseQty, formatQtyPreview } from '../lib/dinh-luong.ts';
 
 /** Một dòng gợi ý = một cặp nguyên liệu × NCC (`GET /recipes/options`). `supplier_id: null` =
@@ -198,10 +200,12 @@ export function RecipePanel({
       <div className="modal vp-cap-92 rp" style={{ maxWidth: 880, width: '100%', display: 'flex', flexDirection: 'column' }}>
         <div className="flex between" style={{ marginBottom: 4, alignItems: 'flex-start', gap: 8 }}>
           <div style={{ minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 19 }}>📋 Công thức</h1>
+            <h1 style={{ margin: 0, fontSize: 19 }}>Công thức</h1>
             <div style={{ fontSize: 14, color: '#0f766e', fontWeight: 600 }}>{menuItemName}</div>
           </div>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px' }}>✕</button>
+          <button className="secondary" onClick={onClose} style={{ padding: '6px 12px', display: 'inline-flex', alignItems: 'center' }}>
+            <Icon name="dong" size={22} label="Đóng" />
+          </button>
         </div>
         <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 12 }}>
           Định lượng cho <strong>một phần</strong>. Tiêu hao được chốt khi bếp bắt đầu nấu.
@@ -563,12 +567,17 @@ function AddLineForm({
           <div className="rp-new-g">
             <label>
               <span>Nhà cung cấp</span>
-              <select value={supplierId} onChange={(e) => setSupplierId(e.target.value)}>
-                <option value="">— chọn —</option>
-                {suppliers.map((sp) => (
-                  <option key={sp.id} value={sp.id}>{sp.name}</option>
-                ))}
-              </select>
+              {/* Ô cao 46px như ô nhập cạnh nó (màn này cố ý to cho người lớn tuổi) — Dropdown chuẩn
+                  cao 44, nên nâng biến --ctl-h ngay tại chỗ thay vì sửa component dùng chung. */}
+              <div style={{ '--ctl-h': '46px' } as React.CSSProperties}>
+                <Dropdown
+                  ariaLabel="Nhà cung cấp"
+                  value={supplierId}
+                  onChange={setSupplierId}
+                  options={[{ value: '', label: '— chọn —' }, ...suppliers.map((sp) => ({ value: sp.id, label: sp.name }))]}
+                  full
+                />
+              </div>
             </label>
             <label>
               <span>Đơn vị mua</span>
@@ -602,11 +611,17 @@ function AddLineForm({
           placeholder="150 hoặc 1/24"
           aria-label="Định lượng"
         />
-        <select value={unit} onChange={(e) => setUnit(e.target.value)} aria-label="Đơn vị">
-          {unitChoices(unit).map((u) => (
-            <option key={u} value={u}>{u}</option>
-          ))}
-        </select>
+        {/* Giữ cao 48px bằng ô định lượng + nút Thêm cùng hàng (cỡ to là cố ý, xem đầu file). */}
+        <div style={{ '--ctl-h': '48px', minWidth: 0 } as React.CSSProperties}>
+          <Dropdown
+            ariaLabel="Đơn vị"
+            sheetTitle="Đơn vị"
+            value={unit}
+            onChange={setUnit}
+            options={unitChoices(unit).map((u) => ({ value: u, label: u }))}
+            full
+          />
+        </div>
         <button type="submit" disabled={busy || !name.trim() || parseQty(qty) === null || !newOk || needPickNcc}>
           {busy ? 'Đang thêm…' : 'Thêm'}
         </button>
