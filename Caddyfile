@@ -26,6 +26,23 @@
 # 2026-08-05 — apex thuộc về TRANG KHÁCH (trước đây là trang quản lý). Địa chỉ ngắn nhất
 # dành cho người gõ tay và quét QR; nhân viên bookmark admin.<domain> một lần là xong.
 
+# ─── Số liệu cho Grafana (2026-10-27) ───────────────────────────────────────
+# Caddy mặc định KHÔNG đếm request. Bật `metrics` để có số request/ngày + thời gian trả lời,
+# `per_host` để tách được trang khách / admin / menu / dev — không có nó thì mọi host gộp một.
+# Khối tuỳ chọn toàn cục này BẮT BUỘC đứng trước mọi site block, kể cả các file import.
+{
+    metrics {
+        per_host
+    }
+}
+
+# Cổng 9180 chỉ phục vụ /metrics cho container ordbl_alloy (docker-compose.prod.yml).
+# KHÔNG publish ra ngoài ở `ports:` — chỉ đi được trong network docker.
+# Cố ý không mở admin API (:2019) cho Alloy: cổng đó SỬA được cấu hình Caddy, còn đây chỉ đọc.
+http://:9180 {
+    metrics /metrics
+}
+
 # ─── Trang khách: apex + www ────────────────────────────────────────────────
 {$DOMAIN}, www.{$DOMAIN} {
     log {
