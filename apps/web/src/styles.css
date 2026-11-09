@@ -219,16 +219,31 @@ h2 {
   position: relative;
 }
 
-.password-row .toggle {
+/* Nút mắt 44×44 (sàn vùng bấm — trước 36px, góp ý 2026-11-09), căn giữa theo chiều cao Ô NHẬP
+   nhờ khung `.password-box`. Ô chừa lề phải để chữ không chui dưới nút. */
+.password-box {
+  position: relative;
+}
+.password-box > input {
+  padding-right: 52px;
+}
+.password-row button.toggle {
   position: absolute;
-  right: 4px;
-  top: 28px;
+  right: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  min-width: 44px;
+  display: grid;
+  place-items: center;
   background: transparent;
   color: var(--gray-500);
-  font-size: 14px;
-  min-height: 36px;
-  min-width: 36px;
   padding: 0;
+}
+.password-row button.toggle[aria-pressed='true'] {
+  color: var(--brand);
 }
 
 /* Banner thông báo: 1 dòng ngang, dán ngay dưới header (header sticky top:0,
@@ -3631,3 +3646,83 @@ button.ohp-save { min-height: 40px; padding: 0 16px; }
 /* 16px/44px (Đợt 0): dưới 16 iPhone tự phóng khi chạm vào ô; 56px vẫn đủ cho 2 chữ số giờ. */
 .ohp--cell .ohp-input input { width: 56px; min-height: 44px; font-size: 16px; }
 .ohp--cell button.ohp-save { min-height: 36px; padding: 0 10px; font-size: 14px; }
+
+/* ── Màn đăng nhập (làm lại 2026-11-09, docs/UI-UX/dang-nhap.md) ──────────────────────────────
+   Thẻ căn GIỮA màn theo chiều dọc (trước dính mép trên 16–24px, 2/3 màn dưới bỏ trống). `dvh`
+   chứ không `vh`: iPhone tính vh theo khung nhìn lớn nên thẻ bị đẩy lệch xuống dưới thanh địa chỉ.
+   Lề 2 bên 16px trên điện thoại. */
+.login-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-6) max(16px, env(safe-area-inset-right, 0px)) var(--sp-6) max(16px, env(safe-area-inset-left, 0px));
+  background: var(--gray-50);
+}
+.login-card {
+  width: 100%;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid var(--gray-200);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.06);
+  padding: var(--sp-8) var(--sp-6) var(--sp-6);
+}
+.login-card__head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  text-align: center;
+  margin-bottom: var(--sp-6);
+}
+.login-card__head h1 {
+  margin: 0;
+  font-size: var(--fs-xl);
+  line-height: var(--lh-tight);
+}
+.login-card__head p {
+  margin: 0;
+  font-size: 15px;
+  color: var(--gray-600);
+}
+.login-card .row > input,
+.login-card .password-box > input {
+  min-height: 48px;
+}
+.login-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  border: 1px solid var(--red-200);
+  border-radius: var(--radius-sm);
+  background: var(--red-50);
+  color: var(--red-700);
+  font-size: 15px;
+  line-height: var(--lh-snug);
+}
+.login-alert svg { flex: none; margin-top: 1px; }
+button.login-submit {
+  width: 100%;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  font-size: 17px;
+  font-weight: var(--fw-bold);
+}
+button.login-submit:disabled { opacity: 0.8; }
+/* Ô Chrome/Safari đã tự điền: bỏ nền xanh nhạt mặc định (#e8f0fe) lệch tông xanh ngọc của trang.
+   Bóng đổ trong (inset) là cách duy nhất phủ được nền autofill — `background` bị trình duyệt đè. */
+.login-card input:-webkit-autofill,
+.login-card input:-webkit-autofill:hover,
+.login-card input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 40px #fff inset;
+  -webkit-text-fill-color: var(--gray-800);
+}
+/* Chữ báo lỗi ở màn đăng nhập ≥ 15px (sàn chữ phụ) — `.field-error` chung đang 14px. */
+.login-card .field-error { font-size: 15px; }

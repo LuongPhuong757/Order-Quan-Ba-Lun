@@ -1,33 +1,61 @@
-import { useState, FormEvent } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useRef, useState, FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
 import { useAuth, defaultLandingPath, type Role } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { PasswordInput } from '../components/PasswordInput.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
 
+/**
+ * Màn đăng nhập trang quản trị — làm lại 2026-11-09 (docs/UI-UX/dang-nhap.md, chủ quán duyệt bản
+ * xem thử artifact eec0df54).
+ *
+ * Ba quyết định đáng nhớ:
+ *  1. Nút "Đăng nhập" KHÔNG BAO GIỜ mờ vì ô trống. iPhone tự điền mật khẩu (autofill) mà không
+ *     bắn sự kiện `input` → React tưởng ô còn trống → nút mờ, người dùng tưởng app hỏng. Giờ bấm
+ *     lúc nào cũng được; thiếu thì báo ngay dưới ô. Chỉ khoá khi ĐANG GỬI (chống bấm 2 lần).
+ *  2. Không kiểm "tối thiểu 8 ký tự" ở đây: đăng nhập chỉ cần biết đã gõ chưa, đúng/sai để máy
+ *     chủ trả lời. Luật 8 ký tự vẫn ở chỗ ĐẶT mật khẩu mới.
+ *  3. Lỗi từ máy chủ (sai mật khẩu, bị khoá 15 phút) hiện KHUNG ĐỎ CỐ ĐỊNH trên nút thay vì
+ *     thông báo nổi — thông báo nổi tự tắt sau vài giây, người lớn tuổi hay bỏ lỡ.
+ *
+ * "Quên mật khẩu / Nhập mã khôi phục" đã BỎ hẳn (2026-11-09): nhân viên quên thì admin đặt lại ở
+ * màn Nhân viên.
+ */
 export function LoginPage() {
   const { refresh } = useAuth();
   const toast = useToast();
   const navigate = useNavigate();
+  const formRef = useRef<HTMLFormElement>(null);
 
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [errU, setErrU] = useState<string | null>(null);
   const [errP, setErrP] = useState<string | null>(null);
-
-  const validateUsername = () => setErrU(username.trim() ? null : 'Bắt buộc nhập tên đăng nhập');
-  const validatePassword = () => setErrP(password.length >= 8 ? null : 'Tối thiểu 8 ký tự');
+  const [serverErr, setServerErr] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    validateUsername();
-    validatePassword();
-    if (!username.trim() || password.length < 8) return;
+    if (submitting) return;
+    // Đọc thẳng từ ô nhập, KHÔNG chỉ từ state: autofill của Safari điền chữ mà không bắn
+    // `onChange`, nên state có thể vẫn rỗng trong khi ô đã có chữ.
+    const form = formRef.current;
+    const u = (form?.elements.namedItem('username') as HTMLInputElement | null)?.value ?? username;
+    const p = (form?.elements.namedItem('password') as HTMLInputElement | null)?.value ?? password;
+    const eu = u.trim() ? null : 'Nhập tên đăng nhập';
+    const ep = p ? null : 'Nhập mật khẩu';
+    setErrU(eu);
+    setErrP(ep);
+    setServerErr(null);
+    if (eu || ep) {
+      document.getElementById(eu ? 'username' : 'password')?.focus();
+      return;
+    }
 
     setSubmitting(true);
     try {
-      await api.post('/auth/login', { username, password });
+      await api.post('/auth/login', { username: u.trim(), password: p });
       const me = await api.get<{ data: { role: Role | null; is_owner: boolean } }>('/auth/me');
       await refresh();
       toast.push('success', `Đăng nhập thành công, chào bạn!`);
@@ -35,34 +63,46 @@ export function LoginPage() {
       const role = (me.data?.data?.role ?? (me.data?.data?.is_owner ? 'admin' : null)) as Role | null;
       navigate(defaultLandingPath(role));
     } catch (err) {
-      const e = extractError(err);
-      toast.push('error', e.message);
+      // Câu tiếng Việt đã do máy chủ dịch sẵn (GlobalExceptionFilter → FRIENDLY_VN): sai mật khẩu,
+      // tài khoản bị dừng, thử sai quá 5 lần/5 phút…
+      setServerErr(extractError(err).message);
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="container">
-      <div className="card">
-        <h1>Quán Bà Lùn · QUẢN TRỊ</h1>
-        <p style={{ color: '#6b7280', marginTop: -8, marginBottom: 24 }}>Đăng nhập để vào dashboard</p>
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-card__head">
+          <img src="/favicon.svg" width={48} height={48} alt="" />
+          <h1>Quán Bà Lùn</h1>
+          <p>Trang quản trị · Đăng nhập để quản lý quán</p>
+        </div>
 
-        <form onSubmit={submit} noValidate>
+        <form ref={formRef} onSubmit={submit} noValidate>
           <div className="row">
             <label htmlFor="username">Tên đăng nhập</label>
             <input
               id="username"
+              name="username"
               type="text"
+              required
               autoComplete="username"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              onBlur={validateUsername}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                if (errU) setErrU(null);
+                if (serverErr) setServerErr(null);
+              }}
               aria-invalid={errU ? 'true' : undefined}
               aria-describedby={errU ? 'username-err' : undefined}
             />
             {errU && (
-              <div className="field-error" id="username-err">
+              <div className="field-error" id="username-err" role="alert">
                 {errU}
               </div>
             )}
@@ -70,27 +110,31 @@ export function LoginPage() {
 
           <PasswordInput
             id="password"
+            name="password"
+            required
             label="Mật khẩu"
             value={password}
-            onChange={setPassword}
-            onBlur={validatePassword}
+            onChange={(v) => {
+              setPassword(v);
+              if (errP) setErrP(null);
+              if (serverErr) setServerErr(null);
+            }}
             error={errP || undefined}
             autoComplete="current-password"
           />
 
-          <button
-            type="submit"
-            disabled={submitting || !username.trim() || password.length < 8}
-            style={{ width: '100%' }}
-          >
+          {serverErr && (
+            <div className="login-alert" role="alert">
+              <Icon name="canh-bao" size={20} />
+              <span>{serverErr}</span>
+            </div>
+          )}
+
+          <button type="submit" className="login-submit" disabled={submitting} aria-busy={submitting}>
             {submitting && <span className="spinner" />}
-            Đăng nhập
+            {submitting ? 'Đang đăng nhập…' : 'Đăng nhập'}
           </button>
         </form>
-
-        <p style={{ marginTop: 24, fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
-          Quên mật khẩu? <Link to="/recover">Nhập mã khôi phục</Link>
-        </p>
       </div>
     </div>
   );

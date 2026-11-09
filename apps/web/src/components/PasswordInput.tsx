@@ -12,6 +12,10 @@ type Props = {
   showStrength?: boolean;
   autoComplete?: string;
   ariaDescribedBy?: string;
+  /** `name` + `required` cho trình quản lý mật khẩu (iCloud Keychain, Google) nhận ra ô và điền
+   *  ổn định — thiếu hai thuộc tính này thì lúc điền lúc không (góp ý 2026-11-09). */
+  name?: string;
+  required?: boolean;
 };
 
 export function PasswordInput({
@@ -24,6 +28,8 @@ export function PasswordInput({
   showStrength = false,
   autoComplete = 'current-password',
   ariaDescribedBy,
+  name,
+  required,
 }: Props) {
   const [show, setShow] = useState(false);
   const [capsOn, setCapsOn] = useState(false);
@@ -52,8 +58,13 @@ export function PasswordInput({
   return (
     <div className="row password-row">
       <label htmlFor={id}>{label}</label>
+      {/* Bọc ô + nút mắt trong một khung riêng: nút căn theo ĐÚNG ô nhập (top/bottom 0) thay vì
+          đoán `top: 28px` theo chiều cao nhãn — nhãn xuống 2 dòng hay đổi cỡ chữ là nút lệch. */}
+      <div className="password-box">
       <input
         id={id}
+        name={name}
+        required={required}
         type={show ? 'text' : 'password'}
         autoComplete={autoComplete}
         value={value}
@@ -67,13 +78,15 @@ export function PasswordInput({
         type="button"
         className="toggle"
         onClick={() => setShow((s) => !s)}
+        aria-pressed={show}
         aria-label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
       >
         {/* Đang hiện chữ → icon "ẩn" (bấm để che lại), và ngược lại — giữ đúng nghĩa cặp 🙈/👁 cũ. */}
-        <Icon name={show ? 'an' : 'hien'} size={20} label={show ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'} />
+        <Icon name={show ? 'an' : 'hien'} size={22} />
       </button>
+      </div>
       {error && (
-        <div className="field-error" id={`${id}-err`}>
+        <div className="field-error" id={`${id}-err`} role="alert">
           {error}
         </div>
       )}
