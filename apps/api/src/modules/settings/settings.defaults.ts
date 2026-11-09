@@ -116,6 +116,11 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // Cầu dao `BANK_VERIFY_DISABLED=1` ép tắt bất kể cột này — xem
   // `SettingsService.isBankVerifyEnabled()`, đường DUY NHẤT được phép đọc cờ này.
   { key: 'bank_verify_enabled', kind: 'bool', default: true },
+  // ── Tự phát hành hoá đơn qua meInvoice cho đơn thu vào QR HKD (2026-10-13 / 2026-11-09) ──
+  // MẶC ĐỊNH TẮT. Chủ quán hoặc admin bật (AdminGuard của /admin/settings). Tắt = hành vi cũ:
+  // thu ngân tick tay ô Misa ở màn Lịch sử. Bật mà máy chủ chưa có thông tin meInvoice thì đơn
+  // báo lỗi rõ ràng chứ không mất — xem `EInvoiceService`.
+  { key: 'hkd_einvoice_enabled', kind: 'bool', default: false },
   // ── Bản đồ (2026-08-07) — 2 công tắc RIÊNG cho 2 nơi, không phải một ──
   // Chủ quán yêu cầu tắt được "nếu lag ảnh hưởng hệ thống". Hai nơi có rủi ro hoàn toàn khác nhau
   // nên gộp thành một công tắc là buộc họ hi sinh cái không có vấn đề để cứu cái có:
@@ -232,6 +237,8 @@ export type StoreSettingsMap = {
    *  `SettingsService.isBankVerifyEnabled()`, vì cột có thể ghi `true` mà cầu dao môi trường
    *  đang ép tắt. */
   bank_verify_enabled: boolean;
+  /** Tự phát hành hoá đơn cho đơn thu vào QR HKD. Mặc định TẮT. */
+  hkd_einvoice_enabled: boolean;
   map_checkout_enabled: boolean;
   map_admin_enabled: boolean;
   /** Khoá ô tỉnh của khách về `DEFAULT_PROVINCE_CODE` (Bắc Ninh). Cờ HIỂN THỊ, không phải luật

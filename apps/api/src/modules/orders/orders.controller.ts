@@ -35,6 +35,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { PrintingService } from '../printing/printing.service.js';
+import { EInvoiceService } from './einvoice/einvoice.service.js';
+import type { Order } from './entities/order.entity.js';
 import { ReportGuard } from '../auth/guards/report.guard.js';
 import { RequireRoles } from '../auth/guards/roles.guard.js';
 import { SettingsService } from '../settings/settings.service.js';
@@ -175,6 +177,7 @@ export class OrdersController {
   constructor(
     private readonly svc: OrdersService,
     private readonly printing: PrintingService,
+    private readonly einvoice: EInvoiceService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -426,14 +429,38 @@ export class OrdersController {
       id: req.user!.sub,
       full_name: req.user!.full_name,
     }, body.misa_ref);
-    return {
-      data: {
-        id: order.id,
-        misa_copied_at: order.misa_copied_at,
-        misa_copied_by_full_name: order.misa_copied_by_full_name,
-        misa_ref: order.misa_ref,
-      },
-    };
+    return { data: misaView(order) };
+  }
+
+  /** POST /orders/:id/einvoice/retry — nút "Phát hành lại" cho đơn xuất hoá đơn LỖI.
+   *
+   * Cùng quyền với ô tick Misa (admin + order): người đứng quầy thấy lỗi thì bấm lại được ngay.
+   * An toàn: chỉ chạy khi đơn đang `FAILED`, và MISA chặn trùng theo RefID = id đơn. */
+  @Post(':id/einvoice/retry')
+  @UseGuards(RequireRoles('admin', 'order'))
+  async retryEInvoice(@Param('id') id: string, @Req() req: Request) {
+    const order = await this.einvoice.retry(id, { id: req.user!.sub, full_name: req.user!.full_name });
+    return { data: misaView(order) };
+  }
+
+  /** POST /orders/:id/einvoice/issue-now — hộp thanh toán gọi ngay sau khi thu tiền vào mã HKD để
+   *  người thu thấy kết quả tại chỗ (2026-11-09). Chỉ xử lý đơn đang PENDING (xem
+   *  `EInvoiceService.issueNow`). Cùng quyền với nút thu tiền. */
+  // Bếp cũng thu tiền được (cùng lý do route in lại mở cho `kitchen`) — thiếu quyền ở đây thì bếp
+  // thu vào mã HKD sẽ kẹt ở màn "Đang xuất hoá đơn…" vì 403 bị nuốt (review 2026-11-09). An toàn:
+  // route chỉ xử lý đơn đang PENDING, không phát hành được đơn nào khác.
+  @Post(':id/einvoice/issue-now')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  async issueEInvoiceNow(@Param('id') id: string) {
+    return { data: misaView(await this.einvoice.issueNow(id)) };
+  }
+
+  /** GET /orders/:id/einvoice — trạng thái hoá đơn của một đơn; hộp thanh toán hỏi lại khi lần
+   *  khác đang giữ đơn (issue-now trả PENDING). */
+  @Get(':id/einvoice')
+  @UseGuards(RequireRoles('admin', 'order', 'kitchen'))
+  async getEInvoice(@Param('id') id: string) {
+    return { data: misaView(await this.einvoice.status(id)) };
   }
 
   /** GET /orders/history — lịch sử order, filter table/date/cashier/status.
@@ -586,6 +613,19 @@ function transferFromBody(body: CheckoutDto | undefined): CheckoutTransfer | und
 }
 
 /** Ghi nợ mà không ghi ai nợ thì không đòi được — chặn ở đây, không để cột NULL im lặng. */
+/** Phần "đã lên MISA / hoá đơn" của một đơn — dùng chung cho ô tick tay, phát hành ngay và phát
+ *  hành lại, để màn Lịch sử / hộp thanh toán cập nhật bằng đúng một hình dạng dữ liệu. */
+function misaView(order: Order) {
+  return {
+    id: order.id,
+    misa_copied_at: order.misa_copied_at,
+    misa_copied_by_full_name: order.misa_copied_by_full_name,
+    misa_ref: order.misa_ref,
+    einvoice_status: order.einvoice_status,
+    einvoice_error: order.einvoice_error,
+  };
+}
+
 function requireDebtNote(note: string | undefined): string {
   const v = (note ?? '').trim();
   if (!v) {
