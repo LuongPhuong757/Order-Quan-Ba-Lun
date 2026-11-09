@@ -67,6 +67,9 @@ export class PaymentQrActiveController {
          * `BANK_VERIFY_DISABLED` phải thắng được cột DB, xem docblock của hàm đó.
          */
         verify_enabled: await this.settings.isBankVerifyEnabled(),
+        /** Công tắc tự phát hành hoá đơn HKD — hộp thoại thu tiền cần nó để biết có chuyển sang
+         *  màn kết quả xuất hoá đơn sau khi thu không. Đi ké đây cùng lý do `verify_enabled`. */
+        hkd_einvoice_enabled: (await this.settings.readAll()).hkd_einvoice_enabled,
         items: items.map((r) => ({
           id: r.id,
           label: r.label,
@@ -84,6 +87,8 @@ export class PaymentQrActiveController {
           // Chỉ có nghĩa với `include_inactive=1`; đường gọi kia luôn nhận `true` nên không ai
           // phải đoán. Ô lọc dùng nó để gắn chữ "(ngừng dùng)" sau nhãn.
           is_active: r.is_active,
+          // Hộp thoại thu tiền chặn trả hỗn hợp với mã HKD + quyết định có xuất hoá đơn không.
+          is_hkd: r.is_hkd,
         })),
       },
     };

@@ -16,6 +16,7 @@ import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from './Toast.tsx';
 import { Row, Section } from './checkout-ui.tsx';
+import { EInvoiceResult } from './EInvoiceResult.tsx';
 
 type QrOption = {
   id: string;
@@ -29,6 +30,8 @@ type QrOption = {
   /** Tiền tố ngân hàng đòi ở đầu nội dung CK (vd `SEVQR`). Thiếu nó thì cổng đối soát KHÔNG
    *  nhìn thấy giao dịch — xem `payment-code.ts`. */
   note_prefix: string | null;
+  /** Tài khoản hộ kinh doanh: cấm "Cả hai", và (công tắc bật) thu xong thì xuất hoá đơn. */
+  is_hkd?: boolean;
 };
 
 type ItemLike = {
@@ -105,6 +108,11 @@ export function CheckoutDialog({
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [transferInput, setTransferInput] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+  /** Công tắc tự phát hành hoá đơn HKD — đi ké `GET /payment-qr` (người thu thường không vào
+   *  được `/admin/settings`). */
+  const [hkdEinvoiceOn, setHkdEinvoiceOn] = useState(false);
+  /** Đã thu tiền xong vào mã HKD → giữ kết quả thu tiền, hiện màn xuất hoá đơn thay cho hộp này. */
+  const [einvoiceFor, setEinvoiceFor] = useState<CheckoutResult | null>(null);
   /** Tên khách nợ — thứ duy nhất màn ghi nợ hỏi (D-01: nợ toàn bộ, không có số tiền để nhập). */
   const [debtNote, setDebtNote] = useState('');
   /** Ảnh bill đã đẩy lên. Đơn đã có `id` từ lúc mở bàn nên đẩy được NGAY, không phải chờ thu
@@ -197,8 +205,11 @@ export function CheckoutDialog({
     debtNote,
     photoCount: photos.length,
     photoSkipReason,
+    pickedIsHkd: !!picked?.is_hkd,
   };
   const blockReason = stepBlockReason(step, state);
+  /** Đơn này thu chuyển khoản vào mã HKD — công tắc bật thì thu xong sẽ xuất hoá đơn. */
+  const isHkdPayment = transferAmount > 0 && !!picked?.is_hkd;
   // `picked?.note_prefix` nằm trong deps: đổi mã QR là đổi ngân hàng, mà tiền tố bắt buộc thuộc
   // về ngân hàng — không tính lại thì nội dung mang tiền tố của tài khoản vừa bỏ chọn.
   const note = useMemo(
@@ -210,10 +221,11 @@ export function CheckoutDialog({
     if (mode === 'CASH' || mode === 'DEBT' || mode === null) return;
     let alive = true;
     api
-      .get<{ data: { items: QrOption[] } }>('/payment-qr')
+      .get<{ data: { items: QrOption[]; hkd_einvoice_enabled?: boolean } }>('/payment-qr')
       .then((res) => {
         if (!alive) return;
         setQrOptions(res.data.data.items);
+        setHkdEinvoiceOn(!!res.data.data.hkd_einvoice_enabled);
         setQrLoadFailed(false);
       })
       .catch(() => {
@@ -439,6 +451,12 @@ export function CheckoutDialog({
             }
           : {}),
       });
+      // Thu vào mã HKD khi công tắc tự phát hành đang bật: CHƯA đóng hộp — chuyển sang màn kết quả
+      // xuất hoá đơn, người thu thấy ✓/✗ tại chỗ (2026-11-09). `onDone` gọi khi họ bấm Đóng.
+      if (isHkdPayment && hkdEinvoiceOn) {
+        setEinvoiceFor(res.data.data);
+        return;
+      }
       onDone(res.data.data);
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -452,6 +470,10 @@ export function CheckoutDialog({
   const billableUnits = items.filter((i) => i.state !== 'CANCELLED').reduce((s, i) => s + i.qty, 0);
   const servedUnits = servedItems.reduce((s, i) => s + i.qty, 0);
   const activeUnits = activeItems.reduce((s, i) => s + i.qty, 0);
+
+  if (einvoiceFor) {
+    return <EInvoiceResult orderId={orderId} tableName={table.name} onClose={() => onDone(einvoiceFor)} />;
+  }
 
   return (
     <div
@@ -643,6 +665,15 @@ export function CheckoutDialog({
             </>
           ) : (
             /* ── MÀN 4: chụp bill rồi chốt ── */
+            <>
+            {/* Báo TRƯỚC khi bấm: thu xong hộp chưa đóng mà chuyển sang màn xuất hoá đơn — người thu
+                biết để đứng chờ vài giây, không tưởng máy treo. */}
+            {isHkdPayment && hkdEinvoiceOn && (
+              <div style={{ padding: '10px 12px', border: '1px solid #0f766e', background: '#f0fdfa', borderRadius: 8, fontSize: 15 }}>
+                <strong>🧾 Thu xong máy sẽ xuất hoá đơn ngay</strong>
+                <div style={{ fontSize: 13, color: '#6b7280' }}>Kết quả hiện ngay trên màn này.</div>
+              </div>
+            )}
             <BillStep
               transferAmount={transferAmount}
               cashAmount={cashAmount}
@@ -657,6 +688,7 @@ export function CheckoutDialog({
               skipReason={photoSkipReason}
               onSkipReason={setPhotoSkipReason}
             />
+            </>
           )}
         </div>
 

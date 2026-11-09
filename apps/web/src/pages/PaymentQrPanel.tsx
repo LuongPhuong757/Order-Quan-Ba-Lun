@@ -70,6 +70,29 @@ export function PaymentQrPanel() {
    *  tắc chưa vẽ, để không nháy một trạng thái sai rồi tự đổi ngay sau đó. */
   const [verifyOn, setVerifyOn] = useState<boolean | null>(null);
   const [verifySaving, setVerifySaving] = useState(false);
+  /** Công tắc tự phát hành hoá đơn cho đơn thu vào mã HKD. `null` = chưa nạp xong. */
+  const [einvoiceOn, setEinvoiceOn] = useState<boolean | null>(null);
+  const [einvoiceSaving, setEinvoiceSaving] = useState(false);
+
+  const toggleEinvoice = async (next: boolean) => {
+    const prev = einvoiceOn;
+    setEinvoiceOn(next);
+    setEinvoiceSaving(true);
+    try {
+      await api.put('/admin/settings', { hkd_einvoice_enabled: next });
+      toast.push(
+        'success',
+        next
+          ? 'Đã BẬT — đơn chuyển khoản vào mã HKD sẽ tự xuất hoá đơn'
+          : 'Đã TẮT tự xuất hoá đơn — tick Misa tay ở màn Lịch sử như cũ',
+      );
+    } catch (err) {
+      setEinvoiceOn(prev);
+      toast.push('error', extractError(err).message);
+    } finally {
+      setEinvoiceSaving(false);
+    }
+  };
 
   /**
    * Bật/tắt vòng hỏi ngân hàng 5 phút ở màn thu tiền.
@@ -112,12 +135,14 @@ export function PaymentQrPanel() {
       // rơi về `false`, và ô công tắc hiện "đang tắt" ngay sau khi vừa bật xong — trong khi màn
       // thu tiền (đọc đường khác, `GET /payment-qr`) vẫn chạy đúng. Đã sai đúng vậy 2026-09-25.
       try {
-        const st = await api.get<{ data: { settings: { bank_verify_enabled: boolean } } }>(
-          '/admin/settings',
-        );
+        const st = await api.get<{
+          data: { settings: { bank_verify_enabled: boolean; hkd_einvoice_enabled: boolean } };
+        }>('/admin/settings');
         setVerifyOn(st.data.data.settings.bank_verify_enabled);
+        setEinvoiceOn(st.data.data.settings.hkd_einvoice_enabled);
       } catch {
         setVerifyOn(null);
+        setEinvoiceOn(null);
       }
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -266,6 +291,39 @@ export function PaymentQrPanel() {
           Từ 2026-10-02 công tắc này KHÔNG còn đụng tới màn thu tiền nữa (vòng hỏi 5 phút và ba
           dải trạng thái đã gỡ hẳn) — nó chỉ còn bật/tắt cột "Xác thực" ở màn Lịch sử. Câu chữ
           dưới đây phải nói đúng điều đó, đừng chép lại mô tả cũ. */}
+      {/* Tự xuất hoá đơn (2026-11-09). Đứng TRƯỚC khối xác thực vì đây là việc pháp lý: bật là mỗi
+          đơn chuyển khoản vào mã HKD ra một hoá đơn thật gửi cơ quan thuế. */}
+      {einvoiceOn !== null && (
+        <div className="st-section">
+          <h2>Tự xuất hoá đơn điện tử (MISA meInvoice)</h2>
+          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={einvoiceOn}
+              disabled={einvoiceSaving}
+              onChange={(e) => toggleEinvoice(e.target.checked)}
+              style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
+            />
+            <span>
+              <strong>
+                {einvoiceOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — đơn chuyển khoản vào mã HKD{' '}
+                {einvoiceOn ? 'tự xuất hoá đơn' : 'KHÔNG tự xuất hoá đơn'}
+              </strong>
+              <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
+                Bật: thu tiền xong, hộp thanh toán hiện ngay kết quả — ✓ số hoá đơn, hoặc ✗ lý do lỗi kèm
+                nút "Đã xuất tay". Lỗi cũng hiện ở màn Lịch sử kèm nút Phát hành lại.
+              </span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
+                Tắt: thu ngân tick tay ô Misa ở màn Lịch sử như cũ.
+              </span>
+              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: '#92400e' }}>
+                ⚠ Mỗi hoá đơn là hoá đơn THẬT gửi cơ quan thuế. Đơn đã tự xuất thì đừng nhập lại sang CukCuk.
+              </span>
+            </span>
+          </label>
+        </div>
+      )}
+
       {verifyOn !== null && (
         <div className="st-section">
           <h2>Xác thực giao dịch với ngân hàng</h2>

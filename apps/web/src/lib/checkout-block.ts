@@ -24,7 +24,13 @@ export type CheckoutState = {
   photoCount: number;
   /** Lý do người thu KHÔNG chụp được bill. Có chữ = đường thoát đã dùng, không đòi ảnh nữa. */
   photoSkipReason?: string;
+  /** Mã QR đang chọn là tài khoản hộ kinh doanh — cấm trả hỗn hợp với tiền mặt (2026-11-09). */
+  pickedIsHkd?: boolean;
 };
+
+/** Câu chặn trả hỗn hợp vào mã HKD — BE ném cùng ý (mã `HKD_TRANSFER_NOT_FULL`). */
+export const HKD_SPLIT_BLOCK =
+  'Mã QR hộ kinh doanh phải chuyển ĐỦ tiền — chọn "Chuyển khoản", hoặc chọn mã QR khác';
 
 /**
  * Trả về câu giải thích vì sao CHƯA bấm được, hoặc `null` nếu bấm được.
@@ -41,6 +47,10 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   // ghi được tiền về tài khoản nào, và cuối ngày khoản đó nằm trong nhóm "không gắn mã" ở màn
   // đối soát — đúng thứ cả tính năng này sinh ra để tránh.
   if (wantsTransfer && !s.hasPickedQr) return 'Vui lòng chọn mã QR để thanh toán';
+  // Mã HKD cấm "Cả hai" (chủ quán chốt 2026-11-09): hoá đơn xuất cho tài khoản HKD phải khớp đúng
+  // tiền về tài khoản đó. Chặn NGAY khi chọn mã, trước câu hỏi số tiền — gõ số xong mới bị chặn
+  // là bắt người ta làm một việc vô ích.
+  if (s.mode === 'SPLIT' && s.pickedIsHkd) return HKD_SPLIT_BLOCK;
   // Chỉ hỏi số tiền ở thế "Cả hai": "Chuyển khoản" toàn bộ thì số tiền chính là tổng, không có gì
   // để nhập.
   if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
@@ -89,6 +99,7 @@ export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | 
   }
   if (step === 'qr') {
     if (!s.hasPickedQr) return 'Vui lòng chọn mã QR để thanh toán';
+    if (s.mode === 'SPLIT' && s.pickedIsHkd) return HKD_SPLIT_BLOCK;
     // Hỏi tiền SAU khi đã có mã: số tiền nằm trong chính mã QR, nên thứ tự trên màn hình là chọn
     // mã rồi mới tới con số.
     if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';

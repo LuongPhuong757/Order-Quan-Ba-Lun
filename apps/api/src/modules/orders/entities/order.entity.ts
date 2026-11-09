@@ -229,6 +229,41 @@ export class Order {
   @Column({ type: 'varchar', length: 64, nullable: true })
   misa_ref!: string | null;
 
+  /** ── TỰ PHÁT HÀNH HOÁ ĐƠN M QUA meInvoice (chốt 2026-10-13, làm lại trên develop 2026-11-09) ──
+   *
+   * Đơn thu chuyển khoản ĐỦ vào mã QR có cờ `is_hkd` + công tắc `hkd_einvoice_enabled` BẬT →
+   * checkout đặt `PENDING`. Hộp thanh toán gọi phát hành ngay; `EInvoiceService` chạy nền mỗi 30s
+   * làm dự phòng.
+   *
+   * Phát hành xong KHÔNG có cột "số hoá đơn" riêng: ghi thẳng vào `misa_copied_at` + `misa_ref`
+   * — đúng nghĩa "đơn này đã lên MISA", nên bộ lọc "chưa lên MISA" cuối ca chạy y nguyên.
+   *
+   * NULL = đơn không thuộc luồng tự động (tiền mặt, QR khác, công tắc tắt lúc thu).
+   * `PENDING` = đang chờ/đang thử · `ISSUED` = đã phát hành · `FAILED` = dừng, chờ người xử lý. */
+  @Index('idx_orders_einvoice_status')
+  @Column({ type: 'varchar', length: 16, nullable: true })
+  einvoice_status!: 'PENDING' | 'ISSUED' | 'FAILED' | null;
+
+  /** Số lần đã gọi meInvoice trong lượt hiện tại. "Phát hành lại" đặt về 0. */
+  @Column({ type: 'int', default: 0 })
+  einvoice_attempts!: number;
+
+  /** Lý do lỗi lần gần nhất, hiện nguyên văn cho người đứng quầy. */
+  @Column({ type: 'varchar', length: 500, nullable: true })
+  einvoice_error!: string | null;
+
+  /** PHIẾU GIỮ ĐƠN khi đang gọi meInvoice (2026-11-09). Khoá `SKIP LOCKED` chỉ sống trong
+   *  transaction claim ngắn — hết transaction là poller / nút phát hành ngay / phát hành lại nhặt
+   *  được đúng đơn đó lần nữa trong lúc lần trước còn chờ MISA. Mỗi lần claim ghi một mã riêng +
+   *  giờ claim; mọi lệnh ghi kết quả có điều kiện `einvoice_claim_id = mã của mình`, nên kết quả
+   *  của lần chạy thua không bao giờ đè lên lần thắng. Quá 5 phút (máy chết giữa chừng) thì phiếu
+   *  hết hạn và đơn được nhặt lại — an toàn vì MISA chặn trùng theo RefID = id đơn. */
+  @Column({ type: 'varchar', length: 36, nullable: true })
+  einvoice_claim_id!: string | null;
+
+  @Column({ type: 'datetime', precision: 6, nullable: true, transformer: dateToMsTransformer })
+  einvoice_claimed_at!: number | null;
+
   /** ── GHI NỢ KHÁCH (spec `docs/GHI-NO-KHACH-SPEC.md`, chốt 2026-09-25) ─────────
    *
    * Khách rời bàn không trả đồng nào, bàn vẫn phải trống cho lượt sau. Nợ là nợ TOÀN BỘ bill
