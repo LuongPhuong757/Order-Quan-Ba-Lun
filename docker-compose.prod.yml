@@ -155,6 +155,18 @@ services:
       # Dòng này BẮT BUỘC phải có ở đây — compose liệt kê biến tường minh, nên thiếu nó thì đặt
       # biến trong .env cũng không tới được container, và cầu dao vô dụng đúng lúc cần nhất.
       BANK_VERIFY_DISABLED: ${BANK_VERIFY_DISABLED:-}
+      # Tự xuất hoá đơn MISA meInvoice (2026-11-09). Compose liệt kê biến tường minh — thiếu dòng
+      # ở đây thì đặt trong .env.production cũng không tới container. Bỏ trống = chưa cài kết nối:
+      # bật công tắc chỉ ra lỗi "Chưa cài kết nối meInvoice", không mất đơn.
+      # ⚠ CHỈ khai ở compose PRODUCTION: key là tài khoản THẬT — dev có key là poller dev phát hành
+      # hoá đơn thật cho đơn thử. MEINVOICE_DRIVER cố ý KHÔNG khai (chế độ giả bị chặn ở production).
+      MEINVOICE_CLIENT_ID: ${MEINVOICE_CLIENT_ID:-}
+      MEINVOICE_CLIENT_SECRET: ${MEINVOICE_CLIENT_SECRET:-}
+      MEINVOICE_TAX_CODE: ${MEINVOICE_TAX_CODE:-}
+      MEINVOICE_USERNAME: ${MEINVOICE_USERNAME:-}
+      MEINVOICE_PASSWORD: ${MEINVOICE_PASSWORD:-}
+      MEINVOICE_INV_SERIES: ${MEINVOICE_INV_SERIES:-}
+      MEINVOICE_BASE_URL: ${MEINVOICE_BASE_URL:-}
     volumes:
       # Persist menu images (mất container không mất file)
       - ./uploads:/app/apps/api/uploads
