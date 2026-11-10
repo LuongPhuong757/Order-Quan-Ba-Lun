@@ -428,7 +428,11 @@ export function OrdersPage() {
         )}
 
         {hasActive || servedCount > 0 ? (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: chipCo ? 3 : 4, ...(chipCo ? { containerType: 'inline-size' } : {}) }}>
+          /* `width: 100%` BẮT BUỘC đi cùng `containerType: inline-size` (2026-11-10): khung
+             inline-size coi nội dung là rộng 0, nằm trong <button> flex dọc thì không được kéo
+             giãn → khung rộng 0px → cqw = 0 → chữ chip −2px → 3 chip thành 3 vạch màu trống
+             (iPhone, đo lại cả WebKit lẫn Chrome). */
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: chipCo ? 3 : 4, ...(chipCo ? { containerType: 'inline-size', width: '100%' } : {}) }}>
             {Object.entries(counts).map(([st, n]) => {
               if (n === 0) return null;
               const b = STATE_BADGE[st];
