@@ -18,18 +18,21 @@
 // được cookie để thoát rate limit.
 import { ExecutionContext, Inject, Injectable } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { InjectThrottlerOptions, InjectThrottlerStorage, ThrottlerGuard } from '@nestjs/throttler';
+import { InjectThrottlerOptions, InjectThrottlerStorage, ThrottlerException, ThrottlerGuard } from '@nestjs/throttler';
 // `import type` BẮT BUỘC: hai cái này là interface, không có export thật lúc runtime.
 // Import kiểu value thì `tsc --noEmit` vẫn xanh nhưng API chết ngay khi khởi động:
 // "SyntaxError: The requested module '@nestjs/throttler' does not provide an export
 // named 'ThrottlerModuleOptions'". Đã cắn 1 lần khi viết file này.
-import type { ThrottlerModuleOptions, ThrottlerStorage } from '@nestjs/throttler';
+import type { ThrottlerModuleOptions, ThrottlerRequest, ThrottlerStorage } from '@nestjs/throttler';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import type { Request } from 'express';
 import { JwtService } from '../../modules/auth/jwt.service.js';
 import { User } from '../../modules/auth/entities/user.entity.js';
 import { READ_ONLY_ROLES } from '../../modules/auth/read-only-role.js';
+import { GUEST_IP_CEILING_PER_MIN, guestThrottleKey, isGuestTableRoute } from './guest-throttle-key.js';
+
+const GUEST_IP_CEILING_TTL_MS = 60_000;
 
 /** Cache role theo user id để không phải query DB mỗi request. 60s: admin đổi role của
  *  tài khoản thì miễn trừ hết hiệu lực sau tối đa 1 phút. Ngắn thế này là đủ vì đây chỉ
@@ -83,8 +86,34 @@ export class ReadOnlyExemptThrottlerGuard extends ThrottlerGuard {
    * `/auth/login` (chưa có phiên) và kẻ dò mật khẩu không được nới gì cả. Chỉ verify chữ ký,
    * KHÔNG query DB: đây là quyết định "đếm vào ô nào", phân quyền thật vẫn ở `JwtAuthGuard`. */
   protected async getTracker(req: Record<string, unknown>): Promise<string> {
+    // Khách gọi món tại bàn (M7.R6, 2026-11-10): mỗi khách một ô đếm theo token phiên, không
+    // chung IP wifi của cả quán — xem `guest-throttle-key.ts`. Mở bàn lần đầu chưa có token thì
+    // đếm theo SỐ BÀN + IP: 30 bàn mở cùng lúc là 30 ô riêng, còn gõ bừa nhiều số bàn vẫn bị
+    // trần IP ở `handleRequest` chặn.
+    const guestKey = guestThrottleKey(req);
+    if (guestKey) {
+      return guestKey.startsWith('guest-open:') ? `${guestKey}@${await super.getTracker(req)}` : guestKey;
+    }
     const sub = this.subFromCookie(req as unknown as Request);
     return sub ? `user:${sub}` : super.getTracker(req);
+  }
+
+  /** Trần CHUNG theo IP cho mọi request khách-tại-bàn, đếm trước hạn mức riêng từng khách.
+   *  Không có trần này thì kẻ bịa token đúng khuôn mỗi lần một cái sẽ có ô đếm mới vô hạn. */
+  protected async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+    const { req } = this.getRequestResponse(requestProps.context);
+    if (isGuestTableRoute(req)) {
+      const ip = await super.getTracker(req);
+      const rec = await this.storageService.increment(
+        `guest-ip-ceiling:${ip}`,
+        GUEST_IP_CEILING_TTL_MS,
+        GUEST_IP_CEILING_PER_MIN,
+        GUEST_IP_CEILING_TTL_MS,
+        `${requestProps.throttler.name ?? 'default'}-guest-ip`,
+      );
+      if (rec.isBlocked) throw new ThrottlerException();
+    }
+    return super.handleRequest(requestProps);
   }
 
   /** `sub` trong cookie JWT nếu chữ ký còn đúng; null khi không cookie / token sai / hết hạn. */

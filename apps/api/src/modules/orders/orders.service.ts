@@ -1468,11 +1468,23 @@ export class OrdersService {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
 
-      const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
-      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
-      if (order.closed_at) {
+      /* KHOÁ DÒNG ĐƠN TRƯỚC KHI KIỂM `closed_at` (2026-11-10, QA BUG-01). Trước đây đọc thường
+         rồi mới kiểm: hai máy bấm "Thanh toán" cùng lúc thì cả hai cùng đọc thấy đơn còn mở,
+         cùng chốt — đơn ra 2 dòng nhật ký "checkout", 2 phiếu in, ca bị cộng tiền 2 lần.
+         `FOR UPDATE` bắt máy thứ hai ĐỢI máy đầu commit xong rồi mới đọc, nên nó thấy đơn đã
+         đóng và bị chặn ở dòng dưới. Khoá riêng dòng `orders` (không kèm JOIN items) để câu
+         khoá ngắn và không khoá lan sang bảng món. */
+      const locked = await orderRepo
+        .createQueryBuilder('o')
+        .setLock('pessimistic_write')
+        .where('o.id = :id', { id: order_id })
+        .getOne();
+      if (!locked) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
+      if (locked.closed_at) {
         throw new BadRequestException({ code: 'CONFLICT', message: 'Order đã thanh toán rồi' });
       }
+      const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
+      if (!order) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Order không tồn tại' });
       const items = order.items || [];
       if (items.length === 0) {
         throw new BadRequestException({ code: 'CONFLICT', message: 'Order trống, không có gì để thanh toán' });
