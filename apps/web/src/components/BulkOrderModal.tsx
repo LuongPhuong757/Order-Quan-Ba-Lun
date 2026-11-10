@@ -226,6 +226,16 @@ export function BulkOrderModal({
   /* Con trỏ phải quay lại đúng ô này sau mỗi lần tap món — nếu không, bàn phím điện thoại
      tụt xuống và nhân viên phải bấm vào ô mới gõ được món kế. */
   const searchRef = useRef<HTMLInputElement>(null);
+  /** Khung cuộn danh sách món — để đổi danh mục thì đưa danh sách về đầu. */
+  const gridRef = useRef<HTMLDivElement>(null);
+  /* Đổi danh mục → danh sách về ĐẦU (chủ quán 2026-11-10: "chuyển danh mục lại phải vuốt lên
+     trên"). Khung cuộn giữ nguyên vị trí cũ khi nội dung đổi, nên đang cuộn sâu ở "Tất cả" mà
+     chạm "Bia" thì thấy giữa danh sách bia. Chạm lại đúng danh mục đang chọn cũng về đầu — tiện
+     như nút "lên đầu". Dùng chung cho mọi bề rộng màn. */
+  const chonNhom = (g: string) => {
+    setGroup(g);
+    gridRef.current?.scrollTo({ top: 0 });
+  };
   /* Chữ đang gõ, đọc qua ref chứ không đọc thẳng biến `search` trong `addToCart`. Đọc thẳng
      thì `search` phải nằm trong deps của `useCallback`, gõ một chữ là callback đổi identity
      và toàn bộ `MenuCard` memo hoá re-render — đúng thứ vừa bỏ công tránh. */
@@ -1353,7 +1363,7 @@ export function BulkOrderModal({
                 {groupCodes.map((g) => (
                   <button
                     key={g || 'all'}
-                    onClick={() => setGroup(g)}
+                    onClick={() => chonNhom(g)}
                     className={`${group === g ? '' : 'secondary'} ${g === PUSH_TAB ? 'bulk-tab-push' : ''}`}
                   >
                     {g === '' && `Tất cả (${menu.length})`}
@@ -1363,7 +1373,7 @@ export function BulkOrderModal({
                 ))}
               </div>
             </div>
-            <div className="bulk-menu-grid">
+            <div className="bulk-menu-grid" ref={gridRef}>
               {loading && <p style={{ color: '#6b7280', gridColumn: '1/-1' }}>Đang tải menu...</p>}
               {!loading && filtered.length === 0 && (
                 <p style={{ color: '#9ca3af', gridColumn: '1/-1', textAlign: 'center', padding: 24 }}>

@@ -24,13 +24,19 @@ Bản xem thử đã duyệt: artifact cea4edef (bản 2 — bộ − số + thu
   trình duyệt.
 - **Đếm thống nhất "2 món (6 phần)"** ở giỏ, đầu tấm giỏ và hộp Thanh toán (trước hộp ghi "6 món").
 - **Nút đáy màn Gọi món**: "Xem đơn · 6 · 50.000đ".
-- **Thanh toán — chạm hình thức là đi tiếp**: Chuyển khoản / Cả hai → sang màn QR; Tiền mặt →
-  CHỐT LUÔN (không bước xác nhận); Ghi nợ → ở lại gõ "ai nợ" rồi bấm "Xác nhận ghi nợ".
+- **Thanh toán — chạm hình thức là đi tiếp**: Chuyển khoản / Cả hai → sang màn QR; Ghi nợ → ở lại
+  gõ "ai nợ" rồi bấm "Xác nhận ghi nợ".
+- **Tiền mặt CÓ bước xác nhận (đổi 2026-11-10)**: chạm "Tiền mặt" chỉ CHỌN (ô sáng lên), nút đáy
+  thành "Xác nhận thu …đ" — bấm nút đó mới ghi tiền. Áp cho mọi người, kể cả người không được thu
+  chuyển khoản (họ sang màn "trả bằng gì" với Tiền mặt chọn sẵn). Bản xem thử đã duyệt: artifact
+  d50f4f65. Trước đó (2026-11-09) chạm là chốt luôn để tiết kiệm 1 chạm — chủ quán đổi ý.
+- **Đổi danh mục → danh sách món về đầu (2026-11-10)**: trước đây khung cuộn giữ vị trí cũ, đổi
+  danh mục phải vuốt lên. Chạm lại danh mục đang chọn cũng về đầu.
 - **Thanh toán = tấm trượt đáy** trên điện thoại (`.pay-sheet`, đệm safe-area); iPad/máy tính tấm
   nổi cách đáy 24px.
 
 ## Rủi ro đã biết
-- Chạm nhầm "Tiền mặt" là đóng bàn ngay — chủ quán chấp nhận đổi lấy 1 chạm.
+- ~~Chạm nhầm "Tiền mặt" là đóng bàn ngay~~ — hết từ 2026-11-10 (có bước xác nhận).
 
 ## Nghiệm thu (390 · 820 · 1280)
 - Thẻ chưa chọn không có chữ < 15px; thẻ đã chọn có bộ − số + và "Ghi chú" trên một hàng.
