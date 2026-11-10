@@ -35,8 +35,14 @@ export function ageMinutes(created_at: number): number {
  * con số, trước đây mỗi màn một kiểu — `61′`, `61 phút`, `61p`. Nhân viên đi qua đi lại giữa
  * ba màn thì ba cách viết là ba lần phải dịch lại trong đầu.
  */
+/** Một ngày tính bằng phút — mốc đổi cách hiện từ "giờ+phút" sang "số ngày". */
+export const DAY_MINUTES = 24 * 60;
+
 export function formatAge(minutes: number): string {
   const m = Math.max(0, Math.floor(minutes));
+  // Từ 24 giờ trở lên: SỐ NGÀY (2026-11-09). Bàn quên đóng hiện "890h18p" — phải chia nhẩm cho
+  // 24 mới hiểu. Ở mức đó giờ lẻ không còn ý nghĩa gì; điều cần biết là "đã mấy hôm rồi".
+  if (m >= DAY_MINUTES) return `${Math.floor(m / DAY_MINUTES)} ngày`;
   if (m < 60) return `${m}p`;
   const h = Math.floor(m / 60);
   const rem = m % 60;

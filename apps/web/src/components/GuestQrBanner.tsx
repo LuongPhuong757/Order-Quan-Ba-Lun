@@ -14,7 +14,7 @@
 // Cùng khuôn với `StaleTableBanner`: MỘT DÒNG MỎNG, vuốt ngang, sticky, khai chiều cao qua biến
 // CSS `--qr-banner-h` để dải đỏ "chưa trả", header và khung Bếp tụt xuống dưới nó. Dải này nằm
 // TRÊN dải đỏ vì nó là việc phải làm NGAY (khách đang đứng chờ), dải đỏ là nhắc nhở.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { createBell } from '../lib/bell.ts';
 import { guestPendingStore } from '../lib/guest-pending.ts';
@@ -22,11 +22,19 @@ import { buildGuestCards, groupCallsByTable, type PendingPayload } from '../lib/
 import { GuestRequestCards } from './GuestRequestCards.tsx';
 import { useToast } from './Toast.tsx';
 import { Icon } from './ui/Icon.tsx';
+import { Sheet } from './ui/Sheet.tsx';
 
 type Props = {
   data: PendingPayload | null;
   /** `true` = màn Order (duyệt được + kêu chuông lượt mới). `false` = màn Bếp (chỉ báo). */
   canApprove: boolean;
+  /**
+   * ĐIỆN THOẠI (2026-11-09): không vẽ dải dính — `PhoneAlertBar` vẽ MỘT dòng gộp thay cho cả dải
+   * này lẫn dải đỏ; bấm dòng đó thì dải này hiện trong tấm trượt, kèm `extra` (danh sách bàn
+   * chưa trả). Component VẪN được dựng suốt (chỉ không vẽ gì khi tấm đóng) để chuông lượt QR mới
+   * và chuyện mở khoá âm thanh vẫn chạy như cũ.
+   */
+  phoneSheet?: { open: boolean; onClose: () => void; extra?: ReactNode };
 };
 
 /**
@@ -36,7 +44,7 @@ type Props = {
  */
 const rungIds = new Set<string>();
 
-export function GuestQrBanner({ data, canApprove }: Props) {
+export function GuestQrBanner({ data, canApprove, phoneSheet }: Props) {
   const toast = useToast();
   const ref = useRef<HTMLDivElement>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -157,23 +165,47 @@ export function GuestQrBanner({ data, canApprove }: Props) {
     [toast],
   );
 
+  const cardsEl = (
+    <GuestRequestCards
+      cards={cards}
+      calls={calls}
+      busyId={busyId}
+      canApprove={canApprove}
+      onApprove={approve}
+      onReject={reject}
+      onAck={ack}
+    />
+  );
+
+  if (phoneSheet) {
+    if (!phoneSheet.open) return null;
+    return (
+      <Sheet title="Cần xử lý" onClose={phoneSheet.onClose}>
+        <div className="alert-sheet">
+          {visible && (
+            <section className="alert-sheet__part alert-sheet__part--qr">
+              <h3 className="alert-sheet__h">
+                <Icon name="qr" size={18} />
+                {tableCount} bàn khách gọi món
+              </h3>
+              {cardsEl}
+            </section>
+          )}
+          {phoneSheet.extra}
+        </div>
+      </Sheet>
+    );
+  }
+
   if (!visible) return null;
 
   return (
     <div ref={ref} className={`qr-banner${canApprove ? '' : ' qr-banner--kds'}`} role="alert">
       {/* Nhãn đứng yên, chỉ hàng chip trượt — vuốt tới đâu vẫn biết dải này nói chuyện gì. */}
       {/* Ngắn nhất có thể: chỗ trên dải là để dành cho chip số bàn. */}
-      <span className="qr-banner-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="qr" size={16} />{tableCount} bàn QR</span>
+      <span className="qr-banner-title" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="qr" size={16} />{tableCount} bàn gọi món</span>
       <div className="qr-banner-list">
-        <GuestRequestCards
-          cards={cards}
-          calls={calls}
-          busyId={busyId}
-          canApprove={canApprove}
-          onApprove={approve}
-          onReject={reject}
-          onAck={ack}
-        />
+        {cardsEl}
       </div>
     </div>
   );

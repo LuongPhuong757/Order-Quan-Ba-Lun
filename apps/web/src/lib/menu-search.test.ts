@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filterMenuBySearch, menuSearchScore } from './menu-search.ts';
+import { dayMonHetXuongCuoi, filterMenuBySearch, menuSearchScore } from './menu-search.ts';
 
 const MENU = [
   { code: 'M001', name: 'Khoai tây lắc' },
@@ -72,5 +72,24 @@ describe('xếp hạng và biên', () => {
   it('score null khi lệch, số khi khớp', () => {
     expect(menuSearchScore(MENU[0], 'pizza')).toBeNull();
     expect(menuSearchScore(MENU[0], 'ktl')).toBeGreaterThan(0);
+  });
+});
+
+describe('dayMonHetXuongCuoi', () => {
+  const m = (name: string, group: string, het = false) => ({ name, group, is_out_of_stock: het });
+
+  it('không tìm: món hết xuống cuối NHÓM của nó, nhóm giữ chỗ', () => {
+    const list = [m('Bia Tiger', 'bia', true), m('Bia HN', 'bia'), m('Chân gà', 'chien', true), m('Nem', 'chien')];
+    expect(dayMonHetXuongCuoi(list, false).map((x) => x.name)).toEqual(['Bia HN', 'Bia Tiger', 'Nem', 'Chân gà']);
+  });
+
+  it('đang tìm: giữ thứ tự độ khớp, món hết xuống cuối cả danh sách', () => {
+    const list = [m('Khoai tây lắc', 'chien', true), m('Khoai lang', 'chien'), m('Khoai môn', 'lau')];
+    expect(dayMonHetXuongCuoi(list, true).map((x) => x.name)).toEqual(['Khoai lang', 'Khoai môn', 'Khoai tây lắc']);
+  });
+
+  it('không có món hết thì trả nguyên danh sách', () => {
+    const list = [m('A', 'x'), m('B', 'y')];
+    expect(dayMonHetXuongCuoi(list, false)).toBe(list);
   });
 });

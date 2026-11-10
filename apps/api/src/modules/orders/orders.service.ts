@@ -405,13 +405,7 @@ export class OrdersService {
       const table = await this.tableRepo.findOne({ where: { id: table_id, is_active: true } });
       if (!table) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Bàn không tồn tại' });
 
-      // Bàn đang khoá KiotViet → chặn tạo/mở đơn để tránh 2 hệ thống cùng dùng.
-      if (table.kiotviet_locked) {
-        throw new ConflictException({
-          code: 'TABLE_KIOTVIET_LOCKED',
-          message: 'Bàn đang order bằng KiotViet — mở khoá trước khi gọi món ở đây',
-        });
-      }
+      // (Chặn bàn khoá KiotViet đã bỏ 2026-11-09 — chức năng KiotViet không còn.)
 
       // 2) FAST PATH — read without lock. 1 SELECT.
       const existing = await this.orderRepo.find({

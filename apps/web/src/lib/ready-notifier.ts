@@ -63,6 +63,8 @@ type TableTransferListener = (e: TableTransferEvent) => void;
 
 // Marker để nhận biết kitchen-cancel (bếp báo hết) khác cancel thủ công
 const KITCHEN_CANCEL_PREFIX = 'Bếp báo hết';
+/** Trạng thái món đang nằm trên màn Bếp — bớt/huỷ ở đây bếp PHẢI được báo. */
+const KITCHEN_SIDE = new Set(['KITCHEN', 'COOKING', 'READY']);
 
 /** Tinh chỉnh 1 chuỗi beep. Bỏ trống = mức mặc định dùng chung cho mọi role. */
 type BeepOpts = {
@@ -130,8 +132,14 @@ const TING_SOFTCLIP_K = 1.8;
 // có thể gây duplicate. 8s đủ rộng để gom hết các path detection cho 1 transfer logic.
 const TRANSFER_DEDUP_MS = 8000;
 
-class ReadyNotifier {
+export class ReadyNotifier {
   private prevStates = new Map<string, string>(); // item_id → state
+  /* B1/B2 (test E2E 2026-11-10): nhớ thêm SỐ PHẦN và thông tin món của lần poll trước — để báo
+     bếp khi Order BỚT LẺ phần (qty giảm, BE tách dòng CANCELLED mới mà dòng mới chưa từng "thấy"
+     nên nhánh CANCELLED cũ bỏ qua) và khi CẢ ĐƠN biến mất lúc món còn ở bếp (huỷ cả bàn / xoá tới
+     món cuối → đơn đóng ngay, rời /orders, notifier không bao giờ thấy trạng thái CANCELLED). */
+  private prevQty = new Map<string, number>();
+  private prevInfo = new Map<string, { order_id: string; base: EventBase; state: string }>();
   // Track item's parent table — phát hiện chuyển bàn (item_id thay đổi table_code)
   private prevTables = new Map<string, { table_code: string; table_name: string }>();
   // Dedup: key "from→to" → last emit ms
@@ -159,8 +167,11 @@ class ReadyNotifier {
     // Aggregate transfer events: gom theo (from→to) để 1 transfer N items = 1 noti
     const transferAgg = new Map<string, TableTransferEvent>();
 
+    const donDangMo = new Set(orders.map((o) => o.id));
     for (const o of orders) {
       const table_name = o.table_name || o.table_code;
+      // Dòng CHƯA từng thấy ở poll trước — dòng CANCELLED tách ra khi bớt lẻ nằm trong số này.
+      const dongMoi = new Set((o.items || []).filter((x) => !this.prevStates.has(x.id)).map((x) => x.id));
       for (const it of o.items || []) {
         seen.add(it.id);
         const prev = this.prevStates.get(it.id);
@@ -203,6 +214,29 @@ class ReadyNotifier {
             this.emitNewOrder(base);
           }
 
+          // 1b) BỚT LẺ phần (B1): món vẫn ở bếp, cùng trạng thái, nhưng số phần GIẢM → báo bếp
+          //     đúng số phần bị bớt, như một lần huỷ (thẻ đỏ ở màn Bếp). Lý do + người bớt lấy từ
+          //     dòng CANCELLED vừa tách ra (cùng món, mới xuất hiện) nếu có.
+          const prevQty = this.prevQty.get(it.id);
+          if (
+            prev !== undefined &&
+            prev === it.state &&
+            KITCHEN_SIDE.has(it.state) &&
+            prevQty !== undefined &&
+            it.qty < prevQty
+          ) {
+            const tach = (o.items || []).find(
+              (x) => x.state === 'CANCELLED' && dongMoi.has(x.id) && x.menu_item_name === it.menu_item_name,
+            );
+            this.emitItemCancelByStaff({
+              ...base,
+              qty: prevQty - it.qty,
+              reason: tach?.cancelled_reason || 'Bớt phần',
+              prev_state: it.state,
+              cancelled_by: tach?.cancelled_by_full_name || 'không xác định',
+            });
+          }
+
           if (prev !== undefined && prev !== it.state) {
             // 2) ItemReady: any → READY
             if (it.state === 'READY') this.emitReady(base);
@@ -230,20 +264,64 @@ class ReadyNotifier {
         }
         this.prevStates.set(it.id, it.state);
         this.prevTables.set(it.id, { table_code: o.table_code, table_name });
+        this.prevQty.set(it.id, it.qty);
+        this.prevInfo.set(it.id, {
+          order_id: o.id,
+          state: it.state,
+          base: { item_id: it.id, table_code: o.table_code, table_name, menu_item_name: it.menu_item_name, qty: it.qty },
+        });
       }
     }
     // Emit aggregated transfer events sau khi đã gom đủ số lượng
     for (const ev of transferAgg.values()) {
       this.emitTableTransfer(ev);
     }
-    // Cleanup tracked items không còn (đã checkout)
+    // Cleanup tracked items không còn (đã checkout HOẶC đã huỷ cả bàn). B2: gom các món đang ở
+    // BẾP mà biến mất CÙNG CẢ ĐƠN → tra nhật ký đơn để biết đơn kết thúc bằng huỷ hay thanh toán.
+    const bienMat = new Map<string, Array<{ base: EventBase; state: string }>>();
     for (const id of this.prevStates.keys()) {
       if (!seen.has(id)) {
+        const info = this.prevInfo.get(id);
+        if (this.initialized && info && KITCHEN_SIDE.has(info.state) && !donDangMo.has(info.order_id)) {
+          const ds = bienMat.get(info.order_id) ?? [];
+          ds.push({ base: info.base, state: info.state });
+          bienMat.set(info.order_id, ds);
+        }
         this.prevStates.delete(id);
         this.prevTables.delete(id);
+        this.prevQty.delete(id);
+        this.prevInfo.delete(id);
       }
     }
+    for (const [orderId, mon] of bienMat) void this.baoDonBiHuy(orderId, mon);
     this.initialized = true;
+  }
+
+  /** B2: đơn vừa biến mất khỏi /orders khi còn món ở bếp. Đọc nhật ký đơn: sự kiện kết thúc MỚI
+   *  NHẤT là `order_cancelled` (huỷ cả bàn / xoá tới món cuối) → báo bếp từng món như thẻ huỷ;
+   *  là `checkout` (thanh toán — món chưa giao chuyển SERVED) → im lặng. Lỗi mạng → bỏ qua (không
+   *  đoán). `import()` trễ để file này vẫn test được không cần axios. */
+  private async baoDonBiHuy(orderId: string, mon: Array<{ base: EventBase; state: string }>) {
+    try {
+      const { api } = await import('./api.ts');
+      const res = await api.get<{ data: { items: Array<{ event_kind: string; created_at: number; actor_name?: string | null }> } }>(
+        `/orders/${orderId}/activity`,
+      );
+      const ketThuc = (res.data?.data?.items ?? [])
+        .filter((e) => e.event_kind === 'order_cancelled' || e.event_kind === 'checkout')
+        .sort((a, b) => b.created_at - a.created_at)[0];
+      if (!ketThuc || ketThuc.event_kind !== 'order_cancelled') return;
+      for (const m of mon) {
+        this.emitItemCancelByStaff({
+          ...m.base,
+          reason: 'Huỷ cả bàn',
+          prev_state: m.state,
+          cancelled_by: ketThuc.actor_name || 'không xác định',
+        });
+      }
+    } catch {
+      /* mạng lỗi / không có quyền đọc nhật ký → không báo, giữ hành vi cũ */
+    }
   }
 
   // Subscribe APIs

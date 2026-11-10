@@ -477,12 +477,38 @@ export function CheckoutDialog({
     }
   };
 
+  /* CHẠM HÌNH THỨC LÀ ĐI TIẾP (chủ quán chốt 2026-11-09) — bỏ cặp "chọn rồi bấm Tiếp tục".
+     Tiền mặt chốt luôn: đặt mode xong phải đợi một lượt render để `blockReason`/`submit` đọc
+     đúng mode mới, nên cú chốt đi qua cờ + effect thay vì gọi submit() ngay trong onClick
+     (lúc đó closure còn giữ mode cũ). */
+  const [chotTienMat, setChotTienMat] = useState(false);
+  useEffect(() => {
+    if (!chotTienMat || mode !== 'CASH') return;
+    setChotTienMat(false);
+    void submit();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chotTienMat, mode]);
+  const chonHinhThuc = (m: PayMode) => {
+    if (submitting) return;
+    setMode(m);
+    if (m === 'CASH') setChotTienMat(true);
+    else if (m === 'TRANSFER' || m === 'SPLIT') setStep('qr');
+    // DEBT: còn phải gõ "ai nợ" → ở lại màn này, nút "Xác nhận ghi nợ" dưới đáy.
+  };
+
   const servedItems = items.filter((i) => i.state === 'SERVED');
   const activeItems = items.filter((i) => !['SERVED', 'CANCELLED'].includes(i.state));
   const cancelledItems = items.filter((i) => i.state === 'CANCELLED');
   const billableUnits = items.filter((i) => i.state !== 'CANCELLED').reduce((s, i) => s + i.qty, 0);
   const servedUnits = servedItems.reduce((s, i) => s + i.qty, 0);
   const activeUnits = activeItems.reduce((s, i) => s + i.qty, 0);
+  /* Đếm THỐNG NHẤT với giỏ gọi món: "2 món (6 phần)" (2026-11-09). Trước ở đây ghi "6 món" —
+     tức đếm phần mà gọi là món — trong khi giỏ ghi "2 món · 6 phần". */
+  const soMon = (list: ItemLike[]) => new Set(list.map((i) => i.menu_item_id ?? i.menu_item_name)).size;
+  const demMon = (list: ItemLike[], phan: number) => {
+    const mon = soMon(list);
+    return mon === phan ? `${mon} món` : `${mon} món (${phan} phần)`;
+  };
 
   if (einvoiceFor) {
     return <EInvoiceResult orderId={orderId} tableName={table.name} onClose={() => onDone(einvoiceFor)} />;
@@ -494,32 +520,13 @@ export function CheckoutDialog({
       aria-modal="true"
       aria-labelledby="pay-title"
       onClick={(e) => e.target === e.currentTarget && !submitting && onCancel()}
-      className="vp-overlay"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(15, 23, 42, 0.5)',
-        backdropFilter: 'blur(2px)',
-        zIndex: 10010,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
+      /* TẤM TRƯỢT ĐÁY trên điện thoại (chủ quán chốt 2026-11-09): hộp giữa màn đặt nút chốt
+         tiền ở tầm y≈592px, xa ngón cái, trong khi mọi nút chính khác của app nằm sát đáy.
+         Dáng hộp (vị trí, bo góc, đệm vùng an toàn) nằm ở .pay-sheet-bg / .pay-sheet trong
+         styles.css để đổi theo bề rộng — style inline không có media query. */
+      className="vp-overlay pay-sheet-bg"
     >
-      <div
-        className="vp-cap-90"
-        style={{
-          background: 'white',
-          borderRadius: 14,
-          maxWidth: 520,
-          width: '100%',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          boxShadow: '0 20px 50px rgba(0,0,0,0.25)',
-        }}
-      >
+      <div className="vp-cap-90 pay-sheet">
         <div
           style={{
             padding: '14px 18px',
@@ -552,21 +559,26 @@ export function CheckoutDialog({
           </h2>
         </div>
 
-        <div style={{ padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {/* flex: 1 — phần nội dung GIÃN hết chỗ trống để hàng nút [Quay lại][Thanh toán] luôn DÍNH
+            ĐÁY hộp, kể cả khi bill ngắn (chủ quán 2026-11-09). minHeight 0 để nó còn cuộn được. */}
+        <div style={{ flex: '1 1 auto', minHeight: 0, padding: 18, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
           {/* Tổng cần thu đứng đầu ở HAI màn trước khi chọn hình thức — người thu đọc con số này
               cho khách nghe, rồi mới hỏi trả bằng gì. Hai màn sau không lặp lại nó: ở đó số tiền
               đã có khối riêng nói về phần chuyển khoản, bày thêm một con số nữa chỉ gây nhầm.
               Giữ nguyên việc tách phí ship: đọc một con số gộp thì cuối ngày không đối soát được
               tiền thu hộ shipper (M2.D-62). */}
-          {(step === 'items' || step === 'mode') && (
+          {/* 2026-11-09 (chủ quán): màn SOÁT BILL bỏ khối "Tổng cần thu" + dòng "6 món (27 phần)" —
+              tổng tiền nay nằm ngay trên nút chính ("Thanh toán · 3.220.000đ"). Màn "trả bằng gì"
+              vẫn giữ con số (lúc đọc cho khách nghe); dòng phụ chỉ còn khi có phí ship. */}
+          {step === 'mode' && (
             <div style={{ background: '#f0fdfa', borderRadius: 10, padding: 14, textAlign: 'center', border: '1px solid #ccfbf1' }}>
               <div style={{ fontSize: 13, color: '#6b7280' }}>Tổng cần thu</div>
               <div style={{ fontSize: 28, fontWeight: 700, color: '#0f766e', marginTop: 4 }}>{fmt(total)}</div>
-              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
-                {shipFee > 0
-                  ? `${servedUnits} món ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`
-                  : `${billableUnits} món`}
-              </div>
+              {shipFee > 0 && (
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>
+                  {`${demMon(servedItems, servedUnits)} ${fmt(itemsTotal)} + phí ship ${fmt(shipFee)}`}
+                </div>
+              )}
             </div>
           )}
 
@@ -579,6 +591,15 @@ export function CheckoutDialog({
                 cancelledItems={cancelledItems}
                 activeUnits={activeUnits}
               />
+              {/* DÒNG TỔNG cuối danh sách (chủ quán 2026-11-09): đếm món + phần và tổng tiền — thay
+                  khối "Tổng cần thu" to ở đầu màn. Đơn có ship thì tách phí ship (M2.D-62). */}
+              <div className="pay-tong">
+                <span>
+                  Tổng · {demMon(items.filter((i) => i.state !== 'CANCELLED'), billableUnits)}
+                  {shipFee > 0 && <small> (gồm phí ship {fmt(shipFee)})</small>}
+                </span>
+                <strong>{fmt(total)}</strong>
+              </div>
               {/* Ô tick Misa ĐÃ BỎ khỏi hộp thoại thu tiền (2026-10-15): chỉ đơn thu qua mã QR
                   HKD mới phải gõ sang MISA, mà màn này chưa biết khách trả qua mã nào. Đánh dấu
                   ở màn Lịch sử — nút ở đó chỉ hiện với đơn HKD. */}
@@ -608,13 +629,13 @@ export function CheckoutDialog({
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Khách trả bằng gì?</div>
               <div className="pay-modes">
-                <ModeButton active={mode === 'CASH'} onClick={() => setMode('CASH')} label={withIcon('tien-mat', 'Tiền mặt')} />
+                <ModeButton active={mode === 'CASH'} onClick={() => chonHinhThuc('CASH')} label={withIcon('tien-mat', 'Tiền mặt')} />
                 {/* Hai nút chuyển khoản chỉ hiện cho người có công tắc Thu CK; người không có
                     vẫn tới được màn này qua đường "Khách nợ" ở màn soát bill. */}
                 {canCollectTransfer && (
                   <>
-                    <ModeButton active={mode === 'TRANSFER'} onClick={() => setMode('TRANSFER')} label={withIcon('chuyen-khoan', 'Chuyển khoản')} />
-                    <ModeButton active={mode === 'SPLIT'} onClick={() => setMode('SPLIT')} label={
+                    <ModeButton active={mode === 'TRANSFER'} onClick={() => chonHinhThuc('TRANSFER')} label={withIcon('chuyen-khoan', 'Chuyển khoản')} />
+                    <ModeButton active={mode === 'SPLIT'} onClick={() => chonHinhThuc('SPLIT')} label={
                       // "Cả hai" = tiền mặt + chuyển khoản: hai icon đứng cạnh nhau, như cặp 💵+🏦 cũ.
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="tien-mat" size={18} />
@@ -628,7 +649,7 @@ export function CheckoutDialog({
                     chuyển khoản" không còn là câu hỏi — ô tích đi kèm ba nút kia sẽ khiến người
                     thu phải chọn một hình thức cho khoản tiền không tồn tại. */}
                 {!settleDebt && (
-                  <ModeButton active={mode === 'DEBT'} onClick={() => setMode('DEBT')} label={withIcon('ghi-no', 'Ghi nợ')} />
+                  <ModeButton active={mode === 'DEBT'} onClick={() => chonHinhThuc('DEBT')} label={withIcon('ghi-no', 'Ghi nợ')} />
                 )}
               </div>
               {mode === 'DEBT' && (
@@ -736,6 +757,10 @@ export function CheckoutDialog({
               MỘT nút cho cả ba màn (2026-09-15) thay vì mỗi màn một nhánh JSX: chữ và việc nó
               làm đều suy ra từ `step` (xem `nextLabel` / `goNext`), nên không có đường nào để hai
               nhánh lệch nhau — bản cũ đã có hai nút và chỉ một trong hai biết tới `blockReason`. */}
+          {/* Màn "trả bằng gì": các nút hình thức tự đi tiếp (2026-11-09), nên nút chính chỉ còn
+              ở Ghi nợ (phải gõ tên người nợ xong mới chốt) — và khi đang chốt tiền mặt để hiện
+              "Đang thanh toán…". */}
+          {(step !== 'mode' || mode === 'DEBT' || submitting) && (
           <button
             type="button"
             onClick={goNext}
@@ -759,6 +784,7 @@ export function CheckoutDialog({
               nextLabel
             )}
           </button>
+          )}
         </div>
       </div>
     </div>

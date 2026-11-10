@@ -7,6 +7,7 @@ import { useToast } from './Toast.tsx';
 import { CheckoutDialog, type CheckoutResult } from './CheckoutDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
+import { QtyStepper } from './ui/QtyStepper.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { BulkOrderModal } from './BulkOrderModal.tsx';
 import { HelpModal } from './HelpModal.tsx';
@@ -85,15 +86,6 @@ const ALLOWED: Record<string, string[]> = {
   CANCELLED: [],
 };
 
-const CANCEL_CONFIRM: Record<string, boolean> = {
-  PENDING: false,
-  KITCHEN: true,
-  COOKING: true,
-  READY: true,
-  SERVED: true, // đi qua modal trả món (chọn số lượng), không phải prompt lý do
-  CANCELLED: false,
-};
-
 const LABEL: Record<string, string> = {
   PENDING: 'Đang gọi',
   KITCHEN: 'Đã báo bếp',
@@ -103,12 +95,27 @@ const LABEL: Record<string, string> = {
   CANCELLED: 'Đã huỷ',
 };
 
+/* Chữ NGẮN trên chip trạng thái của từng thẻ món — CÙNG BỘ CHỮ với chip ở thẻ bàn màn Order
+ * (`STATE_BADGE` trong OrdersPage) để nhân viên chỉ phải học một bộ chữ. Chủ quán 2026-11-10:
+ * vạch màu trái thôi thì người lớn tuổi không nhớ màu nào là gì. `LABEL` ở trên vẫn giữ cho
+ * toast / hộp sửa số lượng (câu đầy đủ hơn). */
+const CHIP_LABEL: Record<string, string> = {
+  PENDING: 'Gọi',
+  KITCHEN: 'Báo bếp',
+  COOKING: 'Đang làm',
+  READY: 'Đã xong',
+  SERVED: 'Đã giao',
+  CANCELLED: 'Đã huỷ',
+};
+
 const COLOR: Record<string, string> = {
   PENDING: '#6b7280',
   KITCHEN: '#f59e0b',
   COOKING: '#3b82f6',
-  READY: '#10b981',
-  SERVED: '#059669',
+  READY: '#db2777', // HỒNG ĐẬM (chủ quán 2026-11-10) — trước xanh lá, nhìn không khác "Đã giao"
+  // Xanh lá (green-600). Lịch sử: 2026-11-09 đổi #059669 → #22c55e vì trùng tông "Xong";
+  // vẫn khó phân biệt nên 2026-11-10 "Xong" chuyển hẳn sang hồng, "Đã giao" giữ xanh lá.
+  SERVED: '#16a34a',
   CANCELLED: '#dc2626',
 };
 
@@ -125,18 +132,6 @@ function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
 
-/** Kiểu chung cho các nút trong hàng thao tác của MỘT món. Cả bốn nút chia đều bề ngang
- * (`flex: 1 1 0`) và được phép co dưới bề rộng chữ (`minWidth: 0`) — đó là hai thứ giữ chúng
- * nằm gọn một dòng trên điện thoại. */
-const ROW_BTN: CSSProperties = {
-  padding: '6px 4px',
-  fontSize: 12,
-  minHeight: 36,
-  flex: '1 1 0',
-  minWidth: 0,
-  whiteSpace: 'nowrap',
-  overflow: 'hidden',
-};
 
 // Helper components dùng trong checkout confirm dialog
 
@@ -144,9 +139,13 @@ type Props = {
   table: Table;
   onClose: () => void;
   onTransferred?: () => void;
+  /** Mở từ thẻ bàn TRỐNG → bật màn Gọi món ngay khi đơn tải xong mà chưa có món (chủ quán chốt
+   *  2026-11-09: bàn trống chạm 1 lần là gọi món, không qua tấm bàn). Đóng Gọi món mà chưa gửi
+   *  gì thì đóng luôn drawer, về thẳng sơ đồ bàn. */
+  goiMonNgay?: boolean;
 };
 
-export function OrderDrawer({ table, onClose, onTransferred }: Props) {
+export function OrderDrawer({ table, onClose, onTransferred, goiMonNgay = false }: Props) {
   const { user } = useAuth();
   const toast = useToast();
   const confirm = useConfirm();
@@ -171,6 +170,19 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
      hộp — thừa một request đúng lúc hộp đang tải menu. */
   const bulkOpenRef = useRef(false);
   bulkOpenRef.current = showBulkOrder;
+  /* `goiMonNgay`: chỉ tự bật MỘT lần, ở lần tải đơn đầu tiên. Ref nhớ là đã bật để (1) poll 2s
+     sau đó không bật lại sau khi người dùng đóng, (2) biết lúc đóng Gọi món có cần đóng luôn
+     drawer không. Đơn online không gọi món ở đây nên bỏ qua. */
+  const autoBulkRef = useRef<'cho' | 'da-mo' | 'xong'>(goiMonNgay ? 'cho' : 'xong');
+  useEffect(() => {
+    if (autoBulkRef.current !== 'cho' || !order) return;
+    if ((order.items?.length ?? 0) === 0 && order.source !== 'ONLINE') {
+      autoBulkRef.current = 'da-mo';
+      setShowBulkOrder(true);
+    } else {
+      autoBulkRef.current = 'xong';
+    }
+  }, [order]);
 
   const isDelivery = table.kind === 'delivery';
   const mapHref = order ? customerMapHref(order) : null;
@@ -326,6 +338,147 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     return () => clearInterval(t);
   }, []);
 
+  /* ── − / + số lượng trong menu ⋯ của món: GHI TẠM rồi mới "Báo bếp" (chủ quán 2026-11-09) ──
+     Bản đầu gọi API ngay mỗi cú bấm: bếp nhận từng phần lẻ, và bớt bị kẹt. Nay bấm − / + chỉ đổi
+     con số tại chỗ; có thay đổi chưa gửi thì nút Thanh toán ở đáy đổi thành "Báo bếp (N)", bấm
+     nó mới gửi tất cả: phần THÊM = gọi thêm + báo bếp (items-bulk), phần BỚT = /orders/items/remove
+     (BE tự tách dòng CANCELLED, lý do BE ghi mặc định) — đúng hai API của EditQtyModal.
+     Khoá = trạng thái + nhóm món: cùng một món ở hai trạng thái là hai thẻ riêng. */
+  const [chinhSL, setChinhSL] = useState<Map<string, { g: ItemGroup; delta: number }>>(new Map());
+  const [guiChinhSL, setGuiChinhSL] = useState(false);
+  const khoaChinh = (g: ItemGroup) => `${g.rep.state}¦${g.key}`;
+  const soThayDoi = Array.from(chinhSL.values()).filter((x) => x.delta !== 0).length;
+  const doiSoLuongGroup = async (g: ItemGroup, d: 1 | -1) => {
+    const k = khoaChinh(g);
+    const cu = chinhSL.get(k)?.delta ?? 0;
+    const moi = g.count + cu + d;
+    if (moi < 0 || moi > 99) return;
+    if (moi === 0) {
+      const ok = await confirm({
+        title: 'Bỏ món này?',
+        message: `Bỏ "${g.rep.menu_item_name}" khỏi bàn ${table.name}? Bấm "Báo bếp" ở dưới mới gửi đi.`,
+        confirmLabel: 'Bỏ món',
+        cancelLabel: 'Giữ lại',
+        variant: 'danger',
+      });
+      if (!ok) return;
+    }
+    setChinhSL((prev) => {
+      const next = new Map(prev);
+      const delta = cu + d;
+      if (delta === 0) next.delete(k);
+      else next.set(k, { g, delta });
+      return next;
+    });
+  };
+  const baoBepChinhSL = async () => {
+    if (!order || guiChinhSL) return;
+    const viec = Array.from(chinhSL.values()).filter((x) => x.delta !== 0);
+    if (viec.length === 0) return;
+    // Hỏi lại với ĐÚNG từng con số trước khi gửi (chủ quán 2026-11-09): "cũ → mới (±n)".
+    const ok = await confirm({
+      title: `Báo bếp ${viec.length} thay đổi?`,
+      message: (
+        <ul style={{ margin: 0, paddingLeft: 18, display: 'grid', gap: 6, fontSize: 16 }}>
+          {viec.map(({ g, delta }) => (
+            <li key={khoaChinh(g)}>
+              <strong>{g.rep.menu_item_name}</strong>
+              {/* Ghi chú để phân biệt hai thẻ cùng tên khác ghi chú (L5, test E2E 2026-11-09). */}
+              {g.rep.note && <em style={{ color: '#6b7280' }}> ({g.rep.note})</em>}: {g.count} → {g.count + delta}{' '}
+              <span style={{ color: delta > 0 ? 'var(--brand)' : '#dc2626', fontWeight: 700 }}>
+                ({delta > 0 ? `+${delta}` : `−${-delta}`})
+              </span>
+              {g.count + delta === 0 && <span style={{ color: '#dc2626' }}> — bỏ món</span>}
+            </li>
+          ))}
+        </ul>
+      ),
+      confirmLabel: 'Báo bếp',
+      cancelLabel: 'Xem lại',
+    });
+    if (!ok) return;
+    setGuiChinhSL(true);
+    let loi = 0;
+    /* Chỉ BỎ khỏi danh sách chờ những thay đổi ĐÃ GỬI XONG; cái gửi lỗi giữ lại để bấm "Báo bếp"
+       lần nữa (L2, test E2E 2026-11-09 — trước xoá sạch cả cái gửi hỏng, mất mà không hay). */
+    const daGui = new Set<string>();
+    for (const { g, delta } of viec) {
+      try {
+        if (delta > 0) {
+          await api.post(`/orders/${order.id}/items-bulk`, {
+            items: [{ menu_item_id: g.rep.menu_item_id, qty: delta, note: g.rep.note }],
+            send_to_kitchen: g.rep.state !== 'PENDING',
+          });
+        } else {
+          await api.post('/orders/items/remove', { item_ids: g.ids, units: -delta });
+        }
+        daGui.add(khoaChinh(g));
+      } catch (e) {
+        loi++;
+        toast.push('error', `${g.rep.menu_item_name}: ${extractError(e).message}`);
+      }
+    }
+    setChinhSL((prev) => {
+      const next = new Map(prev);
+      for (const k of daGui) next.delete(k);
+      return next;
+    });
+    setGuiChinhSL(false);
+    if (loi === 0) toast.push('success', `Đã báo bếp ${viec.length} thay đổi số lượng`);
+    await refresh();
+  };
+  /** Đóng tấm khi còn thay đổi số lượng CHƯA báo bếp → hỏi lại, kẻo mất mà tưởng đã gửi. */
+  const dongTam = async () => {
+    if (soThayDoi > 0) {
+      const ok = await confirm({
+        title: 'Bỏ thay đổi chưa báo bếp?',
+        message: `Còn ${soThayDoi} món đổi số lượng chưa gửi bếp. Đóng là bỏ các thay đổi đó.`,
+        confirmLabel: 'Bỏ và đóng',
+        cancelLabel: 'Ở lại',
+        variant: 'warning',
+      });
+      if (!ok) return;
+    }
+    onClose();
+  };
+  /* Phím Esc gọi qua REF (L1, test E2E 2026-11-09): effect bàn phím chỉ dựng lại khi onClose đổi,
+     nên nếu gọi thẳng dongTam nó giữ bản của lần render ĐẦU (soThayDoi = 0) → Esc đóng tấm
+     không hỏi, mất thay đổi chưa báo bếp. Ref luôn trỏ bản mới nhất. */
+  const dongTamRef = useRef(dongTam);
+  dongTamRef.current = dongTam;
+
+  /* GẮN LẠI thay đổi đang chờ vào thẻ HIỆN TẠI mỗi khi đơn cập nhật (L3, test E2E 2026-11-09).
+     Khoá ghi tạm có chứa trạng thái món, nên khi bếp đổi KITCHEN → COOKING giữa lúc đang ghi tạm,
+     thay đổi bị "mồ côi": thẻ mất dòng "chưa báo bếp" mà nút đáy vẫn "Báo bếp (1)". Nay: còn đúng
+     thẻ cũ → giữ; món đã sang trạng thái khác → đi theo món (cùng món + ghi chú); món mất hẳn →
+     bỏ. Phần bớt không được vượt số phần còn lại. Cập nhật luôn `g` (ids/count mới) để lúc gửi
+     dùng đúng dòng. */
+  useEffect(() => {
+    if (!order) return;
+    setChinhSL((prev) => {
+      if (prev.size === 0) return prev;
+      const theoKhoa = new Map<string, ItemGroup>();
+      const theoMon = new Map<string, ItemGroup>();
+      for (const st of ['PENDING', 'KITCHEN', 'COOKING', 'READY', 'SERVED']) {
+        for (const g of groupItemsByState(st)) {
+          theoKhoa.set(khoaChinh(g), g);
+          if (!theoMon.has(g.key)) theoMon.set(g.key, g);
+        }
+      }
+      const next = new Map<string, { g: ItemGroup; delta: number }>();
+      for (const [k, { g, delta }] of prev) {
+        const moi = theoKhoa.get(k) ?? theoMon.get(g.key);
+        if (!moi) continue;
+        const nk = khoaChinh(moi);
+        const d = (next.get(nk)?.delta ?? 0) + Math.max(delta, -moi.count);
+        if (d === 0) next.delete(nk);
+        else next.set(nk, { g: moi, delta: Math.max(d, -moi.count) });
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [order]);
+
   // Thao tác theo NHÓM: 1 món có thể nằm ở nhiều dòng (gọi nhiều lần), drawer gộp
   // lại "N×" — nút bấm áp cho TẤT CẢ phần trong nhóm.
   const changeStateGroup = async (g: ItemGroup, to: string) => {
@@ -337,9 +490,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
     if (to === 'CANCELLED') {
       const isServedGroup = g.rep.state === 'SERVED';
       const ok = await confirm({
-        title: isServedGroup ? 'Trả món?' : 'Huỷ món?',
+        // Một chữ duy nhất "Xoá món" cho mọi trạng thái (chủ quán 2026-11-09, thay "Trả món" / "Huỷ món").
+        title: 'Xoá món?',
         variant: 'danger',
-        confirmLabel: isServedGroup ? `Trả ${g.count} phần` : `Huỷ ${g.count} phần`,
+        confirmLabel: `Xoá ${g.count} phần`,
         cancelLabel: 'Không',
         message: (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -351,12 +505,12 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             </div>
             {isServedGroup ? (
               <div style={{ color: '#dc2626' }}>
-                Món đã mang ra bàn — trả lại sẽ bớt{' '}
+                Món đã mang ra bàn — xoá sẽ bớt{' '}
                 <strong>{fmt(g.rep.menu_item_price * g.count)}</strong> khỏi tiền bàn.
               </div>
             ) : (
               <div style={{ color: '#6b7280' }}>
-                Muốn bớt vài phần thôi thì bấm "Sửa SL" thay vì huỷ cả nhóm.
+                Muốn bớt vài phần thôi thì chỉnh − / + ở mục "Số lượng" trong ⋯, không cần xoá cả món.
               </div>
             )}
           </div>
@@ -477,7 +631,11 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         map.set(key, { key, rep: it, count: it.qty, ids: [it.id], oldest: it.created_at });
       }
     }
-    return Array.from(map.values());
+    /* Xếp CỐ ĐỊNH theo lúc gọi món đó lần đầu (oldest), cũ trước (2026-11-09). Trước đây nhóm đứng
+       theo thứ tự dòng server trả về — bấm − / + trong menu ⋯ là server thêm/tách dòng, nhóm
+       đổi chỗ, món đang sửa NHẢY lên đầu khung. Thêm/bớt phần không đổi `oldest` nên món đứng yên.
+       Hoà nhau thì theo key cho khỏi lắc qua lại giữa hai nhịp poll. */
+    return Array.from(map.values()).sort((a, b) => a.oldest - b.oldest || a.key.localeCompare(b.key));
   };
 
   const activeStates: string[] = ['PENDING', 'KITCHEN', 'COOKING', 'READY'];
@@ -514,6 +672,56 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
   const checkoutReady = hasItems && billableItems.length > 0;
 
   const [payOpen, setPayOpen] = useState(false);
+
+  /* Bàn phím cho sheet bàn (2026-11-09) — thu ngân dùng laptop mở bàn → xem → Esc → bàn khác:
+   *  - Esc đóng sheet (bấm vùng tối phía sau vốn đã đóng được).
+   *  - Tab chỉ chạy TRONG sheet (không nhảy ra các thẻ bàn phía sau).
+   *  - Mở ra thì đưa con trỏ vào sheet; đóng thì `OrdersPage` trả con trỏ về thẻ bàn vừa mở.
+   * Chỉ xử lý khi sheet là hộp thoại DUY NHẤT đang mở: đang mở hộp con (gọi món, thu tiền, xác
+   * nhận, chuyển bàn…) thì Esc/Tab là việc của hộp đó — Esc mà đóng luôn sheet bàn phía sau là
+   * mất chỗ đang làm. Hộp Thu tiền nằm NGOÀI cây sheet nên đếm cả trang chứ không chỉ con. */
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = sheetRef.current;
+    if (root && !root.contains(document.activeElement)) {
+      root.querySelector<HTMLElement>('.drawer-sticky-head button')?.focus({ preventScroll: true });
+    }
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const root = sheetRef.current;
+      if (!root) return;
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      if (dialogs.length !== 1 || dialogs[0] !== root) return;
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        void dongTamRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const focusable = [
+        ...root.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter((el) => el.offsetParent !== null);
+      if (focusable.length === 0) return;
+      const first = focusable[0]!;
+      const last = focusable[focusable.length - 1]!;
+      const cur = document.activeElement;
+      if (!root.contains(cur)) {
+        e.preventDefault();
+        first.focus();
+      } else if (e.shiftKey && cur === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && cur === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   /** Nút 💰 chỉ MỞ hộp thoại Thu tiền; mọi thứ còn lại (hình thức, mã QR, gọi API) nằm trong
    *  `CheckoutDialog`. Trước 2026-09-14 chỗ này là một hộp `confirm()` khổng lồ dựng bằng JSX
@@ -582,7 +790,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
         onDone={onPaid}
       />
     )}
-    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
+    <div ref={sheetRef} className="modal-overlay" role="dialog" aria-modal="true" aria-label={table.name} onClick={(e) => { if (e.target === e.currentTarget) void dongTam(); }}>
       <div
         /* maxHeight nằm trong CSS (.modal-flush) — cần hai dòng vh/dvh cho Safari iOS, style
            inline không viết được hai dòng cùng tên. */
@@ -691,7 +899,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             ))}
 
             <div
-              style={{ fontSize: 22, fontWeight: 700, color: checkoutReady ? '#059669' : '#0f766e', lineHeight: 1.2 }}
+              style={{ fontSize: 22, fontWeight: 700, color: 'var(--brand)', lineHeight: 1.2 }}
             >
               {fmt(total)}
               {shipFee > 0 && (
@@ -715,7 +923,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             >
               <Icon name="them-thao-tac" size={22} label="Thêm thao tác" />
             </button>
-            <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', minHeight: 40 }} aria-label="Đóng">
+            <button className="secondary" onClick={() => void dongTam()} style={{ padding: '6px 10px', minHeight: 40 }} aria-label="Đóng">
               <Icon name="dong" size={22} label="Đóng" />
             </button>
             {menuOpen && (
@@ -797,9 +1005,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             <li>Tự bỏ ưu tiên khi bếp bấm "Bắt đầu nấu"</li>
           </ul>
 
-          <h3 style={{ marginBottom: 6 }}>Huỷ món</h3>
+          <h3 style={{ marginBottom: 6 }}>Xoá món</h3>
           <p style={{ margin: '4px 0 0' }}>
-            Bấm "Huỷ" trên món. Nếu món đã báo bếp, bạn cần nhập lý do — bếp nhận noti tự động.
+            Bấm ⋯ trên món → "Xoá món". Nếu món đã báo bếp, bạn cần nhập lý do — bếp nhận noti tự động.
           </p>
         </HelpModal>
 
@@ -891,6 +1099,7 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             {/* Action bar. Đơn ONLINE (chỉ đạo 2026-08-04) chỉ còn mốc giao + Thanh toán —
                 Gọi món/Chuyển bàn/Ghi chú/Huỷ cả bàn ẩn hết: sửa nội dung đơn online làm ở
                 màn Đơn hàng online, nơi có panel sửa món và nhắc báo lại khách. */}
+            {canMarkShipped && (
             <div style={{ marginBottom: 16, display: 'grid', gap: 8 }}>
 
               {/* Mốc giao của đơn online — bấm được NGAY tại drawer, shipper không phải chạy
@@ -910,41 +1119,10 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   {fulfillBusy ? 'Đang xử lý...' : <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="giao-hang" size={20} />Đã đi ship</span>}
                 </button>
               )}
-              {/* Row 2: Thanh toán — luôn hiện khi có ít nhất 1 món. Đơn ship chưa rời quán
-                  thì khoá nút (chốt 2026-08-04): hàng đi rồi tiền mới về, BE cũng chặn 409. */}
-              {/* Thanh toán chiếm CẢ dòng — Huỷ cả bàn đã chuyển vào menu ⋯, nên đây là hành
-                  động duy nhất còn ở thanh này. */}
-              {hasItems && (
-                <button
-                  onClick={checkout}
-                  disabled={checkoutBlockedByShip}
-                  style={{
-                    width: '100%',
-                    background: checkoutBlockedByShip
-                      ? '#9ca3af'
-                      : checkoutReady
-                        ? '#059669'
-                        : '#f59e0b',
-                    fontSize: 15,
-                    fontWeight: 700,
-                    minHeight: 52,
-                    padding: '10px 8px',
-                  }}
-                  title={
-                    checkoutBlockedByShip
-                      ? 'Đơn giao tận nơi chưa rời quán — bấm "Đã đi ship" trước'
-                      : checkoutReady
-                        ? 'Sẵn sàng thanh toán'
-                        : `Còn ${activeUnits} món chưa mang ra — vẫn tính tiền, sẽ hỏi lại trước khi thu`
-                  }
-                >
-                  {/* CHỈ chữ, không số tiền, không chú thích (chỉ đạo chủ quán 2026-09-08).
-                      Tiền đã nằm ngay dưới tên bàn ở header; còn "N món sẽ bị huỷ" thì hộp xác
-                      nhận thanh toán liệt kê đầy đủ, đúng lúc người ta cần đọc nó. */}
-                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="thanh-toan" size={20} />Thanh toán</span>
-                </button>
-              )}
+              {/* Nút Thanh toán đã CHUYỂN xuống thanh dính đáy `.drawer-bottom-bar` (2026-11-09):
+                  ở đây nó sát nút ✕ và tổng tiền, chỉ muốn xem món cũng hay bấm nhầm. */}
             </div>
+            )}
 
             {/* Items grouped by state */}
             {order.items.length === 0 && (
@@ -962,14 +1140,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                      quán 2026-09-08). Tiêu đề bên trong là CHIP ôm sát chữ — khung bao cả vùng,
                      còn chip chỉ ôm cái nhãn; hai thứ khác nhau, đừng gộp. */
                 <div key={st} className="item-section" style={{ borderColor: `${COLOR[st]}55` }}>
-                  <h2
-                    className="item-section-title"
-                    style={{
-                      color: COLOR[st],
-                      borderColor: `${COLOR[st]}66`,
-                      background: `${COLOR[st]}14`,
-                    }}
-                  >
+                  {/* Nhãn nhóm "ĐÃ BÁO BẾP (19)" BỎ trên màn hình (chủ quán 2026-11-09): viền trái màu
+                      của từng thẻ món đã nói trạng thái. Giữ h2 ẨN cho trình đọc màn hình. */}
+                  <h2 className="visually-hidden">
                     {LABEL[st]} ({unitCount})
                   </h2>
                   {groups.map((g) => (
@@ -981,6 +1154,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       onChangeState={(to) => changeStateGroup(g, to)}
                       onEditQty={() => setEditQty({ group: g, target: g.count })}
                       onTogglePriority={() => togglePriorityGroup(g)}
+                      // Dòng "Ghi chú cho bếp" (is_note) không phải hàng bán → không có − / + (L2).
+                      onDoiSoLuong={g.rep.is_note ? undefined : (d) => doiSoLuongGroup(g, d)}
+                      chinhSL={chinhSL.get(khoaChinh(g))?.delta ?? 0}
                     />
                   ))}
                 </div>
@@ -1001,14 +1177,9 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                   className="item-section"
                   style={{ borderColor: `${COLOR[st]}55`, opacity: st === 'CANCELLED' ? 0.85 : 1 }}
                 >
-                  <h2
-                    className="item-section-title"
-                    style={{
-                      color: COLOR[st],
-                      borderColor: `${COLOR[st]}66`,
-                      background: `${COLOR[st]}14`,
-                    }}
-                  >
+                  {/* Nhãn nhóm "ĐÃ BÁO BẾP (19)" BỎ trên màn hình (chủ quán 2026-11-09): viền trái màu
+                      của từng thẻ món đã nói trạng thái. Giữ h2 ẨN cho trình đọc màn hình. */}
+                  <h2 className="visually-hidden">
                     {LABEL[st]} ({unitCount})
                   </h2>
                   {groups.map((g) => (
@@ -1021,6 +1192,8 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
                       onEditQty={
                         st === 'CANCELLED' ? undefined : () => setEditQty({ group: g, target: g.count })
                       }
+                      onDoiSoLuong={st === 'CANCELLED' || g.rep.is_note ? undefined : (d) => doiSoLuongGroup(g, d)}
+                      chinhSL={chinhSL.get(khoaChinh(g))?.delta ?? 0}
                       readonly={st === 'CANCELLED'}
                     />
                   ))}
@@ -1049,22 +1222,61 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
           </>
         )}
 
-        {/* Nút GỌI MÓN — hình tròn, dính ở góc dưới bên phải khung drawer (chỉ đạo chủ quán
-            2026-09-08). Đây là việc làm nhiều nhất ở màn này nên nó theo ngón tay xuống suốt
-            chiều dài danh sách, thay vì nằm trên đầu rồi trôi mất khi cuộn.
-            `position: sticky` chứ không phải `fixed`: khung cuộn là chính cái `.modal`, nên
-            sticky neo vào đáy KHUNG — fixed sẽ neo vào đáy MÀN HÌNH và trên desktop (drawer
-            nổi giữa màn) nút rơi ra tận góc trình duyệt, cách xa cái nó thuộc về. */}
-        {!isOnline && (
-          <div className="drawer-fab-wrap">
-            <button
-              className="drawer-fab"
-              onClick={() => setShowBulkOrder(true)}
-              title="Gọi món"
-              aria-label="Gọi món"
-            >
-              +
-            </button>
+        {/* Thanh dính ĐÁY: [＋ Thêm món] [Thanh toán] (chủ quán 2026-11-09, docs/UI-UX/so-do-ban.md).
+            Thay cho nút ＋ tròn nổi (đè nút "Ưu tiên" của món cuối) và nút Thanh toán ở đầu sheet.
+            Nằm trong dòng chảy + `sticky` nên luôn ở đáy khung mà không đè món nào. Không thêm bước
+            xác nhận số tiền: bấm Thanh toán chỉ MỞ hộp chọn hình thức — chưa thu gì cả.
+            Đơn ONLINE không có "Thêm món" (sửa món làm ở màn Đơn online). */}
+        {order && !isCheckedOut && (!isOnline || hasItems) && (
+          <div className="drawer-bottom-bar">
+            {!isOnline && (
+              <button type="button" className="drawer-bar-add" onClick={() => setShowBulkOrder(true)}>
+                <Icon name="them" size={22} />Thêm món
+              </button>
+            )}
+            {/* Có thay đổi số lượng CHƯA gửi → nút Thanh toán NHƯỜNG chỗ cho "Báo bếp" (chủ quán
+                2026-11-09): chưa báo bếp xong mà thu tiền là tính sai số món. */}
+            {hasItems && soThayDoi > 0 && (
+              <button
+                type="button"
+                className="drawer-bar-pay"
+                onClick={() => void baoBepChinhSL()}
+                disabled={guiChinhSL}
+                style={{ background: 'var(--brand)' }}
+              >
+                {guiChinhSL ? <span className="spinner" /> : <Icon name="gui" size={22} />}
+                Báo bếp ({soThayDoi})
+              </button>
+            )}
+            {hasItems && soThayDoi === 0 && (
+              <button
+                type="button"
+                className="drawer-bar-pay"
+                onClick={checkout}
+                disabled={checkoutBlockedByShip}
+                // Màu theo NGHĨA: xanh ngọc chủ đạo = đã giao hết món (trước là xanh lá #059669,
+                // lệch màu hệ thống — chủ quán 2026-11-09), cam = còn món chưa mang ra (vẫn thu
+                // được, hộp thanh toán sẽ hỏi lại), xám = đơn ship chưa rời quán.
+                style={{
+                  // L4 (test E2E 2026-11-09): trước dùng `checkoutReady` — luôn đúng khi có món, nên
+                  // nhánh cam KHÔNG BAO GIỜ chạy. Nay theo đúng nghĩa: còn món chưa mang ra → cam.
+                  background: checkoutBlockedByShip
+                    ? '#9ca3af'
+                    : activeUnits > 0
+                      ? '#f59e0b'
+                      : 'var(--brand)',
+                }}
+                title={
+                  checkoutBlockedByShip
+                    ? 'Đơn giao tận nơi chưa rời quán — bấm "Đã đi ship" trước'
+                    : activeUnits === 0
+                      ? 'Sẵn sàng thanh toán'
+                      : `Còn ${activeUnits} món chưa mang ra — vẫn tính tiền, sẽ hỏi lại trước khi thu`
+                }
+              >
+                <Icon name="thanh-toan" size={22} />Thanh toán
+              </button>
+            )}
           </div>
         )}
 
@@ -1076,10 +1288,24 @@ export function OrderDrawer({ table, onClose, onTransferred }: Props) {
             // Bàn "mới tinh" = chưa có dòng món nào. Tính từ `order.items` chứ không từ
             // `hasItems` của drawer để khỏi phụ thuộc thứ tự khai biến.
             isNewTable={(order.items?.length ?? 0) === 0}
-            onClose={() => setShowBulkOrder(false)}
-            onSubmitted={() => {
+            onClose={() => {
               setShowBulkOrder(false);
-              refresh();
+              // Mở tự động từ bàn trống mà đóng không gửi gì → không có gì để xem ở tấm bàn,
+              // về thẳng sơ đồ (đúng 1 chạm ra như 1 chạm vào).
+              if (autoBulkRef.current === 'da-mo' && (order.items?.length ?? 0) === 0) {
+                autoBulkRef.current = 'xong';
+                onClose();
+                return;
+              }
+              autoBulkRef.current = 'xong';
+            }}
+            onSubmitted={() => {
+              // Báo bếp xong là THOÁT HẲN về màn Order (chủ quán 2026-11-09) — trước đây quay
+              // về tấm bàn, nhân viên phải bấm ✕ thêm một lần nữa mới về sơ đồ. Màn Order tự
+              // làm mới ngay khi drawer đóng (closeDrawer), nên thẻ bàn hiện món mới tức thì.
+              autoBulkRef.current = 'xong';
+              setShowBulkOrder(false);
+              onClose();
             }}
           />
         )}
@@ -1637,6 +1863,8 @@ function ItemRow({
   onChangeState,
   onEditQty,
   onTogglePriority,
+  onDoiSoLuong,
+  chinhSL = 0,
   readonly,
 }: {
   item: OrderItem;
@@ -1646,17 +1874,30 @@ function ItemRow({
   onChangeState: (to: string) => void;
   onEditQty?: () => void;
   onTogglePriority?: () => void;
+  /** − / + một phần ngay trong menu ⋯ — GHI TẠM, gửi khi bấm "Báo bếp" (xem doiSoLuongGroup). */
+  onDoiSoLuong?: (delta: 1 | -1) => Promise<void>;
+  /** Số phần đang thêm (+) / bớt (−) chưa báo bếp của thẻ này. */
+  chinhSL?: number;
   readonly?: boolean;
 }) {
   const n = count ?? item.qty;
+  /** Đang gửi − / + — khoá bộ đếm để bấm dồn không bắn hai request chồng nhau. */
+  const [dangDoiSL, setDangDoiSL] = useState(false);
+  const doiSL = async (d: 1 | -1) => {
+    if (!onDoiSoLuong || dangDoiSL) return;
+    setDangDoiSL(true);
+    try {
+      await onDoiSoLuong(d);
+    } finally {
+      setDangDoiSL(false);
+    }
+  };
   // Ẩn các transition thuộc luồng bếp khỏi giao diện order — staff order chỉ
   // cần các action: Báo bếp (gọi tới bếp), Đã giao (giao tới khách), Huỷ.
   // 'COOKING' (Bắt đầu nấu) + 'READY' (Xong) là hành động của bếp ở KDS.
   const KITCHEN_ONLY = new Set(['COOKING', 'READY']);
   const next = ALLOWED[item.state].filter((s) => s !== 'CANCELLED' && !KITCHEN_ONLY.has(s));
   const cancelAllowed = ALLOWED[item.state].includes('CANCELLED');
-  // Món đã mang ra bàn: nút huỷ đổi nghĩa thành "trả món" (bớt khỏi bill).
-  const isServed = item.state === 'SERVED';
   // Đồng hồ chờ: chỉ hiện khi món đang nằm trong tay bếp (đã báo bếp / đang làm).
   // Món chưa báo bếp thì chưa ai chờ; món đã giao/huỷ thì hết ý nghĩa.
   /* Hàng nút của món ẩn đi, mở ra bằng HAI đường: vuốt ngang trên thẻ, hoặc bấm nút ⋯ dưới
@@ -1667,6 +1908,10 @@ function ItemRow({
      Nút ⋯ là thứ khiến bỏ được ngoại lệ "desktop hiện thường trực" trước đây: chuột không vuốt
      được, nhưng bấm ⋯ thì được, nên nay cả hai loại máy dùng chung một cách. */
   const [revealed, setRevealed] = useState(false);
+  /* Ô thao tác trượt ra NGAY TRÊN thẻ món (không còn menu thả xuống) nên không bị thanh đáy che,
+     không cần đo chỗ trống để lật lên như bản trước. */
+  const menuNeoRef = useRef<HTMLSpanElement | null>(null);
+  const moDongMenu = () => setRevealed((dangMo) => !dangMo);
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.touches[0];
@@ -1680,7 +1925,7 @@ function ItemRow({
     const dx = t.clientX - start.x;
     const dy = t.clientY - start.y;
     if (Math.abs(dx) < 40 || Math.abs(dx) <= Math.abs(dy)) return;
-    setRevealed((v) => !v);
+    moDongMenu();
   };
 
   /** Nút Ưu tiên có nghĩa hay không — dùng ở hai chỗ nên tính một lần.
@@ -1699,180 +1944,211 @@ function ItemRow({
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
       style={{
-        background: 'white',
-        border: `1px solid ${COLOR[item.state]}33`,
-        borderLeft: `4px solid ${COLOR[item.state]}`,
+        // Nền TRẮNG + viền xám trung tính, chỉ giữ dải màu trạng thái 6px bên trái (chủ quán
+        // 2026-11-10): từ khi mỗi món có chip chữ trạng thái thì nền phủ màu là thừa, nhìn chói.
+        // (Trước đó 2026-11-09: nền phủ alpha 12 + viền quanh alpha 66 vì chưa có chip chữ.)
+        background: '#ffffff',
+        border: '1px solid #e5e7eb',
+        borderLeft: `6px solid ${COLOR[item.state]}`,
         borderRadius: 8,
-        padding: 10,
-        marginBottom: 6,
+        // Đệm phải 6px (trái 10px): bộ − số + nằm SÁT mép phải thẻ (chủ quán 2026-11-09).
+        padding: '6px 6px 6px 10px',
+        marginBottom: 4,
         opacity: item.state === 'CANCELLED' ? 0.6 : 1,
+        // Mốc neo + khung cắt cho hàng ô thao tác trượt ra từ mép phải (.item-swipe). Đang mở thì
+        // nổi lên trên lớp phủ bấm-ra-ngoài (z 40) để ô bấm được.
+        position: 'relative',
+        overflow: 'hidden',
+        zIndex: revealed ? 41 : undefined,
       }}
     >
-      <div className="flex between" style={{ alignItems: 'flex-start' }}>
-        <div style={{ flex: 1 }}>
-          {item.is_priority && (
-            <div
-              style={{
-                display: 'inline-block',
-                background: '#fef3c7',
-                color: '#b45309',
-                border: '1px solid #f59e0b',
-                padding: '2px 6px',
-                borderRadius: 6,
-                fontSize: 10,
-                fontWeight: 700,
-                marginBottom: 4,
-              }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uu-tien" size={12} />ƯU TIÊN</span>
+      {/* LƯỚI 2 cột × 3 hàng (chủ quán 2026-11-09: "bên dưới còn nhiều khoảng trống, cho dãn ra"):
+          trái = tên · [⚠ phút · 👤 người gọi] · ghi chú;  phải = ⋯ · giá · − số +.
+          Mỗi hàng cao theo ô cao hơn của hàng đó → hết khoảng trống dưới cột trái; ô phải căn
+          sát mép phải nên bộ − số + không còn bị cắt. Ô rỗng thì hàng đó co về 0. */}
+      <div className="item-grid">
+        <div className="ig-trai">
+            {item.is_priority && (
+              <div
+                style={{
+                  display: 'inline-block',
+                  background: '#fef3c7',
+                  color: '#b45309',
+                  border: '1px solid #f59e0b',
+                  padding: '2px 6px',
+                  borderRadius: 6,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  marginBottom: 4,
+                }}
+              >
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uu-tien" size={12} />ƯU TIÊN</span>
+              </div>
+            )}
+            {/* Bỏ "N ×" khi có bộ − số + (số lượng đã hiện ở đó — phương án A 2026-11-09); món đã huỷ
+                (không có bộ đếm) vẫn ghi "N ×". Ghi chú: không hiện "N ×" và không hiện giá — nó là yêu cầu phục vụ,
+                không phải hàng bán. Icon 📝 để phân biệt ngay khi liếc. */}
+            <div style={{ fontWeight: 600, fontSize: 16, lineHeight: 1.25 }}>
+              {item.is_note ? (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-chu" size={16} />{item.menu_item_name}</span>
+              ) : onDoiSoLuong ? item.menu_item_name : `${n} × ${item.menu_item_name}`}
             </div>
-          )}
-          {/* Ghi chú: không hiện "N ×" và không hiện giá — nó là yêu cầu phục vụ,
-              không phải hàng bán. Icon 📝 để phân biệt ngay khi liếc. */}
-          <div style={{ fontWeight: 600 }}>
-            {item.is_note ? (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="ghi-chu" size={16} />{item.menu_item_name}</span>
-            ) : `${n} × ${item.menu_item_name}`}
-          </div>
-          {/* Đồng hồ chờ — bồi bàn liếc là biết món nào đã lâu để ưu tiên hoặc báo
-              khách. Cùng ngưỡng màu với màn Bếp: đen <10p, vàng >10p, đỏ >20p. */}
-          {showAge && (
-            <div
-              style={{
-                marginTop: 3,
-                fontSize: 13,
-                fontWeight: 700,
-                color: ageColor(ageAt),
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                flexWrap: 'wrap',
-              }}
-              title={`Khách gọi lúc ${new Date(ageAt).toLocaleTimeString('vi-VN')} — đã chờ ${waitedMin} phút`}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Icon name={tooLong ? 'canh-bao' : 'gio'} size={14} />Đã chờ {formatAge(waitedMin)}
-              </span>
-              {tooLong && (
-                <span style={{ fontWeight: 600, fontSize: 11 }}>
-                  — quá lâu, nên ưu tiên hoặc báo khách
-                </span>
-              )}
-            </div>
-          )}
-          {item.created_by_full_name && (
-            <div style={{ fontSize: 11, color: '#0f766e', marginTop: 2 }}>
-              <Icon name="tai-khoan" size={12} style={{ verticalAlign: 'middle', marginRight: 3 }} />NV gọi: {item.created_by_full_name}
-            </div>
-          )}
-          {item.note && (
-            <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>
-              <Icon name="ghi-chu" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.note}
-            </div>
-          )}
-          {item.cancelled_reason && (
-            <div style={{ fontSize: 12, color: '#dc2626' }}>
-              <Icon name="da-huy" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.cancelled_reason}
-            </div>
-          )}
         </div>
-        <div style={{ textAlign: 'right', fontSize: 13, color: '#6b7280', flex: '0 0 auto' }}>
-          {/* ⋯ NẰM TRÊN, GIÁ NẰM DƯỚI (đổi 2026-09-21) — đường mở hàng nút cho ai không vuốt
-              (chuột, hoặc chưa biết là vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi
-              vuốt cũng không lệch nhau.
-              Thứ tự này KHÔNG phải cho đẹp: nút + tròn (.drawer-fab) dính ở góc dưới phải khung
-              drawer, trên điện thoại nó phủ đúng cột này của thẻ món đang ở đáy. Để ⋯ dưới giá
-              là ngón tay bấm ⋯ lại trúng nút +. Đẩy ⋯ lên trên, phần bị phủ còn lại là CHỮ GIÁ —
-              chữ không bấm được nên bị che cũng không ăn mất thao tác nào. */}
-          {!readonly && (onEditQty || cancelAllowed) && (
-            <button
-              type="button"
-              className="item-more"
-              onClick={() => setRevealed((v) => !v)}
-              aria-expanded={revealed}
-              title={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
-              aria-label={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'}
-            >
-              <Icon name="them-thao-tac" size={20} label={revealed ? 'Ẩn thao tác' : 'Hiện thao tác'} />
-            </button>
-          )}
-          <div>{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</div>
+        {/* Hàng 1 bên phải: GIÁ cạnh ⋯ (phương án A, chủ quán 2026-11-09). */}
+        <div className="ig-phai ig-r1">
+          <span className="ig-gia">{item.is_note ? 'yêu cầu' : fmt(item.menu_item_price * n)}</span>
+            {/* ⋯ NẰM TRÊN, GIÁ NẰM DƯỚI (đổi 2026-09-21) — đường mở hàng nút cho ai không vuốt
+                (chuột, hoặc chưa biết là vuốt được). Cùng một công tắc với cú vuốt, nên bấm rồi
+                vuốt cũng không lệch nhau.
+                (Lý do gốc là nút + tròn nổi phủ góc dưới phải thẻ món — nút đó đã bỏ 2026-11-09,
+                thay bằng thanh dính đáy không đè món. Thứ tự giữ nguyên cho nhân viên quen tay.) */}
+            {!readonly && (onEditQty || cancelAllowed) && (
+              /* ⋯ của MỘT món mở MENU THẢ XUỐNG cùng kiểu ⋯ ở đầu tấm bàn (.drawer-menu) — chủ quán
+                 2026-11-09, thay hàng nút [Ưu tiên][Sửa SL][Huỷ] trượt ngang dưới thẻ. Vuốt ngang
+                 thẻ vẫn mở menu này (cùng cờ `revealed`). */
+              /* ⋯ mở HÀNG Ô THAO TÁC TRƯỢT RA TỪ MÉP PHẢI CỦA CHÍNH THẺ MÓN (chủ quán 2026-11-09, theo
+                 mẫu app chủ quán đưa) — thay menu thả xuống trông "lơ lửng, không thuộc về món". Ô
+                 cao bằng thẻ, neo vào .item-card (position: relative), nên nhìn là biết thuộc món nào.
+                 Vuốt ngang thẻ cũng mở (cùng cờ `revealed`); bấm ra ngoài / bấm lại ⋯ là thu về. */
+              <span ref={menuNeoRef} style={{ display: 'inline-block' }}>
+                <button
+                  type="button"
+                  className="item-more"
+                  onClick={moDongMenu}
+                  aria-expanded={revealed}
+                  aria-label={revealed ? 'Đóng thao tác món' : 'Thao tác với món'}
+                >
+                  <Icon name="them-thao-tac" size={20} label={revealed ? 'Đóng thao tác món' : 'Thao tác với món'} />
+                </button>
+                {revealed && (
+                  <>
+                    <span onClick={() => setRevealed(false)} style={{ position: 'fixed', inset: 0, zIndex: 40 }} />
+                    <span className="item-swipe" role="group" aria-label={`Thao tác ${item.menu_item_name}`}>
+                      {/* Chuyển trạng thái (Đã giao / Báo bếp) — màu trạng thái đích ("Đã giao" xanh lá). */}
+                      {next.map((to) => (
+                        <button
+                          key={to}
+                          type="button"
+                          onClick={() => { setRevealed(false); onChangeState(to); }}
+                          style={{ background: COLOR[to] }}
+                        >
+                          <Icon name={NEXT_LABEL[to].icon} size={24} />
+                          {NEXT_LABEL[to].text}
+                        </button>
+                      ))}
+                      {/* Ưu tiên: chỉ khi món đang ở hàng chờ BẾP (KITCHEN) — trạng thái khác BE từ chối. */}
+                      {showPriority && (
+                        <button
+                          type="button"
+                          onClick={() => { setRevealed(false); onTogglePriority?.(); }}
+                          style={{ background: '#f59e0b' }}
+                        >
+                          <Icon name="uu-tien" size={24} />
+                          {item.is_priority ? 'Bỏ ƯT' : 'Ưu tiên'}
+                        </button>
+                      )}
+                      {/* Xoá — hộp xác nhận bật ra sau khi bấm (changeStateGroup). */}
+                      {cancelAllowed && (
+                        <button
+                          type="button"
+                          onClick={() => { setRevealed(false); onChangeState('CANCELLED'); }}
+                          style={{ background: '#dc2626' }}
+                        >
+                          <Icon name="xoa" size={24} />
+                          Xoá
+                        </button>
+                      )}
+                    </span>
+                  </>
+                )}
+              </span>
+            )}
+        </div>
+        <div className="ig-trai">
+            {/* MỘT DÒNG: [⚠ 54p] · [👤 NV gọi] — bỏ chữ "Đã chờ", đồng hồ/⚠ đã đủ nghĩa (chủ quán 2026-11-09 — trước mỗi thứ một dòng,
+                thẻ cao vô ích). Đồng hồ chờ cùng ngưỡng màu màn Bếp: đen <10p, vàng >10p, đỏ >20p;
+                chỉ hiện khi món đang trong tay bếp. Tên nhân viên dài thì dòng tự xuống hàng. */}
+            {/* Chip trạng thái đứng ĐẦU dòng, màu = vạch trái — luôn có nên dòng này luôn hiện. */}
+            {(
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  columnGap: 10,
+                  rowGap: 2,
+                  flexWrap: 'wrap',
+                }}
+              >
+                {CHIP_LABEL[item.state] && (
+                  <span
+                    style={{
+                      background: COLOR[item.state],
+                      color: 'white',
+                      padding: '2px 8px',
+                      borderRadius: 999,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {CHIP_LABEL[item.state]}
+                  </span>
+                )}
+                {showAge && (
+                  <span
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 700, color: ageColor(ageAt) }}
+                    title={`Khách gọi lúc ${new Date(ageAt).toLocaleTimeString('vi-VN')} — đã chờ ${waitedMin} phút`}
+                  >
+                    <Icon name={tooLong ? 'canh-bao' : 'gio'} size={14} />{formatAge(waitedMin)}
+                  </span>
+                )}
+                {item.created_by_full_name && (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 12, color: '#0f766e' }}>
+                    <Icon name="tai-khoan" size={12} label="Nhân viên gọi" />{item.created_by_full_name}
+                  </span>
+                )}
+              </div>
+            )}
+        </div>
+        <div className="ig-phai ig-sl">
+            {/* Nút chuyển trạng thái (Đã giao / Báo bếp) NHỎ, nằm NGAY DƯỚI GIÁ ở cột phải (chủ
+                quán 2026-11-09) — trước là hàng nút trải hết bề ngang dưới thẻ, ăn một dòng và đẩy
+                "Đã chờ" / "NV gọi" chật lại. Vẫn LUÔN HIỆN (không giấu sau ⋯): bưng ra rồi tick là
+                việc làm vài chục lần mỗi buổi. Màu = màu trạng thái đích ("Đã giao" xanh lá). */}
+            {/* Bộ − số + dưới giá ở cột phải (chủ quán 2026-11-09). "Đã giao" đã vào menu ⋯. − / +
+                chỉ GHI TẠM; nút đáy đổi thành "Báo bếp" để xác nhận rồi mới gửi (xem
+                doiSoLuongGroup / baoBepChinhSL). */}
+            {onDoiSoLuong && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end', opacity: dangDoiSL ? 0.6 : 1 }}>
+                <QtyStepper
+                  value={n + chinhSL}
+                  tenMon={item.menu_item_name}
+                  onGiam={() => void doiSL(-1)}
+                  onTang={() => void doiSL(1)}
+                />
+              </div>
+            )}
+        </div>
+        <div className="ig-full">
+            {/* Đổi số lượng chưa gửi bếp — đóng menu ⋯ rồi vẫn thấy (2026-11-09). */}
+            {chinhSL !== 0 && (
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#b45309' }}>
+                {n} → {n + chinhSL} · chưa báo bếp
+              </div>
+            )}
+            {item.note && (
+              <div style={{ fontSize: 12, color: '#6b7280', fontStyle: 'italic' }}>
+                <Icon name="ghi-chu" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.note}
+              </div>
+            )}
+            {item.cancelled_reason && (
+              <div style={{ fontSize: 12, color: '#dc2626' }}>
+                <Icon name="da-huy" size={14} style={{ verticalAlign: 'middle', marginRight: 4 }} />{item.cancelled_reason}
+              </div>
+            )}
         </div>
       </div>
-      {/* HÀNG LUÔN HIỆN — chuyển trạng thái (Đã giao, Báo bếp) và Ưu tiên (chỉ đạo chủ quán
-          2026-09-08). Đây là những việc làm nhiều nhất trên một món: bưng ra bàn rồi tick, hoặc
-          khách giục thì đẩy lên đầu hàng bếp. Bắt vuốt hoặc bấm ⋯ trước là thêm một nhịp cho
-          thao tác lặp lại vài chục lần mỗi buổi. */}
-      {!readonly && (next.length > 0 || showPriority) && (
-        <div className="flex" style={{ marginTop: 8, gap: 4 }}>
-          {next.map((to) => (
-            <button
-              key={to}
-              onClick={() => onChangeState(to)}
-              style={{ ...ROW_BTN, background: COLOR[to] }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name={NEXT_LABEL[to].icon} size={14} />{NEXT_LABEL[to].text}</span>
-            </button>
-          ))}
-          {/* Ưu tiên chỉ có nghĩa khi món đang nằm ở hàng chờ BẾP (state KITCHEN) — trạng thái
-              khác thì BE từ chối (`PRIORITY_INVALID_STATE`), nên ẩn hẳn cho gọn. Mọi role đều
-              bấm được. */}
-          {showPriority && (
-            <button
-              onClick={onTogglePriority}
-              style={{ ...ROW_BTN, background: item.is_priority ? '#b45309' : '#f59e0b', color: 'white' }}
-              title={item.is_priority ? 'Bỏ đánh dấu ưu tiên' : 'Đánh dấu ưu tiên — bếp nấu trước'}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="uu-tien" size={14} />{item.is_priority ? 'Bỏ ƯT' : 'Ưu tiên'}</span>
-            </button>
-          )}
-        </div>
-      )}
 
-      {/* Còn lại (Sửa SL · Huỷ) vẫn ẩn: đó là những việc THỈNH THOẢNG mới làm, và
-          Huỷ thì càng không nên nằm sẵn dưới ngón tay. Mở bằng cú vuốt ngang hoặc nút ⋯; khi
-          mở thì TRƯỢT NGANG vào chứ không đổ dọc — xem `.item-actions` trong styles.css.
-          Mỗi nút `flex: 1 1 0` + `minWidth: 0` để cả hàng nằm gọn một dòng trên máy 360px. */}
-      {!readonly && (onEditQty || cancelAllowed) && (
-        <div
-          className={`item-actions${revealed ? ' revealed' : ''}`}
-          style={{ gap: 4 }}
-        >
-          {/* Sửa số lượng — hiện ở MỌI trạng thái trước khi thanh toán. Trước đây
-              chức năng này bị giấu sau nút "Huỷ" nên không ai tìm thấy. */}
-          {onEditQty && (
-            <button
-              onClick={onEditQty}
-              className="secondary"
-              style={ROW_BTN}
-              title={`Đang có ${n} phần — sửa tăng/giảm hoặc bỏ hẳn`}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}><Icon name="sua" size={14} />Sửa SL</span>
-            </button>
-          )}
-          {cancelAllowed && (
-            <button
-              onClick={() => onChangeState('CANCELLED')}
-              className="danger"
-              style={ROW_BTN}
-              title={
-                isServed
-                  ? 'Khách không dùng (hết) — trả lại, bớt khỏi tiền bàn'
-                  : CANCEL_CONFIRM[item.state]
-                    ? 'Huỷ (cần xác nhận)'
-                    : 'Huỷ'
-              }
-            >
-              {/* Trước là "⚠ Huỷ" (cần xác nhận) / "✕ Huỷ": nay cùng icon xoá — phân biệt "cần xác
-                  nhận" vẫn nằm ở `title` và hộp xác nhận bật ra khi bấm. */}
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                <Icon name={isServed ? 'hoan-tac' : 'xoa'} size={14} />
-                {isServed ? 'Trả món' : 'Huỷ'}
-              </span>
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 }

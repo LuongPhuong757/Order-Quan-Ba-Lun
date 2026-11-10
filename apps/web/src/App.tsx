@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect } from 'react';
+import { Suspense, lazy, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useLocation, NavLink, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth, defaultLandingPath, type Role } from './lib/auth-context.tsx';
 import { ToastProvider } from './components/Toast.tsx';
@@ -14,6 +14,8 @@ import { useStaleUnpaid } from './lib/stale-unpaid.ts';
 import { StaleTableBanner } from './components/StaleTableBanner.tsx';
 import { useGuestPending } from './lib/guest-pending.ts';
 import { GuestQrBanner } from './components/GuestQrBanner.tsx';
+import { PhoneAlertBar } from './components/PhoneAlertBar.tsx';
+import { useIsPhone } from './components/ui/use-is-phone.ts';
 import { Icon, type IconName } from './components/ui/Icon.tsx';
 
 // ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
@@ -287,6 +289,7 @@ function ProtectedShell() {
   // hiện ở mọi màn là quá nhiều). Poll cũng chỉ chạy khi đứng ở hai màn này. Hai màn đó chỉ
   // admin/order/kitchen vào được (RoleGate) nên không cần gác role riêng.
   const onStaleBannerScreen = loc.pathname === '/orders' || loc.pathname === '/kitchen';
+  const isPhone = useIsPhone();
   const staleUnpaid = useStaleUnpaid(role !== null && onStaleBannerScreen);
   // Dải "khách gọi QR" (2026-10-19) — cùng hai màn với dải trên. Màn Order tự poll; màn Bếp thì
   // KitchenPage đã kéo cùng endpoint trong nhịp 2 giây của nó và publish vào store, nên ở đó hook
@@ -364,6 +367,28 @@ function ProtectedShell() {
     active.scrollIntoView({ inline: 'center', block: 'nearest' });
   }, [loc.pathname, role]);
 
+  /* Chiều cao header → biến CSS `--header-h`, để các dải cảnh báo (dính NGAY DƯỚI header từ
+     2026-11-09) biết phải đứng ở đâu. Đo bằng ResizeObserver chứ không ghi cứng: header cao khác
+     nhau theo bề rộng màn và theo dải đỏ môi trường dev. Màn Bếp không có header → bỏ biến. */
+  const headerRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    const root = document.documentElement;
+    const el = headerRef.current;
+    // Màn Bếp không có header; lúc đang xác thực / chưa đăng nhập header cũng chưa dựng.
+    if (loc.pathname === '/kitchen' || !el) {
+      root.style.removeProperty('--header-h');
+      return;
+    }
+    const sync = () => root.style.setProperty('--header-h', `${el.offsetHeight}px`);
+    sync();
+    const ro = new ResizeObserver(sync);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      root.style.removeProperty('--header-h');
+    };
+  }, [loc.pathname, loading, user]);
+
   if (loading) {
     return (
       <div className="container">
@@ -385,20 +410,16 @@ function ProtectedShell() {
      hiện lại, nên nút ← không phải đường ra một chiều. */
   const isKds = loc.pathname === '/kitchen';
 
+
   return (
     <>
-      {/* QR TRƯỚC dải đỏ: khách đang đứng chờ là việc phải làm NGAY. Chỉ màn Order duyệt được. */}
-      {onStaleBannerScreen && (
-        <GuestQrBanner data={guestPending} canApprove={loc.pathname === '/orders'} />
-      )}
-      {onStaleBannerScreen && <StaleTableBanner data={staleUnpaid} />}
       {!isKds && (
-      <header className="header">
+      <header className="header" ref={headerRef}>
         <span className="brand">
-          <span className="brand-short"><Icon name="order" size={20} /></span>
-          {/* "QUẢN TRỊ" phải có mặt ngay trong header: nhân viên mở cả trang khách lẫn trang
-              này trên cùng máy, và hai bên trước đây đều chỉ ghi tên quán. */}
-          <span className="brand-text">Quán Bà Lùn · QUẢN TRỊ</span>
+          <img className="brand-logo" src="/favicon.svg" width={32} height={32} alt="Quán Bà Lùn" />
+          {/* Bỏ "· QUẢN TRỊ" (chủ quán chốt 2026-11-09). Trước đây thêm vào để phân biệt với trang
+              khách khi mở cả hai trên cùng máy; nay phân biệt bằng logo + màu xanh ngọc của admin. */}
+          <span className="brand-text">Quán Bà Lùn</span>
           {/* Khung màu quanh tên user — màu nền + viền theo role:
               vàng = Admin, xanh dương = Order, xanh lá = Bếp */}
           <span
@@ -435,6 +456,17 @@ function ProtectedShell() {
         </div>
       </header>
       )}
+      {/* Dải cảnh báo nằm DƯỚI header (chủ quán 2026-11-09). */}
+      {/* ĐIỆN THOẠI: một dòng gộp, bấm mở danh sách (2026-11-09 — hai dải dính cũ cộng header +
+          nav dưới chiếm ~25% màn). iPad / máy tính: giữ hai dải như cũ. */}
+      {onStaleBannerScreen && isPhone && (
+        <PhoneAlertBar guestPending={guestPending} stale={staleUnpaid} canApprove={loc.pathname === '/orders'} />
+      )}
+      {/* QR TRƯỚC dải đỏ: khách đang đứng chờ là việc phải làm NGAY. Chỉ màn Order duyệt được. */}
+      {onStaleBannerScreen && !isPhone && (
+        <GuestQrBanner data={guestPending} canApprove={loc.pathname === '/orders'} />
+      )}
+      {onStaleBannerScreen && !isPhone && <StaleTableBanner data={staleUnpaid} />}
       {/* Bọc quanh `<Outlet/>` chứ không quanh cả `<>...</>`: đổi màn thì header và nav dưới
           PHẢI đứng yên. Bọc ra ngoài là mất luôn thanh nav mỗi lần bấm, nhân viên mất điểm tựa. */}
       <Suspense fallback={<PageFallback />}>

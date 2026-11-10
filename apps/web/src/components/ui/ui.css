@@ -188,3 +188,29 @@ button.ds-pg__info {
 .ds-pg-pick__luoi { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--sp-2); overflow-y: auto; overscroll-behavior: contain; }
 .ds-pg-pick__luoi button { height: 48px; min-height: 48px; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--gray-200); background: #fff; color: var(--gray-800); font-size: var(--fs-md); font-weight: var(--fw-semibold); font-variant-numeric: tabular-nums; }
 .ds-pg-pick__luoi button.is-on { background: var(--brand); border-color: var(--brand); color: #fff; }
+
+/* ── Bộ − số + dạng viên thuốc (QtyStepper, 2026-11-09) ──────────────────────
+   NHÌN 30px nhưng vùng bấm ~44px: `::after` của mỗi nút tràn ra 7px quanh nút (trong suốt).
+   34px bị chê "vẫn quá to" 2026-11-09 → 30px.
+   Không nền đặc, viền xanh ngọc mảnh — chủ quán chê bản nút đặc 44px là "quá to". */
+.ds-qty {
+  display: inline-flex; align-items: center; flex: none;
+  height: 30px; border: 1px solid var(--teal-200); border-radius: var(--radius-pill);
+  background: #fff;
+}
+button.ds-qty__btn {
+  position: relative;
+  width: 30px; height: 30px; min-height: 30px; min-width: 30px; padding: 0;
+  border: 0; border-radius: var(--radius-pill); background: transparent;
+  color: var(--brand); font-size: 16px; line-height: 1; font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+button.ds-qty__btn::after { content: ""; position: absolute; inset: -7px; }
+button.ds-qty__btn:active:not(:disabled) { background: var(--teal-50); }
+button.ds-qty__btn:disabled { opacity: .35; cursor: default; }
+button.ds-qty__btn:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+.ds-qty__val {
+  min-width: 22px; text-align: center;
+  font-size: 15px; font-weight: var(--fw-bold); color: var(--brand-strong);
+  font-variant-numeric: tabular-nums;
+}

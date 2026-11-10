@@ -143,7 +143,7 @@ const TAB_OF_STATE: Record<string, TabKey> = {
 const STATE_META: Record<string, { color: string; label: string }> = {
   KITCHEN: { color: '#1565c0', label: 'Chờ làm' },
   COOKING: { color: '#1565c0', label: 'Chờ làm' },
-  READY: { color: '#22a04a', label: 'Đã xong' },
+  READY: { color: '#db2777', label: 'Đã xong' }, // hồng — cùng màu "Đã xong" ở màn Order (2026-11-10)
 };
 
 type ViewKey = 'priority' | 'item' | 'table';

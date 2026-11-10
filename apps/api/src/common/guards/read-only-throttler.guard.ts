@@ -7,8 +7,8 @@
 // `READ_ONLY_ROLES` chứ không hardcode chuỗi 'report': thêm role chỉ-đọc mới ở file đó
 // là tự động được miễn, còn role ghi được thì KHÔNG bao giờ lọt vào đây.
 //
-// ⚠ Cái này KHÔNG bỏ được giới hạn ở `/auth/login` (5 lần/5 phút/IP,
-// override inline tại `auth.controller.ts`). Lúc gọi login thì chưa có cookie nên chưa
+// ⚠ Cái này KHÔNG bỏ được giới hạn toàn cục ở `/auth/login` (600 req/phút/IP — giới hạn
+// riêng 5 lần/5 phút đã bỏ 2026-11-10). Lúc gọi login thì chưa có cookie nên chưa
 // biết là ai — không thể miễn theo role. Client tự động cần token sống lâu thì phải
 // giảm số lần đăng nhập, không phải trông vào chỗ này.
 //
