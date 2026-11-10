@@ -138,10 +138,10 @@ export function CheckoutDialog({
    * gật, LÚC ĐÓ mới hỏi trả bằng gì. Hỏi trước rồi mới bày món ra là bắt người ta trả lời khi
    * chưa biết mình đang trả cho cái gì.
    *
-   * TIỀN MẶT DỪNG Ở MÀN 2: bấm "💵 Tiền mặt" là nút chính thành "Xác nhận thu tiền" ngay tại đó.
-   * Đó là đường đi của phần lớn đơn trong quán — mỗi màn thêm vào là một cú chạm cho mọi bàn, mỗi
-   * ngày. Người KHÔNG được thu chuyển khoản còn dừng sớm hơn, ngay ở màn soát bill: chỉ còn một
-   * hình thức thì không có câu hỏi nào để hỏi.
+   * TIỀN MẶT DỪNG Ở MÀN 2: chạm "Tiền mặt" là CHỌN, nút chính thành "Xác nhận thu …đ tiền mặt"
+   * ngay tại đó; bấm nút đó mới ghi tiền. Không thêm màn nào — chỉ thêm đúng một cú bấm xác nhận
+   * (chủ quán 2026-11-10; trước đó chạm là chốt luôn). Người KHÔNG được thu chuyển khoản cũng đi
+   * qua màn 2, với Tiền mặt đã chọn sẵn — cả quán cùng một thói quen bấm.
    *
    * Vì sao tách màn thay vì cuộn: bản cũ nhồi tổng tiền, ba nút, ô nhập tiền, danh sách mã, ảnh
    * QR, chi tiết món và Misa vào cùng một khối cuộn — người thu phải vuốt tìm giữa lúc khách
@@ -382,22 +382,23 @@ export function CheckoutDialog({
 
   /** Nút chính của màn đang đứng. CHỈ màn cuối gọi API — hai màn trước chỉ đi tiếp.
    *
-   *  `mode === 'CASH'` chốt luôn tại màn 1: không có mã để chìa, không có bill để chụp, nên mọi
-   *  màn sau đều rỗng. Đi qua chúng chỉ để "cho đủ bước" là bắt cả quán trả thêm một cú chạm
-   *  mỗi bàn. */
+   *  `mode === 'CASH'` chốt tại màn 2 bằng nút xác nhận: không có mã để chìa, không có bill để
+   *  chụp, nên màn QR / chụp bill đều rỗng — không đi qua chúng. */
   const goNext = () => {
     if (blockReason) {
       toast.push('error', blockReason);
       return;
     }
     if (step === 'items') {
-      // Không được thu chuyển khoản → không có câu hỏi nào để hỏi, màn này là màn chốt luôn.
-      if (!canCollectTransfer) submit();
-      else setStep('mode');
+      // LUÔN sang màn 2, kể cả người không được thu chuyển khoản (chủ quán 2026-11-10: "chọn tiền
+      // mặt xong vẫn cần 1 bước xác nhận"). Với họ màn 2 đã chọn sẵn Tiền mặt (`mode` khởi tạo
+      // 'CASH'), chỉ còn bấm nút xác nhận — trước đây nút "Thanh toán" ở đây ghi tiền luôn.
+      setStep('mode');
       return;
     }
     if (step === 'mode') {
-      // Tiền mặt và ghi nợ chốt luôn tại đây — không có mã để chìa, không có bill để chụp.
+      // Tiền mặt và ghi nợ chốt tại đây bằng NÚT XÁC NHẬN ở đáy — không có mã để chìa, không có
+      // bill để chụp. Chạm ô "Tiền mặt" chỉ CHỌN, không chốt (xem `chonHinhThuc`).
       if (mode === 'CASH' || mode === 'DEBT') submit();
       else setStep('qr');
       return;
@@ -425,10 +426,8 @@ export function CheckoutDialog({
 
   /** Chữ trên nút chính — nói thẳng việc sắp xảy ra. "Xác nhận" chung chung thì người ta không
    *  biết mình đang xác nhận cái gì, mà đây là cú bấm ghi tiền vào sổ. */
-  //  Màn soát bill LUÔN là "Thanh toán", kể cả với người không được thu chuyển khoản — tức kể cả
-  //  khi nút đó ghi tiền luôn chứ không mở màn nào nữa. Chữ ở đây phải là chữ họ vẫn quen bấm ở
-  //  nút 💰 ngoài màn bàn: người thu không biết (và không cần biết) rằng mình đang bỏ qua một màn
-  //  mà đồng nghiệp có quyền hơn thì phải đi qua.
+  //  Màn soát bill LUÔN là "Thanh toán" — chữ họ vẫn quen bấm ở nút 💰 ngoài màn bàn. Từ
+  //  2026-11-10 nút này không ghi tiền với ai cả: ai cũng sang màn 2 rồi bấm xác nhận.
   const nextLabel =
     step === 'items'
       ? settleDebt
@@ -436,9 +435,15 @@ export function CheckoutDialog({
         : withIcon('thanh-toan', 'Thanh toán')
       : step === 'mode' && mode === 'DEBT'
         ? withIcon('ghi-no', 'Xác nhận ghi nợ')
-        : step === 'bill' || (step === 'mode' && mode === 'CASH')
-          ? 'Xác nhận thu tiền'
-          : 'Tiếp tục →';
+        : step === 'mode' && mode === 'CASH'
+          ? // Nói rõ SỐ TIỀN ngay trên nút (2026-11-10): đây là cú bấm ghi tiền vào sổ, người thu
+            // đọc lại một lần trước khi bấm — chính là bước xác nhận chủ quán muốn. Hình thức nói
+            // bằng icon tiền mặt + ô "Tiền mặt" đang sáng ngay phía trên; thêm chữ "tiền mặt" thì
+            // nút (không xuống dòng) tràn trên điện thoại 390px.
+            withIcon('tien-mat', `Xác nhận thu ${fmt(total)}`)
+          : step === 'bill'
+            ? 'Xác nhận thu tiền'
+            : 'Tiếp tục →';
 
   const submit = async () => {
     if (blockReason) {
@@ -477,23 +482,16 @@ export function CheckoutDialog({
     }
   };
 
-  /* CHẠM HÌNH THỨC LÀ ĐI TIẾP (chủ quán chốt 2026-11-09) — bỏ cặp "chọn rồi bấm Tiếp tục".
-     Tiền mặt chốt luôn: đặt mode xong phải đợi một lượt render để `blockReason`/`submit` đọc
-     đúng mode mới, nên cú chốt đi qua cờ + effect thay vì gọi submit() ngay trong onClick
-     (lúc đó closure còn giữ mode cũ). */
-  const [chotTienMat, setChotTienMat] = useState(false);
-  useEffect(() => {
-    if (!chotTienMat || mode !== 'CASH') return;
-    setChotTienMat(false);
-    void submit();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chotTienMat, mode]);
+  /* CHẠM HÌNH THỨC (chủ quán chốt 2026-11-09, sửa 2026-11-10):
+     - Chuyển khoản / Cả hai → đi tiếp luôn sang màn QR (chưa ghi gì, còn lùi lại được).
+     - Tiền mặt → CHỈ CHỌN, ở lại màn này; nút đáy thành "Xác nhận thu …đ tiền mặt". Trước
+       2026-11-10 chạm là chốt luôn (đổi lấy 1 chạm), nhưng chạm nhầm là đóng bàn ngay không lùi
+       được — chủ quán đổi ý: "chọn tiền mặt xong vẫn cần 1 bước xác nhận nữa mới xong".
+     - Ghi nợ → ở lại màn này để gõ "ai nợ", nút "Xác nhận ghi nợ" dưới đáy. */
   const chonHinhThuc = (m: PayMode) => {
     if (submitting) return;
     setMode(m);
-    if (m === 'CASH') setChotTienMat(true);
-    else if (m === 'TRANSFER' || m === 'SPLIT') setStep('qr');
-    // DEBT: còn phải gõ "ai nợ" → ở lại màn này, nút "Xác nhận ghi nợ" dưới đáy.
+    if (m === 'TRANSFER' || m === 'SPLIT') setStep('qr');
   };
 
   const servedItems = items.filter((i) => i.state === 'SERVED');
@@ -603,10 +601,9 @@ export function CheckoutDialog({
               {/* Ô tick Misa ĐÃ BỎ khỏi hộp thoại thu tiền (2026-10-15): chỉ đơn thu qua mã QR
                   HKD mới phải gõ sang MISA, mà màn này chưa biết khách trả qua mã nào. Đánh dấu
                   ở màn Lịch sử — nút ở đó chỉ hiện với đơn HKD. */}
-              {/* Người KHÔNG được thu chuyển khoản chốt tiền mặt ngay màn này và không bao giờ
-                  thấy màn "trả bằng gì" — nhưng ghi nợ là quyền của mọi người (D-05). Một đường
-                  phụ nhỏ dẫn thẳng tới màn 2 với nút Ghi nợ đã chọn; đường chính (tiền mặt) vẫn
-                  là một cú bấm như cũ. */}
+              {/* Người KHÔNG được thu chuyển khoản: nút "Thanh toán" đưa sang màn 2 với Tiền mặt chọn
+                  sẵn (2026-11-10). Ghi nợ là quyền của mọi người (D-05) — đường phụ nhỏ này dẫn
+                  thẳng tới màn 2 với nút Ghi nợ đã chọn, đỡ một lần chọn lại. */}
               {!canCollectTransfer && !settleDebt && (
                 <button
                   type="button"
@@ -757,10 +754,11 @@ export function CheckoutDialog({
               MỘT nút cho cả ba màn (2026-09-15) thay vì mỗi màn một nhánh JSX: chữ và việc nó
               làm đều suy ra từ `step` (xem `nextLabel` / `goNext`), nên không có đường nào để hai
               nhánh lệch nhau — bản cũ đã có hai nút và chỉ một trong hai biết tới `blockReason`. */}
-          {/* Màn "trả bằng gì": các nút hình thức tự đi tiếp (2026-11-09), nên nút chính chỉ còn
-              ở Ghi nợ (phải gõ tên người nợ xong mới chốt) — và khi đang chốt tiền mặt để hiện
-              "Đang thanh toán…". */}
-          {(step !== 'mode' || mode === 'DEBT' || submitting) && (
+          {/* Màn "trả bằng gì": Chuyển khoản / Cả hai tự đi tiếp (2026-11-09), nên nút chính chỉ
+              hiện khi đã chọn Ghi nợ (gõ tên người nợ xong mới chốt) hoặc Tiền mặt (2026-11-10:
+              đây chính là bước xác nhận chủ quán muốn — chạm ô Tiền mặt chỉ chọn, bấm nút này
+              mới ghi tiền) — và lúc đang gửi để hiện "Đang thanh toán…". */}
+          {(step !== 'mode' || mode === 'DEBT' || mode === 'CASH' || submitting) && (
           <button
             type="button"
             onClick={goNext}
