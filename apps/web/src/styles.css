@@ -442,8 +442,18 @@ body.kds-mode .toast-banner.error {
   max-height: 90vh;
   max-height: 90dvh;
   overflow-y: auto;
+  /* Cuộn trong hộp tới mép thì DỪNG ở đó, không lan ra trang phía sau (2026-11-10, chủ quán
+     báo trên iPhone: "popup hiện ra nhưng khi vuốt lại tác động phần phía sau popup"). */
+  overscroll-behavior: contain;
   animation: slideUp 0.2s ease-out;
 }
+/* Lớp phủ cũng chặn: vuốt lên vùng tối quanh hộp không kéo trang nền theo. */
+.modal-overlay { overscroll-behavior: contain; }
+/* Đang mở hộp thoại thì trang nền đứng im. Trước đây chỉ `components/ui/Sheet.tsx` khoá cuộn
+   (bằng JS), còn tấm bàn và các hộp dùng .modal-overlay thì không — vuốt hết mép hộp là Safari
+   chuyển cú vuốt xuống trang phía sau. `:has` để mọi hộp .modal-overlay hưởng chung, không phải
+   nhớ gắn JS cho từng hộp (Safari iOS ≥ 15.4). */
+body:has(.modal-overlay) { overflow: hidden; }
 
 /* Hộp thoại KHÔNG đệm hai bên trên điện thoại (2026-09-08, chủ quán: "loại bỏ margin và
    padding hai bên"). Dùng cho drawer chi tiết bàn: ở đó mỗi món có một hàng 4 nút, và 48px
@@ -463,6 +473,11 @@ body.kds-mode .toast-banner.error {
   max-height: 95dvh;
   padding-left: 8px;
   padding-right: 8px;
+  /* KHÔNG cho cuộn ngang (2026-11-10). `overflow-y: auto` kéo theo `overflow-x: auto` (quy tắc
+     CSS), mà nội dung tấm bàn rộng hơn hộp ~8px trên iPhone (đo WebKit: 398 > 390) → vuốt ngang
+     một món để mở ô "Đã giao / Ưu tiên" thì Safari cuộn luôn CẢ TẤM BÀN sang trái, chủ quán báo
+     "popup bị kéo ra hẳn khỏi màn hình, rất lỏng lẻo". */
+  overflow-x: hidden;
   /* Đệm TRÊN bỏ hẳn: đầu drawer là thanh `sticky`, mà `sticky` neo vào mép trong của khung
      cuộn — còn đệm là thanh dính hụt xuống đúng bằng ngần ấy, món cuộn lên lòi ra phía trên.
      Phần đệm đó chuyển vào trong chính thanh (.drawer-sticky-head). */
@@ -3959,6 +3974,10 @@ button.item-next-btn::after { content: ""; position: absolute; inset: -4px; }
   animation: item-swipe-in 0.18s ease-out;
 }
 @keyframes item-swipe-in { from { transform: translateX(100%); } to { transform: none; } }
+/* Thẻ món: trình duyệt CHỈ tự xử lý vuốt DỌC (cuộn danh sách). Vuốt ngang để riêng cho việc mở/cất
+   ô thao tác (OrderDrawer onTouchStart/onTouchEnd) — không thì cùng một cú vuốt vừa mở ô vừa bị
+   Safari dùng để kéo lệch hộp (2026-11-10). */
+.item-card { touch-action: pan-y; }
 @media (prefers-reduced-motion: reduce) { .item-swipe { animation: none; } }
 .item-swipe button {
   width: 76px;

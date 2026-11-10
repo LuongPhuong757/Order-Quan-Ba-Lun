@@ -794,6 +794,13 @@ export function BulkOrderModal({
           /* Mỗi thẻ cao theo nội dung CỦA NÓ (2026-11-09): thẻ đã chọn cao hơn vì có thanh
              − số +, mặc định stretch kéo thẻ hết món cùng hàng cao theo, để lại khoảng trống. */
           align-items: start;
+          /* HÀNG cao theo nội dung thẻ, KHÔNG co theo khung (2026-11-10). Safari/WebKit coi thẻ
+             (overflow: clip + content-visibility) có chiều cao tối thiểu 0, rồi chia đều chiều cao
+             khung danh sách cho 598 hàng auto → mỗi hàng ~0,7px, cả 598 thẻ vẽ chồng lên nhau
+             (ảnh chủ quán gửi từ iPhone trên dev). Chrome không bị nên đo Chrome không thấy.
+             Đo WebKit 18.2: bỏ clip / bỏ content-visibility / min-height đều KHÔNG chữa được;
+             chỉ max-content chữa được, và Chrome vẫn đúng. */
+          grid-auto-rows: max-content;
         }
         /* Khung bọc thẻ món — chỗ neo cho nút ghi chú (thẻ là <button>, không lồng nút vào được). */
         /* content-visibility KHÔNG phải tinh chỉnh vặt — nó là thứ chữa cú "tap món xong đơ
