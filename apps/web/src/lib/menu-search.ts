@@ -87,3 +87,30 @@ export function filterMenuBySearch<T extends MenuSearchTarget>(items: T[], query
     .sort((a, b) => b.score - a.score || a.item.name.length - b.item.name.length)
     .map((r) => r.item);
 }
+
+/** Món HẾT xuống cuối (chủ quán chốt 2026-11-09) — trước nằm lẫn giữa món còn bán ở màn Gọi
+ *  món, liếc nhầm là chạm trượt. Giữ nguyên thứ tự mọi thứ khác (sắp xếp ổn định):
+ *  - đang tìm: danh sách đã xếp theo độ khớp, chỉ đẩy món hết xuống cuối cả danh sách;
+ *  - không tìm: món hết xuống cuối NHÓM của nó, các nhóm giữ thứ tự xuất hiện. */
+export function dayMonHetXuongCuoi<T extends { group: string; is_out_of_stock: boolean }>(
+  list: T[],
+  dangTim: boolean,
+): T[] {
+  if (!list.some((it) => it.is_out_of_stock)) return list;
+  if (dangTim) {
+    return [...list.filter((it) => !it.is_out_of_stock), ...list.filter((it) => it.is_out_of_stock)];
+  }
+  const thuTuNhom = new Map<string, number>();
+  list.forEach((it) => {
+    if (!thuTuNhom.has(it.group)) thuTuNhom.set(it.group, thuTuNhom.size);
+  });
+  return list
+    .map((it, i) => ({ it, i }))
+    .sort(
+      (a, b) =>
+        thuTuNhom.get(a.it.group)! - thuTuNhom.get(b.it.group)! ||
+        Number(a.it.is_out_of_stock) - Number(b.it.is_out_of_stock) ||
+        a.i - b.i,
+    )
+    .map((x) => x.it);
+}

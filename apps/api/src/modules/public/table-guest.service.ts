@@ -109,12 +109,7 @@ export class TableGuestService {
     }
 
     const table = match.table;
-    if (table.kiotviet_locked) {
-      throw new ConflictException({
-        code: 'TABLE_KIOTVIET_LOCKED',
-        message: 'Bàn này đang khoá. Nhờ nhân viên giúp bạn nhé.',
-      });
-    }
+    // (Chặn bàn khoá KiotViet đã bỏ 2026-11-09 — chức năng KiotViet không còn.)
 
     const open = await this.orders.findOne({ where: { table_id: table.id, closed_at: IsNull() } });
 

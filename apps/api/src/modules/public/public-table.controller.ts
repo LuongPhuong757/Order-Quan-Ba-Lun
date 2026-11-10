@@ -20,9 +20,10 @@ import { hashIp, resolveIpHashSalt } from './ip-hash.js';
  * `CsrfOriginGuard` đã phủ sẵn `/api/public/*` → mọi POST bắt buộc có header `Origin` hợp lệ.
  * Thử tay bằng curl mà quên `Origin` thì nhận 403, và triệu chứng trông y hệt lỗi code.
  *
- * ⚠ M7.R6 — `getTracker` của throttler PHẢI đổi sang `guest:<token>` cho nhánh này. Cả quán đi
- *   chung MỘT IP public; 20 khách poll 5 giây là +240 req/phút trên đúng IP đó, đủ làm 429 nút
- *   "Báo bếp" của nhân viên.
+ * M7.R6 — throttler đếm khách theo `guest:<token>` (mở bàn lần đầu: theo số bàn + IP), KHÔNG
+ *   theo IP: cả quán đi chung MỘT IP public. Đã làm 2026-11-10 ở `guest-throttle-key.ts` +
+ *   `read-only-throttler.guard.ts`; trước đó bài tải 30 bàn có 20/30 điện thoại bị 429 lúc mở bàn.
+ *   Các hạn mức `@Throttle` dưới đây vì thế là hạn mức CỦA MỘT KHÁCH, không phải của cả quán.
  */
 @Controller('api/public/table')
 export class PublicTableController {

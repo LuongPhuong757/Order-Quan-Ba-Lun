@@ -1,6 +1,7 @@
 // Bell icon trong header + modal liệt kê thông báo. Dùng notificationStore.
 import { Icon, type IconName } from './ui/Icon.tsx';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { notificationStore, formatTime, type NotificationEntry, type NotificationKind } from '../lib/notification-store.ts';
 
 // Icon nét một màu (màu lấy từ KIND_COLOR ở thẻ bao) — dòng chữ bên cạnh đã nói nghĩa.
@@ -80,7 +81,11 @@ export function NotificationBell() {
         )}
       </button>
 
-      {open && (
+      {/* PORTAL ra <body> (2026-11-09): chuông nằm TRONG `.header` — header là sticky + z-index 200
+          nên tự lập một stacking context, và zIndex 10000 của lớp phủ chỉ có nghĩa BÊN TRONG nó.
+          Dải QR (202) + dải bàn chưa trả (201) là anh em của header nên đè lên lớp phủ, che mất
+          đầu hộp (tiêu đề + nút đóng). Ra khỏi header thì 10000 mới so với cả trang. */}
+      {open && createPortal(
         <div
           role="dialog"
           aria-modal="true"
@@ -184,7 +189,8 @@ export function NotificationBell() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </>
   );

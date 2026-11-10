@@ -24,9 +24,15 @@ import { formatAge } from '../lib/item-age.ts';
 import type { StaleUnpaid } from '../lib/stale-unpaid.ts';
 import { Icon } from './ui/Icon.tsx';
 
-type Props = { data: StaleUnpaid | null };
+type Props = {
+  data: StaleUnpaid | null;
+  /** `list` = nằm trong tấm trượt "Cần xử lý" của điện thoại (2026-11-09): không dính, không đo
+   *  chiều cao, chip xếp xuống dòng thay vì vuốt ngang. `onPick` để đóng tấm sau khi chọn bàn. */
+  variant?: 'strip' | 'list';
+  onPick?: () => void;
+};
 
-export function StaleTableBanner({ data }: Props) {
+export function StaleTableBanner({ data, variant = 'strip', onPick }: Props) {
   const navigate = useNavigate();
   const ref = useRef<HTMLDivElement>(null);
   const items = data?.items ?? [];
@@ -35,6 +41,8 @@ export function StaleTableBanner({ data }: Props) {
   useEffect(() => {
     const root = document.documentElement;
     const el = ref.current;
+    // Dạng danh sách không dính nên không khai chiều cao — dòng gộp `PhoneAlertBar` tự khai.
+    if (variant === 'list') return;
     if (!visible || !el) {
       root.style.removeProperty('--stale-banner-h');
       return;
@@ -47,9 +55,40 @@ export function StaleTableBanner({ data }: Props) {
       ro.disconnect();
       root.style.removeProperty('--stale-banner-h');
     };
-  }, [visible]);
+  }, [visible, variant]);
 
   if (!visible || !data) return null;
+
+  if (variant === 'list') {
+    return (
+      <section className="alert-sheet__part alert-sheet__part--stale">
+        <h3 className="alert-sheet__h">
+          <Icon name="canh-bao" size={18} />
+          {items.length} bàn chưa trả
+        </h3>
+        <div className="alert-sheet__chips">
+          {items.map((it) => (
+            <button
+              key={it.order_id}
+              type="button"
+              className="stale-banner-chip"
+              onClick={() => {
+                onPick?.();
+                navigate(`/orders?table=${encodeURIComponent(it.table_id)}`);
+              }}
+            >
+              <strong>{it.label}</strong>
+              <span>
+                {it.reason === 'done' && it.done_age_ms !== null
+                  ? `xong ${formatAge(it.done_age_ms / 60_000)}`
+                  : formatAge(it.open_ms / 60_000)}
+              </span>
+            </button>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
     <div ref={ref} className="stale-banner" role="alert">

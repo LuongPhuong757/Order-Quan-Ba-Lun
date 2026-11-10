@@ -31,8 +31,9 @@ export class RestaurantTable {
   @Column({ type: 'boolean', default: true })
   is_active!: boolean;
 
-  // Đánh dấu bàn đang được order qua KiotViet (POS ngoài). Khi true → hệ thống
-  // này CHẶN tạo/mở đơn trên bàn để tránh 1 bàn dùng 2 hệ thống cùng lúc.
+  // KHÔNG CÒN DÙNG (2026-11-09): từng đánh dấu bàn đang order qua KiotViet và chặn tạo đơn. Chức
+  // năng đã bỏ hẳn; cột GIỮ trong entity vì `synchronize` sẽ DROP cột nào không khai — DB dev dùng
+  // chung giữa các worktree, nhánh cũ còn đọc cột này thì vỡ. Không code nào đọc/ghi nó nữa.
   @Column({ type: 'boolean', default: false })
   kiotviet_locked!: boolean;
 

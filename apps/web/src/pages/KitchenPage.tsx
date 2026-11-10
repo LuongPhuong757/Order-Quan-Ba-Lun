@@ -30,6 +30,7 @@ import { guestPendingStore } from '../lib/guest-pending.ts';
 import { type PendingPayload } from '../lib/kds-guest-cards.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { shouldReloadCatalog, type CatalogPollState } from '../lib/kds-catalog-poll.ts';
+import { attachPausedPollResume } from '../lib/paused-poll-resume.ts';
 import {
   addCancelled,
   describeCancelled,
@@ -142,7 +143,7 @@ const TAB_OF_STATE: Record<string, TabKey> = {
 const STATE_META: Record<string, { color: string; label: string }> = {
   KITCHEN: { color: '#1565c0', label: 'Chờ làm' },
   COOKING: { color: '#1565c0', label: 'Chờ làm' },
-  READY: { color: '#22a04a', label: 'Đã xong' },
+  READY: { color: '#db2777', label: 'Đã xong' }, // hồng — cùng màu "Đã xong" ở màn Order (2026-11-10)
 };
 
 type ViewKey = 'priority' | 'item' | 'table';
@@ -525,6 +526,26 @@ export function KitchenPage() {
       clearInterval(tNow);
     };
   }, [refresh]);
+
+  /* Tự nối lại sau khi poll tạm dừng vì lỗi mạng liên tiếp (2026-11-10, QA BUG-05). Trước đây
+     chỉ nút "làm mới" ở thanh dưới mới bật lại được — wifi chập ~20 giây là màn Bếp đứng im,
+     món mới không hiện mà bếp không biết. Xem `paused-poll-resume.ts`.
+     `refresh(false)` không ném lỗi, không bật toast, và tự đặt `errorCountRef = 0` khi tải
+     được — nên "thử thành công" chính là số lỗi về 0. */
+  useEffect(
+    () =>
+      attachPausedPollResume({
+        isPaused: () => !pollEnabledRef.current,
+        probe: async () => {
+          await refresh(false);
+          return errorCountRef.current === 0;
+        },
+        resume: () => {
+          pollEnabledRef.current = true;
+        },
+      }),
+    [refresh],
+  );
 
   // Flatten items vào 2 buckets theo tab + filter theo group(s).
   // groupFilters empty → match all; else → match nếu group thuộc set đã chọn.

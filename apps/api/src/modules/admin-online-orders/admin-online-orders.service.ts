@@ -165,7 +165,7 @@ export class AdminOnlineOrdersService {
   ): Promise<{ table: { id: string; code: string; name: string }; tableCreated: boolean }> {
     const candidates: Array<{ id: string; code: string; name: string }> = await mgr.query(
       `SELECT t.id, t.code, t.name FROM restaurant_tables t
-       WHERE t.kind = ? AND t.is_active = 1 AND t.kiotviet_locked = 0
+       WHERE t.kind = ? AND t.is_active = 1
          AND t.id NOT IN (SELECT o.table_id FROM orders o WHERE o.closed_at IS NULL)
        ORDER BY t.code ASC LIMIT 1 FOR UPDATE`,
       [kind],
