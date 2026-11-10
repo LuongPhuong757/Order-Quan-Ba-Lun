@@ -40,8 +40,16 @@ describe('formatAge', () => {
     expect(formatAge(59.9)).toBe('59p');
   });
 
-  it('ca dài bất thường vẫn đọc được, không quy sang ngày', () => {
+  it('dưới 24 giờ vẫn là giờ+phút', () => {
     expect(formatAge(600)).toBe('10h');
-    expect(formatAge(1445)).toBe('24h5p');
+    expect(formatAge(1439)).toBe('23h59p');
+  });
+
+  // Đổi 2026-11-09 (chủ quán duyệt): bàn quên đóng từng hiện "890h18p" — khó đọc. Từ 24 giờ
+  // trở lên chỉ còn số ngày.
+  it('từ 24 giờ trở lên hiện số ngày', () => {
+    expect(formatAge(1440)).toBe('1 ngày');
+    expect(formatAge(1445)).toBe('1 ngày');
+    expect(formatAge(53297)).toBe('37 ngày');
   });
 });

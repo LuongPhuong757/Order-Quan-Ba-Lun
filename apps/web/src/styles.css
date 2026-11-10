@@ -49,6 +49,21 @@ button {
   transition: opacity 0.15s ease;
 }
 
+/* Nút CHỈ có một icon (✕ đóng, ⋯ …): căn giữa bằng flex, KHÔNG dựa vào dòng chữ.
+   Icon lucide là <svg> inline → đứng trên đường chân chữ như một ký tự, phần "đuôi chữ" bên dưới
+   vẫn chiếm chỗ nên icon bị đẩy LÊN 2–3px; mức lệch tuỳ font/trình duyệt (Chrome headless thấy
+   cân, máy chủ quán thấy lệch rõ — 2026-11-10, nút ✕ màn Gọi món). Flex item không có đường chân
+   chữ nên hết lệch ở mọi trình duyệt. `:has` không nhìn thấy chữ trơn bên cạnh, nhưng nếu nút có
+   cả chữ thì inline-flex vẫn xếp chữ + icon thẳng hàng giữa — không vỡ.
+   ⚠ BỌC `:where()` để độ ưu tiên = 0: bản đầu không bọc, (0,2,2) đè mất `display: none` của các
+   nút ẩn theo màn hình (vd `.kds-panel-switch` màn Bếp) → nút lẽ ra ẩn ở màn rộng hiện ra. Mọi
+   rule `display` riêng của từng nút phải luôn thắng rule chung này. */
+:where(button:has(> svg.lucide:only-child)) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 button:hover {
   opacity: 0.9;
 }
@@ -259,7 +274,8 @@ h2 {
      câu giải thích ("Vui lòng chọn mã QR…") hiện ra ở nơi người dùng không nhìn thấy.
      Thông báo là thứ PHẢI đọc được bất kể đang mở gì, nên nó đứng trên cùng — cùng lý do dải
      cảnh báo môi trường (styles.css ~2068) được đặt trên modal.
-     Bảng lớp hiện tại: overlay 9998, hộp thoại 10000-10010, HelpModal 11000, thông báo 11500. */
+     Bảng lớp hiện tại: overlay 9998, hộp thoại 10000-10010, tấm ds-sheet 10500, hộp duyệt QR 10600,
+     hộp xác nhận + HelpModal 11000, thông báo 11500 (cập nhật 2026-11-10). */
   z-index: 11500;
   pointer-events: none; /* chỉ banner bên trong nhận click (nút ✕) */
 }
@@ -426,8 +442,18 @@ body.kds-mode .toast-banner.error {
   max-height: 90vh;
   max-height: 90dvh;
   overflow-y: auto;
+  /* Cuộn trong hộp tới mép thì DỪNG ở đó, không lan ra trang phía sau (2026-11-10, chủ quán
+     báo trên iPhone: "popup hiện ra nhưng khi vuốt lại tác động phần phía sau popup"). */
+  overscroll-behavior: contain;
   animation: slideUp 0.2s ease-out;
 }
+/* Lớp phủ cũng chặn: vuốt lên vùng tối quanh hộp không kéo trang nền theo. */
+.modal-overlay { overscroll-behavior: contain; }
+/* Đang mở hộp thoại thì trang nền đứng im. Trước đây chỉ `components/ui/Sheet.tsx` khoá cuộn
+   (bằng JS), còn tấm bàn và các hộp dùng .modal-overlay thì không — vuốt hết mép hộp là Safari
+   chuyển cú vuốt xuống trang phía sau. `:has` để mọi hộp .modal-overlay hưởng chung, không phải
+   nhớ gắn JS cho từng hộp (Safari iOS ≥ 15.4). */
+body:has(.modal-overlay) { overflow: hidden; }
 
 /* Hộp thoại KHÔNG đệm hai bên trên điện thoại (2026-09-08, chủ quán: "loại bỏ margin và
    padding hai bên"). Dùng cho drawer chi tiết bàn: ở đó mỗi món có một hàng 4 nút, và 48px
@@ -447,6 +473,11 @@ body.kds-mode .toast-banner.error {
   max-height: 95dvh;
   padding-left: 8px;
   padding-right: 8px;
+  /* KHÔNG cho cuộn ngang (2026-11-10). `overflow-y: auto` kéo theo `overflow-x: auto` (quy tắc
+     CSS), mà nội dung tấm bàn rộng hơn hộp ~8px trên iPhone (đo WebKit: 398 > 390) → vuốt ngang
+     một món để mở ô "Đã giao / Ưu tiên" thì Safari cuộn luôn CẢ TẤM BÀN sang trái, chủ quán báo
+     "popup bị kéo ra hẳn khỏi màn hình, rất lỏng lẻo". */
+  overflow-x: hidden;
   /* Đệm TRÊN bỏ hẳn: đầu drawer là thanh `sticky`, mà `sticky` neo vào mép trong của khung
      cuộn — còn đệm là thanh dính hụt xuống đúng bằng ngần ấy, món cuộn lên lòi ra phía trên.
      Phần đệm đó chuyển vào trong chính thanh (.drawer-sticky-head). */
@@ -513,36 +544,7 @@ body.kds-mode .toast-banner.error {
 .drawer-menu button:hover:not(:disabled) { background: var(--gray-50); opacity: 1; }
 .drawer-menu button:disabled { color: var(--gray-400); }
 
-/* Nút GỌI MÓN hình tròn, dính đáy khung drawer.
-   Khung bọc cao 0 nên KHÔNG chiếm chỗ trong dòng chảy — nếu nó có chiều cao thì món cuối cùng
-   bị đẩy lên và luôn thừa một khoảng trắng dưới đáy. `pointer-events: none` để dải trong suốt
-   này không nuốt cú chạm vào món nằm dưới nó; riêng cái nút bật lại. */
-.drawer-fab-wrap {
-  position: sticky;
-  bottom: 0;
-  height: 0;
-  display: flex;
-  justify-content: flex-end;
-  pointer-events: none;
-  z-index: 30;
-}
-
-.drawer-fab {
-  pointer-events: auto;
-  transform: translateY(-68px);
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  min-height: 56px;
-  padding: 0;
-  border-radius: 50%;
-  background: var(--teal-700);
-  color: white;
-  font-size: 30px;
-  font-weight: 400;
-  line-height: 1;
-  box-shadow: 0 6px 18px rgba(15, 118, 110, 0.45);
-}
+/* Nút GỌI MÓN tròn nổi (.drawer-fab) đã BỎ 2026-11-09 → thay bằng `.drawer-bottom-bar` (cuối file). */
 
 /* Hàng nút của một món: mặc định ẨN, mở bằng cú vuốt ngang hoặc nút ⋯ (chủ quán 2026-09-08).
    TRƯỢT NGANG chứ không đổ dọc: `transform: translateX(-100%) → 0`. Chiều cao vẫn phải mở ra
@@ -595,10 +597,12 @@ body.kds-mode .toast-banner.error {
    Nền trắng + thẻ món bên trong nền trắng nốt, nên khung đọc ra như một tờ phiếu, không phải
    thêm một lớp hộp nữa. */
 .item-section {
-  border: 1px solid;
-  border-radius: 12px;
-  padding: 10px 8px 4px;
-  margin-bottom: 12px;
+  /* KHUNG BỎ (chủ quán 2026-11-09): cùng với nhãn nhóm — viền trái màu của từng thẻ món đã nói
+     trạng thái, khung bao + nhãn chỉ ăn chỗ. Giữ khoảng hở nhỏ giữa hai nhóm để mắt vẫn thấy
+     ranh giới khi màu đổi. border: 0 đè cả borderColor inline trong OrderDrawer. */
+  border: 0;
+  padding: 0;
+  margin-bottom: 10px;
 }
 
 /* Tiêu đề vùng: CHIP ôm sát chữ, không phải dải chạy hết bề ngang.
@@ -1013,7 +1017,13 @@ a:hover {
      ⚠ Header vẫn `position: sticky`, nên khi cuộn, nội dung trang chạy NGAY DƯỚI chữ của
      header. Đổi lại đúng thứ được yêu cầu; nếu chữ bị chồng khó đọc thì đường sửa là bỏ sticky
      hoặc thêm `backdrop-filter`, KHÔNG phải trả lại nền trắng. */
-  background: transparent;
+  /* KÍNH MỜ (2026-11-09, chủ quán chọn): trong suốt hẳn thì khi cuộn, chữ thẻ bàn hiện lẫn ngay
+     dưới chữ header. Đúng hướng ghi ở trên — làm mờ thứ phía sau chứ không trả nền trắng đặc:
+     header vẫn nhẹ, vẫn thấy dải đỏ dev phía sau, nhưng chữ bên dưới không còn đọc lẫn.
+     Máy không hỗ trợ `backdrop-filter` vẫn có nền trắng 88% — đủ che chữ phía sau. */
+  background: rgba(255, 255, 255, 0.88);
+  -webkit-backdrop-filter: saturate(160%) blur(12px);
+  backdrop-filter: saturate(160%) blur(12px);
   border-bottom: 1px solid var(--gray-200);
   padding: 10px 14px;
   display: flex;
@@ -1026,7 +1036,9 @@ a:hover {
   position: sticky;
   /* `--stale-banner-h` = dải đỏ "bàn ngồi quá lâu" (StaleTableBanner) đang dính phía trên.
      `--qr-banner-h` = dải "khách gọi QR" (GuestQrBanner) nằm trên cả dải đỏ. */
-  top: calc(var(--env-banner-h, 0px) + var(--qr-banner-h, 0px) + var(--stale-banner-h, 0px));
+  /* Header đứng TRÊN CÙNG, các dải cảnh báo nằm ngay DƯỚI nó (chủ quán 2026-11-09). Trước đây dải
+     QR / dải đỏ nằm trên header. Chiều cao header khai qua `--header-h` (đo ở ProtectedShell). */
+  top: var(--env-banner-h, 0px);
   z-index: 200;
   box-sizing: border-box;
 }
@@ -1043,14 +1055,13 @@ a:hover {
   flex-wrap: wrap;
 }
 
+/* Logo quán ở góc trái header, MỌI màn (chủ quán 2026-11-09) — trước chỉ có chữ, điện thoại thì
+   không có gì. Cùng file favicon.svg với tab trình duyệt và màn đăng nhập. */
+.header .brand-logo { width: 32px; height: 32px; flex: none; display: block; }
 @media (max-width: 480px) {
   .header { padding: 8px 10px; }
-  /* Mobile: ẩn cả logo emoji + brand text — chừa diện tích cho name + noti + logout */
+  /* Mobile: ẩn chữ tên quán — chừa diện tích cho tên người + chuông + đăng xuất; logo vẫn giữ. */
   .header .brand .brand-text { display: none; }
-  .header .brand .brand-short { display: none; }
-}
-@media (min-width: 481px) {
-  .header .brand .brand-short { display: none; }
 }
 
 .header .user-chip__name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -3349,7 +3360,7 @@ button.mm-b:disabled:hover { background: #e8eaec; border-color: #d3d7da; color: 
 .stale-banner {
   position: sticky;
   /* Dải QR (GuestQrBanner) đứng TRÊN dải này — tụt xuống đúng chiều cao của nó. */
-  top: calc(var(--env-banner-h, 0px) + var(--qr-banner-h, 0px));
+  top: calc(var(--env-banner-h, 0px) + var(--header-h, 0px) + var(--qr-banner-h, 0px));
   z-index: 201;
   display: flex;
   align-items: center;
@@ -3408,8 +3419,11 @@ button.stale-banner-chip {
   padding: 0;
 }
 .kds-guest-rail::-webkit-scrollbar { display: none; }
+/* z-index 10600 (B4, test E2E 2026-11-10): trên điện thoại hộp này mở TỪ TRONG tấm "Cần xử lý"
+   (.ds-sheet-bg, 10500) — để 320 như cũ là hộp duyệt nằm DƯỚI tấm, không bấm được "Nhận món" /
+   "Đã nghe". Thứ tự: tấm 10500 < hộp này 10600 < hộp xác nhận 11000 < toast 11500. */
 .kds-guest-overlay {
-  position: fixed; inset: 0; z-index: 320; background: rgb(15 23 42 / 55%);
+  position: fixed; inset: 0; z-index: 10600; background: rgb(15 23 42 / 55%);
   display: flex; align-items: center; justify-content: center; padding: 16px;
 }
 .kds-guest-modal {
@@ -3496,7 +3510,7 @@ button.stale-banner-chip {
    Ở màn Order và màn Bếp. Nằm TRÊN dải đỏ (z-index cao hơn 1). */
 .qr-banner {
   position: sticky;
-  top: var(--env-banner-h, 0px);
+  top: calc(var(--env-banner-h, 0px) + var(--header-h, 0px));
   z-index: 202;
   display: flex;
   align-items: center;
@@ -3726,3 +3740,294 @@ button.login-submit:disabled { opacity: 0.8; }
 }
 /* Chữ báo lỗi ở màn đăng nhập ≥ 15px (sàn chữ phụ) — `.field-error` chung đang 14px. */
 .login-card .field-error { font-size: 15px; }
+
+
+/* ── Màn Order / Sơ đồ bàn (2026-11-09, docs/UI-UX/so-do-ban.md) ───────────────────────────── */
+/* Máy tính: nới tới 1200px (~7 cột thẻ) — 960px cũ bỏ trống gần nửa màn 1350px. */
+.container.orders-page { max-width: 1200px; }
+/* Chữ chỉ dành cho trình đọc màn hình — mắt không thấy, không chiếm chỗ (vd tiêu đề "Sơ đồ bàn"
+   bỏ hẳn 2026-11-09 nhưng trang vẫn cần một h1 làm mốc cho VoiceOver). */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Thanh dính ĐÁY của sheet bàn: [＋ Thêm món] [Thanh toán] (chủ quán 2026-11-09). Thay nút ＋
+   tròn nổi (đè nút "Ưu tiên" của món cuối) và nút Thanh toán ở đầu sheet (sát ✕, dễ bấm nhầm
+   khi chỉ muốn xem món). Nằm TRONG dòng chảy cuối danh sách + `sticky` → không bao giờ đè món
+   nào. Lề âm như `.drawer-sticky-head` để nền trắng ăn ra sát mép. */
+.modal-overlay > .modal.modal-flush:has(.drawer-bottom-bar) { padding-bottom: 0; }
+.drawer-bottom-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 30;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 10px;
+  margin: 16px -8px 0;
+  padding: 10px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: #fff;
+  border-top: 1px solid var(--gray-200);
+}
+/* 1fr 1.25fr: Thanh toán rộng hơn chút (việc chốt), nhưng "Thêm món" vẫn đủ chỗ nằm MỘT dòng ở
+   máy 390px — 1.4fr cũ làm chữ gãy "Thêm / món", nút cao 79px (đo thật 2026-11-09). */
+.drawer-bottom-bar:has(.drawer-bar-add):has(.drawer-bar-pay) { grid-template-columns: 1fr 1.25fr; }
+.drawer-bottom-bar button {
+  min-height: 56px;
+  padding: 0 10px;
+  font-size: 17px;
+  font-weight: 800;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+button.drawer-bar-add {
+  background: #fff;
+  color: var(--brand);
+  border: 2px solid var(--brand);
+}
+@media (min-width: 640px) {
+  .drawer-bottom-bar { margin-left: -24px; margin-right: -24px; padding-left: 24px; padding-right: 24px; }
+}
+
+/* Dòng báo GỘP trên điện thoại (PhoneAlertBar, 2026-11-09) — thay hai dải dính "bàn QR" và
+   "bàn chưa trả". Một dòng 44px, bấm mở tấm trượt "Cần xử lý". Có QR thì tông tím (việc gấp). */
+button.alert-line {
+  position: sticky;
+  top: calc(var(--env-banner-h, 0px) + var(--header-h, 0px));
+  z-index: 202;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-bottom: 1px solid var(--red-200);
+  border-radius: 0;
+  background: var(--red-50);
+  color: var(--red-800, #991b1b);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: left;
+}
+button.alert-line--qr { background: var(--violet-50, #f5f3ff); border-bottom-color: var(--violet-200, #ddd6fe); }
+.alert-line__part { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.alert-line__part--qr { color: var(--violet-700, #6d28d9); }
+.alert-line__go { margin-left: auto; white-space: nowrap; color: var(--gray-700); }
+.alert-sheet { display: flex; flex-direction: column; gap: 16px; padding: 4px 16px 20px; overflow-y: auto; }
+.alert-sheet__part { display: flex; flex-direction: column; gap: 8px; }
+.alert-sheet__h { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 16px; }
+.alert-sheet__part--qr .alert-sheet__h { color: var(--violet-700, #6d28d9); }
+.alert-sheet__part--stale .alert-sheet__h { color: var(--red-700); }
+/* Trong tấm: chip xếp xuống dòng, không vuốt ngang như trên dải. */
+.alert-sheet .kds-guest-rail, .alert-sheet__chips { display: flex; flex-wrap: wrap; gap: 8px; overflow: visible; }
+.alert-sheet button.stale-banner-chip, .alert-sheet .qr-banner-chip { min-height: 44px; }
+
+/* ── Hộp Thanh toán = tấm trượt đáy trên điện thoại (2026-11-09) ─────────────────────────────
+   Điện thoại: dính đáy, bo 2 góc trên, nút chốt nằm sát mép dưới (tầm ngón cái). Đệm vùng an
+   toàn đáy để thanh home của iPhone không đè lên nút. iPad/máy tính: tấm nổi, cách đáy 24px.
+   z-index 10010 giữ như cũ (trên drawer bàn, dưới các hộp con mở từ trong nó). */
+.pay-sheet-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 10010;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(2px);
+}
+.pay-sheet {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #fff;
+  border-radius: 18px 18px 0 0;
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.2);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  animation: pay-sheet-in 0.2s ease-out;
+}
+@keyframes pay-sheet-in { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .pay-sheet { animation: none; } }
+@media (min-width: 768px) {
+  .pay-sheet-bg { padding: 0 16px 24px; }
+  .pay-sheet { border-radius: 18px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); padding-bottom: 0; }
+}
+
+/* ── Tấm bàn (drawer chi tiết bàn) CAO HẾT MÀN trên điện thoại (chủ quán 2026-11-09) ─────────
+   Trước: max-height 95dvh + lớp phủ đẩy xuống đáy → bàn ít món là hộp thấp, hở cả khoảng trên,
+   lộ header app phía sau. Cùng cách với hộp Gọi món. Đệm tai thỏ/giờ iPhone đặt vào CHÍNH thanh
+   đầu dính (.drawer-sticky-head) chứ không vào .modal — đệm ở .modal làm thanh dính hụt xuống,
+   món cuộn lên lòi ra phía trên (xem chú thích .modal-flush). Mốc 640px = mốc tấm này đổi dáng. */
+@media (max-width: 639px) {
+  .modal-overlay > .modal.modal-flush {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+  .modal-flush .drawer-sticky-head {
+    padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  }
+  /* Bàn ít món: tấm cao hết màn mà thanh [Thêm món][Thanh toán] nằm ngay sau món cuối thì
+     lơ lửng giữa màn. Cột flex + margin-top:auto đẩy nó xuống sát đáy; bàn nhiều món thì nó
+     vẫn dính đáy khi cuộn (sticky) như cũ. Con của cột flex không bị bóp nhỏ (min-height
+     auto) nên danh sách món dài vẫn cuộn bình thường. */
+  .modal-overlay > .modal.modal-flush { display: flex; flex-direction: column; }
+  .modal-flush > .drawer-bottom-bar { margin-top: auto; }
+}
+
+/* Nút "Đã giao" / "Báo bếp" của một món — NHỎ, dưới giá ở cột phải thẻ món (2026-11-09). Cao 36px
+   + vùng chạm ::after ra ~44px. Viết button.item-next-btn: luật nút chung tô nền/padding cho mọi nút. */
+button.item-next-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+button.item-next-btn::after { content: ""; position: absolute; inset: -4px; }
+
+/* Menu ⋯ của MỘT món: lật LÊN trên nút khi bên dưới hết chỗ (món cuối danh sách, 2026-11-09). */
+.drawer-menu.drawer-menu--len { top: auto; bottom: calc(100% + 6px); }
+/* Dòng "Số lượng [− n +]" trong menu ⋯ của món — không phải nút, là một hàng chứa bộ đếm. */
+.drawer-menu .item-menu-qty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 12px;
+  font-size: 16px;
+  color: var(--gray-800);
+  border-top: 1px solid var(--gray-100);
+}
+.drawer-menu .item-menu-qty:first-child { border-top: 0; }
+.drawer-menu .item-menu-qty[aria-busy="true"] { opacity: 0.6; }
+.drawer-menu .item-menu-qty + button { border-top: 1px solid var(--gray-100); }
+/* Nút − / + của bộ đếm nằm TRONG menu: chặn luật ".drawer-menu button" (đệm 12/14, cao 46px,
+   viền trên giữa hai nút liền nhau) áp nhầm lên chúng — trả về đúng dáng QtyStepper. */
+.drawer-menu .item-menu-qty button.ds-qty__btn {
+  padding: 0;
+  min-height: 30px;
+  border-radius: var(--radius-pill);
+  text-align: center;
+  font-size: 16px;
+  font-weight: var(--fw-semibold);
+  color: var(--brand);
+  border-top: 0;
+}
+
+/* Thẻ món trong tấm bàn: lưới 2 cột × 3 hàng (2026-11-09). Cột trái giãn hết chỗ còn lại, cột
+   phải ôm nội dung và căn mép phải. Mỗi hàng cao theo ô cao hơn → không còn khoảng trống thừa
+   dưới cột trái như khi hai cột là hai khối dọc độc lập. */
+.item-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 10px;
+  row-gap: 2px;   /* 4px vẫn bị chê "thưa" (2026-11-09) */
+  align-items: center;
+}
+/* Thẻ món gọn (2026-11-09): ⋯ thấp lại cho hàng 1 không cao hơn tên món; bỏ khoảng hở dưới ⋯
+   (vốn để ⋯ đứng trên giá — nay giá ở cạnh). Vùng chạm ⋯ vẫn ~44px nhờ ::after. */
+.item-grid .item-more { height: 28px; min-height: 28px; width: 36px; min-width: 36px; margin-bottom: 0; position: relative; }
+.item-grid .item-more::after { content: ""; position: absolute; inset: -8px -4px; }
+.item-grid > .ig-trai { min-width: 0; }
+.item-grid > .ig-phai { justify-self: end; text-align: right; }
+/* Phương án A (chủ quán 2026-11-09): hàng 1 phải = [giá ⋯]; hàng 2 phải = bộ − số + sát mép phải;
+   hàng 3 (ghi chú / chưa báo bếp / lý do huỷ) trải hết bề ngang. */
+.item-grid > .ig-r1 { display: flex; align-items: center; gap: 8px; }
+.item-grid .ig-gia { font-size: 15px; font-weight: 700; color: var(--brand); white-space: nowrap; }
+.item-grid > .ig-full { grid-column: 1 / -1; min-width: 0; }
+.item-grid > .ig-full:empty { display: none; }
+
+/* Hàng ô thao tác của MỘT món — trượt ra từ mép phải, CAO BẰNG thẻ món (2026-11-09, theo mẫu app
+   chủ quán đưa: ô màu đặc, icon trên chữ dưới). Neo vào .item-card (position: relative). */
+.item-swipe {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  /* TRÊN lớp phủ bấm-ra-ngoài (z 40, cùng nằm trong thẻ) — thiếu thì bấm ô là trúng lớp phủ, chỉ
+     đóng lại mà không làm gì; và trên nút − / + của bộ đếm (định vị relative, đứng sau trong
+     DOM nên được vẽ đè lên ô, lấp ló ra ngoài). */
+  z-index: 42;
+  animation: item-swipe-in 0.18s ease-out;
+}
+@keyframes item-swipe-in { from { transform: translateX(100%); } to { transform: none; } }
+/* Thẻ món: trình duyệt CHỈ tự xử lý vuốt DỌC (cuộn danh sách). Vuốt ngang để riêng cho việc mở/cất
+   ô thao tác (OrderDrawer onTouchStart/onTouchEnd) — không thì cùng một cú vuốt vừa mở ô vừa bị
+   Safari dùng để kéo lệch hộp (2026-11-10). */
+.item-card { touch-action: pan-y; }
+@media (prefers-reduced-motion: reduce) { .item-swipe { animation: none; } }
+.item-swipe button {
+  width: 76px;
+  height: 100%;
+  min-height: 0;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 0;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  line-height: 1.15;
+}
+.item-swipe button:active { filter: brightness(0.9); }
+/* Điện thoại: hộp Thanh toán CAO HẾT MÀN (chủ quán 2026-11-09 — "đẩy lên cao hẳn"), như tấm bàn và
+   màn Gọi món. Đè .vp-cap-90 (90dvh). Đệm tai thỏ iPhone ở đỉnh. */
+@media (max-width: 767px) {
+  .pay-sheet {
+    height: 100vh;
+    height: 100dvh;
+    max-height: 100vh;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+/* Tách ⋯ (hàng 1) và bộ − số + KHÔNG bằng cách thêm khoảng trống (thẻ cao thêm — bị chê), mà
+   KÉO bộ − số + XUỐNG SÁT ĐÁY thẻ (chủ quán 2026-11-09): ô số lượng chiếm cột phải của hàng 2 + 3
+   và căn đáy; dòng ghi chú (hàng 3) vì thế chỉ ở cột trái. Món không có ghi chú: hàng 3 rỗng, bộ
+   đếm vẫn ở đáy hàng 2. */
+.item-grid > .ig-sl { grid-row: span 2; align-self: end; }
+.item-grid > .ig-full { grid-column: 1; }
+/* Dòng tổng cuối danh sách món ở màn soát bill (CheckoutDialog, 2026-11-09). */
+.pay-tong {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--teal-50, #f0fdfa);
+  border: 1px solid var(--teal-100, #ccfbf1);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--gray-800);
+}
+.pay-tong small { font-weight: 400; color: var(--gray-500); font-size: 14px; }
+.pay-tong strong { font-size: 20px; color: var(--brand); white-space: nowrap; font-variant-numeric: tabular-nums; }

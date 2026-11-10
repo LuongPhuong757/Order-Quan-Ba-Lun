@@ -87,13 +87,13 @@ export type CheckoutStep = 'items' | 'mode' | 'qr' | 'bill';
  * tin rằng hai màn trước đã kiểm đủ — người dùng lùi lại sửa được, và state đi cùng họ.
  */
 export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | null {
-  // Màn soát bill không hỏi gì cả nên không chặn gì — TRỪ khi nó cũng là màn chốt: người không
-  // được thu chuyển khoản không đi qua màn "trả bằng gì" (chỉ còn một hình thức), nên nút ở đây
-  // chính là cú bấm ghi tiền và phải kiểm trọn bộ.
+  // Màn soát bill không hỏi gì cả nên không chặn gì. Từ 2026-11-10 nó KHÔNG còn là màn chốt với
+  // ai (kể cả người không được thu chuyển khoản — họ sang màn 2 với Tiền mặt chọn sẵn rồi bấm xác
+  // nhận). Nhánh CASH giữ lại cho chắc: với tiền mặt luật đầy đủ cũng trả null.
   if (step === 'items') return s.mode === 'CASH' ? checkoutBlockReason(s) : null;
   if (step === 'mode') {
-    // Tiền mặt và ghi nợ chốt luôn ở màn này nên phải kiểm trọn bộ; các hình thức khác chỉ cần
-    // "đã chọn".
+    // Tiền mặt và ghi nợ chốt ở màn này (bằng nút xác nhận dưới đáy) nên phải kiểm trọn bộ; các
+    // hình thức khác chỉ cần "đã chọn".
     if (s.mode === 'CASH' || s.mode === 'DEBT') return checkoutBlockReason(s);
     return s.mode === null ? 'Vui lòng chọn khách trả bằng gì' : null;
   }

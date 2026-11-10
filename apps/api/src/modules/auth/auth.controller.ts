@@ -8,7 +8,6 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service.js';
 import { JwtService } from './jwt.service.js';
@@ -25,7 +24,9 @@ export class AuthController {
   /** E-01 POST /auth/login */
   @Post('login')
   @HttpCode(200)
-  @Throttle({ default: { limit: 5, ttl: 300_000 } })
+  // Bỏ giới hạn riêng 5 lần/5 phút/IP (2026-11-10): cả quán dùng chung wifi = chung IP, mấy
+  // nhân viên gõ sai vài lần là cả quán bị khoá. Login giờ chỉ còn chịu rate limit toàn cục
+  // 600 req/phút/IP ở app.module.ts — vẫn chặn được bot dò mật khẩu hàng loạt.
   async login(@Body() dto: LoginDto, @Res({ passthrough: true }) res: Response) {
     const { user, token } = await this.svc.loginByCredentials(dto.username, dto.password);
     res.cookie(this.jwtSvc.cookieName, token, this.jwtSvc.cookieOptions);

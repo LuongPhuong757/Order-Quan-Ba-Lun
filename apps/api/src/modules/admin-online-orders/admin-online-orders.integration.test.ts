@@ -38,7 +38,7 @@ const SENTINEL_PHONE_LIKE = '09000000%';
  * `AND t.code LIKE ?` để không đụng bàn thật. Đây là câu cần chứng minh — sửa nó ở service mà
  * không sửa ở đây là làm test mất giá trị. */
 const PICK_TABLE_SQL = `SELECT t.id, t.code, t.name FROM restaurant_tables t
-   WHERE t.kind = ? AND t.is_active = 1 AND t.kiotviet_locked = 0
+   WHERE t.kind = ? AND t.is_active = 1
      AND t.id NOT IN (SELECT o.table_id FROM orders o WHERE o.closed_at IS NULL)
      AND t.code LIKE ?
    ORDER BY t.code ASC LIMIT 1 FOR UPDATE`;
@@ -342,8 +342,8 @@ describe('Cấp bàn — row lock chống cấp trùng (M2.D-06)', () => {
     }
   }, 15_000);
 
-  it('bàn `kiotviet_locked` hoặc `is_active = 0` KHÔNG được cấp → buộc sang nhánh tự tạo bàn', async () => {
-    await insertTable('ship-93', 'delivery', { kiotvietLocked: true });
+  // Khoá KiotViet đã bỏ 2026-11-09 — chỉ còn bàn ngừng dùng (`is_active = 0`) là bị loại.
+  it('bàn `is_active = 0` KHÔNG được cấp → buộc sang nhánh tự tạo bàn', async () => {
     await insertTable('ship-94', 'delivery', { active: false });
 
     const runner = ds.createQueryRunner();
