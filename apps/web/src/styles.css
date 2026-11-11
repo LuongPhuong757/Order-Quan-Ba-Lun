@@ -4539,3 +4539,13 @@ button.crp-btn--phang { background: transparent; color: var(--gray-700); border:
 *::-webkit-scrollbar {
   display: none;
 }
+
+/* ── KHÔNG MÀN NÀO được trượt ngang cả trang (chủ quán 2026-11-11) ──
+   Một phần tử lố 2px khỏi màn (vd hàng chip lề âm) là trên iPhone kéo ngang cả trang trượt, lộ nền
+   phía sau. `clip` chứ KHÔNG `hidden`: hidden biến body thành khung cuộn → mọi thanh `position:
+   sticky` (thanh lọc, tiêu đề cột, tiêu đề nhóm) hết dính. Bảng rộng vẫn cuộn ngang trong khung
+   `overflow-x: auto` RIÊNG của nó như cũ. */
+html,
+body {
+  overflow-x: clip;
+}
