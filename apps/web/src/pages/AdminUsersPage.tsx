@@ -11,6 +11,13 @@
 // - "Đang làm/Tạm nghỉ" → "Hoạt động/Tạm khoá" (ý thật là tài khoản mở hay khoá, không phải ca).
 //   Hoạt động là mặc định nên không hiện nhãn; chỉ tài khoản bị khoá mới có nhãn.
 // - Tên trang chỉ ở header chung (AppNav) — bỏ h1 "Nhân sự" lệch tên, tiết kiệm ~50px.
+//
+// 2026-11-11 — áp BỘ QUY TẮC CHUNG `--ds-*` (styles/tokens.css), lớp phạm vi `ds` ở gốc trang:
+// - Hàng 56px; avatar MỘT màu (nền xanh ngọc nhạt, chữ xanh ngọc) thay cho 5 màu theo quyền —
+//   tím/xanh dương/nâu chỉ là trang trí, vai trò đã ghi bằng chữ ở dòng dưới. Tạm khoá = avatar
+//   XÁM + chữ "Tạm khoá" trong dòng phụ (bỏ nhãn tròn bên phải cho hàng đỡ chật).
+// - Nút phụ trắng viền xám; chỉ nút chính mang màu xanh ngọc (mỗi màn một điểm nhấn).
+// - Giải thích dài (Thu chuyển khoản, Tạm khoá) vào nút ⓘ chạm mới hiện.
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -52,7 +59,8 @@ const ROLE_ICON: Record<Role, IconName> = {
   report: 'bao-cao',
   print: 'in',
 };
-/** Giải thích hiện NGAY DƯỚI ô vai trò đang chọn, 13px (bản cũ dồn 3 vai vào một dòng ~10px). */
+/** Giải thích hiện NGAY DƯỚI ô vai trò đang chọn, 15px (bản cũ dồn 3 vai vào một dòng ~10px). Một
+ *  dòng ngắn đổi theo lựa chọn nên để lộ, không giấu vào ⓘ. */
 const ROLE_HELP: Record<Role, string> = {
   order: 'Gọi món, duyệt khách quét QR, in phiếu. Thường dùng điện thoại.',
   kitchen: 'Màn Bếp, gọi món, thực đơn. Thường dùng iPad ở bếp.',
@@ -63,15 +71,6 @@ const ROLE_HELP: Record<Role, string> = {
 // `report` sau `admin`: quyền hiếm dùng, để lẫn giữa hai quyền nhân viên là dễ bấm nhầm khi tạo
 // tài khoản hàng loạt. `print` cuối: không phải một người, chỉ là máy POS ở quầy.
 const ROLE_OPTIONS: Role[] = ['order', 'kitchen', 'admin', 'report', 'print'];
-
-/** Màu avatar theo quyền (2026-10-20) — liếc là phân biệt người bếp với người order. */
-const ROLE_AVATAR: Record<Role, string> = {
-  admin: '#0f766e',
-  order: '#2563eb',
-  kitchen: '#b45309',
-  report: '#7c3aed',
-  print: '#64748b',
-};
 
 /** Công tắc thu CK chỉ CÓ TÁC DỤNG với NV Order / NV Bếp không phải chủ quán: BE không đọc cờ của
  *  admin/chủ quán (luôn được), báo cáo xem ảnh bill không cần cờ, máy in không thu tiền. */
@@ -150,7 +149,7 @@ export function AdminUsersPage() {
   const editing = items.find((u) => u.id === editingId) ?? null;
 
   return (
-    <div className="container wide with-bottom-nav nv-ui nvl">
+    <div className="container wide with-bottom-nav nv-ui nvl ds">
       <div className="nvl-tools">
         <label className="nvl-search">
           <Icon name="tim" size={20} />
@@ -279,8 +278,7 @@ export function AdminUsersPage() {
 function Avatar({ u, lon = false }: { u: UserRow; lon?: boolean }) {
   return (
     <span
-      className={lon ? 'nvl-avatar nvl-avatar--lon' : 'nvl-avatar'}
-      style={{ background: u.role ? ROLE_AVATAR[u.role] : '#9ca3af' }}
+      className={['nvl-avatar', lon && 'nvl-avatar--lon', !u.is_active && 'is-off'].filter(Boolean).join(' ')}
       aria-hidden="true"
     >
       {initialOf(displayName(u))}
@@ -298,20 +296,52 @@ function NameWithTag({ u }: { u: UserRow }) {
   );
 }
 
-/** MỘT hàng ~64px: avatar · tên / "NV Bếp · 0961452043" · [Tạm khoá] · ›. Chạm cả hàng mở Sửa. */
+/** MỘT hàng 56px: avatar · tên / "NV Bếp · Tạm khoá · 0961452043" · ›. Chạm cả hàng mở Sửa.
+ *  Trạng thái nằm ở dòng phụ (chỉ khi bị khoá — Hoạt động là mặc định nên không ghi). */
 function UserRowButton({ u, onOpen }: { u: UserRow; onOpen: () => void }) {
+  const sub = [
+    u.role ? ROLE_LABEL[u.role] : 'Chưa gán quyền — không đăng nhập được',
+    !u.is_active && 'Tạm khoá',
+    u.username,
+  ]
+    .filter(Boolean)
+    .join(' · ');
   return (
     <button type="button" className={u.is_active ? 'nvl-row' : 'nvl-row off'} onClick={onOpen}>
       <Avatar u={u} />
       <span className="nvl-row__mid">
         <NameWithTag u={u} />
-        <span className={u.role ? 'nvl-row__sub' : 'nvl-row__sub loi'}>
-          {u.role ? ROLE_LABEL[u.role] : 'Chưa gán quyền — không đăng nhập được'} · {u.username}
-        </span>
+        <span className={u.role ? 'nvl-row__sub' : 'nvl-row__sub loi'}>{sub}</span>
       </span>
-      {!u.is_active && <span className="nvl-locked">Tạm khoá</span>}
-      <Icon name="mui-ten-phai" size={20} />
+      <span className="nvl-row__go" aria-hidden="true">
+        <Icon name="mui-ten-phai" size={20} />
+      </span>
     </button>
+  );
+}
+
+/** Nút ⓘ: giải thích dài chạm mới hiện, chạm lại thì ẩn (không tooltip/hover — điện thoại không có
+ *  hover). Nút nằm cạnh tiêu đề khối; khung chữ hiện ngay dưới dòng tiêu đề đó. */
+function SectionHead({ title, info }: { title: string; info?: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <div className="nvl-section__head">
+        <h3 className="nvl-section__title">{title}</h3>
+        {info && (
+          <button
+            type="button"
+            className="nv2-info"
+            aria-expanded={open}
+            aria-label={`Giải thích: ${title}`}
+            onClick={() => setOpen((v) => !v)}
+          >
+            i
+          </button>
+        )}
+      </div>
+      {info && open && <p className="nv2-info__panel">{info}</p>}
+    </>
   );
 }
 
@@ -673,12 +703,12 @@ function EditUserModal({
 
       {showTransfer && (
         <section className="nvl-section">
-          <h3 className="nvl-section__title">Quyền thu tiền</h3>
+          <SectionHead
+            title="Quyền thu tiền"
+            info="Được thu chuyển khoản: chụp và xem ảnh bill khi khách chuyển khoản. Bật/tắt xong phải bấm Lưu mới có hiệu lực."
+          />
           <div className="nvl-line">
-            <span className="nvl-line__txt">
-              Thu chuyển khoản
-              <span className="nvl-help">Chụp và xem ảnh bill. Có hiệu lực khi bấm Lưu.</span>
-            </span>
+            <span className="nvl-line__txt">Thu chuyển khoản</span>
             <button
               type="button"
               className="nv-switch"
@@ -702,10 +732,17 @@ function EditUserModal({
         <p className="nvl-help">Admin luôn được thu chuyển khoản và thấy mọi mã QR.</p>
       )}
 
-      {/* Hai THAO TÁC tài khoản là NÚT thật (viền + icon + 48px), không phải hàng chữ có "›" — bản
+      {/* Hai THAO TÁC tài khoản là NÚT thật (viền + icon + 44px), không phải hàng chữ có "›" — bản
           đầu trông như dòng thông tin, chủ quán không nhận ra là bấm được (2026-11-10). */}
       <section className="nvl-section">
-        <h3 className="nvl-section__title">Tài khoản</h3>
+        <SectionHead
+          title="Tài khoản"
+          info={
+            !user.is_owner && !isSelf && user.is_active
+              ? 'Tạm khoá: không đăng nhập được, phiên đang mở bị đăng xuất. Mở khoá lại bất cứ lúc nào, dữ liệu và tên trên đơn cũ giữ nguyên.'
+              : undefined
+          }
+        />
         <div className="nvl-actions">
           <button type="button" className="nvl-btn nvl-btn--vien" onClick={onOpenPassword}>
             <Icon name="khoa" size={20} />
@@ -718,12 +755,9 @@ function EditUserModal({
             </button>
           )}
         </div>
-        {!user.is_owner && !isSelf && (
-          <p className="nvl-help">
-            {user.is_active
-              ? 'Tạm khoá: không đăng nhập được, mở khoá lại bất cứ lúc nào. Dữ liệu giữ nguyên.'
-              : 'Đang tạm khoá — mở khoá để người này đăng nhập lại.'}
-          </p>
+        {/* Trạng thái ĐANG khoá là thông tin cần thấy ngay, không giấu vào ⓘ. */}
+        {!user.is_owner && !isSelf && !user.is_active && (
+          <p className="nvl-help">Đang tạm khoá — mở khoá để người này đăng nhập lại.</p>
         )}
       </section>
 

@@ -34,6 +34,7 @@ import { toTitleCase } from '../../common/text.js';
 // link bí mật (public-menu-photos.controller.ts). Sửa luật resize/nén thì sửa Ở ĐÓ.
 import { MENU_IMAGE_ALLOWED_MIMES as ALLOWED_MIMES, MENU_IMAGE_MAX_BYTES as MAX_FILE_BYTES, saveMenuImage } from './menu-image.js';
 import { buildMenuSearch } from './tim-mon.js';
+import { chuanHoaIds, lapKeHoach, lyDoHetMon } from './menu-bulk.js';
 
 /** Mô tả món: cắt khoảng trắng thừa, rỗng thì về NULL. Dùng chung cho cả tạo mới lẫn sửa, để
  *  hai đường không bao giờ lưu khác nhau cho cùng một ô nhập. */
@@ -101,6 +102,17 @@ class BulkImportRowDto {
   @IsOptional() @IsInt() @Min(0) @Max(100_000_000) price?: number;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(32) unit?: string;
   @IsOptional() @IsString() @MaxLength(512) image_url?: string | null;
+}
+
+/** Body của `POST /menu/bulk`. Hai cờ đều tuỳ chọn nhưng phải có ít nhất một — kiểm ở handler
+ *  vì class-validator không có sẵn luật "ít nhất một trong hai field". */
+class BulkFlagsDto {
+  // 1000 = rộng hơn hẳn một menu quán (≈600 món) nhưng vẫn chặn payload vô lý.
+  @IsArray() @ArrayMinSize(1) @ArrayMaxSize(1000)
+  @IsUUID(undefined, { each: true })
+  ids!: string[];
+  @IsOptional() @IsBoolean() is_online_hidden?: boolean;
+  @IsOptional() @IsBoolean() is_out_of_stock?: boolean;
 }
 
 class BulkImportMenuDto {
@@ -409,6 +421,90 @@ export class MenuController {
     };
   }
 
+  /**
+   * POST /menu/bulk — owner/admin. Đổi `is_online_hidden` và/hoặc `is_out_of_stock` cho nhiều món
+   * trong MỘT request, MỘT transaction (cùng lý do với `book-order`: 3G ở quán rớt giữa chừng
+   * thì 50 request PATCH để lại menu nửa ẩn nửa hiện).
+   *
+   * Không có đường tắt "UPDATE thẳng cột": mỗi cờ phải đi đúng nghiệp vụ của route lẻ tương ứng.
+   * - `is_online_hidden`: route lẻ (`PATCH /menu/:id`) chỉ ghi cột + `updated_at` tự tăng, và
+   *   `GET /menu/version` / menu khách đọc thẳng từ bảng — không có cache hay sự kiện nào khác.
+   *   UPDATE qua query builder của TypeORM tự gắn `updated_at`, nên mốc version nhảy 1 lần.
+   * - `is_out_of_stock = true`: chép đúng `toggle-stock` — tắt đẩy bán, và món nào vừa chuyển
+   *   CÒN → HẾT thì huỷ các phần PENDING/KITCHEN với cùng câu lý do, ghi tên người báo hết.
+   *   Bếp KHÔNG dùng route này (AdminGuard): bếp vẫn bấm từng món ở `toggle-stock`.
+   *
+   * id lạ (món đã xoá cứng ở máy khác) bị bỏ qua im lặng như `book-order`. `updated` = số món
+   * THẬT SỰ đổi ít nhất một cột; món đã đúng trạng thái thì không ghi (không đẩy version vô ích).
+   */
+  @Post('bulk')
+  @HttpCode(200)
+  @UseGuards(AdminGuard)
+  async bulkFlags(@Body() dto: BulkFlagsDto, @Req() req: Request) {
+    if (dto.is_online_hidden === undefined && dto.is_out_of_stock === undefined) {
+      throw new BadRequestException({
+        code: 'MENU_BULK_EMPTY',
+        message: 'Chưa chọn đổi gì: cần is_online_hidden hoặc is_out_of_stock',
+      });
+    }
+    const ids = chuanHoaIds(dto.ids);
+    const co = { is_online_hidden: dto.is_online_hidden, is_out_of_stock: dto.is_out_of_stock };
+
+    return await this.ds.transaction(async (mgr) => {
+      const repo = mgr.getRepository(MenuItem);
+      // Khoá dòng để một lần bếp bấm `toggle-stock` chen giữa không làm lệch phép so "đổi hay
+      // không" — đọc rồi ghi trên cùng một ảnh dữ liệu.
+      const dsMon = await repo.find({
+        where: { id: In(ids) },
+        select: { id: true, name: true, is_online_hidden: true, is_out_of_stock: true, is_push_sale: true },
+        lock: { mode: 'pessimistic_write' },
+      });
+      const keHoach = lapKeHoach(dsMon, co);
+
+      for (const n of keHoach.nhom) {
+        // `update()` của TypeORM (không phải mgr.query thô) để cột UpdateDateColumn `updated_at`
+        // được gắn tự động → `GET /menu/version` thấy đổi.
+        await repo.update({ id: In(n.ids) }, n.patch);
+      }
+
+      let autoCancelled = 0;
+      if (keHoach.moiHet.length > 0) {
+        const hetIds = keHoach.moiHet.map((m) => m.id);
+        const willCancel = await mgr
+          .createQueryBuilder()
+          .select(['oi.qty AS qty'])
+          .from('order_items', 'oi')
+          .where('oi.menu_item_id IN (:...mids) AND oi.state IN (:...states)', {
+            mids: hetIds, states: ['PENDING', 'KITCHEN'],
+          })
+          .getRawMany<{ qty: number | string }>();
+        // Lý do mang TÊN MÓN nên khác nhau từng món → gộp thành một câu CASE theo lô (kiểu
+        // `book-order`), thay vì mỗi món một câu UPDATE. SQL thô không được TypeORM gắn
+        // `updated_at` nên ghi tay: màn Bếp lọc theo (state, updated_at), quên là bếp không
+        // thấy phần vừa bị huỷ.
+        const CHUNK = 200;
+        for (let i = 0; i < keHoach.moiHet.length; i += CHUNK) {
+          const chunk = keHoach.moiHet.slice(i, i + CHUNK);
+          const cases = chunk.map(() => 'WHEN ? THEN ?').join(' ');
+          const caseParams = chunk.flatMap((m) => [m.id, lyDoHetMon(m.name)]);
+          await mgr.query(
+            `UPDATE order_items SET state = 'CANCELLED',
+               cancelled_reason = CASE menu_item_id ${cases} END,
+               cancelled_by_user_id = ?, cancelled_by_full_name = ?,
+               updated_at = CURRENT_TIMESTAMP(6)
+             WHERE menu_item_id IN (${chunk.map(() => '?').join(',')})
+               AND state IN ('PENDING', 'KITCHEN')`,
+            [...caseParams, req.user!.sub, req.user!.full_name, ...chunk.map((m) => m.id)],
+          );
+        }
+        // Đếm theo SỐ PHẦN (sum qty) như `toggle-stock`.
+        autoCancelled = willCancel.reduce((s, r) => s + Number(r.qty), 0);
+      }
+
+      return { data: { updated: keHoach.soMonDoi, auto_cancelled_count: autoCancelled } };
+    });
+  }
+
   /** POST /menu — owner only */
   @Post()
   @HttpCode(201)
@@ -526,7 +622,7 @@ export class MenuController {
 
       // Chỉ auto-cancel khi mới chuyển sang HẾT (false → true)
       if (!wasOutOfStock && item.is_out_of_stock) {
-        const reason = `Bếp báo hết "${item.name}" — không thể làm`;
+        const reason = lyDoHetMon(item.name);
         // 1) Lấy list items sẽ bị cancel kèm table info (cho FE notification)
         const willCancel = await mgr
           .createQueryBuilder()

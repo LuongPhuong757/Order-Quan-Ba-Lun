@@ -1,575 +1,697 @@
-/* Màn Quản lý nhân sự — dạng THẺ thay cho bảng (2026-10-20, chủ quán chê bảng 7 cột "quá xấu,
-   khó nhìn"). Bản vẽ duyệt qua OpenDesign: project `qbl-quan-ly-nhan-su-v2`.
+/* Màn Nhân viên (`/admin/users`) + hộp chọn mã QR theo nhân viên (QrVisibilityDialog — chỉ màn
+   này mở). Chỉ file này import ở 2 chỗ đó, không màn nào khác.
 
-   Mọi selector gắn dưới `.nv-ui`: `styles.css` đã có `.card`, `.chip`… dùng chung cả app, đặt tên
-   trần là đè sang màn khác. Nút viết `button.nv-*` vì luật `button { background: #0f766e }` toàn
-   cục sẽ thắng một class trần đứng một mình ở chỗ cùng độ ưu tiên. */
+   2026-11-11 — áp BỘ QUY TẮC CHUNG `--ds-*` (cuối styles/tokens.css): cỡ chữ chỉ 13·15·16·20,
+   độ đậm 400/600/700, chữ 3 sắc --ds-ink*, màu chính duy nhất --ds-accent, bo 8 (nút/ô) · 12
+   (khối) · 999 (chip), nút/ô 44 · chip 32 · hàng 56, viền 1px --ds-line KHÔNG kèm bóng.
+   Bỏ hẳn bộ class `.nv-card/.nv-grid/.nv-toolbar/.nv-chip…` của bản THẺ 2026-10-20: từ bản danh
+   sách 2026-11-10 không còn chỗ nào dùng (đã grep), giữ lại chỉ làm người sau tưởng còn sống.
 
-.nv-ui {
-  --nv-teal: var(--teal-700);
-  --nv-green: var(--emerald-600);
-  --nv-green-soft: var(--emerald-100);
-  --nv-amber: var(--amber-700);
-  --nv-amber-soft: var(--amber-100);
-  --nv-border: var(--gray-200);
-  --nv-muted: var(--gray-500);
-}
+   Nút viết `button.<class>` (hoặc `.nv-ui button.<class>`): luật `button { background: teal }` toàn
+   cục và `button.secondary` thắng một class trần cùng độ ưu tiên (CLAUDE.md §5). */
 
-.nv-ui .nv-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.nv-ui .nv-toolbar h1 {
-  margin: 0;
-  font-size: 24px;
-  font-weight: 800;
-}
-.nv-ui button.nv-add {
-  background: var(--nv-teal);
-  color: #fff;
-  font-size: 17px;
-  font-weight: 700;
-  height: 48px;
-  padding: 0 20px;
-  border-radius: 10px;
-  white-space: nowrap;
-}
-
-/* ── Chip lọc: một hàng, điện thoại vuốt ngang ─────────────────────────── */
-.nv-ui .nv-chips {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 18px;
-}
-@media (max-width: 640px) {
-  .nv-ui .nv-chips {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    margin: 0 -16px 18px;
-    padding: 0 16px 6px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .nv-ui .nv-chips::-webkit-scrollbar {
-    display: none;
-  }
-}
-.nv-ui button.nv-chip {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  height: 44px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid var(--nv-border);
-  background: #fff;
-  color: var(--gray-900);
-  font-size: 15.5px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.nv-ui button.nv-chip .nv-cnt {
-  min-width: 24px;
-  height: 24px;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--slate-100);
-  color: var(--nv-muted);
-  font-size: 13.5px;
-  font-weight: 800;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.nv-ui button.nv-chip.active {
-  background: var(--nv-teal);
-  border-color: var(--nv-teal);
-  color: #fff;
-}
-.nv-ui button.nv-chip.active .nv-cnt {
-  background: rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-
-/* ── Lưới thẻ ──────────────────────────────────────────────────────────── */
-.nv-ui .nv-grid {
-  display: grid;
-  gap: 16px;
-  grid-template-columns: 1fr;
-  /* Hai thẻ cùng hàng CAO BẰNG NHAU (mặc định `stretch`): để thẻ cao theo nội dung thì thẻ thấp
-     chừa một khoảng hở bên dưới, khoảng cách giữa các hàng nhìn lệch nhau (chủ quán báo
-     2026-10-20). Phần thừa do dải chân thẻ nuốt — xem `.nv-ck`/`.nv-ck-note` ở dưới. */
-}
-@media (min-width: 900px) {
-  .nv-ui .nv-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-}
-.nv-ui .nv-card {
-  background: #fff;
-  border: 1px solid var(--nv-border);
-  border-radius: 12px;
-  box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 1px 3px rgba(16, 24, 40, 0.06);
+.nvl {
   display: flex;
   flex-direction: column;
-  /* KHÔNG `overflow: hidden`: menu ⋯ thả xuống phải tràn ra ngoài thẻ được. */
+  gap: 12px;
+  color: var(--ds-ink);
 }
-.nv-ui .nv-card.off {
-  opacity: 0.75;
-}
-.nv-ui .nv-top {
+
+/* ── Ô tìm + nút Thêm: cùng cao 44 (box-sizing để viền không cộng thêm 2px như bản 48→50) ── */
+.nvl-tools {
   display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 16px 16px 14px;
-}
-.nv-ui .nv-avatar {
-  width: 52px;
-  height: 52px;
-  border-radius: 50%;
-  flex: 0 0 auto;
-  display: flex;
+  gap: 8px;
   align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 22px;
-  font-weight: 800;
 }
-.nv-ui .nv-person {
+.nvl-search {
   flex: 1;
   min-width: 0;
-}
-.nv-ui .nv-name {
-  font-size: 18px;
-  font-weight: 800;
-  line-height: 1.25;
-  overflow-wrap: anywhere;
-}
-.nv-ui .nv-name.noname {
-  color: var(--gray-400);
-  font-weight: 700;
-}
-.nv-ui .nv-meta {
+  box-sizing: border-box;
+  height: var(--ds-h-control);
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin-top: 7px;
+  gap: 8px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ds-ink-2);
 }
-.nv-ui .nv-username {
-  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
-  font-size: 14px;
-  color: var(--nv-muted);
-  background: var(--gray-100);
-  border-radius: 6px;
-  padding: 2px 8px;
+.nvl-search input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  font-size: var(--ds-fs-body);
+  color: var(--ds-ink);
 }
-.nv-ui .nv-role {
+.nvl-search input::-webkit-search-cancel-button {
+  display: none;
+}
+/* Nút Thêm = ĐIỂM NHẤN MÀU DUY NHẤT của màn danh sách (quy tắc "mỗi màn một điểm nhấn"). Gọn
+   theo chữ (chủ quán 2026-11-10: "nút Thêm quá dài"). */
+.nv-ui button.nvl-add {
+  flex: none;
+  box-sizing: border-box;
+  height: var(--ds-h-control);
+  min-height: 0;
+  padding: 0 12px 0 8px;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 3px 11px 3px 9px;
-}
-.nv-ui .nv-side {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-  flex: 0 0 auto;
-}
-.nv-ui .nv-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.nv-ui .nv-status i {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-}
-.nv-ui .nv-status.on {
-  color: var(--nv-green);
-}
-.nv-ui .nv-status.on i {
-  background: var(--nv-green);
-  box-shadow: 0 0 0 3px var(--nv-green-soft);
-}
-.nv-ui .nv-status.off {
-  color: var(--nv-amber);
-}
-.nv-ui .nv-status.off i {
-  background: var(--nv-amber);
-  box-shadow: 0 0 0 3px var(--nv-amber-soft);
+  gap: 4px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--ds-accent);
+  color: #fff;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
 }
 
-/* ── Dải "Thu chuyển khoản" ở chân thẻ ─────────────────────────────────── */
-.nv-ui .nv-ck {
-  border-top: 1px solid var(--nv-border);
-  background: #fcfcfd;
-  border-radius: 0 0 12px 12px;
-  padding: 4px 16px;
-  /* Giãn kín phần thẻ còn thừa khi thẻ bên cạnh cao hơn: nền xám chạy tới đáy thay vì để lại
-     một dải trắng lửng dưới chân. */
-  flex: 1;
+/* ── Chip lọc: MỘT hàng, điện thoại vuốt ngang (không xuống 2 hàng) ── */
+.nvl-chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: none;
 }
-.nv-ui .nv-ck-row {
+.nvl-chips::-webkit-scrollbar {
+  display: none;
+}
+/* Chip 32px nhìn thấy, nền xám không viền; vùng chạm nới tới 44 bằng ::before trong suốt (không
+   đổi bố cục) — người lớn tuổi bấm chip 32px dễ trượt sang chip bên cạnh. */
+.nv-ui button.nvl-chip {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  height: var(--ds-h-chip);
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  white-space: nowrap;
+}
+.nv-ui button.nvl-chip::before {
+  content: '';
+  position: absolute;
+  inset: -6px 0;
+}
+.nv-ui button.nvl-chip.on {
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+.nvl-cnt {
+  margin-left: 4px;
+  color: var(--ds-ink-2);
+}
+.nvl-chip.on .nvl-cnt {
+  color: var(--ds-accent);
+}
+
+.nvl-muted {
+  margin: 0;
+  font-size: var(--ds-fs-body2);
+  color: var(--ds-ink-2);
+}
+.nvl-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 16px;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-body);
+}
+.nvl-empty p {
+  margin: 0;
+}
+
+/* ── Danh sách: một khối viền 1px, hàng 56px kẻ mảnh ── */
+.nvl-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.nvl-list > li + li {
+  border-top: 1px solid var(--ds-line);
+}
+.nv-ui button.nvl-row {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--ds-h-row);
+  padding: 4px 4px 4px 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-ink);
+  text-align: left;
+  font-weight: var(--ds-fw-regular);
+}
+.nv-ui button.nvl-row:active {
+  background: var(--ds-accent-soft);
+}
+/* Mũi tên › nằm trong ô 44×44: báo "chạm để mở", cả hàng là MỘT nút. */
+.nvl-row__go {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  color: var(--ds-ink-3);
+}
+.nvl-avatar {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-num);
+}
+/* Đầu màn Sửa: avatar to hơn chút để thấy đang sửa AI. */
+.nvl-avatar--lon {
+  width: 48px;
+  height: 48px;
+  font-size: var(--ds-fs-title);
+}
+/* Tạm khoá = XÁM (tắt), không đỏ — đỏ chỉ dành cho lỗi/nguy hiểm. */
+.nvl-avatar.is-off {
+  background: var(--gray-100);
+  color: var(--ds-ink-3);
+}
+.nvl-row.off .nvl-name__text {
+  color: var(--ds-ink-2);
+}
+.nvl-row__mid {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.nvl-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.nvl-name__text {
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nvl-tag {
+  flex: none;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+}
+.nvl-row__sub {
+  font-size: var(--ds-fs-body2);
+  line-height: 1.3;
+  color: var(--ds-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Chưa gán quyền = lỗi thật (không đăng nhập được) → đỏ là đúng nghĩa. */
+.nvl-row__sub.loi {
+  color: var(--ds-danger);
+}
+
+/* ── Hộp thoại (Sửa / Thêm / Mật khẩu): đầu + thân cuộn + chân dính đáy ── */
+.modal-overlay > .modal.nvl-modal {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  max-width: 520px;
+  color: var(--ds-ink);
+}
+.nvl-modal__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 4px 16px;
+  border-bottom: 1px solid var(--ds-line);
+}
+.nvl-modal__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--ds-fs-title);
+  font-weight: var(--ds-fw-strong);
+}
+.nv-ui button.nvl-iconbtn,
+button.nvl-iconbtn {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--ds-ink-2);
+}
+.nvl-modal__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nvl-modal__foot {
+  flex: none;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ds-line);
+}
+.nvl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.nvl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nvl-label {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+}
+.nvl-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: var(--ds-h-control);
+  padding: 8px 12px;
+  border: 1px solid var(--ds-line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: var(--ds-fs-body);
+  color: var(--ds-ink);
+}
+.nvl-help {
+  margin: 0;
+  font-size: var(--ds-fs-body2);
+  line-height: 1.45;
+  color: var(--ds-ink-2);
+}
+.nvl-err {
+  margin: 0;
+  font-size: var(--ds-fs-body2);
+  color: var(--ds-danger);
+}
+
+/* PasswordInput là component DÙNG CHUNG (Đăng nhập, Tài khoản, Cài đặt lần đầu…) — không sửa
+   file đó; chỉ chỉnh nhãn/viền của nó KHI nằm trong màn này (lớp phạm vi `.ds`). */
+.nvl.ds .password-row {
+  margin-bottom: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nvl.ds .password-row > label {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+}
+.nvl.ds .password-row input {
+  border-color: var(--ds-line);
+  font-size: var(--ds-fs-body);
+  color: var(--ds-ink);
+}
+
+/* ── Nút: chỉ nút CHÍNH mang màu xanh ngọc; nút phụ trắng viền xám, chữ đen ── */
+button.nvl-btn {
+  box-sizing: border-box;
+  min-height: var(--ds-h-control);
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 8px;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+}
+button.nvl-btn--chinh {
+  border: 0;
+  background: var(--ds-accent);
+  color: #fff;
+}
+button.nvl-btn--vien,
+button.nvl-btn--xam {
+  border: 1px solid var(--ds-line);
+  background: #fff;
+  color: var(--ds-ink);
+}
+button.nvl-btn--nguy {
+  border: 1px solid var(--ds-line);
+  background: #fff;
+  color: var(--ds-danger);
+}
+button.nvl-btn--nguy:disabled {
+  opacity: 0.5;
+}
+button.nvl-btn--rong {
+  width: 100%;
+}
+
+/* Vai trò: đang chọn = nền xanh ngọc nhạt + chữ xanh ngọc (giống chip chọn). Viền giữ 1px ở cả
+   hai trạng thái — bản cũ 1px→2px làm chữ nhảy 1px khi bấm. */
+.nvl-roles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 8px;
+}
+button.nvl-role {
+  box-sizing: border-box;
+  min-height: var(--ds-h-control);
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--ds-line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-regular);
+}
+button.nvl-role.on {
+  border-color: var(--ds-accent);
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+
+.nvl-who {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.nvl-who__txt {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.nvl-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ds-line);
+}
+.nvl-section__head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+}
+.nvl-section__title {
+  margin: 0;
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink-2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.nvl-line {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  min-height: 56px;
-  padding: 8px 0;
+  min-height: var(--ds-h-row);
+  font-size: var(--ds-fs-body);
 }
-.nv-ui .nv-ck-row + .nv-ck-row {
-  border-top: 1px dashed var(--nv-border);
+.nvl-line__txt {
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.nv-ui .nv-ck-label {
-  font-size: 15.5px;
-  font-weight: 700;
-  color: var(--gray-700);
+/* Hàng nút thao tác tài khoản: 2 nút bằng nhau, ngang hàng. */
+.nvl-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
 }
-.nv-ui .nv-ck-note {
-  border-top: 1px solid var(--nv-border);
-  background: #fcfcfd;
-  border-radius: 0 0 12px 12px;
-  padding: 14px 16px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--nv-muted);
-  flex: 1;
-  /* Căn giữa dọc để dòng này thẳng hàng với "Thu chuyển khoản" của thẻ bên cạnh. */
+/* Vùng xoá: TÁCH XA bằng khoảng trống lớn + kẻ đứt, không nằm sát nút nào khác. */
+.nvl-danger {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--ds-line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.nvl-pwd {
   display: flex;
   align-items: center;
+  gap: 8px;
+}
+.nvl-pwd__val {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ds-accent-soft);
+  font-size: var(--ds-fs-title);
+  font-weight: var(--ds-fw-strong);
+  letter-spacing: 0.06em;
+  color: var(--ds-ink);
+  overflow-wrap: anywhere;
 }
 
-/* Công tắc — `button role="switch"` chứ không phải checkbox ẩn: một phần tử, bấm cả cụm.
-   Dùng ở cả thẻ lẫn hộp chọn mã QR (hộp này render ngoài `.nv-ui`). */
+/* ── Nút ⓘ: giải thích dài CHẠM mới hiện (không tooltip/hover — người dùng cầm điện thoại).
+   Nhìn 28px tròn, vùng chạm 44×44 (::before trong suốt) để không đẩy dòng tiêu đề cao thêm. ── */
+button.nv2-info {
+  position: relative;
+  flex: none;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 0;
+  margin: 8px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--ds-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-num);
+}
+button.nv2-info::before {
+  content: '';
+  position: absolute;
+  inset: -8px;
+}
+button.nv2-info[aria-expanded='true'] {
+  border-color: var(--ds-ink-2);
+  color: var(--ds-ink);
+}
+.nv2-info__panel {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--ds-muted-bg);
+  font-size: var(--ds-fs-body2);
+  line-height: 1.45;
+  color: var(--ds-ink-2);
+}
+
+/* ── Công tắc — `button role="switch"`: NHÌN 36×20, vùng chạm 44 (chủ quán chọn, --ds-switch-*).
+   Dùng ở cả màn Sửa lẫn hộp chọn mã QR. Bật = xanh ngọc (bản thẻ cũ dùng xanh lá emerald). ── */
 .nv-ui button.nv-switch,
 .nv-qr-sheet button.nv-switch {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 11px;
-  background: none;
-  border: none;
-  padding: 4px 0;
+  gap: 8px;
   min-height: 44px;
+  min-width: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
   color: inherit;
 }
 .nv-switch .nv-track {
   position: relative;
-  width: 56px;
-  height: 32px;
+  flex: none;
+  width: var(--ds-switch-w);
+  height: var(--ds-switch-h);
   border-radius: 999px;
   background: var(--gray-300);
-  flex: 0 0 auto;
   transition: background 0.16s;
 }
 .nv-switch .nv-track::after {
   content: '';
   position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 26px;
-  height: 26px;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   transition: transform 0.16s;
 }
 .nv-switch[aria-checked='true'] .nv-track {
-  background: var(--emerald-600);
+  background: var(--ds-accent);
 }
 .nv-switch[aria-checked='true'] .nv-track::after {
-  transform: translateX(24px);
+  transform: translateX(16px);
 }
 .nv-switch .nv-switch-txt {
-  min-width: 64px;
-  text-align: right;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--gray-500);
+  white-space: nowrap;
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink-2);
 }
 .nv-switch[aria-checked='true'] .nv-switch-txt {
-  color: var(--emerald-600);
+  color: var(--ds-accent);
 }
 
-.nv-ui button.nv-qr-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 15px;
-  border-radius: 10px;
-  border: 1px solid var(--nv-border);
-  background: var(--gray-100);
-  color: var(--gray-700);
-  font-size: 15px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.nv-ui button.nv-qr-btn.some-hidden {
-  background: var(--nv-amber-soft);
-  border-color: var(--amber-200);
-  color: var(--nv-amber);
-}
-
-/* ── Hộp chọn mã QR (bottom sheet trên điện thoại) ─────────────────────── */
+/* ── Hộp chọn mã QR (bottom sheet trên điện thoại) ── */
 .modal-overlay > .modal.nv-qr-sheet {
   padding: 0;
   display: flex;
   flex-direction: column;
+  color: var(--ds-ink);
 }
 .nv-qr-sheet .nv-sheet-head {
-  padding: 20px 20px 14px;
-  border-bottom: 1px solid var(--gray-200);
+  padding: 16px 16px 12px;
+  border-bottom: 1px solid var(--ds-line);
 }
 .nv-qr-sheet .nv-sheet-head h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-  font-weight: 800;
+  margin: 0 0 4px;
+  font-size: var(--ds-fs-title);
+  font-weight: var(--ds-fw-strong);
 }
-.nv-qr-sheet .nv-sheet-head p {
+.nv-qr-sheet .nv-sheet-head p,
+.nv-qr-sheet .nv-sheet-note {
   margin: 0;
-  font-size: 15px;
-  color: var(--gray-500);
+  font-size: var(--ds-fs-body2);
   line-height: 1.4;
+  color: var(--ds-ink-2);
 }
 .nv-qr-sheet .nv-sheet-body {
-  padding: 8px 16px;
-  overflow-y: auto;
   flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px;
 }
 .nv-qr-sheet .nv-qr-item {
   display: flex;
   align-items: center;
-  gap: 14px;
-  min-height: 68px;
-  padding: 12px 4px;
+  gap: 12px;
+  min-height: var(--ds-h-row);
+  padding: 8px 0;
 }
 .nv-qr-sheet .nv-qr-item + .nv-qr-item {
-  border-top: 1px solid var(--gray-200);
+  border-top: 1px solid var(--ds-line);
 }
 .nv-qr-sheet .nv-qr-item.dim .nv-qr-ic,
 .nv-qr-sheet .nv-qr-item.dim .nv-qr-info {
   opacity: 0.45;
 }
 .nv-qr-sheet .nv-qr-ic {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--slate-100);
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 22px;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--gray-100);
+  color: var(--ds-ink-2);
 }
 .nv-qr-sheet .nv-qr-info {
   flex: 1;
   min-width: 0;
 }
 .nv-qr-sheet .nv-qr-name {
-  font-size: 16.5px;
-  font-weight: 800;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
   line-height: 1.25;
 }
 .nv-qr-sheet .nv-qr-sub {
-  margin-top: 3px;
-  font-size: 13.5px;
-  color: var(--gray-500);
-  font-family: ui-monospace, Menlo, monospace;
+  margin-top: 2px;
+  font-size: var(--ds-fs-body2);
+  color: var(--ds-ink-2);
+  font-variant-numeric: tabular-nums;
 }
 .nv-qr-sheet .nv-sheet-msg {
   margin: 8px 16px 0;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-radius: 8px;
-  font-size: 14.5px;
+  font-size: var(--ds-fs-body2);
 }
+/* Cam = cần chú ý (ẩn HẾT mã): viền cam + chữ đen cho dễ đọc, không tô cả khối. */
 .nv-qr-sheet .nv-sheet-msg.warn {
-  background: var(--amber-100);
-  color: var(--amber-800);
+  border: 1px solid var(--ds-warn);
+  background: #fff;
+  color: var(--ds-ink);
 }
 .nv-qr-sheet .nv-sheet-msg.err {
-  background: var(--red-100);
-  color: var(--red-800);
+  background: var(--ds-danger-soft);
+  color: var(--ds-danger);
 }
 .nv-qr-sheet .nv-sheet-foot {
-  display: flex;
-  gap: 12px;
-  padding: 16px 16px calc(16px + env(safe-area-inset-bottom));
-  border-top: 1px solid var(--gray-200);
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--ds-line);
+}
+.nv-qr-sheet button.nv-cancel,
+.nv-qr-sheet button.nv-save {
+  box-sizing: border-box;
+  min-height: var(--ds-h-control);
+  border-radius: 8px;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
 }
 .nv-qr-sheet button.nv-cancel {
-  flex: 1;
-  height: 52px;
-  font-size: 17px;
-  font-weight: 700;
+  border: 1px solid var(--ds-line);
   background: #fff;
-  border: 1px solid var(--gray-200);
-  color: var(--gray-700);
+  color: var(--ds-ink);
 }
 .nv-qr-sheet button.nv-save {
-  flex: 2;
-  height: 52px;
-  font-size: 17px;
-  font-weight: 700;
-  background: var(--teal-700);
+  border: 0;
+  background: var(--ds-accent);
   color: #fff;
 }
-
-/* ══ Bản danh sách hàng (`.nvl-*`, chủ quán 2026-11-10) ═══════════════════════════════════════
-   Thay lưới thẻ: một lớp nền trắng, hàng 64px kẻ mảnh. Màu chính xanh ngọc; đỏ chỉ cho lỗi và
-   vùng xoá vĩnh viễn. Cỡ chữ 16 / 14 / 13 / 12. */
-.nvl { display: flex; flex-direction: column; gap: 12px; }
-.nvl-tools { display: flex; gap: 8px; align-items: center; }
-.nvl-search {
-  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
-  min-height: 48px; padding: 0 12px; border: 1px solid var(--gray-200); border-radius: 12px;
-  background: #fff; color: var(--gray-500);
-}
-.nvl-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; min-height: 44px; padding: 0; color: var(--gray-900); }
-.nvl-search input::-webkit-search-cancel-button { display: none; }
-.nv-ui button.nvl-add {
-  min-height: 48px; padding: 0 16px; border-radius: 12px; border: 0;
-  background: var(--brand); color: #fff; font-size: 16px; font-weight: 600;
-  display: inline-flex; align-items: center; gap: 4px; flex: none;
-}
-/* MỘT hàng chip, điện thoại vuốt ngang (không xuống 2 hàng). */
-.nvl-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
-.nvl-chips::-webkit-scrollbar { display: none; }
-.nv-ui button.nvl-chip {
-  flex: none; min-height: 40px; padding: 0 14px; border-radius: 999px;
-  border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
-  font-size: 14px; font-weight: 500; white-space: nowrap;
-}
-.nv-ui button.nvl-chip.on { background: var(--teal-50); border-color: var(--brand); color: var(--brand); font-weight: 600; }
-.nvl-cnt { color: var(--gray-500); font-weight: 500; margin-left: 2px; }
-.nvl-chip.on .nvl-cnt { color: var(--brand); }
-.nvl-muted { color: var(--gray-500); font-size: 14px; }
-.nvl-empty { background: #fff; border-radius: 12px; padding: 24px 16px; text-align: center; color: var(--gray-500); }
-
-.nvl-list { list-style: none; margin: 0; padding: 0; background: #fff; border-radius: 12px; overflow: hidden; }
-.nvl-list > li + li { border-top: 1px solid var(--gray-200); }
-.nv-ui button.nvl-row {
-  width: 100%; min-height: 64px; padding: 8px 12px;
-  display: flex; align-items: center; gap: 12px;
-  background: transparent; color: var(--gray-900); border: 0; border-radius: 0; text-align: left; font-weight: 400;
-}
-.nv-ui button.nvl-row:active { background: var(--teal-50); }
-.nv-ui button.nvl-row > svg { color: var(--gray-400, #9ca3af); flex: none; }
-.nvl-row.off .nvl-avatar { opacity: 0.45; }
-.nvl-row.off .nvl-name__text { color: var(--gray-500); }
-.nvl-avatar {
-  width: 40px; height: 40px; flex: none; border-radius: 50%;
-  display: grid; place-items: center; color: #fff; font-size: 16px; font-weight: 700;
-}
-.nvl-avatar--lon { width: 48px; height: 48px; font-size: 20px; }
-.nvl-row__mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.nvl-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.nvl-name__text { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nvl-tag {
-  flex: none; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
-  background: var(--gray-100, #f3f4f6); color: var(--gray-500);
-}
-.nvl-row__sub { font-size: 13px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.nvl-row__sub.loi { color: #dc2626; }
-.nvl-locked {
-  flex: none; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
-  background: var(--gray-100, #f3f4f6); color: var(--gray-700);
-}
-
-/* Hộp thoại (Sửa / Thêm / Mật khẩu): đầu + thân cuộn + chân dính đáy. */
-.modal-overlay > .modal.nvl-modal {
-  padding: 0; display: flex; flex-direction: column; overflow: hidden; max-width: 520px;
-}
-.nvl-modal__head {
-  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px;
-  border-bottom: 1px solid var(--gray-200); flex: none;
-}
-.nvl-modal__title { margin: 0; flex: 1; min-width: 0; font-size: 18px; font-weight: 600; }
-.nv-ui button.nvl-iconbtn, button.nvl-iconbtn {
-  width: 44px; height: 44px; min-width: 44px; padding: 0; display: grid; place-items: center;
-  background: transparent; color: var(--gray-700); border: 0;
-}
-.nvl-modal__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-.nvl-modal__foot {
-  flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px;
-  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--gray-200);
-}
-.nvl-form { display: flex; flex-direction: column; gap: 16px; }
-.nvl-field { display: flex; flex-direction: column; gap: 6px; }
-.nvl-label { font-size: 13px; color: var(--gray-500); }
-.nvl-input {
-  width: 100%; box-sizing: border-box; min-height: 48px; padding: 8px 12px;
-  border: 1px solid var(--gray-200); border-radius: 12px; font-size: 16px; color: var(--gray-900); background: #fff;
-}
-.nvl-help { margin: 0; font-size: 13px; color: var(--gray-500); line-height: 1.45; }
-.nvl-err { margin: 0; font-size: 14px; color: #dc2626; }
-button.nvl-btn {
-  min-height: 48px; padding: 0 16px; border-radius: 12px; font-size: 16px; font-weight: 600;
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
-}
-button.nvl-btn--chinh { background: var(--brand); color: #fff; border: 0; }
-button.nvl-btn--vien { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
-button.nvl-btn--nguy { background: #fff; color: #dc2626; border: 1px solid #fca5a5; }
-button.nvl-btn--nguy:disabled { opacity: 0.5; }
-
-/* Vai trò: đang chọn = viền + nền xanh ngọc nhạt (bản cũ nền vàng lệch màu chính). */
-.nvl-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
-button.nvl-role {
-  min-height: 48px; padding: 0 12px; border-radius: 12px;
-  display: inline-flex; align-items: center; gap: 6px;
-  background: #fff; color: var(--gray-700); border: 1px solid var(--gray-200); font-size: 15px; font-weight: 500;
-}
-button.nvl-role.on { background: var(--teal-50); color: var(--brand); border: 2px solid var(--brand); font-weight: 700; }
-
-.nvl-who { display: flex; align-items: center; gap: 12px; }
-.nvl-who__txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.nvl-section { display: flex; flex-direction: column; border-top: 1px solid var(--gray-200); padding-top: 12px; }
-.nvl-section__title { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.03em; }
-.nvl-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; font-size: 16px; }
-.nvl-line__txt { display: flex; flex-direction: column; gap: 2px; }
-button.nvl-line--btn {
-  width: 100%; padding: 0; background: transparent; color: var(--gray-900); border: 0; border-radius: 0;
-  font-size: 16px; font-weight: 500; text-align: left;
-}
-button.nvl-line--btn + button.nvl-line--btn { border-top: 1px solid var(--gray-200); }
-/* Vùng xoá: TÁCH XA bằng khoảng trống lớn + kẻ đứt, không nằm sát nút nào khác. */
-.nvl-danger {
-  margin-top: 16px; padding-top: 16px; border-top: 1px dashed #fca5a5;
-  display: flex; flex-direction: column; gap: 8px;
-}
-.nvl-pwd { display: flex; align-items: center; gap: 8px; }
-.nvl-pwd__val {
-  flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; background: var(--teal-50);
-  font-size: 18px; letter-spacing: 0.06em; color: var(--gray-900); overflow-wrap: anywhere;
-}
-/* Công tắc trong màn Sửa: chữ bên trái co lại, công tắc + nhãn "Được thu" giữ nguyên bề rộng —
-   bản đầu nhãn tràn khỏi mép phải hộp (đo WebKit 390px, 2026-11-10). */
-.nvl-line__txt { flex: 1 1 auto; min-width: 0; }
-.nvl-line .nv-switch { flex: none; display: inline-flex; align-items: center; gap: 8px; width: auto; position: static; }
-.nvl-line .nv-switch .nv-switch-txt { position: static; white-space: nowrap; }
-/* Màu chủ đạo xanh ngọc cho công tắc trong màn Sửa (bản thẻ cũ dùng xanh lá emerald). */
-.nvl-modal .nv-switch[aria-checked='true'] .nv-track { background: var(--brand); }
-.nvl-modal .nv-switch[aria-checked='true'] .nv-switch-txt { color: var(--brand); }
-.nvl-modal .nv-switch .nv-switch-txt { min-width: 0; }
-/* Hàng nút thao tác tài khoản trong màn Sửa: 2 nút bằng nhau, ngang hàng. */
-.nvl-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 8px; }
-button.nvl-btn--xam { background: #fff; color: var(--gray-700); border: 1px solid var(--gray-300, #d1d5db); }
-button.nvl-btn--rong { width: 100%; margin-top: 4px; }
-/* Ô tìm và nút Thêm CÙNG cao 48px (ô tìm từng cao 50px vì viền cộng thêm ngoài min-height), nút
-   Thêm gọn lại theo chữ (chủ quán 2026-11-10: "nút Thêm quá dài"). */
-.nvl-search { box-sizing: border-box; height: 48px; min-height: 0; }
-.nvl-search input { min-height: 0; height: 100%; }
-.nv-ui button.nvl-add { box-sizing: border-box; height: 48px; min-height: 0; padding: 0 12px 0 10px; gap: 2px; }

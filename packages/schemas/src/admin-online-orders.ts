@@ -253,6 +253,32 @@ export const AdminOnlineOrderList = z.object({
    */
   store_lat: z.number().nullable(),
   store_lng: z.number().nullable(),
+  /**
+   * Số đơn "Đã xác nhận" CHƯA thu tiền theo từng chặng — số trên chip lọc của tab đó. Đếm ở BE
+   * cùng lý lẽ với `status_counts`: FE mỗi lúc chỉ tải 1 tab. Cùng cửa sổ `window_hours`, và
+   * KITCHEN + READY + SHIPPED luôn bằng `status_counts.CONFIRMED`.
+   *
+   * Phân loại khớp `fulfillmentView()` (apps/web/src/lib/fulfillment.ts): khách đã nhận mà chưa
+   * thu tiền tính vào SHIPPED ("Đang giao" tới khi thu xong) — không có chặng RECEIVED ở đây.
+   */
+  step_counts: z.object({
+    KITCHEN: z.number().int().nonnegative(),
+    READY: z.number().int().nonnegative(),
+    SHIPPED: z.number().int().nonnegative(),
+  }),
+  /**
+   * Công tắc "Đóng cửa" đơn online — để màn đơn online của cả order/bếp hiện thanh "đang Đóng
+   * cửa" (`/admin/settings` là AdminGuard, họ không đọc được). Chỉ là TRẠNG THÁI: Đóng cửa không
+   * chặn khách đặt đơn (D-11), chỉ đổi câu chữ trang khách.
+   *
+   * `enabled` là giá trị HIỆU LỰC của công tắc ("Đóng đến hết hôm nay" qua 00:00 tự thành true),
+   * KHÔNG xét giờ mở cửa — ngoài giờ không phải là chủ quán bấm Đóng cửa.
+   */
+  ordering: z.object({
+    enabled: z.boolean(),
+    off_mode: z.enum(['MANUAL', 'UNTIL_TOMORROW']),
+    off_reason: z.string(),
+  }),
 });
 export type AdminOnlineOrderList = z.infer<typeof AdminOnlineOrderList>;
 

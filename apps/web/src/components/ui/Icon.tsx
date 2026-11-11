@@ -1,7 +1,7 @@
 import type { LucideIcon } from 'lucide-react';
 import {
   ArrowLeftRight, ArrowUp, CupSoda, Dices, GripVertical, Layers, Megaphone, Pause, Play, ShieldBan,
-  Sparkles, SunMoon, VolumeX,
+  Sparkles, SunMoon, VolumeX, BellOff,
   ArrowLeft, ArrowUpDown, Armchair, Ban, Banknote, Bell, Bike, BookOpen, Calendar, Camera,
   ChartColumn, Check, Crown, ChefHat, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, CircleCheck,
   CircleHelp, CircleX, Clock, ConciergeBell, Copy, Download, Ellipsis, Eye, EyeOff, FileText,
@@ -51,6 +51,7 @@ const ICONS = {
   gui: Send,
   'dang-xuat': LogOut,
   'thong-bao': Bell,
+  'chuong-tat': BellOff, // chuông báo đơn đang tắt (màn Đơn online)
   'tro-giup': CircleHelp,
   'thong-tin': Info,
   khoa: Lock,

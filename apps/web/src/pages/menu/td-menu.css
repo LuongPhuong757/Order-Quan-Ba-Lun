@@ -1,0 +1,879 @@
+/* Màn Thực đơn (`/menu`) — bảng món + hàng điện thoại + chọn nhiều, gộp tab "Món online" 2026-11-11.
+   Tiền tố `td-` (THực Đơn) để không đụng `.mm-*` cũ còn dùng cho cột nhóm, ô zoom ảnh.
+
+   Áp CHẶT bộ quy tắc `--ds-*` (styles/tokens.css, chủ quán chốt 2026-11-11) — màn đầu tiên làm lại:
+   - Chữ chỉ 5 cỡ 13 · 15 · 16 · 20 · 28, đậm chỉ 400 / 600 / 700; màu chữ chỉ ink / ink-2 / ink-3.
+   - Màu nhấn DUY NHẤT xanh ngọc (nút "+ Món", chip/nhóm đang chọn, công tắc bật). Đỏ CHỈ cho Hết,
+     Ảnh lỗi, Xoá. Món ẩn online = XÁM (trước là viền đỏ: hơn nửa thực đơn đang ẩn thì đỏ phủ kín
+     và mất tác dụng cảnh báo).
+   - Bo 8 (nút, ô nhập) · 12 (khối) · 999 (chip); viền 1px HOẶC bóng, không cả hai.
+   - Cao: nút/ô nhập 44 · chip 32 · hàng 56.
+   Nút màu dùng `button.td-…` chứ không `.td-…` trần: `button.secondary` cùng độ ưu tiên sẽ đè mất. */
+
+/* ── Đầu màn: hàng ô tìm + lọc + nút việc ── */
+.td-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.td-bar input.td-find {
+  flex: 1 1 200px;
+  min-width: 0;
+  height: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  margin: 0;
+  border-radius: 8px;
+  font-size: var(--ds-fs-body);
+}
+/* Ô tìm co tới 160px trước khi rớt dòng: ở 1280px có thanh bên, cả hàng (tìm + 2 dropdown + 4 nút)
+   phải nằm MỘT tầng — rớt dòng là món đầu tiên tụt thêm 52px. */
+.td-bar input.td-find { flex-basis: 160px; }
+.td-bar .td-f { flex: 0 1 170px; min-width: 0; }
+.td-bar__nut { display: flex; gap: 8px; margin-left: auto; flex: none; }
+.td-bar__nut > button {
+  height: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  min-width: var(--ds-h-control);
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+/* "Chọn nhiều" đang bật: nền xanh nhạt, KHÔNG nền xanh đậm — xanh đậm là của riêng "+ Món". */
+button.td-bar__chon-on {
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  border: 1px solid transparent;
+}
+/* Điện thoại: hàng 1 = ô tìm + 3 nút (☐, ⋯, + Món); hàng 2 = 3 dropdown chia đều. */
+@media (max-width: 767px) {
+  .td-bar input.td-find { flex-basis: 120px; }
+  .td-bar__nut { gap: 4px; }
+  .td-bar__nut > button { padding: 0 10px; }
+  .td-bar--dd { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  /* 3 ô ~112px: bớt đệm trong ô để chữ "Trạng thái" không bị cắt (nhãn trung tính rút gọn ở TSX). */
+  .td-bar--dd button.ds-trigger { padding: 0 8px; gap: 4px; }
+}
+
+/* ── Hàng chip Kênh + Xoá lọc + số món ── */
+.td-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--ds-h-chip);
+  margin-bottom: 12px;
+}
+.td-chips__nhom { display: flex; flex-wrap: wrap; gap: 8px; }
+button.td-chip-loc {
+  position: relative;
+  height: var(--ds-h-chip);
+  min-height: var(--ds-h-chip);
+  min-width: 0;
+  padding: 0 12px;
+  border: none;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+/* Chip NHÌN 32px nhưng vùng chạm cao 44px (lấn 6px trên/dưới, khoảng trống giữa hai hàng). */
+button.td-chip-loc::before { content: ''; position: absolute; inset: -6px 0; }
+button.td-chip-loc--on { background: var(--ds-accent-tint); color: var(--ds-accent); }
+/* Máy tính: cụm chip nằm đầu cột nhóm (184px) — tự xuống dòng, số món nằm dòng riêng. */
+.td-chips--side { margin-bottom: 0; }
+.td-chips--side .td-dem { margin-left: 0; flex-basis: 100%; }
+/* Đầu màn sát thanh tiêu đề hơn (24 → 12px): mỗi px ở đây là px của danh sách món. */
+.container.menu-page { padding-top: 12px; }
+.td-dem { margin-left: auto; font-size: var(--ds-fs-label); color: var(--ds-ink-2); white-space: nowrap; }
+
+/* Cột nhóm hẹp hơn `.mm-layout` gốc (216px) ở màn này: bảng cần chỗ cho đủ cột tới nút ⋯ ở máy
+   1280px có thanh bên. Tên nhóm dài vẫn xuống dòng được trong cột. */
+.menu-page .mm-layout { grid-template-columns: 184px minmax(0, 1fr); gap: 16px; }
+@media (max-width: 900px) {
+  .menu-page .mm-layout { grid-template-columns: 1fr; }
+}
+
+/* ── Cột nhóm (máy tính) — nhóm ẩn online: xám + mắt gạch, KHÔNG gạch ngang đỏ. ── */
+.td-side {
+  position: sticky;
+  top: 8px;
+  display: grid;
+  gap: 8px;
+  align-self: start;
+}
+.td-side .mm-groups {
+  position: static;
+  max-height: calc(100dvh - 160px);
+  padding: 4px;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.menu-page .mm-groups button {
+  min-height: var(--ds-h-control);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  color: var(--ds-ink);
+  border-radius: 8px;
+}
+.menu-page .mm-groups button.on {
+  background: var(--ds-accent-tint);
+  border-left-color: var(--ds-accent);
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+.menu-page .mm-groups button.td-g-an { color: var(--ds-ink-3); }
+.menu-page .mm-groups button.td-g-an.on { color: var(--ds-accent); }
+@media (max-width: 900px) {
+  .td-side { position: static; }
+  .td-side .mm-groups { max-height: none; }
+}
+
+.td-group-sw {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 8px 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--ds-line);
+  background: #fff;
+  margin-bottom: 12px;
+}
+.td-side .td-group-sw { margin-bottom: 0; flex-wrap: wrap; }
+.td-group-sw__ten { font-weight: var(--ds-fw-strong); font-size: var(--ds-fs-body); color: var(--ds-ink); }
+.td-group-sw__phu { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+
+.td-note { font-size: var(--ds-fs-label); color: var(--ds-ink-2); margin: 0 0 8px; }
+
+/* ── Công tắc NHỎ (Còn/Hết, Online/Ẩn) — nhìn 36×20, vùng chạm 44×44 (chủ quán chọn) ── */
+button.td-sw {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  min-width: var(--ds-h-control);
+  padding: 0 4px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  white-space: nowrap;
+}
+.td-sw__ray {
+  position: relative;
+  width: var(--ds-switch-w);
+  height: var(--ds-switch-h);
+  border-radius: 999px;
+  background: #d1d5db;
+  flex: none;
+  transition: background-color 0.15s ease;
+}
+.td-sw__ray::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(var(--ds-switch-h) - 4px);
+  height: calc(var(--ds-switch-h) - 4px);
+  border-radius: 999px;
+  background: #fff;
+  transition: transform 0.15s ease;
+}
+button.td-sw--on { color: var(--ds-ink); }
+button.td-sw--on .td-sw__ray { background: var(--ds-accent); }
+button.td-sw--on .td-sw__ray::after { transform: translateX(calc(var(--ds-switch-w) - var(--ds-switch-h))); }
+/* Hết = đỏ (lỗi/nguy hiểm); Ẩn online = xám, chữ mờ. */
+button.td-sw--het { color: var(--ds-danger); }
+button.td-sw--het .td-sw__ray { background: var(--ds-danger); }
+button.td-sw--an { color: var(--ds-ink-3); }
+/* Chữ cạnh rãnh giữ bề rộng cố định để rãnh mọi hàng thẳng cột dù chữ "Còn" hay "Online". */
+.td-sw__chu { min-width: 3.4em; text-align: left; }
+
+/* ── Nút icon 1 chạm (⭐, 📣, ⋯) — không viền; bật = icon xanh ngọc trên nền xanh nhạt ── */
+button.td-ic {
+  width: var(--ds-h-control);
+  height: var(--ds-h-control);
+  min-width: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-ink-2);
+}
+button.td-ic--on { background: var(--ds-accent-tint); color: var(--ds-accent); }
+button.td-ic:disabled { color: var(--ds-ink-3); opacity: 0.5; }
+
+/* ── Ô ảnh — CỐ ĐỊNH 40px ở mọi trạng thái ── */
+.td-thumb {
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  min-height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  background: #f3f4f6;
+  color: var(--ds-ink-3);
+}
+button.td-thumb { background: #f3f4f6; color: var(--ds-ink-3); cursor: pointer; }
+.td-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+button.td-thumb--loi { background: var(--ds-danger-soft); color: var(--ds-danger); }
+.td-thumb .spinner { width: 18px; height: 18px; }
+
+/* ── Tên món (dòng 1) + giá / đơn vị (dòng 2) ── */
+.td-name { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.td-name__ten {
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.td-name__an { color: var(--ds-ink-3); vertical-align: -3px; margin-right: 4px; }
+.td-name__phu {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  color: var(--ds-ink-2);
+  line-height: 1.25;
+}
+.td-gia { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.td-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  white-space: nowrap;
+}
+.td-tag--loi { background: var(--ds-danger-soft); color: var(--ds-danger); }
+
+/* % tiền nguyên liệu: bình thường xám; chỉ mức chú ý (cam) và mức lỗ (đỏ) có màu (`pctTone`). */
+.td-pct { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); font-variant-numeric: tabular-nums; }
+.td-pct--chu-y { color: var(--ds-warn); font-weight: var(--ds-fw-strong); }
+.td-pct--nguy { color: var(--ds-danger); font-weight: var(--ds-fw-strong); }
+
+/* ── Bảng (≥ 768px) — khung cuộn ngang RIÊNG, trang không cuộn ngang ── */
+.td-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  background: #fff;
+}
+.td-table { width: 100%; border-collapse: collapse; font-size: var(--ds-fs-body2); }
+.td-table th {
+  height: 36px;
+  padding: 0 4px;
+  text-align: left;
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink-2);
+  border-bottom: 1px solid var(--ds-line);
+  background: #fff;
+  white-space: nowrap;
+}
+.td-table td {
+  height: var(--ds-h-row);
+  padding: 0 4px;
+  border-bottom: 1px solid var(--ds-line);
+  vertical-align: middle;
+}
+.td-table tr:last-child td { border-bottom: none; }
+.td-table .td-num { text-align: right; white-space: nowrap; padding-right: 12px; }
+.td-table .td-c { text-align: center; width: 48px; }
+.td-table .td-col-anh { width: 40px; padding-left: 12px; padding-right: 8px; }
+.td-table .td-col-tick { width: 44px; text-align: center; }
+.td-table .td-col-ten { min-width: 170px; }
+.td-table .td-col-sw { width: 96px; }
+.td-table th.td-col-sw { padding-left: 8px; }
+
+/* Trạng thái hàng — dùng cho cả bảng lẫn hàng điện thoại.
+   Món ẩn online: nền xám nhạt + tên mờ + mắt gạch — KHÔNG `opacity` cả hàng: công tắc/nút mờ
+   trông như bị khoá, mà món ẩn vẫn phải bật/tắt được rõ ràng như mọi món. */
+.td-row--an > td,
+.td-prow.td-row--an { background: var(--ds-muted-bg); }
+.td-row--an .td-name__ten { color: var(--ds-ink-3); }
+.td-row--het .td-thumb img { filter: grayscale(1); }
+/* Món đã xoá: tên mờ gạch ngang + nhãn "Đã xoá" — cũng không làm mờ cả hàng. */
+.td-row--xoa .td-name__ten { color: var(--ds-ink-3); text-decoration: line-through; }
+.td-row--chon > td,
+.td-prow.td-row--chon { background: var(--ds-accent-soft); }
+
+/* Ô tick 24px trong vùng bấm 44px. */
+.td-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  margin: 0;
+  cursor: pointer;
+}
+.td-tick input[type='checkbox'] { width: 24px; height: 24px; }
+
+/* ── Danh sách điện thoại (< 768px) — cùng dáng hàng 56px với bảng ── */
+button.td-chon-trang { min-height: var(--ds-h-control); margin-bottom: 8px; width: 100%; }
+.td-plist {
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.td-prow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-height: var(--ds-h-row);
+  padding: 4px 0 4px 12px;
+  border-bottom: 1px solid var(--ds-line);
+}
+.td-prow:last-child { border-bottom: none; }
+.td-prow > .td-tick { margin-left: -12px; }
+.td-prow > .td-thumb { margin-right: 8px; }
+.td-prow > .td-name { flex: 1; margin-right: 4px; }
+.td-prow--head {
+  min-height: 32px;
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink-2);
+}
+.td-prow__tick { width: 44px; flex: none; margin-left: -12px; }
+.td-prow__anh { width: 40px; flex: none; margin-right: 8px; }
+.td-prow__ten { flex: 1; margin-right: 4px; }
+.td-prow__c { width: 44px; flex: none; text-align: center; white-space: nowrap; }
+
+/* ── Thanh chọn nhiều dính đáy — cùng chỗ với `.oo-undo` (trên menu dưới của điện thoại).
+   Thanh NỔI nên chọn BÓNG (không kèm viền). ── */
+.td-bulk {
+  position: fixed;
+  z-index: 290;
+  left: calc(var(--sb-w, 0px) + 12px);
+  right: 12px;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  max-width: 820px;
+  margin: 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.co-sidebar .td-bulk { bottom: calc(24px + env(safe-area-inset-bottom, 0px)); }
+.td-bulk__dem { font-size: var(--ds-fs-body); font-weight: var(--ds-fw-strong); color: var(--ds-ink); white-space: nowrap; }
+.td-bulk__nut { display: flex; flex-wrap: wrap; gap: 8px; flex: 1; justify-content: flex-end; }
+.td-bulk__nut > button { min-height: var(--ds-h-control); padding: 0 12px; font-size: var(--ds-fs-body); }
+button.td-bulk__het { color: var(--ds-danger); }
+/* Thanh Hoàn tác đẩy lên trên thanh chọn nhiều khi cả hai cùng hiện. */
+.oo-undo.td-undo--tren { bottom: calc(76px + 128px + env(safe-area-inset-bottom, 0px)); }
+.co-sidebar .oo-undo.td-undo--tren { bottom: calc(24px + 84px + env(safe-area-inset-bottom, 0px)); }
+/* Chừa chỗ cuối trang để thanh dính đáy không che hàng cuối. */
+.menu-page:has(.td-bulk) { padding-bottom: 220px; }
+
+/* ── Danh sách hành động trong tấm ⋯ ── */
+.td-actions { display: grid; gap: 8px; padding: 4px 16px 16px; }
+.td-actions > button {
+  min-height: var(--ds-h-control);
+  justify-content: flex-start;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  background: #fff;
+  color: var(--ds-ink);
+  border: 1px solid var(--ds-line);
+  border-radius: 8px;
+}
+.td-actions > button.td-actions__xoa { color: var(--ds-danger); }
+
+/* ── Khối "Trên web khách" trong form Sửa món ── */
+.td-web {
+  margin: 4px 0 16px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--ds-accent-soft);
+  border: 1px solid var(--ds-line);
+}
+.td-web__tieude {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-accent);
+}
+.td-web__hang {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.td-web__nhan { font-weight: var(--ds-fw-strong); font-size: var(--ds-fs-body); color: var(--ds-ink); }
+.td-web__phu { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+.td-web__co { display: flex; flex-wrap: wrap; gap: 8px; }
+button.td-chip {
+  min-height: var(--ds-h-control);
+  padding: 0 16px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  color: var(--ds-ink-2);
+  border: none;
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+}
+button.td-chip--on { background: var(--ds-accent-tint); color: var(--ds-accent); }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   BẢN 3 (chủ quán duyệt bản xem thử 2026-11-11) — tiền tố `td3-`, gắn trong `.td3`.
+   2 điều khiển mỗi hàng (Online, ⋯); tối đa MỘT điểm màu mỗi hàng; tên món đậm nhất; cuộn liên tục
+   theo nhóm, tiêu đề nhóm dính. Đỏ KHÔNG có trong bảng (chỉ cho lỗi/xoá).
+   ════════════════════════════════════════════════════════════════════════════ */
+
+/* ── Thanh công cụ ── */
+.td3 button.td3-nut-vuong {
+  width: var(--ds-h-control);
+  min-width: var(--ds-h-control);
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.td3 button.td3-xoaloc {
+  min-height: var(--ds-h-control);
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--ds-accent);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  white-space: nowrap;
+}
+
+/* Thanh chọn nhiều: THAY thanh công cụ ở đầu màn (không còn dính đáy). */
+.td3 .td-bulk {
+  position: static;
+  max-width: none;
+  margin: 0 0 12px;
+  background: var(--ds-ink);
+  box-shadow: none;
+}
+.td3 .td-bulk__dem { color: #fff; margin-right: auto; }
+.td3 .td-bulk button.secondary { background: transparent; color: #fff; border-color: #4b5563; }
+
+/* ── Thanh nhắc ảnh (thay ⚠ đỏ trên từng hàng) ── */
+.td3-nhac {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 6px 6px 6px 14px;
+  border: 1px solid var(--orange-200);
+  border-radius: 10px;
+  background: var(--orange-50);
+  color: var(--orange-900);
+  font-size: var(--ds-fs-label);
+}
+.td3-nhac > svg { color: var(--ds-warn); flex: none; }
+.td3-nhac button {
+  margin-left: auto;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: var(--orange-700);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  white-space: nowrap;
+}
+
+/* ── Cột nhóm (máy tính): danh sách trơn, tên 1 dòng + số món, mục chọn đậm + vạch trái 2px ── */
+.td3-nhomlist {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100dvh - 160px);
+  overflow-y: auto;
+}
+.td3 .td3-nhomlist > button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px 0 12px;
+  border: 0;
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-ink-2);
+  font-size: 14px;
+  font-weight: var(--ds-fw-regular);
+  text-align: left;
+  min-width: 0;
+}
+.td3-nhomlist > button .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td3-nhomlist > button .c { font-size: var(--ds-fs-label); color: var(--ds-ink-3); font-variant-numeric: tabular-nums; }
+.td3 .td3-nhomlist > button.on { border-left-color: var(--ds-accent); color: var(--ds-ink); font-weight: var(--ds-fw-strong); }
+.td3-nhomlist > button.an { opacity: 0.55; }
+
+/* ── Bảng (máy tính) ── */
+.td3-tbl {
+  --c-tick: 44px;
+  --c-nhom: 160px;
+  background: #fff;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  /* `clip` chứ không `hidden`: hidden tạo khung cuộn và tiêu đề nhóm hết dính. */
+  overflow: clip;
+}
+.td3-hd,
+.td3-row {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 80px 64px 44px;
+  align-items: center;
+  column-gap: 10px;
+  padding: 0 8px 0 12px;
+}
+.td3-tbl--tick .td3-hd,
+.td3-tbl--tick .td3-row { grid-template-columns: var(--c-tick) 44px minmax(0, 1fr) var(--c-nhom) 80px 64px 44px; padding-left: 4px; }
+.td3-tbl--bep .td3-hd,
+.td3-tbl--bep .td3-row { grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 44px; }
+@media (max-width: 1099px) {
+  .td3-tbl { --c-nhom: 0px; }
+  .td3-c-nhom { visibility: hidden; overflow: hidden; }
+}
+.td3-hd {
+  height: 40px;
+  border-bottom: 1px solid var(--ds-line);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ds-ink-2);
+}
+.td3-r { text-align: right; justify-self: end; }
+/* Tiêu đề nhóm DÍNH khi cuộn — dưới thanh đầu app 56px. */
+.td3-gh {
+  position: sticky;
+  top: 56px;
+  z-index: 2;
+  padding: 6px 16px;
+  background: var(--ds-muted-bg);
+  border-bottom: 1px solid var(--ds-line);
+  font-size: 12px;
+  font-weight: var(--ds-fw-strong);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ds-ink-2);
+}
+.td3-gh span { font-weight: var(--ds-fw-regular); text-transform: none; letter-spacing: 0; }
+.td3-row {
+  min-height: var(--ds-h-row);
+  border-top: 1px solid var(--gray-100);
+  /* ~600 hàng: trình duyệt bỏ qua vẽ hàng ngoài màn hình. */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+.td3-gh + .td3-row,
+.td3-hd + .td3-row { border-top: 0; }
+.td3-nhom { font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td3-von { font-size: 14px; font-variant-numeric: tabular-nums; }
+.td3-pct--vua { color: #a16207; font-weight: var(--ds-fw-strong); }
+.td3-pct--cao { color: var(--ds-warn); font-weight: var(--ds-fw-strong); }
+.td3-row > .td-sw { justify-self: end; }
+
+/* ── Tên / giá / nhãn ── */
+.td3 .td-name { min-width: 0; padding: 6px 0; }
+.td3 .td-name__ten {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink);
+}
+.td3 .td3-ten { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.td3 .td3-co { flex: none; color: var(--ds-accent); }
+.td3 .td-name__phu .td-gia { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+.td3 button.td3-het {
+  flex: none;
+  height: 22px;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--orange-50);
+  color: var(--orange-700);
+  font-size: var(--ds-fs-label);
+  font-weight: 500;
+}
+
+/* Món ẩn online: CHỈ công tắc nói trạng thái (chủ quán 2026-11-11) — không nền xám, không làm mờ
+   hàng, tên giữ màu thường. */
+.td3 .td-row--an { background: transparent; }
+.td3 .td-row--an .td-name__ten { color: var(--ds-ink); }
+.td3 .td-row--chon { background: var(--ds-accent-soft); }
+
+/* ── Ô ảnh: chữ cái đầu + chấm cam khi ảnh lỗi ── */
+.td3-chu { font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong); color: var(--ds-ink-3); }
+.td3 .td-thumb.td3-thumb--loi { position: relative; }
+.td3 .td-thumb.td3-thumb--loi::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--ds-warn);
+}
+
+/* ── Điện thoại ── */
+.td3-chips {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -16px 10px;
+  padding: 0 16px;
+}
+.td3-chips::-webkit-scrollbar { display: none; }
+.td3 .td3-chips > button {
+  flex: none;
+  height: 34px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--ds-line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ds-ink-2);
+  font-size: 14px;
+  font-weight: var(--ds-fw-regular);
+  white-space: nowrap;
+}
+.td3-chips > button i { font-style: normal; font-size: 12px; color: var(--ds-ink-3); margin-left: 4px; }
+.td3 .td3-chips > button.on { background: var(--ds-ink); border-color: var(--ds-ink); color: #fff; }
+.td3-chips > button.on i { color: #cbd5e1; }
+.td3-chips > button.an { opacity: 0.55; }
+.td3 .td-plist .td3-gh { top: 56px; }
+.td3 .td3-prow { min-height: 64px; gap: 10px; padding-right: 4px; }
+.td3 .td3-prow > .td-thumb { width: 44px; height: 44px; min-width: 44px; min-height: 44px; }
+.td3 .td3-prow > .td-name { flex: 1; }
+.td3 button.td3-fab {
+  position: fixed;
+  right: 16px;
+  bottom: calc(80px + env(safe-area-inset-bottom, 0px));
+  z-index: 280;
+  width: 56px;
+  height: 56px;
+  min-height: 56px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ds-accent);
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+  box-shadow: 0 6px 16px rgba(15, 118, 110, 0.35);
+}
+
+/* Menu ⋯: mục đầu "Báo hết / Còn hàng lại" — việc làm nhiều nhất trong ca, chữ cam. */
+.td-actions > button.td3-act-het { color: var(--orange-700); font-weight: var(--ds-fw-strong); }
+/* Điện thoại: khung danh sách `overflow: clip` (không `hidden` — hidden thành khung cuộn, tiêu đề
+   nhóm dính tính theo khung và đè lên món đầu). 2 ô lọc chia đôi hàng (trước là 3 ô). */
+.td3 .td-plist { overflow: clip; }
+@media (max-width: 767px) {
+  .td3 .td-bar--dd { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* ── Món HẾT: nền xám nhạt cả hàng; món ĐỀ XUẤT: viền xanh ngọc quanh ảnh (chủ quán 2026-11-11) ── */
+.td3 .td3-row.td-row--het,
+.td3 .td3-prow.td-row--het { background: var(--gray-100); }
+.td3 .td-thumb.td3-thumb--dexuat { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ds-accent); }
+/* Chọn nhiều: nền chọn thắng nền "hết" để biết món nào đang được tick. */
+.td3 .td3-row.td-row--chon,
+.td3 .td3-prow.td-row--chon { background: var(--ds-accent-soft); }
+
+/* ── Máy tính / laptop / iPad (≥768px): thanh lọc DÍNH dưới thanh đầu app (56px), cột danh mục
+   ĐỨNG YÊN, tiêu đề nhóm dính ngay dưới thanh lọc. Thanh lọc cao cố định 64px (ô 44 + đệm 10×2)
+   để 2 thứ dưới biết đúng chỗ dính. Nền thanh = nền trang, để hàng món cuộn qua bên dưới không lộ. ── */
+@media (min-width: 768px) {
+  .td3 {
+    --td3-bar-h: 64px;
+  }
+  .td3 > .td-bar,
+  .td3 > .td-bulk {
+    position: sticky;
+    top: 56px;
+    z-index: 6;
+    box-sizing: border-box;
+    min-height: var(--td3-bar-h);
+    margin: 0 0 4px;
+    padding-block: 10px;
+    background: var(--gray-50);
+  }
+  .td3 > .td-bulk {
+    background: var(--ds-ink);
+    padding-inline: 12px;
+  }
+  .td3 .td-side {
+    position: sticky;
+    top: calc(56px + var(--td3-bar-h) + 8px);
+    align-self: start;
+  }
+  .td3 .td3-nhomlist { max-height: calc(100dvh - 56px - var(--td3-bar-h) - 24px); }
+  .td3 .td3-gh { top: calc(56px + var(--td3-bar-h)); }
+}
+/* Ô ảnh trống cũng nền xám → chìm vào nền hàng "hết"; đổi sang trắng để vẫn thấy ô. */
+.td3 .td-row--het button.td-thumb,
+.td3 .td-row--het .td-thumb { background: #fff; }
+
+/* ── 2026-11-11 lần 2: Còn/Hết + Đẩy bán RA NGOÀI hàng, Online vào ⋯ ── */
+.td3-hd,
+.td3-row { grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 80px 64px 52px 44px; }
+.td3-tbl--tick .td3-hd,
+.td3-tbl--tick .td3-row { grid-template-columns: var(--c-tick) 44px minmax(0, 1fr) var(--c-nhom) 80px 64px 52px 44px; }
+.td3-tbl--bep .td3-hd,
+.td3-tbl--bep .td3-row { grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 64px 52px 44px; }
+.td3-c { text-align: center; justify-self: center; }
+/* Đẩy bán bật: icon xanh ngọc, KHÔNG tô nền. */
+.td3 button.td-ic.td3-push { background: transparent; color: var(--ds-ink-3); }
+.td3 button.td-ic.td3-push.is-on { color: var(--ds-accent); }
+.td3 button.td-ic.td3-push:disabled { opacity: 0.35; }
+
+/* ── 2026-11-11 lần 3: viền ảnh = ĐẨY BÁN (bỏ viền Đề xuất); Đẩy bán thành công tắc; tiêu đề cột
+   "Còn hàng" / "Đẩy bán" mỗi cái MỘT dòng. ── */
+.td3 .td-thumb.td3-thumb--dexuat { box-shadow: none; }
+.td3 .td-thumb.td3-thumb--day { box-shadow: 0 0 0 2px #fff, 0 0 0 4px var(--ds-accent); }
+.td3-hd > span { white-space: nowrap; }
+.td3-hd,
+.td3-row { grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 80px 88px 88px 44px; }
+.td3-tbl--tick .td3-hd,
+.td3-tbl--tick .td3-row { grid-template-columns: var(--c-tick) 44px minmax(0, 1fr) var(--c-nhom) 80px 88px 88px 44px; }
+.td3-tbl--bep .td3-hd,
+.td3-tbl--bep .td3-row { grid-template-columns: 44px minmax(0, 1fr) var(--c-nhom) 88px 88px 44px; }
+/* Hai công tắc cùng căn GIỮA cột, tiêu đề cột cũng căn giữa. */
+.td3-hd > .td3-r:nth-last-child(3),
+.td3-hd > .td3-c { text-align: center; justify-self: center; }
+.td3-row > .td-sw { justify-self: center; }
+
+/* ── Dòng tiêu đề cột DÍNH dưới thanh lọc (chủ quán 2026-11-11); tiêu đề nhóm dính ngay dưới nó.
+   Cao cố định 40px để tiêu đề nhóm biết chỗ dính. Nền trắng che hàng món cuộn qua bên dưới. ── */
+@media (min-width: 768px) {
+  .td3 .td3-hd {
+    position: sticky;
+    top: calc(56px + var(--td3-bar-h));
+    z-index: 3;
+    height: 40px;
+    background: #fff;
+    border-radius: 12px 12px 0 0;
+  }
+  .td3 .td3-gh { top: calc(56px + var(--td3-bar-h) + 40px); }
+}
+
+/* ── Ẩn/hiện cột danh mục (chủ quán 2026-11-11) ── */
+.mm-layout.td3-an-dm { grid-template-columns: minmax(0, 1fr); }
+.td3 button.td3-an-dm-nut {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-regular);
+  justify-self: start;
+}
+.td3 button.td3-mo-dm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  padding: 0 12px;
+  flex: none;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+@media (min-width: 768px) {
+  /* Cột danh mục có thêm nút "Ẩn danh mục" 40px ở đầu → danh sách nhóm ngắn lại tương ứng. */
+  .td3 .td3-nhomlist { max-height: calc(100dvh - 56px - var(--td3-bar-h) - 72px); }
+}
+
+/* ── Thu gọn danh mục tại chỗ (2026-11-11 lần 2): dải 44px + nút "›", không đụng thanh lọc ── */
+.mm-layout.td3-an-dm { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
+.td3 .td3-dm-hep { justify-items: center; }
+.td3 button.td3-dm-mo {
+  width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid var(--ds-line);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--ds-ink-2);
+}
+.td3 button.td3-an-dm-nut { color: var(--ds-ink-2); padding-left: 10px; }
+
+/* ── iPad (768–1023px): rule cũ `.mm-layout` ≤900px ép MỘT cột → cột danh mục bị đẩy lên trên,
+   chiếm cả bề ngang, danh sách món rơi xuống dưới (chủ quán chụp iPad mini 2026-11-11). Màn Thực đơn
+   từ 768px LUÔN 2 cột; iPad thì cột danh mục 176px và các cột số/công tắc hẹp lại cho tên món đủ chỗ. ── */
+@media (min-width: 768px) {
+  .td3 .mm-layout { grid-template-columns: 216px minmax(0, 1fr); gap: 16px; }
+  .td3 .mm-layout.td3-an-dm { grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .td3 .mm-layout { grid-template-columns: 176px minmax(0, 1fr); gap: 12px; }
+  .td3-hd,
+  .td3-row { grid-template-columns: 44px minmax(0, 1fr) 0px 56px 76px 76px 44px; column-gap: 8px; }
+  .td3-tbl--tick .td3-hd,
+  .td3-tbl--tick .td3-row { grid-template-columns: var(--c-tick) 44px minmax(0, 1fr) 0px 56px 76px 76px 44px; }
+  .td3-tbl--bep .td3-hd,
+  .td3-tbl--bep .td3-row { grid-template-columns: 44px minmax(0, 1fr) 0px 76px 76px 44px; }
+  .td3-hd { font-size: 11px; letter-spacing: 0.02em; }
+}

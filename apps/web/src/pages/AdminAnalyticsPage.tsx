@@ -11,22 +11,37 @@
 //   - `AdminAnalyticsPage`  — bọc container + h1 cho route `/admin/analytics`, giữ vì thẻ ở
 //     Dashboard và bookmark đang trỏ vào URL đó.
 //
-// KHÔNG polling: dữ liệu tải khi mở trang / đổi khoảng ngày / bấm "Tải lại". Hai endpoint phía
+// LÀM LẠI 2026-11-11 theo chủ quán: ĐẦU trang là ĐƠN và TIỀN (doanh thu online đã thu, đơn thành
+// công, TB/đơn, tỉ lệ từ chối, thời gian duyệt, biểu đồ đơn thành công theo ngày, giờ đông đơn,
+// món bán chạy, bảng khách); số liệu TRUY CẬP web (lượt vào, phễu trang, giỏ treo, vị trí) dồn
+// hết xuống dưới. Lý do: bản cũ mở đầu bằng "Lượt vào web" và đếm "Đơn online" gồm cả đơn bị từ
+// chối — chủ quán đọc ra số đơn đẹp hơn thực tế và không thấy tiền đâu.
+//
+// KHÔNG polling: dữ liệu tải khi mở trang / đổi khoảng ngày / bấm "Làm mới". Các endpoint phía
 // sau chạy ~10 câu gộp mỗi lần gọi — biến màn này thành polling 2s như màn bếp là tự tạo tải
 // nền vô ích trên chính con VPS đang phục vụ khách.
 //
-// Biểu đồ vẽ bằng div + CSS, KHÔNG thêm thư viện chart: app quản lý hiện không có dependency
-// biểu đồ nào (package.json), thêm một cái vào chỉ để vẽ 4 dãy cột là đổi ~50-150KB bundle lấy
-// thứ 60 dòng CSS làm được.
-import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+// ÁP BỘ QUY TẮC `--ds-*` (2026-11-11, chủ quán chốt): 5 cỡ chữ (số lớn 28, tiêu đề vùng 20, tiêu
+// đề khối 16, nội dung 15–16, nhãn 13 — không chữ nào <13px), biểu đồ chỉ 3 màu --ds-chart-*,
+// trang chia 3 VÙNG có tiêu đề "Kinh doanh" → "Khách hàng" → "Lưu lượng web", thẻ chỉ số có so
+// sánh kỳ trước, biểu đồ ít số liệu thì thành một câu tóm tắt.
+//
+// Biểu đồ vẽ bằng div + CSS grid, KHÔNG thêm thư viện chart: app quản lý hiện không có dependency
+// biểu đồ nào (package.json), thêm một cái vào chỉ để vẽ vài dãy cột là đổi ~50-150KB bundle lấy
+// thứ vài chục dòng CSS làm được.
+import { useCallback, useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
-import { TimePresetChips } from '../components/ui/TimeFilter.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
-import { countDays, presetToRange, type TimePreset } from '../lib/time-presets.ts';
+import { PRESET_LABEL, countDays, presetToRange, type TimePreset } from '../lib/time-presets.ts';
+import { fmtInt, khoangNgay, ngayGio, nhanKhoang } from '../lib/thong-ke-online.ts';
+import { KhachHang, KinhDoanh, LuuLuongWeb, VungTk } from './ThongKeOnlineParts.tsx';
+import './thong-ke.css';
 
-type TrafficData = {
-  range: { days: number; from_day: string; to_day: string };
+type RangeInfo = { days: number; from_day: string; to_day: string };
+
+export type TrafficData = {
+  range: RangeInfo;
   totals: {
     sessions: number;
     page_views: number;
@@ -67,6 +82,29 @@ type TrafficData = {
   collecting: boolean;
 };
 
+/** `GET /admin/analytics/orders` (2026-11-11) — định nghĩa từng số xem đầu
+ *  `apps/api/src/modules/analytics/online-sales-queries.ts`. */
+export type Kpis = {
+  revenue: number;
+  success_count: number;
+  placed_count: number;
+  rejected_count: number;
+  customer_cancelled_count: number;
+  rejected_pct: number | null;
+  avg_order_value: number;
+  avg_review_seconds: number | null;
+};
+
+export type OrdersData = {
+  range: RangeInfo;
+  kpis: Kpis;
+  /** Cùng hình dạng `kpis`, cho khoảng cùng độ dài NGAY TRƯỚC khoảng đang xem — để ghi ▲/▼ %. */
+  prev_kpis: Kpis;
+  by_day: Array<{ day: string; success: number; revenue: number }>;
+  by_hour: Array<{ hour: number; success: number }>;
+  top_items: Array<{ name: string; qty: number; revenue: number }>;
+};
+
 /**
  * Nhãn tiếng Việt cho từng kiểu hỏng. Mỗi kiểu dẫn tới một việc PHẢI LÀM khác hẳn nhau, nên
  * không gộp: 'denied' là khách phải mở quyền trong Cài đặt máy, 'timeout' là sóng/GPS yếu (chờ
@@ -81,8 +119,8 @@ const GEO_OUTCOME_LABEL: Record<string, string> = {
   unsupported: 'Trình duyệt trong app chặn (Zalo/Facebook)',
 };
 
-type CustomerData = {
-  range: { days: number; from_day: string; to_day: string };
+export type CustomerData = {
+  range: RangeInfo;
   phones_total_ever: number;
   phones_in_range: number;
   phones_new_in_range: number;
@@ -90,33 +128,30 @@ type CustomerData = {
   phones_from_staff_orders: number;
   orders_in_range: number;
   orders_by_status: Array<{ status: string; count: number }>;
+  /** Trong KHOẢNG đang xem (2026-11-11), không còn "mọi thời điểm". */
   top_phones: Array<{
     phone: string;
     name: string;
     orders: number;
-    subtotal_sum: number;
+    success: number;
+    rejected: number;
+    success_money: number;
     last_order_ms: number;
   }>;
 };
 
-/** `GET /admin/analytics/carts` — ẢNH CHỤP "ngay lúc này", KHÔNG theo khoảng ngày như 2 type
+/** `GET /admin/analytics/carts` — ẢNH CHỤP "ngay lúc này", KHÔNG theo khoảng ngày như các type
  *  trên (giỏ hàng chỉ có trạng thái hiện tại, bảng ghi đè mỗi ping). Vì thế nó không dùng
  *  `days` và không tải lại khi người dùng đổi khoảng ngày. */
-type CartData = {
+export type CartData = {
   fresh_hours: number;
   carts_with_items: number;
   items_total: number;
 };
 
-// 2 màu cho 2 chuỗi số của biểu đồ theo ngày (lượt vào / đơn hàng). Cặp này đã qua validator
-// palette (tách được với cả 3 dạng mù màu ở nền sáng) — đổi màu thì phải chạy lại, đừng chọn
-// bằng mắt. Mọi biểu đồ 1 chuỗi khác trong file dùng CHUNG một màu xanh: một chuỗi thì màu
-// không mang thông tin gì, đổi hue chỉ làm người đọc tưởng là ý nghĩa khác.
-const C_SESSION = '#2563eb';
-const C_ORDER = '#d97706';
-const INK = '#374151';
-const INK_MUTED = '#6b7280';
-const GRID = '#e5e7eb';
+// Màu chữ chỉ 3 sắc của bộ quy tắc chung — đừng thêm xám thứ tư.
+const INK = 'var(--ds-ink)';
+const INK_MUTED = 'var(--ds-ink-2)';
 
 /**
  * Bộ nút chung (Đợt 0 đồng bộ giao diện, 2026-11-09): thay "Hôm nay / 7 / 30 / 90 ngày" riêng
@@ -157,9 +192,6 @@ const BROWSER_LABEL: Record<string, string> = {
   other: 'Khác',
 };
 
-function fmtInt(n: number): string {
-  return n.toLocaleString('vi-VN');
-}
 
 /**
  * Thời gian chờ của một lần bấm chia sẻ vị trí. Giữ đơn vị ms khi dưới 1 giây thay vì làm tròn
@@ -170,20 +202,12 @@ function fmtElapsed(ms: number): string {
   return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function fmtMoney(n: number): string {
-  return `${n.toLocaleString('vi-VN')}đ`;
-}
 
-function fmtDayShort(day: string): string {
-  // '2026-08-05' → '5/8'
-  const [, m, d] = day.split('-');
-  return `${Number(d)}/${Number(m)}`;
-}
 
 /** Route `/admin/analytics` — chỉ bọc khung; nội dung ở `AdminAnalyticsPanel`. */
 export function AdminAnalyticsPage() {
   return (
-    <div className="container wide with-bottom-nav">
+    <div className="container wide with-bottom-nav ds">
       <h1 style={{ margin: '0 0 12px' }}>Truy cập &amp; khách hàng</h1>
       <AdminAnalyticsPanel />
     </div>
@@ -194,27 +218,33 @@ export function AdminAnalyticsPanel() {
   const toast = useToast();
   // Mặc định 30 ngày (Đợt 0 chốt cho mọi màn không ca; trước là 7 ngày).
   const [preset, setPreset] = useState<TimePreset>('30d');
+  const [orders, setOrders] = useState<OrdersData | null>(null);
   const [traffic, setTraffic] = useState<TrafficData | null>(null);
   const [customers, setCustomers] = useState<CustomerData | null>(null);
   const [carts, setCarts] = useState<CartData | null>(null);
   const [loading, setLoading] = useState(true);
+  // Giờ tải xong lần gần nhất — "cập nhật 14:52" cạnh nút ↻ (không polling, xem đầu file).
+  const [capNhat, setCapNhat] = useState<string | null>(null);
 
   const load = useCallback(
     async (p: TimePreset) => {
       const d = presetDays(p);
       setLoading(true);
       try {
-        // 3 endpoint độc lập → gọi song song, đừng để người dùng chờ cộng dồn.
+        // 4 endpoint độc lập → gọi song song, đừng để người dùng chờ cộng dồn.
         // `carts` KHÔNG nhận `days` (ảnh chụp hiện tại) nhưng vẫn tải lại cùng nhịp: người
-        // bấm "Tải lại" muốn mọi con số trên màn tươi lại, không phải hai phần lệch tuổi nhau.
-        const [t, c, k] = await Promise.all([
+        // bấm "Làm mới" muốn mọi con số trên màn tươi lại, không phải hai phần lệch tuổi nhau.
+        const [o, t, c, k] = await Promise.all([
+          api.get<{ data: OrdersData }>(`/admin/analytics/orders?days=${d}`),
           api.get<{ data: TrafficData }>(`/admin/analytics/traffic?days=${d}`),
           api.get<{ data: CustomerData }>(`/admin/analytics/customers?days=${d}`),
           api.get<{ data: CartData }>('/admin/analytics/carts'),
         ]);
+        setOrders(o.data.data);
         setTraffic(t.data.data);
         setCustomers(c.data.data);
         setCarts(k.data.data);
+        setCapNhat(new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }));
       } catch (err) {
         toast.push('error', extractError(err).message);
       } finally {
@@ -228,526 +258,243 @@ export function AdminAnalyticsPanel() {
     load(preset);
   }, [preset, load]);
 
+  const range = orders?.range ?? traffic?.range ?? null;
+  const soNgay = range?.days ?? presetDays(preset);
+
   return (
-    <>
-      {/* Hàng chọn khoảng ngày. KHÔNG có <h1> ở đây: khi nhúng vào tab, tiêu đề đã là "Đơn hàng
-          online" + nhãn tab — thêm một h1 nữa là 2 tiêu đề chồng nhau trên cùng màn hình. */}
-      {/* Filter 1 dòng, dài thì kéo ngang — quy tắc chung cho mobile (chốt 2026-09-06).
-          Dùng `TimeRangeChips` chung với Đơn online: trước đây chỗ này là nút primary/secondary
-          VUÔNG cao 44px, cùng một câu hỏi "xem khoảng nào" mà nhìn khác hẳn màn kia. */}
-      {/* Đợt 0: bộ nút chung `TimePresetChips`. Nút tải lại trước nằm cuối dãy chip (`trailing`);
-          component chung không có khe đó nên đặt cạnh, căn đáy cho thẳng hàng với dãy nút. */}
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, marginBottom: 12 }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <TimePresetChips
-            ariaLabel="Chọn khoảng thời gian xem thống kê"
-            value={preset}
-            presets={RANGE_PRESETS}
-            onChange={setPreset}
-          />
+    <div className="tk2">
+      {/* Đầu tab (bản 2, 2026-11-11): segmented control chọn khoảng + dòng "13/10 – 11/11 · cập
+          nhật 14:52 ↻". Chủ quán chọn ↻ NHỎ cạnh dòng ngày thay nút "Làm mới" to đứng riêng góc.
+          KHÔNG <h1>: tiêu đề màn đã là "Đơn online" + tab. */}
+      <div className="tk2-loc">
+        <div className="tk2-seg" role="tablist" aria-label="Chọn khoảng thời gian xem thống kê">
+          {RANGE_PRESETS.map((pr) => (
+            <button
+              key={pr}
+              type="button"
+              role="tab"
+              aria-selected={preset === pr}
+              className={preset === pr ? 'is-on' : undefined}
+              onClick={() => setPreset(pr)}
+            >
+              {PRESET_LABEL[pr]}
+            </button>
+          ))}
         </div>
-        <button
-          type="button"
-          className="secondary"
-          onClick={() => load(preset)}
-          aria-label="Tải lại số liệu"
-          style={{
-            flex: 'none',
-            minHeight: 44,
-            minWidth: 44,
-            padding: 0,
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-          }}
-        >
-          <Icon name="lam-moi" size={22} label="Tải lại số liệu" />
-        </button>
+        {range && (
+          <span className="tk2-khoang">
+            {khoangNgay(range.from_day, range.to_day)}
+            {capNhat && ` · cập nhật ${capNhat}`}
+            {traffic && traffic.active_now > 0 && (
+              <span className="tk2-dangxem"> · {traffic.active_now} khách đang xem web</span>
+            )}
+            <button
+              type="button"
+              className="tk2-lammoi"
+              aria-label="Làm mới số liệu"
+              onClick={() => load(preset)}
+              disabled={loading}
+            >
+              <Icon name="lam-moi" size={18} />
+            </button>
+          </span>
+        )}
       </div>
 
-      {traffic && (
-        <p style={{ color: INK_MUTED, fontSize: 13, margin: '0 0 12px' }}>
-          {traffic.range.from_day === traffic.range.to_day
-            ? `Ngày ${traffic.range.from_day}`
-            : `Từ ${traffic.range.from_day} đến ${traffic.range.to_day}`}
-          {' · '}
-          <strong style={{ color: traffic.active_now > 0 ? '#059669' : INK_MUTED }}>
-            {traffic.active_now > 0 ? (
-              <>
-                {/* Chấm xanh thay 🟢: chấm tròn CSS ăn đúng màu chữ, không phụ thuộc bộ emoji máy. */}
-                <span
-                  aria-hidden="true"
-                  style={{
-                    display: 'inline-block',
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    background: 'currentColor',
-                    marginRight: 6,
-                    verticalAlign: 'middle',
-                  }}
-                />
-                {traffic.active_now} khách đang xem web
-              </>
-            ) : (
-              'Chưa có ai đang xem web'
-            )}
-          </strong>
-          {!traffic.collecting && (
-            <>
-              {' · '}
-              <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px' }} /> Đang TẮT thu thập
-              (ANALYTICS_ENABLED=false)
-            </>
-          )}
+      {traffic && !traffic.collecting && (
+        <p className="tk2-mo">
+          <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px' }} /> Đang TẮT thu thập lượt vào web
+          (ANALYTICS_ENABLED=false)
         </p>
       )}
 
-      {loading && !traffic && (
-        <p style={{ textAlign: 'center', color: INK_MUTED }}>
+      {loading && !orders && (
+        <p className="tk2-mo" style={{ textAlign: 'center' }}>
           <span className="spinner" /> Đang tải số liệu...
         </p>
       )}
 
-      {traffic && (
-        <>
-          <div style={tileGrid}>
-            <Tile
-              label="Lượt vào web"
-              value={fmtInt(traffic.totals.sessions)}
-              hint="Mỗi lần khách mở web là 1 lượt (đóng tab là hết lượt)"
-            />
-            <Tile
-              label="Thiết bị khác nhau"
-              value={fmtInt(traffic.totals.visitors)}
-              hint="Đếm theo IP đã mã hoá — cùng wifi có thể tính là 1"
-            />
-            <Tile label="Lượt xem trang" value={fmtInt(traffic.totals.page_views)} />
-            <Tile
-              label="Đơn online"
-              value={fmtInt(customers?.orders_in_range ?? 0)}
-              hint={
-                traffic.totals.sessions > 0
-                  ? `Tỉ lệ đặt đơn ${Math.round(((customers?.orders_in_range ?? 0) / traffic.totals.sessions) * 100)}% số lượt vào`
-                  : undefined
-              }
-            />
-          </div>
-
-          <Panel title="Lượt vào web theo ngày">
-            <div style={{ display: 'flex', gap: 16, marginBottom: 10, fontSize: 13, color: INK }}>
-              <Legend color={C_SESSION} label="Lượt vào" />
-              <Legend color={C_ORDER} label="Đơn online" />
-            </div>
-            <DayChart rows={traffic.by_day} />
-          </Panel>
-
-          <div style={twoCol}>
-            <Panel title="Giờ nào đông khách">
-              <HourChart rows={traffic.by_hour} />
-            </Panel>
-            <Panel title="Trang khách xem nhiều nhất">
-              <RowBars
-                rows={traffic.top_paths.map((p) => ({
-                  key: p.path,
-                  label: p.path,
-                  value: p.views,
-                }))}
-                unit="lượt xem"
-                empty="Chưa có dữ liệu."
-              />
-            </Panel>
-          </div>
-
-          <Panel title="Khách chia sẻ vị trí">
-            {traffic.geo_share.total === 0 ? (
-              <p style={empty}>Chưa có lượt bấm "Chia sẻ vị trí" nào trong khoảng này.</p>
-            ) : (
-              <>
-                <p style={{ margin: '0 0 4px', fontSize: 14 }}>
-                  {fmtInt(traffic.geo_share.total)} lượt bấm ·{' '}
-                  <strong
-                    style={{
-                      // Ngưỡng 20%: dưới mức đó là nền nhiễu bình thường (khách bấm nhầm, đi
-                      // thang máy, để máy trong túi). Trên mức đó là có thứ hỏng có hệ thống và
-                      // đáng đi tìm — tô đỏ để mắt dừng lại đúng lúc cần.
-                      color: (traffic.geo_share.failed_pct ?? 0) > 20 ? '#dc2626' : INK_MUTED,
-                    }}
-                  >
-                    {fmtInt(traffic.geo_share.failed)} lượt hỏng ({traffic.geo_share.failed_pct}%)
-                  </strong>
-                </p>
-
-                {/* Đếm gộp theo kiểu hỏng — cần bên cạnh bảng bên dưới vì bảng chỉ giữ 30 lần
-                    gần nhất, còn dòng này tính trên TOÀN khoảng đang xem. */}
-                <p style={{ ...empty, marginBottom: 14 }}>
-                  {traffic.geo_share.by_outcome
-                    .filter((o) => o.outcome !== 'ok')
-                    .map((o) => `${GEO_OUTCOME_LABEL[o.outcome] ?? o.outcome}: ${o.hits}`)
-                    .join(' · ') || 'Không có lượt nào hỏng.'}
-                </p>
-
-                {traffic.geo_failures.length === 0 ? (
-                  <p style={empty}>
-                    Không có lần hỏng nào được ghi chi tiết trong khoảng này.
-                  </p>
-                ) : (
-                  <>
-                    <h4 style={{ margin: '0 0 8px', fontSize: 14, color: INK }}>
-                      {traffic.geo_failures.length} lần hỏng gần đây nhất
-                    </h4>
-                    <div style={{ overflowX: 'auto' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                        <thead>
-                          <tr style={{ textAlign: 'left', color: INK_MUTED }}>
-                            <th style={th}>Lúc</th>
-                            <th style={th}>Khách vào bằng gì</th>
-                            <th style={th}>Lỗi</th>
-                            <th style={{ ...th, textAlign: 'right' }}>Chờ</th>
-                            <th style={th}>Trang</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {traffic.geo_failures.map((f) => (
-                            <tr
-                              key={`${f.at_ms}-${f.page}-${f.outcome}`}
-                              style={{ borderTop: `1px solid ${GRID}` }}
-                            >
-                              <td style={{ ...td, color: INK_MUTED, whiteSpace: 'nowrap' }}>
-                                {new Date(f.at_ms).toLocaleString('vi-VN', {
-                                  day: '2-digit',
-                                  month: '2-digit',
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
-                              </td>
-                              <td style={{ ...td, whiteSpace: 'nowrap' }}>
-                                {DEVICE_LABEL[f.device] ?? f.device}
-                                <span style={{ color: INK_MUTED }}>
-                                  {' · '}
-                                  {BROWSER_LABEL[f.browser] ?? f.browser}
-                                </span>
-                              </td>
-                              <td style={td}>
-                                {GEO_OUTCOME_LABEL[f.outcome] ?? f.outcome}
-                                {/* Chuỗi lỗi THÔ của trình duyệt — không diễn dịch. Trên iOS đây
-                                    là thứ phân biệt được hai ca cùng `outcome` nhưng khác hẳn
-                                    nguyên nhân (vd "kCLErrorDomain error 0"). */}
-                                {f.message && (
-                                  <div
-                                    style={{
-                                      color: INK_MUTED,
-                                      fontSize: 11,
-                                      fontFamily: 'ui-monospace, monospace',
-                                      marginTop: 2,
-                                      wordBreak: 'break-word',
-                                    }}
-                                  >
-                                    {f.code !== null && `[${f.code}] `}
-                                    {f.message}
-                                  </div>
-                                )}
-                                {!f.secure && (
-                                  <div style={{ color: '#dc2626', fontSize: 11, marginTop: 2 }}>
-                                    <Icon name="canh-bao" size={14} style={{ verticalAlign: '-2px' }} /> Trang mở KHÔNG qua HTTPS — trình duyệt chặn định vị
-                                  </div>
-                                )}
-                              </td>
-                              <td
-                                style={{
-                                  ...td,
-                                  textAlign: 'right',
-                                  whiteSpace: 'nowrap',
-                                  fontVariantNumeric: 'tabular-nums',
-                                }}
-                              >
-                                {fmtElapsed(f.elapsed_ms)}
-                              </td>
-                              <td style={{ ...td, color: INK_MUTED }}>{f.page}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <p style={{ ...empty, marginTop: 10 }}>
-                      Chỉ ghi lần HỎNG, giữ 14 ngày. Không lưu IP, toạ độ hay danh tính khách —
-                      "Khách vào bằng gì" suy ra từ User-Agent.
-                    </p>
-                  </>
-                )}
-              </>
-            )}
-          </Panel>
-        </>
+      {/* 3 VÙNG theo thứ tự chủ quán hỏi: tiền & đơn → khách là ai → web có ai vào. */}
+      {orders && (
+        <VungTk tieuDe="Kinh doanh">
+          <KinhDoanh data={orders} traffic={traffic} moDau={nhanKhoang(soNgay)} />
+        </VungTk>
       )}
-
-      {carts && (
-        <>
-          <h2 style={{ marginTop: 28 }}>Giỏ hàng đang treo</h2>
-          <p style={{ color: INK_MUTED, fontSize: 13, margin: '0 0 12px' }}>
-            Khách đã chọn món nhưng CHƯA bấm đặt. Tính các giỏ còn hoạt động trong{' '}
-            {carts.fresh_hours} giờ gần nhất — giỏ trên máy khách tự hết hạn sau 24 giờ.
-          </p>
-          <div style={tileGrid}>
-            <Tile
-              label="Giỏ đang có món"
-              value={fmtInt(carts.carts_with_items)}
-              hint="Đếm theo máy khách (mỗi máy 1 giỏ)"
-            />
-            <Tile
-              label="Tổng số món trong các giỏ đó"
-              value={fmtInt(carts.items_total)}
-            />
-          </div>
-
-          <p style={{ ...empty, marginTop: 12 }}>
-            Số món do máy khách tự báo kèm lượt truy cập, KHÔNG phải đơn hàng — chỉ dùng để
-            biết còn bao nhiêu khách đang lửng lơ. Mọi con số về đơn và doanh thu vẫn lấy từ
-            đơn thật.
-          </p>
-        </>
-      )}
-
       {customers && (
-        <>
-          <h2 style={{ marginTop: 28 }}>Số điện thoại khách</h2>
-          <div style={tileGrid}>
-            <Tile
-              label="SĐT từng đặt đơn online"
-              value={fmtInt(customers.phones_total_ever)}
-              hint="Tính từ khi mở web đến nay, mọi trạng thái đơn"
-            />
-            <Tile
-              label="SĐT đặt trong kỳ"
-              value={fmtInt(customers.phones_in_range)}
-              hint={`Trong ${customers.range.days} ngày đang xem`}
-            />
-            <Tile
-              label="Khách mới"
-              value={fmtInt(customers.phones_new_in_range)}
-              hint="SĐT có đơn ĐẦU TIÊN trong kỳ"
-            />
-            <Tile
-              label="Khách quay lại"
-              value={fmtInt(customers.phones_repeat_ever)}
-              hint="SĐT đã đặt từ 2 đơn trở lên"
-            />
-            <Tile
-              label="SĐT nhân viên nhập tay"
-              value={fmtInt(customers.phones_from_staff_orders)}
-              hint="Đơn tại quán/ship do nhân viên tạo — số riêng, không cộng vào số online"
-            />
-          </div>
+        <VungTk tieuDe="Khách hàng">
+          <KhachHang data={customers} />
+        </VungTk>
+      )}
+      {/* Số liệu truy cập: gửi về theo lô 10 giây, giữ 90 ngày (chi tiết chia sẻ vị trí hỏng giữ
+          14 ngày). Không dùng Google Analytics; không lưu IP thật (chỉ bản mã hoá). */}
+      {traffic && (
+        <VungTk tieuDe="Lưu lượng web">
+          <LuuLuongWeb
+            traffic={traffic}
+            successCount={orders?.kpis.success_count ?? null}
+            carts={carts}
+            geo={<GeoShareKhoi traffic={traffic} />}
+          />
+        </VungTk>
+      )}
+    </div>
+  );
+}
 
-          <Panel title="Khách đặt nhiều nhất (mọi thời điểm)">
-            {customers.top_phones.length === 0 ? (
-              <p style={empty}>Chưa có khách nào đặt đơn online.</p>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+/** Khối "Khách chia sẻ vị trí" — tách khỏi thân panel cho gọn, nội dung giữ như cũ. */
+function GeoShareKhoi({ traffic }: { traffic: TrafficData }) {
+  return (
+    <Khoi tieuDe="Khách chia sẻ vị trí">
+      {traffic.geo_share.total === 0 ? (
+        <p style={empty}>Chưa có lượt bấm "Chia sẻ vị trí" nào trong khoảng này.</p>
+      ) : (
+        <>
+          <p style={{ margin: '0 0 4px', fontSize: 'var(--ds-fs-body2)' }}>
+            {fmtInt(traffic.geo_share.total)} lượt bấm ·{' '}
+            <strong
+              style={{
+                // Ngưỡng 20%: dưới mức đó là nền nhiễu bình thường (khách bấm nhầm, đi
+                // thang máy, để máy trong túi). Trên mức đó là có thứ hỏng có hệ thống và
+                // đáng đi tìm — tô đỏ để mắt dừng lại đúng lúc cần.
+                color: (traffic.geo_share.failed_pct ?? 0) > 20 ? 'var(--ds-danger)' : INK_MUTED,
+              }}
+            >
+              {fmtInt(traffic.geo_share.failed)} lượt hỏng ({traffic.geo_share.failed_pct}%)
+            </strong>
+          </p>
+
+          {/* Đếm gộp theo kiểu hỏng — cần bên cạnh bảng bên dưới vì bảng chỉ giữ 30 lần
+              gần nhất, còn dòng này tính trên TOÀN khoảng đang xem. */}
+          <p style={{ ...empty, marginBottom: 16 }}>
+            {traffic.geo_share.by_outcome
+              .filter((o) => o.outcome !== 'ok')
+              .map((o) => `${GEO_OUTCOME_LABEL[o.outcome] ?? o.outcome}: ${o.hits}`)
+              .join(' · ') || 'Không có lượt nào hỏng.'}
+          </p>
+
+          {traffic.geo_failures.length === 0 ? (
+            <p style={empty}>Không có lần hỏng nào được ghi chi tiết trong khoảng này.</p>
+          ) : (
+            <>
+              <h4 style={{ margin: '0 0 8px', fontSize: 'var(--ds-fs-body2)', color: INK }}>
+                {traffic.geo_failures.length} lần hỏng gần đây nhất
+              </h4>
+              <div className="tk-cuon">
+                <table className="tk-bang tk-bang-rong">
                   <thead>
-                    <tr style={{ textAlign: 'left', color: INK_MUTED }}>
-                      <th style={th}>SĐT</th>
-                      <th style={th}>Tên</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Số đơn</th>
-                      <th style={{ ...th, textAlign: 'right' }}>Tổng tiền đã đặt</th>
-                      <th style={th}>Đơn gần nhất</th>
+                    <tr>
+                      <th>Lúc</th>
+                      <th>Khách vào bằng gì</th>
+                      <th>Lỗi</th>
+                      <th className="so">Chờ</th>
+                      <th>Trang</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {customers.top_phones.map((p) => (
-                      <tr key={p.phone} style={{ borderTop: `1px solid ${GRID}` }}>
-                        <td style={{ ...td, fontVariantNumeric: 'tabular-nums' }}>
-                          <a href={`tel:${p.phone}`} style={{ color: C_SESSION }}>
-                            {p.phone}
-                          </a>
+                    {traffic.geo_failures.map((f) => (
+                      <tr key={`${f.at_ms}-${f.page}-${f.outcome}`}>
+                        <td style={{ color: INK_MUTED, whiteSpace: 'nowrap' }}>{ngayGio(f.at_ms)}</td>
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          {DEVICE_LABEL[f.device] ?? f.device}
+                          <span style={{ color: INK_MUTED }}>
+                            {' · '}
+                            {BROWSER_LABEL[f.browser] ?? f.browser}
+                          </span>
                         </td>
-                        <td style={td}>{p.name || '—'}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{fmtInt(p.orders)}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>{fmtMoney(p.subtotal_sum)}</td>
-                        <td style={{ ...td, color: INK_MUTED }}>
-                          {new Date(p.last_order_ms).toLocaleString('vi-VN', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                        <td>
+                          {GEO_OUTCOME_LABEL[f.outcome] ?? f.outcome}
+                          {/* Chuỗi lỗi THÔ của trình duyệt — không diễn dịch. Trên iOS đây
+                              là thứ phân biệt được hai ca cùng `outcome` nhưng khác hẳn
+                              nguyên nhân (vd "kCLErrorDomain error 0"). */}
+                          {f.message && (
+                            <div
+                              style={{
+                                color: INK_MUTED,
+                                fontSize: 'var(--ds-fs-label)',
+                                fontFamily: 'ui-monospace, monospace',
+                                marginTop: 4,
+                                wordBreak: 'break-word',
+                              }}
+                            >
+                              {f.code !== null && `[${f.code}] `}
+                              {f.message}
+                            </div>
+                          )}
+                          {!f.secure && (
+                            <div
+                              style={{
+                                color: 'var(--ds-danger)',
+                                fontSize: 'var(--ds-fs-label)',
+                                marginTop: 4,
+                              }}
+                            >
+                              <Icon name="canh-bao" size={14} style={{ verticalAlign: '-2px' }} /> Trang mở KHÔNG qua HTTPS — trình duyệt chặn định vị
+                            </div>
+                          )}
                         </td>
+                        <td className="so">{fmtElapsed(f.elapsed_ms)}</td>
+                        <td style={{ color: INK_MUTED }}>{f.page}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            )}
-          </Panel>
-
-          <p style={{ ...empty, marginTop: 20 }}>
-            Ghi chú: số liệu truy cập gửi về theo lô 10 giây và giữ 90 ngày (riêng chi tiết lần
-            chia sẻ vị trí hỏng giữ 14 ngày), nên con số vài giây gần nhất có thể chưa hiện. Web KHÔNG dùng Google Analytics hay script theo dõi bên
-            ngoài — chỉ đếm trên máy chủ của quán, không lưu IP thật (chỉ lưu bản mã hoá) và
-            không lưu địa chỉ trang khách đến từ đâu ngoài tên miền.
-          </p>
+              <p style={{ ...empty, marginTop: 8, fontSize: 'var(--ds-fs-label)' }}>
+                Chỉ ghi lần HỎNG, giữ 14 ngày. Không lưu IP, toạ độ hay danh tính khách —
+                "Khách vào bằng gì" suy ra từ User-Agent.
+              </p>
+            </>
+          )}
         </>
       )}
-    </>
+    </Khoi>
   );
 }
 
-function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+// ── Khối dựng dùng chung ───────────────────────────────────────────────────
+
+/** Nút "i" tròn — CHẠM để mở/đóng đoạn giải thích. Không hover, không tooltip. */
+function NutI({ mo, onDoi, controls, ten }: { mo: boolean; onDoi: () => void; controls: string; ten: string }) {
   return (
-    <div className="card" style={{ padding: 14 }}>
-      <div style={{ color: INK_MUTED, fontSize: 13 }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, color: INK, lineHeight: 1.2, marginTop: 2 }}>
-        {value}
-      </div>
-      {hint && <div style={{ color: INK_MUTED, fontSize: 11, marginTop: 4 }}>{hint}</div>}
-    </div>
+    <button
+      type="button"
+      className="tk-i"
+      aria-expanded={mo}
+      aria-controls={controls}
+      aria-label={mo ? `Đóng giải thích: ${ten}` : `Giải thích: ${ten}`}
+      onClick={onDoi}
+    >
+      i
+    </button>
   );
 }
 
-function Panel({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="card" style={{ padding: 16, marginTop: 16 }}>
-      <h3 style={{ margin: '0 0 12px', fontSize: 15, color: INK }}>{title}</h3>
-      {children}
-    </div>
-  );
-}
-
-function Legend({ color, label }: { color: string; label: string }) {
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      <span style={{ width: 10, height: 10, borderRadius: 3, background: color }} />
-      {label}
-    </span>
-  );
-}
-
-/** 2 cột cạnh nhau mỗi ngày (lượt vào / đơn). `title` trên từng cột là tooltip — đủ cho nhu
- *  cầu "liếc xem ngày đó bao nhiêu" mà không cần dựng lớp hover riêng. */
-function DayChart({ rows }: { rows: TrafficData['by_day'] }) {
-  const max = Math.max(1, ...rows.map((r) => Math.max(r.sessions, r.orders)));
-  return (
-    <div style={{ overflowX: 'auto' }}>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 10, height: 160, minWidth: 320 }}>
-        {rows.map((r) => (
-          <div key={r.day} style={{ flex: '1 1 0', minWidth: 26, textAlign: 'center' }}>
-            <div
-              style={{ display: 'flex', gap: 2, alignItems: 'flex-end', height: 130 }}
-              title={`${r.day}\n${r.sessions} lượt vào · ${r.visitors} thiết bị · ${r.page_views} lượt xem trang\n${r.orders} đơn online`}
-            >
-              <Bar value={r.sessions} max={max} color={C_SESSION} />
-              <Bar value={r.orders} max={max} color={C_ORDER} />
-            </div>
-            <div style={{ fontSize: 10, color: INK_MUTED, marginTop: 4 }}>{fmtDayShort(r.day)}</div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function Bar({ value, max, color }: { value: number; max: number; color: string }) {
-  const h = value === 0 ? 2 : Math.max(3, Math.round((value / max) * 130));
-  return (
-    <div
-      style={{
-        flex: 1,
-        height: h,
-        background: value === 0 ? GRID : color,
-        // Bo 4px đầu trên, chân cột dính đáy — không bo cả 4 góc (cột không "bay").
-        borderRadius: '4px 4px 0 0',
-      }}
-    />
-  );
-}
-
-function HourChart({ rows }: { rows: TrafficData['by_hour'] }) {
-  const max = Math.max(1, ...rows.map((r) => r.sessions));
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 2, height: 110 }}>
-      {rows.map((r) => (
-        <div key={r.hour} style={{ flex: 1, textAlign: 'center' }}>
-          <div
-            style={{ height: 84, display: 'flex', alignItems: 'flex-end' }}
-            title={`${r.hour}h – ${r.hour + 1}h: ${r.sessions} lượt`}
-          >
-            <Bar value={r.sessions} max={max} color={C_SESSION} />
-          </div>
-          {/* Chỉ ghi nhãn 4 tiếng một lần — 24 nhãn cạnh nhau trên điện thoại là chồng chữ. */}
-          <div style={{ fontSize: 9, color: INK_MUTED, marginTop: 3, height: 12 }}>
-            {r.hour % 4 === 0 ? `${r.hour}h` : ''}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** Cột ngang + số ở cuối — dạng đọc nhanh nhất cho danh sách nhãn dài (đường dẫn, tên miền). */
-function RowBars({
-  rows,
-  unit,
-  empty: emptyText,
+/** Khối nền trắng viền xám bo 12px, tiêu đề 16px + nút "i" (nếu có giải thích). */
+function Khoi({
+  tieuDe,
+  giaiThich,
+  children,
 }: {
-  rows: Array<{ key: string; label: string; value: number }>;
-  unit: string;
-  empty?: string;
+  tieuDe: string;
+  giaiThich?: ReactNode;
+  children: ReactNode;
 }) {
-  const max = Math.max(1, ...rows.map((r) => r.value));
-  if (rows.length === 0 || max === 1 && rows.every((r) => r.value === 0)) {
-    return <p style={empty}>{emptyText ?? 'Chưa có dữ liệu.'}</p>;
-  }
+  const [mo, setMo] = useState(false);
+  const id = useId();
   return (
-    <div style={{ display: 'grid', gap: 8 }}>
-      {rows.map((r) => (
-        <div key={r.key} style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8 }}>
-          <div style={{ minWidth: 0 }}>
-            <div
-              style={{
-                fontSize: 13,
-                color: INK,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-              }}
-              title={r.label}
-            >
-              {r.label}
-            </div>
-            <div style={{ background: GRID, borderRadius: 4, height: 8, marginTop: 3 }}>
-              <div
-                style={{
-                  width: `${Math.max(2, Math.round((r.value / max) * 100))}%`,
-                  height: 8,
-                  background: C_SESSION,
-                  borderRadius: 4,
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ fontSize: 13, color: INK, whiteSpace: 'nowrap', alignSelf: 'center' }}>
-            {fmtInt(r.value)} <span style={{ color: INK_MUTED, fontSize: 11 }}>{unit}</span>
-          </div>
+    <section className="tk-khoi">
+      <div className="tk-tieude">
+        <h3>{tieuDe}</h3>
+        {giaiThich && <NutI mo={mo} onDoi={() => setMo((v) => !v)} controls={id} ten={tieuDe} />}
+      </div>
+      {giaiThich && mo && (
+        <div id={id} className="tk-giaithich">
+          {giaiThich}
         </div>
-      ))}
-    </div>
+      )}
+      {children}
+    </section>
   );
 }
 
-const tileGrid: CSSProperties = {
-  display: 'grid',
-  gap: 10,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-};
-
-const twoCol: CSSProperties = {
-  display: 'grid',
-  gap: 16,
-  gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-  alignItems: 'start',
-};
-
-const th: CSSProperties = { padding: '6px 8px', fontWeight: 600, whiteSpace: 'nowrap' };
-const td: CSSProperties = { padding: '8px', color: INK };
-const empty: CSSProperties = { color: INK_MUTED, fontSize: 13, margin: 0 };
+const empty: CSSProperties = { color: INK_MUTED, fontSize: 'var(--ds-fs-body2)', margin: 0 };

@@ -23,6 +23,11 @@ export type OrderSearchTarget = {
    * ngõ, hay lỗi chính tả — mã xã thì đúng một nghĩa.
    */
   customer_ward_code?: string | null;
+  /**
+   * Mã đơn đã che của BE (`"606c…"`). OPTIONAL cùng lý do với `customer_ward_code`. Có mặt để gõ
+   * mã khách đọc qua điện thoại ("606C") ra đúng đơn — cùng mã trang khách hiện (2026-11-11).
+   */
+  order_token_masked?: string;
 };
 
 /** SĐT so theo CHỮ SỐ trần — '0912 345 678' hay '0912.345.678' đều tìm được bằng '345678'. */
@@ -38,11 +43,15 @@ export function orderMatchesSearch(row: OrderSearchTarget, query: string): boole
   const phone = digitsOnly(row.customer_phone);
   const itemNames = row.items.map((i) => normalizeVi(i.name));
   const ward = normalizeVi(findWard(row.customer_ward_code)?.ward.name ?? '');
+  // Chỉ phần chữ-số của mã ("606c…" → "606c"); so chữ thường vì `normalizeVi` hạ chữ câu tìm.
+  const code = (row.order_token_masked ?? '').replace(/[^0-9a-z]/gi, '').toLowerCase();
 
   return tokens.every((t) => {
     if (name.includes(t)) return true;
     if (itemNames.some((n) => n.includes(t))) return true;
     if (ward !== '' && ward.includes(t)) return true;
+    // Mã đơn: khớp từ ĐẦU mã và cần ≥ 2 ký tự — gõ "6" mà ra mọi đơn có số 6 trong mã là nhiễu.
+    if (code !== '' && t.length >= 2 && code.startsWith(t)) return true;
     const d = digitsOnly(t);
     return d !== '' && phone.includes(d);
   });

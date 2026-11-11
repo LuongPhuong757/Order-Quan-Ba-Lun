@@ -85,9 +85,9 @@ export function QrVisibilityDialog({
         {loadErr && <div className="nv-sheet-msg err">{loadErr}</div>}
 
         <div className="nv-sheet-body">
-          {!loadErr && items === null && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
+          {!loadErr && items === null && <p className="nv-sheet-note">Đang tải...</p>}
           {items && items.length === 0 && (
-            <p style={{ color: '#6b7280', fontSize: 15 }}>Quán chưa có mã QR nào đang dùng.</p>
+            <p className="nv-sheet-note">Quán chưa có mã QR nào đang dùng.</p>
           )}
           {items?.map((q) => {
             const shown = !hidden.has(q.id);
@@ -96,7 +96,7 @@ export function QrVisibilityDialog({
               <div key={q.id} className={`nv-qr-item${shown ? '' : ' dim'}`}>
                 <div className="nv-qr-ic" aria-hidden>
                   {/* Ngân hàng vs ảnh QR: dòng phụ bên cạnh đã ghi rõ (tên NH · số TK / "Ảnh QR") nên icon chỉ để liếc. */}
-                  <Icon name={q.kind === 'BANK' ? 'chuyen-khoan' : 'qr'} size={22} />
+                  <Icon name={q.kind === 'BANK' ? 'chuyen-khoan' : 'qr'} size={20} />
                 </div>
                 <div className="nv-qr-info">
                   <div className="nv-qr-name">{q.label}</div>

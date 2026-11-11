@@ -39,9 +39,9 @@
 //    đang chạm vào 1 dòng để duyệt.
 // 2. Sau khi xử lý xong, dòng đơn biến mất sau ~600ms mờ dần; KHÔNG giữ lại trạng thái "đã xử lý".
 // 3. Panel từ chối là khối mở rộng ngay trong dòng đơn, KHÔNG phải hộp thoại nổi.
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
-import { useSearchParams } from 'react-router-dom';
+import { Link, Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   FULFILLMENT_LABEL,
   REJECT_REASON_LABEL,
@@ -63,24 +63,44 @@ import {
   type FulfillmentAction,
   type FulfillmentStep,
 } from '../lib/fulfillment.ts';
-import { C, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
+import { C as C_CHUNG, STATUS_TONE, waitingTone } from '../lib/online-ui.ts';
 import { customerMapHref, hasSharedLocation } from '../lib/customer-map.ts';
 import { digitsOnly, formatMoneyInput } from '../lib/money-input.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from '../components/Toast.tsx';
 import { MenuPickerModal } from '../components/MenuPickerModal.tsx';
-import { TimePresetChips } from '../components/ui/TimeFilter.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
 import { Icon, type IconName } from '../components/ui/Icon.tsx';
-import { ONLINE_SCREEN, presetToHours, type TimePreset } from '../lib/time-presets.ts';
-import { OnlineOrderSettingsPanel } from './OnlineOrderSettingsPanel.tsx';
-import { OnlineMenuPanel } from './OnlineMenuPanel.tsx';
+import { ONLINE_SCREEN, PRESET_LABEL, presetToHours, type TimePreset } from '../lib/time-presets.ts';
 import { AdminAnalyticsPanel } from './AdminAnalyticsPage.tsx';
+import { OnlineStatusMenu } from './OnlineStatusMenu.tsx';
+import './don-online.css';
 import { createBell } from '../lib/bell.ts';
 import { connectionStateFrom, type SseConnState } from '../lib/online-orders-sse.ts';
 import { filterOrdersBySearch } from '../lib/online-order-search.ts';
 import { onlineWaitingStore, subscribeQueueStream } from '../lib/online-waiting-badge.ts';
 import { attachRefreshTriggers, type RefreshTriggers } from '../lib/refresh-triggers.ts';
 import { formatWait, isOverdue, waitingSeconds } from '../lib/queue-clock.ts';
+
+/**
+ * Bảng màu của màn này = bảng chung `online-ui.ts` NHƯNG chữ chỉ còn 3 sắc của bộ quy tắc
+ * `--ds-*` (chủ quán chốt 2026-11-11): bản chung có 3 xám chữ (#1f2937 / #4b5563 / #6b7280).
+ * Đè cục bộ ở đây chứ không sửa `online-ui.ts` vì file đó còn màn khác dùng (Bếp, Order — chủ
+ * quán cấm đụng). `mutedOnTint` (chữ phụ trên nền tint khối món) lên --ds-ink: --ds-ink-2 trên
+ * nền #e9ecef chỉ ~4:1, dưới ngưỡng đọc được cho mắt người lớn tuổi.
+ */
+const C = {
+  ...C_CHUNG,
+  text: 'var(--ds-ink)',
+  muted: 'var(--ds-ink-2)',
+  mutedOnTint: 'var(--ds-ink)',
+  // Đợt 3 (2026-11-11): "cần chú ý" trên màn này là CAM của bộ quy tắc (--ds-warn), không còn vàng
+  // hổ phách — màn từng có 5 màu nhấn. Chỉ còn: xanh ngọc (chọn/hành động), cam (cần xử lý), đỏ (lỗi).
+  warnBg: 'var(--orange-50)',
+  warnBorder: 'var(--orange-200)',
+  warnText: 'var(--orange-800)',
+} as const;
 
 /**
  * Bản đồ tổng quan nạp RỜI (2026-08-07) — `lazy()` là điều kiện để tính năng này không cộng gì
@@ -127,28 +147,41 @@ const FADE_MS = 600;
  * không ai phải bấm gì; chỉ đơn thật dài mới gấp lại để card không đẩy các đơn sau ra khỏi màn. */
 const ITEMS_VISIBLE_MAX = 5;
 
-/** 4 tab trạng thái. Nhãn + màu lấy từ `STATUS_TONE` để pill trên card và tab không bao giờ
- * lệch nhau — trước đây nhãn tab khai riêng ở đây, nhãn trên card khai riêng trong JSX.
- * "Thành công" (2026-08-04) = đơn CONFIRMED đã checkout — thu tiền xong là rời tab Đã xác
- * nhận, để tab đó chỉ còn đơn đang phải theo. */
-const STATUS_TABS: AdminOnlineOrderStatusFilter[] = [
-  'WAITING',
-  'CONFIRMED',
-  'COMPLETED',
-  'REJECTED',
+/** MỘT hàng chip theo vòng đời đơn (2026-11-11, thay 4 tab trạng thái + hàng chip "chặng" con):
+ * Chờ duyệt · Đang làm · Chờ giao · Đang giao · Xong · Huỷ.
+ * Trước đây trạng thái chia 3 tầng (tab lớn → thời gian → chip con), đơn đang giao vẫn nằm trong
+ * "Đã xác nhận" — nhân viên phải lật 2 tầng mới biết đơn nào đang ngoài đường.
+ * Mỗi chip quy về một `status` mà API hiểu + (với 3 chip giữa) một bộ lọc chặng ở FE. Số trên chip
+ * lấy từ BE (`status_counts` + `step_counts`) nên đứng ở chip nào cũng thấy đủ 6 số.
+ * - "Chờ giao" gồm đơn tự lấy đã xong bếp (khách chưa tới lấy).
+ * - "Đang giao" gồm cả đơn ĐÃ NHẬN mà chưa thu tiền — còn việc phải làm (thu tiền) thì chưa "Xong".
+ * - "Huỷ" = tab "Đã từ chối" cũ (từ chối + huỷ giữa chừng). */
+type QueueChip = 'WAITING' | 'KITCHEN' | 'READY' | 'SHIPPED' | 'COMPLETED' | 'REJECTED';
+const QUEUE_CHIPS: Array<{ value: QueueChip; label: string; status: AdminOnlineOrderStatusFilter }> = [
+  { value: 'WAITING', label: 'Chờ duyệt', status: 'WAITING' },
+  { value: 'KITCHEN', label: 'Đang làm', status: 'CONFIRMED' },
+  { value: 'READY', label: 'Chờ giao', status: 'CONFIRMED' },
+  { value: 'SHIPPED', label: 'Đang giao', status: 'CONFIRMED' },
+  { value: 'COMPLETED', label: 'Xong', status: 'COMPLETED' },
+  { value: 'REJECTED', label: 'Huỷ', status: 'REJECTED' },
 ];
 
-/** Chip lọc chặng giao hàng trong tab "Đã xác nhận" — trả lời câu nhân viên thật sự hỏi:
- * "đơn nào cần mang đi ngay / đơn nào đang ngoài đường". Thứ tự theo đúng vòng đời đơn.
- * PICKUP không bao giờ rơi vào 'SHIPPED' (không có chặng ship) — chip đó chỉ đếm DELIVERY.
- * KHÔNG có chip "Đã nhận" (bỏ 2026-08-04): với chủ dự án, nhận hàng xong chỉ còn chờ thu
- * tiền → đơn đó sang tab "Thành công" khi checkout; chặng RECEIVED xem ở "Tất cả" là đủ. */
-const STEP_FILTERS: Array<{ value: FulfillmentStep | 'ALL'; label: string; icon?: IconName }> = [
-  { value: 'ALL', label: 'Tất cả' },
-  { value: 'KITCHEN', label: 'Đang chuẩn bị', icon: 'dang-nau' },
-  { value: 'READY', label: 'Xong, chờ giao', icon: 'dong-goi' },
-  { value: 'SHIPPED', label: 'Đang giao', icon: 'giao-hang' },
-];
+/** Đơn đã xác nhận có thuộc chip chặng đang chọn không — cùng phân loại với `step_counts` ở BE
+ * (`fulfillmentView`): chặng RECEIVED (đã nhận, chưa thu) gộp vào "Đang giao". */
+const EMPTY_TEXT: Record<QueueChip, string> = {
+  WAITING: 'Không có đơn nào đang chờ',
+  KITCHEN: 'Không có đơn nào đang làm',
+  READY: 'Không có đơn nào chờ giao',
+  SHIPPED: 'Không có đơn nào đang giao',
+  COMPLETED: 'Chưa có đơn nào xong',
+  REJECTED: 'Không có đơn nào bị huỷ',
+};
+
+function matchesChip(row: AdminOnlineOrderRow, chip: QueueChip): boolean {
+  const step = fulfillmentView(row).step;
+  if (chip === 'SHIPPED') return step === 'SHIPPED' || step === 'RECEIVED';
+  return step === chip;
+}
 
 const REASON_ORDER: RejectReasonCode[] = [
   'OUT_OF_INGREDIENT',
@@ -176,32 +209,161 @@ function fmtClock(ms: number): string {
   return new Date(ms).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
 }
 
-/** 4 tab cấp 1. Nhãn có icon để phân biệt bằng hình, không chỉ bằng chữ.
- * "Món online" (2026-08-04): quản lý món nào xuất hiện trên web khách — cùng gate
- * admin với Cài đặt (BE: PATCH /menu/:id là AdminGuard).
+/** Thời gian chờ trước khi THẬT SỰ gửi Xác nhận / Từ chối — cửa sổ để bấm "Hoàn tác". */
+const UNDO_MS = 5_000;
+
+/** Một thao tác duyệt/từ chối đang chờ gửi (Hoàn tác 5 giây, 2026-11-11). Chỉ giữ MỘT lượt mỗi lúc:
+ * bấm thao tác thứ hai khi lượt trước còn chờ thì lượt trước được gửi NGAY (không ai hoàn tác
+ * được 2 việc cùng lúc, và giữ nhiều lượt treo là dễ quên đơn). */
+type PendingSend = {
+  /** Câu trên thanh đen: "Đã xác nhận đơn 606C". */
+  text: string;
+  deadlineMs: number;
+  /** Đơn đang chờ gửi — bị ẨN khỏi danh sách ngay lúc bấm (2026-11-11, chủ quán: "xác nhận xong
+   * mất nhiều thời gian"), hiện lại nếu Hoàn tác hoặc gửi lỗi. */
+  rowId: string;
+  /** Gửi thật. `keepalive` = trang sắp đóng — dùng fetch keepalive để request sống sót.
+   * Promise reject = gửi lỗi (câu lỗi là message) → danh sách hiện lại đơn + báo lỗi. */
+  fire: (keepalive: boolean) => Promise<void>;
+  /** Bấm Hoàn tác: trả thẻ về như cũ, không gửi gì. */
+  undo: () => void;
+};
+type ScheduleSend = (p: Omit<PendingSend, 'deadlineMs'>) => void;
+
+/** POST một thao tác duyệt đơn. Bình thường đi qua axios (`api`); lúc trang đang đóng
+ * (`keepalive`) dùng `fetch(..., { keepalive: true })` — axios/XHR bị huỷ khi tab đóng, fetch
+ * keepalive thì trình duyệt cố gửi nốt. Cookie đăng nhập đi kèm (`credentials: 'include'`), Origin
+ * trình duyệt tự gắn nên qua được lớp chặn CSRF. */
+async function postReview<T>(path: string, body: unknown, keepalive: boolean): Promise<T> {
+  if (!keepalive) {
+    const res = await api.post<{ data: T }>(path, body);
+    return res.data.data;
+  }
+  const base = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
+  const res = await fetch(`${base}${path}`, {
+    method: 'POST',
+    credentials: 'include',
+    keepalive: true,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const json = (await res.json().catch(() => null)) as { data?: T; error?: { message?: string } } | null;
+  if (!res.ok || !json?.data) throw new Error(json?.error?.message ?? 'Gửi không thành công, thử lại nhé.');
+  return json.data;
+}
+
+/** Mã đơn NGẮN — CÙNG mã khách thấy ở trang theo dõi đơn của web khách (4 ký tự đầu của
+ * `order_token`, viết hoa: "606C"). Trước 2026-11-11 admin chỉ có "#1" (thứ tự trong hàng chờ,
+ * đổi liên tục) nên khách gọi đọc "mã 606C" thì nhân viên không có gì để đối chiếu.
+ * BE chỉ trả bản đã che (`order_token_masked`, vd "606c…") — đủ, vì 4 ký tự là cả cái mã. */
+/** Sắp ở FE chứ không tin thứ tự BE: chờ duyệt → FIFO (đơn chờ lâu nhất lên đầu); đã xử lý →
+ * mới nhất lên đầu, tab Xong theo lúc THU TIỀN (2 tab kia paid_at null nên là reviewed_at). */
+function sortQueueRows(rows: readonly AdminOnlineOrderRow[], status: AdminOnlineOrderStatusFilter): AdminOnlineOrderRow[] {
+  return [...rows].sort((a, b) =>
+    status === 'WAITING'
+      ? a.submitted_at_ms - b.submitted_at_ms
+      : (b.paid_at_ms ?? b.reviewed_at_ms ?? b.submitted_at_ms) -
+        (a.paid_at_ms ?? a.reviewed_at_ms ?? a.submitted_at_ms),
+  );
+}
+
+function shortOrderCode(row: Pick<AdminOnlineOrderRow, 'order_token_masked'>): string {
+  return row.order_token_masked.replace(/[^0-9a-z]/gi, '').slice(0, 4).toUpperCase();
+}
+
+/** "2 món · 3 phần": số DÒNG món và tổng SỐ PHẦN. Trước đây thẻ ghi "Tổng 2 món" cho đơn 2 bún
+ * + 1 trà — nhân viên đếm ra 3 và tưởng thiếu món. */
+function itemCountLabel(items: ReadonlyArray<{ qty: number }>): string {
+  const portions = items.reduce((s, i) => s + i.qty, 0);
+  return portions === items.length ? `${items.length} món` : `${items.length} món · ${portions} phần`;
+}
+
+/** "2.50" (decimal từ DB) → "2,5". Một chữ số thập phân là đủ cho câu "xa hay gần". */
+function fmtKm(km: string): string {
+  const n = Number(km);
+  return Number.isFinite(n) ? n.toLocaleString('vi-VN', { maximumFractionDigits: 1 }) : km;
+}
+
+// ── Lựa chọn lưu theo MÁY (localStorage). Mọi truy cập bọc try/catch: Safari chế độ riêng tư
+// ném lỗi khi ghi — mất lựa chọn thì quay về mặc định, không được làm vỡ màn duyệt đơn. ──
+const BELL_MUTED_KEY = 'oo-bell-muted';
+const REASON_COUNT_KEY = 'oo-reject-reason-count';
+
+function readBellMuted(): boolean {
+  try {
+    return localStorage.getItem(BELL_MUTED_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeBellMuted(v: boolean): void {
+  try {
+    if (v) localStorage.setItem(BELL_MUTED_KEY, '1');
+    else localStorage.removeItem(BELL_MUTED_KEY);
+  } catch {
+    /* bỏ qua — xem ghi chú đầu khối */
+  }
+}
+
+function readReasonCounts(): Partial<Record<RejectReasonCode, number>> {
+  try {
+    const raw = localStorage.getItem(REASON_COUNT_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === 'object' ? (parsed as Partial<Record<RejectReasonCode, number>>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function bumpReasonCount(code: RejectReasonCode): void {
+  try {
+    const cur = readReasonCounts();
+    localStorage.setItem(REASON_COUNT_KEY, JSON.stringify({ ...cur, [code]: (cur[code] ?? 0) + 1 }));
+  } catch {
+    /* bỏ qua — xem ghi chú đầu khối */
+  }
+}
+
+/** Tab cấp 1. Nhãn có icon để phân biệt bằng hình, không chỉ bằng chữ.
+ * "Món online" (2026-08-04 → 2026-11-11) đã GỘP vào màn Thực đơn (`/menu`, công tắc "Bán online"
+ * từng món): hai màn cùng quản một món là hai chỗ để lệch. Ở đây chỉ còn nút "Quản lý món online →"
+ * trỏ `/menu?kenh=online`, và link cũ `?view=menu` tự chuyển sang đó.
  * "Thống kê" (2026-08-05): lượt vào web / thời gian ở lại / SĐT từng đặt đơn. Ở ĐÂY chứ không
  * phải một mục nav riêng vì nav admin đã 7 mục, và vì `/dashboard` (đường vào cũ qua thẻ) không
  * có link nào trong nav — xem đầu `AdminAnalyticsPage.tsx`. */
 const VIEW_TABS = [
   { value: 'queue', label: 'Hàng chờ', icon: 'online', adminOnly: false },
-  { value: 'menu', label: 'Món online', icon: 'menu', adminOnly: true },
   { value: 'stats', label: 'Thống kê', icon: 'thong-ke', adminOnly: true },
-  { value: 'settings', label: 'Cài đặt', icon: 'cai-dat', adminOnly: true },
 ] as const satisfies ReadonlyArray<{ value: string; label: string; icon: IconName; adminOnly: boolean }>;
 
 type ViewTab = (typeof VIEW_TABS)[number]['value'];
+
+/** Tab cài đặt cũ (`?view=settings&tab=…`) → nhóm của màn Cài đặt mới (`/settings?g=…`). */
+function legacySettingsHref(tab: string | null): string {
+  const g =
+    tab === 'payment-qr'
+      ? 'payment'
+      : tab === 'menu-qr' || tab === 'stale-alert'
+        ? 'table'
+        : tab === 'printers'
+          ? 'printers'
+          : 'online';
+  return `/settings?g=${g}`;
+}
 
 export function OnlineOrdersPage() {
   const { user } = useAuth();
   const isAdmin = !!user?.is_owner || user?.role === 'admin';
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
 
   // Tab cấp 1 nằm trong URL để chia link được (`?view=settings`) và để redirect từ
   // `/admin/settings` cũ trỏ thẳng vào đây. Không phải admin thì `view` bị ép về 'queue' —
   // đó là lớp chặn cho trường hợp gõ tay URL, không chỉ ẩn cái tab.
   const rawView = params.get('view');
   const view: ViewTab =
-    isAdmin && (rawView === 'settings' || rawView === 'menu' || rawView === 'stats')
+    isAdmin && rawView === 'stats'
       ? rawView
       : 'queue';
 
@@ -218,6 +380,17 @@ export function OnlineOrdersPage() {
 
   const visibleTabs = VIEW_TABS.filter((t) => isAdmin || !t.adminOnly);
 
+  // Cài đặt đã TÁCH ra màn riêng `/settings` (2026-11-11). Link/bookmark cũ `?view=settings&tab=…`
+  // chuyển thẳng sang nhóm tương ứng — không để ai rơi vào tab Hàng chờ mà không hiểu vì sao.
+  if (rawView === 'settings') {
+    return <Navigate to={legacySettingsHref(params.get('tab'))} replace />;
+  }
+  // Tab "Món online" cũ (`?view=menu`) đã gộp vào màn Thực đơn (2026-11-11) — link/bookmark cũ
+  // mở thẳng danh sách món đang bán online ở đó.
+  if (rawView === 'menu') {
+    return <Navigate to="/menu?kenh=online" replace />;
+  }
+
   const goView = (next: ViewTab) => {
     const n = new URLSearchParams(params);
     // Dọn state con của tab Cài đặt (tab/q/page) mỗi lần đổi tab cấp 1 — nếu không, quay
@@ -231,15 +404,18 @@ export function OnlineOrdersPage() {
   };
 
   return (
-    <div className="container wide oo-page with-bottom-nav">
+    // `oo3-narrow` (đợt 3): hàng chờ rộng tối đa ~880px để tên khách và tổng tiền gần nhau; có
+    // panel chi tiết thì nới ra (xem don-online.css). Tab Thống kê giữ bề rộng cũ.
+    <div className={`container wide oo-page with-bottom-nav ds${view === 'queue' ? ' oo3-narrow' : ''}`}>
       {/* Tiêu đề và tab cấp 1 CÙNG một hàng (`.oo-head`) — trước đây là 2 tầng riêng, cộng thêm
           tab trạng thái và 2 banner thì chrome ăn gần 300px trước khi thấy đơn đầu tiên. */}
       <div className="oo-head">
-        <h1>Đơn hàng online</h1>
-        {/* Ô neo cho nút "Bật chuông" mà `QueueView` bắn lên bằng portal — xem `bellSlot` ở trên.
-            `margin-left: auto` đẩy nó về mép phải của hàng `<h1>`; dãy tab cấp 1 dài hơn màn
-            nên tự rớt xuống dòng dưới, không tranh chỗ. */}
-        <div ref={setBellSlot} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }} />
+        {/* KHÔNG có `<h1>` riêng nữa (2026-11-11): thanh đầu app (`AppNav` › `pageTitle`) đã là h1
+            "Đơn online". Trước đó màn có 2 tiêu đề khác chữ ("Đơn online" / "Đơn hàng online")
+            chồng nhau — chủ quán chỉ ra là thừa và lệch tên.
+            Ô neo cho nhãn kết nối + nút chuông mà `QueueView` bắn lên bằng portal — xem `bellSlot`.
+            `order: 2` + `margin-left: auto` đẩy cụm này về mép phải SAU dãy tab cấp 1. */}
+        <div ref={setBellSlot} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, order: 2 }} />
 
         {/* Chỉ dựng tablist khi thật sự có từ 2 tab. Với order/kitchen chỉ còn 1 tab, một hàng
             tab đơn độc là nhiễu thị giác không mang tin gì. */}
@@ -269,13 +445,14 @@ export function OnlineOrdersPage() {
                   borderBottom: `2px solid ${active ? C.accent : 'transparent'}`,
                   borderRadius: 0,
                   background: 'transparent',
-                  color: active ? C.accent : C.muted,
+                  // Đợt 3: chữ tab đang chọn là chữ CHÍNH đậm 600, chỉ gạch chân mang màu xanh ngọc —
+                  // một điểm nhấn màu, không phải hai.
+                  color: active ? C.text : C.muted,
                   cursor: 'pointer',
                   fontSize: 16,
-                  fontWeight: active ? 700 : 500,
+                  fontWeight: active ? 600 : 400,
                 }}
               >
-                <Icon name={t.icon} size={18} />
                 {t.label}
                 {/* Badge trên TAB, không trên h1 — để admin đang ở tab Cài đặt vẫn thấy đơn
                     mới dồn vào. Đây là bù trừ cho việc tab Hàng chờ bị ẩn. */}
@@ -283,10 +460,11 @@ export function OnlineOrdersPage() {
                   <span
                     aria-label={`${waitingCount} đơn đang chờ`}
                     style={{
-                      background: C.danger,
+                      // Cam = "có việc phải làm" (bộ quy tắc: đỏ chỉ cho lỗi).
+                      background: 'var(--ds-warn)',
                       color: C.cardBg,
                       borderRadius: 999,
-                      fontSize: 12,
+                      fontSize: 13,
                       fontWeight: 700,
                       lineHeight: 1,
                       minWidth: 18,
@@ -305,21 +483,44 @@ export function OnlineOrdersPage() {
             })}
           </div>
         )}
+        {/* Nút "Quản lý món online →" đã dời vào menu của nút trạng thái (đợt 3): đứng sau 2 tab
+            nó trông như tab thứ ba lệch kiểu. */}
       </div>
 
       {/* `display:none` chứ KHÔNG phải `{view === 'queue' && ...}` — xem lý do ở đầu file. */}
       <div style={{ display: view === 'queue' ? 'block' : 'none' }}>
-        <QueueView onWaitingCount={setWaitingCount} isAdmin={isAdmin} bellSlot={bellSlot} />
+        <QueueView
+          onWaitingCount={setWaitingCount}
+          isAdmin={isAdmin}
+          bellSlot={bellSlot}
+          // Thẻ "Chưa cài toạ độ quán" → nhảy thẳng tới khối Thông tin quán (tab Cài đặt › Đặt
+          // hàng online). Toạ độ quán sống ở đó, không có màn riêng.
+          onOpenStoreSettings={() => navigate('/settings?g=store')}
+        />
       </div>
 
-      {view === 'menu' && isAdmin && <OnlineMenuPanel />}
       {/* Mount theo điều kiện (không phải display:none như QueueView): panel này gọi 2 endpoint
           gộp ~10 câu SQL lúc mount, giữ nó luôn sống là mỗi lần vào màn Online đều chạy chúng
           dù admin chỉ định duyệt đơn. QueueView được ưu tiên giữ mount vì nó có polling + state
           cuộn; màn này không có gì để mất khi mount lại. */}
       {view === 'stats' && isAdmin && <AdminAnalyticsPanel />}
-      {view === 'settings' && isAdmin && <OnlineOrderSettingsPanel />}
     </div>
+  );
+}
+
+/** Màn đủ rộng cho panel chi tiết đơn (đợt 3). 1280 chứ không 1200: máy tính có sidebar 220px,
+ *  ở 1280 vùng nội dung còn ~1010px = danh sách ~600 + panel 380. Đổi HÀNH VI (chạm dòng = chọn
+ *  thay vì mở rộng) nên phải là hook, không chỉ @media. */
+const SPLIT_QUERY = '(min-width: 1280px)';
+function useIsWideScreen(): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(SPLIT_QUERY);
+      mq.addEventListener('change', cb);
+      return () => mq.removeEventListener('change', cb);
+    },
+    () => window.matchMedia(SPLIT_QUERY).matches,
+    () => false,
   );
 }
 
@@ -327,13 +528,17 @@ function QueueView({
   onWaitingCount,
   isAdmin,
   bellSlot,
+  onOpenStoreSettings,
 }: {
   onWaitingCount: (n: number | null) => void;
   isAdmin: boolean;
-  /** Ô trên hàng `<h1>` để bắn nút "Bật chuông" lên (portal). `null` = chưa gắn xong ref. */
+  /** Ô ở hàng đầu màn để bắn nhãn kết nối + nút chuông lên (portal). `null` = chưa gắn xong ref. */
   bellSlot: HTMLElement | null;
+  /** Mở khối Thông tin quán (chỉ admin) — nút "Cài đặt ngay" của thẻ thiếu toạ độ quán. */
+  onOpenStoreSettings: () => void;
 }) {
   const toast = useToast();
+  const navigate = useNavigate();
   const [items, setItems] = useState<AdminOnlineOrderRow[]>([]);
   const [escalateAfterS, setEscalateAfterS] = useState<number>(0);
   // Số đơn TỪNG tab (badge cạnh nhãn) — BE đếm trong cùng lần GET, vì FE mỗi lúc chỉ giữ danh
@@ -351,13 +556,17 @@ function QueueView({
   const [showMap, setShowMap] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
 
-  // Tab trạng thái — mặc định `WAITING` (OD-11). Đây là tab việc-phải-làm; 2 tab kia là tra cứu.
-  const [status, setStatus] = useState<AdminOnlineOrderStatusFilter>('WAITING');
+  // Chip đang chọn trong hàng 6 bước — mặc định Chờ duyệt (OD-11: chip việc-phải-làm). `status`
+  // (thứ API hiểu) SUY RA từ chip: 3 chip giữa cùng tải `CONFIRMED` rồi lọc chặng ở FE — 4 field
+  // chặng đã nằm sẵn trên từng row, bắt BE lọc lại thứ FE làm được trong 1 vòng lặp là thừa.
+  const [chip, setChip] = useState<QueueChip>('WAITING');
+  const status: AdminOnlineOrderStatusFilter =
+    QUEUE_CHIPS.find((c) => c.value === chip)?.status ?? 'WAITING';
   const isQueue = status === 'WAITING';
-
-  // Chip lọc chặng — CHỈ có nghĩa ở tab "Đã xác nhận". Lọc tại FE: 4 field chặng đã nằm sẵn
-  // trên từng row, thêm query param để BE lọc lại thứ FE làm được trong 1 vòng lặp là thừa.
-  const [stepFilter, setStepFilter] = useState<FulfillmentStep | 'ALL'>('ALL');
+  // Số đơn 3 chặng của đơn đã xác nhận — BE đếm (`step_counts`), `null` = chưa tải xong.
+  const [stepCounts, setStepCounts] = useState<AdminOnlineOrderList['step_counts'] | null>(null);
+  // Trạng thái công tắc "Đóng cửa" đơn online — đi kèm danh sách để cả order/bếp cũng biết.
+  const [ordering, setOrdering] = useState<AdminOnlineOrderList['ordering'] | null>(null);
 
   // Ô tìm kiếm (tên khách / SĐT / món trong đơn) — lọc tại FE vì BE trả TOÀN BỘ đơn của tab
   // trong 1 lần GET, mọi field cần tìm đã nằm trên row. Khác `stepFilter`, search GIỮ NGUYÊN
@@ -371,7 +580,10 @@ function QueueView({
   // URL trông như thể nhân viên tự chọn được.
   // Lưu TÊN NÚT chứ không lưu số giờ: "Hôm nay" mở từ 23h tới sáng hôm sau phải ra số giờ khác
   // nhau — số giờ tính lúc dựng URL (`presetToHours(…, Date.now())`), không chốt cứng lúc bấm.
-  const [rangePreset, setRangePreset] = useState<TimePreset>('all');
+  // Mặc định "Hôm nay" (chủ quán đổi 2026-11-11, trước là "Tất cả"): bộ lọc nay chỉ hiện ở các
+  // tab ĐÃ XỬ LÝ, nơi câu hỏi thường gặp là "hôm nay đã giao những đơn nào". Xem cả lịch sử thì
+  // chọn "Tất cả" trong ô chọn — vẫn một chạm.
+  const [rangePreset, setRangePreset] = useState<TimePreset>('today');
   /** Cửa sổ BE THẬT SỰ áp dụng (`null` = không giới hạn). Dùng để nói với nhân viên vì sao
    * danh sách thiếu đơn cũ — không tự suy từ role ở FE. */
   const [windowHours, setWindowHours] = useState<number | null>(null);
@@ -389,6 +601,16 @@ function QueueView({
   // chuông không bị đóng băng bởi closure của render cũ.
   const bellRef = useRef(createBell());
   const [audioReady, setAudioReady] = useState(false);
+  // Nhân viên CHỦ ĐỘNG tắt chuông (nút chuông trên đầu màn, 2026-11-11). Khác `audioReady=false`
+  // (trình duyệt chặn, tự hết ở cú chạm đầu): đây là lựa chọn của người dùng nên phải NHỚ qua lần
+  // tải trang sau — tắt rồi F5 mà chuông tự reo lại là bất ngờ. Lưu theo máy (localStorage), mỗi
+  // máy một người cầm nên không cần đồng bộ lên server.
+  const [muted, setMuted] = useState(() => readBellMuted());
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  const ringBell = useCallback(() => {
+    if (!mutedRef.current) bellRef.current.ring();
+  }, []);
 
   // Trạng thái kết nối SSE — tính bằng hàm thuần từ 3 mốc thời gian này.
   const [sseOpen, setSseOpen] = useState(false);
@@ -402,6 +624,14 @@ function QueueView({
   // báo `noteFresh` được mà không phải nằm trong deps của effect gắn lưới.
   const triggersRef = useRef<RefreshTriggers | null>(null);
 
+  // Danh sách ĐÃ TẢI của từng tab (theo status + khoảng thời gian) — đổi tab là hiện ngay bản này
+  // rồi tải bản mới NGẦM (chủ quán 2026-11-11: đổi tab "như reload cả trang" vì trước đây danh
+  // sách bị xoá trắng trong lúc chờ API). Bản nhớ cũ vài giây là chấp nhận được: SSE/poll vẫn
+  // tải lại tab đang xem, và lần tải ngầm thay nó trong ~200ms.
+  const listCacheRef = useRef(new Map<string, AdminOnlineOrderRow[]>());
+  const cacheKey = (st: AdminOnlineOrderStatusFilter, preset: TimePreset) =>
+    st === 'WAITING' ? st : `${st}|${preset}`;
+
   const loadQueue = useCallback(async () => {
     const forStatus = statusRef.current;
     // Mọi đường tải (SSE, đổi tab, poll, mount) đều báo "vừa mới" → nhịp poll dự phòng bị dời,
@@ -409,26 +639,27 @@ function QueueView({
     triggersRef.current?.noteFresh();
     try {
       const res = await api.get<{ data: AdminOnlineOrderList }>(
-        queueUrl(forStatus, presetToHours(rangeRef.current, Date.now())),
+        // Tab Chờ duyệt KHÔNG lọc thời gian (ô chọn đã ẩn ở tab đó): đơn chờ từ 23h50 vẫn phải
+        // hiện lúc 0h05 dù đang chọn "Hôm nay" ở tab tra cứu.
+        queueUrl(
+          forStatus,
+          forStatus === 'WAITING' ? null : presetToHours(rangeRef.current, Date.now()),
+        ),
       );
       const payload = res.data.data;
       // Sắp ở FE chứ không tin thứ tự BE trả về — nhưng chiều sắp phụ thuộc tab:
       //   chờ duyệt → FIFO tăng dần (giả định #1, đơn chờ lâu nhất lên đầu)
       //   đã xử lý  → mới nhất lên đầu (danh sách tra cứu)
-      const sorted = [...payload.items].sort((a, b) =>
-        forStatus === 'WAITING'
-          ? a.submitted_at_ms - b.submitted_at_ms
-          : // Tab Thành công sắp theo lúc THU TIỀN (mốc đưa đơn vào tab này); 2 tab kia
-            // paid_at luôn null nên vẫn là reviewed_at như cũ.
-            (b.paid_at_ms ?? b.reviewed_at_ms ?? b.submitted_at_ms) -
-            (a.paid_at_ms ?? a.reviewed_at_ms ?? a.submitted_at_ms),
-      );
+      const sorted = sortQueueRows(payload.items, forStatus);
+      listCacheRef.current.set(cacheKey(forStatus, rangeRef.current), sorted);
       // Kết quả về muộn của tab đã rời khỏi thì BỎ, không ghi đè danh sách tab hiện tại.
       if (statusRef.current !== forStatus) return;
       setItems(sorted);
       setEscalateAfterS(payload.escalate_sms_after_s);
       setWindowHours(payload.window_hours);
       setStatusCounts(payload.status_counts);
+      setStepCounts(payload.step_counts);
+      setOrdering(payload.ordering);
       setMapEnabled(payload.map_enabled);
       setStoreCoords(
         payload.store_lat === null || payload.store_lng === null
@@ -444,14 +675,34 @@ function QueueView({
     }
   }, []);
 
-  // Đổi tab → xoá danh sách cũ rồi tải lại. Xoá trước để không hiện đơn của tab trước trong lúc
-  // chờ, nhân viên sẽ tưởng đơn đã duyệt vẫn đang chờ.
+  // Tải TRƯỚC các tab khác một lần lúc mở màn (chỉ cất vào bộ nhớ, không vẽ) — để ngay lần bấm
+  // đầu tiên sang Đang làm / Xong / Huỷ đã có danh sách hiện liền. 3 request nhẹ, một lần.
   useEffect(() => {
-    setItems([]);
-    setLoading(true);
-    // Chip lọc chặng là con của tab "Đã xác nhận" — rời tab thì về "Tất cả", nếu không lần sau
-    // quay lại sẽ thấy danh sách bị lọc sẵn theo lựa chọn cũ mà không nhớ vì sao thiếu đơn.
-    setStepFilter('ALL');
+    const now = statusRef.current;
+    const preset = rangeRef.current;
+    const others = (['WAITING', 'CONFIRMED', 'COMPLETED', 'REJECTED'] as const).filter((st) => st !== now);
+    for (const st of others) {
+      void api
+        .get<{ data: AdminOnlineOrderList }>(queueUrl(st, st === 'WAITING' ? null : presetToHours(preset, Date.now())))
+        .then((res) => {
+          const key = cacheKey(st, preset);
+          // Đừng đè bản mới hơn nếu người dùng đã kịp mở tab đó.
+          if (!listCacheRef.current.has(key)) listCacheRef.current.set(key, sortQueueRows(res.data.data.items, st));
+        })
+        .catch(() => {
+          /* tải trước hỏng thì thôi — mở tab vẫn tải bình thường */
+        });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ chạy MỘT lần lúc mở màn
+  }, []);
+
+  // Đổi tab → hiện NGAY danh sách đã nhớ của tab đó (nếu có) rồi tải lại ngầm. Chưa từng tải thì
+  // mới để trống chờ — KHÔNG bao giờ hiện danh sách của tab KHÁC (nhân viên sẽ tưởng đơn đã duyệt
+  // vẫn đang chờ).
+  useEffect(() => {
+    const cached = listCacheRef.current.get(cacheKey(status, rangePreset));
+    setItems(cached ?? []);
+    setLoading(cached === undefined);
     void loadQueue();
     // `rangePreset` cũng nằm trong deps: đổi khoảng thời gian là đổi TẬP đơn, phải tải lại và
     // xoá danh sách cũ y hệt đổi tab (giữ danh sách cũ = hiện đơn ngoài khoảng vừa chọn).
@@ -478,13 +729,13 @@ function QueueView({
       onEvent: (ev) => {
         setLastMessageMs(Date.now());
         if (ev.type === 'heartbeat') return; // nhịp sống, không có gì đổi
-        if (ev.type === 'new') bellRef.current.ring();
+        if (ev.type === 'new') ringBell();
         void loadQueue();
       },
     });
     void loadQueue();
     return stop;
-  }, [loadQueue]);
+  }, [loadQueue, ringBell]);
 
   // ── Lưới an toàn: SSE KHÔNG phải nguồn duy nhất ──────────────────────────────
   // 2026-08-06: badge nav hiện 1 đơn chờ trong khi màn này hiện "Không có đơn nào đang chờ" — DB
@@ -512,10 +763,10 @@ function QueueView({
   // thường (đơn cũ đã xử lý), reo chuông ở đó là báo động giả.
   useEffect(() => {
     const t = setInterval(() => {
-      if (statusRef.current === 'WAITING' && itemCountRef.current > 0) bellRef.current.ring();
+      if (statusRef.current === 'WAITING' && itemCountRef.current > 0) ringBell();
     }, BELL_REPEAT_MS);
     return () => clearInterval(t);
-  }, []);
+  }, [ringBell]);
 
   // ── Tự bật chuông ở THAO TÁC ĐẦU TIÊN bất kỳ trên trang ──
   // Chỉ đạo chủ dự án 2026-08-04: banner "Chuông đang tắt" chiếm chỗ gây khó chịu — GHI ĐÈ
@@ -527,7 +778,10 @@ function QueueView({
     if (audioReady) return;
     const tryUnlock = () => {
       void bellRef.current.unlock({ silent: true }).then((r) => {
-        if (r === 'ok') setAudioReady(true);
+        // HOÃN 500ms (2026-11-11): bật chuông là thanh vàng "Chuông đang tắt" biến mất, cả danh
+        // sách trồi lên ~70px. Làm ngay trong `pointerdown` thì cú chạm đang dở rơi xuống CHỖ KHÁC
+        // (đo được: chạm ⋯ lần đầu không mở menu). Chờ cú chạm xong rồi mới đổi bố cục.
+        if (r === 'ok') window.setTimeout(() => setAudioReady(true), 500);
       });
     };
     window.addEventListener('pointerdown', tryUnlock, true);
@@ -554,6 +808,40 @@ function QueueView({
       }),
     [sseOpen, lastMessageMs, nowMs],
   );
+  // Kênh SSE có thể vẫn mở (heartbeat đều) trong khi API danh sách trả 500 — trước 2026-11-11
+  // đèn vẫn xanh đúng lúc màn không tải được đơn nào. Tải lỗi = "mất kết nối", bất kể SSE.
+  const effectiveConn: SseConnState = loadError ? 'dead' : connState;
+  // Đã từng kết nối được chưa — lúc mới mở trang SSE chưa kịp mở thì nút trạng thái ghi
+  // "Đang kết nối…" XÁM, không phải "kết nối lại" (vàng cũ nhìn như sự cố mỗi lần vào trang).
+  const [everConnected, setEverConnected] = useState(false);
+  useEffect(() => {
+    if (connState === 'connected') setEverConnected(true);
+  }, [connState]);
+  // Chuông thật sự kêu được: trình duyệt đã mở khoá audio VÀ nhân viên không chủ động tắt.
+  const bellOn = audioReady && !muted;
+  const muteBell = () => {
+    setMuted(true);
+    writeBellMuted(true);
+  };
+  // Bật = vừa gỡ "tắt chủ động" vừa mở khoá audio. Gọi unlock() NGAY trong onClick — await gì
+  // trước đó là "user activation" hết hiệu lực, trình duyệt vẫn chặn.
+  const enableBell = () => {
+    setMuted(false);
+    writeBellMuted(false);
+    void bellRef.current.unlock().then((r) => {
+      if (r === 'ok') setAudioReady(true);
+      else toast.push('error', 'Trình duyệt chặn âm thanh — bấm lại lần nữa nhé.');
+    });
+  };
+  // Số đơn đang chờ cho thanh "Chuông đang tắt" — lấy từ BE (đúng ở mọi tab), fallback danh sách.
+  const waitingNow = statusCounts ? statusCounts.WAITING : isQueue ? items.length : 0;
+
+  // Panel chi tiết (đợt 3) — MỌI tab, kể cả Chờ duyệt (chủ quán: "sửa màn chờ duyệt cho giống các
+  // màn khác"), chỉ màn đủ rộng. Ở Chờ duyệt panel có ô phí ship + nút Xác nhận. Mặc định chọn đơn đầu danh sách:
+  // panel trống "chọn một đơn" là màn chết, đơn đầu là đơn mới nhất — thứ hay cần xem nhất.
+  const wideScreen = useIsWideScreen();
+  const splitDetail = wideScreen;
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const removeItem = useCallback((id: string) => {
     setItems((cur) => cur.filter((i) => i.id !== id));
@@ -566,17 +854,136 @@ function QueueView({
     setItems((cur) => cur.map((i) => (i.id === id ? { ...i, ...patch } : i)));
   }, []);
 
+  // ── Hoàn tác 5 giây (2026-11-11) ──
+  // Bấm Xác nhận/Từ chối KHÔNG gửi ngay: thẻ mờ đi, thanh đen "Đã xác nhận đơn 606C · Hoàn tác"
+  // đếm 5 giây, hết giờ mới gửi. Hoàn tác = chưa có gì rời máy → khách không bao giờ thấy trạng
+  // thái bị lật qua lật lại, không cần API "huỷ xác nhận" (chủ quán chọn cách này 2026-11-11).
+  // Rủi ro đã biết: tắt app giữa 5 giây → `flushPending(true)` gửi bằng fetch keepalive lúc trang
+  // ẩn/đóng; iPhone không hứa chắc request đó tới nơi. Nếu mất, đơn vẫn ở Chờ duyệt và chuông nhắc
+  // lại — không mất đơn, chỉ là chưa duyệt.
+  const pendingRef = useRef<PendingSend | null>(null);
+  const pendingTimerRef = useRef<number | null>(null);
+  const [pending, setPending] = useState<PendingSend | null>(null);
+  // Đơn đang ẩn vì chờ gửi (bản 2, 2026-11-11): bấm Xác nhận/Từ chối là đơn BIẾN KHỎI danh sách
+  // ngay (trước: mờ 5 giây + mờ dần 0,6 giây mới đi — chủ quán thấy "lâu"). Thẻ vẫn MOUNT (chỉ
+  // `hidden`) để giữ phí ship/món bỏ cho lúc Hoàn tác. Gửi xong thì `onDone` gỡ hẳn.
+  const [hiddenIds, setHiddenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const unhide = useCallback((id: string) => {
+    setHiddenIds((cur) => {
+      if (!cur.has(id)) return cur;
+      const next = new Set(cur);
+      next.delete(id);
+      return next;
+    });
+  }, []);
+
+  const flushPending = useCallback((keepalive: boolean) => {
+    const p = pendingRef.current;
+    if (!p) return;
+    pendingRef.current = null;
+    if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+    setPending(null);
+    // Lỗi xử lý Ở ĐÂY chứ không chỉ trong thẻ: trên máy tính thẻ bấm Xác nhận là bản trong panel,
+    // panel đã chuyển sang đơn kế tiếp nên thẻ đó không còn để hiện lỗi.
+    p.fire(keepalive).catch((err: unknown) => {
+      unhide(p.rowId);
+      toast.push('error', `${p.text.replace(/^Đã /, 'Chưa ')} — ${err instanceof Error ? err.message : 'lỗi không rõ'}`);
+    });
+  }, [unhide, toast]);
+
+  const scheduleSend: ScheduleSend = useCallback(
+    (p) => {
+      // Lượt trước còn chờ → gửi luôn (xem `PendingSend`).
+      flushPending(false);
+      const entry: PendingSend = { ...p, deadlineMs: Date.now() + UNDO_MS };
+      pendingRef.current = entry;
+      setPending(entry);
+      setHiddenIds((cur) => new Set(cur).add(p.rowId));
+      pendingTimerRef.current = window.setTimeout(() => flushPending(false), UNDO_MS);
+    },
+    [flushPending],
+  );
+
+  const undoPending = useCallback(() => {
+    const p = pendingRef.current;
+    if (!p) return;
+    pendingRef.current = null;
+    if (pendingTimerRef.current !== null) window.clearTimeout(pendingTimerRef.current);
+    pendingTimerRef.current = null;
+    setPending(null);
+    unhide(p.rowId);
+    p.undo();
+  }, [unhide]);
+
+  // ── Công tắc Mở/Đóng nhận đơn trên đầu màn (2026-11-11, chỉ admin) ──
+  // Dùng ĐÚNG API của khối "Chuyển sang Đóng cửa" trong Cài đặt (`PUT /admin/settings`) — một
+  // nguồn sự thật. Nhắc lại cho người đọc code: "Đóng cửa" KHÔNG chặn khách đặt đơn, chỉ đổi câu
+  // chữ trên trang khách; đơn mới vẫn vào hàng chờ.
+  const [closeSheet, setCloseSheet] = useState(false);
+  const [offMode, setOffMode] = useState<'MANUAL' | 'UNTIL_TOMORROW'>('MANUAL');
+  const [offReason, setOffReason] = useState('');
+  const [togglingOrdering, setTogglingOrdering] = useState(false);
+
+  const openCloseSheet = () => {
+    // Điền sẵn lựa chọn + câu lần trước — chủ quán hay đóng vì cùng một lý do.
+    setOffMode(ordering?.off_mode ?? 'MANUAL');
+    setOffReason(ordering?.off_reason ?? '');
+    setCloseSheet(true);
+  };
+
+  const setOrderingEnabled = async (enabled: boolean) => {
+    setTogglingOrdering(true);
+    try {
+      await api.put(
+        '/admin/settings',
+        enabled
+          ? { online_ordering_enabled: true }
+          : {
+              online_ordering_enabled: false,
+              online_ordering_off_mode: offMode,
+              online_ordering_off_reason: offReason,
+            },
+      );
+      toast.push('success', enabled ? 'Đã mở lại nhận đơn online' : 'Đã chuyển sang Đóng cửa');
+      setCloseSheet(false);
+      await loadQueue();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setTogglingOrdering(false);
+    }
+  };
+
+  // Trang bị ẩn (chuyển app, khoá máy) / đóng / rời màn → gửi NGAY, không để thao tác treo.
+  useEffect(() => {
+    const onHide = () => flushPending(true);
+    const onVis = () => {
+      if (document.hidden) flushPending(true);
+    };
+    window.addEventListener('pagehide', onHide);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      document.removeEventListener('visibilitychange', onVis);
+      flushPending(true);
+    };
+  }, [flushPending]);
+
   // Báo số đơn chờ lên shell để nó vẽ badge trên tab cấp 1. Nay lấy từ `status_counts` của BE
   // nên ĐỨNG Ở TAB NÀO cũng báo đúng (trước đây sang tab tra cứu là badge mù); fallback
   // items.length cho lúc chưa có counts, đúng hành vi cũ.
   useEffect(() => {
-    onWaitingCount(statusCounts ? statusCounts.WAITING : isQueue ? items.length : null);
+    // Tải lỗi → không báo số (badge tab cấp 1 ẩn), khớp các chip trạng thái đang ghi "–".
+    onWaitingCount(
+      loadError ? null : statusCounts ? statusCounts.WAITING : isQueue ? items.length : null,
+    );
     // Đẩy luôn vào store badge nav dưới: đứng ở màn này thì badge nav khớp CHÍNH XÁC con số trên
     // tab (không có cửa sổ 1-2 giây lệch nhau), và store hoãn nhịp poll nên không fetch trùng với
     // `loadQueue`. Chỉ đẩy khi BE đã trả counts — `items.length` là số của TAB ĐANG MỞ, đẩy nó lên
     // là badge nav hiện số đơn đã từ chối khi nhân viên xem tab tra cứu.
     if (statusCounts) onlineWaitingStore.publish(statusCounts.WAITING);
-  }, [statusCounts, isQueue, items.length, onWaitingCount]);
+  }, [loadError, statusCounts, isQueue, items.length, onWaitingCount]);
 
   // Đếm quá hạn CHỈ có nghĩa ở tab chờ duyệt — đơn đã xử lý thì "quá hạn" là chuyện đã rồi.
   const overdueCount = isQueue
@@ -591,21 +998,16 @@ function QueueView({
   // `filterOrdersBySearch` trả nguyên mảng gốc nên mọi hành vi cũ giữ nguyên.
   const searchedItems = useMemo(() => filterOrdersBySearch(items, search), [items, search]);
 
-  // Số đơn từng chặng cho chip lọc. Đếm trên danh sách ĐÃ QUA TÌM KIẾM (nhưng chưa qua chip):
-  // không tìm gì thì đó là toàn tab như trước; đang tìm 1 khách thì con số trên chip trả lời
-  // đúng câu đang hỏi — "đơn của khách này đang ở chặng nào".
-  const stepCounts = useMemo(() => {
-    const c: Record<FulfillmentStep, number> = { KITCHEN: 0, READY: 0, SHIPPED: 0, RECEIVED: 0 };
-    if (status === 'CONFIRMED') {
-      for (const r of searchedItems) c[fulfillmentView(r).step] += 1;
-    }
-    return c;
-  }, [status, searchedItems]);
-
+  // 3 chip chặng lọc tiếp trên kết quả tìm (cùng tải `CONFIRMED`).
   const visibleItems =
-    status === 'CONFIRMED' && stepFilter !== 'ALL'
-      ? searchedItems.filter((r) => fulfillmentView(r).step === stepFilter)
-      : searchedItems;
+    status === 'CONFIRMED' ? searchedItems.filter((r) => matchesChip(r, chip)) : searchedItems;
+
+  /** Số đơn hiện trên từng chip. Tải lỗi → `null` ("–", xem Đợt 1). */
+  const chipCount = (c: QueueChip): number | null => {
+    if (loadError || statusCounts === null) return null;
+    if (c === 'KITCHEN' || c === 'READY' || c === 'SHIPPED') return stepCounts ? stepCounts[c] : null;
+    return statusCounts[c];
+  };
 
   /**
    * Bao nhiêu đơn LÊN ĐƯỢC bản đồ và bao nhiêu thì không (2026-08-07).
@@ -614,7 +1016,7 @@ function QueueView({
    * bản đồ đang đóng — và vì đây là điều kiện của cái nút: mở một bản đồ trống không giúp gì ai.
    * Chỉ tính đơn DELIVERY: đơn khách tự tới lấy không thuộc câu hỏi "giao ở đâu".
    */
-  const { mappableCount, unmappableCount } = useMemo(() => {
+  const { mappableCount, unmappableCount, deliveryCount } = useMemo(() => {
     let ok = 0;
     let missing = 0;
     for (const r of visibleItems) {
@@ -623,12 +1025,20 @@ function QueueView({
       if (hasSharedLocation(r)) ok += 1;
       else missing += 1;
     }
-    return { mappableCount: ok, unmappableCount: missing };
+    return { mappableCount: ok, unmappableCount: missing, deliveryCount: ok + missing };
   }, [visibleItems]);
 
   /** Bấm một chấm trên bản đồ → đưa đúng card đơn đó vào giữa màn hình. Cuộn chứ không mở một
    *  popup thứ hai: mọi thao tác với đơn (xác nhận, phí ship, ghi chú) đều nằm trên card, dựng
    *  bản sao rút gọn trong bản đồ là hai chỗ cùng sửa một đơn. */
+  // Đơn đang xem ở panel: đơn đã chọn nếu còn trong danh sách (đổi tab/tìm kiếm có thể làm nó
+  // biến mất), không thì đơn đầu.
+  // Đơn đang chờ gửi (ẩn) không được chọn vào panel — panel nhảy sang đơn kế tiếp ngay.
+  const shownItems = visibleItems.filter((r) => !hiddenIds.has(r.id));
+  const detailRow = splitDetail
+    ? (shownItems.find((r) => r.id === detailId) ?? shownItems[0] ?? null)
+    : null;
+
   const scrollToOrder = useCallback((id: string) => {
     const el = document.getElementById(`oo-card-${id}`);
     if (!el) return;
@@ -655,64 +1065,39 @@ function QueueView({
           phải theo màn hình khi cuộn — cuộn tới đơn thứ 15 vẫn cần biết SSE còn sống.
 
           Hai kênh màu TÁCH BIỆT, cố ý:
-          - "đang chọn tab nào" = nền teal đặc + chữ đậm (kênh lựa chọn)
+          - "đang chọn tab nào" = nền xanh ngọc nhạt + chữ xanh ngọc đậm (kênh lựa chọn; trước là nền đặc)
           - "tab này là trạng thái gì" = chấm màu bên trái nhãn (kênh danh tính)
           Nhập 2 kênh vào 1 (tab "Đã từ chối" khi chọn thì nền đỏ) là biến lựa chọn thành báo lỗi. */}
       <div className="oo-toolbar">
-        <div className="oo-tabs" role="tablist" aria-label="Lọc đơn theo trạng thái">
-          {STATUS_TABS.map((value) => {
-            const tone = STATUS_TONE[value];
-            const active = status === value;
+        {/* Đợt 3 (2026-11-11): SEGMENTED CONTROL thay hàng chip — một khung xám bo 10px, mục đang
+            chọn nền trắng. Trước đó chip thường là chữ trần, chip chọn là viên xanh: nhìn như 2 loại
+            phần tử khác nhau. Số chỉ hiện khi > 0 (4/6 chip ghi "0" là nhiễu); Chờ duyệt có số cam. */}
+        <div className="oo-tabs oo3-seg" role="tablist" aria-label="Lọc đơn theo trạng thái">
+          {QUEUE_CHIPS.map(({ value, label }) => {
+            const active = chip === value;
+            const n = statusCounts !== null || loadError ? chipCount(value) : null;
             return (
               <button
                 key={value}
                 type="button"
                 role="tab"
                 aria-selected={active}
-                onClick={() => setStatus(value)}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  minHeight: 44,
-                  padding: '0 16px',
-                  borderRadius: 999,
-                  cursor: 'pointer',
-                  fontSize: 16,
-                  // Tab đang chọn phân biệt bằng NỀN ĐẶC + chữ đậm, không chỉ bằng màu chữ —
-                  // nền đặc vẫn thấy được khi in đen trắng hoặc mắt kém phân biệt màu.
-                  fontWeight: active ? 700 : 400,
-                  background: active ? C.accent : C.cardBg,
-                  color: active ? C.cardBg : C.text,
-                  border: `1px solid ${active ? C.accent : C.border}`,
-                }}
+                className={active ? 'is-on' : undefined}
+                onClick={() => setChip(value)}
               >
-                <span
-                  aria-hidden="true"
-                  style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: 999,
-                    flex: 'none',
-                    // Trên nền teal đặc, chấm màu gốc (vàng/xanh/đỏ) tương phản kém và trông
-                    // như bụi bẩn → tab đang chọn dùng chấm trắng.
-                    background: active ? C.cardBg : tone.edge,
-                  }}
-                />
-                {tone.label}
-                {/* Số đơn cạnh nhãn (chỉ đạo 2026-08-04) — từ `status_counts` nên đủ cả 4 tab
-                    dù FE chỉ đang giữ danh sách 1 tab. Chưa tải xong thì không số. */}
-                {statusCounts !== null && (
+                {label}
+                {/* LỖI TẢI → "–" (2026-11-11): API 500 mà chip vẫn ghi số cũ/0 là nhân viên tưởng
+                    hết đơn trong khi khách đang đợi. Bình thường: không số khi 0. */}
+                {loadError ? (
+                  <span className="oo3-bdg" aria-label="chưa tải được">–</span>
+                ) : n !== null && n > 0 ? (
                   <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 700,
-                      opacity: active ? 0.9 : 0.65,
-                    }}
+                    className={value === 'WAITING' ? 'oo3-bdg is-warn' : 'oo3-bdg'}
+                    aria-label={`${n} đơn`}
                   >
-                    {statusCounts[value]}
+                    {n}
                   </span>
-                )}
+                ) : null}
               </button>
             );
           })}
@@ -721,205 +1106,272 @@ function QueueView({
             nó biến thành một dòng trống; `oo-spacer` cho nó biến mất dưới 640px. */}
         <span className="oo-spacer" style={{ flex: 1 }} />
 
-        {/* Số đơn quá hạn: chip đỏ, chỉ hiện khi thực sự có — không thêm nhiễu lúc bình thường. */}
+        {/* Số đơn quá hạn: nhãn CAM (cần xử lý, không phải lỗi), chỉ hiện khi thực sự có. */}
         {overdueCount > 0 && (
           <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 10px',
-              borderRadius: 999,
-              background: C.alertBg,
-              border: `1px solid ${C.alertBorder}`,
-              color: C.alertText,
-              fontSize: 13,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
+            className="oo3-pill is-warn"
+            style={{ gap: 6, whiteSpace: 'nowrap' }}
           >
             <Icon name="gio" size={16} />
             {overdueCount} đơn quá {escalateAfterS}s
           </span>
         )}
 
-        <ConnectionDot state={connState} />
       </div>
 
-      {/* Chip 🔕 thay cho banner "Chuông đang tắt" (ghi đè D-03 theo chỉ đạo 2026-08-04 —
-          banner chiếm chỗ gây khó chịu). Bình thường nó biến mất ngay ở thao tác đầu tiên
-          (cơ chế tự-bật phía trên); chip chỉ còn hiện khi trang vừa tải mà chưa ai đụng gì,
-          hoặc trình duyệt chặn cứng audio. Bấm chip = unlock CÓ beep xác nhận.
-
-          Render bằng PORTAL lên hàng `<h1>` (chỉ đạo chủ quán 2026-09-06): để trong thanh công
-          cụ thì nó ăn 125px của dãy tab trạng thái, máy 390px chỉ còn thấy 1,5 tab. Logic chuông
-          (`bellRef`, `audioReady`) vẫn ở đây vì SSE ở đây — portal chỉ dời chỗ VẼ, không dời state. */}
-      {!audioReady &&
-        bellSlot &&
+      {/* ── Đầu màn: NHÃN KẾT NỐI có chữ + NÚT CHUÔNG (2026-11-11) ──
+          Trước đó: đèn kết nối là chấm 10px trong toolbar, nhãn chỉ ở `title` (tooltip — người
+          dùng màn này không bao giờ thấy), và vẫn XANH khi API trả 500. Nút "Bật chuông" nhỏ, lúc
+          hiện lúc không. Nay cả hai thành thứ thường trực, đọc được bằng chữ.
+          Render bằng PORTAL lên hàng đầu màn (chỉ đạo chủ quán 2026-09-06: để trong toolbar thì
+          bóp dãy tab trạng thái trên máy 390px). Vì hàng đầu thuộc `OnlineOrdersPage`, cụm này
+          hiện ở MỌI tab cấp 1 (Hàng chờ / Món online / Thống kê / Cài đặt) — đang sửa cài đặt vẫn
+          biết chuông còn bật không. Logic vẫn ở đây vì SSE ở đây — portal chỉ dời chỗ VẼ. */}
+      {/* Đợt 3 (2026-11-11): công tắc + nhãn kết nối + nút chuông GỘP thành MỘT nút trạng thái
+          "● Đang nhận đơn ▾" — xem `OnlineStatusMenu`. Vẫn vẽ qua portal lên hàng đầu màn. */}
+      {bellSlot &&
         createPortal(
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => {
-              // Gọi unlock() NGAY trong onClick — không await gì trước đó, nếu không thì
-              // "user activation" hết hiệu lực và trình duyệt vẫn chặn.
-              void bellRef.current.unlock().then((r) => {
-                if (r === 'ok') setAudioReady(true);
-                else toast.push('error', 'Trình duyệt chặn âm thanh — bấm lại lần nữa nhé.');
-              });
-            }}
-            style={{
-              minHeight: 36,
-              minWidth: 0,
-              padding: '4px 12px',
-              fontSize: 13,
-              fontWeight: 700,
-              color: C.alertText,
-              borderColor: C.alertBorder,
-              whiteSpace: 'nowrap',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Icon name="thong-bao" size={16} />
-            Bật chuông
-          </button>,
+          <OnlineStatusMenu
+            conn={effectiveConn}
+            everConnected={everConnected}
+            orderingEnabled={ordering ? ordering.enabled : null}
+            closedNote={
+              ordering && !ordering.enabled
+                ? `${ordering.off_mode === 'UNTIL_TOMORROW' ? 'Tự mở lại 00:00 sáng mai' : 'Tới khi mở lại'} · khách vẫn đặt được, trang khách hiện ${ordering.off_reason ? `“${ordering.off_reason}”` : 'câu Đóng cửa mặc định'}`
+                : undefined
+            }
+            canToggleOrdering={isAdmin}
+            togglingOrdering={togglingOrdering}
+            onToggleOrdering={() =>
+              ordering?.enabled ? openCloseSheet() : void setOrderingEnabled(true)
+            }
+            bellOn={bellOn}
+            bellWarn={!bellOn && waitingNow > 0}
+            onToggleBell={() => (bellOn ? muteBell() : enableBell())}
+            onManageMenu={isAdmin ? () => navigate('/menu?kenh=online') : undefined}
+          />,
           bellSlot,
         )}
 
-      {/* ── Ô tìm kiếm: tên khách / SĐT / món trong đơn ──
-          Hàng riêng dưới toolbar (không nhét vào toolbar dính — trên điện thoại toolbar đã
-          chật với 4 tab + chip quá hạn + chuông). Gõ không dấu vẫn khớp; SĐT khớp theo đoạn
-          số bất kỳ. Nút ✕ để xoá nhanh bằng 1 chạm thay vì giữ Backspace. */}
-      <div style={{ position: 'relative', marginBottom: 16 }}>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Tìm theo tên khách, SĐT, món hoặc xã…"
-          aria-label="Tìm đơn theo tên khách, số điện thoại hoặc món trong đơn"
-          style={{
-            width: '100%',
-            minHeight: 44,
-            padding: search ? '0 44px 0 12px' : '0 12px',
-            fontSize: 16,
-            color: C.text,
-            background: C.cardBg,
-            border: `1px solid ${C.border}`,
-            borderRadius: 8,
-          }}
-        />
-        {search !== '' && (
-          <button
-            type="button"
-            aria-label="Xoá tìm kiếm"
-            onClick={() => setSearch('')}
-            style={{
-              position: 'absolute',
-              right: 4,
-              top: '50%',
-              transform: 'translateY(-50%)',
-              width: 36,
-              height: 36,
-              minHeight: 0,
-              padding: 0,
-              border: 'none',
-              borderRadius: 8,
-              background: 'transparent',
-              color: C.muted,
-              fontSize: 16,
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <Icon name="dong" size={20} />
-          </button>
-        )}
-      </div>
+      {/* Thanh "Đang Đóng cửa đơn online" đã BỎ (chủ quán 2026-11-11): nút trạng thái phía trên đã
+          ghi "● Đang đóng" cho cả 3 role và bật/tắt được ngay trong menu của nó. */}
 
-      {/* ── Hàng lọc THỜI GIAN ──
-          Admin: chip chọn khoảng (mặc định "Tất cả" — admin xem được hết).
-          Order/bếp: KHÔNG có chip, chỉ một dòng nói rõ cửa sổ BE đang áp dụng. Không có dòng
-          này thì nhân viên mở tab "Thành công" thấy 3 đơn thay vì 30 và tưởng dữ liệu bị mất.
-          Đây là trục lọc thứ 3 (sau trạng thái và chặng) nên đứng thành hàng riêng, không nhồi
-          vào toolbar dính vốn đã chật trên điện thoại. */}
-      {isAdmin ? (
-        /* Bộ nút chung `TimePresetChips` (Đợt 0) — nhãn chữ nằm trên hàng nút, không còn emoji
-           🕒 trong nhãn. Bọc div chỉ để giữ khoảng cách dưới như cũ (component không nhận style). */
-        <div style={{ marginBottom: 16 }}>
-          <TimePresetChips
-            ariaLabel="Lọc đơn theo thời gian đặt"
-            label="Khách đặt trong"
-            value={rangePreset}
-            presets={ONLINE_SCREEN}
-            onChange={setRangePreset}
-          />
-        </div>
-      ) : (
-        windowHours !== null && (
-          <p style={{ margin: '0 0 16px', fontSize: 13, color: C.muted }}>
-            Chỉ hiện đơn khách đặt trong {windowLabel(windowHours)} gần nhất. Cần xem đơn cũ
-            hơn, nhờ chủ quán mở màn này.
-          </p>
-        )
-      )}
-
-      {/* ── Hàng chip lọc CHẶNG — chỉ ở tab "Đã xác nhận" ──
-          Tab trạng thái trả lời "đơn được duyệt chưa"; hàng chip này trả lời câu tiếp theo:
-          "đơn đã duyệt rồi thì đi tới đâu trong 2 chặng giao". Là hàng RIÊNG dưới toolbar chứ
-          không nhét thêm tab trạng thái thứ 4/5/6 — 2 trục phân loại khác nhau, trộn vào một
-          hàng tab là hết hiểu tab nào loại nào.
-          Hàng này cũng là MỘT DÒNG cuộn ngang như hàng lọc thời gian ngay trên: hai hàng chip
-          nằm sát nhau, để một hàng wrap còn một hàng cuộn thì trông như lỗi. */}
-      {status === 'CONFIRMED' && (
-        <div
-          role="tablist"
-          aria-label="Lọc đơn đã xác nhận theo chặng giao hàng"
-          className="tabstrip"
-          style={{ gap: 8, marginBottom: 16 }}
-        >
-          {STEP_FILTERS.map(({ value, label, icon }) => {
-            const active = stepFilter === value;
-            const count = value === 'ALL' ? searchedItems.length : stepCounts[value];
-            return (
+      {closeSheet && (
+        <Sheet
+          title="Chuyển sang Đóng cửa"
+          giuaKhiRong
+          onClose={() => setCloseSheet(false)}
+          footer={
+            // `Sheet` không tự chừa lề nội dung — nơi gọi tự đệm (lề dưới có vùng an toàn iPhone).
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: '2fr 1fr',
+                gap: 8,
+                padding: '12px 16px calc(12px + env(safe-area-inset-bottom, 0px))',
+              }}
+            >
               <button
-                key={value}
                 type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setStepFilter(value)}
+                className="danger"
+                disabled={togglingOrdering}
+                onClick={() => void setOrderingEnabled(false)}
+              >
+                {togglingOrdering ? 'Đang chuyển…' : 'Đóng cửa'}
+              </button>
+              <button type="button" className="secondary" onClick={() => setCloseSheet(false)}>
+                Thôi
+              </button>
+            </div>
+          }
+        >
+          <div style={{ display: 'grid', gap: 10, padding: '0 16px' }}>
+            <p style={{ margin: 0, fontSize: 15, color: C.muted }}>
+              Khách vẫn đặt được đơn — trang khách chỉ đổi sang câu báo Đóng cửa dưới đây.
+            </p>
+            {(
+              [
+                ['MANUAL', 'Đóng cho tới khi tôi mở lại', null],
+                ['UNTIL_TOMORROW', 'Đóng đến hết hôm nay', 'Tự mở lại từ 00:00 sáng mai'],
+              ] as const
+            ).map(([mode, label, hint]) => (
+              <label
+                key={mode}
                 style={{
-                  minHeight: 36,
-                  padding: '4px 12px',
-                  borderRadius: 999,
-                  fontSize: 13,
-                  fontWeight: active ? 700 : 500,
-                  background: active ? C.accent : C.cardBg,
-                  color: active ? C.cardBg : count === 0 ? C.muted : C.text,
-                  border: `1px solid ${active ? C.accent : C.border}`,
-                  display: 'inline-flex',
+                  display: 'flex',
+                  gap: 12,
                   alignItems: 'center',
-                  gap: 6,
+                  minHeight: 56,
+                  margin: 0,
+                  padding: '8px 14px',
+                  borderRadius: 12,
+                  border: `1px solid ${offMode === mode ? C.accent : C.border}`,
+                  background: offMode === mode ? C.accentSoft : C.cardBg,
+                  fontSize: 16,
+                  fontWeight: 400,
+                  color: C.text,
+                  cursor: 'pointer',
                 }}
               >
-                {icon && <Icon name={icon} size={16} />}
-                {label}
-                {count > 0 ? ` · ${count}` : ''}
-              </button>
-            );
-          })}
+                <input
+                  type="radio"
+                  name="oo-off-mode"
+                  checked={offMode === mode}
+                  onChange={() => setOffMode(mode)}
+                />
+                <span>
+                  {label}
+                  {hint && <span style={{ display: 'block', fontSize: 13, color: C.muted }}>{hint}</span>}
+                </span>
+              </label>
+            ))}
+            <label htmlFor="oo-off-reason" style={{ margin: '6px 0 0', fontSize: 15, fontWeight: 700 }}>
+              Lý do hiện cho khách
+            </label>
+            <textarea
+              id="oo-off-reason"
+              value={offReason}
+              onChange={(e) => setOffReason(e.target.value.slice(0, 255))}
+              maxLength={255}
+              rows={3}
+              placeholder="vd: Hết nguyên liệu, quán mở lại lúc 17h"
+              style={{ fontFamily: 'inherit', fontSize: 16 }}
+            />
+          </div>
+        </Sheet>
+      )}
+
+      {/* Thanh "Chuông đang tắt · có N đơn đang chờ" đã BỎ (chủ quán 2026-11-11): nút trạng thái
+          phía trên hiện icon chuông gạch khi chuông tắt, bật lại ngay trong menu của nó. */}
+
+      {/* ── Mất kết nối / API lỗi: MỘT thanh đỏ đầu màn (2026-11-11) ──
+          Gộp 2 thứ trước đây tách rời: banner "SSE chết" và thẻ "Không tải được hàng chờ" nằm
+          lẫn trong danh sách. Cả hai cùng nói một điều với nhân viên: đơn mới có thể không hiện. */}
+      {effectiveConn === 'dead' && (
+        <AlertBanner
+          title={
+            <>
+              <Icon name="canh-bao" size={18} />
+              Mất kết nối
+            </>
+          }
+          body="Đơn mới có thể không hiện. Máy đang tự thử lại."
+          action={
+            <button type="button" onClick={() => void loadQueue()}>
+              Thử lại
+            </button>
+          }
+        />
+      )}
+
+      {/* ── Ô tìm kiếm + (tab đã xử lý) ô chọn THỜI GIAN cùng một hàng ──
+          Tìm theo tên khách / SĐT / món / xã / MÃ ĐƠN (606C — mã khách đọc qua điện thoại). Hàng
+          riêng dưới toolbar dính. Gõ không dấu vẫn khớp; SĐT khớp theo đoạn số bất kỳ.
+
+          Lọc thời gian (2026-11-11): trước là cả một hàng 5 chip chiếm chỗ ở MỌI tab, kể cả hàng
+          chờ — nơi nó vô nghĩa (đơn chờ là việc phải làm NGAY, không lọc theo ngày) và còn nguy
+          hiểm (chọn "Hôm nay" lúc 0h05 là giấu đơn đặt lúc 23h50). Nay: ẨN ở tab Chờ duyệt (và
+          `loadQueue` không gửi `hours` cho tab đó), các tab đã xử lý dùng MỘT ô chọn cạnh ô tìm. */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, alignItems: 'stretch' }}>
+        <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Tìm tên, SĐT, món, mã đơn…"
+            aria-label="Tìm đơn theo tên khách, số điện thoại, món, xã hoặc mã đơn"
+            style={{
+              width: '100%',
+              minHeight: 44,
+              padding: search ? '0 44px 0 12px' : '0 12px',
+              fontSize: 16,
+              color: C.text,
+              background: C.cardBg,
+              border: `1px solid ${C.border}`,
+              borderRadius: 8,
+            }}
+          />
+          {search !== '' && (
+            <button
+              type="button"
+              aria-label="Xoá tìm kiếm"
+              onClick={() => setSearch('')}
+              style={{
+                position: 'absolute',
+                right: 4,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                width: 36,
+                height: 36,
+                minHeight: 0,
+                padding: 0,
+                border: 'none',
+                borderRadius: 8,
+                background: 'transparent',
+                color: C.muted,
+                fontSize: 16,
+                cursor: 'pointer',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              <Icon name="dong" size={20} />
+            </button>
+          )}
+        </div>
+        {/* Chỉ ADMIN chọn được khoảng — order/bếp bị BE ghim 14h nên ô chọn với họ là nút không
+            có tác dụng (chỉ đạo 2026-08-06), thay bằng dòng giải thích bên dưới. */}
+        {isAdmin && !isQueue && (
+          <Dropdown
+            ariaLabel="Lọc đơn theo thời gian khách đặt"
+            sheetTitle="Khách đặt trong"
+            value={rangePreset}
+            options={ONLINE_SCREEN.map((p) => ({ value: p, label: PRESET_LABEL[p] }))}
+            onChange={setRangePreset}
+          />
+        )}
+      </div>
+      {!isAdmin && !isQueue && windowHours !== null && (
+        <p style={{ margin: '-8px 0 16px', fontSize: 13, color: C.muted }}>
+          Chỉ hiện đơn khách đặt trong {windowLabel(windowHours)} gần nhất. Cần xem đơn cũ hơn,
+          nhờ chủ quán mở màn này.
+        </p>
+      )}
+
+      {/* Thẻ "chưa cài toạ độ quán" (2026-11-11) — trước là một dòng chữ xám 12px CHỈ hiện khi
+          đã mở bản đồ, nên gần như không ai đọc. Thiếu toạ độ quán thì app không tính được km và
+          phí ship gợi ý cho MỌI đơn giao — đáng một thẻ có nút đi sửa. Chỉ admin thấy (chỉ admin
+          vào được Cài đặt) và chỉ khi đang có đơn giao (lúc khác nó không chặn việc gì). */}
+      {isAdmin && storeCoords === null && !loadError && deliveryCount > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+            marginBottom: 16,
+            padding: '12px 16px',
+            borderRadius: 12,
+            background: C.cardBg,
+            border: `1px solid ${C.warnBorder}`,
+            color: C.text,
+            fontSize: 16,
+          }}
+        >
+          <Icon name="canh-bao" size={20} style={{ color: C.warnText }} />
+          <span style={{ flex: 1, minWidth: 180 }}>
+            <b>Chưa cài toạ độ quán.</b> Chưa tính được km và phí ship gợi ý.
+          </span>
+          <button type="button" className="secondary" onClick={onOpenStoreSettings}>
+            Cài đặt ngay
+          </button>
         </div>
       )}
 
-      {/* ── Bản đồ tổng quan (2026-08-07) ──
-          MẶC ĐỊNH ĐÓNG, và đó là cả thiết kế: chunk leaflet (~46 KB) chỉ tải khi ai đó thật sự
-          bấm mở, nên người vào màn này để duyệt đơn không trả một byte nào cho nó. Cũng vì vậy
-          nút này không phải "trang trí có thể bỏ" — nó là ranh giới tải.
-          Bản đồ vẽ ĐÚNG `visibleItems`, tức đúng những đơn đang hiện bên dưới. */}
-      {mapEnabled && !loadError && (
+      {/* Nút bản đồ CHỈ hiện khi có ít nhất 1 đơn giao lên được bản đồ (2026-11-11): trước đây nó
+          hiện cả khi không có đơn nào, bấm vào ra 2 khung trống chồng nhau. */}
+      {mapEnabled && !loadError && mappableCount > 0 && (
         <div style={{ marginBottom: 16 }}>
           <button
             type="button"
@@ -929,22 +1381,14 @@ function QueueView({
           >
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Icon name={showMap ? 'mui-ten-len' : 'vi-tri'} size={18} />
-              {showMap ? 'Ẩn bản đồ' : `Xem bản đồ${mappableCount > 0 ? ` · ${mappableCount} đơn` : ''}`}
+              {showMap ? 'Ẩn bản đồ' : `Xem bản đồ · ${mappableCount} đơn giao`}
             </span>
           </button>
 
           {showMap && (
             <div style={{ marginTop: 12 }}>
-              {mappableCount === 0 ? (
-                <div className="card" style={{ padding: 20, textAlign: 'center' }}>
-                  <p style={{ margin: 0, fontSize: 14, color: C.text }}>
-                    Không có đơn giao hàng nào kèm toạ độ ở tab này.
-                  </p>
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: C.muted }}>
-                    Đơn chỉ lên bản đồ khi khách bấm chia sẻ vị trí lúc đặt.
-                  </p>
-                </div>
-              ) : (
+              {/* Không còn nhánh "0 đơn có toạ độ": nút mở bản đồ đã ẩn trong trường hợp đó. */}
+              {(
                 <Suspense
                   fallback={
                     <div
@@ -956,7 +1400,7 @@ function QueueView({
                         display: 'grid',
                         placeItems: 'center',
                         color: C.muted,
-                        fontSize: 14,
+                        fontSize: 15,
                       }}
                     >
                       Đang tải bản đồ…
@@ -976,15 +1420,9 @@ function QueueView({
                   hiện 3 chấm trong khi danh sách có 8 đơn, và không gì trên màn hình giải thích
                   vì sao — nhân viên sẽ tin vào cái họ nhìn thấy. */}
               {unmappableCount > 0 && (
-                <p style={{ margin: '8px 2px 0', fontSize: 12, color: C.warnText }}>
+                <p style={{ margin: '8px 2px 0', fontSize: 13, color: C.warnText }}>
                   {unmappableCount} đơn giao hàng không có toạ độ nên không lên bản đồ — vẫn nằm
                   trong danh sách bên dưới.
-                </p>
-              )}
-              {storeCoords === null && (
-                <p style={{ margin: '4px 2px 0', fontSize: 12, color: C.muted }}>
-                  Chưa cấu hình toạ độ quán (Cài đặt → Thông tin quán) nên bản đồ căn theo các đơn
-                  và chưa có ghim quán.
                 </p>
               )}
             </div>
@@ -992,25 +1430,16 @@ function QueueView({
         </div>
       )}
 
-      {connState === 'dead' && (
-        <AlertBanner
-          title={
-            <>
-              <Icon name="canh-bao" size={18} />
-              Mất kết nối
-            </>
-          }
-          body="Đang thử nối lại — đơn mới có thể chưa hiện ngay." />
-      )}
-
-      {loadError && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <p style={{ margin: '0 0 8px', color: C.text, fontSize: 16 }}>
-            Không tải được hàng chờ. {loadError}
+      {/* Tải lỗi mà chưa có đơn nào trên tay: KHÔNG được hiện "Không có đơn nào đang chờ" — đó
+          là lời khẳng định sai (bug 2026-11-11: lần tải đầu lỗi 500 mà màn báo hết đơn). Thanh
+          đỏ đầu màn đã có nút Thử lại; ở đây chỉ nói rõ danh sách CHƯA tải được. Có đơn cũ trên
+          tay thì giữ nguyên danh sách đó (vẫn hữu ích hơn màn trống). */}
+      {loadError && items.length === 0 && (
+        <div className="card" style={{ textAlign: 'center', padding: 32, marginBottom: 16 }}>
+          <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.text }}>
+            Chưa tải được danh sách đơn
           </p>
-          <button type="button" onClick={() => void loadQueue()}>
-            Thử lại
-          </button>
+          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>{loadError}</p>
         </div>
       )}
 
@@ -1030,35 +1459,33 @@ function QueueView({
         </div>
       )}
 
-      {/* Tìm kiếm CÓ kết quả nhưng chip lọc chặng hiện tại rỗng — nói rõ là DO LỌC, kèm đường
-          về "Tất cả". Thiếu câu này thì màn trống trơn trông hệt như "quán chưa có đơn nào". */}
-      {!loading && !loadError && searchedItems.length > 0 && visibleItems.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: 32 }}>
-          <p style={{ margin: '0 0 8px', fontSize: 16, fontWeight: 700, color: C.text }}>
-            Không có đơn nào ở chặng này
+      {/* Danh sách rỗng (không do tìm kiếm): câu nói đúng chip đang chọn. Với 3 chip chặng, danh
+          sách `CONFIRMED` có thể có đơn ở chặng khác — vẫn là "không có đơn ở bước này". */}
+      {!loading && !loadError && visibleItems.length === 0 && !(items.length > 0 && searchedItems.length === 0) && (
+        // Đợt 3: màn trống đặt GIỮA vùng nội dung, icon lớn xám nhạt. Ở Chờ duyệt dòng phụ nói
+        // tình trạng hệ thống ("Đang nhận đơn · chuông đang bật") để nhân viên yên tâm màn vẫn chạy.
+        <div className="oo3-empty" role="status">
+          <Icon name={isQueue ? 'online' : 'dang-cho'} size={48} />
+          <p className="oo3-empty-h">{isQueue ? 'Chưa có đơn mới' : EMPTY_TEXT[chip]}</p>
+          <p className="oo3-empty-s">
+            {isQueue
+              ? `${effectiveConn === 'connected' ? 'Đang nhận đơn' : 'Đang kết nối…'} · chuông ${bellOn ? 'đang bật' : 'đang tắt'}`
+              : 'Đơn sẽ tự chuyển sang đây khi tới bước này.'}
           </p>
-          <button type="button" className="secondary" onClick={() => setStepFilter('ALL')}>
-            Xem tất cả {searchedItems.length} đơn
-          </button>
         </div>
       )}
 
-      {!loading && !loadError && items.length === 0 && (
-        <div className="card" style={{ textAlign: 'center', padding: 32 }}>
-          <p style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 700, color: C.text }}>
-            {isQueue
-              ? 'Không có đơn nào đang chờ'
-              : status === 'CONFIRMED'
-                ? 'Chưa có đơn nào được xác nhận'
-                : status === 'COMPLETED'
-                  ? 'Chưa có đơn nào hoàn thành'
-                  : 'Chưa có đơn nào bị từ chối'}
-          </p>
-          <p style={{ margin: 0, fontSize: 13, color: C.muted }}>
-            {isQueue
-              ? 'Đơn mới sẽ tự hiện ở đây, không cần tải lại trang.'
-              : 'Đơn đã xử lý sẽ hiện ở đây, mới nhất lên đầu.'}
-          </p>
+      {/* Thanh "Hoàn tác" — cố định đáy màn (trên menu dưới của điện thoại) để vẫn thấy dù thẻ đã
+          cuộn khuất. Vòng số đếm ngược từng giây. */}
+      {pending && (
+        <div className="oo-undo" role="status" aria-live="polite">
+          <span className="oo-undo-ring" aria-hidden="true">
+            {Math.max(1, Math.ceil((pending.deadlineMs - nowMs) / 1000))}
+          </span>
+          <span style={{ flex: 1, minWidth: 140 }}>{pending.text}</span>
+          <button type="button" className="secondary" onClick={undoPending}>
+            Hoàn tác
+          </button>
         </div>
       )}
 
@@ -1066,44 +1493,54 @@ function QueueView({
           đây. Đánh đổi đã biết: trên máy tính rộng mỗi màn thấy ít đơn hơn, phải cuộn nhiều hơn.
           Bù lại một đơn không bao giờ bị chia đôi giữa 2 cột, và mắt chỉ quét theo MỘT chiều
           dọc — quan trọng ở màn dùng giờ cao điểm. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 16 }}>
-        {visibleItems.map((row, idx) => (
-          // Bọc thêm một tầng CHỈ để có mỏ neo `id` cho `scrollToOrder` (bấm chấm trên bản đồ →
-          // cuộn tới đúng card này). Đặt id thẳng lên `OrderCard` thì phải chọc một prop xuyên
-          // qua component chỉ để gắn thuộc tính DOM.
-          <div key={row.id} id={`oo-card-${row.id}`}>
-          <OrderCard
-            row={row}
-            position={idx + 1}
-            nowMs={nowMs}
-            escalateAfterS={escalateAfterS}
-            onDone={removeItem}
-            onPatch={patchItem}
-            toast={toast}
-            readOnly={!isQueue}
-          />
+      {/* Đợt 3 (2026-11-11):
+          - Chờ duyệt: thẻ rời, một cột, rộng tối đa 640px (thẻ là việc phải làm, đọc từ trên xuống).
+          - Tab đã xử lý: các dòng nằm CHUNG một khung trắng, ngăn bằng kẻ 1px (không còn vạch trái +
+            viền + bo từng dòng). Màn ≥1280px: panel chi tiết 380px bên phải — chạm dòng là xem
+            ngay, không mở rộng dòng. Hẹp hơn: chạm dòng mở rộng tại chỗ như cũ. */}
+      {shownItems.length > 0 && (
+        <div className={splitDetail ? 'oo3-split' : undefined}>
+          <div className="oo3-list">
+            {visibleItems.map((row, idx) => (
+              // Bọc thêm một tầng CHỈ để có mỏ neo `id` cho `scrollToOrder` (bấm chấm trên bản đồ →
+              // cuộn tới đúng card này).
+              <div key={row.id} id={`oo-card-${row.id}`} hidden={hiddenIds.has(row.id)}>
+                <OrderCard
+                  row={row}
+                  position={idx + 1}
+                  nowMs={nowMs}
+                  escalateAfterS={escalateAfterS}
+                  onDone={removeItem}
+                  onPatch={patchItem}
+                  scheduleSend={scheduleSend}
+                  toast={toast}
+                  readOnly={!isQueue}
+                  selected={splitDetail && detailRow?.id === row.id}
+                  onSelect={splitDetail ? () => setDetailId(row.id) : undefined}
+                />
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+          {splitDetail && detailRow && (
+            <aside className="oo3-panel" aria-label={`Chi tiết đơn của ${detailRow.customer_name}`}>
+              <OrderCard
+                key={detailRow.id}
+                row={detailRow}
+                position={1}
+                nowMs={nowMs}
+                escalateAfterS={escalateAfterS}
+                onDone={removeItem}
+                onPatch={patchItem}
+                scheduleSend={scheduleSend}
+                toast={toast}
+                readOnly={!isQueue}
+                panel
+              />
+            </aside>
+          )}
+        </div>
+      )}
     </>
-  );
-}
-
-function ConnectionDot({ state }: { state: SseConnState }) {
-  const map: Record<SseConnState, { color: string; label: string }> = {
-    connected: { color: C.connected, label: 'Đang kết nối' },
-    stale: { color: C.warn, label: 'Đang kết nối lại...' },
-    reconnecting: { color: C.warn, label: 'Đang kết nối lại...' },
-    dead: { color: C.danger, label: 'Không liên lạc được máy chủ' },
-  };
-  const { color, label } = map[state];
-  return (
-    <span
-      role="status"
-      aria-label={label}
-      title={label}
-      style={{ width: 10, height: 10, borderRadius: 999, background: color, display: 'inline-block' }}
-    />
   );
 }
 
@@ -1159,29 +1596,6 @@ function blacklistSuffix(r: ReviewResult): string {
   return '';
 }
 
-function FulfillmentChip({ delivery }: { delivery: boolean }) {
-  return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        fontSize: 13,
-        fontWeight: 700,
-        color: delivery ? C.deliveryText : C.pickupText,
-        background: delivery ? C.deliveryBg : C.pickupBg,
-        border: `1px solid ${delivery ? C.deliveryBorder : C.pickupBorder}`,
-        borderRadius: 999,
-        padding: '2px 8px',
-        whiteSpace: 'nowrap',
-      }}
-    >
-      <Icon name={delivery ? 'giao-hang' : 'mang-ve'} size={16} />
-      {delivery ? 'Giao tận nơi' : 'Khách tự lấy'}
-    </span>
-  );
-}
-
 /**
  * Chip khoảng cách của đơn giao tận nơi. Chỉ render khi `distance_km !== null` (chỗ gọi lo).
  *
@@ -1192,35 +1606,13 @@ function FulfillmentChip({ delivery }: { delivery: boolean }) {
  */
 function DistanceChip({ row }: { row: AdminOnlineOrderRow }) {
   const fee = row.suggested_ship_fee;
-  // Xanh lá `ok*` và hổ phách `warn*`, KHÔNG mượn `pickup*`/`delivery*` (hai màu đó đã có nghĩa
-  // "hình thức nhận hàng" ở chip ngay bên cạnh) và KHÔNG mượn `alert*` đỏ (dành cho đơn quá hạn —
-  // phải thu thêm tiền ship không phải một sự cố).
-  const tone =
-    fee === null
-      ? { bg: C.pageBg, border: C.border, text: C.muted }
-      : fee === 0
-        ? { bg: C.okBg, border: C.okBorder, text: C.okText }
-        : { bg: C.warnBg, border: C.warnBorder, text: C.warnText };
-
+  // Đợt 3 (2026-11-11): MỘT kiểu nhãn cho cả màn — pill xám 22px, chữ 13/500, không icon. Chữ đã
+  // nói đủ nghĩa ("miễn phí ship" / "gợi ý ship 15.000đ"); màu xanh/hổ phách cũ là kênh thứ hai
+  // làm màn thêm 2 màu nhấn.
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '2px 8px',
-        borderRadius: 999,
-        fontSize: 13,
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-        background: tone.bg,
-        border: `1px solid ${tone.border}`,
-        color: tone.text,
-      }}
-    >
-      <Icon name="giao-hang" size={16} />
-      {row.distance_km} km
-      {fee === 0 ? ' · miễn phí ship' : fee !== null ? ` · +${fmtVnd(fee)}` : ''}
+    <span className="oo3-pill">
+      ≈ {fmtKm(row.distance_km ?? '')} km
+      {fee === 0 ? ' · miễn phí ship' : fee !== null ? ` · gợi ý ship ${fmtVnd(fee)}` : ''}
     </span>
   );
 }
@@ -1240,26 +1632,9 @@ function DistanceChip({ row }: { row: AdminOnlineOrderRow }) {
  * nói đủ nghĩa, màu chỉ là kênh phụ (rule color-only-meaning, giống DistanceChip).
  */
 function AddressSourceChip({ shared }: { shared: boolean }) {
-  const tone = shared
-    ? { bg: C.okBg, border: C.okBorder, text: C.okText }
-    : { bg: C.pageBg, border: C.border, text: C.muted };
+  // Đợt 3: cùng kiểu pill xám với DistanceChip — xem chú thích ở đó.
   return (
-    <span
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 4,
-        padding: '2px 8px',
-        borderRadius: 999,
-        fontSize: 13,
-        fontWeight: 700,
-        whiteSpace: 'nowrap',
-        background: tone.bg,
-        border: `1px solid ${tone.border}`,
-        color: tone.text,
-      }}
-    >
-      <Icon name={shared ? 'vi-tri' : 'sua'} size={16} />
+    <span className="oo3-pill">
       {shared ? 'Khách chia sẻ vị trí' : 'Địa chỉ nhập tay'}
     </span>
   );
@@ -1272,9 +1647,19 @@ function OrderCard({
   escalateAfterS,
   onDone,
   onPatch,
+  scheduleSend,
   toast,
   readOnly,
+  selected = false,
+  onSelect,
+  panel = false,
 }: {
+  /** Dòng đang được xem ở panel chi tiết bên phải (màn rộng) — tô nền nhạt. */
+  selected?: boolean;
+  /** Có = màn rộng có panel: chạm dòng là CHỌN (hiện ở panel), không mở rộng tại chỗ. */
+  onSelect?: () => void;
+  /** Bản vẽ trong panel chi tiết: luôn mở, dải đầu không bấm được. */
+  panel?: boolean;
   row: AdminOnlineOrderRow;
   position: number;
   nowMs: number;
@@ -1282,6 +1667,8 @@ function OrderCard({
   onDone: (id: string) => void;
   /** Vá row tại chỗ (mốc ship/nhận) — đơn không rời danh sách như `onDone`. */
   onPatch: (id: string, patch: Partial<AdminOnlineOrderRow>) => void;
+  /** Xếp lịch gửi Xác nhận/Từ chối sau 5 giây (Hoàn tác) — xem `PendingSend`. */
+  scheduleSend: ScheduleSend;
   toast: { push: (kind: 'success' | 'error' | 'info' | 'ready', message: string) => void };
   /** Đơn đã xử lý (tab tra cứu): không nút duyệt/từ chối, không ô phí ship, không checkbox bỏ
    * món. NGOẠI LỆ duy nhất: đơn CONFIRMED có nút mốc giao hàng ("Đã đi ship"/"Khách đã nhận")
@@ -1290,6 +1677,8 @@ function OrderCard({
   readOnly: boolean;
 }) {
   const [busy, setBusy] = useState(false);
+  // Đang trong 5 giây chờ gửi (Hoàn tác): thẻ mờ + khoá nút để không bấm lần 2.
+  const [queued, setQueued] = useState(false);
   const [cardError, setCardError] = useState<string | null>(null);
   const [fading, setFading] = useState(false);
   const [expandItems, setExpandItems] = useState(false);
@@ -1298,7 +1687,8 @@ function OrderCard({
   // cần nhanh nhất (lý lẽ này có từ 09-UI-SPEC, giữ nguyên). Tab tra cứu GẤP SẴN: 50 đơn cũ đã xử
   // lý là 50 khối món không ai đọc, cuộn mãi không tới đơn cần tìm.
   // Đây là "thu gọn thông tin tránh hiển thị quá nhiều" trong Task.md.
-  const [open, setOpen] = useState(!readOnly);
+  const [openState, setOpen] = useState(!readOnly);
+  const open = panel || (openState && !onSelect);
   /**
    * Ô phí ship — ĐIỀN SẴN gợi ý của BE khi có (2026-08-06).
    *
@@ -1324,6 +1714,9 @@ function OrderCard({
   // Panel đổi hình thức nhận hàng (ship ⇄ tự tới lấy, 2026-08-06). Loại trừ lẫn nhau với 3 panel
   // trên vì cùng chiếm chỗ trong card.
   const [switchOpen, setSwitchOpen] = useState(false);
+  // Menu ⋯ của thẻ, và bước hỏi lại khi bấm "đi ship" lúc bếp chưa xong (2026-11-11).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [shipAsk, setShipAsk] = useState(false);
 
   // Món hết hàng MẶC ĐỊNH ĐÃ TICK = sẽ bị bỏ khỏi đơn khi xác nhận. Nhân viên bỏ tick nếu biết
   // chắc còn hàng (M2.D-61).
@@ -1347,43 +1740,69 @@ function OrderCard({
     setTimeout(() => onDone(row.id), FADE_MS);
   };
 
-  const confirm = async () => {
-    setBusy(true);
+  /** Gửi THẬT (sau 5 giây chờ, hoặc ngay khi trang sắp đóng). Lỗi → thẻ hiện lại kèm câu lỗi. */
+  const sendReview = (
+    action: 'confirm' | 'reject',
+    body: unknown,
+    okMessage: (data: unknown) => string,
+  ) =>
+    (keepalive: boolean): Promise<void> => {
+      setBusy(true);
+      setCardError(null);
+      return postReview<unknown>(`/admin/online-orders/${row.id}/${action}`, body, keepalive)
+        .then((data) => finish(okMessage(data)))
+        .catch((err: unknown) => {
+          // Mã `MENU_ITEM_UNAVAILABLE`/`ORDER_EMPTY_AFTER_DROP` được BE soạn kèm câu hướng dẫn hành
+          // động — hiện NGUYÊN VĂN, đừng viết lại bằng câu chung chung.
+          const msg = err instanceof Error && !('isAxiosError' in err) ? err.message : extractError(err).message;
+          setCardError(msg);
+          setQueued(false);
+          setBusy(false);
+          // Ném tiếp để danh sách hiện lại đơn (nó đang bị ẩn) + báo lỗi — xem `flushPending`.
+          throw new Error(msg);
+        });
+    };
+
+  const confirm = () => {
+    const body: { ship_fee?: number; drop_menu_item_ids?: string[] } = {};
+    // Ô hiển thị "10.000" → gửi đi 10000. Bóc dấu chấm ở ĐÚNG chỗ này, không sớm hơn: state phải
+    // giữ nguyên chuỗi khách đang nhìn thấy.
+    const fee = Number(digitsOnly(shipFee));
+    if (isDelivery && Number.isFinite(fee) && fee > 0) body.ship_fee = fee;
+    if (dropIds.length > 0) body.drop_menu_item_ids = dropIds;
     setCardError(null);
-    try {
-      const body: { ship_fee?: number; drop_menu_item_ids?: string[] } = {};
-      // Ô hiển thị "10.000" → gửi đi 10000. Bóc dấu chấm ở ĐÚNG chỗ này, không sớm hơn: state phải
-      // giữ nguyên chuỗi khách đang nhìn thấy.
-      const fee = Number(digitsOnly(shipFee));
-      if (isDelivery && Number.isFinite(fee) && fee > 0) body.ship_fee = fee;
-      if (dropIds.length > 0) body.drop_menu_item_ids = dropIds;
-      const res = await api.post<{ data: { table_code: string; table_name: string } }>(
-        `/admin/online-orders/${row.id}/confirm`,
-        body,
-      );
-      finish(`Đã xác nhận — ${res.data.data.table_name || res.data.data.table_code}`);
-    } catch (err) {
-      // Mã `MENU_ITEM_UNAVAILABLE`/`ORDER_EMPTY_AFTER_DROP` được BE soạn kèm câu hướng dẫn hành
-      // động — hiện NGUYÊN VĂN, đừng viết lại bằng câu chung chung.
-      setCardError(extractError(err).message);
-      setBusy(false);
-    }
+    setQueued(true);
+    scheduleSend({
+      rowId: row.id,
+      text: `Đã xác nhận đơn ${shortOrderCode(row)}`,
+      fire: sendReview('confirm', body, (data) => {
+        const d = data as { table_code: string; table_name: string };
+        // Nêu MÃ ĐƠN + bàn: thẻ biến mất ngay sau đó, thông báo là chỗ duy nhất còn nói đơn nào
+        // vừa đi đâu — đủ để nhân viên tìm lại ở chip Đang làm.
+        return `Đã gửi xác nhận đơn ${shortOrderCode(row)} — ${d.table_name || d.table_code}`;
+      }),
+      // Hoàn tác: chưa có gì rời máy — chỉ cần bỏ mờ. Phí ship/món bỏ vẫn nguyên trong state.
+      undo: () => setQueued(false),
+    });
   };
 
-  const reject = async (payload: RejectOnlineOrderBody) => {
-    setBusy(true);
+  const reject = (payload: RejectOnlineOrderBody) => {
     setCardError(null);
-    try {
-      const res = await api.post<{ data: ReviewResult }>(
-        `/admin/online-orders/${row.id}/reject`,
-        payload,
-      );
-      finish(`Đã từ chối đơn${blacklistSuffix(res.data.data)}`);
-    } catch (err) {
-      // Panel giữ nguyên nội dung đã gõ — không bắt nhân viên gõ lại ghi chú.
-      setCardError(extractError(err).message);
-      setBusy(false);
-    }
+    setQueued(true);
+    // Đóng panel lý do ngay để thẻ mờ gọn; Hoàn tác thì mở lại panel nhưng lý do đã chọn mất —
+    // panel là state con, chấp nhận vì từ chối hiếm và chọn lại chỉ 1 chạm.
+    setRejectOpen(false);
+    scheduleSend({
+      rowId: row.id,
+      text: `Đã từ chối đơn ${shortOrderCode(row)}`,
+      fire: sendReview('reject', payload, (data) =>
+        `Đã gửi từ chối đơn ${shortOrderCode(row)}${blacklistSuffix(data as ReviewResult)}`,
+      ),
+      undo: () => {
+        setQueued(false);
+        setRejectOpen(true);
+      },
+    });
   };
 
   /** Huỷ đơn ĐÃ XÁC NHẬN — khách có vấn đề giữa chừng (2026-08-04). BE huỷ món + niêm Order
@@ -1515,7 +1934,12 @@ function OrderCard({
   // M2.D-62 — tổng PHẢI gồm phí ship, đúng như màn bàn và như lúc thu tiền. Trước 2026-08-06 màn
   // này chỉ cộng tiền món nên cùng một đơn hiện 120.000đ ở đây và 140.000đ ở màn bàn, không màn
   // nào nói vì sao lệch.
-  const shipFeeOfRow = row.ship_fee ?? 0;
+  //
+  // Đơn CHỜ DUYỆT giao tận nơi: cộng CON SỐ ĐANG GÕ trong ô phí ship, không phải `row.ship_fee`
+  // (luôn 0 trước khi duyệt). Trước 2026-11-11 gõ ship 15.000 mà thẻ vẫn ghi 100.000đ — nhân viên
+  // đọc số đó cho khách qua điện thoại là báo thiếu tiền.
+  const shipFeeOfRow =
+    !readOnly && isDelivery ? Number(digitsOnly(shipFee)) || 0 : (row.ship_fee ?? 0);
   const total = itemsTotal + shipFeeOfRow;
   const collapsed = row.items.length > ITEMS_VISIBLE_MAX && !expandItems;
   const shownItems = collapsed ? row.items.slice(0, ITEMS_VISIBLE_MAX) : row.items;
@@ -1535,6 +1959,30 @@ function OrderCard({
   // 2 chặng giao hàng — CHỈ đơn đã CONFIRMED mới có (đơn chờ/từ chối chưa có Order thật,
   // 4 field bàn/đếm món/mốc đều null). `fv.action` là nút kế tiếp nhân viên cần bấm.
   const fv = row.status === 'CONFIRMED' ? fulfillmentView(row) : null;
+
+  const code = shortOrderCode(row);
+
+  // Đơn đã xác nhận, chưa thu tiền: đồng hồ theo bước hiện tại (xem dải đầu thẻ).
+  const stepClock = (() => {
+    if (!fv || fv.done || row.paid_at_ms !== null) return null;
+    if (row.shipped_at_ms !== null) return `đi ship ${formatWait(waitingSeconds(nowMs, row.shipped_at_ms))}`;
+    if (row.reviewed_at_ms === null) return null;
+    const since = formatWait(waitingSeconds(nowMs, row.reviewed_at_ms));
+    return fv.step === 'READY' ? `xong, chờ ${since}` : `bếp làm ${since}`;
+  })();
+
+  // Bếp đã xong đủ món chưa — quyết định nút "Đã đi ship" sáng hay mờ "Chờ bếp (0/2)".
+  const kitchenDone =
+    fv !== null && fv.validCount !== null && fv.validCount > 0 && fv.doneCount === fv.validCount;
+  // Tên bàn để đi thu tiền ("Ship 01") — `table_name` đã đủ chữ, fallback mã.
+  const tableLabel = row.table_name ?? row.table_code;
+  // Nút thu tiền: đơn đã duyệt, chưa thu, và đã tới lúc thu — giao tận nơi thì SAU khi đi ship,
+  // khách tự lấy thì lúc nào cũng có thể (khách tới quầy là trả).
+  const canGoCollect =
+    fv !== null &&
+    row.paid_at_ms === null &&
+    !!row.table_code &&
+    (!isDelivery || row.shipped_at_ms !== null);
 
   // Đổi hình thức nhận hàng được tới TRƯỚC lúc mang đi ship (chỉ đạo chủ dự án 2026-08-06).
   // Điều kiện ở đây phải KHỚP `decideSwitchFulfillment` phía BE — nhưng nó chỉ để ẩn nút cho gọn
@@ -1573,7 +2021,9 @@ function OrderCard({
      Nhãn "Hình thức nhận hàng: Giao tận nơi" bị BỎ (không thay bằng gì): pill ở dải đầu card đã
      nói đúng điều đó, và nút "Chuyển sang …" tự nói nốt phần còn lại. */
   const showShipFeeField = !readOnly && isDelivery;
-  const showSwitchButton = canSwitch && !switchOpen;
+  // Nút "Chuyển sang …" RỜI khỏi thân thẻ (2026-11-11), vào menu ⋯ ở dải cuối: thao tác hiếm mà
+  // to ngang ô phí ship thì tranh mắt với việc chính. Xem `menuItems`.
+  const showSwitchButton = false;
   const deliveryControls = (showShipFeeField || showSwitchButton) && (
     <div
       style={{
@@ -1585,13 +2035,8 @@ function OrderCard({
       }}
     >
       {showShipFeeField && (
-        <div>
-          <label
-            htmlFor={`ship-${row.id}`}
-            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
-          >
-            Phí ship (nếu có)
-          </label>
+        <div className="oo3-fee">
+          <label htmlFor={`ship-${row.id}`}>Phí ship</label>
           {/* "đ" nằm TRONG khung, dính vào ô — trước đây nó là một chữ trôi bên ngoài, trông như
               ký tự lạc chứ không như đơn vị của ô nhập. Viền do khối ngoài vẽ, input bên trong
               không viền, nên cả cụm là MỘT ô. */}
@@ -1627,14 +2072,14 @@ function OrderCard({
                 textAlign: 'right',
               }}
             />
-            <span style={{ fontSize: 14, color: C.muted, padding: '0 12px 0 2px' }}>đ</span>
+            <span style={{ fontSize: 15, color: C.muted, padding: '0 12px 0 2px' }}>đ</span>
           </div>
           {/* Nói rõ con số ở đâu ra — ô tự có số mà không giải thích thì nhân viên không biết nên
               tin hay nên sửa. Và phải nói được rằng KHÁCH ĐÃ THẤY con số này: đó là lý do không
               nên đổi nó tuỳ hứng. */}
           {row.suggested_ship_fee !== null && (
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: C.muted, maxWidth: 200 }}>
-              Gợi ý theo {row.distance_km} km — khách đã thấy số này lúc đặt. Sửa được.
+            <p className="oo3-fee-hint">
+              Gợi ý theo ≈ {fmtKm(row.distance_km ?? '')} km — khách đã thấy số này lúc đặt. Sửa được.
             </p>
           )}
         </div>
@@ -1659,167 +2104,211 @@ function OrderCard({
     </div>
   );
 
-  /* ── Dải đầu: 3 thứ quét được ở khoảng cách 1 mét ──
-     Ở tab tra cứu dải này còn là NÚT GẤP/MỞ, và khi gấp nó phải tự đủ nghĩa: pill trạng thái +
-     tên khách + tổng tiền. Gấp mà chỉ còn "#3 · 14:20" thì tra cứu 50 đơn cũ phải mở từng cái. */
-  const summary = (
-    <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', width: '100%' }}>
-        {/* Số thứ tự chỉ có nghĩa ở hàng chờ (vị trí trong việc-phải-làm). Ở tab tra cứu nó là số
-            vô nghĩa, thay bằng pill trạng thái — đúng thứ người tra cứu đang tìm. */}
-        {readOnly ? (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 4,
-              padding: '2px 10px',
-              borderRadius: 999,
-              background: tone.bg,
-              border: `1px solid ${tone.border}`,
-              color: tone.text,
-              fontSize: 13,
-              fontWeight: 700,
-              whiteSpace: 'nowrap',
-            }}
-          >
-            <Icon name={tone.icon} size={16} />
-            {tone.label}
-          </span>
-        ) : (
-          <span aria-label={`Thứ tự chờ ${position}`} style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
-            #{position}
-          </span>
-        )}
-        <FulfillmentChip delivery={isDelivery} />
-        <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>{fmtClock(row.submitted_at_ms)}</span>
-        <span style={{ flex: 1 }} />
-        {/* Đơn đã xử lý: đồng hồ đứng yên ở "chờ bao lâu thì được duyệt" (BE đã đóng băng), nên
-            nhãn phải nói rõ là ĐÃ CHỜ, không phải đang chờ — cùng con số, khác nghĩa hoàn toàn.
-            KHÔNG hiện đồng hồ với đơn đã từ chối / khách đã nhận / đã thu tiền (chỉ đạo
-            2026-08-04): đơn đã đi hết đường thì "chờ bao lâu" không còn là thông tin ai cần —
-            các mốc giờ cụ thể đã có trong khối kết luận. */}
-        {!(
-          readOnly &&
-          (row.status === 'REJECTED' || row.received_at_ms !== null || row.paid_at_ms !== null)
-        ) && (
-          <span
-            aria-label={readOnly ? `Đã chờ ${waited} giây trước khi được xử lý` : `Đã chờ ${waited} giây`}
-            style={{
-              fontSize: readOnly ? 16 : 24,
-              fontWeight: 700,
-              lineHeight: 1.3,
-              color: readOnly ? C.muted : overdue ? C.alertText : C.text,
-            }}
-          >
-            {!readOnly && overdue && (
-              <Icon name="gio" size={22} style={{ marginRight: 6, verticalAlign: '-3px' }} />
-            )}
-            {formatWait(waited)}
-            {readOnly ? ' chờ' : ''}
-          </span>
-        )}
-        {readOnly && (
-          <span aria-hidden="true" style={{ fontSize: 13, color: C.muted, width: 16, textAlign: 'center' }}>
-            <Icon name={open ? 'mui-ten-len' : 'mui-ten-xuong'} size={16} />
-          </span>
-        )}
-      </div>
-
-      {/* Dòng tự-đủ-nghĩa khi đang gấp. */}
-      {readOnly && !open && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: 8,
-            flexWrap: 'wrap',
-            width: '100%',
-            marginTop: 4,
-          }}
-        >
-          <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{row.customer_name}</span>
-          <span style={{ fontSize: 13, color: C.muted }}>{row.items.length} món</span>
-          {/* Bàn + chặng giao hàng phải đọc được NGAY KHI GẤP — mở từng card để tìm đơn nào
-              còn chờ ship là đúng cái tra-cứu-chậm mà dòng tự-đủ-nghĩa này sinh ra để tránh.
-              TÊN đầy đủ ("Ship 03"), không phải mã `ship-03` — chỉ đạo 2026-08-04. */}
-          {(row.table_name ?? row.table_code) && (
-            <span style={{ fontSize: 13, fontWeight: 700, color: C.text, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="ban" size={16} />
-              {row.table_name ?? row.table_code}
-            </span>
-          )}
-          {fv && (
-            <span
-              style={{ fontSize: 13, fontWeight: 700, color: fv.done ? C.muted : C.accent }}
-            >
-              {fv.label}
-              {!fv.done && fv.validCount !== null && fv.validCount > 0
-                ? ` · ${fv.doneCount}/${fv.validCount}`
-                : ''}
-            </span>
-          )}
-          <span style={{ flex: 1 }} />
-          {/* Dải tóm tắt (thẻ đang thu gọn): phí ship là chip riêng, không gộp im lặng vào tổng —
-              thu gọn không có nghĩa là giấu tiền khách phải trả thêm. */}
-          {shipFeeOfRow > 0 && (
-            <span style={{ fontSize: 12, fontWeight: 600, color: C.mutedOnTint }}>
-              +ship {fmtVnd(shipFeeOfRow)}
-            </span>
-          )}
-          <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
-        </div>
-      )}
-    </>
+  /* ── Thanh TỔNG (2026-11-11) — "100.000đ + ship 15.000đ = 115.000đ" ──
+     Viết hẳn phép cộng ra: nhân viên đọc số cho khách qua điện thoại, khách hỏi "sao 115" thì câu
+     trả lời nằm sẵn trên màn. Đơn chờ duyệt: số ship là số ĐANG GÕ (cập nhật theo từng phím). */
+  const totalBar = (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'wrap',
+        alignItems: 'baseline',
+        gap: '4px 10px',
+        // Đợt 3: bỏ nền xanh nhạt — tổng là CHỮ to đậm 20/700 màu chữ chính, ngăn với phần trên
+        // bằng một đường kẻ. Phép cộng vẫn viết ra (khách hỏi "sao 115" qua điện thoại).
+        padding: '10px 0 0',
+        borderTop: `1px solid ${C.border}`,
+      }}
+    >
+      <span style={{ fontSize: 15, color: C.muted, fontVariantNumeric: 'tabular-nums' }}>
+        {shipFeeOfRow > 0
+          ? `Tổng · ${fmtVnd(itemsTotal)} + ship ${fmtVnd(shipFeeOfRow)}`
+          : 'Tổng'}
+      </span>
+      <span
+        style={{
+          marginLeft: 'auto',
+          fontSize: 20,
+          fontWeight: 700,
+          color: C.text,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {fmtVnd(total)}
+      </span>
+    </div>
   );
 
-  const stripStyle = {
-    padding: '8px 16px',
-    background: readOnly ? C.pageBg : overdue ? tone.bg : C.pageBg,
-    borderBottom: open ? `1px solid ${overdue && !readOnly ? tone.border : C.borderSoft}` : 'none',
-  } as const;
+  /* ── Menu ⋯ của thẻ (2026-11-11) — thao tác HIẾM gom vào đây để dải cuối chỉ còn
+     [Gọi] [việc chính] [⋯]. Mỗi mục mở đúng panel cũ (panel vẫn là khối mở rộng trong thẻ). */
+  const closePanels = () => {
+    setRejectOpen(false);
+    setEditOpen(false);
+    setCancelOpen(false);
+    setSwitchOpen(false);
+    setMenuOpen(false);
+  };
+  const menuItems: Array<{ key: string; label: string; icon: IconName; danger?: boolean; run: () => void }> = [
+    ...(canSwitch
+      ? [{
+          key: 'switch',
+          label: `Chuyển sang ${FULFILLMENT_LABEL[switchTarget]}`,
+          icon: 'chuyen-ban' as IconName,
+          run: () => { closePanels(); setSwitchOpen(true); },
+        }]
+      : []),
+    ...(!readOnly
+      ? [
+          {
+            key: 'edit',
+            label: 'Sửa số lượng / bỏ món',
+            icon: 'sua' as IconName,
+            run: () => { closePanels(); setEditOpen(true); },
+          },
+          {
+            key: 'reject',
+            label: 'Từ chối đơn',
+            icon: 'dong' as IconName,
+            danger: true,
+            run: () => { closePanels(); setRejectOpen(true); },
+          },
+        ]
+      : []),
+    // Huỷ đơn ĐÃ XÁC NHẬN, chưa thu tiền (BE chặn 409 đơn đã thu).
+    ...(fv && row.paid_at_ms === null
+      ? [{
+          key: 'cancel',
+          label: 'Huỷ đơn',
+          icon: 'xoa' as IconName,
+          danger: true,
+          run: () => { closePanels(); setCancelOpen(true); },
+        }]
+      : []),
+  ];
+
+  /** Nút "📞 Gọi" 56px — cạnh nút chính, vì gọi khách là việc hay làm NGAY TRƯỚC khi xác nhận. */
+  const callButton = (
+    <a
+      href={`tel:${row.customer_phone}`}
+      className="oo-call-btn"
+      aria-label={`Gọi ${row.customer_name} ${row.customer_phone}`}
+    >
+      <Icon name="goi-dien" size={20} />
+      Gọi
+    </a>
+  );
+
+  const moreButton = menuItems.length > 0 && (
+    <button
+      type="button"
+      className="secondary oo-more-btn"
+      aria-label="Thao tác khác"
+      aria-expanded={menuOpen}
+      disabled={busy}
+      onClick={() => setMenuOpen((v) => !v)}
+    >
+      <Icon name="them-thao-tac" size={22} />
+    </button>
+  );
+
+  const menuList = menuOpen && menuItems.length > 0 && (
+    <div role="menu" className="oo-card-menu">
+      {menuItems.map((m) => (
+        <button
+          key={m.key}
+          type="button"
+          role="menuitem"
+          className="secondary"
+          onClick={m.run}
+          style={{ color: m.danger ? C.danger : C.text }}
+        >
+          <Icon name={m.icon} size={18} />
+          {m.label}
+        </button>
+      ))}
+    </div>
+  );
+
+  /* ── Dải đầu (đợt 3, 2026-11-11) ──
+     ĐƠN ĐÃ XỬ LÝ: một DÒNG 3 cột cố định — icon loại đơn · (tên / mã · số món · bàn) · (giờ + tổng
+     tiền / dòng phụ). Trước đó dòng 1 có 4 kiểu nhãn (pill "Thành công", ô mã monospace, pill xanh
+     dương "Giao tận nơi", giờ), tên ở x=260 còn giá ở x=1241. Nay: không pill trạng thái (đang ở tab
+     Xong thì dòng nào cũng "Thành công" là thừa), mã đơn thành chữ phụ, loại đơn bằng ICON xám.
+     ĐƠN CHỜ DUYỆT: "🛵 Giao tận nơi · #606C ............ ⏱ 1:53" — chỉ đồng hồ đổi cam khi quá hạn. */
+  const tableText = row.table_name ?? row.table_code;
+  const rowSub = [`#${code}`, itemCountLabel(row.items), tableText].filter(Boolean).join(' · ');
+  // Dòng phụ cột phải: việc đang dở (đồng hồ chặng / chặng chưa xong) — hoặc loại đơn khi đã xong.
+  const rowNote =
+    stepClock ??
+    (row.status === 'REJECTED'
+      ? tone.label
+      : fv && !fv.done
+        ? fv.label
+        : isDelivery
+          ? 'Giao'
+          : 'Tự lấy');
+  // Chờ duyệt dùng CHUNG dòng 3 cột với các tab khác (chủ quán 2026-11-11: "sửa màn chờ duyệt cho
+  // giống các màn khác") — chỉ khác: ô dưới-phải là đồng hồ chờ, cam khi quá hạn; thân mở sẵn.
+  const summary = (
+    <span className="oo3-row">
+      <span className="oo3-row-ico" aria-label={isDelivery ? 'Giao tận nơi' : 'Khách tự lấy'}>
+        <Icon name={isDelivery ? 'giao-hang' : 'mang-ve'} size={20} />
+      </span>
+      <span className="oo3-row-a">{row.customer_name}</span>
+      <span className="oo3-row-r">
+        <span className="oo3-row-tm">{fmtClock(row.submitted_at_ms)}</span>
+        <span className="oo3-row-sum">{fmtVnd(total)}</span>
+      </span>
+      <span className="oo3-row-b">{rowSub}</span>
+      <span className="oo3-row-r2">
+        {readOnly ? (
+          <span className={stepClock ? 'is-accent' : undefined}>{rowNote}</span>
+        ) : (
+          <span
+            className={overdue ? 'oo3-clk is-late' : 'oo3-clk'}
+            aria-label={`Thứ tự chờ ${position} · đã chờ ${waited} giây${overdue ? ' — quá hạn' : ''}`}
+          >
+            <Icon name="gio" size={14} />
+            {formatWait(waited)}
+          </span>
+        )}
+        {/* "gồm ship" thay cho "+ship 15.000đ" xếp ngang tổng — số tổng thẳng cột giữa các dòng;
+            con số ship cụ thể nằm ở phần chi tiết. */}
+        <span className="oo3-row-ship">{shipFeeOfRow > 0 ? 'gồm ship' : ''}</span>
+      </span>
+    </span>
+  );
 
   return (
     <div
+      className={`oo3-li${readOnly ? '' : ' oo3-li--work'}${overdue && !readOnly ? ' is-late' : ''}${selected ? ' is-selected' : ''}${panel ? ' is-panel' : ''}`}
       style={{
-        background: C.cardBg,
-        // Đơn quá hạn / đơn bị từ chối: đổi VIỀN cả card, không chỉ đổi màu con số. Nhân viên quét
-        // danh sách từ xa thấy khối màu trước khi đọc được chữ.
-        border: `1px solid ${overdue && !readOnly ? tone.border : C.borderSoft}`,
-        // Dải màu 4px bên trái — thứ DUY NHẤT còn đọc được khi cuộn nhanh. Đây là kênh mã màu
-        // trạng thái mà chủ dự án yêu cầu (Task.md: "phân biệt màu sắc trạng thái của 3 status").
-        borderLeft: `4px solid ${tone.edge}`,
-        borderRadius: 12,
-        boxShadow: '0 1px 3px rgba(0,0,0,.06)',
-        overflow: 'hidden',
-        opacity: fading ? 0 : 1,
+        // Đang chờ gửi (Hoàn tác): mờ + không bấm được — muốn đổi ý thì dùng nút Hoàn tác ở đáy.
+        opacity: fading ? 0 : queued ? 0.45 : 1,
+        pointerEvents: queued ? 'none' : undefined,
         transition: prefersReducedMotion() ? undefined : `opacity ${FADE_MS}ms ease-out`,
       }}
     >
-      {readOnly ? (
+      {/* Dòng tóm tắt là NÚT khi: tab đã xử lý (mở/gấp tại chỗ) hoặc màn rộng có panel (chạm =
+          chọn, kể cả Chờ duyệt). Chờ duyệt trên màn hẹp: dòng tĩnh, thân mở sẵn ngay dưới. */}
+      {!panel && (readOnly || onSelect) ? (
         <button
           type="button"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          style={{
-            ...stripStyle,
-            display: 'flex',
-            flexWrap: 'wrap',
-            width: '100%',
-            minHeight: 44,
-            border: 'none',
-            borderBottom: stripStyle.borderBottom,
-            borderRadius: 0,
-            color: C.text,
-            textAlign: 'left',
-            font: 'inherit',
-            cursor: 'pointer',
-          }}
+          className="oo3-row-btn"
+          aria-expanded={onSelect ? undefined : open}
+          aria-pressed={onSelect ? selected : undefined}
+          onClick={() => (onSelect ? onSelect() : setOpen((v) => !v))}
         >
           {summary}
         </button>
+      ) : panel ? (
+        // Panel: KHÔNG lặp lại dòng tóm tắt (nó đang được tô ngay bên trái) — chỉ một dòng nhận
+        // diện nhỏ, tên khách đã có ở đầu thân thẻ ngay dưới.
+        <div className="oo3-panel-meta">
+          #{code} · {isDelivery ? 'Giao tận nơi' : 'Khách tự lấy'} · {fmtClock(row.submitted_at_ms)}
+        </div>
       ) : (
-        <div style={{ ...stripStyle, display: 'flex', flexWrap: 'wrap' }}>{summary}</div>
+        <div className="oo3-row-btn oo3-row-static">{summary}</div>
       )}
 
       {/* ── Thân card: 2 CỘT từ 900px (`.oo-card-body`) ──
@@ -1831,20 +2320,28 @@ function OrderCard({
       <div className="oo-card-body">
         <div className="oo-customer">
         {/* ── Khối khách — có nút gọi và mở bản đồ, không bắt copy tay ── */}
-        <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>{row.customer_name}</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 16, color: C.text }}>{row.customer_phone}</span>
-          <a
-            href={`tel:${row.customer_phone}`}
-            style={{ fontSize: 13, fontWeight: 500, color: C.accent }}
-          >
-            Gọi
-          </a>
-        </div>
+        {/* Tên · SĐT CÙNG một hàng (chủ quán 2026-11-11, đợt 3). SĐT là chữ phụ xám, không còn
+            chữ xanh gạch chân — nhìn như link nổi hơn cả tên khách. Chạm vào số vẫn gọi được; nút
+            "Gọi" to nằm cạnh nút chính ở dải cuối thẻ. */}
+        {/* Tên CHỈ hiện trong panel — ở dòng mở rộng tại chỗ, tên đã nằm ngay trên ở dòng tóm tắt
+            (chủ quán thấy lặp 2 lần). */}
+        <p style={{ margin: 0, fontSize: 16, fontWeight: 600, color: C.text }}>
+          {panel && row.customer_name}
+          <span style={{ fontWeight: 400, color: C.muted }}>
+            {panel && ' · '}
+            <a
+              href={`tel:${row.customer_phone}`}
+              className="oo3-phone"
+              aria-label={`Gọi ${row.customer_phone}`}
+            >
+              {row.customer_phone}
+            </a>
+          </span>
+        </p>
 
         {isDelivery && row.customer_address && (
           <div style={{ marginTop: 4, display: 'flex', gap: 8, alignItems: 'baseline', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
+            <span style={{ fontSize: 13, fontWeight: 400, color: C.muted }}>
               {row.customer_address}
             </span>
             {/* Khoảng cách tách thành CHIP có màu (2026-08-06), không còn là mấy chữ " · 2.50 km"
@@ -1866,7 +2363,7 @@ function OrderCard({
                 href={mapHref}
                 target="_blank"
                 rel="noreferrer"
-                style={{ fontSize: 13, fontWeight: 500, color: C.accent }}
+                style={{ fontSize: 13, fontWeight: 400, color: C.accent }}
               >
                 Mở bản đồ
               </a>
@@ -1876,7 +2373,7 @@ function OrderCard({
 
         {row.customer_note && (
           <p style={{ margin: '8px 0 0', fontSize: 16, color: C.text }}>
-            <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>Khách ghi: </span>
+            <span style={{ fontSize: 13, fontWeight: 400, color: C.muted }}>Khách ghi: </span>
             {row.customer_note}
           </p>
         )}
@@ -1907,6 +2404,9 @@ function OrderCard({
             </button>
           )}
 
+          {/* Dòng cuối khối món: "2 món · 3 phần" + TIỀN MÓN (2026-11-11). TỔNG (có ship) không còn ở
+              đây mà là thanh riêng ngay trên nút Xác nhận — xem `totalBar` — để đọc xuôi theo thứ
+              tự khách → món → phí ship → tổng → nút. */}
           <div
             style={{
               display: 'flex',
@@ -1917,33 +2417,13 @@ function OrderCard({
               borderTop: `1px solid ${C.itemsBorder}`,
             }}
           >
-            <span style={{ fontSize: 13, fontWeight: 500, color: C.mutedOnTint }}>
-              {/* Có phí ship thì PHẢI nói ra ngay cạnh con số: nhân viên nhìn "140.000đ" mà danh
-                  sách món cộng lại chỉ 120.000đ sẽ tưởng hệ thống tính sai. */}
-              {shipFeeOfRow > 0
-                ? `${row.items.length} món ${fmtVnd(itemsTotal)} + ship ${fmtVnd(shipFeeOfRow)}`
-                : `Tổng ${row.items.length} món`}
+            <span style={{ fontSize: 15, fontWeight: 600, color: C.mutedOnTint }}>
+              {itemCountLabel(row.items)}
             </span>
-            <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(total)}</span>
+            <span style={{ fontSize: 16, fontWeight: 600, color: C.text }}>{fmtVnd(itemsTotal)}</span>
           </div>
-
-          {/* Nút mở panel sửa món đặt NGAY DƯỚI danh sách món — đúng chỗ mắt đang nhìn khi
-              khách bảo "bỏ giúp em món X". Chỉ đơn chờ duyệt (Task.md: sửa RỒI MỚI xác nhận);
-              sau confirm món sống ở order_items, sửa ở màn bàn/bếp như đơn thường. */}
-          {!readOnly && !editOpen && (
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => {
-                setRejectOpen(false);
-                setEditOpen(true);
-              }}
-              style={{ fontSize: 13, marginTop: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              <Icon name="sua" size={16} />
-              Sửa số lượng / bỏ món
-            </button>
-          )}
+          {/* Đơn đã xử lý không có dải nút, nên tổng nằm luôn dưới khối món. */}
+          {readOnly && <div style={{ marginTop: 8 }}>{totalBar}</div>}
         </div>
 
         {/* Khối giao hàng — trong DOM nằm SAU khối món (đúng thứ tự đọc trên điện thoại: khách →
@@ -1966,9 +2446,11 @@ function OrderCard({
         {readOnly && (
           <div
             style={{
-              background: tone.bg,
-              border: `1px solid ${tone.border}`,
-              color: tone.text,
+              // Đợt 3: khối kết luận nền xám TRUNG TÍNH — trạng thái nói bằng chữ, không bằng nền
+              // xanh/đỏ (màn từng có 5 màu nhấn).
+              background: 'var(--gray-50)',
+              border: `1px solid ${C.border}`,
+              color: C.text,
               borderRadius: 8,
               padding: '12px 16px',
             }}
@@ -1977,13 +2459,13 @@ function OrderCard({
               <Icon name={tone.icon} size={18} />
               {tone.label}
             </p>
-            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500 }}>
+            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 400 }}>
               {row.reviewed_at_ms ? fmtClock(row.reviewed_at_ms) : '—'}
               {row.reviewed_by_full_name ? ` · ${row.reviewed_by_full_name}` : ''}
             </p>
             {row.reject_reason && (
               <p style={{ margin: '8px 0 0', fontSize: 16 }}>
-                <span style={{ fontSize: 13, fontWeight: 500 }}>Lý do gửi khách: </span>
+                <span style={{ fontSize: 13, fontWeight: 400 }}>Lý do gửi khách: </span>
                 {row.reject_reason}
               </p>
             )}
@@ -1999,7 +2481,7 @@ function OrderCard({
                 style={{
                   marginTop: 12,
                   paddingTop: 12,
-                  borderTop: `1px solid ${tone.border}`,
+                  borderTop: `1px solid ${C.border}`,
                   display: 'grid',
                   gap: 8,
                 }}
@@ -2014,7 +2496,7 @@ function OrderCard({
                     </span>
                   )}
                   {fv.validCount !== null && (
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>
+                    <span style={{ fontSize: 13, fontWeight: 400 }}>
                       Bếp xong {fv.doneCount}/{fv.validCount} món
                       {fv.cancelledCount > 0 ? ` · ${fv.cancelledCount} món huỷ` : ''}
                     </span>
@@ -2030,7 +2512,7 @@ function OrderCard({
                     style={{
                       margin: 0,
                       fontSize: 13,
-                      fontWeight: 500,
+                      fontWeight: 400,
                       display: 'flex',
                       alignItems: 'center',
                       flexWrap: 'wrap',
@@ -2066,40 +2548,92 @@ function OrderCard({
 
                 {/* Đơn đã thu tiền là đơn ĐÃ XONG — không còn nút mốc nào để bấm, kể cả khi
                     nhân viên quên bấm "Khách đã nhận" trước lúc checkout. */}
-                {row.paid_at_ms === null && (
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {fv.action && (
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => void markFulfillment(fv.action as FulfillmentAction)}
-                        style={{ minWidth: 220, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
+                {/* ── Dải nút đơn đã xác nhận, chưa thu tiền: [Gọi] [việc kế tiếp] [⋯] (2026-11-11) ──
+                    Việc kế tiếp:
+                    - Giao tận nơi, bếp CHƯA xong → "Chờ bếp (0/2)" mờ; vẫn bấm được (BE cho ship
+                      sớm — quán tự quyết) nhưng phải qua một bước hỏi lại.
+                    - Giao tận nơi, bếp xong → "Đã đi ship".
+                    - Đã đi ship / khách tự lấy → "Thu tiền ở bàn Ship 01 →": trước đây sau khi đi
+                      ship thẻ chỉ còn nút Huỷ, không có đường nào tới bước thu tiền. Luồng thu
+                      tiền KHÔNG đổi — nút chỉ mở đúng tấm bàn ở màn Order (`/orders?table=`).
+                    Đơn đã thu tiền: không còn nút nào (đơn đã xong). Huỷ đơn vào menu ⋯. */}
+                {row.paid_at_ms === null && !cancelOpen && !switchOpen && (
+                  <div className="oo-foot oo-foot--solo">
+                    {shipAsk ? (
+                      <div
+                        role="alertdialog"
+                        aria-label="Bếp chưa xong"
+                        style={{
+                          display: 'grid',
+                          gap: 8,
+                          padding: '12px 14px',
+                          borderRadius: 10,
+                          background: C.warnBg,
+                          border: `1px solid ${C.warnBorder}`,
+                          color: C.warnText,
+                        }}
                       >
-                        {busy ? (
-                          'Đang xử lý...'
+                        <p style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>
+                          Bếp mới xong {fv.doneCount ?? 0}/{fv.validCount ?? 0} món. Vẫn ghi “Đã đi ship”?
+                        </p>
+                        <div className="oo-actions" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              setShipAsk(false);
+                              void markFulfillment('ship');
+                            }}
+                          >
+                            Vẫn đi ship
+                          </button>
+                          <button type="button" className="secondary" onClick={() => setShipAsk(false)}>
+                            Chờ bếp
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className={canGoCollect ? 'oo-actions oo-actions--collect' : 'oo-actions'}>
+                        {callButton}
+                        {canGoCollect ? (
+                          <Link
+                            to={`/orders?table=${encodeURIComponent(row.table_code ?? '')}`}
+                            className="oo-collect-btn"
+                          >
+                            {/* Chỉ "Thu tiền" ở MỌI bề rộng (chủ quán 2026-11-11): 3 nút một hàng mà ghi
+                                đủ "Thu tiền ở bàn Mang về 03" thì gãy 3 dòng, cả trong panel máy tính.
+                                Tên bàn đã ghi ngay phía trên trong khung; aria-label vẫn đọc đủ. */}
+                            <span aria-label={`Thu tiền ở bàn ${tableLabel}`}>Thu tiền</span>
+                            <Icon name="mui-ten-phai" size={20} />
+                          </Link>
+                        ) : fv.action ? (
+                          <button
+                            type="button"
+                            disabled={busy}
+                            className={kitchenDone ? undefined : 'secondary oo-wait-kitchen'}
+                            onClick={() =>
+                              kitchenDone ? void markFulfillment(fv.action as FulfillmentAction) : setShipAsk(true)
+                            }
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
+                          >
+                            {busy ? (
+                              'Đang xử lý...'
+                            ) : kitchenDone ? (
+                              <>
+                                <Icon name="giao-hang" size={20} />
+                                {fv.actionLabel}
+                              </>
+                            ) : (
+                              `Chờ bếp (${fv.doneCount ?? 0}/${fv.validCount ?? 0})`
+                            )}
+                          </button>
                         ) : (
-                          <>
-                            <Icon name="giao-hang" size={20} />
-                            {fv.actionLabel}
-                          </>
+                          <span />
                         )}
-                      </button>
+                        {moreButton}
+                      </div>
                     )}
-                    <span style={{ flex: 1 }} />
-                    {/* Huỷ đơn giữa chừng (chốt 2026-08-04) — khách có vấn đề sau khi đã
-                        duyệt. Cả 3 role (D-02); lý do đi qua đúng panel từ chối để khách
-                        đọc được câu chuẩn. Đơn đã thu tiền không huỷ được (BE chặn 409). */}
-                    {!cancelOpen && (
-                      <button
-                        type="button"
-                        className="secondary"
-                        disabled={busy}
-                        onClick={() => setCancelOpen(true)}
-                        style={{ color: C.danger, fontSize: 13 }}
-                      >
-                        Huỷ đơn
-                      </button>
-                    )}
+                    {menuList}
                   </div>
                 )}
 
@@ -2107,6 +2641,7 @@ function OrderCard({
                   <RejectPanel
                     busy={busy}
                     phone={row.customer_phone}
+                    delivery={isDelivery}
                     submitLabel="Xác nhận huỷ đơn"
                     onCancel={() => setCancelOpen(false)}
                     onSubmit={(payload) => void cancelConfirmed(payload)}
@@ -2150,7 +2685,7 @@ function OrderCard({
               padding: '12px 16px',
             }}
           >
-            <p style={{ margin: 0, fontSize: 13, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <p style={{ margin: 0, fontSize: 13, fontWeight: 400, display: 'flex', alignItems: 'center', gap: 6 }}>
               <Icon name="canh-bao" size={16} />
               {row.out_of_stock_count} món đã hết hàng
             </p>
@@ -2219,6 +2754,7 @@ function OrderCard({
           <RejectPanel
             busy={busy}
             phone={row.customer_phone}
+            delivery={isDelivery}
             onCancel={() => setRejectOpen(false)}
             onSubmit={(payload) => void reject(payload)}
           />
@@ -2231,23 +2767,22 @@ function OrderCard({
           role — D-02 (không gate theo role ở đây).
           `.oo-actions` chặn nút ở 460px trên desktop: nút "Xác nhận" dài 1100px vừa xấu vừa biến
           nửa chiều ngang card thành vùng bấm nguy hiểm. ── */}
+      {/* ── Dải cuối đơn chờ: TỔNG rồi [Gọi] [Xác nhận] [⋯] (2026-11-11) ──
+          Trước: [Xác nhận][Từ chối] nằm xa con số tổng, nút Gọi là chữ 21px trong khối khách.
+          Từ chối vào menu ⋯ (thêm 1 chạm) — gần như mọi đơn đều được duyệt, và nút không hoàn
+          tác được thì càng ít nằm sẵn dưới ngón tay càng tốt. 2 thao tác LUÔN có cho cả 3 role
+          (D-02, không gate theo role ở đây). */}
       {!readOnly && !rejectOpen && !editOpen && !switchOpen && (
-        <div className="oo-actions">
-          <button type="button" disabled={busy} onClick={() => void confirm()}>
-            {busy ? 'Đang xử lý...' : 'Xác nhận'}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={busy}
-            onClick={() => {
-              setEditOpen(false);
-              setRejectOpen(true);
-            }}
-            style={{ color: C.danger }}
-          >
-            Từ chối
-          </button>
+        <div className="oo-foot oo-foot--card">
+          {totalBar}
+          <div className="oo-actions">
+            {callButton}
+            <button type="button" disabled={busy || queued} onClick={confirm}>
+              {busy ? 'Đang gửi...' : queued ? 'Đang chờ gửi…' : 'Xác nhận'}
+            </button>
+            {moreButton}
+          </div>
+          {menuList}
         </div>
       )}
         </>
@@ -2306,7 +2841,7 @@ function SwitchFulfillmentPanel({
       <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: C.text }}>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chuyen-ban" size={18} />Chuyển sang {FULFILLMENT_LABEL[target]}</span>
       </p>
-      <p style={{ margin: 0, fontSize: 13, fontWeight: 500, color: C.muted, lineHeight: 1.5 }}>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 400, color: C.muted, lineHeight: 1.5 }}>
         {toDelivery
           ? 'Đơn sẽ được chuyển sang một bàn Ship còn trống. Khách xem trang theo dõi sẽ thấy đổi ngay.'
           : 'Đơn sẽ được chuyển sang một bàn Mang về còn trống và PHÍ SHIP VỀ 0đ. Khách xem trang theo dõi sẽ thấy đổi ngay.'}
@@ -2316,7 +2851,7 @@ function SwitchFulfillmentPanel({
         <div>
           <label
             htmlFor="switch-address"
-            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+            style={{ fontSize: 13, fontWeight: 600, color: C.text, display: 'block', marginBottom: 4 }}
           >
             Địa chỉ giao (bắt buộc)
           </label>
@@ -2337,7 +2872,7 @@ function SwitchFulfillmentPanel({
           {/* Đổi địa chỉ là xoá toạ độ + số km đang lưu (BE quyết, xem `resolveSwitchAddress`) —
               nói ra ở đây vì số km đó là căn cứ nhân viên nhìn để chốt phí ship. */}
           {addressChanged && (currentAddress ?? '') !== '' && (
-            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500, color: C.warnText }}>
+            <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 400, color: C.warnText }}>
               Địa chỉ khác địa chỉ khách đã gửi — vị trí bản đồ và số km sẽ bị xoá.
             </p>
           )}
@@ -2348,7 +2883,7 @@ function SwitchFulfillmentPanel({
         <div>
           <label
             htmlFor="switch-ship-fee"
-            style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'block', marginBottom: 4 }}
+            style={{ fontSize: 13, fontWeight: 600, color: C.text, display: 'block', marginBottom: 4 }}
           >
             Phí ship (nếu có)
           </label>
@@ -2526,7 +3061,7 @@ function EditItemsPanel({
 
   return (
     <div style={{ borderTop: `1px solid ${C.borderSoft}`, paddingTop: 16 }}>
-      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 500, color: C.text }}>
+      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 400, color: C.text }}>
         Sửa món — nhớ chốt lại với khách trước khi lưu
       </p>
 
@@ -2625,7 +3160,7 @@ function EditItemsPanel({
           <span style={{ flex: 1, fontSize: 16, color: C.text }}>
             <span
               style={{
-                fontSize: 12,
+                fontSize: 13,
                 fontWeight: 700,
                 color: C.accent,
                 border: `1px solid ${C.accent}`,
@@ -2700,14 +3235,14 @@ function EditItemsPanel({
           margin: '12px 0 16px',
         }}
       >
-        <span style={{ fontSize: 13, fontWeight: 500, color: C.muted }}>
+        <span style={{ fontSize: 13, fontWeight: 400, color: C.muted }}>
           Tạm tính mới · {keptCount} món
         </span>
         <span style={{ fontSize: 16, fontWeight: 700, color: C.text }}>{fmtVnd(subtotal)}</span>
       </div>
 
       {keptCount === 0 && (
-        <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 500, color: C.warnText }}>
+        <p style={{ margin: '0 0 16px', fontSize: 13, fontWeight: 400, color: C.warnText }}>
           Đơn không còn món nào — muốn bỏ cả đơn hãy dùng nút Từ chối.
         </p>
       )}
@@ -2733,15 +3268,20 @@ function EditItemsPanel({
       {/* Tái dùng NGUYÊN modal chọn món của màn order (search không dấu, lọc nhóm, chặn món
           hết hàng) — onPick là async theo hợp đồng của modal, ở đây xử lý đồng bộ nên resolve
           ngay. Note gõ trong modal đi theo món gọi thêm. */}
-      {pickerOpen && (
-        <MenuPickerModal
-          hideGroupFilter
-          onClose={() => setPickerOpen(false)}
-          onPick={async (item, pickQty, note) => {
-            handlePick(item, pickQty, note);
-          }}
-        />
-      )}
+      {/* PORTAL ra `document.body` (2026-11-11): panel chi tiết là `position: sticky` → tạo lớp
+          xếp chồng riêng, modal vẽ bên trong bị nhốt DƯỚI thanh công cụ dính (chủ quán chụp: hàng
+          6 bước đè lên hộp "Chọn món"). Ra body thì z-index của `.modal-overlay` mới có hiệu lực. */}
+      {pickerOpen &&
+        createPortal(
+          <MenuPickerModal
+            hideGroupFilter
+            onClose={() => setPickerOpen(false)}
+            onPick={async (item, pickQty, note) => {
+              handlePick(item, pickQty, note);
+            }}
+          />,
+          document.body,
+        )}
     </div>
   );
 }
@@ -2759,11 +3299,14 @@ function EditItemsPanel({
 function RejectPanel({
   busy,
   phone,
+  delivery,
   onCancel,
   onSubmit,
   submitLabel = 'Xác nhận từ chối',
 }: {
   busy: boolean;
+  /** Đơn giao tận nơi? Đơn KHÁCH TỰ LẤY không có lựa chọn "Ngoài khu vực giao" (2026-11-11). */
+  delivery: boolean;
   /** SĐT của đơn — CHỈ để hiện trên ô tick chặn số. Số gửi lên BE vẫn là số BE tự đọc từ đơn;
    * ở đây chỉ là chữ cho người bấm nhìn thấy mình sắp khoá đúng số nào. */
   phone: string;
@@ -2781,15 +3324,28 @@ function RejectPanel({
   // viên bấm nhanh qua form.
   const [blacklist, setBlacklist] = useState(false);
 
+  // Thứ tự lý do (2026-11-11): bỏ lý do không hợp loại đơn, rồi xếp lý do MÁY NÀY hay chọn nhất
+  // lên đầu (đếm ở localStorage — không cần API, và mỗi quán/máy có thói quen riêng). "Lý do khác"
+  // luôn đứng cuối. Đọc MỘT lần lúc mở panel: xếp lại giữa chừng là nút nhảy dưới ngón tay.
+  const [reasons] = useState<RejectReasonCode[]>(() => {
+    const counts = readReasonCounts();
+    const pool = REASON_ORDER.filter(
+      (rc) => rc !== 'OTHER' && (delivery || rc !== 'OUT_OF_DELIVERY_AREA'),
+    );
+    // sort ổn định: hoà số lần thì giữ thứ tự gốc REASON_ORDER.
+    const sorted = [...pool].sort((a, b) => (counts[b] ?? 0) - (counts[a] ?? 0));
+    return [...sorted, 'OTHER'];
+  });
+
   const otherMissing = code === 'OTHER' && otherText.trim() === '';
   const canSubmit = code !== null && !otherMissing && !busy;
 
   return (
     <div style={{ marginTop: 16, borderTop: `1px solid ${C.borderSoft}`, paddingTop: 16 }}>
-      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 500, color: C.text }}>
+      <p style={{ margin: '0 0 8px', fontSize: 13, fontWeight: 400, color: C.text }}>
         Lý do gửi tới khách
       </p>
-      {REASON_ORDER.map((rc) => (
+      {reasons.map((rc) => (
         <label
           key={rc}
           style={{
@@ -2821,7 +3377,7 @@ function RejectPanel({
               NGUYÊN VĂN khách sẽ đọc — câu xin lỗi dài, gửi đi mà không ai đọc trước thì sớm
               muộn cũng có câu sai ngữ cảnh tới tay khách. */}
           <span>
-            <span style={{ fontWeight: 500 }}>{REJECT_REASON_LABEL[rc]}</span>
+            <span style={{ fontWeight: 400 }}>{REJECT_REASON_LABEL[rc]}</span>
             <span style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: C.muted }}>
               {rc === 'OTHER' ? 'Tự gõ câu gửi khách ở ô bên dưới' : REJECT_REASON_TEXT[rc]}
             </span>
@@ -2844,7 +3400,7 @@ function RejectPanel({
               border: `1px solid ${C.border}`,
             }}
           />
-          <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 500, color: C.warnText }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, fontWeight: 400, color: C.warnText }}>
             Nội dung này khách sẽ đọc được
           </p>
         </div>
@@ -2862,7 +3418,7 @@ function RejectPanel({
       >
         <label
           htmlFor="internal-note"
-          style={{ fontSize: 13, fontWeight: 500, color: C.text, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
+          style={{ fontSize: 13, fontWeight: 600, color: C.text, display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
         >
           <Icon name="khoa" size={16} />
           Ghi chú nội bộ — khách KHÔNG thấy
@@ -2914,7 +3470,7 @@ function RejectPanel({
           style={{ marginTop: 4, flex: 'none' }}
         />
         <span>
-          <span style={{ fontSize: 16, fontWeight: 500, color: blacklist ? C.alertText : C.text }}>
+          <span style={{ fontSize: 16, fontWeight: 400, color: blacklist ? C.alertText : C.text }}>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="chan" size={18} />Chặn số {phone} khỏi đặt online</span>
           </span>
           <span style={{ display: 'block', fontSize: 13, lineHeight: 1.45, color: C.muted }}>
@@ -2928,14 +3484,16 @@ function RejectPanel({
         <button type="button" className="secondary" onClick={onCancel}>
           Huỷ
         </button>
-        <button type="button" className="danger" disabled={!canSubmit} onClick={() =>
+        <button type="button" className="danger" disabled={!canSubmit} onClick={() => {
+            // Đếm lý do vừa dùng để lần sau xếp nó lên đầu — xem `reasons`.
+            if (code) bumpReasonCount(code);
             onSubmit({
               reason_code: code as RejectReasonCode,
               ...(code === 'OTHER' ? { reason_other_text: otherText.trim() } : {}),
               ...(internalNote.trim() ? { internal_note: internalNote.trim() } : {}),
               ...(blacklist ? { blacklist_phone: true } : {}),
-            })
-          }
+            });
+          }}
         >
           {submitLabel}
         </button>

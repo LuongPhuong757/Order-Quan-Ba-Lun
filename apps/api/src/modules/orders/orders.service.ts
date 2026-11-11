@@ -128,7 +128,7 @@ const HAS_ANY_ITEM_SQL = 'EXISTS (SELECT 1 FROM order_items oi WHERE oi.order_id
  * toán" và `is_paid` chưa từng được query. Không cần migration: chỉ checkout mới
  * set closed_at và nó luôn set is_paid = true cùng lúc, nên không có dòng cũ nào
  * bị phân loại sai. */
-const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
+export const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
 
 /**
  * Điều kiện SQL lọc theo HÌNH THỨC THU TIỀN (2026-09-14).
@@ -141,7 +141,7 @@ const PAID_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 1';
  * Dùng chung cho cả danh sách đơn lẫn khối đối soát — hai chỗ đó phải nói về cùng một tập đơn,
  * nếu không người dùng lọc "Cả hai" rồi thấy tổng đối soát không khớp danh sách bên dưới.
  */
-const ORDER_TOTAL_SQL =
+export const ORDER_TOTAL_SQL =
   "(SELECT COALESCE(SUM(i.menu_item_price * i.qty), 0) FROM order_items i " +
   "WHERE i.order_id = o.id AND i.state = 'SERVED') + o.ship_fee";
 
@@ -201,7 +201,7 @@ const DEBT_SQL = 'o.closed_at IS NOT NULL AND o.is_paid = 0 AND o.debt_at IS NOT
 /** MỐC TIỀN của một đơn — lúc tiền thật sự vào (D-03). Đơn nợ hôm 20 trả hôm 25 thì doanh thu và
  *  két/ngân hàng thuộc ngày 25. Mọi bộ lọc ngày nói về TIỀN (lịch sử, đối soát, thống kê) phải
  *  dùng mốc này chứ không phải `closed_at` — `closed_at` chỉ còn là lúc TRẢ BÀN. */
-const MONEY_AT_SQL = 'COALESCE(o.debt_paid_at, o.closed_at)';
+export const MONEY_AT_SQL = 'COALESCE(o.debt_paid_at, o.closed_at)';
 /** Mốc tiền, và với đơn đang mở thì lấy lúc vào bàn — dùng cho bộ lọc ngày ở lịch sử/thống kê,
  *  nơi tab "Chưa thanh toán" cũng phải rơi vào đúng ngày. */
 const MONEY_OR_OPENED_AT_SQL = 'COALESCE(o.debt_paid_at, o.closed_at, o.opened_at)';

@@ -103,3 +103,24 @@ describe('tìm theo xã — gom chuyến ship bằng ô tìm kiếm sẵn có', 
     expect(found(`A ${WARD.name}`)).toEqual(['Khách A']);
   });
 });
+
+describe('tìm theo MÃ ĐƠN (cùng mã khách thấy, 2026-11-11)', () => {
+  const ROWS = [
+    { ...row('Khách A', '0905000001', ['Bún bò']), order_token_masked: '606c…' },
+    { ...row('Khách B', '0905000002', ['Phở']), order_token_masked: '91af…' },
+  ];
+  const found = (q: string) => filterOrdersBySearch(ROWS, q).map((r) => r.customer_name);
+
+  it('gõ mã khách đọc (chữ hoa) ra đúng đơn', () => {
+    expect(found('606C')).toEqual(['Khách A']);
+  });
+
+  it('khớp từ đầu mã với ≥ 2 ký tự', () => {
+    expect(found('91')).toEqual(['Khách B']);
+  });
+
+  it('1 ký tự hoặc khớp giữa mã thì không ra theo mã', () => {
+    expect(found('6')).toEqual([]);
+    expect(found('6c')).toEqual([]);
+  });
+});

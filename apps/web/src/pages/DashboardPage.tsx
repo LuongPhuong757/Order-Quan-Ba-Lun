@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { settingsHref } from '../lib/settings-groups.ts';
 
 // Tiêu đề thẻ truy cập nhanh: icon nét mảnh đứng trước chữ (thay emoji nhiều màu, Đợt 0 đồng bộ
 // giao diện 2026-11-09).
@@ -44,9 +45,9 @@ export function DashboardPage() {
               <strong style={CARD_TITLE}><Icon name="tai-lieu" size={18} />Nhật ký hệ thống</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Xem lịch sử thao tác + xuất CSV</p>
             </Link>
-            {/* Cài đặt nhận đơn nay là tab của màn Đơn hàng online (2026-08-03) — link đi thẳng
-                vào tab đó, không qua redirect, để không tốn 1 nhịp điều hướng. */}
-            <Link to="/admin/online-orders?view=settings" className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
+            {/* Cài đặt nhận đơn nay ở nhóm "Đặt hàng online" của màn Cài đặt (2026-11-11) — link đi
+                thẳng vào nhóm đó, không qua redirect, để không tốn 1 nhịp điều hướng. */}
+            <Link to={settingsHref('online')} className="card" style={{ textDecoration: 'none', color: 'inherit' }}>
               <strong style={CARD_TITLE}><Icon name="cai-dat" size={18} />Cài đặt nhận đơn</strong>
               <p style={{ color: '#6b7280', margin: '6px 0 0', fontSize: 14 }}>Giờ mở cửa, giao hàng, SĐT bị chặn</p>
             </Link>
@@ -81,8 +82,8 @@ export function DashboardPage() {
 
 // Widget công tắc nhận đơn — 1 chạm, KHÔNG modal xác nhận, KHÔNG hỏi lý do ở Dashboard
 // (D-13: tình huống thật là hết nguyên liệu giữa giờ cao điểm, chủ quán không có thời
-// gian điều hướng 3 bước). Chọn kiểu OFF / lý do / giờ mở cửa đặt ở tab Cài đặt của màn
-// Đơn hàng online (`/admin/online-orders?view=settings`).
+// gian điều hướng 3 bước). Chọn kiểu OFF / lý do / giờ mở cửa đặt ở nhóm "Đặt hàng online"
+// của màn Cài đặt (`/settings?g=online`).
 type OrderingStatusLite = {
   enabled: boolean;
   is_open_now: boolean;
@@ -164,7 +165,7 @@ function OrderingWidget() {
           <button disabled={toggling} onClick={toggle} style={{ width: '100%' }}>
             {toggling ? 'Đang cập nhật...' : status.enabled ? 'Tắt nhận đơn' : 'Bật lại nhận đơn'}
           </button>
-          <Link to="/admin/online-orders?view=settings" style={{ display: 'block', marginTop: 8, fontSize: 13, color: '#0f766e' }}>
+          <Link to={settingsHref('online')} style={{ display: 'block', marginTop: 8, fontSize: 13, color: '#0f766e' }}>
             Cài đặt chi tiết (lý do, giờ mở cửa, số bị chặn) →
           </Link>
         </>
