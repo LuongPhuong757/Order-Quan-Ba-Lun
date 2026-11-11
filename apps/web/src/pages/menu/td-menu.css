@@ -673,8 +673,10 @@ button.td-chip--on { background: var(--ds-accent-tint); color: var(--ds-accent);
   gap: 6px;
   overflow-x: auto;
   scrollbar-width: none;
-  margin: 0 -16px 10px;
-  padding: 0 16px;
+  /* KHÔNG lề âm (trước `margin: 0 -16px`): khung chứa không đủ đệm bù nên hàng chip lố khỏi màn
+     hình → kéo ngang cả trang trượt, lộ nền (chủ quán chụp iPhone 2026-11-11). */
+  margin: 0 0 10px;
+  padding: 0;
 }
 .td3-chips::-webkit-scrollbar { display: none; }
 .td3 .td3-chips > button {
