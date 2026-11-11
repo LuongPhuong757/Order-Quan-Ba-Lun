@@ -3,39 +3,27 @@
 // Ranh giới của màn này, và là lý do nó đứng riêng chứ không nằm trong màn Gọi món: ở đây không
 // có bàn, không có bếp, không có kho, không có doanh thu. Người dùng gõ ra một tờ giấy và bấm in.
 // Làm nó trông giống màn order là cái bẫy — sớm muộn sẽ có người tưởng mình vừa bán được hàng.
-import { useState } from 'react';
+//
+// Làm lại giao diện 2026-11-10 (chủ quán, đủ 11 điểm): MỘT lớp nền trắng, món là hàng ~56px kẻ
+// mảnh 1px (bỏ thẻ viền + vạch xanh), 4 cỡ chữ 22/16/14/12, chỉ tên món + tổng tiền in đậm,
+// thanh dính đáy [Tổng · In phiếu] nằm sát trên nav, bấm In → XEM TRƯỚC đúng tấm ảnh máy in sẽ
+// in, in xong KHÔNG xoá form mà hiện "Đã in #MÃ · In lại · Soạn phiếu mới". Kiểu dáng ở `.crp-*`
+// trong styles.css (cần media query — style nội tuyến không viết được).
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
-import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
-import { CustomReceiptsLog } from './CustomReceiptsLog.tsx';
+import { QtyStepper } from '../components/ui/QtyStepper.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import type { ReceiptCopy } from './CustomReceiptHistoryPage.tsx';
 import { BulkOrderModal } from '../components/BulkOrderModal.tsx';
 import { blankLine, receiptTotals, toCreatePayload, type DraftLine } from '../lib/custom-receipt.ts';
 
 function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
 }
-
-const card: React.CSSProperties = {
-  background: C.cardBg,
-  border: `1px solid ${C.border}`,
-  borderRadius: 10,
-  padding: 16,
-  marginBottom: 16,
-};
-const label: React.CSSProperties = { display: 'block', fontSize: 13, color: C.muted, marginBottom: 4 };
-const input: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  border: `1px solid ${C.border}`,
-  borderRadius: 6,
-  // 16px/44px (Đợt 0, 2026-11-09): 15px làm iPhone tự phóng khi chạm vào ô (giờ đã bỏ khoá phóng
-  // to `maximum-scale=1`). Trên điện thoại trước đây được luật chung ép 16px, iPad thì không.
-  fontSize: 16,
-  minHeight: 44,
-  boxSizing: 'border-box',
-};
 
 /** Ô nhập tiền: rỗng là 0, và PHẢI để rỗng được.
  *
@@ -46,184 +34,220 @@ function moneyValue(raw: string): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-/** Nút −/+ số phần. Vuông, cỡ ngón tay (36px) như hàng thao tác của thẻ món ở màn order, nhưng
- *  KHÔNG kéo dãn: hai cái nút này là thao tác nhỏ, trải ngang cả thẻ thì chúng át tên món. */
-const QTY_BTN: React.CSSProperties = {
-  padding: '6px 4px',
-  fontSize: 15,
-  minHeight: 36,
-  width: 44,
-  minWidth: 44,
-};
-
-/** Thành tiền của một dòng. */
-function lineAmount(l: DraftLine): number {
-  return l.unit_price * l.qty;
-}
+/** Ngưỡng vuốt — cùng số với thẻ món ở tấm bàn (OrderDrawer): dưới 40px là chạm run tay, dọc
+ *  nhiều hơn ngang là đang CUỘN danh sách chứ không vuốt một dòng. */
+const SWIPE_MIN_PX = 40;
 
 /**
- * MỘT dòng trên hoá đơn, dựng theo đúng dáng thẻ món của màn Gọi món (`.item-card` trong
- * `OrderDrawer`): viền trái dày, "2 × Bún bò" đậm bên trái, tiền bên phải, ghi chú xám phía dưới.
+ * MỘT dòng trên hoá đơn — một HÀNG ~56px (chủ quán 2026-11-10; bản thẻ 3 hàng ~95px chỉ thấy
+ * được 3 món trên điện thoại): [tên đậm / đơn giá nhỏ] [− n +] [thành tiền].
  *
- * Vì sao không để nguyên ba ô nhập như bản đầu: một tờ hoá đơn 8 món thành 24 ô nhập xếp chồng,
- * không liếc ra được món nào giá bao nhiêu — mà liếc-để-soát mới là việc người ta làm với màn
- * này. Ô nhập chỉ mở khi thực sự cần sửa.
- *
- * Hàng [− n +] luôn hiện: sửa số phần là việc làm nhiều nhất, giấu nó sau một nút nữa là thêm
- * một nhịp cho thao tác lặp lại suốt buổi — cùng lý do màn order để "Đã giao" nằm ngoài.
+ * Không còn nút ⋯: chạm TÊN mở tấm sửa tên/giá/ghi chú (máy tính không vuốt được, nên đây là lối
+ * chính), VUỐT TRÁI hiện ô [Ghi chú][Xoá] như thẻ món ở tấm bàn. Xoá màu xám đậm, không đỏ: đỏ
+ * chỉ dành cho lỗi — và xoá một dòng giấy chưa in thì gõ lại được, không phải việc nguy hiểm.
  */
-function ReceiptLineCard({
+function ReceiptRow({
   line,
-  editing,
-  onToggleEdit,
+  revealed,
+  onReveal,
+  onEdit,
   onPatch,
   onRemove,
 }: {
   line: DraftLine;
-  editing: boolean;
-  onToggleEdit: () => void;
+  revealed: boolean;
+  onReveal: (open: boolean) => void;
+  onEdit: () => void;
   onPatch: (patch: Partial<DraftLine>) => void;
   onRemove: () => void;
 }) {
   const unnamed = line.name.trim().length === 0;
+  const touchRef = useRef<{ x: number; y: number } | null>(null);
   return (
-    <div
-      className="item-card"
-      style={{
-        background: 'white',
-        border: `1px solid ${C.accent}33`,
-        borderLeft: `4px solid ${C.accent}`,
-        borderRadius: 8,
-        padding: 10,
-        marginBottom: 6,
+    <li
+      className="crp-row"
+      onTouchStart={(e) => {
+        const t = e.touches[0];
+        touchRef.current = { x: t.clientX, y: t.clientY };
+      }}
+      onTouchEnd={(e) => {
+        const start = touchRef.current;
+        touchRef.current = null;
+        if (!start) return;
+        const t = e.changedTouches[0];
+        const dx = t.clientX - start.x;
+        const dy = t.clientY - start.y;
+        if (Math.abs(dx) < SWIPE_MIN_PX || Math.abs(dx) <= Math.abs(dy)) return;
+        // Vuốt TRÁI mở, vuốt PHẢI cất — đúng chiều ô trượt ra từ mép phải.
+        onReveal(dx < 0);
       }}
     >
-      <div className="flex between" style={{ alignItems: 'flex-start' }}>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 600, color: unnamed ? C.muted : undefined }}>
-            {line.qty} × {unnamed ? 'Chưa đặt tên — bấm ⋯ để gõ' : line.name}
-          </div>
-          <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{fmt(line.unit_price)} / phần</div>
-          {line.note && (
-            <div style={{ fontSize: 12, color: C.muted, fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: 4 }}>
-              <Icon name="ghi-chu" size={14} />
-              {line.note}
-            </div>
-          )}
-        </div>
-        <div style={{ textAlign: 'right', flex: '0 0 auto' }}>
-          <button
-            type="button"
-            className="item-more"
-            onClick={onToggleEdit}
-            aria-expanded={editing}
-            aria-label={editing ? 'Đóng phần sửa' : 'Sửa tên, giá, ghi chú'}
-            title={editing ? 'Đóng phần sửa' : 'Sửa tên, giá, ghi chú'}
-          >
-            <Icon name="them-thao-tac" size={22} />
+      <button type="button" className="crp-row__name" onClick={onEdit} aria-label={`Sửa ${line.name || 'dòng chưa đặt tên'}`}>
+        <span className={unnamed ? 'crp-row__title crp-row__title--trong' : 'crp-row__title'}>
+          {unnamed ? 'Chưa đặt tên — chạm để gõ' : line.name}
+        </span>
+        <span className="crp-row__sub">
+          {fmt(line.unit_price)}
+          {line.note ? ` · ${line.note}` : ''}
+        </span>
+      </button>
+      <QtyStepper
+        value={line.qty}
+        tenMon={line.name || 'dòng này'}
+        // Về 0 = bỏ dòng: cùng luật với giỏ màn Gọi món, khỏi phải tìm nút xoá riêng.
+        onGiam={() => (line.qty <= 1 ? onRemove() : onPatch({ qty: line.qty - 1 }))}
+        onTang={() => onPatch({ qty: Math.min(99, line.qty + 1) })}
+      />
+      <span className="crp-row__amount">{fmt(line.unit_price * line.qty)}</span>
+      {revealed && (
+        <span className="item-swipe" role="group" aria-label={`Thao tác ${line.name || 'dòng này'}`}>
+          <button type="button" style={{ background: 'var(--brand)' }} onClick={() => { onReveal(false); onEdit(); }}>
+            <Icon name="ghi-chu" size={22} />
+            Ghi chú
           </button>
-          <div style={{ fontWeight: 600 }}>{fmt(lineAmount(line))}</div>
-        </div>
-      </div>
-
-      {/* Hàng luôn hiện: CHỈ số phần. Xoá dòng nằm sau nút ⋯ — cùng lệ với màn order, nơi
-          "Huỷ" không bao giờ nằm sẵn dưới ngón tay. Một nút đỏ trải ngang mỗi thẻ vừa chói vừa
-          dễ bấm nhầm khi đang vuốt danh sách. */}
-      <div className="flex" style={{ marginTop: 8, gap: 6, alignItems: 'center' }}>
-        <button
-          type="button"
-          className="secondary"
-          style={QTY_BTN}
-          aria-label="Bớt một phần"
-          disabled={line.qty <= 1}
-          onClick={() => onPatch({ qty: Math.max(1, line.qty - 1) })}
-        >
-          −
-        </button>
-        <span style={{ minWidth: 30, textAlign: 'center', fontWeight: 700 }}>{line.qty}</span>
-        <button
-          type="button"
-          className="secondary"
-          style={QTY_BTN}
-          aria-label="Thêm một phần"
-          disabled={line.qty >= 99}
-          onClick={() => onPatch({ qty: Math.min(99, line.qty + 1) })}
-        >
-          +
-        </button>
-        <span style={{ color: C.muted, fontSize: 12, marginLeft: 2 }}>phần</span>
-      </div>
-
-      {editing && (
-        <div style={{ marginTop: 8, display: 'grid', gap: 8 }}>
-          <div>
-            <label style={label}>Tên món</label>
-            <input
-              style={input}
-              value={line.name}
-              maxLength={120}
-              placeholder="Tên hiện trên hoá đơn"
-              autoFocus
-              onChange={(e) => onPatch({ name: e.target.value })}
-            />
-          </div>
-          <div>
-            <label style={label}>Đơn giá</label>
-            <input
-              style={input}
-              inputMode="numeric"
-              value={line.unit_price === 0 ? '' : String(line.unit_price)}
-              placeholder="0"
-              onChange={(e) => onPatch({ unit_price: moneyValue(e.target.value) })}
-            />
-          </div>
-          <div>
-            <label style={label}>Ghi chú</label>
-            <input
-              style={input}
-              value={line.note}
-              maxLength={255}
-              placeholder="In thụt vào dưới tên món, không có tiền"
-              onChange={(e) => onPatch({ note: e.target.value })}
-            />
-          </div>
-          <button
-            type="button"
-            className="danger"
-            style={{ padding: '8px 12px', fontSize: 13, justifySelf: 'start' }}
-            onClick={onRemove}
-            title={`Bỏ ${line.name || 'dòng này'} khỏi hoá đơn`}
-          >
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="xoa" size={16} />Bỏ dòng này
-            </span>
+          <button type="button" style={{ background: 'var(--gray-700)' }} onClick={() => { onReveal(false); onRemove(); }}>
+            <Icon name="xoa" size={22} />
+            Xoá
           </button>
-        </div>
+        </span>
       )}
-    </div>
+    </li>
   );
+}
+
+/** Tấm sửa MỘT dòng: tên, đơn giá, ghi chú. Sửa thẳng vào state (không có nút Lưu) — đóng tấm
+ *  là xong, giống ô nhập ngay trên thẻ của bản cũ. */
+function EditLineSheet({
+  line,
+  onPatch,
+  onClose,
+}: {
+  line: DraftLine;
+  onPatch: (patch: Partial<DraftLine>) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Sheet
+      title={line.name.trim() ? `Sửa ${line.name}` : 'Dòng tự gõ'}
+      giuaKhiRong
+      onClose={onClose}
+      footer={
+        <div className="crp-sheet-foot">
+          <button type="button" className="crp-btn crp-btn--chinh" onClick={onClose}>
+            Xong
+          </button>
+        </div>
+      }
+    >
+      <div className="crp-sheet-body">
+        <label className="crp-field">
+          <span className="crp-label">Tên món</span>
+          <input
+            className="crp-input"
+            value={line.name}
+            maxLength={120}
+            placeholder="Tên hiện trên hoá đơn"
+            autoFocus={!line.name}
+            onChange={(e) => onPatch({ name: e.target.value })}
+          />
+        </label>
+        <label className="crp-field">
+          <span className="crp-label">Đơn giá</span>
+          <input
+            className="crp-input"
+            inputMode="numeric"
+            value={line.unit_price === 0 ? '' : String(line.unit_price)}
+            placeholder="0"
+            onChange={(e) => onPatch({ unit_price: moneyValue(e.target.value) })}
+          />
+        </label>
+        <label className="crp-field">
+          <span className="crp-label">Ghi chú</span>
+          <input
+            className="crp-input"
+            value={line.note}
+            maxLength={255}
+            placeholder="In thụt vào dưới tên món, không có tiền"
+            autoFocus={!!line.name}
+            onChange={(e) => onPatch({ note: e.target.value })}
+          />
+        </label>
+      </div>
+    </Sheet>
+  );
+}
+
+/** Tờ vừa in: id để In lại đúng tờ đó, `sig` để biết form đã bị sửa sau khi in hay chưa. */
+type Printed = { id: string; code: string; queued: boolean; sig: string };
+
+/** Phiếu giống hệt vừa in (≤ 1 phút, máy chủ phát hiện) — hỏi "In thêm bản sao?". */
+type DuplicateOf = { id: string; code: string; created_at: number };
+
+/** Dữ liệu ban đầu: trống, hoặc chép từ một phiếu cũ ("Tạo phiếu mới" ở màn Phiếu đã in). */
+function initialFrom(copy: ReceiptCopy | undefined) {
+  if (!copy) return { headerNote: '', lines: [] as DraftLine[], ship: '', transfer: '' };
+  return {
+    headerNote: copy.header_note,
+    lines: copy.items.map((it) => ({ ...blankLine(), name: it.name, qty: it.qty, unit_price: it.unit_price, note: it.note ?? '' })),
+    ship: copy.ship_fee ? String(copy.ship_fee) : '',
+    transfer: copy.transfer_amount ? String(copy.transfer_amount) : '',
+  };
 }
 
 export function CustomReceiptPage() {
   const toast = useToast();
   const { user } = useAuth();
-  // Nhật ký chỉ admin đọc được (API có `AdminGuard`), nên nút mở nó cũng chỉ hiện với admin —
-  // bày ra cho người khác chỉ để họ bấm rồi ăn 403.
+  // Nhật ký chỉ admin đọc được (API có `AdminGuard`), nên icon mở nó cũng chỉ hiện với admin —
+  // bày ra cho người khác chỉ để họ bấm rồi ăn 403 (chủ quán giữ nguyên quyền 2026-11-10).
   const canSeeLog = user?.role === 'admin' || user?.is_owner === true;
-  const [showLog, setShowLog] = useState(false);
-  const [headerNote, setHeaderNote] = useState('');
-  const [lines, setLines] = useState<DraftLine[]>([]);
-  const [shipFeeRaw, setShipFeeRaw] = useState('');
-  const [transferRaw, setTransferRaw] = useState('');
+  const navigate = useNavigate();
+  const loc = useLocation();
+  // Chỉ đọc MỘT lần lúc mở màn: tải lại trang thì state của history vẫn còn, nhưng đó đúng là thứ
+  // người dùng muốn (đang sửa bản chép dở thì không mất).
+  const [init] = useState(() => initialFrom((loc.state as { copyFrom?: ReceiptCopy } | null)?.copyFrom));
+  const [showWhy, setShowWhy] = useState(false);
+  const [headerNote, setHeaderNote] = useState(init.headerNote);
+  const [lines, setLines] = useState<DraftLine[]>(init.lines);
+  const [shipFeeRaw, setShipFeeRaw] = useState(init.ship);
+  const [transferRaw, setTransferRaw] = useState(init.transfer);
+  const [dupOf, setDupOf] = useState<DuplicateOf | null>(null);
+  /** Khoá NGAY lần bấm đầu (ref chứ không chỉ state: hai cú chạm sát nhau cùng thấy
+   *  `printing === false` vì state chưa kịp vẽ lại) — chống tạo 2 mã cho 1 tờ. */
+  const printLock = useRef(false);
   const [picking, setPicking] = useState(false);
-  /** Dòng đang mở phần sửa tên/giá. Một dòng tại một thời điểm, như nút ⋯ của thẻ món ở màn
-   *  order: mở hết mọi dòng thì danh sách lại thành một rừng ô nhập, đúng thứ vừa bỏ đi. */
+  /** Dòng đang mở tấm sửa / đang lộ ô vuốt. Một dòng tại một thời điểm. */
   const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [revealedKey, setRevealedKey] = useState<string | null>(null);
+  /** Ảnh xem trước (data URL) — có giá trị = tấm xem trước đang mở. */
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [reprinting, setReprinting] = useState(false);
+  const [printed, setPrinted] = useState<Printed | null>(null);
 
   const shipFee = moneyValue(shipFeeRaw);
   const transferAmount = moneyValue(transferRaw);
   const totals = receiptTotals(lines, shipFee);
+  const payload = useMemo(
+    () => toCreatePayload({ headerNote, lines, shipFee, transferAmount }),
+    [headerNote, lines, shipFee, transferAmount],
+  );
+  const sig = useMemo(() => JSON.stringify(payload), [payload]);
+  /** Đã in VÀ chưa sửa gì sau đó. Sửa một chữ là thanh đáy quay về "In phiếu" — in tiếp sẽ ra
+   *  tờ MỚI (mã mới); "In lại" chỉ dành cho đúng tờ đã in (chủ quán chốt 2026-11-10). */
+  const daIn = printed !== null && printed.sig === sig;
+
+  /* Thanh dính đáy phải nằm SÁT TRÊN nav dưới — nav cao khác nhau theo bề rộng màn và vùng an
+     toàn iPhone, nên đo chứ không ghi cứng. */
+  const [navH, setNavH] = useState(0);
+  useEffect(() => {
+    const nav = document.querySelector<HTMLElement>('.nav-bottom');
+    if (!nav) return;
+    const ro = new ResizeObserver(() => setNavH(nav.offsetHeight));
+    ro.observe(nav);
+    setNavH(nav.offsetHeight);
+    return () => ro.disconnect();
+  }, []);
 
   const patchLine = (key: string, patch: Partial<DraftLine>) =>
     // Mảng mới + object mới thay vì sửa tại chỗ: state cũ phải giữ nguyên để React thấy có đổi.
@@ -231,197 +255,308 @@ export function CustomReceiptPage() {
 
   const removeLine = (key: string) => setLines((ls) => ls.filter((l) => l.key !== key));
 
-  const print = async () => {
-    const payload = toCreatePayload({ headerNote, lines, shipFee, transferAmount });
+  const addTyped = () => {
+    const l = blankLine();
+    setLines((ls) => [...ls, l]);
+    // Dòng tự gõ chưa có tên lẫn giá — mở ngay tấm sửa, khỏi bắt người ta tìm rồi chạm thêm lần nữa.
+    setEditingKey(l.key);
+  };
+
+  const openPreview = async () => {
     if (payload.items.length === 0) {
-      toast.push('error', 'Chưa có món nào để in.');
+      toast.push('error', 'Chưa có món nào có tên để in.');
       return;
     }
-    setPrinting(true);
+    setLoadingPreview(true);
     try {
-      const res = await api.post<{ data: { code: string; queued: boolean } }>(
-        '/custom-receipts',
-        payload,
-      );
-      const { code, queued } = res.data.data;
-      if (queued) {
-        toast.push('success', `Đang in hoá đơn #${code}`);
-      } else {
-        // Bản ghi ĐÃ lưu — nói rõ để người ta biết không phải gõ lại, chỉ cần bật công tắc rồi
-        // vào Cài đặt → Máy in bấm In lại.
-        toast.push('error', `Chưa bật in hoá đơn — tờ #${code} đã lưu, bật xong vào Máy in để in lại`);
-      }
-      // Xoá trắng để làm tờ tiếp theo (chủ quán chốt 2026-09-30).
-      setHeaderNote('');
-      setLines([]);
-      setEditingKey(null);
-      setShipFeeRaw('');
-      setTransferRaw('');
+      const res = await api.post<{ data: { image: string } }>('/custom-receipts/preview', payload);
+      setPreview(res.data.data.image);
     } catch (err) {
       toast.push('error', extractError(err).message);
     } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const print = async (allowDuplicate = false) => {
+    if (printLock.current) return;
+    printLock.current = true;
+    setPrinting(true);
+    try {
+      const res = await api.post<{
+        data: { id: string; code: string; queued: boolean } | { duplicate_of: DuplicateOf };
+      }>('/custom-receipts', { ...payload, allow_duplicate: allowDuplicate || undefined });
+      const d = res.data.data;
+      if ('duplicate_of' in d) {
+        // Máy chủ thấy phiếu giống hệt vừa in (≤ 1 phút) — KHÔNG tạo mã mới, hỏi người dùng.
+        setPreview(null);
+        setDupOf(d.duplicate_of);
+        return;
+      }
+      const { id, code, queued } = d;
+      setPrinted({ id, code, queued, sig });
+      setPreview(null);
+      setDupOf(null);
+      if (queued) toast.push('success', `Đã gửi lệnh in #${code}`);
+      else {
+        // Bản ghi ĐÃ lưu — nói rõ để người ta biết không phải gõ lại, chỉ cần bật công tắc rồi
+        // bấm In lại ngay trên thanh đáy.
+        toast.push('error', `Chưa bật in hoá đơn — tờ #${code} đã lưu, bật xong bấm In lại`);
+      }
+      // KHÔNG xoá form ở đây nữa (đảo quyết định 2026-09-30, chủ quán 2026-11-10): xoá ngay sau
+      // in thì giấy kẹt là phải gõ lại cả tờ. Form chỉ xoá khi bấm "Soạn phiếu mới".
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      printLock.current = false;
       setPrinting(false);
     }
   };
 
+  /** "In thêm bản sao" của phiếu trùng: in lại ĐÚNG mã cũ (giấy mang dấu BẢN IN LẠI), không tạo mã. */
+  const printCopyOf = async (dup: DuplicateOf) => {
+    if (printLock.current) return;
+    printLock.current = true;
+    setPrinting(true);
+    try {
+      const res = await api.post<{ data: { queued: boolean } }>(`/custom-receipts/${dup.id}/print`, {});
+      setPrinted({ id: dup.id, code: dup.code, queued: res.data.data.queued, sig });
+      setDupOf(null);
+      if (res.data.data.queued) toast.push('success', `Đã gửi lệnh in bản sao #${dup.code}`);
+      else toast.push('error', 'Chưa bật in hoá đơn — vào Cài đặt → Máy in để bật');
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      printLock.current = false;
+      setPrinting(false);
+    }
+  };
+
+  const reprint = async () => {
+    if (!printed || reprinting) return;
+    setReprinting(true);
+    try {
+      const res = await api.post<{ data: { queued: boolean } }>(`/custom-receipts/${printed.id}/print`, {});
+      if (res.data.data.queued) toast.push('success', `Đã gửi lệnh in #${printed.code}`);
+      else toast.push('error', 'Chưa bật in hoá đơn — vào Cài đặt → Máy in để bật');
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setReprinting(false);
+    }
+  };
+
+  const newReceipt = () => {
+    setHeaderNote('');
+    setLines([]);
+    setEditingKey(null);
+    setRevealedKey(null);
+    setShipFeeRaw('');
+    setTransferRaw('');
+    setPrinted(null);
+  };
+
+  const editingLine = lines.find((l) => l.key === editingKey) ?? null;
+
   return (
-    <div className="container wide with-bottom-nav">
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 10,
-          margin: '12px 0 4px',
-        }}
-      >
-        <h1 style={{ margin: 0 }}>Hoá đơn tự do</h1>
-        {canSeeLog && (
-          <button
-            type="button"
-            className="secondary"
-            style={{ padding: '8px 14px', fontSize: 13, flex: '0 0 auto' }}
-            onClick={() => setShowLog((v) => !v)}
-          >
-            {showLog ? (
-              '← Soạn hoá đơn'
-            ) : (
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <Icon name="lich-su" size={16} />Đã in
-              </span>
-            )}
-          </button>
-        )}
-      </div>
-      <p style={{ color: C.muted, margin: '0 0 16px', fontSize: 14 }}>
-        In ra một tờ hoá đơn giống hệt hoá đơn thật. Tờ này <strong>không tính vào doanh thu</strong>,
-        không trừ kho và không tạo đơn nào.
-      </p>
-
-      {/* Nhật ký ngay tại đây, không phải chỉ ở Cài đặt → Máy in: người vừa in xong và thấy giấy
-          kẹt cần tìm lại tờ đó NGAY, không đi qua ba màn. Cùng một component, hai lối vào. */}
-      {showLog && canSeeLog && <CustomReceiptsLog />}
-
-      {!showLog && (
-        <>
-      <div style={card}>
-        <label style={label} htmlFor="header-note">
-          Ghi chú đầu tờ
-        </label>
-        <input
-          id="header-note"
-          style={input}
-          value={headerNote}
-          maxLength={64}
-          placeholder="Bàn 5, Mang về, tên khách… — bỏ trống cũng được"
-          onChange={(e) => setHeaderNote(e.target.value)}
-        />
-      </div>
-
-      <div style={card}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Các món trên hoá đơn</h3>
-
-        {lines.length === 0 && (
-          <p style={{ color: C.muted, fontSize: 14, margin: '0 0 12px' }}>
-            Chưa có dòng nào. Bấm <strong>Chọn món từ menu</strong> để chọn nhiều món một lượt,
-            hoặc{' '}
-            <strong>Dòng tự gõ</strong> cho món không có trong menu.
-          </p>
-        )}
-
-        {lines.map((l) => (
-          <ReceiptLineCard
-            key={l.key}
-            line={l}
-            editing={editingKey === l.key}
-            onToggleEdit={() => setEditingKey((k) => (k === l.key ? null : l.key))}
-            onPatch={(patch) => patchLine(l.key, patch)}
-            onRemove={() => removeLine(l.key)}
-          />
-        ))}
-
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => setPicking(true)} style={{ padding: '9px 18px' }}>
-            + Chọn món từ menu
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setLines((ls) => [...ls, blankLine()])}
-            style={{ padding: '9px 18px' }}
-          >
-            + Dòng tự gõ
-          </button>
-        </div>
-      </div>
-
-      <div style={card}>
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 150px' }}>
-            <label style={label} htmlFor="ship-fee">
-              Phí giao hàng
-            </label>
-            <input
-              id="ship-fee"
-              style={input}
-              inputMode="numeric"
-              value={shipFeeRaw}
-              placeholder="0"
-              onChange={(e) => setShipFeeRaw(e.target.value)}
-            />
-          </div>
-          <div style={{ flex: '1 1 150px' }}>
-            <label style={label} htmlFor="transfer">
-              Khách chuyển khoản
-            </label>
-            <input
-              id="transfer"
-              style={input}
-              inputMode="numeric"
-              value={transferRaw}
-              placeholder="0 — để trống là tiền mặt"
-              onChange={(e) => setTransferRaw(e.target.value)}
-            />
-          </div>
-        </div>
-
-        {shipFee > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 12 }}>
-            <span style={{ color: C.muted }}>Tiền món</span>
-            <span>{fmt(totals.items_total)}</span>
-          </div>
-        )}
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            marginTop: 10,
-            paddingTop: 10,
-            borderTop: `1px solid ${C.borderSoft}`,
-            fontSize: 18,
-          }}
-        >
-          <strong>TỔNG CỘNG</strong>
-          <strong>{fmt(totals.total)}</strong>
-        </div>
-
-        <button
-          type="button"
-          onClick={print}
-          disabled={printing || lines.length === 0}
-          style={{ marginTop: 14, padding: '12px 20px', width: '100%', fontSize: 16 }}
-        >
-          {printing ? (
-            'Đang gửi…'
-          ) : (
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon name="in" size={20} />In hoá đơn
-            </span>
-          )}
+    <div className="crp" style={{ paddingBottom: navH + 96 }}>
+      {/* Tên màn + nút ← nằm ở HEADER CHUNG (AppNav, 2026-11-10). Ở đây chỉ còn hàng chip:
+          "Không tính doanh thu" (bấm mới hiện giải thích) và — chỉ admin — "Phiếu đã in" (màn riêng
+          /custom-receipt/history). */}
+      <div className="crp-chip-row">
+        <button type="button" className="crp-chip" aria-expanded={showWhy} onClick={() => setShowWhy((v) => !v)}>
+          <Icon name="thong-tin" size={16} />
+          Không tính doanh thu
         </button>
+        {canSeeLog && (
+          <button type="button" className="crp-chip" onClick={() => navigate('/custom-receipt/history')}>
+            <Icon name="lich-su" size={16} />
+            Phiếu đã in
+          </button>
+        )}
       </div>
 
+      {(
+        <>
+          {/* Câu giải thích 3 dòng cũ thành MỘT chip (ở hàng chip trên): đọc một lần là đủ. */}
+          {showWhy && (
+            <p className="crp-why">
+              Tờ này in giống hệt hoá đơn thật nhưng không tính vào doanh thu, không trừ kho và
+              không tạo đơn nào.
+            </p>
+          )}
+
+          <section className="crp-group">
+            <label className="crp-field">
+              <span className="crp-label">Ghi chú đầu tờ</span>
+              <input
+                className="crp-input"
+                value={headerNote}
+                maxLength={64}
+                placeholder="Bàn 5, Mang về, tên khách…"
+                onChange={(e) => setHeaderNote(e.target.value)}
+              />
+            </label>
+          </section>
+
+          <section className="crp-group">
+            {lines.length === 0 ? (
+              <div className="crp-empty">
+                <Icon name="hoa-don" size={32} />
+                <span>Chưa có món nào</span>
+              </div>
+            ) : (
+              <ul className="crp-list">
+                {lines.map((l) => (
+                  <ReceiptRow
+                    key={l.key}
+                    line={l}
+                    revealed={revealedKey === l.key}
+                    onReveal={(open) => setRevealedKey(open ? l.key : null)}
+                    onEdit={() => setEditingKey(l.key)}
+                    onPatch={(patch) => patchLine(l.key, patch)}
+                    onRemove={() => removeLine(l.key)}
+                  />
+                ))}
+              </ul>
+            )}
+            <div className="crp-add">
+              <button type="button" className="crp-btn crp-btn--chinh" onClick={() => setPicking(true)}>
+                <Icon name="them" size={20} />
+                Thêm món
+              </button>
+              <button type="button" className="crp-btn crp-btn--vien" onClick={addTyped}>
+                <Icon name="sua" size={20} />
+                Tự gõ
+              </button>
+            </div>
+          </section>
+
+          <section className="crp-group crp-costs">
+            <label className="crp-field">
+              <span className="crp-label">Phí giao hàng</span>
+              <input
+                className="crp-input"
+                inputMode="numeric"
+                value={shipFeeRaw}
+                placeholder="0"
+                onChange={(e) => setShipFeeRaw(e.target.value)}
+              />
+            </label>
+            <label className="crp-field">
+              <span className="crp-label">Khách chuyển khoản</span>
+              <input
+                className="crp-input"
+                inputMode="numeric"
+                value={transferRaw}
+                placeholder="Để trống là tiền mặt"
+                onChange={(e) => setTransferRaw(e.target.value)}
+              />
+            </label>
+          </section>
         </>
+      )}
+
+      {/* THANH DÍNH ĐÁY, sát trên nav (chủ quán 2026-11-10): tổng tiền là thứ nổi bật nhất màn,
+          và nút In luôn trong tầm ngón cái — bản cũ để chúng cuối trang, 2 món là đã chui dưới nav. */}
+      {(
+        <div className="crp-bar" style={{ bottom: navH }}>
+          <div className="crp-bar__in">
+            {daIn ? (
+              <>
+                <div className="crp-bar__done">
+                  <Icon name="xong" size={20} />
+                  {printed.queued ? `Đã in #${printed.code}` : `Đã lưu #${printed.code}`}
+                </div>
+                <button type="button" className="crp-btn crp-btn--vien" onClick={reprint} disabled={reprinting}>
+                  {reprinting ? 'Đang gửi…' : 'In lại'}
+                </button>
+                <button type="button" className="crp-btn crp-btn--chinh" onClick={newReceipt}>
+                  Soạn phiếu mới
+                </button>
+              </>
+            ) : (
+              <>
+                <div className="crp-bar__total">
+                  <span className="crp-bar__label">Tổng</span>
+                  <span className="crp-bar__amount">{fmt(totals.total)}</span>
+                  {shipFee > 0 && <span className="crp-bar__label">gồm {fmt(shipFee)} phí giao</span>}
+                </div>
+                <button
+                  type="button"
+                  className="crp-btn crp-btn--chinh crp-btn--in"
+                  onClick={openPreview}
+                  disabled={loadingPreview || lines.length === 0}
+                >
+                  <Icon name="in" size={22} />
+                  {loadingPreview ? 'Đang dựng…' : 'In phiếu'}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {preview && (
+        <Sheet
+          title="Xem trước tờ phiếu"
+          giuaKhiRong
+          onClose={() => !printing && setPreview(null)}
+          footer={
+            <div className="crp-sheet-foot">
+              <button type="button" className="crp-btn crp-btn--vien" onClick={() => setPreview(null)} disabled={printing}>
+                Sửa lại
+              </button>
+              <button type="button" className="crp-btn crp-btn--chinh crp-btn--in" onClick={() => void print()} disabled={printing}>
+                <Icon name="in" size={22} />
+                {printing ? 'Đang gửi…' : 'In'}
+              </button>
+            </div>
+          }
+        >
+          <div className="crp-paper-wrap">
+            {/* Ảnh này là ĐÚNG tấm bitmap máy in sẽ in (máy chủ dựng bằng code in thật), chỉ
+                khác mã phiếu: mã thật có sau khi bấm In. */}
+            <img className="crp-paper" src={preview} alt="Tờ phiếu khổ 80mm sẽ in" />
+            <span className="crp-label">Khổ 80mm · mã phiếu có sau khi in</span>
+          </div>
+        </Sheet>
+      )}
+
+      {dupOf && (
+        <Sheet
+          title="Phiếu này vừa in rồi"
+          giuaKhiRong
+          onClose={() => !printing && setDupOf(null)}
+          footer={
+            <div className="crp-sheet-foot crp-sheet-foot--doc">
+              <button type="button" className="crp-btn crp-btn--chinh" onClick={() => void printCopyOf(dupOf)} disabled={printing}>
+                <Icon name="in" size={20} />
+                In thêm bản sao #{dupOf.code}
+              </button>
+              <button type="button" className="crp-btn crp-btn--vien" onClick={() => void print(true)} disabled={printing}>
+                Vẫn tạo phiếu mới
+              </button>
+              <button type="button" className="crp-btn crp-btn--phang" onClick={() => setDupOf(null)} disabled={printing}>
+                Huỷ
+              </button>
+            </div>
+          }
+        >
+          <p className="crp-dup-text">
+            Phiếu #{dupOf.code} giống hệt vừa in lúc{' '}
+            {new Date(dupOf.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}. In thêm
+            bản sao giữ nguyên mã (giấy ghi BẢN IN LẠI), không tạo phiếu thứ hai.
+          </p>
+        </Sheet>
+      )}
+
+      {editingLine && (
+        <EditLineSheet
+          line={editingLine}
+          onPatch={(patch) => patchLine(editingLine.key, patch)}
+          onClose={() => setEditingKey(null)}
+        />
       )}
 
       {picking && (

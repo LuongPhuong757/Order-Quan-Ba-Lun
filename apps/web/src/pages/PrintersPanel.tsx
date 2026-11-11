@@ -12,7 +12,7 @@ import { api, extractError } from '../lib/api.ts';
 import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
-import { CustomReceiptsLog } from './CustomReceiptsLog.tsx';
+import { Link } from 'react-router-dom';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
 
 type DeviceRow = {
@@ -639,8 +639,11 @@ export function PrintersPanel() {
         </div>
       </div>
 
-      {/* ── 4. Hoá đơn tự do đã in (M6.D-06) ── */}
-      <CustomReceiptsLog />
+      {/* ── 4. Hoá đơn tự do đã in (M6.D-06) — từ 2026-11-10 là màn riêng "Phiếu đã in"; ở đây chỉ
+          còn đường vào, không giữ bản danh sách thứ hai (hai giao diện cho một việc sẽ lệch nhau). */}
+      <Link to="/custom-receipt/history" className="crh-link">
+        Phiếu đã in (hoá đơn tự do) →
+      </Link>
     </div>
   );
 }

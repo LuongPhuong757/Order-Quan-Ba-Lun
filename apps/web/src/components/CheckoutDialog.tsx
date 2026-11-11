@@ -531,20 +531,22 @@ export function CheckoutDialog({
             display: 'flex',
             gap: 12,
             alignItems: 'center',
-            background: activeItems.length > 0 ? '#fef3c7' : '#ecfdf5',
-            borderBottom: '1px solid rgba(0,0,0,.06)',
+            // Thanh đầu = MÀU CHỦ ĐẠO, chữ trắng (chủ quán 2026-11-10). Trước đổi vàng/xanh lá theo
+            // "còn món chưa mang ra" — nay cảnh báo đó chỉ nằm ở khối "N món CHƯA MANG RA" bên dưới.
+            background: 'var(--brand)',
+            color: '#fff',
           }}
         >
           {/* Icon trang trí theo màn — tiêu đề h2 bên cạnh mới là thứ nói nghĩa. */}
           <Icon
             name={step === 'items' ? 'hoa-don' : step === 'mode' ? 'thanh-toan' : step === 'qr' ? 'qr' : 'xong'}
             size={26}
-            style={{ color: activeItems.length > 0 ? '#92400e' : '#059669' }}
+            style={{ color: '#fff' }}
           />
           {/* Tiêu đề đổi theo màn — đây là thứ DUY NHẤT nói cho người thu biết họ đang đứng ở
               đâu trong chuỗi. Cố ý KHÔNG đánh số "bước 1/3": luồng tiền mặt chỉ có đúng một màn,
               đếm tới 3 ở đó là hứa hai màn không bao giờ tới. */}
-          <h2 id="pay-title" style={{ margin: 0, fontSize: 17, color: activeItems.length > 0 ? '#92400e' : '#059669' }}>
+          <h2 id="pay-title" style={{ margin: 0, fontSize: 17, color: '#fff' }}>
             {step === 'mode'
               ? `Khách trả bằng gì? — ${table.name}`
               : step === 'qr'

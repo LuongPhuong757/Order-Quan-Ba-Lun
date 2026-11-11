@@ -9,9 +9,9 @@ import { SettingsService } from '../settings/settings.service.js';
 import { PrintJob } from './entities/print-job.entity.js';
 import { PrintDevice } from './entities/print-device.entity.js';
 import { CustomReceipt } from '../custom-receipts/entities/custom-receipt.entity.js';
-import { toReceiptInput } from '../custom-receipts/custom-receipt-model.js';
+import { toReceiptInput, type CustomReceiptData } from '../custom-receipts/custom-receipt-model.js';
 import { buildDeliverySlip, buildReceipt, buildTamTinh, buildTestPage } from './receipt-model.js';
-import { renderReceipt } from './receipt-render.js';
+import { monoToPng, renderReceipt } from './receipt-render.js';
 import { buildJob, dotsForPaperWidth } from './escpos.js';
 
 /** Số lần thử trước khi bỏ cuộc. 3 là đủ để vượt qua một lần rớt Wi-Fi; nhiều hơn thì một máy
@@ -181,6 +181,23 @@ export class PrintingService {
       this.logger.error(`Không xếp được job in hoá đơn tự do ${receiptId}: ${String(err)}`);
       return null;
     }
+  }
+
+  /**
+   * Ảnh PNG xem trước một tờ HOÁ ĐƠN TỰ DO chưa lưu (2026-11-10). Đi ĐÚNG đường dựng của job
+   * `CUSTOM` trong `renderJobBytes` — cùng `toReceiptInput` → `buildReceipt` → `renderReceipt`,
+   * cùng khổ giấy và độ đậm trong Cài đặt — nên ảnh khớp từng chấm với tờ sẽ in. Không ghi DB,
+   * không xếp job: bấm xem trước bao nhiêu lần cũng không ra giấy.
+   */
+  async previewCustomPng(receipt: CustomReceiptData): Promise<Buffer> {
+    const cfg = await this.settings.readAll();
+    const store = { name: cfg.store_name, address: cfg.store_address, phone: cfg.store_phone };
+    const rendered = await renderReceipt(
+      buildReceipt(toReceiptInput(receipt, store, { reprint: false, nowMs: Date.now() })),
+      dotsForPaperWidth(cfg.printer_paper_width_mm),
+      cfg.printer_darkness,
+    );
+    return monoToPng(rendered);
   }
 
   // ── Cầu in lấy việc ───────────────────────────────────────────────────────

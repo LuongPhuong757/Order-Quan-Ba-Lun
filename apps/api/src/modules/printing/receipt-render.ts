@@ -301,3 +301,14 @@ export async function renderReceipt(
   }
   return { mono, width: W, height };
 }
+
+/**
+ * Ảnh PNG đen trắng của ĐÚNG tấm bitmap sẽ gửi ra máy in — dùng cho bước xem trước ở màn Hoá đơn
+ * tự do (2026-11-10). Lấy từ `mono` (sau ngưỡng + nở nét) chứ không lấy canvas gốc: canvas còn
+ * khử răng cưa xám, trông mịn hơn tờ giấy thật, mà xem trước là để thấy đúng thứ sẽ ra giấy.
+ */
+export async function monoToPng(r: RenderedReceipt): Promise<Buffer> {
+  const px = Buffer.alloc(r.width * r.height);
+  for (let i = 0; i < px.length; i++) px[i] = r.mono[i] ? 0 : 255;
+  return sharp(px, { raw: { width: r.width, height: r.height, channels: 1 } }).png().toBuffer();
+}

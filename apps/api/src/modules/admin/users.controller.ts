@@ -16,7 +16,7 @@ import {
 } from '@nestjs/common';
 import type { Request } from 'express';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Not } from 'typeorm';
 import { User } from '../auth/entities/user.entity.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { AuthService } from '../auth/auth.service.js';
@@ -299,6 +299,17 @@ export class AdminUsersController {
         code: 'CONFLICT',
         message: 'Không thể xoá tài khoản chủ quán',
       });
+    }
+    // Không cho xoá ADMIN CUỐI CÙNG đang hoạt động (chủ quán 2026-11-10): xoá xong là không còn
+    // ai vào được màn Nhân viên để tạo lại quyền quản lý.
+    if (user.role === 'admin' && user.is_active) {
+      const otherAdmins = await this.userRepo.count({ where: { role: 'admin', is_active: true, id: Not(id) } });
+      if (otherAdmins === 0) {
+        throw new BadRequestException({
+          code: 'LAST_ADMIN',
+          message: 'Đây là Admin cuối cùng đang hoạt động — tạo hoặc mở khoá một Admin khác trước khi xoá',
+        });
+      }
     }
     await this.userRepo.delete({ id });
   }
