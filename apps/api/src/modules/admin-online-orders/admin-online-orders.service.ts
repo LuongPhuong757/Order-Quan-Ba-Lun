@@ -64,6 +64,7 @@ import {
   type FulfillmentType,
 } from './switch-fulfillment.js';
 import type { OnlineWindow } from './online-window.js';
+import { tallySteps } from './step-counts.js';
 import { formatTableName } from '../tables/table-kind.js';
 import { OnlineOrderRequest } from '../public/entities/online-order-request.entity.js';
 import { MenuItem } from '../menu/entities/menu-item.entity.js';
@@ -833,6 +834,64 @@ export class AdminOnlineOrdersService {
       REJECTED: n(byStatus.get('REJECTED')?.open_cnt) + n(byStatus.get('REJECTED')?.paid_cnt),
     };
 
+    // ── Số đơn từng CHẶNG trong tab "Đã xác nhận" (chip lọc) — đếm TOÀN BỘ đơn CONFIRMED chưa
+    // thu tiền trong cùng cửa sổ, không phải chỉ tab đang tải (FE mỗi lần chỉ tải 1 tab).
+    // ⚠ Điều kiện "chưa thu tiền" và cửa sổ thời gian phải Y HỆT `open_cnt` ở câu trên — tổng 3
+    // chip lệch với badge tab "Đã xác nhận" là nhân viên hết tin cả hai con số.
+    // SQL chỉ gom số liệu thô mỗi đơn; phân loại nằm ở `classifyStep()` (hàm thuần, có test,
+    // mirror `fulfillmentView()` phía FE) — viết lại logic đó bằng CASE WHEN là hai bản dễ lệch.
+    // Mẫu đếm món theo đúng khuôn `countsByOrder`: bỏ dòng ghi chú; "huỷ" = mọi state NGOÀI 5
+    // state sống (CANCELLED + OUT_OF_STOCK + state lạ), cùng nhánh `default` của switch phía trên.
+    type StepRow = {
+      fulfillment_type: string;
+      shipped_at: Date | null;
+      received_at: Date | null;
+      total: string | number | null;
+      live: string | number | null;
+      done: string | number | null;
+    };
+    const stepRows: StepRow[] = await this.ds.query(
+      `SELECT r.fulfillment_type AS fulfillment_type,
+              o.shipped_at AS shipped_at,
+              o.received_at AS received_at,
+              COUNT(oi.id) AS total,
+              SUM(CASE WHEN oi.state IN ('PENDING', 'KITCHEN', 'COOKING', 'READY', 'SERVED') THEN 1 ELSE 0 END) AS live,
+              SUM(CASE WHEN oi.state IN ('READY', 'SERVED') THEN 1 ELSE 0 END) AS done
+         FROM online_order_requests r
+         LEFT JOIN orders o ON o.id = r.order_id
+         LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.is_note = 0
+        WHERE r.status = 'CONFIRMED'
+          AND NOT (o.closed_at IS NOT NULL AND o.is_paid = 1)
+          ${cutoffMs === null ? '' : 'AND r.submitted_at >= ?'}
+        GROUP BY r.id, r.fulfillment_type, o.shipped_at, o.received_at`,
+      // Date chứ không phải số ms — cùng bẫy DATETIME(6) đã ghi ở câu `countByStatus`.
+      cutoffMs === null ? [] : [new Date(cutoffMs)],
+    );
+    const step_counts = tallySteps(
+      stepRows.map((s) => ({
+        fulfillment_type: s.fulfillment_type,
+        shipped_at: s.shipped_at,
+        received_at: s.received_at,
+        total: n(s.total ?? 0),
+        cancelled: n(s.total ?? 0) - n(s.live ?? 0),
+        done: n(s.done ?? 0),
+      })),
+    );
+
+    // ── Công tắc "Đóng cửa" đơn online — để màn của cả order/bếp hiện thanh "đang Đóng cửa"
+    // (`/admin/settings` là AdminGuard, họ không gọi được). Chỉ BÁO trạng thái: Đóng cửa KHÔNG
+    // chặn đặt đơn (D-11), chỉ đổi câu chữ trang khách.
+    // `enabled` đi qua `getOrderingStatus()` — đường duy nhất được phép suy ra trạng thái (M2.D-27):
+    // cột `online_ordering_enabled` có thể ghi false trong khi "Đóng đến hết hôm nay" đã tự hết hạn
+    // qua 00:00. Chỉ lấy vế CÔNG TẮC (`MANUAL_OFF`), bỏ vế ngoài giờ mở cửa: thanh này nói "chủ
+    // quán đang bật Đóng cửa", ngoài giờ là chuyện khác — gộp vào là thanh đỏ hiện mỗi sáng sớm.
+    const orderingStatus = await this.settingsSvc.getOrderingStatus(nowMs);
+    const ordering = {
+      enabled: orderingStatus.blocking_reason !== 'MANUAL_OFF',
+      off_mode: settings.online_ordering_off_mode,
+      off_reason: settings.online_ordering_off_reason,
+    };
+
     const payload: AdminOnlineOrderList = {
       items,
       escalate_sms_after_s: settings.escalate_sms_after_s,
@@ -843,6 +902,8 @@ export class AdminOnlineOrdersService {
       map_enabled: settings.map_admin_enabled,
       store_lat: settings.store_lat,
       store_lng: settings.store_lng,
+      step_counts,
+      ordering,
     };
     return AdminOnlineOrderList.strict().parse(payload);
   }

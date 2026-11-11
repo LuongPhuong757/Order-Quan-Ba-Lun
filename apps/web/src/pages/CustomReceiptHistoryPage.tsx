@@ -7,6 +7,9 @@
 // thông tin chính (16px đậm), tìm được theo mã / ghi chú / số tiền, và "In lại" phải nói rõ đã gửi
 // lệnh chưa (bản cũ bấm xong im lặng, người ta bấm thêm vài lần).
 //
+// Áp bộ quy tắc `--ds-*` 2026-11-11: bộ lọc gọn (ô tìm + 3 chip thời gian 32px) để danh sách lên
+// trong ~200px đầu màn; "Không tính doanh thu" thành nhãn + nút ⓘ. Kiểu dáng ở ./ph-phieu.css.
+//
 // Có URL riêng (trước là một cờ trong /custom-receipt) để tải lại trang hay nút Back của trình
 // duyệt về đúng chỗ.
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,6 +18,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
 import { Sheet } from '../components/ui/Sheet.tsx';
+import './ph-phieu.css';
 
 type ReceiptItem = { name: string; qty: number; unit_price: number; note: string | null };
 
@@ -87,6 +91,7 @@ export function CustomReceiptHistoryPage() {
   const [q, setQ] = useState('');
   const [rows, setRows] = useState<ReceiptRow[] | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [showWhy, setShowWhy] = useState(false);
 
   useEffect(() => {
     const t = window.setTimeout(() => setQ(qRaw.trim()), SEARCH_DEBOUNCE_MS);
@@ -128,16 +133,9 @@ export function CustomReceiptHistoryPage() {
   const opened = rows?.find((r) => r.id === openId) ?? null;
 
   return (
-    <div className="crp crh">
-      <div className="crp-chip-row">
-        <span className="crp-chip crp-chip--tinh">
-          <Icon name="thong-tin" size={16} />
-          Không tính doanh thu
-        </span>
-      </div>
-
-      <div className="crh-tools">
-        <label className="crh-search">
+    <div className="ph ph-hist ds">
+      <div className="ph-tools">
+        <label className="ph-search">
           <Icon name="tim" size={20} />
           <input
             type="search"
@@ -148,49 +146,69 @@ export function CustomReceiptHistoryPage() {
             aria-label="Tìm phiếu theo mã, ghi chú hoặc số tiền"
           />
         </label>
-        <div className="crh-range" role="group" aria-label="Khoảng thời gian">
-          {RANGES.map((r) => (
+        <div className="ph-top">
+          <div className="ph-range" role="group" aria-label="Khoảng thời gian">
+            {RANGES.map((r) => (
+              <button
+                key={r.key}
+                type="button"
+                aria-pressed={range === r.key}
+                className="ph-chip"
+                onClick={() => setRange(r.key)}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <span className="ph-note-why">
+            Không tính doanh thu
             <button
-              key={r.key}
               type="button"
-              aria-pressed={range === r.key}
-              className={range === r.key ? 'crh-range__btn on' : 'crh-range__btn'}
-              onClick={() => setRange(r.key)}
+              className="ph-i"
+              aria-expanded={showWhy}
+              aria-label="Vì sao không tính doanh thu"
+              onClick={() => setShowWhy((v) => !v)}
             >
-              {r.label}
+              i
             </button>
-          ))}
+          </span>
         </div>
       </div>
+      {showWhy && (
+        <p className="ph-why">
+          Phiếu ở đây in giống hệt hoá đơn thật nhưng không tính vào doanh thu, không trừ kho và
+          không tạo đơn nào. Màn này để đối chiếu tờ giấy đang cầm với hệ thống.
+        </p>
+      )}
 
-      {rows === null && <p className="crh-empty">Đang tải…</p>}
+      {rows === null && <p className="ph-loading">Đang tải…</p>}
       {rows !== null && rows.length === 0 && (
-        <div className="crp-empty">
+        <div className="ph-empty">
           <Icon name="hoa-don" size={32} />
           <span>{q ? `Không có phiếu nào khớp "${q}"` : 'Chưa có phiếu nào trong khoảng này'}</span>
         </div>
       )}
 
       {groups.map((g) => (
-        <section key={g.label} className="crh-day">
-          <h2 className="crh-day__label">{g.label}</h2>
-          <ul className="crh-list">
+        <section key={g.label} className="ph-day">
+          <h2 className="ph-day__label">{g.label}</h2>
+          <ul className="ph-hlist">
             {g.rows.map((r) => {
               const pl = printLine(r);
               const who = r.created_by_full_name ?? '—';
               return (
                 <li key={r.id}>
-                  <button type="button" className="crh-row" onClick={() => setOpenId(r.id)}>
-                    <span className="crh-row__left">
-                      <span className="crh-row__code">#{r.code}</span>
-                      <span className="crh-row__sub">
+                  <button type="button" className="ph-hrow" onClick={() => setOpenId(r.id)}>
+                    <span className="ph-hrow__left">
+                      <span className="ph-hrow__code">#{r.code}</span>
+                      <span className="ph-hrow__sub">
                         {r.header_note ? `${r.header_note} · ` : ''}
                         {hhmm(r.created_at)} · {who} · {r.items.length} món
                       </span>
                     </span>
-                    <span className="crh-row__right">
-                      <span className="crh-row__total">{fmt(r.total)}</span>
-                      {pl.text && <span className={pl.loi ? 'crh-row__print loi' : 'crh-row__print'}>{pl.text}</span>}
+                    <span className="ph-hrow__right">
+                      <span className="ph-hrow__total">{fmt(r.total)}</span>
+                      {pl.text && <span className={pl.loi ? 'ph-hrow__print loi' : 'ph-hrow__print'}>{pl.text}</span>}
                     </span>
                   </button>
                 </li>
@@ -279,35 +297,35 @@ function ReceiptDetail({
       giuaKhiRong
       onClose={onClose}
       footer={
-        <div className="crp-sheet-foot">
-          <button type="button" className="crp-btn crp-btn--vien" onClick={onCopy}>
+        <div className="ph-sheet-foot">
+          <button type="button" className="ph-btn ph-btn--vien" onClick={onCopy}>
             <Icon name="chep" size={20} />
             Tạo phiếu mới
           </button>
-          <button type="button" className="crp-btn crp-btn--chinh crp-btn--in" onClick={reprint} disabled={reprinting}>
+          <button type="button" className="ph-btn ph-btn--chinh" onClick={reprint} disabled={reprinting}>
             <Icon name="in" size={22} />
             {reprinting ? 'Đang in…' : 'In lại'}
           </button>
         </div>
       }
     >
-      <div className="crp-paper-wrap">
+      <div className="ph-paper-wrap">
         {image ? (
-          <img className="crp-paper" src={image} alt={`Tờ phiếu #${r.code}`} />
+          <img className="ph-paper" src={image} alt={`Tờ phiếu #${r.code}`} />
         ) : imgErr ? (
-          <span className="crh-err">{imgErr}</span>
+          <span className="ph-err">{imgErr}</span>
         ) : (
-          <span className="crp-label">Đang dựng ảnh tờ phiếu…</span>
+          <span className="ph-label">Đang dựng ảnh tờ phiếu…</span>
         )}
         {sent ? (
-          <span className="crh-sent">
+          <span className="ph-sent">
             <Icon name="xong" size={18} />
             {sent}
           </span>
         ) : (
-          pl.text && <span className={pl.loi ? 'crh-err' : 'crp-label'}>{pl.text}</span>
+          pl.text && <span className={pl.loi ? 'ph-err' : 'ph-label'}>{pl.text}</span>
         )}
-        <span className="crp-label">"Tạo phiếu mới" chép các món sang màn soạn để sửa, không in lại tờ này.</span>
+        <span className="ph-label">"Tạo phiếu mới" chép các món sang màn soạn để sửa, không in lại tờ này.</span>
       </div>
     </Sheet>
   );

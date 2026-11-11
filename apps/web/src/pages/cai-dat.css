@@ -1,0 +1,101 @@
+/* Màn Cài đặt `/settings` (2026-11-11). File riêng, không nhét vào styles.css: màn này là một
+   chunk lazy, CSS đi theo chunk. Mọi selector gắn `.cd-` để không đè `.card`/`.tabstrip` dùng
+   chung. Màu chủ đạo DUY NHẤT `var(--brand)` (xanh ngọc admin). */
+
+.container.cd-page {
+  max-width: 1200px;
+}
+
+/* ── Danh sách nhóm ── */
+.cd-list {
+  display: grid;
+  gap: 10px;
+}
+/* Thẻ là <a> chứ không <button>: luật `button { background: teal }` toàn cục không đụng tới, và
+   mở nhóm là điều hướng thật (có URL, Back được). */
+.cd-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1px solid var(--gray-200);
+  border-radius: 14px;
+  background: #fff;
+  color: var(--gray-900);
+  text-decoration: none;
+}
+.cd-item:hover {
+  text-decoration: none;
+}
+.cd-item > svg {
+  flex: none;
+  color: var(--gray-400);
+}
+.cd-item__text {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.cd-item__title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+.cd-item__hint {
+  font-size: 14px;
+  color: var(--gray-500);
+  line-height: 1.4;
+}
+.cd-item[aria-current='page'] {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+  box-shadow: inset 4px 0 0 var(--brand);
+}
+.cd-item[aria-current='page'] .cd-item__title {
+  color: var(--brand);
+}
+
+/* ── Nội dung một nhóm ── */
+.cd-content {
+  min-width: 0;
+}
+/* `button.` vì `button.secondary`/`button` toàn cục thắng class trần cùng độ ưu tiên. */
+button.cd-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 48px;
+  padding: 0 12px 0 4px;
+  margin: -8px 0 4px -4px;
+  border: none;
+  background: transparent;
+  color: var(--brand);
+  font-size: 17px;
+  font-weight: 600;
+}
+.cd-title {
+  margin: 0 0 16px;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+/* ── Máy tính / iPad: 2 cột ── */
+@media (min-width: 768px) {
+  .cd-layout {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 24px;
+    align-items: start;
+  }
+  /* Dính khi cuộn: nhóm "Đặt hàng online" dài cả chục màn hình, đổi nhóm không phải cuộn ngược
+     lên đầu. `top` chừa header dính của app. */
+  .cd-side {
+    position: sticky;
+    top: 72px;
+  }
+  .cd-side .cd-item {
+    min-height: 64px;
+  }
+}

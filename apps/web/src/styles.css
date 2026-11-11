@@ -83,6 +83,82 @@ button.danger {
   background: var(--red-600);
 }
 
+/* ══ PHẠM VI `.ds` — bộ quy tắc chung `--ds-*` (tokens.css) cho 3 thứ DÙNG CHUNG ═══════════════
+   Chỉ có hiệu lực bên trong phần tử mang lớp `ds` (gốc các màn đã áp quy tắc: Thực đơn, Đơn
+   online + Thống kê, Phiếu, Nhân viên). Vì sao không sửa thẳng rule gốc: Order / Bếp / Lịch sử
+   dùng chung đúng các nút này và chủ quán CẤM đổi các màn đó dù 1 pixel — nên rule gốc giữ
+   nguyên, màn nào đã làm lại thì tự "bật" bằng lớp `ds` ở gốc.
+
+   Đặt NGAY SAU `button.secondary` gốc, không dồn xuống cuối file — có chủ đích:
+   - Nút secondary viết `:where(.ds) button.secondary` → độ ưu tiên BẰNG `button.secondary`
+     (0,1,1), thắng nó nhờ đứng sau; nhưng các rule riêng của từng nút phía dưới file
+     (`button.oo-more-btn`, `.oo-undo > button.secondary`, `button.td-…`) vẫn thắng lại như cũ.
+     Viết `.ds button.secondary` (0,2,1) thì đè mất cỡ/màu cố ý của các nút đó trên chính màn
+     đã làm lại.
+   - Phân trang + chip thời gian viết `.ds button.ds-…` (thêm 1 lớp) để thắng rule gốc ở
+     components/ui/ui.css — file đó nạp SAU styles.css (import theo component), đứng trước là
+     thua nếu cùng độ ưu tiên. `.ds-quick button.ds-chip` (chip nhanh trong lịch) ngang độ ưu
+     tiên và nạp sau nên vẫn giữ cỡ 40px của nó.
+   - Hộp "Chọn trang" (lưới số) và lịch chọn ngày trên điện thoại mở bằng portal ra <body>, nằm
+     NGOÀI `.ds` → vẫn theo kiểu gốc. Chủ ý: đó là hộp thoại toàn màn, không phải hàng nút. */
+
+/* Nút secondary: chữ sắc chính (gốc dùng --gray-800 = sắc xám thứ 4, ngoài 3 sắc cho phép),
+   viền mảnh --ds-line, không bóng. */
+:where(.ds) button.secondary {
+  min-height: var(--ds-h-control);
+  border: 1px solid var(--ds-line);
+  border-radius: var(--radius-sm);
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  box-shadow: none;
+}
+
+/* Thanh phân trang (ui/Pagination): gốc chữ 14px + đậm 800 + trang đang chọn nền đặc. */
+.ds button.ds-pg__o {
+  height: var(--ds-h-control);
+  min-height: var(--ds-h-control);
+  border-color: var(--ds-line);
+  border-radius: var(--radius-sm);
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-regular);
+}
+/* Trang đang xem: nền nhạt + chữ xanh ngọc (bỏ nền đặc chữ trắng) — viền cùng màu nền để chỉ
+   còn MỘT dấu hiệu, không thêm khung. */
+.ds button.ds-pg__o.is-on {
+  background: var(--ds-accent-tint);
+  border-color: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+.ds button.ds-pg__o--nhay { color: var(--ds-accent); font-weight: var(--ds-fw-strong); }
+/* Dòng "Đang xem…" là chữ phụ: 400 (gốc ăn 600 từ luật `button` toàn cục), chỉ số in đậm. */
+.ds button.ds-pg__info { color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-regular); }
+.ds .ds-pg__info b { color: var(--ds-ink); font-weight: var(--ds-fw-strong); }
+
+/* Chip thời gian (ui/TimeFilter + TimePresetChips): gốc 44px, viền xám, chip chọn nền đặc
+   chữ trắng. Quy tắc: chip 32px nền xám nhạt không viền, chọn = nền --ds-accent-tint. */
+.ds button.ds-chip {
+  height: var(--ds-h-chip);
+  min-height: var(--ds-h-chip);
+  padding: 0 var(--sp-3);
+  background: #f3f4f6;
+  border: none;
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+}
+.ds button.ds-chip.is-on {
+  background: var(--ds-accent-tint);
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+.ds .ds-time .ds-label { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+/* Dòng "Đang xem: …" dưới hàng chip: gốc 14px (bậc không có trong thang) → 15px. */
+.ds .ds-seeing { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.ds .ds-seeing b { color: var(--ds-ink); }
+
 input,
 select,
 textarea {
@@ -1032,7 +1108,7 @@ a:hover {
    chrome đang ăn gần nửa chiều cao hữu ích của điện thoại. */
 .oo-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 12px;
@@ -1102,19 +1178,229 @@ a:hover {
   }
 }
 
-/* Nút Xác nhận / Từ chối. Trên desktop KHÔNG để nút kéo dài 1100px — vừa xấu vừa làm vùng bấm
-   nguy hiểm rộng vô ích; chặn ở 460px và neo bên trái theo mép card. */
-.oo-actions {
+/* ── Dải cuối thẻ đơn (2026-11-11): TỔNG → [Gọi] [việc chính] [⋯] → menu ⋯ khi mở ──
+   Điện thoại: xếp dọc, nút trải hết bề ngang. Từ 900px: tổng bên trái, cụm nút bên phải (chặn
+   460px — nút "Xác nhận" dài 1100px vừa xấu vừa biến nửa thẻ thành vùng bấm nguy hiểm). */
+.oo-foot {
   display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 8px;
+  gap: 10px;
+}
+.oo-foot--card {
   padding: 0 16px 16px;
 }
 
+.oo-actions {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.oo-actions > button,
+.oo-actions > a {
+  min-height: 56px;
+  /* 18→16 (bộ quy tắc --ds-* 2026-11-11: nút = --ds-fs-body). Nút vẫn cao 56px nên không nhỏ đi. */
+  font-size: var(--ds-fs-body);
+}
+
+/* Nút Gọi là THẺ <a href="tel:"> (mở trình gọi của điện thoại) nhưng trông như nút secondary.
+   Viết `.oo-actions a.oo-call-btn`: rule `a[href^='tel:']` của điện thoại (§ bảng, display
+   inline-block, padding 7px 0) đứng SAU trong file — class trần thua, nút bị bóp còn 50px. */
+.oo-actions a.oo-call-btn,
+.oo-actions a.oo-collect-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 16px;
+  border-radius: 10px;
+  font-size: var(--ds-fs-body);
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.oo-actions a.oo-call-btn {
+  border: 1px solid var(--gray-300);
+  background: #fff;
+  color: var(--brand);
+}
+.oo-actions a.oo-collect-btn {
+  /* Tên bàn dài ("Thu tiền ở bàn Mang về 12") thì XUỐNG DÒNG, không bị cắt mất ở máy 390px. */
+  white-space: normal;
+  text-align: center;
+  line-height: 1.2;
+  min-width: 0;
+  padding: 6px 12px;
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #fff;
+}
+
+/* Có nút "Thu tiền ở bàn …": nút đó chiếm TRỌN hàng đầu (tên bàn dài, thẻ đã xác nhận lại lồng
+   trong khối có viền nên cột giữa trên điện thoại chỉ còn ~120px), [Gọi] [⋯] xuống hàng dưới. */
+.oo-actions.oo-actions--collect {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.oo-actions--collect > a.oo-collect-btn {
+  grid-column: 1 / -1;
+  order: -1;
+}
+
+/* ⋯ vuông 56px. `button.` vì `button.secondary` đè màu nếu viết class trần (CLAUDE.md §5). */
+button.oo-more-btn {
+  width: 56px;
+  min-width: 56px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--gray-700);
+}
+
+/* "Chờ bếp (0/2)": mờ đi nhưng VẪN bấm được (bấm thì hỏi lại) — không dùng `disabled`. */
+button.oo-wait-kitchen {
+  background: var(--gray-100);
+  color: var(--gray-500);
+  border-color: var(--gray-300);
+}
+
+/* Menu ⋯ mở NGAY trong thẻ (không popup nổi) — cùng khuôn với các panel từ chối/sửa món, không
+   phải lo che khuất hay tràn khỏi màn trên điện thoại. */
+.oo-card-menu {
+  display: grid;
+  border: 1px solid var(--gray-300);
+  border-radius: 12px;
+  background: #fff;
+  overflow: hidden;
+}
+.oo-card-menu > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 52px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 0;
+  background: #fff;
+  font-size: 16px;
+  text-align: left;
+  justify-content: flex-start;
+}
+.oo-card-menu > button + button {
+  border-top: 1px solid var(--gray-200);
+}
+
 @media (min-width: 900px) {
-  .oo-actions {
-    max-width: 460px;
+  .oo-foot {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 460px);
+    align-items: center;
   }
+  .oo-foot > .oo-card-menu,
+  .oo-foot > [role='alertdialog'] {
+    grid-column: 1 / -1;
+  }
+  .oo-card-menu {
+    justify-self: end;
+    width: 320px;
+  }
+  /* Thẻ đã xác nhận: tổng đã nằm dưới khối món, dải cuối chỉ có cụm nút → một cột 460px. */
+  .oo-foot--solo {
+    grid-template-columns: minmax(0, 460px);
+  }
+  .oo-foot--solo > .oo-card-menu {
+    justify-self: start;
+  }
+}
+
+/* Thanh "Hoàn tác" (2026-11-11) — cố định đáy màn, TRÊN menu dưới của điện thoại (~64px).
+   Máy tính có thanh bên trái: chừa đúng bề rộng thanh (`--sb-w`) rồi canh giữa vùng nội dung. */
+.oo-undo {
+  position: fixed;
+  z-index: 300;
+  left: calc(var(--sb-w, 0px) + 16px);
+  right: 16px;
+  bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+  max-width: 560px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
+  background: var(--gray-800);
+  color: #fff;
+  font-size: 16px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.oo-undo-ring {
+  width: 32px;
+  height: 32px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 3px solid var(--teal-200);
+  font-weight: var(--ds-fw-num);
+  font-size: var(--ds-fs-label);
+}
+
+.oo-undo > button.secondary {
+  min-height: 44px;
+  padding: 0 16px;
+  background: #fff;
+  color: var(--gray-900);
+  border-color: #fff;
+  font-weight: var(--ds-fw-num);
+}
+.co-sidebar .oo-undo {
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Công tắc Mở/Đóng nhận đơn (2026-11-11) — viên thuốc có núm gạt. Điện thoại chỉ còn chữ ngắn
+   "Mở"/"Đóng" để vừa một hàng với nhãn kết nối + chuông. */
+button.oo-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 44px;
+  padding: 0 14px 0 6px;
+  border-radius: 999px;
+  border: 1px solid var(--teal-100);
+  background: var(--teal-50);
+  color: var(--brand);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-num);
+  white-space: nowrap;
+}
+button.oo-switch.is-off {
+  border-color: var(--red-200, #fecaca);
+  background: var(--red-50, #fef2f2);
+  color: var(--red-800, #991b1b);
+}
+.oo-switch-knob {
+  position: relative;
+  width: 44px;
+  height: 26px;
+  flex: none;
+  border-radius: 999px;
+  background: var(--brand);
+}
+.oo-switch-knob::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+}
+.is-off .oo-switch-knob { background: var(--gray-300); }
+.is-off .oo-switch-knob::after { right: auto; left: 3px; }
+.oo-switch-short { display: none; }
+@media (max-width: 640px) {
+  .oo-switch-long { display: none; }
+  .oo-switch-short { display: inline; }
 }
 
 /* ── Cài đặt ─────────────────────────────────────────────────────────────── */
@@ -1289,8 +1575,9 @@ a:hover {
   }
   .oo-tabs > button {
     flex: none;
-    /* 16px→14px và padding 16→12: 4 tab vừa gần đủ một màn 360px, phần thừa vuốt nhẹ là tới. */
-    font-size: 14px !important;
+    /* 16px→15px (--ds-fs-body2, không xuống dưới bậc của bộ quy tắc) và padding 16→12: vài tab
+       đầu vừa một màn 360px, phần thừa vuốt nhẹ là tới. */
+    font-size: var(--ds-fs-body2) !important;
     padding: 0 12px !important;
     white-space: nowrap;
   }
@@ -4071,14 +4358,16 @@ button.an-tab { color: var(--gray-500); font-weight: 500; min-height: 56px; }
   position: absolute; top: -4px; left: calc(50% + 6px);
   min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
   display: grid; place-items: center; border-radius: 999px;
-  background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+  /* MỘT màu cho mọi số trên thanh điều hướng (chủ quán 2026-11-11): cam = "cần chú ý" theo bộ quy
+     tắc --ds-* (đỏ chỉ cho lỗi). Trước: Gọi món xanh ngọc, Bếp/Online đỏ — 2 màu cạnh nhau. */
+  background: var(--ds-warn); color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
   pointer-events: none;
 }
-.an-badge--info { background: var(--brand); }
+.an-badge--info { background: var(--ds-warn); }
 .an-dot {
   position: absolute; top: 0; left: calc(50% + 8px);
   width: 10px; height: 10px; border-radius: 50%;
-  background: #dc2626; box-shadow: 0 0 0 2px #fff;
+  background: var(--ds-warn); box-shadow: 0 0 0 2px #fff;
 }
 
 /* Tấm "Thêm" */
@@ -4114,11 +4403,12 @@ button.an-tab { color: var(--gray-500); font-weight: 500; min-height: 56px; }
     color: var(--gray-500); font-size: 14px; white-space: nowrap;
   }
   .an-sidebar__brand img { flex: none; display: block; }
-  .an-sidebar__list { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  /* Giãn ra (chủ quán 2026-11-11: "nhìn khá chật mắt"): mục 48px, cách nhau 6px. */
+  .an-sidebar__list { display: flex; flex-direction: column; gap: 6px; flex: 1; }
   .an-side-item {
     position: relative;
     display: flex; align-items: center; gap: 8px;
-    min-height: 44px; padding: 0 8px; border-radius: 10px;
+    min-height: 48px; padding: 0 8px; border-radius: 10px;
     color: var(--gray-700); text-decoration: none; background: transparent; border: 0;
     font-size: 15px; font-weight: 500; white-space: nowrap; text-align: left; width: 100%;
   }
@@ -4239,3 +4529,13 @@ a.crh-link { display: inline-flex; min-height: 44px; align-items: center; font-s
 button.crp-btn--phang { background: transparent; color: var(--gray-700); border: 0; }
 .crp-dup-text { margin: 0; padding: 4px 16px 16px; font-size: 16px; color: var(--gray-700); }
 .an-chevron { font-size: 24px; line-height: 1; font-weight: 400; }
+
+/* ── ẨN THANH CUỘN Ở MỌI MÀN (chủ quán 2026-11-11) ──
+   Thanh cuộn xám bên phải các khung cuộn (cột nhóm, danh sách, hộp thoại, cả trang) bị chê rối
+   mắt. Chỉ ẩn PHẦN VẼ — vẫn cuộn bằng chuột / bàn di / vuốt như thường. Áp cho mọi phần tử. */
+* {
+  scrollbar-width: none;
+}
+*::-webkit-scrollbar {
+  display: none;
+}

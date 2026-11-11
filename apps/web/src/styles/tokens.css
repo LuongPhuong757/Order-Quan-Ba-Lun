@@ -103,4 +103,56 @@
   --brand: var(--teal-700);
   --brand-strong: var(--teal-800);
   --brand-soft: var(--teal-50);
+
+  /* ══ BỘ QUY TẮC CHUNG `--ds-*` (chủ quán chốt 2026-11-11) ══════════════════════════════
+   * Gốc rễ: mỗi màn tự chọn cỡ chữ/màu/bo góc (đo được 7–10 cỡ chữ một màn, có chữ 9–10px, đỏ
+   * dùng cho cả "ẩn" lẫn "lỗi"). Code MỚI và mọi màn được làm lại chỉ dùng các biến dưới đây.
+   * Áp dần từng màn (Thực đơn → Đơn online/Thống kê → Phiếu → Nhân viên); Order/Bếp/Lịch sử
+   * KHÔNG áp (chủ quán cấm đụng). Tiền tố `ds-` để không đè token cục bộ của .ncc-ui/.sx/.nv-ui.
+   * Khoảng cách (thang 4: --sp-1..--sp-8) và bo góc (--radius-sm 8 / -md 12 / -pill) dùng
+   * nền móng sẵn có ở packages/ui-tokens/foundation.css. */
+
+  /* Cỡ chữ — đúng 5 bậc. Thang chủ quán đưa là 12·14·16·20·28, NÂNG NỀN 1 bậc (13·15) vì người
+   * dùng lớn tuổi cầm điện thoại (chủ quán chọn). KHÔNG dùng dưới 13px ở bất kỳ đâu. */
+  --ds-fs-label: 13px; /* nhãn, trục biểu đồ, chú thích ngắn */
+  --ds-fs-body2: 15px; /* nội dung phụ: giá · đơn vị, dòng mô tả trong hàng */
+  --ds-fs-body: 16px; /* nội dung chính, nút, ô nhập (iOS zoom nếu <16) */
+  --ds-fs-title: 20px; /* tiêu đề khối/vùng */
+  --ds-fs-num: 28px; /* số lớn ở thẻ chỉ số */
+  /* Độ đậm — 3 mức. */
+  --ds-fw-regular: 400;
+  --ds-fw-strong: 600; /* nhấn: tên món, tiêu đề khối */
+  --ds-fw-num: 700; /* số lớn */
+
+  /* Màu chữ — 3 sắc xám, không hơn. */
+  --ds-ink: #111827; /* chữ chính */
+  --ds-ink-2: #6b7280; /* chữ phụ */
+  --ds-ink-3: #9ca3af; /* chữ mờ, món ẩn */
+
+  /* Màu chính — chỉ xanh ngọc. */
+  --ds-accent: #0f766e;
+  --ds-accent-tint: #ccfbf1; /* nền chip đang chọn, thẻ nhấn */
+  --ds-accent-soft: #f0fdfa;
+
+  /* Màu trạng thái — mỗi màu MỘT nghĩa. Đỏ = lỗi/nguy hiểm (ảnh lỗi, xoá, hết hàng). Cam = cần
+   * chú ý (đơn chờ, quá hạn). Xám = tắt/ẩn (món ẩn online KHÔNG còn đỏ). */
+  --ds-danger: #dc2626;
+  --ds-danger-soft: #fef2f2;
+  --ds-warn: #ea580c;
+  --ds-muted-bg: #f9fafb; /* nền hàng/thẻ đang ẩn */
+
+  /* Viền — chọn VIỀN, không kèm bóng (bỏ cặp viền + bóng trên mọi thẻ). */
+  --ds-line: #e5e7eb;
+
+  /* Kích thước điều khiển. */
+  --ds-h-control: 44px; /* nút, ô nhập */
+  --ds-h-chip: 32px; /* chip lọc */
+  --ds-h-row: 56px; /* hàng danh sách */
+  --ds-switch-w: 36px; /* công tắc NHÌN 36×20, vùng chạm bọc ngoài 44×44 (chủ quán chọn) */
+  --ds-switch-h: 20px;
+
+  /* Bảng màu biểu đồ — chỉ xanh ngọc. */
+  --ds-chart-1: #0f766e; /* số chính: đơn, doanh thu */
+  --ds-chart-2: #99f6e4; /* số phụ: lượt vào */
+  --ds-chart-grid: #d1d5db; /* nền/so sánh */
 }

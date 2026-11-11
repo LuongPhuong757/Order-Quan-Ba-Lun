@@ -21,6 +21,7 @@ import {
   trafficByHour,
   trafficTotals,
 } from './analytics-queries.js';
+import { onlineOrdersStats } from './online-sales-queries.js';
 
 // Trần 90 ngày khớp mốc retention (xem `ANALYTICS_RETENTION_DAYS` ở maintenance-cron):
 // hỏi xa hơn thì dữ liệu đã bị dọn, biểu đồ trả về toàn 0 và người xem tưởng là quán vắng.
@@ -86,6 +87,21 @@ export class AdminAnalyticsController {
     const d = parseDays(days, 30);
     const range = rangeForDays(nowMs, d);
     const stats = await customerStats(this.ds, range);
+    return { data: { range: { days: d, ...range, ...rangeLabel(range) }, ...stats } };
+  }
+
+  /**
+   * Đơn online & doanh thu (2026-11-11) — hàng chỉ số đầu tab Thống kê, biểu đồ "Đơn thành công
+   * theo ngày", "Giờ nào đông đơn" và bảng món bán chạy online. Định nghĩa từng con số xem đầu
+   * `online-sales-queries.ts`. Endpoint riêng chứ không nhét vào `traffic`: đây là số liệu ĐƠN
+   * và TIỀN, còn `traffic` là số liệu truy cập — hai nhóm câu SQL không liên quan nhau.
+   */
+  @Get('orders')
+  async orders(@Query('days') days?: string) {
+    const nowMs = Date.now();
+    const d = parseDays(days, 30);
+    const range = rangeForDays(nowMs, d);
+    const stats = await onlineOrdersStats(this.ds, range, nowMs);
     return { data: { range: { days: d, ...range, ...rangeLabel(range) }, ...stats } };
   }
 

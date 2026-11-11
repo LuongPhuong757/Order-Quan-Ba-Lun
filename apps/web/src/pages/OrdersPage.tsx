@@ -215,7 +215,9 @@ export function OrdersPage() {
   const tableParam = searchParams.get('table');
   useEffect(() => {
     if (!tableParam || tables.length === 0) return;
-    const t = tables.find((x) => x.id === tableParam);
+    // Nhận cả MÃ bàn (`ship-01`) ngoài id: nút "Thu tiền ở bàn Ship 01 →" của màn Đơn online
+    // (2026-11-11) chỉ có `table_code` trong tay, không có id.
+    const t = tables.find((x) => x.id === tableParam || x.code === tableParam);
     // Mở qua link (?table=, vd từ dải "bàn chưa trả") là để XEM bàn → không tự bật Gọi món.
     if (t) { setGoiMonNgay(false); setActive(t); }
     const next = new URLSearchParams(searchParams);

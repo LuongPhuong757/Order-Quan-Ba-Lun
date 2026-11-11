@@ -84,6 +84,9 @@ const OnlineOrdersPage = lazy(() =>
 const SuppliersPage = lazy(() =>
   import('./pages/SuppliersPage.tsx').then((m) => ({ default: m.SuppliersPage })),
 );
+const SettingsPage = lazy(() =>
+  import('./pages/SettingsPage.tsx').then((m) => ({ default: m.SettingsPage })),
+);
 const NccPortalPage = lazy(() =>
   import('./pages/NccPortalPage.tsx').then((m) => ({ default: m.NccPortalPage })),
 );
@@ -246,13 +249,13 @@ export function App() {
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
               <Route path="/mau-giao-dien" element={<UiSamplePage />} />
-              {/* `/admin/settings` cũ đã gộp thành tab của màn Đơn hàng online (2026-08-03).
-                  Giữ redirect vì bookmark, link trong Dashboard và ảnh chụp màn hình trong
-                  `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. */}
-              <Route
-                path="/admin/settings"
-                element={<Navigate to="/admin/online-orders?view=settings" replace />}
-              />
+              {/* Màn Cài đặt riêng (2026-11-11) — tách khỏi tab Cài đặt của Đơn online, chia 5
+                  nhóm qua `?g=`. Bookmark `?tab=<tab cũ>` do chính SettingsPage chuyển về nhóm. */}
+              <Route path="/settings" element={<SettingsPage />} />
+              {/* `/admin/settings` cũ: giữ redirect vì bookmark và ảnh chụp màn hình trong
+                  `08-UAT.md`/`09-UAT.md` đều đang trỏ vào URL này. Đi thẳng `/settings`, không qua
+                  `/admin/online-orders?view=settings` nữa. */}
+              <Route path="/admin/settings" element={<Navigate to="/settings" replace />} />
             </Route>
           </Route>
 

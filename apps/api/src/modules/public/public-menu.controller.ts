@@ -115,55 +115,38 @@ export class PublicMenuController {
   }
 
   /**
-   * GET /api/public/menu-book — quyển menu điện tử ở `menu.<domain>` (2026-09-04).
+   * GET /api/public/menu-book — thực đơn của trang QR GỌI MÓN TẠI BÀN (`menu.<domain>/thuc-don`)
+   * và quyển menu lật trang.
    *
-   * KHÁC `/api/public/menu` ở đúng 3 điểm, và cả 3 đều là cố ý:
+   * 2026-11-11 (chủ quán): hai trang này hiện Y HỆT màn Gọi món của nhân viên — mọi món đang hoạt
+   * động, nhóm theo `sort_order` của nhóm, trong nhóm theo TÊN A→Z (đúng `GET /menu?sort=group`).
+   * BỎ cấu hình riêng "Menu xem" (`is_menu_hidden`, `menu_sort_order` — cột vẫn còn trong DB, không
+   * còn ai đọc). Cũng KHÔNG xét `is_online_hidden`: công tắc đó chỉ dành cho web đặt giao / tự lấy
+   * (`/api/public/menu`). Món hết VẪN trả về — trang QR làm mờ, quyển menu lật tự ẩn ở FE.
    *
-   * 1. BỎ QUA `is_online_hidden` (cả nhóm lẫn món). Đây là quyển menu để khách NGẮM, không
-   *    phải web đặt hàng: món quán chỉ bán tại chỗ, món cồng kềnh không ship được, món chỉ
-   *    bán cho khách ngồi bàn — tất cả vẫn phải có mặt. Cờ quyết định ở đây là
-   *    `is_menu_hidden`, một cờ hoàn toàn riêng.
-   * 2. Sắp theo `menu_sort_order` (chủ quán kéo thả), rớt về tên khi cả nhóm còn 0.
-   * 3. `Cache-Control: public, max-age=60` thay vì `no-store`. Trang này KHÔNG có nút đặt
-   *    hàng nên giá trễ 1 phút không gây hậu quả gì, mà quán ~600 món thì payload không
-   *    nhỏ — để khách lật qua lật lại mà tải lại từ đầu là phí băng thông 3G của họ.
-   *
-   * GIỐNG `/api/public/menu` ở chỗ quan trọng nhất: đi qua ĐÚNG mapper whitelist 7 field
-   * (`toPublicMenuItem`), nên mọi cột nội bộ thêm vào `menu_items` sau này vẫn không lọt.
-   * Endpoint CHỈ ĐỌC — không có nhánh ghi nào, không đụng session/cookie của khách.
-   *
-   * Nhóm rỗng vẫn bị bỏ (không có trang trắng), và món mồ côi vẫn gom vào "Khác" — hai lệ
-   * này giữ nguyên vì lý do của chúng không đổi.
+   * `Cache-Control: public, max-age=60`: trang không có thao tác ghi; ~600 món payload không nhỏ.
+   * Đi qua ĐÚNG mapper whitelist (`toPublicMenuItem`) như `/menu`. Endpoint CHỈ ĐỌC.
+   * Nhóm rỗng bị bỏ; món mồ côi gom vào "Khác".
    */
   @Get('menu-book')
   @Header('Cache-Control', 'public, max-age=60')
   async getMenuBook(): Promise<ApiOk<PublicMenuResponse>> {
     const [groups, items] = await Promise.all([
       this.groupRepo.find({
-        where: { is_active: true, is_menu_hidden: false },
+        where: { is_active: true },
         order: { sort_order: 'ASC', name: 'ASC' },
       }),
       this.itemRepo.find({
-        where: { is_active: true, is_menu_hidden: false },
-        order: { menu_sort_order: 'ASC', name: 'ASC' },
+        where: { is_active: true },
+        order: { name: 'ASC' },
       }),
     ]);
 
-    // Nhóm bị ẩn khỏi menu xem đã bị loại ngay ở truy vấn trên, nên món của nó KHÔNG được
-    // rơi vào nhánh mồ côi mà hồi sinh trong "Khác" — chặn bằng danh sách mã nhóm còn sống
-    // lấy từ toàn bộ nhóm active (kể cả nhóm đang ẩn), giống hệt cách `/menu` làm.
-    const visibleGroupCodes = new Set(groups.map((g) => g.code));
-    const hiddenGroupCodes = new Set(
-      (await this.groupRepo.find({ where: { is_active: true, is_menu_hidden: true } })).map(
-        (g) => g.code,
-      ),
-    );
-
+    const groupCodes = new Set(groups.map((g) => g.code));
     const itemsByGroupCode = new Map<string, MenuItem[]>();
     const orphanItems: MenuItem[] = [];
     for (const item of items) {
-      if (hiddenGroupCodes.has(item.group)) continue;
-      if (!visibleGroupCodes.has(item.group)) {
+      if (!groupCodes.has(item.group)) {
         orphanItems.push(item);
         continue;
       }

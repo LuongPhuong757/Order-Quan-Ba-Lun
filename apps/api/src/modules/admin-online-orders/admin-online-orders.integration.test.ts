@@ -674,12 +674,20 @@ describe('Cửa sổ 14h của order/bếp — list() (chỉ đạo chủ dự �
       // 4 key: ngưỡng leo thang SMS + cờ/tâm bản đồ tổng quan (2026-08-07). `list()` đưa cả 4 vào
       // payload rồi `.strict().parse()`, nên thiếu key nào ở stub là test đỏ ngay chứ không âm thầm
       // trả undefined — đúng ý đồ của lớp parse đó.
+      // + công tắc Đóng cửa (`ordering`): 2 key thô + `getOrderingStatus()` cho vế `enabled`.
       {
         readAll: async () => ({
           escalate_sms_after_s: 90,
           map_admin_enabled: true,
           store_lat: null,
           store_lng: null,
+          online_ordering_off_mode: 'MANUAL',
+          online_ordering_off_reason: '',
+        }),
+        getOrderingStatus: async () => ({
+          enabled: true,
+          is_open_now: true,
+          blocking_reason: null,
         }),
       } as unknown as ConstructorParameters<
         typeof AdminOnlineOrdersService

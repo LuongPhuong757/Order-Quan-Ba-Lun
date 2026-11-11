@@ -1,10 +1,10 @@
-// Panel "Cài đặt" của màn Đơn hàng online — trước đây là route riêng `/admin/settings`
-// (file `AdminSettingsPage.tsx`). Chỉ đạo chủ dự án 2026-08-03: gộp hết về màn hàng chờ thành
-// 1 tab, và tab này CHỈ admin thấy — order/kitchen không.
+// Nội dung màn Cài đặt `/settings` (2026-11-11). Lịch sử: route riêng `/admin/settings`
+// (`AdminSettingsPage.tsx`) → 2026-08-03 gộp thành tab "Cài đặt" (7 tab con phẳng) của màn Đơn
+// hàng online → 2026-11-11 tách lại thành màn riêng chia 5 NHÓM (xem `lib/settings-groups.ts`):
+// cài đặt máy in, QR nhận tiền, cảnh báo bàn… chưa bao giờ thuộc về đơn online, chỉ mượn chỗ.
 //
-// Vì vậy component này KHÔNG tự dựng `container`/`<h1>` nữa: vỏ trang + tab cấp 1 do
-// `OnlineOrdersPage.tsx` dựng. Nó chỉ trả về nội dung + 2 sub-tab của chính nó.
-// Gate role nằm ở `OnlineOrdersPage`; BE đã có `AdminGuard` class-level trên cả
+// Component này KHÔNG tự dựng `container`/danh sách nhóm: vỏ trang do `SettingsPage.tsx` dựng.
+// Gate role ở `App.tsx` (RoleGate admin); BE đã có `AdminGuard` class-level trên cả
 // `/admin/settings` và `/admin/phone-blacklist` nên đây thuần là chuyện UX, không phải bảo mật.
 //
 // D-13/D-14/D-15/D-16 (08-CONTEXT.md):
@@ -26,7 +26,7 @@
 // 4. Nhãn trạng thái NÓI SAI so với code sau OD-13: nó ghi "Đang tạm ngưng nhận đơn" trong khi
 //    D-11 đã bỏ hẳn việc chặn — khách vẫn đặt được đơn khi Đóng cửa. Nhãn mới nói đúng sự thật.
 import { useEffect, useState, FormEvent, ReactNode } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { MAX_SHIP_FEE_TIERS, type ShipFeeTier } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { C, isDirty } from '../lib/online-ui.ts';
@@ -39,6 +39,7 @@ import { MenuQrPanel } from './MenuQrPanel.tsx';
 import { PrintersPanel } from './PrintersPanel.tsx';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { settingsHref, type OnlineSubTab, type SettingsGroup } from '../lib/settings-groups.ts';
 
 type OpenHoursDow = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 
@@ -342,32 +343,40 @@ function TierField({
   );
 }
 
-export function OnlineOrderSettingsPanel() {
+/**
+ * Nội dung MỘT nhóm của màn Cài đặt `/settings` (2026-11-11). Vỏ trang + danh sách nhóm do
+ * `SettingsPage.tsx` dựng; ở đây chỉ chọn khối nào thuộc nhóm nào. Nội dung + luồng lưu của từng
+ * khối giữ nguyên như thời 7 tab phẳng — chỉ đổi chỗ đứng.
+ *
+ * `group` để tuỳ chọn (mặc định "online") chỉ vì `OnlineOrdersPage` còn gọi panel này không
+ * truyền gì cho tới khi tab Cài đặt ở đó được gỡ hẳn.
+ */
+export function OnlineOrderSettingsPanel({ group = 'online' }: { group?: SettingsGroup }) {
   const [params, setParams] = useSearchParams();
   const toast = useToast();
   const [data, setData] = useState<SettingsResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Nhóm Thanh toán / Máy in tự đọc API riêng, không dòng nào của `/admin/settings` — tải thừa
+  // thì vừa tốn một request, vừa để một lỗi tải không liên quan hiện "Không tải được cài đặt"
+  // ngay trên đầu khối QR / máy in đang chạy tốt.
+  const needsData = group === 'store' || group === 'online' || group === 'table';
+  const [loading, setLoading] = useState(needsData);
 
+  // Tab con CHỈ có ở nhóm "Đặt hàng online" — nhóm này gộp 3 tab cũ, mỗi tab một trạng thái lưu
+  // riêng (Số bị chặn còn có ô lọc + phân trang trong URL). Trải nối tiếp cả 3 thì trên điện
+  // thoại thành một trang dài vô tận; tab con giữ nguyên được từng thứ như cũ.
   const rawTab = params.get('tab');
-  const tab: 'ordering' | 'blacklist' | 'top-dishes' | 'payment-qr' | 'menu-qr' | 'printers' | 'stale-alert' =
-    rawTab === 'blacklist' ||
-    rawTab === 'top-dishes' ||
-    rawTab === 'payment-qr' ||
-    rawTab === 'menu-qr' ||
-    rawTab === 'printers' ||
-    rawTab === 'stale-alert'
-      ? rawTab
-      : 'ordering';
+  const tab: OnlineSubTab = rawTab === 'blacklist' || rawTab === 'top-dishes' ? rawTab : 'ordering';
   const q = params.get('q') || '';
   const page = Number(params.get('page')) || 1;
 
-  // `view` là tab cấp 1 của `OnlineOrdersPage` — không được reset `page` khi nó đổi, và không
-  // được xoá nó khi đổi sub-tab, nếu không đổi tab con là bật ngược về tab Hàng chờ.
+  // `g` (nhóm) là tầng trên của màn Cài đặt — không được xoá nó và không reset `page` khi nó đổi,
+  // nếu không đổi tab con là bật ngược về danh sách nhóm. `view` giữ lại cho lúc panel còn nằm
+  // trong `OnlineOrdersPage`.
   const updateParam = (k: string, v: string) => {
     const n = new URLSearchParams(params);
     if (v) n.set(k, v);
     else n.delete(k);
-    if (k !== 'page' && k !== 'tab' && k !== 'view') n.set('page', '1');
+    if (k !== 'page' && k !== 'tab' && k !== 'view' && k !== 'g') n.set('page', '1');
     setParams(n);
   };
 
@@ -384,15 +393,64 @@ export function OnlineOrderSettingsPanel() {
   };
 
   useEffect(() => {
-    refresh();
-  }, []);
+    if (needsData) refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [needsData]);
+
+  const ready = needsData && !loading && data;
+  const status = needsData && (
+    <>
+      {loading && <p style={{ color: C.muted }}>Đang tải...</p>}
+      {!loading && !data && (
+        <div className="empty-state card">
+          <p>Không tải được cài đặt.</p>
+          <button onClick={refresh}>Thử lại</button>
+        </div>
+      )}
+    </>
+  );
+
+  if (group === 'store') {
+    return (
+      <div>
+        {status}
+        {ready && <StoreInfoTab data={data} onRefresh={refresh} />}
+      </div>
+    );
+  }
+
+  if (group === 'payment') {
+    // Mã QR nhận tiền (2026-09-14) — dùng cho CẢ bàn tại quán lẫn đơn online.
+    return <PaymentQrPanel />;
+  }
+
+  if (group === 'printers') {
+    // Máy in (2026-09-19) — hoá đơn in ra ở quầy cho cả bàn tại quán lẫn đơn ship.
+    return <PrintersPanel />;
+  }
+
+  if (group === 'table') {
+    // Mã QR gọi món (M7) + Cảnh báo bàn ngồi lâu (2026-10-12): cả hai chỉ là chuyện BÀN TẠI
+    // QUÁN, mỗi thứ một khối ngắn — trải nối tiếp là đủ, không cần tab con.
+    // MenuQrPanel không gác sau `data`: nó không đọc `/admin/settings` dòng nào của panel này, dựng
+    // mã QR ngay trong trình duyệt — gác theo `data` là để một lỗi tải không liên quan làm trắng nó.
+    return (
+      <div>
+        <MenuQrPanel />
+        <div style={{ marginTop: 16 }}>
+          {status}
+          {ready && <StaleAlertTab data={data} onRefresh={refresh} />}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {/* Sub-tab: kiểu gạch chân, CỐ Ý khác kiểu viên thuốc của tab cấp 1 ở `OnlineOrdersPage` —
-          hai kiểu khác nhau để không ai nhầm đây là cùng một cấp điều hướng. */}
+      {/* Tab con: kiểu gạch chân, CỐ Ý khác kiểu danh sách nhóm của `SettingsPage` — hai kiểu khác
+          nhau để không ai nhầm đây là cùng một cấp điều hướng. */}
       <div className="tabstrip" style={{ gap: 4, borderBottom: `1px solid ${C.borderSoft}`, marginBottom: 16 }}>
-        <TabButton active={tab === 'ordering'} onClick={() => updateParam('tab', 'ordering')}>
+        <TabButton active={tab === 'ordering'} onClick={() => updateParam('tab', '')}>
           Nhận đơn & giờ mở cửa
         </TabButton>
         <TabButton active={tab === 'blacklist'} onClick={() => updateParam('tab', 'blacklist')}>
@@ -401,50 +459,12 @@ export function OnlineOrderSettingsPanel() {
         <TabButton active={tab === 'top-dishes'} onClick={() => updateParam('tab', 'top-dishes')}>
           Top món bán chạy
         </TabButton>
-        {/* Mã QR nhận tiền (2026-09-14). Dùng cho CẢ bàn tại quán lẫn đơn online — nó mượn chỗ
-            đứng ở khối cài đặt này vì đây là nơi duy nhất trong app chứa cài đặt kể từ lần gộp
-            2026-08-03, không phải vì nó thuộc về đơn online. */}
-        <TabButton active={tab === 'payment-qr'} onClick={() => updateParam('tab', 'payment-qr')}>
-          Mã QR nhận tiền
-        </TabButton>
-        {/* Mã QR gọi món (2026-10-01, M7). Đặt NGAY SAU "Mã QR nhận tiền" vì chủ quán tìm
-            theo chữ "QR" chứ không theo nghiệp vụ — nhà có nhiều mã QR, để hai thứ cùng tên
-            cạnh nhau thì không phải nhớ cái nào nằm đâu. Hai mã này khác hẳn nhau: cái kia để
-            NHẬN TIỀN, cái này để khách VÀO THỰC ĐƠN. */}
-        <TabButton active={tab === 'menu-qr'} onClick={() => updateParam('tab', 'menu-qr')}>
-          Mã QR gọi món
-        </TabButton>
-        {/* Máy in (2026-09-19). Cùng lý do với tab trên: hoá đơn in ra ở quầy cho cả bàn tại
-            quán lẫn đơn ship, nó chỉ mượn chỗ đứng chứ không thuộc về đơn online. */}
-        <TabButton active={tab === 'printers'} onClick={() => updateParam('tab', 'printers')}>
-          Máy in
-        </TabButton>
-        {/* Báo bàn ngồi quá lâu chưa thanh toán (2026-10-12). Cùng lý do mượn chỗ với 2 tab trên. */}
-        <TabButton active={tab === 'stale-alert'} onClick={() => updateParam('tab', 'stale-alert')}>
-          Cảnh báo bàn
-        </TabButton>
       </div>
 
-      {loading && <p style={{ color: C.muted }}>Đang tải...</p>}
-      {!loading && !data && (
-        <div className="empty-state card">
-          <p>Không tải được cài đặt.</p>
-          <button onClick={refresh}>Thử lại</button>
-        </div>
-      )}
-      {!loading && data && tab === 'ordering' && <OrderingTab data={data} onRefresh={refresh} />}
-      {!loading && data && tab === 'blacklist' && (
-        <BlacklistTab q={q} page={page} onUpdateParam={updateParam} />
-      )}
-      {!loading && data && tab === 'top-dishes' && <TopDishesTab data={data} onRefresh={refresh} />}
-      {/* Không gác sau `data`: panel này đọc `/admin/payment-qr` riêng, gác theo `data` của
-          `/admin/settings` là để một lỗi tải không liên quan làm trắng cả tab. */}
-      {tab === 'payment-qr' && <PaymentQrPanel />}
-      {/* Cũng không gác sau `data`: panel này không đọc `/admin/settings` dòng nào, nó dựng
-          mã QR ngay trong trình duyệt từ địa chỉ đang mở. */}
-      {tab === 'menu-qr' && <MenuQrPanel />}
-      {tab === 'printers' && <PrintersPanel />}
-      {!loading && data && tab === 'stale-alert' && <StaleAlertTab data={data} onRefresh={refresh} />}
+      {status}
+      {ready && tab === 'ordering' && <OrderingTab data={data} onRefresh={refresh} />}
+      {ready && tab === 'blacklist' && <BlacklistTab q={q} page={page} onUpdateParam={updateParam} />}
+      {ready && tab === 'top-dishes' && <TopDishesTab data={data} onRefresh={refresh} />}
     </div>
   );
 }
@@ -635,16 +655,6 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const [provinceLock, setProvinceLock] = useState(settings.province_lock_enabled);
   const [savingProvinceLock, setSavingProvinceLock] = useState(false);
 
-  // Thông tin quán
-  const [phone, setPhone] = useState(settings.store_phone);
-  const [address, setAddress] = useState(settings.store_address);
-  const [facebookUrl, setFacebookUrl] = useState(settings.store_facebook_url);
-  const [instagramUrl, setInstagramUrl] = useState(settings.store_instagram_url);
-  const [zalo, setZalo] = useState(settings.store_zalo);
-  const [lat, setLat] = useState<number | ''>(settings.store_lat ?? '');
-  const [lng, setLng] = useState<number | ''>(settings.store_lng ?? '');
-  const [savingStore, setSavingStore] = useState(false);
-
   // Đồng bộ lại state cục bộ mỗi khi có data mới từ server (sau PUT thành công).
   useEffect(() => {
     setOffMode(settings.online_ordering_off_mode);
@@ -666,13 +676,6 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
     setMapCheckout(settings.map_checkout_enabled);
     setMapAdmin(settings.map_admin_enabled);
     setProvinceLock(settings.province_lock_enabled);
-    setPhone(settings.store_phone);
-    setAddress(settings.store_address);
-    setFacebookUrl(settings.store_facebook_url);
-    setInstagramUrl(settings.store_instagram_url);
-    setZalo(settings.store_zalo);
-    setLat(settings.store_lat ?? '');
-    setLng(settings.store_lng ?? '');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data]);
 
@@ -720,18 +723,6 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
   const provinceLockDirty = isDirty(
     { provinceLock },
     { provinceLock: settings.province_lock_enabled },
-  );
-  const storeDirty = isDirty(
-    { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
-    {
-      phone: settings.store_phone,
-      address: settings.store_address,
-      facebookUrl: settings.store_facebook_url,
-      instagramUrl: settings.store_instagram_url,
-      zalo: settings.store_zalo,
-      lat: settings.store_lat ?? '',
-      lng: settings.store_lng ?? '',
-    },
   );
 
   // ── Dải trạng thái ──
@@ -987,27 +978,6 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
       toast.push('error', extractError(err).message);
     } finally {
       setSavingMap(false);
-    }
-  };
-
-  const saveStore = async () => {
-    setSavingStore(true);
-    try {
-      await api.put('/admin/settings', {
-        store_phone: phone,
-        store_address: address,
-        store_facebook_url: facebookUrl,
-        store_instagram_url: instagramUrl,
-        store_zalo: zalo,
-        ...(lat !== '' ? { store_lat: lat } : {}),
-        ...(lng !== '' ? { store_lng: lng } : {}),
-      });
-      toast.push('success', 'Đã lưu thông tin quán');
-      await onRefresh();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    } finally {
-      setSavingStore(false);
     }
   };
 
@@ -1339,10 +1309,13 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
               giao ngay lúc khách đặt — không vào hàng chờ, không phải gọi lại để huỷ. Để trống hoặc
               0 là không giới hạn.
             </p>
-            {parseMaxDeliveryKm(maxDeliveryKm) > 0 && (lat === '' || lng === '') && (
+            {/* Đọc toạ độ ĐÃ LƯU: ô toạ độ nay ở nhóm "Thông tin quán" (màn khác), không còn state
+                đang gõ dở nào ở đây để so. */}
+            {parseMaxDeliveryKm(maxDeliveryKm) > 0 && (settings.store_lat === null || settings.store_lng === null) && (
               <p style={{ fontSize: 12, color: C.warnText, margin: '6px 0 0' }}>
-                <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Quán chưa có toạ độ ở khối “Thông tin quán” nên chưa đo được khoảng cách — bán
-                kính này sẽ <strong>chưa chặn được đơn nào</strong>.
+                <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Quán chưa có toạ độ ở nhóm{' '}
+                <Link to={settingsHref('store')} style={{ color: 'inherit', fontWeight: 700 }}>“Thông tin quán”</Link>
+                {' '}nên chưa đo được khoảng cách — bán kính này sẽ <strong>chưa chặn được đơn nào</strong>.
               </p>
             )}
           </fieldset>
@@ -1617,106 +1590,179 @@ function OrderingTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: (
         </p>
         {(settings.store_lat === null || settings.store_lng === null) && mapAdmin && (
           <p style={{ fontSize: 12, color: C.warnText, margin: '8px 0 0' }}>
-            <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Chưa có toạ độ quán ở khối “Thông tin quán” bên dưới — bản đồ chưa biết lấy đâu làm
-            tâm nên sẽ căn theo các đơn hiện có, và không vẽ được ghim quán.
+            <Icon name="canh-bao" size={16} style={{ verticalAlign: '-3px', marginRight: 4 }} />Chưa có toạ độ quán ở nhóm{' '}
+            <Link to={settingsHref('store')} style={{ color: 'inherit', fontWeight: 700 }}>“Thông tin quán”</Link>
+            {' '}— bản đồ chưa biết lấy đâu làm tâm nên sẽ căn theo các đơn hiện có, và không vẽ được ghim quán.
           </p>
         )}
       </Section>
 
-      {/* ══ 5. Thông tin quán ══ */}
-      <Section
-        title="Thông tin quán"
-        hint="Địa chỉ, Facebook, Zalo hiện ở chân trang khách — ô nào để trống thì khách không thấy dòng đó. Toạ độ dùng để tính khoảng cách tới khách; thiếu toạ độ thì trang khách không hiện được số km."
-        dirty={storeDirty}
-        saving={savingStore}
-        saveLabel="Lưu thông tin quán"
-        onSave={() => void saveStore()}
-      >
-        <div className="st-grid cols-2">
-          <div>
-            <label htmlFor="s-phone">SĐT quán</label>
-            <input id="s-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={16} />
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Khách bấm gọi số này từ trang theo dõi đơn.
-            </p>
-          </div>
-          <div>
-            <label>Toạ độ quán</label>
-            <div className="st-inline">
-              <input
-                type="number"
-                placeholder="Vĩ độ"
-                value={lat}
-                onChange={(e) => setLat(e.target.value === '' ? '' : Number(e.target.value))}
-              />
-              <input
-                type="number"
-                placeholder="Kinh độ"
-                value={lng}
-                onChange={(e) => setLng(e.target.value === '' ? '' : Number(e.target.value))}
-              />
-            </div>
-          </div>
-          <div style={{ gridColumn: '1 / -1' }}>
-            <label htmlFor="s-address">Địa chỉ quán</label>
+    </div>
+  );
+}
+
+// ─── Nhóm "Thông tin quán" ───────────────────────────────────────────────────
+// Tách khỏi tab "Nhận đơn & giờ mở cửa" (2026-11-11): tên/địa chỉ/toạ độ/mạng xã hội là của QUÁN,
+// dùng cho cả bàn tại quán lẫn đơn online, không phải một cài đặt đặt hàng. Khối này vốn đã có
+// state + nút Lưu + dấu "Chưa lưu" RIÊNG (chỉ gửi đúng 7 field store_*), nên tách ra là bê nguyên
+// cả cụm state/lưu theo — không khối nào khác đọc hay ghi chung những state này.
+function StoreInfoTab({ data, onRefresh }: { data: SettingsResponse; onRefresh: () => Promise<void> }) {
+  const toast = useToast();
+  const { settings } = data;
+
+  const [phone, setPhone] = useState(settings.store_phone);
+  const [address, setAddress] = useState(settings.store_address);
+  const [facebookUrl, setFacebookUrl] = useState(settings.store_facebook_url);
+  const [instagramUrl, setInstagramUrl] = useState(settings.store_instagram_url);
+  const [zalo, setZalo] = useState(settings.store_zalo);
+  const [lat, setLat] = useState<number | ''>(settings.store_lat ?? '');
+  const [lng, setLng] = useState<number | ''>(settings.store_lng ?? '');
+  const [savingStore, setSavingStore] = useState(false);
+
+  // Đồng bộ lại state cục bộ mỗi khi có data mới từ server (sau PUT thành công).
+  useEffect(() => {
+    setPhone(settings.store_phone);
+    setAddress(settings.store_address);
+    setFacebookUrl(settings.store_facebook_url);
+    setInstagramUrl(settings.store_instagram_url);
+    setZalo(settings.store_zalo);
+    setLat(settings.store_lat ?? '');
+    setLng(settings.store_lng ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data]);
+
+  // Chuẩn hoá `null → ''` cho toạ độ: server trả `null` còn ô rỗng là `''` — không chuẩn hoá là
+  // khối luôn báo "Chưa lưu" ngay khi vừa tải trang.
+  const storeDirty = isDirty(
+    { phone, address, facebookUrl, instagramUrl, zalo, lat, lng },
+    {
+      phone: settings.store_phone,
+      address: settings.store_address,
+      facebookUrl: settings.store_facebook_url,
+      instagramUrl: settings.store_instagram_url,
+      zalo: settings.store_zalo,
+      lat: settings.store_lat ?? '',
+      lng: settings.store_lng ?? '',
+    },
+  );
+
+  const saveStore = async () => {
+    setSavingStore(true);
+    try {
+      await api.put('/admin/settings', {
+        store_phone: phone,
+        store_address: address,
+        store_facebook_url: facebookUrl,
+        store_instagram_url: instagramUrl,
+        store_zalo: zalo,
+        ...(lat !== '' ? { store_lat: lat } : {}),
+        ...(lng !== '' ? { store_lng: lng } : {}),
+      });
+      toast.push('success', 'Đã lưu thông tin quán');
+      await onRefresh();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setSavingStore(false);
+    }
+  };
+
+  return (
+    // `defaultOpen`: đây là khối DUY NHẤT của nhóm — gập lại trên điện thoại thì chạm vào nhóm
+    // xong còn phải chạm thêm lần nữa mới thấy ô nào.
+    <Section
+      defaultOpen
+      title="Thông tin quán"
+      hint="Địa chỉ, Facebook, Zalo hiện ở chân trang khách — ô nào để trống thì khách không thấy dòng đó. Toạ độ dùng để tính khoảng cách tới khách; thiếu toạ độ thì trang khách không hiện được số km."
+      dirty={storeDirty}
+      saving={savingStore}
+      saveLabel="Lưu thông tin quán"
+      onSave={() => void saveStore()}
+    >
+      <div className="st-grid cols-2">
+        <div>
+          <label htmlFor="s-phone">SĐT quán</label>
+          <input id="s-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} maxLength={16} />
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Khách bấm gọi số này từ trang theo dõi đơn.
+          </p>
+        </div>
+        <div>
+          <label>Toạ độ quán</label>
+          <div className="st-inline">
             <input
-              id="s-address"
-              type="text"
-              value={address}
-              onChange={(e) => setAddress(e.target.value)}
-              maxLength={255}
-              placeholder="Ví dụ: 123 Nguyễn Trãi, TP. Bắc Ninh — hoặc dán link Google Maps"
+              type="number"
+              placeholder="Vĩ độ"
+              value={lat}
+              onChange={(e) => setLat(e.target.value === '' ? '' : Number(e.target.value))}
             />
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Hiện ở chân trang khách — khách bấm là mở Google Maps. Gõ địa chỉ chữ, hoặc dán link
-              chia sẻ Google Maps (maps.app.goo.gl/...) để pin trỏ đúng quán.
-            </p>
-          </div>
-          <div>
-            <label htmlFor="s-facebook">Facebook</label>
             <input
-              id="s-facebook"
-              type="url"
-              value={facebookUrl}
-              onChange={(e) => setFacebookUrl(e.target.value)}
-              maxLength={255}
-              placeholder="https://facebook.com/quanbalun"
+              type="number"
+              placeholder="Kinh độ"
+              value={lng}
+              onChange={(e) => setLng(e.target.value === '' ? '' : Number(e.target.value))}
             />
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Link trang Facebook của quán — hiện thành nút ở chân trang khách.
-            </p>
-          </div>
-          <div>
-            <label htmlFor="s-instagram">Instagram</label>
-            <input
-              id="s-instagram"
-              type="url"
-              value={instagramUrl}
-              onChange={(e) => setInstagramUrl(e.target.value)}
-              maxLength={255}
-              placeholder="https://instagram.com/quanbalun"
-            />
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Link trang Instagram của quán — hiện thành nút ở chân trang khách.
-            </p>
-          </div>
-          <div>
-            <label htmlFor="s-zalo">Zalo</label>
-            <input
-              id="s-zalo"
-              type="text"
-              value={zalo}
-              onChange={(e) => setZalo(e.target.value)}
-              maxLength={255}
-              placeholder="0912345678 hoặc https://zalo.me/..."
-            />
-            <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
-              Điền số điện thoại Zalo hoặc link Zalo OA — khách bấm là mở cửa sổ chat.
-            </p>
           </div>
         </div>
-      </Section>
-    </div>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label htmlFor="s-address">Địa chỉ quán</label>
+          <input
+            id="s-address"
+            type="text"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            maxLength={255}
+            placeholder="Ví dụ: 123 Nguyễn Trãi, TP. Bắc Ninh — hoặc dán link Google Maps"
+          />
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Hiện ở chân trang khách — khách bấm là mở Google Maps. Gõ địa chỉ chữ, hoặc dán link
+            chia sẻ Google Maps (maps.app.goo.gl/...) để pin trỏ đúng quán.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="s-facebook">Facebook</label>
+          <input
+            id="s-facebook"
+            type="url"
+            value={facebookUrl}
+            onChange={(e) => setFacebookUrl(e.target.value)}
+            maxLength={255}
+            placeholder="https://facebook.com/quanbalun"
+          />
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Link trang Facebook của quán — hiện thành nút ở chân trang khách.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="s-instagram">Instagram</label>
+          <input
+            id="s-instagram"
+            type="url"
+            value={instagramUrl}
+            onChange={(e) => setInstagramUrl(e.target.value)}
+            maxLength={255}
+            placeholder="https://instagram.com/quanbalun"
+          />
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Link trang Instagram của quán — hiện thành nút ở chân trang khách.
+          </p>
+        </div>
+        <div>
+          <label htmlFor="s-zalo">Zalo</label>
+          <input
+            id="s-zalo"
+            type="text"
+            value={zalo}
+            onChange={(e) => setZalo(e.target.value)}
+            maxLength={255}
+            placeholder="0912345678 hoặc https://zalo.me/..."
+          />
+          <p style={{ fontSize: 12, color: C.muted, margin: '4px 0 0' }}>
+            Điền số điện thoại Zalo hoặc link Zalo OA — khách bấm là mở cửa sổ chat.
+          </p>
+        </div>
+      </div>
+    </Section>
   );
 }
 

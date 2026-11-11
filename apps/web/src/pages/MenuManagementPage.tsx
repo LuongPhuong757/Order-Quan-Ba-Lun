@@ -1,15 +1,45 @@
-import { useCallback, useEffect, useRef, useState, FormEvent } from 'react';
+// Màn Thực đơn (`/menu`) — MỘT nơi duy nhất quản lý món (gộp 2026-11-11, chủ quán duyệt bản thử).
+//
+// Trước ngày đó có HAI màn cùng nói về một món: màn này (hết/còn, sửa, công thức) và tab "Món
+// online" ở màn Đơn online (ẩn/hiện trên web, ảnh). Chủ quán phải nhớ việc nào ở đâu, và hai màn
+// lệch nhau (ảnh lỗi chỉ thấy ở một bên). Nay mỗi món có HAI công tắc rõ nghĩa:
+//   - "Còn / Hết"   — `is_out_of_stock`: TẠM THỜI trong ca, áp cho cả tại quán lẫn online. Mọi
+//                      role (bếp báo hết món). Đường cũ `POST /menu/:id/toggle-stock`.
+//   - "Bán online"  — đảo nghĩa `is_online_hidden`: LÂU DÀI, chỉ trang khách. Chỉ owner/admin
+//                      (PATCH /menu/:id là AdminGuard). Ẩn cả nhóm (`menu_groups.is_online_hidden`)
+//                      phủ lên món — xem `effectiveHidden` trong `menu/menu-types.ts`.
+//
+// Bố cục: máy tính/iPad là BẢNG mỗi món một hàng (`menu/MenuItemTable.tsx`), điện thoại là thẻ gọn
+// (`menu/MenuItemRowCard.tsx`). Phần đổi dáng theo bề rộng dùng `useIsPhone` thay vì vẽ cả hai rồi
+// ẩn bằng CSS: 30 món × hai bộ DOM là gấp đôi ảnh phải tải.
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
-import { MenuBookPanel } from './MenuBookPanel.tsx';
 import { MenuComboPanel } from './MenuComboPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
-import { Pagination } from '../components/ui/Pagination.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import { useIsPhone } from '../components/ui/use-is-phone.ts';
 import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import {
+  effectiveHidden,
+  groupLabel,
+  imageSrc,
+  type FoodCostEntry,
+  type MenuGroup,
+  type MenuItem,
+  type RowCtx,
+} from './menu/menu-types.ts';
+import { MenuItemTable, gomTheoNhom } from './menu/MenuItemTable.tsx';
+import { MenuItemRowCard } from './menu/MenuItemRowCard.tsx';
+import { MenuBulkBar, MenuUndoBar, type BulkAction, type UndoState } from './menu/MenuBulkBar.tsx';
+import { MenuFormModal } from './menu/MenuFormModal.tsx';
+import { GroupsManagerModal } from './menu/GroupsManagerModal.tsx';
+import './menu/td-menu.css';
 
 /** Icon nét mảnh + chữ trên cùng một hàng (thay emoji nhiều màu — Đợt 0 đồng bộ giao diện). */
 function IconText({ name, size = 16, children }: { name: IconName; size?: number; children: React.ReactNode }) {
@@ -38,99 +68,68 @@ type FoodCostLite = {
   complete: boolean;
 };
 
-/** Một món trong bản đồ giá vốn của màn Menu. `cost` là giá vốn ĐẦY ĐỦ (chính + % phụ) — thẻ món
- *  và hộp Công thức dùng chung, nên % trên thẻ luôn bằng % ở dòng "Giá vốn" trong hộp. */
-type FoodCostEntry = { pct: number; cost: number; costMain: number; costResale: number; overhead: number; complete: boolean };
-
-type MenuGroup = {
-  id: string;
-  code: string;
-  name: string;
-  icon: string | null;
-  kitchen_type: string;
-  sort_order: number;
-};
-
-/** Màu theo % tiền nguyên liệu trên giá bán. Ngưỡng là NGHỊCH ĐẢO của `marginColor` trong
- * `FoodCostPanel.tsx` (biên < 25% đỏ, < 50% cam) — cùng một món phải ra cùng một màu ở cả hai
- * màn, nếu không chủ quán sẽ thấy màn này báo động còn màn kia bảo bình thường. */
-function pctColor(pct: number): string {
-  if (pct > 75) return '#b91c1c';
-  if (pct > 50) return '#b45309';
-  return '#15803d';
-}
-
-function pctTitle(fc: { pct: number; cost: number; complete: boolean }): string {
-  const tien = `${Math.round(fc.cost).toLocaleString('vi-VN')}đ nguyên liệu cho một phần`;
-  return fc.complete
-    ? `${tien} — chiếm ${fc.pct}% giá bán`
-    : `${tien} — MỨC TỐI THIỂU: còn nguyên liệu chưa có giá nên số thật cao hơn`;
-}
-
-function groupLabel(g: MenuGroup): string {
-  return g.icon ? `${g.icon} ${g.name}` : g.name;
-}
-
-type MenuItem = {
-  id: string;
-  code: string;
-  name: string;
-  group: string;
-  price: number;
-  unit: string;
-  image_url: string | null;
-  /** Mô tả ngắn + mấy người ăn (2026-10-05). NULL = chưa viết; trang khách tự ẩn dòng đó. */
-  description: string | null;
-  serves: number | null;
-  is_out_of_stock: boolean;
-  /** Bếp/phục vụ bật khi món ế — món nổi lên dải "nên mời khách" ở màn Gọi món. */
-  is_push_sale: boolean;
-  is_active: boolean;
-};
-
-function formatVND(v: number): string {
-  return v.toLocaleString('vi-VN') + 'đ';
-}
-
 type SortMode = 'newest' | 'name' | 'group' | 'price_desc' | 'price_asc' | 'cost_desc' | 'pct_desc';
-/* Một ô trạng thái duy nhất cho CẢ hàng chip lọc, dù chúng đi lên server bằng hai tham số khác
- * nhau (`stock` và `photo`). Lý do: với chủ quán đây là MỘT hàng "đang xem nhóm món nào", chọn
- * cái này là bỏ cái kia. Tách thành hai ô trạng thái thì phải nghĩ xem "đang hết hàng" cộng
- * "chưa có ảnh" nghĩa là gì, mà không ai cần câu trả lời đó. */
-type StockFilter = '' | 'out' | 'in' | 'push' | 'nophoto';
-const PAGE_SIZE = 30;
+/* Một ô trạng thái duy nhất cho CẢ bộ lọc, dù chúng đi lên server bằng hai tham số khác nhau
+ * (`stock` và `photo`). Lý do: với chủ quán đây là MỘT câu hỏi "đang xem nhóm món nào", chọn cái
+ * này là bỏ cái kia. Tách thành hai ô thì phải nghĩ "đang hết hàng" cộng "chưa có ảnh" nghĩa là gì,
+ * mà không ai cần câu trả lời đó.
+ * 'broken' (Ảnh lỗi, 2026-11-11) KHÔNG lên server được: chỉ trình duyệt biết ảnh nào tải hỏng. */
+type StockFilter = '' | 'out' | 'in' | 'push' | 'nophoto' | 'broken' | 'nocost';
+/** Kênh bán (chỉ admin): '' = tất cả, 'online' = đang bán online, 'an' = đang ẩn khỏi web (kể cả
+ *  ẩn theo nhóm). Nằm trên URL `?kenh=` để màn Đơn online link thẳng `/menu?kenh=online`. */
+type Kenh = '' | 'online' | 'an';
+const UNDO_MS = 5_000;
+/** localStorage: cột danh mục đang ẩn ('1') hay hiện. */
+const AN_DANH_MUC_KEY = 'td-an-danh-muc';
 
 export function MenuManagementPage() {
   const toast = useToast();
   const confirm = useConfirm();
   const { user } = useAuth();
-  // Admin & chủ quán đều được quản lý menu (thêm/sửa/xoá/nhóm/import). Bếp chỉ toggle hết/còn.
+  const isPhone = useIsPhone();
+  // Admin & chủ quán đều được quản lý menu (thêm/sửa/xoá/nhóm/import/bán online). Bếp chỉ
+  // bật/tắt Còn/Hết (và Đẩy bán — API mở cho mọi staff, bếp bấm nó giữa ca).
   const canManage = !!user?.is_owner || user?.role === 'admin';
-  const [items, setItems] = useState<MenuItem[]>([]);
-  const [total, setTotal] = useState(0);
+  const [params, setParams] = useSearchParams();
+  const rawKenh = params.get('kenh');
+  // Không phải admin thì bỏ qua `?kenh=` — bếp không có cột Online để hiểu bộ lọc này.
+  const kenh: Kenh = canManage && (rawKenh === 'online' || rawKenh === 'an') ? rawKenh : '';
+  const setKenh = (next: Kenh) => {
+    const n = new URLSearchParams(params);
+    if (next) n.set('kenh', next);
+    else n.delete('kenh');
+    setParams(n, { replace: true });
+  };
+
+  /** Danh sách thô từ server. Ở chế độ lọc phía máy (`clientMode`) đây là CẢ thực đơn khớp bộ lọc
+   *  server; ngược lại chỉ là trang đang xem. */
+  const [rawItems, setRawItems] = useState<MenuItem[]>([]);
+  const [serverTotal, setServerTotal] = useState(0);
   const [groups, setGroups] = useState<MenuGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [groupFilter, setGroupFilter] = useState<string>('');
   const [stockFilter, setStockFilter] = useState<StockFilter>('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [sort, setSort] = useState<SortMode>('newest');
-  const [page, setPage] = useState(1);
+  // Mặc định THEO NHÓM (bản 3, 2026-11-11): danh sách cuộn liên tục, có tiêu đề nhóm dính.
+  const [sort, setSort] = useState<SortMode>('group');
   const [editing, setEditing] = useState<MenuItem | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [showGroupsManager, setShowGroupsManager] = useState(false);
   const [showImport, setShowImport] = useState(false);
-  // Màn "Menu xem" (2026-09-04) — sắp món cho quyển menu ở menu.<domain>. Mở dạng hộp thoại
-  // như "Nhóm"/"Import" thay vì thêm tab cấp 1: nó là việc làm thỉnh thoảng (đổi menu mùa),
-  // không phải màn nhân viên nhìn hằng ngày, nên không đáng chiếm một tab thường trực.
-  const [showMenuBook, setShowMenuBook] = useState(false);
+  // Màn "Menu xem" (cấu hình riêng cho quyển menu) đã BỎ 2026-11-11: trang QR tại bàn nay hiện
+  // y hệt màn Gọi món (xem `GET /api/public/menu-book`).
   const [showCombos, setShowCombos] = useState(false);
+  // Menu ⋯ "Quản lý" ở đầu màn (2026-11-11): gom Import / Menu xem / Combo gợi ý — ba việc làm
+  // thỉnh thoảng — vào một chỗ, để đầu màn chỉ còn các nút dùng hằng ngày.
+  const [showManage, setShowManage] = useState(false);
+  // Món đang mở menu ⋯ của hàng (Sửa, Nguyên liệu, Xoá; điện thoại thêm Đẩy bán).
+  const [moreFor, setMoreFor] = useState<MenuItem | null>(null);
   /* "Món đề xuất" — danh sách món nhân vật ở thực đơn tại bàn mời khách khi món vừa thêm nằm
    * ngoài mọi combo (xem apps/shop/src/lib/menu-pairing.ts).
    *
-   * Chọn NGAY TẠI ĐÂY, trên từng thẻ món (chủ quán chốt 2026-10-05, chuyển khỏi panel "Combo
-   * gợi ý"): ở panel thì phải gõ TÌM LẠI TÊN món mình vừa nhìn thấy trên chính lưới này — đúng
-   * chỗ bất tiện chủ quán nêu. Lưới này đã có sẵn ô tìm, bộ lọc nhóm và ảnh món.
+   * Chọn NGAY TẠI ĐÂY, trên từng hàng món (chủ quán chốt 2026-10-05, chuyển khỏi panel "Combo
+   * gợi ý"): ở panel thì phải gõ TÌM LẠI TÊN món mình vừa nhìn thấy trên chính danh sách này.
    *
    * Giữ danh sách id rời chứ KHÔNG gắn cờ vào `MenuItem`: cờ sẽ phải đi qua `GET /menu` và mọi
    * nơi khác đọc menu, trong khi đây là một bảng rời mà chỉ màn này cần. */
@@ -138,9 +137,9 @@ export function MenuManagementPage() {
   // Món đang mở panel công thức, và số nguyên liệu mỗi món để hiện ngay trên nút.
   const [recipeFor, setRecipeFor] = useState<MenuItem | null>(null);
   const [recipeCounts, setRecipeCounts] = useState<Record<string, number>>({});
-  // Món đang xem ảnh toàn màn hình — ô ảnh trên thẻ chỉ ~72px, không soi được món trông ra sao.
+  // Món đang xem ảnh toàn màn hình — ô ảnh trên bảng chỉ 44px, không soi được món trông ra sao.
   const [zoomItem, setZoomItem] = useState<MenuItem | null>(null);
-  /** Giá vốn một phần theo món, để hiện % tiền nguyên liệu ngay trên thẻ.
+  /** Giá vốn một phần theo món, để hiện % tiền nguyên liệu ngay trên bảng.
    *
    * Nguồn là `/supplier-reports/food-cost` — CÙNG một endpoint với tab "Giá vốn" ở màn Nhà cung
    * cấp, nên hai màn không bao giờ nói hai con số khác nhau về cùng một món. Endpoint trả cả
@@ -157,22 +156,57 @@ export function MenuManagementPage() {
   const [referencePct, setReferencePct] = useState<number | null>(null);
   const [kindById, setKindById] = useState<ReadonlyMap<string, IngredientKind>>(new Map());
 
-  const groupMap = new Map(groups.map((g) => [g.code, g]));
+  // ── Từ tab "Món online" cũ (OnlineMenuPanel, 2026-11-11) ──
+  // Khoá nút đang chờ lưu — key `item:<id>` / `group:<id>` / `stock:<id>` để không bấm đúp.
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  // Ảnh TẢI LỖI: chỉ biết SAU KHI trình duyệt thử tải (`onError`), nên là state phía máy.
+  const [brokenIds, setBrokenIds] = useState<Set<string>>(new Set());
+  // Bấm "Tải lại ảnh": tăng số lần thử để đổi `src` (thêm ?r=n) — ép trình duyệt tải lại.
+  const [retryOf, setRetryOf] = useState<Record<string, number>>({});
+  // Thanh "Đã ẩn … · Hoàn tác": ẩn/hiện áp dụng NGAY (đảo ngược được hoàn toàn nên không cần
+  // hoãn gửi như duyệt đơn); thanh 5 giây là đường lùi khi bấm nhầm.
+  const [undo, setUndo] = useState<UndoState | null>(null);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  // Chọn nhiều: giữ cả BẢN CHỤP món (không chỉ id) — món đã chọn ở trang trước không còn trong
+  // `rawItems` sau khi đổi trang, mà lệnh hàng loạt cần biết trạng thái cũ để chỉ gửi những món
+  // thật sự đổi (Hoàn tác khi ấy mới trả về ĐÚNG như cũ).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Map<string, MenuItem>>(new Map());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  // Đang thử tải ảnh để dò "Ảnh lỗi" (xem effect dò ảnh bên dưới).
+  const [probing, setProbing] = useState(0);
+  const probedRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!undo) return;
+    const tick = window.setInterval(() => setNowMs(Date.now()), 250);
+    const end = window.setTimeout(() => setUndo(null), Math.max(0, undo.deadlineMs - Date.now()));
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(end);
+    };
+  }, [undo]);
+
+  const groupByCode = useMemo(() => new Map(groups.map((g) => [g.code, g])), [groups]);
   const labelOf = (code: string) => {
-    const g = groupMap.get(code);
+    const g = groupByCode.get(code);
     return g ? groupLabel(g) : code;
   };
+
+  /* Lọc PHÍA MÁY khi có bộ lọc server không hiểu: Kênh (GET /menu không lọc được theo cờ online,
+   * và "ẩn" còn tính cả nhóm ẩn) và Ảnh lỗi (chỉ trình duyệt biết). Khi đó tải một lượt cả thực
+   * đơn khớp các bộ lọc còn lại (page_size=2000 — đúng trần của API, ~600 món) rồi tự lọc + tự
+   * chia trang. Không có hai bộ lọc này thì vẫn chia trang ở server như cũ: nhẹ hơn nhiều. */
+  // Bản 3 (2026-11-11): BỎ PHÂN TRANG — luôn tải cả thực đơn khớp bộ lọc server (~600 món, trần
+  // API 2000) rồi lọc phía máy, cuộn liên tục theo nhóm. Ảnh `loading="lazy"` nên không tải 600 ảnh.
+  const clientMode = true;
+  const fetchPage = 1;
 
   // Debounce search input 300ms → tránh fetch mỗi keystroke
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
     return () => clearTimeout(t);
   }, [search]);
-
-  // Reset về page 1 khi filter/search/sort đổi
-  useEffect(() => {
-    setPage(1);
-  }, [groupFilter, stockFilter, debouncedSearch, sort]);
 
   /** Số dòng công thức của các món ĐANG HIỆN — một request cho cả trang, không hỏi từng món.
    *
@@ -193,15 +227,16 @@ export function MenuManagementPage() {
     }
   };
 
-  /** Nạp giá vốn cho MỌI món, một lần. Hỏng thì bỏ qua như `loadRecipeCounts`: thiếu phần trăm
-   * là mất một thông tin phụ, còn hỏng cả lưới món là mất màn hình. */
   /** Tham chiếu ỔN ĐỊNH để truyền xuống RecipePanel: `refresh` bên đó là `useCallback` có
    * `onLinesChanged` trong deps, nên truyền một hàm mới mỗi lần render sẽ tạo vòng lặp nạp
    * lại vô tận. */
   const reloadCost = useCallback(() => {
     void loadFoodCost();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Nạp giá vốn cho MỌI món, một lần. Hỏng thì bỏ qua như `loadRecipeCounts`: thiếu phần trăm
+   * là mất một thông tin phụ, còn hỏng cả danh sách món là mất màn hình. */
   const loadFoodCost = async () => {
     try {
       const res = await api.get<{ data: { items: FoodCostLite[]; overhead_reference_pct?: number | null } }>(
@@ -220,9 +255,6 @@ export function MenuManagementPage() {
           if (k !== 'MAIN') nhom.set(c.ingredient_id, k);
         }
         if (!(r.sell_price > 0) || !(r.cost > 0)) continue;
-        // Làm tròn có thể ra 0 khi định lượng khai quá nhỏ — dữ liệu thật đang có "Tràng Lợn
-        // Trần 200k" với 75đ nguyên liệu trên giá bán 200.000đ. "0% NL" trông như lỗi hiển thị,
-        // nên chỗ render đổi thành "<1%".
         map[r.menu_item_id] = {
           pct: Math.round((r.cost / r.sell_price) * 100),
           cost: r.cost,
@@ -244,10 +276,9 @@ export function MenuManagementPage() {
   /**
    * `silent: true` = tải lại dữ liệu mà KHÔNG bật cờ `loading`.
    *
-   * Vì sao cần: phần render là `{loading && 'Đang tải...'}` / `{!loading && lưới món}`, nên bật
-   * `loading` là GỠ CẢ LƯỚI khỏi DOM. Trang đang cao ~7000px tụt còn ~400px, trình duyệt kẹp
-   * vị trí cuộn về 0, và khi lưới quay lại thì người dùng đã ở đầu trang. Ai đánh dấu hết một
-   * món ở cuối trang 30 món đều bị văng lên đầu (chủ quán báo 2026-09-06).
+   * Vì sao cần: phần render là `{loading && 'Đang tải...'}` / `{!loading && danh sách}`, nên bật
+   * `loading` là GỠ CẢ DANH SÁCH khỏi DOM, trình duyệt kẹp vị trí cuộn về 0, người dùng văng lên
+   * đầu trang (chủ quán báo 2026-09-06).
    *
    * Quy tắc: đổi bộ lọc / trang / sắp xếp thì gọi loud (nhảy lên đầu là ĐÚNG, đó là danh sách
    * khác). Còn thao tác trên MỘT món của danh sách đang xem — đánh dấu hết, sửa, xoá, import —
@@ -259,18 +290,19 @@ export function MenuManagementPage() {
       const q = new URLSearchParams();
       if (groupFilter) q.set('group', groupFilter);
       // 'nophoto' đi bằng tham số RIÊNG `photo`, không phải `stock` — nó không nói gì về tồn kho.
+      // 'broken' chỉ xét món CÓ ảnh, nên xin server lọc sẵn `photo=yes` cho nhẹ.
       if (stockFilter === 'nophoto') q.set('photo', 'no');
-      else if (stockFilter) q.set('stock', stockFilter);
+      else if (stockFilter === 'broken') q.set('photo', 'yes');
+      else if (stockFilter && stockFilter !== 'nocost') q.set('stock', stockFilter);
       if (debouncedSearch) q.set('q', debouncedSearch);
       q.set('sort', sort);
-      q.set('page', String(page));
-      q.set('page_size', String(PAGE_SIZE));
+      q.set('page', String(fetchPage));
+      q.set('page_size', '2000');
       q.set('include_inactive', 'true');
-      /* Món đề xuất tải CÙNG nhịp với lưới, không phải một effect riêng chạy một lần lúc vào
-         màn: đổi trang / đổi bộ lọc là lưới vẽ lại, và nếu danh sách đề xuất không được đọc lại
-         cùng lúc thì nút ⭐ của trang mới hiện theo dữ liệu cũ.
+      /* Món đề xuất tải CÙNG nhịp với danh sách: đổi trang / đổi bộ lọc là danh sách vẽ lại, và
+         nếu danh sách đề xuất không được đọc lại cùng lúc thì nút ⭐ hiện theo dữ liệu cũ.
          ⚠ PHẢI có `.catch` riêng: `/menu-combos` gác bằng AdminGuard, mà màn này mở cả cho role
-         bếp (bấm hết/còn món). Gộp trần vào Promise.all thì bếp nhận 403 ở đây là cả lưới món
+         bếp (bấm hết/còn món). Gộp trần vào Promise.all thì bếp nhận 403 ở đây là cả danh sách
          RỖNG — đúng luồng báo hết món chạy hằng ngày. Lỗi thì coi như chưa đề xuất món nào. */
       const [itemsRes, groupsRes, featRes] = await Promise.all([
         api.get<{ data: { items: MenuItem[]; total: number } }>(`/menu?${q.toString()}`),
@@ -278,11 +310,10 @@ export function MenuManagementPage() {
         api.get<{ data: { item_ids: string[] } }>('/menu-combos/featured')
           .catch(() => ({ data: { data: { item_ids: [] as string[] } } })),
       ]);
-      setItems(itemsRes.data.data.items);
-      setTotal(itemsRes.data.data.total);
+      setRawItems(itemsRes.data.data.items);
+      setServerTotal(itemsRes.data.data.total);
       setGroups(groupsRes.data.data.items);
       setFeaturedIds(new Set(featRes.data.data.item_ids));
-      loadRecipeCounts(itemsRes.data.data.items.map((i) => i.id));
       loadFoodCost();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -294,18 +325,174 @@ export function MenuManagementPage() {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupFilter, stockFilter, debouncedSearch, sort, page]);
+  }, [groupFilter, stockFilter, debouncedSearch, sort, fetchPage, clientMode]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const filtered = clientMode
+    ? rawItems.filter(
+        (it) =>
+          (kenh === '' || (kenh === 'an') === effectiveHidden(it, groupByCode)) &&
+          (stockFilter !== 'broken' || brokenIds.has(it.id)) &&
+          // Chưa khai giá vốn = chưa có số % (thiếu công thức hoặc nguyên liệu chưa có giá).
+          (stockFilter !== 'nocost' || !foodCost[it.id]),
+      )
+    : rawItems;
+  const total = filtered.length;
+  const items = filtered;
+  void serverTotal;
 
-  const toggleStock = async (it: MenuItem) => {
+  // Số nguyên liệu: hỏi cho ĐÚNG MỘT món lúc mở menu ⋯ (nhãn "Công thức · N nguyên liệu"). Bỏ phân
+  // trang thì danh sách là ~600 món — nhét 600 id vào URL là quá dài.
+  useEffect(() => {
+    if (moreFor) void loadRecipeCounts([moreFor.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [moreFor]);
+
+  const markBroken = useCallback((id: string) => {
+    setBrokenIds((b) => (b.has(id) ? b : new Set(b).add(id)));
+  }, []);
+  const retryImage = (id: string) => {
+    setBrokenIds((b) => {
+      const n = new Set(b);
+      n.delete(id);
+      return n;
+    });
+    setRetryOf((r) => ({ ...r, [id]: (r[id] ?? 0) + 1 }));
+  };
+
+  /* Dò "Ảnh lỗi" cho CẢ danh sách khi chọn bộ lọc này. Ở tab "Món online" cũ mọi món nằm trên một
+     lưới nên trình duyệt tự thử tải hết; ở đây chia trang 30 món, ảnh trang khác chưa từng được
+     thử → bộ lọc sẽ trống oan. Thử tải ngầm bằng `new Image()` — vẫn là "biết nhờ onError", chỉ là
+     không cần vẽ ra. Mỗi món thử MỘT lần mỗi lượt vào màn (`probedRef`). */
+  useEffect(() => {
+    if (stockFilter !== 'broken') return;
+    const todo = rawItems.filter((it) => it.image_url && !probedRef.current.has(it.id));
+    if (todo.length === 0) return;
+    setProbing((n) => n + todo.length);
+    for (const it of todo) {
+      probedRef.current.add(it.id);
+      const img = new Image();
+      img.onload = () => setProbing((n) => n - 1);
+      img.onerror = () => {
+        markBroken(it.id);
+        setProbing((n) => n - 1);
+      };
+      img.src = imageSrc(it.image_url as string, retryOf[it.id]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stockFilter, rawItems]);
+
+  const withPending = async (key: string, run: () => Promise<void>) => {
+    setPending((p) => new Set(p).add(key));
     try {
-      await api.post(`/menu/${it.id}/toggle-stock`);
-      toast.push('success', `${it.name} → ${it.is_out_of_stock ? 'Có lại' : 'Hết'}`);
-      refresh({ silent: true });
+      await run();
     } catch (err) {
       toast.push('error', extractError(err).message);
+    } finally {
+      setPending((p) => {
+        const n = new Set(p);
+        n.delete(key);
+        return n;
+      });
     }
+  };
+
+  /** Sửa tại chỗ trong state — nút gạt phải đổi NGAY, không đợi tải lại cả danh sách. Hết hàng
+   *  thì tắt luôn đẩy bán, đúng luật BE (`toggle-stock` tắt `is_push_sale` khi báo hết). */
+  const patchLocal = (ids: ReadonlyArray<string>, patch: Partial<MenuItem>) => {
+    const set = new Set(ids);
+    const full: Partial<MenuItem> = patch.is_out_of_stock ? { ...patch, is_push_sale: false } : patch;
+    setRawItems((list) => list.map((it) => (set.has(it.id) ? { ...it, ...full } : it)));
+    setSelected((m) => {
+      if (!ids.some((id) => m.has(id))) return m;
+      const n = new Map(m);
+      for (const id of ids) {
+        const cur = n.get(id);
+        if (cur) n.set(id, { ...cur, ...full });
+      }
+      return n;
+    });
+  };
+
+  const toggleStock = (it: MenuItem) => {
+    void withPending(`stock:${it.id}`, async () => {
+      await api.post(`/menu/${it.id}/toggle-stock`);
+      patchLocal([it.id], { is_out_of_stock: !it.is_out_of_stock });
+      toast.push('success', `${it.name} → ${it.is_out_of_stock ? 'Có lại' : 'Hết'}`);
+      // Vẫn tải lại ngầm: đang lọc "Còn hàng"/"Hết hàng" thì món vừa đổi phải rời danh sách.
+      refresh({ silent: true });
+    });
+  };
+
+  /* Đổi ảnh NGAY từ ô ảnh trên hàng (chủ quán chốt 2026-11-11): trước phải mở ⋯ → Sửa món → Đổi
+   * ảnh → Lưu, 4 bước cho việc làm nhiều nhất khi chụp lại món. MỘT ô chọn file dùng chung cho cả
+   * màn; `imgTargetRef` nhớ món vừa chạm vì sự kiện `change` của ô file không biết món nào.
+   * Cùng 2 lệnh với form Sửa: `POST /menu/upload-image` rồi `PATCH /menu/:id { image_url }`. */
+  const imgInputRef = useRef<HTMLInputElement>(null);
+  const imgTargetRef = useRef<MenuItem | null>(null);
+  const changeImage = (it: MenuItem) => {
+    imgTargetRef.current = it;
+    imgInputRef.current?.click();
+  };
+  const onImagePicked = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    const it = imgTargetRef.current;
+    e.target.value = '';
+    if (!file || !it) return;
+    if (file.size > 10 * 1024 * 1024) {
+      toast.push('error', 'Ảnh vượt quá 10MB, vui lòng chọn ảnh nhỏ hơn');
+      return;
+    }
+    void withPending(`img:${it.id}`, async () => {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await api.post<{ data: { url: string } }>('/menu/upload-image', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const url = res.data.data.url;
+      await api.patch(`/menu/${it.id}`, { image_url: url });
+      patchLocal([it.id], { image_url: url });
+      // Ảnh cũ có thể đang bị đánh dấu lỗi — ảnh mới phải được thử tải lại từ đầu.
+      setBrokenIds((b) => {
+        if (!b.has(it.id)) return b;
+        const n = new Set(b);
+        n.delete(it.id);
+        return n;
+      });
+      toast.push('success', `Đã đổi ảnh ${it.name}`);
+    });
+  };
+
+  /** Ẩn/hiện MỘT món trên web — chép từ tab "Món online" cũ. Hoàn tác = gửi NGƯỢC lại trạng thái
+   *  cũ, không mở thêm thanh hoàn tác nữa. */
+  const setItemHidden = (row: MenuItem, next: boolean, offerUndo: boolean) => {
+    void withPending(`item:${row.id}`, async () => {
+      await api.patch(`/menu/${row.id}`, { is_online_hidden: next });
+      patchLocal([row.id], { is_online_hidden: next });
+      if (offerUndo) {
+        setNowMs(Date.now());
+        setUndo({
+          text: next ? `Đã ẩn ${row.name} khỏi web` : `${row.name} đã bán online lại`,
+          revert: () => setItemHidden(row, !next, false),
+          deadlineMs: Date.now() + UNDO_MS,
+        });
+      } else {
+        toast.push('success', next ? `Đã ẩn lại "${row.name}"` : `Đã hoàn tác — "${row.name}" bán online lại`);
+      }
+    });
+  };
+
+  const toggleGroupOnline = (g: MenuGroup) => {
+    const next = !g.is_online_hidden;
+    void withPending(`group:${g.id}`, async () => {
+      await api.patch(`/menu-groups/${g.id}`, { is_online_hidden: next });
+      setGroups((list) => list.map((it) => (it.id === g.id ? { ...it, is_online_hidden: next } : it)));
+      toast.push(
+        'success',
+        next
+          ? `Đã ẩn cả nhóm "${g.name}" khỏi web online`
+          : `Nhóm "${g.name}" đã hiện lại — món bị ẩn lẻ trong nhóm vẫn giữ ẩn`,
+      );
+    });
   };
 
   /** Bật/tắt "món đề xuất" — BẤM LÀ LƯU NGAY, không có nút Lưu, không mở gì cả.
@@ -316,8 +503,7 @@ export function MenuManagementPage() {
    * bật thêm một món thì màn phải gửi lại cả danh sách nó đang giữ trong tay — mà danh sách đó
    * có thể đã cũ (người khác vừa sửa ở máy khác), và khi ấy cú bấm này lặng lẽ xoá món của họ.
    *
-   * Cập nhật `featuredIds` tại chỗ thay vì `refresh()`: nút phải đổi màu NGAY, còn `refresh` kéo
-   * lại cả lưới + công thức + giá vốn, chậm hơn nhiều so với một cú bấm bật/tắt. Hỏng thì trả
+   * Cập nhật `featuredIds` tại chỗ thay vì `refresh()`: nút phải đổi màu NGAY. Hỏng thì trả
    * nguyên trạng thái cũ về, không để nút nói dối. */
   const toggleFeatured = async (it: MenuItem) => {
     const on = featuredIds.has(it.id);
@@ -338,16 +524,19 @@ export function MenuManagementPage() {
   };
 
   /** Bật/tắt "đang đẩy bán". Không hỏi xác nhận: thao tác đảo ngược được bằng đúng cú bấm đó,
-   *  và bếp bấm nó giữa lúc đang nấu. */
-  const togglePushSale = async (it: MenuItem) => {
+   *  và bếp bấm nó giữa lúc đang nấu. Trả `true` khi lưu được (form Sửa món cần biết để đổi nút). */
+  const togglePushSale = async (it: MenuItem): Promise<boolean> => {
     try {
       await api.post(`/menu/${it.id}/toggle-push-sale`);
+      patchLocal([it.id], { is_push_sale: !it.is_push_sale });
       toast.push('success', it.is_push_sale
         ? `${it.name} → thôi đẩy bán`
         : `${it.name} → đang đẩy bán, nhân viên order sẽ thấy để mời khách`);
       refresh({ silent: true });
+      return true;
     } catch (err) {
       toast.push('error', extractError(err).message);
+      return false;
     }
   };
 
@@ -368,344 +557,484 @@ export function MenuManagementPage() {
     }
   };
 
-  const groupCodes = ['', ...groups.map((g) => g.code)];
+  // ── Chọn nhiều ──
+  const toggleSelect = (id: string) => {
+    setSelected((m) => {
+      const n = new Map(m);
+      if (n.has(id)) n.delete(id);
+      else {
+        const it = rawItems.find((x) => x.id === id);
+        if (it) n.set(id, it);
+      }
+      return n;
+    });
+  };
+  const allPageSelected = items.length > 0 && items.every((it) => selected.has(it.id));
+  // Gom theo nhóm khi sắp "Theo nhóm" và không đang tìm chữ (kết quả tìm đọc liền một mạch hơn).
+  const muc = gomTheoNhom(items, groups, sort === 'group' && !debouncedSearch);
+  // Số món mỗi nhóm cho cột nhóm bên trái — đếm trên danh sách ĐANG khớp trạng thái/kênh.
+  const demNhom = new Map<string, number>();
+  for (const it of rawItems) demNhom.set(it.group, (demNhom.get(it.group) ?? 0) + 1);
+  const togglePage = () => {
+    setSelected((m) => {
+      const n = new Map(m);
+      if (allPageSelected) for (const it of items) n.delete(it.id);
+      else for (const it of items) n.set(it.id, it);
+      return n;
+    });
+  };
+  const exitSelect = () => {
+    setSelectMode(false);
+    setSelected(new Map());
+  };
 
-  return (
-    <div className="container wide menu-page with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Menu</h1>
-        {/* Dãy nút công cụ — MỘT DÒNG kéo ngang (chỉ đạo chủ quán 2026-09-06). 5 nút cần ~444px
-            mà máy 390px chỉ có 362px, nên trước đây chúng wrap thành 2 hàng ~130px đẩy món đầu
-            tiên xuống tận y=382. Cuộn ngang giữ chúng ở 44px và không phình thêm khi có nút mới.
-            `minWidth: 0` là phần bắt buộc để `overflow-x` của `.tabstrip` có tác dụng.
-            "+ Món" nằm NGOÀI vùng cuộn, neo bên phải: nó là nút dùng nhiều nhất ở màn này, để
-            nó trong dãy cuộn thì lúc dãy đang ở đầu là nó khuất, phải vuốt mới bấm được. */}
-        <div className="flex" style={{ gap: 6, flex: '1 1 auto', minWidth: 0, alignItems: 'center' }}>
-          <div className="tabstrip" style={{ gap: 6, flex: '1 1 auto', minWidth: 0 }}>
-          {canManage && (
-            <button className="secondary" onClick={() => setShowGroupsManager(true)} style={{ padding: '8px 12px' }}>
-              Nhóm
-            </button>
-          )}
-          {canManage && (
-            <button className="secondary" onClick={() => setShowImport(true)} style={{ padding: '8px 12px' }}>
-              <IconText name="tai-len">Import</IconText>
-            </button>
-          )}
-          {canManage && (
-            <button className="secondary" onClick={() => setShowMenuBook(true)} style={{ padding: '8px 12px' }}>
-              <IconText name="menu">Menu xem</IconText>
-            </button>
-          )}
-          {canManage && (
-            <button className="secondary" onClick={() => setShowCombos(true)} style={{ padding: '8px 12px' }}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="combo" size={18} />Combo gợi ý</span>
-            </button>
-          )}
-          </div>
-          {canManage && <button onClick={() => setShowCreate(true)} style={{ padding: '8px 12px', flex: 'none' }}>+ Món</button>}
+  /** `POST /menu/bulk` (AdminGuard) → `{ data: { updated } }`. */
+  const sendBulk = async (ids: string[], patch: { is_online_hidden?: boolean; is_out_of_stock?: boolean }) => {
+    await api.post<{ data: { updated: number } }>('/menu/bulk', { ids, ...patch });
+    patchLocal(ids, patch);
+  };
+
+  const doBulk = async (a: BulkAction) => {
+    const field = a === 'an' || a === 'hien' ? 'is_online_hidden' : 'is_out_of_stock';
+    const value = a === 'an' || a === 'het';
+    // Chỉ gửi những món THẬT SỰ đổi: chọn lẫn món đã ẩn sẵn mà gửi cả lô thì Hoàn tác sẽ hiện lại
+    // cả những món vốn đang ẩn từ trước — sai so với trước khi bấm.
+    const ids = [...selected.values()].filter((it) => it[field] !== value).map((it) => it.id);
+    const ten = { an: 'Đã ẩn khỏi web', hien: 'Đã bán online lại', het: 'Đã báo hết', con: 'Đã báo còn' }[a];
+    if (ids.length === 0) {
+      toast.push('info', 'Các món đã chọn đều đang ở trạng thái đó rồi');
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      await sendBulk(ids, { [field]: value });
+      setSelected(new Map());
+      setNowMs(Date.now());
+      setUndo({
+        text: `${ten} ${ids.length} món`,
+        revert: () => {
+          void (async () => {
+            try {
+              await sendBulk(ids, { [field]: !value });
+              toast.push('success', `Đã hoàn tác ${ids.length} món`);
+              refresh({ silent: true });
+            } catch (err) {
+              toast.push('error', extractError(err).message);
+            }
+          })();
+        },
+        deadlineMs: Date.now() + UNDO_MS,
+      });
+      refresh({ silent: true });
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const ctx: RowCtx = {
+    canManage,
+    // Ô tick CHỈ hiện khi bật "Chọn nhiều" trong ⋯ (chủ quán 2026-11-11: bỏ ô tick sẵn ở từng món).
+    selectMode: canManage && selectMode,
+    selected: new Set(selected.keys()),
+    featuredIds,
+    brokenIds,
+    retryOf,
+    pending,
+    foodCost,
+    groupByCode,
+    labelOf,
+    toggleSelect,
+    toggleStock,
+    toggleOnline: (it) => setItemHidden(it, !it.is_online_hidden, true),
+    toggleFeatured: (it) => void toggleFeatured(it),
+    togglePushSale: (it) => void togglePushSale(it),
+    openMore: setMoreFor,
+    zoom: setZoomItem,
+    changeImage,
+    markBroken,
+    retryImage,
+  };
+
+  const isFiltering = !!(search || groupFilter || stockFilter || kenh);
+  const clearFilters = () => {
+    setSearch('');
+    setGroupFilter('');
+    setStockFilter('');
+    setKenh('');
+  };
+
+  const selectedGroup = canManage && groupFilter ? (groupByCode.get(groupFilter) ?? null) : null;
+  const groupName = (g: MenuGroup) =>
+    canManage && g.is_online_hidden ? `${groupLabel(g)} · ẩn online` : groupLabel(g);
+
+  /* Ô TRẠNG THÁI gộp cả bộ lọc kênh (bản 3, 2026-11-11): trước là 3 chip "Tất cả / Online / Ẩn
+     online" trong cột hẹp bên trái, "Ẩn online" rớt xuống dòng 2. Kênh vẫn đi trên URL `?kenh=`
+     (màn Đơn online link thẳng `/menu?kenh=online`) — giá trị ô này chỉ là cách HIỂN THỊ chung. */
+  const trangThai = kenh ? `kenh-${kenh}` : stockFilter;
+  const setTrangThai = (v: string) => {
+    if (v === 'kenh-online' || v === 'kenh-an') {
+      setStockFilter('');
+      setKenh(v === 'kenh-online' ? 'online' : 'an');
+    } else {
+      setKenh('');
+      setStockFilter(v as StockFilter);
+    }
+  };
+  const filterDropdowns = (
+    <>
+      <div className="td-f">
+        <Dropdown
+          value={trangThai}
+          onChange={setTrangThai}
+          ariaLabel="Trạng thái"
+          sheetTitle="Trạng thái"
+          neutralValue=""
+          full
+          // Danh sách cố định ≤10 mục — ô "Gõ để tìm" (tự bật từ 8 mục) là thừa (chủ quán 2026-11-11).
+          searchable={false}
+          options={[
+            { value: '', label: 'Tất cả trạng thái' },
+            { value: 'in', label: 'Đang bán (còn hàng)', icon: 'xong' },
+            { value: 'out', label: 'Hết hàng', icon: 'het-mon' },
+            ...(canManage
+              ? [
+                  { value: 'kenh-online', label: 'Đang bán online', icon: 'online' as IconName },
+                  { value: 'kenh-an', label: 'Ẩn online', icon: 'an' as IconName },
+                ]
+              : []),
+            /* Lọc này là cách DUY NHẤT tìm lại món mình đã bật đẩy bán để tắt đi. */
+            { value: 'push', label: 'Đang đẩy bán', icon: 'day-ban' },
+            { value: 'nophoto', label: 'Chưa có ảnh', icon: 'anh' },
+            { value: 'broken', label: brokenIds.size > 0 ? `Ảnh lỗi (${brokenIds.size})` : 'Ảnh lỗi', icon: 'canh-bao' },
+            ...(canManage ? [{ value: 'nocost', label: 'Chưa khai giá vốn', icon: 'tai-lieu' as IconName }] : []),
+          ]}
+        />
+      </div>
+      <div className="td-f">
+        <Dropdown
+          value={sort}
+          onChange={setSort}
+          ariaLabel="Sắp xếp"
+          sheetTitle="Sắp xếp"
+          neutralValue="group"
+          full
+          searchable={false}
+          options={[
+            { value: 'group', label: 'Theo nhóm' },
+            { value: 'newest', label: 'Mới nhất' },
+            { value: 'name', label: 'A → Z (tên)' },
+            { value: 'price_desc', label: '↓ Giá bán cao nhất' },
+            { value: 'price_asc', label: '↑ Giá bán thấp nhất' },
+            { value: 'cost_desc', label: '↓ Tiền nguyên liệu cao nhất' },
+            { value: 'pct_desc', label: '↓ % giá vốn cao nhất' },
+          ]}
+        />
+      </div>
+    </>
+  );
+
+  /** Công tắc "Bán online cả nhóm" — chỉ khi đang chọn MỘT nhóm cụ thể (admin). */
+  const groupSwitch = selectedGroup && (
+    <div className="td-group-sw">
+      <div>
+        <div className="td-group-sw__ten">{groupLabel(selectedGroup)}</div>
+        <div className="td-group-sw__phu">
+          {selectedGroup.is_online_hidden ? 'Cả nhóm đang ẩn khỏi web' : 'Nhóm đang bán online'}
         </div>
       </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={!selectedGroup.is_online_hidden}
+        aria-label={`Bán online cả nhóm ${selectedGroup.name}`}
+        className={`td-sw${selectedGroup.is_online_hidden ? ' td-sw--an' : ' td-sw--on'}`}
+        disabled={pending.has(`group:${selectedGroup.id}`)}
+        onClick={() => toggleGroupOnline(selectedGroup)}
+      >
+        <span className="td-sw__ray" aria-hidden="true" />
+      </button>
+    </div>
+  );
 
-      <div className="card mm-filters" style={{ marginBottom: 16, padding: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {/* Row 1: search + sort. `alignItems: stretch` để ô tìm, ô sắp xếp và nút Xoá lọc cùng
-            chiều cao — mỗi cái tự đặt padding riêng thì chúng lệch nhau vài px. */}
-        <div className="mm-toolbar-row" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+  // Ẩn/hiện cột danh mục (máy tính/iPad, chủ quán 2026-11-11) — nhớ theo MÁY như sidebar chính.
+  const [anDanhMuc, setAnDanhMuc] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(AN_DANH_MUC_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const doiDanhMuc = (an: boolean) => {
+    setAnDanhMuc(an);
+    try {
+      localStorage.setItem(AN_DANH_MUC_KEY, an ? '1' : '0');
+    } catch {
+      /* chế độ riêng tư — không nhớ được thì thôi */
+    }
+  };
+
+  // Thanh thao tác hàng loạt THAY thanh công cụ khi đang ở chế độ "Chọn nhiều" (bật trong ⋯).
+  const dangChon = canManage && selectMode;
+
+  return (
+    <div className="container wide menu-page with-bottom-nav ds td3">
+      {/* Ô chọn file dùng chung cho "chạm ô ảnh = đổi ảnh" (xem `changeImage`). */}
+      <input ref={imgInputRef} type="file" accept="image/*" onChange={onImagePicked} hidden />
+
+      {/* Đầu màn (bản 3, 2026-11-11): [Tìm] [Trạng thái ▾] [Sắp xếp ▾] …… [⋯] [+ Thêm món].
+          Trước là 7 điều khiển 4 kiểu (thêm "Chọn nhiều", "Nhóm", "⋯ Quản lý" viền). Nhóm / Import /
+          Menu xem / Combo vào ⋯. KHÔNG `<h1>` — thanh đầu app đã là h1 "Thực đơn". */}
+      {dangChon ? (
+        <MenuBulkBar
+          count={selected.size}
+          busy={bulkBusy}
+          onAction={(a) => void doBulk(a)}
+          onClear={() => setSelected(new Map())}
+          onExit={exitSelect}
+        />
+      ) : (
+        <div className="td-bar">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Tìm theo tên hoặc mã món..."
-            className="mm-find"
-            style={{
-              flex: '1 1 220px',
-              minWidth: 180,
-              borderRadius: 8,
-              border: '1px solid #d1d5db',
-              fontSize: 16,
-              minHeight: 44,
-              // Ô Sắp xếp bên cạnh có nhãn chữ nằm trên → hàng cao hơn 44. Bám đáy để ô tìm vẫn
-              // cao 44 và thẳng hàng với ô chọn thay vì bị kéo giãn theo `align-items: stretch`.
-              alignSelf: 'flex-end',
-            }}
+            placeholder={isPhone ? 'Tìm món...' : 'Tìm món, mã, viết tắt...'}
+            className="td-find"
+            aria-label="Tìm món"
           />
-          {/* Dropdown tự vẽ, không phải `<select>`: danh sách bung ra của `<select>` là chrome
-              hệ điều hành, CSS không với tới — xem `components/ui/Dropdown.tsx`. */}
-          <div style={{ flex: '0 1 auto', minWidth: 0 }}>
-            <Dropdown
-              value={sort}
-              onChange={setSort}
-              label="Sắp xếp"
-              neutralValue="newest"
-              options={[
-                { value: 'newest', label: '↓ Mới nhất' },
-                { value: 'name', label: 'A → Z (tên)' },
-                { value: 'group', label: 'Theo nhóm' },
-                { value: 'price_desc', label: '↓ Giá bán cao nhất' },
-                { value: 'price_asc', label: '↑ Giá bán thấp nhất' },
-                { value: 'cost_desc', label: '↓ Tiền nguyên liệu cao nhất' },
-                { value: 'pct_desc', label: '↓ % nguyên liệu cao nhất' },
-              ]}
-            />
+          {!isPhone && filterDropdowns}
+          {/* KHÔNG có nút "Xoá lọc" (chủ quán 2026-11-11): nó làm thanh tách 2 dòng; chọn lại "Tất cả
+              trạng thái" là bỏ lọc. Ô trống vẫn có nút "Xoá bộ lọc" khi không món nào khớp. */}
+          <div className="td-bar__nut">
+            {canManage && (
+              <button type="button" className="secondary td3-nut-vuong" onClick={() => setShowManage(true)} aria-label="Thêm thao tác: nhóm món, import, menu xem, combo">
+                <Icon name="them-thao-tac" size={20} />
+              </button>
+            )}
+            {/* Nút chính DUY NHẤT tô xanh ngọc của màn. Điện thoại: nút tròn nổi góc dưới (bên dưới). */}
+            {canManage && !isPhone && (
+              <button type="button" onClick={() => setShowCreate(true)}>+ Thêm món</button>
+            )}
           </div>
-          {(search || groupFilter || stockFilter) && (
-            <button
-              type="button"
-              className="secondary mm-clear"
-              style={{ alignSelf: 'flex-end' }}
-              onClick={() => { setSearch(''); setGroupFilter(''); setStockFilter(''); }}
-            >
-              <IconText name="dong" size={14}>Xoá lọc</IconText>
-            </button>
-          )}
         </div>
+      )}
+      {isPhone && !dangChon && <div className="td-bar td-bar--dd">{filterDropdowns}</div>}
 
-        {/* Row 1b: stock status filter — bếp lọc nhanh món hết / còn để xử lý */}
-        <div className="mm-stock tabstrip" style={{ gap: 8 }}>
-          {([
-            { v: '', label: 'Tất cả tình trạng' },
-            { v: 'in', label: 'Còn hàng', icon: 'xong' },
-            { v: 'out', label: 'Hết hàng', icon: 'het-mon' },
-            /* Lọc này là cách DUY NHẤT tìm lại món mình đã bật đẩy bán để tắt đi — không có
-               nó thì phải cuộn cả 600 món tìm thẻ có nhãn ĐẨY BÁN. */
-            { v: 'push', label: 'Đang đẩy bán', icon: 'day-ban' },
-            /* Đo trên DB thật 2026-10-05: 294/598 món chưa có ảnh. Trên menu giấy món không ảnh
-               vẫn được đọc, nhưng trên điện thoại một thẻ trống trông như lỗi tải trang và gần
-               như không ai gọi. Lọc này là danh sách việc "còn phải chụp những món nào" — cuộn
-               598 thẻ tìm bằng mắt thì không ai làm nổi. */
-            { v: 'nophoto', label: 'Chưa có ảnh', icon: 'anh' },
-          ] as { v: StockFilter; label: string; icon?: IconName }[]).map((s) => (
+      {/* Điện thoại: nhóm là hàng chip cuộn ngang, mỗi chip có số món. */}
+      {isPhone && (
+        <div className="td3-chips" role="group" aria-label="Nhóm món">
+          <button type="button" aria-pressed={groupFilter === ''} className={groupFilter === '' ? 'on' : ''} onClick={() => setGroupFilter('')}>
+            Tất cả <i>{groupFilter === '' ? total : ''}</i>
+          </button>
+          {groups.map((g) => (
             <button
-              key={s.v || 'all'}
-              onClick={() => setStockFilter(s.v)}
-              className={stockFilter === s.v ? '' : 'secondary'}
-              style={{ padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap' }}
+              key={g.code}
+              type="button"
+              aria-pressed={groupFilter === g.code}
+              className={`${groupFilter === g.code ? 'on' : ''}${canManage && g.is_online_hidden ? ' an' : ''}`}
+              onClick={() => setGroupFilter(g.code)}
             >
-              {s.icon ? <IconText name={s.icon}>{s.label}</IconText> : s.label}
+              {groupLabel(g)} {demNhom.get(g.code) ? <i>{demNhom.get(g.code)}</i> : null}
             </button>
           ))}
-        </div>
-
-        {/* Row 2: group tabs — class `tabstrip-sm`: wrap trên desktop, cuộn ngang một hàng trên
-            điện thoại (quán có ~25 nhóm, wrap trên máy 390px là bức tường ~1000px trước khi thấy món). */}
-        {/* Lọc theo NHÓM không nằm trong khối này: từ 2026-09-29 nó là cột nút `.mm-groups` bên
-            trái danh sách món (xem dưới) — 32 nhóm dàn thành nút wrap ở đây chiếm 5 hàng, đẩy món
-            đầu tiên xuống quá nửa màn hình. */}
-      </div>
-
-      {/* Result count */}
-      {!loading && (
-        <div style={{ marginBottom: 12, fontSize: 13, color: '#6b7280' }}>
-          {total === 0 ? 'Không tìm thấy món nào.' : (
-            <>Hiển thị {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} của <strong>{total}</strong> món
-              {totalPages > 1 && ` (trang ${page}/${totalPages})`}</>
-          )}
         </div>
       )}
 
-      {/* Nhóm món thành MỘT CỘT bên trái (chủ quán chốt 2026-09-29): 32 nhóm dàn thành nút wrap
-          chiếm 5 hàng và không có thứ tự đọc, quét dọc một mạch dễ hơn nhiều. Trên điện thoại
-          cột này đổi thành một hàng cuộn ngang — xem `.mm-groups` trong styles.css. */}
-      <div className="mm-layout">
-        <nav className="mm-groups" aria-label="Nhóm món">
-          {groupCodes.map((g) => (
-            <button
-              key={g || 'all'}
-              type="button"
-              className={groupFilter === g ? 'on' : ''}
-              onClick={() => setGroupFilter(g)}
-            >
-              {g === '' ? 'Tất cả' : labelOf(g)}
+      {isPhone && groupSwitch}
+
+      {/* Thanh nhắc "N món ảnh lỗi · M món chưa có ảnh" đã BỎ (chủ quán 2026-11-11). Tìm món ảnh lỗi /
+          chưa có ảnh qua ô Trạng thái. */}
+
+      {stockFilter === 'broken' && probing > 0 && (
+        <div className="td-note">Đang thử tải ảnh của {probing} món để tìm ảnh lỗi — danh sách có thể dài thêm vài giây.</div>
+      )}
+
+      <div className={isPhone ? '' : `mm-layout${anDanhMuc ? ' td3-an-dm' : ''}`}>
+        {/* Cột nhóm (máy tính): chỉ danh sách nhóm — tên 1 dòng cắt "…" + số món căn phải. Mục
+            chọn: chữ đậm + vạch trái 2px, KHÔNG tô nền (khác sidebar chính của app). */}
+        {/* Thu gọn danh mục NGAY TẠI CHỖ, giống thanh điều hướng của app (chủ quán 2026-11-11): nút
+            "‹ Thu gọn" ở cuối cột; thu gọn còn dải 44px với nút "›" — KHÔNG thêm nút lên thanh lọc
+            (làm thanh lọc tách 2 dòng). */}
+        {!isPhone && anDanhMuc && (
+          <div className="td-side td3-dm-hep">
+            <button type="button" className="td3-dm-mo" onClick={() => doiDanhMuc(false)} aria-label="Mở danh mục">
+              <Icon name="mui-ten-phai" size={20} />
             </button>
-          ))}
-        </nav>
+          </div>
+        )}
+        {!isPhone && !anDanhMuc && (
+          <div className="td-side">
+            <nav className="td3-nhomlist" aria-label="Nhóm món">
+              <button type="button" className={groupFilter === '' ? 'on' : ''} onClick={() => setGroupFilter('')}>
+                <span className="t">Tất cả</span>
+                <span className="c">{groupFilter === '' ? total : ''}</span>
+              </button>
+              {groups.map((g) => {
+                const an = canManage && g.is_online_hidden;
+                return (
+                  <button
+                    key={g.code}
+                    type="button"
+                    className={`${groupFilter === g.code ? 'on' : ''}${an ? ' an' : ''}`}
+                    onClick={() => setGroupFilter(g.code)}
+                  >
+                    {an && <Icon name="an" size={14} label="Ẩn online" />}
+                    <span className="t">{groupLabel(g)}</span>
+                    <span className="c">{demNhom.get(g.code) ?? ''}</span>
+                  </button>
+                );
+              })}
+            </nav>
+            {groupSwitch}
+            <button type="button" className="td3-an-dm-nut" onClick={() => doiDanhMuc(true)}>
+              <Icon name="mui-ten-trai" size={16} />
+              Thu gọn danh mục
+            </button>
+          </div>
+        )}
 
         <div className="mm-main">
-      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
-      {!loading && items.length === 0 && (
-        <div className="empty-state card">
-          {search || groupFilter || stockFilter ? 'Không tìm thấy món khớp filter.' : 'Chưa có món nào.'}
-        </div>
-      )}
-
-      {!loading && items.length > 0 && (
-        <div className="mm-grid">
-          {items.map((it) => {
-            const fc = foodCost[it.id];
-            return (
-            <div
-              key={it.id}
-              className={`card mm-card${it.is_out_of_stock ? ' is-out' : ''}${it.is_push_sale ? ' is-push' : ''}${!it.is_active ? ' is-hidden' : ''}`}
-            >
-              <div style={{ display: 'flex', gap: 12, marginBottom: 8 }}>
-                {/* Ô ảnh LUÔN chiếm chỗ kể cả khi món chưa có ảnh (294/598 món chưa có): ô trống
-                    giữ mọi thẻ thẳng hàng, còn ẩn hẳn thì lưới so le mỗi khi cuộn qua món không ảnh.
-                    Dấu hết hàng nằm ĐÈ LÊN ảnh — thêm một dòng chữ vào thẻ là đẩy mọi thứ dưới nó
-                    xuống và làm thẻ đó cao hơn hàng xóm (chủ quán: "đừng thêm dòng vỡ giao diện"). */}
-                {/* Chạm ô ảnh = xem ảnh toàn màn hình. Chỉ món CÓ ảnh mới bấm được: ô trống mà
-                    bấm ra một màn đen trơn thì người dùng tưởng app lỗi. */}
-                <div
-                  className={`mm-thumb${it.image_url ? ' is-zoomable' : ''}`}
-                  onClick={it.image_url ? () => setZoomItem(it) : undefined}
-                >
-                  {it.image_url ? (
-                    <img
-                      src={it.image_url}
-                      alt=""
-                      onError={(e) => { (e.target as HTMLImageElement).style.visibility = 'hidden'; }}
-                    />
-                  ) : (
-                    <span className="mm-thumb-empty" aria-hidden="true"><Icon name="order" size={28} /></span>
-                  )}
-                  {it.is_out_of_stock && <span className="mm-thumb-out" title="Đang hết — không cho gọi mới">HẾT</span>}
-                  {/* Nhãn ĐẨY BÁN và ĐỀ XUẤT xếp CHỒNG DỌC ở mép trên, nhãn HẾT ở mép dưới.
-                      ĐẨY BÁN với HẾT loại trừ nhau nên không bao giờ gặp nhau, nhưng ĐỀ XUẤT thì
-                      cộng được với CẢ HAI — một món vừa ế vừa muốn mời, hoặc đang đề xuất mà hôm
-                      nay hết hàng, đều là ca có thật. Nên không tranh chỗ bằng cách đè lên nhau
-                      mà xếp thành hàng dọc: cờ nào bật thì chiếm một dải, không bật thì không
-                      chiếm chỗ nào. */}
-                  <div className="mm-thumb-tags">
-                    {it.is_push_sale && <span className="mm-thumb-push" title="Đang đẩy bán — hiện ở đầu màn Gọi món"><Icon name="day-ban" size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />ĐẨY BÁN</span>}
-                    {featuredIds.has(it.id) && <span className="mm-thumb-star" title="Đang đề xuất — nhân vật ở thực đơn tại bàn sẽ mời khách món này"><Icon name="de-xuat" size={12} style={{ verticalAlign: '-2px', marginRight: 3 }} />ĐỀ XUẤT</span>}
+          {loading && <p className="td-note">Đang tải...</p>}
+          {!loading && items.length === 0 && (
+            <div className="empty-state card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+              {isFiltering ? (
+                <>
+                  <div style={{ fontSize: 'var(--ds-fs-body)', fontWeight: 600 }}>
+                    {search.trim() ? `Không có món nào khớp “${search.trim()}”` : 'Không có món nào khớp bộ lọc'}
                   </div>
-                </div>
-                {/* `minWidth: 0` BẮT BUỘC: mặc định `min-width` của một flex item là `auto`
-                    = bề rộng nội dung tối thiểu, nên khối này không co được và `text-overflow:
-                    ellipsis` của tên món bên trong không bao giờ có chỗ để cắt — tên dài đẩy
-                    tràn cả thẻ (lỗi chủ quán báo 2026-09-29). */}
-                <div style={{ flex: 1, minWidth: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                  <div style={{ minWidth: 0 }}>
-                    <code style={{ color: '#6b7280', fontSize: 12 }}>{it.code}</code>
-                    <h3 style={{ margin: '2px 0', fontSize: 16 }}>{it.name}</h3>
-                    <div className="mm-sub">{labelOf(it.group)} · {it.unit}</div>
-                  </div>
-                  {/* Giá bán và % tiền nguyên liệu xếp DỌC trong cùng cột phải: cột này vốn
-                      chỉ dùng một dòng, nên % ăn chỗ trống sẵn có thay vì đẻ thêm một hàng. */}
-                  <div className="mm-money">
-                    <strong>{formatVND(it.price)}</strong>
-                    {fc && (
-                      <span className="mm-pct" style={{ color: pctColor(fc.pct) }} title={pctTitle(fc)}>
-                        {fc.complete ? '' : '≥'}{fc.pct < 1 ? '<1' : fc.pct}% NL
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              {/* Trạng thái "hết" giờ nằm trên ảnh (viền đỏ của thẻ + nhãn HẾT), "đã ẩn" nằm ở
-                  độ mờ của thẻ. Không dòng nào ở đây nữa: mỗi dòng thêm vào là một thẻ cao hơn
-                  hàng xóm, và lưới trông so le. */}
-
-              {/* Ba nút quản lý CHIA ĐỀU (grid 3 cột bằng nhau), nút công thức xuống hàng riêng.
-                  Trước đây nút "Hết" ăn `flex:1` còn ba nút kia co theo độ dài chữ, nên mỗi nút
-                  một cỡ. Nút công thức không nhét vừa hàng 4 vì chữ dài hơn → tự xuống dòng và
-                  cao hơn hàng xóm, đúng cái đang phải sửa. */}
-              <div className="mm-btns">
-                <button
-                  type="button"
-                  className={it.is_out_of_stock ? 'mm-b mm-b-back' : 'mm-b mm-b-out'}
-                  onClick={() => toggleStock(it)}
-                >
-                  {it.is_out_of_stock ? 'Có lại' : 'Hết'}
-                </button>
-                {canManage && (
-                  <>
-                    {/* Món đang hết thì mọi thao tác khác bị khoá (chủ quán chốt 2026-09-29):
-                        việc duy nhất cần làm với nó là bật lại, và để nguyên các nút kia chỉ
-                        tạo cơ hội sửa nhầm một món đang không bán. */}
-                    <button
-                      type="button"
-                      className="mm-b mm-b-edit"
-                      disabled={it.is_out_of_stock}
-                      onClick={() => setEditing(it)}
-                    >
-                      Sửa
-                    </button>
-                    {it.is_active && (
-                      <button
-                        type="button"
-                        className="mm-b mm-b-del"
-                        disabled={it.is_out_of_stock}
-                        onClick={() => softDelete(it)}
-                      >
-                        Xoá
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-              {/* Hàng dưới chia đôi với nút Công thức thay vì thành nút thứ 4 ở hàng trên: 4 nút
-                  chia đều một hàng trên điện thoại 390px còn ~85px mỗi nút, chữ phải co lại —
-                  mà người dùng thật phần lớn lớn tuổi. Ai không có quyền sửa menu thì hàng này
-                  chỉ còn nút đẩy bán, cho nó chiếm trọn bề ngang (class `one`). */}
-              <div className={`mm-row2${canManage ? '' : ' one'}`}>
-                <button
-                  type="button"
-                  className={it.is_push_sale ? 'mm-push on' : 'mm-push'}
-                  /* Món đang hết không đẩy bán được — BE cũng chặn, nhưng nút khoá sẵn thì
-                     người bấm biết ngay thay vì ăn một toast đỏ. */
-                  disabled={it.is_out_of_stock}
-                  onClick={() => togglePushSale(it)}
-                  title={it.is_push_sale
-                    ? 'Đang nằm ở dải "NÊN MỜI KHÁCH" đầu màn Gọi món — bấm để bỏ'
-                    : 'Món ế? Bật để nhân viên order thấy ở đầu màn Gọi món mà mời khách'}
-                >
-                  <IconText name="day-ban">{it.is_push_sale ? 'Đang đẩy' : 'Đẩy bán'}</IconText>
-                </button>
-                {canManage && (
-                <button
-                  type="button"
-                  className={recipeCounts[it.id] ? 'mm-recipe has' : 'mm-recipe'}
-                  disabled={it.is_out_of_stock}
-                  onClick={() => setRecipeFor(it)}
-                  title="Khai nguyên liệu + định lượng cho món này"
-                  /* Màn "Nguyên liệu" bị gỡ khỏi đây 2026-09-29: từ khi nguyên liệu bắt buộc
-                     thuộc một nhà cung cấp, sửa/xoá nó ở màn Menu là sai chỗ — nó là mặt hàng
-                     của NCC. Danh mục nguyên liệu vẫn mở được từ màn Nhà cung cấp, kèm chức
-                     năng gộp hai nguyên liệu trùng tên. */
-                >
-                  {/* Nhãn bỏ chữ "Công thức ·" (2026-10-05): từ khi nút này chia đôi hàng với
-                      nút Đẩy bán, chữ cũ dài quá nửa thẻ và gãy xuống hai dòng, làm thẻ cao
-                      hơn hàng xóm. Việc nút làm gì vẫn rõ nhờ chữ "nguyên liệu" + tooltip. */}
-                  {recipeCounts[it.id]
-                    ? `${recipeCounts[it.id]} nguyên liệu`
-                    : 'Khai nguyên liệu'}
-                </button>
-                )}
-              </div>
-              {/* Nút Đề xuất ở HÀNG RIÊNG, trọn bề ngang, không chen vào hàng trên: hàng trên đã hai
-                  nút, thành ba thì mỗi nút còn ~115px trên điện thoại 390px và chữ phải co —
-                  mà người dùng thật phần lớn lớn tuổi (cùng lý do đã tách hàng này từ trước). */}
-              {canManage && (
-              <div className="mm-row2 one">
-                <button
-                  type="button"
-                  className={featuredIds.has(it.id) ? 'mm-star on' : 'mm-star'}
-                  /* CỐ Ý không khoá khi món hết hàng, khác nút Đẩy bán ngay trên: "đề xuất" là ý
-                     định dài hạn của chủ quán, còn hết hàng là chuyện của hôm nay. Nhân vật ở
-                     thực đơn tự bỏ qua món đang hết (menu-pairing.ts), nên bật sẵn không gây hại
-                     gì — mà khoá lại thì hôm nào hết hàng là không khai báo được. */
-                  onClick={() => toggleFeatured(it)}
-                  title={featuredIds.has(it.id)
-                    ? 'Nhân vật ở thực đơn tại bàn đang mời khách món này — bấm để bỏ'
-                    : 'Muốn khách thử món này? Bật để nhân vật ở thực đơn tại bàn mời khách'}
-                >
-                  <IconText name="de-xuat">{featuredIds.has(it.id) ? 'Đang đề xuất' : 'Đề xuất'}</IconText>
-                </button>
-              </div>
+                  <button type="button" className="secondary" onClick={clearFilters}>Xoá bộ lọc</button>
+                </>
+              ) : (
+                <div style={{ fontSize: 'var(--ds-fs-body)' }}>Chưa có món nào.</div>
               )}
             </div>
-            );
-          })}
-        </div>
-      )}
+          )}
 
+          {!loading && items.length > 0 && (isPhone ? (
+            <div className="td-plist">
+              {muc.map((g) => (
+                <div key={g.key}>
+                  {g.ten && (
+                    <div className="td3-gh">
+                      {g.ten} <span>· {g.items.length} món</span>
+                    </div>
+                  )}
+                  {g.items.map((it) => <MenuItemRowCard key={it.id} it={it} ctx={ctx} />)}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <MenuItemTable muc={muc} ctx={ctx} allSelected={allPageSelected} onToggleAll={togglePage} />
+          ))}
         </div>
       </div>
 
-      {/* Thanh chuyển trang chung — dãy số + lưới chọn trang (docs/UI-UX/phan-trang.md). */}
-      {!loading && (
-        <Pagination page={page} totalPages={totalPages} onChange={setPage} total={total} pageSize={PAGE_SIZE} donVi="món" />
+      {/* Điện thoại: "+ Thêm món" là nút tròn nổi góc phải dưới, nằm trên menu dưới. */}
+      {canManage && isPhone && !dangChon && (
+        <button type="button" className="td3-fab" onClick={() => setShowCreate(true)} aria-label="Thêm món">
+          +
+        </button>
+      )}
+
+      {undo && (
+        <MenuUndoBar
+          undo={undo}
+          nowMs={nowMs}
+          raised={false}
+          onUndo={() => {
+            const u = undo;
+            setUndo(null);
+            u.revert();
+          }}
+        />
+      )}
+
+      {/* Menu ⋯ của một món (2026-11-11, lần 2). Còn/Hết + Đẩy bán nằm NGOÀI hàng; ở đây: Bán online
+          → Đề xuất → Sửa / Công thức / Ảnh / Xoá. Bếp chỉ thấy phần ảnh (đúng quyền API).
+          Món đang hết: Sửa/Công thức/Xoá vẫn khoá (chủ quán chốt 2026-09-29) — việc duy nhất cần
+          làm với nó là bật lại. Bấm gì xong cũng đóng tấm (`moreFor` là bản chụp). */}
+      {moreFor && (
+        <Sheet title={moreFor.name} onClose={() => setMoreFor(null)} giuaKhiRong>
+          <div className="td-actions">
+            {/* Công tắc Online VÀO ĐÂY (chủ quán 2026-11-11, lần 2) — việc làm thỉnh thoảng; Còn/Hết
+                và Đẩy bán thì ra ngoài hàng. Chỉ ảnh hưởng web đặt giao / tự lấy, KHÔNG ảnh hưởng
+                trang QR gọi món tại bàn. */}
+            {canManage && (
+              <button
+                type="button"
+                disabled={pending.has(`item:${moreFor.id}`)}
+                onClick={() => { setItemHidden(moreFor, !moreFor.is_online_hidden, true); setMoreFor(null); }}
+              >
+                <IconText name={moreFor.is_online_hidden ? 'online' : 'an'} size={20}>
+                  {moreFor.is_online_hidden ? 'Bán online lại (web đặt giao)' : 'Ẩn khỏi web đặt giao'}
+                </IconText>
+              </button>
+            )}
+            {canManage && (
+              <button type="button" onClick={() => { void toggleFeatured(moreFor); setMoreFor(null); }}>
+                <IconText name="de-xuat" size={20}>
+                  {featuredIds.has(moreFor.id) ? 'Thôi đề xuất' : 'Đề xuất cho khách tại bàn'}
+                </IconText>
+              </button>
+            )}
+            {canManage && (
+              <button type="button" disabled={moreFor.is_out_of_stock} onClick={() => { setEditing(moreFor); setMoreFor(null); }}>
+                <IconText name="sua" size={20}>Sửa món</IconText>
+              </button>
+            )}
+            {canManage && (
+              <button type="button" disabled={moreFor.is_out_of_stock} onClick={() => { setRecipeFor(moreFor); setMoreFor(null); }}>
+                <IconText name="tai-lieu" size={20}>
+                  {recipeCounts[moreFor.id] ? `Công thức · ${recipeCounts[moreFor.id]} nguyên liệu` : 'Khai nguyên liệu (công thức)'}
+                </IconText>
+              </button>
+            )}
+            {moreFor.image_url && !brokenIds.has(moreFor.id) && (
+              <button type="button" onClick={() => { setZoomItem(moreFor); setMoreFor(null); }}>
+                <IconText name="anh" size={20}>Xem ảnh to</IconText>
+              </button>
+            )}
+            {moreFor.image_url && brokenIds.has(moreFor.id) && (
+              <button type="button" onClick={() => { retryImage(moreFor.id); setMoreFor(null); }}>
+                <IconText name="lam-moi" size={20}>Thử tải lại ảnh</IconText>
+              </button>
+            )}
+            {canManage && moreFor.is_active && (
+              <button
+                type="button"
+                className="td-actions__xoa"
+                disabled={moreFor.is_out_of_stock}
+                onClick={() => { const it = moreFor; setMoreFor(null); void softDelete(it); }}
+              >
+                <IconText name="xoa" size={20}>Xoá món</IconText>
+              </button>
+            )}
+            {canManage && moreFor.is_out_of_stock && (
+              <p className="td-note">Món đang hết — gạt công tắc “Còn hàng” trước rồi mới sửa / xoá được.</p>
+            )}
+          </div>
+        </Sheet>
+      )}
+      {showManage && (
+        <Sheet title="Quản lý thực đơn" onClose={() => setShowManage(false)} giuaKhiRong>
+          <div className="td-actions">
+            {/* Hàng không có ô tick sẵn — bật chế độ chọn nhiều ở đây (máy tính lẫn điện thoại). */}
+            <button type="button" onClick={() => { setSelectMode(true); setShowManage(false); }}>
+              <IconText name="chon" size={20}>Chọn nhiều món</IconText>
+            </button>
+            <button type="button" onClick={() => { setShowGroupsManager(true); setShowManage(false); }}>
+              <IconText name="sap-xep" size={20}>Nhóm món (thêm, sửa, sắp thứ tự)</IconText>
+            </button>
+            <button type="button" onClick={() => { setShowImport(true); setShowManage(false); }}>
+              <IconText name="tai-len" size={20}>Import từ Excel / CSV</IconText>
+            </button>
+            <button type="button" onClick={() => { setShowCombos(true); setShowManage(false); }}>
+              <IconText name="combo" size={20}>Combo gợi ý</IconText>
+            </button>
+          </div>
+        </Sheet>
       )}
 
       {showCreate && (
@@ -719,6 +1048,9 @@ export function MenuManagementPage() {
         <MenuFormModal
           existing={editing}
           groups={groups}
+          featured={featuredIds.has(editing.id)}
+          onToggleFeatured={() => void toggleFeatured(editing)}
+          onTogglePushSale={() => togglePushSale(editing)}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); refresh({ silent: true }); }}
         />
@@ -737,20 +1069,8 @@ export function MenuManagementPage() {
           onImported={() => { setShowImport(false); refresh({ silent: true }); }}
         />
       )}
-      {/* `refresh()` khi đóng: màn Menu xem có sửa `is_menu_hidden`/`menu_sort_order` của
-          món, mà lưới phía sau đang giữ bản cũ trong state — không tải lại thì hai màn nói
-          hai chuyện khác nhau về cùng một món. */}
-      {showMenuBook && (
-        <MenuBookPanel
-          onClose={() => {
-            setShowMenuBook(false);
-            refresh({ silent: true });
-          }}
-        />
-      )}
       {showCombos && <MenuComboPanel onClose={() => setShowCombos(false)} />}
-      {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả lưới món): số nguyên liệu
-          trên nút vừa đổi, còn `menu_items` thì không đụng tới. */}
+      {/* Đóng panel công thức thì nạp lại SỐ ĐẾM (không nạp lại cả danh sách món). */}
       {recipeFor && (
         <RecipePanel
           menuItemId={recipeFor.id}
@@ -768,13 +1088,12 @@ export function MenuManagementPage() {
           onLinesChanged={reloadCost}
           onClose={() => {
             setRecipeFor(null);
-            loadRecipeCounts(items.map((i) => i.id));
+            loadRecipeCounts([recipeFor.id]);
           }}
         />
       )}
       {/* Xem ảnh toàn màn hình: chạm BẤT KỲ đâu (cả ảnh) là đóng — người lớn tuổi không phải
-          dò tìm nút. Nút đóng to vẫn để đó cho ai quen tìm nút đóng. Cùng kiểu với ảnh phiếu
-          giao hàng (DeliveryPhotosDialog) để hai chỗ xem ảnh trong app cư xử như nhau. */}
+          dò tìm nút. Nút đóng to vẫn để đó cho ai quen tìm nút đóng. */}
       {zoomItem?.image_url && (
         <div
           className="mm-zoom"
@@ -793,425 +1112,6 @@ export function MenuManagementPage() {
   );
 }
 
-function GroupsManagerModal({
-  groups,
-  onClose,
-  onChanged,
-}: {
-  groups: MenuGroup[];
-  onClose: () => void;
-  onChanged: () => void;
-}) {
-  const toast = useToast();
-  const confirm = useConfirm();
-  const [showCreate, setShowCreate] = useState(false);
-
-  const remove = async (g: MenuGroup) => {
-    const ok = await confirm({
-      title: `Xoá nhóm "${g.name}"?`,
-      message: 'Món thuộc nhóm này vẫn còn nhưng nhóm bị ẩn khỏi filter.',
-      variant: 'danger',
-      confirmLabel: 'Xoá nhóm',
-    });
-    if (!ok) return;
-    try {
-      await api.delete(`/menu-groups/${g.id}`);
-      toast.push('success', `Đã xoá nhóm ${g.name}`);
-      onChanged();
-    } catch (e) {
-      toast.push('error', extractError(e).message);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={{ maxWidth: 520 }}>
-        <div className="flex between" style={{ marginBottom: 12 }}>
-          <h1 style={{ margin: 0 }}>Quản lý nhóm món</h1>
-          <button className="secondary" onClick={onClose} style={{ padding: '6px 10px', display: 'inline-flex', alignItems: 'center' }}>
-            <Icon name="dong" size={22} label="Đóng" />
-          </button>
-        </div>
-        <p style={{ color: '#6b7280', fontSize: 13, marginTop: -4 }}>
-          Nhóm phân loại món + xác định loại bếp (nấu / có sẵn).
-        </p>
-        <div style={{ display: 'grid', gap: 8, marginBottom: 12 }}>
-          {groups.map((g) => (
-            <div key={g.id} className="card" style={{ padding: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 600 }}>
-                  {g.icon && <span style={{ marginRight: 6 }}>{g.icon}</span>}
-                  {g.name}
-                </div>
-                <div style={{ fontSize: 11, color: '#6b7280' }}>
-                  <code>{g.code}</code> ·{' '}
-                  <IconText name={g.kitchen_type === 'cook' ? 'bep' : 'co-san'} size={12}>
-                    {g.kitchen_type === 'cook' ? 'Bếp nấu' : 'Có sẵn'}
-                  </IconText>
-                </div>
-              </div>
-              <button className="danger" onClick={() => remove(g)} style={{ padding: '6px 10px', fontSize: 13 }}>
-                Xoá
-              </button>
-            </div>
-          ))}
-        </div>
-        {showCreate ? (
-          <NewGroupForm
-            onClose={() => setShowCreate(false)}
-            onSaved={() => { setShowCreate(false); onChanged(); }}
-          />
-        ) : (
-          <button onClick={() => setShowCreate(true)} style={{ width: '100%' }}>+ Thêm nhóm mới</button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NewGroupForm({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const toast = useToast();
-  const [code, setCode] = useState('');
-  const [name, setName] = useState('');
-  const [icon, setIcon] = useState('');
-  const [kitchenType, setKitchenType] = useState('cook');
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || !name.trim()) {
-      setErr('Mã + tên nhóm bắt buộc');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      await api.post('/menu-groups', {
-        code: code.toLowerCase().trim(),
-        name: name.trim(),
-        icon: icon.trim() || undefined,
-        kitchen_type: kitchenType,
-      });
-      toast.push('success', `Tạo nhóm "${name}" thành công`);
-      onSaved();
-    } catch (e) {
-      setErr(extractError(e).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <form onSubmit={submit} style={{ background: '#f9fafb', padding: 12, borderRadius: 10 }}>
-      <h2 style={{ marginTop: 0, fontSize: 15 }}>Nhóm mới</h2>
-      <div className="flex">
-        <div className="row" style={{ flex: 1 }}>
-          <label htmlFor="g-code">Mã (vd dessert)</label>
-          <input id="g-code" value={code} onChange={(e) => setCode(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="dessert" />
-        </div>
-        <div className="row" style={{ width: 80 }}>
-          <label htmlFor="g-icon">Biểu tượng</label>
-          <input id="g-icon" value={icon} onChange={(e) => setIcon(e.target.value)} placeholder="🍰" maxLength={2} style={{ textAlign: 'center' }} />
-        </div>
-      </div>
-      <div className="row">
-        <label htmlFor="g-name">Tên hiển thị</label>
-        <input id="g-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Tráng miệng" />
-      </div>
-      <div className="row">
-        <label>Loại bếp xử lý</label>
-        <div style={{ display: 'grid', gap: 6, gridTemplateColumns: '1fr 1fr' }}>
-          <button type="button" onClick={() => setKitchenType('cook')} className={kitchenType === 'cook' ? '' : 'secondary'}>
-            <IconText name="bep">Bếp nấu</IconText>
-          </button>
-          <button type="button" onClick={() => setKitchenType('ready-made')} className={kitchenType === 'ready-made' ? '' : 'secondary'}>
-            <IconText name="co-san">Có sẵn</IconText>
-          </button>
-        </div>
-      </div>
-      {err && <div className="field-error">{err}</div>}
-      <div className="flex" style={{ marginTop: 8 }}>
-        <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>Huỷ</button>
-        <button type="submit" disabled={submitting} style={{ flex: 1 }}>{submitting && <span className="spinner" />}Tạo nhóm</button>
-      </div>
-    </form>
-  );
-}
-
-function MenuFormModal({
-  existing,
-  groups,
-  onClose,
-  onSaved,
-}: {
-  existing?: MenuItem;
-  groups: MenuGroup[];
-  onClose: () => void;
-  onSaved: () => void;
-}) {
-  const toast = useToast();
-  const [code, setCode] = useState(existing?.code || '');
-  const [name, setName] = useState(existing?.name || '');
-  const [group, setGroup] = useState(existing?.group || groups[0]?.code || 'food');
-  const [price, setPrice] = useState(existing?.price || 0);
-  const [unit, setUnit] = useState(existing?.unit || 'phần');
-  const [description, setDescription] = useState(existing?.description ?? '');
-  /* Giữ ở dạng CHUỖI chứ không number: ô để trống là "chưa khai" (NULL), mà `useState(0)` thì
-     không phân biệt được "chưa khai" với "0 người ăn". */
-  const [serves, setServes] = useState(existing?.serves != null ? String(existing.serves) : '');
-  const [imageUrl, setImageUrl] = useState(existing?.image_url || '');
-  const [showUrlInput, setShowUrlInput] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
-
-  const pickFile = () => fileInputRef.current?.click();
-
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      setErr('Ảnh vượt quá 10MB, vui lòng chọn ảnh nhỏ hơn');
-      e.target.value = '';
-      return;
-    }
-    setErr(null);
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      const res = await api.post<{ data: { url: string } }>('/menu/upload-image', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setImageUrl(res.data.data.url);
-      toast.push('success', 'Tải ảnh lên thành công');
-    } catch (e) {
-      setErr(extractError(e).message);
-    } finally {
-      setUploading(false);
-      if (e.target) e.target.value = '';
-    }
-  };
-
-  const clearImage = () => {
-    setImageUrl('');
-    setShowUrlInput(false);
-  };
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!code.trim() || !name.trim() || price < 0) {
-      setErr('Mã món, tên, giá là bắt buộc');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      const body: Record<string, unknown> = {
-        name,
-        group,
-        price,
-        unit,
-        image_url: imageUrl.trim() ? imageUrl : null,
-        // Ô trống → NULL, không phải chuỗi rỗng / số 0: trang khách dựa vào NULL để ẩn hẳn dòng.
-        description: description.trim() || null,
-        serves: serves.trim() ? Number(serves) : null,
-      };
-      if (existing) {
-        await api.patch(`/menu/${existing.id}`, body);
-        toast.push('success', `Cập nhật ${name} thành công`);
-      } else {
-        body.code = code;
-        await api.post('/menu', body);
-        toast.push('success', `Tạo món ${name} thành công`);
-      }
-      onSaved();
-    } catch (e) {
-      setErr(extractError(e).message);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <form className="modal" onSubmit={submit}>
-        <h1>{existing ? 'Sửa món' : 'Thêm món mới'}</h1>
-        <div className="row">
-          <label htmlFor="m-code">Mã món (vd F001)</label>
-          <input
-            id="m-code"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            disabled={!!existing}
-            style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
-            autoFocus={!existing}
-          />
-        </div>
-        <div className="row">
-          <label htmlFor="m-name">Tên món</label>
-          <input id="m-name" value={name} onChange={(e) => setName(e.target.value)} autoFocus={!!existing} />
-        </div>
-        <div className="row">
-          <label>Nhóm</label>
-          {/* ~30 nhóm → Dropdown chung tự có ô tìm (gõ không dấu). Thay `<select>` gốc: danh sách
-              bung ra của hệ điều hành không tìm được, phải cuộn cả 30 dòng. Emoji nhóm là dữ liệu
-              chủ quán tự đặt nên giữ trong nhãn. */}
-          <Dropdown
-            ariaLabel="Nhóm"
-            value={group}
-            onChange={setGroup}
-            options={groups.map((g) => ({ value: g.code, label: g.icon ? `${g.icon} ${g.name}` : g.name }))}
-            full
-          />
-        </div>
-        <div className="flex">
-          <div className="row" style={{ flex: 2 }}>
-            <label htmlFor="m-price">Giá (VND)</label>
-            <input
-              id="m-price"
-              type="number"
-              inputMode="numeric"
-              value={price}
-              onChange={(e) => setPrice(Number(e.target.value) || 0)}
-              min={0}
-              step={1000}
-            />
-          </div>
-          <div className="row" style={{ flex: 1 }}>
-            <label htmlFor="m-unit">ĐVT</label>
-            <input id="m-unit" value={unit} onChange={(e) => setUnit(e.target.value)} placeholder="phần / cốc..." />
-          </div>
-        </div>
-        {/* ── Mô tả + mấy người ăn (2026-10-05) ──
-            Thực đơn tại bàn trước giờ chỉ có tên + giá + ảnh, nên khách không dám gọi món lạ và
-            cứ gọi lại món đã quen. Hai ô này KHÔNG bắt buộc: 598 món thì còn lâu mới viết hết,
-            viết được 30 món chủ lực đã ăn thua rồi. */}
-        <div className="row">
-          <label htmlFor="m-desc">Mô tả ngắn (không bắt buộc)</label>
-          <input
-            id="m-desc"
-            value={description}
-            maxLength={160}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Cay vừa, ăn kèm bánh mì…"
-          />
-          <small style={{ color: '#6b7280' }}>
-            Khách đọc câu này trong thực đơn tại bàn. {description.length}/160
-          </small>
-        </div>
-        <div className="row">
-          <label htmlFor="m-serves">Mấy người ăn (không bắt buộc)</label>
-          <input
-            id="m-serves"
-            type="number"
-            inputMode="numeric"
-            min={1}
-            max={20}
-            value={serves}
-            onChange={(e) => setServes(e.target.value)}
-            placeholder="vd 3"
-          />
-        </div>
-        <div className="row">
-          <label>Ảnh món (không bắt buộc)</label>
-          {imageUrl ? (
-            <div style={{ position: 'relative', display: 'inline-block' }}>
-              <img
-                src={imageUrl}
-                alt="preview"
-                style={{
-                  width: '100%',
-                  maxWidth: 240,
-                  height: 160,
-                  objectFit: 'cover',
-                  borderRadius: 8,
-                  border: '1px solid #e5e7eb',
-                  display: 'block',
-                }}
-              />
-              <button
-                type="button"
-                onClick={clearImage}
-                title="Xoá ảnh"
-                style={{
-                  position: 'absolute',
-                  top: 6,
-                  right: 6,
-                  width: 28,
-                  height: 28,
-                  padding: 0,
-                  borderRadius: '50%',
-                  background: 'rgba(0,0,0,0.6)',
-                  color: 'white',
-                  border: 'none',
-                  fontSize: 14,
-                  lineHeight: 1,
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                <Icon name="dong" size={16} label="Xoá ảnh" />
-              </button>
-            </div>
-          ) : (
-            <>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFile}
-                style={{ display: 'none' }}
-              />
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={pickFile}
-                  disabled={uploading}
-                  style={{ flex: 1, minWidth: 140, padding: '12px 14px' }}
-                >
-                  {uploading ? <span className="spinner" /> : <IconText name="anh" size={20}>Tải ảnh lên</IconText>}
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => setShowUrlInput((v) => !v)}
-                  style={{ padding: '12px 14px' }}
-                >
-                  {showUrlInput ? 'Đóng URL' : 'Hoặc dán URL'}
-                </button>
-              </div>
-              {showUrlInput && (
-                <input
-                  type="url"
-                  placeholder="https://..."
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  style={{ marginTop: 8 }}
-                />
-              )}
-              <p style={{ fontSize: 12, color: '#6b7280', marginTop: 6 }}>
-                JPG/PNG/WEBP/GIF, tối đa 10MB. Trên điện thoại có thể chụp trực tiếp từ camera.
-              </p>
-            </>
-          )}
-        </div>
-        {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
-        <div className="flex">
-          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
-            {submitting && <span className="spinner" />}
-            {existing ? 'Lưu' : 'Tạo'}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
 
 /** `xlsx` một mình chiếm 415 KB — 38% cả bundle apps/web — mà chỉ modal này dùng tới.
  * Import tĩnh nghĩa là anh bếp mở màn hàng chờ trên điện thoại cũng phải tải nguyên
@@ -1618,7 +1518,7 @@ function ImportMenuModal({
                 {' '}<span style={{ color: '#059669' }}>{validCount} OK</span>
                 {errorCount > 0 && <> · <span style={{ color: '#dc2626' }}>{errorCount} lỗi (sẽ bỏ qua)</span></>}
               </div>
-              <button type="button" className="secondary" onClick={() => { setRows(null); setFileName(''); setRawPrices([]); setMultiplyByThousand(false); }} style={{ padding: '4px 10px', fontSize: 12 }}>
+              <button type="button" className="secondary" onClick={() => { setRows(null); setFileName(''); setRawPrices([]); setMultiplyByThousand(false); }} style={{ padding: '4px 10px', fontSize: 13 }}>
                 Chọn file khác
               </button>
             </div>
@@ -1649,7 +1549,7 @@ function ImportMenuModal({
                   <Icon name="tien-mat" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
                   Giá trong file là <strong>nghìn VND</strong> (×1000)
                 </div>
-                <div style={{ color: '#6b7280', marginTop: 2, fontSize: 12 }}>
+                <div style={{ color: '#6b7280', marginTop: 2, fontSize: 13 }}>
                   Tích nếu file lưu giá dạng <code>200</code> = 200,000đ, <code>15</code> = 15,000đ.
                   {' '}Hệ thống tự nhận biết: {multiplyByThousand
                     ? <strong style={{ color: '#92400e' }}>đã tự tick vì ≥80% giá &lt; 1000.</strong>
@@ -1677,14 +1577,14 @@ function ImportMenuModal({
                   {newGroups.map((g) => (
                     <span
                       key={g.code}
-                      style={{ padding: '2px 8px', background: '#dbeafe', borderRadius: 6, fontSize: 12 }}
+                      style={{ padding: '2px 8px', background: '#dbeafe', borderRadius: 6, fontSize: 13 }}
                       title={`Code: ${g.code}`}
                     >
-                      {g.name} <code style={{ opacity: 0.6, fontSize: 11 }}>({g.code})</code>
+                      {g.name} <code style={{ opacity: 0.6, fontSize: 13 }}>({g.code})</code>
                     </span>
                   ))}
                 </div>
-                <div style={{ color: '#6b7280', fontSize: 12, marginTop: 6 }}>
+                <div style={{ color: '#6b7280', fontSize: 13, marginTop: 6 }}>
                   Tên đầy đủ sẽ được giữ. Có thể sửa icon/loại bếp sau ở phần "Nhóm".
                 </div>
               </div>
@@ -1718,7 +1618,7 @@ function ImportMenuModal({
                           <>
                             <div>{r.group_name}</div>
                             {r.group_name !== r.group && (
-                              <code style={{ fontSize: 10, opacity: 0.5 }}>{r.group}</code>
+                              <code style={{ fontSize: 13, opacity: 0.5 }}>{r.group}</code>
                             )}
                           </>
                         ) : keepOld}
@@ -1731,7 +1631,7 @@ function ImportMenuModal({
                         style={{
                           ...td,
                           color: r.error ? '#dc2626' : r.warning ? '#0284c7' : '#9ca3af',
-                          fontSize: 12,
+                          fontSize: 13,
                         }}
                       >
                         {r.error || r.warning || '—'}
@@ -1758,5 +1658,5 @@ function ImportMenuModal({
   );
 }
 
-const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontWeight: 600, fontSize: 12, color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
+const th: React.CSSProperties = { padding: '8px 10px', textAlign: 'left', fontWeight: 600, fontSize: 13, color: '#6b7280', borderBottom: '1px solid #e5e7eb' };
 const td: React.CSSProperties = { padding: '6px 10px', verticalAlign: 'top' };

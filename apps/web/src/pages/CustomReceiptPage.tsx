@@ -7,8 +7,12 @@
 // Làm lại giao diện 2026-11-10 (chủ quán, đủ 11 điểm): MỘT lớp nền trắng, món là hàng ~56px kẻ
 // mảnh 1px (bỏ thẻ viền + vạch xanh), 4 cỡ chữ 22/16/14/12, chỉ tên món + tổng tiền in đậm,
 // thanh dính đáy [Tổng · In phiếu] nằm sát trên nav, bấm In → XEM TRƯỚC đúng tấm ảnh máy in sẽ
-// in, in xong KHÔNG xoá form mà hiện "Đã in #MÃ · In lại · Soạn phiếu mới". Kiểu dáng ở `.crp-*`
-// trong styles.css (cần media query — style nội tuyến không viết được).
+// in, in xong KHÔNG xoá form mà hiện "Đã in #MÃ · In lại · Soạn phiếu mới". Kiểu dáng ở `.ph-*`
+// trong ./ph-phieu.css (cần media query — style nội tuyến không viết được).
+//
+// Áp bộ quy tắc `--ds-*` 2026-11-11 (chủ quán chốt): cỡ chữ 13/15/16/20/28, nút/ô nhập 44px, khối
+// viền 1px không bóng, MỘT điểm nhấn xanh ngọc = nút In (nút "Thêm món" về nút phụ). Câu giải
+// thích "không tính doanh thu" vào nút ⓘ — giải thích là phụ, nội dung (món) lên trước.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api, extractError } from '../lib/api.ts';
@@ -20,6 +24,7 @@ import { Sheet } from '../components/ui/Sheet.tsx';
 import type { ReceiptCopy } from './CustomReceiptHistoryPage.tsx';
 import { BulkOrderModal } from '../components/BulkOrderModal.tsx';
 import { blankLine, receiptTotals, toCreatePayload, type DraftLine } from '../lib/custom-receipt.ts';
+import './ph-phieu.css';
 
 function fmt(v: number) {
   return v.toLocaleString('vi-VN') + 'đ';
@@ -65,7 +70,7 @@ function ReceiptRow({
   const touchRef = useRef<{ x: number; y: number } | null>(null);
   return (
     <li
-      className="crp-row"
+      className="ph-row"
       onTouchStart={(e) => {
         const t = e.touches[0];
         touchRef.current = { x: t.clientX, y: t.clientY };
@@ -82,11 +87,11 @@ function ReceiptRow({
         onReveal(dx < 0);
       }}
     >
-      <button type="button" className="crp-row__name" onClick={onEdit} aria-label={`Sửa ${line.name || 'dòng chưa đặt tên'}`}>
-        <span className={unnamed ? 'crp-row__title crp-row__title--trong' : 'crp-row__title'}>
+      <button type="button" className="ph-row__name" onClick={onEdit} aria-label={`Sửa ${line.name || 'dòng chưa đặt tên'}`}>
+        <span className={unnamed ? 'ph-row__title ph-row__title--trong' : 'ph-row__title'}>
           {unnamed ? 'Chưa đặt tên — chạm để gõ' : line.name}
         </span>
-        <span className="crp-row__sub">
+        <span className="ph-row__sub">
           {fmt(line.unit_price)}
           {line.note ? ` · ${line.note}` : ''}
         </span>
@@ -98,14 +103,14 @@ function ReceiptRow({
         onGiam={() => (line.qty <= 1 ? onRemove() : onPatch({ qty: line.qty - 1 }))}
         onTang={() => onPatch({ qty: Math.min(99, line.qty + 1) })}
       />
-      <span className="crp-row__amount">{fmt(line.unit_price * line.qty)}</span>
+      <span className="ph-row__amount">{fmt(line.unit_price * line.qty)}</span>
       {revealed && (
         <span className="item-swipe" role="group" aria-label={`Thao tác ${line.name || 'dòng này'}`}>
-          <button type="button" style={{ background: 'var(--brand)' }} onClick={() => { onReveal(false); onEdit(); }}>
+          <button type="button" style={{ background: 'var(--ds-accent)' }} onClick={() => { onReveal(false); onEdit(); }}>
             <Icon name="ghi-chu" size={22} />
             Ghi chú
           </button>
-          <button type="button" style={{ background: 'var(--gray-700)' }} onClick={() => { onReveal(false); onRemove(); }}>
+          <button type="button" style={{ background: 'var(--ds-ink)' }} onClick={() => { onReveal(false); onRemove(); }}>
             <Icon name="xoa" size={22} />
             Xoá
           </button>
@@ -132,18 +137,18 @@ function EditLineSheet({
       giuaKhiRong
       onClose={onClose}
       footer={
-        <div className="crp-sheet-foot">
-          <button type="button" className="crp-btn crp-btn--chinh" onClick={onClose}>
+        <div className="ph-sheet-foot">
+          <button type="button" className="ph-btn ph-btn--chinh" onClick={onClose}>
             Xong
           </button>
         </div>
       }
     >
-      <div className="crp-sheet-body">
-        <label className="crp-field">
-          <span className="crp-label">Tên món</span>
+      <div className="ph-sheet-body">
+        <label className="ph-field">
+          <span className="ph-label">Tên món</span>
           <input
-            className="crp-input"
+            className="ph-input"
             value={line.name}
             maxLength={120}
             placeholder="Tên hiện trên hoá đơn"
@@ -151,20 +156,20 @@ function EditLineSheet({
             onChange={(e) => onPatch({ name: e.target.value })}
           />
         </label>
-        <label className="crp-field">
-          <span className="crp-label">Đơn giá</span>
+        <label className="ph-field">
+          <span className="ph-label">Đơn giá</span>
           <input
-            className="crp-input"
+            className="ph-input"
             inputMode="numeric"
             value={line.unit_price === 0 ? '' : String(line.unit_price)}
             placeholder="0"
             onChange={(e) => onPatch({ unit_price: moneyValue(e.target.value) })}
           />
         </label>
-        <label className="crp-field">
-          <span className="crp-label">Ghi chú</span>
+        <label className="ph-field">
+          <span className="ph-label">Ghi chú</span>
           <input
-            className="crp-input"
+            className="ph-input"
             value={line.note}
             maxLength={255}
             placeholder="In thụt vào dưới tên món, không có tiền"
@@ -359,38 +364,45 @@ export function CustomReceiptPage() {
   const editingLine = lines.find((l) => l.key === editingKey) ?? null;
 
   return (
-    <div className="crp" style={{ paddingBottom: navH + 96 }}>
-      {/* Tên màn + nút ← nằm ở HEADER CHUNG (AppNav, 2026-11-10). Ở đây chỉ còn hàng chip:
-          "Không tính doanh thu" (bấm mới hiện giải thích) và — chỉ admin — "Phiếu đã in" (màn riêng
-          /custom-receipt/history). */}
-      <div className="crp-chip-row">
-        <button type="button" className="crp-chip" aria-expanded={showWhy} onClick={() => setShowWhy((v) => !v)}>
-          <Icon name="thong-tin" size={16} />
-          Không tính doanh thu
-        </button>
+    <div className="ph ds" style={{ paddingBottom: navH + 96 }}>
+      {/* Tên màn + nút ← nằm ở HEADER CHUNG (AppNav, 2026-11-10). Ở đây chỉ còn MỘT hàng gọn:
+          — chỉ admin — chip "Phiếu đã in" (màn riêng /custom-receipt/history), và nhãn "Không tính
+          doanh thu" kèm nút ⓘ (chạm mới hiện câu giải thích: đọc một lần là đủ, nên là phụ). */}
+      <div className="ph-top">
         {canSeeLog && (
-          <button type="button" className="crp-chip" onClick={() => navigate('/custom-receipt/history')}>
+          <button type="button" className="ph-chip" onClick={() => navigate('/custom-receipt/history')}>
             <Icon name="lich-su" size={16} />
             Phiếu đã in
           </button>
         )}
+        <span className="ph-note-why">
+          Không tính doanh thu
+          <button
+            type="button"
+            className="ph-i"
+            aria-expanded={showWhy}
+            aria-label="Vì sao không tính doanh thu"
+            onClick={() => setShowWhy((v) => !v)}
+          >
+            i
+          </button>
+        </span>
       </div>
 
       {(
         <>
-          {/* Câu giải thích 3 dòng cũ thành MỘT chip (ở hàng chip trên): đọc một lần là đủ. */}
           {showWhy && (
-            <p className="crp-why">
+            <p className="ph-why">
               Tờ này in giống hệt hoá đơn thật nhưng không tính vào doanh thu, không trừ kho và
               không tạo đơn nào.
             </p>
           )}
 
-          <section className="crp-group">
-            <label className="crp-field">
-              <span className="crp-label">Ghi chú đầu tờ</span>
+          <section className="ph-group">
+            <label className="ph-field">
+              <span className="ph-label">Ghi chú đầu tờ</span>
               <input
-                className="crp-input"
+                className="ph-input"
                 value={headerNote}
                 maxLength={64}
                 placeholder="Bàn 5, Mang về, tên khách…"
@@ -399,14 +411,14 @@ export function CustomReceiptPage() {
             </label>
           </section>
 
-          <section className="crp-group">
+          <section className="ph-group">
             {lines.length === 0 ? (
-              <div className="crp-empty">
+              <div className="ph-empty">
                 <Icon name="hoa-don" size={32} />
                 <span>Chưa có món nào</span>
               </div>
             ) : (
-              <ul className="crp-list">
+              <ul className="ph-list">
                 {lines.map((l) => (
                   <ReceiptRow
                     key={l.key}
@@ -420,33 +432,34 @@ export function CustomReceiptPage() {
                 ))}
               </ul>
             )}
-            <div className="crp-add">
-              <button type="button" className="crp-btn crp-btn--chinh" onClick={() => setPicking(true)}>
+            <div className="ph-add">
+              {/* Nút PHỤ (viền), không xanh đặc: mỗi màn MỘT điểm nhấn — đó là nút In ở thanh đáy. */}
+              <button type="button" className="ph-btn ph-btn--vien" onClick={() => setPicking(true)}>
                 <Icon name="them" size={20} />
                 Thêm món
               </button>
-              <button type="button" className="crp-btn crp-btn--vien" onClick={addTyped}>
+              <button type="button" className="ph-btn ph-btn--vien" onClick={addTyped}>
                 <Icon name="sua" size={20} />
                 Tự gõ
               </button>
             </div>
           </section>
 
-          <section className="crp-group crp-costs">
-            <label className="crp-field">
-              <span className="crp-label">Phí giao hàng</span>
+          <section className="ph-group ph-costs">
+            <label className="ph-field">
+              <span className="ph-label">Phí giao hàng</span>
               <input
-                className="crp-input"
+                className="ph-input"
                 inputMode="numeric"
                 value={shipFeeRaw}
                 placeholder="0"
                 onChange={(e) => setShipFeeRaw(e.target.value)}
               />
             </label>
-            <label className="crp-field">
-              <span className="crp-label">Khách chuyển khoản</span>
+            <label className="ph-field">
+              <span className="ph-label">Khách chuyển khoản</span>
               <input
-                className="crp-input"
+                className="ph-input"
                 inputMode="numeric"
                 value={transferRaw}
                 placeholder="Để trống là tiền mặt"
@@ -460,31 +473,31 @@ export function CustomReceiptPage() {
       {/* THANH DÍNH ĐÁY, sát trên nav (chủ quán 2026-11-10): tổng tiền là thứ nổi bật nhất màn,
           và nút In luôn trong tầm ngón cái — bản cũ để chúng cuối trang, 2 món là đã chui dưới nav. */}
       {(
-        <div className="crp-bar" style={{ bottom: navH }}>
-          <div className="crp-bar__in">
+        <div className="ph-bar" style={{ bottom: navH }}>
+          <div className="ph-bar__in">
             {daIn ? (
               <>
-                <div className="crp-bar__done">
+                <div className="ph-bar__done">
                   <Icon name="xong" size={20} />
                   {printed.queued ? `Đã in #${printed.code}` : `Đã lưu #${printed.code}`}
                 </div>
-                <button type="button" className="crp-btn crp-btn--vien" onClick={reprint} disabled={reprinting}>
+                <button type="button" className="ph-btn ph-btn--vien" onClick={reprint} disabled={reprinting}>
                   {reprinting ? 'Đang gửi…' : 'In lại'}
                 </button>
-                <button type="button" className="crp-btn crp-btn--chinh" onClick={newReceipt}>
+                <button type="button" className="ph-btn ph-btn--chinh" onClick={newReceipt}>
                   Soạn phiếu mới
                 </button>
               </>
             ) : (
               <>
-                <div className="crp-bar__total">
-                  <span className="crp-bar__label">Tổng</span>
-                  <span className="crp-bar__amount">{fmt(totals.total)}</span>
-                  {shipFee > 0 && <span className="crp-bar__label">gồm {fmt(shipFee)} phí giao</span>}
+                <div className="ph-bar__total">
+                  <span className="ph-bar__label">Tổng</span>
+                  <span className="ph-bar__amount">{fmt(totals.total)}</span>
+                  {shipFee > 0 && <span className="ph-bar__label">gồm {fmt(shipFee)} phí giao</span>}
                 </div>
                 <button
                   type="button"
-                  className="crp-btn crp-btn--chinh crp-btn--in"
+                  className="ph-btn ph-btn--chinh"
                   onClick={openPreview}
                   disabled={loadingPreview || lines.length === 0}
                 >
@@ -503,22 +516,22 @@ export function CustomReceiptPage() {
           giuaKhiRong
           onClose={() => !printing && setPreview(null)}
           footer={
-            <div className="crp-sheet-foot">
-              <button type="button" className="crp-btn crp-btn--vien" onClick={() => setPreview(null)} disabled={printing}>
+            <div className="ph-sheet-foot">
+              <button type="button" className="ph-btn ph-btn--vien" onClick={() => setPreview(null)} disabled={printing}>
                 Sửa lại
               </button>
-              <button type="button" className="crp-btn crp-btn--chinh crp-btn--in" onClick={() => void print()} disabled={printing}>
+              <button type="button" className="ph-btn ph-btn--chinh" onClick={() => void print()} disabled={printing}>
                 <Icon name="in" size={22} />
                 {printing ? 'Đang gửi…' : 'In'}
               </button>
             </div>
           }
         >
-          <div className="crp-paper-wrap">
+          <div className="ph-paper-wrap">
             {/* Ảnh này là ĐÚNG tấm bitmap máy in sẽ in (máy chủ dựng bằng code in thật), chỉ
                 khác mã phiếu: mã thật có sau khi bấm In. */}
-            <img className="crp-paper" src={preview} alt="Tờ phiếu khổ 80mm sẽ in" />
-            <span className="crp-label">Khổ 80mm · mã phiếu có sau khi in</span>
+            <img className="ph-paper" src={preview} alt="Tờ phiếu khổ 80mm sẽ in" />
+            <span className="ph-label">Khổ 80mm · mã phiếu có sau khi in</span>
           </div>
         </Sheet>
       )}
@@ -529,21 +542,21 @@ export function CustomReceiptPage() {
           giuaKhiRong
           onClose={() => !printing && setDupOf(null)}
           footer={
-            <div className="crp-sheet-foot crp-sheet-foot--doc">
-              <button type="button" className="crp-btn crp-btn--chinh" onClick={() => void printCopyOf(dupOf)} disabled={printing}>
+            <div className="ph-sheet-foot ph-sheet-foot--doc">
+              <button type="button" className="ph-btn ph-btn--chinh" onClick={() => void printCopyOf(dupOf)} disabled={printing}>
                 <Icon name="in" size={20} />
                 In thêm bản sao #{dupOf.code}
               </button>
-              <button type="button" className="crp-btn crp-btn--vien" onClick={() => void print(true)} disabled={printing}>
+              <button type="button" className="ph-btn ph-btn--vien" onClick={() => void print(true)} disabled={printing}>
                 Vẫn tạo phiếu mới
               </button>
-              <button type="button" className="crp-btn crp-btn--phang" onClick={() => setDupOf(null)} disabled={printing}>
+              <button type="button" className="ph-btn ph-btn--phang" onClick={() => setDupOf(null)} disabled={printing}>
                 Huỷ
               </button>
             </div>
           }
         >
-          <p className="crp-dup-text">
+          <p className="ph-dup-text">
             Phiếu #{dupOf.code} giống hệt vừa in lúc{' '}
             {new Date(dupOf.created_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}. In thêm
             bản sao giữ nguyên mã (giấy ghi BẢN IN LẠI), không tạo phiếu thứ hai.

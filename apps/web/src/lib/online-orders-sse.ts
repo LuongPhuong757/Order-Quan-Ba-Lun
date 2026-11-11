@@ -50,9 +50,23 @@ export function connectionStateFrom(input: {
   return 'connected';
 }
 
-/** Backoff nối lại: 1s → 2s → 5s → 10s rồi giữ 10s. Không backoff vô hạn — quán mở cả ca, nhân
- * viên không bấm F5; sau 10s vẫn phải thử tiếp mãi. */
-const RECONNECT_BACKOFF_MS = [1_000, 2_000, 5_000, 10_000];
+/** Backoff nối lại khi lỗi LIÊN TIẾP: 2s → 5s → 15s → 30s rồi giữ 30s.
+ * Bản cũ (1s → 2s → 5s → 10s) + reset bậc ngay ở `onopen` khiến API lỗi 500 / stream mở rồi sập
+ * ngay bị gõ cửa ~2s/lần mãi (2026-11-11) — mỗi máy trực ca nhân thêm tải lên đúng cái API đang
+ * ốm. Trần 30s vì quán mở cả ca, nhân viên không bấm F5: vẫn phải thử tiếp mãi, nhưng thưa;
+ * poll dự phòng 20s của badge (`online-waiting-badge.ts`) lo phần số đếm trong lúc chờ. */
+const RECONNECT_BACKOFF_MS = [2_000, 5_000, 15_000, 30_000] as const;
+
+/**
+ * Độ trễ trước lần mở lại thứ `failCount` (đếm từ 1 = lần lỗi đầu tiên). Hàm THUẦN để test được.
+ * `failCount` ≤ 0 hoặc không phải số hữu hạn → coi như lần đầu (2s), không bao giờ trả 0 để tránh
+ * vòng lặp gõ cửa liên tục.
+ */
+export function reconnectDelayMs(failCount: number): number {
+  const last = RECONNECT_BACKOFF_MS.length - 1;
+  if (!Number.isFinite(failCount) || failCount < 1) return RECONNECT_BACKOFF_MS[0];
+  return RECONNECT_BACKOFF_MS[Math.min(Math.floor(failCount) - 1, last)];
+}
 
 export type SseHandlers = {
   onEvent(ev: OnlineOrderStreamEvent): void;
@@ -70,24 +84,48 @@ export type SseHandlers = {
 export function subscribeOnlineOrders(handlers: SseHandlers): () => void {
   let es: EventSource | null = null;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
-  let attempt = 0;
+  /** Số lần lỗi liên tiếp chưa xen bởi 1 message thành công — quyết định bậc backoff. */
+  let failCount = 0;
   let closed = false;
 
+  const isHidden = (): boolean => typeof document !== 'undefined' && document.hidden;
+
+  const clearRetry = (): void => {
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
+  };
+
+  const closeEs = (): void => {
+    try {
+      es?.close();
+    } catch {
+      // ignore
+    }
+    es = null;
+  };
+
   const open = (): void => {
-    if (closed) return;
+    if (closed || es) return;
+    // Tab ẩn (iPad khoá màn hình, chuyển app) → KHÔNG mở lại: không ai nhìn, mà mỗi lần mở là 1
+    // request tới API. `visibilitychange` bên dưới sẽ mở lại ngay khi tab hiện lại.
+    if (isHidden()) return;
     try {
       es = new EventSource('/admin/online-orders/stream');
     } catch {
+      es = null;
+      failCount += 1;
       scheduleRetry();
       return;
     }
 
     es.onopen = () => {
-      attempt = 0;
+      // KHÔNG reset `failCount` ở đây: API ốm hay trả 200 rồi sập ngay → reset ở `onopen` chính là
+      // cái làm vòng nối lại kẹt ở bậc thấp nhất. Chỉ reset khi có message thật (heartbeat 15s/lần).
       handlers.onOpen();
     };
 
     es.onmessage = (msg: MessageEvent) => {
+      failCount = 0;
       // Payload lạ (BE đổi shape, proxy chèn rác) → BỎ QUA, không làm sập trang đang trực ca.
       try {
         const parsed = OnlineOrderStreamEvent.safeParse(JSON.parse(String(msg.data)));
@@ -99,39 +137,49 @@ export function subscribeOnlineOrders(handlers: SseHandlers): () => void {
 
     es.onerror = () => {
       handlers.onError();
-      // `EventSource` tự nối lại, nhưng nó không backoff và không báo cho ta biết trạng thái —
-      // tự quản để chấm màu/banner phản ánh đúng thực tế.
-      try {
-        es?.close();
-      } catch {
-        // ignore
-      }
-      es = null;
+      // `EventSource` tự nối lại theo `retry` của server (mặc định ~vài giây), không backoff và
+      // không báo trạng thái → PHẢI close() rồi tự hẹn giờ, không thì 2 vòng nối lại chồng nhau.
+      closeEs();
+      failCount += 1;
       scheduleRetry();
     };
   };
 
   const scheduleRetry = (): void => {
-    if (closed || retryTimer) return;
-    const delay = RECONNECT_BACKOFF_MS[Math.min(attempt, RECONNECT_BACKOFF_MS.length - 1)];
-    attempt += 1;
+    if (closed || retryTimer || isHidden()) return;
     retryTimer = setTimeout(() => {
       retryTimer = null;
       open();
-    }, delay);
+    }, reconnectDelayMs(failCount));
   };
+
+  /** Mở lại NGAY (bỏ qua bậc backoff đang chờ) — dùng khi tab hiện lại / có mạng lại: đó là lúc
+   * nhân viên đang nhìn màn hình, đợi tới 30s mới thấy đơn là quá lâu. */
+  const reopenNow = (): void => {
+    if (closed || es || isHidden()) return;
+    clearRetry();
+    open();
+  };
+
+  const onVisibility = (): void => {
+    if (isHidden()) {
+      // Ẩn tab thì huỷ hẹn giờ đang chờ; kết nối đang sống thì cứ để (đóng/mở lại tốn hơn giữ).
+      clearRetry();
+      return;
+    }
+    reopenNow();
+  };
+
+  if (typeof document !== 'undefined') document.addEventListener('visibilitychange', onVisibility);
+  if (typeof window !== 'undefined') window.addEventListener('online', reopenNow);
 
   open();
 
   return () => {
     closed = true;
-    if (retryTimer) clearTimeout(retryTimer);
-    retryTimer = null;
-    try {
-      es?.close();
-    } catch {
-      // ignore
-    }
-    es = null;
+    clearRetry();
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', onVisibility);
+    if (typeof window !== 'undefined') window.removeEventListener('online', reopenNow);
+    closeEs();
   };
 }

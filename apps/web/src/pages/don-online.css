@@ -1,0 +1,485 @@
+/* ════════════════════════════════════════════════════════════════════════════
+   MÀN ĐƠN ONLINE — ĐỢT 3 (chủ quán duyệt bản xem thử 2026-11-11)
+   Gốc rễ chủ quán chỉ ra: quá nhiều kiểu "nhãn", bố cục trải hết chiều ngang, thanh công cụ trộn
+   6 loại điều khiển. Quy tắc riêng của màn:
+   - Nền trang #f9fafb / khung trắng, viền #e5e7eb 1px, bo 12, KHÔNG bóng (trừ menu nổi).
+   - Chữ: tên 15/600 · tổng 15–20/700 · phụ 13/400 #6b7280 · nhãn 13/500 (không <13px).
+   - Màu: xanh ngọc = chọn/hành động · cam = cần xử lý · đỏ = lỗi · còn lại xám.
+   - Nhãn MỘT kiểu: pill 22px nền nhạt, không icon.
+   - Danh sách ≤ 880px; màn ≥1280px thêm panel chi tiết 380px.
+   Tiền tố `oo3-` để không đụng `.oo-*` cũ còn dùng ở thân thẻ.
+   ════════════════════════════════════════════════════════════════════════════ */
+
+.container.oo-page.oo3-narrow {
+  max-width: 912px;
+}
+.container.oo-page.oo3-narrow:has(.oo3-split) {
+  max-width: 1360px;
+}
+
+/* ── Thanh công cụ dính: bỏ đường kẻ ngang (trùng gạch chân tab phía trên) ── */
+.oo3-narrow .oo-toolbar {
+  border-bottom: 0;
+  background: var(--ds-muted-bg);
+}
+
+/* ── Nút trạng thái gộp "● Đang nhận đơn ▾" ── */
+.oo3-status-wrap {
+  position: relative;
+}
+button.oo3-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--ds-line);
+  background: #fff;
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  white-space: nowrap;
+}
+button.oo3-status.is-idle {
+  color: var(--ds-ink-2);
+}
+button.oo3-status.is-error {
+  border-color: #fecaca;
+  background: var(--ds-danger-soft);
+  color: var(--ds-danger);
+  font-weight: var(--ds-fw-strong);
+}
+.oo3-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+  background: var(--ds-accent);
+}
+.is-idle > .oo3-dot { background: var(--ds-ink-3); }
+.is-error > .oo3-dot { background: var(--ds-danger); }
+.oo3-short { display: none; }
+@media (max-width: 480px) {
+  .oo3-long { display: none; }
+  .oo3-short { display: inline; }
+  /* 2 tab + nút trạng thái phải vừa MỘT hàng ở 360–390px (trước đây nút rớt xuống hàng riêng). */
+  .oo-page .oo-head {
+    gap: 8px;
+    flex-wrap: nowrap;
+  }
+  .oo-page .oo-head [role='tablist'] > button {
+    padding: 0 10px !important;
+  }
+  button.oo3-status {
+    gap: 6px;
+    padding: 0 10px;
+  }
+}
+
+.oo3-menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 6px);
+  z-index: 50;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  padding: 6px;
+  display: grid;
+  background: #fff;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  /* Menu NỔI trên nội dung: cần bóng để tách lớp (ngoại lệ có chủ đích của "viền hoặc bóng"). */
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.12);
+}
+button.oo3-mi,
+.oo3-mi {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  text-align: left;
+}
+.oo3-mi + .oo3-mi {
+  border-top: 1px solid var(--gray-100);
+  border-radius: 0;
+}
+button.oo3-mi:active {
+  background: var(--gray-100);
+}
+.oo3-mi-text {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+}
+.oo3-mi-text small {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+}
+.oo3-mi-text small.is-error { color: var(--ds-danger); }
+button.oo3-mi.oo3-mi--link {
+  color: var(--ds-accent);
+  font-weight: var(--ds-fw-strong);
+}
+/* Công tắc NHÌN 36×20 (bộ quy tắc); vùng chạm là cả hàng menu 56px. */
+.oo3-tg {
+  position: relative;
+  flex: none;
+  width: var(--ds-switch-w);
+  height: var(--ds-switch-h);
+  border-radius: 999px;
+  background: var(--gray-300);
+}
+.oo3-tg::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #fff;
+}
+.oo3-tg.is-on { background: var(--ds-accent); }
+.oo3-tg.is-on::after { left: auto; right: 2px; }
+
+/* ── Segmented control 6 bước ── */
+.oo-tabs.oo3-seg {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  padding: 3px;
+  background: var(--gray-100);
+  border-radius: 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.oo-tabs.oo3-seg::-webkit-scrollbar { display: none; }
+.oo-tabs.oo3-seg > button {
+  flex: 1 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0 12px !important;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-body2) !important;
+  font-weight: var(--ds-fw-regular);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.oo-tabs.oo3-seg > button.is-on {
+  background: #fff;
+  color: var(--ds-ink);
+  font-weight: var(--ds-fw-strong);
+  box-shadow: 0 1px 2px rgba(17, 24, 39, 0.08);
+}
+.oo3-bdg {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ds-line);
+  color: var(--ds-ink);
+  font-size: var(--ds-fs-label);
+  font-weight: var(--ds-fw-strong);
+  font-variant-numeric: tabular-nums;
+}
+.oo3-bdg.is-warn {
+  background: var(--ds-warn);
+  color: #fff;
+}
+
+/* ── Nhãn: MỘT kiểu ── */
+.oo3-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: var(--gray-100);
+  color: var(--ds-ink-2);
+  font-size: var(--ds-fs-label);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.oo3-pill.is-warn {
+  background: var(--orange-50);
+  color: var(--orange-800);
+}
+
+/* ── Màn trống ── */
+.oo3-empty {
+  min-height: 46vh;
+  min-height: 46dvh;
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--gray-300);
+}
+.oo3-empty p { margin: 0; }
+.oo3-empty-h {
+  font-size: var(--ds-fs-body);
+  font-weight: var(--ds-fw-strong);
+  color: var(--ds-ink);
+}
+.oo3-empty-s {
+  font-size: var(--ds-fs-body2);
+  color: var(--ds-ink-2);
+}
+
+/* ── Danh sách đơn đã xử lý: một khung, kẻ 1px giữa các dòng ── */
+.oo3-list {
+  background: #fff;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+/* Bỏ qua dòng đang ẩn (chờ gửi Hoàn tác) — nếu không, dòng đầu còn lại mang kẻ trên thừa. */
+.oo3-list > div:not([hidden]) ~ div:not([hidden]) > .oo3-li {
+  border-top: 1px solid var(--ds-line);
+}
+.oo3-li { background: #fff; }
+.oo3-li.is-selected > .oo3-row-btn { background: var(--ds-accent-soft); }
+
+button.oo3-row-btn,
+.oo3-row-btn {
+  display: block;
+  width: 100%;
+  min-height: var(--ds-h-row);
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--ds-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.oo3-row-static { cursor: default; }
+.oo3-row {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  gap: 2px 12px;
+  align-items: center;
+}
+.oo3-row-ico {
+  grid-row: span 2;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--gray-100);
+  color: var(--ds-ink-2);
+}
+.oo3-row-a {
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-strong);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oo3-row-b {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.oo3-row-r,
+.oo3-row-r2 {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 16px;
+}
+.oo3-row-tm {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.oo3-row-sum {
+  min-width: 88px;
+  text-align: right;
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-num);
+  font-variant-numeric: tabular-nums;
+}
+.oo3-row-r2 {
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+  white-space: nowrap;
+}
+.oo3-row-r2 .is-accent { color: var(--ds-accent); }
+.oo3-row-ship {
+  min-width: 88px;
+  text-align: right;
+}
+@media (max-width: 480px) {
+  .oo3-row-r,
+  .oo3-row-r2 { gap: 10px; }
+  .oo3-row-sum,
+  .oo3-row-ship { min-width: 0; }
+}
+
+/* Thân dòng khi mở rộng tại chỗ (màn hẹp) / trong panel: kẻ trên ngăn với dòng tóm tắt. */
+.oo3-li > .oo-card-body {
+  border-top: 1px solid var(--ds-line);
+}
+
+/* ── Panel chi tiết (≥1280px) ── */
+.oo3-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px;
+  align-items: start;
+}
+.oo3-panel {
+  position: sticky;
+  /* dưới header 56 + thanh công cụ dính ~62 */
+  top: 128px;
+  max-height: calc(100dvh - 144px);
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--ds-line);
+  border-radius: 12px;
+}
+/* Panel hẹp 380px: thân thẻ luôn MỘT cột, dù viewport ≥900px (lúc đó `.oo-card-body` mặc định 2 cột). */
+.oo3-panel .oo-card-body,
+.oo3-li--work .oo-card-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.oo3-panel .oo-customer,
+.oo3-panel .oo-delivery,
+.oo3-panel .oo-items,
+.oo3-li--work .oo-customer,
+.oo3-li--work .oo-delivery,
+.oo3-li--work .oo-items {
+  grid-column: auto;
+  grid-row: auto;
+}
+
+/* SĐT cạnh tên: chữ phụ xám, không gạch chân. Viết `.oo-customer a.oo3-phone` để thắng rule
+   `a[href^='tel:']` chung của điện thoại (styles.css). */
+.oo-customer a.oo3-phone {
+  display: inline;
+  padding: 0;
+  min-height: 0;
+  color: var(--ds-ink-2);
+  font-weight: var(--ds-fw-regular);
+  text-decoration: none;
+}
+
+.oo3-panel-meta {
+  padding: 14px 16px 0;
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+}
+.oo3-li.is-panel > .oo-card-body {
+  border-top: 0;
+  padding-top: 4px;
+}
+
+/* Khối món trong thẻ chờ duyệt + panel + dòng mở rộng: danh sách trơn (bỏ nền xám #e9ecef). */
+.oo3-li .oo-items,
+.oo3-li--work .oo-items {
+  margin: 0;
+  padding: 12px 0 0;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--ds-line);
+  border-radius: 0;
+}
+
+/* ── Đơn CHỜ DUYỆT (2026-11-11, bản 2): cùng khung + cùng dòng 3 cột với các tab khác, chỉ khác
+   là thân (món, phí ship, nút) MỞ SẴN ngay dưới dòng. Quá hạn: đồng hồ trên dòng đổi cam. ── */
+.oo3-clk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--ds-fw-strong);
+  font-variant-numeric: tabular-nums;
+  color: var(--ds-ink-2);
+}
+.oo3-clk.is-late { color: var(--ds-warn); }
+.oo3-li--work .oo-card-body { padding-top: 8px; }
+.oo3-li--work .oo-foot--card {
+  padding-top: 0;
+}
+/* Thẻ một cột: Tổng nằm TRÊN dải nút ở mọi bề rộng (rule ≥900px cũ xếp tổng bên trái, nút bên
+   phải — trong thẻ 640px thì "Tổng 90.000đ" bị ép còn ~130px). Panel 380px cũng vậy. */
+.oo3-li--work .oo-foot,
+.oo3-panel .oo-foot {
+  grid-template-columns: minmax(0, 1fr);
+}
+.oo3-li--work .oo-foot > .oo-card-menu,
+.oo3-li--work .oo-foot > [role='alertdialog'],
+.oo3-panel .oo-foot > .oo-card-menu {
+  grid-column: auto;
+}
+
+/* Điện thoại: nhãn "N đơn quá 90s" bóp segmented control còn 2 mục — ẩn đi; đồng hồ cam trên
+   từng thẻ + số cam ở mục Chờ duyệt đã nói đủ. */
+@media (max-width: 640px) {
+  .oo3-narrow .oo-toolbar > .oo3-pill { display: none; }
+}
+
+/* [Gọi] [Thu tiền ở bàn …] [⋯] trên MỘT hàng (chủ quán 2026-11-11) — giống hàng [Gọi][Xác nhận][⋯]
+   của Chờ duyệt. Rule chung `.oo-actions--collect` đẩy nút Thu tiền lên một hàng riêng; ở màn này
+   bỏ. Tên bàn dài thì chữ trong nút tự xuống 2 dòng (`white-space: normal` sẵn có). */
+.oo3-li .oo-actions.oo-actions--collect {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+.oo3-li .oo-actions--collect > a.oo-collect-btn {
+  grid-column: auto;
+  order: 0;
+}
+
+/* Ô phí ship: nhãn trái — ô phải trên MỘT hàng, gợi ý xuống dòng dưới. */
+.oo3-fee {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 4px 12px;
+  width: 100%;
+}
+.oo3-fee > label {
+  margin: 0;
+  font-size: var(--ds-fs-body2);
+  font-weight: var(--ds-fw-regular);
+  color: var(--ds-ink);
+}
+.oo3-fee-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  font-size: var(--ds-fs-label);
+  color: var(--ds-ink-2);
+}
+.oo3-li--work .oo-delivery,
+.oo3-li--work .oo-delivery > div {
+  width: 100%;
+}

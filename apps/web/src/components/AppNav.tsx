@@ -50,6 +50,9 @@ const ITEMS = {
   users: { to: '/admin/users', label: 'Nhân viên', short: 'Nhân viên', icon: 'nhan-vien' },
   reports: { to: '/dashboard', label: 'Báo cáo', short: 'Báo cáo', icon: 'bao-cao' },
   analytics: { to: '/admin/analytics', label: 'Truy cập', short: 'Truy cập', icon: 'thong-ke' },
+  // Cài đặt (2026-11-11): màn riêng, chỉ admin. Mục CUỐI ở cả sidebar lẫn tấm "Thêm" — sửa vài lần
+  // một tháng, không được chen lên trước những màn dùng trong ca.
+  settings: { to: '/settings', label: 'Cài đặt', short: 'Cài đặt', icon: 'cai-dat' },
 } satisfies Record<string, NavItem>;
 
 /** `main` = các ô trên menu dưới (≤ 4 nếu có `more`); `more` = trong tấm "Thêm"; `sidebar` = đủ
@@ -59,10 +62,12 @@ const NAV: Record<NavRole, { main: NavItem[]; more: NavItem[]; sidebar: NavItem[
     // Hai mục có việc gấp (Bếp, Online — kèm số đếm) ra ngoài; Nhân viên/Thực đơn ít dùng trong ca
     // vào "Thêm" (chủ quán đổi 2026-11-10, lần 2).
     main: [ITEMS.orders, ITEMS.kitchen, ITEMS.online, ITEMS.history],
-    more: [ITEMS.reports, ITEMS.receipt, ITEMS.menu, ITEMS.tables, ITEMS.suppliers, ITEMS.users],
+    more: [
+      ITEMS.reports, ITEMS.receipt, ITEMS.menu, ITEMS.tables, ITEMS.suppliers, ITEMS.users, ITEMS.settings,
+    ],
     sidebar: [
       ITEMS.orders, ITEMS.kitchen, ITEMS.receipt, ITEMS.online, ITEMS.history,
-      ITEMS.menu, ITEMS.tables, ITEMS.suppliers, ITEMS.users, ITEMS.reports,
+      ITEMS.menu, ITEMS.tables, ITEMS.suppliers, ITEMS.users, ITEMS.reports, ITEMS.settings,
     ],
   },
   order: {
@@ -100,6 +105,7 @@ const TITLES: Record<string, string> = {
   '/admin/audit': 'Nhật ký thao tác',
   '/account': 'Tài khoản',
   '/mau-giao-dien': 'Mẫu giao diện',
+  '/settings': 'Cài đặt',
 };
 
 export function pageTitle(pathname: string): string {

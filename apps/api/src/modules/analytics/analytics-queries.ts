@@ -16,6 +16,7 @@
 // cần phân biệt "1000 lượt truy cập" với "1000 lượt trong đó 900 là con bot của Google".
 import type { DataSource } from 'typeorm';
 import { VN_OFFSET_MS, dayKeyIct } from './visit-hit.js';
+import { ORDER_TOTAL_SQL, PAID_SQL } from '../orders/orders.service.js';
 
 const DAY_MS = 86_400_000;
 const HUMAN = `app = 'shop' AND device <> 'bot'`;
@@ -197,8 +198,13 @@ export type CustomerStats = {
   top_phones: Array<{
     phone: string;
     name: string;
+    /** Số lần bấm đặt trong khoảng (mọi trạng thái). */
     orders: number;
-    subtotal_sum: number;
+    /** Số đơn đã duyệt VÀ đã thu tiền. */
+    success: number;
+    rejected: number;
+    /** Tiền của riêng đơn thành công, CÓ ship — cùng công thức doanh thu màn Báo cáo. */
+    success_money: number;
     last_order_ms: number;
   }>;
 };
@@ -260,16 +266,29 @@ export async function customerStats(ds: DataSource, range: Range): Promise<Custo
     [from, to],
   )) as Array<Record<string, unknown>>;
 
+  // Bảng khách (2026-11-11): CHỈ trong khoảng đang xem (trước là "mọi thời điểm", lệch với cả
+  // màn), và tách Đặt / Thành công / Từ chối. Tiền là tiền THẬT đã thu (món SERVED + ship) của
+  // đơn thành công — trước đây là SUM(subtotal) gồm cả đơn bị từ chối, không có ship, tức số
+  // tiền khách ĐỊNH đặt chứ không phải số tiền quán nhận.
+  // Lọc theo lúc khách đặt (`submitted_at`), không theo ngày thu tiền: câu hỏi của bảng này là
+  // "trong khoảng này ai đặt nhiều", nên một khách đặt hôm nay phải hiện dù tiền chưa thu.
+  // LEFT JOIN: đơn chưa duyệt / bị từ chối không có `orders` nhưng vẫn là một lần đặt.
   const topRows = (await ds.query(
-    `SELECT customer_phone                              AS phone,
-            MAX(customer_name)                          AS name,
-            COUNT(*)                                    AS orders,
-            COALESCE(SUM(subtotal), 0)                  AS subtotal_sum,
-            MAX(UNIX_TIMESTAMP(submitted_at) * 1000)    AS last_order_ms
-       FROM online_order_requests
-      GROUP BY customer_phone
-      ORDER BY orders DESC, subtotal_sum DESC
+    `SELECT r.customer_phone                                     AS phone,
+            MAX(r.customer_name)                                 AS name,
+            COUNT(*)                                             AS orders,
+            SUM(CASE WHEN o.id IS NOT NULL AND ${PAID_SQL} THEN 1 ELSE 0 END) AS success,
+            SUM(CASE WHEN r.status = 'REJECTED' THEN 1 ELSE 0 END)           AS rejected,
+            COALESCE(SUM(CASE WHEN o.id IS NOT NULL AND ${PAID_SQL}
+                              THEN ${ORDER_TOTAL_SQL} ELSE 0 END), 0)        AS success_money,
+            MAX(UNIX_TIMESTAMP(r.submitted_at) * 1000)           AS last_order_ms
+       FROM online_order_requests r
+       LEFT JOIN orders o ON o.id = r.order_id
+      WHERE r.submitted_at >= ? AND r.submitted_at < ?
+      GROUP BY r.customer_phone
+      ORDER BY success DESC, orders DESC, success_money DESC
       LIMIT 20`,
+    [from, to],
   )) as Array<Record<string, unknown>>;
 
   return {
@@ -284,7 +303,9 @@ export async function customerStats(ds: DataSource, range: Range): Promise<Custo
       phone: String(r.phone),
       name: String(r.name ?? ''),
       orders: num(r.orders),
-      subtotal_sum: num(r.subtotal_sum),
+      success: num(r.success),
+      rejected: num(r.rejected),
+      success_money: num(r.success_money),
       last_order_ms: num(r.last_order_ms),
     })),
   };
