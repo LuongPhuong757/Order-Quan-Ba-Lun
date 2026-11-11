@@ -1254,17 +1254,11 @@ export function OrderDrawer({ table, onClose, onTransferred, goiMonNgay = false 
                 className="drawer-bar-pay"
                 onClick={checkout}
                 disabled={checkoutBlockedByShip}
-                // Màu theo NGHĨA: xanh ngọc chủ đạo = đã giao hết món (trước là xanh lá #059669,
-                // lệch màu hệ thống — chủ quán 2026-11-09), cam = còn món chưa mang ra (vẫn thu
-                // được, hộp thanh toán sẽ hỏi lại), xám = đơn ship chưa rời quán.
+                // LUÔN xanh ngọc chủ đạo (chủ quán 2026-11-10 — "các button thanh toán sang màu chủ
+                // đạo"), bỏ màu cam "còn món chưa mang ra": hộp thanh toán vẫn hỏi lại bằng khối
+                // cảnh báo cam riêng. Chỉ còn xám = đơn ship chưa rời quán (bấm cũng không được).
                 style={{
-                  // L4 (test E2E 2026-11-09): trước dùng `checkoutReady` — luôn đúng khi có món, nên
-                  // nhánh cam KHÔNG BAO GIỜ chạy. Nay theo đúng nghĩa: còn món chưa mang ra → cam.
-                  background: checkoutBlockedByShip
-                    ? '#9ca3af'
-                    : activeUnits > 0
-                      ? '#f59e0b'
-                      : 'var(--brand)',
+                  background: checkoutBlockedByShip ? '#9ca3af' : 'var(--brand)',
                 }}
                 title={
                   checkoutBlockedByShip

@@ -875,141 +875,7 @@ a:hover {
   text-decoration: underline;
 }
 
-.nav-bottom {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  display: flex;
-  background: white;
-  border-top: 1px solid var(--gray-200);
-  padding: 6px 0 max(6px, env(safe-area-inset-bottom));
-  z-index: 100;
-}
-
-.nav-bottom a {
-  flex: 1;
-  text-align: center;
-  padding: 8px 4px;
-  color: var(--gray-500);
-  font-size: 13px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  text-decoration: none;
-  line-height: 1.1;
-  /* Neo cho badge đếm đơn online (NavBadge ở App.tsx) — trước đây chỉ item active mới relative */
-  position: relative;
-}
-
-.nav-bottom a .nav-icon {
-  font-size: 20px;
-  line-height: 1;
-  /* Icon nét (components/ui/Icon.tsx, Đợt 0 2026-11-09) thay emoji: SVG lấy màu chữ của ô nav
-     (xám / xanh khi đang mở), cỡ đặt ở đây theo mốc màn hình chứ không cứng trong JSX. */
-  display: inline-flex;
-}
-.nav-bottom a .nav-icon svg { width: 22px; height: 22px; }
-/* Neo của badge đếm (`.nav-badge`): bọc RIÊNG cái icon, không phải cả ô nav.
-   Neo vào ô nav thì từ 640px trở lên ô xếp ngang (icon | chữ) nên "giữa ô" rơi vào khoảng
-   giữa icon và chữ — con số trôi lên mép trên, đè vạch xanh của mục đang mở. */
-.nav-bottom a .nav-icon-wrap {
-  position: relative;
-  display: inline-flex;
-  line-height: 1;
-}
-.nav-bottom a .nav-badge {
-  position: absolute;
-  /* Góc trên bên phải icon, thò ra ngoài một chút cho đúng dáng badge quen thuộc.
-     Dùng `left: 100%` + lùi lại, KHÔNG dùng `right`: số 2 chữ số phải nở sang PHẢI, nở sang
-     trái là nó bò vào giữa icon. */
-  top: -6px;
-  left: calc(100% - 6px);
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
-  color: white;
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  pointer-events: none;
-}
-.nav-bottom a .nav-label {
-  font-size: 10px;
-  font-weight: 500;
-}
-/* Thanh nav dưới TRƯỢT NGANG (chỉ đạo chủ quán 2026-09-06: "rồi sẽ phát sinh càng ngày càng
-   nhiều, cho trượt ngay đi").
-   Trước đây mỗi mục `flex: 1` nên chia đều chỗ: 7 mục trên máy 390px còn 55px/mục, và mỗi mục
-   thêm vào lại bóp tất cả nhỏ đi một lần nữa — cách này có trần cứng, thêm tới mục thứ 9-10 là
-   chỉ còn cái emoji. Nay mỗi mục có bề rộng SÀN, thanh nào không đủ chỗ thì vuốt ngang.
-   `flex: 1 0 66px` — vẫn `grow: 1` nên thanh 4 mục (role Order) vẫn dàn đều hết bề ngang như
-   cũ; chỉ khi tổng vượt màn hình thì mới thành thanh cuộn. `shrink: 0` là chỗ chặn không cho
-   bóp xuống dưới 66px.
-   Mục đang mở được kéo vào giữa bằng JS ở `ProtectedShell` (App.tsx) — không có nó thì đứng ở
-   mục thứ 7 sẽ không thấy mình đang ở đâu. */
-.nav-bottom {
-  overflow-x: auto;
-  scroll-snap-type: x proximity;
-  scrollbar-width: none;
-  -webkit-overflow-scrolling: touch;
-}
-
-.nav-bottom::-webkit-scrollbar {
-  display: none;
-}
-
-.nav-bottom a {
-  flex: 1 0 66px;
-  scroll-snap-align: center;
-}
-
-/* Desktop/tablet: icon và chữ nằm CÙNG một dòng — thanh nav còn ~40px thay vì 2 tầng.
-   Dưới 640px vẫn xếp dọc: ở đó bề ngang mới là thứ khan hiếm, xếp ngang là chữ bị bóp
-   hoặc tràn khỏi ô. */
-@media (min-width: 640px) {
-  .nav-bottom {
-    padding: 9px 0 max(9px, env(safe-area-inset-bottom));
-  }
-  .nav-bottom a {
-    flex-direction: row;
-    justify-content: center;
-    gap: 6px;
-    padding: 9px 4px;
-    white-space: nowrap;
-  }
-  .nav-bottom a .nav-icon { font-size: 16px; }
-  .nav-bottom a .nav-icon svg { width: 18px; height: 18px; }
-  .nav-bottom a .nav-label { font-size: 13px; }
-  /* Ở đây icon và chữ nằm CÙNG hàng, mà badge thò ra bên phải icon — không chừa chỗ thì con số
-     2 chữ số ("12") bò đè lên chữ đầu của nhãn. Chỉ mục CÓ badge mới bọc `.nav-icon-wrap`,
-     nên chỉ mục đó rộng thêm. Dưới 640px không cần: ở đó chữ nằm DƯỚI icon. */
-  .nav-bottom a .nav-icon-wrap { margin-right: 10px; }
-}
-
-.nav-bottom a[aria-current="page"] {
-  color: var(--teal-700);
-  font-weight: 700;
-  background: var(--teal-100);
-  border-radius: 10px;
-  position: relative;
-}
-.nav-bottom a[aria-current="page"]::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 25%;
-  right: 25%;
-  height: 3px;
-  background: var(--teal-700);
-  border-radius: 0 0 3px 3px;
-}
+/* Menu dưới + sidebar + header mới: xem khối `.an-*` cuối tệp (2026-11-10). */
 
 .header {
   /* Nền TRONG SUỐT TUYỆT ĐỐI (2026-09-08, chủ quán). Không phải `#f9fafb` cho giống nền trang:
@@ -2757,6 +2623,13 @@ button.pay-mode {
 }
 /* `button.pay-mode` chứ không phải `.pay-mode`: nút dùng chung với `button.secondary` ở nơi khác,
    và rule chạm tới color/background phải thắng được nó (bài học cũ của repo). */
+/* Máy rộng: ô rộng THEO CHỮ, không chia đều (chủ quán 2026-11-10 — "Chuyển khoản thành 1
+   dòng"). Chia đều 4 ô trong hộp 560px thì ô "Chuyển khoản" còn ~110px, gãy làm 2 dòng. Điện
+   thoại xếp dọc nên không gặp (media bên dưới đè lại). */
+button.pay-mode {
+  flex: 1 1 auto;
+  white-space: nowrap;
+}
 button.pay-mode[aria-pressed='true'] {
   border: 2px solid var(--teal-600);
   background: var(--teal-50);
@@ -3859,8 +3732,10 @@ button.alert-line--qr { background: var(--violet-50, #f5f3ff); border-bottom-col
 }
 @keyframes pay-sheet-in { from { transform: translateY(24px); opacity: 0.6; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .pay-sheet { animation: none; } }
+/* iPad/máy tính: hộp RA GIỮA MÀN (chủ quán 2026-11-10 — "với pc laptop cho vào giữa"). Lý do
+   dính đáy (tầm ngón cái) chỉ đúng với điện thoại cầm tay; trên màn rộng mắt nhìn ở giữa. */
 @media (min-width: 768px) {
-  .pay-sheet-bg { padding: 0 16px 24px; }
+  .pay-sheet-bg { align-items: center; padding: 24px 16px; }
   .pay-sheet { border-radius: 18px; box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25); padding-bottom: 0; }
 }
 
@@ -4031,3 +3906,336 @@ button.item-next-btn::after { content: ""; position: absolute; inset: -4px; }
 }
 .pay-tong small { font-weight: 400; color: var(--gray-500); font-size: 14px; }
 .pay-tong strong { font-size: 20px; color: var(--brand); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ── Màn Hoá đơn tự do (`.crp-*`, chủ quán 2026-11-10) ─────────────────────────────────────────
+   Một lớp nền trắng, 4 cỡ chữ 22/16/14/12, thang khoảng cách 4/8 (lề 16 · giữa nhóm 24 · đệm 12),
+   bo góc 12. Chỉ 3 màu: xanh ngọc cho hành động chính, xám cho chữ phụ + đường kẻ, đỏ chỉ cho lỗi.
+   Chỉ tên món và tổng tiền in đậm. */
+.crp {
+  max-width: 720px;
+  margin: 0 auto;
+  padding-left: 16px;
+  padding-right: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  color: var(--gray-900);
+  font-size: 16px;
+}
+.crp-chip-row { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; padding-top: 12px; }
+button.crp-chip {
+  min-height: 32px; padding: 4px 12px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--teal-50); color: var(--brand); border: 0;
+  font-size: 12px; font-weight: 500;
+}
+.crp-why { margin: -16px 0 0; text-align: center; font-size: 14px; color: var(--gray-500); }
+.crp-group {
+  background: #fff;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.crp-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.crp-label { font-size: 12px; color: var(--gray-500); }
+.crp-input {
+  width: 100%; box-sizing: border-box;
+  min-height: 48px; padding: 8px 12px;
+  border: 1px solid var(--gray-200); border-radius: 12px;
+  font-size: 16px; background: #fff; color: var(--gray-900);
+}
+/* Chi phí khác: điện thoại MỖI Ô MỘT HÀNG (chủ quán chọn 2026-11-10) — 2 cột thì chữ gợi ý bị cắt. */
+.crp-costs { display: grid; grid-template-columns: 1fr; }
+@media (min-width: 640px) { .crp-costs { grid-template-columns: 1fr 1fr; } }
+
+.crp-empty {
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  padding: 24px 12px; color: var(--gray-500); font-size: 14px;
+  border: 1px dashed var(--gray-200); border-radius: 12px;
+}
+.crp-list { list-style: none; margin: 0 -12px; padding: 0; }
+/* MỘT hàng ~56px: [tên / đơn giá] [− n +] [thành tiền], kẻ mảnh 1px giữa các hàng. Khung cắt +
+   mốc neo cho ô vuốt `.item-swipe` (dùng chung với thẻ món ở tấm bàn). */
+.crp-row {
+  position: relative; overflow: hidden;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 88px;
+  align-items: center; gap: 8px;
+  min-height: 56px; padding: 4px 12px;
+  border-bottom: 1px solid var(--gray-200);
+  touch-action: pan-y;
+}
+.crp-row:last-child { border-bottom: 0; }
+button.crp-row__name {
+  min-height: 48px; min-width: 0; padding: 0;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: center; gap: 2px;
+  background: transparent; color: inherit; border: 0; text-align: left; font-weight: 400;
+}
+.crp-row__title {
+  font-size: 16px; font-weight: 600; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.crp-row__title--trong { color: var(--gray-500); font-weight: 400; }
+.crp-row__sub {
+  font-size: 14px; color: var(--gray-500); max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.crp-row__amount { text-align: right; font-size: 16px; font-variant-numeric: tabular-nums; }
+
+.crp-add { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+button.crp-btn {
+  min-height: 48px; padding: 0 12px; border-radius: 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  font-size: 16px; font-weight: 500; white-space: nowrap;
+}
+button.crp-btn--chinh { background: var(--brand); color: #fff; border: 0; }
+button.crp-btn--vien { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+button.crp-btn--in { min-height: 52px; padding: 0 20px; }
+
+/* Thanh dính đáy, sát trên nav (bottom đặt inline = chiều cao nav đo được). */
+.crp-bar {
+  position: fixed; left: var(--sb-w, 0px); right: 0; z-index: 900;
+  background: #fff; border-top: 1px solid var(--gray-200);
+  padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
+}
+.crp-bar__in {
+  max-width: 688px; margin: 0 auto;
+  display: flex; align-items: center; gap: 8px;
+}
+.crp-bar__total { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.crp-bar__label { font-size: 12px; color: var(--gray-500); }
+.crp-bar__amount { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.crp-bar__done {
+  flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px;
+  font-size: 14px; color: var(--brand); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.crp-bar__in > button.crp-btn { flex: none; }
+
+/* Tấm xem trước / tấm sửa dòng (dùng `Sheet` chung). */
+.crp-sheet-body { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.crp-sheet-foot {
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px;
+  padding: 12px 16px; border-top: 1px solid var(--gray-200);
+}
+.crp-paper-wrap {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto;
+  padding: 16px; background: var(--gray-100, #f3f4f6);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+/* 80mm = 576 chấm. Hiện nửa cỡ (288px) cho vừa điện thoại mà chữ vẫn đọc được; ảnh giữ nét
+   pixel để thấy đúng chấm in thay vì bị làm mờ. */
+.crp-paper {
+  width: 100%; max-width: 320px; height: auto;
+  background: #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  image-rendering: pixelated;
+}
+
+/* ══ Điều hướng chính (components/AppNav.tsx, chủ quán 2026-11-10) ══════════════════════════════
+   < 1024px: menu dưới tối đa 5 ô + "Thêm". ≥ 1024px: sidebar trái 220px / 64px, bỏ menu dưới.
+   Header: tên trang ở giữa (điện thoại) / bên trái (máy rộng), avatar hoặc ← bên trái. */
+:root { --sb-w: 0px; }
+
+/* ── Menu dưới ── */
+.an-tabbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 100;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr;
+  background: #fff; border-top: 1px solid var(--gray-200);
+  /* Tránh vùng thanh vuốt iPhone: 6px CỘNG vùng an toàn (bản cũ max(6px, …) — có vùng an toàn
+     thì mất 6px đệm, chữ sát thanh vuốt). */
+  padding: 0 env(safe-area-inset-right, 0px) calc(6px + env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px);
+}
+.an-tab {
+  position: relative;
+  min-height: 56px; padding: 8px 2px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px;
+  color: var(--gray-500); text-decoration: none; background: transparent; border: 0; border-radius: 0;
+  font-size: 12px; font-weight: 500; line-height: 1.15; min-width: 0;
+}
+a.an-tab:hover { text-decoration: none; }
+button.an-tab { color: var(--gray-500); font-weight: 500; min-height: 56px; }
+.an-tab .an-label { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Mục đang mở: thanh 3px phía trên + icon trên nền "viên" xanh nhạt (thay cho icon đặc — bộ icon
+   là nét, không có bản đặc) + chữ đậm xanh. Bản cũ chỉ nền nhạt + chữ 13px, nhìn như vệt màu. */
+.an-tab[aria-current="page"], .an-tab.active { color: var(--brand); font-weight: 700; }
+.an-tab[aria-current="page"]::before, .an-tab.active::before {
+  content: ''; position: absolute; top: 0; left: 22%; right: 22%; height: 3px;
+  background: var(--brand); border-radius: 0 0 3px 3px;
+}
+.an-tab[aria-current="page"] .an-icon, .an-tab.active .an-icon { background: var(--teal-100); }
+.an-icon {
+  position: relative; display: inline-grid; place-items: center;
+  width: 48px; height: 28px; border-radius: 999px;
+}
+.an-badge {
+  position: absolute; top: -4px; left: calc(50% + 6px);
+  min-width: 18px; height: 18px; padding: 0 5px; box-sizing: border-box;
+  display: grid; place-items: center; border-radius: 999px;
+  background: #dc2626; color: #fff; font-size: 11px; font-weight: 700; line-height: 1;
+  pointer-events: none;
+}
+.an-badge--info { background: var(--brand); }
+.an-dot {
+  position: absolute; top: 0; left: calc(50% + 8px);
+  width: 10px; height: 10px; border-radius: 50%;
+  background: #dc2626; box-shadow: 0 0 0 2px #fff;
+}
+
+/* Tấm "Thêm" */
+.an-more { display: flex; flex-direction: column; padding: 0 8px 12px; }
+.an-more__item {
+  display: grid; grid-template-columns: 48px 1fr 20px; align-items: center; gap: 8px;
+  min-height: 56px; padding: 0 8px; border-radius: 12px;
+  color: var(--gray-900); text-decoration: none; font-size: 16px;
+}
+.an-more__item:hover { text-decoration: none; background: var(--gray-50, #f9fafb); }
+.an-more__item[aria-current="page"] { background: var(--teal-50); color: var(--brand); font-weight: 600; }
+.an-more__item .an-icon { color: var(--gray-700); }
+.an-more__item .an-badge { left: calc(50% + 8px); }
+
+/* ── Sidebar (≥ 1024px) ── */
+.an-sidebar { display: none; }
+@media (min-width: 1024px) {
+  :root.co-sidebar { --sb-w: 220px; }
+  :root.co-sidebar.sidebar-thu { --sb-w: 64px; }
+  .an-tabbar { display: none; }
+  .co-sidebar body { padding-left: var(--sb-w); }
+  /* Không còn menu dưới → khỏi chừa 70–80px cuối trang. */
+  .co-sidebar .with-bottom-nav { padding-bottom: 24px; }
+  .an-sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 210;
+    width: var(--sb-w); box-sizing: border-box;
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 8px; background: #fff; border-right: 1px solid var(--gray-200);
+    overflow-y: auto; overflow-x: hidden;
+  }
+  .an-sidebar__brand {
+    display: flex; align-items: center; gap: 12px; min-height: 44px; padding: 0 8px 8px;
+    color: var(--gray-500); font-size: 14px; white-space: nowrap;
+  }
+  .an-sidebar__brand img { flex: none; display: block; }
+  .an-sidebar__list { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+  .an-side-item {
+    position: relative;
+    display: flex; align-items: center; gap: 8px;
+    min-height: 44px; padding: 0 8px; border-radius: 10px;
+    color: var(--gray-700); text-decoration: none; background: transparent; border: 0;
+    font-size: 15px; font-weight: 500; white-space: nowrap; text-align: left; width: 100%;
+  }
+  a.an-side-item:hover, button.an-side-item:hover { text-decoration: none; background: var(--gray-50, #f9fafb); }
+  button.an-side-item { color: var(--gray-500); min-height: 44px; }
+  .an-side-item .an-icon { width: 32px; height: 32px; flex: none; }
+  .an-side-item .an-badge { left: auto; right: -6px; top: -2px; }
+  /* Đang mở: nền nhạt + vạch trái 3px (chủ quán 2026-11-10). */
+  .an-side-item[aria-current="page"] { background: var(--teal-50); color: var(--brand); font-weight: 700; }
+  .an-side-item[aria-current="page"]::before {
+    content: ''; position: absolute; left: -8px; top: 8px; bottom: 8px; width: 3px;
+    background: var(--brand); border-radius: 0 3px 3px 0;
+  }
+  .sidebar-thu .an-sidebar .an-label,
+  .sidebar-thu .an-sidebar__name { display: none; }
+  .sidebar-thu .an-side-item { justify-content: center; padding: 0; }
+  .sidebar-thu .an-sidebar__brand { justify-content: center; padding: 0 0 8px; }
+}
+
+/* ── Header ── */
+.header.an-header {
+  display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px;
+  padding-top: max(6px, env(safe-area-inset-top, 0px)); padding-bottom: 6px;
+  min-height: 56px;
+}
+.an-header__left { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.an-header__right { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+/* Tên trang: vị trí chính, 18px, giữa header trên điện thoại (chủ quán 2026-11-10). */
+.an-title {
+  margin: 0; font-size: 18px; font-weight: 600; color: var(--gray-900);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center;
+  max-width: 60vw;
+}
+button.an-iconbtn {
+  width: 44px; height: 44px; min-width: 44px; padding: 0;
+  display: grid; place-items: center; background: transparent; color: var(--gray-700); border: 0;
+}
+.an-chi-rong { display: none; }
+button.an-avatar, span.an-avatar {
+  width: 40px; height: 40px; min-width: 40px; min-height: 40px; padding: 0; border-radius: 50%;
+  display: inline-grid; place-items: center;
+  background: var(--brand); color: #fff; border: 0; font-size: 16px; font-weight: 700;
+}
+.an-avatar--lon { width: 48px !important; height: 48px !important; font-size: 20px !important; }
+@media (min-width: 1024px) {
+  /* Máy rộng: tên trang canh TRÁI (sidebar đã nói "ở đâu"), avatar sang phải cạnh chuông, không ←. */
+  .header.an-header { grid-template-columns: auto 1fr auto; padding-left: 24px; padding-right: 24px; }
+  .an-title { text-align: left; max-width: none; grid-column: 1; grid-row: 1; font-size: 20px; }
+  .an-header__left { grid-column: 3; grid-row: 1; order: 2; }
+  .an-header__right { grid-column: 2; grid-row: 1; }
+  .an-chi-hep { display: none !important; }
+  .an-chi-rong { display: inline-flex; }
+}
+
+/* Menu avatar + xác nhận đăng xuất */
+.an-acc { display: flex; flex-direction: column; padding: 0 8px 12px; }
+.an-acc__who { display: flex; align-items: center; gap: 12px; padding: 8px 8px 16px; }
+.an-acc__name { font-size: 16px; font-weight: 600; color: var(--gray-900); }
+.an-acc__role { font-size: 14px; color: var(--gray-500); }
+button.an-acc__row {
+  display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 8px;
+  min-height: 52px; padding: 0 8px; border-radius: 12px; border: 0;
+  background: transparent; color: var(--gray-900); font-size: 16px; font-weight: 500; text-align: left;
+  border-top: 1px solid var(--gray-200);
+}
+.an-confirm-text { margin: 0; padding: 4px 16px 16px; font-size: 16px; color: var(--gray-700); }
+.an-confirm-foot {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 16px;
+  border-top: 1px solid var(--gray-200);
+}
+button.an-btn { min-height: 48px; border-radius: 12px; font-size: 16px; font-weight: 600; }
+button.an-btn--chinh { background: var(--brand); color: #fff; border: 0; }
+button.an-btn--vien { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+
+/* ── Màn "Phiếu đã in" (`.crh-*`, /custom-receipt/history, chủ quán 2026-11-10) ──────────────────
+   Cùng hệ với `.crp-*`: một lớp nền trắng, hàng kẻ mảnh, mã phiếu là thông tin chính. */
+.crp-chip--tinh { min-height: 32px; padding: 4px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 4px; background: var(--teal-50); color: var(--brand); font-size: 12px; font-weight: 500; }
+.crh { padding-bottom: 24px; }
+.crh-tools { display: flex; flex-direction: column; gap: 8px; margin-top: -12px; }
+.crh-search {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 48px; padding: 0 12px; border: 1px solid var(--gray-200); border-radius: 12px;
+  background: #fff; color: var(--gray-500);
+}
+.crh-search input { flex: 1; min-width: 0; border: 0; outline: 0; font-size: 16px; background: transparent; color: var(--gray-900); min-height: 44px; padding: 0; }
+.crh-search input::-webkit-search-cancel-button { display: none; }
+.crh-range { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: #fff; border-radius: 12px; }
+button.crh-range__btn {
+  min-height: 40px; border-radius: 8px; border: 0; background: transparent;
+  color: var(--gray-700); font-size: 14px; font-weight: 500;
+}
+button.crh-range__btn.on { background: var(--brand); color: #fff; }
+.crh-empty { text-align: center; color: var(--gray-500); font-size: 14px; }
+.crh-day { display: flex; flex-direction: column; gap: 4px; }
+.crh-day__label { margin: 0; padding: 0 4px; font-size: 12px; font-weight: 500; color: var(--gray-500); letter-spacing: 0.02em; text-transform: uppercase; }
+.crh-list { list-style: none; margin: 0; padding: 0; background: #fff; border-radius: 12px; overflow: hidden; }
+.crh-list > li + li { border-top: 1px solid var(--gray-200); }
+/* MỘT hàng ~64px: [#MÃ / ghi chú · giờ · người · số món]  [tổng / số lần in]. Chạm cả hàng mở chi
+   tiết — không còn nút Chi tiết/Ẩn đổi bề rộng làm số tiền xê dịch. */
+button.crh-row {
+  width: 100%; min-height: 64px; padding: 8px 12px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  background: transparent; color: inherit; border: 0; border-radius: 0; text-align: left; font-weight: 400;
+}
+button.crh-row:active { background: var(--teal-50); }
+.crh-row__left, .crh-row__right { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.crh-row__right { align-items: flex-end; flex: none; }
+.crh-row__code { font-size: 16px; font-weight: 700; color: var(--gray-900); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.crh-row__sub { font-size: 14px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crh-row__total { font-size: 16px; font-weight: 700; color: var(--gray-900); font-variant-numeric: tabular-nums; }
+.crh-row__print { font-size: 12px; color: var(--gray-500); white-space: nowrap; }
+.crh-row__print.loi, .crh-err { color: #dc2626; font-size: 14px; }
+.crh-sent { display: inline-flex; align-items: center; gap: 4px; color: var(--brand); font-size: 14px; font-weight: 500; }
+a.crh-link { display: inline-flex; min-height: 44px; align-items: center; font-size: 16px; color: var(--brand); }
+
+/* Hộp "Phiếu này vừa in rồi" — 3 nút xếp dọc (chữ dài, 3 nút ngang không vừa điện thoại). */
+.crp-sheet-foot--doc { grid-auto-flow: row; }
+button.crp-btn--phang { background: transparent; color: var(--gray-700); border: 0; }
+.crp-dup-text { margin: 0; padding: 4px 16px 16px; font-size: 16px; color: var(--gray-700); }
+.an-chevron { font-size: 24px; line-height: 1; font-weight: 400; }

@@ -16,6 +16,7 @@ import { useGuestPending } from './lib/guest-pending.ts';
 import { GuestQrBanner } from './components/GuestQrBanner.tsx';
 import { PhoneAlertBar } from './components/PhoneAlertBar.tsx';
 import { useIsPhone } from './components/ui/use-is-phone.ts';
+import { AppHeader, AvatarMenu, BottomNav, Sidebar } from './components/AppNav.tsx';
 import { Icon, type IconName } from './components/ui/Icon.tsx';
 
 // ─── Tách chunk theo route (2026-08-07, ngân sách bundle) ────────────────────
@@ -73,6 +74,9 @@ const HistoryPage = lazy(() =>
 );
 const CustomReceiptPage = lazy(() =>
   import('./pages/CustomReceiptPage.tsx').then((m) => ({ default: m.CustomReceiptPage })),
+);
+const CustomReceiptHistoryPage = lazy(() =>
+  import('./pages/CustomReceiptHistoryPage.tsx').then((m) => ({ default: m.CustomReceiptHistoryPage })),
 );
 const OnlineOrdersPage = lazy(() =>
   import('./pages/OnlineOrdersPage.tsx').then((m) => ({ default: m.OnlineOrdersPage })),
@@ -235,6 +239,9 @@ export function App() {
             </Route>
 
             <Route element={<RoleGate allow={['admin']} />}>
+              {/* Phiếu đã in (2026-11-10): màn riêng có URL để tải lại / Back về đúng chỗ. Chỉ admin —
+                  API danh sách + ảnh có AdminGuard. */}
+              <Route path="/custom-receipt/history" element={<CustomReceiptHistoryPage />} />
               <Route path="/tables" element={<TablesManagementPage />} />
               <Route path="/admin/users" element={<AdminUsersPage />} />
               <Route path="/admin/audit" element={<AdminAuditPage />} />
@@ -402,6 +409,12 @@ function ProtectedShell() {
     return <Navigate to={`/login?returnUrl=${encodeURIComponent(loc.pathname + loc.search)}`} replace />;
   }
   const roleStyle = role ? ROLE_STYLE[role] : null;
+  const navBadges = {
+    openTables: openTablesCount,
+    kitchenPending: kitchenPendingCount,
+    onlineWaiting: waitingCount,
+    pendingDeliveries: pendingDeliveriesCount,
+  };
   /* Màn Bếp (`/kitchen`) chạy FULL-SCREEN: nó tự dựng đúng một thanh nút ở đáy (← quay về
      Order, lọc nhóm, làm mới, hướng dẫn, thông báo, đăng xuất) nên header + nav dưới ở đây
      chỉ ăn chỗ của danh sách món. Bếp đứng cách iPad cả mét, mỗi ~60px lấy lại được là thêm
@@ -413,48 +426,21 @@ function ProtectedShell() {
 
   return (
     <>
-      {!isKds && (
-      <header className="header" ref={headerRef}>
-        <span className="brand">
-          <img className="brand-logo" src="/favicon.svg" width={32} height={32} alt="Quán Bà Lùn" />
-          {/* Bỏ "· QUẢN TRỊ" (chủ quán chốt 2026-11-09). Trước đây thêm vào để phân biệt với trang
-              khách khi mở cả hai trên cùng máy; nay phân biệt bằng logo + màu xanh ngọc của admin. */}
-          <span className="brand-text">Quán Bà Lùn</span>
-          {/* Khung màu quanh tên user — màu nền + viền theo role:
-              vàng = Admin, xanh dương = Order, xanh lá = Bếp */}
-          <span
-            className="user-chip"
-            title={roleStyle ? `${roleStyle.label} · ${user.full_name} (${user.name})` : user.full_name}
-            style={roleStyle ? {
-              background: roleStyle.bg,
-              border: `2px solid ${roleStyle.border}`,
-              color: roleStyle.text,
-              fontWeight: 600,
-            } : undefined}
-          >
-            <Icon name={roleStyle?.icon ?? 'tai-khoan'} size={16} />
-            <span className="user-chip__name">{user.full_name || user.name}</span>
-          </span>
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-          <NotificationBell />
-          <button
-            className="secondary btn-icon-only"
-            onClick={logout}
-            title="Đăng xuất"
-            aria-label="Đăng xuất"
-            style={{ color: '#dc2626' }}
-          >
-            {/* Lucide log-out: arrow pointing out of door — clear semantic, không phụ thuộc OS emoji */}
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-              <polyline points="16 17 21 12 16 7" />
-              <line x1="21" y1="12" x2="9" y2="12" />
-            </svg>
-            <span className="btn-label">Đăng xuất</span>
-          </button>
-        </div>
-      </header>
+      {!isKds && role && role !== 'print' && user && (
+        /* Header mới (chủ quán 2026-11-10): TÊN TRANG ở giữa, avatar (màn gốc) hoặc ← (màn con)
+           bên trái, chuông bên phải. Đăng xuất nằm trong menu avatar — xem components/AppNav.tsx. */
+        <AppHeader
+          role={role}
+          headerRef={headerRef}
+          avatar={
+            <AvatarMenu
+              fullName={user.full_name || user.name}
+              roleLabel={roleStyle?.label ?? ''}
+              onLogout={logout}
+            />
+          }
+          right={<NotificationBell />}
+        />
       )}
       {/* Dải cảnh báo nằm DƯỚI header (chủ quán 2026-11-09). */}
       {/* ĐIỆN THOẠI: một dòng gộp, bấm mở danh sách (2026-11-09 — hai dải dính cũ cộng header +
@@ -472,109 +458,18 @@ function ProtectedShell() {
       <Suspense fallback={<PageFallback />}>
         <Outlet />
       </Suspense>
-      {!isKds && role === 'admin' && (
-        <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="order" /></span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
-          {/* Hoá đơn tự do đứng thứ HAI, không phải cuối: nav admin có 9 mục và thanh này trượt
-              ngang, nên từ mục thứ 7 trở đi nằm ngoài mép phải trên điện thoại — người dùng đầu
-              tiên thử tính năng đã không tìm ra nó (2026-09-30). */}
-          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon"><Icon name="hoa-don" /></span><span className="nav-label">H/đơn</span></NavLink>
-          <NavLink to="/history" title="Lịch sử"><span className="nav-icon"><Icon name="lich-su" /></span><span className="nav-label">L/sử</span></NavLink>
-          <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="bep" /></span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/menu" title="Menu"><span className="nav-icon"><Icon name="menu" /></span><span className="nav-label">Menu</span></NavLink>
-          <NavLink to="/tables" title="Bàn"><span className="nav-icon"><Icon name="ban" /></span><span className="nav-label">Bàn</span></NavLink>
-          {/* Nhãn "Online" chứ không phải "H/chờ": trang này gồm cả hàng chờ và cài đặt nhận đơn.
-              Đứng ở mục thứ 7 là theo yêu cầu của chủ quán (đổi chỗ với L/sử) — lưu ý từ mục
-              thứ 7 trở đi phải vuốt ngang mới thấy trên điện thoại, kể cả badge đơn đang chờ. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt + cài đặt nhận đơn"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="online" /></span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
-          {/* Nhà cung cấp — thành mục thứ 8 (2026-09-06). Trước đây cố tình để ngoài nav vì sợ
-              bóp nhỏ các mục khác, nhưng thẻ ở Dashboard là đường vào quá kín: nhập hàng là việc
-              LÀM HÀNG NGÀY, không phải màn tra cứu thỉnh thoảng như Thống kê truy cập.
-              8 mục vẫn vừa: dưới 380px nhãn đã tự ẩn, chỉ còn icon 20px. */}
-          <NavLink to="/suppliers" title="Nhà cung cấp — nhập hàng, công nợ"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="ncc" /></span><NavBadge count={pendingDeliveriesCount} label="phiếu nhập đang chờ duyệt" /></span><span className="nav-label">NCC</span></NavLink>
-          <NavLink to="/admin/users" title="Nhân viên"><span className="nav-icon"><Icon name="nhan-vien" /></span><span className="nav-label">N/viên</span></NavLink>
-        </nav>
-      )}
-      {!isKds && role === 'order' && (
-        <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="order" /></span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
-          {/* Hàng chờ duyệt — D-02 cho cả 3 role duyệt được, nên nav cũng phải có ở cả 3.
-              Role này KHÔNG thấy tab Cài đặt nên title chỉ nói về hàng chờ. */}
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="online" /></span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
-          {/* Nhật ký bàn 48h gần nhất — KHÔNG có doanh thu (BE chặn /orders/stats) */}
-          <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon"><Icon name="lich-su" /></span><span className="nav-label">N/ký</span></NavLink>
-          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon"><Icon name="hoa-don" /></span><span className="nav-label">H/đơn</span></NavLink>
-          <NavLink to="/account" title="Tài khoản"><span className="nav-icon"><Icon name="tai-khoan" /></span><span className="nav-label">T/khoản</span></NavLink>
-        </nav>
-      )}
-      {!isKds && role === 'kitchen' && (
-        <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/kitchen" title="Bếp — món đang chờ làm"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="bep" /></span><NavBadge count={kitchenPendingCount} label="món đang chờ bếp làm" /></span><span className="nav-label">Bếp</span></NavLink>
-          <NavLink to="/admin/online-orders" title="Đơn hàng online — hàng chờ duyệt"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="online" /></span><NavBadge count={waitingCount} label="đơn online đang chờ duyệt" /></span><span className="nav-label">Online</span></NavLink>
-          <NavLink to="/orders" title="Order"><span className="nav-icon-wrap"><span className="nav-icon"><Icon name="order" /></span><NavBadge count={openTablesCount} label="bàn đang mở" tone="info" /></span><span className="nav-label">Order</span></NavLink>
-          <NavLink to="/menu" title="Menu"><span className="nav-icon"><Icon name="menu" /></span><span className="nav-label">Menu</span></NavLink>
-          {/* Nhật ký bàn 48h — giống nhân viên order, KHÔNG có tổng doanh thu */}
-          <NavLink to="/history" title="Nhật ký bàn (48h)"><span className="nav-icon"><Icon name="lich-su" /></span><span className="nav-label">N/ký</span></NavLink>
-          <NavLink to="/custom-receipt" title="Hoá đơn tự do — in một tờ hoá đơn không tính doanh thu"><span className="nav-icon"><Icon name="hoa-don" /></span><span className="nav-label">H/đơn</span></NavLink>
-          <NavLink to="/account" title="Tài khoản"><span className="nav-icon"><Icon name="tai-khoan" /></span><span className="nav-label">T/khoản</span></NavLink>
-        </nav>
-      )}
-      {/* Quyền Báo cáo — 5 mục, KHÔNG có Order/Bếp/Online: role này không thao tác được gì ở
-          những màn đó (BE trả 403 cho mọi POST), bày nút ra chỉ để người ta bấm rồi ăn lỗi.
-          Không có badge đếm vì cũng không có nút nào để gắn badge vào. */}
-      {!isKds && role === 'report' && (
-        <nav className="nav-bottom" aria-label="Điều hướng chính">
-          <NavLink to="/dashboard" title="Trang chính — lối vào các báo cáo"><span className="nav-icon"><Icon name="bao-cao" /></span><span className="nav-label">B/cáo</span></NavLink>
-          <NavLink to="/history" title="Nhật ký bàn — doanh thu, đơn đã bán"><span className="nav-icon"><Icon name="lich-su" /></span><span className="nav-label">N/ký</span></NavLink>
-          <NavLink to="/suppliers" title="Nhà cung cấp — giá nhập, công nợ, giá vốn, món bán"><span className="nav-icon"><Icon name="ncc" /></span><span className="nav-label">NCC</span></NavLink>
-          <NavLink to="/admin/analytics" title="Truy cập & khách hàng"><span className="nav-icon"><Icon name="thong-ke" /></span><span className="nav-label">T/cập</span></NavLink>
-          <NavLink to="/account" title="Tài khoản"><span className="nav-icon"><Icon name="tai-khoan" /></span><span className="nav-label">T/khoản</span></NavLink>
-        </nav>
+      {!isKds && role && role !== 'print' && (
+        <>
+          {/* < 1024px: menu dưới tối đa 5 ô (+ "Thêm"); ≥ 1024px: sidebar trái. CSS lo việc ẩn/hiện
+              theo bề rộng nên cả hai cùng dựng — không phải nghe resize. */}
+          <BottomNav role={role} badges={navBadges} />
+          <Sidebar role={role} badges={navBadges} />
+        </>
       )}
     </>
   );
 }
 
-/** Hình tròn đếm, neo ở góc trên-PHẢI của một ô trong nav dưới. `count` null/0 → không vẽ gì
- * (thà không có số còn hơn hiện số sai).
- *
- * Màu phân biệt VIỆC PHẢI LÀM với THÔNG TIN: đỏ = đơn online đang chờ duyệt (khách đang đợi,
- * phải bấm), xanh = số bàn đang mở (chỉ để biết, không ai phải làm gì). Hai badge nằm cạnh nhau
- * trên cùng thanh nav nên cùng màu đỏ là nhân viên liếc qua tưởng cả hai đều cần xử lý.
- *
- * Style INLINE + `position:absolute` có chủ đích: badge tuyệt đối không được chiếm chỗ trong
- * flex column của nav item (icon/label) — bản đầu để class chờ CSS, lúc CSS chưa nạp con số
- * rơi xuống thành dòng thứ 3 làm vỡ cả thanh nav. Neo `position:relative` nằm ở `.nav-bottom a`. */
-/** Con số nhỏ ở GÓC TRÊN BÊN PHẢI icon của một mục nav.
- *
- * Hình dáng + vị trí nằm ở `.nav-badge` trong styles.css, không phải inline: badge được neo vào
- * `.nav-icon-wrap` (bọc riêng icon) chứ không vào cả ô nav — bản cũ dùng
- * `top: 2; left: calc(50% + 6px)` tính theo ô nav, mà từ 640px trở lên ô nav xếp NGANG
- * (icon | chữ) nên giữa ô rơi vào khoảng giữa icon và chữ: con số trôi lên sát mép trên, đè lên
- * vạch xanh của mục đang mở và trông như rụng khỏi icon (ảnh chủ quán gửi 2026-09-07).
- *
- * Chỉ còn màu là inline vì nó phụ thuộc `tone`. */
-function NavBadge({
-  count,
-  label,
-  tone = 'alert',
-}: {
-  count: number | null;
-  /** Đọc cho screen reader, dạng "3 <label>". */
-  label: string;
-  tone?: 'alert' | 'info';
-}) {
-  if (count === null || count <= 0) return null;
-  return (
-    <span
-      aria-label={`${count} ${label}`}
-      className="nav-badge"
-      style={{ background: tone === 'alert' ? '#dc2626' : '#2563eb' }}
-    >
-      {count > 99 ? '99+' : count}
-    </span>
-  );
-}
 
 /** Redirect '/' về landing page tương ứng role hiện tại. */
 function HomeRedirect() {

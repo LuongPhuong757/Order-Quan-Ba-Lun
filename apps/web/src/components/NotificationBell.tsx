@@ -23,13 +23,18 @@ const KIND_COLOR: Record<NotificationKind, string> = {
   error: '#dc2626',
 };
 
+const COUNTED_KINDS = new Set<NotificationKind>(['ready', 'error']);
+
 export function NotificationBell() {
   const [entries, setEntries] = useState<NotificationEntry[]>(notificationStore.getAll());
   const [open, setOpen] = useState(false);
 
   useEffect(() => notificationStore.subscribe(setEntries), []);
 
-  const unread = entries.filter((e) => !e.read).length;
+  /* Số trên chuông CHỈ đếm việc phải làm (chủ quán 2026-11-10): món xong cần bưng ra + lỗi.
+     Mở bàn, huỷ món, thanh toán, tin chung vẫn nằm trong danh sách nhưng không đếm — đếm hết thì
+     con số lúc nào cũng 70+, mọi người quen mắt rồi bỏ qua luôn cả việc thật. */
+  const unread = entries.filter((e) => !e.read && COUNTED_KINDS.has(e.kind)).length;
 
   const handleOpen = () => {
     setOpen(true);
@@ -42,7 +47,7 @@ export function NotificationBell() {
       <button
         onClick={handleOpen}
         title="Thông báo"
-        aria-label={`Thông báo${unread > 0 ? ` (${unread} mới)` : ''}`}
+        aria-label={`Thông báo${unread > 0 ? ` (${unread} việc cần làm)` : ''}`}
         style={{
           position: 'relative',
           background: 'transparent',

@@ -141,6 +141,28 @@ describe('tạo và in', () => {
     expect(bytes.length).toBeGreaterThan(100);
   }, 30_000);
 
+  it('phiếu GIỐNG HỆT của cùng người trong 1 phút → không tạo mã mới, trả lại phiếu cũ (2026-11-10)', async () => {
+    const first = await svc.create(INPUT, ACTOR);
+    const again = await svc.create(INPUT, ACTOR);
+    expect(again.duplicate).toBe(true);
+    expect(again.receipt.id).toBe(first.receipt.id);
+    const rows = await ds.query('SELECT COUNT(*) c FROM custom_receipts WHERE created_by_user_id = ?', [ACTOR.id]);
+    expect(Number(rows[0].c)).toBe(1);
+  });
+
+  it('người dùng chọn "Vẫn tạo phiếu mới" → tạo mã mới dù giống hệt', async () => {
+    const first = await svc.create(INPUT, ACTOR);
+    const again = await svc.create(INPUT, ACTOR, { allowDuplicate: true });
+    expect(again.duplicate).toBe(false);
+    expect(again.receipt.id).not.toBe(first.receipt.id);
+  });
+
+  it('khác nội dung (thêm 1 phần) thì không coi là trùng', async () => {
+    await svc.create(INPUT, ACTOR);
+    const other = await svc.create({ ...INPUT, items: [{ ...INPUT.items[0], qty: 3 }, INPUT.items[1]] }, ACTOR);
+    expect(other.duplicate).toBe(false);
+  });
+
   it('công tắc in TẮT thì vẫn lưu tờ giấy, chỉ không xếp job', async () => {
     await settings.updateMany({ printing_enabled: false }, { user_id: SENTINEL, full_name: 'test' });
     try {

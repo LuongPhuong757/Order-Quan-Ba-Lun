@@ -427,3 +427,149 @@
   background: var(--teal-700);
   color: #fff;
 }
+
+/* ══ Bản danh sách hàng (`.nvl-*`, chủ quán 2026-11-10) ═══════════════════════════════════════
+   Thay lưới thẻ: một lớp nền trắng, hàng 64px kẻ mảnh. Màu chính xanh ngọc; đỏ chỉ cho lỗi và
+   vùng xoá vĩnh viễn. Cỡ chữ 16 / 14 / 13 / 12. */
+.nvl { display: flex; flex-direction: column; gap: 12px; }
+.nvl-tools { display: flex; gap: 8px; align-items: center; }
+.nvl-search {
+  flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  min-height: 48px; padding: 0 12px; border: 1px solid var(--gray-200); border-radius: 12px;
+  background: #fff; color: var(--gray-500);
+}
+.nvl-search input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; min-height: 44px; padding: 0; color: var(--gray-900); }
+.nvl-search input::-webkit-search-cancel-button { display: none; }
+.nv-ui button.nvl-add {
+  min-height: 48px; padding: 0 16px; border-radius: 12px; border: 0;
+  background: var(--brand); color: #fff; font-size: 16px; font-weight: 600;
+  display: inline-flex; align-items: center; gap: 4px; flex: none;
+}
+/* MỘT hàng chip, điện thoại vuốt ngang (không xuống 2 hàng). */
+.nvl-chips { display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+.nvl-chips::-webkit-scrollbar { display: none; }
+.nv-ui button.nvl-chip {
+  flex: none; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--gray-200); background: #fff; color: var(--gray-700);
+  font-size: 14px; font-weight: 500; white-space: nowrap;
+}
+.nv-ui button.nvl-chip.on { background: var(--teal-50); border-color: var(--brand); color: var(--brand); font-weight: 600; }
+.nvl-cnt { color: var(--gray-500); font-weight: 500; margin-left: 2px; }
+.nvl-chip.on .nvl-cnt { color: var(--brand); }
+.nvl-muted { color: var(--gray-500); font-size: 14px; }
+.nvl-empty { background: #fff; border-radius: 12px; padding: 24px 16px; text-align: center; color: var(--gray-500); }
+
+.nvl-list { list-style: none; margin: 0; padding: 0; background: #fff; border-radius: 12px; overflow: hidden; }
+.nvl-list > li + li { border-top: 1px solid var(--gray-200); }
+.nv-ui button.nvl-row {
+  width: 100%; min-height: 64px; padding: 8px 12px;
+  display: flex; align-items: center; gap: 12px;
+  background: transparent; color: var(--gray-900); border: 0; border-radius: 0; text-align: left; font-weight: 400;
+}
+.nv-ui button.nvl-row:active { background: var(--teal-50); }
+.nv-ui button.nvl-row > svg { color: var(--gray-400, #9ca3af); flex: none; }
+.nvl-row.off .nvl-avatar { opacity: 0.45; }
+.nvl-row.off .nvl-name__text { color: var(--gray-500); }
+.nvl-avatar {
+  width: 40px; height: 40px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; color: #fff; font-size: 16px; font-weight: 700;
+}
+.nvl-avatar--lon { width: 48px; height: 48px; font-size: 20px; }
+.nvl-row__mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nvl-name { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.nvl-name__text { font-size: 16px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nvl-tag {
+  flex: none; padding: 1px 6px; border-radius: 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  background: var(--gray-100, #f3f4f6); color: var(--gray-500);
+}
+.nvl-row__sub { font-size: 13px; color: var(--gray-500); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nvl-row__sub.loi { color: #dc2626; }
+.nvl-locked {
+  flex: none; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600;
+  background: var(--gray-100, #f3f4f6); color: var(--gray-700);
+}
+
+/* Hộp thoại (Sửa / Thêm / Mật khẩu): đầu + thân cuộn + chân dính đáy. */
+.modal-overlay > .modal.nvl-modal {
+  padding: 0; display: flex; flex-direction: column; overflow: hidden; max-width: 520px;
+}
+.nvl-modal__head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px;
+  border-bottom: 1px solid var(--gray-200); flex: none;
+}
+.nvl-modal__title { margin: 0; flex: 1; min-width: 0; font-size: 18px; font-weight: 600; }
+.nv-ui button.nvl-iconbtn, button.nvl-iconbtn {
+  width: 44px; height: 44px; min-width: 44px; padding: 0; display: grid; place-items: center;
+  background: transparent; color: var(--gray-700); border: 0;
+}
+.nvl-modal__body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.nvl-modal__foot {
+  flex: none; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--gray-200);
+}
+.nvl-form { display: flex; flex-direction: column; gap: 16px; }
+.nvl-field { display: flex; flex-direction: column; gap: 6px; }
+.nvl-label { font-size: 13px; color: var(--gray-500); }
+.nvl-input {
+  width: 100%; box-sizing: border-box; min-height: 48px; padding: 8px 12px;
+  border: 1px solid var(--gray-200); border-radius: 12px; font-size: 16px; color: var(--gray-900); background: #fff;
+}
+.nvl-help { margin: 0; font-size: 13px; color: var(--gray-500); line-height: 1.45; }
+.nvl-err { margin: 0; font-size: 14px; color: #dc2626; }
+button.nvl-btn {
+  min-height: 48px; padding: 0 16px; border-radius: 12px; font-size: 16px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+button.nvl-btn--chinh { background: var(--brand); color: #fff; border: 0; }
+button.nvl-btn--vien { background: #fff; color: var(--brand); border: 1px solid var(--brand); }
+button.nvl-btn--nguy { background: #fff; color: #dc2626; border: 1px solid #fca5a5; }
+button.nvl-btn--nguy:disabled { opacity: 0.5; }
+
+/* Vai trò: đang chọn = viền + nền xanh ngọc nhạt (bản cũ nền vàng lệch màu chính). */
+.nvl-roles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 8px; }
+button.nvl-role {
+  min-height: 48px; padding: 0 12px; border-radius: 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff; color: var(--gray-700); border: 1px solid var(--gray-200); font-size: 15px; font-weight: 500;
+}
+button.nvl-role.on { background: var(--teal-50); color: var(--brand); border: 2px solid var(--brand); font-weight: 700; }
+
+.nvl-who { display: flex; align-items: center; gap: 12px; }
+.nvl-who__txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.nvl-section { display: flex; flex-direction: column; border-top: 1px solid var(--gray-200); padding-top: 12px; }
+.nvl-section__title { margin: 0 0 4px; font-size: 13px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.03em; }
+.nvl-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 52px; font-size: 16px; }
+.nvl-line__txt { display: flex; flex-direction: column; gap: 2px; }
+button.nvl-line--btn {
+  width: 100%; padding: 0; background: transparent; color: var(--gray-900); border: 0; border-radius: 0;
+  font-size: 16px; font-weight: 500; text-align: left;
+}
+button.nvl-line--btn + button.nvl-line--btn { border-top: 1px solid var(--gray-200); }
+/* Vùng xoá: TÁCH XA bằng khoảng trống lớn + kẻ đứt, không nằm sát nút nào khác. */
+.nvl-danger {
+  margin-top: 16px; padding-top: 16px; border-top: 1px dashed #fca5a5;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.nvl-pwd { display: flex; align-items: center; gap: 8px; }
+.nvl-pwd__val {
+  flex: 1; min-width: 0; padding: 10px 12px; border-radius: 12px; background: var(--teal-50);
+  font-size: 18px; letter-spacing: 0.06em; color: var(--gray-900); overflow-wrap: anywhere;
+}
+/* Công tắc trong màn Sửa: chữ bên trái co lại, công tắc + nhãn "Được thu" giữ nguyên bề rộng —
+   bản đầu nhãn tràn khỏi mép phải hộp (đo WebKit 390px, 2026-11-10). */
+.nvl-line__txt { flex: 1 1 auto; min-width: 0; }
+.nvl-line .nv-switch { flex: none; display: inline-flex; align-items: center; gap: 8px; width: auto; position: static; }
+.nvl-line .nv-switch .nv-switch-txt { position: static; white-space: nowrap; }
+/* Màu chủ đạo xanh ngọc cho công tắc trong màn Sửa (bản thẻ cũ dùng xanh lá emerald). */
+.nvl-modal .nv-switch[aria-checked='true'] .nv-track { background: var(--brand); }
+.nvl-modal .nv-switch[aria-checked='true'] .nv-switch-txt { color: var(--brand); }
+.nvl-modal .nv-switch .nv-switch-txt { min-width: 0; }
+/* Hàng nút thao tác tài khoản trong màn Sửa: 2 nút bằng nhau, ngang hàng. */
+.nvl-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 8px; }
+button.nvl-btn--xam { background: #fff; color: var(--gray-700); border: 1px solid var(--gray-300, #d1d5db); }
+button.nvl-btn--rong { width: 100%; margin-top: 4px; }
+/* Ô tìm và nút Thêm CÙNG cao 48px (ô tìm từng cao 50px vì viền cộng thêm ngoài min-height), nút
+   Thêm gọn lại theo chữ (chủ quán 2026-11-10: "nút Thêm quá dài"). */
+.nvl-search { box-sizing: border-box; height: 48px; min-height: 0; }
+.nvl-search input { min-height: 0; height: 100%; }
+.nv-ui button.nvl-add { box-sizing: border-box; height: 48px; min-height: 0; padding: 0 12px 0 10px; gap: 2px; }
