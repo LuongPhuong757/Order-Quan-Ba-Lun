@@ -306,6 +306,39 @@ export class RecipesService {
     return items.length === 1 ? items[0].supplier_id : null;
   }
 
+  /** Sửa ĐỊNH LƯỢNG một dòng công thức tại chỗ (góp ý 2026-11-11: trước muốn đổi 500g thành 400g
+   * phải xoá dòng rồi nhập lại). Không đổi nguyên liệu / NCC — đổi những thứ đó là dòng khác.
+   * Cùng luật quy đổi với `upsertLine`: nhập kg cho nguyên liệu đo bằng g thì lưu ×1000, lệch
+   * nhóm (ml cho thứ đo bằng g) thì chặn. */
+  async updateQty(line_id: string, qty: number, unit: string): Promise<RecipeLineView> {
+    if (!(qty > 0)) {
+      throw new BadRequestException({ code: 'BAD_INPUT', message: 'Định lượng phải lớn hơn 0' });
+    }
+    const line = await this.repo.findOne({ where: { id: line_id } });
+    if (!line) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Dòng công thức không tồn tại' });
+    const ingredient = await this.ingredientRepo.findOne({ where: { id: line.ingredient_id } });
+    if (!ingredient) throw new NotFoundException({ code: 'NOT_FOUND', message: 'Nguyên liệu không tồn tại' });
+    const qty_base = toBaseQty(qty, unit, ingredient.unit);
+    if (qty_base === null) {
+      throw new BadRequestException({
+        code: 'UNIT_MISMATCH',
+        message: `"${ingredient.name}" đo bằng ${ingredient.unit} — không nhận đơn vị ${unit}`,
+      });
+    }
+    line.qty_per_serving = String(qty_base);
+    await this.repo.save(line);
+    const supName = await this.supplierNames([line.supplier_id]);
+    return {
+      id: line.id,
+      ingredient_id: ingredient.id,
+      ingredient_name: ingredient.name,
+      unit: ingredient.unit,
+      qty_per_serving: qty_base,
+      supplier_id: line.supplier_id,
+      supplier_name: line.supplier_id ? (supName.get(line.supplier_id) ?? null) : null,
+    };
+  }
+
   /** Bỏ một nguyên liệu khỏi công thức món. Không đụng tới danh mục nguyên liệu — thứ đó dùng
    * chung với các món khác. */
   async removeLine(line_id: string): Promise<void> {

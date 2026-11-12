@@ -4,7 +4,31 @@
 
 /** Một món trong bản đồ giá vốn của màn Menu. `cost` là giá vốn ĐẦY ĐỦ (chính + % phụ) — bảng món
  *  và hộp Công thức dùng chung, nên % trên bảng luôn bằng % ở dòng "Giá vốn" trong hộp. */
-export type FoodCostEntry = { pct: number; cost: number; costMain: number; costResale: number; overhead: number; complete: boolean };
+export type FoodCostEntry = {
+  pct: number;
+  cost: number;
+  costMain: number;
+  costResale: number;
+  overhead: number;
+  complete: boolean;
+  /** Từng dòng nguyên liệu (thẻ chi tiết món trên điện thoại, 2026-11-11) — cùng lần gọi
+   *  `/supplier-reports/food-cost`, không tốn thêm request. */
+  lines: CostLine[];
+};
+
+/** Một dòng nguyên liệu của món kèm thành tiền một phần. `cost: null` = nguyên liệu chưa có giá. */
+export type CostLine = {
+  ingredient_id: string;
+  ingredient_name: string;
+  supplier_id: string | null;
+  qty_per_serving: number;
+  base_unit: string;
+  /** Giá một đơn vị GỐC (1 g, 1 ml, 1 hộp) theo lần nhập gần nhất — để ghi "20.000đ/kg". */
+  unit_price_base: number | null;
+  cost: number | null;
+  is_secondary: boolean;
+  is_resale: boolean;
+};
 
 export type MenuGroup = {
   id: string;
@@ -96,7 +120,10 @@ export type RowCtx = {
   toggleOnline: (it: MenuItem) => void;
   toggleFeatured: (it: MenuItem) => void;
   togglePushSale: (it: MenuItem) => void;
-  openMore: (it: MenuItem) => void;
+  /** `anchor`: khung nút ⋯ — menu thả neo ngay dưới nó (máy tính). */
+  openMore: (it: MenuItem, anchor: DOMRect) => void;
+  /** Mở chi tiết món (panel phải trên máy tính) — bấm tên món trên bảng. */
+  openDetail: (it: MenuItem) => void;
   zoom: (it: MenuItem) => void;
   /** Chạm ô ảnh (admin) = chọn ảnh mới, tải lên và lưu NGAY cho món — không phải mở form Sửa. */
   changeImage: (it: MenuItem) => void;

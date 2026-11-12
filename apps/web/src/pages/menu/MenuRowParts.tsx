@@ -82,7 +82,10 @@ export function MenuName({ it, ctx }: { it: MenuItem; ctx: RowCtx }) {
   return (
     <div className="td-name">
       <span className="td-name__ten">
-        <span className="td3-ten">{it.name}</span>
+        {/* Bấm TÊN = mở chi tiết món (panel phải, góp ý 2026-11-11 mục E) — xem không phải mở form. */}
+        <button type="button" className="td3-ten td3-ten-btn" onClick={() => ctx.openDetail(it)}>
+          {it.name}
+        </button>
         {/* ⭐ Đề xuất: icon nhỏ sau tên (viền quanh ảnh nay dành cho Đẩy bán). */}
         {ctx.featuredIds.has(it.id) && <Icon name="de-xuat" size={14} label="Đang đề xuất" className="td3-co" />}
       </span>
@@ -166,7 +169,7 @@ export function PushButton({ it, ctx }: { it: MenuItem; ctx: RowCtx }) {
 
 export function MoreButton({ it, ctx }: { it: MenuItem; ctx: RowCtx }) {
   return (
-    <button type="button" className="td-ic" onClick={() => ctx.openMore(it)} aria-label={`Thêm thao tác cho ${it.name}`}>
+    <button type="button" className="td-ic" onClick={(e) => ctx.openMore(it, e.currentTarget.getBoundingClientRect())} aria-label={`Thêm thao tác cho ${it.name}`}>
       <Icon name="them-thao-tac" size={20} />
     </button>
   );
