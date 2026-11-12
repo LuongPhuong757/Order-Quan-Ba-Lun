@@ -47,6 +47,61 @@ export function formatTableName(kind: string, num: number, width = 2): string {
   return `${fmt.namePrefix} ${numStr}`;
 }
 
+/** Số bàn rút từ mã: lấy MỌI chữ số rồi đổi ra số (`ban-05` → 5, `B5` → 5, `ban-005` → 5).
+ * Cùng cách `matchTableByInput` (public/table-input.ts) nhận số bàn khách gõ — hai bàn cùng
+ * loại mà cùng số thì khách gõ "5" sẽ không biết là bàn nào, nên coi là TRÙNG. Không có chữ
+ * số → null. */
+export function tableNumberOf(code: string): number | null {
+  const digits = code.replace(/\D/g, '');
+  if (digits === '') return null;
+  const n = Number(digits);
+  return Number.isSafeInteger(n) ? n : null;
+}
+
+export type ExistingTable = { id: string; code: string; kind: string; is_active: boolean };
+
+export type BulkPlan = {
+  /** Số chưa có bàn nào cùng loại → tạo mới. */
+  create: { num: number; code: string; name: string }[];
+  /** Bàn đã xoá (ẩn) trùng số → hiện lại, không tạo bàn thứ hai. */
+  reopen: ExistingTable[];
+  /** Số đã có bàn đang dùng → bỏ qua. */
+  skippedNums: number[];
+};
+
+/** Lên kế hoạch tạo bàn hàng loạt — CHỈ tạo số còn thiếu (chủ quán chốt 2026-11-12).
+ *
+ * Lỗi cũ: so trùng bằng CHUỖI mã, mà độ rộng số 0 lại tính theo `to_num` của từng lần
+ * (1–10 ra `ban-01`, 1–120 ra `ban-001`) → lần sau tạo trùng "Bàn 01" và "Bàn 001". Giờ so
+ * bằng GIÁ TRỊ SỐ trong cùng loại, và luôn pad tối thiểu 2 (giống `nextTableCode`).
+ *
+ * Bàn đã xoá chỉ là `is_active=false`, mã vẫn giữ (UNIQUE) → không tạo lại được mã đó.
+ * Trước đây bị "bỏ qua" âm thầm: chủ quán tạo lại mà bàn không hiện. Giờ mở lại bàn cũ —
+ * với người dùng, bàn đã xoá là "chưa có". */
+export function planBulkTables(
+  kind: string,
+  fromNum: number,
+  toNum: number,
+  existing: readonly ExistingTable[],
+): BulkPlan {
+  const active = new Set<number>();
+  const deleted = new Map<number, ExistingTable>();
+  for (const t of existing) {
+    if (t.kind !== kind) continue;
+    const n = tableNumberOf(t.code);
+    if (n === null) continue;
+    if (t.is_active) active.add(n);
+    else if (!deleted.has(n)) deleted.set(n, t);
+  }
+  const plan: BulkPlan = { create: [], reopen: [], skippedNums: [] };
+  for (let n = fromNum; n <= toNum; n++) {
+    if (active.has(n)) plan.skippedNums.push(n);
+    else if (deleted.has(n)) plan.reopen.push(deleted.get(n)!);
+    else plan.create.push({ num: n, code: formatTableCode(kind, n), name: formatTableName(kind, n) });
+  }
+  return plan;
+}
+
 /** M2.D-14 — map duy nhất trong repo giữa fulfillment_type của đơn online và kind bàn:
  * PICKUP → 'takeaway' (khách tự đến lấy), DELIVERY → 'delivery' (giao tận nơi). */
 export function kindForFulfillment(ft: 'PICKUP' | 'DELIVERY'): TableKind {
