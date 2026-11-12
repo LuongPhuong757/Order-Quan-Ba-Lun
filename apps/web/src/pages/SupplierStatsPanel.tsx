@@ -20,15 +20,16 @@ import {
   LineChart,
   StackedBarChart,
   GroupedBarChart,
-  seriesColor,
-  OTHER_COLOR,
   type LineSeries,
 } from '../components/Charts.tsx';
 import { TimeFilter } from '../components/ui/TimeFilter.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
-import { DAY_SCREEN } from '../lib/time-presets.ts';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { useIsPhone } from '../components/ui/use-is-phone.ts';
+import { DAY_SCREEN, PRESET_LABEL, detectPreset } from '../lib/time-presets.ts';
 import { Pager } from '../components/Pager.tsx';
-import { presetRange, vnDayEndMs, vnDayStartMs, type DayRange } from '../lib/date-range.ts';
+import { presetRange, rangeLabel, vnDayEndMs, vnDayStartMs, type DayRange } from '../lib/date-range.ts';
 import {
   KHAC_ID,
   buildSpendChart,
@@ -55,6 +56,7 @@ import {
 import type { Balance } from './SupplierPayments.tsx';
 import { SupplierAccountFlowCard } from './SupplierAccountFlowCard.tsx';
 import { SupplierKindStatsCard } from './SupplierKindStatsCard.tsx';
+import './thong-ke-ncc.css';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const CO_TRANG = 15;
@@ -64,12 +66,49 @@ const CO_TRANG = 15;
  *  thứ tab này sinh ra để xem. Bấm "Tất cả" vẫn luôn có đó. */
 const KY_MAC_DINH = (): DayRange => presetRange('30d', Date.now());
 
+/** Bốn "nút xem" (2026-11-12, chủ quán duyệt bản xem thử). Trước đây 10 khối xếp chồng: laptop dài
+ *  6.600px, điện thoại 18.158px — muốn xem "đã trả ai" phải cuộn ~21 màn hình. Giờ bấm nút nào chỉ
+ *  hiện phần đó. Mặc định "Chi tiêu": tab này sinh ra để trả lời "tháng này tiền nhập đi vào đâu". */
+type Xem = 'chi-tieu' | 'cong-no' | 'tien' | 'ds';
+const NUT_XEM: Array<{ v: Xem; nhan: string }> = [
+  { v: 'chi-tieu', nhan: 'Chi tiêu' },
+  { v: 'cong-no', nhan: 'Công nợ' },
+  { v: 'tien', nhan: 'Tiền vào/ra' },
+  { v: 'ds', nhan: 'Danh sách' },
+];
+type DanhSach = 'mat-hang' | 'phieu' | 'tra';
+
+/** Biểu đồ chi tiêu chỉ tô riêng 4 NCC lớn nhất (đậm → nhạt), phần còn lại gộp "Khác" màu xám. Bảng
+ *  8 màu cầu vồng cũ trái quy tắc "biểu đồ chỉ tông xanh ngọc + xám"; 4 bậc xanh ngọc là giới hạn
+ *  mắt còn phân biệt được — tên từng NCC đã có ở bảng "NCC chi nhiều nhất" ngay dưới. */
+const SO_NCC_TO_MAU = 4;
+const MAU_NCC = ['#115e59', '#0d9488', '#2dd4bf', '#99f6e4'];
+const MAU_KHAC = '#d1d5db';
+/** Số NCC hiện sẵn ở bảng xếp hạng; còn lại bấm "Xem cả". */
+const SO_HANG_NCC = 6;
+
 type ItemSort = 'ingredient_name' | 'deliveries' | 'amount' | 'last_date';
 type PhieuSort = 'delivery_date' | 'supplier_name' | 'lines' | 'amount';
 type TraSort = 'paid_on' | 'supplier_name' | 'amount';
 
-export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
+export function SupplierStatsPanel({
+  supplierId,
+  suppliers,
+  onSupplierChange,
+}: {
+  supplierId?: string;
+  /** Có thì ô chọn NCC vẽ NGAY trong hàng lọc của tab (cạnh kỳ xem) thay vì một hàng riêng ở trang
+   *  cha — hai bộ lọc của cùng một câu hỏi nằm một chỗ. */
+  suppliers?: Array<{ id: string; name: string }>;
+  onSupplierChange?: (id: string) => void;
+}) {
   const toast = useToast();
+  const isPhone = useIsPhone();
+  const [xem, setXem] = useState<Xem>('chi-tieu');
+  const [ds, setDs] = useState<DanhSach>('mat-hang');
+  const [moKy, setMoKy] = useState(false);
+  const [moConNo, setMoConNo] = useState(false);
+  const [hetNcc, setHetNcc] = useState(false);
   const [range, setRange] = useState<DayRange>(KY_MAC_DINH);
   const [tim, setTim] = useState('');
 
@@ -167,19 +206,21 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
 
   useEffect(load, [load]);
 
-  const chart = useMemo(() => buildSpendChart(daily ?? [], range), [daily, range]);
+  const chart = useMemo(() => buildSpendChart(daily ?? [], range, SO_NCC_TO_MAU), [daily, range]);
   const no = useMemo(
     () => buildDebtChart(debtFlow?.opening ?? 0, debtFlow?.items ?? [], range, doanhThuNgay),
     [debtFlow, range, doanhThuNgay],
   );
-  /** Hai cột của biểu đồ nợ. Màu CỐ ĐỊNH chứ không lấy từ `seriesColor`: bảng màu kia xoay theo
-   *  thứ hạng NCC, còn ở đây "nợ" và "trả" là hai nghĩa cố định — đổi màu giữa hai lần xem là
-   *  đọc nhầm. Đỏ = tiền quán đang nợ thêm, xanh = tiền quán trả ra. */
+  /** Ba cột của biểu đồ nợ. Màu CỐ ĐỊNH chứ không xoay theo thứ hạng NCC như biểu đồ chi tiêu: ở
+   *  đây "nợ" và "trả" là hai nghĩa cố định — đổi màu giữa hai lần xem là đọc nhầm. Xanh ngọc đậm =
+   *  tiền quán nợ thêm, xanh ngọc nhạt = tiền quán trả ra, xám = doanh thu (2026-11-12). */
   const noSeries = useMemo<LineSeries[]>(
     () => [
-      { id: 'no-moi', name: 'Nợ mới (phiếu nhập)', color: '#dc2626', values: no.noMoi },
-      { id: 'da-tra', name: 'Đã trả', color: '#059669', values: no.daTra },
-      { id: 'doanh-thu', name: 'Doanh thu bán hàng', color: '#2563eb', values: no.doanhThu },
+      // 2026-11-12: xanh ngọc đậm / nhạt / xám thay đỏ / xanh lá / xanh dương (chủ quán chọn) —
+      // đúng bộ màu biểu đồ chung; nghĩa vẫn cố định giữa các lần xem.
+      { id: 'no-moi', name: 'Nợ mới (phiếu nhập)', color: '#0f766e', values: no.noMoi },
+      { id: 'da-tra', name: 'Đã trả', color: '#99f6e4', values: no.daTra },
+      { id: 'doanh-thu', name: 'Doanh thu bán hàng', color: '#d1d5db', values: no.doanhThu },
     ],
     [no],
   );
@@ -192,7 +233,7 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
       return moi;
     });
   const duNoSeries = useMemo<LineSeries[]>(
-    () => [{ id: 'du-no', name: 'Còn nợ cuối kỳ', color: '#b45309', values: no.duNo }],
+    () => [{ id: 'du-no', name: 'Còn nợ cuối kỳ', color: '#0f766e', values: no.duNo }],
     [no],
   );
 
@@ -201,14 +242,24 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
       chart.series.map((s, i) => ({
         id: s.supplier_id,
         name: s.supplier_name,
-        // Màu bám theo THỨ HẠNG trong kỳ. Bám theo id NCC thì đẹp hơn về lý thuyết nhưng cần
-        // một bảng màu cố định lưu đâu đó; ở đây chú giải luôn hiện ngay dưới biểu đồ nên
-        // không có chuyện đọc nhầm.
-        color: s.supplier_id === KHAC_ID ? OTHER_COLOR : seriesColor(i),
+        // Màu bám theo THỨ HẠNG trong kỳ (đậm = chi nhiều nhất). Chú giải luôn hiện ngay dưới
+        // biểu đồ nên không có chuyện đọc nhầm.
+        color: s.supplier_id === KHAC_ID ? MAU_KHAC : MAU_NCC[i] ?? MAU_KHAC,
         values: s.values,
       })),
     [chart],
   );
+
+  /** Bảng "NCC chi nhiều nhất" — cộng thẳng từ `daily`, đủ MỌI NCC (biểu đồ chỉ tô 4). */
+  const xepNcc = useMemo(() => {
+    const m = new Map<string, { id: string; ten: string; tien: number }>();
+    for (const r of daily ?? []) {
+      const x = m.get(r.supplier_id) ?? { id: r.supplier_id, ten: r.supplier_name, tien: 0 };
+      x.tien += r.amount;
+      m.set(r.supplier_id, x);
+    }
+    return [...m.values()].sort((a, b) => b.tien - a.tien);
+  }, [daily]);
 
   const items = useMemo(() => {
     const loc = locMon(gopTheoMon(pairs ?? []), tim);
@@ -259,447 +310,481 @@ export function SupplierStatsPanel({ supplierId }: { supplierId?: string }) {
     setPhieuPage(1);
   };
 
+  const doiKy = (r: DayRange) => {
+    setRange(r);
+    setItemPage(1);
+    setPhieuPage(1);
+    setTraPage(1);
+  };
+  const kyNhan = (() => {
+    const p = detectPreset(range, Date.now(), DAY_SCREEN);
+    return p === 'custom' ? rangeLabel(range, Date.now()) : PRESET_LABEL[p];
+  })();
+  const tenNcc = suppliers?.find((x) => x.id === supplierId)?.name;
+  const thayDoi = no.tongNoMoi - no.tongDaTra;
+  const oChonNcc = suppliers && onSupplierChange && (
+    <Dropdown
+      full
+      value={supplierId ?? ''}
+      neutralValue=""
+      ariaLabel="Lọc theo nhà cung cấp"
+      sheetTitle="Chọn nhà cung cấp"
+      onChange={onSupplierChange}
+      options={[{ value: '', label: 'Tất cả nhà cung cấp' }, ...suppliers.map((x) => ({ value: x.id, label: x.name }))]}
+    />
+  );
+
   return (
-    <>
-      {/* Bộ nút thời gian CHUNG (Đợt 0, 2026-11-09) — cùng bộ với các tab NCC khác, nên giờ tab
-          này cũng có "Tháng này / Tháng trước". Không có ca: API thống kê lọc theo ngày. */}
-      <TimeFilter
-        value={range}
-        onChange={(r) => {
-          setRange(r);
-          setItemPage(1);
-          setPhieuPage(1);
-          setTraPage(1);
-        }}
-        presets={DAY_SCREEN}
-        label="Kỳ thống kê"
-        ariaLabel="Lọc thống kê nhập hàng theo khoảng ngày"
-      />
+    <div className="tk">
+      {/* ── Hàng lọc: kỳ + nhà cung cấp ──
+          Điện thoại: hai nút ngang nhau, kỳ mở tấm trượt (8 chip + lịch). Máy tính/iPad: đủ chip
+          như các tab NCC khác. Không có ca: API thống kê lọc theo ngày. */}
+      {isPhone ? (
+        <div className="tk-loc tk-loc--gon">
+          <button type="button" className="tk-ky" onClick={() => setMoKy(true)} aria-label={`Đổi kỳ thống kê, đang xem ${kyNhan}`}>
+            <Icon name="lich" size={18} />
+            <span>{kyNhan}</span>
+            <Icon name="mui-ten-xuong" size={18} />
+          </button>
+          {oChonNcc && <div className="tk-ncc">{oChonNcc}</div>}
+        </div>
+      ) : (
+        <div className="tk-loc">
+          <div className="tk-loc__ky">
+            <TimeFilter value={range} onChange={doiKy} presets={DAY_SCREEN} ariaLabel="Lọc thống kê nhập hàng theo khoảng ngày" />
+          </div>
+          {oChonNcc && <div className="tk-ncc">{oChonNcc}</div>}
+        </div>
+      )}
 
       {dangTai ? (
         <p style={{ color: C.muted, marginTop: 16 }}>Đang tải…</p>
       ) : (
         <>
-          <div className="card" style={{ margin: '12px 0', display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            <Con nhan="Tổng nhập" giatri={`${vnd(chart.total)}đ`} />
-            <Con nhan="Số phiếu" giatri={String(soPhieu)} />
-            <Con nhan="Nhà cung cấp" giatri={String(soNcc)} />
+          {/* ── 4 con số chính ──
+              Gom từ 4 nơi cũ (dải đầu, khối nguyên liệu, dưới biểu đồ nợ, dải "Đã trả" cuối tab).
+              "Tổng nhập" và "Đã mua" cũ là CÙNG một số nên chỉ còn "Đã mua". */}
+          <section className="tk-kpis" aria-label="Số liệu chính trong kỳ">
+            <div className="tk-kpi">
+              <span className="tk-kpi__l">Đã mua</span>
+              <span className="tk-kpi__v">{vnd(chart.total)}đ</span>
+              <span className="tk-kpi__s">{soPhieu} phiếu · {soNcc} NCC</span>
+            </div>
+            <div className="tk-kpi">
+              <span className="tk-kpi__l">Đã trả</span>
+              <span className="tk-kpi__v">{vnd(tongTra.tong)}đ</span>
+              {/* Dòng phụ dạng gọn "131tr" (không thêm "đ" — "131trđ" đọc vấp); số chính in đủ. */}
+              <span className="tk-kpi__s">CK {tienGon(tongTra.chuyenKhoan)} · TM {tienGon(tongTra.tienMat)}</span>
+            </div>
+            {/* Nợ PHÌNH thêm thì cam (cần để ý), nợ giảm thì xanh ngọc — không đỏ. */}
+            <div className={`tk-kpi${thayDoi > 0 ? ' is-up' : thayDoi < 0 ? ' is-down' : ''}`}>
+              <span className="tk-kpi__l">{thayDoi >= 0 ? 'Nợ tăng thêm' : 'Nợ giảm'}</span>
+              <span className="tk-kpi__v">{thayDoi > 0 ? '+' : thayDoi < 0 ? '−' : ''}{vnd(Math.abs(thayDoi))}đ</span>
+              <span className="tk-kpi__s">đầu kỳ {tienGon(debtFlow?.opening ?? 0)}</span>
+            </div>
+            <div className="tk-kpi is-main">
+              <span className="tk-kpi__l">
+                Còn nợ
+                <button type="button" className="tk-i" aria-expanded={moConNo}
+                        aria-label={moConNo ? 'Ẩn giải thích' : 'Vì sao số này khác?'} onClick={() => setMoConNo((v) => !v)}>i</button>
+              </span>
+              <span className="tk-kpi__v">{noNcc === null ? '…' : `${vnd(noNcc)}đ`}</span>
+              <span className="tk-kpi__s">tính đến hôm nay</span>
+            </div>
+          </section>
+          {/* Lời nhắc này KHÔNG được bỏ (xem lịch sử file): ba ô kia cắt theo kỳ, riêng "Còn nợ" là
+              luỹ kế toàn thời gian — ai đó sẽ trừ "đã mua − đã trả" đem đi đối chiếu nếu không nói ra.
+              Nay nằm sau ⓘ của chính ô đó thay vì một đoạn chữ cố định cuối tab. */}
+          {moConNo && (
+            <p className="tk-note">
+              “Đã mua”, “Đã trả”, “Nợ tăng thêm” tính trong kỳ đang lọc. Riêng <strong>“Còn nợ” là số luỹ kế toàn thời gian</strong>
+              {supplierId ? ' của nhà cung cấp đang lọc' : ' của tất cả nhà cung cấp'} — gồm cả số dư đầu kỳ khai tay, không cắt theo kỳ.
+            </p>
+          )}
+
+          <div className="tk-views" role="tablist" aria-label="Phần thống kê">
+            {NUT_XEM.map((n) => (
+              <button key={n.v} type="button" role="tab" aria-selected={xem === n.v} onClick={() => setXem(n.v)}>
+                {n.nhan}
+              </button>
+            ))}
           </div>
 
-          <ChartCard
-            title="Chi tiêu nhập hàng theo thời gian"
-            hint={
-              chart.bucket === 'day'
-                ? 'Mỗi điểm là một ngày. Bấm tên nhà cung cấp ở dưới để ẩn/hiện đường.'
-                : chart.bucket === 'week'
-                  ? 'Kỳ dài nên gộp theo TUẦN (mốc là thứ Hai đầu tuần).'
-                  : 'Kỳ rất dài nên gộp theo THÁNG.'
-            }
-          >
-            {chart.series.length === 0 ? (
-              <p style={{ color: C.muted, margin: 0 }}>Chưa có phiếu nhập đã duyệt trong kỳ này.</p>
-            ) : (
-              <LineChart
-                labels={chart.labels}
-                series={series}
-                formatValue={(v) => `${tienGon(v)}đ`}
-                ariaLabel={`Chi tiêu nhập hàng của ${chart.series.length} nhà cung cấp qua ${chart.labels.length} mốc thời gian`}
-              />
-            )}
-          </ChartCard>
+          {/* ═════════ CHI TIÊU ═════════ */}
+          {xem === 'chi-tieu' && (
+            <>
+              {/* Chỉ giữ biểu đồ CỘT CHỒNG (chủ quán chọn 2026-11-12): biểu đồ đường mỗi NCC một
+                  đường vẽ cùng dữ liệu, 8–10 đường chồng chéo không đọc được trên điện thoại. */}
+              <ChartCard
+                hintGon
+                title="Nhập hàng theo thời gian"
+                hint={
+                  (chart.bucket === 'day'
+                    ? 'Mỗi cột là một ngày'
+                    : chart.bucket === 'week'
+                      ? 'Kỳ dài nên mỗi cột là một TUẦN (mốc là thứ Hai đầu tuần)'
+                      : 'Kỳ rất dài nên mỗi cột là một THÁNG') +
+                  (supplierId
+                    ? '. Cột cao bằng tổng tiền nhập của nhà cung cấp đang lọc.'
+                    : `. Cột cao bằng TỔNG tiền nhập, chia màu theo ${SO_NCC_TO_MAU} nhà cung cấp chi nhiều nhất, còn lại gộp "Khác". Bấm tên ở chú giải để ẩn/hiện.`)
+                }
+              >
+                {chart.series.length === 0 ? (
+                  <p style={{ color: C.muted, margin: 0 }}>Chưa có phiếu nhập đã duyệt trong kỳ này.</p>
+                ) : (
+                  <StackedBarChart
+                    labels={chart.labels}
+                    series={series}
+                    formatValue={(v) => `${tienGon(v)}đ`}
+                    ariaLabel={`Tổng tiền nhập hàng theo ${chart.labels.length} mốc thời gian, mỗi cột chia tầng theo ${chart.series.length} nhóm nhà cung cấp`}
+                  />
+                )}
+              </ChartCard>
 
-          <div style={{ marginTop: 12 }}>
-            <ChartCard
-              title="Tổng nhập hàng theo thời gian"
-              hint={
-                (chart.bucket === 'day'
-                  ? 'Mỗi cột là một ngày'
-                  : chart.bucket === 'week'
-                    ? 'Kỳ dài nên mỗi cột là một TUẦN (mốc là thứ Hai đầu tuần)'
-                    : 'Kỳ rất dài nên mỗi cột là một THÁNG') +
-                (supplierId
-                  ? '. Cột cao bằng tổng tiền nhập của nhà cung cấp đang lọc.'
-                  : '. Cột cao bằng TỔNG tiền nhập, chia màu theo từng nhà cung cấp — bỏ lọc nhà cung cấp nên mọi NCC dồn vào một cột.')
-              }
-            >
-              {chart.series.length === 0 ? (
-                <p style={{ color: C.muted, margin: 0 }}>Chưa có phiếu nhập đã duyệt trong kỳ này.</p>
-              ) : (
-                <StackedBarChart
-                  labels={chart.labels}
-                  series={series}
-                  formatValue={(v) => `${tienGon(v)}đ`}
-                  ariaLabel={`Tổng tiền nhập hàng theo ${chart.labels.length} mốc thời gian, mỗi cột chia tầng theo ${chart.series.length} nhà cung cấp`}
-                />
-              )}
-            </ChartCard>
-          </div>
-
-          {/* Nguyên liệu chính / phụ (2026-10-22) — ngay dưới "Tổng nhập": cùng một số tiền, nhìn
-              theo cách chia khác. Tự nạp dữ liệu riêng, xem docblock file đó. */}
-          <SupplierKindStatsCard range={range} />
-
-          {/* ── BIẾN ĐỘNG CÔNG NỢ (2026-10-02, chủ quán yêu cầu) ──
-              HAI biểu đồ chứ không phải một, và đây là quyết định có chủ đích: dư nợ luỹ kế
-              lớn hơn số phát sinh hàng ngày cả chục lần (nợ vài trăm triệu, mỗi ngày mua vài
-              triệu). Vẽ chung một trục thì hai cột nợ/trả bẹp thành một vạch sát đáy — có vẽ
-              cũng không đọc được gì. Tách ra, mỗi biểu đồ được trọn thang đo của nó.
-              Trục ngang GIỐNG HỆT hai biểu đồ chi tiêu ở trên (cùng `chonBucket`), nên đọc
-              chéo bốn biểu đồ theo cùng một mốc thời gian được. */}
-          <div style={{ marginTop: 12 }}>
-            <ChartCard
-              title="Nợ mới và tiền đã trả"
-              hint={
-                (no.bucket === 'day'
-                  ? 'Mỗi ngày hai cột: đỏ là nợ mới phát sinh, xanh là tiền đã trả'
-                  : no.bucket === 'week'
-                    ? 'Kỳ dài nên gộp theo TUẦN — đỏ là nợ mới, xanh là tiền đã trả'
-                    : 'Kỳ rất dài nên gộp theo THÁNG — đỏ là nợ mới, xanh là tiền đã trả') +
-                '. Cột đỏ cao hơn cột xanh = hôm đó nợ phình thêm. Chỉ tính phiếu ĐÃ DUYỆT. ' +
-                'Cột xanh dương là doanh thu bán hàng của CẢ QUÁN (cùng số màn Lịch sử).'
-              }
-            >
-              {no.labels.length === 0 ? (
-                <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập, lần trả tiền hay doanh thu nào trong kỳ này.</p>
-              ) : (
-                <>
-                  <div style={{ fontSize: 13, color: C.muted, marginBottom: 6 }}>Bấm để ẩn/hiện từng loại cột:</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
-                    {noSeries.map((x) => {
-                      const bat = !noTat.has(x.id);
-                      return (
-                        <button
-                          key={x.id}
-                          type="button"
-                          aria-pressed={bat}
-                          onClick={() => batTatNo(x.id)}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            minHeight: 44,
-                            padding: '0 14px',
-                            borderRadius: 10,
-                            border: `2px solid ${bat ? x.color : '#d1d5db'}`,
-                            background: bat ? `${x.color}14` : '#fff',
-                            color: bat ? '#1f2937' : '#9ca3af',
-                            fontSize: 15,
-                            fontWeight: 600,
-                            cursor: 'pointer',
-                          }}
-                        >
-                          {/* Ô tích chứ không chỉ đổi màu: người lớn tuổi nhìn dấu tích hiểu ngay là đang bật. */}
-                          <span
-                            style={{
-                              width: 20,
-                              height: 20,
-                              borderRadius: 5,
-                              border: `2px solid ${bat ? x.color : '#d1d5db'}`,
-                              background: bat ? x.color : '#fff',
-                              color: '#fff',
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              flexShrink: 0,
-                            }}
-                          >
-                            {bat && <Icon name="chon" size={14} />}
-                          </span>
-                          <span>{x.name}</span>
-                          <strong style={{ color: bat ? '#1f2937' : '#9ca3af' }}>
-                            {tienGon(x.values.reduce((a, b) => a + b, 0))}đ
-                          </strong>
-                        </button>
-                      );
-                    })}
-                  </div>
-                  {noSeriesHien.length === 0 ? (
-                    <p style={{ color: C.muted, margin: '20px 0', textAlign: 'center' }}>
-                      Đang ẩn hết. Bấm một nút ở trên để hiện lại.
-                    </p>
+              <div className="tk-two">
+                <section className="card tk-card" aria-label="Nhà cung cấp chi nhiều nhất">
+                  <h3 className="tk-card__t">Nhà cung cấp chi nhiều nhất</h3>
+                  {xepNcc.length === 0 ? (
+                    <p style={{ color: C.muted, margin: 0 }}>Chưa có phiếu nhập đã duyệt trong kỳ này.</p>
                   ) : (
-                    <GroupedBarChart
+                    <div className="tk-rank">
+                      {(hetNcc ? xepNcc : xepNcc.slice(0, SO_HANG_NCC)).map((x, i) => (
+                        <div key={x.id} className="tk-rk">
+                          <span className="tk-rk__n">{x.ten}</span>
+                          <span className="tk-rk__v">
+                            {vnd(x.tien)}đ
+                            <small>{chart.total > 0 ? Math.round((x.tien / chart.total) * 100) : 0}%</small>
+                          </span>
+                          <span className="tk-rk__b" aria-hidden="true">
+                            <i style={{ width: `${(x.tien / xepNcc[0].tien) * 100}%`, background: MAU_NCC[i] ?? '#99f6e4' }} />
+                          </span>
+                        </div>
+                      ))}
+                      {xepNcc.length > SO_HANG_NCC && (
+                        <button type="button" className="tk-more" onClick={() => setHetNcc((v) => !v)}>
+                          {hetNcc ? 'Thu gọn' : `Xem cả ${xepNcc.length} nhà cung cấp`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </section>
+                {/* Nguyên liệu chính / phụ (2026-10-22) — cùng một số tiền, nhìn theo cách chia khác.
+                    Tự nạp dữ liệu riêng, xem docblock file đó. */}
+                <SupplierKindStatsCard range={range} />
+              </div>
+            </>
+          )}
+
+          {/* ═════════ CÔNG NỢ ═════════
+              HAI biểu đồ chứ không phải một (quyết định 2026-10-02): dư nợ luỹ kế lớn hơn số phát
+              sinh hàng ngày cả chục lần — vẽ chung một trục thì cột nợ/trả bẹp thành vạch sát đáy. */}
+          {xem === 'cong-no' && (
+            <>
+              <ChartCard
+                hintGon
+                title="Nợ mới và tiền đã trả"
+                hint={
+                  (no.bucket === 'day'
+                    ? 'Mỗi ngày: xanh đậm là nợ mới phát sinh, xanh nhạt là tiền đã trả'
+                    : no.bucket === 'week'
+                      ? 'Kỳ dài nên gộp theo TUẦN — xanh đậm là nợ mới, xanh nhạt là tiền đã trả'
+                      : 'Kỳ rất dài nên gộp theo THÁNG — xanh đậm là nợ mới, xanh nhạt là tiền đã trả') +
+                  '. Cột đậm cao hơn cột nhạt = hôm đó nợ phình thêm. Chỉ tính phiếu ĐÃ DUYỆT. ' +
+                  'Cột xám là doanh thu bán hàng của CẢ QUÁN (cùng số màn Lịch sử).'
+                }
+              >
+                {no.labels.length === 0 ? (
+                  <p style={{ color: C.muted, margin: 0 }}>Không có phiếu nhập, lần trả tiền hay doanh thu nào trong kỳ này.</p>
+                ) : (
+                  <>
+                    {/* Ba nút bật/tắt loại cột (2026-10-14, chủ quán yêu cầu) — giữ nguyên hành vi,
+                        chỉ gọn lại thành chip có ô tích. */}
+                    <div className="tk-toggles" role="group" aria-label="Ẩn/hiện từng loại cột">
+                      {noSeries.map((x) => {
+                        const bat = !noTat.has(x.id);
+                        return (
+                          <button key={x.id} type="button" aria-pressed={bat} onClick={() => batTatNo(x.id)} className="tk-tg">
+                            {/* Dấu tích đậm trên nền nhạt (Đã trả xanh nhạt, Doanh thu xám) — tích trắng
+                                trên đó gần như không thấy. */}
+                            <span className="tk-tg__box" style={{ background: bat ? x.color : '#fff', borderColor: bat ? x.color : '#d1d5db', color: x.id === 'no-moi' ? '#fff' : '#134e4a' }}>
+                              {bat && <Icon name="chon" size={13} />}
+                            </span>
+                            <span>{x.name}</span>
+                            <strong>{tienGon(x.values.reduce((a, b) => a + b, 0))}</strong>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {noSeriesHien.length === 0 ? (
+                      <p style={{ color: C.muted, margin: '20px 0', textAlign: 'center' }}>
+                        Đang ẩn hết. Bấm một nút ở trên để hiện lại.
+                      </p>
+                    ) : (
+                      <GroupedBarChart
+                        labels={no.labels}
+                        series={noSeriesHien}
+                        chuGiai={false}
+                        formatValue={(v) => `${tienGon(v)}đ`}
+                        ariaLabel={`${noSeriesHien.map((x) => x.name).join(', ')} qua ${no.labels.length} mốc thời gian`}
+                      />
+                    )}
+                  </>
+                )}
+              </ChartCard>
+
+              <ChartCard
+                hintGon
+                title="Còn nợ cuối mỗi mốc"
+                hint={
+                  'Tổng tiền quán còn nợ ở cuối mỗi mốc. Đường đi LÊN là nợ đang phình, đi XUỐNG là trả được nhiều hơn mua. ' +
+                  'Đã gồm cả số dư đầu kỳ khai tay, nên điểm cuối trùng ô "Còn nợ" ở trên.'
+                }
+              >
+                {no.labels.length === 0 ? (
+                  <p style={{ color: C.muted, margin: 0 }}>Không có số liệu công nợ trong kỳ này.</p>
+                ) : (
+                  <>
+                    <LineChart
                       labels={no.labels}
-                      series={noSeriesHien}
+                      series={duNoSeries}
+                      height={200}
                       chuGiai={false}
                       formatValue={(v) => `${tienGon(v)}đ`}
-                      ariaLabel={`${noSeriesHien.map((x) => x.name).join(', ')} qua ${no.labels.length} mốc thời gian`}
+                      ariaLabel={`Dư nợ nhà cung cấp qua ${no.labels.length} mốc thời gian`}
                     />
-                  )}
-                  <div style={{ marginTop: 10, fontSize: 13, color: C.muted }}>
-                    Doanh thu trong kỳ: <strong style={{ color: '#2563eb' }}>{vnd(no.tongDoanhThu)}đ</strong>
-                  </div>
-                </>
-              )}
-            </ChartCard>
-          </div>
+                    {/* Đọc xong đường rồi người ta luôn hỏi "rốt cuộc trong kỳ nợ thêm hay bớt bao
+                        nhiêu" — bắt họ trừ hai số trong đầu là thừa. */}
+                    <div className="tk-sum">
+                      <span>Nợ mới trong kỳ <strong>{vnd(no.tongNoMoi)}đ</strong></span>
+                      <span>Đã trả trong kỳ <strong>{vnd(no.tongDaTra)}đ</strong></span>
+                      <span>
+                        Thay đổi{' '}
+                        <strong className={no.tongNoMoi > no.tongDaTra ? 'is-up' : ''}>
+                          {no.tongNoMoi >= no.tongDaTra ? '+' : '−'}
+                          {vnd(Math.abs(no.tongNoMoi - no.tongDaTra))}đ
+                        </strong>
+                      </span>
+                    </div>
+                  </>
+                )}
+              </ChartCard>
+            </>
+          )}
 
-          <div style={{ marginTop: 12 }}>
-            <ChartCard
-              title="Còn nợ nhà cung cấp"
-              hint={
-                `Tổng tiền quán còn nợ ở cuối mỗi mốc. Đường đi LÊN là nợ đang phình, đi XUỐNG là trả được nhiều hơn mua. ` +
-                `Đã gồm cả số dư đầu kỳ khai tay, nên điểm cuối trùng ô "Còn nợ" ở khối "Đã trả cho NCC".`
-              }
-            >
-              {no.labels.length === 0 ? (
-                <p style={{ color: C.muted, margin: 0 }}>Không có số liệu công nợ trong kỳ này.</p>
-              ) : (
-                <>
-                  <LineChart
-                    labels={no.labels}
-                    series={duNoSeries}
-                    height={200}
-                    formatValue={(v) => `${tienGon(v)}đ`}
-                    ariaLabel={`Dư nợ nhà cung cấp qua ${no.labels.length} mốc thời gian`}
+          {/* ═════════ TIỀN VÀO / RA ═════════ (2026-10-15) Thẻ tự tải số liệu, chỉ ăn theo KỲ —
+              không theo NCC: tiền khách chuyển khoản không thuộc nhà cung cấp nào. */}
+          {xem === 'tien' && <SupplierAccountFlowCard range={range} />}
+
+          {/* ═════════ DANH SÁCH ═════════ ba bảng cũ ở đáy tab, chọn bằng chip thay vì xếp chồng. */}
+          {xem === 'ds' && (
+            <>
+              <div className="tk-sub" role="group" aria-label="Chọn bảng">
+                {([
+                  ['mat-hang', 'Mặt hàng', items.length],
+                  ['phieu', 'Phiếu lớn nhất', phieuLoc.length],
+                  ['tra', 'Lần trả tiền', traLoc.length],
+                ] as Array<[DanhSach, string, number]>).map(([v, nhan, n]) => (
+                  <button key={v} type="button" aria-pressed={ds === v} onClick={() => setDs(v)}>
+                    {nhan} <span>{n}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* MỘT ô tìm cho hai bảng Mặt hàng + Phiếu: câu hỏi thật là "món này đang mua thế nào".
+                  Bảng Lần trả tiền không gắn với món nào nên ẩn ô tìm ở đó — để nguyên mà gõ không
+                  lọc gì thì tưởng lọc hỏng. */}
+              {ds !== 'tra' && (
+                <div className="tk-tim">
+                  <input
+                    type="search"
+                    value={tim}
+                    onChange={(e) => doiTim(e.target.value)}
+                    placeholder="Tìm theo tên món, vd: cá"
+                    aria-label="Tìm theo tên món nhập"
                   />
-                  {/* Ba con số dưới biểu đồ: đọc xong đường rồi người ta luôn hỏi "vậy rốt cuộc
-                      trong kỳ nợ thêm hay bớt bao nhiêu" — bắt họ trừ hai số trong đầu là thừa. */}
-                  <div
-                    style={{ display: 'flex', gap: 20, flexWrap: 'wrap', marginTop: 10, fontSize: 13 }}
-                  >
-                    <span style={{ color: C.muted }}>
-                      Nợ mới trong kỳ: <strong style={{ color: '#dc2626' }}>{vnd(no.tongNoMoi)}đ</strong>
-                    </span>
-                    <span style={{ color: C.muted }}>
-                      Đã trả trong kỳ: <strong style={{ color: '#059669' }}>{vnd(no.tongDaTra)}đ</strong>
-                    </span>
-                    <span style={{ color: C.muted }}>
-                      Thay đổi:{' '}
-                      <strong style={{ color: no.tongNoMoi >= no.tongDaTra ? '#dc2626' : '#059669' }}>
-                        {no.tongNoMoi >= no.tongDaTra ? '+' : '−'}
-                        {vnd(Math.abs(no.tongNoMoi - no.tongDaTra))}đ
-                      </strong>
-                    </span>
-                  </div>
-                </>
+                  {tim.trim() !== '' && (
+                    <span>{items.length} mặt hàng · {phieuLoc.length} phiếu có món khớp</span>
+                  )}
+                </div>
               )}
-            </ChartCard>
-          </div>
 
-          {/* TIỀN VÀO / RA THEO TÀI KHOẢN (2026-10-15, chủ quán yêu cầu). Thẻ tự tải số liệu, chỉ
-              ăn theo KỲ chung của tab — không theo bộ lọc NCC: tiền khách chuyển vào tài khoản
-              không thuộc nhà cung cấp nào. */}
-          <div style={{ marginTop: 12 }}>
-            <SupplierAccountFlowCard range={range} />
-          </div>
+              {ds === 'mat-hang' && (
+                <Bang
+                  tieuDe="Mặt hàng nhập nhiều nhất"
+                  nhan="mặt hàng"
+                  rong={trangItem.total === 0}
+                  rongChu={tim.trim() ? 'Không có mặt hàng nào khớp.' : 'Chưa nhập mặt hàng nào trong kỳ.'}
+                  trang={trangItem}
+                  doiTrang={setItemPage}
+                  dau={
+                    <tr>
+                      <th className="stat-rank" aria-label="Thứ tự">#</th>
+                      <Th k="ingredient_name" now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('ingredient_name')}>
+                        Mặt hàng
+                      </Th>
+                      {/* Khối lượng KHÔNG sắp xếp được: mỗi món một đơn vị gốc (g, ml, cái) nên xếp
+                          2.000g trên 30 cái là so hai thứ không cùng thước. Cột tiền mới so được. */}
+                      <th className="stat-num">Khối lượng</th>
+                      <Th k="deliveries" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('deliveries')}>
+                        Lần nhập
+                      </Th>
+                      <th className="stat-num">NCC</th>
+                      <Th k="last_date" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('last_date')}>
+                        Gần nhất
+                      </Th>
+                      <Th k="amount" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('amount')}>
+                        Tổng tiền
+                      </Th>
+                    </tr>
+                  }
+                >
+                  {trangItem.rows.map((r: ItemStat, i: number) => {
+                    const hang = (trangItem.page - 1) * CO_TRANG + i + 1;
+                    return (
+                      <tr key={r.ingredient_id}>
+                        <Hang so={hang} noiBat={xepHang(itemSort, itemChieu)} />
+                        <td data-label="Mặt hàng" className="stat-ten">{r.ingredient_name}</td>
+                        <td data-label="Khối lượng" className="stat-num stat-muted">{luongGon(r.qty_base, r.base_unit)}</td>
+                        <td data-label="Lần nhập" className="stat-num">{r.deliveries}</td>
+                        {/* Số NCC chỉ đáng nhìn khi > 1 — món mua rải rác nhiều nơi, so giá được. */}
+                        <td data-label="Số NCC" className="stat-num">
+                          {r.suppliers > 1 ? <span className="stat-chip hit">{r.suppliers} nơi</span> : <span className="stat-muted">1</span>}
+                        </td>
+                        <td data-label="Gần nhất" className="stat-num stat-muted">
+                          <span title={r.last_date}>{ngayGon(r.last_date)}</span>
+                        </td>
+                        <TdTien tien={r.amount} max={maxItem} />
+                      </tr>
+                    );
+                  })}
+                </Bang>
+              )}
 
-          {/* MỘT ô tìm kiếm cho cả hai bảng: câu hỏi thật của chủ quán là "món này đang mua thế
-              nào" — nó cần thấy cùng lúc tổng của món VÀ những phiếu có món đó. Hai ô riêng thì
-              phải gõ hai lần cùng một chữ. */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '20px 0 8px', flexWrap: 'wrap' }}>
-            <input
-              type="search"
-              value={tim}
-              onChange={(e) => doiTim(e.target.value)}
-              placeholder="Tìm theo tên món, vd: cá"
-              aria-label="Tìm theo tên món nhập"
-              style={{ flex: '1 1 220px', minWidth: 0, maxWidth: 360 }}
-            />
-            {tim.trim() !== '' && (
-              <span style={{ fontSize: 13, color: C.mutedOnTint }}>
-                {items.length} mặt hàng · {phieuLoc.length} phiếu có món khớp
-              </span>
-            )}
-          </div>
+              {ds === 'phieu' && (
+                <Bang
+                  tieuDe="Phiếu nhập lớn nhất"
+                  nhan="phiếu"
+                  rong={trangPhieu.total === 0}
+                  rongChu={tim.trim() ? 'Không phiếu nào trong kỳ có món khớp.' : 'Chưa có phiếu nhập đã duyệt trong kỳ.'}
+                  trang={trangPhieu}
+                  doiTrang={setPhieuPage}
+                  dau={
+                    <tr>
+                      <th className="stat-rank" aria-label="Thứ tự">#</th>
+                      <Th k="delivery_date" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('delivery_date')}>
+                        Ngày
+                      </Th>
+                      <Th k="supplier_name" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('supplier_name')}>
+                        Nhà cung cấp
+                      </Th>
+                      <th className="stat-chips-col">Mặt hàng</th>
+                      <Th k="lines" right now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('lines')}>
+                        Số món
+                      </Th>
+                      <Th k="amount" right now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('amount')}>
+                        Tổng tiền
+                      </Th>
+                    </tr>
+                  }
+                >
+                  {trangPhieu.rows.map((r: DeliveryStatRow, i: number) => {
+                    const hang = (trangPhieu.page - 1) * CO_TRANG + i + 1;
+                    return (
+                      <tr key={r.delivery_id}>
+                        <Hang so={hang} noiBat={xepHang(phieuSort, phieuChieu)} />
+                        <td data-label="Ngày" className="stat-ngay">
+                          <span title={r.delivery_date}>{ngayGon(r.delivery_date)}</span>
+                          <small>{thuTrongTuan(r.delivery_date)}</small>
+                        </td>
+                        <td data-label="Nhà cung cấp" className="stat-ten">{r.supplier_name}</td>
+                        {/* Liệt kê tên món ngay trên dòng: người dùng vừa gõ tên một món để lọc ra
+                            những phiếu này, nên phải thấy được món đó nằm trong phiếu. */}
+                        <td data-label="Mặt hàng" className="stat-chips-col">
+                          <ChipMon items={r.items} tim={tim} />
+                        </td>
+                        <td data-label="Số món" className="stat-num">{r.lines}</td>
+                        <TdTien tien={r.amount} max={maxPhieu} />
+                      </tr>
+                    );
+                  })}
+                </Bang>
+              )}
 
-          <Bang
-            tieuDe="Mặt hàng nhập nhiều nhất"
-            nhan="mặt hàng"
-            rong={trangItem.total === 0}
-            rongChu={tim.trim() ? 'Không có mặt hàng nào khớp.' : 'Chưa nhập mặt hàng nào trong kỳ.'}
-            trang={trangItem}
-            doiTrang={setItemPage}
-            dau={
-              <tr>
-                <th className="stat-rank" aria-label="Thứ tự">
-                  #
-                </th>
-                <Th k="ingredient_name" now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('ingredient_name')}>
-                  Mặt hàng
-                </Th>
-                {/* Khối lượng KHÔNG sắp xếp được: mỗi món một đơn vị gốc (g, ml, cái) nên xếp
-                    2.000g trên 30 cái là so hai thứ không cùng thước. Cột tiền mới so được. */}
-                <th className="stat-num">Khối lượng</th>
-                <Th k="deliveries" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('deliveries')}>
-                  Lần nhập
-                </Th>
-                <th className="stat-num">NCC</th>
-                <Th k="last_date" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('last_date')}>
-                  Gần nhất
-                </Th>
-                <Th k="amount" right now={itemSort} chieu={itemChieu} onPick={() => doiCotItem('amount')}>
-                  Tổng tiền
-                </Th>
-              </tr>
-            }
-          >
-            {trangItem.rows.map((r: ItemStat, i: number) => {
-              const hang = (trangItem.page - 1) * CO_TRANG + i + 1;
-              return (
-                <tr key={r.ingredient_id}>
-                  <Hang so={hang} noiBat={xepHang(itemSort, itemChieu)} />
-                  <td data-label="Mặt hàng" className="stat-ten">
-                    {r.ingredient_name}
-                  </td>
-                  <td data-label="Khối lượng" className="stat-num stat-muted">
-                    {luongGon(r.qty_base, r.base_unit)}
-                  </td>
-                  <td data-label="Lần nhập" className="stat-num">
-                    {r.deliveries}
-                  </td>
-                  {/* Số NCC chỉ đáng nhìn khi > 1 — đó là món đang mua rải rác nhiều nơi, tức
-                      là món có thể so giá được. Món một mối thì để chìm. */}
-                  <td data-label="Số NCC" className="stat-num">
-                    {r.suppliers > 1 ? <span className="stat-chip hit">{r.suppliers} nơi</span> : <span className="stat-muted">1</span>}
-                  </td>
-                  <td data-label="Gần nhất" className="stat-num stat-muted">
-                    <span title={r.last_date}>{ngayGon(r.last_date)}</span>
-                  </td>
-                  <TdTien tien={r.amount} max={maxItem} />
-                </tr>
-              );
-            })}
-          </Bang>
-
-          <Bang
-            tieuDe="Phiếu nhập lớn nhất"
-            nhan="phiếu"
-            rong={trangPhieu.total === 0}
-            rongChu={tim.trim() ? 'Không phiếu nào trong kỳ có món khớp.' : 'Chưa có phiếu nhập đã duyệt trong kỳ.'}
-            trang={trangPhieu}
-            doiTrang={setPhieuPage}
-            dau={
-              <tr>
-                <th className="stat-rank" aria-label="Thứ tự">
-                  #
-                </th>
-                <Th k="delivery_date" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('delivery_date')}>
-                  Ngày
-                </Th>
-                <Th k="supplier_name" now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('supplier_name')}>
-                  Nhà cung cấp
-                </Th>
-                <th className="stat-chips-col">Mặt hàng</th>
-                <Th k="lines" right now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('lines')}>
-                  Số món
-                </Th>
-                <Th k="amount" right now={phieuSort} chieu={phieuChieu} onPick={() => doiCotPhieu('amount')}>
-                  Tổng tiền
-                </Th>
-              </tr>
-            }
-          >
-            {trangPhieu.rows.map((r: DeliveryStatRow, i: number) => {
-              const hang = (trangPhieu.page - 1) * CO_TRANG + i + 1;
-              return (
-                <tr key={r.delivery_id}>
-                  <Hang so={hang} noiBat={xepHang(phieuSort, phieuChieu)} />
-                  <td data-label="Ngày" className="stat-ngay">
-                    <span title={r.delivery_date}>{ngayGon(r.delivery_date)}</span>
-                    <small>{thuTrongTuan(r.delivery_date)}</small>
-                  </td>
-                  <td data-label="Nhà cung cấp" className="stat-ten">
-                    {r.supplier_name}
-                  </td>
-                  {/* Liệt kê tên món ngay trên dòng: người dùng vừa gõ tên một món để lọc ra
-                      những phiếu này, nên phải thấy được món đó nằm trong phiếu — nếu không thì
-                      kết quả lọc trông như ngẫu nhiên. */}
-                  <td data-label="Mặt hàng" className="stat-chips-col">
-                    <ChipMon items={r.items} tim={tim} />
-                  </td>
-                  <td data-label="Số món" className="stat-num">
-                    {r.lines}
-                  </td>
-                  <TdTien tien={r.amount} max={maxPhieu} />
-                </tr>
-              );
-            })}
-          </Bang>
-
-          {/* Khối "Đã trả cho NCC" (2026-09-14, chủ quán yêu cầu). Đặt CUỐI tab chứ không phải
-              đầu: ba khối trên trả lời "tiền đi vào những gì", khối này trả lời "đã đưa ra bao
-              nhiêu" — chỉ có nghĩa khi đã nhìn xong vế mua. */}
-          <div className="card" style={{ margin: '20px 0 8px', display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-            <Con nhan="Đã trả trong kỳ" giatri={`${vnd(tongTra.tong)}đ`} />
-            <Con nhan="Tiền mặt" giatri={`${vnd(tongTra.tienMat)}đ`} />
-            <Con nhan="Chuyển khoản" giatri={`${vnd(tongTra.chuyenKhoan)}đ`} />
-            <Con nhan="Đã mua trong kỳ" giatri={`${vnd(chart.total)}đ`} />
-            <Con nhan="Còn nợ" giatri={noNcc === null ? '…' : `${vnd(noNcc)}đ`} />
-          </div>
-
-          {/* Câu cảnh báo này KHÔNG được bỏ: bốn con số trên cùng một thẻ trông như cùng một
-              thước đo, mà "Còn nợ" là luỹ kế TOÀN thời gian còn ba số kia cắt theo kỳ. Ai đó sẽ
-              trừ "đã mua − đã trả" rồi mang đi đối chiếu với NCC nếu không nói ra. */}
-          <p style={{ margin: '0 0 12px', fontSize: 13, color: C.mutedOnTint }}>
-            “Đã trả”, “Tiền mặt”, “Chuyển khoản”, “Đã mua” tính trong kỳ đang lọc. Riêng{' '}
-            <strong>“Còn nợ” là số luỹ kế toàn thời gian</strong>
-            {supplierId ? ' của nhà cung cấp đang lọc' : ' của tất cả nhà cung cấp'} — gồm cả số dư
-            đầu kỳ, không cắt theo kỳ thống kê.
-          </p>
-
-          <Bang
-            tieuDe="Đã trả cho nhà cung cấp"
-            nhan="lần trả"
-            rong={trangTra.total === 0}
-            rongChu="Chưa ghi lần trả tiền nào trong kỳ này."
-            trang={trangTra}
-            doiTrang={setTraPage}
-            dau={
-              <tr>
-                <th className="stat-rank" aria-label="Thứ tự">
-                  #
-                </th>
-                <Th k="paid_on" now={traSort} chieu={traChieu} onPick={() => doiCotTra('paid_on')}>
-                  Ngày trả
-                </Th>
-                <Th k="supplier_name" now={traSort} chieu={traChieu} onPick={() => doiCotTra('supplier_name')}>
-                  Nhà cung cấp
-                </Th>
-                <th className="stat-num">Hình thức</th>
-                <th>Ghi chú</th>
-                <th>Người ghi</th>
-                <Th k="amount" right now={traSort} chieu={traChieu} onPick={() => doiCotTra('amount')}>
-                  Số tiền
-                </Th>
-              </tr>
-            }
-          >
-            {trangTra.rows.map((r: TraTienRow, i: number) => {
-              const hang = (trangTra.page - 1) * CO_TRANG + i + 1;
-              return (
-                <tr key={r.payment_id}>
-                  <Hang so={hang} noiBat={xepHang(traSort, traChieu)} />
-                  <td data-label="Ngày trả" className="stat-ngay">
-                    <span title={r.paid_on}>{ngayGon(r.paid_on)}</span>
-                    <small>{thuTrongTuan(r.paid_on)}</small>
-                  </td>
-                  <td data-label="Nhà cung cấp" className="stat-ten">
-                    {r.supplier_name}
-                  </td>
-                  {/* Chuyển khoản được tô đậm hơn vì đó là khoản đối chiếu được với sao kê ngân
-                      hàng — tiền mặt thì chỉ có sổ này làm chứng. */}
-                  <td data-label="Hình thức" className="stat-num">
-                    <span className={r.method === 'TRANSFER' ? 'stat-chip hit' : 'stat-chip'}>
-                      {r.method === 'TRANSFER' ? 'Chuyển khoản' : 'Tiền mặt'}
-                    </span>
-                  </td>
-                  <td data-label="Ghi chú" className="stat-ten stat-muted">
-                    {r.note && r.note.trim() !== '' ? r.note : '—'}
-                  </td>
-                  <td data-label="Người ghi" className="stat-muted">
-                    {r.created_by_name !== '' ? r.created_by_name : '—'}
-                  </td>
-                  <TdTien tien={r.amount} max={maxTra} nhan="Số tiền" />
-                </tr>
-              );
-            })}
-          </Bang>
+              {ds === 'tra' && (
+                <Bang
+                  tieuDe="Đã trả cho nhà cung cấp"
+                  nhan="lần trả"
+                  rong={trangTra.total === 0}
+                  rongChu="Chưa ghi lần trả tiền nào trong kỳ này."
+                  trang={trangTra}
+                  doiTrang={setTraPage}
+                  dau={
+                    <tr>
+                      <th className="stat-rank" aria-label="Thứ tự">#</th>
+                      <Th k="paid_on" now={traSort} chieu={traChieu} onPick={() => doiCotTra('paid_on')}>
+                        Ngày trả
+                      </Th>
+                      <Th k="supplier_name" now={traSort} chieu={traChieu} onPick={() => doiCotTra('supplier_name')}>
+                        Nhà cung cấp
+                      </Th>
+                      <th className="stat-num">Hình thức</th>
+                      <th>Ghi chú</th>
+                      <th>Người ghi</th>
+                      <Th k="amount" right now={traSort} chieu={traChieu} onPick={() => doiCotTra('amount')}>
+                        Số tiền
+                      </Th>
+                    </tr>
+                  }
+                >
+                  {trangTra.rows.map((r: TraTienRow, i: number) => {
+                    const hang = (trangTra.page - 1) * CO_TRANG + i + 1;
+                    return (
+                      <tr key={r.payment_id}>
+                        <Hang so={hang} noiBat={xepHang(traSort, traChieu)} />
+                        <td data-label="Ngày trả" className="stat-ngay">
+                          <span title={r.paid_on}>{ngayGon(r.paid_on)}</span>
+                          <small>{thuTrongTuan(r.paid_on)}</small>
+                        </td>
+                        <td data-label="Nhà cung cấp" className="stat-ten">{r.supplier_name}</td>
+                        {/* Chuyển khoản tô đậm hơn vì đối chiếu được với sao kê ngân hàng. */}
+                        <td data-label="Hình thức" className="stat-num">
+                          <span className={r.method === 'TRANSFER' ? 'stat-chip hit' : 'stat-chip'}>
+                            {r.method === 'TRANSFER' ? 'Chuyển khoản' : 'Tiền mặt'}
+                          </span>
+                        </td>
+                        <td data-label="Ghi chú" className="stat-ten stat-muted">
+                          {r.note && r.note.trim() !== '' ? r.note : '—'}
+                        </td>
+                        <td data-label="Người ghi" className="stat-muted">
+                          {r.created_by_name !== '' ? r.created_by_name : '—'}
+                        </td>
+                        <TdTien tien={r.amount} max={maxTra} nhan="Số tiền" />
+                      </tr>
+                    );
+                  })}
+                </Bang>
+              )}
+            </>
+          )}
         </>
       )}
-    </>
+
+      {moKy && (
+        <Sheet
+          title="Kỳ thống kê"
+          onClose={() => setMoKy(false)}
+          footer={<div className="ds-foot"><button type="button" className="ds-btn ds-btn--primary" onClick={() => setMoKy(false)}>Xong</button></div>}
+        >
+          <div className="tk-sheet">
+            <TimeFilter value={range} onChange={doiKy} presets={DAY_SCREEN} ariaLabel="Lọc thống kê nhập hàng theo khoảng ngày" />
+            {tenNcc && <p className="tk-note">Đang lọc nhà cung cấp: <strong>{tenNcc}</strong></p>}
+          </div>
+        </Sheet>
+      )}
+    </div>
   );
 }
+
 
 /** Bấm cột đang xếp thì ĐẢO chiều; bấm cột khác thì nhảy sang cột đó với chiều mặc định theo
  *  KIỂU cột — cột số/ngày giảm dần ("cái nào nhiều nhất", "mới nhất trước"), cột chữ tăng dần
@@ -721,15 +806,6 @@ function taoDoiCot<K extends string>(
     }
     setTrang(1);
   };
-}
-
-function Con({ nhan, giatri }: { nhan: string; giatri: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 13, color: C.mutedOnTint }}>{nhan}</div>
-      <strong style={{ fontSize: 20 }}>{giatri}</strong>
-    </div>
-  );
 }
 
 /** Ô số thứ tự. Ba dòng đầu được huy hiệu tròn — chỉ khi bảng thật sự đang xếp hạng (xem

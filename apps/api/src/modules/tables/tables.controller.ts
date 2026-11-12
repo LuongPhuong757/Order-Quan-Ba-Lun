@@ -18,7 +18,7 @@ import { IsBoolean, IsIn, IsInt, IsOptional, IsString, MaxLength, MinLength } fr
 import { RestaurantTable } from './entities/restaurant-table.entity.js';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard.js';
 import { AdminGuard } from '../auth/guards/admin.guard.js';
-import { KIND_FORMAT, formatTableCode, formatTableName } from './table-kind.js';
+import { KIND_FORMAT, planBulkTables, tableNumberOf } from './table-kind.js';
 
 class CreateTableDto {
   @IsString() @MinLength(1) @MaxLength(16) code!: string;
@@ -97,38 +97,30 @@ export class TablesController {
       });
     }
 
-    // Width padding: nếu to_num ≤ 99 → padding 2; nếu > 99 → padding theo độ dài to_num
-    const width = Math.max(2, String(dto.to_num).length);
-    const codes: string[] = [];
-    const names: string[] = [];
-    for (let n = dto.from_num; n <= dto.to_num; n++) {
-      codes.push(formatTableCode(dto.kind, n, width));
-      names.push(formatTableName(dto.kind, n, width));
-    }
+    // So trùng theo SỐ bàn trong cùng loại (xem `planBulkTables`) — trước đây so chuỗi mã nên
+    // 1–10 rồi 1–120 tạo thêm "Bàn 001"… trùng "Bàn 01"…
+    const existing = await this.repo.find({
+      where: { kind: dto.kind },
+      select: ['id', 'code', 'kind', 'is_active'],
+    });
+    const plan = planBulkTables(dto.kind, dto.from_num, dto.to_num, existing);
 
-    const existing = await this.repo.find({ where: { code: In(codes) }, select: ['code'] });
-    const existingSet = new Set(existing.map((e) => e.code));
-    const toCreate = codes
-      .map((code, i) => ({ code, name: names[i] }))
-      .filter(({ code }) => !existingSet.has(code));
-
-    const entities = toCreate.map(({ code, name }, idx) =>
-      this.repo.create({
-        code,
-        name,
-        kind: dto.kind,
-        x: 0,
-        y: idx,
-        is_active: true,
-      }),
+    // y = số bàn: list sắp theo y nên bàn xếp đúng 01, 02, … 11 bất kể tạo ở lần nào (cũ: y
+    // đếm lại từ 0 mỗi lần → "Bàn 01" đứng cạnh "Bàn 11").
+    const entities = plan.create.map(({ num, code, name }) =>
+      this.repo.create({ code, name, kind: dto.kind, x: 0, y: num, is_active: true }),
     );
     if (entities.length > 0) await this.repo.save(entities);
+    if (plan.reopen.length > 0) {
+      await this.repo.update({ id: In(plan.reopen.map((t) => t.id)) }, { is_active: true });
+    }
     return {
       data: {
         created: entities.length,
-        skipped: existingSet.size,
-        skipped_codes: [...existingSet],
-        created_codes: toCreate.map((t) => t.code),
+        reopened: plan.reopen.length,
+        skipped: plan.skippedNums.length,
+        skipped_nums: plan.skippedNums,
+        created_codes: entities.map((t) => t.code),
       },
     };
   }
@@ -139,6 +131,16 @@ export class TablesController {
   async create(@Body() dto: CreateTableDto) {
     const exists = await this.repo.findOne({ where: { code: dto.code } });
     if (exists) throw new ConflictException({ code: 'CONFLICT', message: 'Mã bàn đã tồn tại' });
+    // Cùng loại + cùng SỐ với một bàn đang dùng ("B5" vs "ban-05") = trùng: khách gõ số bàn ở QR
+    // sẽ không biết bàn nào. Mã 'TABLE_NUMBER_TAKEN' nằm ngoài FRIENDLY_VN để giữ câu có tên bàn.
+    const num = tableNumberOf(dto.code);
+    if (num !== null) {
+      const sameKind = await this.repo.find({ where: { kind: dto.kind, is_active: true }, select: ['code', 'name'] });
+      const dup = sameKind.find((t) => tableNumberOf(t.code) === num);
+      if (dup) {
+        throw new ConflictException({ code: 'TABLE_NUMBER_TAKEN', message: `Đã có ${dup.name} (cùng số ${num})` });
+      }
+    }
     const t = this.repo.create({
       code: dto.code,
       name: dto.name,

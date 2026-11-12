@@ -7,6 +7,7 @@
 // dùng phần mềm (Q-7 trong spec). Chưa nhập thì nó là "phát sinh từ ngày bắt đầu dùng" — màn
 // hình phải NÓI RÕ điều đó, vì một con số tiền hiển thị không kèm chú thích sẽ được đọc là tổng
 // nợ thật, rồi ai đó mang đi đối chiếu với NCC và mất mặt.
+import { Sheet } from '../components/ui/Sheet.tsx';
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useCanWrite } from '../lib/auth-context.tsx';
@@ -18,7 +19,7 @@ import { Icon } from '../components/ui/Icon.tsx';
 import { DateField } from '../components/ui/Calendar.tsx';
 import { upperUnit } from '../lib/text-case.ts';
 import { buildLedger, snapshotDrift, type LedgerRow } from '../lib/supplier-ledger.ts';
-import { Modal, PaymentDialog } from './SupplierPaymentDialog.tsx';
+import { PaymentDialog } from './SupplierPaymentDialog.tsx';
 
 // Hộp ghi/sửa lần trả đã tách sang file riêng (2026-10-15) — export lại để chỗ cũ vẫn import ở đây.
 export { PaymentDialog };
@@ -637,10 +638,22 @@ export function OpeningBalanceDialog({
   };
 
   return (
-    <Modal label={`Nợ cũ ${supplierName}`}>
-      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%', margin: 'auto' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>Nợ cũ (số dư đầu kỳ)</h2>
-        <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>
+    // Tấm CHUNG của app (2026-11-12) — cùng khuôn với Trả tiền: nút Lưu dính đáy, nối form bằng `form`.
+    <Sheet
+      title="Nợ cũ (số dư đầu kỳ)"
+      onClose={onClose}
+      giuaKhiRong
+      footer={
+        <div className="ds-foot">
+          <button type="submit" form="ncc-opening-form" className="ds-btn ds-btn--primary" disabled={saving}>
+            {saving ? 'Đang lưu…' : 'Lưu'}
+          </button>
+        </div>
+      }
+    >
+      <form id="ncc-opening-form" onSubmit={save} style={{ padding: '4px 16px 12px', overflowY: 'auto' }}
+            aria-label={`Nợ cũ ${supplierName}`}>
+        <p style={{ margin: '0 0 16px', fontSize: 15, color: C.muted }}>{supplierName}</p>
 
         <div
           style={{
@@ -710,16 +723,7 @@ export function OpeningBalanceDialog({
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={saving} style={{ minHeight: 48, padding: '0 24px' }}>
-            {saving ? 'Đang lưu…' : 'Lưu'}
-          </button>
-        </div>
       </form>
-    </Modal>
+    </Sheet>
   );
 }

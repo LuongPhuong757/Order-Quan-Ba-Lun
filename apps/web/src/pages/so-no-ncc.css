@@ -1,0 +1,445 @@
+/* "Sổ nợ nhà cung cấp" — tab Tổng quan của /suppliers, làm lại 2026-11-12 theo bản xem thử chủ
+ * quán duyệt. Mẫu thẩm mỹ: màn Sổ tiền (so-tien.css, duyệt 16/10) — một dải xanh ngọc giữ con số
+ * quan trọng nhất, phần còn lại nền trắng, nhẹ.
+ *
+ * Tiền tố `sn-`, gắn trong `.sn` (cùng thẻ với `.ncc-ui`). `.ncc-ui` có hàng trăm class trần của
+ * mockup cũ (`card`, `kpi`, `chip`…) — trùng tên là vỡ bố cục mà computed CSS trông vẫn đúng.
+ * Nút: `button` toàn cục nền xanh + chữ trắng, `.ncc-ui button` đè font — mọi rule đụng nút viết
+ * `.sn button.sn-…` (CLAUDE.md §5).
+ *
+ * Mốc: điện thoại trước; ≥ 768px (iPad) ô việc thành hàng 3, dòng NCC có cột + nút "Trả tiền";
+ * ≥ 1200px (laptop, đã trừ thanh menu trái) "Cần xử lý" thành cột phải dính. */
+
+.sn {
+  --sn-warn: var(--orange-700);
+  --sn-warn-bg: var(--orange-50);
+  --sn-r: 14px;
+  gap: 16px;
+  /* Tab Tổng quan không có hàng điều khiển (NccDauTrang) dưới dãy tab — chừa khoảng thở ở đây. */
+  margin-top: 16px;
+}
+
+/* ── Dải Sổ nợ ─────────────────────────────────────────────────────────── */
+.sn-hero {
+  background: var(--teal-700); color: #fff; border-radius: 16px; padding: 16px;
+  display: grid; gap: 12px; box-shadow: 0 6px 18px rgba(15, 118, 110, .22);
+}
+.sn-hero__top { display: flex; align-items: center; gap: 8px; min-height: 40px; }
+.sn-hero__lab { flex: 1; font-size: var(--ds-fs-label); font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--teal-100); }
+.sn button.sn-hero__more {
+  width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 10px;
+  background: rgba(255, 255, 255, .14); color: #fff; display: grid; place-items: center;
+}
+.sn button.sn-hero__more:hover { background: rgba(255, 255, 255, .24); opacity: 1; }
+.sn-hero__num { font-size: 32px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.05; }
+.sn-hero__sub { font-size: var(--ds-fs-body2); color: var(--teal-100); }
+.sn-hero__sub b { color: #fff; font-weight: 600; }
+
+.sn-share { display: flex; gap: 2px; height: 10px; border-radius: 999px; overflow: hidden; background: rgba(255, 255, 255, .12); }
+.sn-share i { display: block; height: 100%; min-width: 2px; }
+.sn-share__khac { background: rgba(255, 255, 255, .35); }
+.sn-legend { display: none; flex-wrap: wrap; gap: 4px 14px; font-size: var(--ds-fs-label); color: var(--teal-100); }
+.sn-legend span { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.sn-legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+.sn-legend i.sn-share__khac { background: rgba(255, 255, 255, .35); }
+
+.sn-hero__foot { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; border-top: 1px solid rgba(255, 255, 255, .16); padding-top: 12px; }
+.sn-period { display: flex; align-items: center; gap: 10px; flex: 1 1 100%; font-size: var(--ds-fs-body2); color: var(--teal-100); flex-wrap: wrap; }
+.sn-period b { color: #fff; }
+.sn button.sn-pill {
+  height: 40px; min-height: 40px; padding: 0 12px; border-radius: 999px;
+  background: rgba(255, 255, 255, .14); color: #fff; font-weight: 600; font-size: var(--ds-fs-body2);
+  display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+}
+.sn button.sn-pill:hover { background: rgba(255, 255, 255, .24); opacity: 1; }
+.sn-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1 1 100%; }
+.sn button.sn-btn-w {
+  height: 48px; min-height: 48px; border-radius: 10px; background: #fff; color: var(--teal-900);
+  font-weight: 800; font-size: var(--ds-fs-body); display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap;
+}
+.sn button.sn-btn-o {
+  height: 48px; min-height: 48px; border-radius: 10px; background: transparent; color: #fff;
+  border: 1.5px solid rgba(255, 255, 255, .55); font-weight: 700; font-size: var(--ds-fs-body); white-space: nowrap;
+}
+.sn button.sn-btn-o:hover { background: rgba(255, 255, 255, .1); opacity: 1; }
+
+/* ── Tiêu đề khu ───────────────────────────────────────────────────────── */
+.sn-sec { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sn-sec h2 { margin: 0; font-size: var(--ds-fs-title); font-weight: 700; color: var(--ds-ink); }
+.sn-sec span { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+
+/* ── Cần xử lý: ô đếm việc (điện thoại / iPad) ─────────────────────────── */
+.sn-todo { display: flex; flex-direction: column; gap: 10px; }
+.sn-tiles { display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; padding-bottom: 4px; }
+.sn-tiles::-webkit-scrollbar { display: none; }
+.sn button.sn-tile {
+  flex: 0 0 240px; min-height: 0; padding: 14px; text-align: left;
+  background: #fff; color: var(--ds-ink); border: 1px solid var(--ds-line); border-radius: var(--sn-r);
+  display: grid; gap: 6px; font-weight: 400;
+}
+.sn button.sn-tile:hover:not(:disabled) { border-color: var(--teal-700); opacity: 1; }
+.sn button.sn-tile:disabled { opacity: 1; cursor: default; }
+.sn button.sn-tile.is-calm { background: var(--ds-muted-bg); }
+.sn-tile__h { display: flex; align-items: center; gap: 10px; }
+.sn-tile__n { font-size: 24px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.sn-tile.is-calm .sn-tile__n { color: var(--ds-ink-3); }
+.sn-tile__l { font-size: var(--ds-fs-body2); font-weight: 600; }
+.sn-tile__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sn-tile__s b { color: var(--sn-warn); }
+.sn-ico { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--sn-warn-bg); color: var(--sn-warn); }
+.sn-ico.is-ok { background: var(--teal-50); color: var(--teal-700); }
+
+/* ── Danh sách nhà cung cấp ─────────────────────────────────────────────── */
+.sn-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.sn-main { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.sn-list { background: #fff; border: 1px solid var(--ds-line); border-radius: var(--sn-r); overflow: hidden; }
+.sn-tool { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; border-bottom: 1px solid var(--ds-line); }
+/* Hàng 1: [ô tìm …] [sắp xếp]; hàng 2: dãy lọc Tất cả / Đang nợ / Hết nợ trải HẾT chiều ngang.
+   Ép cả ba chung một hàng thì ở cột danh sách laptop (chừa 340px cho cột phải) và điện thoại 390px
+   dãy lọc bị bóp, chữ "Tất cả 10" / "Hết nợ 0" bị cắt ngang (chủ quán báo 2026-11-12). */
+.sn-search { flex: 1 1 160px; min-width: 0; }
+.sn-seg { display: flex; background: #f3f4f6; border-radius: 10px; padding: 3px; flex: 1 1 100%; order: 3; min-width: 0; }
+.sn .sn-seg button {
+  flex: 1; height: 38px; min-height: 38px; min-width: 0; padding: 0 8px; border-radius: 8px;
+  background: transparent; color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: 600; white-space: nowrap;
+}
+.sn .sn-seg button[aria-pressed="true"] { background: #fff; color: var(--ds-ink); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); }
+.sn-sort { flex: 0 0 160px; }
+
+.sn-thead { display: none; }
+.sn-r { position: relative; display: flex; align-items: stretch; border-top: 1px solid var(--ds-line); }
+.sn-thead + .sn-r { border-top: 0; }
+.sn button.sn-r__main {
+  flex: 1; min-width: 0; min-height: 0; padding: 12px 16px; border-radius: 0; text-align: left;
+  background: transparent; color: var(--ds-ink); font-weight: 400;
+  display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; grid-template-areas: "a m e" "a b b";
+  column-gap: 12px; row-gap: 6px; align-items: center;
+}
+.sn button.sn-r__main:hover { background: var(--ds-muted-bg); opacity: 1; }
+.sn-ava { grid-area: a; width: 40px; height: 40px; border-radius: 12px; background: var(--teal-50); color: var(--teal-700); display: grid; place-items: center; font-weight: 800; font-size: 14px; align-self: start; }
+.sn-r__m { grid-area: m; min-width: 0; display: flex; flex-direction: column; }
+/* Tên hiện ĐỦ, tối đa 2 dòng — cắt "Nhóm Lấy R…" thì 3 nhóm "Nhóm Lấy …" trông y hệt nhau. */
+.sn-r__t { font-weight: 600; font-size: var(--ds-fs-body); line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sn-r__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sn-r__s .is-warn { color: var(--sn-warn); font-weight: 600; }
+.sn-r__e { grid-area: e; text-align: right; font-weight: 800; font-size: var(--ds-fs-body); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sn-paid { color: var(--teal-700); font-weight: 700; font-size: var(--ds-fs-body2); }
+.sn-r__b { grid-area: b; height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
+.sn-r__b i { display: block; height: 100%; border-radius: 999px; background: var(--teal-600); }
+.sn-r__b.is-warn i { background: #fb923c; }
+/* Điện thoại ẩn nút "Trả tiền" trên dòng — chật, và mở chi tiết NCC là có nút trả. */
+.sn button.sn-pay { display: none; }
+
+/* ── Cần xử lý: cột phải (laptop) + dòng việc dùng chung với tấm trượt ──── */
+.sn-rail { display: none; }
+.sn button.sn-it {
+  width: 100%; min-height: 56px; padding: 8px 16px; border-radius: 0; text-align: left;
+  background: transparent; color: var(--ds-ink); font-weight: 400;
+  display: flex; align-items: center; gap: 10px;
+}
+.sn button.sn-it:hover { background: var(--ds-muted-bg); opacity: 1; }
+.sn-it > svg { color: var(--ds-ink-3); flex: none; }
+.sn-it__m { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sn-it__t { font-size: var(--ds-fs-body2); font-weight: 600; line-height: 1.3; }
+.sn-it__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sn-it__e { font-size: var(--ds-fs-body2); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.sn-it__e.is-warn { color: var(--sn-warn); }
+.sn button.sn-more {
+  min-height: 44px; padding: 0 16px; background: transparent; color: var(--teal-700);
+  font-weight: 600; font-size: var(--ds-fs-body2); text-align: left; border-radius: 0; width: 100%;
+}
+.sn button.sn-more:hover { background: var(--teal-50); opacity: 1; }
+
+/* Tấm trượt render qua portal ra <body> — NGOÀI `.sn`, nên các rule ở đây không bám `.sn`. */
+.sn-sheet { overflow-y: auto; padding-bottom: 8px; }
+.sn-sheet--ky { padding: 4px 16px 8px; display: flex; flex-direction: column; gap: 12px; }
+.sn-note { margin: 0; font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+.sn-sheet button.sn-it {
+  width: 100%; min-height: 56px; padding: 8px 16px; border-radius: 0; text-align: left;
+  background: transparent; color: var(--ds-ink); font-weight: 400; display: flex; align-items: center; gap: 10px;
+}
+.sn-sheet button.sn-it + button.sn-it { border-top: 1px solid var(--ds-line); }
+.sn-sheet button.sn-it:hover { background: var(--ds-muted-bg); opacity: 1; }
+.sn-sheet .sn-it__t { font-size: var(--ds-fs-body); }
+.sn-sheet .sn-it__e.is-warn { color: var(--orange-700); }
+.sn-sheet button.sn-more {
+  min-height: 48px; padding: 0 16px; background: transparent; color: var(--teal-700);
+  font-weight: 600; font-size: var(--ds-fs-body2); text-align: left; border-radius: 0; width: 100%; border-top: 1px solid var(--ds-line);
+}
+
+/* ── iPad (≥ 768px) ───────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .sn { gap: 20px; }
+  .sn-hero { padding: 20px 22px; }
+  .sn-hero__num { font-size: 40px; }
+  .sn-legend { display: flex; }
+  .sn-period { flex: 1 1 auto; }
+  .sn-acts { display: flex; flex: 0 0 auto; }
+  .sn button.sn-btn-w, .sn button.sn-btn-o { padding: 0 20px; }
+  .sn-tiles { margin: 0; padding: 0; overflow: visible; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sn button.sn-tile { flex: none; min-width: 0; }
+  .sn button.sn-r__main {
+    grid-template-columns: 40px minmax(0, 1fr) 200px; grid-template-areas: "a m e" "a m b";
+    padding: 12px 8px 12px 20px;
+  }
+  .sn-r__b { align-self: start; }
+  .sn button.sn-pay {
+    display: inline-flex; align-self: center; flex: none; margin: 0 16px 0 8px;
+    height: 40px; min-height: 40px; padding: 0 14px; border-radius: 8px;
+    background: var(--teal-50); color: var(--teal-800); border: 1px solid var(--teal-100);
+    font-size: var(--ds-fs-body2); font-weight: 700; align-items: center; white-space: nowrap;
+  }
+  .sn button.sn-pay:hover { background: var(--teal-100); opacity: 1; }
+}
+
+/* ── Laptop (≥ 1200px): danh sách + cột "Cần xử lý" bên phải ───────────── */
+@media (min-width: 1200px) {
+  .sn-hero { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); column-gap: 32px; align-items: center; }
+  .sn-hero__top, .sn-hero__foot { grid-column: 1 / -1; }
+  .sn-hero__num, .sn-hero__sub { grid-column: 1; }
+  .sn-share { grid-column: 2; grid-row: 2; align-self: end; height: 12px; }
+  .sn-legend { grid-column: 2; grid-row: 3; }
+  .sn-todo { display: none; }
+  .sn-body { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 20px; align-items: start; }
+  .sn-rail {
+    display: block; position: sticky; top: 12px; background: #fff;
+    border: 1px solid var(--ds-line); border-radius: var(--sn-r); overflow: hidden;
+  }
+  .sn-rail__h { padding: 14px 16px; font-weight: 700; font-size: 17px; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .sn-rail__h span { font-size: var(--ds-fs-label); font-weight: 500; color: var(--ds-ink-2); }
+  .sn-grp { border-top: 1px solid var(--ds-line); padding-bottom: 4px; }
+  .sn-grp__h { display: flex; align-items: center; gap: 10px; padding: 12px 16px 6px; font-weight: 600; font-size: var(--ds-fs-body2); }
+  .sn-grp__h .sn-ico { width: 28px; height: 28px; border-radius: 8px; }
+  .sn-grp__n { margin-left: auto; font-size: var(--ds-fs-label); color: var(--ds-ink-2); font-weight: 500; }
+  .sn-grp.is-ok { padding-bottom: 8px; }
+  .sn-grp.is-ok .sn-grp__h { color: var(--ds-ink-3); font-weight: 500; }
+  .sn-thead {
+    /* Cột 4 = phần nút "Trả tiền" nằm NGOÀI nút dòng (8 lề phải dòng + 8 + ~86 nút + 16) — tính khớp
+       để chữ "Còn nợ" thẳng mép phải với số tiền bên dưới. */
+    display: grid; grid-template-columns: 40px minmax(0, 1fr) 200px 106px; column-gap: 12px;
+    padding: 10px 0 10px 20px; font-size: var(--ds-fs-label); font-weight: 600; color: var(--ds-ink-2);
+    letter-spacing: .03em; text-transform: uppercase; background: var(--ds-muted-bg); border-bottom: 1px solid var(--ds-line);
+  }
+  .sn-thead span:nth-child(3) { text-align: right; }
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Chi tiết nhà cung cấp (SupplierDetailScreen) — làm lại 2026-11-12, tiền tố `ct-`. Dùng lại dải
+   `sn-hero` ở trên. Điện thoại: TOÀN MÀN (không viền hộp), thanh trên dính. Máy tính: hộp giữa
+   1100px, sổ trái + tóm tắt phải.
+   ════════════════════════════════════════════════════════════════════════════ */
+.ct-bg { position: fixed; inset: 0; z-index: 9000; background: rgba(17, 24, 39, .45); overflow-y: auto; display: flex; justify-content: center; }
+.ncc-ui.ct { width: 100%; min-height: 100%; background: var(--ds-muted-bg); gap: 0; }
+.ct-top {
+  position: sticky; top: 0; z-index: 3; height: 56px; padding: 0 8px; padding-top: env(safe-area-inset-top, 0px);
+  display: flex; align-items: center; gap: 6px; background: #fff; border-bottom: 1px solid var(--ds-line);
+}
+.ct button.ct-x { width: 44px; height: 44px; min-height: 44px; padding: 0; display: grid; place-items: center; background: transparent; color: var(--ds-ink-2); border-radius: 10px; }
+.ct button.ct-x:hover { background: var(--ds-muted-bg); opacity: 1; }
+.ct-top__t { flex: 1; min-width: 0; font-size: 17px; font-weight: 600; color: var(--ds-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-wrap { padding: 16px; display: flex; flex-direction: column; gap: 16px; max-width: 1100px; width: 100%; margin: 0 auto; box-sizing: border-box; }
+.ct-id { gap: 10px; }
+.ct-ava { width: 44px; height: 44px; border-radius: 12px; background: rgba(255, 255, 255, .16); display: grid; place-items: center; font-weight: 800; flex: none; }
+.ct-name { flex: 1; min-width: 0; font-size: 18px; font-weight: 700; line-height: 1.25; color: #fff; }
+.ct-name small { display: block; font-size: var(--ds-fs-body2); font-weight: 400; color: var(--teal-100); }
+.ct-name small a { color: #fff; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.ct-acts { flex: none; }
+
+.ct-body { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.ct-so { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ct-seg { display: flex; gap: 4px; padding: 4px; background: #e5e7eb; border-radius: 12px; }
+.ct .ct-seg button {
+  flex: 1 1 auto; min-width: 0; height: 40px; min-height: 40px; padding: 0 8px; border-radius: 9px;
+  background: transparent; color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: 600; white-space: nowrap;
+}
+.ct .ct-seg button small { font-size: var(--ds-fs-label); color: var(--ds-ink-3); font-weight: 500; }
+.ct .ct-seg button[aria-pressed="true"] { background: #fff; color: var(--ds-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+.ct-list { background: #fff; border: 1px solid var(--ds-line); border-radius: 14px; overflow: hidden; }
+.ct-row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; min-height: 60px; }
+.ct-row + .ct-row { border-top: 1px solid var(--ds-line); }
+.ct-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; flex: none; background: var(--ds-muted-bg); color: var(--ds-ink-2); }
+.ct-ic--pay { background: var(--teal-50); color: var(--teal-700); }
+.ct-row__m { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.ct-row__t { font-size: var(--ds-fs-body); font-weight: 600; color: var(--ds-ink); }
+.ct-row__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-row__v { text-align: right; font-size: var(--ds-fs-body); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+.ct-row__v.is-pay { color: var(--teal-700); }
+.ct-row__v small { display: block; font-size: var(--ds-fs-label); font-weight: 500; color: var(--ds-ink-2); }
+.ct-card { padding: 14px; border-radius: 14px; display: flex; flex-direction: column; gap: 8px; margin: 0; }
+.ct-card__t { margin: 0 0 2px; font-size: var(--ds-fs-body); font-weight: 700; color: var(--ds-ink); }
+.ct-kv { display: flex; justify-content: space-between; gap: 12px; font-size: var(--ds-fs-body2); border-top: 1px solid var(--ds-line); padding-top: 8px; }
+.ct-kv span { color: var(--ds-ink-2); flex: none; }
+.ct-kv b { text-align: right; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+
+/* Menu ⋯ (Sheet render qua portal — không bám `.ct`). */
+.sn-menu { display: grid; gap: 8px; padding: 4px 16px 16px; }
+.sn-menu button.sn-opt {
+  min-height: var(--ds-h-row); padding: 0 12px; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: #fff; color: var(--ds-ink); border: 1px solid var(--ds-line); border-radius: 10px; font-size: var(--ds-fs-body); font-weight: 500;
+}
+.sn-menu button.sn-opt:hover { background: var(--teal-50); opacity: 1; }
+.sn-menu button.sn-opt.is-danger { color: var(--ds-danger); border-color: #fecaca; }
+.sn-menu button.sn-opt.is-danger:hover { background: var(--ds-danger-soft); }
+
+@media (min-width: 768px) {
+  .ct-bg { padding: 24px 16px; }
+  .ncc-ui.ct { max-width: 1100px; min-height: 0; height: fit-content; border-radius: 16px; overflow: clip; margin: auto 0; }
+  .ct-top { border-radius: 16px 16px 0 0; }
+  .ct-wrap { padding: 20px 24px 28px; }
+  .ct .sn-hero { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
+  .ct .sn-hero > .ct-id { grid-column: 1 / -1; }
+}
+@media (min-width: 1100px) {
+  .ct-body { display: grid; grid-template-columns: minmax(0, 1fr) 320px; align-items: start; }
+}
+/* Bỏ khung hộp cũ (`.ncc-ui--dialog`: lề 20px + bo góc + bóng) — điện thoại phải TOÀN MÀN, lề do
+   `.ct-wrap` lo. 3 class để thắng `.ncc-ui--dialog` (suppliers-ui.css). */
+.ncc-ui.ncc-ui--dialog.ct { padding: 0; border-radius: 0; box-shadow: none; }
+@media (min-width: 768px) { .ncc-ui.ncc-ui--dialog.ct { border-radius: 16px; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); } }
+.ncc-ui.ncc-ui--dialog.ct { margin: 0; } /* `.ncc-ui--dialog` cũ có margin-top 16px → khe hở lộ trang sau trên điện thoại */
+/* Hộp Xem phiếu (DeliveryDetailDialog) hẹp hơn Chi tiết NCC trên máy tính — chỉ một cột nội dung. */
+@media (min-width: 768px) { .ncc-ui.ct.ct--hep { max-width: 820px; } }
+/* Ruột phiếu (DeliveryDetailDialog) giữ markup cũ, chỉ bỏ ô CAM của "Tổng tiền phiếu" — tổng tiền một
+   phiếu không phải cảnh báo; cam chỉ dành cho việc cần chú ý (quy tắc 11/11). */
+.ct .sup-head__debt { background: var(--teal-50); border-color: var(--teal-100); }
+.ct .sup-head__debtlabel { color: var(--teal-800); }
+.ct .sup-head__debt .money--hero { color: var(--ds-ink); }
+.ct button.ct-x svg { width: 22px; height: 22px; } /* icon tự vẽ (SupplierInvoiceTemplate `Ico`) không có cỡ sẵn */
+
+/* Form Nhập hàng (DeliveryFormPanel, 2026-11-12): thanh trên dính trong `.dl-sheet`. Lề âm để thanh
+   tràn hết bề ngang thẻ form (thẻ có lề trong ~14–20px). */
+.dl-top.ct-top { position: sticky; top: 0; z-index: 5; margin: -16px -14px 12px; border-radius: 0; }
+@media (min-width: 1001px) { .dl-top.ct-top { margin: -20px -20px 16px; border-radius: 12px 12px 0 0; } }
+
+/* Chip "Món hay nhập từ NCC này" (2026-11-12): cuộn ngang 1 hàng trên điện thoại, xuống dòng trên
+   máy tính. Chip đã có trong phiếu thì mờ đi (vẫn bấm được — nhập 2 lô cùng món là chuyện có). */
+.dl-chips { margin-top: 16px; }
+.dl-chips__t { font-size: 13px; color: var(--ds-ink-3, #6b7280); margin-bottom: 6px; }
+.dl-chips__row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.dl-chips__row::-webkit-scrollbar { display: none; }
+@media (min-width: 1001px) { .dl-chips__row { flex-wrap: wrap; overflow: visible; } }
+button.dl-chip {
+  flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px;
+  min-height: 44px; padding: 6px 12px; border-radius: 10px;
+  background: var(--teal-50, #f0fdfa); color: var(--ds-ink, #111827);
+  border: 1px solid var(--teal-100, #ccfbf1); font-weight: 400; text-align: left;
+}
+button.dl-chip--co { opacity: .45; }
+.dl-chip__n { font-size: 15px; font-weight: 600; white-space: nowrap; }
+.dl-chip__p { font-size: 13px; color: var(--brand, #0f766e); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.dl-list { margin-top: 16px; display: grid; gap: 10px; }
+.dl-prev { color: var(--ds-ink-3, #6b7280); font-variant-numeric: tabular-nums; }
+.dl-prev--len { color: var(--orange-700, #c2410c); font-weight: 600; }
+.dl-prev--xuong { color: var(--brand, #0f766e); font-weight: 600; }
+
+/* Điện thoại: dòng gọn 2 tầng — tầng 1 tên hàng + ✕, tầng 2 SL · ĐVT · Đơn giá trên MỘT hàng.
+   Trước đây ĐVT một hàng riêng, SL + giá một hàng, Nhóm một hàng: mỗi món cao ~230px. */
+@media (max-width: 1000px) {
+  .dl-item .dl-line {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 0.8fr) minmax(0, 1.3fr);
+    gap: 8px 8px;
+  }
+  .dl-item .dl-name { grid-column: 1 / -1; order: 0; }
+  .dl-item .dl-units, .dl-item .dl-money { display: contents; }
+  .dl-item .dl-money > label:first-child { order: 1; }
+  .dl-item .dl-units { order: 2; }
+  .dl-item .dl-units > div { order: 2; }
+  .dl-item .dl-money > label:nth-child(2) { order: 3; }
+  .dl-item .dl-phu-cell { order: 4; grid-column: 1 / -1; }
+  .dl-item .dl-phu-cell:empty { display: none; }
+  .dl-item .dl-name .dl-lab { display: none; }
+  .dl-item .dl-foot-line { justify-content: flex-start; gap: 10px; }
+  .dl-item .dl-line-total { margin-left: 0; font-size: 16px; }
+}
+@media (min-width: 1001px) {
+  .dl-item .dl-line-total { display: none; }
+}
+/* `.dl-sheet` là con flex của `.dl-overlay`: min-width auto = rộng bằng nội dung, nên hàng chip
+   cuộn ngang đẩy cả tờ phiếu rộng 1190px. Ép về bề ngang màn. */
+.dl-overlay > .dl-sheet { min-width: 0; }
+@media (max-width: 1000px) { .dl-overlay > .dl-sheet { width: 100%; } }
+@media (min-width: 1001px) { .dl-overlay > .dl-sheet { max-width: 980px; } }
+
+/* (2026-11-12, user chụp màn) `.ct-bg` là flex → con mặc định `align-items: stretch` nên khung
+   `.ct` bị ép cao ĐÚNG một màn; nội dung dài hơn tràn ra ngoài nền trắng và lộ trang phía sau
+   ở cuối (khu "Mặt hàng hay giao"). Để khung cao theo nội dung, `min-height: 100%` vẫn giữ toàn màn. */
+.ct-bg { align-items: flex-start; }
+/* Bảng trong Chi tiết NCC / Xem phiếu giãn hết bề ngang thẻ — trước đây co theo nội dung, chừa
+   một khoảng trống bên phải trông như bị cắt. */
+.ct .tablewrap > table { width: 100%; }
+/* Điện thoại: dòng bảng gọn chừa sẵn cột 40px cho nút ⋯ (`.c-act`). Bảng trong Chi tiết NCC không
+   có nút đó → bỏ cột, không thì số tiền đứng lửng giữa thẻ và mép phải trống như bị cắt. */
+@media (max-width: 719px) {
+  .ct .ncc-ui .table--rows tbody tr:not(:has(.c-act)),
+  .ncc-ui.ct .table--rows tbody tr:not(:has(.c-act)) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas: "t1 t1n" "t2 t2e";
+  }
+}
+@media (max-width: 719px) {
+  /* `.bleed` kéo lề âm 16px nhưng khung vẫn bị ghim bề rộng 100% → chỉ lùi trái, mép phải hụt 32px. */
+  .ncc-ui.ct .card__body > .tablewrap.bleed { width: calc(100% + 32px); max-width: none; }
+}
+/* Máy tính: nền tối có lề trên 24px; thanh tiêu đề dính ở `top: 0` của vùng cuộn nên cuộn xuống
+   thì nội dung ló lên trong khe 24px phía trên thanh. Dính lùi lên 24px để thanh che kín khe. */
+@media (min-width: 768px) { .ct .ct-top, .ct.ct-top, .ncc-ui.ct > .ct-top { top: -24px; } }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Tab "Phiếu nhập" (SupplierDeliveryScreen, làm lại 2026-11-12) — gốc `.sx.tk.ck.pn`: dùng lại hàng
+   lọc + dải số `tk-*` và danh sách theo ngày `ck-*` của tab Chuyển khoản; dưới đây chỉ phần riêng.
+   ════════════════════════════════════════════════════════════════════════════ */
+.pn { display: flex; flex-direction: column; gap: 12px; }
+.pn-tao { display: flex; justify-content: flex-end; }
+.pn-tao button.sx-btn-main { min-height: 48px; }
+@media (max-width: 767px) { .pn-tao button.sx-btn-main { width: 100%; } }
+.pn-tim {
+  display: flex; align-items: center; gap: 8px; height: var(--ds-h-control, 44px); padding: 0 12px; margin: 0;
+  background: #fff; border: 1px solid var(--gray-300, #d1d5db); border-radius: 8px; color: var(--ds-ink-3);
+}
+.pn-tim input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 16px; padding: 0; min-height: 0; height: 100%; }
+.pn-tim:focus-within { border-color: var(--brand, #0f766e); box-shadow: 0 0 0 3px var(--teal-100, #ccfbf1); }
+/* 2 ô (Đã nhập to hơn) — thêm ô Nháp thì 3 ô; điện thoại ô Nháp xuống hàng riêng. */
+.pn-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.pn-kpis .pn-kpi-nhap { grid-column: 1 / -1; background: var(--orange-50, #fff7ed); }
+.pn-kpis .pn-kpi-nhap .tk-kpi__v { color: var(--orange-700, #c2410c); }
+@media (min-width: 768px) {
+  .pn-kpis { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .pn-kpis .pn-kpi-nhap { grid-column: auto; }
+  .pn .ck-seg { flex: 0 1 auto; }
+}
+.pn-xep { flex: 0 0 180px; min-width: 0; margin-left: auto; }
+@media (max-width: 767px) { .pn-xep { flex: 1 1 100%; } }
+.pn-tag {
+  display: inline-block; vertical-align: 2px; margin-left: 8px; padding: 0 8px; border-radius: 999px;
+  font-size: 12.5px; font-weight: 700; line-height: 20px; color: var(--ds-ink-2); background: var(--gray-100, #f3f4f6);
+}
+.pn-tag--nhap { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa; }
+.pn .pn-row.is-huy .ck-row__v { text-decoration: line-through; color: var(--ds-ink-3); }
+/* Người nhập: máy tính một cột riêng dóng thẳng; điện thoại nối vào dòng phụ. */
+.pn-who { display: none; }
+@media (min-width: 768px) {
+  .pn-who { display: block; flex: 0 0 180px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pn-who-gon { display: none; }
+  .pn .ck-row__v { flex: 0 0 auto; min-width: 120px; text-align: right; }
+}
+/* (sửa sau khi chụp) Hai luật của tab Chuyển khoản/Thống kê đè lên đây: `.tk-kpis` 4 cột ở ≥768px
+   và `.ck-row__m` thành lưới 2 cột (tên | dòng phụ) — ở Phiếu nhập tên NCC bị bóp còn 2 dòng.
+   Hai class để thắng bất kể thứ tự nạp file CSS. */
+.pn .ck-row__m { display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left; }
+.tk-kpis.pn-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+@media (min-width: 768px) {
+  .tk-kpis.pn-kpis { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); }
+  .tk-kpis.pn-kpis:has(.pn-kpi-nhap) { grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr); }
+}
+/* (2026-11-12, chủ quán: "khoảng trắng 2 bên quá nhiều") Thẻ bảng trong Chi tiết NCC trên điện thoại
+   chồng 3 lớp lề: màn 16 + thẻ 24 + thân thẻ 16 → chữ cách mép 57px trên máy 440px. Bỏ lề thẻ +
+   thân, dòng tự lùi 14px → chữ cách mép ~30px. */
+@media (max-width: 719px) {
+  .ncc-ui.ct .card:has(.tablewrap) { padding: 0 0 6px; }
+  .ncc-ui.ct .card:has(.tablewrap) .card__head { padding: 14px; }
+  .ncc-ui.ct .card:has(.tablewrap) .card__body { padding: 0; }
+  .ncc-ui.ct .card__body > .tablewrap.bleed { margin-inline: 0; width: 100%; }
+  .ncc-ui.ct .card:has(.tablewrap) .table--rows tbody tr { padding-inline: 14px; }
+}

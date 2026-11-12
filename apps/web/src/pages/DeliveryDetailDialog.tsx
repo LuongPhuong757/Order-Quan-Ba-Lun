@@ -124,13 +124,18 @@ export function DeliveryDetailDialog({
   const q = d ? quyenPhieu(user, d.delivery) : { sua: false, huy: false, duyet: false };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Chi tiết phiếu nhập"
-         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex',
-                  justifyContent: 'center', padding: 16, overflowY: 'auto', zIndex: 9010 }}>
-      <div className="ncc-ui ncc-ui--dialog" style={{ maxWidth: 820, width: '100%', margin: 'auto' }}>
-        <button className="back" type="button" onClick={onClose}>
-          <Icon name="mui-ten-trai" />Đóng
-        </button>
+    // Khung CHUNG với màn Chi tiết NCC (2026-11-12, `ct-*` ở so-no-ncc.css): điện thoại TOÀN MÀN, thanh
+    // trên dính có ✕ + tên phiếu (trước là nút "‹ Đóng" trôi theo khi cuộn). Ruột phiếu + các nút
+    // Duyệt / Sửa / Huỷ GIỮ NGUYÊN. zIndex cao hơn Chi tiết NCC (9000) vì mở chồng lên nó được.
+    <div role="dialog" aria-modal="true" aria-label="Chi tiết phiếu nhập" className="ct-bg" style={{ zIndex: 9010 }}>
+      <div className="ncc-ui ncc-ui--dialog sn ct ct--hep">
+        <div className="ct-top">
+          <button type="button" className="ct-x" onClick={onClose} aria-label="Đóng phiếu">
+            <Icon name="dong" size={22} />
+          </button>
+          <span className="ct-top__t">{d ? `Phiếu nhập · ${d.delivery.supplier_name}` : 'Phiếu nhập'}</span>
+        </div>
+        <div className="ct-wrap">
 
         {d === null ? (
           <section className="card"><div className="card__body"><p className="sm muted">Đang tải…</p></div></section>
@@ -257,6 +262,7 @@ export function DeliveryDetailDialog({
             </section>
           </>
         )}
+        </div>
       </div>
       {giaLech && (
         <PriceChangeDialog

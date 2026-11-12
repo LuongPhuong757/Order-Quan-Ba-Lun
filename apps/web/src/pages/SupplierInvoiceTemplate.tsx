@@ -93,14 +93,17 @@ export function SupplierInvoiceTemplate({
   };
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Mẫu hoá đơn ${supplierName}`}
-         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex',
-                  flexDirection: 'row', justifyContent: 'center', padding: 16, overflowY: 'auto',
-                  zIndex: 9100 }}>
-      <div className="ncc-ui ncc-ui--dialog" style={{ maxWidth: 720, width: '100%', margin: 'auto' }}>
-        <button className="back" type="button" onClick={onClose}>
-          <Ico d="m15 6-6 6 6 6" />{supplierName}
-        </button>
+    // Khung CHUNG với Chi tiết NCC (2026-11-12, `ct-*` ở so-no-ncc.css): điện thoại TOÀN MÀN, thanh
+    // trên dính có ✕ + tên (trước là nút "‹ tên NCC" trôi theo khi cuộn). Ruột giữ nguyên.
+    <div role="dialog" aria-modal="true" aria-label={`Mẫu hoá đơn ${supplierName}`} className="ct-bg" style={{ zIndex: 9100 }}>
+      <div className="ncc-ui ncc-ui--dialog sn ct ct--hep">
+        <div className="ct-top">
+          <button type="button" className="ct-x" onClick={onClose} aria-label="Đóng mẫu hoá đơn">
+            <Ico d="M18 6 6 18M6 6l12 12" />
+          </button>
+          <span className="ct-top__t">Mẫu hoá đơn · {supplierName}</span>
+        </div>
+        <div className="ct-wrap">
 
         <section className="card">
           <div className="card__head">
@@ -162,6 +165,7 @@ export function SupplierInvoiceTemplate({
             </button>
           </section>
         )}
+        </div>
       </div>
     </div>
   );

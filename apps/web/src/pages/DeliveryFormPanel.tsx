@@ -22,6 +22,7 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { laNguoiLapNhap } from '../lib/delivery-draft.ts';
 import { kindOf, type IngredientKind } from '../lib/ingredient-kind.ts';
 import { KindSelect } from '../components/IngredientKindSelect.tsx';
+import './so-no-ncc.css';
 
 type Supplier = { id: string; name: string; phone: string };
 
@@ -310,6 +311,31 @@ export function DeliveryFormPanel({
     });
   };
 
+  /** Chip "Món hay nhập" (2026-11-12): một chạm = thêm một dòng đã điền sẵn tên, đơn vị, giá lần
+   *  trước — người nhập chỉ còn gõ số lượng. Có dòng trống thì điền vào đó, không đẻ thêm dòng. */
+  const addFromChip = (k: SupplierItemRow) => {
+    const ing = catalog.find((c) => c.id === k.ingredient_id);
+    if (!ing) return;
+    const empty = lines.find((l) => !l.ingredient_id && !l.ingredient_name.trim() && !l.qty_purchase);
+    if (empty) {
+      pick(empty.key, ing);
+      return;
+    }
+    const nl = newLine();
+    setLines((prev) => [...prev, nl]);
+    pick(nl.key, ing);
+  };
+  // Mới nhập gần đây đứng trước; tối đa 10 chip cho khỏi chiếm nửa màn điện thoại.
+  const chipItems = useMemo(
+    () =>
+      [...known]
+        .filter((k) => catalog.some((c) => c.id === k.ingredient_id))
+        .sort((a, b) => b.last_delivery_date.localeCompare(a.last_delivery_date))
+        .slice(0, 10),
+    [known, catalog],
+  );
+  const daCo = new Set(lines.map((l) => l.ingredient_id).filter(Boolean));
+
   const total = lines.reduce((sum, l) => {
     const q = Number(l.qty_purchase);
     const p = Number(digitsOnly(l.unit_price));
@@ -520,11 +546,20 @@ export function DeliveryFormPanel({
       {/* 1180px chứ không phải 860: một mặt hàng giờ là một hàng 7 cột, hẹp hơn thì các ô số
           bị bóp còn ~70px và không đọc nổi con số 6 chữ số đang gõ. */}
       <form className="card dl-sheet" onSubmit={onSubmit}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>
-          {lapNhap
-            ? (isEdit ? 'Sửa phiếu nháp' : 'Lập phiếu nháp')
-            : (isEdit ? 'Sửa phiếu nhập' : 'Nhập hàng')}
-        </h2>
+        {/* Thanh trên DÍNH (2026-11-12, cùng khuôn Chi tiết NCC): ✕ + loại phiếu + tên NCC — phiếu
+            dài 2-3 màn, cuộn xuống vẫn biết đang nhập cho ai và đóng được ngay. Thay tiêu đề h2 trôi
+            theo trang + nút "Huỷ" ở thanh dưới. */}
+        <div className="ct ct-top dl-top">
+          <button type="button" className="ct-x" onClick={onClose} aria-label="Đóng phiếu (phiếu dở được giữ nháp)">
+            <Icon name="dong" size={22} />
+          </button>
+          <span className="ct-top__t">
+            {lapNhap
+              ? (isEdit ? 'Sửa phiếu nháp' : 'Lập phiếu nháp')
+              : (isEdit ? 'Sửa phiếu nhập' : 'Nhập hàng')}
+            {suppliers.find((x) => x.id === supplierId)?.name ? ` · ${suppliers.find((x) => x.id === supplierId)?.name}` : ''}
+          </span>
+        </div>
 
         {/* Người lập nháp phải biết NGAY từ đầu là phiếu này chưa tính — không thì họ tưởng
             mình đã nhập kho xong và không ai nhắc admin duyệt. */}
@@ -697,7 +732,28 @@ export function DeliveryFormPanel({
           </div>
         ) : (
           <>
-            <div style={{ marginTop: 20, display: 'grid', gap: 12 }}>
+            {chipItems.length > 0 && (
+              <div className="dl-chips">
+                <div className="dl-chips__t">Món hay nhập từ NCC này · chạm để thêm</div>
+                <div className="dl-chips__row">
+                  {chipItems.map((k) => {
+                    const co = daCo.has(k.ingredient_id);
+                    return (
+                      <button
+                        key={k.ingredient_id}
+                        type="button"
+                        className={`dl-chip${co ? ' dl-chip--co' : ''}`}
+                        onClick={() => addFromChip(k)}
+                      >
+                        <span className="dl-chip__n">{k.ingredient_name}</span>
+                        <span className="dl-chip__p">{vnd(k.last_unit_price)}đ/{upperUnit(k.purchase_unit)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            <div className="dl-list">
               {lines.map((l, idx) => (
                 <LineRow
                   key={l.key}
@@ -740,12 +796,13 @@ export function DeliveryFormPanel({
             là hai thứ người nhập phải với tới bất cứ lúc nào — cuộn xuống đáy mới bấm được là
             chỗ dễ bỏ sót nhất khi NCC đang đứng đợi. */}
         <div className="dl-bar">
-          <div style={{ fontSize: 22, fontWeight: 800 }}>{vnd(total)}đ</div>
-          <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={saving || !date} style={{ minHeight: 48, padding: '0 24px' }}>
-            {saving ? 'Đang lưu…' : isEdit ? 'LƯU SỬA' : 'GỬI'}
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: C.mutedOnTint }}>Tổng phiếu · {lines.filter((l) => l.ingredient_id || l.ingredient_name.trim()).length} món</div>
+            <div style={{ fontSize: 22, fontWeight: 800, fontVariantNumeric: 'tabular-nums' }}>{vnd(total)}đ</div>
+          </div>
+          {/* Nói đúng việc sẽ xảy ra (2026-11-12): "GỬI" in hoa không nói phiếu đi đâu. Huỷ → ✕ thanh trên. */}
+          <button type="submit" disabled={saving || !date} style={{ minHeight: 52, padding: '0 24px', fontWeight: 800 }}>
+            {saving ? 'Đang lưu…' : lapNhap ? (isEdit ? 'Lưu nháp' : 'Gửi nháp') : isEdit ? 'Lưu sửa' : 'Lưu phiếu'}
           </button>
         </div>
       </form>
@@ -833,6 +890,11 @@ function LineRow({
 
   const qty = Number(line.qty_purchase);
   const price = Number(digitsOnly(line.unit_price));
+  // % chênh so với giá lần trước (làm tròn số nguyên). 0 khi chưa gõ giá hoặc chưa có giá cũ.
+  const chenh =
+    prev && prev.last_unit_price > 0 && price > 0
+      ? Math.round(((price - prev.last_unit_price) / prev.last_unit_price) * 100)
+      : 0;
   const lineTotal =
     Number.isFinite(qty) && Number.isFinite(price) && qty > 0 ? Math.round(qty * price) : 0;
 
@@ -968,7 +1030,11 @@ function LineRow({
               ngay. Server ghi nó trong cùng transaction lưu phiếu (`applyKindFlags`).
               Ẩn với người lập NHÁP (role Báo cáo): server bỏ qua nhóm ở đường nháp và lúc admin
               duyệt cũng không lưu — để ô hiện ra là cho họ chọn vào chỗ không ghi đi đâu. */}
-          {!lapNhap && (
+          {/* 2026-11-12: chỉ HỎI nhóm với mặt hàng MỚI — hàng đã có thì nhóm đã nằm trong danh mục,
+              muốn đổi thì vào Danh mục / Mặt hàng. Hàng có sẵn vẫn giữ một ô rỗng để desktop
+              không lệch cột (điện thoại ẩn ô rỗng). */}
+          {!lapNhap && line.ingredient_id && <div className="dl-phu-cell" />}
+          {!lapNhap && !line.ingredient_id && (
           <div className="dl-phu-cell">
             <span className="dl-lab" style={{ color: C.mutedOnTint }}>
               Nhóm
@@ -998,15 +1064,14 @@ function LineRow({
           Đó chính là thứ đã mất cùng với thành tiền khi cả khối bị `display: none`. */}
       {(lineTotal > 0 || prev) && (
         <div className="dl-foot-line">
+          {lineTotal > 0 && <strong className="dl-line-total">= {vnd(lineTotal)}đ</strong>}
           {prev && (
             // Giá lần trước hiện ngay dưới ô: người nhập thấy được mình đang gõ khác đi bao nhiêu
-            // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại.
-            <span style={{ color: C.muted }}>
-              Lần trước {vnd(prev.last_unit_price)}đ/{upperUnit(prev.purchase_unit)} · {prev.last_delivery_date}
+            // TRƯỚC khi bấm gửi, thay vì đợi popup chặn lại. Tăng giá → cam (cảnh báo), giảm → xanh ngọc.
+            <span className={`dl-prev${chenh > 0 ? ' dl-prev--len' : chenh < 0 ? ' dl-prev--xuong' : ''}`}>
+              Lần trước {vnd(prev.last_unit_price)}đ
+              {chenh !== 0 && ` · ${chenh > 0 ? '▲' : '▼'} ${Math.abs(chenh)}%`}
             </span>
-          )}
-          {lineTotal > 0 && (
-            <strong className="dl-line-total">{vnd(lineTotal)}đ</strong>
           )}
         </div>
       )}

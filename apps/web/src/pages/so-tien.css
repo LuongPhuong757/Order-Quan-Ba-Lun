@@ -37,6 +37,9 @@
 button.sx-btn-main {
   min-height: 52px; padding: 0 20px; border-radius: 10px; background: #fff; color: var(--sx-teal-900);
   font-size: 17px; font-weight: 800; flex: 1 1 100%;
+  /* Căn giữa THẬT theo chiều dọc: để `display: block` thì cụm icon + chữ (inline-flex) đứng trên
+     đường chân chữ, lệch lên ~2px so với giữa nút (chủ quán thấy 2026-11-12). */
+  display: inline-flex; align-items: center; justify-content: center;
 }
 button.sx-btn-main:hover { background: var(--sx-teal-50); }
 
