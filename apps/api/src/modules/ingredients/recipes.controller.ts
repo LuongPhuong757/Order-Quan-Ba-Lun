@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -28,6 +29,11 @@ class UpsertRecipeLineDto {
   @IsOptional() @IsString() @MaxLength(36) supplier_id?: string;
   @IsOptional() @IsString() @MaxLength(32) purchase_unit?: string;
   @IsOptional() @IsNumber() @Min(0) unit_price?: number;
+}
+
+class UpdateQtyDto {
+  @IsNumber() @Min(0.001) qty!: number;
+  @IsString() @MinLength(1) @MaxLength(16) unit!: string;
 }
 
 /** Công thức món (2026-09-05).
@@ -69,6 +75,13 @@ export class RecipesController {
   @UseGuards(AdminGuard)
   async upsert(@Param('menuItemId') menuItemId: string, @Body() dto: UpsertRecipeLineDto) {
     return { data: await this.svc.upsertLine(menuItemId, dto) };
+  }
+
+  /** PATCH /recipes/lines/:lineId — sửa định lượng ngay trên dòng (2026-11-11). */
+  @Patch('lines/:lineId')
+  @UseGuards(AdminGuard)
+  async updateQty(@Param('lineId') lineId: string, @Body() dto: UpdateQtyDto) {
+    return { data: { line: await this.svc.updateQty(lineId, dto.qty, dto.unit) } };
   }
 
   @Delete('lines/:lineId')

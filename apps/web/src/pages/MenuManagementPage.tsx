@@ -29,6 +29,7 @@ import {
   effectiveHidden,
   groupLabel,
   imageSrc,
+  type CostLine,
   type FoodCostEntry,
   type MenuGroup,
   type MenuItem,
@@ -36,6 +37,8 @@ import {
 } from './menu/menu-types.ts';
 import { MenuItemTable, gomTheoNhom } from './menu/MenuItemTable.tsx';
 import { MenuItemRowCard } from './menu/MenuItemRowCard.tsx';
+import { MenuItemDetailSheet } from './menu/MenuItemDetailSheet.tsx';
+import { MenuMoreMenu } from './menu/MenuMoreMenu.tsx';
 import { MenuBulkBar, MenuUndoBar, type BulkAction, type UndoState } from './menu/MenuBulkBar.tsx';
 import { MenuFormModal } from './menu/MenuFormModal.tsx';
 import { GroupsManagerModal } from './menu/GroupsManagerModal.tsx';
@@ -64,7 +67,7 @@ type FoodCostLite = {
   cost_resale?: number;
   /** % phụ của riêng món (2026-10-28). `null` = không tính phụ. */
   overhead_pct?: number | null;
-  components: Array<{ ingredient_id: string; is_secondary: boolean; is_resale?: boolean }>;
+  components: Array<Omit<CostLine, 'is_resale'> & { is_resale?: boolean }>;
   complete: boolean;
 };
 
@@ -125,6 +128,13 @@ export function MenuManagementPage() {
   const [showManage, setShowManage] = useState(false);
   // Món đang mở menu ⋯ của hàng (Sửa, Nguyên liệu, Xoá; điện thoại thêm Đẩy bán).
   const [moreFor, setMoreFor] = useState<MenuItem | null>(null);
+  const [moreAnchor, setMoreAnchor] = useState<DOMRect | null>(null);
+  // Thẻ chi tiết món (điện thoại, 2026-11-11): giữ ID chứ không giữ bản chụp — bật công tắc trong
+  // thẻ là `rawItems` đổi, thẻ phải đổi theo ngay.
+  const [detailId, setDetailId] = useState<string | null>(null);
+  // Điện thoại: 2 ô lọc (Trạng thái / Sắp xếp) thu vào nút "Lọc" (góp ý 2026-11-11 — ô tìm + 2 ô
+  // lọc + hàng chip + tiêu đề nhóm chiếm ~250px trước món đầu tiên).
+  const [moLoc, setMoLoc] = useState(false);
   /* "Món đề xuất" — danh sách món nhân vật ở thực đơn tại bàn mời khách khi món vừa thêm nằm
    * ngoài mọi combo (xem apps/shop/src/lib/menu-pairing.ts).
    *
@@ -262,6 +272,7 @@ export function MenuManagementPage() {
           costResale: r.cost_resale ?? 0,
           overhead: r.overhead_amount ?? 0,
           complete: r.complete,
+          lines: (r.components ?? []).map((c) => ({ ...c, is_resale: !!c.is_resale })),
         };
       }
       setFoodCost(map);
@@ -346,6 +357,14 @@ export function MenuManagementPage() {
     if (moreFor) void loadRecipeCounts([moreFor.id]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [moreFor]);
+  useEffect(() => {
+    if (editing) void loadRecipeCounts([editing.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editing]);
+  useEffect(() => {
+    if (detailId) void loadRecipeCounts([detailId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailId]);
 
   const markBroken = useCallback((id: string) => {
     setBrokenIds((b) => (b.has(id) ? b : new Set(b).add(id)));
@@ -650,12 +669,19 @@ export function MenuManagementPage() {
     toggleOnline: (it) => setItemHidden(it, !it.is_online_hidden, true),
     toggleFeatured: (it) => void toggleFeatured(it),
     togglePushSale: (it) => void togglePushSale(it),
-    openMore: setMoreFor,
+    openMore: (it, anchor) => { setMoreAnchor(anchor); setMoreFor(it); },
+    openDetail: (it) => setDetailId(it.id),
     zoom: setZoomItem,
     changeImage,
     markBroken,
     retryImage,
   };
+
+  const detailItem = detailId ? (rawItems.find((x) => x.id === detailId) ?? null) : null;
+
+  /** Đang lọc khác mặc định (trạng thái hoặc kiểu xếp) → ô lọc luôn hiện, không giấu điều đang áp. */
+  const locDangBat = !!(stockFilter || kenh) || sort !== 'group';
+  const hienLoc = moLoc || locDangBat;
 
   const isFiltering = !!(search || groupFilter || stockFilter || kenh);
   const clearFilters = () => {
@@ -805,6 +831,17 @@ export function MenuManagementPage() {
             aria-label="Tìm món"
           />
           {!isPhone && filterDropdowns}
+          {isPhone && (
+            <button
+              type="button"
+              className={`secondary td4-loc${locDangBat ? ' td4-loc--on' : ''}`}
+              aria-expanded={hienLoc}
+              onClick={() => setMoLoc((v) => !v)}
+            >
+              <Icon name="loc" size={18} />
+              Lọc{locDangBat ? ' •' : ''}
+            </button>
+          )}
           {/* KHÔNG có nút "Xoá lọc" (chủ quán 2026-11-11): nó làm thanh tách 2 dòng; chọn lại "Tất cả
               trạng thái" là bỏ lọc. Ô trống vẫn có nút "Xoá bộ lọc" khi không món nào khớp. */}
           <div className="td-bar__nut">
@@ -820,7 +857,7 @@ export function MenuManagementPage() {
           </div>
         </div>
       )}
-      {isPhone && !dangChon && <div className="td-bar td-bar--dd">{filterDropdowns}</div>}
+      {isPhone && !dangChon && hienLoc && <div className="td-bar td-bar--dd">{filterDropdowns}</div>}
 
       {/* Điện thoại: nhóm là hàng chip cuộn ngang, mỗi chip có số món. */}
       {isPhone && (
@@ -921,7 +958,9 @@ export function MenuManagementPage() {
                       {g.ten} <span>· {g.items.length} món</span>
                     </div>
                   )}
-                  {g.items.map((it) => <MenuItemRowCard key={it.id} it={it} ctx={ctx} />)}
+                  {g.items.map((it) => (
+                    <MenuItemRowCard key={it.id} it={it} ctx={ctx} onOpen={(x) => setDetailId(x.id)} />
+                  ))}
                 </div>
               ))}
             </div>
@@ -955,67 +994,85 @@ export function MenuManagementPage() {
           → Đề xuất → Sửa / Công thức / Ảnh / Xoá. Bếp chỉ thấy phần ảnh (đúng quyền API).
           Món đang hết: Sửa/Công thức/Xoá vẫn khoá (chủ quán chốt 2026-09-29) — việc duy nhất cần
           làm với nó là bật lại. Bấm gì xong cũng đóng tấm (`moreFor` là bản chụp). */}
-      {moreFor && (
-        <Sheet title={moreFor.name} onClose={() => setMoreFor(null)} giuaKhiRong>
-          <div className="td-actions">
-            {/* Công tắc Online VÀO ĐÂY (chủ quán 2026-11-11, lần 2) — việc làm thỉnh thoảng; Còn/Hết
-                và Đẩy bán thì ra ngoài hàng. Chỉ ảnh hưởng web đặt giao / tự lấy, KHÔNG ảnh hưởng
-                trang QR gọi món tại bàn. */}
-            {canManage && (
-              <button
-                type="button"
-                disabled={pending.has(`item:${moreFor.id}`)}
-                onClick={() => { setItemHidden(moreFor, !moreFor.is_online_hidden, true); setMoreFor(null); }}
-              >
-                <IconText name={moreFor.is_online_hidden ? 'online' : 'an'} size={20}>
-                  {moreFor.is_online_hidden ? 'Bán online lại (web đặt giao)' : 'Ẩn khỏi web đặt giao'}
-                </IconText>
-              </button>
-            )}
-            {canManage && (
-              <button type="button" onClick={() => { void toggleFeatured(moreFor); setMoreFor(null); }}>
-                <IconText name="de-xuat" size={20}>
-                  {featuredIds.has(moreFor.id) ? 'Thôi đề xuất' : 'Đề xuất cho khách tại bàn'}
-                </IconText>
-              </button>
-            )}
-            {canManage && (
-              <button type="button" disabled={moreFor.is_out_of_stock} onClick={() => { setEditing(moreFor); setMoreFor(null); }}>
-                <IconText name="sua" size={20}>Sửa món</IconText>
-              </button>
-            )}
-            {canManage && (
-              <button type="button" disabled={moreFor.is_out_of_stock} onClick={() => { setRecipeFor(moreFor); setMoreFor(null); }}>
-                <IconText name="tai-lieu" size={20}>
-                  {recipeCounts[moreFor.id] ? `Công thức · ${recipeCounts[moreFor.id]} nguyên liệu` : 'Khai nguyên liệu (công thức)'}
-                </IconText>
-              </button>
-            )}
-            {moreFor.image_url && !brokenIds.has(moreFor.id) && (
-              <button type="button" onClick={() => { setZoomItem(moreFor); setMoreFor(null); }}>
-                <IconText name="anh" size={20}>Xem ảnh to</IconText>
-              </button>
-            )}
-            {moreFor.image_url && brokenIds.has(moreFor.id) && (
-              <button type="button" onClick={() => { retryImage(moreFor.id); setMoreFor(null); }}>
-                <IconText name="lam-moi" size={20}>Thử tải lại ảnh</IconText>
-              </button>
-            )}
-            {canManage && moreFor.is_active && (
-              <button
-                type="button"
-                className="td-actions__xoa"
-                disabled={moreFor.is_out_of_stock}
-                onClick={() => { const it = moreFor; setMoreFor(null); void softDelete(it); }}
-              >
-                <IconText name="xoa" size={20}>Xoá món</IconText>
-              </button>
-            )}
-            {canManage && moreFor.is_out_of_stock && (
-              <p className="td-note">Món đang hết — gạt công tắc “Còn hàng” trước rồi mới sửa / xoá được.</p>
-            )}
-          </div>
-        </Sheet>
+      {detailItem && (
+        <MenuItemDetailSheet
+          it={detailItem}
+          ctx={ctx}
+          recipeCount={recipeCounts[detailItem.id]}
+          onEdit={() => { setEditing(detailItem); setDetailId(null); }}
+          onRecipe={() => { setRecipeFor(detailItem); setDetailId(null); }}
+          onDelete={() => { const it = detailItem; setDetailId(null); void softDelete(it); }}
+          onClose={() => setDetailId(null)}
+          variant={isPhone ? 'sheet' : 'panel'}
+        />
+      )}
+      {moreFor && moreAnchor && (
+        <MenuMoreMenu
+          anchor={moreAnchor}
+          onClose={() => setMoreFor(null)}
+          groups={[
+            canManage
+              ? [
+                  { key: 'sua', icon: 'sua', label: 'Sửa món', disabled: moreFor.is_out_of_stock, onClick: () => setEditing(moreFor) },
+                  {
+                    key: 'ct',
+                    icon: 'tai-lieu',
+                    label: recipeCounts[moreFor.id] ? `Công thức · ${recipeCounts[moreFor.id]} nguyên liệu` : 'Khai nguyên liệu',
+                    disabled: moreFor.is_out_of_stock,
+                    onClick: () => setRecipeFor(moreFor),
+                  },
+                ]
+              : [],
+            [
+              ...(canManage
+                ? [
+                    {
+                      key: 'online',
+                      icon: moreFor.is_online_hidden ? ('online' as const) : ('an' as const),
+                      label: moreFor.is_online_hidden ? 'Bán online lại' : 'Ẩn khỏi web khách',
+                      disabled: pending.has(`item:${moreFor.id}`),
+                      onClick: () => setItemHidden(moreFor, !moreFor.is_online_hidden, true),
+                    },
+                    {
+                      key: 'dx',
+                      icon: 'de-xuat' as const,
+                      label: featuredIds.has(moreFor.id) ? 'Thôi đề xuất' : 'Đề xuất cho khách tại bàn',
+                      onClick: () => void toggleFeatured(moreFor),
+                    },
+                  ]
+                : []),
+              {
+                key: 'day',
+                icon: 'day-ban' as const,
+                label: moreFor.is_push_sale ? 'Thôi đẩy bán' : 'Đẩy bán ở màn Gọi món',
+                disabled: moreFor.is_out_of_stock,
+                onClick: () => void togglePushSale(moreFor),
+              },
+            ],
+            [
+              ...(moreFor.image_url && !brokenIds.has(moreFor.id)
+                ? [{ key: 'xem', icon: 'anh' as const, label: 'Xem ảnh to', onClick: () => setZoomItem(moreFor) }]
+                : []),
+              // "Thử tải lại ảnh" CHỈ khi ảnh lỗi (góp ý 2026-11-11).
+              ...(moreFor.image_url && brokenIds.has(moreFor.id)
+                ? [{ key: 'tai', icon: 'lam-moi' as const, label: 'Thử tải lại ảnh', onClick: () => retryImage(moreFor.id) }]
+                : []),
+            ],
+            canManage && moreFor.is_active
+              ? [
+                  {
+                    key: 'xoa',
+                    icon: 'xoa',
+                    label: 'Xoá món',
+                    danger: true,
+                    disabled: moreFor.is_out_of_stock,
+                    onClick: () => void softDelete(moreFor),
+                  },
+                ]
+              : [],
+          ]}
+          note={canManage && moreFor.is_out_of_stock ? 'Món đang hết — bật “Còn hàng” trước rồi mới sửa / xoá được.' : undefined}
+        />
       )}
       {showManage && (
         <Sheet title="Quản lý thực đơn" onClose={() => setShowManage(false)} giuaKhiRong>
@@ -1048,9 +1105,10 @@ export function MenuManagementPage() {
         <MenuFormModal
           existing={editing}
           groups={groups}
-          featured={featuredIds.has(editing.id)}
-          onToggleFeatured={() => void toggleFeatured(editing)}
-          onTogglePushSale={() => togglePushSale(editing)}
+          cost={foodCost[editing.id]}
+          recipeCount={recipeCounts[editing.id]}
+          onOpenRecipe={() => { setRecipeFor(editing); setEditing(null); }}
+          onDelete={() => { const it = editing; setEditing(null); void softDelete(it); }}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); refresh({ silent: true }); }}
         />
@@ -1075,6 +1133,7 @@ export function MenuManagementPage() {
         <RecipePanel
           menuItemId={recipeFor.id}
           menuItemName={recipeFor.name}
+          menuItemUnit={recipeFor.unit}
           sellPrice={recipeFor.price}
           cost={foodCost[recipeFor.id]?.cost ?? null}
           costMain={foodCost[recipeFor.id]?.costMain ?? null}
@@ -1085,6 +1144,7 @@ export function MenuManagementPage() {
           canEditOverhead={user?.role === 'admin'}
           kindById={kindById}
           costComplete={foodCost[recipeFor.id]?.complete ?? true}
+          costLines={foodCost[recipeFor.id]?.lines ?? []}
           onLinesChanged={reloadCost}
           onClose={() => {
             setRecipeFor(null);
