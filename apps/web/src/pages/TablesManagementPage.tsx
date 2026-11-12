@@ -1,11 +1,17 @@
 // Quản lý bàn: CRUD bàn với 3 loại (dine-in / takeaway / delivery).
-// Chỉ owner truy cập (BE đã có OwnerGuard trên POST/PATCH/DELETE).
-import { useEffect, useState, FormEvent } from 'react';
+// Admin & chủ quán sửa được (BE có AdminGuard trên POST/PATCH/DELETE); vai trò khác chỉ xem.
+//
+// Làm lại 2026-11-12 theo bản xem thử chủ quán duyệt: lưới ô số chia nhóm theo loại (thay thẻ có
+// nút Sửa + Xoá ĐỎ trên từng bàn), chạm ô → tấm sửa (Xoá nằm cuối tấm), "Thêm nhiều bàn" vào ⋯,
+// X/Y thu vào "Thứ tự hiển thị". CSS ở ./ban-an.css.
+import { useEffect, useState, type FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
 import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import './ban-an.css';
 
 type RestaurantTable = {
   id: string;
@@ -17,39 +23,82 @@ type RestaurantTable = {
   is_active: boolean;
 };
 
+type Kind = 'dine-in' | 'takeaway' | 'delivery';
+
+// Thứ tự nhóm trên màn: bàn ăn tại quán (nhiều nhất, dùng nhiều nhất) lên ĐẦU. Trước đây theo
+// thứ tự BE trả (`kind ASC` → "delivery" < "dine-in") nên Ship đứng đầu, bàn tại quán bị đẩy
+// xuống dưới.
+const KINDS: Kind[] = ['dine-in', 'takeaway', 'delivery'];
+
 const KIND_LABEL: Record<string, string> = {
   'dine-in': 'Ăn tại quán',
   takeaway: 'Mang về',
   delivery: 'Giao hàng',
 };
 
-// Icon từng loại bàn tách khỏi nhãn: nhãn còn đi vào chuỗi thuần (thông báo "Chưa có bàn loại …")
-// nên không chứa được icon (Đợt 0 đồng bộ giao diện, 2026-11-09).
+// Icon tách khỏi nhãn: nhãn còn đi vào chuỗi thuần (thông báo) nên không chứa được icon.
 const KIND_ICON: Record<string, IconName> = {
   'dine-in': 'ban',
   takeaway: 'mang-ve',
   delivery: 'giao-hang',
 };
 
-function KindLabel({ kind, text, size = 16 }: { kind: string; text?: string; size?: number }) {
-  const icon = KIND_ICON[kind];
+// Mapping kind → format code/name ở FE (sync với BE KIND_FORMAT trong table-kind.ts)
+const KIND_FORMAT_FE: Record<Kind, { codePrefix: string; namePrefix: string; label: string }> = {
+  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn',     label: 'Tại quán' },
+  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về', label: 'Mang về' },
+  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship',    label: 'Giao hàng' },
+};
+
+/** Số bàn rút từ mã (`ban-05` → 5) — cùng luật `tableNumberOf` ở BE. Không có số → vô cực
+ *  để bàn tên lạ ("VIP") xếp cuối nhóm. */
+function numberOf(code: string): number {
+  const d = code.replace(/\D/g, '');
+  return d === '' ? Number.POSITIVE_INFINITY : Number(d);
+}
+
+/** Màn này sắp theo SỐ bàn, không theo `y`/`x` như BE: bàn tạo hàng loạt trước 2026-11-12 có `y`
+ *  đếm lại từ 0 mỗi lần tạo, sắp theo `y` sẽ ra "Bàn 01, Bàn 11, Bàn 02…". */
+function sortTables(a: RestaurantTable, b: RestaurantTable): number {
+  return numberOf(a.code) - numberOf(b.code) || a.name.localeCompare(b.name, 'vi');
+}
+
+/** Ô bàn: tên đúng khuôn "<Tiền tố> <số>" → hiện SỐ to (+ tiền tố nhỏ cho Mang về/Ship để không
+ *  nhầm với bàn tại quán); tên khác ("Bàn test 70", "VIP") → hiện nguyên tên. */
+function TileLabel({ t }: { t: RestaurantTable }) {
+  const fmt = KIND_FORMAT_FE[t.kind as Kind];
+  const m = fmt ? new RegExp(`^${fmt.namePrefix}\\s+(\\d+)$`, 'i').exec(t.name.trim()) : null;
+  if (!fmt || !m) return <span className="ba-tile__name">{t.name}</span>;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-      {icon && <Icon name={icon} size={size} />}
-      {text ?? KIND_LABEL[kind]}
-    </span>
+    <>
+      <span className="ba-tile__num">{m[1]}</span>
+      {t.kind !== 'dine-in' && <span className="ba-tile__pre">{fmt.namePrefix}</span>}
+    </>
   );
 }
 
-const KIND_COLOR: Record<string, string> = {
-  'dine-in': '#fef3c7',
-  takeaway: '#dbeafe',
-  delivery: '#d1fae5',
-};
+function KindSeg({ value, onChange }: { value: string; onChange: (k: Kind) => void }) {
+  return (
+    <div className="ba-seg" role="radiogroup" aria-label="Loại bàn">
+      {KINDS.map((k) => (
+        <button
+          key={k}
+          type="button"
+          role="radio"
+          aria-checked={value === k}
+          className={`ba-seg__opt${value === k ? ' is-on' : ''}`}
+          onClick={() => onChange(k)}
+        >
+          <Icon name={KIND_ICON[k]} size={16} />
+          {KIND_FORMAT_FE[k].label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 export function TablesManagementPage() {
   const toast = useToast();
-  const confirm = useConfirm();
   const { user } = useAuth();
   // Admin & chủ quán đều được quản lý bàn (thêm/sửa/xoá).
   const canManage = !!user?.is_owner || user?.role === 'admin';
@@ -57,8 +106,8 @@ export function TablesManagementPage() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
+  const [showMore, setShowMore] = useState(false);
   const [editing, setEditing] = useState<RestaurantTable | null>(null);
-  const [kindFilter, setKindFilter] = useState<string>('');
 
   const refresh = async () => {
     setLoading(true);
@@ -76,141 +125,80 @@ export function TablesManagementPage() {
     refresh();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const softDelete = async (t: RestaurantTable) => {
-    const ok = await confirm({
-      title: 'Xoá bàn?',
-      message: `Bàn "${t.code} — ${t.name}" sẽ bị ẩn khỏi sơ đồ.\nDữ liệu order cũ vẫn được giữ.`,
-      variant: 'danger',
-      confirmLabel: 'Xoá bàn',
-    });
-    if (!ok) return;
-    try {
-      await api.delete(`/tables/${t.id}`);
-      toast.push('success', `Đã xoá ${t.code}`);
-      refresh();
-    } catch (err) {
-      toast.push('error', extractError(err).message);
-    }
-  };
-
-  const filtered = kindFilter ? items.filter((t) => t.kind === kindFilter) : items;
-  const kinds = ['', 'dine-in', 'takeaway', 'delivery'];
-
-  // Count per kind
-  const counts = items.reduce<Record<string, number>>((acc, t) => {
-    acc[t.kind] = (acc[t.kind] || 0) + 1;
-    return acc;
-  }, {});
+  const groups = KINDS.map((k) => ({
+    kind: k,
+    tables: items.filter((t) => t.kind === k).sort(sortTables),
+  })).filter((g) => g.tables.length > 0);
 
   return (
     <div className="container wide with-bottom-nav">
-      <div className="flex between" style={{ marginBottom: 16 }}>
-        <h1 style={{ margin: 0 }}>Bàn ăn</h1>
+      {/* Không lặp tiêu đề "Bàn ăn": thanh đầu trang đã có tên màn. Hàng này chỉ còn tổng số bàn
+          + đúng MỘT nút chính; việc hiếm (thêm nhiều bàn) nằm trong ⋯. */}
+      <div className="ba-head">
+        <div className="ba-head__sum">{loading && items.length === 0 ? 'Đang tải…' : `${items.length} bàn`}</div>
         {canManage && (
-          <div className="flex" style={{ gap: 6 }}>
-            <button className="secondary" onClick={() => setShowBulk(true)} style={{ padding: '8px 12px' }}>
-              + Hàng loạt
+          <>
+            <button type="button" className="ba-more" onClick={() => setShowMore(true)} aria-label="Thêm tuỳ chọn">
+              <Icon name="them-thao-tac" size={22} />
             </button>
-            <button onClick={() => setShowCreate(true)} style={{ padding: '8px 14px' }}>
-              + Thêm
+            <button type="button" className="ba-add" onClick={() => setShowCreate(true)}>
+              <Icon name="them" size={18} />
+              Thêm bàn
             </button>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Dãy lọc loại bàn — MỘT DÒNG kéo ngang (quy tắc chung cho mọi filter trên mobile,
-          chốt 2026-09-06). Bỏ `flexWrap` và `flex: 1 1 auto; minWidth: 110` của nút: cả hai
-          cùng ép 4 nút chia đôi thành 2 hàng trên máy 390px. */}
-      <div className="card tabstrip-sm" style={{ marginBottom: 16, padding: 8, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {kinds.map((k) => (
-          <button
-            key={k || 'all'}
-            onClick={() => setKindFilter(k)}
-            className={kindFilter === k ? '' : 'secondary'}
-            style={{ padding: '8px 14px', fontSize: 14, flex: '1 1 auto', minWidth: 110 }}
-          >
-            {k === '' ? `Tất cả (${items.length})` : <KindLabel kind={k} text={`${KIND_LABEL[k]} (${counts[k] || 0})`} />}
-          </button>
-        ))}
-      </div>
+      {!loading && items.length === 0 && <div className="ba-empty">Chưa có bàn nào.</div>}
 
-      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
-
-      {!loading && filtered.length === 0 && (
-        <div className="empty-state card">
-          {kindFilter ? `Chưa có bàn loại "${KIND_LABEL[kindFilter]}"` : 'Chưa có bàn nào.'}
-        </div>
-      )}
-
-      {!loading && filtered.length > 0 && (
-        <div className="tbl-grid" style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-          {filtered.map((t) => (
-            <div
-              key={t.id}
-              className="card tbl-card"
-              style={{
-                padding: 14,
-                background: KIND_COLOR[t.kind] || '#f9fafb',
-                border: '1px solid #e5e7eb',
-              }}
-            >
-              <div className="tbl-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-                <div>
-                  <div className="tbl-name" style={{ fontSize: 22, fontWeight: 700, color: '#0f766e' }}>{t.name}</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', fontFamily: 'monospace' }}>{t.code}</div>
+      {groups.map((g) => (
+        <section key={g.kind} className="ba-grp" aria-label={KIND_LABEL[g.kind]}>
+          <h2 className="ba-grp__h">
+            <Icon name={KIND_ICON[g.kind]} size={18} />
+            {KIND_LABEL[g.kind]}
+            <span className="ba-grp__n">{g.tables.length}</span>
+          </h2>
+          <div className="ba-tiles">
+            {g.tables.map((t) =>
+              canManage ? (
+                <button key={t.id} type="button" className="ba-tile" onClick={() => setEditing(t)} aria-label={`Sửa ${t.name}`}>
+                  <TileLabel t={t} />
+                </button>
+              ) : (
+                <div key={t.id} className="ba-tile">
+                  <TileLabel t={t} />
                 </div>
-                <span style={{
-                  fontSize: 11,
-                  background: 'rgba(0,0,0,0.06)',
-                  padding: '2px 8px',
-                  borderRadius: 999,
-                  color: '#374151',
-                  whiteSpace: 'nowrap',
-                }}>
-                  <KindLabel kind={t.kind} size={14} />
-                </span>
-              </div>
-              <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 10 }}>
-                Vị trí: ({t.x}, {t.y})
-              </div>
-              {canManage && (
-                <div className="flex" style={{ gap: 6 }}>
-                  <button
-                    className="secondary"
-                    onClick={() => setEditing(t)}
-                    style={{ padding: '6px 10px', fontSize: 13, flex: 1 }}
-                  >
-                    Sửa
-                  </button>
-                  <button
-                    className="danger"
-                    onClick={() => softDelete(t)}
-                    style={{ padding: '6px 10px', fontSize: 13, flex: 1 }}
-                  >
-                    Xoá
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+              ),
+            )}
+          </div>
+        </section>
+      ))}
 
+      {showMore && (
+        <Sheet title="Tuỳ chọn" onClose={() => setShowMore(false)} giuaKhiRong>
+          <div className="ba-actions">
+            <button type="button" className="ba-actions__opt" onClick={() => { setShowMore(false); setShowBulk(true); }}>
+              <Icon name="combo" size={20} />
+              Thêm nhiều bàn một lúc
+            </button>
+          </div>
+        </Sheet>
+      )}
       {showCreate && (
-        <TableFormModal
+        <TableFormSheet
           onClose={() => setShowCreate(false)}
           onSaved={() => { setShowCreate(false); refresh(); }}
         />
       )}
       {editing && (
-        <TableFormModal
+        <TableFormSheet
           existing={editing}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); refresh(); }}
         />
       )}
       {showBulk && (
-        <BulkTablesModal
+        <BulkTablesSheet
           onClose={() => setShowBulk(false)}
           onCreated={() => { setShowBulk(false); refresh(); }}
         />
@@ -219,16 +207,9 @@ export function TablesManagementPage() {
   );
 }
 
-// Mapping kind → format code/name preview ở FE (sync với BE KIND_FORMAT)
-const KIND_FORMAT_FE: Record<string, { codePrefix: string; namePrefix: string; label: string }> = {
-  'dine-in':  { codePrefix: 'ban',     namePrefix: 'Bàn',     label: 'Tại quán' },
-  'takeaway': { codePrefix: 'mang-ve', namePrefix: 'Mang về', label: 'Mang về' },
-  'delivery': { codePrefix: 'ship',    namePrefix: 'Ship',    label: 'Giao hàng' },
-};
-
-function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function BulkTablesSheet({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const toast = useToast();
-  const [kind, setKind] = useState<string>('dine-in');
+  const [kind, setKind] = useState<Kind>('dine-in');
   // String state để input có thể trống — tránh bug "Number('') || 1 = 1" khi user xoá hết.
   const [fromStr, setFromStr] = useState('1');
   const [toStr, setToStr] = useState('10');
@@ -239,41 +220,37 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const fromNum = parseInt(fromStr, 10);
   const toNum = parseInt(toStr, 10);
 
-  // Preview — show count + first 3 sample codes
   const preview = (() => {
     if (!Number.isFinite(fromNum) || !Number.isFinite(toNum)) {
-      return { ok: false, count: 0, msg: 'Nhập đủ số bắt đầu và kết thúc', samples: [] };
+      return { ok: false, count: 0, msg: 'Nhập đủ số bắt đầu và kết thúc', samples: '' };
     }
-    if (fromNum < 1) return { ok: false, count: 0, msg: 'Số bắt đầu phải ≥ 1', samples: [] };
-    if (toNum < fromNum) return { ok: false, count: 0, msg: 'Số kết thúc phải ≥ số bắt đầu', samples: [] };
+    if (fromNum < 1) return { ok: false, count: 0, msg: 'Số bắt đầu phải từ 1 trở lên', samples: '' };
+    if (toNum < fromNum) return { ok: false, count: 0, msg: 'Số kết thúc phải lớn hơn hoặc bằng số bắt đầu', samples: '' };
     const n = toNum - fromNum + 1;
-    if (n > 100) return { ok: false, count: 0, msg: `Tối đa 100 bàn/lần (yêu cầu ${n})`, samples: [] };
-    const width = Math.max(2, String(toNum).length);
-    const samples: string[] = [];
-    for (let i = fromNum; i <= Math.min(toNum, fromNum + 2); i++) {
-      const numStr = String(i).padStart(width, '0');
-      samples.push(`${fmt.codePrefix}-${numStr} (${fmt.namePrefix} ${numStr})`);
-    }
-    if (n > 3) {
-      const lastNumStr = String(toNum).padStart(width, '0');
-      samples.push('...');
-      samples.push(`${fmt.codePrefix}-${lastNumStr} (${fmt.namePrefix} ${lastNumStr})`);
-    }
-    return { ok: true, count: n, msg: `Sẽ tạo ${n} bàn`, samples };
+    if (n > 100) return { ok: false, count: 0, msg: `Tối đa 100 bàn mỗi lần (đang chọn ${n})`, samples: '' };
+    // Luôn pad tối thiểu 2 (01, 02… 100) — khớp `formatTableCode` ở BE. Cũ tính theo `toNum` nên
+    // 1–120 ra "001" khác "01" của lần trước → tạo trùng bàn (sửa 2026-11-12).
+    const nm = (i: number) => `${fmt.namePrefix} ${String(i).padStart(2, '0')}`;
+    const samples = n <= 3
+      ? Array.from({ length: n }, (_, i) => nm(fromNum + i)).join(', ')
+      : `${nm(fromNum)}, ${nm(fromNum + 1)} … ${nm(toNum)}`;
+    return { ok: true, count: n, msg: 'Số nào đã có bàn sẽ được bỏ qua', samples };
   })();
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: FormEvent) => {
+    e?.preventDefault();
     if (!preview.ok) { setErr(preview.msg); return; }
     setSubmitting(true); setErr(null);
     try {
-      const res = await api.post<{ data: { created: number; skipped: number; skipped_codes: string[] } }>(
+      const res = await api.post<{ data: { created: number; reopened: number; skipped: number; skipped_nums: number[] } }>(
         '/tables/bulk',
         { kind, from_num: fromNum, to_num: toNum },
       );
-      const { created, skipped, skipped_codes } = res.data.data;
+      // Chỉ tạo số còn thiếu: số đã có bàn thì bỏ qua, bàn đã xoá cùng số thì hiện lại (BE `planBulkTables`).
+      const { created, reopened, skipped, skipped_nums } = res.data.data;
       let msg = `Đã tạo ${created} bàn`;
-      if (skipped > 0) msg += ` · bỏ qua ${skipped} (đã tồn tại: ${skipped_codes.slice(0, 5).join(', ')}${skipped_codes.length > 5 ? '...' : ''})`;
+      if (reopened > 0) msg += ` · hiện lại ${reopened} bàn đã xoá`;
+      if (skipped > 0) msg += ` · bỏ qua ${skipped} số đã có (${skipped_nums.slice(0, 5).join(', ')}${skipped_nums.length > 5 ? '…' : ''})`;
       toast.push('success', msg);
       onCreated();
     } catch (e) {
@@ -284,42 +261,26 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
   };
 
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <form className="modal" onSubmit={submit} style={{ maxWidth: 480 }}>
-        <h1>Thêm bàn hàng loạt</h1>
-        <p style={{ color: '#6b7280', fontSize: 13, marginTop: -8 }}>
-          Chọn loại bàn + dải số. Code + tên tự generate theo loại.
-        </p>
-
-        <div className="row">
-          <label>Loại bàn</label>
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr' }}>
-            {(['dine-in', 'takeaway', 'delivery'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                style={{
-                  padding: '10px 8px',
-                  background: kind === k ? '#fef3c7' : 'white',
-                  border: kind === k ? '2px solid #0f766e' : '1px solid #d1d5db',
-                  color: '#1f2937',
-                  fontWeight: kind === k ? 700 : 400,
-                  fontSize: 12,
-                  borderRadius: 8,
-                  minHeight: 50,
-                  cursor: 'pointer',
-                  lineHeight: 1.2,
-                }}
-              >
-                <KindLabel kind={k} text={KIND_FORMAT_FE[k].label} />
-              </button>
-            ))}
-          </div>
+    <Sheet
+      title="Thêm nhiều bàn một lúc"
+      onClose={onClose}
+      giuaKhiRong
+      footer={
+        <div className="ba-foot">
+          <button type="button" className="ds-btn ds-btn--primary" disabled={submitting || !preview.ok} onClick={() => submit()}>
+            {submitting && <span className="spinner" />}
+            Tạo {preview.ok ? `tối đa ${preview.count}` : ''} bàn
+          </button>
         </div>
-
-        <div className="flex">
-          <div className="row" style={{ flex: 1 }}>
+      }
+    >
+      <form className="ba-form" onSubmit={submit}>
+        <div>
+          <label>Loại bàn</label>
+          <KindSeg value={kind} onChange={setKind} />
+        </div>
+        <div className="ba-row2">
+          <div>
             <label htmlFor="bt-from">Từ số</label>
             <input
               id="bt-from"
@@ -329,11 +290,9 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
               onChange={(e) => { setFromStr(e.target.value.replace(/[^\d]/g, '')); setErr(null); }}
               min={1}
               max={999}
-              autoFocus
-              style={{ fontFamily: 'monospace' }}
             />
           </div>
-          <div className="row" style={{ flex: 1 }}>
+          <div>
             <label htmlFor="bt-to">Đến số</label>
             <input
               id="bt-to"
@@ -343,50 +302,23 @@ function BulkTablesModal({ onClose, onCreated }: { onClose: () => void; onCreate
               onChange={(e) => { setToStr(e.target.value.replace(/[^\d]/g, '')); setErr(null); }}
               min={1}
               max={999}
-              style={{ fontFamily: 'monospace' }}
             />
           </div>
         </div>
-
-        {/* Preview chi tiết */}
-        <div
-          style={{
-            background: preview.ok ? '#ecfdf5' : '#fef2f2',
-            color: preview.ok ? '#059669' : '#dc2626',
-            padding: 10,
-            borderRadius: 8,
-            fontSize: 13,
-            marginBottom: 12,
-          }}
-        >
-          <div style={{ fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div className={`ba-preview${preview.ok ? '' : ' is-err'}`}>
+          <div className="ba-preview__msg">
             <Icon name={preview.ok ? 'xong' : 'canh-bao'} size={16} />
             {preview.msg}
           </div>
-          {preview.ok && preview.samples.length > 0 && (
-            <div style={{ marginTop: 6, fontSize: 12, color: '#374151', fontFamily: 'monospace' }}>
-              {preview.samples.map((s, i) => <div key={i}>{s}</div>)}
-            </div>
-          )}
+          {preview.ok && <div className="ba-preview__samples">{preview.samples}</div>}
         </div>
-
-        {err && <div className="field-error">{err}</div>}
-
-        <div className="flex" style={{ marginTop: 8 }}>
-          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={submitting || !preview.ok} style={{ flex: 1 }}>
-            {submitting && <span className="spinner" />}
-            Tạo {preview.ok ? preview.count : ''} bàn
-          </button>
-        </div>
+        {err && <div className="ba-err">{err}</div>}
       </form>
-    </div>
+    </Sheet>
   );
 }
 
-function TableFormModal({
+function TableFormSheet({
   existing,
   onClose,
   onSaved,
@@ -396,6 +328,7 @@ function TableFormModal({
   onSaved: () => void;
 }) {
   const toast = useToast();
+  const confirm = useConfirm();
   const [code, setCode] = useState(existing?.code || '');
   const [name, setName] = useState(existing?.name || '');
   const [kind, setKind] = useState(existing?.kind || 'dine-in');
@@ -404,10 +337,10 @@ function TableFormModal({
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
+  const submit = async (e?: FormEvent) => {
+    e?.preventDefault();
     if (!code.trim() || !name.trim()) {
-      setErr('Mã bàn và tên bàn là bắt buộc');
+      setErr('Cần nhập mã bàn và tên bàn');
       return;
     }
     setSubmitting(true);
@@ -415,11 +348,11 @@ function TableFormModal({
       const body: Record<string, unknown> = { name, kind, x, y };
       if (existing) {
         await api.patch(`/tables/${existing.id}`, body);
-        toast.push('success', `Cập nhật ${code} thành công`);
+        toast.push('success', `Đã lưu ${name}`);
       } else {
         body.code = code;
         await api.post('/tables', body);
-        toast.push('success', `Tạo bàn ${code} thành công`);
+        toast.push('success', `Đã thêm ${name}`);
       }
       onSaved();
     } catch (e) {
@@ -429,89 +362,93 @@ function TableFormModal({
     }
   };
 
+  const softDelete = async () => {
+    if (!existing) return;
+    const ok = await confirm({
+      title: `Xoá ${existing.name}?`,
+      message: 'Bàn sẽ ẩn khỏi sơ đồ. Đơn cũ của bàn vẫn được giữ.',
+      variant: 'danger',
+      confirmLabel: 'Xoá bàn',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/tables/${existing.id}`);
+      toast.push('success', `Đã xoá ${existing.name}`);
+      onSaved();
+    } catch (e) {
+      setErr(extractError(e).message);
+    }
+  };
+
   return (
-    <div className="modal-overlay" role="dialog" aria-modal="true">
-      <form className="modal" onSubmit={submit}>
-        <h1>{existing ? 'Sửa bàn' : 'Thêm bàn mới'}</h1>
-
-        <div className="row">
-          <label htmlFor="t-code">Mã bàn (vd B01, TA1, SHIP-01)</label>
-          <input
-            id="t-code"
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            disabled={!!existing}
-            style={{ textTransform: 'uppercase', fontFamily: 'monospace' }}
-            placeholder="B01"
-            autoFocus={!existing}
-          />
+    <Sheet
+      title={existing ? existing.name : 'Thêm bàn'}
+      onClose={onClose}
+      giuaKhiRong
+      footer={
+        <div className="ba-foot">
+          <button type="button" className="ds-btn ds-btn--primary" disabled={submitting} onClick={() => submit()}>
+            {submitting && <span className="spinner" />}
+            {existing ? 'Lưu' : 'Thêm bàn'}
+          </button>
+          {existing && (
+            <button type="button" className="ba-del" onClick={softDelete}>
+              <Icon name="xoa" size={18} />
+              Xoá bàn này
+            </button>
+          )}
         </div>
-
-        <div className="row">
+      }
+    >
+      <form className="ba-form" onSubmit={submit}>
+        {/* Mã chỉ hỏi khi THÊM: BE không cho đổi mã (đơn cũ, QR bàn bám vào nó). */}
+        {!existing && (
+          <div>
+            <label htmlFor="t-code">Mã bàn (vd ban-61, ship-10)</label>
+            <input
+              id="t-code"
+              value={code}
+              onChange={(e) => { setCode(e.target.value.toLowerCase()); setErr(null); }}
+              placeholder="ban-61"
+              autoFocus
+              autoCapitalize="none"
+            />
+          </div>
+        )}
+        <div>
           <label htmlFor="t-name">Tên bàn</label>
           <input
             id="t-name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="vd: Bàn 1, Mang về 1, Ship Khu A"
-            autoFocus={!!existing}
+            onChange={(e) => { setName(e.target.value); setErr(null); }}
+            placeholder="vd: Bàn 61, Mang về 4, Ship 10"
           />
         </div>
-
-        <div className="row">
-          <label htmlFor="t-kind">Loại bàn</label>
-          {/* 3 button radio thay select — mobile dễ tap, không bị dropdown lỗi */}
-          <div style={{ display: 'grid', gap: 8, gridTemplateColumns: '1fr 1fr 1fr' }}>
-            {(['dine-in', 'takeaway', 'delivery'] as const).map((k) => (
-              <button
-                key={k}
-                type="button"
-                onClick={() => setKind(k)}
-                style={{
-                  padding: '12px 8px',
-                  background: kind === k ? KIND_COLOR[k] : 'white',
-                  border: kind === k ? `2px solid #0f766e` : '1px solid #d1d5db',
-                  color: '#1f2937',
-                  fontWeight: kind === k ? 700 : 400,
-                  fontSize: 13,
-                  borderRadius: 8,
-                  minHeight: 56,
-                  cursor: 'pointer',
-                  lineHeight: 1.2,
-                }}
-              >
-                <KindLabel kind={k} />
-              </button>
-            ))}
-          </div>
+        <div>
+          <label>Loại bàn</label>
+          <KindSeg value={kind} onChange={setKind} />
         </div>
-
-        <div className="flex">
-          <div className="row" style={{ flex: 1 }}>
-            <label htmlFor="t-x">Vị trí X (cột)</label>
-            <input id="t-x" type="number" inputMode="numeric" value={x} onChange={(e) => setX(Number(e.target.value) || 0)} min={0} />
+        {/* Hàng/cột (y/x): server trả danh sách bàn sắp theo y rồi x — màn Order dùng thứ tự đó.
+            Gần như không ai sửa nên thu gọn, khỏi làm rối form. */}
+        <details className="ba-adv">
+          <summary>
+            Thứ tự hiển thị
+            <Icon name="mui-ten-xuong" size={18} />
+          </summary>
+          <div className="ba-row2">
+            <div>
+              <label htmlFor="t-y">Hàng</label>
+              <input id="t-y" type="number" inputMode="numeric" value={y} onChange={(e) => setY(Number(e.target.value) || 0)} min={0} />
+            </div>
+            <div>
+              <label htmlFor="t-x">Cột</label>
+              <input id="t-x" type="number" inputMode="numeric" value={x} onChange={(e) => setX(Number(e.target.value) || 0)} min={0} />
+            </div>
           </div>
-          <div className="row" style={{ flex: 1 }}>
-            <label htmlFor="t-y">Vị trí Y (hàng)</label>
-            <input id="t-y" type="number" inputMode="numeric" value={y} onChange={(e) => setY(Number(e.target.value) || 0)} min={0} />
-          </div>
-        </div>
-        <p style={{ fontSize: 12, color: '#6b7280', marginTop: -8 }}>
-          Vị trí dùng để sắp xếp thứ tự bàn trên sơ đồ (0,0 = trái-trên). Có thể để 0,0 nếu chưa cần.
-        </p>
-
-        {err && <div className="field-error" style={{ marginBottom: 12 }}>{err}</div>}
-
-        <div className="flex" style={{ marginTop: 8 }}>
-          <button type="button" className="secondary" onClick={onClose} style={{ flex: 1 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={submitting} style={{ flex: 1 }}>
-            {submitting && <span className="spinner" />}
-            {existing ? 'Lưu' : 'Tạo'}
-          </button>
-        </div>
+          <p className="ba-adv__hint">Thường không cần sửa. Số nhỏ đứng trước ở màn Order (0, 0 = đầu tiên).</p>
+        </details>
+        {err && <div className="ba-err">{err}</div>}
       </form>
-    </div>
+    </Sheet>
   );
 }

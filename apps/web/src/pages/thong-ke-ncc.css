@@ -1,0 +1,243 @@
+/* Tab "Thống kê" của màn Nhà cung cấp — làm lại 2026-11-12 theo bản xem thử chủ quán duyệt.
+ * Tiền tố `tk-`, gắn trong `.tk` (SupplierStatsPanel). Thêm `.chart-card--gon` (ChartCard prop
+ * `hintGon`) — gợi ý dài ẩn sau ⓘ.
+ *
+ * Dáng: hàng lọc → dải 4 số (ô "Còn nợ" là điểm màu đậm duy nhất) → 4 nút xem → nội dung của nút
+ * đang chọn. Biểu đồ chỉ tông xanh ngọc + xám (bộ quy tắc `--ds-*` 2026-11-11); cam chỉ khi nợ tăng.
+ * Nút: `button` toàn cục nền xanh + chữ trắng → mọi rule đụng nút viết `.tk button.…` (CLAUDE.md §5). */
+
+.tk { display: flex; flex-direction: column; gap: 14px; margin-top: 12px; min-width: 0; }
+/* Bảng cũ (`.stat-card`) tự đặt margin-top 20px — trong khung flex có gap thì thành khoảng hở đôi. */
+.tk .stat-card { margin-top: 0; }
+.tk .card { margin: 0; }
+
+/* ── Hàng lọc ──────────────────────────────────────────────────────────── */
+.tk-loc { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-start; }
+.tk-loc__ky { flex: 1 1 520px; min-width: 0; }
+.tk-ncc { flex: 0 0 240px; min-width: 0; }
+.tk-loc--gon { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
+.tk-loc--gon .tk-ncc { flex: none; }
+.tk button.tk-ky {
+  height: var(--ds-h-control); min-height: var(--ds-h-control); min-width: 0; padding: 0 12px;
+  display: flex; align-items: center; gap: 6px;
+  background: #fff; color: var(--ds-ink); border: 1px solid #d1d5db; border-radius: 8px;
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong);
+}
+.tk-ky span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-ky svg { color: var(--ds-ink-2); flex: none; }
+.tk-sheet { display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 8px; overflow-y: auto; }
+
+/* ── Dải 4 số ──────────────────────────────────────────────────────────── */
+.tk-kpis {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--ds-line); border: 1px solid var(--ds-line); border-radius: 14px; overflow: hidden;
+}
+.tk-kpi { background: #fff; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tk-kpi__l { font-size: var(--ds-fs-label); color: var(--ds-ink-2); font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.tk-kpi__v { font-size: var(--ds-fs-title); font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.01em; color: var(--ds-ink); }
+.tk-kpi__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-kpi.is-up .tk-kpi__v { color: var(--orange-700); }
+.tk-kpi.is-down .tk-kpi__v { color: var(--teal-700); }
+.tk-kpi.is-main { background: var(--teal-700); }
+.tk-kpi.is-main .tk-kpi__l, .tk-kpi.is-main .tk-kpi__s { color: var(--teal-100); }
+.tk-kpi.is-main .tk-kpi__v { color: #fff; }
+/* ⓘ nhìn 20px nhưng vùng chạm 44px (giống công tắc: nhỏ để gọn, chạm vẫn dễ). */
+.tk button.tk-i {
+  position: relative; width: 20px; height: 20px; min-width: 20px; min-height: 20px; padding: 0;
+  border-radius: 50%; border: 1.5px solid currentColor; background: transparent; color: inherit;
+  font-size: 12px; font-weight: 700; line-height: 1; display: inline-grid; place-items: center;
+}
+.tk button.tk-i::after { content: ""; position: absolute; inset: -12px; }
+.tk-note { margin: 0; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); background: var(--teal-50); border-radius: 10px; padding: 10px 12px; }
+.tk-note strong { color: var(--ds-ink); }
+
+/* ── 4 nút xem ─────────────────────────────────────────────────────────── */
+.tk-views { display: flex; gap: 2px; padding: 4px; background: #e5e7eb; border-radius: 12px; overflow-x: auto; scrollbar-width: none; }
+.tk-views::-webkit-scrollbar { display: none; }
+.tk .tk-views button {
+  flex: 1 0 auto; height: 44px; min-height: 44px; padding: 0 10px; border-radius: 9px;
+  background: transparent; color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: 600; white-space: nowrap;
+}
+.tk .tk-views button[aria-selected="true"] { background: #fff; color: var(--ds-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+
+/* ── Thẻ biểu đồ (ChartCard hintGon) ───────────────────────────────────── */
+.chart-card--gon { padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; border-radius: 14px; }
+.chart-card__h { display: flex; align-items: center; gap: 8px; }
+.chart-card__h h3 { margin: 0; flex: 1; font-size: var(--ds-fs-body); font-weight: 700; color: var(--ds-ink); }
+button.chart-card__info {
+  position: relative; width: 22px; height: 22px; min-width: 22px; min-height: 22px; padding: 0; flex: none;
+  border-radius: 50%; border: 1.5px solid var(--ds-ink-3); background: #fff; color: var(--ds-ink-2);
+  font-size: 12px; font-weight: 700; line-height: 1; display: inline-grid; place-items: center;
+}
+button.chart-card__info::after { content: ""; position: absolute; inset: -11px; }
+button.chart-card__info[aria-expanded="true"] { border-color: var(--teal-700); color: var(--teal-700); background: var(--teal-50); }
+.chart-card__hint { margin: 0; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); background: var(--ds-muted-bg); border-radius: 8px; padding: 8px 10px; }
+
+/* ── Chi tiêu: xếp hạng NCC + khối nguyên liệu ─────────────────────────── */
+/* `minmax(0, 1fr)` BẮT BUỘC: cột lưới mặc định `auto` giãn theo nội dung — khối Nguyên liệu bên trong
+   có biểu đồ đo bề ngang lần đầu ~720px, nên ở 390px cả trang bị kéo rộng gấp đôi (gặp 2026-11-12). */
+.tk-two { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; }
+.tk-card { padding: 14px; border-radius: 14px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.tk-card__t { margin: 0; font-size: var(--ds-fs-body); font-weight: 700; color: var(--ds-ink); }
+.tk-rank { display: flex; flex-direction: column; gap: 12px; }
+.tk-rk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
+.tk-rk__n { font-size: var(--ds-fs-body2); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-rk__v { font-size: var(--ds-fs-body2); font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.tk-rk__v small { color: var(--ds-ink-2); font-weight: 500; margin-left: 6px; font-size: var(--ds-fs-label); }
+.tk-rk__b { grid-column: 1 / -1; height: 6px; background: #f1f5f9; border-radius: 999px; overflow: hidden; }
+.tk-rk__b i { display: block; height: 100%; border-radius: 999px; }
+.tk button.tk-more {
+  align-self: flex-start; min-height: 44px; padding: 0; background: transparent; color: var(--teal-700);
+  font-size: var(--ds-fs-body2); font-weight: 600;
+}
+
+/* ── Công nợ ───────────────────────────────────────────────────────────── */
+.tk-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.tk button.tk-tg {
+  min-height: 44px; padding: 0 12px; border-radius: 999px; border: 1.5px solid var(--ds-line);
+  background: #fff; color: var(--ds-ink); font-size: var(--ds-fs-body2); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.tk button.tk-tg[aria-pressed="false"] { color: var(--ds-ink-3); }
+.tk-tg__box { width: 18px; height: 18px; border-radius: 5px; border: 2px solid; color: #fff; display: inline-grid; place-items: center; flex: none; }
+.tk-tg strong { font-variant-numeric: tabular-nums; }
+.tk-sum { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.tk-sum strong { color: var(--ds-ink); font-variant-numeric: tabular-nums; }
+.tk-sum strong.is-up { color: var(--orange-700); }
+
+/* ── Danh sách ─────────────────────────────────────────────────────────── */
+.tk-sub { display: flex; gap: 8px; flex-wrap: wrap; }
+.tk .tk-sub button {
+  min-height: 40px; height: 40px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--ds-line);
+  background: #fff; color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: 600;
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.tk .tk-sub button span { font-size: var(--ds-fs-label); color: var(--ds-ink-3); font-variant-numeric: tabular-nums; }
+.tk .tk-sub button[aria-pressed="true"] { background: var(--teal-50); border-color: var(--teal-700); color: var(--teal-800); }
+.tk .tk-sub button[aria-pressed="true"] span { color: var(--teal-700); }
+.tk-tim { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; }
+.tk-tim input { flex: 1 1 220px; min-width: 0; max-width: 420px; }
+.tk-tim span { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+
+/* ── iPad (≥ 768px) ───────────────────────────────────────────────────── */
+@media (min-width: 768px) {
+  .tk { gap: 16px; }
+  .tk-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tk-kpi { padding: 14px 16px; }
+  .tk-kpi__v { font-size: 24px; }
+  .tk-views { max-width: 640px; }
+}
+/* ── Laptop (≥ 1100px): xếp hạng NCC + khối nguyên liệu đứng cạnh nhau ─── */
+@media (min-width: 1100px) {
+  .tk-kpi__v { font-size: var(--ds-fs-num); }
+  .tk-two { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; }
+}
+
+/* ── Bảng trong nút "Danh sách" trên điện thoại ──
+   Bảng `.responsive` chung bung MỖI dòng thành một thẻ nhãn/giá trị cao ~300px → 15 dòng = 5.300px.
+   Ở đây gọn thành dòng như bản xem thử đã duyệt: [hạng] [ngày] TÊN · số phụ nhỏ cùng nhãn · tiền + thanh.
+   Chỉ trong `.tk` — bảng `.responsive` ở màn khác (Lịch sử…) giữ nguyên dạng thẻ. */
+@media (max-width: 767px) {
+  .tk table.stat-grid tbody tr {
+    display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px;
+    margin: 0; padding: 12px 14px; border: 0; border-top: 1px solid var(--ds-line); border-radius: 0; box-shadow: none;
+  }
+  .tk table.stat-grid tbody tr:first-child { border-top: 0; }
+  .tk table.stat-grid tbody td {
+    display: inline-flex; align-items: baseline; justify-content: flex-start; gap: 4px; width: auto;
+    padding: 0 !important; border: 0 !important; font-size: var(--ds-fs-label); color: var(--ds-ink-2);
+  }
+  .tk table.stat-grid tbody td::before { font-weight: 500; font-size: var(--ds-fs-label); color: var(--ds-ink-3); }
+  .tk table.stat-grid td.stat-rank { order: -3; }
+  .tk table.stat-grid td.stat-ngay { order: -2; color: var(--ds-ink); font-weight: 600; }
+  .tk table.stat-grid td.stat-ngay::before { content: none; }
+  .tk table.stat-grid td[data-label="Mặt hàng"].stat-ten,
+  .tk table.stat-grid td[data-label="Nhà cung cấp"] {
+    order: -1; flex: 1 1 50%; min-width: 0; font-size: var(--ds-fs-body); font-weight: 600; color: var(--ds-ink);
+  }
+  .tk table.stat-grid td[data-label="Mặt hàng"].stat-ten::before,
+  .tk table.stat-grid td[data-label="Nhà cung cấp"]::before { content: none; }
+  /* Số tiền + thanh tỉ trọng: hàng riêng cuối dòng, kéo hết ngang để thanh các dòng so được với nhau. */
+  .tk table.stat-grid tbody td:last-child { order: 10; flex: 1 1 100%; }
+  .tk table.stat-grid tbody td:last-child::before { content: none; }
+  .tk table.stat-grid tbody td:last-child .stat-tien { flex: 1; }
+  .tk table.stat-grid tbody td:last-child .stat-money { font-size: var(--ds-fs-body); font-weight: 800; color: var(--ds-ink); }
+}
+/* Máy tính: dãy 8 chip kỳ + ô chọn NCC 240px không vừa một hàng ở 1280px (đã trừ menu trái) — chip
+   cuối "Chọn ngày" bị cuộn khuất sau ô NCC. Cho chip xuống dòng thay vì cuộn ngang ẩn. */
+.tk-loc__ky .ds-chips { flex-wrap: wrap; overflow: visible; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   Tab "Chuyển khoản NCC" (SupplierTransfersPanel, gọn lại 2026-11-12) — gốc `.sx.tk.ck`: dùng lại
+   hàng lọc + dải số `tk-*` ở trên, phần dưới là riêng của tab này. Số tiền chữ ĐEN (không đỏ, không
+   "−"); chạm dòng → tấm Sửa/Xoá, không còn nút Xoá đỏ trên từng dòng.
+   ════════════════════════════════════════════════════════════════════════════ */
+/* Điện thoại: lưới 2×2, số 18px cho vừa "236.578.390đ" trong nửa bề ngang — để "Đã trả"/"Còn nợ"
+   mỗi ô một hàng thì dải số cao 3 hàng và lần trả đầu tiên tụt xuống ~890px (đo 2026-11-12). */
+@media (max-width: 767px) {
+  /* Điện thoại không có icon trong 3 nút; lề trong nhỏ hơn để 3 nút vừa 358px mà chữ không dính viền. */
+  /* `.ck.tk` (2 class) để thắng rule chung `.ck .ck-seg button` đứng SAU trong file. */
+  .ck.tk .ck-seg button { padding: 0 8px; gap: 4px; flex: 1 1 auto; }
+  .ck .tk-kpi { padding: 10px 12px; }
+  .ck .tk-kpi__v { font-size: 18px; }
+}
+
+.ck-tool { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.ck-seg { display: flex; gap: 4px; padding: 4px; background: #e5e7eb; border-radius: 12px; flex: 1 1 100%; min-width: 0; }
+.ck-het { margin: 8px 0 0; text-align: center; font-size: var(--ds-fs-body2); color: var(--ds-ink-3); }
+.ck .ck-seg button {
+  /* Rộng THEO CHỮ (không chia đều cứng): chia đều thì "🏛 Chuyển khoản 18" vừa khít 149px, icon và
+     số dính sát viền (chủ quán báo 2026-11-12). */
+  flex: 1 0 auto; min-width: 0; height: 44px; min-height: 44px; padding: 0 14px; border-radius: 9px;
+  background: transparent; color: var(--ds-ink-2); font-size: var(--ds-fs-body2); font-weight: 600; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+.ck .ck-seg button small { font-size: var(--ds-fs-label); font-weight: 500; color: var(--ds-ink-3); font-variant-numeric: tabular-nums; }
+.ck .ck-seg button[aria-pressed="true"] { background: #fff; color: var(--ds-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+.ck .ck-seg button[aria-pressed="true"] small { color: var(--teal-700); }
+.ck-tk { flex: 1 1 200px; min-width: 0; }
+.ck-grow { display: none; }
+.ck button.ck-lnk {
+  min-height: 44px; padding: 0; background: transparent; color: var(--teal-700);
+  font-size: var(--ds-fs-body2); font-weight: 600; display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;
+}
+
+.ck-days { display: flex; flex-direction: column; gap: 4px; }
+.ck-day { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; padding: 10px 2px 6px; font-size: var(--ds-fs-body2); font-weight: 700; color: var(--ds-ink); }
+.ck-day span + span { font-weight: 500; color: var(--ds-ink-2); font-variant-numeric: tabular-nums; }
+.ck-list { background: #fff; border: 1px solid var(--ds-line); border-radius: 14px; overflow: hidden; }
+.ck button.ck-row {
+  width: 100%; min-height: 60px; padding: 10px 12px 10px 14px; border-radius: 0; text-align: left;
+  background: #fff; color: var(--ds-ink); font-weight: 400; display: flex; align-items: center; gap: 10px;
+}
+.ck button.ck-row + button.ck-row { border-top: 1px solid var(--ds-line); }
+.ck button.ck-row:hover { background: var(--ds-muted-bg); opacity: 1; }
+.ck-row > svg { color: var(--ds-ink-3); flex: none; }
+.ck-row__m { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ck-row__n { font-size: var(--ds-fs-body); font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ck-row__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ck-row__s i { font-style: normal; color: var(--ds-ink-3); }
+.ck-row__v { font-size: var(--ds-fs-body); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* Tấm chi tiết / "Trả cho ai" — render qua portal ra <body>, nên KHÔNG bám `.ck`. */
+.ck-sheet { display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 16px; overflow-y: auto; }
+.ck-sheet__tien { font-size: var(--ds-fs-num); font-weight: 800; font-variant-numeric: tabular-nums; color: var(--ds-ink); }
+.ck-sheet__ghi { margin: 0; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.ck-sheet dl { margin: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 6px 14px; font-size: var(--ds-fs-body2); }
+.ck-sheet dt { color: var(--ds-ink-2); }
+.ck-sheet dd { margin: 0; color: var(--ds-ink); overflow-wrap: anywhere; }
+.ck-sheet button.ds-btn--primary { width: 100%; }
+.ck-sheet button.ck-xoa, button.ck-xoa { /* dùng cả ở hộp Sửa NCC */
+  width: 100%; height: var(--ds-h-control); min-height: var(--ds-h-control); border-radius: 8px;
+  background: #fff; color: var(--ds-danger); border: 1px solid #fecaca; font-size: var(--ds-fs-body); font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+}
+button.ck-xoa:hover { background: var(--ds-danger-soft); opacity: 1; }
+
+@media (min-width: 768px) {
+  .ck-seg { flex: 0 0 auto; }
+  .ck-tk { flex: 0 1 260px; }
+  .ck-grow { display: block; flex: 1; }
+  /* iPad/laptop: hình thức + tài khoản nằm thành cột giữa dòng, dễ quét dọc. */
+  .ck-row__m { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 300px); align-items: center; gap: 4px 16px; }
+}

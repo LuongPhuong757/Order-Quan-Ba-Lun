@@ -16,6 +16,7 @@ import { C } from '../lib/online-ui.ts';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { DateField } from '../components/ui/Calendar.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 /** Hôm nay theo GIỜ VN, không theo máy — xem ghi chú ô ngày bên dưới. */
@@ -174,11 +175,31 @@ export function PaymentDialog({
     }
   };
 
+  const amountNum = Number(digitsOnly(amount)) || 0;
   return (
-    <Modal label={editing ? `Sửa lần trả ${tenNcc}` : `Ghi nhận thanh toán ${tenNcc}`}>
-      <form className="card" onSubmit={save} style={{ maxWidth: 460, width: '100%', margin: 'auto' }}>
-        <h2 style={{ margin: '0 0 4px', fontSize: 20 }}>{editing ? 'Sửa lần trả tiền' : 'Ghi nhận thanh toán'}</h2>
-        {supplierId && <p style={{ margin: '0 0 16px', fontSize: 14, color: C.muted }}>{supplierName}</p>}
+    // Tấm CHUNG của app (2026-11-12, chủ quán duyệt): điện thoại trượt từ đáy (vừa ngón cái), máy
+    // tính/iPad hộp giữa màn; tiêu đề + ✕ cố định trên, nút Lưu cố định dưới đáy dù nội dung dài
+    // (nhiều tài khoản CK). Trước là `Modal` riêng — nút Lưu trôi tận cuối, phải cuộn mới thấy.
+    // Nút Lưu nằm NGOÀI <form> (footer của Sheet) nên nối bằng thuộc tính `form`.
+    <Sheet
+      title={editing ? 'Sửa lần trả tiền' : 'Trả tiền nhà cung cấp'}
+      onClose={onClose}
+      giuaKhiRong
+      footer={
+        <div className="ds-foot">
+          <button type="submit" form="ncc-pay-form" className="ds-btn ds-btn--primary" disabled={saving}>
+            {saving ? 'Đang lưu…' : amountNum > 0 ? `Lưu · trả ${amountNum.toLocaleString('vi-VN')}đ` : 'Lưu'}
+          </button>
+        </div>
+      }
+    >
+      <form id="ncc-pay-form" onSubmit={save} style={{ padding: '4px 16px 8px', overflowY: 'auto' }}
+            aria-label={editing ? `Sửa lần trả ${tenNcc}` : `Ghi nhận thanh toán ${tenNcc}`}>
+        {supplierId && (
+          <p style={{ margin: '0 0 14px', fontSize: 15, color: C.muted }}>
+            {supplierName}{suggested > 0 && !editing ? ` · còn nợ ${suggested.toLocaleString('vi-VN')}đ` : ''}
+          </p>
+        )}
 
         {!supplierId && (
           // Bỏ trống thì `save` tự chặn ("Chọn nhà cung cấp trước đã") — thay cho `required`.
@@ -204,6 +225,17 @@ export function PaymentDialog({
             style={{ width: '100%', minHeight: 48, fontSize: 20, fontWeight: 700 }}
           />
         </label>
+        {/* Nút nhanh — chỉ ĐIỀN ô số tiền, không đổi cách lưu. Có số còn nợ gợi ý mới hiện. */}
+        {suggested > 0 && !editing && (
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '-4px 0 14px' }}>
+            {([['Trả hết', suggested], ['½ số nợ', Math.round(suggested / 2)]] as Array<[string, number]>).map(([nhan, v]) => (
+              <button key={nhan} type="button" className="ds-chip" onClick={() => setAmount(formatMoneyInput(String(v)))}>
+                {nhan}
+              </button>
+            ))}
+            <button type="button" className="ds-chip" onClick={() => setAmount('')}>Xoá số</button>
+          </div>
+        )}
         {/* Ngày TRẢ TIỀN, sửa được: đưa tiền hôm qua mà tối nay mới ngồi ghi là chuyện thường.
             Khoá mọi ngày sau hôm nay. `todayVn()` lấy theo GIỜ VN chứ không theo máy: quán bán
             tới 3h sáng, máy lệch múi giờ thì người ghi lúc 1h sáng không chọn được chính ngày
@@ -303,16 +335,8 @@ export function PaymentDialog({
             style={{ width: '100%', minHeight: 44 }}
           />
         </label>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 48 }}>
-            Huỷ
-          </button>
-          <button type="submit" disabled={saving} style={{ minHeight: 48, padding: '0 24px' }}>
-            {saving ? 'Đang lưu…' : 'Lưu'}
-          </button>
-        </div>
       </form>
-    </Modal>
+    </Sheet>
   );
 }
 

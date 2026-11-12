@@ -2,6 +2,7 @@
 //
 // Từ 2026-09-08 khối này KHÔNG còn nằm thẳng trong màn chi tiết NCC nữa — màn đó chỉ hiện thông
 // tin tài chính. Lối vào là nút "Tài khoản NCC" trên hàng nút, mở `SupplierAccountDialog`.
+import { Sheet } from '../components/ui/Sheet.tsx';
 import { useCallback, useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -180,31 +181,12 @@ export function SupplierAccountDialog({
   supplierPhone: string;
   onClose: () => void;
 }) {
+  // Tấm CHUNG của app (2026-11-12): ✕ trên tấm thay nút "Đóng" cuối hộp; mở chồng lên Chi tiết NCC.
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Tài khoản nhà cung cấp"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        overflowY: 'auto',
-        zIndex: 75,
-      }}
-    >
-      <div className="card" style={{ maxWidth: 460, width: '100%' }}>
+    <Sheet title="Tài khoản nhà cung cấp" onClose={onClose} giuaKhiRong>
+      <div style={{ padding: '4px 16px 16px', overflowY: 'auto' }}>
         <SupplierAccountPanel supplierId={supplierId} supplierPhone={supplierPhone} />
-        <div style={{ display: 'flex', marginTop: 16 }}>
-          <button className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 44 }}>
-            Đóng
-          </button>
-        </div>
       </div>
-    </div>
+    </Sheet>
   );
 }

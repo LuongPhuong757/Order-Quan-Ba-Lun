@@ -23,9 +23,11 @@ import {
 } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierInvoiceTemplate } from './SupplierInvoiceTemplate.tsx';
-import { FilterBar, Plus, ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
+import { ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
 import './suppliers-ui.css';
+import './so-no-ncc.css';
 
 type Supplier = {
   id: string; name: string; phone: string; note: string | null;
@@ -55,15 +57,17 @@ const sdtGon = (s: string) => {
 type LocTx = 'all' | 'in' | 'pay';
 
 export function SupplierDetailScreen({
-  supplier, isAdmin, canSeeMoney, refreshKey, range, onRangeChange,
+  supplier, isAdmin, canSeeMoney, refreshKey,
   onClose, onEdit, onDeleted, onIntake, onChanged,
 }: {
   supplier: Supplier;
   isAdmin: boolean;
   canSeeMoney: boolean;
   refreshKey: number;
-  range: DayRange;
-  onRangeChange: (r: DayRange) => void;
+  /** Còn nhận để trang cha khỏi đổi, nhưng KHÔNG dùng nữa (2026-11-12): sổ giao dịch màn này xem
+   *  TOÀN BỘ lịch sử — lọc 30 ngày mặc định làm NCC đang nợ 71 triệu hiện "Không có giao dịch nào". */
+  range?: DayRange;
+  onRangeChange?: (r: DayRange) => void;
   onClose: () => void;
   onEdit: () => void;
   onDeleted: () => void;
@@ -81,6 +85,7 @@ export function SupplierDetailScreen({
   const [suaDauKy, setSuaDauKy] = useState(false);
   const [taiKhoan, setTaiKhoan] = useState(false);
   const [mauHd, setMauHd] = useState(false);
+  const [moMenu, setMoMenu] = useState(false);
 
   const load = useCallback(() => {
     if (!canSeeMoney) return;
@@ -128,11 +133,8 @@ export function SupplierDetailScreen({
     return ds.sort((a, b) => b.ngay.localeCompare(a.ngay));
   }, [detail, payments]);
 
-  const trongKy = soGiaoDich.filter((d) => {
-    if (range.from && d.ngay < range.from) return false;
-    if (range.to && d.ngay > range.to) return false;
-    return true;
-  });
+  // Toàn bộ lịch sử (không cắt kỳ) — xem docblock prop `range`.
+  const trongKy = soGiaoDich;
   const demIn = trongKy.filter((d) => d.loai !== 'pay').length;
   const demPay = trongKy.filter((d) => d.loai === 'pay').length;
   const hienThi = trongKy.filter((d) =>
@@ -159,184 +161,135 @@ export function SupplierDetailScreen({
     }
   };
 
-  return (
-    <div role="dialog" aria-modal="true" aria-label={`Chi tiết ${supplier.name}`}
-         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.4)', display: 'flex',
-                  justifyContent: 'center', padding: 16, overflowY: 'auto', zIndex: 9000 }}>
-      <div className="ncc-ui ncc-ui--dialog" style={{ maxWidth: 1100, width: "100%", margin: "auto" }}>
-        <button className="back" type="button" onClick={onClose}>
-          <Icon name="mui-ten-trai" />Tất cả nhà cung cấp
-        </button>
+  const no = detail?.balance ?? 0;
+  const menuItem = (icon: Parameters<typeof Icon>[0]['name'], nhan: string, onClick: () => void, nguy = false) => (
+    <button type="button" className={`sn-opt${nguy ? ' is-danger' : ''}`} onClick={() => { setMoMenu(false); onClick(); }}>
+      <Icon name={icon} size={20} />{nhan}
+    </button>
+  );
 
-        {/* ---------- Đầu: tên + số nợ to nhất màn ---------- */}
-        <section className="card">
-          <div className="sup-head">
-            <div className="sup-head__id">
-              <span className="ava" aria-hidden="true">{chuDau(supplier.name)}</span>
-              <div>
-                <h1 className="sup-head__name">{supplier.name}</h1>
-                <p className="sup-head__meta">
-                  {supplier.note || `${supplier.period_deliveries} phiếu trong kỳ · mua ${vnd(supplier.period_amount)}đ`}
-                </p>
-              </div>
+  return (
+    // Làm lại 2026-11-12 (bản xem thử chủ quán duyệt): mở TOÀN MÀN trên điện thoại, thanh trên cố định
+    // (✕ + tên NCC) không trôi khi cuộn; dải xanh "Còn phải trả" giống dải Sổ nợ ở tab Tổng quan
+    // (trước là ô cam/đỏ) với đúng 2 nút chính; 4 việc ít làm + Xoá vào ⋯ (trước là 6 nút ngang hàng,
+    // Xoá đỏ nằm ngoài). CSS: `ct-*` ở so-no-ncc.css.
+    <div role="dialog" aria-modal="true" aria-label={`Chi tiết ${supplier.name}`} className="ct-bg">
+      <div className="ncc-ui ncc-ui--dialog sn ct">
+        <div className="ct-top">
+          <button type="button" className="ct-x" onClick={onClose} aria-label="Đóng, về danh sách nhà cung cấp">
+            <Icon name="dong" size={22} />
+          </button>
+          <span className="ct-top__t">{supplier.name}</span>
+        </div>
+
+        <div className="ct-wrap">
+          <section className="sn-hero" aria-label="Công nợ nhà cung cấp">
+            <div className="sn-hero__top ct-id">
+              <span className="ct-ava" aria-hidden="true">{chuDau(supplier.name)}</span>
+              <span className="ct-name">
+                {supplier.name}
+                <small>
+                  {supplier.phone
+                    ? <a href={`tel:${supplier.phone}`}>Gọi {sdtGon(supplier.phone)}</a>
+                    : 'Chưa có số điện thoại'}
+                </small>
+              </span>
+              {isAdmin && (
+                <button type="button" className="sn-hero__more" onClick={() => setMoMenu(true)} aria-label="Thêm tuỳ chọn">
+                  <Icon name="them-thao-tac" size={22} />
+                </button>
+              )}
             </div>
             {canSeeMoney && (
-              <div className="sup-head__debt">
+              <>
                 <div>
-                  <div className="sup-head__debtlabel">Còn phải trả</div>
-                  <div className={`money money--hero ${(detail?.balance ?? 0) > 0 ? 'money--debt' : 'money--paid'}`}>
-                    {vnd(Math.abs(detail?.balance ?? 0))}đ
-                  </div>
-                  <div className="sup-head__debtnote">
+                  <div className="sn-hero__lab">{no >= 0 ? 'Còn phải trả' : 'Trả dư (NCC nợ lại quán)'}</div>
+                  <div className="sn-hero__num">{vnd(Math.abs(no))}đ</div>
+                  <div className="sn-hero__sub">
                     {traGanNhat
-                      ? `Lần trả gần nhất: ${ngayDay(traGanNhat.paid_on)} · ${vnd(traGanNhat.amount)}đ`
-                      : 'Chưa có lần thanh toán nào'}
+                      ? <>Trả gần nhất <b>{ngayGon(traGanNhat.paid_on)} · {vnd(traGanNhat.amount)}đ</b></>
+                      : 'Chưa có lần trả tiền nào'}
                   </div>
                 </div>
-                {supplier.phone && (
-                  <a className="btn btn--accent-ghost callbtn" href={`tel:${supplier.phone}`}>
-                    <Icon name="goi-dien" />
-                    Gọi {sdtGon(supplier.phone)}
-                  </a>
+              </>
+            )}
+            {/* Role Báo cáo chỉ có MỘT việc ghi ở đây: lập phiếu nháp (2026-10-23). Không trả tiền,
+                không sửa NCC — những nút đó vẫn chỉ của admin. */}
+            {(isAdmin || lapNhap) && (
+              <div className="sn-acts ct-acts">
+                <button type="button" className="sn-btn-w" onClick={onIntake}>
+                  <Icon name="them" size={18} />{isAdmin ? 'Nhập hàng' : 'Lập phiếu nháp'}
+                </button>
+                {isAdmin && (
+                  <button type="button" className="sn-btn-o" onClick={() => setTraTien(true)}>Trả tiền</button>
                 )}
               </div>
             )}
-          </div>
-        </section>
+          </section>
 
-        {/* ---------- Hàng nút ---------- */}
-        {/* Role Báo cáo chỉ có MỘT việc ghi ở đây: lập phiếu nháp (2026-10-23). Không trả tiền,
-            không sửa NCC — những nút đó vẫn chỉ của admin. */}
-        {!isAdmin && lapNhap && (
-          <section className="actions" aria-label="Thao tác với nhà cung cấp">
-            <button className="btn btn--primary act-wide" type="button" onClick={onIntake}>
-              <Plus />Lập phiếu nháp
-            </button>
-          </section>
-        )}
-        {isAdmin && (
-          <section className="actions" aria-label="Thao tác với nhà cung cấp">
-            <button className="btn btn--primary act-wide" type="button" onClick={onIntake}>
-              <Plus />Nhập hàng
-            </button>
-            <button className="btn btn--accent-ghost act-wide" type="button" onClick={() => setTraTien(true)}>
-              <Icon name="thanh-toan" />Trả tiền
-            </button>
-            <button className="btn" type="button" onClick={onEdit}>
-              <Icon name="sua" />Sửa thông tin
-            </button>
-            <button className="btn" type="button" onClick={() => setMauHd(true)}>
-              <Icon name="tai-lieu" />Mẫu hoá đơn
-            </button>
-            <button className="btn" type="button" onClick={() => setTaiKhoan(true)}>
-              <Icon name="tai-khoan" />Tài khoản NCC
-            </button>
-            <button className="btn btn--danger" type="button" onClick={xoaNcc}>
-              <Icon name="xoa" />Xoá
-            </button>
-          </section>
-        )}
-
-        {!canSeeMoney ? (
-          <section className="card">
-            <div className="emptyfilter">
-              <p className="emptyfilter__t">Cần quyền quản trị để xem công nợ</p>
-              <p className="emptyfilter__s">Màn này chỉ hiện công nợ và sổ giao dịch.</p>
-            </div>
-          </section>
-        ) : (
-          <div className="detail-grid">
-            {/* ---------- Sổ giao dịch ---------- */}
+          {!canSeeMoney ? (
             <section className="card">
-              <div className="card__head">
-                <h2 className="card__title">Sổ giao dịch</h2>
-                <span className="resultbar__n" role="status">{hienThi.length} giao dịch</span>
+              <div className="emptyfilter">
+                <p className="emptyfilter__t">Cần quyền quản trị để xem công nợ</p>
+                <p className="emptyfilter__s">Màn này chỉ hiện công nợ và sổ giao dịch.</p>
               </div>
-              <div className="card__body stack-12">
-                <FilterBar
-                  range={range} onRangeChange={onRangeChange}
-                  ariaLabel="Bộ lọc sổ giao dịch"
-                  extra={
-                    <div className="fgroup">
-                      {([['all', 'Tất cả', trongKy.length], ['in', 'Phiếu nhập', demIn],
-                         ['pay', 'Thanh toán', demPay]] as Array<[LocTx, string, number]>).map(([v, nhan, n]) => (
-                        <button key={v} className="chip" type="button" aria-pressed={locTx === v}
-                                onClick={() => setLocTx(v)}>
-                          {nhan} <span className="chip__n">{n}</span>
-                        </button>
-                      ))}
-                    </div>
-                  }
-                />
+            </section>
+          ) : (
+            <div className="ct-body">
+              {/* ---------- Sổ giao dịch: TOÀN BỘ lịch sử, chỉ lọc theo loại ---------- */}
+              <section className="ct-so" aria-label="Sổ giao dịch">
+                <div className="sn-sec">
+                  <h2>Sổ giao dịch</h2>
+                  <span role="status">{hienThi.length} giao dịch · tất cả thời gian</span>
+                </div>
+                <div className="ct-seg" role="group" aria-label="Lọc loại giao dịch">
+                  {([['all', 'Tất cả', trongKy.length], ['in', 'Phiếu nhập', demIn],
+                     ['pay', 'Trả tiền', demPay]] as Array<[LocTx, string, number]>).map(([v, nhan, n]) => (
+                    <button key={v} type="button" aria-pressed={locTx === v} onClick={() => setLocTx(v)}>
+                      {nhan} <small>{n}</small>
+                    </button>
+                  ))}
+                </div>
                 {detail === null ? (
                   <p className="sm muted">Đang tải…</p>
                 ) : hienThi.length === 0 ? (
                   <div className="emptyfilter">
-                    <p className="emptyfilter__t">Không có giao dịch nào</p>
-                    <p className="emptyfilter__s">Thử nới kỳ xem hoặc bỏ lọc loại giao dịch.</p>
+                    <p className="emptyfilter__t">Chưa có giao dịch nào</p>
+                    <p className="emptyfilter__s">Phiếu nhập đã duyệt và các lần trả tiền sẽ hiện ở đây.</p>
                   </div>
                 ) : (
-                  <ol className="tl">
+                  <div className="ct-list">
                     {hienThi.map((d) => (
-                      <li key={d.key}
-                          className={`tl__item tl__item--${d.loai === 'pay' ? 'pay' : d.loai === 'open' ? 'in' : 'in'}`}>
-                        <span className="tl__node" aria-hidden="true" />
-                        <div className="tl__card">
-                          <div className="tl__t1" title={d.tieu_de}>{d.tieu_de}</div>
-                          <div className="tl__amt">
-                            <span className={`money ${d.tien >= 0 ? 'money--debt' : 'money--paid'}`}>
-                              {d.tien >= 0 ? '+' : '−'}{vnd(Math.abs(d.tien))}đ
-                            </span>
-                          </div>
-                          <div className="tl__t2" title={d.phu}>{d.phu}</div>
-                          <div className="tl__end">
-                            {d.duSau !== null && <span className="tl__bal">Dư <b>{vnd(d.duSau)}đ</b></span>}
-                          </div>
-                        </div>
-                      </li>
+                      <div key={d.key} className="ct-row">
+                        <span className={`ct-ic ct-ic--${d.loai}`} aria-hidden="true">
+                          <Icon name={d.loai === 'pay' ? 'thanh-toan' : d.loai === 'open' ? 'ghi-no' : 'dong-goi'} size={18} />
+                        </span>
+                        <span className="ct-row__m">
+                          <span className="ct-row__t">{d.tieu_de}</span>
+                          <span className="ct-row__s">{d.phu}</span>
+                        </span>
+                        <span className={`ct-row__v${d.loai === 'pay' ? ' is-pay' : ''}`}>
+                          {d.tien >= 0 ? '+' : '−'}{vnd(Math.abs(d.tien))}đ
+                          {d.duSau !== null && <small>Dư {vnd(d.duSau)}đ</small>}
+                        </span>
+                      </div>
                     ))}
-                  </ol>
+                  </div>
                 )}
-              </div>
-            </section>
-
-            {/* ---------- Cột phải: tóm tắt + liên hệ ---------- */}
-            <div className="stack-16">
-              <section className="card">
-                <div className="card__head"><h2 className="card__title">Tóm tắt kỳ này</h2></div>
-                <div className="facts">
-                  <div className="fact"><span className="fact__k">Tổng mua</span>
-                    <span className="fact__v">{vnd(supplier.period_amount)}đ</span></div>
-                  <div className="fact"><span className="fact__k">Đã trả</span>
-                    <span className="fact__v">{vnd(detail?.paid ?? 0)}đ</span></div>
-                  <div className="fact"><span className="fact__k">Số phiếu nhập</span>
-                    <span className="fact__v">{supplier.period_deliveries} phiếu</span></div>
-                  <div className="fact"><span className="fact__k">Giao gần nhất</span>
-                    <span className="fact__v">
-                      {supplier.last_delivery_date ? ngayDay(supplier.last_delivery_date) : 'chưa từng giao'}
-                    </span></div>
-                  <div className="fact"><span className="fact__k">Số dư đầu kỳ</span>
-                    <span className="fact__v">
-                      {vnd(detail?.opening_balance ?? 0)}đ
-                      {isAdmin && (
-                        <> · <button className="link" type="button" onClick={() => setSuaDauKy(true)}>sửa</button></>
-                      )}
-                    </span></div>
-                </div>
               </section>
 
-              <section className="card">
-                <div className="card__head"><h2 className="card__title">Thông tin liên hệ</h2></div>
-                <div className="facts">
-                  <div className="fact"><span className="fact__k">Điện thoại</span>
-                    <span className="fact__v">{supplier.phone ? sdtGon(supplier.phone) : '—'}</span></div>
-                  <div className="fact"><span className="fact__k">Ghi chú</span>
-                    <span className="fact__v">{supplier.note || '—'}</span></div>
-                </div>
+              {/* ---------- Cột phải (laptop) / dưới (điện thoại): tóm tắt ---------- */}
+              <section className="card ct-card" aria-label="Tóm tắt">
+                <h2 className="ct-card__t">Tóm tắt</h2>
+                <div className="ct-kv"><span>Mua trong kỳ</span><b>{vnd(supplier.period_amount)}đ · {supplier.period_deliveries} phiếu</b></div>
+                <div className="ct-kv"><span>Đã trả (tất cả)</span><b>{vnd(detail?.paid ?? 0)}đ</b></div>
+                <div className="ct-kv"><span>Số dư đầu kỳ</span><b>{vnd(detail?.opening_balance ?? 0)}đ</b></div>
+                <div className="ct-kv"><span>Giao gần nhất</span>
+                  <b>{supplier.last_delivery_date ? ngayDay(supplier.last_delivery_date) : 'chưa từng giao'}</b></div>
+                {supplier.note && <div className="ct-kv"><span>Ghi chú</span><b>{supplier.note}</b></div>}
               </section>
             </div>
-          </div>
-        )}
+          )}
 
         {/* ---------- Mặt hàng hay giao ---------- */}
         {canSeeMoney && matHang.length > 0 && (
@@ -389,8 +342,20 @@ export function SupplierDetailScreen({
             </div>
           </section>
         )}
+        </div>
       </div>
 
+      {moMenu && (
+        <Sheet title={supplier.name} onClose={() => setMoMenu(false)} giuaKhiRong>
+          <div className="sn-menu">
+            {menuItem('sua', 'Sửa thông tin nhà cung cấp', onEdit)}
+            {menuItem('tai-lieu', 'Mẫu hoá đơn', () => setMauHd(true))}
+            {menuItem('tai-khoan', 'Tài khoản NCC (tự gửi phiếu)', () => setTaiKhoan(true))}
+            {detail && menuItem('ghi-no', `Số dư đầu kỳ · ${vnd(detail.opening_balance)}đ`, () => setSuaDauKy(true))}
+            {menuItem('xoa', 'Xoá nhà cung cấp', () => void xoaNcc(), true)}
+          </div>
+        </Sheet>
+      )}
       {traTien && detail && (
         <PaymentDialog supplierId={supplier.id} supplierName={supplier.name}
                        suggested={Math.max(0, detail.balance)}

@@ -16,17 +16,37 @@
 //
 // Mỗi dòng cao ĐÚNG --row-h ở mọi bề rộng; điện thoại gộp cột phụ xuống dòng 2 và thu nút vào
 // menu `⋯` để không dòng nào cao hơn dòng nào.
-import { useEffect, useMemo, useRef, useState } from 'react';
+//
+// LÀM LẠI 2026-11-12 (chủ quán duyệt bản xem thử, cùng khuôn tab Chuyển khoản NCC):
+// - Bảng nhiều cột → danh sách NHÓM THEO NGÀY: tiêu đề ngày kèm số phiếu + tổng tiền; mỗi phiếu một
+//   dòng: tên NCC đủ (tối đa 2 dòng), các món · người nhập, số tiền. Bảng cũ cắt cụt tên NCC ở mọi
+//   bề rộng và trên điện thoại hiện ngày 2 lần mà mất tên NCC.
+// - CHẠM DÒNG = mở Xem phiếu. Bỏ 3 nút Xem ảnh / Xem chi tiết / Sửa và menu ⋯: Sửa, Duyệt, Huỷ,
+//   ảnh đều có sẵn trong Xem phiếu.
+// - Dải số trên đầu: Đã nhập · Số phiếu · (Nháp chờ duyệt — chỉ khi có, tô cam).
+// - Sắp xếp theo cột → ô chọn Mới nhất / Cũ nhất / Tiền nhiều nhất. Xếp theo tiền thì KHÔNG nhóm
+//   theo ngày (nhóm sẽ vỡ vụn) — ngày chuyển vào dòng phụ.
+// - Nút "Tạo phiếu nhập" bỏ với ADMIN (đã có "Nhập hàng" ở Tổng quan và Chi tiết NCC). Người khác —
+//   nhất là role Báo cáo lập NHÁP — vẫn giữ, vì nút ở Tổng quan chỉ admin thấy: bỏ là họ mất đường
+//   duy nhất để lập phiếu.
+import { useEffect, useMemo, useState } from 'react';
 import { useAuth, useCanWrite } from '../lib/auth-context.tsx';
-import { dangChoDuyet, laNguoiLapNhap, quyenPhieu } from '../lib/delivery-draft.ts';
+import { dangChoDuyet, laNguoiLapNhap } from '../lib/delivery-draft.ts';
 import { locPhieuTheoMon, phanTrang } from '../lib/supplier-stats.ts';
 import { Pager } from '../components/Pager.tsx';
-import { DeliveryPhotosDialog } from './DeliveryPhotosDialog.tsx';
 import { DeliveryDetailDialog } from './DeliveryDetailDialog.tsx';
-import type { DayRange } from '../lib/date-range.ts';
-import { FilterBar, Plus, ngayDay, vnd } from './supplier-ui.tsx';
+import { vnDayIso, rangeLabel, type DayRange } from '../lib/date-range.ts';
+import { DAY_SCREEN, PRESET_LABEL, detectPreset } from '../lib/time-presets.ts';
+import { dayHeading, groupByDay } from '../lib/so-tien.ts';
+import { ngayDay, vnd } from './supplier-ui.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
-import './suppliers-ui.css';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { TimeFilter } from '../components/ui/TimeFilter.tsx';
+import { useIsPhone } from '../components/ui/use-is-phone.ts';
+import './so-tien.css';
+import './thong-ke-ncc.css';
+import './so-no-ncc.css';
 
 type Delivery = {
   id: string;
@@ -43,13 +63,15 @@ type Delivery = {
 };
 
 const CO_TRANG = 15;
+/** Số tên món hiện ở dòng phụ — hơn nữa thì "+N" cho dòng khỏi dài quá một hàng điện thoại. */
+const SO_MON_HIEN = 4;
 
 type Nhom = 'tatca' | 'nhap' | 'danhap' | 'huy';
 const NHOM: Array<{ k: Nhom; nhan: string }> = [
   { k: 'tatca', nhan: 'Tất cả' },
-  { k: 'nhap', nhan: 'Phiếu nháp' },
-  { k: 'danhap', nhan: 'Phiếu nhập' },
-  { k: 'huy', nhan: 'Phiếu huỷ' },
+  { k: 'nhap', nhan: 'Nháp' },
+  { k: 'danhap', nhan: 'Đã nhập' },
+  { k: 'huy', nhan: 'Huỷ' },
 ];
 function thuocNhom(status: string, n: Nhom): boolean {
   if (n === 'nhap') return dangChoDuyet(status);
@@ -58,25 +80,16 @@ function thuocNhom(status: string, n: Nhom): boolean {
   return true;
 }
 
-/** Nhãn + màu của từng trạng thái (chủ quán chốt 2026-10-23). Ba màu khác hẳn nhau vì đây là câu
- *  hỏi "phiếu này đã tính vào công nợ chưa" — nhìn nhầm là đối chiếu sai tiền với NCC. */
-function trangThai(status: string): { nhan: string; cls: string; mau: string } {
-  if (status === 'CONFIRMED') return { nhan: 'Đã nhập', cls: 'badge--ok', mau: '#14532d' };
-  if (status === 'CANCELLED') return { nhan: 'Đã huỷ', cls: 'badge--neutral', mau: '#6b7280' };
-  return { nhan: 'Phiếu nháp – chờ duyệt', cls: 'badge--pending', mau: '#b45309' };
-}
-
-type Khoa = 'ngay' | 'ncc' | 'tien' | 'nguoi';
-/** Cột nào sắp xếp được, và mặc định xếp theo chiều nào khi vừa bấm vào nó.
- *
- *  Tiền mặc định CAO → THẤP còn ngày mặc định MỚI → CŨ: câu hỏi đứng sau mỗi cột khác nhau —
- *  "phiếu nào to nhất" và "gần đây nhập những gì" — bắt bấm hai lần mới ra là bắt đoán. */
-const COT: Array<{ k: Khoa; nhan: string; cls?: string; giamTruoc: boolean }> = [
-  { k: 'ngay', nhan: 'Ngày', cls: 'colcode', giamTruoc: true },
-  { k: 'ncc', nhan: 'Nhà cung cấp', giamTruoc: false },
-  { k: 'tien', nhan: 'Số tiền', cls: 'num colamt', giamTruoc: true },
-  { k: 'nguoi', nhan: 'Người nhập', cls: 'colwho', giamTruoc: false },
+type Xep = 'moi' | 'cu' | 'tien';
+const XEP: Array<{ value: Xep; label: string }> = [
+  { value: 'moi', label: 'Mới nhất' },
+  { value: 'cu', label: 'Cũ nhất' },
+  { value: 'tien', label: 'Tiền nhiều nhất' },
 ];
+
+const nguoiNhap = (d: Delivery) => (d.source === 'SUPPLIER' ? 'NCC tự gửi' : d.created_by_name);
+const tomMon = (items: string[]) =>
+  items.length <= SO_MON_HIEN ? items.join(', ') : `${items.slice(0, SO_MON_HIEN).join(', ')} +${items.length - SO_MON_HIEN}`;
 
 export function SupplierDeliveryScreen({
   deliveries, suppliers, range, onRangeChange, onEdit, onNew, onChanged, moChiCho = false,
@@ -88,253 +101,230 @@ export function SupplierDeliveryScreen({
   onEdit: (d: Delivery) => void;
   onNew: () => void;
   onChanged: () => void;
-  /** Mở màn với bộ lọc "Chờ duyệt" bật sẵn — lối vào từ nút "Xem tất cả" ở Tổng quan. */
+  /** Mở màn với bộ lọc "Nháp" bật sẵn — lối vào từ nút "Xem tất cả" ở Tổng quan. */
   moChiCho?: boolean;
 }) {
   const canWrite = useCanWrite();
   const { user } = useAuth();
-  // Role Báo cáo lập phiếu NHÁP (2026-10-23) — nút tạo vẫn hiện, chỉ đổi tên cho đúng việc.
+  const isPhone = useIsPhone();
   const lapNhap = laNguoiLapNhap(user);
+  // Xem chú thích đầu file: admin đã có nút Nhập hàng ở Tổng quan.
+  const hienNutTao = (canWrite || lapNhap) && user?.role !== 'admin';
   const [locNcc, setLocNcc] = useState('');
-  /** Bộ lọc theo trạng thái (chủ quán chốt 2026-10-23): Tất cả / Phiếu nháp / Phiếu nhập /
-   *  Phiếu huỷ. "Tất cả" hiện cả phiếu huỷ — cột Trạng thái đã nói rõ từng dòng là gì. */
   const [nhom, setNhom] = useState<Nhom>(moChiCho ? 'nhap' : 'tatca');
   const [tim, setTim] = useState('');
   const [page, setPage] = useState(1);
-  const [khoa, setKhoa] = useState<Khoa>('ngay');
-  const [giam, setGiam] = useState(true);
-  const [anhCua, setAnhCua] = useState<Delivery | null>(null);
+  const [xep, setXep] = useState<Xep>('moi');
   const [xemChiTiet, setXemChiTiet] = useState<Delivery | null>(null);
-  const [moMenu, setMoMenu] = useState<string | null>(null);
+  const [moKy, setMoKy] = useState(false);
+  const today = vnDayIso(Date.now());
 
   // Đổi bộ lọc = một danh sách khác hẳn → về trang 1. Không reset thì đang ở trang 6 của NCC A,
   // chọn NCC B chỉ có 2 trang, người dùng nhìn trang cuối của B mà tưởng đó là toàn bộ.
-  useEffect(() => { setPage(1); }, [locNcc, tim, deliveries, khoa, giam, nhom]);
+  useEffect(() => { setPage(1); }, [locNcc, tim, deliveries, xep, nhom, range]);
 
-  /** Số cột ĐANG HIỆN — `colSpan` không dùng ở màn này, nhưng giữ cùng một cách đếm với màn
-   *  "Món đã bán" thì sau này thêm dòng bung ra cũng không phải nghĩ lại. */
-  const hangTieuDe = useRef<HTMLTableRowElement>(null);
-
-  const trongKy = useMemo(() => deliveries.filter((d) => {
+  const trongKyNcc = useMemo(() => deliveries.filter((d) => {
     if (locNcc && d.supplier_id !== locNcc) return false;
     if (range.from && d.delivery_date < range.from) return false;
     if (range.to && d.delivery_date > range.to) return false;
-    return thuocNhom(d.status, nhom);
-  }), [deliveries, locNcc, range, nhom]);
+    return true;
+  }), [deliveries, locNcc, range]);
 
-  /** Số phiếu từng nhóm — đếm trên cùng bộ lọc NCC + kỳ đang xem, chỉ bỏ qua chính bộ lọc nhóm,
-   *  để con số trên nút khớp với số dòng hiện ra khi bấm vào nó. */
+  /** Số phiếu từng nhóm — trên cùng bộ lọc NCC + kỳ + ô tìm, chỉ bỏ qua chính bộ lọc nhóm, để con
+   *  số trên nút khớp với số dòng hiện ra khi bấm vào nó. */
+  const daTim = useMemo(() => locPhieuTheoMon(trongKyNcc, tim), [trongKyNcc, tim]);
   const demNhom = useMemo(() => {
     const dem: Record<Nhom, number> = { tatca: 0, nhap: 0, danhap: 0, huy: 0 };
-    for (const d of deliveries) {
-      if (locNcc && d.supplier_id !== locNcc) continue;
-      if (range.from && d.delivery_date < range.from) continue;
-      if (range.to && d.delivery_date > range.to) continue;
-      for (const n of NHOM) if (thuocNhom(d.status, n.k)) dem[n.k] += 1;
-    }
+    for (const d of daTim) for (const n of NHOM) if (thuocNhom(d.status, n.k)) dem[n.k] += 1;
     return dem;
-  }, [deliveries, locNcc, range]);
-
-  /** Ô tìm khớp TÊN MÓN trong phiếu (chủ quán yêu cầu 2026-09-08): gõ "cá" ra mọi phiếu có cá,
-   *  dù tên NCC hay ngày tháng chẳng liên quan gì tới chữ đó. Lọc NCC đã có ô riêng. */
-  const daLoc = useMemo(() => locPhieuTheoMon(trongKy, tim), [trongKy, tim]);
+  }, [daTim]);
 
   const daXep = useMemo(() => {
-    const dir = giam ? -1 : 1;
-    return [...daLoc].sort((a, b) => {
-      if (khoa === 'tien') return (a.total_amount - b.total_amount) * dir;
-      if (khoa === 'ncc') return a.supplier_name.localeCompare(b.supplier_name, 'vi') * dir;
-      if (khoa === 'nguoi') {
-        const na = a.source === 'SUPPLIER' ? 'NCC tự gửi' : a.created_by_name;
-        const nb = b.source === 'SUPPLIER' ? 'NCC tự gửi' : b.created_by_name;
-        return na.localeCompare(nb, 'vi') * dir;
-      }
-      // Cùng ngày thì phiếu to đứng trước — hai phiếu cùng ngày mà thứ tự nhảy lung tung giữa
-      // các lần tải là thứ khiến người dùng tưởng danh sách đang đổi.
-      const d = a.delivery_date.localeCompare(b.delivery_date) * dir;
+    const rows = daTim.filter((d) => thuocNhom(d.status, nhom));
+    return rows.sort((a, b) => {
+      if (xep === 'tien') return b.total_amount - a.total_amount;
+      const d = a.delivery_date.localeCompare(b.delivery_date) * (xep === 'cu' ? 1 : -1);
+      // Cùng ngày thì phiếu to đứng trước — thứ tự không nhảy giữa các lần tải.
       return d !== 0 ? d : b.total_amount - a.total_amount;
     });
-  }, [daLoc, khoa, giam]);
+  }, [daTim, nhom, xep]);
 
   const trang = phanTrang(daXep, page, CO_TRANG);
-  // Tổng CHỈ cộng phiếu đã nhập — khớp với công nợ. Phiếu nháp nói riêng ra ("chưa tính"), cộng
-  // chung vào thì con số này lệch với công nợ đúng bằng tiền các phiếu chưa ai duyệt.
-  const tongTien = daLoc.filter((d) => d.status === 'CONFIRMED').reduce((s, d) => s + d.total_amount, 0);
-  const nhapTrongLoc = daLoc.filter((d) => dangChoDuyet(d.status));
-  const tienNhap = nhapTrongLoc.reduce((s, d) => s + d.total_amount, 0);
+  // Tổng CHỈ cộng phiếu đã nhập — khớp với công nợ. Phiếu nháp nói riêng ra ("chưa tính").
+  const daNhap = daTim.filter((d) => d.status === 'CONFIRMED');
+  const tongTien = daNhap.reduce((s, d) => s + d.total_amount, 0);
+  const soNcc = new Set(daNhap.map((d) => d.supplier_id)).size;
+  const nhap = daTim.filter((d) => dangChoDuyet(d.status));
+  const tienNhap = nhap.reduce((s, d) => s + d.total_amount, 0);
+  const coLoc = Boolean(tim.trim() || locNcc || nhom !== 'tatca');
+
+  const kyNhan = (() => {
+    const p = detectPreset(range, Date.now(), DAY_SCREEN);
+    return p === 'custom' ? rangeLabel(range, Date.now()) : PRESET_LABEL[p];
+  })();
+
+  const oChonNcc = (
+    <Dropdown
+      full
+      value={locNcc}
+      neutralValue=""
+      ariaLabel="Lọc theo nhà cung cấp"
+      sheetTitle="Chọn nhà cung cấp"
+      onChange={setLocNcc}
+      options={[{ value: '', label: 'Tất cả nhà cung cấp' }, ...suppliers.map((x) => ({ value: x.id, label: x.name }))]}
+    />
+  );
+
+  const dong = (d: Delivery, ghiNgay: boolean) => {
+    const nguoi = nguoiNhap(d);
+    const mon = tomMon(d.items);
+    const huy = d.status === 'CANCELLED';
+    return (
+      <button key={d.id} type="button" className={`ck-row pn-row${huy ? ' is-huy' : ''}`} onClick={() => setXemChiTiet(d)}
+              aria-label={`Phiếu ${d.supplier_name} ${ngayDay(d.delivery_date)}, ${vnd(d.total_amount)}đ — xem chi tiết`}>
+        <span className="ck-row__m">
+          <span className="ck-row__n">
+            {d.supplier_name}
+            {dangChoDuyet(d.status) && <span className="pn-tag pn-tag--nhap">Nháp – chờ duyệt</span>}
+            {huy && <span className="pn-tag">Đã huỷ</span>}
+          </span>
+          <span className="ck-row__s">
+            {ghiNgay && <>{ngayDay(d.delivery_date)} · </>}
+            {mon || <i>chưa có món</i>}
+            <span className="pn-who-gon"> · {nguoi}</span>
+          </span>
+        </span>
+        <span className="pn-who">{nguoi}</span>
+        <span className="ck-row__v">{vnd(d.total_amount)}đ</span>
+        <Icon name="mui-ten-phai" size={18} />
+      </button>
+    );
+  };
 
   return (
-    <div className="ncc-ui" onClick={() => setMoMenu(null)}>
-      <section className="pagehead">
-        <div>
-          <h1 className="pagehead__title">Phiếu nhập</h1>
-          <p className="pagehead__meta">Bấm một phiếu để xem chi tiết mặt hàng và ảnh</p>
-        </div>
-        {(canWrite || lapNhap) && (
-          <button className="btn btn--primary" type="button" onClick={onNew}>
-            <Plus />{lapNhap ? 'Lập phiếu nháp' : 'Tạo phiếu nhập'}
+    <section className="sx tk ck pn">
+      {hienNutTao && (
+        <div className="pn-tao">
+          <button type="button" className="sx-btn-main" onClick={onNew}>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="them" size={20} />{lapNhap ? 'Lập phiếu nháp' : 'Tạo phiếu nhập'}
+            </span>
           </button>
+        </div>
+      )}
+
+      {isPhone ? (
+        <div className="tk-loc tk-loc--gon">
+          <button type="button" className="tk-ky" onClick={() => setMoKy(true)} aria-label={`Đổi kỳ, đang xem ${kyNhan}`}>
+            <Icon name="lich" size={18} />
+            <span>{kyNhan}</span>
+            <Icon name="mui-ten-xuong" size={18} />
+          </button>
+          <div className="tk-ncc">{oChonNcc}</div>
+        </div>
+      ) : (
+        <div className="tk-loc">
+          <div className="tk-loc__ky">
+            <TimeFilter value={range} onChange={onRangeChange} presets={DAY_SCREEN} ariaLabel="Lọc phiếu nhập theo khoảng ngày" />
+          </div>
+          <div className="tk-ncc">{oChonNcc}</div>
+        </div>
+      )}
+
+      {/* Ô tìm khớp TÊN MÓN trong phiếu (chủ quán yêu cầu 2026-09-08): gõ "cá" ra mọi phiếu có cá. */}
+      <label className="pn-tim">
+        <Icon name="tim" size={18} />
+        <input
+          type="search"
+          value={tim}
+          onChange={(e) => setTim(e.target.value)}
+          placeholder="Phiếu có mặt hàng, vd: cá"
+          aria-label="Tìm phiếu theo tên mặt hàng"
+        />
+      </label>
+
+      <section className="tk-kpis pn-kpis" aria-label="Số liệu phiếu nhập trong kỳ">
+        <div className="tk-kpi is-main">
+          <span className="tk-kpi__l">Đã nhập</span>
+          <span className="tk-kpi__v">{vnd(tongTien)}đ</span>
+          <span className="tk-kpi__s">tính vào công nợ</span>
+        </div>
+        <div className="tk-kpi">
+          <span className="tk-kpi__l">Số phiếu</span>
+          <span className="tk-kpi__v">{daNhap.length}</span>
+          <span className="tk-kpi__s">{soNcc} nhà cung cấp</span>
+        </div>
+        {nhap.length > 0 && (
+          <div className="tk-kpi pn-kpi-nhap">
+            <span className="tk-kpi__l">Nháp chờ duyệt</span>
+            <span className="tk-kpi__v">{nhap.length} phiếu</span>
+            <span className="tk-kpi__s">{vnd(tienNhap)}đ chưa tính</span>
+          </div>
         )}
       </section>
 
-      <FilterBar
-        range={range} onRangeChange={onRangeChange}
-        suppliers={suppliers} supplierId={locNcc} onSupplierChange={setLocNcc}
-        search={{ value: tim, onChange: setTim, placeholder: 'Phiếu có mặt hàng, vd: cá', label: 'Tìm phiếu theo tên mặt hàng' }}
-        ariaLabel="Bộ lọc phiếu nhập"
-      />
+      <div className="ck-tool">
+        <div className="ck-seg" role="group" aria-label="Lọc theo trạng thái phiếu">
+          {NHOM.map((n) => (
+            <button key={n.k} type="button" aria-pressed={nhom === n.k} onClick={() => setNhom(n.k)}>
+              {n.nhan}<small>{demNhom[n.k]}</small>
+            </button>
+          ))}
+        </div>
+        <div className="pn-xep">
+          <Dropdown
+            full
+            value={xep}
+            neutralValue="moi"
+            ariaLabel="Sắp xếp phiếu"
+            sheetTitle="Sắp xếp"
+            onChange={(v) => setXep(v as Xep)}
+            options={XEP}
+          />
+        </div>
+      </div>
 
-      <section className="card">
-        <div className="card__head">
-          <h2 className="card__title">Danh sách phiếu nhập</h2>
-          <span className="badge badge--neutral">
-            {trang.total} phiếu{tongTien > 0 && <> · đã nhập {vnd(tongTien)}đ</>}
-          </span>
-          {nhapTrongLoc.length > 0 && (
-            <span className="badge badge--pending">
-              {nhapTrongLoc.length} nháp {vnd(tienNhap)}đ chưa tính
-            </span>
+      {trang.total === 0 ? (
+        <div className="sx-empty">
+          <h3>Không có phiếu nào khớp</h3>
+          <p>{tim.trim() ? `Không phiếu nào chứa mặt hàng “${tim.trim()}” trong kỳ đang xem.` : 'Thử chọn kỳ dài hơn hoặc bỏ bớt bộ lọc.'}</p>
+          {coLoc && (
+            <button type="button" className="ck-lnk" onClick={() => { setTim(''); setLocNcc(''); setNhom('tatca'); }}>
+              Xoá bộ lọc
+            </button>
           )}
-          <div role="group" aria-label="Lọc theo trạng thái phiếu"
-               style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {NHOM.map((n) => (
-              <button key={n.k} type="button" aria-pressed={nhom === n.k}
-                      className={`btn btn--sm ${nhom === n.k ? 'btn--primary' : ''}`}
-                      onClick={() => setNhom(n.k)}>
-                {n.nhan} ({demNhom[n.k]})
-              </button>
-            ))}
-          </div>
         </div>
-        <div className="card__body">
-          {trang.total === 0 ? (
-            <div className="emptyfilter">
-              <p className="emptyfilter__t">Không có phiếu nào khớp</p>
-              <p className="emptyfilter__s">
-                {tim.trim() ? `Không phiếu nào chứa mặt hàng “${tim.trim()}” trong kỳ đang xem.`
-                            : 'Thử nới kỳ xem hoặc bỏ bớt bộ lọc.'}
-              </p>
-              {(tim || locNcc || nhom !== 'tatca') && (
-                <button className="btn btn--accent-ghost" type="button"
-                        onClick={() => { setTim(''); setLocNcc(''); setNhom('tatca'); }}>Xoá bộ lọc</button>
-              )}
-            </div>
+      ) : (
+        <div className="ck-days">
+          {xep === 'tien' ? (
+            <div className="ck-list">{trang.rows.map((d) => dong(d, true))}</div>
           ) : (
-            <>
-              <div className="tablewrap bleed">
-                <table className="table table--rows">
-                  <caption className="sr-only">Danh sách phiếu nhập hàng</caption>
-                  <thead>
-                    <tr ref={hangTieuDe}>
-                      {COT.map((c) => [(
-                        <th key={c.k} scope="col" className={`th-sort ${c.cls ?? ''}`}
-                            aria-sort={khoa === c.k ? (giam ? 'descending' : 'ascending') : 'none'}>
-                          <button className="sortbtn" type="button"
-                                  onClick={() => {
-                                    if (khoa === c.k) setGiam(!giam);
-                                    else { setKhoa(c.k); setGiam(c.giamTruoc); }
-                                  }}>
-                            {c.nhan}
-                            <span aria-hidden="true">{khoa === c.k ? (giam ? ' ↓' : ' ↑') : ''}</span>
-                          </button>
-                        </th>
-                      ), c.k === 'tien' && (
-                        // Cột Trạng thái đứng NGAY SAU số tiền: đọc "bao nhiêu tiền — đã tính chưa"
-                        // liền một hơi. Không sắp xếp được — đã có nút lọc theo nhóm ở đầu bảng.
-                        <th key="trangthai" scope="col" className="m-off">Trạng thái</th>
-                      )])}
-                      <th scope="col" className="colphoto">Ảnh phiếu</th>
-                      <th scope="col" className="num colact">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trang.rows.map((d) => {
-                      const nguoi = d.source === 'SUPPLIER' ? 'NCC tự gửi' : d.created_by_name;
-                      const mon = d.items.join(', ');
-                      const tt = trangThai(d.status);
-                      const suaDuoc = quyenPhieu(user, d).sua;
-                      return (
-                        <tr key={d.id}>
-                          <td data-label="Ngày" className="cell-full r-t1" title={ngayDay(d.delivery_date)}>
-                            <span className="cell-strong">{ngayDay(d.delivery_date)}</span>
-                            <span className="m-only"> · {d.supplier_name}</span>
-                            <span className="cell-sub m-off">{nguoi}</span>
-                          </td>
-                          <td data-label="Nhà cung cấp" className="r-t2" title={d.supplier_name}>
-                            <span className="cell-strong m-off">{d.supplier_name}</span>
-                            {mon && <span className="cell-sub m-off">{mon}</span>}
-                            <span className="m-only">
-                              {ngayDay(d.delivery_date)} · {nguoi}
-                              {d.status !== 'CONFIRMED' && <> · <strong style={{ color: tt.mau }}>{tt.nhan}</strong></>}
-                            </span>
-                          </td>
-                          <td data-label="Số tiền" className="num r-t1n">
-                            <span className="money money--lg">{vnd(d.total_amount)}đ</span>
-                          </td>
-                          <td data-label="Trạng thái" className="m-off" style={{ whiteSpace: 'nowrap' }}>
-                            <span className={`badge ${tt.cls}`}>{tt.nhan}</span>
-                          </td>
-                          <td data-label="Người nhập" className="colwho m-off">{nguoi}</td>
-                          <td data-label="Ảnh phiếu" className="colphoto m-off">
-                            <button className="photo" type="button"
-                                    onClick={(e) => { e.stopPropagation(); setAnhCua(d); }}>
-                              <span className="photo__box">
-                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-                                     strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                  <rect x="3" y="5" width="18" height="14" rx="2" />
-                                  <circle cx="9" cy="10" r="1.6" /><path d="m4 17 5-4.5 4 3.5 2.5-2L20 17" />
-                                </svg>
-                              </span>
-                              Xem ảnh
-                            </button>
-                          </td>
-                          <td data-label="Thao tác" className="cell-actions num c-act">
-                            <div className="actgroup m-off">
-                              <button className="btn btn--sm" type="button"
-                                      onClick={() => setXemChiTiet(d)}>Xem chi tiết</button>
-                              {suaDuoc && (
-                                <button className="btn btn--sm" type="button"
-                                        onClick={() => onEdit(d)}>Sửa</button>
-                              )}
-                            </div>
-                            <div className="rowmenu m-cell">
-                              <button className="rowmenu__btn" type="button" aria-haspopup="menu"
-                                      aria-expanded={moMenu === d.id}
-                                      aria-label={`Thao tác với phiếu ${ngayDay(d.delivery_date)} của ${d.supplier_name}`}
-                                      onClick={(e) => { e.stopPropagation(); setMoMenu(moMenu === d.id ? null : d.id); }}>
-                                <Icon name="them-thao-tac" size={22} />
-                              </button>
-                              {moMenu === d.id && (
-                                <div className="rowpop" role="menu">
-                                  <button className="rowpop__item" type="button" role="menuitem"
-                                          onClick={(e) => { e.stopPropagation(); setMoMenu(null); setXemChiTiet(d); }}>
-                                    Xem chi tiết
-                                  </button>
-                                  {suaDuoc && (
-                                    <button className="rowpop__item" type="button" role="menuitem"
-                                            onClick={(e) => { e.stopPropagation(); setMoMenu(null); onEdit(d); }}>
-                                      Sửa phiếu
-                                    </button>
-                                  )}
-                                  <button className="rowpop__item" type="button" role="menuitem"
-                                          onClick={(e) => { e.stopPropagation(); setMoMenu(null); setAnhCua(d); }}>
-                                    Xem ảnh
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-              <Pager trang={trang} doiTrang={setPage} nhan="phiếu" />
-            </>
+            groupByDay(trang.rows, (d) => d.delivery_date).map((g) => (
+              <section key={g.day}>
+                <div className="ck-day">
+                  <span>{dayHeading(g.day, today)} · {g.rows.length} phiếu</span>
+                  <span>{vnd(g.rows.filter((d) => d.status === 'CONFIRMED').reduce((a, d) => a + d.total_amount, 0))}đ</span>
+                </div>
+                <div className="ck-list">{g.rows.map((d) => dong(d, false))}</div>
+              </section>
+            ))
           )}
+          <Pager trang={trang} doiTrang={setPage} nhan="phiếu" />
+          {trang.totalPages === 1 && <p className="ck-het">{trang.total} phiếu · đã hiện hết</p>}
         </div>
-      </section>
+      )}
+
+      {moKy && (
+        <Sheet
+          title="Kỳ xem"
+          onClose={() => setMoKy(false)}
+          footer={<div className="ds-foot"><button type="button" className="ds-btn ds-btn--primary" onClick={() => setMoKy(false)}>Xong</button></div>}
+        >
+          <div className="tk-sheet">
+            <TimeFilter value={range} onChange={onRangeChange} presets={DAY_SCREEN} ariaLabel="Lọc phiếu nhập theo khoảng ngày" />
+          </div>
+        </Sheet>
+      )}
 
       {xemChiTiet && (
         <DeliveryDetailDialog
@@ -344,14 +334,6 @@ export function SupplierDeliveryScreen({
           onChanged={onChanged}
         />
       )}
-
-      {anhCua && (
-        <DeliveryPhotosDialog
-          deliveryId={anhCua.id}
-          title={`${anhCua.supplier_name} · ${ngayDay(anhCua.delivery_date)}`}
-          onClose={() => setAnhCua(null)}
-        />
-      )}
-    </div>
+    </section>
   );
 }

@@ -25,6 +25,7 @@ import { MyDraftsBlock } from './MyDraftsBlock.tsx';
 import { SupplierStatsPanel } from './SupplierStatsPanel.tsx';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { SupplierTransfersPanel } from './SupplierTransfersPanel.tsx';
 import { ItemStatsPanel } from './SupplierReports.tsx';
@@ -275,24 +276,19 @@ export function SuppliersPage() {
             );
           })}
         </div>
-        {/* Ẩn với role Báo cáo: "Mặt hàng" mở panel sửa danh mục nguyên liệu, "Nhập hàng" tạo
-            phiếu — cả hai đều là GHI. */}
-        {isAdmin && (
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
-            <button className="secondary sup-action" onClick={() => setShowIngredients(true)}>
-              Mặt hàng
-            </button>
-            <button className="sup-action" onClick={() => setShowForm({})}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}><Icon name="them" size={18} />Nhập hàng</span>
-            </button>
-          </div>
-        )}
       </div>
+
+      {/* KHÔNG có hàng [⋯] [+ Nhập hàng] dưới dãy tab (chủ quán 2026-11-12: "đã ở màn Tổng quan rồi,
+          các màn khác thì bỏ đi"). Nhập hàng / Mặt hàng / Thêm NCC nằm trong dải "Sổ nợ" của tab
+          Tổng quan; tab Phiếu nhập có nút "Tạo phiếu nhập" riêng. */}
 
       {/* Không cắt theo tháng nữa (chủ quán chốt 2026-09-06): mọi tab dưới đây nhìn TOÀN BỘ
           lịch sử. Cắt theo tháng làm lọt đúng thứ cần bắt nhất — vụ NCC tăng giá vắt qua ranh
           giới hai tháng thì mỗi tháng nhìn riêng đều thấy giá phẳng. */}
-      <div
+      {/* Tab Tổng quan và Thống kê không dùng hàng này: cả hai tự vẽ lọc + dải số của mình (Thống kê
+          từ 2026-11-12 — ô chọn NCC nằm cạnh kỳ xem, "Tổng mua/Tổng nợ" đã có trong dải 4 số). Để
+          nguyên thì cùng một con số hiện hai lần trên một màn. */}
+      {tab !== 'suppliers' && tab !== 'stats' && <div
         style={{
           display: 'flex',
           alignItems: 'center',
@@ -357,7 +353,7 @@ export function SuppliersPage() {
           )}
           <span id="sup-toolbar-slot" style={{ display: 'flex', gap: 8 }} />
         </div>
-      </div>
+      </div>}
 
       {/* Tab Phiếu nhập đang giữ danh sách cũ trong lúc tải lại (xem `daTaiPhieu`) — chen thêm dòng
           này lên trên là cả bảng nhảy xuống rồi nhảy lên mỗi lần duyệt một phiếu. */}
@@ -372,8 +368,10 @@ export function SuppliersPage() {
           canSeeMoney={canSeeMoney}
           range={range}
           onRangeChange={setRange}
+          onNhapHang={() => setShowForm({})}
+          onMatHang={() => setShowIngredients(true)}
+          onThemNcc={() => setShowEditor('new')}
           onOpen={setDetail}
-          onNew={() => setShowEditor('new')}
           onGoTab={chonTab}
           onEditDelivery={(d) => setShowForm({ supplierId: d.supplier_id, editingId: d.id })}
           onDeliveryChanged={() => {
@@ -385,7 +383,13 @@ export function SuppliersPage() {
 
       {/* Tab này có bộ lọc thời gian RIÊNG bên trong (2026-09-08). Các tab còn lại vẫn nhìn
           toàn bộ lịch sử — xem chú thích ở khối bộ lọc phía trên. */}
-      {tab === 'stats' && <SupplierStatsPanel supplierId={filterSupplierId || undefined} />}
+      {tab === 'stats' && (
+        <SupplierStatsPanel
+          supplierId={filterSupplierId || undefined}
+          suppliers={suppliers.map((x) => ({ id: x.id, name: x.name }))}
+          onSupplierChange={setFilterSupplierId}
+        />
+      )}
 
       {tab === 'transfers' && isAdmin && <SupplierTransfersPanel suppliers={suppliers} balances={balances} onChanged={() => void refresh()} />}
 
@@ -590,25 +594,22 @@ function SupplierEditor({
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={supplier ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp'}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,.45)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-        zIndex: 9020,
-      }}
+    // Tấm CHUNG của app (2026-11-12, chủ quán chốt cho mọi hộp của màn NCC): điện thoại trượt từ
+    // đáy, máy tính giữa màn, nút Lưu dính đáy. Sheet render qua portal ở z 10500 → nằm TRÊN màn Chi
+    // tiết NCC (9000) mà nó hay được mở từ đó.
+    <Sheet
+      title={supplier ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp'}
+      onClose={onClose}
+      giuaKhiRong
+      footer={
+        <div className="ds-foot">
+          <button type="submit" form="ncc-editor-form" className="ds-btn ds-btn--primary" disabled={saving}>
+            {saving ? 'Đang lưu…' : supplier ? 'Lưu' : 'Thêm nhà cung cấp'}
+          </button>
+        </div>
+      }
     >
-      <form className="card" onSubmit={save} style={{ maxWidth: 440, width: '100%' }}>
-        <h2 style={{ margin: '0 0 16px', fontSize: 20 }}>
-          {supplier ? 'Sửa nhà cung cấp' : 'Thêm nhà cung cấp'}
-        </h2>
+      <form id="ncc-editor-form" onSubmit={save} style={{ padding: '4px 16px 12px', overflowY: 'auto' }}>
         <label style={{ display: 'block', marginBottom: 12 }}>
           <span style={{ fontSize: 14, color: C.mutedOnTint }}>Tên *</span>
           <input
@@ -646,20 +647,13 @@ function SupplierEditor({
           </label>
         )}
 
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {supplier && (
-            <button type="button" className="secondary" onClick={remove} style={{ minHeight: 44 }}>
-              Xoá
-            </button>
-          )}
-          <button type="button" className="secondary" onClick={onClose} style={{ marginLeft: 'auto', minHeight: 44 }}>
-            Huỷ
+        {/* Xoá: chữ đỏ có viền ở CUỐI form (không đứng cạnh nút Lưu như trước — dễ bấm nhầm). */}
+        {supplier && (
+          <button type="button" className="ck-xoa" onClick={remove} style={{ marginTop: 8 }}>
+            <Icon name="xoa" size={18} />Xoá nhà cung cấp
           </button>
-          <button type="submit" disabled={saving} style={{ minHeight: 44, padding: '0 20px' }}>
-            {saving ? 'Đang lưu…' : 'Lưu'}
-          </button>
-        </div>
+        )}
       </form>
-    </div>
+    </Sheet>
   );
 }

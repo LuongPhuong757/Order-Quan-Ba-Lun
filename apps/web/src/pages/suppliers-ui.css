@@ -1936,3 +1936,71 @@
 .ncc-ui .mhd-sub { flex-basis: 100%; font-size: 14px; font-weight: 400; color: var(--muted); }
 .ncc-ui .mhd-row--off .mhd-name { color: var(--muted); text-decoration: line-through; }
 .ncc-ui .mhd-new { font-size: 12px; }
+
+/* ════════════════════════════════════════════════════════════════════════════
+   2026-11-12 — làm gọn màn Nhà cung cấp theo bản xem thử chủ quán duyệt.
+   `.ncc-head` = hàng điều khiển đầu màn (NccDauTrang.tsx) — nằm NGOÀI `.ncc-ui` nên dùng token
+   `--ds-*` chung của app, không dùng token riêng của mockup.
+   `.ncc-tq` = gốc tab Tổng quan — chỉ chỉnh trong đó vì `.kpis`/`.sup` còn dùng ở màn khác.
+   ════════════════════════════════════════════════════════════════════════════ */
+.ncc-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
+.ncc-head__grow { flex: 1 1 0; min-width: 0; }
+.ncc-head__chips { min-width: 0; flex: 0 1 auto; }
+.ncc-head__sup { width: 240px; flex: none; }
+/* `button.` vì nút chung của app đè nền/màu nếu chỉ viết class trần (CLAUDE.md §5). */
+button.ncc-head__more {
+  width: var(--ds-h-control); height: var(--ds-h-control); min-height: var(--ds-h-control); padding: 0; flex: none;
+  display: grid; place-items: center;
+  background: #fff; color: var(--ds-ink); border: 1px solid var(--ds-line); border-radius: 8px;
+}
+button.ncc-head__add {
+  height: var(--ds-h-control); min-height: var(--ds-h-control); padding: 0 16px; flex: none;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--ds-fs-body); font-weight: var(--ds-fw-strong); border-radius: 8px;
+}
+button.ncc-head__loc {
+  height: var(--ds-h-control); min-height: var(--ds-h-control); padding: 0 12px; min-width: 0; flex: 0 1 auto;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: #fff; color: var(--ds-ink); border: 1px solid var(--ds-line); border-radius: 8px;
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong);
+}
+.ncc-head__loc-txt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ncc-head__loc-txt small { font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-regular); color: var(--ds-ink-2); }
+.ncc-head__loc svg { color: var(--ds-ink-2); flex: none; }
+.ncc-head__sheet { display: flex; flex-direction: column; gap: 16px; padding: 4px 16px 8px; overflow-y: auto; }
+.ncc-head__lab { font-size: var(--ds-fs-label); font-weight: var(--ds-fw-strong); color: var(--ds-ink-2); margin-bottom: 6px; }
+.ncc-head__menu { display: grid; gap: 8px; padding: 4px 16px 16px; }
+.ncc-head__menu > button {
+  min-height: var(--ds-h-row); padding: 0 12px; display: flex; align-items: center; gap: 10px; text-align: left;
+  background: #fff; color: var(--ds-ink); border: 1px solid var(--ds-line); border-radius: 8px; font-size: var(--ds-fs-body);
+}
+.ncc-head__menu > button:hover { background: var(--ds-accent-soft); opacity: 1; }
+
+/* Tab Tổng quan: bắt đầu ngay dưới hàng điều khiển, không chừa khoảng của đầu trang cũ. */
+.ncc-tq.ncc-ui { gap: 20px; }
+/* Điện thoại: "Còn phải trả" một hàng riêng, hai chỉ số phụ đứng cạnh nhau — 3 thẻ chồng dọc ăn
+   gần trọn một màn trước khi tới việc cần xử lý. */
+@media (max-width: 719px) {
+  .ncc-tq .kpis { grid-template-columns: 1fr 1fr; }
+  .ncc-tq .kpi:first-child { grid-column: 1 / -1; }
+  .ncc-tq .kpi:nth-child(3) { border-left: 1px solid var(--border); }
+  .ncc-tq .kpi:not(:first-child) .kpi__value { font-size: 20px; }
+}
+/* Tên NCC / mặt hàng hiện ĐỦ (tối đa 2 dòng) — cắt "Nhóm Lấy R…" thì 3 nhóm "Nhóm Lấy …" trông
+   y hệt nhau. */
+.ncc-tq .sup__name, .ncc-tq .rowlink__title {
+  white-space: normal; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+/* Điện thoại: [lọc] [⋯] [+ Nhập hàng] luôn MỘT hàng — nút lọc co lại (chữ dài thành "…"), không
+   được đẩy "Nhập hàng" — việc chính — rớt xuống hàng hai (gặp ở 390px). */
+@media (max-width: 767px) {
+  .ncc-head { flex-wrap: nowrap; }
+  button.ncc-head__loc { flex: 1 1 auto; }
+}
+/* Trong tấm Lọc có đủ chỗ → chip xuống dòng cho thấy HẾT 8 lựa chọn, thay vì cuộn ngang giấu
+   mất "30 ngày" đang chọn sau mép phải. */
+.ncc-head__sheet .ds-chips { flex-wrap: wrap; overflow: visible; }
+/* Máy tính: 8 chip thời gian đã gần đầy hàng nên cụm [NCC] [⋯] [Nhập hàng] hay xuống dòng — khi
+   đó vẫn dạt PHẢI (chỗ quen tìm nút chính), không trôi về trái dưới hàng chip. */
+.ncc-head__sup { margin-left: auto; }

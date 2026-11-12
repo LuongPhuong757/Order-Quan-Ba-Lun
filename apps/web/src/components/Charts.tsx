@@ -35,7 +35,43 @@ export function seriesColor(i: number): string {
   return SERIES_COLORS[i] ?? OTHER_COLOR;
 }
 
-export function ChartCard({ title, hint, children }: { title: string; hint?: string; children: ReactNode }) {
+export function ChartCard({
+  title,
+  hint,
+  hintGon = false,
+  children,
+}: {
+  title: string;
+  hint?: string;
+  /** Gợi ý ẩn sau nút ⓘ, chạm mới hiện (bộ quy tắc `--ds-*` 2026-11-11: "giải thích dài → ⓘ").
+   *  Mặc định TẮT để màn cũ (Lịch sử…) giữ nguyên dáng — chỉ màn đã làm lại mới bật. CSS ở
+   *  pages/thong-ke-ncc.css (`.chart-card--gon`). */
+  hintGon?: boolean;
+  children: ReactNode;
+}) {
+  const [moHint, setMoHint] = useState(false);
+  if (hintGon) {
+    return (
+      <div className="card chart-card--gon">
+        <div className="chart-card__h">
+          <h3>{title}</h3>
+          {hint && (
+            <button
+              type="button"
+              className="chart-card__info"
+              aria-expanded={moHint}
+              aria-label={moHint ? 'Ẩn giải thích' : 'Xem giải thích'}
+              onClick={() => setMoHint((v) => !v)}
+            >
+              i
+            </button>
+          )}
+        </div>
+        {hint && moHint && <p className="chart-card__hint">{hint}</p>}
+        {children}
+      </div>
+    );
+  }
   return (
     <div className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div>
@@ -346,12 +382,17 @@ export function LineChart({
   height = 260,
   formatValue = (v) => String(v),
   ariaLabel,
+  chuGiai = true,
 }: {
   labels: string[];
   series: LineSeries[];
   height?: number;
   formatValue?: (v: number) => string;
   ariaLabel: string;
+  /** Tắt chú giải dưới biểu đồ. Chú giải ghi TỔNG các điểm của mỗi đường — đúng với đường "tiền
+   *  theo ngày", nhưng vô nghĩa với đường SỐ DƯ (cộng dư nợ của 30 ngày ra "4,5 tỷ"). Đường đơn
+   *  lẻ đã có tiêu đề thẻ nói nó là gì thì tắt đi. */
+  chuGiai?: boolean;
   /** Thân cột chiếm bao nhiêu phần bề ngang ô của nó (0–1). Thấp hơn = cột mảnh, khe rộng.
    *
    *  Trục càng nhiều mốc thì càng nên mảnh: ở 32 mốc nửa tiếng, cột béo 0,72 làm hai cột cạnh
@@ -493,7 +534,7 @@ export function LineChart({
         )}
       </div>
 
-      <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />
+      {chuGiai && <ChartLegend series={series} an={an} onToggle={bat(setAn)} formatValue={formatValue} />}
     </div>
   );
 }
