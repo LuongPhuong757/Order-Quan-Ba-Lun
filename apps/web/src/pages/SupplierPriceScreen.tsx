@@ -1,21 +1,38 @@
-// Màn "Biến động giá" — dựng ĐÚNG theo mockup OpenDesign `bien-dong-gia.html`.
+// Màn "Biến động giá".
 //
-// Thay `PriceChangesPanel` + `PriceMatrixPanel` cũ (bảng phẳng xếp theo cột người dùng bấm).
-// Khác biệt về chất: mặt hàng đổi giá được CHIA NHÓM THEO MỨC NGHIÊM TRỌNG. Một bảng xếp theo
-// % thì dòng 25% và dòng 3% trông y hệt nhau, mắt phải tự đặt ngưỡng; chia nhóm là đặt ngưỡng
-// hộ và nói thẳng ngưỡng đó là bao nhiêu.
+// LÀM LẠI 2026-11-13 (chủ quán duyệt bản xem thử, cùng khuôn tab Phiếu nhập / Chuyển khoản NCC):
+// - BỎ mặt hàng giữ nguyên giá. API trả `change_pct = 0` cho mặt hàng nhập lại đúng giá cũ; bản cũ
+//   chỉ bỏ `null` nên đếm "65 giảm giá" trong khi 59 dòng là 60.000đ → 60.000đ (xem lib/bien-dong-gia.ts).
+// - 4 khung chia theo mức nghiêm trọng → MỘT danh sách xếp theo mức đổi mạnh nhất; mức nghiêm trọng
+//   chuyển thành nhãn cam ở dòng ("Tăng mạnh" ≥20%, "Đáng chú ý" ≥10%). Bốn khung làm trang dài và
+//   tách mặt hàng tăng 19,9% xa mặt hàng tăng 20%.
+// - Dải 3 số trên đầu: Tăng giá · Giảm giá · Tăng mạnh nhất. Lọc nhanh Tất cả / Tăng / Giảm.
+// - BỎ khối biểu đồ đầu trang (trục ra số âm, chỉ chọn được 5 mặt hàng). CHẠM DÒNG = mở hộp
+//   "Lịch sử nhập & giá" sẵn có, mở thẳng chế độ Đơn giá — xem được MỌI mặt hàng.
+// - Dòng chỉ còn giá cũ → giá mới và tên NCC; đơn vị + ngày bỏ (chủ quán chốt) — có trong hộp lịch sử.
+// - Màu: tăng = cam (cảnh báo), giảm = xanh ngọc. Không dùng đỏ — đỏ chỉ cho lỗi.
+// - "So giá giữa các NCC" chỉ hiện khi có mặt hàng mua từ 2 nơi trở lên.
 //
-// Ba lượt gọi API đều là endpoint SẴN CÓ, không thêm gì ở backend:
+// Hai lượt gọi API đều là endpoint SẴN CÓ, không thêm gì ở backend:
 //   /supplier-reports/pairs    — mỗi cặp (NCC, mặt hàng) kèm giá trước/sau và % đổi
 //   /supplier-reports/matrix   — cùng một mặt hàng, các NCC đang báo giá bao nhiêu
-//   /supplier-reports/history  — chuỗi giá theo từng lần nhập, để vẽ đường xu hướng
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api.ts';
 import { khongDau } from '../lib/supplier-stats.ts';
-import { vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { rangeLabel, type DayRange } from '../lib/date-range.ts';
+import { DAY_SCREEN, PRESET_LABEL, detectPreset } from '../lib/time-presets.ts';
+import { locDoiGia, mucDo, theoHuong, xepDoiGia, NGUONG_MANH, type LocHuong, type XepDoiGia } from '../lib/bien-dong-gia.ts';
 import type { PairReport } from './SupplierReports.tsx';
-import { FilterBar, SearchIco, vnd, pctVN, ngayDay, theoDonViMua } from './supplier-ui.tsx';
-import './suppliers-ui.css';
+import { PriceHistoryDialog } from './SupplierPriceHistory.tsx';
+import { vnd, pctVN, theoDonViMua } from './supplier-ui.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { TimeFilter } from '../components/ui/TimeFilter.tsx';
+import { useIsPhone } from '../components/ui/use-is-phone.ts';
+import './so-tien.css';
+import './thong-ke-ncc.css';
+import './so-no-ncc.css';
 
 type MatrixRow = {
   ingredient_id: string;
@@ -30,70 +47,17 @@ type MatrixRow = {
   spread_pct: number;
 };
 
-type PricePoint = {
-  delivery_date: string;
-  supplier_name: string;
-  purchase_unit: string;
-  unit_price: number;
-};
+const HUONG: Array<{ k: LocHuong; nhan: string }> = [
+  { k: 'tatca', nhan: 'Tất cả' },
+  { k: 'tang', nhan: 'Tăng' },
+  { k: 'giam', nhan: 'Giảm' },
+];
 
-/** Bốn nhóm mức nghiêm trọng của mockup. Ngưỡng 20% / 10% không phải số đẹp ngẫu nhiên: 10% là
- *  mức một lần nhập đã ăn hết biên lãi của món dùng nguyên liệu đó, 20% là mức phải gọi điện
- *  hỏi lại NCC ngay chứ không đợi cuối tháng. */
-const NHOM = [
-  { key: 'sev1', tu: 20, den: Infinity, nhan: 'Tăng mạnh — từ 20%', badge: 'badge--danger' },
-  { key: 'sev2', tu: 10, den: 20, nhan: 'Tăng đáng chú ý — 10% đến dưới 20%', badge: 'badge--debt' },
-  { key: 'sev3', tu: 0.0001, den: 10, nhan: 'Tăng nhẹ — dưới 10%', badge: 'badge--neutral' },
-  { key: 'sev4', tu: -Infinity, den: 0.0001, nhan: 'Giảm giá', badge: 'badge--ok' },
-] as const;
-
-/** Biểu đồ đường: chép NGUYÊN hình học và màu của mockup (`bien-dong-gia.html`) để hai bên
- *  nhìn không lệch nhau — 62/14/18/44 là đệm bốn phía, khoảng giá nới 45% dưới và 25% trên cho
- *  đường không chạm mép. */
-function ChartGia({ pts }: { pts: Array<{ d: string; v: number }> }) {
-  if (pts.length === 0) return <p className="sm muted">Chưa đủ dữ liệu để vẽ xu hướng.</p>;
-  const W = 720, H = 232, padL = 62, padR = 14, padT = 18, padB = 44;
-  const pw = W - padL - padR, ph = H - padT - padB;
-  const vals = pts.map((p) => p.v);
-  const mn = Math.min(...vals), mx = Math.max(...vals);
-  const span = mx - mn || mx * 0.1 || 1;
-  const lo = mn - span * 0.45, hi = mx + span * 0.25;
-  const n = pts.length;
-  const X = (i: number) => padL + (n === 1 ? pw / 2 : (i * pw) / (n - 1));
-  const Y = (v: number) => padT + ph * (1 - (v - lo) / (hi - lo));
-  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(p.v).toFixed(1)}`).join(' ');
-  const area = `${line} L${X(n - 1).toFixed(1)} ${padT + ph} L${X(0).toFixed(1)} ${padT + ph} Z`;
-  const ticks = [lo + (hi - lo) * 0.12, (lo + hi) / 2, hi - (hi - lo) * 0.08];
-  const lastX = X(n - 1);
-  return (
-    <div className="chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img"
-           aria-label={`Xu hướng giá qua ${n} lần nhập: từ ${vnd(vals[0])}đ lên ${vnd(vals[n - 1])}đ.`}>
-        {ticks.map((t, i) => (
-          <g key={i}>
-            <line x1={padL} y1={Y(t)} x2={W - padR} y2={Y(t)} stroke="#e5e7eb" strokeWidth={1} />
-            <text x={padL - 10} y={Y(t) + 4} textAnchor="end" fill="#6b7280" fontSize="12.5" fontWeight="600">
-              {vnd(Math.round(t / 1000) * 1000)}
-            </text>
-          </g>
-        ))}
-        <path d={area} fill="#ccfbf1" />
-        <path d={line} fill="none" stroke="#0f766e" strokeWidth={2.6} strokeLinejoin="round" strokeLinecap="round" />
-        <line x1={lastX} y1={padT} x2={lastX} y2={padT + ph} stroke="#c2410c" strokeWidth={1.5} strokeDasharray="4 4" />
-        {pts.map((p, i) => {
-          const last = i === n - 1;
-          return <circle key={i} cx={X(i)} cy={Y(p.v)} r={last ? 5.5 : 4}
-                         fill={last ? '#c2410c' : '#ffffff'} stroke={last ? '#c2410c' : '#0f766e'} strokeWidth={2.5} />;
-        })}
-        {pts.map((p, i) => (
-          <text key={i} x={X(i)} y={padT + ph + 24} textAnchor="middle" fill="#6b7280" fontSize="12.5" fontWeight="600">
-            {p.d}
-          </text>
-        ))}
-      </svg>
-    </div>
-  );
-}
+const XEP: Array<{ value: XepDoiGia; label: string }> = [
+  { value: 'manh', label: 'Đổi mạnh nhất' },
+  { value: 'moi', label: 'Nhập gần nhất' },
+  { value: 'ten', label: 'Tên A → Z' },
+];
 
 export function SupplierPriceScreen({
   suppliers, range, onRangeChange,
@@ -102,12 +66,15 @@ export function SupplierPriceScreen({
   range: DayRange;
   onRangeChange: (r: DayRange) => void;
 }) {
+  const isPhone = useIsPhone();
   const [locNcc, setLocNcc] = useState('');
   const [tim, setTim] = useState('');
+  const [huong, setHuong] = useState<LocHuong>('tatca');
+  const [xep, setXep] = useState<XepDoiGia>('manh');
+  const [moKy, setMoKy] = useState(false);
+  const [xem, setXem] = useState<{ id: string; name: string } | null>(null);
   const [pairs, setPairs] = useState<PairReport[] | null>(null);
   const [matrix, setMatrix] = useState<MatrixRow[] | null>(null);
-  const [xem, setXem] = useState<string | null>(null);
-  const [points, setPoints] = useState<PricePoint[] | null>(null);
 
   useEffect(() => {
     api.get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs',
@@ -120,37 +87,16 @@ export function SupplierPriceScreen({
       .then((r) => setMatrix(r.data.data.items)).catch(() => setMatrix([]));
   }, []);
 
-  const doiGia = useMemo(() => {
-    const tu = khongDau(tim.trim());
-    return (pairs ?? [])
-      .filter((p) => p.change_pct !== null)
-      .filter((p) => !tu || khongDau(p.ingredient_name).includes(tu));
-  }, [pairs, tim]);
-
-  const tang = doiGia.filter((p) => (p.change_pct ?? 0) > 0).length;
-  const giam = doiGia.length - tang;
-
-  /** Ba mặt hàng biến động mạnh nhất làm chip chọn xu hướng — mockup để sẵn 3 chip. */
-  const chipXuHuong = useMemo(() =>
-    [...doiGia].sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0)).slice(0, 5),
-    [doiGia]);
-
-  const dangXem = xem ?? chipXuHuong[0]?.ingredient_id ?? null;
-  const loadHistory = useCallback(() => {
-    if (!dangXem) { setPoints([]); return; }
-    setPoints(null);
-    api.get<{ data: { items: PricePoint[] } }>('/supplier-reports/history', { params: { ingredient_id: dangXem } })
-      .then((r) => setPoints(r.data.data.items)).catch(() => setPoints([]));
-  }, [dangXem]);
-  useEffect(loadHistory, [loadHistory]);
-
-  const mhXem = chipXuHuong.find((p) => p.ingredient_id === dangXem) ?? chipXuHuong[0];
-  const chuoi = useMemo(() => {
-    const ps = [...(points ?? [])]
-      .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))
-      .slice(-8);
-    return ps.map((p) => ({ d: p.delivery_date.slice(8, 10) + '/' + p.delivery_date.slice(5, 7), v: p.unit_price }));
-  }, [points]);
+  /** Mọi mặt hàng ĐỔI giá thật trong kỳ + NCC + ô tìm — chưa áp lọc Tăng/Giảm, để số trên nút
+   *  lọc và dải số trên đầu không đổi khi bấm qua lại giữa các nút. */
+  const doiGia = useMemo(() => locDoiGia(pairs ?? [], tim, khongDau), [pairs, tim]);
+  const tang = useMemo(() => theoHuong(doiGia, 'tang'), [doiGia]);
+  const soGiam = doiGia.length - tang.length;
+  const soManh = tang.filter((p) => (p.change_pct ?? 0) >= NGUONG_MANH).length;
+  const dinh = useMemo(() => xepDoiGia(tang, 'manh')[0], [tang]);
+  const dem: Record<LocHuong, number> = { tatca: doiGia.length, tang: tang.length, giam: soGiam };
+  const rows = useMemo(() => xepDoiGia(theoHuong(doiGia, huong), xep), [doiGia, huong, xep]);
+  const coLoc = Boolean(tim.trim() || locNcc || huong !== 'tatca');
 
   const matranLoc = useMemo(() => {
     const tu = khongDau(tim.trim());
@@ -160,183 +106,193 @@ export function SupplierPriceScreen({
       .filter((m) => !locNcc || m.cells.some((c) => c.supplier_id === locNcc));
   }, [matrix, tim, locNcc]);
 
+  const kyNhan = (() => {
+    const p = detectPreset(range, Date.now(), DAY_SCREEN);
+    return p === 'custom' ? rangeLabel(range, Date.now()) : PRESET_LABEL[p];
+  })();
+
+  const oChonNcc = (
+    <Dropdown
+      full
+      value={locNcc}
+      neutralValue=""
+      ariaLabel="Lọc theo nhà cung cấp"
+      sheetTitle="Chọn nhà cung cấp"
+      onChange={setLocNcc}
+      options={[{ value: '', label: 'Tất cả nhà cung cấp' }, ...suppliers.map((x) => ({ value: x.id, label: x.name }))]}
+    />
+  );
+
+  const dong = (p: PairReport) => {
+    const g = theoDonViMua(p);
+    const pct = p.change_pct ?? 0;
+    const len = pct > 0;
+    const md = mucDo(pct);
+    const gia = (
+      <span className="bdg-gia">
+        <s>{vnd(g.truoc)}</s> → <b>{vnd(g.sau)}đ</b>
+      </span>
+    );
+    return (
+      <button key={`${p.supplier_id}-${p.ingredient_id}`} type="button" className="ck-row bdg-row"
+              onClick={() => setXem({ id: p.ingredient_id, name: p.ingredient_name })}
+              aria-label={`${p.ingredient_name}, ${p.supplier_name}: ${vnd(g.truoc)}đ thành ${vnd(g.sau)}đ, ${len ? 'tăng' : 'giảm'} ${pctVN(Math.abs(pct))}% — xem lịch sử giá`}>
+        <span className="ck-row__m">
+          <span className="bdg-ten">
+            {p.ingredient_name}
+            {md === 'manh' && <span className="bdg-tag bdg-tag--manh">Tăng mạnh</span>}
+            {md === 'chu-y' && <span className="bdg-tag bdg-tag--chuy">Đáng chú ý</span>}
+          </span>
+          <span className="ck-row__s bdg-gon">
+            <span className="bdg-gon__gia">{gia}</span>
+            <span className="bdg-gon__ncc">{p.supplier_name}</span>
+          </span>
+        </span>
+        <span className="bdg-gia-cot">{gia}</span>
+        <span className="bdg-ncc">{p.supplier_name}</span>
+        <span className={`bdg-pct ${len ? 'is-len' : 'is-xuong'}`}>{len ? '↑' : '↓'} {pctVN(Math.abs(pct))}%</span>
+        <Icon name="mui-ten-phai" size={18} />
+      </button>
+    );
+  };
+
   return (
-    <div className="ncc-ui">
-      <section className="pagehead">
-        <div>
-          <h1 className="pagehead__title">Biến động giá</h1>
-          <p className="pagehead__meta">
-            {doiGia.length} mặt hàng đổi giá trong kỳ ({tang} tăng · {giam} giảm)
-          </p>
+    <section className="sx tk ck pn bdg">
+      {isPhone ? (
+        <div className="tk-loc tk-loc--gon">
+          <button type="button" className="tk-ky" onClick={() => setMoKy(true)} aria-label={`Đổi kỳ, đang xem ${kyNhan}`}>
+            <Icon name="lich" size={18} />
+            <span>{kyNhan}</span>
+            <Icon name="mui-ten-xuong" size={18} />
+          </button>
+          <div className="tk-ncc">{oChonNcc}</div>
+        </div>
+      ) : (
+        <div className="tk-loc">
+          <div className="tk-loc__ky">
+            <TimeFilter value={range} onChange={onRangeChange} presets={DAY_SCREEN} ariaLabel="Lọc biến động giá theo khoảng ngày" />
+          </div>
+          <div className="tk-ncc">{oChonNcc}</div>
+        </div>
+      )}
+
+      <label className="pn-tim">
+        <Icon name="tim" size={18} />
+        <input
+          type="search"
+          value={tim}
+          onChange={(e) => setTim(e.target.value)}
+          placeholder="Tên mặt hàng, vd: cá"
+          aria-label="Tìm tên mặt hàng"
+        />
+      </label>
+
+      <section className="tk-kpis bdg-kpis" aria-label="Số liệu đổi giá trong kỳ">
+        <div className="tk-kpi is-main">
+          <span className="tk-kpi__l">Tăng giá</span>
+          <span className="tk-kpi__v">{tang.length} mặt hàng</span>
+          <span className="tk-kpi__s">{soManh > 0 ? `${soManh} mặt hàng tăng từ ${NGUONG_MANH}%` : 'không có mặt hàng tăng mạnh'}</span>
+        </div>
+        <div className="tk-kpi bdg-kpi-giam">
+          <span className="tk-kpi__l">Giảm giá</span>
+          <span className="tk-kpi__v">{soGiam}</span>
+          <span className="tk-kpi__s">mặt hàng</span>
+        </div>
+        <div className="tk-kpi bdg-kpi-dinh">
+          <span className="tk-kpi__l">Tăng mạnh nhất</span>
+          <span className="tk-kpi__v">{dinh ? `↑ ${pctVN(dinh.change_pct ?? 0)}%` : '—'}</span>
+          <span className="tk-kpi__s">{dinh ? `${dinh.ingredient_name} · ${dinh.supplier_name}` : 'chưa có mặt hàng tăng giá'}</span>
         </div>
       </section>
 
-      <FilterBar
-        range={range} onRangeChange={onRangeChange}
-        suppliers={suppliers} supplierId={locNcc} onSupplierChange={setLocNcc}
-        search={{ value: tim, onChange: setTim, placeholder: 'Tên mặt hàng, vd: cá', label: 'Tìm tên mặt hàng' }}
-        ariaLabel="Bộ lọc biến động giá"
-      />
-
-      {/* ---------- Xu hướng giá ---------- */}
-      <section className="card">
-        <div className="card__head">
-          <h2 className="card__title">Xu hướng giá theo từng lần nhập</h2>
+      <div className="ck-tool">
+        <div className="ck-seg" role="group" aria-label="Lọc tăng hay giảm giá">
+          {HUONG.map((h) => (
+            <button key={h.k} type="button" aria-pressed={huong === h.k} onClick={() => setHuong(h.k)}>
+              {h.nhan}<small>{dem[h.k]}</small>
+            </button>
+          ))}
         </div>
-        <div className="card__body stack-12">
-          {chipXuHuong.length === 0 ? (
-            <p className="sm muted">Chưa có mặt hàng nào đổi giá trong kỳ này.</p>
-          ) : (
-            <>
-              <div className="chips" role="group" aria-label="Chọn mặt hàng xem xu hướng giá">
-                {chipXuHuong.map((p) => (
-                  <button key={p.ingredient_id} className="chip" type="button"
-                          aria-pressed={p.ingredient_id === dangXem}
-                          onClick={() => setXem(p.ingredient_id)}>
-                    {p.ingredient_name}
-                  </button>
-                ))}
-              </div>
-              <div className="chart__legend">
-                <div className="chart__now">
-                  Giá mới nhất <b>{chuoi.length ? `${vnd(chuoi[chuoi.length - 1].v)}đ` : '—'}</b>{' '}
-                  <span>/{mhXem ? theoDonViMua(mhXem).dv : ''}</span>
-                </div>
-                <div className="sm muted">
-                  {mhXem?.supplier_name} · {chuoi.length} lần nhập gần nhất
-                </div>
-              </div>
-              {points === null ? <p className="sm muted">Đang tải…</p> : <ChartGia pts={chuoi} />}
-              <p className="sm muted">Giá lấy từ các phiếu nhập đã duyệt.</p>
-            </>
+        <div className="pn-xep">
+          <Dropdown
+            full
+            value={xep}
+            neutralValue="manh"
+            ariaLabel="Sắp xếp mặt hàng"
+            sheetTitle="Sắp xếp"
+            onChange={(v) => setXep(v as XepDoiGia)}
+            options={XEP}
+          />
+        </div>
+      </div>
+
+      {pairs === null ? (
+        <p className="ck-het">Đang tải…</p>
+      ) : rows.length === 0 ? (
+        <div className="sx-empty">
+          <h3>Không có mặt hàng nào đổi giá</h3>
+          <p>{tim.trim() ? `Không có mặt hàng “${tim.trim()}” đổi giá trong kỳ đang xem.` : 'Nhà cung cấp giữ nguyên giá ở kỳ này. Thử chọn kỳ dài hơn.'}</p>
+          {coLoc && (
+            <button type="button" className="ck-lnk" onClick={() => { setTim(''); setLocNcc(''); setHuong('tatca'); }}>
+              Xoá bộ lọc
+            </button>
           )}
         </div>
-      </section>
-
-      {/* ---------- Mặt hàng đổi giá, chia theo mức nghiêm trọng ---------- */}
-      <section className="stack-12">
-        <div className="resultbar">
-          <h2 className="pagehead__title" style={{ fontSize: 20 }}>Mặt hàng đổi giá</h2>
-          <span className="resultbar__n" role="status">{doiGia.length} mặt hàng</span>
+      ) : (
+        <div className="ck-days">
+          <div className="ck-list">{rows.map(dong)}</div>
+          <p className="ck-het">{rows.length} mặt hàng đổi giá · chạm một dòng để xem lịch sử giá</p>
         </div>
+      )}
 
-        {pairs === null && <p className="sm muted">Đang tải…</p>}
-
-        {pairs !== null && doiGia.length === 0 && (
-          <div className="card">
-            <div className="emptyfilter">
-              <p className="emptyfilter__t">Không có mặt hàng nào đổi giá</p>
-              <p className="emptyfilter__s">Nhà cung cấp trong bộ lọc giữ nguyên giá ở kỳ này.</p>
-              {(tim || locNcc) && (
-                <button className="btn btn--accent-ghost" type="button"
-                        onClick={() => { setTim(''); setLocNcc(''); }}>Xoá bộ lọc</button>
-              )}
-            </div>
+      {/* Chỉ hiện khi có dữ liệu — khung trống "chưa có mặt hàng mua từ hai nơi" chỉ làm dài trang. */}
+      {matranLoc.length > 0 && (
+        <section className="ck-days" aria-label="So giá giữa các nhà cung cấp">
+          <div className="ck-day">
+            <span>So giá giữa các nhà cung cấp</span>
+            <span>{matranLoc.length} mặt hàng có từ 2 nơi bán</span>
           </div>
-        )}
-
-        {NHOM.map((g, gi) => {
-          const rows = doiGia
-            .filter((p) => { const c = p.change_pct ?? 0; return c >= g.tu && c < g.den; })
-            .sort((a, b) => Math.abs(b.change_pct ?? 0) - Math.abs(a.change_pct ?? 0));
-          if (rows.length === 0) return null;
-          return (
-            <div key={g.key} className={`card sev-${gi + 1}`}>
-              <div className="card__head sevhead">
-                <span className="card__title sevhead__t">
-                  <span className="sevbar" aria-hidden="true" />{g.nhan}
-                </span>
-                <span className={`badge ${g.badge}`}>{rows.length} mặt hàng</span>
-              </div>
-              <div className="card__body">
-                <div className="tablewrap bleed">
-                  <table className="table table--rows">
-                    <caption className="sr-only">{g.nhan}</caption>
-                    <thead>
-                      <tr>
-                        <th scope="col" className="colitem">Mặt hàng</th>
-                        <th scope="col" className="colpricechg">Giá cũ → giá mới</th>
-                        <th scope="col" className="colpct">Mức đổi</th>
-                        <th scope="col">Nhà cung cấp</th>
-                        <th scope="col" className="num coldate">Ngày</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((p) => {
-                        const g2 = theoDonViMua(p);
-                        const len = (p.change_pct ?? 0) >= 0;
-                        return (
-                          <tr key={`${p.supplier_id}-${p.ingredient_id}`} className="row--wide2">
-                            <td data-label="Mặt hàng" className="cell-full r-t1" title={p.ingredient_name}>
-                              <span className="cell-strong">{p.ingredient_name}</span>
-                              <span className="cell-sub m-off">tính theo {g2.dv}</span>
-                            </td>
-                            <td data-label="Giá cũ → giá mới" className="r-t2">
-                              <span className="pricearrow">
-                                <span className="old">{vnd(g2.truoc)}đ</span>
-                                <span aria-hidden="true"> → </span>
-                                <span className={len ? 'new-up' : 'new-down'}>{vnd(g2.sau)}đ</span>
-                              </span>
-                              <span className="m-only">/{g2.dv} · {p.supplier_name} · {ngayDay(p.last_date)}</span>
-                            </td>
-                            <td data-label="Mức đổi" className="r-t1n">
-                              <span className={`pct ${len ? 'pct--up' : 'pct--down'}`}>
-                                {len ? '↑' : '↓'} {pctVN(Math.abs(p.change_pct ?? 0))}%
-                              </span>
-                            </td>
-                            <td data-label="Nhà cung cấp" className="m-off">{p.supplier_name}</td>
-                            <td data-label="Ngày" className="num m-off">{ngayDay(p.last_date)}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </section>
-
-      {/* ---------- So giá giữa các nhà cung cấp ---------- */}
-      <section className="stack-12">
-        <div className="resultbar">
-          <h2 className="pagehead__title" style={{ fontSize: 20 }}>So giá giữa các nhà cung cấp</h2>
-          <span className="resultbar__n" role="status">{matranLoc.length} mặt hàng có từ 2 nơi bán</span>
-        </div>
-        {matranLoc.length === 0 ? (
-          <div className="card">
-            <div className="emptyfilter">
-              <p className="emptyfilter__t">Chưa có mặt hàng nào mua từ hai nơi</p>
-              <p className="emptyfilter__s">So giá chỉ có nghĩa khi cùng một mặt hàng có ít nhất hai nhà cung cấp.</p>
-            </div>
-          </div>
-        ) : (
-          <div className="cmp-grid">
+          <div className="ck-list">
             {matranLoc.map((m) => {
               const cells = [...m.cells].sort((a, b) => a.unit_price_base - b.unit_price_base);
               return (
-                <div className="cmp" key={m.ingredient_id}>
-                  <div className="cmp__head">
-                    <span className="cmp__name">{m.ingredient_name}</span>
-                    <span className="badge badge--neutral">
-                      chênh {pctVN(m.spread_pct)}%
+                <button key={m.ingredient_id} type="button" className="ck-row bdg-ss"
+                        onClick={() => setXem({ id: m.ingredient_id, name: m.ingredient_name })}>
+                  <span className="ck-row__m">
+                    <span className="bdg-ten">
+                      {m.ingredient_name}
+                      <span className="bdg-tag">chênh {pctVN(m.spread_pct)}%</span>
                     </span>
-                  </div>
-                  {cells.map((c) => (
-                    <div className="cmp__row" key={c.supplier_id}>
-                      <span className="cmp__sup">{c.supplier_name}</span>
-                      <span className={`money${c.supplier_id === m.cheapest_supplier_id ? ' money--paid' : ''}`}>
-                        {vnd(c.unit_price)}đ/{c.purchase_unit}
+                    {cells.map((c) => (
+                      <span key={c.supplier_id} className={`bdg-ss__r${c.supplier_id === m.cheapest_supplier_id ? ' is-re' : ''}`}>
+                        <span>{c.supplier_name}{c.supplier_id === m.cheapest_supplier_id && ' · rẻ nhất'}</span>
+                        <b>{vnd(c.unit_price)}đ</b>
                       </span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </span>
+                  <Icon name="mui-ten-phai" size={18} />
+                </button>
               );
             })}
           </div>
-        )}
-      </section>
-    </div>
+        </section>
+      )}
+
+      {moKy && (
+        <Sheet
+          title="Kỳ xem"
+          onClose={() => setMoKy(false)}
+          footer={<div className="ds-foot"><button type="button" className="ds-btn ds-btn--primary" onClick={() => setMoKy(false)}>Xong</button></div>}
+        >
+          <div className="tk-sheet">
+            <TimeFilter value={range} onChange={onRangeChange} presets={DAY_SCREEN} ariaLabel="Lọc biến động giá theo khoảng ngày" />
+          </div>
+        </Sheet>
+      )}
+
+      {xem && (
+        <PriceHistoryDialog ingredientId={xem.id} ingredientName={xem.name} cheDoDau="price" onClose={() => setXem(null)} />
+      )}
+    </section>
   );
 }

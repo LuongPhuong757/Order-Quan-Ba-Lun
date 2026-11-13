@@ -167,3 +167,18 @@ export function tomTat(points: DiemNhap[], chung: DonViChung): TomTat | null {
     soNcc: ncc.size,
   };
 }
+
+/** Trục giá theo SỐ TRÒN (2026-11-13). Bản cũ đặt vạch ở 12%/50%/92% khoảng nới → ra
+ *  "18.000 · 24.000 · 31.000" khó đọc, và khoảng nới 45% bên dưới còn ra vạch số ÂM khi giá
+ *  nhảy mạnh. Giờ: bước 1·2·5 × 10ⁿ sao cho có 2–4 vạch, đáy không bao giờ dưới 0. */
+export function trucGia(mn: number, mx: number): { lo: number; hi: number; ticks: number[] } {
+  const span = mx - mn || Math.max(mx * 0.2, 1000);
+  const tho = span / 3;
+  const mu = 10 ** Math.floor(Math.log10(tho));
+  const step = ([1, 2, 5, 10].find((k) => k * mu >= tho) ?? 10) * mu;
+  const lo = Math.max(0, Math.floor(mn / step) * step - (mn - Math.floor(mn / step) * step < step / 4 ? step / 2 : 0));
+  const hi = Math.ceil(mx / step) * step + (Math.ceil(mx / step) * step - mx < step / 4 ? step / 2 : 0);
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo / step) * step; t <= hi + 1e-9; t += step) ticks.push(t);
+  return { lo, hi, ticks };
+}

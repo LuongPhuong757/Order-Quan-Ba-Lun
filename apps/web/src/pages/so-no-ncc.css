@@ -443,3 +443,278 @@ button.dl-chip--co { opacity: .45; }
   .ncc-ui.ct .card__body > .tablewrap.bleed { margin-inline: 0; width: 100%; }
   .ncc-ui.ct .card:has(.tablewrap) .table--rows tbody tr { padding-inline: 14px; }
 }
+
+/* ═════ Tab "Biến động giá" (làm lại 2026-11-13, cùng khuôn Phiếu nhập) ═════
+   Root mang cả `pn` để ăn lại ô tìm, ô xếp, dải số; `.bdg` chỉ thêm phần riêng.
+   Tăng giá = CAM (cảnh báo), giảm giá = XANH NGỌC. Không dùng đỏ — đỏ chỉ cho lỗi. */
+.tk-kpis.bdg-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tk-kpis.bdg-kpis .is-main { grid-column: 1 / -1; }
+.bdg-kpis .bdg-kpi-giam .tk-kpi__v { color: var(--brand, #0f766e); }
+.bdg-kpis .bdg-kpi-dinh .tk-kpi__v { color: var(--orange-700, #c2410c); }
+.bdg-kpis .bdg-kpi-dinh .tk-kpi__s { white-space: normal; }
+@media (min-width: 768px) {
+  .tk-kpis.bdg-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.6fr); }
+  .tk-kpis.bdg-kpis .is-main { grid-column: auto; }
+}
+
+.bdg-ten { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 6px; font-size: var(--ds-fs-body); font-weight: 600; line-height: 1.3; color: var(--ds-ink); }
+.bdg-tag {
+  font-size: 12.5px; font-weight: 700; line-height: 20px; padding: 0 8px; border-radius: 999px; white-space: nowrap;
+  color: var(--ds-ink-2); background: var(--ds-muted-bg, #f3f4f6);
+}
+.bdg-tag--manh { color: #fff; background: var(--orange-700, #c2410c); }
+.bdg-tag--chuy { color: #9a3412; background: var(--orange-50, #fff7ed); border: 1px solid var(--orange-200, #fed7aa); }
+.bdg-gia { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink-2); }
+.bdg-gia s { color: var(--ds-ink-3); }
+.bdg-gia b { font-weight: 800; color: var(--ds-ink); }
+.bdg .bdg-gon { white-space: normal; line-height: 1.4; display: flex; flex-direction: column; }
+.bdg-gon__ncc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bdg-gia-cot, .bdg-ncc { display: none; }
+.bdg-pct {
+  flex: none; min-width: 84px; text-align: center; padding: 2px 10px; border-radius: 999px;
+  font-size: var(--ds-fs-body2); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.bdg-pct.is-len { color: var(--orange-700, #c2410c); background: var(--orange-50, #fff7ed); }
+.bdg-pct.is-xuong { color: var(--brand, #0f766e); background: var(--teal-50, #f0fdfa); }
+@media (min-width: 768px) {
+  .bdg .bdg-gon__gia { display: none; }
+  .bdg-gia-cot { display: block; flex: 0 0 210px; text-align: right; font-size: var(--ds-fs-body2); }
+  .bdg-ncc { display: block; flex: 0 0 200px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}
+/* iPad dọc (<900px): 4 cột chật → NCC nằm ở dòng phụ dưới tên, giá vẫn ở cột riêng.
+   Từ 900px NCC có cột riêng nên bỏ dòng phụ. */
+@media (min-width: 768px) and (max-width: 899px) {
+  .bdg-ncc { display: none; }
+}
+@media (min-width: 900px) {
+  .bdg .bdg-gon { display: none; }
+}
+
+.bdg-ss__r { display: flex; justify-content: space-between; gap: 12px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); font-variant-numeric: tabular-nums; }
+.bdg-ss__r b { font-weight: 700; color: var(--ds-ink); white-space: nowrap; }
+.bdg-ss__r.is-re b { color: var(--brand, #0f766e); }
+
+/* ═════ Hộp "Lịch sử nhập & giá" (làm lại 2026-11-13) ═════
+   Lớp phủ riêng, KHÔNG nằm trong `.ncc-ui` (bản cũ) — nên màu biểu đồ đặt thẳng trong TSX.
+   Điện thoại: toàn màn, thanh trên sticky. Từ 720px: hộp 860px giữa màn.
+   `dvh` chứ không `vh` — vh trôi mất đỉnh trên iPhone. */
+.lsg-bg {
+  position: fixed; inset: 0; z-index: 9000; overflow-y: auto; overscroll-behavior: contain;
+  background: var(--ds-surface-2, #f9fafb);
+  display: flex; flex-direction: row; justify-content: center; align-items: flex-start;
+}
+.lsg { width: 100%; min-height: 100dvh; background: var(--ds-surface-2, #f9fafb); display: flex; flex-direction: column; }
+/* `.tk` (mượn để có ck-seg/tk-kpis) tự thêm `gap` — ở đây thanh trên phải dính sát thân hộp. */
+.lsg.ck.tk { gap: 0; }
+.lsg-top {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 10px;
+  padding: 8px 12px; padding-top: max(8px, env(safe-area-inset-top, 0px));
+  background: #fff; border-bottom: 1px solid var(--ds-line);
+}
+button.lsg-x {
+  flex: none; width: 44px; height: 44px; min-height: 44px; padding: 0; border-radius: 10px;
+  background: #fff; color: var(--ds-ink-2); border: 1px solid var(--gray-300, #d1d5db);
+  display: inline-flex; align-items: center; justify-content: center;
+}
+button.lsg-x:hover { background: var(--ds-muted-bg); opacity: 1; }
+.lsg-top__t { min-width: 0; }
+.lsg-top__t h2 { margin: 0; font-size: var(--ds-fs-title, 20px); line-height: 1.2; color: var(--ds-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lsg-top__t p { margin: 0; font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lsg-body { padding: 14px 16px 24px; padding-bottom: max(24px, env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 14px; }
+
+.tk-kpis.lsg-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tk-kpis.lsg-kpis .is-main { grid-column: 1 / -1; }
+.lsg-kpis .tk-kpi__v small { font-size: var(--ds-fs-label); font-weight: 600; color: var(--ds-ink-2); }
+.lsg-kpis .is-main .tk-kpi__v small { color: var(--teal-100, #ccfbf1); }
+.lsg-kpis .tk-kpi__s { white-space: normal; }
+.lsg-dn { display: inline-block; font-weight: 800; color: var(--teal-900, #134e4a); background: var(--teal-100, #ccfbf1); border-radius: 999px; padding: 0 8px; }
+
+.lsg-box { background: #fff; border: 1px solid var(--ds-line); border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.lsg-ctl { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.lsg-ctl .ck-seg { grid-column: 1 / -1; }
+.lsg-khoang { grid-column: 2; width: 150px; }
+.ck.tk .lsg-ctl .ck-seg button { flex: 1 1 0; padding: 0 10px; }
+.lsg-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.lsg-meta b { color: var(--ds-ink); font-variant-numeric: tabular-nums; }
+.lsg-k { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; }
+.lsg-k--tb { background: #1f2937; opacity: .55; }
+.lsg-chart { width: 100%; min-width: 0; }
+.lsg-chart svg { display: block; }
+.lsg-note { margin: 0; font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+
+.lsg-row { display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 60px; background: #fff; }
+.lsg-row + .lsg-row { border-top: 1px solid var(--ds-line); }
+.lsg-row .ck-row__s { white-space: normal; }
+.lsg-who { display: none; }
+.lsg-gia { flex: none; min-width: 104px; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.lsg-gia b { font-size: var(--ds-fs-body); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bdg-pct.lsg-pct { min-width: 0; font-size: var(--ds-fs-label); padding: 0 8px; line-height: 22px; }
+
+@media (min-width: 720px) {
+  .lsg-bg { background: rgba(17, 24, 39, .45); padding: 24px 20px; }
+  /* `margin: 0 auto` chứ không `auto` — hộp cao hơn màn mà căn giữa dọc thì đỉnh bị cắt. */
+  .lsg { max-width: 860px; min-height: 0; margin: 0 auto; border-radius: 16px; overflow: clip; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
+  .lsg-top { padding: 12px 20px; }
+  .lsg-body { padding: 18px 20px 24px; }
+  .tk-kpis.lsg-kpis { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .tk-kpis.lsg-kpis .is-main { grid-column: auto; }
+  .lsg-ctl { display: flex; justify-content: space-between; }
+  .lsg-ctl .ck-seg { flex: 0 0 auto; }
+  .ck.tk .lsg-ctl .ck-seg button { flex: 0 0 auto; padding: 0 16px; }
+  .lsg-who { display: block; flex: 0 0 180px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lsg-who-gon { display: none; }
+}
+
+/* ═════ Tab "Mặt hàng nhập" (làm lại 2026-11-13, cùng khuôn Phiếu nhập) ═════
+   Điện thoại mỗi dòng 3 hàng: [tên ... tổng tiền] · NCC · giá gần nhất (+ %). Số lần, lượng bỏ
+   (chủ quán chốt). Từ 768px: tiền + lượng + giá thành cột riêng, thêm "· N lần". */
+.tk-kpis.mh-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tk-kpis.mh-kpis .is-main { grid-column: 1 / -1; }
+.mh-kpis .tk-kpi__s { white-space: normal; }
+.mh-kpis .mh-dinh { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mh .ck-row__m { gap: 2px; }
+.mh-ten { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mh-ten__n { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: var(--ds-fs-body); font-weight: 600; line-height: 1.3; color: var(--ds-ink); min-width: 0; }
+.mh-tien-gon, .mh-tien { font-size: var(--ds-fs-body); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+.mh .ck-row__s { white-space: normal; }
+.mh-lan, .mh-luong, .mh-gia-cot, .mh-tien { display: none; }
+.mh-gia { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: var(--ds-fs-body2); }
+.mh-gia b { font-weight: 700; color: var(--ds-ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mh-xep { flex: 1 1 auto; }
+button.secondary.mh-xuat { flex: none; min-height: var(--ds-h-control, 44px); height: var(--ds-h-control, 44px); padding: 0 16px; }
+@media (min-width: 768px) {
+  .tk-kpis.mh-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.4fr); }
+  .tk-kpis.mh-kpis .is-main { grid-column: auto; }
+  .mh-xep { flex: 0 0 200px; }
+  .mh-tien-gon, .mh-gia-gon { display: none; }
+  .mh-lan { display: inline; }
+  .mh-luong { display: block; flex: 0 0 110px; text-align: right; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .mh-gia-cot { display: flex; flex: 0 0 160px; justify-content: flex-end; }
+  .mh-gia-cot .mh-gia { flex-direction: column; align-items: flex-end; gap: 2px; }
+  .mh-tien { display: block; flex: 0 0 130px; text-align: right; }
+}
+/* iPad dọc: bỏ cột Lượng cho tên còn chỗ. */
+@media (min-width: 768px) and (max-width: 899px) { .mh-luong { display: none; } }
+
+/* Ô Nhóm trong hộp Lịch sử nhập & giá (chỉ khi mở từ tab Mặt hàng nhập). */
+.lsg-nhom { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: #fff; border: 1px solid var(--ds-line); border-radius: 14px; padding: 10px 14px; }
+.lsg-nhom > span:first-child { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); white-space: nowrap; }
+.lsg-nhom > :last-child { flex: 0 1 180px; min-width: 0; }
+
+/* ═════ Tab "Giá vốn món" (làm lại 2026-11-13, cùng khuôn Mặt hàng nhập) ═════
+   Điện thoại: [▸ tên ... biên LN] · "Bán · Vốn · Lãi". Từ 768px: 4 cột số + hàng tiêu đề.
+   Biên LN: < 25% cam đặc, 25–50% chữ cam, ≥ 50% xanh ngọc (không đỏ, không xanh lá). */
+.gv-note { margin: 0; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.gv-note b { color: var(--ds-ink); }
+.tk-kpis.gv-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tk-kpis.gv-kpis .is-main { grid-column: 1 / -1; }
+.gv-kpis .tk-kpi__s { white-space: normal; }
+.gv-kpis .gv-dinh { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gv-xep { flex: 1 1 auto; }
+.gv-r + .gv-r { border-top: 1px solid var(--ds-line); }
+.gv .ck-row__m { gap: 2px; }
+.gv .ck-row > svg:first-child { order: -1; }
+.gv-r.is-mo > button.ck-row { background: var(--teal-50, #f0fdfa); }
+.gv-ten { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.gv-ten__n { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: var(--ds-fs-body); font-weight: 600; line-height: 1.3; color: var(--ds-ink); min-width: 0; }
+.gv .ck-row__s { white-space: normal; font-size: var(--ds-fs-body2); font-variant-numeric: tabular-nums; }
+.gv .ck-row__s b { color: var(--ds-ink); font-weight: 700; }
+.gv-tag-phu { color: var(--teal-800, #115e59); background: var(--teal-50, #f0fdfa); border: 1px solid var(--teal-200, #99f6e4); }
+.gv-thieu { font-size: var(--ds-fs-label); font-style: normal; color: var(--orange-700, #c2410c); }
+.gv-pct { font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink-3); }
+.gv-pct.is-on { color: var(--brand, #0f766e); }
+.gv-pct.is-vua { color: var(--orange-700, #c2410c); }
+.gv-pct.is-mong { color: #fff; background: var(--orange-700, #c2410c); border-radius: 999px; padding: 0 9px; font-size: 15px; line-height: 26px; }
+.gv-cot, .gv-head { display: none; }
+
+/* Phần mở ra dưới dòng: từng nguyên liệu + thanh tỉ lệ, cuối là % nguyên liệu phụ. */
+.gv-d { display: flex; flex-direction: column; gap: 12px; padding: 4px 14px 14px 42px; background: var(--teal-50, #f0fdfa); }
+.gv-ing { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; align-items: baseline; }
+.gv-ing__n { display: flex; flex-direction: column; font-size: var(--ds-fs-body2); font-weight: 600; color: var(--ds-ink); min-width: 0; }
+.gv-ing__n > span { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; }
+.gv-ing__n small, .gv-ing__v small, .gv-phu__l small { display: block; font-size: var(--ds-fs-label); font-weight: 400; color: var(--ds-ink-2); }
+.gv-ing__q { grid-column: 1 / -1; grid-row: 2; font-size: var(--ds-fs-label); color: var(--ds-ink-2); font-variant-numeric: tabular-nums; }
+.gv-ing__v { grid-column: 2; grid-row: 1; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+.gv-ing.is-phu .gv-ing__v { font-weight: 400; color: var(--ds-ink-2); }
+.gv-bar { grid-column: 1 / -1; display: block; height: 8px; border-radius: 999px; background: #fff; border: 1px solid var(--teal-100, #ccfbf1); overflow: hidden; }
+.gv-bar em { display: block; height: 100%; background: var(--teal-600, #0d9488); }
+.gv-phu { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding-top: 10px; border-top: 1px dashed var(--teal-200, #99f6e4); }
+.gv-phu__l { flex: 1 1 0; font-size: var(--ds-fs-body2); color: var(--ds-ink); min-width: 0; }
+
+@media (min-width: 768px) {
+  .tk-kpis.gv-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .tk-kpis.gv-kpis .is-main { grid-column: auto; }
+  .gv-xep { flex: 0 0 220px; margin-left: auto; }
+  .gv-gon { display: none; }
+  .gv-cot { display: block; flex: 0 0 110px; text-align: right; font-size: var(--ds-fs-body2); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+  .gv-cot.is-von { font-weight: 700; }
+  .gv-cot.is-pct { flex-basis: 90px; }
+  /* Hàng tiêu đề thẳng cột với dòng: lề trái = padding dòng 14 + mũi tên 18 + gap 10. */
+  .gv-head { display: flex; gap: 10px; padding: 10px 12px 10px 42px; border-bottom: 1px solid var(--ds-line); font-size: var(--ds-fs-label); font-weight: 600; color: var(--ds-ink-2); }
+  .gv-head span { flex: 0 0 110px; text-align: right; }
+  .gv-head span:first-child { flex: 1; text-align: left; }
+  .gv-head span:last-child { flex-basis: 90px; }
+  .gv-d { padding-right: 24px; }
+  .gv-ing { grid-template-columns: minmax(0, 1fr) 200px 130px; align-items: center; }
+  .gv-ing__q { grid-column: 2; grid-row: 1; text-align: right; font-size: var(--ds-fs-body2); }
+  .gv-ing__v { grid-column: 3; }
+}
+
+/* ═════ Tab "Món đã bán" (làm lại 2026-11-13, cùng khuôn Mặt hàng nhập) ═════
+   Điện thoại 3 hàng: [tên ... doanh thu] · [N phần · N đơn · nhóm ... %] · thanh tỉ lệ.
+   Từ 768px: Giá bán · Số phần · Số đơn · Doanh thu · % (+ thanh) thành cột, dòng phụ còn nhóm. */
+.tk-kpis.mdb-kpis { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tk-kpis.mdb-kpis .is-main { grid-column: 1 / -1; }
+.mdb-kpis .tk-kpi__s { white-space: normal; }
+.mdb-xep { flex: 1 1 auto; }
+.mdb .ck-row__m { gap: 3px; }
+.mdb-l1, .mdb-l2 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.mdb-ten { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: var(--ds-fs-body); font-weight: 600; line-height: 1.3; color: var(--ds-ink); min-width: 0; }
+.mdb-dt { font-size: var(--ds-fs-body); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+.mdb .ck-row__s { white-space: normal; font-size: var(--ds-fs-body2); font-variant-numeric: tabular-nums; }
+.mdb-pct { font-size: var(--ds-fs-body2); font-weight: 700; color: var(--brand, #0f766e); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mdb-bar { display: block; height: 6px; border-radius: 999px; background: #f1f5f9; overflow: hidden; }
+.mdb-bar em { display: block; height: 100%; border-radius: 999px; background: var(--teal-600, #0d9488); }
+.mdb-cot, .mdb-head { display: none; }
+
+/* Tấm đơn của một món — render qua portal ra <body>, nên KHÔNG bám `.mdb`. */
+.mdb-don { display: flex; flex-direction: column; gap: 12px; padding: 0 16px 16px; }
+.mdb-don__phu { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+.mdb-don__kp { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1fr); gap: 1px; background: var(--ds-line); border: 1px solid var(--ds-line); border-radius: 12px; overflow: hidden; }
+.mdb-don__kp div { background: #fff; padding: 8px 10px; display: flex; flex-direction: column; min-width: 0; }
+.mdb-don__kp span { font-size: var(--ds-fs-label); color: var(--ds-ink-2); }
+.mdb-don__kp b { font-size: 16px; font-variant-numeric: tabular-nums; color: var(--ds-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mdb-don__ds { list-style: none; margin: 0; padding: 0; }
+.mdb-od { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 10px; padding: 10px 0; border-top: 1px solid var(--ds-line); align-items: baseline; }
+.mdb-od__w { font-size: var(--ds-fs-body); font-weight: 600; color: var(--ds-ink); font-variant-numeric: tabular-nums; }
+.mdb-od__a { text-align: right; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+.mdb-od__x { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); min-width: 0; }
+.mdb-od__st { justify-self: end; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; line-height: 22px; padding: 0 8px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.mdb-od__st.badge--ok { color: var(--teal-800, #115e59); background: var(--teal-50, #f0fdfa); border-color: var(--teal-200, #99f6e4); }
+.mdb-od__st.badge--pending { color: #9a3412; background: var(--orange-50, #fff7ed); border-color: var(--orange-200, #fed7aa); }
+.mdb-od__st.badge--debt { color: #fff; background: var(--orange-700, #c2410c); }
+.mdb-od__st.badge--danger, .mdb-od__st.badge--neutral { color: var(--ds-ink-2); background: var(--ds-muted-bg, #f3f4f6); }
+.mdb-don__ghi { margin: 0; font-size: var(--ds-fs-label); color: var(--ds-ink-3); }
+
+@media (min-width: 768px) {
+  .tk-kpis.mdb-kpis { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+  .tk-kpis.mdb-kpis .is-main { grid-column: auto; }
+  .mdb-xep { flex: 0 0 240px; margin-left: auto; }
+  .mdb-gon { display: none; }
+  .mdb .ck-row__s { font-size: var(--ds-fs-label); }
+  .mdb-cot { display: block; flex: 0 0 80px; text-align: right; font-size: var(--ds-fs-body2); font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--ds-ink); }
+  .mdb-cot.is-gia { flex-basis: 110px; }
+  .mdb-cot.is-dt { flex-basis: 130px; font-weight: 800; }
+  .mdb-cot.is-pct { flex-basis: 150px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+  .mdb-cot.is-pct b { color: var(--brand, #0f766e); }
+  .mdb-cot.is-pct .mdb-bar { flex: 0 0 72px; }
+  /* Tiêu đề thẳng cột với dòng: lề phải = padding dòng 12 + mũi tên 18 + gap 10. */
+  .mdb-head { display: flex; gap: 10px; padding: 10px 40px 10px 14px; border-bottom: 1px solid var(--ds-line); font-size: var(--ds-fs-label); font-weight: 600; color: var(--ds-ink-2); }
+  .mdb-head span { flex: 0 0 80px; text-align: right; }
+  .mdb-head span:first-child { flex: 1; text-align: left; }
+  .mdb-head .is-gia { flex-basis: 110px; }
+  .mdb-head .is-dt { flex-basis: 130px; }
+  .mdb-head .is-pct { flex-basis: 150px; }
+}
+/* iPad dọc: bỏ cột Giá bán cho tên món còn chỗ (giá vẫn thấy trong tấm đơn). */
+@media (min-width: 768px) and (max-width: 899px) { .mdb-cot.is-gia, .mdb-head .is-gia { display: none; } }

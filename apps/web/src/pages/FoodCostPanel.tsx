@@ -2,12 +2,35 @@
 //
 // Bảng này không phải báo cáo để ngắm: nó nói món nào đang mỏng lãi, và nguyên liệu nào trong
 // món đó ngốn tiền nhất — tức là nên gọi điện mặc cả cái gì trước.
+//
+// LÀM LẠI 2026-11-13 (chủ quán duyệt bản xem thử, cùng khuôn tab Phiếu nhập / Mặt hàng nhập):
+// - Bảng 6 cột tràn ngang trên điện thoại, đẩy Lãi + Biên LN (hai cột đáng xem nhất) ra ngoài màn
+//   → danh sách dòng: tên + biên LN to bên phải, dòng phụ "Bán · Vốn · Lãi". Từ 768px tách cột.
+// - Dải 3 số: lãi mỏng nhất · số món dưới 50% · biên LN trung bình. Dòng "Tổng mua · Tổng nợ" của
+//   màn cha bỏ ở tab này.
+// - Màu: bỏ đỏ / xanh lá (quy tắc màu admin). Dưới 25% cam đặc + nhãn "Lãi mỏng", 25–50% chữ cam,
+//   từ 50% xanh ngọc. Ngưỡng giữ nguyên — xem `lib/gia-von.ts`.
+// - Ô "% phụ" ở MỌI dòng (gần như toàn ghi "tắt") → vào phần mở ra của món. Món có tính phụ thì có
+//   nhãn "+5% phụ" cạnh tên.
+// - Chạm dòng vẫn mở ngay dưới dòng (không che danh sách); nguyên liệu có thanh tỉ lệ để thấy ngay
+//   cái nào ngốn tiền nhất.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
-import { C } from '../lib/online-ui.ts';
 import { useAuth } from '../lib/auth-context.tsx';
 import { OverheadPctEditor } from '../components/OverheadPctEditor.tsx';
+import { Pager } from '../components/Pager.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { khopTuKhoa } from '../lib/tim-mon.ts';
+import { phanTrang } from '../lib/supplier-stats.ts';
+import {
+  NGUONG_VUA, duoiNguong, locGiaVon, mucLai, tachTenNcc, tomTatGiaVon, xepGiaVon,
+  type LocGiaVon, type XepGiaVon,
+} from '../lib/gia-von.ts';
+import './so-tien.css';
+import './thong-ke-ncc.css';
+import './so-no-ncc.css';
 
 type Component = {
   ingredient_id: string;
@@ -45,14 +68,28 @@ type FoodCostRow = {
 
 const vnd = (n: number) => Math.round(n).toLocaleString('vi-VN');
 const num = (n: number, d = 3) => n.toLocaleString('vi-VN', { maximumFractionDigits: d });
+const pctVN = (n: number) => n.toLocaleString('vi-VN', { maximumFractionDigits: 1 });
+/** '2026-08-15' → '15/08' — năm thừa, cửa sổ chỉ 90 ngày. */
+const ngayNgan = (iso: string) => (iso.length >= 10 ? `${iso.slice(8, 10)}/${iso.slice(5, 7)}` : iso);
 
-/** Màu theo biên lợi nhuận. Ngưỡng 25% / 50% là mức thường thấy ở quán ăn — dưới 25% là mỏng tới
- * mức một lần NCC tăng giá là lỗ. */
-function marginColor(pct: number | null): string {
-  if (pct === null) return C.muted;
-  if (pct < 25) return '#b91c1c';
-  if (pct < 50) return '#b45309';
-  return '#15803d';
+/** Bằng `CO_TRANG` các tab NCC khác — cùng kiểu danh sách thì cùng nhịp nhảy trang. */
+const CO_TRANG = 15;
+
+const XEP: Array<{ value: XepGiaVon; label: string }> = [
+  { value: 'mong', label: 'Lãi mỏng nhất' },
+  { value: 'nhieu', label: 'Lãi nhiều nhất' },
+  { value: 'ten', label: 'Tên A → Z' },
+];
+const LOC: Array<{ value: LocGiaVon; label: string }> = [
+  { value: 'all', label: 'Tất cả' },
+  { value: 'duoi50', label: `Dưới ${NGUONG_VUA}%` },
+  { value: 'thieu', label: 'Thiếu giá' },
+];
+
+function Pct({ pct }: { pct: number | null }) {
+  const m = mucLai(pct);
+  if (pct === null || m === null) return <span className="gv-pct">—</span>;
+  return <span className={`gv-pct is-${m}`}>{pctVN(pct)}%</span>;
 }
 
 export function FoodCostPanel() {
@@ -64,9 +101,15 @@ export function FoodCostPanel() {
   const [from, setFrom] = useState('');
   const [open, setOpen] = useState<string | null>(null);
   const [referencePct, setReferencePct] = useState<number | null>(null);
+  const [tim, setTim] = useState('');
+  const [loc, setLoc] = useState<LocGiaVon>('all');
+  const [xep, setXep] = useState<XepGiaVon>('mong');
+  const [page, setPage] = useState(1);
 
-  const load = useCallback(() => {
-    setRows(null);
+  /** `im` = nạp lại sau khi lưu % phụ: giữ danh sách cũ trên màn trong lúc chờ, không nháy
+   *  "Đang tải…" làm mất chỗ đang xem và đóng phần đang mở. */
+  const load = useCallback((im = false) => {
+    if (!im) setRows(null);
     api
       .get<{
         data: { from: string; items: FoodCostRow[]; overhead_reference_pct: number | null };
@@ -78,217 +121,211 @@ export function FoodCostPanel() {
       })
       .catch((err) => {
         toast.push('error', extractError(err).message);
-        setRows([]);
+        if (!im) setRows([]);
       });
   }, [toast]);
 
-  useEffect(load, [load]);
+  useEffect(() => load(), [load]);
+  useEffect(() => { setPage(1); }, [tim, loc, xep]);
 
-  // Món mỏng lãi nhất nằm trên. Món chưa đủ giá nguyên liệu xuống cuối — con số của chúng chưa
-  // dùng để ra quyết định được, để lẫn lên đầu chỉ gây hiểu nhầm.
-  const sorted = useMemo(
-    () =>
-      [...(rows ?? [])].sort((a, b) => {
-        if (a.complete !== b.complete) return a.complete ? -1 : 1;
-        return (a.margin_pct ?? 999) - (b.margin_pct ?? 999);
-      }),
-    [rows],
+  const daTim = useMemo(() => (rows ?? []).filter((r) => !tim.trim() || khopTuKhoa(r.menu_item_name, tim)), [rows, tim]);
+  const dem = useMemo<Record<LocGiaVon, number>>(
+    () => ({ all: daTim.length, duoi50: daTim.filter(duoiNguong).length, thieu: daTim.filter((r) => !r.complete).length }),
+    [daTim],
   );
+  const daLoc = useMemo(() => xepGiaVon(locGiaVon(daTim, loc), xep), [daTim, loc, xep]);
+  // Dải số tính trên kết quả TÌM, không theo nút lọc — bấm "Dưới 50%" mà số "dưới 50%" cũng đổi
+  // theo thì dải số chẳng nói thêm gì.
+  const tt = useMemo(() => tomTatGiaVon(daTim), [daTim]);
+  const soDu = daTim.filter((r) => r.complete).length;
+  const trang = phanTrang(daLoc, page, CO_TRANG);
 
-  const incomplete = sorted.filter((r) => !r.complete);
-  // Chưa món nào có phần phụ thì bảng giữ đúng hình dạng cũ — cột "Tiền NL" chỉ nói khác cột Giá
-  // vốn khi có món đã cộng phụ.
-  const showMain = (rows ?? []).some((r) => r.overhead_amount > 0);
+  /** Lưu % ở một món xong → nạp lại cả bảng: giá vốn, lãi và thứ tự xếp đều đổi theo. */
+  const daLuu = () => load(true);
 
-  /** Lưu % ở một dòng xong → nạp lại cả bảng: giá vốn, lãi và thứ tự xếp đều đổi theo. */
-  const daLuu = load;
-
-  if (rows === null) return <p style={{ color: C.muted }}>Đang tải…</p>;
+  if (rows === null) return <p className="ck-het">Đang tải…</p>;
   if (rows.length === 0) {
     return (
-      <div className="empty-state card">
-        Chưa món nào có công thức. Khai công thức ở màn Menu rồi quay lại đây.
+      <div className="sx-empty">
+        <h3>Chưa món nào có công thức</h3>
+        <p>Khai công thức ở màn Thực đơn rồi quay lại đây.</p>
       </div>
     );
   }
 
+  const chiTiet = (r: FoodCostRow) => {
+    // Sắp theo phần đóng góp giảm dần — nguyên liệu đáng đàm phán nằm trên. Nguyên liệu phụ xuống
+    // cuối: nó không nằm trong tổng ở trên.
+    const ds = [...r.components].sort((a, b) =>
+      a.is_secondary !== b.is_secondary ? (a.is_secondary ? 1 : -1) : (b.cost ?? -1) - (a.cost ?? -1),
+    );
+    return (
+      <div className="gv-d" id={`gv-d-${r.menu_item_id}`}>
+        {ds.map((c) => {
+          const { ten, ncc } = tachTenNcc(c.ingredient_name);
+          return (
+            /* Khoá gồm NCC: từ 2026-10-19 một món có thể có hai dòng cùng nguyên liệu khác NCC. */
+            <div key={`${c.ingredient_id}|${c.supplier_id ?? ''}`} className={`gv-ing${c.is_secondary ? ' is-phu' : ''}`}>
+              <span className="gv-ing__n">
+                <span>
+                  {ten}
+                  {c.is_secondary && <span className="bdg-tag">Phụ · tính qua %</span>}
+                  {c.is_resale && <span className="bdg-tag">Bán nguyên</span>}
+                </span>
+                {ncc && <small>{ncc}</small>}
+              </span>
+              <span className="gv-ing__q">
+                {num(c.qty_per_serving)} {c.base_unit} ×{' '}
+                {c.unit_price_base === null ? <em className="gv-thieu">chưa có giá</em> : `${num(c.unit_price_base)}đ`}
+              </span>
+              <span className="gv-ing__v">
+                {c.cost === null ? '—' : `${vnd(c.cost)}đ`}
+                {c.share_pct !== null && <small>{c.share_pct}%</small>}
+              </span>
+              {c.share_pct !== null && !c.is_secondary && (
+                <i className="gv-bar" aria-hidden="true"><em style={{ width: `${Math.min(100, Math.max(0, c.share_pct))}%` }} /></i>
+              )}
+            </div>
+          );
+        })}
+        <div className="gv-phu">
+          <span className="gv-phu__l">
+            Nguyên liệu phụ (gas, hành, đá…)
+            <small>
+              {r.overhead_amount > 0
+                ? `${pctVN(r.overhead_pct ?? 0)}% của ${vnd(r.cost_main)}đ = +${vnd(r.overhead_amount)}đ`
+                : r.overhead_pct === null ? 'Đang không tính' : `Đang tính ${pctVN(r.overhead_pct)}%`}
+              {referencePct !== null && ` · thực tế 90 ngày: ${pctVN(referencePct)}%`}
+            </small>
+          </span>
+          {/* `cell`: ô % + nút Lưu, ô trống rồi Lưu = tắt. Người chỉ xem thấy số, không thấy ô. */}
+          <OverheadPctEditor
+            variant="cell"
+            menuItemId={r.menu_item_id}
+            menuItemName={r.menu_item_name}
+            pct={r.overhead_pct}
+            referencePct={referencePct}
+            canEdit={canEdit}
+            onSaved={daLuu}
+          />
+        </div>
+      </div>
+    );
+  };
+
+  const dong = (r: FoodCostRow) => {
+    const mo = open === r.menu_item_id;
+    const thieu = !r.complete;
+    const von = `${vnd(r.cost)}đ${thieu ? ' +?' : ''}`;
+    const lai = r.margin_amount === null ? '—' : `${vnd(r.margin_amount)}đ`;
+    return (
+      <div key={r.menu_item_id} className={`gv-r${mo ? ' is-mo' : ''}`}>
+        <button
+          type="button"
+          className="ck-row gv-row"
+          aria-expanded={mo}
+          aria-controls={mo ? `gv-d-${r.menu_item_id}` : undefined}
+          onClick={() => setOpen(mo ? null : r.menu_item_id)}
+        >
+          <Icon name={mo ? 'mui-ten-xuong' : 'mui-ten-phai'} size={18} />
+          <span className="ck-row__m">
+            <span className="gv-ten">
+              <span className="gv-ten__n">
+                {r.menu_item_name}
+                {mucLai(r.margin_pct) === 'mong' && r.complete && <span className="bdg-tag bdg-tag--chuy">Lãi mỏng</span>}
+                {r.overhead_pct !== null && <span className="bdg-tag gv-tag-phu">+{pctVN(r.overhead_pct)}% phụ</span>}
+              </span>
+              <span className="gv-gon"><Pct pct={r.margin_pct} /></span>
+            </span>
+            <span className="ck-row__s gv-gon">
+              Bán {vnd(r.sell_price)} · Vốn {vnd(r.cost)}{thieu ? ' +?' : ''} · Lãi <b>{lai}</b>
+            </span>
+            {thieu && <span className="gv-thieu">Thiếu giá: {r.missing.join(', ')}</span>}
+          </span>
+          <span className="gv-cot">{vnd(r.sell_price)}đ</span>
+          <span className="gv-cot is-von">{von}</span>
+          <span className="gv-cot">{lai}</span>
+          <span className="gv-cot is-pct"><Pct pct={r.margin_pct} /></span>
+        </button>
+        {mo && chiTiet(r)}
+      </div>
+    );
+  };
+
   return (
-    <>
-      <p style={{ fontSize: 14, color: C.mutedOnTint, margin: '0 0 12px' }}>
-        Giá vốn tính theo <strong>giá mua bình quân</strong> từ {from} tới nay — không phải giá lần
-        nhập cuối, để một đợt mua lẻ đắt đỏ không kéo lệch cả bảng.
+    <section className="sx tk ck pn gv">
+      <p className="gv-note">
+        Giá mua bình quân từ <b>{ngayNgan(from)}</b> tới nay
+        {referencePct !== null && <> · % phụ thực tế 90 ngày: <b>{pctVN(referencePct)}%</b></>}
       </p>
 
-      {/* % phụ đặt cho TỪNG món (2026-10-28 — bỏ % chung tự áp cho mọi món): ở cột "% phụ" dưới
-          đây hoặc trong hộp Công thức của món. Số thực tế chỉ để tham khảo, không tự điền — tháng
-          nào mua dồn bình gas thì nó vọt lên. */}
-      <div className="card" style={{ marginBottom: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 16 }}>Chi phí nguyên liệu phụ</div>
-        <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
-          Gas, hành lá, đá… không cân vào từng món. Món nào cần tính thì nhập % ở cột <strong>% phụ</strong>{' '}
-          (tính trên tiền nguyên liệu chính của món); để trống là không tính. Hàng bán nguyên không
-          bị cộng.
+      <label className="pn-tim">
+        <Icon name="tim" size={18} />
+        <input
+          type="search"
+          value={tim}
+          onChange={(e) => setTim(e.target.value)}
+          placeholder="Tên món, vd: ốc"
+          aria-label="Tìm món theo tên"
+        />
+      </label>
+
+      <section className="tk-kpis gv-kpis" aria-label="Tóm tắt giá vốn món">
+        <div className="tk-kpi is-main">
+          <span className="tk-kpi__l">Lãi mỏng nhất</span>
+          <span className="tk-kpi__v gv-dinh">
+            {/* % đứng TRƯỚC tên: tên món dài ("Bạch Tuộc Hấp : 150 / 1 Đĩa") bị cắt "…" ở laptop
+                thì chỉ mất đuôi tên, con số vẫn còn. */}
+            {tt.mongNhat ? `${pctVN(tt.mongNhat.margin_pct as number)}% · ${tt.mongNhat.menu_item_name}` : '—'}
+          </span>
+          <span className="tk-kpi__s">
+            {tt.mongNhat && tt.mongNhat.margin_amount !== null ? `lãi ${vnd(tt.mongNhat.margin_amount)}đ mỗi phần` : 'chưa món nào đủ giá'}
+          </span>
         </div>
-        {referencePct !== null && (
-          <div style={{ fontSize: 15, marginTop: 8 }}>
-            Thực tế 90 ngày qua: <strong>{referencePct.toLocaleString('vi-VN')}%</strong>{' '}
-            <span style={{ color: C.mutedOnTint, fontSize: 13 }}>(tiền nhập NL phụ ÷ NL chính, không tính hàng bán nguyên)</span>
-          </div>
-        )}
+        <div className="tk-kpi">
+          <span className="tk-kpi__l">Lãi dưới {NGUONG_VUA}%</span>
+          <span className="tk-kpi__v">{tt.duoi50} món</span>
+          <span className="tk-kpi__s">trên {daTim.length} món có công thức</span>
+        </div>
+        <div className="tk-kpi">
+          <span className="tk-kpi__l">Biên LN trung bình</span>
+          <span className="tk-kpi__v">{tt.trungBinh === null ? '—' : `${pctVN(Math.round(tt.trungBinh))}%`}</span>
+          <span className="tk-kpi__s">{soDu === daTim.length ? 'các món đủ giá' : `${soDu} món đủ giá`}</span>
+        </div>
+      </section>
+
+      <div className="ck-tool">
+        <div className="ck-seg" role="group" aria-label="Lọc món theo biên lợi nhuận">
+          {LOC.map((o) => (
+            <button key={o.value} type="button" aria-pressed={loc === o.value} onClick={() => setLoc(o.value)}>
+              {o.label}<small>{dem[o.value]}</small>
+            </button>
+          ))}
+        </div>
+        <div className="pn-xep gv-xep">
+          <Dropdown full value={xep} neutralValue="mong" ariaLabel="Sắp xếp món" sheetTitle="Sắp xếp"
+                    onChange={(v) => setXep(v as XepGiaVon)} options={XEP} />
+        </div>
       </div>
 
-      {incomplete.length > 0 && (
-        // Nói thẳng ra, không giấu: giá vốn thiếu nguyên liệu luôn THẤP hơn thật, tức biên lợi
-        // nhuận đẹp hơn thật.
-        <div className="card" style={{ marginBottom: 12, background: '#fffbeb' }}>
-          <strong>{incomplete.length} món chưa đủ giá nguyên liệu</strong>
-          <div style={{ fontSize: 14, color: C.mutedOnTint, marginTop: 4 }}>
-            Những món đó chưa tính được biên lợi nhuận. Nhập một phiếu có nguyên liệu còn thiếu là
-            bảng tự đủ.
+      {trang.total === 0 ? (
+        <div className="sx-empty">
+          <h3>Không có món nào khớp</h3>
+          <p>{tim.trim() ? `Không món nào có tên chứa “${tim.trim()}”.` : loc === 'thieu' ? 'Món nào cũng đã đủ giá nguyên liệu.' : 'Không món nào lãi dưới 50%.'}</p>
+          <button type="button" className="ck-lnk" onClick={() => { setTim(''); setLoc('all'); }}>Xoá bộ lọc</button>
+        </div>
+      ) : (
+        <div className="ck-days">
+          <div className="ck-list">
+            <div className="gv-head" aria-hidden="true">
+              <span>Món</span><span>Giá bán</span><span>Giá vốn</span><span>Lãi/phần</span><span>Biên LN</span>
+            </div>
+            {trang.rows.map(dong)}
           </div>
+          <Pager trang={trang} doiTrang={setPage} nhan="món" />
+          {trang.totalPages === 1 && <p className="ck-het">{trang.total} món · đã hiện hết</p>}
         </div>
       )}
-
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-          <thead>
-            <tr style={{ textAlign: 'left', color: C.mutedOnTint }}>
-              <th style={{ padding: 8 }}>Món</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Giá bán</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>% phụ</th>
-              {showMain && <th style={{ padding: 8, textAlign: 'right' }}>Tiền NL</th>}
-              <th style={{ padding: 8, textAlign: 'right' }}>{showMain ? 'Giá vốn đủ' : 'Giá vốn'}</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Lãi/phần</th>
-              <th style={{ padding: 8, textAlign: 'right' }}>Biên LN</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((r) => (
-              <>
-                <tr
-                  key={r.menu_item_id}
-                  onClick={() => setOpen(open === r.menu_item_id ? null : r.menu_item_id)}
-                  style={{ borderTop: '1px solid #e5e7eb', cursor: 'pointer' }}
-                >
-                  <td style={{ padding: 8 }}>
-                    {open === r.menu_item_id ? '▾ ' : '▸ '}
-                    {r.menu_item_name}
-                    {!r.complete && (
-                      <div style={{ fontSize: 12, color: '#b45309' }}>
-                        thiếu giá: {r.missing.join(', ')}
-                      </div>
-                    )}
-                  </td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>{vnd(r.sell_price)}đ</td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>
-                    <OverheadPctEditor
-                      variant="cell"
-                      menuItemId={r.menu_item_id}
-                      menuItemName={r.menu_item_name}
-                      pct={r.overhead_pct}
-                      referencePct={referencePct}
-                      canEdit={canEdit}
-                      onSaved={daLuu}
-                    />
-                  </td>
-                  {showMain && (
-                    // Chính + bán nguyên = mọi thứ trước % phụ. Chỉ để `cost_main` thì lon bia hiện
-                    // "0đ" ở cột này — trông như món chưa có giá.
-                    <td style={{ padding: 8, textAlign: 'right', color: C.mutedOnTint }}>{vnd(r.cost_main + (r.cost_resale ?? 0))}đ</td>
-                  )}
-                  <td style={{ padding: 8, textAlign: 'right', fontWeight: 700 }}>
-                    {vnd(r.cost)}đ{!r.complete && <span style={{ color: '#b45309' }}> +?</span>}
-                  </td>
-                  <td style={{ padding: 8, textAlign: 'right' }}>
-                    {r.margin_amount === null ? '—' : `${vnd(r.margin_amount)}đ`}
-                  </td>
-                  <td
-                    style={{
-                      padding: 8,
-                      textAlign: 'right',
-                      fontWeight: 800,
-                      color: marginColor(r.margin_pct),
-                    }}
-                  >
-                    {r.margin_pct === null ? '—' : `${r.margin_pct.toLocaleString('vi-VN')}%`}
-                  </td>
-                </tr>
-                {open === r.menu_item_id && (
-                  <tr key={`${r.menu_item_id}-d`}>
-                    <td colSpan={showMain ? 7 : 6} style={{ padding: '0 8px 12px', background: '#f9fafb' }}>
-                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                        <tbody>
-                          {/* Sắp theo phần đóng góp giảm dần — nguyên liệu đáng đàm phán nằm trên. */}
-                          {/* Nguyên liệu phụ xuống cuối: nó không nằm trong tổng ở trên. */}
-                          {[...r.components]
-                            .sort((a, b) =>
-                              a.is_secondary !== b.is_secondary
-                                ? a.is_secondary ? 1 : -1
-                                : (b.cost ?? -1) - (a.cost ?? -1),
-                            )
-                            .map((c) => (
-                              /* Khoá gồm NCC: từ 2026-10-19 một món có thể có hai dòng cùng nguyên liệu
-                                 khác NCC ("Thịt bò · NCC A", "· NCC B"). Tên hiển thị BE đã ghép sẵn NCC. */
-                              <tr key={`${c.ingredient_id}|${c.supplier_id ?? ''}`}>
-                                <td style={{ padding: '4px 8px' }}>
-                                  {c.ingredient_name}
-                                  {c.is_secondary && (
-                                    <span style={{ marginLeft: 6, fontSize: 12, color: C.muted }}>
-                                      (phụ — tính qua %)
-                                    </span>
-                                  )}
-                                  {c.is_resale && (
-                                    <span style={{ marginLeft: 6, fontSize: 12, color: '#6d28d9' }}>
-                                      (bán nguyên — không cộng %)
-                                    </span>
-                                  )}
-                                </td>
-                                <td style={{ padding: '4px 8px', textAlign: 'right', color: C.mutedOnTint }}>
-                                  {num(c.qty_per_serving)} {c.base_unit}
-                                </td>
-                                <td style={{ padding: '4px 8px', textAlign: 'right', color: C.mutedOnTint }}>
-                                  {c.unit_price_base === null ? (
-                                    <span style={{ color: '#b45309' }}>chưa có giá</span>
-                                  ) : (
-                                    `${num(c.unit_price_base)} đ/${c.base_unit}`
-                                  )}
-                                </td>
-                                <td
-                                  style={{
-                                    padding: '4px 8px',
-                                    textAlign: 'right',
-                                    fontWeight: c.is_secondary ? 400 : 600,
-                                    color: c.is_secondary ? C.muted : undefined,
-                                  }}
-                                >
-                                  {c.cost === null ? '—' : `${vnd(c.cost)}đ`}
-                                </td>
-                                <td style={{ padding: '4px 8px', textAlign: 'right', width: 56, color: C.muted }}>
-                                  {c.share_pct === null ? '' : `${c.share_pct}%`}
-                                </td>
-                              </tr>
-                            ))}
-                          {r.overhead_amount > 0 && (
-                            <tr style={{ borderTop: '1px dashed #d1d5db' }}>
-                              <td style={{ padding: '4px 8px' }} colSpan={3}>
-                                Nguyên liệu phụ ({(r.overhead_pct ?? 0).toLocaleString('vi-VN')}% của {vnd(r.cost_main)}đ)
-                              </td>
-                              <td style={{ padding: '4px 8px', textAlign: 'right', fontWeight: 600 }}>
-                                +{vnd(r.overhead_amount)}đ
-                              </td>
-                              <td />
-                            </tr>
-                          )}
-                        </tbody>
-                      </table>
-                    </td>
-                  </tr>
-                )}
-              </>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </>
+    </section>
   );
 }

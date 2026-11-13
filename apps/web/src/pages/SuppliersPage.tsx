@@ -28,8 +28,7 @@ import { Icon } from '../components/ui/Icon.tsx';
 import { Sheet } from '../components/ui/Sheet.tsx';
 import { tongConPhaiTra } from '../lib/supplier-stats.ts';
 import { SupplierTransfersPanel } from './SupplierTransfersPanel.tsx';
-import { ItemStatsPanel } from './SupplierReports.tsx';
-import { PriceHistoryDialog } from './SupplierPriceHistory.tsx';
+import { SupplierItemsScreen } from './SupplierItemsScreen.tsx';
 import type { Balance } from './SupplierPayments.tsx';
 import { SupplierAccountDialog } from './SupplierAccountPanel.tsx';
 import { SupplierOverview } from './SupplierOverview.tsx';
@@ -71,11 +70,11 @@ type Tab = 'suppliers' | 'stats' | 'transfers' | 'deliveries' | 'prices' | 'item
 
 /** Những tab mà bộ lọc NCC có tác dụng. Tab "Nhà cung cấp" chính là danh sách NCC nên lọc nó là
  *  vô nghĩa; "Giá vốn món" tính trên công thức món, không đi qua NCC nào cả. */
-const TABS_CO_LOC: Tab[] = ['stats', 'items'];
+const TABS_CO_LOC: Tab[] = ['stats'];
 
 /** Tab đã dựng lại theo mockup — chúng tự vẽ đầu trang (`pagehead`) và thanh lọc riêng, nên
  *  tiêu đề chung và hàng lọc cũ của màn phải im đi, không thì hiện hai lần. */
-const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries', 'dishes', 'transfers'];
+const TAB_TU_VE_DAU_TRANG: Tab[] = ['suppliers', 'prices', 'deliveries', 'dishes', 'transfers', 'items', 'foodcost'];
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
 const VN_OFFSET_MS = 7 * 3600_000;
@@ -134,7 +133,6 @@ export function SuppliersPage() {
   const [showForm, setShowForm] = useState<{ supplierId?: string; editingId?: string } | null>(null);
   const [showEditor, setShowEditor] = useState<Supplier | 'new' | null>(null);
   const [showIngredients, setShowIngredients] = useState(false);
-  const [history, setHistory] = useState<{ id: string; name: string } | null>(null);
   const [balances, setBalances] = useState<Map<string, Balance>>(new Map());
   // Tăng lên mỗi khi có thứ làm đổi công nợ (phiếu mới, thanh toán, số dư đầu kỳ) — khối công nợ
   // trong chi tiết NCC nạp lại theo giá trị này.
@@ -194,10 +192,6 @@ export function SuppliersPage() {
   const periodTotal = suppliers
     .filter((s) => !filterSupplierId || s.id === filterSupplierId)
     .reduce((sum, s) => sum + s.period_amount, 0);
-  /** Tổng của bảng "Mặt hàng nhập" sau khi lọc NCC + kỳ + gõ tìm, do panel con báo lên.
-   *  `periodTotal` không nghe ô tìm, nên ở tab đó phải lấy con số của chính bảng đang hiện —
-   *  hai số cạnh nhau mà không khớp là mời người đọc đi so xem chỗ nào đúng. */
-  const [tongMatHang, setTongMatHang] = useState<number | null>(null);
 
   /** Tổng CÒN PHẢI TRẢ của mọi NCC (chủ quán yêu cầu 2026-09-08) — luật cộng nằm ở
    *  `tongConPhaiTra`.
@@ -337,7 +331,7 @@ export function SuppliersPage() {
             <span>
               Tổng mua:{' '}
               <strong style={{ fontSize: 18 }}>
-                {vnd(tab === 'items' && tongMatHang !== null ? tongMatHang : periodTotal)}đ
+                {vnd(periodTotal)}đ
               </strong>
             </span>
           )}
@@ -414,13 +408,8 @@ export function SuppliersPage() {
       )}
 
       {tab === 'items' && (
-        <ItemStatsPanel
-          supplierId={filterSupplierId || undefined}
-          range={range}
-          onRangeChange={setRange}
-          onOpenHistory={(id, name) => setHistory({ id, name })}
-          onTong={setTongMatHang}
-        />
+        // Tự vẽ lọc kỳ + NCC + dải số (2026-11-13) — xem đầu `SupplierItemsScreen.tsx`.
+        <SupplierItemsScreen suppliers={suppliers} range={range} onRangeChange={setRange} />
       )}
 
       {/* Giá vốn dùng cửa sổ bình quân 90 ngày của riêng nó, không theo tháng đang chọn ở trên —
@@ -434,14 +423,6 @@ export function SuppliersPage() {
       {/* Mở lại ĐÚNG panel đang dùng ở màn Menu (M3.D-32). Danh mục nguyên liệu là MỘT bảng;
           dựng UI thứ hai để sửa cùng bảng đó là nguồn bug và lệch hành vi. */}
       {showIngredients && <IngredientsPanel onClose={() => setShowIngredients(false)} />}
-
-      {history && (
-        <PriceHistoryDialog
-          ingredientId={history.id}
-          ingredientName={history.name}
-          onClose={() => setHistory(null)}
-        />
-      )}
 
       {detail && (
         <SupplierDetailScreen

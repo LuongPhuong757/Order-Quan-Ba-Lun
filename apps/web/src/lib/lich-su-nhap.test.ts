@@ -9,6 +9,7 @@ import {
   luongTheoDonViChung,
   thongKeCot,
   tomTat,
+  trucGia,
   type DiemNhap,
 } from './lich-su-nhap.ts';
 
@@ -132,5 +133,26 @@ describe('tomTat', () => {
   });
   it('rỗng trả null', () => {
     expect(tomTat([], { dv: '', heSo: 1 })).toBeNull();
+  });
+});
+
+describe('trucGia', () => {
+  it('ra số tròn cho giá Hàu 20.000–30.000', () => {
+    const t = trucGia(20000, 30000);
+    expect(t.ticks).toEqual([20000, 25000, 30000]);
+    expect(t.lo).toBeLessThan(20000);
+    expect(t.hi).toBeGreaterThan(30000);
+  });
+  it('không bao giờ ra vạch âm khi giá nhảy mạnh', () => {
+    const t = trucGia(1500, 10000);
+    expect(t.lo).toBeGreaterThanOrEqual(0);
+    expect(t.ticks.every((x) => x >= 0)).toBe(true);
+    expect(t.ticks.length).toBeGreaterThanOrEqual(2);
+  });
+  it('giá không đổi vẫn có trục', () => {
+    const t = trucGia(95000, 95000);
+    expect(t.ticks.length).toBeGreaterThanOrEqual(1);
+    expect(t.lo).toBeLessThan(95000);
+    expect(t.hi).toBeGreaterThan(95000);
   });
 });
