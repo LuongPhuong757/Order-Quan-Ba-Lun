@@ -1,15 +1,15 @@
 // Hai mảnh đối soát tiền của màn Lịch sử (2026-09-14).
 //
-// `PaymentSummaryBox` — "két phải có bao nhiêu, ngân hàng phải về bao nhiêu", tách theo từng mã
+// `DoiSoatStrip` (trước là `PaymentSummaryBox`) — "két phải có bao nhiêu, ngân hàng phải về bao nhiêu", tách theo từng mã
 // QR. Đây là lý do cả tính năng chuyển khoản tồn tại: có ba tài khoản thì cuối ngày mở ba sao kê,
 // mỗi cái chỉ dò đúng phần của nó thay vì dò chéo tất cả.
 //
 // `PaymentPhotos` — ảnh bill khách đưa. Tải TRỄ, chỉ khi người ta mở chi tiết một đơn: kéo ảnh
 // của cả trang danh sách là hàng chục tấm không ai nhìn.
-import type { CSSProperties } from 'react';
 import { useEffect, useState } from 'react';
 import { api, extractError } from '../lib/api.ts';
-import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
 
@@ -26,142 +26,110 @@ type Summary = {
 /** Nhận NGUYÊN chuỗi query đã dựng bằng `historyQuery` của màn Lịch sử, không tự ghép lại từ
  *  from/to: docblock của `historyQuery` ghi rõ ba khối `URLSearchParams` chép tay ở màn này đã
  *  từng lệch nhau ở khoảng ngày. Khối đối soát nói về tiền — lệch ngày ở đây là lệch cả con số
- *  người ta mang đi đếm két. `filterKey` là deps để đổi trang không bắt tải lại. */
-export function PaymentSummaryBox({ query, filterKey }: { query: string; filterKey: string }) {
+ *  người ta mang đi đếm két. `filterKey` là deps để đổi trang không bắt tải lại.
+ *
+ *  DẢI 4 Ô LUÔN HIỆN (chủ quán duyệt bản xem thử 2026-11-13) — thay khối "Hiện đối soát tiền"
+ *  mặc định đóng (chốt 2026-09-14). Lý do đổi: cuối ca người ta mở màn này chính để lấy hai con số
+ *  mang đi đếm két, phải bấm thêm một nút mới thấy là thừa một bước mỗi ngày. Khối vẫn CHỈ admin
+ *  (chỗ gọi gác `canSeeReconcile`). Bảng từng tài khoản chuyển vào tấm trượt khi chạm ô
+ *  "Chuyển khoản" — dải trên cùng chỉ giữ 4 con số. */
+export function DoiSoatStrip({
+  query,
+  filterKey,
+  onDebt,
+}: {
+  query: string;
+  filterKey: string;
+  /** Chạm ô "Đang nợ" → nhảy sang tab Đang nợ, nơi thu nợ được. */
+  onDebt: () => void;
+}) {
   const [data, setData] = useState<Summary | null>(null);
   const [failed, setFailed] = useState(false);
-  /**
-   * MẶC ĐỊNH ĐÓNG (chủ quán chốt 2026-09-14), cùng nếp với khối biểu đồ thống kê ngay trên.
-   *
-   * Lý do không chỉ là gọn màn hình: đây là con số tiền của cả ca, bày sẵn nghĩa là ai đứng cạnh
-   * liếc qua vai cũng đọc được. Mở ra là một hành động có chủ ý.
-   */
-  const [open, setOpen] = useState(false);
+  const [moTk, setMoTk] = useState(false);
 
   useEffect(() => {
-    // Đóng thì KHÔNG gọi API: con số này không hiện ra đâu cả, mà mỗi lần đổi bộ lọc lại nã một
-    // truy vấn quét toàn bộ đơn trong khoảng — trả tiền cho thứ không ai nhìn.
-    if (!open) return;
     let alive = true;
+    setData(null);
+    setFailed(false);
     api
       .get<{ data: Summary }>(`/orders/payment-summary?${query}`)
-      .then((res) => alive && (setData(res.data.data), setFailed(false)))
+      .then((res) => alive && setData(res.data.data))
       .catch(() => alive && setFailed(true));
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterKey, open]);
+  }, [filterKey]);
 
-  // Nút bấm LUÔN hiện, kể cả khi chưa tải hay không có dữ liệu — nút biến mất theo dữ liệu thì
-  // người dùng không hiểu vì sao lúc có lúc không, và cũng không còn đường nào để thử mở lại.
-  const toggle = (
-    <button
-      className="secondary"
-      onClick={() => setOpen((v) => !v)}
-      style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-    >
-      <Icon name={open ? 'mui-ten-len' : 'mui-ten-xuong'} size={16} />
-      {open ? 'Ẩn đối soát tiền' : 'Hiện đối soát tiền'}
-    </button>
-  );
+  if (failed) return <div className="ls-note">Không tải được số liệu đối soát — thử tải lại trang.</div>;
 
-  if (!open) return <div style={{ marginBottom: 16 }}>{toggle}</div>;
-
-  if (failed || !data) {
-    return (
-      <div style={{ marginBottom: 16 }}>
-        {toggle}
-        <div style={{ fontSize: 13, color: '#6b7280' }}>
-          {failed ? 'Không tải được số liệu đối soát.' : 'Đang tải…'}
-        </div>
-      </div>
-    );
-  }
-
-  // Chưa thu đồng nào trong khoảng/bộ lọc này → bảng chỉ toàn số 0, nói thẳng ra một câu còn hơn
-  // bày một bảng rỗng.
-  //
-  // Xét `total`, KHÔNG xét `transfer` (2026-10-12): lọc "Tiền mặt" giờ cố ý trả về CK = 0 (chỉ
-  // phần tiền mặt, kể cả của đơn Cả hai) — xét `transfer` là giấu mất đúng con số két người ta
-  // đang hỏi.
-  if (data.total === 0) {
-    return (
-      <div style={{ marginBottom: 16 }}>
-        {toggle}
-        <div style={{ fontSize: 13, color: '#6b7280' }}>
-          Khoảng đang xem không có khoản thu nào.
-        </div>
-      </div>
-    );
-  }
+  // Đang tải: giữ đủ 4 ô với "…" thay vì nhảy từ trống sang có — dải đứng yên, danh sách bên dưới
+  // không bị đẩy xuống một nhịp.
+  const v = (n: number | undefined) => (data ? fmt(n ?? 0) : '…');
+  const soTk = data?.by_account.length ?? 0;
+  const no = data?.debt_outstanding ?? { orders: 0, amount: 0 };
 
   return (
-    <div style={{ marginBottom: 16 }}>
-    {toggle}
-    <div className="card" style={{ padding: 14, borderLeft: '4px solid #0369a1' }}>
-      <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 10 }}>Đối soát tiền</div>
-
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-        <Tile icon="tien-mat" label="Tiền mặt (phải có trong két)" value={fmt(data.cash)} color="#0f766e" />
-        <Tile icon="chuyen-khoan" label="Chuyển khoản (phải về ngân hàng)" value={fmt(data.transfer)} color="#0369a1" />
-        <Tile label="Tổng thu" value={fmt(data.total)} color="#374151" />
-        {/* Nợ là số MỌI THỜI GIAN, cố ý đứng cùng hàng nhưng khác màu: câu admin cần trả lời là
-            "quán đang bị nợ bao nhiêu", không phải "ca này ghi nợ bao nhiêu". Không cộng vào Tổng
-            thu — chưa thu thì không phải thu. */}
-        <Tile
-          icon="ghi-no"
-          label={`Đang nợ (${data.debt_outstanding?.orders ?? 0} đơn, mọi thời gian)`}
-          value={fmt(data.debt_outstanding?.amount ?? 0)}
-          color="#b45309"
-        />
-      </div>
-
-      {/* Không có khoản CK nào (vd đang lọc "Tiền mặt") → bỏ hẳn mục này, tiêu đề đứng trơ không
-          có dòng nào bên dưới trông như bảng tải lỗi. */}
-      {data.by_account.length > 0 && (
-      <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>Tiền về từng tài khoản</div>
-        {data.by_account.map((a) => (
-          <div
-            key={a.account_id ?? a.label}
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              gap: 12,
-              padding: '6px 0',
-              borderBottom: '1px solid #f3f4f6',
-              fontSize: 14,
-            }}
-          >
-            <span>
-              {a.label} <span style={{ color: '#9ca3af' }}>({a.orders} đơn)</span>
-            </span>
-            <strong style={{ color: '#0369a1' }}>{fmt(a.amount)}</strong>
+    <>
+      <div className="ls-ds" aria-label="Đối soát tiền">
+        <div className="ls-ds__o is-main">
+          <span className="ls-ds__l">Tổng thu</span>
+          <span className="ls-ds__v">{v(data?.total)}</span>
+          <span className="ls-ds__s">{data ? `${data.orders} đơn đã thanh toán` : ' '}</span>
+        </div>
+        <div className="ls-ds__o">
+          <span className="ls-ds__l">Tiền mặt</span>
+          <span className="ls-ds__v">{v(data?.cash)}</span>
+          <span className="ls-ds__s">phải có trong két</span>
+        </div>
+        {/* Ô chuyển khoản bấm được khi có ít nhất một tài khoản: mở bảng tiền về TỪNG tài khoản —
+            có ba tài khoản thì cuối ngày mở ba sao kê, mỗi cái chỉ dò đúng phần của nó. */}
+        {soTk > 0 ? (
+          <button type="button" className="ls-ds__o" onClick={() => setMoTk(true)}
+                  aria-label={`Chuyển khoản ${v(data?.transfer)} — xem từng tài khoản`}>
+            <span className="ls-ds__l">Chuyển khoản</span>
+            <span className="ls-ds__v">{v(data?.transfer)}</span>
+            <span className="ls-ds__s is-lk">{soTk} tài khoản ›</span>
+          </button>
+        ) : (
+          <div className="ls-ds__o">
+            <span className="ls-ds__l">Chuyển khoản</span>
+            <span className="ls-ds__v">{v(data?.transfer)}</span>
+            <span className="ls-ds__s">phải về ngân hàng</span>
           </div>
-        ))}
+        )}
+        {/* Nợ là số MỌI THỜI GIAN, không ăn theo bộ lọc (D-06): câu admin cần trả lời là "quán đang
+            bị nợ bao nhiêu". Không cộng vào Tổng thu — chưa thu thì không phải thu. */}
+        <button type="button" className={`ls-ds__o is-debt${no.amount > 0 ? ' is-co' : ''}`} onClick={onDebt}
+                aria-label={`Đang nợ ${v(no.amount)} — xem các đơn đang nợ`}>
+          <span className="ls-ds__l">Đang nợ</span>
+          <span className="ls-ds__v">{v(no.amount)}</span>
+          <span className="ls-ds__s">{no.orders} đơn · mọi thời gian</span>
+        </button>
       </div>
+
+      {moTk && data && (
+        <Sheet
+          title="Tiền về từng tài khoản"
+          giuaKhiRong
+          onClose={() => setMoTk(false)}
+          footer={<div className="ds-foot"><button type="button" className="ds-btn ds-btn--primary" onClick={() => setMoTk(false)}>Đóng</button></div>}
+        >
+          <div className="ls-ds__tk">
+            {data.by_account.map((a) => (
+              <div key={a.account_id ?? a.label}>
+                <span>{a.label} <small>· {a.orders} đơn</small></span>
+                <b>{fmt(a.amount)}</b>
+              </div>
+            ))}
+          </div>
+          <p className="ls-ds__note">
+            Đây là số nhân viên đã ghi nhận lúc thu. Ngân hàng có báo về hay không xem ở dấu ✓/✗ từng
+            đơn, hoặc ở Sổ webhook ngân hàng.
+          </p>
+        </Sheet>
       )}
-
-      <div style={{ fontSize: 12, color: '#6b7280', marginTop: 10 }}>
-        Số chuyển khoản ở đây là <strong>số nhân viên đã ghi nhận</strong>. Ngân hàng có xác nhận
-        hay không nằm ở khối <strong>“Ngân hàng đã báo về”</strong> ngay dưới — và khối đó chỉ biết
-        về tài khoản đã nối với SePay, các tài khoản còn lại vẫn phải dò tay bằng ảnh bill.
-      </div>
-    </div>
-    </div>
-  );
-}
-
-function Tile({ label, value, color, icon }: { label: string; value: string; color: string; icon?: IconName }) {
-  return (
-    <div style={{ flex: '1 1 160px', background: '#f9fafb', borderRadius: 8, padding: 10 }}>
-      <div style={{ fontSize: 12, color: '#6b7280', display: 'flex', alignItems: 'center', gap: 4 }}>
-        {icon && <Icon name={icon} size={16} />}
-        {label}
-      </div>
-      <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{value}</div>
-    </div>
+    </>
   );
 }
 

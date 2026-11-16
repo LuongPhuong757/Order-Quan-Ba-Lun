@@ -9,15 +9,21 @@
 //  - Ảnh có sẵn (MoMo, ZaloPay, QR in giấy) → chỉ hiện lại tấm ảnh; khách phải tự gõ số tiền và
 //    nội dung, tức mất gần hết cái lợi. Không nói ra thì chủ quán up 5 tấm ảnh rồi thắc mắc vì
 //    sao cuối ngày vẫn không đối soát nổi.
+//
+// LÀM LẠI GIAO DIỆN 2026-11-13 (Cài đặt đợt 1, chủ quán duyệt bản xem thử): 2 công tắc gạt thay ô
+// tick + đoạn giải thích dài; danh sách mã không còn vỡ (tên đủ chiều ngang, chạm dòng = sửa, ▲ ▼
+// bên phải); form thêm/sửa chuyển vào hộp `Sheet` mở bằng "+ Thêm mã QR". Không đổi logic/API.
 import { useEffect, useRef, useState, FormEvent } from 'react';
 import { VIETQR_BANKS, suggestedNotePrefix, validatePaymentQrDraft } from '@order/schemas';
 import { api, extractError } from '../lib/api.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
-import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
+import { Sheet } from '../components/ui/Sheet.tsx';
+import { Switch } from '../components/ui/Switch.tsx';
+import './cai-dat.css';
 
 type QrKind = 'BANK' | 'IMAGE';
 
@@ -66,6 +72,8 @@ export function PaymentQrPanel() {
   /** BIN đang chọn trong form — dùng để gợi ý tiền tố bắt buộc NGAY LÚC GÕ, không phải chờ lưu. */
   const binNow = form.bank_choice === OTHER_BANK ? form.bank_bin.trim() : form.bank_choice;
   const [submitting, setSubmitting] = useState(false);
+  /** Hộp thêm/sửa mã (2026-11-13): form rời khỏi trang, mở bằng "+ Thêm mã QR" hoặc chạm một mã. */
+  const [moForm, setMoForm] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   /** Công tắc "xác thực giao dịch tại quầy" (2026-09-25). `null` = chưa nạp xong — lúc đó ô công
@@ -161,6 +169,12 @@ export function PaymentQrPanel() {
   const resetForm = () => {
     setForm({ ...EMPTY_FORM });
     if (fileRef.current) fileRef.current.value = '';
+    setMoForm(false);
+  };
+
+  const moThem = () => {
+    setForm({ ...EMPTY_FORM });
+    setMoForm(true);
   };
 
   const startEdit = (row: QrRow) => {
@@ -178,8 +192,8 @@ export function PaymentQrPanel() {
       image_url: row.image_url ?? '',
       is_hkd: row.is_hkd,
     });
-    // Người dùng bấm "Sửa" ở cuối danh sách dài — không kéo lên thì họ tưởng nút không ăn.
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Trước 2026-11-13 form nằm trên đầu trang nên phải cuộn lên; nay form ở hộp riêng — mở hộp.
+    setMoForm(true);
   };
 
   const uploadImage = async (file: File) => {
@@ -262,6 +276,7 @@ export function PaymentQrPanel() {
     try {
       if (row.is_active) await api.delete(`/admin/payment-qr/${row.id}`);
       else await api.patch(`/admin/payment-qr/${row.id}`, { ...rowToBody(row), is_active: true });
+      resetForm();
       refresh();
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -283,124 +298,143 @@ export function PaymentQrPanel() {
     }
   };
 
+  const dangSua = form.id ? items.find((i) => i.id === form.id) ?? null : null;
+  const soDangDung = items.filter((i) => i.is_active).length;
+
   return (
-    <div>
-      {/* CÔNG TẮC đứng ĐẦU panel, trên cả form thêm mã (2026-09-25).
-          Nó nói về cách CẢ QUÁN thu tiền, còn phần dưới là từng tài khoản một — thứ bao trùm phải
-          đứng trên thứ bị bao. Đặt ở màn này chứ không phải màn Đơn hàng online vì chủ quán tới
-          đây khi lo chuyện thu tiền qua QR, và tiền tố ngân hàng cũng khai ngay bên dưới.
+    <div className="cd-stack">
+      {/* CÔNG TẮC đứng ĐẦU panel, trên danh sách mã (2026-09-25): nó nói về cách CẢ QUÁN thu tiền,
+          còn phần dưới là từng tài khoản một — thứ bao trùm phải đứng trên thứ bị bao.
+          2026-11-13: ô tick + chữ "ĐANG BẬT/TẮT" + 4–5 dòng → công tắc gạt + 1 dòng, giải thích dài
+          thu vào "Xem giải thích". Cảnh báo pháp lý của MISA vẫn hiện sẵn (cam).
 
-          Từ 2026-10-02 công tắc này KHÔNG còn đụng tới màn thu tiền nữa (vòng hỏi 5 phút và ba
-          dải trạng thái đã gỡ hẳn) — nó chỉ còn bật/tắt cột "Xác thực" ở màn Lịch sử. Câu chữ
-          dưới đây phải nói đúng điều đó, đừng chép lại mô tả cũ. */}
-      {/* Tự xuất hoá đơn (2026-11-09). Đứng TRƯỚC khối xác thực vì đây là việc pháp lý: bật là mỗi
-          đơn chuyển khoản vào mã HKD ra một hoá đơn thật gửi cơ quan thuế. */}
-      {einvoiceOn !== null && (
-        <div className="st-section">
-          <h2>Tự xuất hoá đơn điện tử (MISA meInvoice)</h2>
-          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={einvoiceOn}
-              disabled={einvoiceSaving}
-              onChange={(e) => toggleEinvoice(e.target.checked)}
-              style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
-            />
-            <span>
-              <strong>
-                {einvoiceOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — đơn chuyển khoản vào mã HKD{' '}
-                {einvoiceOn ? 'tự xuất hoá đơn' : 'KHÔNG tự xuất hoá đơn'}
-              </strong>
-              <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
-                Bật: thu tiền xong, hộp thanh toán hiện ngay kết quả — ✓ số hoá đơn, hoặc ✗ lý do lỗi kèm
-                nút "Đã xuất tay". Lỗi cũng hiện ở màn Lịch sử kèm nút Phát hành lại.
-              </span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
-                Tắt: thu ngân tick tay ô Misa ở màn Lịch sử như cũ.
-              </span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: '#92400e' }}>
-                ⚠ Mỗi hoá đơn là hoá đơn THẬT gửi cơ quan thuế. Đơn đã tự xuất thì đừng nhập lại sang CukCuk.
-              </span>
-            </span>
-          </label>
+          Xác thực: từ 2026-10-02 công tắc này KHÔNG còn đụng tới màn thu tiền (vòng hỏi 5 phút đã
+          gỡ) — nó chỉ bật/tắt cột "Xác thực" ở màn Lịch sử. Câu chữ phải nói đúng điều đó. */}
+      {(einvoiceOn !== null || verifyOn !== null) && (
+        <div className="cd-card">
+          <div className="cd-card__head"><h3 className="cd-card__t">Thu tiền chuyển khoản</h3></div>
+          <p className="cd-card__ds">Áp cho cả quán.</p>
+
+          {/* Tự xuất hoá đơn (2026-11-09). Đứng TRƯỚC xác thực vì đây là việc pháp lý: bật là mỗi
+              đơn chuyển khoản vào mã HKD ra một hoá đơn thật gửi cơ quan thuế. */}
+          {einvoiceOn !== null && (
+            <div className="cd-row">
+              <div className="cd-row__m">
+                <span className="cd-row__t">Tự xuất hoá đơn điện tử (MISA)</span>
+                <span className="cd-row__s">Đơn chuyển khoản vào mã HKD tự ra hoá đơn ngay khi thu tiền</span>
+                <span className="cd-row__warn">Hoá đơn THẬT gửi cơ quan thuế — đã tự xuất thì đừng nhập lại sang CukCuk</span>
+                <details className="cd-more">
+                  <summary>Xem giải thích ›</summary>
+                  <p>Bật: thu tiền xong, hộp thanh toán hiện ngay kết quả — ✓ số hoá đơn, hoặc ✗ lý do lỗi kèm nút "Đã xuất tay". Lỗi cũng hiện ở màn Lịch sử kèm nút Phát hành lại.</p>
+                  <p>Tắt: thu ngân tick tay ô Misa ở màn Lịch sử như cũ.</p>
+                </details>
+              </div>
+              <Switch label="Tự xuất hoá đơn điện tử MISA" on={einvoiceOn} disabled={einvoiceSaving}
+                      onChange={(v) => void toggleEinvoice(v)} />
+            </div>
+          )}
+
+          {verifyOn !== null && (
+            <div className="cd-row">
+              <div className="cd-row__m">
+                <span className="cd-row__t">Xác thực giao dịch với ngân hàng</span>
+                <span className="cd-row__s">
+                  Màn Lịch sử hiện cột <Icon name="xong" size={16} style={{ verticalAlign: '-3px' }} /> tiền đã về /{' '}
+                  <Icon name="da-huy" size={16} style={{ verticalAlign: '-3px' }} /> chưa thấy giao dịch
+                </span>
+                <details className="cd-more">
+                  <summary>Xem giải thích ›</summary>
+                  <p>Bật: mỗi đơn chuyển khoản hiện dấu ngân hàng đã báo tiền về hay chưa, và lọc được theo đó.</p>
+                  <p>Tắt: cột và ô lọc ẩn đi. <strong>Dữ liệu KHÔNG mất</strong> — máy vẫn ghi sổ ngân hàng như thường, bật lại là thấy đủ.</p>
+                  <p>Màn thu tiền không đổi theo công tắc này: luôn chụp bill, không đứng đợi ngân hàng.</p>
+                </details>
+              </div>
+              <Switch label="Xác thực giao dịch với ngân hàng" on={verifyOn} disabled={verifySaving}
+                      onChange={(v) => void toggleVerify(v)} />
+            </div>
+          )}
         </div>
       )}
 
-      {verifyOn !== null && (
-        <div className="st-section">
-          <h2>Xác thực giao dịch với ngân hàng</h2>
-          <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
-            <input
-              type="checkbox"
-              checked={verifyOn}
-              disabled={verifySaving}
-              onChange={(e) => toggleVerify(e.target.checked)}
-              style={{ width: 20, height: 20, marginTop: 2, flexShrink: 0 }}
-            />
-            <span>
-              <strong>
-                {verifyOn ? 'ĐANG BẬT' : 'ĐANG TẮT'} — màn Lịch sử{' '}
-                {verifyOn ? 'có' : 'không'} hiện cột "Xác thực"
-              </strong>
-              <span style={{ display: 'block', marginTop: 6, fontSize: 13, color: C.muted }}>
-                Bật: mỗi đơn chuyển khoản hiện{' '}
-                <Icon name="xong" size={16} style={{ verticalAlign: '-3px' }} /> (ngân hàng đã báo tiền
-                về) hoặc <Icon name="da-huy" size={16} style={{ verticalAlign: '-3px' }} /> (chưa tìm
-                thấy giao dịch), và lọc được theo đó.
-              </span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
-                Tắt: cột và ô lọc ẩn đi. <strong>Dữ liệu KHÔNG mất</strong> — máy vẫn ghi sổ ngân
-                hàng như thường, bật lại là thấy đủ.
-              </span>
-              <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
-                Màn thu tiền không đổi theo công tắc này: luôn chụp bill, không đứng đợi ngân hàng.
-              </span>
-            </span>
-          </label>
+      {/* Danh sách mã: tên đủ chiều ngang (trước bị 4 nút bóp còn mỗi dòng một chữ). Chạm dòng = mở
+          hộp sửa; ▲ ▼ đổi thứ tự (= thứ tự hiện lúc thu tiền). "Ngừng dùng / Bật lại" nằm trong hộp. */}
+      <div className="cd-card">
+        <div className="cd-card__head">
+          <h3 className="cd-card__t">Mã QR nhận tiền ({soDangDung})</h3>
+          <button type="button" className="cd-add-wd" onClick={moThem}>+ Thêm mã QR</button>
         </div>
-      )}
-
-      <form className="st-section" onSubmit={submit}>
-        <h2>{form.id ? 'Sửa mã QR' : 'Thêm mã QR nhận tiền'}</h2>
-        <p style={{ margin: '6px 0 16px', fontSize: 13, color: C.muted }}>
-          Mã QR ở đây là thứ nhân viên chìa ra cho khách quét lúc thanh toán.
-        </p>
-
-        {/* Chọn loại TRƯỚC mọi ô khác: nó quyết định phần còn lại của form, và quyết định luôn
-            việc khách có phải tự gõ số tiền hay không. */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 14 }}>
-          <KindButton
-            active={form.kind === 'BANK'}
-            onClick={() => setForm((f) => ({ ...f, kind: 'BANK' }))}
-            title="Tài khoản ngân hàng"
-            note="App tự tạo QR kèm số tiền và nội dung"
-          />
-          <KindButton
-            active={form.kind === 'IMAGE'}
-            onClick={() => setForm((f) => ({ ...f, kind: 'IMAGE' }))}
-            title="Ảnh QR có sẵn"
-            note="MoMo, ZaloPay, QR in giấy — khách tự gõ số tiền"
-          />
-        </div>
-
-        <div className="st-grid cols-2">
-          <div>
-            <label htmlFor="qr-label">Tên gọi</label>
-            <input
-              id="qr-label"
-              value={form.label}
-              maxLength={128}
-              placeholder="VD: TK Thuý – Vietcombank"
-              onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))}
-            />
-            <small style={{ color: C.muted }}>Tên này hiện lúc thu tiền để chọn cho nhanh.</small>
+        <p className="cd-card__ds">Thứ tự ở đây là thứ tự hiện lúc thu tiền. Chạm một mã để sửa.</p>
+        {loading && <div className="cd-row"><span className="cd-row__s">Đang tải…</span></div>}
+        {!loading && items.length === 0 && (
+          <div className="cd-row">
+            <span className="cd-row__s">Chưa có mã QR nào. Thêm một mã để nhân viên thu tiền chuyển khoản được.</span>
           </div>
+        )}
+        {items.map((row, idx) => (
+          <div key={row.id} className={`cd-qr${row.is_active ? '' : ' is-off'}`}>
+            <button type="button" className="cd-qr__main" onClick={() => startEdit(row)}
+                    aria-label={`${row.label} — sửa mã QR`}>
+              <span className="cd-qr__ic">
+                {row.kind === 'IMAGE' && row.image_url
+                  ? <img src={row.image_url} alt="" />
+                  : <Icon name="chuyen-khoan" size={22} />}
+              </span>
+              <span className="cd-qr__m">
+                <span className="cd-qr__t">
+                  {row.label}
+                  {row.is_hkd && <span className="cd-pill cd-pill--ok">HKD · Misa</span>}
+                  {!row.is_active && <span className="cd-pill cd-pill--muted">Đã ngừng dùng</span>}
+                </span>
+                <span className="cd-qr__s">
+                  {row.kind === 'BANK'
+                    ? `${row.bank_name ?? row.bank_bin} · ${row.account_no} · ${row.account_name}`
+                    : 'Ảnh QR — khách tự gõ số tiền và nội dung'}
+                </span>
+              </span>
+            </button>
+            <span className="cd-ud">
+              <button type="button" className="cd-ud__b" disabled={idx === 0} onClick={() => move(row, -1)} aria-label={`Đưa "${row.label}" lên trên`}>
+                <Icon name="mui-ten-len" size={18} />
+              </button>
+              <button type="button" className="cd-ud__b" disabled={idx === items.length - 1} onClick={() => move(row, 1)} aria-label={`Đưa "${row.label}" xuống dưới`}>
+                <Icon name="mui-ten-xuong" size={18} />
+              </button>
+            </span>
+          </div>
+        ))}
+        <div className="cd-add-ph">
+          <button type="button" onClick={moThem}>+ Thêm mã QR</button>
         </div>
+      </div>
 
-        {form.kind === 'BANK' && (
-          <>
-            <div className="st-grid cols-2" style={{ marginTop: 12 }}>
-              <div>
+      {moForm && (
+        <Sheet title={form.id ? 'Sửa mã QR' : 'Thêm mã QR nhận tiền'} onClose={resetForm} giuaKhiRong>
+          <form className="cd-form" onSubmit={submit}>
+            {/* Chọn loại TRƯỚC mọi ô khác: nó quyết định phần còn lại của form, và quyết định luôn
+                việc khách có phải tự gõ số tiền hay không. */}
+            <div>
+              <div className="cd-kind" role="group" aria-label="Loại mã QR">
+                <button type="button" className="cd-kind__b" aria-pressed={form.kind === 'BANK'}
+                        onClick={() => setForm((f) => ({ ...f, kind: 'BANK' }))}>Tài khoản ngân hàng</button>
+                <button type="button" className="cd-kind__b" aria-pressed={form.kind === 'IMAGE'}
+                        onClick={() => setForm((f) => ({ ...f, kind: 'IMAGE' }))}>Ảnh QR có sẵn</button>
+              </div>
+              <small>
+                {form.kind === 'BANK'
+                  ? 'App tự tạo QR kèm số tiền và nội dung.'
+                  : 'MoMo, ZaloPay, QR in giấy — khách tự gõ số tiền.'}
+              </small>
+            </div>
+
+            <div>
+              <label htmlFor="qr-label">Tên gọi</label>
+              <input id="qr-label" value={form.label} maxLength={128} placeholder="VD: TK Thuý – Vietcombank"
+                     onChange={(e) => setForm((f) => ({ ...f, label: e.target.value }))} />
+              <small>Tên này hiện lúc thu tiền để chọn cho nhanh.</small>
+            </div>
+
+            {form.kind === 'BANK' && (
+              <>
                 {/* Đợt 0: Dropdown chung thay `<select>`. ~22 ngân hàng nên tự có ô tìm; tên đầy
                     đủ làm dòng phụ để gõ "ngoai thuong" cũng ra Vietcombank. */}
                 <Dropdown
@@ -413,303 +447,118 @@ export function PaymentQrPanel() {
                   onChange={(v) => setForm((f) => ({ ...f, bank_choice: v }))}
                   full
                 />
-              </div>
-              <div>
-                <label htmlFor="qr-account-no">Số tài khoản</label>
-                <input
-                  id="qr-account-no"
-                  value={form.account_no}
-                  maxLength={32}
-                  onChange={(e) => setForm((f) => ({ ...f, account_no: e.target.value }))}
-                />
-              </div>
-            </div>
 
-            {form.bank_choice === OTHER_BANK && (
-              <div className="st-grid cols-2" style={{ marginTop: 12 }}>
-                <div>
-                  <label htmlFor="qr-bin">Mã BIN (6 chữ số)</label>
-                  <input
-                    id="qr-bin"
-                    value={form.bank_bin}
-                    maxLength={6}
-                    inputMode="numeric"
-                    onChange={(e) => setForm((f) => ({ ...f, bank_bin: e.target.value.replace(/\D/g, '') }))}
-                  />
-                  <small style={{ color: C.muted }}>
-                    Tra trên trang VietQR của ngân hàng. Nhập sai thì QR quét ra sai nhà băng.
-                  </small>
-                </div>
-                <div>
-                  <label htmlFor="qr-bank-name">Tên ngân hàng</label>
-                  <input
-                    id="qr-bank-name"
-                    value={form.bank_name}
-                    maxLength={64}
-                    onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))}
-                  />
-                </div>
-              </div>
-            )}
-
-            <div className="st-grid cols-2" style={{ marginTop: 12 }}>
-              <div>
-                <label htmlFor="qr-account-name">Tên chủ tài khoản</label>
-                <input
-                  id="qr-account-name"
-                  value={form.account_name}
-                  maxLength={128}
-                  placeholder="VD: LUONG THI THUY"
-                  onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))}
-                />
-                <small style={{ color: C.muted }}>Khách nhìn tên này để biết chuyển đúng người.</small>
-              </div>
-
-              <div>
-                <label htmlFor="qr-note-prefix">Tiền tố nội dung (nếu ngân hàng bắt buộc)</label>
-                <input
-                  id="qr-note-prefix"
-                  value={form.note_prefix}
-                  maxLength={8}
-                  placeholder={suggestedNotePrefix(binNow) ?? 'để trống nếu không bắt buộc'}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, note_prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }))
-                  }
-                />
-                {/* Đây KHÔNG phải quy ước của quán mà là điều kiện để cổng đối soát nhìn thấy
-                    giao dịch. Thiếu nó thì tiền vẫn về tài khoản thật, nhưng app không bao giờ
-                    biết — và không có lỗi nào hiện ra ở đâu cả. Đã mất một buổi vì chuyện này. */}
-                {suggestedNotePrefix(binNow) && form.note_prefix !== suggestedNotePrefix(binNow) ? (
-                  <small style={{ color: '#b45309' }}>
-                    Ngân hàng này yêu cầu <strong>{suggestedNotePrefix(binNow)}</strong> ở đầu nội
-                    dung, nếu không SePay sẽ không nhận được báo có.{' '}
-                    <button
-                      type="button"
-                      className="secondary"
-                      style={{ padding: '2px 8px', fontSize: 12 }}
-                      onClick={() =>
-                        setForm((f) => ({ ...f, note_prefix: suggestedNotePrefix(binNow) ?? '' }))
-                      }
-                    >
-                      Điền giúp
-                    </button>
-                  </small>
-                ) : (
-                  <small style={{ color: C.muted }}>
-                    Bỏ trống nếu ngân hàng không đòi. Mỗi ký tự ở đây ăn vào giới hạn 25 ký tự của
-                    nội dung.
-                  </small>
+                {form.bank_choice === OTHER_BANK && (
+                  <>
+                    <div>
+                      <label htmlFor="qr-bin">Mã BIN (6 chữ số)</label>
+                      <input id="qr-bin" value={form.bank_bin} maxLength={6} inputMode="numeric"
+                             onChange={(e) => setForm((f) => ({ ...f, bank_bin: e.target.value.replace(/\D/g, '') }))} />
+                      <small>Tra trên trang VietQR của ngân hàng. Nhập sai thì QR quét ra sai nhà băng.</small>
+                    </div>
+                    <div>
+                      <label htmlFor="qr-bank-name">Tên ngân hàng</label>
+                      <input id="qr-bank-name" value={form.bank_name} maxLength={64}
+                             onChange={(e) => setForm((f) => ({ ...f, bank_name: e.target.value }))} />
+                    </div>
+                  </>
                 )}
-              </div>
-            </div>
 
-            <div
-              style={{
-                marginTop: 14,
-                background: '#ecfdf5',
-                border: '1px solid #a7f3d0',
-                borderRadius: 8,
-                padding: '10px 12px',
-                fontSize: 13,
-                color: '#065f46',
-              }}
-            >
-              Quét thử một lần bằng app ngân hàng trước khi dùng thật — đó là cách duy nhất biết
-              chắc số tài khoản và mã ngân hàng đã đúng.
-            </div>
-          </>
-        )}
+                <div>
+                  <label htmlFor="qr-account-no">Số tài khoản</label>
+                  <input id="qr-account-no" value={form.account_no} maxLength={32} inputMode="numeric"
+                         onChange={(e) => setForm((f) => ({ ...f, account_no: e.target.value }))} />
+                </div>
 
-        {form.kind === 'IMAGE' && (
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Ảnh mã QR</div>
-            {/* Ô `<input type="file">` trần hiện ra thành "Choose Files / No file chosen" — chữ
-                tiếng Anh của trình duyệt, giữa một màn hình tiếng Việt, và trông như một mảnh vỡ
-                lọt vào giao diện. Ẩn nó đi rồi bấm hộ bằng nút của mình: cùng cách đã làm ở hộp
-                thoại Thanh toán. */}
-            <button
-              type="button"
-              className="secondary"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            >
-              <Icon name="hinh-anh" size={20} />
-              {uploading ? 'Đang tải ảnh lên…' : form.image_url ? 'Chọn ảnh khác' : 'Chọn ảnh mã QR'}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) uploadImage(f);
-              }}
-            />
-            {form.image_url && (
-              <img
-                src={form.image_url}
-                alt="Mã QR đã tải lên"
-                style={{
-                  display: 'block',
-                  marginTop: 10,
-                  width: 180,
-                  height: 180,
-                  objectFit: 'contain',
-                  background: 'white',
-                  border: `1px solid ${C.borderSoft}`,
-                  borderRadius: 8,
-                }}
-              />
+                <div>
+                  <label htmlFor="qr-account-name">Tên chủ tài khoản</label>
+                  <input id="qr-account-name" value={form.account_name} maxLength={128} placeholder="VD: LUONG THI THUY"
+                         onChange={(e) => setForm((f) => ({ ...f, account_name: e.target.value }))} />
+                  <small>Khách nhìn tên này để biết chuyển đúng người.</small>
+                </div>
+
+                <div>
+                  <label htmlFor="qr-note-prefix">Tiền tố nội dung (nếu ngân hàng bắt buộc)</label>
+                  <input
+                    id="qr-note-prefix"
+                    value={form.note_prefix}
+                    maxLength={8}
+                    placeholder={suggestedNotePrefix(binNow) ?? 'để trống nếu không bắt buộc'}
+                    onChange={(e) =>
+                      setForm((f) => ({ ...f, note_prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') }))
+                    }
+                  />
+                  {/* Đây KHÔNG phải quy ước của quán mà là điều kiện để cổng đối soát nhìn thấy
+                      giao dịch. Thiếu nó thì tiền vẫn về tài khoản thật, nhưng app không bao giờ
+                      biết — và không có lỗi nào hiện ra ở đâu cả. Đã mất một buổi vì chuyện này. */}
+                  {suggestedNotePrefix(binNow) && form.note_prefix !== suggestedNotePrefix(binNow) ? (
+                    <small style={{ color: '#9a3412' }}>
+                      Ngân hàng này yêu cầu <strong>{suggestedNotePrefix(binNow)}</strong> ở đầu nội dung, nếu
+                      không SePay sẽ không nhận được báo có.{' '}
+                      <button type="button" className="secondary" style={{ minHeight: 32, padding: '0 10px', fontSize: 14 }}
+                              onClick={() => setForm((f) => ({ ...f, note_prefix: suggestedNotePrefix(binNow) ?? '' }))}>
+                        Điền giúp
+                      </button>
+                    </small>
+                  ) : (
+                    <small>Bỏ trống nếu ngân hàng không đòi. Mỗi ký tự ở đây ăn vào giới hạn 25 ký tự của nội dung.</small>
+                  )}
+                </div>
+
+                <p className="cd-note">
+                  Quét thử một lần bằng app ngân hàng trước khi dùng thật — đó là cách duy nhất biết chắc số
+                  tài khoản và mã ngân hàng đã đúng.
+                </p>
+              </>
             )}
-            <div
-              style={{
-                marginTop: 12,
-                background: '#fffbeb',
-                border: '1px solid #fde68a',
-                borderRadius: 8,
-                padding: '10px 12px',
-                fontSize: 13,
-                color: '#92400e',
-              }}
-            >
-              Ảnh QR không kèm được số tiền lẫn nội dung chuyển khoản — khách phải tự gõ, và cuối
-              ngày sao kê sẽ khó dò hơn hẳn so với mã dạng tài khoản ngân hàng.
+
+            {form.kind === 'IMAGE' && (
+              <div>
+                <label>Ảnh mã QR</label>
+                {/* Ô `<input type="file">` trần hiện "Choose Files / No file chosen" — chữ tiếng Anh
+                    của trình duyệt giữa màn tiếng Việt. Ẩn nó đi rồi bấm hộ bằng nút của mình. */}
+                <button type="button" className="secondary" onClick={() => fileRef.current?.click()} disabled={uploading}
+                        style={{ minHeight: 44, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <Icon name="hinh-anh" size={20} />
+                  {uploading ? 'Đang tải ảnh lên…' : form.image_url ? 'Chọn ảnh khác' : 'Chọn ảnh mã QR'}
+                </button>
+                <input ref={fileRef} type="file" accept="image/*" hidden
+                       onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadImage(f); }} />
+                {form.image_url && (
+                  <img src={form.image_url} alt="Mã QR đã tải lên"
+                       style={{ display: 'block', marginTop: 10, width: 160, height: 160, objectFit: 'contain', background: 'white', border: '1px solid var(--gray-200)', borderRadius: 8 }} />
+                )}
+                <p className="cd-note cd-note--warn" style={{ marginTop: 10 }}>
+                  Ảnh QR không kèm được số tiền lẫn nội dung chuyển khoản — khách phải tự gõ, và cuối ngày sao
+                  kê sẽ khó dò hơn hẳn so với mã dạng tài khoản ngân hàng.
+                </p>
+              </div>
+            )}
+
+            {/* Ô HKD chung cho cả 2 loại mã (2026-10-15). Nó quyết định đơn nào phải gõ sang MISA —
+                bật sai là tab "chưa lên Misa" ở màn Lịch sử thiếu hoặc thừa đơn. */}
+            <div className="cd-row">
+              <div className="cd-row__m">
+                <span className="cd-row__t">Mã của HKD (hộ kinh doanh)</span>
+                <span className="cd-row__s">Đơn thu qua mã này mới hiện nút Misa ở màn Lịch sử</span>
+              </div>
+              <Switch label="Đây là mã QR của HKD" on={form.is_hkd} onChange={(v) => setForm((f) => ({ ...f, is_hkd: v }))} />
             </div>
-          </div>
-        )}
 
-        {/* Ô HKD đứng cuối form, chung cho cả 2 loại mã (2026-10-15). Nó quyết định đơn nào phải
-            gõ sang MISA — tick sai là tab "chưa lên Misa" ở màn Lịch sử thiếu đơn hoặc thừa đơn,
-            nên câu chữ phải nói thẳng hệ quả chứ không chỉ ghi "HKD". */}
-        <label
-          style={{
-            display: 'flex',
-            gap: 10,
-            alignItems: 'flex-start',
-            cursor: 'pointer',
-            marginTop: 14,
-            padding: '10px 12px',
-            borderRadius: 8,
-            border: `1px solid ${C.borderSoft}`,
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={form.is_hkd}
-            onChange={(e) => setForm((f) => ({ ...f, is_hkd: e.target.checked }))}
-            style={{ width: 22, height: 22, marginTop: 2, flexShrink: 0 }}
-          />
-          <span>
-            <strong>Đây là mã QR của HKD (hộ kinh doanh)</strong>
-            <span style={{ display: 'block', marginTop: 4, fontSize: 13, color: C.muted }}>
-              Đơn thu qua mã này mới hiện nút <strong>Misa</strong> ở màn Lịch sử. Đơn tiền mặt và
-              đơn về mã khác không cần gõ sang Misa.
-            </span>
-          </span>
-        </label>
-
-        <div className="st-foot">
-          <button type="submit" disabled={submitting || uploading}>
-            {form.id ? 'Lưu thay đổi' : 'Thêm mã QR'}
-          </button>
-          {form.id && (
-            <button type="button" className="secondary" onClick={resetForm}>
-              Huỷ sửa
-            </button>
-          )}
-        </div>
-      </form>
-
-      <div className="st-section">
-        <h2>Mã QR đang có ({items.filter((i) => i.is_active).length})</h2>
-        {loading && <p style={{ color: C.muted }}>Đang tải…</p>}
-        {!loading && items.length === 0 && (
-          <p style={{ color: C.muted }}>
-            Chưa có mã QR nào. Thêm một mã ở trên để nhân viên thu tiền chuyển khoản được.
-          </p>
-        )}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {items.map((row, idx) => (
-            <div
-              key={row.id}
-              style={{
-                display: 'flex',
-                gap: 12,
-                alignItems: 'center',
-                padding: 12,
-                borderRadius: 10,
-                border: `1px solid ${C.borderSoft}`,
-                background: row.is_active ? C.panelBg : '#f3f4f6',
-                opacity: row.is_active ? 1 : 0.65,
-              }}
-            >
-              {row.kind === 'IMAGE' && row.image_url ? (
-                <img
-                  src={row.image_url}
-                  alt=""
-                  style={{ width: 56, height: 56, objectFit: 'contain', background: 'white', borderRadius: 6 }}
-                />
-              ) : (
-                <div style={{ width: 56, display: 'flex', justifyContent: 'center', color: C.muted }}>
-                  <Icon name="chuyen-khoan" size={28} />
-                </div>
+            <div className="cd-form__foot">
+              <button type="submit" disabled={submitting || uploading}>
+                {form.id ? 'Lưu thay đổi' : 'Thêm mã QR'}
+              </button>
+              {/* "Ngừng dùng" = ngừng NHẬN TIỀN KHÁCH (2026-10-16) — tài khoản vẫn dùng trả NCC được. */}
+              {dangSua && (
+                <button type="button" className="secondary" onClick={() => toggleActive(dangSua)}>
+                  {dangSua.is_active ? 'Ngừng dùng mã này' : 'Bật lại mã này'}
+                </button>
               )}
-
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontWeight: 600 }}>
-                  {row.label}
-                  {row.is_hkd && (
-                    <span
-                      style={{
-                        marginLeft: 6,
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: '#1d4ed8',
-                        background: '#dbeafe',
-                        borderRadius: 6,
-                        padding: '1px 6px',
-                      }}
-                    >
-                      HKD · Misa
-                    </span>
-                  )}
-                  {!row.is_active && (
-                    <span style={{ fontSize: 12, color: C.muted, fontWeight: 400 }}> · đã ngừng dùng</span>
-                  )}
-                </div>
-                <div style={{ fontSize: 13, color: C.muted }}>
-                  {row.kind === 'BANK'
-                    ? `${row.bank_name ?? row.bank_bin} · ${row.account_no} · ${row.account_name}`
-                    : 'Ảnh QR — khách tự gõ số tiền và nội dung'}
-                </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                <button type="button" className="secondary" disabled={idx === 0} onClick={() => move(row, -1)} aria-label="Lên trên">
-                  <Icon name="mui-ten-len" size={20} />
-                </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  disabled={idx === items.length - 1}
-                  onClick={() => move(row, 1)}
-                  aria-label="Xuống dưới"
-                >
-                  <Icon name="mui-ten-xuong" size={20} />
-                </button>
-                <button type="button" className="secondary" onClick={() => startEdit(row)}>
-                  Sửa
-                </button>
-                <button type="button" className="secondary" onClick={() => toggleActive(row)}>
-                  {row.is_active ? 'Ngừng dùng' : 'Bật lại'}
-                </button>
-              </div>
             </div>
-          ))}
-        </div>
-      </div>
+          </form>
+        </Sheet>
+      )}
     </div>
   );
 }
@@ -728,37 +577,4 @@ function rowToBody(row: QrRow) {
     image_url: row.image_url,
     is_hkd: row.is_hkd,
   };
-}
-
-function KindButton({
-  active,
-  onClick,
-  title,
-  note,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  note: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      style={{
-        flex: '1 1 240px',
-        textAlign: 'left',
-        padding: '10px 14px',
-        borderRadius: 10,
-        border: active ? '2px solid #0d9488' : `1px solid ${C.borderSoft}`,
-        background: active ? '#f0fdfa' : 'white',
-        color: C.text,
-        cursor: 'pointer',
-      }}
-    >
-      <div style={{ fontWeight: 600 }}>{title}</div>
-      <div style={{ fontSize: 12, color: C.muted }}>{note}</div>
-    </button>
-  );
 }

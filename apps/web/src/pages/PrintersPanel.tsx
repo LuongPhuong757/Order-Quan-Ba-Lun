@@ -7,13 +7,19 @@
 //
 // Ba khối, xếp theo đúng thứ tự người ta cần khi đi lắp máy: cấu hình máy in → khai thiết bị
 // (lấy token dán vào Termux) → nhìn hàng đợi để biết nó có chạy không.
+//
+// LÀM LẠI GIAO DIỆN 2026-11-13 (Cài đặt đợt 1, chủ quán duyệt bản xem thử): dải tình trạng cầu in
+// lên đầu (thay hộp đỏ to), ô tick → công tắc gạt `Switch`, cấu hình thành dòng "tên … ô chọn",
+// hàng đợi = tóm tắt + 10 lệnh mới nhất + "Xem thêm" (trước 30 dòng đẩy trang điện thoại dài
+// 5.200px). Không đổi logic, không đổi API.
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, extractError } from '../lib/api.ts';
-import { C } from '../lib/online-ui.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { Link } from 'react-router-dom';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
+import { Switch } from '../components/ui/Switch.tsx';
+import './cai-dat.css';
 
 type DeviceRow = {
   id: string;
@@ -79,13 +85,19 @@ function clockTime(ms: number): string {
   return `${p(d.getHours())}:${p(d.getMinutes())} ${p(d.getDate())}/${p(d.getMonth() + 1)}`;
 }
 
-const JOB_STATUS: Record<string, { label: string; bg: string; border: string; text: string }> = {
-  PENDING: { label: 'Đang chờ', bg: C.warnBg, border: C.warnBorder, text: C.warnText },
-  CLAIMED: { label: 'Đang in', bg: C.deliveryBg, border: C.deliveryBorder, text: C.deliveryText },
-  DONE: { label: 'Đã in', bg: C.okBg, border: C.okBorder, text: C.okText },
-  FAILED: { label: 'Hỏng', bg: C.alertBg, border: C.alertBorder, text: C.alertText },
-  EXPIRED: { label: 'Quá hạn', bg: C.panelBg, border: C.borderSoft, text: C.muted },
+/** Màu trạng thái lệnh in (2026-11-13): xanh ngọc = đã in, xám = đang chờ/đang in, cam = hỏng/quá
+ *  hạn. Bỏ đỏ — đỏ chỉ dành cho lỗi nhập liệu (bộ quy tắc màu admin). */
+const JOB_STATUS: Record<string, { label: string; cls: string }> = {
+  PENDING: { label: 'Đang chờ', cls: 'cd-pill--muted' },
+  CLAIMED: { label: 'Đang in', cls: 'cd-pill--muted' },
+  DONE: { label: 'Đã in', cls: 'cd-pill--ok' },
+  FAILED: { label: 'Hỏng', cls: 'cd-pill--bad' },
+  EXPIRED: { label: 'Quá hạn', cls: 'cd-pill--warn' },
 };
+
+/** Hàng đợi chỉ hiện chừng này lệnh mới nhất cho tới khi bấm "Xem thêm" — trước đó 30 dòng "Quá
+ *  hạn" đẩy trang điện thoại dài 5.200px, phần cấu hình trôi mất. */
+const JOB_GON = 10;
 
 /** Đơn ship/mang về ngồi ở một bàn ảo, nên `table_code` của chúng là mã kỹ thuật. Hiện thẳng
  *  ra thì dòng nhật ký đọc là "Bàn delivery" — đúng dữ liệu nhưng vô nghĩa với người đứng quầy. */
@@ -94,23 +106,6 @@ function describeJobTarget(j: JobRow): string {
   if (j.fulfillment_type === 'PICKUP') return 'Khách tự lấy';
   return `Bàn ${j.table_code ?? '?'}`;
 }
-
-const card: React.CSSProperties = {
-  background: C.cardBg,
-  border: `1px solid ${C.border}`,
-  borderRadius: 10,
-  padding: 16,
-  marginBottom: 16,
-};
-const label: React.CSSProperties = { display: 'block', fontSize: 13, color: C.muted, marginBottom: 4 };
-const input: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  border: `1px solid ${C.border}`,
-  borderRadius: 6,
-  fontSize: 15,
-  boxSizing: 'border-box',
-};
 
 export function PrintersPanel() {
   const toast = useToast();
@@ -123,6 +118,7 @@ export function PrintersPanel() {
   const [newDeviceName, setNewDeviceName] = useState('');
   const [addingDevice, setAddingDevice] = useState(false);
   const [revealed, setRevealed] = useState<Record<string, boolean>>({});
+  const [xemHet, setXemHet] = useState(false);
   // Giữ bản mới nhất trong ref để vòng tự làm mới không phụ thuộc vào state trong closure.
   const mounted = useRef(true);
 
@@ -251,397 +247,288 @@ export function PrintersPanel() {
     }
   };
 
-  if (loading) return <div style={{ padding: 16, color: C.muted }}>Đang tải…</div>;
+  if (loading) return <div className="cd-row__s" style={{ padding: 16 }}>Đang tải…</div>;
   if (!settings) return null;
 
   const activeDevices = (overview?.devices ?? []).filter((d) => !d.revoked_at);
   const liveDevice = activeDevices.find(
     (d) => d.last_seen_at && Date.now() - d.last_seen_at < DEVICE_STALE_MS,
   );
+  // Thiết bị gọi về gần nhất — để dải tình trạng nói được "máy A gọi về lần cuối … trước".
+  const ganNhat = [...activeDevices].sort((a, b) => (b.last_seen_at ?? 0) - (a.last_seen_at ?? 0))[0];
+  const jobs = overview?.jobs ?? [];
+  const soQuaHan = jobs.filter((j) => j.status === 'EXPIRED').length;
+  const jobsHien = xemHet ? jobs : jobs.slice(0, JOB_GON);
+  const laUsb = settings.printer_connection === 'USB';
+
+  /* Dải tình trạng ĐẦU trang: câu trả lời cho "in được không" (2026-11-13: hộp đỏ to → dải gọn). */
+  const tinhTrang = !settings.printing_enabled ? (
+    <div className="cd-status cd-status--off">
+      <span><b>Đang tắt in hoá đơn</b>Thanh toán vẫn chạy bình thường, chỉ không ra giấy.</span>
+    </div>
+  ) : activeDevices.length === 0 ? (
+    <div className="cd-status cd-status--warn">
+      <span><b>Chưa có thiết bị làm cầu in</b>Thêm một thiết bị ở thẻ "Thiết bị làm cầu in" bên dưới, rồi dán mã của nó vào {laUsb ? 'trang /print-bridge trên máy POS' : 'Termux trên máy tính bảng'}.</span>
+    </div>
+  ) : !liveDevice ? (
+    <div className="cd-status cd-status--warn">
+      <span>
+        <b>Cầu in không chạy — hoá đơn chưa ra giấy</b>
+        {ganNhat ? `Máy "${ganNhat.name}" gọi về lần cuối ${relativeTime(ganNhat.last_seen_at)}. ` : ''}
+        {laUsb
+          ? 'Kiểm trang /print-bridge trên máy POS còn mở và màn hình còn sáng không.'
+          : 'Kiểm Termux còn mở không, Wi-Fi còn không, và đã tắt tối ưu pin cho Termux chưa.'}
+      </span>
+    </div>
+  ) : (
+    <div className="cd-status cd-status--ok">
+      <span><b>Cầu in đang chạy</b>Máy "{liveDevice.name}" gọi về {relativeTime(liveDevice.last_seen_at)}.</span>
+    </div>
+  );
+
+  /** Một dòng có ô chọn bên phải — Dropdown chung (Đợt 0). `neutralValue` = giá trị đang chọn để
+   *  ô không bị tô viền xanh "đang lọc" (đây là cài đặt, không phải bộ lọc). */
+  const dongChon = (t: string, s: string | null, value: string, options: Array<{ value: string; label: string }>, onChange: (v: string) => void) => (
+    <div className="cd-row cd-row--dd">
+      <div className="cd-row__m">
+        <span className="cd-row__t">{t}</span>
+        {s && <span className="cd-row__s">{s}</span>}
+      </div>
+      <div className="cd-row__c cd-row__c--dd">
+        <Dropdown ariaLabel={t} sheetTitle={t} value={value} neutralValue={value} options={options} onChange={onChange} full />
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ maxWidth: 820 }}>
-      {/* ── Tình trạng chung: câu trả lời cho "in được không" phải ở ngay đầu trang ── */}
-      {settings.printing_enabled && activeDevices.length > 0 && !liveDevice && (
-        <div
-          style={{
-            ...card,
-            background: C.alertBg,
-            border: `1px solid ${C.alertBorder}`,
-            color: C.alertText,
-          }}
-        >
-          <strong>Không có cầu in nào đang chạy.</strong> Máy tính bảng ở quầy không gọi về trong
-          hơn {Math.round(DEVICE_STALE_MS / 1000)} giây. Kiểm Termux còn mở không, Wi-Fi còn không,
-          và đã tắt tối ưu pin cho Termux chưa.
-        </div>
-      )}
+    <div className="cd-stack">
+      {tinhTrang}
 
       {/* ── 1. Cấu hình máy in ── */}
-      <form style={card} onSubmit={saveSettings}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>Cấu hình máy in</h3>
+      <form className="cd-card" onSubmit={saveSettings}>
+        <div className="cd-card__head"><h3 className="cd-card__t">Máy in hoá đơn</h3></div>
+        <p className="cd-card__ds">Cấu hình chung cho mọi tờ in. Đổi xong bấm Lưu, rồi In thử để nhìn giấy thật.</p>
 
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 14 }}>
-          <input
-            type="checkbox"
-            checked={settings.printing_enabled}
-            onChange={(e) => setSettings({ ...settings, printing_enabled: e.target.checked })}
-          />
-          <span style={{ fontWeight: 600 }}>Bật in hoá đơn</span>
-          <span style={{ color: C.muted, fontSize: 13 }}>
-            — tắt thì thanh toán vẫn chạy bình thường, chỉ không ra giấy
-          </span>
-        </label>
-
-        <div style={{ marginBottom: 14 }}>
-          {/* Đợt 0: 4 ô chọn của khối này dùng `Dropdown` chung thay `<select>` hệ điều hành;
-              nhãn chữ do Dropdown vẽ trên ô. Giá trị số đổi qua lại chuỗi ngay tại chỗ gọi. */}
-          <div style={{ maxWidth: 300 }}>
-            <Dropdown
-              label="Máy in nối vào đâu"
-              value={settings.printer_connection}
-              options={[
-                { value: 'LAN', label: 'Dây mạng (LAN)' },
-                { value: 'USB', label: 'Dây USB vào máy POS Android' },
-              ]}
-              onChange={(v) => setSettings({ ...settings, printer_connection: v })}
-              full
-            />
+        <div className="cd-row">
+          <div className="cd-row__m">
+            <span className="cd-row__t">In hoá đơn</span>
+            <span className="cd-row__s">Tắt thì thanh toán vẫn chạy, chỉ không ra giấy</span>
           </div>
-          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
-            {settings.printer_connection === 'USB'
-              ? 'Cầu in là một trang web mở sẵn trong Chrome trên máy POS.'
-              : 'Cầu in là script chạy trong Termux trên máy tính bảng.'}
-          </div>
+          <Switch label="In hoá đơn" on={settings.printing_enabled}
+                  onChange={(v) => setSettings({ ...settings, printing_enabled: v })} />
         </div>
+
+        {/* Đợt 0: ô chọn dùng `Dropdown` chung thay `<select>` hệ điều hành. */}
+        {dongChon(
+          'Máy in nối vào',
+          laUsb ? 'Cầu in là trang web mở trong Chrome máy POS' : 'Cầu in là script chạy trong Termux trên máy tính bảng',
+          settings.printer_connection,
+          [
+            { value: 'LAN', label: 'Dây mạng (LAN)' },
+            { value: 'USB', label: 'Dây USB vào máy POS' },
+          ],
+          (v) => setSettings({ ...settings, printer_connection: v }),
+        )}
 
         {/* Ô địa chỉ IP chỉ có nghĩa với máy in nối mạng. Ở chế độ USB, máy in nối bằng dây vào
             máy POS và KHÔNG có địa chỉ nào — để ô này lại là mời người lắp máy điền bừa một con
             số rồi ngồi đoán vì sao không in được. */}
-        {settings.printer_connection === 'USB' ? (
-          <div
-            style={{
-              background: C.okBg,
-              border: `1px solid ${C.okBorder}`,
-              color: C.okText,
-              borderRadius: 8,
-              padding: 12,
-              marginBottom: 14,
-              fontSize: 14,
-              lineHeight: 1.6,
-            }}
-          >
-            Mở <b>Chrome trên máy POS</b> rồi vào địa chỉ:
-            <div style={{ margin: '6px 0' }}>
-              <code style={{ background: '#fff', padding: '4px 8px', borderRadius: 6 }}>
-                {window.location.origin}/print-bridge
-              </code>
-            </div>
-            Dán token thiết bị ở khối bên dưới, bấm <b>Kết nối máy in</b> rồi <b>Bắt đầu</b>. Để
-            trang đó mở và màn hình sáng — đóng trang là hoá đơn ngừng ra.
+        {laUsb ? (
+          <div className="cd-row">
+            <p className="cd-note" style={{ flex: 1 }}>
+              Mở <b>Chrome trên máy POS</b> rồi vào <code>{window.location.origin}/print-bridge</code>. Dán
+              mã thiết bị ở thẻ bên dưới, bấm <b>Kết nối máy in</b> rồi <b>Bắt đầu</b>. Để trang đó mở và
+              màn hình sáng — đóng trang là hoá đơn ngừng ra.
+            </p>
           </div>
         ) : (
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ flex: '1 1 220px' }}>
-            <label style={label}>Địa chỉ IP máy in trong mạng quán</label>
-            <input
-              style={input}
-              value={settings.printer_host}
-              placeholder="192.168.1.50"
-              onChange={(e) => setSettings({ ...settings, printer_host: e.target.value.trim() })}
-            />
+          <div className="cd-row cd-row--stack">
+            <div className="cd-row__m">
+              <span className="cd-row__t">Địa chỉ máy in trong mạng quán</span>
+              <span className="cd-row__s">IP và cổng (thường là 9100)</span>
+            </div>
+            <div className="cd-row__c" style={{ display: 'flex', gap: 8 }}>
+              <input className="cd-input" style={{ flex: 1 }} value={settings.printer_host} placeholder="192.168.1.50"
+                     aria-label="Địa chỉ IP máy in"
+                     onChange={(e) => setSettings({ ...settings, printer_host: e.target.value.trim() })} />
+              <input className="cd-input" style={{ flex: '0 0 96px' }} type="number" value={settings.printer_port}
+                     aria-label="Cổng máy in"
+                     onChange={(e) => setSettings({ ...settings, printer_port: Number(e.target.value) })} />
+            </div>
           </div>
-          <div style={{ flex: '0 0 110px' }}>
-            <label style={label}>Cổng</label>
-            <input
-              style={input}
-              type="number"
-              value={settings.printer_port}
-              onChange={(e) => setSettings({ ...settings, printer_port: Number(e.target.value) })}
-            />
-          </div>
-        </div>
         )}
 
-        <div style={{ marginBottom: 14 }}>
-          {/* Khổ giấy là thứ SAI MÀ KHÔNG BÁO LỖI: đặt 58 trên máy 80mm thì hoá đơn vẫn ra,
-              chữ vẫn sắc, chỉ chiếm nửa trái tờ giấy. Nên để nó thành ô chọn nằm ngay cạnh IP
-              chứ không giấu dưới mục nâng cao. */}
-          <div style={{ maxWidth: 300 }}>
-            <Dropdown
-              label="Khổ giấy"
-              value={String(settings.printer_paper_width_mm)}
-              options={[
-                { value: '80', label: '80mm — máy để bàn (vd XP-D600)' },
-                { value: '58', label: '58mm — máy nhỏ / cầm tay' },
-              ]}
-              onChange={(v) => setSettings({ ...settings, printer_paper_width_mm: Number(v) })}
-              full
-            />
-          </div>
-          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
-            Xem đáy máy in, dòng <em>热敏纸宽 / Paper width</em>. Chọn sai thì hoá đơn vẫn in
-            nhưng chỉ chiếm nửa tờ giấy.
+        {/* Khổ giấy là thứ SAI MÀ KHÔNG BÁO LỖI: đặt 58 trên máy 80mm thì hoá đơn vẫn ra, chữ vẫn
+            sắc, chỉ chiếm nửa trái tờ giấy — nên nó đứng ngay đây chứ không giấu dưới mục nâng cao. */}
+        {dongChon(
+          'Khổ giấy',
+          'Xem đáy máy in (Paper width). Chọn sai thì hoá đơn chỉ chiếm nửa tờ',
+          String(settings.printer_paper_width_mm),
+          [
+            { value: '80', label: '80mm — máy để bàn' },
+            { value: '58', label: '58mm — máy nhỏ' },
+          ],
+          (v) => setSettings({ ...settings, printer_paper_width_mm: Number(v) }),
+        )}
+
+        {/* Ảnh gửi xuống máy in là 1-bit, không có "đen hơn" — đậm lên nghĩa là nét dày ra. */}
+        {dongChon(
+          'Độ đậm chữ',
+          'Rất đậm thì dấu tiếng Việt có thể hơi bí — in thử để chọn',
+          String(settings.printer_darkness),
+          [
+            { value: '1', label: 'Thường' },
+            { value: '2', label: 'Đậm' },
+            { value: '3', label: 'Rất đậm' },
+          ],
+          (v) => setSettings({ ...settings, printer_darkness: Number(v) }),
+        )}
+
+        {/* Lever DUY NHẤT làm từng chấm đen hơn thật. Ô độ đậm chỉ làm nét DÀY ra. Đầu giấy hiện ký
+            tự lạ = máy in không hiểu lệnh → chọn lại "Giữ nguyên". */}
+        {dongChon(
+          'Nhiệt đầu in',
+          'Tăng khi chữ vẫn nhạt sau khi đã tăng độ đậm. Ra ký tự lạ thì chọn lại Giữ nguyên',
+          String(settings.printer_heat),
+          [
+            { value: '0', label: 'Giữ nguyên' },
+            { value: '1', label: 'Cao' },
+            { value: '2', label: 'Rất cao' },
+          ],
+          (v) => setSettings({ ...settings, printer_heat: Number(v) }),
+        )}
+
+        <div className="cd-row cd-row--stack">
+          <div className="cd-row__m"><span className="cd-row__t">Tên quán in trên đầu hoá đơn</span></div>
+          <div className="cd-row__c">
+            <input className="cd-input" value={settings.store_name} aria-label="Tên quán in trên đầu hoá đơn"
+                   onChange={(e) => setSettings({ ...settings, store_name: e.target.value })} />
           </div>
         </div>
 
-        <div style={{ marginBottom: 14 }}>
-          {/* Ảnh gửi xuống máy in là 1-bit, không có "đen hơn" — đậm lên nghĩa là nét dày ra.
-              Để thành ô chọn vì chỉ nhìn màn hình thì không đoán được giấy thật: giấy rẻ loang
-              mực, đầu in cũ thì nhạt. */}
-          <div style={{ maxWidth: 300 }}>
-            <Dropdown
-              label="Độ đậm chữ"
-              value={String(settings.printer_darkness)}
-              options={[
-                { value: '1', label: 'Thường' },
-                { value: '2', label: 'Đậm' },
-                { value: '3', label: 'Rất đậm' },
-              ]}
-              onChange={(v) => setSettings({ ...settings, printer_darkness: Number(v) })}
-              full
-            />
+        <div className="cd-row">
+          <div className="cd-row__m">
+            <span className="cd-row__t">Máy in có dao cắt giấy</span>
+            <span className="cd-row__s">Máy để bàn thường có, máy cầm tay thì không</span>
           </div>
-          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
-            Chữ nhạt thì tăng lên. Mức <b>Rất đậm</b> nét dày nhất nhưng dấu tiếng Việt có thể
-            hơi bí — bấm <b>In thử</b> rồi nhìn giấy thật để chọn.
-          </div>
+          <Switch label="Máy in có dao cắt giấy" on={settings.printer_auto_cut}
+                  onChange={(v) => setSettings({ ...settings, printer_auto_cut: v })} />
         </div>
 
-        <div style={{ marginBottom: 14 }}>
-          {/* Lever DUY NHẤT làm từng chấm đen hơn thật. Hai ô trên chỉ làm nét DÀY ra. */}
-          <div style={{ maxWidth: 300 }}>
-            <Dropdown
-              label="Nhiệt đầu in"
-              value={String(settings.printer_heat)}
-              options={[
-                { value: '0', label: 'Giữ nguyên của máy in' },
-                { value: '1', label: 'Cao' },
-                { value: '2', label: 'Rất cao' },
-              ]}
-              onChange={(v) => setSettings({ ...settings, printer_heat: Number(v) })}
-              full
-            />
-          </div>
-          <div style={{ color: C.muted, fontSize: 13, marginTop: 4 }}>
-            Chữ vẫn nhạt sau khi đã tăng <b>Độ đậm</b> thì tăng ô này — nó bảo máy in đốt lâu
-            hơn mỗi chấm. Nếu đầu tờ giấy hiện ký tự lạ thì máy in không hiểu lệnh, chọn lại
-            <b> Giữ nguyên</b>.
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 14 }}>
-          <label style={label}>Tên quán in trên đầu hoá đơn</label>
-          <input
-            style={input}
-            value={settings.store_name}
-            onChange={(e) => setSettings({ ...settings, store_name: e.target.value })}
-          />
-        </div>
-
-        <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 16 }}>
-          <input
-            type="checkbox"
-            checked={settings.printer_auto_cut}
-            onChange={(e) => setSettings({ ...settings, printer_auto_cut: e.target.checked })}
-          />
-          <span>Máy in có dao cắt giấy</span>
-          <span style={{ color: C.muted, fontSize: 13 }}>
-            — máy để bàn thường có, máy cầm tay thì không
-          </span>
-        </label>
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button type="submit" disabled={saving} style={{ padding: '9px 18px' }}>
-            {saving ? 'Đang lưu…' : 'Lưu'}
-          </button>
-          <button
-            type="button"
-            className="secondary"
-            onClick={testPrint}
-            disabled={testing}
-            style={{ padding: '9px 18px' }}
-          >
+        <div className="cd-foot">
+          <button type="submit" disabled={saving}>{saving ? 'Đang lưu…' : 'Lưu'}</button>
+          <button type="button" className="secondary" onClick={testPrint} disabled={testing}>
             {testing ? 'Đang xếp…' : 'In thử'}
           </button>
         </div>
       </form>
 
       {/* ── 2. Cầu in ── */}
-      <div style={card}>
-        <h3 style={{ margin: '0 0 4px', fontSize: 16 }}>Thiết bị làm cầu in</h3>
-        <p style={{ margin: '0 0 14px', color: C.muted, fontSize: 13, lineHeight: 1.5 }}>
-          Mỗi thiết bị cần một token riêng — dán vào Termux (chế độ LAN) hoặc vào trang
-          /print-bridge trên máy POS (chế độ USB). Chạy nhiều thiết bị cùng lúc là an toàn:
-          server không bao giờ giao cùng một hoá đơn cho hai máy.
+      <div className="cd-card">
+        <div className="cd-card__head"><h3 className="cd-card__t">Thiết bị làm cầu in</h3></div>
+        <p className="cd-card__ds">
+          Mỗi thiết bị một mã riêng — dán vào {laUsb ? 'trang /print-bridge trên máy POS' : 'Termux trên máy tính bảng'}.
+          Chạy nhiều thiết bị cùng lúc vẫn an toàn: một hoá đơn không bao giờ in hai lần.
         </p>
 
         {activeDevices.length === 0 && (
-          <p style={{ color: C.muted, fontSize: 14 }}>Chưa có thiết bị nào.</p>
+          <div className="cd-row"><span className="cd-row__s">Chưa có thiết bị nào.</span></div>
         )}
 
         {activeDevices.map((d) => {
           const live = d.last_seen_at && Date.now() - d.last_seen_at < DEVICE_STALE_MS;
           const statusBad = d.last_status && d.last_status !== 'OK';
           return (
-            <div
-              key={d.id}
-              style={{
-                border: `1px solid ${C.borderSoft}`,
-                borderLeft: `4px solid ${live ? C.connected : C.danger}`,
-                borderRadius: 8,
-                padding: 12,
-                marginBottom: 10,
-              }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                <div>
-                  <strong>{d.name}</strong>
-                  <span style={{ marginLeft: 10, color: live ? C.connected : C.danger, fontSize: 13 }}>
-                    {live ? '● đang chạy' : '● không phản hồi'}
-                  </span>
-                  <div style={{ color: C.muted, fontSize: 13, marginTop: 2 }}>
-                    Gọi về lần cuối: {relativeTime(d.last_seen_at)}
-                    {statusBad && (
-                      <span style={{ color: C.alertText }}> · {d.last_status}</span>
-                    )}
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => revokeDevice(d)}
-                  style={{ padding: '6px 12px', fontSize: 13, alignSelf: 'flex-start' }}
-                >
-                  Thu hồi
-                </button>
+            <div key={d.id} className="cd-row cd-dev">
+              <div className="cd-row__m">
+                <span className="cd-row__t">
+                  {d.name}{' '}
+                  <span className={`cd-pill ${live ? 'cd-pill--ok' : 'cd-pill--warn'}`}>{live ? 'Đang chạy' : 'Không phản hồi'}</span>
+                </span>
+                <span className="cd-row__s">
+                  Gọi về lần cuối: {relativeTime(d.last_seen_at)}
+                  {statusBad && <span className="cd-row__warn"> · {d.last_status}</span>}
+                </span>
               </div>
-
-              <div style={{ marginTop: 10, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                <code
-                  style={{
-                    background: C.panelBg,
-                    padding: '6px 8px',
-                    borderRadius: 6,
-                    fontSize: 13,
-                    wordBreak: 'break-all',
-                    flex: '1 1 260px',
-                  }}
-                >
-                  {revealed[d.id] ? d.token : '•'.repeat(24)}
-                </code>
-                <button
-                  type="button"
-                  className="secondary"
-                  style={{ padding: '6px 12px', fontSize: 13 }}
-                  onClick={() => setRevealed((r) => ({ ...r, [d.id]: !r[d.id] }))}
-                >
+              <button type="button" className="secondary cd-sm" onClick={() => revokeDevice(d)}>Thu hồi</button>
+              <div className="cd-dev__tok">
+                <code>{revealed[d.id] ? d.token : '•'.repeat(24)}</code>
+                <button type="button" className="secondary cd-sm"
+                        onClick={() => setRevealed((r) => ({ ...r, [d.id]: !r[d.id] }))}>
                   {revealed[d.id] ? 'Ẩn' : 'Hiện'}
                 </button>
-                <button
-                  type="button"
-                  className="secondary"
-                  style={{ padding: '6px 12px', fontSize: 13 }}
-                  onClick={() => copyToken(d.token)}
-                >
-                  Chép
-                </button>
+                <button type="button" className="secondary cd-sm" onClick={() => copyToken(d.token)}>Chép</button>
               </div>
             </div>
           );
         })}
 
-        <form onSubmit={addDevice} style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-          <input
-            style={{ ...input, flex: '1 1 220px', width: 'auto' }}
-            value={newDeviceName}
-            placeholder="Tên thiết bị, vd: Tablet quầy"
-            maxLength={64}
-            onChange={(e) => setNewDeviceName(e.target.value)}
-          />
-          <button type="submit" disabled={addingDevice || !newDeviceName.trim()} style={{ padding: '9px 18px' }}>
-            Thêm thiết bị
+        <form onSubmit={addDevice} className="cd-row">
+          <input className="cd-input" style={{ flex: 1, minWidth: 0 }} value={newDeviceName}
+                 placeholder="Tên thiết bị, vd: Tablet quầy" maxLength={64} aria-label="Tên thiết bị mới"
+                 onChange={(e) => setNewDeviceName(e.target.value)} />
+          <button type="submit" className="cd-sm" style={{ minHeight: 44 }} disabled={addingDevice || !newDeviceName.trim()}>
+            Thêm
           </button>
         </form>
       </div>
 
-      {/* ── 3. Hàng đợi ── */}
-      <div style={card}>
-        <h3 style={{ margin: '0 0 12px', fontSize: 16 }}>
-          Hàng đợi in
-          {overview && (
-            <span style={{ marginLeft: 10, fontSize: 13, fontWeight: 400, color: C.muted }}>
-              {overview.counts.pending} đang chờ · {overview.counts.failed} hỏng
-            </span>
-          )}
-        </h3>
-
-        {(overview?.jobs.length ?? 0) === 0 && (
-          <p style={{ color: C.muted, fontSize: 14 }}>Chưa có lần in nào.</p>
+      {/* ── 3. Hàng đợi ── tóm tắt + 10 lệnh mới nhất (chủ quán chốt 2026-11-13). Câu "không có
+          cầu in nào lấy job trong 10 phút" nói MỘT lần ở đầu thẻ, không lặp ở mọi dòng quá hạn. */}
+      <div className="cd-card">
+        <div className="cd-card__head"><h3 className="cd-card__t">Hàng đợi in</h3></div>
+        {overview && (
+          <div className="cd-sum">
+            <span>{overview.counts.pending} đang chờ</span>
+            <span className={overview.counts.failed > 0 ? 'is-warn' : undefined}>{overview.counts.failed} hỏng</span>
+            {soQuaHan > 0 && <span className="is-warn">{soQuaHan} quá hạn</span>}
+          </div>
+        )}
+        {soQuaHan > 0 && (
+          <p className="cd-card__ds">Quá hạn = 10 phút không có cầu in nào nhận lệnh — tờ đó sẽ không in nữa.</p>
         )}
 
-        <div style={{ overflowX: 'auto' }}>
-          {overview && overview.jobs.length > 0 && (
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
-              <thead>
-                <tr style={{ textAlign: 'left', color: C.muted, fontSize: 13 }}>
-                  <th style={{ padding: '6px 8px' }}>Lúc</th>
-                  <th style={{ padding: '6px 8px' }}>Nội dung</th>
-                  <th style={{ padding: '6px 8px' }}>Trạng thái</th>
-                </tr>
-              </thead>
-              <tbody>
-                {overview.jobs.map((j) => {
-                  const s = JOB_STATUS[j.status] ?? JOB_STATUS.PENDING;
-                  return (
-                    <tr key={j.id} style={{ borderTop: `1px solid ${C.borderSoft}` }}>
-                      <td style={{ padding: '8px', whiteSpace: 'nowrap', color: C.muted }}>
-                        {clockTime(j.created_at)}
-                      </td>
-                      <td style={{ padding: '8px' }}>
-                        {j.kind === 'TEST'
-                          ? 'In thử'
-                          : j.kind === 'CUSTOM'
-                            ? 'Hoá đơn tự do'
-                            : j.kind === 'TAM_TINH'
-                              ? `Tạm tính · ${describeJobTarget(j)}`
-                              : describeJobTarget(j)}
-                        {j.reason === 'REPRINT' && j.kind !== 'TEST' && j.kind !== 'TAM_TINH' && (
-                          <span style={{ color: C.muted }}> · in lại</span>
-                        )}
-                        {j.requested_by_full_name && (
-                          <span style={{ color: C.muted }}> · {j.requested_by_full_name}</span>
-                        )}
-                        {j.last_error && j.status !== 'DONE' && (
-                          <div style={{ color: C.alertText, fontSize: 13 }}>{j.last_error}</div>
-                        )}
-                      </td>
-                      <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
-                        <span
-                          style={{
-                            background: s.bg,
-                            border: `1px solid ${s.border}`,
-                            color: s.text,
-                            borderRadius: 999,
-                            padding: '2px 10px',
-                            fontSize: 13,
-                          }}
-                        >
-                          {s.label}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {jobs.length === 0 && <div className="cd-row"><span className="cd-row__s">Chưa có lần in nào.</span></div>}
+
+        {jobsHien.map((j) => {
+          const s = JOB_STATUS[j.status] ?? JOB_STATUS.PENDING;
+          const noiDung = j.kind === 'TEST'
+            ? 'In thử'
+            : j.kind === 'CUSTOM'
+              ? 'Hoá đơn tự do'
+              : j.kind === 'TAM_TINH'
+                ? `Tạm tính · ${describeJobTarget(j)}`
+                : describeJobTarget(j);
+          return (
+            <div key={j.id} className="cd-job">
+              <div className="cd-job__m">
+                <span className="cd-job__t">
+                  {noiDung}
+                  {j.reason === 'REPRINT' && j.kind !== 'TEST' && j.kind !== 'TAM_TINH' && ' · in lại'}
+                </span>
+                <span className="cd-job__s">
+                  {clockTime(j.created_at)}
+                  {j.requested_by_full_name && ` · ${j.requested_by_full_name}`}
+                </span>
+                {/* Lỗi quá hạn đã nói ở đầu thẻ; chỉ hiện lỗi KHÁC (máy in hết giấy, mất kết nối…). */}
+                {j.last_error && j.status !== 'DONE' && j.status !== 'EXPIRED' && (
+                  <span className="cd-job__err">{j.last_error}</span>
+                )}
+              </div>
+              <span className={`cd-pill ${s.cls}`}>{s.label}</span>
+            </div>
+          );
+        })}
+        {jobs.length > JOB_GON && (
+          <button type="button" className="cd-morebtn" onClick={() => setXemHet((v) => !v)}>
+            {xemHet ? 'Thu gọn' : `Xem thêm ${jobs.length - JOB_GON} lệnh`}
+          </button>
+        )}
       </div>
 
       {/* ── 4. Hoá đơn tự do đã in (M6.D-06) — từ 2026-11-10 là màn riêng "Phiếu đã in"; ở đây chỉ
           còn đường vào, không giữ bản danh sách thứ hai (hai giao diện cho một việc sẽ lệch nhau). */}
-      <Link to="/custom-receipt/history" className="crh-link">
+      <Link to="/custom-receipt/history" className="cd-link">
         Phiếu đã in (hoá đơn tự do) →
       </Link>
     </div>

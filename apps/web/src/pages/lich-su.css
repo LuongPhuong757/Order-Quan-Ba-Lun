@@ -1,0 +1,166 @@
+/* Màn Lịch sử — phần ĐẦU màn + hộp chi tiết đơn (làm lại 2026-11-13, chủ quán duyệt bản xem thử).
+ *
+ * Phạm vi cố ý hẹp: chỉ khối trên danh sách (chế độ xem, lối vào sổ webhook, bộ lọc, tab trạng thái
+ * có số đếm, dải đối soát) và hộp mở khi chạm một đơn. BẢNG ĐƠN giữ nguyên `txn-table` trong
+ * styles.css — chủ quán dặn "phần dưới giữ nguyên" (nhân viên đã quen mắt đọc bảng đó).
+ * Tiền tố `ls-` để không đụng `.txn-*` dùng chung. Màu: chỉ xanh ngọc + cam cho cảnh báo. */
+
+.ls-dau { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+
+/* ── Hàng 1: Giao dịch | Thống kê + Sổ webhook ─────────────────────────── */
+.ls-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.ls-view { display: inline-flex; background: #e5e7eb; border-radius: 12px; padding: 4px; gap: 2px; }
+button.ls-view__o {
+  min-height: 40px; height: 40px; padding: 0 16px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--ds-ink-2);
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong);
+}
+button.ls-view__o.is-on { background: #fff; color: var(--ds-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+a.ls-wh {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px;
+  color: var(--ds-accent); font-weight: var(--ds-fw-strong); font-size: var(--ds-fs-body2); text-decoration: none;
+}
+
+/* ── Hàng lọc ─────────────────────────────────────────────────────────────
+ * Điện thoại: [Kỳ][Bàn][☰] — 3 ô một hàng. Từ 768px: chip kỳ + ô Bàn + "Lọc thêm". */
+.ls-loc { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 48px; gap: 8px; align-items: end; }
+/* Máy rộng: chip kỳ một hàng riêng (8 chip ~760px — chung hàng với Bàn + Lọc thêm thì gãy 2–3
+   dòng ở 820/1280px), Bàn + Lọc thêm + Xoá lọc hàng dưới, dồn trái. Hết chỗ thì chip vuốt ngang. */
+.ls-loc--rong { display: flex; flex-direction: column; gap: 8px; }
+.ls-loc__ky { min-width: 0; }
+.ls-loc__hang { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
+.ls-loc__ban { flex: 0 0 200px; min-width: 0; }
+button.ls-ky {
+  height: var(--ds-h-control); min-height: var(--ds-h-control); min-width: 0; width: 100%; padding: 0 12px;
+  display: flex; align-items: center; gap: 6px;
+  background: #fff; color: var(--ds-ink); border: 1px solid #d1d5db; border-radius: 8px;
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong);
+}
+.ls-ky span { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-ky svg { color: var(--ds-ink-2); flex: none; }
+button.ls-more {
+  position: relative; height: var(--ds-h-control); min-height: var(--ds-h-control); min-width: 48px; padding: 0 12px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  background: #fff; color: var(--ds-ink); border: 1px solid #d1d5db; border-radius: 8px;
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong); white-space: nowrap;
+}
+button.ls-more.is-on { border-color: var(--ds-accent); color: var(--ds-accent); background: var(--ds-accent-soft); }
+.ls-more__n {
+  position: absolute; top: -7px; right: -7px; min-width: 20px; height: 20px; padding: 0 5px; box-sizing: border-box;
+  border-radius: 999px; background: var(--ds-accent); color: #fff; font-size: var(--ds-fs-label); font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; line-height: 1;
+}
+button.ls-xoa {
+  height: var(--ds-h-control); min-height: var(--ds-h-control); padding: 0 12px;
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; color: var(--ds-ink-2); border: 0; font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong);
+}
+.ls-sheet { display: flex; flex-direction: column; gap: 12px; padding: 4px 16px 8px; overflow-y: auto; }
+.ls-sheet .txn-fsel { width: 100% !important; }
+
+/* ── Tab trạng thái có số đếm ─────────────────────────────────────────────
+ * Điện thoại: một hàng vuốt ngang (thêm trạng thái không làm cao màn). Từ 768px: xuống dòng. */
+.ls-tabs {
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  margin: 0 -16px; padding: 2px 16px;
+}
+.ls-tabs::-webkit-scrollbar { display: none; }
+button.ls-tab {
+  flex: none; height: 40px; min-height: 40px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--ds-line); background: #fff; color: var(--ds-ink);
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--ds-fs-body2); font-weight: var(--ds-fw-strong); white-space: nowrap;
+}
+.ls-tab small { font-size: var(--ds-fs-label); color: var(--ds-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+button.ls-tab.is-on { background: var(--ds-accent); border-color: var(--ds-accent); color: #fff; }
+button.ls-tab.is-on small { color: var(--ds-accent-tint); }
+
+/* ── Dải đối soát (admin) ─────────────────────────────────────────────────
+ * Điện thoại: Tổng thu trọn hàng (nền xanh ngọc) · Tiền mặt | Chuyển khoản · Đang nợ trọn hàng.
+ * Từ 768px: 4 ô một hàng. */
+.ls-ds {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--ds-line); border: 1px solid var(--ds-line); border-radius: 14px; overflow: hidden;
+}
+.ls-ds__o { background: #fff; padding: 10px 14px; display: grid; gap: 2px; min-width: 0; text-align: left; }
+button.ls-ds__o { border: 0; border-radius: 0; min-height: 0; height: auto; color: inherit; font: inherit; cursor: pointer; }
+.ls-ds__l { font-size: var(--ds-fs-label); color: var(--ds-ink-2); font-weight: 600; }
+.ls-ds__v { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--ds-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ls-ds__s { font-size: var(--ds-fs-label); color: var(--ds-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ls-ds__s.is-lk { color: var(--ds-accent); font-weight: 600; }
+.ls-ds__o.is-main { grid-column: 1 / -1; background: var(--ds-accent); }
+.ls-ds__o.is-main .ls-ds__l, .ls-ds__o.is-main .ls-ds__s { color: var(--ds-accent-tint); }
+.ls-ds__o.is-main .ls-ds__v { color: #fff; font-size: 22px; }
+.ls-ds__o.is-debt { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.ls-ds__o.is-debt .ls-ds__v { font-size: 17px; }
+.ls-ds__o.is-debt.is-co .ls-ds__v { color: var(--orange-700); }
+.ls-ds__tk { display: flex; flex-direction: column; padding: 0 16px 12px; }
+.ls-ds__tk > div { display: flex; justify-content: space-between; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--ds-line); font-size: var(--ds-fs-body); }
+.ls-ds__tk > div:last-child { border-bottom: 0; }
+.ls-ds__tk small { color: var(--ds-ink-2); font-size: var(--ds-fs-body2); }
+.ls-ds__tk b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ls-ds__note { font-size: var(--ds-fs-label); color: var(--ds-ink-2); line-height: 1.45; padding: 0 16px 12px; margin: 0; }
+
+.ls-note {
+  font-size: var(--ds-fs-body2); color: var(--ds-ink-2); background: #fff;
+  border: 1px dashed #d1d5db; border-radius: 10px; padding: 10px 12px; line-height: 1.45;
+}
+
+@media (min-width: 768px) {
+  .ls-tabs { overflow: visible; flex-wrap: wrap; margin: 0; padding: 0; }
+  .ls-ds { grid-template-columns: 1.3fr 1fr 1fr 1fr; }
+  .ls-ds__o.is-main, .ls-ds__o.is-debt { grid-column: auto; }
+  .ls-ds__o.is-debt { display: grid; gap: 2px; }
+  .ls-ds__o.is-debt .ls-ds__v { font-size: 19px; }
+}
+
+/* ── Hộp chi tiết đơn ─────────────────────────────────────────────────────
+ * Điện thoại: tấm trượt từ đáy. Máy tính/iPad: hộp giữa màn, rộng hơn hộp mặc định 440px vì có
+ * danh sách món + nhật ký. `:has` để không phải thêm prop cho Sheet chung. */
+@media (min-width: 768px) {
+  .ds-sheet-bg--giua .ds-sheet:has(.ls-ct) { max-width: 600px; }
+}
+.ds-sheet > .ls-ct { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.ls-ct__hd { padding: 0 16px 14px; display: grid; gap: 8px; border-bottom: 1px solid var(--ds-line); }
+.ls-ct__t1 { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.ls-ct__ban { font-size: var(--ds-fs-title); font-weight: 700; min-width: 0; overflow-wrap: anywhere; }
+.ls-ct__ngay { color: var(--ds-ink-2); font-size: var(--ds-fs-body2); white-space: nowrap; }
+.ls-ct__tien { font-size: var(--ds-fs-num); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ls-ct__st { font-size: var(--ds-fs-body); color: var(--ds-ink-2); }
+.ls-ct__st b { font-weight: 700; }
+.ls-ct__st b.is-paid { color: var(--ds-accent); }
+.ls-ct__st b.is-unpaid, .ls-ct__st b.is-debt { color: var(--orange-700); }
+.ls-ct__st b.is-cancel { color: var(--ds-ink-3); }
+.ls-ct__chips { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.ls-ic {
+  height: 32px; padding: 0 10px; box-sizing: border-box; border-radius: 8px;
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid;
+  font-size: var(--ds-fs-body2); font-weight: 700; line-height: 1; white-space: nowrap;
+}
+.ls-ic.is-sq { width: 40px; padding: 0; justify-content: center; }
+.ls-ic.is-ok { color: var(--ds-accent); background: var(--ds-accent-soft); border-color: var(--teal-200); }
+.ls-ic.is-no { color: var(--orange-700); background: var(--orange-50); border-color: var(--orange-200); }
+.ls-ic.is-gr { color: #475569; background: #f1f5f9; border-color: #e2e8f0; }
+.ls-ic.is-am { color: var(--amber-800); background: var(--amber-100); border-color: var(--amber-200); }
+.ls-kv { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; font-size: var(--ds-fs-body2); margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--ds-line); }
+.ls-kv dt { color: var(--ds-ink-2); }
+.ls-kv dd { margin: 0; text-align: right; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.ls-kv dd.is-warn { color: var(--orange-700); }
+/* Thân cũ (món, chuyển khoản, nợ, nhật ký) nằm trong hộp: bỏ nền xám + viền trên vốn để tách nó
+   khỏi dòng bảng khi còn mở lồng dưới dòng. */
+.ls-ct .ls-than { background: #fff !important; border-top: 0 !important; padding: 12px 16px 16px !important; font-size: var(--ds-fs-body2); }
+.ls-foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px 12px; border-top: 1px solid var(--ds-line); }
+.ls-foot > * { flex: 1 1 auto; }
+button.ls-btn {
+  min-height: 48px; height: 48px; padding: 0 16px; border-radius: 10px;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  border: 1px solid #d1d5db; background: #fff; color: var(--ds-ink);
+  font-size: var(--ds-fs-body); font-weight: 700; white-space: nowrap;
+}
+button.ls-btn.is-pri { background: var(--ds-accent); border-color: var(--ds-accent); color: #fff; }
+button.ls-btn.is-warn { color: var(--orange-700); }
+button.ls-btn:disabled { opacity: .6; }
+
+/* Tấm trượt Kỳ trên điện thoại: chip XUỐNG DÒNG thay vì vuốt ngang — trong tấm trượt có thừa chỗ
+   dọc, giấu "Tháng này / Chọn ngày" ra ngoài mép thì người lớn tuổi không biết là còn. */
+.ls-sheet .ds-chips { flex-wrap: wrap; overflow: visible; }

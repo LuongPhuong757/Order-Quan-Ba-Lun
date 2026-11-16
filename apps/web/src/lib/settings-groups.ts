@@ -23,9 +23,9 @@ export const SETTINGS_GROUPS: SettingsGroupInfo[] = [
     title: 'Đặt hàng online',
     hint: 'Giờ mở cửa, hình thức nhận hàng, phí ship, OTP, bản đồ, SĐT bị chặn, top món',
   },
-  { id: 'payment', title: 'Thanh toán', hint: 'Mã QR nhận tiền' },
+  { id: 'payment', title: 'Thanh toán', hint: 'Mã QR nhận tiền, tự xuất hoá đơn, xác thực ngân hàng' },
   { id: 'table', title: 'Tại bàn', hint: 'Mã QR gọi món, cảnh báo bàn ngồi lâu' },
-  { id: 'printers', title: 'Máy in', hint: 'Máy in hoá đơn, máy in bếp' },
+  { id: 'printers', title: 'Máy in', hint: 'Máy in hoá đơn, cầu in, hàng đợi in' },
 ];
 
 /** Máy tính/iPad mở thẳng nhóm này khi URL chưa chọn nhóm — nhóm hay sửa nhất. */

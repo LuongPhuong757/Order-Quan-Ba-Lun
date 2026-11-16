@@ -1,6 +1,18 @@
 // Lịch sử order — page xem mọi order (đã + chưa thanh toán), filter theo bàn/ngày/cashier/trạng thái.
 // Color-code: xanh lá = đã thanh toán, vàng = chưa thanh toán.
-// Expandable row: bấm vào row để mở chi tiết món + ai gọi.
+// Bấm vào row để mở chi tiết món + ai gọi.
+//
+// LÀM LẠI PHẦN ĐẦU MÀN + HỘP CHI TIẾT (2026-11-13, chủ quán duyệt bản xem thử; CSS ở lich-su.css):
+// - Bỏ tiêu đề "Quản lý giao dịch" (thanh trên đã ghi "Lịch sử"). Hàng đầu: "Giao dịch | Thống kê"
+//   (thay nút "Hiện biểu đồ thống kê" — biểu đồ thành một chế độ xem, không đẩy danh sách xuống)
+//   + "Sổ webhook ngân hàng ›".
+// - Bộ lọc: hiện sẵn Kỳ + Bàn; thu ngân / hình thức / xác thực / ảnh bill / tài khoản / sắp xếp
+//   vào nút "Lọc thêm" (có số báo đang lọc mấy ô). Tab trạng thái có SỐ ĐẾM.
+// - Admin: dải đối soát 4 ô LUÔN HIỆN (Tổng thu · Tiền mặt · Chuyển khoản · Đang nợ) thay 2 ô số +
+//   nút "Hiện đối soát tiền".
+// - Chạm một đơn: mở HỘP chi tiết (tấm trượt trên điện thoại, hộp giữa màn từ 768px) thay vì bung
+//   lồng dưới dòng — có sẵn nút In lại / Misa / Thu nợ ngay trong hộp.
+// - BẢNG ĐƠN GIỮ NGUYÊN (chủ quán dặn "phần dưới giữ nguyên").
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, Fragment } from 'react';
 import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
@@ -9,8 +21,8 @@ import { useAuth } from '../lib/auth-context.tsx';
 import { ChartCard, BarChart, RankBars, Donut } from '../components/Charts.tsx';
 import { TimeRangeChips } from '../components/TimeRangeFilter.tsx';
 import { catGioTrongHaiDau, nhanGio } from '../lib/gio-cao-diem.ts';
-import { isPrevShiftCarryover, vnDayIso, type DayRange } from '../lib/date-range.ts';
-import { presetToRange, SHIFT_SCREEN } from '../lib/time-presets.ts';
+import { isPrevShiftCarryover, rangeLabel, vnDayIso, type DayRange } from '../lib/date-range.ts';
+import { PRESET_LABEL, detectPreset, presetToRange, SHIFT_SCREEN } from '../lib/time-presets.ts';
 import { docNho, ghiNho, khoiPhucKhoang, luuKhoang, vanTayKy, type KhoangDaLuu } from '../lib/nho-loc.ts';
 import { Icon, type IconName } from '../components/ui/Icon.tsx';
 import { Dropdown, type DropdownOption } from '../components/ui/Dropdown.tsx';
@@ -19,7 +31,8 @@ import { Sheet } from '../components/ui/Sheet.tsx';
 import { useIsPhone } from '../components/ui/use-is-phone.ts';
 import { Pagination } from '../components/ui/Pagination.tsx';
 import { anTien } from '../lib/an-tien.ts';
-import { PaymentMethodBadge, PaymentPhotos, PaymentSummaryBox } from './PaymentReconcilePanel.tsx';
+import { DoiSoatStrip, PaymentMethodBadge, PaymentPhotos } from './PaymentReconcilePanel.tsx';
+import './lich-su.css';
 import {
   historyFilterKey,
   historyQuery,
@@ -390,9 +403,14 @@ export function HistoryPage() {
   /** Đầu bảng đơn — đổi trang thì cuộn về đây (không về đỉnh màn: trên đó là cả khối lọc). */
   const bangDonRef = useRef<HTMLTableElement>(null);
   const statsSeqRef = useRef(0);
-  // Mặc định ẨN biểu đồ (chốt 2026-09-05): việc thường ngày ở màn này là soi danh sách đơn,
-  // biểu đồ đẩy nó xuống dưới màn hình. Ai cần thì bấm "Hiện biểu đồ thống kê".
+  // Mặc định ẨN biểu đồ (chốt 2026-09-05): việc thường ngày ở màn này là soi danh sách đơn.
+  // Từ 2026-11-13 `true` = chế độ "Thống kê" của nút "Giao dịch | Thống kê": biểu đồ THAY chỗ
+  // danh sách chứ không chen lên trên đẩy nó xuống.
   const [showCharts, setShowCharts] = useState(false);
+  /** Số đơn từng tab (2026-11-13). `/orders/stats` cắt số đếm theo tab đang chọn (tab khác về 0),
+   *  nên chỉ lúc đứng ở "Tất cả" mới có đủ cả bộ. Nhớ bộ đó kèm khoá bộ lọc KHÔNG tính tab: sang
+   *  tab khác vẫn hiện số cũ đúng; đổi kỳ/bàn/... thì khoá lệch → ẩn số cho tới khi về "Tất cả". */
+  const [tabCounts, setTabCounts] = useState<{ key: string; all: number; paid: number; unpaid: number; cancelled: number; debt: number } | null>(null);
   /** Hai biểu đồ cột vẽ theo TIỀN hay theo SỐ ĐƠN — một chip chung cho cả hai.
    *
    *  Chung chứ không mỗi biểu đồ một chip: hai câu hỏi "ngày nào thu nhiều nhất" và "giờ nào
@@ -423,6 +441,8 @@ export function HistoryPage() {
   /** Chuỗi định danh bộ lọc, dùng làm deps của effect: đổi `page` không được bắt biểu đồ tải
    *  lại (biểu đồ không theo trang), đổi bất cứ trục lọc nào thì phải. */
   const filterKey = historyFilterKey(filters);
+  /** Khoá bộ lọc BỎ trục tab — để biết bộ số đếm tab đang nhớ còn đúng với kỳ/bàn/... hiện tại. */
+  const khoaDem = historyFilterKey({ ...filters, status: 'all', misa: '' });
 
   useEffect(() => {
     Promise.all([
@@ -505,12 +525,49 @@ export function HistoryPage() {
           if (seq !== statsSeqRef.current) return; // response của bộ lọc đã rời → bỏ
           setStats(res.data.data);
           setStatsLoading(false);
+          if (statusFilter === 'all' && !misaFilter) {
+            const d = res.data.data;
+            const debt = d.debt_count ?? 0;
+            setTabCounts({
+              key: khoaDem,
+              all: d.paid_count + d.unpaid_count + d.cancelled_count + debt,
+              paid: d.paid_count,
+              unpaid: d.unpaid_count,
+              cancelled: d.cancelled_count,
+              debt,
+            });
+          }
         })
         .catch(() => {
           if (seq !== statsSeqRef.current) return;
           setStats(null);
           setStatsLoading(false);
         });
+
+      // Số đếm tab khi đang đứng ở một tab cụ thể mà chưa có bộ đếm cho kỳ/bàn hiện tại (vd mở màn
+      // lại đúng tab "Đã thanh toán" đã nhớ): hỏi riêng một lần với trục tab = "Tất cả". Đứng ở
+      // "Tất cả" thì không cần — response ở trên đã có đủ.
+      if ((statusFilter !== 'all' || misaFilter) && tabCounts?.key !== khoaDem) {
+        const khoa = khoaDem;
+        api
+          .get<{ data: Stats }>(`/orders/stats?${historyQuery({ ...filters, status: 'all', misa: '' })}`)
+          .then((res) => {
+            if (seq !== statsSeqRef.current) return;
+            const d = res.data.data;
+            const debt = d.debt_count ?? 0;
+            setTabCounts({
+              key: khoa,
+              all: d.paid_count + d.unpaid_count + d.cancelled_count + debt,
+              paid: d.paid_count,
+              unpaid: d.unpaid_count,
+              cancelled: d.cancelled_count,
+              debt,
+            });
+          })
+          // Số đếm chỉ là phần phụ của tab: hỏng thì tab không có số, danh sách vẫn chạy — không
+          // đáng một thông báo lỗi.
+          .catch(() => {});
+      }
 
       // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn + tab, bỏ `cashier_user_id`: nguyên liệu
       // tốn theo món khách ăn, không theo ai đứng thu tiền (`cashier: false`).
@@ -715,6 +772,9 @@ export function HistoryPage() {
     setRowMenuTop(top);
   }, [rowMenu]);
   const rowMenuOrder = rowMenu ? orders.find((o) => o.id === rowMenu.id) ?? null : null;
+  /** Đơn đang mở hộp chi tiết — đọc từ `orders` (không chụp lại) để tick Misa / phát hành lại
+   *  cập nhật ngay trong hộp. Tải lại mà đơn rời danh sách thì hộp tự đóng. */
+  const xemDon = expanded ? orders.find((o) => o.id === expanded) ?? null : null;
 
   /** Admin chuyển đơn ĐÃ THU sang nợ (thu ngân bấm nhầm). Hỏi tên khách bằng `prompt` — thao tác
    *  hiếm, một hộp thoại riêng cho nó là thừa. */
@@ -816,6 +876,8 @@ export function HistoryPage() {
    *  mà vẫn mời "Xoá lọc" thì nút đó chẳng xoá gì cả. */
   const isPhone = useIsPhone();
   const [filterSheet, setFilterSheet] = useState(false);
+  /** Tấm trượt chọn kỳ — chỉ điện thoại (máy rộng có chip kỳ hiện sẵn). */
+  const [moKy, setMoKy] = useState(false);
   const hasActiveFilter =
     tableFilter ||
     cashierFilter ||
@@ -866,22 +928,6 @@ export function HistoryPage() {
      nên query gửi máy chủ không đổi; iPad/máy tính giữ ô lọc tại chỗ như trước. */
   const filterFields = (
     <>
-        {/* Bàn: nhóm theo loại bàn, dòng phụ là mã bàn (giữ như ô tìm cũ). Nhãn CHỮ trên ô thay cho
-            emoji 🍽 trong ô (Đợt 0, 2026-11-09) — người lớn tuổi không đoán được biểu tượng là "bàn".
-            Bọc `div.txn-fsel`: giữ bề rộng cố định trên máy tính, còn trên điện thoại styles.css cho
-            mỗi ô nửa hàng (luật `.txn-fsel` sẵn có) — `Dropdown` không nhận style riêng. */}
-        <div className="txn-fsel" style={{ width: 160, flexShrink: 0 }}>
-          <Dropdown
-            label="Bàn"
-            value={tableFilter}
-            neutralValue=""
-            options={tableOptions}
-            onChange={(v) => { setTableFilter(v); setPage(1); }}
-            searchable
-            full
-          />
-        </div>
-
         <div className="txn-fsel" style={{ width: 170, flexShrink: 0 }}>
           <Dropdown
             label="Thu ngân"
@@ -992,36 +1038,55 @@ export function HistoryPage() {
     sortBy !== 'opened' ? sortBy : '',
   ].filter(Boolean).length;
 
+  /** Nhãn kỳ đang xem cho ô "Kỳ" trên điện thoại — cùng cách gọi với chip ("Ca này", "30 ngày"). */
+  const kyNhan = (() => {
+    const p = detectPreset(range, Date.now(), SHIFT_SCREEN);
+    return p === 'custom' ? rangeLabel(range, Date.now()) : PRESET_LABEL[p];
+  })();
+  const doiKy = (r: DayRange) => { setRange(r); setPage(1); };
+  /** Số đếm tab chỉ hiện khi bộ đang nhớ khớp kỳ/bàn/... hiện tại (xem `tabCounts`). */
+  const dem = tabCounts && tabCounts.key === khoaDem ? tabCounts : null;
+  const tab = (key: Status | 'misa', label: string, n: number | undefined) => {
+    const on = key === 'misa' ? misaFilter === 'copied' : !misaFilter && statusFilter === key;
+    return (
+      <button key={key} type="button" className={`ls-tab${on ? ' is-on' : ''}`} aria-pressed={on} onClick={() => selectTab(key)}>
+        {label}
+        {n !== undefined && <small>{n}</small>}
+      </button>
+    );
+  };
+
+  /* Bàn: nhóm theo loại bàn, dòng phụ là mã bàn (giữ như ô tìm cũ). Không nhãn chữ trên ô
+     (2026-11-13): đứng cạnh ô Kỳ cùng chiều cao, và giá trị mặc định đã nói đủ ("Tất cả bàn"). */
+  const oBan = (
+    <Dropdown
+      ariaLabel="Lọc theo bàn"
+      sheetTitle="Chọn bàn"
+      value={tableFilter}
+      neutralValue=""
+      options={tableOptions}
+      onChange={(v) => { setTableFilter(v); setPage(1); }}
+      searchable
+      full
+    />
+  );
+  /** Số ô đang lọc nằm TRONG "Lọc thêm" — Bàn và Kỳ đã hiện sẵn ngoài nên không tính. */
+  const soLocThem = activeFilterCount - (tableFilter ? 1 : 0);
+  const nutLocThem = (
+    <button
+      type="button"
+      className={`ls-more${soLocThem ? ' is-on' : ''}`}
+      onClick={() => setFilterSheet(true)}
+      aria-label={soLocThem ? `Lọc thêm, đang lọc ${soLocThem} mục` : 'Lọc thêm'}
+    >
+      <Icon name="loc" size={20} />
+      {!isPhone && 'Lọc thêm'}
+      {soLocThem > 0 && <span className="ls-more__n">{soLocThem}</span>}
+    </button>
+  );
+
   return (
     <div className="container txn-page with-bottom-nav">
-      {/* Cửa vào sổ webhook. Đặt ở ĐÂY chứ không thêm mục thứ 9 vào nav: nav đã 8 mục và dưới
-          380px nhãn đã phải tự ẩn, thêm nữa là bóp nhỏ tất cả. Người cần sổ webhook luôn đang
-          đứng ở màn này — họ vừa thấy một đơn "chưa xác thực" và muốn xem ngân hàng báo gì. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-        <h1 style={{ margin: 0 }}>Quản lý giao dịch</h1>
-        {canSeeReconcile && (
-          <a
-            href="/admin/bank-ledger"
-            className="secondary"
-            style={{
-              fontSize: 13,
-              fontWeight: 600,
-              padding: '6px 12px',
-              borderRadius: 8,
-              border: '1px solid #d1d5db',
-              textDecoration: 'none',
-              whiteSpace: 'nowrap',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-            }}
-          >
-            <Icon name="chuyen-khoan" size={16} />
-            Sổ webhook ngân hàng
-          </a>
-        )}
-      </div>
-
       {/* Thu nợ (2026-09-25): dùng lại NGUYÊN hộp thoại thu tiền — cùng ba hình thức, cùng mã QR,
           cùng ảnh bill — chỉ khác endpoint. Đơn nợ đã chốt món từ hôm ghi nợ nên khối "soát bill"
           là để đọc lại cho khách, không sửa được gì. */}
@@ -1040,130 +1105,141 @@ export function HistoryPage() {
         />
       )}
 
-      {/* Filters — TẤT CẢ trên một dòng (chốt 2026-09-05).
-          Trước đây xếp 3 tầng (pill / 2 select / 2 ô ngày) chiếm gần nửa màn hình trước khi
-          thấy đơn nào. `flexWrap` giữ cho mobile vẫn xuống dòng được thay vì tràn ngang. */}
-      <div
-        className="card txn-filters"
-        style={{
-          marginBottom: 16,
-          padding: 10,
-          display: 'flex',
-          flexWrap: 'wrap',
-          // Đáy thẳng hàng: ô chọn có nhãn chữ phía trên (Đợt 0) nên cao hơn viên thuốc tab.
-          alignItems: 'flex-end',
-          gap: 6,
-        }}
-      >
-        {/* Dãy tab trạng thái — MỘT DÒNG, kéo ngang khi không đủ chỗ (chỉ đạo chủ quán
-            2026-09-06). Trước để `flexWrap: wrap` nên trên điện thoại 5 viên thuốc gãy thành
-            2-3 hàng cao ~80px, và mỗi lần thêm một trạng thái là cao thêm một hàng nữa. Class
-            `tabstrip` (styles.css) giữ chúng trên một hàng và cho vuốt ngang — trên desktop
-            hàng vẫn vừa nên không có gì đổi.
-            `flex: 1 1 auto; minWidth: 0` là phần bắt buộc để `overflow-x` có tác dụng: thiếu
-            `minWidth: 0` thì flex item không co được xuống dưới bề rộng nội dung và cả dãy
-            tràn ra ngoài thẻ thay vì sinh thanh cuộn.
-            Đây là dãy tab LOẠI TRỪ lẫn nhau (kể cả Misa): chọn tab nào thì danh sách đơn đổi
-            theo đúng tab đó, không cộng dồn bộ lọc từ tab trước. */}
-        <div className="tabstrip" style={{ gap: 4, flex: '1 1 auto', minWidth: 0 }}>
-          <StatusPill active={!misaFilter && statusFilter === 'all'} onClick={() => selectTab('all')}>
-            Tất cả
-          </StatusPill>
-          {/* Order/Bếp có lại tab này từ 2026-10-22 — server chỉ trả đơn chính họ thu
-              (`paid_only_by_user_id`), nên với họ tab này là "đơn tôi đã thu". */}
-          <StatusPill
-            active={!misaFilter && statusFilter === 'paid'}
-            color="#059669"
-            bg="#d1fae5"
-            onClick={() => selectTab('paid')}
-          >
-            <Icon name="xong" size={16} />
-            Đã thanh toán
-          </StatusPill>
-          <StatusPill
-            active={!misaFilter && statusFilter === 'unpaid'}
-            color="#b45309"
-            bg="#fef3c7"
-            onClick={() => selectTab('unpaid')}
-          >
-            <Icon name="dang-cho" size={16} />
-            Chưa thanh toán
-          </StatusPill>
-          {/* Bàn kết thúc bằng huỷ (huỷ cả bàn hoặc huỷ hết từng món) — tab riêng
-              để chủ quán soi gian lận: gọi đồ rồi huỷ thay vì thu tiền. */}
-          <StatusPill
-            active={!misaFilter && statusFilter === 'cancelled'}
-            color="#b91c1c"
-            bg="#fee2e2"
-            onClick={() => selectTab('cancelled')}
-          >
-            <Icon name="da-huy" size={16} />
-            Đã huỷ
-          </StatusPill>
-          {/* Đang nợ (2026-09-25): bàn đã trả mà chưa thu tiền — tab riêng để admin nhìn ra ngay
-              quán đang bị nợ những đơn nào; thu nợ cũng làm từ đây.
-              Order/Bếp không có tab này (chủ quán chốt 2026-10-20): chỉ admin thu nợ, và thu nợ
-              thì buộc phải nhìn số tiền. */}
-          {canSeeMoney && (
-            <StatusPill
-              active={!misaFilter && statusFilter === 'debt'}
-              color="#b45309"
-              bg="#ffedd5"
-              onClick={() => selectTab('debt')}
-            >
-              <Icon name="ghi-no" size={16} />
-              Đang nợ
-            </StatusPill>
-          )}
+      <div className="ls-dau">
+        {/* Hàng 1: chế độ xem + cửa vào sổ webhook. Sổ webhook đặt ở ĐÂY chứ không thêm mục vào
+            nav: người cần nó luôn đang đứng ở màn này — vừa thấy một đơn ✗ và muốn xem ngân hàng
+            báo gì. Order/Bếp không có hàng này (không xem thống kê, không xem sổ ngân hàng). */}
+        {(canSeeStats || canSeeReconcile) && (
+          <div className="ls-top">
+            {canSeeStats ? (
+              <div className="ls-view" role="group" aria-label="Chế độ xem">
+                <button type="button" className={`ls-view__o${showCharts ? '' : ' is-on'}`} aria-pressed={!showCharts} onClick={() => setShowCharts(false)}>
+                  Giao dịch
+                </button>
+                <button type="button" className={`ls-view__o${showCharts ? ' is-on' : ''}`} aria-pressed={showCharts} onClick={() => setShowCharts(true)}>
+                  Thống kê
+                </button>
+              </div>
+            ) : <span />}
+            {canSeeReconcile && (
+              <a className="ls-wh" href="/admin/bank-ledger">
+                <Icon name="chuyen-khoan" size={18} />
+                Sổ webhook ngân hàng ›
+              </a>
+            )}
+          </div>
+        )}
 
-          {/* Tab Misa (2026-09-05) — các đơn đã đánh dấu "Misa". Từ 2026-10-15 chỉ tính đơn thu qua
-              mã QR HKD (server lọc). */}
-          {/* Đơn Misa luôn là đơn đã thu → Order/Bếp không có gì trong tab này (2026-10-20). */}
-          {canSeeMoney && (
-            <StatusPill
-              active={misaFilter === 'copied'}
-              color="#7c3aed"
-              bg="#ede9fe"
-              onClick={() => selectTab('misa')}
-            >
-              <Icon name="chep" size={16} />
-              Misa
-            </StatusPill>
-          )}
+        {/* Bộ lọc: Kỳ + Bàn hiện sẵn (hai câu hỏi hay hỏi nhất), còn lại vào "Lọc thêm".
+            Điện thoại: Kỳ là MỘT ô mở tấm trượt chứa đủ chip — chip xếp ngang ăn mất 2–3 hàng. */}
+        {isPhone ? (
+          <div className="ls-loc">
+            <button type="button" className="ls-ky" onClick={() => setMoKy(true)} aria-label={`Đổi kỳ, đang xem ${kyNhan}`}>
+              <Icon name="lich" size={18} />
+              <span>{kyNhan}</span>
+              <Icon name="mui-ten-xuong" size={18} />
+            </button>
+            {oBan}
+            {nutLocThem}
+          </div>
+        ) : (
+          <div className="ls-loc--rong">
+            <div className="ls-loc__ky">
+              <TimeFilter value={range} presets={SHIFT_SCREEN} onChange={doiKy} ariaLabel="Chọn kỳ xem giao dịch" />
+            </div>
+            <div className="ls-loc__hang">
+              <div className="ls-loc__ban">{oBan}</div>
+              {nutLocThem}
+              {hasActiveFilter && (
+                <button type="button" className="ls-xoa" onClick={onResetFilters}>
+                  <Icon name="dong" size={18} />
+                  Xoá lọc
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Tab trạng thái — LOẠI TRỪ lẫn nhau (kể cả Misa): chọn tab nào thì danh sách đổi theo
+            đúng tab đó, không cộng dồn bộ lọc từ tab trước. Số đếm chỉ có với người xem được thống
+            kê (`/orders/stats` có ReportGuard).
+            Order/Bếp có tab "Đã thanh toán" từ 2026-10-22 — server chỉ trả đơn chính họ thu.
+            "Đang nợ" + "Misa" chỉ người thấy tiền (chủ quán chốt 2026-10-20). */}
+        <div className="ls-tabs" role="group" aria-label="Lọc theo trạng thái đơn">
+          {tab('all', 'Tất cả', dem?.all)}
+          {tab('paid', 'Đã thanh toán', dem?.paid)}
+          {tab('unpaid', 'Chưa thanh toán', dem?.unpaid)}
+          {canSeeMoney && tab('debt', 'Đang nợ', dem?.debt)}
+          {/* Bàn kết thúc bằng huỷ — tab riêng để chủ quán soi gian lận: gọi đồ rồi huỷ thay vì thu tiền. */}
+          {tab('cancelled', 'Đã huỷ', dem?.cancelled)}
+          {/* Misa: đơn đã đánh dấu lên Misa (từ 2026-10-15 chỉ đơn thu qua mã QR HKD). */}
+          {canSeeMoney && tab('misa', 'Misa', undefined)}
         </div>
 
-        {/* Vạch ngăn: bên trái là TAB (đơn nào), bên phải là bộ lọc phạm vi (bàn/người/ngày). */}
-        <span className="txn-filter-sep" style={{ width: 1, alignSelf: 'stretch', background: '#e5e7eb', margin: '0 2px' }} />
+        {/* Dải đối soát — CHỈ admin (chủ quán chốt 2026-09-14): doanh thu toàn quán trong kỳ, BE
+            chặn bằng AdminGuard. Ẩn ở chế độ Thống kê: ở đó đã có biểu đồ nói về cùng con số. */}
+        {canSeeReconcile && !showCharts && (
+          <DoiSoatStrip
+            query={historyQuery(filters, { cashier: true }).toString()}
+            filterKey={filterKey}
+            onDebt={() => selectTab('debt')}
+          />
+        )}
 
-        {isPhone ? (
-          <button
-            type="button"
-            className="secondary"
-            onClick={() => setFilterSheet(true)}
-            style={{ minHeight: 44, fontSize: 16, padding: '0 14px', display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
-            aria-label={activeFilterCount ? `Lọc, đang lọc ${activeFilterCount} mục` : 'Lọc'}
-          >
-            <Icon name="loc" size={18} />
-            Lọc{activeFilterCount ? ` (${activeFilterCount})` : ''}
-          </button>
-        ) : filterFields}
+        {/* Role Báo cáo: xem được doanh thu bán hàng nhưng KHÔNG xem đối soát tài khoản (hẹp hơn
+            một bậc, xem `canSeeReconcile`) → giữ 2 ô số cũ: tiền và số đơn của tab đang chọn. */}
+        {canSeeStats && !canSeeReconcile && !showCharts && (
+          <div style={{ display: 'grid', gap: 10, gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+            <StatTile
+              label={tabView.money}
+              value={statsLoading ? '…' : stats ? fmt(stats.paid_revenue) : '—'}
+              color="#0f766e"
+              bg="#f0fdfa"
+              border="#ccfbf1"
+            />
+            <StatTile
+              label={tabView.count}
+              value={
+                statsLoading
+                  ? '…'
+                  : stats
+                    ? String(stats.paid_count + stats.unpaid_count + stats.cancelled_count + (stats.debt_count ?? 0))
+                    : '—'
+              }
+              color="#334155"
+              bg="#f8fafc"
+              border="#e2e8f0"
+            />
+          </div>
+        )}
 
-        {hasActiveFilter && !isPhone && (
-          <button
-            className="secondary"
-            onClick={onResetFilters}
-            title="Xoá toàn bộ bộ lọc"
-            style={{ padding: '0 14px', minHeight: 44, fontSize: 16, marginLeft: 'auto', alignSelf: 'flex-end', display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          >
-            <Icon name="dong" size={18} />
-            Xoá lọc
-          </button>
+        {/* Nhân viên order/bếp: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
+        {!canSeeStats && (
+          <div className="ls-note">
+            Bạn xem được đơn trong <strong>48 giờ gần nhất</strong>. Số tiền chỉ hiện ở đơn chính bạn thu.
+          </div>
         )}
       </div>
 
-      {isPhone && filterSheet && (
+      {/* Kỳ trên điện thoại — tấm trượt chứa đủ chip (Ca này / Ca trước / … / Chọn ngày). */}
+      {isPhone && moKy && (
         <Sheet
-          title="Lọc giao dịch"
+          title="Kỳ xem"
+          onClose={() => setMoKy(false)}
+          footer={<div className="ds-foot"><button type="button" className="ds-btn ds-btn--primary" onClick={() => setMoKy(false)}>Xong</button></div>}
+        >
+          <div className="ls-sheet">
+            <TimeFilter value={range} presets={SHIFT_SCREEN} onChange={doiKy} ariaLabel="Chọn kỳ xem giao dịch" />
+          </div>
+        </Sheet>
+      )}
+
+      {/* "Lọc thêm" — mọi cỡ màn (trước chỉ điện thoại). Ô lọc vẫn ghi vào ĐÚNG state cũ nên query
+          gửi máy chủ không đổi. */}
+      {filterSheet && (
+        <Sheet
+          title="Lọc thêm"
+          giuaKhiRong
           onClose={() => setFilterSheet(false)}
           footer={
             <div className="ds-foot">
@@ -1176,97 +1252,13 @@ export function HistoryPage() {
             </div>
           }
         >
-          <div style={{ overflowY: 'auto', padding: '4px 16px 8px', display: 'flex', flexWrap: 'wrap', gap: 12 }}>
-            {filterFields}
-          </div>
+          <div className="ls-sheet">{filterFields}</div>
         </Sheet>
       )}
 
-      {/* Khoảng ngày đứng thành HÀNG RIÊNG, không nhồi vào thanh lọc dính phía trên — cùng
-          quyết định đã áp cho màn Đơn online: đây là trục lọc khác hẳn (bao nhiêu lâu) so với
-          bàn/thu ngân (của ai), và thanh trên đã chật tới mức phải gãy 3 dòng trên điện thoại.
-          Đổi sang `DateRangePicker` (nay là `TimeFilter` chung, Đợt 0 2026-11-09) nên việc hay làm nhất — xem buổi bán đang chạy — còn MỘT
-          cú chạm thay vì mở lịch hai lần, và từ 2026-09-11 thì KHÔNG tốn cú chạm nào: chip
-          "Ca này" là mặc định. Nhãn để ngắn ("Thời gian") vì nhãn nằm ngoài vùng cuộn, dài
-          thêm một chữ là ăn mất một chip trên điện thoại. */}
-      <TimeFilter
-        label="Thời gian"
-        value={range}
-        presets={SHIFT_SCREEN}
-        onChange={(r) => { setRange(r); setPage(1); }}
-      />
-
-      {/* Nhân viên order: nói rõ phạm vi được xem để không tưởng là mất dữ liệu. */}
-      {!canSeeStats && (
-        <div
-          style={{
-            background: '#eff6ff',
-            border: '1px solid #bfdbfe',
-            borderRadius: 8,
-            padding: 12,
-            marginBottom: 16,
-            fontSize: 13,
-            color: '#1e40af',
-          }}
-        >
-          <Icon name="thong-tin" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
-          Bạn xem được nhật ký các bàn <strong>chưa thanh toán</strong> trong <strong>48 giờ
-          gần nhất</strong>: món gì, mấy phần, ai gọi, ai huỷ. Đơn đã thanh toán và số tiền chỉ
-          dành cho admin và quyền Báo cáo.
-        </div>
-      )}
-
-      {/* Tổng quan — ĐÚNG 2 ô: tiền và số đơn của bộ lọc/tab đang chọn (chốt 2026-09-05).
-          Trước đây dãy này có 6 ô, trong đó 2 ô đếm đơn nói 2 con số khác nhau ("Đơn chưa thanh
-          toán 0" cạnh "Tổng đơn khớp lọc 30") — người xem không biết tin ô nào.
-          Ẩn hoàn toàn với nhân viên order: cả doanh thu lẫn số đơn tổng. */}
-      {canSeeStats && (
-      <div
-        style={{
-          display: 'grid',
-          gap: 10,
-          gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))',
-          marginBottom: 16,
-        }}
-      >
-        <StatTile
-          label={tabView.money}
-          value={statsLoading ? '…' : stats ? fmt(stats.paid_revenue) : '—'}
-          color={statusFilter === 'cancelled' && !misaFilter ? '#b91c1c' : '#0f766e'}
-          bg={statusFilter === 'cancelled' && !misaFilter ? '#fef2f2' : '#f0fdfa'}
-          border={statusFilter === 'cancelled' && !misaFilter ? '#fecaca' : '#ccfbf1'}
-        />
-        {/* Số đơn: cộng 3 count lại. Có tab đang chọn thì BE chỉ trả count của tab đó (2 count
-            còn lại = 0), nên tổng này luôn = số đơn thật của tab — khớp với danh sách bên dưới. */}
-        <StatTile
-          label={tabView.count}
-          value={
-            statsLoading
-              ? '…'
-              : stats
-                ? String(stats.paid_count + stats.unpaid_count + stats.cancelled_count + (stats.debt_count ?? 0))
-                : '—'
-          }
-          color="#334155"
-          bg="#f8fafc"
-          border="#e2e8f0"
-        />
-      </div>
-      )}
-
-      {/* Biểu đồ thống kê — doanh thu theo ngày/giờ/thu ngân, chỉ admin. */}
-      {canSeeStats && (
+      {/* Chế độ Thống kê — biểu đồ doanh thu theo ngày/giờ/thu ngân. */}
+      {canSeeStats && showCharts && (
       <div style={{ marginBottom: 16 }}>
-        <button
-          className="secondary"
-          onClick={() => setShowCharts((v) => !v)}
-          style={{ marginBottom: 10, padding: '6px 12px', fontSize: 13 }}
-        >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-            <Icon name={showCharts ? 'mui-ten-len' : 'mui-ten-xuong'} size={18} />
-            {showCharts ? 'Ẩn biểu đồ' : 'Hiện biểu đồ thống kê'}
-          </span>
-        </button>
         {/* Chip đổi chỉ số — chỉ có nghĩa khi biểu đồ đang mở, nên ẩn cùng với chúng. */}
         {showCharts && (
           <TimeRangeChips
@@ -1316,7 +1308,7 @@ export function HistoryPage() {
                   height={200}
                   tiLeCot={0.58}
                   rongCotToiDa={28}
-                  color="#3b82f6"
+                  color="#0f766e"
                   data={catGioTrongHaiDau(stats.by_half_hour).map((h) => ({
                     label: nhanGio(h.start_min),
                     value: chiSo === 'revenue' ? h.revenue : h.orders,
@@ -1333,7 +1325,7 @@ export function HistoryPage() {
               <RankBars
                 data={stats.top_items.map((t) => ({ label: t.name, value: t.revenue, sub: `${t.qty} phần` }))}
                 formatValue={fmtShort}
-                color="#d97706"
+                color="#0f766e"
               />
             </ChartCard>
             <ChartCard title="Doanh thu theo thu ngân">
@@ -1400,28 +1392,15 @@ export function HistoryPage() {
       </div>
       )}
 
-      {loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
+      {/* Chế độ Giao dịch: danh sách đơn (bảng GIỮ NGUYÊN như cũ). */}
+      {!showCharts && loading && <p style={{ color: '#6b7280' }}>Đang tải...</p>}
 
-      {!loading && orders.length === 0 && (
+      {!showCharts && !loading && orders.length === 0 && (
         <div className="empty-state card">Chưa có order nào khớp filter.</div>
       )}
 
-      {!loading && orders.length > 0 && (
+      {!showCharts && !loading && orders.length > 0 && (
         <>
-          {/* Đối soát tiền — đặt TRÊN bảng đơn: cuối ca người ta mở màn này để lấy hai con số
-              mang đi đếm két, không phải để đọc từng đơn. Khối tự ẩn khi khoảng đang xem không
-              có đồng chuyển khoản nào. */}
-          {/* CHỈ admin (chủ quán chốt 2026-09-14): đây là doanh thu toàn quán trong ca, không
-              phải phần của riêng người đang xem. BE đã chặn bằng AdminGuard — ẩn ở đây là để
-              nhân viên không thấy một khối luôn báo lỗi. */}
-          {canSeeReconcile && (
-            <PaymentSummaryBox
-              query={historyQuery(filters, { cashier: true }).toString()}
-              filterKey={filterKey}
-            />
-          )}
-
-
           {/* `tableLayout: fixed` — bắt buộc để `colgroup` bên dưới được tôn trọng THẬT và để
               `text-overflow: ellipsis` chạy: ở chế độ auto, một tên khách dài chỉ làm cột phình
               ra hoặc gãy xuống dòng, cắt "…" không bao giờ xảy ra.
@@ -1537,7 +1516,7 @@ export function HistoryPage() {
                       const showMoney = canSeeOrderMoney(o);
                       return (
                         <Fragment key={o.id}>
-                          <tr className="txn-row" onClick={() => setExpanded(isOpen ? null : o.id)}>
+                          <tr className="txn-row" onClick={() => setExpanded(o.id)}>
                             <td data-label="Giờ vào">{fmtHm(o.opened_at)}</td>
                             {/* Tên khách ship có thể dài tuỳ ý ("Khach 0909 D duyet ngay") — cắt
                                 bằng "…" trong 1 dòng, tên đầy đủ nằm ở `title` và ở khối chi tiết
@@ -1755,23 +1734,18 @@ export function HistoryPage() {
                                     {reprinting.has(o.id) || markingDebt.has(o.id) ? '…' : <Icon name="them-thao-tac" size={20} label="Thêm thao tác" />}
                                   </button>
                                 )}
+                                {/* Mũi › thay ▼ (2026-11-13): chạm dòng giờ MỞ HỘP chi tiết, không
+                                    bung lồng dưới dòng nữa. */}
                                 <span
                                   aria-hidden
-                                  title={isOpen ? 'Thu gọn' : 'Xem chi tiết'}
-                                  style={{ color: '#9ca3af', width: 16, display: 'inline-flex', justifyContent: 'center' }}
+                                  title="Xem chi tiết"
+                                  style={{ color: isOpen ? '#0f766e' : '#9ca3af', width: 16, display: 'inline-flex', justifyContent: 'center' }}
                                 >
-                                  <Icon name={isOpen ? 'mui-ten-len' : 'mui-ten-xuong'} size={16} />
+                                  <Icon name="mui-ten-phai" size={16} />
                                 </span>
                               </span>
                             </td>
                           </tr>
-                          {isOpen && (
-                            <tr>
-                              <td className="txn-full" colSpan={verifyOn ? 9 : 8}>
-                                <HistoryOrderDetail order={o} showMoney={showMoney} />
-                              </td>
-                            </tr>
-                          )}
                         </Fragment>
                       );
                     })}
@@ -1842,6 +1816,126 @@ export function HistoryPage() {
           <Pagination page={page} totalPages={totalPages} onChange={setPage} total={total} pageSize={PAGE_SIZE} donVi="đơn" cuonVe={bangDonRef} />
         </>
       )}
+
+      {xemDon && (() => {
+        const o = xemDon;
+        const total = orderTotal(o);
+        const isPaid = !!o.closed_at && o.is_paid;
+        const isDebt = !!o.closed_at && !o.is_paid && o.debt_at != null;
+        const isCancelled = !!o.closed_at && !o.is_paid && !isDebt;
+        const showMoney = canSeeOrderMoney(o);
+        const stCls = isPaid ? 'is-paid' : isDebt ? 'is-debt' : isCancelled ? 'is-cancel' : 'is-unpaid';
+        const stTen = isPaid
+          ? `Đã thanh toán${o.debt_paid_at != null ? ' (thu nợ)' : ''}`
+          : isDebt
+            ? `Đang nợ${o.debt_note ? ` · ${o.debt_note}` : ''}`
+            : isCancelled
+              ? 'Đã huỷ'
+              : 'Chưa thanh toán';
+        // Cùng luật với `PaymentMethodBadge` của bảng: CK = 0 là tiền mặt, CK đủ tổng là chuyển
+        // khoản, ở giữa là đơn trả cả hai.
+        const hinhThuc = !isPaid
+          ? null
+          : o.transfer_amount <= 0
+            ? 'Tiền mặt'
+            : o.transfer_amount >= total
+              ? 'Chuyển khoản'
+              : 'Tiền mặt + chuyển khoản';
+        const coInLai = isPaid && canReprint;
+        const coThuNo = isDebt && canMarkMisa && canSeeMoney;
+        const coChuyenNo = isPaid && canSeeReconcile;
+        return (
+          <Sheet title="Chi tiết đơn" giuaKhiRong onClose={() => setExpanded(null)}
+            footer={
+              <div className="ls-foot">
+                {coInLai && (
+                  <button type="button" className="ls-btn is-pri" disabled={reprinting.has(o.id)} onClick={() => void reprintReceipt(o)}>
+                    <Icon name="in" size={20} />
+                    {reprinting.has(o.id) ? 'Đang gửi lệnh in…' : 'In lại hoá đơn'}
+                  </button>
+                )}
+                {coThuNo && (
+                  <button type="button" className="ls-btn is-pri" onClick={() => { setExpanded(null); setSettleTarget(o); }}>
+                    <Icon name="thanh-toan" size={20} />
+                    Thu nợ
+                  </button>
+                )}
+                {/* Chuyển sang nợ: thao tác HIẾM của admin (thu ngân bấm nhầm "đã thu") — nút phụ
+                    chữ cam, đứng sau nút In lại. */}
+                {coChuyenNo && (
+                  <button type="button" className="ls-btn is-warn" disabled={markingDebt.has(o.id)} onClick={() => void markAsDebt(o)}>
+                    <Icon name="ghi-no" size={20} />
+                    Chuyển sang nợ
+                  </button>
+                )}
+                {!coInLai && !coThuNo && !coChuyenNo && (
+                  <button type="button" className="ls-btn" onClick={() => setExpanded(null)}>Đóng</button>
+                )}
+              </div>
+            }
+          >
+            <div className="ls-ct">
+              <div className="ls-ct__hd">
+                <div className="ls-ct__t1">
+                  <span className="ls-ct__ban">{o.table_name}{o.customer_name ? ` · ${o.customer_name}` : ''}</span>
+                  <span className="ls-ct__ngay">{fmtDate(o.opened_at).split(' ').pop()}</span>
+                </div>
+                {showMoney && <span className="ls-ct__tien">{fmt(total)}</span>}
+                <span className="ls-ct__st">
+                  <b className={stCls}>{stTen}</b>
+                  {hinhThuc && ` · ${hinhThuc}`}
+                </span>
+                {/* Ba dấu kiểm GIỮ NHƯ BẢNG (chủ quán 2026-11-13): ngân hàng chỉ ✓/✗, ảnh bill =
+                    biểu tượng ảnh + số tấm / "Thiếu ảnh", Misa như ô Misa của bảng. Chỉ to hơn. */}
+                {isPaid && (
+                  <div className="ls-ct__chips">
+                    {verifyOn && o.bank_verified !== null && (
+                      o.bank_verified
+                        ? <span className="ls-ic is-sq is-ok"><Icon name="xong" size={20} label="Ngân hàng đã báo về" /></span>
+                        : <span className="ls-ic is-sq is-no"><Icon name="da-huy" size={20} label="Chưa thấy giao dịch ngân hàng" /></span>
+                    )}
+                    {o.payment_photo_count !== null && (
+                      o.payment_photo_count > 0
+                        ? <span className="ls-ic is-gr"><Icon name="anh" size={18} />{o.payment_photo_count} ảnh bill</span>
+                        : <span className={`ls-ic ${o.payment_photo_skip_reason ? 'is-am' : 'is-no'}`}><Icon name="canh-bao" size={18} />Thiếu ảnh bill</span>
+                    )}
+                    {isPrevShiftCarryover(o) && <span className="ls-ic is-gr"><Icon name="ca" size={18} />Ca trước</span>}
+                    {o.einvoice_status === 'FAILED' && (
+                      <EinvoiceRetry error={o.einvoice_error} busy={retryingId === o.id} disabled={!canMarkMisa} onRetry={() => retryEinvoice(o)} />
+                    )}
+                    {o.einvoice_status === 'PENDING' && (
+                      <span className="ls-ic is-gr"><Icon name="hoa-don" size={18} />Đang phát hành…</span>
+                    )}
+                    {o.einvoice_status !== 'PENDING' && (o.is_hkd || o.misa_copied_at != null) && (
+                      <MisaBadge
+                        copied={o.misa_copied_at != null}
+                        by={o.misa_copied_by_full_name}
+                        invoiceNo={o.einvoice_status === 'ISSUED' ? o.misa_ref : null}
+                        disabled={!canMarkMisa || o.einvoice_status === 'ISSUED'}
+                        onToggle={() => toggleMisa(o)}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
+              <dl className="ls-kv">
+                <dt>Giờ vào</dt>
+                <dd>{fmtDate(o.opened_at)}</dd>
+                <dt>{isCancelled ? 'Kết đơn' : 'Thanh toán'}</dt>
+                {/* Đơn thu nợ: mốc TIỀN là lúc thu nợ, không phải lúc trả bàn. */}
+                <dd>{o.debt_paid_at != null ? fmtDate(o.debt_paid_at) : o.closed_at ? fmtDate(o.closed_at) : '—'}</dd>
+                <dt>{isCancelled ? 'Người huỷ' : 'Thu ngân'}</dt>
+                <dd>{o.closed_at && o.checked_out_by_full_name ? o.checked_out_by_full_name : '—'}</dd>
+                {showMoney && (o.ship_fee || 0) > 0 && (<><dt>Phí ship</dt><dd>{fmt(o.ship_fee || 0)}</dd></>)}
+                {isPaid && verifyOn && o.bank_verified !== null && (
+                  <><dt>Ngân hàng báo</dt><dd className={o.bank_verified ? undefined : 'is-warn'}>{o.bank_verified ? 'Đã thấy giao dịch' : 'Chưa thấy giao dịch'}</dd></>
+                )}
+              </dl>
+              <HistoryOrderDetail order={o} showMoney={showMoney} />
+            </div>
+          </Sheet>
+        );
+      })()}
     </div>
   );
 }
@@ -1864,46 +1958,6 @@ function StatTile({
       <div style={{ fontSize: 12, color: '#6b7280' }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700, color, marginTop: 2 }}>{value}</div>
     </div>
-  );
-}
-
-function StatusPill({
-  active,
-  color = '#0f766e',
-  bg = '#f0fdfa',
-  onClick,
-  children,
-}: {
-  active: boolean;
-  color?: string;
-  bg?: string;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={{
-        padding: '0 11px',
-        minHeight: 34,
-        height: 34,
-        fontSize: 13,
-        fontWeight: active ? 700 : 500,
-        background: active ? color : bg,
-        color: active ? 'white' : color,
-        border: `1px solid ${active ? color : color}`,
-        borderRadius: 999,
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-        // Icon + chữ trong viên thuốc (Đợt 0, 2026-11-09) — flex để icon đứng giữa dòng chữ.
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-      }}
-    >
-      {children}
-    </button>
   );
 }
 
@@ -2157,11 +2211,11 @@ function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMon
   }, [order.id]);
 
   return (
-    <div style={{ padding: '12px 14px 16px', background: '#f9fafb', borderTop: '1px solid #e5e7eb' }}>
+    <div className="ls-than" style={{ padding: '12px 14px 16px', background: '#f9fafb', borderTop: '1px solid #e5e7eb' }}>
       {/* Thu bằng chuyển khoản (2026-09-14) — nội dung CK hiện NGUYÊN VĂN vì đó chính là chuỗi
           phải dò trong sao kê ngân hàng. */}
       {order.transfer_amount > 0 && (
-        <div style={{ marginBottom: 12, padding: 10, background: '#e0f2fe', borderRadius: 8, fontSize: 13 }}>
+        <div style={{ marginBottom: 12, padding: 10, background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: 8, fontSize: 15 }}>
           <strong><Icon name="chuyen-khoan" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />Chuyển khoản{showMoney && ` ${order.transfer_amount.toLocaleString('vi-VN')}đ`}</strong>
           {order.payment_qr_label && <span> → {order.payment_qr_label}</span>}
           {order.transfer_note && (
@@ -2196,7 +2250,7 @@ function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMon
           style={{
             marginBottom: 12,
             padding: 10,
-            background: order.debt_paid_at != null ? '#f0fdf4' : '#ffedd5',
+            background: order.debt_paid_at != null ? '#f0fdfa' : '#ffedd5',
             borderRadius: 8,
             fontSize: 13,
           }}
@@ -2204,7 +2258,7 @@ function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMon
           <strong><Icon name="ghi-no" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />Ghi nợ{order.debt_note ? `: ${order.debt_note}` : ''}</strong>
           <span style={{ color: '#6b7280' }}> · từ {fmtDate(order.debt_at)}</span>
           {order.debt_paid_at != null ? (
-            <div style={{ marginTop: 2, color: '#166534' }}>
+            <div style={{ marginTop: 2, color: '#0f766e' }}>
               <Icon name="xong" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />
               Đã thu nợ {fmtDate(order.debt_paid_at)}
               {order.debt_paid_by_full_name && <> · {order.debt_paid_by_full_name}</>}
@@ -2217,7 +2271,7 @@ function HistoryOrderDetail({ order, showMoney }: { order: HistoryOrder; showMon
 
       {/* Customer info (delivery) */}
       {order.customer_name && (
-        <div style={{ marginBottom: 12, padding: 10, background: '#d1fae5', borderRadius: 8, fontSize: 13 }}>
+        <div style={{ marginBottom: 12, padding: 10, background: '#f0fdfa', border: '1px solid #ccfbf1', borderRadius: 8, fontSize: 15 }}>
           <strong><Icon name="giao-hang" size={16} style={{ verticalAlign: '-3px', marginRight: 6 }} />{order.customer_name}</strong>
           {order.customer_phone && <> · <a href={`tel:${order.customer_phone}`} style={{ color: '#0f766e' }}>{order.customer_phone}</a></>}
           {order.customer_address && <div style={{ color: '#374151', marginTop: 2 }}><Icon name="vi-tri" size={14} style={{ verticalAlign: '-2px', marginRight: 4 }} />{order.customer_address}</div>}

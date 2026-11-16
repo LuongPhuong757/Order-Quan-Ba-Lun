@@ -99,3 +99,107 @@ button.cd-back {
     min-height: 64px;
   }
 }
+
+/* ═════ Mảnh dùng chung trong nội dung nhóm (2026-11-13, đợt 1: Máy in + Thanh toán) ═════
+   Thẻ mục `.cd-card` + dòng cài đặt `.cd-row` [tên + 1 dòng mô tả ... điều khiển bên phải].
+   Đợt 2 (Đặt hàng online, Tại bàn, Thông tin quán) dùng lại đúng các lớp này. */
+.cd-stack { display: grid; gap: 14px; max-width: 760px; }
+.cd-card { background: #fff; border: 1px solid var(--ds-line, var(--gray-200)); border-radius: 14px; overflow: hidden; }
+.cd-card__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 16px 4px; }
+.cd-card__t { margin: 0; font-size: 17px; font-weight: 700; color: var(--gray-900); }
+.cd-card__ds { margin: 0; padding: 0 16px 10px; font-size: var(--ds-fs-body2, 15px); color: var(--gray-500); line-height: 1.45; }
+.cd-row { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--ds-line, var(--gray-200)); min-height: 64px; }
+.cd-row--stack { flex-wrap: wrap; }
+.cd-row--stack > .cd-row__c { flex: 1 1 100%; }
+.cd-row__m { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cd-row__t { font-size: var(--ds-fs-body, 16px); font-weight: 600; line-height: 1.3; color: var(--gray-900); }
+.cd-row__s { font-size: var(--ds-fs-body2, 15px); color: var(--gray-500); line-height: 1.4; }
+.cd-row__warn { font-size: var(--ds-fs-body2, 15px); color: #9a3412; font-weight: 600; line-height: 1.4; }
+.cd-row__c { flex: none; min-width: 0; }
+.cd-row__c--dd { width: 190px; }
+/* "Xem giải thích ›" — <details> để giải thích dài không chiếm chỗ mà vẫn đọc được khi cần. */
+.cd-more summary { list-style: none; cursor: pointer; color: var(--brand); font-weight: 600; font-size: var(--ds-fs-body2, 15px); min-height: 32px; display: inline-flex; align-items: center; }
+.cd-more summary::-webkit-details-marker { display: none; }
+.cd-more[open] summary { margin-bottom: 4px; }
+.cd-more p { margin: 0 0 4px; font-size: var(--ds-fs-body2, 15px); color: var(--gray-600); line-height: 1.45; }
+.cd-note { margin: 0; padding: 10px 12px; border-radius: 10px; font-size: var(--ds-fs-body2, 15px); line-height: 1.5; background: var(--brand-soft, #f0fdfa); border: 1px solid var(--teal-200, #99f6e4); color: var(--gray-800); }
+.cd-note--warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+.cd-note code { background: #fff; padding: 2px 6px; border-radius: 6px; font-size: 14px; word-break: break-all; }
+.cd-foot { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px 14px; border-top: 1px solid var(--ds-line, var(--gray-200)); }
+.cd-foot > button { min-height: 48px; padding: 0 20px; }
+.cd-pill { flex: none; display: inline-flex; align-items: center; gap: 4px; font-size: 13px; font-weight: 700; line-height: 24px; padding: 0 9px; border-radius: 999px; white-space: nowrap; border: 1px solid transparent; }
+.cd-pill--ok { color: var(--teal-800, #115e59); background: var(--brand-soft, #f0fdfa); border-color: var(--teal-200, #99f6e4); }
+.cd-pill--warn { color: #9a3412; background: #fff7ed; border-color: #fed7aa; }
+.cd-pill--bad { color: #fff; background: #c2410c; }
+.cd-pill--muted { color: var(--gray-600); background: var(--gray-100); }
+
+/* Dải tình trạng đầu nhóm (vd "Cầu in không chạy"). Cam = cần làm gì đó; xanh ngọc nhạt = ổn. */
+.cd-status { display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px; border-radius: 12px; border: 1px solid; font-size: var(--ds-fs-body2, 15px); line-height: 1.45; }
+.cd-status::before { content: ''; flex: none; width: 10px; height: 10px; border-radius: 50%; margin-top: 6px; background: currentColor; }
+.cd-status b { display: block; font-size: var(--ds-fs-body, 16px); }
+.cd-status--warn { background: #fff7ed; border-color: #fed7aa; color: #9a3412; }
+.cd-status--ok { background: var(--brand-soft, #f0fdfa); border-color: var(--teal-200, #99f6e4); color: var(--teal-800, #115e59); }
+.cd-status--off { background: var(--gray-50, #f9fafb); border-color: var(--gray-200); color: var(--gray-600); }
+
+/* Máy in: thiết bị cầu in + hàng đợi */
+.cd-dev { flex-wrap: wrap; }
+.cd-dev__tok { flex: 1 1 100%; display: flex; gap: 8px; align-items: center; }
+.cd-dev__tok code { flex: 1; min-width: 0; background: var(--gray-50, #f9fafb); border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px; font-size: 13px; word-break: break-all; }
+.cd-row button.secondary.cd-sm, .cd-dev button.secondary.cd-sm { min-height: 44px; padding: 0 14px; font-size: 15px; }
+.cd-input { width: 100%; min-height: 44px; font-size: 16px; box-sizing: border-box; }
+.cd-sum { display: flex; gap: 8px; flex-wrap: wrap; padding: 0 16px 10px; }
+.cd-sum span { font-size: 14px; border-radius: 999px; padding: 4px 10px; background: var(--gray-50, #f9fafb); border: 1px solid var(--gray-200); }
+.cd-sum span.is-warn { color: #9a3412; background: #fff7ed; border-color: #fed7aa; font-weight: 700; }
+.cd-job { display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--ds-line, var(--gray-200)); }
+.cd-job__m { flex: 1; min-width: 0; }
+.cd-job__t { font-size: var(--ds-fs-body2, 15px); font-weight: 600; color: var(--gray-900); }
+.cd-job__s { display: block; font-size: 13px; color: var(--gray-500); }
+.cd-job__err { display: block; font-size: 13px; color: #9a3412; }
+button.cd-morebtn { width: 100%; min-height: 48px; border: none; border-top: 1px solid var(--ds-line, var(--gray-200)); border-radius: 0; background: #fff; color: var(--brand); font-weight: 700; font-size: 16px; }
+button.cd-morebtn:hover { background: var(--gray-50, #f9fafb); opacity: 1; }
+a.cd-link { color: var(--brand); font-weight: 700; font-size: 16px; min-height: 44px; display: inline-flex; align-items: center; }
+
+/* Thanh toán: danh sách mã QR */
+.cd-qr { display: flex; align-items: center; gap: 8px; padding: 6px 10px 6px 0; border-top: 1px solid var(--ds-line, var(--gray-200)); }
+.cd-qr.is-off { background: var(--gray-50, #f9fafb); }
+.cd-qr.is-off .cd-qr__main { opacity: 0.6; }
+button.cd-qr__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 8px 4px 8px 16px; min-height: 60px; border: none; border-radius: 0; background: transparent; color: var(--gray-900); text-align: left; font-weight: 400; }
+button.cd-qr__main:hover { background: transparent; opacity: 1; }
+.cd-qr__ic { flex: none; width: 40px; height: 40px; border-radius: 10px; background: var(--brand-soft, #f0fdfa); color: var(--brand); display: grid; place-items: center; overflow: hidden; }
+.cd-qr__ic img { width: 40px; height: 40px; object-fit: contain; background: #fff; }
+.cd-qr__m { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cd-qr__t { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; font-size: var(--ds-fs-body, 16px); font-weight: 600; line-height: 1.3; }
+.cd-qr__s { font-size: var(--ds-fs-body2, 15px); color: var(--gray-500); overflow-wrap: anywhere; }
+.cd-ud { flex: none; display: grid; gap: 4px; }
+button.cd-ud__b { width: 44px; height: 34px; min-height: 34px; padding: 0; display: grid; place-items: center; border: 1px solid var(--gray-300); border-radius: 8px; background: #fff; color: var(--gray-600); }
+button.cd-ud__b:disabled { opacity: 0.3; }
+.cd-add-ph { padding: 4px 16px 14px; }
+.cd-add-ph > button { width: 100%; min-height: 48px; }
+.cd-add-wd { display: none; }
+/* Form mã QR trong tấm trượt / hộp giữa màn */
+.cd-form { display: grid; gap: 12px; padding: 0 16px 16px; }
+/* Form là con trực tiếp của `.ds-sheet` (flex cột, max-height 88dvh) — phải tự cuộn, không thì
+   phần dưới (ô HKD, nút Lưu) tràn ra ngoài hộp trên laptop. */
+.ds-sheet > .cd-form { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; grid-auto-rows: max-content; align-content: start; }
+.cd-form label { display: block; font-size: 14px; font-weight: 600; color: var(--gray-600); margin-bottom: 4px; }
+.cd-form input:not([type='file']) { width: 100%; min-height: 44px; font-size: 16px; box-sizing: border-box; }
+.cd-form small { display: block; margin-top: 4px; font-size: 14px; color: var(--gray-500); }
+.cd-kind { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--gray-200); border-radius: 12px; }
+button.cd-kind__b { min-height: 44px; padding: 4px 6px; border: none; border-radius: 9px; background: transparent; color: var(--gray-600); font-weight: 600; font-size: 15px; line-height: 1.25; }
+button.cd-kind__b[aria-pressed='true'] { background: #fff; color: var(--gray-900); box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); }
+button.cd-kind__b:hover { opacity: 1; }
+.cd-form .cd-row { padding: 8px 0; min-height: 0; }
+.cd-form__foot { display: grid; gap: 8px; }
+.cd-form__foot > button { min-height: 48px; width: 100%; }
+
+/* Điện thoại: ô chọn xuống dòng dưới tên, rộng hết bề ngang — để bên phải thì tên mục bị bóp
+   còn một cột hẹp và chữ trong ô bị cắt ("Dây USB vào máy P…"). */
+@media (max-width: 767px) {
+  .cd-row--dd { flex-wrap: wrap; }
+  .cd-row--dd > .cd-row__c--dd { flex: 1 1 100%; width: auto; }
+}
+@media (min-width: 768px) {
+  .cd-add-ph { display: none; }
+  .cd-add-wd { display: inline-flex; min-height: 44px; }
+  .cd-row__c--dd { width: 220px; }
+}
