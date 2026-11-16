@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { legacyTabToGroup, parseSettingsGroup, settingsHref } from './settings-groups.ts';
+import { legacyTabToGroup, parseOnlineSubTab, parseSettingsGroup, settingsHref } from './settings-groups.ts';
 
 describe('settings-groups', () => {
   it('đổi 7 tab cũ sang đúng nhóm mới', () => {
@@ -28,5 +28,14 @@ describe('settings-groups', () => {
     expect(settingsHref('store')).toBe('/settings?g=store');
     expect(settingsHref('online', 'ordering')).toBe('/settings?g=online');
     expect(settingsHref('online', 'blacklist')).toBe('/settings?g=online&tab=blacklist');
+    expect(settingsHref('online', 'ship')).toBe('/settings?g=online&tab=ship');
+  });
+
+  it('đọc trang con của Đặt hàng online, giá trị lạ về trang danh sách', () => {
+    expect(parseOnlineSubTab('hours')).toBe('hours');
+    expect(parseOnlineSubTab('top-dishes')).toBe('top-dishes');
+    expect(parseOnlineSubTab('ordering')).toBe('ordering');
+    expect(parseOnlineSubTab('toString')).toBe('ordering');
+    expect(parseOnlineSubTab(null)).toBe('ordering');
   });
 });

@@ -23,6 +23,7 @@ import { Dropdown } from '../components/ui/Dropdown.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
 import { Sheet } from '../components/ui/Sheet.tsx';
 import { Switch } from '../components/ui/Switch.tsx';
+import { CdRow, CdSection } from './cai-dat/parts.tsx';
 import './cai-dat.css';
 
 type QrKind = 'BANK' | 'IMAGE';
@@ -311,59 +312,53 @@ export function PaymentQrPanel() {
           Xác thực: từ 2026-10-02 công tắc này KHÔNG còn đụng tới màn thu tiền (vòng hỏi 5 phút đã
           gỡ) — nó chỉ bật/tắt cột "Xác thực" ở màn Lịch sử. Câu chữ phải nói đúng điều đó. */}
       {(einvoiceOn !== null || verifyOn !== null) && (
-        <div className="cd-card">
-          <div className="cd-card__head"><h3 className="cd-card__t">Thu tiền chuyển khoản</h3></div>
-          <p className="cd-card__ds">Áp cho cả quán.</p>
-
+        <CdSection label="Thu tiền chuyển khoản">
           {/* Tự xuất hoá đơn (2026-11-09). Đứng TRƯỚC xác thực vì đây là việc pháp lý: bật là mỗi
-              đơn chuyển khoản vào mã HKD ra một hoá đơn thật gửi cơ quan thuế. */}
+              đơn chuyển khoản vào mã HKD ra một hoá đơn thật gửi cơ quan thuế. 2026-11-16 chủ quán bỏ
+              các dòng phụ dưới tên — giải thích + cảnh báo thuế nằm trong ⓘ. */}
           {einvoiceOn !== null && (
-            <div className="cd-row">
-              <div className="cd-row__m">
-                <span className="cd-row__t">Tự xuất hoá đơn điện tử (MISA)</span>
-                <span className="cd-row__s">Đơn chuyển khoản vào mã HKD tự ra hoá đơn ngay khi thu tiền</span>
-                <span className="cd-row__warn">Hoá đơn THẬT gửi cơ quan thuế — đã tự xuất thì đừng nhập lại sang CukCuk</span>
-                <details className="cd-more">
-                  <summary>Xem giải thích ›</summary>
+            <CdRow
+              title="Tự xuất hoá đơn điện tử (MISA)"
+              info={
+                <>
+                  <p>Đơn chuyển khoản vào mã HKD tự ra hoá đơn ngay khi thu tiền. <strong>Hoá đơn thật gửi cơ quan thuế</strong> — đã tự xuất thì đừng nhập lại sang CukCuk.</p>
                   <p>Bật: thu tiền xong, hộp thanh toán hiện ngay kết quả — ✓ số hoá đơn, hoặc ✗ lý do lỗi kèm nút "Đã xuất tay". Lỗi cũng hiện ở màn Lịch sử kèm nút Phát hành lại.</p>
                   <p>Tắt: thu ngân tick tay ô Misa ở màn Lịch sử như cũ.</p>
-                </details>
-              </div>
+                </>
+              }
+            >
               <Switch label="Tự xuất hoá đơn điện tử MISA" on={einvoiceOn} disabled={einvoiceSaving}
                       onChange={(v) => void toggleEinvoice(v)} />
-            </div>
+            </CdRow>
           )}
 
           {verifyOn !== null && (
-            <div className="cd-row">
-              <div className="cd-row__m">
-                <span className="cd-row__t">Xác thực giao dịch với ngân hàng</span>
-                <span className="cd-row__s">
-                  Màn Lịch sử hiện cột <Icon name="xong" size={16} style={{ verticalAlign: '-3px' }} /> tiền đã về /{' '}
-                  <Icon name="da-huy" size={16} style={{ verticalAlign: '-3px' }} /> chưa thấy giao dịch
-                </span>
-                <details className="cd-more">
-                  <summary>Xem giải thích ›</summary>
-                  <p>Bật: mỗi đơn chuyển khoản hiện dấu ngân hàng đã báo tiền về hay chưa, và lọc được theo đó.</p>
+            <CdRow
+              title="Xác thực giao dịch với ngân hàng"
+              info={
+                <>
+                  <p>Bật: màn Lịch sử có cột <Icon name="xong" size={16} style={{ verticalAlign: '-3px' }} /> tiền đã về / <Icon name="da-huy" size={16} style={{ verticalAlign: '-3px' }} /> chưa thấy giao dịch, và lọc được theo đó.</p>
                   <p>Tắt: cột và ô lọc ẩn đi. <strong>Dữ liệu KHÔNG mất</strong> — máy vẫn ghi sổ ngân hàng như thường, bật lại là thấy đủ.</p>
                   <p>Màn thu tiền không đổi theo công tắc này: luôn chụp bill, không đứng đợi ngân hàng.</p>
-                </details>
-              </div>
+                </>
+              }
+            >
               <Switch label="Xác thực giao dịch với ngân hàng" on={verifyOn} disabled={verifySaving}
                       onChange={(v) => void toggleVerify(v)} />
-            </div>
+            </CdRow>
           )}
-        </div>
+        </CdSection>
       )}
 
       {/* Danh sách mã: tên đủ chiều ngang (trước bị 4 nút bóp còn mỗi dòng một chữ). Chạm dòng = mở
           hộp sửa; ▲ ▼ đổi thứ tự (= thứ tự hiện lúc thu tiền). "Ngừng dùng / Bật lại" nằm trong hộp. */}
-      <div className="cd-card">
-        <div className="cd-card__head">
-          <h3 className="cd-card__t">Mã QR nhận tiền ({soDangDung})</h3>
-          <button type="button" className="cd-add-wd" onClick={moThem}>+ Thêm mã QR</button>
+      <section className="cd-sec">
+        <div className="cd-sec__head">
+          <h3 className="cd-sec__lab">Mã QR nhận tiền ({soDangDung})</h3>
+          <button type="button" className="secondary cd-add-wd cd-sm" onClick={moThem}>+ Thêm mã QR</button>
         </div>
-        <p className="cd-card__ds">Thứ tự ở đây là thứ tự hiện lúc thu tiền. Chạm một mã để sửa.</p>
+        <div className="cd-card">
+        <p className="cd-card__ds cd-card__ds--top">Thứ tự ở đây là thứ tự hiện lúc thu tiền. Chạm một mã để sửa.</p>
         {loading && <div className="cd-row"><span className="cd-row__s">Đang tải…</span></div>}
         {!loading && items.length === 0 && (
           <div className="cd-row">
@@ -405,7 +400,8 @@ export function PaymentQrPanel() {
         <div className="cd-add-ph">
           <button type="button" onClick={moThem}>+ Thêm mã QR</button>
         </div>
-      </div>
+        </div>
+      </section>
 
       {moForm && (
         <Sheet title={form.id ? 'Sửa mã QR' : 'Thêm mã QR nhận tiền'} onClose={resetForm} giuaKhiRong>

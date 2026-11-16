@@ -35,8 +35,25 @@ export function parseSettingsGroup(raw: string | null): SettingsGroup | null {
   return SETTINGS_GROUPS.some((g) => g.id === raw) ? (raw as SettingsGroup) : null;
 }
 
-/** Tab con của nhóm "Đặt hàng online" — giữ đúng tên `?tab=` cũ để link cũ vẫn trúng. */
-export type OnlineSubTab = 'ordering' | 'blacklist' | 'top-dishes';
+/** Trang con của nhóm "Đặt hàng online" (2026-11-16: 3 tab con + 6 khối gập → MỘT danh sách,
+ *  mục nào cần nhập nhiều thì mở trang con). `ordering` = trang danh sách. Giữ đúng tên `?tab=`
+ *  cũ (`blacklist`, `top-dishes`) để link/bookmark cũ vẫn trúng. */
+export type OnlineSubTab = 'ordering' | 'hours' | 'ship' | 'closed' | 'blacklist' | 'top-dishes';
+
+/** Tên trang con — dùng làm tiêu đề trang con và nhãn hàng ở trang danh sách. */
+export const ONLINE_SUBPAGE_TITLES: Record<Exclude<OnlineSubTab, 'ordering'>, string> = {
+  hours: 'Giờ mở cửa',
+  ship: 'Nhận hàng & phí ship',
+  closed: 'Câu chữ khi đóng cửa',
+  blacklist: 'Số điện thoại bị chặn',
+  'top-dishes': 'Top món bán chạy',
+};
+
+export function parseOnlineSubTab(raw: string | null): OnlineSubTab {
+  return raw && Object.prototype.hasOwnProperty.call(ONLINE_SUBPAGE_TITLES, raw)
+    ? (raw as OnlineSubTab)
+    : 'ordering';
+}
 
 /**
  * `?tab=` của tab Cài đặt cũ (7 tab phẳng) → nhóm mới. Dùng cho bookmark / link cũ dạng

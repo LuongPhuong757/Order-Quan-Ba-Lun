@@ -61,24 +61,11 @@
 .cd-content {
   min-width: 0;
 }
-/* `button.` vì `button.secondary`/`button` toàn cục thắng class trần cùng độ ưu tiên. */
-button.cd-back {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  min-height: 48px;
-  padding: 0 12px 0 4px;
-  margin: -8px 0 4px -4px;
-  border: none;
-  background: transparent;
-  color: var(--brand);
-  font-size: 17px;
-  font-weight: 600;
-}
 .cd-title {
   margin: 0 0 16px;
-  font-size: 22px;
-  font-weight: 800;
+  font-size: var(--ds-fs-num, 28px);
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 /* ── Máy tính / iPad: 2 cột ── */
@@ -203,3 +190,141 @@ button.cd-kind__b:hover { opacity: 1; }
   .cd-add-wd { display: inline-flex; min-height: 44px; }
   .cd-row__c--dd { width: 220px; }
 }
+
+
+/* ═════ ĐỢT 2 (2026-11-16, bản xem thử "Cài đặt làm lại") — khuôn chung cho cả 5 nhóm ═════
+   Nhãn nhỏ NGOÀI thẻ → thẻ chỉ có hàng. Màu: chỉ xanh ngọc `--ds-accent`; cam CHỈ cho cảnh báo thật;
+   không đỏ, không xanh lá (bộ quy tắc --ds-*). Chữ theo thang 13·15·16·20·28. */
+.cd-item__hint.is-warn { color: #c2410c; font-weight: 600; }
+.cd-sec { display: grid; gap: 8px; }
+.cd-sec__head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 32px; padding: 0 4px; }
+.cd-sec__lab { margin: 0; font-size: var(--ds-fs-label, 13px); font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase; color: var(--ds-ink-2, #6b7280); }
+.cd-card > .cd-row:first-child, .cd-card > .cd-card__ds--top + .cd-row, .cd-card > .cd-qrbox:first-child { border-top: 0; }
+.cd-card__ds--top { padding-top: 12px; }
+.cd-lead { margin: 0; font-size: var(--ds-fs-body2, 15px); color: var(--ds-ink-2, #6b7280); line-height: 1.5; max-width: 62ch; }
+button.cd-sm { min-height: 44px; padding: 0 14px; font-size: 15px; white-space: nowrap; }
+/* Nút nhỏ trên hàng nhãn ("+ Thêm mã QR", "In thử"): nút VIỀN, chữ căn giữa — nút đặc xanh ngọc trên
+   hàng nhãn 13px trông nặng; thiếu `align-items` thì chữ lệch trong nút 36px. */
+.cd-sec__head button.cd-sm { min-height: 36px; padding: 0 12px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; font-size: var(--ds-fs-body2, 15px); line-height: 1; }
+
+/* Hàng */
+.cd-row--wrap { flex-wrap: wrap; }
+.cd-row--wrap > .cd-row__m { flex: 1 1 200px; }
+.cd-row--stack { align-items: stretch; }
+.cd-row--stack > .cd-row__c { flex: 1 1 100%; }
+.cd-row.is-dim > .cd-row__m, .cd-row.is-dim > .cd-row__c, .cd-tier.is-dim, .cd-picklist.is-dim { opacity: 0.5; }
+.cd-row__v { flex: none; max-width: 55%; font-size: var(--ds-fs-body2, 15px); color: var(--ds-ink-2, #6b7280); text-align: right; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.cd-row--link, button.cd-row--btn { color: var(--ds-ink, #111827); text-decoration: none; cursor: pointer; }
+a.cd-row--link:hover { text-decoration: none; background: var(--gray-50, #f9fafb); }
+a.cd-row--link > svg { flex: none; color: var(--ds-ink-3, #9ca3af); margin-left: -6px; }
+/* `button.` + đủ thuộc tính: luật `button {}` toàn cục tô nền xanh ngọc, bo góc, căn giữa. */
+button.cd-row--btn { width: 100%; border: none; border-top: 1px solid var(--ds-line, var(--gray-200)); border-radius: 0; background: #fff; text-align: left; font-weight: 400; justify-content: flex-start; }
+.cd-card > button.cd-row--btn:first-child { border-top: 0; }
+button.cd-row--btn:hover { background: var(--gray-50, #f9fafb); opacity: 1; }
+.cd-row__t { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; }
+a.cd-inlink { color: inherit; font-weight: 700; text-decoration: underline; }
+
+/* Nút ⓘ: NHÌN 24px, vùng chạm 44px ở ::before. Đè `button { min-width/min-height }` chung. */
+button.cd-i {
+  position: relative; flex: none; width: 24px; height: 24px; min-width: 24px; min-height: 24px; padding: 0;
+  border-radius: 999px; border: 1px solid var(--ds-line, #e5e7eb); background: #fff; color: var(--ds-ink-2, #6b7280);
+  font: italic 700 13px/1 Georgia, 'Times New Roman', serif; display: inline-flex; align-items: center; justify-content: center;
+}
+button.cd-i::before { content: ''; position: absolute; inset: -10px; }
+button.cd-i:hover { opacity: 1; background: #fff; }
+button.cd-i[aria-expanded='true'] { background: var(--ds-accent-tint, #ccfbf1); border-color: var(--ds-accent-tint, #ccfbf1); color: var(--ds-accent, #0f766e); }
+.cd-why { flex: 1 1 100%; padding: 10px 12px; border-radius: 8px; background: var(--ds-muted-bg, #f9fafb); color: var(--ds-ink-2, #6b7280); font-size: var(--ds-fs-body2, 15px); line-height: 1.5; }
+.cd-why p { margin: 0 0 6px; }
+.cd-why p:last-child { margin-bottom: 0; }
+.cd-why--inline { display: block; margin-top: 6px; }
+
+/* Đầu trang: công tắc lớn (Đang nhận đơn / Khách tự gọi món) */
+.cd-hero { display: flex; align-items: center; gap: 12px; padding: 14px 8px 14px 16px; background: #fff; border: 1px solid var(--ds-line, #e5e7eb); border-radius: 12px; }
+.cd-hero__dot { flex: none; width: 12px; height: 12px; border-radius: 999px; background: var(--ds-accent, #0f766e); box-shadow: 0 0 0 4px var(--ds-accent-tint, #ccfbf1); }
+.cd-hero.is-off .cd-hero__dot { background: var(--ds-ink-3, #9ca3af); box-shadow: 0 0 0 4px #f3f4f6; }
+.cd-hero__m { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.cd-hero__m b { font-size: var(--ds-fs-title, 20px); font-weight: 700; line-height: 1.3; color: var(--ds-ink, #111827); }
+.cd-hero__m span { font-size: var(--ds-fs-body2, 15px); color: var(--ds-ink-2, #6b7280); line-height: 1.4; }
+
+/* Ô nhập / cụm ô */
+textarea.cd-input { min-height: 88px; padding: 10px 12px; font-family: inherit; resize: vertical; }
+.cd-two { display: flex; align-items: center; gap: 8px; }
+.cd-two > .cd-input:not(.cd-num) { flex: 1; min-width: 0; }
+.cd-input.cd-num { width: 76px; flex: none; text-align: center; font-variant-numeric: tabular-nums; }
+.cd-unit { font-size: var(--ds-fs-body2, 15px); color: var(--ds-ink-2, #6b7280); }
+.cd-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.cd-btns > button { min-height: 44px; display: inline-flex; align-items: center; gap: 6px; }
+.cd-tnum { font-variant-numeric: tabular-nums; }
+button.cd-addbtn { width: 100%; min-height: 48px; }
+
+/* Giờ mở cửa: một khoảng giờ = một hàng */
+.cd-span { gap: 8px; }
+.cd-span > .cd-span__x { margin-left: auto; }
+
+/* Bảng phí ship */
+.cd-tier { flex-wrap: wrap; align-items: flex-end; gap: 8px 10px; }
+.cd-tier__f { display: grid; gap: 2px; margin: 0; font-size: var(--ds-fs-label, 13px); color: var(--ds-ink-2, #6b7280); }
+.cd-tier__f b { min-height: 44px; display: flex; align-items: center; font-size: var(--ds-fs-body, 16px); color: var(--ds-ink, #111827); }
+.cd-tier__f .cd-input.cd-num { width: 110px; text-align: right; }
+.cd-tier__x { margin-left: auto; }
+
+/* Top món: danh sách tick */
+.cd-picklist { max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+label.cd-pick { margin: 0; min-height: 52px; cursor: pointer; }
+label.cd-pick > input { width: 22px; height: 22px; flex: none; }
+label.cd-pick > .cd-row__t { flex: 1; font-weight: 400; }
+.cd-pager { justify-content: space-between; }
+
+/* Tại bàn: mã QR */
+.cd-qrbox { display: flex; align-items: center; gap: 16px; padding: 16px; flex-wrap: wrap; }
+.cd-qrbox__m { flex: 1 1 200px; display: grid; gap: 10px; }
+button.cd-qrthumb { flex: none; width: 112px; height: 112px; min-height: 0; padding: 7px; border: 1px solid var(--ds-line, #e5e7eb); border-radius: 12px; background: #fff; display: grid; place-items: center; }
+button.cd-qrthumb:hover { opacity: 1; background: #fff; }
+button.cd-qrthumb img { width: 96px; height: 96px; display: block; }
+.cd-qrzoom { display: grid; justify-items: center; gap: 10px; padding: 8px 16px 20px; }
+.cd-qrzoom img { width: min(320px, 80vw); height: auto; }
+.cd-qrzoom .cd-row__s { word-break: break-all; text-align: center; }
+.cd-adv > summary { list-style: none; cursor: pointer; }
+.cd-adv > summary::-webkit-details-marker { display: none; }
+.cd-adv > summary > svg { flex: none; color: var(--ds-ink-3, #9ca3af); transition: transform 0.15s ease; }
+.cd-adv[open] > summary > svg { transform: rotate(180deg); }
+
+/* Tấm trượt "Chuyển sang Đóng cửa" */
+.cd-sheet-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--ds-line, #e5e7eb); }
+.cd-sheet-foot > button { min-height: 48px; }
+.cd-form textarea { width: 100%; box-sizing: border-box; font-size: 16px; }
+.cd-form--card { padding: 16px; }
+.cd-form--card > button { min-height: 48px; }
+.cd-empty { padding: 16px; display: grid; gap: 10px; justify-items: start; }
+
+/* Đầu trang con trên máy rộng — điện thoại đã có ← trên thanh đầu app. */
+a.cd-backlink { display: inline-flex; align-items: center; gap: 2px; min-height: 36px; margin: -6px 0 2px -4px; color: var(--ds-accent, #0f766e); font-weight: 600; font-size: var(--ds-fs-body2, 15px); text-decoration: none; }
+@media (max-width: 767px) { a.cd-backlink { display: none; } }
+
+/* Thanh Lưu dính đáy — MỘT nút Lưu cho cả trang. Điện thoại/iPad (< 1024px) nằm TRÊN menu dưới
+   (~62px + vùng an toàn); ≥ 1024px menu dưới đã thành sidebar nên dính sát đáy. */
+.cd-savebar {
+  position: sticky; bottom: calc(62px + env(safe-area-inset-bottom, 0px)); z-index: 20;
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px; margin-top: 4px;
+  background: #fff; border: 1px solid var(--ds-line, #e5e7eb); border-radius: 12px;
+  box-shadow: 0 6px 20px rgba(17, 24, 39, 0.12);
+}
+.cd-savebar__msg { flex: 1; min-width: 0; font-size: var(--ds-fs-body2, 15px); color: var(--ds-ink-2, #6b7280); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-savebar__msg b { color: var(--ds-ink, #111827); }
+.cd-savebar > button { flex: none; min-height: 44px; padding: 0 18px; }
+@media (min-width: 1024px) { .cd-savebar { bottom: 12px; } }
+
+/* Điện thoại: ô chọn trong hàng xuống dòng dưới tên, rộng hết thẻ (như `.cd-row--dd`). */
+@media (max-width: 767px) {
+  .cd-row--wrap > .cd-row__c:has(.cd-row__c--dd) { flex: 1 1 100%; }
+  .cd-row--wrap .cd-row__c--dd { width: auto; }
+  .cd-hero { padding-left: 14px; }
+}
+
+/* Ô chọn (Dropdown) bung danh sách NGAY DƯỚI ô bằng position absolute — thẻ `overflow: hidden` cắt mất
+   danh sách (lỗi chủ quán chỉ ra ở "Cảnh báo" tab Tại bàn, 2026-11-16). Thẻ để tràn, còn góc bo do
+   hàng đầu/cuối tự nhận lại để nền trắng/hover của hàng không lòi ra khỏi góc. */
+.cd-card { overflow: visible; }
+.cd-card > :first-child { border-top-left-radius: inherit; border-top-right-radius: inherit; }
+.cd-card > :last-child { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
+.cd-picklist { border-bottom-left-radius: inherit; border-bottom-right-radius: inherit; }
