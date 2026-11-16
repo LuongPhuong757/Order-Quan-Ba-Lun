@@ -62,6 +62,47 @@ describe('buildLedger', () => {
     expect(rows[0].running).toBe(750_000);
   });
 
+  it('phiếu nhập bù lùi ngày vẫn cộng dồn theo NGÀY phiếu (ca chủ quán báo 2026-11-16)', () => {
+    // Nhập vào máy theo thứ tự 28, 29, 01/11, 31/10, 30/10 — số đóng dấu ra 568 ở dòng 30/10.
+    const rows = buildLedger({
+      opening_balance: 0,
+      opening_balance_date: null,
+      deliveries: [
+        { ...d('a', '2026-10-28', 96_000, 96_000), created_at: 1 },
+        { ...d('b', '2026-10-29', 88_000, 184_000), created_at: 2 },
+        { ...d('e', '2026-11-01', 112_000, 296_000), created_at: 3 },
+        { ...d('d', '2026-10-31', 184_000, 480_000), created_at: 4 },
+        { ...d('c', '2026-10-30', 88_000, 568_000), created_at: 5 },
+      ],
+      payments: [],
+    });
+    expect(rows.map((r) => [r.date, r.running])).toEqual([
+      ['2026-11-01', 568_000],
+      ['2026-10-31', 456_000],
+      ['2026-10-30', 272_000],
+      ['2026-10-29', 184_000],
+      ['2026-10-28', 96_000],
+    ]);
+  });
+
+  it('cùng ngày có giờ nhập thì xếp theo giờ nhập, không theo loại', () => {
+    const rows = buildLedger({
+      opening_balance: 0,
+      opening_balance_date: null,
+      // Trả 50k lúc 9h, NHẬP phiếu 100k lúc 10h, trả 20k lúc 11h.
+      deliveries: [{ ...d('a', '2026-08-10', 100_000), created_at: 10 }],
+      payments: [
+        { ...p('x', '2026-08-10', 50_000), created_at: 9 },
+        { ...p('y', '2026-08-10', 20_000), created_at: 11 },
+      ],
+    });
+    expect(rows.map((r) => [r.key, r.running])).toEqual([
+      ['py', 30_000],
+      ['da', 50_000],
+      ['px', -50_000],
+    ]);
+  });
+
   it('nợ cũ 0đ không sinh dòng', () => {
     const rows = buildLedger({
       opening_balance: 0,

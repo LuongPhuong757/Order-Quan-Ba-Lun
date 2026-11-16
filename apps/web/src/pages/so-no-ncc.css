@@ -718,3 +718,32 @@ button.secondary.mh-xuat { flex: none; min-height: var(--ds-h-control, 44px); he
 }
 /* iPad dọc: bỏ cột Giá bán cho tên món còn chỗ (giá vẫn thấy trong tấm đơn). */
 @media (min-width: 768px) and (max-width: 899px) { .mdb-cot.is-gia, .mdb-head .is-gia { display: none; } }
+
+/* ---------- Chi tiết NCC: dòng sổ chạm được + dải phiếu nháp (2026-11-16) ----------
+   Dòng phiếu/trả tiền thành <button> để mở Xem phiếu / tấm Sửa-Xoá. Viết `button.ct-row` để thắng
+   kiểu nút chung (xem bẫy button.secondary trong CLAUDE.md). */
+button.ct-row {
+  width: 100%; border: 0; border-radius: 0; margin: 0; background: transparent; color: inherit;
+  font: inherit; text-align: left; cursor: pointer;
+}
+button.ct-row + .ct-row, .ct-row + button.ct-row { border-top: 1px solid var(--ds-line); }
+button.ct-row:active { background: var(--ds-muted-bg); }
+
+/* Phiếu nháp CHƯA vào công nợ nên đứng riêng trên sổ, màu cam = việc cần xử lý. */
+.ct-nhap {
+  background: var(--orange-50); border: 1px solid var(--orange-200); border-radius: 14px;
+  overflow: hidden; margin-bottom: 12px;
+}
+.ct-nhap__t {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 12px 14px;
+  font-weight: 700; color: var(--orange-700);
+}
+.ct-nhap__t small { font-weight: 500; color: var(--ds-ink-2); font-size: var(--ds-fs-label); }
+button.ct-nhap__r {
+  display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 10px 14px;
+  border: 0; border-top: 1px solid var(--orange-200); border-radius: 0; margin: 0;
+  background: #fff; color: var(--ds-ink); font: inherit; text-align: left; cursor: pointer;
+}
+button.ct-nhap__r span { flex: 1; min-width: 0; }
+button.ct-nhap__r b { font-variant-numeric: tabular-nums; }
+button.ct-nhap__r:active { background: var(--orange-50); }

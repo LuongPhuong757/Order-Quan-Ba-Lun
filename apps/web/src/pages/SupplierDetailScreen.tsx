@@ -15,7 +15,8 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
-import { laNguoiLapNhap } from '../lib/delivery-draft.ts';
+import { dangChoDuyet, laNguoiLapNhap } from '../lib/delivery-draft.ts';
+import { buildLedger } from '../lib/supplier-ledger.ts';
 import type { DayRange } from '../lib/date-range.ts';
 import type { PairReport } from './SupplierReports.tsx';
 import {
@@ -26,8 +27,10 @@ import { SupplierInvoiceTemplate } from './SupplierInvoiceTemplate.tsx';
 import { ngayDay, ngayGon, pctVN, theoDonViMua, vnd } from './supplier-ui.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
 import { Sheet } from '../components/ui/Sheet.tsx';
+import { DeliveryDetailDialog } from './DeliveryDetailDialog.tsx';
 import './suppliers-ui.css';
 import './so-no-ncc.css';
+import './thong-ke-ncc.css';
 
 type Supplier = {
   id: string; name: string; phone: string; note: string | null;
@@ -43,6 +46,14 @@ type Dong = {
   phu: string;
   tien: number;
   duSau: number | null;
+  /** Phiếu nhập: id phiếu để mở Xem phiếu. Trả tiền: bản ghi để mở tấm Sửa/Xoá. */
+  phieuId?: string;
+  traTien?: Payment;
+};
+
+/** Phiếu nháp chờ duyệt — lấy từ `/supplier-deliveries`, chỉ những trường dải cam cần. */
+type PhieuNhap = {
+  id: string; delivery_date: string; status: string; total_amount: number; created_by_name: string;
 };
 
 const chuDau = (ten: string) => {
@@ -58,7 +69,7 @@ type LocTx = 'all' | 'in' | 'pay';
 
 export function SupplierDetailScreen({
   supplier, isAdmin, canSeeMoney, refreshKey,
-  onClose, onEdit, onDeleted, onIntake, onChanged,
+  onClose, onEdit, onDeleted, onIntake, onChanged, onEditDelivery,
 }: {
   supplier: Supplier;
   isAdmin: boolean;
@@ -73,6 +84,8 @@ export function SupplierDetailScreen({
   onDeleted: () => void;
   onIntake: () => void;
   onChanged: () => void;
+  /** Mở form Sửa phiếu (nằm ở trang cha, chồng lên màn này). */
+  onEditDelivery: (deliveryId: string) => void;
 }) {
   const toast = useToast();
   const lapNhap = laNguoiLapNhap(useAuth().user);
@@ -86,6 +99,10 @@ export function SupplierDetailScreen({
   const [taiKhoan, setTaiKhoan] = useState(false);
   const [mauHd, setMauHd] = useState(false);
   const [moMenu, setMoMenu] = useState(false);
+  const [nhap, setNhap] = useState<PhieuNhap[]>([]);
+  const [xemPhieu, setXemPhieu] = useState<string | null>(null);
+  const [tamTra, setTamTra] = useState<Payment | null>(null);
+  const [suaTra, setSuaTra] = useState<Payment | null>(null);
 
   const load = useCallback(() => {
     if (!canSeeMoney) return;
@@ -94,6 +111,13 @@ export function SupplierDetailScreen({
       api.get<{ data: { items: Payment[] } }>(`/suppliers/${supplier.id}/payments`),
     ]).then(([b, p]) => { setDetail(b.data.data); setPayments(p.data.data.items); })
       .catch((err) => toast.push('error', extractError(err).message));
+    // Phiếu nháp chờ duyệt (2026-11-16): duyệt ngay ở đây thay vì phải sang tab Phiếu nhập.
+    // Không nằm trong sổ vì CHƯA vào công nợ — sổ chỉ có `counted_deliveries`.
+    api.get<{ data: { items: PhieuNhap[] } }>('/supplier-deliveries',
+      { params: { supplier_id: supplier.id, limit: 500 } })
+      .then((r) => setNhap(r.data.data.items.filter((d) => dangChoDuyet(d.status))
+        .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))))
+      .catch(() => setNhap([]));
     api.get<{ data: { items: PairReport[] } }>('/supplier-reports/pairs',
       { params: { supplier_id: supplier.id } })
       .then((r) => setPairs(r.data.data.items)).catch(() => setPairs([]));
@@ -102,35 +126,44 @@ export function SupplierDetailScreen({
 
   const traGanNhat = payments[0] ?? null;
 
-  /** Gộp phiếu nhập + thanh toán + số dư đầu kỳ thành MỘT dòng thời gian, mới nhất lên đầu. */
+  /** Gộp phiếu nhập + thanh toán + số dư đầu kỳ thành MỘT dòng thời gian, mới nhất lên đầu.
+   *
+   * "Dư" mỗi dòng = công nợ LUỸ KẾ THEO NGÀY, tính bằng `buildLedger` (chủ quán chốt 2026-11-16).
+   * Trước đó hiện `balance_after_snapshot` — số đóng dấu LÚC BẤM LƯU — nên phiếu nhập bù lùi ngày
+   * làm cột Dư nhảy lung tung (184 + 88 ra 568). Số đóng dấu vẫn xem được trong hộp Xem phiếu.
+   * Tính trên TOÀN BỘ sổ rồi mới lọc Phiếu nhập/Trả tiền, nên dòng trên cùng luôn bằng số nợ ở
+   * đầu màn dù đang lọc gì. */
   const soGiaoDich = useMemo<Dong[]>(() => {
     if (!detail) return [];
-    const ds: Dong[] = [];
-    for (const d of detail.counted_deliveries) {
-      ds.push({
-        key: `in-${d.id}`, loai: 'in', ngay: d.date,
-        tieu_de: 'Phiếu nhập',
-        phu: `${ngayGon(d.date)} · ${d.source === 'SUPPLIER' ? 'NCC tự gửi' : 'nhân viên nhập'}`,
-        tien: d.amount, duSau: d.balance_after_snapshot,
-      });
-    }
-    for (const p of payments) {
-      ds.push({
-        key: `pay-${p.id}`, loai: 'pay', ngay: p.paid_on,
-        tieu_de: `Trả tiền — ${p.method === 'CASH' ? 'tiền mặt' : 'chuyển khoản'}`,
-        phu: `${ngayGon(p.paid_on)} · ${p.created_by_name}${p.note ? ` · ${p.note}` : ''}`,
-        tien: -p.amount, duSau: null,
-      });
-    }
-    if (detail.opening_balance > 0 && detail.opening_balance_date) {
-      ds.push({
-        key: 'open', loai: 'open', ngay: detail.opening_balance_date,
-        tieu_de: 'Số dư đầu kỳ',
+    const rows = buildLedger<Payment>({
+      opening_balance: detail.opening_balance,
+      opening_balance_date: detail.opening_balance_date,
+      deliveries: detail.counted_deliveries,
+      payments,
+    });
+    return rows.map((r): Dong => {
+      if (r.kind === 'delivery') {
+        return {
+          key: r.key, loai: 'in', ngay: r.date, tieu_de: 'Phiếu nhập',
+          phu: `${ngayGon(r.date)} · ${r.source === 'SUPPLIER' ? 'NCC tự gửi' : 'nhân viên nhập'}`,
+          tien: r.amount, duSau: r.running, phieuId: r.id,
+        };
+      }
+      if (r.kind === 'payment') {
+        const pm = r.payment;
+        return {
+          key: r.key, loai: 'pay', ngay: r.date,
+          tieu_de: `Trả tiền — ${pm.method === 'CASH' ? 'tiền mặt' : 'chuyển khoản'}`,
+          phu: `${ngayGon(r.date)} · ${pm.created_by_name}${pm.note ? ` · ${pm.note}` : ''}`,
+          tien: r.amount, duSau: r.running, traTien: pm,
+        };
+      }
+      return {
+        key: r.key, loai: 'open', ngay: r.date, tieu_de: 'Số dư đầu kỳ',
         phu: detail.opening_balance_note || 'Nợ có từ trước khi vào phần mềm',
-        tien: detail.opening_balance, duSau: null,
-      });
-    }
-    return ds.sort((a, b) => b.ngay.localeCompare(a.ngay));
+        tien: r.amount, duSau: r.running,
+      };
+    });
   }, [detail, payments]);
 
   // Toàn bộ lịch sử (không cắt kỳ) — xem docblock prop `range`.
@@ -142,6 +175,35 @@ export function SupplierDetailScreen({
 
   const matHang = useMemo(
     () => [...pairs].sort((a, b) => b.amount - a.amount).slice(0, 12), [pairs]);
+
+  const daDoi = () => { load(); onChanged(); };
+
+  const xoaTra = async (pm: Payment) => {
+    setTamTra(null);
+    const ok = await confirm({
+      title: `Xoá lần trả ${vnd(pm.amount)}đ?`,
+      variant: 'danger',
+      message: `${supplier.name}, ngày ${ngayDay(pm.paid_on)}. Xoá xong công nợ của NCC này sẽ tăng lại đúng số này.`,
+      confirmLabel: 'Xoá',
+    });
+    if (!ok) return;
+    try {
+      await api.delete(`/suppliers/payments/${pm.id}`);
+      toast.push('success', 'Đã xoá lần trả');
+      daDoi();
+    } catch (err) {
+      toast.push('error', extractError(err).message);
+    }
+  };
+
+  /** Chạm một dòng sổ: phiếu → Xem phiếu; trả tiền → tấm Sửa/Xoá (chỉ admin, đúng quyền server);
+   *  số dư đầu kỳ → hộp sửa số dư (admin). Không có việc gì để làm thì dòng không phải nút. */
+  const moDong = (d: Dong): (() => void) | null => {
+    if (d.phieuId) { const id = d.phieuId; return () => setXemPhieu(id); }
+    if (d.traTien && isAdmin) { const pm = d.traTien; return () => setTamTra(pm); }
+    if (d.loai === 'open' && isAdmin) return () => setSuaDauKy(true);
+    return null;
+  };
 
   const xoaNcc = async () => {
     const ok = await confirm({
@@ -242,6 +304,22 @@ export function SupplierDetailScreen({
                   <h2>Sổ giao dịch</h2>
                   <span role="status">{hienThi.length} giao dịch · tất cả thời gian</span>
                 </div>
+                {nhap.length > 0 && (
+                  <div className="ct-nhap" role="region" aria-label="Phiếu nháp chờ duyệt">
+                    <div className="ct-nhap__t">
+                      <Icon name="canh-bao" size={18} />
+                      {nhap.length} phiếu nháp chờ duyệt
+                      <small>chưa tính vào công nợ</small>
+                    </div>
+                    {nhap.map((p) => (
+                      <button key={p.id} type="button" className="ct-nhap__r" onClick={() => setXemPhieu(p.id)}>
+                        <span>{ngayGon(p.delivery_date)} · {p.created_by_name || '—'}</span>
+                        <b>{vnd(p.total_amount)}đ</b>
+                        <Icon name="mui-ten-phai" size={18} />
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <div className="ct-seg" role="group" aria-label="Lọc loại giao dịch">
                   {([['all', 'Tất cả', trongKy.length], ['in', 'Phiếu nhập', demIn],
                      ['pay', 'Trả tiền', demPay]] as Array<[LocTx, string, number]>).map(([v, nhan, n]) => (
@@ -259,8 +337,9 @@ export function SupplierDetailScreen({
                   </div>
                 ) : (
                   <div className="ct-list">
-                    {hienThi.map((d) => (
-                      <div key={d.key} className="ct-row">
+                    {hienThi.map((d) => {
+                      const mo = moDong(d);
+                      const ruot = (<>
                         <span className={`ct-ic ct-ic--${d.loai}`} aria-hidden="true">
                           <Icon name={d.loai === 'pay' ? 'thanh-toan' : d.loai === 'open' ? 'ghi-no' : 'dong-goi'} size={18} />
                         </span>
@@ -272,8 +351,11 @@ export function SupplierDetailScreen({
                           {d.tien >= 0 ? '+' : '−'}{vnd(Math.abs(d.tien))}đ
                           {d.duSau !== null && <small>Dư {vnd(d.duSau)}đ</small>}
                         </span>
-                      </div>
-                    ))}
+                      </>);
+                      return mo
+                        ? <button key={d.key} type="button" className="ct-row" onClick={mo}>{ruot}</button>
+                        : <div key={d.key} className="ct-row">{ruot}</div>;
+                    })}
                   </div>
                 )}
               </section>
@@ -361,6 +443,49 @@ export function SupplierDetailScreen({
                        suggested={Math.max(0, detail.balance)}
                        onClose={() => setTraTien(false)}
                        onSaved={() => { setTraTien(false); load(); onChanged(); }} />
+      )}
+      {xemPhieu && (
+        <DeliveryDetailDialog
+          deliveryId={xemPhieu}
+          onClose={() => setXemPhieu(null)}
+          onEdit={() => { const id = xemPhieu; setXemPhieu(null); onEditDelivery(id); }}
+          onChanged={daDoi}
+        />
+      )}
+      {tamTra && (
+        <Sheet title={`Trả tiền — ${tamTra.method === 'CASH' ? 'tiền mặt' : 'chuyển khoản'}`}
+               onClose={() => setTamTra(null)} giuaKhiRong>
+          <div className="ck-sheet">
+            <div className="ck-sheet__tien">{vnd(tamTra.amount)}</div>
+            <dl>
+              <dt>Ngày trả</dt>
+              <dd>{ngayDay(tamTra.paid_on)}</dd>
+              <dt>Hình thức</dt>
+              <dd>{tamTra.method === 'TRANSFER' ? `Chuyển khoản · ${tamTra.paid_from_label || 'chưa ghi tài khoản'}` : 'Tiền mặt'}</dd>
+              <dt>Ghi chú</dt>
+              <dd>{tamTra.note && tamTra.note.trim() !== '' ? tamTra.note : '—'}</dd>
+              <dt>Người ghi</dt>
+              <dd>{tamTra.created_by_name || '—'}</dd>
+            </dl>
+            <button type="button" className="ds-btn ds-btn--primary" onClick={() => { setSuaTra(tamTra); setTamTra(null); }}>
+              <Icon name="sua" size={18} />Sửa lần trả
+            </button>
+            <button type="button" className="ck-xoa" onClick={() => void xoaTra(tamTra)}>
+              <Icon name="xoa" size={18} />Xoá lần trả
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {suaTra && (
+        <PaymentDialog supplierId={supplier.id} supplierName={supplier.name}
+                       editing={{
+                         payment_id: suaTra.id, supplier_id: supplier.id, paid_on: suaTra.paid_on,
+                         amount: suaTra.amount, method: suaTra.method,
+                         paid_from_account_id: suaTra.paid_from_account_id,
+                         paid_from_label: suaTra.paid_from_label, note: suaTra.note,
+                       }}
+                       onClose={() => setSuaTra(null)}
+                       onSaved={() => { setSuaTra(null); daDoi(); }} />
       )}
       {suaDauKy && detail && (
         <OpeningBalanceDialog supplierId={supplier.id} supplierName={supplier.name} current={detail}

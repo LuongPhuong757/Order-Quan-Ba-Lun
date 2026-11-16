@@ -441,6 +441,7 @@ export function SuppliersPage() {
             setBalanceTick((t) => t + 1);
           }}
           onIntake={() => setShowForm({ supplierId: detail.id })}
+          onEditDelivery={(id) => setShowForm({ supplierId: detail.id, editingId: id })}
           onChanged={() => {
             refresh();
             setBalanceTick((t) => t + 1);

@@ -14,11 +14,13 @@ export type LedgerDelivery = {
   source: string;
   /** Công nợ đóng dấu lúc phiếu vào sổ. NULL = phiếu có trước 2026-09-09, chưa từng đóng dấu. */
   balance_after_snapshot: number | null;
+  /** Giờ phiếu vào máy (ms). Có thì phiếu/lần trả CÙNG NGÀY xếp theo thứ tự nhập thật. */
+  created_at?: number;
 };
 
 /** Lần trả tiền. Khai tối thiểu những trường sổ cần; `P` giữ nguyên kiểu gốc của màn gọi để phần
  *  chi tiết vẫn đọc được `method`, `note`, `created_by_name`… mà lib này không cần biết tới. */
-export type LedgerPayment = { id: string; paid_on: string; amount: number };
+export type LedgerPayment = { id: string; paid_on: string; amount: number; created_at?: number };
 
 /** Một dòng trong sổ.
  *
@@ -37,14 +39,16 @@ export type LedgerEntry<P extends LedgerPayment> =
       amount: number;
       source: string;
       snapshot: number | null;
+      at?: number;
     }
-  | { kind: 'payment'; key: string; date: string; amount: number; payment: P };
+  | { kind: 'payment'; key: string; date: string; amount: number; payment: P; at?: number };
 
 /** Union tách rời khỏi `running` chứ không viết `Omit<LedgerRow, 'running'>`: `Omit` gộp cả ba
  *  nhánh thành một object phẳng chỉ còn những khoá CHUNG, nên `id`/`payment` biến mất. */
 export type LedgerRow<P extends LedgerPayment> = LedgerEntry<P> & { running: number };
 
-/** Mới nhất lên đầu; cùng ngày thì xếp nhập → trả → nợ cũ.
+/** Mới nhất lên đầu; cùng ngày thì theo GIỜ NHẬP VÀO MÁY (chủ quán chốt 2026-11-16), thiếu giờ
+ *  thì xếp nhập → trả → nợ cũ.
  *
  * Nợ cũ xuống cuối vì nó là thứ có TRƯỚC mọi giao dịch trong hệ thống; ngày của nó chỉ là mốc
  * chốt sổ, không phải lúc phát sinh.
@@ -71,10 +75,13 @@ export function buildLedger<P extends LedgerPayment>(input: {
         amount: d.amount,
         source: d.source,
         snapshot: d.balance_after_snapshot,
+        at: d.created_at,
       }),
     ),
     ...input.payments.map(
-      (p): Raw => ({ kind: 'payment', key: `p${p.id}`, date: p.paid_on, amount: -p.amount, payment: p }),
+      (p): Raw => ({
+        kind: 'payment', key: `p${p.id}`, date: p.paid_on, amount: -p.amount, payment: p, at: p.created_at,
+      }),
     ),
   ];
   // Nợ cũ 0đ không sinh dòng: một dòng "Nợ cũ +0đ" chỉ làm sổ dài thêm mà không nói gì.
@@ -88,7 +95,14 @@ export function buildLedger<P extends LedgerPayment>(input: {
   }
 
   const rank = (t: Raw) => (t.kind === 'delivery' ? 2 : t.kind === 'payment' ? 1 : 0);
-  const sorted = list.sort((a, b) => b.date.localeCompare(a.date) || rank(b) - rank(a));
+  // Nợ cũ không có giờ nhập — nó luôn đứng đáy ngày của nó, nên chỉ so giờ khi CẢ HAI dòng có.
+  const at = (t: Raw) => (t.kind === 'opening' ? undefined : t.at);
+  const sameDay = (a: Raw, b: Raw) => {
+    const ta = at(a), tb = at(b);
+    if (ta !== undefined && tb !== undefined && ta !== tb) return tb - ta;
+    return rank(b) - rank(a);
+  };
+  const sorted = list.sort((a, b) => b.date.localeCompare(a.date) || sameDay(a, b));
 
   // Cộng dồn từ dòng CŨ NHẤT lên. Vì mọi `amount` đã mang dấu, tổng cả sổ đúng bằng công nợ hiện
   // tại, nên dòng trên cùng luôn khớp con số ở đầu màn và hai chỗ soi được vào nhau.

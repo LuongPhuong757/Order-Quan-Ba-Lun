@@ -27,6 +27,8 @@ export type SupplierBalanceDetail = SupplierBalance & {
     amount: number;
     source: string;
     balance_after_snapshot: number | null;
+    /** Giờ phiếu vào máy (ms). Sổ dùng để xếp phiếu và lần trả CÙNG NGÀY theo thứ tự nhập. */
+    created_at: number;
   }>;
   counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
 };
@@ -143,6 +145,7 @@ export class PaymentsService {
           amount: d.total_amount,
           source: d.source,
           balance_after_snapshot: d.balance_after_snapshot,
+          created_at: d.created_at,
         })),
       ),
       counted_payments: counted(

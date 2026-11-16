@@ -54,6 +54,8 @@ type Detail = {
     id: string; supplier_id: string; supplier_name: string; delivery_date: string;
     status: string; source: 'STAFF' | 'SUPPLIER'; note: string | null;
     total_amount: number; created_by_user_id: string | null; created_by_name: string | null;
+    /** Công nợ NCC đóng dấu lúc phiếu vào sổ. NULL = chưa vào công nợ / phiếu trước 2026-09-09. */
+    balance_after_snapshot: number | null;
   };
   lines: Line[];
   photos: Photo[];
@@ -163,6 +165,13 @@ export function DeliveryDetailDialog({
                            : huy ? 'Phiếu đã huỷ — không tính vào kho và công nợ'
                            : `${d.lines.length} mặt hàng`}
                     </div>
+                    {/* Số ĐÓNG DẤU lúc bấm lưu (2026-11-16): cột "Dư" ở sổ giao dịch giờ là luỹ kế
+                        theo ngày, nên con số "lúc đó" chỉ còn xem ở đây để đối chiếu. */}
+                    {!cho && !huy && d.delivery.balance_after_snapshot !== null && (
+                      <div className="sup-head__debtnote">
+                        Công nợ lúc nhập phiếu: {vnd(d.delivery.balance_after_snapshot)}đ
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

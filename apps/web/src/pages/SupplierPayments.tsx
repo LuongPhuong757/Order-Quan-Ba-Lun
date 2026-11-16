@@ -43,6 +43,8 @@ export type BalanceDetail = Balance & {
     source: string;
     /** Công nợ đã đóng dấu lúc phiếu này vào sổ. NULL = phiếu có trước 2026-09-09. */
     balance_after_snapshot: number | null;
+    /** Giờ phiếu vào máy (ms) — xếp phiếu/lần trả cùng ngày. Tuỳ chọn: API cũ chưa trả. */
+    created_at?: number;
   }>;
   counted_payments: Array<{ id: string; date: string; amount: number; method: string }>;
 };
@@ -57,6 +59,8 @@ export type Payment = {
   paid_from_label: string | null;
   note: string | null;
   created_by_name: string;
+  /** Giờ ghi lần trả (ms), API trả thẳng cột entity. */
+  created_at?: number;
 };
 
 const vnd = (n: number) => n.toLocaleString('vi-VN');
