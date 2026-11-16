@@ -1,15 +1,17 @@
-// Một dòng của Sổ webhook (thiết kế lại 2026-10-16 theo kiểu app ngân hàng).
+// Một giao dịch của Sổ webhook — làm lại 2026-11-16 (phương án A, chủ quán duyệt bản xem thử
+// https://claude.ai/code/artifact/464b69f8-10d0-48d6-8f73-66bf26a51681).
 //
-// Ba phần tách nhau về thị giác — đúng lý do cột "Bàn / Đơn" được thêm hồi 2026-10-15:
-//   1. dữ liệu NGÂN HÀNG: giờ, số tiền, tài khoản quán
-//   2. nội dung CK NGUYÊN VĂN — THU VÀO một nút icon, bấm mới xổ ra ngay dưới dòng (chủ quán
-//      2026-10-16: hộp nội dung luôn mở "nhìn quá rối mắt"; chuỗi SePay thật dài 4–5 dòng). Xổ ra
-//      thì hiện ĐỦ, không cắt — đó vẫn là thứ trả lời được "tiền gì".
-//   3. ô "Bàn / Đơn" — phần PHẦN MỀM HIỂU, có màu riêng để không lẫn với lời ngân hàng
+// Trước: mỗi giao dịch là một THẺ cao ~170px (ô Bàn/Đơn tô màu + nút xổ nội dung) → điện thoại
+// chỉ thấy ~3 giao dịch, chủ quán chê "dòng giao dịch khó đọc". Giờ tách hai lớp:
+//   - `BankLedgerRow`: MỘT dòng gọn hai tầng — giờ · Bàn + nhãn trạng thái · số tiền / tài khoản
+//     quán · nội dung CK cắt một dòng. Đủ để lướt tìm "khoản 650 lúc 9 giờ tối".
+//   - `BankLedgerDetail`: chạm dòng mới thấy ĐỦ — nội dung CK nguyên văn (chủ quán 2026-09-23:
+//     "số tiền, ngày giờ, ngân hàng nào, nội dung"), tài khoản quán, phần Bàn/Đơn phần mềm hiểu,
+//     và nút Gán / Gỡ gán. Laptop: cột phải dính; điện thoại/iPad: tấm trượt (xem BankLedgerPage).
 //
-// Điện thoại và máy tính đều là lưới có tên vùng (xem `so-tien.css`, khối `.sx-tx`).
-import { useState } from 'react';
-import { accountDot, tail4, vnd } from '../lib/so-tien.ts';
+// Màu: tiền vào chữ đen, tiền ra chữ xám có "−" (bỏ xanh lá / đỏ). Cam CHỈ cho việc phải xử lý:
+// bàn còn mở, đóng nhầm tiền mặt, đang nợ, đơn huỷ, chuyển thiếu/thừa/sai TK, tiền lạ.
+import { tail4, vnd } from '../lib/so-tien.ts';
 import { Icon } from '../components/ui/Icon.tsx';
 
 type OrderState = 'open' | 'paid' | 'cash' | 'debt' | 'cancelled';
@@ -49,140 +51,170 @@ export function hhmm(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-/** Trạng thái đơn → (kiểu ô, câu chính). Màu theo mức phải lo: cam là phải đi xử lý trong ca. */
-const STATE: Record<OrderState, { tone: 'ok' | 'warn'; text: string }> = {
-  open: { tone: 'warn', text: 'Bàn còn mở — chưa bấm thanh toán' },
-  paid: { tone: 'ok', text: 'Đã thanh toán' },
+/** Trạng thái đơn → (mức, nhãn ngắn ở dòng, câu đủ ở tấm chi tiết). */
+const STATE: Record<OrderState, { warn: boolean; chip: string; text: string }> = {
+  open: { warn: true, chip: 'Còn mở', text: 'Bàn còn mở — chưa bấm thanh toán' },
+  paid: { warn: false, chip: 'Đã TT', text: 'Đã thanh toán' },
   // Ngân hàng báo CK về đúng mã bàn mà đơn lại ghi tiền mặt: két sẽ thiếu đúng khoản này.
-  cash: { tone: 'warn', text: 'Đóng là TIỀN MẶT — kiểm lại' },
-  debt: { tone: 'warn', text: 'Đang ghi nợ' },
-  cancelled: { tone: 'warn', text: 'Đơn đã HUỶ' },
+  cash: { warn: true, chip: 'Tiền mặt?', text: 'Đóng là TIỀN MẶT — kiểm lại két' },
+  debt: { warn: true, chip: 'Đang nợ', text: 'Đang ghi nợ' },
+  cancelled: { warn: true, chip: 'Đơn huỷ', text: 'Đơn đã HUỶ' },
 };
 
-const REVIEW: Record<'thieu' | 'thua' | 'sai_tk', { cls: string; text: string }> = {
-  thieu: { cls: 'sx-less', text: 'Khách chuyển thiếu' },
-  thua: { cls: 'sx-more', text: 'Khách chuyển thừa' },
-  sai_tk: { cls: 'sx-wrong', text: 'Về sai tài khoản QR' },
+const REVIEW: Record<'thieu' | 'thua' | 'sai_tk', { chip: string; text: string }> = {
+  thieu: { chip: 'CK thiếu', text: 'Khách chuyển thiếu' },
+  thua: { chip: 'CK thừa', text: 'Khách chuyển thừa' },
+  sai_tk: { chip: 'Sai TK', text: 'Về sai tài khoản QR' },
 };
 
-type Props = { row: LedgerRow; onAssign: () => void; onUnassign: () => void };
-
-export function BankLedgerRow({ row, onAssign, onUnassign }: Props) {
-  const out = row.direction === 'out';
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="sx-tx">
-      <span className="sx-tx-time sx-num">{hhmm(row.occurred_at)}</span>
-      <span className={`sx-tx-amt sx-num ${out ? 'sx-m' : 'sx-p'}`}>
-        {out ? '−' : '+'}
-        {vnd(row.amount)}
-      </span>
-      <div className="sx-tx-acc">
-        <AccountText row={row} />
-      </div>
-      <button
-        type="button"
-        className="sx-memo-btn"
-        aria-expanded={open}
-        aria-label={open ? 'Ẩn nội dung chuyển khoản' : 'Xem nội dung chuyển khoản'}
-        onClick={() => setOpen((v) => !v)}
-      >
-        <Icon name="ghi-chu" size={22} />
-      </button>
-      <div className="sx-tx-link">
-        <LinkCell row={row} onAssign={onAssign} onUnassign={onUnassign} />
-      </div>
-      {open && (
-        <div className="sx-memo">
-          <span className="sx-ml">Nội dung CK</span>
-          <div className="sx-mv">{row.content || <span style={{ color: '#9ca3af' }}>(trống)</span>}</div>
-        </div>
-      )}
-    </div>
-  );
+/** Tên tài khoản quán ngắn gọn: tên mã QR, không có thì tên ngân hàng. */
+function tenTk(row: LedgerRow): string {
+  return row.account_label ?? row.bank ?? 'Tài khoản';
 }
 
-/** "TPBank HKD · …8888" + tên ngân hàng — MỘT dòng. Tên dài thì cắt "…" ở TÊN, còn bốn số cuối
- *  luôn hiện đủ (chủ quán 2026-10-16): đó là thứ để đối chiếu sao kê, tên thì đã có màu chấm. */
-function AccountText({ row }: { row: LedgerRow }) {
-  if (!row.account_no) return <span className="sx-bn">{row.bank ?? '—'}</span>;
+/** Phần đầu dòng: "Bàn 05" + nhãn, hoặc "Chưa khớp" + "Gán vào đơn", hoặc nhãn "Tiền ra". */
+function DauDong({ row }: { row: LedgerRow }) {
+  const link = row.link;
+  if (row.direction === 'out' || !link) return <span className="wh-chip is-out">Tiền ra</span>;
+  if (link.via === 'none') {
+    // "Cần gán" chứ không "Gán vào đơn": điện thoại 390 chỉ còn ~170px cho cả cụm, nhãn dài làm
+    // cắt mất chữ "Chưa khớp". Nút "Gán vào đơn" thật nằm trong tấm chi tiết.
+    return <><b>Chưa khớp</b><span className="wh-chip is-none">Cần gán</span></>;
+  }
+  if (!link.order) return <><b>Không thấy đơn</b><span className="wh-chip is-warn">Kiểm lại</span></>;
+  const st = STATE[link.order.state];
+  const rv = link.review ? REVIEW[link.review] : null;
   return (
     <>
-      <span className="sx-acc-line" title={row.account_label ?? undefined}>
-        <span className="sx-dot" style={{ background: accountDot(row.account_no) }} />
-        {row.account_label && <span className="sx-acc-name">{row.account_label}</span>}
-        <span className="sx-acc-tail">
-          {row.account_label ? '· ' : ''}
-          {tail4(row.account_no)}
-        </span>
-      </span>
-      {row.bank && <span className="sx-bn">{row.bank}</span>}
+      <b>{link.order.table}</b>
+      <span className={`wh-chip ${st.warn || rv ? 'is-warn' : 'is-ok'}`}>{rv && !st.warn ? rv.chip : st.chip}</span>
     </>
   );
 }
 
-function LinkCell({ row, onAssign, onUnassign }: Props) {
+type RowProps = { row: LedgerRow; dangChon: boolean; onOpen: () => void };
+
+export function BankLedgerRow({ row, dangChon, onOpen }: RowProps) {
+  const out = row.direction === 'out';
+  return (
+    <button type="button" className="wh-row" aria-current={dangChon || undefined} onClick={onOpen}>
+      <span className="wh-row__t">{hhmm(row.occurred_at)}</span>
+      <span className="wh-row__m"><DauDong row={row} /></span>
+      <span className="wh-row__s">
+        {row.account_no ? `${tenTk(row)} ${tail4(row.account_no)}` : (row.bank ?? '—')}
+        {row.content ? ` · ${row.content}` : ''}
+      </span>
+      <span className={`wh-row__v${out ? ' is-out' : ''}`}>{out ? '−' : '+'}{vnd(row.amount)}</span>
+    </button>
+  );
+}
+
+type DetailProps = {
+  row: LedgerRow;
+  /** Có = hiện nút ✕ (cột phải laptop không cần — chọn dòng khác là đổi). */
+  onClose?: () => void;
+  onAssign: () => void;
+  onUnassign: () => void;
+};
+
+/** Ngày giờ đầy đủ "16/11/2026 · 21:42". */
+function ngayGio(ms: number): string {
+  const d = new Date(ms);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}/${mm}/${d.getFullYear()} · ${hhmm(ms)}`;
+}
+
+export function BankLedgerDetail({ row, onClose, onAssign, onUnassign }: DetailProps) {
+  const out = row.direction === 'out';
+  return (
+    <div className="wh-det">
+      <div className="wh-det__h">
+        <b>{out ? 'Tiền ra' : 'Tiền vào'} · {hhmm(row.occurred_at)}</b>
+        {onClose && (
+          <button type="button" className="wh-det__x" onClick={onClose} aria-label="Đóng">
+            <Icon name="dong" size={22} />
+          </button>
+        )}
+      </div>
+      <div className="wh-det__amt">{out ? '−' : '+'}{vnd(row.amount)}</div>
+      <dl className="wh-kv">
+        <dt>Ngày giờ</dt>
+        <dd>{ngayGio(row.occurred_at)}</dd>
+        <dt>Tài khoản quán</dt>
+        <dd>
+          {row.account_no
+            ? [tenTk(row), tail4(row.account_no), row.account_label ? row.bank : null].filter(Boolean).join(' · ')
+            : (row.bank ?? '—')}
+        </dd>
+      </dl>
+      <div>
+        <div className="wh-lb">Nội dung chuyển khoản</div>
+        {/* NGUYÊN VĂN, không cắt — đây là thứ trả lời "tiền gì". */}
+        <div className="wh-memo">{row.content || '(trống)'}</div>
+      </div>
+      <PhanBan row={row} onAssign={onAssign} onUnassign={onUnassign} />
+    </div>
+  );
+}
+
+/** Phần "Bàn / Đơn" — phần PHẦN MỀM HIỂU, tách khỏi dữ liệu ngân hàng ở trên (lý do cột này có
+ *  từ 2026-10-15). Gán tay tiền lạ / gỡ gán ngay tại đây (`BankAssignDialog` ở trang cha). */
+function PhanBan({ row, onAssign, onUnassign }: { row: LedgerRow; onAssign: () => void; onUnassign: () => void }) {
   const link = row.link;
   if (row.direction === 'out' || !link) {
     return (
-      <div className="sx-link sx-outn">
-        <span className="sx-ll">Bàn / Đơn</span>
-        <div className="sx-lv">Tiền ra — không gắn với bàn nào</div>
+      <div className="wh-ban is-none">
+        <span className="wh-lb">Bàn / Đơn</span>
+        <span className="wh-ban__v">Tiền ra — không gắn với bàn nào</span>
       </div>
     );
   }
-
   if (link.via === 'none') {
     return (
-      <div className="sx-link sx-none">
-        <span className="sx-ll">Bàn / Đơn</span>
-        <div className="sx-lv">Chưa khớp đơn nào</div>
-        <div className="sx-link-act">
-          <button type="button" className="sx-btn-assign" onClick={onAssign}>
-            Gán vào đơn
-          </button>
+      <>
+        <div className="wh-ban is-none">
+          <span className="wh-lb">Bàn / Đơn</span>
+          <span className="wh-ban__v">Chưa khớp đơn nào</span>
+          <span className="wh-ban__m">Tiền đã về nhưng chưa biết của bàn nào</span>
         </div>
-      </div>
+        <button type="button" className="wh-btn" onClick={onAssign}>Gán vào đơn</button>
+      </>
     );
   }
-
-  const manual = link.via === 'manual' && (
-    <div className="sx-link-act" style={{ alignItems: 'center' }}>
-      <span className="sx-lm">Gán tay{link.manual_by ? ` bởi ${link.manual_by}` : ''}</span>
-      <button type="button" className="sx-ghost" onClick={onUnassign}>
-        Gỡ
-      </button>
-    </div>
+  const go = link.via === 'manual' && (
+    <button type="button" className="wh-btn2" onClick={onUnassign}>Gỡ gán</button>
   );
-
+  const nguoiGan = link.via === 'manual' ? `Gán tay${link.manual_by ? ` bởi ${link.manual_by}` : ''}` : null;
   if (!link.order) {
     // Đơn đã bị xoá: vẫn phải gỡ được gán tay, không thì khoản tiền kẹt mãi ở trạng thái này.
     return (
-      <div className="sx-link sx-none">
-        <span className="sx-ll">Bàn / Đơn</span>
-        <div className="sx-lv">Không thấy đơn tại bàn</div>
-        {manual}
-      </div>
+      <>
+        <div className="wh-ban is-warn">
+          <span className="wh-lb">Bàn / Đơn</span>
+          <span className="wh-ban__v">Không thấy đơn tại bàn</span>
+          {nguoiGan && <span className="wh-ban__m">{nguoiGan}</span>}
+        </div>
+        {go}
+      </>
     );
   }
-
   const o = link.order;
   const st = STATE[o.state];
-  const meta = o.closed_at === null ? `Mở lúc ${hhmm(o.opened_at)}` : `Đóng ${hhmm(o.closed_at)}`;
+  const meta = [
+    o.closed_at === null ? `Mở lúc ${hhmm(o.opened_at)}` : `Đóng ${hhmm(o.closed_at)}`,
+    o.cashier,
+    nguoiGan,
+  ].filter(Boolean).join(' · ');
   return (
-    <div>
-      <div className={`sx-link ${st.tone === 'ok' ? 'sx-ok' : 'sx-warnl'}`}>
-        <span className="sx-ll">Bàn / Đơn</span>
-        <div className="sx-lv">
-          {o.table} · {st.text}
-        </div>
-        <div className="sx-lm">
-          {meta}
-          {o.cashier ? ` · ${o.cashier}` : ''}
-        </div>
-        {manual}
+    <>
+      <div className={`wh-ban${st.warn || link.review ? ' is-warn' : ''}`}>
+        <span className="wh-lb">Bàn / Đơn</span>
+        <span className="wh-ban__v">{o.table} · {st.text}</span>
+        <span className="wh-ban__m">{meta}</span>
+        {link.review && <span className="wh-ban__flag">{REVIEW[link.review].text}</span>}
       </div>
-      {link.review && <span className={`sx-flag ${REVIEW[link.review].cls}`}>{REVIEW[link.review].text}</span>}
-    </div>
+      {go}
+    </>
   );
 }

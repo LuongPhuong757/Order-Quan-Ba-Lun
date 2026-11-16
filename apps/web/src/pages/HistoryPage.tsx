@@ -1271,7 +1271,6 @@ export function HistoryPage() {
         {showCharts && (
           <TimeRangeChips
             ariaLabel="Chọn chỉ số cho biểu đồ cột"
-            label="Biểu đồ cột theo"
             value={chiSo}
             options={[
               { value: 'revenue' as const, label: 'Doanh thu' },

@@ -148,7 +148,11 @@ export function BarChart({
   // Hook phải chạy trước mọi `return` — nên nhánh rỗng nằm ở đây, sau `useMemo`.
   if (n === 0) return <Empty />;
 
-  const padL = 54;
+  // Lề trái VỪA ĐỦ cho nhãn trục dọc dài nhất (2026-11-16, chủ quán chê "bên trái nhiều khoảng
+  // trắng"): trước đặt cứng 54px trong khi nhãn chỉ "50tr" ~25px. Ước ~6,5px/ký tự ở cỡ 11px +
+  // 6px khe tới trục + 2px mép; sàn 22px để nhãn "0" không dính sát viền thẻ.
+  const nhanDoc = [0, 0.25, 0.5, 0.75, 1].map((t) => formatValue(yMax * t));
+  const padL = Math.max(22, Math.ceil(Math.max(...nhanDoc.map((x) => x.length)) * 6.5) + 8);
   const padR = 10;
   const padT = 10;
   const padB = 26;

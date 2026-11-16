@@ -1,11 +1,16 @@
-// Khối tổng quan đầu Sổ webhook (thiết kế lại 2026-10-16) — bốn thứ chủ quán chọn:
-//   tổng vào / ra · theo từng tài khoản · số khoản tiền lạ · số bàn đã CK mà chưa bấm thanh toán.
+// Phần đầu Sổ webhook — làm lại 2026-11-16 theo kiểu "Sổ nợ NCC" (chủ quán duyệt bản xem thử
+// https://claude.ai/code/artifact/464b69f8-10d0-48d6-8f73-66bf26a51681):
+//   - MỘT dải xanh ngọc: số to là TIỀN VÀO trong kỳ, kèm Ra / Chênh lệch / số giao dịch, và hàng
+//     chip tài khoản (chạm = lọc) thay cho khối thẻ "Theo tài khoản" cũ — điện thoại bớt hẳn một
+//     khối, giao dịch đầu tiên lên được màn đầu.
+//   - Hai ô ĐẾM việc cần xử lý (tiền lạ / bàn đã CK còn mở) — cam chỉ khi có việc, xám khi bằng 0.
+//   - Bỏ nền xanh lá / đỏ cũ: app quản lý chỉ một màu chủ đạo xanh ngọc (feedback 2026-11-09).
 //
 // Số lấy từ `summary` của server, tính trên CẢ KỲ (không theo trang, không theo bộ lọc khác) —
-// thẻ tài khoản và hai thẻ cảnh báo đồng thời là NÚT LỌC, nên số trên đó không được đổi theo
-// chính bộ lọc mà nó bật.
-import { accountDot, tail4, vnd } from '../lib/so-tien.ts';
+// chip tài khoản và hai ô đếm đồng thời là NÚT LỌC, nên số trên đó không được đổi theo chính bộ
+// lọc mà nó bật.
 import { Icon, type IconName } from '../components/ui/Icon.tsx';
+import { tail4, vnd } from '../lib/so-tien.ts';
 
 export type LedgerSummary = {
   in_total: number;
@@ -19,103 +24,84 @@ export type LedgerSummary = {
 
 export type LedgerStatus = '' | 'unmatched' | 'open';
 
+/** "120,4tr" / "650k" — chip tài khoản chỉ cần cỡ số, số đủ nằm trong danh sách. */
+export function tienGon(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toLocaleString('vi-VN', { maximumFractionDigits: 1 })}tr`;
+  if (n >= 1_000) return `${Math.round(n / 1_000).toLocaleString('vi-VN')}k`;
+  return n.toLocaleString('vi-VN');
+}
+
 type Props = {
   s: LedgerSummary;
+  /** "30 ngày", "Hôm nay", "01/11 – 15/11"… — nhãn kỳ đang xem. */
+  kyNhan: string;
+  onMoKy: () => void;
   account: string;
   status: LedgerStatus;
+  accName: (no: string) => string;
   onAccount: (accountNo: string) => void;
   onStatus: (st: LedgerStatus) => void;
 };
 
-export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: Props) {
+export function BankLedgerOverview({ s, kyNhan, onMoKy, account, status, accName, onAccount, onStatus }: Props) {
   const net = s.in_total - s.out_total;
   return (
     <>
-      <div className="sx-sec-h">
-        <h3>Tổng quan trong kỳ</h3>
-      </div>
-      <div className="sx-card">
-        <div className="sx-totals sx-three">
-          <div className="sx-tot sx-in">
-            <p className="sx-lab">Tiền vào</p>
-            <p className="sx-val sx-num sx-p">+{vnd(s.in_total)}</p>
-            <p className="sx-cnt">{s.in_count} giao dịch</p>
-          </div>
-          <div className="sx-tot sx-out">
-            <p className="sx-lab">Tiền ra</p>
-            <p className="sx-val sx-num sx-m">−{vnd(s.out_total)}</p>
-            <p className="sx-cnt">{s.out_count} giao dịch</p>
-          </div>
-          <div className="sx-tot sx-neutral">
-            <p className="sx-lab">Chênh lệch trong kỳ</p>
-            <p className={`sx-val sx-num ${net >= 0 ? 'sx-p' : 'sx-m'}`}>
-              {net >= 0 ? '+' : '−'}
-              {vnd(Math.abs(net))}
-            </p>
+      <section className="wh-hero" aria-label="Tổng quan trong kỳ">
+        <div className="wh-hero__top">
+          <span className="wh-hero__lab">Tiền vào · {kyNhan}</span>
+          <button type="button" className="wh-pill" onClick={onMoKy} aria-label={`Đổi kỳ xem, đang xem ${kyNhan}`}>
+            {kyNhan}<Icon name="mui-ten-xuong" size={16} />
+          </button>
+        </div>
+        <div>
+          <div className="wh-hero__num">+{vnd(s.in_total)}</div>
+          <div className="wh-hero__sub">
+            <span>Ra <b>−{vnd(s.out_total)}</b></span>
+            <span>Chênh <b>{net >= 0 ? '+' : '−'}{vnd(Math.abs(net))}</b></span>
+            <span><b>{(s.in_count + s.out_count).toLocaleString('vi-VN')}</b> giao dịch</span>
           </div>
         </div>
-      </div>
-
-      {s.by_account.length > 0 && (
-        <>
-          <div className="sx-sec-h">
-            <h3>Theo tài khoản</h3>
-            <span className="sx-hint">Bấm để lọc</span>
+        {s.by_account.length > 0 && (
+          // MỘT hàng, vuốt ngang khi nhiều tài khoản — tên dài ("Lương Tuấn Phương - Vietinbank")
+          // mà xuống dòng thì chip thành hai tầng lộn xộn.
+          <div className="wh-accs" role="group" aria-label="Lọc theo tài khoản">
+            <button type="button" className="wh-acc" aria-pressed={account === ''} onClick={() => onAccount('')}>
+              Tất cả
+            </button>
+            {s.by_account.map((a) => (
+              <button
+                key={a.account_no}
+                type="button"
+                className="wh-acc"
+                aria-pressed={account === a.account_no}
+                onClick={() => onAccount(account === a.account_no ? '' : a.account_no)}
+              >
+                {accName(a.account_no)} {tail4(a.account_no)}
+                <small>{tienGon(a.in)}</small>
+              </button>
+            ))}
           </div>
-          <div className="sx-acc-scroll">
-            {s.by_account.map((a) => {
-              const on = account === a.account_no;
-              return (
-                <button
-                  key={a.account_no}
-                  type="button"
-                  className="sx-acc"
-                  aria-pressed={on}
-                  onClick={() => onAccount(on ? '' : a.account_no)}
-                >
-                  {/* Tên MỘT dòng, dài thì cắt "…" (chủ quán 2026-10-16) — thẻ nào xuống hai dòng
-                      là cả hàng thẻ lệch nhau. */}
-                  <p className="sx-bank" title={a.label ?? a.bank ?? undefined}>
-                    <span className="sx-dot" style={{ background: accountDot(a.account_no) }} />
-                    <span className="sx-ellipsis">{a.label ?? a.bank ?? 'Tài khoản'}</span>
-                  </p>
-                  <p className="sx-no">
-                    {tail4(a.account_no)}
-                    {a.label && a.bank ? ` · ${a.bank}` : ''}
-                  </p>
-                  <div className="sx-row">
-                    <span>Vào</span>
-                    <b className="sx-num sx-p">+{vnd(a.in)}</b>
-                  </div>
-                  <div className="sx-row">
-                    <span>Ra</span>
-                    <b className="sx-num sx-m">−{vnd(a.out)}</b>
-                  </div>
-                  <p className="sx-tap">{on ? 'Đang lọc — bấm để bỏ' : 'Lọc theo tài khoản này →'}</p>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
+        )}
+      </section>
 
-      <div className="sx-alerts">
-        <AlertCard
+      <div className="wh-tiles">
+        <Tile
           on={status === 'unmatched'}
           n={s.unmatched}
           icon="tro-giup"
-          title={`Tiền lạ chưa khớp: ${s.unmatched} khoản`}
-          sub="Tiền đã về nhưng chưa biết của bàn nào — cần gán tay"
-          calm="Không có tiền lạ — mọi khoản đã khớp bàn"
+          title="Tiền lạ chưa khớp"
+          sub="Chạm để xem và gán vào đơn"
+          calm="Mọi khoản đã khớp bàn"
           onClick={() => onStatus(status === 'unmatched' ? '' : 'unmatched')}
         />
-        <AlertCard
+        <Tile
           on={status === 'open'}
           n={s.open_tables}
           icon="canh-bao"
-          title={`Bàn đã CK nhưng chưa bấm thanh toán: ${s.open_tables} bàn`}
-          sub="Tiền đã về mà bàn vẫn đang mở"
-          calm="Không có bàn nào đã CK mà còn mở"
+          title="Bàn đã CK còn mở"
+          sub="Tiền về mà chưa bấm thanh toán"
+          calm="Không có bàn nào"
           onClick={() => onStatus(status === 'open' ? '' : 'open')}
         />
       </div>
@@ -123,39 +109,20 @@ export function BankLedgerOverview({ s, account, status, onAccount, onStatus }: 
   );
 }
 
-type AlertProps = {
-  on: boolean;
-  n: number;
-  icon: IconName;
-  title: string;
-  sub: string;
-  calm: string;
-  onClick: () => void;
-};
-
-/** Bằng 0 thì thẻ chuyển sang dạng "yên" (nền trắng, dấu tích) chứ không biến mất: chỗ trống làm
+/** Bằng 0 thì ô chuyển sang dạng "yên" (xám, không bấm được) chứ không biến mất: chỗ trống làm
  *  người ta tưởng màn chưa tải xong, còn "không có gì" là một câu trả lời đáng được thấy. */
-function AlertCard({ on, n, icon, title, sub, calm, onClick }: AlertProps) {
-  if (n === 0 && !on) {
-    return (
-      <button type="button" className="sx-alert sx-calm" disabled>
-        <span className="sx-ic"><Icon name="xong" size={24} /></span>
-        <span className="sx-atx">
-          <span className="sx-t1">{calm}</span>
-        </span>
-      </button>
-    );
-  }
+function Tile({ on, n, icon, title, sub, calm, onClick }: {
+  on: boolean; n: number; icon: IconName; title: string; sub: string; calm: string; onClick: () => void;
+}) {
+  const yen = n === 0 && !on;
   return (
-    <button type="button" className="sx-alert" aria-pressed={on} onClick={onClick}>
-      <span className="sx-ic"><Icon name={icon} size={24} /></span>
-      <span className="sx-atx">
-        <span className="sx-t1">{title}</span>
-        <span className="sx-t2">{sub}</span>
+    <button type="button" className={`wh-tile${yen ? ' is-calm' : ''}`} aria-pressed={on} disabled={yen} onClick={onClick}>
+      <span className="wh-tile__h">
+        <span className={`wh-ico${yen ? ' is-ok' : ''}`}><Icon name={yen ? 'xong' : icon} size={18} /></span>
+        <span className="wh-tile__n">{n}</span>
       </span>
-      <span className="sx-go" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-        {on ? <>Bỏ lọc<Icon name="dong" size={18} /></> : 'Xem →'}
-      </span>
+      <span className="wh-tile__l">{title}</span>
+      <span className="wh-tile__s">{yen ? calm : on ? 'Đang lọc — chạm để bỏ' : sub}</span>
     </button>
   );
 }

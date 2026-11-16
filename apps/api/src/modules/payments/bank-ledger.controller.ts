@@ -9,6 +9,7 @@ import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { accountLabelMap } from './account-label.js';
 import { LINKED_ORDER_SQL, OPEN_TABLE_SQL, UNMATCHED_SQL } from './bank-ledger-sql.js';
+import { soTienTimDuoc } from './bank-ledger-search.js';
 import { BankLedgerLinkService, type Candidate, type TxnLink } from './bank-ledger-link.service.js';
 
 /**
@@ -124,7 +125,13 @@ export class BankLedgerController {
       // Tìm THÔ trong nội dung. Không dựng chỉ mục toàn văn: chuỗi ngân hàng gửi sang là một khối
       // liền không có cấu trúc, mà thứ người ta gõ vào đây là "BAN01" hay một phần số tài khoản —
       // đúng kiểu `LIKE %...%` làm tốt. Với vài chục nghìn dòng thì quét bảng vẫn dưới tầm để ý.
-      qb.andWhere('t.content LIKE :q', { q: `%${q.trim()}%` });
+      // Gõ con số (650, 650k, 650.000) thì tìm cả theo SỐ TIỀN — xem `bank-ledger-search.ts`.
+      const soTien = soTienTimDuoc(q);
+      if (soTien.length > 0) {
+        qb.andWhere('(t.content LIKE :q OR t.amount IN (:...soTien))', { q: `%${q.trim()}%`, soTien });
+      } else {
+        qb.andWhere('t.content LIKE :q', { q: `%${q.trim()}%` });
+      }
     }
 
     const total = await qb.getCount();
