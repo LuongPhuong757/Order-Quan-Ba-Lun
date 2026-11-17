@@ -38,6 +38,8 @@ export function DoiSoatStrip({
   filterKey,
   onDebt,
   oChinh,
+  anTien = false,
+  anNo = false,
 }: {
   query: string;
   filterKey: string;
@@ -46,6 +48,11 @@ export function DoiSoatStrip({
   /** Thay ô "Tổng thu" bằng số tiền của tab đang chọn (Chưa TT / Nợ / Huỷ / Misa). `tien: null` =
    *  đang tải. Không truyền = giữ "Tổng thu". */
   oChinh?: { nhan: string; tien: number | null; phu: string };
+  /** Ẩn 2 ô Tiền mặt + Chuyển khoản (tab Chưa TT / Đang nợ — chủ quán chốt 2026-11-17): đơn ở hai
+   *  tab đó chưa thu đồng nào, để số tiền đã thu nằm cạnh dễ đọc nhầm là tiền của các đơn này. */
+  anTien?: boolean;
+  /** Ẩn ô "Đang nợ" (tab Đang nợ — 2026-11-17): ô chính đã là "Khách đang nợ", hai ô trùng số. */
+  anNo?: boolean;
 }) {
   const [data, setData] = useState<Summary | null>(null);
   const [failed, setFailed] = useState(false);
@@ -75,7 +82,7 @@ export function DoiSoatStrip({
 
   return (
     <>
-      <div className="ls-ds" aria-label="Đối soát tiền">
+      <div className={`ls-ds${anNo && anTien ? ' is-mot' : anTien ? ' is-gon' : ''}`} aria-label="Đối soát tiền">
         {oChinh ? (
           <div className="ls-ds__o is-main">
             <span className="ls-ds__l">{oChinh.nhan}</span>
@@ -89,6 +96,7 @@ export function DoiSoatStrip({
             <span className="ls-ds__s">{data ? `${data.orders} đơn đã thanh toán` : ' '}</span>
           </div>
         )}
+        {!anTien && (<>
         <div className="ls-ds__o">
           <span className="ls-ds__l">Tiền mặt</span>
           <span className="ls-ds__v">{v(data?.cash)}</span>
@@ -110,14 +118,17 @@ export function DoiSoatStrip({
             <span className="ls-ds__s">phải về ngân hàng</span>
           </div>
         )}
+        </>)}
         {/* Nợ là số MỌI THỜI GIAN, không ăn theo bộ lọc (D-06): câu admin cần trả lời là "quán đang
             bị nợ bao nhiêu". Không cộng vào Tổng thu — chưa thu thì không phải thu. */}
+        {!anNo && (
         <button type="button" className={`ls-ds__o is-debt${no.amount > 0 ? ' is-co' : ''}`} onClick={onDebt}
                 aria-label={`Đang nợ ${v(no.amount)} — xem các đơn đang nợ`}>
           <span className="ls-ds__l">Đang nợ</span>
           <span className="ls-ds__v">{v(no.amount)}</span>
           <span className="ls-ds__s">{no.orders} đơn · mọi thời gian</span>
         </button>
+        )}
       </div>
 
       {moTk && data && (

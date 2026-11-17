@@ -1241,6 +1241,8 @@ export function HistoryPage() {
             filterKey={filterKey}
             onDebt={() => selectTab('debt')}
             oChinh={oChinhTheoTab}
+            anTien={!misaFilter && (statusFilter === 'unpaid' || statusFilter === 'debt')}
+            anNo={!misaFilter && statusFilter === 'debt'}
           />
         )}
 

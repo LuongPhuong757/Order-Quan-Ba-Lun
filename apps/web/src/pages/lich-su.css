@@ -115,6 +115,10 @@ button.ls-ds__o { border: 0; border-radius: 0; min-height: 0; height: auto; colo
   .ls-ds__o.is-main, .ls-ds__o.is-debt { grid-column: auto; }
   .ls-ds__o.is-debt { display: grid; gap: 2px; }
   .ls-ds__o.is-debt .ls-ds__v { font-size: 19px; }
+  /* Tab Chưa TT / Đang nợ: chỉ còn ô chính + ô Đang nợ. */
+  .ls-ds.is-gon { grid-template-columns: 1.3fr 1fr; }
+  /* Tab Đang nợ: chỉ còn ô chính. */
+  .ls-ds.is-mot { grid-template-columns: 1fr; }
 }
 
 /* ── Hộp chi tiết đơn ─────────────────────────────────────────────────────
