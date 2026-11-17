@@ -37,11 +37,15 @@ export function DoiSoatStrip({
   query,
   filterKey,
   onDebt,
+  oChinh,
 }: {
   query: string;
   filterKey: string;
   /** Chạm ô "Đang nợ" → nhảy sang tab Đang nợ, nơi thu nợ được. */
   onDebt: () => void;
+  /** Thay ô "Tổng thu" bằng số tiền của tab đang chọn (Chưa TT / Nợ / Huỷ / Misa). `tien: null` =
+   *  đang tải. Không truyền = giữ "Tổng thu". */
+  oChinh?: { nhan: string; tien: number | null; phu: string };
 }) {
   const [data, setData] = useState<Summary | null>(null);
   const [failed, setFailed] = useState(false);
@@ -72,11 +76,19 @@ export function DoiSoatStrip({
   return (
     <>
       <div className="ls-ds" aria-label="Đối soát tiền">
-        <div className="ls-ds__o is-main">
-          <span className="ls-ds__l">Tổng thu</span>
-          <span className="ls-ds__v">{v(data?.total)}</span>
-          <span className="ls-ds__s">{data ? `${data.orders} đơn đã thanh toán` : ' '}</span>
-        </div>
+        {oChinh ? (
+          <div className="ls-ds__o is-main">
+            <span className="ls-ds__l">{oChinh.nhan}</span>
+            <span className="ls-ds__v">{oChinh.tien == null ? '…' : fmt(oChinh.tien)}</span>
+            <span className="ls-ds__s">{oChinh.phu}</span>
+          </div>
+        ) : (
+          <div className="ls-ds__o is-main">
+            <span className="ls-ds__l">Tổng thu</span>
+            <span className="ls-ds__v">{v(data?.total)}</span>
+            <span className="ls-ds__s">{data ? `${data.orders} đơn đã thanh toán` : ' '}</span>
+          </div>
+        )}
         <div className="ls-ds__o">
           <span className="ls-ds__l">Tiền mặt</span>
           <span className="ls-ds__v">{v(data?.cash)}</span>

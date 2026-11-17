@@ -410,6 +410,12 @@ export function HistoryPage() {
   /** Số đơn từng tab (2026-11-13). `/orders/stats` cắt số đếm theo tab đang chọn (tab khác về 0),
    *  nên chỉ lúc đứng ở "Tất cả" mới có đủ cả bộ. Nhớ bộ đó kèm khoá bộ lọc KHÔNG tính tab: sang
    *  tab khác vẫn hiện số cũ đúng; đổi kỳ/bàn/... thì khoá lệch → ẩn số cho tới khi về "Tất cả". */
+  /** Kỳ đang xem TRƯỚC khi tab Nợ/Chưa TT tự chuyển sang "Tất cả" — xem `selectTab`. */
+  const kyTruocTabRef = useRef<DayRange | null>(null);
+  /** Số đếm MỌI NGÀY cho 2 tab "Chưa thanh toán" / "Đang nợ" — bấm 2 tab đó là tự xem Tất cả thời
+   *  gian (xem `selectTab`), nên số trên tab cũng phải đếm mọi ngày, không thì đang ở "Ca này"
+   *  tab ghi 12 mà bấm vào ra 30 (chủ quán báo lệch 2026-11-17). Bàn/thu ngân/... vẫn áp. */
+  const [demMoiNgay, setDemMoiNgay] = useState<{ key: string; unpaid: number; debt: number } | null>(null);
   const [tabCounts, setTabCounts] = useState<{ key: string; all: number; paid: number; unpaid: number; cancelled: number; debt: number } | null>(null);
   /** Hai biểu đồ cột vẽ theo TIỀN hay theo SỐ ĐƠN — một chip chung cho cả hai.
    *
@@ -443,6 +449,9 @@ export function HistoryPage() {
   const filterKey = historyFilterKey(filters);
   /** Khoá bộ lọc BỎ trục tab — để biết bộ số đếm tab đang nhớ còn đúng với kỳ/bàn/... hiện tại. */
   const khoaDem = historyFilterKey({ ...filters, status: 'all', misa: '' });
+  /** Bộ lọc của số đếm mọi ngày — bỏ trục tab VÀ trục kỳ. */
+  const locMoiNgay: HistoryFilters = { ...filters, status: 'all', misa: '', from: '', to: '', shift: undefined };
+  const khoaMoiNgay = historyFilterKey(locMoiNgay);
 
   useEffect(() => {
     Promise.all([
@@ -569,6 +578,18 @@ export function HistoryPage() {
           .catch(() => {});
       }
 
+      if (demMoiNgay?.key !== khoaMoiNgay) {
+        const khoa = khoaMoiNgay;
+        api
+          .get<{ data: Stats }>(`/orders/stats?${historyQuery(locMoiNgay)}`)
+          .then((res) => {
+            if (seq !== statsSeqRef.current) return;
+            setDemMoiNgay({ key: khoa, unpaid: res.data.data.unpaid_count, debt: res.data.data.debt_count ?? 0 });
+          })
+          // Cùng lệ số đếm tab: hỏng thì tab không có số, không đáng báo lỗi.
+          .catch(() => {});
+      }
+
       // Tiêu hao nguyên liệu — CÙNG bộ lọc ngày/bàn + tab, bỏ `cashier_user_id`: nguyên liệu
       // tốn theo món khách ăn, không theo ai đứng thu tiền (`cashier: false`).
       api
@@ -594,6 +615,20 @@ export function HistoryPage() {
    * Misa là bộ lọc chồng lên trạng thái nên bấm nó xong, kết quả của mọi tab trạng thái đều
    * bị cắt theo Misa — nhìn như cả trang đổi chứ không chỉ danh sách đơn. */
   const selectTab = (tab: Status | 'misa') => {
+    // "Đang nợ" / "Chưa thanh toán" (chủ quán chốt 2026-11-17): câu cần trả lời là "còn BAO NHIÊU
+    // chưa thu", không phải "trong ca này" — nên tự chuyển Kỳ sang "Tất cả thời gian" (hiện trên ô
+    // Kỳ, không lọc ngầm), nhớ kỳ cũ để rời tab là trả về đúng chỗ. Bàn/thu ngân/... giữ nguyên.
+    const canMoiNgay = tab === 'unpaid' || tab === 'debt';
+    if (canMoiNgay) {
+      const daMoiNgay = !range.from && !range.to && !range.shift;
+      if (!daMoiNgay) {
+        kyTruocTabRef.current = range;
+        setRange(presetToRange('all', Date.now()));
+      }
+    } else if (kyTruocTabRef.current) {
+      setRange(kyTruocTabRef.current);
+      kyTruocTabRef.current = null;
+    }
     if (tab === 'misa') {
       setMisaFilter('copied');
       setStatusFilter('all');
@@ -660,6 +695,26 @@ export function HistoryPage() {
           : statusFilter === 'paid'
             ? { money: 'Doanh thu đã thanh toán', count: 'Đơn đã thanh toán', hint: 'Chỉ tính đơn đã thanh toán', top: 'Top món bán chạy' }
             : { money: 'Doanh thu đã thanh toán', count: 'Tổng đơn khớp lọc', hint: 'Chỉ tính đơn đã thanh toán', top: 'Top món bán chạy' };
+
+  /** Ô to đầu dải đối soát theo tab (2026-11-17): ở Tất cả / Đã TT là "Tổng thu"; tab khác thì
+   *  "Tổng thu" vô nghĩa (luôn là số của cả kỳ) → thay bằng số tiền của CHÍNH tab đó, lấy từ
+   *  `/orders/stats` vốn đã cắt theo tab (cùng nguồn với `tabView.money`). */
+  const oChinhTheoTab =
+    !tabActive || (statusFilter === 'paid' && !misaFilter)
+      ? undefined
+      : {
+          nhan: misaFilter === 'copied' ? 'Đã lên Misa'
+            : statusFilter === 'unpaid' ? 'Đang chờ thu'
+            : statusFilter === 'debt' ? 'Khách đang nợ'
+            : 'Giá trị đã huỷ',
+          tien: statsLoading || !stats ? null : stats.paid_revenue,
+          phu: statsLoading || !stats ? '\u00a0'
+            : `${stats.paid_count + stats.unpaid_count + stats.cancelled_count + (stats.debt_count ?? 0)} ${
+                misaFilter === 'copied' ? 'đơn đã lên Misa'
+                : statusFilter === 'unpaid' ? 'đơn chưa thanh toán'
+                : statusFilter === 'debt' ? 'đơn đang nợ'
+                : 'đơn đã huỷ'}`,
+        };
 
   // Bếp xem được lịch sử nhưng không đối soát kế toán → chỉ thấy badge, không bấm được.
   // BE cũng chặn bằng RequireRoles('admin','order'); đây chỉ là lớp UX.
@@ -1043,9 +1098,11 @@ export function HistoryPage() {
     const p = detectPreset(range, Date.now(), SHIFT_SCREEN);
     return p === 'custom' ? rangeLabel(range, Date.now()) : PRESET_LABEL[p];
   })();
-  const doiKy = (r: DayRange) => { setRange(r); setPage(1); };
+  // Tự tay chọn kỳ khi đang ở tab Nợ/Chưa TT = chủ ý mới → quên kỳ cũ, rời tab không nhảy ngược.
+  const doiKy = (r: DayRange) => { kyTruocTabRef.current = null; setRange(r); setPage(1); };
   /** Số đếm tab chỉ hiện khi bộ đang nhớ khớp kỳ/bàn/... hiện tại (xem `tabCounts`). */
   const dem = tabCounts && tabCounts.key === khoaDem ? tabCounts : null;
+  const moiNgay = demMoiNgay && demMoiNgay.key === khoaMoiNgay ? demMoiNgay : null;
   const tab = (key: Status | 'misa', label: string, n: number | undefined) => {
     const on = key === 'misa' ? misaFilter === 'copied' : !misaFilter && statusFilter === key;
     return (
@@ -1168,8 +1225,8 @@ export function HistoryPage() {
         <div className="ls-tabs" role="group" aria-label="Lọc theo trạng thái đơn">
           {tab('all', 'Tất cả', dem?.all)}
           {tab('paid', 'Đã thanh toán', dem?.paid)}
-          {tab('unpaid', 'Chưa thanh toán', dem?.unpaid)}
-          {canSeeMoney && tab('debt', 'Đang nợ', dem?.debt)}
+          {tab('unpaid', 'Chưa thanh toán', moiNgay?.unpaid)}
+          {canSeeMoney && tab('debt', 'Đang nợ', moiNgay?.debt)}
           {/* Bàn kết thúc bằng huỷ — tab riêng để chủ quán soi gian lận: gọi đồ rồi huỷ thay vì thu tiền. */}
           {tab('cancelled', 'Đã huỷ', dem?.cancelled)}
           {/* Misa: đơn đã đánh dấu lên Misa (từ 2026-10-15 chỉ đơn thu qua mã QR HKD). */}
@@ -1183,6 +1240,7 @@ export function HistoryPage() {
             query={historyQuery(filters, { cashier: true }).toString()}
             filterKey={filterKey}
             onDebt={() => selectTab('debt')}
+            oChinh={oChinhTheoTab}
           />
         )}
 
