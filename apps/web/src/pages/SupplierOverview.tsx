@@ -182,6 +182,13 @@ export function SupplierOverview({
   const choDuyet = useMemo(
     () => deliveries.filter((d) => d.status === 'PENDING_REVIEW' || d.status === 'PENDING_PRICE'),
     [deliveries]);
+  /** Số phiếu nháp chờ duyệt theo từng NCC (2026-11-17, chủ quán yêu cầu) — hiện ô số nhỏ cạnh tên
+   *  ở danh sách nợ, để thấy NCC nào còn phiếu chưa duyệt mà không phải mở từng NCC. */
+  const choTheoNcc = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const d of choDuyet) m.set(d.supplier_id, (m.get(d.supplier_id) ?? 0) + 1);
+    return m;
+  }, [choDuyet]);
 
   const tangGia = useMemo(() => (pairs ?? [])
     .filter((p) => p.change_pct !== null && p.change_pct >= NGUONG_TANG_GIA)
@@ -428,15 +435,15 @@ export function SupplierOverview({
                   const b = no(s.id);
                   const ngay = soNgayTu(s.last_delivery_date);
                   const lau = laNoLau.has(s.id);
-                  // Dòng phụ: nợ lâu → nói rõ bao nhiêu ngày (cam); còn lại → SĐT + lần nhập cuối +
-                  // số liệu kỳ khi kỳ có phiếu ("0đ · 0 phiếu" lặp ở mọi dòng không nói lên gì).
-                  const phu = lau
-                    ? null
-                    : [
-                        s.phone ? sdtGon(s.phone) : '',
-                        ngay === null ? 'chưa giao' : ngay === 0 ? 'giao hôm nay' : `Nhập ${ngayGon(s.last_delivery_date!)}`,
-                        s.period_deliveries > 0 ? `${s.period_deliveries} phiếu trong kỳ` : '',
-                      ].filter(Boolean).join(' · ');
+                  // Dòng phụ: SĐT + lần nhập cuối + số liệu kỳ khi kỳ có phiếu ("0đ · 0 phiếu" lặp ở mọi
+                  // dòng không nói lên gì).
+                  // 2026-11-17 chủ quán bỏ dòng cam "54 ngày chưa giao" ("không cần thiết") — nợ lâu chỉ còn
+                  // thanh mức nợ màu cam + ô "NCC nợ lâu" ở Cần xử lý; dòng phụ luôn là SĐT + lần nhập cuối.
+                  const phu = [
+                    s.phone ? sdtGon(s.phone) : '',
+                    ngay === null ? 'chưa giao' : ngay === 0 ? 'giao hôm nay' : `Nhập ${ngayGon(s.last_delivery_date!)}`,
+                    s.period_deliveries > 0 ? `${s.period_deliveries} phiếu trong kỳ` : '',
+                  ].filter(Boolean).join(' · ');
                   return (
                     <div key={s.id} className="sn-r">
                       <button type="button" className="sn-r__main" onClick={() => onOpen(s)}>
@@ -444,9 +451,14 @@ export function SupplierOverview({
                         <span className="sn-r__m">
                           <span className="sn-r__t">{s.name}</span>
                           <span className="sn-r__s">
-                            {lau
-                              ? <span className="is-warn">{ngay === null ? 'Chưa từng giao' : `${ngay} ngày chưa giao`}</span>
-                              : phu}
+                            {/* Ô "2 nháp" đứng ĐẦU dòng phụ, không cạnh tên: cạnh tên thì trên điện thoại tên
+                                NCC bị bẻ đôi dòng (`.sn-r__t` cắt 2 dòng, chỗ hẹp). */}
+                            {(choTheoNcc.get(s.id) ?? 0) > 0 && (
+                              <span className="sn-nhap" aria-label={`${choTheoNcc.get(s.id)} phiếu nháp chờ duyệt`}>
+                                {choTheoNcc.get(s.id)} nháp
+                              </span>
+                            )}
+                            {phu}
                           </span>
                         </span>
                         {canSeeMoney ? (

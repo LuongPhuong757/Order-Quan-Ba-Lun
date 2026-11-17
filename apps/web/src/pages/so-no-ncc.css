@@ -747,3 +747,65 @@ button.ct-nhap__r {
 button.ct-nhap__r span { flex: 1; min-width: 0; }
 button.ct-nhap__r b { font-variant-numeric: tabular-nums; }
 button.ct-nhap__r:active { background: var(--orange-50); }
+
+/* ── Chi tiết PHIẾU NHẬP kiểu hoá đơn (2026-11-17, chủ quán chọn phương án A) ─────────────────
+   `DeliveryDetailDialog`. Trước: điện thoại 1.770px cho phiếu 2 dòng (thẻ đệm gấp đôi, 4 ảnh xếp
+   dọc mỗi ảnh một hàng), nút Duyệt nằm trên danh sách hàng. Giờ một cột gọn + thanh nút dính đáy. */
+.ct .dd-strip {
+  background: var(--amber-50); border: 1px solid var(--amber-200); color: var(--amber-800);
+  border-radius: 8px; padding: 10px 12px; font-size: var(--ds-fs-body2); line-height: 1.4;
+}
+.ct .dd-strip--huy { background: var(--ds-muted-bg); border-color: var(--ds-line); color: var(--ds-ink-2); }
+.ct .dd-lbl { font-size: var(--ds-fs-label); font-weight: 600; color: var(--ds-ink-2); }
+.ct .dd-sum {
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap;
+  background: #fff; border: 1px solid var(--ds-line); border-radius: 12px; padding: 14px 16px;
+}
+.ct .dd-sum__meta, .ct .dd-sum__tot { display: flex; flex-direction: column; gap: 2px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); min-width: 0; }
+.ct .dd-sum__tot { align-items: flex-end; text-align: right; margin-left: auto; }
+.ct .dd-big { font-size: var(--ds-fs-num); font-weight: var(--ds-fw-num); color: var(--ds-ink); line-height: 1.15; font-variant-numeric: tabular-nums; }
+.ct .dd-sum__no { font-size: var(--ds-fs-label); }
+.ct .dd-note { background: #f3f4f6; border-radius: 12px; padding: 12px 16px; }
+.ct .dd-note p { margin: 4px 0 0; font-size: var(--ds-fs-body2); line-height: 1.5; color: var(--ds-ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.ct .dd-sec { background: #fff; border: 1px solid var(--ds-line); border-radius: 12px; overflow: hidden; }
+.ct .dd-sec__h { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 12px 16px 8px; font-weight: 600; font-size: var(--ds-fs-body); color: var(--ds-ink); }
+.ct .dd-sec__n { font-size: var(--ds-fs-label); font-weight: 400; color: var(--ds-ink-2); }
+.ct .dd-rows { list-style: none; margin: 0; padding: 0; }
+.ct .dd-row { padding: 10px 16px; border-top: 1px solid var(--ds-line); display: flex; flex-direction: column; gap: 2px; }
+.ct .dd-row__1, .ct .dd-row__2 { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.ct .dd-row__1 { font-size: var(--ds-fs-body); color: var(--ds-ink); }
+.ct .dd-row__t { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.ct .dd-row__m { font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.ct .dd-row__2 { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); font-variant-numeric: tabular-nums; flex-wrap: wrap; }
+.ct .dd-row__2 .cell-sub { font-size: var(--ds-fs-body2); color: var(--ds-ink-2); margin-left: auto; }
+.ct .dd-row--tong { background: var(--ds-muted-bg); }
+.ct .dd-row--tong .dd-row__1 > span:first-child { color: var(--ds-ink-2); }
+.ct .dd-gia { margin-left: auto; font-weight: 600; white-space: nowrap; }
+.ct .dd-gia--tang { color: var(--ds-warn); }
+.ct .dd-gia--giam { color: var(--ds-accent); }
+.ct .dd-photos { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; padding: 4px 16px 16px; }
+.ct .dd-photos a { display: block; }
+.ct .dd-photos img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; border: 1px solid var(--ds-line); }
+.ct .dd-empty { margin: 0; padding: 4px 16px 16px; font-size: var(--ds-fs-body2); color: var(--ds-ink-2); }
+/* Thanh nút dính đáy. `.ct-bg` là khung cuộn (cả điện thoại lẫn máy tính) nên sticky bám đáy màn
+   trong lúc đọc phiếu dài, tới cuối phiếu thì nằm yên dưới ảnh. */
+.ct .dd-bar {
+  position: sticky; bottom: 0; z-index: 4; display: flex; gap: 8px;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: #fff; border-top: 1px solid var(--ds-line);
+}
+.ct .dd-bar .btn { min-height: 48px; margin: 0; }
+.ct .dd-bar .dd-bar__ok { flex: 1; }
+@media (min-width: 768px) {
+  .ct .dd-photos { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .ct .dd-bar { justify-content: flex-end; padding: 12px 24px; border-radius: 0 0 16px 16px; }
+  .ct .dd-bar .dd-bar__ok { flex: 0 0 220px; }
+}
+
+/* Ô số nhỏ "2 nháp" đầu dòng phụ dưới tên NCC ở danh sách nợ (2026-11-17, chủ quán yêu cầu): NCC còn phiếu nháp
+   chưa duyệt. Cam = cần chú ý; có chữ "nháp" chứ không chỉ con số trơn để người lớn tuổi hiểu ngay. */
+.sn-nhap {
+  display: inline-block; margin-right: 6px; padding: 0 8px;
+  border-radius: 999px; background: var(--orange-50); border: 1px solid var(--orange-200);
+  color: var(--orange-700); font-size: var(--ds-fs-label); font-weight: 700; line-height: 18px; white-space: nowrap;
+}
