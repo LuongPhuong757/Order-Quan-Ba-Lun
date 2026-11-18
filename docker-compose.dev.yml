@@ -34,12 +34,26 @@ services:
     image: mysql:8.0
     container_name: ordbl_dev_mysql
     restart: unless-stopped
+    # Mặc định Docker chỉ đợi 10s rồi SIGKILL — MySQL bị giết giữa lúc ghi trang bẩn + dump
+    # buffer pool. Đo thật: tắt êm mất ~10s nên 10s là sát nút; 120s là trần, xong sớm thì thôi.
+    stop_grace_period: 120s
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       TZ: UTC
+      # Gom vùng nhớ của glibc malloc từ 32 (8 × 4 nhân) về 2 — chữa gốc vụ swap đầy mỗi tháng.
+      #
+      # Đo 2026-11-17: mysqld dev chiếm 1,2GB (370MB RSS + 816MB swap) với buffer pool chỉ 96M;
+      # mysqld prod ~1,6GB trong khi đệm thật dùng 242MB. /proc/<pid>/maps của prod có 21 vùng
+      # ẩn danh ~63MB + ~15 vùng 20–58MB = chữ ký "arena" của glibc: mỗi luồng một kho riêng,
+      # phân mảnh và không trả lại hệ điều hành → RSS bò lên mãi rồi bị đẩy xuống swap
+      # (~40–130MB/ngày). Hạ buffer pool hay restart chỉ chữa triệu chứng.
+      #
+      # Thử ở DEV TRƯỚC: so tốc độ swap dev (có dòng này) với prod (chưa có) vài ngày rồi mới
+      # chép sang docker-compose.prod.yml. Lưu ý đổi env = deploy tự TẠO LẠI container MySQL.
+      MALLOC_ARENA_MAX: "2"
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
