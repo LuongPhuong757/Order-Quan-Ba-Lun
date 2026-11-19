@@ -9,6 +9,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import type { EntityManager } from 'typeorm';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { BankTxnAssignment } from './entities/bank-txn-assignment.entity.js';
+import { BankTxnClass } from './entities/bank-txn-class.entity.js';
 import { PaymentIntent } from './entities/payment-intent.entity.js';
 import { Order } from '../orders/entities/order.entity.js';
 import { RestaurantTable } from '../tables/entities/restaurant-table.entity.js';
@@ -245,6 +246,13 @@ export class BankLedgerLinkService {
       });
     }
     if (await m.exists(BankTxnAssignment, { where: { bank_txn_id: txn.id } })) throw alreadyAssigned();
+    // Chủ quán đã bảo "không phải tiền quán" (2026-11-18) — bỏ đánh dấu trước rồi mới gán bàn.
+    if (await m.exists(BankTxnClass, { where: { bank_txn_id: txn.id, kind: 'OUTSIDE' } })) {
+      throw new ConflictException({
+        code: 'BANK_TXN_OUTSIDE',
+        message: 'Khoản này đang đánh dấu "không phải tiền quán". Bỏ đánh dấu trước rồi mới gán vào bàn.',
+      });
+    }
   }
 
   private async briefs(ids: readonly string[]): Promise<Map<string, OrderBrief>> {

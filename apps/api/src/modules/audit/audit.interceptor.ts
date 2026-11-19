@@ -132,6 +132,12 @@ function deriveActionKind(method: string, path: string): string {
   // `bank_txn_id` + `order_id`; với gỡ gán thì đó là dấu vết duy nhất còn lại.
   if (path.match(/^\/payments\/transactions\/[^/]+\/assign$/) && method === 'POST') return 'bank_txn.assigned';
   if (path.match(/^\/payments\/transactions\/[^/]+\/assign$/) && method === 'DELETE') return 'bank_txn.unassigned';
+  // Phân loại tiền ở sổ webhook (2026-11-18): khớp tiền ra với lần trả NCC, đánh dấu ngoài quán.
+  // Đổi số "tiền của quán" trên đầu màn nên phải truy được ai bấm.
+  if (path.match(/^\/payments\/transactions\/[^/]+\/ncc$/) && method === 'POST') return 'bank_txn.ncc_assigned';
+  if (path.match(/^\/payments\/transactions\/[^/]+\/ncc$/) && method === 'DELETE') return 'bank_txn.ncc_cleared';
+  if (path.match(/^\/payments\/transactions\/[^/]+\/outside$/) && method === 'POST') return 'bank_txn.outside_marked';
+  if (path.match(/^\/payments\/transactions\/[^/]+\/outside$/) && method === 'DELETE') return 'bank_txn.outside_unmarked';
 
   // Tables
   if (path === '/tables' && method === 'POST') return 'table.created';

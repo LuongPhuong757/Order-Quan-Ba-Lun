@@ -45,6 +45,7 @@ import { CustomReceipt } from './modules/custom-receipts/entities/custom-receipt
 import { PaymentIntent } from './modules/payments/entities/payment-intent.entity.js';
 import { BankTransaction } from './modules/payments/entities/bank-transaction.entity.js';
 import { BankTxnAssignment } from './modules/payments/entities/bank-txn-assignment.entity.js';
+import { BankTxnClass } from './modules/payments/entities/bank-txn-class.entity.js';
 
 export const dataSourceOptions: DataSourceOptions = {
   type: 'mysql',
@@ -138,6 +139,7 @@ export const dataSourceOptions: DataSourceOptions = {
     BankTransaction,
     // Gán tay tiền lạ vào đơn ở màn sổ webhook (2026-10-15).
     BankTxnAssignment,
+    BankTxnClass,
   ],
   migrations: ['src/migrations/*.ts'],
   // Project per user-spec: bỏ migration, chỉ dùng synchronize cả dev + prod.

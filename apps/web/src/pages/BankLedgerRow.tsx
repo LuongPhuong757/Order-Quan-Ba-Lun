@@ -43,7 +43,26 @@ export type LedgerRow = {
   amount: number;
   content: string;
   link: LedgerLink | null;
+  /** Nhóm của khoản (2026-11-18), cùng biểu thức với số tổng ở server. `table`/`ncc` là tiền của
+   *  quán; ba nhóm còn lại hiện mờ "Không tính". */
+  bucket: LedgerBucket;
+  cls: LedgerClass | null;
 };
+
+export type LedgerBucket = 'table' | 'ncc' | 'stray' | 'unsure' | 'outside';
+
+export type LedgerClass = {
+  kind: 'NCC' | 'OUTSIDE' | 'UNSURE';
+  via: 'auto' | 'manual';
+  by_name: string | null;
+  at: number;
+  ncc: { payment_id: string; supplier: string; paid_on: string; amount: number; from_label: string | null } | null;
+};
+
+/** Khoản KHÔNG cộng vào số to — dòng mờ + "Không tính". */
+export function khongTinh(row: Pick<LedgerRow, 'bucket'>): boolean {
+  return row.bucket !== 'table' && row.bucket !== 'ncc';
+}
 
 /** `14:31` theo giờ máy đang xem — người dùng đều ở VN. */
 export function hhmm(ms: number): string {
@@ -74,8 +93,16 @@ function tenTk(row: LedgerRow): string {
 
 /** Phần đầu dòng: "Bàn 05" + nhãn, hoặc "Chưa khớp" + "Gán vào đơn", hoặc nhãn "Tiền ra". */
 function DauDong({ row }: { row: LedgerRow }) {
+  if (row.bucket === 'outside') {
+    return <><b>{row.direction === 'out' ? 'Tiền ra' : 'Tiền vào'}</b><span className="wh-chip is-out">Ngoài quán</span></>;
+  }
+  if (row.direction === 'out') {
+    const ncc = row.bucket === 'ncc' ? row.cls?.ncc : null;
+    if (ncc) return <><b className="is-co">{ncc.supplier}</b><span className="wh-chip is-ok is-giu">Trả NCC</span></>;
+    return <><b>Tiền ra</b><span className="wh-chip is-none">Chưa rõ</span></>;
+  }
   const link = row.link;
-  if (row.direction === 'out' || !link) return <span className="wh-chip is-out">Tiền ra</span>;
+  if (!link) return <span className="wh-chip is-out">Tiền vào</span>;
   if (link.via === 'none') {
     // "Cần gán" chứ không "Gán vào đơn": điện thoại 390 chỉ còn ~170px cho cả cụm, nhãn dài làm
     // cắt mất chữ "Chưa khớp". Nút "Gán vào đơn" thật nằm trong tấm chi tiết.
@@ -96,15 +123,19 @@ type RowProps = { row: LedgerRow; dangChon: boolean; onOpen: () => void };
 
 export function BankLedgerRow({ row, dangChon, onOpen }: RowProps) {
   const out = row.direction === 'out';
+  const off = khongTinh(row);
   return (
-    <button type="button" className="wh-row" aria-current={dangChon || undefined} onClick={onOpen}>
+    <button type="button" className={`wh-row${off ? ' is-off' : ''}`} aria-current={dangChon || undefined} onClick={onOpen}>
       <span className="wh-row__t">{hhmm(row.occurred_at)}</span>
       <span className="wh-row__m"><DauDong row={row} /></span>
       <span className="wh-row__s">
         {row.account_no ? `${tenTk(row)} ${tail4(row.account_no)}` : (row.bank ?? '—')}
         {row.content ? ` · ${row.content}` : ''}
       </span>
-      <span className={`wh-row__v${out ? ' is-out' : ''}`}>{out ? '−' : '+'}{vnd(row.amount)}</span>
+      <span className={`wh-row__v${out ? ' is-out' : ''}`}>
+        {out ? '−' : '+'}{vnd(row.amount)}
+        {off && <small>Không tính</small>}
+      </span>
     </button>
   );
 }
@@ -115,6 +146,11 @@ type DetailProps = {
   onClose?: () => void;
   onAssign: () => void;
   onUnassign: () => void;
+  /** Tiền ra chưa rõ → chọn lần trả NCC. */
+  onAssignNcc: () => void;
+  onClearNcc: () => void;
+  onOutside: () => void;
+  onUnOutside: () => void;
 };
 
 /** Ngày giờ đầy đủ "16/11/2026 · 21:42". */
@@ -125,7 +161,7 @@ function ngayGio(ms: number): string {
   return `${dd}/${mm}/${d.getFullYear()} · ${hhmm(ms)}`;
 }
 
-export function BankLedgerDetail({ row, onClose, onAssign, onUnassign }: DetailProps) {
+export function BankLedgerDetail({ row, onClose, ...act }: DetailProps) {
   const out = row.direction === 'out';
   return (
     <div className="wh-det">
@@ -153,24 +189,75 @@ export function BankLedgerDetail({ row, onClose, onAssign, onUnassign }: DetailP
         {/* NGUYÊN VĂN, không cắt — đây là thứ trả lời "tiền gì". */}
         <div className="wh-memo">{row.content || '(trống)'}</div>
       </div>
-      <PhanBan row={row} onAssign={onAssign} onUnassign={onUnassign} />
+      <PhanBan row={row} act={act} />
     </div>
   );
 }
 
 /** Phần "Bàn / Đơn" — phần PHẦN MỀM HIỂU, tách khỏi dữ liệu ngân hàng ở trên (lý do cột này có
  *  từ 2026-10-15). Gán tay tiền lạ / gỡ gán ngay tại đây (`BankAssignDialog` ở trang cha). */
-function PhanBan({ row, onAssign, onUnassign }: { row: LedgerRow; onAssign: () => void; onUnassign: () => void }) {
-  const link = row.link;
-  if (row.direction === 'out' || !link) {
-    return (
-      <div className="wh-ban is-none">
-        <span className="wh-lb">Bàn / Đơn</span>
-        <span className="wh-ban__v">Tiền ra — không gắn với bàn nào</span>
+type Act = Omit<DetailProps, 'row' | 'onClose'>;
+
+/** "18/11 09:20" — mốc người bấm. */
+function ddmmhh(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hhmm(ms)}`;
+}
+
+/** Khoản chủ quán đã bảo "không phải tiền quán". */
+function PhanNgoai({ row, act }: { row: LedgerRow; act: Act }) {
+  const c = row.cls;
+  return (
+    <>
+      <div className="wh-ban is-off">
+        <span className="wh-lb">Ngoài quán · không tính</span>
+        <span className="wh-ban__v">Không phải tiền của quán</span>
+        {c && <span className="wh-ban__m">{c.by_name ? `${c.by_name} đánh dấu` : 'Đã đánh dấu'} lúc {ddmmhh(c.at)}</span>}
       </div>
+      <button type="button" className="wh-btn2" onClick={act.onUnOutside}>Bỏ đánh dấu</button>
+    </>
+  );
+}
+
+/** Tiền ra: trả NCC nào, hoặc chưa rõ (gán / chi ngoài quán). */
+function PhanNcc({ row, act }: { row: LedgerRow; act: Act }) {
+  const ncc = row.bucket === 'ncc' ? row.cls?.ncc : null;
+  if (ncc && row.cls) {
+    const ai = row.cls.via === 'auto' ? 'Máy tự khớp: cùng TK, cùng số tiền' : `Gán tay${row.cls.by_name ? ` bởi ${row.cls.by_name}` : ''}`;
+    return (
+      <>
+        <div className="wh-ban">
+          <span className="wh-lb">Trả NCC</span>
+          <span className="wh-ban__v">{ncc.supplier}</span>
+          <span className="wh-ban__m">
+            Lần trả {ncc.paid_on.slice(8, 10)}/{ncc.paid_on.slice(5, 7)} · {vnd(ncc.amount)}
+            {ncc.from_label ? ` · từ ${ncc.from_label}` : ''}
+          </span>
+          <span className="wh-ban__m">{ai}</span>
+        </div>
+        <button type="button" className="wh-btn2" onClick={act.onClearNcc}>Gỡ khớp</button>
+      </>
     );
   }
-  if (link.via === 'none') {
+  return (
+    <>
+      <div className="wh-ban is-warn">
+        <span className="wh-lb">Tiền ra chưa rõ</span>
+        <span className="wh-ban__v">Chưa biết khoản này trả cho ai</span>
+        <span className="wh-ban__m">Không khớp được lần trả NCC nào cùng tài khoản, cùng số tiền</span>
+      </div>
+      <button type="button" className="wh-btn" onClick={act.onAssignNcc}>Gán vào lần trả NCC</button>
+      <button type="button" className="wh-btn2" onClick={act.onOutside}>Chi ngoài quán</button>
+    </>
+  );
+}
+
+function PhanBan({ row, act }: { row: LedgerRow; act: Act }) {
+  const { onAssign, onUnassign } = act;
+  if (row.bucket === 'outside') return <PhanNgoai row={row} act={act} />;
+  if (row.direction === 'out') return <PhanNcc row={row} act={act} />;
+  const link = row.link;
+  if (!link || link.via === 'none') {
     return (
       <>
         <div className="wh-ban is-none">
@@ -179,6 +266,7 @@ function PhanBan({ row, onAssign, onUnassign }: { row: LedgerRow; onAssign: () =
           <span className="wh-ban__m">Tiền đã về nhưng chưa biết của bàn nào</span>
         </div>
         <button type="button" className="wh-btn" onClick={onAssign}>Gán vào đơn</button>
+        <button type="button" className="wh-btn2" onClick={act.onOutside}>Không phải tiền quán</button>
       </>
     );
   }
