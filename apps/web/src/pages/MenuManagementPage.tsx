@@ -19,6 +19,7 @@ import { api, extractError } from '../lib/api.ts';
 import { useToast } from '../components/Toast.tsx';
 import { useConfirm } from '../components/ConfirmDialog.tsx';
 import { useAuth } from '../lib/auth-context.tsx';
+import { docHangFileMenu } from '../lib/doc-file-menu.ts';
 import { MenuComboPanel } from './MenuComboPanel.tsx';
 import { RecipePanel } from './RecipePanel.tsx';
 import { Dropdown } from '../components/ui/Dropdown.tsx';
@@ -1275,10 +1276,8 @@ function ImportMenuModal({
     setFileName(file.name);
     setLoadingXlsx(true);
     try {
-      const [XLSX, buf] = await Promise.all([loadXlsx(), file.arrayBuffer()]);
-      const wb = XLSX.read(buf, { type: 'array' });
-      const sheet = wb.Sheets[wb.SheetNames[0]];
-      const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+      // CSV và Excel đọc khác nhau — xem doc-file-menu.ts (lỗi "310.000" thành 310đ, 2026-11-18).
+      const raw = await docHangFileMenu(await loadXlsx(), file);
 
       if (raw.length === 0) {
         toast.push('error', 'File rỗng — không tìm thấy dòng dữ liệu nào');
