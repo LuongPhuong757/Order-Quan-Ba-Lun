@@ -8,7 +8,16 @@ import { AdminGuard } from '../auth/guards/admin.guard.js';
 import { BankTransaction } from './entities/bank-transaction.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { accountLabelMap } from './account-label.js';
-import { LINKED_ORDER_SQL, OPEN_TABLE_SQL, UNMATCHED_SQL } from './bank-ledger-sql.js';
+import {
+  BUCKET_SQL,
+  LINKED_ORDER_SQL,
+  NOT_SHOP_SQL,
+  OPEN_TABLE_SQL,
+  UNMATCHED_SQL,
+  UNSURE_OUT_SQL,
+  type LedgerBucket,
+} from './bank-ledger-sql.js';
+import { BankLedgerClassService, type NccCandidate, type TxnClassInfo } from './bank-ledger-class.service.js';
 import { soTienTimDuoc } from './bank-ledger-search.js';
 import { BankLedgerLinkService, type Candidate, type TxnLink } from './bank-ledger-link.service.js';
 
@@ -48,19 +57,38 @@ export type WebhookRow = {
   content: string;
   /** `null` với tiền ra — tiền ra không thuộc bàn nào. */
   link: TxnLink | null;
+  /** Nhóm của khoản tiền (2026-11-18) — cùng biểu thức với số tổng, xem `BUCKET_SQL`.
+   *  `table`/`ncc` là tiền của quán; ba nhóm còn lại màn hiện mờ "Không tính". */
+  bucket: LedgerBucket;
+  /** Khớp NCC / ngoài quán / đã gỡ khớp, và ai làm. `null` khi chưa ai (kể cả máy) kết luận. */
+  cls: TxnClassInfo | null;
 };
 
-/** Khối tổng quan đầu màn (thiết kế lại 2026-10-16). Tính trên CẢ KỲ đang xem, KHÔNG theo các bộ
- *  lọc tài khoản / chiều / tìm kiếm: các ô này chính là nút lọc, lọc xong mà ô tự đổi số hay biến
- *  mất thì người ta không còn đường bấm sang tài khoản khác. */
+/**
+ * Khối tổng quan đầu màn. Từ 2026-11-18 (chủ quán yêu cầu) chỉ tính TIỀN CỦA QUÁN: vào = khoản đã
+ * khớp bàn, ra = khoản đã khớp lần trả NCC. Phần còn lại gom vào `other_*` để màn hiện một dòng
+ * "Không tính" — chủ quán vẫn cần biết khoản nào chi ra không phải cho quán.
+ *
+ * ĐỔI THEO TÀI KHOẢN đang lọc (chủ quán chốt 2026-11-18, đảo quyết định 2026-10-16): số to, số
+ * giao dịch và ba ô đếm đều chỉ tính tài khoản đó. Riêng `by_account` vẫn tính cả kỳ cho MỌI tài
+ * khoản — đó là hàng chip để bấm sang tài khoản khác, lọc mất chip thì hết đường quay lại.
+ * Không theo chiều / tìm kiếm / ô đếm: các ô đó là nút lọc, bấm vào mà ô tự đổi số thì rối.
+ */
 export type LedgerSummary = {
   in_total: number;
   in_count: number;
   out_total: number;
   out_count: number;
+  /** Tiền vào / ra KHÔNG tính: tiền lạ + chưa rõ + ngoài quán. */
+  other_in: number;
+  other_out: number;
+  other_count: number;
+  /** `in`/`out` của từng tài khoản cũng chỉ là tiền của quán. */
   by_account: Array<{ account_no: string; label: string | null; bank: string | null; in: number; out: number }>;
   /** Số KHOẢN tiền lạ chưa khớp bàn nào. */
   unmatched: number;
+  /** Số khoản tiền RA chưa rõ trả cho ai. */
+  unsure: number;
   /** Số BÀN tiền đã về mà vẫn đang mở. */
   open_tables: number;
 };
@@ -80,6 +108,7 @@ export class BankLedgerController {
     @InjectRepository(BankTransaction) private readonly txns: Repository<BankTransaction>,
     @InjectRepository(PaymentQrAccount) private readonly qrAccounts: Repository<PaymentQrAccount>,
     private readonly links: BankLedgerLinkService,
+    private readonly classes: BankLedgerClassService,
   ) {}
 
   /**
@@ -114,12 +143,17 @@ export class BankLedgerController {
     const p = Math.max(1, Number(page) || 1);
     const size = Math.min(100, Math.max(5, Number(pageSize) || 20));
 
+    // Khớp tiền ra với lần trả NCC TRƯỚC khi đếm — không thì lần mở đầu tiên số "Trả NCC" thiếu.
+    await this.classes.autoMatch(fromMs, toMs);
+
     const qb = this.txns
       .createQueryBuilder('t')
       .where('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) });
     if (account) qb.andWhere('t.account_no = :acc', { acc: account });
     if (direction === 'in' || direction === 'out') qb.andWhere('t.direction = :dir', { dir: direction });
     if (status === 'unmatched') qb.andWhere(UNMATCHED_SQL);
+    if (status === 'unsure') qb.andWhere(UNSURE_OUT_SQL);
+    if (status === 'outside') qb.andWhere(NOT_SHOP_SQL);
     if (status === 'open') qb.andWhere(OPEN_TABLE_SQL);
     if (q && q.trim()) {
       // Tìm THÔ trong nội dung. Không dựng chỉ mục toàn văn: chuỗi ngân hàng gửi sang là một khối
@@ -135,16 +169,21 @@ export class BankLedgerController {
     }
 
     const total = await qb.getCount();
-    const rows = await qb
+    const res = await qb
+      .addSelect(BUCKET_SQL, 't_bucket')
       // MỚI NHẤT LÊN ĐẦU, theo giờ ngân hàng ghi có — cùng cột đang hiện trên màn. Xếp theo giờ
       // nhận webhook thì thứ tự trông "sai" với chính con số người ta đang đọc.
       .orderBy('t.occurred_at', 'DESC')
       .addOrderBy('t.created_at', 'DESC')
       .skip((p - 1) * size)
       .take(size)
-      .getMany();
+      .getRawAndEntities();
+    const rows = res.entities;
+    // Nhãn nhóm đọc từ CÙNG biểu thức SQL với số tổng; khớp theo id chứ không theo vị trí — với
+    // skip/take TypeORM có thể trả raw và entity không cùng thứ tự.
+    const bucketOf = new Map(res.raw.map((r: { t_id: string; t_bucket: LedgerBucket }) => [r.t_id, r.t_bucket]));
 
-    const links = await this.links.linksFor(rows);
+    const [links, cls] = await Promise.all([this.links.linksFor(rows), this.classes.infoFor(rows.map((r) => r.id))]);
     // Cả bảng mã QR chỉ vài hàng — đọc hết rồi tra trong bộ nhớ, khỏi JOIN theo cột không đánh chỉ mục.
     const labels = accountLabelMap(await this.qrAccounts.find());
     const banks = await this.banksInRange(fromMs, toMs);
@@ -160,38 +199,48 @@ export class BankLedgerController {
         amount: r.amount,
         content: r.content,
         link: links.get(r.id) ?? null,
+        bucket: bucketOf.get(r.id) ?? (r.direction === 'in' ? 'stray' : 'unsure'),
+        cls: cls.get(r.id) ?? null,
       })),
       total,
       page: p,
       page_size: size,
       banks,
-      summary: await this.summary(fromMs, toMs, labels, banks),
+      summary: await this.summary(fromMs, toMs, labels, banks, account),
     });
   }
 
-  /** Bốn truy vấn gộp, không phụ thuộc trang đang xem — xem `LedgerSummary`. */
+  /** Vài truy vấn gộp, không phụ thuộc trang đang xem — xem `LedgerSummary`. */
   private async summary(
     fromMs: number,
     toMs: number,
     labels: Map<string, string>,
     banks: Array<{ account_no: string; name: string }>,
+    account?: string,
   ): Promise<LedgerSummary> {
     const inRange = () =>
       this.txns
         .createQueryBuilder('t')
         .where('t.occurred_at BETWEEN :from AND :to', { from: new Date(fromMs), to: new Date(toMs) });
+    /** Cùng kỳ, chỉ tài khoản đang lọc (nếu có). */
+    const scoped = () => {
+      const qb = inRange();
+      if (account) qb.andWhere('t.account_no = :acc', { acc: account });
+      return qb;
+    };
 
-    const [perAcc, unmatched, open] = await Promise.all([
+    const [perAcc, unmatched, unsure, open] = await Promise.all([
       inRange()
         .select('t.account_no', 'account_no')
-        .addSelect('t.direction', 'direction')
+        .addSelect(BUCKET_SQL, 'bucket')
         .addSelect('COALESCE(SUM(t.amount), 0)', 'total')
         .addSelect('COUNT(*)', 'n')
         .groupBy('t.account_no')
-        .addGroupBy('t.direction')
-        .getRawMany<{ account_no: string | null; direction: 'in' | 'out'; total: string; n: string }>(),
-      inRange().andWhere(UNMATCHED_SQL).getCount(),
-      inRange()
+        .addGroupBy('bucket')
+        .getRawMany<{ account_no: string | null; bucket: LedgerBucket; total: string; n: string }>(),
+      scoped().andWhere(UNMATCHED_SQL).getCount(),
+      scoped().andWhere(UNSURE_OUT_SQL).getCount(),
+      scoped()
         .andWhere(OPEN_TABLE_SQL)
         .select(`COUNT(DISTINCT ${LINKED_ORDER_SQL})`, 'n')
         .getRawOne<{ n: string }>(),
@@ -199,21 +248,43 @@ export class BankLedgerController {
 
     const s: LedgerSummary = {
       in_total: 0, in_count: 0, out_total: 0, out_count: 0,
-      by_account: [], unmatched, open_tables: Number(open?.n ?? 0),
+      other_in: 0, other_out: 0, other_count: 0,
+      by_account: [], unmatched, unsure, open_tables: Number(open?.n ?? 0),
     };
     const bankName = new Map(banks.map((b) => [b.account_no, b.name]));
     const acc = new Map<string, LedgerSummary['by_account'][number]>();
     for (const r of perAcc) {
       const total = Number(r.total);
       const n = Number(r.n);
-      if (r.direction === 'out') { s.out_total += total; s.out_count += n; }
-      else { s.in_total += total; s.in_count += n; }
-      // Dòng không có số tài khoản (payload lạ) vẫn vào tổng, chỉ không có thẻ riêng.
-      if (!r.account_no) continue;
-      const no = r.account_no.trim();
-      const e = acc.get(no) ?? { account_no: no, label: labels.get(no) ?? null, bank: bankName.get(no) ?? null, in: 0, out: 0 };
-      if (r.direction === 'out') e.out += total; else e.in += total;
-      acc.set(no, e);
+      const no = r.account_no?.trim() ?? '';
+      // Chip luôn đủ mọi tài khoản có giao dịch, kể cả tài khoản chỉ toàn tiền ngoài quán (chip 0đ)
+      // — không thì chip biến mất và người ta tưởng tài khoản đó chưa nối.
+      if (no) {
+        const e = acc.get(no) ?? { account_no: no, label: labels.get(no) ?? null, bank: bankName.get(no) ?? null, in: 0, out: 0 };
+        if (r.bucket === 'table') e.in += total;
+        if (r.bucket === 'ncc') e.out += total;
+        acc.set(no, e);
+      }
+      if (account && no !== account.trim()) continue;
+      if (r.bucket === 'table') { s.in_total += total; s.in_count += n; }
+      else if (r.bucket === 'ncc') { s.out_total += total; s.out_count += n; }
+      else {
+        s.other_count += n;
+        // `stray` là tiền vào; `unsure` là tiền ra; `outside` có cả hai chiều nên tách riêng ở dưới.
+        if (r.bucket === 'stray') s.other_in += total;
+        else if (r.bucket === 'unsure') s.other_out += total;
+      }
+    }
+    // `outside` gộp cả hai chiều trong GROUP BY ở trên — đếm lại theo chiều cho đúng dấu.
+    const outsideQb = scoped().andWhere(`${BUCKET_SQL} = 'outside'`);
+    const outside = await outsideQb
+      .select('t.direction', 'direction')
+      .addSelect('COALESCE(SUM(t.amount), 0)', 'total')
+      .groupBy('t.direction')
+      .getRawMany<{ direction: 'in' | 'out'; total: string }>();
+    for (const r of outside) {
+      if (r.direction === 'in') s.other_in += Number(r.total);
+      else s.other_out += Number(r.total);
     }
     s.by_account = [...acc.values()].sort((a, b) => b.in + b.out - (a.in + a.out));
     return s;
@@ -244,6 +315,43 @@ export class BankLedgerController {
   @Delete('transactions/:id/assign')
   async unassign(@Param('id') id: string): Promise<ApiOk<{ bank_txn_id: string; order_id: string }>> {
     return apiOk(await this.links.unassign(id));
+  }
+
+  /** Lần trả NCC (chuyển khoản, ±3 ngày, chưa khớp) có thể là khoản tiền ra `id`. */
+  @Get('transactions/:id/ncc-candidates')
+  async nccCandidates(@Param('id') id: string): Promise<ApiOk<{ items: NccCandidate[] }>> {
+    return apiOk({ items: await this.classes.nccCandidates(id) });
+  }
+
+  /** Gán tay khoản tiền ra vào một lần trả NCC. Vết ở `audit_log` (`bank_txn.ncc_assigned`). */
+  @Post('transactions/:id/ncc')
+  @HttpCode(200)
+  async assignNcc(
+    @Param('id') id: string,
+    @Body() body: { supplier_payment_id?: unknown },
+    @Req() req: Request,
+  ): Promise<ApiOk<{ bank_txn_id: string; supplier_payment_id: string }>> {
+    const pid = typeof body?.supplier_payment_id === 'string' ? body.supplier_payment_id.trim() : '';
+    return apiOk(await this.classes.assignNcc(id, pid, byOf(req)));
+  }
+
+  /** Gỡ khớp NCC — khoản về "Chưa rõ", máy không tự khớp lại. */
+  @Delete('transactions/:id/ncc')
+  async clearNcc(@Param('id') id: string, @Req() req: Request): Promise<ApiOk<{ bank_txn_id: string; supplier_payment_id: string | null }>> {
+    return apiOk(await this.classes.clearNcc(id, byOf(req)));
+  }
+
+  /** Đánh dấu "không phải tiền quán" (tiền lạ hoặc tiền ra chưa rõ). */
+  @Post('transactions/:id/outside')
+  @HttpCode(200)
+  async markOutside(@Param('id') id: string, @Req() req: Request): Promise<ApiOk<{ bank_txn_id: string }>> {
+    return apiOk(await this.classes.markOutside(id, byOf(req)));
+  }
+
+  /** Bỏ đánh dấu ngoài quán. */
+  @Delete('transactions/:id/outside')
+  async unmarkOutside(@Param('id') id: string): Promise<ApiOk<{ bank_txn_id: string }>> {
+    return apiOk(await this.classes.unmarkOutside(id));
   }
 
   /**
@@ -294,4 +402,8 @@ function bankNameOf(r: BankTransaction): string | null {
 function gatewayOf(r: BankTransaction): string | null {
   const g = (r.raw as { gateway?: unknown } | null)?.gateway;
   return typeof g === 'string' && g.trim() ? g.trim() : null;
+}
+
+function byOf(req: Request): { id: string | null; name: string | null } {
+  return { id: req.user?.sub ?? null, name: req.user?.full_name ?? null };
 }

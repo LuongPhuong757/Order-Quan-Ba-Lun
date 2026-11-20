@@ -13,7 +13,7 @@
 //
 // Những quyết định CŨ vẫn giữ nguyên:
 //  - Nội dung CK hiện NGUYÊN VĂN ở chi tiết (chủ quán 2026-09-23). Không id giao dịch, JSON gốc.
-//  - Tiền RA hiện chung, chỉ để xem (2026-10-10).
+//  - Tiền RA: khớp lần trả NCC / chưa rõ / ngoài quán (2026-11-18, thay "chỉ để xem" 2026-10-10).
 //  - Phần "Bàn / Đơn" tách khỏi dữ liệu ngân hàng; gán tay tiền lạ tại đây (2026-10-15).
 //  - Tài khoản BÊN KIA SePay không gửi, nên không có chỗ nào cho nó (2026-10-16).
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
@@ -29,7 +29,8 @@ import { Pagination } from '../components/ui/Pagination.tsx';
 import { Sheet } from '../components/ui/Sheet.tsx';
 import { Icon } from '../components/ui/Icon.tsx';
 import { BankLedgerDetail, BankLedgerRow, type LedgerRow } from './BankLedgerRow.tsx';
-import { BankLedgerOverview, type LedgerStatus, type LedgerSummary } from './BankLedgerOverview.tsx';
+import { BankLedgerOverview, STATUS_LABEL, type LedgerStatus, type LedgerSummary } from './BankLedgerOverview.tsx';
+import { BankNccDialog } from '../components/BankNccDialog.tsx';
 import './so-webhook.css';
 
 const PAGE_SIZE = 20;
@@ -85,6 +86,7 @@ export function BankLedgerPage() {
   const [total, setTotal] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [assigning, setAssigning] = useState<LedgerRow | null>(null);
+  const [nccFor, setNccFor] = useState<LedgerRow | null>(null);
   const confirm = useConfirm();
   const toast = useToast();
 
@@ -140,6 +142,35 @@ export function BankLedgerPage() {
     }
   };
 
+  /** Gọi một thao tác phân loại (khớp NCC / ngoài quán) rồi tải lại. */
+  const lam = async (r: LedgerRow, method: 'post' | 'delete', path: string, ok: string) => {
+    try {
+      await api[method](`/payments/transactions/${r.id}/${path}`);
+      toast.push('success', ok);
+      load();
+    } catch (e) {
+      toast.push('error', extractError(e).message);
+    }
+  };
+  const clearNcc = async (r: LedgerRow) => {
+    const ten = r.cls?.ncc?.supplier ?? 'NCC';
+    const go = await confirm({
+      title: `Gỡ khớp −${vnd(r.amount)} khỏi ${ten}?`,
+      message: 'Khoản này quay về "Tiền ra chưa rõ" và máy sẽ không tự khớp lại nó nữa.',
+      variant: 'warning',
+      confirmLabel: 'Gỡ khớp',
+    });
+    if (go) await lam(r, 'delete', 'ncc', 'Đã gỡ khớp');
+  };
+  const markOutside = async (r: LedgerRow) => {
+    const go = await confirm({
+      title: `${r.direction === 'out' ? '−' : '+'}${vnd(r.amount)} không phải tiền quán?`,
+      message: 'Khoản này sẽ không tính vào tiền của quán. Bỏ đánh dấu được bất cứ lúc nào.',
+      confirmLabel: 'Đúng, ngoài quán',
+    });
+    if (go) await lam(r, 'post', 'outside', 'Đã đánh dấu ngoài quán');
+  };
+
   /** Mọi đổi bộ lọc về trang 1 và bỏ dòng đang chọn (dòng đó có thể không còn trong kết quả). */
   const doiLoc = (f: () => void) => {
     f();
@@ -178,7 +209,16 @@ export function BankLedgerPage() {
     </span>
   );
   const chiTiet = (r: LedgerRow, onClose?: () => void) => (
-    <BankLedgerDetail row={r} onClose={onClose} onAssign={() => setAssigning(r)} onUnassign={() => void unassign(r)} />
+    <BankLedgerDetail
+      row={r}
+      onClose={onClose}
+      onAssign={() => setAssigning(r)}
+      onUnassign={() => void unassign(r)}
+      onAssignNcc={() => setNccFor(r)}
+      onClearNcc={() => void clearNcc(r)}
+      onOutside={() => void markOutside(r)}
+      onUnOutside={() => void lam(r, 'delete', 'outside', 'Đã bỏ đánh dấu')}
+    />
   );
 
   return (
@@ -219,7 +259,7 @@ export function BankLedgerPage() {
                 <span>
                   Đang lọc:{' '}
                   {[
-                    status === 'unmatched' ? 'Tiền lạ chưa khớp' : status === 'open' ? 'Bàn đã CK còn mở' : null,
+                    status ? STATUS_LABEL[status] : null,
                     account ? `${accName(account)} ${tail4(account)}` : null,
                     direction ? (direction === 'in' ? 'Tiền vào' : 'Tiền ra') : null,
                     q.trim() ? `"${q.trim()}"` : null,
@@ -238,8 +278,9 @@ export function BankLedgerPage() {
               </div>
             )}
             {groups.map((g) => {
-              const vao = g.rows.reduce((a, r) => a + (r.direction === 'in' ? r.amount : 0), 0);
-              const ra = g.rows.reduce((a, r) => a + (r.direction === 'out' ? r.amount : 0), 0);
+              // Chỉ cộng tiền của quán — cùng luật với số to (2026-11-18).
+              const vao = g.rows.reduce((a, r) => a + (r.bucket === 'table' ? r.amount : 0), 0);
+              const ra = g.rows.reduce((a, r) => a + (r.bucket === 'ncc' ? r.amount : 0), 0);
               return (
                 <div key={g.day}>
                   <div className="wh-day">
@@ -309,6 +350,19 @@ export function BankLedgerPage() {
             {nutChieu}
           </div>
         </Sheet>
+      )}
+
+      {nccFor && (
+        <BankNccDialog
+          txnId={nccFor.id}
+          amount={nccFor.amount}
+          onClose={() => setNccFor(null)}
+          onDone={() => {
+            setNccFor(null);
+            toast.push('success', 'Đã gán vào lần trả NCC');
+            load();
+          }}
+        />
       )}
 
       {assigning && (
