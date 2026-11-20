@@ -14,6 +14,7 @@ import { buildTransferNote, buildVietQrPayload } from '@order/schemas';
 import { stepBlockReason, type CheckoutStep, type PayMode } from '../lib/checkout-block.ts';
 import { rejectIfTooLarge, shrinkImage } from '../lib/shrink-image.ts';
 import { api, extractError } from '../lib/api.ts';
+import { useAuth } from '../lib/auth-context.tsx';
 import { useToast } from './Toast.tsx';
 import { useConfirm } from './ConfirmDialog.tsx';
 import { Icon, type IconName } from './ui/Icon.tsx';
@@ -78,6 +79,42 @@ type Props = {
 
 const fmt = (v: number) => `${v.toLocaleString('vi-VN')}đ`;
 
+/** Hạn mức tiền vào mã HKD của ca đang chạy — xem `apps/api/.../hkd-shift-cap.ts`. */
+type HkdCap = { enabled: boolean; cap: number; warn: number; used: number };
+const HKD_CAP_OFF: HkdCap = { enabled: false, cap: 0, warn: 0, used: 0 };
+/** Thu `amount` vào HKD có làm tổng ca vượt trần không. Trần là TỐI ĐA (đủ đúng trần vẫn được). */
+const hkdOverCap = (c: HkdCap, amount: number) => c.enabled && c.used + amount > c.cap;
+
+/**
+ * Dải hạn mức HKD trên hàng mã QR (2026-11-20). Chỉ hiện khi ĐÁNG nói: thu đơn này xong thì tổng
+ * ca chạm mốc cảnh báo, hoặc đơn này không vào HKD được nữa. Nhân viên chỉ thấy câu chữ; chủ quán/admin thấy thêm
+ * con số "đã vào · còn".
+ */
+function HkdCapBanner({ cap, transferAmount, seesMoney, hasHkd }: {
+  cap: HkdCap; transferAmount: number; seesMoney: boolean; hasHkd: boolean;
+}) {
+  if (!cap.enabled || !hasHkd) return null;
+  const over = hkdOverCap(cap, transferAmount);
+  // Cảnh báo khi thu ĐƠN NÀY xong thì tổng ca chạm mốc — báo trước lúc còn chọn được mã khác,
+  // không đợi tới khi tổng đã vượt mốc rồi mới nói.
+  const warn = cap.warn > 0 && cap.used + transferAmount >= cap.warn;
+  if (!over && !warn) return null;
+  const con = Math.max(0, cap.cap - cap.used);
+  return (
+    <div role="status" style={{
+      background: '#fef3c7', border: '1px solid #f59e0b', color: '#92400e',
+      padding: '8px 12px', borderRadius: 8, fontSize: 14, marginBottom: 8,
+    }}>
+      <strong>{over ? 'Mã HKD không còn đủ hạn mức ca này cho đơn này — chọn mã QR khác' : 'Mã HKD sắp hết hạn mức ca này'}</strong>
+      {seesMoney && (
+        <div style={{ fontSize: 13, marginTop: 2 }}>
+          Đã vào {fmt(cap.used)} / {fmt(cap.cap)} · còn {fmt(con)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CheckoutDialog({
   orderId,
   table,
@@ -114,6 +151,11 @@ export function CheckoutDialog({
   /** Công tắc tự phát hành hoá đơn HKD — đi ké `GET /payment-qr` (người thu thường không vào
    *  được `/admin/settings`). */
   const [hkdEinvoiceOn, setHkdEinvoiceOn] = useState(false);
+  /** Hạn mức tiền vào mã HKD của ca đang chạy (2026-11-20) — đi ké `GET /payment-qr`. */
+  const [hkdCap, setHkdCap] = useState<HkdCap>(HKD_CAP_OFF);
+  const { user } = useAuth();
+  /** Chỉ chủ quán/admin thấy CON SỐ hạn mức — nhân viên chỉ thấy câu chữ (chủ quán chốt). */
+  const seesHkdMoney = !!user?.is_owner || user?.role === 'admin';
   /** Đã thu tiền xong vào mã HKD → giữ kết quả thu tiền, hiện màn xuất hoá đơn thay cho hộp này. */
   const [einvoiceFor, setEinvoiceFor] = useState<CheckoutResult | null>(null);
   /** Tên khách nợ — thứ duy nhất màn ghi nợ hỏi (D-01: nợ toàn bộ, không có số tiền để nhập). */
@@ -209,6 +251,7 @@ export function CheckoutDialog({
     photoCount: photos.length,
     photoSkipReason,
     pickedIsHkd: !!picked?.is_hkd,
+    pickedHkdOverCap: !!picked?.is_hkd && hkdOverCap(hkdCap, transferAmount),
   };
   const blockReason = stepBlockReason(step, state);
   /** Đơn này thu chuyển khoản vào mã HKD — công tắc bật thì thu xong sẽ xuất hoá đơn. */
@@ -224,11 +267,12 @@ export function CheckoutDialog({
     if (mode === 'CASH' || mode === 'DEBT' || mode === null) return;
     let alive = true;
     api
-      .get<{ data: { items: QrOption[]; hkd_einvoice_enabled?: boolean } }>('/payment-qr')
+      .get<{ data: { items: QrOption[]; hkd_einvoice_enabled?: boolean; hkd_cap?: HkdCap } }>('/payment-qr')
       .then((res) => {
         if (!alive) return;
         setQrOptions(res.data.data.items);
         setHkdEinvoiceOn(!!res.data.data.hkd_einvoice_enabled);
+        setHkdCap(res.data.data.hkd_cap ?? HKD_CAP_OFF);
         setQrLoadFailed(false);
       })
       .catch(() => {
@@ -701,6 +745,8 @@ export function CheckoutDialog({
                 pickedId={pickedId}
                 onPick={setPickedId}
                 picked={picked}
+                hkdCap={hkdCap}
+                seesHkdMoney={seesHkdMoney}
                 qrDataUrl={qrDataUrl}
                 transferAmount={transferAmount}
                 note={note}
@@ -841,6 +887,8 @@ export function QrStep({
   pickedId,
   onPick,
   picked,
+  hkdCap = HKD_CAP_OFF,
+  seesHkdMoney = false,
   qrDataUrl,
   transferAmount,
   note,
@@ -850,6 +898,8 @@ export function QrStep({
   pickedId: string | null;
   onPick: (id: string) => void;
   picked: QrOption | null;
+  hkdCap?: HkdCap;
+  seesHkdMoney?: boolean;
   qrDataUrl: string | null;
   transferAmount: number;
   note: string;
@@ -879,29 +929,47 @@ export function QrStep({
         </div>
       )}
 
+      <HkdCapBanner cap={hkdCap} transferAmount={transferAmount} seesMoney={seesHkdMoney}
+                    hasHkd={options.some((o) => o.is_hkd)} />
+
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        {options.map((o) => (
-          <button
-            key={o.id}
-            type="button"
-            onClick={() => onPick(o.id)}
-            aria-pressed={pickedId === o.id}
-            style={{
-              padding: '8px 12px',
-              minHeight: 44,
-              borderRadius: 999,
-              border: pickedId === o.id ? '2px solid #0d9488' : '1px solid #e5e7eb',
-              background: pickedId === o.id ? '#f0fdfa' : 'white',
-              color: '#1f2937',
-              fontSize: 14,
-            }}
-          >
-            {o.label}
-          </button>
-        ))}
+        {options.map((o) => {
+          // Mã HKD vượt hạn mức: MỜ nhưng vẫn bấm được — bấm vào thì dòng lý do dưới nút Thanh
+          // toán nói rõ vì sao (cùng kiểu `aria-disabled` của nút Thanh toán), thay vì một nút
+          // chết không phản hồi.
+          const full = !!o.is_hkd && hkdOverCap(hkdCap, transferAmount);
+          return (
+            <button
+              key={o.id}
+              type="button"
+              onClick={() => onPick(o.id)}
+              aria-pressed={pickedId === o.id}
+              aria-disabled={full}
+              style={{
+                padding: '8px 12px',
+                minHeight: 44,
+                borderRadius: 999,
+                border: pickedId === o.id ? '2px solid #0d9488' : '1px solid #e5e7eb',
+                background: full ? '#f3f4f6' : pickedId === o.id ? '#f0fdfa' : 'white',
+                color: full ? '#9ca3af' : '#1f2937',
+                textDecoration: full ? 'line-through' : undefined,
+                fontSize: 14,
+              }}
+            >
+              {o.label}{full ? ' · không đủ hạn mức' : ''}
+            </button>
+          );
+        })}
       </div>
 
-      {picked && (
+      {/* Mã HKD đã đủ hạn mức: KHÔNG dựng mã QR — giơ ra cho khách quét là tiền vẫn chảy vào HKD
+          dù nút đi tiếp đã bị khoá. */}
+      {picked && !!picked.is_hkd && hkdOverCap(hkdCap, transferAmount) && (
+        <div style={{ marginTop: 12, padding: 12, borderRadius: 8, background: '#f3f4f6', color: '#4b5563', fontSize: 14, textAlign: 'center' }}>
+          Mã này không còn đủ hạn mức ca này cho đơn này. Chọn mã QR khác ở trên.
+        </div>
+      )}
+      {picked && !(picked.is_hkd && hkdOverCap(hkdCap, transferAmount)) && (
         <div style={{ marginTop: 12, textAlign: 'center' }}>
           {/* QR to hết chiều ngang: màn này được GIƠ RA cho khách quét bằng điện thoại của
               họ, không phải để nhân viên đọc. */}

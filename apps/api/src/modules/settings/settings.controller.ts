@@ -149,6 +149,11 @@ class UpdateSettingsDto {
   @IsOptional() @IsInt() @Min(0) @Max(1440) stale_unpaid_alert_min?: number;
   // M7.D-15 — khách tự gọi món tại bàn, mặc định tắt. Xem settings.defaults.ts.
   @IsOptional() table_ordering_enabled?: boolean;
+  // Hạn mức HKD theo ca (2026-11-20) — xem settings.defaults.ts. Trần 1 tỷ: số lớn hơn chỉ có thể
+  // là gõ thừa số 0.
+  @IsOptional() hkd_shift_cap_enabled?: boolean;
+  @IsOptional() @IsInt() @Min(0) @Max(1_000_000_000) hkd_shift_cap_vnd?: number;
+  @IsOptional() @IsInt() @Min(0) @Max(1_000_000_000) hkd_shift_warn_vnd?: number;
   @IsOptional() @IsInt() @Min(3) @Max(10) top_dishes_limit?: number;
   @IsOptional() @IsIn(['all', '30d', '7d', 'today']) top_dishes_window?: string;
   @IsOptional() @IsArray() @IsString({ each: true }) top_dishes_hidden_ids?: string[];
@@ -292,6 +297,9 @@ export class SettingsController {
       'store_name',
       'stale_unpaid_alert_min',
       'table_ordering_enabled',
+      'hkd_shift_cap_enabled',
+      'hkd_shift_cap_vnd',
+      'hkd_shift_warn_vnd',
     ] as const) {
       if (dto[key] !== undefined) patch[key] = dto[key];
     }

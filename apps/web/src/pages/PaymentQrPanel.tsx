@@ -64,6 +64,21 @@ const EMPTY_FORM = {
   is_hkd: false,
 };
 
+type HkdCapSettings = {
+  hkd_shift_cap_enabled: boolean;
+  hkd_shift_cap_vnd: number;
+  hkd_shift_warn_vnd: number;
+};
+
+/** Các mức tiền bước 500k từ `min` tới `max` để chọn — kèm giá trị đang lưu nếu nó lẻ bước (ai đó
+ *  đặt qua API) để ô chọn không hiện trống. */
+function moneyChoices(current: number, min: number, max: number): Array<{ value: string; label: string }> {
+  const vals = new Set<number>();
+  for (let v = min; v <= max; v += 500_000) vals.add(v);
+  if (current > 0) vals.add(current);
+  return [...vals].sort((a, b) => a - b).map((v) => ({ value: String(v), label: `${v.toLocaleString('vi-VN')}đ` }));
+}
+
 export function PaymentQrPanel() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -84,6 +99,26 @@ export function PaymentQrPanel() {
   /** Công tắc tự phát hành hoá đơn cho đơn thu vào mã HKD. `null` = chưa nạp xong. */
   const [einvoiceOn, setEinvoiceOn] = useState<boolean | null>(null);
   const [einvoiceSaving, setEinvoiceSaving] = useState(false);
+  /** Hạn mức tiền vào mã HKD mỗi ca (2026-11-20). `null` = chưa nạp xong. */
+  const [hkdCap, setHkdCap] = useState<HkdCapSettings | null>(null);
+  const [hkdCapSaving, setHkdCapSaving] = useState(false);
+
+  /** Lưu NGAY một ô hạn mức — cùng kiểu "lưu ngay" của hai công tắc trên. Hỏng thì trả lại số cũ. */
+  const saveHkdCap = async (patch: Partial<HkdCapSettings>, okMsg: string) => {
+    const prev = hkdCap;
+    if (!prev) return;
+    setHkdCap({ ...prev, ...patch });
+    setHkdCapSaving(true);
+    try {
+      await api.put('/admin/settings', patch);
+      toast.push('success', okMsg);
+    } catch (err) {
+      setHkdCap(prev);
+      toast.push('error', extractError(err).message);
+    } finally {
+      setHkdCapSaving(false);
+    }
+  };
 
   const toggleEinvoice = async (next: boolean) => {
     const prev = einvoiceOn;
@@ -147,13 +182,20 @@ export function PaymentQrPanel() {
       // thu tiền (đọc đường khác, `GET /payment-qr`) vẫn chạy đúng. Đã sai đúng vậy 2026-09-25.
       try {
         const st = await api.get<{
-          data: { settings: { bank_verify_enabled: boolean; hkd_einvoice_enabled: boolean } };
+          data: { settings: { bank_verify_enabled: boolean; hkd_einvoice_enabled: boolean } & HkdCapSettings };
         }>('/admin/settings');
-        setVerifyOn(st.data.data.settings.bank_verify_enabled);
-        setEinvoiceOn(st.data.data.settings.hkd_einvoice_enabled);
+        const ss = st.data.data.settings;
+        setVerifyOn(ss.bank_verify_enabled);
+        setEinvoiceOn(ss.hkd_einvoice_enabled);
+        setHkdCap({
+          hkd_shift_cap_enabled: ss.hkd_shift_cap_enabled,
+          hkd_shift_cap_vnd: ss.hkd_shift_cap_vnd,
+          hkd_shift_warn_vnd: ss.hkd_shift_warn_vnd,
+        });
       } catch {
         setVerifyOn(null);
         setEinvoiceOn(null);
+        setHkdCap(null);
       }
     } catch (err) {
       toast.push('error', extractError(err).message);
@@ -330,6 +372,58 @@ export function PaymentQrPanel() {
               <Switch label="Tự xuất hoá đơn điện tử MISA" on={einvoiceOn} disabled={einvoiceSaving}
                       onChange={(v) => void toggleEinvoice(v)} />
             </CdRow>
+          )}
+
+          {hkdCap !== null && (
+            <>
+              <CdRow
+                title="Giới hạn tiền vào mã HKD mỗi ca"
+                info={
+                  <>
+                    <p>Bật: mỗi ca (12h trưa → 12h trưa hôm sau) tổng tiền chuyển khoản vào <strong>mọi mã HKD</strong> không được vượt hạn mức. Đơn nào làm vượt thì mã HKD bị mờ, nhân viên phải chọn mã QR khác. Không ai vượt được, kể cả chủ quán.</p>
+                    <p>Tính theo giờ thu tiền. Thu nợ cũ vào mã HKD tính vào ca lúc thu. Đơn huỷ hoặc chuyển sang nợ được trừ ra.</p>
+                    <p>Nhân viên chỉ thấy câu "không đủ hạn mức", không thấy số tiền. Chủ quán thấy thêm đã vào bao nhiêu, còn bao nhiêu.</p>
+                  </>
+                }
+              >
+                <Switch label="Giới hạn tiền vào mã HKD mỗi ca" on={hkdCap.hkd_shift_cap_enabled} disabled={hkdCapSaving}
+                        onChange={(v) => void saveHkdCap({ hkd_shift_cap_enabled: v }, v ? 'Đã BẬT giới hạn tiền vào mã HKD' : 'Đã TẮT giới hạn tiền vào mã HKD')} />
+              </CdRow>
+              <CdRow title="Hạn mức mỗi ca" sub="Tối đa — đủ đúng số này vẫn thu được" dim={!hkdCap.hkd_shift_cap_enabled}>
+                <div className="cd-row__c--dd">
+                  <Dropdown
+                    ariaLabel="Hạn mức mỗi ca"
+                    sheetTitle="Hạn mức tiền vào mã HKD mỗi ca"
+                    value={String(hkdCap.hkd_shift_cap_vnd)}
+                    neutralValue={String(hkdCap.hkd_shift_cap_vnd)}
+                    options={moneyChoices(hkdCap.hkd_shift_cap_vnd, 1_000_000, 20_000_000)}
+                    onChange={(v) => {
+                      const cap = Number(v);
+                      // Mốc cảnh báo phải NHỎ hơn trần — hạ trần xuống dưới mốc thì kéo mốc theo.
+                      const warn = hkdCap.hkd_shift_warn_vnd >= cap ? Math.max(0, cap - 1_000_000) : hkdCap.hkd_shift_warn_vnd;
+                      void saveHkdCap({ hkd_shift_cap_vnd: cap, hkd_shift_warn_vnd: warn }, 'Đã lưu hạn mức mỗi ca');
+                    }}
+                    full
+                  />
+                </div>
+              </CdRow>
+              <CdRow title="Báo sắp hết hạn mức từ" sub="Hộp thu tiền hiện dải vàng" dim={!hkdCap.hkd_shift_cap_enabled}>
+                <div className="cd-row__c--dd">
+                  <Dropdown
+                    ariaLabel="Báo sắp hết hạn mức từ"
+                    sheetTitle="Báo sắp hết hạn mức từ"
+                    value={String(hkdCap.hkd_shift_warn_vnd)}
+                    neutralValue={String(hkdCap.hkd_shift_warn_vnd)}
+                    options={[
+                      { value: '0', label: 'Không báo' },
+                      ...moneyChoices(hkdCap.hkd_shift_warn_vnd, 500_000, hkdCap.hkd_shift_cap_vnd - 500_000),
+                    ]}
+                    onChange={(v) => void saveHkdCap({ hkd_shift_warn_vnd: Number(v) }, 'Đã lưu mốc báo sắp hết hạn mức')}
+                    full
+                  />
+                </div>
+              </CdRow>
+            </>
           )}
 
           {verifyOn !== null && (
