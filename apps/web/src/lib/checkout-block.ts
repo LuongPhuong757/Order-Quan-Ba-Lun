@@ -26,11 +26,18 @@ export type CheckoutState = {
   photoSkipReason?: string;
   /** Mã QR đang chọn là tài khoản hộ kinh doanh — cấm trả hỗn hợp với tiền mặt (2026-11-09). */
   pickedIsHkd?: boolean;
+  /** Mã QR đang chọn là HKD và thu đơn này vào đó sẽ làm tổng của ca vượt hạn mức (2026-11-20).
+   *  BE chặn lại lần nữa lúc thu (`HKD_SHIFT_CAP`) — cờ này chỉ để báo TRƯỚC. */
+  pickedHkdOverCap?: boolean;
 };
 
 /** Câu chặn trả hỗn hợp vào mã HKD — BE ném cùng ý (mã `HKD_TRANSFER_NOT_FULL`). */
 export const HKD_SPLIT_BLOCK =
   'Mã QR hộ kinh doanh phải chuyển ĐỦ tiền — chọn "Chuyển khoản", hoặc chọn mã QR khác';
+
+/** Câu chặn mã HKD đã đủ hạn mức ca — BE ném cùng ý (mã `HKD_SHIFT_CAP`). KHÔNG có số tiền:
+ *  nhân viên không được thấy doanh thu. */
+export const HKD_CAP_BLOCK = 'Mã HKD không còn đủ hạn mức ca này cho đơn này — chọn mã QR khác';
 
 /**
  * Trả về câu giải thích vì sao CHƯA bấm được, hoặc `null` nếu bấm được.
@@ -51,6 +58,8 @@ export function checkoutBlockReason(s: CheckoutState): string | null {
   // tiền về tài khoản đó. Chặn NGAY khi chọn mã, trước câu hỏi số tiền — gõ số xong mới bị chặn
   // là bắt người ta làm một việc vô ích.
   if (s.mode === 'SPLIT' && s.pickedIsHkd) return HKD_SPLIT_BLOCK;
+  // Hạn mức HKD mỗi ca (chủ quán chốt 2026-11-20): chặn cứng, không ai vượt được.
+  if (wantsTransfer && s.pickedHkdOverCap) return HKD_CAP_BLOCK;
   // Chỉ hỏi số tiền ở thế "Cả hai": "Chuyển khoản" toàn bộ thì số tiền chính là tổng, không có gì
   // để nhập.
   if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';
@@ -100,6 +109,8 @@ export function stepBlockReason(step: CheckoutStep, s: CheckoutState): string | 
   if (step === 'qr') {
     if (!s.hasPickedQr) return 'Vui lòng chọn mã QR để thanh toán';
     if (s.mode === 'SPLIT' && s.pickedIsHkd) return HKD_SPLIT_BLOCK;
+    // Hạn mức HKD mỗi ca — chặn NGAY ở màn chọn mã, không để người thu đi tiếp sang chụp bill.
+    if (s.pickedHkdOverCap) return HKD_CAP_BLOCK;
     // Hỏi tiền SAU khi đã có mã: số tiền nằm trong chính mã QR, nên thứ tự trên màn hình là chọn
     // mã rồi mới tới con số.
     if (s.mode === 'SPLIT' && s.transferAmount <= 0) return 'Nhập số tiền khách chuyển khoản';

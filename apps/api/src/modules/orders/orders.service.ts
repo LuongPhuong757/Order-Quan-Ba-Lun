@@ -16,6 +16,7 @@ import { PaymentIntent } from '../payments/entities/payment-intent.entity.js';
 import { BankTxnAssignment } from '../payments/entities/bank-txn-assignment.entity.js';
 import { PaymentQrAccount } from '../settings/entities/payment-qr-account.entity.js';
 import { HKD_SQL } from './hkd-sql.js';
+import { assertHkdCap, type HkdCapConfig } from './hkd-shift-cap.js';
 import { BANK_VERIFIED_EXISTS_SQL } from '../payments/bank-verified-sql.js';
 import { OrderItem } from './entities/order-item.entity.js';
 import { OrderActivityLog } from './entities/order-activity-log.entity.js';
@@ -268,6 +269,13 @@ export class OrdersService {
     return (await this.settings?.readAll())?.hkd_einvoice_enabled ?? false;
   }
 
+  /** Hạn mức HKD theo ca (2026-11-20). Đọc TRƯỚC transaction, cùng lý do `isHkdEInvoiceEnabled`. */
+  private async readHkdCap(): Promise<HkdCapConfig | undefined> {
+    const st = await this.settings?.readAll();
+    if (!st) return undefined;
+    return { enabled: st.hkd_shift_cap_enabled, cap: st.hkd_shift_cap_vnd, warn: st.hkd_shift_warn_vnd };
+  }
+
   /** Mã QR nhận tiền có phải tài khoản hộ kinh doanh không — và CHẶN trả hỗn hợp nếu có. Luật áp
    *  dụng LUÔN, không phụ thuộc công tắc (chủ quán chốt 2026-11-09: hoá đơn phải đúng bằng tiền về
    *  TK hộ kinh doanh; trước đó production vẫn cho trả hỗn hợp và kê cả đơn). Dùng chung cho
@@ -275,7 +283,9 @@ export class OrdersService {
   private static async resolveHkdTransfer(
     mgr: EntityManager,
     total: number,
-    transfer?: CheckoutTransfer,
+    transfer: CheckoutTransfer | undefined,
+    orderId: string,
+    cap?: HkdCapConfig,
   ): Promise<boolean> {
     if (!transfer || transfer.amount <= 0 || !transfer.account_id) return false;
     const qr = await mgr.getRepository(PaymentQrAccount).findOne({ where: { id: transfer.account_id } });
@@ -283,6 +293,8 @@ export class OrdersService {
     const err = hkdMixedPaymentError(isHkd, Math.round(transfer.amount), total);
     // Mã riêng, không dùng VALIDATION_FAILED: GlobalExceptionFilter sẽ ghi đè câu giải thích.
     if (err) throw new BadRequestException({ code: 'HKD_TRANSFER_NOT_FULL', message: err });
+    // Hạn mức HKD mỗi ca (2026-11-20) — chặn cứng, xem `hkd-shift-cap.ts`.
+    if (isHkd) await assertHkdCap(mgr, cap, Math.round(transfer.amount), orderId);
     return isHkd;
   }
 
@@ -1458,6 +1470,7 @@ export class OrdersService {
     debt: boolean;
   }> {
     const hkdEInvoiceEnabled = await this.isHkdEInvoiceEnabled();
+    const hkdCap = await this.readHkdCap();
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const itemRepo = mgr.getRepository(OrderItem);
@@ -1555,7 +1568,7 @@ export class OrdersService {
         order.debt_note = debt.note.trim();
       } else {
         OrdersService.applyTransfer(order, total, transfer);
-        const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer);
+        const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer, order_id, hkdCap);
         order.is_paid = true;
         // Đối soát MISA: chỉ GHI khi thu ngân tick. Bỏ trống thì để nguyên NULL thay vì ghi
         // `false` — NULL là "chưa gõ sang MISA", đúng thứ bộ lọc cuối ca cần tìm.
@@ -1677,6 +1690,7 @@ export class OrdersService {
     transfer?: CheckoutTransfer,
   ): Promise<{ order: Order; total: number; transfer_amount: number; payment_qr_label: string | null }> {
     const hkdEInvoiceEnabled = await this.isHkdEInvoiceEnabled();
+    const hkdCap = await this.readHkdCap();
     const result = await this.ds.transaction(async (mgr) => {
       const orderRepo = mgr.getRepository(Order);
       const order = await orderRepo.findOne({ where: { id: order_id }, relations: ['items'] });
@@ -1689,7 +1703,7 @@ export class OrdersService {
       }
       const { total } = computeCheckoutTotals(order.items || [], order.ship_fee);
       OrdersService.applyTransfer(order, total, transfer);
-      const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer);
+      const isHkd = await OrdersService.resolveHkdTransfer(mgr, total, transfer, order_id, hkdCap);
       order.is_paid = true;
       order.debt_paid_at = Date.now();
       order.debt_paid_by_user_id = collector.id;

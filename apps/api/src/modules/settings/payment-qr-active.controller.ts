@@ -16,6 +16,7 @@ import { SettingsService } from './settings.service.js';
 import { assertCanCollectTransfer } from '../auth/guards/transfer-permission.js';
 import { PaymentQrAccount } from './entities/payment-qr-account.entity.js';
 import { visibleQrFor } from './qr-visibility.js';
+import { hkdShiftUsed } from '../orders/hkd-shift-cap.js';
 
 @Controller('payment-qr')
 @UseGuards(JwtAuthGuard)
@@ -53,6 +54,7 @@ export class PaymentQrActiveController {
     // (`include_inactive=1`) nhìn về quá khứ để đối soát: đơn cũ đã về mã đó thì vẫn phải lọc
     // ra được, chủ quán chốt không ẩn ở đây.
     const items = all ? rows : visibleQrFor(rows, req.user?.hidden_payment_qr_ids ?? []);
+    const st = await this.settings.readAll();
     return {
       data: {
         /**
@@ -69,7 +71,23 @@ export class PaymentQrActiveController {
         verify_enabled: await this.settings.isBankVerifyEnabled(),
         /** Công tắc tự phát hành hoá đơn HKD — hộp thoại thu tiền cần nó để biết có chuyển sang
          *  màn kết quả xuất hoá đơn sau khi thu không. Đi ké đây cùng lý do `verify_enabled`. */
-        hkd_einvoice_enabled: (await this.settings.readAll()).hkd_einvoice_enabled,
+        hkd_einvoice_enabled: st.hkd_einvoice_enabled,
+        /**
+         * Hạn mức tiền vào mã HKD của CA ĐANG CHẠY (2026-11-20) — hộp thu tiền làm mờ mã HKD khi
+         * đơn này làm vượt trần, và hiện dải vàng từ mốc cảnh báo. BE vẫn tự chặn lại lúc thu
+         * (`assertHkdCap`), số ở đây chỉ để báo TRƯỚC. `used` là doanh thu: FE chỉ hiện con số
+         * cho chủ quán/admin — cùng kiểu "che ở FE" của nhật ký bàn (`an-tien.ts`).
+         * Chỉ tính khi bật VÀ đang ở đường thu tiền — ô lọc Lịch sử không cần.
+         */
+        hkd_cap:
+          st.hkd_shift_cap_enabled && !all
+            ? {
+                enabled: true,
+                cap: st.hkd_shift_cap_vnd,
+                warn: st.hkd_shift_warn_vnd,
+                used: await hkdShiftUsed(this.repo.manager, Date.now()),
+              }
+            : { enabled: false, cap: 0, warn: 0, used: 0 },
         items: items.map((r) => ({
           id: r.id,
           label: r.label,

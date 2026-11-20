@@ -194,6 +194,15 @@ export const SETTINGS_DEFAULTS: readonly SettingDefault[] = [
   // Tắt = cửa vào bàn (`/api/public/table/open`) và gửi món (`/table/cart`) trả TABLE_ORDERING_OFF;
   // khách vẫn XEM thực đơn bình thường. Key mới chưa có row trong DB nên fallback này CÓ hiệu lực.
   { key: 'table_ordering_enabled', kind: 'bool', default: false },
+  // ── Hạn mức tiền chuyển khoản vào mã QR HKD mỗi ca (2026-11-20) ──
+  // Mục đích: giữ doanh thu hộ kinh doanh dưới ngưỡng thuế (chủ quán chốt). Ca = 12h trưa → 12h
+  // trưa hôm sau, tính theo giờ THU TIỀN, cộng CHUNG mọi mã HKD — xem `orders/hkd-shift-cap.ts`.
+  // Chặn CỨNG ở trần (không ai được vượt, kể cả chủ quán); từ mốc cảnh báo trở lên thì hộp thu
+  // tiền hiện dải vàng. MẶC ĐỊNH TẮT cùng lý do `table_ordering_enabled`: deploy không được tự
+  // đổi cách thu tiền của quán — chủ quán bật ở Cài đặt → Thanh toán.
+  { key: 'hkd_shift_cap_enabled', kind: 'bool', default: false },
+  { key: 'hkd_shift_cap_vnd', kind: 'int', default: 6_000_000 },
+  { key: 'hkd_shift_warn_vnd', kind: 'int', default: 5_000_000 },
 ] as const;
 
 // Map key → giá trị đã parse. Dùng chung giữa SettingsService và SettingsController để
@@ -265,6 +274,12 @@ export type StoreSettingsMap = {
   stale_unpaid_alert_min: number;
   /** M7.D-15 — cho khách quét QR tự gọi món tại bàn. Mặc định TẮT. */
   table_ordering_enabled: boolean;
+  /** Bật chặn tiền vào mã HKD theo ca. Mặc định TẮT. */
+  hkd_shift_cap_enabled: boolean;
+  /** Trần tiền chuyển khoản vào (mọi) mã HKD trong một ca — tối đa ĐÚNG bằng số này. */
+  hkd_shift_cap_vnd: number;
+  /** Từ số này trở lên hộp thu tiền hiện dải vàng "sắp hết hạn mức". `0` = không cảnh báo. */
+  hkd_shift_warn_vnd: number;
 };
 
 export const SETTINGS_DEFAULTS_MAP: StoreSettingsMap = Object.fromEntries(
